@@ -201,7 +201,7 @@ in [Architecture](docs/architecture.md):
 | --- | --- |
 | `/orchestrate` | Pick a signed spec's next ready task, create its worktree, and dispatch execution. |
 | `/execute-task` | Test-first build of one task → full CI → convergence → draft PR. |
-| `/resume` | Load context for a fresh session in an in-flight worktree. |
+| `/resume` | Load context for a fresh session in an in-flight worktree; `/resume tower` surfaces the checkout's flights needing attention and a count per state. |
 | `/offload` | Place one free-form petition on the smallest sufficient execution rung. |
 
 **Run it as a software factory.** One signed-off spec is autopilot; several at

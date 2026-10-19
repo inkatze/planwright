@@ -6,7 +6,10 @@ description: >-
   log, the open PR state, and an optional handover brief, then surfaces
   uncommitted changes and asks before proceeding. Read-only over your
   in-flight work: no stash, clean, push, merge, or commit of it. The skill's
-  only write is the standard self-healing drift-log note.
+  only write is the standard self-healing drift-log note. `/resume tower`
+  instead reconstructs every flight in the checkout from the tower's own
+  shared sweep, for use outside the tower.
+argument-hint: "[tower]"
 ---
 
 # /resume — read-only context loader
@@ -61,6 +64,9 @@ Confirm the current directory is inside a git repository and resolve its
 top level. If it is not a git repo, say so plainly and stop — there is no
 in-flight worktree to resume. Note (do not fail on) the absence of a remote
 or of the `gh` CLI; those only narrow the PR-state step below.
+
+With the `tower` argument, Step 1 is followed by *Tower mode* below in place
+of Steps 2-8.
 
 ### 2. Identify the in-flight unit
 
@@ -216,6 +222,30 @@ performs, and as a read-only loader `/resume` neither runs it nor depends on
 it. `/resume` ends here; continuing the work is a separate, human-initiated
 step.
 
+## Tower mode
+
+`/resume tower` reconstructs what is in flight for the whole checkout, not one
+unit, outside a tower session (REQ-F1.4, D-9). It renders from the same sweep
+the tower's start reads, so the two surfaces cannot disagree.
+
+Run `scripts/flight-sweep.sh sweep --no-write`, by its resolved literal
+absolute path under the planwright root, one plain command
+(`doctrine/plugin-script-invocation.md`). `--no-write` leaves the derived
+index untouched, keeping this mode read-only. Its usage header defines the
+rows and states.
+
+- **Exit 0** is the render. Lead with the flights that need the operator
+  (awaiting the operator, dead, stranded, or unknown), each by flight id with
+  its landing or worktree, then one status line: the count per state,
+  "partial load" when any `forge`, `registry`, or `queue` row other than `ok`
+  names a read not made (a `forge` skipped for `no-flights` or `no-origin`
+  aside), and plugin-root skew when the `root-skew` row says `yes`.
+- **Any other exit** is reported with its stderr as a partial load. Never
+  reconstruct flights another way: one derivation is the point.
+
+A flight to continue is a separate, human-initiated step, typically `/resume`
+inside that flight's worktree. Mirror the turn as Step 8 does.
+
 ## Invariants
 
 These hold at every step. The skill's one and only write is the REQ-B3.2
@@ -226,6 +256,8 @@ describes the read-only guarantee over that work, and the drift-log note is
 the sole carved-out exception. Step 8's `turn` record goes to a log the
 harness provides, outside the repository, so it touches neither.
 
+- **Never** write the flight index or touch a flight in tower mode: it reads
+  through `--no-write` only.
 - **Never** modify the working tree of the resumed work: no stash, clean,
   checkout, reset, or commit of in-flight changes. `/resume` only reads it
   (REQ-F2.1); D-30 specifically forbids auto-resolving uncommitted state.
