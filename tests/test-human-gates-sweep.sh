@@ -11,7 +11,8 @@
 # live bundle has its gated bullet under this bundle's `## Deferred`.
 set -u
 unset CDPATH
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+  GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 SCAN="$REPO_ROOT/scripts/check-purged-identifiers.sh"

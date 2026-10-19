@@ -240,9 +240,15 @@ fi
 
 r="$TMP/huge"
 mkfixture "$r"
-yes 'ordinary prose that never states a retired rule at all' | head -n 5000 >>"$r/docs/guide.md"
+# One line, so the byte cap trips before the line cap.
+{
+  printf '\n'
+  head -c 270000 /dev/zero | tr '\0' a
+  printf '\n'
+} >>"$r/docs/guide.md"
 run "$r"
 assert_exit "a paragraph over the size cap fails closed" 2 $?
+grep -q 'over 256 KiB;' "$TMP/out" || fail "the size-cap refusal does not name the byte cap: $(cat "$TMP/out")"
 
 r="$TMP/longhit"
 mkfixture "$r"
@@ -268,6 +274,7 @@ mkfixture "$r"
 } >>"$r/docs/guide.md"
 run "$r"
 assert_exit "a paragraph over the line cap fails closed" 2 $?
+grep -q 'over 4096 lines;' "$TMP/out" || fail "the line-cap refusal does not name the line cap: $(cat "$TMP/out")"
 
 r="$TMP/nlname"
 mkfixture "$r"

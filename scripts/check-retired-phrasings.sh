@@ -160,7 +160,8 @@ BEGIN {
       if (line == "") continue
       line = tolower(line)
       para = (para == "" ? "" : para " ") line
-      if (length(para) > 262144 || nl >= 4096) closed(clean(rel) ":" lineno ": a paragraph over 256 KiB or 4096 lines; break it with a blank line")
+      if (length(para) > 262144) closed(clean(rel) ":" lineno ": a paragraph over 256 KiB; break it with a blank line")
+      if (nl >= 4096) closed(clean(rel) ":" lineno ": a paragraph over 4096 lines; break it with a blank line")
       nl++; ln[nl] = lineno; off[nl] = length(para)
     }
     if (rc < 0) closed(clean(rel) " could not be read")
