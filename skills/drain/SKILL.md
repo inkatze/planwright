@@ -99,7 +99,7 @@ what the human should do with each:
    annotated `Consumed-by:` but not yet moved to `archive/`) and skipped
    invalid fragments; the reminder that its canonical reader is `/spec-draft`
    (mining happens there, not here). Then the venture drop's entry count from
-   `scripts/inception-registry.sh drop-read` (its `entry` lines, `entry none`
+   `<planwright-root>/scripts/inception-registry.sh drop-read` (its `entry` lines, `entry none`
    counting zero; exit 6 named as unavailable), mined in `/spec-draft` too.
 
 Items within each lane of each spec's section arrive ordered

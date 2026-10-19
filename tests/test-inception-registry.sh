@@ -216,6 +216,10 @@ printf '# planwright inception registry v1\nalpha\t/elsewhere/beta\tExploring\tn
 reg list
 assert_contains "A1.8 registry row whose path is not named for its id: rebuilt" "rebuilt	" "$out"
 
+printf '# planwright inception registry v1\nalpha\t%s\tExploring\tnone\t2026-08-26\nalpha\t%s\tKilled\tnone\t2026-08-26\n' "$roots/alpha" "$roots/alpha" >"$registry_file"
+reg list
+assert_contains "A1.6 a registry listing one venture twice: rebuilt" "rebuilt	" "$out"
+
 printf '# planwright inception registry v1\n../../etc\t/etc\tExploring\tnone\t2026-08-26\n' >"$registry_file"
 reg list
 assert_contains "A1.8 hostile registry row: rebuilt rather than trusted" "rebuilt	" "$out"
@@ -257,6 +261,11 @@ printf 'ventures_root: ~/ventures\n' >"$core_cfg"
 
 out="$(cd "$HOME" && CLAUDE_PLUGIN_DATA="$data" "$REG" rebuild --root ventures 2>&1)"
 assert_contains "A1.6 rebuild --root: a relative root is stored absolute" "$(printf 'venture\talpha\t%s\t' "$roots/alpha")" "$out"
+bad_root="$tmp/$(printf 'bad\nroot')"
+mkdir -p "$bad_root"
+inception_fixture_write "$bad_root/forged" || exit 1
+reg rebuild --root "$bad_root"
+assert_eq "A1.6 rebuild: a root holding a control byte is refused" "6" "$rc"
 mkdir -p "$tmp/other-root"
 inception_fixture_write "$tmp/other-root/omega" || exit 1
 reg rebuild --root "$tmp/other-root"
@@ -417,6 +426,7 @@ assert_not_contains "J1.8 drop-read: a hostile drop row loses its escape byte" "
 assert_contains "J1.8 drop-read: a hostile drop row is undated" "entry	undated	escape" "$out"
 reg_nodata drop-read
 assert_eq "J1.8 drop-read without a data home: degrades, exit 6" "6" "$rc"
+assert_contains "J1.8 drop-read without a data home: still carries its handling note" "note	" "$out"
 
 # The interim positioning is recorded in doctrine, not implied.
 assert_contains "J1.8 the interim re-anchor pointer is in doctrine" "recorded as **interim**" \
@@ -435,10 +445,14 @@ card stale-medium 2025-01-10 medium
 card fresh-medium 2026-06-01 medium
 card fast-moving 2026-07-01 fast
 card fast-fresh 2026-08-20 fast
+card fast-parked 2026-08-15 fast
 card slow-method 2019-01-01 slow
 
 venture gamma
 sed_i "$roots/gamma/brief.md" 's/^_Skipped: appetite is set at the portfolio level.*$/Two weeks, then decide./'
+venture parked
+sed_i "$roots/parked/brief.md" "s/^\*\*Status:\*\* Exploring\$/**Status:** On-hold/"
+sed_i "$roots/parked/brief.md" 's/^- 2026-08-[0-9][0-9] —/- 2026-08-25 —/'
 venture delta
 sed_i "$roots/delta/brief.md" "s/^\*\*Status:\*\* Exploring\$/**Status:** Abandoned/"
 reg rebuild
@@ -455,6 +469,7 @@ assert_not_contains "J1.7 portfolio: a fresh card is quiet" "fresh-medium" "$out
 assert_contains "J1.7 portfolio: a fast card older than a live venture" "$(printf 'card-review\tfast-moving\t2026-07-01\tfast')" "$out"
 assert_not_contains "J1.7 portfolio: a slow card is never date-flagged" "slow-method" "$out"
 assert_not_contains "J1.7 portfolio: a fast card reviewed after every venture began is quiet" "fast-fresh" "$out"
+assert_not_contains "J1.7 portfolio: a parked venture does not date the fast-card check" "fast-parked" "$out"
 assert_eq "J1.7 portfolio: unstaffed disciplines, distinct ventures, most first" \
   "$(printf 'unstaffed\tlegal\t2\nunstaffed\tsecurity\t1')" "$(printf '%s\n' "$out" | grep '^unstaffed	')"
 reg get alpha

@@ -143,7 +143,10 @@ esac
 # exports/ would send the pages anywhere the link points, and one at a bundle
 # file would pull content from outside the repo into a page that may be
 # published, so neither is followed.
-for entry in exports brief.md disciplines.md assumptions.md decisions.md plan.md; do
+# The status read writes no export, so only the bundle files matter to it.
+entries='exports brief.md disciplines.md assumptions.md decisions.md plan.md'
+[ "$mode" != status ] || entries=${entries#exports }
+for entry in $entries; do
   if [ -h "$target/$entry" ]; then
     printf '%s\n' "inception-render: $entry is a symbolic link; refusing to render through it" >&2
     exit 2

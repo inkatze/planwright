@@ -142,7 +142,7 @@ question; seeds answer questions the human would otherwise repeat.
    silently dropping it. Read every candidate; select the ones relevant to
    the feature being drafted; present the selection to the human (selector
    with the relevant set pre-marked) so nothing is consumed silently.
-4. **The venture drop** — `scripts/inception-registry.sh drop-read`
+4. **The venture drop** — `<planwright-root>/scripts/inception-registry.sh drop-read`
    (inception REQ-J1.8); follow its `note` line.
 5. **Transcripts and documents** the human offers.
 

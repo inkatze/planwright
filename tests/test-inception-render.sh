@@ -750,6 +750,13 @@ rm -f "$v/plan.md"
 out="$("$RENDER" --mode status "$v" 2>/dev/null)"
 assert_eq "status: a refused bundle prints nothing on stdout" "" "$out"
 
+# The status read writes no export, so a linked exports/ does not stop it.
+v="$(fresh)"
+mkdir -p "$tmp/elsewhere-exports"
+ln -s "$tmp/elsewhere-exports" "$v/exports"
+"$RENDER" --mode status "$v" >/dev/null 2>&1
+assert_eq "status: a symlinked exports/ does not block the read" "0" "$?"
+
 v="$(fresh)"
 assert_eq "status: --output is refused" "2" \
   "$(
