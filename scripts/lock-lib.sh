@@ -52,6 +52,8 @@
 #                          of the process hosting the check's runner
 #   scripts/inception-publish.sh  a venture's publish state, so two writers
 #                          cannot lose each other's change
+#   scripts/inception-fanout.sh   a venture's bundle, so concurrent staff and
+#                          record runs cannot lose an entry or a record
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is

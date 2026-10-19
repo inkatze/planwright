@@ -10,7 +10,7 @@ format is [discipline-cards.md](discipline-cards.md), and the frame's content
 is [inception-format.md](inception-format.md) (*The frame*).
 
 Citations: inception REQ-P1.3, REQ-P1.4, REQ-P1.5, REQ-P1.6, REQ-P1.7,
-REQ-P1.8, REQ-P1.9, REQ-B1.5 · inception D-2, D-3, D-4, D-6, D-7, D-17, D-18.
+REQ-P1.8, REQ-P1.9, REQ-B1.3, REQ-B1.5 · inception D-2, D-3, D-4, D-6, D-7, D-17, D-18.
 
 ## The topology
 
@@ -81,20 +81,23 @@ reuse its literal path in every call.
    the operator chooses to run. A changed frame or roster takes a new run
    directory and is shown again.
 4. **Dispatch the seats** through the backend capability contract (D-7), one
-   brief per seat from `brief`, on the rung disclosed at Gate 1:
+   brief per seat from `brief`, on the rung disclosed at Gate 1. A brief file
+   goes in its own `mktemp -d`, never the run directory, so no session is
+   handed a path beside the label map:
    - **`subagent`**: one read-only agent per seat, all launched in one message
      so they run in parallel, each with its roster model when `roster` said
-     `per-seat-model yes`. Each agent is told to read only its brief file and
-     the bundle files the brief's input subscription names. Save each final
-     answer as `<seat-id>.md` in the run directory.
+     `per-seat-model yes`, and each given its brief's text. Each agent reads
+     only the bundle files the brief's input subscription names. Save each
+     final answer as `<seat-id>.md` in the run directory.
    - **`tmux`**: write each `brief --deliver-file` to a brief file and launch
      it with `scripts/offload-dispatch.sh dispatch tmux <brief-file>`; each
      seat writes its artifact into its drop directory under a `.partial` name
      and renames it when done. Wait in-turn, running
      `collect --run <dir> <seat-id>.md` for each seat every 15 seconds
-     against an explicit timeout until none exits 4 (pending), then close the
-     seat windows. A `stray` line means the session wrote a file it was not
-     asked for: tell the operator.
+     against an explicit timeout until every seat exits 0; 4 is still
+     pending, and any other exit stops the fan-out. Then close the seat
+     windows. A `stray` line means the session wrote a file it was not asked
+     for: tell the operator.
    - **`print`**: the same briefs, through
      `scripts/offload-dispatch.sh dispatch print <brief-file>`; hand the
      operator the printed launch commands, and resume when `collect` finds
@@ -109,25 +112,26 @@ reuse its literal path in every call.
    `## Decisions I cannot make` table of six columns, the card template's four
    plus **Trigger** and **Powers**; `anonymize` and `gate2` also hold each
    row's powers to the ones the seat's card gives for that trigger. A failing
-   seat is re-run once with the findings appended to its brief; if it fails
-   again, stop the fan-out and offer the operator a re-run or a zero-seat
-   finish.
+   seat is re-run once from `brief --retry`, which appends the findings and
+   sets the failed artifact aside; if it fails again, stop the fan-out and
+   offer the operator a re-run or a zero-seat finish.
 6. **Synthesize.** `anonymize` writes the label map and the blind input.
    Launch one fresh persona-free session from `synthesis-brief` (on the same
-   rung; `--deliver-file` where the session hands nothing back, then
-   `collect`), save its answer as `synthesis.md`, and run `check-synthesis --run`. A failing
+   rung; `--deliver-file` where the session hands nothing back), save or
+   `collect` `synthesis.md`, and run `check-synthesis --run`. A failing
    synthesis is re-asked once with `synthesis-brief --retry`, which sets the
    failed answer aside and appends it with its findings; a second failure
    stops the fan-out for the operator.
 7. **Challenge once.** A second fresh persona-free session from
-   `challenge-brief`; save or `collect` `challenge.md`. `challenge-brief` refuses a second
-   challenge.
+   `challenge-brief`; save or `collect` `challenge.md`. `challenge-brief`
+   refuses a second challenge.
 8. **Amend once.** The synthesis writer (resumed, or a fresh session) answers
-   the challenge from `amend-brief`; save or `collect` `amended.md` and re-check it. A
-   failing amendment is re-asked once with `amend-brief --retry`; there is no
-   second amendment.
+   the challenge from `amend-brief`; save or `collect` `amended.md` and
+   re-check it. A failing amendment is re-asked once with
+   `amend-brief --retry`; there is no second amendment.
 9. **Attribute.** `attribute` writes `table.md`: the amended synthesis with each
-   table label followed by its seat.
+   table label followed by its seat. Once a challenge has run, it waits for
+   the amendment rather than falling back to the first synthesis.
 10. **Gate 2, in the main conversation.** Present `table.md` for a silent read
     first. Then run `gate2`. Each `choice` line is an escalated item: put it to
     the operator as a structured forced choice whose options are the human
@@ -143,19 +147,22 @@ reuse its literal path in every call.
     - **kill**: discard this fan-out's output; nothing is recorded or filed.
       Killing the venture is the gate's, never this one's.
     - **re-run-seat**: make a new run directory, `roster` the same seats in the
-      same order, `carry` every other seat's artifact over from this run, re-run
-      the named seat, and repeat from step 5.
+      same order, `carry` every other seat's artifact over from this run (it
+      refuses when the two runs read different frames), re-run the named
+      seat, and repeat from step 5.
     - **pull-bench**: make a new run directory and repeat from step 2 with the
       benched card's seat added.
 11. **Record.** `record` copies the final table, the challenge, the roster, the
     frame, the degradations, and each seat artifact into `fanout/<date>-<n>/`
-    in the venture, never the label map, and does so once per run; then save
-    the venture as every phase does.
+    in the venture, never the label map, and does so once per run, even when
+    an earlier record was interrupted; then save the venture as every phase
+    does.
 
 An exit the steps above do not act on follows the helper's header: 2 is an
 environment problem, relayed and stopping the step; 3 is the validator's
-refusal of the bundle; 4 is a delivery still pending; 5 means a write-once run file already exists, so the
-step needs a new run directory.
+refusal of the bundle; 4 is a delivery still out, so wait for it; 5 means a
+write-once file already exists in the run, so the step needs a new run
+directory.
 
 ## Reading the table
 
@@ -173,8 +180,10 @@ grade never counts toward a desirability `Graduate`
 ## Degradations
 
 `roster` reports, and the handoff repeats from the run's `degraded` file: seats
-that run one after another in one session, seats left for the operator to
-launch by hand, seats on one model, a seat launch that cannot set a per-seat
-model or effort, and seats mixing an inherited model with named ones. Report
+that run one after another in one session, a synthesis written in the session
+that holds the label map, seats left for the operator to launch by hand, seats
+on one model, a seat launch that cannot set a per-seat model or effort (its
+roster then records no model), and seats mixing an inherited model with named
+ones. Report
 also an unstaffed senior discipline, and a stance pole or bench pull that was
 wanted but has no card to run.

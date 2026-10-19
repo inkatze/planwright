@@ -764,11 +764,12 @@ REF_EXEMPT=" migrate-format-version.sh "
 #   inception-fanout.sh      carries discipline cards and seat artifacts
 #                            THROUGH a fence: section() copies a card's fenced
 #                            artifact template into each seat brief, and the
-#                            anonymized inputs and the attributed table keep
-#                            a seat's fenced lines, which the lib lexer drops
-#                            by design; check_synthesis scans fenced lines for
-#                            seat identity in the same pass that parses its
-#                            table. Every other reader in it takes the lib
+#                            attributed table keeps a seat's fenced lines,
+#                            which the lib lexer drops by design (the prompt
+#                            embedder escapes every fence line rather than
+#                            lexing fences); check_synthesis scans fenced
+#                            lines for seat identity in the same pass that
+#                            parses its table. Every other reader in it takes the lib
 #                            lexer. A permanent exemption on card-lint.sh's
 #                            grounds, with the lib's column-0 toggle semantics.
 #   drain-gates.sh           its GATE-entry parse. Its reference-bullet parse

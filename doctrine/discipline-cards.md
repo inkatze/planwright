@@ -96,9 +96,10 @@ The body is a closed set of H2 sections, written in this order:
    bundle files or register slices. A seat consumes the frame plus this
    subscription and nothing else (inception D-18).
 6. **`## Artifact template`.** A fenced markdown template of the seat's
-   output, whose final section is `Decisions I cannot make` (decision, tier and
-   reason, owning role, evidence needed; REQ-P1.5; a seat brief adds the typed
-   Trigger and Powers columns, so keep that header exact), followed outside
+   output, whose final section is `Decisions I cannot make`, its table headed
+   `| Decision | Tier and reason | Owning role | Evidence needed |`
+   (REQ-P1.5; a seat brief replaces that header with the six-column one that
+   adds the typed Trigger and Powers), followed outside
    the fence by a `**Done when:**` line stating when the artifact is
    complete. When the section holds more than one fence, the last one is the
    template: an illustrative fence goes before it, and the `**Done when:**`

@@ -44,7 +44,7 @@ Doctrine: run-start inception-format
 Doctrine: run-start interaction-style
 Doctrine: point-of-use security-posture (Phase 1, seed intake)
 Doctrine: point-of-use decision-domains (Phase 3, the discipline walk)
-Doctrine: point-of-use persona-fanout (Phase 4, the fan-out)
+Doctrine: point-of-use persona-fanout (Phase 3 staffing, Phase 4 fan-out)
 Doctrine: point-of-use evidence-quality (Phase 5, the minimum core)
 Doctrine: point-of-use proportionality (every skipped prompt)
 
