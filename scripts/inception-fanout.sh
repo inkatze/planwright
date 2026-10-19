@@ -69,7 +69,7 @@
 # Exit: 0 success · 1 findings (check-seat, check-synthesis, or an input that
 #   fails them), an unknown or unusable card, a step that runs only once
 #   asked again, or a prompt asked again while its delivery waits to be
-#   collected · 2 usage or environment error (a missing frame, run file, or
+#   collected or is still being written · 2 usage or environment error (a missing frame, run file, or
 #   helper; a refused path; a busy bundle lock) · 3 the validator refuses the
 #   bundle (passed through) · 4 a delivery is still pending (collect, or a
 #   challenge or amendment attribute waits for) · 5 a write-once run file (roster.tsv,
@@ -874,6 +874,12 @@ prepare_drop() {
   if [ -n "$old_drop" ] && { [ -e "$old_drop/$1" ] || [ -h "$old_drop/$1" ]; }; then
     die 1 "a delivered $1 is waiting in its drop; collect it rather than asking again"
   fi
+  # A session still writing would lose its drop to a re-ask; abandoning it is
+  # the operator's call, made by removing the directory.
+  if [ -n "$old_drop" ] && [ -d "$old_drop" ] && [ ! -h "$old_drop" ] \
+    && [ -n "$(find "$old_drop" -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1)" ]; then
+    die 1 "a delivery of $1 is still being written into $old_drop; wait and collect it, or remove that directory to abandon it"
+  fi
   [ -n "$deliver_file" ] || return 0
   drop_pending=$(mktemp -d "${TMPDIR:-/tmp}/inception-drop.XXXXXX") || die 2 "cannot create a drop directory"
   drop_path=$(cd "$drop_pending" && pwd -P) || die 2 "cannot resolve the drop directory"
@@ -1046,7 +1052,7 @@ AWK_CHECK_SEAT='
 function bad(msg) { print "finding\t" field_text(cur) "\t" field_text(msg); nbad++ }
 BEGIN {
   np = split(ENVIRON["POWERS"], PL, "\n")
-  for (i = 1; i <= np; i++) { split(PL[i], f, "\t"); ALLOW[f[1] SUBSEP f[2]] = "," f[3] "," }
+  for (i = 1; i <= np; i++) { split(PL[i], f, "\t"); ALLOW[f[1] SUBSEP f[2]] = "," f[3] ","; BOUND[f[1]] = 1 }
 }
 {
   low = tolower($0)
@@ -1078,6 +1084,7 @@ insec && /^\|/ {
   np = split(trim(c[7]), p, ",")
   if (np == 0) bad("an escalation names no human power")
   seat = cur; sub(/^.*\//, "", seat); sub(/\.md$/, "", seat)
+  if ((seat in BOUND) && !((seat SUBSEP tr) in ALLOW)) bad("the card gives no escalation contract for " tr)
   for (i = 1; i <= np; i++) {
     pw = trim(p[i])
     if (pw != "disregard" && pw != "override" && pw != "reverse" && pw != "halt") bad("not one of the four human powers: " pw)

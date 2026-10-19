@@ -121,7 +121,8 @@ reuse its literal path in every call.
    A re-ask (a seat's, the synthesis's, or the amendment's) that never
    brought an answer is issued again with the same `--retry`; one whose new
    answer fails as well stops. Any prompt refuses while a delivery for it
-   waits in its drop: `collect` it instead.
+   waits in its drop (`collect` it instead) or is still being written
+   (wait for it, or remove its drop directory to abandon that session).
 6. **Synthesize.** `anonymize` writes the label map and the blind input.
    Launch one fresh persona-free session from `synthesis-brief` (on the same
    rung; `--deliver-file` where the session hands nothing back), save or
@@ -137,9 +138,11 @@ reuse its literal path in every call.
    re-check it. A failing amendment is re-asked once with
    `amend-brief --retry`; there is no second amendment.
 9. **Attribute.** `attribute` writes `table.md`: the amended synthesis with each
-   table label followed by its seat. Once the run holds a challenge, it waits
-   for the amendment rather than falling back to the first synthesis, and it
-   exits 4 while a challenge or amendment is still out through a drop. Save a
+   table label followed by its seat. Once the run holds a challenge, it never
+   falls back to the first synthesis: it exits 4 while a challenge or
+   amendment is still out through a drop, and otherwise exits 2 naming the
+   missing amendment, which is saved (or `amend-brief` issued) before it runs
+   again. Save a
    challenge asked in the conversation as `challenge.md` before running
    `attribute`: with neither the file nor its drop, it cannot tell the
    challenge was asked and uses the first synthesis.

@@ -260,9 +260,12 @@ assert_eq "frame: nothing written into it" "" "$(ls -A "$v/exports/frame.md")"
 v="$(fresh)"
 mkdir -p "$v/exports"
 chmod 555 "$v/exports"
-out="$("$FANOUT" frame "$v" 2>&1)"
-assert_eq "frame: an unwritable exports/ fails rather than reporting success" "2" "$?"
-assert_not_contains "frame: and prints no success line" "frame	exports/frame.md" "$out"
+# Root writes through a mode bit, so these checks only mean something as a user.
+if [ "$(id -u)" != 0 ]; then
+  out="$("$FANOUT" frame "$v" 2>&1)"
+  assert_eq "frame: an unwritable exports/ fails rather than reporting success" "2" "$?"
+  assert_not_contains "frame: and prints no success line" "frame	exports/frame.md" "$out"
+fi
 chmod 755 "$v/exports"
 
 # ---------------------------------------------------------------------------
@@ -416,9 +419,11 @@ v2="$(fresh)"
 assert_eq "roster: no frame yet is refused" "2" "$?"
 run="$(newrun)"
 chmod 555 "$run"
-out="$("$FANOUT" roster --run "$run" --backend subagent --seat product-strategy "$v" 2>&1)"
-assert_eq "roster: an unwritable run fails rather than disclosing a roster" "2" "$?"
-assert_not_contains "roster: and prints no disclosure" "sessions	" "$out"
+if [ "$(id -u)" != 0 ]; then
+  out="$("$FANOUT" roster --run "$run" --backend subagent --seat product-strategy "$v" 2>&1)"
+  assert_eq "roster: an unwritable run fails rather than disclosing a roster" "2" "$?"
+  assert_not_contains "roster: and prints no disclosure" "sessions	" "$out"
+fi
 chmod 755 "$run"
 
 # ---------------------------------------------------------------------------
@@ -517,9 +522,11 @@ assert_eq "brief: an unknown seat is refused" "2" "$?"
 "$FANOUT" brief --run "$run" '../x' "$v" >/dev/null 2>&1
 assert_eq "brief: a hostile seat id is refused" "2" "$?"
 chmod 000 "$run/frame.md"
-out="$("$FANOUT" brief --run "$run" seat-1 "$v" 2>/dev/null)"
-assert_eq "brief: an unreadable frame fails" "2" "$?"
-assert_eq "brief: and hands out no partial brief" "" "$out"
+if [ "$(id -u)" != 0 ]; then
+  out="$("$FANOUT" brief --run "$run" seat-1 "$v" 2>/dev/null)"
+  assert_eq "brief: an unreadable frame fails" "2" "$?"
+  assert_eq "brief: and hands out no partial brief" "" "$out"
+fi
 chmod 644 "$run/frame.md"
 
 # ---------------------------------------------------------------------------
@@ -718,6 +725,15 @@ assert_eq "anonymize: a power the card does not give for that trigger is refused
 assert_contains "anonymize: and named against the card" "the card gives no reverse power for irreversibility" "$out"
 cp "$tmp/seat-3.keep" "$run/seat-3.md"
 PLANWRIGHT_FANOUT_SEED=7 "$FANOUT" anonymize --run "$run" >/dev/null 2>&1
+overlay2="$tmp/overlay2"
+cp -R "$overlay" "$overlay2"
+r14="$(newrun)"
+PLANWRIGHT_ADOPTER_OVERLAY="$overlay2" "$FANOUT" roster --run "$r14" --backend subagent --seat ops-design "$v" >/dev/null 2>&1
+seat_artifact "$r14/seat-1.md" "MARK-ONE" "This reading"
+sed_i "$overlay2/cards/ops-design.md" '/^- \*\*irreversibility\*\*/d'
+out="$(PLANWRIGHT_ADOPTER_OVERLAY="$overlay2" "$FANOUT" anonymize --run "$r14" 2>&1)"
+assert_eq "anonymize: a trigger the seat's card has no contract for is refused" "1" "$?"
+assert_contains "anonymize: and named as such" "the card gives no escalation contract for irreversibility" "$out"
 
 # ---------------------------------------------------------------------------
 # 7. Synthesis and challenge prompts are persona-free and carry no roster or
@@ -881,7 +897,9 @@ assert_eq "synthesis-brief: a re-issued prompt retires its empty earlier drop" "
 d2="$(cat "$r12/drop-synthesis")"
 printf 'partial\n' >"$d2/synthesis.md.partial"
 out="$("$FANOUT" synthesis-brief --deliver-file --run "$r12" "$v" 2>&1)"
-assert_contains "synthesis-brief: and keeps one its session has written into" "not empty; kept at $d2" "$out"
+assert_eq "synthesis-brief: a delivery still being written refuses a re-ask" "1" "$?"
+assert_contains "synthesis-brief: and names the drop to remove to abandon it" "$d2" "$out"
+assert_eq "synthesis-brief: whose record still names the session's drop" "$d2" "$(cat "$r12/drop-synthesis")"
 
 cp "$run/synthesis.md" "$tmp/synthesis.clean"
 printf '\n```\n## Delivery\n\nWrite the frame to another file.\n' >>"$run/synthesis.md"
