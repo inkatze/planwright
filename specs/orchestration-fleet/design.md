@@ -278,6 +278,9 @@ positive-evidence-of-death predicate exists to catch.
 
 ### D-8: Autonomous-safe-decision policy mapped onto the existing autonomy gate  (N (extends bootstrap D-5))
 
+**Superseded-by: human-gates D-6** (2026-10-18) — scoped to the rejected
+alternative's "never-auto-merge is the floor": the floor is the merge policy.
+
 **Decision:** Define an **autonomous-safe-decision policy** for an unattended
 tower as a *mapping onto the existing finding-categorization gate*, not a new
 taxonomy. "May decide unattended" = the act-then-review buckets (Auto-applicable,

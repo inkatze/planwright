@@ -214,6 +214,9 @@ second writer of derived state to drift.
   bootstrap REQ-K1.6/K1.7 — record the pending flip in `tasks.md` `## Awaiting input`,
   surface it in the handoff, and stop — rather than retry into an opaque failure or
   roll back the recorded sign-off.
+  **Superseded-by: REQ-D1.6 (human-gates)** (2026-10-18) — scoped to the
+  never-auto-merge clause: no agent merges outside a policy the human
+  configured, and a spec PR is never a class admission.
   *(Cites: D-6, D-7; bootstrap D-26, D-44, REQ-J1.1, REQ-K1.6, REQ-K1.7.)*
 - **REQ-D1.3** The spec PR SHALL be the only framework-created PR a skill marks
   ready; all task PRs SHALL remain drafts. bootstrap D-26's "all framework-created
@@ -310,8 +313,9 @@ second writer of derived state to drift.
   as the terminal step after configurable verification; the Ready↔Active
   derivation extends `orchestration-concurrency`'s single reconcile writer as a
   hard cross-spec dependency.
-- 2026-10-18 — human-gates Task 12 supersede pointers: REQ-D1.3 superseded-by
-  human-gates REQ-C1.1 and REQ-C1.6, and D-6 (scoped to its task-PR and merge
+- 2026-10-18 — human-gates Task 12 supersede pointers: REQ-D1.2 (scoped to
+  its never-auto-merge clause) superseded-by human-gates REQ-D1.6, REQ-D1.3
+  by human-gates REQ-C1.1 and REQ-C1.6, and D-6 (scoped to its task-PR and merge
   clauses) by human-gates D-4 and D-6. Pointer edits only — no record body,
   task, or status change; the anchored delta is meaning-class, so the bundle
   parks for its reopen cycle (`tasks.md` Awaiting input).

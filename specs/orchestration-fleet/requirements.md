@@ -531,8 +531,8 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   landing on either sees the reading.
 - 2026-10-18 — human-gates Task 12 supersede pointers: REQ-A1.2 superseded-by
   human-gates REQ-D1.6 and REQ-D1.5, REQ-B1.5 by human-gates REQ-D1.6 and
-  REQ-F1.2, D-1 by human-gates D-6, and D-3 by human-gates D-6 and D-8, the
-  last three scoped to their guard-list or floor clause. Pointer edits only —
+  REQ-F1.2, D-1 and D-8 by human-gates D-6, and D-3 by human-gates D-6 and
+  D-8, the last four scoped to their guard-list or floor clause. Pointer edits only —
   no record body, task, or status change; the anchored delta is meaning-class,
   so the bundle parks for its reopen cycle (`tasks.md` Awaiting input).
 

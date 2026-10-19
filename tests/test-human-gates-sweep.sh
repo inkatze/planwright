@@ -148,6 +148,7 @@ while read -r b kind id with sum; do
     esac || fail "$b $id points at human-gates $t, which does not resolve"
   done
 done <<'EOF'
+kickoff-lifecycle req REQ-D1.2 REQ-D1.6 39852267
 kickoff-lifecycle req REQ-D1.3 REQ-C1.1,REQ-C1.6 2659853875
 kickoff-lifecycle dec D-6 D-4,D-6 3455788821
 autopilot-reflex req REQ-C1.4 REQ-D1.6,REQ-D1.9 3428213118
@@ -160,6 +161,7 @@ orchestration-fleet req REQ-A1.2 REQ-D1.6,REQ-D1.5 1966049157
 orchestration-fleet req REQ-B1.5 REQ-D1.6,REQ-F1.2 2792854552
 orchestration-fleet dec D-1 D-6 3666193499
 orchestration-fleet dec D-3 D-6,D-8 2550374511
+orchestration-fleet dec D-8 D-6 3635521996
 output-hygiene req REQ-C1.1 REQ-B1.2 3962808769
 output-hygiene req REQ-C1.2 REQ-B1.2 3416305186
 output-hygiene req REQ-C1.3 REQ-B1.4 3302499141
