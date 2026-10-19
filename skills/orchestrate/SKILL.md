@@ -414,8 +414,9 @@ These hold at every step, each list rule labelled with its
   (REQ-C1.3); no bypass flag. **Never** auto-chain into `/spec-kickoff`
   (REQ-J1.3): name the command. Pushed history stays append-only; this tier
   reshapes no commit.
-- **Floor** (not a rule kind): this tier's profile denies the merge, the
-  flip, and the base merge under every value (REQ-F1.6); `/execute-task` opens drafts.
+- **Floor** (not a rule kind; `doctrine/human-gates.md` The floor): this
+  tier's profile denies the merge, the draft→ready flip, and the base merge
+  under every value (REQ-F1.6); `/execute-task` opens drafts.
 - **Contract:** every commit is local except the **one** sanctioned push, the
   `--bookkeeping` observation carry's own chore branch (Task 9, D-9, REQ-D1.3):
   a fast-forward, never `main` or a task branch.

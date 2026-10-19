@@ -169,8 +169,9 @@ framework handles once a spec is signed off.
 - **Merge (after execution).** You authorize every merge. No agent merges
   outside the `merge_policy` you configured (default `human`: you merge by
   hand), and no value lets an agent merge a PR that carries a sign-off item
-  ([the floor](../doctrine/human-gates.md#the-floor)). Your merge is also the
-  sign-off of any pending item; marking a PR ready approves nothing.
+  ([the floor](../doctrine/human-gates.md#the-floor)). Your merge (under
+  `on-approval`, enabling auto-merge) is also the sign-off of any pending
+  item; marking a PR ready approves nothing.
 
 Between those, the intervention contract has three phases: **sign-off before**
 execution, **rare hard pauses during** it (security-sensitive zones,

@@ -2238,8 +2238,8 @@ GitHub MCP tools (`merge_pull_request`, `update_pull_request`, `push_files` /
 Bash-string guard cannot intercept an MCP call, and on every MCP server by a
 tool-name glob, alongside the PR branch update and PR creation), and `gh pr ready`: a tower
 **never** performs the draft→ready flip. The sanctioned flips (the spec-PR
-flip `/spec-kickoff` performs, and the unit-PR flip `ready_flip_policy` gives
-`/execute-task`; [Human Gates](../doctrine/human-gates.md)) run in kickoff or
+flip `/spec-kickoff` performs, and the unit-PR flip `ready_flip_policy:
+unit-owner` gives `/execute-task`; [Human Gates](../doctrine/human-gates.md)) run in kickoff or
 worker sessions under different settings, not under this tower profile, so the
 deny does not block them. The guard's hand-launch allow (`claude --worktree`)
 also **pins** against launching a worker with its permission layer weakened:

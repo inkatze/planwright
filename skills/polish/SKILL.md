@@ -209,7 +209,8 @@ These hold at every step, in both modes, each list rule labelled with its
   remote; the owning skill publishes. Remote interaction is the single
   read-only base-pinning fetch at pre-flight.
 - **Gate:** pushed history stays append-only. **Policy:** reshape
-  never-pushed commits only per `unpushed_rewrite`.
+  never-pushed commits only per `unpushed_rewrite`, never an iteration's
+  audit-trail commits.
 - **Never** apply a finding in a hard-disqualifier zone without the pause
   protocol's human direction, however clear the fix looks.
 - **Never** silently drop a finding: every routed finding ends in one of the

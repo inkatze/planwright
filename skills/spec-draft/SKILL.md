@@ -19,7 +19,7 @@ compliant four-file bundle at `<root>/<spec>/`, Status Draft, committed on the
 spec branch. Drafting ends where comprehension begins: `/spec-kickoff` walks
 the Draft to sign-off and flips it Ready. This skill never pushes, never
 opens a PR, and never flips a status to Ready — sign-off is a human gate
-it has no business near.
+(`doctrine/human-gates.md`) it has no business near.
 
 ## Doctrine
 

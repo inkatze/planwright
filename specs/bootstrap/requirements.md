@@ -194,7 +194,7 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   application is one revert from undone).
   **Superseded-by: REQ-B1.1, REQ-C1.1 (human-gates)** (2026-10-18) — scoped to the
   flip-as-gate sentence: sign-off is the approval act, and the flip is
-  `ready_flip_policy` and approves nothing.
+  governed by `ready_flip_policy` and approves nothing.
   *(Cites: D-5.)*
 - **REQ-C1.4** Mid-loop hard pauses SHALL be limited to: findings or tasks in
   hard-disqualifier zones (security-sensitive code, migrations/destructive ops,

@@ -6,8 +6,9 @@
 # review_sequence-class mechanism, D-7) has converged; it leaves the PR draft
 # when sign-off parked on a fork, when verification did not converge, or when the
 # mark_spec_pr_ready_on_kickoff opt-out is set; a flip failure degrades to
-# Awaiting input; and it never auto-merges. The runtime half of the bootstrap
-# D-26 supersede moves `gh pr ready` from the worker-settings deny block to allow.
+# Awaiting input; and the merge stays the human's under merge_policy. The
+# runtime half of the bootstrap D-26 supersede moves `gh pr ready` from the
+# worker-settings deny block to allow.
 #
 # Like Task 3's sibling guard (tests/test-spec-kickoff-ready-flip.sh), the
 # ready-flip BEHAVIOR is a skill-prose procedure the agent reads, not a script:
@@ -25,8 +26,9 @@
 #   - only the spec PR is readied and task PRs follow ready_flip_policy
 #     (REQ-D1.3, as human-gates REQ-C1.1 supersedes it), gated by the
 #     mark_spec_pr_ready_on_kickoff opt-out;
-#   - the merge stays the human's key under merge_policy, and a ready-flip failure degrades to Awaiting
-#     input rather than retrying into an opaque failure (REQ-D1.2, K1.6/K1.7);
+#   - the merge stays the human's key under merge_policy, and a ready-flip
+#     failure degrades to Awaiting input rather than retrying into an opaque
+#     failure (REQ-D1.2, K1.6/K1.7);
 #   - the superseded absolute "never marks the PR ready" claim is gone, replaced
 #     by the narrowed "marks only the spec PR ready";
 #   - config/worker-settings.json permits `gh pr ready` (allow, not deny) — the
