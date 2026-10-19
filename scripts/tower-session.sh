@@ -40,10 +40,11 @@
 # FAIL CLOSED, WHERE A TOWER IS. An unmarked session defers after an in-shell
 # prefilter that forks nothing: no store, no readable top-level session id,
 # or no mark for it. A store that exists but cannot be searched counts as
-# marked. In a marked session a deny trap is installed at once, and an
-# oversized or unreadable payload, a mark or store failing the bar, a command
-# naming the store, a signal, and a guard that crashes or answers with
-# anything but a denial each deny.
+# marked. In a marked session, and in the handshake, deny traps are installed
+# at once, and an oversized or unreadable payload, a mark or store failing the
+# bar, a command naming the store, a signal, this script crashing before a
+# verdict, and a guard that crashes or answers with anything but a denial each
+# deny.
 #
 # TEST HOOK. PLANWRIGHT_TOWER_SESSION_TEST_PAUSE names a file this script
 # creates once the session is found marked, then waits to be signalled; the
@@ -158,13 +159,22 @@ drain() {
 # --------------------------------------------------------------------------
 # Verdicts.
 
+# DECIDED is 1 once a verdict, a deny or a deliberate defer, is reached; the
+# exit trap denies any exit before that.
+DECIDED=0
+
 emit_deny() { # <constant reason>
+  DECIDED=1
   printf '%s\n' "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"$PREFIX$1\"}}"
   exit 0
 }
 
 deny_internal() {
   emit_deny 'the tower floor stopped before reaching a decision in this tower session (an internal error or a signal), so this call could not be checked - refusing (fail closed). Retry; report a floor that keeps failing.'
+}
+
+deny_unless_decided() {
+  [ "$DECIDED" = 1 ] || deny_internal
 }
 
 deny_inactive() { # <constant cause>
@@ -357,6 +367,7 @@ guard() {
   is_uuid "$sid" || exit 0
   if [ "$surface" = bash ] && is_activation "$cmd"; then
     trap 'deny_internal' HUP INT TERM
+    trap 'deny_unless_decided' EXIT
     activate_session "$sid"
   fi
   [ "$CAND" = 1 ] || exit 0
@@ -364,6 +375,7 @@ guard() {
     [ -e "$STORE/$sid" ] || [ -L "$STORE/$sid" ] || exit 0
   fi
   trap 'deny_internal' HUP INT TERM
+  trap 'deny_unless_decided' EXIT
   pause_for_test
   [ -d "$STORE" ] && [ -x "$STORE" ] \
     || emit_deny 'the tower-sessions store exists but cannot be searched, so this session counts as a tower - refusing (fail closed). Repair the store under the fleet home (an owner-only directory).'
@@ -383,6 +395,7 @@ guard() {
     is_deny "$out" || deny_internal
     printf '%s\n' "$out"
   fi
+  DECIDED=1
   exit 0
 }
 

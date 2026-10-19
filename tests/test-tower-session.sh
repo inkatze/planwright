@@ -287,6 +287,32 @@ for sig in TERM INT HUP; do
 done
 set +m
 
+echo "# a crash after the session is found marked, or in the handshake, denies (REQ-C1.4)"
+# Each copy dereferences an unset variable under set -u at one point.
+crash_copy() { # <dest> <line after which the fault goes>
+  awk -v at="$2" '{ print } $0 == at { print "  : \"$TOWER_SESSION_CRASH_PROBE\"" }' "$REAL_SCRIPTS/tower-session.sh" >"$1"
+  if [ "$(grep -c 'TOWER_SESSION_CRASH_PROBE' "$1")" != 1 ]; then
+    fail "the fault was not injected after: $2"
+  fi
+}
+# The handshake is recognized by its path, so each copy keeps the name.
+CRASH_GUARD="$SANDBOX/crash-guard/scripts/tower-session.sh"
+CRASH_ACTIVATE="$SANDBOX/crash-activate/scripts/tower-session.sh"
+mkdir -p "${CRASH_GUARD%/*}" "${CRASH_ACTIVATE%/*}"
+crash_copy "$CRASH_GUARD" '  pause_for_test'
+crash_copy "$CRASH_ACTIVATE" 'activate_session() { # <sid>'
+TS=$CRASH_GUARD ts_bash "$MARKED" 'ls'
+expect deny "a crash in a marked session's guard denies"
+reason_has 'stopped before reaching a decision' "the crash refusal is the internal one"
+TS=$CRASH_ACTIVATE ts_bash "$FRESH" "\"$CRASH_ACTIVATE\" activate"
+expect deny "a crash in the activation handshake denies"
+reason_has 'stopped before reaching a decision' "the handshake crash refusal is the internal one"
+TS=$CRASH_GUARD ts_bash "$OTHER" 'ls'
+expect defer "the fault never reached in an unmarked session leaves it deferring"
+ts_bash "$MARKED" 'ls'
+expect defer "a marked session's routine read still defers"
+reset_store
+
 echo "# the top-level session id only (REQ-C1.5)"
 decide bash "$(jq -nc --arg s "$OTHER" --arg n "$MARKED" '{session_id:$s, tool_name:"Bash", tool_input:{command:"git reset --hard HEAD", session_id:$n}}')"
 expect defer "a nested marked session_id under an unmarked top-level id defers"
