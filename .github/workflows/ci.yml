@@ -163,3 +163,44 @@ jobs:
           /bin/sh tests/test-bsd-awk-multiline.sh
           /bin/sh tests/test-spec-validate.sh
           /bin/bash tests/test-spec-parse-corpus.sh
+
+  # The full shell suite on the two platforms the matrix adds beside Ubuntu,
+  # held to this branch until the suite is green on both: a platform joins
+  # the pull-request workflow only once it passes there, and the filter's
+  # removal is that join. The macOS run strips Homebrew from PATH so the
+  # suite meets the system bash 3.2 and the BSD awk and sed rather than the
+  # GNU tools the runner image layers on top.
+  macos-suite:
+    if: github.head_ref == 'planwright/universal-binary/task-4'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - env:
+          PATH: /usr/bin:/bin:/usr/sbin:/sbin
+        run: |
+          /bin/bash --version
+          /usr/bin/awk --version
+          /bin/bash scripts/run-tests.sh
+
+  # musl, dash as /bin/sh, and busybox for every other tool, in a stock
+  # Alpine container pinned by digest. Only what the suite itself drives is
+  # added (bash for the runner, git and jq); no GNU userland, so awk, sed and
+  # the rest stay busybox. The suite runs as an unprivileged user, since root
+  # passes the permission checks several tests rely on failing.
+  alpine-suite:
+    if: github.head_ref == 'planwright/universal-binary/task-4'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+    steps:
+      - run: apk add --no-cache bash git jq dash-binsh
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - run: |
+          test "$(readlink -f /bin/sh)" = /usr/bin/dash
+          test "$(readlink -f "$(command -v awk)")" = /bin/busybox
+          test "$(readlink -f "$(command -v sed)")" = /bin/busybox
+          adduser -D suite
+          chown -R suite "$GITHUB_WORKSPACE"
+          su suite -c '/bin/bash scripts/run-tests.sh'
