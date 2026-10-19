@@ -10,6 +10,9 @@
 # shellcheck disable=SC2016 # the unexpanded $ forms are the inputs under test
 # shellcheck disable=SC2034 # PROFILE and the decide globals are read by the sourcing suites and the shared expect
 unset CDPATH
+# Run from a git hook, these would point the alias setup and the guard's git
+# reads at the outer repository instead of the sandbox.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 # shellcheck source=tests/lib/policy-guard-harness.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/policy-guard-harness.sh"
 # shellcheck source=tests/lib/permission-matcher.sh
@@ -79,6 +82,35 @@ map_check() {
         rc=1
       }
   done < <(awk -F'\t' '$1 == "entry" { print $2 }' "$MAP")
+  return "$rc"
+}
+
+# act_check <map> — 0 when every row names one of the acts the suites run
+# (TOWER_ACTS) and every act has an entry row; prints each mismatch.
+TOWER_ACTS='pr-merge flip base-merge rewrite ref-surgery mcp-write worktree push'
+act_check() {
+  local rc=0 kind a b act
+  while IFS="$TAB" read -r kind a b _; do
+    case $kind in
+      entry) act=$b ;;
+      spelling) act=$a ;;
+      *) continue ;;
+    esac
+    case " $TOWER_ACTS " in
+      *" $act "*) ;;
+      *)
+        printf '%s\n' "row names an act no suite runs: $act"
+        rc=1
+        ;;
+    esac
+  done <"$1"
+  for act in $TOWER_ACTS; do
+    awk -F'\t' -v a="$act" '$1 == "entry" && $3 == a { f = 1 } END { exit !f }' "$1" \
+      || {
+        printf '%s\n' "act with no entry row: $act"
+        rc=1
+      }
+  done
   return "$rc"
 }
 

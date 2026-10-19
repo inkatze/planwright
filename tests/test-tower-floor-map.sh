@@ -28,6 +28,20 @@ else
     *) fail "the map check failed for another reason: $out" ;;
   esac
 fi
+if out=$(act_check "$MAP"); then
+  pass "every map row names an act a floor suite runs, and every act has an entry row"
+else
+  fail "the deny-to-act map names an act no suite runs, or leaves one without a row: $out"
+fi
+awk -F'\t' -v OFS='\t' '$1 == "entry" && $3 == "pr-merge" { $3 = "pr-merg" } { print }' "$MAP" >"$SANDBOX/misspelled.tsv"
+if out=$(act_check "$SANDBOX/misspelled.tsv"); then
+  fail "the act check passed a map with a misspelled act"
+else
+  case $out in
+    *'row names an act no suite runs: pr-merg'*) pass "the act check fails on a misspelled act" ;;
+    *) fail "the act check failed for another reason: $out" ;;
+  esac
+fi
 if jq -e '.permissions.deny | index("mcp__github__update_pull_request_branch") != null' "$PROFILE" >/dev/null; then
   pass "the profile denies mcp__github__update_pull_request_branch by name (REQ-C1.1)"
 else
