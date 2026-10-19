@@ -29,7 +29,7 @@ or you run the commands below yourself:
   pending-sign-off checklist are not one.
 
 Pushed history stays append-only outside the force-push and secret-purge rows
-of the list. The one statement of what stays human, what is a policy, and which
+of the human-gates list. The one statement of what stays human, what is a policy, and which
 skill owns which act is [the human-gates doctrine](../doctrine/human-gates.md);
 this section restates it and changes nothing.
 
