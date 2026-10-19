@@ -3,58 +3,75 @@
 # and defect classes, as the tier-by-class pain matrix.
 #
 # THE MINED SET. Every `obs:<uid>` the bundle's `## Sources` section (in its
-# requirements.md) cites inside an `- **Observations, <group>:**` bullet, plus
-# every frozen legacy-log line the legacy index lists. A fragment is found by
-# its UID under the accumulator's entries/ or archive/ (the `_observations`
-# directory beside the bundle); a legacy line by its index row.
+# requirements.md) cites, plus every frozen legacy-log line the legacy index
+# lists. A Sources citation must sit in an `- **Observations, <group>:**`
+# bullet or its indented continuation lines; one anywhere else in Sources
+# fails closed, since it would have no class. A fragment is found by its UID
+# under the accumulator's entries/ or archive/ (the `_observations` directory
+# beside the bundle), its date being the `YYYY-MM-DD` its file name opens
+# with; a legacy line by its index row. Every item must be dated on or before
+# --as-of, so a snapshot's date bounds what it counts.
 #
 # CLASSES. Fixed: lock-concurrency, parser-fragility, echo-sanitization,
 # duplicated-primitive, perf-spawn-cost, portability, lint-gap,
-# plugin-delivery, test-flakiness, instruction-headroom, auditability. A
-# fragment takes the class of every Sources group that cites it: the group
-# label with a trailing ` class` dropped is the class, except `lock and
-# concurrency` (lock-concurrency) and `auditability and keep-shell evidence`
-# (auditability). A group label naming no class fails closed: a missing class
-# is proposed by amendment, never minted here. A legacy line takes the
-# classes its index row records.
+# plugin-delivery, test-flakiness, instruction-headroom, auditability
+# (`--classes` prints them, in this order). A fragment takes the class of every
+# Sources group that cites it: the group label with a trailing ` class` dropped
+# is the class, except `lock and concurrency` (lock-concurrency) and
+# `auditability and keep-shell evidence` (auditability). A group label naming
+# no class fails closed: a missing class is proposed by amendment, never
+# minted here. A legacy line takes the classes its index row records.
 #
 # TIERS. A fragment or line takes the tier of every layer script it names, the
-# tier coming from the partition (scripts/substrate-partition.sh). It names a
-# script by writing `<stem>.sh` (any path prefix), `test-<stem>.sh` (the
-# suite for that script), `scripts/<stem>`, `githooks/<hook>`, or the bare
-# stem in backticks; a bare stem outside backticks is prose (`ready-flip` is
-# a step as often as a script). A `.sh` name that is no layer script is
-# listed as not in the layer and names nothing.
+# tier coming from the partition (scripts/substrate-partition.sh's output,
+# read from --partition). It names a script by writing `<stem>.sh` (any path
+# prefix, not followed by a name character), `test-<stem>.sh` (the suite for
+# that script), `scripts/<stem>` or `githooks/<hook>` (not followed by `.` or
+# `/`), or the bare stem in backticks; a bare stem outside backticks is prose
+# (`ready-flip` is a step as often as a script). A `.sh` name that is no layer
+# script is listed as not in the layer and names nothing.
 #
 # MANUAL FILE. An item naming no layer script is attributed by the manual
 # file's row for it (id, tiers, reason), written by a person or worker who
 # read it. An item naming none with no row is `needs-manual`; a row for an
-# item that names a script is `stale-manual`; either fails the run (exit 1,
-# listed on stderr) so coverage never shrinks silently.
+# item that names a script is `stale-manual`; a row for an id outside the
+# mined set is `orphan-manual`. Any of them fails the run (exit 1, listed on
+# stderr) so coverage never shrinks silently.
 #
 # INPUT FILES (tab-separated, `#` comment lines and blank lines skipped):
 #   legacy index   id  classes  match   (id `legacy:<date>:<slug>`; match is
 #                  a fixed string found on exactly one `- <date> ` line of
-#                  the frozen log, opportunities.md)
+#                  the frozen log, opportunities.md, no two rows on one line)
 #   manual file    id  tiers  reason
-# Lists are comma-separated.
+# Lists are comma-separated and must not be empty. Inside a git work tree,
+# an uncommitted change to the bundle, the accumulator, or either input file
+# fails closed: the snapshot records the committed tree, not a working copy.
 #
 # Output (default): the dated pain-matrix snapshot as Markdown. --rows prints
 # one TSV row per item instead: id, date, tiers, classes, basis (`script` or
-# `manual`), names. --class-map prints id, date, classes, needing neither the
-# partition nor the manual file.
+# `manual`), names. --class-map prints id, date, classes and needs neither the
+# partition nor the manual file; --obs-dir prints the accumulator directory.
+# --out writes the output to a file, replacing it only once the run succeeds.
 #
-# Usage: substrate-attribute.sh --as-of <YYYY-MM-DD> [--rows | --class-map]
-#          [--repo-root <dir>] [--spec <bundle-dir>] [--partition <tsv>]
-#          [--legacy <tsv>] [--manual <tsv>]
+# Usage: substrate-attribute.sh --as-of <YYYY-MM-DD> --partition <tsv>
+#          [--rows] [--repo-root <dir>] [--spec <bundle-dir>]
+#          [--legacy <tsv>] [--manual <tsv>] [--out <file>]
+#        substrate-attribute.sh --as-of <YYYY-MM-DD> --class-map [...]
+#        substrate-attribute.sh --classes | --obs-dir [--spec <bundle-dir>]
+# `mise run substrate:attribute -- --as-of <date> --out <file>` computes the
+# partition and passes it in.
 # Defaults: the repo is this script's parent; the bundle is universal-binary
 # under the resolved spec root; the legacy and manual files are under
-# docs/substrate/; the partition is computed.
-# Exit codes: 0 written; 1 an item needs a manual row or has a stale one; 2
-# usage error; 5 fail-closed (a missing or unreadable input, a UID resolving
-# to no fragment or to two, a legacy match on no line or on two, a group
-# label or listed class or tier outside the fixed sets, an empty mined set,
-# or a partition that fails).
+# docs/substrate/.
+# Exit codes: 0 written; 1 an item needs a manual row or has a stale or
+# orphan one; 2 usage error; 5 fail-closed (a missing or unreadable input; an
+# uncommitted input; a UID resolving to no fragment, to two, to a symlink, or
+# to a name opening with no date; an item dated after --as-of; a Sources
+# citation outside an Observations group; a legacy match on no line or on
+# two, or two rows on one line; a malformed, duplicate or empty-listed legacy
+# or manual row; a group label, class, or tier outside the fixed sets; a
+# partition with no header or two scripts sharing a stem; an empty mined set;
+# or a failed step); 128 plus the signal number on HUP, INT or TERM.
 #
 # POSIX sh on the macOS + Linux support bar. All input is data.
 set -uf
@@ -67,17 +84,24 @@ me=substrate-attribute
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 repo_root=$(cd "$script_dir/.." && pwd -P) || exit 2
 
+# The fixed sets every awk program below reads through the environment.
+SA_CLASSES="lock-concurrency parser-fragility echo-sanitization duplicated-primitive perf-spawn-cost portability lint-gap plugin-delivery test-flakiness instruction-headroom auditability"
+SA_TIERS="hook skill-called library dev-check tests-only"
+export SA_CLASSES SA_TIERS
+
 usage() {
-  printf '%s\n' "usage: substrate-attribute.sh --as-of <YYYY-MM-DD> [--rows | --class-map] [--repo-root <dir>] [--spec <bundle-dir>] [--partition <tsv>] [--legacy <tsv>] [--manual <tsv>]" >&2
+  printf '%s\n' "usage: substrate-attribute.sh --as-of <YYYY-MM-DD> (--partition <tsv> [--rows] | --class-map) [--repo-root <dir>] [--spec <bundle-dir>] [--legacy <tsv>] [--manual <tsv>] [--out <file>]; or --classes; or --obs-dir [--spec <bundle-dir>]" >&2
   exit 2
 }
 
-as_of="" mode=snapshot spec="" partition="" legacy="" manual=""
+as_of="" mode=snapshot spec="" partition="" legacy="" manual="" out=""
 while [ "$#" -gt 0 ]; do
   case $1 in
     --rows) mode=rows && shift ;;
-    --class-map) mode=classes && shift ;;
-    --as-of | --repo-root | --spec | --partition | --legacy | --manual)
+    --class-map) mode=class-map && shift ;;
+    --classes) mode=classes && shift ;;
+    --obs-dir) mode=obs-dir && shift ;;
+    --as-of | --repo-root | --spec | --partition | --legacy | --manual | --out)
       [ "$#" -ge 2 ] && [ -n "$2" ] || usage
       case $1 in
         --as-of) as_of=$2 ;;
@@ -86,14 +110,19 @@ while [ "$#" -gt 0 ]; do
         --partition) partition=$2 ;;
         --legacy) legacy=$2 ;;
         --manual) manual=$2 ;;
+        --out) out=$2 ;;
       esac
       shift 2
       ;;
-    -h | --help) usage ;;
     *) usage ;;
   esac
 done
-printf '%s\n' "$as_of" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || usage
+
+if [ "$mode" = classes ]; then
+  # shellcheck disable=SC2086 # the list splits into one class per line
+  printf '%s\n' $SA_CLASSES
+  exit 0
+fi
 
 fail_closed() {
   printf '%s\n' "$me: $1; failing closed rather than writing a matrix" >&2
@@ -106,40 +135,80 @@ if [ -z "$spec" ]; then
   spec_root=$(/bin/sh "$repo_root/scripts/resolve-root.sh" spec) || fail_closed "the spec root does not resolve"
   spec=$spec_root/universal-binary
 fi
+obs_dir=$(dirname "$spec")/_observations
+if [ "$mode" = obs-dir ]; then
+  printf '%s\n' "$obs_dir"
+  exit 0
+fi
+
+# A shape check plus month and day ranges; a newline or a trailing byte in the
+# value fails the case pattern, where a line-wise grep would pass it.
+case $as_of in
+  [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]) ;;
+  *) usage ;;
+esac
+case $as_of in
+  *-00-* | *-1[3-9]-* | *-00 | *-3[2-9]) usage ;;
+esac
+case $mode in
+  snapshot | rows) [ -n "$partition" ] || usage ;;
+esac
+
 [ -n "$legacy" ] || legacy=$repo_root/docs/substrate/legacy-lines.tsv
 [ -n "$manual" ] || manual=$repo_root/docs/substrate/manual-attribution.tsv
 
 reqs=$spec/requirements.md
-obs_dir=$(dirname "$spec")/_observations
 [ -r "$reqs" ] || fail_closed "the bundle's requirements.md is unreadable"
 for d in entries archive; do
   [ -d "$obs_dir/$d" ] && [ -r "$obs_dir/$d" ] || fail_closed "the accumulator's $d/ is missing or unreadable"
 done
 [ -r "$obs_dir/opportunities.md" ] || fail_closed "the frozen log opportunities.md is unreadable"
 [ -r "$legacy" ] || fail_closed "the legacy index is unreadable"
-if [ "$mode" != classes ]; then
+if [ "$mode" != class-map ]; then
   [ -r "$manual" ] || fail_closed "the manual attribution file is unreadable"
+fi
+
+# Inputs inside a git work tree must match HEAD, or the snapshot would record
+# a working copy nobody can regenerate it from.
+if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  set -- "$spec" "$obs_dir" "$legacy"
+  [ "$mode" = class-map ] || set -- "$@" "$manual"
+  for p in "$@"; do
+    case $p in
+      "$repo_root"/*)
+        dirty=$(git -C "$repo_root" status --porcelain --untracked-files=all -- "$p") \
+          || fail_closed "git cannot read the state of an input"
+        [ -z "$dirty" ] || fail_closed "an input has uncommitted changes (commit it, then regenerate)"
+        ;;
+    esac
+  done
 fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/substrate-attribute.XXXXXX") || fail_closed "mktemp -d failed"
 [ -n "$work" ] && [ -d "$work" ] || fail_closed "mktemp -d produced no directory"
 trap 'rm -rf "$work"' EXIT
-trap 'exit 1' HUP INT TERM
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-if [ "$mode" != classes ]; then
-  if [ -n "$partition" ]; then
-    cp "$partition" "$work/partition.tsv" 2>/dev/null || fail_closed "the partition file is unreadable"
-  else
-    /bin/sh "$repo_root/scripts/substrate-partition.sh" --repo-root "$repo_root" >"$work/partition.tsv" \
-      || fail_closed "the partition failed"
-  fi
-  [ "$(sed -n 1p "$work/partition.tsv" | cut -f1-2)" = "path	tier" ] || fail_closed "the partition has no header row"
+# Every path an awk program reads or writes travels through the environment:
+# `awk -v` would turn a backslash in a path into an escape.
+SA_REQS=$reqs SA_LEGACY=$legacy SA_MANUAL=$manual SA_OPP=$obs_dir/opportunities.md
+SA_CITES=$work/cites.tsv SA_ITEMS=$work/items.tsv SA_PART=$work/partition.tsv SA_ROWS=$work/rows.tsv
+SA_CITES_RAW=$work/cites.raw SA_ITEMS_RAW=$work/items.raw
+export SA_REQS SA_LEGACY SA_MANUAL SA_OPP SA_CITES SA_ITEMS SA_PART SA_ROWS SA_CITES_RAW SA_ITEMS_RAW
+
+if [ "$mode" != class-map ]; then
+  cp "$partition" "$SA_PART" 2>/dev/null || fail_closed "the partition file is unreadable"
+  [ "$(sed -n 1p "$SA_PART" | cut -f1-2)" = "path	tier" ] || fail_closed "the partition has no header row"
 fi
 
-# Sources groups: one `uid<TAB>class` record per citation.
+# Sources groups: one `obs:<uid><TAB>class` record per citation. A group runs
+# from its bullet through the indented lines that continue it.
 awk '
+  function clean(s) { gsub(/[^[:print:]]/, "", s); return s }
   BEGIN {
-    n = split("lock-concurrency parser-fragility echo-sanitization duplicated-primitive perf-spawn-cost portability lint-gap plugin-delivery test-flakiness instruction-headroom auditability", c, " ")
+    n = split(ENVIRON["SA_CLASSES"], c, " ")
     for (i = 1; i <= n; i++) cls[c[i]] = 1
     alias["lock and concurrency"] = "lock-concurrency"
     alias["auditability and keep-shell evidence"] = "auditability"
@@ -153,30 +222,34 @@ awk '
       g = lab; sub(/ class$/, "", g)
       if (g in alias) grp = alias[g]
       else if (g in cls) grp = g
-      if (grp == "") { print "group label names no class: " lab > "/dev/stderr"; bad = 1; exit }
+      if (grp == "") { print "group label names no class: " clean(lab) > "/dev/stderr"; bad = 1; exit }
     }
   }
+  !/^- / && !/^[ \t]+[^ \t]/ { grp = "" }
   {
-    t = $0
+    t = $0; pos = 0
     while (match(t, /obs:[0-9a-f]+/)) {
-      u = substr(t, RSTART + 4, RLENGTH - 4); t = substr(t, RSTART + RLENGTH)
+      u = substr(t, RSTART + 4, RLENGTH - 4)
+      pre = (pos + RSTART > 1) ? substr($0, pos + RSTART - 1, 1) : ""
+      pos += RSTART + RLENGTH - 1; t = substr(t, RSTART + RLENGTH)
+      if (pre ~ /[A-Za-z0-9_]/) continue
       if (grp == "") { print "obs:" u " is cited outside an Observations group" > "/dev/stderr"; bad = 1; exit }
       print "obs:" u "\t" grp
     }
   }
   END { exit bad ? 5 : 0 }
-' "$reqs" >"$work/cites.tsv" || fail_closed "the Sources section has an unclassifiable citation"
-sort -u "$work/cites.tsv" -o "$work/cites.tsv"
-[ -s "$work/cites.tsv" ] || fail_closed "the Sources section cites no observation"
+' "$SA_REQS" >"$SA_CITES_RAW" || fail_closed "the Sources section has an unclassifiable citation"
+sort -u "$SA_CITES_RAW" >"$SA_CITES" || fail_closed "sort failed"
+[ -s "$SA_CITES" ] || fail_closed "the Sources section cites no observation"
 
 # Items: `id<TAB>date<TAB>path-or-line-number<TAB>kind`.
-: >"$work/items.tsv"
-cut -f1 "$work/cites.tsv" | sed 's/^obs://' | sort -u >"$work/uids"
+cut -f1 "$SA_CITES" | sed 's/^obs://' | sort -u >"$work/uids" || fail_closed "the UID list could not be built"
+: >"$SA_ITEMS_RAW"
 while IFS= read -r u; do
   set +f
   found=""
   for f in "$obs_dir"/entries/*-"$u".md "$obs_dir"/archive/*-"$u".md; do
-    [ -f "$f" ] || continue
+    [ -f "$f" ] || [ -h "$f" ] || continue
     [ -z "$found" ] || {
       set -f
       fail_closed "obs:$u resolves to more than one fragment"
@@ -185,160 +258,212 @@ while IFS= read -r u; do
   done
   set -f
   [ -n "$found" ] || fail_closed "obs:$u resolves to no fragment"
+  [ ! -h "$found" ] || fail_closed "obs:$u's fragment is a symlink"
   [ -r "$found" ] || fail_closed "obs:$u's fragment is unreadable"
-  d=$(basename "$found" | cut -c1-10)
-  printf '%s\t%s\t%s\tfragment\n' "obs:$u" "$d" "$found" >>"$work/items.tsv"
+  b=${found##*/}
+  d=${b%"${b#??????????}"}
+  case $d in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+    *) fail_closed "obs:$u's fragment name opens with no date" ;;
+  esac
+  printf '%s\t%s\t%s\tfragment\n' "obs:$u" "$d" "$found" >>"$SA_ITEMS_RAW" || fail_closed "the item list could not be written"
 done <"$work/uids"
 
-awk -F'\t' -v out="$work/items.tsv" -v cites="$work/cites.tsv" '
+# Legacy rows, loaded in BEGIN so an empty index stays empty; each resolves to
+# exactly one frozen-log line, never one another row already took.
+awk -F'\t' '
+  function clean(s) { gsub(/[^[:print:]]/, "", s); return s }
   BEGIN {
-    n = split("lock-concurrency parser-fragility echo-sanitization duplicated-primitive perf-spawn-cost portability lint-gap plugin-delivery test-flakiness instruction-headroom auditability", c, " ")
+    n = split(ENVIRON["SA_CLASSES"], c, " ")
     for (i = 1; i <= n; i++) cls[c[i]] = 1
-  }
-  FNR == NR {
-    if ($0 ~ /^#/ || $0 ~ /^[ \t]*$/) next
-    if (NF != 3 || $1 !~ /^legacy:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]:[a-z0-9-]+$/ || $3 == "") {
-      print "malformed legacy index row: " $1 > "/dev/stderr"; bad = 1; exit
+    f = ENVIRON["SA_LEGACY"]
+    while ((r = (getline l < f)) > 0) {
+      if (l ~ /^#/ || l ~ /^[ \t]*$/) continue
+      nf = split(l, p, "\t")
+      if (nf != 3 || p[1] !~ /^legacy:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]:[a-z0-9-]+$/ || p[2] == "" || p[3] == "") {
+        print "malformed legacy index row: " clean(p[1]) > "/dev/stderr"; bad = 1; exit
+      }
+      if (p[1] in seen) { print "duplicate legacy id: " clean(p[1]) > "/dev/stderr"; bad = 1; exit }
+      seen[p[1]] = 1
+      m = split(p[2], cc, ",")
+      for (i = 1; i <= m; i++) if (!(cc[i] in cls)) { print "unknown class in " clean(p[1]) ": " clean(cc[i]) > "/dev/stderr"; bad = 1; exit }
+      ids[++k] = p[1]; needle[k] = p[3]; dt[k] = substr(p[1], 8, 10); classes_of[k] = p[2]
     }
-    if ($1 in seen) { print "duplicate legacy id: " $1 > "/dev/stderr"; bad = 1; exit }
-    seen[$1] = 1
-    m = split($2, cc, ",")
-    for (i = 1; i <= m; i++) if (!(cc[i] in cls)) { print "unknown class in " $1 ": " cc[i] > "/dev/stderr"; bad = 1; exit }
-    ids[++k] = $1; match_[k] = $3; dt[k] = substr($1, 8, 10); klass[k] = $2
-    next
+    if (r < 0) { print "the legacy index could not be read" > "/dev/stderr"; bad = 1; exit }
   }
   {
     for (j = 1; j <= k; j++)
-      if (index($0, "- " dt[j] " ") == 1 && index($0, match_[j])) { hit[j]++; line[j] = FNR }
+      if (index($0, "- " dt[j] " ") == 1 && index($0, needle[j])) { hit[j]++; line[j] = FNR }
   }
   END {
     if (bad) exit 5
     for (j = 1; j <= k; j++) {
-      if (hit[j] != 1) { print ids[j] " matches " hit[j] + 0 " frozen-log lines, not one" > "/dev/stderr"; exit 5 }
-      print ids[j] "\t" dt[j] "\t" line[j] "\tlegacy" >> out
-      m = split(klass[j], cc, ",")
-      for (i = 1; i <= m; i++) print ids[j] "\t" cc[i] >> cites
+      if (hit[j] != 1) { print clean(ids[j]) " matches " hit[j] + 0 " frozen-log lines, not one" > "/dev/stderr"; exit 5 }
+      if (line[j] in taken) { print clean(ids[j]) " resolves to the line " clean(taken[line[j]]) " already took" > "/dev/stderr"; exit 5 }
+      taken[line[j]] = ids[j]
+      print ids[j] "\t" dt[j] "\t" line[j] "\tlegacy" >> ENVIRON["SA_ITEMS_RAW"]
+      m = split(classes_of[j], cc, ",")
+      for (i = 1; i <= m; i++) print ids[j] "\t" cc[i] >> ENVIRON["SA_CITES_RAW"]
     }
   }
-' "$legacy" "$obs_dir/opportunities.md" || fail_closed "the legacy index does not resolve"
-sort -u "$work/cites.tsv" -o "$work/cites.tsv"
-sort "$work/items.tsv" -o "$work/items.tsv"
+' "$SA_OPP" || fail_closed "the legacy index does not resolve"
+sort -u "$SA_CITES_RAW" >"$SA_CITES" || fail_closed "sort failed"
+sort "$SA_ITEMS_RAW" >"$SA_ITEMS" || fail_closed "sort failed"
+awk -F'\t' -v asof="$as_of" '$2 > asof { print $1; late = 1 } END { exit late }' "$SA_ITEMS" >"$work/late" \
+  || fail_closed "an item is dated after the as-of date ($(sed 's/[^ -~]//g' "$work/late" | head -n 1))"
 
-if [ "$mode" = classes ]; then
+# write_out <file>: the finished output, to --out (replaced only now) or stdout.
+write_out() {
+  if [ -z "$out" ]; then
+    cat "$1" || exit 5
+    return
+  fi
+  tmp_out=$(mktemp "$out.XXXXXX") || fail_closed "cannot create a file beside --out"
+  if ! cat "$1" >"$tmp_out" || ! mv -f "$tmp_out" "$out"; then
+    rm -f "$tmp_out"
+    fail_closed "cannot write --out"
+  fi
+}
+
+if [ "$mode" = class-map ]; then
   awk -F'\t' '
     FNR == NR { v = ($1 in c) ? c[$1] "," $2 : $2; c[$1] = v; next }
     { print $1 "\t" $2 "\t" c[$1] }
-  ' "$work/cites.tsv" "$work/items.tsv"
+  ' "$SA_CITES" "$SA_ITEMS" >"$work/out" || fail_closed "the class map could not be written"
+  write_out "$work/out"
   exit 0
 fi
 
-# Attribute each item: named layer scripts, their tiers, or the manual row.
-OPP=$obs_dir/opportunities.md
-export OPP
-awk -F'\t' -v part="$work/partition.tsv" -v man="$manual" -v cites="$work/cites.tsv" -v rowsout="$work/rows.tsv" '
-  BEGIN {
-    tiers = "hook skill-called library dev-check tests-only"
-    split(tiers, tl, " "); for (i in tl) tierok[tl[i]] = 1
-    getline hdr < part
-    while ((getline l < part) > 0) {
-      split(l, p, "\t"); s = p[1]; sub(/^.*\//, "", s); sub(/\.sh$/, "", s)
-      tier[s] = p[2]; path[s] = p[1]
-    }
-    while ((getline l < cites) > 0) {
-      split(l, p, "\t"); v = (p[1] in cl) ? cl[p[1]] "," p[2] : p[2]; cl[p[1]] = v
-    }
-    while ((getline l < man) > 0) {
-      if (l ~ /^#/ || l ~ /^[ \t]*$/) continue
-      nf = split(l, p, "\t")
-      if (nf != 3 || p[3] == "") { print "malformed manual row: " p[1] > "/dev/stderr"; bad = 5; exit }
-      if (p[1] in mt) { print "duplicate manual row: " p[1] > "/dev/stderr"; bad = 5; exit }
-      m = split(p[2], tt, ",")
-      for (i = 1; i <= m; i++) if (!(tt[i] in tierok)) { print "unknown tier in " p[1] ": " tt[i] > "/dev/stderr"; bad = 5; exit }
-      mt[p[1]] = p[2]
-    }
-    opp = ENVIRON["OPP"]; ln = 0
-    while ((getline l < opp) > 0) oppline[++ln] = l
-  }
+# Attribute each item: the named layer scripts and their tiers, or the manual
+# row. The classes arrive through the item list's cites.
+awk -F'\t' '
+  function clean(s) { gsub(/[^[:print:]]/, "", s); return s }
+  function stem(p) { sub(/^.*\//, "", p); sub(/\.sh$/, "", p); return p }
   function add(list, x,   n, a, i) {
     n = split(list, a, ",")
     for (i = 1; i <= n; i++) if (a[i] == x) return list
     return list == "" ? x : list "," x
   }
-  function name(w) {
-    if (w in tier) { named = add(named, path[w]); return 1 }
-    return 0
+  # note_script(w): when w is a layer script, record its path and tier.
+  function note_script(w) {
+    if (!(w in tier)) return 0
+    named = add(named, path[w]); tset = add(tset, tier[w])
+    return 1
+  }
+  BEGIN {
+    nt = split(ENVIRON["SA_TIERS"], tl, " "); for (i = 1; i <= nt; i++) tierok[tl[i]] = 1
+    part = ENVIRON["SA_PART"]; man = ENVIRON["SA_MANUAL"]; cites = ENVIRON["SA_CITES"]
+    getline hdr < part
+    while ((r = (getline l < part)) > 0) {
+      split(l, p, "\t"); s = stem(p[1])
+      if (!(p[2] in tierok)) { print "partition tier outside the fixed set: " clean(p[1]) > "/dev/stderr"; bad = 1; exit }
+      if (s in tier) { print "two layer scripts share the stem " clean(s) > "/dev/stderr"; bad = 1; exit }
+      tier[s] = p[2]; path[s] = p[1]
+    }
+    if (r < 0) { print "the partition could not be read" > "/dev/stderr"; bad = 1; exit }
+    while ((r = (getline l < cites)) > 0) {
+      split(l, p, "\t"); v = (p[1] in cl) ? cl[p[1]] "," p[2] : p[2]; cl[p[1]] = v
+    }
+    if (r < 0) { bad = 1; exit }
+    while ((r = (getline l < man)) > 0) {
+      if (l ~ /^#/ || l ~ /^[ \t]*$/) continue
+      nf = split(l, p, "\t")
+      if (nf != 3 || p[2] == "" || p[3] == "" || p[1] !~ /^(obs:[0-9a-f]+|legacy:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]:[a-z0-9-]+)$/) {
+        print "malformed manual row: " clean(p[1]) > "/dev/stderr"; bad = 1; exit
+      }
+      if (p[1] in mt) { print "duplicate manual row: " clean(p[1]) > "/dev/stderr"; bad = 1; exit }
+      m = split(p[2], tt, ","); v = ""
+      for (i = 1; i <= m; i++) {
+        if (!(tt[i] in tierok)) { print "unknown tier in " clean(p[1]) ": " clean(tt[i]) > "/dev/stderr"; bad = 1; exit }
+        v = add(v, tt[i])
+      }
+      mt[p[1]] = v
+    }
+    if (r < 0) { print "the manual file could not be read" > "/dev/stderr"; bad = 1; exit }
+    opp = ENVIRON["SA_OPP"]; ln = 0
+    while ((r = (getline l < opp)) > 0) oppline[++ln] = l
+    if (r < 0) { bad = 1; exit }
+    rowsout = ENVIRON["SA_ROWS"]
   }
   {
-    if (bad) exit bad
     id = $1; txt = ""
     if ($4 == "legacy") txt = oppline[$3]
-    else { while ((getline l < $3) > 0) txt = txt " " l; close($3) }
-    named = ""; stray = ""; t = txt
+    else {
+      while ((r = (getline l < $3)) > 0) txt = txt " " l
+      if (r < 0) { print "a fragment could not be read: " clean(id) > "/dev/stderr"; bad = 1; exit }
+      close($3)
+    }
+    named = ""; tset = ""; stray = ""; t = txt
     while (match(t, /[A-Za-z0-9_.\/-]*[A-Za-z0-9_-]\.sh/)) {
       w = substr(t, RSTART, RLENGTH); t = substr(t, RSTART + RLENGTH)
-      sub(/^.*\//, "", w); sub(/\.sh$/, "", w)
-      if (name(w)) continue
-      if (w ~ /^test-/ && name(substr(w, 6))) continue
+      if (substr(t, 1, 1) ~ /[A-Za-z0-9_]/) continue
+      w = stem(w)
+      if (note_script(w)) continue
+      if (w ~ /^test-/ && note_script(substr(w, 6))) continue
       stray = add(stray, w ".sh")
     }
     t = txt
     while (match(t, /(scripts|githooks)\/[A-Za-z0-9_-]+/)) {
       w = substr(t, RSTART, RLENGTH); t = substr(t, RSTART + RLENGTH)
-      if (substr(t, 1, 3) == ".sh") continue
-      sub(/^.*\//, "", w); name(w)
+      if (substr(t, 1, 1) ~ /[.\/]/) continue
+      note_script(stem(w))
     }
     t = txt
     while (match(t, /`[A-Za-z0-9_-]+`/)) {
       w = substr(t, RSTART + 1, RLENGTH - 2); t = substr(t, RSTART + RLENGTH)
-      name(w)
+      note_script(w)
     }
-    tset = ""
-    n = split(named, a, ",")
-    for (i = 1; i <= n; i++) { s = a[i]; sub(/^.*\//, "", s); sub(/\.sh$/, "", s); tset = add(tset, tier[s]) }
     if (named != "") {
       basis = "script"
-      if (id in mt) { print "stale-manual\t" id > "/dev/stderr"; fails = 1 }
+      if (id in mt) { print "stale-manual\t" clean(id) > "/dev/stderr"; fails = 1 }
     } else if (id in mt) {
       basis = "manual"; tset = mt[id]
     } else {
-      print "needs-manual\t" id > "/dev/stderr"; fails = 1; next
+      print "needs-manual\t" clean(id) > "/dev/stderr"; fails = 1; next
     }
     used[id] = 1
-    if (stray != "") named = named (named == "" ? "" : ",") "not-in-layer:" stray
+    if (stray != "") named = named (named == "" ? "" : ",") "not-in-layer:" clean(stray)
     print id "\t" $2 "\t" tset "\t" cl[id] "\t" basis "\t" (named == "" ? "-" : named) > rowsout
   }
   END {
-    if (bad) exit bad
-    for (id in mt) if (!(id in used)) { print "orphan-manual\t" id > "/dev/stderr"; fails = 1 }
-    exit fails ? 1 : 0
+    if (bad) exit 5
+    for (id in mt) if (!(id in used)) print "orphan-manual\t" clean(id) > (ENVIRON["SA_ROWS"] ".orphans")
+    if (fails) exit 1
   }
-' "$work/items.tsv"
+' "$SA_ITEMS"
 rc=$?
-[ "$rc" -eq 5 ] && fail_closed "an input file is malformed"
-[ "$rc" -eq 0 ] || {
-  printf '%s\n' "$me: attribution incomplete; see the needs-manual, stale-manual and orphan-manual lines above" >&2
-  exit 1
-}
+if [ -s "$SA_ROWS.orphans" ]; then
+  sort "$SA_ROWS.orphans" >&2
+  [ "$rc" -ne 0 ] || rc=1
+fi
+case $rc in
+  0) ;;
+  1)
+    printf '%s\n' "$me: attribution incomplete; see the needs-manual, stale-manual and orphan-manual lines above" >&2
+    exit 1
+    ;;
+  *) fail_closed "an input is malformed or the attribution pass failed" ;;
+esac
 
 if [ "$mode" = rows ]; then
-  cat "$work/rows.tsv"
+  write_out "$SA_ROWS"
   exit 0
 fi
 
 awk -F'\t' -v asof="$as_of" '
   BEGIN {
-    nc = split("lock-concurrency parser-fragility echo-sanitization duplicated-primitive perf-spawn-cost portability lint-gap plugin-delivery test-flakiness instruction-headroom auditability", c, " ")
-    nt = split("hook skill-called library dev-check tests-only", tl, " ")
+    nc = split(ENVIRON["SA_CLASSES"], c, " ")
+    nt = split(ENVIRON["SA_TIERS"], tl, " ")
   }
   {
-    rows[++nr] = $0; nobs++
-    if ($5 == "manual") nman++
-    nt_ = split($3, ts, ","); nk = split($4, ks, ",")
-    for (i = 1; i <= nt_; i++) {
-      tierobs[ts[i]]++
+    rows[++nr] = $0; nitems++
+    if ($5 == "manual") nmanual++
+    nrow_tiers = split($3, ts, ","); nk = split($4, ks, ",")
+    for (i = 1; i <= nrow_tiers; i++) {
+      tieritems[ts[i]]++
       for (j = 1; j <= nk; j++) cell[ts[i], ks[j]]++
     }
-    for (j = 1; j <= nk; j++) classobs[ks[j]]++
+    for (j = 1; j <= nk; j++) classitems[ks[j]]++
   }
   END {
     print "# Substrate pain matrix, as of " asof
@@ -347,7 +472,7 @@ awk -F'\t' -v asof="$as_of" '
     print "unchanged tree with:"
     print ""
     print "```sh"
-    print "/bin/sh scripts/substrate-attribute.sh --as-of " asof " >docs/substrate/pain-matrix-" asof ".md"
+    print "mise run substrate:attribute -- --as-of " asof " --out docs/substrate/pain-matrix-" asof ".md"
     print "```"
     print ""
     print "The mined set is every observation the universal-binary bundle cites under its"
@@ -362,9 +487,9 @@ awk -F'\t' -v asof="$as_of" '
     print ""
     print "| measure | value |"
     print "| --- | --- |"
-    print "| items attributed | " nobs " |"
-    print "| attributed through a named script | " nobs - nman " |"
-    print "| attributed by the manual file | " nman + 0 " |"
+    print "| items attributed | " nitems " |"
+    print "| attributed through a named script | " nitems - nmanual " |"
+    print "| attributed by the manual file | " nmanual + 0 " |"
     print "| unattributed | 0 |"
     print ""
     print "## Matrix"
@@ -376,11 +501,11 @@ awk -F'\t' -v asof="$as_of" '
     for (i = 1; i <= nt; i++) {
       r = "| " tl[i] " |"
       for (j = 1; j <= nc; j++) r = r " " (cell[tl[i], c[j]] + 0) " |"
-      print r " " (tierobs[tl[i]] + 0) " |"
+      print r " " (tieritems[tl[i]] + 0) " |"
     }
     r = "| any tier |"
-    for (j = 1; j <= nc; j++) r = r " " (classobs[c[j]] + 0) " |"
-    print r " " nobs " |"
+    for (j = 1; j <= nc; j++) r = r " " (classitems[c[j]] + 0) " |"
+    print r " " nitems " |"
     print ""
     print "## Attribution"
     print ""
@@ -392,4 +517,5 @@ awk -F'\t' -v asof="$as_of" '
       print "| " f[1] " | " f[2] " | " f[3] " | " f[4] " | " f[5] " | " nm " |"
     }
   }
-' "$work/rows.tsv"
+' "$SA_ROWS" >"$work/out" || fail_closed "the snapshot could not be rendered"
+write_out "$work/out"

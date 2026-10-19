@@ -210,6 +210,115 @@ check_eq "a legacy match on two lines fails closed" 5 "$rc"
 
 run "$base" --as-of 2026-9-30
 check_eq "a malformed date is a usage error" 2 "$rc"
+run "$base" --as-of 2026-13-01
+check_eq "a month out of range is a usage error" 2 "$rc"
+run "$base" --as-of "$(printf '2026-09-30\nX')"
+check_eq "a date with a second line is a usage error" 2 "$rc"
+run "$base" --as-of 2026-07-31
+check_eq "an item dated after the as-of date fails closed" 5 "$rc"
+check_has "the late item is named" "$err" "obs:aaaaaaa3"
+
+out=$("$SA" --classes)
+check_eq "the class list is printed in matrix order" "lock-concurrency" "$(printf '%s\n' "$out" | sed -n 1p)"
+check_eq "the class list has eleven classes" 11 "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+
+run "$base" --out "$tmp/snap.md"
+check_eq "--out exits zero" 0 "$rc"
+check_eq "--out writes the snapshot" "$first" "$(cat "$tmp/snap.md")"
+printf 'kept\n' >"$tmp/keep.md"
+run "$tmp/ambiguous" --out "$tmp/keep.md"
+check_eq "a failed run leaves --out untouched" "kept" "$(cat "$tmp/keep.md")"
+
+v=$tmp/emptylegacy
+build "$v"
+: >"$v/legacy.tsv"
+grep -v '^legacy:' "$v/manual.tsv" >"$v/m" && mv "$v/m" "$v/manual.tsv"
+run "$v" --rows
+check_eq "an empty legacy index is an empty set" 0 "$rc"
+
+v=$tmp/noclasses
+build "$v"
+printf 'legacy:2026-06-13:again\t\tchain again\n' >>"$v/legacy.tsv"
+run "$v"
+check_eq "a legacy row with no classes fails closed" 5 "$rc"
+
+v=$tmp/sameline
+build "$v"
+printf 'legacy:2026-06-11:dup\tportability\tdiffer by locale\n' >>"$v/legacy.tsv"
+run "$v"
+check_eq "two legacy rows on one line fail closed" 5 "$rc"
+
+v=$tmp/notiers
+build "$v"
+sed 's/^obs:aaaaaaa6\ttests-only,library\t/obs:aaaaaaa6\t\t/' "$v/manual.tsv" >"$v/m" && mv "$v/m" "$v/manual.tsv"
+run "$v"
+check_eq "a manual row with no tiers fails closed" 5 "$rc"
+
+v=$tmp/duptier
+build "$v"
+sed 's/^obs:aaaaaaa6\ttests-only,library\t/obs:aaaaaaa6\ttests-only,tests-only\t/' "$v/manual.tsv" >"$v/m" && mv "$v/m" "$v/manual.tsv"
+run "$v" --rows
+check_has "a repeated manual tier counts once" "$out" "obs:aaaaaaa6	2026-08-04	tests-only	parser-fragility	manual"
+
+v=$tmp/badpart
+build "$v"
+printf 'scripts/odd.sh\tentry-point\t-\t-\t-\t-\t-\n' >>"$v/partition.tsv"
+run "$v"
+check_eq "a partition tier outside the fixed set fails closed" 5 "$rc"
+
+v=$tmp/dupstem
+build "$v"
+printf 'scripts/pre-commit.sh\thook\t-\t-\t-\t-\t-\n' >>"$v/partition.tsv"
+run "$v"
+check_eq "two layer scripts sharing a stem fail closed" 5 "$rc"
+
+v=$tmp/stray
+build "$v"
+awk '{ print } /^  obs:aaaaaaa3, obs:aaaaaaa6.$/ { print ""; print "A stray paragraph cites obs:aaaaaaa1." }' \
+  "$v/bundles/demo/requirements.md" >"$v/r" && mv "$v/r" "$v/bundles/demo/requirements.md"
+run "$v"
+check_eq "a citation in a paragraph after a group fails closed" 5 "$rc"
+
+v=$tmp/wordobs
+build "$v"
+awk '{ print } /^- \*\*Some other source/ { print "  CI jobs:deadbeef ran." }' \
+  "$v/bundles/demo/requirements.md" >"$v/r" && mv "$v/r" "$v/bundles/demo/requirements.md"
+run "$v" --rows
+check_eq "obs: inside a word is no citation" 0 "$rc"
+
+v=$tmp/suffix
+build "$v"
+printf -- '- 2026-08-04 [demo] the hooked.shim wrapper and scripts/libbed.md and scripts/libbed/x are prose.\n' \
+  >"$v/bundles/_observations/entries/2026-08-04-none-aaaaaaa6.md"
+run "$v" --rows
+check_has "a longer extension or a nested path names no script" "$out" "obs:aaaaaaa6	2026-08-04	tests-only,library	parser-fragility	manual	-"
+
+v=$tmp/nodate
+build "$v"
+mv "$v/bundles/_observations/entries/2026-07-12-hooked-aaaaaaa1.md" "$v/bundles/_observations/entries/x-hooked-aaaaaaa1.md"
+run "$v"
+check_eq "a fragment name opening with no date fails closed" 5 "$rc"
+
+v=$tmp/symlink
+build "$v"
+mv "$v/bundles/_observations/entries/2026-07-12-hooked-aaaaaaa1.md" "$v/real.md"
+ln -s "$v/real.md" "$v/bundles/_observations/entries/2026-07-12-hooked-aaaaaaa1.md"
+run "$v"
+check_eq "a symlinked fragment fails closed" 5 "$rc"
+
+v=$tmp/ctl
+build "$v"
+printf 'obs:bbbbbbb1\thook\tnot mined\033]0;x\007\n' >>"$v/manual.tsv"
+printf 'obs:bbbbbbb1z\033[2J\thook\tbad id\n' >"$v/bad.tsv"
+run "$v"
+check_eq "an orphan row still exits 1" 1 "$rc"
+case $err in
+  *"$(printf '\033')"*) bad "a control byte reached stderr" ;;
+  *) ok "no control byte reaches stderr" ;;
+esac
+
+out=$("$SA" --obs-dir --spec "$base/bundles/demo")
+check_eq "--obs-dir prints the accumulator beside the bundle" "$base/bundles/_observations" "$out"
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
