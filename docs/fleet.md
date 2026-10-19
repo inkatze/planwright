@@ -310,6 +310,21 @@ this dispatch's own `new-session` reported, never a session found by looking,
 so an operator's own shell sitting in the worktree can never be adopted as the
 worker's.
 
+**Two more columns name the worker for messaging.** After the death handle a
+record carries the worker session's observed **name** and its messaging
+**inbox** (the socket's basename, never a path). Registration knows neither, so
+it writes both as `-`; the worker's own `SessionStart` hook
+(`fleet-messaging.sh self-register`) fills them by reading its per-session
+record and calling `fleet-register.sh --amend <worker> --name <name> --inbox
+<basename>`, which re-appends the worker's last record with only those two
+columns changed (`fleet-state.sh amend`). A value the registry's grammar
+refuses (a name with a space, say, which the session-name screen admits) is
+dropped with a warning naming it while the other still lands. Nothing reads a
+name back after a launch: a worker whose hook never ran keeps both sentinels,
+and a tower's downward messages to it take the fallback path. Records written
+before these columns (seven fields, or three before the owner) still parse
+everywhere.
+
 **Read the death handle as a hint, not an instruction.** The store authenticates
 no caller — anything running as the operator can append — a bare pid carries no
 start-time anchor and so cannot be told from a recycled one, and `none` is not
@@ -981,7 +996,11 @@ Long fleet runs manage their own context instead of quietly degrading:
 - **Context-budget auto-heal**: a tower tracks its completed-step count
   against `context_budget_threshold` and, on nearing it, performs the
   [continue-as-new handover](../doctrine/context-budget-autoheal.md): it
-  launches a fresh tower that rebuilds the entire in-flight picture from
+  launches a fresh tower with `scripts/fleet-tower-launch.sh <spec>
+  [--unattended]` (a detached headless session named
+  `planwright-tower-<spec>-<epoch>` under the tower profile, whose printed pid
+  the retiring tower confirms alive before it stops) that rebuilds the
+  entire in-flight picture from
   durable state (the `tasks.md` snapshot, `gh`, branches, markers, the worker
   registry) and stops. Nothing in-memory is passed — which is also the crash
   story: a tower that dies without handing over is rebuilt from the same
@@ -994,7 +1013,11 @@ Recovery is mode-aware (fleet-autonomy D-4), keyed off a durable **tower
 marker** the tower records at watch-loop start
 (`scripts/fleet-tower-marker.sh record <spec> --mode unattended|interactive
 --pid <pid> --checkout <repo-root> [--session-id <uuid>]
-[--tmux-session <name>]`) and clears on a graceful exit:
+[--tmux-session <name>] [--name <session name>]`) and clears on a graceful
+exit. `--name` is the tower's observed session name, from
+`scripts/fleet-messaging.sh self-name`: the address a peer tower's advisory
+uses. A single-step `/orchestrate` records no marker; a peer finds that tower
+through the session listing instead.
 
 - **Unattended towers** are supervised by
   `scripts/fleet-tower-watchdog.sh <spec-dir>` — a deterministic,
@@ -1003,8 +1026,9 @@ marker** the tower records at watch-loop start
   (`fleet-death-evidence.sh` — a timeout is never evidence), confirms ready
   work by calling through to `/orchestrate`'s own selector, then relaunches a
   fresh memoryless tower from disk state alone into its **own** detached tmux
-  session (`planwright-tower-<spec>`), under the existing per-spec advisory
-  lock with death re-verified before acting, so overlapping ticks can never
+  session (`planwright-tower-<spec>`, also the tower's session name, launched
+  with the tower profile through `--settings`), under the existing per-spec
+  advisory lock with death re-verified before acting, so overlapping ticks can never
   double-launch. Repeated failures back off on
   `tower_relaunch_backoff_base * 2^(n-1)` seconds and disable at
   `tower_relaunch_disable_threshold` with a decision-queue entry; a tower
@@ -1021,7 +1045,8 @@ marker** the tower records at watch-loop start
   them. Instead the `SessionStart` (`startup`) hook
   `scripts/fleet-tower-signpost.sh` detects an orphaned interactive marker
   for the directory you just started `claude` in (recorded pid positively
-  dead) and surfaces the exact resume command. It never auto-resumes and
+  dead) and surfaces the exact resume command, with the dead tower's session
+  name when the marker recorded one. It never auto-resumes and
   never discards the marker; after resuming or abandoning, clear it with
   `scripts/fleet-tower-marker.sh clear <spec>`.
 
@@ -1528,7 +1553,10 @@ read out of the CLI rather than the docs (which omit `WorktreeCreate`'s input
 schema and have drifted on others). And `mise run check` runs
 `scripts/check-hook-contracts.sh`, which fails if anything is registered on an
 event whose silence refuses the operation, if a registered event has no
-fixture, or if a decision hook emits JSON naming the wrong event. If you add a
+fixture, or if a decision hook emits JSON naming the wrong event. The
+`SessionStart` entry running `fleet-messaging.sh self-register` is an observer
+too: in a dispatched worker's session it records the worker's session name and
+inbox in the registry, and in any other session it does nothing. If you add a
 hook, add its fixture; if the guard reports an event it does not model, read
 that event's dispatch site and record what its silence means before registering
 anything on it.
@@ -2261,6 +2289,24 @@ an update that removed the exported root included), its hooks refuse every
 Bash call, and the GitHub MCP ready-flip, with a reason naming the guard and
 the remedy: export the root and relaunch. A running tower keeps the profile it
 launched with and picks up a changed profile only on relaunch.
+
+**Fleet launches pass the profiles themselves.** The three worker dispatch
+seams (`fleet-dispatch-worktree.sh`'s tmux rung, `fleet-streamjson.sh launch`,
+`fleet-dispatch-headless.sh launch`) launch every worker with `--settings`
+naming `config/worker-settings.json`, and the watchdog's relaunch and
+`scripts/fleet-tower-launch.sh` launch a tower with `config/tower-settings.json`,
+each with `PLANWRIGHT_MESSAGING_INBOUND=accept` exported beside it (the layer
+the messaging probe reads, since a `--settings` profile is not one of the
+settings files it parses). Each launch also names its session with `--name`:
+the worker's registry handle, `planwright-tower-<spec>` for a relaunch, and
+`planwright-tower-<spec>-<epoch>` for a handover, so the retiring tower and its
+replacement never share a name. The profile comes from the planwright root the
+launch pins its session to (`PLANWRIGHT_ROOT`, else the install the script runs
+from), resolved by `scripts/fleet-launch-profile.sh`; a profile that cannot be
+read refuses the launch, naming the file, rather than starting a session under
+the operator's own settings. On Claude Code 2.1.303, two `-p` launches given
+the same `--name` both start and both carry that name: the CLI neither renames
+nor refuses, so a duplicate shows up only in the session listing.
 
 The `/tower` front door runs under the same profile. The shapes its sessions
 run routinely (the posture check's `jq` projections, and a flight petition's

@@ -91,10 +91,11 @@ state**.
    crash-safe on its own (bootstrap D-8), so the tower either completes the
    in-flight step or leaves it exactly as a crash would — the reconcile handles
    both. It does not start a new dispatch once it has decided to hand off.
-2. **Start the fresh tower.** Launch a new top-level session (headless
-   `claude -p "<wake prompt>"` is the documented path; `--output-format json`
-   returns its session id) seeded with the tower's **standing instructions / wake
-   prompt**. That prompt **is** the handover document — there is no second
+2. **Start the fresh tower.** Launch a new top-level session with
+   `scripts/fleet-tower-launch.sh <spec> [--unattended]` (`--meta` for a
+   meta-tower): a headless session it names and gives the tower profile, seeded
+   with the tower's **standing instructions / wake prompt**, its printed pid the
+   evidence step 3 needs. That prompt **is** the handover document — there is no second
    artifact to keep in sync (REQ-C1.2; the operational-protocol seed found the
    wake prompt already *is* the handover). The fresh tower's first act is the
    reconcile sweep, which rebuilds the picture from disk.
