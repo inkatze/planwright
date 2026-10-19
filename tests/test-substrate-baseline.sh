@@ -110,9 +110,25 @@ commit 2026-08-01T10:00:00Z githooks/pre-commit "fix!: hook"
 commit 2026-08-02T10:00:00Z scripts/a.sh "refactor: fixup wording"
 commit 2026-08-03T10:00:00Z scripts/a.sh "fixes: not a type"
 commit 2026-11-02T10:00:00Z scripts/a.sh "fix: after the as-of date"
+commit 2025-12-30T10:00:00Z scripts/a.sh "fix: across the year"
+commit 2026-08-20T10:00:00Z scripts/a.sh "fix: after a mid-month cutoff"
+# On the month's last day, late in UTC: a non-UTC month would move it.
+commit 2026-09-30T23:30:00Z scripts/a.sh "fix: late on the last day"
+# Authored in June, committed in July: the committer month counts.
+printf 'b\n' >"$fx/scripts/b.sh"
+git -C "$fx" add -- scripts/b.sh >/dev/null
+GIT_AUTHOR_DATE=2026-06-20T10:00:00Z GIT_COMMITTER_DATE=2026-07-05T10:00:00Z \
+  git -C "$fx" -c core.hooksPath=/dev/null commit -q -m "fix(b): authored earlier" >/dev/null
+# A merge commit touching the layer never counts; the commit it merges does.
+trunk=$(git -C "$fx" symbolic-ref --short HEAD)
+git -C "$fx" checkout -q -b side
+commit 2026-10-05T10:00:00Z scripts/c.sh "feat: on a side branch"
+git -C "$fx" checkout -q "$trunk"
+GIT_AUTHOR_DATE=2026-10-06T10:00:00Z GIT_COMMITTER_DATE=2026-10-06T10:00:00Z \
+  git -C "$fx" -c core.hooksPath=/dev/null merge -q --no-ff -m "fix: a merge commit" side >/dev/null
 
 run() { # run [<wall-clock capture>]
-  out=$("$SB" --as-of 2026-10-31 --spec "$fx/bundles/demo" --legacy "$fx/legacy.tsv" \
+  out=$(TZ=Pacific/Kiritimati "$SB" --as-of 2026-10-31 --spec "$fx/bundles/demo" --legacy "$fx/legacy.tsv" \
     --wallclock "${1:-$rec/wc.tsv}" --hand-backs "$rec/hand-backs.tsv" 2>"$tmp/err")
   rc=$?
   err=$(cat "$tmp/err")
@@ -123,10 +139,12 @@ check_eq "baseline exits zero" 0 "$rc"
 check_has "snapshot is dated" "$out" "# Substrate maintenance-cost baseline, as of 2026-10-31"
 # REQ-G1.1: fix rate per month, layer commits only, up to the as-of date.
 check_has "June: two layer commits, one fix-typed, no hand-backs" "$out" "| 2026-06 | 2 | 1 | 0 |"
-check_has "July: no commits, two hand-backs" "$out" "| 2026-07 | 0 | 0 | 2 |"
-check_has "August: three layer commits, one fix-typed (fix!), one hand-back" "$out" "| 2026-08 | 3 | 1 | 1 |"
-check_has "an empty month is listed" "$out" "| 2026-09 | 0 | 0 | 0 |"
-check_has "October closes the range" "$out" "| 2026-10 | 0 | 0 | 0 |"
+check_has "July: the commit authored in June, two hand-backs" "$out" "| 2026-07 | 1 | 1 | 2 |"
+check_has "August: four layer commits, two fix-typed (fix! included), one hand-back" "$out" "| 2026-08 | 4 | 2 | 1 |"
+check_has "September: the late UTC commit stays in its month" "$out" "| 2026-09 | 1 | 1 | 0 |"
+check_has "October: the merged commit, not the merge" "$out" "| 2026-10 | 1 | 0 | 0 |"
+check_has "the range opens in the earlier year" "$out" "| 2025-12 | 1 | 1 | 0 |"
+check_has "the month after December is January" "$out" "| 2026-01 | 0 | 0 | 0 |"
 check_eq "nothing after the as-of date" "" "$(printf '%s\n' "$out" | grep '2026-11')"
 # Inflow: June has two legacy lines (one mined, portability); August has three
 # fragments (two mined: one flaky lock, one lock) and one outside the set.
@@ -135,6 +153,8 @@ check_has "July inflow" "$out" "| 2026-07 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 
 check_has "August inflow" "$out" "| 2026-08 | 3 | 1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |"
 check_has "wall-clock median present and non-zero" "$out" "| median of 3 runs | 400 |"
 check_has "wall-clock fastest" "$out" "| fastest | 300 |"
+check_has "wall-clock slowest" "$out" "| slowest | 500 |"
+check_has "a per-run row" "$out" "| 2 | 2026-10-02T00:00:00Z | $sha | 500 |"
 first=$out
 run
 check_eq "snapshot regenerates byte-identically" "$first" "$out"
@@ -149,6 +169,27 @@ printf 'obs:aaaaaaa1\t1\tagain\n' >>"$rec/hand-backs.tsv"
 run
 check_eq "a repeated hand-back row fails closed" 5 "$rc"
 cp "$tmp/hb.keep" "$rec/hand-backs.tsv"
+
+printf 'obs:bbbbbbb1\t1\tunmined\n' >>"$rec/hand-backs.tsv"
+run
+check_eq "a hand-back outside the mined set fails closed" 5 "$rc"
+cp "$tmp/hb.keep" "$rec/hand-backs.tsv"
+printf 'obs:aaaaaaa1\tmany\tnot a count\n' >>"$rec/hand-backs.tsv"
+run
+check_eq "a malformed hand-back row fails closed" 5 "$rc"
+cp "$tmp/hb.keep" "$rec/hand-backs.tsv"
+
+printf '4\t2026-10-04T00:00:00Z\t%s\t100\n3\t2026-10-03T00:00:00Z\t%s\t401\n2\t2026-10-02T00:00:00Z\t%s\t200\n1\t2026-10-01T00:00:00Z\t%s\t301\n' \
+  "$sha" "$sha" "$sha" "$sha" >"$tmp/wc-four.tsv"
+run "$tmp/wc-four.tsv"
+check_has "an even run count averages the middle pair" "$out" "| median of 4 runs | 250.5 |"
+check_has "the slowest of four" "$out" "| slowest | 401 |"
+
+out=$("$SB" --as-of 2026-08-11 --spec "$fx/bundles/demo" --legacy "$fx/legacy.tsv" \
+  --wallclock "$rec/wc.tsv" --hand-backs "$rec/hand-backs.tsv" 2>&1)
+check_eq "a mid-month cutoff runs" 0 "$?"
+check_has "commits after a mid-month cutoff drop out" "$out" "| 2026-08 | 3 | 1 | 1 |"
+check_has "observations after a mid-month cutoff drop out" "$out" "| 2026-08 | 2 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |"
 
 printf '# only a comment\n' >"$tmp/wc-empty.tsv"
 run "$tmp/wc-empty.tsv"

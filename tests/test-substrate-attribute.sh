@@ -317,6 +317,77 @@ case $err in
   *) ok "no control byte reaches stderr" ;;
 esac
 
+# Naming forms and tiers the base fixture reaches only through the manual file.
+v=$tmp/forms
+build "$v"
+awk '{ print } /^- \*\*Observations, parser-fragility class:\*\*/ { print "  obs:aaaaaaa7, obs:aaaaaaa8." }' \
+  "$v/bundles/demo/requirements.md" >"$v/r" && mv "$v/r" "$v/bundles/demo/requirements.md"
+printf -- '- 2026-08-05 [demo] testonly.sh and scripts/hooked and `libbed` and hooked.sh again.\n' \
+  >"$v/bundles/_observations/entries/2026-08-05-many-aaaaaaa7.md"
+printf -- '- 2026-08-06 [demo] scripts/hooked without its suffix.\n' \
+  >"$v/bundles/_observations/entries/2026-08-06-bare-aaaaaaa8.md"
+run "$v" --rows
+check_has "several scripts in several tiers, each once" "$out" "obs:aaaaaaa7	2026-08-05	tests-only,hook,library	parser-fragility	script	scripts/testonly.sh,scripts/hooked.sh,scripts/libbed.sh"
+check_has "scripts/<stem> without a suffix names the script" "$out" "obs:aaaaaaa8	2026-08-06	hook	parser-fragility	script	scripts/hooked.sh"
+
+# The whole snapshot of the base fixture, so every row, count and column is
+# pinned, not only a sample.
+run "$base"
+expected_rows='| tier | lock-concurrency | parser-fragility | echo-sanitization | duplicated-primitive | perf-spawn-cost | portability | lint-gap | plugin-delivery | test-flakiness | instruction-headroom | auditability | items |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| hook | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 2 |
+| skill-called | 0 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |
+| library | 1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |
+| dev-check | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 1 | 2 |
+| tests-only | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| any tier | 2 | 3 | 0 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | 2 | 8 |'
+check_eq "the matrix table is exact" "$expected_rows" "$(printf '%s\n' "$out" | sed -n '/^| tier |/,/^| any tier |/p')"
+check_has "named-script count" "$out" "| attributed through a named script | 6 |"
+check_has "nothing unattributed" "$out" "| unattributed | 0 |"
+check_has "the regeneration command" "$out" "mise run substrate:attribute -- --as-of 2026-09-30 --out docs/substrate/pain-matrix-2026-09-30.md"
+check_has "an attribution row with every column" "$out" "| obs:aaaaaaa4 | 2026-08-02 | dev-check | auditability | script | scripts/devtool.sh, not-in-layer:gone.sh |"
+out=$(LC_ALL=en_US.UTF-8 "$SA" --as-of 2026-09-30 --spec "$base/bundles/demo" --partition "$base/partition.tsv" \
+  --legacy "$base/legacy.tsv" --manual "$base/manual.tsv" 2>/dev/null)
+check_eq "the caller's locale does not change the snapshot" "$first" "$out"
+
+# Fail-closed paths, each by exit 5 rather than 1.
+v=$tmp/outside
+build "$v"
+sed 's/^- \*\*Some other source.\*\* No citations here.$/- **Some other source.** It cites obs:aaaaaaa1./' \
+  "$v/bundles/demo/requirements.md" >"$v/r" && mv "$v/r" "$v/bundles/demo/requirements.md"
+run "$v"
+check_eq "a citation in another Sources bullet fails closed" 5 "$rc"
+
+v=$tmp/nohdr
+build "$v"
+sed 1d "$v/partition.tsv" >"$v/p" && mv "$v/p" "$v/partition.tsv"
+run "$v"
+check_eq "a partition with no header fails closed" 5 "$rc"
+
+v=$tmp/noline
+build "$v"
+printf 'legacy:2026-06-14:none\tportability\tnothing on that day\n' >>"$v/legacy.tsv"
+run "$v"
+check_eq "a legacy match on no line fails closed" 5 "$rc"
+
+v=$tmp/duplegacy
+build "$v"
+printf 'legacy:2026-06-11:range-globs\tportability\tdevtool.sh\n' >>"$v/legacy.tsv"
+run "$v"
+check_eq "a duplicate legacy id fails closed" 5 "$rc"
+
+v=$tmp/dupmanual
+build "$v"
+printf 'obs:aaaaaaa6\tlibrary\tagain\n' >>"$v/manual.tsv"
+run "$v"
+check_eq "a duplicate manual row fails closed" 5 "$rc"
+
+v=$tmp/noreason
+build "$v"
+printf 'obs:bbbbbbb3\thook\t\n' >>"$v/manual.tsv"
+run "$v"
+check_eq "a manual row with no reason fails closed" 5 "$rc"
+
 out=$("$SA" --obs-dir --spec "$base/bundles/demo")
 check_eq "--obs-dir prints the accumulator beside the bundle" "$base/bundles/_observations" "$out"
 

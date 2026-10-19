@@ -267,6 +267,71 @@ case $out in
   *) ok "no control byte reaches the output" ;;
 esac
 
+v=$tmp/refthenfigure
+build "$v"
+append "$v/b/tasks.md" "Task 3 adds 663 commits a month."
+run "$v"
+check_eq "a figure after a reference on the same line still fires" 1 "$rc"
+
+v=$tmp/metavalues
+build "$v"
+sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** 663/; s/^- \*\*Dependencies:\*\* none$/- **Dependencies:** 663/' \
+  "$v/b/requirements.md" >"$v/r" && mv "$v/r" "$v/b/requirements.md"
+sed 's/^- \*\*Dependencies:\*\* none$/- **Dependencies:** 663/' "$v/b/tasks.md" >"$v/t" && mv "$v/t" "$v/b/tasks.md"
+run "$v"
+check_eq "Format-version and Dependencies values are not figures" 0 "$rc"
+
+v=$tmp/aftersources
+build "$v"
+printf '\n## Later\n\nThe body says 663 again.\n' >>"$v/b/requirements.md"
+run "$v"
+check_eq "prose after the Sources section is checked again" 1 "$rc"
+
+v=$tmp/verdictends
+build "$v"
+append "$v/b/design.md" "- **Measurements:** 663 commits (report field x)."
+append "$v/b/design.md" "- **Cost-benefit:** 663 a month."
+append "$v/b/design.md" "- A sibling item says 41.5."
+run "$v"
+check_eq "a plural label and a list-form label are exempt; the next item is not" 1 "$rc"
+check_eq "only the sibling item fires" 1 "$(printf '%s\n' "$out" | grep -c figure)"
+
+v=$tmp/headingends
+build "$v"
+append "$v/b/design.md" "**Measurement:** 663 commits"
+append "$v/b/design.md" "### D-3: Next"
+append "$v/b/design.md" "Body 663."
+run "$v"
+check_eq "a heading ends a measurement paragraph" 1 "$rc"
+
+v=$tmp/nondecision
+build "$v"
+printf '\n### Notes\n\n**Measurement:** 663 outside a decision heading.\n' >>"$v/b/design.md"
+run "$v"
+check_eq "a measurement label under a non-decision heading is not exempt" 1 "$rc"
+
+v=$tmp/exemptfile
+build "$v"
+append "$v/b/test-spec.md" "A median of 41.5 seconds."
+printf 'design.md\t41.5\tthe other file\n' >>"$v/exempt.tsv"
+run "$v"
+check_eq "an exemption covers its own file only" 1 "$rc"
+check_has "the other file's row is stale" "$out" "stale exemption: design.md 41.5"
+
+v=$tmp/tsvsnap
+build "$v"
+printf '9999\t9998\n' >"$v/snap/capture.tsv"
+append "$v/b/test-spec.md" "A count of 9999."
+run "$v"
+check_eq "only Markdown snapshots carry figures" 0 "$rc"
+
+v=$tmp/missing
+build "$v"
+out=$("$CN" --bundle "$v/b" --snapshots "$v/nosuch" --exempt "$v/exempt.tsv" 2>&1)
+check_eq "a missing snapshot directory fails closed" 5 "$?"
+out=$("$CN" --bundle "$v/b" --snapshots "$v/snap" --exempt "$v/nosuch.tsv" 2>&1)
+check_eq "a missing exemption list fails closed" 5 "$?"
+
 v=$tmp/nobundle
 build "$v"
 rm "$v/b/tasks.md"
