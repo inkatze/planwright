@@ -45,7 +45,7 @@ for f in "$FIXTURE" "$TQ" "$WORKER_GUARD" "$TOWER_GUARD" "$POLICY_GUARD" "$WORKE
   fi
 done
 
-RC_ACTS="pr-merge merge-helper flip undo-flip force-push protected-push base-merge amend squash fixup rebase opaque other"
+RC_ACTS="pr-merge merge-helper redraft-helper flip undo-flip force-push protected-push base-merge amend squash fixup rebase opaque other"
 RC_COPIES="queue ready wguard tguard pguard wprof tprof"
 # The knobs a policy line may name, each with its legal values.
 RC_KNOBS="ready_flip_policy=human,unit-owner merge_policy=human,on-approval,policy-class worker_base_merge=allow,deny unpushed_rewrite=allow,deny"
@@ -80,7 +80,7 @@ EOF
       ;;
   esac
   case "$RC_POLICY" in
-    floor | floor-guard) ;;
+    floor | floor-guard | admitted) ;;
     *=*)
       knob=${RC_POLICY%%=*}
       val=${RC_POLICY#*=}
@@ -101,7 +101,7 @@ EOF
       esac
       ;;
     *)
-      RC_ERR="policy '$RC_POLICY' is neither floor, floor-guard, nor <knob>=<value>"
+      RC_ERR="policy '$RC_POLICY' is neither floor, floor-guard, admitted, nor <knob>=<value>"
       return 1
       ;;
   esac
@@ -121,12 +121,22 @@ EOF
     fi
   done
   if { [ "$wg" = allow ] || [ "$tg" = allow ]; } \
-    && { [ "$RC_ACT" != merge-helper ] || [[ $RC_SPELL != *merge-admitted.sh* ]]; }; then
-    RC_ERR="a command guard allows only the merge helper among the reserved acts, spelled as the helper"
+    && { [ "$RC_ACT" != merge-helper ] || [[ $RC_SPELL != *merge-admitted.sh* ]]; } \
+    && { [ "$RC_ACT" != redraft-helper ] || [[ $RC_SPELL != *request-reviewer.sh* ]]; }; then
+    RC_ERR="a command guard allows only the two helpers among the reserved acts, spelled as the helper"
     return 1
   fi
   if [ "$RC_ACT" = merge-helper ] && [[ $RC_SPELL != *merge-admitted.sh* ]]; then
     RC_ERR="a merge-helper line must spell scripts/merge-admitted.sh"
+    return 1
+  fi
+  if [ "$RC_ACT" = redraft-helper ] && [[ $RC_SPELL != *request-reviewer.sh* ]]; then
+    RC_ERR="a redraft-helper line must spell scripts/request-reviewer.sh"
+    return 1
+  fi
+  if { [ "$RC_ACT" = redraft-helper ] && [ "$RC_POLICY" != admitted ]; } \
+    || { [ "$RC_ACT" != redraft-helper ] && [ "$RC_POLICY" = admitted ]; }; then
+    RC_ERR="a redraft-helper line takes the admitted policy, and no other act's line may"
     return 1
   fi
   for v in $q $r $wg $tg $pg; do
@@ -136,9 +146,9 @@ EOF
     fi
   done
   case "$RC_SPELL" in
-    'git '* | 'gh '* | 'bash '* | 'env '* | 'scripts/merge-admitted.sh '* | mcp__*) ;;
+    'git '* | 'gh '* | 'bash '* | 'env '* | 'scripts/merge-admitted.sh '* | 'scripts/request-reviewer.sh '* | mcp__*) ;;
     *)
-      RC_ERR="spelling '$RC_SPELL' is not a git, gh, wrapped gh, merge-helper, or MCP call (a column is missing or misplaced)"
+      RC_ERR="spelling '$RC_SPELL' is not a git, gh, wrapped gh, helper, or MCP call (a column is missing or misplaced)"
       return 1
       ;;
   esac
@@ -178,6 +188,15 @@ EOF
         RC_ERR="a floor-guard line must be denied by the policy guard"
         return 1
       fi
+      ;;
+    # Nothing refuses the helper itself: it performs no act a copy classifies.
+    admitted)
+      for v in $q $r $pg $wp $tp; do
+        if [ "$v" != defer ] && [ "$v" != n/a ]; then
+          RC_ERR="an admitted line is deferred by every copy but the command guards"
+          return 1
+        fi
+      done
       ;;
   esac
   return 0
@@ -265,7 +284,8 @@ GOOD='pr-merge any floor deny defer defer defer deny deny deny gh pr merge 42'
 for good in "$GOOD" \
   'opaque worker floor-guard n/a defer defer n/a deny prompt n/a gh api graphql -F query=@q.graphql' \
   'other tower floor-guard defer defer n/a defer defer n/a prompt gh api graphql -f query=x' \
-  'base-merge worker worker_base_merge=allow n/a defer defer n/a defer defer n/a git merge origin/main'; do
+  'base-merge worker worker_base_merge=allow n/a defer defer n/a defer defer n/a git merge origin/main' \
+  'redraft-helper tower admitted defer defer n/a allow defer n/a defer scripts/request-reviewer.sh --repo acme/widgets --pr 42 --copilot'; do
   if rc_parse_line "$good"; then
     pass "a complete line parses: $good"
   else
@@ -302,6 +322,12 @@ a floor-guard line a profile only defers|flip tower floor-guard deny defer n/a d
 a floor-guard line a profile denies|flip worker floor-guard n/a defer defer n/a deny deny n/a gh api graphql -F query=@q.graphql
 a floor-guard line the policy guard defers|opaque worker floor-guard n/a defer defer n/a defer prompt n/a gh api graphql -F query=@q.graphql
 an other line the policy guard denies|other worker floor-guard n/a defer defer n/a deny prompt n/a gh api graphql -f query=x
+a redraft-helper line that runs something else|redraft-helper worker admitted n/a defer allow n/a defer defer n/a git status
+a redraft-helper line under a knob|redraft-helper worker ready_flip_policy=human n/a defer allow n/a defer defer n/a scripts/request-reviewer.sh --repo acme/widgets --pr 42 --copilot
+an admitted line for another act|other worker admitted n/a defer defer n/a defer prompt n/a gh api graphql -f query=x
+an admitted line the policy guard denies|redraft-helper worker admitted n/a defer allow n/a deny defer n/a scripts/request-reviewer.sh --repo acme/widgets --pr 42 --copilot
+an admitted line a profile denies|redraft-helper tower admitted defer defer n/a allow defer n/a deny scripts/request-reviewer.sh --repo acme/widgets --pr 42 --copilot
+a command guard allowing the merge helper's name on the re-draft act|redraft-helper worker admitted n/a defer allow n/a defer defer n/a scripts/merge-admitted.sh --spec specs/demo --task 1
 an opaque line under a knob|opaque worker ready_flip_policy=human n/a defer defer n/a deny prompt n/a gh api graphql -F query=@q.graphql
 EOF
 
@@ -468,10 +494,10 @@ guard_verdict() {
   hook_verdict "$out"
 }
 
-# Every fixture line but the merge helper's expects the allow-only guards to
+# Every fixture line but the two helpers' expects the allow-only guards to
 # defer, and a guard that never ran defers too; a known-safe command must come
-# back allowed first. The helper is a repository script both guards allow, so
-# the policy guard is the layer that refuses it.
+# back allowed first. Each helper is a repository script both guards allow, so
+# the policy guard is the layer that refuses the merge helper.
 for hook in "$WORKER_GUARD" "$TOWER_GUARD"; do
   got=$(guard_verdict "$hook" 'git status')
   if [ "$got" = allow ]; then

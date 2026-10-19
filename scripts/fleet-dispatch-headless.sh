@@ -63,6 +63,12 @@
 #     the static launch-pin guard (tests/test-dispatch-launch-pin.sh), which
 #     discovers `-p`-family launch sites by the long `--print` form this
 #     primitive deliberately uses.
+#   - The launch passes the worker profile (`--settings`, from the root the
+#     env wrapper pins the worker to) and names the session after its handle
+#     (`--name headless-<spec>-task-<id>`), with
+#     PLANWRIGHT_MESSAGING_INBOUND=accept exported beside the identity; an
+#     unreadable profile refuses the launch (exit 2) before anything is
+#     placed (fleet-messaging D-8, D-19).
 #   - The launch NEVER attaches a permission prompt tool (a passthrough
 #     `--permission-prompt-tool` is refused): a one-shot has no pend path. An
 #     unauthorized ask fails under `--print`'s non-interactive default and the
@@ -541,6 +547,18 @@ do_launch() {
     exit 2
   fi
 
+  # The session is named after the handle, which the relay's headless-oneshot
+  # grammar owns, and the worker profile rides --settings: the one under the
+  # root the core root chain names (fleet-launch-profile.sh), refused when
+  # unreadable rather than launched without (fleet-messaging D-8, D-19).
+  l_handle="headless-$l_spec-task-$l_id"
+  l_scope="$l_spec:$l_id"
+  if ! /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle headless-oneshot "$l_handle" 2>/dev/null; then
+    warn "refusing: the session name $l_handle is outside the headless-oneshot grammar"
+    exit 2
+  fi
+  l_profile=$(/bin/sh "$script_dir/fleet-launch-profile.sh" worker </dev/null) || exit 2
+
   # Collision guard: never double-dispatch a unit whose runner may be live.
   # Death is decided by positive evidence only; UNKNOWN refuses too (lost
   # observability is not a license to double-dispatch). A dead or completed
@@ -634,9 +652,6 @@ do_launch() {
     exit 2
   }
 
-  l_handle="headless-$l_spec-task-$l_id"
-  l_scope="$l_spec:$l_id"
-
   # Write the durable `launched` timestamp BEFORE backgrounding (C1): it is the
   # marker the collision guard ages against, so even a launch killed in the
   # window before the pid is recorded leaves a marker that reads as in-flight
@@ -660,7 +675,7 @@ do_launch() {
   # completion, and only an untrappable SIGKILL leaves the positive-evidence
   # `died` verdict.
   nohup /bin/sh "$SELF" run-worker "$unit_dir" "$l_worktree" "$l_handle" "$l_scope" -- \
-    "$l_bin" --print --output-format json "$@" \
+    "$l_bin" --print --output-format json --settings "$l_profile" --name "$l_handle" "$@" \
     >/dev/null 2>&1 </dev/null &
   l_pid=$!
   if ! printf '%s\n' "$l_pid" >"$unit_dir/pid"; then
@@ -783,9 +798,12 @@ do_run_worker() {
   # The dispatch-time identity env (fleet-liveness.sh hook contract): the
   # worker session inherits these, so its plugin hooks push liveness for
   # exactly this unit (hook_registration=true on the contract row).
+  # The inbound layer the messaging probe reads beside the --settings profile
+  # (fleet-messaging D-17).
   PLANWRIGHT_WORKER_HANDLE=$r_handle
   PLANWRIGHT_WORKER_SCOPE=$r_scope
-  export PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE
+  PLANWRIGHT_MESSAGING_INBOUND=accept
+  export PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_MESSAGING_INBOUND
 
   # Trap-forward supervision (C2): run the worker as a background child and wait
   # on it, so the runner (the recorded pid) can FORWARD a graceful kill into the

@@ -32,6 +32,8 @@ export GIT_CONFIG_SYSTEM=/dev/null
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -209,16 +211,6 @@ actions_for() {
   audit | awk -F'\t' -v w="worker=$1 " 'index($6, w) == 1 { print $4 }'
 }
 
-wait_until() {
-  wu_end=$((SECONDS + $1))
-  shift
-  while [ "$SECONDS" -lt "$wu_end" ]; do
-    "$@" >/dev/null 2>&1 && return 0
-    sleep 0.1
-  done
-  "$@" >/dev/null 2>&1
-}
-
 classified() {
   ienv -- fleet-stuck-detector.sh classify "$1" --tower-id "$self_id" \
     | awk -F'\t' -v s="$2" '$1 == "worker" && $3 == s { f = 1 } END { exit f ? 0 : 1 }'
@@ -236,7 +228,7 @@ sj_launch() {
   ienv PLANWRIGHT_TOWER_ID="$2" SHIM_EVENTS="$ev_done" -- \
     fleet-streamjson.sh launch "$1" demo:4 --prompt-file "$tmp/prompt" --cwd "$repo" >/dev/null \
     || fail "stream-json launch of $1 failed"
-  wait_until 30 classified "$1" finished-but-unreaped \
+  poll_until --what 'finished-but-unreaped' -- classified "$1" finished-but-unreaped \
     || fail "$1 never classified finished-but-unreaped"
 }
 
@@ -263,13 +255,15 @@ start_watch() {
 cycles() {
   awk -F'\t' '$1 == "summary" { n++ } END { print n + 0 }' "$1"
 }
-# stop_watch <what> — TERM the loop; it must end within 5s and not exit 0.
+# stop_watch <what> — TERM the loop; it must end within 60s and not exit 0. A
+# loop that ignored TERM would run on, and one parked in an hour or the 10m
+# default shows the wait between cycles is interrupted, not sat out.
 stop_watch() {
   kill -TERM "$watch_pid"
   sw_start=$SECONDS
   sw_rc=0
   wait "$watch_pid" || sw_rc=$?
-  [ $((SECONDS - sw_start)) -le 5 ] || fail "$1: the watch loop took $((SECONDS - sw_start))s to stop on TERM"
+  [ $((SECONDS - sw_start)) -le 60 ] || fail "$1: the watch loop took $((SECONDS - sw_start))s to stop on TERM"
   [ "$sw_rc" != 0 ] || fail "$1: a watch loop stopped by TERM exited 0"
 }
 three_fired() {
@@ -277,7 +271,7 @@ three_fired() {
 }
 printf 'fleet_sweep_interval: 1s\n' >"$mlocal_cfg"
 start_watch "$tmp/watch-out" "$tmp/watch-err"
-wait_until 30 three_fired || fail "the watch loop did not fire three cycles on a 1s interval: $(cat "$tmp/watch-out") $(cat "$tmp/watch-err")"
+poll_until --what 'three cycles' -- three_fired || fail "the watch loop did not fire three cycles on a 1s interval: $(cat "$tmp/watch-out") $(cat "$tmp/watch-err")"
 stop_watch "a 1s loop"
 # A long interval proves the wait between cycles is interrupted, not sat out.
 printf 'fleet_sweep_interval: 1h\n' >"$mlocal_cfg"
@@ -285,7 +279,7 @@ start_watch "$tmp/watch-out" "$tmp/watch-err"
 one_fired() {
   [ "$(cycles "$tmp/watch-out")" -ge 1 ]
 }
-wait_until 30 one_fired || fail "the 1h watch loop never ran its first cycle: $(cat "$tmp/watch-err")"
+poll_until --what 'the first cycle' -- one_fired || fail "the 1h watch loop never ran its first cycle: $(cat "$tmp/watch-err")"
 stop_watch "a 1h loop"
 # bad-value:expected-warning — a malformed value degrades to the default, and
 # a well-formed sub-second one waits the floor.
@@ -293,7 +287,7 @@ for cell in '0s:fleet_sweep_interval' '0.4ms:under 1s'; do
   bad=${cell%%:*}
   printf 'fleet_sweep_interval: %s\n' "$bad" >"$mlocal_cfg"
   start_watch "$tmp/watch-out" "$tmp/watch-err"
-  wait_until 10 grep -q "${cell#*:}" "$tmp/watch-err" \
+  poll_until --what 'the interval warning' -- grep -q "${cell#*:}" "$tmp/watch-err" \
     || fail "an interval of $bad was not warned about: $(cat "$tmp/watch-err")"
   sleep 2
   [ "$(cycles "$tmp/watch-out")" -le 3 ] || fail "an interval of $bad ran cycles back to back: $(cycles "$tmp/watch-out") in 2s"
@@ -370,8 +364,8 @@ sjx_dir="$home/streamjson/sjx"
 sjx_sup=$(cat "$sjx_dir/supervisor.pid")
 sjx_wrk=$(cat "$sjx_dir/worker.pid")
 kill -9 "$sjx_sup" "$sjx_wrk" 2>/dev/null || :
-wait_until 10 gone "$sjx_sup" || fail "fixture: the crashed supervisor is still running"
-wait_until 10 gone "$sjx_wrk" || fail "fixture: the crashed worker is still running"
+poll_until --what 'the pid gone' -- gone "$sjx_sup" || fail "fixture: the crashed supervisor is still running"
+poll_until --what 'the pid gone' -- gone "$sjx_wrk" || fail "fixture: the crashed worker is still running"
 printf '#!/bin/sh\nwhile :; do sleep 1; done\n' >"$tmp/reissued.sh"
 chmod +x "$tmp/reissued.sh"
 "$tmp/reissued.sh" &
@@ -450,10 +444,10 @@ start_watch "$tmp/watch-out" "$tmp/watch-err"
 observed_sjw2() {
   awk -F'\t' '$1 == "reap" && $2 == "sjw2" && $3 == "observed" { f = 1 } END { exit f ? 0 : 1 }' "$tmp/watch-out"
 }
-wait_until 30 observed_sjw2 || fail "the watch loop never observed sjw2: $(cat "$tmp/watch-out")"
+poll_until --what 'sjw2 observed' -- observed_sjw2 || fail "the watch loop never observed sjw2: $(cat "$tmp/watch-out")"
 alive "$sup2" || fail "an observing watch loop killed sjw2"
 printf 'fleet_sweep_interval: 1s\nfleet_sweep_reap: terminate\n' >"$mlocal_cfg"
-wait_until 30 grep -q 'terminate is refused' "$tmp/watch-err" \
+poll_until --what 'the refused terminate' -- grep -q 'terminate is refused' "$tmp/watch-err" \
   || fail "the running loop did not read the flipped knob: $(cat "$tmp/watch-out") $(cat "$tmp/watch-err")"
 alive "$sup2" || fail "a running loop flipped to a refused terminate killed sjw2"
 # A 1s loop is nearly always mid-cycle, and a signal there waits for the child
@@ -463,7 +457,7 @@ flip_n=$(cycles "$tmp/watch-out")
 past_flip() {
   [ "$(cycles "$tmp/watch-out")" -gt "$flip_n" ]
 }
-wait_until 60 past_flip || fail "the flipped loop never finished another cycle: $(cat "$tmp/watch-err")"
+poll_until --what 'a cycle past the flip' -- past_flip || fail "the flipped loop never finished another cycle: $(cat "$tmp/watch-err")"
 stop_watch "a loop whose knob flipped"
 rm -f "$mlocal_cfg"
 echo "ok: a running watch loop re-reads the knob every cycle; flipping it takes effect with no restart"

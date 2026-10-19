@@ -55,7 +55,7 @@ sjU_wrk=$wrk
 unobservable sjU
 sj_launch sjD "$ev_init" "$peer_id"
 kill -9 "$sup" "$wrk" 2>/dev/null
-wait_until 30 gone "$sup" || fail "fixture: sjD's supervisor survived SIGKILL"
+poll_until --what "sjD's supervisor gone" -- gone "$sup" || fail "fixture: sjD's supervisor survived SIGKILL"
 
 hl_launch 4 "$peer_id"
 hlE=$hw
@@ -72,11 +72,11 @@ unobservable "$hlU"
 hl_launch 7 "$peer_id"
 hlD=$hw
 kill -9 "$runner" 2>/dev/null
-wait_until 30 gone "$runner" || fail "fixture: $hlD's runner survived SIGKILL"
+poll_until --what "$hlD's runner gone" -- gone "$runner" || fail "fixture: $hlD's runner survived SIGKILL"
 
 for w in sjE:finished-but-unreaped sjR:working sjU:unclassified sjD:dead \
   "$hlE:finished-but-unreaped" "$hlR:working" "$hlU:unclassified" "$hlD:dead"; do
-  wait_until 30 classified "${w%%:*}" "${w#*:}" || fail "fixture: ${w%%:*} never classified ${w#*:}"
+  poll_until --what "${w%%:*} classified ${w#*:}" -- classified "${w%%:*}" "${w#*:}" || fail "fixture: ${w%%:*} never classified ${w#*:}"
 done
 
 # pids_of <worker> — the processes a refusal must leave running.
@@ -210,7 +210,7 @@ ran reap:sj:dead:ended
 
 icleanup "$hlE"
 [ "$rc" = 0 ] || fail "reap:hl:dead:ended: exit $rc ($err)"
-wait_until 10 gone "$hlE_run" || fail "reap:hl:dead:ended: the runner survived the reap"
+poll_until --what 'the reaped runner gone' -- gone "$hlE_run" || fail "reap:hl:dead:ended: the runner survived the reap"
 [ "$(reaps_of "$hlE")" = 1 ] || fail "reap:hl:dead:ended: expected one termination record, got $(reaps_of "$hlE")"
 grep -q "^$hlE$tab" "$store" && fail "reap:hl:dead:ended: the worker's attention row was not released"
 untouched "reap:hl:dead:ended"
@@ -236,7 +236,7 @@ stop_cells() {
     *) fail "stop:$sc_rung:close: unexpected result: $sc_out" ;;
   esac
   for p in "$@"; do
-    wait_until 10 gone "$p" || fail "stop:$sc_rung:close: pid $p survived"
+    poll_until --what "pid $p gone" -- gone "$p" || fail "stop:$sc_rung:close: pid $p survived"
   done
   untouched "stop:$sc_rung:close"
   strand_intact "stop:$sc_rung:close"
@@ -313,7 +313,7 @@ nollm_check
 # a worker session (or to print the command for one): the launch is the worker,
 # not a decision. Their decision paths are covered by the runtime recorder.
 # Each exemption must still match, so a stale one fails here.
-launchers='fleet-dispatch-headless.sh fleet-dispatch-worktree.sh fleet-tower-signpost.sh fleet-tower-watchdog.sh'
+launchers='fleet-dispatch-headless.sh fleet-dispatch-worktree.sh fleet-tower-launch.sh fleet-tower-signpost.sh fleet-tower-watchdog.sh'
 client='(^|[^A-Za-z0-9_./-])(claude|anthropic|curl|wget)([[:space:]]|$|")|api\.anthropic'
 # The messaging probe reads the CLI's version, which reaches no model; that one
 # read is all fleet-messaging.sh may carry, and it must still be there. The

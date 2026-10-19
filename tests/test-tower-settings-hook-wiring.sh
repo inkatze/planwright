@@ -291,6 +291,11 @@ else
   done
 fi
 
+# --- human-gates REQ-C1.8, REQ-G1.5: the re-draft corrective helper ----------
+# shellcheck source=tests/lib/redraft-helper-wiring.sh
+. "$REPO_ROOT/tests/lib/redraft-helper-wiring.sh"
+rh_wiring tower "$tower_settings" "$hook_script"
+
 # --- REQ-C1.2: the tower safe set DIFFERS from the worker set -----------------
 # The two allow lists are not identical: the tower's non-Bash-tool allow set and
 # the worker's permission allow set differ (the worker statically allows git

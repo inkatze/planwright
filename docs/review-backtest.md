@@ -63,7 +63,8 @@ numbered past every version directory, an empty one left by an interrupted
 refresh included.
 A PR whose reviews, threads, or comments overflow one fetch page is counted
 in a warning, since its extra findings are missing.
-Labels come from a `review-miss` ledger fragment for the same PR and path
+Labels come from a `review-miss` ledger fragment (grammar in
+[review-independence](../doctrine/review-independence.md)) for the same PR and path
 (read from the observation entries and archive), else from the same row in
 the previous version, else from the annotator's
 match against the PR body's declined log, else reason `other` (reported as

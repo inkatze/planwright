@@ -49,6 +49,8 @@ export GIT_CONFIG_SYSTEM=/dev/null
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 REPO_ROOT=$(cd "$here/.." && pwd -P)
 S="$REPO_ROOT/scripts"
 REC="$S/fleet-registry-reconcile.sh"
@@ -276,7 +278,7 @@ heal_case() {
   # A second pass heals nothing more. It may retire the record: a seam whose
   # fixture worker has already exited has positive death evidence by now.
   reconcile "$hc_home"
-  [ "$(rows "$hc_home" "$hc_h" | awk -F'\t' 'NF == 7' | grep -c .)" = 1 ] \
+  [ "$(rows "$hc_home" "$hc_h" | awk -F'\t' 'NF == 9' | grep -c .)" = 1 ] \
     || fail "$hc_id: a second reconcile wrote another live record: $(rows "$hc_home" "$hc_h")"
   [ "$(audit_count "$hc_home" heal)" = 1 ] || fail "$hc_id: a second reconcile audited another heal"
   printf '%s\n' "$hc_id" >>"$tmp/seams-healed"
@@ -572,7 +574,7 @@ sleep 300 &
 p5=$!
 register "$h" w-r5 --scope spec-r:7 --backend headless-oneshot --death-handle "process $p5"
 last=$(rows "$h" w-r5 | tail -n 1)
-[ "$(printf '%s\n' "$last" | awk -F'\t' '{ print NF }')" = 7 ] || fail "r5: the re-dispatch did not append a live record"
+[ "$(printf '%s\n' "$last" | awk -F'\t' '{ print NF }')" = 9 ] || fail "r5: the re-dispatch did not append a live record"
 [ -f "$(marker "$h" w-r5)" ] || fail "r5: the re-dispatch left no marker"
 kill "$p5" 2>/dev/null
 wait "$p5" 2>/dev/null
@@ -634,7 +636,7 @@ printf '%s\n' "$out" | grep -q "^retire${tab}w-r8${tab}process-dead" || fail "r8
 [ -f "$(marker "$h" w-r8)" ] || fail "r8: the newer marker went with the record it does not describe"
 reconcile "$h"
 last=$(rows "$h" w-r8 | tail -n 1)
-[ "$(fields "$last")" = "$(cat "$(marker "$h" w-r8)")" ] && [ "$(printf '%s\n' "$last" | awk -F'\t' '{ print NF }')" = 7 ] \
+[ "$(fields "$last")" = "$(cat "$(marker "$h" w-r8)")" ] && [ "$(printf '%s\n' "$last" | awk -F'\t' '{ print NF }')" = 9 ] \
   || fail "r8: the newer marker was not healed into a live record: $last"
 # Alive and disagreeing: kept, and said so.
 h=$(home r8b)
@@ -772,12 +774,7 @@ rm -f "$tmp/store-held"
 at "$h" "$slow/scripts" PLANWRIGHT_TOWER_ID="$owner" -- fleet-register.sh --handle w-c2b \
   --scope spec-c2:b --backend headless-oneshot >/dev/null 2>&1 &
 rp=$!
-c2_n=0
-until [ -e "$tmp/store-held" ] || [ "$c2_n" -ge 200 ]; do
-  sleep 0.05
-  c2_n=$((c2_n + 1))
-done
-[ -e "$tmp/store-held" ] || fail "c2: fixture: the dispatch never reached its store write"
+poll_until --what 'the held store write' -- test -e "$tmp/store-held" || fail "c2: fixture: the dispatch never reached its store write"
 reconcile "$h"
 printf '%s\n' "$out" | grep -q "^heal${tab}w-c2b${tab}" || fail "c2: the reconcile did not heal ahead of the dispatch's write: $out"
 rm -f "$tmp/hold-store"

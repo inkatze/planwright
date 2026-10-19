@@ -31,6 +31,8 @@ unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LIB="$REPO_ROOT/scripts/lock-lib.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 
 failures=0
 
@@ -273,12 +275,7 @@ $SH -c '
   done
 ' sh "$LIB" "$tmp" &
 sig_pid=$!
-i=0
-while [ ! -f "$tmp/sig.ready" ] && [ "$i" -lt 200 ]; do
-  sleep 0.05
-  i=$((i + 1))
-done
-if [ -f "$tmp/sig.ready" ]; then
+if poll_until --what 'the TERM holder to take its lock' -- test -f "$tmp/sig.ready"; then
   kill -TERM "$sig_pid" 2>/dev/null
   wait "$sig_pid" 2>/dev/null
   if [ -L "$tmp/sig.lock" ]; then
@@ -826,11 +823,11 @@ for sig in INT HUP; do
     done
   ' sh "$LIB" "$tmp" &
   sig_pid=$!
-  i=0
-  while [ ! -f "$tmp/s.ready" ] && [ "$i" -lt 200 ]; do
-    sleep 0.05
-    i=$((i + 1))
-  done
+  poll_until --what "the $sig holder to take its lock" -- test -f "$tmp/s.ready" \
+    || fail "a $sig'd holder releases its lock (holder never started)"
+  # A background sh starts with INT ignored, so the INT holder runs its loop
+  # out; the loop stays short, and one already gone would misread as exit 0.
+  kill -0 "$sig_pid" 2>/dev/null || fail "a $sig'd holder releases its lock (holder exited before the signal)"
   got=0
   kill -"$sig" "$sig_pid" 2>/dev/null
   wait "$sig_pid" || got=$?
@@ -910,7 +907,9 @@ rc=$?
 mid=$(date +%s)
 if kill -0 "$live_pid" 2>/dev/null; then
   assert_exit "a bounded acquire against a live holder reports busy" 1 "$rc"
-  if [ "$((mid - start))" -le 30 ]; then
+  # The default budget sleeps for ~100s, so a 60s bound still tells the two
+  # apart while leaving a loaded host room for the 25 spins' forks.
+  if [ "$((mid - start))" -le 60 ]; then
     pass "and a small budget really is small"
   else
     fail "and a small budget really is small (took $((mid - start))s)"
@@ -1088,7 +1087,7 @@ run_sh x '
   rm -f "$lockp"
   ln -s "$succ-0-0-1" "$lockp"
   ( sleep 0.4; rm -f "$lockp"; kill "$succ" 2>/dev/null ) &
-  pw_lock_acquire "$lockp" 400 || exit 7      # owes three now
+  pw_lock_acquire "$lockp" 3000 || exit 7     # owes three now
   pw_lock_release "$lockp" || exit 6
   [ -L "$lockp" ] || exit 5
   pw_lock_release "$lockp" || exit 4

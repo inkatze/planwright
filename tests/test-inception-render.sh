@@ -669,6 +669,101 @@ sed_i "$v/brief.md" 's|^\(- \*\*KC-[12]:\*\* .*\) — by .*$|\1|'
 assert_contains "undated criteria only: the core is not met" "Minimum core is not met yet" \
   "$(cat "$v/exports/venture.html")"
 
+# ---------------------------------------------------------------------------
+# 10. The in-session status view (REQ-J1.4): the dashboard's classification as
+#     key<TAB>value lines on stdout, writing no export.
+# ---------------------------------------------------------------------------
+v="$(fresh)"
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+rc=$?
+assert_eq "status: exit 0" "0" "$rc"
+assert_no_file "status: writes no dashboard" "$v/exports/venture.html"
+assert_no_file "status: writes no pitch" "$v/exports/pitch.html"
+assert_contains "status: lifecycle status" "$(printf 'status\tExploring')" "$out"
+assert_contains "status: gate readiness (core)" "$(printf 'core\tmet')" "$out"
+assert_contains "status: blocking counts" "$(printf 'blocking\t2\t2')" "$out"
+assert_contains "status: unresolved blocker A-1" "$(printf 'unresolved\tA-1\ttesting')" "$out"
+assert_contains "status: unresolved blocker A-2" "$(printf 'unresolved\tA-2\topen')" "$out"
+assert_contains "status: clear kill date" "$(printf 'kill\tKC-1\t2026-10-01\tclear')" "$out"
+assert_contains "status: approaching kill date" "$(printf 'kill\tKC-2\t2026-09-15\tapproaching')" "$out"
+assert_contains "status: open fork" "$(printf 'fork\tDEC-1\topen\ttwo-way')" "$out"
+assert_not_contains "status: a decided fork is not a blocker" "$(printf 'fork\tDEC-2')" "$out"
+assert_contains "status: last gate" "$(printf 'gate\t1\t2026-08-18\tRecycle')" "$out"
+assert_contains "status: venture start from the changelog" "$(printf 'started\t2026-08-01')" "$out"
+assert_contains "status: skipped appetite" "$(printf 'appetite\tskipped')" "$out"
+
+out="$(PLANWRIGHT_INCEPTION_TODAY=2026-10-02 "$RENDER" --mode status "$v" 2>/dev/null)"
+assert_contains "status: a passed date trips" "$(printf 'kill\tKC-1\t2026-10-01\ttripped')" "$out"
+
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^_Skipped: appetite is set at the portfolio level.*$|Six weeks of one engineer, then the gate decides. Budget 6 weeks.|'
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_contains "status: appetite in weeks becomes days" "$(printf 'appetite\t42')" "$out"
+sed_i "$v/brief.md" 's|^Six weeks of one engineer.*$|Three months, then the gate decides.|'
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_contains "status: a worded count is read" "$(printf 'appetite\t90')" "$out"
+sed_i "$v/brief.md" 's|^Three months, then the gate decides.$|An 18-month runway, reviewed quarterly.|'
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_contains "status: a hyphenated count is read" "$(printf 'appetite\t540')" "$out"
+sed_i "$v/brief.md" 's|^An 18-month runway, reviewed quarterly.$|Review at 3.5 weeks or 1,000 days.|'
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_contains "status: decimal and grouped counts are never read" "$(printf 'appetite\tunparsed')" "$out"
+sed_i "$v/brief.md" 's|^Review at 3.5 weeks or 1,000 days.$|Whatever it takes.|'
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_contains "status: unreadable appetite" "$(printf 'appetite\tunparsed')" "$out"
+
+# Values are bundle content headed for a terminal: no control byte and no tab
+# inside a field survives.
+v="$(fresh)"
+sed_i "$v/brief.md" "s|^Outcome: Recycle\$|Outcome: Recycle$(printf '\033')[31m|"
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_not_contains "status: escape bytes are stripped" "$(printf '\033')" "$out"
+assert_contains "status: the stripped value still lands" "$(printf 'gate\t1\t2026-08-18\tRecycle[31m')" "$out"
+
+v="$(fresh)"
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_contains "status: the age in days" "$(printf 'age\t25')" "$out"
+
+# The not-met and empty branches.
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^Median incident-handover time drops below ten minutes within one quarter of adoption.$|_Skipped: not named yet._|'
+awk '/^## Gate log/ { print; skip = 1; next } skip && /^## / { skip = 0 } !skip' "$v/brief.md" >"$v/brief.new" && mv "$v/brief.new" "$v/brief.md"
+awk '/^## Changelog/ { print; skip = 1; next } skip && /^## / { skip = 0 } !skip' "$v/brief.md" >"$v/brief.new" && mv "$v/brief.new" "$v/brief.md"
+sed_i "$v/assumptions.md" 's|^- \*\*Status:\*\* testing|- **Status:** validated|'
+sed_i "$v/assumptions.md" "s|^### A-2 — the three sinks accept writes|### A-2 — the three	sinks accept writes|"
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_contains "status: an unmet core" "$(printf 'core\tunmet')" "$out"
+assert_contains "status: no gate yet" "$(printf 'gate\tnone')" "$out"
+assert_contains "status: no start without a changelog" "$(printf 'started\tunknown')" "$out"
+assert_not_contains "status: no age without a start" "$(printf 'age\t')" "$out"
+assert_contains "status: blocking and unresolved counted apart" "$(printf 'blocking\t2\t1')" "$out"
+
+# The start is the earliest dated changelog line, wherever it sits.
+v="$(fresh)"
+printf -- '- 2026-07-15 — idea first noted.\n' >>"$v/brief.md"
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_contains "status: the earliest changelog date is the start" "$(printf 'started\t2026-07-15')" "$out"
+
+# A refused bundle leaves stdout parseable: the refusal goes to stderr.
+v="$(fresh)"
+rm -f "$v/plan.md"
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_eq "status: a refused bundle prints nothing on stdout" "" "$out"
+
+# The status read writes no export, so a linked exports/ does not stop it.
+v="$(fresh)"
+mkdir -p "$tmp/elsewhere-exports"
+ln -s "$tmp/elsewhere-exports" "$v/exports"
+"$RENDER" --mode status "$v" >/dev/null 2>&1
+assert_eq "status: a symlinked exports/ does not block the read" "0" "$?"
+
+v="$(fresh)"
+assert_eq "status: --output is refused" "2" \
+  "$(
+    "$RENDER" --mode status --output "$tmp/x" "$v" >/dev/null 2>&1
+    echo $?
+  )"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-render: $failures assertion(s) failed" >&2
   exit 1

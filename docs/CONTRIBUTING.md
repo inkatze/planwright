@@ -78,7 +78,8 @@ mise run check      # the full local equivalent of the CI gate
 - the ledger structural-corruption + duplicate-Status guard over `tasks.md`
   snapshots, and the machine-local memory-link guard over spec files;
 - the spec validator over the resolved spec root (`specs/` by default), the
-  anchor-freshness guard over every signed bundle, and the observation-store guard;
+  anchor-freshness guard over every signed bundle, the observation-store guard,
+  and the miss-ledger grammar guard;
 - the literal spec-home guard (`check:spec-literals`): a `specs/` path composed
   in a script, a hook, a `mise.toml` task body, `lefthook.yml`, `.gitignore`,
   or a workflow fails unless `config/spec-literal-allowlist.tsv` exempts it or
@@ -258,6 +259,16 @@ there by the time it exits. Pin a fixture home per case with `fleet_home_pin` fr
 [`tests/lib/fleet-home.sh`](../tests/lib/fleet-home.sh), whose
 `fleet_home_leaked` also lets a suite run on its own check that it left the
 inherited registry alone.
+
+### Waits hold up on a busy machine
+
+A test that waits for an event (a file, a process exit, a log line) polls with
+`poll_until` from [`tests/lib/poll-until.sh`](../tests/lib/poll-until.sh)
+instead of sleeping a fixed time or counting ticks: it waits up to a generous
+default deadline and, on a timeout, reports how long it actually waited. A
+shorter deadline needs a reason at the call site. A check that something does
+*not* happen within a window, or that at least some time has passed, is not a
+wait for an event and keeps its own timing.
 
 ### The git hook backstop
 

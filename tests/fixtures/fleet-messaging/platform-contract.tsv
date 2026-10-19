@@ -3,7 +3,7 @@
 # tests/test-fleet-messaging-contract.sh. Raise last_verified_pin to each newly
 # observed CLI version, never lower it. A value not yet observed live reads
 # `unrecorded`; replace it with the observed outcome. Columns: key<TAB>value.
-last_verified_pin	2.1.296
+last_verified_pin	2.1.303
 documented_minimum	2.1.224
 probe_minimum	2.1.248
 env_socket	CLAUDE_CODE_MESSAGING_SOCKET

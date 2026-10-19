@@ -21,6 +21,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/poll-until.sh
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 RUNNER="$REPO_ROOT/scripts/behavioral-eval.sh"
 FIXTURE="$REPO_ROOT/tests/behavioral-evals/fixtures/tower"
 SKILL="$FIXTURE/skill.sh"
@@ -294,12 +296,7 @@ assert_eq "and is told nothing is waiting on it" "2" \
 mkdir -p "$TMP/edge-lost"
 {
   printf '%s\n' "fix the typo in the footer" "@event:flight-landed pr=7"
-  _w=0
-  until grep -q 'Landed: draft PR #7' "$TMP/edge-lost/decision-log.jsonl" 2>/dev/null; do
-    _w=$((_w + 1))
-    [ "$_w" -ge 300 ] && break
-    sleep 0.1
-  done
+  poll_until --what 'the landing acknowledgement' -- grep -q 'Landed: draft PR #7' "$TMP/edge-lost/decision-log.jsonl" || :
   rm -f "$TMP/edge-lost/evidence.jsonl" && mkdir "$TMP/edge-lost/evidence.jsonl"
   printf '%s\n' "@event:session-restart" "merge it" "that's all"
 } | PLANWRIGHT_PUBLISH_DISABLED=1 /bin/sh "$SKILL" "$TMP/edge-lost" >/dev/null 2>&1
@@ -317,12 +314,7 @@ assert_eq "an unreadable restart hands back no PR from the lost conversation" "1
 mkdir -p "$TMP/edge-landlost"
 {
   printf '%s\n' "fix the typo in the footer"
-  _w=0
-  until grep -q '"type":"flight"' "$TMP/edge-landlost/evidence.jsonl" 2>/dev/null; do
-    _w=$((_w + 1))
-    [ "$_w" -ge 300 ] && break
-    sleep 0.1
-  done
+  poll_until --what "the flight's evidence line" -- grep -q '"type":"flight"' "$TMP/edge-landlost/evidence.jsonl" || :
   rm -f "$TMP/edge-landlost/evidence.jsonl" && mkdir "$TMP/edge-landlost/evidence.jsonl"
   printf '%s\n' "@event:flight-landed pr=7" "that's all"
 } | PLANWRIGHT_PUBLISH_DISABLED=1 /bin/sh "$SKILL" "$TMP/edge-landlost" >/dev/null 2>&1
