@@ -11,7 +11,12 @@ work="$1"
 spec="$work/specs/demo"
 mkdir -p "$spec"
 
-cat >"$spec/requirements.md" <<'EOF'
+# The bundle bodies are unquoted heredocs on purpose: dash 0.5.13 (Alpine's
+# /bin/sh) leaks its internal multibyte markers into a quoted heredoc's
+# non-ASCII text, which mangles the em dashes the spec grammar requires.
+# Keep $, ` and \ out of them instead of quoting the delimiter.
+
+cat >"$spec/requirements.md" <<EOF
 # Demo — Requirements
 
 **Status:** Draft
@@ -23,7 +28,7 @@ cat >"$spec/requirements.md" <<'EOF'
 - **REQ-A1.1** The demo task SHALL do the thing. *(Cites: fixture seed.)*
 EOF
 
-cat >"$spec/design.md" <<'EOF'
+cat >"$spec/design.md" <<EOF
 # Demo — Design
 
 **Status:** Draft
@@ -39,7 +44,7 @@ cat >"$spec/design.md" <<'EOF'
 **Chosen because:** a Draft spec is the refusal scenario.
 EOF
 
-cat >"$spec/tasks.md" <<'EOF'
+cat >"$spec/tasks.md" <<EOF
 # Demo — Tasks
 
 **Status:** Draft
@@ -77,7 +82,7 @@ cat >"$spec/tasks.md" <<'EOF'
 (none)
 EOF
 
-cat >"$spec/test-spec.md" <<'EOF'
+cat >"$spec/test-spec.md" <<EOF
 # Demo — Test Spec
 
 **Status:** Draft

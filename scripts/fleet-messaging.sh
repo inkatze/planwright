@@ -291,14 +291,19 @@ json_top_string() {
     "" | *[!0-9]*) return 3 ;;
   esac
   [ "$jt_size" -le "$JSON_MAX_BYTES" ] || return 3
+  # awk makes no empty record after a `"` that ends the file, so the walk
+  # cannot see that quote; an object never ends in one.
+  [ "$(tail -c 1 "$1")" != '"' ] || return 3
   # The walk stays linear in the file size, so the cap above is a time bound
-  # too: awk copies a string it grows, so the file is read as one record (a
-  # raw \001 never appears in valid JSON; a second record is a parse failure)
-  # and a string is only located while walking. It is decoded, a character at
-  # a time, only where it matters and only while short: a key whose raw form
-  # could still equal the wanted one, and the wanted value up to
-  # JSON_VALUE_MAX bytes, a longer one reading as a control byte that fails
-  # every screen.
+  # too. Some awks (busybox, BSD) rescan the whole string on every substr()
+  # and run a script loop far slower than a builtin, so the file is never
+  # stepped a character at a time: each `"` ends a record, a record is
+  # classified whole by the builtins, and a script loop runs only over an
+  # outside record's brackets, in short slices, and over a string short
+  # enough to matter. Such a string is decoded only where it matters: a key
+  # whose raw form could still equal the wanted one, and the wanted value up
+  # to JSON_VALUE_MAX bytes, a longer one reading as a control byte that
+  # fails every screen.
   awk -v key="$2" -v vmax="$JSON_VALUE_MAX" '
     function dec(t,   o, p, m, ch, e) {
       o = ""; m = length(t)
@@ -316,63 +321,80 @@ json_top_string() {
       }
       return o
     }
-    BEGIN { RS = "\001" }
-    NR == 1 { s = $0 }
-    NR > 1 { multi = 1 }
-    END {
-      n = length(s); i = 1; depth = 0; started = 0; bad = multi
-      found = 0; val = ""; want = 0
-      while (!bad && i <= n) {
-        c = substr(s, i, 1)
-        if (c == "\"") {
-          if (!started) { bad = 1; break }
-          j = i + 1; escaped = 0; closed = 0
-          while (j <= n) {
-            d = substr(s, j, 1)
-            if (d == "\\") {
-              e = substr(s, j + 1, 1)
-              if (e == "u") j += 6
-              else if (e != "" && index("\"\\/ntrbf", e)) j += 2
-              else { bad = 1; break }
-              escaped = 1
-              continue
-            }
-            if (d == "\"") { closed = 1; break }
-            j++
-          }
-          if (bad || !closed || j > n) { bad = 1; break }
-          raw = substr(s, i + 1, j - i - 1)
-          i = j + 1
-          if (want) {
-            if (length(raw) > vmax + 0) val = "\001"
-            else val = escaped ? dec(raw) : raw
-            found = 1; want = 0
-            continue
-          }
-          if (depth == 1) {
-            k = i
-            while (k <= n && substr(s, k, 1) ~ /[ \t\r\n]/) k++
-            str = raw
-            if (escaped) str = (length(raw) <= 6 * length(key)) ? dec(raw) : ""
-            if (substr(s, k, 1) == ":" && str == key) {
-              k++
-              while (k <= n && substr(s, k, 1) ~ /[ \t\r\n]/) k++
-              if (substr(s, k, 1) == "\"") { want = 1; i = k; continue }
-              found = 2; val = ""
-            }
-          }
-          continue
+    # brackets <text>: track depth through the brackets of text outside any
+    # string; 0 when a bracket follows the close of the root object.
+    function brackets(t,   n, p, q, m, ck) {
+      gsub(/\[/, "{", t); gsub(/]/, "}", t); gsub(/[^{}]/, "", t)
+      n = length(t)
+      for (p = 1; p <= n; p += 256) {
+        ck = substr(t, p, 256); m = length(ck)
+        for (q = 1; q <= m; q++) {
+          if (opened && depth == 0) return 0
+          if (substr(ck, q, 1) == "{") depth++
+          else depth--
+          opened = 1
         }
-        if (c ~ /[ \t\r\n]/) { i++; continue }
-        if (!started) {
-          if (c != "{") { bad = 1; break }
-          started = 1
-        } else if (depth == 0) { bad = 1; break }
-        if (c == "{" || c == "[") depth++
-        else if (c == "}" || c == "]") { depth--; if (depth < 0) { bad = 1; break } }
-        i++
       }
-      if (!bad && (depth != 0 || !started)) bad = 1
+      return 1
+    }
+    function outside(o) {
+      if (pend && o ~ /^[ \t\r\n]*:/) {
+        if (o ~ /^[ \t\r\n]*:[ \t\r\n]*$/) want = 1
+        else { found = 2; val = "" }
+      }
+      pend = 0
+      if (closed) { if (o ~ /[^ \t\r\n]/) bad = 1; return }
+      if (!opened && o !~ /^[ \t\r\n]*[{]/) { bad = 1; return }
+      if (!brackets(o)) { bad = 1; return }
+      if (depth == 0) {
+        closed = 1
+        if (o !~ /(]|[}])[ \t\r\n]*$/) bad = 1
+      }
+    }
+    # piece <text>: check the escapes of one stretch of a string, returning 1
+    # when the quote that ended it is itself escaped.
+    function piece(p,   r) {
+      r = 0
+      if (substr(p, length(p), 1) == "\\") { match(p, /\\+$/); r = RLENGTH % 2 }
+      if (r) { esc = 1; p = substr(p, 1, length(p) - 1) }
+      if (index(p, "\\")) {
+        esc = 1
+        gsub(/\\([\/"bfnrt]|\\|u[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f])/, "", p)
+        if (index(p, "\\")) bad = 1
+      }
+      return r
+    }
+    BEGIN {
+      RS = "\""
+      klen = length(key)
+      lim = (vmax + 0 > 6 * klen) ? vmax + 0 : 6 * klen
+    }
+    bad { next }
+    !instr { outside($0); instr = 1; fresh = 1; tail = 1; next }
+    {
+      tail = 0
+      if (fresh) {
+        if (!opened || closed) { bad = 1; next }
+        fresh = 0; sdepth = depth; raw = ""; slen = 0; esc = 0
+      }
+      cont = piece($0)
+      if (bad) next
+      slen += length($0) + cont
+      if (slen <= lim) raw = raw $0 (cont ? "\"" : "")
+      if (cont) next
+      instr = 0
+      if (want) {
+        if (slen > vmax + 0) val = "\001"
+        else val = esc ? dec(raw) : raw
+        found = 1; want = 0
+      } else if (sdepth == 1) {
+        if (!esc) str = (slen == klen) ? raw : ""
+        else str = (slen <= 6 * klen) ? dec(raw) : ""
+        pend = (str == key)
+      }
+    }
+    END {
+      if (!tail || !closed) bad = 1
       if (bad || found == 2) exit 3
       if (found == 1) { printf "%s", val; exit 0 }
       exit 1
@@ -617,7 +639,11 @@ cmd_send() {
     printf '%s\n' "$me: send: iconv is missing, so the message cannot be checked as UTF-8 text; take the fallback" >&2
     exit 6
   fi
-  iconv -f UTF-8 -t UTF-8 <"$sd_file" >/dev/null 2>&1 || die_usage "send: the message file is not UTF-8 text"
+  # Compared, not just run: musl's iconv drops invalid bytes and exits 0, but
+  # no iconv can round-trip them, so valid text is exactly what comes back.
+  # shellcheck disable=SC2094 # both ends only read the file
+  iconv -f UTF-8 -t UTF-8 <"$sd_file" 2>/dev/null | cmp -s - "$sd_file" \
+    || die_usage "send: the message file is not UTF-8 text"
 
   sd_reason=$(probe_reason)
   if [ -n "$sd_reason" ]; then

@@ -65,6 +65,9 @@ command -v jq >/dev/null 2>&1 || fail "jq is required: the launch preflight runs
 [ -x "$FA" ] || fail "scripts/fleet-attention.sh missing or not executable"
 
 tmp=$(fixture_scratch) || fail "no scratch directory to run in"
+# The script reports roots canonically; a symlinked TMPDIR (macOS's /var)
+# would otherwise never match them.
+tmp=$(cd -P -- "$tmp" && pwd -P) || fail "cannot canonicalize the scratch directory"
 # Teardown on every exit, a failed case's and an interrupt's included: close
 # each worker whose supervisor is still running through the script's own stop
 # path, then reap anything left that carries this run's scratch path, so no
@@ -1813,9 +1816,13 @@ grep -q "$preset/scripts/policy-guard.sh" "$tmp/pf33q.err" \
   || fail "c33: the refusal must name the policy guard under the worker's plugin root, got: $(cat "$tmp/pf33q.err")"
 [ ! -s "$rec/argv" ] || fail "c33: a missing policy guard must never spawn the worker"
 # The proof's own failure is a refusal with a cause, never a pass: a record it
-# cannot create exits 2 and says why.
+# cannot create exits 2 and says why. mktemp is made to fail outright, since
+# macOS's falls back to /tmp when TMPDIR names no directory.
 : >"$rec/argv"
-senv "$home" "$rec" "CLAUDE_DIR=$cdir" "TMPDIR=$cdir/no-such-tmp" SHIM_EVENTS="$ev" -- \
+mkdir -p "$tmp/nomktemp"
+printf '#!/bin/sh\nexit 1\n' >"$tmp/nomktemp/mktemp"
+chmod +x "$tmp/nomktemp/mktemp"
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" "PATH=$tmp/nomktemp:$PATH" SHIM_EVENTS="$ev" -- \
   launch sjw33t execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
   >/dev/null 2>"$tmp/pf33t.err"
 [ $? -eq 2 ] || fail "c33: an unwritable proof record must refuse (exit 2), stderr: $(cat "$tmp/pf33t.err")"

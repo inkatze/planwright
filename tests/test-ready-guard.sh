@@ -156,11 +156,29 @@ reset_stub_env
 run_hook "$(bash_payload 'ls -la')" jq
 assert_defer "a missing \`jq\` binary defers a payload with no ready-flip evidence (no session brick)"
 
+# Neither timeout nor gtimeout (stock macOS): the guard bounds its queries
+# with the bundled runner, so a conforming flip still defers and a stall is
+# still a stall.
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'gh pr ready 42')" timeout gtimeout
+assert_defer "with no timeout/gtimeout binary, a conforming flip still defers"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_VIEW_SLEEP=5 RG_GH_TIMEOUT=1
+run_hook "$(bash_payload 'gh pr ready 42')" timeout gtimeout
+assert_deny_because "with no timeout/gtimeout binary, a stalled query is cut off and denies" 'did not finish'
+
+# And with the runner gone too, nothing can bound the call: deny, never an
+# unbounded call.
+rg_bare="$SANDBOX/bare-scripts"
+cp -R "$REPO_ROOT/scripts" "$rg_bare"
+rm -f "$rg_bare/bounded-run.sh"
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFORMING
-run_hook "$(bash_payload 'gh pr ready 42')" timeout gtimeout
-assert_deny "no timeout/gtimeout binary denies rather than making an unbounded call"
-assert_reason_matches "the unbounded-call denial names the remedy" 'coreutils|timeout'
+HOOK="$rg_bare/ready-guard.sh" run_hook "$(bash_payload 'gh pr ready 42')" timeout gtimeout
+assert_deny "no timeout/gtimeout binary and no bundled runner denies rather than making an unbounded call"
+assert_reason_matches "the unbounded-call denial names the missing runner" 'bounded-run.sh is missing'
 
 reset_stub_env
 run_hook ''
@@ -637,7 +655,7 @@ STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=6
 run_hook "$(bash_payload "$(printf 'gh pr rea\\\ndy 42')")"
 assert_deny_because "a backslash-newline continuation inside the verb does not slip the gate" 'commit\(s\) behind'
 if grep -q $'\tpr\tview\t42\t' "$STATE/argv.log"; then
-  pass "the continuation rejoined into $(ready) and PR 42 was queried"
+  pass "the continuation rejoined into ready and PR 42 was queried"
 else
   fail "continuation not rejoined: argv was $(cat "$STATE/argv.log")"
 fi
@@ -981,6 +999,7 @@ LONE="$SANDBOX/lone"
 mkdir -p "$LONE"
 cp "$HOOK" "$LONE/ready-guard.sh"
 cp "$(dirname "$HOOK")/echo-safety.sh" "$LONE/echo-safety.sh"
+cp "$(dirname "$HOOK")/bounded-run.sh" "$LONE/bounded-run.sh"
 reset_stub_env
 knob_adopter conflict-only
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
@@ -997,6 +1016,7 @@ STUBBED="$SANDBOX/stubbed"
 mkdir -p "$STUBBED"
 cp "$HOOK" "$STUBBED/ready-guard.sh"
 cp "$(dirname "$HOOK")/echo-safety.sh" "$STUBBED/echo-safety.sh"
+cp "$(dirname "$HOOK")/bounded-run.sh" "$STUBBED/bounded-run.sh"
 # run_stubbed_resolver <label> <deny|defer> <resolver body>
 run_stubbed_resolver() {
   printf '%s\n' "$3" >"$STUBBED/resolve-policy-knob.sh"

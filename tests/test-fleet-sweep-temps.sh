@@ -38,6 +38,7 @@ tmp=$(cd "$(mktemp -d)" && pwd -P)
 cleanup() {
   set +e
   cl_snap=$(ps -A -ww -o pid=,args= 2>/dev/null) || cl_snap=''
+  [ -n "$cl_snap" ] || cl_snap=$(ps -A -o pid=,args= 2>/dev/null) || cl_snap=''
   while read -r p a; do
     case $a in
       *"$tmp"*) [ "$p" = "$$" ] || kill -9 "$p" 2>/dev/null ;;

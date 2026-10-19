@@ -663,12 +663,22 @@ tokenize() {
 
 lower() { printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]'; }
 
+# timeout_bin — the command that bounds a read: timeout or gtimeout, else the
+# bundled runner (stock macOS ships neither), else nothing.
 timeout_bin() {
   if command -v timeout >/dev/null 2>&1; then
     printf 'timeout'
   elif command -v gtimeout >/dev/null 2>&1; then
     printf 'gtimeout'
+  elif [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/bounded-run.sh" ]; then
+    printf 'bounded_run'
   fi
+}
+
+# Run through sh rather than its own mode bits, which a plugin copy may drop.
+# shellcheck disable=SC2329 # called through the name timeout_bin prints
+bounded_run() {
+  /bin/sh "$GUARD_DIR/bounded-run.sh" "$@"
 }
 
 # bound_secs <env-value> <default> — a positive whole number of seconds.
@@ -697,7 +707,7 @@ need_timeout() {
   [ "$FETCH_B" -le "$remain" ] || FETCH_B=$remain
   [ -n "$TB" ] || TB=$(timeout_bin)
   [ -n "$TB" ] \
-    || emit_deny 'no timeout (or gtimeout) binary is on PATH, so the guard cannot bound its policy read - refusing (fail closed). Install coreutils.'
+    || emit_deny 'no timeout (or gtimeout) binary is on PATH and the bundled bounded-run.sh is missing beside this guard, so the guard cannot bound its policy read - refusing (fail closed). Reinstall planwright.'
 }
 
 # A git revision as an argument: no leading dash, no shell or ref-breaking
@@ -776,7 +786,7 @@ read_knob() {
     || emit_deny "the directory this act runs in does not exist, so the policy knob $knob cannot be read for it - refusing (fail closed). Run the command from your worktree."
   policy_root "$dir"
   v=$(cd -- "$POLICY_ROOT" 2>/dev/null && PLANWRIGHT_REPO_ROOT=$POLICY_ROOT "$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/resolve-policy-knob.sh" "$knob" 2>/dev/null </dev/null) || rc=$?
-  if [ "$rc" = 124 ]; then
+  if [ "$rc" = 124 ] || [ "$rc" = 143 ]; then
     emit_deny "reading the policy knob $knob did not finish within ${KNOB_B}s - refusing (fail closed). This is a timeout, not a policy decision: retry, and report a resolver that stays slow."
   fi
   [ "$rc" = 0 ] \
@@ -812,7 +822,7 @@ check_unprotected() {
     2)
       emit_deny "$what names a branch the protected-set reader refuses as a branch name ($(sanitize_printable "${err#protected-branch: }" 'unprintable')) - refusing (fail closed). Name a valid branch."
       ;;
-    124)
+    124 | 143)
       emit_deny "reading the protected set did not finish within ${KNOB_B}s - refusing $what (fail closed). This is a timeout, not a policy decision: retry."
       ;;
     *)

@@ -255,7 +255,10 @@ ndocs=$(find "$REPO_ROOT/doctrine" -name '*.md' | wc -l | tr -d ' ')
 
 # shellcheck disable=SC2016 # an awk program, expanded by awk
 is_mapline='$1 ~ /\/doctrine\/gate-wiring\.md$/ && /pending-sign-off\]/ && /Planwright-Sign-Off/'
-hits=$(grep -rn -i -E "$retired" --include='*.md' --exclude='human-gates.md' "$REPO_ROOT/doctrine")
+# find selects the files rather than grep's --include, which busybox grep
+# lacks; /dev/null keeps the file-name prefix even on a single match.
+hits=$(find "$REPO_ROOT/doctrine" -name '*.md' ! -name 'human-gates.md' \
+  -exec grep -n -i -E "$retired" /dev/null {} +)
 mapcount=$(printf '%s\n' "$hits" | awk -F: "$is_mapline" | grep -c .)
 others=$(printf '%s\n' "$hits" | grep -v '^$' | awk -F: "!($is_mapline)")
 if [ -z "$others" ]; then

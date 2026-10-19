@@ -301,7 +301,13 @@ cmp -s "$idx" "$c/first" || fail "deleting the index and re-sweeping reproduces 
 printf 'flight\tghost-bbbbbbb1\tlanded\tpr:x\talive\tx\n' >"$idx"
 (cd "$repo" && "$SCRIPT" sweep >/dev/null 2>&1) || fail "re-sweep over a corrupted index failed"
 cmp -s "$idx" "$c/first" || fail "a corrupted index never feeds the next sweep"
-if grep -q '[0-9]\{10\}' "$idx"; then
+# The fixture's own directory is cut first: a macOS TMPDIR name such as
+# /var/folders/n6/hn37...qc2113800000gn carries a ten-digit run of its own.
+if FS_TMP=$tmp awk '{
+    while ((i = index($0, ENVIRON["FS_TMP"])) > 0)
+      $0 = substr($0, 1, i - 1) substr($0, i + length(ENVIRON["FS_TMP"]))
+    print
+  }' "$idx" | grep -q '[0-9]\{10\}'; then
   fail "the index carries no timestamp"
 fi
 [ -z "$(find "$(dirname "$idx")" -maxdepth 0 \( -perm -0002 -o -perm -0020 \) 2>/dev/null)" ] \

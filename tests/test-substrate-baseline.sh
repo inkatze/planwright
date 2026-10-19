@@ -43,6 +43,9 @@ check_has() {
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-substrate-baseline.XXXXXX") || exit 1
 [ -n "$tmp" ] && [ -d "$tmp" ] || exit 1
+# The script prints physical paths, and macOS's TMPDIR is a symlinked one
+# ending in a slash.
+tmp=$(cd -P "$tmp" && pwd -P) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 # The baseline runs from its own copy so the fixture repo is its parent and

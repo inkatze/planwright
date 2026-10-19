@@ -317,7 +317,8 @@ _pw_lock_store() {
 # `etime`, which is `[[dd-]hh:]mm:ss`. Asking only for `etimes` is not a
 # failure that announces itself — it returns nothing, every mint-time witness
 # goes empty, and the recycled-pid check silently degrades to pid-only on every
-# Mac in the support bar while the header still claims it.
+# Mac in the support bar while the header still claims it. busybox `ps` has
+# `etime` but no `-p`, so there the one pid is picked out of a full listing.
 # _pw_lock_dec <digits> — set _pw_lock_dec_out to the same value with leading
 # zeros removed, so the shell reads it as decimal rather than octal. Trimming a
 # single zero is not enough: it only works while every field happens to be two
@@ -339,7 +340,13 @@ _pw_lock_etimes() {
     '' | *[!0-9]*) _pw_lock_etimes_out='' ;;
     *) return 0 ;;
   esac
-  _pwe_raw=$(ps -o etime= -p "$1" 2>/dev/null | tr -d ' ') || _pwe_raw=''
+  _pwe_raw=$(ps -o etime= -p "$1" 2>&1 | tr -d ' ') || :
+  case $_pwe_raw in
+    *[!0-9:-]*)
+      # A diagnostic, not an answer: this ps rejects the query.
+      _pwe_raw=$(ps -A -o pid= -o etime= 2>/dev/null | awk -v p="$1" '$1 == p { print $2; exit }') || _pwe_raw=''
+      ;;
+  esac
   [ -n "$_pwe_raw" ] || return 0
   case $_pwe_raw in
     *-*)

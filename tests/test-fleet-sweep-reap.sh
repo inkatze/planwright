@@ -50,6 +50,7 @@ cleanup() {
     kill -9 "$p" 2>/dev/null
   done
   cl_snap=$(ps -A -ww -o pid=,args= 2>/dev/null) || cl_snap=''
+  [ -n "$cl_snap" ] || cl_snap=$(ps -A -o pid=,args= 2>/dev/null) || cl_snap=''
   while read -r p a; do
     case $a in
       *"$tmp"*) [ "$p" = "$$" ] || kill -9 "$p" 2>/dev/null ;;
@@ -221,7 +222,7 @@ alive() {
 }
 
 gone() {
-  ! kill -0 "$1" 2>/dev/null && ! ps -p "$1" >/dev/null 2>&1
+  ! kill -0 "$1" 2>/dev/null && ! ps -p "$1" >/dev/null 2>&1 && [ ! -d "/proc/$1" ]
 }
 
 sj_launch() {
@@ -702,8 +703,12 @@ case $(summary)/$err in
 esac
 rm -rf "$repo2/.claude/.git"
 # On a case-insensitive filesystem a tracked case variant is the very file
-# config-get reads, so tracking under any letter case is refused.
+# config-get reads, so tracking under any letter case is refused. The
+# lowercase file goes first so that on such a file system the variant is the
+# name on disk; otherwise the write keeps the old name and git stages nothing.
+rm -f "$repo2/.claude/planwright.local.yml"
 printf 'fleet_sweep_reap: terminate\n' >"$repo2/.claude/PlanWright.Local.yml"
+printf 'fleet_sweep_reap: terminate\n' >"$repo2/.claude/planwright.local.yml"
 git_env git -C "$repo2" add -f .claude/PlanWright.Local.yml
 git_env git -C "$repo2" commit -qm 'ship a case-variant local config'
 derived_sweep

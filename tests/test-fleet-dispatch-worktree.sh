@@ -931,6 +931,8 @@ c23() {
 c24() {
   for variant in bare work; do
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c24.XXXXXX")
+    # The refusal names physical paths (pwd -P); compare in kind.
+    tmp=$(cd "$tmp" && pwd -P)
     iso_env "$tmp"
     seed_repo "$tmp"
     base=$(gitc "$tmp/primary" rev-parse main)

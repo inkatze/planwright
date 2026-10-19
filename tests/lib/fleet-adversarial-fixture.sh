@@ -38,6 +38,7 @@ adv_cleanup() {
     kill -9 "$p" 2>/dev/null
   done
   ac_snap=$(ps -A -ww -o pid=,args= 2>/dev/null) || ac_snap=''
+  [ -n "$ac_snap" ] || ac_snap=$(ps -A -o pid=,args= 2>/dev/null) || ac_snap=''
   while read -r p a; do
     case $a in
       *"$tmp"*) [ "$p" = "$$" ] || kill -9 "$p" 2>/dev/null ;;
@@ -194,7 +195,7 @@ classified() {
 }
 
 gone() {
-  ! kill -0 "$1" 2>/dev/null && ! ps -p "$1" >/dev/null 2>&1
+  ! kill -0 "$1" 2>/dev/null && ! ps -p "$1" >/dev/null 2>&1 && [ ! -d "/proc/$1" ]
 }
 
 alive() {

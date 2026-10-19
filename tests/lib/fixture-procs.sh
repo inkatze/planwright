@@ -98,6 +98,9 @@ fixture_procs() {
     return 2
   }
   snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || snap=''
+  # busybox ps has no -ww (it cuts argv at a fixed length, far past any
+  # fixture needle).
+  [ -n "$snap" ] || snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || snap=''
   _fp_table_ok "$snap" || {
     echo "fixture_procs: no usable process table on this host" >&2
     return 2
@@ -131,12 +134,10 @@ fixture_report() {
 }
 
 # _fp_alive <pid...> — the given pids that are still running, zombies excluded.
+# One listing rather than ps -p per pid, which busybox ps lacks.
 _fp_alive() {
-  local p st
-  for p in "$@"; do
-    st=$(ps -p "$p" -o stat= 2>/dev/null) || continue
-    case $st in '' | Z*) ;; *) printf '%s\n' "$p" ;; esac
-  done
+  ps -A -o pid=,stat= 2>/dev/null | awk -v want=" $* " '
+    index(want, " " $1 " ") && $2 !~ /^Z/ { print $1 }'
 }
 
 # _fp_gone <dir/> <pid...> — no process matches the needle and none of the

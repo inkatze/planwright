@@ -292,9 +292,15 @@ done
 # multiply-linked file, or anything but a directory or a regular file (a
 # FIFO, socket, or device): the skills write each bundle file in place.
 # The scan fails closed: a directory it cannot read or enter could hide a
-# link, so the probe runs the full predicate the refusals below test.
+# link, so the probe runs the full predicate the refusals below test. Each
+# directory's access is also checked outright, because macOS find skips the
+# children of a directory it can list but not enter without reporting them.
 if [ -d "$bundle" ]; then
-  why=$(find "$bundle" -mindepth 1 \( -type l -o -type f -links +1 -o ! -type d ! -type f \) 2>&1 >/dev/null) && [ -z "$why" ] || {
+  why=$(find "$bundle" -mindepth 1 \( -type l -o -type f -links +1 -o ! -type d ! -type f \) 2>&1 >/dev/null) && [ -z "$why" ] \
+    && why=$(find "$bundle" -type d -exec sh -c '
+      for d do
+        [ -r "$d" ] && [ -x "$d" ] || { printf "%s: Permission denied\n" "$d" >&2; exit 1; }
+      done' sh {} + 2>&1 >/dev/null) && [ -z "$why" ] || {
     say "refused: could not scan $bundle for links: ${why:-find failed}"
     exit 4
   }
