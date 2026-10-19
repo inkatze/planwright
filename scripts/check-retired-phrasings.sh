@@ -16,8 +16,8 @@
 #
 # MATCHED: each POSIX ERE in config/retired-phrasings.txt against every
 # paragraph (a run of non-blank lines) lowercased with its whitespace
-# collapsed, Markdown emphasis, code ticks, escapes, inline HTML tags, and
-# blockquote markers dropped, and Unicode or entity spaces read as spaces, so a phrasing wrapped across lines or
+# collapsed, Markdown emphasis, code ticks, escapes, inline HTML element tags
+# (their text kept), comment delimiters, and blockquote markers dropped, and Unicode or entity spaces read as spaces, so a phrasing wrapped across lines or
 # set in emphasis is caught; a hit is reported by the line it ends on. Patterns are lowercase; an uppercase one is refused.
 #
 # EXEMPT: doctrine/human-gates.md, which names what it supersedes, and the
@@ -150,7 +150,8 @@ BEGIN {
       gsub(/\302\240|\342\200[\200-\213\257]|\342\201\237|&nbsp;|&#160;/, " ", line)
       gsub(/&rarr;/, "\342\206\222", line)
       sub(/^[ \t]*(>[ \t]*)+/, "", line)
-      gsub(/<[^>]*>/, "", line)
+      gsub(/<!--|-->/, " ", line)
+      gsub(/<\/?(a|abbr|b|code|em|i|kbd|mark|s|small|span|strong|sub|sup|u)( [^>]*)?>/, "", line)
       gsub(/[*_`\\]/, "", line)
       gsub(/[ \t\r]+/, " ", line)
       sub(/^ /, "", line); sub(/ $/, "", line)

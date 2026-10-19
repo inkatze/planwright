@@ -91,7 +91,8 @@ for variant in 'planwright **never** auto-merges.' '> planwright never
   "the draft-to-ready flip is the human$(printf '\342\200\231')s." \
   'the draft->ready flip is yours.' 'the draft to ready flip is yours.' \
   'planwright never&nbsp;auto-merges.' 'planwright never auto\-merges.' \
-  'planwright <em>never</em> auto-merges.' 'planwright never <!-- x --> auto-merges.' \
+  'planwright <em>never</em> auto-merges.' \
+  '<!-- planwright never auto-merges -->' 'A <placeholder: never auto-merge> here.' \
   "planwright never$(printf '\342\200\257')auto-merges." 'the draft&rarr;ready flip is yours.'; do
   r="$TMP/variant"
   rm -rf "$r"
