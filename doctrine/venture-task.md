@@ -3,8 +3,7 @@
 A venture's validation plan is run one `T-<n>` task at a time, under a
 contract lighter than a spec unit's: the deliverable is a findings document
 committed to the venture repository, with no pull request, no CI gauntlet,
-and no polish loop, because that ceremony is shaped for production code and
-kills the economics of a two-hour spike. What the contract keeps is the
+and no polish loop (inception D-13 records why). What the contract keeps is the
 discipline that makes the evidence worth having: a done-when per kind, human
 acceptance, and register updates that land with their findings or not at all.
 
@@ -12,7 +11,7 @@ acceptance, and register updates that land with their findings or not at all.
 the status tokens, and the evidence grades; this doc owns how a task is run
 and how its findings reach the registers.
 `scripts/venture-task.sh` is the mechanical half: every step below names its
-subcommand, and the script's header lists the exit codes.
+subcommand.
 
 Citations: inception REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5,
 REQ-D1.6, REQ-D1.7, REQ-J1.3 · inception D-7, D-13.
@@ -36,8 +35,9 @@ with no Decides name, refuses the task.
 
 **No autonomous external interaction.** For `demand-signal` and `alignment`
 the agent prepares materials (a landing-page draft, an interview guide, an
-agenda) and stops; a human performs the interaction and reports what
-happened. The agent never sends a message, posts, publishes, books a meeting,
+agenda) in the findings document and stops; a human performs the
+interaction, and the document is delivered only once it records who ran it
+and what they observed. The agent never sends a message, posts, publishes, books a meeting,
 or otherwise contacts a person outside the session, on any rung. Nothing in
 `venture-task.sh` reaches the network, and `venture-task.sh worker-settings`
 prints a permission deny-list for the common outward channels, which a
@@ -108,11 +108,12 @@ reference to `spikes/` from the seed paths it is given.
 4: a commit that accepts a task without its findings or without an update to
 each linked entry, a commit that cites `T-<n> findings` in an assumption
 without accepting `T-<n>`, and a commit that adds findings for a task it
-leaves neither delivered nor accepted are each a finding.
+leaves `planned` are each a finding.
 
 On a remote-backed venture the operator may ask for pull-request review
-instead: deliver on a branch and open the pull request; the merge is the
-acceptance, and the accept commit lands on that branch before it.
+instead: deliver on a branch and open the pull request; once the review
+approves, the operator's accept commit lands on that branch, and the merge
+brings findings and register updates in together.
 
 ## Dispatch
 

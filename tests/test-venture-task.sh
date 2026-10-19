@@ -162,6 +162,21 @@ done
 vt show "$v" T-9
 assert_eq "show refuses a task the plan does not hold" 1 "$rc"
 
+# A bare identifier resolves under ventures_root.
+printf 'ventures_root: ~/ventures\n' >"$tmp/core-defaults.yml"
+mkdir -p "$tmp/cfg-repo/.claude" "$HOME/ventures"
+git init -q "$tmp/cfg-repo"
+inception_fixture_write "$HOME/ventures/northwind" || exit 1
+out=$(PLANWRIGHT_CONFIG_DEFAULTS="$tmp/core-defaults.yml" PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter" \
+  PLANWRIGHT_REPO_ROOT="$tmp/cfg-repo" PLANWRIGHT_LOCAL_CONFIG="" "$VT" show northwind T-1 2>&1)
+rc=$?
+assert_eq "a venture identifier resolves under ventures_root" 0 "$rc"
+assert_contains "the resolved venture's task is read" "$(printf 'kind\tspike')" "$out"
+vt show 'North_wind' T-1
+assert_eq "an argument that is neither a path nor an identifier is refused" 2 "$rc"
+vt show "$v" T-9
+assert_eq "show refuses a task the plan does not hold" 1 "$rc"
+
 sed 's/^- \*\*Target:\*\* venture direction/- **Target:** pricing/' "$v/plan.md" >"$tmp/plan.tmp" && mv "$tmp/plan.tmp" "$v/plan.md"
 vt show "$v" T-3
 assert_eq "D1.2 an alignment target naming no map row is refused" 1 "$rc"
@@ -378,6 +393,8 @@ assert_eq "reject exits 0" 0 "$rc"
 assert_eq "a rejected task returns to running" "running" "$(field_of "$v/plan.md" T-2 Status)"
 assert_eq "a rejection touches no register" "findings/T-2.md plan.md " "$(head_files "$v")"
 assert_contains "the findings carry the rejection record" "Rejected-by: Dana Reyes" "$(cat "$v/findings/T-2.md")"
+vt check "$v"
+assert_eq "D1.3 a rejection commit passes the check" 0 "$rc"
 findings "$v" T-2 research "A-2: testing — opinion"
 vt deliver "$v" T-2
 assert_eq "a reworked task delivers again" 0 "$rc"
