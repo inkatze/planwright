@@ -877,24 +877,28 @@ knob_adopter conflict-only
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
 RG_SURFACE=mcp run_hook "$(mcp_payload acme widgets 42 false)"
 assert_defer "conflict-only: the MCP surface defers a conflict-free behind PR too"
+assert_no_sentinels "conflict-only: the MCP surface defers a conflict-free behind PR too: no git/curl/wget/claude ran"
 
 reset_stub_env
 knob_adopter conflict-only
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_defer "conflict-only: a current, mergeable PR still defers"
+assert_no_sentinels "conflict-only: a current, mergeable PR still defers: no git/curl/wget/claude ran"
 
 reset_stub_env
 knob_adopter conflict-only
 STUB_VIEW_JSON=$VIEW_CONFLICTING STUB_COMPARE_OUT=3
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "conflict-only: a conflicting PR still denies" 'CONFLICTING'
+assert_no_sentinels "conflict-only: a conflicting PR still denies: no git/curl/wget/claude ran"
 
 reset_stub_env
 knob_adopter conflict-only
 STUB_VIEW_JSON=$VIEW_UNKNOWN STUB_COMPARE_OUT=3
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "conflict-only: mergeable UNKNOWN after the re-query still denies" 'still UNKNOWN'
+assert_no_sentinels "conflict-only: mergeable UNKNOWN after the re-query still denies: no git/curl/wget/claude ran"
 
 reset_stub_env
 knob_adopter conflict-only
@@ -902,18 +906,21 @@ STUB_VIEW_JSON='{"baseRefName":"main","headRefOid":"cccccccccccccccccccccccccccc
 STUB_COMPARE_OUT=3
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "conflict-only: an unrecognized mergeable value still denies" 'could not be confirmed'
+assert_no_sentinels "conflict-only: an unrecognized mergeable value still denies: no git/curl/wget/claude ran"
 
 reset_stub_env
 knob_adopter conflict-only
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_RC=1
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "conflict-only: a failing compare call still denies" 'compare endpoint could not be reached'
+assert_no_sentinels "conflict-only: a failing compare call still denies: no git/curl/wget/claude ran"
 
 reset_stub_env
 knob_adopter conflict-only
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT='not-a-number'
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "conflict-only: an unreadable behind_by still denies" 'no readable'
+assert_no_sentinels "conflict-only: an unreadable behind_by still denies: no git/curl/wget/claude ran"
 
 reset_stub_env
 knob_adopter refuse
@@ -928,6 +935,7 @@ knob_adopter refuse
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
 RG_SURFACE=mcp run_hook "$(mcp_payload acme widgets 42 false)"
 assert_deny_because "refuse: the MCP surface denies a conflict-free behind PR" '7 commit'
+assert_no_sentinels "refuse: the MCP surface denies a conflict-free behind PR: no git/curl/wget/claude ran"
 
 # conflict-only relaxes the behind-base check and nothing else.
 reset_stub_env
@@ -935,6 +943,7 @@ knob_adopter conflict-only
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 run_hook "$(bash_payload "gh pr ready '1 --repo attacker/clean'")"
 assert_deny "conflict-only: an invalid selector still denies"
+assert_no_sentinels "conflict-only: an invalid selector still denies: no git/curl/wget/claude ran"
 if [ "$(gh_calls)" = 0 ]; then
   pass "conflict-only: the invalid selector is refused before any gh call"
 else
@@ -946,18 +955,21 @@ knob_adopter conflict-only
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
 run_hook "$(bash_payload 'gh pr ready 42')" gh
 assert_deny_because "conflict-only: a missing gh binary still denies" 'gh CLI is not on PATH'
+assert_no_sentinels "conflict-only: a missing gh binary still denies: no git/curl/wget/claude ran"
 
 reset_stub_env
 knob_adopter conflict-only
 STUB_VIEW_JSON=$VIEW_ALREADY_READY STUB_COMPARE_OUT=9
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_defer "conflict-only: an already-ready PR defers, ungated as under refuse"
+assert_no_sentinels "conflict-only: an already-ready PR defers, ungated as under refuse: no git/curl/wget/claude ran"
 
 reset_stub_env
 knob_adopter lenient
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "a malformed adopter value degrades to refuse, never to a pass" '7 commit'
+assert_no_sentinels "a malformed adopter value degrades to refuse, never to a pass: no git/curl/wget/claude ran"
 
 # A repo-side layer cannot relax the guard. The hook runs from inside a real
 # repository whose repo-tracked and machine-local files say conflict-only, with
@@ -988,6 +1000,7 @@ cd "$REPO_ROOT" || exit 1
 rm -f "$BIN/git"
 cp "$SANDBOX/git.sentinel" "$BIN/git"
 assert_deny_because "repo-tracked and machine-local conflict-only do not relax the guard" '7 commit'
+assert_no_sentinels "repo-tracked and machine-local conflict-only: no curl/wget/claude ran"
 if [ -s "$GIT_LOG" ]; then
   fail "the repo-side case ran git: $(cat "$GIT_LOG")"
 else
@@ -1008,6 +1021,7 @@ HOOK="$LONE/ready-guard.sh"
 run_hook "$(bash_payload 'gh pr ready 42')"
 HOOK=$SAVED_HOOK
 assert_deny_because "conflict-only with no resolver beside the guard degrades to refuse" '7 commit'
+assert_no_sentinels "conflict-only with no resolver beside the guard degrades to refuse: no git/curl/wget/claude ran"
 
 # The guard's own reading of the resolver's answer, driven through a stub
 # resolver beside a copy of the guard: only an exact `conflict-only` on a
@@ -1032,6 +1046,7 @@ run_stubbed_resolver() {
   else
     assert_deny_because "$1" '7 commit'
   fi
+  assert_no_sentinels "$1: no git/curl/wget/claude ran"
 }
 run_stubbed_resolver "positive control: a stub resolver answering conflict-only is reached and relaxes" \
   defer "printf 'conflict-only\n'"
@@ -1049,6 +1064,25 @@ run_stubbed_resolver "a resolver that answers only after the query bound applies
 run_stubbed_resolver "the guard drops the repo-side layers before calling the resolver" \
   deny 'if [ "${PLANWRIGHT_REPO_ROOT-}" = none ] && [ -z "${PLANWRIGHT_LOCAL_CONFIG-}" ]; then echo refuse; else echo conflict-only; fi'
 
+# An unreadable resolver applies refuse: the same stub the positive control
+# shows relaxing when readable. Root reads a mode-000 file, so the case
+# cannot be staged there.
+if [ "$(id -u)" != 0 ]; then
+  printf '%s\n' "printf 'conflict-only\n'" >"$STUBBED/resolve-policy-knob.sh"
+  chmod 000 "$STUBBED/resolve-policy-knob.sh"
+  reset_stub_env
+  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+  SAVED_HOOK=$HOOK
+  HOOK="$STUBBED/ready-guard.sh"
+  run_hook "$(bash_payload 'gh pr ready 42')"
+  HOOK=$SAVED_HOOK
+  chmod 644 "$STUBBED/resolve-policy-knob.sh"
+  assert_deny_because "an unreadable resolver beside the guard applies refuse" '7 commit'
+  assert_no_sentinels "an unreadable resolver beside the guard: no git/curl/wget/claude ran"
+else
+  echo "skip: the unreadable-resolver case needs a non-root user"
+fi
+
 # The knob is read only for a behind PR: a marker-writing stub resolver leaves
 # no marker for a current PR and leaves one for a behind PR.
 KNOB_MARKER="$SANDBOX/knob-read"
@@ -1060,6 +1094,7 @@ rm -f "$KNOB_MARKER"
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_defer "a current PR defers with the marker-writing resolver beside the guard"
+assert_no_sentinels "a current PR defers with the marker-writing resolver beside the guard: no git/curl/wget/claude ran"
 if [ -e "$KNOB_MARKER" ]; then
   fail "the guard read the knob for a current PR (behind_by 0)"
 else
@@ -1071,6 +1106,7 @@ STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
 run_hook "$(bash_payload 'gh pr ready 42')"
 HOOK=$SAVED_HOOK
 assert_defer "a behind PR defers through the marker-writing resolver"
+assert_no_sentinels "a behind PR defers through the marker-writing resolver: no git/curl/wget/claude ran"
 if [ -e "$KNOB_MARKER" ]; then
   pass "positive control: a behind PR reads the knob and leaves the marker"
 else
@@ -1084,6 +1120,7 @@ RG_LOCAL_CONFIG="$SANDBOX/local-override.yml"
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "a PLANWRIGHT_LOCAL_CONFIG file saying conflict-only does not relax the guard" '7 commit'
+assert_no_sentinels "a PLANWRIGHT_LOCAL_CONFIG file saying conflict-only does not relax the guard: no git/curl/wget/claude ran"
 
 echo "### REQ-C1.7 — global wiring in hooks/hooks.json"
 

@@ -297,11 +297,16 @@ for knob in conflict-only refuse; do
   run_hook "$(bash_payload "$BASH_FLIP")"
   assert_cell "knob-$knob-behind/bash" "bash: $knob, a conflict-free behind PR"
   assert_no_sentinels "bash: $knob, the knob read invoked no git/curl/wget/claude"
+  if [ "$knob" = refuse ]; then
+    assert_reason_matches "bash: the refuse denial names the staleness" 'commit\(s\) behind'
+    assert_reason_lacks "bash: the refuse denial does not name the knob" 'ready_guard_behind_base|conflict-only'
+  fi
   reset_stub_env
   RG_ADOPTER_OVERLAY=$KNOB_ADOPTER
   STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5
   run_mcp "$MCP_FLIP"
   assert_cell "knob-$knob-behind/mcp" "mcp: $knob, a conflict-free behind PR"
+  assert_no_sentinels "mcp: $knob, the knob read invoked no git/curl/wget/claude"
   if [ "$knob" = refuse ]; then
     assert_reason_matches "mcp: the refuse denial names the staleness" 'commit\(s\) behind'
     assert_reason_lacks "mcp: the refuse denial does not name the knob" 'ready_guard_behind_base|conflict-only'
