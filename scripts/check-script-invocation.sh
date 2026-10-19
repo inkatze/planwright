@@ -3,34 +3,43 @@
 # script through `sh`.
 #
 # Called by its path, a script gets the interpreter its shebang names. `sh
-# <path>` overrides that with whatever /bin/sh is (dash on Debian and Ubuntu,
-# bash in POSIX mode on macOS), and a bash-only script fails there on its
-# first bashism: a catalog walk degrades, a budget audit fails, with a syntax
-# error that names the script rather than the invocation. The rule lives in
+# <path>` overrides that with whatever /bin/sh is, and where that is dash
+# (Debian, Ubuntu) a bash-only script fails on its first bashism: a catalog
+# walk degrades, a budget audit fails, with a syntax error that names the
+# script rather than the invocation. The rule lives in
 # doctrine/plugin-script-invocation.md (*Invoke by the shebang*); this is its
 # mechanical half.
 #
-# THE SHEBANG IS THE DECLARATION. A scripts/*.sh whose first line is a `#!`
-# naming bash is bash-only. Sourced libraries carry no shebang and are never
-# run, so they are not compared against.
+# THE SHEBANG IS THE DECLARATION. A top-level scripts/*.sh whose first line is
+# a `#!` naming bash is bash-only. Sourced libraries carry no shebang and are
+# never run, so they are not compared against.
 #
-# WHAT COUNTS AS AN OFFENSE. In skills/**/*.md and doctrine/*.md, an `sh`
-# command word (bare, /bin/sh, /usr/bin/sh, or after `env`) followed, past any
-# flags, by an operand whose basename is a bash-shebanged script. `sh -c
-# <string>` is not one: the string runs the script by path. Running a script
-# by path, or through `bash`, is what the rule asks for.
+# WHAT COUNTS AS AN OFFENSE. In any .md file under skills/ or doctrine/, an
+# `sh` command word (bare, or a path ending /sh such as /bin/sh) whose
+# operand, past any options, `--`, and a `<` redirect, names
+# `scripts/<name>` for a bash-shebanged <name>. The operand may be quoted, a
+# variable, or a `<placeholder>` such as `<root>/scripts/<name>`. Not
+# offenses: `sh -c <string>` (the string runs the script by path), a call by
+# path, a call through `bash`. Not read: a script piped into `sh` on stdin,
+# and an invocation split by a backslash-newline.
 #
-# Untrusted input: the scanned files are PR-controllable. They are read by awk
-# as data; nothing from them is executed or interpolated into program text,
-# and paths reach output with control bytes stripped.
+# FAILS CLOSED on anything that would narrow the scan: no scripts/, no
+# shebanged script, no instruction file, a file it cannot read, and a symbolic
+# link or a name containing a newline under scripts/, skills/, or doctrine/
+# (the lists below are newline-separated, so such a name could forge an entry,
+# and a link's target would go unscanned).
+#
+# Untrusted input: the scanned files and their names are PR-controllable.
+# awk reads them as data and takes every path through ENVIRON or a list file,
+# never its command line; nothing is executed or interpolated into program
+# text, and output reaches the terminal with control bytes stripped.
 #
 # Usage:
 #   check-script-invocation.sh [--repo-root <dir>]   default: this script's parent
 #   check-script-invocation.sh --help | -h
 #
 # Exit codes: 0 clean, 1 an instruction runs a bash script through sh, 2 usage
-# or a scan that could not cover what it claims (no scripts/ with a shebanged
-# script, no instruction file to scan).
+# or a scan that could not cover what it claims.
 #
 # POSIX sh + awk; no fish/mise/tmux.
 set -u
@@ -42,8 +51,12 @@ unset CDPATH
 
 self_dir="$(cd "$(dirname "$0")" && pwd -P)"
 
+strip_controls() {
+  tr -d '\000-\010\013-\037\177\200-\237'
+}
+
 fail_closed() {
-  printf 'check-script-invocation: %s\n' "$1" | tr -d '\000-\010\013-\037\177' >&2
+  printf 'check-script-invocation: %s\n' "$1" | strip_controls >&2
   exit 2
 }
 
@@ -56,11 +69,11 @@ Usage:
   check-script-invocation.sh [--repo-root <dir>]   default: this script's parent
   check-script-invocation.sh --help | -h
 
-Scans skills/**/*.md and doctrine/*.md for an `sh` invocation whose operand is
-a scripts/*.sh whose shebang names bash. Fix a flagged line by calling the
-script by its path, or through the interpreter its shebang names.
+Scans the .md files under skills/ and doctrine/ for an `sh` invocation whose
+operand is a scripts/*.sh whose shebang names bash. Fix a flagged line by
+calling the script by its path, or through the interpreter its shebang names.
 
-Exit codes: 0 clean, 1 a flagged instruction, 2 usage or a scan that could not
+Exit codes: 0 clean, 1 a flagged invocation, 2 usage or a scan that could not
 cover what it claims.
 EOF
 }
@@ -94,91 +107,128 @@ root="$(cd "$root" && pwd -P)" || fail_closed "cannot resolve the root"
 work="$(mktemp -d "${TMPDIR:-/tmp}/check-script-invocation.XXXXXX")" \
   || fail_closed "cannot create a temporary directory"
 trap 'rm -rf "$work"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+nl='
+'
+for d in scripts skills doctrine; do
+  [ -e "$root/$d" ] || continue
+  find "$root/$d" \( -name "*$nl*" -o -type l \) -print >"$work/odd" \
+    || fail_closed "cannot list $root/$d"
+  [ ! -s "$work/odd" ] \
+    || fail_closed "a symbolic link or a name containing a newline under $d/: $(head -n 1 "$work/odd")"
+done
 
 # Lists go through files rather than pipes so a failing `find` is seen: a pipe
 # would hand awk a short list and exit 0.
-find "$root/scripts" -type f -name '*.sh' >"$work/scripts" \
+find "$root/scripts/." ! -name . -prune -type f -name '*.sh' >"$work/scripts" \
   || fail_closed "cannot list $root/scripts"
 : >"$work/docs"
-if [ -d "$root/skills" ]; then
-  find "$root/skills" -type f -name '*.md' >>"$work/docs" \
-    || fail_closed "cannot list $root/skills"
-fi
-if [ -d "$root/doctrine" ]; then
-  find "$root/doctrine" -type f -name '*.md' >>"$work/docs" \
-    || fail_closed "cannot list $root/doctrine"
-fi
+for d in skills doctrine; do
+  [ -d "$root/$d" ] || continue
+  find "$root/$d" -type f -name '*.md' >>"$work/docs" \
+    || fail_closed "cannot list $root/$d"
+done
 sort -o "$work/docs" "$work/docs" || fail_closed "cannot sort the instruction list"
 
-shebanged=0
-: >"$work/bash"
-while IFS= read -r f; do
-  IFS= read -r first <"$f" || first=''
-  case "$first" in
-    '#!'*) shebanged=$((shebanged + 1)) ;;
-    *) continue ;;
-  esac
-  # A word `bash` in the interpreter line: /bin/bash, /usr/bin/env bash,
-  # env -S bash -e. Not bashful-sh or a path merely containing "bash".
-  case " ${first#??} " in
-    *[/\ ]bash[\ ]*) printf '%s\n' "${f##*/}" >>"$work/bash" ;;
-  esac
-done <"$work/scripts"
-[ "$shebanged" -gt 0 ] || fail_closed "no shebanged scripts/*.sh under $root"
-docs=$(grep -c '' "$work/docs") || docs=0
-[ "$docs" -gt 0 ] || fail_closed "no skills/**/*.md or doctrine/*.md under $root"
-
+: >"$work/err" || fail_closed "cannot write to $work"
 rc=0
-awk -v root="$root/" -v bashlist="$work/bash" -v doclist="$work/docs" '
-  BEGIN {
-    while ((getline name < bashlist) > 0) bash[name] = 1
-    close(bashlist)
-    # File names come from a list, not the command line, so no word
-    # splitting or globbing ever touches them.
-    while ((getline name < doclist) > 0) ARGV[ARGC++] = name
-    close(doclist)
-    # An sh command word: not preceded by a word, path, or dotted character,
-    # optionally /bin/ or /usr/bin/, then blanks.
-    cmd = "(^|[^A-Za-z0-9_./-])((/usr)?/bin/)?sh[ \t]+"
+CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
+  CSI_ERR="$work/err" CSI_SUMMARY="$work/summary" awk '
+  function fatal(msg) {
+    print "check-script-invocation: " msg > errfile
+    failed = 1
+    exit
   }
-  FNR == 1 { rel = substr(FILENAME, 1, length(root)) == root ? substr(FILENAME, length(root) + 1) : FILENAME }
-  {
-    line = $0
-    while (match(line, cmd)) {
-      rest = substr(line, RSTART + RLENGTH)
-      line = rest
-      skip = 0
-      while (match(rest, /^-[A-Za-z]+[ \t]+/)) {
-        if (substr(rest, 2, RLENGTH - 1) ~ /c/) skip = 1
-        rest = substr(rest, RLENGTH + 1)
+  BEGIN {
+    root = ENVIRON["CSI_ROOT"]
+    errfile = ENVIRON["CSI_ERR"]
+    list = ENVIRON["CSI_SCRIPTS"]
+    while ((r = (getline f < list)) > 0) {
+      first = ""
+      if ((getline first < f) < 0) fatal("cannot read " f)
+      close(f)
+      sub(/\r$/, "", first)
+      if (first !~ /^#!/) continue
+      shebanged++
+      if (first ~ /^#!(.*[\/ \t])?bash([ \t]|$)/) {
+        name = f
+        sub(/.*\//, "", name)
+        bash[name] = 1
+        nbash++
       }
-      if (skip) continue
-      sub(/^["\047]+/, "", rest)
-      if (!match(rest, /^[^ \t"\047`;|&)<>]+/)) continue
-      operand = substr(rest, 1, RLENGTH)
-      base = operand
-      sub(/.*\//, "", base)
-      if (base in bash) {
-        printf "check-script-invocation: %s:%d: runs scripts/%s through sh, but its shebang names bash; call it by its path or through bash\n", rel, FNR, base
+    }
+    if (r < 0) fatal("cannot read the script list")
+    close(list)
+    if (!shebanged) fatal("no shebanged scripts/*.sh under " root)
+    list = ENVIRON["CSI_DOCS"]
+    while ((r = (getline f < list)) > 0) {
+      if (substr(f, 1, length(root)) != root) fatal("listed file outside the root: " f)
+      if ((getline probe < f) < 0) fatal("cannot read " f)
+      close(f)
+      ARGV[ARGC++] = f
+      ndocs++
+    }
+    if (r < 0) fatal("cannot read the instruction list")
+    close(list)
+    if (!ndocs) fatal("no .md file under skills/ or doctrine/ in " root)
+  }
+  FNR == 1 { rel = substr(FILENAME, length(root) + 1) }
+  /sh/ {
+    line = $0
+    sub(/\r$/, "", line)
+    n = split(line, w, /[ \t]+/)
+    for (i = 1; i <= n; i++) {
+      # An sh command word: the token ends in sh, preceded by nothing, a
+      # path ending in /, or punctuation that opens a command.
+      if (w[i] !~ /(^|[^A-Za-z0-9_.\/-])((\/[A-Za-z0-9_.-]+)*\/)?sh$/) continue
+      skip = 0
+      op = ""
+      for (j = i + 1; j <= n; j++) {
+        a = w[j]
+        if (a == "--" || a == "<") continue
+        if (a ~ /^[-+]o$/) { j++; continue }
+        if (a ~ /^[-+][A-Za-z]+$/) {
+          if (a ~ /^-[A-Za-z]*c/) skip = 1
+          if (skip) break
+          continue
+        }
+        op = a
+        break
+      }
+      if (skip || op == "") continue
+      if (op !~ /^<[A-Za-z0-9_-]+>/) sub(/^</, "", op)
+      gsub(/[\042\047]/, "", op)
+      sub(/[`;|&].*$/, "", op)
+      sub(/[).,:]+$/, "", op)
+      if (op !~ /(^|\/)scripts\/[^\/]+$/) continue
+      name = op
+      sub(/.*\//, "", name)
+      if (name in bash) {
+        printf "check-script-invocation: %s:%d: runs scripts/%s through sh, but its shebang names bash; call it by its path or through bash\n", rel, FNR, name
         found++
       }
     }
   }
-  END { exit found ? 1 : 0 }
-' </dev/null >"$work/out" 2>"$work/err" || rc=$?
+  END {
+    if (failed) exit 2
+    print ndocs, nbash > ENVIRON["CSI_SUMMARY"]
+    exit found ? 1 : 0
+  }
+' </dev/null >"$work/out" 2>"$work/awkerr" || rc=$?
 
-tr -d '\000-\010\013-\037\177' <"$work/out" >&2
+strip_controls <"$work/out" >&2
+cat "$work/err" "$work/awkerr" | strip_controls >&2
 case "$rc" in
   0) ;;
   1)
     n=$(grep -c '' "$work/out") || n=0
-    printf 'check-script-invocation: %s flagged instruction(s)\n' "$n" >&2
+    printf 'check-script-invocation: %s flagged invocation(s)\n' "$n" >&2
     exit 1
     ;;
-  *)
-    tr -d '\000-\010\013-\037\177' <"$work/err" >&2
-    fail_closed "awk failed scanning the instruction files (exit $rc)"
-    ;;
+  *) fail_closed "the scan did not complete (awk exit $rc)" ;;
 esac
+read -r ndocs nbash <"$work/summary" || fail_closed "the scan wrote no summary"
 printf 'check-script-invocation: clean (%s instruction files, %s bash scripts)\n' \
-  "$docs" "$(grep -c '' "$work/bash" || :)"
+  "$ndocs" "$nbash"

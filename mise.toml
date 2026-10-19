@@ -229,7 +229,7 @@ description = "retired-mkdir guard over advisory locking: fail on any shell file
 run = "/bin/bash scripts/check-lock-primitive.sh"
 
 [tasks."check:script-invocation"]
-description = "shebang-honoring invocation guard: fail on a line in skills/**/*.md or doctrine/*.md that runs, through `sh` (bare, /bin/sh, /usr/bin/sh, or after env), a scripts/*.sh whose shebang names bash; `sh -c` strings, by-path calls, and calls through bash pass; fails closed on no shebanged script or no instruction file to scan (test-throughput REQ-E1.2, D-12)"
+description = "shebang-honoring invocation guard: fail on a line in a .md file under skills/ or doctrine/ that runs, through an `sh` command word (bare or a path ending /sh), a top-level scripts/*.sh whose shebang names bash, the operand read past options, `--`, a `<` redirect, quotes, and `<placeholder>` prefixes; `sh -c` strings, by-path calls, and calls through bash pass; fails closed on no shebanged script, no instruction file, an unreadable file, or a symbolic link or newline-bearing name in scope (test-throughput REQ-E1.2, D-12)"
 run = "/bin/sh scripts/check-script-invocation.sh"
 
 [tasks."check:bash32"]
