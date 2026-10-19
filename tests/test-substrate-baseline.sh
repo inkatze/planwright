@@ -185,8 +185,9 @@ run "$tmp/wc-four.tsv"
 check_has "an even run count averages the middle pair" "$out" "| median of 4 runs | 250.5 |"
 check_has "the slowest of four" "$out" "| slowest | 401 |"
 
+printf '1\t2026-08-01T00:00:00Z\t%s\t300\n' "$sha" >"$tmp/wc-aug.tsv"
 out=$("$SB" --as-of 2026-08-11 --spec "$fx/bundles/demo" --legacy "$fx/legacy.tsv" \
-  --wallclock "$rec/wc.tsv" --hand-backs "$rec/hand-backs.tsv" 2>&1)
+  --wallclock "$tmp/wc-aug.tsv" --hand-backs "$rec/hand-backs.tsv" 2>&1)
 check_eq "a mid-month cutoff runs" 0 "$?"
 check_has "commits after a mid-month cutoff drop out" "$out" "| 2026-08 | 3 | 1 | 1 |"
 check_has "observations after a mid-month cutoff drop out" "$out" "| 2026-08 | 2 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |"
@@ -215,6 +216,48 @@ printf 'kept\n' >"$tmp/keep.md"
 "$SB" --as-of 2026-10-31 --spec "$fx/bundles/demo" --legacy "$fx/legacy.tsv" \
   --wallclock "$tmp/wc-zero.tsv" --hand-backs "$rec/hand-backs.tsv" --out "$tmp/keep.md" 2>/dev/null
 check_eq "a failed run leaves --out untouched" "kept" "$(cat "$tmp/keep.md")"
+
+# The baseline's own inputs inside the repository must match HEAD too.
+cp "$rec/hand-backs.tsv" "$fx/hb-in-repo.tsv"
+out=$(cd "$fx" && TZ=UTC "$SB" --as-of 2026-10-31 --spec bundles/demo --legacy legacy.tsv \
+  --wallclock "$rec/wc.tsv" --hand-backs hb-in-repo.tsv 2>&1)
+check_eq "an untracked hand-back record fails closed through a relative path" 5 "$?"
+rm "$fx/hb-in-repo.tsv"
+
+out=$("$SB" --as-of 2026-10-31 --spec "$fx/bundles/demo" --legacy "$fx/legacy.tsv" \
+  --wallclock "$rec/wc.tsv" --hand-backs "$rec/hand-backs.tsv" 2>&1)
+check_has "the snapshot names the capture it read" "$out" "wall-clock from \`$rec/wc.tsv\`"
+
+printf '1\t2026-10-01T00:00:00Z\t%s\t5\n1\t2026-10-02T00:00:00Z\t%s\t6\n' "$sha" "$sha" >"$tmp/wc-dup.tsv"
+run "$tmp/wc-dup.tsv"
+check_eq "a repeated wall-clock run fails closed" 5 "$rc"
+printf '1\t2026-11-01T00:00:00Z\t%s\t5\n' "$sha" >"$tmp/wc-late.tsv"
+run "$tmp/wc-late.tsv"
+check_eq "a wall-clock run after the as-of date fails closed" 5 "$rc"
+
+mkdir "$tmp/outdir"
+out=$("$SB" --as-of 2026-10-31 --spec "$fx/bundles/demo" --legacy "$fx/legacy.tsv" \
+  --wallclock "$rec/wc.tsv" --hand-backs "$rec/hand-backs.tsv" --out "$tmp/outdir" 2>&1)
+check_eq "--out naming a directory fails closed" 5 "$?"
+
+# Each case below commits its change so only the change itself can fail it.
+fxcommit() {
+  git -C "$fx" add -A -- bundles >/dev/null
+  GIT_AUTHOR_DATE=2026-05-02T10:00:00Z GIT_COMMITTER_DATE=2026-05-02T10:00:00Z \
+    git -C "$fx" -c core.hooksPath=/dev/null commit -q -m "docs: $1" >/dev/null
+}
+printf -- '- 2025-13-05 [demo] an impossible month.\n' >>"$o/opportunities.md"
+fxcommit "bad month"
+run
+check_eq "an impossible date fails closed" 5 "$rc"
+git -C "$fx" -c core.hooksPath=/dev/null revert --no-edit HEAD >/dev/null
+printf -- '- undated.\n' >"$o/entries/notes-ddddddd1.md"
+fxcommit "undated fragment"
+run
+check_eq "an undated fragment name fails closed" 5 "$rc"
+git -C "$fx" -c core.hooksPath=/dev/null revert --no-edit HEAD >/dev/null
+run
+check_eq "the fixture is clean again" 0 "$rc"
 
 shallow=$tmp/shallow
 git clone -q --depth 1 "file://$fx" "$shallow" 2>/dev/null
@@ -247,6 +290,17 @@ check_eq "capture keeps the newest runs on or before the date" "8	2026-10-31T23:
 7	2026-10-30T01:00:00Z	7777777777777777777777777777777777777777	605" "$(printf '%s\n' "$out" | grep -v '^#')"
 out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 5 2>/dev/null)
 check_eq "a capture short of --runs fails closed" 5 "$?"
+cp "$stub/gh" "$tmp/gh.keep"
+sed 's/"headSha":"8888888888888888888888888888888888888888"/"headSha":"s8"/' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a capture with a malformed head fails closed" 5 "$?"
+sed 's/"databaseId":8,/"databaseId":"8x",/' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a capture with a non-numeric run id fails closed" 5 "$?"
+sed 's/"name":"Run mise run check"/"name":"Run something else"/' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a run with no timed check step fails closed" 5 "$?"
+cp "$tmp/gh.keep" "$stub/gh"
 
 sed 's/^    jq -r .*/    exit 1/' "$stub/gh" >"$stub/gh.new" && mv "$stub/gh.new" "$stub/gh" && chmod +x "$stub/gh"
 out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)

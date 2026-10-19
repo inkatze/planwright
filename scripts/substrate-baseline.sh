@@ -39,8 +39,10 @@
 # INPUT FILES (tab-separated, `#` comment lines and blank lines skipped):
 #   wall-clock capture   run  created  sha  seconds
 #   hand-back record     id  runs  reason
-# Inside a git work tree, an uncommitted change to the accumulator or either
-# input file fails closed, and so does a shallow clone, whose history is cut.
+# Inside a git work tree, an uncommitted, untracked or ignored change to the
+# accumulator or either input file fails closed however its path is spelt,
+# and so does a shallow clone, whose history is cut. Every fragment name must
+# open with a real date, and a fragment must be a regular file.
 #
 # Usage: substrate-baseline.sh --as-of <YYYY-MM-DD> [--repo-root <dir>]
 #          [--spec <bundle-dir>] [--legacy <tsv>] [--wallclock <tsv>]
@@ -56,7 +58,9 @@
 # uncommitted input, a shallow clone, a repo git cannot read, an attribution
 # that fails, an empty or malformed capture, a malformed or repeated
 # hand-back row or one naming an observation outside the test-flakiness
-# class, a capture short of --runs, or a failed step); 128 plus the signal
+# class, a repeated wall-clock run or one after the as-of date, a capture
+# short of --runs, an undated, impossibly dated or symlinked fragment,
+# --out naming a directory, or a failed step); 128 plus the signal
 # number on HUP, INT or TERM.
 #
 # POSIX sh on the macOS + Linux support bar. All input is data.
@@ -121,7 +125,8 @@ repo_root=$(cd "$repo_root" 2>/dev/null && pwd -P) || fail_closed "the repo root
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/substrate-baseline.XXXXXX") || fail_closed "mktemp -d failed"
 [ -n "$work" ] && [ -d "$work" ] || fail_closed "mktemp -d produced no directory"
-trap 'rm -rf "$work"' EXIT
+tmp_out=""
+trap 'rm -rf "$work"; [ -z "$tmp_out" ] || rm -f "$tmp_out"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -132,11 +137,15 @@ write_out() {
     cat "$1" || exit 5
     return
   fi
+  case $out in -*) out=./$out ;; esac
+  [ ! -d "$out" ] || fail_closed "--out names a directory"
   tmp_out=$(mktemp "$out.XXXXXX") || fail_closed "cannot create a file beside --out"
-  if ! cat "$1" >"$tmp_out" || ! mv -f "$tmp_out" "$out"; then
-    rm -f "$tmp_out"
+  # mktemp creates the file private; the snapshot gets the mode a plain
+  # redirect would.
+  if ! chmod "$(printf '%o' $((0666 & ~$(umask))))" "$tmp_out" || ! cat "$1" >"$tmp_out" || ! mv -f "$tmp_out" "$out"; then
     fail_closed "cannot write --out"
   fi
+  tmp_out=""
 }
 
 if [ "$capture" -eq 1 ]; then
@@ -190,31 +199,64 @@ git -C "$repo_root" rev-parse --verify --quiet HEAD >/dev/null || fail_closed "g
 set -- --as-of "$as_of" --repo-root "$repo_root"
 [ -z "$spec" ] || set -- "$@" --spec "$spec"
 obs_dir=$(/bin/sh "$script_dir/substrate-attribute.sh" "$@" --obs-dir) || fail_closed "the accumulator does not resolve"
+# Resolved once: the class map below reuses the bundle the accumulator came from.
+[ -n "$spec" ] || set -- "$@" --spec "$(dirname "$obs_dir")/universal-binary"
 [ -z "$legacy" ] || set -- "$@" --legacy "$legacy"
 /bin/sh "$script_dir/substrate-attribute.sh" "$@" --class-map >"$work/classes.tsv" || fail_closed "the attribution class map failed"
 /bin/sh "$script_dir/substrate-attribute.sh" --classes >"$work/class-list" || fail_closed "the class list failed"
 
+# canon <path>: the physical absolute path, so a relative or symlinked input
+# is still recognised as inside the repo.
+canon() {
+  if [ -d "$1" ]; then
+    (cd -P -- "$1" 2>/dev/null && pwd -P)
+  else
+    cn_dir=$(cd -P -- "$(dirname -- "$1")" 2>/dev/null && pwd -P) || return 1
+    printf '%s/%s\n' "$cn_dir" "$(basename -- "$1")"
+  fi
+}
+
+# rel <path>: the path as the snapshot prints it, relative to the repo when
+# inside it.
+rel() {
+  case $1 in
+    "$repo_root"/*) printf '%s\n' "${1#"$repo_root"/}" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+wallclock=$(canon "$wallclock") || fail_closed "the wall-clock capture path does not resolve"
+handbacks=$(canon "$handbacks") || fail_closed "the hand-back record path does not resolve"
 for p in "$obs_dir" "$wallclock" "$handbacks"; do
+  p=$(canon "$p") || fail_closed "an input path does not resolve"
   case $p in
     "$repo_root"/*)
-      dirty=$(git -C "$repo_root" status --porcelain --untracked-files=all -- "$p") \
+      dirty=$(git --literal-pathspecs -C "$repo_root" status --porcelain --untracked-files=all --ignored=matching -- "$p") \
         || fail_closed "git cannot read the state of an input"
       [ -z "$dirty" ] || fail_closed "an input has uncommitted changes (commit it, then regenerate)"
       ;;
   esac
 done
 
-git -C "$repo_root" log --no-merges --until="${as_of}T23:59:59Z" --date=format-local:%Y-%m \
+git -C "$repo_root" log --no-merges --no-show-signature --until="${as_of}T23:59:59Z" --date=format-local:%Y-%m \
   --format='%cd%x09%s' -- scripts githooks >"$work/commits.tsv" || fail_closed "git log failed"
 
 # Every dated observation: fragments by file name, frozen-log lines by prefix.
 : >"$work/dates"
 set +f
 for f in "$obs_dir"/entries/*.md "$obs_dir"/archive/*.md; do
-  [ -f "$f" ] || continue
+  [ -e "$f" ] || [ -h "$f" ] || continue
+  if [ -h "$f" ] || [ ! -f "$f" ]; then
+    set -f
+    fail_closed "a fragment is a symlink or not a regular file"
+  fi
   b=${f##*/}
   case $b in
     [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*) printf '%s\n' "${b%"${b#??????????}"}" >>"$work/dates" ;;
+    *)
+      set -f
+      fail_closed "a fragment name opens with no date"
+      ;;
   esac
 done
 set -f
@@ -227,7 +269,8 @@ grep -v '^#' "$wallclock" | grep -v '^[[:space:]]*$' >"$work/wc.tsv"
 
 SB_CLASSES=$work/classes.tsv SB_CLASS_LIST=$work/class-list SB_COMMITS=$work/commits.tsv
 SB_DATES=$work/dates SB_HANDBACKS=$handbacks SB_WC=$work/wc.tsv
-export SB_CLASSES SB_CLASS_LIST SB_COMMITS SB_DATES SB_HANDBACKS SB_WC
+SB_WC_SHOWN=$(rel "$wallclock") SB_HB_SHOWN=$(rel "$handbacks")
+export SB_CLASSES SB_CLASS_LIST SB_COMMITS SB_DATES SB_HANDBACKS SB_WC SB_WC_SHOWN SB_HB_SHOWN
 
 awk -F'\t' -v asof="$as_of" '
   function clean(s) { gsub(/[^[:print:]]/, "", s); return s }
@@ -258,7 +301,14 @@ awk -F'\t' -v asof="$as_of" '
       if (p[2] ~ /^fix(\([^)]*\))?!?: /) fix[m]++
     }
     n = load(ENVIRON["SB_DATES"], lines)
-    for (i = 1; i <= n; i++) { d = lines[i]; if (d > asof) continue; m = substr(d, 1, 7); note_earliest(m); obs[m]++ }
+    for (i = 1; i <= n; i++) {
+      d = lines[i]
+      if (substr(d, 6, 2) < "01" || substr(d, 6, 2) > "12" || substr(d, 9, 2) < "01" || substr(d, 9, 2) > "31") {
+        print "an observation carries an impossible date: " clean(d) > "/dev/stderr"; bad = 1; break
+      }
+      if (d > asof) continue
+      m = substr(d, 1, 7); note_earliest(m); obs[m]++
+    }
     n = load(ENVIRON["SB_HANDBACKS"], lines)
     for (i = 1; i <= n; i++) {
       l = lines[i]
@@ -277,6 +327,9 @@ awk -F'\t' -v asof="$as_of" '
       if (split(lines[i], q, "\t") != 4 || p[1] !~ /^[0-9]+$/ || p[2] !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/ || p[3] !~ /^[0-9a-f]+$/ || length(p[3]) != 40 || p[4] !~ /^[1-9][0-9]*$/) {
         print "malformed wall-clock row: " clean(p[1]) > "/dev/stderr"; bad = 1; break
       }
+      if (p[1] in runseen) { print "repeated wall-clock run: " p[1] > "/dev/stderr"; bad = 1; break }
+      runseen[p[1]] = 1
+      if (substr(p[2], 1, 10) > asof) { print "wall-clock run after the as-of date: " p[1] > "/dev/stderr"; bad = 1; break }
       run[i] = p[1]; created[i] = p[2]; head[i] = p[3]; secs[i] = p[4] + 0; sorted[i] = p[4] + 0
     }
     if (bad) exit 5
@@ -295,8 +348,8 @@ awk -F'\t' -v asof="$as_of" '
     print "Every count stops at the as-of date (UTC). The script header defines each field: the"
     print "commits touching `scripts/` or `githooks/`, the observations recorded (fragments and"
     print "frozen-log lines) split by the pain matrix'\''s classes, the check aggregate'\''s CI"
-    print "wall-clock from `docs/substrate/check-wallclock-" asof ".tsv`, and the load-flake"
-    print "hand-backs from `docs/substrate/hand-backs.tsv`. Only the pain matrix'\''s mined set"
+    print "wall-clock from `" ENVIRON["SB_WC_SHOWN"] "`, and the load-flake hand-backs from"
+    print "`" ENVIRON["SB_HB_SHOWN"] "`. Only the pain matrix'\''s mined set"
     print "carries classes, so an observation recorded after it was mined counts as outside"
     print "the mined set: a zero class cell in a later month means unclassified, not no inflow."
     print "The drafting-session figures in the universal-binary bundle'\''s Sources were counted"
