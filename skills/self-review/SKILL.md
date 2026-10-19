@@ -2,11 +2,10 @@
 name: self-review
 description: >
   Gate-wired review pass of the current feature branch: Discovery Rigor
-  fan-out, multi-pass validation, act-then-review dispositions per the finding
-  categorization, full audit record (lens-coverage table, four bucket tables,
-  declined log, pending-sign-off checklist). Standalone runs push and open or
-  update a draft PR; pass --nested to stay local and return the audit record
-  to the invoking skill.
+  fan-out, multi-pass validation, and act-then-review dispositions per the
+  finding categorization. Standalone runs push and open or update a draft PR;
+  pass --nested to stay local and return the audit record to the invoking
+  skill.
 argument-hint: "[--nested]"
 ---
 
@@ -31,14 +30,14 @@ doc and the resolution chain consulted.
 Doctrine manifest (per `doctrine/instruction-hygiene.md`; `run-start` docs
 load before work begins, `point-of-use` at the named step):
 
-Doctrine: run-start discovery-rigor
-Doctrine: run-start validation-rigor
+Doctrine: point-of-use discovery-rigor (the Discovery step)
+Doctrine: point-of-use validation-rigor (Validation and fix validation)
 Doctrine: run-start finding-categorization
 Doctrine: run-start gate-wiring
 Doctrine: point-of-use research-rigor (the Validation step, where research triggers fire)
 Doctrine: point-of-use refactor-instinct (review mode, at the Discovery refactor filter)
 Doctrine: run-start security-posture (artifact data-hygiene)
-Doctrine: run-start proportionality (declared scoping)
+Doctrine: point-of-use proportionality (Validation's declared scoping)
 
 ## Invocation modes
 
