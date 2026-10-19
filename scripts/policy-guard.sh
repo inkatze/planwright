@@ -2346,7 +2346,7 @@ tower_opts_literal() {
 # the tower deny list blocks that no other act covers: moving a ref or
 # rewriting history by hand, and the dangerous git worktree forms.
 classify_tower_git() {
-  local sub=$1 k=$(($2 + 1)) dir=$3 dir_ok=$4 a
+  local sub=$1 k=$(($2 + 1)) dir=$3 dir_ok=$4
   case $sub in
     update-ref | filter-branch | filter-repo)
       deny_now "git $sub moves refs or rewrites history by hand; it is denied to the tower under every policy value, since the tower never moves a branch."
@@ -2363,23 +2363,17 @@ classify_tower_git() {
         && deny_now 'git reset --hard is denied to the tower under every policy value: it discards work and moves a branch, and the tower never moves a branch.'
       ;;
     branch)
-      # Deletion stays the tower's, and in delete mode a force only deletes an
-      # unmerged branch, so a literal delete flag settles the call.
-      a=$k
-      while [ "$a" -lt "${#SW[@]}" ] && [ "${SW[$a]}" != -- ]; do
-        if [ "${SWL[$a]}" = 1 ]; then
-          case ${SW[$a]} in
-            --del | --dele | --delet | --delete | -[!-]*[dD]* | -[dD]*) return 0 ;;
-          esac
-        fi
-        a=$((a + 1))
-      done
-      tower_opts_literal "$k" 'this git branch' || return 0
       parse_git_opts "$k" 'set-upstream-to sort format points-at' 'u' '' \
         || {
           deny_now "this git branch carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
           return 0
         }
+      # Deletion stays the tower's, and in delete mode a force only deletes an
+      # unmerged branch, so a parsed delete flag settles the call; the parse
+      # keeps an option's value from reading as one.
+      case $GP_SHORT in *[dD]*) return 0 ;; esac
+      long_prefix_seen delete 1 && return 0
+      tower_opts_literal "$k" 'this git branch' || return 0
       if long_prefix_seen force 1 || [[ $GP_SHORT == *f* ]]; then
         deny_now 'a forced git branch (-f, --force) is denied to the tower under every policy value: it repoints an existing branch, and the tower never moves a branch.'
       fi

@@ -6,6 +6,7 @@
 # that only contain a protected name, plain deletion, and reads defer.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
+# shellcheck disable=SC2016 # the unexpanded $ forms are the inputs under test
 unset CDPATH
 # shellcheck source=tests/lib/tower-floor-harness.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib/tower-floor-harness.sh"
@@ -21,6 +22,8 @@ for cmd in \
   'git push origin docs/main' \
   'git branch -D planwright/flight/done-0123abcd' \
   'git branch -d -f planwright/flight/done-0123abcd' \
+  'git branch -D "$b"' \
+  'git branch --sort -committerdate -D planwright/flight/done-0123abcd' \
   "git branch --format='%(refname)' --list" \
   'git branch docs/main' \
   'git reset --soft HEAD' \
