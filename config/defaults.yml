@@ -751,6 +751,11 @@ instruction_budget_startload_error: 10000
 # Reachable closure (start-load + point-of-use rule docs).
 instruction_budget_closure_warn: 15000
 instruction_budget_closure_error: 20000
+# The composed chain (/polish running /self-review nested, review-effectiveness
+# D-12): both bodies plus each doc either manifest loads, charged once. It is
+# one session's reachable closure, so it is held to the closure error line and
+# the closure floor; overlay-tunable and raise-governed like the other knobs.
+instruction_budget_chain_closure_error: 20000
 # Per-surface headroom floors (instruction-headroom D-2, REQ-A1.1): the minimum
 # word margin to the error threshold before the restoration ladder triggers, one
 # per budgeted class (SKILL.md body / rule doc / mandatory-at-start / reachable

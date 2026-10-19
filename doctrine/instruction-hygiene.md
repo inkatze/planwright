@@ -144,10 +144,13 @@ authoring ceiling converted through the measured corpus density:
 | Rule doc (per file) | 2,500 | 4,000 |
 | Mandatory-at-start (body + run-start docs) | 8,000 | 10,000 |
 | Reachable closure (start-load + point-of-use docs) | 15,000 | 20,000 |
+| Composed chain (`/polish` and its nested `/self-review`, each doc once) | none | 20,000 |
 
 The start-load budget is the primary one: what degrades instruction-following
 is total instruction context per invocation, and a fat rule doc automatically
-charges every skill that front-loads it. Per-file floors are the cheap
+charges every skill that front-loads it. The composed chain is the closure of
+one session that runs a skill nested inside another: moving a doc to
+point-of-use relieves a start-load but never the chain. Per-file floors are the cheap
 early-warning signal. Threshold comparison is boundary-inclusive: a count
 equal to a threshold trips it (`>=`).
 

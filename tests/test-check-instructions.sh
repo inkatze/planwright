@@ -22,6 +22,8 @@
 #   tests/test-check-instructions-suppression.sh      §§16–19 capped charge,
 #                                                     pending-diet, reverse
 #                                                     use-site
+#   tests/test-check-instructions-chain.sh            §20 composed-chain charge,
+#                                                     added after the split
 # Section numbers are kept from the pre-split file so the spec's references
 # still land, and no assertion changed in the split; each file rebuilds the
 # fixtures it needs so it still runs standalone.
