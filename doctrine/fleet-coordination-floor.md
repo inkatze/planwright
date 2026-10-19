@@ -1,19 +1,19 @@
 # The Fleet Coordination Floor
 
-Five floors constrain every fleet mechanism planwright runs — the towers that
+Six floors constrain every fleet mechanism planwright runs — the towers that
 dispatch and the daemon layer that self-maintains. They are doctrine, not
 mechanism: each was mined from a real incident or a real bootstrapping
 constraint, and every fleet skill, hook, and daemon script operates under
-them. The fleet-autonomy, concurrent-orchestrator-coordination, and
-fleet-lifecycle-closure bundles carry the requirements; this document is the
-doctrine statement those requirements cite into force.
+them. The fleet-autonomy, concurrent-orchestrator-coordination,
+fleet-lifecycle-closure, and tower-placement bundles carry the requirements;
+this document is the doctrine statement those requirements cite into force.
 
 Citations: fleet-autonomy REQ-G1.1, REQ-G1.2 · fleet-autonomy D-17, D-18 ·
 concurrent-orchestrator-coordination REQ-A1.1, REQ-D1.3, REQ-D1.6 ·
 concurrent-orchestrator-coordination D-1, D-6 · fleet-lifecycle-closure
 REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-B1.4, REQ-C1.1,
 REQ-C1.7, REQ-D1.3 · fleet-lifecycle-closure D-1, D-2, D-3 · human-gates
-REQ-D1.6.
+REQ-D1.6 · tower-placement REQ-A1.2 · tower-placement D-1.
 
 ## The tower non-authoring boundary
 
@@ -49,6 +49,49 @@ What the boundary means in practice:
   genuinely warranted, it is surfaced first as an explicit fork naming what
   would be changed and why the tower (not a worker) would change it — the
   human routes it.
+
+## The tower placement floor
+
+**A tower runs in its own working tree. It never moves a branch, switches,
+dirties, or writes the shared stash in a checkout it does not own, and it
+never touches the primary checkout's `main`** (tower-placement REQ-A1.2; the
+altitude call is recorded as tower-placement D-1).
+
+A tower's job is working across worktrees: it creates task worktrees and
+branches, removes landed flights, and reads the primary checkout. Run from
+the primary checkout, one slip switches or dirties the `main` every other
+session reads; the floor makes "not from there" a stated rule rather than a
+habit, beside the non-authoring boundary above, which covers what a tower
+writes rather than where it stands.
+
+What the floor means in practice:
+
+- **Its own tree is a linked worktree or a clone of its own.** Reading
+  another checkout is in bounds. Changing what that checkout has checked
+  out, its index, or its working files is not, and neither is a stash write:
+  the stash is shared by every worktree of the repository, so a tower's
+  `git stash` lands in every peer's stack.
+- **The floor binds the tower's own commands.** A worker owns its worktree
+  and moves its own branch there; a tower reaching into that worktree to do
+  the same is the act the floor forbids.
+- **The exceptions are planwright scripts performing an act the operator
+  has sanctioned for towers, and only these:**
+  - *Fast-forwarding the primary checkout's `main` for a release*, through
+    `scripts/main-currency.sh sync --checkout <primary-checkout>`: a fetch
+    then a fast-forward-only merge, never a pull, refusing any divergence.
+  - *Starting a forward-merge in a worker's worktree for the worker to
+    resolve*, through `scripts/converge-sync-main.sh`: it merges `origin/main`
+    into the worker's unit branch under the base-merge policy, and under
+    `worker_merge_conflict_policy: resolve` leaves a conflict in place for
+    the worker to resolve and commit.
+
+  An act not on this list is not sanctioned by analogy; a new exception is
+  added here, by the bundle that sanctions it.
+- **Its mechanisms are owned elsewhere.** The `tower_placement` knob and the
+  bring-up check, the plugin-wired deny-only floor, and the wider deny list
+  are the tower-placement bundle's; this section is the rule they enforce,
+  and where a mechanism cannot see an act (a tower dirtying a tree by an
+  editor write, say), the rule still binds.
 
 ## The no-LLM-daemon-mechanics invariant
 
