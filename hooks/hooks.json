@@ -89,7 +89,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-messaging.sh self-register"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-messaging.sh self-register",
+            "timeout": 30
           }
         ]
       },
@@ -98,7 +99,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-messaging.sh self-register"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-messaging.sh self-register",
+            "timeout": 30
           }
         ]
       }
