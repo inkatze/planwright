@@ -443,6 +443,38 @@ defers_quickly "a nested loop over long words defers quickly (scan budget)" \
 defers_quickly "a plain loop over long words defers quickly (scan budget)" \
   "for f in $(seq -s ' ' 16); do echo $long_words; done"
 assert_allow "one long command substitution still allows within the scan budget" "echo \$(echo $long_words)"
+# A loop whose passes cannot fit the budget is charged for all of them at its
+# `for`, so it defers in about the time one walk of the same words takes,
+# rather than after the first passes have run. Measured against that walk on
+# the same host, best of three each, so a slow or loaded runner moves both.
+# hook_secs <command> — the fastest of three hook runs, in seconds.
+hook_secs() {
+  local hs_best='' hs_t hs_p
+  hs_p=$(jq -n --arg c "$1" --arg w "$SANDBOX" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}')
+  for _ in 1 2 3; do
+    hs_t=$({
+      TIMEFORMAT=%R
+      time printf '%s' "$hs_p" | env -u CLAUDE_DIR HOME="$SANDBOX/no-home" /bin/bash "$HOOK" >/dev/null 2>&1
+    } 2>&1)
+    if [ -z "$hs_best" ] || awk -v a="$hs_t" -v b="$hs_best" 'BEGIN { exit !(a < b) }'; then
+      hs_best=$hs_t
+    fi
+  done
+  printf '%s\n' "$hs_best"
+}
+one_walk=$(hook_secs "echo $long_words")
+for shape in plain subst; do
+  case $shape in
+    plain) loop_cmd="for f in $(seq -s ' ' 16); do echo $long_words; done" ;;
+    *) loop_cmd="for f in $(seq -s ' ' 16); do echo \$(echo $long_words); done" ;;
+  esac
+  loop_secs=$(hook_secs "$loop_cmd")
+  if awk -v l="$loop_secs" -v o="$one_walk" 'BEGIN { exit !(l <= o * 1.5 + 0.1) }'; then
+    pass "an over-budget $shape loop defers at its for, in about one walk's time (${loop_secs}s vs ${one_walk}s)"
+  else
+    fail "an over-budget $shape loop walked its passes before deferring: ${loop_secs}s against one walk's ${one_walk}s"
+  fi
+done
 # The budget leaves room for an ordinary loop: sixteen passes over a body of
 # about a hundred and fifty pattern words.
 mid_words="$(for i in $(seq 150); do printf 'p%d ' "$i"; done)"
