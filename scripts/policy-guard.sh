@@ -2431,13 +2431,13 @@ classify_tower_worktree() {
     # A name taken from a positional after `--` may be an expansion.
     if [ -n "${GP_POS[1]:-}" ]; then
       [ "${GP_POSL[1]}" = 1 ] || {
-        deny_now 'this git worktree add names its branch through an expansion the guard cannot read, which could name a protected branch - refusing (fail closed). Name the branch literally.'
+        deny_now "this git worktree $verb names its branch through an expansion the guard cannot read, which could name a protected branch - refusing (fail closed). Name the branch literally."
         return 0
       }
       names[0]=${GP_POS[1]}
     elif [ -n "${GP_POS[0]:-}" ]; then
       [ "${GP_POSL[0]}" = 1 ] || {
-        deny_now 'this git worktree add takes its branch from a path the guard cannot read (an expansion), which could name a protected branch - refusing (fail closed). Name the path or the branch literally.'
+        deny_now "this git worktree $verb takes its branch from a path the guard cannot read (an expansion), which could name a protected branch - refusing (fail closed). Name the path or the branch literally."
         return 0
       }
       # With no branch and no commit-ish, git checks out (or creates) the
@@ -2468,7 +2468,7 @@ classify_tower_worktree() {
     esac
     ! valid_branch "$x" || cands[${#cands[@]}]=$x
   done
-  [ "${#cands[@]}" = 0 ] || queue_protected "$dir" "$dir_ok" 'this git worktree add' "${cands[@]}"
+  [ "${#cands[@]}" = 0 ] || queue_protected "$dir" "$dir_ok" "this git worktree $verb" "${cands[@]}"
 }
 
 MERGE_VLONG='message file strategy strategy-option into-name cleanup'
