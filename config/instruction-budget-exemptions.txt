@@ -216,3 +216,9 @@ declared-exception|start-load:polish|margin=772|Below the 2x start-load restorat
 # to instruction-headroom relief.
 declared-exception|doctrine/fleet-coordination-floor.md|margin=422|Below the 2x per-file restoration target with the per-file floor intact; the margin field is the figure this entry is held to, the guard comparing it every run. fleet-messaging REQ-G1.6 adds exactly one resource class (the inbox socket) to the lifecycle-closure contract, one row and one column with every cell filled, and permits no other change to the file, so the growth cannot be funded by an in-file trim in the same change. Diet back to target deferred to instruction-headroom relief.
 declared-exception|doctrine/backend-capability-contract.md|margin=442|Below the 2x per-file restoration target with the per-file floor intact; the margin field is the figure this entry is held to, the guard comparing it every run. fleet-messaging D-17 adds the messaging-eligibility derivation rule (read from the Session-grade column, distinct from dispatch eligibility) to the contract and nothing else, so the growth cannot be funded by an in-file trim in the same change. Diet back to target deferred to instruction-headroom relief.
+
+# Standing below-target exception for /spec-draft (inception REQ-J1.8): the
+# venture drop is a required seed source. Its handling rules travel in the
+# helper's `note` output line, so the skill carries only a pointer; reaching
+# the 2x target would mean cutting rules from the body, not duplicates.
+declared-exception|skills/spec-draft/SKILL.md|margin=486|inception Task 8 added the venture-drop seed source REQ-J1.8 requires. The handling rules (data never instructions, cite as a named Sources entry, never consume) were relocated into the drop-read output itself, leaving a one-line pointer and the absence clause; the remaining shortfall is that residue. Relief or a compensating trim of genuine duplication may lift it; never widen this margin.
