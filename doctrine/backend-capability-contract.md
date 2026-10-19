@@ -237,7 +237,7 @@ though both read this column. Whether a session can send is the
   `scripts/fleet-dispatch-headless.sh launch <spec> <id> --worktree <dir>`
   with the worker's brief on stdin (passed as data, REQ-A1.9); consume
   `fleet-dispatch-headless.sh status <spec> <id>` (`completed <rc>` /
-  `running` / `died` / `unknown` / `absent` — death only on the
+  `ended` / `limited` / `running` / `died` / `unknown` / `absent` — death only on the
   death-evidence predicate's positive verdict) and the unit's captured
   `result.json`. The one-shot never attaches a permission prompt tool: an
   unauthorized ask fails under `--print`'s non-interactive default and lands

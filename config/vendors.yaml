@@ -31,6 +31,12 @@ vendors:
     vendor: claude
     part: recognizer
     match: error":"rate_limit"
+  # The status a result frame or headless result carries for a 429; the
+  # result text itself names no limit ("You've hit your weekly limit").
+  - id: claude.api-rate-limit
+    vendor: claude
+    part: recognizer
+    match: api_error_status":429
   - id: claude.usage-limit
     vendor: claude
     part: recognizer

@@ -50,9 +50,14 @@
 #   ratelimit        the newest rate-limit frame's readings, as
 #                    scripts/claude-frames.sh persist stores them
 #   result           the run outcome, one tab-separated row:
-#                    result <subtype> <epoch> [is_error] | exit <rc> <epoch>
+#                    result <subtype> <epoch> [is_error [cause]]
+#                    | exit <rc> <epoch> [true <cause>]
 #                    is_error ∈ true|false, absent on records written before
-#                    the field existed (read as false). Newline-terminated:
+#                    the field existed (read as false). When it is true, cause
+#                    is how the run died, as scripts/worker-death.sh read it
+#                    from the stream: `limited=<vendor>` or `cause=<token>`;
+#                    an exit row carries the pair only when the stream showed
+#                    an API error. Newline-terminated:
 #                    the terminator is what says the writer finished, so a row
 #                    without one is a write in flight, never a completion.
 #   supervisor.pid / worker.pid / recover.lock / journal.lock / launch.lock
@@ -142,7 +147,9 @@
 # COMPLETION / LIVENESS. This backend's completion/liveness source is the
 # supervisor plus the event stream (the sibling of Task 3's completion
 # signal): `status` reports completed from the captured result event, `ended`
-# when that event flagged is_error (the turn completed, the run did not), and
+# when that event flagged is_error (the turn completed, the run did not),
+# `limited` when the error was a vendor limit (the unit is then held and the
+# dispatch throttle engaged, scripts/worker-death.sh), and
 # dead only on positive evidence (fleet-death-evidence.sh `process <pid>`
 # verdicts for both recorded pids) — silence is never death.
 #
@@ -226,9 +233,10 @@
 #       or `stop <worker> already-closed`; the periodic sweep's observing mode
 #       records its would-have close from this.
 #   fleet-streamjson.sh status <worker>
-#       Print `status <worker> <running|awaiting-input|completed|ended|dead|
-#       unknown> <detail>` from the recorded pids, the receipt journal and the
-#       captured event stream. `awaiting-input` is a live worker with a pending
+#       Print `status <worker> <running|awaiting-input|completed|ended|limited|
+#       dead|unknown> <detail>` from the recorded pids, the receipt journal and
+#       the captured event stream; an `ended` or `limited` detail names the
+#       recorded cause. `awaiting-input` is a live worker with a pending
 #       control_request: the detail carries `pending=<n> oldest=<age>s
 #       supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending row
 #       has a readable epoch; a spooled receipt counts as pending), so a worker
@@ -361,6 +369,7 @@ FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
 FDE="$script_dir/fleet-death-evidence.sh"
 FRAMES="$script_dir/claude-frames.sh"
+WDEATH="$script_dir/worker-death.sh"
 
 # The worker binary. Tests point this at a shim; the default is the
 # installed CLI (D-4: the installed `claude` CLI is the only driver, never
@@ -1137,6 +1146,30 @@ receipt_drain() {
   return 0
 }
 
+# death_cause <worker> <dir> <fallback> — classify how the run's last turn
+# ended from the event stream (scripts/worker-death.sh, which also holds a
+# rate-limited unit and engages the throttle) and print the record's cause
+# field: `limited=<vendor>`, `cause=<token>`, or nothing for a clean turn. When
+# the classifier cannot run, <fallback> is printed in its place. A scope
+# without a task part (a flight) is not unique, so the worker names the unit.
+death_cause() {
+  dc_unit=$(read_scope "$2")
+  case $dc_unit in
+    *:*) ;;
+    *) dc_unit="$dc_unit:$1" ;;
+  esac
+  dc_out=$(/bin/sh "$WDEATH" record --unit "$dc_unit" --events "$2/events.jsonl" 2>>"$2/supervisor.log")
+  case $dc_out in
+    limited"$TAB"*)
+      dc_v=${dc_out#limited"$TAB"}
+      printf 'limited=%s' "${dc_v%%"$TAB"*}"
+      ;;
+    failed"$TAB"*) printf 'cause=%s' "${dc_out#failed"$TAB"}" ;;
+    clean) ;;
+    *) printf '%s' "$3" ;;
+  esac
+}
+
 # handle_line <worker> <dir> <line> — classify one captured event line and
 # apply the D-5 coupling. NEVER writes to the worker's stdin (the
 # no-auto-answer invariant: the only control_response writer is `answer`).
@@ -1205,7 +1238,15 @@ handle_line() {
         *'"is_error":true'*) hl_err=true ;;
         *) hl_err=false ;;
       esac
-      printf 'result\t%s\t%s\t%s\n' "$hl_sub" "$hl_now" "$hl_err" >"$hl_dir/result"
+      # The death is classified before the record lands, so a reader that sees
+      # the record also sees the hold and the throttle it engaged.
+      if [ "$hl_err" = true ]; then
+        hl_cause=$(death_cause "$hl_worker" "$hl_dir" cause=unclassified)
+        [ -n "$hl_cause" ] || hl_cause=cause=is-error
+        printf 'result\t%s\t%s\t%s\t%s\n' "$hl_sub" "$hl_now" "$hl_err" "$hl_cause" >"$hl_dir/result"
+      else
+        printf 'result\t%s\t%s\t%s\n' "$hl_sub" "$hl_now" "$hl_err" >"$hl_dir/result"
+      fi
       ;;
   esac
 }
@@ -1313,8 +1354,15 @@ supervise() {
     # completing the protocol. This is an END record, not a completion —
     # `cmd_status` renders a nonzero exit as `ended`, never `completed`, so a
     # crash or non-zero exit is not conflated with success.
+    # A run can end on an API error with no result frame, the error only in
+    # the stream, and still exit zero.
+    sv_cause=$(death_cause "$sv_worker" "$sv_dir" '')
     sv_now=$(now_epoch) || sv_now=0
-    printf 'exit\t%s\t%s\n' "$sv_ec" "$sv_now" >"$sv_dir/result"
+    if [ -n "$sv_cause" ]; then
+      printf 'exit\t%s\t%s\ttrue\t%s\n' "$sv_ec" "$sv_now" "$sv_cause" >"$sv_dir/result"
+    else
+      printf 'exit\t%s\t%s\n' "$sv_ec" "$sv_now" >"$sv_dir/result"
+    fi
   fi
   return "$sv_ec"
 }
@@ -2848,15 +2896,21 @@ cmd_status() {
     # render `ended`, never conflated with `completed`.
     st_ec=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $2 }')
     st_err=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $4 }')
+    st_cause=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $5 }')
     if [ "$st_err" = true ]; then
       # Name both halves: the contradiction is the diagnostic, so collapsing it
       # to either one alone hides why the run is being called ended.
       detail="$detail/is_error=true"
+      case $st_cause in
+        limited=* | cause=*) detail="$detail/$st_cause" ;;
+      esac
     fi
     # Composed first, bounded once: truncating before the suffix is appended
     # can cut the suffix back off, leaving `ended` with nothing saying why.
     detail=$(sanitize_printable "$detail" unknown | cut -c1-64)
-    if { [ "$st_kind" = exit ] && [ "$st_ec" != 0 ]; } || [ "$st_err" = true ]; then
+    if [ "$st_err" = true ] && [ "${st_cause#limited=}" != "$st_cause" ]; then
+      printf 'status %s limited %s\n' "$worker" "$detail"
+    elif { [ "$st_kind" = exit ] && [ "$st_ec" != 0 ]; } || [ "$st_err" = true ]; then
       printf 'status %s ended %s\n' "$worker" "$detail"
     else
       printf 'status %s completed %s\n' "$worker" "$detail"
