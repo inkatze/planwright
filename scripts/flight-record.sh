@@ -101,8 +101,9 @@
 # whole ask (of RESTATE_WHOLE_MIN characters or more) or one of its lines (of
 # RESTATE_LINE_MIN characters and RESTATE_LINE_WORDS words or more), up to case
 # and spacing, is refused (exit 2). With a public summary the lead may restate
-# neither text, and the audit, scoping, and revert inputs may not restate the
-# private ask; no refusal quotes the text it matched.
+# neither text, and the summary itself and the audit, scoping, and revert
+# inputs may not restate the private ask, read before redaction; no refusal
+# quotes the text it matched.
 #
 # Exit codes: 0 rendered or landed · 2 usage or an input refused · 3 refused
 # by state (over the PR-body limit; for land, the branch, an existing record
@@ -938,11 +939,15 @@ cat "$work/summary" "$work/verification" >"$work/lead.txt" || die 4 "cannot asse
 if [ -z "$public_file" ]; then
   ! restates "$work/lead.txt" "$work/ask" || die 2 "the summary or verification restates the ask; say what changed, why, and how it was verified in your own words (the ask is quoted in the collapsed record)"
 else
-  ! restates "$work/lead.txt" "$work/ask" || die 2 "the summary or verification restates the private ask; say what changed, why, and how it was verified at the public summary's level, which the collapsed record quotes in its place"
+  # Against the unredacted ask: a worker input is screened for secrets but not
+  # for personal data, so a redacted line could otherwise be copied out.
+  priv=$work/ask-file.clean
+  ! restates "$work/public" "$priv" || die 2 "the public summary restates the private ask; the tower must state the work at a level safe to publish"
+  ! restates "$work/lead.txt" "$priv" || die 2 "the summary or verification restates the private ask; say what changed, why, and how it was verified at the public summary's level, which the collapsed record quotes in its place"
   ! restates "$work/lead.txt" "$work/public" || die 2 "the summary or verification restates the public summary; say what changed, why, and how it was verified in your own words (the summary is quoted in the collapsed record)"
   for _in in audit scoping revert; do
     [ -f "$work/$_in" ] || continue
-    ! restates "$work/$_in" "$work/ask" || die 2 "--$_in-file restates the private ask; keep it at the public summary's level"
+    ! restates "$work/$_in" "$priv" || die 2 "--$_in-file restates the private ask; keep it at the public summary's level"
   done
 fi
 

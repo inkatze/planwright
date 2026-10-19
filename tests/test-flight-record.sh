@@ -1604,6 +1604,22 @@ run_render pr --ask-file "$in/ask-private.txt" --public-summary-file "$in/public
 printf 'Revert it; %s\n' "$PRIV2" >"$in/revert-private.md"
 run_render file --ask-file "$in/ask-private.txt" --public-summary-file "$in/public.txt" --revert-file "$in/revert-private.md"
 [ "$RC" -eq 2 ] || fail "a revert path restating the private ask must be refused with 2 (got $RC)"
+# A summary restating the private ask is refused: the tower's own slip.
+printf 'Harden it. %s\n' "$PRIV1" >"$in/public-restates.txt"
+run_render pr --ask-file "$in/ask-private.txt" --public-summary-file "$in/public-restates.txt"
+[ "$RC" -eq 2 ] || fail "a public summary restating the private ask must be refused with 2 (got $RC)"
+printf '%s\n' "$ERR" | grep -q 'the public summary restates the private ask' || fail "the summary refusal must say why: $ERR"
+no_private "the summary refusal" "$ERR"
+# The check reads the ask before redaction: a private line the personal-data
+# pass redacts is still refused when a worker input copies it.
+PRIV3='Reach the reporter at 415-555-0134 before the patch window closes'
+printf '%s\n%s\n' "$PRIV1" "$PRIV3" >"$in/ask-private-pd.txt"
+{
+  cat "$in/audit.md"
+  printf '\n%s\n' "$PRIV3"
+} >"$in/audit-private-pd.md"
+run_render pr --ask-file "$in/ask-private-pd.txt" --public-summary-file "$in/public.txt" --audit-file "$in/audit-private-pd.md"
+[ "$RC" -eq 2 ] || fail "an audit copying a redacted private-ask line must be refused with 2 (got $RC)"
 # Without a summary the ask is public anyway, so only the lead is checked.
 run_render pr --ask-file "$in/ask-private.txt" --audit-file "$in/audit-private.md"
 [ "$RC" -eq 0 ] || fail "without a public summary an audit quoting the ask still renders (got $RC: $ERR)"

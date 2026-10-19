@@ -511,8 +511,10 @@ PUBLIC='Harden path handling in an export handler.'
 # no_private <label> <text> — no private-ask line, or its distinctive words,
 # in <text>.
 no_private() {
-  case $2 in
-    *"$PRIV1"* | *"$PRIV2"* | *billing-sync* | *advisory*) fail "$1: the private ask reached it" ;;
+  _np=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+  case $_np in
+    *"$(printf '%s' "$PRIV1" | tr '[:upper:]' '[:lower:]')"* | *"$(printf '%s' "$PRIV2" | tr '[:upper:]' '[:lower:]')"* | \
+      *billing-sync* | *advisory*) fail "$1: the private ask reached it" ;;
   esac
 }
 new_case

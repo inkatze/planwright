@@ -251,7 +251,8 @@ a level safe to publish, its own words, never a trimmed copy of the ask. The
 ask is then private: it reaches the worker only through its brief, which holds
 the worker's commits, PR title, record, and PR comments at the summary's
 level, and the record quotes the summary. The slug, which becomes the pushed
-branch name, is drawn from the summary. An ordinary ask gets none.
+branch name, is drawn from the summary, and the grounds line, which the record
+quotes, stays at its level too. An ordinary ask gets none.
 
 The tower hands over exactly the ask, the grounds, any public summary, the
 slug, and the home;

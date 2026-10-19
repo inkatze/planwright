@@ -11,6 +11,7 @@
 # data transform: artifact values are inspected, never executed.
 def nonempty: (type == "string") and (length > 0);
 def words_of: ascii_downcase | [scan("[a-z0-9]+")];
+def folded: " " + (words_of | join(" ")) + " ";
 
 (.sign_off // {}) as $s
 | ([(.decision_log // [])[] | select(type == "object")] | sort_by(.seq)) as $log
@@ -115,8 +116,8 @@ def words_of: ascii_downcase | [scan("[a-z0-9]+")];
         # a public summary is a statement of its own, not the ask, and the
         # slug (the pushed branch name) is drawn from it
         and (if .summary == null then true else
-               .summary as $sm | (.slug // "") as $sl | ((at(.ask_seq).text // "\u0000") | ascii_downcase) as $ask
-               | ($sm | nonempty) and (($sm | ascii_downcase) | contains($ask) | not)
+               .summary as $sm | (.slug // "") as $sl | ((at(.ask_seq).text // "") | folded) as $ask
+               | ($sm | nonempty) and ($ask == "  " or (($sm | folded) | contains($ask) | not))
                and ($sl | nonempty)
                and (($sm | words_of) as $sw | $sl | split("-") | all(. as $w | $sw | index([$w]) != null))
              end)

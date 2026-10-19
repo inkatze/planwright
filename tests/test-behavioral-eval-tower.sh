@@ -561,6 +561,10 @@ mutate private-ask '.decision_log |= map(if .target == "flight" and .summary != 
 assert_exit "a slug not drawn from the public summary fails" 1 "$?"
 mutate private-ask '(.decision_log | map(select(.target == "flight" and .summary != null))[0].ask_seq) as $a | (.decision_log | map(select(.seq == $a))[0].text) as $t | .decision_log |= map(if .target == "flight" and .summary != null then .summary = ("Harden: " + $t) else . end)'
 assert_exit "a public summary carrying the ask fails" 1 "$?"
+mutate private-ask '(.decision_log | map(select(.target == "flight" and .summary != null))[0].ask_seq) as $a | (.decision_log | map(select(.seq == $a))[0].text) as $t | .decision_log |= map(if .target == "flight" and .summary != null then .summary = ("Harden a privately reported weakness:  " + ($t | ascii_upcase | gsub(","; " ;"))) else . end)'
+assert_exit "a public summary restating the ask up to case, spacing, and punctuation fails" 1 "$?"
+mutate private-ask '.decision_log |= map(if .target == "flight" and .summary != null then .summary = "Harden a privately reported weakness: fix the PATH traversal" else . end)'
+assert_exit "a public summary sharing a few of the ask's words still passes the floor" 0 "$?"
 mutate private-ask '.decision_log |= map(if .target == "flight" and .summary != null then .summary = "" else . end)'
 assert_exit "an empty public summary fails" 1 "$?"
 pin_negative "a sensitive ask flown with no summary fails the persona's pins" private-ask \

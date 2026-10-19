@@ -154,7 +154,7 @@ By the selected rung:
   matching `^[a-z0-9][a-z0-9-]*$` of at most 55 characters, grounds of one line
   of at most 400 characters without control characters, a non-empty ask of
   at most 64 KiB, and a non-blank summary of at most 4 KiB; invisible or bidi
-  Unicode in any of them is stripped, and a
+  Unicode in the ask, grounds, or summary is stripped, and a
   `sanitized` line says so: relay it. `--home pr` is refused (exit 2) whenever
   `home` would not declare it. An exit 5 whose `failed` line comes after
   `backend` placed the flight without a launch: relay it and its
