@@ -92,7 +92,10 @@ no_fork() { # <label> <payload> [fleet]
   : >"$FORKLOG"
   printf '%s' "$2" >"$SANDBOX/payload"
   OUT=$(PATH="$STUBS" PLANWRIGHT_FLEET_STATE_DIR="${3:-$FLEET}" /bin/bash "$TS" guard bash <"$SANDBOX/payload" 2>/dev/null)
-  if [ -n "$OUT" ]; then
+  CODE=$?
+  if [ "$CODE" != 0 ]; then
+    fail "$1: the hook exited $CODE"
+  elif [ -n "$OUT" ]; then
     fail "$1: the hook decided ($OUT)"
   elif [ -s "$FORKLOG" ]; then
     fail "$1: the hook ran an external command: $(head -3 "$FORKLOG")"
@@ -260,6 +263,12 @@ rm -rf "$STORE"
 ts_bash "$OTHER" 'ls'
 expect deny "a store that is not a directory counts as unsearchable and denies"
 reset_store
+chmod 000 "$FLEET"
+ts_bash "$MARKED" 'ls'
+expect deny "an unsearchable fleet home counts as marked and denies"
+ts_bash "$OTHER" 'ls'
+expect deny "an unsearchable fleet home denies for any session id"
+reset_store
 TS_FLEET="$SANDBOX/absent-fleet" ts_bash "$MARKED" 'git reset --hard HEAD'
 expect defer "a missing store defers"
 decide bash '{"tool_name":"Bash","tool_input":{"command":"git reset --hard HEAD"}}'
@@ -351,6 +360,11 @@ CRASH_ACTIVATE="$SANDBOX/crash-activate/scripts/tower-session.sh"
 mkdir -p "${CRASH_GUARD%/*}" "${CRASH_ACTIVATE%/*}"
 crash_copy "$CRASH_GUARD" '  pause_for_test'
 crash_copy "$CRASH_ACTIVATE" 'activate_session() { # <sid>'
+CRASH_PARSE="$SANDBOX/crash-parse/scripts/tower-session.sh"
+mkdir -p "${CRASH_PARSE%/*}"
+crash_copy "$CRASH_PARSE" '  prefilter'
+TS=$CRASH_PARSE ts_bash "$MARKED" 'ls'
+expect deny "a crash after the prefilter finds a marked id, before the payload is parsed, denies"
 TS=$CRASH_GUARD ts_bash "$MARKED" 'ls'
 expect deny "a crash in a marked session's guard denies"
 reason_has 'stopped before reaching a decision' "the crash refusal is the internal one"

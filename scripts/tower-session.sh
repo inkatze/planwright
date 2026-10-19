@@ -40,8 +40,9 @@
 # FAIL CLOSED, WHERE A TOWER IS. An unmarked session defers after an in-shell
 # prefilter that forks nothing: no store, no readable top-level session id,
 # or no mark for it. A store that exists but cannot be searched counts as
-# marked. In a marked session, and in the handshake, deny traps are installed
-# at once, and an oversized or unreadable payload, a mark or store failing the
+# marked, and so does a fleet home that exists but cannot be searched. Once
+# the prefilter finds a marked id, and in the handshake, deny traps are
+# installed at once, and an oversized or unreadable payload, a mark or store failing the
 # bar, a command naming the store, a signal, this script crashing before a
 # verdict, and a guard that crashes or answers with anything but a denial each
 # deny.
@@ -189,6 +190,16 @@ deny_unless_decided() {
   [ "$DECIDED" = 1 ] || deny_internal
 }
 
+defer() {
+  DECIDED=1
+  exit 0
+}
+
+arm_traps() {
+  trap 'deny_internal' HUP INT TERM
+  trap 'deny_unless_decided' EXIT
+}
+
 deny_inactive() { # <constant cause>
   emit_deny "NOT ACTIVE: $1, so the tower deny floor is not enforced from the plugin for this session. Treat the floor as missing until a handshake is refused as ACTIVE."
 }
@@ -277,8 +288,9 @@ write_mark() {
 # The prefilter: builtins only, no command substitution, pipeline, or
 # subshell, so an unmarked session forks nothing before it defers. It sets
 # PF to `defer` or `check`, and CAND to 1 when some session id in the payload
-# is marked, or the store cannot be searched, which puts the session in the
-# fail-closed set before its payload is parsed.
+# is marked, or the store or fleet home cannot be searched, which puts the
+# session in the fail-closed set, its deny traps armed, before its payload is
+# parsed.
 prefilter() {
   local rest id
   PF=defer
@@ -289,11 +301,20 @@ prefilter() {
   case $PAYLOAD in
     *tower-session.sh*activate*) PF=check ;;
   esac
+  # A fleet home that cannot be searched hides whether the store exists.
+  if { [ -e "$FH" ] || [ -L "$FH" ]; } && { [ ! -d "$FH" ] || [ ! -x "$FH" ]; }; then
+    [[ $PAYLOAD =~ $RE_SID ]] || return 0
+    PF=check
+    CAND=1
+    arm_traps
+    return 0
+  fi
   [ -e "$STORE" ] || [ -L "$STORE" ] || return 0
   [[ $PAYLOAD =~ $RE_SID ]] || return 0
   if [ ! -d "$STORE" ] || [ ! -x "$STORE" ]; then
     PF=check
     CAND=1
+    arm_traps
     return 0
   fi
   rest=$PAYLOAD
@@ -302,6 +323,7 @@ prefilter() {
     if is_uuid "$id" && { [ -e "$STORE/$id" ] || [ -L "$STORE/$id" ]; }; then
       PF=check
       CAND=1
+      arm_traps
       return 0
     fi
     rest=${rest#*"${BASH_REMATCH[0]}"}
@@ -379,18 +401,15 @@ guard() {
   sid=${fields%%$'\n'*}
   cmd=${fields#*$'\n'}
   # Only the top-level id counts: a nested one marks nothing.
-  is_uuid "$sid" || exit 0
+  is_uuid "$sid" || defer
   if [ "$surface" = bash ] && is_activation "$cmd"; then
-    trap 'deny_internal' HUP INT TERM
-    trap 'deny_unless_decided' EXIT
+    arm_traps
     activate_session "$sid"
   fi
   [ "$CAND" = 1 ] || exit 0
   if [ -d "$STORE" ] && [ -x "$STORE" ]; then
-    [ -e "$STORE/$sid" ] || [ -L "$STORE/$sid" ] || exit 0
+    [ -e "$STORE/$sid" ] || [ -L "$STORE/$sid" ] || defer
   fi
-  trap 'deny_internal' HUP INT TERM
-  trap 'deny_unless_decided' EXIT
   pause_for_test
   [ -d "$STORE" ] && [ -x "$STORE" ] \
     || emit_deny 'the tower-sessions store exists but cannot be searched, so this session counts as a tower - refusing (fail closed). Repair the store under the fleet home (an owner-only directory).'
@@ -410,8 +429,7 @@ guard() {
     is_deny "$out" || deny_internal
     printf '%s\n' "$out"
   fi
-  DECIDED=1
-  exit 0
+  defer
 }
 
 # --------------------------------------------------------------------------
