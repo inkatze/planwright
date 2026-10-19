@@ -1138,11 +1138,13 @@ deny_hit() {
   return 1
 }
 
-# floor_act: 0 when the current simple command (`cw`) is a reserved act.
+# floor_act: 0 when the current simple command (`cw`) is a reserved act. The
+# program is matched by its last path component, since a declared step names
+# it by absolute path.
 floor_act() {
   local i a sub=''
   [ "$cwn" -ne 2 ] || [ "${cw[1]}" != --version ] || return 1
-  case ${cw[0]-} in
+  case ${cw[0]##*/} in
     git)
       for ((i = 1; i < cwn; i++)); do
         case ${cw[i]} in
@@ -1167,6 +1169,14 @@ floor_act() {
     gh) guard_gh || return 0 ;;
   esac
   return 1
+}
+
+# floor_act_words <word>...: floor_act over the given words, for a line read
+# before substitution (a declared step's).
+floor_act_words() {
+  local -a cw=("$@")
+  local cwn=$#
+  floor_act
 }
 
 # --------------------------------------------------------------------------
@@ -4649,6 +4659,7 @@ verify_simple() {
   done
   # The floor comes before every arm and the declared steps.
   [ "$cwn" -eq 0 ] || ! deny_hit "${sw[@]}" || return 1
+  [ "$cwn" -eq 0 ] || ! floor_act_words "${sw[@]}" || return 1
   verify_known_simple && return 0
   # A declared step is an operator's exact line, never one around a
   # substitution, and is not read-only inside one.

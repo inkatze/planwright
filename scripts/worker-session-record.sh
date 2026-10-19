@@ -2,7 +2,7 @@
 # worker-session-record.sh — write a dispatched worker's session record: the
 # launch-time inputs its command guard trusts.
 #
-# Usage: worker-session-record.sh write <worktree>
+# Usage: worker-session-record.sh write <worktree> [<launch-id>]
 #
 # Resolves, once, from the worktree the worker will run in:
 #   policy             worker_self_approval through the overlay layers,
@@ -20,7 +20,9 @@
 #   worker_base_merge  the human-gates knob (omitted when it cannot be read)
 # and writes them as `key=value` lines to
 # <fleet-home>/session-records/<sha1-of-worktree-root>.record, owner-only, by
-# an atomic rename, printing the path. The launcher exports that path to the
+# an atomic rename, printing the path. A <launch-id> (16 to 64 lowercase hex
+# digits) names a record for that launch alone, <sha1>-<launch-id>.record, so
+# a launch that loses a race to another never rewrites the winner's. The launcher exports that path to the
 # worker as PLANWRIGHT_WORKER_SESSION_RECORD. The record lies outside the
 # worktree (a fleet home inside it is refused), so nothing the worker writes
 # there reaches it; relaunching rewrites it from current config.
@@ -39,7 +41,19 @@ die() {
   exit "${2:-1}"
 }
 
-[ "$#" -eq 2 ] && [ "$1" = write ] || die "usage: $me write <worktree>" 2
+{ [ "$#" -eq 2 ] || [ "$#" -eq 3 ]; } && [ "$1" = write ] || die "usage: $me write <worktree> [<launch-id>]" 2
+launch_id=${3-}
+if [ "$#" -eq 3 ]; then
+  case $launch_id in
+    '' | *[!0-9a-f]*) die "the launch id must be 16 to 64 lowercase hex digits" 2 ;;
+  esac
+  [ "${#launch_id}" -ge 16 ] && [ "${#launch_id}" -le 64 ] || die "the launch id must be 16 to 64 lowercase hex digits" 2
+fi
+
+# The worktree is named by its argument alone: an inherited repository
+# selector would point every git read below at another repository.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 gitq() {
   d=$1
@@ -137,6 +151,7 @@ case $dir/ in
 esac
 
 key=$(printf '%s' "$wt" | git hash-object --stdin 2>/dev/null) || die "cannot name the record"
+[ -z "$launch_id" ] || key=$key-$launch_id
 rec=$dir/$key.record
 tmp=$(mktemp "$dir/.$key.XXXXXX") || die "cannot write the record"
 if ! {

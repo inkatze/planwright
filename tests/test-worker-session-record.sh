@@ -192,16 +192,47 @@ else
 fi
 rm -rf "$WT/fleet"
 
+GIT_DIR="$T/origin.git" /bin/sh "$WRITER" write "$WT" >"$T/out" 2>/dev/null
+REC=$(cat "$T/out")
+if [ "$(field worktree_root)" = "$WT" ] && [ "$(field unit_branch)" = "$UNIT" ]; then
+  pass "G1.8: an inherited GIT_DIR does not redirect the record"
+else
+  fail "G1.8: GIT_DIR redirected the record: $(tr '\n' ' ' <"$REC" 2>/dev/null)"
+fi
+id=0123456789abcdef0123456789abcdef
+write "$WT"
+shared=$REC
+REC=$(/bin/sh "$WRITER" write "$WT" "$id" 2>/dev/null)
+case $REC in
+  "${shared%.record}-$id.record")
+    pass "G1.8: a launch id names a record of that launch alone"
+    ;;
+  *) fail "G1.8: launch-id record path $REC" ;;
+esac
+if /bin/sh "$WRITER" write "$WT" NOT-HEX >/dev/null 2>&1; then
+  fail "G1.8: a malformed launch id was accepted"
+else
+  pass "G1.8: a malformed launch id is refused"
+fi
+
 echo "### REQ-G1.8 — the guard's verdicts are fixed at launch"
 write "$WT"
 decide() {
   local out
+  # Only an empty output from a clean exit is a defer: a guard that failed to
+  # run, or printed anything but an allow, is an error, never a pass.
   out=$(jq -cn --arg c "$1" --arg w "$WT" '{tool_name:"Bash",tool_input:{command:$c},cwd:$w}' \
-    | (cd "$WT" && PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/bash "$GUARD" 2>/dev/null))
-  case $(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null) in
-    allow) echo allow ;;
-    *) echo defer ;;
-  esac
+    | (cd "$WT" && PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/bash "$GUARD" 2>/dev/null)) || {
+    echo error
+    return
+  }
+  if [ -z "$out" ]; then
+    echo defer
+  elif [ "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)" = allow ]; then
+    echo allow
+  else
+    echo error
+  fi
 }
 : >"$WT/f"
 if [ "$(decide 'touch f')" = allow ]; then

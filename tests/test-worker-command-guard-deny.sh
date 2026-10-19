@@ -32,7 +32,7 @@ under() {
 
 echo "### REQ-A1.11 — no deny-matched command is ever approved"
 SETTINGS=$REPO_ROOT/config/worker-settings.json
-rules=$(jq -r '.permissions.deny[] | select(startswith("Bash("))' "$SETTINGS")
+rules=$(jq -r '.permissions.deny[] | select(startswith("Bash"))' "$SETTINGS")
 [ -n "$rules" ] || fail "A1.11: no Bash rule read from the deny block"
 # A deny-free stand-in for the guard: the same script beside a profile whose
 # only Bash deny rule matches nothing, so a collision row can prove the guard
@@ -92,12 +92,17 @@ while IFS= read -r rule; do
     pm_matches "$pat" "$c" || fail "A1.11: the collision row does not match $rule: $c"
     assert_defer "A1.11 [${POLICIES[col - 1]}]: collision for $rule" "$c" Bash "$WT"
   done
+  # Without the rule, a collision row is approvable, and a rule declared
+  # unapprovable still has its generated command defer, so neither label
+  # can be claimed without evidence.
+  under "$STATE/record.4"
+  HOOK=$SANDBOX/nodeny/scripts/worker-command-guard.sh
   if [ "$c" != - ]; then
-    under "$STATE/record.4"
-    HOOK=$SANDBOX/nodeny/scripts/worker-command-guard.sh
     assert_allow "A1.11: without the rule, its collision row is approvable" "$c" Bash "$WT"
-    HOOK=$REAL_HOOK
+  else
+    assert_defer "A1.11: without the rule, its generated command still defers" "$g" Bash "$WT"
   fi
+  HOOK=$REAL_HOOK
 done <<EOF
 $rules
 EOF

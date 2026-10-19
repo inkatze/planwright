@@ -1077,6 +1077,7 @@ print_plan() {
   pp_session=$(worker_session "$pp_suffix")
   pp_claude=$(command -v claude 2>/dev/null) || pp_claude=claude
   launch_roots "${_repo_root:-${_aroot:-}}"
+  LAUNCH_RECORD='<session-record>'
   printf 'attach-plan\tsuffix\t%s\n' "$(sanitize_printable "$pp_suffix")"
   printf 'attach-plan\tsession\t%s\n' "$(sanitize_printable "$pp_session")"
   printf 'attach-plan\tlaunch'
@@ -1702,7 +1703,9 @@ MERR
   # The session record the worker's command guard reads its policy and unit
   # identity from, written once the worktree holds the unit branch; without
   # one the guard keeps to its read-only arm, so it never blocks a launch.
-  LAUNCH_RECORD=$(/bin/sh "$script_dir/worker-session-record.sh" write "$_worktree" 2>/dev/null </dev/null) || LAUNCH_RECORD=''
+  # The record is this launch's own, so losing the session race below
+  # rewrites nothing the winner reads.
+  LAUNCH_RECORD=$(/bin/sh "$script_dir/worker-session-record.sh" write "$_worktree" "$_token" 2>/dev/null </dev/null) || LAUNCH_RECORD=''
   tmux_launch run "$TMUX_BIN" "$_session" "$_worktree" "$_handle" "$_scope" \
     "$_token" "$WORKER_CLI" "$@"
   _ns_rc=$?
@@ -1719,6 +1722,7 @@ MERR
           # Everything this dispatch would own is the winner's: remove,
           # clear, and write nothing.
           warn "already-in-flight: another dispatch created $_session first; its worktree, branch, and marker are left as they are"
+          [ -z "$LAUNCH_RECORD" ] || rm -f -- "$LAUNCH_RECORD"
           exit 3
           ;;
       esac
@@ -1806,6 +1810,7 @@ undo_launch() {
     fi
     ul_wt_left=1
   elif [ "$_made_worktree" -eq 1 ]; then
+    [ -z "$LAUNCH_RECORD" ] || rm -f -- "$LAUNCH_RECORD"
     if [ -L "$_worktree" ]; then
       ul_wt_left=1
     elif [ -d "$_worktree" ]; then
