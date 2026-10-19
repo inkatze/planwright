@@ -2306,9 +2306,10 @@ the worker's registry handle, `planwright-tower-<spec>` for a relaunch, and
 `planwright-tower-<spec>-<epoch>-<pid>` for a handover, so the retiring tower
 and its replacement never share a name, nor do two launches in one second.
 The profile comes from the planwright root the launch pins its session to
-(`PLANWRIGHT_ROOT`, else the install the script runs from), resolved by `scripts/fleet-launch-profile.sh`; a profile that cannot be
-read refuses the launch, naming the file, rather than starting a session under
-the operator's own settings. On Claude Code 2.1.303, two `-p` launches given
+(`PLANWRIGHT_ROOT`, else the install the script runs from), resolved by
+`scripts/fleet-launch-profile.sh`; a profile that cannot be read refuses the
+launch, naming the file, rather than starting a session under the operator's
+own settings. On Claude Code 2.1.303, two `-p` launches given
 the same `--name` both start and both carry that name: the CLI neither renames
 nor refuses, so a duplicate shows up only in the session listing.
 
