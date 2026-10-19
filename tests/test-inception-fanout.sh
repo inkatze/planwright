@@ -911,6 +911,11 @@ assert_eq "challenge-brief: and its empty directory" "no" "$([ -d "$cdrop" ] && 
 printf 'relative\n' >"$run/drop-challenge"
 "$FANOUT" challenge-brief --run "$run" "$v" >/dev/null 2>&1
 assert_no_file "challenge-brief: an unreadable earlier drop record is retired too" "$run/drop-challenge"
+ln -s "$tmp/secret.txt" "$run/drop-challenge"
+"$FANOUT" challenge-brief --deliver-file --run "$run" "$v" >/dev/null 2>&1
+assert_eq "challenge-brief: a symlinked drop record is refused" "2" "$?"
+assert_eq "challenge-brief: and never written through" "secret" "$(cat "$tmp/secret.txt")"
+rm -f "$run/drop-challenge"
 
 "$FANOUT" amend-brief --run "$run" "$v" >/dev/null 2>&1
 assert_eq "amend-brief: needs the challenge first" "2" "$?"

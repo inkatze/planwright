@@ -866,6 +866,7 @@ old_drop=
 prepare_drop() {
   old_drop=
   pd_rec="$run/drop-${1%.md}"
+  [ ! -h "$pd_rec" ] || die 2 "drop-${1%.md} in the run directory is a symbolic link"
   if [ -f "$pd_rec" ] && [ ! -h "$pd_rec" ]; then
     old_drop=$(strip_controls <"$pd_rec")
     case $old_drop in /*) ;; *) old_drop= ;; esac
