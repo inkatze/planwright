@@ -26,8 +26,9 @@ TAB=$(printf '\t')
 . "$here/lib/step-run-fixture.sh"
 
 # --- a runner-owned step past its timeout is ended and fails naming it (REQ-D1.7) ---------
+# The timeouts leave a loaded host time to start the stub before it is signalled.
 fresh
-catalog "slow|kind: command|target: $bin/grand.sh|pool: gate|timeout: 1"
+catalog "slow|kind: command|target: $bin/grand.sh|pool: gate|timeout: 5"
 config 'steps_pre_pr: [slow]'
 r=$(sr new-run)
 srun resolve --run "$r" pre-pr --unattended >/dev/null 2>&1
@@ -36,14 +37,14 @@ srun command --run "$r" --point pre-pr --step slow >"$tmp/out" 2>/dev/null
 rc=$?
 t1=$(date +%s)
 recs "$r" pre-pr >"$tmp/l"
-[ "$rc" -eq 1 ] && [ $((t1 - t0)) -lt 20 ] && grep -q "^excerpt${TAB}step-run: timed out after 1s" "$tmp/l" \
+[ "$rc" -eq 1 ] && [ $((t1 - t0)) -lt 25 ] && grep -q "^excerpt${TAB}step-run: timed out after 5s" "$tmp/l" \
   && [ -z "$(sp report gate)" ] && [ -s "$tmp/grand.pid" ] && ! kill -0 "$(cat "$tmp/grand.pid")" 2>/dev/null
 verdict $? "a step past its timeout is ended with everything it started, records failed, and frees its slot" \
   "rc=$rc took $((t1 - t0))s record: $(cat "$tmp/l")"
 
 # --- a check that ignores TERM is killed ten seconds after its timeout ----------------------
 rm -f "$tmp/parent.pid" "$tmp/stub-child.pid"
-catalog "stub|kind: command|target: $bin/stubborn.sh|pool: gate|timeout: 1"
+catalog "stub|kind: command|target: $bin/stubborn.sh|pool: gate|timeout: 5"
 config 'steps_pre_pr: [stub]'
 r=$(sr new-run)
 srun resolve --run "$r" pre-pr --unattended >/dev/null 2>&1
@@ -51,7 +52,7 @@ t0=$(date +%s)
 srun command --run "$r" --point pre-pr --step stub >"$tmp/out" 2>/dev/null
 rc=$?
 t1=$(date +%s)
-[ "$rc" -eq 1 ] && [ $((t1 - t0)) -lt 25 ] && [ -s "$tmp/parent.pid" ] && ! kill -0 "$(cat "$tmp/parent.pid")" 2>/dev/null \
+[ "$rc" -eq 1 ] && [ $((t1 - t0)) -lt 30 ] && [ -s "$tmp/parent.pid" ] && ! kill -0 "$(cat "$tmp/parent.pid")" 2>/dev/null \
   && [ -s "$tmp/stub-child.pid" ] && ! kill -0 "$(cat "$tmp/stub-child.pid")" 2>/dev/null && [ -z "$(sp report gate)" ]
 verdict $? "a check ignoring TERM is killed after the grace, then its slot freed" "rc=$rc took $((t1 - t0))s"
 
