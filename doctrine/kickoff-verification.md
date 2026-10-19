@@ -85,7 +85,8 @@ a finding, dispositioned like any other.
 ## Terminal ready-flip CI gate (REQ-B1.1, D-3)
 
 Before the terminal `gh pr ready` (sign-off step 8), verify the spec PR's CI on
-its **head commit** and mark the PR ready only on a genuine pass. The gate is
+its **head commit**, the head the `pre-spec-ready-flip` point ended on, and
+mark the PR ready only on a genuine pass. The gate is
 skipped cleanly when the upstream no-remote/no-PR degradation arm (sign-off
 step 7) has already fired.
 
@@ -94,7 +95,10 @@ step 7) has already fired.
   statusCheckRollup,headRefOid`) — checks **on the SHA**, never PR review
   states, which an errored or stale review can masquerade as done.
 - **Positive green.** Flip only on **at least one completed check and overall
-  success**; an empty rollup is not success.
+  success**, excluding the `planwright/pre-ready-flip` and
+  `planwright/pre-spec-ready-flip` contexts by name (a flip point's own
+  status never counts as a completed check; custom-steps REQ-E1.6); an empty
+  rollup is not success.
 - **Bounded wait, bounded cadence.** CI rarely reports within seconds of the
   push, so poll within a bounded wait (`kickoff_ready_ci_wait`, default `10m`,
   read at pre-flight step 4; a malformed value falls back to the default with a
@@ -102,6 +106,10 @@ step 7) has already fired.
 - **Head re-pin (the R3 mid-wait head-movement rule).** Re-confirm head
   identity immediately before `gh pr ready`: a `headRefOid` that moved during
   the wait refuses the flip.
+- **Draft-state check.** Then check the PR's state (`gh pr view <spec-PR>
+  --json isDraft,state`) and run `gh pr ready <spec-PR>` only while it is
+  still a draft; an already-ready or merged/closed PR is a benign skip whose
+  non-zero exit must not trip the skill's flip-failure degradation arm.
 - **Refusal arm.** On **red, empty, unresolved, a query failure, an expired
   wait, or a moved head**, leave the PR draft and record the pending ready-flip
   in the spec's `tasks.md` `## Awaiting input` section — the re-entry point, so

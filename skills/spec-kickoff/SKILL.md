@@ -380,29 +380,31 @@ most recent anchor entry never describes spec content that was not walked.
    spec's `tasks.md` `## Awaiting input` section naming the pending push/PR step
    and the failure, surface it in the handoff, and stop. Never retry into an
    opaque failure.
+   **Then the `pre-spec-ready-flip` point** (REQ-A1.2, REQ-E1.6, REQ-J1.2,
+   D-13), whether or not a flip follows: resolve it (`scripts/resolve-steps.sh
+   pre-spec-ready-flip --explain --attended`), run and record its steps under
+   one new run, each record carrying its end head, then post
+   `scripts/step-record.sh status --point pre-spec-ready-flip --repo <base
+   repo>` on the head the list ends on. A `failure` status or a failed post
+   refuses the flip, recording the pending flip to Awaiting input naming the
+   step (or the post).
 8. **Mark the spec PR ready (terminal step, D-6/D-7; REQ-D1.2, REQ-D1.3,
    REQ-D1.5).** Only on a **clean completion** — the
    sign-off record above is written with its anchor (no inconsistency halt, no
-   carried open question, every lens finding dispositioned) and any configured
-   verification has converged. That verification is the configurable
-   `review_sequence`-class mechanism (D-7,
-   customization-overlay D-6 / REQ-D1.3), **not a hardcoded** core step: in bare
-   core it is this skill's own walkthrough and lens pass; an overlay may add a
-   review pass over the spec PR, its terminal step being this flip. When
+   carried open question, every lens finding dispositioned) and the point
+   above posted `success`. Configured verification is the `pre-spec-ready-flip`
+   point (D-7), not a hardcoded core step. When
    `mark_spec_pr_ready_on_kickoff` is true (pre-flight step 4) and the
    completion is clean, un-draft the spec PR — but **first gate the flip on the
-   head SHA's CI** per `kickoff-verification` (REQ-B1.1, D-3), then **check its
-   state** (`gh pr view <spec-PR> --json isDraft,state`) and run `gh pr ready
-   <spec-PR>` **only while it is still a draft**; skip it when the PR is already
-   ready or merged/closed (a benign no-op whose non-zero exit must not trip
-   the degradation arm below). This is the
+   head SHA's CI** per `kickoff-verification` (REQ-B1.1, D-3), which also owns
+   the draft-state check before `gh pr ready <spec-PR>`. This is the
    narrow exception to bootstrap D-26's all-drafts rule: **only the spec PR**,
    and only this skill, marks a PR ready; **task PRs stay drafts**. Merge stays
    the human's second key — **never auto-merge**.
    - **Do not flip** on an unclean completion: leave
      the PR draft and say so in the handoff.
-   - **Opt-out:** `mark_spec_pr_ready_on_kickoff: false` suppresses the flip;
-     the PR stays draft and the human un-drafts it by hand.
+   - **Opt-out:** `mark_spec_pr_ready_on_kickoff: false` suppresses the flip,
+     leaving the PR draft.
    - **Degrade, never retry into opacity (bootstrap REQ-K1.6/K1.7):** if the
      flip itself fails — no remote, `gh` absent or auth failure, PR not found —
      the recorded sign-off stands (never roll it back); record the pending
