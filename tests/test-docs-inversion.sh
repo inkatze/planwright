@@ -61,7 +61,8 @@ section() {
   ' "$1"
 }
 
-DEMOTED='`/(orchestrate|execute-task|resume|offload)[` ]'
+TOWER_CMD="\`/tower\`"
+DEMOTED="\`/(orchestrate|execute-task|resume|offload)[\` ]"
 MACHINERY="$DEMOTED|scripts/|worktree|branch|config/|\\.ya?ml|\\.json|\`[a-z]+_[a-z_]+\`|(^|[ \`])--[a-z]"
 
 # machinery <text>: the lines of a newcomer-path block naming pipeline
@@ -94,20 +95,20 @@ printf '# X\n\nRoute work by visual flight or instrument flight.\n' >"$tmp/bad.m
 printf '# X\n\nThe flight rules are visual flight and instrument flight: visual rules\nwhen conditions are clear, instrument rules when you trust the gauges.\n' >"$tmp/good.md"
 if [ -n "$(gloss_missing "$tmp/bad.md")" ]; then ok "the gloss screen refuses an unglossed first use"; else fail "the gloss screen passed an unglossed first use"; fi
 if [ -z "$(gloss_missing "$tmp/good.md")" ]; then ok "the gloss screen passes a glossed first use"; else fail "the gloss screen refused a glossed first use"; fi
-bad_lines=$(machinery '`/orchestrate` runs it
+bad_lines=$(machinery "\`/orchestrate\` runs it
 see scripts/x.sh
-set `max_parallel_units`
+set \`max_parallel_units\`
 in its own worktree
-run with --fleet' | grep -c .)
+run with --fleet" | grep -c .)
 if [ "$bad_lines" -eq 5 ]; then ok "the machinery screen fires on known-bad lines"; else fail "the machinery screen fired on $bad_lines of 5 known-bad lines"; fi
 
 # README lead (REQ-H1.3).
 readme_lead=$(lead "$README")
-assert_contains "the README's lead names /tower" '`/tower`' "$readme_lead"
+assert_contains "the README's lead names /tower" "$TOWER_CMD" "$readme_lead"
 first_cmd=$(grep -o -E '`/[a-z][a-z-]*' "$README" | head -n 1)
 if [ "$first_cmd" = '`/tower' ]; then ok "/tower is the first command the README names"; else fail "the README names $first_cmd before /tower"; fi
-assert_contains "the README's Quickstart starts with /tower" '`/tower`' "$(section "$README" "## Quickstart")"
-assert_contains "getting-started's intro names /tower" '`/tower`' "$(lead "$GUIDE")"
+assert_contains "the README's Quickstart starts with /tower" "$TOWER_CMD" "$(section "$README" "## Quickstart")"
+assert_contains "getting-started's intro names /tower" "$TOWER_CMD" "$(lead "$GUIDE")"
 
 # The newcomer path names no pipeline machinery (REQ-A1.1, REQ-H1.3).
 newcomer_guide=$(section "$GUIDE" "## 3. Start with the tower")
