@@ -1219,8 +1219,9 @@ canon_loose() {
 }
 
 # ob_excl_load: the git directory, the common directory, and the hooks
-# directory git runs from (core.hooksPath or the default), canonical, into
-# OB_EXCL_DIRS. Non-zero when git cannot name them, which refuses every
+# directory git runs from (core.hooksPath or the default), canonical and
+# lowercased (a case-insensitive filesystem reaches them under any casing),
+# into OB_EXCL_DIRS. Non-zero when git cannot name them, which refuses every
 # own-branch write.
 ob_excl_load() {
   local raw line c out=''
@@ -1241,7 +1242,7 @@ ob_excl_load() {
 $raw
 EOF
   [ -n "$out" ] || return 1
-  OB_EXCL_DIRS=$out
+  OB_EXCL_DIRS=$(printf '%s' "$out" | tr '[:upper:]' '[:lower:]')
   OB_EXCL_STATE=1
 }
 
@@ -1260,12 +1261,13 @@ ob_excluded_name() {
 # ob_excluded <canonical-path>: 0 when the path is, or lies under, an excluded
 # path.
 ob_excluded() {
-  local full=$1 d comp
+  local full=$1 low d comp
   local -a comps=()
   ob_excl_load || return 0
+  low=$(printf '%s' "$full" | tr '[:upper:]' '[:lower:]')
   while IFS= read -r d; do
     [ -n "$d" ] || continue
-    case $full/ in
+    case $low/ in
       "$d"/*) return 0 ;;
     esac
   done <<EOF
@@ -1281,11 +1283,12 @@ EOF
 # ob_tree_clean <canonical-dir>: 0 when nothing under the directory is an
 # excluded path, for a recursive act on it.
 ob_tree_clean() {
-  local dir=$1 d hit
+  local dir=$1 low d hit
+  low=$(printf '%s' "$dir" | tr '[:upper:]' '[:lower:]')
   while IFS= read -r d; do
     [ -n "$d" ] || continue
     case $d/ in
-      "$dir"/*) return 1 ;;
+      "$low"/*) return 1 ;;
     esac
   done <<EOF
 $OB_EXCL_DIRS
