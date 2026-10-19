@@ -229,6 +229,7 @@ pass "the stream-json result frame and its exit fallback name a 529 and read a r
 # A hand-corrupted cause field is dropped, never rendered.
 sd_bad="$tmp/sd-bad"
 mkdir -p "$sd_bad"
+# shellcheck disable=SC2016 # the unexpanded substitution is the fixture
 printf 'result\tsuccess\t1700000000\ttrue\tcause=$(x)\n' >"$sd_bad/result"
 new_home sd-bad
 d=$(detect wbad "$sd_bad" stream-json-persistent)
