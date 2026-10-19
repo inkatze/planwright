@@ -13,8 +13,9 @@
 # seconds, so a wait gives up between <secs> and <secs>+1 seconds in, never
 # before. The condition always runs at least once, and once more after any
 # sleep, so an event landing during the last interval still counts. On a
-# timeout it runs once more with its stderr shown, and the message names
-# <label>, the deadline, the elapsed time and that last attempt's exit status.
+# timeout it runs once more, for the message only, with its stderr shown; the
+# message names <label>, the deadline, the elapsed time and that attempt's exit
+# status.
 # The elapsed whole seconds are left in POLL_UNTIL_ELAPSED for a caller's own
 # failure message. A malformed argument returns 2 before any wait.
 #
@@ -90,8 +91,9 @@ poll_until() {
     [ "$POLL_UNTIL_ELAPSED" -le "$_pu_deadline" ] || break
     sleep "$_pu_interval"
   done
-  "$@" >/dev/null && return 0
-  _pu_rc=$?
+  _pu_rc=0
+  "$@" >/dev/null || _pu_rc=$?
+  POLL_UNTIL_ELAPSED=$((${SECONDS:-$(date +%s)} - _pu_start))
   printf '%s\n' "poll_until: $_pu_what did not hold within ${_pu_deadline}s, gave up after ${POLL_UNTIL_ELAPSED}s (last exit status $_pu_rc)" >&2
   return 1
 }

@@ -9,7 +9,8 @@
 #   p5: the helper documents its default deadline, uses it, and honours one
 #       the environment already set.
 #   p6: the condition's stdout is discarded; on a timeout the last attempt's
-#       exit status and stderr are shown.
+#       exit status and stderr are shown, and that attempt never turns the
+#       timeout into a success.
 #   p7: pid_gone holds only once every named process has exited.
 set -u
 LC_ALL=C
@@ -54,6 +55,8 @@ elapsed=${elapsed%%s*}
 [ "$elapsed" -ge 2 ] || fail "p2: the reported elapsed time must be what the wait observed, got ${elapsed}s"
 [ "$POLL_UNTIL_ELAPSED" = "$elapsed" ] \
   || fail "p2: POLL_UNTIL_ELAPSED must carry the reported elapsed time, got '$POLL_UNTIL_ELAPSED'"
+[ "$elapsed" -ge $((t1 - t0 - 1)) ] \
+  || fail "p2: the reported elapsed time must include the last attempt, reported ${elapsed}s of $((t1 - t0))s"
 rc=0
 t0=$(date +%s)
 poll_until --deadline 1 -- false 2>/dev/null || rc=$?
@@ -106,6 +109,13 @@ poll_until --deadline 0 --what 'the broken check' -- sh -c 'echo diag-line >&2; 
 [ "$rc" = 1 ] || fail "p6: a failing condition must time out with 1, got $rc"
 grep -q 'last exit status 3' "$tmp/p6.err" || fail "p6: the timeout must name the last exit status, got: $(cat "$tmp/p6.err")"
 grep -q 'diag-line' "$tmp/p6.err" || fail "p6: the last attempt's stderr must be shown, got: $(cat "$tmp/p6.err")"
+# POLL_UNTIL_ELAPSED passes the deadline only once the loop has given up, so
+# this condition first holds on the diagnostic attempt.
+past_deadline() { [ "$POLL_UNTIL_ELAPSED" -gt 0 ]; }
+POLL_UNTIL_ELAPSED=0
+rc=0
+poll_until --deadline 0 --interval 1.1 -- past_deadline 2>/dev/null || rc=$?
+[ "$rc" = 1 ] || fail "p6: a condition first holding on the diagnostic attempt must still time out, got $rc"
 
 # --- p7 ---------------------------------------------------------------------
 sleep 30 &
