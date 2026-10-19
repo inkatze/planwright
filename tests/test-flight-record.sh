@@ -1502,6 +1502,132 @@ mkdir -p "$tmp/not-git"
 run_land --repo-root "$tmp/not-git"
 [ "$RC" -eq 4 ] || fail "a --repo-root outside git must fail with 4 (got $RC)"
 
+# --- 7: a public summary stands in for a private ask --------------------------
+# REQ-E1.6, REQ-E1.7, REQ-E1.8, REQ-E1.11: with --public-summary-file the
+# record quotes the summary and the fixed briefed-beyond line, never the
+# private ask, in either home, first render or re-emit; the lead may restate
+# neither text, and no other worker input may restate the private ask.
+
+PRIV1="The export handler in billing-sync serves another tenant's invoices for a dotted path"
+PRIV2="Nobody outside the team knows yet, so keep it quiet until the advisory ships"
+printf '%s\n%s\n' "$PRIV1" "$PRIV2" >"$in/ask-private.txt"
+printf 'Harden path handling in an export handler.\n' >"$in/public.txt"
+BRIEFED='The worker was briefed beyond this summary; the full ask is private to the flight.'
+no_private() { # no_private <label> <text>
+  _np_low=$(printf '%s\n' "$2" | tr '[:upper:]' '[:lower:]')
+  for _np_line in "$PRIV1" "$PRIV2"; do
+    case $_np_low in
+      *"$(printf '%s' "$_np_line" | tr '[:upper:]' '[:lower:]')"*) fail "$1: a private ask line reached it ('$_np_line')" ;;
+    esac
+  done
+  case $_np_low in *billing-sync* | *advisory*) fail "$1: a fragment of the private ask reached it" ;; esac
+}
+for home in pr file; do
+  run_render "$home" --ask-file "$in/ask-private.txt" --public-summary-file "$in/public.txt"
+  [ "$RC" -eq 0 ] || {
+    fail "$home: render with a public summary exited $RC: $ERR"
+    continue
+  }
+  no_private "$home render" "$OUT"
+  no_private "$home render stderr" "$ERR"
+  ask_sec=$(collapsed_of "$OUT" | awk '/^### The ask$/ {on=1} /^### Route and grounds$/ {on=0} on')
+  printf '%s\n' "$ask_sec" | grep -qx '  Harden path handling in an export handler.' \
+    || fail "$home: the ask section must quote the public summary, fenced: $ask_sec"
+  printf '%s\n' "$ask_sec" | grep -qxF "$BRIEFED" || fail "$home: the ask section must carry the briefed-beyond line"
+  [ "$(printf '%s\n' "$ask_sec" | grep -n 'Harden path' | cut -d: -f1)" -lt \
+    "$(printf '%s\n' "$ask_sec" | grep -nF "$BRIEFED" | cut -d: -f1)" ] \
+    || fail "$home: the briefed-beyond line must follow the summary"
+  printf '%s\n' "$ask_sec" | grep -q 'Quoted as the operator gave it' \
+    && fail "$home: a summary is not the operator's ask and must not be introduced as it"
+  # The two summaries never trade places (risk row 2): the lead is the
+  # worker's --summary-file, the ask section the tower's public summary.
+  lead_of "$OUT" | grep -q 'Harden path handling' && fail "$home: the public summary must not reach the lead"
+  printf '%s\n' "$ask_sec" | grep -q 'Corrects the misspelled' && fail "$home: the lead summary must not reach the ask section"
+done
+run_render pr --ask-file "$in/ask-private.txt" --public-summary-file "$in/public.txt" \
+  --audit-file "$in/audit-post-pr.md" --post-pr
+[ "$RC" -eq 0 ] || fail "the re-emit with a public summary exited $RC: $ERR"
+no_private "pr re-emit" "$OUT"
+printf '%s\n' "$OUT" | grep -qxF "$BRIEFED" || fail "the re-emit must carry the briefed-beyond line"
+
+# The summary takes the ask's sanitizing and neutralization.
+{
+  printf 'Harden a handler%s here %s.\n' "$ZWSP" "$ESC"
+  printf '</details>\n'
+  printf 'the token is %s\n' "$TOKEN"
+} >"$in/public-hostile.txt"
+run_render pr --ask-file "$in/ask-private.txt" --public-summary-file "$in/public-hostile.txt"
+[ "$RC" -eq 0 ] || fail "render with a hostile public summary exited $RC: $ERR"
+case $OUT in *"$ESC"* | *"$ZWSP"* | *"$TOKEN"*) fail "a hostile public summary reached the record unsanitized" ;; esac
+[ "$(printf '%s\n' "$OUT" | grep -cx '</details>')" -eq 1 ] || fail "the public summary forged a closing tag"
+ask_sec=$(collapsed_of "$OUT" | awk '/^### The ask$/ {on=1} /^### Route and grounds$/ {on=0} on')
+printf '%s\n' "$ask_sec" | grep -q 'were stripped from it' || fail "the summary's strip must be noted"
+printf '%s\n' "$ask_sec" | grep -q 'redacted whole' || fail "the summary's redaction must be noted"
+printf 'Harden a handler; call 415-555-0134 for details.\n' >"$in/public-personal.txt"
+run_render pr --ask-file "$in/ask-private.txt" --public-summary-file "$in/public-personal.txt"
+[ "$RC" -eq 0 ] || fail "render with personal data in the public summary exited $RC: $ERR"
+printf '%s\n' "$OUT" | grep -q '415-555-0134' && fail "personal data in the public summary must be redacted"
+printf '%s\n' "$OUT" | grep -q 'personal data were redacted whole' || fail "the summary's personal-data redaction must be noted"
+printf ' \n' >"$in/public-blank.txt"
+run_render pr --ask-file "$in/ask-private.txt" --public-summary-file "$in/public-blank.txt"
+[ "$RC" -eq 2 ] || fail "a blank public summary must be refused with 2 (got $RC)"
+
+# The restate check runs against both texts (REQ-E1.8).
+printf 'Closed it: %s.\n' "$(printf '%s' "$PRIV1" | tr '[:lower:]' '[:upper:]')" >"$in/lead-private.md"
+for flag in --summary-file --verification-file; do
+  run_render pr --ask-file "$in/ask-private.txt" --public-summary-file "$in/public.txt" "$flag" "$in/lead-private.md"
+  [ "$RC" -eq 2 ] || fail "a lead ($flag) restating the private ask must be refused with 2 (got $RC)"
+  printf '%s\n' "$ERR" | grep -q 'restates the private ask' || fail "the private-ask refusal must say why: $ERR"
+  no_private "the private-ask refusal" "$ERR"
+done
+printf 'We now harden path handling in an export handler. Done as asked.\n' >"$in/lead-public.md"
+run_render file --ask-file "$in/ask-private.txt" --public-summary-file "$in/public.txt" --summary-file "$in/lead-public.md"
+[ "$RC" -eq 2 ] || fail "a lead restating the public summary must be refused with 2 (got $RC)"
+printf '%s\n' "$ERR" | grep -q 'restates the public summary' || fail "the public-summary refusal must say why: $ERR"
+{
+  cat "$in/audit.md"
+  printf '\n%s\n' "$PRIV2"
+} >"$in/audit-private.md"
+run_render pr --ask-file "$in/ask-private.txt" --public-summary-file "$in/public.txt" --audit-file "$in/audit-private.md"
+[ "$RC" -eq 2 ] || fail "an audit restating the private ask must be refused with 2 (got $RC)"
+printf '%s\n' "$ERR" | grep -q -- '--audit-file restates the private ask' || fail "the audit refusal must name its input: $ERR"
+no_private "the audit refusal" "$ERR"
+printf 'Scoped: %s\n' "$PRIV1" >"$in/scoping-private.md"
+run_render pr --ask-file "$in/ask-private.txt" --public-summary-file "$in/public.txt" --scoping-file "$in/scoping-private.md"
+[ "$RC" -eq 2 ] || fail "a scoping restating the private ask must be refused with 2 (got $RC)"
+printf 'Revert it; %s\n' "$PRIV2" >"$in/revert-private.md"
+run_render file --ask-file "$in/ask-private.txt" --public-summary-file "$in/public.txt" --revert-file "$in/revert-private.md"
+[ "$RC" -eq 2 ] || fail "a revert path restating the private ask must be refused with 2 (got $RC)"
+# Without a summary the ask is public anyway, so only the lead is checked.
+run_render pr --ask-file "$in/ask-private.txt" --audit-file "$in/audit-private.md"
+[ "$RC" -eq 0 ] || fail "without a public summary an audit quoting the ask still renders (got $RC: $ERR)"
+
+# The body-limit refusal measures the statement it quotes.
+run_render pr --ask-file "$in/ask-private.txt" --public-summary-file "$in/public.txt" --audit-file "$in/audit-big.md"
+[ "$RC" -eq 3 ] || fail "an over-limit record with a public summary must be refused with 3 (got $RC)"
+printf '%s\n' "$ERR" | grep -q 'the public summary alone is' || fail "the body-limit refusal must measure the public summary: $ERR"
+
+# land commits the summary and never the private ask.
+PUBL=hardened-handler-0a1b2c3d
+prepo="$tmp/prepo"
+git -c init.defaultBranch=main init -q "$prepo"
+printf 'x\n' >"$prepo/README.md"
+gitc "$prepo" add -A
+gitc "$prepo" commit -q -m init
+gitc "$prepo" checkout -q -b "planwright/flight/$PUBL"
+defaults
+OUT=$(cd "$prepo" && GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid \
+  GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid \
+  /bin/sh "$SCRIPT" land "${args[@]}" --flight-id "$PUBL" --ask-file "$in/ask-private.txt" \
+  --public-summary-file "$in/public.txt" --record-path "specs/_flights/$PUBL.md" 2>"$tmp/err")
+RC=$?
+[ "$RC" -eq 0 ] || fail "land with a public summary exited $RC: $(cat "$tmp/err")"
+landed_rec=$(git -C "$prepo" show "HEAD:specs/_flights/$PUBL.md" 2>/dev/null)
+printf '%s\n' "$landed_rec" | grep -qxF "$BRIEFED" || fail "the landed record must carry the briefed-beyond line"
+no_private "the landed record" "$landed_rec"
+no_private "the flight branch's history" "$(git -C "$prepo" log -p --all)"
+no_private "land's report" "$OUT$(cat "$tmp/err")"
+
 # A missing helper is an environment failure, not a bad input.
 mkdir -p "$tmp/partial/scripts"
 cp "$ROOT/scripts/flight-record.sh" "$ROOT/scripts/flight-text.sh" "$ROOT/scripts/inception-secret-screen.sh" \

@@ -4,11 +4,13 @@
 #   { persona, decision_log: [ {v, seq, phase, kind, ...}, ... ], sign_off: {...} }
 #
 # It yields one boolean: the invariants every routing run must hold, plus the
-# named persona's pinned routes, dispatches, refusals, offers, and holds; a
-# persona with no pin fails. `--argjson pins false` grades the floor alone. Whether a route's grounds are well judged is the
+# named persona's pinned routes, dispatches, refusals, offers, holds, and which
+# flights carry a public summary (none unless pinned); a persona with no pin
+# fails. `--argjson pins false` grades the floor alone. Whether a route's grounds are well judged is the
 # independent grader's and the human's call, never asserted here. jq is a pure
 # data transform: artifact values are inspected, never executed.
 def nonempty: (type == "string") and (length > 0);
+def words_of: ascii_downcase | [scan("[a-z0-9]+")];
 
 (.sign_off // {}) as $s
 | ([(.decision_log // [])[] | select(type == "object")] | sort_by(.seq)) as $log
@@ -110,6 +112,14 @@ def nonempty: (type == "string") and (length > 0);
          | [$routes[] | select(.ask_seq == $a and .route == "visual" and .seq < $q)] | length > 0)
         and operator_turn(.on_seq) and (.on_seq < .seq) and no_turn_between(.on_seq; .seq)
         and (.isolated_worktree == true) and (.draft == true)
+        # a public summary is a statement of its own, not the ask, and the
+        # slug (the pushed branch name) is drawn from it
+        and (if .summary == null then true else
+               .summary as $sm | (.slug // "") as $sl | ((at(.ask_seq).text // "\u0000") | ascii_downcase) as $ask
+               | ($sm | nonempty) and (($sm | ascii_downcase) | contains($ask) | not)
+               and ($sl | nonempty)
+               and (($sm | words_of) as $sw | $sl | split("-") | all(. as $w | $sw | index([$w]) != null))
+             end)
       elif .target == "read-only-offload" then
         .flight_identity == false
         and (.ask_seq as $a | [$routes[] | select(.ask_seq == $a and .route == "offload")] | length > 0)
@@ -192,7 +202,9 @@ def nonempty: (type == "string") and (length > 0);
     "overrides": {routes: ["visual/override", "instrument/override", "instrument/zone", "visual/override"],
                   dispatches: ["flight", "spec-draft", "flight"], refusals: ["merge"], crossed: ["zone", null, null, "zone"]},
     "kickoff-offer": {routes: ["instrument/ambiguity"], dispatches: ["spec-draft"], refusals: [], offers: ["spec-kickoff"]},
-    "orchestrate-go": {routes: [], dispatches: ["orchestrate"], refusals: [], holds: ["signoff-complete", "spec-pr-merged"]}
+    "orchestrate-go": {routes: [], dispatches: ["orchestrate"], refusals: [], holds: ["signoff-complete", "spec-pr-merged"]},
+    "private-ask": {routes: ["visual/override", "visual/reversible"], dispatches: ["flight", "flight"], refusals: [],
+                    crossed: ["zone", null], summaries: [true, false]}
   }[.persona // ""]) as $x
 | ($ARGS.named | if has("pins") then .pins else true end) as $pins
 | (if $pins | not then true elif $x == null then false else
@@ -202,6 +214,7 @@ def nonempty: (type == "string") and (length > 0);
      and ([$d[] | select(.action == "offer") | .target] == ($x.offers // []))
      and ([$d[] | select(.action == "hold") | .on] == ($x.holds // []))
      and (if $x.crossed != null then [$routes[] | .crossed] == $x.crossed else true end)
+     and ([$disp[] | select(.target == "flight") | .summary != null] == ($x.summaries // [$disp[] | select(.target == "flight") | false]))
      and (if $x.reconstruct != null then
             [$d[] | select(.action == "reconstruct")] as $rc
             | ($rc | length) == 1 and $rc[0].source == "evidence"

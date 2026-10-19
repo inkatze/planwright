@@ -24,7 +24,7 @@ stall the extension removes.
 | Shape | Where the skill runs it | Before | After |
 | --- | --- | --- | --- |
 | `jq '<filter>' <settings file>` | bring-up's posture check, one projection per settings layer | defer | allow |
-| `mktemp` | a flight petition's ask and grounds temp files | defer | allow |
+| `mktemp` | a flight petition's ask, grounds, and public-summary temp files | defer | allow |
 | `rm [-f] [--] <temp directory>/tmp.<suffix> …` | removing those files once the dispatch returns | defer | allow |
 | `<planwright root>/scripts/<name>.sh …` | the flight sweep, dispatch, attention queue, catch-up, spec status, rule-doc resolution | allow | allow (unchanged) |
 | `git branch --list …`, `git cat-file -e …` | bring-up's fallback flight reads | allow | allow (unchanged) |
