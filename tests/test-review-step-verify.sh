@@ -72,6 +72,26 @@ printf '%s\n' '{"contract":1,"body_findings":[],"threads":[]}' '{"contract":1,"b
 verify "$T/two.json"
 assert_exit "two results in one output are failed" 1 "$rc"
 
+bad() {
+  printf '%s\n' "$2" >"$T/bad.json"
+  verify "$T/bad.json"
+  assert_exit "$1" 1 "$rc"
+  assert_eq "$1 records outcome failed" failed "$(field .outcome)"
+}
+f='"path":"scripts/a.sh","line":3,"severity":"low","summary":"x"'
+bad "a finding with a key outside contract 1 is failed" '{"contract":1,"body_findings":[{'"$f"',"confidence":0.9}],"threads":[]}'
+bad "a finding without its path key is failed" '{"contract":1,"body_findings":[{"line":3,"severity":"low","summary":"x"}],"threads":[]}'
+bad "a finding whose path is false is failed" '{"contract":1,"body_findings":[{"path":false,"line":null,"severity":"low","summary":"x"}],"threads":[]}'
+bad "a blank path is failed" '{"contract":1,"body_findings":[{"path":"","line":3,"severity":"low","summary":"x"}],"threads":[]}'
+bad "line zero is failed" '{"contract":1,"body_findings":[{"path":"scripts/a.sh","line":0,"severity":"low","summary":"x"}],"threads":[]}'
+bad "a fractional line is failed" '{"contract":1,"body_findings":[{"path":"scripts/a.sh","line":1.5,"severity":"low","summary":"x"}],"threads":[]}'
+bad "a blank summary is failed" '{"contract":1,"body_findings":[{"path":"scripts/a.sh","line":3,"severity":"low","summary":"  "}],"threads":[]}'
+bad "a thread without an id is failed" '{"contract":1,"body_findings":[],"threads":[{'"$f"',"resolved":false,"resolved_by":null}]}'
+bad "a numeric thread id is failed" '{"contract":1,"body_findings":[],"threads":[{"id":7,'"$f"',"resolved":false,"resolved_by":null}]}'
+bad "a thread id outside the id charset is failed" '{"contract":1,"body_findings":[],"threads":[{"id":"$(x)","'"${f#\"}"',"resolved":false,"resolved_by":null}]}'
+bad "an unresolved thread naming a resolver is failed" '{"contract":1,"body_findings":[],"threads":[{"id":"T1",'"$f"',"resolved":false,"resolved_by":"reviewer"}]}'
+bad "a non-object result is failed" '[]'
+
 # --- a clean structured result passes ---
 printf '%s\n' '{"contract":1,"body_findings":[],"threads":[]}' >"$T/clean.json"
 verify "$T/clean.json"
@@ -110,6 +130,17 @@ assert_eq "flags the drop" path-not-in-prompt "$(field '.dropped[0].flag')"
 assert_contains "flags the dropped path on stderr" "specs/_observations/entries/x.md" "$err"
 assert_eq "dropped findings are not open" 2 "$(field .open)"
 
+# --- a comment line in the inventory is never a path the prompt carried ---
+printf '%s\n' '{"contract":1,"body_findings":[{"path":"# prompt inventory","line":null,"severity":"low","summary":"x"}],"threads":[]}' >"$T/hash.json"
+verify "$T/hash.json"
+assert_eq "a finding citing an inventory comment is dropped" 1 "$(field '.dropped | length')"
+
+# --- a path carrying a newline is reported on one line ---
+printf '%s\n' '{"contract":1,"body_findings":[{"path":"x\nforged line","line":null,"severity":"low","summary":"x"}],"threads":[]}' >"$T/nl.json"
+verify "$T/nl.json"
+assert_eq "a dropped path with a newline yields one stderr line" 1 "$(printf '%s\n' "$err" | grep -c 'dropped a finding')"
+assert_eq "the newline never starts a forged stderr line" 0 "$(printf '%s\n' "$err" | grep -c '^forged')"
+
 # --- a thread the reviewer resolved itself does not count toward convergence ---
 cat >"$T/self.json" <<'EOF'
 {"contract":1,
@@ -128,6 +159,12 @@ assert_eq "the self-resolved finding is kept" true "$(field '[.findings[] | sele
 printf '%s\n' '{"contract":1,"body_findings":[],"threads":[{"id":"T9","path":"scripts/a.sh","line":1,"severity":"low","summary":"x","resolved":true,"resolved_by":null}]}' >"$T/noresolver.json"
 verify "$T/noresolver.json"
 assert_exit "a resolved thread with no resolver is failed" 1 "$rc"
+
+# --- an inventory with no paths fails closed ---
+printf '%s\n' "# nothing recorded" "" >"$T/emptyinv"
+rc=0
+/bin/sh "$VERIFY" --inventory "$T/emptyinv" --result "$T/cite.json" >/dev/null 2>&1 || rc=$?
+assert_exit "an inventory naming no path is an error, never a clean review" 2 "$rc"
 
 # --- usage ---
 rc=0

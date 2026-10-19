@@ -11,9 +11,10 @@
 #   --result     the step's output, one JSON object under contract 1.
 #
 # Prints one JSON object on stdout. A result that is absent, empty,
-# unparseable, of another contract version, or carrying a finding outside the
-# versioned fields is `{"outcome":"failed","reason":...}` and exits 1: the
-# step handling records the step failed, never passed. Otherwise exits 0 with
+# unparseable, more or less than one JSON object, of another contract version,
+# or carrying any finding outside the versioned fields is
+# `{"outcome":"failed","reason":...}` and exits 1: the step handling records
+# the step failed, never passed. Otherwise exits 0 with
 # `outcome` passed, `findings` (each with its `origin`, body or thread),
 # `dropped` (findings citing a path the prompt did not carry, flagged
 # `path-not-in-prompt` and named on stderr), `self_resolved` (ids of threads
@@ -21,7 +22,8 @@
 # against convergence, a self-resolved thread among them.
 #
 # Exit codes: 0 verified, 1 failed result, 2 usage or environment error (the
-# inventory unreadable, jq missing).
+# inventory unreadable or naming no path, jq missing or unable to run the
+# check).
 set -u
 LC_ALL=C
 export LC_ALL
@@ -86,21 +88,25 @@ case $result in
 esac
 [ -f "$result" ] && [ -r "$result" ] || failed "the step left no readable result"
 grep -q '[^[:space:]]' "$result" || failed "the step returned an empty result"
+jq -s . "$result" >/dev/null 2>&1 || failed "the result is not parseable JSON"
 
 # shellcheck disable=SC2016 # jq program text, expanded by jq, not the shell
-prog_jq='
+verify_jq='
 def norm: sub("^(\\./)+"; "");
 def nonblank: type == "string" and (gsub("\\s"; "") | length) > 0;
-def finding_ok: type == "object"
-  and ((.path // null) == null or (.path | nonblank))
-  and ((.line // null) == null or ((.line | type) == "number" and .line >= 1 and .line == (.line | floor)))
+def fields_ok($allowed): type == "object" and (keys - $allowed | length) == 0
+  and has("path") and has("line") and has("severity") and has("summary")
+  and (.path == null or (.path | nonblank))
+  and (.line == null or ((.line | type) == "number" and .line >= 1 and .line == (.line | floor)))
   and (.severity | IN("critical", "high", "medium", "low"))
   and (.summary | nonblank);
-def thread_ok: finding_ok and (.id | nonblank) and (.resolved | type) == "boolean"
-  and ((.resolved == false and (.resolved_by // null) == null)
+def finding_ok: fields_ok(["path", "line", "severity", "summary"]);
+def thread_ok: fields_ok(["id", "path", "line", "severity", "summary", "resolved", "resolved_by"])
+  and (.id | type == "string" and test("^[A-Za-z0-9_=-]+$"))
+  and (.resolved | type) == "boolean" and has("resolved_by")
+  and ((.resolved == false and .resolved_by == null)
        or (.resolved == true and (.resolved_by | IN("reviewer", "run", "human"))));
-($inv | split("\n") | map(gsub("^\\s+|\\s+$"; "") | norm)
-  | map(select(length > 0 and (startswith("#") | not)))) as $paths
+$paths[0] as $paths
 | if length != 1 then {outcome: "failed", reason: "the result holds \(length) JSON values, not one"}
   else .[0]
   | if type != "object" then {outcome: "failed", reason: "the result is not a JSON object"}
@@ -111,8 +117,8 @@ def thread_ok: finding_ok and (.id | nonblank) and (.resolved | type) == "boolea
     elif (.threads | all(thread_ok) | not) then {outcome: "failed", reason: "a thread is outside the contract 1 fields"}
     else
       ([.body_findings[] | . + {origin: "body"}] + [.threads[] | . + {origin: "thread"}]
-        | map(if (.path // null) == null then . else .path |= norm end)) as $all
-      | ($all | map(select((.path // null) == null or (.path as $p | any($paths[]; . == $p))))) as $kept
+        | map(if .path == null then . else .path |= norm end)) as $all
+      | ($all | map(select(.path == null or (.path as $p | any($paths[]; . == $p))))) as $kept
       | {outcome: "passed",
          findings: $kept,
          dropped: ($all - $kept | map(. + {flag: "path-not-in-prompt"})),
@@ -123,15 +129,26 @@ def thread_ok: finding_ok and (.id | nonblank) and (.resolved | type) == "boolea
 | {contract: 1} + .
 '
 
-rc=0
-out=$(jq -cs --rawfile inv "$inventory" "$prog_jq" "$result" 2>/dev/null) || rc=$?
-[ "$rc" -eq 0 ] || failed "the result is not parseable JSON"
+env_error() {
+  printf '%s\n' "$prog: $1" >&2
+  exit 2
+}
 
-printf '%s\n' "$out" | jq -r '.dropped[]?.path' | while IFS= read -r p; do
+# shellcheck disable=SC2016 # jq program text, expanded by jq, not the shell
+paths=$(jq -cRs 'split("\n") | map(gsub("^\\s+|\\s+$"; "") | sub("^(\\./)+"; ""))
+  | map(select(length > 0 and (startswith("#") | not)))' "$inventory") \
+  || env_error "jq could not read the prompt inventory"
+[ "$paths" != "[]" ] || env_error "the prompt inventory names no path; record it at dispatch"
+
+out=$(jq -cs --argjson paths "[$paths]" "$verify_jq" "$result") \
+  || env_error "jq could not run the contract check"
+
+# shellcheck disable=SC2016 # jq program text, expanded by jq, not the shell
+printf '%s\n' "$out" | jq -r '.dropped[]?.path | gsub("[\\r\\n]"; " ")' | while IFS= read -r p; do
   printf '%s\n' "$prog: dropped a finding citing $(sanitize_printable "$p"): absent from the prompt inventory" >&2
 done
 printf '%s\n' "$out"
-case $(printf '%s\n' "$out" | jq -r .outcome) in
-  passed) exit 0 ;;
+case $out in
+  '{"contract":1,"outcome":"passed",'*) exit 0 ;;
   *) exit 1 ;;
 esac

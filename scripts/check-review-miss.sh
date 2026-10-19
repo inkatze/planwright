@@ -14,11 +14,11 @@
 #   check-review-miss.sh --text <text>       one entry text, for a writer to
 #       check before it calls scripts/obs-record.sh.
 #
-# The grammar and the vocabularies live once, in scripts/review-backtest-lib.sh
-# (rbt_miss_fragment, rbt_miss_row), shared with the readers.
+# The doctrine states the grammar; scripts/review-backtest-lib.sh implements it
+# once (rbt_miss_fragment, rbt_miss_row), shared with the readers.
 #
 # Exit codes: 0 clean, 1 one or more malformed misses, 2 usage or internal
-# error.
+# error, an unreadable store directory or fragment included.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -97,22 +97,28 @@ case $obsdir in
     ;;
 esac
 
-tmp=$(mktemp "${TMPDIR:-/tmp}/check-review-miss.XXXXXX") || exit 2
-trap 'rm -f "$tmp"' EXIT
-
 status=0
 for dir in "$obsdir/entries" "$obsdir/archive"; do
   [ -d "$dir" ] || continue
+  [ -r "$dir" ] && [ -x "$dir" ] || {
+    printf '%s\n' "$prog: ${dir##*/}: cannot read the directory" >&2
+    status=2
+    continue
+  }
   for f in "$dir"/*.md; do
     [ -f "$f" ] || continue
     rc=0
-    rbt_miss_fragment "$f" >"$tmp" || rc=$?
-    [ "$rc" -ne 1 ] || continue
-    if [ "$rc" -eq 0 ] && rbt_miss_row "$(cat "$tmp")" >/dev/null; then
-      continue
-    fi
+    rbt_miss_fragment "$f" || rc=$?
+    case $rc in
+      1 | 4) continue ;;
+      0) ! rbt_miss_row "$RBT_MISS_TEXT" >/dev/null || continue ;;
+    esac
     printf '%s\n' "$prog: ${dir##*/}/$(sanitize_printable "${f##*/}"): $(sanitize_printable "$RBT_MISS_WHY")" >&2
-    status=1
+    if [ "$rc" -eq 3 ]; then
+      status=2
+    elif [ "$status" -eq 0 ]; then
+      status=1
+    fi
   done
 done
 exit "$status"

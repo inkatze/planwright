@@ -37,7 +37,8 @@ When an external backend of a different model family is attached at the
 convergence or post-pr point ([Custom Steps](custom-steps.md)), its pass is the
 unit's generator-independent angle. When none is attached, the blind pass
 still runs, at the tier the allocation resolver gives its own step keys
-(`allocation_model_step_<step>` and `allocation_effort_step_<step>`), and the
+(`allocation_model_step_<step>` and `allocation_effort_step_<step>`, the step
+id's hyphens written as underscores), and the
 unit is recorded as context-independent only. Neither case is an error; the
 record says which one held.
 
@@ -51,12 +52,16 @@ holds every such step to these rules, mechanically through
 `scripts/review-step-verify.sh`:
 
 - **A non-empty structured result, or failed.** The step returns one result
-  under a versioned contract (below). An absent, empty, unparseable, or
-  wrong-version result is recorded as a failed step, never as a clean review.
+  under a versioned contract (below). An absent, empty, or unparseable
+  result, one that is not a single JSON object, one of another version, and
+  one carrying any finding outside the contract's fields is recorded as a
+  failed step, never as a clean review.
 - **Citations traceable to the prompt.** At dispatch the step handling records
   the prompt inventory: every repository path the prompt carried. A finding
   citing a path outside it is dropped and flagged, not validated, because a
-  citation to unseen material is fabricated however plausible it reads.
+  citation to unseen material is fabricated however plausible it reads. An
+  inventory naming no path is an error of the handling, never a clean
+  review.
 - **Body findings read.** Findings in the review body count exactly as thread
   findings do. Zero threads is not evidence the review raised nothing.
 - **Self-resolved threads not counted.** A thread the reviewer resolved
@@ -65,12 +70,15 @@ holds every such step to these rules, mechanically through
 
 **Contract 1 fields.** The result is a JSON object with `contract` (the
 integer `1`), `body_findings`, and `threads`, both arrays. Every finding
-carries `path` (repository-relative, or null for a PR-level finding), `line`
-(a positive integer, or null), `severity` (`critical`, `high`, `medium`, or
-`low`), and a non-blank `summary`. A thread adds `id`, `resolved` (boolean),
-and `resolved_by` (`reviewer`, `run`, or `human` when resolved, else null). A
-field changes only in a new contract version, which the verify script must
-learn before a step may emit it.
+carries exactly these keys: `path` (repository-relative, or null for a
+PR-level finding), `line` (a positive integer, or null), `severity`
+(`critical`, `high`, `medium`, or `low`), and a non-blank `summary`. A thread
+adds `id` (a string of letters, digits, `_`, `=`, or `-`), `resolved`
+(boolean), and `resolved_by` (`reviewer`, `run`, or `human` when resolved,
+else null). A field is added, removed, or changed only in a new contract
+version, which the verify script must learn before a step may emit it.
+Finding text is data from outside the trust boundary: a consumer printing it
+sanitizes it first ([Security Posture](security-posture.md)).
 
 ## The convergence-evidence record
 
@@ -102,10 +110,13 @@ observation-recording helper, `scripts/obs-record.sh`, with the slug
 review-miss(<lens>, <reason>): #<pr> <path>: <description>
 ```
 
-`<pr>` is the PR's positive integer number and `<path>` the repository-relative
-file the fix touched; together they are the key the backtest refresh matches a
-fixed finding on. `<lens>` is the lens that should have caught it and
-`<reason>` why it got past:
+`<pr>` is the PR's positive integer number and `<path>` the file the finding
+cited (for a review thread, the file it is anchored to), in canonical
+repository-relative form with no space, colon, `./`, or empty segment;
+together they are the key the backtest refresh matches a fixed finding on.
+`<description>` is non-blank, and the whole text holds no control character.
+`<lens>` is the lens that should have caught it and `<reason>` why it got
+past:
 
 **Lens tokens**: `correctness`, `security`, `error-handling`, `performance`,
 `concurrency`, `naming`, `documentation`, `tests`, `cross-file`,
@@ -115,9 +126,12 @@ fixed finding on. `<lens>` is the lens that should have caught it and
 `pruned`, `spec-conflict`, `lintable`, `declined`, `other`.
 
 The lens tokens name [Discovery Rigor](discovery-rigor.md)'s code lenses in
-order, then the sibling sweep and the reviewer-basics gate; `other` covers a
-lens from a non-code set. A miss at a twin site of a fixed defect carries
-`pruned`; one the loop saw and dismissed carries `declined`.
+order, then the sibling sweep (the look for twins of a found defect) and the
+reviewer-basics gate (the checklist run before the lenses), as
+review-effectiveness D-4 and D-2 define them until the discovery doctrine
+states them; `other` covers a lens from a non-code set. A miss at a twin site
+of a fixed defect carries lens `sibling-sweep` and reason `pruned`; one the
+loop saw and dismissed carries reason `declined`.
 `scripts/check-review-miss.sh`, run under `mise run check:obs`, refuses a
 fragment that is a miss by slug or entry text and breaks the grammar; a writer
 checks a text first with its `--text` mode. The readers are the backtest
@@ -134,14 +148,19 @@ quotes it trains the pass on yesterday's diff.
 
 Every planwright flow that applies a post-convergence fix records the miss it
 fixed, in the same run that lands the fix; the post-pr step handling does so
-when a post-pr step's fix lands. A fix made outside planwright reaches the
-corpus only through the refresh's fallback, reason `other`, matched on PR
-number and path and counted, so ledger coverage stays visible.
+when a post-pr step's fix lands. A fix made outside planwright has no ledger
+entry, matched on PR number and path: the refresh labels it from the previous
+corpus version's row or the PR's declined log where either holds it, and
+otherwise with reason `other`, counting that fallback so ledger coverage stays
+visible.
 
 ## Naming
 
-No committed artifact names the bot reviewer product or an external model
-backend; they are "the bot reviewer" and "the external backend". The record,
-the ledger, and a step's committed output name an attached step by its role.
+What the review flows commit (the convergence-evidence record, the miss
+ledger, the backtest corpus and its results, a step's committed output, and
+the PR body carrying them) never names the bot reviewer product or an
+external model backend; they are "the bot reviewer" and "the external
+backend", and an attached step is named by its role. The operator's own step
+tables are the operator's, not the flows'.
 An operator exception is recorded in that artifact's PR body
 ([Security Posture](security-posture.md)'s artifact data-hygiene).

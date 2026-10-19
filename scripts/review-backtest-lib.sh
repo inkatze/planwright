@@ -99,20 +99,19 @@ rbt_safe_relpath() {
 # doctrine/review-independence.md states:
 # `review-miss(<lens>, <reason>): #<pr> <path>: <description>`. Print
 # `<pr><TAB><path><TAB><reason><TAB><lens>` and return 0, or set RBT_MISS_WHY
-# and return 1.
+# and return 1. A control byte (a tab would forge a column, a newline a row)
+# or a path not in canonical repository-relative form is refused, since the
+# readers match on the literal path.
 rbt_miss_row() {
-  RBT_MISS_WHY=
-  _rmr_row=$(printf '%s\n' "$1" | sed -n 's/^review-miss(\([a-z0-9][a-z0-9-]*\), \([a-z-]*\)): #\([1-9][0-9]*\) \([^ :][^ :]*\): [^ ].*$/\3	\4	\2	\1/p')
+  RBT_MISS_WHY='does not match review-miss(<lens>, <reason>): #<pr> <path>: <description>'
   case $1 in
-    *"
-"*) _rmr_row= ;;
+    *[[:cntrl:]]*) return 1 ;;
   esac
-  if [ -z "$_rmr_row" ]; then
-    RBT_MISS_WHY='does not match review-miss(<lens>, <reason>): #<pr> <path>: <description>'
-    return 1
-  fi
-  _rmr_lens=$(printf '%s\n' "$_rmr_row" | cut -f4)
-  _rmr_reason=$(printf '%s\n' "$_rmr_row" | cut -f3)
+  _rmr_row=$(printf '%s\n' "$1" | sed -n 's/^review-miss(\([a-z0-9][a-z0-9-]*\), \([a-z-]*\)): #\([1-9][0-9]*\) \([^ :][^ :]*\): [^ ].*$/\3 \4 \2 \1/p')
+  [ -n "$_rmr_row" ] || return 1
+  read -r _rmr_pr _rmr_path _rmr_reason _rmr_lens <<EOF
+$_rmr_row
+EOF
   if ! rbt_in_list "$_rmr_lens" "$RBT_LENSES"; then
     RBT_MISS_WHY="lens '$_rmr_lens' is not one of: $RBT_LENSES"
     return 1
@@ -121,54 +120,69 @@ rbt_miss_row() {
     RBT_MISS_WHY="reason '$_rmr_reason' is not one of: $RBT_REASONS"
     return 1
   fi
-  if ! rbt_safe_relpath "$(printf '%s\n' "$_rmr_row" | cut -f2)"; then
-    RBT_MISS_WHY='the path is not repository-relative'
+  case $_rmr_path in
+    ./* | */./* | *//* | */. | .) _rmr_canon=1 ;;
+    *) _rmr_canon=0 ;;
+  esac
+  if [ "$_rmr_canon" -eq 1 ] || ! rbt_safe_relpath "$_rmr_path"; then
+    RBT_MISS_WHY='the path is not a canonical repository-relative path'
     return 1
   fi
-  printf '%s\n' "$_rmr_row"
+  RBT_MISS_WHY=
+  printf '%s\t%s\t%s\t%s\n' "$_rmr_pr" "$_rmr_path" "$_rmr_reason" "$_rmr_lens"
 }
 
 # rbt_miss_fragment <file> — classify an observation fragment for the miss
-# ledger. Return 1 when it is no miss: its slug is not review-miss and its
-# entry text does not begin with review-miss. Otherwise print the entry text
-# and return 0, or return 2 when it claims to be a miss but cannot be read or
-# carries the text under another slug (RBT_MISS_WHY says which).
+# ledger without forking, since every fragment in the store passes through it.
+# A fragment is a miss by its review-miss slug or by an entry text beginning
+# `review-miss(`. Returns:
+#   0  a miss; its entry text is in RBT_MISS_TEXT
+#   1  not a miss
+#   2  claims to be a miss but breaks the slug rule (RBT_MISS_WHY says how)
+#   3  cannot be read
+#   4  gone: a drain moved it between the listing and the read
 rbt_miss_fragment() {
+  RBT_MISS_TEXT=
   RBT_MISS_WHY=
   _rmf_named=0
   case ${1##*/} in
     ????-??-??-review-miss-????????.md) _rmf_named=1 ;;
   esac
-  _rmf_rc=0
-  _rmf_line=$(sed -n '1p' "$1" 2>/dev/null) || _rmf_rc=$?
-  if [ "$_rmf_rc" -ne 0 ] || [ ! -r "$1" ]; then
+  [ -e "$1" ] || return 4
+  if [ ! -r "$1" ]; then
     RBT_MISS_WHY='the fragment cannot be read'
-    return 2
+    return 3
   fi
-  _rmf_text=$(printf '%s\n' "$_rmf_line" | sed -n 's/^- [0-9-]* \[[^]]*\] //p')
+  _rmf_line=
+  IFS= read -r _rmf_line 2>/dev/null <"$1" || :
+  [ -n "$_rmf_line" ] || [ -e "$1" ] || return 4
+  case $_rmf_line in
+    '- '[0-9]*' ['*'] '*) _rmf_text=${_rmf_line#*] } ;;
+    *) _rmf_text= ;;
+  esac
   case $_rmf_text in
-    review-miss*) ;;
-    *)
-      [ "$_rmf_named" -eq 1 ] || return 1
-      RBT_MISS_WHY='its first line is not a review-miss entry'
-      return 2
+    'review-miss('*)
+      if [ "$_rmf_named" -ne 1 ]; then
+        RBT_MISS_WHY='a review-miss entry must use the review-miss slug'
+        return 2
+      fi
+      RBT_MISS_TEXT=$_rmf_text
+      return 0
       ;;
   esac
-  if [ "$_rmf_named" -ne 1 ]; then
-    RBT_MISS_WHY='a review-miss entry must use the review-miss slug'
-    return 2
-  fi
-  printf '%s\n' "$_rmf_text"
+  [ "$_rmf_named" -eq 1 ] || return 1
+  RBT_MISS_WHY='its first line is not a review-miss entry'
+  return 2
 }
 
 # rbt_read_ledger <out-tsv> <dir>... — parse every miss-ledger fragment in the
 # given observation directories (entries and archive both: a drained fragment
 # is still a recorded miss) into `<pr><TAB><path><TAB><reason><TAB><lens>`
-# rows, by rbt_miss_fragment and rbt_miss_row, the grammar
-# scripts/check-review-miss.sh guards. A miss that breaks the grammar, or
-# cannot be read, is counted in RBT_LEDGER_MALFORMED, never read. A fragment is
-# read once even when a drain left it in both directories for a moment (the
-# filename carries its UID).
+# rows, by rbt_miss_fragment and rbt_miss_row. A miss that breaks the
+# grammar, or a miss-slug fragment that cannot be read, is counted in
+# RBT_LEDGER_MALFORMED, never read. A fragment is read once even when a drain
+# left it in both directories for a moment (the filename carries its UID); one
+# a drain moved mid-scan is left for the next directory's pass.
 rbt_read_ledger() {
   _rrl_out=$1
   shift
@@ -180,12 +194,21 @@ rbt_read_ledger() {
     for _rrl_f in "$_rrl_d"/*.md; do
       [ -f "$_rrl_f" ] || continue
       case $_rrl_seen in *" ${_rrl_f##*/} "*) continue ;; esac
-      _rrl_seen="$_rrl_seen${_rrl_f##*/} "
       _rrl_rc=0
-      _rrl_text=$(rbt_miss_fragment "$_rrl_f") || _rrl_rc=$?
+      rbt_miss_fragment "$_rrl_f" || _rrl_rc=$?
+      [ "$_rrl_rc" -ne 4 ] || continue
+      _rrl_seen="$_rrl_seen${_rrl_f##*/} "
       [ "$_rrl_rc" -ne 1 ] || continue
+      if [ "$_rrl_rc" -eq 3 ]; then
+        case ${_rrl_f##*/} in
+          ????-??-??-review-miss-????????.md) ;;
+          *) continue ;;
+        esac
+      fi
       _rrl_row=
-      [ "$_rrl_rc" -ne 0 ] || _rrl_row=$(rbt_miss_row "$_rrl_text") || _rrl_row=
+      if [ "$_rrl_rc" -eq 0 ]; then
+        _rrl_row=$(rbt_miss_row "$RBT_MISS_TEXT") || :
+      fi
       if [ -z "$_rrl_row" ]; then
         RBT_LEDGER_MALFORMED=$((RBT_LEDGER_MALFORMED + 1))
         continue
