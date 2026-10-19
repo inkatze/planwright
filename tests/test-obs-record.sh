@@ -446,7 +446,11 @@ chmod +x "$sigbin/ln"
 PATH="$sigbin:$PATH" "$REC" --obs-dir "$o" --slug sig --scope planwright \
   --text 'x' --today 2026-07-09 >/dev/null 2>&1 &
 _sigpid=$!
-poll_until --what 'the publish to reach ln' -- test -e "$sigbin/ln-entered" || :
+poll_until --what 'the publish to reach ln' -- test -e "$sigbin/ln-entered" || {
+  kill -TERM "$_sigpid" 2>/dev/null || true
+  wait "$_sigpid" 2>/dev/null || true
+  fail "8c: the publish never reached ln before TERM"
+}
 kill -TERM "$_sigpid" 2>/dev/null || true
 _sigrc=0
 wait "$_sigpid" || _sigrc=$?
