@@ -24,6 +24,8 @@
 #                           gathering
 #
 # Output lines (key<TAB>fields):
+#   registered <id>                                     add
+#   venture <id>, then the renderer's status lines      status
 #   venture <id> <path> <status> <flags> <registered>   get, list, rebuild;
 #       a registry row: status is one of the five lifecycle statuses or
 #       `unknown` (an unreadable header), flags a comma list or `none`,
@@ -33,11 +35,13 @@
 #       assumption), open-forks, over-appetite, or `none`, or `unreadable`
 #       when the bundle could not be read; age and appetite are days, `-`
 #       when unknown, appetite also `skipped` or `unparsed`
+#   venture none                                        portfolio, no ventures
 #   card-review <card-id> <reviewed> <rot-rate>         portfolio
 #   unstaffed <discipline> <ventures>                   portfolio, most first
 #   overlap <id> <status> <framing>                     overlap
 #   note <handling rules>, then entry <date> <text> | entry none   drop-read
-#   rebuilt <reason> · rejected <name> · degraded <why> (any subcommand)
+#   rebuilt <reason> · degraded <why>                   any subcommand
+#   rejected <name>                                     rebuild
 # A `none` field stands for an empty list. Bundle, registry, and drop text
 # loses control bytes (C0, DEL, C1) and tabs before it is printed.
 #
@@ -286,13 +290,26 @@ rebuild_from() {
   commit_write "$registry"
 }
 
+# unregistered_rows <root> <known> — a row per venture under <root> whose
+# name is not in the space-delimited <known> list. Names are compared first,
+# so only an unregistered venture pays for a bundle read.
+unregistered_rows() {
+  for mdir in "$1"/* "$1"/.[!.]*; do
+    mname=${mdir##*/}
+    case $2 in *" $mname "*) continue ;; esac
+    if [ -d "$mdir" ] && [ ! -h "$mdir" ] && valid_id "$mname" && is_bundle "$mdir"; then
+      printf '%s\t%s\t%s\tnone\t%s\n' "$mname" "$mdir" "$(bundle_status "$mdir")" "$TODAY"
+    fi
+  done
+}
+
 # ensure_registry — read-time self-heal (REQ-A1.6). An invalid registry is
 # rebuilt from the scan; a valid one gains any scanned venture it lacks, which
 # is how an update lost to a racing session comes back.
 ensure_registry() {
   if registry_ok; then
     er_root=$(scan_root) || return 0
-    missing=$(scan_rows "$er_root" 2>/dev/null | awk -F '\t' 'NR == FNR { if (FNR > 1) R[$1] = 1; next } !($1 in R)' "$registry" -)
+    missing=$(unregistered_rows "$er_root" " $(rows | cut -f1 | tr '\n' ' ') ")
     [ -z "$missing" ] && return 0
     begin_write
     { cat "$registry" && printf '%s\n' "$missing"; } >"$tmp_path" || unavailable "cannot write under the plugin data directory"
@@ -300,16 +317,25 @@ ensure_registry() {
     printf 'rebuilt\tmerged ventures the registry was missing from a scan of ventures_root\n'
     return 0
   fi
-  if [ -e "$registry" ] || [ -h "$registry" ]; then reason='the registry was unreadable or failed validation'; else reason='there was no registry'; fi
-  er_root=$(scan_root) || unavailable "the ventures root cannot be found to rebuild from"
+  if [ -e "$registry" ] || [ -h "$registry" ]; then
+    reason='the registry was unreadable or failed validation'
+    er_root=$(scan_root) || unavailable "the ventures root cannot be found to rebuild from"
+  else
+    reason='there was no registry'
+    # A fresh install: no registry and no ventures root yet is an empty
+    # registry, not an unavailable one. Nothing is written, so the first
+    # read after the root appears rebuilds.
+    er_root=$(scan_root) || return 0
+  fi
   rebuild_from "$er_root" 2>/dev/null
   registry_ok || unavailable "it could not be rebuilt"
   printf 'rebuilt\t%s; recovered from a scan of ventures_root\n' "$reason"
 }
 
-rows() { awk 'NR > 1' "$registry"; }
+rows() { [ ! -f "$registry" ] || awk 'NR > 1' "$registry"; }
 
 row_of() {
+  [ -f "$registry" ] || return 1
   awk -F '\t' -v id="$1" 'NR > 1 && $1 == id { print; found = 1; exit } END { exit !found }' "$registry"
 }
 
@@ -458,7 +484,16 @@ cmd_status() {
   spath=$(printf '%s\n' "$r" | cut -f2)
   is_bundle "$spath" || die 2 "the bundle registered for $1 is no longer readable"
   printf 'venture\t%s\n' "$1"
-  render_status "$spath" 2>/dev/null
+  serr=$(mktemp) || die 2 "cannot create a temporary file"
+  src=0
+  render_status "$spath" 2>"$serr" || src=$?
+  if [ "$src" -ne 0 ]; then
+    # The refusal names which of its causes applies (a missing file, a broken
+    # fence, an unsupported version); its first line, stripped, says so.
+    printf 'degraded\t%s\n' "$(head -n 1 "$serr" | tr '\t' ' ' | tr -d '\000-\037\177\200-\237')"
+  fi
+  rm -f "$serr"
+  return "$src"
 }
 
 # append_private <file> <line> — one line onto an append-only log, never
@@ -485,8 +520,9 @@ cmd_drop() {
   [ $# -eq 2 ] || usage
   check_id "$1"
   case $2 in *[![:space:]]*) ;; *) die 1 "the observation text is empty" ;; esac
-  # C0 and DEL only: UTF-8 text (an em dash, curly quotes) is welcome here,
-  # and drop-read strips C1 on the way out.
+  # C0 and DEL only: UTF-8 text is accepted as written; drop-read strips C1
+  # on the way out, which mangles em dashes and curly quotes but keeps
+  # letters such as an accented e.
   [ "$2" = "$(printf '%s' "$2" | tr -d '\000-\037\177')" ] || die 1 "the observation must be one line of printable text"
   [ "${#2}" -le 1000 ] || die 1 "the observation must be at most 1000 characters"
   resolve_data ''
@@ -513,12 +549,16 @@ cmd_drop_read() {
   # Every known venture: the self-healed registry when it can be had (a
   # degraded registry still leaves the drop readable), then each id the drop
   # itself names.
-  (ensure_registry) >/dev/null 2>&1
+  (
+    trap cleanup_tmp EXIT
+    ensure_registry
+  ) >/dev/null 2>&1
   ids=
   titles=
   if registry_ok; then
     ids=$(rows | cut -f1 | tr '\n' ' ')
     titles=$(rows | cut -f2 | while IFS= read -r tp; do
+      is_bundle "$tp" || continue
       awk '/^# / { t = $0; sub(/^# /, "", t); sub(/ — [A-Za-z]+$/, "", t); print t; exit }' "$tp/brief.md" 2>/dev/null
     done)
   fi
@@ -526,6 +566,7 @@ cmd_drop_read() {
     BEGIN {
       n = split(ids, I, " "); for (i = 1; i <= n; i++) V[I[i]] = 1
       nt = split(ENVIRON["REG_TITLES"], T, "\n")
+      for (i = 1; i <= nt; i++) gsub(/[\001-\037\177\200-\237]/, "", T[i])
     }
     NR == FNR { if (NF >= 2 && $2 ~ /^[a-z0-9][a-z0-9-]*$/) V[$2] = 1; next }
     function opaque(w) {
@@ -534,7 +575,7 @@ cmd_drop_read() {
       return length(w) >= 20 && w ~ /[0-9]/ && w ~ /[A-Za-z]/ && w ~ /^[A-Za-z0-9_+\/=.:%-]+$/
     }
     function venture(w,   n, i, P) {
-      w = tolower(w); sub(/'"'"'s$/, "", w)
+      w = tolower(w)
       if (w in V) return 1
       n = split(w, P, "/")
       for (i = 1; i <= n; i++) if (P[i] in V) return 1
@@ -546,10 +587,14 @@ cmd_drop_read() {
       if (match(core, /^[[(<{"'"'"'`]+/)) { pre = substr(core, 1, RLENGTH); core = substr(core, RLENGTH + 1) }
       if (match(core, /[])>}"'"'"'`.,;:!?]+$/)) { post = substr(core, RSTART); core = substr(core, 1, RSTART - 1) }
       if (core == "") return w
+      # A possessive, ASCII or curly (its C1 bytes already stripped).
+      if (match(core, /('"'"'|\342)s$/)) { post = substr(core, RSTART) post; core = substr(core, 1, RSTART - 1) }
       if (core ~ /^[^@ ]+@[^@ ]+\.[A-Za-z]+$/) return pre "<email>" post
       if (core ~ /^@[A-Za-z0-9_-]+$/) return pre "<handle>" post
       if (venture(core)) return pre "<venture>" post
       if (core ~ /\// || core ~ /^~/ || core ~ /^\$HOME/) return pre "<path>" post
+      if (core ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(:[0-9]+)?$/) return pre "<address>" post
+      if (core ~ /^[A-Za-z0-9.-]+:[0-9]+$/) return pre "<address>" post
       if (opaque(core)) return pre "<redacted>" post
       if (core ~ /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z][A-Za-z]+$/) {
         ext = core; sub(/^.*\./, "", ext)
@@ -557,13 +602,21 @@ cmd_drop_read() {
       }
       return w
     }
-    function untitle(t,   i, lk, at, out, rest) {
+    # A title counts only as whole words: "Ark" never touches "market".
+    function untitle(t,   i, lk, at, out, rest, before, after) {
       for (i = 1; i <= nt; i++) {
         lk = tolower(T[i])
         if (length(lk) < 3) continue
         out = ""; rest = t
         while ((at = index(tolower(rest), lk)) > 0) {
-          out = out substr(rest, 1, at - 1) "<venture>"; rest = substr(rest, at + length(lk))
+          before = (out substr(rest, 1, at - 1)); before = substr(before, length(before))
+          after = substr(rest, at + length(lk), 1)
+          if (before ~ /[A-Za-z0-9]/ || after ~ /[A-Za-z0-9]/) {
+            out = out substr(rest, 1, at + length(lk) - 1)
+          } else {
+            out = out substr(rest, 1, at - 1) "<venture>"
+          }
+          rest = substr(rest, at + length(lk))
         }
         t = out rest
       }

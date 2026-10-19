@@ -233,8 +233,13 @@ assert_contains "A1.6 a lost update: the venture is back" "venture	alpha	" "$out
 rm -f "$registry_file"
 mv "$roots" "$tmp/roots-away"
 reg list
-assert_eq "A1.6 missing root: the registry is unavailable" "6" "$rc"
+assert_eq "A1.6 no registry and no root (a fresh install): an empty list" "0" "$rc"
+assert_not_contains "A1.6 no registry and no root: lists nothing" "venture	" "$out"
 assert_eq "A1.6 missing root: no registry is written" "no" "$([ -e "$registry_file" ] && echo yes || echo no)"
+printf 'garbage\n' >"$registry_file"
+reg list
+assert_eq "A1.6 a corrupt registry and no root to rebuild from: unavailable" "6" "$rc"
+rm -f "$registry_file"
 mv "$tmp/roots-away" "$roots"
 reg list
 assert_contains "A1.6 root back: the registry rebuilds" "venture	alpha	" "$out"
@@ -327,6 +332,9 @@ assert_contains "J1.4 status: names the venture" "venture	alpha" "$out"
 assert_contains "J1.4 status: gate readiness" "core	met" "$out"
 assert_contains "J1.4 status: blockers" "unresolved	A-2	open" "$out"
 assert_contains "J1.4 status: kill dates" "kill	KC-2	2026-09-15	approaching" "$out"
+CLAUDE_PLUGIN_DATA="$data" "$REG" status alpha >"$tmp/status-out" 2>/dev/null
+assert_contains "J1.4 status: redirected to a file, the venture line survives" "venture	alpha" "$(cat "$tmp/status-out")"
+assert_contains "J1.4 status: redirected to a file, the view follows" "core	met" "$(cat "$tmp/status-out")"
 reg status nobody
 assert_eq "J1.4 status: an unregistered venture exits 1" "1" "$rc"
 reg status '../alpha'
@@ -336,6 +344,7 @@ reg add epsilon "$roots/epsilon"
 sed_i "$roots/epsilon/brief.md" 's/^\*\*Format-version:\*\* 1\.0$/**Format-version:** 9.0/'
 reg status epsilon
 assert_eq "J1.4 status: an unsupported bundle version passes exit 3 through" "3" "$rc"
+assert_contains "J1.4 status: the refusal reason is named" "degraded	" "$out"
 rm -rf "$roots/epsilon"
 reg status epsilon
 assert_eq "J1.4 status: a vanished bundle exits 2" "2" "$rc"
@@ -374,7 +383,11 @@ assert_not_contains "J1.8 drop-read: the URL is neutralized" "intranet.example.c
 assert_not_contains "J1.8 drop-read: the token is neutralized" "ghp_ABCDEFGH" "$out"
 assert_contains "J1.8 drop-read: placeholders say what was removed" "<venture>" "$out"
 reg drop alpha "Compare beta with Alpha's flow (see ventures/alpha/brief.md, \`$roots/beta/plan.md\`), Northwind Signals at intranet.example.com, key AKIAIOSFODNN7EXAMPLE, ping @opslead"
-reg drop alpha "Café ops leads liked it"
+reg drop alpha "Café ops leads liked it; ops@example.com's note, @alice's view, db at 10.0.4.17 and db.internal:5432, the market moved"
+venture zed
+sed_i "$roots/zed/brief.md" "s/^# Northwind Signals — Brief\$/# Bob’s Ark — Brief/"
+reg add zed "$roots/zed"
+reg drop zed "Asked Bob’s Ark about it"
 assert_eq "J1.8 drop: UTF-8 text is accepted" "0" "$rc"
 reg drop-read
 assert_not_contains "J1.8 drop-read: another registered venture is neutralized" "beta" "$out"
@@ -385,6 +398,12 @@ assert_not_contains "J1.8 drop-read: a bare domain is neutralized" "intranet.exa
 assert_not_contains "J1.8 drop-read: an access-key id is neutralized" "AKIAIOSFODNN7EXAMPLE" "$out"
 assert_not_contains "J1.8 drop-read: a handle is neutralized" "@opslead" "$out"
 assert_contains "J1.8 drop-read: UTF-8 text survives" "Café ops leads" "$out"
+assert_not_contains "J1.8 drop-read: a possessive email is neutralized" "ops@example.com" "$out"
+assert_not_contains "J1.8 drop-read: a possessive handle is neutralized" "@alice" "$out"
+assert_not_contains "J1.8 drop-read: an IP address is neutralized" "10.0.4.17" "$out"
+assert_not_contains "J1.8 drop-read: a host and port are neutralized" "db.internal" "$out"
+assert_contains "J1.8 drop-read: a title with typographic punctuation is neutralized" "Asked <venture> about it" "$out"
+assert_contains "J1.8 drop-read: a title matches whole words only" "the market moved" "$out"
 mv "$registry_file" "$tmp/registry-aside"
 mv "$roots" "$tmp/roots-aside"
 reg drop-read
@@ -450,12 +469,22 @@ assert_contains "J1.7 portfolio: a vanished venture is flagged, not fatal" "$(pr
 reg get gamma
 assert_contains "J1.7 portfolio: an unreadable venture keeps its last flags" "over-appetite" "$out"
 
+# Without --cards the portfolio reads the merged card catalog: a stub stands in
+# for resolve-card.sh to pin the column layout this helper consumes.
+cp -R "$REPO_ROOT/scripts" "$tmp/scripts-copy"
+printf '#!/bin/sh\nprintf "stale-medium\\tcore\\t%%s\\n" "%s"\n' "$cards/stale-medium.md" >"$tmp/scripts-copy/resolve-card.sh"
+out="$(CLAUDE_PLUGIN_DATA="$data" "$tmp/scripts-copy/inception-registry.sh" portfolio 2>&1)"
+assert_contains "J1.7 portfolio without --cards reads the card catalog" "$(printf 'card-review\tstale-medium\t2025-01-10\tmedium')" "$out"
+
 empty_data="$tmp/empty-data"
 mkdir -p "$tmp/empty-home/ventures"
 out="$(HOME="$tmp/empty-home" CLAUDE_PLUGIN_DATA="$empty_data" "$REG" portfolio --cards "$tmp/no-cards" 2>&1)"
 rc=$?
 assert_eq "J1.7 portfolio over no ventures: exit 0" "0" "$rc"
 assert_contains "J1.7 portfolio over no ventures: says none" "$(printf 'venture\tnone')" "$out"
+out="$(HOME="$tmp/fresh-home" CLAUDE_PLUGIN_DATA="$tmp/fresh-data" "$REG" portfolio --cards "$tmp/no-cards" 2>&1)"
+assert_eq "J1.7 portfolio on a fresh install (no ventures root yet): exit 0" "0" "$?"
+assert_contains "J1.7 portfolio on a fresh install: says none" "$(printf 'venture\tnone')" "$out"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-registry: $failures assertion(s) failed" >&2

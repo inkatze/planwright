@@ -87,8 +87,8 @@ One skill, dispatched on the argument plus what is on disk:
   text is a new idea or a resume. Run `inception-registry.sh status <id>`
   and present gate readiness, blockers, and kill dates (tripped and
   approaching first), then stop. Exit 1 means the venture is not
-  registered, exit 3 that its bundle is unreadable at this version: say
-  which and stop.
+  registered, exit 2 that its registered bundle is gone, exit 3 that the
+  validator refused it (its `degraded` line names why): say which and stop.
 - **Gate, export or publish**: not in this release. Say so in one line,
   name what is available, and stop. Never improvise a gate record or an
   export the later layers own.

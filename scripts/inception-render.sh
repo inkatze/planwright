@@ -601,7 +601,9 @@ END {
 
 # One value per field: a tab would split the line, and a control byte (C0,
 # DEL, or C1, the echo-safety.sh class) would drive the terminal the status
-# view prints to. Other high bytes stay, so UTF-8 text survives.
+# view prints to. Under the pinned C locale that strip also takes UTF-8
+# continuation bytes in 0x80-0x9F (em dashes and curly quotes come out
+# mangled), the trade echo-safety.sh documents; other high bytes stay.
 function tsv(s) { gsub(/\t/, " ", s); gsub(/[\001-\037\177\200-\237]/, "", s); return s }
 
 # The appetite as a number of days, from its first "<n> day|week|month|year"
@@ -823,15 +825,23 @@ function pitch(   i, a, t, d, claim, nother, nlive) {
 '
 prog="$html_escape_awk$body"
 
-# render <mode> <temp-file> — one page from the bundle into <temp-file>.
+# render <mode> [<temp-file>] — one page from the bundle into <temp-file>, or
+# onto the inherited stdout without one. Never `>/dev/stdout`: reopening it
+# truncates a file the caller already wrote to.
 render() {
+  if [ $# -eq 1 ]; then
+    awk -v today="$today" -v mode="$1" "$prog" \
+      "$target/brief.md" "$target/disciplines.md" "$target/assumptions.md" \
+      "$target/decisions.md" "$target/plan.md"
+    return
+  fi
   awk -v today="$today" -v mode="$1" "$prog" \
     "$target/brief.md" "$target/disciplines.md" "$target/assumptions.md" \
     "$target/decisions.md" "$target/plan.md" >"$2"
 }
 
 if [ "$mode" = status ]; then
-  render status /dev/stdout || exit 2
+  render status || exit 2
   exit 0
 fi
 
