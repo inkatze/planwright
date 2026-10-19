@@ -699,7 +699,10 @@ v="$(fresh)"
 sed_i "$v/brief.md" 's|^_Skipped: appetite is set at the portfolio level.*$|Six weeks of one engineer, then the gate decides. Budget 6 weeks.|'
 out="$("$RENDER" --mode status "$v" 2>/dev/null)"
 assert_contains "status: appetite in weeks becomes days" "$(printf 'appetite\t42')" "$out"
-sed_i "$v/brief.md" 's|^Six weeks of one engineer.*$|Whatever it takes.|'
+sed_i "$v/brief.md" 's|^Six weeks of one engineer.*$|Three months, then the gate decides.|'
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_contains "status: a worded count is read" "$(printf 'appetite\t90')" "$out"
+sed_i "$v/brief.md" 's|^Three months, then the gate decides.$|Whatever it takes.|'
 out="$("$RENDER" --mode status "$v" 2>/dev/null)"
 assert_contains "status: unreadable appetite" "$(printf 'appetite\tunparsed')" "$out"
 
@@ -713,7 +716,10 @@ assert_contains "status: the stripped value still lands" "$(printf 'gate\t1\t202
 
 v="$(fresh)"
 assert_eq "status: --output is refused" "2" \
-  "$("$RENDER" --mode status --output "$tmp/x" "$v" >/dev/null 2>&1; echo $?)"
+  "$(
+    "$RENDER" --mode status --output "$tmp/x" "$v" >/dev/null 2>&1
+    echo $?
+  )"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-render: $failures assertion(s) failed" >&2

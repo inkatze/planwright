@@ -596,12 +596,17 @@ END {
 function tsv(s) { gsub(/\t/, " ", s); gsub(/[^[:print:]]/, "", s); return s }
 
 # The appetite as a number of days, from its first "<n> day|week|month|year"
-# phrase; a skipped section says so, and anything else is unparsed rather
-# than guessed.
-function appetite_days(   s, n, u) {
+# phrase, n in digits or a word up to twelve; a skipped section says so, and
+# anything else is unparsed rather than guessed.
+function appetite_days(   s, n, u, w, nw, i, NUM) {
   s = PROSE["Appetite"]
   if (skipped(s) != "") return "skipped"
-  s = tolower(s)
+  split("one two three four five six seven eight nine ten eleven twelve", NUM, " ")
+  nw = split(tolower(s), w, " "); s = ""
+  for (i = 1; i <= nw; i++) {
+    for (n = 1; n <= 12; n++) if (w[i] == NUM[n]) { w[i] = n; break }
+    s = s " " w[i]
+  }
   if (!match(s, /[0-9]+ *(day|week|month|year)/)) return "unparsed"
   s = substr(s, RSTART, RLENGTH)
   n = s; sub(/[^0-9].*$/, "", n); u = s; sub(/^[0-9]+ */, "", u)
