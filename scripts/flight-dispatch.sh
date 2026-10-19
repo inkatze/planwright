@@ -620,7 +620,7 @@ placing_live() {
   esac
   [ "${#_pl_pid}" -le 10 ] || return 0
   kill -0 "$_pl_pid" 2>/dev/null && return 0
-  ps -p "$_pl_pid" >/dev/null 2>&1
+  ps -p "$_pl_pid" >/dev/null 2>&1 || [ -d "/proc/$_pl_pid" ]
 }
 
 # The minutes a retired flight's brief is kept before the sweep may take it.

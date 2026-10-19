@@ -1634,7 +1634,12 @@ case $f3 in
 esac
 # And it is the same quantity, not a differently-scaled one: both spellings
 # describe pid 1, so they must agree within the slack the check already allows.
-real=$(ps -o etimes= -p 1 | tr -d ' ')
+real=$(ps -o etimes= -p 1 2>/dev/null | tr -d ' ')
+if [ -z "$real" ]; then
+  # busybox ps has no etimes: the reference comes from procfs instead, as the
+  # uptime less pid 1's start in clock ticks.
+  real=$(($(cut -d. -f1 /proc/uptime) - $(awk '{ sub(/.*\) /, ""); print $20 }' /proc/1/stat) / $(getconf CLK_TCK)))
+fi
 if [ "$((f3 - real))" -le 5 ] && [ "$((real - f3))" -le 5 ]; then
   pass "and it agrees with the seconds the other spelling reports"
 else

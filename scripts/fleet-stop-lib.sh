@@ -69,10 +69,10 @@ stop_posnum() {
 }
 
 # `kill -0` answers "may I signal it", and EPERM means alive; `ps -p` answers
-# existence regardless of owner.
+# existence regardless of owner, and procfs where ps has no -p (busybox).
 stop_pid_live() {
   kill -0 "$1" 2>/dev/null && return 0
-  ps -p "$1" >/dev/null 2>&1
+  ps -p "$1" >/dev/null 2>&1 || [ -d "/proc/$1" ]
 }
 
 stop_now() {
@@ -175,6 +175,37 @@ stop_seeds() {
   printf '%s' "$ss_out"
 }
 
+# stop_proc_rows — the pid/ppid/args table read from procfs, empty without it.
+# PLANWRIGHT_STOP_PROC_ROOT moves procfs, so a test can stand in a host with
+# none.
+stop_proc_rows() {
+  spr_root=${PLANWRIGHT_STOP_PROC_ROOT:-/proc}
+  # shellcheck disable=SC2045 # the rungs run with globbing off, and the names kept are all digits
+  for spr_p in $(ls "$spr_root" 2>/dev/null); do
+    case $spr_p in '' | *[!0-9]*) continue ;; esac
+    { IFS= read -r spr_st <"$spr_root/$spr_p/stat"; } 2>/dev/null || continue
+    # shellcheck disable=SC2086 # the fields after the command name, split
+    set -- ${spr_st##*) }
+    spr_args=$(tr '\000' ' ' <"$spr_root/$spr_p/cmdline" 2>/dev/null) || continue
+    printf '%s %s %s\n' "$spr_p" "$2" "$spr_args"
+  done
+}
+
+# stop_snapshot — set stop_snap to the pid/ppid/args table and stop_wide to 1
+# when its argv is untruncated, 0 when it may be cut short. Non-zero when no
+# table can be read. busybox ps has no -ww and cuts argv at a fixed length, so
+# where procfs exists the untruncated table comes from there instead.
+stop_snapshot() {
+  stop_wide=1
+  stop_snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || stop_snap=''
+  stop_ps_rows_shaped "$stop_snap" && return 0
+  stop_snap=$(stop_proc_rows)
+  stop_ps_rows_shaped "$stop_snap" && return 0
+  stop_wide=0
+  stop_snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || stop_snap=''
+  stop_ps_rows_shaped "$stop_snap"
+}
+
 # stop_candidates <dir> <match> <pidfiles> — every live pid belonging to the
 # worker, one per line. Non-zero when the host's process table cannot be read,
 # so a caller reports the class held rather than assuming it is free.
@@ -210,13 +241,9 @@ stop_seeds() {
 # probe would let the two disagree, and the disagreement resolves toward a walk
 # that misses the tree.
 stop_candidates() {
-  sc_wide=1
-  sc_snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || sc_snap=''
-  if ! stop_ps_rows_shaped "$sc_snap"; then
-    sc_wide=0
-    sc_snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || sc_snap=''
-    stop_ps_rows_shaped "$sc_snap" || return 1
-  fi
+  stop_snapshot || return 1
+  sc_wide=$stop_wide
+  sc_snap=$stop_snap
   sc_seed=''
   if [ "$sc_wide" = 0 ] || [ "${stop_seed_narrow_only:-0}" != 1 ]; then
     sc_seed=$(stop_seeds "$1" "$3")
@@ -331,13 +358,9 @@ stop_self_hosted() {
   # snapshot to the narrow form while an independent retry of `-ww` succeeds —
   # and the disagreement resolves toward proceeding, which is the direction that
   # kills.
-  sfh_wide=1
-  sfh_snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || sfh_snap=''
-  if ! stop_ps_rows_shaped "$sfh_snap"; then
-    sfh_wide=0
-    sfh_snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || sfh_snap=''
-    stop_ps_rows_shaped "$sfh_snap" || return 2
-  fi
+  stop_snapshot || return 2
+  sfh_wide=$stop_wide
+  sfh_snap=$stop_snap
   sfh_seed=''
   [ "$sfh_wide" = 1 ] || sfh_seed=$(stop_seeds "$1" "$3")
   printf '%s\n' "$sfh_snap" | SC_MATCH="$2" awk -v seeds="$sfh_seed" -v self_pid="$$" '

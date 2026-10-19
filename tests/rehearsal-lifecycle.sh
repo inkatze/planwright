@@ -186,14 +186,27 @@ fi
 
 # proc_table — one `<pid> TAB <ppid> TAB <start> TAB <argv>` row per process.
 # The start time is what tells a process from a later one reissued its pid.
+# busybox ps has neither -ww nor lstart, so there the table comes from procfs,
+# its start being the clock ticks since boot.
 proc_table() {
-  ps -A -ww -o pid=,ppid=,lstart=,args= 2>/dev/null | awk '
+  pt_rows=$(ps -A -ww -o pid=,ppid=,lstart=,args= 2>/dev/null | awk '
     {
       a = $0
       for (i = 1; i <= 7; i++) sub(/^[ \t]*[^ \t]+/, "", a)
       sub(/^[ \t]+/, "", a)
       printf "%s\t%s\t%s%s%s%s%s\t%s\n", $1, $2, $3, $4, $5, $6, $7, a
-    }'
+    }')
+  if [ -n "$pt_rows" ]; then
+    printf '%s\n' "$pt_rows"
+    return 0
+  fi
+  for pt_d in /proc/[0-9]*; do
+    { IFS= read -r pt_st <"$pt_d/stat"; } 2>/dev/null || continue
+    # shellcheck disable=SC2086 # the fields after the command name, split
+    set -- ${pt_st##*) }
+    printf '%s\t%s\tboot+%s\t%s\n' "${pt_d#/proc/}" "$2" "${20}" \
+      "$(tr '\000' ' ' <"$pt_d/cmdline" 2>/dev/null)"
+  done
 }
 
 # Every process assertion below rests on the table; an unreadable one would

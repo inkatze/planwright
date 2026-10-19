@@ -351,6 +351,15 @@ is_tower_id() {
   printf '%s' "$1" | grep -Eq '^p[0-9]{1,10}\.t[0-9]+\.c[0-9]+$'
 }
 
+# start_time <pid> — print the pid's start time, or nothing. busybox ps has
+# neither -p nor lstart, so on Linux the start in clock ticks since boot from
+# procfs stands in: as fixed for the process's life as lstart is.
+start_time() {
+  st_v=$(ps -p "$1" -o lstart= 2>/dev/null) || st_v=''
+  [ -n "$st_v" ] || st_v=$(awk '{ sub(/.*\) /, ""); print "boot+" $20 }' "/proc/$1/stat" 2>/dev/null) || st_v=''
+  printf '%s' "$st_v"
+}
+
 # reused_pid_ambiguous <tower-id> <handle> — the recycled-pid discriminator
 # (REQ-C1.3). A COMPOSITE identity p<pid>.t<start-hash>.c<checkout-hash> pins
 # the start time of the process the record was published from, so a live pid
@@ -374,7 +383,7 @@ reused_pid_ambiguous() {
   [ "${rpa_rest%%.*}" = "$rpa_pid" ] || return 0
   rpa_t=${rpa_rest#*.t}
   rpa_t=${rpa_t%%.*}
-  rpa_start=$(ps -p "$rpa_pid" -o lstart= 2>/dev/null)
+  rpa_start=$(start_time "$rpa_pid")
   [ -n "$rpa_start" ] || return 1
   [ "$(printf '%s' "$rpa_start" | cksum | awk '{print $1}')" = "$rpa_t" ] && return 1
   return 0
@@ -839,7 +848,7 @@ derive_identity() {
     exit 2
   fi
   # Targeted per-pid start-time query — never a process-listing scan.
-  di_start=$(ps -p "$pid" -o lstart= 2>/dev/null)
+  di_start=$(start_time "$pid")
   if [ -z "$di_start" ]; then
     err "cannot derive the composite identity: no start time for pid $pid (is the tower process alive?)"
     exit 2

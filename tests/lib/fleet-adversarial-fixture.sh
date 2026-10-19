@@ -201,7 +201,7 @@ classified() {
 }
 
 gone() {
-  ! kill -0 "$1" 2>/dev/null && ! ps -p "$1" >/dev/null 2>&1
+  ! kill -0 "$1" 2>/dev/null && ! ps -p "$1" >/dev/null 2>&1 && [ ! -d "/proc/$1" ]
 }
 
 alive() {

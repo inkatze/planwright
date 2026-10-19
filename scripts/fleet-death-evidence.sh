@@ -117,6 +117,11 @@ case "$class" in
     # query mechanism: unknown, never dead.
     ps_rc=0
     ps -p "$pid" >/dev/null 2>&1 || ps_rc=$?
+    # busybox ps has no -p and exits 1 on the option alone, the same status
+    # as not-found, so a pid procfs still shows is alive.
+    if [ "$ps_rc" = 1 ] && [ -d "/proc/$pid" ]; then
+      ps_rc=0
+    fi
     case "$ps_rc" in
       0) verdict alive ;;
       1) verdict dead ;;

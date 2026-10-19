@@ -72,6 +72,13 @@ command -v jq >/dev/null 2>&1 || fail "jq is required: the stream-json launch pr
 # compared physically.
 tmp=$(cd "$(mktemp -d)" && pwd -P)
 strangers=''
+# pid_args <pid> — the pid's argv, or nothing. busybox ps has no -p, so the
+# pid is picked out of a full listing there.
+pid_args() {
+  ps -p "$1" -o args= 2>/dev/null \
+    || ps -A -o pid=,args= 2>/dev/null | awk -v p="$1" '$1 == p { sub(/^ *[0-9]+ +/, ""); print; exit }'
+}
+
 cleanup() {
   # A failed cell can leave a worker holding open; nothing may outlive the run.
   # A headless unit keeps its pid file after its runner is gone, so a pid is
@@ -81,14 +88,14 @@ cleanup() {
     [ -f "$pf" ] || continue
     p=$(cat "$pf" 2>/dev/null) || continue
     case $p in '' | *[!0-9]*) continue ;; esac
-    case $(ps -p "$p" -o args= 2>/dev/null) in
+    case $(pid_args "$p") in
       *"$tmp"*) kill -9 "$p" 2>/dev/null ;;
     esac
   done
   # The processes the cells plant as reissued pids, named by nothing in the tree.
   # Checked first: an exited sleep's pid may already belong to something else.
   for p in $strangers; do
-    case $(ps -p "$p" -o args= 2>/dev/null) in
+    case $(pid_args "$p") in
       'sleep 120') kill "$p" 2>/dev/null ;;
     esac
   done
@@ -101,6 +108,7 @@ cleanup() {
     kill -9 "$p" 2>/dev/null
   done
   cl_snap=$(ps -A -ww -o pid=,args= 2>/dev/null) || cl_snap=''
+  [ -n "$cl_snap" ] || cl_snap=$(ps -A -o pid=,args= 2>/dev/null) || cl_snap=''
   while read -r p a; do
     case $a in
       *"$tmp"*) [ "$p" = "$$" ] || kill -9 "$p" 2>/dev/null ;;
@@ -198,6 +206,7 @@ env_scrub=(
   -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS
   -u PLANWRIGHT_STREAMJSON_PENDING_AGE -u PLANWRIGHT_STREAMJSON_ALARM_TICK
   -u PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT
+  -u PLANWRIGHT_STOP_PROC_ROOT
   -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE
 )
 
@@ -760,7 +769,7 @@ c22b() {
     || fail "c22b: the grandchild pid must not be the worker's own"
   # It must also be invisible to a state-directory match, so that only the
   # accumulated target set can account for it once it reparents.
-  stub_args=$(ps -p "$stubborn" -o args= 2>/dev/null)
+  stub_args=$(pid_args "$stubborn")
   [ -n "$stub_args" ] || fail "c22b: cannot read the grandchild's argv to check it"
   case $stub_args in
     *"$d"*) fail "c22b: the grandchild must not carry the state dir in its argv" ;;
@@ -874,7 +883,7 @@ NPS
   w=$(w_name 226)
   d=$(w_dir "$home" "$w")
   mkdir -p "$d" || fail "c22f: cannot plant the state dir"
-  out=$(selfpid_close "$home" "$rec" "$d/$pf" "$w" PATH="$tmp/narrowbin:$PATH")
+  out=$(selfpid_close "$home" "$rec" "$d/$pf" "$w" PATH="$tmp/narrowbin:$PATH" PLANWRIGHT_STOP_PROC_ROOT="$tmp/no-proc")
   rc=$?
   [ "$rc" = 3 ] \
     || fail "c22f: with truncated argv the recorded pid must fail closed (exit 3), got rc=$rc ($out)"
@@ -891,7 +900,7 @@ NPS
   w=$(w_name 227)
   d=$(w_dir "$home" "$w")
   mkdir -p "$d" || fail "c22g: cannot plant the state dir"
-  out=$(selfpid_close "$home" "$rec" "$d/$pf" "$w" PATH="$tmp/deadbin:$PATH")
+  out=$(selfpid_close "$home" "$rec" "$d/$pf" "$w" PATH="$tmp/deadbin:$PATH" PLANWRIGHT_STOP_PROC_ROOT="$tmp/no-proc")
   rc=$?
   [ "$rc" = 2 ] \
     || fail "c22g: an unreadable process table must refuse the close (exit 2), got rc=$rc ($out)"
@@ -908,8 +917,12 @@ NPS
   # argv, so that rung runs this leg on the narrow shim c22f built; on a full
   # `ps` it would pass without ever opening the fifo.
   c22h_path=$PATH
-  [ "$rung" != hl ] || c22h_path="$tmp/narrowbin:$PATH"
-  PATH=$c22h_path renv "$home" "$rec" -- stop "$w" --grace 1 >"$rec/c22h.out" 2>&1 &
+  c22h_proc=/proc
+  if [ "$rung" = hl ]; then
+    c22h_path="$tmp/narrowbin:$PATH"
+    c22h_proc="$tmp/no-proc"
+  fi
+  PATH=$c22h_path renv "$home" "$rec" PLANWRIGHT_STOP_PROC_ROOT="$c22h_proc" -- stop "$w" --grace 1 >"$rec/c22h.out" 2>&1 &
   closer=$!
   wait_until 200 sh -c "! kill -0 $closer 2>/dev/null" || {
     kill -9 "$closer" 2>/dev/null

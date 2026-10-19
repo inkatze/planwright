@@ -664,14 +664,18 @@ done
 xa="$tmp/xr-A/specs/demo/.orchestrate/headless/4"
 xb="$tmp/xr-B/specs/demo/.orchestrate/headless/4"
 printf '0 1700000000\n' >"$xa/exit"
-bash -c 'exec -a "run-worker $0 x" sleep 600' "$xb" &
+# The sleeper is bash itself, blocked reading a FIFO it holds open: busybox's
+# sleep is a multi-call binary that picks its applet by argv[0], which -a
+# replaces.
+mkfifo "$tmp/xr-fifo"
+bash -c 'exec -a "run-worker $0 x" bash -c '\''exec 3<>"$0"; read -r -t 600 _ <&3'\'' "$1"' "$xb" "$tmp/xr-fifo" &
 xrun=$!
 printf '%s\n' "$xrun" >"$xb/pid"
 date +%s >"$xb/launched"
 wait_ps() {
   wp_i=0
   while [ "$wp_i" -lt 50 ]; do
-    case $(ps -o args= -p "$1" 2>/dev/null) in
+    case $({ ps -o args= -p "$1" || tr '\000' ' ' <"/proc/$1/cmdline"; } 2>/dev/null) in
       "run-worker $2 "*) return 0 ;;
     esac
     sleep 0.1
@@ -1091,7 +1095,7 @@ classified() {
 }
 
 gone() {
-  ! kill -0 "$1" 2>/dev/null && ! ps -p "$1" >/dev/null 2>&1
+  ! kill -0 "$1" 2>/dev/null && ! ps -p "$1" >/dev/null 2>&1 && [ ! -d "/proc/$1" ]
 }
 
 alive() {
