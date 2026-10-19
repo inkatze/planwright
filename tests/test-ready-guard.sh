@@ -178,7 +178,7 @@ reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFORMING
 HOOK="$rg_bare/ready-guard.sh" run_hook "$(bash_payload 'gh pr ready 42')" timeout gtimeout
 assert_deny "no timeout/gtimeout binary and no bundled runner denies rather than making an unbounded call"
-assert_reason_matches "the unbounded-call denial names the remedy" 'bounded-run|timeout'
+assert_reason_matches "the unbounded-call denial names the missing runner" 'bounded-run.sh is missing'
 
 reset_stub_env
 run_hook ''
@@ -655,7 +655,7 @@ STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=6
 run_hook "$(bash_payload "$(printf 'gh pr rea\\\ndy 42')")"
 assert_deny_because "a backslash-newline continuation inside the verb does not slip the gate" 'commit\(s\) behind'
 if grep -q $'\tpr\tview\t42\t' "$STATE/argv.log"; then
-  pass "the continuation rejoined into $(ready) and PR 42 was queried"
+  pass "the continuation rejoined into ready and PR 42 was queried"
 else
   fail "continuation not rejoined: argv was $(cat "$STATE/argv.log")"
 fi
@@ -999,6 +999,7 @@ LONE="$SANDBOX/lone"
 mkdir -p "$LONE"
 cp "$HOOK" "$LONE/ready-guard.sh"
 cp "$(dirname "$HOOK")/echo-safety.sh" "$LONE/echo-safety.sh"
+cp "$(dirname "$HOOK")/bounded-run.sh" "$LONE/bounded-run.sh"
 reset_stub_env
 knob_adopter conflict-only
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
@@ -1015,6 +1016,7 @@ STUBBED="$SANDBOX/stubbed"
 mkdir -p "$STUBBED"
 cp "$HOOK" "$STUBBED/ready-guard.sh"
 cp "$(dirname "$HOOK")/echo-safety.sh" "$STUBBED/echo-safety.sh"
+cp "$(dirname "$HOOK")/bounded-run.sh" "$STUBBED/bounded-run.sh"
 # run_stubbed_resolver <label> <deny|defer> <resolver body>
 run_stubbed_resolver() {
   printf '%s\n' "$3" >"$STUBBED/resolve-policy-knob.sh"

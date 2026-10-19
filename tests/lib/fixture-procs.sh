@@ -98,7 +98,8 @@ fixture_procs() {
     return 2
   }
   snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || snap=''
-  # busybox ps has no -ww (and never truncates).
+  # busybox ps has no -ww (it cuts argv at a fixed length, far past any
+  # fixture needle).
   [ -n "$snap" ] || snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || snap=''
   _fp_table_ok "$snap" || {
     echo "fixture_procs: no usable process table on this host" >&2

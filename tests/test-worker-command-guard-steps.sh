@@ -464,11 +464,18 @@ hook_secs() {
   done
   printf '%s\n' "$hs_best"
 }
-one_walk=$(hook_secs "echo $long_words")
+# The subst shape's one walk is the substitution's: its inner text is
+# analysed once, whatever the loop does.
 for shape in plain subst; do
   case $shape in
-    plain) loop_cmd="for f in $(seq -s ' ' 16); do echo $long_words; done" ;;
-    *) loop_cmd="for f in $(seq -s ' ' 16); do echo \$(echo $long_words); done" ;;
+    plain)
+      one_walk=$(hook_secs "echo $long_words")
+      loop_cmd="for f in $(seq -s ' ' 16); do echo $long_words; done"
+      ;;
+    *)
+      one_walk=$(hook_secs "echo \$(echo $long_words)")
+      loop_cmd="for f in $(seq -s ' ' 16); do echo \$(echo $long_words); done"
+      ;;
   esac
   loop_secs=$(hook_secs "$loop_cmd")
   if awk -v l="$loop_secs" -v o="$one_walk" 'BEGIN { exit !(l <= o * 1.5 + 0.1) }'; then

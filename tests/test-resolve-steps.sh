@@ -2022,7 +2022,7 @@ wlen=$(printf '%s\n' "$wline" | awk '{ print length($0) }')
 # macOS), not the skill name's, so the "well inside" margin measures the rest.
 rlen=$(printf '%s\n' "$wline" | sed -n 's/.*(looked under: \([^)]*\)).*/\1/p' | awk '{ print length($0) }')
 [ "$RC" = 1 ] && [ -n "$wmax" ] && [ -n "$wlen" ] && [ -n "$rlen" ] && [ "$rlen" -gt 0 ] \
-  && [ $((wlen - rlen)) -lt $((wmax / 2)) ]
+  && [ $((wlen - rlen)) -lt $((wmax / 2)) ] && [ "$wlen" -le "$wmax" ]
 verdict "a longest-name missing-target warning stays well inside step-record's bound" "long-name warning: len=$wlen roots=$rlen max=$wmax err='$ERR'"
 rm -f "$tracked_cfg"
 # Several points check in one run, the pre-flight's form: a refusal at any

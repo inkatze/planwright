@@ -141,7 +141,14 @@ PATH="$stub_bin:$PATH" \
   PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
   /bin/sh "$TQ" log born --now 8100 item=noclock >/dev/null 2>&1 &
 tq_pid=$!
-{ sleep 60 && kill -9 "$tq_pid"; } 2>/dev/null &
+# The watchdog ends its own sleep when it is called off, so none is left.
+(
+  trap 'kill "$s" 2>/dev/null; exit 0' TERM
+  sleep 60 &
+  s=$!
+  wait "$s"
+  kill -9 "$tq_pid"
+) 2>/dev/null &
 dog_pid=$!
 wait "$tq_pid" || rc=$?
 kill "$dog_pid" 2>/dev/null

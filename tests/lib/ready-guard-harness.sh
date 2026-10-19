@@ -76,6 +76,8 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/ready-guard.XXXXXX")" || exit 1
+# macOS's TMPDIR ends in a slash; the guard reports paths with it collapsed.
+SANDBOX=$(cd "$SANDBOX" && pwd) || exit 1
 trap 'rm -rf "$SANDBOX"' EXIT
 BIN="$SANDBOX/bin"
 STATE="$SANDBOX/state"

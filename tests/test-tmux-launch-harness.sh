@@ -74,7 +74,8 @@ child_suite() {
 # zombie until its new parent reaps it, which kill -0 still counts.
 running() {
   kill -0 "$1" 2>/dev/null || return 1
-  case $(ps -o stat= -p "$1" 2>/dev/null) in Z* | '') return 1 ;; esac
+  # busybox ps has no -p: procfs's state field stands in.
+  case $(ps -o stat= -p "$1" 2>/dev/null || awk '{ sub(/.*\) /, ""); print $1 }' "/proc/$1/stat" 2>/dev/null) in Z* | '') return 1 ;; esac
   return 0
 }
 

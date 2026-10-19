@@ -416,13 +416,13 @@ reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 run_hook "$(bash_payload "$BASH_FLIP")" timeout gtimeout
 assert_cell no-timeout-binary/bash "bash: no bounding binary denies rather than making an unbounded call"
-assert_reason_matches "bash: the unbounded-call denial names the remedy" 'coreutils|timeout'
+assert_reason_matches "bash: the unbounded-call denial names the remedy" 'bounded-run.sh is missing'
 assert_gh_calls "bash: no query was attempted without a bound" 0
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 run_mcp "$MCP_FLIP" timeout gtimeout
 assert_cell no-timeout-binary/mcp "mcp: no bounding binary denies rather than making an unbounded call"
-assert_reason_matches "mcp: the unbounded-call denial names the remedy" 'coreutils|timeout'
+assert_reason_matches "mcp: the unbounded-call denial names the remedy" 'bounded-run.sh is missing'
 assert_gh_calls "mcp: no query was attempted without a bound" 0
 HOOK=$mcm_hook
 
