@@ -188,13 +188,15 @@ stop_proc_rows() {
   for spr_p in $(ls "$spr_root" 2>/dev/null); do
     case $spr_p in '' | *[!0-9]*) continue ;; esac
     { IFS= read -r spr_st <"$spr_root/$spr_p/stat"; } 2>/dev/null || continue
-    # A command name holding a newline splits the first line before its `) `.
-    case $spr_st in
-      *') '*) ;;
-      *) spr_st=$(cat "$spr_root/$spr_p/stat" 2>/dev/null) || continue ;;
-    esac
     # shellcheck disable=SC2086 # the fields after the command name, split
     set -- ${spr_st##*) }
+    # A command name holding a newline splits the first line, before or after
+    # a `) ` of its own; the whole file has every field after the last one.
+    if [ "$#" -lt 20 ]; then
+      spr_st=$(cat "$spr_root/$spr_p/stat" 2>/dev/null) || continue
+      # shellcheck disable=SC2086 # the fields after the command name, split
+      set -- ${spr_st##*) }
+    fi
     # A newline in an argument would forge a row of its own, so it goes the
     # way ps prints it, as a space.
     spr_args=$(tr '\000\n' '  ' 2>/dev/null <"$spr_root/$spr_p/cmdline") || continue
