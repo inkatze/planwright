@@ -761,6 +761,17 @@ REF_EXEMPT=" migrate-format-version.sh "
 #                            is checked, and the lib lexer drops fenced
 #                            lines by design. A permanent exemption; it keeps
 #                            the lib's column-0 backtick toggle semantics.
+#   inception-fanout.sh      carries discipline cards and seat artifacts
+#                            THROUGH a fence: section() copies a card's fenced
+#                            artifact template into each seat brief, and the
+#                            attributed table keeps a seat's fenced lines,
+#                            which the lib lexer drops by design (the prompt
+#                            embedder escapes every fence line rather than
+#                            lexing fences); check_synthesis scans fenced
+#                            lines for seat identity in the same pass that
+#                            parses its table. Every other reader in it takes the lib
+#                            lexer. A permanent exemption on card-lint.sh's
+#                            grounds, with the lib's column-0 toggle semantics.
 #   drain-gates.sh           its GATE-entry parse. Its reference-bullet parse
 #                            already comes from the lib (Task 2); the gate
 #                            grammar is not a lib family yet.
@@ -771,7 +782,7 @@ REF_EXEMPT=" migrate-format-version.sh "
 # The remaining spec-bundle exemption is sequenced, not permanent, and the
 # stale-exemption guard below turns it into a prompt to drop the name once the
 # parse it guards is re-pointed.
-FENCE_EXEMPT=" card-lint.sh check-instructions.sh drain-gates.sh flight-record.sh "
+FENCE_EXEMPT=" card-lint.sh check-instructions.sh drain-gates.sh flight-record.sh inception-fanout.sh "
 
 # The line-80 families became lib families in Task 8 ($spec_parse_awk_grammar),
 # so the sweep grows four more arms: the requirement bullet, the D-ID heading,
@@ -928,7 +939,7 @@ done
 if ! grep -q "$REF_SIG" "$scripts_dir/migrate-format-version.sh"; then
   fail "stale REF exemption: migrate-format-version.sh no longer carries the bullet-shape probe it is exempted for"
 fi
-for fx in card-lint.sh check-instructions.sh drain-gates.sh; do
+for fx in card-lint.sh check-instructions.sh drain-gates.sh inception-fanout.sh; do
   if ! grep -q "$FENCE_SIG" "$scripts_dir/$fx"; then
     fail "stale FENCE exemption: $fx no longer carries the private fence lexer it is exempted for (drop the name from FENCE_EXEMPT)"
   fi
