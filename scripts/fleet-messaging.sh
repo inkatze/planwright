@@ -59,7 +59,8 @@
 #   fleet-messaging.sh self-register
 #       From a worker session's own SessionStart hook: record its observed
 #       name and inbox socket basename in its registry row through
-#       `fleet-state.sh amend`. A session without the worker identity
+#       `fleet-register.sh --amend`, which drops a value the registry's
+#       grammar refuses and still writes the other. A session without the worker identity
 #       environment (a tower) writes nothing. Exit 0 with one stderr notice
 #       when CLAUDE_PID names no record; exit 2 on a malformed handle or a
 #       record whose name or socket path fails its screen; otherwise the
@@ -105,6 +106,7 @@ fi
 . "$script_dir/echo-safety.sh"
 
 FS="$script_dir/fleet-state.sh"
+FR="$script_dir/fleet-register.sh"
 FA="$script_dir/fleet-attention.sh"
 OB="$script_dir/orchestrate-backends.sh"
 RCK="$script_dir/resolve-config-knob.sh"
@@ -740,7 +742,7 @@ cmd_self_register() {
     printf '%s\n' "$me: self-register: the socket basename fails the inbox screen; nothing recorded" >&2
     exit 2
   fi
-  "$FS" amend "$sg_handle" --name "$md_name" --inbox "$md_box"
+  /bin/sh "$FR" --amend "$sg_handle" --name "$md_name" --inbox "$md_box"
 }
 
 # --- notice-read -------------------------------------------------------------

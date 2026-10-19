@@ -161,12 +161,22 @@ valid_handle() {
         *[!A-Za-z0-9_.-]*) return 1 ;;
       esac
       ;;
-    stream-json)
+    stream-json | stream-json-persistent)
       # The supervisor's own worker-handle grammar (fleet-streamjson.sh
       # valid_field), minus `=` and `:`, which a handle never needs and which
-      # would otherwise ride into the emitted single-quoted argument.
+      # would otherwise ride into the emitted single-quoted argument. The
+      # rung's contract name is the second spelling; a launch names its
+      # session after the handle, so the session name is held to it too.
       case "$2" in
         *[!A-Za-z0-9_.@-]*) return 1 ;;
+        . | ..) return 1 ;;
+      esac
+      ;;
+    headless-oneshot)
+      # `headless-<spec>-task-<id>` and a launched tower's name: no sigil,
+      # since nothing targets this rung through tmux or a supervisor.
+      case "$2" in
+        *[!A-Za-z0-9_.-]*) return 1 ;;
         . | ..) return 1 ;;
       esac
       ;;

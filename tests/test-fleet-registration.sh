@@ -187,13 +187,15 @@ if [ -f "$h/registry" ]; then
   n=$(awk -F"$tab" 'END { print NR }' "$h/registry")
   [ "$n" = 1 ] || fail "a1: expected one record, got $n"
   nf=$(awk -F"$tab" '{ print NF }' "$h/registry")
-  [ "$nf" = 7 ] || fail "a1: expected 7 columns, got $nf"
+  [ "$nf" = 9 ] || fail "a1: expected 9 columns, got $nf"
   [ "$(col "$h" 2)" = worker-alpha ] || fail "a1: column 2 is not the handle"
   [ "$(col "$h" 3)" = "spec-a:1" ] || fail "a1: column 3 is not the scope"
   [ "$(col "$h" 4)" = p4242.t99.c17 ] || fail "a1: column 4 is not the owner token"
   [ "$(col "$h" 5)" = headless-oneshot ] || fail "a1: column 5 is not the backend"
   [ "$(col "$h" 6)" = "$tmp/unit-a1" ] || fail "a1: column 6 is not the state dir"
   [ "$(col "$h" 7)" = "process 4242" ] || fail "a1: column 7 is not the death handle"
+  [ "$(col "$h" 8)" = - ] || fail "a1: column 8 (name) is not the sentinel before any amend"
+  [ "$(col "$h" 9)" = - ] || fail "a1: column 9 (inbox) is not the sentinel before any amend"
 else
   fail "a1: no registry written"
 fi
@@ -207,8 +209,8 @@ fs_at "$h" register worker-legacy spec-b >/dev/null 2>&1 \
   || fail "a2: the legacy two-argument form exited non-zero"
 if [ -f "$h/registry" ]; then
   nf=$(awk -F"$tab" '{ print NF }' "$h/registry")
-  [ "$nf" = 7 ] || fail "a2: legacy record is not padded to 7 columns (got $nf)"
-  for c in 4 5 6 7; do
+  [ "$nf" = 9 ] || fail "a2: legacy record is not padded to 9 columns (got $nf)"
+  for c in 4 5 6 7 8 9; do
     [ "$(col "$h" "$c")" = "-" ] \
       || fail "a2: column $c is not the absent sentinel, got '$(col "$h" "$c")'"
   done

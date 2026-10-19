@@ -75,18 +75,27 @@
 # inside the marker directory: a rebuilt record feeds a destructive verb, so a
 # hostile marker must never become one.
 #
+# THE IDENTITY AMEND (fleet-messaging D-8). A worker session's own
+# SessionStart hook (fleet-messaging.sh self-register) records the name and
+# inbox it observed through --amend, which reaches `fleet-state.sh amend` with
+# the same per-field degrade: a value failing the store's grammar is dropped
+# with a warning naming it, the other is still written, and the exit is 1.
+#
 # Usage:
 #   fleet-register.sh --handle <h> --backend <name> [--scope <s>]
 #       [--state-dir <abs-dir>] [--death-handle <handle>]
 #       [--checkout <dir>] [--session-id <uuid> | --pid <pid>]
 #   fleet-register.sh --from-marker <path>
 #   fleet-register.sh --retire-marker <path> --expect <fields>
+#   fleet-register.sh --amend <worker> [--name <name>] [--inbox <basename>]
 #
 # Exit codes: 0 registered (healed, retired); 1 registration failed (warned on
 #   stderr — dispatch callers ignore this, by contract); 2 usage error; 3 the
 #   marker modes found nothing to do (the heal: the record is already as the
 #   marker says, or the marker is gone; the retirement: no live record carries
-#   the expected fields); 4 the marker was refused. A retirement closes a
+#   the expected fields), or --amend found no live record to amend; 4 the
+#   marker was refused. --amend exits 1 when it dropped a field or the store
+#   write failed. A retirement closes a
 #   matching live record even when its marker is already gone.
 #
 # POSIX sh on the macOS + Linux support bar. No eval; every value is data
@@ -126,6 +135,7 @@ warn() {
 usage() {
   printf '%s\n' "usage: $me --handle <h> --backend <name> [--scope <s>] [--state-dir <abs-dir>] [--death-handle <handle>] [--checkout <dir>] [--session-id <uuid> | --pid <pid>]" >&2
   printf '%s\n' "       $me --from-marker <path> | --retire-marker <path> --expect <fields>" >&2
+  printf '%s\n' "       $me --amend <worker> [--name <name>] [--inbox <basename>]" >&2
   exit 2
 }
 
@@ -140,6 +150,10 @@ pid=""
 marker_mode=""
 marker_path=""
 expect=""
+amend_worker=""
+amend_name=""
+amend_inbox=""
+amend_have=""
 
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -152,6 +166,20 @@ while [ "$#" -gt 0 ]; do
     --expect)
       [ "$#" -ge 2 ] || usage
       expect=$2
+      shift 2
+      ;;
+    --amend)
+      [ "$#" -ge 2 ] && [ -z "$amend_worker" ] || usage
+      amend_worker=$2
+      shift 2
+      ;;
+    --name | --inbox)
+      [ "$#" -ge 2 ] || usage
+      case $1 in
+        --name) amend_name=$2 ;;
+        --inbox) amend_inbox=$2 ;;
+      esac
+      amend_have="$amend_have${1#--} "
       shift 2
       ;;
     --handle | --scope | --backend | --state-dir | --death-handle | --checkout | --session-id | --pid)
@@ -175,7 +203,13 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -n "$marker_mode" ]; then
+if [ -n "$amend_worker" ]; then
+  # The amend names its own worker and fields; any dispatch or marker flag
+  # beside it would be a second record to write.
+  [ -n "$amend_have" ] \
+    && [ -z "$marker_mode$expect$handle$scope$backend$state_dir$death_handle$checkout$session_id$pid" ] \
+    || usage
+elif [ -n "$marker_mode" ]; then
   # A marker carries the whole record; a field flag beside it would be a second
   # source for the same column.
   [ -z "$handle$scope$backend$state_dir$death_handle$checkout$session_id$pid" ] || usage
@@ -209,7 +243,9 @@ fi
 # checkout with `core.fileMode=false`, an unzip, or an `rsync` without `-p`
 # silently turns registration off fleet-wide with nothing on stderr.
 if [ ! -r "$FS" ]; then
-  if [ -n "$marker_mode" ]; then
+  if [ -n "$amend_worker" ]; then
+    warn "cannot amend $(sanitize_printable "$amend_worker" "(unprintable handle)"): the registry store $FS is missing or unreadable (broken install)"
+  elif [ -n "$marker_mode" ]; then
     warn "cannot reconcile a dispatch marker: the registry store $FS is missing or unreadable (broken install)"
   else
     warn "cannot register $(sanitize_printable "$handle" "(unprintable handle)"): the registry store $FS is missing or unreadable (broken install); the dispatch continues unregistered"
@@ -311,6 +347,72 @@ valid_handle() {
   esac
   [ "${#vh_v}" -le 128 ]
 }
+
+# The identity columns' grammars, identical to the store's (fleet-state.sh
+# valid_name, valid_inbox).
+valid_name() {
+  vn_v=$1
+  case $vn_v in
+    "" | . | .. | -* | *[!A-Za-z0-9._=@:-]*) return 1 ;;
+  esac
+  [ "${#vn_v}" -le 128 ]
+}
+
+valid_inbox() {
+  vib_v=$1
+  case $vib_v in
+    "" | . | .. | -* | *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  [ "${#vib_v}" -le 128 ]
+}
+
+if [ -n "$amend_worker" ]; then
+  case $amend_worker in
+    -*)
+      warn "refusing '$(sanitize_printable "$amend_worker" "(unprintable value)")': a handle may not begin with a dash"
+      exit 2
+      ;;
+  esac
+  set --
+  am_dropped=""
+  case $amend_have in
+    *name*)
+      if valid_name "$amend_name"; then
+        set -- "$@" --name "$amend_name"
+      else
+        am_dropped="$am_dropped name"
+        warn "dropping the name '$(sanitize_printable "$amend_name" "(unprintable value)")' for $(sanitize_printable "$amend_worker" "(unprintable handle)"): it fails the registry's name grammar, so the row keeps its sentinel"
+      fi
+      ;;
+  esac
+  case $amend_have in
+    *inbox*)
+      if valid_inbox "$amend_inbox"; then
+        set -- "$@" --inbox "$amend_inbox"
+      else
+        am_dropped="$am_dropped inbox"
+        warn "dropping the inbox '$(sanitize_printable "$amend_inbox" "(unprintable value)")' for $(sanitize_printable "$amend_worker" "(unprintable handle)"): it fails the registry's inbox grammar, so the row keeps its sentinel"
+      fi
+      ;;
+  esac
+  st_rc=0
+  if [ "$#" -gt 0 ]; then
+    /bin/sh "$FS" amend "$amend_worker" "$@" >/dev/null || st_rc=$?
+  fi
+  case $st_rc in
+    0) ;;
+    3)
+      warn "no live registry record for $(sanitize_printable "$amend_worker" "(unprintable handle)") to amend; it stays unaddressable"
+      exit 3
+      ;;
+    *)
+      warn "could not amend the registry record for $(sanitize_printable "$amend_worker" "(unprintable handle)")"
+      exit 1
+      ;;
+  esac
+  [ -z "$am_dropped" ] || exit 1
+  exit 0
+fi
 
 # markers_dir — print the marker directory under the resolved fleet home.
 markers_dir() {

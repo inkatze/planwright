@@ -699,8 +699,8 @@ srbin="$tmp/srbin"
 mkdir -p "$srbin"
 cp "$FM" "$root/scripts/echo-safety.sh" "$srbin/"
 amendlog="$tmp/amend.log"
-printf '#!/bin/sh\nprintf "%%s|" "$@" >>"%s"\nprintf "\\n" >>"%s"\n' "$amendlog" "$amendlog" >"$srbin/fleet-state.sh"
-chmod +x "$srbin/fleet-state.sh" "$srbin/fleet-messaging.sh"
+printf '#!/bin/sh\nprintf "%%s|" "$@" >>"%s"\nprintf "\\n" >>"%s"\n' "$amendlog" "$amendlog" >"$srbin/fleet-register.sh"
+chmod +x "$srbin/fleet-register.sh" "$srbin/fleet-messaging.sh"
 sreg() {
   : >"$amendlog"
   (cd "$proj" && env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u CLAUDE_PID -u CLAUDE_CONFIG_DIR \
@@ -708,7 +708,7 @@ sreg() {
 }
 sreg PLANWRIGHT_WORKER_HANDLE=w1 PLANWRIGHT_WORKER_SCOPE=spec:1 CLAUDE_PID=4242 2>"$tmp/sr.err" \
   || fail "self-register failed on a fixture record"
-[ "$(cat "$amendlog")" = "amend|w1|--name|fleet-w1 task|--inbox|4242.sock|" ] \
+[ "$(cat "$amendlog")" = "--amend|w1|--name|fleet-w1 task|--inbox|4242.sock|" ] \
   || fail "self-register emitted '$(cat "$amendlog")'"
 [ ! -s "$tmp/sr.err" ] || fail "self-register wrote to stderr on success"
 record 4245 "fleet/evil" "/run/user/1000/cc-socks/4245.sock"
