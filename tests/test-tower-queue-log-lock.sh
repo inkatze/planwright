@@ -117,7 +117,8 @@ PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" unlock
 [ "$(line_count "$log_file")" = "$before" ] || fail "saturated lock: a line was written unlocked"
 grep -q 'lock' "$tmp/err" || fail "saturated lock: expiry not reported on stderr"
 [ "$(line_count "$dropped_file")" = 1 ] || fail "saturated lock: dropped-line counter is $(line_count "$dropped_file"), expected 1"
-[ $((end - start)) -le 60 ] || fail "saturated lock: waited $((end - start))s on a 200ms bound"
+# Far above any load on a 200ms bound, far below a wait the knob did not bound.
+[ $((end - start)) -le 10 ] || fail "saturated lock: waited $((end - start))s on a 200ms bound"
 : >"$local_cfg"
 run log born --now 8001 item=after >/dev/null || fail "write after unlock: exit"
 echo "ok: the lock wait is bounded by tower_hook_lock_wait, the expiry is an error, the line is dropped and counted"

@@ -159,7 +159,8 @@ end=$(date +%s)
 [ "$rc" = 3 ] || fail "saturated lock (add): exit $rc, expected 3"
 [ "$(cat "$store")" = "$before" ] || fail "saturated lock: the store changed"
 grep -q 'lock' "$tmp/err" || fail "saturated lock: the expiry was not reported as an error"
-[ $((end - start)) -le 60 ] || fail "saturated lock: waited $((end - start))s on a 200ms bound"
+# Far above any load on a 200ms bound, far below a wait the knob did not bound.
+[ $((end - start)) -le 10 ] || fail "saturated lock: waited $((end - start))s on a 200ms bound"
 rc=0
 run next --tower $A --now 501 >/dev/null 2>"$tmp/err" || rc=$?
 [ "$rc" = 3 ] || fail "saturated lock (next): exit $rc, expected 3"
