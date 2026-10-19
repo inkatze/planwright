@@ -697,8 +697,10 @@ the detached worker with `fleet-dispatch-headless.sh launch <spec> <id>
 non-`--bare`, never attaches a permission prompt tool (an unauthorized ask
 fails visibly in the captured result — there is no pend path), and leaves a
 consumable completion signal; `fleet-dispatch-headless.sh status <spec> <id>`
-answers `completed <rc>` / `running` / `died` (positive evidence only) /
-`unknown` / `absent`, and `stop <worker>` closes it (below). `stream-json-persistent` is driven by the
+answers `completed <rc>` / `ended <rc> <cause>` or `limited <rc> <vendor>`
+when the result flags `is_error` ([Vendor quotas](quota.md)) / `running` /
+`died` (positive evidence only) / `unknown` / `absent`, and `stop <worker>`
+closes it (below). `stream-json-persistent` is driven by the
 `scripts/fleet-streamjson.sh` supervisor (below). (The presence env overrides
 remain a deliberate test/early-adopter escape hatch that bypasses these
 defaults.)

@@ -1430,7 +1430,7 @@ fi
 #     0 with nothing done. A reader that consults only the subtype calls that a
 #     clean completion, frees the slot and moves on. The state must be `ended`,
 #     and the detail must show BOTH halves, because the contradiction is the
-#     diagnostic.
+#     diagnostic, and the cause the error text names.
 # ---------------------------------------------------------------------------
 home="$tmp/h26"
 rec="$tmp/r26"
@@ -1444,15 +1444,15 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
   >/dev/null 2>&1 || fail "c26: launch exited non-zero"
 out=$(senv "$home" "$rec" -- status sjw26) || fail "c26: status exited non-zero"
 case $out in
-  "status sjw26 ended result=success/is_error=true") : ;;
+  "status sjw26 ended result=success/is_error=true/cause=api-error-529") : ;;
   *) fail "c26: a success subtype carrying is_error must render 'ended' and name both, got: $out" ;;
 esac
 # Pin the on-disk record too, not just the rendering. fleet-stuck-detector.sh
 # parses this same file from its own suite against a hand-written fixture, so
 # nothing else would catch the writer moving the flag or renaming its value —
 # the two would simply stop agreeing about a worker, silently.
-grep -q "^result${tab}success${tab}[0-9][0-9]*${tab}true$" "$home/streamjson/sjw26/result" \
-  || fail "c26: the recorded result row is not <result subtype epoch is_error>: $(cat "$home/streamjson/sjw26/result")"
+grep -q "^result${tab}success${tab}[0-9][0-9]*${tab}true${tab}cause=api-error-529$" "$home/streamjson/sjw26/result" \
+  || fail "c26: the recorded result row is not <result subtype epoch is_error cause>: $(cat "$home/streamjson/sjw26/result")"
 echo "ok: c26 a result frame claiming success while carrying is_error is reported ended, not completed"
 
 # ---------------------------------------------------------------------------

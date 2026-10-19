@@ -31,8 +31,8 @@
 #      launched.
 #   h6 (REQ-A1.2): the no-pend permission posture — a worker whose result
 #      reports a permission refusal terminates: the failure lands in
-#      result.json and the completion signal fires (`completed <rc>`),
-#      never a pend.
+#      result.json and the completion signal fires (`ended <rc> <cause>`,
+#      since the result flags is_error), never a pend.
 #   h7: already-in-flight — a second launch for a unit with a live runner
 #      is refused (exit 3) and does not disturb the first.
 #   h8: status edges — `absent` for a never-dispatched unit; a garbled pid
@@ -348,7 +348,10 @@ h6() {
     return
   }
   st=$(run_fdh status "$SPEC" "$ID") || true
-  [ "$st" = "completed 1" ] || fail "h6: status should print 'completed 1', got '$st'"
+  [ "$st" = "ended 1 is-error" ] || fail "h6: status should print 'ended 1 is-error', got '$st'"
+  code=0
+  run_fdh status "$SPEC" "$ID" >/dev/null || code=$?
+  [ "$code" -eq 6 ] || fail "h6: an ended status should exit 6, got $code"
   grep -q "permission denied" "$STATE/$ID/result.json" \
     || fail "h6: the permission failure must be visible in the captured result"
   pass "h6: an unauthorized ask fails visibly in the result and completion signal, never a pend (REQ-A1.2)"

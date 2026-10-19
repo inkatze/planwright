@@ -73,7 +73,7 @@
 #       Print the observe-in-flight status-read command (REQ-D1.3). tmux:
 #       `capture-pane -p` — a read, never a write; the handle is validated first.
 #       stream-json: `fleet-streamjson.sh status <handle>` (running,
-#       awaiting-input, completed, ended, dead, unknown). subagent:
+#       awaiting-input, completed, ended, limited, dead, unknown). subagent:
 #       harness-native (completion/notification is the surface); empty stdout,
 #       exit 0. Exit 2 on an invalid handle, an unknown backend, or usage.
 #

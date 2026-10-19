@@ -114,6 +114,11 @@
 #       0  completed <rc>   completion signal present (rc = worker exit code;
 #                           a non-zero rc is still a completed one-shot — the
 #                           failure detail is in result.json/stderr.log)
+#       6  ended <rc> <cause>    completion signal present, but result.json
+#                           flags is_error: the run died on an error, named
+#                           as scripts/worker-death.sh reads it
+#       7  limited <rc> <vendor> the same, the error a vendor limit: the
+#                           runner held the unit and engaged the throttle
 #       1  running <pid>    positive evidence of life
 #       3  died <pid>       the runner is demonstrably gone with no
 #                           completion record (positive evidence via
@@ -172,6 +177,8 @@ SELF="$script_dir/fleet-dispatch-headless.sh"
 # exercises the launch-time executability pre-check); default is the sibling.
 ENVWRAP="${PLANWRIGHT_HEADLESS_ENVWRAP:-$script_dir/fleet-dispatch-env.sh}"
 EVIDENCE="$script_dir/fleet-death-evidence.sh"
+WDEATH="$script_dir/worker-death.sh"
+TAB=$(printf '\t')
 FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
 
@@ -829,6 +836,19 @@ do_run_worker() {
   # already in hand, and a TERM that interrupted the write (the default action)
   # or re-entered the trap would record 143 over it, or nothing at all.
   trap '' TERM INT
+  # An API error leaves a zero exit and a flagged result. Classified before the
+  # completion record lands, so a rate-limited unit is already held, and the
+  # throttle engaged, by the time a reader sees the run end.
+  if head -c 1048576 "$r_unit/result.json" 2>/dev/null | grep -Eq '"is_error"[[:space:]]*:[[:space:]]*true'; then
+    # A hold or throttle that did not land is surfaced to the operator, never
+    # swallowed: the run still died on the limit, so the record says so.
+    if ! /bin/sh "$WDEATH" record --unit "$r_scope" --result-json "$r_unit/result.json" \
+      >/dev/null 2>>"$r_unit/stderr.log"; then
+      r_msg="worker $r_handle died on an API error, but its classification, hold, or throttle did not complete; see $r_unit/stderr.log and check scripts/fleet-throttle.sh check before dispatching"
+      /bin/sh "$FA" decide "$r_handle" "$r_scope" "$r_msg" acknowledge "acknowledge|investigate" high >/dev/null 2>&1 || :
+      /bin/sh "$FA" notify "$r_msg" >/dev/null 2>&1 || :
+    fi
+  fi
   finish "$r_rc"
   exit 0
 }
@@ -886,7 +906,10 @@ do_status() {
   fi
   # read_exit: print `completed <rc>` (exit 0) if a well-formed exit record
   # exists, `unknown` (exit 4) if it is garbled; return 1 if there is no record
-  # yet. Factored out so the death branch can re-check it (C5).
+  # yet. Factored out so the death branch can re-check it (C5). A result.json
+  # flagging is_error is a run that died on an error whatever its exit code:
+  # `limited <rc> <vendor>` (exit 7) for a limit, else `ended <rc> <cause>`
+  # (exit 6), as scripts/worker-death.sh classifies it.
   read_exit() {
     [ -f "$unit_dir/exit" ] || return 1
     re_line=$(cat "$unit_dir/exit" 2>/dev/null || true)
@@ -897,6 +920,22 @@ do_status() {
         exit 4
         ;;
     esac
+    if head -c 1048576 "$unit_dir/result.json" 2>/dev/null | grep -Eq '"is_error"[[:space:]]*:[[:space:]]*true'; then
+      re_v=$(/bin/sh "$WDEATH" classify --result-json "$unit_dir/result.json" 2>/dev/null) || re_v=''
+      case $re_v in
+        limited"$TAB"*)
+          re_v=${re_v#limited"$TAB"}
+          printf 'limited %s %s\n' "$re_rc" "${re_v%%"$TAB"*}"
+          exit 7
+          ;;
+        failed"$TAB"*)
+          printf 'ended %s %s\n' "$re_rc" "${re_v#failed"$TAB"}"
+          exit 6
+          ;;
+      esac
+      printf 'ended %s unclassified\n' "$re_rc"
+      exit 6
+    fi
     printf 'completed %s\n' "$re_rc"
     exit 0
   }
