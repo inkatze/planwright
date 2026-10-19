@@ -19,8 +19,9 @@
 #
 # Fragment filename grammar (REQ-A1.2): <date>-<slug>-<uid>.md where <date> is
 # a real calendar date YYYY-MM-DD, <slug> is a cosmetic kebab-case token
-# [a-z0-9]+(-[a-z0-9]+)* of at most 40 chars, and <uid> is exactly 8 lowercase
-# hex characters. Fragment content is the established one-line entry form
+# [a-z0-9]+(-[a-z0-9]+)* of at most 40 chars (except `review-miss`, which marks
+# a miss-ledger entry; doctrine/review-independence.md), and <uid> is exactly 8
+# lowercase hex characters. Fragment content is the established one-line entry form
 # `- <date> [<scope>] <text>` (REQ-A1.4); the date is minted as today, never a
 # caller-facing backfill date; `--today` only pins the minted date for tests
 # (no backfill exists — bulk conversion is out of scope).
@@ -40,7 +41,8 @@
 #   obs-record.sh --slug <slug> --scope <scope> --text <text>
 #                 [--today <YYYY-MM-DD>] [--obs-dir <dir>]
 #
-#   --slug     cosmetic kebab-case topic token (filename only; renameable)
+#   --slug     cosmetic kebab-case topic token (filename only; renameable,
+#              except review-miss)
 #   --scope    the `[<scope>]` bracket content (a repo/context identifier)
 #   --text     the observation prose (single line; no newlines/control chars)
 #   --today    pin the minted date (tests); defaults to the system date

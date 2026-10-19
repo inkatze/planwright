@@ -150,8 +150,8 @@ description = "anchor-freshness guard over every non-Draft, non-terminal bundle:
 run = "/bin/sh scripts/check-anchor-freshness.sh"
 
 [tasks."check:obs"]
-description = "observation fragment store guard: filename grammar, one-entry shape, UID uniqueness, no stray files (REQ-D1.4, REQ-A1.2, REQ-A1.3, REQ-A1.4)"
-run = "/bin/bash scripts/check-obs.sh"
+description = "observation fragment store guard: filename grammar, one-entry shape, UID uniqueness, no stray files (REQ-D1.4, REQ-A1.2, REQ-A1.3, REQ-A1.4); then the miss-ledger grammar over every review-miss fragment (review-effectiveness REQ-E1.5)"
+run = ["/bin/bash scripts/check-obs.sh", "/bin/sh scripts/check-review-miss.sh"]
 
 [tasks."check:instructions"]
 description = "instruction-hygiene size guard: per-file / start-load / closure word budgets, manifest resolution, injected-context measurement, and the Task-8 closeout direction (no lingering pending-diet allowance) (prompt-hygiene Task 2, REQ-D1.4)"
