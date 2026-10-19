@@ -137,9 +137,10 @@ reuse its literal path in every call.
    re-check it. A failing amendment is re-asked once with
    `amend-brief --retry`; there is no second amendment.
 9. **Attribute.** `attribute` writes `table.md`: the amended synthesis with each
-   table label followed by its seat. Once a challenge is issued, it waits for
-   the challenge and then the amendment (exit 4 while one is still out)
-   rather than falling back to the first synthesis.
+   table label followed by its seat. Once the run holds a challenge, it waits
+   for the amendment rather than falling back to the first synthesis, and it
+   exits 4 while a challenge or amendment is still out through a drop; a
+   challenge asked in the conversation is saved before `attribute` runs.
 10. **Gate 2, in the main conversation.** Present `table.md` for a silent read
     first. Then run `gate2`. Each `choice` line is an escalated item: put it to
     the operator as a structured forced choice whose options are the human

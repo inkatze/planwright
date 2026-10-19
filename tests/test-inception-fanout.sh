@@ -505,6 +505,7 @@ ln -s "$tmp/secret.txt" "$drop/seat-3.md"
 "$FANOUT" collect --run "$run" seat-3.md >/dev/null 2>&1
 assert_eq "collect: a symlinked delivery is refused" "2" "$?"
 assert_no_file "collect: and nothing reaches the run" "$run/seat-3.md"
+rm -f "$drop/seat-3.md" "$run/drop-seat-3"
 "$FANOUT" collect --run "$run" labels.tsv >/dev/null 2>&1
 assert_eq "collect: only a delivered document is collected" "2" "$?"
 sed_i "$v/exports/frame.md" 's/^# Northwind Signals — Frame$/# A Changed Frame — Frame/'
@@ -855,9 +856,18 @@ assert_eq "synthesis-brief --retry: a re-ask that never delivered is issued agai
 assert_contains "synthesis-brief --retry: from the set-aside answer" "The [redacted] reading agrees" "$out"
 # shellcheck disable=SC2016 # literal backticks
 rdrop="$(printf '%s\n' "$out" | sed -n 's/^Write the finished synthesis document, and nothing else, to `\(.*\)\/synthesis\.md\.partial`.*/\1/p')"
+"$FANOUT" synthesis-brief --retry --run "$r11" "$v" >/dev/null 2>&1
+assert_eq "synthesis-brief --retry: re-issued in the conversation" "0" "$?"
+assert_no_file "synthesis-brief --retry: which retires the undelivered drop's record" "$r11/drop-synthesis"
+assert_eq "synthesis-brief --retry: and its empty directory" "no" "$([ -d "$rdrop" ] && echo yes || echo no)"
+out="$("$FANOUT" synthesis-brief --deliver-file --retry --run "$r11" "$v" 2>&1)"
+# shellcheck disable=SC2016 # literal backticks
+rdrop="$(printf '%s\n' "$out" | sed -n 's/^Write the finished synthesis document, and nothing else, to `\(.*\)\/synthesis\.md\.partial`.*/\1/p')"
 good_synthesis "$rdrop/synthesis.md"
 "$FANOUT" synthesis-brief --deliver-file --retry --run "$r11" "$v" >/dev/null 2>&1
 assert_eq "synthesis-brief: a delivery waiting in its drop is never asked for again" "1" "$?"
+"$FANOUT" synthesis-brief --retry --run "$r11" "$v" >/dev/null 2>&1
+assert_eq "synthesis-brief: nor asked for in the conversation" "1" "$?"
 "$FANOUT" collect --run "$r11" synthesis.md >/dev/null 2>&1
 "$FANOUT" synthesis-brief --retry --run "$r11" "$v" >/dev/null 2>&1
 assert_eq "synthesis-brief --retry: once delivered, there is no further re-ask" "1" "$?"

@@ -864,7 +864,6 @@ take_flags() {
 drop_path=
 old_drop=
 prepare_drop() {
-  [ -n "$deliver_file" ] || return 0
   old_drop=
   pd_rec="$run/drop-${1%.md}"
   if [ -f "$pd_rec" ] && [ ! -h "$pd_rec" ]; then
@@ -874,6 +873,7 @@ prepare_drop() {
   if [ -n "$old_drop" ] && { [ -e "$old_drop/$1" ] || [ -h "$old_drop/$1" ]; }; then
     die 1 "a delivered $1 is waiting in its drop; collect it rather than asking again"
   fi
+  [ -n "$deliver_file" ] || return 0
   drop_pending=$(mktemp -d "${TMPDIR:-/tmp}/inception-drop.XXXXXX") || die 2 "cannot create a drop directory"
   drop_path=$(cd "$drop_pending" && pwd -P) || die 2 "cannot resolve the drop directory"
 }
@@ -1459,8 +1459,9 @@ check_retry() {
 # commit_retry <file>: once the re-ask is out, the failed file is set aside as
 # <name>-attempt-1.md, which also marks the re-ask as used.
 commit_retry() {
-  [ "$retry_src" = "$run/$1" ] || return 0
-  mv "$run/$1" "$run/${1%.md}-attempt-1.md" || die 2 "the re-ask is out, but $1 could not be set aside; move it to ${1%.md}-attempt-1.md"
+  if [ "$retry_src" = "$run/$1" ]; then
+    mv "$run/$1" "$run/${1%.md}-attempt-1.md" || die 2 "the re-ask is out, but $1 could not be set aside; move it to ${1%.md}-attempt-1.md"
+  fi
   # A re-ask answered in the conversation leaves no drop to wait on; an earlier
   # ask's drop record would otherwise read as a re-ask still out.
   if [ -z "$deliver_file" ] && run_has "drop-${1%.md}"; then
