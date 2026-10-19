@@ -41,7 +41,12 @@
 #                                           it builds is the worker's own whatever
 #                                           the tmux server's environment holds
 #                                           (fleet-hardening D-10, D-11). The
-#                                           options, each at most once:
+#                                           fleet tower launches use this form
+#                                           too, with --inbound accept alone,
+#                                           under which the wrapper keeps the
+#                                           pins below (fleet-tower-launch.sh
+#                                           drops the tower identity itself).
+#                                           The options, each at most once:
 #                                             --identity <handle> <scope>
 #                                               exported as PLANWRIGHT_WORKER_HANDLE
 #                                               and PLANWRIGHT_WORKER_SCOPE; both
@@ -59,6 +64,13 @@
 #                                             --fleet-home <dir>
 #                                               an absolute path, exported as
 #                                               PLANWRIGHT_FLEET_STATE_DIR
+#                                             --inbound accept
+#                                               exported as
+#                                               PLANWRIGHT_MESSAGING_INBOUND,
+#                                               the command-line layer the
+#                                               messaging probe reads beside a
+#                                               launch's --settings profile
+#                                               (`accept` is the one value)
 #                                             --spec-root <dir>
 #                                               an existing absolute directory,
 #                                               exported as
@@ -80,8 +92,9 @@
 #                                               (scripts/worker-session-record.sh)
 #                                           A malformed or half-supplied option is
 #                                           refused (exit 2) before anything runs.
-#                                           Any launch option also drops the
-#                                           tower identity and repository pins
+#                                           Any launch option but --inbound
+#                                           also drops the tower identity and
+#                                           repository pins
 #                                           (PLANWRIGHT_TOWER_ID,
 #                                           PLANWRIGHT_TOWER_SESSION_ID,
 #                                           PLANWRIGHT_TOWER_PID,
@@ -156,7 +169,7 @@ usage() {
   echo "usage: fleet-dispatch-env.sh <cmd> [args...]           (exec <cmd> with the hardened dispatch env)" >&2
   echo "       fleet-dispatch-env.sh --print                   (print the KEY=VALUE assignment(s), one per line)" >&2
   echo "       fleet-dispatch-env.sh --emit-launch <argv...>   (print the pin-carrying wrapped launch command line)" >&2
-  echo "       fleet-dispatch-env.sh [--check] [--identity <handle> <scope>] [--launch-token <hex>] [--root <dir>] [--fleet-home <dir>] [--spec-root <dir>] [--session-record <file>] <cmd> [args...]" >&2
+  echo "       fleet-dispatch-env.sh [--check] [--identity <handle> <scope>] [--launch-token <hex>] [--root <dir>] [--fleet-home <dir>] [--spec-root <dir>] [--session-record <file>] [--inbound accept] <cmd> [args...]" >&2
   exit 2
 }
 
@@ -193,6 +206,7 @@ opt_root=''
 opt_home=''
 opt_spec_root=''
 opt_record=''
+opt_inbound=''
 while [ "$#" -gt 0 ]; do
   case $1 in
     --check)
@@ -252,11 +266,19 @@ while [ "$#" -gt 0 ]; do
       opt_record=$2
       shift 2
       ;;
+    --inbound)
+      [ -z "$opt_inbound" ] || refuse_option "--inbound given twice"
+      [ "$#" -ge 2 ] && [ "$2" = accept ] || refuse_option "--inbound takes the one value accept"
+      opt_inbound=$2
+      shift 2
+      ;;
     *) break ;;
   esac
 done
+opt_pins=0
+[ -z "$opt_handle$opt_token$opt_root$opt_home$opt_spec_root$opt_record" ] || opt_pins=1
 opt_any=0
-[ "$opt_check" -eq 0 ] && [ -z "$opt_handle$opt_token$opt_root$opt_home$opt_spec_root$opt_record" ] || opt_any=1
+[ "$opt_check" -eq 0 ] && [ "$opt_pins" -eq 0 ] && [ -z "$opt_inbound" ] || opt_any=1
 if [ "$opt_any" -eq 1 ]; then
   [ "$#" -ge 1 ] || refuse_option "the launch options need a command to run"
   case $1 in
@@ -431,7 +453,7 @@ fi
 # command. `export` makes the value visible to the launched session and every
 # descendant it spawns; the unconditional set overrides any inherited value.
 export "$GHOST_TEXT_KEY=$GHOST_TEXT_VALUE"
-if [ "$opt_any" -eq 1 ]; then
+if [ "$opt_pins" -eq 1 ]; then
   unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID \
     PLANWRIGHT_TOWER_CHECKOUT PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR \
     PLANWRIGHT_WORKER_SPEC_ROOT PLANWRIGHT_WORKER_SESSION_RECORD
@@ -463,6 +485,10 @@ fi
 if [ -n "$opt_record" ]; then
   PLANWRIGHT_WORKER_SESSION_RECORD=$opt_record
   export PLANWRIGHT_WORKER_SESSION_RECORD
+fi
+if [ -n "$opt_inbound" ]; then
+  PLANWRIGHT_MESSAGING_INBOUND=$opt_inbound
+  export PLANWRIGHT_MESSAGING_INBOUND
 fi
 export_root_vars
 exec "$@"

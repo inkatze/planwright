@@ -207,8 +207,8 @@ steps_post_pr: []
 steps_pre_ready_flip: []
 steps_pre_spec_ready_flip: []
 # Named, not wired (gated under custom-steps' Deferred): a non-empty list here
-# resolves no steps and is reported as unwired by the resolver (and by
-# check:steps once that guard is wired).
+# resolves no steps and is reported as unwired by the resolver and by
+# check:steps.
 steps_spec_drafted: []
 steps_kickoff_signed_off: []
 steps_unit_selected: []
@@ -751,6 +751,12 @@ instruction_budget_startload_error: 10000
 # Reachable closure (start-load + point-of-use rule docs).
 instruction_budget_closure_warn: 15000
 instruction_budget_closure_error: 20000
+# The composed chain (/polish running /self-review nested, review-effectiveness
+# D-12): both bodies plus each doc either manifest loads, charged once. It is
+# one session's reachable closure, so its own knob ships at the closure error
+# default and shares the closure floor; it does not follow an overlay of the
+# closure knob. Overlay-tunable and raise-governed like the other knobs.
+instruction_budget_chain_closure_error: 20000
 # Per-surface headroom floors (instruction-headroom D-2, REQ-A1.1): the minimum
 # word margin to the error threshold before the restoration ladder triggers, one
 # per budgeted class (SKILL.md body / rule doc / mandatory-at-start / reachable
@@ -836,6 +842,17 @@ tower_lease_interval: 15m
 tower_catchup_limit: 20
 tower_shelve_return: 1h
 tower_reknock_age: 30m
+
+# How a tower's bring-up is to respond to running in a checkout's main tree
+# rather than its own linked worktree; no bring-up reads it yet, so today no
+# value changes what a tower does. `warn` says so once and continues; `refuse`
+# holds repo-mutating routes and relay until the tower moves or the operator
+# acknowledges; `allow` says nothing, and is how a dedicated tower clone (which
+# git cannot tell from the primary checkout) declares itself, set in that
+# clone's machine-local layer. Read by scripts/tower-placement.sh through the
+# shared knob resolver; a value outside the three is malformed under the
+# by-layer policy.
+tower_placement: warn
 
 # Cross-session messaging, the fleet's signal transport where a session has it
 # (doctrine/messaging-transport.md).
@@ -935,3 +952,11 @@ worker_self_approval:
 # value warns and falls back to ~/ventures (a control byte passes to the next
 # lower layer); a malformed repo-tracked value fails.
 ventures_root: ~/ventures
+
+# Named observation targets (custom-spec-location D-18, REQ-F1.2): a flat
+# inline {alias: path} map, each path absolute or ~/ and naming a marked spec
+# root or the default root of a git checkout, that `obs-record.sh --target
+# <alias>` writes a fragment into after the hygiene screen. Ships empty; the
+# values are paths on one machine, so the machine-local or adopter layer is
+# their usual home.
+observation_targets: {}

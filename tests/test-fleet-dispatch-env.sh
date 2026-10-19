@@ -226,4 +226,29 @@ uc=0
 "$FDE" --check --identity a b >/dev/null 2>&1 || uc=$?
 [ "$uc" -eq 2 ] || fail "--check with no command should exit 2 (usage), got $uc"
 
+# --inbound accept is the command-line layer the messaging probe reads beside a
+# launch's --settings profile (fleet-messaging D-17, D-19). On its own it
+# leaves the tower pins alone: a relaunched tower is not a worker, so it keeps
+# the environment it had before the option existed.
+in_session="$tmp/in-session.sh"
+cat >"$in_session" <<'EOF'
+#!/bin/sh
+printf 'inbound=%s\n' "$(printenv PLANWRIGHT_MESSAGING_INBOUND || echo '<unset>')"
+printf 'tower=%s\n' "$(printenv PLANWRIGHT_TOWER_ID || echo '<unset>')"
+EOF
+chmod +x "$in_session"
+in_out=$(PLANWRIGHT_MESSAGING_INBOUND=refuse PLANWRIGHT_TOWER_ID=p9.t9.c9 "$FDE" --inbound accept "$in_session") \
+  || fail "a launch with --inbound accept failed (exit $?)"
+printf '%s\n' "$in_out" | grep -qx 'inbound=accept' || fail "--inbound accept did not reach the launched process: $in_out"
+printf '%s\n' "$in_out" | grep -qx 'tower=p9.t9.c9' || fail "--inbound alone dropped the tower pins: $in_out"
+in_out=$(PLANWRIGHT_MESSAGING_INBOUND=accept "$FDE" "$in_session") || fail "a plain launch failed"
+printf '%s\n' "$in_out" | grep -qx 'inbound=accept' || fail "a plain launch lost an inherited inbound value: $in_out"
+in_out=$("$FDE" --identity tmux-demo-task-3 demo:3 --inbound accept "$id_session") \
+  || fail "--inbound beside --identity failed"
+in_ck=$("$FDE" --check --inbound accept "$in_session") || fail "--check over --inbound accept must exit 0"
+[ -z "$in_ck" ] || fail "--check over --inbound launched something: $in_ck"
+expect_refused "inbound with no value" --inbound
+expect_refused "inbound other than accept" --inbound hold
+expect_refused "inbound given twice" --inbound accept --inbound accept
+
 echo "ok: test-fleet-dispatch-env"

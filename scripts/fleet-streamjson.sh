@@ -10,11 +10,16 @@
 # WHAT THIS IS (D-5). A supervisor process owns a stream-json worker's stdio:
 # it launches the worker (`claude -p --input-format stream-json
 # --output-format stream-json --verbose --permission-prompt-tool stdio
-# --settings <config/worker-settings.json>`; non-`--bare` pinned per
+# --settings <config/worker-settings.json> --name <worker>`, with the worker
+# identity and PLANWRIGHT_MESSAGING_INBOUND=accept exported, so its hooks
+# write attention rows and register its session name (fleet-messaging D-8,
+# D-19); a handle outside the relay's stream-json-persistent grammar, which
+# names the session, is refused; non-`--bare` pinned per
 # D-12/REQ-A1.5, and the worker-settings fragment pinned per fleet-autonomy
 # D-19/REQ-E1.4. Pinning means never passing `--bare`, always passing the
-# fragment resolved from this script's own location, and REFUSING a
-# caller-supplied `--bare` or `--settings`. The fragment is the mode source:
+# fragment under the root the core root chain names (fleet-launch-profile.sh),
+# and REFUSING a caller-supplied `--bare`,
+# `--settings`, or `--name`. The fragment is the mode source:
 # Claude Code honors a `defaultMode` of auto from the operator's own user
 # settings, so a worker launched without a readable fragment inherits the LLM
 # approval classifier in place of the human-reviewed allowlist, and the stdio
@@ -50,9 +55,14 @@
 #   ratelimit        the newest rate-limit frame's readings, as
 #                    scripts/claude-frames.sh persist stores them
 #   result           the run outcome, one tab-separated row:
-#                    result <subtype> <epoch> [is_error] | exit <rc> <epoch>
+#                    result <subtype> <epoch> [is_error [cause]]
+#                    | exit <rc> <epoch> [true <cause>]
 #                    is_error ∈ true|false, absent on records written before
-#                    the field existed (read as false). Newline-terminated:
+#                    the field existed (read as false). When it is true, cause
+#                    is how the run died, as scripts/worker-death.sh read it
+#                    from the stream: `limited=<vendor>` or `cause=<token>`;
+#                    an exit row carries the pair only when the stream showed
+#                    an API error. Newline-terminated:
 #                    the terminator is what says the writer finished, so a row
 #                    without one is a write in flight, never a completion.
 #   supervisor.pid / worker.pid / recover.lock / journal.lock / launch.lock
@@ -142,7 +152,9 @@
 # COMPLETION / LIVENESS. This backend's completion/liveness source is the
 # supervisor plus the event stream (the sibling of Task 3's completion
 # signal): `status` reports completed from the captured result event, `ended`
-# when that event flagged is_error (the turn completed, the run did not), and
+# when that event flagged is_error (the turn completed, the run did not),
+# `limited` when the error was a vendor limit (the unit is then held and the
+# dispatch throttle engaged, scripts/worker-death.sh), and
 # dead only on positive evidence (fleet-death-evidence.sh `process <pid>`
 # verdicts for both recorded pids) — silence is never death.
 #
@@ -226,9 +238,10 @@
 #       or `stop <worker> already-closed`; the periodic sweep's observing mode
 #       records its would-have close from this.
 #   fleet-streamjson.sh status <worker>
-#       Print `status <worker> <running|awaiting-input|completed|ended|dead|
-#       unknown> <detail>` from the recorded pids, the receipt journal and the
-#       captured event stream. `awaiting-input` is a live worker with a pending
+#       Print `status <worker> <running|awaiting-input|completed|ended|limited|
+#       dead|unknown> <detail>` from the recorded pids, the receipt journal and
+#       the captured event stream; an `ended` or `limited` detail names the
+#       recorded cause. `awaiting-input` is a live worker with a pending
 #       control_request: the detail carries `pending=<n> oldest=<age>s
 #       supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending row
 #       has a readable epoch; a spooled receipt counts as pending), so a worker
@@ -361,6 +374,7 @@ FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
 FDE="$script_dir/fleet-death-evidence.sh"
 FRAMES="$script_dir/claude-frames.sh"
+WDEATH="$script_dir/worker-death.sh"
 
 # The worker binary. Tests point this at a shim; the default is the
 # installed CLI (D-4: the installed `claude` CLI is the only driver, never
@@ -503,7 +517,9 @@ write_pidfile() {
 # `kill -0` has already said no, so the common path stays fork-free.
 pid_live() {
   kill -0 "$1" 2>/dev/null && return 0
-  ps -p "$1" >/dev/null 2>&1
+  ps -p "$1" >/dev/null 2>&1 && return 0
+  # procfs only where ps has no -p: elsewhere /proc/<n> also resolves a thread.
+  ! ps -p "$$" >/dev/null 2>&1 && [ -d "/proc/$1" ]
 }
 
 # worker_alive <dir> — true when a pid this worker's own state records is live.
@@ -620,13 +636,24 @@ journal_pending_ids() {
 # prompt path and the deny-message path cannot drift apart.
 json_escape() {
   tr -d '\000-\010\013\014\016-\037\177' | awk '
+    # Escapes are joined in, never written as a gsub replacement: busybox awk
+    # strips the backslash from every escape in one (so \" came out as a bare
+    # quote), and no single spelling means the same in every awk. `&&` (the
+    # match twice) is the one replacement they all agree on.
+    function joined(s, sep, with,   p, n, i, o) {
+      n = split(s, p, sep)
+      o = p[1]
+      for (i = 2; i <= n; i++) o = o with p[i]
+      return o
+    }
+    BEGIN { bs = "\\" }
     NR > 1 { printf "\\n" }
     {
       s = $0
-      gsub(/\\/, "\\\\", s)
-      gsub(/"/, "\\\"", s)
-      gsub(/\t/, "\\t", s)
-      gsub(/\r/, "\\r", s)
+      gsub(/\\/, "&&", s)
+      s = joined(s, "\"", bs "\"")
+      s = joined(s, "\t", bs "t")
+      s = joined(s, "\r", bs "r")
       printf "%s", s
     }
   '
@@ -1137,6 +1164,35 @@ receipt_drain() {
   return 0
 }
 
+# death_cause <worker> <dir> <fallback> — classify how the run's last turn
+# ended from the event stream (scripts/worker-death.sh, which also holds a
+# rate-limited unit and engages the throttle) and print the record's cause
+# field: `limited=<vendor>`, `cause=<token>`, or nothing for a clean turn. When
+# the classifier cannot run, <fallback> is printed in its place. A scope
+# without a task part (a flight) is not unique, so the worker names the unit.
+death_cause() {
+  dc_unit=$(read_scope "$2")
+  case $dc_unit in
+    *:*) ;;
+    *) dc_unit="$dc_unit:$1" ;;
+  esac
+  dc_rc=0
+  dc_out=$(/bin/sh "$WDEATH" record --unit "$dc_unit" --events "$2/events.jsonl" 2>>"$2/supervisor.log") || dc_rc=$?
+  # The verdict still stands when an act failed (the run did die on the
+  # limit); the missing hold or throttle goes to the operator instead.
+  [ "$dc_rc" = 0 ] || attention_failure "$1" "$2" \
+    "worker $1 died on an API error, but its classification, hold, or throttle did not complete (worker-death exit $dc_rc); see $2/supervisor.log and check scripts/fleet-throttle.sh check before dispatching"
+  case $dc_out in
+    limited"$TAB"*)
+      dc_v=${dc_out#limited"$TAB"}
+      printf 'limited=%s' "${dc_v%%"$TAB"*}"
+      ;;
+    failed"$TAB"*) printf 'cause=%s' "${dc_out#failed"$TAB"}" ;;
+    clean) ;;
+    *) printf '%s' "$3" ;;
+  esac
+}
+
 # handle_line <worker> <dir> <line> — classify one captured event line and
 # apply the D-5 coupling. NEVER writes to the worker's stdin (the
 # no-auto-answer invariant: the only control_response writer is `answer`).
@@ -1205,7 +1261,15 @@ handle_line() {
         *'"is_error":true'*) hl_err=true ;;
         *) hl_err=false ;;
       esac
-      printf 'result\t%s\t%s\t%s\n' "$hl_sub" "$hl_now" "$hl_err" >"$hl_dir/result"
+      # The death is classified before the record lands, so a reader that sees
+      # the record also sees the hold and the throttle it engaged.
+      if [ "$hl_err" = true ]; then
+        hl_cause=$(death_cause "$hl_worker" "$hl_dir" cause=unclassified)
+        [ -n "$hl_cause" ] || hl_cause=cause=is-error
+        printf 'result\t%s\t%s\t%s\t%s\n' "$hl_sub" "$hl_now" "$hl_err" "$hl_cause" >"$hl_dir/result"
+      else
+        printf 'result\t%s\t%s\t%s\n' "$hl_sub" "$hl_now" "$hl_err" >"$hl_dir/result"
+      fi
       ;;
   esac
 }
@@ -1313,8 +1377,15 @@ supervise() {
     # completing the protocol. This is an END record, not a completion —
     # `cmd_status` renders a nonzero exit as `ended`, never `completed`, so a
     # crash or non-zero exit is not conflated with success.
+    # A run can end on an API error with no result frame, the error only in
+    # the stream, and still exit zero.
+    sv_cause=$(death_cause "$sv_worker" "$sv_dir" '')
     sv_now=$(now_epoch) || sv_now=0
-    printf 'exit\t%s\t%s\n' "$sv_ec" "$sv_now" >"$sv_dir/result"
+    if [ -n "$sv_cause" ]; then
+      printf 'exit\t%s\t%s\ttrue\t%s\n' "$sv_ec" "$sv_now" "$sv_cause" >"$sv_dir/result"
+    else
+      printf 'exit\t%s\t%s\n' "$sv_ec" "$sv_now" >"$sv_dir/result"
+    fi
   fi
   return "$sv_ec"
 }
@@ -1357,6 +1428,10 @@ refuse_settings() {
         printf '%s\n' "$me: refusing '--settings' in the launch argv - the worker-settings pin is structural (fleet-autonomy D-19, REQ-E1.4)" >&2
         return 2
         ;;
+      --name | --name=* | -n)
+        printf '%s\n' "$me: refusing '--name' in the launch argv - the session is named after the worker handle (fleet-messaging D-8)" >&2
+        return 2
+        ;;
     esac
   done
 }
@@ -1379,15 +1454,15 @@ refuse_mode_overrides() {
 }
 
 # worker_settings_path — print the reviewed permission fragment the launch
-# pins, resolved from this script's own location so a marketplace install
-# finds it. Fails closed when it cannot be read: an unverifiable mode source is
-# no mode source, and a worker launched without one inherits the operator's
-# (see the header).
+# pins: the worker profile under the root the core root chain names
+# (fleet-launch-profile.sh), whose first arms are the roots the dispatch-env
+# wrapper pins the worker to, so the profile and the hooks it names come from
+# one install. Fails closed when it cannot be
+# read: an unverifiable mode source is no mode source, and a worker launched
+# without one inherits the operator's (see the header).
 worker_settings_path() {
-  ws_dir=$(cd "$script_dir/../config" 2>/dev/null && pwd -P) || ws_dir="$script_dir/../config"
-  ws_path="$ws_dir/worker-settings.json"
-  if [ ! -f "$ws_path" ] || [ ! -r "$ws_path" ]; then
-    printf '%s\n' "$me: refusing to launch: worker-settings fragment $ws_path missing or unreadable - without it the worker inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
+  if ! ws_path=$(/bin/sh "$script_dir/fleet-launch-profile.sh" worker </dev/null); then
+    printf '%s\n' "$me: refusing to launch: without its worker-settings fragment the worker inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
     return 7
   fi
   printf '%s\n' "$ws_path"
@@ -1877,6 +1952,12 @@ cmd_launch() {
   refuse_bare "$@" || exit 2
   refuse_settings "$@" || exit 2
   refuse_mode_overrides "$@" || exit 2
+  # The session is named after the handle (fleet-messaging D-8), so the handle
+  # must also be a name the relay's grammar for this rung owns.
+  if ! /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle stream-json-persistent "$worker" 2>/dev/null; then
+    printf '%s\n' "$me: refusing to launch: the worker handle is outside the relay's stream-json-persistent grammar (orchestrate-relay.sh validate-handle), which names the session" >&2
+    exit 2
+  fi
   worker_settings=$(worker_settings_path) || exit 7
   dispatch_env=$(dispatch_env_path) || exit 8
   guard_preflight "$dispatch_env" "${run_cwd:-$PWD}"
@@ -1943,6 +2024,20 @@ cmd_launch() {
   if [ -n "$scope" ]; then
     printf '%s\n' "$scope" >"$dir/scope"
   fi
+  # The worker identity its hooks key on (attention rows, liveness, and its
+  # self-registration), and the inbound layer the messaging probe reads beside
+  # the --settings profile (fleet-messaging D-8, D-17, D-19). A resume carries
+  # no scope argument, so it reads back the one its launch persisted.
+  id_scope=$scope
+  [ -n "$id_scope" ] || id_scope=$(cat "$dir/scope" 2>/dev/null) || id_scope=''
+  if ! valid_field "$id_scope"; then
+    printf '%s\n' "$me: refusing to launch $worker: no worker scope (PLANWRIGHT_WORKER_SCOPE) to export; its launch recorded none" >&2
+    exit 2
+  fi
+  PLANWRIGHT_WORKER_HANDLE=$worker
+  PLANWRIGHT_WORKER_SCOPE=$id_scope
+  PLANWRIGHT_MESSAGING_INBOUND=accept
+  export PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_MESSAGING_INBOUND
 
   init_msg=$(mktemp "$dir/.init.XXXXXX") || exit 2
   if [ -n "$resume_sid" ]; then
@@ -1963,7 +2058,7 @@ cmd_launch() {
   # prompt tool (the receipt channel), the reviewed worker-settings fragment
   # (the mode source), and NEVER --bare.
   set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
-    --verbose --permission-prompt-tool stdio --settings "$worker_settings" "$@"
+    --verbose --permission-prompt-tool stdio --settings "$worker_settings" --name "$worker" "$@"
   if [ -n "$resume_sid" ]; then
     set -- "$@" --resume "$resume_sid"
   fi
@@ -2858,15 +2953,21 @@ cmd_status() {
     # render `ended`, never conflated with `completed`.
     st_ec=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $2 }')
     st_err=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $4 }')
+    st_cause=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $5 }')
     if [ "$st_err" = true ]; then
       # Name both halves: the contradiction is the diagnostic, so collapsing it
       # to either one alone hides why the run is being called ended.
       detail="$detail/is_error=true"
+      case $st_cause in
+        limited=* | cause=*) detail="$detail/$st_cause" ;;
+      esac
     fi
     # Composed first, bounded once: truncating before the suffix is appended
     # can cut the suffix back off, leaving `ended` with nothing saying why.
     detail=$(sanitize_printable "$detail" unknown | cut -c1-64)
-    if { [ "$st_kind" = exit ] && [ "$st_ec" != 0 ]; } || [ "$st_err" = true ]; then
+    if [ "$st_err" = true ] && [ "${st_cause#limited=}" != "$st_cause" ]; then
+      printf 'status %s limited %s\n' "$worker" "$detail"
+    elif { [ "$st_kind" = exit ] && [ "$st_ec" != 0 ]; } || [ "$st_err" = true ]; then
       printf 'status %s ended %s\n' "$worker" "$detail"
     else
       printf 'status %s completed %s\n' "$worker" "$detail"

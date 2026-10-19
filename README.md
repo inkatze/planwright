@@ -4,21 +4,21 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757.svg)](https://claude.com/plugins)
 
-planwright is an opinionated Claude Code framework for **spec-driven
-development**: you specify a feature precisely, sign it off, and the framework
-builds it — advancing tasks, opening draft pull requests, and converging review
-on its own — while you keep the two controls that matter: **sign-off** and
-**merge**.
+planwright is an opinionated Claude Code framework for getting real work done
+by an agent without giving up the controls that matter. You start with one
+command, **`/tower`**, and say what you want in your own words. The tower
+answers questions itself, and for work that changes your repository it picks
+how much ceremony the work deserves, tells you why in one line, and hands the
+work to an isolated agent that builds it, reviews it, and lands it for your
+review as a **draft pull request**. Merging stays yours.
 
-Think autopilot, not a replacement crew. How well it flies is bounded by how
-good your spec is, so planwright's whole investment is getting the spec right
-before any code is written. Under the hood it is a guardrailed **agent
-harness**: the model brings the intelligence; planwright brings the
+Think autopilot, not a replacement crew. Small, reversible changes fly
+straight to review with an audit record of what was done and how it was
+checked. Risky or unclear work gets a written spec first, which you walk and
+sign off before any code is written. Under the hood it is a guardrailed
+**agent harness**: the model brings the intelligence; planwright brings the
 verification loops, bounded iteration, no-progress detection, and hard human
-checkpoints that make autonomous coding shippable. Run one spec and it is an
-autopilot; run several and it is an
-[agentic software factory](#run-it-as-a-software-factory) with a human quality
-gate at the end of the line.
+checkpoints that make autonomous coding shippable.
 
 > **Status: v1, self-hosting.** The founding spec (`specs/bootstrap/`) that
 > defines planwright v1 is complete, and planwright now develops itself through
@@ -26,17 +26,19 @@ gate at the end of the line.
 > please [report what you find](https://github.com/inkatze/planwright/issues/new/choose).
 
 **New here?** The [getting-started guide](docs/getting-started.md) takes you
-from a clean machine to running the pipeline end to end.
+from a clean machine to your first draft PR.
 
 ## Why planwright
 
-- **Specs before code.** Every feature is four files — requirements, design,
-  tasks, tests — reviewed and signed off before a line is written. The spec is
-  the contract the agent executes against, not an afterthought.
-- **You keep the controls.** Two actions are human-reserved, permanently:
-  **sign-off** (no spec runs until you have walked it and signed the brief) and
-  **merge** (every PR is a draft; planwright never auto-merges). Everything in
-  between is one revert from undone.
+- **One front door.** Type `/tower` and ask. You do not need to learn the
+  framework's machinery to use it; the tower routes each request and states
+  its grounds.
+- **Rigor that fits the work.** A typo fix does not pay for a spec; a change
+  to authentication does not skip one. The choice is made per request, by
+  stake and reversibility, and you can override it in one sentence.
+- **You keep the controls.** Every pull request opens as a draft, and merging
+  is always your call; a change that cannot reach your host yet stays local.
+  Work that runs from a spec runs only after you sign it off.
 - **Guardrailed autonomy.** Review and execution run in bounded loops —
   iteration caps, convergence criteria, no-progress detection — with hard pauses
   at security-sensitive or irreversible steps.
@@ -50,7 +52,7 @@ from a clean machine to running the pipeline end to end.
 - **Claude Code** — a recent version with the plugin and skill system.
 - **git**, and a **GitHub repository** with the
   [**`gh`** CLI](https://cli.github.com/) authenticated — planwright opens draft
-  PRs through `gh`. Without GitHub/`gh` the pipeline degrades gracefully, but the
+  PRs through `gh`. Without GitHub/`gh` the work still happens locally, but the
   pull-request flow is unavailable; see
   [the GitHub requirement](docs/getting-started.md#2-the-github-requirement-and-what-happens-without-it).
 
@@ -63,88 +65,79 @@ planwright installs through Claude Code's standard marketplace flow:
 /plugin install planwright@planwright
 ```
 
-For environments without plugin support there is a no-plugin **`~/.claude/`
-writer** (`scripts/install.sh`, portable shell only). Both modes, and the
-upgrade path, are covered in [Install](docs/getting-started.md#1-install).
+For environments without plugin support there is a portable no-plugin
+installer. Both modes, and the upgrade path, are covered in
+[Install](docs/getting-started.md#1-install).
 
 ## Quickstart
 
-Once installed, you drive five steps; planwright does the work between your two
-controls:
+Open Claude Code in your repository and type `/tower`:
 
 ```text
-   /spec-draft  →  /spec-kickoff  →  /orchestrate  →  /execute-task  →  review & merge
-                        ▲                                                      ▲
-                    sign-off                                                 merge
-                  (gate 1: no spec                                    (gate 2: planwright
-                   runs unsigned)                                      never auto-merges)
-
-   └──── you author ────┘   └──── planwright runs the middle ────┘   └─── you decide ───┘
+/tower
 ```
 
-1. **`/spec-draft <feature>`** — interactively elicit the four-file spec bundle
-   (Status `Draft`).
-2. **`/spec-kickoff <spec-path>`** — walk the spec section by section to mutual
-   understanding and sign the kickoff brief. Sign-off flips the spec to
-   `Active`. *(your first control)*
-3. **`/orchestrate <spec-path>`** — pick the next ready task, create its
-   worktree, and dispatch execution. Stateless: one step per call, so you can
-   run it in several sessions for parallelism.
-4. **`/execute-task <ids>`** — test-first implementation, full CI with adaptive
-   retry, convergence via `/polish`, then a **draft PR**.
-5. **Review and merge.** *(your second control)*
+Then say what you want, the way you would to a colleague: *"the CLI's help
+text has a typo in the export command"*, *"why does the nightly job retry
+three times?"*, *"add rate limiting to the public API"*.
 
-The [getting-started guide](docs/getting-started.md) walks each step in depth.
+- **A question** gets an answer in the conversation.
+- **A change** gets a route and its grounds in one line, then flies under one
+  of two flight rules. The names are the aviation analogy: visual rules when
+  conditions are clear enough to fly by what you can see, instrument rules
+  when you file a plan and trust the gauges.
+  - **Visual flight** — clear, reversible work. An isolated agent makes the
+    change, reviews it until it converges, and lands it with an audit record
+    of what was asked, what was done, and how it was checked: in a draft PR
+    once you allow flights to push to your host, kept local until then (the
+    tower says which before the flight leaves).
+  - **Instrument flight** — risky or unclear work. The tower makes the case
+    for writing a spec first; on your yes it starts drafting one, and you walk
+    it and sign it off with `/spec-kickoff` before anything is built.
+- **Disagree with the route?** Say so in one sentence (*"just do it"*, *"write
+  a spec for this"*) and the tower flies it your way, stating any reservation.
+- **Ask what is happening** at any time; the tower reports the status of
+  everything in flight.
 
-## Run it as a software factory
-
-One signed-off spec is autopilot; several at once is a factory floor. Fleet
-mode turns planwright into a small **agentic software factory**: standardized
-inputs (signed specs), an automated assembly path (isolated workers in
-dedicated worktrees), automated quality control (test-first execution, full
-CI, bounded review convergence), and a human review gate at the end of the
-line.
-
-```text
-/orchestrate --fleet
-```
-
-That one command autodetects the execution backends on your host, starts a
-meta-tower that supervises every Ready or Active spec (running each spec's
-dispatch step itself, one isolated worker per task, all under a fleet-wide
-concurrency bound), and renders a single attention surface: a decision queue plus
-per-worker heartbeats. You answer only the questions that are yours. The same
-two controls hold at fleet scale: every unit executes from a spec you signed,
-and every PR lands as a draft for you to merge. See
-[Fleet operation](docs/fleet.md).
+Review the draft PR, and merge it when you are satisfied. The
+[getting-started guide](docs/getting-started.md#3-start-with-the-tower) walks
+a first session in more depth.
 
 ## How it works
 
-### The two controls
+### Flight rules
 
-planwright is an autopilot, not a replacement crew. Two controls are
-human-reserved, permanently:
+The tower chooses the route for each request; it is never a mode you set.
+Work in a hard-disqualifier zone (security-sensitive code, migrations and
+destructive operations, CI configuration, lockfiles, secrets) or otherwise not
+one revert from undone files instrument flight automatically; work the tower
+cannot state a clear "done when" for escalates by judgment; size alone never
+decides. The full rule is in [the flight-rules doctrine](doctrine/flight-rules.md).
 
-- **Sign-off** — a spec executes only after you walk it at kickoff and sign the
-  resulting brief. There is no bypass flag.
-- **Merge** — every PR the framework creates is a draft; your draft→ready flip is
-  the universal review gate, and merge is always your action.
+### The controls you keep
 
-Between them, the intervention contract has three phases: sign-off before
-execution, rare hard pauses during it (security-sensitive zones, destructive
-operations, irreducible judgment forks), and review plus merge after. Invariants
-the framework holds everywhere: never auto-merge; never act on a spec that is not
-Ready or Active; never force-push, amend, squash, or rebase (new commits only).
+The same controls hold on both flight rules, and the tower changes none of
+them. On visual flight and instrument flight alike, every PR opens as a draft
+and **merge** stays yours: authorizing it is the approval act that also signs
+off anything a PR asks you to approve. The **draft→ready flip** moves a
+finished draft in front of reviewers; the tower never performs it, and whether
+a unit's own run may flip a converged PR or the flip stays yours alone is a
+policy you set (it approves nothing either way). Instrument flight adds
+**sign-off**: a spec executes only after you walk it at kickoff and sign the
+resulting brief, with no bypass flag; visual flight has no shadow sign-off, and
+its audit record carries the trust. Rare hard pauses stop a run at
+security-sensitive or irreversible steps on either rule. The authoritative list
+of what stays yours, what is a policy, and who owns what is
+[the human-gates doctrine](doctrine/human-gates.md).
 
 ### The four-file spec
 
-Every feature lives in `specs/<feature>/` as four files:
+An instrument flight files a spec in `specs/<feature>/` as four files:
 
 - `requirements.md` — what must be true (REQ-IDs), with a `Status:` that moves
   `Draft` → `Ready` → `Active` → `Done`.
 - `design.md` — the decisions and the alternatives weighed (D-IDs).
-- `tasks.md` — the work as stable-ID tasks with `Done when:` / `Dependencies:`;
-  it doubles as the orchestration ledger.
+- `tasks.md` — the work as stable-ID tasks with `Done when:` / `Dependencies:`.
 - `test-spec.md` — each requirement pinned to how it is verified.
 
 The format is specified in full in
@@ -152,19 +145,16 @@ The format is specified in full in
 
 ## Commands
 
-planwright ships a skill for each pipeline stage; each is a slash command in
-Claude Code.
+Each is a slash command in Claude Code. `/tower` is the one to start with; the
+rest are there when you want to drive a stage yourself.
 
 | Stage | Command | What it does |
 | --- | --- | --- |
+| **Start** | `/tower` | The front door: ask in plain language; it answers, routes changes, and reports status. |
 | **Orient** | `/inception` | Turn a product-level idea with no repo yet into a venture repo and its inception bundle. |
 | **Author** | `/spec-draft` | Interactively elicit a four-file spec bundle (Status Draft). |
-| | `/spec-kickoff` | Walk a spec to sign-off and flip it Ready. *(your first control)* |
+| | `/spec-kickoff` | Walk a spec to sign-off and flip it Ready. *(your sign-off)* |
 | | `/spec-walkthrough` | Render a spec into a plain-language artifact for an unaided cold read. |
-| **Execute** | `/orchestrate` | Pick the next ready task, create its worktree, dispatch execution. |
-| | `/execute-task` | Test-first build of one task → full CI → draft PR. |
-| | `/resume` | Load context for a fresh session in an in-flight worktree. |
-| | `/offload` | Place one free-form petition on the smallest sufficient execution rung. |
 | **Converge** | `/self-review` | Discovery + validation review of the branch; opens or updates a draft PR. |
 | | `/polish` | Autonomous review loop that drains every fixable finding, locally. |
 | **Maintain** | `/drain` | Evaluate deferred gate conditions across spec bundles. |
@@ -185,8 +175,8 @@ CI). See [Customizing with overlays](docs/overlays.md) for the full model.
 
 Spec-driven development has many good tools; most stop at the spec. planwright's
 bet is that the spec is only half the story: the other half is the guardrailed
-harness that takes a signed spec all the way to reviewed draft PRs, at fleet
-scale if you want it.
+harness that takes a request, specced or not, all the way to reviewed draft
+PRs, at fleet scale if you want it.
 
 | | [GitHub Spec Kit](https://github.com/github/spec-kit) | [Kiro](https://kiro.dev) | [OpenSpec](https://github.com/Fission-AI/OpenSpec) | planwright |
 | --- | --- | --- | --- | --- |
@@ -198,13 +188,37 @@ scale if you want it.
 | Runs on | agent-agnostic CLI | AWS IDE | agent-agnostic CLI | Claude Code, natively (no second framework) |
 
 If you want an agent-agnostic spec format, Spec Kit and OpenSpec are excellent.
-If you live in Claude Code and want the spec *executed*, reviewed, and
+If you live in Claude Code and want the work *executed*, reviewed, and
 delivered while you keep sign-off and merge, that is planwright.
+
+## Under the hood
+
+The tower drives a pipeline you can also drive by hand. These commands keep
+their names; they are the machinery the tower and its workers use, documented
+in [Architecture](docs/architecture.md):
+
+| Command | What it does |
+| --- | --- |
+| `/orchestrate` | Pick a signed spec's next ready task, create its worktree, and dispatch execution. |
+| `/execute-task` | Test-first build of one task → full CI → convergence → draft PR. |
+| `/resume` | Load context for a fresh session in an in-flight worktree. |
+| `/offload` | Place one free-form petition on the smallest sufficient execution rung. |
+
+**Run it as a software factory.** One signed-off spec is autopilot; several at
+once is a factory floor. `/orchestrate --fleet` autodetects the execution
+backends on your host, supervises every Ready or Active spec with one isolated
+worker per task under a fleet-wide concurrency bound, and renders a single
+attention surface: a decision queue plus per-worker heartbeats. The same
+controls hold at fleet scale. See [Fleet operation](docs/fleet.md).
 
 ## Documentation
 
 - [Getting started](docs/getting-started.md) — install, the GitHub requirement,
-  operating the pipeline, and supplying your own tooling.
+  your first tower session, the controls you keep, and supplying your own
+  tooling.
+- [Architecture](docs/architecture.md) — the pipeline under the tower: the
+  commands it drives, both flight rules end to end, and how to run them by
+  hand.
 - [Customizing with overlays](docs/overlays.md) — the four-layer model and
   per-kind merge rules.
 - [Conventions](docs/conventions.md) — branch, worktree, and repo conventions.
@@ -236,7 +250,7 @@ skills/           the planwright skills (one directory each)
 doctrine/         the framework rule docs
 scripts/          portable-shell entry points (installer, resolver, checks)
 config/           tracked default config
-docs/             guides (getting-started, overlays, conventions, options)
+docs/             guides (getting-started, architecture, overlays, conventions, options)
 specs/            planwright's own specs (bootstrap = the founding spec)
 tests/            shell tests for the scripts
 ```

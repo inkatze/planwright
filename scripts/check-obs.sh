@@ -24,7 +24,7 @@
 #   * UIDs are unique across entries/ AND archive/ together, so `obs:<uid>`
 #     stays a one-file citation after a consume moves a fragment (REQ-A1.3, whose
 #     write-time collision check this re-validates post-merge);
-#   * nothing unexpected sits directly under specs/_observations/: the two
+#   * nothing unexpected sits directly under the observations root: the two
 #     fragment directories and the frozen legacy files (opportunities.md,
 #     archive.md) are the only expected contents — the standing block on
 #     committed compiled views (REQ-B1.3).
@@ -41,7 +41,10 @@
 #
 # Usage: check-obs.sh [--obs-dir <dir>]
 #   --obs-dir  the observations dir holding entries/ + archive/ and the frozen
-#              legacy files; defaults to specs/_observations under the repo cwd.
+#              legacy files; defaults to _observations under the spec root's
+#              checkout-local view (scripts/resolve-root.sh spec, from the
+#              working directory); with no root resolving there is no
+#              default, which is a usage error (exit 2).
 #
 # Exit codes: 0 clean, 1 one or more violations, 2 usage or internal error
 # (an argument-parse failure, or an environment failure such as mktemp — never
@@ -62,6 +65,9 @@ export LC_ALL
 unset CDPATH
 
 prog=check-obs
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# shellcheck source=scripts/obs-store-lib.sh
+. "$script_dir/obs-store-lib.sh"
 
 usage() {
   printf '%s\n' "usage: $prog [--obs-dir <dir>]" >&2
@@ -69,7 +75,8 @@ usage() {
 
 # --- argument parsing ----------------------------------------------------
 
-obsdir="specs/_observations"
+obsdir=""
+have_obsdir=0
 while [ $# -gt 0 ]; do
   case $1 in
     --obs-dir)
@@ -78,6 +85,7 @@ while [ $# -gt 0 ]; do
         exit 2
       }
       obsdir=$2
+      have_obsdir=1
       shift 2
       ;;
     -h | --help)
@@ -103,10 +111,16 @@ done
 # variable expanded into the flag) would otherwise fall through to the null-safe
 # root check and exit 0, silently bypassing all validation. An explicit empty
 # path is a caller error, not "no observations root".
-[ -n "$obsdir" ] || {
+[ -n "$obsdir" ] || [ "$have_obsdir" -eq 0 ] || {
   printf '%s\n' "$prog: observations directory must not be empty" >&2
   exit 2
 }
+if [ "$have_obsdir" -eq 0 ]; then
+  obsdir=$(obs_default_store "$script_dir") || {
+    printf '%s\n' "$prog: the spec root did not resolve, so the observations directory has no default; name one with --obs-dir" >&2
+    exit 2
+  }
+fi
 
 # A hyphen-leading obs-dir is refused up front: it is read as an option by the
 # tooling below and no caller legitimately names the store '-' (mirrors the

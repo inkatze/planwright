@@ -2,7 +2,9 @@
 # Tests for the tower routing eval fixture (tests/behavioral-evals/fixtures/tower)
 # and its grade: the routing statement and its grounds, override compliance with
 # a stated reservation, the reserved-control refusals, the kickoff offered and
-# never started, and orchestration dispatched on an explicit go only.
+# never started, orchestration dispatched on an explicit go only, and a public
+# summary (with a slug drawn from it) for an ask briefing an undisclosed
+# security defect, none for an ordinary ask.
 #
 # Two lanes, both against the same fixture:
 #
@@ -21,6 +23,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/poll-until.sh
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 RUNNER="$REPO_ROOT/scripts/behavioral-eval.sh"
 FIXTURE="$REPO_ROOT/tests/behavioral-evals/fixtures/tower"
 SKILL="$FIXTURE/skill.sh"
@@ -294,12 +298,7 @@ assert_eq "and is told nothing is waiting on it" "2" \
 mkdir -p "$TMP/edge-lost"
 {
   printf '%s\n' "fix the typo in the footer" "@event:flight-landed pr=7"
-  _w=0
-  until grep -q 'Landed: draft PR #7' "$TMP/edge-lost/decision-log.jsonl" 2>/dev/null; do
-    _w=$((_w + 1))
-    [ "$_w" -ge 300 ] && break
-    sleep 0.1
-  done
+  poll_until --what 'the landing acknowledgement' -- grep -q 'Landed: draft PR #7' "$TMP/edge-lost/decision-log.jsonl" || :
   rm -f "$TMP/edge-lost/evidence.jsonl" && mkdir "$TMP/edge-lost/evidence.jsonl"
   printf '%s\n' "@event:session-restart" "merge it" "that's all"
 } | PLANWRIGHT_PUBLISH_DISABLED=1 /bin/sh "$SKILL" "$TMP/edge-lost" >/dev/null 2>&1
@@ -317,18 +316,35 @@ assert_eq "an unreadable restart hands back no PR from the lost conversation" "1
 mkdir -p "$TMP/edge-landlost"
 {
   printf '%s\n' "fix the typo in the footer"
-  _w=0
-  until grep -q '"type":"flight"' "$TMP/edge-landlost/evidence.jsonl" 2>/dev/null; do
-    _w=$((_w + 1))
-    [ "$_w" -ge 300 ] && break
-    sleep 0.1
-  done
+  poll_until --what "the flight's evidence line" -- grep -q '"type":"flight"' "$TMP/edge-landlost/evidence.jsonl" || :
   rm -f "$TMP/edge-landlost/evidence.jsonl" && mkdir "$TMP/edge-landlost/evidence.jsonl"
   printf '%s\n' "@event:flight-landed pr=7" "that's all"
 } | PLANWRIGHT_PUBLISH_DISABLED=1 /bin/sh "$SKILL" "$TMP/edge-landlost" >/dev/null 2>&1
 assert_eq "a landing read against unreadable evidence is rejected as unchecked" \
   "the durable evidence could not be read, so it is not checked" \
   "$(jq -rs '[.[] | select(.kind == "event" and .event == "flight-landed")][0].rejected' "$TMP/edge-landlost/decision-log.jsonl" 2>/dev/null)"
+
+echo "== private-ask: a summary and a summary-derived slug for an undisclosed defect, none for an ordinary ask =="
+assert_eq "the defect flies on the override across the zone, the ordinary ask on reversibility" \
+  "visual/override visual/reversible" "$(routes private-ask)"
+assert_eq "two flights" "flight flight" "$(dispatches private-ask)"
+pa_summary="$(pick private-ask '.action == "dispatch" and .target == "flight"' 0 summary)"
+assert_eq "the defect's flight carries the public summary" "Harden a privately reported weakness" "$pa_summary"
+assert_eq "its slug is drawn from the summary" "harden-a-privately-reported" \
+  "$(pick private-ask '.action == "dispatch" and .target == "flight"' 0 slug)"
+for word in path traversal vulnerability export handler advisory; do
+  assert_not_contains "the slug carries none of the private ask ($word)" "$word" \
+    "$(pick private-ask '.action == "dispatch" and .target == "flight"' 0 slug)"
+done
+assert_eq "the ordinary ask's flight carries no summary" "null" \
+  "$(pick private-ask '.action == "dispatch" and .target == "flight"' 1 summary)"
+assert_eq "its slug comes from the ask" "fix-the-author-name" \
+  "$(pick private-ask '.action == "dispatch" and .target == "flight"' 1 slug)"
+for p in $personas; do
+  [ "$p" = private-ask ] && continue
+  assert_eq "[$p] an ordinary flight carries no summary" "" \
+    "$(jq -rs '[.[] | select(.action == "dispatch" and .target == "flight" and .summary != null)] | map(.summary) | join(" ")' "$(log_of "$p")")"
+done
 
 echo "== every persona passes grade.jq directly =="
 for p in $personas; do
@@ -533,6 +549,20 @@ pin_negative "an override that forgets the trigger it crossed fails" overrides \
   '.decision_log |= map(if .action == "route" then .crossed = null else . end)'
 pin_negative "a sign-off acknowledged with no hold fails" orchestrate-go \
   '.decision_log |= map(select(.action != "hold"))'
+mutate private-ask '.decision_log |= map(if .target == "flight" and .summary != null then .slug = "fix-the-path-traversal" else . end)'
+assert_exit "a slug not drawn from the public summary fails" 1 "$?"
+mutate private-ask '(.decision_log | map(select(.target == "flight" and .summary != null))[0].ask_seq) as $a | (.decision_log | map(select(.seq == $a))[0].text) as $t | .decision_log |= map(if .target == "flight" and .summary != null then .summary = ("Harden: " + $t) else . end)'
+assert_exit "a public summary carrying the ask fails" 1 "$?"
+mutate private-ask '(.decision_log | map(select(.target == "flight" and .summary != null))[0].ask_seq) as $a | (.decision_log | map(select(.seq == $a))[0].text) as $t | .decision_log |= map(if .target == "flight" and .summary != null then .summary = ("Harden a privately reported weakness:  " + ($t | ascii_upcase | gsub(","; " ;"))) else . end)'
+assert_exit "a public summary restating the ask up to case, spacing, and punctuation fails" 1 "$?"
+mutate private-ask '.decision_log |= map(if .target == "flight" and .summary != null then .summary = "Harden a privately reported weakness: fix the PATH traversal" else . end)'
+assert_exit "a public summary sharing a few of the ask's words still passes the floor" 0 "$?"
+mutate private-ask '.decision_log |= map(if .target == "flight" and .summary != null then .summary = "" else . end)'
+assert_exit "an empty public summary fails" 1 "$?"
+pin_negative "a sensitive ask flown with no summary fails the persona's pins" private-ask \
+  '.decision_log |= map(if .target == "flight" and .summary != null then .summary = null | .slug = "fix-the-path-traversal" else . end)'
+pin_negative "a summary on an ordinary ask fails the persona's pins" chat-only \
+  '.decision_log |= map(if .target == "flight" then .summary = "Fix a typo" | .slug = "fix-a-typo" else . end)'
 mutate chat-only '.persona = "chat_only"' pinned
 assert_exit "a persona with no pin fails" 1 "$?"
 

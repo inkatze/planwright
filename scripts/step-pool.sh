@@ -228,7 +228,28 @@ pid_running() {
   case $(LC_ALL=C kill -0 "$1" 2>&1) in
     *[Pp]ermitted | *[Pp]ermission\ denied) return 0 ;;
   esac
-  ps -p "$1" >/dev/null 2>&1
+  ps -p "$1" >/dev/null 2>&1 && return 0
+  # procfs only where ps has no -p: elsewhere /proc/<n> also resolves a thread.
+  ! ps -p "$$" >/dev/null 2>&1 && [ -d "/proc/$1" ]
+}
+# owner_uid — print the owner's uid, or nothing when it cannot be read. One
+# ps call, its diagnostics kept: a ps that answers nothing could not read the
+# user, but one that rejects the query outright (busybox has neither -p nor a
+# uid column) is no answer at all, and the owner of the process's procfs
+# directory stands in.
+owner_uid() {
+  _ou=$(ps -o uid= -p "$owner" 2>&1) || :
+  _ou=$(printf '%s' "$_ou" | tr -d ' ')
+  case $_ou in
+    '' | *[!0-9]*) ;;
+    *)
+      printf '%s' "$_ou"
+      return 0
+      ;;
+  esac
+  [ -n "$_ou" ] || return 0
+  # shellcheck disable=SC2012 # one pid directory, and the numeric owner is all that is read
+  ls -ldn "/proc/$owner" 2>/dev/null | awk '{ print $3 }'
 }
 # owner_check — 0 the owner runs as the running user, or the running uid is
 # unreadable (the pool screen then runs the take unpooled); 1 it is gone; 2 it
@@ -238,12 +259,12 @@ pid_running() {
 # owner and which never exits on this user's behalf.
 owner_check() {
   pid_running "$owner" || return 1
-  _oc_uid=$(ps -o uid= -p "$owner" 2>/dev/null | tr -d ' ') || _oc_uid=''
+  _oc_uid=$(owner_uid)
   if [ -z "$_oc_uid" ]; then
     # One more read, so a single failed ps in a long wait refuses nothing; a
     # host that hides the owner fails it again. The running check comes after
     # both reads: an owner that ends during either reads as an unreadable user.
-    _oc_uid=$(ps -o uid= -p "$owner" 2>/dev/null | tr -d ' ') || _oc_uid=''
+    _oc_uid=$(owner_uid)
     if [ -z "$_oc_uid" ]; then
       pid_running "$owner" || return 1
       return 3

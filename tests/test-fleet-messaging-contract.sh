@@ -175,11 +175,11 @@ EOF
   mkdir -p "$sr"
   cp "$cs" "$sr/fleet-messaging.sh"
   cp "$root/scripts/echo-safety.sh" "$sr/"
-  printf '#!/bin/sh\nprintf "%%s " "$@"\n' >"$sr/fleet-state.sh"
-  chmod +x "$sr/fleet-state.sh"
+  printf '#!/bin/sh\nprintf "%%s " "$@"\n' >"$sr/fleet-register.sh"
+  chmod +x "$sr/fleet-register.sh"
   got=$(env -u CLAUDE_CONFIG_DIR HOME="$home" CLAUDE_PID=777 PLANWRIGHT_WORKER_HANDLE=w1 \
     PLANWRIGHT_WORKER_SCOPE=spec:1 /bin/sh "$sr/fleet-messaging.sh" self-register 2>/dev/null) || got=""
-  [ "$got" = "amend w1 --name fleet-contract --inbox 777.sock " ] \
+  [ "$got" = "--amend w1 --name fleet-contract --inbox 777.sock " ] \
     || echo "session_record_socket_key: self-register cannot read the socket path from a record of the frozen shape"
   return 0
 }

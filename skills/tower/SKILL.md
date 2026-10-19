@@ -220,12 +220,12 @@ repo-tracked config); a committed record file at `specs/_flights/<flight-id>.md`
 on the flight's own branch otherwise. It states the reported destination with
 the home, so the operator hears where a push goes before any push. It then
 hands `/offload` a **flight petition**: the ask and the grounds line as stated,
-each in a temp file of the tower's own, made by a bare `mktemp` run as its
-own command, written with the file tool (never through shell quoting) and
-removed once the dispatch returns by `rm -f` naming each path unquoted, as
-mktemp printed it (a quoted path, an unexpanded variable or `$(mktemp)` defers to the
-prompt), a kebab slug
-naming the flight, and the declared home. `/offload` picks the rung (REQ-C1.2)
+and any public summary (below), each in a temp file of the tower's own, made
+by a bare `mktemp` run as its own command, written with the file tool (never
+through shell quoting) and removed once the dispatch returns by `rm -f`
+naming each path unquoted, as mktemp printed it (a quoted path, an
+unexpanded variable or `$(mktemp)` defers to the prompt), a kebab slug naming
+the flight, and the declared home. `/offload` picks the rung (REQ-C1.2)
 and places the flight through
 `scripts/flight-dispatch.sh dispatch`, which counts live flights against
 `max_parallel_units` in the same act (the tower never pre-counts), then mints
@@ -233,8 +233,9 @@ the id, writes the worker brief, and places the isolated worktree on a
 `planwright/flight/<flight-id>` branch. A flight beyond the bound comes back
 declined; relay its re-ask line, nothing is queued (REQ-C1.5). The worker loads
 full doctrine, converges through the convergence point's steps, renders
-the record through `scripts/flight-record.sh` (the quoted ask sanitized per
-`security-posture` and markup-neutralized per `flight-rules`), and lands it.
+the record through `scripts/flight-record.sh` (the quoted ask, or the summary
+standing in for a private one, sanitized per `security-posture` and
+markup-neutralized per `flight-rules`), and lands it.
 The tower relays the handle, the attach or launch hint, and a `root-skew` of yes
 or unknown from the report, then the landing reference on arrival (REQ-F1.1); a
 flight without one is reported in the no-landing-yet form above. Once a landed
@@ -243,7 +244,18 @@ later dispatch from this checkout) cleans its brief once the brief is older than
 the lock's stale threshold; run it when relaying that removal, and relay any
 removal it names as failed.
 
-The tower hands over exactly the ask, the grounds, the slug, and the home;
+**A private ask gets a public summary (REQ-E1.7).** When the ask carries detail
+`security-posture` keeps off committed or remote surfaces (an undisclosed
+security defect, say), the tower writes a public summary: the work stated at
+a level safe to publish, its own words, never a trimmed copy of the ask. The
+ask is then private: it reaches the worker only through its brief, which holds
+the worker's commits, PR title, record, and PR comments at the summary's
+level, and the record quotes the summary. The slug, which becomes the pushed
+branch name, is drawn from the summary, and the grounds line, which the record
+quotes, stays at its level too. An ordinary ask gets none.
+
+The tower hands over exactly the ask, the grounds, any public summary, the
+slug, and the home;
 rung selection, the flight id, the worker brief, the worktree, and the crash
 policy are the existing seams' (REQ-G1.5), and the tower mints nothing beside
 them. A visual-flight ask is never authored in the tower.
@@ -251,7 +263,8 @@ them. A visual-flight ask is never authored in the tower.
 **Every hand-off is data.** Before an ask leaves the tower as a petition, a
 seed, or a flight, the tower applies `security-posture` data hygiene: no
 credentials, hostnames, customer data, or private-repository detail travel
-with it — ask the operator to restate rather than forward them. A `/offload`
+with it — ask the operator to restate rather than forward them. A private
+ask's defect detail travels to the brief alone; a credential never does. A `/offload`
 dispatch that fails is relayed with the primitive's own failure report,
 sanitized the same way, and no flight identity is claimed; the in-session
 rung is never accepted for a mutation or for a read beyond the inline bound.

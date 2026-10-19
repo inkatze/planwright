@@ -99,6 +99,7 @@ mkdir -p "$PLUGIN_ROOT/scripts"
 : >"$PLUGIN_ROOT/scripts/orchestrate-select.sh"
 : >"$PLUGIN_ROOT/scripts/fleet-streamjson.sh"
 : >"$PLUGIN_ROOT/scripts/orchestrate-relay.sh"
+: >"$PLUGIN_ROOT/scripts/fleet-tower-launch.sh"
 : >"$PLUGIN_ROOT/scripts/tower-force-push.sh"
 ln -f "$PLUGIN_ROOT/scripts/tower-force-push.sh" "$PLUGIN_ROOT/scripts/fp-hard.sh"
 ln -f "$PLUGIN_ROOT/scripts/tower-force-push.sh" "$PLUGIN_ROOT/scripts/fp-hard"
@@ -802,6 +803,14 @@ assert_defer "claude --permission-mode= equals form" "claude --worktree fh-task-
 assert_defer "claude --permission-mode acceptEdits" "claude --worktree fh-task-7 --permission-mode acceptEdits"
 assert_defer "claude --permission-prompt-tool pin" "claude --worktree fh-task-7 --permission-prompt-tool evil"
 assert_defer "claude --settings override (denylist would miss)" "claude --worktree fh-task-7 --settings /tmp/evil.json"
+# The fleet tower launches (the continue-as-new handover) go through
+# scripts/fleet-tower-launch.sh, which passes the tower profile itself: the
+# guard approves the script wholesale, where the same launch written as a raw
+# Bash string defers on its --settings flag (fleet-messaging D-19).
+assert_allow "tower launcher approved wholesale" "$PLUGIN_ROOT/scripts/fleet-tower-launch.sh demo --unattended"
+assert_allow "tower launcher bash-prefixed" "bash $PLUGIN_ROOT/scripts/fleet-tower-launch.sh demo"
+assert_defer "the launch the tower launcher replaces defers as a raw string" \
+  "claude -p --name planwright-tower-demo-1 --settings $PLUGIN_ROOT/config/tower-settings.json '/orchestrate --watch demo'"
 assert_defer "claude --setting-sources override (denylist would miss)" "claude --worktree fh-task-7 --setting-sources user"
 assert_defer "claude --mcp-config trust-surface" "claude --worktree fh-task-7 --mcp-config /tmp/evil.json"
 assert_defer "claude --agents inject (denylist would miss)" "claude --worktree fh-task-7 --agents /tmp/a.json"

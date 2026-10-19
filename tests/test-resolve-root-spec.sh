@@ -635,6 +635,47 @@ assert_eq "dark: the options reference documents spec_root" 0 "$?"
 run "$REPO_ROOT/scripts/check-options-reference.sh"
 assert_eq "dark: the options-reference check passes with the key absent" 0 "$rc"
 
+# ---------------------------------------------------------------------------
+# The marker kind: a root vetted by shape, with no config or repository read
+# ---------------------------------------------------------------------------
+mk=$tmp/marked
+mkdir -p "$mk" "$tmp/unmarked"
+mark "$mk"
+run base "$SH" "$RESOLVER" marker "$mk"
+assert_eq "marker kind: a marked directory is accepted" "0|$mk" "$rc|$out"
+run base "$SH" "$RESOLVER" --explain marker "$mk"
+assert_eq "marker kind: --explain names the kind" "marker${TAB}$mk" "$out"
+run base "$SH" "$RESOLVER" marker "$tmp/unmarked"
+assert_eq "marker kind: an unmarked directory is refused" "5|" "$rc|$out"
+assert_contains "marker kind: the refusal names the missing marker" "carries no planwright-spec-root.yml marker" "$err"
+run base "$SH" "$RESOLVER" marker "$tmp/absent"
+assert_eq "marker kind: a missing directory is refused" 5 "$rc"
+printf 'project: Bad\nlayout: 1\n' >"$tmp/unmarked/planwright-spec-root.yml"
+run base "$SH" "$RESOLVER" marker "$tmp/unmarked"
+assert_eq "marker kind: an invalid project field is refused" 5 "$rc"
+rm -f "$tmp/unmarked/planwright-spec-root.yml"
+ln -s "$mk/planwright-spec-root.yml" "$tmp/unmarked/planwright-spec-root.yml"
+run base "$SH" "$RESOLVER" marker "$tmp/unmarked"
+assert_eq "marker kind: a symlinked marker is refused" 5 "$rc"
+mkdir -p "$tmp/mk${TAB}tab"
+mark "$tmp/mk${TAB}tab"
+ln -s "$tmp/mk${TAB}tab" "$tmp/mk-link"
+run base "$SH" "$RESOLVER" marker "$tmp/mk-link"
+assert_eq "marker kind: a canonical path carrying a tab is refused" "5|" "$rc|$out"
+# A trailing newline must survive canonicalization, or the marked sibling
+# without it is the directory vetted.
+nl=$(printf '\nx')
+nl=${nl%x}
+mkdir -p "$tmp/mknl" "$tmp/mknl$nl"
+mark "$tmp/mknl"
+run base "$SH" "$RESOLVER" marker "$tmp/mknl$nl"
+assert_eq "marker kind: a path ending in a newline is not read as its marked sibling" "5|" "$rc|$out"
+for args in "marker" "marker $mk --primary" "marker $mk --posture" "marker $mk $mk"; do
+  # shellcheck disable=SC2086 # one argument per word
+  run base "$SH" "$RESOLVER" $args
+  assert_eq "marker kind: usage error for '$args'" 2 "$rc"
+done
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

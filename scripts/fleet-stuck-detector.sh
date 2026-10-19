@@ -42,7 +42,10 @@
 #                           status can never hide stranded work. A session that
 #                           ended WITHOUT completing — a non-zero exit, a
 #                           non-success result subtype, or a success subtype
-#                           whose frame flagged is_error — is `unclassified`
+#                           whose frame flagged is_error (or a headless
+#                           result.json flagging it, whatever the exit code;
+#                           the completion then names the cause, `/cause=<c>`
+#                           or `/limited=<vendor>`) — is `unclassified`
 #                           with reason `completion-failed`, never finished
 #                           (the supervisor's own status renders it `ended`,
 #                           never `completed`, and this detector agrees).
@@ -117,8 +120,9 @@
 # unreadable|presence-unavailable|unrecognized|no-identity|absent),
 # attention (the store's state word, or -), attention-status
 # (present|absent|unreadable|malformed), attention-reason, death
-# (dead|alive|unknown|none|absent), completion (result=<subtype>[/is_error=true]
-# |exit=<rc>|session-ended|absent), journal-pending, worktree, tree (clean|dirty|
+# (dead|alive|unknown|none|absent), completion (result=<subtype>|exit=<rc>,
+# either with [/is_error=true[/cause=<c>|/limited=<vendor>]]; session-ended;
+# absent), journal-pending, worktree, tree (clean|dirty|
 # unverifiable|-), unpushed (<n>|unverifiable|-), commits (<n>|unverifiable),
 # pane (permission-prompt|busy|idle-prompt|indeterminate|absent),
 # stage-source (events|absent), state-dir (the directory the verdict was read
@@ -697,10 +701,12 @@ note_anomaly() {
 # --- per-worker classification -----------------------------------------------
 
 # read_registry <worker> — sets reg_status, reg_scope, reg_owner, reg_backend,
-# reg_state_dir, reg_handle from the snapshot. Seven columns is the current
-# shape, eight a retired record (`closed`), read the same way so a close can
-# still act on it; three is the pre-owner shape, still parseable; anything
-# else is a torn or hand-edited line.
+# reg_state_dir, reg_handle from the snapshot. Nine columns is the current
+# shape (the session name and inbox appended, which this reader does not
+# use), seven the shape before them, eight a retired record (`closed`), all
+# read for their first seven fields so a close can still act on a retired
+# one; three is the pre-owner shape, still parseable; anything else is a torn
+# or hand-edited line.
 read_registry() {
   reg_status=$registry_status
   reg_scope=""
@@ -715,6 +721,7 @@ read_registry() {
     return 0
   fi
   rr_nf=${rr_fields%%"$NL"*}
+  [ "$rr_nf" != 9 ] || rr_nf=7
   if [ "$rr_nf" = 8 ]; then
     if [ "${rr_fields##*"$NL"}" = closed ]; then
       rr_nf=7
@@ -841,7 +848,7 @@ REC
 }
 
 # read_completion <runtime-dir> — sets completion (absent | result=<subtype>
-# [/is_error=true] | exit=<rc>) and completion_ok (1 for a success, 0
+# [/is_error=true[/<cause>]] | exit=<rc>[/is_error=true[/<cause>]]) and completion_ok (1 for a success, 0
 # otherwise) from the stream-json supervisor's `result` record
 # (result <subtype> <epoch> [is_error] | exit <rc> <epoch>) or the headless
 # runner's `exit` record (<rc> <epoch>). A frame flagging is_error is never a
@@ -895,25 +902,44 @@ read_completion() {
       "" | *[!A-Za-z0-9_-]*) rc_val=unknown ;;
     esac
     [ "${#rc_val}" -le 32 ] || rc_val=unknown
-    # Field 4 carries the frame's is_error flag; only `result` records write
-    # it today, though the column is read for either kind. A frame can report
+    # Field 4 carries the is_error flag: a `result` record's from its frame, an
+    # `exit` record's when the stream showed an API error. A frame can report
     # subtype success and is_error true at once, because an API error arrives
     # as assistant text: the turn completed, the run did not. Records
     # predating the field have three fields and keep their previous meaning.
+    # Field 5, when the flag is set, names how the run died: `limited=<vendor>`
+    # or `cause=<token>`, as the supervisor classified it from the stream.
     rc_err=""
+    rc_cause=""
     case $rc_rest in
       *"$TAB"*"$TAB"*)
         rc_after=${rc_rest#*"$TAB"}
         rc_err=${rc_after#*"$TAB"}
+        case $rc_err in
+          *"$TAB"*)
+            rc_cause=${rc_err#*"$TAB"}
+            rc_cause=${rc_cause%%"$TAB"*}
+            ;;
+        esac
         rc_err=${rc_err%%"$TAB"*}
         ;;
     esac
+    case $rc_cause in
+      limited=[a-z]* | cause=[a-z0-9]*)
+        case ${rc_cause#*=} in
+          *[!a-z0-9-]*) rc_cause="" ;;
+        esac
+        ;;
+      *) rc_cause="" ;;
+    esac
+    [ "${#rc_cause}" -le 48 ] || rc_cause=""
     completion="$rc_kind=$rc_val"
     case $completion in
       result=success | exit=0) completion_ok=1 ;;
     esac
     if [ "$rc_err" = true ]; then
       completion="$completion/is_error=true"
+      [ -z "$rc_cause" ] || completion="$completion/$rc_cause"
       completion_ok=0
     fi
     return 0
@@ -931,7 +957,38 @@ read_completion() {
     [ "${#rc_val}" -le 32 ] || rc_val=unknown
     completion="exit=$rc_val"
     [ "$rc_val" = 0 ] && completion_ok=1
+    read_headless_result "$rc_dir"
   fi
+}
+
+# read_headless_result <runtime-dir> — a one-shot's exit code says nothing of
+# an API error, which its `result.json` flags, so a flagged result turns the
+# completion failed and names how the run died (scripts/worker-death.sh). The
+# classifier runs only on a flagged result.
+read_headless_result() {
+  rh_f="$1/result.json"
+  [ -f "$rh_f" ] && [ -r "$rh_f" ] || return 0
+  head -c 1048576 "$rh_f" 2>/dev/null | grep -Eq '"is_error"[[:space:]]*:[[:space:]]*true' || return 0
+  completion="$completion/is_error=true"
+  completion_ok=0
+  rh_out=$(/bin/sh "$script_dir/worker-death.sh" classify --result-json "$rh_f" 2>/dev/null) || rh_out=""
+  case $rh_out in
+    limited"$TAB"*)
+      rh_v=${rh_out#limited"$TAB"}
+      rh_v=${rh_v%%"$TAB"*}
+      case $rh_v in
+        "" | [!a-z]* | *[!a-z0-9-]*) ;;
+        *) completion="$completion/limited=$(printf '%s' "$rh_v" | cut -c1-32)" ;;
+      esac
+      ;;
+    failed"$TAB"*)
+      rh_c=${rh_out#failed"$TAB"}
+      case $rh_c in
+        "" | *[!a-z0-9-]*) ;;
+        *) completion="$completion/cause=$(printf '%s' "$rh_c" | cut -c1-32)" ;;
+      esac
+      ;;
+  esac
 }
 
 # read_journal <runtime-dir> — sets journal_pending, the count of pending

@@ -1,19 +1,19 @@
 # The Fleet Coordination Floor
 
-Five floors constrain every fleet mechanism planwright runs — the towers that
+Six floors constrain every fleet mechanism planwright runs — the towers that
 dispatch and the daemon layer that self-maintains. They are doctrine, not
 mechanism: each was mined from a real incident or a real bootstrapping
 constraint, and every fleet skill, hook, and daemon script operates under
-them. The fleet-autonomy, concurrent-orchestrator-coordination, and
-fleet-lifecycle-closure bundles carry the requirements; this document is the
-doctrine statement those requirements cite into force.
+them. The fleet-autonomy, concurrent-orchestrator-coordination,
+fleet-lifecycle-closure, and tower-placement bundles carry the requirements;
+this document is the doctrine statement those requirements cite into force.
 
 Citations: fleet-autonomy REQ-G1.1, REQ-G1.2 · fleet-autonomy D-17, D-18 ·
 concurrent-orchestrator-coordination REQ-A1.1, REQ-D1.3, REQ-D1.6 ·
 concurrent-orchestrator-coordination D-1, D-6 · fleet-lifecycle-closure
 REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-B1.4, REQ-C1.1,
 REQ-C1.7, REQ-D1.3 · fleet-lifecycle-closure D-1, D-2, D-3 · human-gates
-REQ-D1.6.
+REQ-D1.6 · tower-placement REQ-A1.2, D-1.
 
 ## The tower non-authoring boundary
 
@@ -23,12 +23,9 @@ explicitly-flagged change surfaced as a Needs-human-judgment fork — never as
 the default response to a "quick change" request (fleet-autonomy REQ-G1.1,
 D-17).
 
-The boundary was mined from a logged incident, not invented: on a loose
-request, a tower directly reversed a rationale-documented decision (disabling
-a markdownlint rule) and opened its own PR, instead of surfacing the
-decision-reversal as a fork or routing the edit as a worker chore. Nothing in
-doctrine said that was out of bounds, so nothing stopped it — the classic
-unstated-floor failure. This statement closes the gap at its source.
+Mined from a logged incident: on a loose request, a tower reversed a
+rationale-documented decision (disabling a markdownlint rule) and opened its
+own PR, because nothing in doctrine said that was out of bounds.
 
 What the boundary means in practice:
 
@@ -49,6 +46,29 @@ What the boundary means in practice:
   genuinely warranted, it is surfaced first as an explicit fork naming what
   would be changed and why the tower (not a worker) would change it — the
   human routes it.
+
+## The tower placement floor
+
+**A tower runs in its own working tree. It never moves a branch, switches,
+dirties, or writes the shared stash in a checkout it does not own, and never
+touches the primary checkout's `main`** (tower-placement REQ-A1.2, D-1).
+
+Reading another checkout is in bounds. The stash is shared by every worktree,
+so a tower's stash write lands in every peer's stack.
+
+The only exceptions are planwright scripts performing an act the operator
+sanctioned for towers:
+
+- the release fast-forward of the primary checkout's `main`, through
+  `scripts/release-arm.sh` or
+  `scripts/main-currency.sh sync --checkout <primary-checkout>`;
+- starting a forward-merge in a worker's worktree, through
+  `scripts/converge-sync-main.sh` run there, which under
+  `worker_merge_conflict_policy: resolve` leaves a conflict for the worker to
+  resolve.
+
+An unlisted act is not sanctioned by analogy, and an act tower-placement's
+mechanisms cannot see is still bound.
 
 ## The no-LLM-daemon-mechanics invariant
 
@@ -88,12 +108,9 @@ division of work, rather than behaving as the sole orchestrator**
 (concurrent-orchestrator-coordination REQ-A1.1; the altitude call is
 recorded as concurrent-orchestrator-coordination D-1).
 
-This floor too was mined from a real gap, not invented: concurrently-started
-towers advanced work against one checkout with no awareness of each other —
-in the operator's framing, "orchestrators don't seem to keep tabs … in case
-there are other orchs running or just other work the towers are not aware
-of." Nothing in doctrine said a tower should look, so none did — the same
-unstated-floor failure shape as the non-authoring boundary above.
+Mined from a real gap: concurrently started towers advanced work against one
+checkout with no awareness of each other, because nothing in doctrine said a
+tower should look.
 
 What the floor means in practice:
 
@@ -124,10 +141,8 @@ sole path** (concurrent-orchestrator-coordination REQ-D1.6, D-1).
 
 The companion of assume-multiplicity on the tower→human axis: the same
 "don't rely on a single fragile actor" discipline, applied to attention
-rather than coordination. It is likewise incident-mined — merge-ready PRs
-sat un-surfaced because the tower that could have noticed did not poll in
-time, the live proof that model-side polling as the sole attention path
-fails exactly when attention matters.
+rather than coordination. Incident-mined too: merge-ready PRs sat
+un-surfaced because the tower that could have noticed did not poll in time.
 
 This is a doctrine line only. The mechanism that realizes it — the hook
 mapping a worker's ready-flip to a record on the attention surface, and the
@@ -145,7 +160,7 @@ missing any of the three is a defect, not a gap for operator vigilance to
 cover** (fleet-lifecycle-closure REQ-A1.1–REQ-A1.5; the altitude call is
 recorded as fleet-lifecycle-closure D-1).
 
-Incident-mined like the floors above, and unstated in the same way. Every
+Incident-mined like the floors above. Every
 session-grade rung shipped a launch verb and no stop. A worker that reaches
 SessionEnd exits cleanly, so the common path looks tidy; only workers
 abandoned mid-flight or hard-killed leak, and they leak silently. Roughly 95
@@ -281,10 +296,7 @@ and absent here is the omission REQ-A1.5 exists to catch.
 | `print` | deferred → the human who runs the printed command; `print` units are exempt from the orphan/liveness predicate for exactly this reason | deferred → human | deferred → human | deferred → human | deferred → human | deferred → human |
 | `in-session` | n/a — no separate worker at all; every class is the tower's own | n/a | n/a | n/a | n/a | n/a |
 
-The bottom three rows are the point of the cross, not filler: `subagent`
-acquires store locks and nothing else, and owes the contract for them; `print`
-defers every part to the human; `in-session` acquires nothing separate at all.
-None of the three is exempt by silence (REQ-A1.5).
+The bottom three rows are deliberate: none is exempt by silence (REQ-A1.5).
 
 ## Scope boundary: adjacent mechanisms keep their own owners
 

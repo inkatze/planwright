@@ -103,7 +103,8 @@
 # Usage: fleet-tower-watchdog.sh <spec-dir>
 # Exit codes: 0 tick completed (any outcome above except backoff-corrupt);
 #   2 usage / refused hostile input / lock or filesystem error / corrupt
-#   backoff record / a failed escalation write (fail closed, visibly); 4/5
+#   backoff record / a failed escalation write / an unreadable tower profile
+#   under the default launcher (fail closed, visibly); 4/5
 #   propagate a config-resolver hard-fail (malformed team-shared overlay /
 #   broken install) so a scheduler surfaces it as a real failure.
 #
@@ -243,9 +244,13 @@ read_marker_state() {
   IFS=$rms_old_ifs
   m_mode="${2:-}"
   m_pid="${3:-}"
-  if [ "$#" -ne 7 ]; then
-    escalate_ambiguous
-  fi
+  # Seven fields before the observed session name, eight since
+  # (fleet-messaging D-8); fleet-tower-marker.sh read has already refused a
+  # name failing its screen.
+  case $# in
+    7 | 8) ;;
+    *) escalate_ambiguous ;;
+  esac
   case "$m_pid" in
     "" | *[!0-9]* | 0*) escalate_ambiguous ;;
   esac
@@ -289,7 +294,7 @@ read_backoff() {
   # shellcheck disable=SC2086
   set -- $rb_row
   IFS=$rb_old_ifs
-  # Strict field count, mirroring the marker parser's `[ "$#" -ne 7 ]` gate: a
+  # Strict field count, mirroring the marker parser's strict field gate: a
   # row with trailing junk (whose first three fields happen to parse) is
   # corrupt, not silently accepted — recovery must never run off it.
   [ "$#" -eq 3 ] || return 1
@@ -536,9 +541,11 @@ fi
 # --- the launch ---------------------------------------------------------------
 # Default launcher: a fresh DETACHED tmux session of its own (D-21/REQ-G1.4)
 # named planwright-tower-<spec>, started at the checkout root, wrapped in
-# fleet-dispatch-env.sh (D-10 ghost-text hardening), waking /orchestrate in
-# unattended watch mode. Prints the fresh tower's pane pid. A session-name
-# collision is a refusal, never a window into an existing session.
+# fleet-dispatch-env.sh (D-10 ghost-text hardening; --inbound accept), the
+# session named for messaging with --name and given the tower profile with
+# --settings, waking /orchestrate in unattended watch mode. Prints the fresh
+# tower's pane pid. A session-name collision is a refusal, never a window
+# into an existing session.
 launch_default() {
   if ! command -v tmux >/dev/null 2>&1; then
     echo "fleet-tower-watchdog: tmux is unavailable for the default launcher" >&2
@@ -549,7 +556,8 @@ launch_default() {
     return 1
   fi
   tmux new-session -d -s "$session_name" -c "$checkout" \
-    "$script_dir/fleet-dispatch-env.sh" claude \
+    "$script_dir/fleet-dispatch-env.sh" --inbound accept claude \
+    --name "$session_name" --settings "$tower_profile" \
     "/orchestrate --watch --unattended $spec" 2>/dev/null || {
     echo "fleet-tower-watchdog: tmux new-session failed" >&2
     return 1
@@ -563,6 +571,28 @@ launch_default() {
   esac
   printf '%s\n' "$ld_pid"
 }
+
+# The default launcher names the tower after its session and passes the tower
+# profile with --settings, the inbound layer beside it (fleet-messaging D-8,
+# D-17, D-19). A profile that cannot be read is a broken install, not a failed
+# relaunch: the tick fails visibly, naming it, before any session exists, and
+# the backoff is left alone.
+tower_profile=''
+if [ -z "$launcher_cmd" ]; then
+  tower_profile=$(/bin/sh "$script_dir/fleet-launch-profile.sh" tower </dev/null) || {
+    # A cron that drops stderr would hide this forever, so it also asks the
+    # human through the decision queue, as the disable does.
+    "$FAT" decide "tower-watchdog:$spec" "$spec" \
+      "The tower profile (config/tower-settings.json under the planwright root) cannot be read, so the watchdog cannot relaunch the tower for spec '$spec'; repair the install, then the next tick relaunches" \
+      "repair-install" "repair-install" high >/dev/null 2>&1 || true
+    echo "fleet-tower-watchdog: refusing to relaunch without the tower profile" >&2
+    exit 2
+  }
+  /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle tmux "$session_name" 2>/dev/null || {
+    echo "fleet-tower-watchdog: the tower session name is outside the tmux handle grammar" >&2
+    exit 2
+  }
+fi
 
 launch_rc=0
 if [ -n "$launcher_cmd" ]; then

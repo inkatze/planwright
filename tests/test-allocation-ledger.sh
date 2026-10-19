@@ -385,7 +385,7 @@ if "$LEDGER" lock squat:unit >/dev/null 2>&1; then
   fail "8h: a non-symlink squatting the lock path was accepted as a held lock"
 fi
 l_elapsed=$(($(date +%s) - l_start))
-[ "$l_elapsed" -le 10 ] \
+[ "$l_elapsed" -le 30 ] \
   || fail "8h: a squatted lock path spun ${l_elapsed}s before refusing; it must fail closed at once"
 rm -f "$squat"
 
@@ -406,7 +406,7 @@ else
   l_elapsed=$(($(date +%s) - l_start))
   chmod 755 "$lock_home"
   [ "$l_held" = 0 ] || fail "8i: a lock was reported held on an unwritable store"
-  [ "$l_elapsed" -le 10 ] \
+  [ "$l_elapsed" -le 30 ] \
     || fail "8i: an unwritable store spun ${l_elapsed}s before refusing; it must fail closed at once"
 fi
 

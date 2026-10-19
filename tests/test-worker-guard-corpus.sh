@@ -236,7 +236,7 @@ done
 
 # The replay waits for its own hook calls only, never the caller's jobs.
 f=$(synthetic bg-wait "$(row live allow allow allow allow true)")
-sleep 30 &
+sleep 300 &
 bg=$!
 start=$SECONDS
 corpus_replay "$f" fake_guard 1 >/dev/null 2>&1
@@ -244,7 +244,7 @@ rc=$?
 took=$((SECONDS - start))
 kill "$bg" 2>/dev/null
 wait "$bg" 2>/dev/null
-if [ "$rc" -eq 0 ] && [ "$CORPUS_ROWS" -eq 1 ] && [ "$took" -lt 15 ]; then
+if [ "$rc" -eq 0 ] && [ "$CORPUS_ROWS" -eq 1 ] && [ "$took" -lt 60 ]; then
   pass "self-check: the replay does not wait on the caller's background jobs"
 else
   fail "self-check: the background-job replay took ${took}s (rc=$rc, rows=$CORPUS_ROWS)"

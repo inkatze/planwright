@@ -1,0 +1,1 @@
+- 2026-10-19 [planwright] Alpine (universal-binary Task 4): busybox applets dispatch on argv[0], so a fixture that runs exec -a NAME sleep fails with applet not found. test-fleet-cleanup-process now sleeps in bash itself. Any new fixture renaming argv0 needs a real binary.

@@ -742,35 +742,60 @@ case $err in
 esac
 echo "ok: a gh query that outruns its wall-clock bound fails closed (exit 5)"
 
-# 9p. The DEGRADE when no `timeout` binary exists. `timeout` is GNU coreutils and
-# absent from stock macOS, which this script's support bar includes, so the
-# no-timeout path is a real deployment and not a hypothetical. Absence must NOT
-# silently mean "run unbounded": it refuses the evidence path, before gh is
-# consulted at all. The gh-args assertion is what pins that ordering — the point
-# is that no unbounded network call is ever issued, not merely that the exit code
-# happens to be 5.
-notimeout="$tmp/notimeout"
-make_toolpath "$notimeout" timeout
+# 9p. No `timeout` binary: stock macOS ships none, so this is a real
+# deployment. The bundled bounded-run.sh bounds the query instead, so a stalled
+# forge still refuses on the bound and a merged PR is still reclaimed.
+# shellcheck source=tests/lib/no-timeout-path.sh
+. "$here/lib/no-timeout-path.sh"
+notimeout="$fakebin:$(no_timeout_path "$tmp/notimeout")"
 PATH="$notimeout" command -v timeout >/dev/null 2>&1 \
   && fail "no-timeout PATH: timeout still resolves, the fixture is wrong"
 PATH="$notimeout" command -v gh >/dev/null 2>&1 \
   || fail "no-timeout PATH: gh does not resolve, so this would not test the timeout guard"
 wt_notmo=$(make_merged_wt wt-notmo)
-rm -f "$tmp/gh-args"
+rc=0
+err=$(WT_PATH="$notimeout" FAKE_GH_SLEEP=5 PLANWRIGHT_CLEANUP_GH_TIMEOUT=1 FAKE_GH_STATE=MERGED \
+  FAKE_GH_OID=$(cd "$wt_notmo" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_notmo" "candidate" "no timeout binary, forge stalled" \
+  --merged-pr 333 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "no-timeout stalled worktree: exit $rc, expected 5"
+[ -d "$wt_notmo" ] || fail "no-timeout stalled worktree: removed although the query never answered"
+case $err in
+  *"did not finish within 1s"*) ;;
+  *) fail "no-timeout stalled worktree: the bundled bound did not refuse it (stderr: $err)" ;;
+esac
+rm -rf "$fleet_home"
 rc=0
 err=$(WT_PATH="$notimeout" FAKE_GH_STATE=MERGED \
   FAKE_GH_OID=$(cd "$wt_notmo" && git rev-parse HEAD) \
-  run_worktree "$main_repo" "$wt_notmo" "candidate" "no timeout binary available" \
+  run_worktree "$main_repo" "$wt_notmo" "candidate" "no timeout binary, merged pr" \
   --merged-pr 333 2>&1 >/dev/null) || rc=$?
-[ "$rc" = 5 ] || fail "no-timeout worktree: exit $rc, expected 5 (refuse rather than run unbounded)"
-[ -d "$wt_notmo" ] || fail "no-timeout worktree: removed with no way to bound the query"
+[ "$rc" = 0 ] || fail "no-timeout merged worktree: exit $rc, expected 0 (stderr: $err)"
+[ ! -d "$wt_notmo" ] || fail "no-timeout merged worktree: not reclaimed"
+echo "ok: with no timeout binary the bundled runner bounds the query (stall refuses, merged reclaims)"
+
+# 9q. And with the runner missing too, nothing can bound the query: absence
+# must NOT silently mean "run unbounded". It refuses the evidence path before
+# gh is consulted at all; the gh-args assertion pins that ordering.
+fc_bare="$tmp/bare-scripts"
+cp -R "$here/../scripts" "$fc_bare"
+rm -f "$fc_bare/bounded-run.sh"
+wt_norun=$(make_merged_wt wt-norun)
+rm -f "$tmp/gh-args"
+rc=0
+err=$(FC="$fc_bare/fleet-cleanup.sh" WT_PATH="$notimeout" FAKE_GH_STATE=MERGED \
+  FAKE_GH_OID=$(cd "$wt_norun" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_norun" "candidate" "no way to bound the query" \
+  --merged-pr 334 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "no-bound worktree: exit $rc, expected 5 (refuse rather than run unbounded)"
+[ -d "$wt_norun" ] || fail "no-bound worktree: removed with no way to bound the query"
 [ ! -f "$tmp/gh-args" ] \
-  || fail "no-timeout worktree: gh was invoked unbounded despite no timeout binary (argv: $(tr '\n' ' ' <"$tmp/gh-args"))"
+  || fail "no-bound worktree: gh was invoked unbounded (argv: $(tr '\n' ' ' <"$tmp/gh-args"))"
 case $err in
   *"no timeout binary on PATH"*) ;;
-  *) fail "no-timeout worktree: the timeout-absent guard did not refuse it (stderr: $err)" ;;
+  *) fail "no-bound worktree: the absent-bound guard did not refuse it (stderr: $err)" ;;
 esac
-echo "ok: no timeout binary refuses the evidence path instead of running unbounded (exit 5)"
+echo "ok: with neither a timeout binary nor the bundled runner the evidence path refuses (exit 5)"
 
 # 10. The caller's own worktree is refused by the self-guard.
 wt_self="$tmp/wt-self"
