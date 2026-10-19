@@ -970,8 +970,8 @@ if [ "${PLANWRIGHT_TEST_SKIP_PERM:-}" != 1 ]; then
     PLANWRIGHT_FLEET_STATE_DIR="$home_new" /bin/sh "$FS" registry >/dev/null \
     || fail "fresh home: registry should succeed"
   umask "$old_umask"
-  mode=$(stat -c '%a' "$home_new")
-  [ "$mode" = 700 ] \
+  mode=$(ls -ld "$home_new" | cut -c2-10)
+  [ "$mode" = rwx------ ] \
     || fail "fresh home: a home this script creates must be owner-only, got $mode"
   echo "ok: a fleet home this script creates is owner-only whatever the caller's umask"
 
@@ -981,8 +981,8 @@ if [ "${PLANWRIGHT_TEST_SKIP_PERM:-}" != 1 ]; then
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
     PLANWRIGHT_FLEET_STATE_DIR="$home_pre" /bin/sh "$FS" registry >/dev/null \
     || fail "pre-existing home: registry should succeed"
-  mode=$(stat -c '%a' "$home_pre")
-  [ "$mode" = 755 ] \
+  mode=$(ls -ld "$home_pre" | cut -c2-10)
+  [ "$mode" = rwxr-xr-x ] \
     || fail "pre-existing home: a home we did not create must be left alone, got $mode"
   echo "ok: a fleet home that already existed keeps the permissions its owner gave it"
 fi

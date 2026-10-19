@@ -2016,9 +2016,14 @@ cat_entry "$tracked_cat" s-long "kind: skill" "target: $long"
 printf 'steps_pre_pr: [s-long]\n' >"$tracked_cfg"
 capture pre-pr --unattended
 wmax=$(sed -n 's/^TEXT_MAX=\([0-9]*\).*/\1/p' "$repo_root/scripts/step-record.sh")
-wlen=$(printf '%s\n' "$ERR" | grep "refuse: step 's-long'" | awk '{ print length($0) }')
-[ "$RC" = 1 ] && [ -n "$wmax" ] && [ -n "$wlen" ] && [ "$wlen" -lt $((wmax / 2)) ]
-verdict "a longest-name missing-target warning stays well inside step-record's bound" "long-name warning: len=$wlen max=$wmax err='$ERR'"
+wline=$(printf '%s\n' "$ERR" | grep "refuse: step 's-long'")
+wlen=$(printf '%s\n' "$wline" | awk '{ print length($0) }')
+# The root list's length is the fixture TMPDIR's (a long per-user directory on
+# macOS), not the skill name's, so the "well inside" margin measures the rest.
+rlen=$(printf '%s\n' "$wline" | sed -n 's/.*(looked under: \([^)]*\)).*/\1/p' | awk '{ print length($0) }')
+[ "$RC" = 1 ] && [ -n "$wmax" ] && [ -n "$wlen" ] && [ -n "$rlen" ] && [ "$rlen" -gt 0 ] \
+  && [ $((wlen - rlen)) -lt $((wmax / 2)) ]
+verdict "a longest-name missing-target warning stays well inside step-record's bound" "long-name warning: len=$wlen roots=$rlen max=$wmax err='$ERR'"
 rm -f "$tracked_cfg"
 # Several points check in one run, the pre-flight's form: a refusal at any
 # point fails the run, even from a machine-local list, and a clean set passes.

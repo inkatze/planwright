@@ -65,6 +65,9 @@ command -v jq >/dev/null 2>&1 || fail "jq is required: the launch preflight runs
 [ -x "$FA" ] || fail "scripts/fleet-attention.sh missing or not executable"
 
 tmp=$(fixture_scratch) || fail "no scratch directory to run in"
+# The script reports roots canonically; a symlinked TMPDIR (macOS's /var)
+# would otherwise never match them.
+tmp=$(cd -P -- "$tmp" && pwd -P) || fail "cannot canonicalize the scratch directory"
 # Teardown on every exit, a failed case's and an interrupt's included: close
 # each worker whose supervisor is still running through the script's own stop
 # path, then reap anything left that carries this run's scratch path, so no

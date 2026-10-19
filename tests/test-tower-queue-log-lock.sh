@@ -132,14 +132,20 @@ chmod 0755 "$stub_bin/date"
 printf 'tower_hook_lock_wait: 200ms\n' >"$local_cfg"
 PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" lock >/dev/null || fail "could not take the fleet lock for the clockless case"
 rc=0
+# The test's own bound is a watchdog rather than timeout(1), which macOS lacks.
 PATH="$stub_bin:$PATH" \
   PLANWRIGHT_FLEET_STATE_DIR="$home" \
   PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
   PLANWRIGHT_REPO_ROOT="$tmp" \
   PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
-  timeout 20 /bin/sh "$TQ" log born --now 8100 item=noclock >/dev/null 2>&1 || rc=$?
+  /bin/sh "$TQ" log born --now 8100 item=noclock >/dev/null 2>&1 &
+tq_pid=$!
+{ sleep 20 && kill -9 "$tq_pid"; } 2>/dev/null &
+dog_pid=$!
+wait "$tq_pid" || rc=$?
+kill "$dog_pid" 2>/dev/null
 PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" unlock
-[ "$rc" != 124 ] || fail "no clock: the bounded wait spun until the test's own timeout"
+[ "$rc" != 137 ] || fail "no clock: the bounded wait spun until the test's own watchdog"
 [ "$rc" = 3 ] || fail "no clock: exit $rc, expected 3 (the wait expired, the line dropped)"
 echo "ok: the lock wait is bounded even with no readable clock"
 

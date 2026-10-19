@@ -68,6 +68,9 @@ fail() {
 REAL_GIT=$(command -v git) || fail "git not on PATH"
 
 tmp=$(mktemp -d)
+# git reports worktree paths physically, and TMPDIR may sit behind a symlink
+# (/var is /private/var on macOS), so expectations use the canonical form.
+tmp=$(cd -P -- "$tmp" && pwd -P)
 trap 'rm -rf "$tmp"' EXIT
 
 shim_dir="$tmp/shim"

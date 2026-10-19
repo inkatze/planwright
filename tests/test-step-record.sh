@@ -2561,6 +2561,9 @@ fpa=$(fp a)
 git -C "$wfp" read-tree --index-output="$tmp/foreign.idx" --empty
 [ "$(GIT_INDEX_FILE="$tmp/foreign.idx" fp a)" = "$fpa" ]
 verdict "fingerprint ignores an inherited GIT_INDEX_FILE" "a foreign index changed it"
+# git init on a case-insensitive file system (macOS by default) records
+# core.ignorecase true, which takes the refusing branch tested further down.
+git -C "$wfp" config core.ignorecase false
 mkdir -p "$wfp/build" && : >"$wfp/build/out"
 fb=$(fp build)
 printf '%s\n' "$fb" | grep -Eq '^([0-9a-f]{40}|[0-9a-f]{64})$'
