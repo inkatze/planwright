@@ -669,6 +669,52 @@ sed_i "$v/brief.md" 's|^\(- \*\*KC-[12]:\*\* .*\) — by .*$|\1|'
 assert_contains "undated criteria only: the core is not met" "Minimum core is not met yet" \
   "$(cat "$v/exports/venture.html")"
 
+# ---------------------------------------------------------------------------
+# 10. The in-session status view (REQ-J1.4): the dashboard's classification as
+#     key<TAB>value lines on stdout, writing no export.
+# ---------------------------------------------------------------------------
+v="$(fresh)"
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+rc=$?
+assert_eq "status: exit 0" "0" "$rc"
+assert_no_file "status: writes no dashboard" "$v/exports/venture.html"
+assert_no_file "status: writes no pitch" "$v/exports/pitch.html"
+assert_contains "status: lifecycle status" "$(printf 'status\tExploring')" "$out"
+assert_contains "status: gate readiness (core)" "$(printf 'core\tmet')" "$out"
+assert_contains "status: blocking counts" "$(printf 'blocking\t2\t2')" "$out"
+assert_contains "status: unresolved blocker A-1" "$(printf 'unresolved\tA-1\ttesting')" "$out"
+assert_contains "status: unresolved blocker A-2" "$(printf 'unresolved\tA-2\topen')" "$out"
+assert_contains "status: clear kill date" "$(printf 'kill\tKC-1\t2026-10-01\tclear')" "$out"
+assert_contains "status: approaching kill date" "$(printf 'kill\tKC-2\t2026-09-15\tapproaching')" "$out"
+assert_contains "status: open fork" "$(printf 'fork\tDEC-1\topen\ttwo-way')" "$out"
+assert_not_contains "status: a decided fork is not a blocker" "$(printf 'fork\tDEC-2')" "$out"
+assert_contains "status: last gate" "$(printf 'gate\t1\t2026-08-18\tRecycle')" "$out"
+assert_contains "status: venture start from the changelog" "$(printf 'started\t2026-08-01')" "$out"
+assert_contains "status: skipped appetite" "$(printf 'appetite\tskipped')" "$out"
+
+PLANWRIGHT_INCEPTION_TODAY=2026-10-02 out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_contains "status: a passed date trips" "$(printf 'kill\tKC-1\t2026-10-01\ttripped')" "$out"
+
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^_Skipped: appetite is set at the portfolio level.*$|Six weeks of one engineer, then the gate decides. Budget 6 weeks.|'
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_contains "status: appetite in weeks becomes days" "$(printf 'appetite\t42')" "$out"
+sed_i "$v/brief.md" 's|^Six weeks of one engineer.*$|Whatever it takes.|'
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_contains "status: unreadable appetite" "$(printf 'appetite\tunparsed')" "$out"
+
+# Values are bundle content headed for a terminal: no control byte and no tab
+# inside a field survives.
+v="$(fresh)"
+sed_i "$v/brief.md" "s|^Outcome: Recycle\$|Outcome: Recycle$(printf '\033')[31m|"
+out="$("$RENDER" --mode status "$v" 2>/dev/null)"
+assert_not_contains "status: escape bytes are stripped" "$(printf '\033')" "$out"
+assert_contains "status: the stripped value still lands" "$(printf 'gate\t1\t2026-08-18\tRecycle[31m')" "$out"
+
+v="$(fresh)"
+assert_eq "status: --output is refused" "2" \
+  "$("$RENDER" --mode status --output "$tmp/x" "$v" >/dev/null 2>&1; echo $?)"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-render: $failures assertion(s) failed" >&2
   exit 1
