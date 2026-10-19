@@ -413,6 +413,14 @@ discipline.
 
 ## Changelog
 
+- 2026-10-19 — Expression-only: the Sources bullet on the drafting-session
+  cost baseline said the REQ-G1.1 script regenerates its figures. Task 3's
+  script counts by stated definitions (fix-typed commits on `scripts/` and
+  `githooks/` by committer month, every fragment and dated frozen-log line)
+  and does not reproduce figures whose definitions the drafting session did
+  not record, so the bullet now says the snapshot supersedes them. A
+  correction to provenance prose: no REQ or D-ID added, REQ-G1.1's
+  requirement unchanged.
 - 2026-09-14 — Expression-only: Task 1.3's deliverables record the evasions
   and misreports a review pass found in the lint guard, with a Done-when
   clause requiring a failing case for each. The guard is allowlisted rather
@@ -483,7 +491,9 @@ discipline.
   counted 2 in June, 22 in July, 3 in August, and 10 in the first week of
   September; observation fragments recorded counted 186 in July, 93 in
   August, and 138 in September to date. The shipped script of REQ-G1.1
-  regenerates these.
+  counts by definitions it states, which these drafting figures did not
+  record, so its dated snapshot supersedes them rather than reproducing
+  them.
 - **bootstrap D-34, REQ-K1.5, D-32.** The runtime decision this bundle
   supersedes (portable POSIX/bash; Python and Node rejected for adding an
   interpreter or toolchain dependency), the portability requirement it
