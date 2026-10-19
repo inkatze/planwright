@@ -118,7 +118,7 @@ def fields_ok($allowed): type == "object" and (keys - $allowed | length) == 0
   and (.summary | nonblank);
 def finding_ok: fields_ok(["path", "line", "severity", "summary"]);
 def thread_ok: fields_ok(["id", "path", "line", "severity", "summary", "resolved", "resolved_by"])
-  and (.id | type == "string" and test("^[A-Za-z0-9_=-]+$"))
+  and (.id | type == "string" and test("\\A[A-Za-z0-9_=-]+\\z"))
   and (.resolved | type) == "boolean" and has("resolved_by")
   and ((.resolved == false and .resolved_by == null)
        or (.resolved == true and (.resolved_by | IN("reviewer", "run", "human"))));

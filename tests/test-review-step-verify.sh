@@ -88,6 +88,7 @@ bad "a fractional line is failed" '{"contract":1,"body_findings":[{"path":"scrip
 bad "a blank summary is failed" '{"contract":1,"body_findings":[{"path":"scripts/a.sh","line":3,"severity":"low","summary":"  "}],"threads":[]}'
 bad "a thread without an id is failed" '{"contract":1,"body_findings":[],"threads":[{'"$f"',"resolved":false,"resolved_by":null}]}'
 bad "a numeric thread id is failed" '{"contract":1,"body_findings":[],"threads":[{"id":7,'"$f"',"resolved":false,"resolved_by":null}]}'
+# shellcheck disable=SC2016 # a literal $(x) id, never expanded
 bad "a thread id outside the id charset is failed" '{"contract":1,"body_findings":[],"threads":[{"id":"$(x)","'"${f#\"}"',"resolved":false,"resolved_by":null}]}'
 bad "an unresolved thread naming a resolver is failed" '{"contract":1,"body_findings":[],"threads":[{"id":"T1",'"$f"',"resolved":false,"resolved_by":"reviewer"}]}'
 bad "a non-object result is failed" '[]'
@@ -98,6 +99,7 @@ bad "a body finding carrying thread keys is failed" '{"contract":1,"body_finding
 bad "a thread without resolved_by is failed" '{"contract":1,"body_findings":[],"threads":[{"id":"T1",'"$f"',"resolved":false}]}'
 bad "an unknown resolver is failed" '{"contract":1,"body_findings":[],"threads":[{"id":"T1",'"$f"',"resolved":true,"resolved_by":"bot"}]}'
 bad "an empty thread id is failed" '{"contract":1,"body_findings":[],"threads":[{"id":"",'"$f"',"resolved":false,"resolved_by":null}]}'
+bad "a thread id with a trailing newline is failed" '{"contract":1,"body_findings":[],"threads":[{"id":"T1\n",'"$f"',"resolved":false,"resolved_by":null}]}'
 
 # --- a clean structured result passes ---
 printf '%s\n' '{"contract":1,"body_findings":[],"threads":[]}' >"$T/clean.json"
