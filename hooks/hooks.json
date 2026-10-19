@@ -18,6 +18,26 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/ready-guard.sh mcp"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/tower-session.sh guard bash",
+            "timeout": 90
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__github__(merge_pull_request|update_pull_request|update_pull_request_branch|create_pull_request|push_files|create_or_update_file|delete_file)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/tower-session.sh guard mcp",
+            "timeout": 90
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -111,6 +131,15 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/tower-reply-hook.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/tower-session.sh prompt-hook",
+            "timeout": 90
           }
         ]
       }

@@ -92,6 +92,27 @@
 #   force-push helper  running scripts/tower-force-push.sh. worker: deny,
 #               with no read. tower: defer, so it reaches the permission
 #               prompt (the tower's command guard never approves it).
+#   ref-surgery tower only: `git reset --hard`, `git filter-branch`,
+#               `git filter-repo`, a forced `git branch` (-f, --force, and the
+#               -M and -C force shorthands) outside delete mode, and
+#               `git update-ref` deny with no read.
+#   worktree    tower only: `git worktree add`, `remove`, or `move` with
+#               --force, and `add` with --detach, deny with no read; an `add`
+#               whose new branch, or with none its commit-ish or (with
+#               neither) its path's last component, names a branch reads the
+#               protected set and denies a hit, a ref or remote-tracking form
+#               read as the branch it names; that name or path given through an
+#               expansion after `--` denies.
+#   mcp-write   tower only: the GitHub MCP merge, update, branch-update,
+#               create, push-files, create-or-update-file, and delete-file
+#               tools deny whatever their arguments.
+# At the tower tier a git alias expanding to one of the tower-only
+# subcommands denies too, and an expansion among a tower act's options
+# denies, since it could spell the refused option. These acts cover every
+# entry of config/tower-settings.json's deny list, which
+# tests/fixtures/tower-deny-acts.tsv maps entry by entry, so the plugin-wired
+# floor (scripts/tower-session.sh) holds in a tower launched without that
+# profile.
 # Every segment of a compound command is classified and the strictest verdict
 # wins.
 #
@@ -172,6 +193,12 @@ RE_GIT_ACT="${RE_GIT_HEAD}(merge|pull|rebase|push)([^[:alnum:]_-]|\$)"
 RE_GIT_REWRITE="${RE_GIT_HEAD}commit([[:space:]].*)?[[:space:]]--(am|sq|fix)"
 # A substitution after `git commit` could produce --amend at run time.
 RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
+# The tower-only acts, as crudely: any short-option cluster carrying the
+# letter counts, and any long option starting with it.
+RE_TOWER_SURGERY="${RE_GIT_HEAD}(update-ref|filter-branch|filter-repo)([^[:alnum:]_-]|\$)"
+RE_TOWER_RESET="${RE_GIT_HEAD}reset([[:space:]].*)?[[:space:]]--h"
+RE_TOWER_BRANCH="${RE_GIT_HEAD}branch([[:space:]].*)?[[:space:]](-[[:alnum:]]*[fMC]|--f(o(r(ce?)?)?)?([^[:alnum:]_-]|\$))"
+RE_TOWER_WORKTREE="${RE_GIT_HEAD}worktree[[:space:]]+(add|remove|move)([^[:alnum:]_-]|\$)"
 RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-ad'
 RE_FOR_MERGE='(^|[^[:alnum:]_-])--for-merge([^[:alnum:]_-]|$)'
 
@@ -242,6 +269,9 @@ raw_evidence_one() {
   if [[ $t =~ $RE_GH_API ]] || [[ $t =~ $RE_GH_PR ]] || [[ $t =~ $RE_GIT_ACT ]] \
     || [[ $t =~ $RE_GIT_REWRITE ]] || [[ $t =~ $RE_GIT_COMMIT_SUBST ]] || [[ $t =~ $RE_MERGE_HELPER ]] \
     || [[ $t =~ $RE_FOR_MERGE ]]; then
+    rc=0
+  elif [ "${TIER:-}" = tower ] && { [[ $t =~ $RE_TOWER_SURGERY ]] || [[ $t =~ $RE_TOWER_RESET ]] \
+    || [[ $t =~ $RE_TOWER_BRANCH ]] || [[ $t =~ $RE_TOWER_WORKTREE ]]; }; then
     rc=0
   fi
   # A worker's wrapped or substituted call of the force-push helper.
@@ -2011,6 +2041,7 @@ classify_git() {
         }
       ;;
   esac
+  [ "$TIER" != tower ] || classify_tower_git "$LC" "$k" "$dir" "$dir_ok"
 
   case " $GIT_BUILTINS " in
     *" $sub "*) ;;
@@ -2154,6 +2185,10 @@ git_alias_check() {
                   merge | pull | rebase | commit | push)
                     deny_now "the git alias $(sanitize_printable "$sub" 'used here') expands to git $(sanitize_printable "$first" 'a reserved subcommand'), which the guard reads only by its own name - refusing. Run git $(sanitize_printable "$first" 'that subcommand') directly."
                     ;;
+                  reset | branch | worktree | update-ref | filter-branch)
+                    [ "$TIER" != tower ] \
+                      || deny_now "the git alias $(sanitize_printable "$sub" 'used here') expands to git $(sanitize_printable "$first" 'a subcommand the tower floor covers'), which the guard reads only by its own name - refusing. Run git $(sanitize_printable "$first" 'that subcommand') directly."
+                    ;;
                 esac
                 ;;
               *)
@@ -2184,17 +2219,21 @@ git_alias_check() {
 # parse_git_opts <start> <value-longs> <value-shorts> <optval-shorts> — walk
 # the words from <start>, setting GP_POS[] (positionals with GP_POSL[]),
 # GP_LONG (space-joined long option names seen, values dropped), GP_SHORT
-# (short flag chars seen). Returns 1 with GP_ERR when a flag cannot be read.
+# (short flag chars seen), and GP_LITLONG and GP_LITSHORT, the same from
+# literal words only. Returns 1 with GP_ERR when a flag cannot be read.
 parse_git_opts() {
-  local k=$1 vlong=" $2 " vshort=$3 ovshort=$4 n=${#SW[@]} w name endopts=0 b c
+  local k=$1 vlong=" $2 " vshort=$3 ovshort=$4 n=${#SW[@]} w lit name endopts=0 b c
   GP_POS=()
   GP_POSL=()
   GP_LONG=' '
   GP_SHORT=''
+  GP_LITLONG=' '
+  GP_LITSHORT=''
   GP_VALS=()
   GP_ERR=''
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
+    lit=${SWL[$k]}
     if [ "$endopts" = 1 ]; then
       GP_POS[${#GP_POS[@]}]=$w
       GP_POSL[${#GP_POSL[@]}]=${SWL[$k]}
@@ -2208,6 +2247,7 @@ parse_git_opts() {
       --*=*)
         name=${w%%=*}
         GP_LONG="$GP_LONG${name#--} "
+        [ "$lit" != 1 ] || GP_LITLONG="$GP_LITLONG${name#--} "
         ;;
       --*)
         name=${w#--}
@@ -2219,12 +2259,16 @@ parse_git_opts() {
               return 1
             }
             GP_LONG="$GP_LONG$name "
+            [ "$lit" != 1 ] || GP_LITLONG="$GP_LITLONG$name "
             ;;
           *" $name"*)
             GP_ERR="--$name abbreviates an option that takes a value"
             return 1
             ;;
-          *) GP_LONG="$GP_LONG$name " ;;
+          *)
+            GP_LONG="$GP_LONG$name "
+            [ "$lit" != 1 ] || GP_LITLONG="$GP_LITLONG$name "
+            ;;
         esac
         ;;
       -)
@@ -2237,6 +2281,7 @@ parse_git_opts() {
           c=${b:0:1}
           b=${b:1}
           GP_SHORT="$GP_SHORT$c"
+          [ "$lit" != 1 ] || GP_LITSHORT="$GP_LITSHORT$c"
           case $vshort in
             *"$c"*)
               if [ -z "$b" ]; then
@@ -2269,12 +2314,13 @@ parse_git_opts() {
   return 0
 }
 
-# long_prefix_seen <full-name> <min-length> — 0 when GP_LONG carries an
-# option git would read as <full-name>: the name itself or a prefix of it at
-# least <min-length> long (git takes any unique prefix of a long option).
+# long_prefix_seen <full-name> <min-length> [<names>] — 0 when <names>
+# (default GP_LONG) carries an option git would read as <full-name>: the name
+# itself or a prefix of it at least <min-length> long (git takes any unique
+# prefix of a long option).
 long_prefix_seen() {
   local t name
-  for t in $GP_LONG; do
+  for t in ${3-$GP_LONG}; do
     name=${t%%=*}
     [ "${#name}" -ge "$2" ] || continue
     [ "$name" != "${1:0:${#name}}" ] || return 0
@@ -2304,6 +2350,138 @@ tower_refuses() { # <what>
     return 0
   fi
   return 1
+}
+
+# tower_opts_literal <start> <what> — 0 when every word before `--` is
+# literal; otherwise queues the refusal, since an expansion could spell the
+# option the tower is refused.
+tower_opts_literal() {
+  local k=$1 n=${#SW[@]}
+  while [ "$k" -lt "$n" ] && [ "${SW[$k]}" != -- ]; do
+    [ "${SWL[$k]}" = 1 ] \
+      || {
+        deny_now "$2 carries an expansion the guard cannot read, which could spell an option the tower is refused - refusing (fail closed). Write its options literally, and put expanded names after --."
+        return 1
+      }
+    k=$((k + 1))
+  done
+  return 0
+}
+
+# classify_tower_git <lower-case sub> <sub-index> <dir> <dir_ok> — the acts
+# the tower deny list blocks that no other act covers: moving a ref or
+# rewriting history by hand, and the dangerous git worktree forms.
+classify_tower_git() {
+  local sub=$1 k=$(($2 + 1)) dir=$3 dir_ok=$4
+  case $sub in
+    update-ref | filter-branch | filter-repo)
+      deny_now "git $sub moves refs or rewrites history by hand; it is denied to the tower under every policy value, since the tower never moves a branch."
+      return 0
+      ;;
+    reset)
+      tower_opts_literal "$k" 'this git reset' || return 0
+      parse_git_opts "$k" 'pathspec-from-file' '' '' \
+        || {
+          deny_now "this git reset carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
+          return 0
+        }
+      long_prefix_seen hard 1 \
+        && deny_now 'git reset --hard is denied to the tower under every policy value: it discards work and moves a branch, and the tower never moves a branch.'
+      ;;
+    branch)
+      parse_git_opts "$k" 'set-upstream-to sort format points-at' 'u' '' \
+        || {
+          deny_now "this git branch carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
+          return 0
+        }
+      # Deletion stays the tower's, and in delete mode a force only deletes an
+      # unmerged branch, so a literal, parsed delete flag settles the call: the
+      # parse keeps an option's value from reading as one, and an expansion
+      # never counts, since it could spell -f instead.
+      case $GP_LITSHORT in *[dD]*) return 0 ;; esac
+      long_prefix_seen delete 1 "$GP_LITLONG" && return 0
+      tower_opts_literal "$k" 'this git branch' || return 0
+      # -M and -C are git's --move --force and --copy --force.
+      if long_prefix_seen force 1 || [[ $GP_SHORT == *[fMC]* ]]; then
+        deny_now 'a forced git branch (-f, --force, -M, -C) is denied to the tower under every policy value: it repoints an existing branch, and the tower never moves a branch.'
+      fi
+      ;;
+    worktree) classify_tower_worktree "$k" "$dir" "$dir_ok" ;;
+  esac
+  return 0
+}
+
+# classify_tower_worktree <verb-index> <dir> <dir_ok>
+classify_tower_worktree() {
+  local k=$1 dir=$2 dir_ok=$3 verb v x r
+  local -a names=() cands=()
+  [ "$k" -lt "${#SW[@]}" ] || return 0
+  tower_opts_literal "$k" 'this git worktree command' || return 0
+  lc "${SW[$k]}"
+  verb=$LC
+  case $verb in
+    add | remove | move) ;;
+    *) return 0 ;;
+  esac
+  parse_git_opts "$((k + 1))" 'reason' 'bB' '' \
+    || {
+      deny_now "this git worktree $verb carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
+      return 0
+    }
+  if long_prefix_seen force 1 || [[ $GP_SHORT == *f* ]]; then
+    deny_now "git worktree $verb --force is denied to the tower under every policy value: it overrides git's own checks on a worktree that may hold work or a checked-out branch."
+    return 0
+  fi
+  [ "$verb" = add ] || return 0
+  if long_prefix_seen detach 1 || [[ $GP_SHORT == *d* ]]; then
+    deny_now 'a detached worktree add (--detach) is denied to the tower under every policy value: dispatch a worktree through the planwright dispatch script instead.'
+    return 0
+  fi
+  for v in ${GP_VALS[@]+"${GP_VALS[@]}"}; do
+    case $v in [bB]=*) names[${#names[@]}]=${v#?=} ;; esac
+  done
+  if [ "${#names[@]}" = 0 ]; then
+    # A name taken from a positional after `--` may be an expansion.
+    if [ -n "${GP_POS[1]:-}" ]; then
+      [ "${GP_POSL[1]}" = 1 ] || {
+        deny_now "this git worktree $verb names its branch through an expansion the guard cannot read, which could name a protected branch - refusing (fail closed). Name the branch literally."
+        return 0
+      }
+      names[0]=${GP_POS[1]}
+    elif [ -n "${GP_POS[0]:-}" ]; then
+      [ "${GP_POSL[0]}" = 1 ] || {
+        deny_now "this git worktree $verb takes its branch from a path the guard cannot read (an expansion), which could name a protected branch - refusing (fail closed). Name the path or the branch literally."
+        return 0
+      }
+      # With no branch and no commit-ish, git checks out (or creates) the
+      # branch named after the path's last component.
+      x=${GP_POS[0]%/}
+      names[0]=${x##*/}
+    fi
+  fi
+  for x in ${names[@]+"${names[@]}"}; do
+    case $x in
+      refs/heads/*) x=${x#refs/heads/} ;;
+      heads/*) x=${x#heads/} ;;
+      refs/remotes/*/* | remotes/*/*)
+        x=${x#refs/}
+        x=${x#remotes/}
+        x=${x#*/}
+        ;;
+      */*)
+        r=${x%%/*}
+        case $r in
+          *[!A-Za-z0-9._-]* | -* | .*) ;;
+          *)
+            [ "$dir_ok" != 1 ] || [ -z "$(gitq "$dir" config --get "remote.$r.url")" ] \
+              || ! valid_branch "${x#*/}" || cands[${#cands[@]}]=${x#*/}
+            ;;
+        esac
+        ;;
+    esac
+    ! valid_branch "$x" || cands[${#cands[@]}]=$x
+  done
+  [ "${#cands[@]}" = 0 ] || queue_protected "$dir" "$dir_ok" "this git worktree $verb" "${cands[@]}"
 }
 
 MERGE_VLONG='message file strategy strategy-option into-name cleanup'
@@ -2966,6 +3144,15 @@ main() {
     raw_evidence "$input" \
       && emit_deny 'the PreToolUse payload could not be parsed and its raw content names a reserved act - refusing (fail closed).'
     return 0
+  fi
+  if [ "$TIER" = tower ]; then
+    case $tool in
+      mcp__github__merge_pull_request | "$MCP_TOOL" | mcp__github__update_pull_request_branch | \
+        mcp__github__create_pull_request | mcp__github__push_files | mcp__github__create_or_update_file | \
+        mcp__github__delete_file)
+        emit_deny "$tool is denied to the tower whatever its arguments: the tower never merges, edits or opens a pull request, updates its branch, or writes a branch through the GitHub MCP server. Read PR state with gh, and leave writes to a flight."
+        ;;
+    esac
   fi
   [ "$surface" != mcp ] || [ "$tool" = "$MCP_TOOL" ] \
     || emit_deny "the MCP-surface payload names $(sanitize_printable "$tool" 'an unprintable tool'), not $MCP_TOOL, so the guard cannot tell whether it flips or re-drafts a PR - refusing (fail closed). This is a hook-contract violation; report it."
