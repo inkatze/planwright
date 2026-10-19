@@ -340,10 +340,13 @@ _pw_lock_etimes() {
     '' | *[!0-9]*) _pw_lock_etimes_out='' ;;
     *) return 0 ;;
   esac
-  _pwe_raw=$(ps -o etime= -p "$1" 2>/dev/null | tr -d ' ') || _pwe_raw=''
-  if [ -z "$_pwe_raw" ]; then
-    _pwe_raw=$(ps -A -o pid= -o etime= 2>/dev/null | awk -v p="$1" '$1 == p { print $2; exit }') || _pwe_raw=''
-  fi
+  _pwe_raw=$(ps -o etime= -p "$1" 2>&1 | tr -d ' ') || :
+  case $_pwe_raw in
+    *[!0-9:-]*)
+      # A diagnostic, not an answer: this ps rejects the query.
+      _pwe_raw=$(ps -A -o pid= -o etime= 2>/dev/null | awk -v p="$1" '$1 == p { print $2; exit }') || _pwe_raw=''
+      ;;
+  esac
   [ -n "$_pwe_raw" ] || return 0
   case $_pwe_raw in
     *-*)
