@@ -233,6 +233,30 @@ if command -v setsid >/dev/null 2>&1; then
       [ -z "$job" ] || kill "$job" 2>/dev/null
     fi
   fi
+  # A session member whose name holds a newline cannot steer the sweep onto
+  # a process outside the session; it sits in its own group, so the group
+  # kill does not end it first.
+  if [ -d /proc/self ]; then
+    sleep 60 >/dev/null 2>&1 &
+    victim=$!
+    cat >"$T/nl.txt" <<EOF
+review-repro 1
+finding NL
+kind test
+run n=\$(printf '\\nx'); n=\${n%x}; f="$T/a\${n}$victim x"; printf '#!/bin/sh\\nsleep 60\\n' >"\$f" && chmod +x "\$f" && bash -c 'set -m; "\$0" >/dev/null 2>&1 & sleep 1' "\$f"
+exit 0
+EOF
+    out=$(rv --records "$T/nl.txt" 2>&1)
+    sleep 0.5
+    # The victim is this shell's child, so a killed one lingers as a zombie.
+    if kill -0 "$victim" 2>/dev/null && [ "$(cut -d' ' -f3 "/proc/$victim/stat" 2>/dev/null)" != Z ]; then
+      ok "a newline in a process name never kills a process outside the session"
+    else
+      fail "a newline in a process name never kills a process outside the session"
+    fi
+    kill "$victim" 2>/dev/null
+    rm -f "$T"/a*"$victim x"
+  fi
 else
   echo "skip: setsid is not installed; the backgrounded-process case is not run"
 fi

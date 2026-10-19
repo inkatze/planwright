@@ -199,12 +199,22 @@ reap() {
   [ -n "$1" ] && [ -n "$session" ] || return 0
   kill -9 "-$1" 2>/dev/null || true
   if [ -r /proc/self/stat ]; then
-    # A stat line is `<pid> (<comm>) <state> <ppid> <pgrp> <session> ...`; the
-    # command name may hold spaces and parentheses, so fields count from its
-    # last `)`. cat skips a process that exits mid-scan.
-    cat /proc/[0-9]*/stat 2>/dev/null \
-      | awk -v sid="$1" '{ s = $0; sub(/.*\) /, "", s); split(s, f, " "); if (f[4] == sid) print $1 }' \
-      | while IFS= read -r pid; do kill -9 "$pid" 2>/dev/null || true; done
+    sid_want=$1
+    # A stat file is `<pid> (<comm>) <state> <ppid> <pgrp> <session> ...`; the
+    # command name may hold spaces, parentheses and newlines, so each file is
+    # read whole with builtins (no fork per process), fields count from its
+    # last `)`, and the pid comes from the file's path, never its contents.
+    for st in /proc/[0-9]*/stat; do
+      line=
+      {
+        while IFS= read -r l || [ -n "$l" ]; do line=$line$l; done <"$st"
+      } 2>/dev/null || continue
+      # shellcheck disable=SC2086 # split into fields on purpose
+      set -- ${line##*) }
+      [ "${4:-}" = "$sid_want" ] || continue
+      pid=${st#/proc/}
+      kill -9 "${pid%/stat}" 2>/dev/null || true
+    done
   elif command -v pkill >/dev/null 2>&1; then
     pkill -9 -s "$1" 2>/dev/null || true
   fi
