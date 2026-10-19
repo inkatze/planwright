@@ -236,8 +236,8 @@ assert_eq "D1.3 a refused delivery commits nothing" "$base" "$(commit_count "$v"
 assert_eq "D1.3 a refused delivery leaves the plan alone" "planned" "$(field_of "$v/plan.md" T-2 Status)"
 
 # Give A-2 its pre-committed threshold, as an operator edit of its own.
-sed 's/^- \*\*Threshold:\*\* none$/- **Threshold:** all three sinks accept a write without a manual step/' "$v/assumptions.md" |
-  awk 'BEGIN{n=0} /^- \*\*Threshold:\*\* all three/ { n++; if (n > 1) { print "- **Threshold:** none"; next } } { print }' >"$tmp/a.tmp"
+sed 's/^- \*\*Threshold:\*\* none$/- **Threshold:** all three sinks accept a write without a manual step/' "$v/assumptions.md" \
+  | awk 'BEGIN{n=0} /^- \*\*Threshold:\*\* all three/ { n++; if (n > 1) { print "- **Threshold:** none"; next } } { print }' >"$tmp/a.tmp"
 mv "$tmp/a.tmp" "$v/assumptions.md"
 git -C "$v" commit -q -am "set the A-2 threshold"
 base=$(commit_count "$v")

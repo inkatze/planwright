@@ -124,8 +124,8 @@ clean_value() {
 }
 
 check_task_id() {
-  printf '%s\n' "$1" | grep -Eq '^T-[1-9][0-9]{0,8}$' ||
-    die 2 "task id must be T-<n> (a positive integer): $(sanitize_printable "$1" '?')"
+  printf '%s\n' "$1" | grep -Eq '^T-[1-9][0-9]{0,8}$' \
+    || die 2 "task id must be T-<n> (a positive integer): $(sanitize_printable "$1" '?')"
 }
 
 # resolve_venture <arg> — set vdir to the venture's canonical directory.
@@ -134,8 +134,8 @@ resolve_venture() {
     -*) die 2 "venture must be a directory or an identifier: $(sanitize_printable "$1" '?')" ;;
     . | */*) _vd=$1 ;;
     *)
-      "$VENTURE" check-id "$1" >/dev/null 2>&1 ||
-        die 2 "not a venture identifier: $(sanitize_printable "$1" '?')"
+      "$VENTURE" check-id "$1" >/dev/null 2>&1 \
+        || die 2 "not a venture identifier: $(sanitize_printable "$1" '?')"
       _root=$("$VENTURE" root 2>/dev/null) || die 2 "cannot resolve ventures_root"
       _vd="$_root/$1"
       ;;
@@ -208,8 +208,8 @@ set_fields() {
 
 bump_reviewed() {
   _today=$(today)
-  awk -v d="$_today" '!done && /^\*\*Last reviewed:\*\*/ { print "**Last reviewed:** " d; done = 1; next } { print }' "$1" >"$1.bump" &&
-    mv "$1.bump" "$1"
+  awk -v d="$_today" '!done && /^\*\*Last reviewed:\*\*/ { print "**Last reviewed:** " d; done = 1; next } { print }' "$1" >"$1.bump" \
+    && mv "$1.bump" "$1"
 }
 
 # load_task <T-n> — read the task block into t_* variables; refuse when the
@@ -233,8 +233,8 @@ load_task() {
   t_stakeholder=
   if [ "$t_kind" = alignment ]; then
     t_stakeholder=$(stakeholder_for "$t_target")
-    [ -n "$t_stakeholder" ] ||
-      die 1 "$1 is an alignment task whose target names no stakeholder-map row with a Decides name"
+    [ -n "$t_stakeholder" ] \
+      || die 1 "$1 is an alignment task whose target names no stakeholder-map row with a Decides name"
   fi
 }
 
@@ -259,23 +259,28 @@ contract_row() {
     spike)
       deliv='findings from a throwaway build, code under spikes/T-<n>/'
       perf=agent req=none
-      acc='the measured result against the linked thresholds' ;;
+      acc='the measured result against the linked thresholds'
+      ;;
     research)
       deliv='findings from sources, each claim citing one'
       perf=agent req=none
-      acc='every claim traced to a cited source' ;;
+      acc='every claim traced to a cited source'
+      ;;
     analysis)
       deliv='findings from data or a model, method stated'
       perf=agent req=none
-      acc='the method, then the result against the linked thresholds' ;;
+      acc='the method, then the result against the linked thresholds'
+      ;;
     demand-signal)
       deliv='prepared materials, then the observed signal'
       perf=human req=performer
-      acc='the signal as a human observed it, graded on the ladder' ;;
+      acc='the signal as a human observed it, graded on the ladder'
+      ;;
     alignment)
       deliv='prepared materials, then the recorded outcome of the conversation'
       perf=human req=stakeholder
-      acc="the stakeholder's recorded position" ;;
+      acc="the stakeholder's recorded position"
+      ;;
     *) return 1 ;;
   esac
   printf 'kind\t%s\ndeliverable\t%s\nperformer\t%s\nrequires\t%s\nacceptance\t%s\n' \
@@ -375,12 +380,12 @@ check_findings() {
   [ "$(hv Task)" = "$1" ] || die 1 "findings/$1.md does not name $1 on its Task line"
   [ "$(hv Kind)" = "$t_kind" ] || die 1 "findings/$1.md names a kind other than the plan's ($t_kind)"
   grep -q '^section	Findings$' "$work/parsed" || die 1 "findings/$1.md has no ## Findings section"
-  [ "$(awk -F'\t' '$1 == "body" { print $2 }' "$work/parsed")" -gt 0 ] ||
-    die 1 "findings/$1.md has an empty ## Findings section"
-  grep -q '^section	Register updates$' "$work/parsed" ||
-    die 1 "findings/$1.md has no ## Register updates section"
-  ! grep -q '^section	Acceptance$' "$work/parsed" ||
-    die 1 "findings/$1.md already carries an acceptance record; only accept writes one"
+  [ "$(awk -F'\t' '$1 == "body" { print $2 }' "$work/parsed")" -gt 0 ] \
+    || die 1 "findings/$1.md has an empty ## Findings section"
+  grep -q '^section	Register updates$' "$work/parsed" \
+    || die 1 "findings/$1.md has no ## Register updates section"
+  ! grep -q '^section	Acceptance$' "$work/parsed" \
+    || die 1 "findings/$1.md already carries an acceptance record; only accept writes one"
   if grep -q '^bad	' "$work/parsed"; then
     die 1 "findings/$1.md has a register-update line off the '- <id>: <status> — <value>' form (line $(awk -F'\t' '$1 == "bad" { print $2; exit }' "$work/parsed"))"
   fi
@@ -388,14 +393,14 @@ check_findings() {
   case $t_kind in
     demand-signal | alignment)
       _pb=$(hv Performed-by)
-      [ -n "$_pb" ] ||
-        die 1 "a $t_kind task is performed by a human: findings/$1.md needs the Performed-by line naming who ran it"
+      [ -n "$_pb" ] \
+        || die 1 "a $t_kind task is performed by a human: findings/$1.md needs the Performed-by line naming who ran it"
       clean_value "$_pb" "Performed-by"
       ;;
   esac
   if [ "$t_kind" = alignment ]; then
-    [ "$(hv Stakeholder)" = "$t_stakeholder" ] ||
-      die 1 "findings/$1.md must name the target's decider on its Stakeholder line: $(sanitize_printable "$t_stakeholder" '?')"
+    [ "$(hv Stakeholder)" = "$t_stakeholder" ] \
+      || die 1 "findings/$1.md must name the target's decider on its Stakeholder line: $(sanitize_printable "$t_stakeholder" '?')"
   fi
 
   awk -F'\t' '$1 == "update" { sub(/^update\t/, ""); print }' "$work/parsed" >"$work/updates"
@@ -504,8 +509,8 @@ is_git() {
 require_clean() {
   is_git || return 0
   for _f in "$@"; do
-    git -C "$vdir" diff --quiet HEAD -- "$_f" 2>/dev/null ||
-      die 1 "$_f has uncommitted changes; save or discard them first, so this commit holds only the task's change"
+    git -C "$vdir" diff --quiet HEAD -- "$_f" 2>/dev/null \
+      || die 1 "$_f has uncommitted changes; save or discard them first, so this commit holds only the task's change"
   done
 }
 
@@ -526,11 +531,17 @@ install_and_commit() {
   for _p in "$@"; do
     case $_p in
       findings/* | spikes/*) ;;
-      *) mv "$work/stage/$_p" "$vdir/$_p" || { restore "$@"; die 2 "cannot write $_p"; } ;;
+      *) mv "$work/stage/$_p" "$vdir/$_p" || {
+        restore "$@"
+        die 2 "cannot write $_p"
+      } ;;
     esac
   done
   if [ -f "$fdoc.pending" ]; then
-    mv "$fdoc.pending" "$fdoc" || { restore "$@"; die 2 "cannot write the findings document"; }
+    mv "$fdoc.pending" "$fdoc" || {
+      restore "$@"
+      die 2 "cannot write the findings document"
+    }
   fi
   if ! is_git; then
     printf 'saved\tplain\n'
@@ -554,8 +565,8 @@ restore() {
 
 set_task_status() { # set_task_status <T-n> <status> — on the staged plan
   printf 'Status\t%s\n' "$2" >"$work/tpair"
-  if ! set_fields "$work/stage/plan.md" "$1" "$work/tpair" "$work/stage/plan.md.new" ||
-    ! mv "$work/stage/plan.md.new" "$work/stage/plan.md"; then
+  if ! set_fields "$work/stage/plan.md" "$1" "$work/tpair" "$work/stage/plan.md.new" \
+    || ! mv "$work/stage/plan.md.new" "$work/stage/plan.md"; then
     die 2 "cannot rewrite plan.md"
   fi
   bump_reviewed "$work/stage/plan.md" || die 2 "cannot rewrite plan.md"
@@ -669,10 +680,24 @@ parse_by() {
   drop=no
   while [ $# -gt 0 ]; do
     case $1 in
-      --by) [ $# -ge 2 ] || usage; by=$2; shift 2 ;;
-      --reason) [ $# -ge 2 ] || usage; reason=$2; shift 2 ;;
-      --drop) drop=yes; shift ;;
-      --) shift; break ;;
+      --by)
+        [ $# -ge 2 ] || usage
+        by=$2
+        shift 2
+        ;;
+      --reason)
+        [ $# -ge 2 ] || usage
+        reason=$2
+        shift 2
+        ;;
+      --drop)
+        drop=yes
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
       -*) usage ;;
       *) break ;;
     esac
@@ -692,8 +717,8 @@ cmd_accept() {
   mkwork
   version_gate "$vdir"
   load_task "$rest_task"
-  [ "$t_status" = delivered ] ||
-    die 1 "$rest_task is $(sanitize_printable "$t_status" '?'); only a delivered task is accepted"
+  [ "$t_status" = delivered ] \
+    || die 1 "$rest_task is $(sanitize_printable "$t_status" '?'); only a delivered task is accepted"
   check_findings "$rest_task"
 
   # A one-way door is reserved to its named deciders.
@@ -701,8 +726,8 @@ cmd_accept() {
     case $_id:$_st in
       DEC-*:decided)
         [ "$(field "$vdir/decisions.md" "$_id" Door)" = one-way ] || continue
-        field "$vdir/decisions.md" "$_id" Deciders | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -qxF -- "$by" ||
-          die 1 "$_id is a one-way door; only one of its Deciders accepts it"
+        field "$vdir/decisions.md" "$_id" Deciders | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -qxF -- "$by" \
+          || die 1 "$_id is a one-way door; only one of its Deciders accepts it"
         ;;
     esac
   done <"$work/updates"
@@ -714,8 +739,11 @@ cmd_accept() {
   # shellcheck disable=SC2086 # file names from a fixed set
   require_clean plan.md $_changed
 
-  { cat "$fdoc"; printf '\n## Acceptance\n\nAccepted-by: %s\nDate: %s\n' "$by" "$(today)"; } >"$fdoc.pending" ||
-    die 2 "cannot write the acceptance record"
+  {
+    cat "$fdoc"
+    printf '\n## Acceptance\n\nAccepted-by: %s\nDate: %s\n' "$by" "$(today)"
+  } >"$fdoc.pending" \
+    || die 2 "cannot write the acceptance record"
   # shellcheck disable=SC2086 # file names from a fixed set
   install_and_commit "$rest_task accepted by $by: registers updated" "findings/$rest_task.md" plan.md $_changed
   printf 'task\t%s\nstatus\taccepted\n' "$rest_task"
@@ -733,18 +761,21 @@ cmd_reject() {
   mkwork
   version_gate "$vdir"
   load_task "$rest_task"
-  [ "$t_status" = delivered ] ||
-    die 1 "$rest_task is $(sanitize_printable "$t_status" '?'); only a delivered task is rejected"
+  [ "$t_status" = delivered ] \
+    || die 1 "$rest_task is $(sanitize_printable "$t_status" '?'); only a delivered task is rejected"
   fdoc="$vdir/findings/$rest_task.md"
-  [ ! -L "$vdir/findings" ] && [ ! -L "$fdoc" ] && [ -f "$fdoc" ] ||
-    die 1 "no readable findings document at findings/$rest_task.md"
+  [ ! -L "$vdir/findings" ] && [ ! -L "$fdoc" ] && [ -f "$fdoc" ] \
+    || die 1 "no readable findings document at findings/$rest_task.md"
   _next=running
   [ "$drop" = yes ] && _next=dropped
   require_clean plan.md
   stage_bundle
   set_task_status "$rest_task" "$_next"
-  { cat "$fdoc"; printf '\n## Rejection\n\nRejected-by: %s\nDate: %s\nReason: %s\n' "$by" "$(today)" "$reason"; } >"$fdoc.pending" ||
-    die 2 "cannot write the rejection record"
+  {
+    cat "$fdoc"
+    printf '\n## Rejection\n\nRejected-by: %s\nDate: %s\nReason: %s\n' "$by" "$(today)" "$reason"
+  } >"$fdoc.pending" \
+    || die 2 "cannot write the rejection record"
   install_and_commit "$rest_task findings rejected by $by" "findings/$rest_task.md" plan.md
   printf 'task\t%s\nstatus\t%s\n' "$rest_task" "$_next"
 }
@@ -790,8 +821,8 @@ cmd_check() {
   resolve_venture "$1"
   mkwork
   is_git || die 2 "check needs a git venture"
-  _c=$(git -C "$vdir" rev-parse --verify --quiet "$_rev^{commit}") ||
-    die 2 "no commit $(sanitize_printable "$_rev" '?') in the venture"
+  _c=$(git -C "$vdir" rev-parse --verify --quiet "$_rev^{commit}") \
+    || die 2 "no commit $(sanitize_printable "$_rev" '?') in the venture"
   _p=$(git -C "$vdir" rev-parse --verify --quiet "$_c^1") || _p=
   for _f in plan.md assumptions.md decisions.md; do
     git -C "$vdir" show "$_c:$_f" >"$work/new.$_f" 2>/dev/null || : >"$work/new.$_f"
@@ -801,12 +832,18 @@ cmd_check() {
       : >"$work/old.$_f"
     fi
   done
-  git -C "$vdir" diff-tree --no-commit-id --name-only -r --root "$_c" >"$work/touched" ||
-    die 2 "cannot list the commit's files"
+  git -C "$vdir" diff-tree --no-commit-id --name-only -r --root "$_c" >"$work/touched" \
+    || die 2 "cannot list the commit's files"
   task_table "$work/old.plan.md" >"$work/t.old"
   task_table "$work/new.plan.md" >"$work/t.new"
-  { entry_table "$work/old.assumptions.md"; entry_table "$work/old.decisions.md"; } >"$work/e.old"
-  { entry_table "$work/new.assumptions.md"; entry_table "$work/new.decisions.md"; } >"$work/e.new"
+  {
+    entry_table "$work/old.assumptions.md"
+    entry_table "$work/old.decisions.md"
+  } >"$work/e.old"
+  {
+    entry_table "$work/new.assumptions.md"
+    entry_table "$work/new.decisions.md"
+  } >"$work/e.new"
 
   awk -F'\t' -v touched="$work/touched" -v eold="$work/e.old" -v enew="$work/e.new" -v told="$work/t.old" '
     BEGIN {
@@ -855,7 +892,10 @@ cmd_check() {
   done >>"$work/findings"
 
   if [ -s "$work/findings" ]; then
-    sort -u "$work/findings" | while IFS= read -r _l; do sanitize_printable "$_l"; printf '\n'; done
+    sort -u "$work/findings" | while IFS= read -r _l; do
+      sanitize_printable "$_l"
+      printf '\n'
+    done
     return 1
   fi
   printf 'check\tclean\n'
