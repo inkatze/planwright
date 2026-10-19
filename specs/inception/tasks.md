@@ -240,7 +240,7 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-- **Task 9** — cubic review drain paused on one finding the operator decides: narrow the file-level fence-lexer exemption for `inception-fanout.sh` in `tests/test-spec-parse-corpus.sh` (defer with an observation, decline, or fix now); seven other findings are fixed and resolved on PR #698.
+(none yet)
 
 ## Deferred
 
