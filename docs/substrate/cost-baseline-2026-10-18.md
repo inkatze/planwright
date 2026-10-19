@@ -10,8 +10,8 @@ unchanged tree with:
 Every count stops at the as-of date (UTC). The script header defines each field: the
 commits touching `scripts/` or `githooks/`, the observations recorded (fragments and
 frozen-log lines) split by the pain matrix's classes, the check aggregate's CI
-wall-clock from `docs/substrate/check-wallclock-2026-10-18.tsv`, and the load-flake
-hand-backs from `docs/substrate/hand-backs.tsv`. Only the pain matrix's mined set
+wall-clock from `docs/substrate/check-wallclock-2026-10-18.tsv`, and the load-flake hand-backs from
+`docs/substrate/hand-backs.tsv`. Only the pain matrix's mined set
 carries classes, so an observation recorded after it was mined counts as outside
 the mined set: a zero class cell in a later month means unclassified, not no inflow.
 The drafting-session figures in the universal-binary bundle's Sources were counted

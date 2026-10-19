@@ -11,7 +11,7 @@ The mined set is every observation the universal-binary bundle cites under its
 Sources (fragment UIDs) plus the frozen legacy-log lines listed in
 `docs/substrate/legacy-lines.tsv`. Each item counts once in every cell of its
 tiers crossed with its classes, so a row or column does not sum to the item
-count. Tiers come from the partition (`scripts/substrate-partition.sh`) through
+count. Tiers come from the partition (the `substrate:partition` task) through
 the scripts an item names; an item naming none is attributed by
 `docs/substrate/manual-attribution.tsv`. The script header defines both rules.
 
