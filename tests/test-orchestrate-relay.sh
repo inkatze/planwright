@@ -589,7 +589,7 @@ EOF
   # A failing check below exits through the trap; the wrapper pins the socket,
   # so this kill can only reach the isolated server.
   # The kill fails once the server is gone, so it must not decide the exit status.
-  trap '"$iso_tmux" kill-server >/dev/null 2>&1 || :; rm -rf "$tmp" "$iso_dir"' EXIT
+  trap '/bin/sh "$iso_tmux" kill-server >/dev/null 2>&1 || :; rm -rf "$tmp" "$iso_dir"' EXIT
   /bin/sh "$iso_tmux" -f /dev/null new-session -d -s relaytest -x 200 -y 30 cat \
     || fail "could not start an isolated tmux server for the end-to-end check"
   resolved=$(/bin/sh "$iso_tmux" display-message -p -t relaytest '#{socket_path}') \

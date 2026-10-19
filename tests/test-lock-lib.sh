@@ -837,19 +837,27 @@ for sig in INT HUP; do
     i=$((i + 1))
   done
   kill -"$sig" "$sig_pid" 2>/dev/null
+  # Skip only on a holder the signal left running: one that died without
+  # releasing is the library's failure, and must fail below.
   i=0
-  while [ -L "$tmp/s.lock" ] && [ "$i" -lt 50 ]; do
+  while [ "$i" -lt 50 ]; do
+    st=$(ps -o stat= -p "$sig_pid" 2>/dev/null)
+    case $st in '' | *Z*) break ;; esac
     sleep 0.1
     i=$((i + 1))
   done
-  if [ -L "$tmp/s.lock" ]; then
-    # A suite started as a background job of a non-interactive shell (or under
-    # nohup) inherits the signal ignored, and nothing beneath it can restore it.
-    echo "skip: a $sig'd holder releases its lock (the signal is ignored in this test's environment)"
-    kill "$sig_pid" 2>/dev/null
-    wait "$sig_pid" 2>/dev/null
-    continue
-  fi
+  case $st in
+    '' | *Z*) ;;
+    *)
+      # A suite started as a background job of a non-interactive shell (or
+      # under nohup) inherits the signal ignored, and nothing beneath it can
+      # restore it.
+      echo "skip: a $sig'd holder releases its lock (the signal is ignored in this test's environment)"
+      kill "$sig_pid" 2>/dev/null
+      wait "$sig_pid" 2>/dev/null
+      continue
+      ;;
+  esac
   got=0
   wait "$sig_pid" || got=$?
   if [ -L "$tmp/s.lock" ]; then
