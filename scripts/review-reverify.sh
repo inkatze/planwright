@@ -189,7 +189,7 @@ trap 'reap "$grp"; scrub "$work"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
-mkdir "$work/r" || die 4 "could not create a working directory"
+mkdir -p "$work/r" || die 4 "could not create a working directory"
 
 status=0
 printf '%s\n' "$parsed" | grep '^R' >"$work/runs"
