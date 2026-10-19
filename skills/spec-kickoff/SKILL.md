@@ -383,7 +383,8 @@ most recent anchor entry never describes spec content that was not walked.
    **Then the `pre-spec-ready-flip` point** (REQ-A1.2, REQ-E1.6, REQ-J1.2,
    D-13), whether or not a flip follows: resolve it (`scripts/resolve-steps.sh
    pre-spec-ready-flip --explain --attended`), run and record its steps under
-   one new run, each record carrying its end head, then post
+   one new run, each record carrying its end head, complete it
+   (`scripts/step-record.sh write --completion`), then post
    `scripts/step-record.sh status --point pre-spec-ready-flip --repo <base
    repo>` on the head the list ends on. A `failure` status or a failed post
    refuses the flip, recording the pending flip to Awaiting input naming the
@@ -394,7 +395,7 @@ most recent anchor entry never describes spec content that was not walked.
    carried open question, every lens finding dispositioned) and the point
    above posted `success`. Configured verification is the `pre-spec-ready-flip`
    point (D-7), not a hardcoded core step. When
-   `mark_spec_pr_ready_on_kickoff` is true (pre-flight step 4) and the
+   `mark_spec_pr_ready_on_kickoff` is true and the
    completion is clean, un-draft the spec PR — but **first gate the flip on the
    head SHA's CI** per `kickoff-verification` (REQ-B1.1, D-3), which also owns
    the draft-state check before `gh pr ready <spec-PR>`. This is the

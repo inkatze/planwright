@@ -72,6 +72,9 @@ printf '%s' "$step7" | grep -qE 'head the list ends on'
 verdict "REQ-E1.3: the status and the flip target the head the list ends on" "REQ-E1.3: step 7 does not name the head the list ends on"
 printf '%s' "$step7" | grep -qE 'end head'
 verdict "REQ-D1.12: the point's records carry their end head" "REQ-D1.12: step 7 does not say the records carry their end head"
+# The status verb refuses a head no completion record of the point names.
+printf '%s' "$step7" | grep -qF 'step-record.sh write --completion'
+verdict "REQ-E1.6: the point writes its completion record before the post" "REQ-E1.6: step 7 never writes the completion record the status post requires"
 printf '%s' "$step7" | grep -qE '`failure` status.{0,80}refuses the flip'
 verdict "REQ-J1.2: a failure status refuses the flip" "REQ-J1.2: step 7 does not refuse the flip on a failure status"
 printf '%s' "$step7" | grep -qE 'Awaiting input.{0,40}naming the step'
