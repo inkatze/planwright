@@ -13,7 +13,7 @@ concurrent-orchestrator-coordination REQ-A1.1, REQ-D1.3, REQ-D1.6 ·
 concurrent-orchestrator-coordination D-1, D-6 · fleet-lifecycle-closure
 REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-B1.4, REQ-C1.1,
 REQ-C1.7, REQ-D1.3 · fleet-lifecycle-closure D-1, D-2, D-3 · human-gates
-REQ-D1.6 · tower-placement REQ-A1.2 · tower-placement D-1.
+REQ-D1.6 · tower-placement REQ-A1.2, D-1.
 
 ## The tower non-authoring boundary
 
@@ -23,12 +23,9 @@ explicitly-flagged change surfaced as a Needs-human-judgment fork — never as
 the default response to a "quick change" request (fleet-autonomy REQ-G1.1,
 D-17).
 
-The boundary was mined from a logged incident, not invented: on a loose
-request, a tower directly reversed a rationale-documented decision (disabling
-a markdownlint rule) and opened its own PR, instead of surfacing the
-decision-reversal as a fork or routing the edit as a worker chore. Nothing in
-doctrine said that was out of bounds, so nothing stopped it — the classic
-unstated-floor failure. This statement closes the gap at its source.
+Mined from a logged incident: on a loose request, a tower reversed a
+rationale-documented decision (disabling a markdownlint rule) and opened its
+own PR, because nothing in doctrine said that was out of bounds.
 
 What the boundary means in practice:
 
@@ -53,45 +50,23 @@ What the boundary means in practice:
 ## The tower placement floor
 
 **A tower runs in its own working tree. It never moves a branch, switches,
-dirties, or writes the shared stash in a checkout it does not own, and it
-never touches the primary checkout's `main`** (tower-placement REQ-A1.2; the
-altitude call is recorded as tower-placement D-1).
+dirties, or writes the shared stash in a checkout it does not own, and never
+touches the primary checkout's `main`** (tower-placement REQ-A1.2, D-1).
 
-A tower's job is working across worktrees: it creates task worktrees and
-branches, removes landed flights, and reads the primary checkout. Run from
-the primary checkout, one slip switches or dirties the `main` every other
-session reads; the floor makes "not from there" a stated rule rather than a
-habit, beside the non-authoring boundary above, which covers what a tower
-writes rather than where it stands.
+Reading another checkout is in bounds. The stash is shared by every worktree,
+so a tower's stash write lands in every peer's stack.
 
-What the floor means in practice:
+The only exceptions are planwright scripts performing an act the operator
+sanctioned for towers:
 
-- **Its own tree is a linked worktree or a clone of its own.** Reading
-  another checkout is in bounds. Changing what that checkout has checked
-  out, its index, or its working files is not, and neither is a stash write:
-  the stash is shared by every worktree of the repository, so a tower's
-  `git stash` lands in every peer's stack.
-- **The floor binds the tower's own commands.** A worker owns its worktree
-  and moves its own branch there; a tower reaching into that worktree to do
-  the same is the act the floor forbids.
-- **The exceptions are planwright scripts performing an act the operator
-  has sanctioned for towers, and only these:**
-  - *Fast-forwarding the primary checkout's `main` for a release*, through
-    `scripts/main-currency.sh sync --checkout <primary-checkout>`: a fetch
-    then a fast-forward-only merge, never a pull, refusing any divergence.
-  - *Starting a forward-merge in a worker's worktree for the worker to
-    resolve*, through `scripts/converge-sync-main.sh`: it merges `origin/main`
-    into the worker's unit branch under the base-merge policy, and under
-    `worker_merge_conflict_policy: resolve` leaves a conflict in place for
-    the worker to resolve and commit.
+- the release fast-forward of the primary checkout's `main`, through
+  `scripts/main-currency.sh sync --checkout <primary-checkout>`;
+- starting a forward-merge in a worker's worktree for the worker to resolve,
+  through `scripts/converge-sync-main.sh` run there, which leaves a conflict
+  for the worker under `worker_merge_conflict_policy: resolve`.
 
-  An act not on this list is not sanctioned by analogy; a new exception is
-  added here, by the bundle that sanctions it.
-- **Its mechanisms are owned elsewhere.** The `tower_placement` knob and the
-  bring-up check, the plugin-wired deny-only floor, and the wider deny list
-  are the tower-placement bundle's; this section is the rule they enforce,
-  and where a mechanism cannot see an act (a tower dirtying a tree by an
-  editor write, say), the rule still binds.
+An unlisted act is not sanctioned by analogy, and an act the bundle's
+mechanisms cannot see is still bound.
 
 ## The no-LLM-daemon-mechanics invariant
 
@@ -131,12 +106,9 @@ division of work, rather than behaving as the sole orchestrator**
 (concurrent-orchestrator-coordination REQ-A1.1; the altitude call is
 recorded as concurrent-orchestrator-coordination D-1).
 
-This floor too was mined from a real gap, not invented: concurrently-started
-towers advanced work against one checkout with no awareness of each other —
-in the operator's framing, "orchestrators don't seem to keep tabs … in case
-there are other orchs running or just other work the towers are not aware
-of." Nothing in doctrine said a tower should look, so none did — the same
-unstated-floor failure shape as the non-authoring boundary above.
+Mined from a real gap: concurrently started towers advanced work against one
+checkout with no awareness of each other, because nothing in doctrine said a
+tower should look.
 
 What the floor means in practice:
 
@@ -167,10 +139,8 @@ sole path** (concurrent-orchestrator-coordination REQ-D1.6, D-1).
 
 The companion of assume-multiplicity on the tower→human axis: the same
 "don't rely on a single fragile actor" discipline, applied to attention
-rather than coordination. It is likewise incident-mined — merge-ready PRs
-sat un-surfaced because the tower that could have noticed did not poll in
-time, the live proof that model-side polling as the sole attention path
-fails exactly when attention matters.
+rather than coordination. Incident-mined too: merge-ready PRs sat
+un-surfaced because the tower that could have noticed did not poll in time.
 
 This is a doctrine line only. The mechanism that realizes it — the hook
 mapping a worker's ready-flip to a record on the attention surface, and the
@@ -188,7 +158,7 @@ missing any of the three is a defect, not a gap for operator vigilance to
 cover** (fleet-lifecycle-closure REQ-A1.1–REQ-A1.5; the altitude call is
 recorded as fleet-lifecycle-closure D-1).
 
-Incident-mined like the floors above, and unstated in the same way. Every
+Incident-mined like the floors above. Every
 session-grade rung shipped a launch verb and no stop. A worker that reaches
 SessionEnd exits cleanly, so the common path looks tidy; only workers
 abandoned mid-flight or hard-killed leak, and they leak silently. Roughly 95
@@ -324,10 +294,7 @@ and absent here is the omission REQ-A1.5 exists to catch.
 | `print` | deferred → the human who runs the printed command; `print` units are exempt from the orphan/liveness predicate for exactly this reason | deferred → human | deferred → human | deferred → human | deferred → human | deferred → human |
 | `in-session` | n/a — no separate worker at all; every class is the tower's own | n/a | n/a | n/a | n/a | n/a |
 
-The bottom three rows are the point of the cross, not filler: `subagent`
-acquires store locks and nothing else, and owes the contract for them; `print`
-defers every part to the human; `in-session` acquires nothing separate at all.
-None of the three is exempt by silence (REQ-A1.5).
+The bottom three rows are deliberate: none is exempt by silence (REQ-A1.5).
 
 ## Scope boundary: adjacent mechanisms keep their own owners
 
