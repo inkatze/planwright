@@ -247,8 +247,6 @@ flight's branch is prior art for Tasks 3 and 4 (D-12).
 
 ## Awaiting input
 
-- **Task 3** — post-pr step cubic-pr halted: one cubic finding on PR #690 (a marked session can delete its mark store through a glob or variable spelling) is a proposed decline under the brief's accepted risk row 13; the reply is drafted and unposted, awaiting the operator. Record `.claude/steps/000001/`.
-
 ## Deferred
 
 - **Shell-feed and wrapper spellings at both guard tiers.** Commands fed
