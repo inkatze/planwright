@@ -30,6 +30,7 @@
 POLL_UNTIL_DEFAULT_DEADLINE=${POLL_UNTIL_DEFAULT_DEADLINE:-60}
 POLL_UNTIL_ELAPSED=0
 
+# shellcheck disable=SC3028 # bash's SECONDS reads the clock without a fork; dash falls back to date
 poll_until() {
   _pu_deadline=$POLL_UNTIL_DEFAULT_DEADLINE
   _pu_interval=0.1
@@ -79,13 +80,13 @@ poll_until() {
     return 2
   fi
   [ -n "$_pu_what" ] || _pu_what="'$*'"
-  _pu_start=$(date +%s)
+  _pu_start=${SECONDS:-$(date +%s)}
   while :; do
     if "$@" >/dev/null 2>&1; then
-      POLL_UNTIL_ELAPSED=$(($(date +%s) - _pu_start))
+      POLL_UNTIL_ELAPSED=$((${SECONDS:-$(date +%s)} - _pu_start))
       return 0
     fi
-    POLL_UNTIL_ELAPSED=$(($(date +%s) - _pu_start))
+    POLL_UNTIL_ELAPSED=$((${SECONDS:-$(date +%s)} - _pu_start))
     [ "$POLL_UNTIL_ELAPSED" -le "$_pu_deadline" ] || break
     sleep "$_pu_interval"
   done
