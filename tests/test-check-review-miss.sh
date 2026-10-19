@@ -225,7 +225,9 @@ rc=0
   --obs-dir "$rt" >/dev/null 2>&1 || rc=$?
 assert_exit "the observation helper records a conforming miss" 0 "$rc"
 set -- "$rt"/entries/*-review-miss-*.md
-assert_eq "the helper wrote one miss fragment" 1 "$(ls "$@" 2>/dev/null | wc -l | tr -d ' ')"
+n=0
+for p in "$@"; do [ -e "$p" ] && n=$((n + 1)); done
+assert_eq "the helper wrote one miss fragment" 1 "$n"
 rc=0
 out=$(/bin/sh "$CHECK" --obs-dir "$rt" 2>&1) || rc=$?
 assert_exit "a miss the helper wrote passes the guard" 0 "$rc"
