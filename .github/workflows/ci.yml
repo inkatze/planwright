@@ -173,8 +173,8 @@ jobs:
   #
   # The macOS run narrows PATH to the system directories, so the suite meets
   # the system bash 3.2 and the BSD awk and sed rather than the GNU tools the
-  # runner image layers on top; gh and node (for markdownlint-cli2) are
-  # linked into a directory of their own instead of exposing Homebrew's.
+  # runner image layers on top; gh, mise, and node (for markdownlint-cli2)
+  # are linked into a directory of their own instead of exposing Homebrew's.
   macos-suite:
     if: github.head_ref == 'planwright/universal-binary/task-4'
     runs-on: macos-latest
@@ -189,61 +189,11 @@ jobs:
       - run: |
           allow="$RUNNER_TEMP/allow-bin"
           mkdir -p "$allow"
-          ln -s "$(command -v gh)" "$(command -v node)" "$allow/"
-      # TEMPORARY diagnostics while the macOS repair is in flight: each file
-      # that failed or hung on the last run, alone, bounded, its output shown.
-      - if: ${{ !cancelled() }}
-        continue-on-error: true
-        timeout-minutes: 70
-        run: |
-          allow="$RUNNER_TEMP/allow-bin"
-          mise_bin=$(command -v mise)
-          PATH="$allow:/usr/bin:/bin:/usr/sbin:/sbin"
-          out="$RUNNER_TEMP/diag"
-          mkdir -p "$out"
-          printf '%s\n' \
-            test-fleet-messaging.sh \
-            test-merge-admitted.sh \
-            test-substrate-partition.sh \
-            test-merge-class.sh \
-            test-spec-store-worktree.sh \
-            test-worker-command-guard-steps.sh \
-            test-fleet-streamjson.sh \
-            test-ready-flip.sh \
-            test-resolve-steps.sh \
-            test-reserved-control-spellings.sh \
-            test-policy-guard.sh \
-            test-fleet-sweep-reap.sh \
-            test-tower-queue-next.sh \
-            test-tower-queue-store.sh \
-            test-check-guard-wiring.sh \
-            test-allocation-petition.sh \
-            test-fleet-dispatch-worktree.sh \
-            test-flight-record.sh \
-            test-tower-queue-capture.sh \
-            test-policy-guard-gh-api.sh \
-            test-step-record.sh \
-            test-flight-sweep.sh \
-            test-tower-queue-log-lock.sh \
-            test-ready-guard.sh \
-            test-policy-guard-hidden.sh \
-            test-fleet-state.sh \
-            test-fleet-cleanup.sh \
-            test-merge-currency-matrix.sh \
-            test-main-currency.sh \
-            test-resolve-root.sh \
-            test-tower-loop-comms.sh \
-            test-tower-loop-relay.sh \
-            >"$out/list"
-          cat >"$out/one.sh" <<'ONE'
-          "$1" exec -- perl -e 'alarm 300; exec @ARGV' /bin/bash "tests/$2" >"$3/$2.log" 2>&1
-          rc=$?
-          { echo "===== rc=$rc $2"; tail -n 80 "$3/$2.log"; } >"$3/$2.out"
-          cat "$3/$2.out"
-          ONE
-          xargs -P 3 -I{} /bin/sh "$out/one.sh" "$mise_bin" {} "$out" <"$out/list"
-      - if: ${{ !cancelled() }}
-        run: |
+          ln -s "$(command -v gh)" "$(command -v node)" "$(command -v mise)" "$allow/"
+          # PROVISIONAL, pending the operator's call on the guards' timeout
+          # dependency: stock macOS has no timeout binary at all.
+          ! command -v gtimeout >/dev/null || ln -s "$(command -v gtimeout)" "$allow/"
+      - run: |
           allow="$RUNNER_TEMP/allow-bin"
           mise_bin=$(command -v mise)
           PATH="$allow:/usr/bin:/bin:/usr/sbin:/sbin"
