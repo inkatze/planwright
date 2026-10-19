@@ -74,8 +74,8 @@ deliverables gap in its owning bundle. Close it there, as an expression-only
 amendment naming the script in the bundle's deliverables, never by adding a
 citation to the script. The owning bundle is the one the script's first
 `Planwright-Task:` trailer names; absent any trailer, it is the bundle whose
-decisions the script implements, chosen and stated with its reason in the PR
-that closes the gap.
+decisions the script implements, chosen and stated with its reason in the
+body of the PR that closes the gap.
 
 ## The disposition taxonomy
 
