@@ -287,6 +287,32 @@ for sig in TERM INT HUP; do
 done
 set +m
 
+echo "# the test pause point is bounded: unsignalled, the hook goes on to its verdict"
+rm -f "$SANDBOX/paused" "$SANDBOX/sig.out"
+bash_payload "$MARKED" 'git reset --hard HEAD' >"$SANDBOX/sig.payload"
+env -u CLAUDE_PLUGIN_DATA PATH="$BIN:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$FLEET" \
+  PLANWRIGHT_TOWER_SESSION_TEST_PAUSE="$SANDBOX/paused" \
+  /bin/bash "$TS" guard bash <"$SANDBOX/sig.payload" >"$SANDBOX/sig.out" 2>/dev/null &
+pid=$!
+n=0
+while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 300 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+if kill -0 "$pid" 2>/dev/null; then
+  kill -s KILL "$pid" 2>/dev/null
+  wait "$pid" 2>/dev/null
+  fail "the hook was still paused after 30s with no signal"
+else
+  wait "$pid"
+  CODE=$?
+  OUT=$(cat "$SANDBOX/sig.out")
+  set_decision
+  expect deny "an unsignalled pause ends in the guard's own verdict"
+  reason_has 'git reset --hard' "the verdict after the pause is the guard's, not the internal one"
+  [ -e "$SANDBOX/paused" ] || fail "the hook never reached the pause point"
+fi
+
 echo "# a crash after the session is found marked, or in the handshake, denies (REQ-C1.4)"
 # Each copy dereferences an unset variable under set -u at one point.
 crash_copy() { # <dest> <line after which the fault goes>

@@ -47,9 +47,12 @@
 # deny.
 #
 # TEST HOOK. PLANWRIGHT_TOWER_SESSION_TEST_PAUSE names a file this script
-# creates once the session is found marked, then waits to be signalled; the
+# creates once the session is found marked, then waits up to
+# TEST_PAUSE_SECONDS to be signalled before going on to its verdict; the
 # suite uses it to deliver a signal at that point. The environment a hook
-# inherits is the launcher's, not the session's shell.
+# inherits is the launcher's, not the session's shell, so the wait is bounded
+# well under the hook timeout: a variable leaked into a launcher must not
+# stall every marked call until the harness kills the hook.
 #
 # HOOK DISCIPLINE. Every exit is 0 and a verdict is the JSON on stdout. Every
 # reason is a constant of this file, never payload text. The prompt hook
@@ -64,6 +67,7 @@ export LC_ALL
 readonly MAX_PAYLOAD_BYTES=2000000
 readonly MAX_PROMPT_BYTES=65536
 readonly PRUNE_DAYS=30
+readonly TEST_PAUSE_SECONDS=5
 readonly PREFIX='planwright tower-session: '
 readonly STORE_LEAF=tower-sessions
 readonly ACTIVE_PHRASE='ACTIVE: the tower deny floor is enforced for this session by the planwright plugin hooks'
@@ -322,11 +326,14 @@ self_test() {
 }
 
 pause_for_test() {
+  local n=0
   [ -n "${PLANWRIGHT_TOWER_SESSION_TEST_PAUSE:-}" ] || return 0
   : >"$PLANWRIGHT_TOWER_SESSION_TEST_PAUSE" 2>/dev/null || return 0
-  while :; do
-    sleep 5 &
+  # A background sleep and wait, so a trapped signal runs at once.
+  while [ "$n" -lt "$TEST_PAUSE_SECONDS" ]; do
+    sleep 1 &
     wait $! 2>/dev/null
+    n=$((n + 1))
   done
 }
 
