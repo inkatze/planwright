@@ -536,7 +536,7 @@
 
 ## Awaiting input
 
-- **Task 3** — post-pr step `cubic-pr` halted: a cubic finding on the library constraint profile (it states two audiences for one tier) is valid and its fix is queued for sign-off; the PR #708 handoff carries the proposed fix and its draft reply.
+(none yet)
 
 ## Deferred
 
