@@ -33,6 +33,17 @@ Take the resolved value once, then substitute it literally at each call site:
 /abs/planwright/scripts/spec-validate.sh <root>/<spec>
 ```
 
+## Invoke by the shebang
+
+A script's shebang names its interpreter, so run it by its path, or through
+exactly the interpreter that shebang names. Never run a script whose shebang
+names bash through `sh`: `/bin/sh` is dash on some hosts and bash's POSIX mode
+on others, and the script fails on its first bashism with an error that names
+the script rather than the invocation. `check:script-invocation` flags such a
+line in any skill or doctrine doc.
+
+Citations: test-throughput REQ-E1.2, D-12.
+
 ## Why the literal shape matters
 
 Claude Code's static allowlist matches the **literal command token, never its

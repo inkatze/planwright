@@ -228,6 +228,10 @@ run = "/bin/sh scripts/check-task-registration.sh"
 description = "retired-mkdir guard over advisory locking: fail on any shell file under scripts/, tests/, or githooks/ that reads a `mkdir`'s exit status as a lock-acquisition signal, the primitive that was measured losing mutual exclusion in the ordinary acquire/read-modify-write/release cycle; scripts/lock-lib.sh is the one acquisition primitive now, and a site that consumes mkdir's status for something else (a mode-pinned bootstrap where EEXIST is success, a best-effort creation, a deliberate atomicity probe) says so with a `# not-a-lock: <reason>` annotation; enumerates by shebang or .sh suffix so the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (universal-binary Task 1, D-11, REQ-E1.5)"
 run = "/bin/bash scripts/check-lock-primitive.sh"
 
+[tasks."check:script-invocation"]
+description = "shebang-honoring invocation guard: fail on a line in skills/**/*.md or doctrine/*.md that runs, through `sh` (bare, /bin/sh, /usr/bin/sh, or after env), a scripts/*.sh whose shebang names bash; `sh -c` strings, by-path calls, and calls through bash pass; fails closed on no shebanged script or no instruction file to scan (test-throughput REQ-E1.2, D-12)"
+run = "/bin/sh scripts/check-script-invocation.sh"
+
 [tasks."check:bash32"]
 description = "bash 3.2 construct lint over every tracked shell file outside tests/fixtures/bash32/: flag the constructs macOS's bash 3.2 misparses inside a $( ) command substitution (a heredoc whose body it lexes unbalanced, a case pattern without its leading (, an unbalanced comment in a double-quoted one, a ) inside ${ }), a heredoc, quote, or $( ) that never closes, and any tracked .sh file declaring no dialect (neither a shebang nor a `# shellcheck shell=` directive); the real 3.2 parse of every file runs as a step of CI's check job (test-throughput REQ-E1.6, REQ-E1.7, D-11)"
 run = "/bin/sh scripts/check-bash32.sh lint"
@@ -301,6 +305,7 @@ depends = [
   "check:cdpath",
   "check:echo-discipline",
   "check:script-modes",
+  "check:script-invocation",
   "check:spec-literals",
   "check:task-registration",
   "check:lock-primitive",
