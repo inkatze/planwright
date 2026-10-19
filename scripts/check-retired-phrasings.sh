@@ -32,8 +32,9 @@
 #   --root  the tree to screen (default: this script's repository)
 # Exit: 0 clean · 1 a retired phrasing · 2 usage, or an input that would make
 #   the scan vacuous (a missing, unreadable, or empty pattern file, a symlink
-#   in a surface, a failed listing, an unreadable file, zero files), or a
-#   paragraph over 256 KiB, whose quadratic join would stall the gate.
+#   in a surface, a failed listing, a path holding a newline, an unreadable
+#   file, zero files), or a paragraph over 256 KiB or 4096 lines, whose
+#   quadratic join would stall the gate.
 #
 # Scanned files are PR-controllable data: read by awk, never executed, and
 # every reported path and pattern stripped of control bytes, C1 included.
@@ -140,6 +141,7 @@ BEGIN {
   if (rc < 0) closed("config/retired-phrasings.txt could not be read")
   if (npat == 0) closed("config/retired-phrasings.txt holds no pattern")
   while ((getline path < ENVIRON["LIST"]) > 0) {
+    if (index(path, root "/") != 1) closed("a listed path holds a newline")
     rel = substr(path, length(root) + 2)
     if (rel == "doctrine/human-gates.md") continue
     files++
@@ -158,7 +160,7 @@ BEGIN {
       if (line == "") continue
       line = tolower(line)
       para = (para == "" ? "" : para " ") line
-      if (length(para) > 262144) closed(clean(rel) ":" lineno ": a paragraph over 256 KiB; break it with a blank line")
+      if (length(para) > 262144 || nl >= 4096) closed(clean(rel) ":" lineno ": a paragraph over 256 KiB or 4096 lines; break it with a blank line")
       nl++; ln[nl] = lineno; off[nl] = length(para)
     }
     if (rc < 0) closed(clean(rel) " could not be read")

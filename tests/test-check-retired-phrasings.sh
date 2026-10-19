@@ -248,19 +248,33 @@ r="$TMP/longhit"
 mkfixture "$r"
 {
   printf '\n'
-  yes a | head -n 60000
+  yes a | head -n 4000
   printf 'the review gate.\n'
 } >>"$r/docs/guide.md"
-SECONDS=0
 run "$r"
 rc=$?
 assert_exit "a hit at the end of a long paragraph is reported" 1 "$rc"
-if [ "$SECONDS" -le 20 ]; then
-  ok "a hit in a long paragraph is located without a quadratic rebuild"
+if grep -q '^docs/guide.md:4005:' "$TMP/out"; then
+  ok "a hit at the end of a long paragraph is reported on its line"
 else
-  fail "locating a hit in a long paragraph took ${SECONDS}s"
+  fail "the long-paragraph hit is not reported on its own line: $(head -n 3 "$TMP/out")"
 fi
-grep -q '^docs/guide.md:60005:' "$TMP/out" || fail "the long-paragraph hit is not reported on its own line: $(head -n 3 "$TMP/out")"
+
+r="$TMP/manylines"
+mkfixture "$r"
+{
+  printf '\n'
+  yes a | head -n 5000
+} >>"$r/docs/guide.md"
+run "$r"
+assert_exit "a paragraph over the line cap fails closed" 2 $?
+
+r="$TMP/nlname"
+mkfixture "$r"
+printf 'we never auto-merge.\n' >"$r/docs/guide.md
+README.md"
+run "$r"
+assert_exit "a path holding a newline fails closed" 2 $?
 
 r="$TMP/filelink"
 mkfixture "$r"
