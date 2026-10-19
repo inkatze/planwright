@@ -108,7 +108,9 @@ append() { printf '%s\n' "$2" >>"$1"; }
 after() {
   af_file=$1 af_re=$2
   shift 2
-  awk -v re="$af_re" 'BEGIN { for (i = 1; i < ARGC; i++) { add[i] = ARGV[i]; delete ARGV[i] }; n = ARGC - 1; ARGC = 1 }
+  # The pattern travels through the environment: gawk's -v would read its
+  # backslashes as escapes.
+  AF_RE=$af_re awk 'BEGIN { re = ENVIRON["AF_RE"]; for (i = 1; i < ARGC; i++) { add[i] = ARGV[i]; delete ARGV[i] }; n = ARGC - 1; ARGC = 1 }
     { print } !done && $0 ~ re { for (i = 1; i <= n; i++) print add[i]; done = 1 }' "$@" <"$af_file" >"$af_file.new" \
     && mv "$af_file.new" "$af_file"
 }
@@ -375,7 +377,7 @@ check_eq "an exemption whose figure is not a number fails closed" 5 "$rc"
 v=$tmp/defaults
 build "$v"
 mkdir -p "$v/repo/scripts" "$v/repo/docs/substrate"
-cp "$CN" "$v/repo/scripts/"
+cp "$CN" "$REPO_ROOT/scripts/spec-parse.sh" "$v/repo/scripts/"
 printf '# file\tfigure\treason\n' >"$v/repo/scripts/check-number-copy-exempt.tsv"
 printf '# Screen\n\n4127 candidates.\n' >"$v/repo/docs/substrate-screen.md"
 cp "$v/snap/baseline-2026-10-18.md" "$v/repo/docs/substrate/"

@@ -85,6 +85,11 @@ fail_closed() {
   exit 5
 }
 
+[ -f "$script_dir/spec-parse.sh" ] && [ -r "$script_dir/spec-parse.sh" ] \
+  || fail_closed "broken install: spec-parse.sh is missing or not readable"
+# shellcheck source=scripts/spec-parse.sh
+. "$script_dir/spec-parse.sh"
+
 if [ -z "$bundle" ]; then
   spec_root=$(/bin/sh "$repo_root/scripts/resolve-root.sh" spec) || fail_closed "the spec root does not resolve"
   bundle=$spec_root/universal-binary
@@ -159,7 +164,7 @@ EOF
 cat >"$work/prose.awk" <<'EOF'
 FNR == 1 { name = FILENAME; sub(/^.*\//, "", name); skip = 0; verdict = 0; indec = 0 }
 /^## / { skip = ($0 == "## Sources" || $0 == "## Changelog"); verdict = 0; indec = 0 }
-/^### / { indec = ($0 ~ /^### D-/); verdict = 0 }
+/^### / { indec = spec_parse_dec_attempt($0); verdict = 0 }
 /^[ \t]*$/ || /^#+([ \t]|$)/ { verdict = 0 }
 verdict && /^[ \t]*- / { match($0, /^[ \t]*/); if (RLENGTH <= vindent) verdict = 0 }
 indec && /^[ \t]*(- )?\*\*(Measurements?|Cost-benefit):\*\*/ { verdict = 1; match($0, /^[ \t]*/); vindent = RLENGTH }
@@ -206,7 +211,8 @@ done <"$work/snaps"
 sort -u -t "$(printf '\t')" -k1,1 "$work/values.raw" >"$work/values" || fail_closed "sort failed"
 [ -s "$work/values" ] || fail_closed "the snapshots carry no figure"
 
-awk -f "$work/figures.awk" -f "$work/prose.awk" \
+printf '%s\n' "$spec_parse_awk_grammar" >"$work/grammar.awk" || fail_closed "the spec grammar could not be staged"
+awk -f "$work/grammar.awk" -f "$work/figures.awk" -f "$work/prose.awk" \
   "$bundle/requirements.md" "$bundle/design.md" "$bundle/tasks.md" "$bundle/test-spec.md" >"$work/findings" \
   || fail_closed "the bundle could not be scanned"
 
