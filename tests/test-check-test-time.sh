@@ -290,13 +290,16 @@ out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
 assert "shard reports covering the suite pass together" 0 $?
 assert_contains "the clean multi-report run counts every file" "$out" "clean (3 files"
 assert_contains "the wall-clock judged is the slowest report's" "$out" "suite wall-clock 8s, the slowest of 2 reports"
-run_multi --report "$tmp/r2.tsv" --report "$tmp/r1.tsv" >/dev/null
+out="$(run_multi --report "$tmp/r2.tsv" --report "$tmp/r1.tsv")"
 assert "report order does not matter" 0 $?
+assert_contains "the slowest wall is judged whichever report comes first" "$out" "suite wall-clock 8s,"
 
 write_report "$tmp/r2.tsv" 30 test-gamma.sh=3
 out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
 assert "one report's wall-clock at the total budget fails in CI" 1 $?
 assert_contains "the multi-report wall failure names the suite-total budget" "$out" "suite-total budget"
+run_multi --report "$tmp/r2.tsv" --report "$tmp/r1.tsv" >/dev/null
+assert "the report at the total budget fails in CI when it comes first" 1 $?
 
 write_report "$tmp/r2.tsv" 8 test-gamma.sh=3 test-beta.sh=2
 out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
@@ -338,6 +341,14 @@ assert_contains "the missing second report is named" "$out" "absent.tsv"
 
 out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r1.tsv")"
 assert "the same report given twice fails closed" 2 $?
+assert_contains "the repeated report is named as such" "$out" "given twice"
+# An empty shard's report has no file rows to collide on, so only the
+# repeated-path check catches it, under another spelling of the path too.
+write_report "$tmp/r-none.tsv" 1
+write_report "$tmp/r-all.tsv" 5 test-alpha.sh=1 test-beta.sh=2 test-gamma.sh=3
+out="$(run_multi --report "$tmp/r-all.tsv" --report "$tmp/r-none.tsv" --report "$tmp/./r-none.tsv")"
+assert "an empty report given twice fails closed" 2 $?
+assert_contains "the repeated empty report is named as such" "$out" "given twice"
 
 # A directory is not a report, even when the other reports cover the suite
 # (one awk skips a directory operand with only a warning).
