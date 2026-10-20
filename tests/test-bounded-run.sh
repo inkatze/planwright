@@ -81,6 +81,18 @@ watcher_sleeps() {
   ps -A -o args= 2>/dev/null | grep -c "^sleep $1\$" || :
 }
 bound=$((100000 + $$ % 800000))
+# A ps that fails or cannot see args would count no leaks at all.
+sleep "$bound" &
+probe=$!
+i=0
+while [ "$(watcher_sleeps "$bound")" != 1 ] && [ "$i" -lt 20 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+seen=$(watcher_sleeps "$bound")
+kill "$probe"
+wait "$probe" 2>/dev/null || :
+[ "$seen" = 1 ] || fail "prompt return: ps does not show a running sleep of the bound, so a leak would go uncounted"
 
 # A command that ends at once ends the call at once, and the watcher leaves no
 # sleep behind. The watcher can be still forking its sleep when the command
