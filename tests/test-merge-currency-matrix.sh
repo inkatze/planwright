@@ -814,7 +814,7 @@ for t in curl wget claude; do
   chmod +x "$SENT/$t"
 done
 SYNC_PATH="$SENT:$PATH"
-"$SENT/curl" >/dev/null 2>&1 || :
+PATH="$SYNC_PATH" curl >/dev/null 2>&1 || :
 if [ -e "$STATE/sync-sentinel-curl" ]; then
   pass "sync/no-llm: control — a sentinel stub drops its marker when invoked"
   rm -f "$STATE"/sync-sentinel-*

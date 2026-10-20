@@ -653,7 +653,7 @@ exit 0
 EOF
 for stub in withheld unreachable off-roster no-row; do
   new_case
-  OUT=$(ALLOC_STUB=$stub "$stubroot/scripts/flight-dispatch.sh" dispatch readme-typo --backend print \
+  OUT=$(ALLOC_STUB=$stub /bin/sh "$stubroot/scripts/flight-dispatch.sh" dispatch readme-typo --backend print \
     --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary" </dev/null 2>"$tmp/err")
   RC=$?
   ERR=$(cat "$tmp/err")

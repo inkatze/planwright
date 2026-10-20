@@ -84,15 +84,22 @@ EOF
 # new_repo <dir> — a working clone of a fresh bare origin, on branch main, with a
 # repo-level (non-signing) identity. Mirrors the real repo by gitignoring the
 # machine-local overlay so an overlay drop never dirties the tree. No commits yet.
+# Every case's pair starts the same, so it is built once and copied; the copy's
+# origin URL is the only part that names its case.
 new_repo() {
-  local dir="$1" origin="$1.git"
-  git init -q --bare "$origin"
-  git clone -q "$origin" "$dir" 2>/dev/null
-  git -C "$dir" checkout -q -b main 2>/dev/null || true
-  git -C "$dir" config user.name test
-  git -C "$dir" config user.email test@example.invalid
-  git -C "$dir" config commit.gpgsign false
-  printf '.claude/\n' >"$dir/.gitignore"
+  local dir="$1" origin="$1.git" tpl="$tmp/repo-template"
+  if [ ! -d "$tpl" ]; then
+    git init -q --bare "$tpl.git"
+    git clone -q "$tpl.git" "$tpl" 2>/dev/null
+    git -C "$tpl" checkout -q -b main 2>/dev/null || true
+    git -C "$tpl" config user.name test
+    git -C "$tpl" config user.email test@example.invalid
+    git -C "$tpl" config commit.gpgsign false
+    printf '.claude/\n' >"$tpl/.gitignore"
+  fi
+  cp -R "$tpl.git" "$origin"
+  cp -R "$tpl" "$dir"
+  git -C "$dir" remote set-url origin "$origin"
 }
 
 # seed_version <dir> <version> — the version-bump commit, pushed to origin/main.
@@ -957,7 +964,7 @@ RC=0
 OUT=$(cd "$r" && env PATH="$stub:$PATH" GH_LOG="$LOG" GH_NOTES="$NOTES" \
   GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null CDPATH="$tmp/decoy-pub" \
   GH_CI=green GH_RELEASE_EXISTS=0 \
-  scripts/release-publish.sh 2>/dev/null) || RC=$?
+  bash scripts/release-publish.sh 2>/dev/null) || RC=$?
 assert_eq "cdpath: publish still succeeds under a hostile CDPATH" "$RC" "0"
 want "cdpath: tag created under a hostile CDPATH" local_has_tag "$r" v0.1.0
 

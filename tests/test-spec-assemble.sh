@@ -476,7 +476,7 @@ cp "$script" "$isolate/spec-assemble.sh"
 cp "$(dirname "$script")/echo-safety.sh" "$isolate/echo-safety.sh"
 chmod +x "$isolate/spec-assemble.sh"
 rc=0
-iout=$("$isolate/spec-assemble.sh" "$specs/demo" 2>&1) || rc=$?
+iout=$(/bin/sh "$isolate/spec-assemble.sh" "$specs/demo" 2>&1) || rc=$?
 [ "$rc" -eq 2 ] \
   || fail "missing sibling views: expected exit 2, got $rc — output: $iout"
 case $iout in
@@ -875,7 +875,7 @@ EOF
 chmod +x "$gtmp/"*.sh
 for goscope in tasks file:tasks; do
   rc=0
-  gout=$("$gtmp/spec-assemble.sh" --scope "$goscope" "$specs/demo" 2>&1) || rc=$?
+  gout=$(/bin/sh "$gtmp/spec-assemble.sh" --scope "$goscope" "$specs/demo" 2>&1) || rc=$?
   [ "$rc" -eq 0 ] \
     || fail "graph-only scope ($goscope) must not depend on translate; failed rc=$rc: $gout"
   case $gout in
@@ -884,7 +884,7 @@ for goscope in tasks file:tasks; do
   esac
 done
 rc=0
-dout=$("$gtmp/spec-assemble.sh" --scope decisions "$specs/demo" 2>&1) || rc=$?
+dout=$(/bin/sh "$gtmp/spec-assemble.sh" --scope decisions "$specs/demo" 2>&1) || rc=$?
 [ "$rc" -ne 0 ] \
   || fail "a translate-dependent scope (decisions) must fail closed when translate is broken: $dout"
 
@@ -909,14 +909,14 @@ EOF
 chmod +x "$mc/scripts/spec-model.sh"
 # The parses the four whole-mode views make on their own (dir mode).
 : >"$mc/calls"
-"$mc/scripts/spec-onepager.sh" "$specs/demo" >/dev/null
-"$mc/scripts/spec-decisionmap.sh" "$specs/demo" >/dev/null
-"$mc/scripts/spec-teachback.sh" "$specs/demo" >/dev/null
-"$mc/scripts/spec-graph.sh" "$specs/demo" >/dev/null
+/bin/sh "$mc/scripts/spec-onepager.sh" "$specs/demo" >/dev/null
+/bin/sh "$mc/scripts/spec-decisionmap.sh" "$specs/demo" >/dev/null
+/bin/sh "$mc/scripts/spec-teachback.sh" "$specs/demo" >/dev/null
+/bin/sh "$mc/scripts/spec-graph.sh" "$specs/demo" >/dev/null
 views_parses=$(wc -l <"$mc/calls" | tr -d ' ')
 # The whole-bundle assembler's parses.
 : >"$mc/calls"
-"$mc/scripts/spec-assemble.sh" --scope whole "$specs/demo" >/dev/null
+/bin/sh "$mc/scripts/spec-assemble.sh" --scope whole "$specs/demo" >/dev/null
 whole_parses=$(wc -l <"$mc/calls" | tr -d ' ')
 [ "$whole_parses" -eq "$views_parses" ] \
   || fail "whole-bundle made $whole_parses model parses; its views alone make $views_parses (a redundant direct parse regressed)"

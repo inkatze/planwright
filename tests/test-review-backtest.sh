@@ -242,7 +242,7 @@ git -C "$pw" commit -q --allow-empty -m moved
 printf 'a.sh\t50\n'
 EOF
 chmod +x "$T/moving.sh"
-"$pw/scripts/review-backtest.sh" --corpus "$corpus_dir" --remote "$remote" --reviewer "$T/moving.sh" \
+/bin/sh "$pw/scripts/review-backtest.sh" --corpus "$corpus_dir" --remote "$remote" --reviewer "$T/moving.sh" \
   --model m-1 --seed 7 --classes claim-vs-code --out "$T/moving.tsv" >/dev/null 2>&1
 if grep -q "^plugin_commit	$pw_start\$" "$T/moving.tsv"; then ok "the recorded plugin commit is the run's starting head"; else fail "plugin commit moved with the checkout"; fi
 
