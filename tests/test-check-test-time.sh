@@ -526,18 +526,22 @@ job_block() {
 check_block="$(job_block check)"
 test_block="$(job_block test)"
 lint_block="$(job_block lint)"
-assert_contains "ci.yml has an aggregate check job needing lint and test" "$check_block" "needs: [lint, test]"
-assert_contains "the check job runs whatever its needs did" "$check_block" 'if: ${{ always() }}'
-assert_contains "the check job fails unless lint and test both passed" "$check_block" \
-  '[ "$LINT_RESULT" = success ] && [ "$TEST_RESULT" = success ]'
-assert_contains "the check job reads every shard's report" "$check_block" "pattern: timing-report-*"
-assert_contains "the check job runs the gate over the reports" "$check_block" \
-  '/bin/bash scripts/check-test-time.sh "$@"'
-assert_contains "the check job passes each report as --report" "$check_block" 'set -- "$@" --report "$r"'
-assert_contains "the test job runs one shard of the suite" "$test_block" 'mise run test -- --shard "$SHARD/$SHARDS"'
-assert_contains "the shard count comes from the matrix" "$test_block" 'SHARDS: ${{ strategy.job-total }}'
-assert_contains "each shard uploads its timing report" "$test_block" 'name: timing-report-${{ matrix.shard }}'
-assert_contains "the lint job runs every other gate" "$lint_block" "mise run check:non-test"
+# The expected strings are workflow text, so `$` and `${{` in them are literal.
+# shellcheck disable=SC2016
+{
+  assert_contains "ci.yml has an aggregate check job needing lint and test" "$check_block" "needs: [lint, test]"
+  assert_contains "the check job runs whatever its needs did" "$check_block" 'if: ${{ always() }}'
+  assert_contains "the check job fails unless lint and test both passed" "$check_block" \
+    '[ "$LINT_RESULT" = success ] && [ "$TEST_RESULT" = success ]'
+  assert_contains "the check job reads every shard's report" "$check_block" "pattern: timing-report-*"
+  assert_contains "the check job runs the gate over the reports" "$check_block" \
+    '/bin/bash scripts/check-test-time.sh "$@"'
+  assert_contains "the check job passes each report as --report" "$check_block" 'set -- "$@" --report "$r"'
+  assert_contains "the test job runs one shard of the suite" "$test_block" 'mise run test -- --shard "$SHARD/$SHARDS"'
+  assert_contains "the shard count comes from the matrix" "$test_block" 'SHARDS: ${{ strategy.job-total }}'
+  assert_contains "each shard uploads its timing report" "$test_block" 'name: timing-report-${{ matrix.shard }}'
+  assert_contains "the lint job runs every other gate" "$lint_block" "mise run check:non-test"
+}
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
