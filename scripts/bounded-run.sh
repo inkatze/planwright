@@ -51,13 +51,15 @@ _br_secs "$secs" || _br_usage
 [ "$secs" != 0 ] || exec "$@"
 [ "$grace" != 0 ] || grace=''
 
-# _br_tree <pid> — the pid, then every process under it, one per line. The
-# pid itself is printed whatever the process table says, so a host without ps
-# or awk still bounds the command.
+# _br_tree <pid> [settled] — the pid, then every process under it, one per
+# line. The pid itself is printed whatever the process table says, so a host
+# without ps or awk still bounds the command. With settled, a read that finds
+# nothing under the pid returns 3 while the table shows the pid running and 4
+# once it shows it stopped.
 _br_tree() {
   printf '%s\n' "$1"
-  ps -A -o pid= -o ppid= 2>/dev/null | awk -v root="$1" '
-    { par[$1] = $2; ids[NR] = $1 }
+  ps -A -o pid= -o ppid= -o stat= 2>/dev/null | awk -v root="$1" -v settled="${2:-}" '
+    { par[$1] = $2; st[$1] = $3; ids[NR] = $1 }
     END {
       keep[root] = 1
       grew = 1
@@ -66,7 +68,11 @@ _br_tree() {
         for (i = 1; i <= NR; i++)
           if (!(ids[i] in keep) && (par[ids[i]] in keep)) { keep[ids[i]] = 1; grew = 1 }
       }
-      for (p in keep) if (p != root) print p
+      kids = 0
+      for (p in keep) if (p != root) { print p; kids++ }
+      if (settled == "" || kids) exit 0
+      if (st[root] ~ /^[RSDUIW]/) exit 3
+      if (st[root] ~ /^[Tt]/) exit 4
     }'
 }
 
@@ -100,6 +106,39 @@ _br_term_then_kill() {
   _br_signal KILL "$(_br_still "$_br_v")"
 }
 
+# _br_drop_watcher — KILL the watcher and the sleep under it. A running
+# watcher can fork its sleep between the read of its tree and the KILL, and
+# that sleep then outlives the runner by the whole bound, so the watcher is
+# stopped first, which ends its forking, and its tree is taken from a read
+# that cannot have missed the sleep: one that shows it (the only lasting
+# child a watcher forks), or one begun after an earlier read showed the
+# watcher stopped. A read that itself shows the stop does not do, since a
+# process table is not read in one instant. Where /proc shows the stop, a
+# read of the shell's own costing no fork, the first read is begun after it.
+_br_drop_watcher() {
+  kill -STOP "$dog" 2>/dev/null || return 0
+  _br_stopped=''
+  _br_n=0
+  while [ "$_br_n" -lt 1000 ] && { read -r _br_s <"/proc/$dog/stat"; } 2>/dev/null; do
+    case $_br_s in
+      *') '[Tt]*) _br_stopped=1; break ;;
+      *') '[RSD]*) ;;
+      *) break ;;
+    esac
+    _br_n=$((_br_n + 1))
+  done
+  _br_n=0
+  while _br_v=$(_br_tree "$dog" settled); _br_rc=$?; [ "$_br_n" -lt 100 ]; do
+    case $_br_rc in
+      3) ;;
+      4) [ -z "$_br_stopped" ] || break; _br_stopped=1 ;;
+      *) break ;;
+    esac
+    _br_n=$((_br_n + 1))
+  done
+  _br_signal KILL "$_br_v"
+}
+
 # _br_end <status> — the runner was signalled: end the command's tree as the
 # bound would, then exit with the signal's status.
 # shellcheck disable=SC2329 # called from the traps below
@@ -112,7 +151,7 @@ _br_end() {
   if [ "$fired" = 1 ]; then
     wait "$dog"
   else
-    [ -z "$dog" ] || _br_signal KILL "$(_br_tree "$dog")"
+    [ -z "$dog" ] || _br_drop_watcher
     [ "$reaped" = 1 ] || [ -z "$pid" ] || _br_term_then_kill
   fi
   exit "$1"
@@ -167,7 +206,7 @@ if [ "$fired" = 0 ]; then
   # KILL, which no trap can lose, to the watcher and the sleep under it, with
   # stderr closed first: the command is done, and a shell reports the KILL.
   exec 2>/dev/null
-  _br_signal KILL "$(_br_tree "$dog")"
+  _br_drop_watcher
 fi
 # A fired watcher is left to finish its grace, which is bounded.
 wait "$dog" 2>/dev/null
