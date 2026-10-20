@@ -219,7 +219,7 @@ at or over its budget trips. Each file's row records its execution time and,
 separately, how long it waited for a test-pool ticket (below); the per-file
 budget reads the execution time only, while the suite wall-clock includes the
 waiting. On GitHub Actions, the reference runner the budgets
-are measured on, that fails `mise run check`; on a dev box it only warns, loudly,
+are measured on, that fails CI's `check` job; on a dev box it only warns, loudly,
 because local timings measure your machine's contention rather than the file.
 
 A budget is raised only as a conscious, reviewed edit in the PR that needs it,

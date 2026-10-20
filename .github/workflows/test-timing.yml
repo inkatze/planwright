@@ -1,7 +1,7 @@
 ---
 # Dedicated per-file test-timing measurement run (guard-coverage Task 6,
-# REQ-E1.2, D-9). Deliberately OUTSIDE ci.yml's 15-minute `check` job: the
-# measurement is serial and best-of-N, so folding it into the gated job would
+# REQ-E1.2, D-9). Deliberately OUTSIDE ci.yml's 15-minute test shard jobs: the
+# measurement is serial and best-of-N, so folding it into a gated job would
 # both blow that timeout and perturb the very numbers being measured (the gated
 # runner saturates every core). guard-coverage Task 7 derives its committed
 # `check:test-time` budgets from this run's report.

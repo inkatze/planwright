@@ -239,7 +239,7 @@ jobs:
   # The macOS userland the scripts actually run on for most operators: its
   # /usr/bin/awk is one-true-awk, which rejects a newline inside a -v value
   # where the ubuntu runner's awk accepts it, so that class of bug passes the
-  # check job and breaks every Mac. Deliberately narrow (the awk-sensitive
+  # test shard jobs and breaks every Mac. Deliberately narrow (the awk-sensitive
   # suites, no mise, no tool installs) until the full suite is green under the
   # macOS /bin/bash; REQUIRE_BSD_AWK makes a runner image without that awk fail
   # instead of skipping green.
@@ -260,7 +260,7 @@ jobs:
   # held to this branch until the suite is green on both: a platform joins
   # the pull-request workflow only once it passes there, and the filter's
   # removal is that join. Both run it as `mise run test` with the pinned dev
-  # toolchain, as the check job does, so a tool-gated case runs rather than
+  # toolchain, as the test shard jobs do, so a tool-gated case runs rather than
   # skipping. Full history, for the tests that check fixture provenance.
   #
   # The macOS run narrows PATH to the system directories, so the suite meets
