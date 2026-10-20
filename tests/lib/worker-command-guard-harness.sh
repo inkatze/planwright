@@ -84,6 +84,14 @@ ln -sf "$SANDBOX/install/outside/evil.sh" "$PLUGIN_ROOT/scripts/evillink.sh"
 # reset to empty after each so no other fixture inherits it.
 HOOK_ENV=()
 
+# write_record <file> <worktree-root> [policy] [unit-branch]: a session record
+# as the launcher writes it (scripts/worker-session-record.sh), for a fixture
+# to hand the hook through HOOK_ENV as PLANWRIGHT_WORKER_SESSION_RECORD.
+write_record() {
+  printf '%s\n' "policy=${3-}" "unit_branch=${4:-planwright/demo/task-1}" \
+    "worktree_root=$2" "pr_base=origin/main" "worker_base_merge=allow" >"$1"
+}
+
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE
 run_hook() {
   local cmd="$1"

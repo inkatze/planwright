@@ -2088,6 +2088,16 @@ cmd_launch() {
     export PLANWRIGHT_WORKER_SPEC_ROOT
   fi
 
+  # The session record the worker's command guard reads its self-approval
+  # policy and unit identity from, rewritten from current config on every launch and recover; without one
+  # the guard keeps to its read-only arm. An inherited path never stands in.
+  unset PLANWRIGHT_WORKER_SESSION_RECORD
+  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" 2>/dev/null </dev/null) || session_record=''
+  if [ -n "$session_record" ]; then
+    PLANWRIGHT_WORKER_SESSION_RECORD=$session_record
+    export PLANWRIGHT_WORKER_SESSION_RECORD
+  fi
+
   if [ "$foreground" = 1 ]; then
     # This process becomes the supervisor, so it is its own death handle; the
     # record has to land before supervise blocks.

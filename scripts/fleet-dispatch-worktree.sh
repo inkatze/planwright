@@ -303,6 +303,7 @@ fi
 FETCH="$script_dir/dispatch-fetch.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
 LAUNCH_SPEC_ROOT=""
+LAUNCH_RECORD=""
 MARKER="$script_dir/orchestrate-marker.sh"
 TRACK="$script_dir/fleet-worktree-track.sh"
 FLEET_STATE="$script_dir/fleet-state.sh"
@@ -1094,6 +1095,7 @@ print_plan() {
   pp_session=$(worker_session "$pp_suffix")
   pp_claude=$(command -v claude 2>/dev/null) || pp_claude=claude
   launch_roots "${_repo_root:-${_aroot:-}}"
+  LAUNCH_RECORD='<session-record>'
   resolve_launch_profile || exit 12
   # A plan with no identity would be refused at launch; refuse it before a
   # word of it is printed (the bare legacy `task-<id>` suffix names no spec).
@@ -1147,6 +1149,7 @@ tmux_launch() {
   [ -z "$ATTACH_PROMPT" ] || set -- "$@" -- "$ATTACH_PROMPT"
   set -- --inbound accept "$@"
   [ -z "$LAUNCH_SPEC_ROOT" ] || set -- --spec-root "$LAUNCH_SPEC_ROOT" "$@"
+  [ -z "$LAUNCH_RECORD" ] || set -- --session-record "$LAUNCH_RECORD" "$@"
   [ -z "$LAUNCH_HOME" ] || set -- --fleet-home "$LAUNCH_HOME" "$@"
   [ -z "$LAUNCH_ROOT" ] || set -- --root "$LAUNCH_ROOT" "$@"
   [ -z "$tl_token" ] || set -- --launch-token "$tl_token" "$@"
@@ -1747,6 +1750,12 @@ MERR
   case $_since in
     '' | *[!0-9]*) _since=unknown ;;
   esac
+  # The session record the worker's command guard reads its policy and unit
+  # identity from, written once the worktree holds the unit branch; without
+  # one the guard keeps to its read-only arm, so it never blocks a launch.
+  # The record is this launch's own, so losing the session race below
+  # rewrites nothing the winner reads.
+  LAUNCH_RECORD=$(/bin/sh "$script_dir/worker-session-record.sh" write "$_worktree" "$_token" 2>/dev/null </dev/null) || LAUNCH_RECORD=''
   tmux_launch run "$TMUX_BIN" "$_session" "$_worktree" "$_handle" "$_scope" \
     "$_token" "$WORKER_CLI" "$@"
   _ns_rc=$?
@@ -1763,6 +1772,7 @@ MERR
           # Everything this dispatch would own is the winner's: remove,
           # clear, and write nothing.
           warn "already-in-flight: another dispatch created $_session first; its worktree, branch, and marker are left as they are"
+          [ -z "$LAUNCH_RECORD" ] || rm -f -- "$LAUNCH_RECORD"
           exit 3
           ;;
       esac
@@ -1850,6 +1860,7 @@ undo_launch() {
     fi
     ul_wt_left=1
   elif [ "$_made_worktree" -eq 1 ]; then
+    [ -z "$LAUNCH_RECORD" ] || rm -f -- "$LAUNCH_RECORD"
     if [ -L "$_worktree" ]; then
       ul_wt_left=1
     elif [ -d "$_worktree" ]; then

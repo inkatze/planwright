@@ -75,7 +75,9 @@ ln -s "$WT/sub" "$WT/inlink"
 # lookups `git ls-remote` makes) must not read the host's git config, where
 # an insteadOf or remote setting could change a verdict.
 GIT_ISO=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1")
-HOOK_ENV=("${GIT_ISO[@]}")
+# A `cd` reads the worktree from the session record (REQ-B1.8).
+write_record "$SANDBOX_P/cdrepo.record" "$WT"
+HOOK_ENV=("${GIT_ISO[@]}" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX_P/cdrepo.record")
 echo "### REQ-A1.12 / REQ-E1.4 — cd into the own worktree, then the rest analysed from there"
 assert_allow "REQ-E1.4: cd into an in-worktree directory" "cd sub && ls" Bash "$WT"
 assert_allow "REQ-E1.4: cd to the worktree root by absolute path" "cd $WT && grep -n x f" Bash "$WT"
@@ -125,8 +127,18 @@ assert_defer "REQ-A1.12: cd inside fish -c" "fish -c 'cd sub && ls'" Bash "$WT"
 assert_defer "REQ-A1.12: cd under timeout" "timeout 5 cd sub && ls" Bash "$WT"
 assert_defer "REQ-A1.12: cd under time" "time cd sub && ls" Bash "$WT"
 assert_defer "REQ-E1.4: CDPATH set in the command" "CDPATH=/ && cd sub && ls" Bash "$WT"
-HOOK_ENV=("${GIT_ISO[@]}" "CDPATH=/")
+HOOK_ENV=("${GIT_ISO[@]}" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX_P/cdrepo.record" "CDPATH=/")
 assert_defer "REQ-E1.4: CDPATH exported to the hook" "cd sub && ls" Bash "$WT"
+# The worktree root and unit branch come only from the record; a `cd`
+# without them defers (REQ-B1.8).
+HOOK_ENV=("${GIT_ISO[@]}")
+assert_defer "REQ-B1.8: no session record, so no cd" "cd sub && ls" Bash "$WT"
+grep -v '^unit_branch=' "$SANDBOX_P/cdrepo.record" >"$SANDBOX_P/cdrepo-nounit.record"
+HOOK_ENV=("${GIT_ISO[@]}" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX_P/cdrepo-nounit.record")
+assert_defer "REQ-B1.8: a record without the unit branch, so no cd" "cd sub && ls" Bash "$WT"
+grep -v '^worktree_root=' "$SANDBOX_P/cdrepo.record" >"$SANDBOX_P/cdrepo-nowt.record"
+HOOK_ENV=("${GIT_ISO[@]}" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX_P/cdrepo-nowt.record")
+assert_defer "REQ-B1.8: a record without the worktree root, so no cd" "cd sub && ls" Bash "$WT"
 HOOK_ENV=()
 
 echo "### REQ-E1.2 — plain-literal assignments resolve, any literal"

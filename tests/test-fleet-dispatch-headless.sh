@@ -113,6 +113,7 @@ printf '%s\n' "\${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >"\$rec/ghost"
 printf '%s\n' "\${PLANWRIGHT_WORKER_HANDLE-<unset>}" >"\$rec/handle"
 printf '%s\n' "\${PLANWRIGHT_WORKER_SCOPE-<unset>}" >"\$rec/scope"
 printf '%s\n' "\${PLANWRIGHT_WORKER_SPEC_ROOT-<unset>}" >"\$rec/specroot"
+printf '%s\n' "\${PLANWRIGHT_WORKER_SESSION_RECORD-<unset>}" >"\$rec/record"
 printf '%s\n' "\${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >"\$rec/inbound"
 cat >"\$rec/stdin"
 while [ -f "\$rec/hold" ]; do sleep 0.1; done
@@ -766,7 +767,7 @@ launch_h19() {
   # shellcheck disable=SC2086 # one `-u NAME` pair per word
   env $unsets -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR \
     HOME="$tmp/home-h19" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
-    PLANWRIGHT_FLEET_STATE_DIR="$PLANWRIGHT_FLEET_STATE_DIR" PLANWRIGHT_WORKER_SPEC_ROOT=/stale PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
+    PLANWRIGHT_FLEET_STATE_DIR="$PLANWRIGHT_FLEET_STATE_DIR" PLANWRIGHT_WORKER_SPEC_ROOT=/stale PLANWRIGHT_WORKER_SESSION_RECORD=/stale PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
     PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" \
     /bin/sh "$FDH" launch "$SPEC" "$1" --worktree "$2" >/dev/null
 }
@@ -791,6 +792,14 @@ h19() {
   }
   [ "$(cat "$rec/specroot")" = "$store" ] \
     || fail "h19: the worker got PLANWRIGHT_WORKER_SPEC_ROOT '$(cat "$rec/specroot")', expected the store"
+  # The session record its command guard reads (worker-permission-ergonomics
+  # REQ-G1.8): fresh for this worktree, never the inherited path.
+  case $(cat "$rec/record") in
+    "$(cd "$PLANWRIGHT_FLEET_STATE_DIR" 2>/dev/null && pwd -P)"/session-records/*.record) ;;
+    *) fail "h19: the worker got PLANWRIGHT_WORKER_SESSION_RECORD '$(cat "$rec/record")', expected a fresh record" ;;
+  esac
+  grep -qx "worktree_root=$(cd "$wt" && pwd -P)" "$(cat "$rec/record")" 2>/dev/null \
+    || fail "h19: the worker's session record does not name its worktree"
   make_fake "$rec"
   rm -f "$wt/.claude/planwright.local.yml"
   printf 'p' | launch_h19 20 "$wt" || {

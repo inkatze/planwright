@@ -65,6 +65,9 @@ steps:
     target: $POOLED
     args: --mode strict
     pool: gate
+  - id: reserved
+    kind: command
+    target: $FX/repo/tools/gh
 YAML
 printf 'steps_pre_ci: [declared, bare, rel, pooled]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
 cat >"$FX/adopter/catalogs/steps.yaml" <<YAML
@@ -233,8 +236,9 @@ assert_defer "declared line with no declaring overlay deferred" "$DECLARED --mod
 # a copy of the hook beside a stub resolver that prints the location given,
 # with the overlay-root helpers the guard's catalog check runs.
 stub_scripts() {
-  mkdir -p "$1/scripts"
+  mkdir -p "$1/scripts" "$1/config"
   cp "$REAL_HOOK" "$1/scripts/worker-command-guard.sh"
+  cp "$REPO_ROOT/config/worker-settings.json" "$1/config/"
   cp "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$REPO_ROOT/scripts/resolve-root.sh" "$1/scripts/"
 }
 stub_root() {
@@ -255,6 +259,30 @@ assert_allow "stub: a clean printed location approved" "$DECLARED" Bash "$FXC"
 HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=09")
 assert_allow "stub: a zero-led deadline override reads as decimal" "$DECLARED" Bash "$FXC"
 HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
+# A declared line a deny rule of the profile matches is refused before the
+# declared steps are consulted (REQ-A1.11): the floor holds for every category.
+stub_root "$FX/stub-denied" "$DECLARED" "$DECLARED"
+jq --arg r "Bash($DECLARED:*)" '.permissions.deny += [$r]' "$REPO_ROOT/config/worker-settings.json" \
+  >"$FX/stub-denied/config/worker-settings.json"
+HOOK="$FX/stub-denied/scripts/worker-command-guard.sh"
+assert_defer "REQ-A1.11: a declared line a deny rule matches deferred" "$DECLARED" Bash "$FXC"
+# And a declared line that is a reserved act defers, the program named by
+# absolute path as a declared step names it (REQ-F1.5); the read-only form
+# of the same program still approves, so the refusal is the floor's.
+cp "$DECLARED" "$FX/repo/tools/gh"
+stub_reserved() {
+  stub_scripts "$1"
+  cat >"$1/scripts/resolve-steps.sh" <<STUB
+#!/bin/bash
+case " \$* " in *" pre-ci "*) ;; *) exit 0 ;; esac
+printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t%s\thalt\t-\t-\t%s\t-\t-\t-\n' '$FX/repo/tools/gh' '$2' '$FX/repo/tools/gh'
+STUB
+  HOOK="$1/scripts/worker-command-guard.sh"
+}
+stub_reserved "$FX/stub-reserved" "pr merge 5"
+assert_defer "REQ-F1.5: a declared line that is a reserved act deferred" "$FX/repo/tools/gh pr merge 5" Bash "$FXC"
+stub_reserved "$FX/stub-reserved-ro" "pr view 5"
+assert_allow "REQ-F1.5: the same program's read-only declared line approved" "$FX/repo/tools/gh pr view 5" Bash "$FXC"
 stub_root "$FX/stub-dotdot" "$FX/repo/tools/../tools/declared.sh" "$FX/repo/tools/../tools/declared.sh"
 HOOK="$FX/stub-dotdot/scripts/worker-command-guard.sh"
 assert_defer "stub: a printed path location with a traversal segment deferred" \

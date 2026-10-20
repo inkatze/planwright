@@ -370,11 +370,22 @@ wt_clean="$tmp/wt-clean"
 (cd "$main_repo" && git_env git worktree add -q -b feat-clean "$wt_clean" >/dev/null 2>&1)
 (cd "$wt_clean" && git_env git push -q -u origin feat-clean)
 rm -rf "$fleet_home"
+mkdir -p "$fleet_home/session-records"
+rec_key=$(printf '%s' "$(cd "$wt_clean" && pwd -P)" | git hash-object --stdin)
+other_key=$(printf '%s' "$tmp/wt-other" | git hash-object --stdin)
+: >"$fleet_home/session-records/$rec_key.record"
+: >"$fleet_home/session-records/$rec_key-0123456789abcdef.record"
+: >"$fleet_home/session-records/$other_key.record"
 rc=0
 run_worktree "$main_repo" "$wt_clean" "merged branch" "reclaiming clean worktree" \
   >/dev/null 2>&1 || rc=$?
 [ "$rc" = 0 ] || fail "clean worktree: exit $rc, expected 0 (reclaimed)"
 [ ! -d "$wt_clean" ] || fail "clean worktree: directory still present after remove"
+[ ! -e "$fleet_home/session-records/$rec_key.record" ] \
+  && [ ! -e "$fleet_home/session-records/$rec_key-0123456789abcdef.record" ] \
+  || fail "clean worktree: its session records survived the reclaim"
+[ -e "$fleet_home/session-records/$other_key.record" ] \
+  || fail "clean worktree: another worktree's session record was removed"
 rows=$(audit_rows --mechanism worktree-cleanup)
 case $rows in
   *cleanup*) ;;

@@ -802,6 +802,16 @@ do_run_worker() {
     export PLANWRIGHT_WORKER_SPEC_ROOT
   fi
 
+  # The session record the worker's command guard reads its self-approval
+  # policy and unit identity from; without one the guard keeps to its
+  # read-only arm. An inherited path never stands in.
+  unset PLANWRIGHT_WORKER_SESSION_RECORD
+  r_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$r_wt" 2>/dev/null </dev/null) || r_record=''
+  if [ -n "$r_record" ]; then
+    PLANWRIGHT_WORKER_SESSION_RECORD=$r_record
+    export PLANWRIGHT_WORKER_SESSION_RECORD
+  fi
+
   # The dispatch-time identity env (fleet-liveness.sh hook contract): the
   # worker session inherits these, so its plugin hooks push liveness for
   # exactly this unit (hook_registration=true on the contract row).

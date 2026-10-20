@@ -938,6 +938,16 @@ unpushed_rewrite: allow
 ready_guard_behind_base: refuse
 protected_branches:
 
+# The worker's self-approval policy: the arms the worker command guard may
+# approve beyond its read-only set, space separated, from own-branch (writes
+# and git acts confined to the unit branch and its worktree) and scratch
+# (writes under the worker's scratch root). Last value wins across the
+# layers, so a machine-local overlay can narrow a repo-tracked list. An
+# unknown member, a malformed value, or a read failure resolves to the empty
+# list. The launcher resolves it once into the worker's session record, so a
+# change reaches a worker only by relaunch.
+worker_self_approval:
+
 # Where /inception creates venture repositories (inception REQ-A1.3, D-5):
 # an absolute path or a ~/ path. A relative or ~user adopter or machine-local
 # value warns and falls back to ~/ventures (a control byte passes to the next
