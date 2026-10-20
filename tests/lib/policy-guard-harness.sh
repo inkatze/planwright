@@ -118,12 +118,15 @@ pg() {
 # PG_LOCAL_CONFIG='' and PG_REPO_ROOT='' drop the explicit machine-local file
 # and repository root, so both layers are derived from the repository the
 # guard reads policy from. PG_PATH replaces the PATH after the stub bin.
+# A subshell rather than env(1): one process launch fewer per call.
 pg_run() { # <tier> <surface> <project-dir>; the payload on stdin
-  env PATH="$BIN:${PG_PATH:-$PATH}" CLAUDE_PROJECT_DIR="$3" \
-    PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/adopter" PLANWRIGHT_REPO_ROOT="${PG_REPO_ROOT-$UNIT}" \
-    PLANWRIGHT_LOCAL_CONFIG="${PG_LOCAL_CONFIG-$LOCAL_CFG}" PLANWRIGHT_POLICY_GUARD_TIMEOUT="${PG_TIMEOUT:-10}" \
-    STUB_FAIL_KNOB="${STUB_FAIL_KNOB:-}" STUB_SLEEP="${STUB_SLEEP:-}" \
-    /bin/bash "$HOOK" "$1" "$2" 2>/dev/null
+  (
+    export CLAUDE_PROJECT_DIR="$3" \
+      PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/adopter" PLANWRIGHT_REPO_ROOT="${PG_REPO_ROOT-$UNIT}" \
+      PLANWRIGHT_LOCAL_CONFIG="${PG_LOCAL_CONFIG-$LOCAL_CFG}" PLANWRIGHT_POLICY_GUARD_TIMEOUT="${PG_TIMEOUT:-10}" \
+      STUB_FAIL_KNOB="${STUB_FAIL_KNOB:-}" STUB_SLEEP="${STUB_SLEEP:-}"
+    PATH="$BIN:${PG_PATH:-$PATH}" exec /bin/bash "$HOOK" "$1" "$2"
+  ) 2>/dev/null
 }
 
 pg_payload() {

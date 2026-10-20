@@ -95,7 +95,7 @@ mkdir -p "$elroot"
 cp -R "$ROOT/scripts" "$ROOT/skills" "$ROOT/config" "$ROOT/doctrine" "$ROOT/.claude-plugin" "$elroot/"
 printf '#!/bin/sh\nexit 1\n' >"$elroot/scripts/fleet-dispatch-env.sh"
 new_case
-OUT=$("$elroot/scripts/flight-dispatch.sh" dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
+OUT=$(/bin/sh "$elroot/scripts/flight-dispatch.sh" dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
   --grounds-file "$c/grounds.txt" --repo-root "$c/primary" </dev/null 2>"$tmp/err")
 RC=$?
 [ "$RC" -eq 5 ] || fail "a print launch that cannot be built must exit 5 (rc $RC: $(cat "$tmp/err"))"
@@ -284,7 +284,7 @@ echo "stub: placement failed" >&2
 exit 5
 EOF
 new_case
-OUT=$(WTLIST_FAIL_FLAG="$c/wl.flag" PATH="$tmp/wlbin:$PATH" "$wlroot/scripts/flight-dispatch.sh" dispatch \
+OUT=$(WTLIST_FAIL_FLAG="$c/wl.flag" PATH="$tmp/wlbin:$PATH" /bin/sh "$wlroot/scripts/flight-dispatch.sh" dispatch \
   readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
   --repo-root "$c/primary" </dev/null 2>"$tmp/err")
 RC=$?

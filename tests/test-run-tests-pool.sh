@@ -16,7 +16,8 @@ MARK=PLANWRIGHT_TEST_IN_POOLED_FILE
 # This file itself runs under the suite's pooled runner, which marks its
 # environment; the mark would make every run below unpooled.
 unset "$MARK"
-unset PLANWRIGHT_TEST_SLOTS PLANWRIGHT_TEST_JOBS PLANWRIGHT_TEST_FORCE_SERIAL
+unset PLANWRIGHT_TEST_SLOTS PLANWRIGHT_TEST_JOBS PLANWRIGHT_TEST_FORCE_SERIAL \
+  PLANWRIGHT_TEST_TIMING_REPORT PLANWRIGHT_TEST_DURATIONS
 
 failures=0
 pass() { echo "ok: $1"; }

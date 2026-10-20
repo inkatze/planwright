@@ -811,39 +811,63 @@ for sig in INT HUP; do
     *) want=129 ;;
   esac
   rm -f "$tmp/s.lock" "$tmp/s.ready"
+  # Monitor mode for the launch alone: without it a non-interactive shell
+  # starts a background job with SIGINT ignored, which the child cannot trap
+  # back, so the INT holder would only release after its loop ran out.
+  set -m
   $SH -c '
     . "$1"
     pw_lock_trap_install
     pw_lock_acquire "$2/s.lock" || exit 9
     printf "held\n" >"$2/s.ready"
     i=0
-    while [ "$i" -lt 200 ]; do
-      sleep 0.1
+    while [ "$i" -lt 600 ]; do
+      sleep 0.5
       i=$((i + 1))
     done
   ' sh "$LIB" "$tmp" &
   sig_pid=$!
+  set +m
   poll_until --what "the $sig holder to take its lock" -- test -f "$tmp/s.ready" \
     || fail "a $sig'd holder releases its lock (holder never started)"
-  # A background sh starts with INT ignored, so the INT holder runs its loop
-  # out; the loop stays short, and one already gone would misread as exit 0.
   kill -0 "$sig_pid" 2>/dev/null || fail "a $sig'd holder releases its lock (holder exited before the signal)"
-  got=0
   kill -"$sig" "$sig_pid" 2>/dev/null
+  # Skip only on a holder the signal left running with its lock held: one that
+  # died without releasing, or released without exiting, is the library's
+  # failure, and must fail below. The holder outlives this wait by far, so
+  # only the signal can have ended it.
+  deadline=$((SECONDS + 10))
+  while :; do
+    st=$(ps -o stat= -p "$sig_pid" 2>/dev/null)
+    case $st in '' | *Z*) break ;; esac
+    [ "$SECONDS" -lt "$deadline" ] || break
+    sleep 0.1
+  done
+  case $st in
+    '' | *Z*) ;;
+    *)
+      if [ -L "$tmp/s.lock" ]; then
+        # A suite started as a background job of a non-interactive shell (or
+        # under nohup) inherits the signal ignored, and nothing beneath it can
+        # restore it.
+        echo "skip: a $sig'd holder releases its lock (the signal is ignored in this test's environment)"
+        kill "$sig_pid" 2>/dev/null
+        wait "$sig_pid" 2>/dev/null
+        continue
+      fi
+      kill -KILL "$sig_pid" 2>/dev/null
+      ;;
+  esac
+  got=0
   wait "$sig_pid" || got=$?
   if [ -L "$tmp/s.lock" ]; then
     fail "a $sig'd holder releases its lock"
   else
     pass "a $sig'd holder releases its lock"
   fi
-  # The exit code is asserted for every signal a bash parent can actually
-  # observe. It cannot observe INT: a non-interactive bash reports 0 from
-  # `wait` for a child that handled SIGINT and exited, whatever the child
-  # exited with. Asserting it there would pin bash's reporting, not the
-  # library's behaviour.
-  if [ "$sig" != INT ]; then
-    assert_eq "a $sig'd holder exits $want" "$want" "$got"
-  fi
+  # The exit code also proves the signal did the releasing: a holder that
+  # outlived it would exit 0 through its EXIT trap.
+  assert_eq "a $sig'd holder exits $want" "$want" "$got"
 done
 rm -f "$tmp/s.lock" "$tmp/s.ready"
 

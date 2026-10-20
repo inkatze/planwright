@@ -465,7 +465,7 @@ cp "$GUARD" "$TMP/has space/scripts/"
 mkdir -p "$TMP/spacecheck"
 # shellcheck disable=SC2016 # the registration stores the variable unexpanded
 write_hooks "$TMP/spacecheck/hooks.json" PreToolUse '"${CLAUDE_PLUGIN_ROOT}"/scripts/whatever.sh'
-out=$("$TMP/has space/scripts/$(basename "$GUARD")" \
+out=$(bash "$TMP/has space/scripts/$(basename "$GUARD")" \
   --hooks "$TMP/spacecheck/hooks.json" --fixtures "$FIXTURES" 2>&1)
 rc=$?
 assert_exit "a plugin root containing whitespace fails closed" 2 "$rc"

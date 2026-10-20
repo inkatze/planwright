@@ -395,7 +395,7 @@ mkdir -p "$isolate"
 cp "$script" "$isolate/spec-decisionmap.sh"
 chmod +x "$isolate/spec-decisionmap.sh"
 rc=0
-out=$("$isolate/spec-decisionmap.sh" "$specs/demo" 2>&1) || rc=$?
+out=$(/bin/sh "$isolate/spec-decisionmap.sh" "$specs/demo" 2>&1) || rc=$?
 [ "$rc" -eq 2 ] \
   || fail "missing translate sibling: expected exit 2, got $rc — output: $out"
 case $out in
@@ -406,7 +406,7 @@ esac
 : >"$isolate/spec-translate.sh"
 chmod -x "$isolate/spec-translate.sh"
 rc=0
-out=$("$isolate/spec-decisionmap.sh" "$specs/demo" 2>&1) || rc=$?
+out=$(/bin/sh "$isolate/spec-decisionmap.sh" "$specs/demo" 2>&1) || rc=$?
 [ "$rc" -eq 2 ] \
   || fail "non-executable translate sibling: expected exit 2, got $rc — output: $out"
 

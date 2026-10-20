@@ -166,7 +166,7 @@ gitc "$work" commit -q -m "version 0.2.0"
 gitc "$work" tag v0.1.0
 RC=0
 OUT=$(cd "$work" && CDPATH="$tmp/decoy" GIT_CONFIG_GLOBAL=/dev/null \
-  GIT_CONFIG_SYSTEM=/dev/null scripts/release-window-check.sh 2>&1) || RC=$?
+  GIT_CONFIG_SYSTEM=/dev/null bash scripts/release-window-check.sh 2>&1) || RC=$?
 assert_eq "a hostile CDPATH does not corrupt the check (in-window → exit 1)" "$RC" "1"
 assert_contains "cdpath fixture still names the publish command" "$OUT" "$PUBLISH_CMD"
 
@@ -307,7 +307,7 @@ inject_sha=$(gitc "$inject" rev-parse HEAD)
 gitc "$inject" tag v0.1.0 # a real tag so `latest` is non-empty and the comparator is reached
 RC=0
 OUT=$(cd "$inject" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-  scripts/release-window-check.sh --ref "$inject_sha" 2>&1) || RC=$?
+  bash scripts/release-window-check.sh --ref "$inject_sha" 2>&1) || RC=$?
 assert_eq "--ref comparator-error status fails closed (exit 2, never 0)" "$RC" "2"
 assert_contains "--ref comparator failure names the fail-closed comparator branch" \
   "$OUT" "comparator"

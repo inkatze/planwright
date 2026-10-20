@@ -125,10 +125,10 @@ r="$tmp/no-comparator"
 make_repo "$r" 0.2.0
 gitc "$r" tag v0.1.0
 rc=0
-out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null scripts/release-bookkeeping.sh 2>/dev/null) || rc=$?
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null bash scripts/release-bookkeeping.sh 2>/dev/null) || rc=$?
 assert_eq "a missing comparator degrades (exit 0)" "$rc" "0"
 assert_eq "a missing comparator prints nothing on stdout" "$out" ""
-err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null scripts/release-bookkeeping.sh 2>&1 >/dev/null) || true
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null bash scripts/release-bookkeeping.sh 2>&1 >/dev/null) || true
 assert_contains "a missing comparator surfaces a diagnostic on stderr" "$err" "comparator scripts/release-pending.sh is missing"
 
 # 5b. A missing sanitizer is a broken install, but this surface never blocks:
@@ -139,7 +139,7 @@ cp "$here/../scripts/release-bookkeeping.sh" "$work/"
 r="$tmp/no-sanitizer"
 make_repo "$r" 0.2.0
 rc=0
-err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null scripts/release-bookkeeping.sh 2>&1 >"$tmp/no-sanitizer.out") || rc=$?
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null bash scripts/release-bookkeeping.sh 2>&1 >"$tmp/no-sanitizer.out") || rc=$?
 assert_eq "a missing sanitizer degrades (exit 0)" "$rc" "0"
 assert_eq "a missing sanitizer prints nothing on stdout" "$(cat "$tmp/no-sanitizer.out")" ""
 assert_contains "a missing sanitizer surfaces a diagnostic on stderr" "$err" "echo-safety.sh is missing or unreadable"
@@ -160,7 +160,7 @@ gitc "$work" add -A
 gitc "$work" commit -q -m "version 0.2.0"
 gitc "$work" tag v0.1.0
 out=$(cd "$work" && CDPATH="$tmp/decoy" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-  scripts/release-bookkeeping.sh)
+  bash scripts/release-bookkeeping.sh)
 assert_contains "a hostile CDPATH does not corrupt the surface" "$out" "0.2.0"
 
 # 7. Malformed comparator output: the comparator exists and exits 0 but emits an
@@ -188,11 +188,11 @@ for spec in "no-tab:::garbage-no-tab" "wrong-state:::notpending${tab}1.2.3" "emp
   chmod +x "$sw/release-pending.sh"
   rc=0
   out=$(cd "$tmp/stub$i" && env STUB_OUT="$raw" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-    scripts/release-bookkeeping.sh 2>/dev/null) || rc=$?
+    bash scripts/release-bookkeeping.sh 2>/dev/null) || rc=$?
   assert_eq "malformed comparator output ($name) degrades to a no-op (exit 0)" "$rc" "0"
   assert_eq "malformed comparator output ($name) prints nothing on stdout" "$out" ""
   err=$(cd "$tmp/stub$i" && env STUB_OUT="$raw" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-    scripts/release-bookkeeping.sh 2>&1 >/dev/null) || true
+    bash scripts/release-bookkeeping.sh 2>&1 >/dev/null) || true
   assert_contains "malformed comparator output ($name) surfaces a diagnostic on stderr" "$err" "unexpected comparator output"
 done
 

@@ -1208,15 +1208,18 @@ orun() {
   or_home=$1
   or_bin=$2
   shift 2
-  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
-    -u PLANWRIGHT_ROOT -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
-    PLANWRIGHT_FLEET_STATE_DIR="$or_home" \
-    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-    PLANWRIGHT_REPO_ROOT=none \
-    PLANWRIGHT_LOCAL_CONFIG="" \
-    PLANWRIGHT_ORACLE_CLAUDE="$or_bin" \
-    /bin/sh "$FL" "$@" </dev/null
+  # A subshell rather than env(1): one process launch fewer per call.
+  (
+    unset CLAUDE_PLUGIN_DATA CLAUDE_PLUGIN_ROOT CLAUDE_DIR HOME \
+      PLANWRIGHT_ROOT PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE
+    export PLANWRIGHT_FLEET_STATE_DIR="$or_home" \
+      PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+      PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+      PLANWRIGHT_REPO_ROOT=none \
+      PLANWRIGHT_LOCAL_CONFIG="" \
+      PLANWRIGHT_ORACLE_CLAUDE="$or_bin"
+    exec /bin/sh "$FL" "$@" </dev/null
+  )
 }
 
 cat >"$ofix" <<'EOF'
