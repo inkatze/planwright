@@ -4,6 +4,9 @@
 #
 # What is covered:
 #   - a command inside its bound returns its own status and output;
+#   - a command that ends at once ends the call at once, and no watcher
+#     sleep outlives its runner, with several calls side by side too, on a
+#     host without /proc as well;
 #   - the bound is the full number of seconds, never cut short, and the
 #     caller's stdin reaches the command;
 #   - an overrun is ended within the bound and reads 124, and the bound takes
@@ -13,7 +16,8 @@
 #     grace;
 #   - a malformed bound (leading zeros included) or a missing command is a
 #     usage error (125), and 0 runs the command unbounded;
-#   - a runner that is itself terminated takes its command's tree with it.
+#   - a runner that is itself terminated takes its command's tree with it,
+#     and leaves no watcher sleep behind.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor), and drives the runner
 # under /bin/sh, as the guards do:
@@ -73,19 +77,80 @@ br 5 /bin/sh -c ': >"$1/ran"' _ "$tmp" <&- || :
 [ -e "$tmp/ran" ] || fail "closed stdin: the runner failed rather than running the command"
 echo "ok: the bound is the full number of seconds and the caller's stdin reaches the command"
 
+# watcher_sleeps <bound> — how many watcher sleeps of that bound are running.
+# The bound is taken from this run's pid, so a concurrent run's watchers are
+# all but never counted as this one's leaks. It stays within six digits, the
+# runner's limit.
+watcher_sleeps() {
+  # shellcheck disable=SC2009 # pgrep is not on every host the suite runs on
+  ps -A -o args= 2>/dev/null | grep -c "^sleep $1\$" || :
+}
+bound=$((100000 + $$ % 800000))
+# A ps that fails or cannot see args would count no leaks at all.
+sleep "$bound" &
+probe=$!
+i=0
+while [ "$(watcher_sleeps "$bound")" != 1 ] && [ "$i" -lt 20 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+seen=$(watcher_sleeps "$bound")
+kill "$probe"
+wait "$probe" 2>/dev/null || :
+[ "$seen" = 1 ] || fail "prompt return: ps does not show a running sleep of the bound, so a leak would go uncounted"
+
 # A command that ends at once ends the call at once, and the watcher leaves no
-# sleep behind.
+# sleep behind. The watcher can be still forking its sleep when the command
+# ends, a window load widens, so a few lanes of calls run side by side too.
+# The window is narrow, so this catches a regression only now and then.
 start=$(date +%s)
 for _ in 1 2 3 4 5 6 7 8; do
-  br 4321 true || fail "prompt return: a 4321s-bounded true failed"
+  br "$bound" true || fail "prompt return: a ${bound}s-bounded true failed"
 done
 took=$(($(date +%s) - start))
 [ "$took" -le 6 ] || fail "prompt return: eight instant commands took ${took}s"
-sleep 0.3
-# shellcheck disable=SC2009 # pgrep is not on every host the suite runs on
-left=$(ps -A -o args= 2>/dev/null | grep -c '^sleep 4321$' || :)
+lanes=''
+for _ in 1 2 3 4; do
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    br "$bound" true || exit 1
+  done &
+  lanes="$lanes $!"
+done
+for lane in $lanes; do
+  wait "$lane" || fail "prompt return: a ${bound}s-bounded true failed in a lane"
+done
+# A KILLed sleep is gone within moments; a leaked one lives the whole bound.
+i=0
+while left=$(watcher_sleeps "$bound") && [ "$left" != 0 ] && [ "$i" -lt 20 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
 [ "$left" = 0 ] || fail "prompt return: $left watcher sleep(s) outlived their runner"
 echo "ok: a command that ends at once ends the call, and no watcher sleep is left"
+
+# A host without /proc (macOS) stops the watcher on ps reads alone. An empty
+# proc root stands that host in here, on the real script.
+mkdir "$tmp/noproc"
+lanes=''
+for _ in 1 2 3 4; do
+  for _ in 1 2 3 4 5 6; do
+    PLANWRIGHT_BOUNDED_RUN_PROC_ROOT="$tmp/noproc" br "$bound" true || exit 1
+  done &
+  lanes="$lanes $!"
+done
+for lane in $lanes; do
+  wait "$lane" || fail "no /proc: a ${bound}s-bounded true failed in a lane"
+done
+i=0
+while left=$(watcher_sleeps "$bound") && [ "$left" != 0 ] && [ "$i" -lt 20 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+[ "$left" = 0 ] || fail "no /proc: $left watcher sleep(s) outlived their runner"
+rc=0
+PLANWRIGHT_BOUNDED_RUN_PROC_ROOT=proc br 5 true 2>/dev/null || rc=$?
+[ "$rc" = 125 ] || fail "a relative proc root: exit $rc, expected 125"
+echo "ok: without /proc, no watcher sleep is left, and a relative proc root is refused"
 
 # --- an overrun: 124, promptly, the whole group ---------------------------------
 
@@ -160,7 +225,7 @@ echo "ok: a malformed bound or a missing command is a usage error (125), a 0 bou
 # --- a terminated runner takes its command with it ------------------------------
 
 # shellcheck disable=SC2016 # expanded by the inner shell
-/bin/sh "$BR" -k 1 30 /bin/sh -c 'echo "$$" >"$1/cmd"; trap "" TERM; sleep 30 & echo "$!" >"$1/cmdchild"; wait' _ "$tmp" &
+/bin/sh "$BR" -k 1 "$bound" /bin/sh -c 'echo "$$" >"$1/cmd"; trap "" TERM; sleep 30 & echo "$!" >"$1/cmdchild"; wait' _ "$tmp" &
 runner=$!
 i=0
 while [ ! -s "$tmp/cmdchild" ] && [ "$i" -lt 50 ]; do
@@ -184,6 +249,12 @@ while alive "$cc" && [ "$i" -lt 50 ]; do
   i=$((i + 1))
 done
 ! alive "$cc" || fail "terminated runner: its command's child $cc outlived it"
-echo "ok: a runner that is terminated ends its command's tree, TERM-ignoring included"
+i=0
+while left=$(watcher_sleeps "$bound") && [ "$left" != 0 ] && [ "$i" -lt 20 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+[ "$left" = 0 ] || fail "terminated runner: $left watcher sleep(s) outlived it"
+echo "ok: a runner that is terminated ends its command's tree, TERM-ignoring included, and its watcher's sleep"
 
 echo "all bounded-run tests passed"
