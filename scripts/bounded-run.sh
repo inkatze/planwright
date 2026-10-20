@@ -58,7 +58,13 @@ _br_secs "$secs" || _br_usage
 # once it shows it stopped.
 _br_tree() {
   printf '%s\n' "$1"
-  ps -A -o pid= -o ppid= -o stat= 2>/dev/null | awk -v root="$1" -v settled="${2:-}" '
+  # stat is not a POSIX ps field, so only the settled read asks for it: a ps
+  # without it still yields the tree the bound signals.
+  if [ -n "${2:-}" ]; then
+    ps -A -o pid= -o ppid= -o stat= 2>/dev/null
+  else
+    ps -A -o pid= -o ppid= 2>/dev/null
+  fi | awk -v root="$1" -v settled="${2:-}" '
     { par[$1] = $2; st[$1] = $3; ids[NR] = $1 }
     END {
       keep[root] = 1
