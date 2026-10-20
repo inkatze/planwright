@@ -17,10 +17,15 @@
 #               classes counts in both). Only the mined set carries classes,
 #               so later observations count as outside it, not as zero
 #               inflow.
-#   wall-clock  the check aggregate's wall-clock: the `mise run check` step of
-#               the ci workflow's check job on recent successful pushes to
-#               main, read from a committed capture (below), as median, min
-#               and max seconds over the captured runs.
+#   wall-clock  the check aggregate's wall-clock on recent successful pushes
+#               to main: the ci workflow runs the gate as parallel jobs, the
+#               lint job's `mise run check:non-test` step beside one
+#               `mise run test -- --shard` step per test shard, so a run's
+#               wall-clock is the slowest of those steps, the time the gate's
+#               own work kept the `check` status waiting (runner setup and the
+#               aggregate's report read excluded). Read from a committed
+#               capture (below), as median, min and max seconds over the
+#               captured runs.
 #   hand-backs  worker runs ended by a human hand-back that a test-flakiness
 #               observation attributes to a load-sensitive test failure,
 #               bucketed by the month of that observation: the hand-back
@@ -31,7 +36,9 @@
 # CAPTURE. `--capture-wallclock` prints the wall-clock capture instead: the
 # newest --runs (default 10) successful push runs of the ci workflow on main
 # created on or before the as-of date, one `run<TAB>created<TAB>sha<TAB>seconds`
-# row each, read through `gh` (fewer runs than asked fails). The capture is the
+# row each, read through `gh` (fewer runs than asked fails, and so does a run
+# missing any of those steps, as every run from before the suite was sharded
+# is, since its single check step times a different thing). The capture is the
 # record of truth: committed, so the snapshot regenerates offline and
 # byte-identically, while a later capture for the same date may differ (runs
 # re-run or expire).
@@ -185,9 +192,20 @@ if [ "$capture" -eq 1 ]; then
   tab=$(printf '\t')
   : >"$work/capture"
   while IFS=$tab read -r run created sha; do
+    # Every gate step must be there: the lint job's one and each of the
+    # N shard jobs' one, all N agreeing on N. Anything else, the pre-shard
+    # layout's single check step included, prints nothing.
     secs=$(cd "$repo_root" && gh run view "$run" --json jobs --jq '
-      [.jobs[] | select(.name == "check") | .steps[] | select(.name == "Run mise run check")
-       | ((.completedAt | fromdateiso8601) - (.startedAt | fromdateiso8601))] | first // empty') \
+      def secs: (.completedAt | fromdateiso8601) - (.startedAt | fromdateiso8601);
+      [.jobs[] | select(.name == "lint") | .steps[] | select(.name == "Run mise run check:non-test") | secs] as $lint
+      | [.jobs[] | select(.name | test("^test \\(shard [1-9][0-9]*/[1-9][0-9]*\\)$"))] as $shards
+      | [$shards[] | .name | capture("/(?<n>[0-9]+)\\)$").n | tonumber] | unique as $ns
+      | [$shards[] | [.steps[] | select(.name | startswith("Run mise run test ")) | secs]
+         | select(length == 1) | .[0]] as $tests
+      | if ($lint | length) == 1 and ($ns | length) == 1
+          and ([$shards[] | .name] | unique | length) == $ns[0]
+          and ($shards | length) == $ns[0] and ($tests | length) == $ns[0]
+        then $lint + $tests | max else empty end') \
       || fail_closed "gh could not read run $run"
     case $run in *[!0-9]* | "") fail_closed "a run id is not numeric" ;; esac
     case $created in
@@ -195,14 +213,14 @@ if [ "$capture" -eq 1 ]; then
       *) fail_closed "run $run has a malformed creation time" ;;
     esac
     printf '%s\n' "$sha" | grep -Eq '^[0-9a-f]{40}$' || fail_closed "run $run has a malformed head"
-    printf '%s\n' "$secs" | grep -Eq '^[1-9][0-9]*$' || fail_closed "run $run has no timed check step"
+    printf '%s\n' "$secs" | grep -Eq '^[1-9][0-9]*$' || fail_closed "run $run lacks the timed lint and test shard steps of the sharded ci layout"
     printf '%s\t%s\t%s\t%s\n' "$run" "$created" "$sha" "$secs" >>"$work/capture" || fail_closed "the capture could not be written"
   done <<EOF
 $picked
 EOF
   {
     # shellcheck disable=SC2016 # the backticks are literal Markdown, not a substitution
-    printf '# ci workflow, check job, `mise run check` step: successful pushes to main\n'
+    printf '# ci workflow, slowest of the lint and test shard gate steps: successful pushes to main\n'
     printf '# run\tcreated\tsha\tseconds\n'
     cat "$work/capture"
   } >"$work/out" || fail_closed "the capture could not be written"
