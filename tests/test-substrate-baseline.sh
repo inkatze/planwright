@@ -337,7 +337,7 @@ sed -e '/"name":"lint"/d' -e '/"name":"test (shard/d' \
   "$tmp/gh.keep" >"$stub/gh"
 out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>"$tmp/err")
 check_eq "a run of the pre-shard layout fails closed" 5 "$?"
-check_has "the refusal names the run" "$(cat "$tmp/err")" "run 8"
+check_has "the refusal names the run and the missing layout" "$(cat "$tmp/err")" "run 8 lacks the timed lint and test shard steps"
 sed '/"name":"test (shard 3\/3)"/d' "$tmp/gh.keep" >"$stub/gh"
 out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
 check_eq "a run missing one of its shards fails closed" 5 "$?"
@@ -347,6 +347,25 @@ check_eq "a run with no timed lint step fails closed" 5 "$?"
 sed 's|"name":"test (shard 1/3)"|"name":"test (shard 1/2)"|' "$tmp/gh.keep" >"$stub/gh"
 out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
 check_eq "shard jobs that disagree on the shard count fail closed" 5 "$?"
+sed 's|"name":"test (shard 3/3)"|"name":"test (shard 2/3)"|' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a shard job named twice fails closed" 5 "$?"
+# The extra copy times no test step, so only the job count can refuse it.
+sed '/"name":"test (shard 2\/3)"/{p;s/"name":"Run mise run test /"name":"Run something else /;}' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a shard job listed twice fails closed" 5 "$?"
+sed '/"name":"test (shard 1\/3)"/s/"name":"Run mise run test /"name":"Run something else /' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a shard job with no timed test step fails closed" 5 "$?"
+sed '/"name":"test (shard 1\/3)"/s/"steps":\[{/"steps":[{"name":"Run mise run test -- again","startedAt":"2026-10-30T01:00:00Z","completedAt":"2026-10-30T01:01:00Z"},{/' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a shard job with two test steps fails closed" 5 "$?"
+# The lint step counts as much as any shard: when it runs longest, its time
+# is the run's.
+sed 's/"completedAt":"2026-10-30T01:04:00Z"/"completedAt":"2026-10-30T01:20:00Z"/' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a lint step slower than every shard sets the run's time" "1200 1200" \
+  "$(printf '%s\n' "$out" | grep -v '^#' | cut -f4 | tr '\n' ' ' | sed 's/ $//')"
 cp "$tmp/gh.keep" "$stub/gh"
 
 sed 's/^    jq -r .*/    exit 1/' "$stub/gh" >"$stub/gh.new" && mv "$stub/gh.new" "$stub/gh" && chmod +x "$stub/gh"
