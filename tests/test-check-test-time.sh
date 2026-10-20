@@ -276,6 +276,76 @@ assert "a non-numeric wait fails closed" 2 $?
 assert_contains "the non-numeric wait failure names the row" "$out" "test-alpha.sh"
 
 # ---------------------------------------------------------------------------
+# 7b. Several reports, one per CI shard: judged as one suite. Their file rows
+#     together must name every discovered file exactly once, every report
+#     must be well formed with its own wall-clock row, and the suite-total
+#     budget is judged on the slowest report's wall-clock.
+# ---------------------------------------------------------------------------
+run_multi() {
+  /bin/bash "$CHECKER" --suite "$suite" --budget "$tmp/budget.yml" --mode ci "$@" 2>&1
+}
+write_report "$tmp/r1.tsv" 5 test-alpha.sh=1 test-beta.sh=2
+write_report "$tmp/r2.tsv" 8 test-gamma.sh=3
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "shard reports covering the suite pass together" 0 $?
+assert_contains "the clean multi-report run counts every file" "$out" "clean (3 files"
+assert_contains "the wall-clock judged is the slowest report's" "$out" "suite wall-clock 8s, the slowest of 2 reports"
+run_multi --report "$tmp/r2.tsv" --report "$tmp/r1.tsv" >/dev/null
+assert "report order does not matter" 0 $?
+
+write_report "$tmp/r2.tsv" 30 test-gamma.sh=3
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "one report's wall-clock at the total budget fails in CI" 1 $?
+assert_contains "the multi-report wall failure names the suite-total budget" "$out" "suite-total budget"
+
+write_report "$tmp/r2.tsv" 8 test-gamma.sh=3 test-beta.sh=2
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "a file in two reports fails closed" 2 $?
+assert_contains "the cross-report duplicate names the file" "$out" "duplicate entry for test-beta.sh"
+
+write_report "$tmp/r2.tsv" 8
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "a file in no report fails closed" 2 $?
+assert_contains "the multi-report missing entry names the file" "$out" "test-gamma.sh"
+
+{
+  printf 'planwright-test-timing\t2\tclock=fixture\tjobs=1\tpool=1\n'
+  printf 'file\ttest-gamma.sh\t3\t0\n'
+} >"$tmp/r2.tsv"
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "a report without its own wall-clock row fails closed" 2 $?
+assert_contains "the per-report missing wall names the report" "$out" "report 2 has no suite wall-clock row"
+
+{
+  printf 'planwright-test-timing\t2\tclock=fixture\tjobs=1\tpool=1\n'
+  printf 'file\ttest-gamma.sh\t3\t0\nsuite\twall\t3\nsuite\twall\t4\n'
+} >"$tmp/r2.tsv"
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "a duplicated wall-clock row within one report fails closed" 2 $?
+
+printf 'not a timing report\n' >"$tmp/r2.tsv"
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "a second report without the header fails closed" 2 $?
+assert_contains "the second report's header failure says so" "$out" "header"
+
+: >"$tmp/r2.tsv"
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "an empty second report fails closed" 2 $?
+
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/absent.tsv")"
+assert "a missing second report fails closed" 2 $?
+assert_contains "the missing second report is named" "$out" "absent.tsv"
+
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r1.tsv")"
+assert "the same report given twice fails closed" 2 $?
+
+# A relative report path shaped like an awk assignment is still read as a file.
+mkdir -p "$tmp/eq"
+write_report "$tmp/eq/r=1" 5 test-alpha.sh=1 test-beta.sh=2 test-gamma.sh=3
+out="$(cd "$tmp/eq" && run_multi --report "r=1")"
+assert "a report named like an awk assignment is read" 0 $?
+
+# ---------------------------------------------------------------------------
 # 8. The budget file: missing, unreadable keys, non-positive, duplicated, or
 #    non-numeric values all fail closed. A budget the gate cannot trust is
 #    not a budget of zero.
