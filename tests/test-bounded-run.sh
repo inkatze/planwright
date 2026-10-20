@@ -73,17 +73,40 @@ br 5 /bin/sh -c ': >"$1/ran"' _ "$tmp" <&- || :
 [ -e "$tmp/ran" ] || fail "closed stdin: the runner failed rather than running the command"
 echo "ok: the bound is the full number of seconds and the caller's stdin reaches the command"
 
+# watcher_sleeps <bound> — how many watcher sleeps of that bound are running.
+# Each bound below is unique to this run, so a concurrent run's watchers are
+# never counted as this one's leaks.
+watcher_sleeps() {
+  # shellcheck disable=SC2009 # pgrep is not on every host the suite runs on
+  ps -A -o args= 2>/dev/null | grep -c "^sleep $1\$" || :
+}
+bound=$((100000 + $$ % 800000))
+
 # A command that ends at once ends the call at once, and the watcher leaves no
-# sleep behind.
+# sleep behind. The watcher can be still forking its sleep when the command
+# ends, a window load widens, so a few lanes of calls run side by side too.
 start=$(date +%s)
 for _ in 1 2 3 4 5 6 7 8; do
-  br 4321 true || fail "prompt return: a 4321s-bounded true failed"
+  br "$bound" true || fail "prompt return: a ${bound}s-bounded true failed"
 done
 took=$(($(date +%s) - start))
 [ "$took" -le 6 ] || fail "prompt return: eight instant commands took ${took}s"
-sleep 0.3
-# shellcheck disable=SC2009 # pgrep is not on every host the suite runs on
-left=$(ps -A -o args= 2>/dev/null | grep -c '^sleep 4321$' || :)
+lanes=''
+for _ in 1 2 3 4; do
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    br "$bound" true || exit 1
+  done &
+  lanes="$lanes $!"
+done
+for lane in $lanes; do
+  wait "$lane" || fail "prompt return: a ${bound}s-bounded true failed in a lane"
+done
+# A KILLed sleep is gone within moments; a leaked one lives the whole bound.
+i=0
+while left=$(watcher_sleeps "$bound") && [ "$left" != 0 ] && [ "$i" -lt 20 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
 [ "$left" = 0 ] || fail "prompt return: $left watcher sleep(s) outlived their runner"
 echo "ok: a command that ends at once ends the call, and no watcher sleep is left"
 
