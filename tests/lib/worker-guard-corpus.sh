@@ -274,13 +274,35 @@ corpus_unexport() {
 # on every path, so a non-zero exit, like a payload that cannot be built, is
 # the harness failing and prints error.
 corpus_decide() {
-  local runner=$1 col=$2 payload out
-  payload=$(jq -cn --arg c "$3" --arg w "$CORPUS_WORKTREE" --arg s "$CORPUS_SESSION_ID-$col" \
-    '{hook_event_name:"PreToolUse", session_id:$s, tool_name:"Bash",
-      tool_input:{command:$c}, cwd:$w}') || {
+  local payload
+  payload=$(jq -cn --arg c "$3" --arg w "$CORPUS_WORKTREE" --arg s "$CORPUS_SESSION_ID-$2" \
+    "$CORPUS_PAYLOAD") || {
     echo error
     return
   }
+  corpus_decide_payload "$1" "$2" "$payload"
+}
+
+# The hook payload, over $c (the command), $s (the session id), and $w (the
+# worktree). corpus_payloads builds the same object, so a replayed row sends
+# exactly what corpus_decide would.
+# shellcheck disable=SC2016 # the $ names are jq's, bound at each call
+CORPUS_PAYLOAD='{hook_event_name:"PreToolUse", session_id:$s, tool_name:"Bash",
+  tool_input:{command:$c}, cwd:$w}'
+
+# corpus_payloads: one payload per stdin line of `<column><TAB><command>`, in
+# order, from a single jq run; a replay makes one call per row and column, and
+# a jq launch for each was a large share of the suite's own work.
+corpus_payloads() {
+  jq -Rc --arg w "$CORPUS_WORKTREE" --arg session "$CORPUS_SESSION_ID" \
+    "split(\"\\t\") as \$f | (\$f[1:] | join(\"\\t\")) as \$c
+      | (\$session + \"-\" + \$f[0]) as \$s | $CORPUS_PAYLOAD"
+}
+
+# corpus_decide_payload <runner> <column> <payload>: corpus_decide's verdict
+# for a payload already built.
+corpus_decide_payload() {
+  local runner=$1 col=$2 payload=$3 out
   out=$(
     cd "$CORPUS_WORKTREE" || exit 1
     # The guard reads its environment (it refuses an assignment to any name
@@ -309,7 +331,7 @@ corpus_decide() {
 
 corpus_replay() {
   local file=$1 runner=$2 columns=${3-1 2 3 4} parsed
-  local kind line class state v1 v2 v3 v4 cmd col want got missed allowed verdicts pids seen n inflight broken=0
+  local kind line class state v1 v2 v3 v4 cmd col want got missed allowed verdicts pids seen n inflight payload broken=0
   CORPUS_ROWS=0
   CORPUS_FAILED=0
   CORPUS_FALSE_ALLOWS=0
@@ -341,6 +363,20 @@ corpus_replay() {
   }
   parsed=$(corpus_parse "$file") || return 2
   verdicts=$(mktemp -d "$CORPUS_BOX/verdicts.XXXXXX") || return 2
+  # Every call's payload, built in one pass, one line per (row, column) in
+  # dispatch order. A payload that cannot be built leaves its line empty, and
+  # that call's verdict is error, as corpus_decide's would be.
+  while IFS="$CORPUS_TAB" read -r kind line class state v1 v2 v3 v4 cmd; do
+    [ "$kind" = row ] || continue
+    cmd=$(corpus_bind "$cmd")
+    for col in $columns; do
+      printf '%s\t%s\n' "$col" "$cmd"
+    done
+  done >"$verdicts/calls" <<EOF
+$parsed
+EOF
+  corpus_payloads <"$verdicts/calls" >"$verdicts/payloads" 2>/dev/null \
+    || : >"$verdicts/payloads"
   # Every (row, column) call is independent, so they run CORPUS_JOBS at a
   # time; the verdicts are read back in row order afterwards.
   n=0
@@ -349,9 +385,14 @@ corpus_replay() {
   while IFS="$CORPUS_TAB" read -r kind line class state v1 v2 v3 v4 cmd; do
     [ "$kind" = row ] || continue
     n=$((n + 1))
-    cmd=$(corpus_bind "$cmd")
     for col in $columns; do
-      corpus_decide "$runner" "$col" "$cmd" >"$verdicts/$n.$col" &
+      payload=
+      IFS= read -r payload <&3 || payload=
+      if [ -z "$payload" ]; then
+        echo error >"$verdicts/$n.$col"
+        continue
+      fi
+      corpus_decide_payload "$runner" "$col" "$payload" >"$verdicts/$n.$col" &
       pids="$pids $!"
       inflight=$((inflight + 1))
       if [ "$inflight" -ge "$CORPUS_JOBS" ]; then
@@ -361,7 +402,7 @@ corpus_replay() {
         inflight=0
       fi
     done
-  done <<EOF
+  done 3<"$verdicts/payloads" <<EOF
 $parsed
 EOF
   # shellcheck disable=SC2086  # a list of pids
