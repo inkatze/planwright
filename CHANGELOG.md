@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.62.0](https://github.com/inkatze/planwright/compare/v0.61.0...v0.62.0) (2026-10-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **tower:** a tower whose policy guard runs (a profile launch) is now refused, beyond the deny list's globs, git reset --hard, filter-branch, filter-repo, a forced branch, update-ref, the forced, detached, and protected-branch worktree forms in every spelling the guard reads, git aliases expanding to reset, branch, worktree, update-ref, or filter-branch, and every listed GitHub MCP write tool, update_pull_request included whatever its arguments.
+* **tower:** run the tower profile's hooks under --settings ([#680](https://github.com/inkatze/planwright/issues/680))
+
+### Features
+
+* **checks:** flag skill instructions that run bash scripts through sh ([#704](https://github.com/inkatze/planwright/issues/704)) ([6adf6dc](https://github.com/inkatze/planwright/commit/6adf6dc67bccbcaec143b123c9be3a0bdac96a99))
+* **custom-steps:** add the check:steps guard ([#683](https://github.com/inkatze/planwright/issues/683)) ([6d42199](https://github.com/inkatze/planwright/commit/6d421997541bd8c7d8b26916cf7e7de2abc810d2))
+* **custom-steps:** wire pools, reuse, re-fire, and resume into /execute-task ([#687](https://github.com/inkatze/planwright/issues/687)) ([f06e8ff](https://github.com/inkatze/planwright/commit/f06e8ff6bec3af30773e2ee0da63a3299bee7dd2))
+* **fleet:** addressable session names and profile delivery at the seams ([#707](https://github.com/inkatze/planwright/issues/707)) ([644735a](https://github.com/inkatze/planwright/commit/644735a279d2715af6cbb63f0ebe316eb30552dc))
+* **flight:** keep a sensitive ask private behind a public summary ([#695](https://github.com/inkatze/planwright/issues/695)) ([b03e51b](https://github.com/inkatze/planwright/commit/b03e51b631be7b42f064bdb94c78c8bd018277e6))
+* **guards:** request reviewers without leaving a draft PR un-drafted ([#686](https://github.com/inkatze/planwright/issues/686)) ([f4d3088](https://github.com/inkatze/planwright/commit/f4d308800d2b4d5b45a33d0adefb2d9cbd174687))
+* **human-gates:** the prose sweep and the purge list ([#693](https://github.com/inkatze/planwright/issues/693)) ([a7e0824](https://github.com/inkatze/planwright/commit/a7e082456e377c4b05191ab8a782b008b6c1fb04))
+* **inception:** add the six remaining core discipline cards ([#685](https://github.com/inkatze/planwright/issues/685)) ([2aa1af4](https://github.com/inkatze/planwright/commit/2aa1af4ae0207ed49f745684d119c5edb12944e6))
+* **inception:** add the venture registry, status view, and portfolio ([#706](https://github.com/inkatze/planwright/issues/706)) ([4594521](https://github.com/inkatze/planwright/commit/4594521ef0fa82318e8333deb2a281a8b8eef9b7))
+* **inception:** run the persona fan-out with blind synthesis and typed gates ([#698](https://github.com/inkatze/planwright/issues/698)) ([a1887a4](https://github.com/inkatze/planwright/commit/a1887a49acb2230d531d0446fd539ecc1ee97a46))
+* **inception:** run venture validation tasks under the venture-task contract ([#697](https://github.com/inkatze/planwright/issues/697)) ([3383e1f](https://github.com/inkatze/planwright/commit/3383e1fae8b7aa20808ceca5517cb3954e8d2a7a))
+* **instruction-budget:** diet the review skills and charge their nested chain ([#702](https://github.com/inkatze/planwright/issues/702)) ([5d6057e](https://github.com/inkatze/planwright/commit/5d6057e3e8e47a71fe56d09ddefc42ca99d8f4e4))
+* **observations:** store follows the spec root, named targets ([#682](https://github.com/inkatze/planwright/issues/682)) ([1e62414](https://github.com/inkatze/planwright/commit/1e62414cd6158e1c6578fb0e4740b4f4a9622e80))
+* **quota:** classify worker deaths on every completion reader ([#700](https://github.com/inkatze/planwright/issues/700)) ([e5bba33](https://github.com/inkatze/planwright/commit/e5bba335938100d4da4efa8cc75c66e60c0895e0))
+* **resume:** add a tower mode over the shared flight sweep ([#699](https://github.com/inkatze/planwright/issues/699)) ([8417b24](https://github.com/inkatze/planwright/commit/8417b247c7c7157cbd239d1d636d382e189979b9))
+* **review:** add the handoff bundle builder and the review gate scripts ([#703](https://github.com/inkatze/planwright/issues/703)) ([f560ded](https://github.com/inkatze/planwright/commit/f560ded17d66fd384ecfcbd400e1589320389bc4))
+* **review:** define blind review and guard the miss ledger ([#710](https://github.com/inkatze/planwright/issues/710)) ([fc7200d](https://github.com/inkatze/planwright/commit/fc7200df1d856a8fc9cbb0da3866aa24812e9aed))
+* **spec-kickoff:** run the pre-spec-ready-flip point before the spec PR flip ([#701](https://github.com/inkatze/planwright/issues/701)) ([1bdda18](https://github.com/inkatze/planwright/commit/1bdda1838b342c4b73558656af9a39d70f2015ec))
+* **substrate:** attribute observations and record the cost baseline ([#708](https://github.com/inkatze/planwright/issues/708)) ([19d373e](https://github.com/inkatze/planwright/commit/19d373ed310dbc28abd2cd62aefb85d429ba8a5c))
+* **tower:** enforce the tower deny floor from the plugin in sessions marked as towers ([#690](https://github.com/inkatze/planwright/issues/690)) ([080016d](https://github.com/inkatze/planwright/commit/080016dd4bc83155e8fcb995567396facff54fac))
+* **tower:** placement classifier and the tower_placement knob ([#684](https://github.com/inkatze/planwright/issues/684)) ([9183809](https://github.com/inkatze/planwright/commit/9183809187a0d4d6f9f1b66207b98ffa51a4645a))
+* **tower:** run the tower profile's hooks under --settings ([#680](https://github.com/inkatze/planwright/issues/680)) ([8d7b477](https://github.com/inkatze/planwright/commit/8d7b477595e65306de74f9ac48ac28fe1f90f089))
+* **worker-guard:** admit argument-independent command substitution ([#675](https://github.com/inkatze/planwright/issues/675)) ([4bbf663](https://github.com/inkatze/planwright/commit/4bbf663f1f3f18860f720b09e9721d088d1b3d5f))
+* **worker-guard:** self-approval policy, deny-block floor, and the own-branch arm ([#691](https://github.com/inkatze/planwright/issues/691)) ([3f10374](https://github.com/inkatze/planwright/commit/3f103743b573a3becb8154fef53d5ff794ed5a2b))
+
+
+### Bug Fixes
+
+* **bounded-run:** stop a watcher sleep from outliving its runner ([#712](https://github.com/inkatze/planwright/issues/712)) ([9fb58d0](https://github.com/inkatze/planwright/commit/9fb58d0806f94de14f5b7b12e0cec0e5e4cd4953))
+
 ## [0.61.0](https://github.com/inkatze/planwright/compare/v0.60.0...v0.61.0) (2026-10-17)
 
 
