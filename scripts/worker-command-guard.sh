@@ -726,7 +726,9 @@ is_repo_script() {
 # /execute-task does — named a root the hook did not trust, and deferred
 # (2026-09-12, format-grammar task 7). The installed roots are Claude Code's own
 # record and its own cache layout, never a value taken from the analyzed command
-# (REQ-B1.1); they are resolved once at load (INSTALLED_ROOTS below).
+# (REQ-B1.1); like the chain's other arms they are resolved only when a script
+# path is checked, at most once per hook call (cache_roots), since most
+# commands never need them and the hook runs on every tool call.
 #
 # Each root is canonicalized (`cd … && pwd -P`, resolving `..` segments and
 # symlinked components) and skipped when it does not resolve; containment then
@@ -737,7 +739,7 @@ planwright_roots() {
   {
     chain_roots
     printf '%s\n' "${HOOK_SELF_ROOT:-}"
-    printf '%s\n' "${INSTALLED_ROOTS:-}"
+    installed_planwright_roots
   } | while IFS= read -r r; do
     [ -n "$r" ] || continue
     root=$(cd "$r" 2>/dev/null && pwd -P) || continue
@@ -1076,11 +1078,18 @@ session_record_load() {
 # match wherever Claude Code's matcher would and in more places. A profile
 # that cannot be read, holds no Bash rule, or holds a malformed one leaves the
 # guard approving nothing.
+#
+# This runs on every hook call, so the rules are escaped in one pass and a
+# subject is tested against a rule's regex only when it starts with the
+# rule's literal prefix (the glob before its first `*`), which every match
+# must: bash recompiles a regex on each `=~`.
 DENY_N=-1
 DENY_RE=()
+DENY_PRE=()
 
-# deny_glob_ere <glob>: the glob as an ERE in DENY_ERE, its metacharacters
-# escaped and each `*` read as `.*`.
+# deny_glob_ere <globs>: the globs as EREs in DENY_ERE, their metacharacters
+# escaped and each `*` read as `.*`. The escape is per character, so a
+# newline-separated block of globs escapes in one pass.
 deny_glob_ere() {
   local g=$1 c
   for c in "\\" '.' '+' '?' '(' ')' '[' ']' '{' '}' '^' '$' '|'; do
@@ -1089,14 +1098,18 @@ deny_glob_ere() {
   DENY_ERE=${g//\*/.*}
 }
 
+# deny_load: compile the rules main's payload read took from the profile
+# (DENY_SRC `ok`, DENY_RULES one per line); `none` (no readable profile) and
+# `err` (no deny array) leave nothing compiled.
+DENY_SRC=none
+DENY_RULES=''
 deny_load() {
-  local f rules rule pat n=0
+  local rule pat globs='' tails='' n=0 i
+  local -a eres=()
   DENY_N=0
   DENY_RE=()
-  [ -n "${HOOK_SELF_ROOT:-}" ] || return 1
-  f=$HOOK_SELF_ROOT/config/worker-settings.json
-  [ -f "$f" ] && [ -r "$f" ] || return 1
-  rules=$(jq -r '.permissions.deny | if type == "array" then .[] | select(type == "string") else error("no deny array") end' "$f" 2>/dev/null) || return 1
+  DENY_PRE=()
+  [ "$DENY_SRC" = ok ] || return 1
   while IFS= read -r rule; do
     case $rule in
       'Bash('*')') ;;
@@ -1110,18 +1123,28 @@ deny_load() {
     esac
     case $pat in
       *' *')
-        deny_glob_ere "${pat% \*}"
-        DENY_RE[n]="^$DENY_ERE( .*)?\$"
+        pat=${pat% \*}
+        tails+=w
         ;;
-      *)
-        deny_glob_ere "$pat"
-        DENY_RE[n]="^$DENY_ERE\$"
-        ;;
+      *) tails+=x ;;
     esac
+    globs+=$pat$'\n'
+    DENY_PRE[n]=${pat%%\**}
     n=$((n + 1))
   done <<EOF
-$rules
+$DENY_RULES
 EOF
+  [ "$n" -gt 0 ] || return 0
+  deny_glob_ere "$globs"
+  mapfile -t eres <<<"${DENY_ERE%$'\n'}"
+  [ "${#eres[@]}" -eq "$n" ] || return 1
+  for ((i = 0; i < n; i++)); do
+    if [ "${tails:i:1}" = w ]; then
+      DENY_RE[i]="^${eres[i]}( .*)?\$"
+    else
+      DENY_RE[i]="^${eres[i]}\$"
+    fi
+  done
   DENY_N=$n
 }
 
@@ -1133,6 +1156,7 @@ deny_hit() {
   [ "$DENY_N" -ge 0 ] || deny_load
   [ "$DENY_N" -gt 0 ] || return 0
   for ((i = 0; i < DENY_N; i++)); do
+    [[ $subject == "${DENY_PRE[i]}"* ]] || continue
     [[ $subject =~ ${DENY_RE[i]} ]] && return 0
   done
   return 1
@@ -5279,28 +5303,54 @@ main() {
   # jq absent -> auto-approve nothing (REQ-B1.2). Never a hand-rolled parse.
   command -v jq >/dev/null 2>&1 || return 0
 
-  tool=$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null) || return 0
-  [ "$tool" = Bash ] || return 0 # every non-Bash tool defers (REQ-A1.7)
-
+  # One jq read for every field, since the hook runs on every tool call: the
+  # tool name, the command, the cwd's kind and value, and the deny block's
+  # state and rules (deny_load), each NUL-terminated, or nothing, which
+  # defers. Exactly one JSON document is read; anything else defers. Each
+  # string field then gets the trailing-newline strip a command substitution
+  # gives it, and the tool name and rules lose their NULs as they would.
+  # Every non-Bash tool defers (REQ-A1.7).
   # The command must be a JSON string; a present-but-empty or non-string value
   # defers (REQ-B1.7).
   # A NUL byte defers too: the command substitution drops it, so the guard
   # would screen other text than the shell runs.
-  cmd=$(printf '%s' "$input" \
-    | jq -r 'if (.tool_input.command | type) == "string" and (.tool_input.command | explode | any(. == 0) | not) then .tool_input.command else empty end' \
-      2>/dev/null) || return 0
-  [ -n "$cmd" ] || return 0
-
   # `cwd` gets the same type discipline as `command` (REQ-B1.7): ABSENT (or null)
   # is a supported shape and falls back to $PWD, but a PRESENT non-string value
   # (object, array, number, boolean) means the payload does not match the
   # documented PreToolUse contract, so the whole analysis defers rather than
   # containment-checking against whatever `jq -r` renders such a value as.
   # A NUL byte in cwd defers, as in the command.
-  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (if (.cwd | type) == "string" and (.cwd | explode | any(. == 0)) then "nul" else (.cwd | type) end) else "absent" end' 2>/dev/null) in
+  local cwdkind f
+  local -a denyarg=()
+  if [ -n "${HOOK_SELF_ROOT:-}" ]; then
+    f=$HOOK_SELF_ROOT/config/worker-settings.json
+    [ -f "$f" ] && [ -r "$f" ] && denyarg=(--slurpfile deny "$f")
+  fi
+  {
+    IFS= read -r -d '' tool && IFS= read -r -d '' cmd \
+      && IFS= read -r -d '' cwdkind && IFS= read -r -d '' cwd \
+      && IFS= read -r -d '' DENY_SRC && IFS= read -r -d '' DENY_RULES
+  } < <(printf '%s' "$input" | jq -j -s ${denyarg[@]+"${denyarg[@]}"} '
+    if length == 1 then .[0] else empty end
+    | (.tool_name // "" | if type == "string" then explode | map(select(. != 0)) | implode else "" end) as $t
+    | select((.tool_input.command | type) == "string" and (.tool_input.command | explode | any(. == 0) | not))
+    | (if has("cwd") and .cwd != null then (if (.cwd | type) == "string" and (.cwd | explode | any(. == 0)) then "nul" else (.cwd | type) end) else "absent" end) as $k
+    | ($ARGS.named.deny // null) as $d
+    | (if $d == null then ["none", ""] else
+        try ["ok", ([$d[] | .permissions.deny | if type == "array" then .[] | select(type == "string") else error("no deny array") end]
+          | join("\n") | explode | map(select(. != 0)) | implode)]
+        catch ["err", ""] end) as $r
+    | $t, "\u0000", .tool_input.command, "\u0000", $k, "\u0000", (if $k == "string" then .cwd else "" end), "\u0000",
+      $r[0], "\u0000", $r[1], "\u0000"
+  ' 2>/dev/null) || return 0
+  tool=${tool%"${tool##*[!$'\n']}"}
+  [ "$tool" = Bash ] || return 0
+  cmd=${cmd%"${cmd##*[!$'\n']}"}
+  [ -n "$cmd" ] || return 0
+  case $cwdkind in
     absent) cwd=$PWD ;;
     string)
-      cwd=$(printf '%s' "$input" | jq -r '.cwd' 2>/dev/null) || return 0
+      cwd=${cwd%"${cwd##*[!$'\n']}"}
       [ -n "$cwd" ] || cwd=$PWD
       ;;
     *) return 0 ;; # present but not a string: defer
@@ -5387,10 +5437,6 @@ chain_roots() {
   [ -n "$HOOK_SELF_ROOT" ] && [ -r "$HOOK_SELF_ROOT/scripts/resolve-root.sh" ] || return 0
   CLAUDE_PLUGIN_ROOT=$(plugin_root_unlinked "$HOOK_SELF_ROOT/scripts") /bin/sh "$HOOK_SELF_ROOT/scripts/resolve-root.sh" install --all 2>/dev/null || :
 }
-# Arm 3 of the same chain: the roots Claude Code itself installed the plugin
-# at, resolved once at load from its own record and cache (never from the
-# analyzed command). Empty when neither exists.
-INSTALLED_ROOTS=$(installed_planwright_roots) || INSTALLED_ROOTS=''
 
 # Fail safe on any unexpected signal: empty stdout, exit 0 (REQ-B1.7). The hook
 # never blocks a worker's tool call.
