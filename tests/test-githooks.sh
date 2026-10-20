@@ -380,12 +380,12 @@ check_line=$(grep -n "mise run check" "$ci" | grep -v "^ *[0-9]*: *#" | head -n 
 [ -n "$wire_line" ] || fail "c8: ci.yml has no wire-githooks.sh step"
 [ -n "$check_line" ] || fail "c8: ci.yml has no 'mise run check' step"
 [ "$wire_line" -lt "$check_line" ] || fail "c8: ci.yml wire step does not precede 'mise run check'"
-# Scope the membership assertions to each aggregate's own block: a bare
-# whole-file grep would match the task's own definition header and pass
-# vacuously with the aggregate entry deleted.
-sed -n '/^\[tasks\."check:non-test"\]$/,/^\[tasks/p' "$repo_root/mise.toml" | sed '1d' | grep -q '"check:githooks"' \
+# Scope the membership assertions to each aggregate's own block, its header
+# and the next block's header dropped: either would otherwise match the task
+# name and pass vacuously with the aggregate entry deleted.
+sed -n '/^\[tasks\."check:non-test"\]$/,/^\[tasks/p' "$repo_root/mise.toml" | sed '1d;$d' | grep -q '"check:githooks"' \
   || fail "c8: check:githooks is not in the check:non-test aggregate's depends list"
-sed -n '/^\[tasks\.check\]$/,/^\[tasks/p' "$repo_root/mise.toml" | grep -q '"check:non-test"' \
+sed -n '/^\[tasks\.check\]$/,/^\[tasks/p' "$repo_root/mise.toml" | sed '$d' | grep -q '"check:non-test"' \
   || fail "c8: check:non-test is not in the check aggregate's depends list"
 echo "ok: c8 CI wire-then-verify pinned"
 
