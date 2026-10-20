@@ -320,6 +320,22 @@ assert_contains "the summed failure names the suite-total budget" "$out" "suite 
 assert_not_contains "a shard under its ceiling is not called over it" "$out" "at or over the per-shard budget"
 write_report "$tmp/r1.tsv" 5 test-alpha.sh=1 test-beta.sh=2
 
+# Just under the per-shard ceiling passes, and fractional wall-clocks sum
+# exactly.
+write_report "$tmp/r1.tsv" 5.25 test-alpha.sh=1 test-beta.sh=2
+write_report "$tmp/r2.tsv" 19.999 test-gamma.sh=3
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "one report's wall-clock just under the per-shard budget passes" 0 $?
+assert_contains "fractional wall-clocks sum exactly" "$out" "suite wall-clock 25.249s, summed over 2 reports"
+write_report "$tmp/r1.tsv" 5 test-alpha.sh=1 test-beta.sh=2
+
+# Local mode warns on the per-shard ceiling rather than failing.
+write_report "$tmp/r2.tsv" 20 test-gamma.sh=3
+out="$(/bin/bash "$CHECKER" --suite "$suite" --budget "$tmp/budget.yml" --mode local \
+  --report "$tmp/r1.tsv" --report "$tmp/r2.tsv" 2>&1)"
+assert "a report at the per-shard budget only warns locally" 0 $?
+assert_contains "the local warning names the per-shard budget" "$out" "WARNING: slowest shard wall-clock 20s at or over the per-shard budget of 20s"
+
 write_report "$tmp/r2.tsv" 8 test-gamma.sh=3 test-beta.sh=2
 out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
 assert "a file in two reports fails closed" 2 $?
