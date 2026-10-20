@@ -1,22 +1,24 @@
 ---
 # Test wall-clock budgets for `check:test-time` (scripts/check-test-time.sh).
 #
-# Two ceilings over the shell suite's measured wall-clock, in seconds. A
+# Three ceilings over the shell suite's measured wall-clock, in seconds. A
 # measured time GREATER THAN OR EQUAL TO its budget trips the gate.
 #
 #   per_file_seconds     one ceiling for every tests/*.sh file alike
-#   suite_total_seconds  the runner's wall-clock for the whole `mise run test`
-#                        (in CI, where the suite runs in shards, the slowest
-#                        shard's)
+#   suite_total_seconds  the runner time the whole suite took: the wall-clock
+#                        of an unsharded `mise run test`, or in CI, where the
+#                        suite runs in shards, the shards' wall-clocks summed,
+#                        so it tracks growth whatever the shard count
+#   shard_wall_seconds   the slowest shard's wall-clock in a sharded run, the
+#                        longest the `check` status waits on one runner;
+#                        an unsharded run is judged on the suite total alone
 #
 # CI hard-fails, local warns. The budgets are measured on the reference runner
 # (GitHub Actions, under the parallel runner), so an overrun there fails the
-# gate. The values below were derived when CI ran the whole suite in one job,
-# before it split the suite into shards, so suite_total_seconds bounds a
-# shard's wall-clock only loosely until it is re-derived from shard runs. On a
-# dev box the same overrun only warns loudly: core count, contention, and
-# platform cost differ from the runner by more than any headroom covers, so
-# local numbers are not the baseline and are never what a budget is set from.
+# gate. On a dev box the same overrun only warns loudly: core count,
+# contention, and platform cost differ from the runner by more than any
+# headroom covers, so local numbers are not the baseline and are never what a
+# budget is set from.
 #
 # Bump consciously. A budget is raised only as a deliberate, reviewed edit in
 # the PR that needs it — never silently, never to make a red run green. Split
@@ -46,5 +48,14 @@
 # 763s the same day. Variance is near 50%, past the 30% the old headroom
 # assumed, so 780s failed green code. 1000s is the slowest of those runs,
 # 800s, plus 25%.
+#
+# Both suite budgets re-derived 2026-10-20 from the first green sharded runs
+# (three, one of them on main). The shards' summed wall-clocks measured
+# 686s to 806s, in line with the unsharded runs above, so the suite total
+# stays 1000s, the slowest sum plus 24%. The slowest shard measured 286s to
+# 292s, while single shards ranged from 190s to 292s across those runs, a
+# spread near 1.5x because one runner's speed is not averaged with others':
+# 400s is the slowest shard plus 37%.
 per_file_seconds: 120
 suite_total_seconds: 1000
+shard_wall_seconds: 400

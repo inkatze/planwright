@@ -213,8 +213,9 @@ new head.
 `mise run test` also persists a per-file timing report (`tests/.timing-report.tsv`,
 gitignored) and `check:test-time` reads it against the committed budgets in
 [`config/test-time-budget.yml`](../config/test-time-budget.yml): one per-file
-ceiling for every test file, and one for the suite's wall-clock (in CI, the
-slowest shard's). A measured time
+ceiling for every test file, one for the suite's wall-clock (in CI, where the
+suite runs in shards, the shards' wall-clocks summed), and in CI one for the
+slowest shard's wall-clock. A measured time
 at or over its budget trips. Each file's row records its execution time and,
 separately, how long it waited for a test-pool ticket (below); the per-file
 budget reads the execution time only, while the suite wall-clock includes the
