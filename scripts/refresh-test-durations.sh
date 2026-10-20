@@ -10,7 +10,8 @@
 #     version 2): each file row's execution time, never its pool wait. The
 #     report records no verdicts and is written for failing runs too, so use
 #     only a green run's report: a file that failed early would be ranked as
-#     cheap;
+#     cheap. One shard's report (its header names the shard) is refused, since
+#     it times only that shard's files;
 #   - anything else is read as a log carrying check-test-time's ranked table,
 #     such as a CI job log (`gh run view <id> --log`), whose CI mode prints
 #     every file. Step prefixes and colour codes are tolerated; only
@@ -106,6 +107,15 @@ done
 # from that would queue every file it left out ahead of the slowest ones.
 if grep -q 'more under budget; --all lists them' <"$src"; then
   die "the source's ranked table is cut short (check-test-time without --all); use a CI log or a timing report"
+fi
+# One shard's report times only that shard's files; the CI check job's log
+# carries the ranked table over every shard.
+src_shard="$(awk -F'\t' 'NR == 1 && $1 == "planwright-test-timing" {
+    for (i = 3; i <= NF; i++) if ($i ~ /^shard=[0-9]+\/[0-9]+$/) { sub(/^shard=/, "", $i); print $i }
+  }
+  { exit }' <"$src")"
+if [ -n "$src_shard" ]; then
+  die "the source is the timing report of shard $src_shard only; use the ci workflow's check job log, whose ranked table covers every shard"
 fi
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/refresh-test-durations.XXXXXX")" \

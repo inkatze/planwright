@@ -126,12 +126,17 @@ mise run check      # the full local equivalent of the CI gate
 - the instruction-budget guard over skills and doctrine, and the advisory
   emit-sidedness report.
 
-The `check` task's `depends` list in `mise.toml` is the authoritative
-inventory; the two registration guards are what keep it complete. GitHub
-Actions runs the same gate on every pull request, plus two checks outside
+The `check` task's `depends` list in `mise.toml`, with the `check:non-test`
+aggregate it names, is the authoritative inventory; the two registration
+guards are what keep it complete. GitHub Actions runs the same gate on every
+pull request, split across parallel jobs: a `lint` job runs `check:non-test`,
+three `test` jobs each run a shard of the suite (`scripts/run-tests.sh
+--shard <i>/3`), and the `check` job, the status branch protection reads,
+passes only when they all do and the test-time budget gate passes over the
+three shards' timing reports together. It also runs two checks outside
 `mise run check`: the awk-sensitive suites on macOS, and a parse of every
 tracked shell file (outside `tests/fixtures/bash32/`) under the real bash 3.2,
-a step of the `check` job in Docker's official `bash:3.2` image pinned by
+a step of the `lint` job in Docker's official `bash:3.2` image pinned by
 digest in `.github/workflows/ci.yml`. To reproduce the parse, set
 `BASH32_IMAGE` to that job's `env` value and run the step's `run:` block,
 the `git ls-files` pipe included; to refresh the image, edit only that
@@ -208,12 +213,13 @@ new head.
 `mise run test` also persists a per-file timing report (`tests/.timing-report.tsv`,
 gitignored) and `check:test-time` reads it against the committed budgets in
 [`config/test-time-budget.yml`](../config/test-time-budget.yml): one per-file
-ceiling for every test file, and one for the suite's wall-clock. A measured time
+ceiling for every test file, and one for the suite's wall-clock (in CI, the
+slowest shard's). A measured time
 at or over its budget trips. Each file's row records its execution time and,
 separately, how long it waited for a test-pool ticket (below); the per-file
 budget reads the execution time only, while the suite wall-clock includes the
 waiting. On GitHub Actions, the reference runner the budgets
-are measured on, that fails `mise run check`; on a dev box it only warns, loudly,
+are measured on, that fails CI's `check` job; on a dev box it only warns, loudly,
 because local timings measure your machine's contention rather than the file.
 
 A budget is raised only as a conscious, reviewed edit in the PR that needs it,

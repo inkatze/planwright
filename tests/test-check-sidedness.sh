@@ -161,7 +161,8 @@ echo "== wiring: reporting-only inside the check aggregate =="
 MISE="$REPO_ROOT/mise.toml"
 task_body="$(awk '/^\[tasks\."check:sidedness"\]/{f=1;next} /^\[/{f=0} f' "$MISE")"
 assert_contains "check:sidedness runs the script" "scripts/check-sidedness.sh" "$task_body"
-check_deps="$(awk '/^\[tasks\.check\]/{f=1;next} /^\[/{f=0} f' "$MISE")"
+# Directly, or through check:non-test, which check depends on.
+check_deps="$(awk '/^\[tasks\.(check|"check:non-test")\]$/{f=1;next} /^\[/{f=0} f' "$MISE")"
 assert_contains "check depends on check:sidedness" '"check:sidedness"' "$check_deps"
 
 if [ "$failures" -gt 0 ]; then

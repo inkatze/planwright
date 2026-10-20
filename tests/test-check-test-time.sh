@@ -276,6 +276,100 @@ assert "a non-numeric wait fails closed" 2 $?
 assert_contains "the non-numeric wait failure names the row" "$out" "test-alpha.sh"
 
 # ---------------------------------------------------------------------------
+# 7b. Several reports, one per CI shard: judged as one suite. Their file rows
+#     together must name every discovered file exactly once, every report
+#     must be well formed with its own wall-clock row, and the suite-total
+#     budget is judged on the slowest report's wall-clock.
+# ---------------------------------------------------------------------------
+run_multi() {
+  /bin/bash "$CHECKER" --suite "$suite" --budget "$tmp/budget.yml" --mode ci "$@" 2>&1
+}
+write_report "$tmp/r1.tsv" 5 test-alpha.sh=1 test-beta.sh=2
+write_report "$tmp/r2.tsv" 8 test-gamma.sh=3
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "shard reports covering the suite pass together" 0 $?
+assert_contains "the clean multi-report run counts every file" "$out" "clean (3 files"
+assert_contains "the wall-clock judged is the slowest report's" "$out" "suite wall-clock 8s, the slowest of 2 reports"
+out="$(run_multi --report "$tmp/r2.tsv" --report "$tmp/r1.tsv")"
+assert "report order does not matter" 0 $?
+assert_contains "the slowest wall is judged whichever report comes first" "$out" "suite wall-clock 8s,"
+
+write_report "$tmp/r2.tsv" 30 test-gamma.sh=3
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "one report's wall-clock at the total budget fails in CI" 1 $?
+assert_contains "the multi-report wall failure names the suite-total budget" "$out" "suite-total budget"
+run_multi --report "$tmp/r2.tsv" --report "$tmp/r1.tsv" >/dev/null
+assert "the report at the total budget fails in CI when it comes first" 1 $?
+
+write_report "$tmp/r2.tsv" 8 test-gamma.sh=3 test-beta.sh=2
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "a file in two reports fails closed" 2 $?
+assert_contains "the cross-report duplicate names the file" "$out" "duplicate entry for test-beta.sh"
+
+write_report "$tmp/r2.tsv" 8
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "a file in no report fails closed" 2 $?
+assert_contains "the multi-report missing entry names the file" "$out" "test-gamma.sh"
+
+{
+  printf 'planwright-test-timing\t2\tclock=fixture\tjobs=1\tpool=1\n'
+  printf 'file\ttest-gamma.sh\t3\t0\n'
+} >"$tmp/r2.tsv"
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "a report without its own wall-clock row fails closed" 2 $?
+assert_contains "the per-report missing wall names the report" "$out" "report 2 has no suite wall-clock row"
+
+{
+  printf 'planwright-test-timing\t2\tclock=fixture\tjobs=1\tpool=1\n'
+  printf 'file\ttest-gamma.sh\t3\t0\nsuite\twall\t3\nsuite\twall\t4\n'
+} >"$tmp/r2.tsv"
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "a duplicated wall-clock row within one report fails closed" 2 $?
+
+printf 'not a timing report\n' >"$tmp/r2.tsv"
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "a second report without the header fails closed" 2 $?
+assert_contains "the second report's header failure says so" "$out" "header"
+
+: >"$tmp/r2.tsv"
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "an empty second report fails closed" 2 $?
+
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/absent.tsv")"
+assert "a missing second report fails closed" 2 $?
+assert_contains "the missing second report is named" "$out" "absent.tsv"
+
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r1.tsv")"
+assert "the same report given twice fails closed" 2 $?
+assert_contains "the repeated report is named as such" "$out" "given twice"
+# An empty shard's report has no file rows to collide on, so only the
+# repeated-path check catches it, under another spelling of the path too.
+write_report "$tmp/r-none.tsv" 1
+write_report "$tmp/r-all.tsv" 5 test-alpha.sh=1 test-beta.sh=2 test-gamma.sh=3
+out="$(run_multi --report "$tmp/r-all.tsv" --report "$tmp/r-none.tsv" --report "$tmp/./r-none.tsv")"
+assert "an empty report given twice fails closed" 2 $?
+assert_contains "the repeated empty report is named as such" "$out" "given twice"
+
+# A directory is not a report, even when the other reports cover the suite
+# (one awk skips a directory operand with only a warning).
+write_report "$tmp/r2.tsv" 8 test-gamma.sh=3
+mkdir -p "$tmp/rdir"
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv" --report "$tmp/rdir" </dev/null)"
+assert "a directory given as a report fails closed" 2 $?
+assert_contains "the directory refusal says so" "$out" "not a regular file"
+
+# A bad header names the report it is in.
+printf 'not a timing report\n' >"$tmp/r2.tsv"
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv" </dev/null)"
+assert_contains "the header failure names the report" "$out" "header of report 2"
+
+# A relative report path shaped like an awk assignment is still read as a file.
+mkdir -p "$tmp/eq"
+write_report "$tmp/eq/r=1" 5 test-alpha.sh=1 test-beta.sh=2 test-gamma.sh=3
+out="$(cd "$tmp/eq" && run_multi --report "r=1")"
+assert "a report named like an awk assignment is read" 0 $?
+
+# ---------------------------------------------------------------------------
 # 8. The budget file: missing, unreadable keys, non-positive, duplicated, or
 #    non-numeric values all fail closed. A budget the gate cannot trust is
 #    not a budget of zero.
@@ -414,6 +508,40 @@ else
   echo "FAIL: .gitignore does not ignore tests/.timing-report.tsv" >&2
   failures=$((failures + 1))
 fi
+
+# ---------------------------------------------------------------------------
+# 13. CI wiring: the suite runs in shard jobs, and the gate runs in the
+#     aggregate job whose id `check` is the status branch protection and the
+#     ready-flip tooling read. That job must run whatever the jobs it needs
+#     did, fail unless they all passed, and judge every shard's report at once.
+# ---------------------------------------------------------------------------
+ci="$REPO_ROOT/.github/workflows/ci.yml"
+job_block() {
+  awk -v want="  $1:" '
+    $0 == want { f = 1; next }
+    f && /^  [A-Za-z0-9_-]+:[ \t]*$/ { exit }
+    f && !/^[ \t]*#/ { print }
+  ' "$ci"
+}
+check_block="$(job_block check)"
+test_block="$(job_block test)"
+lint_block="$(job_block lint)"
+# The expected strings are workflow text, so `$` and `${{` in them are literal.
+# shellcheck disable=SC2016
+{
+  assert_contains "ci.yml has an aggregate check job needing lint and test" "$check_block" "needs: [lint, test]"
+  assert_contains "the check job runs whatever its needs did" "$check_block" 'if: ${{ always() }}'
+  assert_contains "the check job fails unless lint and test both passed" "$check_block" \
+    '[ "$LINT_RESULT" = success ] && [ "$TEST_RESULT" = success ]'
+  assert_contains "the check job reads every shard's report" "$check_block" "pattern: timing-report-*"
+  assert_contains "the check job runs the gate over the reports" "$check_block" \
+    '/bin/bash scripts/check-test-time.sh "$@"'
+  assert_contains "the check job passes each report as --report" "$check_block" 'set -- "$@" --report "$r"'
+  assert_contains "the test job runs one shard of the suite" "$test_block" 'mise run test -- --shard "$SHARD/$SHARDS"'
+  assert_contains "the shard count comes from the matrix" "$test_block" 'SHARDS: ${{ strategy.job-total }}'
+  assert_contains "each shard uploads its timing report" "$test_block" 'name: timing-report-${{ matrix.shard }}'
+  assert_contains "the lint job runs every other gate" "$lint_block" "mise run check:non-test"
+}
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

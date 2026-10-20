@@ -29,6 +29,12 @@
 # look slow; the suite wall-clock row includes that waiting. A version-1
 # report predates the wait column and is refused rather than misread.
 #
+# Several reports, one per CI shard (scripts/run-tests.sh --shard), are judged
+# as one suite: --report repeats, the reports' file rows together must name
+# every discovered file exactly once, each report must be well formed with its
+# own wall-clock row, and the suite-total budget is judged on the slowest
+# report's wall-clock, the longest any one runner spent on tests.
+#
 # CI hard-fails, local warns. The budgets are measured on the reference runner
 # (GitHub Actions), and a dev box differs from it in core count, contention,
 # and platform cost by factors that swamp any headroom: one contended local
@@ -41,7 +47,7 @@
 # CI mode prints every file so the job log carries the whole distribution.
 #
 # Usage:
-#   check-test-time.sh [--mode ci|local] [--suite <dir>] [--report <path>]
+#   check-test-time.sh [--mode ci|local] [--suite <dir>] [--report <path>]...
 #                      [--budget <path>] [--all]
 #   check-test-time.sh --help | -h
 #
@@ -86,7 +92,7 @@ check-test-time.sh — fail (in CI) or warn (locally) when the test suite's
 measured wall-clock reaches a committed budget.
 
 Usage:
-  check-test-time.sh [--mode ci|local] [--suite <dir>] [--report <path>]
+  check-test-time.sh [--mode ci|local] [--suite <dir>] [--report <path>]...
                      [--budget <path>] [--all]
   check-test-time.sh --help | -h
 
@@ -95,13 +101,15 @@ Usage:
   --suite   the test directory whose *.sh files must all be in the report
             (default: <repo>/tests)
   --report  the timing report scripts/run-tests.sh wrote
-            (default: <suite>/.timing-report.tsv)
+            (default: <suite>/.timing-report.tsv); repeat it for the
+            reports of a sharded run, which are judged as one suite
   --budget  the committed budgets (default: <repo>/config/test-time-budget.yml)
   --all     print every file in the ranked table, not only the slowest few
             (CI mode always prints every file so the log carries the baseline)
 
 Budgets: per_file_seconds applies to every file; suite_total_seconds applies to
-the runner's wall-clock for the whole run. Measured >= budget trips.
+the runner's wall-clock for the whole run (with several reports, the slowest
+one's). Measured >= budget trips.
 
 Never re-runs the suite: run `mise run test` (or `mise run check`, which orders
 this after it) to refresh the report.
@@ -120,7 +128,7 @@ EOF
 
 mode=""
 suite=""
-report=""
+reports=()
 budget=""
 show_all=0
 while [ "$#" -gt 0 ]; do
@@ -130,7 +138,7 @@ while [ "$#" -gt 0 ]; do
       case "$1" in
         --mode) mode="$2" ;;
         --suite) suite="$2" ;;
-        --report) report="$2" ;;
+        --report) reports+=("$2") ;;
         --budget) budget="$2" ;;
       esac
       shift 2
@@ -164,10 +172,14 @@ esac
 [ "$mode" = ci ] && show_all=1
 
 [ -n "$suite" ] || suite="$repo_root/tests"
-[ -n "$report" ] || report="$suite/.timing-report.tsv"
+[ "${#reports[@]}" -gt 0 ] || reports=("$suite/.timing-report.tsv")
 [ -n "$budget" ] || budget="$repo_root/config/test-time-budget.yml"
 safe_suite="$(sanitize_printable "$suite" "(unprintable path)")"
-safe_report="$(sanitize_printable "$report" "(unprintable path)")"
+safe_report=""
+for r in "${reports[@]}"; do
+  [ -z "$safe_report" ] || safe_report="$safe_report, "
+  safe_report="$safe_report$(sanitize_printable "$r" "(unprintable path)")"
+done
 safe_budget="$(sanitize_printable "$budget" "(unprintable path)")"
 
 # --- Budgets ---------------------------------------------------------------
@@ -250,42 +262,64 @@ for f in "${files[@]}"; do
 done
 
 # --- Report ----------------------------------------------------------------
-[ -e "$report" ] || fail_closed "timing report not found: $safe_report — run \`mise run test\` first (\`mise run check\` orders this gate after it)"
-[ -r "$report" ] || fail_closed "timing report not readable: $safe_report"
-[ -s "$report" ] || fail_closed "timing report is empty: $safe_report — run \`mise run test\` first"
+# Each operand reaches awk as a file: a relative one is prefixed with ./ so a
+# name shaped like `name=value` is not taken as an assignment, nor `-` as
+# standard input.
+operands=()
+for r in "${reports[@]}"; do
+  safe_r="$(sanitize_printable "$r" "(unprintable path)")"
+  [ -e "$r" ] || fail_closed "timing report not found: $safe_r — run \`mise run test\` first (\`mise run check\` orders this gate after it)"
+  [ -f "$r" ] || fail_closed "timing report is not a regular file: $safe_r"
+  [ -r "$r" ] || fail_closed "timing report not readable: $safe_r"
+  [ -s "$r" ] || fail_closed "timing report is empty: $safe_r — run \`mise run test\` first"
+  for o in ${operands[@]+"${operands[@]}"}; do
+    [ ! "$o" -ef "$r" ] || fail_closed "timing report given twice: $safe_r"
+  done
+  case "$r" in
+    /*) operands+=("$r") ;;
+    *) operands+=("./$r") ;;
+  esac
+done
 
-# One awk pass validates the report against the discovered set and emits
+# One awk pass validates the reports against the discovered set and emits
 # either `E<TAB>message` (the gate fails closed on the first) or the rows
-# (`R<TAB>name<TAB>seconds`) and the wall-clock (`W<TAB>seconds`).
-awk -F'\t' -v discovered="$work/discovered" '
+# (`R<TAB>name<TAB>seconds`) and the slowest wall-clock (`W<TAB>seconds`).
+# With several reports a message names the report by its position.
+awk -F'\t' -v discovered="$work/discovered" -v nreports="${#operands[@]}" '
   BEGIN {
     while ((getline n < discovered) > 0) want[n] = 1
     close(discovered)
     num = "^[0-9]+(\\.[0-9]+)?$"
     wall = ""
+    k = 0
     err = 0
   }
   err { next }
-  NR == 1 {
+  FNR == 1 {
+    k++
+    where = (nreports > 1 ? " of report " k : "")
+    fwall[k] = ""
+  }
+  FNR == 1 {
     if ($1 != "planwright-test-timing" || $2 != "2") {
-      print "E\treport header is not a planwright-test-timing version 2 header (re-run `mise run test` to refresh it)"
+      print "E\t" (nreports > 1 ? "header of report " k : "report header") " is not a planwright-test-timing version 2 header (re-run `mise run test` to refresh it)"
       err = 1
     }
     next
   }
   $1 == "file" {
     if (NF != 4 || $2 == "") {
-      print "E\tmalformed file row at line " NR
+      print "E\tmalformed file row at line " FNR where
       err = 1
       next
     }
     if ($3 !~ num || $4 !~ num) {
-      print "E\tnon-numeric time for " $2 " at line " NR
+      print "E\tnon-numeric time for " $2 " at line " FNR where
       err = 1
       next
     }
     if ($2 in seen) {
-      print "E\tduplicate entry for " $2 " at line " NR
+      print "E\tduplicate entry for " $2 " at line " FNR where
       err = 1
       next
     }
@@ -295,25 +329,31 @@ awk -F'\t' -v discovered="$work/discovered" '
   }
   $1 == "suite" && $2 == "wall" {
     if (NF != 3 || $3 !~ num) {
-      print "E\tmalformed suite wall-clock row at line " NR
+      print "E\tmalformed suite wall-clock row at line " FNR where
       err = 1
       next
     }
-    if (wall != "") {
-      print "E\tduplicate suite wall-clock row at line " NR
+    if (fwall[k] != "") {
+      print "E\tduplicate suite wall-clock row at line " FNR where
       err = 1
       next
     }
-    wall = $3
+    fwall[k] = $3
+    if (wall == "" || $3 + 0 > wall + 0) wall = $3
     next
   }
   {
-    print "E\tunrecognised report row at line " NR
+    print "E\tunrecognised report row at line " FNR where
     err = 1
   }
   END {
     if (err) exit 0
-    if (wall == "") { print "E\treport has no suite wall-clock row"; exit 0 }
+    for (i = 1; i <= k; i++) {
+      if (fwall[i] == "") {
+        print "E\treport" (nreports > 1 ? " " i : "") " has no suite wall-clock row"
+        exit 0
+      }
+    }
     missing = ""
     for (n in want) if (!(n in seen)) missing = missing " " n
     if (missing != "") { print "E\treport has no timing entry for discovered file(s):" missing; exit 0 }
@@ -323,7 +363,7 @@ awk -F'\t' -v discovered="$work/discovered" '
     for (n in seen) print "R\t" n "\t" seen[n]
     print "W\t" wall
   }
-' "$report" >"$work/parsed" || fail_closed "could not read the timing report: $safe_report"
+' "${operands[@]}" >"$work/parsed" || fail_closed "could not read the timing report: $safe_report"
 
 if IFS= read -r first <"$work/parsed" && [ "${first%%"$tab"*}" = "E" ]; then
   fail_closed "$(sanitize_printable "${first#E"$tab"}" "(unprintable)") in $safe_report"
@@ -350,7 +390,9 @@ awk -F'\t' -v per_file="$per_file" -v limit="$limit" '
   }
   END { if (n > limit) printf "  (%d more under budget; --all lists them)\n", n - limit }
 ' "$work/ranked" | tr -d '\000-\010\013\014\016-\037\177'
-echo "  suite wall-clock ${wall}s (suite-total budget ${suite_total}s)"
+wall_of=""
+[ "${#operands[@]}" -eq 1 ] || wall_of=", the slowest of ${#operands[@]} reports"
+echo "  suite wall-clock ${wall}s$wall_of (suite-total budget ${suite_total}s)"
 
 offenders="$(awk -F'\t' -v per_file="$per_file" '$3 + 0 >= per_file + 0 { printf " %s (%ss)", $2, $3 }' "$work/ranked" | tr -d '\000-\010\013\014\016-\037\177')"
 wall_over=0

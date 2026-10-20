@@ -244,6 +244,20 @@ assert_eq "refreshed rows from a timing report" \
   "test-e.sh:7.200 test-a.sh:3.100" \
   "$(grep -v '^#' "$tmp/fresh2.tsv" | tr '\t' ':' | tr '\n' ' ' | sed 's/ $//')"
 
+# 9a. One shard's report times only its share of the suite, which would leave
+#     the rest untimed: refused, table untouched. The CI log's ranked table
+#     covers every shard.
+printf 'keep\n' >"$tmp/keep-shard.tsv"
+{
+  printf 'planwright-test-timing\t2\tclock=date-ns\tmode=parallel\tjobs=4\tpool=4\tshard=1/3\n'
+  printf 'file\ttest-a.sh\t3.100\t0.000\n'
+  printf 'suite\twall\t5.000\n'
+} >"$tmp/shard-report.tsv"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-shard.tsv" "$tmp/shard-report.tsv" >"$tmp/shard.out" 2>&1
+assert_eq "a shard's report is refused" 2 "$?"
+assert_eq "a refused shard report leaves the table untouched" keep "$(cat "$tmp/keep-shard.tsv")"
+assert_contains "the refusal names the shard" "shard 1/3" "$(cat "$tmp/shard.out")"
+
 # 9b. A TMPDIR with a backslash in it still finds the discovered files.
 TMPDIR="$bs_dir" /bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/fresh3.tsv" "$tmp/report-in.tsv" >/dev/null 2>&1
 assert_eq "refresh under a backslash TMPDIR exits 0" 0 "$?"
