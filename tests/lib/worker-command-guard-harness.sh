@@ -101,17 +101,27 @@ run_hook() {
   CODE=$?
 }
 
+# The predicates match in the shell, with no launch per hook call. They keep
+# the line-at-a-time grep they replaced: the space class leaves out the
+# newline, so a decision never matches across a line break.
+_wcg_sp=$' \t\r\f\v'
+_wcg_allow_re="\"permissionDecision\"[$_wcg_sp]*:[$_wcg_sp]*\"allow\""
+_wcg_deny_ask_re="\"permissionDecision\"[$_wcg_sp]*:[$_wcg_sp]*\"(deny|ask)\""
+
 # is_allow: OUT carries a well-formed allow decision.
 is_allow() {
-  printf '%s' "$OUT" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"allow"'
+  [[ $OUT =~ $_wcg_allow_re ]]
 }
 # is_empty: OUT is empty or whitespace only.
 is_empty() {
-  [ -z "$(printf '%s' "$OUT" | tr -d '[:space:]')" ]
+  case $OUT in
+    *[![:space:]]*) return 1 ;;
+  esac
+  return 0
 }
 # has_deny_or_ask: OUT ever emits deny/ask (must NEVER happen).
 has_deny_or_ask() {
-  printf '%s' "$OUT" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"(deny|ask)"'
+  [[ $OUT =~ $_wcg_deny_ask_re ]]
 }
 
 # Every assertion also enforces the universal invariants: exit 0, never
