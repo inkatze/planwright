@@ -121,17 +121,27 @@ _br_drop_watcher() {
   _br_n=0
   while [ "$_br_n" -lt 1000 ] && { read -r _br_s <"/proc/$dog/stat"; } 2>/dev/null; do
     case $_br_s in
-      *') '[Tt]*) _br_stopped=1; break ;;
+      *') '[Tt]*)
+        _br_stopped=1
+        break
+        ;;
       *') '[RSD]*) ;;
       *) break ;;
     esac
     _br_n=$((_br_n + 1))
   done
   _br_n=0
-  while _br_v=$(_br_tree "$dog" settled); _br_rc=$?; [ "$_br_n" -lt 100 ]; do
+  while
+    _br_v=$(_br_tree "$dog" settled)
+    _br_rc=$?
+    [ "$_br_n" -lt 100 ]
+  do
     case $_br_rc in
       3) ;;
-      4) [ -z "$_br_stopped" ] || break; _br_stopped=1 ;;
+      4)
+        [ -z "$_br_stopped" ] || break
+        _br_stopped=1
+        ;;
       *) break ;;
     esac
     _br_n=$((_br_n + 1))
