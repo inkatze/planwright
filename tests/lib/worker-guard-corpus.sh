@@ -375,7 +375,7 @@ corpus_replay() {
   done >"$verdicts/calls" <<EOF
 $parsed
 EOF
-  corpus_payloads <"$verdicts/calls" >"$verdicts/payloads" 2>/dev/null \
+  corpus_payloads <"$verdicts/calls" >"$verdicts/payloads" \
     || : >"$verdicts/payloads"
   # Every (row, column) call is independent, so they run CORPUS_JOBS at a
   # time; the verdicts are read back in row order afterwards.
