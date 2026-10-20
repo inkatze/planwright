@@ -195,7 +195,7 @@ echo "ok: a malformed bound or a missing command is a usage error (125), a 0 bou
 # --- a terminated runner takes its command with it ------------------------------
 
 # shellcheck disable=SC2016 # expanded by the inner shell
-/bin/sh "$BR" -k 1 30 /bin/sh -c 'echo "$$" >"$1/cmd"; trap "" TERM; sleep 30 & echo "$!" >"$1/cmdchild"; wait' _ "$tmp" &
+/bin/sh "$BR" -k 1 "$bound" /bin/sh -c 'echo "$$" >"$1/cmd"; trap "" TERM; sleep 30 & echo "$!" >"$1/cmdchild"; wait' _ "$tmp" &
 runner=$!
 i=0
 while [ ! -s "$tmp/cmdchild" ] && [ "$i" -lt 50 ]; do
@@ -219,6 +219,12 @@ while alive "$cc" && [ "$i" -lt 50 ]; do
   i=$((i + 1))
 done
 ! alive "$cc" || fail "terminated runner: its command's child $cc outlived it"
-echo "ok: a runner that is terminated ends its command's tree, TERM-ignoring included"
+i=0
+while left=$(watcher_sleeps "$bound") && [ "$left" != 0 ] && [ "$i" -lt 20 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+[ "$left" = 0 ] || fail "terminated runner: $left watcher sleep(s) outlived it"
+echo "ok: a runner that is terminated ends its command's tree, TERM-ignoring included, and its watcher's sleep"
 
 echo "all bounded-run tests passed"
