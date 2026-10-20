@@ -1,0 +1,1 @@
+- 2026-10-19 [planwright] tests/test-orchestrate-meta-select.sh case 19d (escape bytes in the unparseable-selector refusal) failed on an unmodified main tree on a loaded Linux worker host on 2026-10-19, while the rest of the file passed; not investigated (outside test-throughput Task 9.1). Worth reproducing to tell a real echo-discipline leak from a host artifact.

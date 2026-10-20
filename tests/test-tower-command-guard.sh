@@ -1427,8 +1427,11 @@ else
   false_allows=$((false_allows + 1))
 fi
 # Prove the stub harness is actually reachable (a stub the guard could never
-# trigger would make the assertion vacuously green): a direct invocation records.
-"$STUBBIN/claude" --worktree probe >/dev/null 2>&1
+# trigger would make the assertion vacuously green): an invocation by name,
+# through the PATH the guard sees, records.
+# A lookup that missed the stub would launch the real client, so it is checked first.
+[ "$(PATH="$STUBBIN:$PATH" command -v claude)" = "$STUBBIN/claude" ] \
+  && PATH="$STUBBIN:$PATH" claude --worktree probe </dev/null >/dev/null 2>&1
 if [ -f "$INVOCATIONS" ] && grep -q '^claude$' "$INVOCATIONS"; then
   pass "the no-LLM stub harness is verified reachable"
 else

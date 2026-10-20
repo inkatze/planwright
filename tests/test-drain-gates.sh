@@ -1127,7 +1127,7 @@ cp "$drain" "$lonedir/drain-gates.sh"
 # fail-closed broken-install case (REQ-B1.6a, covered in test-spec-parse.sh).
 cp "$(dirname "$drain")/spec-parse.sh" "$lonedir/spec-parse.sh"
 chmod +x "$lonedir/drain-gates.sh"
-out41=$("$lonedir/drain-gates.sh" --today 2026-07-15 "$v2r/specs") \
+out41=$(/bin/sh "$lonedir/drain-gates.sh" --today 2026-07-15 "$v2r/specs") \
   || fail "missing-engine sweep must still exit 0"
 printf '%s\n' "$out41" | grep -F 'derivation engine unavailable' >/dev/null \
   || fail "a missing derivation engine must be surfaced as an error row"

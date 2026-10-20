@@ -6,6 +6,10 @@
 # (no interleaved garbage, no silently skipped siblings).
 set -u
 unset CDPATH
+# Knobs an outer run may carry: a nested run below that inherited one would
+# write its report, order its queue or size itself by the outer setting.
+unset PLANWRIGHT_TEST_TIMING_REPORT PLANWRIGHT_TEST_DURATIONS PLANWRIGHT_TEST_JOBS \
+  PLANWRIGHT_TEST_SLOTS PLANWRIGHT_TEST_FORCE_SERIAL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNNER="$REPO_ROOT/scripts/run-tests.sh"

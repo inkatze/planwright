@@ -596,7 +596,7 @@ afile="$asws/.claude/walkthroughs/demo/demo.html"
 # artifact file behind — the message must not be contradicted by a stray
 # empty/partial file a confused reader could open.
 arc=0
-aout=$(cd "$asws" && "$scaffold" demo 2>&1) || arc=$?
+aout=$(cd "$asws" && /bin/sh "$scaffold" demo 2>&1) || arc=$?
 [ "$arc" -eq 0 ] || fail "atomic: the load itself should still succeed (exit $arc): $aout"
 case $aout in
   *"artifact: not written"*) ;;
@@ -616,7 +616,7 @@ esac
 mkdir -p "$asws/.claude/walkthroughs/demo"
 printf 'GOOD PRIOR ARTIFACT\n' >"$afile"
 arc=0
-aout=$(cd "$asws" && "$scaffold" demo 2>&1) || arc=$?
+aout=$(cd "$asws" && /bin/sh "$scaffold" demo 2>&1) || arc=$?
 [ "$arc" -eq 0 ] || fail "atomic: the load should succeed with a prior artifact (exit $arc): $aout"
 case $(cat "$afile") in
   'GOOD PRIOR ARTIFACT') ;;

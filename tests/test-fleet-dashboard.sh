@@ -123,7 +123,7 @@ full_fixture() {
 # ===========================================================================
 reset_shim
 full_fixture
-out=$("$DASHC" render) || fail "render: nonzero exit on the baseline fixture"
+out=$(/bin/sh "$DASHC" render) || fail "render: nonzero exit on the baseline fixture"
 assert_has 'w-alpha' 'merge-reuse' "$out"
 assert_has 'w-beta' 'merge-reuse' "$out"
 assert_has 'w-print' 'merge-reuse' "$out"
@@ -163,7 +163,7 @@ echo "$out" | grep -Eq 'generated [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[
 
 # --interval drives both the meta refresh and the stated cadence.
 reset_shim
-out5=$("$DASHC" render --interval 5) || fail "render --interval: nonzero exit"
+out5=$(/bin/sh "$DASHC" render --interval 5) || fail "render --interval: nonzero exit"
 assert_has 'http-equiv="refresh" content="5"' 'interval' "$out5"
 
 # ===========================================================================
@@ -186,7 +186,7 @@ matrix_case() {
     "source|oracle|$3|d-oracle" \
     "source|registry|$4|d-registry" \
     'worker|w-only|specs/a/task-1|attention|working|3|-|-|-'
-  mc_out=$("$DASHC" render) || fail "matrix($1/$2/$3/$4): nonzero exit"
+  mc_out=$(/bin/sh "$DASHC" render) || fail "matrix($1/$2/$3/$4): nonzero exit"
   for mc_src in attention streamjson oracle registry; do
     assert_has "$mc_src" "matrix($1/$2/$3/$4)" "$mc_out"
   done
@@ -221,7 +221,7 @@ write_fixture \
   'source|oracle|ok|1-rows' \
   'source|registry|ok|1-records' \
   'worker|w1|specs/a/task-1|registry|-|-|-|-|?'
-degraded=$("$DASHC" render) || fail "degraded: nonzero exit"
+degraded=$(/bin/sh "$DASHC" render) || fail "degraded: nonzero exit"
 assert_has 'unavailable' 'degraded' "$degraded"
 assert_has 'unreadable-store' 'degraded' "$degraded"
 assert_has 'absent' 'degraded' "$degraded"
@@ -234,7 +234,7 @@ assert_lacks '>busy<' 'degraded' "$degraded"
 # as an empty (and therefore reassuring) source list.
 reset_shim
 write_fixture 'worker|w1|specs/a/task-1|attention|working|3|-|-|-'
-nosrc=$("$DASHC" render) || fail "no-source-line: nonzero exit"
+nosrc=$(/bin/sh "$DASHC" render) || fail "no-source-line: nonzero exit"
 assert_has 'src-other' 'no-source-line' "$nosrc"
 assert_has 'empty merge stream' 'no-source-line' "$nosrc"
 assert_has 'w1' 'no-source-line' "$nosrc"
@@ -244,7 +244,7 @@ assert_has 'w1' 'no-source-line' "$nosrc"
 # ===========================================================================
 reset_shim
 full_fixture
-regonly=$("$DASHC" render) || fail "registry-only: nonzero exit"
+regonly=$(/bin/sh "$DASHC" render) || fail "registry-only: nonzero exit"
 assert_has 'w-print' 'registry-only' "$regonly"
 assert_has 'v-na' 'registry-only' "$regonly"
 
@@ -262,7 +262,7 @@ write_fixture \
   'source|attention|ok|1-workers' \
   'worker|w-owned|specs/a/task-1|attention,registry|working|3|-|-|-|p42.t7.c9' \
   'worker|w-unowned|specs/b/task-2|registry|-|-|-|-|-|unknown-owner'
-owned=$("$DASHC" render) || fail "owner-column: nonzero exit"
+owned=$(/bin/sh "$DASHC" render) || fail "owner-column: nonzero exit"
 assert_has 'p42.t7.c9' 'owner-column' "$owned"
 assert_has 'unknown-owner' 'owner-column' "$owned"
 # The appended column must not have shifted the cells read before it.
@@ -273,7 +273,7 @@ reset_shim
 write_fixture \
   'source|attention|ok|1-workers' \
   'worker|w-legacy|specs/a/task-1|attention|working|3|-|-|-'
-legacy=$("$DASHC" render) || fail "owner-column legacy: nonzero exit"
+legacy=$(/bin/sh "$DASHC" render) || fail "owner-column legacy: nonzero exit"
 assert_has 'w-legacy' 'owner-column-legacy' "$legacy"
 assert_has 'specs/a/task-1' 'owner-column-legacy' "$legacy"
 
@@ -288,7 +288,7 @@ write_fixture \
   'source|registry|ok|1-records' \
   'worker|<script>alert(1)</script>|a&b "q" '"'"'s'"'"'|attention|working|1|-|-|-' \
   'session|sid<img src=x onerror=alert(1)>|idle|interactive|<b>name</b>|/tmp/&'
-enc=$("$DASHC" render) || fail "encoding: nonzero exit"
+enc=$(/bin/sh "$DASHC" render) || fail "encoding: nonzero exit"
 assert_lacks '<script>alert(1)</script>' 'encoding' "$enc"
 assert_lacks '<img src=x' 'encoding' "$enc"
 assert_lacks '<b>name</b>' 'encoding' "$enc"
@@ -316,7 +316,7 @@ write_fixture \
   'worker|w-aaa-working|specs/a/task-1|attention|working|5|running|0|busy' \
   'worker|w-mmm-done|specs/b/task-2|attention|pr-ready|9|-|0|idle' \
   'worker|w-zzz-blocked|specs/c/task-3|attention|awaiting-input|60|-|0|-'
-ord=$("$DASHC" render) || fail "ordering: nonzero exit"
+ord=$(/bin/sh "$DASHC" render) || fail "ordering: nonzero exit"
 pos_blocked=$(printf '%s\n' "$ord" | grep -n 'w-zzz-blocked' | head -n 1 | cut -d: -f1)
 pos_working=$(printf '%s\n' "$ord" | grep -n 'w-aaa-working' | head -n 1 | cut -d: -f1)
 pos_done=$(printf '%s\n' "$ord" | grep -n 'w-mmm-done' | head -n 1 | cut -d: -f1)
@@ -337,7 +337,7 @@ write_fixture \
   'source|registry|absent|no-records' \
   'worker|w-pend|specs/a/task-1|streamjson|-|-|running|2|-' \
   'worker|w-wait|specs/b/task-2|streamjson|-|-|running|0|waiting'
-attn=$("$DASHC" render) || fail "attention-triggers: nonzero exit"
+attn=$(/bin/sh "$DASHC" render) || fail "attention-triggers: nonzero exit"
 assert_has '2 workers need you' 'attention-triggers' "$attn"
 
 # Nothing pending reads as an explicit all-clear, not an empty gap.
@@ -348,7 +348,7 @@ write_fixture \
   'source|oracle|absent|0-rows' \
   'source|registry|absent|no-records' \
   'worker|w-calm|specs/a/task-1|attention|working|4|-|-|-'
-calm=$("$DASHC" render) || fail "all-clear: nonzero exit"
+calm=$(/bin/sh "$DASHC" render) || fail "all-clear: nonzero exit"
 assert_has 'no worker needs you' 'all-clear' "$calm"
 
 # ===========================================================================
@@ -360,7 +360,7 @@ write_fixture \
   'source|streamjson|absent|no-runtime-dirs' \
   'source|oracle|absent|0-rows' \
   'source|registry|absent|no-records'
-empty=$("$DASHC" render) || fail "empty: nonzero exit"
+empty=$(/bin/sh "$DASHC" render) || fail "empty: nonzero exit"
 assert_has 'no workers' 'empty' "$empty"
 for s in attention streamjson oracle registry; do
   assert_has "$s" 'empty' "$empty"
@@ -373,7 +373,7 @@ reset_shim
 full_fixture
 echo 2 >"$shim_rc"
 set +e
-badout=$("$DASHC" render 2>"$tmp/err")
+badout=$(/bin/sh "$DASHC" render 2>"$tmp/err")
 badrc=$?
 set -e
 [ "$badrc" -eq 2 ] || fail "fail-closed: expected exit 2 on a merge failure, got $badrc"
@@ -386,7 +386,7 @@ reset_shim
 full_fixture
 target="$tmp/out/fleet.html"
 mkdir -p "$tmp/out"
-"$DASHC" write --out "$target" || fail "write: nonzero exit"
+/bin/sh "$DASHC" write --out "$target" || fail "write: nonzero exit"
 [ -f "$target" ] || fail "write: no file produced"
 assert_has '<!DOCTYPE html>' 'write' "$(cat "$target")"
 assert_has 'w-alpha' 'write' "$(cat "$target")"
@@ -403,7 +403,7 @@ residue=$(find "$tmp/out" -name '.planwright-dash*' | wc -l | tr -d ' ')
 reset_shim
 echo 2 >"$shim_rc"
 set +e
-"$DASHC" write --out "$target" 2>/dev/null
+/bin/sh "$DASHC" write --out "$target" 2>/dev/null
 wrc=$?
 set -e
 [ "$wrc" -eq 2 ] || fail "write-fail-closed: expected exit 2, got $wrc"
@@ -417,7 +417,7 @@ residue=$(find "$tmp/out" -name '.planwright-dash*' | wc -l | tr -d ' ')
 reset_shim
 full_fixture
 wtarget="$tmp/out/watched.html"
-"$DASHC" watch --out "$wtarget" --interval 1 >/dev/null 2>&1 &
+/bin/sh "$DASHC" watch --out "$wtarget" --interval 1 >/dev/null 2>&1 &
 wpid=$!
 rendered_twice() { [ "$(wc -l <"$shimlog" | tr -d ' ')" -ge 2 ]; }
 poll_until --what 'a second watch render' -- rendered_twice || :
@@ -435,7 +435,7 @@ full_fixture
 echo 3 >"$shim_delay"
 mkdir -p "$tmp/sig"
 sigtarget="$tmp/sig/page.html"
-"$DASHC" watch --out "$sigtarget" --interval 1 >/dev/null 2>&1 &
+/bin/sh "$DASHC" watch --out "$sigtarget" --interval 1 >/dev/null 2>&1 &
 spid=$!
 poll_until --what 'the first render starting' -- test -s "$shimlog" \
   || fail "signal-cleanup: the render never started"
@@ -453,7 +453,7 @@ reset_shim
 reset_shim
 full_fixture
 ftarget="$tmp/out/failwatch.html"
-"$DASHC" watch --out "$ftarget" --interval 1 >/dev/null 2>&1 &
+/bin/sh "$DASHC" watch --out "$ftarget" --interval 1 >/dev/null 2>&1 &
 fpid=$!
 poll_until --what 'the first page' -- test -f "$ftarget" \
   || fail "watch-fail-closed: the first page was never written"
@@ -492,7 +492,7 @@ reset_shim
 reset_shim
 full_fixture
 ptarget="$tmp/out/prompt.html"
-"$DASHC" watch --out "$ptarget" --interval 300 >/dev/null 2>&1 &
+/bin/sh "$DASHC" watch --out "$ptarget" --interval 300 >/dev/null 2>&1 &
 ppid=$!
 poll_until --what 'the first page' -- test -f "$ptarget" \
   || fail "watch-prompt-stop: the first page was never written"
@@ -550,7 +550,7 @@ mkdir -p "$tmp/nosleep"
 printf '%s\n' '#!/bin/sh' 'exit 1' >"$tmp/nosleep/sleep"
 chmod +x "$tmp/nosleep/sleep"
 sltarget="$tmp/out/sleepfail.html"
-PATH="$tmp/nosleep:$PATH" "$DASHC" watch --out "$sltarget" --interval 1 >/dev/null 2>&1 &
+PATH="$tmp/nosleep:$PATH" /bin/sh "$DASHC" watch --out "$sltarget" --interval 1 >/dev/null 2>&1 &
 slpid=$!
 # Same watchdog discipline as above: a spinning loop must fail the assertion,
 # never hang the suite.
@@ -585,7 +585,7 @@ reset_shim
 # ===========================================================================
 usage_case() {
   set +e
-  uc_out=$("$DASHC" "$@" 2>&1 >/dev/null)
+  uc_out=$(/bin/sh "$DASHC" "$@" 2>&1 >/dev/null)
   uc_rc=$?
   set -e
   [ "$uc_rc" -eq 2 ] || fail "usage($*): expected exit 2, got $uc_rc"
@@ -593,7 +593,7 @@ usage_case() {
 }
 
 set +e
-"$DASHC" >/dev/null 2>&1
+/bin/sh "$DASHC" >/dev/null 2>&1
 rc=$?
 set -e
 [ "$rc" -eq 2 ] || fail "usage(no args): expected exit 2, got $rc"
@@ -624,14 +624,14 @@ usage_case render --interval 999999999999999999999
 # what pins which guard fired: without the cap the range test errors out and
 # the value is ACCEPTED, so this assertion is the one with teeth.
 set +e
-ovf=$("$DASHC" render --interval 999999999999999999999 2>&1 >/dev/null)
+ovf=$(/bin/sh "$DASHC" render --interval 999999999999999999999 2>&1 >/dev/null)
 set -e
 case $ovf in
   *"overflow guard"*) ;;
   *) fail "interval-overflow: refused, but not by the overflow guard: $ovf" ;;
 esac
 reset_shim
-"$DASHC" render --interval 86400 >/dev/null \
+/bin/sh "$DASHC" render --interval 86400 >/dev/null \
   || fail "interval-bound: --interval 86400 (the bound itself) was refused"
 # `render` writes stdout, so --out is meaningless there and is refused
 # rather than silently ignored (which would look like a file was written).
@@ -648,7 +648,7 @@ usage_case watch
 # An unprintable flag is sanitized before it reaches the terminal.
 esc_char=$(printf '\033')
 set +e
-badflag=$("$DASHC" render "${esc_char}[31m--x" 2>&1 >/dev/null)
+badflag=$(/bin/sh "$DASHC" render "${esc_char}[31m--x" 2>&1 >/dev/null)
 set -e
 case $badflag in
   *"$esc_char"*) fail "usage: raw escape byte reached stderr" ;;

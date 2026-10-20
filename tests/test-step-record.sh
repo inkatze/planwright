@@ -699,8 +699,8 @@ mkdir -p "$lone"
 cp "$SR" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$lone/"
 w6="$tmp/w6"
 fresh "$w6"
-r6=$("$lone/step-record.sh" --worktree "$w6" new-run)
-recl2=$("$lone/step-record.sh" --worktree "$w6" write --run "$r6" --point pre-ci --step s \
+r6=$(/bin/sh "$lone/step-record.sh" --worktree "$w6" new-run)
+recl2=$(/bin/sh "$lone/step-record.sh" --worktree "$w6" write --run "$r6" --point pre-ci --step s \
   --kind command --target plain --hosting isolated --backend runner --head "$HEAD_SHA" \
   --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z --outcome passed)
 grep -Fq "target${TAB}[withheld: the value could not be screened]" "$recl2"
@@ -774,14 +774,14 @@ exit 0
 STUB
 w9="$tmp/w9"
 fresh "$w9"
-r9=$("$slow/step-record.sh" --worktree "$w9" new-run)
-"$slow/step-record.sh" --worktree "$w9" write --run "$r9" --point pre-ci --step s --kind command \
+r9=$(/bin/sh "$slow/step-record.sh" --worktree "$w9" new-run)
+/bin/sh "$slow/step-record.sh" --worktree "$w9" write --run "$r9" --point pre-ci --step s --kind command \
   --target slowstep --hosting isolated --backend runner --head "$HEAD_SHA" \
   --start 2026-09-28T15:00:00Z --end 2026-09-28T15:00:01Z --outcome passed >/dev/null 2>"$tmp/err9" &
 slowpid=$!
 poll_until --what 'the slow step reaching its screen' -- test -e "$slow/slow-started"
 verdict "the slow step reached its screen before the completion" "the slow step never screened"
-"$slow/step-record.sh" --worktree "$w9" write --completion --run "$r9" --point pre-ci \
+/bin/sh "$slow/step-record.sh" --worktree "$w9" write --completion --run "$r9" --point pre-ci \
   --head "$HEAD_SHA" >/dev/null
 [ ! -s "$slow/calls" ]
 verdict "a completion with no warning runs no screen" "the screen ran for a warning-free completion"

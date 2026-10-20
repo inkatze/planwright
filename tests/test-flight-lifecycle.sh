@@ -103,7 +103,7 @@ field() { printf '%s\n' "$1" | cut -f"$2"; }
 # end_session <flight-id> — end the flight worker's stub session, as its death
 # does; the relaunch refuses a name a live session holds.
 end_session() {
-  "$TLH_BIN/tmux" kill-session -t "=$(expect_session "$repo" "flight-$1")" >/dev/null 2>&1 || :
+  /bin/sh "$TLH_BIN/tmux" kill-session -t "=$(expect_session "$repo" "flight-$1")" >/dev/null 2>&1 || :
 }
 
 # A flight's fleet-home directory, as dispatch leaves it.

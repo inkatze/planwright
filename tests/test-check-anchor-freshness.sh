@@ -361,7 +361,7 @@ write_entry "$f5b/specs" unresolvable "$("$ANCHOR" "$f5b/specs/unresolvable")" \
   "spec-anchor.sh specs/unresolvable"
 RC=0
 OUT=$(PLANWRIGHT_ROOT="$tmp/nowhere" CLAUDE_PLUGIN_ROOT="$tmp/nowhere" CLAUDE_DIR="$tmp/nowhere" \
-  "$f5b/scripts/check-anchor-freshness.sh" "$f5b/specs" 2>&1) || RC=$?
+  /bin/sh "$f5b/scripts/check-anchor-freshness.sh" "$f5b/specs" 2>&1) || RC=$?
 assert_rc "an unresolvable sanctioned form fails closed" 1
 assert_has "the unresolvable record names the absent-anchor class" "absent-anchor"
 
@@ -374,7 +374,7 @@ write_entry "$f5c/specs" unresolvable "$("$ANCHOR" "$f5c/specs/unresolvable")" \
   "spec-anchor.sh specs/unresolvable"
 RC=0
 OUT=$(PLANWRIGHT_ROOT="$tmp/nowhere" CLAUDE_PLUGIN_ROOT="$tmp/nowhere" CLAUDE_DIR="$tmp/nowhere" \
-  "$f5c/scripts/check-anchor-freshness.sh" "$f5c/specs" 2>&1) || RC=$?
+  /bin/sh "$f5c/scripts/check-anchor-freshness.sh" "$f5c/specs" 2>&1) || RC=$?
 assert_rc "without the root helper the form still fails closed" 1
 assert_has "without the root helper the run names the broken install" "root helper"
 
