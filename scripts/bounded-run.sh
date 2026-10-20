@@ -159,7 +159,9 @@ _br_drop_watcher() {
 # bound would, then exit with the signal's status.
 # shellcheck disable=SC2329 # called from the traps below
 _br_end() {
-  trap - TERM INT HUP QUIT
+  # Ignored, not reset: a second signal that ended the runner mid-drop would
+  # leave the watcher stopped for good, where a running one ends at the bound.
+  trap '' TERM INT HUP QUIT
   # A fired watcher already holds the TERM-time set and is spending the grace
   # on it; anything else is ended here. Nothing more is said on stderr, where
   # a shell would report the watcher's KILL.
