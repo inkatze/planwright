@@ -54,9 +54,11 @@
 # 686s to 806s, in line with the unsharded runs above, so the suite total
 # stays 1000s, the slowest sum plus 24%. The slowest shard measured 286s to
 # 292s, while single shards ranged from 190s to 292s across those runs, a
-# spread near 1.5x that came mostly from the duration table of the time
-# giving one shard more work than the others; the table has since been
-# regenerated to even the split. 400s is the slowest shard plus 37%.
+# spread near 1.5x. Part of it was the duration table of the time giving one
+# shard more work, since evened by regenerating the table; the rest is that
+# one shard job has run uniformly slower than its siblings even after the
+# split changed, which a single runner does not average out. 400s is the
+# slowest shard plus 37%.
 per_file_seconds: 120
 suite_total_seconds: 1000
 shard_wall_seconds: 400
