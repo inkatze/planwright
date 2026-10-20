@@ -316,6 +316,29 @@ cp "$tmp/run1.log" "$tmp/run1-again.log"
 assert_eq "a copy of a source exits 2" 2 "$?"
 assert_contains "the copy refusal names it" "run1-again.log" "$(cat "$tmp/multi.out")"
 assert_eq "a copy of a source leaves the table untouched" keep "$(cat "$tmp/keep-multi.tsv")"
+# Each source gets every lone-source check, wherever it stands in the list.
+printf 'check-test-time: 3 files ranked slowest-first (per-file budget 120s)\n       41.250s  test-c.sh\n' >"$tmp/clipped-multi.log"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/clipped-multi.log" "$tmp/run1.log" >"$tmp/multi.out" 2>&1
+assert_eq "a clipped first source among several exits 2" 2 "$?"
+assert_contains "the clipped refusal names the source" "clipped-multi.log" "$(cat "$tmp/multi.out")"
+{
+  printf 'planwright-test-timing\t2\tclock=date-ns\tshard=2/3\n'
+  printf 'file\ttest-a.sh\t5.000\t0.000\n'
+  printf 'suite\twall\t9.000\n'
+} >"$tmp/shard-multi.tsv"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/run1.log" "$tmp/shard-multi.tsv" >"$tmp/multi.out" 2>&1
+assert_eq "a shard report after a good source exits 2" 2 "$?"
+assert_contains "the shard refusal names the source" "shard-multi.tsv" "$(cat "$tmp/multi.out")"
+assert_eq "the refused multi-source refreshes leave the table untouched" keep "$(cat "$tmp/keep-multi.tsv")"
+
+# 9f. An even count past two takes the mean of the middle two, not of the
+#     ends: 10, 40, 41.25 and 100 give 40.625.
+printf 'check-test-time: 1 files ranked slowest-first (per-file budget 120s)\n       10.000s  test-c.sh\n' >"$tmp/run4.log"
+printf 'check-test-time: 1 files ranked slowest-first (per-file budget 120s)\n      100.000s  test-c.sh\n' >"$tmp/run5.log"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/median4.tsv" "$tmp/run5.log" "$tmp/run1.log" "$tmp/run4.log" "$tmp/run2.log" >/dev/null 2>&1
+assert_eq "refresh from four sources exits 0" 0 "$?"
+assert_eq "four sources give the mean of the middle two" "40.625" \
+  "$(awk -F'\t' '$1 == "test-c.sh" { print $2 }' "$tmp/median4.tsv")"
 # A source with no usable row (a shard job's log, say) is refused even among
 # good ones, rather than leaving the median to the others.
 printf 'nothing to see\n' >"$tmp/norows-multi.log"
