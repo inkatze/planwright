@@ -109,10 +109,12 @@ k=0
 for src in "${srcs[@]}"; do
   safe_src="$(sanitize_printable "$src" "(unprintable path)")"
   [ -f "$src" ] && [ -r "$src" ] || die "source not readable: $safe_src"
-  # The same run counted twice would outvote the others in the median.
+  # The same run counted twice would outvote the others in the median, whether
+  # named twice or downloaded twice: two runs' logs never match byte for byte.
   j=0
   while [ "$j" -lt "$k" ]; do
     [ ! "${srcs[j]}" -ef "$src" ] || die "source given twice: $safe_src"
+    ! cmp -s "${srcs[j]}" "$src" || die "source given twice (same content as an earlier one): $safe_src"
     j=$((j + 1))
   done
   k=$((k + 1))

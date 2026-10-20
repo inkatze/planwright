@@ -305,6 +305,17 @@ assert_eq "a bad source among several leaves the table untouched" keep "$(cat "$
 assert_contains "the refusal names the bad source" "cut-multi.log" "$(cat "$tmp/multi.out")"
 /bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/run1.log" "$tmp/run1.log" >/dev/null 2>&1
 assert_eq "a source given twice exits 2" 2 "$?"
+ln -s "$tmp/run1.log" "$tmp/run1-link.log"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/run1.log" "$tmp/run1-link.log" >"$tmp/multi.out" 2>&1
+assert_eq "a source given twice under another path exits 2" 2 "$?"
+assert_contains "the repeat refusal says so" "source given twice" "$(cat "$tmp/multi.out")"
+# The same run's log downloaded twice is two files with one content; it would
+# outvote the others just as well.
+cp "$tmp/run1.log" "$tmp/run1-again.log"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/run1.log" "$tmp/run2.log" "$tmp/run1-again.log" >"$tmp/multi.out" 2>&1
+assert_eq "a copy of a source exits 2" 2 "$?"
+assert_contains "the copy refusal names it" "run1-again.log" "$(cat "$tmp/multi.out")"
+assert_eq "a copy of a source leaves the table untouched" keep "$(cat "$tmp/keep-multi.tsv")"
 # A source with no usable row (a shard job's log, say) is refused even among
 # good ones, rather than leaving the median to the others.
 printf 'nothing to see\n' >"$tmp/norows-multi.log"
