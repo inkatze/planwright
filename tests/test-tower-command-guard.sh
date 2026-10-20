@@ -137,17 +137,27 @@ run_worker_hook() {
   WOUT="$(printf '%s' "$payload" | HOME="$SANDBOX/no-home" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" /bin/bash "$WORKER_HOOK" 2>/dev/null)"
 }
 
+# The predicates match in the shell, with no launch per hook call. They keep
+# the line-at-a-time grep they replaced: the space class leaves out the
+# newline, so a decision never matches across a line break.
+_tcg_sp=$' \t\r\f\v'
+_tcg_allow_re="\"permissionDecision\"[$_tcg_sp]*:[$_tcg_sp]*\"allow\""
+_tcg_deny_ask_re="\"permissionDecision\"[$_tcg_sp]*:[$_tcg_sp]*\"(deny|ask)\""
+
 is_allow() {
-  printf '%s' "$OUT" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"allow"'
+  [[ $OUT =~ $_tcg_allow_re ]]
 }
 is_empty() {
-  [ -z "$(printf '%s' "$OUT" | tr -d '[:space:]')" ]
+  case $OUT in
+    *[![:space:]]*) return 1 ;;
+  esac
+  return 0
 }
 has_deny_or_ask() {
-  printf '%s' "$OUT" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"(deny|ask)"'
+  [[ $OUT =~ $_tcg_deny_ask_re ]]
 }
 worker_is_allow() {
-  printf '%s' "$WOUT" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"allow"'
+  [[ $WOUT =~ $_tcg_allow_re ]]
 }
 
 check_invariants() {
@@ -195,7 +205,7 @@ assert_not_ask() {
   run_hook "$2" Bash "$SANDBOX"
   if [ "$CODE" -ne 0 ]; then
     fail "$label — exit was $CODE, must be 0"
-  elif printf '%s' "$OUT" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"(ask|deny)"'; then
+  elif has_deny_or_ask; then
     fail "$label — expected no ask or deny, got: $OUT"
   else
     pass "$label"

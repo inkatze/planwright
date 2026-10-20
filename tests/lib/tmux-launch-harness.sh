@@ -362,8 +362,8 @@ tlh_run_bounded() {
   fi
   { wait "$timer"; } 2>/dev/null || true
   TLH_ELAPSED=$((SECONDS - start))
-  TLH_OUT=$(cat "$dir/out")
-  TLH_ERR=$(cat "$dir/err")
+  TLH_OUT=$(<"$dir/out")
+  TLH_ERR=$(<"$dir/err")
   return 0
 }
 
@@ -373,11 +373,14 @@ tlh_expect_returned() {
   return 1
 }
 
+# One cat for every call file: the log only grows over a suite, so a cat per
+# file made each read cost a launch per stub call made so far.
 tlh_tmux_calls() {
-  local f
+  local f calls=()
   for f in "$TLH_STATE"/calls/[0-9]*; do
-    [ -f "$f" ] && cat "$f"
+    [ -f "$f" ] && calls[${#calls[@]}]=$f
   done
+  [ "${#calls[@]}" -eq 0 ] || cat "${calls[@]}"
   return 0
 }
 
