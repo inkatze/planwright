@@ -198,14 +198,15 @@ jobs:
           path: ${{ runner.temp }}/timing-report.tsv
           overwrite: true
 
-  # The aggregate status. It runs whenever the run was not cancelled, so a
-  # failed or skipped job above fails it rather than leaving it skipped, which
-  # branch protection would read as passing. Then it runs the timing gate
+  # The aggregate status. It always runs, so a failed, skipped, or cancelled
+  # job above fails it rather than leaving it skipped, which branch protection
+  # reads as passing; under `!cancelled()` a run cancelled while this job
+  # waited would skip it. Then it runs the timing gate
   # (`check:test-time` in `mise run check`) over every shard's report at once:
   # the gate needs one row per test file, which only the union holds.
   check:
     needs: [lint, test]
-    if: ${{ !cancelled() }}
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
