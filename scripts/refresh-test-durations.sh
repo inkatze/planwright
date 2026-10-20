@@ -26,10 +26,10 @@
 # that time. Every source is checked as a lone one would be, and one refused
 # source refuses the refresh.
 #
-# Within a source, rows are kept only for files the suite has, the first row
-# per file wins, and
-# discovered files the source did not time are named on stderr (the runner
-# queues those ahead of every timed one). A source yielding no usable row, or
+# Within a source, rows are kept only for files the suite has and the first
+# row per file wins. Discovered files no source timed are named on stderr
+# (the runner queues those ahead of every timed one). A source yielding no
+# usable row, or
 # a ranked table check-test-time cut short (its local mode without --all) or
 # holding fewer rows than its header announces (an interrupted log), is
 # refused and the table left as it was. The table is written atomically.
@@ -154,6 +154,7 @@ done
 # records the ranked table's announced and seen sizes for the check below.
 : >"$work/kept"
 for src in "${srcs[@]}"; do
+  safe_src="$(sanitize_printable "$src" "(unprintable path)")"
   RD_DISCOVERED="$work/discovered" RD_RANKED="$work/ranked" awk -F'\t' '
   BEGIN {
     # Through ENVIRON, never -v, which would expand backslash escapes in a
@@ -196,14 +197,17 @@ for src in "${srcs[@]}"; do
     }
   }
   END { print announced + 0, nranked + 0 > ENVIRON["RD_RANKED"] }
-' <"$src" >>"$work/kept" || die "could not read $(sanitize_printable "$src" "(unprintable path)")"
-  read -r announced nranked <"$work/ranked" || die "could not read $(sanitize_printable "$src" "(unprintable path)")"
+' <"$src" >"$work/src-rows" || die "could not read $safe_src"
+  read -r announced nranked <"$work/ranked" || die "could not read $safe_src"
   if [ "$nranked" -lt "$announced" ]; then
-    die "$(sanitize_printable "$src" "(unprintable path)") announces $announced files ranked but lists $nranked (an interrupted or clipped log?); table left unchanged"
+    die "$safe_src announces $announced files ranked but lists $nranked (an interrupted or clipped log?); table left unchanged"
   fi
+  # Checked per source: among good ones, an empty one would otherwise drop out
+  # unnoticed and leave the median to the rest.
+  [ -s "$work/src-rows" ] \
+    || die "no timed test file found in $safe_src; table left unchanged"
+  cat "$work/src-rows" >>"$work/kept" || die "could not read $safe_src"
 done
-[ -s "$work/kept" ] \
-  || die "no timed test file found in the source(s); table left unchanged"
 # The median per file, its times sorted in place. A lone source passes each
 # time through as written.
 awk -F'\t' '

@@ -305,6 +305,13 @@ assert_eq "a bad source among several leaves the table untouched" keep "$(cat "$
 assert_contains "the refusal names the bad source" "cut-multi.log" "$(cat "$tmp/multi.out")"
 /bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/run1.log" "$tmp/run1.log" >/dev/null 2>&1
 assert_eq "a source given twice exits 2" 2 "$?"
+# A source with no usable row (a shard job's log, say) is refused even among
+# good ones, rather than leaving the median to the others.
+printf 'nothing to see\n' >"$tmp/norows-multi.log"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/run1.log" "$tmp/norows-multi.log" "$tmp/run2.log" >"$tmp/multi.out" 2>&1
+assert_eq "a source with no rows among several exits 2" 2 "$?"
+assert_eq "a source with no rows among several leaves the table untouched" keep "$(cat "$tmp/keep-multi.tsv")"
+assert_contains "the no-rows refusal names the source" "norows-multi.log" "$(cat "$tmp/multi.out")"
 
 # 10. A source with no usable row is refused and the table left alone.
 printf 'keep\n' >"$tmp/keep.tsv"
