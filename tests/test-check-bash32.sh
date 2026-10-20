@@ -570,11 +570,11 @@ step="$(cat "$tmp/parse-step")"
 assert_contains "the parse step runs unless the run was cancelled" "$step" 'if: ${{ !cancelled() }}'
 assert_contains "the parse step runs under bash, with pipefail" "$step" 'shell: bash'
 n_runs=$(grep -c . "$tmp/docker-runs")
-n_check=$(grep -c "^check${tab}.*\"\\\$BASH32_IMAGE\"" "$tmp/docker-runs")
-if [ "$n_runs" -ge 2 ] && [ "$n_check" -eq "$n_runs" ]; then
-  pass "every docker run in CI is in the check job and uses the pinned image"
+n_lint=$(grep -c "^lint${tab}.*\"\\\$BASH32_IMAGE\"" "$tmp/docker-runs")
+if [ "$n_runs" -ge 2 ] && [ "$n_lint" -eq "$n_runs" ]; then
+  pass "every docker run in CI is in the lint job and uses the pinned image"
 else
-  fail "every docker run in CI is in the check job and uses the pinned image ($n_check of $n_runs)"
+  fail "every docker run in CI is in the lint job and uses the pinned image ($n_lint of $n_runs)"
 fi
 
 # ---------------------------------------------------------------------------

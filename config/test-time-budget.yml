@@ -6,10 +6,12 @@
 #
 #   per_file_seconds     one ceiling for every tests/*.sh file alike
 #   suite_total_seconds  the runner's wall-clock for the whole `mise run test`
+#                        (in CI, where the suite runs in shards, the slowest
+#                        shard's)
 #
 # CI hard-fails, local warns. The budgets are measured on the reference runner
-# (GitHub Actions, inside `mise run check`, under the parallel runner and the
-# aggregate's concurrent guards), so an overrun there fails the gate. On a dev
+# (GitHub Actions, in the ci workflow's test shard jobs, under the parallel
+# runner), so an overrun there fails the gate. On a dev
 # box the same overrun only warns loudly: core count, contention, and platform
 # cost differ from the runner by more than any headroom covers, so local
 # numbers are not the baseline and are never what a budget is set from.

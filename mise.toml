@@ -306,10 +306,16 @@ description = "gitleaks over the full git history (redacted so a found secret ne
 run = "gitleaks detect --no-banner --redact --source ."
 
 [tasks.check]
-description = "Everything: the local equivalent of the CI gate (.github/workflows/ci.yml runs the same tasks)"
+description = "Everything: the local equivalent of the CI gate (.github/workflows/ci.yml runs the same tasks, the suite split across parallel shard jobs)"
 depends = [
   "test",
   "check:test-time",
+  "check:non-test",
+]
+
+[tasks."check:non-test"]
+description = "Every gate in `check` except the test suite and its timing gate: what CI's lint job runs while the shard jobs run the suite (.github/workflows/ci.yml)"
+depends = [
   "lint:shell",
   "lint:fmt",
   "lint:md",

@@ -1,9 +1,13 @@
 ---
 # planwright self-hosting CI (Task 2, REQ-G1.7): every guard the repo
-# prescribes runs on every PR. The single `mise run check` step is the same
-# aggregate gate contributors run locally, with tool versions pinned in
-# mise.toml (contributor/CI parity by construction); the bash 3.2 parse step
-# after it needs Docker, so it runs here only. Actions are pinned to
+# prescribes runs on every PR. `mise run check`, the aggregate gate
+# contributors run locally, runs here split across parallel jobs, with tool
+# versions pinned in mise.toml (contributor/CI parity by construction): the
+# lint job runs `check:non-test` (every gate but the suite), three test jobs
+# each run a third of the suite, and the `check` job joins them and judges the
+# suite's timing over all three reports. The status branch protection and the
+# ready-flip tooling read is `check`, so that job id must not change. The bash
+# 3.2 parse step needs Docker, so it runs here only. Actions are pinned to
 # full commit SHAs (supply-chain discipline per the security posture).
 #
 # "on" is quoted so yamllint's truthy rule (which this repo runs on
@@ -28,7 +32,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # The bash 3.2 parse step's image.
@@ -49,24 +53,25 @@ jobs:
         with:
           version: 2026.6.1
 
-      # Install the Claude Code CLI so `mise run check`'s lint:plugin-schema
+      # Install the Claude Code CLI so `check:non-test`'s lint:plugin-schema
       # step ENFORCES the manifest schema (claude plugin validate) instead of
       # degrading to a skip. `claude plugin validate` is a purely local schema
       # check: it needs no authentication or API key, so no secret is wired
       # here. Pinned to an exact version for CI/local parity, the same
       # discipline mise.toml applies to its other tools; keep the pin at or
       # above 2.1.154 (the release that added the defaultEnabled manifest field
-      # this repo sets). npm installs the same native binary as the standalone
-      # installer and puts `claude` on PATH; `claude --version` then fails the
-      # step loudly if the install did not work, so the schema gate can never
-      # silently fall back to its skip path.
+      # this repo sets), and the same in the test job below. npm installs the
+      # same native binary as the standalone installer and puts `claude` on
+      # PATH; `claude --version` then fails the step loudly if the install did
+      # not work, so the schema gate can never silently fall back to its skip
+      # path.
       - run: |
           npm install -g @anthropic-ai/claude-code@2.1.179
           claude --version
 
       # Wire the tracked hook backstop before the aggregate gate verifies it:
       # the pinned wire-then-verify contract (guard-coverage REQ-A1.3, D-3).
-      # check:githooks inside `mise run check` then proves the wiring
+      # check:githooks inside `check:non-test` then proves the wiring
       # decidably — an unwired runner fails loud, never a silent skip.
       # NOTE: from this step on, every git operation in the job runs under
       # the PR's githooks/ (amends and main-pushes get rejected; and
@@ -75,18 +80,19 @@ jobs:
       # deliberately.
       - run: /bin/sh scripts/wire-githooks.sh
 
-      # The aggregate gate: shell tests, shellcheck, shfmt, markdownlint,
-      # yamllint, plugin-manifest JSON lint, plugin/marketplace schema
-      # validation (claude plugin validate; enforced here because the step
-      # above installs the Claude Code CLI on the runner), doctrine link-check, the
-      # machine-local [[name]] memory-link guard over spec files (REQ-D1.1), the
-      # options-reference drift check (REQ-K1.8), the tasks.md ledger
-      # structural-corruption + duplicate-Status guards (REQ-E1.1, REQ-E1.2),
-      # the hook-registration guard over hooks.json and its payload fixtures
-      # (REQ-H1.1, REQ-H1.2), the spec validator (enforced, REQ-A2.1), and the
-      # full-history gitleaks scan. lint:commits inside `check` covers local runs; the
-      # strict PR-range lint is the dedicated step below.
-      - run: mise run check
+      # Every gate in `mise run check` but the suite: shellcheck, shfmt,
+      # markdownlint, yamllint, plugin-manifest JSON lint, plugin/marketplace
+      # schema validation (claude plugin validate; enforced here because the
+      # step above installs the Claude Code CLI on the runner), doctrine
+      # link-check, the machine-local [[name]] memory-link guard over spec
+      # files (REQ-D1.1), the options-reference drift check (REQ-K1.8), the
+      # tasks.md ledger structural-corruption + duplicate-Status guards
+      # (REQ-E1.1, REQ-E1.2), the hook-registration guard over hooks.json and
+      # its payload fixtures (REQ-H1.1, REQ-H1.2), the spec validator
+      # (enforced, REQ-A2.1), and the full-history gitleaks scan. lint:commits
+      # inside it covers local runs; the strict PR-range lint is the dedicated
+      # step below.
+      - run: mise run check:non-test
 
       # macOS ships bash 3.2 as /bin/bash and /bin/sh, and its parser rejects
       # constructs every later bash accepts, so every tracked shell file
@@ -143,6 +149,86 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: /bin/sh scripts/check-purged-identifiers.sh --commit-range "origin/${BASE_REF}..HEAD"
+
+  # The suite in three shards (scripts/run-tests.sh --shard), split by the
+  # committed duration table so each runs about a third of the suite's time.
+  # Each shard prepares the runner exactly as the lint job does, so a
+  # tool-gated case runs rather than skipping, and uploads its timing report
+  # for the `check` job. The shard count is in the matrix and in the run line;
+  # a mismatch fails loudly (an out-of-range shard is a usage error, a missing
+  # one leaves files unreported, which the timing gate refuses).
+  test:
+    name: test (shard ${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      # Full history, for the tests that check fixture provenance.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          fetch-depth: 0
+
+      # Pin rationale: see the lint job.
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4.1.0
+        with:
+          version: 2026.6.1
+
+      - run: |
+          npm install -g @anthropic-ai/claude-code@2.1.179
+          claude --version
+
+      - run: /bin/sh scripts/wire-githooks.sh
+
+      # The report goes outside the checkout: the runner's default path is a
+      # dotfile, which upload-artifact skips.
+      - env:
+          SHARD: ${{ matrix.shard }}
+          PLANWRIGHT_TEST_TIMING_REPORT: ${{ runner.temp }}/timing-report.tsv
+        run: mise run test -- --shard "$SHARD/3"
+
+      # Uploaded for a failing shard too, for the log; `overwrite` lets a
+      # re-run of the job replace its earlier report.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: timing-report-${{ matrix.shard }}
+          path: ${{ runner.temp }}/timing-report.tsv
+          overwrite: true
+
+  # The aggregate status. It runs whenever the run was not cancelled, so a
+  # failed or skipped job above fails it rather than leaving it skipped, which
+  # branch protection would read as passing. Then it runs the timing gate
+  # (`check:test-time` in `mise run check`) over every shard's report at once:
+  # the gate needs one row per test file, which only the union holds.
+  check:
+    needs: [lint, test]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - env:
+          LINT_RESULT: ${{ needs.lint.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          echo "lint: $LINT_RESULT; test: $TEST_RESULT"
+          [ "$LINT_RESULT" = success ] && [ "$TEST_RESULT" = success ]
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          pattern: timing-report-*
+          path: ${{ runner.temp }}/timing
+
+      - run: |
+          set --
+          for r in "$RUNNER_TEMP"/timing/timing-report-*/timing-report.tsv; do
+            set -- "$@" --report "$r"
+          done
+          /bin/bash scripts/check-test-time.sh "$@"
 
   # The macOS userland the scripts actually run on for most operators: its
   # /usr/bin/awk is one-true-awk, which rejects a newline inside a -v value
