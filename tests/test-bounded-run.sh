@@ -5,7 +5,8 @@
 # What is covered:
 #   - a command inside its bound returns its own status and output;
 #   - a command that ends at once ends the call at once, and no watcher
-#     sleep outlives its runner, with several calls side by side too;
+#     sleep outlives its runner, with several calls side by side too, on a
+#     host without /proc as well;
 #   - the bound is the full number of seconds, never cut short, and the
 #     caller's stdin reaches the command;
 #   - an overrun is ended within the bound and reads 124, and the bound takes
@@ -126,6 +127,30 @@ while left=$(watcher_sleeps "$bound") && [ "$left" != 0 ] && [ "$i" -lt 20 ]; do
 done
 [ "$left" = 0 ] || fail "prompt return: $left watcher sleep(s) outlived their runner"
 echo "ok: a command that ends at once ends the call, and no watcher sleep is left"
+
+# A host without /proc (macOS) stops the watcher on ps reads alone. An empty
+# proc root stands that host in here, on the real script.
+mkdir "$tmp/noproc"
+lanes=''
+for _ in 1 2 3 4; do
+  for _ in 1 2 3 4 5 6; do
+    PLANWRIGHT_BOUNDED_RUN_PROC_ROOT="$tmp/noproc" br "$bound" true || exit 1
+  done &
+  lanes="$lanes $!"
+done
+for lane in $lanes; do
+  wait "$lane" || fail "no /proc: a ${bound}s-bounded true failed in a lane"
+done
+i=0
+while left=$(watcher_sleeps "$bound") && [ "$left" != 0 ] && [ "$i" -lt 20 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+[ "$left" = 0 ] || fail "no /proc: $left watcher sleep(s) outlived their runner"
+rc=0
+PLANWRIGHT_BOUNDED_RUN_PROC_ROOT=proc br 5 true 2>/dev/null || rc=$?
+[ "$rc" = 125 ] || fail "a relative proc root: exit $rc, expected 125"
+echo "ok: without /proc, no watcher sleep is left, and a relative proc root is refused"
 
 # --- an overrun: 124, promptly, the whole group ---------------------------------
 

@@ -21,7 +21,12 @@
 # process that left the tree before the bound fired (it daemonized) is out of
 # reach, where timeout(1)'s process group would still hold it. A signal that ends the runner is passed on the same way. The
 # command's stdin is the caller's, by way of fd 9, which the command does not
-# inherit.
+# inherit. A runner killed outright (KILL, which no trap sees) while it ends
+# its watcher can leave that watcher stopped, with its sleep, until something
+# continues or kills it.
+#
+# PLANWRIGHT_BOUNDED_RUN_PROC_ROOT moves procfs (default /proc), so a test can
+# stand in a host with none; it must be an absolute path.
 set -u
 
 _br_usage() {
@@ -48,6 +53,14 @@ fi
 secs=$1
 shift
 _br_secs "$secs" || _br_usage
+proc_root=${PLANWRIGHT_BOUNDED_RUN_PROC_ROOT:-/proc}
+case $proc_root in
+  /*) ;;
+  *)
+    printf '%s\n' 'bounded-run.sh: PLANWRIGHT_BOUNDED_RUN_PROC_ROOT must be an absolute path' >&2
+    exit 125
+    ;;
+esac
 [ "$secs" != 0 ] || exec "$@"
 [ "$grace" != 0 ] || grace=''
 
@@ -129,7 +142,7 @@ _br_drop_watcher() {
   kill -STOP "$dog" 2>/dev/null || return 0
   _br_stopped=''
   _br_n=0
-  while [ "$_br_n" -lt 1000 ] && { read -r _br_s <"/proc/$dog/stat"; } 2>/dev/null; do
+  while [ "$_br_n" -lt 1000 ] && { read -r _br_s <"$proc_root/$dog/stat"; } 2>/dev/null; do
     case ${_br_s##*') '} in
       [Tt]*)
         _br_stopped=1
