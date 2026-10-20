@@ -63,8 +63,8 @@ run_shard() {
 }
 run_rc() { cat "$tmp/run.rc"; }
 
-# test-h.sh has no row and test-i.sh is not in the table at all; the table
-# also names a file the suite lacks.
+# test-h.sh has a row the table parser rejects and test-i.sh none at all, so
+# both are untimed; the table also names a file the suite lacks.
 make_suite "$tmp/s" test-a.sh test-b.sh test-c.sh test-d.sh test-e.sh \
   test-f.sh test-g.sh test-h.sh test-i.sh
 {
@@ -76,6 +76,7 @@ make_suite "$tmp/s" test-a.sh test-b.sh test-c.sh test-d.sh test-e.sh \
   printf 'test-e.sh%s6\n' "$tab"
   printf 'test-f.sh%s5\n' "$tab"
   printf 'test-g.sh%s4\n' "$tab"
+  printf 'test-h.sh%sabc\n' "$tab"
   printf 'test-gone.sh%s99\n' "$tab"
 } >"$tmp/table.tsv"
 all="test-a.sh test-b.sh test-c.sh test-d.sh test-e.sh test-f.sh test-g.sh test-h.sh test-i.sh"
@@ -115,10 +116,21 @@ assert_eq "shard 1/2 holds its balanced share" \
 assert_eq "shard 2/2 holds the rest" \
   "test-i.sh test-b.sh test-c.sh test-f.sh test-g.sh" "$(run_shard "$tmp/s" "$tmp/table.tsv" 2/2)"
 
-# 3. The split is a function of its inputs: the same shard twice runs the
-#    same files.
-first="$(run_shard "$tmp/s" "$tmp/table.tsv" 2/3)"
-assert_eq "the same shard runs the same files twice" "$first" "$(run_shard "$tmp/s" "$tmp/table.tsv" 2/3)"
+# 3. The split is a function of the names and the table only: neither the
+#    job count nor how the table's path is spelled moves a file.
+first="$(run_shard "$tmp/s" "$tmp/table.tsv" 2/3 | tr ' ' '\n' | sort | tr '\n' ' ')"
+: >"$tmp/order.log"
+(cd "$tmp" && ORDER_LOG="$tmp/order.log" PLANWRIGHT_TEST_JOBS=4 PLANWRIGHT_TEST_DURATIONS=table.tsv \
+  PLANWRIGHT_TEST_TIMING_REPORT="$tmp/report.tsv" /bin/bash "$RUNNER" --shard 2/3 "$tmp/s" >"$tmp/run.out" 2>&1)
+assert_eq "four jobs and a relative table path give the same shard" "$first" \
+  "$(sort "$tmp/order.log" | tr '\n' ' ')"
+
+# 3b. With no table every file weighs the same, so the shards differ in size
+#     by at most one file.
+assert_eq "with no table shard 1/2 runs five of nine files" 5 \
+  "$(run_shard "$tmp/s" "" 1/2 | wc -w | tr -d ' ')"
+assert_eq "with no table shard 2/2 runs four of nine files" 4 \
+  "$(run_shard "$tmp/s" "" 2/2 | wc -w | tr -d ' ')"
 
 # 4. A shard's report and summary name its own files only, and its header
 #    says which shard it is.
@@ -159,6 +171,13 @@ make_suite "$tmp/two" test-a.sh test-b.sh
 assert_eq "an empty shard runs nothing" "" "$(run_shard "$tmp/two" "" 3/3 "$tmp/r-empty.tsv")"
 assert_eq "an empty shard passes" 0 "$(run_rc)"
 assert_contains "an empty shard says so" "shard 3/3: 0 of 2 files" "$(cat "$tmp/run.out")"
+case "$(cat "$tmp/run.out")" in
+  *FAIL*)
+    echo "FAIL: an empty shard dispatches no worker (got: $(cat "$tmp/run.out"))" >&2
+    failures=$((failures + 1))
+    ;;
+  *) echo "ok: an empty shard dispatches no worker" ;;
+esac
 assert_eq "an empty shard's report has no file rows and its wall row" "0 1" \
   "$(grep -c '^file' "$tmp/r-empty.tsv") $(grep -c '^suite' "$tmp/r-empty.tsv")"
 
