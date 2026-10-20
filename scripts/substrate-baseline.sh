@@ -25,7 +25,10 @@
 #               own work kept the `check` status waiting (runner setup and the
 #               aggregate's report read excluded). Read from a committed
 #               capture (below), as median, min and max seconds over the
-#               captured runs.
+#               captured runs. A capture taken before the suite was sharded
+#               (its `#` line names the check job's `mise run check` step)
+#               timed every gate in one serial step, so its seconds do not
+#               compare with a sharded capture's.
 #   hand-backs  worker runs ended by a human hand-back that a test-flakiness
 #               observation attributes to a load-sensitive test failure,
 #               bucketed by the month of that observation: the hand-back
