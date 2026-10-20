@@ -154,11 +154,10 @@ jobs:
   # committed duration table so each runs about a third of the suite's time.
   # Each shard prepares the runner exactly as the lint job does, so a
   # tool-gated case runs rather than skipping, and uploads its timing report
-  # for the `check` job. The shard count is in the matrix and in the run line;
-  # a mismatch fails loudly (an out-of-range shard is a usage error, a missing
-  # one leaves files unreported, which the timing gate refuses).
+  # for the `check` job. The matrix list is the shard count's one home: each
+  # job reads it as strategy.job-total.
   test:
-    name: test (shard ${{ matrix.shard }}/3)
+    name: test (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -186,8 +185,9 @@ jobs:
       # dotfile, which upload-artifact skips.
       - env:
           SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
           PLANWRIGHT_TEST_TIMING_REPORT: ${{ runner.temp }}/timing-report.tsv
-        run: mise run test -- --shard "$SHARD/3"
+        run: mise run test -- --shard "$SHARD/$SHARDS"
 
       # Uploaded for a failing shard too, for the log; `overwrite` lets a
       # re-run of the job replace its earlier report.
