@@ -122,9 +122,9 @@ _br_term_then_kill() {
 # process table is not read in one instant. Where /proc shows the stop, a
 # read of the shell's own costing no fork, the first read is begun after it.
 # Both waits are capped so the runner stays bounded: past a cap, or with no
-# ps, the KILL goes to what the last read showed. A runner killed outright between the
-# STOP and the KILL leaves the watcher stopped, with its sleep, until
-# something continues or kills it.
+# ps, the KILL goes to what the last read showed. A runner killed outright
+# between the STOP and the KILL leaves the watcher stopped, with its sleep,
+# until something continues or kills it.
 _br_drop_watcher() {
   kill -STOP "$dog" 2>/dev/null || return 0
   _br_stopped=''
