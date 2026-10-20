@@ -143,7 +143,7 @@ assert_contains "shard run states its share of the suite" "shard 1/2: 4 of 9 fil
 # 5. The shard reports together satisfy the timing gate, which requires one
 #    row for every discovered file; one shard's report alone does not.
 run_shard "$tmp/s" "$tmp/table.tsv" 2/2 "$tmp/r2.tsv" >/dev/null
-printf -- 'per_file_seconds: 100\nsuite_total_seconds: 1000\n' >"$tmp/budget.yml"
+printf -- 'per_file_seconds: 100\nsuite_total_seconds: 1000\nshard_wall_seconds: 1000\n' >"$tmp/budget.yml"
 /bin/bash "$CHECKER" --mode ci --suite "$tmp/s" --budget "$tmp/budget.yml" \
   --report "$tmp/r1.tsv" --report "$tmp/r2.tsv" >"$tmp/check.out" 2>&1
 assert_eq "both shard reports pass the gate together" 0 "$?"
