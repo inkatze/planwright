@@ -199,6 +199,28 @@ ORDER_LOG="$tmp/order.log" PLANWRIGHT_TEST_JOBS=1 PLANWRIGHT_TEST_DURATIONS="$tm
 assert_eq "options before -- still apply" \
   "test-h.sh test-a.sh test-d.sh test-e.sh" "$(tr '\n' ' ' <"$tmp/order.log" | sed 's/ $//')"
 
+# 11. The split never depends on the runner's locale: glob order follows
+#     collation, so ties are broken by name in the C locale, never by
+#     discovery order. Run where a collating locale that orders these names
+#     differently from C is installed.
+coll=""
+for l in en_US.UTF-8 en_US.utf8 C.UTF-8; do
+  if [ "$(LC_ALL=$l locale charmap 2>/dev/null)" = UTF-8 ] && [ "$l" != C.UTF-8 ]; then
+    coll=$l
+    break
+  fi
+done
+if [ -n "$coll" ]; then
+  make_suite "$tmp/loc" test-a-c.sh test-ab.sh test-a-d.sh test-ae.sh
+  for i in 1 2; do
+    c_set="$(LC_ALL=C run_shard "$tmp/loc" "" "$i/2" | tr ' ' '\n' | sort | tr '\n' ' ')"
+    l_set="$(LC_ALL=$coll run_shard "$tmp/loc" "" "$i/2" | tr ' ' '\n' | sort | tr '\n' ' ')"
+    assert_eq "shard $i/2 holds the same files under C and $coll" "$c_set" "$l_set"
+  done
+else
+  echo "skip: no collating locale installed to compare against C"
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures assertion(s) failed" >&2
   exit 1

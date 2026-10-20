@@ -630,32 +630,41 @@ else
   order_desc="name order (duration table disabled)"
 fi
 
-# The shard split (see the header): weights sorted longest first, ties in
-# name order, each placed on the least-loaded shard, ties to the lower one.
+# The shard split (see the header): weights sorted longest first, ties by
+# name in the C locale (glob order follows the runner's collation, which two
+# jobs need not share), each placed on the least-loaded shard, ties to the
+# lower one.
 all_files=("${files[@]}")
 total=${#files[@]}
 scope_desc="$total files"
 shard_field=""
 member=()
 if [ -n "$shard_i" ]; then
+  newline='
+'
   picked="$(
     i=0
     while [ "$i" -lt "$total" ]; do
-      printf '%s\t%s\n' "$i" "${tdur[i]:-}"
+      # The sort key is the name with any tab or newline flattened, so the
+      # line stays three fields.
+      key="${files[$i]##*/}"
+      key="${key//$tab/ }"
+      key="${key//$newline/ }"
+      printf '%s\t%s\t%s\n' "$i" "${tdur[i]:-}" "$key"
       i=$((i + 1))
     done | LC_ALL=C awk -F'\t' '
-      { idx[NR] = $1; d[NR] = $2; if ($2 != "") { sum += $2; cnt++ } }
+      { idx[NR] = $1; d[NR] = $2; key[NR] = $3; if ($2 != "") { sum += $2; cnt++ } }
       END {
         mean = cnt ? sum / cnt : 1
-        for (k = 1; k <= NR; k++) printf "%.6f\t%s\n", (d[k] == "" ? mean : d[k]), idx[k]
+        for (k = 1; k <= NR; k++) printf "%.6f\t%s\t%s\n", (d[k] == "" ? mean : d[k]), key[k], idx[k]
       }
-    ' | LC_ALL=C sort -t "$tab" -k1,1nr -k2,2n | LC_ALL=C awk -F'\t' -v n="$shard_n" -v want="$shard_i" '
+    ' | LC_ALL=C sort -t "$tab" -k1,1nr -k2,2 -k3,3n | LC_ALL=C awk -F'\t' -v n="$shard_n" -v want="$shard_i" '
       BEGIN { for (s = 1; s <= n; s++) load[s] = 0 }
       {
         best = 1
         for (s = 2; s <= n; s++) if (load[s] < load[best]) best = s
         load[best] += $1
-        if (best == want) print $2
+        if (best == want) print $3
       }
     '
   )"
