@@ -4,6 +4,8 @@
 #
 # What is covered:
 #   - a command inside its bound returns its own status and output;
+#   - a command that ends at once ends the call at once, and no watcher
+#     sleep outlives its runner, with several calls side by side too;
 #   - the bound is the full number of seconds, never cut short, and the
 #     caller's stdin reaches the command;
 #   - an overrun is ended within the bound and reads 124, and the bound takes
@@ -13,7 +15,8 @@
 #     grace;
 #   - a malformed bound (leading zeros included) or a missing command is a
 #     usage error (125), and 0 runs the command unbounded;
-#   - a runner that is itself terminated takes its command's tree with it.
+#   - a runner that is itself terminated takes its command's tree with it,
+#     and leaves no watcher sleep behind.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor), and drives the runner
 # under /bin/sh, as the guards do:
@@ -74,8 +77,9 @@ br 5 /bin/sh -c ': >"$1/ran"' _ "$tmp" <&- || :
 echo "ok: the bound is the full number of seconds and the caller's stdin reaches the command"
 
 # watcher_sleeps <bound> — how many watcher sleeps of that bound are running.
-# Each bound below is unique to this run, so a concurrent run's watchers are
-# never counted as this one's leaks.
+# The bound is taken from this run's pid, so a concurrent run's watchers are
+# all but never counted as this one's leaks. It stays within six digits, the
+# runner's limit.
 watcher_sleeps() {
   # shellcheck disable=SC2009 # pgrep is not on every host the suite runs on
   ps -A -o args= 2>/dev/null | grep -c "^sleep $1\$" || :
@@ -97,6 +101,7 @@ wait "$probe" 2>/dev/null || :
 # A command that ends at once ends the call at once, and the watcher leaves no
 # sleep behind. The watcher can be still forking its sleep when the command
 # ends, a window load widens, so a few lanes of calls run side by side too.
+# The window is narrow, so this catches a regression only now and then.
 start=$(date +%s)
 for _ in 1 2 3 4 5 6 7 8; do
   br "$bound" true || fail "prompt return: a ${bound}s-bounded true failed"

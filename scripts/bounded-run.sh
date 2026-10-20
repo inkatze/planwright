@@ -55,7 +55,7 @@ _br_secs "$secs" || _br_usage
 # line. The pid itself is printed whatever the process table says, so a host
 # without ps or awk still bounds the command. With settled, a read that finds
 # nothing under the pid returns 3 while the table shows the pid running and 4
-# once it shows it stopped.
+# once it shows it stopped; any other read returns 0.
 _br_tree() {
   printf '%s\n' "$1"
   # stat is not a POSIX ps field, so only the settled read asks for it: a ps
@@ -121,6 +121,10 @@ _br_term_then_kill() {
 # watcher stopped. A read that itself shows the stop does not do, since a
 # process table is not read in one instant. Where /proc shows the stop, a
 # read of the shell's own costing no fork, the first read is begun after it.
+# Both waits are capped so the runner stays bounded: past a cap, or with no
+# ps, the KILL goes to what the last read showed. A runner killed outright between the
+# STOP and the KILL leaves the watcher stopped, with its sleep, until
+# something continues or kills it.
 _br_drop_watcher() {
   kill -STOP "$dog" 2>/dev/null || return 0
   _br_stopped=''
