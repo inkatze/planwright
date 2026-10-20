@@ -199,6 +199,25 @@ ORDER_LOG="$tmp/order.log" PLANWRIGHT_TEST_JOBS=1 PLANWRIGHT_TEST_DURATIONS="$tm
 assert_eq "options before -- still apply" \
   "test-h.sh test-a.sh test-d.sh test-e.sh" "$(tr '\n' ' ' <"$tmp/order.log" | sed 's/ $//')"
 
+# 10b. A split that cannot be computed is an error, never a shard that runs
+#      some or none of its files and passes: here `sort` fails.
+mkdir -p "$tmp/shim"
+printf '#!/bin/sh\nexit 1\n' >"$tmp/shim/sort"
+chmod 755 "$tmp/shim/sort"
+: >"$tmp/order.log"
+ORDER_LOG="$tmp/order.log" PATH="$tmp/shim:$PATH" PLANWRIGHT_TEST_JOBS=1 \
+  PLANWRIGHT_TEST_DURATIONS="" PLANWRIGHT_TEST_TIMING_REPORT="$tmp/report.tsv" \
+  /bin/bash "$RUNNER" --shard 1/2 "$tmp/s" >"$tmp/run.out" 2>&1
+assert_eq "a failed split exits 2" 2 "$?"
+assert_eq "a failed split runs nothing" "" "$(cat "$tmp/order.log")"
+assert_contains "a failed split says so" "could not compute shard 1/2" "$(cat "$tmp/run.out")"
+
+# 10c. --shard given twice is a usage error, not a silent last-one-wins.
+: >"$tmp/order.log"
+ORDER_LOG="$tmp/order.log" /bin/bash "$RUNNER" --shard 2/3 --shard=1/3 "$tmp/s" >"$tmp/bad.out" 2>&1
+assert_eq "--shard given twice is a usage error" 2 "$?"
+assert_contains "the repeated option is named" "given twice" "$(cat "$tmp/bad.out")"
+
 # 11. The split never depends on the runner's locale: glob order follows
 #     collation, so ties are broken by name in the C locale, never by
 #     discovery order. Run where a collating locale that orders these names

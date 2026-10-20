@@ -330,6 +330,7 @@ while [ "$#" -gt 0 ]; do
         continue
         ;;
       --shard)
+        [ -z "$shard" ] || usage_error "--shard given twice"
         [ "$#" -ge 2 ] || usage_error "--shard needs <i>/<N>"
         shard=$2
         [ -n "$shard" ] || usage_error "--shard needs <i>/<N>"
@@ -337,6 +338,7 @@ while [ "$#" -gt 0 ]; do
         continue
         ;;
       --shard=*)
+        [ -z "$shard" ] || usage_error "--shard given twice"
         shard=${1#--shard=}
         [ -n "$shard" ] || usage_error "--shard needs <i>/<N>"
         shift
@@ -642,7 +644,12 @@ member=()
 if [ -n "$shard_i" ]; then
   newline='
 '
+  # Every file must be placed, the last line counting them: a stage that
+  # fails or dies partway would otherwise leave a shard running a subset and
+  # passing.
+  split_ok=1
   picked="$(
+    set -o pipefail
     i=0
     while [ "$i" -lt "$total" ]; do
       # The sort key is the name with any tab or newline flattened, so the
@@ -666,16 +673,23 @@ if [ -n "$shard_i" ]; then
         load[best] += $1
         if (best == want) print $3
       }
+      END { print "placed\t" NR }
     '
-  )"
+  )" || split_ok=0
+  placed=""
   while IFS= read -r idx; do
     case "$idx" in
+      placed"$tab"*) placed=${idx#placed"$tab"} ;;
       '' | *[!0-9]*) continue ;;
+      *) member[idx]=1 ;;
     esac
-    member[idx]=1
   done <<EOF
 $picked
 EOF
+  if [ "$split_ok" -ne 1 ] || [ "$placed" != "$total" ]; then
+    echo "run-tests: could not compute shard $shard_i/$shard_n of $total files (placed: ${placed:-none})" >&2
+    exit 2
+  fi
   sfiles=()
   i=0
   while [ "$i" -lt "$total" ]; do
