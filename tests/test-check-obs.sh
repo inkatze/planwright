@@ -435,10 +435,11 @@ grep -q '\[tasks."check:obs"\]' "$misefile" \
   || fail "9d: mise.toml defines no [tasks.\"check:obs\"] task"
 grep -q '"check:obs"' "$misefile" \
   || fail "9d: check:obs is not referenced in mise.toml (aggregate depends)"
-# The reference must sit inside the aggregate `check` task's depends list, not
-# only in its own task header: extract the depends array and look for it there.
+# The reference must sit inside the aggregate's depends list (`check`'s, or
+# `check:non-test`'s, which `check` depends on), not only in its own task
+# header: extract the depends arrays and look for it there.
 awk '
-  /^\[tasks\.check\]/ { in_check = 1; next }
+  /^\[tasks\.(check|"check:non-test")\]$/ { in_check = 1; next }
   /^\[/ { in_check = 0 }
   in_check && /"check:obs"/ { found = 1 }
   END { exit found ? 0 : 1 }

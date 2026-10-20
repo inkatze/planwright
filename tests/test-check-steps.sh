@@ -100,7 +100,8 @@ else
   fail "REQ-F1.2: .claude/planwright.yml does not set steps_convergence: [self-review]"
 fi
 
-if awk '/^\[/{c=0} /^\[tasks\.check\]/{c=1} c && /"check:steps"/{f=1} END{exit !f}' "$repo_root/mise.toml"; then
+# Directly, or through check:non-test, which check depends on.
+if awk '/^\[/{c=0} /^\[tasks\.(check|"check:non-test")\]$/{c=1} c && /"check:steps"/{f=1} END{exit !f}' "$repo_root/mise.toml"; then
   ok "REQ-H1.4: check:steps is a dependency of the check aggregate"
 else
   fail "REQ-H1.4: check:steps is not wired into mise.toml's check task"
