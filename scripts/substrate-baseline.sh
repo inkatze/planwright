@@ -195,6 +195,7 @@ if [ "$capture" -eq 1 ]; then
     # Every gate step must be there: the lint job's one and each of the
     # N shard jobs' one, all N agreeing on N. Anything else, the pre-shard
     # layout's single check step included, prints nothing.
+    # shellcheck disable=SC2016 # the $ names are jq variables, not expansions
     secs=$(cd "$repo_root" && gh run view "$run" --json jobs --jq '
       def secs: (.completedAt | fromdateiso8601) - (.startedAt | fromdateiso8601);
       [.jobs[] | select(.name == "lint") | .steps[] | select(.name == "Run mise run check:non-test") | secs] as $lint
