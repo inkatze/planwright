@@ -237,12 +237,14 @@ there (a new one, say) starts ahead of every timed file. The table only orders
 the queue: every file still runs exactly once, and nothing in it is a budget.
 The order is exact on CI; on a dev box where other suites hold test-pool
 tickets it is best effort, since waiting files take tickets as they free up.
-When it drifts, regenerate it from a reference-runner CI log rather than editing
-it by hand:
+When it drifts, regenerate it from reference-runner CI logs rather than editing
+it by hand. CI splits the suite across shard jobs by this table, and one
+runner can run its whole shard slow, so give it the `check` job logs of
+several green runs; each file takes the median of their times:
 
 ```bash
-gh run view <run-id> --log > ci.log
-scripts/refresh-test-durations.sh ci.log
+gh run view --job <check-job-id> --log > run1.log   # one per run
+scripts/refresh-test-durations.sh run1.log run2.log run3.log
 ```
 
 ### The machine-wide test pool
