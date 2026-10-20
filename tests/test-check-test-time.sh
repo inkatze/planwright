@@ -339,6 +339,19 @@ assert_contains "the missing second report is named" "$out" "absent.tsv"
 out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r1.tsv")"
 assert "the same report given twice fails closed" 2 $?
 
+# A directory is not a report, even when the other reports cover the suite
+# (one awk skips a directory operand with only a warning).
+write_report "$tmp/r2.tsv" 8 test-gamma.sh=3
+mkdir -p "$tmp/rdir"
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv" --report "$tmp/rdir" </dev/null)"
+assert "a directory given as a report fails closed" 2 $?
+assert_contains "the directory refusal says so" "$out" "not a regular file"
+
+# A bad header names the report it is in.
+printf 'not a timing report\n' >"$tmp/r2.tsv"
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv" </dev/null)"
+assert_contains "the header failure names the report" "$out" "header of report 2"
+
 # A relative report path shaped like an awk assignment is still read as a file.
 mkdir -p "$tmp/eq"
 write_report "$tmp/eq/r=1" 5 test-alpha.sh=1 test-beta.sh=2 test-gamma.sh=3

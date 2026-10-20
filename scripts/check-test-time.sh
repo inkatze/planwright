@@ -269,6 +269,7 @@ operands=()
 for r in "${reports[@]}"; do
   safe_r="$(sanitize_printable "$r" "(unprintable path)")"
   [ -e "$r" ] || fail_closed "timing report not found: $safe_r — run \`mise run test\` first (\`mise run check\` orders this gate after it)"
+  [ -f "$r" ] || fail_closed "timing report is not a regular file: $safe_r"
   [ -r "$r" ] || fail_closed "timing report not readable: $safe_r"
   [ -s "$r" ] || fail_closed "timing report is empty: $safe_r — run \`mise run test\` first"
   for o in ${operands[@]+"${operands[@]}"}; do
@@ -301,7 +302,7 @@ awk -F'\t' -v discovered="$work/discovered" -v nreports="${#operands[@]}" '
   }
   FNR == 1 {
     if ($1 != "planwright-test-timing" || $2 != "2") {
-      print "E\treport header is not a planwright-test-timing version 2 header (re-run `mise run test` to refresh it)"
+      print "E\t" (nreports > 1 ? "header of report " k : "report header") " is not a planwright-test-timing version 2 header (re-run `mise run test` to refresh it)"
       err = 1
     }
     next
