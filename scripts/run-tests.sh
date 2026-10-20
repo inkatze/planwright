@@ -47,7 +47,18 @@
 # too: a file with a verdict but no timing record fails the run, so the
 # report never carries a silent hole.
 #
-# Usage: run-tests.sh [suite-dir]   (default: <repo-root>/tests)
+# Sharding: --shard <i>/<N> runs only shard i of N, so CI can split the suite
+# across parallel jobs. The split is longest-first onto the least-loaded
+# shard (ties to the lower shard) by the same duration table the queue order
+# reads, an untimed file weighing the mean of the timed ones, so it depends
+# only on the file names and the table: every job of one run computes the
+# same split, and each file lands in exactly one shard. Within a shard the
+# queue keeps the unsharded order, and the report holds the shard's files
+# only, its header naming the shard; scripts/check-test-time.sh takes every
+# shard's report at once and requires the union to cover the suite.
+#
+# Usage: run-tests.sh [--shard <i>/<N>] [suite-dir]
+#        (default suite: <repo-root>/tests)
 # Exit:  0 all pass · 1 any test failed or lost · 2 usage or environment
 #        error (bad suite dir, mktemp or self-path resolution failure, a
 #        timing report that cannot be persisted).
@@ -301,7 +312,65 @@ fi
 
 self_dir="${self%/*}"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-suite_dir="${1:-$repo_root/tests}"
+
+usage_error() {
+  echo "run-tests: $1 (usage: run-tests.sh [--shard <i>/<N>] [suite-dir])" >&2
+  exit 2
+}
+shard=""
+suite_arg=""
+have_suite=0
+opts_done=0
+while [ "$#" -gt 0 ]; do
+  if [ "$opts_done" -eq 0 ]; then
+    case "$1" in
+      --)
+        opts_done=1
+        shift
+        continue
+        ;;
+      --shard)
+        [ "$#" -ge 2 ] || usage_error "--shard needs <i>/<N>"
+        shard=$2
+        [ -n "$shard" ] || usage_error "--shard needs <i>/<N>"
+        shift 2
+        continue
+        ;;
+      --shard=*)
+        shard=${1#--shard=}
+        [ -n "$shard" ] || usage_error "--shard needs <i>/<N>"
+        shift
+        continue
+        ;;
+      -*) usage_error "unknown option: $1" ;;
+    esac
+  fi
+  [ "$have_suite" -eq 0 ] || usage_error "more than one suite directory"
+  suite_arg=$1
+  have_suite=1
+  shift
+done
+shard_i=""
+shard_n=""
+if [ -n "$shard" ]; then
+  # Four digits each: a count past that is a typo, and the split's awk pass
+  # keeps one load per shard.
+  case "$shard" in
+    */*/*) ;;
+    [1-9]*/[1-9]*)
+      shard_i=${shard%/*}
+      shard_n=${shard#*/}
+      ;;
+  esac
+  case "$shard_i$shard_n" in
+    *[!0-9]*) shard_i="" ;;
+  esac
+  if [ -z "$shard_i" ] || [ "${#shard_i}" -gt 4 ] || [ "${#shard_n}" -gt 4 ] \
+    || [ "$shard_i" -gt "$shard_n" ]; then
+    usage_error "--shard must be <i>/<N> with 1 <= i <= N <= 9999, got '$shard'"
+  fi
+fi
+suite_dir="${suite_arg:-$repo_root/tests}"
 
 if [ ! -d "$suite_dir" ]; then
   echo "run-tests: suite directory not found: $suite_dir" >&2
@@ -480,7 +549,16 @@ report="${PLANWRIGHT_TEST_TIMING_REPORT:-$suite_dir/.timing-report.tsv}"
 # (CI runs alone, every dispatched worker holding a ticket at once).
 tab="$(printf '\t')"
 durations="${PLANWRIGHT_TEST_DURATIONS-$repo_root/config/test-durations.tsv}"
-queue=("${files[@]}")
+# The queue is held as indices into `files` until the end, so the shard split
+# below can filter it without matching paths.
+qidx=()
+i=0
+while [ "$i" -lt "${#files[@]}" ]; do
+  qidx+=("$i")
+  i=$((i + 1))
+done
+# tdur[idx]: the table's time for a timed file, the shard split's weight.
+tdur=()
 if [ -n "$durations" ] && [ -f "$durations" ] && [ -r "$durations" ]; then
   # awk's getline reads a file named `-` as standard input.
   case "$durations" in
@@ -511,18 +589,21 @@ if [ -n "$durations" ] && [ -f "$durations" ] && [ -r "$durations" ]; then
       }
     ' | LC_ALL=C sort -t "$tab" -k1,1n -k2,2nr -k3,3n
   )"
-  queue=()
+  qidx=()
   queued=()
   timed=0
-  while IFS="$tab" read -r cls _ idx; do
+  while IFS="$tab" read -r cls dur idx; do
     case "$idx" in
       '' | *[!0-9]*) continue ;;
     esac
     [ "$idx" -lt "${#files[@]}" ] || continue
     [ -z "${queued[idx]:-}" ] || continue
     queued[idx]=1
-    queue+=("${files[$idx]}")
-    [ "$cls" != 1 ] || timed=$((timed + 1))
+    qidx+=("$idx")
+    if [ "$cls" = 1 ]; then
+      timed=$((timed + 1))
+      tdur[idx]=$dur
+    fi
   done <<EOF
 $ranked
 EOF
@@ -531,15 +612,15 @@ EOF
   unkeyed=()
   i=0
   while [ "$i" -lt "${#files[@]}" ]; do
-    [ -n "${queued[i]:-}" ] || unkeyed+=("${files[$i]}")
+    [ -n "${queued[i]:-}" ] || unkeyed+=("$i")
     i=$((i + 1))
   done
   # Guarded: bash before 4.4 calls an empty array's expansion unbound under -u.
   if [ "${#unkeyed[@]}" -gt 0 ]; then
-    if [ "${#queue[@]}" -gt 0 ]; then
-      queue=("${unkeyed[@]}" "${queue[@]}")
+    if [ "${#qidx[@]}" -gt 0 ]; then
+      qidx=("${unkeyed[@]}" "${qidx[@]}")
     else
-      queue=("${unkeyed[@]}")
+      qidx=("${unkeyed[@]}")
     fi
   fi
   order_desc="slowest-first ($timed of ${#files[@]} files timed by $(sanitize_printable "$durations" "(unprintable path)"); untimed files first)"
@@ -548,6 +629,68 @@ elif [ -n "$durations" ]; then
 else
   order_desc="name order (duration table disabled)"
 fi
+
+# The shard split (see the header): weights sorted longest first, ties in
+# name order, each placed on the least-loaded shard, ties to the lower one.
+all_files=("${files[@]}")
+total=${#files[@]}
+scope_desc="$total files"
+shard_field=""
+member=()
+if [ -n "$shard_i" ]; then
+  picked="$(
+    i=0
+    while [ "$i" -lt "$total" ]; do
+      printf '%s\t%s\n' "$i" "${tdur[i]:-}"
+      i=$((i + 1))
+    done | LC_ALL=C awk -F'\t' '
+      { idx[NR] = $1; d[NR] = $2; if ($2 != "") { sum += $2; cnt++ } }
+      END {
+        mean = cnt ? sum / cnt : 1
+        for (k = 1; k <= NR; k++) printf "%.6f\t%s\n", (d[k] == "" ? mean : d[k]), idx[k]
+      }
+    ' | LC_ALL=C sort -t "$tab" -k1,1nr -k2,2n | LC_ALL=C awk -F'\t' -v n="$shard_n" -v want="$shard_i" '
+      BEGIN { for (s = 1; s <= n; s++) load[s] = 0 }
+      {
+        best = 1
+        for (s = 2; s <= n; s++) if (load[s] < load[best]) best = s
+        load[best] += $1
+        if (best == want) print $2
+      }
+    '
+  )"
+  while IFS= read -r idx; do
+    case "$idx" in
+      '' | *[!0-9]*) continue ;;
+    esac
+    member[idx]=1
+  done <<EOF
+$picked
+EOF
+  sfiles=()
+  i=0
+  while [ "$i" -lt "$total" ]; do
+    [ -z "${member[i]:-}" ] || sfiles+=("${files[$i]}")
+    i=$((i + 1))
+  done
+  sq=()
+  for i in "${qidx[@]}"; do
+    [ -z "${member[i]:-}" ] || sq+=("$i")
+  done
+  if [ "${#sfiles[@]}" -gt 0 ]; then
+    files=("${sfiles[@]}")
+    qidx=("${sq[@]}")
+  else
+    files=()
+    qidx=()
+  fi
+  scope_desc="shard $shard_i/$shard_n: ${#files[@]} of $total files"
+  shard_field="${tab}shard=$shard_i/$shard_n"
+fi
+queue=()
+for i in ${qidx[@]+"${qidx[@]}"}; do
+  queue+=("${all_files[$i]}")
+done
 
 # Probe for a working `xargs -P` before relying on it; degrade to the
 # serial loop when it is absent or explicitly disabled.
@@ -565,16 +708,20 @@ dispatch_failed=0
 suite_started="$(now_ms)"
 if [ "$parallel" -eq 1 ]; then
   mode=parallel
-  echo "run-tests: ${#files[@]} files, $jobs jobs, $pool_desc"
+  echo "run-tests: $scope_desc, $jobs jobs, $pool_desc"
   echo "run-tests: queue $order_desc"
-  printf '%s\0' "${queue[@]}" \
-    | xargs -0 -n 1 -P "$jobs" /bin/bash "$self" --run-one \
-    || dispatch_failed=1
+  # A shard can be empty when it outnumbers the files, and xargs would still
+  # run its command once on no input.
+  if [ "${#queue[@]}" -gt 0 ]; then
+    printf '%s\0' "${queue[@]}" \
+      | xargs -0 -n 1 -P "$jobs" /bin/bash "$self" --run-one \
+      || dispatch_failed=1
+  fi
 else
   mode=serial
-  echo "run-tests: ${#files[@]} files, serial (no parallel primitive), $pool_desc"
+  echo "run-tests: $scope_desc, serial (no parallel primitive), $pool_desc"
   echo "run-tests: queue $order_desc"
-  for t in "${queue[@]}"; do
+  for t in ${queue[@]+"${queue[@]}"}; do
     /bin/bash "$self" --run-one "$t" || dispatch_failed=1
   done
 fi
@@ -584,7 +731,7 @@ suite_finished="$(now_ms)"
 # left the cause behind; one warning covers them all.
 unpooled=0
 pool_cause=""
-for t in "${files[@]}"; do
+for t in ${files[@]+"${files[@]}"}; do
   name="${t##*/}"
   if [ -s "$log_dir/$name.poolerr" ]; then
     unpooled=$((unpooled + 1))
@@ -608,12 +755,12 @@ fi
 # directory), then moved into place in one step.
 report_tmp="$(mktemp "$report.XXXXXX" 2>/dev/null)" || report_tmp=""
 if [ -n "$report_tmp" ]; then
-  printf 'planwright-test-timing\t2\tclock=%s\tmode=%s\tjobs=%s\tpool=%s\n' "$clock" "$mode" "$jobs" "$pool_field" >"$report_tmp" \
+  printf 'planwright-test-timing\t2\tclock=%s\tmode=%s\tjobs=%s\tpool=%s%s\n' "$clock" "$mode" "$jobs" "$pool_field" "$shard_field" >"$report_tmp" \
     || report_tmp=""
 fi
 
 fails=0
-for t in "${files[@]}"; do
+for t in ${files[@]+"${files[@]}"}; do
   name="${t##*/}"
   if [ -e "$log_dir/$name.fail" ]; then
     fails=$((fails + 1))
@@ -661,4 +808,4 @@ fi
 if [ "$report_failed" -ne 0 ]; then
   exit 2
 fi
-echo "run-tests: all ${#files[@]} test files passed"
+echo "run-tests: all ${#files[@]} test files passed${shard_i:+ (shard $shard_i/$shard_n)}"
