@@ -68,9 +68,10 @@ for n in alpha beta gamma; do
   printf '#!/bin/bash\nexit 0\n' >"$suite/test-$n.sh"
 done
 
-# write_budget <path> <per-file> <suite-total>
+# write_budget <path> <per-file> <suite-total> [<shard-wall>] — the shard
+# ceiling defaults below the suite total, so a case shows which one tripped.
 write_budget() {
-  printf -- '---\n# fixture budget\nper_file_seconds: %s\nsuite_total_seconds: %s\n' "$2" "$3" >"$1"
+  printf -- '---\n# fixture budget\nper_file_seconds: %s\nsuite_total_seconds: %s\nshard_wall_seconds: %s\n' "$2" "$3" "${4:-20}" >"$1"
 }
 
 # write_report <path> <wall> <name>=<seconds>... — a well-formed report.
@@ -135,6 +136,13 @@ assert "a suite wall-clock just under the total budget passes" 0 $?
 write_report "$tmp/report.tsv" 45.5 test-alpha.sh=1 test-beta.sh=1 test-gamma.sh=1
 out="$(run_check --mode ci)"
 assert "a suite wall-clock over the total budget fails in CI" 1 $?
+
+# One report is an unsharded run: the per-shard ceiling does not apply to it,
+# so a local `mise run check` is judged on the suite total alone.
+write_report "$tmp/report.tsv" 25 test-alpha.sh=1 test-beta.sh=1 test-gamma.sh=1
+out="$(run_check --mode ci)"
+assert "one report over the shard ceiling but under the suite total passes" 0 $?
+assert_not_contains "an unsharded run states no shard ceiling" "$out" "per-shard"
 
 # ---------------------------------------------------------------------------
 # 4. Every offender is reported, not just the first.
@@ -278,8 +286,9 @@ assert_contains "the non-numeric wait failure names the row" "$out" "test-alpha.
 # ---------------------------------------------------------------------------
 # 7b. Several reports, one per CI shard: judged as one suite. Their file rows
 #     together must name every discovered file exactly once, every report
-#     must be well formed with its own wall-clock row, and the suite-total
-#     budget is judged on the slowest report's wall-clock.
+#     must be well formed with its own wall-clock row. The suite-total budget
+#     is judged on the wall-clocks summed over the reports, the runner time
+#     the whole suite took, and the per-shard budget on the slowest report's.
 # ---------------------------------------------------------------------------
 run_multi() {
   /bin/bash "$CHECKER" --suite "$suite" --budget "$tmp/budget.yml" --mode ci "$@" 2>&1
@@ -289,17 +298,43 @@ write_report "$tmp/r2.tsv" 8 test-gamma.sh=3
 out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
 assert "shard reports covering the suite pass together" 0 $?
 assert_contains "the clean multi-report run counts every file" "$out" "clean (3 files"
-assert_contains "the wall-clock judged is the slowest report's" "$out" "suite wall-clock 8s, the slowest of 2 reports"
+assert_contains "the suite wall-clock judged is the reports' sum" "$out" "suite wall-clock 13s, summed over 2 reports"
+assert_contains "the shard wall-clock judged is the slowest report's" "$out" "slowest shard wall-clock 8s (per-shard budget 20s)"
 out="$(run_multi --report "$tmp/r2.tsv" --report "$tmp/r1.tsv")"
 assert "report order does not matter" 0 $?
-assert_contains "the slowest wall is judged whichever report comes first" "$out" "suite wall-clock 8s,"
+assert_contains "the slowest shard is judged whichever report comes first" "$out" "slowest shard wall-clock 8s"
 
-write_report "$tmp/r2.tsv" 30 test-gamma.sh=3
+write_report "$tmp/r2.tsv" 20 test-gamma.sh=3
 out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
-assert "one report's wall-clock at the total budget fails in CI" 1 $?
-assert_contains "the multi-report wall failure names the suite-total budget" "$out" "suite-total budget"
+assert "one report's wall-clock at the per-shard budget fails in CI" 1 $?
+assert_contains "the shard failure names the per-shard budget" "$out" "at or over the per-shard budget of 20s"
+assert_not_contains "a sum under the suite total is not called over it" "$out" "at or over the suite-total budget"
 run_multi --report "$tmp/r2.tsv" --report "$tmp/r1.tsv" >/dev/null
-assert "the report at the total budget fails in CI when it comes first" 1 $?
+assert "the report at the per-shard budget fails in CI when it comes first" 1 $?
+
+write_report "$tmp/r1.tsv" 12 test-alpha.sh=1 test-beta.sh=2
+write_report "$tmp/r2.tsv" 18 test-gamma.sh=3
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "shards each under their ceiling but summing to the total fail in CI" 1 $?
+assert_contains "the summed failure names the suite-total budget" "$out" "suite wall-clock 30s at or over the suite-total budget of 30s"
+assert_not_contains "a shard under its ceiling is not called over it" "$out" "at or over the per-shard budget"
+write_report "$tmp/r1.tsv" 5 test-alpha.sh=1 test-beta.sh=2
+
+# Just under the per-shard ceiling passes, and fractional wall-clocks sum
+# exactly.
+write_report "$tmp/r1.tsv" 5.25 test-alpha.sh=1 test-beta.sh=2
+write_report "$tmp/r2.tsv" 19.999 test-gamma.sh=3
+out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
+assert "one report's wall-clock just under the per-shard budget passes" 0 $?
+assert_contains "fractional wall-clocks sum exactly" "$out" "suite wall-clock 25.249s, summed over 2 reports"
+write_report "$tmp/r1.tsv" 5 test-alpha.sh=1 test-beta.sh=2
+
+# Local mode warns on the per-shard ceiling rather than failing.
+write_report "$tmp/r2.tsv" 20 test-gamma.sh=3
+out="$(/bin/bash "$CHECKER" --suite "$suite" --budget "$tmp/budget.yml" --mode local \
+  --report "$tmp/r1.tsv" --report "$tmp/r2.tsv" 2>&1)"
+assert "a report at the per-shard budget only warns locally" 0 $?
+assert_contains "the local warning names the per-shard budget" "$out" "WARNING: slowest shard wall-clock 20s at or over the per-shard budget of 20s"
 
 write_report "$tmp/r2.tsv" 8 test-gamma.sh=3 test-beta.sh=2
 out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
@@ -385,6 +420,20 @@ printf -- '---\nper_file_seconds: 10\n' >"$tmp/budget.yml"
 out="$(run_check --mode ci)"
 assert "a budget file missing a key fails closed" 2 $?
 assert_contains "the missing-key failure names the key" "$out" "suite_total_seconds"
+
+printf -- '---\nper_file_seconds: 10\nsuite_total_seconds: 30\n' >"$tmp/budget.yml"
+out="$(run_check --mode ci)"
+assert "a budget file without the per-shard key fails closed" 2 $?
+assert_contains "the missing per-shard key is named" "$out" "shard_wall_seconds"
+
+write_budget "$tmp/budget.yml" 10 30 0
+out="$(run_check --mode ci)"
+assert "a zero per-shard budget fails closed" 2 $?
+assert_contains "the zero per-shard budget failure names the key" "$out" "shard_wall_seconds"
+
+printf -- '---\nper_file_seconds: 10\nsuite_total_seconds: 30\nshard_wall_seconds: 20\nshard_wall_seconds: 25\n' >"$tmp/budget.yml"
+out="$(run_check --mode ci)"
+assert "a duplicated per-shard key fails closed" 2 $?
 
 write_budget "$tmp/budget.yml" ten 30
 out="$(run_check --mode ci)"

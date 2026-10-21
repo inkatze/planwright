@@ -299,10 +299,17 @@ case "$1 $2" in
     printf '%s\n' '[{"databaseId":7,"createdAt":"2026-10-30T01:00:00Z","headSha":"7777777777777777777777777777777777777777"},{"databaseId":9,"createdAt":"2026-11-02T01:00:00Z","headSha":"9999999999999999999999999999999999999999"},{"databaseId":8,"createdAt":"2026-10-31T23:00:00Z","headSha":"8888888888888888888888888888888888888888"},{"databaseId":6,"createdAt":"2026-10-29T01:00:00Z","headSha":"6666666666666666666666666666666666666666"}]'
     ;;
   "run view")
-    # Each run its own duration, so a capture reading the wrong run shows.
+    # The sharded layout: the lint job's gate step and one suite step per
+    # test shard, run in parallel. Each run its own duration on the slowest
+    # shard, so a capture reading the wrong run, or a faster job, shows.
     end=$((10 + $3))
     jq -r "$7" <<JSON
-{"jobs":[{"name":"other","steps":[]},{"name":"check","steps":[{"name":"Run mise run check","startedAt":"2026-10-30T01:00:00Z","completedAt":"2026-10-30T01:10:${end}Z"}]}]}
+{"jobs":[{"name":"other","steps":[]},
+ {"name":"lint","steps":[{"name":"Run mise run check:non-test","startedAt":"2026-10-30T01:00:00Z","completedAt":"2026-10-30T01:04:00Z"}]},
+ {"name":"test (shard 1/3)","steps":[{"name":"Run mise run test -- --shard \"\$SHARD/\$SHARDS\"","startedAt":"2026-10-30T01:00:00Z","completedAt":"2026-10-30T01:05:00Z"}]},
+ {"name":"test (shard 2/3)","steps":[{"name":"Run mise run test -- --shard \"\$SHARD/\$SHARDS\"","startedAt":"2026-10-30T01:00:00Z","completedAt":"2026-10-30T01:10:${end}Z"}]},
+ {"name":"test (shard 3/3)","steps":[{"name":"Run mise run test -- --shard \"\$SHARD/\$SHARDS\"","startedAt":"2026-10-30T01:00:00Z","completedAt":"2026-10-30T01:06:00Z"}]},
+ {"name":"check","steps":[{"name":"Run set --","startedAt":"2026-10-30T01:11:00Z","completedAt":"2026-10-30T01:11:05Z"}]}]}
 JSON
     ;;
   *) exit 9 ;;
@@ -322,9 +329,43 @@ check_eq "a capture with a malformed head fails closed" 5 "$?"
 sed 's/"databaseId":8,/"databaseId":"8x",/' "$tmp/gh.keep" >"$stub/gh"
 out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
 check_eq "a capture with a non-numeric run id fails closed" 5 "$?"
-sed 's/"name":"Run mise run check"/"name":"Run something else"/' "$tmp/gh.keep" >"$stub/gh"
+# The layout before the suite was sharded: one check job whose `mise run
+# check` step ran every gate. Its runs time a different thing, so a capture
+# meeting one fails closed rather than mixing the two measures.
+sed -e '/"name":"lint"/d' -e '/"name":"test (shard/d' \
+  -e 's/"name":"Run set --"/"name":"Run mise run check"/' \
+  "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>"$tmp/err")
+check_eq "a run of the pre-shard layout fails closed" 5 "$?"
+check_has "the refusal names the run and the missing layout" "$(cat "$tmp/err")" "run 8 lacks the timed lint and test shard steps"
+sed '/"name":"test (shard 3\/3)"/d' "$tmp/gh.keep" >"$stub/gh"
 out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
-check_eq "a run with no timed check step fails closed" 5 "$?"
+check_eq "a run missing one of its shards fails closed" 5 "$?"
+sed 's/"name":"Run mise run check:non-test"/"name":"Run something else"/' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a run with no timed lint step fails closed" 5 "$?"
+sed 's|"name":"test (shard 1/3)"|"name":"test (shard 1/2)"|' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "shard jobs that disagree on the shard count fail closed" 5 "$?"
+sed 's|"name":"test (shard 3/3)"|"name":"test (shard 2/3)"|' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a shard job named twice fails closed" 5 "$?"
+# The extra copy times no test step, so only the job count can refuse it.
+sed '/"name":"test (shard 2\/3)"/{p;s/"name":"Run mise run test /"name":"Run something else /;}' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a shard job listed twice fails closed" 5 "$?"
+sed '/"name":"test (shard 1\/3)"/s/"name":"Run mise run test /"name":"Run something else /' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a shard job with no timed test step fails closed" 5 "$?"
+sed '/"name":"test (shard 1\/3)"/s/"steps":\[{/"steps":[{"name":"Run mise run test -- again","startedAt":"2026-10-30T01:00:00Z","completedAt":"2026-10-30T01:01:00Z"},{/' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a shard job with two test steps fails closed" 5 "$?"
+# The lint step counts as much as any shard: when it runs longest, its time
+# is the run's.
+sed 's/"completedAt":"2026-10-30T01:04:00Z"/"completedAt":"2026-10-30T01:20:00Z"/' "$tmp/gh.keep" >"$stub/gh"
+out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>/dev/null)
+check_eq "a lint step slower than every shard sets the run's time" "1200 1200" \
+  "$(printf '%s\n' "$out" | grep -v '^#' | cut -f4 | tr '\n' ' ' | sed 's/ $//')"
 cp "$tmp/gh.keep" "$stub/gh"
 
 sed 's/^    jq -r .*/    exit 1/' "$stub/gh" >"$stub/gh.new" && mv "$stub/gh.new" "$stub/gh" && chmod +x "$stub/gh"

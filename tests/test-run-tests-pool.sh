@@ -330,7 +330,7 @@ exec_t="$(awk -F'\t' '$1 == "file" && $2 == "test-quick.sh" { print $3 }' "$rep"
 wait_t="$(awk -F'\t' '$1 == "file" && $2 == "test-quick.sh" { print $4 }' "$rep")"
 if awk -v w="$wait_t" 'BEGIN { exit !(w != "" && w >= 1.0) }'; then pass "the wait field records the wait ($wait_t)"; else fail "the wait field did not record the wait: '$wait_t'"; fi
 if awk -v e="$exec_t" 'BEGIN { exit !(e != "" && e < 1.0) }'; then pass "the execution time excludes the wait ($exec_t)"; else fail "the execution time includes the wait: '$exec_t'"; fi
-printf -- '---\nper_file_seconds: 1\nsuite_total_seconds: 600\n' >"$tmp/budget.yml"
+printf -- '---\nper_file_seconds: 1\nsuite_total_seconds: 600\nshard_wall_seconds: 600\n' >"$tmp/budget.yml"
 out="$(/bin/bash "$REPO_ROOT/scripts/check-test-time.sh" --mode ci --suite "$tmp/quick" \
   --report "$rep" --budget "$tmp/budget.yml" 2>&1)"
 assert_exit "check:test-time reads the execution time, not the wait" 0 $?

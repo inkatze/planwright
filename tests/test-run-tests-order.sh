@@ -269,6 +269,84 @@ cp "$tmp/ci.log" "$tmp/eq/ci=log"
 (cd "$tmp/eq" && /bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/fresh4.tsv" ci=log </dev/null >/dev/null 2>&1)
 assert_eq "a source named like an awk assignment is read" 0 "$?"
 
+# 9d. Several sources, such as the check job logs of several sharded runs:
+#     each file takes the median of the times the sources give it (the mean
+#     of the middle two for an even count), so one slow runner does not move
+#     the table. A file only one source timed keeps that time.
+cat >"$tmp/run1.log" <<EOF
+check-test-time: 3 files ranked slowest-first (per-file budget 120s)
+       41.250s  test-c.sh
+        9.000s  test-a.sh
+        2.000s  test-b.sh
+EOF
+cat >"$tmp/run2.log" <<EOF
+check-test-time: 2 files ranked slowest-first (per-file budget 120s)
+       40.000s  test-c.sh
+        3.000s  test-a.sh
+EOF
+{
+  printf 'planwright-test-timing\t2\tclock=date-ns\tmode=parallel\tjobs=4\tpool=4\n'
+  printf 'file\ttest-a.sh\t5.000\t0.000\n'
+  printf 'suite\twall\t9.000\n'
+} >"$tmp/run3.tsv"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/median.tsv" "$tmp/run1.log" "$tmp/run2.log" "$tmp/run3.tsv" >"$tmp/median.out" 2>&1
+assert_eq "refresh from several sources exits 0" 0 "$?"
+assert_eq "each file takes the median of its sources' times" \
+  "test-c.sh:40.625 test-a.sh:5.000 test-b.sh:2.000" \
+  "$(grep -v '^#' "$tmp/median.tsv" | tr '\t' ':' | tr '\n' ' ' | sed 's/ $//')"
+assert_contains "the summary counts the sources" "from 3 sources" "$(cat "$tmp/median.out")"
+
+# 9e. One bad source among several refuses the refresh, table untouched.
+printf 'keep\n' >"$tmp/keep-multi.tsv"
+printf '       41.250s  test-c.sh\n  (3 more under budget; --all lists them)\n' >"$tmp/cut-multi.log"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/run1.log" "$tmp/cut-multi.log" >"$tmp/multi.out" 2>&1
+assert_eq "a bad source among several exits 2" 2 "$?"
+assert_eq "a bad source among several leaves the table untouched" keep "$(cat "$tmp/keep-multi.tsv")"
+assert_contains "the refusal names the bad source" "cut-multi.log" "$(cat "$tmp/multi.out")"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/run1.log" "$tmp/run1.log" >/dev/null 2>&1
+assert_eq "a source given twice exits 2" 2 "$?"
+ln -s "$tmp/run1.log" "$tmp/run1-link.log"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/run1.log" "$tmp/run1-link.log" >"$tmp/multi.out" 2>&1
+assert_eq "a source given twice under another path exits 2" 2 "$?"
+assert_contains "the repeat refusal says so" "source given twice" "$(cat "$tmp/multi.out")"
+# The same run's log downloaded twice is two files with one content; it would
+# outvote the others just as well.
+cp "$tmp/run1.log" "$tmp/run1-again.log"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/run1.log" "$tmp/run2.log" "$tmp/run1-again.log" >"$tmp/multi.out" 2>&1
+assert_eq "a copy of a source exits 2" 2 "$?"
+assert_contains "the copy refusal names it" "run1-again.log" "$(cat "$tmp/multi.out")"
+assert_eq "a copy of a source leaves the table untouched" keep "$(cat "$tmp/keep-multi.tsv")"
+# Each source gets every lone-source check, wherever it stands in the list.
+printf 'check-test-time: 3 files ranked slowest-first (per-file budget 120s)\n       41.250s  test-c.sh\n' >"$tmp/clipped-multi.log"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/clipped-multi.log" "$tmp/run1.log" >"$tmp/multi.out" 2>&1
+assert_eq "a clipped first source among several exits 2" 2 "$?"
+assert_contains "the clipped refusal names the source" "clipped-multi.log" "$(cat "$tmp/multi.out")"
+{
+  printf 'planwright-test-timing\t2\tclock=date-ns\tshard=2/3\n'
+  printf 'file\ttest-a.sh\t5.000\t0.000\n'
+  printf 'suite\twall\t9.000\n'
+} >"$tmp/shard-multi.tsv"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/run1.log" "$tmp/shard-multi.tsv" >"$tmp/multi.out" 2>&1
+assert_eq "a shard report after a good source exits 2" 2 "$?"
+assert_contains "the shard refusal names the source" "shard-multi.tsv" "$(cat "$tmp/multi.out")"
+assert_eq "the refused multi-source refreshes leave the table untouched" keep "$(cat "$tmp/keep-multi.tsv")"
+
+# 9f. An even count past two takes the mean of the middle two, not of the
+#     ends: 10, 40, 41.25 and 100 give 40.625.
+printf 'check-test-time: 1 files ranked slowest-first (per-file budget 120s)\n       10.000s  test-c.sh\n' >"$tmp/run4.log"
+printf 'check-test-time: 1 files ranked slowest-first (per-file budget 120s)\n      100.000s  test-c.sh\n' >"$tmp/run5.log"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/median4.tsv" "$tmp/run5.log" "$tmp/run1.log" "$tmp/run4.log" "$tmp/run2.log" >/dev/null 2>&1
+assert_eq "refresh from four sources exits 0" 0 "$?"
+assert_eq "four sources give the mean of the middle two" "40.625" \
+  "$(awk -F'\t' '$1 == "test-c.sh" { print $2 }' "$tmp/median4.tsv")"
+# A source with no usable row (a shard job's log, say) is refused even among
+# good ones, rather than leaving the median to the others.
+printf 'nothing to see\n' >"$tmp/norows-multi.log"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep-multi.tsv" "$tmp/run1.log" "$tmp/norows-multi.log" "$tmp/run2.log" >"$tmp/multi.out" 2>&1
+assert_eq "a source with no rows among several exits 2" 2 "$?"
+assert_eq "a source with no rows among several leaves the table untouched" keep "$(cat "$tmp/keep-multi.tsv")"
+assert_contains "the no-rows refusal names the source" "norows-multi.log" "$(cat "$tmp/multi.out")"
+
 # 10. A source with no usable row is refused and the table left alone.
 printf 'keep\n' >"$tmp/keep.tsv"
 printf 'nothing to see\n' >"$tmp/empty.log"

@@ -213,8 +213,9 @@ new head.
 `mise run test` also persists a per-file timing report (`tests/.timing-report.tsv`,
 gitignored) and `check:test-time` reads it against the committed budgets in
 [`config/test-time-budget.yml`](../config/test-time-budget.yml): one per-file
-ceiling for every test file, and one for the suite's wall-clock (in CI, the
-slowest shard's). A measured time
+ceiling for every test file, one for the suite's wall-clock (in CI, where the
+suite runs in shards, the shards' wall-clocks summed), and in CI one for the
+slowest shard's wall-clock. A measured time
 at or over its budget trips. Each file's row records its execution time and,
 separately, how long it waited for a test-pool ticket (below); the per-file
 budget reads the execution time only, while the suite wall-clock includes the
@@ -236,12 +237,14 @@ there (a new one, say) starts ahead of every timed file. The table only orders
 the queue: every file still runs exactly once, and nothing in it is a budget.
 The order is exact on CI; on a dev box where other suites hold test-pool
 tickets it is best effort, since waiting files take tickets as they free up.
-When it drifts, regenerate it from a reference-runner CI log rather than editing
-it by hand:
+When it drifts, regenerate it from reference-runner CI logs rather than editing
+it by hand. CI splits the suite across shard jobs by this table, and one
+runner can run its whole shard slow, so give it the `check` job logs of
+several green runs; each file takes the median of their times:
 
 ```bash
-gh run view <run-id> --log > ci.log
-scripts/refresh-test-durations.sh ci.log
+gh run view --job <check-job-id> --log > run1.log   # one per run
+scripts/refresh-test-durations.sh run1.log run2.log run3.log
 ```
 
 ### The machine-wide test pool
