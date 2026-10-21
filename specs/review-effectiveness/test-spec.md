@@ -1,7 +1,7 @@
 # Review effectiveness — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-24
+**Last reviewed:** 2026-10-21
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -11,7 +11,8 @@ the metric scripts, and the instruction-budget checks, all run by
 behaviours a fixture unit exercises end to end, recorded in the PR body;
 `[design-level]` for each doctrine rule's presence in its named doc;
 `[manual]` for the closeout measurement window, which needs PRs merged
-after the changes land, and for the start-load figures read at PR review.
+after the changes land, for the start-load figures read at PR review, and
+for the other halves the entries below tag `[manual]`.
 The replay harness's mechanics are `[test]` under CI against fixtures; a
 backtest replay itself needs model access, so it runs in the executing
 task's session, never in CI, and its result and the no-drop gate's verdict
@@ -134,6 +135,31 @@ artifact-lenses doctrine names the skills' duty. Task 3, Task 9.
 Scenario: given a merged finding list, when the self-critique runs, then it
 runs in a separate agent whose inputs are the bundle path and the list.
 The discovery doctrine states the independence rule. Task 3, Task 9.
+
+### REQ-B1.9 — Guard-bypass sub-lens [design-level + Gherkin]
+
+`doctrine/discovery-rigor.md` names the sub-lens under Security with its
+trigger (argument validation excluded), spelling classes, and the
+matcher-or-harness isolation. Scenario: given a fixture diff that touches
+a command guard and plants a bypass through a command carrier (`env -S`),
+when the pass runs, then the Security row's Notes list the spellings tried
+and the bypass is a finding; given a fixture diff touching only argument
+validation, the Security row carries no sub-lens note. Task 3.1.
+
+### REQ-B1.10 — Procedure tracing [design-level + Gherkin]
+
+`doctrine/artifact-lenses.md` lists procedure tracing in the spec set with
+its finding shapes (REQ-B1.10). Scenario: given a fixture skill whose writer lock
+is taken after a step that writes, when the pass reviews it under the spec
+class, then the out-of-order acquisition is a finding citing both steps.
+Task 3.1.
+
+### REQ-B1.11 — Host-dependent tests flagged [design-level + Gherkin]
+
+`doctrine/discovery-rigor.md` names the rule under Tests / verification.
+Scenario: given a fixture test that reads a configuration variable it
+neither pins nor clears, when the pass runs, then the Tests / verification
+row carries the finding naming the variable. Task 3.1.
 
 ## REQ-C — Validation
 
@@ -321,6 +347,39 @@ the wrong stage, a masked asserted command, a self-comparison) and a
 harness with a zero row floor each fail the check; a conforming test
 passes. Task 12.
 
+### REQ-F1.5 — Test-hermeticity guard [test]
+
+A fixture of each shape (a mode-bit fixture with no access probe, a
+dead-owner fixture reusing a reaped PID, a suite reading a listed variable
+without sourcing the clearing library) fails the check and its conforming
+twin passes, the dead-owner twins covering both the helper's PID and a
+lock-library token; the check is wired under `mise run check`. Task 11.1.
+
+### REQ-F1.6 — Perturbed-environment CI run [test + manual]
+
+A test asserts the job's perturbation set matches the clearing library's
+variable list, that it switches the runner's pinning off, sets a `TMPDIR`
+reached through a symlink and containing a space, a non-C locale and a
+non-UTC timezone, runs as root, gates the `check` job, and that every skip
+in its log names a case and a reason; the perturbed shards pass on the
+task PR with the same verdict set as the plain test shards, named skips
+excepted, read at PR review, and the one-off fixtures that fail only under
+the job are recorded there. Task 11.2.
+
+### REQ-F1.7 — Skill-command usage guard [test]
+
+Fixture prose with an unknown subcommand, a flag the usage header lacks, a
+missing required argument, and an invocation of a script without a
+parseable header each fail the check; a conforming invocation with an
+angle-bracket placeholder passes, and a bare path mention and a sourced
+library are not checked; the check is `scripts/check-script-invocation.sh`,
+wired under `mise run check`. Task 12.1.
+
+### REQ-F1.8 — Guard-authoring rules [design-level]
+
+`doctrine/guard-catalog.md` states both rules (case and normalization
+semantics first; never decide from unexecuted text). Task 3.1.
+
 ## REQ-G — Skill diet
 
 ### REQ-G1.1 — Run-start set reduced [test]
@@ -338,7 +397,8 @@ the chain's error-threshold knob. Task 2.
 Each skill-editing task's PR body names the text it replaces and records
 the start-load before and after, read at PR review; the instruction-budget
 check keeps every touched skill below its warn line, and a new skill below
-its own. Task 2, Task 7, Task 8, Task 9, Task 10.
+its own. Task 2, Task 3.1, Task 6.1, Task 7, Task 8, Task 9, Task 10,
+Task 15.1.
 
 ## REQ-H — Measurement
 
@@ -361,7 +421,7 @@ cap and seed it used, seeds a declined row's dismissal into the
 coordinator's ledger, scores a finding 10 lines from a row's line as
 caught and 11 lines away as missed, runs its executed commands in the
 isolated copy, reports recall per class, and refuses a baseline recorded
-on another model or corpus version. Task 1, Task 13.
+on another model or corpus version. Task 1, Task 1.1, Task 13.
 
 ### REQ-H1.3 — Replay per task [test + manual]
 
@@ -369,8 +429,8 @@ The harness exits non-zero on a fixture replay whose targeted class catches
 fewer rows than its baseline, and reuses the baseline's seed and cap;
 each task that changes reviewer behaviour records the targeted replay's
 recall and the gate's verdict in its PR body, read at PR review; the
-landed-pass backtest records the full sample. Task 1, Task 7, Task 8,
-Task 9, Task 13.
+landed-pass backtest records the full sample. Task 1, Task 3.1, Task 6.1,
+Task 7, Task 8, Task 9, Task 13.
 
 ### REQ-H1.4 — Closeout window [manual + test]
 
@@ -379,4 +439,92 @@ transcripts, fleet events, a fixture ledger, and fixture PR history. The
 closeout run over a window of at least 15 bot-reviewed PRs merged after
 the last of Tasks 1 to 12 is human-exercised; its results file records
 both metrics, the bar's verdict, and, on a miss, the observation and the
-follow-up. Task 1, Task 14.
+follow-up. Task 1. Superseded by REQ-H1.6.
+
+### REQ-H1.5 — Second corpus version [manual + test]
+
+The `v2` directory passes the schema test and the hygiene screen under CI;
+the refresh run, its per-class row counts, the fallback count, and the
+baseline replay over the second version of the pre-bundle configuration
+are recorded in the task PR body; Task 3.1's replay and Task 13's run
+against the second version, and Task 13's results file names it. Task
+1.1, Task 3.1, Task 13.
+
+### REQ-H1.6 — Closeout window after the whole bundle [manual]
+
+The metric script and its tests are REQ-H1.4's (Task 1). The closeout run
+is human-exercised over a window of at least 15 bot-reviewed PRs, the
+first merged after the last task Task 14 depends on, directly or
+transitively, has landed; its results file names the window's first and
+last PR, both metrics, the bar's verdict, and, on a miss, the observation
+and the follow-up. Task 14.
+
+### REQ-H1.7 — Miss tokens for the audit's categories [test + design-level]
+
+The miss grammar's doctrine home lists the new reason and lens tokens;
+the grammar check accepts a fragment carrying each new token and still
+accepts one carrying an existing token. Task 5.1.
+
+## REQ-I — Observation hygiene
+
+### REQ-I1.1 — Recorder duplicate refusal [test]
+
+The recorder's tests: a fragment sharing a test path and quoted string
+with a live fragment of the same scope token is refused naming it, and so
+is one matching an archived fragment; a fragment sharing only a slug with
+a live one (two `skill-drift` entries) is written; a miss-ledger fragment
+matching another is written; the same call with `--recurrence <uid>`
+naming the matched fragment writes the marker after a `skill-drift(...)`
+prefix, and at the start of a text with no kind prefix; a uid the refusal
+did not match is refused; a matching fragment in another scope does not
+refuse; `check-obs.sh` accepts the marker. Task 15.1.
+
+### REQ-I1.2 — Fragment review before commit [Gherkin + design-level]
+
+Both skills' Observations and Maintenance steps, and the
+accumulator-taxonomy doctrine, name the review and its destination in the
+audit record. Scenario: given a fixture pass that records a fragment
+quoting a failure message its named test does not emit, when the pass
+reaches the commit of its fragments, then the audit record carries the
+finding and the committed fragment is corrected or absent. Task 15.1.
+
+## REQ-J — Standing rules
+
+### REQ-J1.1 — Rules file format and knob [test + design-level]
+
+The doctrine states the format and the disposition mapping; the validator
+fixture refuses an unknown version, a rule missing a field, and a named
+file that is missing, and accepts a conforming file; the knob has its
+options-reference row and `check:options` passes; with the knob unset the
+handoff builder's output for a fixture branch is identical, apart from
+the MANIFEST build line, to a golden file captured at the task's base
+commit. Task 6.1.
+
+### REQ-J1.2 — Rules carried as context [test + Gherkin]
+
+The handoff builder's test adds only the rules whose scope matches the
+fixture change, read from the base ref, and builds a bundle without a
+rules member when `--rules` is absent. Scenario: given a rule covering a
+finding's class, when a lens runs, then the finding is still reported and
+the lens brief shows the rule as quoted context; given the same rule,
+when the blind pass's handoff bundle is built, then it carries no rules
+member, and the blind finding still takes the rule's disposition at
+routing; given a change editing the rules file, then a Needs-sign-off
+finding names it. Task 6.1.
+
+### REQ-J1.3 — Rule-decided routing [Gherkin]
+
+Scenario: given a validated finding a matching rule decides, when routing
+and disposition run, then its audit row carries the rule's disposition and
+id; given the same finding citing evidence outside the rule's statement,
+then it routes to Needs sign-off naming the rule; given a finding in a
+hard-disqualifier zone, then it takes the hard pause with the rule id
+beside it; in every case the finding is present in the record. Task 6.1.
+
+### REQ-J1.4 — Vendor-neutral export [test]
+
+The exporter's fixture renders statements grouped by disposition under the
+version key, omits ids and citations, refuses a statement naming a product
+on a fixture name list and refuses to run without a list, prints the same
+SHA-256 for the same input twice and a different one after an edit, and
+selects a repository's subset. Task 6.1.

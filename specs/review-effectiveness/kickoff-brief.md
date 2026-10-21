@@ -601,3 +601,406 @@ Lens-pass: the full-bundle lens review recorded in this section (spec lens
 set, five-reviewer fan-out, every finding dispositioned)
 Anchor: `11f7348f27c992f03f67d01e73a4b272f94573e1` — computed as
 `scripts/spec-anchor.sh specs/review-effectiveness`
+
+## 9. Amendment log
+
+### 2026-10-20 — Delta re-walkthrough: the external review audit extension
+
+#### Header
+
+- **Mode:** delta re-walkthrough of an Active bundle (status render:
+  Active, derived); the anchor recomputed at pre-flight no longer matched
+  the sign-off record above.
+- **Delta scope (operator-confirmed):** both extension commits on the spec
+  branch, walked and signed as one delta: the five audit classes, the
+  second corpus version, and standing rules, plus the expression-only
+  respelling of every task's `Dependencies:` field as bare ids. The delta
+  is the spec files' diff from the merge base with main to
+  `46a32239`; its contents are the two 2026-10-19 Changelog entries in
+  `requirements.md`.
+- **Spec commit at walkthrough start:** `46a32239`
+- **Walkthrough dates:** 2026-10-20 to 2026-10-21
+- **Validator outcome (pre-flight):** `scripts/spec-validate.sh` — 0
+  errors, 0 warnings
+- **Config:** unchanged from section 1
+- **Decision/transcript log:** no harness-provided log path; the mirror is
+  skipped, as in section 1
+- **Independent cold read:** `/spec-walkthrough specs/review-effectiveness`
+  offered as an optional complement
+
+#### Goal & glossary (delta)
+
+**Restatement.** The extension keeps the bundle's purpose (fewer defects
+reaching external review, cheaper convergence) and widens what "defects
+the passes miss" covers. An audit of the external review threads posted
+after the first corpus cut found classes the signed scope does not reach:
+tests that pass only on the author's host, guards a different spelling
+walks past, ordered procedures whose steps run out of order, observation
+fragments that duplicate an earlier one or misquote their source, and twin
+sites left unswept (the last already the sibling sweep's). Each new class
+gets a review rule and, where the shape is mechanical, a guard. Standing
+rules add a way for an operator's recorded decisions to be applied at
+triage instead of re-litigated every pass. It rules out the hosted
+reviewer's own request and vendor tuning (the operator's review-skills
+bundle) and where an adopter's rules file comes from. It assumes the first
+corpus version and the handoff builder have landed (Tasks 1 and 6, both
+merged per the status render).
+
+**Implicit terms resolved.**
+
+- *Standing rule*: one entry of the operator-curated rules file (REQ-J1.1);
+  distinct from the loop's decline ledger, which is per-loop and minted by
+  the loop.
+- *Guard-bypass sweep*: the Security lens's conditioned walk of evasion
+  spellings against a guard's matching surface (REQ-B1.9).
+- *Procedure tracing*: walking ordered prose as control flow (REQ-B1.10).
+- *Clearing library*: the new `tests/lib/hermetic-env.sh`, the single list
+  of configuration and root variables a suite clears or pins (D-17).
+- *Perturbed run*: the extra CI suite run under decoy variables, an odd
+  temporary root, a non-C locale, a non-UTC timezone, and root (REQ-F1.6).
+- *Recurrence*: a fragment that deliberately repeats an earlier one,
+  linked by `--recurrence <uid>` (REQ-I1.1).
+
+**Edit applied.** The Goal gains one sentence naming the audit's further
+classes and standing rules (operator decision). Classed as a consistency
+gap-fill (the scope list already carried the items), so no mid-walk lens
+ran; the terminal delta lens covers it.
+
+Signed off: 2026-10-20
+
+#### Requirements walkthrough (delta)
+
+**Per-group outcomes.**
+
+- **Discovery (REQ-B1.9 to B1.11).** The guard-bypass sweep runs only when
+  a change touches a guard and must list the spellings it tried; procedure
+  tracing joins the spec lens set with four finding shapes; the Tests lens
+  gains the host-dependence rule. Confirmed as written.
+- **Guards (REQ-F1.5 to F1.8).** A static hermeticity guard for three named
+  shapes, a perturbed CI run for the unnamed ones, a usage-header check of
+  script invocations in prose, and two guard-authoring rules in the
+  catalog. Confirmed as written.
+- **Measurement (REQ-H1.5).** A second corpus version from the threads
+  since the first cut, Task 13 replaying against it. Confirmed; the task
+  graph section takes up which tasks the replay and closeout measure.
+- **Observation hygiene (REQ-I).** Amended: duplicate refusal no longer
+  matches on the slug (below). The fragment review before commit confirmed.
+- **Standing rules (REQ-J).** Amended: the blind pass never reads the
+  rules (below). File format, knob, triage semantics and exporter
+  confirmed.
+
+**Decisions taken.**
+
+1. *Inconsistency halt, resolved by spec edit.* REQ-I1.1's slug match
+   contradicted REQ-E1.5: every miss-ledger row is recorded under the
+   shared `review-miss` slug, and every skill's drift check under
+   `skill-drift`, so the second of either would be refused. Readings
+   offered: match on content only; keep the slug match with an exemption
+   list; or record an override. Operator chose content only: the duplicate
+   the audit saw carried a new slug, which a slug key misses anyway.
+2. *The blind pass never reads standing rules.* As written, REQ-J1.2 handed
+   the rules to the blind pass as context, which REQ-E1.1 and REQ-C1.3 keep
+   free of earlier declines so they cannot anchor it. Operator chose to
+   omit them from the blind pass's bundle; triage still applies them to
+   blind findings, so the cost is audit rows, not operator work.
+
+**Consolidated spec edits (this section).**
+
+- `requirements.md` REQ-I1.1, `design.md` D-20, `tasks.md` Task 15.1,
+  `test-spec.md` REQ-I1.1: the slug is no longer a match key; the
+  shared-slug case is a written-not-refused test.
+- `requirements.md` REQ-J1.2, `design.md` D-21, `tasks.md` Task 6.1,
+  `test-spec.md` REQ-J1.2: the blind pass's bundle omits the rules member,
+  with a scenario for it.
+
+**Mid-walk lens (both edits, inline: two narrow deltas).** One note,
+accepted: with the slug key gone, a duplicate observation that names no
+test path is never refused; the audit's duplicate class was a repeated
+test failure, and the fragment review before commit (REQ-I1.2) still reads
+for duplication. No other finding: the omitted rules member leaves REQ-B1.1's
+bundle contents for ordinary passes unchanged, and REQ-J1.3's triage applies
+to blind findings as written.
+
+Signed off: 2026-10-21
+
+#### Design walkthrough (delta)
+
+Ledger for the delta's decisions (the D-1 to D-16 ledger in section 4
+stands unchanged):
+
+- **D-17** (hermeticity: lens rule, static guard, perturbed CI run):
+  confirmed.
+- **D-18** (guard-bypass sub-lens; authoring rules in the guard catalog):
+  confirmed.
+- **D-19** (procedure tracing in the spec set; usage-header guard):
+  confirmed.
+- **D-20** (duplicate refusal in the recorder; fragment review before
+  commit): amended, the slug dropped as a match key (requirements decision
+  1).
+- **D-21** (standing rules): amended, the blind pass's bundle omits the
+  rules (requirements decision 2).
+
+No design decision contradicts a walked requirement.
+
+Signed off: 2026-10-21
+
+#### Verification approach (delta)
+
+- **Coverage mix.** Every delta REQ has a `test-spec.md` entry (validator
+  coverage check). The mechanical guards (REQ-F1.5, F1.7), the recorder
+  (REQ-I1.1) and the exporter (REQ-J1.4) are `[test]`; the doctrine rules
+  are `[design-level]`, most with a Gherkin scenario; the `[manual]` halves
+  are the entries `test-spec.md` tags so.
+- **Ownership.** `[test]` entries run under `mise run check` in this
+  repository's CI; the perturbed run is its own CI job (REQ-F1.6); the
+  `[manual]` halves (the perturbed job's verdict set and its one-off
+  can-fail proof, the corpus refresh run) are read at the task PR's review
+  from its body; Gherkin scenarios are recorded in the owning task's PR
+  body.
+- **Dead paths found and fixed.** The Gherkin scenarios for REQ-B1.9 to
+  B1.11 (Task 3.1) and REQ-J1.2, J1.3 (Task 6.1) had no `Done when:` that
+  required recording them; both tasks now carry the bundle's standing
+  "every Gherkin scenario ... recorded in the PR body" condition
+  (consistency edit, resolved and reported). The sign-off lens pass found
+  the same gap on Task 15.1 (REQ-I1.2) and closed it there.
+
+Signed off: 2026-10-21
+
+#### Task graph (delta)
+
+Reconstructed from the `Dependencies:` lines in `tasks.md` (authoritative;
+the status render reads the same lines, now spelled as bare ids).
+
+- **New edges.** 5.1 after 5; 1.1 after 1 and 5.1; 3.1 after 3 and 1.1;
+  6.1 after 6 and 8; 11.2 after 11.1; 15.1 after 2; 11.1 and 12.1 have
+  none. Task 13 now also waits for 1.1, 3.1, 6.1 and 15.1, and Task 14 for
+  11.1, 11.2 and 12.1 (operator decision: the final evaluation covers the
+  extension). The edges after 5.1, 1.1 and 8 and the Task 11.2 split came
+  from the sign-off lens pass below.
+- **Parallelism.** 5.1, 11.1, 12.1 and 15.1 are dispatchable once this
+  delta merges (their dependencies are merged, per the status render);
+  1.1 follows 5.1 and parks for the operator's refresh run; 3.1 follows 3
+  and 1.1; 6.1 follows the blind skill (Task 8).
+- **Critical path.** Unchanged: the gate, loop and wiring chain through
+  Tasks 3, 7, 9, 13 and 14 (effort per `tasks.md`); every extension task
+  joins it with slack before Task 13.
+- **Deliberate non-edges.** 6.1 does not wait for 3, and 15.1 does not
+  wait for 9 or 10, although each pair edits the same doctrine or skill
+  files: the overlap is a rebase, not an ordering need, and REQ-G1.3's
+  word-neutral rule binds each landing on its own. 3.1 does not wait for
+  6.1: its rules do not read standing rules, and the lens briefs it edits
+  are written by the skills' fan-out, not by either task's builder change.
+
+**Spec edits (this section).** `requirements.md`: REQ-H1.4 marked
+superseded by the new REQ-H1.6, whose window opens after every task the
+closeout depends on, directly or transitively, has landed (the old text's
+"Tasks 1 to 12" no longer reached the extension and read ambiguously
+beside the point-one tasks). `tasks.md`: Task 13 and Task 14 dependencies
+widened, Task 14's window reworded and cited to REQ-H1.6. `test-spec.md`:
+REQ-H1.6 entry added; REQ-H1.4's entry notes the supersession.
+
+Signed off: 2026-10-21
+
+#### Risk register (delta)
+
+Rows continue section 7's numbering.
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| 21 | Task 12.1's header work is larger than its estimate: the check needs a stated header grammar, and the headers vary in shape; at this walk most scripts carried a `# Usage` header, and about a quarter of the scripts skill and doctrine prose names carried none, some of them sourced libraries the check skips (sign-off lens pass measurement) | The check's first run lists the invoked scripts the grammar cannot parse; signal: that list at task start. Split the normalisation into its own task through the amendment ritual if it outgrows the estimate |
+| 22 | The perturbed run (Task 11.1) surfaces many existing failures at once, root and a decoy root variable being new to every suite | Exclusions are allowed only by name with a reason; signal: the first perturbed run's failure count, recorded in the PR body |
+| 23 | A wrong standing rule disposes of a real finding at triage (domain 17) | The finding stays in the audit record with the rule id; new evidence routes to Needs sign-off (REQ-J1.3); the blind pass never reads the rules (REQ-J1.2), so a rule-covered finding still reaches triage from an unanchored reviewer |
+| 24 | Two fleet workers record the same duplicate observation at the same moment and both pass the check (domain 7) | Accepted: the cost is one duplicate fragment, and the fragment review before commit (REQ-I1.2) reads for duplication |
+| 25 | Tasks 6.1 and 15.1 add prose to `/self-review` and `/polish` under a saturated instruction budget, alongside Tasks 9 and 10 | REQ-G1.3's word-neutral rule and the closure charge (REQ-G1.2) refuse growth; signal: `check:instructions` on each task PR |
+| 26 | Task 1.1's annotator and refresh are operator-local, so a dispatched worker cannot finish it | The task parks as Awaiting input for the operator's run, as Task 1's refresh did; signal: the dispatch's first park |
+| 27 | Task 12.1 builds a second reader of script invocations in skill and doctrine prose beside `scripts/check-script-invocation.sh` (domain 19) | Resolved at the sign-off lens pass: Task 12.1 extends that script (D-19) |
+| 28 | The perturbed run as root (Task 11.2) needs a toolchain and home that resolve under root, which the existing jobs avoid | Task 11.2 states how root is reached; signal: the job's first run on the task PR |
+| 29 | A standing rule edited on the branch under review would judge that branch (domain 5) | Rules are read from the base ref, and an edit to the rules file is a Needs-sign-off finding (REQ-J1.2) |
+
+**Decision-domain gap check** (catalog resolved through
+`scripts/resolve-catalog.sh decision-domains`, walked against the delta,
+then completed by the sign-off lens pass): API surface (the rules file's
+JSON form, version key, repository form and export hash, REQ-J1.1 and
+REQ-J1.4; the recorder's refusal and recurrence contract, REQ-I1.1),
+secrets and configuration (the `review_rules_file` knob, its layer, path
+base and missing-file refusal, REQ-J1.1), authorization (rules read from
+the base ref; hard-disqualifier zones override a rule, REQ-J1.2 and
+REQ-J1.3), versioning (the rules file and corpus `v2`), IP posture
+(paraphrased corpus rows and a product-free export), LLM output quality
+(the replay gate over `v2`, Task 6.1's replay, the new miss tokens,
+REQ-H1.5 and REQ-H1.7), dependency adoption (none: the rules file is JSON
+read with the `jq` the repository already requires), and existing-seam
+reuse (the clearing library absorbs the existing pinning seams, D-17; the
+usage check extends `check-script-invocation.sh`, D-19; the rules file
+weighed against the catalog overlay seam, D-21) are decided. Concurrency
+(row 24) is an accepted risk. No other catalogued domain is touched.
+
+Signed off: 2026-10-21
+
+#### Sign-off lens pass (delta-scoped)
+
+Class (operator): meaning. Scope: the spec delta from the merge base with
+main, with this entry's walk edits, and this entry itself; spec lens set.
+Fan-out: five read-only reviewers on Opus, four taking two or three lenses
+each and the fifth running the kickoff check items and the self-critique.
+
+| Lens (spec class) | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness, internal consistency | 15 | Runner pinning made the decoys vacuous; the recurrence marker broke the miss grammar; no blind pass to attach the rules omission to; no miss class for the new rules; a Done-when nothing could meet |
+| Ambiguity, interpretation forks | 12 | Duplicate keys and "scope"; the guard trigger; where the spellings go; rule dispositions vs the categorization; repository form; product-name handling; the knob's path base; the baseline's configuration |
+| Citation and coverage integrity | 7 | finding-categorization cited for rules it lacks; citation labels with no Sources entry; coverage map vs task citations; the design's reuse claim |
+| Requirement/test-spec pairing | 5 | The perturbed run's test covered two of five perturbations; Task 13 never bound to the second corpus version; test cases no task delivered |
+| Dead verification paths | 3 | REQ-I1.2's scenario unrecorded; the refresh run's records; a lens brief no artifact emits |
+| Testability | 3 | A byte-identical bundle against a per-build id; an undefined replay class set; "the plain job" across three shards |
+| Cross-file consistency | 25 | Existing seams for the clearing list and the prose invocation reader; sourced libraries counted as invocations; the perturbed job not gating; the refresh script's real options; the audit's dates; supersession adjacency; fragment commits per iteration |
+| Documentation and glossary drift | 9 | Bare "bundle"; "triage"; "hosted reviewer"; "class" vs audit category; "scope" twice; the canonical lens name |
+| Decision-domain gaps | 11 | The rules surface (format, hash, repository form, knob layer); the recorder's refusal contract; Task 6.1's model judgment ungated; a rule over a hard-disqualifier zone; rules editable by the branch they judge |
+| Rendered-content safety, data hygiene | 4 | Rule text and fragment text into prompts as data; bypass inputs run against a live hook. No product names, personal paths or private-repo detail found |
+| Enumerated claims | 8 | "nine-lens", "tenth lens", "four finding shapes", "the three rules", "every hosted reviewer"; brief lists that went stale within the walk |
+| Performance, concurrency, error handling | n/a | Spec class: no execution path |
+
+**Kickoff check items** (23 findings). *Altitude:* triggered (the audit's
+pinned claim in Sources); D-1 exists and the Goal cites it, but D-1 did
+not place the extension, and two of its rules (standing-rules routing,
+the fragment review) landed only in skills. *Ship-gate:* the rule
+proposal step lived only in a rejected alternative; Task 3.1's lens-brief
+fallback was a PR-body note; risk row 27 was deferred to this pass; the
+dotfiles routing records exist but are local to that repository; the
+lens-list mirror entry's premise is gone. *Self-critique:* Task 11.1's
+effort, the perturbed run's cost bound, Task 1.1's operator-only run,
+the knob's name, the hash, and the items above from other lenses.
+
+**Totals.** 125 raw findings (the table's 102 plus the check items' 23),
+clustered into the root causes listed below. Each was checked against the
+files and against main by its reviewer, with quotes; the load-bearing ones
+(the runner's sentinel arms, the miss grammar's first-line check, the
+handoff manifest's build id, the `check` job's needs, the refresh
+script's options, the dates of the first corpus version) were re-checked
+here before disposition.
+
+**Operator decision at sign-off.** The audit's categories get their own
+miss-reason tokens (new REQ-H1.7, D-22, Task 5.1), chosen over mapping them
+to existing tokens and over exempting Task 3.1 from the replay gate,
+because the goal asks for each improvement measured.
+
+**Dispositions by root cause.** Applied as spec edits:
+
+1. The recurrence marker sits after a kind prefix; miss-ledger fragments
+   are exempt from duplicate refusal (REQ-I1.1, D-20, Task 15.1).
+2. Duplicate keys defined (scope token, test path, quoted string), the
+   recurrence uid bound to the matched fragment, and a refused caller's
+   duty stated (REQ-I1.1, D-20).
+3. The perturbed run switches the runner's pinning off so decoys reach the
+   suites (REQ-F1.6, D-17, Task 11.2).
+4. The perturbed run is sharded, gating, skip-tolerant by name, root
+   mechanics stated, its test covering every perturbation; split into
+   Task 11.2 (REQ-F1.6, Tasks 11.1, 11.2, 14).
+5. The unsupported second-shell claim and its citation dropped (D-17,
+   REQ-F1.6).
+6. The clearing library absorbs the existing pinning helper and scrub
+   lists (D-17, Task 11.1).
+7. The usage check extends `scripts/check-script-invocation.sh`; an
+   invocation is a shebanged script in command position; the header
+   grammar is stated in the catalog entry (REQ-F1.7, D-19, Task 12.1).
+8. REQ-F1.5's third shape aligned with D-17.
+9. REQ-H1.5 restated against the refresh script's real behaviour (full
+   refresh, this repository only, annotator labelling, the pre-bundle
+   baseline configuration, later gates on `v2`); Task 1.1's records and
+   operator park; Task 13 bound to `v2`.
+10. The blind pass's rules-free handoff bundle given a mechanism (a
+    `--rules` builder input), Task 6.1 sequenced after the blind skill,
+    and the never-sees list extended (REQ-J1.2, D-21, Task 6.1).
+11. Lens briefs named where the skills' fan-out writes them (Tasks 3.1,
+    6.1).
+12. Task 6.1's doctrine homes named; satisfied or duplicate `Done when:`
+    preconditions dropped (Tasks 3.1, 6.1, 15.1).
+13. The unset-knob check compares the builder's output to a golden file,
+    the build line excepted (Task 6.1, REQ-J1.1 entry).
+14. Task 6.1 takes a targeted replay with a seeded rules file (REQ-H1.3).
+15. The finding-categorization citation corrected; new-evidence routing
+    attributed to REQ-C1.3 and this walk (Sources, REQ-J1.3, D-21).
+16. The rules surface decided: JSON, `review_rules_file`, its layer and
+    path base, a missing file refused, `<owner>/<name>` repositories, rule
+    ids never reused, SHA-256 over the block headed by the version key
+    (REQ-J1.1, REQ-J1.4, D-21).
+17. Rule dispositions mapped onto the categorization (REQ-J1.1).
+18. Rules read from the base ref, an edit to the rules file a
+    Needs-sign-off finding, rule and fragment text presented as quoted
+    data (REQ-J1.2, REQ-I1.2, design Security).
+19. A hard-disqualifier pause holds whatever a rule decides (REQ-J1.3).
+20. The exporter's product-name screen uses the corpus screen's
+    machine-local list and refuses without it (REQ-J1.4).
+21. Rule proposal stated as the adopter's overlay; the catalog overlay
+    seam weighed and rejected (D-21).
+22. The bypass sweep's trigger excludes argument validation, its inputs go
+    to the matcher or harness, and its spellings sit in the row's Notes
+    (REQ-B1.9, D-18).
+23. The fragment review runs wherever fragments are committed, adds a
+    duplication check, and is stated in the accumulator-taxonomy doctrine
+    (REQ-I1.2, D-20, Task 15.1).
+24. D-1 places the extension on the altitude ladder.
+25. Coverage map and citations reconciled (REQ-G1.3, H1.2, H1.3, H1.4,
+    H1.6 entries; Sources gains `kickoff §9` and drops an unmatched
+    label; the audit's dates corrected).
+26. Changelog entry, `Last reviewed:`, and REQ-H1.6's adjacency and
+    supersession marker.
+27. Glossary: "handoff bundle", "routing and disposition", "the bot
+    reviewer", "standing-rules file", audit category vs corpus class, the
+    canonical Tests / verification lens name.
+28. Enumerations converted to rules or citations (D-17, D-18, D-21, Task
+    3.1, test-spec).
+29. The design's domain list now cites this entry's gap check; the
+    Security and CI-cost notes updated.
+30. The guard-authoring rules cited from the permission-matcher model doc
+    (D-18, Task 3.1).
+31. This entry's own stale lines corrected (verification list, Task 15.1's
+    dead path, the task-graph edges, risk rows 21 and 27; rows 28 and 29
+    added).
+
+Declined, with reasons (root causes 32 and 33):
+
+1. **Retiring the lens-list mirror Deferred entry.** Its premise (a copy
+    of the lens list in the operator's global instructions) appears gone,
+    but the entry is human-owned tracked state; its gate drain surfaces it
+    to the operator, who closes it there.
+2. **Pushing the dotfiles routing records.** The review-skills spec
+    bundle's Tasks 11 and 12 exist on that repository's local spec
+    branch; publishing it is the operator's act in that repository, out of
+    this bundle's scope. Sources now names the tasks.
+
+#### Pre-flip verification (delta)
+
+- **Stale-reference sweep.** The walk and the lens pass minted REQ-H1.6,
+  REQ-H1.7, D-22, Tasks 5.1 and 11.2, and re-scoped REQ-B1.9, B1.11, F1.5
+  to F1.8, H1.5, I1.1, I1.2 and J1.1 to J1.4. A sweep of the four files
+  and this entry for the changed terms and IDs (triage, the hosted
+  reviewer, the rule ledger, the lens counts, "byte-identical", the
+  builder's lens brief, the second reader, Task 11.1's old scope)
+  reconciled the stragglers; the 2026-10-19 Changelog lines stay as
+  history.
+- **Lint.** `markdownlint-cli2` over the four spec files and this brief:
+  0 errors.
+- **Validator.** `scripts/spec-validate.sh`: 0 errors, 0 warnings after
+  the edits.
+- **Recorded claims, re-derived.** The lens table's rows sum to its stated
+  figure and, with the check items, to the raw total; the root-cause list
+  is this section's own numbered list. Counts left in the delta's anchored
+  prose (the three hermeticity shapes, the two guard-authoring rules, the
+  three ways D-17 catches the class, its two libraries) each match the
+  list beside them.
+- **Enumeration cross-check.** The remaining counts of a surface outside
+  the bundle (the code-lens count, the canonical-lens ordinal, the
+  reviewers a block serves) were converted to rules by root cause 28.
+
+#### Sign-off record (amendment)
+
+Signed off 2026-10-21 by the operator after the approval summary: a delta
+re-walkthrough of an Active bundle, so no status flip; `Last reviewed:`
+2026-10-21 on all four spec files, and the validator re-run at Ready
+severity with 0 errors and 0 warnings.
+
+Class: meaning
+Lens-pass: the delta-scoped lens review recorded in this entry (spec lens
+set, five-reviewer fan-out, every finding dispositioned)
+Anchor: `fb6568f6f13ce151faf6d76077c92c2e94b5462b` — computed as
+`scripts/spec-anchor.sh specs/review-effectiveness`

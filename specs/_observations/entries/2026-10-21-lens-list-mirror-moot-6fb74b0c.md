@@ -1,0 +1,1 @@
+- 2026-10-21 [planwright] review-effectiveness Deferred entry "mirror the discovery-doctrine changes into the operator lens-list copy" (gated on task 3) looks moot: the operator global instructions now resolve the lens list from planwright doctrine at run time instead of keeping a copy; close it at its gate drain rather than mirroring.
