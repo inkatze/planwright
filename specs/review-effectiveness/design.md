@@ -1,7 +1,7 @@
 # Review effectiveness — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-10-19
+**Last reviewed:** 2026-10-21
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -27,6 +27,16 @@ the one overlay value this bundle changes is this repository's
 convergence setting, moved from `/self-review` to `/polish` so the blind
 pass runs here and the closeout window measures it (Task 10). The
 observation reword (Task 15) is data hygiene under D-16, off the ladder.
+The external review audit's extension is placed the same way. Doctrine:
+the guard-bypass sub-lens, procedure tracing, the host-dependence rule,
+the guard-authoring rules, the fragment review before commit, the
+standing-rules format and its routing rule (Tasks 3.1, 6.1, 15.1).
+Capability: the standing-rules knob, the rules reader and exporter, the
+recorder's duplicate refusal, and the miss vocabulary's new tokens (Tasks
+5.1, 6.1, 15.1). Mechanism: the hermeticity guard, the perturbed CI run,
+the usage-header check (Tasks 11.1, 11.2, 12.1). Local value: the list of
+configuration and root variables this repository clears, and an
+adopter's own rules, which stay in its overlay.
 
 **Alternatives considered:**
 - Mechanism only: revamp the two skills' prose and leave the doctrine
@@ -453,31 +463,37 @@ and the operator's instruction coincide.
 ### D-17: Hermeticity is enforced by a lens rule, a static guard, and a perturbed CI run  (N)
 
 **Decision:** A test that passes only on the author's host is caught three
-ways, because each catches what the other two cannot. The Tests lens
+ways, because each catches what the other two cannot. The Tests / verification lens
 carries the judgment rule for shapes nobody has named yet (REQ-B1.11). A
 static guard over the test surface fails the recurring shapes the external
 review audit saw most: a mode-bit fixture with no access probe, a dead-owner
-fixture reusing a reaped PID, a suite reading a configuration or root
-variable it neither pins nor clears (REQ-F1.5); the shapes are served by two
-small libraries under `tests/lib/`, one clearing or pinning the listed
-variables (the single list the guard, the runner, and the CI run read) and
-one yielding a PID above the host's assignable range, so a fixture that
-conforms has somewhere to conform to. The CI run under a perturbed, legal
-environment, root included, catches a dependence neither the lens nor the
-guard named (REQ-F1.6). The runner clears the same list, but the library
-stays required: a suite run by hand inherits the operator's shell, which is
-where the audit's failures were found. The altitude follows D-1: the rule
+fixture reusing a reaped PID, a suite reading a listed configuration or root
+variable without sourcing the clearing library (REQ-F1.5); the shapes are
+served by two small libraries under `tests/lib/`, one clearing or pinning
+the listed variables (the single list the guard, the runner, and the CI run
+read) and one yielding a PID above the host's assignable range, so a
+fixture that conforms has somewhere to conform to. The clearing library
+absorbs the seams already doing part of this job rather than sitting beside
+them: `tests/lib/fleet-home.sh`'s pinning helper moves into it, and the
+per-suite scrub lists and the runner's sentinel arms read its list. The CI
+run under a perturbed, legal environment, root included, catches a
+dependence neither the lens nor the guard named (REQ-F1.6); it runs with
+the runner's per-file pinning off, since a decoy the runner redirects never
+reaches a suite, and it is sharded and gating like the plain test jobs. The
+runner pins (redirects) the same list per file, but the library stays
+required: a suite run by hand inherits the operator's shell, which is where
+the audit's failures were found. The altitude follows D-1: the rule
 is doctrine, the guard and the CI run are mechanisms, the variable list is
 this repository's value.
 
 **Alternatives considered:**
 - The lens rule alone. Rejected because: the audit found this class on
-  branches a full nine-lens pass had declared clean; a judgment rule
+  branches a full code-lens pass had declared clean; a judgment rule
   without a mechanical catch is the silent-pruning shape the rigor docs
   exist to prevent.
 - The static guard alone. Rejected because: it can only fail the shapes it
-  names, and a dependence on locale, a symlinked temporary root, or a
-  second shell has no textual shape to match.
+  names, and a dependence on locale or a symlinked temporary root has no
+  textual shape to match.
 - The perturbed CI run alone. Rejected because: it finds the failure after
   the push, with no attribution to a fixture, and nothing stops the next
   branch from adding the same shape.
@@ -493,14 +509,18 @@ more suite run per PR.
 
 ### D-18: Guard-bypass is a Security sub-lens conditioned on the artifact; the authoring rules live in the guard catalog  (N)
 
-**Decision:** When a change touches a guard, the Security lens runs the
-bypass sweep REQ-B1.9 lists and records the spellings tried; when it does
-not, nothing is added to the lens walk. The two guard-authoring rules
-(REQ-F1.8) land in the guard catalog's extension prose, where a guard
-writer already reads before adding an entry, and the sub-lens cites them.
+**Decision:** When a change touches a guard (a policy permit-or-block,
+not argument validation), the Security lens runs the bypass sweep REQ-B1.9
+lists against the guard's matcher or harness, never a live shell, and
+records the spellings tried; when it does not, nothing is added to the
+lens walk. The guard-authoring rules (REQ-F1.8) land in the guard
+catalog's extension prose, where a guard writer already reads before
+adding an entry, cited from `docs/permission-matcher-model.md`, where the
+command guards' matching model and its case hazard are documented, and
+the sub-lens cites them.
 
 **Alternatives considered:**
-- A tenth canonical lens. Rejected because: most changes touch no guard, so
+- A new canonical lens. Rejected because: most changes touch no guard, so
   every pass would carry a `none` row with the same reason, which is the
   coverage table filling with noise rather than coverage.
 - Relying on the fuzz or corpus sweep a guard task already runs. Rejected
@@ -522,11 +542,17 @@ conditioned sub-lens adds cost only where the threat exists.
 reviewed under the spec artifact class with one added lens, procedure
 tracing (REQ-B1.10), which walks the procedure as control flow. The
 mechanical half, whether a script invocation in prose matches the script,
-is a guard (REQ-F1.7) that parses each script's `# Usage` header; a script
-invoked from prose without a parseable header fails the guard, so the
-header becomes the contract the prose is checked against.
+extends `scripts/check-script-invocation.sh`, which already reads every
+script invocation in skill and doctrine prose, with a usage-header check
+(REQ-F1.7): an invocation is a shebanged script in command position, never
+a bare mention or a sourced library, and an invoked script without a
+header the stated grammar parses fails it, so the header becomes the
+contract the prose is checked against.
 
 **Alternatives considered:**
+- A second prose reader beside `check-script-invocation.sh`. Rejected
+  because: both read the same files for the same command words, and two
+  readers drift on what counts as an invocation.
 - Reviewing skill instructions under the code class. Rejected because: the
   performance, concurrency and error-handling lenses fire on a threat model
   prose does not have (artifact-lenses), which is the noise that doc exists
@@ -547,12 +573,18 @@ lacks) were all decidable from the usage header the scripts already carry.
 ### D-20: Duplicate refusal lives in the recorder; a pass reviews its own fragments before commit  (N)
 
 **Decision:** `scripts/obs-record.sh` refuses a fragment that duplicates a
-live or archived fragment of the same scope, matching on the slug or on a
-shared test path plus quoted string, with `--recurrence <uid>` as the
-escape that links the chain (REQ-I1.1). The convergence passes review the
-fragments they recorded with the spec lens set before committing them
-(REQ-I1.2); the Observations step keeps its place at the end of the pass,
-since the fragments are born during it.
+live or archived fragment of the same scope, matching on a shared test
+path plus quoted string, with `--recurrence <uid>` as the escape that
+links the chain, its marker placed after a kind prefix so the kinds'
+own grammars still parse (REQ-I1.1). The slug is not a match key:
+recurring kinds (every skill's `skill-drift`) share one by design, and the
+duplicate the audit saw carried a new slug. Miss-ledger fragments are
+exempt, their identity being PR and path (D-8). A refused caller records
+the recurrence or withdraws, the choice noted in the audit record. The
+convergence passes review the fragments they recorded with the spec lens
+set plus a duplication check before committing them (REQ-I1.2), wherever
+they commit them: per iteration in `/polish`, at the end of `/self-review`,
+and in the Maintenance step.
 
 **Alternatives considered:**
 - Moving the Observations step before discovery so the fragments ride the
@@ -564,22 +596,32 @@ since the fragments are born during it.
   semantic match the recorder can make at write time with the text in hand.
 - Warning instead of refusing. Rejected because: write-time refusal is the
   recorder's house pattern for grammar and containment, and a warning in a
-  fleet worker's log is read by nobody.
+  fleet worker's log is read by nobody; a refusal stops the caller, which
+  must then record or withdraw in its audit record.
 
 **Chosen because:** the audit's fragment findings were duplicates of an
 earlier entry and claims the entry's own source contradicted; the first is
 decidable where the text is written, the second is the claim-versus-code
 read the bundle already requires, pointed at one more artifact.
 
-### D-21: Standing rules are a consumed input with a defined file, an opt-in knob, triage semantics and a vendor-neutral export  (N)
+### D-21: Standing rules are a consumed input with a defined file, an opt-in knob, routing semantics and a vendor-neutral export  (N)
 
-**Decision:** planwright defines the standing-rules file (REQ-J1.1) and an
-opt-in config knob naming it, default none. With a file named, the handoff
-builder adds the rules scoped to the change, lens briefs and the blind pass
-read them as context, triage applies a matching rule's disposition with the
-rule id in the audit row and routes a finding carrying new evidence to Needs
-sign-off, and `scripts/review-rules-export.sh` renders the statements into
-one vendor-neutral block with a content hash. Where the file comes from (a
+**Decision:** planwright defines the standing-rules file (REQ-J1.1), a
+JSON document read with the `jq` the repository already requires, and an
+opt-in config knob, `review_rules_file`, naming it, default none. With a file named, the handoff
+builder adds the rules scoped to the change, read from the base ref so a
+branch cannot rewrite the rules that judge it, through a `--rules <file>`
+input; lens briefs read them as quoted context; the blind pass's handoff
+bundle is built without that input, for the reason it never carries the
+decline ledger (a curated decline still anchors a reviewer, and a wrong
+rule would never meet an independent read); routing and disposition apply
+a matching rule's disposition with the rule id in the audit row, mapped
+onto the categorization (`reject` and `defer` are declines, the second
+with a gated follow-up; `accept` routes normally), route a finding carrying
+new evidence to Needs sign-off, and never override a hard-disqualifier
+pause; and `scripts/review-rules-export.sh` renders the statements into
+one vendor-neutral block with its SHA-256, refusing a statement that names
+a product on the machine-local name list. Where the file comes from (a
 rendered secret store, a tracked file, a hand-written one) and where the
 block goes (a vendor's dashboard, a committed vendor file, a configuration
 repository) are the adopter's overlay. The altitude follows D-1 and the
@@ -595,24 +637,54 @@ customization-boundary split: the capability is core, the rules are style.
 - Rules as a pre-filter that drops matching findings before the audit
   record. Rejected because: a wrong rule would then hide a real finding with
   no trace, the silent-pruning shape discovery-rigor forbids; applying the
-  rule at triage keeps the finding on record with the rule that decided it.
-- Rules written by the skill as it declines. Rejected because: a rejection
-  is the operator's decision (finding-categorization), so a rule is proposed
-  in the handoff and curated by the operator, never minted by the loop.
+  rule at routing keeps the finding on record with the rule that decided it.
+- Rules written by the skill as it declines. Rejected because: a decline
+  closes one finding, while a rule closes a class across every later pass,
+  a standing decision only the operator makes; proposing rules is the
+  adopter's overlay (the operator's review-skills spec bundle drafts them),
+  never minted by the loop.
+- Rules as a catalog resolved through the overlay seam. Rejected because:
+  a catalog merges layers by id for shared vocabulary, while a rules file
+  is one adopter's decisions, often rendered machine-locally from a secret
+  store, and one knob naming one file keeps its provenance plain.
 - A vendor-specific exporter. Rejected because: REQ-E1.7 keeps product
-  names out of this repository, and every hosted reviewer this bundle knows
-  of takes free-text instructions, so one neutral block serves all.
+  names out of this repository; the export targets a free-text
+  instruction surface, and a reviewer without one is out of scope.
 
 **Chosen because:** the external review audit found the same class decided
 one way on one PR and the opposite on the next, both by the same loop, and
 the operator asked that the fix be portable; a defined file plus an opt-in
 knob is the shape customization-boundary gives a general capability.
 
+### D-22: The miss vocabulary gains the audit's categories as new tokens  (N)
+
+**Decision:** The miss ledger's reason tokens gain one token per audit
+category the extension writes a rule for (a host-dependent test, a guard
+bypassed by a spelling, an ordered-procedure defect), and its lens tokens
+one for procedure tracing (REQ-H1.7), in the miss grammar's doctrine home
+with the grammar check accepting them. The second corpus version labels
+audit rows with them, so Task 3.1's replay targets them and Task 13 and
+the closeout can say whether the new rules catch what they were written
+for.
+
+**Alternatives considered:**
+- Mapping each rule to an existing reason token. Rejected because: the
+  new rules' effect would blur into broader classes, and the goal asks for
+  each improvement measured.
+- Exempting the rules from the replay gate. Rejected because: it carves
+  an exception into the gate every other lens task obeys.
+
+**Chosen because:** tokens are additive, so every writer of the existing
+grammar, the operator's own review commands included, keeps working
+unchanged (operator decision, kickoff §9).
+
 ## Cross-cutting concerns
 
 - **Security.** The blind agent and every lens agent read a bundle of
-  repository content and run with the session's permissions; no credential
-  or host detail enters the bundle, and no committed artifact names the
+  repository content and run with the session's permissions; the one
+  member from outside the branch, the standing rules, is read from the
+  base ref or the adopter's named file and presented as quoted data; no
+  credential or host detail enters the bundle, and no committed artifact names the
   bot reviewer or backend product (D-16). The guard rules for raw echo and
   leading-dash arguments are the security-posture doctrine's echo and path
   disciplines made mechanical.
@@ -621,16 +693,10 @@ knob is the shape customization-boundary gives a general capability.
   the convergence phase only.
 - **Overlay protection.** A doc that moves to point-of-use keeps its
   basename so overlay shadowing continues to resolve it.
-- **CI cost.** The perturbed run (D-17) is one more suite run per PR,
-  bounded by the same per-file budget the plain run keeps; a perturbation
-  that cannot run skips by name, never by lowering the budget.
-- **Decision domains touched by the extension.** `existing-seam-reuse`: the
-  recorder, the guard catalog, the lock library and the plain-commands test
-  surface are reused rather than minted beside (D-17 to D-20).
-  `llm-output-quality`: every lens change stays behind REQ-H1.3's replay
-  gate, now over the second corpus version (REQ-H1.5). `secrets-config`:
-  one new config knob (the standing-rules path, D-21), documented in the
-  options reference, default none, naming a path and never a secret.
-  `api-surface`: the standing-rules file format is a new versioned surface
-  adopters write to, sign-off class under the kickoff delta. No dependency,
-  concurrency or deploy decision is introduced.
+- **CI cost.** The perturbed run (D-17) is one more sharded suite run per
+  PR, bounded by the same per-file budget the plain run keeps and feeding
+  the same timing reports; a perturbation that cannot run skips by name,
+  never by lowering the budget.
+- **Decision domains touched by the extension.** The kickoff brief's §9
+  gap check records each domain the extension touches and where it is
+  decided; this section does not copy that list.

@@ -1,7 +1,7 @@
 # Review effectiveness — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-10-19
+**Last reviewed:** 2026-10-21
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -23,6 +23,10 @@ This bundle raises the recall of the convergence passes on those classes
 and cuts the cost of each pass, each measured against the baselines the
 research seed records, so a unit reaches its PR with fewer
 post-convergence findings, fewer external review rounds, and fewer tokens.
+A later audit of the external review threads found further classes still
+leaking past the signed scope, and the bundle extends its rules and guards
+to them, adding standing rules so a finding the operator already decided
+is applied rather than raised again (the external review audit, Sources).
 It is a doctrine change as much as a skill change: the reviewer-basics
 gate, the blind review, and the sibling sweep are rules about how a review
 must think, the blind step and the miss ledger are core seams, and the
@@ -79,7 +83,7 @@ scripts are the mechanisms filling them (D-1, the altitude record).
 - A corpus refresh to a second version from the external review threads
   merged since the first version's cut.
 - Standing rules: a versioned rules file an adopter may name through an
-  opt-in knob, carried in the handoff bundle, applied at triage, and
+  opt-in knob, carried in the handoff bundle, applied at routing, and
   exported as a vendor-neutral instruction block for an external reviewer.
 
 ### Out of scope
@@ -103,8 +107,9 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   never named in a committed artifact.
 - Context engineering of the implementation phase itself; only the review
   pass's context is bounded here.
-- The hosted reviewer's request discipline, thread completion and vendor
-  tuning: the operator's review-skills bundle, outside this repository.
+- The bot reviewer's request discipline, thread completion and vendor
+  tuning: the operator's review-skills spec bundle, outside this
+  repository.
 - Where an adopter's standing rules come from and how the exported block
   reaches a vendor (a rendered secret store, a committed vendor file, a
   dashboard): the adopter's overlay; this bundle defines the file, the knob,
@@ -200,16 +205,20 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   and the list as its only inputs.
   *(Cites: D-3.)*
 - **REQ-B1.9** When the change under review touches a guard (a hook, a
-  catalogued guard, or any code whose job is to allow, deny, defer or
-  refuse an input), the Security lens SHALL run a guard-bypass sweep
-  against the matched surface, trying at least: quoting and word-splitting
-  variants, case variants, glob and brace expansion, command carriers such
-  as `env -S` and `time`, a value assembled across shell segments, a path
-  alias (a hardlink, a copy, an extensionless or renamed name), comment and
-  heredoc delimiter boundaries, line continuations, and every shell the
-  guard models; the finding, or the `none` row's Notes, SHALL list the
-  spellings tried, and a sweep none of whose inputs could have failed is no
-  evidence (REQ-C1.4).
+  catalogued guard, or any code whose purpose is to permit or block an
+  action or input on policy grounds, such as a permission or containment
+  check; argument validation alone is not a guard), the Security lens
+  SHALL run a guard-bypass sweep against the matched surface, trying at
+  least: quoting and word-splitting variants, case variants, glob and
+  brace expansion, command carriers such as `env -S` and `time`, a value
+  assembled across shell segments, a path alias (a hardlink, a copy, an
+  extensionless or renamed name), comment and heredoc delimiter
+  boundaries, line continuations, and every shell the guard models. The
+  sweep's inputs SHALL be fed to the guard's matcher or its test harness,
+  or run in REQ-C1.1's isolated copy, never to a live shell; the Security
+  row's Notes SHALL list the spellings tried whatever the row's value, and
+  a sweep none of whose inputs could have failed is no evidence
+  (REQ-C1.4).
   *(Cites: D-18, obs:3ed95276, obs:15a7fdcb, obs:d59a0763, obs:20e044ff,
   obs:aaf2fd57, the external review audit (Sources).)*
 - **REQ-B1.10** The spec lens set SHALL include procedure tracing: an
@@ -222,7 +231,7 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   on; and a branch whose handling one passage names and another
   contradicts.
   *(Cites: D-19, the external review audit (Sources).)*
-- **REQ-B1.11** The Tests lens SHALL flag a test whose outcome depends on
+- **REQ-B1.11** The Tests / verification lens SHALL flag a test whose outcome depends on
   the running host rather than on the code under test: a configuration or
   root variable inherited from the caller that the suite neither pins nor
   clears; a privilege assumption behind a mode-bit fixture (root or a
@@ -413,29 +422,38 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   reaped, instead of a PID above the host's assignable range or a token
   minted through the lock library; and a suite that reads a listed
   configuration or root variable without sourcing the shared clearing
-  library; each shape with a true-positive and a true-negative fixture, the
+  library (which carries the existing pinning helpers, so a suite pinning
+  through them conforms); each shape with a true-positive and a true-negative fixture, the
   guard entered in the guard catalog and wired under the repository's
   check task.
   *(Cites: D-13, D-17, the external review audit (Sources).)*
 - **REQ-F1.6** The repository's CI SHALL run the whole test suite once more
   under a perturbed, legal environment — a decoy value in every
   configuration and root variable the shared clearing library names,
-  pointing at a fixture whose use would change a result; a temporary
-  directory reached through a symlink and containing a space; a non-C
-  locale and a non-UTC timezone; and the root user — and that run SHALL
-  pass with the same verdicts as the plain run; a case that cannot run
-  under a perturbation skips by name with its reason, never silently.
-  *(Cites: D-17, obs:609656e8, obs:20e044ff.)*
+  pointing at a fixture whose use would change a result, with the
+  runner's per-file pinning of those variables switched off so the decoys
+  reach the suites; a temporary directory reached through a symlink and
+  containing a space; a non-C locale and a non-UTC timezone; and the root
+  user — sharded like the plain test jobs and gating the merge as they do;
+  that run SHALL pass with the same verdicts as the plain run, a named
+  skip with its reason excepted; a case that cannot run under a
+  perturbation skips by name with its reason, never silently.
+  *(Cites: D-17, obs:609656e8, kickoff §9 (2026-10-20).)*
 - **REQ-F1.7** A guard over skill and doctrine prose SHALL check every
-  invocation of a repository script (an inline code span or fenced line
-  naming a path under `scripts/`) against that script's usage header: the
-  subcommand SHALL be one the header lists, every flag SHALL be one it
-  accepts, and every argument it marks required SHALL be supplied or stand
-  as an angle-bracket placeholder; a script invoked from prose without a
-  parseable usage header fails the guard.
-  *(Cites: D-19, the external review audit (Sources).)*
-- **REQ-F1.8** The guard catalog SHALL state two guard-authoring rules: a
-  guard that matches identifiers an external system owns establishes that
+  invocation of a repository script (a shebanged script under `scripts/`
+  in command position: an inline code span or fenced line naming its path
+  followed by an argument, or a fenced command line running it; a bare
+  mention of a path, and a sourced library, are not invocations) against
+  that script's usage header: the subcommand SHALL be one the header
+  lists, every flag SHALL be one it accepts, and every argument it marks
+  required SHALL be supplied or stand as an angle-bracket placeholder; an
+  invoked script without a usage header the guard's stated grammar parses
+  fails the guard.
+  *(Cites: D-19, the external review audit (Sources), kickoff §9
+  (2026-10-20).)*
+- **REQ-F1.8** The guard catalog SHALL state two guard-authoring rules for
+  a guard that screens commands or identifiers: a guard that matches
+  identifiers an external system owns establishes that
   system's case and normalization semantics first and normalizes both the
   match and every exemption; and a guard never decides a blessing or a
   refusal from text the target system does not execute (a string, a
@@ -515,63 +533,116 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   run below baseline. A missed bar SHALL be recorded as a miss observation
   and a gated follow-up, and does not hold Done; Done derives only when the
   record exists.
+  **Superseded-by: REQ-H1.6** (2026-10-21) — the window opens after the
+  extension's tasks land too, not after Tasks 1 to 12.
   *(Cites: D-7, the invocation (Sources), kickoff §8 (2026-09-24).)*
-- **REQ-H1.5** The corpus SHALL be refreshed to a second version from the
-  external review threads merged since the first version's cut, each new
-  row's miss reason assigned under D-8's tokens by the operator-local
-  annotator, and Task 13's replay SHALL run against that version; the
-  audit's own thread dispositions are never committed, only the rows the
-  refresh derives.
-  *(Cites: D-7, D-16, drafting-session decision (2026-10-19), the external
-  review audit (Sources).)*
+- **REQ-H1.6** (supersedes REQ-H1.4) A metric script, runnable at any
+  time, SHALL compute tokens per convergence run and the post-convergence
+  finding rate from the transcripts, the fleet events, the miss ledger,
+  and the PR history. The bundle's closeout task SHALL run it over a
+  window of at least 15 PRs the bot reviewer reviewed, merged after every
+  task the closeout task depends on, directly or through those tasks' own
+  dependencies, has landed, and record the result against REQ-H1.1's
+  baselines under a bar fixed now: both the post-convergence finding rate
+  and the tokens per convergence run below baseline. A missed bar SHALL be
+  recorded as a miss observation and a gated follow-up, and does not hold
+  Done; Done derives only when the record exists.
+  *(Cites: D-7, kickoff §8 (2026-09-24), kickoff §9 (2026-10-20).)*
+- **REQ-H1.5** The corpus SHALL be refreshed to a second version from this
+  repository's PR history: a full refresh that carries the first
+  version's rows and adds the fixed external findings merged since its
+  cut, run with the annotator labelling every new row lacking a ledger
+  entry under D-8's tokens as REQ-H1.7 extends them; the audit's own
+  thread dispositions are never committed, only the rows the refresh
+  derives. Its baseline replay SHALL run the same pre-bundle configuration
+  the first version's baseline ran (that run's plugin commit), and from
+  the second version's landing every REQ-H1.3 replay, and Task 13's,
+  SHALL run against it and that baseline.
+  *(Cites: D-7, D-16, the extension invocation (Sources), the external
+  review audit (Sources), kickoff §9 (2026-10-20).)*
+- **REQ-H1.7** The miss ledger's reason vocabulary SHALL gain a token for
+  each audit category the extension adds a rule for (a test that depends
+  on its host, a guard bypassed by a spelling, an ordered procedure
+  defect), and its lens vocabulary a token for procedure tracing; the
+  ledger's grammar check SHALL accept them, and a writer outside planwright
+  keeps working unchanged because no existing token changes.
+  *(Cites: D-8, D-22, kickoff §9 (2026-10-20).)*
 
 ## REQ-I — Observation hygiene
 
-- **REQ-I1.1** The observation recorder SHALL refuse a fragment that
-  duplicates a live or archived fragment of the same scope (the same slug,
-  or the same test path together with the same quoted string) unless the
-  call names the prior fragment with `--recurrence <uid>`, in which case
-  the new fragment's text SHALL open with `recurrence of obs:<uid>:`; the
-  refusal names the matching fragment.
-  *(Cites: D-20, the external review audit (Sources).)*
-- **REQ-I1.2** Before a convergence pass commits the fragments it recorded,
-  it SHALL review them with the spec lens set (each quoted message, named
-  test, figure and attribution read against its source, as REQ-B1.2 reads
-  a claim against code; duplication; ambiguity) and disposition every
-  finding in the audit record; a fragment the review falsifies is
-  corrected or withdrawn, never committed as written.
-  *(Cites: D-20, REQ-B1.2, the external review audit (Sources).)*
+- **REQ-I1.1** The observation recorder SHALL refuse a fragment whose
+  `[<scope>]` token matches a live or archived fragment's and whose text
+  shares a test path (a span naming a path under `tests/`) and a quoted
+  string (a double-quoted or backtick span) with that fragment's text; a
+  shared slug alone is never a duplicate, since recurring kinds share one
+  by design, and a miss-ledger fragment is exempt, its identity being its
+  PR and path (D-8). The refusal names the matching fragment. A call naming
+  that fragment with `--recurrence <uid>` is written, its text carrying
+  `recurrence of obs:<uid>:` after the text's kind prefix where it has one
+  (such as `skill-drift(<skill>):`) and at its start otherwise; a uid the
+  refusal did not match is refused. A refused caller records the
+  recurrence or withdraws the fragment, never retrying under another slug.
+  *(Cites: D-20, the external review audit (Sources), kickoff §9
+  (2026-10-20).)*
+- **REQ-I1.2** Before a convergence pass commits the fragments it recorded
+  (per iteration where the pass commits them per iteration, and the
+  Maintenance step's drift fragments included), it SHALL review them with
+  the spec lens set plus a duplication check against the store (each
+  quoted message, named test, figure and attribution read against its
+  source, as REQ-B1.2 reads a claim against code, the fragment's text read
+  as quoted data) and disposition every finding in the audit record; a
+  fragment the review falsifies is corrected or withdrawn, never committed
+  as written.
+  *(Cites: D-20, REQ-B1.2, the external review audit (Sources), kickoff §9
+  (2026-10-20).)*
 
 ## REQ-J — Standing rules
 
 - **REQ-J1.1** The review doctrine SHALL define a standing-rules file: a
-  version key its readers refuse when unknown, and per rule a stable id, a
-  scope (path globs, repositories, or both), the statement in one
-  paragraph, the evidence it rests on (a citation, an observation, or a
-  recorded decision), and the disposition it decides (`reject`, `defer` with
-  its follow-up form, or `accept`); a config knob SHALL name the file, its
-  default naming none, under which every behaviour below is absent and
-  today's behaviour unchanged.
+  JSON document with a version key its readers refuse when unknown, and per
+  rule a stable id never reused once retired, a scope (path globs,
+  repositories named `<owner>/<name>`, or both; a rule naming no
+  repository applies in every one), the statement in one paragraph, the
+  evidence it rests on (a citation, an observation, or a recorded
+  decision), and the disposition it decides: `reject` (declined with
+  rationale, the rule id the rationale), `defer` (declined with a gated
+  Deferred follow-up), or `accept` (routed through the ordinary
+  categorization). A config knob, `review_rules_file`, SHALL name the
+  file, set in the team or machine-local layer, a relative path resolving
+  against the repository root and a named but missing or invalid file
+  refused; its default names none, under which every behaviour below is
+  absent and today's behaviour unchanged.
   *(Cites: D-21, customization-boundary (Sources), the operator's
-  review-skills bundle (Sources).)*
+  review-skills spec bundle (Sources), kickoff §9 (2026-10-20).)*
 - **REQ-J1.2** When the knob names a file, the handoff bundle SHALL carry
-  the rules whose scope matches the change, and every lens brief and the
-  blind pass SHALL cite them as context, never as a filter: a lens still
-  reports a finding a rule covers, and the rule is applied at triage.
-  *(Cites: D-21, REQ-B1.1.)*
-- **REQ-J1.3** At triage, a validated finding that a matching rule decides
-  SHALL take the rule's disposition with the rule's id in its audit row,
-  unless the finding carries evidence the rule's statement did not consider,
-  in which case it SHALL route to Needs sign-off naming the rule; a rule
-  SHALL never remove a finding before the audit record sees it.
-  *(Cites: D-21, finding-categorization (Sources), the external review
-  audit (Sources).)*
+  the rules whose scope matches the change, read from the base ref and
+  never from the head under review, and every lens brief SHALL cite them
+  as quoted context, never as a filter: a lens still reports a finding a
+  rule covers, and the rule is applied at routing and disposition. A change
+  that edits the named rules file SHALL be surfaced as a Needs-sign-off
+  finding, its edits not applying to the same pass. The blind pass SHALL
+  NOT read the rules: its handoff bundle is built without them, as it
+  never carries the decline ledger (REQ-E1.1), and the rules apply to its
+  findings at routing as to any other.
+  *(Cites: D-21, REQ-B1.1, REQ-C1.3, REQ-E1.1, kickoff §9 (2026-10-20).)*
+- **REQ-J1.3** At routing and disposition, a validated finding that a
+  matching rule decides SHALL take the rule's disposition with the rule's
+  id in its audit row, unless the finding carries evidence the rule's
+  statement did not consider, in which case it SHALL route to Needs
+  sign-off naming the rule; a finding in a hard-disqualifier zone takes
+  the hard pause whatever a rule decides, the rule id recorded beside it;
+  and a rule SHALL never remove a finding before the audit record sees it.
+  *(Cites: D-21, REQ-C1.3, finding-categorization (Sources), kickoff §9
+  (2026-10-20).)*
 - **REQ-J1.4** An exporter SHALL render the rules file, or the subset
   scoped to one repository, into one vendor-neutral instruction block (the
-  statements, grouped by disposition, without ids, citations, or product
-  names) and print its content hash, so an adopter can place the block on
-  any external reviewer's instruction surface and detect drift later.
-  *(Cites: D-21, REQ-E1.7.)*
+  statements, grouped by disposition, without ids or citations, headed by
+  the file's version key) and print the block's SHA-256, so an adopter can
+  place the block on any external reviewer's free-text instruction surface
+  and detect drift later. It SHALL refuse a statement naming a product on
+  the machine-local name list REQ-H1.2's hygiene screen reads, naming the
+  rule id, and refuse to run without that list.
+  *(Cites: D-21, REQ-E1.7, REQ-H1.2.)*
 
 ## Changelog
 
@@ -619,9 +690,26 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   reads; the `Task <n>` spelling it carried was reported malformed.
 - 2026-10-19 — Extension, meaning-class, same delta: the group REQ-J
   (standing rules), D-21 and Task 6.1, after the operator asked that the
-  rule ledger the dotfiles drain needed be portable rather than personal;
+  standing-rules file the dotfiles drain needed be portable rather than
+  personal;
   the capability lands here under customization-boundary's split and the
   operator's rules, rendering and vendor surface stay in that overlay.
+- 2026-10-21 — Kickoff delta re-walkthrough edits (`kickoff-brief.md` §9),
+  meaning-class: the Goal names the audit's further categories; REQ-I1.1
+  drops the slug as a match key, defines its keys, exempts miss-ledger
+  fragments and places the recurrence marker after a kind prefix; REQ-J1.2
+  builds the blind pass's handoff bundle without the rules and reads them
+  from the base ref; REQ-H1.6 supersedes REQ-H1.4's window; Task 13 and
+  Task 14 dependencies widened to the extension's tasks. From the sign-off
+  lens pass: new REQ-H1.7, D-22 and Task 5.1 (miss-reason tokens for the
+  audit's categories); REQ-B1.9's trigger, isolation and recorded
+  spellings; REQ-F1.6's runner pinning, sharding, gating and skip rule;
+  REQ-F1.7's invocation definition; REQ-H1.5's full refresh and baseline;
+  REQ-I1.2's per-iteration review; REQ-J1.1's JSON form, knob, repository
+  form and disposition mapping; REQ-J1.3's hard-disqualifier rule;
+  REQ-J1.4's hash and name screen; Task 11.1 split into 11.1 and 11.2;
+  Task 3.1 and Task 1.1 sequenced on the second corpus version; paired
+  test-spec entries.
 
 ## Sources
 
@@ -646,7 +734,9 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   its design lessons are a Deferred entry.
 - **The kickoff walkthrough** (2026-09-24) — `kickoff-brief.md` §3, the
   operator's decisions per REQ group, cited as `kickoff §3 REQ-<group>`;
-  and §8, the sign-off lens pass's dispositions, cited as `kickoff §8`.
+  and §8, the sign-off lens pass's dispositions, cited as `kickoff §8`;
+  and §9 (2026-10-20), the delta re-walkthrough's decisions and lens
+  dispositions, cited as `kickoff §9`.
 - **bootstrap** REQ-C, REQ-D, REQ-E (Done) — the historical owner of the
   categorization, the rigor doctrine, and the review core.
 - **custom-steps** (Ready) — the convergence and post-pr points, the steps
@@ -733,13 +823,13 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   three-pass scoping but say nothing about the adversarial pass.
 - **proportionality** — `doctrine/proportionality.md`: rigor scales with
   stake and reversibility, and every scoping is declared.
-- **The external review audit** (2026-10-13) — a read of every thread the
-  bot reviewer posted on this repository's and the operator's dotfiles
-  repository's pull requests over the eleven days after the first corpus
-  version's cut, with the operator's disposition per thread and the request
+- **The external review audit** — a read of every thread the bot reviewer
+  posted on this repository's and the operator's dotfiles repository's
+  pull requests after the first corpus version's cut, with the operator's disposition per thread and the request
   timeline per PR; its datasets stayed in the drafting session's
   scratchpad and are not committed (D-16). The classes it found still
-  leaking after the signed scope: tests whose outcome depends on the host;
+  leaking after the signed scope (its categories, distinct from a corpus
+  class): tests whose outcome depends on the host;
   prose procedures with step-order and precondition defects; guards with
   evasion spellings; observation fragments duplicated or falsified; and
   twin sites left unswept. Pinned altitude claim from its invocation: what
@@ -747,20 +837,22 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   less, a statement about the passes as a class, resolved under D-1.
 - **The extension invocation** (2026-10-19) — the operator's ask for a
   spec covering every detail the audit found; fold-detection placed the
-  planwright half here and the hosted-reviewer drain half in the operator's
-  review-skills bundle.
-- **The operator's review-skills bundle** — the dotfiles bundle that owns
-  the hosted-reviewer drain and its request discipline; it receives the
-  items this extension routes away, and its D-13 (private machine-local
+  planwright half here and the bot-reviewer drain half in the operator's
+  review-skills spec bundle.
+- **The operator's review-skills spec bundle** — the dotfiles spec bundle
+  that owns the bot-reviewer drain and its request discipline; its Tasks 11
+  and 12 receive the items this extension routes away, and its D-13 (private machine-local
   files rendered from a secret store) and D-17 (planwright-owned items are
   seeded upstream, never overlaid) are why the standing-rules capability
   lands here while its rules and rendering stay there.
 - **customization-boundary** — `doctrine/customization-boundary.md`: the
   capability lands in core as an opt-in, default-preserving knob and the
   value stays in an overlay; applied to the standing rules (D-21).
-- **finding-categorization** — `doctrine/finding-categorization.md`: a
-  rejection is a decision the operator makes, and a disposition changed by
-  new evidence routes to Needs sign-off; the rule triage REQ-J1.3 follows.
+- **finding-categorization** — `doctrine/finding-categorization.md`: the
+  buckets, Declined-with-rationale, and the hard-disqualifier zones a
+  standing rule's disposition maps onto (REQ-J1.1, REQ-J1.3); the routing
+  of a finding carrying new evidence to Needs sign-off is this bundle's
+  own (REQ-C1.3's reopen rule, kickoff §9), not a rule that doc states.
 - **human-gates** (Ready) — the owner of the ready-flip preconditions;
   obs:3d66ac61 (a worker handing off before the bot's review of its final
   head lands) stays live for it.
