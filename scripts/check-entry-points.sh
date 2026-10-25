@@ -133,6 +133,10 @@ cp "$partition" "$work/partition" || fail_closed "cannot read the partition file
 expected_header=$(printf 'path\ttier\tflag\tcallers\tmutation\tprofile\tunresolved')
 IFS= read -r header <"$work/partition" || header=""
 [ "$header" = "$expected_header" ] || fail_closed "the partition's header is not the one this guard reads"
+# The partition writes `-` for an empty column, so a short row or an empty
+# column means a partition this guard cannot read.
+awk -F '\t' 'NR > 1 { if (NF != 7) exit 1; for (i = 1; i <= 7; i++) if ($i == "") exit 1 }' \
+  "$work/partition" || fail_closed "a partition row is not seven non-empty columns"
 
 # A layer path is a relative path of plain name characters; anything else
 # could escape the fixture root or the copy.
@@ -313,6 +317,7 @@ while IFS= read -r p; do
   want_class=""
   IFS= read -r want_class <"$d/stderr" || [ -n "$want_class" ] || want_class=""
   case $want_class in empty | 'match '?*) ;; *) fail_closed "$p: the fixture's stderr class is malformed" ;; esac
+  awk 'END { exit NR > 1 }' "$d/stderr" || fail_closed "$p: the fixture's stderr class is malformed (more than one line)"
   if [ ! -x "$repo_root/$p" ]; then
     finding "$p: not executable"
     continue

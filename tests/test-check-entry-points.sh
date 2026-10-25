@@ -254,6 +254,12 @@ cp -R "$base" "$t"
 printf 'sometimes\n' >"$t/tests/fixtures/entry-points/scripts/cli.sh/stderr"
 guard "$t"
 expect 5 "stderr class is malformed" "malformed stderr class"
+# A second line would read as a second class the guard never evaluates.
+for extra in '\nmatch ^never$\n' '\nmatch ^never$'; do
+  printf 'empty%b' "$extra" >"$t/tests/fixtures/entry-points/scripts/cli.sh/stderr"
+  guard "$t"
+  expect 5 "stderr class is malformed" "stderr class with a second line"
+done
 t="$tmp/badexit"
 cp -R "$base" "$t"
 printf 'two\n' >"$t/tests/fixtures/entry-points/scripts/cli.sh/exit"
@@ -284,6 +290,16 @@ cp -R "$base" "$t"
 sed '1s/^path/file/' "$base/partition.tsv" >"$t/partition.tsv"
 guard "$t"
 expect 5 "header" "unexpected partition header"
+# A body row short of a column, or with one emptied, would drop its entry
+# point or its flag without a word.
+for row in "scripts/late.sh${TAB}skill-called${TAB}-${TAB}skill" \
+  "scripts/late.sh${TAB}skill-called${TAB}-${TAB}skill${TAB}-${TAB}-${TAB}-${TAB}-" \
+  "scripts/late.sh${TAB}skill-called${TAB}${TAB}skill${TAB}-${TAB}-${TAB}-"; do
+  cp "$base/partition.tsv" "$t/partition.tsv"
+  printf '%s\n' "$row" >>"$t/partition.tsv"
+  guard "$t"
+  expect 5 "a partition row" "malformed partition row"
+done
 out=$(/bin/sh "$base/scripts/check-entry-points.sh" --bogus 2>&1)
 rc=$?
 expect 2 "usage:" "unknown option"
