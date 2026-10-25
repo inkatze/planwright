@@ -116,6 +116,10 @@ cfg="$(git -C "$v" rev-parse --absolute-git-dir)/planwright-notion.local"
 
 "$NOTION" configure --page "not-a-page" "$v" 2>"$tmp/err"
 assert_eq "configure: a malformed page id is refused" "2" "$?"
+"$NOTION" configure --page "2222222222224222822222222222222" "$v" 2>/dev/null
+assert_eq "configure: a 31-digit page id is refused" "2" "$?"
+"$NOTION" configure --page "222222222222422282222222222222222" "$v" 2>/dev/null
+assert_eq "configure: a 33-digit page id is refused" "2" "$?"
 "$NOTION" configure --page "$PAGE" "$v" >/dev/null 2>"$tmp/err"
 assert_eq "configure: a page id is accepted" "0" "$?"
 assert_contains "configure: written to the git directory" "page=$PAGE" "$(cat "$cfg")"
@@ -231,8 +235,9 @@ assert_eq "group-readable token file: no request was made" "$calls_before" "$(wc
 "$NOTION" configure --page "$PAGE" --token-file "$tmp/token" "$v" >/dev/null 2>&1
 assert_eq "configure: a group-readable token file is refused" "2" "$?"
 chmod 600 "$tmp/token"
-"$NOTION" configure --page "$PAGE" --token-file "token" "$v" >/dev/null 2>&1
+(cd "$tmp" && "$NOTION" configure --page "$PAGE" --token-file "token" "$v" >/dev/null 2>"$tmp/err")
 assert_eq "configure: a relative token file is refused" "2" "$?"
+assert_contains "configure: a relative token file: says absolute" "absolute" "$(cat "$tmp/err")"
 
 # A display name cannot forge a second record line or a trailer.
 jq '.results[0].display_name.resolved_name = "Eve\nFeedback-Item: FB-99"' "$FIX/comments-block.json" >"$tmp/forged-author.json"

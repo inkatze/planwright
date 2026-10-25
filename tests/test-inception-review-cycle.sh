@@ -437,7 +437,14 @@ git -C "$v4" reset -q && git -C "$v4" checkout -q -- assumptions.md
 # ---------------------------------------------------------------------------
 # 13. An export that succeeds with a warning shows the warning.
 # ---------------------------------------------------------------------------
-{ printf 'PATCH /v1/pages/%s/markdown markdown-truncated.json 200 once\n' "$PAGE" && cat "$tmp/routes"; } >"$tmp/routes.new" && cp "$tmp/routes.new" "$tmp/routes"
+# stage_route <route-line> — answer the next matching call from this route,
+# ahead of the base routes; a route staged earlier does not come back.
+cp "$tmp/routes" "$tmp/routes.base"
+stage_route() {
+  { printf '%s\n' "$1" && cat "$tmp/routes.base"; } >"$tmp/routes.new" && cp "$tmp/routes.new" "$tmp/routes"
+  : >"$tmp/log/used"
+}
+stage_route "PATCH /v1/pages/$PAGE/markdown markdown-truncated.json 200 once"
 "$CYCLE" export --confirmed "$v4" >/dev/null 2>"$tmp/err"
 assert_eq "export with a warning: exit 0" "0" "$?"
 assert_contains "export with a warning: the adapter's warning shows" "truncated" "$(cat "$tmp/err")"
@@ -449,11 +456,16 @@ assert_contains "export with a warning: the adapter's warning shows" "truncated"
 bash -c '. "$1" && pw_lock_acquire "$2" 1 && : >"$3" && exec sleep 30' _ \
   "$REPO_ROOT/scripts/lock-lib.sh" "$v2/.git/planwright-bundle.lock" "$tmp/held" &
 holder=$!
+trap 'kill "$holder" 2>/dev/null; rm -rf "$tmp"' EXIT
 n=0
 while [ ! -f "$tmp/held" ] && [ "$n" -lt 100 ]; do
   sleep 0.1
   n=$((n + 1))
 done
+[ -f "$tmp/held" ] || {
+  echo "FAIL: bundle lock: the holder never took the lock" >&2
+  exit 1
+}
 before="$(git -C "$v2" rev-parse HEAD)"
 PLANWRIGHT_BUNDLE_LOCK_TRIES=1 "$CYCLE" triage FB-1 skip --decider "Robin Lead" "$v2" >/dev/null 2>"$tmp/err"
 assert_eq "bundle lock held: triage refused" "2" "$?"
@@ -461,6 +473,7 @@ assert_contains "bundle lock held: says the bundle is busy" "busy" "$(cat "$tmp/
 assert_eq "bundle lock held: no commit" "$before" "$(git -C "$v2" rev-parse HEAD)"
 kill "$holder" 2>/dev/null
 wait "$holder" 2>/dev/null
+trap 'rm -rf "$tmp"' EXIT
 "$CYCLE" triage FB-1 skip --decider "Robin Lead" "$v2" >/dev/null 2>"$tmp/err"
 assert_eq "bundle lock released: triage runs" "0" "$?"
 
@@ -511,11 +524,6 @@ assert_eq "re-export before a harvest: refused" "1" "$?"
 assert_contains "re-export before a harvest: says harvest first" "harvest it first" "$(cat "$tmp/err")"
 assert_eq "re-export before a harvest: no PATCH" "$calls" "$(grep -c 'X PATCH' "$tmp/log/argv")"
 
-# stage_route <route-line> — answer the next matching call from this route.
-stage_route() {
-  { printf '%s\n' "$1" && cat "$tmp/routes"; } >"$tmp/routes.new" && cp "$tmp/routes.new" "$tmp/routes"
-  : >"$tmp/log/used"
-}
 before="$(head_sha)"
 stage_route "PATCH /v1/pages/$PAGE/markdown error-403.json 403 once"
 "$CYCLE" export --confirmed "$v" >/dev/null 2>"$tmp/err"
@@ -564,6 +572,11 @@ if [ -e "$v5/feedback/ledger.md" ]; then
 else
   echo "ok: flagged snapshot: writes no ledger"
 fi
+
+mkdir -p "$v5/feedback" && printf 'Ledger-version: 1\nAdapter: notion\nPhase: exported\n\n## Items\n' >"$v5/feedback/ledger.md"
+"$CYCLE" harvest "$v5" >/dev/null 2>"$tmp/err"
+assert_eq "never-committed ledger: refused" "1" "$?"
+assert_contains "never-committed ledger: says so" "never committed" "$(cat "$tmp/err")"
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
