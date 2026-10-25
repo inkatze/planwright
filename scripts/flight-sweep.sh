@@ -85,10 +85,10 @@
 #     liveness  alive | dead | unknown, for a flight with a worktree; - otherwise
 #     handle    the registered worker handle, or -
 #     worktree  its path, or -
-#   partial<TAB><id><TAB><path>, after the row of a flight not landed or
-#     waiting on the operator (a park after landing): the latest private
-#     partial record it rendered when it parked, so a park whose queue push
-#     failed still shows one. It is read only from a fleet
+#   partial<TAB><id><TAB><path>, after the row of any flight that has one,
+#     landed or not: the latest private partial record it rendered when it
+#     parked, so a park whose queue push failed, before or after landing,
+#     still shows one. It is read only from a fleet
 #     home, flights directory, and brief directory private to the user, and
 #     only as a regular file
 # The primary checkout is never a flight's worktree, even with a flight branch
@@ -597,7 +597,7 @@ cmd_sweep() {
         ;;
     esac
     flights="${flights}flight$TAB$id$TAB$state$TAB$landing$TAB$live$TAB$handle$TAB${wt:--}$LF"
-    if { [ "$state" != landed ] || [ "$waits" -eq 1 ]; } && _partial=$(partial_record "$id"); then
+    if _partial=$(partial_record "$id"); then
       flights="${flights}partial$TAB$id$TAB$_partial$LF"
     fi
     IFS=$LF
