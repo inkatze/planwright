@@ -216,14 +216,14 @@ malformed_field "pool on a skill step" "pool on a skill step" \
   "kind: skill" "target: polish" "pool: host-gate"
 malformed_field "paths on a skill step" "paths on a skill step" \
   "kind: skill" "target: polish" "paths: ."
-malformed_field "refire on a skill step" "on a skill step" \
-  "kind: skill" "target: polish" "paths: ." "refire: post-pr"
+malformed_field "refire on a skill step" "refire on a skill step" \
+  "kind: skill" "target: polish" "refire: post-pr"
 malformed_field "pool on a prompt step" "pool on a prompt step" \
   "kind: prompt" "target: p" "pool: host-gate"
 malformed_field "paths on a prompt step" "paths on a prompt step" \
   "kind: prompt" "target: p" "paths: ."
-malformed_field "refire on a prompt step" "on a prompt step" \
-  "kind: prompt" "target: p" "paths: ." "refire: post-pr"
+malformed_field "refire on a prompt step" "refire on a prompt step" \
+  "kind: prompt" "target: p" "refire: post-pr"
 malformed_field "refire with hosting continue" "refire with hosting continue" \
   "kind: command" "target: bin/fixture-tool" "paths: ." "refire: post-pr" "hosting: continue"
 
