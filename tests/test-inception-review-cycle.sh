@@ -345,6 +345,13 @@ assert_contains "uncommitted ledger: says so" "uncommitted" "$(cat "$tmp/err")"
 assert_eq "uncommitted ledger: no commit" "$before" "$(git -C "$v2" rev-parse HEAD)"
 git -C "$v2" checkout -q -- feedback/ledger.md
 
+printf 'a staged hand edit\n' >>"$v2/feedback/ledger.md"
+git -C "$v2" add feedback/ledger.md && git -C "$v2" show HEAD:feedback/ledger.md >"$v2/feedback/ledger.md"
+"$CYCLE" triage FB-1 skip --decider "Robin Lead" "$v2" >/dev/null 2>"$tmp/err"
+assert_eq "staged ledger edit: triage refused" "1" "$?"
+assert_eq "staged ledger edit: kept staged" "feedback/ledger.md" "$(git -C "$v2" diff --cached --name-only)"
+git -C "$v2" reset -q -- feedback/ledger.md
+
 v3="$tmp/venture3"
 inception_fixture_write "$v3" || exit 1
 git -C "$v3" init -q . && git -C "$v3" add -A && git -C "$v3" commit -qm "chore: seed the venture" || exit 1
