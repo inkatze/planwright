@@ -421,7 +421,9 @@ both the derivation here and holder dispatch there.
 field's alias through the registry, or the bundle's work repository),
 groups tasks by resolved repository, derives each group from that
 repository's own evidence (its branches, its pull requests, its commit
-trailers, its dispatch markers), and joins the results. Dependency
+trailers), and joins the results; the dispatch markers keep their one
+per-bundle home, so every session reading the bundle sees the same
+in-flight units whichever repository they dispatched into. Dependency
 satisfaction reads the dependency's derived state wherever it lives, which
 is what "the repository it landed in" means. A task whose alias does not
 resolve derives `unresolved`, a distinct state that is never selected,
@@ -487,9 +489,9 @@ whose tasks all live in one repository derives exactly as before.
 - **Extension decision-domains walk (2026-10-25).** Data modelling: a new
   format field, decided in D-13 and D-14. Versioning: format-version 3,
   D-13. Integration surface: the registry seam consumed from
-  `custom-spec-location`, D-14. Concurrency: per-repository derivation with
-  dispatch markers already homed per repository's common git directory,
-  D-15. Observability: the render's per-task alias and the `unresolved`
+  `custom-spec-location` (its `--repository` lookup), D-14. Concurrency:
+  per-repository evidence with the dispatch markers kept in their one
+  per-bundle home, D-15. Observability: the render's per-task alias and the `unresolved`
   state, REQ-F1.4 and REQ-F1.5. No new dependency.
 - **This bundle is authored at format-version 1** — v2 does not exist until
   Task 1 ships. It is expected to be among the live bundles migrated by

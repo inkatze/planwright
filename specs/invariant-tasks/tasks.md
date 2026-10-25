@@ -269,9 +269,11 @@ the open questions in `requirements.md`.)*
 
 - **Deliverables:** `scripts/orchestrate-state.sh` resolving each task's
   repository (the field's alias through the work-repository registry, or
-  the bundle's work repository) and deriving each task from that
-  repository's own branches, pull requests, commit trailers, and dispatch
-  markers; the `unresolved` state; the per-repository transient-failure
+  the bundle's work repository, through the `--repository` lookup of
+  `scripts/resolve-work-repo.sh`) and deriving each task from that
+  repository's own branches, pull requests, and commit trailers, the
+  dispatch markers staying in their per-bundle home; the `unresolved`
+  state; the per-repository transient-failure
   rule; `scripts/orchestrate-select.sh` and `scripts/drain-gates.sh`
   reading dependency and gate state from that per-task derivation;
   `scripts/spec-status.sh` showing each task's alias and naming an
