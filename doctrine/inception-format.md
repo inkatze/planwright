@@ -161,8 +161,7 @@ spend before the gate forces a decision), `## Kill criteria`, `## Tracks`
 `## Changelog`. Sections a minor version or a venture adds may appear between
 required ones without breaking the order check. An optional
 `## Minimum core check` may appear anywhere before `## Sources`; its content
-is a convenience render the validator ignores. The optional `## Lineage`
-(*Lineage* below) sits between `## Gate log` and `## Changelog`.
+is a convenience render the validator ignores.
 
 `## Opportunity` carries four bolded field bullets (REQ-C1.2), in order:
 
@@ -447,21 +446,19 @@ operator-triaged commits); the validator guards them.
 
 ## Lineage
 
-Graduation records its lineage in `brief.md` `## Lineage` (REQ-J1.5), one
-bullet per graduated scope (`venture` in an untracked venture, otherwise the
-track label), written when the seed is:
+Graduation records lineage (REQ-J1.5) in an optional `brief.md`
+`## Lineage` between `## Gate log` and `## Changelog`: one bullet per
+graduated scope (`venture` when untracked, else the track label), written
+with the seed:
 
 ```markdown
 - **<scope>** — Gate <n> — seed: `<location>` — spec: `<location>` | pending
 ```
 
-`Gate <n>` is the record that graduated the scope. A location is relative to
-the venture repository when inside it and `<repo>:<path>` otherwise, never a
-machine path. `pending` becomes the spawned spec's location once that spec's
-`## Sources` cites the scope's lineage key, `inception:<venture-id>` or
-`inception:<venture-id>/<label>`, which the seed carries. A graduated scope
-with no bullet, or a recorded spec that does not cite its key, is a lineage
-finding.
+A location is venture-relative inside the venture, else `<repo>:<path>`.
+`pending` gives way to the spec's location once that spec's `## Sources`
+cites the lineage key the seed carries, `inception:<venture-id>[/<label>]`.
+Either direction missing is a lineage finding.
 
 ## Format-version rules
 

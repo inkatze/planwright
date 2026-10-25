@@ -230,6 +230,15 @@ assert_eq "E1.2 refused records write nothing" 0 "$(grep -c '^### Gate 2' "$vroo
 gate record --outcome Kill --decider "Dana Reyes" --rationale "no value story" "$vroot/out-kill"
 assert_eq "E1.2 a closed venture takes no further gate record" 1 "$rc"
 
+mkv fenced
+awk '{ print } /^Rides the incident-tooling consolidation/ { print ""; print "```markdown"; print "## Gate log"; print ""; print "## Changelog"; print "```" }' \
+  "$vroot/fenced/brief.md" >"$tmp/b" && mv "$tmp/b" "$vroot/fenced/brief.md"
+gate record --outcome Hold --decider "Dana Reyes" --rationale "waiting on budget" "$vroot/fenced"
+assert_eq "E1.2 a fenced example heading does not redirect the record" 0 "$rc"
+assert_eq "E1.2 the fenced example is left untouched" 0 \
+  "$(awk '/^```markdown/ { on = 1; next } /^```/ { on = 0 } on && /Gate 2|Hold/' "$vroot/fenced/brief.md" | wc -l | tr -d ' ')"
+assert_eq "E1.2 the record lands in the real gate log" 0 "$(validates_clean "$vroot/fenced")"
+
 # --- REQ-E1.3 kill-criteria checking ----------------------------------------
 
 gate evaluate "$vroot/base"

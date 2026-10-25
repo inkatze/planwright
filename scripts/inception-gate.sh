@@ -242,7 +242,7 @@ fld == "Options" && /^  +- / { s = $0; sub(/^ +- /, "", s); gsub(/\t/, " ", s); 
 END { flush() }
 '
 
-# brief.md: TITLE, STATUS, S <section>, OPP <field> <value>, TXT <section>
+# brief.md: TITLE, S <section>, OPP <field> <value>, TXT <section>
 # <line>, DECIDER, KC <id> <superseded 0|1>, TRACK <label> <done 0|1> <text>,
 # SRC <raw line>, G <n> <key> <value>, LIN <scope> <gate> <seed> <spec>.
 # shellcheck disable=SC2016 # awk source, not a shell expansion
@@ -252,7 +252,6 @@ function out(s) { gsub(/\t/, " ", s); return s }
 function flusho() { if (of != "") print "OPP\t" of "\t" out(ov); of = "" }
 function flushg() { if (gk != "") print "G\t" gn "\t" gk "\t" out(gv); gk = "" }
 NR == 1 && /^# / { t = substr($0, 3); sub(/ — Brief[ \t]*$/, "", t); print "TITLE\t" out(trim(t)) }
-sect == "" && /^\*\*Status:\*\* / { v = $0; sub(/^\*\*Status:\*\* */, "", v); print "STATUS\t" out(trim(v)); next }
 /^## / { flusho(); flushg(); gn = ""; sect = trim(substr($0, 4)); print "S\t" out(sect); next }
 sect == "Opportunity" && /^- \*\*[^*]+:\*\*/ {
   flusho(); of = $0; sub(/^- \*\*/, "", of); sub(/:\*\*.*$/, "", of)
@@ -303,8 +302,9 @@ read_regs() {
 # elicitation's leftover pending markers.
 gather() {
   validate_live
+  _st=$(spec_parse_header_value "$vdir/brief.md" Status) || die 2 "cannot read the venture status"
   {
-    read_brief "$vdir" && read_regs "$vdir"
+    printf 'STATUS\t%s\n' "$_st" && read_brief "$vdir" && read_regs "$vdir"
   } >"$work/all" || die 2 "cannot read the bundle"
   "$RENDER" --mode status "$vdir" >"$work/render" 2>/dev/null || die 2 "the renderer could not read the kill criteria"
   grep '^kill	' "$work/render" >>"$work/all"
@@ -446,44 +446,82 @@ stage() {
   done
 }
 
-# rewrite <file> <awk-program> [awk -v args...] — run a line filter over a
-# staged file in place. Fenced lines pass through untouched.
-rewrite() {
-  _rf=$1
-  _rp=$2
+# Where to write is decided by the shared fence lexer, so a fenced example
+# of a heading or bullet is never mistaken for the real one; the writers below
+# then edit by line number and copy every other line through untouched.
+#
+# locate <file> heading <section> — `<heading line> <next H2 line, or 0>`;
+# locate <file> bullet <section> <prefix> — the first section line that starts
+# with <prefix>, or 0.
+# shellcheck disable=SC2016 # awk source, not a shell expansion
+LOCATE_AWK='
+/^## / {
+  h = substr($0, 4); sub(/[ \t]+$/, "", h)
+  if (insec && !endn) endn = NR
+  insec = (h == sec)
+  if (insec && !startn) startn = NR
+  next
+}
+mode == "bullet" && insec && !hit && index($0, prefix) == 1 { hit = NR }
+END { if (mode == "heading") print (startn + 0) " " (endn + 0); else print hit + 0 }
+'
+locate() {
+  awk -v mode="$2" -v sec="$3" -v prefix="${4:-}" "$spec_parse_awk_fence$LOCATE_AWK" "$1" \
+    || die 2 "cannot read $(basename "$1")"
+}
+
+# edit <file> <awk-program> [awk -v args...] — run a raw line program over a
+# staged file in place.
+edit() {
+  _ef=$1
+  _ep=$2
   shift 2
-  if ! awk "$@" '/^```/ { fence = !fence; print; next } fence { print; next } '"$_rp" "$_rf" >"$_rf.new" \
-    || ! cat "$_rf.new" >"$_rf"; then
-    die 2 "cannot rewrite $(basename "$_rf")"
+  if ! awk "$@" "$_ep" "$_ef" >"$_ef.new" || ! cat "$_ef.new" >"$_ef"; then
+    die 2 "cannot rewrite $(basename "$_ef")"
   fi
-  rm -f "$_rf.new"
+  rm -f "$_ef.new"
+}
+
+# replace_line <file> <n> <text> — the text travels by the environment, since
+# awk -v would rewrite its backslash escapes.
+replace_line() {
+  # shellcheck disable=SC2016 # awk source, not a shell expansion
+  GATE_EDIT_TEXT=$3 edit "$1" 'NR == n { print ENVIRON["GATE_EDIT_TEXT"]; next } { print }' -v n="$2"
+}
+
+# insert_before <file> <n> <text-file>
+insert_before() {
+  # shellcheck disable=SC2016 # awk source, not a shell expansion
+  edit "$1" 'NR == n { while ((getline l < tf) > 0) print l; close(tf) } { print }' -v n="$2" -v tf="$3"
 }
 
 # append_section <file> <section> <text-file> — add the text at the end of an
 # H2 section, before its trailing blank lines.
 append_section() {
+  _at=$(locate "$1" heading "$2")
+  [ "${_at% *}" -gt 0 ] || die 2 "$(basename "$1") has no ## $2 section"
   # shellcheck disable=SC2016 # awk source, not a shell expansion
-  rewrite "$1" '
-    function emit(   l) { while ((getline l < tf) > 0) print l; close(tf) }
-    function blanks() { while (nb > 0) { print ""; nb-- } }
-    /^## / {
-      if (insec) { emit(); print ""; insec = 0; nb = 0 } else blanks()
-      print; if (substr($0, 4) == sec) insec = 1; next
+  edit "$1" '
+    { L[NR] = $0 }
+    END {
+      k = (end ? end - 1 : NR)
+      while (k > start && L[k] ~ /^[ \t]*$/) k--
+      for (i = 1; i <= k; i++) print L[i]
+      while ((getline l < tf) > 0) print l
+      if (end) { print ""; for (i = end; i <= NR; i++) print L[i] }
     }
-    /^[ \t]*$/ { nb++; next }
-    { blanks(); print }
-    END { if (insec) emit(); else blanks() }
-  ' -v sec="$2" -v tf="$3"
+  ' -v start="${_at% *}" -v end="${_at#* }" -v tf="$3"
 }
 
 set_status() {
-  # shellcheck disable=SC2016 # awk source, not a shell expansion
-  rewrite "$1" '!done && /^\*\*Status:\*\* / { print "**Status:** " s; done = 1; next } { print }' -v s="$2"
+  _sn=$(spec_parse_header_status_line "$1") || die 2 "cannot read the status of $(basename "$1")"
+  [ "$_sn" -gt 0 ] || die 2 "$(basename "$1") declares no status"
+  replace_line "$1" "$_sn" "**Status:** $2"
 }
 
 bump_reviewed() {
   # shellcheck disable=SC2016 # awk source, not a shell expansion
-  rewrite "$1" '!done && /^\*\*Last reviewed:\*\* / { print "**Last reviewed:** " d; done = 1; next } { print }' -v d="$(today)"
+  edit "$1" '!done && /^\*\*Last reviewed:\*\* / { print "**Last reviewed:** " d; done = 1; next } { print }' -v d="$(today)"
 }
 
 changelog() {
@@ -736,12 +774,9 @@ cmd_record() {
       Kill) _suf=" — ended $_d (killed at Gate $_n)" ;;
       *) continue ;;
     esac
-    # shellcheck disable=SC2016 # awk source, not a shell expansion
-    rewrite "$work/stage/brief.md" '
-      /^## / { on = ($0 ~ /^## Tracks[ \t]*$/) }
-      on && index($0, "- **" l "**") == 1 { print $0 suf; next }
-      { print }
-    ' -v l="$_lb" -v suf="$_suf"
+    _tn=$(locate "$work/stage/brief.md" bullet Tracks "- **$_lb**")
+    [ "$_tn" -gt 0 ] || die 2 "the brief declares no track bullet for $_lb"
+    replace_line "$work/stage/brief.md" "$_tn" "$(sed -n "${_tn}p" "$work/stage/brief.md")$_suf"
   done <"$work/tr"
   changelog "$work/stage/brief.md" "- $_d — Gate $_n recorded ($_out)."
   _changed=brief.md
@@ -945,18 +980,14 @@ cmd_seed() {
   _d=$(today)
   # shellcheck disable=SC2016 # literal backticks in the bullet, not an expansion
   printf -- '- **%s** — Gate %s — seed: `%s` — spec: pending\n' "$_scope" "$_gate" "$_sloc" >"$work/lin"
-  if grep -q '^## Lineage[ 	]*$' "$work/stage/brief.md"; then
+  _at=$(locate "$work/stage/brief.md" heading Lineage)
+  if [ "${_at% *}" -gt 0 ]; then
     append_section "$work/stage/brief.md" Lineage "$work/lin"
   else
-    # shellcheck disable=SC2016 # awk source, not a shell expansion
-    rewrite "$work/stage/brief.md" '
-      !done && /^## Changelog[ \t]*$/ {
-        print "## Lineage"; print ""
-        while ((getline l < lf) > 0) print l
-        print ""; done = 1
-      }
-      { print }
-    ' -v lf="$work/lin"
+    _at=$(locate "$work/stage/brief.md" heading Changelog)
+    [ "${_at% *}" -gt 0 ] || die 2 "brief.md has no ## Changelog section"
+    { printf '## Lineage\n\n' && cat "$work/lin" && printf '\n'; } >"$work/lin.sec" || die 2 "cannot stage the lineage section"
+    insert_before "$work/stage/brief.md" "${_at% *}" "$work/lin.sec"
   fi
   changelog "$work/stage/brief.md" "- $_d — seed prepared for $_scope (Gate $_gate)."
   bump_reviewed "$work/stage/brief.md"
@@ -1029,12 +1060,14 @@ cmd_link() {
   fi
   [ "$_cur" = pending ] || die 1 "$_scope is already linked to another spec"
   stage
-  # shellcheck disable=SC2016 # awk source, not a shell expansion
-  rewrite "$work/stage/brief.md" '
-    /^## / { on = ($0 ~ /^## Lineage[ \t]*$/) }
-    on && index($0, "- **" s "** — ") == 1 && / — spec: pending$/ { sub(/ — spec: pending$/, " — spec: `" loc "`") }
-    { print }
-  ' -v s="$_scope" -v loc="$_loc"
+  _ln=$(locate "$work/stage/brief.md" bullet Lineage "- **$_scope** — ")
+  [ "$_ln" -gt 0 ] || die 2 "brief.md holds no lineage bullet for $_scope"
+  _line=$(sed -n "${_ln}p" "$work/stage/brief.md")
+  case $_line in
+    *' — spec: pending') ;;
+    *) die 2 "the $_scope lineage bullet does not end in a pending spec" ;;
+  esac
+  replace_line "$work/stage/brief.md" "$_ln" "${_line% — spec: pending} — spec: \`$_loc\`"
   changelog "$work/stage/brief.md" "- $(today) — the $_scope seed's spec recorded as \`$_loc\`."
   bump_reviewed "$work/stage/brief.md"
   validated_stage
