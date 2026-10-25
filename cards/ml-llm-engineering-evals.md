@@ -257,7 +257,8 @@ seat or another persona seat agreeing with it.
 - planwright observations log, 2026-06-17: the decision-domains catalog had no entry for LLM
   output quality and evaluation gates while a work-fork AI-feature kickoff leaned on one; the
   demand evidence for this card's commission (inception D-17, REQ-P1.11), consumed by the
-  inception spec and now `doctrine/decision-domains.md` *LLM output quality & evaluation gates*.
+  inception spec and now `doctrine/decision-domains.md` *LLM output quality & evaluation gates*
+  — re-verified 2026-10-25 against the observations archive and that catalog entry.
 - Husain, H., "Your AI Product Needs Evals", 29 March 2024,
   <https://hamel.dev/blog/posts/evals/> — re-verified 2026-10-25 from the page itself.
 - Ribeiro, M. T., Wu, T., Guestrin, C., and Singh, S., "Beyond Accuracy: Behavioral Testing of
