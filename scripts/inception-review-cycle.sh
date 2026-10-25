@@ -660,7 +660,9 @@ cmd_triage() {
   [ "$cur" = pending ] || die 1 "$item was already triaged ($(sanitize_printable "$cur"))"
   if [ -n "$section" ]; then
     section_check "$section"
-    sec_val=$(oneline "$section" 200)
+    # Stored as given: section_check has matched it to one heading line, and
+    # apply matches it again, so any rewrite here would strand the item.
+    sec_val=$section
   else
     sec_val=none
   fi

@@ -294,6 +294,36 @@ assert_eq "bad pinned date: export refused" "2" "$?"
 assert_eq "bad pinned date: no API call" "$calls" "$(wc -l <"$tmp/log/argv" | tr -d ' ')"
 assert_eq "bad pinned date: no commit" "$before" "$(head_sha)"
 
+# fresh_venture <dir> — a second venture, exported and harvested, its three
+# items pending.
+fresh_venture() {
+  inception_fixture_write "$1" || return 1
+  git -C "$1" init -q . && git -C "$1" add -A && git -C "$1" commit -qm "chore: seed the venture" || return 1
+  "$NOTION" configure --page "$PAGE" "$1" >/dev/null || return 1
+  "$CYCLE" export --adapter notion --confirmed "$1" >/dev/null 2>&1 || return 1
+  "$CYCLE" harvest "$1" >/dev/null 2>&1
+}
+# field_of <venture> <FB-id> <Field>
+field_of() {
+  awk -v id="$2" -v k="$3" '
+    /^### / { cur = $2; next }
+    cur == id && index($0, k ": ") == 1 { print substr($0, length(k) + 3); exit }' "$1/feedback/ledger.md"
+}
+
+# ---------------------------------------------------------------------------
+# 8. A register entry named by its full heading is applied as triaged.
+# ---------------------------------------------------------------------------
+v2="$tmp/venture2"
+fresh_venture "$v2" || exit 1
+full="assumptions.md#A-2 — the three sinks accept writes from one surface"
+"$CYCLE" triage FB-3 apply --decider "Robin Lead" --section "$full" "$v2" >/dev/null 2>"$tmp/err"
+assert_eq "full heading: triage exit 0" "0" "$?"
+assert_eq "full heading: recorded as given" "$full" "$(field_of "$v2" FB-3 Section)"
+awk '/^### A-2 / { s = 1 } /^### A-3 / { s = 0 } s && /^- \*\*Risk-if-wrong:\*\*/ { print "- **Risk-if-wrong:** the fan-out needs a human relay at the failing sink"; next } { print }' "$v2/assumptions.md" >"$tmp/a" && cp "$tmp/a" "$v2/assumptions.md"
+git -C "$v2" add assumptions.md
+"$CYCLE" apply FB-3 "$v2" >/dev/null 2>"$tmp/err"
+assert_eq "full heading: apply exit 0" "0" "$?"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
