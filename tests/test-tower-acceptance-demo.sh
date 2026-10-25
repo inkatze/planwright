@@ -114,10 +114,21 @@ spec_entries() {
       gsub(/`/, "", b)
       gsub(/[ \t\n]+/, " ", b)
       demo = (b ~ /(^|[^a-z])demos?([^a-z]|$)/) ? "yes" : "no"
+      # A run of scenario names before "demo" names each of them: "the
+      # chat-only and escalation demos", not only the last.
       named = ""
       n = split(ENVIRON["S"], sc, " ")
+      alt = "("
+      for (i = 1; i <= n; i++) alt = alt (i > 1 ? "|" : "") sc[i]
+      alt = alt ")"
+      runs = ""
+      rest = b
+      while (match(rest, alt "((,? and |,? or |, )" alt ")* demo")) {
+        runs = runs " " substr(rest, RSTART, RLENGTH)
+        rest = substr(rest, RSTART + RLENGTH)
+      }
       for (i = 1; i <= n; i++)
-        if (index(b, sc[i] " demo")) named = named (named == "" ? "" : " ") sc[i]
+        if (index(runs, sc[i])) named = named (named == "" ? "" : " ") sc[i]
       printf "%s\t%s\t%s\n", req, demo, named
     }
     /^## / { flush(); req = ""; next }
@@ -232,6 +243,10 @@ Pins the demotion placements; a manual read of the newcomer path.
 ### REQ-A1.6 — The [bracketed] case [manual]
 
 The escalation demos show it.
+
+### REQ-A1.7 — Seven [manual]
+
+The chat-only and escalation demos both show it.
 EOF
 cat >"$tmp/good.md" <<'EOF'
 # Demo
@@ -250,6 +265,7 @@ cat >"$tmp/good.md" <<'EOF'
 - [ ] REQ-A1.2 · chat-only, escalation: work offloads.
 - [ ] REQ-A1.5 · outside the demo: read the newcomer path.
 - [ ] REQ-A1.6 · escalation: the case is shown.
+- [ ] REQ-A1.7 · chat-only, escalation: shown in both.
 EOF
 expect_problem() {
   case "$(xref "$tmp/spec.md" "$tmp/$2")" in
@@ -266,6 +282,8 @@ sed 's/REQ-A1.1 · chat-only/REQ-A1.1 · escalation/' "$tmp/good.md" >"$tmp/wron
 expect_problem "the screen refuses a row missing the scenario its entry names (a backticked name)" wrong.md "REQ-A1.1: names the chat-only demo but its row does not"
 sed 's/REQ-A1.6 · escalation/REQ-A1.6 · chat-only/' "$tmp/good.md" >"$tmp/wrong-plural.md"
 expect_problem "the screen reads a plural demos as naming the scenario" wrong-plural.md "REQ-A1.6: names the escalation demo but its row does not"
+sed 's/REQ-A1.7 · chat-only, escalation/REQ-A1.7 · escalation/' "$tmp/good.md" >"$tmp/wrong-listed.md"
+expect_problem "the screen reads every scenario listed before demos" wrong-listed.md "REQ-A1.7: names the chat-only demo but its row does not"
 sed 's/REQ-A1.2 · chat-only, escalation/REQ-A1.2 · walk-away/' "$tmp/good.md" >"$tmp/phantom.md"
 expect_problem "the screen refuses a row naming an undriven scenario" phantom.md "REQ-A1.2: checklist row names walk-away, which the demo does not drive"
 sed 's/REQ-A1.2 · chat-only, escalation/REQ-A1.2 · outside the demo/' "$tmp/good.md" >"$tmp/outside.md"
