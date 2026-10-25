@@ -146,10 +146,10 @@ worker-settings profile (`config/worker-settings.json`), which a human installs.
 falls outside the configured self-approval policy (`worker_self_approval`,
 which the profile's worker guard evaluates per command segment) and outside
 every operator-written standing decision parks as a decision-queue item for
-the operator. No tower or supervisor answers it on its own judgment, and no
-relay answers one on the strength of the policy. The policy is the only
-self-approval surface: a standing decision is not a second one, being the
-operator's own answer recorded in advance.
+the operator. No tower, supervisor, or relay answers it, whether on its own
+judgment or on the strength of the policy, which only the guard evaluates.
+The policy is the only self-approval surface: a standing decision is not a
+second one, being the operator's own answer recorded in advance.
 
 ## Security bounds
 
