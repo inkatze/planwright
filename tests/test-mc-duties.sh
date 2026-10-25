@@ -288,6 +288,53 @@ program_alpha_spec_root: $repo
 program_alpha_duties: [alpha-duty, beta-duty]
 EOF
 
+# Ids compare as strings: "01" is not "1".
+printf 'duties:\n  - id: "1"\n    summary: "x"\n    triggers: []\n    watchers: []\n    wake: none\n    rules: []\n    kinds: []\n    files: one\n    lifecycle: live\n    never-propose: false\n' >>"$core/config/duties.yaml"
+cat >"$adopter/catalogs/duties.yaml" <<'EOF'
+duties:
+  - id: "1"
+    supersede: true
+    summary: "An adopter override of 1"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: one
+    lifecycle: live
+    never-propose: false
+EOF
+cat >"$repo/.claude/catalogs/duties.yaml" <<'EOF'
+duties:
+  - id: "01"
+    summary: "An invalid repo-tracked duty"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: zero-one
+    lifecycle: bogus
+    never-propose: false
+EOF
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "an invalid repo-tracked 01 is not taken for the adopter's 1" 1
+expect_err "the 01 refusal is reported" "refusing an invalid catalog"
+reset_mc_fixture
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [alpha-duty, beta-duty]
+EOF
+
+# An adopter id carrying a tab is still named by its layer and skipped.
+printf 'duties:\n  - id: "bad\tid"\n    summary: "x"\n    triggers: []\n    watchers: []\n    wake: none\n    rules: []\n    kinds: []\n    files: odd\n    lifecycle: live\n    never-propose: false\n' >"$adopter/catalogs/duties.yaml"
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "an adopter id carrying a tab is skipped, not refused" 0
+expect_err "the tab id's skip names the adopter layer" "from the adopter layer"
+rm -f "$adopter/catalogs/duties.yaml"
+
 # An adopter entry whose id cannot be printed is still named by its layer.
 printf 'duties:\n  - id: bad%sid\n    summary: "x"\n    triggers: []\n    watchers: []\n    wake: none\n    rules: []\n    kinds: []\n    files: odd\n    lifecycle: live\n    never-propose: false\n' \
   "$(printf '\001')" >"$adopter/catalogs/duties.yaml"

@@ -259,21 +259,26 @@ skipped_entries() {
   # changed between the reads) name no layer.
   layers=$(catalog --explain 2>/dev/null)
   entry_ids=$(printf '%s\n' "$1" | walk ids) || return 1
-  [ "$(printf '%s\n' "$entry_ids" | cut -f2- | sort)" = "$(printf '%s\n' "$layers" | cut -f1 | sort)" ] || layers=""
+  # An id may carry a tab: the --explain layer is the last field, and the id
+  # everything before it. Comparisons are string ones (awk would take "01"
+  # and "1" for one number).
+  [ "$(printf '%s\n' "$entry_ids" | awk '{ print substr($0, index($0, "\t") + 1) }' | sort)" \
+    = "$(printf '%s\n' "$layers" | awk '{ sub(/\t[^\t]*$/, ""); print }' | sort)" ] || layers=""
   skip_pos=" "
   skip_lines=""
+  sep=$(printf '\037')
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     pos=${p%%	*}
-    id=$(printf '%s\n' "$entry_ids" | POS=$pos awk -F '\t' '$1 == ENVIRON["POS"] { print substr($0, length($1) + 2); exit }')
-    layer=$(printf '%s\n' "$layers" | ID=$id awk -F '\t' '$1 == ENVIRON["ID"] { print $2; exit }')
+    id=$(printf '%s\n' "$entry_ids" | POS=$pos awk -F '\t' '$1 "" == ENVIRON["POS"] "" { print substr($0, length($1) + 2); exit }')
+    layer=$(printf '%s\n' "$layers" | ID=$id awk '{ l = $0; sub(/\t[^\t]*$/, "", l) } l "" == ENVIRON["ID"] "" { sub(/.*\t/, ""); print; exit }')
     case $layer in
       adopter | machine-local)
         case $skip_pos in
           *" $pos "*) ;;
           *)
             skip_pos="$skip_pos$pos "
-            skip_lines="$skip_lines$pos	$id	$layer
+            skip_lines="$skip_lines$pos$sep$id$sep$layer
 "
             ;;
         esac
@@ -292,7 +297,7 @@ EOF
       ;;
     *) fail "the catalog reader failed" ;;
   esac
-  printf '%s' "$skip_lines" | while IFS='	' read -r pos id layer; do
+  printf '%s' "$skip_lines" | while IFS=$sep read -r pos id layer; do
     printf '%s\n' "$prog: warning: skipping duty '$(sanitize_printable "$id")' from the $layer layer; its entry is invalid" >&2
     printf '%s\t%s\n' "$pos" "$id"
   done
@@ -304,7 +309,7 @@ armed() { # armed <watchers|files> <program>
   enabled=$(bash "$script_dir/mc-program.sh" get "$2" duties)
   rc=$?
   [ "$rc" -eq 0 ] || exit "$rc"
-  out=$(printf '%s\n' "$cat_out" | ENABLED=$enabled SKIP=$(printf '%s\n' "$skipped" | cut -f2) walk "$1") \
+  out=$(printf '%s\n' "$cat_out" | ENABLED=$enabled SKIP=$(printf '%s\n' "$skipped" | awk '{ print substr($0, index($0, "\t") + 1) }') walk "$1") \
     || fail "the catalog reader failed"
   missing=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "missing" { print $2 }')
   if [ -n "$missing" ]; then
