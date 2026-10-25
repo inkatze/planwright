@@ -17,7 +17,8 @@ to its handoff.
 ## Questions to your tower
 
 Your supervising tower's session name is `@@TOWER@@`. You may put a question
-to it by message, under these rules only:
+to it by message, under these rules only (the `scripts/` they name are under
+the resolved planwright root, not this worktree):
 
 1. Record the question first as an answerable fork through
    `scripts/fleet-attention.sh fork`, keyed by your `PLANWRIGHT_WORKER_HANDLE`

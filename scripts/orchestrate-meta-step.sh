@@ -43,8 +43,8 @@
 #     --backend    stream-json-persistent | headless-oneshot. Other rungs are
 #                  refused (exit 2): the harness-native ones belong to the
 #                  session itself, print hands the launch to a human, and the
-#                  tmux primitive takes no prompt through its launch-arg
-#                  allowlist.
+#                  tmux primitive takes no prompt file, only a rendered task
+#                  brief (fleet-task-brief.sh).
 #     --prompt-file  the worker's prompt; its first non-blank line invokes
 #                  /execute-task (or /planwright:execute-task).
 #     --repo-root  the primary checkout (default: resolve-root.sh repo

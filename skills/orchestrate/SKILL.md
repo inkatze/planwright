@@ -259,7 +259,8 @@ it when relaying to or cleaning up after a worker.
   `scripts/fleet-dispatch-worktree.sh` creates. Every task dispatch first
   renders the unit's task brief, `scripts/fleet-task-brief.sh render <spec>
   <id>` (plus `--tower <name>` when `scripts/fleet-messaging.sh self-name`
-  prints one), and passes its printed path as `--brief`: the opening turn
+  prints one), and passes the path on its `brief` line as `--brief` (a
+  failed render stops the dispatch): the opening turn
   rides the launch, no message or keystroke. Observe stuck/finished/errored
   workers with **capture-pane**; message one `ListAgents` lists via
   `SendMessage`, else relay only through `scripts/orchestrate-relay.sh`
