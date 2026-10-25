@@ -357,6 +357,26 @@ rm -f "$v3/.git/hooks/pre-commit"
 out="$("$CYCLE" harvest "$v3" 2>"$tmp/err")"
 assert_contains "failed harvest commit: a re-run records the items" "new	3" "$out"
 
+# ---------------------------------------------------------------------------
+# 10. A pre-commit hook that stages files (as the venture hook stages its
+#     regenerated exports) leaves the index matching each step's commit.
+# ---------------------------------------------------------------------------
+cat >"$v3/.git/hooks/pre-commit" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$$" >hooked.txt
+blob=$(git hash-object -w hooked.txt) && git update-index --add --cacheinfo "100644,$blob,hooked.txt"
+EOF
+chmod +x "$v3/.git/hooks/pre-commit"
+"$CYCLE" triage FB-1 apply --decider "Robin Lead" --section "brief.md#Appetite" "$v3" >/dev/null 2>"$tmp/err"
+assert_eq "staging hook: triage exit 0" "0" "$?"
+assert_eq "staging hook: nothing left staged after triage" "" "$(git -C "$v3" diff --cached --name-only)"
+awk -v f="$tmp/appetite" '/^_Skipped: appetite/ { while ((getline l < f) > 0) print l; next } { print }' "$v3/brief.md" >"$tmp/brief" && cp "$tmp/brief" "$v3/brief.md"
+git -C "$v3" add brief.md
+"$CYCLE" apply FB-1 "$v3" >/dev/null 2>"$tmp/err"
+assert_eq "staging hook: apply exit 0" "0" "$?"
+assert_eq "staging hook: nothing left staged after apply" "" "$(git -C "$v3" diff --cached --name-only)"
+rm -f "$v3/.git/hooks/pre-commit"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

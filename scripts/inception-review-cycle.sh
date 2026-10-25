@@ -25,7 +25,7 @@
 # way to resolve a comment (Notion's API cannot). Harvested text enters it
 # quoted, one `> ` line at a time, with control characters stripped, so it
 # cannot forge a heading or a field. export, harvest, and triage commit the
-# ledger alone (`git commit --only`), leaving anything else staged as it was;
+# ledger alone, leaving anything else staged as it was;
 # apply commits the change and the ledger together. A step that writes the
 # ledger refuses to start while it has uncommitted changes, and restores it
 # when its own commit fails (an export, already sent, keeps its record).
@@ -328,12 +328,28 @@ EOF
   ledger_rewrite "$work/hset.awk"
 }
 
-# commit_paths <message-file> <path>... — commit exactly these paths.
+# commit_paths <message-file> <path>... — commit exactly these paths. A
+# partial commit (`--only`) is used only when something else is staged: it
+# builds a temporary index, so whatever a pre-commit hook stages lands in the
+# commit but not in the real index, which then shows those paths as staged
+# reversions (the venture hook's regenerated exports) and jams the next apply.
 commit_paths() {
   _msg=$1
   shift
   git_v add -- "$@" || return 1
-  git_v commit -q --only -F "$_msg" -- "$@"
+  _pfx=$(git_v rev-parse --show-prefix) || return 1
+  _staged=$(git_v diff --cached --name-only) || return 1
+  _others=$(printf '%s\n' "$_staged" | while IFS= read -r _p; do
+    [ -n "$_p" ] || continue
+    _mine=0
+    for _a in "$@"; do [ "$_p" != "$_pfx$_a" ] || _mine=1; done
+    [ "$_mine" = 1 ] || printf '%s\n' "$_p"
+  done)
+  if [ -z "$_others" ]; then
+    git_v commit -q -F "$_msg"
+  else
+    git_v commit -q --only -F "$_msg" -- "$@"
+  fi
 }
 
 # --- adapters ----------------------------------------------------------------
