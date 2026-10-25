@@ -538,7 +538,11 @@ of the hook.
 
 **Trust posture.** Step catalogs and point lists are read only from the
 human-owned layers. The core and adopter layers sit outside the worktree and
-outside a dispatched worker's write set. The repo-tracked and machine-local
+outside a dispatched worker's write set. The core layer is the hook's own
+installation root, never one the environment names: when a worker's
+launch points `PLANWRIGHT_ROOT` or `CLAUDE_PLUGIN_ROOT` at another install
+than the hook's, a step only that install's core catalog declares defers to
+the normal prompt, for task and flight workers alike. The repo-tracked and machine-local
 layers are the repository's own, so they get the trust the hook already
 gives a script under the repository's `scripts/`: repository code is trusted
 to run. Declaring a command step in `.claude/catalogs/steps.yaml` is

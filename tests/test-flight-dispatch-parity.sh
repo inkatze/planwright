@@ -8,7 +8,10 @@
 # worker runs it. scripts/flight-dispatch.sh places the flight exactly where
 # that check passes, skipping exactly the steps it skips, and refuses,
 # placing nothing, exactly where it stops a task unit, naming the point and
-# the step id whenever the check's diagnostics name one.
+# the step id wherever the check's diagnostics blame a step (a park, ask, or
+# refuse, or a step dropped or placed as malformed). The wording of a
+# malformed entry, list, or layer in the refusal is pinned by
+# tests/test-flight-dispatch-points.sh.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 unset CDPATH
@@ -37,6 +40,7 @@ parity_case() {
   INST="$c/claude/plugins/cache/mk/planwright/0.0.1-parity"
   install_plugin_copy "$INST" 0.0.1-parity
   mkdir -p "$c/adopter/catalogs" "$c/primary/.claude/catalogs" "$c/primary/.claude/catalogs.local"
+  gitc "$c/primary" worktree add -q -b planwright/demo/task-1 "$c/task-wt" main
 }
 
 # list_file <layer> / catalog_file <layer> — where that layer's point lists
@@ -77,11 +81,14 @@ add_entry() {
 }
 
 # oracle — /execute-task's pre-flight point check as a task worker runs it:
-# from the repository, its launch pinning the plugin root, unit kind task.
+# from its own linked worktree, its launch pinning the plugin root and
+# leaving the repository to the worktree's own lookup, unit kind task. The
+# conditional pre-ready-flip is a flip point a flight never fires, so the
+# oracle checks the in-run points the skill's check command names.
 # Sets ORC_RC and ORC_OUT (the --explain rows) and ORC_ERR.
 oracle() {
   # shellcheck disable=SC2086 # the point list is split on purpose
-  ORC_OUT=$(cd "$c/primary" && unset PLANWRIGHT_SKILLS_ROOT PLANWRIGHT_CONFIG_DEFAULTS \
+  ORC_OUT=$(cd "$c/task-wt" && unset PLANWRIGHT_SKILLS_ROOT PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_REPO_ROOT \
     && PLANWRIGHT_ROOT="$INST" CLAUDE_PLUGIN_ROOT="$INST" PLANWRIGHT_STEP_UNIT_KIND=task \
       bash "$INST/scripts/resolve-steps.sh" $POINTS --explain --check --unattended </dev/null 2>"$tmp/orc.err")
   ORC_RC=$?
@@ -213,6 +220,20 @@ oracle
 parity_case
 set_list repo-tracked steps_pre_ci '[no-such-step]'
 oracle
-[ "$(oracle_named)" = "pre-ci: step 'no-such-step'" ] || fail "self-check: the oracle's blame parse found '$(oracle_named)'"
+[ "$(oracle_named)" = "pre-ci: step 'no-such-step'" ] || fail "self-check: the oracle's park parse found '$(oracle_named)'"
+parity_case
+# shellcheck disable=SC2059 # the entry carries its own \n escapes
+add_entry adopter "$(printf "$ghost_skill")
+"
+set_list adopter steps_convergence '[ghost]'
+oracle
+[ "$(oracle_named)" = "convergence: step 'ghost'" ] || fail "self-check: the oracle's refuse parse found '$(oracle_named)'"
+parity_case
+# shellcheck disable=SC2059 # the entry carries its own \n escapes
+add_entry machine-local "$(printf "$bad_entry")
+"
+set_list machine-local steps_pre_pr '[bad]'
+oracle
+[ "$(oracle_named)" = "pre-pr: step 'bad'" ] || fail "self-check: the oracle's dropped-as-malformed parse found '$(oracle_named)'"
 
 finish test-flight-dispatch-parity

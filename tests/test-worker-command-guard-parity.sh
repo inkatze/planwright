@@ -120,7 +120,7 @@ adversarial${TAB}defer${TAB}the tower's force-push helper${TAB}$REPO_ROOT/script
 adversarial${TAB}defer${TAB}a context prefix naming a unit kind the resolver refuses${TAB}PLANWRIGHT_STEP_SPEC='' PLANWRIGHT_STEP_TASK_IDS='' PLANWRIGHT_STEP_UNIT_KIND='@K@-x' PLANWRIGHT_STEP_BRANCH='@B@' PLANWRIGHT_STEP_BASE_BRANCH='main' PLANWRIGHT_STEP_WORKTREE='$WT' PLANWRIGHT_STEP_PR_NUMBER='' PLANWRIGHT_STEP_POINT='pre-ci' PLANWRIGHT_STEP_ID='declared' PLANWRIGHT_STEP_PREV_RECORD='' PLANWRIGHT_STEP_PREV_HEAD='' PLANWRIGHT_STEP_NEW_HEAD='' $DECLARED --mode strict
 adversarial${TAB}defer${TAB}a context prefix naming the unwired post-merge point${TAB}PLANWRIGHT_STEP_SPEC='' PLANWRIGHT_STEP_TASK_IDS='' PLANWRIGHT_STEP_UNIT_KIND='@K@' PLANWRIGHT_STEP_BRANCH='@B@' PLANWRIGHT_STEP_BASE_BRANCH='main' PLANWRIGHT_STEP_WORKTREE='$WT' PLANWRIGHT_STEP_PR_NUMBER='' PLANWRIGHT_STEP_POINT='post-merge' PLANWRIGHT_STEP_ID='declared' PLANWRIGHT_STEP_PREV_RECORD='' PLANWRIGHT_STEP_PREV_HEAD='' PLANWRIGHT_STEP_NEW_HEAD='' $DECLARED --mode strict
 adversarial${TAB}defer${TAB}a step-context unit kind exported ahead of a declared line${TAB}PLANWRIGHT_STEP_UNIT_KIND=@K@ $DECLARED --mode strict
-adversarial${TAB}defer${TAB}the flight dispatcher's resolver named by an environment root${TAB}\$PLANWRIGHT_ROOT/scripts/resolve-steps.sh pre-ci --line $DECLARED --mode strict
+shared${TAB}allow${TAB}the runner's own resolver call under the guard's root${TAB}$REPO_ROOT/scripts/resolve-steps.sh pre-ci --line $DECLARED --mode strict
 EOF
 
 # verdict_of <command>: `allow` or `defer` from one hook run; anything else
@@ -223,10 +223,12 @@ fi
 
 echo "### D-19 — root skew: a step only the pinned root declares is deferred"
 # Two installed roots, each a runnable copy: the guard's own and the one a
-# brief pins, whose core catalog alone declares a command step. The launch
-# exports the pinned root as PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT. The step's
-# target lies outside any root's scripts/, so only the declared-line path can
-# approve it.
+# brief pins, whose core catalog alone declares a command step. The
+# environment names the pinned root as PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT,
+# as a launch pinning it does, while the guard runs from the other install
+# (the skew a guard wired from another install than the environment's
+# sees). The step's target lies outside any root's scripts/, so only the
+# declared-line path can approve it.
 install_root() {
   mkdir -p "$1"
   cp -R "$REPO_ROOT/scripts" "$REPO_ROOT/skills" "$REPO_ROOT/config" "$REPO_ROOT/doctrine" \
