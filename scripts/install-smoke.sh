@@ -6,7 +6,8 @@
 # REQ-B1.1, REQ-B1.3).
 #
 # Usage: install-smoke.sh [--modes <list>] [--source <dir>] [--entry <path>]
-#   --modes   comma-separated delivery modes, default `writer,marketplace`:
+#   --modes   comma-separated delivery modes, each at most once, default
+#             `writer,marketplace`:
 #               writer       scripts/install.sh into a scratch CLAUDE_DIR, run
 #                            under the allowlist PATH itself
 #               marketplace  `claude plugin marketplace add` of <source> and
@@ -19,24 +20,26 @@
 #             place of the default exercise (how a test proves the allowlist
 #             is real).
 #
-# The default exercise is scripts/step-record.sh, the adopter-tier script with
-# the largest coupling profile in `mise run substrate:partition`: it issues a
-# run, writes a record, renders it, and fingerprints a path in a scratch git
-# repository. Every entry point runs by its literal installed path, so a
-# delivery mode that drops the execute bit fails here.
+# The default exercise is scripts/step-record.sh, chosen from `mise run
+# substrate:partition` as the adopter-tier script with the largest coupling
+# profile: it issues a run, writes a record, renders it, and fingerprints a
+# path in a scratch git repository. Every entry point runs by its literal
+# installed path, so a delivery mode that drops the execute bit fails here.
 #
 # THE ALLOWLIST is REQ-B1.1's runtime set: a POSIX shell (sh, and bash as the
-# shell the bootstrap decision names) with the utilities POSIX specifies for
-# it, git, and gh. POSIX's development utilities (c17, make, lex, yacc, and
-# the rest) are left out, being the toolchain the constraint excludes. One
-# non-POSIX name is added: mktemp, which POSIX has never specified, which
-# every matrix platform's stock userland ships, and which is no compiler,
-# interpreter, or package manager; the script layer creates every scratch
-# file through it. Each
-# name is linked from the caller's PATH into a scratch directory, never the
-# directory holding it, since that directory may hold anything; a name the
-# host lacks is simply absent. The entry point then runs under `env -i`, so no
-# variable carries a toolchain path in either.
+# shell the bootstrap decision names) with the utilities POSIX.1-2024
+# specifies for it, git, and gh. POSIX's development utilities (c17, make,
+# lex, yacc, and the rest) are left out, being the toolchain the constraint
+# excludes, and so are cd, umask, and unalias, which only a builtin can
+# implement. One non-POSIX name is added: mktemp, which POSIX has never
+# specified, which every matrix platform's stock userland ships, and which is
+# no compiler, interpreter, or package manager; the script layer creates every
+# scratch file through it. Each name is looked up file by file along the
+# caller's PATH, so one the shell also has as a builtin (printf, test, kill)
+# is still linked for xargs, env, and find -exec to run, and it is linked into
+# a scratch directory rather than exposing the directory holding it, which may
+# hold anything; a name the host lacks is simply absent. The entry point then
+# runs under `env -i`, so no variable carries a toolchain path in either.
 #
 # Exit: 0 every mode installed and its entry point succeeded; 1 a failed
 # install or entry point (named on stderr); 2 usage error.
@@ -72,14 +75,23 @@ done
 case ,$modes, in
   ,, | *,,*) die 2 "--modes is empty" ;;
 esac
-for m in $(printf '%s\n' "$modes" | tr ',' ' '); do
+mode_list=$(printf '%s\n' "$modes" | tr ',' ' ')
+seen=' '
+for m in $mode_list; do
   case $m in
     writer | marketplace) ;;
     *) die 2 "unknown delivery mode: $m" ;;
   esac
+  case $seen in
+    *" $m "*) die 2 "delivery mode named twice: $m" ;;
+  esac
+  seen="$seen$m "
 done
 case $entry in
-  /* | *..*) die 2 "--entry must be a relative path inside the installed root" ;;
+  /*) die 2 "--entry must be a relative path inside the installed root" ;;
+esac
+case /$entry/ in
+  */../*) die 2 "--entry must be a relative path inside the installed root" ;;
 esac
 
 if [ -z "$src" ]; then
@@ -94,11 +106,9 @@ trap 'exit 1' HUP INT TERM
 allow="$work/allow-bin"
 mkdir -p "$allow" || die 1 "cannot create the allowlist directory"
 
-# POSIX.1-2024's utilities, less its development utilities and the ones only
-# a shell builtin can implement (cd, umask, and the like resolve to no file).
 tools='admin alias at awk basename batch bc bg cal cat chgrp chmod chown
 cksum cmp comm command compress cp crontab csplit cut date dd df diff dirname
-du ed env ex expand expr false fc fg file find fold fuser getconf getopts
+du echo ed env ex expand expr false fc fg file find fold fuser getconf getopts
 grep hash head iconv id ipcrm ipcs jobs join kill link ln locale logger
 logname lp ls mailx man mesg mkdir mkfifo more mv newgrp nice nl nohup od
 paste patch pathchk pax pr printf ps pwd read readlink realpath renice rm
@@ -108,12 +118,21 @@ unlink uudecode uuencode wait wc who write xargs zcat
 mktemp
 sh bash git gh'
 
+set --
 for t in $tools; do
-  p=$(command -v "$t" 2>/dev/null) || continue
-  case $p in
-    /*) ln -s "$p" "$allow/$t" || die 1 "cannot link $t into the allowlist" ;;
-  esac
+  ifs=$IFS
+  IFS=:
+  for d in $PATH; do
+    case $d in /*) ;; *) continue ;; esac
+    if [ -f "$d/$t" ] && [ -x "$d/$t" ]; then
+      set -- "$@" "$d/$t"
+      break
+    fi
+  done
+  IFS=$ifs
 done
+[ $# -gt 0 ] || die 1 "no allowlisted tool is on PATH"
+ln -s "$@" "$allow/" || die 1 "cannot link the allowlist"
 [ -e "$allow/sh" ] || die 1 "no sh on PATH to build the allowlist from"
 [ -e "$allow/git" ] || die 1 "no git on PATH to build the allowlist from"
 
@@ -125,15 +144,20 @@ narrowed() {
   env -i PATH="$allow" HOME="$home" LC_ALL=C TMPDIR="$work" "$@"
 }
 
-# exercise <root>: the default entry-point run against one installed copy.
+# exercise <mode> <root>: the default entry-point run against one installed
+# copy, in a scratch repository of the mode's own.
 exercise() {
-  sr="$1/scripts/step-record.sh"
-  repo="$work/repo.$2"
-  narrowed git init -q "$repo" || return 1
-  printf 'smoke\n' >"$repo/README" || return 1
-  narrowed git -C "$repo" add README || return 1
-  narrowed git -C "$repo" -c user.name=smoke -c user.email=smoke@example.invalid \
-    commit -q -m smoke || return 1
+  sr="$2/scripts/step-record.sh"
+  repo="$work/repo.$1"
+  if ! {
+    narrowed git init -q "$repo" \
+      && printf 'smoke\n' >"$repo/README" \
+      && narrowed git -C "$repo" add README \
+      && narrowed git -C "$repo" -c user.name=smoke -c user.email=smoke@example.invalid \
+        commit -q -m smoke
+  }; then
+    die 1 "$1 mode: cannot prepare the scratch repository under the allowlist PATH"
+  fi
 
   run=$(narrowed "$sr" --worktree "$repo" new-run) || return 1
   narrowed "$sr" --worktree "$repo" write --run "$run" --point pre-pr \
@@ -162,12 +186,21 @@ check() {
   if [ -n "$entry" ]; then
     (cd "$work" && narrowed "$2/$entry") || die 1 "$1 mode: $entry failed under the allowlist PATH"
   else
-    exercise "$2" "$1" || die 1 "$1 mode: scripts/step-record.sh failed under the allowlist PATH"
+    exercise "$1" "$2" || die 1 "$1 mode: scripts/step-record.sh failed under the allowlist PATH"
   fi
   printf 'install-smoke: %s mode passed\n' "$1"
 }
 
-for m in $(printf '%s\n' "$modes" | tr ',' ' '); do
+# claude_scratch <arg>...: the Claude CLI with every home it writes moved into
+# the scratch directory, and no self-update.
+claude_scratch() {
+  CLAUDE_CONFIG_DIR="$work/claude-config" HOME="$home" \
+    XDG_CONFIG_HOME="$home/.config" XDG_CACHE_HOME="$home/.cache" \
+    XDG_DATA_HOME="$home/.local/share" XDG_STATE_HOME="$home/.local/state" \
+    DISABLE_AUTOUPDATER=1 claude "$@"
+}
+
+for m in $mode_list; do
   case $m in
     writer)
       cdir="$work/writer"
@@ -177,18 +210,17 @@ for m in $(printf '%s\n' "$modes" | tr ',' ' '); do
       ;;
     marketplace)
       command -v claude >/dev/null 2>&1 || die 1 "marketplace mode: no claude on PATH"
-      cfg="$work/claude-config"
-      CLAUDE_CONFIG_DIR="$cfg" HOME="$home" claude plugin marketplace add "$src" >/dev/null \
+      claude_scratch plugin marketplace add "$src" >/dev/null \
         || die 1 "marketplace mode: claude plugin marketplace add failed"
-      CLAUDE_CONFIG_DIR="$cfg" HOME="$home" claude plugin install planwright@planwright >/dev/null \
+      claude_scratch plugin install planwright@planwright >/dev/null \
         || die 1 "marketplace mode: claude plugin install failed"
       root=
-      for d in "$cfg"/plugins/cache/planwright/planwright/*/; do
+      for d in "$work"/claude-config/plugins/cache/planwright/planwright/*/; do
         [ -d "$d" ] || continue
         [ -z "$root" ] || die 1 "marketplace mode: more than one installed version"
         root=${d%/}
       done
-      [ -n "$root" ] || die 1 "marketplace mode: no installed copy under $cfg/plugins/cache"
+      [ -n "$root" ] || die 1 "marketplace mode: no installed copy under the scratch plugin cache"
       check marketplace "$root"
       ;;
   esac
