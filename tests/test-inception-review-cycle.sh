@@ -324,6 +324,39 @@ git -C "$v2" add assumptions.md
 "$CYCLE" apply FB-3 "$v2" >/dev/null 2>"$tmp/err"
 assert_eq "full heading: apply exit 0" "0" "$?"
 
+# ---------------------------------------------------------------------------
+# 9. A step whose commit fails leaves the committed ledger, and a step never
+#    starts from an uncommitted one.
+# ---------------------------------------------------------------------------
+printf '#!/bin/sh\nexit 1\n' >"$v2/.git/hooks/pre-commit" && chmod +x "$v2/.git/hooks/pre-commit"
+"$CYCLE" triage FB-2 skip --decider "Robin Lead" "$v2" >/dev/null 2>"$tmp/err"
+assert_eq "failed triage commit: exit 2" "2" "$?"
+assert_eq "failed triage commit: the ledger is restored" "" "$(git -C "$v2" status --porcelain)"
+rm -f "$v2/.git/hooks/pre-commit"
+"$CYCLE" triage FB-2 skip --decider "Robin Lead" "$v2" >/dev/null 2>"$tmp/err"
+assert_eq "failed triage commit: a re-run records it" "0" "$?"
+
+printf 'a hand edit\n' >>"$v2/feedback/ledger.md"
+before="$(git -C "$v2" rev-parse HEAD)"
+"$CYCLE" triage FB-1 skip --decider "Robin Lead" "$v2" >/dev/null 2>"$tmp/err"
+assert_eq "uncommitted ledger: triage refused" "1" "$?"
+assert_contains "uncommitted ledger: says so" "uncommitted" "$(cat "$tmp/err")"
+assert_eq "uncommitted ledger: no commit" "$before" "$(git -C "$v2" rev-parse HEAD)"
+git -C "$v2" checkout -q -- feedback/ledger.md
+
+v3="$tmp/venture3"
+inception_fixture_write "$v3" || exit 1
+git -C "$v3" init -q . && git -C "$v3" add -A && git -C "$v3" commit -qm "chore: seed the venture" || exit 1
+"$NOTION" configure --page "$PAGE" "$v3" >/dev/null || exit 1
+"$CYCLE" export --adapter notion --confirmed "$v3" >/dev/null 2>&1 || exit 1
+printf '#!/bin/sh\nexit 1\n' >"$v3/.git/hooks/pre-commit" && chmod +x "$v3/.git/hooks/pre-commit"
+"$CYCLE" harvest "$v3" >/dev/null 2>"$tmp/err"
+assert_eq "failed harvest commit: exit 2" "2" "$?"
+assert_eq "failed harvest commit: the ledger is restored" "" "$(git -C "$v3" status --porcelain)"
+rm -f "$v3/.git/hooks/pre-commit"
+out="$("$CYCLE" harvest "$v3" 2>"$tmp/err")"
+assert_contains "failed harvest commit: a re-run records the items" "new	3" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

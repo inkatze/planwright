@@ -26,7 +26,9 @@
 # quoted, one `> ` line at a time, with control characters stripped, so it
 # cannot forge a heading or a field. export, harvest, and triage commit the
 # ledger alone (`git commit --only`), leaving anything else staged as it was;
-# apply commits the change and the ledger together.
+# apply commits the change and the ledger together. A step that writes the
+# ledger refuses to start while it has uncommitted changes, and restores it
+# when its own commit fails (an export, already sent, keeps its record).
 #
 # Adapters are a closed set (ADAPTERS below), each a sibling script answering
 # `status`, `export <venture> <snapshot>`, and `harvest <venture>` with the
@@ -222,6 +224,25 @@ ledger_guard() {
 header() {
   [ -f "$ledger" ] || return 0
   awk -v k="$1" '/^## Items/ { exit } index($0, k ": ") == 1 { print substr($0, length(k) + 3); exit }' "$ledger"
+}
+
+# ledger_require_clean — a step that writes the ledger starts from the
+# committed one: it reads the work-tree copy and commits all of it, so a
+# leftover change (a step whose commit failed, a hand edit) would otherwise be
+# read as done, or ride into a commit that says something else.
+ledger_require_clean() {
+  if git_v cat-file -e "HEAD:./$LEDGER_REL" 2>/dev/null; then
+    git_v diff --quiet HEAD -- "$LEDGER_REL" \
+      || die 1 "$LEDGER_REL has uncommitted changes; commit them (git commit --only $LEDGER_REL) or discard them (git checkout HEAD -- $LEDGER_REL) first"
+  elif [ -e "$ledger" ]; then
+    die 1 "$LEDGER_REL exists but was never committed; commit it (git commit --only $LEDGER_REL) or remove it first"
+  fi
+}
+
+# ledger_restore — back to the committed ledger after a failed commit; exact,
+# since ledger_require_clean held when the step began.
+ledger_restore() {
+  git_v checkout -q HEAD -- "$LEDGER_REL" 2>/dev/null
 }
 
 ledger_check_version() {
@@ -423,6 +444,7 @@ pending_items() {
 cmd_export() {
   ledger_guard
   ledger_check_version
+  ledger_require_clean
   existing=$(header Adapter)
   if [ -n "$existing" ] && [ -n "$adapter_arg" ] && [ "$existing" != "$adapter_arg" ]; then
     die 2 "this venture's ledger runs through the $(sanitize_printable "$existing") adapter"
@@ -489,7 +511,10 @@ cmd_export() {
   export SET_Cycle SET_Phase SET_Snapshot SET_Exported
   header_set
   printf 'chore(feedback): export review cycle %s\n\nSnapshot of %s sent through the %s adapter.\n' "$next" "$sha" "$adapter" >"$work/msg"
-  commit_paths "$work/msg" "$LEDGER_REL" || die 2 "the ledger commit failed; the export went out, so record it before the next harvest"
+  # Not restored: the export already went out, so the ledger keeps the record
+  # of it and every later step waits until it is committed.
+  commit_paths "$work/msg" "$LEDGER_REL" \
+    || die 2 "the export went out but the ledger commit failed; commit the ledger (git commit --only $LEDGER_REL) before the next step"
   printf 'cycle\t%s\n' "$next"
   printf 'snapshot\t%s\n' "$sha"
   printf 'destination\t%s\n' "$dest"
@@ -539,6 +564,7 @@ cmd_harvest() {
   [ -f "$ledger" ] || die 1 "nothing has been exported yet; export a snapshot first, then harvest its feedback"
   ledger_guard
   ledger_check_version
+  ledger_require_clean
   phase=$(header Phase)
   cycle=$(header Cycle)
   case $phase in
@@ -598,7 +624,10 @@ cmd_harvest() {
     export SET_Phase
     header_set
     printf 'chore(feedback): harvest review cycle %s\n\n%s new item(s) recorded pending triage; the walk was %s.\n' "$cycle" "$added" "$walk" >"$work/msg"
-    commit_paths "$work/msg" "$LEDGER_REL" || die 2 "the ledger commit failed"
+    if ! commit_paths "$work/msg" "$LEDGER_REL"; then
+      ledger_restore
+      die 2 "the ledger commit failed; the ledger was restored, so a re-run harvests the same items"
+    fi
   fi
   printf 'cycle\t%s\n' "$cycle"
   printf 'new\t%s\n' "$added"
@@ -647,6 +676,7 @@ cmd_triage() {
   [ -f "$ledger" ] || die 1 "the ledger has no items yet"
   ledger_guard
   ledger_check_version
+  ledger_require_clean
   [ "$decider_set" = 1 ] || die 2 "triage records who decided: --decider <name>"
   dec=$(oneline "$decider" 120)
   [ -n "$dec" ] || die 2 "--decider must name someone"
@@ -672,7 +702,10 @@ cmd_triage() {
   export SET_Disposition SET_Section SET_Decider SET_Decided SET_Note
   item_set "$item"
   printf 'chore(feedback): triage %s as %s\n\nDecided by %s.\n' "$item" "$disp" "$dec" >"$work/msg"
-  commit_paths "$work/msg" "$LEDGER_REL" || die 2 "the ledger commit failed"
+  if ! commit_paths "$work/msg" "$LEDGER_REL"; then
+    ledger_restore
+    die 2 "the ledger commit failed; the ledger was restored, so the item is still pending"
+  fi
   printf 'item\t%s\ndisposition\t%s\nsection\t%s\n' "$item" "$disp" "$sec_val"
 }
 
@@ -682,6 +715,7 @@ cmd_apply() {
   [ -f "$ledger" ] || die 1 "the ledger has no items yet"
   ledger_guard
   ledger_check_version
+  ledger_require_clean
   item_exists "$item" || die 1 "no item $item in the ledger"
   d=$(item_get "$item" Disposition)
   case $d in
@@ -733,8 +767,7 @@ cmd_apply() {
     printf '\nFeedback-Item: %s\nFeedback-Source: %s\nFeedback-Author: %s\n' "$item" "$src" "$author"
   } >"$work/msg"
   if ! commit_paths "$work/msg" "$sec_file" "$LEDGER_REL"; then
-    git_v reset -q -- "$LEDGER_REL" 2>/dev/null
-    git_v checkout -q -- "$LEDGER_REL" 2>/dev/null
+    ledger_restore
     die 2 "the commit failed; the ledger was restored and the change is still staged"
   fi
   printf 'item\t%s\ncommit\t%s\n' "$item" "$(git_v rev-parse HEAD)"

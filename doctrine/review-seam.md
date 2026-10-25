@@ -91,7 +91,11 @@ an `### FB-<n> — <source>` block. Its fields are `Source`, `Thread`, `Author`,
 `apply`, `modify`, or `skip`), `Section`, `Decider`, `Decided`, `Applied`, and
 `Note`, and a quoted `Text:` body comes last. Export, harvest, and triage each
 commit the ledger on its own. An apply commits the change and the ledger's
-`Applied` line together. Each commit applying feedback carries three trailers:
+`Applied` line together. A step that writes the ledger refuses to start while
+the ledger has uncommitted changes, so a step whose commit failed is never
+read as done. A step whose own commit fails restores the ledger, except an
+export: that has already gone out, so its record stays for the operator to
+commit. Each commit applying feedback carries three trailers:
 
 ```text
 Feedback-Item: FB-<n>
