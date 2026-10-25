@@ -144,12 +144,13 @@ $knob
   case $consumer in
     "" | /* | *..*) finding "behaviour '$behaviour' names no consumer inside the core root" ;;
     *)
+      # A link could point the scan at a file outside the core root.
       consumer_dir=$(cd "$core/$(dirname "$consumer")" 2>/dev/null && pwd -P) || consumer_dir=""
+      inside=0
+      case $consumer_dir/ in "$core_real"/*) [ -L "$core/$consumer" ] || inside=1 ;; esac
       if [ ! -f "$core/$consumer" ]; then
         finding "behaviour '$behaviour' names consumer $consumer, which does not exist"
-      elif [ -L "$core/$consumer" ] || [ -z "$consumer_dir" ] \
-        || case $consumer_dir/ in "$core_real"/*) false ;; *) true ;; esac; then
-        # A link could point the scan at a file outside the core root.
+      elif [ "$inside" -eq 0 ]; then
         finding "behaviour '$behaviour' names consumer $consumer, which resolves outside the core root"
       else
         consumers="$consumers$consumer
