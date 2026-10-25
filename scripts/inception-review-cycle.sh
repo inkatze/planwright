@@ -482,7 +482,7 @@ cmd_export() {
 
   snap="$work/snapshot.md"
   build_snapshot "$snap"
-  "$script_dir/inception-secret-screen.sh" -- "$snap" >"$work/screen.out" 2>&1
+  /bin/sh "$script_dir/inception-secret-screen.sh" -- "$snap" >"$work/screen.out" 2>&1
   case $? in
     0) ;;
     1) die 1 "the snapshot looks like it carries a credential; it is not exported (the screen names no text, only that it matched)" ;;
@@ -765,10 +765,16 @@ cmd_apply() {
     }' "$work/hunks")
   [ -z "$bad" ] || die 1 "the staged change reaches outside $sec_file § $(sanitize_printable "$sec_head") (and the section's heading line is not editable through feedback); restage it inside the section"
 
-  if ! "$script_dir/inception-validate.sh" --baseline HEAD "$target" >"$work/validate.out" 2>&1; then
+  vrc=0
+  /bin/sh "$script_dir/inception-validate.sh" --baseline HEAD "$target" >"$work/validate.out" 2>&1 || vrc=$?
+  if [ "$vrc" -ne 0 ]; then
     sanitize_printable "$(cat "$work/validate.out")" >&2
     printf '\n' >&2
-    die 1 "the bundle validator refused the change (ids and gate records are untouchable, and the bundle must stay valid)"
+    case $vrc in
+      1) die 1 "the bundle validator refused the change (ids and gate records are untouchable, and the bundle must stay valid)" ;;
+      3) die 1 "the bundle validator could not read the changed bundle (an unclosed code fence, a missing file, or its format version), so the change is refused" ;;
+      *) die 2 "the bundle validator could not run (exit $vrc)" ;;
+    esac
   fi
 
   src=$(item_get "$item" Source)

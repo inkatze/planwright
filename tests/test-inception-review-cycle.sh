@@ -399,6 +399,17 @@ out="$("$CYCLE" harvest "$v4" 2>"$tmp/err")"
 assert_contains "complete harvest: reads what the partial one missed" "new	1" "$out"
 assert_eq "complete harvest: harvested" "harvested" "$(sed -n 's/^Phase: //p' "$v4/feedback/ledger.md")"
 
+# ---------------------------------------------------------------------------
+# 12. A bundle the validator cannot read is refused as such.
+# ---------------------------------------------------------------------------
+"$CYCLE" triage FB-3 apply --decider "Robin Lead" --section "assumptions.md#A-2" "$v4" >/dev/null 2>&1
+awk '/^### A-2 / { s = 1 } /^### A-3 / { s = 0 } s && /^- \*\*Risk-if-wrong:\*\*/ { print; print "```"; next } { print }' "$v4/assumptions.md" >"$tmp/a" && cp "$tmp/a" "$v4/assumptions.md"
+git -C "$v4" add assumptions.md
+"$CYCLE" apply FB-3 "$v4" >/dev/null 2>"$tmp/err"
+assert_eq "unreadable bundle: apply refused" "1" "$?"
+assert_contains "unreadable bundle: says the validator could not read it" "could not read" "$(cat "$tmp/err")"
+git -C "$v4" reset -q && git -C "$v4" checkout -q -- assumptions.md
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
