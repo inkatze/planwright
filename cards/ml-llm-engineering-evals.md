@@ -274,8 +274,8 @@ seat or another persona seat agreeing with it.
   abstract.
 - Lewis, P., et al., "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
   arXiv:2005.11401, May 2020 (revised April 2021), <https://arxiv.org/abs/2005.11401> —
-  re-verified 2026-10-25 from the arXiv record; its NeurIPS 2020 venue was confirmed only
-  through secondary listings.
+  re-verified 2026-10-25 from the arXiv record, whose comments give its NeurIPS 2020
+  acceptance.
 - Liang, P., et al., "Holistic Evaluation of Language Models", Transactions on Machine Learning
   Research, 2023, arXiv:2211.09110, <https://arxiv.org/abs/2211.09110> — re-verified 2026-10-25
   from the TMLR listing and the abstract; listings differ on author order.
