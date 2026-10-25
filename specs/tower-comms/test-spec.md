@@ -1,7 +1,7 @@
 # Tower comms — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-17
+**Last reviewed:** 2026-10-25
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -111,6 +111,53 @@ resolvable presence identity leases under a tower-session-scoped fallback
 identity, which is written into the store and read back by a later caller.
 Unit tests in Task 3.
 
+### REQ-A1.10 — Seven kinds, two of them reviewable [test]
+
+`add` accepts exactly the seven kinds and refuses any other; the `waiting`
+field and `counts` count settled-by-default and decided-by-mission-control
+items without degrading to the unreadable marker; neither kind is ever
+pushed while the operator is away; each closes on `ack` (reviewed) or on
+`revoke`. Supersedes REQ-A1.2's entry, which stays for the five kinds it
+names. Unit tests in Task 11.
+
+### REQ-A1.11 — Picklist declared at birth [test]
+
+A picklist with fewer than two options, an end naming no option and not
+`park`, or a window that fails the grammar is refused; a window left unset
+takes `tower_picklist_window`; a declared default is refused, and `park`
+admitted, on a permission-marked question, on options naming a
+reserved-control shape, and on an item declared a human gate or a
+hard-disqualifier zone. Unit tests in Task 11.
+
+### REQ-A1.12 — A timed-out picklist settles to its default and stays visible [test + Gherkin]
+
+Scenario: given a question with options A and B, default B, and a
+sub-second window, when the settling pass runs after the window with no
+answer, then the item is settled-by-default with option B and the window's
+end time, and `list`, `show`, `counts`, and the `waiting` field still show
+it; a present operator is handed it for review. Scenario: given the pass
+runs long after the window, then the recorded time is the window's end, not
+the pass time. Scenario: given a window ending in `park`, then the question
+stays open, marked parked, and nothing is answered. Fixtures in Task 11.
+
+### REQ-A1.13 — Loss is stated, nothing dropped at rebuild [test + Gherkin]
+
+Scenario: given a deleted store, when the queue rebuilds, then picklist
+declarations and settling reasons are read back from the event log, a
+reviewable item comes back still awaiting review, a picklist whose
+declaring line has rotated out comes back as a plain question with no
+window, and an attention-sourced item whose source row moved on is recorded
+as settled with that reason rather than missing. Unit tests in Task 11.
+
+### REQ-A1.14 — Who may add a mission-control decision [test]
+
+A decided-by-mission-control `add` from a caller whose presence record does
+not declare the mission-control session kind is refused, as is one with no
+grounds pointer or no reversal field, and one whose subject is a permission
+prompt, a reserved control, a human gate, or a hard-disqualifier zone; one
+from a mission-control identity is accepted and listed. Unit tests in Task
+11.
+
 ## REQ-B — Settling and merging
 
 ### REQ-B1.1 — The settling pass is level-triggered [test + Gherkin]
@@ -173,6 +220,33 @@ Fixtures in Task 4.
 An item delivered but not acknowledged stays open across turns and across
 a restart; only an ack or a matching standing decision closes it. Unit
 tests in Tasks 3, 4, and 6.
+
+### REQ-B1.6 — Nothing dropped [test + Gherkin]
+
+Scenario: given an item whose evidence source is unreachable, when passes
+run past every timeout, lease expiry, shelve return, and the retention
+horizon, then the item stays open and each pass logs the source as
+unavailable; when a later fixture supplies the evidence, then the item
+settles with its reason. Scenario: given an unreviewed reviewable item older
+than the retention horizon, then it is still in the store. Unit tests in
+Task 11.
+
+### REQ-B1.7 — A settled-by-evidence item carries its reason [test + Gherkin]
+
+Scenario: given an item whose PR merged, when the settling pass runs, then
+the item settles with a reason naming that PR, the log line carries it, and
+`show` and `catchup` render it beside the item. Every settling fixture in
+Task 11 asserts a non-empty reason drawn from the REQ-B1.7 set; no route out
+of the open set leaves a record without one.
+
+### REQ-B1.8 — Review and revoke [test + Gherkin]
+
+Scenario: given a settled-by-default item, when the operator revokes it,
+then it reopens as its question with no window and a later pass does not
+default it again. Scenario: given a decided-by-mission-control item, when
+revoked, then it closes as revoked and the log line carries its reversal
+pointer, and the script runs nothing. Scenario: given either kind, when
+acknowledged, then it closes as reviewed. Unit tests in Task 11.
 
 ## REQ-C — Attention and delivery
 
@@ -280,6 +354,32 @@ the verb report an error the turn carries, with no silent skip; a delivery
 whose log append fails still hands the item over and surfaces the error, and
 the redelivery it can cause is the one REQ-A1.5 already budgets. Unit tests
 in Task 3.
+
+### REQ-C1.12 — One hand-over per call: item, pair, or batch [test]
+
+`next` returns at most one hand-over per call, and that hand-over is one
+item, one pair, or one subject batch; acknowledging one member of a batch
+leaves the others open. Supersedes REQ-C1.1's entry for the batch case.
+Unit tests in Task 13.
+
+### REQ-C1.13 — The order with the reviewable kinds [test]
+
+A fixture of every deliverable kind at equal urgency and age is ordered
+blocked worker, approval, request, settled-by-default,
+decided-by-mission-control, news; a batch ranks as its highest member.
+Unit tests in Task 13.
+
+### REQ-C1.14 — Batched by subject [test + Gherkin]
+
+Scenario: given four items on one PR of different kinds and one on another
+PR, with `tower_batch_max` at three, when `next` runs, then it hands over
+the first PR's top three by the consequence order as one batch, all leased
+to the caller, the fourth waiting for the next call and the other PR's item
+apart. Scenario: given two free-text subjects differing only in case and
+spacing, then they batch; differing in one word, they do not. Scenario:
+given an item naming no subject, then it is handed over alone. Scenario:
+given a leased batch, then a second tower receives none of its members.
+Unit tests in Task 13.
 
 ## REQ-D — Speech
 
@@ -449,6 +549,31 @@ and pushes nothing itself (Task 5). The relay is the tower session's: Task
 marker and clears it, with the line one line under 200 characters and free
 of spec identifiers, verified at that task's review.
 
+### REQ-F1.7 — Presence from the producer, the quiet interval as fallback [test + Gherkin]
+
+Scenario: given a fresh presence marker with a recent prompt event, then
+the operator is present and a due knock is returned; given a fresh marker
+saying away, then `next` hands over nothing and the away push follows
+REQ-F1.2. Scenario: given the marker stale past `tower_presence_ttl`,
+deleted, or corrupt, then presence follows the quiet-interval rule and the
+switch of source is logged once. Scenario: given a present marker and no
+reply on the attention marker, then no item content is handed over. A
+marker write with a loosened directory mode or a malformed field is
+refused. Unit tests in Task 12.
+
+### REQ-F1.8 — Nothing dropped while away; the default is the one answer [test]
+
+Over a long fixture timeline with no operator reply, every item is open,
+evidence-settled, or settled-by-default from a declared default; none is
+dropped and none is answered any other way. Unit tests in Task 11.
+
+### REQ-F1.9 — Push first, tick as failsafe [test]
+
+A `presence` write runs the settling pass in the same call, settling a
+fixture item whose evidence has arrived (Task 12) and an ended picklist
+window (Task 14); a fixture wake runs `next` without waiting for the tick;
+with no wake, the tick runs both. Unit tests in Tasks 12 and 14.
+
 ## REQ-G — Measurement and the experiment
 
 ### REQ-G1.1 — One line per event [test]
@@ -518,6 +643,15 @@ including a `reply` line from the hook and a line from `capture`, and a grep
 finds one redaction helper rather than a copy per caller. Unit tests in
 Tasks 1, 2, and 6.
 
+### REQ-G1.9 — The new events and the scorecard breakout [test]
+
+Every new event (a picklist's declaration, a window's end on a default or a
+park, a decided-by-mission-control birth, a review, a revocation, a presence
+source switch, a batch with its members) appends one line under the
+REQ-G1.7 grammar; over the extended fixture log the report reproduces the
+hand-computed breakout of the two reviewable kinds and their revocation
+rates. Unit tests in Tasks 11 through 14.
+
 ## REQ-H — Invariants and hygiene
 
 ### REQ-H1.1 — Reserved controls unchanged [test + design-level + manual]
@@ -553,6 +687,14 @@ The script is plain portable shell with no model invocation (a grep in its
 tests for the CLI's binary name); the fleet daemon gate is not extended by
 any task, checked by a human at each task's review. Owned by Task 3, with
 the hook's half in Task 2.
+
+### REQ-H1.5 — Settle by evidence, rule, or declared default only [test]
+
+The settling fixtures cover every route and each names evidence, a
+standing-decision identifier, or a window's declared default; a fixture
+with none leaves the item open; no default and no mission-control decision
+is accepted on a permission prompt, a reserved control, a human gate, or a
+hard-disqualifier zone. Unit tests in Task 11.
 
 ## REQ-I — Where the rules live
 
