@@ -190,16 +190,18 @@ trap 'rm -rf "$work"' EXIT
 trap 'exit 2' HUP INT TERM
 tab=$(printf '\t')
 
-today() {
-  td=${PLANWRIGHT_INCEPTION_TODAY:-}
-  if [ -n "$td" ]; then
-    case $td in
-      [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]) printf '%s' "$td" && return 0 ;;
-      *) die 2 "PLANWRIGHT_INCEPTION_TODAY must be a YYYY-MM-DD date" ;;
-    esac
-  fi
-  date +%Y-%m-%d
-}
+# Resolved here rather than inside today(): a die in a command substitution
+# leaves only the subshell, and the step would carry on with an empty date.
+today_val=${PLANWRIGHT_INCEPTION_TODAY:-}
+if [ -n "$today_val" ]; then
+  case $today_val in
+    [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]) ;;
+    *) die 2 "PLANWRIGHT_INCEPTION_TODAY must be a YYYY-MM-DD date" ;;
+  esac
+else
+  today_val=$(date +%Y-%m-%d)
+fi
+today() { printf '%s' "$today_val"; }
 
 # oneline <value> <max> — control characters to spaces, trimmed, capped.
 oneline() {

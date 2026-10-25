@@ -284,6 +284,16 @@ assert_contains "re-export: the snapshot carries the applied change" "Four weeks
 out="$("$CYCLE" harvest "$v" 2>"$tmp/err")"
 assert_contains "cycle 2 harvest: unresolved comments that stayed on the page are not new" "new	0" "$out"
 
+# ---------------------------------------------------------------------------
+# 7. A malformed pinned date stops the step before anything leaves or lands.
+# ---------------------------------------------------------------------------
+before="$(head_sha)"
+calls="$(wc -l <"$tmp/log/argv" | tr -d ' ')"
+PLANWRIGHT_INCEPTION_TODAY=bogus "$CYCLE" export --confirmed "$v" >/dev/null 2>"$tmp/err"
+assert_eq "bad pinned date: export refused" "2" "$?"
+assert_eq "bad pinned date: no API call" "$calls" "$(wc -l <"$tmp/log/argv" | tr -d ' ')"
+assert_eq "bad pinned date: no commit" "$before" "$(head_sha)"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
