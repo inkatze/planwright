@@ -73,9 +73,10 @@ closes the gap, and which models clear it, with the numbers each claim rests on.
    see more outputs, so criteria fixed once at the start go stale.
 6. **Error bars on the gate** (Miller, "Adding Error Bars to Evals: A Statistical Approach to
    Language Model Evaluations", arXiv:2411.00640, November 2024): report every score with its
-   standard error (clustered where questions come in related groups), resample each question
-   to reduce variance, compare two models by paired per-question differences, and size the
-   eval set by power analysis before running it. Misuse: comparing two point scores and
+   standard error (clustered where questions come in related groups), reduce variance by
+   sampling several answers per question or reading next-token probabilities, compare two
+   models by paired per-question differences, and size the eval set by power analysis before
+   running it. Misuse: comparing two point scores and
    calling the higher one better, which the author notes is common practice on leaderboards;
    and, by the decision-domains catalog's rule rather than the author's, choosing the threshold
    after seeing the results, since the gate is pre-committed.
