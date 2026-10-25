@@ -9,12 +9,17 @@ rules when you file a plan and trust the gauges. Visual flight lands a draft
 pull request with no spec; instrument flight escalates into the spec pipeline.
 
 Each scenario lists the lines you type, in order, the evidence you wait for
-between them, and what to check. The typed lines are the tower routing eval's
-persona lines, as written, so this script is also that eval's operator-run
-fallback ([the behavioral-eval guide](../tests/behavioral-evals/README.md)
-says how to start the session and grade it in that mode). A test pins both
-ties: every typed line against its persona, and the checklist against the
-spec's test plan (`tests/test-tower-acceptance-demo.sh`).
+between them, and what to check. Up to each scenario's `that's all`, the typed
+lines are the tower routing eval's persona lines, as written; the steps after
+it are manual-sweep checks the persona does not cover. A test pins both ties:
+every persona line against its scenario, and the checklist against the spec's
+test plan (`tests/test-tower-acceptance-demo.sh`).
+
+The v1 manual sweep and the eval's operator-run fallback are separate runs.
+The sweep, which this page describes, is a live run whose flights push and
+open real draft pull requests. The fallback types the same lines up to each
+`that's all`, in a session started and graded as
+[the behavioral-eval guide](../tests/behavioral-evals/README.md) says.
 
 ## Before you start
 
@@ -27,20 +32,23 @@ spec's test plan (`tests/test-tower-acceptance-demo.sh`).
   nothing here.
 - **planwright installed and enabled**, and `gh auth status` clean for the
   host `origin` pushes to.
-- **The pull-request home.** A visual flight lands its record in a draft pull
-  request only once you allow flights to push to that host: set
+- **The pull-request home, required.** A visual flight lands its record in a
+  draft pull request only once you allow flights to push to that host: set
   `flight_pr_hosts` in the checkout's machine-local
   `.claude/planwright.local.yml` (or your adopter overlay), as
   [the options reference](options-reference.md) describes. Without it, every
   landing is the flight's branch plus a committed record file under
-  `specs/_flights/`, and each "pull request" check below reads as that branch
-  and record instead.
+  `specs/_flights/`, no `post-pr` step runs, and the pull-request checks below
+  cannot be made; the tower's routing line names the home, so confirm it says
+  pull request before going on.
 - **The tower's own permission profile.** Launch the session with the
   profile, the plugin root exported, as [the fleet guide](fleet.md) describes
   (`--settings` naming `config/tower-settings.json` under the planwright root),
   then type `/tower`. Its first turn checks the profile; if it reports the
   guardrails missing, wire them before going on, since the refusal scenario
   tests them.
+- **A fresh tower session per scenario**, so each scenario's routes and
+  refusals stand alone, as each persona is graded alone.
 - **A second terminal pane** in the repository, for the split-screen
   scenario.
 - **Known starting state.** Note what `ls specs/` and
@@ -50,6 +58,11 @@ spec's test plan (`tests/test-tower-acceptance-demo.sh`).
 Throughout every scenario, watch the tower's own turns: it should read only
 small state (its sweep's summary, a queue, a pull request's status) and hand
 anything large (a diff, a file sweep, a review) to a worker.
+
+"Wait for the flight to land" means: wait until the flight's draft pull
+request appears (`gh pr list --draft`), typing nothing meanwhile. That moment
+is what the persona's flight-landed event stands for. The tower reports the
+landing reference, unprompted or in its reply to your next line.
 
 ## Scenario: chat-only
 
@@ -153,17 +166,20 @@ nothing new yet.
 
 **Type:** `yes, file it`
 
-Check:
-
-- The tower starts a drafting session you can attach to and hands you its
-  attach hint; it writes nothing itself.
-- The drafting session checks the existing specs for overlap first; an
-  overlapping one yields a recommendation to extend it, never a duplicate
-  spec.
-- When the draft is done, the tower offers `/spec-kickoff` for it and stops.
-  No kickoff starts until you start it.
+Check: the tower starts a drafting session you can attach to and hands you
+its attach hint; it writes nothing itself.
 
 **Type:** `that's all`
+
+Keep the session open and attach to the drafting session. Check that it
+checks the existing specs for overlap first: an overlapping one yields a
+recommendation to extend it, never a duplicate spec. When it ends with the
+spec at Draft, tell the tower.
+
+**Type:** `the draft is done`
+
+Check: the tower offers `/spec-kickoff` for the new spec and stops. No
+kickoff starts until you start it, whatever you reply.
 
 ## Scenario: walk-away
 
@@ -171,7 +187,7 @@ Eval persona: `walk-away`
 
 Work outlives the tower, and a fresh tower reconstructs it from what is
 recorded. What only the conversation held is gone, and the fresh tower says
-so.
+so. The restart has to happen while the first flight is still in the air.
 
 **Type:** `rename the helper in the export module for clarity`
 
@@ -182,19 +198,17 @@ Check: visual flight, grounds stated; note the worker's handle.
 Check: the one-page case, as in the escalation scenario. Leave it
 unanswered.
 
-While the first flight is still running, kill the tower session (close its
-terminal, or end its process). Then check:
+Without waiting for the first flight to land, kill the tower session (close
+its terminal, or end its process). Check that the worker keeps going: its
+worktree is still listed under `.claude/worktrees/`, its branch under
+`planwright/flight/`, and the attach hint still reaches it.
 
-- The worker keeps going: its worktree is still listed under
-  `.claude/worktrees/`, its branch under `planwright/flight/`, and the attach
-  hint still reaches it.
-- The flight lands without the tower: its pull request opens as a draft.
-
-Start a fresh tower session in the same checkout, under the same profile, and
-type `/tower`. Check its first turn: what landed, what waits on you, and what
-has no landing yet, all from recorded evidence. A flight it cannot confirm is
-said in the unchecked form ("in the air or paused", or "no landing yet: in the
-air, paused, or dead, not checked"), never simply as in the air. It says that
+Still before the flight lands, start a fresh tower session in the same
+checkout, under the same profile, and type `/tower`. Check its first turn:
+what landed, what waits on you, and what has no landing yet, all from
+recorded evidence. The flight in the air is said in the unchecked form ("in
+the air or paused", or "no landing yet: in the air, paused, or dead — not
+checked", the skill's own wording), never simply as in the air. It says that
 anything only the old conversation held, such as an unanswered case, is gone
 and needs asking again.
 
@@ -203,7 +217,11 @@ and needs asking again.
 Check: nothing is drafted. The case died with the old session; the tower asks
 what you mean rather than acting on it.
 
-Now ask for status on demand.
+**Type:** `that's all`
+
+Keep the session open. Wait for the flight to land, and check that it landed
+without the tower that dispatched it: its pull request is a draft, and its
+worktree, branch, and record remain. Then ask for status on demand.
 
 **Type:** `what is in flight right now?`
 
@@ -222,8 +240,6 @@ Check: an answer from recorded evidence, in titles and pull request numbers
 rather than task numbers, needing no knowledge of how orchestration works.
 The tower does not start watching the orchestration: no follow-up status
 arrives unless you ask again.
-
-**Type:** `that's all`
 
 ## Checklist
 
