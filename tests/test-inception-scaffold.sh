@@ -133,11 +133,11 @@ assert_contains "G1.8 protocol: pull before editing" "git pull" "$proto"
 assert_contains "G1.8 protocol: push after committing" "git push" "$proto"
 assert_contains "G1.8 protocol: edits land as commits" "git commit" "$proto"
 assert_contains "G1.8 protocol: commit messages in plain language" "plain-language" "$proto"
-assert_contains "G1.8 protocol: IDs are untouchable" "ID" "$proto"
+assert_contains "G1.8 protocol: IDs are untouchable" "Never renumber" "$proto"
 assert_contains "G1.8 protocol: register statuses are untouchable" "**Status:**" "$proto"
 assert_contains "G1.8 protocol: gate records are untouchable" "## Gate log" "$proto"
-assert_contains "G1.8 protocol: protected changes become notes for the operator" "operator" "$proto"
-assert_contains "G1.8 protocol: a blocked push degrades to a local commit" "blocked" "$proto"
+assert_contains "G1.8 protocol: protected changes become notes for the operator" "under \`proposals/\`" "$proto"
+assert_contains "G1.8 protocol: a blocked push degrades to a local commit" "**Push blocked**: keep the commit" "$proto"
 assert_contains "G1.8 protocol: says it is advisory, not the enforcement" "validator" "$proto"
 assert_contains "G1.8 CLAUDE.md imports the protocol" "@sync-protocol.md" "$(cat "$v/CLAUDE.md")"
 assert_contains "notes: name the sync protocol" "sync-protocol.md" "$notes"
@@ -167,6 +167,55 @@ out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
 assert_eq "G1.8 linked CLAUDE.md: the scaffold still succeeds" "0" "$?"
 assert_contains "G1.8 linked CLAUDE.md: refused and said" "symbolic link" "$out"
 assert_eq "G1.8 linked CLAUDE.md: nothing written through the link" "elsewhere" "$(cat "$tmp/outside-claude.md")"
+
+# A last line with no newline must not have the import glued onto it, or the
+# keep check would miss it and every re-run would append again.
+v="$tmp/unterminated-claude"
+mkdir -p "$v"
+printf '# Ours\nlast' >"$v/CLAUDE.md"
+"$SCAFFOLD" --rung local "$v" >/dev/null 2>&1
+"$SCAFFOLD" --rung local "$v" >/dev/null 2>&1
+assert_eq "G1.8 unterminated CLAUDE.md: the import is its own line, once" "1" \
+  "$(grep -c '^@sync-protocol.md$' "$v/CLAUDE.md")"
+assert_eq "G1.8 unterminated CLAUDE.md: the operator's last line stays whole" "1" \
+  "$(grep -c '^last$' "$v/CLAUDE.md")"
+
+# A CRLF file that already imports the protocol keeps it, not a second copy.
+v="$tmp/crlf-claude"
+mkdir -p "$v"
+printf '# Ours\r\n@sync-protocol.md\r\n' >"$v/CLAUDE.md"
+out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+assert_contains "G1.8 CRLF CLAUDE.md: the existing import is recognised" "kept CLAUDE.md" "$out"
+assert_eq "G1.8 CRLF CLAUDE.md: no second import" "1" "$(grep -c 'sync-protocol' "$v/CLAUDE.md")"
+
+v="$tmp/dir-claude"
+mkdir -p "$v/CLAUDE.md"
+out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+assert_eq "G1.8 CLAUDE.md directory: the scaffold still succeeds" "0" "$?"
+assert_contains "G1.8 CLAUDE.md directory: refused and said" "not a regular file" "$out"
+
+# Root reads and writes through any mode, so the mode cases prove nothing there.
+if [ "$(id -u)" -ne 0 ]; then
+  v="$tmp/readonly-claude"
+  mkdir -p "$v"
+  printf '# Ours\n' >"$v/CLAUDE.md"
+  chmod 444 "$v/CLAUDE.md"
+  out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+  assert_eq "G1.8 read-only CLAUDE.md: the scaffold still succeeds" "0" "$?"
+  assert_contains "G1.8 read-only CLAUDE.md: said, with the line to add" "@sync-protocol.md to it by hand" "$out"
+  assert_file "G1.8 read-only CLAUDE.md: the wiring notes are still written" "$v/hygiene-wiring.md"
+  assert_eq "G1.8 read-only CLAUDE.md: left as it was" "# Ours" "$(cat "$v/CLAUDE.md")"
+
+  v="$tmp/writeonly-claude"
+  mkdir -p "$v"
+  printf '# Ours\n' >"$v/CLAUDE.md"
+  chmod 200 "$v/CLAUDE.md"
+  "$SCAFFOLD" --rung local "$v" >/dev/null 2>&1
+  out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+  chmod 644 "$v/CLAUDE.md"
+  assert_eq "G1.8 unreadable CLAUDE.md: nothing appended blind" "# Ours" "$(cat "$v/CLAUDE.md")"
+  assert_contains "G1.8 unreadable CLAUDE.md: said" "not readable and writable" "$out"
+fi
 
 # ---------------------------------------------------------------------------
 # 2. The remote rung adds the CI guard (REQ-A1.9, REQ-G1.5).
