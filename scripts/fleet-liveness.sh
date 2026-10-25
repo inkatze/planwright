@@ -1409,8 +1409,9 @@ case "$cmd" in
         #   2. A FORK-PARK (fleet-hardening Task 2, D-2): the next tool use after
         #      an answered AskUserQuestion fork is the worker resuming — the exit
         #      edge, awaiting-human -> working.
-        #   3. An IDLE marker: the Stop push left it, so this tool use is the worker resuming from idle,
-        #      whatever resumed it (a message, an operator's typed turn).
+        #   3. An IDLE marker: the Stop push left it, so this tool use is the
+        #      worker resuming from idle, whatever resumed it (a message, an
+        #      operator's typed turn).
         # Known inference limitation (D-1): a parallel unrelated tool's
         # PostToolUse can clear a still-pending marker; the ground-truth
         # reconcile (REQ-A1.8) re-derives the awaiting state next sweep.
@@ -1523,10 +1524,13 @@ case "$cmd" in
           "$FA" heartbeat "$handle" "$scope" "$target" --unless-awaiting >/dev/null 2>&1 \
             || printf '%s\n' "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
         fi
-        # The idle exit-edge marker: read the row back rather than trusting the branch taken, since an
-        # --unless-awaiting push may have no-op'd over a preserved fork-park or
-        # a queued decision. Any other outcome drops a leftover marker, so a
-        # resume never fires the edge over a row the stop did not idle.
+        # The idle exit-edge marker: read the row back rather than trusting the
+        # branch taken, since an --unless-awaiting push may have no-op'd over a
+        # preserved fork-park or a queued decision. Any other outcome drops a
+        # leftover marker, so a resume never fires the edge over a row the stop
+        # did not idle. Unlike the decision markers, nothing reads this one's
+        # heartbeat back: post-tool-use acts on its presence alone, and the
+        # value is only there for a human inspecting the directory.
         if [ "$event" = stop ] && [ "$(store_row_field "$root" "$handle" "$FIELD_STATE")" = idle ]; then
           idle_ts=$(store_row_field "$root" "$handle" "$FIELD_HEARTBEAT")
           if ! mkdir -p "$root/liveness/idle" 2>/dev/null \
