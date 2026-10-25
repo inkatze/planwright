@@ -211,8 +211,10 @@ ok "a live permission's resume drops a co-resident idle marker"
 # ---------------------------------------------------------------------------
 # 9. docs/fleet.md's hook table names the idle marker on both edges.
 # ---------------------------------------------------------------------------
+# shellcheck disable=SC2016 # the backticks are literal markdown, not expansion
 grep -q '^| `Stop` |.*idle exit-edge marker' "$DOC" \
   || fail "9: docs/fleet.md's Stop row does not name the idle exit-edge marker"
+# shellcheck disable=SC2016 # the backticks are literal markdown, not expansion
 grep -q '^| `PostToolUse` |.*idle exit-edge marker' "$DOC" \
   || fail "9: docs/fleet.md's PostToolUse row does not name the idle exit-edge marker"
 ok "docs/fleet.md's hook table names the idle exit-edge marker"
