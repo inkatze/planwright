@@ -94,6 +94,8 @@ mc_run mc-duties.sh get alpha-duty summary
 expect_eq "REQ-C1.3: the superseding entry's fields replace the shipped ones" "The team's own alpha"
 mc_run mc-duties.sh get custom-duty watchers
 expect_eq "REQ-C1.3: the added duty's fields resolve" "[scripts/custom-watch.sh@2m/medium]"
+mc_run mc-duties.sh get custom-duty id
+expect_eq "the id field reads back the duty's own id" "custom-duty"
 mc_run mc-duties.sh get no-such-duty summary
 expect_rc "an unknown duty is not found" 3
 expect_err "the unknown duty is named" "no-such-duty"

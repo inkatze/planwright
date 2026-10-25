@@ -122,6 +122,14 @@ run_fixture
 expect_rc "a behaviour whose consumer does not exist fails" 1
 expect_out "the missing consumer is named" "scripts/no-such.sh"
 
+for consumer in /etc/profile ../outside.sh scripts/../../outside.sh; do
+  reset_fixture
+  printf 'seeded-behaviour\tmission_control_programs\t%s\n' "$consumer" >>"$core/config/mission-control-knobs.tsv"
+  run_fixture
+  expect_rc "a consumer outside the core root fails: $consumer" 1
+  expect_out "the out-of-root consumer is refused: $consumer" "names no consumer inside the core root"
+done
+
 reset_fixture
 printf '#!/bin/sh\n' >"$core/scripts/reader.sh"
 printf 'seeded-behaviour\tmission_control_programs\tscripts/reader.sh\n' >>"$core/config/mission-control-knobs.tsv"
