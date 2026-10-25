@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"planwright worker-command-guard: enumerated known-safe command shape under the session self-approval policy (deterministic, no LLM)"}}
