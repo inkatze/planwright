@@ -557,7 +557,7 @@ git -C "$v4" checkout -q -- feedback/ledger.md
 # ---------------------------------------------------------------------------
 v5="$tmp/venture5"
 inception_fixture_write "$v5" || exit 1
-printf '\nKey for the pilot: AKIAABCDEFGHIJKLMNOP\n' >>"$v5/plan.md"
+printf '\nKey for the pilot: AKIA''ABCDEFGHIJKLMNOP\n' >>"$v5/plan.md"
 git -C "$v5" init -q . && git -C "$v5" add -A && git -C "$v5" commit -qm "chore: seed the venture" || exit 1
 "$NOTION" configure --page "$PAGE" "$v5" >/dev/null || exit 1
 calls="$(grep -c 'X PATCH' "$tmp/log/argv")"
