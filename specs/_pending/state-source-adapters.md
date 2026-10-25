@@ -18,8 +18,10 @@ tools became this fifth follow-on (mission-control D-12, D-22, D-27; brief risk 
 ## The shape (from the mission-control kickoff)
 
 One **adapter per source**, each implementing the snapshot adapter contract of D-12: refresh one
-age-stamped snapshot per program per cadence into the program home, the cadence and tracked set as
-knobs per source, backing off on rate-limit headroom. Every duty reads the snapshot; none polls the
+age-stamped snapshot per program per cadence, the cadence and tracked set as knobs per source,
+backing off on rate-limit headroom. Snapshots are runtime state and live under the plugin data
+home, not the program home (D-8). D-12's own text still says "into the program home"; D-8, amended
+later at sign-off, names the source snapshots as runtime state, so read D-8 as governing. Every duty reads the snapshot; none polls the
 source itself (REQ-M1.1). Once an adapter exists, a program's source map can move a fact class from
 `cited` to `snapshot` (REQ-H1.4).
 
@@ -65,4 +67,4 @@ kickoff. Two live fragments bear on the refresher pattern:
 2. The per-source auth model and where tokens live, outside the program home.
 3. Whether any adapter writes, and if so whether a write is a human gate.
 4. Company data: snapshots of company systems stay local and in company systems (mission-control
-   REQ-I1.6); how the program home's storage class bounds them.
+   REQ-I1.6); how the plugin data home, where snapshots live (D-8), bounds them.
