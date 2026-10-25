@@ -218,6 +218,8 @@ rm -f "$repo/.claude/catalogs/duties.yaml"
 
 # An adopter override taking a later duty's directory is the adopter's
 # fault: the override is skipped and the core duty it collided with stays.
+# The core entry the override superseded is gone from the merged catalog,
+# so it is not restored.
 cat >"$adopter/catalogs/duties.yaml" <<'EOF'
 duties:
   - id: alpha-duty
