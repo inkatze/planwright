@@ -97,9 +97,9 @@ mise run check      # the full local equivalent of the CI gate
   where it describes sessions that launcher created before the change, the
   prior launcher), since the tmux rung launches its worker in a detached
   session of its own;
-- the CI posture guards: the fork-PR workflow-posture check, the transitive
-  CI-eval exclusion over the workflows and the task graph, and the
-  glob-allow-rule discipline check;
+- the CI posture guards: the fork-PR and platform-matrix workflow-posture
+  check, the transitive CI-eval exclusion over the workflows and the task
+  graph, and the glob-allow-rule discipline check;
 - the house-pattern checks: `unset CDPATH` before a `cd` in command
   substitution, printf over echo for any expanded value in a file whose
   shebang does not name bash or that turns on bash's `xpg_echo` (an `echo`

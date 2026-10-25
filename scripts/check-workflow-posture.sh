@@ -135,9 +135,30 @@
 # `*.yml`/`*.yaml` pattern under the scanned directory, so no file CONTENT is
 # ever subject to expansion.
 #
-# Usage: check-workflow-posture.sh [<workflows-dir>]
+# THE PLATFORM MATRIX (--matrix, universal-binary REQ-B1.4, D-13). Given a
+# workflow file name, a fifth assertion holds that file to the CI platform
+# matrix, failing closed when it is absent:
+#   - it carries an Ubuntu job (runs-on ubuntu-*, no container), a macOS job
+#     (runs-on macos-*), and exactly one Alpine job (a container image
+#     alpine:*); a runs-on this parser cannot read as a scalar, a matrix
+#     expression included, places a job on no platform;
+#   - every step blocks: no `continue-on-error` other than `false`, and no
+#     `||` onto `true` or `:` on any content line (a `run:` body included);
+#   - no `if:`, job- or step-level, names a platform (runner.os, matrix.os,
+#     or a platform word), and the macOS and Alpine jobs carry no job-level
+#     `if:` at all, since a matrix job runs on every pull request;
+#   - the Ubuntu and macOS sides each carry a step named `install smoke`;
+#   - every Alpine step is named, each name either `setup: <what>` or one of
+#     the scope REQ-B1.4 gives the job, with exactly one `shell suite`,
+#     exactly one `install smoke`, and at most one `bake-off harness`.
+# The scope is held by step name, so a step doing other work under a
+# `setup: ` name passes; the name is what a reviewer reads, and the guard
+# holds the list of names, not what each command does.
+#
+# Usage: check-workflow-posture.sh [--matrix <workflow-file>] [<workflows-dir>]
 #   Default: <repo-root>/.github/workflows (the repo root is derived from this
 #   script's location, so a bare invocation works from any directory).
+#   --matrix names a file directly under the scanned directory.
 # Exit: 0 posture holds; 1 a violation or a fail-closed condition (offending
 #   file:line on stderr); 2 usage error.
 #
@@ -154,10 +175,20 @@ export LC_ALL
 # corrupt the repo-root derivation.
 unset CDPATH
 
-if [ $# -gt 1 ]; then
-  echo "usage: check-workflow-posture.sh [<workflows-dir>]" >&2
+usage() {
+  echo "usage: check-workflow-posture.sh [--matrix <workflow-file>] [<workflows-dir>]" >&2
   exit 2
+}
+matrix=""
+if [ "${1:-}" = "--matrix" ]; then
+  [ $# -ge 2 ] || usage
+  matrix="$2"
+  shift 2
+  case "$matrix" in
+    "" | */* | .*) usage ;;
+  esac
 fi
+[ $# -le 1 ] || usage
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd -P)" || exit 2
 dir="${1:-$repo_root/.github/workflows}"
@@ -671,11 +702,207 @@ if [ "$parse_failed" -eq 0 ]; then
   done
 fi
 
+# --- the platform matrix (--matrix) -----------------------------------------
+#
+# A second, narrower pass over the one named workflow, run only once every
+# file parsed above, so it can lean on the same block-style subset. Facts:
+#   J <job>                         a job
+#   O <job> <runs-on>               the job's scalar runs-on
+#   C <job> <image>                 the job's container image
+#   I <job> <line> <text>           job-level `if:` text (one per block line)
+#   S <job> <seq>                   a step
+#   N <job> <seq> <name>            that step's name
+#   K <job> <line> <text>           step-level `if:` text
+#   F <line> <value>                a continue-on-error key, at any depth
+#   T <line>                        a soft `||` (true or :) on a content line
+read -r -d '' awk_matrix <<'AWK_MATRIX' || true
+function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+function unquote(s) { sub(/^["']/, "", s); sub(/["']$/, "", s); return s }
+BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; bs_if = "" }
+{
+  line = $0
+  sub(/\r$/, "", line)
+  if (line ~ /^[ \t]*$/) next
+  match(line, /^ */)
+  indent = RLENGTH
+  rest = substr(line, indent + 1)
+  if (rest ~ /^#/) next
+
+  if (rest ~ /\|\|[ \t]*(true|:)([ \t;)&|]|$)/) printf "T\t%d\n", NR
+
+  if (bs) {
+    if (indent > bs_indent) {
+      if (bs_if == "job") printf "I\t%s\t%d\t%s\n", cur, NR, rest
+      if (bs_if == "step") printf "K\t%s\t%d\t%s\n", cur, NR, rest
+      next
+    }
+    bs = 0; bs_if = ""
+  }
+
+  isseq = (rest ~ /^-([ \t]|$)/)
+  body = rest; kindent = indent
+  if (isseq) {
+    if (match(rest, /^-[ \t]+/)) { kindent = indent + RLENGTH; body = substr(rest, RLENGTH + 1) } else body = ""
+  }
+  haskey = 0; key = ""; val = ""
+  if (match(body, /^("[^"]*"|'[^']*'|[A-Za-z_][A-Za-z0-9_.-]*)[ \t]*:([ \t]|$)/)) {
+    haskey = 1
+    key = trim(substr(body, 1, RLENGTH)); sub(/:$/, "", key); key = unquote(trim(key))
+    val = trim(substr(body, RLENGTH + 1)); sub(/[ \t]+#.*$/, "", val); val = trim(val)
+  }
+  scalar = (haskey && val ~ /^[|>][0-9]*[+-]?$/)
+  if (haskey && key == "continue-on-error") printf "F\t%d\t%s\n", NR, unquote(val)
+
+  if (indent == 0) {
+    section = (haskey && key == "jobs") ? "jobs" : ""
+    jobs_child = -1
+    if (scalar) { bs = 1; bs_indent = kindent }
+    next
+  }
+  if (section != "jobs") { if (scalar) { bs = 1; bs_indent = kindent }; next }
+
+  if (jobs_child < 0) jobs_child = indent
+  if (indent == jobs_child && haskey && !isseq) {
+    cur = key; printf "J\t%s\n", cur
+    job_body = -1; in_steps = 0; in_container = 0; steps_item = -1; seq = 0
+    next
+  }
+  if (job_body < 0) job_body = indent
+  if (indent == job_body && !isseq) {
+    in_steps = 0; in_container = 0
+    if (key == "runs-on") printf "O\t%s\t%s\n", cur, unquote(val)
+    else if (key == "container") { if (val != "") printf "C\t%s\t%s\n", cur, unquote(val); else in_container = 1 }
+    else if (key == "if") { if (scalar) { bs = 1; bs_indent = kindent; bs_if = "job"; next } else printf "I\t%s\t%d\t%s\n", cur, NR, val }
+    else if (key == "steps") { in_steps = 1; steps_item = -1 }
+    if (scalar) { bs = 1; bs_indent = kindent }
+    next
+  }
+  if (in_container && haskey && key == "image") { printf "C\t%s\t%s\n", cur, unquote(val); in_container = 0 }
+  if (in_steps && indent > job_body) {
+    stepkey = 0
+    if (isseq && (steps_item < 0 || indent == steps_item)) {
+      steps_item = indent; step_key = kindent; seq++
+      printf "S\t%s\t%d\n", cur, seq
+      stepkey = haskey
+    } else if (indent == step_key && haskey && !isseq) {
+      stepkey = 1
+    }
+    if (stepkey) {
+      if (key == "name") printf "N\t%s\t%d\t%s\n", cur, seq, unquote(val)
+      else if (key == "if") { if (scalar) { bs = 1; bs_indent = kindent; bs_if = "step"; next } else printf "K\t%s\t%d\t%s\n", cur, NR, val }
+    }
+  }
+  if (scalar) { bs = 1; bs_indent = kindent }
+}
+AWK_MATRIX
+
+# The scope REQ-B1.4 gives the Alpine job, by step name. A step named
+# `setup: <what>` prepares the container for these and is the only other
+# shape allowed: the name is the contract, so a reviewer reads a new Alpine
+# step's purpose off the workflow and the guard holds it to the list.
+matrix_scope_required="shell suite
+install smoke"
+matrix_scope_optional="bake-off harness"
+platform_re='runner\.os|runner\.arch|matrix\.os|macos|ubuntu|alpine|linux|windows|darwin'
+
+if [ -n "$matrix" ] && [ "$parse_failed" -eq 0 ]; then
+  mfile="$dir/$matrix"
+  if [ ! -f "$mfile" ]; then
+    fail "$mfile: the platform-matrix workflow is absent, so the matrix cannot be verified (failing closed)"
+  elif ! awk "$awk_matrix" "$mfile" >"$work/matrix"; then
+    fail "$mfile: awk failed reading the platform matrix"
+  else
+    mf() { grep "^$1	" "$work/matrix" 2>/dev/null || true; }
+    ubuntu="" macos="" alpine="" nalpine=0
+    while IFS=$'\t' read -r _ job; do
+      [ -n "${job:-}" ] || continue
+      ro="$(mf O | awk -F'\t' -v j="$job" '$2 == j { print $3; exit }')"
+      img="$(mf C | awk -F'\t' -v j="$job" '$2 == j { print $3; exit }')"
+      case "$img" in
+        alpine:* | alpine@*)
+          alpine="$alpine $job"
+          nalpine=$((nalpine + 1))
+          ;;
+        "")
+          case "$ro" in
+            macos-*) macos="$macos $job" ;;
+            ubuntu-*) ubuntu="$ubuntu $job" ;;
+          esac
+          ;;
+      esac
+    done < <(mf J)
+
+    [ -n "$ubuntu" ] || fail "$mfile: no Ubuntu job (runs-on ubuntu-*, no container) — the matrix needs Linux with glibc"
+    [ -n "$macos" ] || fail "$mfile: no macOS job (runs-on macos-*) — the matrix needs the system bash and BSD userland"
+    [ "$nalpine" -ge 1 ] || fail "$mfile: no Alpine job (a container image alpine:*) — the matrix needs musl with dash and busybox"
+    [ "$nalpine" -le 1 ] || fail "$mfile: more than one Alpine job (${alpine# }), so the Alpine scope has no single job to hold to"
+
+    while IFS=$'\t' read -r _ ln v; do
+      [ -n "${ln:-}" ] || continue
+      [ "$v" = "false" ] || fail "$mfile:$ln: \`continue-on-error\` lets a failing step or job pass; every step on every platform must block"
+    done < <(mf F)
+    while IFS=$'\t' read -r _ ln; do
+      [ -n "${ln:-}" ] || continue
+      fail "$mfile:$ln: a \`||\` onto true or \`:\` swallows the failure before it; every step on every platform must block"
+    done < <(mf T)
+    while IFS=$'\t' read -r _ job ln text; do
+      [ -n "${job:-}" ] || continue
+      if printf '%s\n' "$text" | grep -Eiq "$platform_re"; then
+        fail "$mfile:$ln: job '$job' is gated by an \`if:\` naming a platform, so that platform can stop running it"
+      fi
+      case " $macos $alpine " in
+        *" $job "*) fail "$mfile:$ln: platform job '$job' carries a job-level \`if:\`; a matrix job runs on every pull request" ;;
+      esac
+    done < <(mf I)
+    while IFS=$'\t' read -r _ job ln text; do
+      [ -n "${job:-}" ] || continue
+      if printf '%s\n' "$text" | grep -Eiq "$platform_re"; then
+        fail "$mfile:$ln: a step of job '$job' is gated by an \`if:\` naming a platform, so that platform can skip it"
+      fi
+    done < <(mf K)
+
+    # has_smoke <jobs>: whether any of the jobs carries the install smoke step.
+    has_smoke() {
+      for j in $1; do
+        mf N | awk -F'\t' -v j="$j" '$2 == j && $4 == "install smoke" { f = 1 } END { exit !f }' && return 0
+      done
+      return 1
+    }
+    [ -z "$ubuntu" ] || has_smoke "$ubuntu" || fail "$mfile: no Ubuntu job carries an \`install smoke\` step"
+    [ -z "$macos" ] || has_smoke "$macos" || fail "$mfile: no macOS job carries an \`install smoke\` step"
+
+    if [ "$nalpine" -eq 1 ]; then
+      aj="${alpine# }"
+      nsteps="$(mf S | awk -F'\t' -v j="$aj" '$2 == j' | wc -l | tr -d ' ')"
+      nnamed="$(mf N | awk -F'\t' -v j="$aj" '$2 == j' | wc -l | tr -d ' ')"
+      [ "$nsteps" -eq "$nnamed" ] || fail "$mfile: Alpine job '$aj' has a step with no \`name:\`, so its place in the Alpine scope cannot be read"
+      while IFS=$'\t' read -r _ _ _ name; do
+        case "$name" in
+          "setup: "?*) continue ;;
+        esac
+        if ! printf '%s\n%s\n' "$matrix_scope_required" "$matrix_scope_optional" | grep -qxF -- "$name"; then
+          fail "$mfile: Alpine job '$aj' step '$name' is outside the Alpine scope (the shell suite, the bake-off harness, the install smoke, and \`setup: \` steps); run it on Ubuntu and name it there"
+        fi
+      done < <(mf N | awk -F'\t' -v j="$aj" '$2 == j')
+      while IFS= read -r want; do
+        n="$(mf N | awk -F'\t' -v j="$aj" -v w="$want" '$2 == j && $4 == w' | wc -l | tr -d ' ')"
+        [ "$n" -eq 1 ] || fail "$mfile: Alpine job '$aj' carries $n \`$want\` step(s); the Alpine scope needs exactly one"
+      done <<<"$matrix_scope_required"
+      n="$(mf N | awk -F'\t' -v j="$aj" -v w="$matrix_scope_optional" '$2 == j && $4 == w' | wc -l | tr -d ' ')"
+      [ "$n" -le 1 ] || fail "$mfile: Alpine job '$aj' carries $n \`$matrix_scope_optional\` steps; the Alpine scope allows one"
+    fi
+  fi
+fi
+
 if [ -s "$viol" ]; then
-  echo "check-workflow-posture: the fork-PR posture pinned by D-6 (REQ-C1.2) does not hold." >&2
+  echo "check-workflow-posture: the workflow posture does not hold (the D-6 fork-PR posture, and the platform matrix under --matrix)." >&2
   cat "$viol" >&2
   exit 1
 fi
 
-echo "check-workflow-posture: $nfiles workflow file(s) under '$dir' hold the D-6 fork-PR posture."
+if [ -n "$matrix" ]; then
+  echo "check-workflow-posture: $nfiles workflow file(s) under '$dir' hold the D-6 fork-PR posture, and '$matrix' holds the platform matrix."
+else
+  echo "check-workflow-posture: $nfiles workflow file(s) under '$dir' hold the D-6 fork-PR posture."
+fi
 exit 0
