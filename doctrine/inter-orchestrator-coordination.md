@@ -12,7 +12,9 @@ Citations: orchestration-fleet REQ-D1.2 (division of labor), orchestration-fleet
 REQ-D1.3 (attributed, non-impersonating relay), orchestration-fleet REQ-B1.7
 (relay/spawn security bounds), orchestration-fleet REQ-A1.6 (fleet-artifact data
 hygiene) · orchestration-fleet D-7, tower-comms D-12 · fleet-messaging REQ-C1.7,
-REQ-G1.4, REQ-G1.7, REQ-G1.8, REQ-G1.9, D-13, D-14, D-27, D-29.
+REQ-G1.4, REQ-G1.7, REQ-G1.8, REQ-G1.9, D-13, D-14, D-27, D-29 ·
+worker-permission-ergonomics REQ-G1.4 (unattended means parked), REQ-F1.2
+(the guard the only self-approval mechanism), D-9, D-12.
 
 ## Division of labor
 
@@ -152,6 +154,15 @@ This is distinct from a routine *question a worker addresses to the tower*, whic
 the [Autonomous-Safe-Decision Policy](autonomous-safe-decision.md) may answer
 unattended. The sanctioned way to remove *routine* prompts is the shipped
 worker-settings profile (`config/worker-settings.json`), which a human installs.
+
+**Unattended means parked, not delegated.** An unattended worker's prompt that
+falls outside the configured self-approval policy (`worker_self_approval`,
+which the profile's worker guard evaluates per command segment) and outside
+every operator-written standing decision parks as a decision-queue item for
+the operator. No tower, supervisor, or relay answers it, whether on its own
+judgment or on the strength of the policy, which only the guard evaluates.
+The policy is the only self-approval surface: a standing decision is not a
+second one, being the operator's own answer recorded in advance.
 
 ## The supervisor duty
 

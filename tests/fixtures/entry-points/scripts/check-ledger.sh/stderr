@@ -1,0 +1,1 @@
+match ^check-ledger: missing or unreadable file: --entry-point-probe$

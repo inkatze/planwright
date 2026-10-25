@@ -89,7 +89,8 @@ worker loads full doctrine, converges through the same `steps_convergence`
 list a task does, renders its audit record, and lands it: in the draft PR body
 when every push destination is covered by `flight_pr_hosts` and `gh` is
 authenticated, otherwise as a committed record at
-`specs/_flights/<flight-id>.md` on the flight's own branch. The shared flight
+`_flights/<flight-id>.md` under the spec root (`specs/_flights/` by default)
+on the flight's own branch. The shared flight
 sweep reconstructs what is in flight from that durable evidence, which is how
 the tower answers status after a restart.
 

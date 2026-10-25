@@ -1,0 +1,1 @@
+match ^usage: tower-loop-comms\.sh identity --checkout <dir> \(--session-id <uuid> \| --pid <pid>\)$
