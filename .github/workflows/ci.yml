@@ -155,6 +155,20 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: /bin/sh scripts/check-purged-identifiers.sh --commit-range "origin/${BASE_REF}..HEAD"
 
+      # A PR titled with the `comments` scope declares itself comment-only, so
+      # its surface files must keep every code line the base has. The title is
+      # untrusted text: it reaches the shell through env, never the script.
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if printf '%s\n' "$PR_TITLE" | grep -Eq '^[a-z]+\(comments\)!?: '; then
+            /bin/sh scripts/check-comment-budget.sh --code-invariant "origin/${BASE_REF}"
+          else
+            echo "not a comments-scoped PR; the code-invariance check does not apply"
+          fi
+
   # The suite in three shards (scripts/run-tests.sh --shard), split by the
   # committed duration table so each runs about a third of the suite's time.
   # Each shard prepares the runner exactly as the lint job does, so a
