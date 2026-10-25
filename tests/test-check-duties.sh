@@ -239,6 +239,26 @@ run_fixture
 expect_fail "REQ-H1.4: a default map naming an unknown mode fails"
 expect_out "REQ-H1.4: the default map's unknown mode is named" "recorded"
 
+# A reader that fails without a word still fails the guard: a stub
+# mc-program.sh whose program duty read exits 1 silently.
+reset_mc_fixture
+fixture_defaults
+program ""
+mkdir -p "$tmp/stubbed"
+cp -R "$repo_root/scripts" "$tmp/stubbed/scripts"
+cat >"$tmp/stubbed/scripts/mc-program.sh" <<EOF
+#!/bin/bash
+[ "\$1 \${3:-}" = "get duties" ] && exit 1
+exec /bin/bash "$repo_root/scripts/mc-program.sh" "\$@"
+EOF
+OUT=$(env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT -u PLANWRIGHT_ROOT \
+  -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_LOCAL_CONFIG \
+  -u PLANWRIGHT_REPO_ROOT -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
+  HOME="$fixhome" /bin/bash "$tmp/stubbed/scripts/check-duties.sh" --core "$core" --repo "$repo" 2>&1)
+RC=$?
+expect_fail "a program duty read failing silently fails check:duties"
+expect_out "the silent failure is named" "program 'alpha' duties: the read failed with no message"
+
 # ---------------------------------------------------------------------------
 # Usage.
 # ---------------------------------------------------------------------------

@@ -108,11 +108,16 @@ finding() {
   printf '%s\n' "$prog: $(sanitize_printable "$1")" >&2
   findings=$((findings + 1))
 }
-# relay: every line the last run wrote to stderr, as findings.
+# relay [<what>]: every line the last run wrote to stderr, as findings; a
+# failed run that wrote none is still a finding, naming <what>.
 relay() {
-  while IFS= read -r line; do
-    [ -n "$line" ] && finding "$line"
-  done <"$scratch/err"
+  if [ -s "$scratch/err" ]; then
+    while IFS= read -r line; do
+      [ -n "$line" ] && finding "$line"
+    done <"$scratch/err"
+  elif [ -n "${1:-}" ]; then
+    finding "$1: the read failed with no message"
+  fi
 }
 
 # List through --explain: unlike a plain read of a core-only catalog, its
@@ -125,7 +130,7 @@ else
 fi
 ids=$(printf '%s\n' "$listing" | cut -f1)
 
-run mc-duties.sh validate || relay
+run mc-duties.sh validate || relay "the duties catalog validation"
 
 # known <label> <ids>: a finding per id (one per line) the catalog lacks.
 known() {
@@ -147,20 +152,28 @@ KNOWN
 if default_duties=$(run mc-program.sh default duties); then
   known "mission_control_default_duties" "$default_duties"
 else
-  relay
+  relay mission_control_default_duties
 fi
-run mc-program.sh default sources >/dev/null || relay
-run mc-program.sh default home >/dev/null || relay
+run mc-program.sh default sources >/dev/null || relay mission_control_default_sources
+run mc-program.sh default home >/dev/null || relay mission_control_home_root
 
 if programs=$(run mc-program.sh list); then
   for p in $programs; do
-    run mc-program.sh validate "$p" || relay
+    if run mc-program.sh validate "$p"; then
+      valid=1
+    else
+      valid=0
+      relay "program '$p'"
+    fi
+    # An invalid program already named its duty problem.
     if enabled=$(run mc-program.sh get "$p" duties); then
       known "program '$p'" "$enabled"
+    elif [ "$valid" -eq 1 ]; then
+      relay "program '$p' duties"
     fi
   done
 else
-  relay
+  relay mission_control_programs
 fi
 
 if [ "$findings" -ne 0 ]; then
