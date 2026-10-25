@@ -13,7 +13,8 @@ REQ-D1.3 (attributed, non-impersonating relay), orchestration-fleet REQ-B1.7
 (relay/spawn security bounds), orchestration-fleet REQ-A1.6 (fleet-artifact data
 hygiene) · orchestration-fleet D-7, tower-comms D-12 · fleet-messaging REQ-G1.4,
 REQ-G1.7, D-13, D-14 · worker-permission-ergonomics REQ-G1.4 (unattended
-means parked), D-9.
+means parked), REQ-F1.2 (the guard the only self-approval mechanism), D-9,
+D-12.
 
 ## Division of labor
 
