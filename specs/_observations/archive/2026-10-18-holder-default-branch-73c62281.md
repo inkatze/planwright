@@ -1,0 +1,2 @@
+- 2026-10-18 [planwright] observation-carry.sh carries a holder spec root against a base of main unless --base names another, so a holder repository whose default branch is not main fails the normal carry. Deriving the holder default branch (its remote HEAD, then its local HEAD) would fix it; deferred from custom-spec-location Task 9 (PR #682, cubic review) by operator decision.
+Consumed-by: specs/mission-control (2026-10-22)
