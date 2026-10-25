@@ -102,8 +102,9 @@ the first question, and repeated in the handoff (REQ-H1.5).
 
 1. **Detect the environment.** Run `inception-venture.sh detect`. It names
    whether git works, the host (`cowork` only when the operator sets
-   `PLANWRIGHT_INCEPTION_HOST`, since Cowork marks nothing), whether the
-   venture hook finds planwright (`plugin`), whether the session is ephemeral
+   `PLANWRIGHT_INCEPTION_HOST`, since Cowork marks nothing), whether
+   planwright is found from this session where the venture hook searches
+   (`plugin`), whether the session is ephemeral
    (a cloud or Cowork host, or the operator's
    `PLANWRIGHT_INCEPTION_EPHEMERAL` override), whether the
    private-remote home is available, and what the local arm amounts to:

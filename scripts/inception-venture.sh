@@ -239,8 +239,10 @@ probe() {
     *) printf '%s\n' 'inception-venture: warning: PLANWRIGHT_INCEPTION_HOST is not cowork, cloud, or local; ignored' >&2 ;;
   esac
 
-  # The same places the venture's pre-commit hook looks, so `loaded` means the
-  # guards will run on this machine. The cache glob stays unquoted to expand.
+  # The venture's pre-commit hook searches these same places, but only after
+  # sourcing the venture's .planwright-local.sh, which this helper never
+  # executes; so `absent` means "not found from this session", and the
+  # degraded line says so. The cache glob stays unquoted to expand.
   plugin=absent
   for cand in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
     "${HOME:-}/.claude/planwright" "${HOME:-}"/.claude/plugins/cache/planwright/planwright/*; do
@@ -318,8 +320,9 @@ print_degraded() {
     && [ "$pd_home" != remote ] && [ "$pd_rung" != plain ]; then
     printf 'degraded\tthe private-remote home is unavailable (%s)\n' "$remote_reason"
   fi
-  if [ "$plugin" = absent ]; then
-    printf 'degraded\t%s\n' 'planwright is not installed where a venture commit hook looks for it, so commits on this machine skip the venture guards; set PLANWRIGHT_ROOT in the venture'"'"'s .planwright-local.sh'
+  # A plain folder has no hook to skip anything; the line above already says so.
+  if [ "$plugin" = absent ] && [ "$has_git" = yes ] && [ "$pd_rung" != plain ]; then
+    printf 'degraded\t%s\n' 'planwright was not found from this session (PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT, ~/.claude), so a venture commit made here will skip the venture guards unless the venture'"'"'s .planwright-local.sh sets PLANWRIGHT_ROOT'
   fi
 }
 

@@ -371,6 +371,10 @@ assert_contains "H1.4 an unrecognized host override is warned about" "PLANWRIGHT
 PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT='' venture detect
 assert_contains "H1.4 no install where the hook looks reads as absent" "$(printf 'plugin\tabsent')" "$out"
 assert_contains "H1.4 an absent plugin is a named degradation" "skip the venture guards" "$out"
+assert_contains "H1.4 the absent-plugin line names where the hook also looks" ".planwright-local.sh" "$out"
+
+PATH="$stubs/nogit:$PATH" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT='' venture detect
+assert_not_contains "H1.4 without git there is no hook, so no absent-plugin line" "skip the venture guards" "$out"
 
 PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT="$REPO_ROOT" venture detect
 assert_contains "H1.4 a loaded plugin root reads as loaded" "$(printf 'plugin\tloaded')" "$out"
@@ -384,6 +388,8 @@ assert_contains "G1.8 create imports the protocol from CLAUDE.md" "@sync-protoco
   "$(cat "$tmp/v-cowork/cw/CLAUDE.md" 2>/dev/null)"
 PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_INCEPTION_HOST=cowork venture handoff "$tmp/v-cowork/cw"
 assert_contains "H1.4 the handoff repeats the Cowork caveat" "$(printf 'caveat\tCowork')" "$out"
+PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT='' venture handoff "$tmp/v-cowork/cw"
+assert_contains "H1.5 the handoff repeats the absent-plugin degradation" "skip the venture guards" "$out"
 
 # =========================================================================
 # Creation guards (REQ-A1.4, REQ-A1.7 no-overwrite floor)
