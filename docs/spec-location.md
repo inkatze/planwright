@@ -197,9 +197,10 @@ rewrites, a fragment carrying any of three pattern classes:
 
 The authoritative patterns are in `scripts/obs-record.sh` (the `--target`
 header and `screen_class`). Whether a repository name in the fragment is
-private is the receiving project's call when it consumes the fragment. No
-observation script writes to a remote: a fragment reaches a public surface
-only through a human act.
+private is the receiving project's call when it consumes the fragment. A
+routed write never reaches a remote: `obs-record.sh --target` writes only
+local files. The observation carry pushes its own chore branch and opens a
+draft PR, and only a human merge lands a fragment on the default branch.
 
 ## Guards in a holder
 
