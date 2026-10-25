@@ -92,7 +92,7 @@ trap 'rm -rf "$work"' EXIT
 trap 'exit 1' HUP INT TERM
 
 allow="$work/allow-bin"
-mkdir "$allow" || die 1 "cannot create the allowlist directory"
+mkdir -p "$allow" || die 1 "cannot create the allowlist directory"
 
 # POSIX.1-2024's utilities, less its development utilities and the ones only
 # a shell builtin can implement (cd, umask, and the like resolve to no file).
@@ -118,7 +118,7 @@ done
 [ -e "$allow/git" ] || die 1 "no git on PATH to build the allowlist from"
 
 home="$work/home"
-mkdir "$home" || die 1 "cannot create the scratch HOME"
+mkdir -p "$home" || die 1 "cannot create the scratch HOME"
 
 # narrowed <command> [<arg>...]: run under the allowlist and nothing else.
 narrowed() {
