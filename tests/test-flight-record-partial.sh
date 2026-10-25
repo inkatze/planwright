@@ -11,7 +11,9 @@
 #      a name other than `partial-<run>.md`) is refused with nothing written.
 #   3. Create-only, never following a symlink: an existing record, a symlink
 #      in its place (dangling or not), or a symlinked brief directory or
-#      flights directory is refused, and nothing is written through it.
+#      flights directory is refused, and nothing is written through it. A
+#      symlinked fleet home is followed to its canonical path, as the sweep
+#      follows it.
 #   4. A token-shaped secret planted in any input is refused as the full
 #      record refuses it, without echoing it, and nothing is written.
 #   5. The kind is one of the fixed park kinds.
@@ -157,6 +159,13 @@ ln -s "$tmp/fleet2/real" "$tmp/fleet2/flights"
 PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet2" run_partial --partial-path "$tmp/fleet2/flights/$FID/partial-000001.md"
 [ "$RC" -eq 3 ] || fail "a symlinked flights directory must be refused (rc $RC)"
 [ -z "$(find "$tmp/fleet2/real" -type f)" ] || fail "partial wrote through a symlinked flights directory"
+# A symlinked fleet home is followed to its canonical path, as the sweep
+# follows it, and the record lands in the real brief directory.
+ln -s "$tmp/fleet" "$tmp/fleet-link"
+PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet-link" run_partial --partial-path "$tmp/fleet-link/flights/$FID/partial-000006.md"
+[ "$RC" -eq 0 ] || fail "a symlinked fleet home must be followed (rc $RC: $ERR)"
+[ "$OUT" = "partial${TAB}$BD/partial-000006.md" ] || fail "a symlinked fleet home must report the canonical path (got: $OUT)"
+[ -f "$BD/partial-000006.md" ] || fail "a symlinked fleet home must write into the real brief directory"
 # A brief directory another user could write is not private.
 (umask 077 && mkdir -p "$tmp/fleet/flights/open-flight-3d4e5f6a")
 chmod g+w "$tmp/fleet/flights/open-flight-3d4e5f6a"

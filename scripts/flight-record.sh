@@ -68,10 +68,11 @@
 #       `<fleet-home>/flights/<id>` under the absolute fleet home
 #       scripts/fleet-state.sh names, spelled as named or canonically, else
 #       exit 2. The record is created only if absent and never through a
-#       symlink: an existing name (a symlink included), or a fleet home,
-#       flights directory, or brief directory that is missing, a symlink,
-#       not a directory, or not one the user owns and only the user can
-#       write, is refused (exit 3), nothing written. <kind> is one of
+#       symlink: an existing name (a symlink included), a flights or brief
+#       directory that is missing, a symlink, not a directory, or not one
+#       the user owns and only the user can write, or a fleet home missing
+#       or not private by its canonical path (a symlinked home is followed,
+#       as the sweep follows it), is refused (exit 3), nothing written. <kind> is one of
 #       flight-common.sh's PARK_KINDS. The inputs are worker text, screened
 #       as the full record's are: a token-shaped secret, or markup that would
 #       reshape the record, is refused (exit 2); only the findings and the
