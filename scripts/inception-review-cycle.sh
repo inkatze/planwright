@@ -842,6 +842,12 @@ case $cmd in
     if [ -d "$target/.git" ]; then bl_lock="$target/.git/planwright-bundle.lock"; else bl_lock="$target/.planwright-bundle.lock"; fi
     pw_lock_acquire "$bl_lock" "${PLANWRIGHT_BUNDLE_LOCK_TRIES:-500}" \
       || die 2 "the bundle is busy (another writer holds $bl_lock); try again"
+    # A step's commit would otherwise conclude the operator's operation.
+    for op in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD REBASE_HEAD; do
+      if git_v rev-parse -q --verify "$op" >/dev/null 2>&1; then
+        die 1 "a merge, cherry-pick, revert, or rebase is in progress in the venture; finish or abort it first, since this step's commit would conclude it"
+      fi
+    done
     ;;
 esac
 

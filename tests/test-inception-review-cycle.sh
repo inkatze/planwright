@@ -352,6 +352,15 @@ assert_eq "staged ledger edit: triage refused" "1" "$?"
 assert_eq "staged ledger edit: kept staged" "feedback/ledger.md" "$(git -C "$v2" diff --cached --name-only)"
 git -C "$v2" reset -q -- feedback/ledger.md
 
+git -C "$v2" checkout -q -b side && git -C "$v2" commit -q --allow-empty -m "side work" && git -C "$v2" checkout -q - || exit 1
+git -C "$v2" merge -q --no-commit --no-ff side >/dev/null 2>&1
+before="$(git -C "$v2" rev-parse HEAD)"
+"$CYCLE" triage FB-1 skip --decider "Robin Lead" "$v2" >/dev/null 2>"$tmp/err"
+assert_eq "merge in progress: triage refused" "1" "$?"
+assert_contains "merge in progress: says so" "in progress" "$(cat "$tmp/err")"
+assert_eq "merge in progress: the merge is not concluded" "$before" "$(git -C "$v2" rev-parse HEAD)"
+git -C "$v2" merge --abort
+
 v3="$tmp/venture3"
 inception_fixture_write "$v3" || exit 1
 git -C "$v3" init -q . && git -C "$v3" add -A && git -C "$v3" commit -qm "chore: seed the venture" || exit 1
