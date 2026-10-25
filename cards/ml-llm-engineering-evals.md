@@ -48,8 +48,10 @@ closes the gap, and which models clear it, with the numbers each claim rests on.
 3. **Prompt, then retrieval, then fine-tuning** (Ovadia, Brief, Mishaeli and Elisha,
    "Fine-Tuning or Retrieval? Comparing Knowledge Injection in LLMs", EMNLP 2024; Lewis et al.,
    "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks", 2020): fix what the eval
-   set shows with the cheapest lever first, use retrieval where the gap is knowledge, and keep
-   fine-tuning for behaviour, format, or cost once the eval set can show the gain. Misuse:
+   set shows with the cheapest lever first, starting with the prompt; use retrieval where the
+   gap is knowledge, which is what both papers measure; and keep fine-tuning for behaviour,
+   format, or cost once the eval set can show the gain. The prompt-first step and the uses
+   kept for fine-tuning are working practice that neither paper tests. Misuse:
    fine-tuning to teach the model new facts; Ovadia et al. found retrieval outperformed
    unsupervised fine-tuning on both known and new facts, and that fine-tuning struggled to
    learn new ones.
