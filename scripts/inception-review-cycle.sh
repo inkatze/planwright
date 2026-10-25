@@ -522,7 +522,7 @@ cmd_export() {
     *) die 2 "the secret screen could not run" ;;
   esac
 
-  dest=$(sh "$adapter_bin" status "$target" 2>/dev/null | awk -F"$tab" '$1 == "page" { print $2; exit }')
+  dest=$(/bin/sh "$adapter_bin" status "$target" 2>/dev/null | awk -F"$tab" '$1 == "page" { print $2; exit }')
   case $dest in
     '' | none) die 3 "the $adapter adapter has no destination configured for this clone" ;;
   esac
@@ -536,7 +536,7 @@ cmd_export() {
     return 0
   fi
 
-  if ! sh "$adapter_bin" export "$target" "$snap" >"$work/adapter.out" 2>"$work/adapter.err"; then
+  if ! /bin/sh "$adapter_bin" export "$target" "$snap" >"$work/adapter.out" 2>"$work/adapter.err"; then
     sanitize_printable "$(cat "$work/adapter.err")" >&2
     printf '\n' >&2
     die 3 "the $adapter adapter could not export"
@@ -627,7 +627,7 @@ cmd_harvest() {
   esac
   adapter=$(header Adapter)
   resolve_adapter "$adapter"
-  if ! sh "$adapter_bin" harvest "$target" >"$work/records" 2>"$work/adapter.err"; then
+  if ! /bin/sh "$adapter_bin" harvest "$target" >"$work/records" 2>"$work/adapter.err"; then
     sanitize_printable "$(cat "$work/adapter.err")" >&2
     printf '\n' >&2
     die 3 "the $adapter adapter could not harvest"
