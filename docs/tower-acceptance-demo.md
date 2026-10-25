@@ -39,8 +39,10 @@ open real draft pull requests. The fallback types the same lines up to each
   [the options reference](options-reference.md) describes. Without it, every
   landing is the flight's branch plus a committed record file under
   `specs/_flights/`, no `post-pr` step runs, and the pull-request checks below
-  cannot be made; the tower's routing line names the home, so confirm it says
-  pull request before going on.
+  cannot be made. Before typing `/tower`, run `scripts/flight-dispatch.sh home`
+  under the planwright root, in the scratch checkout, and confirm its `home`
+  line reads `pr`; the tower's routing line names the home again at each
+  dispatch.
 - **The tower's own permission profile.** Launch the session with the
   profile, the plugin root exported, as [the fleet guide](fleet.md) describes
   (`--settings` naming `config/tower-settings.json` under the planwright root),
@@ -53,7 +55,14 @@ open real draft pull requests. The fallback types the same lines up to each
   scenario.
 - **Known starting state.** Note what `ls specs/` and
   `git branch --list 'planwright/flight/*'` print, so you can tell what each
-  scenario added.
+  scenario added, and check that `git worktree list` shows no flight worktree
+  (`.claude/worktrees/flight-<id>`).
+- **Free the flight slots between scenarios.** A landed flight holds one of
+  the checkout's flight slots (`max_parallel_units`, three by default) until
+  its worktree is removed, and a flight past the bound is declined. After each
+  scenario's checks, remove each landed flight's worktree
+  (`git worktree remove .claude/worktrees/flight-<id>`), keeping its branch and
+  pull request.
 
 Throughout every scenario, watch the tower's own turns: it should read only
 small state (its sweep's summary, a queue, a pull request's status) and hand
@@ -112,8 +121,9 @@ Wait for the flight to land. Check:
 - The tower reports the landing reference, the draft pull request's link.
 - `gh pr view <number> --json isDraft` reports `true`, and stays so: nothing
   in the tower's session flips it.
-- The pull request's lead and collapsed record read as in the chat-only
-  scenario.
+- Every pull-request check of the chat-only scenario holds here too, the step
+  tables included; the convergence step table shows the worker's review
+  converged.
 
 **Type:** `that's all`
 
@@ -172,9 +182,12 @@ its attach hint; it writes nothing itself.
 **Type:** `that's all`
 
 Keep the session open and attach to the drafting session. Check that it
-checks the existing specs for overlap first: an overlapping one yields a
-recommendation to extend it, never a duplicate spec. When it ends with the
-spec at Draft, tell the tower.
+scans the existing specs for overlap before drafting and reports what it
+found. The scratch repository holds no spec overlapping this ask, so expect it
+to fold nothing; its other branch, recommending an extension of an
+overlapping spec rather than drafting a duplicate, needs such a spec in place
+and is not exercised here. When it ends with the spec at Draft, tell the
+tower.
 
 **Type:** `the draft is done`
 
@@ -266,7 +279,7 @@ exercise it. Superseded entries are left out.
 - [ ] REQ-C1.12 · chat-only, split-screen: the same pull requests show their
   step tables re-emitted after `post-pr`.
 - [ ] REQ-D1.1 · escalation: the draft came from the existing drafting
-  session, which checked for overlap with existing specs first.
+  session, which scanned the existing specs for overlap first.
 - [ ] REQ-D1.2 · escalation: the one-page case said why the ask files, with
   its alternatives at equal prominence, before any kickoff offer.
 - [ ] REQ-D1.3 · escalation: the tower offered `/spec-kickoff` and stopped;

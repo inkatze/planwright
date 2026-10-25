@@ -3,9 +3,10 @@
 # REQ-A1.1, REQ-A1.2, REQ-D1.2, REQ-F1.1).
 #
 # The demo drives the five acceptance scenarios against a live tower; each
-# scenario names its own eval persona and types that persona's lines as
-# written, in order, so the eval harness's operator-run fallback and the demo
-# stay one script; every live `[manual]` or `[Gherkin]` test-spec entry has
+# scenario names its own eval persona and, up to the persona's last line, runs
+# exactly its turns (the lines typed as written, and the waits its events stand
+# for, in order), so the eval harness's operator-run fallback and the demo stay
+# one script; every live `[manual]` or `[Gherkin]` test-spec entry has
 # exactly one checklist row, every row belongs to such an entry, and every
 # entry that names the demo is checked off against a scenario the script
 # drives, the one it names when it names one. Both screens are run against
@@ -58,27 +59,48 @@ driven() {
   done
 }
 
-# persona_missing <typed lines> <persona file>: prints each of the persona's
-# lines the typed lines do not contain in order (its @event lines stand for
-# evidence the operator waits on, so they are not typed); a persona with no
-# typed line at all is reported, never passed.
-persona_missing() {
-  want=$(sed -n 's/^answer\.\([0-9]*\)=/\1 /p' "$2" | sort -n | cut -d ' ' -f 2- | grep -v '^@event:')
-  if [ -z "$want" ]; then
+# The turn stream: one `T\t<line>` per typed line and one `E\t<event>` per
+# point the operator waits on, up to and including the first typed
+# `that's all`, the line that ends a persona. The demo marks each event the
+# personas use with a fixed paragraph opening.
+
+# section_stream: the stream of the scenario section on stdin.
+section_stream() {
+  awk '
+    /^\*\*Type:\*\* `.*`$/ {
+      t = $0
+      sub(/^\*\*Type:\*\* `/, "", t)
+      sub(/`$/, "", t)
+      printf "T\t%s\n", t
+      if (t == "that'"'"'s all") exit
+      next
+    }
+    /^Wait for the flight to land/ { print "E\tflight-landed"; next }
+    /^Without waiting for the first flight to land, kill the tower/ { print "E\tsession-restart" }
+  '
+}
+
+# persona_stream <persona file>: the stream of a persona's answers, in order.
+persona_stream() {
+  sed -n 's/^answer\.\([0-9]*\)=/\1 /p' "$1" | sort -n | cut -d ' ' -f 2- | awk '
+    /^@event:/ { e = substr($0, 8); sub(/ .*/, "", e); printf "E\t%s\n", e; next }
+    { printf "T\t%s\n", $0; if ($0 == "that'"'"'s all") exit }
+  '
+}
+
+# persona_mismatch <section text> <persona file>: silent when the section's
+# stream equals the persona's exactly; otherwise prints both. A persona with
+# no line to type is reported, never passed.
+persona_mismatch() {
+  want=$(persona_stream "$2")
+  if ! printf '%s\n' "$want" | grep -q '^T'; then
     printf '(the persona has no line to type)\n'
     return
   fi
-  {
-    printf '%s\n' "$1" | sed 's/^/G	/'
-    printf '%s\n' "$want" | sed 's/^/W	/'
-  } | awk -F '\t' '
-    $1 == "G" { g[++ng] = $2; next }
-    {
-      found = 0
-      while (p < ng) { p++; if (g[p] == $2) { found = 1; break } }
-      if (!found) print $2
-    }
-  '
+  got=$(printf '%s\n' "$1" | section_stream)
+  if [ "$got" != "$want" ]; then
+    printf 'want:\n%s\ngot:\n%s\n' "$want" "$got"
+  fi
 }
 
 # spec_entries <test-spec>: one line per live `[manual]` or `[Gherkin]` entry:
@@ -115,16 +137,18 @@ spec_entries() {
 }
 
 # checklist_rows <doc>: one line per checklist row, `<REQ>\t<scenario field>`,
-# from rows shaped `- [ ] REQ-X1.1 · <scenarios>: <what to confirm>` under
-# `## Checklist`.
+# from rows shaped `- [ ] REQ-X1.1 · <scenarios>: <what to confirm>` (ticked
+# or not) under `## Checklist`.
 checklist_rows() {
   awk '
     $0 == "## Checklist" { on = 1; next }
     on && /^## / { exit }
-    on && /^- \[ \] REQ-[A-Z][0-9]+\.[0-9]+ · / {
-      req = $4
+    on && /^- \[[ xX]\] REQ-[A-Z][0-9]+\.[0-9]+ · / {
+      req = $0
+      sub(/^- \[[ xX]\] /, "", req)
+      sub(/ .*/, "", req)
       f = $0
-      sub(/^- \[ \] REQ-[A-Z][0-9]+\.[0-9]+ · /, "", f)
+      sub(/^- \[[ xX]\] REQ-[A-Z][0-9]+\.[0-9]+ · /, "", f)
       sub(/: .*$/, "", f)
       printf "%s\t%s\n", req, f
     }
@@ -255,14 +279,40 @@ expect_problem "the screen refuses a row for a superseded entry" stale.md "REQ-A
   printf -- '- [ ] REQ-A1.1 · escalation: twice.\n'
 } >"$tmp/dup.md"
 expect_problem "the screen refuses a second row for one entry" dup.md "REQ-A1.1: more than one checklist row"
+sed 's/^- \[ \] REQ-A1.1 /- [x] REQ-A1.1 /' "$tmp/good.md" >"$tmp/ticked.md"
+if [ -z "$(xref "$tmp/spec.md" "$tmp/ticked.md")" ]; then ok "the screen reads a ticked row as a row"; else fail "the screen refused a ticked row"; fi
 
-printf 'answer.1=fix it\nanswer.2=@event:landed\nanswer.3=done\n' >"$tmp/p.persona"
-printf 'answer.1=@event:landed\n' >"$tmp/events-only.persona"
+printf 'answer.1=fix it\nanswer.2=@event:flight-landed pr=1\nanswer.3=merge it\nanswer.4=that'"'"'s all\n' >"$tmp/p.persona"
+printf 'answer.1=@event:flight-landed\n' >"$tmp/events-only.persona"
 printf 'turn.1=fix it\n' >"$tmp/renamed.persona"
-if [ -z "$(persona_missing "$(printf 'fix it\nextra\ndone')" "$tmp/p.persona")" ]; then ok "the persona screen passes its lines in order, extras allowed"; else fail "the persona screen refused its lines in order"; fi
-if [ "$(persona_missing "$(printf 'done\nfix it')" "$tmp/p.persona")" = "done" ]; then ok "the persona screen refuses its lines out of order"; else fail "the persona screen passed its lines out of order"; fi
+# shellcheck disable=SC2016 # literal markdown backticks, never expanded
+good_sect='**Type:** `fix it`
+
+Wait for the flight to land.
+
+**Type:** `merge it`
+
+**Type:** `that'"'"'s all`
+
+**Type:** `what is in flight?`'
+expect_persona() {
+  if [ "$1" = pass ]; then
+    if [ -z "$(persona_mismatch "$3" "$tmp/$4.persona")" ]; then ok "$2"; else fail "$2"; fi
+  elif [ -n "$(persona_mismatch "$3" "$tmp/$4.persona")" ]; then ok "$2"; else fail "$2"; fi
+}
+expect_persona pass "the persona screen passes its turns, extras after the last line allowed" "$good_sect" p
+# shellcheck disable=SC2016 # literal markdown backticks, never expanded
+expect_persona refuse "the persona screen refuses an extra typed line before the last" "$(printf '%s\n' "$good_sect" | sed 's/^Wait for the flight/**Type:** `delete it`\
+\
+&/')" p
+# shellcheck disable=SC2016 # literal markdown backticks, never expanded
+expect_persona refuse "the persona screen refuses a wait moved past the next line" "$(printf '%s\n' "$good_sect" | sed '/^Wait for the flight/d; s/^\*\*Type:\*\* `that.s all`$/Wait for the flight to land.\
+\
+&/')" p
+# shellcheck disable=SC2016 # literal markdown backticks, never expanded
+expect_persona refuse "the persona screen refuses its lines out of order" "$(printf '%s\n' "$good_sect" | sed 's/`fix it`/`merge IT`/; s/`merge it`/`fix it`/; s/`merge IT`/`merge it`/')" p
 for p in events-only renamed; do
-  if [ -n "$(persona_missing "fix it" "$tmp/$p.persona")" ]; then ok "the persona screen refuses a persona with no line to type ($p)"; else fail "the persona screen passed a persona with no line to type ($p)"; fi
+  expect_persona refuse "the persona screen refuses a persona with no line to type ($p)" "$good_sect" "$p"
 done
 
 for f in "$DEMO" "$TEST_SPEC"; do
@@ -295,8 +345,8 @@ for pair in $PERSONA_OF; do
     fail "$s names eval persona $persona, which does not exist"
     continue
   fi
-  missing=$(persona_missing "$(printf '%s\n' "$sect" | typed_lines)" "$PERSONAS/$persona.persona")
-  if [ -z "$missing" ]; then ok "$s types the $persona persona's lines in order"; else fail "$s does not type, in order: $missing"; fi
+  mismatch=$(persona_mismatch "$sect" "$PERSONAS/$persona.persona")
+  if [ -z "$mismatch" ]; then ok "$s runs the $persona persona's turns exactly"; else fail "$s does not run the $persona persona's turns: $mismatch"; fi
 done
 
 # The checklist covers the test spec.
