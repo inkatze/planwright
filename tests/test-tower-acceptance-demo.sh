@@ -3,11 +3,12 @@
 # REQ-A1.1, REQ-A1.2, REQ-D1.2, REQ-F1.1).
 #
 # The demo drives the five acceptance scenarios against a live tower; each
-# scenario types its eval persona's lines as written, so the eval harness's
-# operator-run fallback and the demo stay one script; every live `[manual]` or
-# `[Gherkin]` test-spec entry has a checklist row, and every entry that names
-# the demo is checked off against a scenario the script drives, the one it
-# names when it names one. The cross-reference screen is run against
+# scenario names its own eval persona and types that persona's lines as
+# written, in order, so the eval harness's operator-run fallback and the demo
+# stay one script; every live `[manual]` or `[Gherkin]` test-spec entry has
+# exactly one checklist row, every row belongs to such an entry, and every
+# entry that names the demo is checked off against a scenario the script
+# drives, the one it names when it names one. Both screens are run against
 # known-bad fixtures first, so a screen that matches nothing cannot pass.
 #
 # Plain bash 3.2, inline asserts (sibling convention).
@@ -21,6 +22,8 @@ DEMO="$REPO_ROOT/docs/tower-acceptance-demo.md"
 TEST_SPEC="$REPO_ROOT/specs/tower-front-door/test-spec.md"
 PERSONAS="$REPO_ROOT/tests/behavioral-evals/fixtures/tower/personas"
 SCENARIOS="chat-only split-screen refusal escalation walk-away"
+# <scenario>:<the eval persona it types>
+PERSONA_OF="chat-only:chat-only split-screen:split-screen refusal:refusal-merge escalation:escalation walk-away:walk-away"
 
 failures=0
 ok() { printf 'ok: %s\n' "$1"; }
@@ -45,26 +48,50 @@ typed_lines() {
   sed -n 's/^\*\*Type:\*\* `\(.*\)`$/\1/p'
 }
 
-# driven <doc>: the scenarios the doc drives, one per line: a `## Scenario:`
-# section holding at least one typed line.
+# driven <doc>: the scenarios the doc drives, space-separated: a
+# `## Scenario:` section holding at least one typed line.
 driven() {
   for s in $SCENARIOS; do
     if [ -n "$(scenario_section "$1" "$s" | typed_lines)" ]; then
-      printf '%s\n' "$s"
+      printf '%s ' "$s"
     fi
   done
 }
 
+# persona_missing <typed lines> <persona file>: prints each of the persona's
+# lines the typed lines do not contain in order (its @event lines stand for
+# evidence the operator waits on, so they are not typed); a persona with no
+# typed line at all is reported, never passed.
+persona_missing() {
+  want=$(sed -n 's/^answer\.\([0-9]*\)=/\1 /p' "$2" | sort -n | cut -d ' ' -f 2- | grep -v '^@event:')
+  if [ -z "$want" ]; then
+    printf '(the persona has no line to type)\n'
+    return
+  fi
+  {
+    printf '%s\n' "$1" | sed 's/^/G	/'
+    printf '%s\n' "$want" | sed 's/^/W	/'
+  } | awk -F '\t' '
+    $1 == "G" { g[++ng] = $2; next }
+    {
+      found = 0
+      while (p < ng) { p++; if (g[p] == $2) { found = 1; break } }
+      if (!found) print $2
+    }
+  '
+}
+
 # spec_entries <test-spec>: one line per live `[manual]` or `[Gherkin]` entry:
 # `<REQ>\t<names-the-demo: yes|no>\t<scenarios it names, space-separated>`.
-# A superseded entry is not live.
+# The tag is the heading's last bracket group; a superseded entry is not live.
 spec_entries() {
   S="$SCENARIOS" awk '
     function flush() {
       if (req == "" || !live) return
       b = tolower(body)
+      gsub(/`/, "", b)
       gsub(/[ \t\n]+/, " ", b)
-      demo = (b ~ /(^|[^a-z])demo([^a-z]|$)/) ? "yes" : "no"
+      demo = (b ~ /(^|[^a-z])demos?([^a-z]|$)/) ? "yes" : "no"
       named = ""
       n = split(ENVIRON["S"], sc, " ")
       for (i = 1; i <= n; i++)
@@ -76,9 +103,9 @@ spec_entries() {
       flush()
       req = $2
       tag = $0
-      sub(/^[^[]*\[/, "", tag)
+      sub(/.*\[/, "", tag)
       sub(/\].*$/, "", tag)
-      live = (tag ~ /manual|Gherkin/) && ($0 !~ /\(superseded/)
+      live = (tolower(tag) ~ /manual|gherkin/) && ($0 !~ /\(superseded/)
       body = ""
       next
     }
@@ -105,40 +132,45 @@ checklist_rows() {
 }
 
 # xref <test-spec> <doc>: prints one problem per line; silent when every live
-# manual or Gherkin entry has a row, every row names only driven scenarios (or
-# says it is checked outside the demo), and every entry naming the demo is
-# checked off against a driven scenario, the one it names when it names one.
+# manual or Gherkin entry has exactly one row, every row belongs to such an
+# entry and names only driven scenarios (or says it is checked outside the
+# demo), and every entry naming the demo is checked off against a driven
+# scenario, the one it names when it names one.
 xref() {
-  drv=" $(driven "$2" | tr '\n' ' ') "
-  rows=$(checklist_rows "$2")
-  printf '%s\n' "$rows" | while IFS="$(printf '\t')" read -r req field; do
-    [ -n "$req" ] || continue
-    [ "$field" = "outside the demo" ] && continue
-    for s in $(printf '%s' "$field" | tr ',' ' '); do
-      case "$drv" in
-        *" $s "*) ;;
-        *) printf '%s: checklist row names %s, which the demo does not drive\n' "$req" "$s" ;;
-      esac
-    done
-  done
-  spec_entries "$1" | while IFS="$(printf '\t')" read -r req demo named; do
-    row=$(printf '%s\n' "$rows" | awk -F '\t' -v r="$req" '$1 == r { print $2; exit }')
-    if [ -z "$row" ]; then
-      printf '%s: no checklist row\n' "$req"
-      continue
-    fi
-    [ "$demo" = yes ] || continue
-    if [ "$row" = "outside the demo" ]; then
-      printf '%s: names the demo but its row says outside the demo\n' "$req"
-      continue
-    fi
-    for s in $named; do
-      case " $(printf '%s' "$row" | tr ',' ' ') " in
-        *" $s "*) ;;
-        *) printf '%s: names the %s demo but its row does not\n' "$req" "$s" ;;
-      esac
-    done
-  done
+  {
+    spec_entries "$1" | sed 's/^/E	/'
+    checklist_rows "$2" | sed 's/^/R	/'
+  } | D="$(driven "$2")" awk -F '\t' '
+    BEGIN { n = split(ENVIRON["D"], d, " "); for (i = 1; i <= n; i++) drv[d[i]] = 1 }
+    $1 == "E" { order[++ne] = $2; demo[$2] = $3; named[$2] = $4; next }
+    $1 == "R" {
+      if ($2 in row) { printf "%s: more than one checklist row\n", $2; next }
+      row[$2] = $3
+      rorder[++nr] = $2
+    }
+    END {
+      for (i = 1; i <= nr; i++) {
+        r = rorder[i]
+        if (!(r in demo)) printf "%s: checklist row for no live manual or Gherkin entry\n", r
+        if (row[r] == "outside the demo") continue
+        m = split(row[r], s, /, */)
+        for (j = 1; j <= m; j++)
+          if (!(s[j] in drv)) printf "%s: checklist row names %s, which the demo does not drive\n", r, s[j]
+      }
+      for (i = 1; i <= ne; i++) {
+        e = order[i]
+        if (!(e in row)) { printf "%s: no checklist row\n", e; continue }
+        if (demo[e] != "yes") continue
+        if (row[e] == "outside the demo") { printf "%s: names the demo but its row says outside the demo\n", e; continue }
+        split("", has)
+        m = split(row[e], s, /, */)
+        for (j = 1; j <= m; j++) has[s[j]] = 1
+        k = split(named[e], t, " ")
+        for (j = 1; j <= k; j++)
+          if (!(t[j] in has)) printf "%s: names the %s demo but its row does not\n", e, t[j]
+      }
+    }
+  '
 }
 
 # Screens refuse known-bad input before they are trusted.
@@ -151,9 +183,9 @@ cat >"$tmp/spec.md" <<'EOF'
 
 ### REQ-A1.1 — One [Gherkin + manual]
 
-Scenario (chat-only demo): a small ask lands a draft PR.
+Scenario (the `chat-only` demo): a small ask lands a draft PR.
 
-### REQ-A1.2 — Two [manual]
+### REQ-A1.2 — Two [Manual]
 
 Reviewed during the demo runs.
 
@@ -168,6 +200,10 @@ The escalation demo, superseded.
 ### REQ-A1.5 — Five [test + manual]
 
 Pins the demotion placements; a manual read of the newcomer path.
+
+### REQ-A1.6 — The [bracketed] case [manual]
+
+The escalation demos show it.
 EOF
 cat >"$tmp/good.md" <<'EOF'
 # Demo
@@ -185,34 +221,49 @@ cat >"$tmp/good.md" <<'EOF'
 - [ ] REQ-A1.1 · chat-only: the PR link is the next interaction.
 - [ ] REQ-A1.2 · chat-only, escalation: work offloads.
 - [ ] REQ-A1.5 · outside the demo: read the newcomer path.
+- [ ] REQ-A1.6 · escalation: the case is shown.
 EOF
+expect_problem() {
+  case "$(xref "$tmp/spec.md" "$tmp/$2")" in
+    *"$3"*) ok "$1" ;;
+    *) fail "$1 (no '$3' reported)" ;;
+  esac
+}
 if [ -z "$(xref "$tmp/spec.md" "$tmp/good.md")" ]; then ok "the cross-reference screen passes a complete checklist"; else fail "the cross-reference screen refused a complete checklist: $(xref "$tmp/spec.md" "$tmp/good.md")"; fi
 sed '/REQ-A1.2 ·/d' "$tmp/good.md" >"$tmp/missing.md"
-case "$(xref "$tmp/spec.md" "$tmp/missing.md")" in
-  *"REQ-A1.2: no checklist row"*) ok "the screen refuses a live entry with no row" ;;
-  *) fail "the screen passed a live entry with no row" ;;
-esac
+expect_problem "the screen refuses a live entry with no row (a capitalized tag)" missing.md "REQ-A1.2: no checklist row"
+sed '/REQ-A1.6 ·/d' "$tmp/good.md" >"$tmp/missing-bracket.md"
+expect_problem "the screen reads the tag from the heading's last bracket group" missing-bracket.md "REQ-A1.6: no checklist row"
 sed 's/REQ-A1.1 · chat-only/REQ-A1.1 · escalation/' "$tmp/good.md" >"$tmp/wrong.md"
-case "$(xref "$tmp/spec.md" "$tmp/wrong.md")" in
-  *"REQ-A1.1: names the chat-only demo but its row does not"*) ok "the screen refuses a row missing the scenario its entry names" ;;
-  *) fail "the screen passed a row missing the scenario its entry names" ;;
-esac
+expect_problem "the screen refuses a row missing the scenario its entry names (a backticked name)" wrong.md "REQ-A1.1: names the chat-only demo but its row does not"
+sed 's/REQ-A1.6 · escalation/REQ-A1.6 · chat-only/' "$tmp/good.md" >"$tmp/wrong-plural.md"
+expect_problem "the screen reads a plural demos as naming the scenario" wrong-plural.md "REQ-A1.6: names the escalation demo but its row does not"
 sed 's/REQ-A1.2 · chat-only, escalation/REQ-A1.2 · walk-away/' "$tmp/good.md" >"$tmp/phantom.md"
-case "$(xref "$tmp/spec.md" "$tmp/phantom.md")" in
-  *"REQ-A1.2: checklist row names walk-away, which the demo does not drive"*) ok "the screen refuses a row naming an undriven scenario" ;;
-  *) fail "the screen passed a row naming an undriven scenario" ;;
-esac
+expect_problem "the screen refuses a row naming an undriven scenario" phantom.md "REQ-A1.2: checklist row names walk-away, which the demo does not drive"
 sed 's/REQ-A1.2 · chat-only, escalation/REQ-A1.2 · outside the demo/' "$tmp/good.md" >"$tmp/outside.md"
-case "$(xref "$tmp/spec.md" "$tmp/outside.md")" in
-  *"REQ-A1.2: names the demo but its row says outside the demo"*) ok "the screen refuses a demo entry checked outside the demo" ;;
-  *) fail "the screen passed a demo entry checked outside the demo" ;;
-esac
+expect_problem "the screen refuses a demo entry checked outside the demo" outside.md "REQ-A1.2: names the demo but its row says outside the demo"
 # shellcheck disable=SC2016 # literal markdown backticks, never expanded
 sed '/^\*\*Type:\*\* `change the auth check`$/d' "$tmp/good.md" >"$tmp/untyped.md"
-case "$(xref "$tmp/spec.md" "$tmp/untyped.md")" in
-  *"names escalation, which the demo does not drive"*) ok "a scenario with no typed line is not driven" ;;
-  *) fail "a scenario with no typed line counted as driven" ;;
-esac
+expect_problem "a scenario with no typed line is not driven" untyped.md "names escalation, which the demo does not drive"
+{
+  cat "$tmp/good.md"
+  printf -- '- [ ] REQ-A1.4 · outside the demo: superseded.\n'
+} >"$tmp/stale.md"
+expect_problem "the screen refuses a row for a superseded entry" stale.md "REQ-A1.4: checklist row for no live manual or Gherkin entry"
+{
+  cat "$tmp/good.md"
+  printf -- '- [ ] REQ-A1.1 · escalation: twice.\n'
+} >"$tmp/dup.md"
+expect_problem "the screen refuses a second row for one entry" dup.md "REQ-A1.1: more than one checklist row"
+
+printf 'answer.1=fix it\nanswer.2=@event:landed\nanswer.3=done\n' >"$tmp/p.persona"
+printf 'answer.1=@event:landed\n' >"$tmp/events-only.persona"
+printf 'turn.1=fix it\n' >"$tmp/renamed.persona"
+if [ -z "$(persona_missing "$(printf 'fix it\nextra\ndone')" "$tmp/p.persona")" ]; then ok "the persona screen passes its lines in order, extras allowed"; else fail "the persona screen refused its lines in order"; fi
+if [ "$(persona_missing "$(printf 'done\nfix it')" "$tmp/p.persona")" = "done" ]; then ok "the persona screen refuses its lines out of order"; else fail "the persona screen passed its lines out of order"; fi
+for p in events-only renamed; do
+  if [ -n "$(persona_missing "fix it" "$tmp/$p.persona")" ]; then ok "the persona screen refuses a persona with no line to type ($p)"; else fail "the persona screen passed a persona with no line to type ($p)"; fi
+done
 
 for f in "$DEMO" "$TEST_SPEC"; do
   if [ ! -f "$f" ]; then
@@ -226,49 +277,36 @@ for s in $SCENARIOS; do
   n=$(grep -c -x "## Scenario: $s" "$DEMO")
   if [ "$n" -eq 1 ]; then ok "the demo has one $s scenario"; else fail "the demo has $n '## Scenario: $s' headings, want 1"; fi
 done
-drv=$(driven "$DEMO" | tr '\n' ' ')
+drv=$(driven "$DEMO")
 if [ "$drv" = "$SCENARIOS " ]; then ok "every scenario types at least one line"; else fail "driven scenarios are '$drv', want '$SCENARIOS '"; fi
 
-# Each scenario types its eval persona's lines as written, in order; the
-# persona's @event lines stand for evidence the operator waits on instead.
-for s in $SCENARIOS; do
+# Each scenario names its own eval persona and types its lines as written.
+for pair in $PERSONA_OF; do
+  s=${pair%%:*}
+  want_persona=${pair#*:}
   sect=$(scenario_section "$DEMO" "$s")
   # shellcheck disable=SC2016 # literal markdown backticks, never expanded
   persona=$(printf '%s\n' "$sect" | sed -n 's/^Eval persona: `\([a-z-]*\)`$/\1/p')
-  if [ -z "$persona" ] || [ ! -f "$PERSONAS/$persona.persona" ]; then
-    fail "$s names no eval persona that exists ('$persona')"
+  if [ "$persona" != "$want_persona" ]; then
+    fail "$s names eval persona '$persona', want '$want_persona'"
     continue
   fi
-  want=$(sed -n 's/^answer\.\([0-9]*\)=/\1 /p' "$PERSONAS/$persona.persona" | sort -n | cut -d ' ' -f 2- | grep -v '^@event:')
-  got=$(printf '%s\n' "$sect" | typed_lines)
-  missing=$(
-    printf '%s\n' "$want" | {
-      rest=$got
-      while IFS= read -r line; do
-        found=0
-        remaining=""
-        while IFS= read -r g; do
-          if [ "$found" -eq 1 ]; then
-            remaining="$remaining$g
-"
-          elif [ "$g" = "$line" ]; then
-            found=1
-          fi
-        done <<EOF
-$rest
-EOF
-        if [ "$found" -eq 1 ]; then rest=$remaining; else printf '%s\n' "$line"; fi
-      done
-    }
-  )
+  if [ ! -f "$PERSONAS/$persona.persona" ]; then
+    fail "$s names eval persona $persona, which does not exist"
+    continue
+  fi
+  missing=$(persona_missing "$(printf '%s\n' "$sect" | typed_lines)" "$PERSONAS/$persona.persona")
   if [ -z "$missing" ]; then ok "$s types the $persona persona's lines in order"; else fail "$s does not type, in order: $missing"; fi
 done
 
 # The checklist covers the test spec.
 problems=$(xref "$TEST_SPEC" "$DEMO")
 if [ -z "$problems" ]; then ok "every live manual or Gherkin entry is checked off against a driven scenario"; else fail "checklist cross-reference: $problems"; fi
-demo_entries=$(spec_entries "$TEST_SPEC" | awk -F '\t' '$2 == "yes"' | wc -l | tr -d ' ')
+entries=$(spec_entries "$TEST_SPEC")
+demo_entries=$(printf '%s\n' "$entries" | awk -F '\t' '$2 == "yes"' | wc -l | tr -d ' ')
 if [ "$demo_entries" -gt 0 ]; then ok "the test spec has entries naming the demo ($demo_entries)"; else fail "found no test-spec entry naming the demo; the parse matched nothing"; fi
+named_entries=$(printf '%s\n' "$entries" | awk -F '\t' '$3 != ""' | wc -l | tr -d ' ')
+if [ "$named_entries" -gt 0 ]; then ok "the test spec has entries naming a scenario ($named_entries)"; else fail "found no test-spec entry naming a scenario; the parse matched nothing"; fi
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
