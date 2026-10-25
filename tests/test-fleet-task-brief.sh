@@ -121,6 +121,22 @@ render demo 4.5
 [ -z "$(find "$PLANWRIGHT_FLEET_STATE_DIR/tasks/demo/4.5" -name '*.tmp*' 2>/dev/null)" ] \
   || fail "render left a temp file beside the brief"
 
+# A failed write is exit 4 with no path printed, so a dispatch never takes a
+# stale brief left from an earlier render.
+rm -f "$brief"
+mkdir "$brief"
+render demo 4.5
+[ "$RC" -eq 4 ] && [ -z "$OUT" ] || fail "a brief that cannot land must exit 4 printing nothing, got $RC: $OUT"
+rmdir "$brief"
+fresh_home
+mkdir -p "$PLANWRIGHT_FLEET_STATE_DIR/tasks/demo/4.5/checkout"
+chmod 700 "$PLANWRIGHT_FLEET_STATE_DIR" "$PLANWRIGHT_FLEET_STATE_DIR/tasks" \
+  "$PLANWRIGHT_FLEET_STATE_DIR/tasks/demo" "$PLANWRIGHT_FLEET_STATE_DIR/tasks/demo/4.5"
+render demo 4.5
+[ "$RC" -eq 4 ] && [ -z "$OUT" ] || fail "a checkout record that cannot land must exit 4 printing nothing, got $RC: $OUT"
+[ ! -e "$PLANWRIGHT_FLEET_STATE_DIR/tasks/demo/4.5/brief.md" ] \
+  || fail "a brief must not land without its checkout record, which retire keys on"
+
 # A fleet home or a directory others can write is refused, nothing written.
 fresh_home
 mkdir -p "$PLANWRIGHT_FLEET_STATE_DIR/tasks"

@@ -158,12 +158,13 @@ private_child() {
   private_dir "$1" || die 4 "refusing to write a task brief: $1 is not a directory owned by you that only you can write"
 }
 
-# land <dir> <name> — move stdin into <dir>/<name> through a temp file and a
-# rename, so a reader never sees it half-written and a link planted at the
-# name is replaced, never written through.
+# land <dir> <name> <text> — write <text> and a newline to <dir>/<name>
+# through a temp file and a rename, so a reader never sees it half-written and
+# a link planted at the name is replaced, never written through. Never call it
+# in a pipeline: its die must end the script, not a subshell.
 land() {
   _ld_tmp=$(mktemp "$1/.$2.tmp.XXXXXX") || die 4 "cannot create a temp file in $1"
-  if ! cat >"$_ld_tmp" || ! chmod 600 "$_ld_tmp"; then
+  if ! printf '%s\n' "$3" >"$_ld_tmp" || ! chmod 600 "$_ld_tmp"; then
     rm -f "$_ld_tmp"
     die 4 "cannot write $1/$2"
   fi
@@ -253,10 +254,12 @@ do_render() {
   unit="$home/tasks/$spec/$id"
   private_child "$unit"
   # The template's output ends in exactly one newline, which the substitution
-  # strips and the printf restores.
+  # strips and land restores.
   body=$(fill_template) || die 4 "cannot render the task brief template"
-  printf '%s\n' "$body" | land "$unit" brief.md
-  printf '%s\n' "$repo" | land "$unit" checkout
+  # The checkout record lands first: retire keys on it, so a brief never
+  # lands without one.
+  land "$unit" checkout "$repo"
+  land "$unit" brief.md "$body"
   printf 'brief\t%s\n' "$unit/brief.md"
 }
 
