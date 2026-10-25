@@ -1514,9 +1514,9 @@ matrix_case "matrix: a job-level continue-on-error fails" 1 "continue-on-error" 
 # shellcheck disable=SC2016 # a literal GitHub expression
 matrix_case "matrix: an expression continue-on-error fails" 1 "continue-on-error" \
   'M_MAC_JOB=    continue-on-error: ${{ true }}'
-matrix_case "matrix: || true in a run block fails" 1 "swallows the failure" \
+matrix_case "matrix: || true in a run block fails" 1 "swallows a failure" \
   "M_MAC_RUN=          mise run test || true"
-matrix_case "matrix: || : in a run block fails" 1 "swallows the failure" \
+matrix_case "matrix: || : in a run block fails" 1 "swallows a failure" \
   "M_MAC_RUN=          mise run test ||:"
 matrix_case "matrix: a branch filter on the macOS job fails" 1 "carries a job-level" \
   "M_MAC_JOB=    if: github.head_ref == 'planwright/x'"
@@ -1535,8 +1535,8 @@ matrix_case "matrix: a step-level if naming a platform fails" 1 "naming a platfo
 matrix_case "matrix: no Ubuntu job fails" 1 "no Ubuntu job" DROP_UBUNTU=1
 matrix_case "matrix: no macOS job fails" 1 "no macOS job" DROP_MACOS=1
 matrix_case "matrix: no Alpine job fails" 1 "no Alpine job" DROP_ALPINE=1
-matrix_case "matrix: no Ubuntu install smoke fails" 1 "no Ubuntu job carries" DROP_UBUNTU_SMOKE=1
-matrix_case "matrix: no macOS install smoke fails" 1 "no macOS job carries" DROP_MACOS_SMOKE=1
+matrix_case "matrix: no Ubuntu install smoke fails" 1 "no ungated Ubuntu job carries" DROP_UBUNTU_SMOKE=1
+matrix_case "matrix: no macOS install smoke fails" 1 "no ungated macOS job carries" DROP_MACOS_SMOKE=1
 matrix_case "matrix: no Alpine install smoke fails" 1 "0 \`install smoke\`" DROP_ALPINE_SMOKE=1
 matrix_case "matrix: an Alpine step outside the scope fails" 1 "outside the Alpine scope" \
   "M_ALP_STEP=      - name: markdownlint
@@ -1554,6 +1554,69 @@ matrix_case "matrix: a second Alpine job fails" 1 "more than one Alpine job" \
       - name: shell suite
         run: true"
 
+matrix_case "matrix: || true inside a quoted command fails" 1 "swallows a failure" \
+  "M_MAC_RUN=          su suite -c 'mise run test || true'"
+matrix_case "matrix: || exit 0 fails" 1 "swallows a failure" \
+  "M_MAC_RUN=          mise run test || exit 0"
+matrix_case "matrix: || /bin/true fails" 1 "swallows a failure" \
+  "M_MAC_RUN=          mise run test || /bin/true"
+matrix_case "matrix: || { true; } fails" 1 "swallows a failure" \
+  "M_MAC_RUN=          mise run test || { true; }"
+matrix_case "matrix: set +e in a run block fails" 1 "swallows a failure" \
+  "M_MAC_RUN=          set +e"
+matrix_case "matrix: a shell without -e fails" 1 "runs without -e" \
+  "M_ALP_STEP=        shell: bash {0}"
+matrix_case "matrix: a job-default shell without -e fails" 1 "runs without -e" \
+  "M_MAC_JOB=    defaults:
+      run:
+        shell: bash {0}"
+matrix_case "matrix: shell: bash passes" 0 "" \
+  "M_ALP_STEP=        shell: bash"
+matrix_case "matrix: a custom shell carrying -e passes" 0 "" \
+  "M_ALP_STEP=        shell: sh -eu {0}"
+matrix_case "matrix: if: false on a scope step fails" 1 "can switch it off" \
+  "M_ALP_STEP=        if: false"
+matrix_case "matrix: a branch filter on a scope step fails" 1 "can switch it off" \
+  "M_LINT_STEP=        if: github.head_ref == 'x'"
+# shellcheck disable=SC2016 # a literal GitHub expression
+matrix_case "matrix: !cancelled() on a scope step passes" 0 "" \
+  'M_ALP_STEP=        if: ${{ !cancelled() }}'
+matrix_case "matrix: a gated Ubuntu job does not carry the Ubuntu smoke" 1 "no ungated Ubuntu job carries" \
+  "M_LINT_JOB=    if: github.event_name == 'push'"
+matrix_case "matrix: a multi-line if naming a platform fails" 1 "naming a platform" \
+  "M_LINT_JOB=    if: github.ref == 'x' &&
+      runner.os == 'Linux'"
+matrix_case "matrix: a flow-style step fails closed" 1 "flow-style sequence item" \
+  "M_LINT_STEP=      - {name: x, run: false, continue-on-error: true}"
+matrix_case "matrix: continue-on-error in a flow mapping fails" 1 "continue-on-error" \
+  "M_ALP_STEP=        with: {continue-on-error: true}"
+matrix_case "matrix: indentless steps are read" 1 "naming a platform" \
+  "M_LINT_STEP=  ubuntu-two:
+    runs-on: ubuntu-latest
+    steps:
+    - name: gated
+      if: runner.os == 'macOS'
+      run: true"
+matrix_case "matrix: a # inside a quoted step name is content" 1 "outside the Alpine scope" \
+  "M_ALP_STEP=      - name: \"shell suite # and markdownlint\"
+        run: true"
+matrix_case "matrix: a registry-qualified Alpine image counts as Alpine" 1 "more than one Alpine job" \
+  "M_LINT_STEP=  alpine-two:
+    runs-on: ubuntu-latest
+    container: docker.io/library/alpine:3.24
+    steps:
+      - name: shell suite
+        run: true"
+matrix_case "matrix: a reversed block-scalar header is read as a scalar" 0 "" \
+  "M_ALP_STEP=      - name: \"setup: x\"
+        run: |-2
+          continue-on-error: true"
+matrix_case "matrix: a job id outside GitHub's grammar fails closed" 1 "outside GitHub's grammar" \
+  "M_LINT_STEP=  \"x y\":
+    runs-on: ubuntu-latest
+    steps:
+      - run: true"
+
 d="$(mkdir_case matrix-absent)"
 cp "$REPO_ROOT/.github/workflows/pr-title.yml" "$d/"
 out="$("$GUARD" --matrix ci.yml "$d" 2>&1)"
@@ -1565,6 +1628,8 @@ out="$("$GUARD" --matrix 2>&1)"
 assert_exit "matrix: --matrix without a file is a usage error" 2 $?
 out="$("$GUARD" --matrix ../ci.yml 2>&1)"
 assert_exit "matrix: a --matrix path outside the directory is a usage error" 2 $?
+out="$("$GUARD" --matrix ci.txt 2>&1)"
+assert_exit "matrix: a --matrix file the posture pass would not parse is a usage error" 2 $?
 
 out="$("$GUARD" --matrix ci.yml "$REPO_ROOT/.github/workflows" 2>&1)"
 assert_exit "matrix: the repo's own ci.yml holds the platform matrix" 0 $?

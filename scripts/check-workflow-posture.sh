@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# check-workflow-posture.sh — the fork-PR posture guard (guard-coverage Task 4;
-# D-6; REQ-C1.1, REQ-C1.2, REQ-H1.3).
+# check-workflow-posture.sh — the workflow posture guard: the fork-PR posture
+# (guard-coverage Task 4; D-6; REQ-C1.1, REQ-C1.2, REQ-H1.3), and the platform
+# matrix under --matrix (below).
 #
 # D-6's working posture: PR-authored code MAY execute under `pull_request`, but
 # only ever with a read-only token and zero stored secrets. That posture was
@@ -136,24 +137,37 @@
 # ever subject to expansion.
 #
 # THE PLATFORM MATRIX (--matrix, universal-binary REQ-B1.4, D-13). Given a
-# workflow file name, a fifth assertion holds that file to the CI platform
+# workflow file name, a further assertion holds that file to the CI platform
 # matrix, failing closed when it is absent:
 #   - it carries an Ubuntu job (runs-on ubuntu-*, no container), a macOS job
-#     (runs-on macos-*), and exactly one Alpine job (a container image
-#     alpine:*); a runs-on this parser cannot read as a scalar, a matrix
-#     expression included, places a job on no platform;
-#   - every step blocks: no `continue-on-error` other than `false`, and no
-#     `||` onto `true` or `:` on any content line (a `run:` body included);
-#   - no `if:`, job- or step-level, names a platform (runner.os, matrix.os,
-#     or a platform word), and the macOS and Alpine jobs carry no job-level
-#     `if:` at all, since a matrix job runs on every pull request;
-#   - the Ubuntu and macOS sides each carry a step named `install smoke`;
+#     (runs-on macos-*), and exactly one Alpine job (a container image whose
+#     last path component is alpine); a runs-on this parser cannot read as a
+#     scalar, a matrix expression included, places a job on no platform;
+#   - every step blocks: no `continue-on-error` other than `false` (a flow
+#     mapping naming it included); no content line swallowing a failure
+#     (`||` onto `true`, `:`, `/bin/true`, `exit 0`, or `{ true; }`, and
+#     `set +e`), in a `run:` body or a shell comment alike, which over-blocks
+#     the loud way; and no `shell:` other than `bash`, `sh`, or a command line
+#     carrying `-e`, since a custom shell without it lets every line but the
+#     last fail silently;
+#   - no `if:`, job- or step-level and on every line of a multi-line value,
+#     names a platform (runner.os, runner.arch, matrix.os, or a platform
+#     word); the macOS and Alpine jobs carry no job-level `if:` at all, since
+#     a matrix job runs on every pull request; and a step the scope names
+#     (`install smoke`, `shell suite`, `bake-off harness`) carries no `if:`
+#     beyond always(), !cancelled(), or success();
+#   - the Ubuntu and macOS sides each carry an `install smoke` step in a job
+#     with no job-level `if:` beyond those three;
 #   - every Alpine step is named, each name either `setup: <what>` or one of
 #     the scope REQ-B1.4 gives the job, with exactly one `shell suite`,
 #     exactly one `install smoke`, and at most one `bake-off harness`.
 # The scope is held by step name, so a step doing other work under a
 # `setup: ` name passes; the name is what a reviewer reads, and the guard
-# holds the list of names, not what each command does.
+# holds the list of names, not what each command does. The swallowing forms
+# are the spellings in use, not every one: `|| echo skipped`, an early
+# `exit 0`, or a platform job made to `needs:` a gated job all pass. A
+# flow-style step (`- {run: x}`) and a job id outside GitHub's grammar fail
+# closed. Workflow text reaches stderr with non-printable bytes dropped.
 #
 # Usage: check-workflow-posture.sh [--matrix <workflow-file>] [<workflows-dir>]
 #   Default: <repo-root>/.github/workflows (the repo root is derived from this
@@ -186,6 +200,8 @@ if [ "${1:-}" = "--matrix" ]; then
   shift 2
   case "$matrix" in
     "" | */* | .*) usage ;;
+    *.yml | *.yaml) ;;
+    *) usage ;;
   esac
 fi
 [ $# -le 1 ] || usage
@@ -705,20 +721,36 @@ fi
 # --- the platform matrix (--matrix) -----------------------------------------
 #
 # A second, narrower pass over the one named workflow, run only once every
-# file parsed above, so it can lean on the same block-style subset. Facts:
+# file parsed above, so it can lean on the same block-style subset. It writes
+# its own fact file (facts.matrix), whose letters are its own:
+#   E <line> <message>              a shape this pass does not model
 #   J <job>                         a job
 #   O <job> <runs-on>               the job's scalar runs-on
 #   C <job> <image>                 the job's container image
-#   I <job> <line> <text>           job-level `if:` text (one per block line)
+#   I <job> <line> <text>           job-level `if:` text, one per value line
 #   S <job> <seq>                   a step
 #   N <job> <seq> <name>            that step's name
-#   K <job> <line> <text>           step-level `if:` text
-#   F <line> <value>                a continue-on-error key, at any depth
-#   T <line>                        a soft `||` (true or :) on a content line
+#   K <job> <seq> <line> <text>     step-level `if:` text, one per value line
+#   F <line> <value>                a continue-on-error, at any depth
+#   H <line> <value>                a shell:, at any depth
+#   T <line>                        a content line that swallows a failure
 read -r -d '' awk_matrix <<'AWK_MATRIX' || true
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 function unquote(s) { sub(/^["']/, "", s); sub(/["']$/, "", s); return s }
-BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; bs_if = "" }
+function clean(s) { gsub(/[^[:print:]\t]/, "", s); return s }
+# A trailing comment ends a plain value; a quoted value ends at its closing
+# quote, so a `#` inside the quotes is content.
+function value(v) {
+  if (v ~ /^"/) { if (match(v, /^"([^"\\]|\\.)*"/)) return substr(v, 1, RLENGTH); return v }
+  if (v ~ /^'/) { if (match(v, /^'([^']|'')*'/)) return substr(v, 1, RLENGTH); return v }
+  sub(/[ \t]+#.*$/, "", v)
+  return v
+}
+function emit_if(text) {
+  if (if_kind == "job") printf "I\t%s\t%d\t%s\n", cur, NR, clean(text)
+  else printf "K\t%s\t%d\t%d\t%s\n", cur, seq, NR, clean(text)
+}
+BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; if_kind = ""; if_cont = 0 }
 {
   line = $0
   sub(/\r$/, "", line)
@@ -728,15 +760,17 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; bs_if = 
   rest = substr(line, indent + 1)
   if (rest ~ /^#/) next
 
-  if (rest ~ /\|\|[ \t]*(true|:)([ \t;)&|]|$)/) printf "T\t%d\n", NR
+  if (rest ~ /\|\|[ \t]*(true|:|\/bin\/true|\/usr\/bin\/true|exit[ \t]+0)([ \t;)&|'"}\\]|$)/ ||
+      rest ~ /\|\|[ \t]*\{[ \t]*(true|:)[ \t]*;/ ||
+      rest ~ /(^|[;&|(][ \t]*)set[ \t]+\+e([ \t;)]|$)/) printf "T\t%d\n", NR
 
   if (bs) {
-    if (indent > bs_indent) {
-      if (bs_if == "job") printf "I\t%s\t%d\t%s\n", cur, NR, rest
-      if (bs_if == "step") printf "K\t%s\t%d\t%s\n", cur, NR, rest
-      next
-    }
-    bs = 0; bs_if = ""
+    if (indent > bs_indent) { if (if_kind != "") emit_if(rest); next }
+    bs = 0; if_kind = ""
+  }
+  if (if_cont) {
+    if (indent > if_indent) { emit_if(rest); next }
+    if_cont = 0; if_kind = ""
   }
 
   isseq = (rest ~ /^-([ \t]|$)/)
@@ -748,10 +782,12 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; bs_if = 
   if (match(body, /^("[^"]*"|'[^']*'|[A-Za-z_][A-Za-z0-9_.-]*)[ \t]*:([ \t]|$)/)) {
     haskey = 1
     key = trim(substr(body, 1, RLENGTH)); sub(/:$/, "", key); key = unquote(trim(key))
-    val = trim(substr(body, RLENGTH + 1)); sub(/[ \t]+#.*$/, "", val); val = trim(val)
+    val = trim(value(trim(substr(body, RLENGTH + 1))))
   }
-  scalar = (haskey && val ~ /^[|>][0-9]*[+-]?$/)
-  if (haskey && key == "continue-on-error") printf "F\t%d\t%s\n", NR, unquote(val)
+  scalar = (haskey && val ~ /^[|>]([0-9][+-]?|[+-][0-9]?)?$/)
+  if (haskey && key == "continue-on-error") printf "F\t%d\t%s\n", NR, clean(unquote(val))
+  if (haskey && val ~ /^\{/ && val ~ /continue-on-error/) printf "F\t%d\t%s\n", NR, "a flow mapping"
+  if (haskey && key == "shell") printf "H\t%d\t%s\n", NR, clean(unquote(val))
 
   if (indent == 0) {
     section = (haskey && key == "jobs") ? "jobs" : ""
@@ -760,25 +796,32 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; bs_if = 
     next
   }
   if (section != "jobs") { if (scalar) { bs = 1; bs_indent = kindent }; next }
+  if (isseq && body ~ /^[{[]/) printf "E\t%d\t%s\n", NR, "a flow-style sequence item is outside the matrix pass's subset"
 
   if (jobs_child < 0) jobs_child = indent
   if (indent == jobs_child && haskey && !isseq) {
-    cur = key; printf "J\t%s\n", cur
-    job_body = -1; in_steps = 0; in_container = 0; steps_item = -1; seq = 0
+    cur = clean(key)
+    if (cur !~ /^[A-Za-z_][A-Za-z0-9_-]*$/) printf "E\t%d\t%s\n", NR, "a job id outside GitHub's grammar"
+    printf "J\t%s\n", cur
+    job_body = -1; in_steps = 0; in_container = 0; steps_item = -1; step_key = -1; seq = 0
     next
   }
   if (job_body < 0) job_body = indent
   if (indent == job_body && !isseq) {
     in_steps = 0; in_container = 0
-    if (key == "runs-on") printf "O\t%s\t%s\n", cur, unquote(val)
-    else if (key == "container") { if (val != "") printf "C\t%s\t%s\n", cur, unquote(val); else in_container = 1 }
-    else if (key == "if") { if (scalar) { bs = 1; bs_indent = kindent; bs_if = "job"; next } else printf "I\t%s\t%d\t%s\n", cur, NR, val }
+    if (key == "runs-on") printf "O\t%s\t%s\n", cur, clean(unquote(val))
+    else if (key == "container") { if (val != "") printf "C\t%s\t%s\n", cur, clean(unquote(val)); else in_container = 1 }
+    else if (key == "if") {
+      if_kind = "job"
+      if (scalar) { bs = 1; bs_indent = kindent; next }
+      emit_if(val); if_cont = 1; if_indent = kindent; next
+    }
     else if (key == "steps") { in_steps = 1; steps_item = -1 }
     if (scalar) { bs = 1; bs_indent = kindent }
     next
   }
-  if (in_container && haskey && key == "image") { printf "C\t%s\t%s\n", cur, unquote(val); in_container = 0 }
-  if (in_steps && indent > job_body) {
+  if (in_container && haskey && key == "image") { printf "C\t%s\t%s\n", cur, clean(unquote(val)); in_container = 0 }
+  if (in_steps && indent >= job_body) {
     stepkey = 0
     if (isseq && (steps_item < 0 || indent == steps_item)) {
       steps_item = indent; step_key = kindent; seq++
@@ -788,109 +831,106 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; bs_if = 
       stepkey = 1
     }
     if (stepkey) {
-      if (key == "name") printf "N\t%s\t%d\t%s\n", cur, seq, unquote(val)
-      else if (key == "if") { if (scalar) { bs = 1; bs_indent = kindent; bs_if = "step"; next } else printf "K\t%s\t%d\t%s\n", cur, NR, val }
+      if (key == "name") printf "N\t%s\t%d\t%s\n", cur, seq, clean(unquote(val))
+      else if (key == "if") {
+        if_kind = "step"
+        if (scalar) { bs = 1; bs_indent = kindent; next }
+        emit_if(val); if_cont = 1; if_indent = kindent; next
+      }
     }
   }
   if (scalar) { bs = 1; bs_indent = kindent }
 }
 AWK_MATRIX
 
-# The scope REQ-B1.4 gives the Alpine job, by step name. A step named
-# `setup: <what>` prepares the container for these and is the only other
-# shape allowed: the name is the contract, so a reviewer reads a new Alpine
-# step's purpose off the workflow and the guard holds it to the list.
-matrix_scope_required="shell suite
-install smoke"
-matrix_scope_optional="bake-off harness"
-platform_re='runner\.os|runner\.arch|matrix\.os|macos|ubuntu|alpine|linux|windows|darwin'
+# Judges the fact file in one pass and prints one violation per line. The
+# scope REQ-B1.4 gives the Alpine job is held by step name: a step named
+# `setup: <what>` prepares the container and is the only other shape allowed.
+read -r -d '' awk_judge <<'AWK_JUDGE' || true
+function bare(t) {
+  t = tolower(t)
+  gsub(/^[ \t"']+/, "", t); gsub(/[ \t"']+$/, "", t)
+  sub(/^\$\{\{[ \t]*/, "", t); sub(/[ \t]*\}\}$/, "", t)
+  return t
+}
+function run_anyway(t) { t = bare(t); return (t == "always()" || t == "!cancelled()" || t == "success()") }
+function platform(t) { return tolower(t) ~ /runner\.os|runner\.arch|matrix\.os|macos|ubuntu|alpine|linux|windows|darwin/ }
+function scope(n) { return (n == "shell suite" || n == "install smoke" || n == "bake-off harness") }
+# Reading nm[] by subscript would create the entry; every read goes through here.
+function stepname(j, s) { return ((j SUBSEP s) in nm) ? nm[j SUBSEP s] : "" }
+function v(msg) { printf "%s\n", msg }
+BEGIN { FS = "\t"; file = ENVIRON["MATRIX_FILE"] }
+$1 == "E" { v(file ":" $2 ": parse failure — " $3) }
+$1 == "J" { nj++; job[nj] = $2 }
+$1 == "O" { ro[$2] = $3 }
+$1 == "C" { if (!($2 in img)) img[$2] = $3 }
+$1 == "I" {
+  jif[$2] = $3
+  if (!run_anyway($4)) gated[$2] = 1
+  if (platform($4)) v(file ":" $3 ": job '" $2 "' is gated by an `if:` naming a platform, so that platform can stop running it")
+}
+$1 == "S" { ns[$2] = $3 }
+$1 == "N" { nm[$2 SUBSEP $3] = $4 }
+$1 == "K" { nk++; kjob[nk] = $2; kseq[nk] = $3; kline[nk] = $4; ktext[nk] = $5 }
+$1 == "F" { if ($3 != "false") v(file ":" $2 ": `continue-on-error` lets a failing step or job pass; every step on every platform must block") }
+$1 == "H" {
+  if ($3 !~ /^(bash|sh)$/ && $3 !~ /(^|[ \t])-[a-z]*e[a-z]*([ \t]|$)/)
+    v(file ":" $2 ": `shell: " $3 "` runs without -e, so every line of a step but the last can fail silently; every step on every platform must block")
+}
+$1 == "T" { v(file ":" $2 ": a line swallows a failure (`||` onto true, `:`, or exit 0, or `set +e`); every step on every platform must block") }
+END {
+  nalpine = 0
+  for (i = 1; i <= nj; i++) {
+    j = job[i]; base = img[j]; sub(/.*\//, "", base)
+    if (base ~ /^alpine([:@]|$)/) { kind[j] = "alpine"; nalpine++; alpine_job = (alpine_job == "" ? j : alpine_job " " j) }
+    else if (img[j] == "" && ro[j] ~ /^macos-/) kind[j] = "macos"
+    else if (img[j] == "" && ro[j] ~ /^ubuntu-/) kind[j] = "ubuntu"
+    if ((kind[j] == "macos" || kind[j] == "alpine") && (j in jif))
+      v(file ":" jif[j] ": platform job '" j "' carries a job-level `if:`; a matrix job runs on every pull request")
+    for (s = 1; s <= ns[j]; s++) if (stepname(j, s) == "install smoke" && !gated[j]) smoke[kind[j]] = 1
+    if (kind[j] != "") have[kind[j]] = 1
+  }
+  for (k = 1; k <= nk; k++) {
+    if (platform(ktext[k])) v(file ":" kline[k] ": a step of job '" kjob[k] "' is gated by an `if:` naming a platform, so that platform can skip it")
+    n = stepname(kjob[k], kseq[k])
+    if (scope(n) && !run_anyway(ktext[k])) v(file ":" kline[k] ": the `" n "` step of job '" kjob[k] "' carries an `if:` that can switch it off; a scope step runs on every pull request")
+  }
+  if (!have["ubuntu"]) v(file ": no Ubuntu job (runs-on ubuntu-*, no container) — the matrix needs Linux with glibc")
+  if (!have["macos"]) v(file ": no macOS job (runs-on macos-*) — the matrix needs the system bash and BSD userland")
+  if (nalpine < 1) v(file ": no Alpine job (a container image alpine:*) — the matrix needs musl with dash and busybox")
+  if (nalpine > 1) v(file ": more than one Alpine job (" alpine_job "), so the Alpine scope has no single job to hold to")
+  if (have["ubuntu"] && !smoke["ubuntu"]) v(file ": no ungated Ubuntu job carries an `install smoke` step")
+  if (have["macos"] && !smoke["macos"]) v(file ": no ungated macOS job carries an `install smoke` step")
+  if (nalpine == 1) {
+    j = alpine_job; suite = 0; smokes = 0; harness = 0
+    for (s = 1; s <= ns[j]; s++) {
+      if (!((j SUBSEP s) in nm)) { v(file ": Alpine job '" j "' has a step with no `name:`, so its place in the Alpine scope cannot be read"); continue }
+      n = stepname(j, s)
+      if (n == "shell suite") suite++
+      else if (n == "install smoke") smokes++
+      else if (n == "bake-off harness") harness++
+      else if (n !~ /^setup: ./)
+        v(file ": Alpine job '" j "' step '" n "' is outside the Alpine scope (the shell suite, the bake-off harness, the install smoke, and `setup: ` steps); run it on Ubuntu and name it there")
+    }
+    if (suite != 1) v(file ": Alpine job '" j "' carries " suite " `shell suite` step(s); the Alpine scope needs exactly one")
+    if (smokes != 1) v(file ": Alpine job '" j "' carries " smokes " `install smoke` step(s); the Alpine scope needs exactly one")
+    if (harness > 1) v(file ": Alpine job '" j "' carries " harness " `bake-off harness` steps; the Alpine scope allows one")
+  }
+}
+AWK_JUDGE
 
 if [ -n "$matrix" ] && [ "$parse_failed" -eq 0 ]; then
   mfile="$dir/$matrix"
   if [ ! -f "$mfile" ]; then
     fail "$mfile: the platform-matrix workflow is absent, so the matrix cannot be verified (failing closed)"
-  elif ! awk "$awk_matrix" "$mfile" >"$work/matrix"; then
+  elif ! awk "$awk_matrix" "$mfile" >"$work/facts.matrix"; then
     fail "$mfile: awk failed reading the platform matrix"
+  elif ! MATRIX_FILE="$mfile" awk "$awk_judge" "$work/facts.matrix" >"$work/matrix.viol"; then
+    fail "$mfile: awk failed judging the platform matrix"
   else
-    mf() { grep "^$1	" "$work/matrix" 2>/dev/null || true; }
-    ubuntu="" macos="" alpine="" nalpine=0
-    while IFS=$'\t' read -r _ job; do
-      [ -n "${job:-}" ] || continue
-      ro="$(mf O | awk -F'\t' -v j="$job" '$2 == j { print $3; exit }')"
-      img="$(mf C | awk -F'\t' -v j="$job" '$2 == j { print $3; exit }')"
-      case "$img" in
-        alpine:* | alpine@*)
-          alpine="$alpine $job"
-          nalpine=$((nalpine + 1))
-          ;;
-        "")
-          case "$ro" in
-            macos-*) macos="$macos $job" ;;
-            ubuntu-*) ubuntu="$ubuntu $job" ;;
-          esac
-          ;;
-      esac
-    done < <(mf J)
-
-    [ -n "$ubuntu" ] || fail "$mfile: no Ubuntu job (runs-on ubuntu-*, no container) — the matrix needs Linux with glibc"
-    [ -n "$macos" ] || fail "$mfile: no macOS job (runs-on macos-*) — the matrix needs the system bash and BSD userland"
-    [ "$nalpine" -ge 1 ] || fail "$mfile: no Alpine job (a container image alpine:*) — the matrix needs musl with dash and busybox"
-    [ "$nalpine" -le 1 ] || fail "$mfile: more than one Alpine job (${alpine# }), so the Alpine scope has no single job to hold to"
-
-    while IFS=$'\t' read -r _ ln v; do
-      [ -n "${ln:-}" ] || continue
-      [ "$v" = "false" ] || fail "$mfile:$ln: \`continue-on-error\` lets a failing step or job pass; every step on every platform must block"
-    done < <(mf F)
-    while IFS=$'\t' read -r _ ln; do
-      [ -n "${ln:-}" ] || continue
-      fail "$mfile:$ln: a \`||\` onto true or \`:\` swallows the failure before it; every step on every platform must block"
-    done < <(mf T)
-    while IFS=$'\t' read -r _ job ln text; do
-      [ -n "${job:-}" ] || continue
-      if printf '%s\n' "$text" | grep -Eiq "$platform_re"; then
-        fail "$mfile:$ln: job '$job' is gated by an \`if:\` naming a platform, so that platform can stop running it"
-      fi
-      case " $macos $alpine " in
-        *" $job "*) fail "$mfile:$ln: platform job '$job' carries a job-level \`if:\`; a matrix job runs on every pull request" ;;
-      esac
-    done < <(mf I)
-    while IFS=$'\t' read -r _ job ln text; do
-      [ -n "${job:-}" ] || continue
-      if printf '%s\n' "$text" | grep -Eiq "$platform_re"; then
-        fail "$mfile:$ln: a step of job '$job' is gated by an \`if:\` naming a platform, so that platform can skip it"
-      fi
-    done < <(mf K)
-
-    # has_smoke <jobs>: whether any of the jobs carries the install smoke step.
-    has_smoke() {
-      for j in $1; do
-        mf N | awk -F'\t' -v j="$j" '$2 == j && $4 == "install smoke" { f = 1 } END { exit !f }' && return 0
-      done
-      return 1
-    }
-    [ -z "$ubuntu" ] || has_smoke "$ubuntu" || fail "$mfile: no Ubuntu job carries an \`install smoke\` step"
-    [ -z "$macos" ] || has_smoke "$macos" || fail "$mfile: no macOS job carries an \`install smoke\` step"
-
-    if [ "$nalpine" -eq 1 ]; then
-      aj="${alpine# }"
-      nsteps="$(mf S | awk -F'\t' -v j="$aj" '$2 == j' | wc -l | tr -d ' ')"
-      nnamed="$(mf N | awk -F'\t' -v j="$aj" '$2 == j' | wc -l | tr -d ' ')"
-      [ "$nsteps" -eq "$nnamed" ] || fail "$mfile: Alpine job '$aj' has a step with no \`name:\`, so its place in the Alpine scope cannot be read"
-      while IFS=$'\t' read -r _ _ _ name; do
-        case "$name" in
-          "setup: "?*) continue ;;
-        esac
-        if ! printf '%s\n%s\n' "$matrix_scope_required" "$matrix_scope_optional" | grep -qxF -- "$name"; then
-          fail "$mfile: Alpine job '$aj' step '$name' is outside the Alpine scope (the shell suite, the bake-off harness, the install smoke, and \`setup: \` steps); run it on Ubuntu and name it there"
-        fi
-      done < <(mf N | awk -F'\t' -v j="$aj" '$2 == j')
-      while IFS= read -r want; do
-        n="$(mf N | awk -F'\t' -v j="$aj" -v w="$want" '$2 == j && $4 == w' | wc -l | tr -d ' ')"
-        [ "$n" -eq 1 ] || fail "$mfile: Alpine job '$aj' carries $n \`$want\` step(s); the Alpine scope needs exactly one"
-      done <<<"$matrix_scope_required"
-      n="$(mf N | awk -F'\t' -v j="$aj" -v w="$matrix_scope_optional" '$2 == j && $4 == w' | wc -l | tr -d ' ')"
-      [ "$n" -le 1 ] || fail "$mfile: Alpine job '$aj' carries $n \`$matrix_scope_optional\` steps; the Alpine scope allows one"
-    fi
+    while IFS= read -r m; do
+      fail "$m"
+    done <"$work/matrix.viol"
   fi
 fi
 
