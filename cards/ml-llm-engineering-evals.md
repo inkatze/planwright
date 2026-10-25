@@ -73,8 +73,9 @@ closes the gap, and which models clear it, with the numbers each claim rests on.
    standard error (clustered where questions come in related groups), resample each question
    to reduce variance, compare two models by paired per-question differences, and size the
    eval set by power analysis before running it. Misuse: comparing two point scores and
-   calling the higher one better, or choosing the threshold after seeing the results; the gate
-   is pre-committed.
+   calling the higher one better, which the author notes is common practice on leaderboards;
+   and, by the decision-domains catalog's rule rather than the author's, choosing the threshold
+   after seeing the results, since the gate is pre-committed.
 
 ## Grounding
 
@@ -223,7 +224,8 @@ orchestrator and the human do.
 ## Conflict and deference
 
 Prevails on how model quality is measured: the definition of correct as a checkable rule, the
-eval set's design, the validation of judges, and the statistical reading of results. Defers to
+eval set's design, the validation of judges, the statistical reading of results, and where the
+data the venture evaluates or fine-tunes on came from. Defers to
 the AI architecture seat on whether a model or agent is needed and its design, to the named
 domain authority on what is correct, to the software engineering seat on how evals run in
 delivery, and to the IP seat on whether data may be used. Where its recommendation conflicts
@@ -244,7 +246,8 @@ seat or another persona seat agreeing with it.
 - The frame names a model, a prompt, a fine-tune, a retrieval index, or a quality bar for a
   model step.
 - The frame names a dataset the venture would train, tune, or evaluate a model on.
-- The registers carry an assumption about a model's accuracy, quality, or error rate.
+- The frame's evidence pointers or constraints carry a claim about a model's accuracy,
+  quality, or error rate.
 
 ## Sources
 
