@@ -59,7 +59,8 @@ REQ-M1.6); they stay live and are this bundle's evidence too.
 ## Open questions for the drafter
 
 1. The lease model: one broker per host or per program, and how a lease survives the session that
-   took it (mission-control's stable-indirection posture).
+   took it (a stable indirection such as a fixed path, never a value that dies with that
+   session).
 2. Which shared resources are brokered in the first version, and which stay a fix in the owning
    script (a test that leaks is a bug, not a lease).
 3. How a program declares an external environment, and whether the broker ever holds that

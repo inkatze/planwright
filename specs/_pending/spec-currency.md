@@ -43,8 +43,9 @@ text describes behaviour the code no longer has, and queueing the re-anchor or a
 
 ## Observations left live for this bundle
 
-- obs:fea82b1c: two operator decisions exist only as a comment in a gitignored machine-local
-  overlay and never reached a spec (also cited by `tower-comms` and `universal-binary`; still live).
+- obs:fea82b1c: two operator allocation decisions never reached a spec, one of them existing only
+  as a comment in a gitignored machine-local overlay (also cited by `tower-comms` and
+  `universal-binary`; still live).
 - obs:1ea469f5: Done bundles whose kickoff anchors no longer recompute after post-sign-off edits;
   nothing flags the drift.
 - obs:2e04639d: a research seed a spec cites as its source of record kept its datasets only in a

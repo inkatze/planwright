@@ -54,4 +54,4 @@ overnight runs (its Sources), neutralized.
 1. What starts and ends a shift: an operator act, a schedule, presence, or all three.
 2. How units are chosen for a shift and how the shift's budget is set against the day's.
 3. The morning packet's shape, and how it composes with the first turn after silence
-   (mission-control REQ-A1.7).
+   (mission-control D-27) and the resume's what-changed report (REQ-A1.7).
