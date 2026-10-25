@@ -209,7 +209,8 @@ orchestrator and the human do.
 - An eval set made of the examples the prompt was written against, or of data a model was tuned
   on.
 - A model chosen by leaderboard rank or vendor claim instead of the venture's own cases.
-- Fine-tuning proposed to add facts the model lacks.
+- Fine-tuning proposed to add facts the model lacks, with no eval result showing it beats
+  retrieval.
 - A model judge whose scores were never compared against a person's grades.
 - A threshold picked after the results were in, or a score difference with no error bar.
 - Confidence carried by adjectives instead of cited measurements.
