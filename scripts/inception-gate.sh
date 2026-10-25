@@ -206,6 +206,11 @@ resolve_venture() {
   for _f in $FILES; do
     [ ! -L "$vdir/$_f" ] || die 1 "$_f is a symbolic link; refusing to read or write through it"
   done
+  # Paths are kept in tab-separated scratch lists, so no control character,
+  # tab or newline included, may appear in the venture's path.
+  case $vdir in
+    *[[:cntrl:]]*) die 2 "the venture path holds a control character, which this helper cannot carry" ;;
+  esac
   vid=$(basename "$vdir")
   "$VENTURE" check-id "$vid" >/dev/null 2>&1 \
     || die 2 "the venture directory is not named for a venture identifier: $(sanitize_printable "$vid" '?')"
@@ -602,11 +607,13 @@ install_files() {
   moving=1
   for _f in $(printf '%s\n' "$@" | grep -v '^brief\.md$') $(printf '%s\n' "$@" | grep '^brief\.md$'); do
     _t=$(awk -F'\t' -v f="$_f" '$1 == f { print $2; exit }' "$work/tmps")
+    # Recorded before the move, so an exit right after it restores this file
+    # too; restoring one that never moved copies back the same bytes.
+    printf '%s\n' "$_f" >>"$work/moved"
     if ! mv -f "$_t" "$vdir/$_f"; then
       restore_moved || die 2 "cannot write $_f, and the files already written could not all be restored"
       die 2 "cannot write $_f; the files already written were restored"
     fi
-    printf '%s\n' "$_f" >>"$work/moved"
   done
   moving=
   : >"$work/tmps"
@@ -666,11 +673,11 @@ trim_slashes() {
   printf '%s\n' "$_p"
 }
 
-# check_dir_arg <path> <label> — a directory argument named directly: a `.`
-# or `..` component would let the symbolic-link test look past the link.
+# check_dir_arg <path> <label> — a directory argument named directly: a
+# final `.` or `..` would let the symbolic-link test look past the link.
 check_dir_arg() {
-  case /$1/ in
-    */./* | */../*) die 1 "$2 names a . or .. component; name the directory itself" ;;
+  case $1 in
+    . | .. | */. | */..) die 1 "$2 ends in a . or .. component; name the directory itself" ;;
   esac
 }
 
@@ -913,7 +920,8 @@ cmd_record() {
 
 # --- seed --------------------------------------------------------------------
 
-# The seed document, from $work/all. scope is `venture` or a track label.
+# The seed document, from $work/all: the whole venture when whole is 1, else
+# the track named by scope.
 # shellcheck disable=SC2016 # awk source, not a shell expansion
 SEED_AWK='
 BEGIN { FS = "\t" }
@@ -1089,7 +1097,7 @@ cmd_seed() {
   [ ! -L "$_pdir" ] || die 1 "the destination's _pending is a symbolic link; refusing to write through it"
   # A dot cannot appear in an identifier or a label, so no venture-and-track
   # pair can name another pair's seed.
-  if [ "$_scope" = venture ]; then _name="inception-$vid.md"; else _name="inception-$vid.$_scope.md"; fi
+  if tracked; then _name="inception-$vid.$_scope.md"; else _name="inception-$vid.md"; fi
   _seed="$_pdir/$_name"
   [ ! -e "$_seed" ] && [ ! -L "$_seed" ] || die 1 "a seed already exists at _pending/$_name"
   _ploc=$(loc_of "$_probe") || die 2 "cannot record the destination's location"
@@ -1261,7 +1269,7 @@ cmd_lineage() {
       continue
     fi
     case $_sp in
-      *:*) _sd=$(awk -F'\t' -v l="$_sp" '$1 == l { print $2; exit }' "$work/specmap") ;;
+      *:*) _sd=$(GATE_LOC=$_sp awk -F'\t' '$1 == ENVIRON["GATE_LOC"] { print $2; exit }' "$work/specmap") ;;
       *)
         # The recorded location is bundle text: it is read only once it
         # resolves to a directory inside the venture.
@@ -1269,16 +1277,20 @@ cmd_lineage() {
         case /$_sp/ in
           //* | */../*) ;;
           *)
-            if [ ! -d "$vdir/$_sp" ]; then
+            if _sd=$(cd "$vdir/$_sp" 2>/dev/null && pwd -P); then
+              case $_sd in
+                "$vdir" | "$vdir"/*) ;;
+                *) _sd= ;;
+              esac
+            elif [ ! -L "$vdir/$_sp" ] && _pp=$(cd "$(dirname "$vdir/$_sp")" 2>/dev/null && pwd -P) \
+              && case $_pp in "$vdir" | "$vdir"/*) true ;; *) false ;; esac then
+              # Gone from a place inside the venture: missing, not escaped.
               printf 'lineage\t%s\tspec-missing\n' "$(sanitize_printable "$_sc" '?')"
               _bad=1
               continue
+            else
+              _sd=
             fi
-            _sd=$(cd "$vdir/$_sp" 2>/dev/null && pwd -P)
-            case $_sd in
-              "$vdir" | "$vdir"/*) ;;
-              *) _sd= ;;
-            esac
             ;;
         esac
         if [ -z "$_sd" ]; then

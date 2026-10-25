@@ -477,7 +477,8 @@ assert_eq "J1.5 the seed's own cite line satisfies link" 0 "$rc"
 # shellcheck disable=SC2016 # literal text for the expected line or a written script, not an expansion
 assert_eq "J1.5 a spec in another repository is recorded by repository" 1 \
   "$(grep -c '— spec: `product-repo:specs/capture`$' "$vroot/probe/brief.md")"
-gate lineage --spec "$prod/specs/capture" "$vroot/probe"
+gate lineage --spec "$prod/specs/capture" --spec "$prod/specs/capture/" "$vroot/probe"
+assert_eq "J1.5 a spec named twice is checked once" 1 "$(printf '%s\n' "$out" | grep -c '^lineage	venture	linked$')"
 assert_contains "J1.5 a cross-repository spec reads linked" "lineage	venture	linked" "$out"
 gate lineage "$vroot/probe"
 assert_eq "J1.5 an unnamed cross-repository spec is not a finding" 0 "$rc"
@@ -594,7 +595,7 @@ ready "$vroot/seedfail"
 out=$(PATH="$tmp/shim:$PATH" "$GATE" seed --dest "$(specroot "$vroot/seedfail")" "$vroot/seedfail" 2>&1)
 rc=$?
 assert_eq "a seed whose lineage cannot be recorded is an error" 2 "$rc"
-assert_eq "and the seed is taken back" "" "$(ls -A "$vroot/seedfail/specs/_pending" 2>/dev/null)"
+assert_eq "and the seed is taken back, with the directories it made" no "$([ -d "$vroot/seedfail/specs/_pending" ] && echo yes || echo no)"
 assert_eq "and no scratch file stays in the venture" "" "$(find "$vroot/seedfail" -maxdepth 1 -name '.inception-gate.*')"
 gate seed --dest "$(specroot "$vroot/seedfail")" "$vroot/seedfail"
 assert_eq "the seed can then be retried" 0 "$rc"
@@ -646,6 +647,11 @@ done
 gate evaluate --track venture "$vroot/vtrack"
 assert_contains "F1.3 a track labelled venture is evaluated as a track" "scope	track venture" "$out"
 assert_not_contains "F1.3 and only its own entries count" "blocking-unresolved	A-1" "$out"
+gate record --outcome Recycle --tracks "capture=Recycle,venture=Graduate" --decider "Dana Reyes" --rationale x "$vroot/vtrack"
+assert_eq "F1.3 a track labelled venture graduates on its own entries" 0 "$rc"
+gate seed --track venture --dest "$(specroot "$vroot/vtrack")" "$vroot/vtrack"
+assert_contains "F1.3 its seed is named for the track" "_pending/inception-vtrack.venture.md" "$out"
+assert_contains "F1.3 its key names the track" "(inception:vtrack/venture," "$out"
 
 gate seed --dest "$tmp/gitlink/." "$vroot/slash"
 assert_eq "seed refuses a destination named through a . component" 1 "$rc"
