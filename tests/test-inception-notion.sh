@@ -197,6 +197,17 @@ assert_eq "403: the harvest fails" "1" "$?"
 assert_contains "403: names the read-comments capability" "comment" "$(cat "$tmp/err")"
 assert_not_contains "403: prints no partial items" "item	" "$out"
 
+# More pages promised with a cursor that fails its grammar: the harvest stops
+# rather than report a partial read as complete, and the cursor reaches no URL.
+jq '.next_cursor = "x&block_id=evil"' "$FIX/comments-page-1.json" >"$tmp/comments-badcursor.json"
+printf 'GET /v1/comments?block_id=%s&page_size=100 comments-badcursor.json 200\nGET /v1/blocks/%s/children?page_size=100 blocks-empty.json 200\n' "$PAGE" "$PAGE" >"$tmp/routesbc"
+notion_fake_install "$tmp/binbc" "$tmp" "$tmp/routesbc" "$tmp/logbc" || exit 1
+out="$(PATH="$tmp/binbc:$PATH" "$NOTION" harvest "$v" 2>"$tmp/err")"
+assert_eq "unusable cursor: the harvest fails" "1" "$?"
+assert_contains "unusable cursor: says why" "cursor" "$(cat "$tmp/err")"
+assert_not_contains "unusable cursor: no summary is printed" "summary	" "$out"
+assert_not_contains "unusable cursor: it reaches no URL" "evil" "$(cat "$tmp/logbc/argv")"
+
 # Not configured: says so, makes no call.
 w="$tmp/unconfigured"
 mkdir -p "$w" && git -C "$w" init -q . || exit 1

@@ -136,10 +136,17 @@ parse_blocks() {
     | @tsv' "$1"
 }
 
+# next_cursor <payload> — the next page's cursor, or nothing on the last page;
+# status 1 when more pages follow but the cursor fails its grammar, since
+# stopping there would report a partial read as complete.
 next_cursor() {
-  jq -r 'if .has_more == true then (.next_cursor // "") else "" end | strings' "$1" \
-    | awk '/^[A-Za-z0-9-]+$/ { print; exit }'
+  [ "$(jq -r '.has_more == true' "$1")" = true ] || return 0
+  _nc=$(jq -r '.next_cursor // "" | strings' "$1" | awk '/^[A-Za-z0-9-]+$/ { print; exit }')
+  [ -n "$_nc" ] || return 1
+  printf '%s\n' "$_nc"
 }
+
+NO_CURSOR="Notion said more results follow but gave no usable cursor; the harvest stops rather than report a partial read as complete"
 
 # --- arguments ---------------------------------------------------------------
 
@@ -364,7 +371,7 @@ comments_of() {
   while :; do
     request GET "/v1/comments?block_id=$1&page_size=100${_cursor:+&start_cursor=$_cursor}"
     parse_comments "$resp" "$2" >>"$items" || die 1 "a comments response did not parse"
-    _cursor=$(next_cursor "$resp")
+    _cursor=$(next_cursor "$resp") || die 1 "$NO_CURSOR"
     [ -n "$_cursor" ] || break
   done
 }
@@ -393,7 +400,7 @@ while :; do
       [ "$kids" != 1 ] || printf '%s\n' "$bid" >>"$queue"
     done <"$work/children.tsv"
     [ "$status" = complete ] || break
-    cursor=$(next_cursor "$resp")
+    cursor=$(next_cursor "$resp") || die 1 "$NO_CURSOR"
     [ -n "$cursor" ] || break
   done
   [ "$status" = complete ] || break
