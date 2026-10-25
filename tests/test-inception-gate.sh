@@ -435,7 +435,7 @@ gate seed --track measure --dest "$(specroot "$vroot/tracks")" "$vroot/tracks"
 assert_eq "F1.3 a live track yields no seed" 1 "$rc"
 gate seed --track capture --dest "$(specroot "$vroot/tracks")" "$vroot/tracks"
 assert_eq "F1.3 the graduated track seeds" 0 "$rc"
-tseed=$(cat "$vroot/tracks/specs/_pending/inception-tracks-capture.md" 2>/dev/null)
+tseed=$(cat "$vroot/tracks/specs/_pending/inception-tracks.capture.md" 2>/dev/null)
 assert_contains "F1.3 the track seed carries the track key" "**Lineage:** inception:tracks/capture" "$tseed"
 assert_contains "F1.3 the track seed carries the track's entries" "### A-2 —" "$tseed"
 assert_not_contains "F1.3 the track seed leaves the sibling track's entries out" "A-4" "$tseed"
@@ -467,6 +467,135 @@ assert_contains "J1.1 /spec-draft reads that directory" '<root>/_pending/' "$(ca
 assert_eq "J1.1 the venture side names the other repository" 1 \
   "$(grep -c '— seed: `product-repo:specs/_pending/inception-probe.md` — spec: pending$' "$vroot/probe/brief.md")"
 assert_contains "J1.1 the seed tells the spec what to cite" "inception:probe" "$(cat "$proot/_pending/inception-probe.md")"
+
+cite=$(printf '%s\n' "$out" | sed -n 's/^cite	//p')
+assert_contains "J1.1 the printed cite line carries the lineage key" "(inception:probe," "$cite"
+mkdir -p "$prod/specs/capture"
+printf '# Capture — Requirements\n\n## Sources\n\n%s\n' "$cite" >"$prod/specs/capture/requirements.md"
+gate link --spec "$prod/specs/capture" "$vroot/probe"
+assert_eq "J1.5 the seed's own cite line satisfies link" 0 "$rc"
+# shellcheck disable=SC2016 # literal text for the expected line or a written script, not an expansion
+assert_eq "J1.5 a spec in another repository is recorded by repository" 1 \
+  "$(grep -c '— spec: `product-repo:specs/capture`$' "$vroot/probe/brief.md")"
+gate lineage --spec "$prod/specs/capture" "$vroot/probe"
+assert_contains "J1.5 a cross-repository spec reads linked" "lineage	venture	linked" "$out"
+gate lineage "$vroot/probe"
+assert_eq "J1.5 an unnamed cross-repository spec is not a finding" 0 "$rc"
+assert_contains "J1.5 it reads unchecked" "lineage	venture	unchecked" "$out"
+
+# --- convergence fixes -------------------------------------------------------
+
+# A tracked venture closes once every track has graduated or ended.
+mkv closing tracked
+ready "$vroot/closing"
+"$GATE" record --outcome Recycle --tracks "capture=Graduate,measure=Recycle" --decider "Dana Reyes" --rationale a "$vroot/closing" >/dev/null 2>&1
+"$GATE" record --outcome Recycle --tracks "measure=Graduate" --decider "Dana Reyes" --rationale b "$vroot/closing" >/dev/null 2>&1
+gate record --outcome Graduate --decider "Dana Reyes" --rationale "every track is out" "$vroot/closing"
+assert_eq "F1.3 the closing record needs no live track" 0 "$rc"
+assert_eq "F1.3 the closing record covers no track" 1 "$(grep -c '^Tracks: none$' "$vroot/closing/brief.md")"
+assert_eq "F1.3 the venture closes Graduated" Graduated "$(status_of "$vroot/closing" brief.md)"
+assert_eq "F1.3 the closed bundle validates" 0 "$(validates_clean "$vroot/closing")"
+
+mkv killtracks tracked
+gate record --outcome Kill --tracks "capture=Hold,measure=Recycle" --decider "Dana Reyes" --rationale x "$vroot/killtracks"
+assert_eq "E1.2 a top-level Kill leaving a track live is refused" 1 "$rc"
+mkv trackgate tracked
+gate record --outcome Recycle --tracks "capture=Graduate,measure=Recycle" --decider "Dana Reyes" --rationale x "$vroot/trackgate"
+assert_eq "F1.3 a track with an unresolved blocking assumption cannot graduate" 1 "$rc"
+assert_contains "F1.3 the refusal names the gap" "blocking-unresolved	A-1" "$out"
+
+mkv invalid
+ready "$vroot/invalid"
+set_field "$vroot/invalid/assumptions.md" A-2 Status invalidated
+gate evaluate "$vroot/invalid"
+assert_contains "E1.1 an invalidated blocking assumption is a gap" "gap	blocking-invalidated	A-2" "$out"
+mkv synthfeas
+ready "$vroot/synthfeas"
+set_field "$vroot/synthfeas/assumptions.md" A-2 Evidence "synthetic — workflow audit"
+gate evaluate "$vroot/synthfeas"
+assert_contains "E1.1 synthetic evidence on a feasibility assumption is no desirability gap" "admissible	Graduate	yes" "$out"
+mkv onedir
+ready "$vroot/onedir"
+set_field "$vroot/onedir/assumptions.md" A-2 Tasks none
+gate evaluate "$vroot/onedir"
+assert_contains "E1.4 the task's Tests line alone maps an assumption" "complete	yes" "$out"
+gate evaluate "$vroot/out-recycle"
+assert_contains "E1.5 a written record reads back" "next-gate	3" "$out"
+
+mkdir -p "$tmp/plain/specs"
+mkv nogit
+ready "$vroot/nogit"
+"$GATE" record --outcome Graduate --decider "Dana Reyes" --rationale ready "$vroot/nogit" >/dev/null 2>&1
+gate seed --dest "$tmp/plain/specs" "$vroot/nogit"
+assert_eq "F1.1 a destination outside a repository is refused" 1 "$rc"
+assert_eq "F1.1 nothing is created in a refused destination" "" "$(ls -A "$tmp/plain/specs")"
+
+mkdir -p "$tmp/dirty-dest"
+git -C "$tmp/dirty-dest" init -q
+mkv dirty
+ready "$vroot/dirty"
+"$GATE" record --outcome Graduate --decider "Dana Reyes" --rationale ready "$vroot/dirty" >/dev/null 2>&1
+printf '\n### A-9 — x\n' >>"$vroot/dirty/assumptions.md"
+gate seed --dest "$tmp/dirty-dest/specs" "$vroot/dirty"
+assert_eq "F1.1 a bundle with validator findings yields no seed" 1 "$rc"
+assert_eq "F1.1 and leaves the destination untouched" 0 "$(find "$tmp/dirty-dest/specs" 2>/dev/null | wc -l | tr -d ' ')"
+
+mkv forged
+ready "$vroot/forged"
+"$GATE" record --outcome Graduate --decider "Dana Reyes" --rationale ready "$vroot/forged" >/dev/null 2>&1
+awk '{ print } /^Decider: Dana Reyes$/ && !d { print "Decider: ## Injected heading"; d = 1 }' "$vroot/forged/brief.md" >"$tmp/b" \
+  && mv "$tmp/b" "$vroot/forged/brief.md"
+gate seed --dest "$(specroot "$vroot/forged")" "$vroot/forged"
+assert_not_contains "F1.1 a repeated gate field cannot add a seed line" "## Injected heading" \
+  "$(cat "$vroot/forged/specs/_pending/inception-forged.md" 2>/dev/null)"
+
+mkdir -p "$g/specs/nospec"
+gate link --spec "$g/specs/nospec" "$g"
+assert_contains "J1.5 link names a spec without requirements" "lineage	venture	spec-missing" "$out"
+printf '# X — Requirements\n\n## Sources\n\n- **near miss** — (inception:out-graduate-x)\n' >"$g/specs/capture-surface/requirements.md"
+gate lineage "$g"
+assert_contains "J1.5 a longer key does not cite a shorter one" "lineage	venture	spec-side-missing" "$out"
+
+# Failure injection: a validator that crashes on the staged bundle, and an mv
+# that fails on one file, must leave the bundle as it was.
+cp -R "$REPO_ROOT/scripts" "$tmp/crash-scripts"
+mv "$tmp/crash-scripts/inception-validate.sh" "$tmp/crash-scripts/inception-validate.real"
+# shellcheck disable=SC2016 # literal text for the expected line or a written script, not an expansion
+printf '#!/bin/sh\ncase "$*" in */stage) exit 2 ;; esac\nexec "$(dirname "$0")/inception-validate.real" "$@"\n' >"$tmp/crash-scripts/inception-validate.sh"
+chmod +x "$tmp/crash-scripts/inception-validate.sh"
+mkv crash
+out=$("$tmp/crash-scripts/inception-gate.sh" record --outcome Hold --decider "Dana Reyes" --rationale x "$vroot/crash" 2>&1)
+rc=$?
+assert_eq "a crashing staged validation is an error" 2 "$rc"
+assert_eq "and writes nothing" 0 "$(grep -c '^### Gate 2' "$vroot/crash/brief.md")"
+
+mkdir -p "$tmp/shim"
+realmv=$(command -v mv)
+# shellcheck disable=SC2016 # literal text for the expected line or a written script, not an expansion
+printf '#!/bin/sh\nfor a; do last=$a; done\ncase "$last" in */%s) exit 1 ;; esac\nexec %s "$@"\n' assumptions.md "$realmv" >"$tmp/shim/mv"
+chmod +x "$tmp/shim/mv"
+mkv torn
+out=$(PATH="$tmp/shim:$PATH" "$GATE" record --outcome Hold --decider "Dana Reyes" --rationale x "$vroot/torn" 2>&1)
+rc=$?
+assert_eq "a failed install is an error" 2 "$rc"
+for f in brief disciplines assumptions decisions plan; do
+  assert_eq "a failed install restores $f.md" Exploring "$(status_of "$vroot/torn" "$f.md")"
+done
+assert_eq "a failed install leaves no record" 0 "$(grep -c '^### Gate 2' "$vroot/torn/brief.md")"
+assert_eq "a failed install leaves no scratch file" "" "$(find "$vroot/torn" -maxdepth 1 -name '.inception-gate.*')"
+
+# shellcheck disable=SC2016 # literal text for the expected line or a written script, not an expansion
+printf '#!/bin/sh\nfor a; do last=$a; done\ncase "$last" in */brief.md) exit 1 ;; esac\nexec %s "$@"\n' "$realmv" >"$tmp/shim/mv"
+mkv seedfail
+ready "$vroot/seedfail"
+"$GATE" record --outcome Graduate --decider "Dana Reyes" --rationale ready "$vroot/seedfail" >/dev/null 2>&1
+out=$(PATH="$tmp/shim:$PATH" "$GATE" seed --dest "$(specroot "$vroot/seedfail")" "$vroot/seedfail" 2>&1)
+rc=$?
+assert_eq "a seed whose lineage cannot be recorded is an error" 2 "$rc"
+assert_eq "and the seed is taken back" "" "$(ls -A "$vroot/seedfail/specs/_pending" 2>/dev/null)"
+assert_eq "and no scratch file stays in the venture" "" "$(find "$vroot/seedfail" -maxdepth 1 -name '.inception-gate.*')"
+gate seed --dest "$(specroot "$vroot/seedfail")" "$vroot/seedfail"
+assert_eq "the seed can then be retried" 0 "$rc"
 
 # --- refusals ----------------------------------------------------------------
 

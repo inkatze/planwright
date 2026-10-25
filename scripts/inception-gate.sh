@@ -44,7 +44,7 @@
 #
 # Output lines (key<TAB>fields):
 #   status <status> · scope venture|track <label> · decider <name>
-#   next-gate <n> · core met|unmet · gap <kind> [<id> [<detail>]]
+#   next-gate <n> · core met|unmet · gap <kind> [<id>|<count> [<detail>]]
 #   fork <DEC-n> open <door> · complete yes|no · unmapped <A-n>
 #   orphan <T-n> · kill <KC-n> <date> clear|approaching|tripped
 #   prompt kill-or-rescope <KC-n> · admissible <outcome> yes|no
@@ -129,8 +129,11 @@ die() {
 
 work=
 installing=
+seed_placed=
 cleanup() {
-  [ -z "$installing" ] || rm -f "$installing"
+  # shellcheck disable=SC2086 # a list of paths without whitespace
+  [ -z "$installing" ] || rm -f $installing
+  [ -z "$seed_placed" ] || rm -f "$seed_placed"
   [ -z "$work" ] || rm -rf "$work"
   pw_lock_release_all
 }
@@ -141,6 +144,13 @@ trap 'exit 143' TERM
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/inception-gate.XXXXXX") || die 2 "cannot create a scratch directory"
 
+# strip_eval — bundle text on its way out: NUL, C0 controls but tab and newline,
+# DEL, and the UTF-8 encodings of the C1 controls go (the fan-out's rule).
+# Raw 0x80-0x9F bytes stay, being the continuation bytes of ordinary UTF-8
+# text, the em dash among them.
+# shellcheck disable=SC2016 # awk source, not a shell expansion
+strip_eval() { tr -d '\000' | awk '{ gsub(/[\001-\010\013-\037\177]/, ""); gsub(/\302[\200-\237]/, ""); print }'; }
+
 today() {
   case ${PLANWRIGHT_INCEPTION_TODAY:-} in
     [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) printf '%s\n' "$PLANWRIGHT_INCEPTION_TODAY" ;;
@@ -148,6 +158,8 @@ today() {
     *) die 2 "PLANWRIGHT_INCEPTION_TODAY must be YYYY-MM-DD" ;;
   esac
 }
+
+TODAY=$(today) || exit 2
 
 # clean_value <value> <label> — a value that can sit on one line of the bundle.
 clean_value() {
@@ -197,8 +209,7 @@ validate_live() {
   case $vlive_rc in
     0 | 1) ;;
     3)
-      sanitize_printable "$(cat "$work/vlive")" >&2
-      printf '\n' >&2
+      strip_eval <"$work/vlive" >&2
       exit 3
       ;;
     *) die 2 "the validator could not check the bundle (exit $vlive_rc)" ;;
@@ -208,8 +219,12 @@ validate_live() {
 
 bundle_lock() {
   if [ -d "$vdir/.git" ]; then _bl="$vdir/.git/planwright-bundle.lock"; else _bl="$vdir/.planwright-bundle.lock"; fi
-  pw_lock_acquire "$_bl" "${PLANWRIGHT_BUNDLE_LOCK_TRIES:-500}" \
-    || die 2 "the bundle is busy (another writer holds its lock); try again"
+  pw_lock_acquire "$_bl" "${PLANWRIGHT_BUNDLE_LOCK_TRIES:-500}"
+  case $? in
+    0) ;;
+    1) die 2 "the bundle is busy (another writer holds its lock); try again" ;;
+    *) die 2 "cannot take the bundle lock" ;;
+  esac
 }
 
 # --- readers -----------------------------------------------------------------
@@ -297,16 +312,24 @@ read_regs() {
   done
 }
 
-# gather — every reader's output in $work/all: the bundle, the
-# renderer's kill-criteria states, the validator's finding count, and the
-# elicitation's leftover pending markers.
+# gather — the validated bundle's reader output in $work/all.
 gather() {
   validate_live
   _st=$(spec_parse_header_value "$vdir/brief.md" Status) || die 2 "cannot read the venture status"
   {
     printf 'STATUS\t%s\n' "$_st" && read_brief "$vdir" && read_regs "$vdir"
   } >"$work/all" || die 2 "cannot read the bundle"
-  "$RENDER" --mode status "$vdir" >"$work/render" 2>/dev/null || die 2 "the renderer could not read the kill criteria"
+}
+
+# gather_gate — what only an evaluation reads, added to $work/all: the
+# renderer's kill-criteria states, the validator's finding count, and the
+# elicitation's leftover pending markers.
+gather_gate() {
+  if ! "$RENDER" --mode status "$vdir" >"$work/render" 2>"$work/render.err"; then
+    printf 'inception-gate: the renderer could not read the kill criteria:\n' >&2
+    strip_eval <"$work/render.err" >&2
+    exit 2
+  fi
   grep '^kill	' "$work/render" >>"$work/all"
   printf 'BADN\t%s\n' "$(grep -c . "$work/v.before")" >>"$work/all"
   _pend=0
@@ -317,7 +340,7 @@ gather() {
   printf 'PEND\t%s\n' "$_pend" >>"$work/all"
 }
 
-# The evaluation over $work/all. scope is a track label or empty; the record
+# The evaluation over $work/all. scope is a track label or `venture`; the record
 # lines (evidence, thresholds, kill-criteria) always cover the whole venture,
 # which is what the validator's coverage rules read.
 # shellcheck disable=SC2016 # awk source, not a shell expansion
@@ -335,7 +358,7 @@ $1 == "kill" { nk++; KI[nk] = $2; KDT[nk] = $3; KS[nk] = $4; next }
 $1 == "PEND" { pend = $2 + 0; next }
 $1 == "BADN" { badn = $2 + 0; next }
 function live(id) { return (id in ET) && !((id SUBSEP "Superseded-by") in H) }
-function inscope(id) { return scope == "" || !((id SUBSEP "Track") in H) || V[id SUBSEP "Track"] == scope }
+function inscope(id) { return scope == "venture" || !((id SUBSEP "Track") in H) || V[id SUBSEP "Track"] == scope }
 function st(id,   w) { split(V[id SUBSEP "Status"], w, " "); return w[1] }
 function grade(id,   w) { split(V[id SUBSEP "Evidence"], w, " "); return (w[1] in GR) ? w[1] : "none" }
 function has_item(list, x,   n, a, i) {
@@ -348,7 +371,7 @@ function verdict(s) { return s == "validated" ? "pass" : s == "invalidated" ? "f
 function join(s, x) { return s == "" ? x : s ", " x }
 END {
   print "status\t" status
-  print "scope\t" (scope == "" ? "venture" : "track " scope)
+  print "scope\t" (scope == "venture" ? "venture" : "track " scope)
   print "decider\t" decider
   print "next-gate\t" (maxg + 1)
 
@@ -426,9 +449,11 @@ END {
 }
 '
 
-# evaluate_into <scope> <out> — gather the venture, then evaluate it.
+# evaluate_into <scope> <out> — gather the venture, then evaluate it; scope is
+# `venture` or a track label.
 evaluate_into() {
   gather
+  gather_gate
   awk -v scope="$1" "$EVAL_AWK" "$work/all" >"$2" || die 2 "cannot evaluate the bundle"
 }
 
@@ -439,10 +464,12 @@ tracked() { grep -q '^TRACK	' "$work/all"; }
 # --- writers -----------------------------------------------------------------
 
 stage() {
-  rm -rf "$work/stage"
-  mkdir -p "$work/stage" || die 2 "cannot stage the bundle"
+  rm -rf "$work/stage" "$work/orig"
+  mkdir -p "$work/stage" "$work/orig" || die 2 "cannot stage the bundle"
   for _f in $FILES; do
-    cp -p "$vdir/$_f" "$work/stage/$_f" || die 2 "cannot stage $_f"
+    if ! cp -p "$vdir/$_f" "$work/stage/$_f" || ! cp -p "$vdir/$_f" "$work/orig/$_f"; then
+      die 2 "cannot stage $_f"
+    fi
   done
 }
 
@@ -521,7 +548,7 @@ set_status() {
 
 bump_reviewed() {
   # shellcheck disable=SC2016 # awk source, not a shell expansion
-  edit "$1" '!done && /^\*\*Last reviewed:\*\* / { print "**Last reviewed:** " d; done = 1; next } { print }' -v d="$(today)"
+  edit "$1" '!done && /^\*\*Last reviewed:\*\* / { print "**Last reviewed:** " d; done = 1; next } { print }' -v d="$TODAY"
 }
 
 changelog() {
@@ -532,29 +559,43 @@ changelog() {
 # validated_stage — refuse when the staged bundle carries a validator finding
 # the live one does not.
 validated_stage() {
-  "$VALIDATE" "$work/stage" 2>&1 | grep ' ERROR ' | sort >"$work/v.after"
-  _added=$(comm -13 "$work/v.before" "$work/v.after")
-  if [ -n "$_added" ]; then
+  "$VALIDATE" "$work/stage" >"$work/vstage" 2>&1
+  _vr=$?
+  case $_vr in
+    0 | 1) ;;
+    *) die 2 "the validator could not check the changed bundle (exit $_vr); nothing was written" ;;
+  esac
+  grep ' ERROR ' "$work/vstage" | sort >"$work/v.after"
+  comm -13 "$work/v.before" "$work/v.after" >"$work/v.added"
+  if [ -s "$work/v.added" ]; then
     printf 'inception-gate: the change would add bundle findings; nothing was written:\n' >&2
-    sanitize_printable "$_added" >&2
-    printf '\n' >&2
+    strip_eval <"$work/v.added" >&2
     exit 1
   fi
 }
 
-# install <file>... — move the named staged files into the venture.
+# install_files <file>... — move the named staged files into the venture,
+# all of them or none.
 install_files() {
   for _f in "$@"; do
-    installing="$vdir/.inception-gate.$$.$_f"
-    if ! cp -p "$work/stage/$_f" "$installing" || ! mv -f "$installing" "$vdir/$_f"; then
-      die 2 "cannot write $_f"
-    fi
-    installing=
+    installing="$installing $vdir/.inception-gate.$$.$_f"
+    cp -p "$work/stage/$_f" "$vdir/.inception-gate.$$.$_f" || die 2 "cannot write $_f; nothing was changed"
   done
+  # brief.md carries the gate record or the post-mortem, so it moves last: a
+  # failure before it leaves the bundle as it was once the others are restored.
+  _moved=
+  for _f in $(printf '%s\n' "$@" | grep -v '^brief\.md$') $(printf '%s\n' "$@" | grep '^brief\.md$'); do
+    if ! mv -f "$vdir/.inception-gate.$$.$_f" "$vdir/$_f"; then
+      for _m in $_moved; do cp -p "$work/orig/$_m" "$vdir/$_m"; done
+      die 2 "cannot write $_f; the files already written were restored"
+    fi
+    _moved="$_moved $_f"
+  done
+  installing=
 }
 
 # loc_of <dir> — the dir's location as the bundle records it: relative inside
-# the venture, `<repo>:<path>` elsewhere.
+# the venture, `<repo>:<path>` in another repository; false outside both.
 loc_of() {
   case $1 in
     "$vdir") printf '.\n' ;;
@@ -566,9 +607,18 @@ loc_of() {
           *) printf '%s:%s\n' "$(basename "$_top")" "${1#"$_top"/}" ;;
         esac
       else
-        printf '%s:%s\n' "$(basename "$(dirname "$1")")" "$(basename "$1")"
+        return 1
       fi
       ;;
+  esac
+}
+
+# loc_join <location> <relative path> — a path below a recorded location.
+loc_join() {
+  case $1 in
+    .) printf '%s\n' "$2" ;;
+    *:.) printf '%s%s\n' "${1%.}" "$2" ;;
+    *) printf '%s/%s\n' "$1" "$2" ;;
   esac
 }
 
@@ -628,19 +678,12 @@ cmd_evaluate() {
   done
   [ $# -eq 1 ] || usage
   resolve_venture "$1"
-  evaluate_into "$_track" "$work/eval"
+  evaluate_into "${_track:-venture}" "$work/eval"
   if [ -n "$_track" ]; then
     grep -q "^TRACK	$_track	" "$work/all" || die 1 "the brief declares no track $_track"
   fi
   strip_eval <"$work/eval"
 }
-
-# strip_eval — bundle text on its way out: C0 controls but tab and newline,
-# DEL, and the UTF-8 encodings of the C1 controls go (the fan-out's rule).
-# Raw 0x80-0x9F bytes stay, being the continuation bytes of ordinary UTF-8
-# text, the em dash among them.
-# shellcheck disable=SC2016 # awk source, not a shell expansion
-strip_eval() { awk '{ gsub(/[\001-\010\013-\037\177]/, ""); gsub(/\302[\200-\237]/, ""); print }'; }
 
 # --- record ------------------------------------------------------------------
 
@@ -684,11 +727,10 @@ cmd_record() {
 
   resolve_venture "$1"
   bundle_lock
-  evaluate_into '' "$work/eval"
+  evaluate_into venture "$work/eval"
   if [ "$vlive_rc" -ne 0 ]; then
     printf 'inception-gate: the bundle has validator findings; a gate runs on a clean bundle:\n' >&2
-    sanitize_printable "$(cat "$work/v.before")" >&2
-    printf '\n' >&2
+    strip_eval <"$work/v.before" >&2
     exit 1
   fi
   _old=$(ev status "$work/eval")
@@ -707,7 +749,13 @@ cmd_record() {
   # Tracks: every live track exactly once, a valid outcome each.
   _tline=
   : >"$work/tr"
-  if tracked; then
+  awk -F'\t' '$1 == "track" && $3 == "live" { print $2 }' "$work/eval" >"$work/tr.live"
+  if tracked && [ ! -s "$work/tr.live" ]; then
+    # Every track has graduated or ended: the record closing the venture has
+    # no track left to cover.
+    [ -z "$_tracks" ] || die 1 "no track is live, so the record covers none; pass no --tracks"
+    _tline=none
+  elif tracked; then
     [ -n "$_seen_tracks" ] || die 1 "a tracked venture's record covers every live track (--tracks <label>=<outcome>,...)"
     printf '%s\n' "$_tracks" | tr ',' '\n' | sed 's/^ *//; s/ *$//' >"$work/tr.in"
     while IFS= read -r _it; do
@@ -726,13 +774,16 @@ cmd_record() {
       ! grep -q "^$_lb	" "$work/tr" || die 1 "track $_lb is named twice"
       printf '%s\t%s\n' "$_lb" "$_to" >>"$work/tr"
     done <"$work/tr.in"
-    awk -F'\t' '$1 == "track" && $3 == "live" { print $2 }' "$work/eval" >"$work/tr.live"
     while IFS= read -r _lb; do
       grep -q "^$_lb	" "$work/tr" || die 1 "the record does not cover live track $_lb"
     done <"$work/tr.live"
-    if [ "$_out" = Graduate ] && awk -F'\t' '$2 != "Graduate" && $2 != "Kill" { f = 1 } END { exit !f }' "$work/tr"; then
-      die 1 "a top-level Graduate closes the venture, so every live track must graduate or end in the same record"
-    fi
+    case $_out in
+      Graduate | Kill)
+        if awk -F'\t' '$2 != "Graduate" && $2 != "Kill" { f = 1 } END { exit !f }' "$work/tr"; then
+          die 1 "a top-level $_out closes the venture, so every live track must graduate or end in the same record"
+        fi
+        ;;
+    esac
     while IFS='	' read -r _lb _to; do
       [ "$_to" = Graduate ] || continue
       awk -v scope="$_lb" "$EVAL_AWK" "$work/all" >"$work/eval.$_lb" || die 2 "cannot evaluate track $_lb"
@@ -747,7 +798,7 @@ cmd_record() {
     die 1 "the venture declares no tracks, so its record carries no tracks line"
   fi
 
-  _d=$(today)
+  _d=$TODAY
   _n=$(ev next-gate "$work/eval")
   {
     printf '\n### Gate %s — %s\n\n' "$_n" "$_d"
@@ -946,38 +997,58 @@ cmd_seed() {
   [ -n "$_gate" ] || die 1 "no gate record graduates $_scope; the seed follows a Graduate outcome"
   ! awk -F'\t' -v s="$_scope" '$1 == "LIN" && $2 == s { f = 1 } END { exit !f }' "$work/all" \
     || die 1 "$_scope already has a seed and lineage record"
-  _gdate=$(awk -F'\t' -v g="$_gate" '$1 == "G" && $2 == g && $3 == "Date" { print $4 }' "$work/all")
-  _gdec=$(awk -F'\t' -v g="$_gate" '$1 == "G" && $2 == g && $3 == "Decider" { print $4 }' "$work/all")
+  # Gate fields are bundle text: the first of each is the record's, and a
+  # date that is not one never reaches the seed.
+  _gdate=$(awk -F'\t' -v g="$_gate" '$1 == "G" && $2 == g && $3 == "Date" { print $4; exit }' "$work/all")
+  _gdec=$(awk -F'\t' -v g="$_gate" '$1 == "G" && $2 == g && $3 == "Decider" { print $4; exit }' "$work/all")
+  printf '%s\n' "$_gdate" | grep -Eqx '[0-9]{4}-[0-9]{2}-[0-9]{2}' \
+    || die 1 "Gate $_gate carries no readable date"
+  [ "$vlive_rc" -eq 0 ] || {
+    printf 'inception-gate: the bundle has validator findings; a seed is packaged from a clean bundle:\n' >&2
+    strip_eval <"$work/v.before" >&2
+    exit 1
+  }
 
   check_path "$_dest" "the destination"
   [ ! -L "$_dest" ] || die 1 "the destination is a symbolic link; name the directory itself"
-  [ -d "$(dirname "$_dest")" ] || die 1 "the destination's parent directory does not exist"
-  _droot=$_dest
-  mkdir -p "$_droot" || die 2 "cannot create the destination spec root"
-  _droot=$(cd "$_droot" && pwd -P) || die 2 "cannot enter the destination"
+  if [ -d "$_dest" ]; then
+    _droot=$(cd "$_dest" && pwd -P) || die 2 "cannot enter the destination"
+  else
+    [ -d "$(dirname "$_dest")" ] || die 1 "the destination's parent directory does not exist"
+    _droot="$(cd "$(dirname "$_dest")" && pwd -P)/$(basename "$_dest")" || die 2 "cannot enter the destination's parent"
+  fi
   check_path "$_droot" "the destination"
-  _pend="$_droot/_pending"
-  [ ! -L "$_pend" ] || die 1 "the destination's _pending is a symbolic link; refusing to write through it"
-  mkdir -p "$_pend" || die 2 "cannot create the destination's _pending directory"
-  if [ "$_scope" = venture ]; then _name="inception-$vid.md"; else _name="inception-$vid-$_scope.md"; fi
-  _seed="$_pend/$_name"
+  # /spec-draft resolves a spec root only inside a repository, so a seed
+  # anywhere else could not be gathered, nor its location recorded.
+  _probe=$_droot
+  [ -d "$_probe" ] || _probe=$(dirname "$_droot")
+  git -C "$_probe" rev-parse --show-toplevel >/dev/null 2>&1 \
+    || die 1 "the destination is not inside a git repository, so no spec can be drafted there"
+  _pdir="$_droot/_pending"
+  [ ! -L "$_pdir" ] || die 1 "the destination's _pending is a symbolic link; refusing to write through it"
+  # A dot cannot appear in an identifier or a label, so no venture-and-track
+  # pair can name another pair's seed.
+  if [ "$_scope" = venture ]; then _name="inception-$vid.md"; else _name="inception-$vid.$_scope.md"; fi
+  _seed="$_pdir/$_name"
   [ ! -e "$_seed" ] && [ ! -L "$_seed" ] || die 1 "a seed already exists at _pending/$_name"
-  _ploc=$(loc_of "$_pend")
-  _sloc="$_ploc/$_name"
-  case $_ploc in
-    *:*) _rel="${_ploc#*:}/$_name" ;;
-    *) _rel="$_sloc" ;;
+  _ploc=$(loc_of "$_probe") || die 2 "cannot record the destination's location"
+  [ "$_probe" = "$_droot" ] || _ploc=$(loc_join "$_ploc" "$(basename "$_droot")")
+  _sloc=$(loc_join "$_ploc" "_pending/$_name")
+  case $_sloc in
+    *:*) _rel=${_sloc#*:} ;;
+    *) _rel=$_sloc ;;
   esac
   _key=$(lineage_key "$_scope")
 
   # The decider is bundle text, so it travels by the environment: awk -v
   # would rewrite its backslash escapes.
   GATE_SEED_DECIDER=$_gdec awk -v scope="$_scope" -v key="$_key" -v gate="$_gate" -v gdate="$_gdate" \
-    -v vid="$vid" -v sloc="$_rel" "$SEED_AWK" "$work/all" | strip_eval >"$work/seed" \
+    -v vid="$vid" -v sloc="$_rel" "$SEED_AWK" "$work/all" >"$work/seed.raw" \
     || die 2 "cannot compose the seed"
+  strip_eval <"$work/seed.raw" >"$work/seed" || die 2 "cannot compose the seed"
 
   stage
-  _d=$(today)
+  _d=$TODAY
   # shellcheck disable=SC2016 # literal backticks in the bullet, not an expansion
   printf -- '- **%s** — Gate %s — seed: `%s` — spec: pending\n' "$_scope" "$_gate" "$_sloc" >"$work/lin"
   _at=$(locate "$work/stage/brief.md" heading Lineage)
@@ -993,15 +1064,21 @@ cmd_seed() {
   bump_reviewed "$work/stage/brief.md"
   validated_stage
 
-  installing="$_pend/.inception-gate.$$.tmp"
+  # Nothing is created in the destination until the bundle change has passed.
+  mkdir -p "$_pdir" || die 2 "cannot create the destination's _pending directory"
+  [ ! -L "$_droot" ] && [ ! -L "$_pdir" ] || die 1 "the destination became a symbolic link; refusing to write through it"
+  installing="$_pdir/.inception-gate.$$.tmp"
   cp "$work/seed" "$installing" || die 2 "cannot write the seed"
-  ln "$installing" "$_seed" 2>/dev/null || die 1 "a seed already exists at _pending/$_name"
+  if ! ln "$installing" "$_seed" 2>/dev/null; then
+    [ ! -e "$_seed" ] && [ ! -L "$_seed" ] || die 1 "a seed already exists at _pending/$_name"
+    die 2 "cannot place the seed (the destination may not support hard links)"
+  fi
   rm -f "$installing"
   installing=
-  if ! (install_files brief.md); then
-    rm -f "$_seed"
-    die 2 "cannot record the lineage; the seed was removed"
-  fi
+  # Until the lineage is recorded, an exit removes the seed again.
+  seed_placed=$_seed
+  install_files brief.md
+  seed_placed=
   printf 'seed\t%s\n' "$_seed" | strip_eval
   printf 'lineage\t%s\tpending\n' "$_scope"
   printf 'cite\t%s\n' "$(tail -n 1 "$work/seed")" | strip_eval
@@ -1042,13 +1119,16 @@ cmd_link() {
   _scope=${_track:-venture}
   _cur=$(awk -F'\t' -v s="$_scope" '$1 == "LIN" && $2 == s { print $5 }' "$work/all")
   [ -n "$_cur" ] || die 1 "$_scope has no lineage record; seed it first"
-  _loc=$(loc_of "$_sd")
+  _loc=$(loc_of "$_sd") || die 1 "the spec directory is not inside a git repository"
   check_path "$_loc" "the spec location"
   _key=$(lineage_key "$_scope")
   cites "$_sd" "$_key"
   case $? in
     0) ;;
-    2) die 1 "spec-missing: no requirements.md in the spec directory" ;;
+    2)
+      printf 'lineage\t%s\tspec-missing\n' "$_scope"
+      die 1 "spec-missing: no requirements.md in the spec directory"
+      ;;
     *)
       printf 'lineage\t%s\tspec-side-missing\n' "$_scope"
       die 1 "spec-side-missing: the spec's Sources do not cite $_key"
@@ -1068,7 +1148,7 @@ cmd_link() {
     *) die 2 "the $_scope lineage bullet does not end in a pending spec" ;;
   esac
   replace_line "$work/stage/brief.md" "$_ln" "${_line% — spec: pending} — spec: \`$_loc\`"
-  changelog "$work/stage/brief.md" "- $(today) — the $_scope seed's spec recorded as \`$_loc\`."
+  changelog "$work/stage/brief.md" "- $TODAY — the $_scope seed's spec recorded as \`$_loc\`."
   bump_reviewed "$work/stage/brief.md"
   validated_stage
   install_files brief.md
@@ -1093,19 +1173,22 @@ cmd_lineage() {
   : >"$work/specmap"
   while IFS= read -r _s; do
     _sd=$(spec_dir "$_s") || exit $?
-    printf '%s\t%s\n' "$(loc_of "$_sd")" "$_sd" >>"$work/specmap"
+    _sl=$(loc_of "$_sd") || die 1 "a --spec directory is not inside a git repository"
+    ! cut -f1 "$work/specmap" | grep -qxF "$_sl" \
+      || die 2 "two --spec directories share the location $(sanitize_printable "$_sl" '?'); check them one at a time"
+    printf '%s\t%s\n' "$_sl" "$_sd" >>"$work/specmap"
   done <"$work/speclist"
   _bad=0
   graduated_scopes >"$work/grad"
   while IFS='	' read -r _sc _g; do
     awk -F'\t' -v s="$_sc" '$1 == "LIN" && $2 == s { f = 1 } END { exit !f }' "$work/all" && continue
-    printf 'lineage\t%s\tventure-side-missing\n' "$_sc"
+    printf 'lineage\t%s\tventure-side-missing\n' "$(sanitize_printable "$_sc" '?')"
     _bad=1
   done <"$work/grad"
   awk -F'\t' '$1 == "LIN" { print $2 "\t" $5 }' "$work/all" >"$work/lins"
   while IFS='	' read -r _sc _sp; do
     if [ "$_sp" = pending ]; then
-      printf 'lineage\t%s\tpending\n' "$_sc"
+      printf 'lineage\t%s\tpending\n' "$(sanitize_printable "$_sc" '?')"
       continue
     fi
     case $_sp in
@@ -1113,18 +1196,18 @@ cmd_lineage() {
       *) _sd="$vdir/$_sp" ;;
     esac
     if [ -z "$_sd" ]; then
-      printf 'lineage\t%s\tunchecked\n' "$_sc"
+      printf 'lineage\t%s\tunchecked\n' "$(sanitize_printable "$_sc" '?')"
       continue
     fi
     cites "$_sd" "$(lineage_key "$_sc")"
     case $? in
-      0) printf 'lineage\t%s\tlinked\n' "$_sc" ;;
+      0) printf 'lineage\t%s\tlinked\n' "$(sanitize_printable "$_sc" '?')" ;;
       2)
-        printf 'lineage\t%s\tspec-missing\n' "$_sc"
+        printf 'lineage\t%s\tspec-missing\n' "$(sanitize_printable "$_sc" '?')"
         _bad=1
         ;;
       *)
-        printf 'lineage\t%s\tspec-side-missing\n' "$_sc"
+        printf 'lineage\t%s\tspec-side-missing\n' "$(sanitize_printable "$_sc" '?')"
         _bad=1
         ;;
     esac
@@ -1133,6 +1216,11 @@ cmd_lineage() {
 }
 
 # --- archive -----------------------------------------------------------------
+
+# first_reason <file> — a helper's first output line, as one plain reason.
+first_reason() {
+  sed -n '1{s/^degraded	//;s/^inception-registry: //;p;}' "$1" | tr '\t' ' ' | strip_eval
+}
 
 cmd_archive() {
   _note='' _abandon=''
@@ -1157,12 +1245,12 @@ cmd_archive() {
   gather
   _old=$(awk -F'\t' '$1 == "STATUS" { print $2; exit }' "$work/all")
   ! grep -q '^POSTMORTEM	' "$work/all" || die 1 "the venture already carries a post-mortem"
-  _d=$(today)
+  _d=$TODAY
   stage
   if [ -n "$_abandon" ]; then
     case $_old in
       Exploring | On-hold) ;;
-      *) die 1 "only a live venture is abandoned; this one is $_old" ;;
+      *) die 1 "only a live venture is abandoned; this one is $(sanitize_printable "$_old" '?')" ;;
     esac
     _new=Abandoned
     changelog "$work/stage/brief.md" "- $_d — status $_old → Abandoned (operator declaration)."
@@ -1173,7 +1261,7 @@ cmd_archive() {
     _changed=$FILES
   else
     [ "$_old" = Killed ] \
-      || die 1 "the venture is $_old: a killed venture is archived after its Kill record, and a live one only by an abandonment (--abandon)"
+      || die 1 "the venture is $(sanitize_printable "$_old" '?'): a killed venture is archived after its Kill record, and a live one only by an abandonment (--abandon)"
     _new=Killed
     bump_reviewed "$work/stage/brief.md"
     _changed=brief.md
@@ -1189,12 +1277,12 @@ cmd_archive() {
   if "$REGISTRY" get "$vid" >"$work/reg" 2>&1 && "$REGISTRY" add "$vid" "$vdir" >"$work/reg" 2>&1; then
     printf 'registry\trefreshed\n'
   else
-    printf 'degraded\tthe venture registry was not updated: %s\n' "$(sanitize_printable "$(head -n 1 "$work/reg")" '?')"
+    printf 'degraded\tthe venture registry was not updated: %s\n' "$(first_reason "$work/reg")"
   fi
   if "$REGISTRY" drop "$vid" "$_new venture post-mortem: $_note" >"$work/drop" 2>&1; then
     printf 'observation\tdropped\n'
   else
-    printf 'degraded\tthe post-mortem was not dropped as an observation: %s\n' "$(sanitize_printable "$(head -n 1 "$work/drop")" '?')"
+    printf 'degraded\tthe post-mortem was not dropped as an observation: %s\n' "$(first_reason "$work/drop")"
   fi
 }
 

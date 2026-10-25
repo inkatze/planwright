@@ -54,8 +54,8 @@
 #                          cannot lose each other's change
 #   scripts/inception-fanout.sh   a venture's bundle, so concurrent staff and
 #                          record runs cannot lose an entry or a record
-#   scripts/inception-gate.sh     the same bundle lock, so a gate record, seed,
-#                          or archive cannot lose a concurrent bundle write
+#   scripts/inception-gate.sh     the same bundle lock, so a gate write and a
+#                          fan-out write cannot lose each other's change
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is
