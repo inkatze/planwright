@@ -9,7 +9,8 @@
 #
 #   export   offer, or with --confirmed perform, an export of the committed
 #            bundle through the adapter. Refused while the previous cycle has
-#            an export not yet harvested or an item not yet triaged.
+#            an export not yet harvested in full (a partial harvest does not
+#            count) or an item not yet triaged.
 #   harvest  read the review surface's feedback through the adapter and add
 #            each item it has not seen to the ledger, pending.
 #   list     the ledger's items, one per line, sanitized for the terminal.
@@ -48,11 +49,14 @@
 # full text or, for a register entry, by its id alone (`assumptions.md#A-2`).
 # The gate log and its records are never a section.
 #
-# Environment: PLANWRIGHT_INCEPTION_TODAY (YYYY-MM-DD) pins today's date.
+# Environment: PLANWRIGHT_INCEPTION_TODAY (YYYY-MM-DD) pins today's date;
+#   PLANWRIGHT_BUNDLE_LOCK_TRIES (default 500) bounds the wait for the bundle
+#   lock.
 #
 # Exit: 0 done (an unconfirmed export's offer included) · 1 refused by a cycle
 #   or guard rule (out of order, untriaged, outside the section, validator,
-#   secret screen) · 2 usage or environment error · 3 the adapter failed or
+#   secret screen, an uncommitted ledger, a merge in progress) · 2 usage or
+#   environment error (a busy bundle lock included) · 3 the adapter failed or
 #   has no destination configured.
 #
 # POSIX sh + awk.
