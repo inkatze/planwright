@@ -213,6 +213,32 @@ mc_run mc-program.sh validate alpha
 expect_rc "a relative home fails" 1
 expect_err "the home field is named" "alpha: home"
 
+# REQ-I1.6: the program home is never inside a work repository.
+alpha_block
+printf 'program_alpha_home: %s/.mission-control\n' "$repo" >>"$tracked"
+mc_run mc-program.sh get alpha home
+expect_rc "a home inside a listed repository fails" 1
+expect_err "the refusal names the repository" "alpha: home: '$repo/.mission-control' is inside the work repository '$repo'"
+mc_run mc-program.sh validate alpha
+expect_rc "validate refuses a home inside a listed repository" 1
+alpha_block
+printf 'program_alpha_home: ~/work/other\n' >>"$tracked"
+mc_run mc-program.sh get alpha home
+expect_rc "a home that is a listed repository fails" 1
+alpha_block
+printf 'mission_control_home_root: %s/homes\n' "$repo" >>"$tracked"
+mc_run mc-program.sh get alpha home
+expect_rc "a home root inside a listed repository fails for the program" 1
+ln -s "$repo" "$tmp/repo-link"
+alpha_block
+printf 'program_alpha_home: %s/repo-link/state\n' "$tmp" >>"$tracked"
+mc_run mc-program.sh get alpha home
+expect_rc "a home reaching a listed repository through a symlink fails" 1
+alpha_block
+printf 'program_alpha_home: %s-state/alpha\n' "$repo" >>"$tracked"
+mc_run mc-program.sh get alpha home
+expect_eq "a home beside a repository sharing its name prefix is accepted" "$repo-state/alpha"
+
 alpha_block
 printf 'program_alpha_spec_root: /x\033[2Jy\n' >"$tmp/cntrl"
 {

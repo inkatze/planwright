@@ -8,7 +8,8 @@
 #   repositories  [path, ...]   one or more work repositories, absolute or ~/
 #   spec_root     path          the spec root, absolute or ~/, in any posture
 #   home          path          the program home; default
-#                               <mission_control_home_root>/<name>
+#                               <mission_control_home_root>/<name>;
+#                               never inside a listed repository
 #   duties        [id, ...]     enabled duties; default
 #                               mission_control_default_duties
 #   budget        {key: value}  the program's budget; default empty
@@ -439,7 +440,7 @@ programs() {
 field_repositories() { required "$1" repositories parse_repositories; }
 field_spec_root() { required "$1" spec_root parse_spec_root; }
 
-field_home() {
+home_of() {
   if [ "$1" != "$DEFAULTS" ]; then
     layered "$1" home "$(key_of "$1" home)" parse_home
     fh_rc=$?
@@ -451,6 +452,56 @@ field_home() {
   else
     printf '%s\n' "${root%/}/$1"
   fi
+}
+
+# canonical <path>: <path> with its longest existing ancestor resolved
+# through symlinks, so a link or a .. segment there cannot hide that one
+# path lies inside another.
+canonical() {
+  cn_head=$1
+  while :; do
+    case $cn_head in
+      */)
+        [ "$cn_head" = / ] && break
+        cn_head=${cn_head%/}
+        ;;
+      *) break ;;
+    esac
+  done
+  cn_tail=""
+  while [ ! -d "$cn_head" ]; do
+    cn_tail="/${cn_head##*/}$cn_tail"
+    cn_head=${cn_head%/*}
+    [ -n "$cn_head" ] || cn_head=/
+  done
+  cn_dir=$(cd "$cn_head" 2>/dev/null && pwd -P) || cn_dir=$cn_head
+  printf '%s%s\n' "${cn_dir%/}" "$cn_tail"
+}
+
+# The home holds company data, so it never sits inside a work repository,
+# whichever layers set it and the repositories (REQ-I1.6).
+field_home() {
+  fh_home=$(home_of "$1") || return 1
+  if [ "$1" != "$DEFAULTS" ]; then
+    fh_repos=$(field_repositories "$1" 2>/dev/null) || {
+      problem "$1" home "cannot be checked against the program's repositories, which do not resolve"
+      return 1
+    }
+    fh_canon=$(canonical "$fh_home")
+    while IFS= read -r r; do
+      [ -n "$r" ] || continue
+      r_canon=$(canonical "$r")
+      case $fh_canon/ in
+        "${r_canon%/}"/*)
+          problem "$1" home "'$fh_home' is inside the work repository '$r'"
+          return 1
+          ;;
+      esac
+    done <<EOF
+$fh_repos
+EOF
+  fi
+  printf '%s\n' "$fh_home"
 }
 
 field_duties() { with_default "$1" duties mission_control_default_duties parse_duties; }
