@@ -9,7 +9,8 @@
 #                                         an id carrying a control byte as
 #                                         (entry <n>)
 #   mc-duties.sh get <id> <field>         one field of the merged entry, as
-#                                         written (surrounding quotes dropped)
+#                                         written (surrounding quotes dropped),
+#                                         without validating the catalog
 #   mc-duties.sh watchers --program <p>   <id><TAB><script><TAB><cadence>
 #                                         <TAB><cost> per watcher an armed
 #                                         duty runs
@@ -26,10 +27,11 @@
 # left once those are set aside, and over an enabled id the catalog lacks. A
 # repeated id reads its first entry, as the resolver keeps it.
 #
-# Exit codes: 0 resolved; 1 an invalid catalog, an unknown enabled duty, a
-# missing field or a control character in a value (get), or a resolver,
-# reader or program failure; 2 usage, an unknown field, or an invalid program
-# name; 3 no such duty (get), or the program is not configured.
+# Exit codes: 0 resolved; 1 an invalid catalog (validate, watchers, files),
+# an unknown enabled duty, a missing field or a control character in a value
+# (get), or a resolver, reader or program failure; 2 usage, an unknown field,
+# or an invalid program name; 3 no such duty (get), or the program is not
+# configured.
 #
 # Portable bash 3.2 / BSD tooling.
 set -u
