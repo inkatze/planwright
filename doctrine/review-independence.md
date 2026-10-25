@@ -124,18 +124,26 @@ past:
 
 **Lens tokens**: `correctness`, `security`, `error-handling`, `performance`,
 `concurrency`, `naming`, `documentation`, `tests`, `cross-file`,
-`sibling-sweep`, `reviewer-basics`, `other`.
+`sibling-sweep`, `reviewer-basics`, `procedure-tracing`, `other`.
 
 **Reason tokens**: `outside-diff`, `runtime-tracing`, `claim-vs-code`,
-`pruned`, `spec-conflict`, `lintable`, `declined`, `other`.
+`pruned`, `spec-conflict`, `lintable`, `host-dependent`, `guard-bypass`,
+`procedure-order`, `declined`, `other`.
 
 The lens tokens name [Discovery Rigor](discovery-rigor.md)'s code lenses in
 order, then the sibling sweep (the look for twins of a found defect) and the
 reviewer-basics gate (the checklist run before the lenses), as
 review-effectiveness D-4 and D-2 define them until the discovery doctrine
-states them; `other` covers a lens from a non-code set. A miss at a twin site
+states them; `procedure-tracing` names the spec set's walk of ordered prose
+as control flow ([Artifact Lenses](artifact-lenses.md)), and `other` covers a
+lens from any other non-code set. A miss at a twin site
 of a fixed defect carries lens `sibling-sweep` and reason `pruned`; one the
-loop saw and dismissed carries reason `declined`.
+loop saw and dismissed carries reason `declined`. Three reasons name the
+external-review audit's categories: `host-dependent` (a test whose result
+depends on the host running it), `guard-bypass` (a guard evaded by another
+spelling of what it blocks), and `procedure-order` (an ordered procedure
+running a step before what it needs, or skipping one). The vocabularies only
+grow: no token is renamed or removed, so an existing writer keeps working.
 `scripts/check-review-miss.sh`, run under `mise run check:obs`, refuses a
 fragment that is a miss by slug or entry text and breaks the grammar; a writer
 checks a text first with its `--text` mode. The readers are the backtest
