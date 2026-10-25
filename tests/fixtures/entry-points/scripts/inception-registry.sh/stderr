@@ -1,0 +1,1 @@
+match ^usage: inception-registry\.sh add <id> <venture-dir>$

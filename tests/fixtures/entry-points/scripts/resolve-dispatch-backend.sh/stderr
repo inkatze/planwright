@@ -1,0 +1,1 @@
+match ^usage: resolve-dispatch-backend\.sh resolve <spec-dir> \[--attended --session <token>\] \| answer <spec-dir> --session <token> <yes\|no>$

@@ -1,0 +1,1 @@
+match ^usage: flight-dispatch\.sh home \[--repo-root <dir>\]$

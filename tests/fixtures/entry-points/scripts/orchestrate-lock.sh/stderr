@@ -1,0 +1,1 @@
+match ^usage: orchestrate-lock\.sh acquire\|release\|break\|sweep <spec-dir> \[--owner-pid <pid>\]$
