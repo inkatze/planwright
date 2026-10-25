@@ -610,8 +610,8 @@ cmd_harvest() {
 
   grep '^Source: ' "$ledger" | sed 's/^Source: //' >"$work/seen"
   maxn=$(grep '^### FB-' "$ledger" | sed 's/^### FB-\([0-9]*\).*/\1/' | sort -n | tail -1)
-  HV_CYCLE=$cycle HV_MAX=${maxn:-0} HV_SEEN="$work/seen"
-  export HV_CYCLE HV_MAX HV_SEEN
+  HV_CYCLE=$cycle HV_MAX=${maxn:-0} HV_SEEN="$work/seen" HV_COUNT="$work/count"
+  export HV_CYCLE HV_MAX HV_SEEN HV_COUNT
   awk -F"$tab" "$DECODE_AWK"'
     BEGIN {
       while ((getline s < ENVIRON["HV_SEEN"]) > 0) seen[s] = 1
@@ -633,8 +633,10 @@ cmd_harvest() {
       printf "Cycle: %s\nDisposition: pending\nSection: none\nDecider: none\nDecided: none\nApplied: none\nNote: none\n\nText:\n\n%s", ENVIRON["HV_CYCLE"], quoted(text)
       added++
     }
-    END { print added + 0 > "/dev/stderr" }' "$work/records" >"$work/new" 2>"$work/count"
+    END { print added + 0 > ENVIRON["HV_COUNT"] }' "$work/records" >"$work/new" \
+    || die 2 "cannot read the adapter's records; nothing was recorded"
   added=$(cat "$work/count")
+  case $added in '' | *[!0-9]*) die 2 "cannot count the harvested items; nothing was recorded" ;; esac
 
   # Only a complete walk counts as harvested: the next export replaces the
   # page, and a partial one has left feedback unread.
