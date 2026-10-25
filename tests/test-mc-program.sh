@@ -238,6 +238,15 @@ alpha_block
 printf 'program_alpha_home: %s-state/alpha\n' "$repo" >>"$tracked"
 mc_run mc-program.sh get alpha home
 expect_eq "a home beside a repository sharing its name prefix is accepted" "$repo-state/alpha"
+printf 'mission_control_programs: [alpha]\nprogram_alpha_repositories: [relative/path]\nprogram_alpha_spec_root: %s/specs\n' "$repo" >"$tracked"
+mc_run mc-program.sh get alpha home
+expect_rc "a home whose repositories do not resolve fails" 1
+expect_err "the home read carries the repositories' own reason" "relative/path"
+mc_run mc-program.sh validate alpha
+case "$ERR" in
+  *relative/path*relative/path*) fail "validate names the repositories' reason once: $ERR" ;;
+  *) ok "validate names the repositories' reason once" ;;
+esac
 
 alpha_block
 printf 'program_alpha_spec_root: /x\033[2Jy\n' >"$tmp/cntrl"

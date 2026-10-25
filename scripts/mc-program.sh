@@ -487,7 +487,12 @@ canonical() {
 field_home() {
   fh_home=$(home_of "$1") || return 1
   if [ "$1" != "$DEFAULTS" ]; then
-    fh_repos=$(field_repositories "$1" 2>/dev/null) || {
+    # validate reports the repositories' own reason under their field.
+    if [ "$STRICT" -eq 1 ]; then
+      fh_repos=$(field_repositories "$1" 2>/dev/null)
+    else
+      fh_repos=$(field_repositories "$1")
+    fi || {
       problem "$1" home "cannot be checked against the program's repositories, which do not resolve"
       return 1
     }
