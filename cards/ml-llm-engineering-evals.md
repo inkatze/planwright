@@ -20,7 +20,8 @@ closes the gap, and which models clear it, with the numbers each claim rests on.
 1. What does a correct output mean for each model step in the frame, and can this venture check
    it mechanically or only by a person's read?
 2. Which real or realistic cases would make up this venture's eval set, kept apart from the
-   examples the prompts are written against, and who labels them?
+   examples the prompts are written against and from any data a model is tuned on, and who
+   labels them?
 3. Which failures, by category, can the venture's users tolerate and at what rate, and who in
    the frame owns that bar?
 4. Is the venture's quality gap missing knowledge, missing behaviour, or neither, and so a case
@@ -116,7 +117,7 @@ whether each is checked mechanically, by a model judge, or by a person>
 ## Eval set
 
 <per step: where the cases come from, how many, how they are kept apart from the prompts'
-examples, who labels them, and how the set is versioned>
+examples and from any tuning data, who labels them, and how the set is versioned>
 
 ## Closing the gap
 
@@ -205,7 +206,8 @@ orchestrator and the human do.
 ## Anti-patterns
 
 - One quality score with no failure categories behind it.
-- An eval set made of the examples the prompt was written against.
+- An eval set made of the examples the prompt was written against, or of data a model was tuned
+  on.
 - A model chosen by leaderboard rank or vendor claim instead of the venture's own cases.
 - Fine-tuning proposed to add facts the model lacks.
 - A model judge whose scores were never compared against a person's grades.
