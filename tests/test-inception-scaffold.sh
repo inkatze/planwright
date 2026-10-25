@@ -214,7 +214,15 @@ if [ "$(id -u)" -ne 0 ]; then
   out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
   chmod 644 "$v/CLAUDE.md"
   assert_eq "G1.8 unreadable CLAUDE.md: nothing appended blind" "# Ours" "$(cat "$v/CLAUDE.md")"
-  assert_contains "G1.8 unreadable CLAUDE.md: said" "not readable and writable" "$out"
+  assert_contains "G1.8 unreadable CLAUDE.md: said" "not readable" "$out"
+
+  v="$tmp/readonly-imported-claude"
+  mkdir -p "$v"
+  printf '# Ours\n@sync-protocol.md\n' >"$v/CLAUDE.md"
+  chmod 444 "$v/CLAUDE.md"
+  out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+  assert_contains "G1.8 read-only CLAUDE.md that already imports: kept" "kept CLAUDE.md" "$out"
+  assert_not_contains "G1.8 read-only CLAUDE.md that already imports: no by-hand warning" "by hand" "$out"
 fi
 
 # ---------------------------------------------------------------------------

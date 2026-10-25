@@ -42,8 +42,8 @@
 # Output: one `wrote <path>` or `kept <path>` line per scaffold file
 #   (`updated CLAUDE.md` when the import is appended to an existing one), then
 #   a one-line rung summary. A CLAUDE.md the scaffold will not write (a
-#   symbolic link, not a regular file, not readable and writable) gets a
-#   warning on stderr instead of a line.
+#   symbolic link, not a regular file, not readable, or an append that fails)
+#   gets a warning on stderr instead of a line.
 #
 # Exit: 0 emitted · 2 usage or environment error.
 #
@@ -594,11 +594,12 @@ CLAUDEMD
   emit CLAUDE.md 644
 elif [ ! -f "$claude_md" ]; then
   printf '%s\n' "inception-scaffold: CLAUDE.md is not a regular file; add the line $import_line to it by hand." >&2
-elif [ ! -r "$claude_md" ] || [ ! -w "$claude_md" ]; then
+elif [ ! -r "$claude_md" ]; then
   # The import is advisory, so a file the scaffold cannot check or extend is
   # said, never fatal: exiting here would leave hygiene-wiring.md unwritten,
-  # and add-remote, which deletes it first, could never finish.
-  printf '%s\n' "inception-scaffold: CLAUDE.md is not readable and writable; add the line $import_line to it by hand." >&2
+  # and add-remote, which deletes it first, could never finish. Appending
+  # unread would add the import again on every run.
+  printf '%s\n' "inception-scaffold: CLAUDE.md is not readable; add the line $import_line to it by hand." >&2
 elif grep -q '^[[:space:]]*@sync-protocol\.md[[:space:]]*$' "$claude_md"; then
   # [[:space:]] takes a CRLF file's trailing CR, so an import already there in
   # another line-ending style is not appended a second time.
