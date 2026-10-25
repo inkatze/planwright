@@ -54,7 +54,8 @@
 #                                                                record
 #   seed <path> · lineage <scope> pending · cite <Sources entry>  seed
 #   lineage <scope> pending|linked|unchecked|spec-missing|spec-side-missing|
-#     venture-side-missing                                       lineage, link
+#     venture-side-missing|refused (an in-venture location that resolves
+#     outside the venture)                                       lineage, link
 #   archived <status> · registry refreshed · observation dropped
 #   degraded <why>                                               archive
 # Gap kinds: elicitation-pending, bundle-findings, metric-missing,
@@ -628,6 +629,19 @@ loc_join() {
   esac
 }
 
+# trim_slashes <path> — the path without trailing slashes, which would make a
+# symbolic-link test follow the link it is meant to refuse.
+trim_slashes() {
+  _p=$1
+  while :; do
+    case $_p in
+      ?*/) _p=${_p%/} ;;
+      *) break ;;
+    esac
+  done
+  printf '%s\n' "$_p"
+}
+
 check_path() {
   case $1 in
     *[[:cntrl:]\`\\]* | *' — '*) die 1 "$2 holds a control character, a backtick, a backslash, or a spaced em dash, which the lineage record cannot carry" ;;
@@ -1015,6 +1029,7 @@ cmd_seed() {
     exit 1
   }
 
+  _dest=$(trim_slashes "$_dest")
   check_path "$_dest" "the destination"
   [ ! -L "$_dest" ] || die 1 "the destination is a symbolic link; name the directory itself"
   if [ -d "$_dest" ]; then
@@ -1093,6 +1108,7 @@ cmd_seed() {
 # --- link / lineage ----------------------------------------------------------
 
 spec_dir() {
+  set -- "$(trim_slashes "$1")"
   check_path "$1" "the spec directory"
   [ ! -L "$1" ] || die 1 "the spec directory is a symbolic link; name the directory itself"
   [ -d "$1" ] || die 1 "no spec directory at $(sanitize_printable "$1" '?')"
@@ -1199,7 +1215,26 @@ cmd_lineage() {
     fi
     case $_sp in
       *:*) _sd=$(awk -F'\t' -v l="$_sp" '$1 == l { print $2; exit }' "$work/specmap") ;;
-      *) _sd="$vdir/$_sp" ;;
+      *)
+        # The recorded location is bundle text: it is read only once it
+        # resolves to a directory inside the venture.
+        _sd=
+        case /$_sp/ in
+          //* | */../*) ;;
+          *)
+            _sd=$(cd "$vdir/$_sp" 2>/dev/null && pwd -P)
+            case $_sd in
+              "$vdir"/*) ;;
+              *) _sd= ;;
+            esac
+            ;;
+        esac
+        if [ -z "$_sd" ]; then
+          printf 'lineage\t%s\trefused\n' "$(sanitize_printable "$_sc" '?')"
+          _bad=1
+          continue
+        fi
+        ;;
     esac
     if [ -z "$_sd" ]; then
       printf 'lineage\t%s\tunchecked\n' "$(sanitize_printable "$_sc" '?')"

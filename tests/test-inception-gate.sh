@@ -604,6 +604,36 @@ assert_eq "an installed file keeps its mode" 1 "$(find "$vroot/modes/brief.md" -
 # shellcheck disable=SC2016 # the literal text searched for
 assert_eq "no scratch name is derived from the pid" 0 "$(grep -c 'inception-gate\.\$\$' "$GATE")"
 
+mkv contain
+ready "$vroot/contain"
+"$GATE" record --outcome Graduate --decider "Dana Reyes" --rationale ready "$vroot/contain" >/dev/null 2>&1
+"$GATE" seed --dest "$(specroot "$vroot/contain")" "$vroot/contain" >/dev/null 2>&1
+mkdir -p "$tmp/outside"
+printf '# O — Requirements\n\n## Sources\n\n- **v** — (inception:contain)\n' >"$tmp/outside/requirements.md"
+# shellcheck disable=SC2016 # literal backticks in the bullet, not an expansion
+sed 's|— spec: pending$|— spec: `../../../outside`|' "$vroot/contain/brief.md" >"$tmp/b" && mv "$tmp/b" "$vroot/contain/brief.md"
+gate lineage "$vroot/contain"
+assert_eq "J1.5 a recorded spec outside the venture is a finding" 1 "$rc"
+assert_contains "J1.5 it is refused, not read" "lineage	venture	refused" "$out"
+ln -s "$tmp/outside" "$vroot/contain/specs/escape"
+# shellcheck disable=SC2016 # literal backticks in the bullet, not an expansion
+sed 's|— spec: `../../../outside`$|— spec: `specs/escape`|' "$vroot/contain/brief.md" >"$tmp/b" && mv "$tmp/b" "$vroot/contain/brief.md"
+gate lineage "$vroot/contain"
+assert_contains "J1.5 a link out of the venture is refused too" "lineage	venture	refused" "$out"
+
+mkdir -p "$tmp/gitreal/specs"
+git -C "$tmp/gitreal" init -q
+ln -s "$tmp/gitreal/specs" "$tmp/gitlink"
+mkv slash
+ready "$vroot/slash"
+"$GATE" record --outcome Graduate --decider "Dana Reyes" --rationale ready "$vroot/slash" >/dev/null 2>&1
+gate seed --dest "$tmp/gitlink/" "$vroot/slash"
+assert_eq "seed refuses a symbolic-link destination named with a trailing slash" 1 "$rc"
+assert_contains "the refusal names the link" "symbolic link" "$out"
+ln -s "$g/specs/capture-surface" "$tmp/speclink"
+gate link --spec "$tmp/speclink/" "$g"
+assert_contains "link refuses a symbolic-link spec named with a trailing slash" "symbolic link" "$out"
+
 # --- refusals ----------------------------------------------------------------
 
 ln -s "$tmp/elsewhere" "$tmp/linkdest"
