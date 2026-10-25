@@ -346,7 +346,7 @@ output line and exit; save after each write, with a plain message.
 6. **Lineage** (REQ-J1.5): once the spec exists, `inception-gate.sh link
    --spec <spec-dir> [--track <label>] <venture-dir>`; `spec-side-missing`
    means its Sources lack the `cite` key yet, and `refused` that a recorded
-   location is absolute, climbs with `..`, or leads outside the venture.
+   location is absolute, climbs with `..`, or resolves outside the venture.
    `inception-gate.sh lineage [--spec <dir>]... <venture-dir>` checks both
    directions; on resuming a venture with a `## Lineage` section, run it and
    offer `link` per `pending` scope. A hole drafting found returns as a

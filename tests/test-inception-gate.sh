@@ -674,6 +674,30 @@ out=$(PATH="$tmp/shim:$PATH" "$GATE" record --outcome Hold --decider "Dana Reyes
 assert_eq "a spaced venture path leaves no scratch file" "" "$(find "$tmp/sp ace/spaced" -maxdepth 1 -name '.inception-gate.*')"
 assert_eq "and restores the bundle" Exploring "$(status_of "$tmp/sp ace/spaced" disciplines.md)"
 
+# Containment: what the symbolic-link test looked at is what gets entered,
+# and a location that resolves nowhere is judged by where it would have been.
+mkdir -p "$tmp/w" "$tmp/other/sub" "$tmp/other/speclink"
+ln -s "$prod/specs/capture" "$tmp/w/speclink"
+ln -s "$tmp/other/sub" "$tmp/w/lnk"
+gate lineage --spec "$tmp/w/lnk/../speclink" "$vroot/probe"
+assert_not_contains "a middle .. through a link does not reach the linked spec" "linked" "$out"
+out=$(cd "$prod/specs" && "$GATE" lineage --spec ../specs/capture "$vroot/probe" 2>&1)
+assert_contains "an ordinary relative spec path is accepted" "lineage	venture	linked" "$out"
+mv "$g/specs" "$g/specs-moved"
+gate lineage "$g"
+assert_contains "J1.5 a spec whose parent is gone reads missing" "lineage	venture	spec-missing" "$out"
+mv "$g/specs-moved" "$g/specs"
+mv "$g/specs/capture-surface" "$g/specs/capture-real"
+ln -s "$g/specs/capture-gone" "$g/specs/capture-surface"
+gate lineage "$g"
+assert_contains "J1.5 a dangling link inside the venture reads missing" "lineage	venture	spec-missing" "$out"
+rm -f "$g/specs/capture-surface"
+mv "$g/specs/capture-real" "$g/specs/capture-surface"
+mkdir -p "$tmp/t	ab"
+inception_fixture_write "$tmp/t	ab/tabbed" || exit 1
+gate evaluate "$tmp/t	ab/tabbed"
+assert_eq "a venture path holding a tab is refused" 2 "$rc"
+
 # --- refusals ----------------------------------------------------------------
 
 ln -s "$tmp/elsewhere" "$tmp/linkdest"

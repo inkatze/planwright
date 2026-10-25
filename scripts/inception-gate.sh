@@ -202,7 +202,12 @@ resolve_venture() {
       ;;
   esac
   [ -d "$_vd" ] || die 2 "no venture directory at $(sanitize_printable "$_vd" '?')"
-  vdir=$(cd "$_vd" && pwd -P) || die 2 "cannot enter the venture directory"
+  # The argument is checked too: command substitution drops a trailing
+  # newline, so a path ending in one would resolve to its sibling.
+  case $_vd in
+    *[[:cntrl:]]*) die 2 "the venture path holds a control character, which this helper cannot carry" ;;
+  esac
+  vdir=$(cd -P "$_vd" && pwd -P) || die 2 "cannot enter the venture directory"
   for _f in $FILES; do
     [ ! -L "$vdir/$_f" ] || die 1 "$_f is a symbolic link; refusing to read or write through it"
   done
@@ -639,7 +644,7 @@ loc_of() {
     "$vdir") printf '.\n' ;;
     "$vdir"/*) printf '%s\n' "${1#"$vdir"/}" ;;
     *)
-      if _top=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) && _top=$(cd "$_top" && pwd -P); then
+      if _top=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) && _top=$(cd -P "$_top" && pwd -P); then
         case $1 in
           "$_top") printf '%s:.\n' "$(basename "$_top")" ;;
           *) printf '%s:%s\n' "$(basename "$_top")" "${1#"$_top"/}" ;;
@@ -1079,11 +1084,13 @@ cmd_seed() {
   check_path "$_dest" "the destination"
   [ ! -L "$_dest" ] || die 1 "the destination is a symbolic link; name the directory itself"
   if [ -d "$_dest" ]; then
-    _droot=$(cd "$_dest" && pwd -P) || die 2 "cannot enter the destination"
+    # cd -P: a logical cd would collapse `link/..` textually and enter a
+    # directory other than the one the symbolic-link test looked at.
+    _droot=$(cd -P "$_dest" && pwd -P) || die 2 "cannot enter the destination"
   else
     [ ! -e "$_dest" ] || die 1 "the destination exists and is not a directory"
     [ -d "$(dirname "$_dest")" ] || die 1 "the destination's parent directory does not exist"
-    _dp=$(cd "$(dirname "$_dest")" && pwd -P) || die 2 "cannot enter the destination's parent"
+    _dp=$(cd -P "$(dirname "$_dest")" && pwd -P) || die 2 "cannot enter the destination's parent"
     _droot="$_dp/$(basename "$_dest")"
   fi
   check_path "$_droot" "the destination"
@@ -1166,7 +1173,7 @@ spec_dir() {
   check_path "$1" "the spec directory"
   [ ! -L "$1" ] || die 1 "the spec directory is a symbolic link; name the directory itself"
   [ -d "$1" ] || die 1 "no spec directory at $(sanitize_printable "$1" '?')"
-  (cd "$1" && pwd -P) || die 2 "cannot enter the spec directory"
+  (cd -P "$1" && pwd -P) || die 2 "cannot enter the spec directory"
 }
 
 cmd_link() {
@@ -1277,18 +1284,24 @@ cmd_lineage() {
         case /$_sp/ in
           //* | */../*) ;;
           *)
-            if _sd=$(cd "$vdir/$_sp" 2>/dev/null && pwd -P); then
+            if _sd=$(cd -P "$vdir/$_sp" 2>/dev/null && pwd -P); then
               case $_sd in
                 "$vdir" | "$vdir"/*) ;;
                 *) _sd= ;;
               esac
-            elif [ ! -L "$vdir/$_sp" ] && _pp=$(cd "$(dirname "$vdir/$_sp")" 2>/dev/null && pwd -P) \
-              && case $_pp in "$vdir" | "$vdir"/*) true ;; *) false ;; esac then
-              # Gone from a place inside the venture: missing, not escaped.
-              printf 'lineage\t%s\tspec-missing\n' "$(sanitize_printable "$_sc" '?')"
-              _bad=1
-              continue
             else
+              # It resolves nowhere: missing when its nearest existing
+              # ancestor lies inside the venture, refused otherwise.
+              _pp=$(dirname "$vdir/$_sp")
+              while [ ! -d "$_pp" ]; do _pp=$(dirname "$_pp"); done
+              _pp=$(cd -P "$_pp" 2>/dev/null && pwd -P)
+              case $_pp in
+                "$vdir" | "$vdir"/*)
+                  printf 'lineage\t%s\tspec-missing\n' "$(sanitize_printable "$_sc" '?')"
+                  _bad=1
+                  continue
+                  ;;
+              esac
               _sd=
             fi
             ;;
