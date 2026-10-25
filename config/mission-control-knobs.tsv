@@ -1,0 +1,13 @@
+# Mission control's knob inventory: every behaviour that admits a preference,
+# the mission_control_* knob that sets it, and the file that reads it.
+# scripts/check-mc-knobs.sh fails on a behaviour with no knob (`-` or empty),
+# a knob config/defaults.yml lacks or ships without a default, a default key
+# no behaviour claims, a mission_control_* key a reader names that the
+# defaults lack, and a knob whose docs/options-reference.md row names no
+# evidence.
+#
+# behaviour<TAB>knob<TAB>consumer
+program-registry	mission_control_programs	scripts/mc-program.sh
+program-home-root	mission_control_home_root	scripts/mc-program.sh
+default-duty-set	mission_control_default_duties	scripts/mc-program.sh
+default-source-map	mission_control_default_sources	scripts/mc-program.sh

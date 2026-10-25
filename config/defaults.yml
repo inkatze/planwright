@@ -961,3 +961,34 @@ ventures_root: ~/ventures
 # values are paths on one machine, so the machine-local or adopter layer is
 # their usual home.
 observation_targets: {}
+
+# Mission control.
+# Every mission_control_* key is inventoried in config/mission-control-knobs.tsv
+# and documented in docs/options-reference.md; scripts/check-mc-knobs.sh
+# keeps the three in step.
+#
+# The programs mission control runs, an inline list of names (lowercase
+# letters and digits, hyphen separated). Each program is a block of
+# program_<name>_* keys, the name's hyphens written as underscores:
+#   program_<name>_repositories  [path, ...] work repositories, absolute or ~/
+#   program_<name>_spec_root     the spec root, absolute or ~/, any posture
+#   program_<name>_home          the program home (default: below)
+#   program_<name>_duties        [duty, ...] (default: the shipped set below)
+#   program_<name>_budget        {key: value, ...} the program's budget
+#   program_<name>_sources       {class: source:mode, ...} the state-source map
+# A program spans repositories, so the adopter layer is the usual home of
+# its block. Read through scripts/mc-program.sh.
+mission_control_programs: []
+# Where a program's home defaults to, as <root>/<program>: a human-owned
+# location outside every work repository, absolute or ~/.
+mission_control_home_root: ~/.config/planwright/mission-control
+# The duties a program enables when its block names none: the shipped set in
+# config/duties.yaml.
+# yamllint disable-line rule:line-length
+mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals]
+# The state-source map a program declaring none resolves to, one
+# class: source:mode entry per fact class (work-items, code-state, decisions,
+# deadlines, designs), mode record, snapshot or cited. A class the map leaves
+# out resolves to cited, here and in a program's own map.
+# yamllint disable-line rule:line-length
+mission_control_default_sources: {work-items: specs:record, code-state: forge:snapshot, decisions: specs:record, deadlines: specs:record}
