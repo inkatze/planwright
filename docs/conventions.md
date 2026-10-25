@@ -13,7 +13,8 @@ Orchestrator-created task branches:
 planwright/<spec>/task-<id-or-ids>
 ```
 
-- `<spec>` is the spec's directory name under `specs/`, matching the
+- `<spec>` is the spec's directory name under the spec root (`specs/` by
+  default; see [Spec location](spec-location.md)), matching the
   REQ-A1.8 identifier charset: `^[a-z0-9][a-z0-9-]*$`, 64 characters max,
   and never the reserved `flight` (see Flight branches below).
 - `<id-or-ids>` matches the task-id grammar
@@ -55,8 +56,9 @@ plus an eight-character lowercase-hex uid, 64 characters at most. Mint it with
 flights minted at the same moment apart (the mint reserves nothing: creating
 the branch is the claim, and it fails when the ref exists), and the helper
 never reuses an id while a branch (local or remote-tracking), a record file
-`specs/_flights/<flight-id>.md` in the working tree or on the default branch,
-or a placed worktree still carries it. That evidence is as fresh as the last
+`_flights/<flight-id>.md` under the spec root (`specs/_flights/` by default) in
+the working tree or on the default branch, or a placed worktree still carries
+it. That evidence is as fresh as the last
 fetch, and a flight recorded in its PR body leaves no record file, so once its
 branch and worktree are gone only the random uid keeps its id apart. Examples:
 `planwright/flight/fix-typo-3f9a1c2e`, `planwright/flight/add-lint-0b7e44d1`.
@@ -113,9 +115,10 @@ checkout, under the spec's advisory lock (the one shared
 `/orchestrate --bookkeeping` reconciles. The parsed `<spec>` / `<id>` segments
 are validated against the grammars above (a `flight` second segment is a
 flight branch, a silent no-op) and the resolved path is
-containment-checked under `<repo>/specs/` before any write — a branch that fails
-validation (wrong charset, `..`, extra path separators, metacharacters) is a
-clean no-op and never reaches a filesystem path.
+containment-checked under the spec root's primary view (`resolve-root.sh spec
+--primary`) before any write — a branch that fails validation (wrong charset,
+`..`, extra path separators, metacharacters) is a clean no-op and never
+reaches a filesystem path.
 
 ## Worktree placement (D-37)
 
