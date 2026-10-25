@@ -82,7 +82,8 @@ demoted consumer; operator-facing cadences keep today's intervals.
 The fixed path set, plus the question row. A path a session cannot use (probe
 absent, rung ineligible) takes its fallback column from the start, and a rung
 the Fallback column gives a path of its own (a `stream-json-persistent`
-decision answer, a `headless-oneshot` worker) takes it whether or not messaging is available.
+decision answer, a `headless-oneshot` worker) takes it whether or not
+messaging is available.
 
 | Path | With messaging | Fallback |
 | --- | --- | --- |

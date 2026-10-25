@@ -4,9 +4,10 @@ This doctrine turns the tmux operator's hand-relay protocol between towers and
 workers into an enforceable capability with two parts: an explicit **division
 of labor** and an **attributed, non-impersonating relay**, which reaches a
 live, busy worker by messaging. One audited script,
-`scripts/orchestrate-relay.sh`, enforces the relay's mechanics and delegates every messaging post to
-`scripts/fleet-messaging.sh`, the messaging enforcement point the
-[Messaging Transport](messaging-transport.md) doctrine names.
+`scripts/orchestrate-relay.sh`, enforces the relay's mechanics and delegates
+every messaging post to `scripts/fleet-messaging.sh`, the messaging
+enforcement point the [Messaging Transport](messaging-transport.md) doctrine
+names.
 
 Citations: orchestration-fleet REQ-D1.2 (division of labor), orchestration-fleet
 REQ-D1.3 (attributed, non-impersonating relay), orchestration-fleet REQ-B1.7
@@ -133,10 +134,9 @@ never the pane: a pending relay is raised to the operator as its own
 attention item, whatever the worker's row reads, until it clears, and is
 never re-pasted (`relay-command tmux` refuses meanwhile). Until the record and
 its check ship, `deliver`'s refusal over an unsubmitted earlier relay is the
-only guard. An interrupt stays
-the operator's: no relay path sends a keystroke. The handle is explicit
-(operator-named), never the active pane. `relay-command stream-json`
-instead emits `fleet-streamjson.sh steer`: a user turn on the worker's own
+only guard. An interrupt stays the operator's: no relay path sends a
+keystroke. The handle is explicit (operator-named), never the active pane.
+`relay-command stream-json` instead emits `fleet-streamjson.sh steer`: a user turn on the worker's own
 stdin, a real submit with a receipt row — the unattended path.
 
 ### Observe-in-flight: capture-pane, a read never a write
