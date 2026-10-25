@@ -208,7 +208,10 @@ expect_err "the home field is named" "alpha: home"
 
 alpha_block
 printf 'program_alpha_spec_root: /x\033[2Jy\n' >"$tmp/cntrl"
-{ grep -v '^program_alpha_spec_root:' "$tracked"; cat "$tmp/cntrl"; } >"$tmp/t" && mv "$tmp/t" "$tracked"
+{
+  grep -v '^program_alpha_spec_root:' "$tracked"
+  cat "$tmp/cntrl"
+} >"$tmp/t" && mv "$tmp/t" "$tracked"
 mc_run mc-program.sh get alpha spec_root
 expect_rc "a path carrying a control byte is refused" 1
 expect_err "the refused field is named" "alpha: spec_root"
