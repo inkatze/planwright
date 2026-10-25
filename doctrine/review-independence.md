@@ -9,7 +9,7 @@ finding that got past every pass is recorded so the next pass can learn from
 it.
 
 Citations: review-effectiveness REQ-E1.1, REQ-E1.3, REQ-E1.4, REQ-E1.5,
-REQ-E1.6, REQ-E1.7 · review-effectiveness D-5, D-8, D-16.
+REQ-E1.6, REQ-E1.7, REQ-H1.7 · review-effectiveness D-5, D-8, D-16, D-22.
 
 ## The two axes
 
@@ -135,8 +135,9 @@ order, then the sibling sweep (the look for twins of a found defect) and the
 reviewer-basics gate (the checklist run before the lenses), as
 review-effectiveness D-4 and D-2 define them until the discovery doctrine
 states them; `procedure-tracing` names the spec set's walk of ordered prose
-as control flow ([Artifact Lenses](artifact-lenses.md)), and `other` covers a
-lens from any other non-code set. A miss at a twin site
+as control flow, as review-effectiveness D-19 defines it until
+[Artifact Lenses](artifact-lenses.md) states it, and `other` covers a lens
+from any other non-code set. A miss at a twin site
 of a fixed defect carries lens `sibling-sweep` and reason `pruned`; one the
 loop saw and dismissed carries reason `declined`. Three reasons name the
 external-review audit's categories: `host-dependent` (a test whose result
