@@ -4574,10 +4574,11 @@ resolve_declared() {
     # The core layer is this guard's own root, never one the environment
     # names: a flight's launch pins the brief's root there, and letting it
     # choose the catalog the guard trusts would widen what a worker gets.
-    export PLANWRIGHT_ROOT="$HOOK_SELF_ROOT" CLAUDE_PLUGIN_ROOT="$HOOK_SELF_ROOT"
-    step_name_cataloged "${1##*/}" || exit 0
+    PLANWRIGHT_ROOT=$HOOK_SELF_ROOT CLAUDE_PLUGIN_ROOT=$HOOK_SELF_ROOT \
+      step_name_cataloged "${1##*/}" || exit 0
     # shellcheck disable=SC2086 # the wired points are meant to word-split
-    TMPDIR=$DECL_TMP exec /bin/bash "$rs" $STEP_POINTS --explain --unattended
+    PLANWRIGHT_ROOT=$HOOK_SELF_ROOT CLAUDE_PLUGIN_ROOT=$HOOK_SELF_ROOT TMPDIR=$DECL_TMP \
+      exec /bin/bash "$rs" $STEP_POINTS --explain --unattended
   ) </dev/null >"$DECL_TMP/out" 2>/dev/null &
   DECL_PGID=$!
   set +m
