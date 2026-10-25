@@ -30,8 +30,9 @@
 # anything in the work tree arrives with a pull, so a commit could otherwise
 # redirect the next export. The file is read as data, never sourced. The token
 # comes from PLANWRIGHT_NOTION_TOKEN, else from the first line of the file
-# `configure --token-file` named, which must not be readable by group or
-# others; only the path is recorded. The token reaches curl through its config
+# `configure --token-file` named, which must be a regular file (never a
+# symbolic link, whose own mode says nothing about its target) not readable by
+# group or others; only the path is recorded. The token reaches curl through its config
 # on stdin, never the command line, and its charset is checked first so it
 # cannot rewrite that config. Every id taken from an API response is checked
 # against the Notion id grammar before it is put into a URL.
@@ -58,7 +59,9 @@
 #   PLANWRIGHT_NOTION_TOKEN       the integration token (outranks the file)
 #   PLANWRIGHT_NOTION_MAX_BLOCKS  block-walk bound, a whole number, default 1000
 #   PLANWRIGHT_NOTION_BACKOFF     seconds before the first retry of a rate
-#                                 limit or server error, doubling; default 1
+#                                 limit or server error, doubling; default 1.
+#                                 A Retry-After the API sends outranks it,
+#                                 capped at RETRY_AFTER_MAX seconds.
 #
 # Exit: 0 done · 1 the API refused or could not be reached · 2 usage or
 #   environment error · 3 not configured (no page, or no token).
@@ -73,6 +76,7 @@ unset CDPATH
 NOTION_VERSION=2026-03-11
 API=https://api.notion.com
 STATE_NAME=planwright-notion.local
+RETRY_AFTER_MAX=60
 
 die() {
   code=$1
@@ -240,6 +244,7 @@ if [ "$cmd" = configure ]; then
       *'
 '*) die 2 "--token-file must not contain a newline" ;;
     esac
+    [ ! -L "$token_file_arg" ] || die 2 "the token file is a symbolic link, whose permissions say nothing about its target; point --token-file at the file itself"
     [ -f "$token_file_arg" ] && [ -r "$token_file_arg" ] || die 2 "--token-file is not a readable file"
     file_private "$token_file_arg" \
       || die 2 "the token file is readable by group or others; chmod 600 it first"
@@ -281,6 +286,7 @@ fi
 if [ -n "${PLANWRIGHT_NOTION_TOKEN:-}" ]; then
   token=$PLANWRIGHT_NOTION_TOKEN
 elif [ -n "$token_file" ]; then
+  [ ! -L "$token_file" ] || die 2 "the configured token file is now a symbolic link; point configure --token-file at the file itself"
   [ -f "$token_file" ] && [ -r "$token_file" ] || die 2 "the configured token file is missing or unreadable"
   file_private "$token_file" || die 2 "the token file is readable by group or others; chmod 600 it first"
   token=$(sed -n 1p "$token_file")
@@ -312,13 +318,14 @@ request() {
   _wait=$backoff
   while :; do
     : >"$resp"
+    : >"$work/headers"
     if [ -n "$_b" ]; then
       http=$(printf 'header = "Authorization: Bearer %s"\nheader = "Notion-Version: %s"\n' "$token" "$NOTION_VERSION" \
-        | curl -sS -K - --proto =https --connect-timeout 15 --max-time 120 -o "$resp" -w '%{http_code}' \
+        | curl -sS -K - --proto =https --connect-timeout 15 --max-time 120 -o "$resp" -D "$work/headers" -w '%{http_code}' \
           -X "$_m" -H 'Content-Type: application/json' --data-binary "@$_b" "$API$_p" 2>"$work/curl.err")
     else
       http=$(printf 'header = "Authorization: Bearer %s"\nheader = "Notion-Version: %s"\n' "$token" "$NOTION_VERSION" \
-        | curl -sS -K - --proto =https --connect-timeout 15 --max-time 120 -o "$resp" -w '%{http_code}' \
+        | curl -sS -K - --proto =https --connect-timeout 15 --max-time 120 -o "$resp" -D "$work/headers" -w '%{http_code}' \
           "$API$_p" 2>"$work/curl.err")
     fi
     _rc=$?
@@ -332,7 +339,16 @@ request() {
       [ "$_rc" -eq 0 ] || die 1 "could not reach the Notion API ($(tr -d '\000-\037\177\200-\237' <"$work/curl.err" | cut -c1-200))"
       fail_request
     fi
-    [ "$_wait" -eq 0 ] || sleep "$_wait"
+    # The server's own Retry-After (seconds; Notion sends it on a 429) outranks
+    # the doubling wait, capped so a hostile or broken value cannot park the
+    # harvest. A date-form value is not parsed and falls back to the doubling.
+    _ra=$(awk 'tolower($0) ~ /^retry-after:/ { v = $2; gsub(/[^0-9]/, "", v); print v; exit }' "$work/headers" 2>/dev/null)
+    if [ -n "$_ra" ]; then
+      [ "${#_ra}" -le 4 ] && [ "$_ra" -le "$RETRY_AFTER_MAX" ] || _ra=$RETRY_AFTER_MAX
+      [ "$_ra" -eq 0 ] || sleep "$_ra"
+    else
+      [ "$_wait" -eq 0 ] || sleep "$_wait"
+    fi
     _wait=$((_wait * 2))
   done
 }

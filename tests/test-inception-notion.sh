@@ -264,6 +264,39 @@ body="$(last_body)"
 assert_eq "export: replace_content" "replace_content" "$(jq -r .type "$body")"
 assert_eq "export: the snapshot is the page text" "$(cat "$tmp/snapshot.md")" "$(jq -r .replace_content.new_str "$body")"
 
+# ---------------------------------------------------------------------------
+# 6. A rate limit waits as long as Retry-After asks, within a bound.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/sleepbin"
+# shellcheck disable=SC2016 # expanded by the fake sleep, not here
+printf '#!/bin/sh\nprintf "%%s\\n" "$1" >>"%s"\n' "$tmp/slept" >"$tmp/sleepbin/sleep"
+chmod +x "$tmp/sleepbin/sleep"
+printf 'HTTP/2 429\r\ncontent-type: application/json\r\nRetry-After: 3\r\n\r\n' >"$tmp/error-429.json.headers"
+: >"$tmp/log/used" && : >"$tmp/slept"
+PATH="$tmp/sleepbin:$PATH" "$NOTION" harvest "$v" >/dev/null 2>"$tmp/err"
+assert_eq "Retry-After: the harvest succeeds after the wait" "0" "$?"
+assert_eq "Retry-After: waits the seconds the API asked for" "3" "$(cat "$tmp/slept")"
+printf 'HTTP/2 429\r\nretry-after: 999\r\n\r\n' >"$tmp/error-429.json.headers"
+: >"$tmp/log/used" && : >"$tmp/slept"
+PATH="$tmp/sleepbin:$PATH" "$NOTION" harvest "$v" >/dev/null 2>"$tmp/err"
+assert_eq "Retry-After: a long wait is capped" "60" "$(cat "$tmp/slept")"
+rm -f "$tmp/error-429.json.headers"
+
+# ---------------------------------------------------------------------------
+# 7. A token file reached through a symbolic link is refused.
+# ---------------------------------------------------------------------------
+ln -s "$tmp/token" "$tmp/token-link"
+"$NOTION" configure --page "$PAGE" --token-file "$tmp/token-link" "$v" >/dev/null 2>"$tmp/err"
+assert_eq "symlinked token file: configure refuses it" "2" "$?"
+assert_contains "symlinked token file: says why" "symbolic link" "$(cat "$tmp/err")"
+"$NOTION" configure --page "$PAGE" --token-file "$tmp/token" "$v" >/dev/null 2>&1
+mv "$tmp/token" "$tmp/token.real" && ln -s "$tmp/token.real" "$tmp/token"
+calls_before="$(wc -l <"$tmp/log/argv")"
+"$NOTION" harvest "$v" >/dev/null 2>"$tmp/err"
+assert_eq "token file swapped for a link: refused at use" "2" "$?"
+assert_eq "token file swapped for a link: no request was made" "$calls_before" "$(wc -l <"$tmp/log/argv")"
+rm -f "$tmp/token" && mv "$tmp/token.real" "$tmp/token"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

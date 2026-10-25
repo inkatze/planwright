@@ -11,6 +11,9 @@
 #   <log>/config    everything read from `-K -` (where headers travel)
 #   <log>/body.<n>  the request body of call <n>, when one was sent
 #
+# A `-D` header dump is answered from `<fixture>.headers` beside the payload
+# when one exists (how a suite stages a Retry-After), else a bare status line.
+#
 # Routes are lines of `<METHOD> <path-and-query> <fixture> <status> [once]`,
 # matched in order; a `once` route answers a single call and is then skipped,
 # which is how a suite stages a rate-limit answer before the real one. An
@@ -34,12 +37,13 @@ EOF
   cat >>"$1/curl" <<'EOF'
 n=$(($(wc -l <"$log/argv") + 1))
 printf '%s\n' "$*" >>"$log/argv"
-method=GET out= url= data= readcfg=0
+method=GET out= hdr= url= data= readcfg=0
 while [ $# -gt 0 ]; do
   case $1 in
     -K) [ "$2" = - ] && readcfg=1; shift 2 ;;
     -X) method=$2; shift 2 ;;
     -o) out=$2; shift 2 ;;
+    -D) hdr=$2; shift 2 ;;
     -w | -H | --proto | --max-time | --connect-timeout) shift 2 ;;
     --data-binary) data=${2#@}; shift 2 ;;
     https://*) url=$1; shift ;;
@@ -66,6 +70,13 @@ if [ -n "$fixture" ]; then
   cp "$fixtures/$fixture" "$out"
 else
   printf '%s\n' '{"object":"error","status":404,"code":"object_not_found","message":"unrouted"}' >"$out"
+fi
+if [ -n "$hdr" ]; then
+  if [ -n "$fixture" ] && [ -f "$fixtures/$fixture.headers" ]; then
+    cp "$fixtures/$fixture.headers" "$hdr"
+  else
+    printf 'HTTP/2 %s\r\n\r\n' "$status" >"$hdr"
+  fi
 fi
 printf '%s' "$status"
 EOF
