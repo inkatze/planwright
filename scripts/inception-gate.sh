@@ -577,15 +577,21 @@ validated_stage() {
 # install_files <file>... — move the named staged files into the venture,
 # all of them or none.
 install_files() {
+  # Scratch names come from mktemp, never the pid: a predictable name in a
+  # directory a commit can populate is one a planted symbolic link can claim.
+  : >"$work/tmps"
   for _f in "$@"; do
-    installing="$installing $vdir/.inception-gate.$$.$_f"
-    cp -p "$work/stage/$_f" "$vdir/.inception-gate.$$.$_f" || die 2 "cannot write $_f; nothing was changed"
+    _t=$(mktemp "$vdir/.inception-gate.XXXXXX") || die 2 "cannot write $_f; nothing was changed"
+    installing="$installing $_t"
+    printf '%s\t%s\n' "$_f" "$_t" >>"$work/tmps"
+    cp -p "$work/stage/$_f" "$_t" || die 2 "cannot write $_f; nothing was changed"
   done
   # brief.md carries the gate record or the post-mortem, so it moves last: a
   # failure before it leaves the bundle as it was once the others are restored.
   _moved=
   for _f in $(printf '%s\n' "$@" | grep -v '^brief\.md$') $(printf '%s\n' "$@" | grep '^brief\.md$'); do
-    if ! mv -f "$vdir/.inception-gate.$$.$_f" "$vdir/$_f"; then
+    _t=$(awk -F'\t' -v f="$_f" '$1 == f { print $2; exit }' "$work/tmps")
+    if ! mv -f "$_t" "$vdir/$_f"; then
       for _m in $_moved; do cp -p "$work/orig/$_m" "$vdir/$_m"; done
       die 2 "cannot write $_f; the files already written were restored"
     fi
@@ -1067,8 +1073,8 @@ cmd_seed() {
   # Nothing is created in the destination until the bundle change has passed.
   mkdir -p "$_pdir" || die 2 "cannot create the destination's _pending directory"
   [ ! -L "$_droot" ] && [ ! -L "$_pdir" ] || die 1 "the destination became a symbolic link; refusing to write through it"
-  installing="$_pdir/.inception-gate.$$.tmp"
-  cp "$work/seed" "$installing" || die 2 "cannot write the seed"
+  installing=$(mktemp "$_pdir/.inception-gate.XXXXXX") || die 2 "cannot write the seed"
+  cp -p "$work/seed" "$installing" || die 2 "cannot write the seed"
   if ! ln "$installing" "$_seed" 2>/dev/null; then
     [ ! -e "$_seed" ] && [ ! -L "$_seed" ] || die 1 "a seed already exists at _pending/$_name"
     die 2 "cannot place the seed (the destination may not support hard links)"

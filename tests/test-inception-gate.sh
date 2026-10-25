@@ -597,6 +597,13 @@ assert_eq "and no scratch file stays in the venture" "" "$(find "$vroot/seedfail
 gate seed --dest "$(specroot "$vroot/seedfail")" "$vroot/seedfail"
 assert_eq "the seed can then be retried" 0 "$rc"
 
+mkv modes
+chmod 0644 "$vroot/modes/brief.md"
+gate record --outcome Hold --decider "Dana Reyes" --rationale x "$vroot/modes"
+assert_eq "an installed file keeps its mode" 1 "$(find "$vroot/modes/brief.md" -perm 0644 | wc -l | tr -d ' ')"
+# shellcheck disable=SC2016 # the literal text searched for
+assert_eq "no scratch name is derived from the pid" 0 "$(grep -c 'inception-gate\.\$\$' "$GATE")"
+
 # --- refusals ----------------------------------------------------------------
 
 ln -s "$tmp/elsewhere" "$tmp/linkdest"
