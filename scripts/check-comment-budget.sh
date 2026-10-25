@@ -520,4 +520,4 @@ function check(   i, p, w, kind, suppressed, warns, stale, e) {
   if (errors > 0) exit 1
 }
 END { if (aborted) exit 2 }
-'
+' </dev/null

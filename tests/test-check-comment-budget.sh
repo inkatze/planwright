@@ -379,6 +379,27 @@ assert_exit "a staged path over the error threshold fails" 1 $?
 run "$r" README.md
 assert_exit "no surface path among the staged ones passes" 0 $?
 
+echo "## stdin is never read"
+# A pre-commit hook runs with the terminal on stdin; a passing run must not wait on it.
+mkfifo "$TMP/stdin"
+sleep 120 >"$TMP/stdin" &
+holder=$!
+"$GUARD" --root "$r" scripts/ok.sh <"$TMP/stdin" >"$TMP/out" 2>&1 &
+gpid=$!
+i=0
+while kill -0 "$gpid" 2>/dev/null && [ "$i" -lt 60 ]; do
+  sleep 1
+  i=$((i + 1))
+done
+if kill -0 "$gpid" 2>/dev/null; then
+  fail "a passing run blocks on an open stdin"
+  kill "$gpid" 2>/dev/null
+else
+  ok "a passing run never waits on stdin"
+fi
+kill "$holder" 2>/dev/null
+wait 2>/dev/null
+
 echo "## shipped defaults"
 if grep -qx 'comment_block_warn: 12' "$REPO_ROOT/config/defaults.yml" && grep -qx 'comment_block_error: 25' "$REPO_ROOT/config/defaults.yml"; then
   ok "the shipped defaults are 12 and 25"
