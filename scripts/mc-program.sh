@@ -162,6 +162,10 @@ expand_path() {
     /*) printf '%s\n' "$3" ;;
     \~/*)
       case ${HOME:-} in
+        *[[:cntrl:]]*)
+          problem "$1" "$2" "'$3' needs a HOME free of control characters"
+          return 1
+          ;;
         /*) printf '%s\n' "$HOME/${3#\~/}" ;;
         *)
           problem "$1" "$2" "'$3' needs an absolute HOME"

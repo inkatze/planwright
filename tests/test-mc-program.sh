@@ -249,6 +249,20 @@ mc_run mc-program.sh get alpha spec_root
 expect_rc "a path carrying a control byte is refused" 1
 expect_err "the refused field is named" "alpha: spec_root"
 
+# A control byte reaching a ~/ path through HOME is refused the same way.
+alpha_block
+OUT=$(cd "$repo" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
+  -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
+  -u XDG_CONFIG_HOME \
+  PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+  PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" CLAUDE_DIR="$tmp/claude" HOME="$fixhome
+/injected" \
+  /bin/bash "$repo_root/scripts/mc-program.sh" get alpha repositories 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "a ~/ path whose HOME carries a control byte is refused" 1
+expect_no_out "no forged path line is printed" "/injected"
+
 alpha_block
 mc_run mc-program.sh get alpha budget
 expect_rc "an absent budget resolves" 0
