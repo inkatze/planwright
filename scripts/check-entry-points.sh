@@ -156,7 +156,7 @@ done <"$work/entry-points"
 
 # make_sandbox <dir>: a read-only copy of the tree in <dir>/tree.
 make_sandbox() {
-  mkdir "$1" "$1/tree" || return 1
+  mkdir -p "$1/tree" || return 1
   set +f
   for e in "$repo_root"/* "$repo_root"/.[!.]* "$repo_root"/..?*; do
     [ -e "$e" ] || [ -h "$e" ] || continue
@@ -178,7 +178,7 @@ run_ep() {
   (
     sb=$1 ep=$2 argf=$3 inf=$4 o=$5
     rh=$sb/run$runs
-    mkdir "$rh" "$rh/home" "$rh/tmp" || exit 5
+    mkdir -p "$rh/home" "$rh/tmp" || exit 5
     set --
     while IFS= read -r a || [ -n "$a" ]; do
       set -- "$@" "$a"
