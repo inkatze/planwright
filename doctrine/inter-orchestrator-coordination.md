@@ -131,7 +131,9 @@ hook, never by a tool use or the pane, and dropped at session end. The tower
 checks after every paste, a bounded window later, reading that hook evidence,
 never the pane: a pending relay is raised to the operator as its own
 attention item, whatever the worker's row reads, until it clears, and is
-never re-pasted (`relay-command tmux` refuses meanwhile). An interrupt stays
+never re-pasted (`relay-command tmux` refuses meanwhile). Until the record and
+its check ship, `deliver`'s refusal over an unsubmitted earlier relay is the
+only guard. An interrupt stays
 the operator's: no relay path sends a keystroke. The handle is explicit
 (operator-named), never the active pane. `relay-command stream-json`
 instead emits `fleet-streamjson.sh steer`: a user turn on the worker's own

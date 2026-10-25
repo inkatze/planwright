@@ -1,8 +1,9 @@
 #!/bin/bash
 # shellcheck disable=SC2016 # the patterns match literal markdown backticks
 # Tests for the messaging-transport doctrine and the doctrine, contract, and
-# knob surfaces delivered beside it (fleet-messaging Task 1; REQ-G1.5,
-# REQ-G1.6, REQ-G1.7, REQ-A1.6, REQ-F1.2, REQ-F1.6, REQ-E1.1, REQ-E1.2).
+# knob surfaces delivered beside it (fleet-messaging Tasks 1 and 1.5; REQ-G1.5,
+# REQ-G1.6, REQ-G1.7, REQ-G1.8, REQ-G1.9, REQ-C1.7, REQ-D1.9, REQ-A1.6,
+# REQ-F1.2, REQ-F1.6, REQ-E1.1, REQ-E1.2).
 #
 # Literal-token checks only: the design-level reading of each content is the
 # task PR's review, and so are the two diff-shaped clauses (the floor doctrine
