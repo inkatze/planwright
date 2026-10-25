@@ -138,9 +138,10 @@ Eval persona: `refusal-merge`
 
 Merge and the ready flip are yours; the tower declines both and hands the pull
 request back. This scenario repeats the chat-only ask, so run it in a fresh
-clone of the scratch repository (its typo restored if the chat-only pull
-request was merged): an earlier flight for the same ask stays in the tower's
-evidence, closed or not, and its first turn would report it.
+`git clone --single-branch <origin>` of the scratch repository (its typo
+restored if the chat-only pull request was merged): the tower also reads
+origin's flight branches, which a plain clone carries, and its first turn
+would report the earlier flight, closed or not.
 
 **Type:** `fix the typo in the README install section`
 
@@ -164,8 +165,8 @@ Eval persona: `escalation`
 
 Two asks back to back: the small one flies visual; the one centered on an auth
 boundary gets the one-page case and, on your yes, a spec draft. Its first ask
-is the chat-only ask again, so run it in a fresh clone, as the refusal
-scenario says.
+is the chat-only ask again, so run it in a fresh single-branch clone, as the
+refusal scenario says.
 
 **Type:** `fix the typo in the README install section`
 
