@@ -125,7 +125,7 @@ partial graduation therefore records a continuing top-level outcome
 graduated track's
 declaration bullet gains its `— graduated <date>` annotation. In a tracked
 venture a top-level `Graduate` is recorded only when every declared track is
-already graduated or ended; a `Graduate` record that leaves a live track
+graduated or ended by then, this record included; a `Graduate` record that leaves a live track
 unannotated is a validation finding. An `On-hold`
 venture resumes to `Exploring` by operator act, or closes via a gate run or
 operator declaration. Killed and Abandoned ventures are archived with a brief
@@ -448,8 +448,7 @@ operator-triaged commits); the validator guards them.
 
 Graduation records lineage (REQ-J1.5) in an optional `brief.md`
 `## Lineage` between `## Gate log` and `## Changelog`: one bullet per
-graduated scope (`venture` when untracked, else the track label), written
-with the seed:
+graduated scope (`venture` when untracked, else the track label):
 
 ```markdown
 - **<scope>** — Gate <n> — seed: `<location>` — spec: `<location>` | pending
