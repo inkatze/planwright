@@ -315,7 +315,7 @@ while IFS= read -r p; do
   case $want_rc in '' | *[!0-9]*) fail_closed "$p: the fixture's exit is not a number" ;; esac
   [ "$want_rc" -le 255 ] || fail_closed "$p: the fixture's exit is out of range"
   want_class=""
-  IFS= read -r want_class <"$d/stderr" || [ -n "$want_class" ] || want_class=""
+  IFS= read -r want_class <"$d/stderr" || :
   case $want_class in empty | 'match '?*) ;; *) fail_closed "$p: the fixture's stderr class is malformed" ;; esac
   awk 'END { exit NR > 1 }' "$d/stderr" || fail_closed "$p: the fixture's stderr class is malformed (more than one line)"
   if [ ! -x "$repo_root/$p" ]; then
