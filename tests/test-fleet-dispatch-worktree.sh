@@ -1524,8 +1524,8 @@ c34() {
     *) fail "c34: a stray task brief must be refused by the confinement, got: $_err" ;;
   esac
   # --relaunch stays a flight option.
-  # Pinned on its own refusal: a regression there would otherwise launch.
-  _err=$("$PRIM" dispatch demo 4.5 --brief "$_own/brief.md" --relaunch --repo-root "$tmp/primary" \
+  # Pinned on its own refusal; --attach-dry-run keeps a regression from launching.
+  _err=$("$PRIM" dispatch demo 4.5 --brief "$_own/brief.md" --relaunch --repo-root "$tmp/primary" --attach-dry-run \
     </dev/null 2>&1 >/dev/null)
   RC=$?
   [ "$RC" -eq 2 ] || fail "c34: --relaunch on a task dispatch must be refused (exit 2), got $RC"
