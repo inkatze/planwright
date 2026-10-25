@@ -249,15 +249,29 @@ probe() {
   # The venture's pre-commit hook searches these same places, but only after
   # sourcing the venture's .planwright-local.sh, which this helper never
   # executes; so `absent` means "not found from this session", and the
-  # degraded line says so. The cache glob stays unquoted to expand.
+  # degraded line says so. The arms come from the resolver, minus its
+  # self-location arm (this copy, which the hook cannot see); the plugin
+  # cache, which the hook also searches, is outside the chain. The cache glob
+  # stays unquoted to expand.
   plugin=absent
-  for cand in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
-    "${HOME:-}/.claude/planwright" "${HOME:-}"/.claude/plugins/cache/planwright/planwright/*; do
+  pw_arms=$(/bin/sh "$self_dir/resolve-root.sh" --explain install --all 2>/dev/null \
+    | awk -F '\t' '$1 != "self-location" { print $2 }') || pw_arms=
+  while IFS= read -r cand; do
     if [ -n "$cand" ] && [ -r "$cand/scripts/inception-validate.sh" ]; then
       plugin=loaded
       break
     fi
-  done
+  done <<EOF
+$pw_arms
+EOF
+  if [ "$plugin" = absent ]; then
+    for cand in "${HOME:-}"/.claude/plugins/cache/planwright/planwright/*; do
+      if [ -r "$cand/scripts/inception-validate.sh" ]; then
+        plugin=loaded
+        break
+      fi
+    done
+  fi
 
   # A cloud sandbox, Cowork's included, is discarded when its session ends.
   # A Cowork local session over a connected folder is the exception the
