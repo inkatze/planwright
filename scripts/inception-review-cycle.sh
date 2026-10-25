@@ -220,10 +220,15 @@ tab=$(printf '\t')
 # leaves only the subshell, and the step would carry on with an empty date.
 today_val=${PLANWRIGHT_INCEPTION_TODAY:-}
 if [ -n "$today_val" ]; then
-  case $today_val in
-    [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]) ;;
-    *) die 2 "PLANWRIGHT_INCEPTION_TODAY must be a YYYY-MM-DD date" ;;
-  esac
+  printf '%s\n' "$today_val" | awk '
+    /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ {
+      y = substr($0, 1, 4) + 0; m = substr($0, 6, 2) + 0; d = substr($0, 9, 2) + 0
+      dim = 31
+      if (m == 4 || m == 6 || m == 9 || m == 11) dim = 30
+      else if (m == 2) dim = ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0) ? 29 : 28
+      ok = (m >= 1 && m <= 12 && d >= 1 && d <= dim)
+    }
+    END { exit !ok }' || die 2 "PLANWRIGHT_INCEPTION_TODAY must be a real YYYY-MM-DD date"
 else
   today_val=$(date +%Y-%m-%d)
 fi
@@ -305,12 +310,15 @@ ledger_check_version() {
     || die 2 "the ledger declares Ledger-version '$(sanitize_printable "$lv")'; this planwright reads version $LEDGER_VERSION"
 }
 
-# item_get <FB-id> <Key>
+# item_get <FB-id> <Key> — stripped of C0 and DEL as it is read, for the
+# reason header gives: these values reach a terminal and a commit message.
+# The 0x80-0x9F bytes stay, since an author's name may be multibyte.
 item_get() {
   awk -v id="$1" -v k="$2" '
     /^### / { cur = $2; next }
     cur == id && /^Text:/ { cur = "" }
-    cur == id && index($0, k ": ") == 1 { print substr($0, length(k) + 3); exit }' "$ledger"
+    cur == id && index($0, k ": ") == 1 { print substr($0, length(k) + 3); exit }' "$ledger" \
+    | tr -d '\000-\011\013-\037\177'
 }
 
 item_exists() {

@@ -294,6 +294,10 @@ PLANWRIGHT_INCEPTION_TODAY=bogus "$CYCLE" export --confirmed "$v" >/dev/null 2>"
 assert_eq "bad pinned date: export refused" "2" "$?"
 assert_eq "bad pinned date: no API call" "$calls" "$(wc -l <"$tmp/log/argv" | tr -d ' ')"
 assert_eq "bad pinned date: no commit" "$before" "$(head_sha)"
+PLANWRIGHT_INCEPTION_TODAY=2026-19-39 "$CYCLE" export --confirmed "$v" >/dev/null 2>"$tmp/err"
+assert_eq "impossible pinned date: export refused" "2" "$?"
+assert_eq "impossible pinned date: no API call" "$calls" "$(wc -l <"$tmp/log/argv" | tr -d ' ')"
+assert_eq "impossible pinned date: no commit" "$before" "$(head_sha)"
 
 # fresh_venture <dir> — a second venture, exported and harvested, its three
 # items pending.
@@ -628,6 +632,15 @@ assert_not_contains "header escape: the refusal carries none" "$(printf '\033')"
 "$CYCLE" harvest "$v6" >/dev/null 2>"$tmp/err"
 assert_not_contains "header escape: harvest's messages carry none" "$(printf '\033')" "$(cat "$tmp/err")"
 assert_not_contains "header escape: no commit message carries one" "$(printf '\033')" "$(git -C "$v6" log --format=%B)"
+
+# Item fields reach a commit message too, so they are sanitized the same way.
+awk '/^### FB-1 / { s = 1 } /^### FB-2 / { s = 0 } s && /^(Author|Source): / { printf "%s\033[31m\n", $0; next } { print }' "$v6/feedback/ledger.md" >"$tmp/l" && cp "$tmp/l" "$v6/feedback/ledger.md"
+git -C "$v6" commit -qm "chore: a hand edit" -- feedback/ledger.md
+awk '/^## Appetite/ { print; getline; print; print "A stakeholder note on appetite."; next } { print }' "$v6/brief.md" >"$tmp/brief" && cp "$tmp/brief" "$v6/brief.md"
+git -C "$v6" add brief.md
+"$CYCLE" apply FB-1 "$v6" >/dev/null 2>"$tmp/err"
+assert_eq "item escape: apply exit 0" "0" "$?"
+assert_not_contains "item escape: the apply commit message carries none" "$(printf '\033')" "$(git -C "$v6" log -1 --format=%B)"
 
 # ---------------------------------------------------------------------------
 # 21. Stored values keep their UTF-8: only C0 and DEL are stripped, and a cap
