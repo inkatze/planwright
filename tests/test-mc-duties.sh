@@ -172,6 +172,42 @@ expect_eq "REQ-C1.4: an enabled shadow duty arms its watchers" "beta-duty${tab}s
 mc_run mc-duties.sh files --program alpha
 expect_eq "REQ-C1.4: an enabled shadow duty owns its directory" "beta-duty${tab}beta"
 
+# The by-layer malformed policy: an invalid adopter or machine-local entry is
+# skipped with a warning; an invalid repo-tracked or core entry refuses the
+# catalog.
+reset_mc_fixture
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [alpha-duty, adopter-duty]
+EOF
+cat >"$adopter/catalogs/duties.yaml" <<'EOF'
+duties:
+  - id: adopter-duty
+    summary: "An adopter's broken duty"
+    triggers: []
+    watchers: [scripts/adopter.sh@5m/low]
+    wake: none
+    rules: []
+    kinds: []
+    files: adopter
+    lifecycle: sometimes
+    never-propose: false
+EOF
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "an invalid adopter entry is skipped, not refused" 0
+expect_eq "the valid duties still arm" "alpha-duty${tab}scripts/alpha-watch.sh${tab}5m${tab}low
+alpha-duty${tab}scripts/alpha-sweep.sh${tab}1h${tab}medium"
+expect_err "the skip is warned about, naming the duty and layer" "adopter-duty"
+expect_err "the skip names the layer" "adopter layer"
+
+sed -e 's/^  - id: adopter-duty$/  - id: tracked-duty/' "$adopter/catalogs/duties.yaml" >"$repo/.claude/catalogs/duties.yaml"
+rm -f "$adopter/catalogs/duties.yaml"
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "an invalid repo-tracked entry refuses the catalog" 1
+expect_err "the refusal names the duty" "tracked-duty"
+
 # ---------------------------------------------------------------------------
 # REQ-C1.1: what the resolver passes through is still checked.
 # ---------------------------------------------------------------------------
@@ -220,10 +256,23 @@ printf '#!/bin/sh\nif [ -n "${MODE:-}" ]; then echo "awk: simulated failure" >&2
 chmod +x "$tmp/shim/awk"
 saved_path=$PATH
 PATH="$tmp/shim:$PATH"
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [alpha-duty]
+EOF
 mc_run mc-duties.sh validate
+validate_rc=$RC validate_err=$ERR
+mc_run mc-duties.sh watchers --program alpha
 PATH=$saved_path
+watchers_rc=$RC watchers_out=$OUT
+RC=$validate_rc ERR=$validate_err
 expect_rc "a failing catalog reader fails validate" 1
 expect_err "the reader failure is named" "the catalog reader failed"
+RC=$watchers_rc OUT=$watchers_out
+expect_rc "a failing catalog reader fails watchers, arming nothing" 1
+expect_eq "nothing is armed past a failed reader" ""
 
 mc_run mc-duties.sh watchers
 expect_rc "watchers without --program is a usage error" 2

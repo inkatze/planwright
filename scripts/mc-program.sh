@@ -40,6 +40,11 @@
 #   mc-program.sh validate <name>       check every field; each problem on
 #                                       stderr as <name>: <field>: <problem>
 #
+# An invalid value in the adopter or machine-local layer is warned about and
+# the next lower layer read instead; one in the repo-tracked layer or the core
+# defaults fails, as does a config read that fails. validate fails on an
+# invalid value in any layer.
+#
 # Whether an enabled duty exists is the catalog's question:
 # scripts/mc-duties.sh and scripts/check-duties.sh answer it.
 #
@@ -76,9 +81,6 @@ problem() { # problem <name> <field> <text>
 
 # repeated <lines>: the first line that occurs more than once, if any.
 repeated() { printf '%s\n' "$1" | sort | uniq -d | head -n 1; }
-
-# cfg <key>: the merged value; exit 3 when no layer sets it.
-cfg() { /bin/sh "$script_dir/config-get.sh" "$1"; }
 
 # Pattern tests, not grep: grep matches line by line, so a value carrying a
 # newline would pass on one good line.
@@ -171,12 +173,8 @@ expand_path() {
 
 key_of() { printf 'program_%s_%s' "$(printf '%s' "$1" | tr - _)" "$2"; }
 
-# pcfg <name> <field>: a program key, or unset (exit 3) for the defaults.
+# The placeholder name under which the shipped defaults are read alone.
 DEFAULTS="(defaults)"
-pcfg() {
-  [ "$1" != "$DEFAULTS" ] || return 3
-  cfg "$(key_of "$1" "$2")"
-}
 
 # read_list <name> <field> <raw>: split a list value or name the problem.
 read_list() {
@@ -208,11 +206,84 @@ read_map() {
   esac
 }
 
-programs() {
-  if ! raw=$(cfg mission_control_programs); then
-    return 0
+# Every read goes through config-get.sh --layers, which prints each layer's
+# value, lowest precedence first; the highest valid one wins. An invalid
+# value in the adopter or machine-local layer is warned about and the next
+# lower layer read instead, the policy the config and catalog readers apply
+# to a malformed file; an invalid value in the repo-tracked layer or the core
+# defaults fails, and so does a read config-get.sh itself fails. validate
+# sets STRICT, failing on any invalid value so a degrade hides nothing.
+STRICT=0
+scratch_err=$(mktemp) || exit 2
+trap 'rm -f "$scratch_err"' EXIT
+
+# layered <name> <field> <key> <parser>: the value of <key>, parsed by
+# `<parser> <name> <raw>`. Status 0 printed; 3 no layer sets a valid value;
+# 1 a failure, named on stderr.
+layered() {
+  ly_lines=$(/bin/sh "$script_dir/config-get.sh" --layers "$3" 2>"$scratch_err")
+  ly_rc=$?
+  cat "$scratch_err" >&2
+  case $ly_rc in
+    0) ;;
+    3) return 3 ;;
+    *)
+      problem "$1" "$2" "reading $3 failed (config-get.sh exit $ly_rc)"
+      return 1
+      ;;
+  esac
+  ly_rev=$(printf '%s\n' "$ly_lines" | awk '{ l[NR] = $0 } END { for (i = NR; i > 0; i--) print l[i] }')
+  while IFS= read -r ly_line; do
+    [ -n "$ly_line" ] || continue
+    ly_layer=${ly_line%%	*}
+    if ly_out=$("$4" "$1" "${ly_line#*	}" 2>"$scratch_err"); then
+      [ -z "$ly_out" ] || printf '%s\n' "$ly_out"
+      return 0
+    fi
+    cat "$scratch_err" >&2
+    case $ly_layer in
+      adopter | machine-local)
+        if [ "$STRICT" -eq 0 ]; then
+          problem "$1" "$2" "warning: the $ly_layer value of $3 is invalid; degrading to the next lower layer"
+          continue
+        fi
+        ;;
+    esac
+    return 1
+  done <<EOF
+$ly_rev
+EOF
+  return 3
+}
+
+# with_default <name> <field> <default-key> <parser>: the program's own key,
+# else the shipped default; the defaults alone for $DEFAULTS.
+with_default() {
+  if [ "$1" != "$DEFAULTS" ]; then
+    layered "$1" "$2" "$(key_of "$1" "$2")" "$4"
+    wd_rc=$?
+    [ "$wd_rc" -eq 3 ] || return "$wd_rc"
   fi
-  names=$(read_list programs mission_control_programs "$raw") || return 1
+  layered "$1" "$2" "$3" "$4"
+  wd_rc=$?
+  [ "$wd_rc" -eq 3 ] || return "$wd_rc"
+  problem "$1" "$2" "$3 is not set (broken install)"
+  return 1
+}
+
+# required <name> <field> <parser>: a program key with no default.
+required() {
+  layered "$1" "$2" "$(key_of "$1" "$2")" "$3"
+  rq_rc=$?
+  [ "$rq_rc" -eq 3 ] || return "$rq_rc"
+  problem "$1" "$2" "not set ($(key_of "$1" "$2"))"
+  return 1
+}
+
+# The parsers: parse_<field> <name> <raw> prints the resolved value, or names
+# the problem on stderr and returns 1.
+parse_programs() {
+  names=$(read_list programs mission_control_programs "$2") || return 1
   while IFS= read -r n; do
     [ -n "$n" ] || continue
     if ! valid_name "$n"; then
@@ -230,12 +301,8 @@ EOF
   [ -z "$names" ] || printf '%s\n' "$names"
 }
 
-field_repositories() {
-  if ! raw=$(cfg "$(key_of "$1" repositories)"); then
-    problem "$1" repositories "not set ($(key_of "$1" repositories))"
-    return 1
-  fi
-  members=$(read_list "$1" repositories "$raw") || return 1
+parse_repositories() {
+  members=$(read_list "$1" repositories "$2") || return 1
   if [ -z "$members" ]; then
     problem "$1" repositories "names no repository"
     return 1
@@ -254,39 +321,11 @@ EOF
   return $rc
 }
 
-field_spec_root() {
-  if ! raw=$(cfg "$(key_of "$1" spec_root)"); then
-    problem "$1" spec_root "not set ($(key_of "$1" spec_root))"
-    return 1
-  fi
-  expand_path "$1" spec_root "$raw"
-}
+parse_spec_root() { expand_path "$1" spec_root "$2"; }
+parse_home() { expand_path "$1" home "$2"; }
 
-field_home() {
-  if raw=$(pcfg "$1" home); then
-    expand_path "$1" home "$raw"
-    return
-  fi
-  if ! raw=$(cfg mission_control_home_root); then
-    problem "$1" home "mission_control_home_root is not set (broken install)"
-    return 1
-  fi
-  root=$(expand_path "$1" home "$raw") || return 1
-  if [ "$1" = "$DEFAULTS" ]; then
-    printf '%s\n' "$root"
-  else
-    printf '%s\n' "${root%/}/$1"
-  fi
-}
-
-field_duties() {
-  if ! raw=$(pcfg "$1" duties); then
-    if ! raw=$(cfg mission_control_default_duties); then
-      problem "$1" duties "mission_control_default_duties is not set (broken install)"
-      return 1
-    fi
-  fi
-  members=$(read_list "$1" duties "$raw") || return 1
+parse_duties() {
+  members=$(read_list "$1" duties "$2") || return 1
   while IFS= read -r m; do
     [ -n "$m" ] || continue
     if ! valid_kebab "$m"; then
@@ -304,12 +343,11 @@ EOF
   [ -z "$members" ] || printf '%s\n' "$members"
 }
 
-field_budget() {
-  raw=$(cfg "$(key_of "$1" budget)") || raw="{}"
-  entries=$(read_map "$1" budget "$raw") || return 1
+parse_budget() {
+  entries=$(read_map "$1" budget "$2") || return 1
   [ -n "$entries" ] || return 0
   if printf '%s\n' "$entries" | cut -f1 | grep -Evq '^[a-z][a-z0-9_]*$'; then
-    problem "$1" budget "a key in '$raw' is not lowercase snake case"
+    problem "$1" budget "a key in '$2' is not lowercase snake case"
     return 1
   fi
   dup=$(repeated "$(printf '%s\n' "$entries" | cut -f1)")
@@ -320,16 +358,9 @@ field_budget() {
   printf '%s\n' "$entries"
 }
 
-field_sources() {
-  if ! raw=$(pcfg "$1" sources); then
-    if ! raw=$(cfg mission_control_default_sources); then
-      problem "$1" sources "mission_control_default_sources is not set (broken install)"
-      return 1
-    fi
-  fi
-  entries=$(read_map "$1" sources "$raw") || return 1
+parse_sources() {
+  entries=$(read_map "$1" sources "$2") || return 1
   rc=0
-  seen=" "
   while IFS='	' read -r class value; do
     [ -n "$class" ] || continue
     known_class=0
@@ -341,14 +372,6 @@ field_sources() {
       rc=1
       continue
     fi
-    case $seen in
-      *" $class "*)
-        problem "$1" sources "fact class '$class' named twice"
-        rc=1
-        continue
-        ;;
-    esac
-    seen="$seen$class "
     case $value in
       *:*) ;;
       *)
@@ -373,6 +396,11 @@ field_sources() {
   done <<EOF
 $entries
 EOF
+  dup=$(repeated "$(printf '%s\n' "$entries" | cut -f1)")
+  if [ -n "$dup" ]; then
+    problem "$1" sources "fact class '$dup' named twice"
+    rc=1
+  fi
   [ "$rc" -eq 0 ] || return 1
   for class in $CLASSES; do
     line=$(printf '%s\n' "$entries" | awk -F '\t' -v c="$class" '$1 == c { print; exit }')
@@ -384,6 +412,41 @@ EOF
     fi
   done
 }
+
+programs() {
+  layered programs mission_control_programs mission_control_programs parse_programs
+  pg_rc=$?
+  [ "$pg_rc" -eq 3 ] && return 0
+  return "$pg_rc"
+}
+
+field_repositories() { required "$1" repositories parse_repositories; }
+field_spec_root() { required "$1" spec_root parse_spec_root; }
+
+field_home() {
+  if [ "$1" != "$DEFAULTS" ]; then
+    layered "$1" home "$(key_of "$1" home)" parse_home
+    fh_rc=$?
+    [ "$fh_rc" -eq 3 ] || return "$fh_rc"
+  fi
+  root=$(with_default "$DEFAULTS" home mission_control_home_root parse_home) || return 1
+  if [ "$1" = "$DEFAULTS" ]; then
+    printf '%s\n' "$root"
+  else
+    printf '%s\n' "${root%/}/$1"
+  fi
+}
+
+field_duties() { with_default "$1" duties mission_control_default_duties parse_duties; }
+
+field_budget() {
+  layered "$1" budget "$(key_of "$1" budget)" parse_budget
+  fb_rc=$?
+  [ "$fb_rc" -eq 3 ] && return 0
+  return "$fb_rc"
+}
+
+field_sources() { with_default "$1" sources mission_control_default_sources parse_sources; }
 
 # common_dir <dir>: the canonical git common directory of <dir>, or nothing.
 common_dir() {
@@ -478,6 +541,7 @@ case $verb in
   validate)
     [ $# -eq 1 ] || usage
     require_program "$1"
+    STRICT=1
     status=0
     for f in $FIELDS; do
       ("field_$f" "$1" >/dev/null) || status=1

@@ -18,9 +18,11 @@
 #
 # An armed duty is one the program enables (scripts/mc-program.sh) whose
 # lifecycle is shadow or live. A disabled duty, or an `off` one, arms no
-# watcher and owns no directory. watchers and files refuse an invalid
-# catalog, and an enabled id the catalog lacks. A repeated id reads its first
-# entry, as the resolver keeps it.
+# watcher and owns no directory. watchers and files skip, with a warning, an
+# invalid entry an adopter or machine-local catalog supplied, and refuse the
+# catalog over one from the core seed or the repo-tracked catalog, and over
+# an enabled id the catalog lacks. A repeated id reads its first entry, as
+# the resolver keeps it.
 #
 # Exit codes: 0 resolved; 1 an invalid catalog, an unknown enabled duty, a
 # missing field or a control character in a value (get), or a resolver,
@@ -170,10 +172,12 @@ walk() {
         }
       }
     }
-    function armed(    en, c, j, i, arr, w, k, wp) {
+    function armed(    en, c, j, i, arr, w, k, wp, sk, ns, skipped) {
       c = split(ENVIRON["ENABLED"], en, "\n")
+      ns = split(ENVIRON["SKIP"], sk, "\n")
+      for (j = 1; j <= ns; j++) skipped[sk[j]] = 1
       for (j = 1; j <= c; j++) {
-        if (en[j] == "") continue
+        if (en[j] == "" || en[j] in skipped) continue
         if (!(en[j] in idx)) { print "missing\t" en[j]; continue }
         i = idx[en[j]]
         if (val[i, "lifecycle"] == "off") continue
@@ -202,28 +206,80 @@ merged() {
   catalog || fail "the duties catalog does not resolve (scripts/resolve-catalog.sh duties)"
 }
 
-# validate_text <catalog>: report every problem in an already-resolved
-# catalog; status 0 clean, 1 problems.
-validate_text() {
-  problems=$(printf '%s\n' "$1" | walk validate)
+# problems_of <catalog>: every problem in an already-resolved catalog, one
+# <id>: <field>: <problem> line each; status 0 clean, 1 problems, 2 the
+# reader failed (named on stderr).
+problems_of() {
+  printf '%s\n' "$1" | walk validate
   case $? in
     0) return 0 ;;
-    1) ;;
-    *) fail "the catalog reader failed" ;;
+    1) return 1 ;;
+    *)
+      printf '%s\n' "$prog: the catalog reader failed" >&2
+      return 2
+      ;;
   esac
-  printf '%s\n' "$problems" | while IFS= read -r p; do
-    printf '%s\n' "$prog: $(sanitize_printable "$p")" >&2
-  done
-  return 1
 }
 
-armed() { # armed <watchers|files> <program>
+report() { # report <problem-lines>
+  printf '%s\n' "$1" | while IFS= read -r p; do
+    printf '%s\n' "$prog: $(sanitize_printable "$p")" >&2
+  done
+}
+
+# armed <watchers|files> <program>. An invalid entry an adopter or
+# machine-local catalog supplied is skipped with a warning, the policy the
+# catalog resolver applies to a malformed overlay file; one from the core
+# seed or the repo-tracked catalog refuses the whole catalog.
+armed() {
   cat_out=$(merged) || exit 1
-  validate_text "$cat_out" || fail "refusing an invalid catalog; run scripts/check-duties.sh"
+  skip=""
+  problems=$(problems_of "$cat_out")
+  case $? in
+    0) ;;
+    1) skip_or_refuse ;;
+    *) exit 1 ;;
+  esac
   enabled=$(bash "$script_dir/mc-program.sh" get "$2" duties)
   rc=$?
   [ "$rc" -eq 0 ] || exit "$rc"
-  out=$(printf '%s\n' "$cat_out" | ENABLED=$enabled walk "$1") || fail "the catalog reader failed"
+  armed_rest "$1" "$2"
+}
+
+# skip_or_refuse: sort $problems by the layer that supplied each entry,
+# setting $skip or refusing the catalog.
+skip_or_refuse() {
+  layers=$(catalog --explain 2>/dev/null)
+  skip=""
+  refuse=""
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    id=${p%%: *}
+    layer=$(printf '%s\n' "$layers" | ID=$id awk -F '\t' '$1 == ENVIRON["ID"] { print $2; exit }')
+    case $layer in
+      adopter | machine-local)
+        skip="$skip$id
+"
+        printf '%s\n' "$prog: warning: $(sanitize_printable "$p")" >&2
+        ;;
+      *) refuse="$refuse$p
+" ;;
+    esac
+  done <<EOF
+$problems
+EOF
+  if [ -n "$refuse" ]; then
+    report "${refuse%?}"
+    fail "refusing an invalid catalog; run scripts/check-duties.sh"
+  fi
+  printf '%s' "$skip" | sort -u | while IFS= read -r id; do
+    layer=$(printf '%s\n' "$layers" | ID=$id awk -F '\t' '$1 == ENVIRON["ID"] { print $2; exit }')
+    printf '%s\n' "$prog: warning: skipping duty '$(sanitize_printable "$id")' from the $layer layer; its entry is invalid" >&2
+  done
+}
+
+armed_rest() { # armed_rest <watchers|files> <program>
+  out=$(printf '%s\n' "$cat_out" | ENABLED=$enabled SKIP=${skip:-} walk "$1") || fail "the catalog reader failed"
   missing=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "missing" { print $2 }')
   if [ -n "$missing" ]; then
     printf '%s\n' "$missing" | while IFS= read -r m; do
@@ -274,7 +330,15 @@ case $verb in
   validate)
     [ $# -eq 0 ] || usage
     cat_out=$(merged) || exit 1
-    validate_text "$cat_out"
+    problems=$(problems_of "$cat_out")
+    case $? in
+      0) ;;
+      1)
+        report "$problems"
+        exit 1
+        ;;
+      *) exit 1 ;;
+    esac
     ;;
   -h | --help)
     awk 'NR>=2 { if ($0 ~ /^#/) { sub(/^# ?/, ""); print } else exit }' "$0"

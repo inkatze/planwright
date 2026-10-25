@@ -68,7 +68,7 @@ reset_mc_fixture() {
   write_core_defaults </dev/null
   write_core_duties
   : >"$tracked"
-  rm -f "$repo/.claude/catalogs/duties.yaml" "$adopter/catalogs/duties.yaml"
+  rm -f "$repo/.claude/catalogs/duties.yaml" "$adopter/catalogs/duties.yaml" "$adopter/planwright.yml"
 }
 
 mc_run() {

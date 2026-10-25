@@ -311,6 +311,45 @@ mc_run mc-program.sh posture alpha
 expect_rc "posture with no listed repository on this machine fails" 1
 expect_err "the missing repositories are named" "alpha: repositories"
 
+# ---------------------------------------------------------------------------
+# The by-layer malformed policy: an invalid adopter or machine-local value
+# degrades to the next lower layer with a warning; an invalid repo-tracked
+# value, or a malformed repo-tracked file, fails.
+# ---------------------------------------------------------------------------
+alpha_block
+printf 'program_alpha_duties: beta-duty\n' >"$adopter/planwright.yml"
+mc_run mc-program.sh get alpha duties
+expect_rc "an invalid adopter value degrades rather than failing" 0
+expect_eq "the degraded read falls back to the shipped default set" "$want"
+expect_err "the degrade is warned about, naming the layer" "adopter"
+mc_run mc-program.sh validate alpha
+expect_rc "validate reports a value that only degrades at read time" 1
+
+printf 'program_alpha_duties: [alpha-duty]\n' >"$adopter/planwright.yml"
+printf 'program_alpha_duties: [Not An Id]\n' >"$tmp/local.yml"
+OUT=$(cd "$repo" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_CONFIG_DEFAULTS \
+  PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+  PLANWRIGHT_LOCAL_CONFIG="$tmp/local.yml" CLAUDE_DIR="$tmp/claude" HOME="$fixhome" \
+  /bin/bash "$repo_root/scripts/mc-program.sh" get alpha duties 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "an invalid machine-local value degrades" 0
+expect_eq "it degrades to the adopter layer's value" "alpha-duty"
+expect_err "the machine-local degrade is warned about" "machine-local"
+rm -f "$adopter/planwright.yml"
+
+alpha_block
+printf 'program_alpha_duties: beta-duty\n' >>"$tracked"
+mc_run mc-program.sh get alpha duties
+expect_rc "an invalid repo-tracked value fails" 1
+
+alpha_block
+printf 'nested:\n  child: 1\n' >>"$tracked"
+mc_run mc-program.sh list
+expect_rc "a malformed repo-tracked file fails the read, never reads as unset" 1
+mc_run mc-program.sh default duties
+expect_rc "a malformed repo-tracked file fails a default read too" 1
+
 alpha_block
 mc_run mc-program.sh get alpha nonsense
 expect_rc "an unknown field is a usage error" 2
