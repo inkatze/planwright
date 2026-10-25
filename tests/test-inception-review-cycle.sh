@@ -410,6 +410,14 @@ assert_eq "unreadable bundle: apply refused" "1" "$?"
 assert_contains "unreadable bundle: says the validator could not read it" "could not read" "$(cat "$tmp/err")"
 git -C "$v4" reset -q && git -C "$v4" checkout -q -- assumptions.md
 
+# ---------------------------------------------------------------------------
+# 13. An export that succeeds with a warning shows the warning.
+# ---------------------------------------------------------------------------
+{ printf 'PATCH /v1/pages/%s/markdown markdown-truncated.json 200 once\n' "$PAGE" && cat "$tmp/routes"; } >"$tmp/routes.new" && cp "$tmp/routes.new" "$tmp/routes"
+"$CYCLE" export --confirmed "$v4" >/dev/null 2>"$tmp/err"
+assert_eq "export with a warning: exit 0" "0" "$?"
+assert_contains "export with a warning: the adapter's warning shows" "truncated" "$(cat "$tmp/err")"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

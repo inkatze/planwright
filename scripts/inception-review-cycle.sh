@@ -508,6 +508,10 @@ cmd_export() {
     printf '\n' >&2
     die 3 "the $adapter adapter could not export"
   fi
+  [ ! -s "$work/adapter.err" ] || {
+    sanitize_printable "$(cat "$work/adapter.err")" >&2
+    printf '\n' >&2
+  }
 
   mkdir -p "$target/feedback" || die 2 "cannot create feedback/"
   ledger_guard
