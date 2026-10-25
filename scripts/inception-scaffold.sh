@@ -124,6 +124,20 @@ trap 'rm -f "$stage"' EXIT
 
 emit() {
   dest="$target/$1"
+  # A link would send the write outside the venture, and -e misses a dangling
+  # one, so every link is refused, --force included, the parents too.
+  if [ -h "$dest" ]; then
+    printf '%s\n' "inception-scaffold: $1 is a symbolic link; not writing through it." >&2
+    return 0
+  fi
+  emit_parent=$(dirname "$1")
+  while [ "$emit_parent" != . ]; do
+    if [ -h "$target/$emit_parent" ]; then
+      printf '%s\n' "inception-scaffold: $1 is under a symbolic link ($emit_parent); not writing through it." >&2
+      return 0
+    fi
+    emit_parent=$(dirname "$emit_parent")
+  done
   if [ -e "$dest" ] && [ "$force" -eq 0 ]; then
     printf 'kept %s\n' "$1"
     return 0

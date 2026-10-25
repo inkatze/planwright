@@ -168,6 +168,24 @@ assert_eq "G1.8 linked CLAUDE.md: the scaffold still succeeds" "0" "$?"
 assert_contains "G1.8 linked CLAUDE.md: refused and said" "symbolic link" "$out"
 assert_eq "G1.8 linked CLAUDE.md: nothing written through the link" "elsewhere" "$(cat "$tmp/outside-claude.md")"
 
+# No emitted file is written through a symbolic link: not an existing link
+# (with or without --force), not a dangling one, not one in a parent directory.
+v="$tmp/linked-emit"
+mkdir -p "$v" "$tmp/outside-dir"
+printf 'theirs\n' >"$tmp/outside-proto.md"
+ln -s "$tmp/outside-proto.md" "$v/sync-protocol.md"
+ln -s "$tmp/outside-dangling.md" "$v/.gitignore"
+ln -s "$tmp/outside-dir" "$v/githooks"
+out="$("$SCAFFOLD" --rung local --force "$v" 2>&1)"
+assert_eq "linked emit: the scaffold still succeeds" "0" "$?"
+assert_contains "linked emit: a linked file is refused and said" "sync-protocol.md is a symbolic link" "$out"
+assert_eq "linked emit: --force writes nothing through a file link" "theirs" "$(cat "$tmp/outside-proto.md")"
+assert_no_file "linked emit: a dangling link is not followed" "$tmp/outside-dangling.md"
+assert_contains "linked emit: a dangling link is refused and said" ".gitignore is a symbolic link" "$out"
+assert_no_file "linked emit: nothing written through a linked directory" "$tmp/outside-dir/pre-commit"
+assert_contains "linked emit: a linked directory is refused and said" "githooks/pre-commit is under a symbolic link" "$out"
+assert_file "linked emit: the unlinked files are still written" "$v/hygiene-wiring.md"
+
 # A last line with no newline must not have the import glued onto it, or the
 # keep check would miss it and every re-run would append again.
 v="$tmp/unterminated-claude"
