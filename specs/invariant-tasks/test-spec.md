@@ -1,7 +1,7 @@
 # Invariant Tasks — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-07-14
+**Last reviewed:** 2026-10-25
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -227,3 +227,63 @@ and the docs check asserts the note's content is present in the row.
 The annotation on orchestration-concurrency's Deferred "Maximal variant"
 entry, citing this bundle, is the verification artifact; its presence is
 mechanically checked in the Task 6 fixture suite and reviewed at that PR.
+
+## REQ-F — Per-task repositories (format-version 3)
+
+### REQ-F1.1 — version 3 field and coexistence [test + design-level]
+
+Validator fixtures (Task 10): a version 3 bundle with a valid
+`Repository:` field passes; the same field in a version 2 bundle fails;
+every in-repo version 1 and 2 bundle still validates. The version 3
+definition in `doctrine/spec-format.md` (Task 9) is the design-level
+artifact. Runs in `mise run check`.
+
+### REQ-F1.2 — alias grammar, one per block [test]
+
+Validator fixtures (Task 10): two fields in one block, a list value, a
+path value, a URL value, and an alias outside the identifier grammar each
+fail on a signed fixture and warn on a Draft one. The derivation fixtures
+(Task 11) resolve the alias only through the fixture registry; no fixture
+bundle names a checkout.
+
+### REQ-F1.3 — field in the extraction [test]
+
+Extraction fixtures (Task 10): a version 3 bundle with no field produces
+the same digest as its version 2 copy; adding a field, changing its alias,
+or removing it each change the digest.
+
+### REQ-F1.4 — per-task derivation and dependencies [test]
+
+The two-repository fixture (Task 11): Task 1 names `alpha`, Task 2 names
+`beta` and depends on Task 1. A merged pull request for Task 1 in `alpha`
+makes Task 2 selectable, and Task 1's branch alone does not; a same-named
+task branch in `beta` is not evidence for Task 1; Task 2 derives from
+`beta` only; the render prints each task's alias; a bundle with no field
+derives exactly as before on the existing render fixtures.
+
+### REQ-F1.5 — unresolved alias fails closed [test]
+
+The two-repository fixture with `beta` removed from the fixture registry
+(Task 11): Task 2 derives `unresolved` naming `beta`, is never selected,
+leaves its dependents unmet, resolves its gate atoms unresolved, and the
+bundle does not derive Done; Task 1 still derives from `alpha`.
+
+### REQ-F1.6 — transient failure per repository [test]
+
+The two-repository fixture with a failing remote stub in `beta` (Task 11):
+the render reports the failure naming `beta`, selection dispatches nothing
+for the bundle, and gate atoms on `beta`'s tasks resolve unresolved.
+
+### REQ-F1.7 — validator severities and version keying [test]
+
+Validator fixtures (Task 10) at Draft, signed, and terminal statuses
+assert the REQ-C1.5 severities for each field rule; an escape-byte alias
+is sanitized in the error; a version 4 declaration fails closed in every
+script that reads `Format-version:`.
+
+### REQ-F1.8 — doctrine and authoring [design-level + manual]
+
+The version 3 entry in the meta-spec's versioning section (Task 9) is the
+design-level artifact. `/spec-draft`'s version 3 skeleton with one field
+validates (Task 12, a fixture); a human drafts a two-repository bundle and
+confirms the skill offers the field and declares version 3 only then.

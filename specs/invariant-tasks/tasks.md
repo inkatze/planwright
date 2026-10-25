@@ -1,7 +1,7 @@
 # Invariant Tasks — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-07-14
+**Last reviewed:** 2026-10-25
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -219,9 +219,108 @@ the guard that protects their output exists.
 - **Citations:** D-11, D-7 · REQ-E1.3, REQ-C1.7
 - **Estimated effort:** half day
 
+*(Extension 2026-10-25: Tasks 9–12 carry per-task repositories. Task 11
+resolves aliases through the work-repository registry that
+`custom-spec-location`'s extension builds; the dependency grammar has no
+cross-bundle edge, so that ordering is stated in Task 11's Done-when and in
+the open questions in `requirements.md`.)*
+
+### Task 9 — Meta-spec format-version 3
+
+- **Deliverables:** The format-version 3 definition in
+  `doctrine/spec-format.md`, recorded through the meta-spec's versioning
+  ritual: version 2 plus the optional `Repository:` task definition field
+  (its position, the alias grammar, one per block, absent meaning the
+  bundle's work repository, the alias resolving only through the
+  work-repository registry); the canonical extraction keeping the field
+  line as definition content in version 3; a glossary entry for the field
+  and the `unresolved` derived state; the version 1 and 2 text unchanged.
+- **Done when:** a reader can author a valid version 3 block from
+  `doctrine/spec-format.md` alone; the extraction section states that a
+  bundle without the field extracts byte-identically to version 2; the
+  versioning section carries the dated version 3 entry; the doctrine index
+  and `check:specs` pass.
+- **Dependencies:** none
+- **Citations:** D-13, D-14 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.8
+- **Estimated effort:** half day
+
+### Task 10 — Validator, extraction, and version keying for version 3
+
+- **Deliverables:** `scripts/spec-validate.sh` enforcing the version 3
+  field rules at the REQ-C1.5 severities, with echoed aliases sanitized;
+  the shared parse library and `scripts/spec-anchor.sh` keeping the field
+  line in a version 3 extraction; every script that reads
+  `Format-version:` giving version 3 its version 2 behavior and an
+  undefined version staying fail-closed; fixture tests for each rule.
+- **Done when:** a version 3 fixture with a valid field passes; a field in
+  a version 2 bundle, two fields in one block, a list value, a path value,
+  a URL value, and an alias outside the grammar each fail on a signed
+  fixture and warn on a Draft one; an escape-byte alias is sanitized in
+  the error; a version 3 bundle with no field extracts to the same digest
+  as its version 2 copy, and adding a field changes the digest; a version 4
+  declaration fails closed in every version-keyed script; every in-repo
+  bundle still validates; `mise run check` passes.
+- **Dependencies:** 9
+- **Citations:** D-13, D-7 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.7,
+  REQ-C1.8, REQ-C1.9
+- **Estimated effort:** 1 day
+
+### Task 11 — Per-repository derivation, selection, gates, and render
+
+- **Deliverables:** `scripts/orchestrate-state.sh` resolving each task's
+  repository (the field's alias through the work-repository registry, or
+  the bundle's work repository) and deriving each task from that
+  repository's own branches, pull requests, commit trailers, and dispatch
+  markers; the `unresolved` state; the per-repository transient-failure
+  rule; `scripts/orchestrate-select.sh` and `scripts/drain-gates.sh`
+  reading dependency and gate state from that per-task derivation;
+  `scripts/spec-status.sh` showing each task's alias and naming an
+  unresolved alias or a failing repository; a two-repository fixture
+  harness (two fixture work repositories with stubbed pull-request
+  evidence and a fixture registry) shared with `custom-spec-location`'s
+  holder-dispatch tests.
+- **Done when:** on a version 3 fixture bundle whose Task 1 names repository
+  `alpha` and whose Task 2 names repository `beta` and depends on Task 1,
+  Task 1's merged pull request in `alpha` makes Task 2 selectable and
+  Task 1's branch alone in `alpha` does not; a same-named task branch
+  sitting in `beta` is not evidence for Task 1; Task 2's state derives from
+  `beta` only; an alias missing from the fixture registry derives
+  `unresolved`, is never selected, leaves its dependents unmet, resolves
+  its gate atoms unresolved, and blocks derived Done; a failing remote in
+  `beta` makes selection dispatch nothing and the render name `beta`; a
+  bundle with no field derives byte-identically to before on the existing
+  render fixtures; the alias resolution goes through the registry seam
+  `custom-spec-location` delivers (its extension's Task 11 merged first);
+  `mise run check` passes.
+- **Dependencies:** 10
+- **Citations:** D-15, D-14, D-8, D-12 · REQ-F1.4, REQ-F1.5, REQ-F1.6,
+  REQ-B1.5
+- **Estimated effort:** 2 days
+
+### Task 12 — Skills and docs for version 3
+
+- **Deliverables:** `/spec-draft` offering the `Repository:` field when the
+  elicitation surfaces a second repository and declaring version 3 only
+  then; `/execute-task`'s dependency check and `/resume`'s status read
+  naming the per-task repository and the `unresolved` state;
+  `docs/orchestration-state.md` describing per-task repositories, the
+  alias, and where its checkout comes from.
+- **Done when:** each named skill's instructions branch on the declared
+  version (version 1 and 2 behavior unchanged); `/spec-draft`'s version 3
+  skeleton with one field validates; the doc names the registry as the
+  alias's only resolution source; `mise run check`, including the
+  instruction-budget guards, passes.
+- **Dependencies:** 9, 11
+- **Citations:** D-13, D-14, D-15 · REQ-F1.8, REQ-F1.4
+- **Estimated effort:** 1 day
+
 ## Awaiting input
 
-(none yet)
+- **Task 9** — anchor re-review pending: the per-task repositories
+  extension (Tasks 9–12) is an unsigned meaning-class delta; run the
+  `/spec-kickoff` delta re-walkthrough, settle the open questions in
+  `requirements.md`, and remove this bullet at sign-off. Tasks 10–12 wait
+  behind Task 9 through their dependency edges.
 
 ## Deferred
 
@@ -249,3 +348,6 @@ the guard that protects their output exists.
   changes where state is read from, not how units are ranked.
 - Rewriting Done or terminal bundles to v2 (D-10).
 - Auto-merge at any tier — permanent carried invariant.
+- A task block naming more than one repository, and execution of a task
+  that touches no repository (D-14).
+- Migrating existing bundles to format-version 3 (D-13).
