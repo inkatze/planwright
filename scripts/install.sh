@@ -9,6 +9,7 @@
 #   <claude-dir>/planwright/doctrine/   rule docs
 #   <claude-dir>/planwright/scripts/    helper scripts (incl. the resolver)
 #   <claude-dir>/planwright/config/     tracked default config
+#   <claude-dir>/planwright/templates/  shipped templates scripts read
 #   <claude-dir>/planwright/plugin.json plugin manifest (writer-mode namespace
 #                                       source for adopter-overlay resolution)
 #   <claude-dir>/skills/<name>/         planwright skills, when present
@@ -91,6 +92,7 @@ echo "planwright writer: installing into $claude_dir"
 copy_tree "$src_root/doctrine" "$dest/doctrine"
 copy_tree "$src_root/scripts" "$dest/scripts"
 copy_tree "$src_root/config" "$dest/config"
+copy_tree "$src_root/templates" "$dest/templates"
 
 # Copy the plugin manifest into the namespace root so writer-mode
 # adopter-overlay resolution can derive its namespace from the manifest `name`
