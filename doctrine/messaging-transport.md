@@ -11,8 +11,8 @@ stages: until a path's script ships, that path runs as its fallback.
 
 Citations: fleet-messaging REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-G1.5,
 REQ-G1.6, REQ-A1.1, REQ-A1.6, REQ-E1.1, REQ-E1.2, REQ-F1.2, REQ-F1.4, REQ-F1.6,
-REQ-F1.7, REQ-H1.2, REQ-H1.4, REQ-D1.9, REQ-G1.8 · fleet-messaging D-1, D-3, D-4, D-5, D-9, D-13,
-D-14, D-16, D-17, D-26.
+REQ-F1.7, REQ-H1.2, REQ-H1.4, REQ-D1.9, REQ-G1.8 · fleet-messaging D-1, D-3,
+D-4, D-5, D-9, D-13, D-14, D-16, D-17, D-26.
 
 ## Signal versus record
 
@@ -81,8 +81,8 @@ demoted consumer; operator-facing cadences keep today's intervals.
 
 The fixed path set, plus the question row. A path a session cannot use (probe
 absent, rung ineligible) takes its fallback column from the start, and a rung
-the Fallback column gives a path of its own (a `stream-json-persistent` decision answer, a
-`headless-oneshot` worker) takes it whether or not messaging is available.
+the Fallback column gives a path of its own (a `stream-json-persistent`
+decision answer, a `headless-oneshot` worker) takes it whether or not messaging is available.
 
 | Path | With messaging | Fallback |
 | --- | --- | --- |

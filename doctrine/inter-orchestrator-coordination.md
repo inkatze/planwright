@@ -3,8 +3,8 @@
 This doctrine turns the tmux operator's hand-relay protocol between towers and
 workers into an enforceable capability with two parts: an explicit **division
 of labor** and an **attributed, non-impersonating relay**, which reaches a
-live, busy worker by messaging. One audited script, `scripts/orchestrate-relay.sh`,
-enforces the relay's mechanics and delegates every messaging post to
+live, busy worker by messaging. One audited script,
+`scripts/orchestrate-relay.sh`, enforces the relay's mechanics and delegates every messaging post to
 `scripts/fleet-messaging.sh`, the messaging enforcement point the
 [Messaging Transport](messaging-transport.md) doctrine names.
 
@@ -158,9 +158,8 @@ worker-settings profile (`config/worker-settings.json`), which a human installs.
 The session that dispatched a worker, its **supervising session**, stays that
 worker's operator until the work is finished: the orchestrator for a task
 unit, the `/tower` session for a flight (the format glossary's transitional
-note). The question message
-and the already-idle re-arm reach task workers only, so their handling is
-`/orchestrate`'s. The supervising session:
+note). The question message and the already-idle re-arm reach task workers
+only, so their handling is `/orchestrate`'s. The supervising session:
 
 - answers the worker's questions from the task, the spec, and the code;
 - answers an in-task prompt it could act on itself;
