@@ -12,8 +12,8 @@
 # Fails on:
 #   - an inventoried behaviour with no knob (`-` or empty), a knob outside
 #     the mission_control_* namespace or absent from the defaults, a consumer
-#     that does not exist or never names its knob, or a behaviour listed
-#     twice;
+#     that does not exist, resolves outside the core root or never names
+#     its knob, or a behaviour listed twice;
 #   - a mission_control_* key in the defaults that does not resolve to a
 #     non-empty default through scripts/config-get.sh, or that no behaviour
 #     claims;
@@ -61,6 +61,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+core_real=$(cd "$core" 2>/dev/null && pwd -P) || die "cannot read the core root: $(sanitize_printable "$core")"
 defaults="$core/config/defaults.yml"
 inventory="$core/config/mission-control-knobs.tsv"
 reference="$core/docs/options-reference.md"
@@ -143,13 +144,18 @@ $knob
   case $consumer in
     "" | /* | *..*) finding "behaviour '$behaviour' names no consumer inside the core root" ;;
     *)
-      if [ -f "$core/$consumer" ]; then
+      consumer_dir=$(cd "$core/$(dirname "$consumer")" 2>/dev/null && pwd -P) || consumer_dir=""
+      if [ ! -f "$core/$consumer" ]; then
+        finding "behaviour '$behaviour' names consumer $consumer, which does not exist"
+      elif [ -L "$core/$consumer" ] || [ -z "$consumer_dir" ] \
+        || case $consumer_dir/ in "$core_real"/*) false ;; *) true ;; esac; then
+        # A link could point the scan at a file outside the core root.
+        finding "behaviour '$behaviour' names consumer $consumer, which resolves outside the core root"
+      else
         consumers="$consumers$consumer
 "
         [ ! -r "$core/$consumer" ] || grep -qF -- "$knob" "$core/$consumer" \
           || finding "behaviour '$behaviour': $consumer does not read $knob"
-      else
-        finding "behaviour '$behaviour' names consumer $consumer, which does not exist"
       fi
       ;;
   esac

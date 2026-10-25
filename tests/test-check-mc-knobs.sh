@@ -137,6 +137,19 @@ run_fixture
 expect_rc "a consumer that never names its knob fails" 1
 expect_out "the consumer and knob are named" "scripts/reader.sh does not read mission_control_programs"
 
+printf 'mission_control_programs\n' >"$tmp/outside.sh"
+mkdir -p "$tmp/outside-dir"
+printf 'mission_control_programs\n' >"$tmp/outside-dir/reader.sh"
+for consumer in scripts/linked.sh linked-dir/reader.sh; do
+  reset_fixture
+  ln -s "$tmp/outside.sh" "$core/scripts/linked.sh"
+  ln -s "$tmp/outside-dir" "$core/linked-dir"
+  printf 'seeded-behaviour\tmission_control_programs\t%s\n' "$consumer" >>"$core/config/mission-control-knobs.tsv"
+  run_fixture
+  expect_rc "a consumer reached through a symbolic link fails: $consumer" 1
+  expect_out "the linked consumer is named: $consumer" "$consumer, which resolves outside the core root"
+done
+
 if [ "$(id -u)" -ne 0 ]; then
   reset_fixture
   chmod 000 "$core/scripts/mc-duties.sh"
