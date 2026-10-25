@@ -368,11 +368,11 @@ assert_eq "H1.4 an unrecognized host override still detects" 0 "$rc"
 assert_contains "H1.4 an unrecognized host override is ignored" "$(printf 'host\tlocal')" "$out"
 assert_contains "H1.4 an unrecognized host override is warned about" "PLANWRIGHT_INCEPTION_HOST" "$out"
 
-PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_ROOT= CLAUDE_PLUGIN_ROOT= venture detect
+PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT='' venture detect
 assert_contains "H1.4 no install where the hook looks reads as absent" "$(printf 'plugin\tabsent')" "$out"
 assert_contains "H1.4 an absent plugin is a named degradation" "skip the venture guards" "$out"
 
-PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_ROOT= CLAUDE_PLUGIN_ROOT="$REPO_ROOT" venture detect
+PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT="$REPO_ROOT" venture detect
 assert_contains "H1.4 a loaded plugin root reads as loaded" "$(printf 'plugin\tloaded')" "$out"
 
 PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_INCEPTION_HOST=cowork venture create --home local --root "$tmp/v-cowork" cw
