@@ -208,8 +208,10 @@ state="$gitdir/$STATE_NAME"
 
 # normalize_page <id> — lowercase, dashed; empty when the id is malformed.
 normalize_page() {
+  # Length and class tested apart: old BSD awks do not read interval
+  # expressions such as {32}.
   printf '%s\n' "$1" | tr 'A-F' 'a-f' | tr -d '-' | awk '
-    /^[0-9a-f]{32}$/ {
+    length($0) == 32 && $0 !~ /[^0-9a-f]/ {
       print substr($0, 1, 8) "-" substr($0, 9, 4) "-" substr($0, 13, 4) "-" substr($0, 17, 4) "-" substr($0, 21, 12)
     }'
 }
