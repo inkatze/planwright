@@ -19,7 +19,10 @@ The v1 manual sweep and the eval's operator-run fallback are separate runs.
 The sweep, which this page describes, is a live run whose flights push and
 open real draft pull requests. The fallback types the same lines up to each
 `that's all`, in a session started and graded as
-[the behavioral-eval guide](../tests/behavioral-evals/README.md) says.
+[the behavioral-eval guide](../tests/behavioral-evals/README.md) says. Its
+flights publish too: the guide's `PLANWRIGHT_PUBLISH_DISABLED=1` is read by
+the eval harness, not by the flight scripts, so a live tower started with it
+still pushes and opens draft pull requests.
 
 ## Before you start
 
@@ -141,7 +144,11 @@ request back. This scenario repeats the chat-only ask, so run it in a fresh
 `git clone --single-branch <origin>` of the scratch repository (its typo
 restored if the chat-only pull request was merged): the tower also reads
 origin's flight branches, which a plain clone carries, and its first turn
-would report the earlier flight, closed or not.
+would report the earlier flight, closed or not. A clone starts without the
+machine-local `.claude/planwright.local.yml`, so copy it in (unless
+`flight_pr_hosts` is set in your adopter overlay) and confirm the
+pull-request home there with `scripts/flight-dispatch.sh home`, as in Before
+you start.
 
 **Type:** `fix the typo in the README install section`
 
