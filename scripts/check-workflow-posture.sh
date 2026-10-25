@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # check-workflow-posture.sh — the workflow posture guard: the fork-PR posture
-# (guard-coverage Task 4; D-6; REQ-C1.1, REQ-C1.2, REQ-H1.3), and the platform
+# (guard-coverage D-6; REQ-C1.1, REQ-C1.2, REQ-H1.3), and the platform
 # matrix under --matrix (below).
 #
 # D-6's working posture: PR-authored code MAY execute under `pull_request`, but
@@ -143,11 +143,12 @@
 #     (runs-on macos-*), and exactly one Alpine job (a container image whose
 #     last path component is alpine); a runs-on this parser cannot read as a
 #     scalar, a matrix expression included, places a job on no platform;
-#   - every step blocks: no `continue-on-error` other than `false` (a flow
-#     mapping naming it included); no content line swallowing a failure
-#     (`||` onto `true`, `:`, `/bin/true`, `exit 0`, or `{ true; }`, and
-#     `set +e`), in a `run:` body or a shell comment alike, which over-blocks
-#     the loud way; and no `shell:` other than `bash`, `sh`, or a command line
+#   - every step blocks: no `continue-on-error` other than `false`, and no
+#     flow mapping or sequence naming it at all; no content line swallowing a
+#     failure (`||` onto `true`, `:`, `/bin/true`, `exit 0`, or `{ true; }`,
+#     on the same line or the next, and `set +e` or `set +o errexit`), in a
+#     `run:` body or a shell comment alike, which over-blocks the loud way;
+#     and no `shell:` other than `bash`, `sh`, or a command line
 #     carrying `-e`, since a custom shell without it lets every line but the
 #     last fail silently;
 #   - no `if:`, job- or step-level and on every line of a multi-line value,
@@ -737,7 +738,8 @@ fi
 read -r -d '' awk_matrix <<'AWK_MATRIX' || true
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 function unquote(s) { sub(/^["']/, "", s); sub(/["']$/, "", s); return s }
-function clean(s) { gsub(/[^[:print:]\t]/, "", s); return s }
+# The fact file is tab-separated, so a tab in workflow text becomes a space.
+function clean(s) { gsub(/\t/, " ", s); gsub(/[^[:print:]]/, "", s); return s }
 # A trailing comment ends a plain value; a quoted value ends at its closing
 # quote, so a `#` inside the quotes is content.
 function value(v) {
@@ -758,11 +760,17 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; if_kind 
   match(line, /^ */)
   indent = RLENGTH
   rest = substr(line, indent + 1)
-  if (rest ~ /^#/) next
+  # A whole-line `#` inside a block scalar is its text (a shell comment in a
+  # run: body, or part of an if: expression), not a YAML comment.
+  if (rest ~ /^#/ && !(bs && indent > bs_indent)) next
 
-  if (rest ~ /\|\|[ \t]*(true|:|\/bin\/true|\/usr\/bin\/true|exit[ \t]+0)([ \t;)&|'"}\\]|$)/ ||
-      rest ~ /\|\|[ \t]*\{[ \t]*(true|:)[ \t]*;/ ||
-      rest ~ /(^|[;&|(][ \t]*)set[ \t]+\+e([ \t;)]|$)/) printf "T\t%d\n", NR
+  soft = (rest ~ /\|\|[ \t]*(true|:|\/bin\/true|\/usr\/bin\/true|exit[ \t]+0)([ \t;)&|'"}\\]|$)/ ||
+          rest ~ /\|\|[ \t]*\{[ \t]*(true|:)[ \t]*;/ ||
+          rest ~ /(^|[^A-Za-z0-9_-])set[ \t]+(\+[A-Za-z]*e[A-Za-z]*|\+o[ \t]+errexit)([ \t;)]|$)/)
+  # A shell list continues past a trailing `||` (or `|| \`) onto the next line.
+  if (or_pending && rest ~ /^(true|:|\/bin\/true|\/usr\/bin\/true|exit[ \t]+0|\{[ \t]*(true|:)[ \t]*;)([ \t;)&|'"}\\]|$)/) soft = 1
+  or_pending = (rest ~ /\|\|[ \t]*\\?[ \t]*$/)
+  if (soft) printf "T\t%d\n", NR
 
   if (bs) {
     if (indent > bs_indent) { if (if_kind != "") emit_if(rest); next }
@@ -786,7 +794,7 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; if_kind 
   }
   scalar = (haskey && val ~ /^[|>]([0-9][+-]?|[+-][0-9]?)?$/)
   if (haskey && key == "continue-on-error") printf "F\t%d\t%s\n", NR, clean(unquote(val))
-  if (haskey && val ~ /^\{/ && val ~ /continue-on-error/) printf "F\t%d\t%s\n", NR, "a flow mapping"
+  if (haskey && val ~ /^[{[]/ && val ~ /continue-on-error/) printf "F\t%d\t%s\n", NR, "a flow mapping"
   if (haskey && key == "shell") printf "H\t%d\t%s\n", NR, clean(unquote(val))
 
   if (indent == 0) {
@@ -897,7 +905,7 @@ END {
   }
   if (!have["ubuntu"]) v(file ": no Ubuntu job (runs-on ubuntu-*, no container) — the matrix needs Linux with glibc")
   if (!have["macos"]) v(file ": no macOS job (runs-on macos-*) — the matrix needs the system bash and BSD userland")
-  if (nalpine < 1) v(file ": no Alpine job (a container image alpine:*) — the matrix needs musl with dash and busybox")
+  if (nalpine < 1) v(file ": no Alpine job (a container image whose last path component is alpine) — the matrix needs musl with dash and busybox")
   if (nalpine > 1) v(file ": more than one Alpine job (" alpine_job "), so the Alpine scope has no single job to hold to")
   if (have["ubuntu"] && !smoke["ubuntu"]) v(file ": no ungated Ubuntu job carries an `install smoke` step")
   if (have["macos"] && !smoke["macos"]) v(file ": no ungated macOS job carries an `install smoke` step")

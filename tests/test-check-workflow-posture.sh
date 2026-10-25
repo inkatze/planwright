@@ -1617,6 +1617,32 @@ matrix_case "matrix: a job id outside GitHub's grammar fails closed" 1 "outside 
     steps:
       - run: true"
 
+tab=$(printf '\t')
+matrix_case "matrix: a tab inside an if: hides nothing after it" 1 "can switch it off" \
+  "M_ALP_STEP=        if: always()$tab&& false"
+matrix_case "matrix: a tab inside a step name hides nothing after it" 1 "outside the Alpine scope" \
+  "M_ALP_STEP=      - name: bake-off harness${tab}and markdownlint
+        run: true"
+matrix_case "matrix: a trailing || continued by true on the next line fails" 1 "swallows a failure" \
+  "M_MAC_RUN=          mise run test ||
+          true"
+matrix_case "matrix: a backslash-continued || true fails" 1 "swallows a failure" \
+  "M_MAC_RUN=          mise run test || \\
+          true"
+matrix_case "matrix: set +e on the run: line fails" 1 "swallows a failure" \
+  "M_LINT_STEP=      - name: x
+        run: set +e; false; true"
+matrix_case "matrix: set +o errexit fails" 1 "swallows a failure" \
+  "M_MAC_RUN=          set +o errexit"
+matrix_case "matrix: continue-on-error in a flow sequence fails" 1 "continue-on-error" \
+  "M_LINT_STEP=  flowseq:
+    runs-on: ubuntu-latest
+    steps: [{run: \"false\", continue-on-error: true}]"
+matrix_case "matrix: a # line inside a block-scalar if: is read" 1 "naming a platform" \
+  "M_LINT_JOB=    if: >-
+      github.ref != '
+      # x' || runner.os == 'Linux'"
+
 d="$(mkdir_case matrix-absent)"
 cp "$REPO_ROOT/.github/workflows/pr-title.yml" "$d/"
 out="$("$GUARD" --matrix ci.yml "$d" 2>&1)"

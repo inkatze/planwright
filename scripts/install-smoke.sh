@@ -29,9 +29,10 @@
 # THE ALLOWLIST is REQ-B1.1's runtime set: a POSIX shell (sh, and bash as the
 # shell the bootstrap decision names) with the utilities POSIX.1-2024
 # specifies for it, git, and gh. POSIX's development utilities (c17, make,
-# lex, yacc, and the rest) are left out, being the toolchain the constraint
-# excludes, and so are cd, umask, and unalias, which only a builtin can
-# implement. One non-POSIX name is added: mktemp, which POSIX has never
+# lex, yacc, the SCCS set, and the rest) are left out, being the toolchain the
+# constraint excludes, and so are utilities no adopter script reaches for (the
+# UUCP and message-catalog sets) and cd, umask, and unalias, which resolve to
+# no file. One non-POSIX name is added: mktemp, which POSIX has never
 # specified, which every matrix platform's stock userland ships, and which is
 # no compiler, interpreter, or package manager; the script layer creates every
 # scratch file through it. Each name is looked up file by file along the
@@ -106,7 +107,7 @@ trap 'exit 1' HUP INT TERM
 allow="$work/allow-bin"
 mkdir -p "$allow" || die 1 "cannot create the allowlist directory"
 
-tools='admin alias at awk basename batch bc bg cal cat chgrp chmod chown
+tools='alias at awk basename batch bc bg cal cat chgrp chmod chown
 cksum cmp comm command compress cp crontab csplit cut date dd df diff dirname
 du echo ed env ex expand expr false fc fg file find fold fuser getconf getopts
 grep hash head iconv id ipcrm ipcs jobs join kill link ln locale logger

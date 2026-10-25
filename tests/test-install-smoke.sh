@@ -61,7 +61,7 @@ EOF
 printf 'x\n' | xargs printf '%s\n' >/dev/null && env true \
   && find . -prune -exec test -d {} \; && printf 'x\n' | xargs >/dev/null
 EOF
-  # Fails when anything but the four variables the smoke sets is inherited.
+  # Fails when a caller variable (CARGO_HOME, SMOKE_LEAK) is inherited.
   cat >"$1/scripts/uses-clean-env.sh" <<'EOF'
 #!/bin/sh
 [ -z "${CARGO_HOME:-}" ] && [ -z "${SMOKE_LEAK:-}" ]
@@ -140,13 +140,19 @@ case "$1 $2" in
 esac
 EOF
 chmod 755 "$stub/claude"
+# market <entry> [<VAR>=<value>...]: the marketplace mode against the stub,
+# its settings passed through env so none outlives the call (a POSIX-mode
+# bash keeps a prefix assignment to a function).
 market() {
-  STUB_LOG="$TMP/stub.log" STUB_TREE="$src" PATH="$stub:$HOST_PATH" \
-    sh "$SMOKE" --modes marketplace --source "$src" "$@" >"$TMP/out" 2>&1
+  m_entry=$1
+  shift
+  env STUB_LOG="$TMP/stub.log" STUB_TREE="$src" PATH="$stub:$HOST_PATH" \
+    STUB_VERSIONS=1.0.0 STUB_FAIL= "$@" \
+    sh "$SMOKE" --modes marketplace --source "$src" --entry "$m_entry" >"$TMP/out" 2>&1
 }
 
 : >"$TMP/stub.log"
-STUB_VERSIONS=1.0.0 market --entry scripts/uses-posix.sh
+market scripts/uses-posix.sh
 expect "the marketplace mode runs the installed copy's entry point" 0 $?
 if grep -qx "plugin marketplace add $src" "$TMP/stub.log" \
   && grep -qx "plugin install planwright@planwright" "$TMP/stub.log"; then
@@ -155,29 +161,38 @@ else
   bad "the marketplace mode adds the source and installs planwright@planwright"
   cat "$TMP/stub.log" >&2
 fi
-STUB_VERSIONS=1.0.0 market --entry scripts/uses-node.sh
+market scripts/uses-node.sh
 expect "a marketplace entry point invoking node fails under the allowlist" 1 $?
-STUB_VERSIONS=1.0.0 STUB_FAIL=add market --entry scripts/uses-posix.sh
+market scripts/uses-posix.sh STUB_FAIL=add
 expect "a failed marketplace add fails the run" 1 $?
 says "the add failure is named" "claude plugin marketplace add failed"
-STUB_VERSIONS=1.0.0 STUB_FAIL=install market --entry scripts/uses-posix.sh
+market scripts/uses-posix.sh STUB_FAIL=install
 expect "a failed plugin install fails the run" 1 $?
 says "the install failure is named" "claude plugin install failed"
-STUB_VERSIONS='' market --entry scripts/uses-posix.sh
+market scripts/uses-posix.sh STUB_VERSIONS=
 expect "an install that lays down no copy fails the run" 1 $?
 says "the missing copy is named" "no installed copy"
-STUB_VERSIONS='1.0.0 1.0.1' market --entry scripts/uses-posix.sh
+market scripts/uses-posix.sh 'STUB_VERSIONS=1.0.0 1.0.1'
 expect "two installed versions fail the run" 1 $?
 says "the ambiguous copy is named" "more than one installed version"
 
-nocli="$TMP/no-cli"
-mkdir -p "$nocli"
-for t in sh env mktemp mkdir rm ln tr cat cp dirname git printf; do
-  p=$(command -v "$t") && case $p in /*) ln -s "$p" "$nocli/$t" ;; esac
-done
-PATH="$nocli" sh "$SMOKE" --modes marketplace --source "$src" >"$TMP/out" 2>&1
+# bare_path <dir> <tool>...: a PATH directory holding only the named tools.
+bare_path() {
+  bp_dir=$1
+  shift
+  mkdir -p "$bp_dir"
+  for t in "$@"; do
+    p=$(command -v "$t") && case $p in /*) ln -s "$p" "$bp_dir/$t" ;; esac
+  done
+}
+bare_path "$TMP/no-cli" sh env mktemp mkdir rm ln tr cat cp dirname git
+PATH="$TMP/no-cli" sh "$SMOKE" --modes marketplace --source "$src" >"$TMP/out" 2>&1
 expect "the marketplace mode without a claude CLI fails" 1 $?
 says "the missing CLI is named" "no claude on PATH"
+bare_path "$TMP/no-git" sh env mktemp mkdir rm ln tr cat cp dirname
+PATH="$TMP/no-git" sh "$SMOKE" --modes writer --source "$src" >"$TMP/out" 2>&1
+expect "a host without git fails before installing" 1 $?
+says "the missing git is named" "no git on PATH"
 
 smoke --modes writer,carrier
 expect "an unknown delivery mode is a usage error" 2 $?
