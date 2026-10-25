@@ -52,7 +52,8 @@
 #
 # Exit: 0 done (an unconfirmed export's offer included) · 1 refused by a cycle
 #   or guard rule (out of order, untriaged, outside the section, validator,
-#   secret screen) · 2 usage or environment error · 3 the adapter failed.
+#   secret screen) · 2 usage or environment error · 3 the adapter failed or
+#   has no destination configured.
 #
 # POSIX sh + awk.
 set -u
@@ -278,7 +279,7 @@ item_exists() {
   grep -q "^### $1 — " "$ledger" 2>/dev/null
 }
 
-# ledger_write <awk-program-file> — rewrite the ledger through awk, values
+# ledger_rewrite <awk-program-file> — rewrite the ledger through awk, values
 # passed in the environment (never -v, which would interpret backslashes).
 ledger_rewrite() {
   tmpl=$(mktemp "$target/feedback/.ledger.XXXXXX") || die 2 "cannot write in feedback/"
@@ -557,7 +558,8 @@ cmd_export() {
 
 # --- harvest -----------------------------------------------------------------
 
-# Decode one @tsv-escaped field: \\ \t \n \r.
+# awk helpers: decode one @tsv-escaped field (\\ \t \n \r), then flatten it
+# to one line or quote it as `> ` lines.
 DECODE_AWK='
 function decode(s,    out, i, c, d) {
   out = ""

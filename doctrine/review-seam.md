@@ -117,7 +117,9 @@ An adapter moves bytes between the venture and one review surface and decides
 nothing. The seam runs adapters from a closed set, each a sibling script that
 answers three verbs:
 
-- `status <venture>` prints `page<TAB><destination>`, or `none`.
+- `status <venture>` prints a `page<TAB><destination>` row, the destination
+  `none` when none is configured. Other rows may follow (the Notion adapter
+  adds where its token comes from), and the seam ignores them.
 - `export <venture> <snapshot>` replaces the surface's copy with the
   snapshot.
 - `harvest <venture>` prints one item record per piece of feedback and ends
@@ -146,8 +148,11 @@ API shape the rest of the seam:
   the commented block's id and opening text instead.
 - It cannot resolve a comment.
 
-The integration needs Notion's "Read comments" capability, which ships off,
-and it needs to be shared with the page.
+The integration needs to be shared with the page, and it needs three
+capabilities: Read content and Read comments to harvest, Update content to
+export. Read comments ships off. Because `replace_content` refuses an update
+that would delete a child page, the destination page must have no child
+pages.
 
 These are platform claims, and platform claims go stale. They are re-verified
 at build time along with the venture's other fast-rotting claims.
