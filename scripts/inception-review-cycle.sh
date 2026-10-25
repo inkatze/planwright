@@ -28,7 +28,8 @@
 # ledger alone, leaving anything else staged as it was;
 # apply commits the change and the ledger together. A step that writes the
 # ledger refuses to start while it has uncommitted changes, and restores it
-# when its own commit fails (an export, already sent, keeps its record).
+# when its own commit fails (an export, already sent, keeps its record). Every
+# writing step holds the venture's bundle lock.
 #
 # Adapters are a closed set (ADAPTERS below), each a sibling script answering
 # `status`, `export <venture> <snapshot>`, and `harvest <venture>` with the
@@ -71,12 +72,16 @@ fi
 
 # The shared fence lexer (scripts/spec-parse.sh): a heading inside a column-0
 # code fence is not a section, by the same rule every bundle reader applies.
-if [ ! -f "$script_dir/spec-parse.sh" ] || [ ! -r "$script_dir/spec-parse.sh" ]; then
-  printf '%s\n' "inception-review-cycle: spec-parse.sh is missing or unreadable (broken install)" >&2
-  exit 2
-fi
+for lib in spec-parse.sh lock-lib.sh; do
+  if [ ! -f "$script_dir/$lib" ] || [ ! -r "$script_dir/$lib" ]; then
+    printf '%s\n' "inception-review-cycle: $lib is missing or unreadable (broken install)" >&2
+    exit 2
+  fi
+done
 # shellcheck source=scripts/spec-parse.sh
 . "$script_dir/spec-parse.sh" || exit 2
+# shellcheck source=scripts/lock-lib.sh
+. "$script_dir/lock-lib.sh" || exit 2
 
 ADAPTERS="notion"
 BUNDLE_FILES="brief.md disciplines.md assumptions.md decisions.md plan.md"
@@ -188,8 +193,17 @@ target=$(cd "$target" && pwd -P) || die 2 "cannot resolve the venture directory"
 ledger="$target/$LEDGER_REL"
 
 work=$(mktemp -d) || die 2 "cannot create a scratch directory"
-trap 'rm -rf "$work"' EXIT
-trap 'exit 2' HUP INT TERM
+tmpl=
+# shellcheck disable=SC2329 # invoked from the EXIT trap
+cleanup() {
+  rm -rf "$work"
+  [ -z "$tmpl" ] || rm -f "$tmpl"
+  pw_lock_release_all
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 tab=$(printf '\t')
 
 # Resolved here rather than inside today(): a die in a command substitution
@@ -273,6 +287,7 @@ ledger_rewrite() {
       rm -f "$tmpl"
       die 2 "cannot replace the ledger"
     }
+    tmpl=
   else
     rm -f "$tmpl"
     die 2 "cannot rewrite the ledger"
@@ -803,6 +818,16 @@ cmd_apply() {
   fi
   printf 'item\t%s\ncommit\t%s\n' "$item" "$(git_v rev-parse HEAD)"
 }
+
+# The venture's bundle lock, the one inception-fanout.sh takes: apply writes
+# bundle files, and every writing step rewrites the ledger read-modify-write.
+case $cmd in
+  export | harvest | triage | apply)
+    if [ -d "$target/.git" ]; then bl_lock="$target/.git/planwright-bundle.lock"; else bl_lock="$target/.planwright-bundle.lock"; fi
+    pw_lock_acquire "$bl_lock" "${PLANWRIGHT_BUNDLE_LOCK_TRIES:-500}" \
+      || die 2 "the bundle is busy (another writer holds $bl_lock); try again"
+    ;;
+esac
 
 case $cmd in
   export) cmd_export ;;

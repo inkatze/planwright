@@ -418,6 +418,28 @@ git -C "$v4" reset -q && git -C "$v4" checkout -q -- assumptions.md
 assert_eq "export with a warning: exit 0" "0" "$?"
 assert_contains "export with a warning: the adapter's warning shows" "truncated" "$(cat "$tmp/err")"
 
+# ---------------------------------------------------------------------------
+# 14. A writing step waits for the venture's bundle lock.
+# ---------------------------------------------------------------------------
+# shellcheck disable=SC2016 # expanded by the holder's own shell
+bash -c '. "$1" && pw_lock_acquire "$2" 1 && : >"$3" && exec sleep 30' _ \
+  "$REPO_ROOT/scripts/lock-lib.sh" "$v2/.git/planwright-bundle.lock" "$tmp/held" &
+holder=$!
+n=0
+while [ ! -f "$tmp/held" ] && [ "$n" -lt 100 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+before="$(git -C "$v2" rev-parse HEAD)"
+PLANWRIGHT_BUNDLE_LOCK_TRIES=1 "$CYCLE" triage FB-1 skip --decider "Robin Lead" "$v2" >/dev/null 2>"$tmp/err"
+assert_eq "bundle lock held: triage refused" "2" "$?"
+assert_contains "bundle lock held: says the bundle is busy" "busy" "$(cat "$tmp/err")"
+assert_eq "bundle lock held: no commit" "$before" "$(git -C "$v2" rev-parse HEAD)"
+kill "$holder" 2>/dev/null
+wait "$holder" 2>/dev/null
+"$CYCLE" triage FB-1 skip --decider "Robin Lead" "$v2" >/dev/null 2>"$tmp/err"
+assert_eq "bundle lock released: triage runs" "0" "$?"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

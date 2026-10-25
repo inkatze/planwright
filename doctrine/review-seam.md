@@ -94,7 +94,8 @@ an `### FB-<n> — <source>` block. Its fields are `Source`, `Thread`, `Author`,
 commit the ledger on its own. An apply commits the change and the ledger's
 `Applied` line together. A step that writes the ledger refuses to start while
 the ledger has uncommitted changes, so a step whose commit failed is never
-read as done. A step whose own commit fails restores the ledger, except an
+read as done, and holds the venture's bundle lock, so two writers cannot
+interleave. A step whose own commit fails restores the ledger, except an
 export: that has already gone out, so its record stays for the operator to
 commit. Each commit applying feedback carries three trailers:
 
