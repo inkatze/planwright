@@ -452,6 +452,13 @@ c10() {
   # the identity the registry record carries.
   printf '%s\n' "$launch" | grep -q "${TAB}--${TAB}[^$TAB]*/fleet-dispatch-env.sh${TAB}--identity${TAB}tmux-demo-task-10${TAB}demo:10${TAB}" \
     || fail "c10: the worker is not launched through the fleet-dispatch-env.sh pin wrapper with its identity"
+  # Its session record and scratch root (worker-permission-ergonomics
+  # REQ-G1.8, REQ-G1.2) reach it through the wrapper, which exports the
+  # scratch root as its TMPDIR.
+  printf '%s\n' "$launch" | grep -q "${TAB}--session-record${TAB}<session-record>${TAB}" \
+    || fail "c10: the plan does not hand the worker its session record: $launch"
+  printf '%s\n' "$launch" | grep -q "${TAB}--tmpdir${TAB}<scratch-root>${TAB}" \
+    || fail "c10: the plan does not hand the worker its scratch root as TMPDIR: $launch"
   case $launch in
     *"${TAB};${TAB}set-window-option${TAB}-t${TAB}=$sess:${TAB}remain-on-exit${TAB}off") ;;
     *) fail "c10: the plan does not turn remain-on-exit off in the same invocation: $launch" ;;

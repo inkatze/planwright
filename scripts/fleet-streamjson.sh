@@ -52,6 +52,9 @@
 #                    undeliverable (the REQ-E1.5 durable receipt)
 #   req-<id>.json    the raw control_request envelope (answer composition)
 #   in.fifo/out.fifo the stdio channels the supervisor owns
+#   tmp/             the worker's scratch root, exported as its TMPDIR and
+#                    named in its session record (worker-session-record.sh);
+#                    a recover keeps it, a close removes it
 #   ratelimit        the newest rate-limit frame's readings, as
 #                    scripts/claude-frames.sh persist stores them
 #   result           the run outcome, one tab-separated row:
@@ -1662,11 +1665,12 @@ lock_classes='journal.lock recover.lock launch.lock'
 stop_pidfiles='supervisor.pid worker.pid'
 
 # Scratch is the stdio fifos the supervisor owns, the staging files this
-# script's writers create beside their targets, and the residue of a broken
-# lock. Everything else in the state directory is the durable record a close
-# keeps: the capture, the journal, the session, the stored envelopes, the
-# result, and the rate-limit frame, whose reading outlives its worker.
-scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* .ratelimit.* .deferred.* *.lock#* *.broken.*'
+# script's writers create beside their targets, the residue of a broken lock,
+# and the worker's scratch root (tmp, its TMPDIR), which a recover keeps and a
+# close removes. Everything else in the state directory is the durable record
+# a close keeps: the capture, the journal, the session, the stored envelopes,
+# the result, and the rate-limit frame, whose reading outlives its worker.
+scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* .ratelimit.* .deferred.* *.lock#* *.broken.* tmp'
 
 # stop_match <worker> <dir> — the argv the supervisor re-execs itself with.
 # The handle and the directory together are what keep a sibling whose handle
@@ -2091,11 +2095,25 @@ cmd_launch() {
   # The session record the worker's command guard reads its self-approval
   # policy and unit identity from, rewritten from current config on every launch and recover; without one
   # the guard keeps to its read-only arm. An inherited path never stands in.
+  # The worker's scratch root is <dir>/tmp, its TMPDIR: a recover finds it
+  # where the launch left it, and the close releases it with the rest of
+  # the scratch class.
   unset PLANWRIGHT_WORKER_SESSION_RECORD
-  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" 2>/dev/null </dev/null) || session_record=''
+  case $dir in
+    /*)
+      session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --scratch "$dir/tmp" \
+        2>/dev/null </dev/null) || session_record=''
+      ;;
+    *) session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" 2>/dev/null </dev/null) || session_record='' ;;
+  esac
   if [ -n "$session_record" ]; then
     PLANWRIGHT_WORKER_SESSION_RECORD=$session_record
     export PLANWRIGHT_WORKER_SESSION_RECORD
+    scratch_root=$(sed -n 's/^scratch_root=//p' "$session_record" 2>/dev/null) || scratch_root=''
+    if [ -n "$scratch_root" ]; then
+      TMPDIR=$scratch_root
+      export TMPDIR
+    fi
   fi
 
   if [ "$foreground" = 1 ]; then

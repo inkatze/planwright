@@ -677,7 +677,9 @@ case "$cmd" in
     fi
     # The worktree's session records (scripts/worker-session-record.sh) name
     # a worktree that no longer exists, and the tmux rung writes one per
-    # launch, so this is where they stop accumulating.
+    # launch, so this is where they stop accumulating. The scratch roots
+    # that rung keeps under the fleet home, one per launch, go with them:
+    # reclaiming the worktree is that worker's reap.
     rec_home=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || rec_home=""
     rec_key=$(printf '%s' "$target_wt" | git hash-object --stdin 2>/dev/null) || rec_key=""
     case $rec_home:$rec_key in
@@ -687,6 +689,11 @@ case "$cmd" in
             \( -name "$rec_key.record" -o -name "$rec_key-*.record" \) \
             -exec rm -f -- {} + 2>/dev/null \
           || warn "removed worktree '$path' but could not remove its session records"
+        [ ! -d "$rec_home/scratch" ] \
+          || find "$rec_home/scratch" -mindepth 1 -maxdepth 1 -type d \
+            \( -name "$rec_key" -o -name "$rec_key-*" \) \
+            -exec rm -rf -- {} + 2>/dev/null \
+          || warn "removed worktree '$path' but could not remove its scratch roots"
         ;;
     esac
     if ! audit worktree-cleanup cleanup "$trigger" "$reasoning"; then

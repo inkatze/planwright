@@ -93,6 +93,8 @@
 #     exit         `<rc> <epoch>` — the completion signal (atomic, written last)
 #     finish-error (only on a failed exit write) — marks a completed-but-
 #                  unrecordable worker so status reports `unknown`, not `died`
+#     tmp/         the worker's scratch root, its TMPDIR, named in its session
+#                  record (worker-session-record.sh); the close removes it
 # All files are owner-only (umask 077). The default base sits under
 # <spec-root>/<spec>/.orchestrate/ (gitignored runtime state, like the dispatch
 # markers), so nothing here is ever committed.
@@ -804,12 +806,24 @@ do_run_worker() {
 
   # The session record the worker's command guard reads its self-approval
   # policy and unit identity from; without one the guard keeps to its
-  # read-only arm. An inherited path never stands in.
+  # read-only arm. An inherited path never stands in. The worker's scratch
+  # root is <unit>/tmp, its TMPDIR, which the close releases as scratch.
   unset PLANWRIGHT_WORKER_SESSION_RECORD
-  r_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$r_wt" 2>/dev/null </dev/null) || r_record=''
+  case $r_unit in
+    /*)
+      r_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$r_wt" --scratch "$r_unit/tmp" \
+        2>/dev/null </dev/null) || r_record=''
+      ;;
+    *) r_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$r_wt" 2>/dev/null </dev/null) || r_record='' ;;
+  esac
   if [ -n "$r_record" ]; then
     PLANWRIGHT_WORKER_SESSION_RECORD=$r_record
     export PLANWRIGHT_WORKER_SESSION_RECORD
+    r_scratch=$(sed -n 's/^scratch_root=//p' "$r_record" 2>/dev/null) || r_scratch=''
+    if [ -n "$r_scratch" ]; then
+      TMPDIR=$r_scratch
+      export TMPDIR
+    fi
   fi
 
   # The dispatch-time identity env (fleet-liveness.sh hook contract): the
@@ -1032,8 +1046,9 @@ stop_seedfiles() {
   printf 'pid'
 }
 
-# The completion write's staging temp, and the close's own.
-scratch_patterns='exit.tmp .exit.*'
+# The completion write's staging temp, the close's own, and the worker's
+# scratch root (its TMPDIR).
+scratch_patterns='exit.tmp .exit.* tmp'
 
 # stop_match <unit-dir> — the argv the runner is re-exec'd with. The trailing
 # space is what keeps unit `5` from matching unit `5.1`, whose directory this

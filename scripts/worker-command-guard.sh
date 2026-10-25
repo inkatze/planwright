@@ -1565,7 +1565,7 @@ ob_copy_move() {
   n=$#
   [ "$n" -ge 2 ] || return 1
   src=$zones
-  [ "$zones" = wt ] || [ "$verb" = mv ] || src=read
+  [ "$zones" = wt ] || [ "$verb" = mv ] || src='read'
   dst=${!n}
   ob_path "$dst" leaf "$zones" || return 1
   local dst_dir=0

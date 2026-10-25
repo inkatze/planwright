@@ -120,6 +120,7 @@ printf 'ghost=%s\n' "${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >>"$SHIM_R
 printf 'plugin_root=%s\n' "${CLAUDE_PLUGIN_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'spec_root=%s\n' "${PLANWRIGHT_WORKER_SPEC_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'record=%s\n' "${PLANWRIGHT_WORKER_SESSION_RECORD-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'tmpdir=%s\n' "${TMPDIR-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'handle=%s\n' "${PLANWRIGHT_WORKER_HANDLE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'scope=%s\n' "${PLANWRIGHT_WORKER_SCOPE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'inbound=%s\n' "${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >>"$SHIM_RECORD_DIR/env"
@@ -819,6 +820,30 @@ esac
 grep -qx "worktree_root=$(cd "$tmp/wt39" && pwd -P)" "$rec39" 2>/dev/null \
   || fail "c39: the worker's session record does not name its worktree"
 echo "ok: c39 the worker gets a fresh session record, never an inherited one (REQ-G1.8)"
+# The worker's scratch root (worker-permission-ergonomics REQ-G1.2): its
+# TMPDIR is <dir>/tmp, which its session record names; a recover keeps it,
+# contents and all, and the close removes it.
+wdir39=$(cd "$tmp/h39/streamjson/sjw39b" 2>/dev/null && pwd -P)
+tmp39=$(grep '^tmpdir=' "$tmp/r39/env" | tail -n 1)
+[ -n "$wdir39" ] && [ "${tmp39#tmpdir=}" = "$wdir39/tmp" ] && [ -d "$wdir39/tmp" ] \
+  || fail "c39: the worker's TMPDIR was '${tmp39#tmpdir=}', expected its own scratch root $wdir39/tmp"
+grep -qx "scratch_root=$wdir39/tmp" "$rec39" 2>/dev/null \
+  || fail "c39: the worker's session record does not name its scratch root"
+: >"$wdir39/tmp/kept"
+(
+  for _v in $(env | sed -n 's/^\(PLANWRIGHT_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$_v"
+  done
+  cd "$tmp/wt39" && senv "$tmp/h39" "$tmp/r39" GIT_CEILING_DIRECTORIES="$tmp" \
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 SHIM_EVENTS="$tmp/ev9" SHIM_READ_FIRST=0 -- \
+    recover sjw39b --foreground
+) >/dev/null 2>&1 || fail "c39: the recover exited non-zero"
+tmp39=$(grep '^tmpdir=' "$tmp/r39/env" | tail -n 1)
+[ "${tmp39#tmpdir=}" = "$wdir39/tmp" ] && [ -f "$wdir39/tmp/kept" ] \
+  || fail "c39: the recovered worker's TMPDIR was '${tmp39#tmpdir=}' or its contents were lost"
+senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 >/dev/null 2>&1 || fail "c39: the stop exited non-zero"
+[ ! -e "$wdir39/tmp" ] || fail "c39: the close left the scratch root behind"
+echo "ok: c39 the worker's TMPDIR is its own scratch root, kept by a recover and removed by the close (REQ-G1.2)"
 
 # ---------------------------------------------------------------------------
 # c10: hostile inputs are refused before any path use.

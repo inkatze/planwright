@@ -3,6 +3,7 @@
 # launch-time inputs its command guard trusts.
 #
 # Usage: worker-session-record.sh write <worktree> [<launch-id>]
+#          [--scratch <dir> | --scratch-home]
 #
 # Resolves, once, from the worktree the worker will run in:
 #   policy             worker_self_approval through the overlay layers,
@@ -18,6 +19,19 @@
 #                      when unset) and that remote's default branch as
 #                      recorded locally, else main
 #   worker_base_merge  the human-gates knob (omitted when it cannot be read)
+#   scratch_root       the worker's scratch root, when an option names one:
+#                      --scratch <dir> (an absolute path whose parent exists,
+#                      the launcher's own per-worker state directory) or
+#                      --scratch-home (<fleet-home>/scratch/<record key>, for
+#                      a rung with no state directory of its own). It is
+#                      created owner-only when absent and kept, contents and
+#                      all, when present, so a recover finds the same root; it
+#                      must be this user's own directory, reached through no
+#                      symlink, apart from the worktree and the record both
+#                      ways. One that is not is omitted with a warning, which
+#                      leaves the worker without the scratch arm; the launcher
+#                      exports the recorded root as the worker's TMPDIR, and
+#                      the rung's final close or reap removes it
 # and writes them as `key=value` lines to
 # <fleet-home>/session-records/<sha1-of-worktree-root>.record, owner-only, by
 # an atomic rename, printing the path. A <launch-id> (16 to 64 lowercase hex
@@ -44,9 +58,41 @@ die() {
   exit "${2:-1}"
 }
 
-{ [ "$#" -eq 2 ] || [ "$#" -eq 3 ]; } && [ "$1" = write ] || die "usage: $me write <worktree> [<launch-id>]" 2
-launch_id=${3-}
-if [ "$#" -eq 3 ]; then
+usage="usage: $me write <worktree> [<launch-id>] [--scratch <dir> | --scratch-home]"
+[ "$#" -ge 2 ] && [ "$1" = write ] || die "$usage" 2
+wt_arg=$2
+shift 2
+launch_id=''
+have_id=0
+scratch_mode=''
+scratch_arg=''
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --scratch)
+      [ -z "$scratch_mode" ] && [ "$#" -ge 2 ] || die "$usage" 2
+      case $2 in
+        /?*) ;;
+        *) die "--scratch takes an absolute path" 2 ;;
+      esac
+      scratch_mode=dir
+      scratch_arg=$2
+      shift 2
+      ;;
+    --scratch-home)
+      [ -z "$scratch_mode" ] || die "$usage" 2
+      scratch_mode=home
+      shift
+      ;;
+    -*) die "$usage" 2 ;;
+    *)
+      [ "$have_id" = 0 ] || die "$usage" 2
+      have_id=1
+      launch_id=$1
+      shift
+      ;;
+  esac
+done
+if [ "$have_id" = 1 ]; then
   case $launch_id in
     '' | *[!0-9a-f]*) die "the launch id must be 16 to 64 lowercase hex digits" 2 ;;
   esac
@@ -64,7 +110,7 @@ gitq() {
   GIT_OPTIONAL_LOCKS=0 git -C "$d" "$@" 2>/dev/null </dev/null
 }
 
-wt=$(cd -P -- "$2" 2>/dev/null && pwd -P) || die "not a directory: the worktree"
+wt=$(cd -P -- "$wt_arg" 2>/dev/null && pwd -P) || die "not a directory: the worktree"
 top=$(gitq "$wt" rev-parse --show-toplevel) || die "not a git worktree"
 wt=$(cd -P -- "$top" 2>/dev/null && pwd -P) || die "the worktree top level does not resolve"
 # One record line per field: a control character in the path would split one.
@@ -156,6 +202,44 @@ esac
 key=$(printf '%s' "$wt" | git hash-object --stdin 2>/dev/null) || die "cannot name the record"
 [ -z "$launch_id" ] || key=$key-$launch_id
 rec=$dir/$key.record
+
+# scratch_make <dir>: create the scratch root when absent, then print its
+# canonical path when it is one the guard can trust.
+scratch_make() {
+  sm=$1
+  case $sm in
+    *[[:cntrl:]]*) return 1 ;;
+  esac
+  if [ ! -e "$sm" ] && [ ! -L "$sm" ]; then
+    mkdir -- "$sm" 2>/dev/null || return 1
+  fi
+  [ -d "$sm" ] && [ ! -L "$sm" ] || return 1
+  [ "$(find "$sm" -maxdepth 0 -user "$(id -u)" 2>/dev/null)" = "$sm" ] || return 1
+  chmod 700 -- "$sm" 2>/dev/null || return 1
+  sm=$(cd -P -- "$sm" 2>/dev/null && pwd -P) || return 1
+  case $sm/ in
+    "$wt"/* | "$dir"/*) return 1 ;;
+  esac
+  case $wt/ in
+    "$sm"/*) return 1 ;;
+  esac
+  case $dir/ in
+    "$sm"/*) return 1 ;;
+  esac
+  printf '%s\n' "$sm"
+}
+
+scratch=''
+case $scratch_mode in
+  dir) scratch=$(scratch_make "$scratch_arg") || scratch='' ;;
+  home)
+    if mkdir -p -- "$home/scratch" 2>/dev/null; then
+      scratch=$(scratch_make "$home/scratch/$key") || scratch=''
+    fi
+    ;;
+esac
+[ -z "$scratch_mode" ] || [ -n "$scratch" ] \
+  || printf '%s: the scratch root is unusable; the worker gets no scratch arm\n' "$me" >&2
 tmp=$(mktemp "$dir/.$key.XXXXXX") || die "cannot write the record"
 if ! {
   printf 'policy=%s\n' "$policy"
@@ -163,6 +247,7 @@ if ! {
   printf 'worktree_root=%s\n' "$wt"
   [ -z "$pr_base" ] || printf 'pr_base=%s\n' "$pr_base"
   [ -z "$base_merge" ] || printf 'worker_base_merge=%s\n' "$base_merge"
+  [ -z "$scratch" ] || printf 'scratch_root=%s\n' "$scratch"
 } >"$tmp" || ! mv -f -- "$tmp" "$rec"; then
   rm -f -- "$tmp"
   die "cannot write the record"
