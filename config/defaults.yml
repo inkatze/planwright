@@ -979,9 +979,10 @@ mission_control_home_root: ~/.config/planwright/mission-control
 # config/duties.yaml.
 # yamllint disable-line rule:line-length
 mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals]
-# The state-source map a program declaring none resolves to, one
-# class: source:mode entry per fact class (work-items, code-state, decisions,
-# deadlines, designs), mode record, snapshot or cited. A class the map leaves
-# out resolves to cited, here and in a program's own map.
+# The state-source map a program declaring none resolves to: class:
+# source:mode entries over the fact classes (work-items, code-state,
+# decisions, deadlines, designs), mode record, snapshot or cited. A class the
+# map leaves out resolves to cited, here and in a program's own map, so
+# designs is cited by default.
 # yamllint disable-line rule:line-length
 mission_control_default_sources: {work-items: specs:record, code-state: forge:snapshot, decisions: specs:record, deadlines: specs:record}
