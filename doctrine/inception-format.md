@@ -1,6 +1,6 @@
 # The Inception Bundle Format
 
-**Format-version:** 1.0
+**Format-version:** 1.1
 
 This document is the canonical, normative definition of the inception bundle:
 the single source the inception validator, the renderer, and the `/inception`
@@ -13,7 +13,8 @@ this document alone.
 
 Citations: inception REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5,
 REQ-C1.6, REQ-C1.7, REQ-C1.8, REQ-C1.9, REQ-C1.10, REQ-C1.11, REQ-E1.1,
-REQ-E1.2, REQ-E1.5, REQ-I1.1, REQ-I1.4 · inception D-1, D-13, D-14, D-18.
+REQ-E1.2, REQ-E1.5, REQ-I1.1, REQ-I1.4, REQ-J1.5 · inception D-1, D-13, D-14,
+D-15, D-18.
 
 ## Overview
 
@@ -22,7 +23,7 @@ exactly five authored files plus two directories (REQ-C1.1):
 
 | Entry | Role |
 | --- | --- |
-| `brief.md` | The opportunity brief and the venture's state home: status, success metric, kill criteria, gate decider, tracks, sources register, gate log, changelog. |
+| `brief.md` | The opportunity brief and the venture's state home: status, success metric, kill criteria, gate decider, tracks, sources register, gate log, lineage, changelog. |
 | `disciplines.md` | The discipline map, the staffing table, and the stakeholder / decision-rights map. |
 | `assumptions.md` | The assumption and risk register: falsifiable, graded, thresholded entries. |
 | `decisions.md` | The decision backlog: open forks and taken decisions, MADR-shaped. |
@@ -43,7 +44,7 @@ drawn from `Brief | Disciplines | Assumptions | Decisions | Plan`:
 
 **Status:** <Exploring|On-hold|Graduated|Killed|Abandoned>
 **Last reviewed:** <YYYY-MM-DD>
-**Format-version:** 1.0
+**Format-version:** 1.1
 ```
 
 `brief.md` is the authoritative home of `Status:`; the other four mirror it,
@@ -160,7 +161,8 @@ spend before the gate forces a decision), `## Kill criteria`, `## Tracks`
 `## Changelog`. Sections a minor version or a venture adds may appear between
 required ones without breaking the order check. An optional
 `## Minimum core check` may appear anywhere before `## Sources`; its content
-is a convenience render the validator ignores.
+is a convenience render the validator ignores. The optional `## Lineage`
+(*Lineage* below) sits between `## Gate log` and `## Changelog`.
 
 `## Opportunity` carries four bolded field bullets (REQ-C1.2), in order:
 
@@ -443,10 +445,29 @@ register IDs are untouchable by stakeholder-channel changes (edits arriving
 from published exports or review channels, which land only as
 operator-triaged commits); the validator guards them.
 
+## Lineage
+
+Graduation records its lineage in `brief.md` `## Lineage` (REQ-J1.5), one
+bullet per graduated scope (`venture` in an untracked venture, otherwise the
+track label), written when the seed is:
+
+```markdown
+- **<scope>** — Gate <n> — seed: `<location>` — spec: `<location>` | pending
+```
+
+`Gate <n>` is the record that graduated the scope. A location is relative to
+the venture repository when inside it and `<repo>:<path>` otherwise, never a
+machine path. `pending` becomes the spawned spec's location once that spec's
+`## Sources` cites the scope's lineage key, `inception:<venture-id>` or
+`inception:<venture-id>/<label>`, which the seed carries. A graduated scope
+with no bullet, or a recorded spec that does not cite its key, is a lineage
+finding.
+
 ## Format-version rules
 
 The format is versioned `<major>.<minor>`, declared by every authored file's
-`Format-version:` header (REQ-C1.7). This document defines 1.0.
+`Format-version:` header (REQ-C1.7). This document defines 1.1, which added
+the optional `## Lineage` section to 1.0.
 
 - **Additive within a major.** New fields and sections are optional; existing
   fields are never renamed or repurposed. An additive change bumps the minor
