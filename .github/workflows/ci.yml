@@ -40,6 +40,9 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
     # The bash 3.2 parse step's image.
     env:
       BASH32_IMAGE: bash:3.2@sha256:0fd7cb8499c63a3c9345e7088a9cd83bb69f6e895e83833859aff838a0312091
@@ -157,13 +160,16 @@ jobs:
 
       # A PR titled with the `comments` scope declares itself comment-only, so
       # its surface files must keep every code line the base has. The title is
-      # untrusted text: it reaches the shell through env, never the script.
+      # fetched live, never read from the event payload: this workflow does not
+      # fire on `edited`, so only a live read lets a rerun see a corrected title.
       - if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.number }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if printf '%s\n' "$PR_TITLE" | grep -Eq '^[a-z]+\(comments\)!?: '; then
+          title=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .title)
+          if printf '%s\n' "$title" | grep -Eq '^[a-z]+\(comments\)!?: '; then
             /bin/sh scripts/check-comment-budget.sh --code-invariant "origin/${BASE_REF}"
           else
             echo "not a comments-scoped PR; the code-invariance check does not apply"

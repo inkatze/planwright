@@ -436,10 +436,15 @@ else
 fi
 ci="$REPO_ROOT/.github/workflows/ci.yml"
 if grep -qF 'check-comment-budget.sh --code-invariant "origin/${BASE_REF}"' "$ci" \
-  && grep -qF '\(comments\)' "$ci" && grep -qF 'PR_TITLE: ${{ github.event.pull_request.title }}' "$ci"; then
-  ok "ci.yml runs --code-invariant on comments-scoped PRs, the title passed through env"
+  && grep -qF '\(comments\)' "$ci" && grep -qF 'gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .title' "$ci"; then
+  ok "ci.yml runs --code-invariant on comments-scoped PRs, the title fetched live"
 else
   fail "ci.yml lacks the comments-scoped --code-invariant step"
+fi
+if grep -qF 'github.event.pull_request.title' "$ci"; then
+  fail "ci.yml reads the title from the event payload, which a rerun replays stale"
+else
+  ok "ci.yml never reads the title from the event payload"
 fi
 
 echo "## the audit reproduces the v0.36.0 headline figures"
