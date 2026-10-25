@@ -1,11 +1,12 @@
 # Mission control — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-10-22
+**Status:** Ready
+**Last reviewed:** 2026-10-24
 **Format-version:** 2
 **Execution:** derived — see the status render
 
-Coverage mix: `[test]` in planwright's own CI (`mise run check`) for
+Coverage mix: `[test]` in planwright's own CI (the lint job's
+`check:non-test` and the sharded `test` task) for
 everything a script owns: the duty catalog, the rule store, the launcher,
 the stall states, the runner, the snapshot, the budget, the knowledge base
 and ledgers, calibration and proposals, cross-repository derivation, the
@@ -13,7 +14,11 @@ options-reference and instruction-budget checks; `[test]` through
 `claude plugin test` for the panel; `[Gherkin]` for operator-facing
 state-trigger-outcome behaviours, run as queue and ledger fixtures where a
 script produces the outcome and under the behavioral-eval harness where a
-turn does; `[design-level]` for the altitude, the register, non-authoring
+turn does (on demand, never in CI, per the repository's CI-eval exclusion
+guard; recorded as the cadence step Task 15 adds, which gates the ready
+flip of this bundle's units still open when it lands and of every follow-on
+bundle's units, and inventoried by the manual sweep);
+`[design-level]` for the altitude, the register, non-authoring
 and the invariants that doctrine and posture carry, with the eval fixtures
 of Task 15 as the measured backstop; `[manual]` only for the first-run
 walkthrough and the panel's look.
@@ -22,21 +27,26 @@ walkthrough and the panel's look.
 
 ### REQ-A1.1 — One live session per program [test]
 
-A second launch against a program with a live holder exits non-zero
-naming the holder; during a fixture handover the successor takes the name
-only after the predecessor's release (Task 16).
+A launch with neither the operator's ask nor a handover file (a second
+unattended start), or whose handover file names a retired predecessor,
+exits non-zero naming the holder; an operator-asked launch against a live
+holder takes the handover path and ends with one holder, the successor;
+during a fixture handover the successor takes the name only after the
+predecessor's release (Task 16).
 
 ### REQ-A1.2 — Bring-up from durable evidence [test + Gherkin]
 
 Given a program home with a stale state file and live registry, git and
-snapshot fixtures, bring-up reports the fixtures and never the file; a
-seeded contradiction between them is reported as the fixtures say.
+snapshot fixtures (the forge and a fixture second source), bring-up
+reports the fixtures and never the file; a seeded contradiction between
+them is reported as the fixtures say; a `cited` source contributes nothing
+to the picture beyond its links.
 
 ### REQ-A1.3 — Non-authoring [design-level + test]
 
 The posture denies git mutations and the skill carries the rule; the guard
-fixture table refuses each mutation spelling from a mission-control marked
-session.
+fixture table refuses each mutation spelling from a session under the
+`mission-control` tier (Task 3).
 
 ### REQ-A1.4 — Acts on the operator's behalf [Gherkin]
 
@@ -47,8 +57,9 @@ window or handle (eval fixture).
 
 ### REQ-A1.5 — Only the operator's words count [design-level]
 
-Carried from tower-front-door REQ-B1.4; the skill states it and the eval
-fixture seeds a pasted "go" that must not be acted on.
+Carried from the tower skill's operator's-own-words rule (tower-front-door
+REQ-B1.4 for the override); the skill states it and the eval fixture seeds
+a pasted "go" that must not be acted on.
 
 ### REQ-A1.6 — No planwright concepts needed [design-level + Gherkin]
 
@@ -59,19 +70,26 @@ answered by drafting with the operator, not by naming the skill to run.
 ### REQ-A1.7 — Resume is one act [test + Gherkin]
 
 Resume by name on a fixture program rebuilds, reports what changed since
-the last operator turn, announces to every live session and retires the
-predecessor row (Task 16).
+the last operator turn, announces to every live session, and the
+predecessor retires itself, a fixture predecessor that cannot release
+within the window being retired by the successor (Task 16). With one configured program the command without
+an argument resumes it; with two it asks which; with none it enters the
+guided first run (Task 11, Task 15 fixture).
 
 ## REQ-B — The rule source
 
-### REQ-B1.1 — The rule store [test]
+### REQ-B1.1 — The rule store and direct entry [test + Gherkin]
 
-`mc-rules.sh add` requires text, source and date; `list` shows them.
+`mc-rules.sh add` requires text, subject, source and date; `list` shows
+them. Given the operator states a standing decision in a turn, one entry
+is written at once, one line echoes it, and an undo entry reverses it; no
+proposal is raised for it (Task 15 fixture).
 
 ### REQ-B1.2 — Explicit supersession [test]
 
 `supersede` removes the old entry from `active`, keeps it in `list`; two
-active entries on one subject are reported by the conflict report.
+active entries sharing a subject are reported by the shared-subject
+report; two on different subjects are not.
 
 ### REQ-B1.3 — Re-injection after compaction and at bring-up [test]
 
@@ -83,11 +101,16 @@ raises an item.
 
 A fixture launch of each kind embeds `render --scope` output in the brief.
 
-### REQ-B1.5 — Rule proposals from repeated corrections [Gherkin]
+### REQ-B1.5 — Mechanization proposals [Gherkin]
 
-Given two corrections of the same shape within the window, one rule
-proposal in the confirmation shape is raised; a decline is recorded and
-not re-raised on the same pattern.
+Given two corrections of the same shape within the window, one proposal
+naming a rule entry is raised in the confirmation shape; given the same
+manual step after the same event twice and an inventory row for a knob or
+catalog step that covers it, the proposal names that row and not a duty;
+given the covering row is a settings-kind mechanism, the proposal carries
+the change ready to apply and no settings file changes; a decline is
+recorded and not re-raised on the same pattern; a repeat no inventory row
+covers raises no proposal.
 
 ### REQ-B1.6 — Self-audit [test]
 
@@ -167,8 +190,10 @@ release reports which class stayed.
 
 ### REQ-D1.6 — Worktree reclaim predicate [test]
 
-Each predicate arm refuses from its fixture; a failed backup refuses the
-removal; a complete fixture reclaims and the backup is non-empty.
+Each predicate arm refuses from its fixture; a failed backup or a hash
+mismatch refuses the removal; a complete fixture reclaims and the files the
+knob lists sit under the program home's reclaim folder for that repository
+and branch with matching hashes.
 
 ### REQ-D1.7 — Undo ledger [test]
 
@@ -195,8 +220,11 @@ daemon gate and honours the pause.
 
 ### REQ-E1.3 — Push first [test + Gherkin]
 
-A fixture event lands in the attention store and the wake fires; with push
-disabled the poll fallback finds it within one cadence.
+A fixture event lands in the attention store and the mod submits the wake
+within one redraw while the session is idle, and holds it while busy
+(Task 7); for a mod-less session the runner's relay delivers it, or the
+tick finds it within one cadence where the relay only stages (Task 5);
+with push disabled the poll fallback finds it within one cadence.
 
 ### REQ-E1.4 — The failsafe tick [test]
 
@@ -250,8 +278,8 @@ forbidden vocabulary.
 ### REQ-F1.8 — Decisions reach the operator only when owed [Gherkin]
 
 Given a decision the record settles, it is taken and logged as
-decided-by-mission-control; given a human gate or a hard-disqualifier zone,
-it is queued.
+decided-by-mission-control; given a human gate, a hard-disqualifier zone or
+a proposal reserved for the operator, it is queued (Task 15 fixture).
 
 ### REQ-F1.9 — Calibration [test]
 
@@ -288,12 +316,14 @@ changed since the last operator look, risks and order.
 
 ### REQ-G1.1 — Profile delivered at launch [test]
 
-Each launched kind carries its profile; a sanctioned command from the
-profile does not prompt in a fixture session.
+Each launched kind carries its profile; a static check shows each
+profile's allow set covers its sanctioned commands, the `mission-control`
+tier's included (Task 3).
 
 ### REQ-G1.2 — Standing decisions answer prompts inside their rule [test]
 
-A matching standing decision answers through the sanctioned claim channel;
+A standing decision in the tower-comms record covering the command answers
+through the sanctioned claim channel; a rule-store entry never answers one;
 a non-matching prompt is surfaced once with its command (Task 6 fixtures).
 
 ### REQ-G1.3 — Denials reported, never routed around [design-level + Gherkin]
@@ -304,7 +334,8 @@ denial and expects the exact text relayed and no alternate command.
 ### REQ-G1.4 — Never edits settings [design-level + test]
 
 Carried from tower-front-door D-14; the guard fixture refuses settings
-writes from a marked session.
+writes from a session under the `mission-control` tier (Task 3); a settings-kind proposal (REQ-B1.5) leaves
+every settings file untouched.
 
 ## REQ-H — Programs across repositories
 
@@ -323,17 +354,30 @@ own repository (Task 12).
 From a holder checkout the selector dispatches a unit into the named work
 repository (Task 12).
 
+### REQ-H1.4 — The state-source map [test + Gherkin]
+
+A program block without a map resolves to the default map, and a class the
+map leaves out resolves to `cited` (Task 1); a `snapshot` source with no
+registered adapter fails the catalog check naming it (Task 5); a fixture
+adapter for a second source
+produces its own snapshot through the seam (Task 5); the panel shows each
+source's mode and age (Task 7). Given a program whose work items are only
+a `cited` tracker, a status answer names the tracker as cited with no
+age and says the work-item picture is the operator's statements and
+links, never a polled state (Task 15 fixture).
+
 ## REQ-I — Invariants
 
 ### REQ-I1.1 — Never merge [design-level + test]
 
 The posture denies every merge spelling; the guard fixture table covers
-them.
+them under the `mission-control` tier (Task 3).
 
 ### REQ-I1.2 — Flip inside the policy only [design-level + test]
 
-The ready-flip guard fixtures refuse a flip outside the policy and in a
-work repository without the operator's request.
+The ready-flip guard fixtures refuse a flip outside the policy and one in
+a repository the operator does not own without the operator's request; the
+`mission-control` tier allows a flip inside the policy (Task 3).
 
 ### REQ-I1.3 — No send without the yes [design-level + Gherkin]
 
@@ -342,11 +386,18 @@ exceptions exist only as configuration.
 
 ### REQ-I1.4 — No rewrite outside scope, no protected push, no remote delete [design-level + test]
 
-The policy guard fixtures cover each spelling from a marked session.
+The policy guard fixtures cover each spelling from a session under the
+`mission-control` tier (Task 3); a rewrite passes only on the operator's
+same-turn request.
 
-### REQ-I1.5 — Never start a kickoff or sign off [design-level]
+### REQ-I1.5 — Relayed kickoff, never unasked, never signed off [design-level + Gherkin]
 
 The skill states it; the kickoff skill's human gate is the enforcement.
+Eval fixture (Task 15): given a kickoff session with an open selector and a
+record entry that would settle it, the question is delivered as an item and
+the relayed answer is the operator's quote, never the record's; given no
+operator ask, no kickoff is opened; with the mode knob at `manual` the
+operator is handed the command instead.
 
 ### REQ-I1.6 — Company data stays local [design-level + test]
 
@@ -363,7 +414,8 @@ policy is refused at load; a per-repository condition evaluates as data.
 ### REQ-J1.1 — Every preference is a knob [test]
 
 Every `mission_control_*` key resolves through the four layers with its
-default; a seeded behaviour without a knob fails the knob inventory check.
+default; a seeded behaviour without a knob fails the knob inventory check
+Task 1 wires into `check:non-test`.
 
 ### REQ-J1.2 — Options-reference rows [test]
 
@@ -388,18 +440,26 @@ Enabling a duty creates its subdirectory; disabling leaves none.
 
 ### REQ-K1.4 — Cite, never copy [design-level + test]
 
-The doctrine states it; a lint over the knowledge-base fixtures flags a
-copied spec section.
+The doctrine states it; the copied-section lint Task 8 wires into
+`check:non-test` flags a seeded copied spec section.
 
 ### REQ-K1.5 — One writer, append-only logs [test]
 
 A second writer under a held lock waits or fails; a log rewrite is refused;
-a subject query returns only matching lines.
+a subject query returns only matching lines, across two monthly segments; a
+lock left by a dead holder is released by the next writer and logged.
 
 ### REQ-K1.6 — Caps as knobs, freshness visible [test]
 
 The index budget and entry cap resolve as knobs; freshness is reported for
 the panel.
+
+### REQ-K1.7 — The mechanism inventory [test]
+
+The refresh over fixture host and planwright surfaces writes one row per
+mechanism with kind, location and source and moves the watermark; a
+mechanism added to the fixture surface appears after the next refresh; a
+proposal fixture maps only onto rows present (Task 8, Task 9).
 
 ## REQ-L — Limits and budgets
 
@@ -409,7 +469,8 @@ the panel.
 
 ### REQ-L1.2 — Per-program budget and ladder [test]
 
-Each rung is reported from fixtures; the daemon pause is honoured.
+Each rung is reported from fixtures; a second snapshot-mode source's polls
+count against the cap; the daemon pause is honoured.
 
 ### REQ-L1.3 — Handover before the budget runs out [test]
 
@@ -419,7 +480,7 @@ A fixture at the threshold triggers the handover (Task 16).
 
 Plugin test draws headroom and expiries from fixtures.
 
-### REQ-L1.5 — Trigger from measured context, step count or ceiling [test]
+### REQ-L1.5 — Trigger from measured context, wake count or ceiling [test]
 
 Each trigger source fires from its fixture; the ceiling fires regardless of
 the other two.
@@ -433,10 +494,12 @@ one-act fallback is offered where the takeover path is unsupported.
 
 ## REQ-M — Throughput
 
-### REQ-M1.1 — One snapshot per program [test]
+### REQ-M1.1 — One snapshot per source per program [test]
 
-Two duties reading the snapshot cause one forge read per cadence; the
-snapshot carries its age.
+Two duties reading the forge snapshot cause one forge read per cadence;
+each snapshot carries its age; a fixture second source refreshes on its
+own cadence without a forge read; a fixture adapter reporting exhausted
+rate-limit headroom delays its next read.
 
 ### REQ-M1.2 — Push first, poll failsafe [test]
 
@@ -463,7 +526,7 @@ Heavy work queues behind the host budget rung in fixtures.
 ### REQ-M1.7 — Allocated model tier [test]
 
 Each launch resolves its tier through the allocation seam; a fixture with
-no tier is refused.
+no tier is refused; the same inputs yield the same session name.
 
 ### REQ-M1.8 — Measures [test]
 

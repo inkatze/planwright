@@ -1,7 +1,7 @@
 # Mission control — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-10-22
+**Status:** Ready
+**Last reviewed:** 2026-10-24
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -20,8 +20,10 @@ vocabulary and skills become internal, run on the operator's behalf up to
 the human gates. It consumes planwright's seams (the tower, the attention
 store and operator queue, the fleet registry and daemon layer, the dispatch
 backends, the catalog resolver, the policy guards, model allocation) and
-mints exactly one new extension point, the duty catalog. The bundle is the
-core; the larger duties are follow-on bundles (D-27).
+mints exactly one new operator-facing extension point, the duty catalog;
+the snapshot adapter contract (D-12) is a seam inside planwright that later
+planwright bundles implement, not a point operators extend. The bundle is
+the core; the larger duties and the adapters are follow-on bundles (D-27).
 
 **Alternatives considered:**
 - A local hub with its gaps closed one by one (the seed's other branch).
@@ -43,16 +45,25 @@ mission control is the abstraction most people need. Recording the
 altitude here lets the kickoff lens verify the task decomposition against
 it.
 
+*(Amended at kickoff 2026-10-23: "exactly one new extension point" qualified
+as operator-facing, so the source-agnostic snapshot seam D-12 gained does
+not contradict it; adapters are planwright's follow-on work, not an
+operator extension.)*
+
 ### D-2: Built on the tower; its limits lifted in mission control's own posture  (S)
 
 **Decision:** Mission control reuses `/tower`'s conversational contract,
 router, flight machinery and permission posture by reference, and states
 only its deltas: supervision of the sessions it launches, watchers and a
-failsafe tick, a program spanning repositories, and the duty seam. The
+failsafe tick, a program spanning repositories, the duty seam, and the
+relayed kickoff (REQ-I1.5: the tower offers and never starts; mission
+control launches and relays on the operator's ask). The
 tower's own text keeps its "no watch loop, no supervision, one repo" rules
 for the plain tower; `/tower` remains the single-repo, no-duties front door.
 Mission control never edits a settings file or widens its posture
 (tower-front-door D-14 carries).
+*(Amended at kickoff 2026-10-22: the relayed kickoff added to the lifted
+limits.)*
 
 **Alternatives considered:**
 - Replace `/tower`. Rejected because: single-repo adopters would inherit a
@@ -110,13 +121,21 @@ desks did not.
 ### D-5: The rule store, its supersession, its re-injection and its delivery  (N)
 
 **Decision:** Rules live in `rules.yaml` in the program home: entries with
-`id`, `text`, `source` (who said it, when, where), `date`, `scope` (program,
-duty, repository) and `supersedes`. A helper adds, supersedes, lists and
-renders the active set; the active set excludes superseded entries. The
+`id`, `text`, `subject` (one per entry, free text, the key the conflict
+report groups on), `source` (who said it, when, where), `date`, `scope`
+(program, duty, repository) and `supersedes`. A helper adds, supersedes,
+lists and renders the active set; the active set excludes superseded
+entries. A standing decision the operator states in a turn is added at
+once, echoed in one line and paired with an undo entry; the proposal path
+(D-14) is for inferred repeats. The
 active set is loaded whole at bring-up and re-injected after compaction by
 the panel mod's post-compaction hook, with the skill's own bring-up step as
 the fallback where the mod does not load. The launcher renders the rules in
 scope into every launched session's brief through the launch-brief seam.
+Answering permission prompts is not this store's job: a prompt is answered
+from the tower-comms standing-decision record, which carries command
+coverage (REQ-G1.2); an entry here that would answer one is proposed into
+that record (D-14).
 
 **Alternatives considered:**
 - Rules as memory files. Rejected because: memory is per session, cannot be
@@ -128,15 +147,30 @@ scope into every launched session's brief through the launch-brief seam.
 **Chosen because:** supersession and delivery are the two properties the
 twelve-day record lacked; both need a structured store with one writer.
 
+*(Amended at kickoff 2026-10-23: `subject` added to the entry; the direct
+entry of an operator-stated decision made explicit.)*
+
+*(Amended at sign-off lens pass 2026-10-24: prompt answering assigned to the
+tower-comms record, whose coverage field this store lacks.)*
+
 ### D-6: The panel is a mod shipped in the planwright plugin, with a text fallback  (S)
 
 **Decision:** The planwright plugin ships a mod. It draws a pane and a band
-above the prompt from the attention store, the registry, the forge
-snapshot, the budget file and the ledgers, read on a timer; it reads
+above the prompt from the attention store, the registry, the source
+snapshots (the forge among them, each with its mode and age), the budget
+file and the ledgers, read on a timer; it reads
 context percent and rate-limit headroom from the session usage call; it
-runs the failsafe tick from its timer and submits a prompt only when a tick
-is due and the session is idle; it feeds presence to the queue from prompt
-events; it re-injects rules on the post-compaction hook. Animation uses
+is the primary wake: it watches the attention store and submits the wake
+prompt as soon as an event is pending and the session is idle; it runs the
+failsafe tick from its timer and submits a prompt only when a tick is due
+and the session is idle; it feeds presence to the queue from prompt
+events; it re-injects rules on the post-compaction hook. Where the mod
+does not load, the daemon runner relays the wake through the fleet's
+session relay for the session's backend (stdin for stream-json, the pane
+relay for tmux), and the tick stays the failsafe on both paths; whether
+each relay submits or only stages the prompt is the research item of the
+panel task, and a relay that only stages falls back to the tick. Animation
+uses
 the mod's client element or raster repaint within the redraw throttle, with
 light aviation theming. Where the mod does not load (versions before
 2.1.287, headless and cloud sessions) everything it shows is available as
@@ -153,6 +187,10 @@ the failsafe tick. The version floor is accepted as a dependency adoption.
 **Chosen because:** the research showed every capability the surface needs
 exists in the mods API, and the fallback keeps mission control usable
 everywhere.
+
+*(Amended at kickoff 2026-10-23: the primary wake named (the mod watching
+the attention store, the runner's relay where the mod does not load); the
+tick was the only path the design described.)*
 
 ### D-7: The queue decides delivery; the mod observes  (S)
 
@@ -177,13 +215,33 @@ one writer.
 ### D-8: The program is the launch unit; its home is private and class 3  (N)
 
 **Decision:** A `program` block in configuration names the work
-repositories, the spec root, the program home, the enabled duties and the
-budget. One mission control runs per program, under the program's name.
-The program home defaults to `mission-control/<program>/` under the plugin
-data home (the adopter data overlay root) and is overridable; it holds the
-rule store, the knowledge base, the ledgers, the budget file and duty files.
-It is class 3 work product: never inside a work repository, never
-committed.
+repositories, the spec root, the program home, the enabled duties, the
+budget and the state-source map (REQ-H1.4: per fact class, the
+authoritative source and its mode, `record`, `snapshot` or `cited`; specs
+and forge by default). One mission control runs per program, under the
+program's name.
+The program home is class-3 work product (storage-classes): it defaults to
+`mission-control/<program>/` under the operator's planwright configuration
+root, a human-owned location, is named in the program block and
+overridable, and holds the rule store, the knowledge base, the ledgers and
+the handover file, never inside a work repository, never committed. The
+nearest existing home, the plugin data home, is runtime state and does not
+fit: a work product parked there is invisible to review and dies with the
+plugin's data. Runtime state (the source snapshots, the budget file, duty
+working files) stays under the plugin data home. The home holds no secret
+or credential: the forge adapter uses the forge CLI's own authentication,
+and the first run's forge-access objective checks that access and stores
+nothing. It also receives the reclaim backups REQ-D1.6 names: a
+`reclaimed/<repository>/<branch>/` folder per reclaimed worktree, holding
+the ignored audit files the reclaim knob lists, verified by size and hash
+before the worktree goes.
+Every store the home holds (the rule store, the knowledge base and its
+ledgers, the handover file) and the budget file carry a `format` field; this
+bundle's shapes are additive-only, a reader refuses a store whose format it
+does not know and names it, and a shape change is a follow-on's migration
+task, never an in-place edit. The launcher rollout is the same: a session
+started under the previous launcher finishes under it, and only new
+launches take the new one.
 
 **Alternatives considered:**
 - A home inside the repository under an ignored path. Rejected because: a
@@ -192,9 +250,22 @@ committed.
 - A global home for every program. Rejected because: two programs' rules
   and queues would mix.
 
-**Chosen because:** storage-classes already reserves the data home for
-framework-authored state and work product; the record's hub lived in such a
-folder and survived every session.
+**Chosen because:** storage-classes puts work product where the human owns
+it and runtime state in the data home; the record's hub lived in a
+human-owned folder and survived every session.
+
+*(Amended at kickoff 2026-10-23: the reclaim backup folder added; a
+repository-local backup folder was declined because reclaiming a checkout
+would take its backups with it. The state-source map added to the block.)*
+
+*(Amended at kickoff 2026-10-24: the format field, the additive-only rule
+and the launcher rollout added, closing the deploy-and-migration and
+versioning-scheme gap the kickoff's decision-domain check found.)*
+
+*(Amended at sign-off lens pass 2026-10-24: the home moved to a human-owned
+location, since storage-classes keeps work product out of the plugin data
+home, with the minting rationale recorded; the no-credential rule D-28
+already claimed written here.)*
 
 ### D-9: Knowledge-base layout and the three loading rules  (S)
 
@@ -202,9 +273,16 @@ folder and survived every session.
 `index.md` of one line per entry, loaded whole at bring-up; bodies read on
 demand; any read above the per-entry cap offloaded to a read-only session
 that returns an answer, never the file; a per-duty subdirectory per enabled
-duty; a `decisions.log` and an `undo.log`, both append-only and queried by
-subject; a follow-up ledger; a living-versus-consumed source table with
-watermarks. One writer per file, held by a lock file. Specs, tickets and
+duty; a `decisions.log`, an `undo.log` and the shadow would-have log, each
+append-only, written as monthly segment files (appends go to the current
+segment, a subject query reads across segments, no segment is rewritten)
+and queried by subject; a follow-up ledger; a living-versus-consumed source table with
+watermarks; a mechanism inventory (the living source D-14 maps repeats
+onto: what the host and planwright can make deterministic, by kind, with
+where each is configured and the source it was read from, refreshed
+against the installed versions). One writer per file, held by a lock
+file that records its holder's pid; a lock whose holder is dead is
+released by the next writer and the release logged. Specs, tickets and
 sources are cited, never copied.
 
 **Alternatives considered:**
@@ -217,14 +295,24 @@ sources are cited, never copied.
 **Chosen because:** tower frugality bounds inline ingestion, and the record
 shows only rules and decisions stayed true while state rotted.
 
+*(Amended at kickoff 2026-10-23: the mechanism inventory added as a
+living source.)*
+
+*(Amended at sign-off lens pass 2026-10-24: monthly log segments, since a
+long-lived session's append-only logs had no bound; the dead-holder lock
+rule, since a judgment session can die mid-write.)*
+
 ### D-10: One launcher for every session kind  (N)
 
 **Decision:** A launcher script composes the existing dispatch primitives
 (the flight dispatcher, the tmux and stream-json fleet dispatchers, the
 offload seam) to start a session of any kind (tower, orchestrator, worker,
 reviewer, ad-hoc), delivering the brief, the in-scope rules, the permission
-profile, the model tier from the allocation seam and a deterministic name,
-and registering the session with its owner, kind and scope. It has a
+profile (for mission control itself the `mission-control` guard tier: the
+tower tier's denials plus a ready flip inside the configured ready-flip
+policy, REQ-I1.2), the model tier from the allocation seam and a
+deterministic name, and registering the session with its owner, kind and
+scope. It has a
 `retire` verb that exits the session, closes its pane and clears its
 registry and attention rows, reporting any part it could not release.
 
@@ -236,13 +324,17 @@ registry and attention rows, reporting any part it could not release.
 **Chosen because:** the record's worst stalls were launches that delivered
 nothing (no profile, no prompt, no model), and one path is testable.
 
+*(Amended at sign-off lens pass 2026-10-24: the `mission-control` guard tier
+named, since the policy guard knew only worker and tower and the tower tier
+denies every flip.)*
+
 ### D-11: Liveness and stall states for every session kind  (N)
 
 **Decision:** Liveness is the registry pid and process state. The stall
 detector enumerates positive states for every session kind: dead, open
 selector, unsubmitted prompt, turn ended with background work, idle with a
-question in its pane, busy with no change past the stall window. Each state
-is an event. Extending the detector's resource classes from workers to
+question in its pane, busy with no change past the stall window, unknown
+(a changing pane with no registry pid). Each state is an event. Extending the detector's resource classes from workers to
 every kind rides a routed fleet-lifecycle-closure amendment.
 
 **Alternatives considered:**
@@ -253,14 +345,22 @@ every kind rides a routed fleet-lifecycle-closure amendment.
 **Chosen because:** the lifecycle-closure floor requires positively named
 states, and the record's stall detector missed exactly the unnamed ones.
 
-### D-12: One age-stamped forge snapshot per program  (N)
+*(Amended at sign-off lens pass 2026-10-24: `unknown` added, a state the
+test-spec already expected.)*
 
-**Decision:** A script refreshes one snapshot per program per cadence (PR
-heads, draft state, mergeability, review decision, open threads, checks,
-reviews and comments for the program's tracked PRs), age-stamped, with a
-patch id per PR so an unchanged patch is recognized. Every duty reads the
-snapshot; none polls the forge itself. The cadence and the tracked set are
-knobs; the refresher backs off on rate-limit headroom.
+### D-12: One age-stamped snapshot per source per program  (N)
+
+**Decision:** The snapshot seam is source-agnostic: for each
+snapshot-mode source in the program's map an adapter script refreshes one
+age-stamped snapshot per program per cadence into the program home, and
+every duty reads snapshots, none polls a source itself. The forge adapter
+ships here (PR heads, draft state, mergeability, review decision, open
+threads, checks, reviews and comments for the program's tracked PRs, with a
+patch id per PR so an unchanged patch is recognized). Adapters for
+trackers, document stores and design tools are a follow-on bundle (D-27);
+until one exists such a source is `cited`, and mission control holds only
+its links and what the operator said about it. The cadence and the tracked
+set are knobs per source; a refresher backs off on rate-limit headroom.
 
 **Alternatives considered:**
 - Each watcher polls what it needs. Rejected because: the record ran three
@@ -270,6 +370,12 @@ knobs; the refresher backs off on rate-limit headroom.
 **Chosen because:** the staleness tolerance is a program knob, which makes
 the cache decision a configured one rather than a product guess.
 
+*(Amended at kickoff 2026-10-23: generalized from the forge to any
+snapshot-mode source, the forge the shipped adapter, so a program whose
+public state lives in a tracker or document store gains an adapter through
+the seam, without changing it; adapter feasibility is the follow-on's question, and `cited`
+is the honest mode meanwhile.)*
+
 ### D-13: Autonomy at the mission-control tier, with calibration  (N)
 
 **Decision:** Decisions map onto the autonomous-safe-decision buckets at
@@ -278,9 +384,10 @@ record and sources cannot settle, or a hard-disqualifier zone; every other
 decision is taken, logged with grounds as decided-by-mission-control, and
 shown for review. A given go is not re-asked unless a check changes the
 answer; a likely answer is searched for first and asked as a confirmation
-with its source. A revoked self-decision lowers its decision class to
-ask-first until a configured run of confirmations restores it; the hit rate
-is on the panel. Interruptions per hour and the settled share are measured.
+with its source. A decision class is the autonomous-safe-decision bucket a
+decision maps onto; a revoked self-decision lowers its class to ask-first
+until a configured run of confirmations restores it; the hit rate is on the
+panel. Interruptions per hour and the settled share are measured.
 
 **Alternatives considered:**
 - A static autonomy policy. Rejected because: the record shows both
@@ -290,19 +397,31 @@ is on the panel. Interruptions per hour and the settled share are measured.
 **Chosen because:** the operator's load scales with decisions only they
 can make, and the whole-picture position settles more of the rest.
 
-### D-14: Duty proposals and rule proposals  (S)
+*(Amended at sign-off lens pass 2026-10-24: decision class defined as the
+autonomous-safe-decision bucket, since REQ-F1.9 and the calibration ledger
+used the term undefined.)*
+
+### D-14: Mechanization proposals  (S)
 
 **Decision:** A detector over the decisions log and the operator's asks
 counts repeats per shape (the same ask kind, a manual step after the same
 event, the same answer to the same question) against a threshold and a
-window. When a shipped or custom duty covers the repeat, mission control
-proposes it as a confirmation in the operator's words: what it noticed, the
-plan, the cadence, where the operator still intervenes, the cost, how to
-turn it off, an explicit decline. An accepted proposal enables the duty and
-writes its rules; a declined one is recorded and not re-proposed unless the
-pattern changes; "not now" parks it with a trigger. A repeated correction
-proposes a rule entry the same way. Nothing enables itself. The duty catalog
-is shown in the guided first run and on request.
+window. For a repeat at the threshold, mission control looks up the
+smallest mechanism in the knowledge base's mechanism inventory (D-9) that
+covers it and proposes it as a confirmation in the operator's words: what
+it noticed, the mechanism and its change, the cadence, where the operator
+still intervenes, the cost, how to turn it off, an explicit decline. The
+inventory's kinds are an open list (a rule entry, a knob, a catalog step
+such as a convergence or review step, a hook or permission rule, a
+scheduled routine, a shipped or custom duty); the inventory is refreshed
+from the installed host and planwright versions so a mechanism that
+appears later becomes proposable without a bundle change. An accepted
+proposal applies the change where mission control may write (the rule
+store, the program block, duty enablement) and hands a settings change
+over ready to apply (REQ-G1.4); a declined one is recorded and not
+re-proposed unless the pattern changes; "not now" parks it with a
+trigger. Nothing enables or applies itself. The duty catalog is shown in
+the guided first run and on request.
 
 **Alternatives considered:**
 - Enable the obvious duties by default and let the operator turn them off.
@@ -313,6 +432,10 @@ is shown in the guided first run and on request.
 
 **Chosen because:** it is the runtime form of the reflex, and the hub's
 memory rules were all born as repeated corrections.
+
+*(Amended at kickoff 2026-10-23: widened from duty-or-rule to any
+mechanism in the inventory; the operator's example was a review process
+run by hand that convergence steps already make deterministic.)*
 
 ### D-15: Shadow mode as a duty lifecycle state  (S)
 
@@ -331,8 +454,9 @@ configured number of agreed entries.
 
 **Decision:** A scheduled, mechanical pass compares the decisions log and
 the undo log against the active rule set: acts a rule forbids, rules with
-no act for a configured period, two active rules on one subject. Findings
-become operator items or rule proposals. The audit edits nothing.
+no act for a configured period, two active entries sharing a `subject`
+(the meaning call is the operator's). Findings become operator items or
+rule proposals. The audit edits nothing.
 
 **Alternatives considered:**
 - Audit by an LLM pass over the transcript. Rejected because: the floor
@@ -342,10 +466,13 @@ become operator items or rule proposals. The audit edits nothing.
 **Chosen because:** drift was invisible for days; a cheap scheduled compare
 is what makes it visible.
 
+*(Amended at kickoff 2026-10-23: two active entries sharing a `subject`
+named as the mechanical finding, the meaning call the operator's.)*
+
 ### D-17: Budgets and the degradation ladder  (N)
 
-**Decision:** A per-program budget file bounds live sessions, forge polls
-per hour, spend class per duty, context steps and host load. Each duty and
+**Decision:** A per-program budget file bounds live sessions, source polls
+per hour (every snapshot-mode source counted), spend class per duty, context steps and host load. Each duty and
 watcher declares cost and cadence. Under pressure the ladder is declared:
 throttle low-value duties, pause watchers by cost class, hold dispatch,
 hand over the session; the quota-handling `limited` outcome and the
@@ -363,11 +490,13 @@ once; modelling them beats discovering them.
 
 **Decision:** With no program configured, mission control runs a guided
 first run: one objective at a time (repositories, spec root, forge access,
-duties to enable, voice and quiet hours), visible progress on the panel,
+where the program's state lives per fact class and in which mode, duties
+to enable, voice and quiet hours), visible progress on the panel,
 immediate feedback, hints only when stuck, scaffolds that fade per concept.
 It ends by writing the program block, the knowledge-base skeleton and the
 enabled duties. A guidance knob (guided, standard, expert; guided on a
-fresh installation, remembered per operator) sets the depth everywhere.
+fresh installation, remembered in the machine-local configuration layer)
+sets the depth everywhere.
 The didactics shape the turn and the panel and never soften a normative
 token, pre-select an option or pad a turn past the density rules.
 
@@ -377,6 +506,10 @@ token, pre-select an option or pad a turn past the density rules.
 
 **Chosen because:** mission control is meant for operators who do not know
 planwright; a guided first run is how they get a working configuration.
+
+*(Amended at kickoff 2026-10-23: the state-source objective added to the
+first run's list, so a program's source map is written before any duty
+reads from it.)*
 
 ### D-19: The register, stricter than tower-comms  (N)
 
@@ -418,15 +551,21 @@ evidence, and the record supplies it knob by knob.
 **Decision:** The mission-control skill states its deltas from the tower by
 reference, and its mechanics live in scripts, the duty catalog and the
 doctrine doc; the budget checker runs in CI against the skill and its
-closure. A task that would push the closure past its cap moves prose into
-a script's usage header or the catalog instead of raising the cap.
+closure. A task that would push the closure past its cap follows
+instruction-hygiene's order: trim non-law prose first, then move bulk to
+point-of-use (a script's usage header, the catalog, the doctrine doc), then
+a deliberate raise with its recorded rationale, then escalation to the
+operator; no step defers gating law.
 
 **Alternatives considered:**
-- Raise the cap for this skill. Rejected because: the cap exists to keep
-  every skill loadable; the closure is already at it.
+- Raise the cap first, before the diet and the move. Rejected because: the
+  cap exists to keep every skill loadable; the closure is already at it.
 
 **Chosen because:** budget trims by deduplication are exhausted; only
 structure keeps a skill of this size inside it.
+
+*(Amended at sign-off lens pass 2026-10-24: instruction-hygiene's fixed order of
+fixes cited instead of a local rule that skipped the recorded raise.)*
 
 ### D-22: Cross-bundle edges  (N)
 
@@ -438,8 +577,8 @@ invariant-tasks and spec-format (a per-task repository field and per-repo
 dependency state), fleet-hardening (a tower permission floor independent of
 the launch), merge-currency-guard (the deterministic pr-ready attention
 record), worker-permission-ergonomics (profile delivery at dispatch). It
-seeds four follow-on bundles through pending notes: review desk, spec
-currency, environment broker, night shift.
+seeds five follow-on bundles through pending notes: review desk, spec
+currency, environment broker, night shift, state-source adapters.
 
 **Alternatives considered:**
 - Decide those pieces here. Rejected because: each has an owner whose scope
@@ -448,7 +587,10 @@ currency, environment broker, night shift.
 **Chosen because:** the fold-detection pass named the owners, and the
 operator chose routed amendments over a self-contained bundle.
 
-### D-23: Non-authoring and relay  (C, fleet-coordination-floor; tower-front-door D-2)
+*(Amended at kickoff 2026-10-23: the state-source adapters named as the
+fifth follow-on.)*
+
+### D-23: Non-authoring and relay  (C, fleet-coordination-floor; fleet-autonomy D-17)
 
 **Decision:** Mission control edits no repository and runs no git mutation;
 reads are in bounds. It reaches a session by cross-session message first and
@@ -468,7 +610,8 @@ this one.
 ### D-24: The undo ledger  (S)
 
 **Decision:** Every automated act appends an entry naming the act, its
-target, its grounds and a one-step reversal command where one exists
+`subject` (the shared key, D-5), its target, its grounds and a one-step
+reversal command where one exists
 (resolve a thread, re-approve, retire a session, park a unit). The panel's
 recent-decisions view reads it, and a revoke runs the reversal.
 
@@ -477,6 +620,9 @@ recent-decisions view reads it, and a revoke runs the reversal.
   cheap only when reversing it is cheaper.
 
 **Chosen because:** act-then-review needs a cheap undo to stay honest.
+
+*(Amended at sign-off lens pass 2026-10-24: `subject` added, since D-9 queries
+the undo log by it.)*
 
 ### D-25: The readiness-check duty and prepared packets  (S)
 
@@ -524,10 +670,13 @@ case, and the floors make that safe.
 inbox (the operator surface, D-7, D-19), readiness-check (D-25),
 conflict-radar (same-file and same-line prediction across the program's
 branches, merge order and stack retargets from the whole graph),
-deadline-watch (calendar and date sources drive priority and the first turn
-after silence), prepared-moments (D-25), undo-ledger (D-24), self-audit
-(D-16) and proposals (D-14). Review desk, spec currency, environment broker
-and night shift are follow-on bundles, each seeded by a pending note.
+deadline-watch (dates held in `record` and `snapshot` stores and dates the
+operator states drive priority and the first turn after silence; calendar
+reads arrive with the state-source adapters), prepared-moments (D-25), undo-ledger (D-24), self-audit
+(D-16) and proposals (D-14). Review desk, spec currency, environment
+broker, night shift and the state-source adapters (D-12: Jira, Notion and
+Figma named as candidates) are follow-on bundles, each seeded by a pending
+note.
 
 **Alternatives considered:**
 - Ship the review desk as the reference duty here. Rejected because: it is
@@ -537,13 +686,21 @@ and night shift are follow-on bundles, each seeded by a pending note.
 **Chosen because:** the shipped set is what every mission control needs;
 the follow-ons are what some do.
 
+*(Amended at kickoff 2026-10-23: the state-source adapters added as the
+fifth follow-on.)*
+
+*(Amended at sign-off lens pass 2026-10-24: deadline-watch's day-one sources
+stated, since no calendar adapter ships and `cited` forbids polling.)*
+
 ### D-28: Decision-domain walk  (N)
 
 **Decision:** Domains touched and decided here: data storage and modelling
 (D-5, D-9, D-24), caching (D-12), queues and async work (D-4, D-7), API
-surface (the duty entry format, the launcher verbs, the knobs: D-3, D-10,
-D-20), secrets and configuration (every knob documented, D-20; secrets never
-in the program home, D-8), concurrency (one writer per file, D-9),
+surface (the duty entry format, the launcher verbs, the knobs, the
+state-source map and the snapshot adapter seam: D-3, D-8, D-10, D-12,
+D-20), secrets and configuration (every knob documented, D-20; no secret or
+credential in the program home, the forge CLI's own authentication reused,
+D-8), concurrency (one writer per file with a dead-holder release, D-9),
 observability (the panel and the measures, D-6, D-13), dependency adoption
 (the mods API and its version floor, D-6), LLM output quality (proposal and
 routing judgment eval-gated, test-spec), human comprehension (the panel and
@@ -551,9 +708,12 @@ items, researched against the mods docs and interaction-style, D-6, D-19),
 existing-seam reuse (D-2, D-3, D-10), knowledge engineering (the
 knowledge-base taxonomy, D-9), product strategy (front-door positioning,
 operator-decided, D-1). Authentication and authorization adds no new
-surface (profiles are delivered unchanged); organization design is
-unchanged (the human gates). Not touched: deploy and migration, versioning
-scheme, packaging and pricing, IP posture.
+surface beyond the `mission-control` guard tier (D-10: the tower tier plus
+policy-bounded flips, worker and tower profiles delivered unchanged);
+organization design is unchanged (the human gates). Deploy and migration and versioning scheme:
+the program-home stores carry a format field under an additive-only rule
+and the launcher rolls out per new launch (D-8). Not touched: packaging and
+pricing, IP posture.
 
 **Alternatives considered:**
 - Leave the walk to kickoff. Rejected because: the drafting phase is where
@@ -561,12 +721,24 @@ scheme, packaging and pricing, IP posture.
 
 **Chosen because:** the kickoff gap check then has nothing to flag.
 
+*(Amended at kickoff 2026-10-23: the state-source map and adapter seam
+added under API surface; the kickoff found the source-of-truth question
+touched and undecided.)*
+
+*(Amended at kickoff 2026-10-24: deploy and migration and versioning scheme
+moved from "not touched" to decided, the §7 gap check having found the
+persisted stores and the launcher rollout touched.)*
+
+*(Amended at sign-off lens pass 2026-10-24: the secrets claim now backed by
+D-8's text; the guard tier recorded under authentication.)*
+
 ### D-29: Handover over compaction  (S)
 
 **Decision:** Mission control prefers a continue-as-new handover to a
 compaction. The trigger is measured context percent from the session usage
-call where the harness exposes it, the completed-step proxy otherwise, and a
-compaction-count ceiling in either case; the mod's compaction hook defers
+call where the harness exposes it, the completed-wake proxy otherwise (one
+duty trigger or operator turn, its ceiling a knob), and a compaction-count
+ceiling in either case; the mod's compaction hook defers
 a compaction while a handover is possible. When a compaction happens
 anyway, the active rules are re-injected and the session runs a self-check
 against durable sources (rules present, open items known, live sessions
