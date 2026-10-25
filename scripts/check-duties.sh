@@ -115,8 +115,8 @@ relay() {
   done <"$scratch/err"
 }
 
-# The merge --explain runs, unlike a plain read of a core-only catalog, warns
-# about every layer, the core seed included.
+# List through --explain: unlike a plain read of a core-only catalog, its
+# merge warns about every layer, the core seed included.
 if listing=$(run mc-duties.sh list); then
   [ ! -s "$scratch/err" ] || relay
 else
