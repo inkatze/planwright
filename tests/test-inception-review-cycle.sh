@@ -578,6 +578,165 @@ mkdir -p "$v5/feedback" && printf 'Ledger-version: 1\nAdapter: notion\nPhase: ex
 assert_eq "never-committed ledger: refused" "1" "$?"
 assert_contains "never-committed ledger: says so" "never committed" "$(cat "$tmp/err")"
 
+# Sections 19-25 pin the operator's rulings on the convergence forks.
+
+# ---------------------------------------------------------------------------
+# 19. The section guard reads a plain diff whatever the venture's diff
+#     settings, and refuses a staged change it cannot read as hunks.
+# ---------------------------------------------------------------------------
+v6="$tmp/venture6"
+fresh_venture "$v6" || exit 1
+"$CYCLE" triage FB-1 apply --decider "Robin Lead" --section "brief.md#Appetite" "$v6" >/dev/null 2>&1 || exit 1
+stage_out_of_section() {
+  sed 's/^Median incident-handover time drops below ten minutes/Median incident-handover time drops below eight minutes/' "$v6/brief.md" >"$tmp/brief" && cp "$tmp/brief" "$v6/brief.md"
+  git -C "$v6" add brief.md
+}
+before="$(git -C "$v6" rev-parse HEAD)"
+git -C "$v6" config color.diff always
+git -C "$v6" config color.ui always
+stage_out_of_section
+"$CYCLE" apply FB-1 "$v6" >/dev/null 2>"$tmp/err"
+assert_eq "colour forced on: an out-of-section edit is still refused" "1" "$?"
+git -C "$v6" config --unset color.diff
+git -C "$v6" config --unset color.ui
+printf 'brief.md -diff\n' >"$v6/.git/info/attributes"
+"$CYCLE" apply FB-1 "$v6" >/dev/null 2>"$tmp/err"
+assert_eq "a -diff attribute: an out-of-section edit is still refused" "1" "$?"
+rm -f "$v6/.git/info/attributes"
+git -C "$v6" config diff.external /bin/true
+"$CYCLE" apply FB-1 "$v6" >/dev/null 2>"$tmp/err"
+assert_eq "an external diff tool: an out-of-section edit is still refused" "1" "$?"
+git -C "$v6" config --unset diff.external
+git -C "$v6" reset -q && git -C "$v6" checkout -q -- brief.md
+chmod +x "$v6/brief.md" && git -C "$v6" add brief.md
+"$CYCLE" apply FB-1 "$v6" >/dev/null 2>"$tmp/err"
+assert_eq "a change with no hunk (a mode change): refused" "1" "$?"
+assert_contains "a change with no hunk: says it cannot be read as lines" "no line" "$(cat "$tmp/err")"
+assert_eq "section guard: nothing was committed" "$before" "$(git -C "$v6" rev-parse HEAD)"
+git -C "$v6" reset -q && chmod -x "$v6/brief.md"
+
+# ---------------------------------------------------------------------------
+# 20. Header values are sanitized as they are read.
+# ---------------------------------------------------------------------------
+awk '/^Cycle: / && !done { printf "%s\033\n", $0; done = 1; next } /^Phase: / { print "Phase: exported"; next } { print }' "$v6/feedback/ledger.md" >"$tmp/l" && cp "$tmp/l" "$v6/feedback/ledger.md"
+git -C "$v6" commit -qm "chore: a hand edit" -- feedback/ledger.md
+out="$("$CYCLE" status "$v6" 2>&1)"
+assert_not_contains "header escape: status prints no escape byte" "$(printf '\033')" "$out"
+"$CYCLE" export --confirmed "$v6" >/dev/null 2>"$tmp/err"
+assert_eq "header escape: the unharvested export is refused" "1" "$?"
+assert_not_contains "header escape: the refusal carries none" "$(printf '\033')" "$(cat "$tmp/err")"
+"$CYCLE" harvest "$v6" >/dev/null 2>"$tmp/err"
+assert_not_contains "header escape: harvest's messages carry none" "$(printf '\033')" "$(cat "$tmp/err")"
+assert_not_contains "header escape: no commit message carries one" "$(printf '\033')" "$(git -C "$v6" log --format=%B)"
+
+# ---------------------------------------------------------------------------
+# 21. Stored values keep their UTF-8: only C0 and DEL are stripped, and a cap
+#     never cuts a character in half.
+# ---------------------------------------------------------------------------
+"$CYCLE" triage FB-2 skip --decider "Ñandú Pérez" "$v6" >/dev/null 2>"$tmp/err"
+assert_eq "UTF-8 decider: triage exit 0" "0" "$?"
+assert_eq "UTF-8 decider: stored intact" "Ñandú Pérez" "$(field_of "$v6" FB-2 Decider)"
+long="$(printf 'a%.0s' $(seq 1 119))é"
+"$CYCLE" triage FB-3 skip --decider "$long" "$v6" >/dev/null 2>"$tmp/err"
+assert_eq "capped decider: cut before the split character" "$(printf 'a%.0s' $(seq 1 119))" "$(field_of "$v6" FB-3 Decider)"
+if iconv -f UTF-8 -t UTF-8 "$v6/feedback/ledger.md" >/dev/null 2>&1; then
+  echo "ok: capped values: the ledger is valid UTF-8"
+else
+  echo "FAIL: capped values: the ledger is not valid UTF-8" >&2
+  failures=$((failures + 1))
+fi
+
+# ---------------------------------------------------------------------------
+# 22. A credential-shaped comment is redacted at harvest, so the venture's
+#     own secret screen does not refuse every harvest commit.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/fx" && cp "$FIX"/*.json "$tmp/fx/"
+key="AKIA""ABCDEFGHIJKLMNOP"
+long_author="$(printf 'b%.0s' $(seq 1 119))ü"
+jq --arg t "Use $key for the pilot.
+The rest is fine." --arg a "$long_author" '.results[0].rich_text[0].plain_text = $t | .results[0].display_name = {type: "user", resolved_name: $a}' \
+  "$FIX/comments-page-2.json" >"$tmp/fx/comments-secret.json"
+sed 's/comments-page-2.json/comments-secret.json/' "$tmp/routes.base" >"$tmp/routes6"
+notion_fake_install "$tmp/bin6" "$tmp/fx" "$tmp/routes6" "$tmp/log6" || exit 1
+v7="$tmp/venture7"
+inception_fixture_write "$v7" || exit 1
+git -C "$v7" init -q . && git -C "$v7" add -A && git -C "$v7" commit -qm "chore: seed the venture" || exit 1
+"$NOTION" configure --page "$PAGE" "$v7" >/dev/null || exit 1
+PATH="$tmp/bin6:$PATH" "$CYCLE" export --adapter notion --confirmed "$v7" >/dev/null 2>&1 || exit 1
+printf '#!/bin/sh\nexec /bin/sh "%s" --staged\n' "$REPO_ROOT/scripts/inception-secret-screen.sh" >"$v7/.git/hooks/pre-commit"
+chmod +x "$v7/.git/hooks/pre-commit"
+out="$(PATH="$tmp/bin6:$PATH" "$CYCLE" harvest "$v7" 2>"$tmp/err")"
+assert_eq "credential comment: the harvest still commits" "0" "$?"
+assert_contains "credential comment: every item recorded" "new	3" "$out"
+assert_not_contains "credential comment: the key is not in the ledger" "ABCDEFGHIJKLMNOP" "$(cat "$v7/feedback/ledger.md")"
+assert_contains "credential comment: the line is marked withheld" "redacted" "$(cat "$v7/feedback/ledger.md")"
+assert_contains "credential comment: the rest of the comment is kept" "> The rest is fine." "$(cat "$v7/feedback/ledger.md")"
+assert_contains "credential comment: the operator is told" "redacted" "$(cat "$tmp/err")"
+assert_not_contains "credential comment: the key is not printed" "ABCDEFGHIJKLMNOP" "$(cat "$tmp/err")"
+assert_eq "capped author: cut before the split character" "$(printf 'b%.0s' $(seq 1 119))" "$(field_of "$v7" FB-2 Author)"
+rm -f "$v7/.git/hooks/pre-commit"
+
+# ---------------------------------------------------------------------------
+# 23. An export with accepted but unapplied items warns and counts them.
+# ---------------------------------------------------------------------------
+"$CYCLE" triage FB-1 apply --decider "Robin Lead" --section "brief.md#Appetite" "$v7" >/dev/null 2>&1 || exit 1
+"$CYCLE" triage FB-2 skip --decider "Robin Lead" "$v7" >/dev/null 2>&1 || exit 1
+"$CYCLE" triage FB-3 skip --decider "Robin Lead" "$v7" >/dev/null 2>&1 || exit 1
+out="$("$CYCLE" status "$v7")"
+assert_contains "status: counts accepted unapplied items" "unapplied	1" "$out"
+out="$(PATH="$tmp/bin6:$PATH" "$CYCLE" export --confirmed "$v7" 2>"$tmp/err")"
+assert_eq "unapplied items: the export still runs" "0" "$?"
+assert_contains "unapplied items: the count is printed" "unapplied	1" "$out"
+assert_contains "unapplied items: the export warns" "FB-1" "$(cat "$tmp/err")"
+
+# ---------------------------------------------------------------------------
+# 24. After a partial commit, nothing the hook staged is left staged.
+# ---------------------------------------------------------------------------
+v8="$tmp/venture8"
+fresh_venture "$v8" || exit 1
+cat >"$v8/.git/hooks/pre-commit" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$$" >hooked.txt
+git add hooked.txt
+EOF
+chmod +x "$v8/.git/hooks/pre-commit"
+printf 'unrelated\n' >"$v8/stray.txt" && git -C "$v8" add stray.txt
+"$CYCLE" triage FB-2 skip --decider "Robin Lead" "$v8" >/dev/null 2>"$tmp/err"
+assert_eq "partial commit: triage exit 0" "0" "$?"
+assert_eq "partial commit: only the operator's staging is left" "stray.txt" "$(git -C "$v8" diff --cached --name-only)"
+rm -f "$v8/.git/hooks/pre-commit"
+
+# ---------------------------------------------------------------------------
+# 25. The bundle lock lives in the clone's git directory, a worktree clone
+#     included, so no save can commit it.
+# ---------------------------------------------------------------------------
+git -C "$v8" reset -q && rm -f "$v8/stray.txt" "$v8/hooked.txt"
+git -C "$v8" worktree add -q "$tmp/wt8" >/dev/null 2>&1 || exit 1
+wt_lock="$(git -C "$tmp/wt8" rev-parse --absolute-git-dir)/planwright-bundle.lock"
+# shellcheck disable=SC2016 # expanded by the holder's own shell
+bash -c '. "$1" && pw_lock_acquire "$2" 1 && : >"$3" && exec sleep 30' _ \
+  "$REPO_ROOT/scripts/lock-lib.sh" "$wt_lock" "$tmp/wt-held" &
+holder=$!
+trap 'kill "$holder" 2>/dev/null; rm -rf "$tmp"' EXIT
+n=0
+while [ ! -f "$tmp/wt-held" ] && [ "$n" -lt 100 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+PLANWRIGHT_BUNDLE_LOCK_TRIES=1 "$CYCLE" triage FB-1 skip --decider "Robin Lead" "$tmp/wt8" >/dev/null 2>"$tmp/err"
+assert_eq "worktree clone: a step waits on the git-directory lock" "2" "$?"
+kill "$holder" 2>/dev/null
+wait "$holder" 2>/dev/null
+trap 'rm -rf "$tmp"' EXIT
+"$CYCLE" triage FB-1 skip --decider "Robin Lead" "$tmp/wt8" >/dev/null 2>"$tmp/err"
+assert_eq "worktree clone: the step runs once the lock is free" "0" "$?"
+if [ -e "$tmp/wt8/.planwright-bundle.lock" ]; then
+  echo "FAIL: worktree clone: a lock file was left in the work tree" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: worktree clone: no lock file in the work tree"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

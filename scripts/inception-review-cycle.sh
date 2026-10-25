@@ -10,7 +10,8 @@
 #   export   offer, or with --confirmed perform, an export of the committed
 #            bundle through the adapter. Refused while the previous cycle has
 #            an export not yet harvested in full (a partial harvest does not
-#            count) or an item not yet triaged.
+#            count) or an item not yet triaged. Accepted items not yet applied
+#            are counted and warned about, never a refusal.
 #   harvest  read the review surface's feedback through the adapter and add
 #            each item it has not seen to the ledger, pending.
 #   list     the ledger's items, one per line, sanitized for the terminal.
@@ -19,18 +20,21 @@
 #   apply    commit the staged change for an accepted item, after checking it
 #            stays inside the triaged section and passes the stakeholder-commit
 #            validator; the commit cites the item's source.
-#   status   the ledger's cycle, phase, adapter, and pending count.
+#   status   the ledger's cycle, phase, adapter, and pending and unapplied
+#            counts.
 #
 # The ledger is feedback/ledger.md in the venture, tracked: it is the only
 # record of what became of each item, because a review surface may offer no
 # way to resolve a comment (Notion's API cannot). Harvested text enters it
 # quoted, one `> ` line at a time, with control characters stripped, so it
-# cannot forge a heading or a field. export, harvest, and triage commit the
+# cannot forge a heading or a field, and credential-shaped text is redacted
+# before it is written. export, harvest, and triage commit the
 # ledger alone, leaving anything else staged as it was;
 # apply commits the change and the ledger together. A step that writes the
 # ledger refuses to start while it has uncommitted changes, and restores it
 # when its own commit fails (an export, already sent, keeps its record). Every
-# writing step holds the venture's bundle lock.
+# writing step holds the venture's bundle lock, kept in the clone's git
+# directory.
 #
 # Adapters are a closed set (ADAPTERS below), each a sibling script answering
 # `status`, `export <venture> <snapshot>`, and `harvest <venture>` with the
@@ -225,10 +229,23 @@ else
 fi
 today() { printf '%s' "$today_val"; }
 
+# A byte cap that never cuts a UTF-8 character: when the byte after the cut
+# is a continuation byte, the cut backs off to the character's start. Values
+# stored in the ledger lose only C0 and DEL; the 0x80-0x9F strip the terminal
+# sanitizer applies would split multibyte text, so it stays at output.
+UTF8CAP_AWK='
+function utf8cap(s, max,    cont, i) {
+  if (length(s) <= max) return s
+  for (i = 128; i < 192; i++) cont = cont sprintf("%c", i)
+  while (max > 0 && index(cont, substr(s, max + 1, 1))) max--
+  return substr(s, 1, max)
+}
+'
+
 # oneline <value> <max> — control characters to spaces, trimmed, capped.
 oneline() {
-  printf '%s' "$1" | tr '\000-\037\177\200-\237' ' ' \
-    | awk -v max="$2" '{ s = s (NR > 1 ? " " : "") $0 } END { gsub(/^ +| +$/, "", s); print substr(s, 1, max) }'
+  printf '%s' "$1" | tr '\000-\037\177' ' ' \
+    | awk -v max="$2" "$UTF8CAP_AWK"'{ s = s (NR > 1 ? " " : "") $0 } END { gsub(/^ +| +$/, "", s); print utf8cap(s, max) }'
 }
 
 git_v() { git -C "$target" "$@"; }
@@ -240,10 +257,15 @@ ledger_guard() {
   [ ! -L "$ledger" ] || die 1 "the ledger is a symbolic link; it is not followed out of the venture"
 }
 
-# header <Key> — a ledger header value (before `## Items`).
+# header <Key> — a ledger header value (before `## Items`), stripped of
+# control bytes as it is read: the ledger is tracked, so any commit can put
+# bytes here, and every value read is machine-shaped (a number, a phase, an
+# adapter name, a commit id, a date) that later reaches a terminal or a commit
+# message.
 header() {
   [ -f "$ledger" ] || return 0
-  awk -v k="$1" '/^## Items/ { exit } index($0, k ": ") == 1 { print substr($0, length(k) + 3); exit }' "$ledger"
+  awk -v k="$1" '/^## Items/ { exit } index($0, k ": ") == 1 { print substr($0, length(k) + 3); exit }' "$ledger" \
+    | tr -d '\000-\037\177\200-\237'
 }
 
 # ledger_require_clean — a step that writes the ledger starts from the
@@ -363,8 +385,9 @@ EOF
 # commit_paths <message-file> <path>... — commit exactly these paths. A
 # partial commit (`--only`) is used only when something else is staged: it
 # builds a temporary index, so whatever a pre-commit hook stages lands in the
-# commit but not in the real index, which then shows those paths as staged
-# reversions (the venture hook's regenerated exports) and jams the next apply.
+# commit but not in the real index, which would show those paths as staged
+# reversions (the venture hook's regenerated exports) and jam the next apply;
+# a partial commit is therefore followed by a reset of exactly those paths.
 commit_paths() {
   _msg=$1
   shift
@@ -385,7 +408,19 @@ commit_paths() {
     git_v read-tree "$_tree" 2>/dev/null
     return 1
   else
-    git_v commit -q --only -F "$_msg" -- "$@"
+    git_v commit -q --only -F "$_msg" -- "$@" || return 1
+    # The partial commit carried whatever the hook staged into its temporary
+    # index, and the real index still holds those paths' old entries, so they
+    # read as staged reversions. Reset exactly those to the commit; the
+    # operator's own staging of other paths is not in the commit and stays.
+    git_v -c core.quotePath=false diff-tree --root --no-commit-id --name-only -r HEAD >"$work/carried" || return 0
+    while IFS= read -r _p; do
+      [ -n "$_p" ] || continue
+      _mine=0
+      for _a in "$@"; do [ "$_p" != "$_pfx$_a" ] || _mine=1; done
+      [ "$_mine" = 1 ] || git_v reset -q HEAD -- ":(top,literal)$_p" 2>/dev/null
+    done <"$work/carried"
+    return 0
   fi
 }
 
@@ -465,8 +500,10 @@ section_check() {
 # --- snapshot ----------------------------------------------------------------
 
 venture_title() {
-  t=$(git_v show HEAD:./brief.md 2>/dev/null | sed -n '1s/^# \(.*\) — Brief$/\1/p')
-  sanitize_printable "$t" "this venture"
+  # Stored in the ledger and the snapshot, so only C0 and DEL go (see
+  # UTF8CAP_AWK); a title that is all control bytes reads as the fallback.
+  t=$(git_v show HEAD:./brief.md 2>/dev/null | sed -n '1s/^# \(.*\) — Brief$/\1/p' | tr -d '\000-\037\177')
+  printf '%s' "${t:-this venture}"
 }
 
 build_snapshot() {
@@ -489,7 +526,18 @@ bundle_clean() {
 }
 
 pending_items() {
-  awk '/^### / { cur = $2 } /^Text:/ { cur = "" } cur != "" && $0 == "Disposition: pending" { print cur }' "$ledger" 2>/dev/null
+  awk '/^### / { cur = ($2 ~ /^FB-[0-9]+$/) ? $2 : "" } /^Text:/ { cur = "" } cur != "" && $0 == "Disposition: pending" { print cur }' "$ledger" 2>/dev/null
+}
+
+# unapplied_items — accepted (apply or modify) and not yet applied.
+unapplied_items() {
+  awk '
+    function flush() { if (cur != "" && (d == "apply" || d == "modify") && a == "none") print cur }
+    /^### / { flush(); cur = ($2 ~ /^FB-[0-9]+$/) ? $2 : ""; d = ""; a = ""; next }
+    /^Text:/ { flush(); cur = "" }
+    cur != "" && /^Disposition: / { d = substr($0, 14) }
+    cur != "" && /^Applied: / { a = substr($0, 10) }
+    END { flush() }' "$ledger" 2>/dev/null
 }
 
 # --- export ------------------------------------------------------------------
@@ -515,6 +563,11 @@ cmd_export() {
     pend=$(pending_items | tr '\n' ' ' | sed 's/ $//')
     [ -z "$pend" ] || die 1 "triage every item before the next export; pending: $pend"
   fi
+  # Accepted items not yet applied do not hold the export: an acceptance has
+  # no withdrawal, so a refusal here would wedge the cycle on any item the
+  # operator later thinks better of. The export says so instead.
+  unapplied=$(unapplied_items | tr '\n' ' ' | sed 's/ $//')
+  n_unapplied=$(printf '%s' "$unapplied" | wc -w | tr -d ' ')
   bundle_clean || die 1 "the bundle has uncommitted changes; an export is a snapshot of a commit, so commit or discard them first"
 
   snap="$work/snapshot.md"
@@ -531,6 +584,10 @@ cmd_export() {
     '' | none) die 3 "the $adapter adapter has no destination configured for this clone" ;;
   esac
   dest="$adapter:$(sanitize_printable "$dest")"
+  if [ "$n_unapplied" -gt 0 ]; then
+    printf 'unapplied\t%s\n' "$n_unapplied"
+    printf '%s\n' "inception-review-cycle: $n_unapplied accepted item(s) are not applied yet ($unapplied); this snapshot goes out without them" >&2
+  fi
 
   if [ "$confirmed" -ne 1 ]; then
     printf 'decision\toffer\n'
@@ -600,7 +657,7 @@ function flat(s, max) {
   s = decode(s)
   gsub(/[\001-\037\177]/, " ", s)
   gsub(/^ +| +$/, "", s)
-  s = substr(s, 1, max)
+  s = utf8cap(s, max)
   return s == "" ? "none" : s
 }
 function quoted(s,    n, lines, i, out, l) {
@@ -617,6 +674,64 @@ function quoted(s,    n, lines, i, out, l) {
   return out
 }
 '
+
+# redact_secrets <fragment> — withhold credential-shaped text from the items
+# about to enter the ledger, in place, before anything is written. Anyone who
+# can comment can paste a key; recorded verbatim, it would sit in the tracked
+# ledger and make the venture's own commit-time screen refuse every harvest
+# commit from then on. Uses the same screen as that hook. A flagged quoted
+# line is replaced, a whole private-key block when the flag opens one, and a
+# flagged field keeps its key with the value withheld. The screen runs again
+# until clean, a bounded number of times; the items touched are named on
+# stderr, never the text.
+redact_secrets() {
+  rd_pass=0
+  : >"$work/redacted"
+  while :; do
+    rd_rc=0
+    /bin/sh "$script_dir/inception-secret-screen.sh" -- "$1" >"$work/screen.out" 2>&1 || rd_rc=$?
+    case $rd_rc in
+      0) break ;;
+      1) ;;
+      *) die 2 "the secret screen could not run over the harvested feedback; nothing was recorded" ;;
+    esac
+    rd_pass=$((rd_pass + 1))
+    [ "$rd_pass" -le 3 ] || die 1 "harvested feedback still looks like it carries a credential after redaction; nothing was recorded"
+    RD_PREFIX="$1:" RD_FLAGS="$work/screen.out" RD_IDS="$work/redacted"
+    export RD_PREFIX RD_FLAGS RD_IDS
+    awk '
+      BEGIN {
+        p = ENVIRON["RD_PREFIX"]
+        while ((getline l < ENVIRON["RD_FLAGS"]) > 0) {
+          if (index(l, p) != 1) continue
+          n = substr(l, length(p) + 1); sub(/:.*/, "", n)
+          if (n ~ /^[0-9]+$/) flag[n + 0] = 1
+        }
+      }
+      /^### FB-/ { cur = $2 }
+      inblock {
+        print "> [redacted at harvest: credential-shaped text withheld]"
+        if ($0 ~ /-----END/) inblock = 0
+        next
+      }
+      (FNR in flag) {
+        print cur > ENVIRON["RD_IDS"]
+        if ($0 ~ /^>/) {
+          if ($0 ~ /-----BEGIN/ && $0 !~ /-----END/) inblock = 1
+          print "> [redacted at harvest: credential-shaped text withheld]"
+        } else if ($0 ~ /^[A-Za-z-]+: /) {
+          k = $0; sub(/: .*/, "", k)
+          print k ": [redacted at harvest]"
+        } else print "[redacted at harvest]"
+        next
+      }
+      { print }' "$1" >"$1.rd" || die 2 "cannot redact the harvested feedback; nothing was recorded"
+    mv "$1.rd" "$1" || die 2 "cannot redact the harvested feedback; nothing was recorded"
+  done
+  if [ -s "$work/redacted" ]; then
+    printf '%s\n' "inception-review-cycle: credential-shaped text was redacted at harvest from $(sort -u "$work/redacted" | grep '^FB-[0-9]*$' | tr '\n' ' ' | sed 's/ $//'); read the original on the review surface, and ask its author to remove it there" >&2
+  fi
+}
 
 cmd_harvest() {
   [ -f "$ledger" ] || die 1 "nothing has been exported yet; export a snapshot first, then harvest its feedback"
@@ -650,7 +765,7 @@ cmd_harvest() {
   maxn=$(grep '^### FB-' "$ledger" | sed 's/^### FB-\([0-9]*\).*/\1/' | sort -n | tail -1)
   HV_CYCLE=$cycle HV_MAX=${maxn:-0} HV_SEEN="$work/seen" HV_COUNT="$work/count"
   export HV_CYCLE HV_MAX HV_SEEN HV_COUNT
-  awk -F"$tab" "$DECODE_AWK"'
+  awk -F"$tab" "$UTF8CAP_AWK$DECODE_AWK"'
     BEGIN {
       while ((getline s < ENVIRON["HV_SEEN"]) > 0) seen[s] = 1
       n = ENVIRON["HV_MAX"] + 0
@@ -675,6 +790,7 @@ cmd_harvest() {
     || die 2 "cannot read the adapter's records; nothing was recorded"
   added=$(cat "$work/count")
   case $added in '' | *[!0-9]*) die 2 "cannot count the harvested items; nothing was recorded" ;; esac
+  [ "$added" -eq 0 ] || redact_secrets "$work/new"
 
   # Only a complete walk counts as harvested: the next export replaces the
   # page, and a partial one has left feedback unread.
@@ -723,7 +839,7 @@ cmd_list() {
 
 cmd_status() {
   if [ ! -f "$ledger" ]; then
-    printf 'cycle\t0\nphase\tnone\nadapter\tnone\npending\t0\n'
+    printf 'cycle\t0\nphase\tnone\nadapter\tnone\npending\t0\nunapplied\t0\n'
     return 0
   fi
   ledger_guard
@@ -732,6 +848,7 @@ cmd_status() {
   printf 'phase\t%s\n' "$(sanitize_printable "$(header Phase)")"
   printf 'adapter\t%s\n' "$(sanitize_printable "$(header Adapter)")"
   printf 'pending\t%s\n' "$(pending_items | grep -c .)"
+  printf 'unapplied\t%s\n' "$(unapplied_items | grep -c .)"
 }
 
 # --- triage ------------------------------------------------------------------
@@ -799,7 +916,14 @@ cmd_apply() {
     git_v diff --quiet -- "$f" || die 1 "$f has unstaged changes; the validator reads the work tree, so stage or discard them first"
   done
 
-  git_v diff --cached -U0 -- "$sec_file" >"$work/hunks" || die 2 "cannot read the staged change"
+  # A plain text diff whatever the venture configures: colour, an external
+  # tool, a textconv driver, or a `-diff` attribute would each print no `@@`
+  # line this guard can read, and a guard that parses nothing passes.
+  git_v diff --cached --no-color --no-ext-diff --no-textconv -a -U0 -- "$sec_file" >"$work/hunks" \
+    || die 2 "cannot read the staged change"
+  if [ -s "$work/hunks" ] && ! grep -q '^@@ ' "$work/hunks"; then
+    die 1 "the staged change to $sec_file has no line changes the section guard can read (a mode change, or content git will not diff as text), so it is refused"
+  fi
   bad=$(awk -v s="$sec_start" -v e="$sec_end" '
     /^@@ / {
       r = $2; sub(/^-/, "", r)
@@ -845,7 +969,10 @@ cmd_apply() {
 # bundle files, and every writing step rewrites the ledger read-modify-write.
 case $cmd in
   export | harvest | triage | apply)
-    if [ -d "$target/.git" ]; then bl_lock="$target/.git/planwright-bundle.lock"; else bl_lock="$target/.planwright-bundle.lock"; fi
+    # In the clone's own git directory (a worktree's included), where no save
+    # can commit it.
+    bl_gitdir=$(git_v rev-parse --absolute-git-dir) || die 2 "cannot locate the venture's git directory for its bundle lock"
+    bl_lock="$bl_gitdir/planwright-bundle.lock"
     lrc=0
     pw_lock_acquire "$bl_lock" "${PLANWRIGHT_BUNDLE_LOCK_TRIES:-500}" || lrc=$?
     case $lrc in

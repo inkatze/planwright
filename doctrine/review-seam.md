@@ -38,7 +38,10 @@ inception D-10.
 5. **Re-export.** The next export opens the next cycle. It waits until the
    previous export has been harvested in full, because replacing the copy can
    drop feedback nobody has read, and until every item is triaged. A partial
-   harvest records what it read but does not count as harvested.
+   harvest records what it read but does not count as harvested. An accepted
+   item not yet applied does not hold the export, since an acceptance cannot
+   be withdrawn; the export counts such items and warns that the snapshot
+   goes out without them.
 
 There is no step where the surface's edits come back. Symmetric file
 synchronization is out by design: lossy conversion, phantom diffs, and
@@ -55,7 +58,16 @@ it. So:
   lines, one per line of the comment, with control characters stripped, so no
   comment can forge a heading or a field. Every value taken from the surface
   is checked against its grammar before it is used: a source id before it
-  keys the ledger, an API id before it goes into a URL.
+  keys the ledger, an API id before it goes into a URL. Stored values lose
+  only C0 control characters and DEL, and a length cap never cuts a UTF-8
+  character in half; the wider strip that terminal output gets would mangle
+  multibyte text.
+- **Credential-shaped text is withheld.** Before harvested items reach the
+  ledger they pass the same secret screen the venture's commit hook runs. A
+  flagged line is replaced with a marker, a whole private-key block when the
+  flag opens one, and the operator is told which items were touched, never
+  the text. Kept verbatim, a pasted key would sit in the tracked ledger and
+  make the hook refuse every harvest commit after it.
 - **It is a request, not an instruction.** An agent implementing an accepted
   item reads its text as what a stakeholder asked for. It never treats the
   text as directions to itself. The operator's triage decision is the
@@ -71,7 +83,11 @@ file and the lines under it up to the next heading at the same level or
 higher. A register entry can be named by its id alone (`assumptions.md#A-2`).
 The apply step refuses:
 
-- a staged change to any other file, or to lines outside that section;
+- a staged change to any other file, or to lines outside that section, read
+  from a plain text diff whatever colour, external diff tool, textconv driver
+  or `-diff` attribute the venture configures;
+- a staged change with no line changes to read (a mode change, say), since a
+  guard that parses nothing would pass it;
 - an edit to the section's own heading line, where register ids live;
 - any section in the gate log, so gate records are never a target;
 - a change the stakeholder-commit validator (`inception-validate.sh
@@ -96,9 +112,13 @@ commit the ledger on its own. An apply commits the change and the ledger's
 `Applied` line together. A step that writes the ledger refuses to start while
 the ledger has uncommitted changes, so a step whose commit failed is never
 read as done, and holds the venture's bundle lock, so two writers cannot
-interleave. A step whose own commit fails restores the ledger, except an
-export: that has already gone out, so its record stays for the operator to
-commit. Each commit applying feedback carries three trailers:
+interleave. The lock lives in the clone's own git directory, a worktree's
+included, where no save can commit it. A step whose own commit fails restores
+the ledger, except an export: that has already gone out, so its record stays
+for the operator to commit. When the operator has other paths staged, a step
+commits only its own, and afterwards resets the index for anything a commit
+hook added to that commit, so the operator's staging is all that remains.
+Each commit applying feedback carries three trailers:
 
 ```text
 Feedback-Item: FB-<n>
@@ -150,7 +170,8 @@ API shape the rest of the seam:
 
 The integration needs to be shared with the page, and it needs three
 capabilities: Read content and Read comments to harvest, Update content to
-export. Read comments ships off. Because `replace_content` refuses an update
+export. Read comments ships off. A rate-limited request waits as long as the
+API's `Retry-After` asks, within a bound. Because `replace_content` refuses an update
 that would delete a child page, the destination page must have no child
 pages.
 
