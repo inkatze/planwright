@@ -508,8 +508,8 @@ cat >"$stage" <<'PROTOCOL'
 
 This folder is a venture repository kept by planwright's `/inception`. Its files are the venture's
 record, shared through git. Anyone working here, a person or an agent (a Cowork session included),
-follows this protocol. The one exception is the venture's operator, and planwright's `/inception`
-working for them: they keep the bookkeeping below themselves.
+follows this protocol. The one exception is a session running planwright's `/inception`, which
+keeps the bookkeeping below for the venture's operator.
 
 ## Reading
 
@@ -518,7 +518,8 @@ bundle files; read them, never edit them.
 
 ## Editing
 
-1. **Pull first.** Run `git pull` before changing anything, so you edit the latest copy.
+1. **Pull first.** Run `git pull --no-rebase` before changing anything, so you edit the latest
+   copy.
 2. **Edit the bundle files** (`brief.md`, `disciplines.md`, `assumptions.md`, `decisions.md`,
    `plan.md`) in plain prose. Wording, evidence, context and new notes are all fine.
 3. **Commit each change** with `git commit` and a short plain-language message that says what
@@ -561,17 +562,17 @@ If `git push` is rejected because the remote has changes you do not have, run
 - In a bundle file, keep both sides' wording. If the conflict touches an ID, a `**Status:**`
   line or the gate log, stop and tell the person instead of choosing.
 - In `exports/`, take either side (`git checkout --theirs exports/`): the pages are regenerated
-  from the bundle by the next commit made where planwright is installed.
+  from the bundle by the next commit in a clone with planwright's venture hook wired.
 
 Then `git add` the resolved files, commit, and push. Never force.
 
 ## Why this is safe
 
-This protocol is guidance, not a lock. The venture's validator flags a status outside its
-allowed values and a broken structure; where the repository has a remote, its CI check also
-refuses a removed or renumbered ID, an edited gate record, and a closed venture reopened. A status
-moved to another allowed value passes every check: git history keeps every earlier version, and
-the operator sees the change there.
+This protocol is guidance, not a lock. The venture's validator flags a broken structure and a
+status that breaks its rules; where the repository has a remote, its CI check also fails on a
+removed or renumbered ID, an edited gate record, and a closed venture reopened, once the change has
+landed. A status moved to another allowed value can pass every check: git history keeps every
+earlier version, and the operator sees the change there.
 PROTOCOL
 emit sync-protocol.md 644
 
@@ -682,9 +683,9 @@ $rung_ci
 or a stakeholder's own agent, how to do it safely: pull first, commit with plain-language
 messages, push after, and propose rather than make any change to an ID, a status, or a gate
 record. \`CLAUDE.md\` imports it, so a Claude-based agent opening this folder reads it. It is
-advice the agent may ignore. The validator flags an off-list status; CI on the remote rung also
-refuses a changed ID or gate record; anything else, such as a status moved to another allowed
-value, shows only in git history.
+advice the agent may ignore. The validator flags a broken structure and a status that breaks its
+rules; CI on the remote rung also fails on a changed ID or gate record once it has landed; anything
+else, such as a status moved to another allowed value, can show only in git history.
 
 ## The exports
 
