@@ -42,10 +42,10 @@ still pushes and opens draft pull requests.
   [the options reference](options-reference.md) describes. Without it, every
   landing is the flight's branch plus a committed record file under
   `specs/_flights/`, no `post-pr` step runs, and the pull-request checks below
-  cannot be made. Before typing `/tower`, run `scripts/flight-dispatch.sh home`
-  under the planwright root, in the scratch checkout, and confirm its `home`
-  line reads `pr`; the tower's routing line names the home again at each
-  dispatch.
+  cannot be made. Before typing `/tower`, run the planwright root's
+  `scripts/flight-dispatch.sh home` from the scratch checkout, which is the
+  repository it reads, and confirm its `home` line reads `pr`; the tower's
+  routing line names the home again at each dispatch.
 - **The tower's own permission profile.** Launch the session with the
   profile, the plugin root exported, as [the fleet guide](fleet.md) describes
   (`--settings` naming `config/tower-settings.json` under the planwright root),
@@ -273,7 +273,8 @@ arrives unless you ask again.
 
 One row per manual or scenario entry in the spec's test plan
 (`specs/tower-front-door/test-spec.md`), each naming the scenarios that
-exercise it. Superseded entries are left out.
+exercise it, or `outside the demo` for a check made apart from them.
+Superseded entries are left out.
 
 - [ ] REQ-A1.1 · chat-only: your next interaction after the ask was the pull
   request's link; no spec was created; the tower named no pipeline machinery.
