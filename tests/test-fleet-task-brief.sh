@@ -145,6 +145,13 @@ render demo 4.5
 [ "$RC" -ne 0 ] || fail "render must refuse a tasks directory others can write"
 [ ! -e "$PLANWRIGHT_FLEET_STATE_DIR/tasks/demo" ] || fail "a refused render created the unit's directory"
 fresh_home
+mkdir -p "$PLANWRIGHT_FLEET_STATE_DIR/tasks"
+chmod 700 "$PLANWRIGHT_FLEET_STATE_DIR"
+chmod 770 "$PLANWRIGHT_FLEET_STATE_DIR/tasks"
+render demo 4.5
+[ "$RC" -ne 0 ] || fail "render must refuse a tasks directory its group can write"
+[ ! -e "$PLANWRIGHT_FLEET_STATE_DIR/tasks/demo" ] || fail "a refused render created the unit's directory (group-writable)"
+fresh_home
 mkdir -p "$tmp/elsewhere" "$PLANWRIGHT_FLEET_STATE_DIR/tasks"
 chmod 700 "$PLANWRIGHT_FLEET_STATE_DIR" "$PLANWRIGHT_FLEET_STATE_DIR/tasks" "$tmp/elsewhere"
 ln -s "$tmp/elsewhere" "$PLANWRIGHT_FLEET_STATE_DIR/tasks/demo"
@@ -164,13 +171,13 @@ for args in "UPPER|4.5" "flight|4.5" "a/b|4.5" "..|4.5" "-x|4.5" "$long_spec|4.5
   fresh_home
   render "${args%%|*}" "${args#*|}"
   [ "$RC" -eq 2 ] || fail "render must refuse spec/id '$args' (exit 2), got $RC"
-  [ ! -e "$PLANWRIGHT_FLEET_STATE_DIR/tasks" ] || fail "a refused render ('$args') wrote under the fleet home"
+  [ ! -e "$PLANWRIGHT_FLEET_STATE_DIR" ] || fail "a refused render ('$args') created the fleet home"
 done
 for name in "a/b" 'a\b' "$nl_name" "$tab_name" "$del_name" "$long_name" "-tower" "" "$(printf 'caf\303\251')"; do
   fresh_home
   render demo 4.5 --tower "$name"
   [ "$RC" -eq 2 ] || fail "render must refuse the tower name '$name' (exit 2), got $RC"
-  [ ! -e "$PLANWRIGHT_FLEET_STATE_DIR/tasks" ] || fail "a refused name ('$name') wrote under the fleet home"
+  [ ! -e "$PLANWRIGHT_FLEET_STATE_DIR" ] || fail "a refused name ('$name') created the fleet home"
 done
 fresh_home
 render demo 4.5 --tower "$max_name"
@@ -218,11 +225,16 @@ RC=$?
 
 # The fleet sweep's residue pass carries the retire, audited.
 rm -rf "$wt_root/demo-task-1"
+mkdir -p "$wt_root/demo-task-4"
+render demo 4
+[ "$RC" -eq 0 ] || fail "sweep fixture: render demo 4 exited $RC: $ERR"
+touch -t 202001010000 "$home/tasks/demo/4"
 "$ROOT/scripts/fleet-sweep.sh" --repo "$repo" >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 0 ] || fail "the fleet sweep exited $rc"
 [ ! -e "$home/tasks/demo/1" ] || fail "the fleet sweep must retire a task brief whose worktree is gone"
 [ -f "$home/tasks/demo/3/brief.md" ] || fail "the fleet sweep must keep a young task brief"
+[ -f "$home/tasks/demo/4/brief.md" ] || fail "the fleet sweep must keep a task brief whose worktree exists"
 "$ROOT/scripts/fleet-audit.sh" query --mechanism housekeeping-sweep 2>/dev/null | grep -q 'task-brief-retire' \
   || fail "the fleet sweep must audit the task-brief retire"
 

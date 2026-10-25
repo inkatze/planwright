@@ -1524,8 +1524,15 @@ c34() {
     *) fail "c34: a stray task brief must be refused by the confinement, got: $_err" ;;
   esac
   # --relaunch stays a flight option.
-  run_prim dispatch demo 4.5 --brief "$_own/brief.md" --relaunch --repo-root "$tmp/primary"
+  # Pinned on its own refusal: a regression there would otherwise launch.
+  _err=$("$PRIM" dispatch demo 4.5 --brief "$_own/brief.md" --relaunch --repo-root "$tmp/primary" \
+    </dev/null 2>&1 >/dev/null)
+  RC=$?
   [ "$RC" -eq 2 ] || fail "c34: --relaunch on a task dispatch must be refused (exit 2), got $RC"
+  case $_err in
+    *"--relaunch is a flight option"*) ;;
+    *) fail "c34: --relaunch on a task dispatch must be refused as a flight option, got: $_err" ;;
+  esac
 }
 
 for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33 c34; do
