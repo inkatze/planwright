@@ -112,6 +112,7 @@ done
 branch="planwright/$id/spec"
 wt="$holder/.claude/worktrees/$id-spec"
 hg() { git -C "$holder" "$@"; }
+made_wt=0
 
 # is_spec_wt — true when $wt is the holder's own worktree on $branch.
 is_spec_wt() {
@@ -128,9 +129,13 @@ is_spec_wt() {
 add_wt() {
   what=$1
   shift
-  add_err=$(hg worktree add -q "$@" 2>&1 >/dev/null) && return 0
+  add_err=$(hg worktree add -q "$@" 2>&1 >/dev/null) && {
+    made_wt=1
+    return 0
+  }
   if is_spec_wt; then
     say "warning: git reported a failure after opening $wt: $add_err"
+    made_wt=1
     return 0
   fi
   say "git could not $what: $add_err"
@@ -267,6 +272,20 @@ else
   add_wt "create $wt on a new $branch" --no-track -b "$branch" "$wt" "$base"
 fi
 own_wt
+
+# A worktree this run opened is wired to the holder's tracked hook backstop
+# rather than trusted to inherit core.hooksPath, which Claude Code's own
+# worktree creation rewrites to an absolute path; a failure is a warning.
+if [ "$made_wt" -eq 1 ]; then
+  wrc=0
+  wout=$(cd "$wt" && "$script_dir/wire-githooks.sh" --if-tracked 2>&1 </dev/null) || wrc=$?
+  if [ "$wrc" -ne 0 ]; then
+    say "warning: the hook backstop was not wired in $wt (exit $wrc): $(printf '%s\n' "$wout" | tail -n 1)"
+  else
+    wnote=$(printf '%s\n' "$wout" | grep 'replacing existing' || true)
+    [ -z "$wnote" ] || say "$wnote"
+  fi
+fi
 
 # The skills write through the printed path, so no component of it below the
 # worktree may be a symlink: one committed on the spec branch or the default

@@ -306,6 +306,7 @@ LAUNCH_SPEC_ROOT=""
 LAUNCH_RECORD=""
 MARKER="$script_dir/orchestrate-marker.sh"
 TRACK="$script_dir/fleet-worktree-track.sh"
+WIRE="$script_dir/wire-githooks.sh"
 FLEET_STATE="$script_dir/fleet-state.sh"
 
 # How recent an orchestrate-marker must be to count as a LIVE dispatch when no
@@ -1674,6 +1675,22 @@ do_dispatch() {
         _made_branch=1
         _made_worktree=1
       fi
+    fi
+  fi
+
+  # A worktree this run placed is wired to the tracked hook backstop rather
+  # than trusted to inherit the clone's core.hooksPath, which Claude Code's
+  # own worktree creation rewrites to an absolute path. A replaced value is
+  # reported so whatever wrote it stays visible; a failure does not fail the
+  # dispatch, since check:githooks reports it inside the worktree.
+  if [ "$_made_worktree" -eq 1 ]; then
+    _wrc=0
+    _wout=$(cd "$_worktree" && "$WIRE" --if-tracked 2>&1 </dev/null) || _wrc=$?
+    if [ "$_wrc" -ne 0 ]; then
+      warn "the hook backstop was not wired in $_worktree (exit $_wrc): $(printf '%s\n' "$_wout" | tail -n 1)"
+    else
+      _wnote=$(printf '%s\n' "$_wout" | grep 'replacing existing' || true)
+      [ -z "$_wnote" ] || warn "$_wnote"
     fi
   fi
 

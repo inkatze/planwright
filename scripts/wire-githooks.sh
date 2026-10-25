@@ -16,9 +16,18 @@
 # The relative value `githooks` resolves against each worktree's top level at
 # hook-run time, which is exactly the tracked dir on branches that carry it.
 #
-# Usage: wire-githooks.sh   (from anywhere inside a work tree of the clone)
-# Exit: 0 wired (or already wired); 2 usage error / not a git work tree
-#   (a bare repo has nothing to wire) / config write failure.
+# --if-tracked is the form planwright's worktree-creation scripts run inside
+# each worktree they create: it wires only when that checkout tracks both
+# githooks/ and this wire step, and otherwise exits 0 having changed nothing,
+# so a repository that does not ship the backstop keeps its own hooks. Claude
+# Code's own worktree creation rewrites a relative core.hooksPath to an
+# absolute path into the primary checkout, which is why fresh worktrees are
+# rewired here rather than trusted to inherit the value.
+#
+# Usage: wire-githooks.sh [--if-tracked]   (from inside a work tree of the clone)
+# Exit: 0 wired (or already wired, or --if-tracked on a checkout without the
+#   backstop); 2 usage error / not a git work tree (a bare repo has nothing to
+#   wire) / config write failure.
 #
 # Portable POSIX sh; bash 3.2 / BSD tooling floor.
 set -u
@@ -26,14 +35,21 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
-if [ $# -ne 0 ]; then
-  echo "usage: wire-githooks.sh" >&2
+if_tracked=0
+if [ $# -eq 1 ] && [ "$1" = --if-tracked ]; then
+  if_tracked=1
+elif [ $# -ne 0 ]; then
+  echo "usage: wire-githooks.sh [--if-tracked]" >&2
   exit 2
 fi
 
 if ! top=$(git rev-parse --show-toplevel 2>/dev/null); then
   echo "wire-githooks: not inside a git work tree (a bare repo has no checkout for the relative hooksPath to resolve against; nothing to wire)" >&2
   exit 2
+fi
+
+if [ "$if_tracked" -eq 1 ] && { [ ! -d "$top/githooks" ] || [ ! -f "$top/scripts/wire-githooks.sh" ]; }; then
+  exit 0
 fi
 
 # Read the LOCAL config only: a global core.hooksPath=githooks must not
