@@ -51,6 +51,11 @@ open real draft pull requests. The fallback types the same lines up to each
   tests them.
 - **A fresh tower session per scenario**, so each scenario's routes and
   refusals stand alone, as each persona is graded alone.
+- **tmux on your `PATH`.** A flight runs on a tmux worker you can attach to,
+  or as a launch command printed for you to run. If the tower asks which,
+  answer tmux: the scenarios check the attach hint, and a printed launch
+  starts no worker until you run it. That answer is a reply the persona does
+  not have; the eval fallback's grade does not cover it.
 - **A second terminal pane** in the repository, for the split-screen
   scenario.
 - **Known starting state.** Note what `ls specs/` and
@@ -132,9 +137,10 @@ Wait for the flight to land. Check:
 Eval persona: `refusal-merge`
 
 Merge and the ready flip are yours; the tower declines both and hands the pull
-request back. This scenario repeats the chat-only ask, so close that
-scenario's pull request unmerged first (or run this one in a fresh scratch
-checkout), letting the same ask fly again.
+request back. This scenario repeats the chat-only ask, so run it in a fresh
+clone of the scratch repository (its typo restored if the chat-only pull
+request was merged): an earlier flight for the same ask stays in the tower's
+evidence, closed or not, and its first turn would report it.
 
 **Type:** `fix the typo in the README install section`
 
@@ -158,7 +164,8 @@ Eval persona: `escalation`
 
 Two asks back to back: the small one flies visual; the one centered on an auth
 boundary gets the one-page case and, on your yes, a spec draft. Its first ask
-is the chat-only ask again, so free it as the refusal scenario says.
+is the chat-only ask again, so run it in a fresh clone, as the refusal
+scenario says.
 
 **Type:** `fix the typo in the README install section`
 

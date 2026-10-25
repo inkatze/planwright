@@ -138,7 +138,8 @@ spec_entries() {
 
 # checklist_rows <doc>: one line per checklist row, `<REQ>\t<scenario field>`,
 # from rows shaped `- [ ] REQ-X1.1 · <scenarios>: <what to confirm>` (ticked
-# or not) under `## Checklist`.
+# or not) under `## Checklist`; any other checkbox line there comes out as
+# `!malformed\t<line>`.
 checklist_rows() {
   awk '
     $0 == "## Checklist" { on = 1; next }
@@ -151,7 +152,9 @@ checklist_rows() {
       sub(/^- \[[ xX]\] REQ-[A-Z][0-9]+\.[0-9]+ · /, "", f)
       sub(/: .*$/, "", f)
       printf "%s\t%s\n", req, f
+      next
     }
+    on && /^- \[[ xX]\] / { printf "!malformed\t%s\n", $0 }
   ' "$1"
 }
 
@@ -167,6 +170,7 @@ xref() {
   } | D="$(driven "$2")" awk -F '\t' '
     BEGIN { n = split(ENVIRON["D"], d, " "); for (i = 1; i <= n; i++) drv[d[i]] = 1 }
     $1 == "E" { order[++ne] = $2; demo[$2] = $3; named[$2] = $4; next }
+    $1 == "R" && $2 == "!malformed" { printf "malformed checklist row: %s\n", $3; next }
     $1 == "R" {
       if ($2 in row) { printf "%s: more than one checklist row\n", $2; next }
       row[$2] = $3
@@ -279,6 +283,11 @@ expect_problem "the screen refuses a row for a superseded entry" stale.md "REQ-A
   printf -- '- [ ] REQ-A1.1 · escalation: twice.\n'
 } >"$tmp/dup.md"
 expect_problem "the screen refuses a second row for one entry" dup.md "REQ-A1.1: more than one checklist row"
+{
+  cat "$tmp/good.md"
+  printf -- '- [ ] REQ-A1.4 — outside the demo: a row in another shape.\n'
+} >"$tmp/malformed.md"
+expect_problem "the screen refuses a checklist row in another shape" malformed.md "malformed checklist row: - [ ] REQ-A1.4 — outside"
 sed 's/^- \[ \] REQ-A1.1 /- [x] REQ-A1.1 /' "$tmp/good.md" >"$tmp/ticked.md"
 if [ -z "$(xref "$tmp/spec.md" "$tmp/ticked.md")" ]; then ok "the screen reads a ticked row as a row"; else fail "the screen refused a ticked row"; fi
 
