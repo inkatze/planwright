@@ -3,9 +3,11 @@
 # recorded fixture froze, so a migration that swaps an implementation behind
 # the path cannot change what a caller sees.
 #
-# ENTRY POINTS. Every script the partition (scripts/substrate-partition.sh)
-# reports with a `git`, `githook`, `hook`, or `skill` caller: what a tracked
-# git hook, a hook registration, or a skill body names.
+# ENTRY POINTS. Every script the partition passed in reports with a `git`,
+# `githook`, `hook`, or `skill` caller: what a tracked git hook, a hook
+# registration, or a skill body names. The caller computes the partition
+# (the check:entry-points task does), so the partition script keeps no script
+# caller and stays in the dev-check tier.
 #
 # FIXTURES. One directory per entry point under tests/fixtures/entry-points/,
 # at the entry point's repository path (tests/fixtures/entry-points/scripts/
@@ -47,12 +49,11 @@
 # is the first stderr line, escaped and anchored; review it before committing,
 # and loosen it where the line carries text the script does not own.
 #
-# Usage: check-entry-points.sh [--repo-root <dir>] [--partition <file>]
-#        check-entry-points.sh [--repo-root <dir>] [--partition <file>]
+# Usage: check-entry-points.sh [--repo-root <dir>] --partition <file>
+#        check-entry-points.sh [--repo-root <dir>] --partition <file>
 #          --record <path> [--stdin <file>] [-- <arg>...]
-# --partition reads a partition already computed instead of running it.
 # Exit codes: 0 clean (or recorded); 1 a finding (each printed); 2 usage
-# error; 5 fail-closed (the partition failing or malformed, a malformed
+# error; 5 fail-closed (the partition unreadable or malformed, a malformed
 # fixture, a fixture path outside the layer's name grammar, the sandbox not
 # building, or a recording refused); 128 plus the signal number on HUP, INT
 # or TERM.
@@ -75,7 +76,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 repo_root=$(cd "$script_dir/.." && pwd -P) || exit 2
 
 usage() {
-  printf '%s\n' "usage: check-entry-points.sh [--repo-root <dir>] [--partition <file>] [--record <path> [--stdin <file>] [-- <arg>...]]" >&2
+  printf '%s\n' "usage: check-entry-points.sh [--repo-root <dir>] --partition <file> [--record <path> [--stdin <file>] [-- <arg>...]]" >&2
   exit 2
 }
 
@@ -99,6 +100,7 @@ while [ "$#" -gt 0 ]; do
     *) usage ;;
   esac
 done
+[ -n "$partition" ] || usage
 [ "$#" -eq 0 ] || [ -n "$record" ] || usage
 [ -z "$record_stdin" ] || [ -n "$record" ] || usage
 
@@ -122,15 +124,8 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-if [ -n "$partition" ]; then
-  [ -f "$partition" ] && [ -r "$partition" ] || fail_closed "the partition file is unreadable"
-  cp "$partition" "$work/partition" || fail_closed "cannot read the partition file"
-else
-  /bin/sh "$script_dir/substrate-partition.sh" --repo-root "$repo_root" >"$work/partition"
-  rc=$?
-  [ "$rc" -gt 128 ] && exit "$rc"
-  [ "$rc" -eq 0 ] || fail_closed "the partition exited $rc"
-fi
+[ -f "$partition" ] && [ -r "$partition" ] || fail_closed "the partition file is unreadable"
+cp "$partition" "$work/partition" || fail_closed "cannot read the partition file"
 expected_header=$(printf 'path\ttier\tflag\tcallers\tmutation\tprofile\tunresolved')
 IFS= read -r header <"$work/partition" || header=""
 [ "$header" = "$expected_header" ] || fail_closed "the partition's header is not the one this guard reads"

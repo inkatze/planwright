@@ -253,5 +253,8 @@ expect 5 "header" "unexpected partition header"
 out=$(/bin/sh "$base/scripts/check-entry-points.sh" --bogus 2>&1)
 rc=$?
 expect 2 "usage:" "unknown option"
+out=$(/bin/sh "$base/scripts/check-entry-points.sh" 2>&1)
+rc=$?
+expect 2 "usage:" "no partition"
 
 echo "PASS: test-check-entry-points"
