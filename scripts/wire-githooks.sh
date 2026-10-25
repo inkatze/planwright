@@ -65,7 +65,7 @@ if ! top=$(git rev-parse --show-toplevel 2>/dev/null); then
   exit 2
 fi
 
-if [ "$if_tracked" -eq 1 ] && { [ ! -d "$top/githooks" ] || [ ! -f "$top/scripts/wire-githooks.sh" ]; }; then
+if [ "$if_tracked" -eq 1 ] && ! git -C "$top" ls-files --error-unmatch -- githooks scripts/wire-githooks.sh >/dev/null 2>&1; then
   exit 0
 fi
 

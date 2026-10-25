@@ -202,6 +202,20 @@ else
   fail "dispatch (githooks/ without the wire step): exited $RC, core.hooksPath now '$(hookspath "$t/primary")'"
 fi
 
+# The backstop must be tracked, not merely present on disk.
+t="$tmp/wire-untracked"
+mkdir -p "$t"
+seed "$t" no
+add_backstop "$t/primary"
+set_hookspath "$t/primary" .husky/_
+rc=0
+(cd "$t/primary" && hermetic "$tmp" /bin/sh "$S/wire-githooks.sh" --if-tracked >/dev/null 2>&1) || rc=$?
+if [ "$rc" -eq 0 ] && [ "$(hookspath "$t/primary")" = ".husky/_" ]; then
+  ok "wire --if-tracked (untracked backstop files): core.hooksPath is left alone"
+else
+  fail "wire --if-tracked (untracked backstop files): exited $rc, core.hooksPath now '$(hookspath "$t/primary")'"
+fi
+
 # --- spec-store-worktree.sh, absolute and cleared ---------------------------
 for start in absolute cleared; do
   t="$tmp/store-$start"
