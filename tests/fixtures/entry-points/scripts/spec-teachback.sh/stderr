@@ -1,0 +1,1 @@
+match ^spec-model: spec directory absent or unreadable: --entry-point-probe$

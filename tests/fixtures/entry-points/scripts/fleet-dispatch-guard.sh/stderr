@@ -1,0 +1,1 @@
+match ^usage: fleet-dispatch-guard\.sh check-launch <cmd> \[args\.\.\.\] \| check-inherited$

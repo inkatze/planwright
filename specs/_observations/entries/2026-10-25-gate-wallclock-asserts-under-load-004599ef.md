@@ -1,0 +1,1 @@
+- 2026-10-25 [planwright] On a host running about 15 worker gates at once, tests/test-fleet-stop-sj.sh (c20, the --grace wait timing) and tests/test-worker-command-guard-steps.sh (the slow-resolver case, secs=5) failed in the full local gate and passed when run alone; both assert wall-clock bounds that host load breaks.

@@ -1,0 +1,1 @@
+- 2026-10-25 [planwright] custom-spec-location REQ-F1.4 says no observation script invokes a remote write, but scripts/observation-carry.sh pushes a chore branch and opens a draft PR; the requirement means the routed --target write, and its wording (and the routing tests it names) should say so.
