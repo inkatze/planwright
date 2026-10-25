@@ -33,9 +33,12 @@ skill itself is [`skills/inception/SKILL.md`](../skills/inception/SKILL.md).
    contract: a findings document committed to the venture, no pull request
    unless you ask for one on a remote-backed venture, and register updates
    applied only when you accept the findings. Agents run spikes, research,
-   and analysis; demand-signal and alignment tasks are
-   prepared for a person to carry out, because no agent contacts anyone
-   outside the session.
+   and analysis; demand-signal and alignment tasks are prepared for a person
+   to carry out, because no agent contacts anyone outside the session. Start
+   one with `/execute-task` naming the `T-<n>` and the venture's path
+   (`venture-task.sh brief <venture> T-<n>` prints that invocation for a
+   dispatched run). A dispatched worker stops at delivery; accepting or
+   rejecting the findings happens in your own session.
 5. **Look across ventures.** `/inception` with no argument lists every
    registered venture with its attention flags (a tripped or approaching kill
    date, unresolved blocking assumptions, open forks, age past appetite) and
@@ -85,7 +88,10 @@ repository, so a venture can change hands between them.
 The repository `/inception` creates is wired already; any other clone needs
 `git config core.hooksPath githooks` once before the hook runs. The
 scaffold's `hygiene-wiring.md` in the venture says so and records what else
-was wired.
+was wired. The hook needs planwright on that machine: where it cannot find a
+copy, it warns and skips every guard, the secret screen included (set
+`PLANWRIGHT_ROOT` in the venture's gitignored `.planwright-local.sh` to point
+it at one). On a private-remote venture, CI still runs.
 
 ## Stakeholder surfaces
 
@@ -135,8 +141,9 @@ What the layer will not do:
 - **Count as evidence of demand.** Anything a seat produces enters the
   assumption register at no better than the `synthetic` grade, which never
   counts toward graduating a value or usability assumption.
-- **Pretend to cover a discipline it cannot.** A discipline with no card is
-  `unstaffed` and filed as a coverage risk; a venture with no persona row runs
+- **Pretend to cover a discipline it cannot.** A discipline with neither a
+  card nor a named person is `unstaffed` and filed as a coverage risk, as is a
+  persona row whose card does not resolve; a venture with no persona row runs
   zero-seat, which is a valid outcome.
 - **Wear an identity.** Cards are task framings with no backstory,
   credentials, or seniority styling.
