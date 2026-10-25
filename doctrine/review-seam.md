@@ -35,8 +35,9 @@ inception D-10.
    inside the triaged section and passes the stakeholder-commit validator. The
    commit cites the item's source.
 5. **Re-export.** The next export opens the next cycle. It waits until the
-   previous export has been harvested, because replacing the copy can drop
-   feedback nobody has read, and until every item is triaged.
+   previous export has been harvested in full, because replacing the copy can
+   drop feedback nobody has read, and until every item is triaged. A partial
+   harvest records what it read but does not count as harvested.
 
 There is no step where the surface's edits come back. Symmetric file
 synchronization is out by design: lossy conversion, phantom diffs, and
@@ -134,7 +135,8 @@ line.
 The Notion adapter pins one API version and exports through the Markdown
 Content API's `replace_content`. It harvests comments on the page and on every
 block it can reach. It does not enter child pages, and the walk has a bound:
-past it the harvest reports `partial`. Three properties of Notion's comment
+past it the harvest reports `partial`, and the next export waits until a
+harvest under a higher bound completes. Three properties of Notion's comment
 API shape the rest of the seam:
 
 - It returns unresolved comments only.

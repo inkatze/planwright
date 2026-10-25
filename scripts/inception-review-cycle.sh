@@ -473,7 +473,7 @@ cmd_export() {
     phase=$(header Phase)
     cycle=$(header Cycle)
     if [ "$phase" = exported ]; then
-      die 1 "cycle $cycle was exported and not yet harvested; harvest it first, since a re-export replaces the page and may drop feedback nobody has read"
+      die 1 "cycle $cycle was exported and not yet harvested in full; harvest it first, since a re-export replaces the page and may drop feedback nobody has read"
     fi
     pend=$(pending_items | tr '\n' ' ' | sed 's/ $//')
     [ -z "$pend" ] || die 1 "triage every item before the next export; pending: $pend"
@@ -632,11 +632,14 @@ cmd_harvest() {
     END { print added + 0 > "/dev/stderr" }' "$work/records" >"$work/new" 2>"$work/count"
   added=$(cat "$work/count")
 
-  if [ "$added" -eq 0 ] && [ "$phase" = harvested ]; then
+  # Only a complete walk counts as harvested: the next export replaces the
+  # page, and a partial one has left feedback unread.
+  if [ "$walk" = complete ]; then new_phase=harvested; else new_phase=exported; fi
+  if [ "$added" -eq 0 ] && [ "$phase" = "$new_phase" ]; then
     :
   else
     cat "$work/new" >>"$ledger" || die 2 "cannot append to the ledger"
-    SET_KEYS="Phase" SET_Phase=harvested
+    SET_KEYS="Phase" SET_Phase=$new_phase
     export SET_Phase
     header_set
     printf 'chore(feedback): harvest review cycle %s\n\n%s new item(s) recorded pending triage; the walk was %s.\n' "$cycle" "$added" "$walk" >"$work/msg"
@@ -649,7 +652,7 @@ cmd_harvest() {
   printf 'new\t%s\n' "$added"
   printf 'walk\t%s\n' "$walk"
   [ "$walk" = complete ] \
-    || printf '%s\n' "inception-review-cycle: the harvest was partial; feedback past the adapter's bound was not read" >&2
+    || printf '%s\n' "inception-review-cycle: the harvest was partial; feedback past the adapter's bound was not read, so the next export waits for a complete harvest" >&2
 }
 
 # --- list / status -----------------------------------------------------------

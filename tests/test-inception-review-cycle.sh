@@ -377,6 +377,28 @@ assert_eq "staging hook: apply exit 0" "0" "$?"
 assert_eq "staging hook: nothing left staged after apply" "" "$(git -C "$v3" diff --cached --name-only)"
 rm -f "$v3/.git/hooks/pre-commit"
 
+# ---------------------------------------------------------------------------
+# 11. A partial harvest does not open the next export (REQ-G1.6).
+# ---------------------------------------------------------------------------
+v4="$tmp/venture4"
+inception_fixture_write "$v4" || exit 1
+git -C "$v4" init -q . && git -C "$v4" add -A && git -C "$v4" commit -qm "chore: seed the venture" || exit 1
+"$NOTION" configure --page "$PAGE" "$v4" >/dev/null || exit 1
+"$CYCLE" export --adapter notion --confirmed "$v4" >/dev/null 2>&1 || exit 1
+out="$(PLANWRIGHT_NOTION_MAX_BLOCKS=1 "$CYCLE" harvest "$v4" 2>"$tmp/err")"
+assert_contains "partial harvest: reported" "walk	partial" "$out"
+assert_contains "partial harvest: says the export waits" "next export waits" "$(cat "$tmp/err")"
+assert_eq "partial harvest: still exported" "exported" "$(sed -n 's/^Phase: //p' "$v4/feedback/ledger.md")"
+for id in FB-1 FB-2; do
+  "$CYCLE" triage "$id" skip --decider "Robin Lead" "$v4" >/dev/null 2>&1
+done
+"$CYCLE" export --confirmed "$v4" >/dev/null 2>"$tmp/err"
+assert_eq "partial harvest: the next export is refused" "1" "$?"
+assert_contains "partial harvest: the refusal says why" "in full" "$(cat "$tmp/err")"
+out="$("$CYCLE" harvest "$v4" 2>"$tmp/err")"
+assert_contains "complete harvest: reads what the partial one missed" "new	1" "$out"
+assert_eq "complete harvest: harvested" "harvested" "$(sed -n 's/^Phase: //p' "$v4/feedback/ledger.md")"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
