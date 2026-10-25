@@ -1,6 +1,6 @@
 #!/bin/sh
 # inception-scaffold.sh — the venture repo hygiene scaffold (inception Task 2;
-# REQ-A1.9, REQ-G1.1, REQ-G1.5 · D-9, D-12).
+# REQ-A1.9, REQ-G1.1, REQ-G1.5, REQ-G1.8 · D-9, D-11, D-12).
 #
 # `/inception` calls this at venture-repo creation. It EMITS the guard files
 # rather than copying static ones out of the plugin, so the emitted content is
@@ -13,6 +13,10 @@
 #                                        export regeneration (REQ-G1.1)
 #                hygiene-wiring.md       what was wired, what the operator
 #                                        still has to do, and how to bypass
+#                sync-protocol.md        the editing ritual for sessions outside
+#                                        planwright, Cowork's included (REQ-G1.8)
+#                CLAUDE.md               imports the protocol; an existing one
+#                                        gains the import line, never replaced
 #   remote only  .github/workflows/venture-guard.yml
 #                                        secret scan plus the stakeholder-commit
 #                                        guard (REQ-G1.5): a web-UI edit that
@@ -490,6 +494,96 @@ WORKFLOW
   emit .github/workflows/venture-guard.yml 644
 fi
 
+# --- sync-protocol.md and its CLAUDE.md import ----------------------------
+
+# Written for an agent that is not planwright (Cowork's, a stakeholder's
+# Claude) and for the person beside it. It is advisory: nothing here can stop
+# an agent that ignores it, which is why the protocol says the validator and
+# CI are the enforcement.
+cat >"$stage" <<'PROTOCOL'
+# Sync protocol for this venture
+
+This folder is a venture repository kept by planwright's `/inception`. Its files are the venture's
+record, shared through git. Anyone working here, a person or an agent (a Cowork session included),
+follows this protocol.
+
+## Reading
+
+Read anything, freely. `exports/venture.html` and `exports/pitch.html` are generated from the
+bundle files; read them, never edit them.
+
+## Editing
+
+1. **Pull first.** Run `git pull` before changing anything, so you edit the latest copy.
+2. **Edit the bundle files** (`brief.md`, `disciplines.md`, `assumptions.md`, `decisions.md`,
+   `plan.md`) in plain prose. Wording, evidence, context and new notes are all fine.
+3. **Commit each change** with `git commit` and a short plain-language message that says what
+   changed and why, for a reader who was not in the conversation.
+4. **Push after committing** with `git push`.
+
+Never force-push, rewrite history, or commit with `--no-verify`.
+
+## What not to change
+
+These are the venture's bookkeeping, and a wrong edit to them is hard to undo:
+
+- **IDs**: `A-<n>`, `DEC-<n>`, `T-<n>`, `KC-<n>`, and the venture identifier. Never renumber,
+  rename, reuse, or delete one. A changed meaning is a new entry, which the operator adds.
+- **Statuses**: every `**Status:**` line, the venture's and each register entry's.
+- **Gate records**: everything under `## Gate log` in `brief.md`.
+
+To change any of these, propose it instead: tell the person you are working with, and add a short
+file under `proposals/`, named with today's date and a topic, saying what should change and
+why. Commit and push it like any other edit. The venture's operator decides and makes the change.
+
+## When the network is blocked
+
+Some sessions cannot reach the remote (a Cowork network allowlist, for example), so `git pull` or
+`git push` fails.
+
+- **Pull blocked**: say so before editing. The copy here may be behind, so edit only if the person
+  accepts that, and keep the change small.
+- **Push blocked**: keep the commit. Tell the person the change is saved in this folder but not
+  shared, and that it reaches everyone once someone with access pushes it. Never retry with force.
+
+## Why this is safe
+
+This protocol is guidance, not a lock. The venture's validator and, where the repository has a
+remote, its CI check catch a mangled ID, a rewritten status, or an edited gate record, and git
+history keeps every earlier version.
+PROTOCOL
+emit sync-protocol.md 644
+
+# CLAUDE.md is the file Claude-based agents read today, so it carries the
+# protocol by import: a hedge against Cowork reading some other name. The
+# operator's own CLAUDE.md is theirs, so it is never replaced, --force
+# included; the import is appended once instead.
+import_line='@sync-protocol.md'
+claude_md="$target/CLAUDE.md"
+if [ -h "$claude_md" ]; then
+  printf '%s\n' "inception-scaffold: CLAUDE.md is a symbolic link; not writing through it. Add the line $import_line to the file it names." >&2
+elif [ ! -e "$claude_md" ]; then
+  cat >"$stage" <<CLAUDEMD
+# Working in this venture repository
+
+This folder is a planwright venture. Every session working here follows its sync protocol:
+
+$import_line
+CLAUDEMD
+  emit CLAUDE.md 644
+elif [ ! -f "$claude_md" ]; then
+  printf '%s\n' "inception-scaffold: CLAUDE.md is not a regular file; add the line $import_line to it by hand." >&2
+elif grep -qxF "$import_line" "$claude_md"; then
+  printf 'kept %s\n' CLAUDE.md
+else
+  last=$(tail -c 1 "$claude_md")
+  {
+    [ -z "$last" ] || printf '\n'
+    printf '\n%s\n' "$import_line"
+  } >>"$claude_md" || exit 2
+  printf 'updated %s\n' CLAUDE.md
+fi
+
 # --- hygiene-wiring.md -----------------------------------------------------
 
 # The prose below is markdown, so its backticks are code spans, not command
@@ -549,6 +643,15 @@ this venture repo runs it once.
      tree, so it can carry bundle text step 1 never looked at (an edit you had not staged). The
      page staged is exactly the page screened.
 $rung_ci
+
+## The sync protocol
+
+\`sync-protocol.md\` tells anyone editing this repository outside planwright, a Cowork session
+or a stakeholder's own agent, how to do it safely: pull first, commit with plain-language
+messages, push after, and propose rather than make any change to an ID, a status, or a gate
+record. \`CLAUDE.md\` imports it, so a Claude-based agent opening this folder reads it. It is
+advice the agent may ignore; the validator, CI on the remote rung, and git history are what
+actually catch a bad edit.
 
 ## The exports
 

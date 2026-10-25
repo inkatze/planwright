@@ -223,17 +223,42 @@ cmd_root() {
 
 # --- capability detection --------------------------------------------------
 
-# probe — set has_git, ephemeral, remote_state, remote_reason, local_state.
+# probe — set has_git, host, plugin, ephemeral, remote_state, remote_reason,
+# local_state.
 probe() {
   has_git=no
   git --version >/dev/null 2>&1 && has_git=yes
 
+  # Cowork documents no variable a session can read, so only the operator can
+  # name it; an unrecognized value is said and ignored, never guessed at.
+  host=local
+  [ "${CLAUDE_CODE_REMOTE:-}" = true ] && host=cloud
+  case ${PLANWRIGHT_INCEPTION_HOST:-} in
+    '') ;;
+    cowork | cloud | local) host=$PLANWRIGHT_INCEPTION_HOST ;;
+    *) printf '%s\n' 'inception-venture: warning: PLANWRIGHT_INCEPTION_HOST is not cowork, cloud, or local; ignored' >&2 ;;
+  esac
+
+  # The same places the venture's pre-commit hook looks, so `loaded` means the
+  # guards will run on this machine. The cache glob stays unquoted to expand.
+  plugin=absent
+  for cand in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
+    "${HOME:-}/.claude/planwright" "${HOME:-}"/.claude/plugins/cache/planwright/planwright/*; do
+    if [ -n "$cand" ] && [ -r "$cand/scripts/inception-validate.sh" ]; then
+      plugin=loaded
+      break
+    fi
+  done
+
+  # A cloud sandbox, Cowork's included, is discarded when its session ends.
+  # A Cowork local session over a connected folder is the exception the
+  # override exists for.
   case ${PLANWRIGHT_INCEPTION_EPHEMERAL:-} in
     1) ephemeral=yes ;;
     0) ephemeral=no ;;
     *)
       ephemeral=no
-      [ "${CLAUDE_CODE_REMOTE:-}" = true ] && ephemeral=yes
+      [ "$host" = local ] || ephemeral=yes
       ;;
   esac
 
@@ -293,6 +318,17 @@ print_degraded() {
     && [ "$pd_home" != remote ] && [ "$pd_rung" != plain ]; then
     printf 'degraded\tthe private-remote home is unavailable (%s)\n' "$remote_reason"
   fi
+  if [ "$plugin" = absent ]; then
+    printf 'degraded\t%s\n' 'planwright is not installed where a venture commit hook looks for it, so commits on this machine skip the venture guards; set PLANWRIGHT_ROOT in the venture'"'"'s .planwright-local.sh'
+  fi
+}
+
+# print_caveats — one `caveat` line per host-specific limit that is not a
+# missing capability, after a probe.
+print_caveats() {
+  [ "$host" = cowork ] || return 0
+  printf 'caveat\t%s\n' 'Cowork session: its network allowlist may block git pull and push; a save that cannot reach the remote stays here as a local commit and is reported as not shared'
+  printf 'caveat\t%s\n' 'Cowork session: Cowork'"'"'s own agent follows the venture'"'"'s sync-protocol.md (imported from CLAUDE.md) only as advice; the validator, CI on a remote venture, and git history are the enforcement'
 }
 
 cmd_detect() {
@@ -302,10 +338,13 @@ cmd_detect() {
     yes) printf 'git\tpresent\n' ;;
     *) printf 'git\tabsent\n' ;;
   esac
+  printf 'host\t%s\n' "$host"
+  printf 'plugin\t%s\n' "$plugin"
   printf 'ephemeral\t%s\n' "$ephemeral"
   printf 'remote\t%s\n' "$remote_state"
   printf 'local\t%s\n' "$local_state"
   print_degraded
+  print_caveats
 }
 
 # --- creation --------------------------------------------------------------
@@ -415,6 +454,7 @@ cmd_create() {
   printf 'home\t%s\n' "$home"
   printf 'rung\t%s\n' "$rung"
   print_degraded "$home" "$rung"
+  print_caveats
 }
 
 # --- the bundle skeleton ---------------------------------------------------
@@ -1077,6 +1117,7 @@ cmd_handoff() {
   printf 'bundle\t%s\n' "$bundle"
   printf 'next\t%s\n' "${next:-unknown}"
   print_degraded "$home" "$rung"
+  print_caveats
 }
 
 # --- dispatch --------------------------------------------------------------

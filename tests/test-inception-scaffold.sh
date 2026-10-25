@@ -124,6 +124,50 @@ assert_not_contains "notes: no stale gitignore claim for the publish state" \
 # once in the notes rather than letting every operator rediscover it.
 assert_contains "notes: explain the post-partial-commit status" "git commit <path>" "$notes"
 
+# REQ-G1.8 — the Cowork sync protocol, and its import from CLAUDE.md.
+assert_file "local rung: sync protocol" "$v/sync-protocol.md"
+assert_file "local rung: CLAUDE.md" "$v/CLAUDE.md"
+assert_contains "local rung: reports the protocol" "wrote sync-protocol.md" "$out"
+proto="$(cat "$v/sync-protocol.md")"
+assert_contains "G1.8 protocol: pull before editing" "git pull" "$proto"
+assert_contains "G1.8 protocol: push after committing" "git push" "$proto"
+assert_contains "G1.8 protocol: edits land as commits" "git commit" "$proto"
+assert_contains "G1.8 protocol: commit messages in plain language" "plain-language" "$proto"
+assert_contains "G1.8 protocol: IDs are untouchable" "ID" "$proto"
+assert_contains "G1.8 protocol: register statuses are untouchable" "**Status:**" "$proto"
+assert_contains "G1.8 protocol: gate records are untouchable" "## Gate log" "$proto"
+assert_contains "G1.8 protocol: protected changes become notes for the operator" "operator" "$proto"
+assert_contains "G1.8 protocol: a blocked push degrades to a local commit" "blocked" "$proto"
+assert_contains "G1.8 protocol: says it is advisory, not the enforcement" "validator" "$proto"
+assert_contains "G1.8 CLAUDE.md imports the protocol" "@sync-protocol.md" "$(cat "$v/CLAUDE.md")"
+assert_contains "notes: name the sync protocol" "sync-protocol.md" "$notes"
+
+# An operator's CLAUDE.md is theirs: the import is appended once, never the
+# file replaced, --force included.
+v="$tmp/own-claude"
+mkdir -p "$v"
+printf '# Our venture\n\nHouse rules.\n' >"$v/CLAUDE.md"
+out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+assert_eq "G1.8 own CLAUDE.md: exit 0" "0" "$?"
+assert_contains "G1.8 own CLAUDE.md: reports the import added" "updated CLAUDE.md" "$out"
+claude_md="$(cat "$v/CLAUDE.md")"
+assert_contains "G1.8 own CLAUDE.md: the operator's text stays" "House rules." "$claude_md"
+assert_contains "G1.8 own CLAUDE.md: the import is appended" "@sync-protocol.md" "$claude_md"
+out="$("$SCAFFOLD" --rung local --force "$v" 2>&1)"
+assert_contains "G1.8 own CLAUDE.md: a re-run keeps it" "kept CLAUDE.md" "$out"
+assert_eq "G1.8 own CLAUDE.md: the import is never duplicated" "1" \
+  "$(grep -c '^@sync-protocol.md$' "$v/CLAUDE.md")"
+assert_contains "G1.8 own CLAUDE.md: --force keeps the operator's text" "House rules." "$(cat "$v/CLAUDE.md")"
+
+v="$tmp/linked-claude"
+mkdir -p "$v"
+printf 'elsewhere\n' >"$tmp/outside-claude.md"
+ln -s "$tmp/outside-claude.md" "$v/CLAUDE.md"
+out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+assert_eq "G1.8 linked CLAUDE.md: the scaffold still succeeds" "0" "$?"
+assert_contains "G1.8 linked CLAUDE.md: refused and said" "symbolic link" "$out"
+assert_eq "G1.8 linked CLAUDE.md: nothing written through the link" "elsewhere" "$(cat "$tmp/outside-claude.md")"
+
 # ---------------------------------------------------------------------------
 # 2. The remote rung adds the CI guard (REQ-A1.9, REQ-G1.5).
 # ---------------------------------------------------------------------------

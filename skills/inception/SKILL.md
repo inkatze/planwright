@@ -101,12 +101,16 @@ Every degradation found here is emitted at the operator in plain words before
 the first question, and repeated in the handoff (REQ-H1.5).
 
 1. **Detect the environment.** Run `inception-venture.sh detect`. It names
-   whether git works, whether the session is ephemeral (a cloud session, or
-   the operator's `PLANWRIGHT_INCEPTION_EPHEMERAL` override), whether the
+   whether git works, the host (`cowork` only when the operator sets
+   `PLANWRIGHT_INCEPTION_HOST`, since Cowork marks nothing), whether the
+   venture hook finds planwright (`plugin`), whether the session is ephemeral
+   (a cloud or Cowork host, or the operator's
+   `PLANWRIGHT_INCEPTION_EPHEMERAL` override), whether the
    private-remote home is available, and what the local arm amounts to:
    `durable` (a git repository), `plain` (a folder with no history), or
    `session-only` (lost when the session ends). The ladder (REQ-H1.1) never
-   loses the bundle: it degrades capability and says which.
+   loses the bundle: it degrades capability and says which. A `caveat` line
+   is a host limit (Cowork's), relayed like a degradation.
 2. **Resolve the ventures root.** `inception-venture.sh root` reads
    `ventures_root` through the config layers (default `~/ventures`). A warning
    it prints is a degradation; any non-zero exit halts, naming the option
@@ -320,7 +324,7 @@ bundle is clean (`pending` means markers remain; `findings` means the
 validator still reports some; `incomplete` means a file is missing;
 `refused` means the validator would not read it; `unchecked` means the
 check could not run here), where the elicitation stands, and every
-`degraded` line again. Then the human's next moves, as information rather
+`degraded` and `caveat` line again. Then the human's next moves, as information rather
 than a verdict: run the validation tasks, resume with
 `/inception <venture-id>`, or, once a track is ready, take it to
 `/spec-draft` themselves. Never invoke a downstream skill.
