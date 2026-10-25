@@ -4,9 +4,9 @@
 # a literal `$TMPDIR` resolving to that root and to nothing else, and nothing
 # executed or sourced from there; plus the record's scratch field (REQ-G1.2,
 # REQ-B1.8). The rows run in the corpus sandbox (tests/lib/
-# worker-guard-corpus.sh), whose hook environment sets TMPDIR to a directory
-# that is not the scratch root, so a `$TMPDIR` row that allows proves the root
-# came from the record.
+# worker-guard-corpus.sh) with the hook's TMPDIR set to the scratch root, as
+# the launcher exports it; a hook whose TMPDIR names anything else gets no
+# scratch arm, since that is what the shell would expand.
 set -u
 unset CDPATH
 # shellcheck source=tests/lib/worker-command-guard-harness.sh
@@ -28,7 +28,7 @@ mkdir -p "$SC/work" "$SC/d"
 ln "$SC/hard" "$SC/hard.2"
 
 under() {
-  HOOK_ENV=("${GIT_ISO[@]}" "TMPDIR=$CORPUS_BOX/hook-tmp" "PLANWRIGHT_WORKER_SESSION_RECORD=$1")
+  HOOK_ENV=("${GIT_ISO[@]}" "TMPDIR=${2-$SC}" "PLANWRIGHT_WORKER_SESSION_RECORD=$1")
 }
 # record_with <name> <policy> [<field=value>...]: the both-arms record with
 # the policy replaced and the named fields replaced or (empty value) dropped.
@@ -76,6 +76,7 @@ assert_allow "F1.4: mktemp -d of a literal template" "mktemp -d $SC/t.XXXXXX" Ba
 assert_allow "F1.4: a read through \$TMPDIR" "grep -n x \$TMPDIR/f.orig" Bash "$WT"
 assert_allow "F1.4: from a payload directory outside the worktree" "touch $SC/y" Bash "$OUT_DIR"
 assert_allow "F1.4: a write, then a read of it" "grep -n x f > \$TMPDIR/o && wc -l \$TMPDIR/o" Bash "$WT"
+assert_allow "F1.4: a redirect through a tracked variable" "d=$SC && echo x > \$d/o" Bash "$WT"
 
 echo "### REQ-F1.4 — what the arm still defers"
 assert_defer "F1.4: a write to /tmp outside the root" "mkdir -p /tmp/other" Bash "$WT"
@@ -118,9 +119,29 @@ assert_defer "F1.4: mktemp of two templates" "mktemp \$TMPDIR/a.XXXXXX \$TMPDIR/
 assert_defer "F1.4: a write inside a substitution" "echo \$(touch \$TMPDIR/x)" Bash "$WT"
 assert_defer "F1.4: a write inside fish -c" "fish -c 'touch $SC/x'" Bash "$WT"
 assert_defer "F1.4: sed -i is not a scratch writer" "sed -i s/a/b/ \$TMPDIR/f.orig" Bash "$WT"
+assert_defer "F1.4: a redirect on an assignment takes the new value" "X=$SC/ok; X=$OUT_DIR/x >\$X" Bash "$WT"
+assert_defer "F1.4: a tracked variable naming outside the root" "d=/tmp && echo x > \$d/o" Bash "$WT"
+assert_defer "F1.4: a tracked value holding a space stays unresolved" "d='$SC/a b' && echo x > \$d" Bash "$WT"
+assert_defer "F1.4: no .git under the root" "mkdir -p \$TMPDIR/r/.git" Bash "$WT"
+assert_defer "F1.4: no mise config under the root" "echo x > \$TMPDIR/mise.toml" Bash "$WT"
+assert_defer "F1.4: no lefthook config under the root" "touch \$TMPDIR/r/lefthook.yml" Bash "$WT"
+
+echo "### REQ-F1.4 — the shell's TMPDIR must be the recorded root"
+ln -s "$SC" "$CORPUS_BOX/scratch.link"
+under "$SCR" "$CORPUS_BOX/hook-tmp"
+assert_defer "F1.4: a hook TMPDIR naming another directory leaves no scratch arm" "touch $SC/x" Bash "$WT"
+assert_defer "F1.4: nor a \$TMPDIR resolution" "touch \$TMPDIR/x" Bash "$WT"
+assert_defer "F1.4: nor mktemp" "mktemp" Bash "$WT"
+assert_defer "F1.4: nor a write to the hook's own TMPDIR" "touch $CORPUS_BOX/hook-tmp/x" Bash "$WT"
+under "$SCR" ""
+assert_defer "F1.4: an empty hook TMPDIR leaves no scratch arm" "mktemp -d" Bash "$WT"
+under "$SCR" "$CORPUS_BOX/scratch.link"
+assert_allow "F1.4: a hook TMPDIR reaching the root through a symlink still names it" "mktemp -d" Bash "$WT"
+under "$SCR"
 
 echo "### REQ-F1.4 — \$TMPDIR resolves only under the scratch arm"
 under "$(record_with ob own-branch)"
+assert_defer "F1.4: own-branch: a redirect on an assignment takes the new value" "X=$WT/build/ok; X=$OUT_DIR/x >\$X" Bash "$WT"
 assert_defer "F1.4: own-branch alone leaves \$TMPDIR unresolved" "touch \$TMPDIR/x" Bash "$WT"
 assert_defer "F1.4: own-branch alone leaves a literal scratch path outside" "touch $SC/x" Bash "$WT"
 assert_defer "F1.4: own-branch alone approves no mktemp" "mktemp" Bash "$WT"
@@ -145,21 +166,28 @@ under "$(record_with nowt-sc scratch worktree_root=)"
 assert_allow "B1.8: no worktree root leaves the scratch arm working" "touch $SC/x" Bash "$WT"
 under "$(record_with nounit-sc scratch unit_branch=)"
 assert_allow "B1.8: no unit branch leaves the scratch arm working" "mkdir -p \$TMPDIR/u" Bash "$WT"
-under "$(record_with relsc scratch scratch_root=scratch)"
+# Each bad root is also the hook's TMPDIR, so only the record's own check
+# can keep the arm off.
+under "$(record_with relsc scratch scratch_root=scratch)" scratch
 assert_defer "B1.8: a relative scratch root is dropped" "touch \$TMPDIR/x" Bash "$WT"
-under "$(record_with missc scratch "scratch_root=$CORPUS_BOX/missing")"
-assert_defer "B1.8: a missing scratch root is dropped" "touch $CORPUS_BOX/missing/x" Bash "$WT"
-ln -s "$SC" "$CORPUS_BOX/scratch.link"
-under "$(record_with linksc scratch "scratch_root=$CORPUS_BOX/scratch.link")"
+assert_defer "B1.8: a relative scratch root approves no mktemp" "mktemp -d" Bash "$WT"
+under "$(record_with missc scratch "scratch_root=$CORPUS_BOX/missing")" "$CORPUS_BOX/missing"
+assert_defer "B1.8: a missing scratch root is dropped" "mktemp -d" Bash "$WT"
+under "$(record_with linksc scratch "scratch_root=$CORPUS_BOX/scratch.link")" "$CORPUS_BOX/scratch.link"
 assert_defer "B1.8: a scratch root reached through a symlink is dropped" "touch \$TMPDIR/x" Bash "$WT"
-under "$(record_with wtsc scratch "scratch_root=$WT/build")"
+assert_defer "B1.8: a symlinked scratch root approves no mktemp" "mktemp -d" Bash "$WT"
+under "$(record_with wtsc scratch "scratch_root=$WT/build")" "$WT/build"
 assert_defer "B1.8: a scratch root inside the worktree is dropped" "touch \$TMPDIR/x" Bash "$WT"
-under "$(record_with boxsc scratch "scratch_root=$CORPUS_BOX")"
+assert_defer "B1.8: a scratch root inside the worktree approves no mktemp" "mktemp -d" Bash "$WT"
+under "$(record_with boxsc scratch "scratch_root=$CORPUS_BOX")" "$CORPUS_BOX"
 assert_defer "B1.8: a scratch root holding the worktree is dropped" "touch \$TMPDIR/x" Bash "$WT"
+assert_defer "B1.8: a scratch root holding the worktree approves no mktemp" "mktemp -d" Bash "$WT"
 f=$(record_with dupsc scratch)
 printf 'scratch_root=%s\n' "$OUT_DIR" >>"$f"
-under "$f"
+under "$f" "$OUT_DIR"
 assert_defer "B1.8: a repeated scratch root is dropped" "touch $OUT_DIR/y" Bash "$WT"
+assert_defer "B1.8: a repeated scratch root approves no mktemp" "mktemp -d" Bash "$WT"
+under "$f"
 assert_defer "B1.8: and neither value stands" "touch $SC/y" Bash "$WT"
 cp "$SCR" "$SC/inside.record"
 under "$SC/inside.record"

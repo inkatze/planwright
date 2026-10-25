@@ -68,8 +68,9 @@
 # through to the command they wrap (see strip_prefixes); fin decides where
 # state may carry. The expansions the analyzer resolves itself are a variable
 # the same command assigned a plain literal (`f=a.md && grep x $f`; see
-# track_assignment and expand_words) and a `for` variable over plain-literal
-# head words (see loop_header): the substitution reproduces what the shell
+# track_assignment and expand_words), a `for` variable over plain-literal
+# head words (see loop_header), and under the scratch arm `$TMPDIR`, the
+# recorded scratch root: the substitution reproduces what the shell
 # will do for exactly those value classes and nothing else, and any other
 # expansion left in a verb, or in an operand a screen reads, defers (see
 # word_unresolved). Repo `scripts/*.sh`
@@ -943,8 +944,9 @@ guard_mkdir() {
 
 # --------------------------------------------------------------------------
 # The session record. The launcher resolves the
-# self-approval policy, the unit branch, the worktree root, the PR base, and
-# the base-merge gate once, writes them to a record outside the worktree
+# self-approval policy, the unit branch, the worktree root, the PR base, the
+# base-merge gate, and the scratch root once, writes them to a record outside
+# the worktree
 # (scripts/worker-session-record.sh), and hands its path in as
 # PLANWRIGHT_WORKER_SESSION_RECORD. The guard reads them from there and never
 # from live config or the checkout, so neither a Write to an overlay nor a
@@ -1247,15 +1249,17 @@ floor_act_words() {
 # writer its command may hold: the targets are checked before the command
 # runs, so a write after it could follow a link it created (ob_mark).
 #
-# The scratch arm: live when the record's policy names it and the record
-# carries a usable scratch root, for the session's own command wherever its
+# The scratch arm: live when the record's policy names it, the record carries
+# a usable scratch root, and the TMPDIR the hook inherited names that root
+# (HOOK_TMPDIR_IS_SCRATCH), for the session's own command wherever its
 # payload directory lies. It approves the same file writers under the same
 # flag, symlink, `..`, hard-link, and link-creation rules, plus `mktemp`,
-# whose every target canonicalizes strictly inside the scratch root, and
-# resolves a literal `$TMPDIR` to that root (analyze_command). The launcher
-# exports the root as the worker's TMPDIR, so that is what the shell expands;
-# the hook's own TMPDIR is never consulted. Nothing there is ever trusted to
-# run: the script runners admit only repository and installed-plugin code.
+# whose every target canonicalizes strictly inside the scratch root and
+# outside the trusted names ob_excluded_name lists, and resolves a literal
+# `$TMPDIR` to that root (analyze_command). The root comes from the record;
+# the inherited TMPDIR only has to agree with it. Nothing there is ever
+# trusted to run: the script runners admit only repository and
+# installed-plugin code.
 OB_ON=0
 SC_ON=0
 OB_WROTE=0
@@ -1382,7 +1386,7 @@ EOF
     -o -iname .config -o -iname .mise -o -iname mise -o -iname 'mise.toml' -o -iname '.mise.toml' \
     -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname lefthook -o -iname 'lefthook.*' \
     -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*' -o -iname '.lefthook-local' \
-    -o -iname '.lefthook-local.*' \) -print 2>/dev/null) || return 1
+    -o -iname '.lefthook-local.*' \) -print -quit 2>/dev/null) || return 1
   [ -z "$hit" ]
 }
 
@@ -1449,6 +1453,12 @@ ob_path() {
     ob_excluded "$acc" && return 1
     OB_ZONE=wt
   elif [ "$sc_ok" = 1 ] && [ "${acc#"$REC_SCRATCH"/}" != "$acc" ]; then
+    # The trusted names stay closed here too: a tool started there would
+    # read them as its own configuration.
+    IFS=/ read -r -a comps <<<"${acc#"$REC_SCRATCH"/}"
+    for comp in ${comps[@]+"${comps[@]}"}; do
+      ob_excluded_name "$comp" && return 1
+    done
     OB_ZONE=sc
   else
     return 1
@@ -1697,7 +1707,8 @@ guard_mktemp() {
       esac
     fi
     n=$((n + 1))
-    [ "$n" -eq 1 ] && ob_path "$a" leaf sc || return 1
+    [ "$n" -eq 1 ] || return 1
+    ob_path "$a" leaf sc || return 1
   done
   ob_mark write
 }
@@ -3458,7 +3469,8 @@ ls_remote_url_ok() {
 # defers (REQ-A1.8 recognized-safe-invocation rule).
 # --------------------------------------------------------------------------
 # Same-command variable tracking: the assignment expansion the analyzer
-# resolves (loop variables are the other; see loop_header).
+# resolves (loop variables and the scratch arm's `$TMPDIR` are the others; see
+# loop_header and analyze_command).
 #
 # Claude Code hands the hook the raw command, so `f=notes.md && grep -n x $f`
 # or `P=<root> && $P/scripts/x.sh` reaches the verifier with the `$` unexpanded.
@@ -3492,7 +3504,8 @@ ls_remote_url_ok() {
 # tool's shell on macOS) does not, so there it stays unresolved. An empty
 # value removes an unquoted word in both. A word carrying a literal `$`
 # (single quotes, backslash) is never substituted, an unknown `$NAME` is left in
-# place, and the table is per analyze_command entry, so a `fish -c` inner
+# place, and the table is per analyze_command entry, seeded only with the
+# scratch arm's TMPDIR at the top level, so a `fish -c` inner
 # string starts empty.
 
 # assign_name_ok <name>: the NAME rule above.
@@ -4674,7 +4687,7 @@ resolve_declared() {
   # Arithmetic reads a leading zero as octal, so strip it first.
   deadline=${deadline#"${deadline%%[!0]*}"}
   { [ "$deadline" -ge 1 ] && [ "$deadline" -le 60 ]; } 2>/dev/null || deadline=$STEPS_DEADLINE
-  DECL_TMP=$(mktemp -d "${TMPDIR:-/tmp}/planwright-guard.XXXXXX" 2>/dev/null) || {
+  DECL_TMP=$(mktemp -d "$HOOK_TMP_BASE/planwright-guard.XXXXXX" 2>/dev/null) || {
     DECL_TMP=''
     return 0
   }
@@ -5002,10 +5015,17 @@ verify_known_simple() {
   # redirect with no command too, e.g. `> f cat x`). A bare target takes the
   # tracked values as a split word does, which leaves a value holding a space
   # unresolved; a tracked value holds no pattern character to glob.
-  local rtw
+  # On a bare assignment (`X=a >$X`) the shell assigns first and expands the
+  # target with the new value, so that target stays unresolved.
+  local rtw rexp=1
+  if [ "$cwn" -eq 1 ]; then
+    case ${cw[0]} in
+      [A-Za-z_]*=*) rexp=0 ;;
+    esac
+  fi
   for ((i = 0; i < rn; i++)); do
     rtw=${rt[i]}
-    if [ "$VAR_C" -gt 0 ] && [ "${rtx[i]}" = 00 ]; then
+    if [ "$rexp" = 1 ] && [ "$VAR_C" -gt 0 ] && [ "${rtx[i]}" = 00 ]; then
       case $rtw in
         *'$'*)
           expand_word "$rtw" split
@@ -5511,7 +5531,7 @@ main() {
   esac
   SC_ON=0
   case " $REC_POLICY " in
-    *" scratch "*) [ -z "$REC_SCRATCH" ] || SC_ON=1 ;;
+    *" scratch "*) [ "$HOOK_TMPDIR_IS_SCRATCH" = 0 ] || SC_ON=1 ;;
   esac
   # Shared across `fish -c` recursion so nesting cannot multiply the bound.
   LOOP_PASSES=0
@@ -5559,6 +5579,18 @@ spec_zone_load() {
 }
 SPEC_ZONE=$(spec_zone_load) || SPEC_ZONE=''
 session_record_load
+# The scratch arm resolves `$TMPDIR` to the recorded root, so it is live only
+# while the TMPDIR this hook inherited, which is the session's, names that
+# root: a sandbox, a settings env, or another launch's record would otherwise
+# point the shell elsewhere. Nor do the guard's own temp files belong in a
+# directory the worker may write to.
+HOOK_TMPDIR_IS_SCRATCH=0
+HOOK_TMP_BASE=${TMPDIR:-/tmp}
+if [ -n "$REC_SCRATCH" ] && [ -n "${TMPDIR:-}" ] \
+  && [ "$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P)" = "$REC_SCRATCH" ]; then
+  HOOK_TMPDIR_IS_SCRATCH=1
+  HOOK_TMP_BASE=/tmp
+fi
 # plugin_root_unlinked <scripts-dir>: $CLAUDE_PLUGIN_ROOT, or nothing when
 # resolve-installed-roots.sh's symlink rule refuses it (or cannot be run). The
 # chain canonicalizes an arm, so a plugin cache root reached through a symlink
