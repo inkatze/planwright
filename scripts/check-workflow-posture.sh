@@ -766,10 +766,10 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; if_kind 
 
   soft = (rest ~ /\|\|[ \t]*(true|:|\/bin\/true|\/usr\/bin\/true|exit[ \t]+0)([ \t;)&|'"}\\]|$)/ ||
           rest ~ /\|\|[ \t]*\{[ \t]*(true|:)[ \t]*;/ ||
-          rest ~ /(^|[^A-Za-z0-9_-])set[ \t]+(\+[A-Za-z]*e[A-Za-z]*|\+o[ \t]+errexit)([ \t;)]|$)/)
+          rest ~ /(^|[^A-Za-z0-9_-])set[ \t]+(\+[A-Za-z]*e[A-Za-z]*|\+o[ \t]+errexit)([ \t;)&|]|$)/)
   # A shell list continues past a trailing `||` (or `|| \`) onto the next line.
-  if (or_pending && rest ~ /^(true|:|\/bin\/true|\/usr\/bin\/true|exit[ \t]+0|\{[ \t]*(true|:)[ \t]*;)([ \t;)&|'"}\\]|$)/) soft = 1
-  or_pending = (rest ~ /\|\|[ \t]*\\?[ \t]*$/)
+  if (or_pending && rest ~ /^[({]?[ \t]*(true|:|\/bin\/true|\/usr\/bin\/true|exit[ \t]+0|\{[ \t]*(true|:)[ \t]*;)([ \t;)&|'"}\\]|$)/) soft = 1
+  if (rest !~ /^#/) or_pending = (rest ~ /\|\|[ \t]*[({]?[ \t]*\\?[ \t]*$/)
   if (soft) printf "T\t%d\n", NR
 
   if (bs) {
@@ -805,6 +805,7 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; if_kind 
   }
   if (section != "jobs") { if (scalar) { bs = 1; bs_indent = kindent }; next }
   if (isseq && body ~ /^[{[]/) printf "E\t%d\t%s\n", NR, "a flow-style sequence item is outside the matrix pass's subset"
+  if (haskey && val ~ /^[{[]/ && val !~ /[]}]$/) printf "E\t%d\t%s\n", NR, "a flow collection left open on its line is outside the matrix pass's subset"
 
   if (jobs_child < 0) jobs_child = indent
   if (indent == jobs_child && haskey && !isseq) {
@@ -885,7 +886,7 @@ $1 == "H" {
   if ($3 !~ /^(bash|sh)$/ && $3 !~ /(^|[ \t])-[a-z]*e[a-z]*([ \t]|$)/)
     v(file ":" $2 ": `shell: " $3 "` runs without -e, so every line of a step but the last can fail silently; every step on every platform must block")
 }
-$1 == "T" { v(file ":" $2 ": a line swallows a failure (`||` onto true, `:`, or exit 0, or `set +e`); every step on every platform must block") }
+$1 == "T" { v(file ":" $2 ": a line swallows a failure (`||` onto true, `:`, or exit 0, on its line or the next, or `set +e` in any spelling the header names); every step on every platform must block") }
 END {
   nalpine = 0
   for (i = 1; i <= nj; i++) {

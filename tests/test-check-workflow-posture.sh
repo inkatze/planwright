@@ -1643,6 +1643,33 @@ matrix_case "matrix: a # line inside a block-scalar if: is read" 1 "naming a pla
       github.ref != '
       # x' || runner.os == 'Linux'"
 
+matrix_case "matrix: a comment line between || and true does not clear the continuation" 1 "swallows a failure" \
+  "M_MAC_RUN=          mise run test ||
+          # why
+          true"
+matrix_case "matrix: a blank line between || and true does not clear the continuation" 1 "swallows a failure" \
+  "M_MAC_RUN=          mise run test ||
+
+          true"
+matrix_case "matrix: a brace group opened after || fails" 1 "swallows a failure" \
+  "M_MAC_RUN=          mise run test || {
+          true
+          }"
+matrix_case "matrix: set +e followed by && fails" 1 "swallows a failure" \
+  "M_MAC_RUN=          set +e&& mise run test"
+matrix_case "matrix: set +ex fails" 1 "swallows a failure" \
+  "M_MAC_RUN=          set +ex"
+matrix_case "matrix: a word ending in set is not set +e" 0 "" \
+  "M_MAC_RUN=          printf '%s\\\\n' reset +e"
+matrix_case "matrix: a flow collection left open on its line fails closed" 1 "left open on its line" \
+  "M_LINT_STEP=  flowopen:
+    runs-on: ubuntu-latest
+    steps: [
+      {run: \"false\", continue-on-error: true}
+    ]"
+matrix_case "matrix: a flow mapping naming continue-on-error: false fails" 1 "continue-on-error" \
+  "M_ALP_STEP=        with: {continue-on-error: false}"
+
 d="$(mkdir_case matrix-absent)"
 cp "$REPO_ROOT/.github/workflows/pr-title.yml" "$d/"
 out="$("$GUARD" --matrix ci.yml "$d" 2>&1)"

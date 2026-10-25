@@ -31,8 +31,8 @@
 # specifies for it, git, and gh. POSIX's development utilities (c17, make,
 # lex, yacc, the SCCS set, and the rest) are left out, being the toolchain the
 # constraint excludes, and so are utilities no adopter script reaches for (the
-# UUCP and message-catalog sets) and cd, umask, and unalias, which resolve to
-# no file. One non-POSIX name is added: mktemp, which POSIX has never
+# UUCP and message-catalog sets, vi, localedef) and cd, umask, and unalias,
+# which only a builtin can implement. One non-POSIX name is added: mktemp, which POSIX has never
 # specified, which every matrix platform's stock userland ships, and which is
 # no compiler, interpreter, or package manager; the script layer creates every
 # scratch file through it. Each name is looked up file by file along the
