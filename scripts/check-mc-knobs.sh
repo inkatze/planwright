@@ -88,14 +88,17 @@ resolve() {
     PLANWRIGHT_ADOPTER_OVERLAY="$scratch/adopter" \
     PLANWRIGHT_LOCAL_CONFIG="$scratch/absent.yml" \
     CLAUDE_DIR="$scratch/claude" \
-    /bin/sh "$script_dir/config-get.sh" "$1" 2>/dev/null
+    /bin/sh "$script_dir/config-get.sh" "$1" 2>"$scratch/err"
 }
 
 keys=$(sed -n 's/^\(mission_control_[a-z0-9_]*\):.*/\1/p' "$defaults")
 
 for k in $keys; do
   value=$(resolve "$k") || value=""
-  [ -n "$value" ] || finding "$k does not resolve to a default through scripts/config-get.sh"
+  if [ -z "$value" ]; then
+    why=$(head -n 1 "$scratch/err")
+    finding "$k does not resolve to a default through scripts/config-get.sh${why:+ ($why)}"
+  fi
   row=$(grep -F "| \`$k\` |" "$reference" | head -n 1)
   if [ -z "$row" ]; then
     finding "$k has no row in docs/options-reference.md"
@@ -110,10 +113,12 @@ done
 claimed=" "
 seen=" "
 consumers=""
-while IFS='	' read -r behaviour knob consumer; do
-  case $behaviour in
-    "" | \#*) continue ;;
-  esac
+# Rows are split by awk, on every tab: read's IFS would merge an empty
+# column into its neighbour and drop a last line with no newline. The unit
+# separator then carries the columns, empty ones included.
+rows=$(awk -F '\t' '!/^#/ && NF { printf "%s\037%s\037%s\n", $1, $2, $3 }' "$inventory")
+while IFS=$(printf '\037') read -r behaviour knob consumer; do
+  [ -n "$behaviour" ] || continue
   case $seen in
     *" $behaviour "*) finding "behaviour '$behaviour' is inventoried twice" ;;
   esac
@@ -145,7 +150,9 @@ $knob
       fi
       ;;
   esac
-done <"$inventory"
+done <<EOF
+$rows
+EOF
 
 for k in $keys; do
   case $claimed in

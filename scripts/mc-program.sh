@@ -71,17 +71,28 @@ usage() {
   exit 2
 }
 problem() { # problem <name> <field> <text>
-  printf '%s\n' "$prog: $1: $2: $(sanitize_printable "$3")" >&2
+  printf '%s\n' "$prog: $(sanitize_printable "$1"): $(sanitize_printable "$2"): $(sanitize_printable "$3")" >&2
 }
+
+# repeated <lines>: the first line that occurs more than once, if any.
+repeated() { printf '%s\n' "$1" | sort | uniq -d | head -n 1; }
 
 # cfg <key>: the merged value; exit 3 when no layer sets it.
 cfg() { /bin/sh "$script_dir/config-get.sh" "$1"; }
 
+# Pattern tests, not grep: grep matches line by line, so a value carrying a
+# newline would pass on one good line.
 valid_name() {
   [ "${#1}" -le 64 ] || return 1
-  printf '%s' "$1" | grep -Eq '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
+  case $1 in
+    "" | [!a-z]* | *[!a-z0-9-]* | *- | *--*) return 1 ;;
+  esac
 }
-valid_kebab() { printf '%s' "$1" | grep -Eq '^[a-z0-9][a-z0-9-]*$'; }
+valid_kebab() {
+  case $1 in
+    "" | [!a-z0-9]* | *[!a-z0-9-]*) return 1 ;;
+  esac
+}
 
 # split_list <raw>: an inline flow list [a, b] to one member per line.
 # Exit 1 not a list, 4 an empty member (a trailing comma is tolerated).
@@ -202,20 +213,20 @@ programs() {
     return 0
   fi
   names=$(read_list programs mission_control_programs "$raw") || return 1
-  seen=" "
-  for n in $names; do
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
     if ! valid_name "$n"; then
       problem programs mission_control_programs "invalid program name '$n'"
       return 1
     fi
-    case $seen in
-      *" $n "*)
-        problem programs mission_control_programs "program '$n' named twice"
-        return 1
-        ;;
-    esac
-    seen="$seen$n "
-  done
+  done <<EOF
+$names
+EOF
+  dup=$(repeated "$names")
+  if [ -n "$dup" ]; then
+    problem programs mission_control_programs "program '$dup' named twice"
+    return 1
+  fi
   [ -z "$names" ] || printf '%s\n' "$names"
 }
 
@@ -227,6 +238,11 @@ field_repositories() {
   members=$(read_list "$1" repositories "$raw") || return 1
   if [ -z "$members" ]; then
     problem "$1" repositories "names no repository"
+    return 1
+  fi
+  dup=$(repeated "$members")
+  if [ -n "$dup" ]; then
+    problem "$1" repositories "'$dup' named twice"
     return 1
   fi
   rc=0
@@ -271,12 +287,20 @@ field_duties() {
     fi
   fi
   members=$(read_list "$1" duties "$raw") || return 1
-  for m in $members; do
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
     if ! valid_kebab "$m"; then
       problem "$1" duties "'$m' is not a duty id"
       return 1
     fi
-  done
+  done <<EOF
+$members
+EOF
+  dup=$(repeated "$members")
+  if [ -n "$dup" ]; then
+    problem "$1" duties "duty '$dup' enabled twice"
+    return 1
+  fi
   [ -z "$members" ] || printf '%s\n' "$members"
 }
 
@@ -286,6 +310,11 @@ field_budget() {
   [ -n "$entries" ] || return 0
   if printf '%s\n' "$entries" | cut -f1 | grep -Evq '^[a-z][a-z0-9_]*$'; then
     problem "$1" budget "a key in '$raw' is not lowercase snake case"
+    return 1
+  fi
+  dup=$(repeated "$(printf '%s\n' "$entries" | cut -f1)")
+  if [ -n "$dup" ]; then
+    problem "$1" budget "key '$dup' named twice"
     return 1
   fi
   printf '%s\n' "$entries"
@@ -303,14 +332,15 @@ field_sources() {
   seen=" "
   while IFS='	' read -r class value; do
     [ -n "$class" ] || continue
-    case " $CLASSES " in
-      *" $class "*) ;;
-      *)
-        problem "$1" sources "unknown fact class '$class' (known: $CLASSES)"
-        rc=1
-        continue
-        ;;
-    esac
+    known_class=0
+    for c in $CLASSES; do
+      [ "$class" != "$c" ] || known_class=1
+    done
+    if [ "$known_class" -eq 0 ]; then
+      problem "$1" sources "unknown fact class '$class' (known: $CLASSES)"
+      rc=1
+      continue
+    fi
     case $seen in
       *" $class "*)
         problem "$1" sources "fact class '$class' named twice"
@@ -374,8 +404,10 @@ posture() {
     return 0
   fi
   repos=$(field_repositories "$1") || return 1
+  present=0
   while IFS= read -r r; do
     [ -d "$r" ] || continue
+    present=1
     if [ "$(common_dir "$r")" = "$root_git" ]; then
       printf '%s\n' same-repo
       return 0
@@ -383,6 +415,10 @@ posture() {
   done <<EOF
 $repos
 EOF
+  if [ "$present" -eq 0 ]; then
+    problem "$1" repositories "no listed repository exists on this machine, so the posture is unknown"
+    return 1
+  fi
   printf '%s\n' separate-repo
 }
 

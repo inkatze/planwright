@@ -19,11 +19,13 @@
 # An armed duty is one the program enables (scripts/mc-program.sh) whose
 # lifecycle is shadow or live. A disabled duty, or an `off` one, arms no
 # watcher and owns no directory. watchers and files refuse an invalid
-# catalog, and an enabled id the catalog lacks.
+# catalog, and an enabled id the catalog lacks. A repeated id reads its first
+# entry, as the resolver keeps it.
 #
-# Exit codes: 0 resolved; 1 an invalid catalog, an unknown enabled duty, or a
-# resolver or program failure; 2 usage or an unknown field; 3 no such duty
-# (get), or the program is not configured.
+# Exit codes: 0 resolved; 1 an invalid catalog, an unknown enabled duty, a
+# missing field or a control character in a value (get), or a resolver,
+# reader or program failure; 2 usage, an unknown field, or an invalid program
+# name; 3 no such duty (get), or the program is not configured.
 #
 # Portable bash 3.2 / BSD tooling.
 set -u
@@ -41,21 +43,29 @@ fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh" || exit 2
 
+# Every entry field after id is required.
 FIELDS="id summary triggers watchers wake rules kinds files lifecycle never-propose"
+export FIELDS
 
 usage() {
   printf '%s\n' "usage: mc-duties.sh list | get <id> <field> | watchers --program <p> | files --program <p> | validate" >&2
   exit 2
 }
+fail() {
+  printf '%s\n' "$prog: $1" >&2
+  exit 1
+}
 
 catalog() { bash "$script_dir/resolve-catalog.sh" duties "$@"; }
 
 # walk <mode>: one awk pass over the merged catalog on stdin. Modes:
-#   get       print field FIELD of entry ID; exit 3 when ID is absent
-#   validate  print <id>: <field>: <problem> per problem
+#   get       print field FIELD of entry ID; exit 3 when ID is absent, 4 when
+#             the entry lacks the field
+#   validate  print <id>: <field>: <problem> per problem; exit 1 when any
 #   watchers  for the ids in ENABLED (newline separated), print the armed
 #   files     ones' watchers or directory; a missing id is a
 #             `missing<TAB><id>` line
+# Any other exit status is a reader failure.
 walk() {
   MODE=$1 awk '
     function trim(s) { sub(/^[ ]+/, "", s); sub(/[ ]+$/, "", s); return s }
@@ -64,17 +74,21 @@ walk() {
     function bad(id, f, msg) { print id ": " f ": " msg; nbad++ }
     BEGIN {
       mode = ENVIRON["MODE"]; want_id = ENVIRON["ID"]; want_f = ENVIRON["FIELD"]
+      nfields = split(ENVIRON["FIELDS"], field, " ")
+      for (j = 1; j <= nfields; j++) known[field[j]] = 1
       n = 0
     }
     /^[ ]*#/ || /^[ ]*$/ || /^---/ { next }
     /^  - id:/ {
       v = $0; sub(/^  - id:[ ]*/, "", v); v = unq(trim(v))
-      n++; ids[n] = v; idx[v] = n; nf[n] = 0
+      n++; ids[n] = v; nf[n] = 0
+      if (v in idx) dupid[n] = 1; else idx[v] = n
       next
     }
     /^    [^ ]/ && n > 0 {
       line = substr($0, 5); p = index(line, ":")
       if (!p) { k = line; v = "" } else { k = substr(line, 1, p - 1); v = unq(trim(substr(line, p + 1))) }
+      if ((n, k) in has) dupf[n, k] = 1
       val[n, k] = v; has[n, k] = 1; nf[n]++; fk[n, nf[n]] = k
       next
     }
@@ -92,38 +106,49 @@ walk() {
       }
       return k
     }
-    function check_list(i, f, kind,    arr, c, j, w) {
+    # watcher_parts(w, out): split <script>@<cadence>/<cost> into out[1..3];
+    # returns 0 when w does not have that shape.
+    function watcher_parts(w, out,    at) {
+      if (w !~ /^[A-Za-z0-9._\/-]+@[1-9][0-9]*[smhd]\/[a-z]+$/) return 0
+      at = index(w, "@")
+      out[1] = substr(w, 1, at - 1)
+      out[2] = substr(w, at + 1); sub(/\/.*/, "", out[2])
+      out[3] = w; sub(/.*\//, "", out[3])
+      return 1
+    }
+    function check_list(i, f, kind,    arr, c, j, w, wp) {
       c = members(val[i, f], arr)
       if (c == -1) { bad(ids[i], f, "\"" val[i, f] "\" is not an inline list [a, b]"); return }
       if (c == -2) { bad(ids[i], f, "an empty member in \"" val[i, f] "\""); return }
       for (j = 1; j <= c; j++) {
         if (kind == "watcher") {
           w = arr[j]
-          if (w !~ /^[A-Za-z0-9._\/-]+@[1-9][0-9]*[smhd]\/[a-z]+$/) {
+          if (!watcher_parts(w, wp)) {
             bad(ids[i], f, "\"" w "\" is not <script>@<cadence>/<cost>, cadence a positive count of s, m, h or d")
             continue
           }
-          path = w; sub(/@.*/, "", path); cost = w; sub(/.*\//, "", cost)
-          if (path ~ /^-/ || ("/" path "/") ~ /\/\.\.\//)
-            bad(ids[i], f, "watcher script \"" path "\" starts with - or has a .. segment")
-          if (cost != "low" && cost != "medium" && cost != "high")
-            bad(ids[i], f, "unknown cost class \"" cost "\" (known: low medium high)")
+          if (wp[1] ~ /^-/ || ("/" wp[1] "/") ~ /\/\.\.\//)
+            bad(ids[i], f, "watcher script \"" wp[1] "\" starts with - or has a .. segment")
+          if (wp[3] != "low" && wp[3] != "medium" && wp[3] != "high")
+            bad(ids[i], f, "unknown cost class \"" wp[3] "\" (known: low medium high)")
         } else if (!kebab(arr[j])) {
           bad(ids[i], f, "\"" arr[j] "\" is not a kebab name")
         }
       }
     }
-    function validate(    i, j, k, f, known, req, owner) {
-      split("summary triggers watchers wake rules kinds files lifecycle never-propose", req, " ")
-      for (j in req) known[req[j]] = 1
+    function validate(    i, j, k, f, owner) {
       for (i = 1; i <= n; i++) {
+        if (ids[i] ~ /[[:cntrl:]]/) { bad("(entry " i ")", "id", "carries a control character"); continue }
         if (!kebab(ids[i])) bad(ids[i], "id", "not a kebab name")
+        if (i in dupid) bad(ids[i], "id", "duplicate id; the resolver keeps the first entry")
         for (j = 1; j <= nf[i]; j++) {
           k = fk[i, j]
           if (!(k in known)) bad(ids[i], k, "unknown field")
+          else if ((i, k) in dupf) { bad(ids[i], k, "named twice"); delete dupf[i, k] }
+          if (val[i, k] ~ /[[:cntrl:]]/) bad(ids[i], k, "carries a control character")
         }
-        for (j = 1; j <= 9; j++) {
-          f = req[j]
+        for (j = 2; j <= nfields; j++) {
+          f = field[j]
           if (!has[i, f]) bad(ids[i], f, "missing")
         }
         if (has[i, "summary"] && val[i, "summary"] == "") bad(ids[i], "summary", "empty")
@@ -137,7 +162,7 @@ walk() {
           bad(ids[i], "lifecycle", "\"" val[i, "lifecycle"] "\" is not off, shadow or live")
         if (has[i, "never-propose"] && val[i, "never-propose"] !~ /^(true|false)$/)
           bad(ids[i], "never-propose", "\"" val[i, "never-propose"] "\" is not true or false")
-        if (has[i, "files"]) {
+        if (has[i, "files"] && !(i in dupid)) {
           f = val[i, "files"]
           if (!kebab(f)) bad(ids[i], "files", "\"" f "\" is not a kebab directory name")
           else if (f in owner) bad(ids[i], "files", "\"" f "\" is already owned by " owner[f])
@@ -145,7 +170,7 @@ walk() {
         }
       }
     }
-    function armed(    en, c, j, i, arr, w, k, path, rest) {
+    function armed(    en, c, j, i, arr, w, k, wp) {
       c = split(ENVIRON["ENABLED"], en, "\n")
       for (j = 1; j <= c; j++) {
         if (en[j] == "") continue
@@ -154,11 +179,8 @@ walk() {
         if (val[i, "lifecycle"] == "off") continue
         if (mode == "files") { print ids[i] "\t" val[i, "files"]; continue }
         k = members(val[i, "watchers"], arr)
-        for (w = 1; w <= k; w++) {
-          path = arr[w]; sub(/@.*/, "", path)
-          rest = arr[w]; sub(/^[^@]*@/, "", rest); sub(/\//, "\t", rest)
-          print ids[i] "\t" path "\t" rest
-        }
+        for (w = 1; w <= k; w++)
+          if (watcher_parts(arr[w], wp)) print ids[i] "\t" wp[1] "\t" wp[2] "\t" wp[3]
       }
     }
     END {
@@ -177,17 +199,18 @@ walk() {
 
 # merged: the merged catalog, or exit 1 naming the resolver failure.
 merged() {
-  if ! out=$(catalog); then
-    printf '%s\n' "$prog: the duties catalog does not resolve (scripts/resolve-catalog.sh duties)" >&2
-    exit 1
-  fi
-  printf '%s\n' "$out"
+  catalog || fail "the duties catalog does not resolve (scripts/resolve-catalog.sh duties)"
 }
 
-validate() {
-  cat_out=$(merged) || return 1
-  problems=$(printf '%s\n' "$cat_out" | walk validate)
-  [ -z "$problems" ] && return 0
+# validate_text <catalog>: report every problem in an already-resolved
+# catalog; status 0 clean, 1 problems.
+validate_text() {
+  problems=$(printf '%s\n' "$1" | walk validate)
+  case $? in
+    0) return 0 ;;
+    1) ;;
+    *) fail "the catalog reader failed" ;;
+  esac
   printf '%s\n' "$problems" | while IFS= read -r p; do
     printf '%s\n' "$prog: $(sanitize_printable "$p")" >&2
   done
@@ -195,18 +218,15 @@ validate() {
 }
 
 armed() { # armed <watchers|files> <program>
-  validate || {
-    printf '%s\n' "$prog: refusing an invalid catalog; run scripts/check-duties.sh" >&2
-    exit 1
-  }
+  cat_out=$(merged) || exit 1
+  validate_text "$cat_out" || fail "refusing an invalid catalog; run scripts/check-duties.sh"
   enabled=$(bash "$script_dir/mc-program.sh" get "$2" duties)
   rc=$?
   [ "$rc" -eq 0 ] || exit "$rc"
-  cat_out=$(merged) || exit 1
-  out=$(printf '%s\n' "$cat_out" | ENABLED=$enabled walk "$1")
+  out=$(printf '%s\n' "$cat_out" | ENABLED=$enabled walk "$1") || fail "the catalog reader failed"
   missing=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "missing" { print $2 }')
   if [ -n "$missing" ]; then
-    for m in $missing; do
+    printf '%s\n' "$missing" | while IFS= read -r m; do
       printf '%s\n' "$prog: program '$2' enables '$(sanitize_printable "$m")', which the duties catalog lacks" >&2
     done
     exit 1
@@ -234,16 +254,18 @@ case $verb in
     cat_out=$(merged) || exit 1
     out=$(printf '%s\n' "$cat_out" | ID=$1 FIELD=$2 walk get)
     case $? in
-      0) printf '%s\n' "$out" ;;
+      0) ;;
       3)
         printf '%s\n' "$prog: no duty '$(sanitize_printable "$1")' in the merged catalog" >&2
         exit 3
         ;;
-      *)
-        printf '%s\n' "$prog: duty '$1' carries no '$2' field" >&2
-        exit 1
-        ;;
+      4) fail "duty '$(sanitize_printable "$1")' carries no '$2' field" ;;
+      *) fail "the catalog reader failed" ;;
     esac
+    case $out in
+      *[[:cntrl:]]*) fail "duty '$1' field '$2' carries a control character; run scripts/check-duties.sh" ;;
+    esac
+    printf '%s\n' "$out"
     ;;
   watchers | files)
     [ $# -eq 2 ] && [ "$1" = --program ] || usage
@@ -251,7 +273,8 @@ case $verb in
     ;;
   validate)
     [ $# -eq 0 ] || usage
-    validate
+    cat_out=$(merged) || exit 1
+    validate_text "$cat_out"
     ;;
   -h | --help)
     awk 'NR>=2 { if ($0 ~ /^#/) { sub(/^# ?/, ""); print } else exit }' "$0"

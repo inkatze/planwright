@@ -123,18 +123,41 @@ expect_rc "a behaviour whose consumer does not exist fails" 1
 expect_out "the missing consumer is named" "scripts/no-such.sh"
 
 # REQ-J1.1: every key resolves with its default and is claimed by a behaviour.
+# row <knob>: an options-reference row naming its evidence, so a case fails
+# only for the defect it plants.
+row() {
+  # shellcheck disable=SC2016 # the backticks are the row's literal text
+  printf '| `%s` | `x` | A fixture knob. Evidence: a fixture. | `scripts/mc-program.sh` |\n' "$1" >>"$core/docs/options-reference.md"
+}
+
 reset_fixture
 printf 'mission_control_orphan: 3\n' >>"$core/config/defaults.yml"
+row mission_control_orphan
 run_fixture
 expect_rc "REQ-J1.1: a knob no behaviour claims fails" 1
-expect_out "REQ-J1.1: the orphan knob is named" "mission_control_orphan"
+expect_out "REQ-J1.1: the orphan knob is reported as unclaimed" "mission_control_orphan is claimed by no behaviour"
 
 reset_fixture
 printf 'mission_control_bare:\n' >>"$core/config/defaults.yml"
 printf 'bare-behaviour\tmission_control_bare\tscripts/mc-program.sh\n' >>"$core/config/mission-control-knobs.tsv"
+row mission_control_bare
 run_fixture
 expect_rc "REQ-J1.1: a knob with no default value fails" 1
-expect_out "REQ-J1.1: the default-less knob is named" "mission_control_bare"
+expect_out "REQ-J1.1: the default-less knob is reported as unresolved" "mission_control_bare does not resolve to a default"
+
+# The inventory's last row counts without a trailing newline, and an empty
+# knob column is a missing knob, not a shifted row.
+reset_fixture
+printf 'last-behaviour\t-\tscripts/mc-program.sh' >>"$core/config/mission-control-knobs.tsv"
+run_fixture
+expect_rc "REQ-J1.1: a knob-less last row without a newline fails" 1
+expect_out "REQ-J1.1: the unterminated row's behaviour is named" "behaviour 'last-behaviour' has no knob"
+
+reset_fixture
+printf 'empty-behaviour\t\tscripts/mc-program.sh\n' >>"$core/config/mission-control-knobs.tsv"
+run_fixture
+expect_rc "REQ-J1.1: an empty knob column fails" 1
+expect_out "REQ-J1.1: the empty knob column reads as no knob" "behaviour 'empty-behaviour' has no knob"
 
 # REQ-J1.2: every knob has an options-reference row naming its evidence.
 reset_fixture

@@ -166,6 +166,7 @@ alpha_block
 printf 'program_alpha_sources: {designs: figma}\n' >>"$tracked"
 mc_run mc-program.sh validate alpha
 expect_rc "REQ-H1.4: an entry without a mode fails" 1
+expect_err "REQ-H1.4: the entry without a mode is named" "source:mode"
 
 alpha_block
 printf 'program_alpha_sources: [specs]\n' >>"$tracked"
@@ -250,6 +251,65 @@ printf 'mission_control_programs: [Bad]\n' >"$tracked"
 mc_run mc-program.sh list
 expect_rc "a program list naming an invalid name fails" 1
 expect_err "the invalid name is named" "Bad"
+
+printf 'mission_control_programs: [alpha beta]\n' >"$tracked"
+mc_run mc-program.sh list
+expect_rc "a program list member carrying a space fails" 1
+expect_err "the spaced name is named" "alpha beta"
+
+printf 'mission_control_programs: [alpha, alpha]\n' >"$tracked"
+mc_run mc-program.sh list
+expect_rc "a program named twice fails" 1
+
+alpha_block
+mc_run mc-program.sh get "$(printf 'alpha\nbeta')" spec_root
+expect_rc "a program name carrying a newline is refused" 2
+
+# ---------------------------------------------------------------------------
+# Members are whole: no word splitting, no repeats.
+# ---------------------------------------------------------------------------
+alpha_block
+printf 'program_alpha_duties: [alpha-duty beta-duty]\n' >>"$tracked"
+mc_run mc-program.sh validate alpha
+expect_rc "a duty member carrying a space fails" 1
+expect_err "the spaced duty member is named" "alpha-duty beta-duty"
+
+alpha_block
+printf 'program_alpha_duties: [alpha-duty, alpha-duty]\n' >>"$tracked"
+mc_run mc-program.sh validate alpha
+expect_rc "a duty enabled twice fails" 1
+expect_err "the repeated duty is named" "alpha-duty"
+
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo, $repo]
+program_alpha_spec_root: $repo/specs
+EOF
+mc_run mc-program.sh validate alpha
+expect_rc "a repository named twice fails" 1
+expect_err "the repeated repository field is named" "alpha: repositories"
+
+alpha_block
+printf 'program_alpha_budget: {sessions: 4, sessions: 5}\n' >>"$tracked"
+mc_run mc-program.sh validate alpha
+expect_rc "a budget key named twice fails" 1
+expect_err "the repeated budget key is named" "sessions"
+
+alpha_block
+printf 'program_alpha_sources: {work-items code-state: specs:record}\n' >>"$tracked"
+mc_run mc-program.sh validate alpha
+expect_rc "REQ-H1.4: a source class carrying a space fails" 1
+expect_err "REQ-H1.4: the spaced class is named" "work-items code-state"
+
+# Posture needs a listed repository that exists here.
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$tmp/no-such-repo]
+program_alpha_spec_root: $other/specs
+EOF
+mc_run mc-program.sh posture alpha
+expect_rc "posture with no listed repository on this machine fails" 1
+expect_err "the missing repositories are named" "alpha: repositories"
 
 alpha_block
 mc_run mc-program.sh get alpha nonsense

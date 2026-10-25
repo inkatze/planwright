@@ -15,7 +15,8 @@
 #     names a duty the catalog lacks.
 #
 # Only the core and repo-tracked layers are read: the adopter overlay and the
-# machine-local config are pointed at an empty scratch directory. The one
+# machine-local config are pointed at an empty scratch directory, and HOME
+# with them, so a ~/ value is checked for its shape on any host. The one
 # host input left is a gitignored machine-local catalog under
 # <repo>/.claude/catalogs.local/, which the catalog reader locates from the
 # repo root alone; one there can make a local run differ from CI.
@@ -83,7 +84,7 @@ toplevel=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
 scratch=$(mktemp -d) || die "mktemp -d failed"
 [ -n "$scratch" ] && [ -d "$scratch" ] || die "mktemp -d produced no directory"
 trap 'rm -rf "$scratch"' EXIT
-mkdir -p "$scratch/adopter" "$scratch/claude" || die "cannot populate the scratch directory"
+mkdir -p "$scratch/adopter" "$scratch/claude" "$scratch/home" || die "cannot populate the scratch directory"
 
 # run <script> <args...>: a sibling script over the core and repo-tracked
 # layers only; stdout to the caller, stderr to $scratch/err.
@@ -98,6 +99,7 @@ run() {
     PLANWRIGHT_ADOPTER_OVERLAY="$scratch/adopter" \
     PLANWRIGHT_LOCAL_CONFIG="$scratch/absent.yml" \
     CLAUDE_DIR="$scratch/claude" \
+    HOME="$scratch/home" \
     bash "$script_dir/$run_script" "$@" 2>"$scratch/err")
 }
 
@@ -113,35 +115,37 @@ relay() {
   done <"$scratch/err"
 }
 
-if ! run resolve-catalog.sh duties >/dev/null; then
+# The merge --explain runs, unlike a plain read of a core-only catalog, warns
+# about every layer, the core seed included.
+if listing=$(run mc-duties.sh list); then
+  [ ! -s "$scratch/err" ] || relay
+else
   relay
   finding "the duties catalog does not resolve"
-elif [ -s "$scratch/err" ]; then
-  relay
 fi
+ids=$(printf '%s\n' "$listing" | cut -f1)
 
 run mc-duties.sh validate || relay
-ids=$(run mc-duties.sh list | cut -f1)
 
-# known <program-label> <ids...>: a finding per id the catalog lacks.
+# known <label> <ids>: a finding per id (one per line) the catalog lacks.
 known() {
-  kn_label=$1
-  shift
-  for kn_id in "$@"; do
+  while IFS= read -r kn_id; do
+    [ -n "$kn_id" ] || continue
     case "
 $ids
 " in
       *"
 $kn_id
 "*) ;;
-      *) finding "$kn_label enables '$kn_id', which the duties catalog lacks" ;;
+      *) finding "$1 enables '$kn_id', which the duties catalog lacks" ;;
     esac
-  done
+  done <<KNOWN
+$2
+KNOWN
 }
 
 if default_duties=$(run mc-program.sh default duties); then
-  # shellcheck disable=SC2086
-  known "mission_control_default_duties" $default_duties
+  known "mission_control_default_duties" "$default_duties"
 else
   relay
 fi
@@ -152,8 +156,7 @@ if programs=$(run mc-program.sh list); then
   for p in $programs; do
     run mc-program.sh validate "$p" || relay
     if enabled=$(run mc-program.sh get "$p" duties); then
-      # shellcheck disable=SC2086
-      known "program '$p'" $enabled
+      known "program '$p'" "$enabled"
     fi
   done
 else

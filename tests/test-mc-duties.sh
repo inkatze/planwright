@@ -47,7 +47,9 @@ core=$repo_root
 : >"$tracked"
 mc_run mc-duties.sh list
 expect_rc "REQ-C1.2: the shipped catalog resolves with no overlay" 0
-for id in $(sed -n 's/^mission_control_default_duties: \[\(.*\)\]$/\1/p' "$repo_root/config/defaults.yml" | tr ',' ' '); do
+default_ids=$(sed -n 's/^mission_control_default_duties: \[\(.*\)\]$/\1/p' "$repo_root/config/defaults.yml" | tr ',' ' ')
+[ -n "$default_ids" ] || fail "REQ-C1.2: the shipped defaults carry no mission_control_default_duties list"
+for id in $default_ids; do
   expect_out "REQ-C1.2: the shipped catalog holds default duty '$id'" "$id${tab}core"
 done
 mc_run mc-duties.sh validate
@@ -155,6 +157,73 @@ EOF
 mc_run mc-duties.sh watchers --program alpha
 expect_rc "REQ-C1.2: an enabled id the catalog lacks fails" 1
 expect_err "REQ-C1.2: the unknown id is named" "ghost-duty"
+
+# REQ-C1.4: a shadow duty arms like a live one.
+reset_mc_fixture
+sed -e 's/^    lifecycle: off$/    lifecycle: shadow/' "$core/config/duties.yaml" >"$tmp/d" && mv "$tmp/d" "$core/config/duties.yaml"
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [beta-duty]
+EOF
+mc_run mc-duties.sh watchers --program alpha
+expect_eq "REQ-C1.4: an enabled shadow duty arms its watchers" "beta-duty${tab}scripts/beta-watch.sh${tab}10m${tab}high"
+mc_run mc-duties.sh files --program alpha
+expect_eq "REQ-C1.4: an enabled shadow duty owns its directory" "beta-duty${tab}beta"
+
+# ---------------------------------------------------------------------------
+# REQ-C1.1: what the resolver passes through is still checked.
+# ---------------------------------------------------------------------------
+# A duplicate id in the core seed: the resolver keeps the first entry, and so
+# does every read here; validate reports the duplicate.
+reset_mc_fixture
+cat >>"$core/config/duties.yaml" <<'EOF'
+  - id: alpha-duty
+    summary: "A second alpha"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: alpha-two
+    lifecycle: "off"
+    never-propose: false
+EOF
+mc_run mc-duties.sh get alpha-duty summary
+expect_eq "a duplicate id reads the first entry, as the resolver keeps it" "A shipped live duty"
+mc_run mc-duties.sh validate
+expect_rc "REQ-C1.1: a duplicate id fails validation" 1
+expect_err "REQ-C1.1: the duplicate id is named" "alpha-duty: id"
+
+reset_mc_fixture
+awk '{ print } /^    lifecycle: live$/ { print "    lifecycle: \"off\"" }' "$core/config/duties.yaml" >"$tmp/d" && mv "$tmp/d" "$core/config/duties.yaml"
+mc_run mc-duties.sh validate
+expect_rc "REQ-C1.1: a field named twice in one entry fails validation" 1
+expect_err "REQ-C1.1: the repeated field is named" "alpha-duty: lifecycle"
+
+reset_mc_fixture
+sed -e "s/A shipped live duty/A shipped $(printf '\033')[2J duty/" "$core/config/duties.yaml" >"$tmp/d" && mv "$tmp/d" "$core/config/duties.yaml"
+mc_run mc-duties.sh validate
+expect_rc "a value carrying a control character fails validation" 1
+expect_err "the field carrying it is named" "alpha-duty: summary"
+mc_run mc-duties.sh get alpha-duty summary
+expect_rc "get refuses a value carrying a control character" 1
+
+# A failing catalog reader is a failure, never a clean catalog: an awk shim
+# that fails for the reader's own pass (the one carrying MODE).
+reset_mc_fixture
+real_awk=$(command -v awk)
+mkdir -p "$tmp/shim"
+# shellcheck disable=SC2016 # the shim's own expansions run when it does
+printf '#!/bin/sh\nif [ -n "${MODE:-}" ]; then echo "awk: simulated failure" >&2; exit 2; fi\nexec "%s" "$@"\n' "$real_awk" >"$tmp/shim/awk"
+chmod +x "$tmp/shim/awk"
+saved_path=$PATH
+PATH="$tmp/shim:$PATH"
+mc_run mc-duties.sh validate
+PATH=$saved_path
+expect_rc "a failing catalog reader fails validate" 1
+expect_err "the reader failure is named" "the catalog reader failed"
 
 mc_run mc-duties.sh watchers
 expect_rc "watchers without --program is a usage error" 2

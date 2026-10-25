@@ -156,6 +156,43 @@ run_fixture
 expect_fail "a duplicate id without a supersede marker fails"
 expect_out "the resolver's warning is surfaced" "alpha-duty"
 
+# The core seed alone: the resolver passes a core-only catalog through
+# unmerged, so its warnings come only from the merge the check also runs.
+reset_mc_fixture
+fixture_defaults
+awk '{ print } /^    lifecycle: live$/ { print "      stray: indented" }' "$core/config/duties.yaml" >"$tmp/d" && mv "$tmp/d" "$core/config/duties.yaml"
+run_fixture
+expect_fail "a stray indented line in the core seed fails"
+expect_out "the stray line's warning is surfaced" "indented line"
+
+reset_mc_fixture
+fixture_defaults
+cat >>"$core/config/duties.yaml" <<'EOF'
+  - id: beta-duty
+    summary: "A second beta"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: beta-two
+    lifecycle: "off"
+    never-propose: false
+EOF
+run_fixture
+expect_fail "a duplicate id in the core seed fails"
+expect_out "the duplicate core id is named" "beta-duty"
+
+# The guard reads no host HOME: the shipped ~/ home root is checked for its
+# shape, wherever it runs.
+reset_mc_fixture
+fixture_defaults
+OUT=$(env -u HOME -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
+  -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_REPO_ROOT -u PLANWRIGHT_CONFIG_DEFAULTS \
+  /bin/bash "$repo_root/scripts/check-duties.sh" --core "$core" --repo "$repo" 2>&1)
+RC=$?
+expect_rc "the guard passes with no HOME set" 0
+
 # ---------------------------------------------------------------------------
 # REQ-C1.2: the default duty set and every program's enabled list name duties
 # the catalog holds.
