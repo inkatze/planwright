@@ -862,8 +862,7 @@ write_brief() {
    once, \`$(sh_quote "$brief_root/scripts/converge-sync-main.sh")\`, before its first step;
    any non-zero exit parks the flight (\`point\`), its partial record carrying
    the reason it printed and any merge it left in progress for the operator
-   to finish or abort. Its steps
-   are the flight's convergence."
+   to finish or abort. Its steps are the flight's convergence."
   else
     _conv_item="3. \`convergence\`: after CI is green. Resolve the point. This flight has no
    \`origin\` remote, so the \`main\` sync is not run: complete the point with
@@ -1048,18 +1047,22 @@ record naming what the line printed."
     printf '%s\n' "names carries its kind in parentheses: \`hard-pause\`, \`point\` (a point the"
     printf '%s\n' "procedure ends, parks, or stops), \`not-draft\`, \`renderer\`, \`destination\`,"
     printf '%s\n' "\`landing\` (a landing step that failed), or \`question\` (one you may not wait"
-    printf '%s\n' "on). To park, whatever the kind, in this order:"
+    printf '%s\n' "on). When two kinds fit, \`hard-pause\` wins over \`point\`. To park, whatever"
+    printf '%s\n' "the kind, in this order:"
     printf '\n'
     printf '%s\n' "1. Stop and commit nothing further."
     printf '%s\n' "2. Render the partial record, private beside this brief, never committed or"
     printf '%s\n' "   pushed. Write under \`$_rd\`: \`park-reason.md\` (what stopped the flight"
     printf '%s\n' "   and what it printed), \`park-findings.md\` (the review findings so far), and"
     printf '%s\n' "   \`park-declined.md\` (the declined log so far), each \`None yet.\` when empty,"
-    printf '%s\n' "   under *The audit record*'s input rules. Then run, \`<run>\` being this"
+    printf '%s\n' "   under *The audit record*'s input rules, the findings and the declined log"
+    printf '%s\n' "   taking \`####\` and deeper headings as the audit does. Then run, \`<run>\` being this"
     printf '%s\n' "   launch's run id (\`$(sh_quote "$brief_root/scripts/step-record.sh") new-run\` if you have issued none):"
     printf '%s\n' "   \`$_recorder partial --flight-id $flight_id --kind <kind> --reason-file $(sh_quote "$_rd/park-reason.md") --findings-file $(sh_quote "$_rd/park-findings.md") --declined-file $(sh_quote "$_rd/park-declined.md") --partial-path $(sh_quote "$brief_dir")/partial-<run>.md\`"
-    printf '%s\n' "   Fix a refusal of those inputs and run it again; if it still cannot write the"
-    printf '%s\n' "   record, park without it."
+    printf '%s\n' "   Fix a refusal of those inputs and run it again. When it reports the record"
+    printf '%s\n' "   already exists (exit 3, an earlier park), issue a fresh run id with"
+    printf '%s\n' "   \`new-run\` and run it again under that id; never make one up. If it still"
+    printf '%s\n' "   cannot write the record, park without it."
     printf '%s\n' "3. Push the park to the operator's decision queue with the kind alone as its"
     printf '%s\n' "   reason, never the detail, which stays in the partial record because the"
     printf '%s\n' "   notification may leave this host:"

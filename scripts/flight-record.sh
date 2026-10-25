@@ -60,20 +60,22 @@
 #       reporting on stderr what it removed, kept, or could not unstage.
 #   flight-record.sh partial --flight-id <id> --kind <kind> --reason-file <f>
 #       --findings-file <f> --declined-file <f> --partial-path <path>
-#       A parked flight's private partial record (D-21, REQ-E1.9): the park
-#       reason, the review findings so far, and the declined log, written to
-#       <path> and reported as `partial<TAB><path>`. It runs no git and is
-#       never committed or pushed: <path> must be `partial-<run>.md` (a
-#       six-digit run id) directly inside the flight's brief directory,
-#       `<fleet-home>/flights/<id>`, else exit 2. The record is created only
-#       if absent and never through a symlink: an existing name (a symlink
-#       included), a brief or flights directory that is missing, a symlink,
-#       or writable by others, is refused (exit 3), nothing written. <kind> is
-#       the kind of park the brief names: hard-pause, point, not-draft,
-#       renderer, destination, landing, or question. The inputs are worker
-#       text, screened as the full record's are: a token-shaped secret, or
-#       markup that would reshape the record, is refused (exit 2); only the
-#       findings and the declined log carry headings, at `####` and deeper.
+#       A parked flight's private partial record: the park reason, the
+#       review findings so far, and the declined log, written to <path> and
+#       reported as `partial<TAB><path>`. It runs no git and is never
+#       committed or pushed. <path> must be `partial-<run>.md` (a six-digit
+#       run id) directly inside the flight's brief directory,
+#       `<fleet-home>/flights/<id>` under the absolute fleet home
+#       scripts/fleet-state.sh names, spelled as named or canonically, else
+#       exit 2. The record is created only if absent and never through a
+#       symlink: an existing name (a symlink included), or a fleet home,
+#       flights directory, or brief directory that is missing, a symlink,
+#       not a directory, or not one the user owns and only the user can
+#       write, is refused (exit 3), nothing written. <kind> is one of
+#       flight-common.sh's PARK_KINDS. The inputs are worker text, screened
+#       as the full record's are: a token-shaped secret, or markup that would
+#       reshape the record, is refused (exit 2); only the findings and the
+#       declined log carry headings, at `####` and deeper.
 #
 #   The caller chooses the record path (flight-dispatch.sh computes it), so
 #   this script composes no spec-home path of its own. It is repo-relative,
@@ -122,10 +124,11 @@
 # inputs may not restate the private ask, read before redaction; no refusal
 # quotes the text it matched.
 #
-# Exit codes: 0 rendered or landed · 2 usage or an input refused · 3 refused
-# by state (over the PR-body limit; for land, the branch, an existing record
-# other than a matching re-run, a record that appeared while land ran, a
-# symlink or non-directory on the record path, or a staged index) · 4 an
+# Exit codes: 0 rendered, landed, or written · 2 usage or an input refused · 3
+# refused by state (over the PR-body limit; for land, the branch, an existing
+# record other than a matching re-run, a record that appeared while land ran, a
+# symlink or non-directory on the record path, or a staged index; for partial,
+# the states its usage names) · 4 an
 # environment failure (a missing helper, a sanitizer, the secret screen, or
 # git could not run, or refused the record commit; the screen reported a
 # finding in no input it was given; or the work directory, the record, or a
@@ -784,10 +787,6 @@ render_to() {
   } >"$1" || die 4 "cannot write the record"
 }
 
-# The kinds of park a flight's brief names; the park notification carries the
-# kind alone.
-PARK_KINDS='hard-pause point not-draft renderer destination landing question'
-
 # cmd_partial <args> — the partial mode (usage above). The brief directory is
 # found as flight-lifecycle.sh finds it, from fleet-state.sh's root, and the
 # record is written from inside it, entered one physical component at a time,
@@ -826,10 +825,7 @@ cmd_partial() {
     [ -n "${_req#*:}" ] || die 2 "--${_req%%:*} is required"
   done
   /bin/sh "$FLIGHT_ID" check "$flight_id" 2>/dev/null </dev/null || die 2 "refusing a malformed flight id"
-  case " $PARK_KINDS " in
-    *" $kind "*) ;;
-    *) die 2 "--kind must be one of: $PARK_KINDS" ;;
-  esac
+  park_kind "$kind" || die 2 "--kind must be one of: $PARK_KINDS"
   [ "${#partial_path}" -le 1024 ] || die 2 "refusing an over-long --partial-path"
   ! has_ctl "$partial_path" || die 2 "refusing a --partial-path carrying a control character"
 
@@ -847,10 +843,12 @@ cmd_partial() {
   _phome=''
   [ ! -d "$_home" ] || _phome=$(cd -P "$_home" 2>/dev/null && pwd -P) || die 4 "cannot resolve the fleet home"
   ! has_ctl "$_phome" || die 2 "refusing a fleet home whose canonical path carries a control character"
-  case $_pdir in
-    "$_home/flights/$flight_id" | "${_phome:-/nonexistent}/flights/$flight_id") ;;
-    *) die 2 "refusing --partial-path: it must name a file directly inside this flight's brief directory ($_home/flights/$flight_id)" ;;
-  esac
+  # The path is judged before the home's existence, so a target outside the
+  # brief directory is a refused input (2) even on a host with no fleet home.
+  if [ "$_pdir" != "$_home/flights/$flight_id" ] \
+    && { [ -z "$_phome" ] || [ "$_pdir" != "$_phome/flights/$flight_id" ]; }; then
+    die 2 "refusing --partial-path: it must name a file directly inside this flight's brief directory ($_home/flights/$flight_id)"
+  fi
   [ -n "$_phome" ] || die 3 "the fleet home does not exist; this flight has no brief directory, so nothing was written"
 
   # Every input is read and screened before anything is written.
@@ -874,14 +872,14 @@ cmd_partial() {
     printf '# Parked flight `%s`: partial record\n\n' "$flight_id"
     printf 'Kind of park: `%s`. Private to this host: never committed, pushed, or sent; it is removed with the flight'"'"'s brief directory when the flight retires.\n' "$kind"
     printf '\n## Park reason\n\n'
-    cat "$work/reason"
+    cat "$work/reason" || die 4 "cannot assemble the partial record"
     printf '\n## Findings so far\n\n'
-    cat "$work/findings"
+    cat "$work/findings" || die 4 "cannot assemble the partial record"
     printf '\n## Declined log\n\n'
-    cat "$work/declined"
+    cat "$work/declined" || die 4 "cannot assemble the partial record"
   } >"$work/partial.md" || die 4 "cannot assemble the partial record"
 
-  _want=$_phome/flights/$flight_id
+  _brief=$_phome/flights/$flight_id
   cd -P "$_phome" 2>/dev/null || die 4 "cannot enter the fleet home"
   private_dir "$_phome" || die 3 "the fleet home is not a directory owned by you that only you can write; nothing was written"
   for _seg in flights "$flight_id"; do
@@ -891,16 +889,15 @@ cmd_partial() {
     private_dir "$_seg" || die 3 "$(pwd -P)/$_seg is not a directory owned by you that only you can write; nothing was written"
     cd -P -- "$_seg" 2>/dev/null || die 4 "cannot enter $(pwd -P)/$_seg"
   done
-  [ "$(pwd -P)" = "$_want" ] || die 3 "the brief directory moved while partial ran; nothing was written"
+  [ "$(pwd -P)" = "$_brief" ] || die 3 "the brief directory moved while partial ran; nothing was written"
   if [ -e "$_pbase" ] || [ -L "$_pbase" ]; then
     die 3 "$_pbase already exists in the brief directory: a partial record is written once; nothing was written"
   fi
   # Linked from a filled temp file beside it, as land links the record: link(2)
   # fails on any existing name, a dangling symlink included. A symlink to a
   # directory appearing at the name would take the link inside it instead, so
-  # the result must be the temp file itself.
-  # Relative from here on: every name is resolved inside the directory
-  # entered above, never through the path to it again.
+  # the result must be the temp file itself. Every name is relative to the
+  # brief directory entered above, never resolved through the path to it again.
   ptmp=$(umask 077 && mktemp ".$_pbase.XXXXXX") || die 4 "cannot write the partial record"
   cat "$work/partial.md" >"$ptmp" || die 4 "cannot write the partial record"
   pino=$(inode "$ptmp")
@@ -915,7 +912,7 @@ cmd_partial() {
   fi
   rm -f -- "$ptmp"
   ptmp=''
-  printf 'partial\t%s\n' "$_want/$_pbase"
+  printf 'partial\t%s\n' "$_brief/$_pbase" || die 4 "the partial record was written, but its report could not be"
 }
 
 # inode <path> — the inode number of <path> itself, never a symlink's target.

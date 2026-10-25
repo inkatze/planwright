@@ -192,9 +192,11 @@ i=100
 for kind in hard-pause point not-draft renderer destination landing question; do
   run_partial --kind "$kind" --partial-path "$BD/partial-000$i.md"
   [ "$RC" -eq 0 ] || fail "the park kind '$kind' must be accepted (rc $RC: $ERR)"
+  grep -Fq "Kind of park: \`$kind\`" "$BD/partial-000$i.md" 2>/dev/null \
+    || fail "the partial record must name the kind it was given ($kind)"
   i=$((i + 1))
 done
-for kind in '' other 'hard-pause; detail' HARD-PAUSE; do
+for kind in '' other 'hard-pause; detail' HARD-PAUSE 'point not-draft' 'hard-pause '; do
   run_partial --kind "$kind" --partial-path "$BD/partial-000200.md"
   [ "$RC" -eq 2 ] || fail "an unknown park kind must be refused ('$kind', rc $RC)"
 done

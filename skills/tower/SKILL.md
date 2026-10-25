@@ -203,8 +203,9 @@ The gate-wiring hard pauses stay in force inside every worker whatever the
 route; a flight whose scope outgrows its route parks behind its hard pause and
 returns for re-routing. The worker pushes the pause into the decision queue,
 which is where the operator hears it; a pause that push missed leaves no branch
-or record evidence, so the sweep's `in-air` is said as "in the air or paused", with its
-liveness; `stranded` as a leftover branch with no worktree and no landing;
+or landing evidence (at most its partial record), so the sweep's `in-air` is
+said as "in the air or paused", with its liveness; `stranded` as a leftover
+branch with no worktree and no landing;
 `unknown` as not checked; after the fallback reads, a flight without a landing reference is
 "no landing yet: in the air, paused, or dead — not checked", with its observe or
 attach hint when the tower holds one (this session's dispatch report, or the
@@ -325,7 +326,8 @@ durable evidence through the existing surfaces:
   reads bring-up used.
 - **Decisions waiting on the operator:** `scripts/fleet-attention.sh queue`,
   actionable items first; a parked flight is one of them, under its
-  worker handle.
+  worker handle, naming only the kind of park: its detail is in the partial
+  record the sweep names.
 - **Gated relays:** the post-sign-off go above, on explicit request.
 
 The tower never supervises or polls spec-mode execution: no watch loop, no
