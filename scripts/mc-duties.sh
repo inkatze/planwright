@@ -266,7 +266,6 @@ skipped_entries() {
     = "$(printf '%s\n' "$layers" | awk '{ sub(/\t[^\t]*$/, ""); print }' | sort)" ] || layers=""
   skip_pos=" "
   skip_lines=""
-  sep=$(printf '\037')
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     pos=${p%%	*}
@@ -278,7 +277,7 @@ skipped_entries() {
           *" $pos "*) ;;
           *)
             skip_pos="$skip_pos$pos "
-            skip_lines="$skip_lines$pos$sep$id$sep$layer
+            skip_lines="$skip_lines$pos	$layer	$id
 "
             ;;
         esac
@@ -297,7 +296,8 @@ EOF
       ;;
     *) fail "the catalog reader failed" ;;
   esac
-  printf '%s' "$skip_lines" | while IFS=$sep read -r pos id layer; do
+  # The id comes last, so read keeps whatever it carries.
+  printf '%s' "$skip_lines" | while IFS='	' read -r pos layer id; do
     printf '%s\n' "$prog: warning: skipping duty '$(sanitize_printable "$id")' from the $layer layer; its entry is invalid" >&2
     printf '%s\t%s\n' "$pos" "$id"
   done

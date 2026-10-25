@@ -335,6 +335,14 @@ expect_rc "an adopter id carrying a tab is skipped, not refused" 0
 expect_err "the tab id's skip names the adopter layer" "from the adopter layer"
 rm -f "$adopter/catalogs/duties.yaml"
 
+# An id carrying the unit separator still names its layer intact.
+printf 'duties:\n  - id: "bad%sid"\n    summary: "x"\n    triggers: []\n    watchers: []\n    wake: none\n    rules: []\n    kinds: []\n    files: odd\n    lifecycle: live\n    never-propose: false\n' \
+  "$(printf '\037')" >"$adopter/catalogs/duties.yaml"
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "an adopter id carrying the unit separator is skipped" 0
+expect_err "its skip names the adopter layer whole" "from the adopter layer;"
+rm -f "$adopter/catalogs/duties.yaml"
+
 # An adopter entry whose id cannot be printed is still named by its layer.
 printf 'duties:\n  - id: bad%sid\n    summary: "x"\n    triggers: []\n    watchers: []\n    wake: none\n    rules: []\n    kinds: []\n    files: odd\n    lifecycle: live\n    never-propose: false\n' \
   "$(printf '\001')" >"$adopter/catalogs/duties.yaml"
