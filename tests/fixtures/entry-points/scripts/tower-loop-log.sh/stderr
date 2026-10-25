@@ -1,0 +1,1 @@
+match ^tower-loop-log: unknown command '--entry-point-probe' \(tick \| delivered\)$

@@ -204,6 +204,30 @@ tower for spec work: `/spec-draft <feature>` drafts a spec directly,
 `/drain` reviews the decisions deferred across specs. What runs underneath,
 and how to drive it by hand, is in [Architecture](architecture.md).
 
+### Where specs live
+
+By default a spec lands in `specs/<feature>/` at the top of your repository,
+and there is nothing to configure. To keep specs somewhere else, such as a
+separate repository that holds the specs for several projects, name the
+directory in your machine-local config and mark it once:
+
+```yaml
+# <repo>/.claude/planwright.local.yml
+spec_root: ~/spec-holder/acme
+```
+
+```sh
+<planwright>/scripts/resolve-root.sh spec --init   # writes planwright-spec-root.yml there
+```
+
+Run it inside your repository; `<planwright>` is planwright's install root
+(`resolve-root.sh install` prints it), and the directory must already exist.
+`/spec-draft` offers the same step when it meets an unmarked directory. Specs
+then land in `~/spec-holder/acme/<feature>/`, while task branches and task
+pull requests stay in your repository (the spec's own branch and PR live in
+the holder). The options, the three postures, and what each changes are in
+[Spec location](spec-location.md).
+
 ## 4. The controls you keep
 
 The same controls hold on both flight rules, and the tower changes none of

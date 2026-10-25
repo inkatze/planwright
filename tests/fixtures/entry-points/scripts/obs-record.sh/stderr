@@ -1,0 +1,1 @@
+match ^usage: obs-record --slug <slug> --scope <scope> --text <text>$
