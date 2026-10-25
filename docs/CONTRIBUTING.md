@@ -133,10 +133,15 @@ pull request, split across parallel jobs: a `lint` job runs `check:non-test`,
 three `test` jobs each run a shard of the suite (`scripts/run-tests.sh
 --shard <i>/3`), and the `check` job, the status branch protection reads,
 passes only when they all do and the test-time budget gate passes over the
-three shards' timing reports together. It also runs two checks outside
-`mise run check`: the awk-sensitive suites on macOS, and a parse of every
-tracked shell file (outside `tests/fixtures/bash32/`) under the real bash 3.2,
-a step of the `lint` job in Docker's official `bash:3.2` image pinned by
+three shards' timing reports together. Beside them, the `macos-suite` and
+`alpine-suite` jobs run the full suite on macOS (the system bash 3.2 and BSD
+userland) and in an Alpine container (musl, dash, busybox) on every pull
+request; they are statuses of their own, which `check` does not join. The
+install smoke (`scripts/install-smoke.sh`, installing through both delivery
+modes and running an adopter entry point with PATH narrowed to a POSIX shell's
+tools) runs in the `lint` job and in both platform jobs. CI also runs a parse
+of every tracked shell file (outside `tests/fixtures/bash32/`) under the real
+bash 3.2, a step of the `lint` job in Docker's official `bash:3.2` image pinned by
 digest in `.github/workflows/ci.yml`. To reproduce the parse, set
 `BASH32_IMAGE` to that job's `env` value and run the step's `run:` block,
 the `git ls-files` pipe included; to refresh the image, edit only that
