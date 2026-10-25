@@ -51,6 +51,7 @@ pending-cleanup|scripts/check-doc-links.sh|Task 8|over the error threshold when 
 pending-cleanup|scripts/check-doctrine-index.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/check-doctrine-manifest.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/check-echo-discipline.sh|Task 8|over the error threshold when the guard landed
+pending-cleanup|scripts/check-entry-points.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/check-glob-allow-rules.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/check-guard-wiring.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/check-hook-contracts.sh|Task 8|over the error threshold when the guard landed
