@@ -240,7 +240,7 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-(none yet)
+- **Task 14** — convergence step `polish` failed (safety stop: loop detection) with a zone hold, record `.claude/steps/000001/004-step-convergence.rec`. The operator decides: (1) zone hold, the scaffold's `emit()` writes through a symlinked destination file, now including `sync-protocol.md`; recommended: refuse every symlinked destination with the warning `CLAUDE.md` already gets (alternatives: refuse for `sync-protocol.md` only, or defer); (2) the absent-plugin `detect` line still prints after a venture's `.planwright-local.sh` sets `PLANWRIGHT_ROOT`; recommended: keep the current wording, which names the remedy (alternatives: grep that file without executing it, or source it as the hook does, a zone change); (3) Done-when asks for the Cowork validation on a real Cowork install, which no worker could reach; it is logged as blocked in `docs/inception-cowork-validation.md`: accept that as the documented blocker, or keep the task open until the operator logs a run. Work is committed on the branch, unpushed; the full local gate has not run.
 
 ## Deferred
 
