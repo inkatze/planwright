@@ -162,9 +162,23 @@ expect 1 "scripts/shim.sh: delegates to scripts/old.sh, which the partition flag
 # The same shim delegating to a live script is fine.
 t2="$tmp/shim-live-target"
 cp -R "$t" "$t2"
-sed 's/^scripts\/old.sh\ttests-only\tno-live-caller/scripts\/old.sh\tlibrary\t-/' "$t/partition.tsv" >"$t2/partition.tsv"
+sed "s/^scripts\/old.sh${TAB}tests-only${TAB}no-live-caller/scripts\/old.sh${TAB}library${TAB}-/" "$t/partition.tsv" >"$t2/partition.tsv"
 guard "$t2"
 expect 0 "" "shim of a live script"
+# A marker spelled so the lookup would miss it is a finding, not a skip.
+flagged_shim_tree="$tmp/shim-flagged-target"
+for spelling in './scripts/old.sh' 'scripts/old.sh extra'; do
+  t4="$tmp/shim-spelling"
+  rm -rf "$t4"
+  cp -R "$flagged_shim_tree" "$t4"
+  printf '#!/bin/sh\n# planwright-shim-target: %s\nexit 0\n' "$spelling" >"$t4/scripts/shim.sh"
+  guard "$t4"
+  expect 1 "scripts/shim.sh: its planwright-shim-target is not one repository path" "shim marker spelled '$spelling'"
+done
+# Trailing whitespace and a CR are read through to the flagged target.
+printf '#!/bin/sh\n#  planwright-shim-target:\tscripts/old.sh \r\nexit 0\n' >"$t4/scripts/shim.sh"
+guard "$t4"
+expect 1 "scripts/shim.sh: delegates to scripts/old.sh, which the partition flags" "shim marker with loose spacing and a CR"
 # A shim the partition flags is a flagged script migrated.
 t3="$tmp/shim-flagged-self"
 cp -R "$t2" "$t3"
@@ -245,6 +259,26 @@ cp -R "$base" "$t"
 printf 'two\n' >"$t/tests/fixtures/entry-points/scripts/cli.sh/exit"
 guard "$t"
 expect 5 "exit is not a number" "malformed exit"
+# An unreadable fixture file fails closed rather than reusing the previous
+# entry point's run (unenforceable as root, where every file reads).
+if [ "$(id -u)" -ne 0 ]; then
+  for f in stdin stderr; do
+    t="$tmp/unreadable-$f"
+    cp -R "$base" "$t"
+    chmod 000 "$t/tests/fixtures/entry-points/scripts/hook.sh/$f"
+    guard "$t"
+    expect 5 "scripts/hook.sh: the fixture's $f" "unreadable fixture $f"
+    chmod 644 "$t/tests/fixtures/entry-points/scripts/hook.sh/$f"
+  done
+fi
+# Re-recording replaces the fixture whole: a stdin the new recording does not
+# feed is gone.
+t="$tmp/rerecord"
+cp -R "$base" "$t"
+guard "$t" --record scripts/hook.sh
+expect 0 "" "re-record without stdin"
+[ ! -e "$t/tests/fixtures/entry-points/scripts/hook.sh/stdin" ] || fail "re-record kept the old stdin"
+[ ! -s "$t/tests/fixtures/entry-points/scripts/hook.sh/stdout" ] || fail "re-record kept the old stdout"
 t="$tmp/header"
 cp -R "$base" "$t"
 sed '1s/^path/file/' "$base/partition.tsv" >"$t/partition.tsv"

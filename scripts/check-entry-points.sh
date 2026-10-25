@@ -40,13 +40,16 @@
 #   - a shim (a layer script carrying a `# planwright-shim-target: <path>`
 #     line naming its delegation target by repository path) that the partition
 #     flags, or whose target is a layer script the partition flags: no flagged
-#     script is migrated.
+#     script is migrated. A marker whose target is not one path in the layer's
+#     grammar (`./`, `..`, a second word) is a finding too, so a spelling the
+#     lookup would miss cannot pass.
 #
 # RECORD. `--record <path> [--stdin <file>] [-- <arg>...]` captures a fixture
 # for an entry point from the current implementation: it runs twice, in two
 # fresh sandboxes, and refuses a run that differs between them, times out,
-# ends on a signal, or exits with the reserved code. The stderr class written
-# is the first stderr line, escaped and anchored; review it before committing,
+# ends on a signal, or exits with the reserved code. It writes the fixture
+# whole, replacing any earlier one. The stderr class written is the first
+# non-empty stderr line, escaped and anchored; review it before committing,
 # and loosen it where the line carries text the script does not own.
 #
 # Usage: check-entry-points.sh [--repo-root <dir>] --partition <file>
@@ -67,8 +70,9 @@ unset CDPATH
 
 me=check-entry-points
 # The one code every D-10 shim exits with when its artifact cannot be fetched
-# or verified (REQ-E1.2). The shim library reuses this value; changing it
-# changes what callers already distinguish.
+# or verified (REQ-E1.2). This is its only definition: the shims, when they
+# land, must take this value, and changing it changes what callers already
+# distinguish.
 reserved_fetch_failure=69
 run_bound=60
 
@@ -166,10 +170,13 @@ make_sandbox() {
 }
 
 # run_ep <sandbox> <path> <args-file> <stdin-file> <out-prefix>: run one entry
-# point; writes <out-prefix>.out, .err and .rc.
+# point; writes <out-prefix>.out, .err and .rc, and fails when the run did not
+# start, so no earlier run's files are read as this one's.
 runs=0
 run_ep() {
   runs=$((runs + 1))
+  rm -f "$5.out" "$5.err" "$5.rc"
+  [ -r "$4" ] || return 5
   (
     sb=$1 ep=$2 argf=$3 inf=$4 o=$5
     rh=$sb/run$runs
@@ -183,7 +190,8 @@ run_ep() {
       GIT_CEILING_DIRECTORIES="$sb" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
       /bin/sh "$bounded" -k 5 "$run_bound" "./$ep" "$@" <"$inf" >"$o.out" 2>"$o.err"
     printf '%s\n' "$?" >"$o.rc"
-  )
+  ) || return 5
+  [ -s "$5.rc" ]
 }
 
 # stderr_class <err-file>: the class a recording writes.
@@ -226,7 +234,8 @@ if [ -n "$record" ]; then
   fi
   for i in 1 2; do
     make_sandbox "$work/sb$i" || fail_closed "the sandbox copy did not build"
-    run_ep "$work/sb$i" "$record" "$work/args" "$inf" "$work/r$i"
+    run_ep "$work/sb$i" "$record" "$work/args" "$inf" "$work/r$i" \
+      || fail_closed "the run did not start"
     rc=$(cat "$work/r$i.rc")
     case $rc in
       124 | 125) fail_closed "the run timed out or its bound failed (exit $rc)" ;;
@@ -239,15 +248,23 @@ if [ -n "$record" ]; then
     cmp -s "$work/r1.$x" "$work/r2.$x" \
       || fail_closed "two runs differ; the fixture would not be deterministic"
   done
+  # Built beside its destination and moved in whole, so an interrupted
+  # recording never leaves a fixture mixing two contracts.
   dest=$fixtures/$record
-  mkdir -p "$dest" || fail_closed "cannot create $dest"
-  rm -f "$dest/stdin"
+  mkdir -p "${dest%/*}" || fail_closed "cannot create the fixture's directory"
+  new=$(mktemp -d "${dest%/*}/.record.XXXXXX") || fail_closed "cannot stage the fixture"
+  trap 'chmod -R u+w "$work" 2>/dev/null; rm -rf "$work" "$new"' EXIT
   for x in args:args r1.out:stdout r1.rc:exit r1.class:stderr; do
-    cp "$work/${x%%:*}" "$dest/${x#*:}" || fail_closed "cannot write the fixture"
+    cp "$work/${x%%:*}" "$new/${x#*:}" || fail_closed "cannot write the fixture"
   done
   if [ -n "$record_stdin" ]; then
-    cp "$work/stdin" "$dest/stdin" || fail_closed "cannot write the fixture"
+    cp "$work/stdin" "$new/stdin" || fail_closed "cannot write the fixture"
   fi
+  chmod 755 "$new" || fail_closed "cannot write the fixture"
+  if [ -e "$dest" ]; then
+    mv "$dest" "$work/old-fixture" || fail_closed "cannot replace the fixture"
+  fi
+  mv "$new" "$dest" || fail_closed "cannot write the fixture"
   printf '%s\n' "$me: recorded $record (exit $(cat "$work/r1.rc"), stderr $(cat "$work/r1.class"))"
   exit 0
 fi
@@ -286,11 +303,14 @@ while IFS= read -r p; do
     finding "$p: no longer an entry point, so its fixture is stale; remove tests/fixtures/entry-points/$p"
     continue
   fi
-  [ -f "$d/args" ] && [ -f "$d/stdout" ] && [ -f "$d/stderr" ] \
-    || fail_closed "$p: the fixture lacks args, stdout, or stderr"
+  for x in args stdout stderr exit; do
+    [ -f "$d/$x" ] && [ -r "$d/$x" ] || fail_closed "$p: the fixture's $x is missing or unreadable"
+  done
+  [ ! -e "$d/stdin" ] || [ -r "$d/stdin" ] || fail_closed "$p: the fixture's stdin is unreadable"
   want_rc=$(cat "$d/exit") || fail_closed "$p: the fixture's exit is unreadable"
   case $want_rc in '' | *[!0-9]*) fail_closed "$p: the fixture's exit is not a number" ;; esac
   [ "$want_rc" -le 255 ] || fail_closed "$p: the fixture's exit is out of range"
+  want_class=""
   IFS= read -r want_class <"$d/stderr" || [ -n "$want_class" ] || want_class=""
   case $want_class in empty | 'match '?*) ;; *) fail_closed "$p: the fixture's stderr class is malformed" ;; esac
   if [ ! -x "$repo_root/$p" ]; then
@@ -299,7 +319,7 @@ while IFS= read -r p; do
   fi
   inf=/dev/null
   [ -f "$d/stdin" ] && inf=$d/stdin
-  run_ep "$work/sb" "$p" "$d/args" "$inf" "$work/run"
+  run_ep "$work/sb" "$p" "$d/args" "$inf" "$work/run" || fail_closed "$p: the run did not start"
   rc=$(cat "$work/run.rc")
   if [ "$rc" = "$reserved_fetch_failure" ]; then
     finding "$p: exited $rc, the reserved fetch-failure code: its artifact was not fetched or verified, so the stdout contract was not met"
@@ -319,8 +339,15 @@ awk -F '\t' 'NR > 1 { print $1 }' "$work/partition" >"$work/layer"
 while IFS= read -r s; do
   valid_path "$s" || fail_closed "the partition names a script outside the path grammar"
   [ -f "$repo_root/$s" ] || continue
-  target=$(sed -n 's/^# planwright-shim-target: *\([^ ]*\) *$/\1/p' "$repo_root/$s" | sed -n 1p)
-  [ -n "$target" ] || continue
+  # Read loosely (any spacing, a CR), then held to the path grammar, so a
+  # spelling the flagged-list lookup would miss is a finding, never a skip.
+  grep -q '^#[[:space:]]*planwright-shim-target:' "$repo_root/$s" || continue
+  target=$(sed -n 's/^#[[:space:]]*planwright-shim-target:[[:space:]]*//p' "$repo_root/$s" \
+    | sed -n '1{s/[[:space:]]*$//;p;}')
+  if ! valid_path "$target"; then
+    finding "$s: its planwright-shim-target is not one repository path in plain form"
+    continue
+  fi
   grep -Fqx -- "$s" "$work/flagged" \
     && finding "$s: a shim the partition flags; a flagged script is removed or given a caller, never migrated"
   grep -Fqx -- "$target" "$work/flagged" \
