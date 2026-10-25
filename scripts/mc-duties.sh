@@ -67,6 +67,7 @@ catalog() { bash "$script_dir/resolve-catalog.sh" duties "$@"; }
 #   watchers  for the ids in ENABLED (newline separated), print the armed
 #   files     ones' watchers or directory; a missing id is a
 #             `missing<TAB><id>` line
+#   ids       print <position><TAB><id> per entry
 # Any other exit status is a reader failure.
 walk() {
   MODE=$1 awk '
@@ -205,7 +206,7 @@ walk() {
         print val[i, want_f]; exit 0
       }
       if (mode == "validate") { validate(); exit (nbad > 0) }
-      if (mode == "count") { print n; exit 0 }
+      if (mode == "ids") { for (i = 1; i <= n; i++) print i "\t" ids[i]; exit 0 }
       armed()
     }
   '
@@ -253,24 +254,26 @@ skipped_entries() {
     1) ;;
     *) return 1 ;;
   esac
-  # --explain lists the merged entries in the same order; a count that
-  # differs (the catalog changed between reads) names no layer.
+  # The layer is looked up by id: the plain read groups entries by section
+  # while --explain lists merge order. Id sets that differ (the catalog
+  # changed between the reads) name no layer.
   layers=$(catalog --explain 2>/dev/null)
-  count=$(printf '%s\n' "$1" | walk count) || return 1
-  [ "$(printf '%s\n' "$layers" | grep -c .)" = "$count" ] || layers=""
+  entry_ids=$(printf '%s\n' "$1" | walk ids) || return 1
+  [ "$(printf '%s\n' "$entry_ids" | cut -f2- | sort)" = "$(printf '%s\n' "$layers" | cut -f1 | sort)" ] || layers=""
   skip_pos=" "
   skip_lines=""
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     pos=${p%%	*}
-    entry=$(printf '%s\n' "$layers" | sed -n "${pos}p")
-    case ${entry##*	} in
+    id=$(printf '%s\n' "$entry_ids" | POS=$pos awk -F '\t' '$1 == ENVIRON["POS"] { print substr($0, length($1) + 2); exit }')
+    layer=$(printf '%s\n' "$layers" | ID=$id awk -F '\t' '$1 == ENVIRON["ID"] { print $2; exit }')
+    case $layer in
       adopter | machine-local)
         case $skip_pos in
           *" $pos "*) ;;
           *)
             skip_pos="$skip_pos$pos "
-            skip_lines="$skip_lines$pos	$entry
+            skip_lines="$skip_lines$pos	$id	$layer
 "
             ;;
         esac

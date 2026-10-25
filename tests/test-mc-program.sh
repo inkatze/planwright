@@ -188,6 +188,12 @@ printf 'program_alpha_duties: [beta-duty]\n' >>"$tracked"
 mc_run mc-program.sh get alpha duties
 expect_eq "REQ-C1.2: a program's own list replaces the default set" "beta-duty"
 
+alpha_block
+printf 'program_alpha_duties: []\n' >>"$tracked"
+mc_run mc-program.sh get alpha duties
+expect_rc "REQ-C1.4: an explicit empty duty list resolves" 0
+expect_eq "REQ-C1.4: an explicit empty duty list enables nothing, not the default set" ""
+
 # ---------------------------------------------------------------------------
 # The program home and the budget.
 # ---------------------------------------------------------------------------
@@ -322,6 +328,7 @@ mc_run mc-program.sh get alpha duties
 expect_rc "an invalid adopter value degrades rather than failing" 0
 expect_eq "the degraded read falls back to the shipped default set" "$want"
 expect_err "the degrade is warned about, naming the layer" "adopter"
+expect_err "the warning carries the parser's reason" "is not an inline list"
 mc_run mc-program.sh validate alpha
 expect_rc "validate reports a value that only degrades at read time" 1
 

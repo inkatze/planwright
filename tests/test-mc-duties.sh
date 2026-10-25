@@ -243,6 +243,51 @@ expect_rc "an adopter override colliding on a directory is skipped, not refused"
 expect_eq "the skipped override arms nothing, and the off core duty nothing" ""
 expect_err "the override is the one skipped" "skipping duty 'alpha-duty' from the adopter layer"
 
+# A layer is named by id, not by place: the resolver groups its output by
+# section while --explain lists merge order, so places can disagree.
+cat >"$adopter/catalogs/duties.yaml" <<'EOF'
+extra:
+  - id: gamma-duty
+    summary: "A valid adopter duty in its own section"
+    triggers: []
+    watchers: [scripts/gamma.sh@5m/low]
+    wake: none
+    rules: []
+    kinds: []
+    files: gamma
+    lifecycle: live
+    never-propose: false
+EOF
+cat >"$repo/.claude/catalogs/duties.yaml" <<'EOF'
+duties:
+  - id: tracked-duty
+    summary: "An invalid repo-tracked duty"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: tracked
+    lifecycle: bogus
+    never-propose: false
+EOF
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [alpha-duty, tracked-duty]
+EOF
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "an invalid repo-tracked entry refuses, whatever section order the overlays use" 1
+expect_err "the repo-tracked refusal is reported" "refusing an invalid catalog"
+rm -f "$repo/.claude/catalogs/duties.yaml"
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [alpha-duty, beta-duty]
+EOF
+
 # An adopter entry whose id cannot be printed is still named by its layer.
 printf 'duties:\n  - id: bad%sid\n    summary: "x"\n    triggers: []\n    watchers: []\n    wake: none\n    rules: []\n    kinds: []\n    files: odd\n    lifecycle: live\n    never-propose: false\n' \
   "$(printf '\001')" >"$adopter/catalogs/duties.yaml"
@@ -319,7 +364,7 @@ expect_eq "nothing is armed past a failed reader" ""
 
 # A reader that validates but fails the arming or get pass.
 # shellcheck disable=SC2016 # the shim's own expansions run when it does
-printf '#!/bin/sh\ncase "${MODE:-}" in "" | validate | count) exec "%s" "$@" ;; esac\necho "awk: simulated failure" >&2\nexit 2\n' "$real_awk" >"$tmp/shim/awk"
+printf '#!/bin/sh\ncase "${MODE:-}" in "" | validate | ids) exec "%s" "$@" ;; esac\necho "awk: simulated failure" >&2\nexit 2\n' "$real_awk" >"$tmp/shim/awk"
 PATH="$tmp/shim:$PATH"
 mc_run mc-duties.sh watchers --program alpha
 watchers_rc=$RC watchers_err=$ERR
