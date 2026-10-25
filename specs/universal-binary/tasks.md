@@ -538,6 +538,12 @@
 
 Task 4: no floor-forbidden failures.
 
+- **Task 4.1** — review findings on `.github/workflows/ci.yml` (a
+  CI-configuration zone, so recorded rather than applied) and three spec
+  readings await the operator's direction, listed in the Task 4.1 pull
+  request body; the operator also marks `macos-suite` and `alpine-suite`
+  required status checks.
+
 ## Deferred
 
 - **Task 10** parks until a verdict selects a compiled artifact for at
