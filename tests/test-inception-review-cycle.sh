@@ -441,6 +441,107 @@ wait "$holder" 2>/dev/null
 "$CYCLE" triage FB-1 skip --decider "Robin Lead" "$v2" >/dev/null 2>"$tmp/err"
 assert_eq "bundle lock released: triage runs" "0" "$?"
 
+# ---------------------------------------------------------------------------
+# 15. Each apply refusal fires on its own rule.
+# ---------------------------------------------------------------------------
+# FB-3 in venture4 is triaged apply into assumptions.md#A-2 and not applied.
+"$CYCLE" apply FB-3 "$v4" >/dev/null 2>"$tmp/err"
+assert_eq "apply with nothing staged: refused" "1" "$?"
+assert_contains "apply with nothing staged: says so" "nothing is staged" "$(cat "$tmp/err")"
+
+sed 's/^### A-2 — the three sinks accept writes from one surface$/### A-2 — the three sinks accept writes from two surfaces/' "$v4/assumptions.md" >"$tmp/a" && cp "$tmp/a" "$v4/assumptions.md"
+git -C "$v4" add assumptions.md
+"$CYCLE" apply FB-3 "$v4" >/dev/null 2>"$tmp/err"
+assert_eq "apply editing the heading text, id kept: refused" "1" "$?"
+assert_contains "apply editing the heading text: names the heading rule" "heading line" "$(cat "$tmp/err")"
+git -C "$v4" reset -q && git -C "$v4" checkout -q -- assumptions.md
+
+sed 's/^\(### A-3 — .*\)$/\1, edited/' "$v4/assumptions.md" >"$tmp/a" && cp "$tmp/a" "$v4/assumptions.md"
+git -C "$v4" add assumptions.md
+"$CYCLE" apply FB-3 "$v4" >/dev/null 2>"$tmp/err"
+assert_eq "apply editing the next section's heading: refused" "1" "$?"
+assert_contains "apply editing the next section's heading: names the section" "outside" "$(cat "$tmp/err")"
+git -C "$v4" reset -q && git -C "$v4" checkout -q -- assumptions.md
+
+# FB-3 in venture2 was applied in section 8; a second apply with a valid staged
+# edit is refused for being applied, not for anything staged.
+awk '/^### A-2 / { s = 1 } /^### A-3 / { s = 0 } s && /^- \*\*Risk-if-wrong:\*\*/ { print "- **Risk-if-wrong:** the fan-out needs a relay"; next } { print }' "$v2/assumptions.md" >"$tmp/a" && cp "$tmp/a" "$v2/assumptions.md"
+git -C "$v2" add assumptions.md
+"$CYCLE" apply FB-3 "$v2" >/dev/null 2>"$tmp/err"
+assert_eq "apply an applied item: refused" "1" "$?"
+assert_contains "apply an applied item: says it was applied" "already applied" "$(cat "$tmp/err")"
+git -C "$v2" reset -q && git -C "$v2" checkout -q -- assumptions.md
+
+# ---------------------------------------------------------------------------
+# 16. Triage, export and harvest refusals.
+# ---------------------------------------------------------------------------
+"$CYCLE" triage FB-3 skip --decider "Robin Lead" "$v4" >/dev/null 2>"$tmp/err"
+assert_eq "triage a triaged item: refused" "1" "$?"
+assert_contains "triage a triaged item: says so" "already triaged" "$(cat "$tmp/err")"
+"$CYCLE" triage FB-1 skip --decider "Robin Lead" --section "brief.md#Appetite" "$v4" >/dev/null 2>&1
+assert_eq "triage skip with a section: refused" "2" "$?"
+
+# venture4 was exported again in section 13 and not harvested since.
+calls="$(grep -c 'X PATCH' "$tmp/log/argv")"
+"$CYCLE" export --confirmed "$v4" >/dev/null 2>"$tmp/err"
+assert_eq "re-export before a harvest: refused" "1" "$?"
+assert_contains "re-export before a harvest: says harvest first" "harvest it first" "$(cat "$tmp/err")"
+assert_eq "re-export before a harvest: no PATCH" "$calls" "$(grep -c 'X PATCH' "$tmp/log/argv")"
+
+# stage_route <route-line> — answer the next matching call from this route.
+stage_route() {
+  { printf '%s\n' "$1" && cat "$tmp/routes"; } >"$tmp/routes.new" && cp "$tmp/routes.new" "$tmp/routes"
+  : >"$tmp/log/used"
+}
+before="$(head_sha)"
+stage_route "PATCH /v1/pages/$PAGE/markdown error-403.json 403 once"
+"$CYCLE" export --confirmed "$v" >/dev/null 2>"$tmp/err"
+assert_eq "export the adapter refuses: exit 3" "3" "$?"
+assert_eq "export the adapter refuses: no ledger commit" "$before" "$(head_sha)"
+assert_eq "export the adapter refuses: the ledger is untouched" "" "$(git -C "$v" status --porcelain)"
+
+before="$(git -C "$v4" rev-parse HEAD)"
+stage_route "GET /v1/comments?block_id=$PAGE&page_size=100 error-403.json 403 once"
+"$CYCLE" harvest "$v4" >/dev/null 2>"$tmp/err"
+assert_eq "harvest the adapter refuses: exit 3" "3" "$?"
+assert_eq "harvest the adapter refuses: nothing recorded" "$before" "$(git -C "$v4" rev-parse HEAD)"
+assert_eq "harvest the adapter refuses: still exported" "exported" "$(sed -n 's/^Phase: //p' "$v4/feedback/ledger.md")"
+
+# ---------------------------------------------------------------------------
+# 17. The ledger's own guards.
+# ---------------------------------------------------------------------------
+mv "$v4/feedback/ledger.md" "$tmp/ledger.real" && ln -s "$tmp/ledger.real" "$v4/feedback/ledger.md"
+"$CYCLE" status "$v4" >/dev/null 2>"$tmp/err"
+assert_eq "symlinked ledger: refused" "1" "$?"
+rm -f "$v4/feedback/ledger.md" && mv "$tmp/ledger.real" "$v4/feedback/ledger.md"
+
+sed 's/^Ledger-version: 1$/Ledger-version: 2/' "$v4/feedback/ledger.md" >"$tmp/l" && cp "$tmp/l" "$v4/feedback/ledger.md"
+"$CYCLE" status "$v4" >/dev/null 2>"$tmp/err"
+assert_eq "unknown ledger version: refused" "2" "$?"
+assert_contains "unknown ledger version: names it" "version" "$(cat "$tmp/err")"
+git -C "$v4" checkout -q -- feedback/ledger.md
+
+# ---------------------------------------------------------------------------
+# 18. A snapshot the secret screen flags is not exported.
+# ---------------------------------------------------------------------------
+v5="$tmp/venture5"
+inception_fixture_write "$v5" || exit 1
+printf '\nKey for the pilot: AKIAABCDEFGHIJKLMNOP\n' >>"$v5/plan.md"
+git -C "$v5" init -q . && git -C "$v5" add -A && git -C "$v5" commit -qm "chore: seed the venture" || exit 1
+"$NOTION" configure --page "$PAGE" "$v5" >/dev/null || exit 1
+calls="$(grep -c 'X PATCH' "$tmp/log/argv")"
+"$CYCLE" export --adapter notion --confirmed "$v5" >/dev/null 2>"$tmp/err"
+assert_eq "flagged snapshot: refused" "1" "$?"
+assert_contains "flagged snapshot: says it carries a credential" "credential" "$(cat "$tmp/err")"
+assert_not_contains "flagged snapshot: names no text" "AKIA" "$(cat "$tmp/err")"
+assert_eq "flagged snapshot: no PATCH" "$calls" "$(grep -c 'X PATCH' "$tmp/log/argv")"
+if [ -e "$v5/feedback/ledger.md" ]; then
+  echo "FAIL: flagged snapshot: wrote a ledger" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: flagged snapshot: writes no ledger"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

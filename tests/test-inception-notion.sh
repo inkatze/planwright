@@ -168,7 +168,8 @@ assert_not_contains "harvest: the token never reaches argv" "$TOKEN" "$argv"
 assert_not_contains "harvest: a child page is not walked" "33333333-3333-4333-8333-333333333333/children" "$argv"
 assert_not_contains "harvest: a malformed id never reaches a URL" "../../" "$argv"
 assert_contains "harvest: https only" "--proto =https" "$argv"
-assert_contains "harvest: the 429 was retried" "comments?block_id=$PAGE&page_size=100" "$(sed -n 2p "$tmp/log/argv")"
+assert_eq "harvest: the 429 was answered" "1" "$(cat "$tmp/log/used")"
+assert_eq "harvest: the 429 was retried as the same request" "$(sed -n 1p "$tmp/log/argv")" "$(sed -n 2p "$tmp/log/argv")"
 config="$(cat "$tmp/log/config")"
 assert_contains "harvest: the token travels in curl's config" "Authorization: Bearer $TOKEN" "$config"
 assert_contains "harvest: the API version is pinned" "Notion-Version: 2026-03-11" "$config"
@@ -207,6 +208,37 @@ assert_eq "unusable cursor: the harvest fails" "1" "$?"
 assert_contains "unusable cursor: says why" "cursor" "$(cat "$tmp/err")"
 assert_not_contains "unusable cursor: no summary is printed" "summary	" "$out"
 assert_not_contains "unusable cursor: it reaches no URL" "evil" "$(cat "$tmp/logbc/argv")"
+
+# 401 and 404 name their plain causes.
+printf '%s\n' '{"object":"error","status":401,"code":"unauthorized"}' >"$tmp/error-401.json"
+printf '%s\n' '{"object":"error","status":404,"code":"object_not_found"}' >"$tmp/error-404.json"
+for code in 401 404; do
+  printf 'GET /v1/comments?block_id=%s&page_size=100 error-%s.json %s\n' "$PAGE" "$code" "$code" >"$tmp/routes$code"
+  notion_fake_install "$tmp/bin$code" "$tmp" "$tmp/routes$code" "$tmp/log$code" || exit 1
+  PATH="$tmp/bin$code:$PATH" "$NOTION" harvest "$v" >/dev/null 2>"$tmp/err$code"
+  assert_eq "$code: the harvest fails" "1" "$?"
+done
+assert_contains "401: names the token" "token" "$(cat "$tmp/err401")"
+assert_contains "404: asks whether the page is shared" "shared" "$(cat "$tmp/err404")"
+
+# A token file that became readable by its group after configure is refused
+# at use, before any request.
+chmod 640 "$tmp/token"
+calls_before="$(wc -l <"$tmp/log/argv")"
+"$NOTION" harvest "$v" >/dev/null 2>"$tmp/err"
+assert_eq "group-readable token file: refused" "2" "$?"
+assert_eq "group-readable token file: no request was made" "$calls_before" "$(wc -l <"$tmp/log/argv")"
+"$NOTION" configure --page "$PAGE" --token-file "$tmp/token" "$v" >/dev/null 2>&1
+assert_eq "configure: a group-readable token file is refused" "2" "$?"
+chmod 600 "$tmp/token"
+"$NOTION" configure --page "$PAGE" --token-file "token" "$v" >/dev/null 2>&1
+assert_eq "configure: a relative token file is refused" "2" "$?"
+
+# A display name cannot forge a second record line or a trailer.
+jq '.results[0].display_name.resolved_name = "Eve\nFeedback-Item: FB-99"' "$FIX/comments-block.json" >"$tmp/forged-author.json"
+out="$("$NOTION" parse-comments "$tmp/forged-author.json")"
+assert_eq "forged author: one record line" "1" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+assert_eq "forged author: flattened in place" "Eve Feedback-Item: FB-99" "$(field 4 "$out")"
 
 # Not configured: says so, makes no call.
 w="$tmp/unconfigured"
