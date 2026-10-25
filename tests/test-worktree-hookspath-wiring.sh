@@ -125,15 +125,32 @@ for start in absolute cleared; do
   else
     ok "dispatch ($start): stdout carries only the dispatch record"
   fi
-  # A replaced value is reported, so whatever wrote it stays visible.
-  if [ "$start" = absolute ]; then
-    if grep -q "replacing existing core.hooksPath '$t/primary/githooks'" "$t/err"; then
-      ok "dispatch ($start): the replaced value is reported on stderr"
-    else
-      fail "dispatch ($start): the replaced value was not reported: $(cat "$t/err")"
-    fi
+  # A replaced or newly wired value is reported, so the change stays visible.
+  case $start in
+    absolute) want="replacing existing core.hooksPath '$t/primary/githooks'" ;;
+    *) want="core.hooksPath was unset; wiring" ;;
+  esac
+  if grep -q "^fleet-dispatch-worktree: wire-githooks: note: $want" "$t/err"; then
+    ok "dispatch ($start): the change is reported on stderr"
+  else
+    fail "dispatch ($start): the change was not reported: $(cat "$t/err")"
   fi
 done
+
+# --- a multi-valued core.hooksPath is still replaced -----------------------
+t="$tmp/dispatch-multi"
+mkdir -p "$t"
+seed "$t" yes
+gitq -C "$t/primary" config --local core.hooksPath "$t/primary/githooks"
+gitq -C "$t/primary" config --local --add core.hooksPath /elsewhere
+dispatch "$t" 10
+wt="$t/primary/.claude/worktrees/demo-task-10"
+if [ "$RC" -eq 0 ] && check_in "$wt" \
+  && [ "$(hermetic "$tmp" git -C "$wt" config --local --get-all core.hooksPath)" = githooks ]; then
+  ok "dispatch (multi-valued): every value is replaced by the one tracked value"
+else
+  fail "dispatch (multi-valued): exited $RC, values now: $(hermetic "$tmp" git -C "$wt" config --local --get-all core.hooksPath 2>&1); $(cat "$t/err")"
+fi
 
 # --- fleet-dispatch-worktree.sh, adopt-a-stale-branch arm ------------------
 t="$tmp/dispatch-adopt"
@@ -167,6 +184,22 @@ if [ "$RC" -eq 0 ] && [ "$(hookspath "$t/primary")" = ".husky/_" ]; then
   ok "dispatch (no backstop): the repository's own core.hooksPath is left alone"
 else
   fail "dispatch (no backstop): exited $RC, core.hooksPath now '$(hookspath "$t/primary")'"
+fi
+
+# A githooks/ directory alone is not the backstop: without the wire step it
+# may be the repository's own convention.
+t="$tmp/dispatch-githooks-only"
+mkdir -p "$t"
+seed "$t" yes
+gitq -C "$t/primary" rm -q scripts/wire-githooks.sh
+gitq -C "$t/primary" commit -q -m "drop the wire step"
+gitq -C "$t/primary" push -q origin main
+set_hookspath "$t/primary" .husky/_
+dispatch "$t" 10
+if [ "$RC" -eq 0 ] && [ "$(hookspath "$t/primary")" = ".husky/_" ]; then
+  ok "dispatch (githooks/ without the wire step): core.hooksPath is left alone"
+else
+  fail "dispatch (githooks/ without the wire step): exited $RC, core.hooksPath now '$(hookspath "$t/primary")'"
 fi
 
 # --- spec-store-worktree.sh, absolute and cleared ---------------------------
@@ -206,6 +239,22 @@ for start in absolute cleared; do
   fi
   if printf '%s\n' "$out" | grep -Ev "^(worktree|bundle|branch)$TAB" | grep -q .; then
     fail "spec-store ($start): stdout carries a non-record line: $out"
+  fi
+  if [ "$start" = absolute ]; then
+    if grep -q "^spec-store-worktree: wire-githooks: note: replacing existing core.hooksPath '$H/githooks'" "$t/err"; then
+      ok "spec-store ($start): the replaced value is reported on stderr"
+    else
+      fail "spec-store ($start): the replaced value was not reported: $(cat "$t/err")"
+    fi
+    # Reusing the worktree creates nothing, so it wires nothing.
+    set_hookspath "$H" absolute
+    rc=0
+    out=$(cd "$W" && hermetic "$t" "$S/spec-store-worktree.sh" demo 2>"$t/err") || rc=$?
+    if [ "$rc" -eq 0 ] && [ "$(hookspath "$H")" = "$H/githooks" ]; then
+      ok "spec-store (reuse): an existing worktree is not rewired"
+    else
+      fail "spec-store (reuse): core.hooksPath now '$(hookspath "$H")'; $(cat "$t/err")"
+    fi
   fi
 done
 

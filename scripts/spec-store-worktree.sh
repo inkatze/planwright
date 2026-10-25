@@ -273,20 +273,6 @@ else
 fi
 own_wt
 
-# A worktree this run opened is wired to the holder's tracked hook backstop
-# rather than trusted to inherit core.hooksPath, which Claude Code's own
-# worktree creation rewrites to an absolute path; a failure is a warning.
-if [ "$made_wt" -eq 1 ]; then
-  wrc=0
-  wout=$(cd "$wt" && "$script_dir/wire-githooks.sh" --if-tracked 2>&1 </dev/null) || wrc=$?
-  if [ "$wrc" -ne 0 ]; then
-    say "warning: the hook backstop was not wired in $wt (exit $wrc): $(printf '%s\n' "$wout" | tail -n 1)"
-  else
-    wnote=$(printf '%s\n' "$wout" | grep 'replacing existing' || true)
-    [ -z "$wnote" ] || say "$wnote"
-  fi
-fi
-
 # The skills write through the printed path, so no component of it below the
 # worktree may be a symlink: one committed on the spec branch or the default
 # branch would carry the writes outside the holder.
@@ -339,5 +325,18 @@ if [ -d "$bundle" ]; then
     say "refused: $link is neither a directory nor a regular file"
     exit 4
   }
+fi
+
+# A worktree this run opened is wired to the holder's tracked hook backstop
+# rather than trusted to inherit core.hooksPath, which Claude Code's own
+# worktree creation rewrites to an absolute path. Every note the wire step
+# prints is relayed; a failure is a warning.
+if [ "$made_wt" -eq 1 ]; then
+  wrc=0
+  werr=$(cd "$wt" && "$script_dir/wire-githooks.sh" --if-tracked 2>&1 >/dev/null </dev/null) || wrc=$?
+  printf '%s\n' "$werr" | while IFS= read -r wline; do
+    [ -z "$wline" ] || say "$wline"
+  done
+  [ "$wrc" -eq 0 ] || say "warning: the hook backstop was not wired in $wt (exit $wrc)"
 fi
 printf 'worktree\t%s\nbundle\t%s\nbranch\t%s\n' "$wt" "$bundle" "$branch"

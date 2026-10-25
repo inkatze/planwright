@@ -137,8 +137,8 @@
 #   fleet-dispatch-worktree.sh dispatch <spec> <id> \
 #       [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] \
 #       [-- <extra launch args>...]
-#       Validate, fetch `<base>`, reconcile, `git worktree add -b`, launch, then
-#       confirm. The report is `dispatch<TAB><key><TAB><value>` lines (branch,
+#       Validate, fetch `<base>`, reconcile, `git worktree add -b`, wire the
+#       hook backstop, launch, then confirm. The report is `dispatch<TAB><key><TAB><value>` lines (branch,
 #       worktree, base), `launch` lines (session, window, handle, since,
 #       token), and `confirm` lines (outcome, session, handle, reason).
 #       Its exit status is the launch outcome (0, 14, or 16 below), never
@@ -1680,18 +1680,19 @@ do_dispatch() {
 
   # A worktree this run placed is wired to the tracked hook backstop rather
   # than trusted to inherit the clone's core.hooksPath, which Claude Code's
-  # own worktree creation rewrites to an absolute path. A replaced value is
-  # reported so whatever wrote it stays visible; a failure does not fail the
-  # dispatch, since check:githooks reports it inside the worktree.
+  # own worktree creation rewrites to an absolute path. Every note the wire
+  # step prints is relayed, so a replaced or re-enabled value stays visible; a
+  # failure does not fail the dispatch, since check:githooks reports it inside
+  # the worktree. The write is clone-wide, so a failed launch's undo leaves it.
   if [ "$_made_worktree" -eq 1 ]; then
     _wrc=0
-    _wout=$(cd "$_worktree" && "$WIRE" --if-tracked 2>&1 </dev/null) || _wrc=$?
-    if [ "$_wrc" -ne 0 ]; then
-      warn "the hook backstop was not wired in $_worktree (exit $_wrc): $(printf '%s\n' "$_wout" | tail -n 1)"
-    else
-      _wnote=$(printf '%s\n' "$_wout" | grep 'replacing existing' || true)
-      [ -z "$_wnote" ] || warn "$_wnote"
-    fi
+    _werr=$(cd "$_worktree" && "$WIRE" --if-tracked 2>&1 >/dev/null </dev/null) || _wrc=$?
+    while IFS= read -r _wline; do
+      [ -z "$_wline" ] || warn "$_wline"
+    done <<WERR
+$_werr
+WERR
+    [ "$_wrc" -eq 0 ] || warn "the hook backstop was not wired in $_worktree (exit $_wrc)"
   fi
 
   # Push the worktree into the registry and stamp the dispatch marker (the
