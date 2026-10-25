@@ -228,17 +228,13 @@ visit https://example.invalid/login" 2>/dev/null \
 /etc/passwd
 specs/_flights/$G.md" 2>/dev/null \
   && fail "a multi-line record landing must be refused"
-"$SCRIPT" push awaiting-decision "$G" --handle "$HG" --reason "$(printf 'a\033[2Jb')" 2>/dev/null \
-  && fail "a reason carrying a control byte must be refused"
 "$SCRIPT" push awaiting-decision "$G" --handle "$HG" --reason "" 2>/dev/null \
   && fail "an empty reason must be refused"
-# The store refuses text outside the printable range (a UTF-8 dash among it),
-# so the push refuses it first, as a refused input rather than a store outage.
-"$SCRIPT" push awaiting-decision "$G" --handle "$HG" --reason "$(printf 'scope grew \342\200\224 auth')" 2>/dev/null
-rc=$?
-[ "$rc" -eq 2 ] || fail "a reason the store would refuse is a refused input, exit 2 (got $rc)"
-# REQ-E1.9: the notification names only the kind of park, never its detail.
-for reason in "scope outgrew visual flight: it touches the auth module" "point not-draft" "hard-pause " HARD-PAUSE; do
+# REQ-E1.9: the notification names only the kind of park, never its detail,
+# so free text, a control byte, and bytes the store would refuse are all
+# refused inputs.
+for reason in "scope outgrew visual flight: it touches the auth module" "point not-draft" "hard-pause " HARD-PAUSE \
+  "$(printf 'a\033[2Jb')" "$(printf 'scope grew \342\200\224 auth')"; do
   "$SCRIPT" push awaiting-decision "$G" --handle "$HG" --reason "$reason" 2>/dev/null
   rc=$?
   [ "$rc" -eq 2 ] || fail "REQ-E1.9: a reason other than one kind of park must be refused, exit 2 ('$reason', got $rc)"

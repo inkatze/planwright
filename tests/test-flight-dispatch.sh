@@ -307,7 +307,9 @@ fi
 # procedure renders the private partial record into the brief directory
 # before its one awaiting-decision push, and that push carries the kind alone;
 # and the partial line the brief prints runs as written.
-KINDS='hard-pause point not-draft renderer destination landing question'
+# shellcheck source=scripts/flight-common.sh
+KINDS=$(. "$ROOT/scripts/flight-common.sh" && printf '%s' "$PARK_KINDS")
+[ -n "$KINDS" ] || fail "fixture: cannot read the park kinds from flight-common.sh"
 # shellcheck disable=SC2016 # backticks are Markdown code spans
 park_sites() {
   _flat=$(printf '%s\n' "$1" | tr '\n' ' ' | tr -s ' ')
