@@ -423,3 +423,6 @@ you.
 - [`docs/CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute changes.
 - [`docs/release-checklist.md`](release-checklist.md) — the public-release
   readiness gate (for maintainers).
+- [`docs/tower-acceptance-demo.md`](tower-acceptance-demo.md) — the five
+  acceptance scenarios for `/tower`, run against a live session, and the
+  manual-sweep checklist (for maintainers).

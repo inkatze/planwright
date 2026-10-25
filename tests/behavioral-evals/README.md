@@ -243,8 +243,8 @@ passes this floor on these scenarios. When the harness cannot drive a live
 tower (no tmux, no model or credentials, or the session's surface not
 settling on the harness's anchor), the operator runs the scenarios by hand
 against a live tower session: the five acceptance scenarios through the
-acceptance demo script (a later task of the tower front-door spec, not yet
-written), and each case-set persona's lines typed as written, with the
+[acceptance demo script](../../docs/tower-acceptance-demo.md), and each
+case-set persona's lines typed as written, with the
 `@event:` lines replaced by the evidence they stand for. The operator starts
 that session with `PLANWRIGHT_EVAL_ONLY=1` and `PLANWRIGHT_PUBLISH_DISABLED=1`,
 names its artifacts directory, and grades the result as the harness does:
