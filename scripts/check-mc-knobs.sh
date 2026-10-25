@@ -12,7 +12,8 @@
 # Fails on:
 #   - an inventoried behaviour with no knob (`-` or empty), a knob outside
 #     the mission_control_* namespace or absent from the defaults, a consumer
-#     that does not exist, or a behaviour listed twice;
+#     that does not exist or never names its knob, or a behaviour listed
+#     twice;
 #   - a mission_control_* key in the defaults that does not resolve to a
 #     non-empty default through scripts/config-get.sh, or that no behaviour
 #     claims;
@@ -145,6 +146,8 @@ $knob
       if [ -f "$core/$consumer" ]; then
         consumers="$consumers$consumer
 "
+        [ ! -r "$core/$consumer" ] || grep -qF -- "$knob" "$core/$consumer" \
+          || finding "behaviour '$behaviour': $consumer does not read $knob"
       else
         finding "behaviour '$behaviour' names consumer $consumer, which does not exist"
       fi
@@ -169,6 +172,7 @@ scanned=$(
 )
 while IFS= read -r f; do
   [ -n "$f" ] || continue
+  [ -r "$core/$f" ] || die "cannot read $(sanitize_printable "$f")"
   tokens=$(grep -o 'mission_control_[a-z0-9][a-z0-9_]*' "$core/$f" | sort -u)
   while IFS= read -r token; do
     [ -n "$token" ] || continue

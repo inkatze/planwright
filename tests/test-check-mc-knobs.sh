@@ -122,6 +122,22 @@ run_fixture
 expect_rc "a behaviour whose consumer does not exist fails" 1
 expect_out "the missing consumer is named" "scripts/no-such.sh"
 
+reset_fixture
+printf '#!/bin/sh\n' >"$core/scripts/reader.sh"
+printf 'seeded-behaviour\tmission_control_programs\tscripts/reader.sh\n' >>"$core/config/mission-control-knobs.tsv"
+run_fixture
+expect_rc "a consumer that never names its knob fails" 1
+expect_out "the consumer and knob are named" "scripts/reader.sh does not read mission_control_programs"
+
+if [ "$(id -u)" -ne 0 ]; then
+  reset_fixture
+  chmod 000 "$core/scripts/mc-duties.sh"
+  run_fixture
+  expect_rc "an unreadable scanned file is an input the check cannot read" 2
+  expect_out "the unreadable file is named" "scripts/mc-duties.sh"
+  chmod 644 "$core/scripts/mc-duties.sh"
+fi
+
 # REQ-J1.1: every key resolves with its default and is claimed by a behaviour.
 # row <knob>: an options-reference row naming its evidence, so a case fails
 # only for the defect it plants.
