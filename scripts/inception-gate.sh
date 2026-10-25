@@ -666,9 +666,13 @@ loc_join() {
 }
 
 # trim_slashes <path> — the path without trailing slashes, which would make a
-# symbolic-link test follow the link it is meant to refuse.
+# symbolic-link test follow the link it is meant to refuse, and with `./`
+# before a leading dash, which cd would read as an option or as $OLDPWD.
 trim_slashes() {
   _p=$1
+  case $_p in
+    -*) _p=./$_p ;;
+  esac
   while :; do
     case $_p in
       ?*/) _p=${_p%/} ;;

@@ -680,7 +680,12 @@ mkdir -p "$tmp/w" "$tmp/other/sub" "$tmp/other/speclink"
 ln -s "$prod/specs/capture" "$tmp/w/speclink"
 ln -s "$tmp/other/sub" "$tmp/w/lnk"
 gate lineage --spec "$tmp/w/lnk/../speclink" "$vroot/probe"
+assert_contains "a middle .. through a link enters the link's real parent" "not inside a git repository" "$out"
 assert_not_contains "a middle .. through a link does not reach the linked spec" "linked" "$out"
+mkdir -p "$prod/specs/-"
+out=$(cd "$prod/specs" && OLDPWD=/ "$GATE" lineage --spec - "$vroot/probe" 2>&1)
+rc=$?
+assert_eq "a spec directory named - is that directory, not the previous one" 0 "$rc"
 out=$(cd "$prod/specs" && "$GATE" lineage --spec ../specs/capture "$vroot/probe" 2>&1)
 assert_contains "an ordinary relative spec path is accepted" "lineage	venture	linked" "$out"
 mv "$g/specs" "$g/specs-moved"
@@ -693,10 +698,13 @@ gate lineage "$g"
 assert_contains "J1.5 a dangling link inside the venture reads missing" "lineage	venture	spec-missing" "$out"
 rm -f "$g/specs/capture-surface"
 mv "$g/specs/capture-real" "$g/specs/capture-surface"
-mkdir -p "$tmp/t	ab"
-inception_fixture_write "$tmp/t	ab/tabbed" || exit 1
-gate evaluate "$tmp/t	ab/tabbed"
-assert_eq "a venture path holding a tab is refused" 2 "$rc"
+mkdir -p "$tmp/nl"
+inception_fixture_write "$tmp/nl/acme" || exit 1
+mkdir -p "$tmp/nl/acme
+"
+gate evaluate "$tmp/nl/acme
+"
+assert_eq "a venture path ending in a newline is refused, not read as its sibling" 2 "$rc"
 
 # --- refusals ----------------------------------------------------------------
 
