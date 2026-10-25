@@ -150,7 +150,8 @@ verify / measure / right if, risk tag, threshold as a fail condition, current ev
 ```
 
 **Done when:** every mandate question has a cited finding or a stated refusal, every
-load-bearing model step has a definition of correct and an eval-set plan, every score
+load-bearing model step has a definition of correct, an eval-set plan, and a proposed gate with
+its re-run trigger and its acceptance bar listed under Decisions I cannot make, every score
 comparison carries its sample count and error bar or appears as a proposed `feasibility`
 assumption, and every model judge has a plan for validating it against human grades.
 
