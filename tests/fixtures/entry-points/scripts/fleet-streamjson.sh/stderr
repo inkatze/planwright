@@ -1,0 +1,1 @@
+match ^usage: fleet-streamjson\.sh launch <worker> <scope> --prompt-file <file> \[--cwd <dir>\] \[--foreground\] \[-- <extra args>\.\.\.\]$

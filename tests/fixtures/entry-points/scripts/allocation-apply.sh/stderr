@@ -1,0 +1,1 @@
+match ^allocation-apply: unknown subcommand: --entry-point-probe$

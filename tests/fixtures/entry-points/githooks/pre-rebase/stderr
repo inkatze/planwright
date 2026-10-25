@@ -1,0 +1,1 @@
+match ^planwright githooks: pre-rebase: rebase is forbidden \(append-only history, never-rebase invariant\)\. Deliberate bypass: git rebase --no-verify\.$

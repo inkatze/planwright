@@ -1,0 +1,1 @@
+match ^usage: orchestrate-marker\.sh write\|clear <spec-dir> <id> \[<id>\.\.\.\]$
