@@ -361,6 +361,9 @@ assert_contains "merge in progress: says so" "in progress" "$(cat "$tmp/err")"
 assert_eq "merge in progress: the merge is not concluded" "$before" "$(git -C "$v2" rev-parse HEAD)"
 git -C "$v2" merge --abort
 
+"$CYCLE" triage FB-1 apply --decider "Robin Lead" --section "$(printf 'brief.md#Appetite\033[31m')" "$v2" >/dev/null 2>"$tmp/err"
+assert_eq "section with a control character: refused as usage" "2" "$?"
+
 v3="$tmp/venture3"
 inception_fixture_write "$v3" || exit 1
 git -C "$v3" init -q . && git -C "$v3" add -A && git -C "$v3" commit -qm "chore: seed the venture" || exit 1

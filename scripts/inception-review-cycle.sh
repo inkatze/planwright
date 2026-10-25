@@ -749,6 +749,8 @@ cmd_triage() {
   cur=$(item_get "$item" Disposition)
   [ "$cur" = pending ] || die 1 "$item was already triaged ($(sanitize_printable "$cur"))"
   if [ -n "$section" ]; then
+    [ "$(printf '%s' "$section" | tr -d '\001-\037\177')" = "$section" ] \
+      || die 2 "--section must not contain control characters"
     section_check "$section"
     # Stored as given: section_check has matched it to one heading line, and
     # apply matches it again, so any rewrite here would strand the item.
@@ -764,7 +766,7 @@ cmd_triage() {
   printf 'chore(feedback): triage %s as %s\n\nDecided by %s.\n' "$item" "$disp" "$dec" >"$work/msg"
   commit_paths "$work/msg" "$LEDGER_REL" \
     || fail_restored "the ledger commit failed" "so the item is still pending"
-  printf 'item\t%s\ndisposition\t%s\nsection\t%s\n' "$item" "$disp" "$sec_val"
+  printf 'item\t%s\ndisposition\t%s\nsection\t%s\n' "$item" "$disp" "$(sanitize_printable "$sec_val")"
 }
 
 # --- apply -------------------------------------------------------------------
