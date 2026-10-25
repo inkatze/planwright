@@ -16,7 +16,10 @@
 #                       worker itself wrote at or after that epoch
 #   awaiting-decision   awaiting-input carrying the reason, through the
 #                       fork-park channel: the one actionable event, so the
-#                       one the decision queue shows
+#                       one the decision queue shows. The reason is the kind
+#                       of park alone, one of flight-common.sh's PARK_KINDS:
+#                       the queue row may be sent off the host, so the detail
+#                       stays in the flight's private partial record
 #   completion          pr-ready (a PR landing) or done (a record landing),
 #                       never over a queued decision; the landing reference is
 #                       kept beside the flight's brief as `landing` and sent
@@ -71,7 +74,7 @@
 #
 # Usage:
 #   flight-lifecycle.sh push dispatch <flight-id> --handle <handle> [--since <epoch>]
-#   flight-lifecycle.sh push awaiting-decision <flight-id> --handle <handle> --reason <text>
+#   flight-lifecycle.sh push awaiting-decision <flight-id> --handle <handle> --reason <kind>
 #   flight-lifecycle.sh push completion <flight-id> --handle <handle> --landing <pr:<url>|record:<path>>
 #   flight-lifecycle.sh supervise [--repo-root <dir>] [--now <epoch>]
 #
@@ -127,7 +130,7 @@ die() {
 usage() {
   cat >&2 <<'EOF'
 usage: flight-lifecycle.sh push dispatch <flight-id> --handle <handle> [--since <epoch>]
-       flight-lifecycle.sh push awaiting-decision <flight-id> --handle <handle> --reason <text>
+       flight-lifecycle.sh push awaiting-decision <flight-id> --handle <handle> --reason <kind>
        flight-lifecycle.sh push completion <flight-id> --handle <handle> --landing <pr:<url>|record:<path>>
        flight-lifecycle.sh supervise [--repo-root <dir>] [--now <epoch>]
 EOF
@@ -234,12 +237,7 @@ cmd_push() {
     awaiting-decision)
       [ -z "$landing" ] || usage
       [ -n "$reason" ] || die 2 "the awaiting-decision push needs a non-empty --reason"
-      has_ctl "$reason" && die 2 "refusing a reason carrying a control byte"
-      # The store refuses the C1 byte range too, which UTF-8 punctuation such
-      # as a dash falls in; refusing it here keeps a refused reason exit 2.
-      [ "$(sanitize_printable "$reason")" = "$reason" ] \
-        || die 2 "refusing a reason the attention store would refuse; keep it to plain ASCII"
-      [ "${#reason}" -le 480 ] || die 2 "refusing a reason over 480 bytes"
+      park_kind "$reason" || die 2 "refusing a reason that is not a kind of park ($PARK_KINDS); the detail belongs in the partial record"
       /bin/sh "$ATTN" park "$handle" "$scope" "flight-parked: $reason" </dev/null \
         || die 4 "the awaiting-decision push did not reach the attention store"
       ;;
