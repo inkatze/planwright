@@ -1,0 +1,1 @@
+match ^usage: obs-consume --uid <uid> --spec <spec> \[--today <YYYY-MM-DD>\] \[--obs-dir <dir>\]$

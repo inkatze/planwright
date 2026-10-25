@@ -1,0 +1,1 @@
+match ^usage: fleet-presence\.sh publish  --checkout <dir> \(--session-id <uuid> \| --pid <pid>\) \[--tmux-session <name> --tmux-window <name>\] \[--specs <csv>\] \[--fenced <csv>\] \[--meta\]$
