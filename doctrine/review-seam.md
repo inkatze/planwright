@@ -21,8 +21,9 @@ inception D-10.
    an export refuses a bundle with uncommitted changes. It opens with a line
    telling the reader that edits to the copy are not read back and the next
    export replaces it. An export sends the bundle off the machine, so it is
-   offered and runs only once the operator confirms it (REQ-G1.9), and it is
-   secret-screened first. A snapshot the screen flags is not exported.
+   offered and runs only once the operator confirms it, having checked that
+   the destination's readers match the venture repo's visibility (REQ-G1.9).
+   It is secret-screened first. A snapshot the screen flags is not exported.
 2. **Harvest feedback as data.** The adapter reads the surface's feedback and
    the seam adds each item it has not seen before to the ledger, as
    `pending`. Harvesting writes no bundle file.

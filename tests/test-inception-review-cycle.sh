@@ -119,6 +119,7 @@ assert_eq "unconfirmed export: exit 0" "0" "$?"
 assert_contains "unconfirmed export: an offer" "decision	offer" "$out"
 assert_contains "unconfirmed export: names the destination" "notion:$PAGE" "$out"
 assert_contains "unconfirmed export: says it leaves the machine" "off this machine" "$(cat "$tmp/err")"
+assert_contains "unconfirmed export: asks for the audience check" "visibility" "$(cat "$tmp/err")"
 assert_eq "unconfirmed export: no API call" "0" "$(wc -l <"$tmp/log/argv" | tr -d ' ')"
 if [ -e "$ledger" ]; then
   echo "FAIL: unconfirmed export: wrote a ledger" >&2

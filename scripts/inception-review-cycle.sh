@@ -514,7 +514,7 @@ cmd_export() {
     printf 'decision\toffer\n'
     printf 'adapter\t%s\n' "$adapter"
     printf 'destination\t%s\n' "$dest"
-    printf '%s\n' "inception-review-cycle: ask the operator first. This export sends the committed bundle off this machine to $dest; run it again with --confirmed once they agree." >&2
+    printf '%s\n' "inception-review-cycle: ask the operator first. This export sends the committed bundle off this machine to $dest; check that everyone who can read that page may see this venture, as its repo's visibility allows, and run it again with --confirmed once they agree." >&2
     return 0
   fi
 
