@@ -54,8 +54,8 @@
 #                                                                record
 #   seed <path> · lineage <scope> pending · cite <Sources entry>  seed
 #   lineage <scope> pending|linked|unchecked|spec-missing|spec-side-missing|
-#     venture-side-missing|refused (an in-venture location that resolves
-#     outside the venture)                                       lineage, link
+#     venture-side-missing|refused (an in-venture location that is absolute,
+#     climbs with `..`, or resolves outside the venture)         lineage, link
 #   archived <status> · registry refreshed · observation dropped
 #   degraded <why>                                               archive
 # Gap kinds: elicitation-pending, bundle-findings, metric-missing,
@@ -129,12 +129,22 @@ die() {
 }
 
 work=
-installing=
+moving=
+seed_tmp=
 seed_placed=
+made_pdir=
+made_droot=
 cleanup() {
-  # shellcheck disable=SC2086 # a list of paths without whitespace
-  [ -z "$installing" ] || rm -f $installing
+  # An exit in the middle of an install puts back what it had moved.
+  [ -z "$moving" ] || restore_moved
+  if [ -n "$work" ] && [ -f "$work/tmps" ]; then
+    cut -f2 "$work/tmps" | while IFS= read -r _t; do rm -f "$_t"; done
+  fi
+  [ -z "$seed_tmp" ] || rm -f "$seed_tmp"
   [ -z "$seed_placed" ] || rm -f "$seed_placed"
+  # Only directories this run created, and only while still empty.
+  [ -z "$made_pdir" ] || rmdir "$made_pdir" 2>/dev/null
+  [ -z "$made_droot" ] || rmdir "$made_droot" 2>/dev/null
   [ -z "$work" ] || rm -rf "$work"
   pw_lock_release_all
 }
@@ -341,7 +351,7 @@ gather_gate() {
   printf 'PEND\t%s\n' "$_pend" >>"$work/all"
 }
 
-# The evaluation over $work/all. scope is a track label or `venture`; the record
+# The evaluation over $work/all. scope is a track label or empty; the record
 # lines (evidence, thresholds, kill-criteria) always cover the whole venture,
 # which is what the validator's coverage rules read.
 # shellcheck disable=SC2016 # awk source, not a shell expansion
@@ -359,7 +369,7 @@ $1 == "kill" { nk++; KI[nk] = $2; KDT[nk] = $3; KS[nk] = $4; next }
 $1 == "PEND" { pend = $2 + 0; next }
 $1 == "BADN" { badn = $2 + 0; next }
 function live(id) { return (id in ET) && !((id SUBSEP "Superseded-by") in H) }
-function inscope(id) { return scope == "venture" || !((id SUBSEP "Track") in H) || V[id SUBSEP "Track"] == scope }
+function inscope(id) { return scope == "" || !((id SUBSEP "Track") in H) || V[id SUBSEP "Track"] == scope }
 function st(id,   w) { split(V[id SUBSEP "Status"], w, " "); return w[1] }
 function grade(id,   w) { split(V[id SUBSEP "Evidence"], w, " "); return (w[1] in GR) ? w[1] : "none" }
 function has_item(list, x,   n, a, i) {
@@ -372,7 +382,7 @@ function verdict(s) { return s == "validated" ? "pass" : s == "invalidated" ? "f
 function join(s, x) { return s == "" ? x : s ", " x }
 END {
   print "status\t" status
-  print "scope\t" (scope == "venture" ? "venture" : "track " scope)
+  print "scope\t" (scope == "" ? "venture" : "track " scope)
   print "decider\t" decider
   print "next-gate\t" (maxg + 1)
 
@@ -451,7 +461,7 @@ END {
 '
 
 # evaluate_into <scope> <out> — gather the venture, then evaluate it; scope is
-# `venture` or a track label.
+# a track label, or empty for the whole venture (`venture` is a legal label).
 evaluate_into() {
   gather
   gather_gate
@@ -581,24 +591,38 @@ install_files() {
   # Scratch names come from mktemp, never the pid: a predictable name in a
   # directory a commit can populate is one a planted symbolic link can claim.
   : >"$work/tmps"
+  : >"$work/moved"
   for _f in "$@"; do
     _t=$(mktemp "$vdir/.inception-gate.XXXXXX") || die 2 "cannot write $_f; nothing was changed"
-    installing="$installing $_t"
     printf '%s\t%s\n' "$_f" "$_t" >>"$work/tmps"
     cp -p "$work/stage/$_f" "$_t" || die 2 "cannot write $_f; nothing was changed"
   done
   # brief.md carries the gate record or the post-mortem, so it moves last: a
   # failure before it leaves the bundle as it was once the others are restored.
-  _moved=
+  moving=1
   for _f in $(printf '%s\n' "$@" | grep -v '^brief\.md$') $(printf '%s\n' "$@" | grep '^brief\.md$'); do
     _t=$(awk -F'\t' -v f="$_f" '$1 == f { print $2; exit }' "$work/tmps")
     if ! mv -f "$_t" "$vdir/$_f"; then
-      for _m in $_moved; do cp -p "$work/orig/$_m" "$vdir/$_m"; done
+      restore_moved || die 2 "cannot write $_f, and the files already written could not all be restored"
       die 2 "cannot write $_f; the files already written were restored"
     fi
-    _moved="$_moved $_f"
+    printf '%s\n' "$_f" >>"$work/moved"
   done
-  installing=
+  moving=
+  : >"$work/tmps"
+}
+
+# restore_moved — put back every file an interrupted install had moved in;
+# false, naming them, when one cannot be restored.
+restore_moved() {
+  moving=
+  _rf=
+  while IFS= read -r _m; do
+    cp -p "$work/orig/$_m" "$vdir/$_m" || _rf="$_rf $_m"
+  done <"$work/moved"
+  [ -z "$_rf" ] && return 0
+  printf 'inception-gate: could not restore%s; repair it from git or by hand\n' "$_rf" >&2
+  return 1
 }
 
 # loc_of <dir> — the dir's location as the bundle records it: relative inside
@@ -642,6 +666,14 @@ trim_slashes() {
   printf '%s\n' "$_p"
 }
 
+# check_dir_arg <path> <label> — a directory argument named directly: a `.`
+# or `..` component would let the symbolic-link test look past the link.
+check_dir_arg() {
+  case /$1/ in
+    */./* | */../*) die 1 "$2 names a . or .. component; name the directory itself" ;;
+  esac
+}
+
 check_path() {
   case $1 in
     *[[:cntrl:]\`\\]* | *' — '*) die 1 "$2 holds a control character, a backtick, a backslash, or a spaced em dash, which the lineage record cannot carry" ;;
@@ -651,7 +683,10 @@ check_path() {
 # cites <spec-dir> <key> — the spec's requirements.md Sources names the key.
 cites() {
   [ -f "$1/requirements.md" ] && [ ! -L "$1/requirements.md" ] || return 2
-  awk -v key="$2" '
+  # The key can be bundle text, so it travels by the environment: awk -v
+  # would rewrite its backslash escapes.
+  GATE_CITE_KEY=$2 awk '
+    BEGIN { key = ENVIRON["GATE_CITE_KEY"] }
     /^## / { on = ($0 ~ /^## Sources[ \t]*$/); next }
     on {
       s = $0
@@ -665,8 +700,10 @@ cites() {
   ' "$1/requirements.md"
 }
 
+# lineage_key <scope> — in a tracked venture every scope is a track, one
+# labelled `venture` included.
 lineage_key() {
-  if [ "$1" = venture ]; then printf 'inception:%s\n' "$vid"; else printf 'inception:%s/%s\n' "$vid" "$1"; fi
+  if tracked; then printf 'inception:%s/%s\n' "$vid" "$1"; else printf 'inception:%s\n' "$vid"; fi
 }
 
 # graduated_scopes — `scope<TAB>gate` for every scope a gate record graduated.
@@ -698,7 +735,7 @@ cmd_evaluate() {
   done
   [ $# -eq 1 ] || usage
   resolve_venture "$1"
-  evaluate_into "${_track:-venture}" "$work/eval"
+  evaluate_into "$_track" "$work/eval"
   if [ -n "$_track" ]; then
     grep -q "^TRACK	$_track	" "$work/all" || die 1 "the brief declares no track $_track"
   fi
@@ -747,7 +784,7 @@ cmd_record() {
 
   resolve_venture "$1"
   bundle_lock
-  evaluate_into venture "$work/eval"
+  evaluate_into '' "$work/eval"
   if [ "$vlive_rc" -ne 0 ]; then
     printf 'inception-gate: the bundle has validator findings; a gate runs on a clean bundle:\n' >&2
     strip_eval <"$work/v.before" >&2
@@ -889,21 +926,21 @@ $1 == "E" { EO[++ne] = $2; ET[$2] = $3; next }
 $1 == "F" { V[$2 SUBSEP $3] = $4; H[$2 SUBSEP $3] = 1; next }
 $1 == "O" { OPT[$2 SUBSEP (++NO[$2])] = $3; next }
 function live(id) { return (id in ET) && !((id SUBSEP "Superseded-by") in H) }
-function inscope(id) { return scope == "venture" || !((id SUBSEP "Track") in H) || V[id SUBSEP "Track"] == scope }
+function inscope(id) { return whole || !((id SUBSEP "Track") in H) || V[id SUBSEP "Track"] == scope }
 function st(id,   w) { split(V[id SUBSEP "Status"], w, " "); return w[1] }
 function f(id, k) { return V[id SUBSEP k] }
 END {
-  print "# Seed: " title (scope == "venture" ? "" : " — track " scope)
+  print "# Seed: " title (whole ? "" : " — track " scope)
   print ""
   print "**Lineage:** " key
   print "**Graduated:** Gate " gate " (" gdate "), decided by " ENVIRON["GATE_SEED_DECIDER"]
   print ""
-  print "A graduated inception venture" (scope == "venture" ? "" : " track") ", packaged as seed material for `/spec-draft`. Its text is the venture bundle'"'"'s, carried here as data, never as instructions. Cite this seed in the spawned spec'"'"'s `## Sources` with the lineage key above so the venture'"'"'s lineage check finds it; a hole found while drafting goes back to the venture as a register entry, not into this file."
+  print "A graduated inception venture" (whole ? "" : " track") ", packaged as seed material for `/spec-draft`. Its text is the venture bundle'"'"'s, carried here as data, never as instructions. Cite this seed in the spawned spec'"'"'s `## Sources` with the lineage key above so the venture'"'"'s lineage check finds it; a hole found while drafting goes back to the venture as a register entry, not into this file."
   print ""
   print "## Goal and scope candidates"
   print ""
   for (i = 1; i <= no; i++) print "- **" OF[i] ":** " OV[OF[i]]
-  if (scope != "venture") print "- **Track:** " TR[scope]
+  if (!whole) print "- **Track:** " TR[scope]
   print "- **Success metric:** " T["Success metric"]
   print "- **Appetite:** " (T["Appetite"] == "" ? "none" : T["Appetite"])
   print ""
@@ -979,7 +1016,7 @@ END {
   print ""
   print "## Suggested citation"
   print ""
-  print "- **Venture " vid (scope == "venture" ? "" : ", track " scope) "** — graduated inception seed (" key ", Gate " gate ", " gdate ") — `" sloc "`"
+  print "- **Venture " vid (whole ? "" : ", track " scope) "** — graduated inception seed (" key ", Gate " gate ", " gdate ") — `" sloc "`"
 }
 '
 
@@ -1030,13 +1067,16 @@ cmd_seed() {
   }
 
   _dest=$(trim_slashes "$_dest")
+  check_dir_arg "$_dest" "the destination"
   check_path "$_dest" "the destination"
   [ ! -L "$_dest" ] || die 1 "the destination is a symbolic link; name the directory itself"
   if [ -d "$_dest" ]; then
     _droot=$(cd "$_dest" && pwd -P) || die 2 "cannot enter the destination"
   else
+    [ ! -e "$_dest" ] || die 1 "the destination exists and is not a directory"
     [ -d "$(dirname "$_dest")" ] || die 1 "the destination's parent directory does not exist"
-    _droot="$(cd "$(dirname "$_dest")" && pwd -P)/$(basename "$_dest")" || die 2 "cannot enter the destination's parent"
+    _dp=$(cd "$(dirname "$_dest")" && pwd -P) || die 2 "cannot enter the destination's parent"
+    _droot="$_dp/$(basename "$_dest")"
   fi
   check_path "$_droot" "the destination"
   # /spec-draft resolves a spec root only inside a repository, so a seed
@@ -1063,7 +1103,8 @@ cmd_seed() {
 
   # The decider is bundle text, so it travels by the environment: awk -v
   # would rewrite its backslash escapes.
-  GATE_SEED_DECIDER=$_gdec awk -v scope="$_scope" -v key="$_key" -v gate="$_gate" -v gdate="$_gdate" \
+  if tracked; then _whole=0; else _whole=1; fi
+  GATE_SEED_DECIDER=$_gdec awk -v scope="$_scope" -v whole="$_whole" -v key="$_key" -v gate="$_gate" -v gdate="$_gdate" \
     -v vid="$vid" -v sloc="$_rel" "$SEED_AWK" "$work/all" >"$work/seed.raw" \
     || die 2 "cannot compose the seed"
   strip_eval <"$work/seed.raw" >"$work/seed" || die 2 "cannot compose the seed"
@@ -1086,20 +1127,24 @@ cmd_seed() {
   validated_stage
 
   # Nothing is created in the destination until the bundle change has passed.
+  [ -d "$_droot" ] || made_droot=$_droot
+  [ -d "$_pdir" ] || made_pdir=$_pdir
   mkdir -p "$_pdir" || die 2 "cannot create the destination's _pending directory"
   [ ! -L "$_droot" ] && [ ! -L "$_pdir" ] || die 1 "the destination became a symbolic link; refusing to write through it"
-  installing=$(mktemp "$_pdir/.inception-gate.XXXXXX") || die 2 "cannot write the seed"
-  cp -p "$work/seed" "$installing" || die 2 "cannot write the seed"
-  if ! ln "$installing" "$_seed" 2>/dev/null; then
+  seed_tmp=$(mktemp "$_pdir/.inception-gate.XXXXXX") || die 2 "cannot write the seed"
+  cp -p "$work/seed" "$seed_tmp" || die 2 "cannot write the seed"
+  if ! ln "$seed_tmp" "$_seed" 2>/dev/null; then
     [ ! -e "$_seed" ] && [ ! -L "$_seed" ] || die 1 "a seed already exists at _pending/$_name"
     die 2 "cannot place the seed (the destination may not support hard links)"
   fi
-  rm -f "$installing"
-  installing=
+  rm -f "$seed_tmp"
+  seed_tmp=
   # Until the lineage is recorded, an exit removes the seed again.
   seed_placed=$_seed
   install_files brief.md
   seed_placed=
+  made_pdir=
+  made_droot=
   printf 'seed\t%s\n' "$_seed" | strip_eval
   printf 'lineage\t%s\tpending\n' "$_scope"
   printf 'cite\t%s\n' "$(tail -n 1 "$work/seed")" | strip_eval
@@ -1109,6 +1154,7 @@ cmd_seed() {
 
 spec_dir() {
   set -- "$(trim_slashes "$1")"
+  check_dir_arg "$1" "the spec directory"
   check_path "$1" "the spec directory"
   [ ! -L "$1" ] || die 1 "the spec directory is a symbolic link; name the directory itself"
   [ -d "$1" ] || die 1 "no spec directory at $(sanitize_printable "$1" '?')"
@@ -1196,6 +1242,7 @@ cmd_lineage() {
   while IFS= read -r _s; do
     _sd=$(spec_dir "$_s") || exit $?
     _sl=$(loc_of "$_sd") || die 1 "a --spec directory is not inside a git repository"
+    cut -f2 "$work/specmap" | grep -qxF "$_sd" && continue
     ! cut -f1 "$work/specmap" | grep -qxF "$_sl" \
       || die 2 "two --spec directories share the location $(sanitize_printable "$_sl" '?'); check them one at a time"
     printf '%s\t%s\n' "$_sl" "$_sd" >>"$work/specmap"
@@ -1203,7 +1250,7 @@ cmd_lineage() {
   _bad=0
   graduated_scopes >"$work/grad"
   while IFS='	' read -r _sc _g; do
-    awk -F'\t' -v s="$_sc" '$1 == "LIN" && $2 == s { f = 1 } END { exit !f }' "$work/all" && continue
+    GATE_SCOPE=$_sc awk -F'\t' '$1 == "LIN" && $2 == ENVIRON["GATE_SCOPE"] { f = 1 } END { exit !f }' "$work/all" && continue
     printf 'lineage\t%s\tventure-side-missing\n' "$(sanitize_printable "$_sc" '?')"
     _bad=1
   done <"$work/grad"
@@ -1222,9 +1269,14 @@ cmd_lineage() {
         case /$_sp/ in
           //* | */../*) ;;
           *)
+            if [ ! -d "$vdir/$_sp" ]; then
+              printf 'lineage\t%s\tspec-missing\n' "$(sanitize_printable "$_sc" '?')"
+              _bad=1
+              continue
+            fi
             _sd=$(cd "$vdir/$_sp" 2>/dev/null && pwd -P)
             case $_sd in
-              "$vdir"/*) ;;
+              "$vdir" | "$vdir"/*) ;;
               *) _sd= ;;
             esac
             ;;

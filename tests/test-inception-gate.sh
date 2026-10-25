@@ -483,7 +483,7 @@ gate lineage "$vroot/probe"
 assert_eq "J1.5 an unnamed cross-repository spec is not a finding" 0 "$rc"
 assert_contains "J1.5 it reads unchecked" "lineage	venture	unchecked" "$out"
 
-# --- convergence fixes -------------------------------------------------------
+# --- closing, containment, and write atomicity -----------------------------
 
 # A tracked venture closes once every track has graduated or ended.
 mkv closing tracked
@@ -499,6 +499,7 @@ assert_eq "F1.3 the closed bundle validates" 0 "$(validates_clean "$vroot/closin
 mkv killtracks tracked
 gate record --outcome Kill --tracks "capture=Hold,measure=Recycle" --decider "Dana Reyes" --rationale x "$vroot/killtracks"
 assert_eq "E1.2 a top-level Kill leaving a track live is refused" 1 "$rc"
+assert_contains "E1.2 the refusal says why" "a top-level Kill closes the venture" "$out"
 mkv trackgate tracked
 gate record --outcome Recycle --tracks "capture=Graduate,measure=Recycle" --decider "Dana Reyes" --rationale x "$vroot/trackgate"
 assert_eq "F1.3 a track with an unresolved blocking assumption cannot graduate" 1 "$rc"
@@ -543,9 +544,10 @@ assert_eq "F1.1 and leaves the destination untouched" 0 "$(find "$tmp/dirty-dest
 mkv forged
 ready "$vroot/forged"
 "$GATE" record --outcome Graduate --decider "Dana Reyes" --rationale ready "$vroot/forged" >/dev/null 2>&1
-awk '{ print } /^Decider: Dana Reyes$/ && !d { print "Decider: ## Injected heading"; d = 1 }' "$vroot/forged/brief.md" >"$tmp/b" \
+awk '{ print } /^Decider: Dana Reyes$/ && ++c == 2 { print "Decider: ## Injected heading" }' "$vroot/forged/brief.md" >"$tmp/b" \
   && mv "$tmp/b" "$vroot/forged/brief.md"
 gate seed --dest "$(specroot "$vroot/forged")" "$vroot/forged"
+assert_eq "F1.1 a repeated gate field still seeds" 0 "$rc"
 assert_not_contains "F1.1 a repeated gate field cannot add a seed line" "## Injected heading" \
   "$(cat "$vroot/forged/specs/_pending/inception-forged.md" 2>/dev/null)"
 
@@ -633,6 +635,38 @@ assert_contains "the refusal names the link" "symbolic link" "$out"
 ln -s "$g/specs/capture-surface" "$tmp/speclink"
 gate link --spec "$tmp/speclink/" "$g"
 assert_contains "link refuses a symbolic-link spec named with a trailing slash" "symbolic link" "$out"
+
+# A track may be labelled `venture`: it is still one track.
+mkv vtrack tracked
+sed 's/^- \*\*measure\*\* — /- **venture** — /; s/^- \*\*Track:\*\* measure$/- **Track:** venture/; s/measure=Recycle/venture=Recycle/' \
+  "$vroot/vtrack/brief.md" >"$tmp/b" && mv "$tmp/b" "$vroot/vtrack/brief.md"
+for f in assumptions plan; do
+  sed 's/^- \*\*Track:\*\* measure$/- **Track:** venture/' "$vroot/vtrack/$f.md" >"$tmp/b" && mv "$tmp/b" "$vroot/vtrack/$f.md"
+done
+gate evaluate --track venture "$vroot/vtrack"
+assert_contains "F1.3 a track labelled venture is evaluated as a track" "scope	track venture" "$out"
+assert_not_contains "F1.3 and only its own entries count" "blocking-unresolved	A-1" "$out"
+
+gate seed --dest "$tmp/gitlink/." "$vroot/slash"
+assert_eq "seed refuses a destination named through a . component" 1 "$rc"
+printf 'not a directory\n' >"$tmp/gitreal/afile"
+gate seed --dest "$tmp/gitreal/afile" "$vroot/slash"
+assert_contains "seed refuses a destination that is a file" "not a directory" "$out"
+
+mv "$g/specs/capture-surface" "$g/specs/capture-moved"
+gate lineage "$g"
+assert_contains "J1.5 a moved in-venture spec reads missing, not refused" "lineage	venture	spec-missing" "$out"
+mv "$g/specs/capture-moved" "$g/specs/capture-surface"
+
+# A venture path with a space: a failed install still cleans up after itself.
+mkdir -p "$tmp/sp ace"
+inception_fixture_write "$tmp/sp ace/spaced" || exit 1
+git -C "$tmp/sp ace/spaced" init -q
+# shellcheck disable=SC2016 # a written script, not an expansion
+printf '#!/bin/sh\nfor a; do last=$a; done\ncase "$last" in */assumptions.md) exit 1 ;; esac\nexec %s "$@"\n' "$realmv" >"$tmp/shim/mv"
+out=$(PATH="$tmp/shim:$PATH" "$GATE" record --outcome Hold --decider "Dana Reyes" --rationale x "$tmp/sp ace/spaced" 2>&1)
+assert_eq "a spaced venture path leaves no scratch file" "" "$(find "$tmp/sp ace/spaced" -maxdepth 1 -name '.inception-gate.*')"
+assert_eq "and restores the bundle" Exploring "$(status_of "$tmp/sp ace/spaced" disciplines.md)"
 
 # --- refusals ----------------------------------------------------------------
 
