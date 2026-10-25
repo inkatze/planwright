@@ -43,10 +43,25 @@ valid_date() {
     [0-9][0-9][0-9][0-9]-0[1-9]-[0-3][0-9] | [0-9][0-9][0-9][0-9]-1[0-2]-[0-3][0-9]) ;;
     *) return 1 ;;
   esac
-  case ${1##*-} in
-    0[1-9] | [12][0-9] | 3[01]) return 0 ;;
+  vd_day=${1##*-}
+  vd_month=${1#*-}
+  vd_month=${vd_month%-*}
+  case $vd_day in
+    0[1-9] | 1[0-9] | 2[0-8]) return 0 ;;
+    29 | 30 | 31) ;;
+    *) return 1 ;;
   esac
-  return 1
+  case $vd_month in
+    04 | 06 | 09 | 11) [ "$vd_day" != 31 ] ;;
+    02)
+      [ "$vd_day" = 29 ] || return 1
+      # Leading zeros stripped: some shells read 0-led arithmetic as octal.
+      vd_year=$(printf '%s\n' "${1%%-*}" | sed 's/^0*//')
+      vd_year=${vd_year:-0}
+      [ $((vd_year % 4)) -eq 0 ] && { [ $((vd_year % 100)) -ne 0 ] || [ $((vd_year % 400)) -eq 0 ]; }
+      ;;
+    *) return 0 ;;
+  esac
 }
 
 # dnum <YYYY-MM-DD> — the date as an integer, for -gt comparison (POSIX test
@@ -104,7 +119,7 @@ parsed=$(awk '
   function flush() {
     if (id == "") return
     for (i = 1; i <= nf; i++)
-      if (!(F[i] in V)) print "malformed\t" id "\tmissing field " F[i]
+      if (!(F[i] in V) || V[F[i]] == "") print "malformed\t" id "\tmissing field " F[i]
     print "entry\t" id "\t" title "\t" val("Verified") "\t" val("Re-verify-by") "\t" val("Relied on by") "\t" val("Source")
     split("", V)
     id = ""
@@ -113,6 +128,7 @@ parsed=$(awk '
   /^### / {
     flush()
     h = substr($0, 5)
+    gsub(/\t/, " ", h)
     if (h !~ /^PC-[1-9][0-9]* — ./) { print "malformed\t-\theading is not ### PC-<n> — <title>: " h; next }
     id = h; sub(/ — .*/, "", id)
     title = h; sub(/^[^ ]* — /, "", title)
@@ -125,6 +141,8 @@ parsed=$(awk '
     k = $0; sub(/^- \*\*/, "", k); sub(/:\*\* .*/, "", k)
     v = $0; sub(/^- \*\*[^*]+:\*\* /, "", v)
     gsub(/\t/, " ", v)
+    # A repeated field would let a later line silently mask a bad earlier one.
+    if (k in V) print "malformed\t" id "\tduplicate field " k
     V[k] = v
   }
   END { flush() }

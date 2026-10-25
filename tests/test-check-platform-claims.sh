@@ -153,11 +153,67 @@ assert_eq "a non-https source fails" 1 "$rc"
 } | write_reg
 check
 assert_eq "a missing field fails" 1 "$rc"
-assert_contains "the missing field is named" "Re-verify-by" "$out"
+assert_contains "the missing field is named" "missing field Re-verify-by" "$out"
 
-{ printf '### Claim one\n\n'; } | write_reg
+{
+  printf '### PC-1 — empty claim\n\n'
+  printf -- '- **Claim:** \n- **Relied on by:** `scripts/uses-claim.sh`\n'
+  printf -- '- **Source:** https://example.com\n- **Verified:** 2026-10-01\n'
+  printf -- '- **Re-verify-by:** 2027-01-01\n\n'
+} | write_reg
+check
+assert_eq "an empty field fails" 1 "$rc"
+assert_contains "the empty field is named as missing" "missing field Claim" "$out"
+
+{
+  entry PC-1 'repeated date' 2026-10-01 2027-01-01
+  printf -- '- **Verified:** 2026-09-01\n\n'
+} | write_reg
+check
+assert_eq "a repeated field fails" 1 "$rc"
+assert_contains "the repeated field is named" "duplicate field Verified" "$out"
+
+{
+  entry PC-1 'first claim'
+  printf '### Claim one\n\n'
+} | write_reg
 check
 assert_eq "a heading without a PC id fails" 1 "$rc"
+assert_contains "the bad heading is named" "heading is not" "$out"
+
+{
+  printf '### PC-1 — tab\there\n\n'
+  printf -- '- **Claim:** x\n- **Relied on by:** `scripts/uses-claim.sh`\n'
+  printf -- '- **Source:** https://example.com\n- **Verified:** 2026-10-01\n'
+  printf -- '- **Re-verify-by:** 2027-01-01\n\n'
+} | write_reg
+check
+assert_eq "a tab in a title does not shift the fields" 0 "$rc"
+
+for d in 2026-02-29 2026-04-31 2026-02-30; do
+  { entry PC-1 'impossible date' "$d" 2027-01-01; } | write_reg
+  check
+  assert_eq "an impossible Verified date ($d) fails" 1 "$rc"
+done
+{ entry PC-1 'leap day' 2024-02-29 2027-01-01; } | write_reg
+check
+assert_eq "a leap day passes" 0 "$rc"
+
+{ entry PC-1 'bad re-verify' 2026-10-01 2027-1-01; } | write_reg
+check
+assert_eq "an invalid Re-verify-by date fails" 1 "$rc"
+assert_contains "the invalid Re-verify-by is named" "Re-verify-by is not" "$out"
+
+{ entry PC-1 'same day' 2026-10-01 2026-10-01; } | write_reg
+check
+assert_eq "a re-verify date equal to the verified date fails" 1 "$rc"
+
+for p in /etc/hosts ../repo/scripts/uses-claim.sh; do
+  { entry PC-1 'outside' 2026-10-01 2027-01-01 "$p"; } | write_reg
+  check
+  assert_eq "a Relied-on path outside the repository ($p) fails" 1 "$rc"
+  assert_contains "the outside path is refused by name" "must name a repository path" "$out"
+done
 
 printf '# Platform claims\n\n## Claims\n\n' >"$reg"
 check
