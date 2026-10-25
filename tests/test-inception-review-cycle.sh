@@ -299,6 +299,18 @@ assert_eq "impossible pinned date: export refused" "2" "$?"
 assert_eq "impossible pinned date: no API call" "$calls" "$(wc -l <"$tmp/log/argv" | tr -d ' ')"
 assert_eq "impossible pinned date: no commit" "$before" "$(head_sha)"
 
+# A ledger Cycle that is not a plain number would fail the shell's arithmetic
+# only after the snapshot went out, so it is refused before anything is sent.
+sed 's/^Cycle: .*/Cycle: 08/' "$ledger" >"$tmp/l" && cp "$tmp/l" "$ledger"
+git -C "$v" commit -qm "chore: a hand edit" -- feedback/ledger.md
+before="$(head_sha)"
+"$CYCLE" export --confirmed "$v" >/dev/null 2>"$tmp/err"
+assert_eq "malformed ledger cycle: export refused" "1" "$?"
+assert_contains "malformed ledger cycle: names the field" "Cycle" "$(cat "$tmp/err")"
+assert_eq "malformed ledger cycle: no API call" "$calls" "$(wc -l <"$tmp/log/argv" | tr -d ' ')"
+assert_eq "malformed ledger cycle: no commit" "$before" "$(head_sha)"
+git -C "$v" checkout -q HEAD~1 -- feedback/ledger.md && git -C "$v" commit -qm "chore: undo the hand edit" -- feedback/ledger.md
+
 # fresh_venture <dir> — a second venture, exported and harvested, its three
 # items pending.
 fresh_venture() {

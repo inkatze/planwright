@@ -562,9 +562,16 @@ cmd_export() {
   [ -n "$adapter" ] || die 2 "the first export names its adapter: --adapter <name> ($ADAPTERS)"
   resolve_adapter "$adapter"
 
+  cycle=0
   if [ -f "$ledger" ]; then
     phase=$(header Phase)
     cycle=$(header Cycle)
+    # Checked before anything is sent: the next cycle's number is computed
+    # after the export, where a failed arithmetic would lose its record.
+    case $cycle in
+      0 | [1-9] | [1-9][0-9] | [1-9][0-9][0-9] | [1-9][0-9][0-9][0-9]) ;;
+      *) die 1 "the ledger's Cycle is not a cycle number ('$(sanitize_printable "$cycle")'); fix $LEDGER_REL first" ;;
+    esac
     if [ "$phase" = exported ]; then
       die 1 "cycle $cycle was exported and not yet harvested in full; harvest it first, since a re-export replaces the page and may drop feedback nobody has read"
     fi
@@ -617,7 +624,7 @@ cmd_export() {
 
   mkdir -p "$target/feedback" || die 2 "cannot create feedback/"
   ledger_guard
-  next=$(($(header Cycle | tr -cd '0-9' | sed 's/^$/0/') + 1))
+  next=$((cycle + 1))
   if [ ! -f "$ledger" ]; then
     {
       printf '# %s — Review feedback ledger\n\n' "$(venture_title)"
