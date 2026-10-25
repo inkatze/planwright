@@ -211,7 +211,7 @@ scratch_make() {
     *[[:cntrl:]]*) return 1 ;;
   esac
   if [ ! -e "$sm" ] && [ ! -L "$sm" ]; then
-    mkdir -- "$sm" 2>/dev/null || return 1
+    mkdir -- "$sm" 2>/dev/null || return 1 # not-a-lock: creating the scratch root, whose checks follow
   fi
   [ -d "$sm" ] && [ ! -L "$sm" ] || return 1
   [ "$(find "$sm" -maxdepth 0 -user "$(id -u)" 2>/dev/null)" = "$sm" ] || return 1
