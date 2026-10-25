@@ -967,17 +967,10 @@ observation_targets: {}
 # and documented in docs/options-reference.md; scripts/check-mc-knobs.sh
 # keeps the three in step.
 #
-# The programs mission control runs, an inline list of names (lowercase
-# letters and digits, hyphen separated). Each program is a block of
-# program_<name>_* keys, the name's hyphens written as underscores:
-#   program_<name>_repositories  [path, ...] work repositories, absolute or ~/
-#   program_<name>_spec_root     the spec root, absolute or ~/, any posture
-#   program_<name>_home          the program home (default: below)
-#   program_<name>_duties        [duty, ...] (default: the shipped set below)
-#   program_<name>_budget        {key: value, ...} the program's budget
-#   program_<name>_sources       {class: source:mode, ...} the state-source map
-# A program spans repositories, so the adopter layer is the usual home of
-# its block. Read through scripts/mc-program.sh.
+# The programs mission control runs, an inline list of names. Each program
+# is a block of program_<name>_* keys; scripts/mc-program.sh's header holds
+# the name and field grammar. A program spans repositories, so the adopter
+# layer is the usual home of its block.
 mission_control_programs: []
 # Where a program's home defaults to, as <root>/<program>: a human-owned
 # location outside every work repository, absolute or ~/.

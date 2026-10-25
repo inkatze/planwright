@@ -15,8 +15,9 @@
 #   sources       {class: source:mode, ...}
 #                               the state-source map; default
 #                               mission_control_default_sources
-# A program name is lowercase letters and digits, hyphen separated, at most
-# 64 characters.
+# A program name is lowercase letters and digits, hyphen separated, starting
+# with a letter, at most 64 characters. A budget key is lowercase snake case;
+# a source is a kebab name (lowercase letters, digits and hyphens).
 #
 # The state-source map names, per fact class (work-items, code-state,
 # decisions, deadlines, designs), the authoritative source and its mode:
