@@ -129,8 +129,8 @@ walk() {
             bad(ids[i], f, "\"" w "\" is not <script>@<cadence>/<cost>, cadence a positive count of s, m, h or d")
             continue
           }
-          if (wp[1] ~ /^-/ || ("/" wp[1] "/") ~ /\/\.\.\//)
-            bad(ids[i], f, "watcher script \"" wp[1] "\" starts with - or has a .. segment")
+          if (wp[1] ~ /^[\/-]/ || ("/" wp[1] "/") ~ /\/\.\.\//)
+            bad(ids[i], f, "watcher script \"" wp[1] "\" starts with / or - or has a .. segment")
           if (wp[3] != "low" && wp[3] != "medium" && wp[3] != "high")
             bad(ids[i], f, "unknown cost class \"" wp[3] "\" (known: low medium high)")
         } else if (!kebab(arr[j])) {

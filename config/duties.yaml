@@ -14,8 +14,10 @@
 #   id             kebab identifier
 #   summary        one line: what the duty saves the operator
 #   triggers       [event, ...] kebab events that start the duty's judgment
-#   watchers       [<script>@<cadence>/<cost>, ...]; <script> a path without
-#                  `..` segments; <cadence> a positive count of s, m, h or d;
+#   watchers       [<script>@<cadence>/<cost>, ...]; <script> a relative path
+#                  of letters, digits, `.`, `_`, `-` and `/`, starting with
+#                  neither `/` nor `-`, with no `..` segment; <cadence> a
+#                  positive count of s, m, h or d;
 #                  <cost> the cost class, low, medium or high, the order the
 #                  budget ladder pauses watchers in
 #   wake           the kebab event that reaches the session, or none

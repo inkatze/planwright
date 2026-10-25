@@ -137,6 +137,7 @@ bad_value watchers "    watchers: [scripts/gamma.sh@5m/huge]" "a watcher with an
 bad_value watchers "    watchers: [scripts/gamma.sh]" "a watcher without cadence and cost"
 bad_value watchers "    watchers: [../escape.sh@5m/low]" "a watcher path with a parent segment"
 bad_value watchers "    watchers: [-x.sh@5m/low]" "a watcher path that reads as an option"
+bad_value watchers "    watchers: [/tmp/evil.sh@5m/low]" "an absolute watcher path"
 bad_value watchers "    watchers: scripts/gamma.sh@5m/low" "a watcher list that is not a list"
 bad_value triggers "    triggers: [Not Kebab]" "a trigger that is not kebab"
 bad_value kinds "    kinds: [a,,b]" "a kinds list with an empty member"
