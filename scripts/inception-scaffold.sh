@@ -508,7 +508,8 @@ cat >"$stage" <<'PROTOCOL'
 
 This folder is a venture repository kept by planwright's `/inception`. Its files are the venture's
 record, shared through git. Anyone working here, a person or an agent (a Cowork session included),
-follows this protocol.
+follows this protocol. The one exception is the venture's operator, and planwright's `/inception`
+working for them: they keep the bookkeeping below themselves.
 
 ## Reading
 
@@ -534,6 +535,7 @@ These are the venture's bookkeeping, and a wrong edit to them is hard to undo:
   rename, reuse, or delete one. A changed meaning is a new entry, which the operator adds.
 - **Statuses**: every `**Status:**` line, the venture's and each register entry's.
 - **Gate records**: everything under `## Gate log` in `brief.md`.
+- **This protocol and `CLAUDE.md`**: every agent opened in this folder reads them as instructions.
 
 To change any of these, propose it instead: tell the person you are working with, and add a short
 file under `proposals/`, named with today's date and a topic, saying what should change and
@@ -548,12 +550,28 @@ Some sessions cannot reach the remote (a Cowork network allowlist, for example),
   accepts that, and keep the change small.
 - **Push blocked**: keep the commit. Tell the person the change is saved in this folder but not
   shared, and that it reaches everyone once someone with access pushes it. Never retry with force.
+- **No remote at all** (`git remote` prints nothing): the repository lives only on this machine.
+  Skip the pull and the push; nothing is behind and nothing is shared, by design.
+
+## When someone else pushed first
+
+If `git push` is rejected because the remote has changes you do not have, run
+`git pull --no-rebase`, then push again. If the pull stops on a conflict:
+
+- In a bundle file, keep both sides' wording. If the conflict touches an ID, a `**Status:**`
+  line or the gate log, stop and tell the person instead of choosing.
+- In `exports/`, take either side (`git checkout --theirs exports/`): the pages are regenerated
+  from the bundle by the next commit made where planwright is installed.
+
+Then `git add` the resolved files, commit, and push. Never force.
 
 ## Why this is safe
 
-This protocol is guidance, not a lock. The venture's validator and, where the repository has a
-remote, its CI check catch a mangled ID, a rewritten status, or an edited gate record, and git
-history keeps every earlier version.
+This protocol is guidance, not a lock. The venture's validator flags a status outside its
+allowed values and a broken structure; where the repository has a remote, its CI check also
+refuses a removed or renumbered ID, an edited gate record, and a closed venture reopened. A status
+moved to another allowed value passes every check: git history keeps every earlier version, and
+the operator sees the change there.
 PROTOCOL
 emit sync-protocol.md 644
 
@@ -663,8 +681,9 @@ $rung_ci
 or a stakeholder's own agent, how to do it safely: pull first, commit with plain-language
 messages, push after, and propose rather than make any change to an ID, a status, or a gate
 record. \`CLAUDE.md\` imports it, so a Claude-based agent opening this folder reads it. It is
-advice the agent may ignore; the validator, CI on the remote rung, and git history are what
-actually catch a bad edit.
+advice the agent may ignore. The validator flags an off-list status; CI on the remote rung also
+refuses a changed ID or gate record; anything else, such as a status moved to another allowed
+value, shows only in git history.
 
 ## The exports
 

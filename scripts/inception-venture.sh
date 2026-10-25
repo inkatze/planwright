@@ -1,7 +1,8 @@
 #!/bin/sh
 # inception-venture.sh — the mechanical half of the /inception skill
 # (inception Task 7; REQ-A1.1, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.8,
-# REQ-A1.9, REQ-B1.7, REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.5 · D-5, D-19).
+# REQ-A1.9, REQ-B1.7, REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5 · D-5,
+# D-11, D-19).
 #
 # The skill holds the conversation; everything that must behave the same on
 # every run lives here as small subcommands, each data in, data out:
@@ -26,17 +27,21 @@
 #   handoff <venture-dir> the end-of-run state, degradations repeated
 #
 # Output is `key<TAB>value` lines wherever a caller parses it; `degraded`
-# lines name each missing capability in plain words, and the skill repeats
-# them at pre-flight and in its handoff (REQ-H1.5).
+# lines name each missing capability in plain words, `caveat` lines a host
+# limit that is not one (a Cowork session's), and the skill repeats both at
+# pre-flight and in its handoff (REQ-H1.5).
 #
 # The ladder (REQ-H1.1, D-5): a git repository (local-only or private remote),
 # then a plain folder when git is unavailable, then session-only when the
 # filesystem does not outlive the session. Capability degrades; the bundle is
 # always written.
 #
-# Ephemeral detection reads CLAUDE_CODE_REMOTE, which Claude Code documents as
-# set to `true` in a cloud session; PLANWRIGHT_INCEPTION_EPHEMERAL=1|0 is the
-# operator's override in either direction, for hosts the probe misreads.
+# Host detection reads CLAUDE_CODE_REMOTE, which Claude Code documents as set
+# to `true` in a cloud session; Cowork documents no such signal, so only
+# PLANWRIGHT_INCEPTION_HOST=cowork|cloud|local names it (another value is
+# warned about and ignored). A cloud or Cowork host is ephemeral;
+# PLANWRIGHT_INCEPTION_EPHEMERAL=1|0 is the operator's override in either
+# direction, for hosts the probe misreads or a Cowork connected folder.
 #
 # Exit: 0 success · 1 refused identifier (check-id, create, add-remote), a
 #   proposed variant (id), a save the venture's guard stopped, a push whose
@@ -54,8 +59,10 @@
 #   the message names it: add-remote on that venture finishes the setup).
 #
 # Environment: PLANWRIGHT_INCEPTION_TODAY (YYYY-MM-DD) pins today's date;
-#   the config overrides resolve-config-knob.sh honors apply to `root` and
-#   to `create` without `--root`.
+#   PLANWRIGHT_INCEPTION_HOST and PLANWRIGHT_INCEPTION_EPHEMERAL as above;
+#   PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT are among the places the `plugin`
+#   probe looks; the config overrides resolve-config-knob.sh honors apply to
+#   `root` and to `create` without `--root`.
 #
 # Portable POSIX sh; bash 3.2 / BSD tooling floor (REQ-K1.5).
 set -u

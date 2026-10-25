@@ -80,7 +80,7 @@ mise run check      # the full local equivalent of the CI gate
   snapshots, and the machine-local memory-link guard over spec files;
 - the spec validator over the resolved spec root (`specs/` by default), the
   anchor-freshness guard over every signed bundle, the observation-store guard,
-  and the miss-ledger grammar guard;
+  the miss-ledger grammar guard, and the platform-claims register guard;
 - the literal spec-home guard (`check:spec-literals`): a `specs/` path composed
   in a script, a hook, a `mise.toml` task body, `lefthook.yml`, `.gitignore`,
   or a workflow fails unless `config/spec-literal-allowlist.tsv` exempts it or

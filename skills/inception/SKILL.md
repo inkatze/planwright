@@ -164,8 +164,9 @@ the first question, and repeated in the handoff (REQ-H1.5).
    run add-remote on it. The output
    names the rung (`git`, `plain`, `session`); creation scaffolds the hygiene
    guards scaled to it (REQ-A1.9): a `.gitignore`, the pre-commit secret
-   screen, bundle validation and export regeneration, and on the remote rung
-   the CI guard.
+   screen, bundle validation and export regeneration, the sync protocol
+   (`sync-protocol.md`, imported from the venture's `CLAUDE.md`), and on the
+   remote rung the CI guard.
 5. **Write the skeleton and save it.** `inception-venture.sh bundle-init
    --title "<title>" <venture-dir>`, then `inception-venture.sh save
    <venture-dir> "Start the <title> venture"` (add `--push` on the remote
