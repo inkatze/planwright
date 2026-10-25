@@ -240,7 +240,7 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-(none yet)
+- **Task 13** — the convergence step `polish` ended `failed` (a loop-detection safety stop); record `.claude/steps/000001/004-step-convergence.rec`. Its nine queued forks, several in security-sensitive code, wait for operator direction; the worker's handoff lists them with recommended fixes.
 
 ## Deferred
 
