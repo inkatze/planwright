@@ -1,7 +1,7 @@
 # Custom spec location — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-25
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -567,6 +567,130 @@ starts in a holder needing to dispatch.
 and the marker is the identity a later registry keys on, so deferring it
 costs nothing structural.
 
+**Superseded-by: D-22** (2026-10-25) — the deferral's gate is met:
+mission-control's program starts in a holder and dispatches into several
+work repositories, so the registry now has a reader.
+
+### D-22: The reverse registry is built  (N, extension 2026-10-25)
+
+**Decision:** The work-repository registry D-21 deferred is built, in the
+shape that entry recorded: machine-local framework runtime state in the
+plugin data home, keyed on the root marker's `project` and the root's
+canonical path, each entry an alias and a primary checkout root. It is a
+cache, never a source of truth: the truth is each work repository's own
+`spec_root` pointer (D-4: the mapping is the work repository's property),
+which every read rechecks (D-23), and `scan` rebuilds a lost registry. With
+no non-default root configured anywhere, nothing reads or writes it.
+*(Shape kept from the Deferred entry unattended; open question 1 in
+`requirements.md`.)*
+
+**Alternatives considered:**
+- An operator-maintained `work_repositories` map in the holder's
+  machine-local config layer. Rejected because: it is a second copy of a
+  fact the work repository's pointer already states, and it goes stale
+  silently when a checkout moves or is re-cloned.
+- Searching the filesystem for checkouts at dispatch time. Rejected
+  because: the cost is unbounded, and its answer depends on which
+  directories happen to exist.
+- A list of work repositories in the holder's tracked marker. Rejected
+  because: D-4 rejected repository paths in the marker, since checkout
+  locations are per machine.
+
+**Chosen because:** it is the shape the bundle already signed as the
+deferral's resolution, it adds no committed state, and a revalidated cache
+cannot redirect a dispatch to a repository whose pointer does not name the
+root.
+
+### D-23: Registration and revalidation  (N, extension 2026-10-25)
+
+**Decision:** A work repository registers itself: whenever a planwright
+session starts in a repository whose resolved spec root is not the default,
+the session-start hook records the repository's alias and primary checkout
+root against that root, idempotently, and `register` does the same on
+demand. A holder checkout registers itself against a root it contains
+through `register --root <path>`, for holder-resident tasks. `scan <dir>…`
+rebuilds entries from the git checkouts under the directories given.
+Every read revalidates each entry it uses (the checkout exists and is a
+primary checkout; a work repository's own resolved spec root canonicalizes
+to the entry's root, or the holder contains it; the root's marker names
+the entry's project), ignores and reports a failing entry, and treats two
+live entries with one alias under one project as ambiguous. Writes replace
+the file atomically under a lock. *(Session-start registration chosen
+unattended; open question 2 in `requirements.md`.)*
+
+**Alternatives considered:**
+- `register` and `scan` only. Rejected for the default because: a holder
+  session on a new machine would refuse every dispatch until the operator
+  remembered a per-machine step; the explicit commands remain for rebuilds.
+- Trusting entries as written. Rejected because: a stale or edited entry
+  could point a dispatch at a repository that no longer uses the root; the
+  revalidation is what keeps the cache from becoming a second truth.
+
+**Chosen because:** registration happens where the fact is known (the work
+repository resolving its own pointer), and revalidation on read makes a
+stale entry harmless.
+
+### D-24: A repository's alias  (N, extension 2026-10-25)
+
+**Decision:** A repository's alias is its `repository_alias` value, read
+through the four overlay layers and normally set in the repo-tracked layer,
+and otherwise its `origin` remote's repository name (the last path segment,
+`.git` stripped, lowercased) when that matches the identifier grammar. A
+repository with neither is not registered, and the refusal names the option.
+The option ships absent (REQ-H1.3's dark-shipping rule). *(Chosen
+unattended; open question 3 in `requirements.md`.)*
+
+**Alternatives considered:**
+- The checkout directory's name. Rejected because: it differs between
+  machines and clones, and the alias appears in committed task blocks that
+  every machine reads.
+- The full remote URL or `owner/name`. Rejected because: it can carry a
+  host name into committed prose and fails the identifier grammar.
+- A machine-local alias only. Rejected because: two machines could then
+  disagree on what a committed `Repository:` value names.
+
+**Chosen because:** a tracked option or the remote's repository name is the
+same on every clone, which is the property a name written into a committed
+bundle needs.
+
+### D-25: Dispatching from a holder  (N, extension 2026-10-25)
+
+**Decision:** `scripts/resolve-work-repo.sh` gains a holder arm: when the
+bundle's root carries a marker, lies in the current repository, and is not
+that repository's own resolved spec root, the work repository is resolved
+through the registry instead of answering with the holder. A task resolves
+by its `Repository:` alias when it has one (`invariant-tasks`
+format-version 3), otherwise to the project's single registered work
+repository other than the holder; no match or several refuses with the
+candidates named, never falling back to the holder. The same lookup is the
+seam `invariant-tasks`' derivation uses for an alias in any session
+(`--repository <alias>`). `/orchestrate` in a holder then dispatches the
+selected unit into that repository: worktree placement, task branch,
+worker working directory, pull request, and trailers there, the spec root
+handed to the worker's write zone (D-15), and the freshness gate reading
+the holder's primary view (D-14). The dispatch markers and the per-spec
+lock keep their existing per-bundle homes (the markers under the common git
+directory of the repository holding the bundle, the lock beside the bundle),
+so a holder session and a work-repository session see the same in-flight
+state. *(The single-repository default
+chosen unattended; open question 4 in `requirements.md`.)*
+
+**Alternatives considered:**
+- Requiring every task in a holder bundle to name its repository. Rejected
+  because: a holder serving one work repository, the common case, would
+  need the field on every block for no information.
+- Falling back to the holder when the registry has no answer. Rejected
+  because: it is today's silent wrong answer, the failure this extension
+  exists to remove.
+- Moving the markers and lock into each work repository. Rejected because:
+  a bundle's in-flight state would split across repositories and two
+  sessions could each believe a unit idle.
+
+**Chosen because:** it changes only the one resolver every derivation and
+dispatcher already calls (REQ-E1.6), so a work-repository session is
+untouched and a holder session gets the right repository from the same
+seam.
+
 ## Cross-cutting concerns
 
 **Decision-domains walk.** Domains the feature touches and where each is
@@ -606,3 +730,22 @@ contained in the primary checkout, marker fields are validated against the
 identifier grammar, a cross-root fragment write is hygiene-screened and
 refused on failure (D-3, D-4, D-18), and the guard's trust chain is shared
 while each guard keeps its own policy (D-9).
+
+**Extension security posture (2026-10-25).** The registry is a new
+untrusted input on the dispatch path: a path read from it could steer a
+worktree, a worker, and a push into the wrong repository. Every alias and
+project id is grammar-checked before use, every path is canonicalized and
+revalidated against the work repository's own pointer before it is
+trusted (D-23), echoed values are sanitized, and the file is replaced
+atomically under a lock. The registry holds paths and aliases only, never
+a credential, and lives outside every work tree.
+
+**Extension decision-domains walk (2026-10-25).** Data storage: a new
+runtime home, decided in D-22 against `storage-classes` class 2.
+Configuration: one new option, `repository_alias`, shipped absent (D-24).
+Authorization: the worker write zone is unchanged in kind, handed the same
+root from a holder (D-25). Concurrency: concurrent registrations serialize
+on the registry lock; markers and the per-spec lock keep one home per
+bundle (D-25). Integration surface: the `--repository` lookup consumed by
+`invariant-tasks`' derivation (D-25). Observability: `--explain` reports
+ignored and ambiguous entries (D-23). No new dependency.

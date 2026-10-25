@@ -1,7 +1,7 @@
 # Custom spec location — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-25
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -282,8 +282,93 @@ supported configuration ships while the doctrine still calls it wrong.
 - **Citations:** D-16, D-20 · REQ-G1.3
 - **Estimated effort:** 1 day
 
+*(Extension 2026-10-25: Tasks 11–13 build the reverse registry and dispatch
+from a holder. The order across bundles is this Task 11, then
+`invariant-tasks`' extension Tasks 10 and 11, then this Task 12; the
+dependency grammar has no cross-bundle edge, so the order is stated in the
+Done-when lines and in the open questions in `requirements.md`.)*
+
+### Task 11 — The work-repository registry
+
+- **Deliverables:** `scripts/work-repo-registry.sh` with `register`
+  (from a work repository, or with `--root` from a holder), `scan`,
+  `lookup`, and `--explain`; the registry file in
+  the plugin data home, replaced atomically under a lock; revalidation of
+  every entry on read; the alias rule (`repository_alias`, else the
+  `origin` repository name) with its refusal; registration from the
+  session-start hook when the resolved spec root is not the default;
+  `scripts/resolve-work-repo.sh <spec-dir> --repository <alias>` answering
+  from the registry, the seam `invariant-tasks`' derivation consumes; the
+  `repository_alias` row in the options reference, absent from
+  `config/defaults.yml`; unit tests for each verb and each refusal.
+- **Done when:** a fixture work repository whose `spec_root` names a
+  marker-bearing root in a fixture holder registers at session start under
+  the marker's project with the `origin`-derived alias, and a second start
+  leaves the file byte-identical; `repository_alias` overrides that alias;
+  a repository with neither is refused naming the option; `lookup` drops an
+  entry whose checkout is gone, whose pointer no longer names the root, or
+  whose marker names another project, and `--explain` reports each; two
+  live entries with one alias resolve to nothing, naming both; a deleted
+  registry is rebuilt by `scan`; an alias or path carrying a control byte
+  is refused and sanitized in the message; with no non-default root
+  configured no registry file is created and the REQ-H1.1 fixture is
+  unchanged; `mise run check` passes.
+- **Dependencies:** 2
+- **Citations:** D-22, D-23, D-24 · REQ-I1.1, REQ-I1.2, REQ-I1.3,
+  REQ-I1.4, REQ-I1.7, REQ-I1.8, REQ-H1.3
+- **Estimated effort:** 2 days
+
+### Task 12 — Dispatch from a holder
+
+- **Deliverables:** the holder arm of `scripts/resolve-work-repo.sh`
+  (registry resolution by the task's alias or the single registered work
+  repository, refusing on none or several); `/orchestrate` and its dispatch
+  scripts, started in a holder checkout, placing the worktree, task branch,
+  and worker in the task's work repository, handing the spec root to the
+  worker's write zone, and reading the freshness gate from the holder's
+  primary view; the dispatch markers and per-spec lock unchanged in their
+  per-bundle homes; fixture tests using the two-repository harness
+  `invariant-tasks`' extension provides.
+- **Done when:** from a fixture holder checkout, on a holder bundle whose
+  Task 1 names `alpha` and whose Task 2 names `beta` and depends on Task 1,
+  the selector dispatches Task 1 into the `alpha` checkout (worktree,
+  branch, and worker working directory there) and, once Task 1's pull
+  request is merged in `alpha`, dispatches Task 2 into `beta`; on a holder
+  bundle with no `Repository:` field and one registered work repository,
+  the unit dispatches there; with two registered work repositories and no
+  field, or with the task's alias unregistered, the dispatch refuses naming
+  the candidates and nothing is created in the holder; the dispatch marker
+  is visible to a work-repository session's derivation of the same bundle;
+  a dispatch started in a work repository is unchanged on the existing
+  fixtures; runs after `invariant-tasks`' extension Tasks 10 and 11 have
+  merged; `mise run check` passes.
+- **Dependencies:** 11
+- **Citations:** D-25, D-14, D-15 · REQ-I1.5, REQ-I1.6, REQ-E1.4,
+  REQ-E1.5, REQ-E1.7
+- **Estimated effort:** 2 days
+
+### Task 13 — Holder dispatch documentation
+
+- **Deliverables:** `docs/spec-location.md` gaining a section on running
+  from a holder (registration, the alias and `repository_alias`, `scan`
+  after a move or a new machine, what a refusal names, and the per-task
+  `Repository:` field with a pointer to the meta-spec); the getting-started
+  and options-reference pointers to it.
+- **Done when:** the doc-link check passes; the section names the
+  registry's home as runtime state and says it is rebuilt by `scan`; the
+  options reference carries the `repository_alias` row; `mise run check`
+  passes.
+- **Dependencies:** 12
+- **Citations:** D-22, D-24, D-25 · REQ-I1.2, REQ-I1.3, REQ-I1.5
+- **Estimated effort:** half day
+
 ## Awaiting input
 
+- **Task 11** — anchor re-review pending: the reverse-registry and holder
+  dispatch extension (Tasks 11–13) is an unsigned meaning-class delta; run
+  the `/spec-kickoff` delta re-walkthrough, settle the open questions in
+  `requirements.md`, and remove this bullet at sign-off. Tasks 12 and 13
+  wait behind Task 11 through their dependency edges.
 - **Task 4** — draft PR #528 is open and reviewed, but its CI cannot go green: `scan:secrets` fails on a test fixture in another open branch's commit (the full-history scan sees every fetched ref, and main's own CI is red the same way), and mise stops the test suite when it does. PR #526 fixes it and is unmerged. Once #526 lands, merge `origin/main` into the task branch and re-run CI; the queued question Q1 in the PR body (how a probed output changed by work outside this migration is declared) also needs an answer.
 
 ## Deferred
@@ -294,6 +379,10 @@ supported configuration ships while the doctrine still calls it wrong.
   **Gate:** a session that starts in a holder repository needs to dispatch
   execution.
   Citations: D-21.
+  *(Gate met 2026-10-24: mission-control's program starts in a holder and
+  dispatches into several work repositories (mission-control D-22,
+  REQ-H1.3). Promoted to Tasks 11–13 by the 2026-10-25 extension; D-21 is
+  superseded by D-22.)*
 - **Uncommitted store files in the drain sweep.** A `/drain` inventory of
   files a halting skill left uncommitted in a holder or plain store, so a
   forgotten halt note surfaces without the operator remembering the
