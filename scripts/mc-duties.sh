@@ -19,10 +19,10 @@
 # An armed duty is one the program enables (scripts/mc-program.sh) whose
 # lifecycle is shadow or live. A disabled duty, or an `off` one, arms no
 # watcher and owns no directory. watchers and files skip, with a warning, an
-# invalid entry an adopter or machine-local catalog supplied, and refuse the
-# catalog over one from the core seed or the repo-tracked catalog, and over
-# an enabled id the catalog lacks. A repeated id reads its first entry, as
-# the resolver keeps it.
+# invalid entry an adopter or machine-local catalog supplied (a directory two
+# entries claim counts against both), and refuse the catalog over a problem
+# left once those are set aside, and over an enabled id the catalog lacks. A
+# repeated id reads its first entry, as the resolver keeps it.
 #
 # Exit codes: 0 resolved; 1 an invalid catalog, an unknown enabled duty, a
 # missing field or a control character in a value (get), or a resolver,
@@ -73,7 +73,11 @@ walk() {
     function trim(s) { sub(/^[ ]+/, "", s); sub(/[ ]+$/, "", s); return s }
     function unq(s) { if (s ~ /^".*"$/) s = substr(s, 2, length(s) - 2); return s }
     function kebab(s) { return s ~ /^[a-z0-9][a-z0-9-]*$/ }
-    function bad(id, f, msg) { print id ": " f ": " msg; nbad++ }
+    # A problem line is <position><TAB><id>: <field>: <problem>; the position
+    # (where the entry sits in the merged catalog) names an entry whose id
+    # cannot be printed.
+    function label(i) { return ids[i] ~ /[[:cntrl:]]/ ? "(entry " i ")" : ids[i] }
+    function bad(i, f, msg) { print i "\t" label(i) ": " f ": " msg; nbad++ }
     BEGIN {
       mode = ENVIRON["MODE"]; want_id = ENVIRON["ID"]; want_f = ENVIRON["FIELD"]
       nfields = split(ENVIRON["FIELDS"], field, " ")
@@ -120,55 +124,60 @@ walk() {
     }
     function check_list(i, f, kind,    arr, c, j, w, wp) {
       c = members(val[i, f], arr)
-      if (c == -1) { bad(ids[i], f, "\"" val[i, f] "\" is not an inline list [a, b]"); return }
-      if (c == -2) { bad(ids[i], f, "an empty member in \"" val[i, f] "\""); return }
+      if (c == -1) { bad(i, f, "\"" val[i, f] "\" is not an inline list [a, b]"); return }
+      if (c == -2) { bad(i, f, "an empty member in \"" val[i, f] "\""); return }
       for (j = 1; j <= c; j++) {
         if (kind == "watcher") {
           w = arr[j]
           if (!watcher_parts(w, wp)) {
-            bad(ids[i], f, "\"" w "\" is not <script>@<cadence>/<cost>, cadence a positive count of s, m, h or d")
+            bad(i, f, "\"" w "\" is not <script>@<cadence>/<cost>, cadence a positive count of s, m, h or d")
             continue
           }
           if (wp[1] ~ /^[\/-]/ || ("/" wp[1] "/") ~ /\/\.\.\//)
-            bad(ids[i], f, "watcher script \"" wp[1] "\" starts with / or - or has a .. segment")
+            bad(i, f, "watcher script \"" wp[1] "\" starts with / or - or has a .. segment")
           if (wp[3] != "low" && wp[3] != "medium" && wp[3] != "high")
-            bad(ids[i], f, "unknown cost class \"" wp[3] "\" (known: low medium high)")
+            bad(i, f, "unknown cost class \"" wp[3] "\" (known: low medium high)")
         } else if (!kebab(arr[j])) {
-          bad(ids[i], f, "\"" arr[j] "\" is not a kebab name")
+          bad(i, f, "\"" arr[j] "\" is not a kebab name")
         }
       }
     }
-    function validate(    i, j, k, f, owner) {
+    function validate(    i, j, k, f, owner, sp, nsp, skippos) {
+      nsp = split(ENVIRON["SKIPPOS"], sp, " ")
+      for (j = 1; j <= nsp; j++) skippos[sp[j]] = 1
       for (i = 1; i <= n; i++) {
-        if (ids[i] ~ /[[:cntrl:]]/) { bad("(entry " i ")", "id", "carries a control character"); continue }
-        if (!kebab(ids[i])) bad(ids[i], "id", "not a kebab name")
-        if (i in dupid) bad(ids[i], "id", "duplicate id; the resolver keeps the first entry")
+        if (i in skippos) continue
+        if (ids[i] ~ /[[:cntrl:]]/) { bad(i, "id", "carries a control character"); continue }
+        if (!kebab(ids[i])) bad(i, "id", "not a kebab name")
+        if (i in dupid) bad(i, "id", "duplicate id; the resolver keeps the first entry")
         for (j = 1; j <= nf[i]; j++) {
           k = fk[i, j]
-          if (!(k in known)) bad(ids[i], k, "unknown field")
-          else if ((i, k) in dupf) { bad(ids[i], k, "named twice"); delete dupf[i, k] }
-          if (val[i, k] ~ /[[:cntrl:]]/) bad(ids[i], k, "carries a control character")
+          if (!(k in known)) bad(i, k, "unknown field")
+          else if ((i, k) in dupf) { bad(i, k, "named twice"); delete dupf[i, k] }
+          if (val[i, k] ~ /[[:cntrl:]]/) bad(i, k, "carries a control character")
         }
         for (j = 2; j <= nfields; j++) {
           f = field[j]
-          if (!has[i, f]) bad(ids[i], f, "missing")
+          if (!has[i, f]) bad(i, f, "missing")
         }
-        if (has[i, "summary"] && val[i, "summary"] == "") bad(ids[i], "summary", "empty")
+        if (has[i, "summary"] && val[i, "summary"] == "") bad(i, "summary", "empty")
         if (has[i, "triggers"]) check_list(i, "triggers", "kebab")
         if (has[i, "rules"]) check_list(i, "rules", "kebab")
         if (has[i, "kinds"]) check_list(i, "kinds", "kebab")
         if (has[i, "watchers"]) check_list(i, "watchers", "watcher")
         if (has[i, "wake"] && val[i, "wake"] != "none" && !kebab(val[i, "wake"]))
-          bad(ids[i], "wake", "\"" val[i, "wake"] "\" is not a kebab event or none")
+          bad(i, "wake", "\"" val[i, "wake"] "\" is not a kebab event or none")
         if (has[i, "lifecycle"] && val[i, "lifecycle"] !~ /^(off|shadow|live)$/)
-          bad(ids[i], "lifecycle", "\"" val[i, "lifecycle"] "\" is not off, shadow or live")
+          bad(i, "lifecycle", "\"" val[i, "lifecycle"] "\" is not off, shadow or live")
         if (has[i, "never-propose"] && val[i, "never-propose"] !~ /^(true|false)$/)
-          bad(ids[i], "never-propose", "\"" val[i, "never-propose"] "\" is not true or false")
+          bad(i, "never-propose", "\"" val[i, "never-propose"] "\" is not true or false")
         if (has[i, "files"] && !(i in dupid)) {
           f = val[i, "files"]
-          if (!kebab(f)) bad(ids[i], "files", "\"" f "\" is not a kebab directory name")
-          else if (f in owner) bad(ids[i], "files", "\"" f "\" is already owned by " owner[f])
-          else owner[f] = ids[i]
+          if (!kebab(f)) bad(i, "files", "\"" f "\" is not a kebab directory name")
+          else if (f in owner) {
+            bad(i, "files", "\"" f "\" is already owned by " label(owner[f]))
+            bad(owner[f], "files", "\"" f "\" is also claimed by " label(i))
+          } else owner[f] = i
         }
       }
     }
@@ -196,6 +205,7 @@ walk() {
         print val[i, want_f]; exit 0
       }
       if (mode == "validate") { validate(); exit (nbad > 0) }
+      if (mode == "count") { print n; exit 0 }
       armed()
     }
   '
@@ -221,65 +231,78 @@ problems_of() {
   esac
 }
 
-report() { # report <problem-lines>
+# report <problem-lines>: each problem on stderr, its position dropped.
+report() {
   printf '%s\n' "$1" | while IFS= read -r p; do
-    printf '%s\n' "$prog: $(sanitize_printable "$p")" >&2
+    [ -n "$p" ] || continue
+    printf '%s\n' "$prog: ${2:-}$(sanitize_printable "${p#*	}")" >&2
   done
 }
 
-# armed <watchers|files> <program>. An invalid entry an adopter or
-# machine-local catalog supplied is skipped with a warning, the policy the
-# catalog resolver applies to a malformed overlay file; one from the core
-# seed or the repo-tracked catalog refuses the whole catalog.
-armed() {
-  cat_out=$(merged) || exit 1
-  skip=""
-  problems=$(problems_of "$cat_out")
+# skipped_entries <catalog>: the by-layer malformed policy over an
+# already-resolved catalog. An invalid entry an adopter or machine-local
+# catalog supplied is skipped with a warning, the policy the catalog resolver
+# applies to a malformed overlay file; prints <position><TAB><id> per skipped
+# entry. A problem left once those are set aside (an entry from the core seed
+# or the repo-tracked catalog, or one no layer can be named for) refuses the
+# catalog: exit 1.
+skipped_entries() {
+  problems=$(problems_of "$1")
   case $? in
-    0) ;;
-    1) skip_or_refuse ;;
-    *) exit 1 ;;
+    0) return 0 ;;
+    1) ;;
+    *) return 1 ;;
   esac
-  enabled=$(bash "$script_dir/mc-program.sh" get "$2" duties)
-  rc=$?
-  [ "$rc" -eq 0 ] || exit "$rc"
-  armed_rest "$1" "$2"
-}
-
-# skip_or_refuse: sort $problems by the layer that supplied each entry,
-# setting $skip or refusing the catalog.
-skip_or_refuse() {
+  # --explain lists the merged entries in the same order; a count that
+  # differs (the catalog changed between reads) names no layer.
   layers=$(catalog --explain 2>/dev/null)
-  skip=""
-  refuse=""
+  count=$(printf '%s\n' "$1" | walk count) || return 1
+  [ "$(printf '%s\n' "$layers" | grep -c .)" = "$count" ] || layers=""
+  skip_pos=" "
+  skip_lines=""
   while IFS= read -r p; do
     [ -n "$p" ] || continue
-    id=${p%%: *}
-    layer=$(printf '%s\n' "$layers" | ID=$id awk -F '\t' '$1 == ENVIRON["ID"] { print $2; exit }')
-    case $layer in
+    pos=${p%%	*}
+    entry=$(printf '%s\n' "$layers" | sed -n "${pos}p")
+    case ${entry##*	} in
       adopter | machine-local)
-        skip="$skip$id
+        case $skip_pos in
+          *" $pos "*) ;;
+          *)
+            skip_pos="$skip_pos$pos "
+            skip_lines="$skip_lines$pos	$entry
 "
-        printf '%s\n' "$prog: warning: $(sanitize_printable "$p")" >&2
+            ;;
+        esac
+        report "$p" "warning: "
         ;;
-      *) refuse="$refuse$p
-" ;;
     esac
   done <<EOF
 $problems
 EOF
-  if [ -n "$refuse" ]; then
-    report "${refuse%?}"
-    fail "refusing an invalid catalog; run scripts/check-duties.sh"
-  fi
-  printf '%s' "$skip" | sort -u | while IFS= read -r id; do
-    layer=$(printf '%s\n' "$layers" | ID=$id awk -F '\t' '$1 == ENVIRON["ID"] { print $2; exit }')
+  remaining=$(printf '%s\n' "$1" | SKIPPOS=$skip_pos walk validate)
+  case $? in
+    0) ;;
+    1)
+      report "$remaining"
+      fail "refusing an invalid catalog; run scripts/check-duties.sh"
+      ;;
+    *) fail "the catalog reader failed" ;;
+  esac
+  printf '%s' "$skip_lines" | while IFS='	' read -r pos id layer; do
     printf '%s\n' "$prog: warning: skipping duty '$(sanitize_printable "$id")' from the $layer layer; its entry is invalid" >&2
+    printf '%s\t%s\n' "$pos" "$id"
   done
 }
 
-armed_rest() { # armed_rest <watchers|files> <program>
-  out=$(printf '%s\n' "$cat_out" | ENABLED=$enabled SKIP=${skip:-} walk "$1") || fail "the catalog reader failed"
+armed() { # armed <watchers|files> <program>
+  cat_out=$(merged) || exit 1
+  skipped=$(skipped_entries "$cat_out") || exit 1
+  enabled=$(bash "$script_dir/mc-program.sh" get "$2" duties)
+  rc=$?
+  [ "$rc" -eq 0 ] || exit "$rc"
+  out=$(printf '%s\n' "$cat_out" | ENABLED=$enabled SKIP=$(printf '%s\n' "$skipped" | cut -f2) walk "$1") \
+    || fail "the catalog reader failed"
   missing=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "missing" { print $2 }')
   if [ -n "$missing" ]; then
     printf '%s\n' "$missing" | while IFS= read -r m; do
@@ -319,7 +342,7 @@ case $verb in
       *) fail "the catalog reader failed" ;;
     esac
     case $out in
-      *[[:cntrl:]]*) fail "duty '$1' field '$2' carries a control character; run scripts/check-duties.sh" ;;
+      *[[:cntrl:]]*) fail "duty '$(sanitize_printable "$1")' field '$2' carries a control character; run scripts/check-duties.sh" ;;
     esac
     printf '%s\n' "$out"
     ;;

@@ -204,9 +204,52 @@ expect_err "the skip names the layer" "adopter layer"
 
 sed -e 's/^  - id: adopter-duty$/  - id: tracked-duty/' "$adopter/catalogs/duties.yaml" >"$repo/.claude/catalogs/duties.yaml"
 rm -f "$adopter/catalogs/duties.yaml"
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [alpha-duty]
+EOF
 mc_run mc-duties.sh watchers --program alpha
 expect_rc "an invalid repo-tracked entry refuses the catalog" 1
 expect_err "the refusal names the duty" "tracked-duty"
+expect_err "the catalog is refused, not the duty skipped" "refusing an invalid catalog"
+rm -f "$repo/.claude/catalogs/duties.yaml"
+
+# An adopter override taking a later duty's directory is the adopter's
+# fault: the override is skipped and the core duty it collided with stays.
+cat >"$adopter/catalogs/duties.yaml" <<'EOF'
+duties:
+  - id: alpha-duty
+    supersede: true
+    summary: "An adopter's override taking beta's directory"
+    triggers: []
+    watchers: [scripts/alpha-watch.sh@5m/low]
+    wake: none
+    rules: []
+    kinds: []
+    files: beta
+    lifecycle: live
+    never-propose: false
+EOF
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [alpha-duty, beta-duty]
+EOF
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "an adopter override colliding on a directory is skipped, not refused" 0
+expect_eq "the skipped override arms nothing, and the off core duty nothing" ""
+expect_err "the override is the one skipped" "skipping duty 'alpha-duty' from the adopter layer"
+
+# An adopter entry whose id cannot be printed is still named by its layer.
+printf 'duties:\n  - id: bad%sid\n    summary: "x"\n    triggers: []\n    watchers: []\n    wake: none\n    rules: []\n    kinds: []\n    files: odd\n    lifecycle: live\n    never-propose: false\n' \
+  "$(printf '\001')" >"$adopter/catalogs/duties.yaml"
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "an adopter id carrying a control character is skipped, not refused" 0
+expect_err "the skip names the layer" "from the adopter layer"
+rm -f "$adopter/catalogs/duties.yaml"
 
 # ---------------------------------------------------------------------------
 # REQ-C1.1: what the resolver passes through is still checked.
@@ -273,6 +316,20 @@ expect_err "the reader failure is named" "the catalog reader failed"
 RC=$watchers_rc OUT=$watchers_out
 expect_rc "a failing catalog reader fails watchers, arming nothing" 1
 expect_eq "nothing is armed past a failed reader" ""
+
+# A reader that validates but fails the arming or get pass.
+# shellcheck disable=SC2016 # the shim's own expansions run when it does
+printf '#!/bin/sh\ncase "${MODE:-}" in "" | validate | count) exec "%s" "$@" ;; esac\necho "awk: simulated failure" >&2\nexit 2\n' "$real_awk" >"$tmp/shim/awk"
+PATH="$tmp/shim:$PATH"
+mc_run mc-duties.sh watchers --program alpha
+watchers_rc=$RC watchers_err=$ERR
+mc_run mc-duties.sh get alpha-duty summary
+PATH=$saved_path
+expect_rc "a failing get pass fails get" 1
+expect_err "the get failure names the reader" "the catalog reader failed"
+RC=$watchers_rc ERR=$watchers_err
+expect_rc "a failing arming pass fails watchers" 1
+expect_err "the arming failure names the reader" "the catalog reader failed"
 
 mc_run mc-duties.sh watchers
 expect_rc "watchers without --program is a usage error" 2

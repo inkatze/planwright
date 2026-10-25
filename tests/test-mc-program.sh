@@ -343,6 +343,30 @@ printf 'program_alpha_duties: beta-duty\n' >>"$tracked"
 mc_run mc-program.sh get alpha duties
 expect_rc "an invalid repo-tracked value fails" 1
 
+# validate sees every layer: a value a degrade would hide, the program list
+# included, and an invalid value a valid higher layer shadows.
+alpha_block
+printf 'mission_control_programs: [Alpha, alpha]\n' >"$tmp/local.yml"
+OUT=$(cd "$repo" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_CONFIG_DEFAULTS \
+  PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+  PLANWRIGHT_LOCAL_CONFIG="$tmp/local.yml" CLAUDE_DIR="$tmp/claude" HOME="$fixhome" \
+  /bin/bash "$repo_root/scripts/mc-program.sh" validate alpha 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "validate fails on a program list only a degrade would hide" 1
+
+alpha_block
+printf 'program_alpha_duties: [Bad_Duty]\n' >>"$tracked"
+printf 'program_alpha_duties: [alpha-duty]\n' >"$tmp/local.yml"
+OUT=$(cd "$repo" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_CONFIG_DEFAULTS \
+  PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+  PLANWRIGHT_LOCAL_CONFIG="$tmp/local.yml" CLAUDE_DIR="$tmp/claude" HOME="$fixhome" \
+  /bin/bash "$repo_root/scripts/mc-program.sh" validate alpha 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "validate fails on an invalid value a higher layer shadows" 1
+expect_err "the shadowed value is named" "Bad_Duty"
+
 alpha_block
 printf 'nested:\n  child: 1\n' >>"$tracked"
 mc_run mc-program.sh list

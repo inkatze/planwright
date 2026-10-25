@@ -37,7 +37,9 @@
 #   mc-program.sh posture <name>        same-repo when the spec root shares a
 #                                       program repository's git directory,
 #                                       separate-repo when it is in another
-#                                       repository, plain when in none
+#                                       repository, plain when in none; a
+#                                       root in a repository while no listed
+#                                       repository exists here fails
 #   mc-program.sh validate <name>       check every field; each problem on
 #                                       stderr as <name>: <field>: <problem>
 #
@@ -49,7 +51,8 @@
 # Whether an enabled duty exists is the catalog's question:
 # scripts/mc-duties.sh and scripts/check-duties.sh answer it.
 #
-# Exit codes: 0 resolved; 1 a malformed or missing value (named on stderr);
+# Exit codes: 0 resolved; 1 a malformed or missing value, a failed config
+# read, or a posture that cannot be told (named on stderr);
 # 2 usage, an invalid program name or an unknown field; 3 the program is not
 # configured.
 #
@@ -234,27 +237,39 @@ layered() {
       ;;
   esac
   ly_rev=$(printf '%s\n' "$ly_lines" | awk '{ l[NR] = $0 } END { for (i = NR; i > 0; i--) print l[i] }')
+  ly_won=""
+  ly_bad=0
   while IFS= read -r ly_line; do
     [ -n "$ly_line" ] || continue
     ly_layer=${ly_line%%	*}
     if ly_out=$("$4" "$1" "${ly_line#*	}" 2>"$scratch_err"); then
-      [ -z "$ly_out" ] || printf '%s\n' "$ly_out"
-      return 0
+      # Strict reads go on to check the layers the winner shadows.
+      [ -n "$ly_won" ] || ly_won="ok$ly_out"
+      [ "$STRICT" -eq 1 ] || break
+      continue
     fi
-    cat "$scratch_err" >&2
+    if [ "$STRICT" -eq 1 ]; then
+      cat "$scratch_err" >&2
+      ly_bad=1
+      continue
+    fi
+    [ -z "$ly_won" ] || continue
     case $ly_layer in
       adopter | machine-local)
-        if [ "$STRICT" -eq 0 ]; then
-          problem "$1" "$2" "warning: the $ly_layer value of $3 is invalid; degrading to the next lower layer"
-          continue
-        fi
+        problem "$1" "$2" "warning: the $ly_layer value of $3 is invalid ($(head -n 1 "$scratch_err" | sed 's/^[^:]*: //')); degrading to the next lower layer"
+        ;;
+      *)
+        cat "$scratch_err" >&2
+        return 1
         ;;
     esac
-    return 1
   done <<EOF
 $ly_rev
 EOF
-  return 3
+  [ "$ly_bad" -eq 0 ] || return 1
+  [ -n "$ly_won" ] || return 3
+  ly_won=${ly_won#ok}
+  [ -z "$ly_won" ] || printf '%s\n' "$ly_won"
 }
 
 # with_default <name> <field> <default-key> <parser>: the program's own key,
@@ -541,8 +556,8 @@ case $verb in
     ;;
   validate)
     [ $# -eq 1 ] || usage
-    require_program "$1"
     STRICT=1
+    require_program "$1"
     status=0
     for f in $FIELDS; do
       ("field_$f" "$1" >/dev/null) || status=1
