@@ -23,8 +23,9 @@ A **duty** that notices when a decision made outside a spec (in a chat thread, a
 a document, a tower session, an operator aside) bears on a Ready or Active bundle, and prepares the
 consolidation: which REQ or D-ID it touches, whether the change is expression-only or
 meaning-class, and the amendment or delta re-walkthrough it calls for. It never edits a spec itself
-(mission-control REQ-A1.3, D-23) and never signs off (REQ-I1.5); a meaning-class change reaches the
-operator as a prepared item, an expression-only one as a launched, relayed session's proposal.
+(mission-control REQ-A1.3, D-23) and never signs off (REQ-I1.5); either kind of change reaches the
+operator as a prepared item, and the amendment or re-walkthrough runs in a launched, relayed
+session only once the operator asks for it (REQ-I1.5).
 
 A second, inward half: noticing a signed-off bundle whose anchor no longer recomputes, or whose
 text describes behaviour the code no longer has, and queueing the re-anchor or amendment.
@@ -37,7 +38,8 @@ text describes behaviour the code no longer has, and queueing the re-anchor or a
   a tracker or document store depends on the `state-source-adapters` follow-on.
 - **The rule store and decisions log** (D-5, D-9, REQ-B1.1, REQ-B1.2): an operator-stated decision
   entered directly, with its `subject`, is the duty's input.
-- **The launcher** (D-10): a relayed kickoff or amendment session starts through it (REQ-I1.5).
+- **The launcher** (D-10): a relayed kickoff or amendment session the operator asks for starts
+  through it (REQ-I1.5).
 - **The queue** (D-7, REQ-F1.7, REQ-F1.14): consolidation items carry their context and a prepared
   packet.
 
