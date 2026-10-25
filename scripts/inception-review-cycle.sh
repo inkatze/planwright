@@ -382,9 +382,10 @@ resolve_adapter() {
 
 # --- sections ----------------------------------------------------------------
 
-# section_locate <file> <heading> <source-file> — print `<start> <end> <level>`
-# for the one heading that matches, or nothing; exit 3 when it is a gate
-# record or the gate log, 4 when the match is ambiguous.
+# section_locate <file> <heading> <source-file> — print `<start> <end>` for
+# the one heading that matches, or nothing; exit 3 when it is a gate record or
+# the gate log, or the file ends inside a code fence; 4 when the match is
+# ambiguous.
 section_locate() {
   SEC_FILE=$1 SEC_HEAD=$2
   export SEC_FILE SEC_HEAD
@@ -409,7 +410,7 @@ section_locate() {
       if (hits > 1) exit 4
       if (gate) exit 3
       if (open) end = NR
-      print start, end, openlvl
+      print start, end
     }' "$3"
 }
 
@@ -437,7 +438,6 @@ section_check() {
   [ -n "$loc" ] || die 1 "no heading '$(sanitize_printable "$sec_head")' in $sec_file at HEAD"
   sec_start=${loc%% *}
   sec_end=${loc#* }
-  sec_end=${sec_end%% *}
 }
 
 # --- snapshot ----------------------------------------------------------------
