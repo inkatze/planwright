@@ -48,7 +48,7 @@ the comprehension pass usually pays for itself.
 | Scripts | [`scripts/`](../scripts/) | Portable bash entry points (validator, resolver, hooks, checks). Bash 3.2 + BSD tooling, **no fish/mise/tmux/Ansible** (REQ-K1.5). |
 | Config | [`config/defaults.yml`](../config/defaults.yml) | Tracked defaults. Every option must have an [options-reference](options-reference.md) entry or CI fails. |
 | Tests | `tests/*.sh` | Shell test suites, run under `/bin/bash`; a script may have more than one. Fixture libraries live under `tests/lib/`, sourced by a suite or run by the stub shims a fixture harness writes, and are linted, never run as suites. |
-| Specs | `specs/<feature>/` | The four-file bundles, including planwright's own. |
+| Specs | `specs/<feature>/` | The four-file bundles, including planwright's own, at the default spec root. |
 
 **Do not encode project- or team-specific style into core `doctrine/`.** That
 is what the customization-overlay seam is for (see
@@ -365,11 +365,12 @@ Found something out of scope while working — complexity growth, an outdated
 pattern, a newly available dependency feature, an uncatalogued decision domain?
 Record it as its own observation fragment through the shared helper:
 `scripts/obs-record.sh --slug <topic> --scope <repo> --text '<observation>'`
-composes the one-line entry form for you and writes one fragment under
-`specs/_observations/entries/` (created on demand). Commit the fragment within
-the same change, and surface a non-zero helper exit rather than dropping the
-observation. Do not act on it in the current task; it is seed material for
-`/spec-draft`, the accumulator's canonical reader. Render the chronological
+composes the one-line entry form for you and writes one fragment into the
+spec root's `_observations/entries/` (`specs/` here, the default; created on
+demand). Commit the fragment within the same change, and surface a non-zero
+helper exit rather than dropping the observation. Do not act on it in the
+current task; it is seed material for `/spec-draft`, the accumulator's
+canonical reader. Render the chronological
 view any time with `mise run obs:log`.
 
 ## Reporting issues

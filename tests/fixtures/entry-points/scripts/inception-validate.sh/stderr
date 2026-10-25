@@ -1,0 +1,1 @@
+match ^usage: inception-validate\.sh \[--baseline <ref>\] <venture-dir>$

@@ -1,0 +1,1 @@
+match ^usage: fleet-tower-marker\.sh record <spec> --mode unattended\|interactive --pid <pid> --checkout <dir> \[--session-id <uuid>\] \[--tmux-session <name>\] \[--name <session name>\] \| read <spec> \| clear <spec>$

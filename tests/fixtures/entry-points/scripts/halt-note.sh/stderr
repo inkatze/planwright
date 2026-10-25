@@ -1,0 +1,1 @@
+match ^halt-note: usage: halt-note\.sh \[--section awaiting\|deferred\] <spec> <task-id> <text>$
