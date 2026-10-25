@@ -19,7 +19,9 @@
 #     or a query mechanism that cannot answer reads `unknown`. Silence is never
 #     death;
 #   - whether it waits on the operator: its worker's decision-queue row, read
-#     from the attention store as the other fleet readers read it.
+#     from the attention store as the other fleet readers read it;
+#   - its partial record, the private record a parking worker renders beside
+#     its brief under the fleet home.
 # A read that fails is named unknown in the render, never shown as empty: the
 # forge, registry, and queue rows say which reads were made.
 #
@@ -83,9 +85,11 @@
 #     liveness  alive | dead | unknown, for a flight with a worktree; - otherwise
 #     handle    the registered worker handle, or -
 #     worktree  its path, or -
-#   partial<TAB><id><TAB><path>, after an awaiting-operator flight's row: the
-#     private partial record it rendered when it parked (D-21, REQ-E1.9), the
-#     latest one, beside its brief under the fleet home
+#   partial<TAB><id><TAB><path>, after the row of a flight not landed: the
+#     latest private partial record it rendered when it parked, so a park
+#     whose queue push failed still shows one. It is read only from a fleet
+#     home, flights directory, and brief directory private to the user, and
+#     only as a regular file
 # The primary checkout is never a flight's worktree, even with a flight branch
 # checked out, and a worktree path carrying a control byte is left out.
 #
@@ -592,8 +596,8 @@ cmd_sweep() {
         ;;
     esac
     flights="${flights}flight$TAB$id$TAB$state$TAB$landing$TAB$live$TAB$handle$TAB${wt:--}$LF"
-    if [ "$state" = awaiting-operator ] && _pr=$(partial_record "$id"); then
-      flights="${flights}partial$TAB$id$TAB$_pr$LF"
+    if [ "$state" != landed ] && _partial=$(partial_record "$id"); then
+      flights="${flights}partial$TAB$id$TAB$_partial$LF"
     fi
     IFS=$LF
   done
@@ -615,7 +619,7 @@ cmd_sweep() {
   emit "forge$TAB$forge_state$TAB$forge_reason"
   emit "registry$TAB$registry_state"
   emit "queue$TAB$queue_state"
-  [ -z "$flights" ] || render="$render$(printf '%s' "$flights" | sort -t "$TAB" -k2,2)$LF"
+  [ -z "$flights" ] || render="$render$(printf '%s' "$flights" | sort -t "$TAB" -k2,2 -k1,1)$LF"
   printf '%s' "$render"
   [ "$write" -eq 0 ] || write_index
 }
