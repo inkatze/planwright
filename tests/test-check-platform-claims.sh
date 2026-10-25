@@ -166,6 +166,16 @@ assert_eq "an empty field fails" 1 "$rc"
 assert_contains "the empty field is named as missing" "missing field Claim" "$out"
 
 {
+  printf '### PC-1 — blank claim\n\n'
+  printf -- '- **Claim:**   \n- **Relied on by:** `scripts/uses-claim.sh`\n'
+  printf -- '- **Source:** https://example.com\n- **Verified:** 2026-10-01\n'
+  printf -- '- **Re-verify-by:** 2027-01-01\n\n'
+} | write_reg
+check
+assert_eq "a field holding only spaces fails" 1 "$rc"
+assert_contains "the blank field is named as missing" "missing field Claim" "$out"
+
+{
   entry PC-1 'repeated date' 2026-10-01 2027-01-01
   printf -- '- **Verified:** 2026-09-01\n\n'
 } | write_reg
@@ -190,7 +200,7 @@ assert_contains "the bad heading is named" "heading is not" "$out"
 check
 assert_eq "a tab in a title does not shift the fields" 0 "$rc"
 
-for d in 2026-02-29 2026-04-31 2026-02-30; do
+for d in 2026-02-29 2026-04-31 2026-02-30 1900-02-29; do
   { entry PC-1 'impossible date' "$d" 2027-01-01; } | write_reg
   check
   assert_eq "an impossible Verified date ($d) fails" 1 "$rc"
@@ -198,6 +208,9 @@ done
 { entry PC-1 'leap day' 2024-02-29 2027-01-01; } | write_reg
 check
 assert_eq "a leap day passes" 0 "$rc"
+{ entry PC-1 'century leap day' 2000-02-29 2027-01-01; } | write_reg
+check
+assert_eq "a leap day in a year divisible by 400 passes" 0 "$rc"
 
 { entry PC-1 'bad re-verify' 2026-10-01 2027-1-01; } | write_reg
 check

@@ -141,6 +141,9 @@ parsed=$(awk '
     k = $0; sub(/^- \*\*/, "", k); sub(/:\*\* .*/, "", k)
     v = $0; sub(/^- \*\*[^*]+:\*\* /, "", v)
     gsub(/\t/, " ", v)
+    # Trimmed so a field holding only spaces reads as empty, hence missing.
+    sub(/^ +/, "", v)
+    sub(/ +$/, "", v)
     # A repeated field would let a later line silently mask a bad earlier one.
     if (k in V) print "malformed\t" id "\tduplicate field " k
     V[k] = v
