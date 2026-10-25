@@ -15,25 +15,38 @@
 #       `brief<TAB><canonical path>`. <spec> is the bare identifier or its
 #       `specs/<spec>` alias (scripts/spec-id-lib.sh); <id> is `5` or `3.5`.
 #       --tower names the supervising tower's session name, screened here
-#       (printable ASCII, no path separator, no leading dash, 1 to 128 bytes);
+#       (printable ASCII, no path separator, no leading dash, 1 to 128 bytes,
+#       and no backtick, so the name stays inside the brief's code span);
 #       with it the brief carries the name and the question rule, without it
-#       neither, and the worker has no upward message path. --repo-root is the
-#       primary checkout the unit's worktree is placed in (default:
-#       resolve-root.sh repo --primary), recorded beside the brief for retire.
+#       neither, and the worker has no upward message path. --repo-root names
+#       the checkout the unit's worktree is placed in, a linked worktree read
+#       as its primary (default: resolve-root.sh repo --primary), recorded
+#       beside the brief for retire. A unit whose brief another checkout
+#       recorded, and whose worktree there still exists, is refused (exit 4):
+#       the fleet home is per machine, keyed by spec and task id alone.
 #       The fleet home and every directory below it on the path are created
 #       owner-only and must be private to the user and never a symlink; the
 #       brief lands owner-only by rename, replacing whatever sat at its name.
 #   fleet-task-brief.sh retire [--repo-root <dir>]
 #       Remove the brief directory of each of this checkout's task units
 #       whose worktree (`<repo>/.claude/worktrees/<spec>-task-<id>`) is gone,
-#       printing `retired<TAB><spec>/<id>` each. Another checkout's brief, one
-#       recording no checkout, and one younger than BRIEF_GRACE_MIN (rendered
-#       before its worktree exists) stay. No fleet home or tasks directory yet
-#       is a clean exit 0 with no output. fleet-sweep.sh's residue pass runs it.
+#       printing `retired<TAB><spec>/<id>` each, and of any unit whose recorded
+#       checkout no longer exists. A live checkout's other brief, one recording
+#       no checkout, and one younger than BRIEF_GRACE_MIN (rendered before its
+#       worktree exists) stay. An entry that cannot be read is skipped and
+#       named, the rest still retired (exit 4). The checkout record goes last,
+#       so a partial removal is retried. A render holding the tasks lock makes
+#       retire a silent no-op until the next sweep. No fleet home or tasks
+#       directory yet is a clean exit 0 with no output. fleet-sweep.sh's
+#       residue pass runs it.
 #
 # Exit codes: 0 written / retired (or nothing to retire); 2 usage or a field
 # failing its grammar (nothing written); 4 the fleet home, a directory on the
-# path, or the template refused or unreadable, or a write or removal failed.
+# path, or the template refused or unreadable, the unit held by another
+# checkout, the tasks lock unobtainable, or a write, read, or removal failed.
+#
+# Render and retire serialize on `<fleet-home>/tasks/.brief.lock`
+# (scripts/lock-lib.sh), so a retire never removes a brief a render is writing.
 #
 # Portable POSIX sh: no eval, input treated as data only; template values reach
 # awk through ENVIRON and are spliced by index, never as a regex replacement.
@@ -52,6 +65,13 @@ else
   sanitize_printable() {
     printf '%s' "$1" | tr -d '\000-\037\177\200-\237'
   }
+fi
+if [ -r "$script_dir/lock-lib.sh" ]; then
+  # shellcheck source=scripts/lock-lib.sh
+  . "$script_dir/lock-lib.sh"
+else
+  printf '%s\n' "$prog: broken install: lock-lib.sh is missing or not readable" >&2
+  exit 4
 fi
 if [ -r "$script_dir/spec-id-lib.sh" ]; then
   # shellcheck source=scripts/spec-id-lib.sh
@@ -101,11 +121,12 @@ valid_id() {
 # The name screen REQ-D1.7 states, held here so the renderer needs nothing
 # from the messaging seam: printable ASCII, no path separator, no leading dash,
 # 1 to 128 bytes. A newline fails the printable check, so the name stays one
-# line of the brief.
+# line of the brief; a backtick would close the code span the brief quotes it
+# in and let the name read as instructions.
 valid_name() {
   [ -n "$1" ] && [ "${#1}" -le 128 ] || return 1
   case $1 in
-    -* | */* | *\\* | *[!\ -~]*) return 1 ;;
+    -* | */* | *\\* | *\`* | *[!\ -~]*) return 1 ;;
   esac
 }
 
@@ -118,11 +139,17 @@ private_dir() {
 }
 
 # resolve_repo <dir-or-empty> — set `repo` to the primary checkout's canonical
-# path.
+# path. A linked worktree (the sweep runs from wherever its tower does) maps to
+# its primary, the checkout dispatch places unit worktrees in.
 resolve_repo() {
   repo=$1
-  [ -n "$repo" ] || repo=$(/bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null </dev/null) \
-    || die 2 "cannot resolve the primary checkout (pass --repo-root)"
+  if [ -n "$repo" ]; then
+    _rr_primary=$(cd "$repo" 2>/dev/null && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null </dev/null) \
+      && [ -n "$_rr_primary" ] && repo=$_rr_primary
+  else
+    repo=$(/bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null </dev/null) \
+      || die 2 "cannot resolve the primary checkout (pass --repo-root)"
+  fi
   repo=$(cd "$repo" 2>/dev/null && pwd -P) || die 2 "the repo root is not a directory"
   case $repo in
     *"$LF"*) die 2 "refusing a repo root whose path carries a newline" ;;
@@ -250,9 +277,16 @@ do_render() {
   resolve_repo "$repo_arg"
   resolve_home --create
   private_child "$home/tasks"
+  take_lock 400 || die 4 "the task brief lock stayed held by another render or retire"
   private_child "$home/tasks/$spec"
   unit="$home/tasks/$spec/$id"
   private_child "$unit"
+  if [ -f "$unit/checkout" ] && [ ! -L "$unit/checkout" ]; then
+    _held=$(cat <"$unit/checkout") || die 4 "cannot read $unit/checkout"
+    if [ "$_held" != "$repo" ] && [ -e "$_held/.claude/worktrees/$spec-task-$id" ]; then
+      die 4 "refusing to overwrite the task brief of $spec/$id: another checkout's unit holds it ($_held)"
+    fi
+  fi
   # The template's output ends in exactly one newline, which the substitution
   # strips and land restores.
   body=$(fill_template) || die 4 "cannot render the task brief template"
@@ -261,6 +295,24 @@ do_render() {
   land "$unit" checkout "$repo"
   land "$unit" brief.md "$body"
   printf 'brief\t%s\n' "$unit/brief.md"
+}
+
+# take_lock <tries> — hold the tasks lock until exit; 1 when another holder
+# kept it for the whole budget (a <tries> of 0 is one attempt), 2 an error.
+take_lock() {
+  pw_lock_trap_install
+  if [ "$1" -eq 0 ]; then
+    pw_lock_try "$home/tasks/.brief.lock"
+  else
+    pw_lock_acquire "$home/tasks/.brief.lock" "$1"
+  fi
+}
+
+# retire_unit <dir> — remove one unit's brief directory, its checkout record
+# last, so a removal that stops partway leaves what the next retire finds it by.
+retire_unit() {
+  find "$1" -mindepth 1 -maxdepth 1 ! -name checkout -exec rm -rf {} + 2>/dev/null </dev/null || return 1
+  rm -f "$1/checkout" 2>/dev/null && rmdir "$1" 2>/dev/null && [ ! -e "$1" ]
 }
 
 do_retire() {
@@ -280,12 +332,21 @@ do_retire() {
   tasks="$home/tasks"
   [ -e "$tasks" ] || [ -L "$tasks" ] || exit 0
   private_dir "$tasks" || die 4 "refusing to retire: $tasks is not a directory owned by you that only you can write; nothing was removed"
-  entries=$(find "$tasks" -mindepth 2 -maxdepth 2 2>/dev/null </dev/null) \
-    || die 4 "cannot list $tasks; nothing was removed"
-  nl=$(find "$tasks" -mindepth 1 -maxdepth 2 -name "*$LF*" 2>/dev/null </dev/null) \
-    || die 4 "cannot list $tasks; nothing was removed"
-  [ -z "$nl" ] || die 4 "refusing to retire: an entry under $tasks has a newline in its name; nothing was removed"
+  take_lock 0
+  case $? in
+    0) ;;
+    1) exit 0 ;;
+    *) die 4 "cannot take the task brief lock; nothing was removed" ;;
+  esac
   failed=0
+  # An unreadable spec directory fails the listing but not the rest of it:
+  # the entries find could read are still judged, and the failure is named.
+  entries=$(find "$tasks" -mindepth 2 -maxdepth 2 2>/dev/null </dev/null) || {
+    printf '%s\n' "$prog: part of $tasks could not be listed; what could be read is still retired" >&2
+    failed=1
+  }
+  nl=$(find "$tasks" -mindepth 1 -maxdepth 2 -name "*$LF*" 2>/dev/null </dev/null) || :
+  [ -z "$nl" ] || die 4 "refusing to retire: an entry under $tasks has a newline in its name; nothing was removed"
   old_ifs=$IFS
   IFS=$LF
   for dir in $entries; do
@@ -298,13 +359,26 @@ do_retire() {
     fi
     [ -d "$dir" ] && [ ! -L "$dir" ] && [ ! -L "$tasks/$rt_spec" ] || continue
     [ -f "$dir/checkout" ] && [ ! -L "$dir/checkout" ] || continue
-    [ "$(cat <"$dir/checkout")" = "$repo" ] || continue
-    wt="$repo/.claude/worktrees/$rt_spec-task-$rt_id"
-    [ ! -e "$wt" ] && [ ! -L "$wt" ] || continue
+    rec=$(cat <"$dir/checkout" 2>/dev/null) || {
+      printf '%s\n' "$prog: cannot read the checkout record of $rt_spec/$rt_id; skipped" >&2
+      failed=1
+      continue
+    }
+    # A brief whose checkout no longer exists has no sweep of its own left.
+    if [ "$rec" = "$repo" ]; then
+      wt="$repo/.claude/worktrees/$rt_spec-task-$rt_id"
+      [ ! -e "$wt" ] && [ ! -L "$wt" ] || continue
+    else
+      case $rec in
+        /*) ;;
+        *) continue ;;
+      esac
+      [ ! -e "$rec" ] && [ ! -L "$rec" ] || continue
+    fi
     # A failed age check keeps the brief: "cannot tell" is never "old".
     young=$(find "$dir" -maxdepth 0 -mmin "-$BRIEF_GRACE_MIN" 2>/dev/null </dev/null) || continue
     [ -z "$young" ] || continue
-    if rm -rf "$dir" 2>/dev/null && [ ! -e "$dir" ]; then
+    if retire_unit "$dir"; then
       printf 'retired\t%s/%s\n' "$rt_spec" "$rt_id"
       rmdir "$tasks/$rt_spec" 2>/dev/null || :
     else

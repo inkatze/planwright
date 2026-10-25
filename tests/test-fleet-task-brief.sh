@@ -173,7 +173,7 @@ for args in "UPPER|4.5" "flight|4.5" "a/b|4.5" "..|4.5" "-x|4.5" "$long_spec|4.5
   [ "$RC" -eq 2 ] || fail "render must refuse spec/id '$args' (exit 2), got $RC"
   [ ! -e "$PLANWRIGHT_FLEET_STATE_DIR" ] || fail "a refused render ('$args') created the fleet home"
 done
-for name in "a/b" 'a\b' "$nl_name" "$tab_name" "$del_name" "$long_name" "-tower" "" "$(printf 'caf\303\251')"; do
+for name in "a/b" 'a\b' 'tow`er' "$nl_name" "$tab_name" "$del_name" "$long_name" "-tower" "" "$(printf 'caf\303\251')"; do
   fresh_home
   render demo 4.5 --tower "$name"
   [ "$RC" -eq 2 ] || fail "render must refuse the tower name '$name' (exit 2), got $RC"
@@ -237,6 +237,68 @@ rc=$?
 [ -f "$home/tasks/demo/4/brief.md" ] || fail "the fleet sweep must keep a task brief whose worktree exists"
 "$ROOT/scripts/fleet-audit.sh" query --mechanism housekeeping-sweep 2>/dev/null | grep -q 'task-brief-retire' \
   || fail "the fleet sweep must audit the task-brief retire"
+
+# Retire run from a linked worktree judges the primary's units.
+fresh_home
+home=$PLANWRIGHT_FLEET_STATE_DIR
+gitc "$repo" worktree add -q --detach "$tmp/linked" 2>/dev/null || fail "fixture: linked worktree"
+render demo 5
+touch -t 202001010000 "$home/tasks/demo/5"
+OUT=$("$SCRIPT" retire --repo-root "$tmp/linked" 2>&1)
+[ "$OUT" = "retired${TAB}demo/5" ] || fail "retire from a linked worktree must judge the primary's units, got: $OUT"
+
+# A unit another checkout recorded, with its worktree there, is never
+# overwritten; once that worktree is gone the render takes it.
+OUT=$("$SCRIPT" render demo 9 --repo-root "$other" 2>&1) || fail "fixture: other checkout render: $OUT"
+mkdir -p "$other/.claude/worktrees/demo-task-9"
+render demo 9
+[ "$RC" -eq 4 ] || fail "render must refuse a unit another checkout's live worktree holds (exit 4), got $RC"
+[ "$(cat "$home/tasks/demo/9/checkout")" = "$other" ] || fail "a refused render rewrote another checkout's record"
+rm -rf "$other/.claude/worktrees/demo-task-9"
+render demo 9
+[ "$RC" -eq 0 ] && [ "$(cat "$home/tasks/demo/9/checkout")" = "$repo" ] \
+  || fail "render must take a unit whose other checkout's worktree is gone, got $RC: $ERR"
+
+# A brief whose checkout no longer exists is retired by any checkout's sweep.
+gone="$tmp/gone"
+git -c init.defaultBranch=main init -q "$gone"
+gitc "$gone" commit -q --allow-empty -m init
+OUT=$("$SCRIPT" render demo 7 --repo-root "$gone" 2>&1) || fail "fixture: gone checkout render: $OUT"
+rm -rf "$gone"
+touch -t 202001010000 "$home/tasks/demo/7" "$home/tasks/demo/9"
+OUT=$("$SCRIPT" retire --repo-root "$repo" 2>&1)
+case $OUT in
+  *"retired${TAB}demo/7"*) ;;
+  *) fail "retire must take a brief whose checkout is gone, got: $OUT" ;;
+esac
+
+# A retire never runs while a render holds the tasks lock.
+render demo 8
+touch -t 202001010000 "$home/tasks/demo/8"
+OUT=$(
+  # shellcheck source=scripts/lock-lib.sh
+  . "$ROOT/scripts/lock-lib.sh"
+  pw_lock_try "$home/tasks/.brief.lock" || echo "fixture: lock not taken"
+  "$SCRIPT" retire --repo-root "$repo" 2>&1
+  echo "rc=$?"
+  pw_lock_release "$home/tasks/.brief.lock"
+)
+[ "$OUT" = "rc=0" ] || fail "retire under a held lock must be a silent no-op, got: $OUT"
+[ -f "$home/tasks/demo/8/brief.md" ] || fail "retire removed a brief while the lock was held"
+
+# An unreadable spec directory is named and skipped; the rest still retire.
+if [ "$(id -u)" -ne 0 ]; then
+  OUT=$("$SCRIPT" render other 1 --repo-root "$repo" 2>&1) || fail "fixture: other spec render: $OUT"
+  chmod 000 "$home/tasks/other"
+  OUT=$("$SCRIPT" retire --repo-root "$repo" 2>&1)
+  RC=$?
+  chmod 700 "$home/tasks/other"
+  [ "$RC" -eq 4 ] || fail "retire past an unreadable entry must exit 4, got $RC"
+  case $OUT in
+    *"retired${TAB}demo/8"*"could not be listed"* | *"could not be listed"*"retired${TAB}demo/8"*) ;;
+    *) fail "retire must name the unreadable entry and still retire the rest, got: $OUT" ;;
+  esac
+fi
 
 # 5. REQ-C1.6's prose arms: /orchestrate's tmux dispatch step renders the
 # brief and passes --brief; docs/fleet.md carries the --brief task row and the
