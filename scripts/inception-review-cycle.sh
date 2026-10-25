@@ -366,7 +366,7 @@ commit_paths() {
   shift
   git_v add -- "$@" || return 1
   _pfx=$(git_v rev-parse --show-prefix) || return 1
-  _staged=$(git_v diff --cached --name-only) || return 1
+  _staged=$(git_v -c core.quotePath=false diff --cached --name-only) || return 1
   _others=$(printf '%s\n' "$_staged" | while IFS= read -r _p; do
     [ -n "$_p" ] || continue
     _mine=0
@@ -374,7 +374,12 @@ commit_paths() {
     [ "$_mine" = 1 ] || printf '%s\n' "$_p"
   done)
   if [ -z "$_others" ]; then
-    git_v commit -q -F "$_msg"
+    # A commit that fails after the pre-commit hook ran (signing, a commit-msg
+    # hook) would otherwise leave the hook's staging behind in the real index.
+    _tree=$(git_v write-tree) || return 1
+    git_v commit -q -F "$_msg" && return 0
+    git_v read-tree "$_tree" 2>/dev/null
+    return 1
   else
     git_v commit -q --only -F "$_msg" -- "$@"
   fi

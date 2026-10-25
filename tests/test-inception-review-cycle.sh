@@ -383,7 +383,11 @@ git -C "$v3" add brief.md
 "$CYCLE" apply FB-1 "$v3" >/dev/null 2>"$tmp/err"
 assert_eq "staging hook: apply exit 0" "0" "$?"
 assert_eq "staging hook: nothing left staged after apply" "" "$(git -C "$v3" diff --cached --name-only)"
-rm -f "$v3/.git/hooks/pre-commit"
+printf '#!/bin/sh\nexit 1\n' >"$v3/.git/hooks/commit-msg" && chmod +x "$v3/.git/hooks/commit-msg"
+"$CYCLE" triage FB-2 skip --decider "Robin Lead" "$v3" >/dev/null 2>"$tmp/err"
+assert_eq "staging hook, commit refused later: exit 2" "2" "$?"
+assert_eq "staging hook, commit refused later: the hook's staging is undone" "" "$(git -C "$v3" diff --cached --name-only)"
+rm -f "$v3/.git/hooks/pre-commit" "$v3/.git/hooks/commit-msg"
 
 # ---------------------------------------------------------------------------
 # 11. A partial harvest does not open the next export (REQ-G1.6).
