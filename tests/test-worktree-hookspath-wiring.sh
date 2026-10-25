@@ -216,6 +216,23 @@ else
   fail "wire --if-tracked (untracked backstop files): exited $rc, core.hooksPath now '$(hookspath "$t/primary")'"
 fi
 
+# A tracked githooks that is not a directory is not the backstop either.
+t="$tmp/wire-githooks-file"
+mkdir -p "$t"
+seed "$t" yes
+gitq -C "$t/primary" rm -rq githooks
+printf 'not hooks\n' >"$t/primary/githooks"
+gitq -C "$t/primary" add githooks
+gitq -C "$t/primary" commit -q -m "githooks as a file"
+set_hookspath "$t/primary" .husky/_
+rc=0
+(cd "$t/primary" && hermetic "$tmp" /bin/sh "$S/wire-githooks.sh" --if-tracked >/dev/null 2>&1) || rc=$?
+if [ "$rc" -eq 0 ] && [ "$(hookspath "$t/primary")" = ".husky/_" ]; then
+  ok "wire --if-tracked (githooks is a file): core.hooksPath is left alone"
+else
+  fail "wire --if-tracked (githooks is a file): exited $rc, core.hooksPath now '$(hookspath "$t/primary")'"
+fi
+
 # --- spec-store-worktree.sh, absolute and cleared ---------------------------
 for start in absolute cleared; do
   t="$tmp/store-$start"
