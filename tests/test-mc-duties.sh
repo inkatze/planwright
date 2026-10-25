@@ -117,6 +117,14 @@ EOF
 mc_run mc-duties.sh list
 expect_out "REQ-C1.3: an adopter overlay adds a duty too" "adopter-duty${tab}adopter"
 
+# An id carrying a control byte never reaches the terminal raw.
+esc=$(printf '\033')
+printf 'duties:\n  - id: x%s[2Jy\n    summary: "Escaping"\n' "$esc" >>"$adopter/catalogs/duties.yaml"
+mc_run mc-duties.sh list
+expect_rc "a catalog with a control byte in an id still lists" 0
+expect_no_out "the control byte is not printed" "$esc"
+expect_out "the entry is named by its position" "(entry 4)${tab}adopter"
+
 # ---------------------------------------------------------------------------
 # REQ-C1.4: what an enabled duty arms; a disabled duty arms nothing and owns
 # nothing.

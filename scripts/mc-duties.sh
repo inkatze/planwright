@@ -5,7 +5,9 @@
 # supersede-by-id). config/duties.yaml's header holds the entry grammar.
 #
 # Usage:
-#   mc-duties.sh list                     <id><TAB><layer> per merged entry
+#   mc-duties.sh list                     <id><TAB><layer> per merged entry,
+#                                         an id carrying a control byte as
+#                                         (entry <n>)
 #   mc-duties.sh get <id> <field>         one field of the merged entry, as
 #                                         written (surrounding quotes dropped)
 #   mc-duties.sh watchers --program <p>   <id><TAB><script><TAB><cadence>
@@ -327,7 +329,15 @@ shift
 case $verb in
   list)
     [ $# -eq 0 ] || usage
-    catalog --explain
+    out=$(catalog --explain) || exit 1
+    # An id carrying a control byte is named by its position, as validate
+    # names it, so the listing never writes one to the terminal.
+    [ -z "$out" ] || printf '%s\n' "$out" | awk '{
+      layer = $0; sub(/.*\t/, "", layer)
+      id = $0; sub(/\t[^\t]*$/, "", id)
+      if (id ~ /[[:cntrl:]]/) id = "(entry " NR ")"
+      print id "\t" layer
+    }'
     ;;
   get)
     [ $# -eq 2 ] || usage
