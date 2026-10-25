@@ -80,8 +80,11 @@ A holder serves several projects, one root each, side by side:
 Each root carries its own marker and its own reserved children
 (`_observations/`, `_pending/`), so the projects' observations never mix. A
 spec identifier must be unique across every project the holder serves, since
-all of them share the holder's spec branches (`planwright/<spec>/spec`). The
-observation carry (`scripts/observation-carry.sh`) works in the holder: its
+all of them share the holder's spec branches (`planwright/<spec>/spec`);
+`scripts/spec-store-worktree.sh` refuses to open a spec branch that already
+carries another project's bundle of that identifier (see *Authoring by
+posture*), so a reused identifier stops at authoring time. The observation
+carry (`scripts/observation-carry.sh`) works in the holder: its
 chore branch, lock, and PR live there. In `plain` the carry has no git to work
 through and says so.
 

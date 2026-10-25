@@ -1048,7 +1048,7 @@ through the session listing instead.
   Schedule it per supervised spec, e.g.:
 
   ```cron
-  */5 * * * * cd /path/to/repo && scripts/fleet-tower-watchdog.sh specs/<spec>
+  */5 * * * * cd /path/to/repo && scripts/fleet-tower-watchdog.sh <spec-dir>
   ```
 
   (`<spec-dir>` is the bundle directory, `specs/<spec>` under the default
