@@ -302,6 +302,54 @@ case "$(grep '^| `messaging_cross_machine`' "$OPTIONS")" in
   *) fail "the cross-machine row does not name isolatePeerMachines" ;;
 esac
 
+# --- REQ-G1.9: the supervisor duty -----------------------------------------
+duty_heading=$(grep -E '^##+ .*supervisor duty' "$IOC" | head -1)
+if [ -n "$duty_heading" ]; then
+  ok "a supervisor-duty heading is present"
+else
+  fail "no heading contains 'supervisor duty'"
+fi
+# duty_text — the supervisor-duty section folded, up to the next heading of
+# its level or above.
+duty_text() {
+  awk -v want="$duty_heading" '
+    $0 == want { on = 1; lvl = index($0, " "); next }
+    on && /^#+ / && index($0, " ") <= lvl { exit }
+    on { print }
+  ' "$IOC" | tr '\n' ' ' | tr -s ' \t' '  '
+}
+for phrase in 'supervising session' 'permission prompt' 'autonomous-safe-decision'; do
+  if [ -n "$duty_heading" ] && duty_text | grep -q -- "$phrase"; then
+    ok "the supervisor-duty section names: $phrase"
+  else
+    fail "the supervisor-duty section does not name: $phrase"
+  fi
+done
+
+# --- REQ-G1.8 / REQ-C1.7: the relay contract and the question row ---------
+has "the relay text says the paste never submits it unattended" "$IOC" \
+  'never submits it unattended'
+has "the relay text names the pending relay" "$IOC" 'pending relay'
+busy=$(grep -n 'live, busy worker' "$IOC")
+stray=$(printf '%s\n' "$busy" | grep -v 'messag' | grep -v '^$')
+if [ -z "$stray" ]; then
+  ok "every 'live, busy worker' line names messaging"
+else
+  fail "'live, busy worker' lines without messaging: $stray"
+fi
+if [ -n "$(row 'question')" ] && [ -n "$(fallback_cell "$(row 'question')")" ]; then
+  ok "the fallback table carries a question row with a fallback"
+else
+  fail "the fallback table carries no question row with a fallback"
+fi
+has "the opening turn is not a messaging path" "$DOC" 'not a messaging path'
+section_has "the question message is the one model-composed upward path" "$DOC" \
+  "## Signal versus record" "question${S}one model-composed"
+section_has "the question is recorded first as a fork" "$DOC" \
+  "## Signal versus record" "\`fork\`"
+section_has "the question is never completion or status" "$DOC" \
+  "## Signal versus record" "never${S}completion${S}status"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
