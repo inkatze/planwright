@@ -19,11 +19,11 @@ tools became this fifth follow-on (mission-control D-12, D-22, D-27; brief risk 
 
 One **adapter per source**, each implementing the snapshot adapter contract of D-12: refresh one
 age-stamped snapshot per program per cadence, the cadence and tracked set as knobs per source,
-backing off on rate-limit headroom. Snapshots are runtime state and live under the plugin data
-home, not the program home (D-8). D-12's own text still says "into the program home"; D-8, amended
-later at sign-off, names the source snapshots as runtime state, so read D-8 as governing. Every duty reads the snapshot; none polls the
-source itself (REQ-M1.1). Once an adapter exists, a program's source map can move a fact class from
-`cited` to `snapshot` (REQ-H1.4).
+backing off on rate-limit headroom. Snapshots are runtime state and live under the plugin data home,
+not the program home (D-8). D-12's own text still says "into the program home"; D-8, amended later
+at sign-off, names the source snapshots as runtime state, so read D-8 as governing. Every duty reads
+the snapshot; none polls the source itself (REQ-M1.1). Once an adapter exists, a program's source
+map can move a fact class from `cited` to `snapshot` (REQ-H1.4).
 
 Named candidates: **Jira** and **Notion** (in use in the program that seeded mission control) and
 **Figma** (by category, for the `designs` fact class). A calendar adapter is what deadline-watch's
