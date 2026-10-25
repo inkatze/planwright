@@ -1,0 +1,1 @@
+match ^fleet-dispatch-worktree: unknown subcommand: --entry-point-probe$

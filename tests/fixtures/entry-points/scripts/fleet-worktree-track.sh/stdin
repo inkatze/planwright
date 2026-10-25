@@ -1,0 +1,5 @@
+{
+  "session_id":"5f2b1c9a-0d34-4e7b-9a11-6c8e2f0b7d45","transcript_path":"/home/dev/.claude/projects/demo/5f2b1c9a.jsonl","cwd":"/home/dev/demo","permission_mode":"default",
+  "hook_event_name": "WorktreeRemove",
+  "worktree_path": "/home/dev/demo/.claude/worktrees/flc-task-2"
+}

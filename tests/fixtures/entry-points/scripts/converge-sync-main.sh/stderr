@@ -1,0 +1,1 @@
+match ^converge-sync-main: usage: unknown option; usage: converge-sync-main\.sh \[--commit-resolution <spec>/<id> \.\.\.\] \[<repo-dir>\]$
