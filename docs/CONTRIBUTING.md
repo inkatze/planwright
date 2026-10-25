@@ -308,8 +308,8 @@ planwright's own creation scripts (`scripts/fleet-dispatch-worktree.sh`,
 --if-tracked` in each worktree they create, which restores the relative
 value and reports the one it replaced; after a native creation, re-run the
 wire step yourself. The same re-wiring means a dispatch re-enables hooks
-you unset by hand (see the fork caution below). The hooks bind humans too, not just agent sessions, and are
-accident-catchers with an honestly stated boundary, not tamper-proofing:
+you unset by hand (see the fork caution below). The hooks bind humans too,
+not just agent sessions, and are accident-catchers with an honestly stated boundary, not tamper-proofing:
 `--amend` combined with `-m`/`-F` carries no client-hook signal and is
 refused by the tower profile's deny globs and, for a worker, decided by the
 policy guard's `unpushed_rewrite` check instead. The deliberate, human-only
