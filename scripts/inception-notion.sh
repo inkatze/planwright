@@ -297,7 +297,7 @@ case $max_blocks in '' | *[!0-9]*) die 2 "PLANWRIGHT_NOTION_MAX_BLOCKS must be a
 backoff=${PLANWRIGHT_NOTION_BACKOFF:-1}
 case $backoff in '' | *[!0-9]*) die 2 "PLANWRIGHT_NOTION_BACKOFF must be a whole number" ;; esac
 
-work=$(mktemp -d) || die 2 "cannot create a scratch directory"
+work=$(mktemp -d "${TMPDIR:-/tmp}/inception-notion.XXXXXX") || die 2 "cannot create a scratch directory"
 trap 'rm -rf "$work"' EXIT
 trap 'exit 2' HUP INT TERM
 resp="$work/resp.json"

@@ -192,7 +192,7 @@ git -C "$target" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
 target=$(cd "$target" && pwd -P) || die 2 "cannot resolve the venture directory"
 ledger="$target/$LEDGER_REL"
 
-work=$(mktemp -d) || die 2 "cannot create a scratch directory"
+work=$(mktemp -d "${TMPDIR:-/tmp}/inception-review-cycle.XXXXXX") || die 2 "cannot create a scratch directory"
 tmpl=
 # shellcheck disable=SC2329 # invoked from the EXIT trap
 cleanup() {
