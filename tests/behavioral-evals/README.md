@@ -249,7 +249,9 @@ case-set persona's lines typed as written, with the
 that session with `PLANWRIGHT_EVAL_ONLY=1` and `PLANWRIGHT_PUBLISH_DISABLED=1`,
 names its artifacts directory, and grades the result as the harness does:
 `grade.jq` over `{persona, decision_log, sign_off}`, the log slurped and the
-run record as `sign_off`. The fallback changes who runs the scenarios, never
+run record as `sign_off`. Only the harness and its fixtures read
+`PLANWRIGHT_PUBLISH_DISABLED`, not the flight scripts, so in that live session
+a flight still pushes and opens a draft pull request. The fallback changes who runs the scenarios, never
 whether that pass must precede the claim.
 
 ## Grading and the independence firewall
