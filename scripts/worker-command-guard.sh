@@ -24,10 +24,11 @@
 #   * The self-approval policy: the read-only arm (read-only
 #     shapes, trusted repo code, declared steps, the spec-root write zone) is
 #     always in force; the own-branch arm, which approves writes confined to
-#     the unit branch and its worktree, only when the session record names it.
-#     The record is the launcher's (see session_record_load): the policy, the
-#     unit branch, and the worktree are never read from live config or the
-#     checkout.
+#     the unit branch and its worktree, and the scratch arm, which approves
+#     writes confined to the worker's scratch root, each only when the session
+#     record names it. The record is the launcher's (see session_record_load):
+#     the policy, the unit branch, the worktree, and the scratch root are never
+#     read from live config, the checkout, or the environment.
 #   * The extracted command is treated strictly as INERT DATA — never eval-ed,
 #     re-expanded, glob-expanded, or used as a pattern/format/unquoted arg — so
 #     analyzing a hostile command can never execute it (REQ-B1.1).
@@ -36,9 +37,9 @@
 #     dispatchers hand in only when it lies outside the work repository (see
 #     in_spec_zone): a `>`/`>>` redirect, `tee [-a]`, or `mkdir [-p]` whose
 #     every target is a plain literal inside a bundle or reserved directory of
-#     that root. And the own-branch arm (see ob_path, ob_git), whose targets
-#     lie inside the recorded worktree and outside the paths a tool runs or
-#     trusts unprompted. Any other write defers.
+#     that root. And the policy arms (see ob_path, ob_git), whose targets lie
+#     inside the recorded worktree and outside the paths a tool runs or trusts
+#     unprompted, or inside the recorded scratch root. Any other write defers.
 #   * Fail safe on EVERYTHING: jq absent, malformed/empty/non-string input,
 #     unknown construct, parser confusion, recursion past the depth bound, or
 #     any internal error all DEFER (empty stdout, exit 0). The fallthrough
@@ -886,7 +887,7 @@ spec_zone_redirect() {
 }
 
 # guard_tee / guard_mkdir: at least one operand, every operand a zone path
-# or one the own-branch arm admits (ob_path); the only flag `-a` (append) for
+# or one a policy arm admits (ob_path); the only flag `-a` (append) for
 # tee and `-p` for mkdir, so no mode, context, or ignore flag changes what
 # lands.
 guard_tee() {
@@ -904,7 +905,7 @@ guard_tee() {
       esac
     fi
     if ! in_spec_zone "$a" "$HOOK_CWD"; then
-      ob_live && ob_path "$a" leaf || return 1
+      wr_live && ob_path "$a" leaf write || return 1
       ob=1
     fi
     operands=$((operands + 1))
@@ -931,7 +932,7 @@ guard_mkdir() {
       esac
     fi
     if ! in_spec_zone "$a" "$HOOK_CWD"; then
-      ob_live && ob_path "$a" "$mode" || return 1
+      wr_live && ob_path "$a" "$mode" write || return 1
       ob=1
     fi
     operands=$((operands + 1))
@@ -950,14 +951,17 @@ guard_mkdir() {
 # `git switch` changes what it approves. A field that is missing, repeated, or
 # outside its grammar is dropped, disabling whatever reads it: the
 # policy reads as the empty list, and without the worktree root and unit
-# branch neither the own-branch arm nor a `cd` approves anything. A record
-# that is unreadable, not this user's own regular file, or inside the
-# worktree it describes is no record.
+# branch neither the own-branch arm nor a `cd` approves anything, and without
+# the scratch root the scratch arm approves nothing. The scratch root must be
+# this user's own canonical directory, apart from the worktree in both
+# directions. A record that is unreadable, not this user's own regular file,
+# or inside the worktree or the scratch root it describes is no record.
 REC_POLICY=''
 REC_UNIT=''
 REC_WT=''
 REC_BASE=''
 REC_BASE_MERGE=''
+REC_SCRATCH=''
 
 # rec_unit_branch_ok <name>: a task or flight branch, in policy-guard.sh's
 # grammar (is_unit_branch); a protected branch never matches it.
@@ -987,7 +991,7 @@ rec_policy_norm() {
 
 session_record_load() {
   local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line k v seen=' ' dup=' ' size dir
-  local policy='' unit='' wt='' base='' bm=''
+  local policy='' unit='' wt='' base='' bm='' sr=''
   case $p in
     /?*) ;;
     *) return 0 ;;
@@ -1012,6 +1016,7 @@ session_record_load() {
       worktree_root) wt=$v ;;
       pr_base) base=$v ;;
       worker_base_merge) bm=$v ;;
+      scratch_root) sr=$v ;;
     esac
   done <"$p"
   case $dup in *" policy "*) policy='' ;; esac
@@ -1019,6 +1024,7 @@ session_record_load() {
   case $dup in *" worktree_root "*) wt='' ;; esac
   case $dup in *" pr_base "*) base='' ;; esac
   case $dup in *" worker_base_merge "*) bm='' ;; esac
+  case $dup in *" scratch_root "*) sr='' ;; esac
   rec_unit_branch_ok "$unit" || unit=''
   case $wt in
     /?*) ;;
@@ -1044,11 +1050,35 @@ session_record_load() {
     allow | deny) ;;
     *) bm='' ;;
   esac
-  # A record inside the worktree it describes is one the worker can rewrite.
+  case $sr in
+    /?*) ;;
+    *) sr='' ;;
+  esac
+  case $sr in
+    *[[:cntrl:]]*) sr='' ;;
+  esac
+  if [ -n "$sr" ]; then
+    [ -d "$sr" ] && [ -O "$sr" ] && [ "$(cd "$sr" 2>/dev/null && pwd -P)" = "$sr" ] || sr=''
+  fi
+  if [ -n "$sr" ] && [ -n "$wt" ]; then
+    case $sr/ in
+      "$wt"/*) sr='' ;;
+    esac
+    case $wt/ in
+      "$sr"/*) sr='' ;;
+    esac
+  fi
+  # A record inside the worktree or the scratch root it describes is one the
+  # worker can rewrite.
   dir=$(cd "$(dirname "$p")" 2>/dev/null && pwd -P) || return 0
   if [ -n "$wt" ]; then
     case $dir/ in
       "$wt"/*) return 0 ;;
+    esac
+  fi
+  if [ -n "$sr" ]; then
+    case $dir/ in
+      "$sr"/*) return 0 ;;
     esac
   fi
   REC_POLICY=$(rec_policy_norm "$policy")
@@ -1056,6 +1086,7 @@ session_record_load() {
   REC_WT=$wt
   REC_BASE=$base
   REC_BASE_MERGE=$bm
+  REC_SCRATCH=$sr
 }
 
 # --------------------------------------------------------------------------
@@ -1215,7 +1246,18 @@ floor_act_words() {
 # behind (a recursive copy, a move, a checkout, restore, or merge) is the only
 # writer its command may hold: the targets are checked before the command
 # runs, so a write after it could follow a link it created (ob_mark).
+#
+# The scratch arm: live when the record's policy names it and the record
+# carries a usable scratch root, for the session's own command wherever its
+# payload directory lies. It approves the same file writers under the same
+# flag, symlink, `..`, hard-link, and link-creation rules, plus `mktemp`,
+# whose every target canonicalizes strictly inside the scratch root, and
+# resolves a literal `$TMPDIR` to that root (analyze_command). The launcher
+# exports the root as the worker's TMPDIR, so that is what the shell expands;
+# the hook's own TMPDIR is never consulted. Nothing there is ever trusted to
+# run: the script runners admit only repository and installed-plugin code.
 OB_ON=0
+SC_ON=0
 OB_WROTE=0
 OB_LINKY=0
 OB_EXCL_STATE=0
@@ -1223,6 +1265,15 @@ OB_EXCL_DIRS=''
 
 ob_live() {
   [ "$OB_ON" = 1 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_DEPTH" -eq 0 ]
+}
+
+sc_live() {
+  [ "$SC_ON" = 1 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_DEPTH" -eq 0 ]
+}
+
+# wr_live: a policy arm that approves file writes is live.
+wr_live() {
+  ob_live || sc_live
 }
 
 # ob_mark <write|link>: record an approved write, or a link-capable segment
@@ -1335,18 +1386,31 @@ EOF
   [ -z "$hit" ]
 }
 
-# ob_path <word> <mode>: 0 when <word> names a write target the arm admits,
-# its canonical path left in OB_PATH. The word must be a plain literal (no
-# expansion, glob, tilde, or `..` can hide in the charset), absolute only
-# when written under the canonical worktree root. <mode>: `leaf` (only the
-# last component may be missing), `parents` (any trailing components may be,
-# for `mkdir -p`), or `exists`. No component may be a symlink; the target
-# lies strictly inside the worktree, outside every excluded path, and, when
-# it exists, is a directory or a regular file with one link.
+# ob_path <word> <mode> [<zones>]: 0 when <word> names a write target the
+# arm admits, its canonical path left in OB_PATH and its zone (`wt` or `sc`)
+# in OB_ZONE. The word must be a plain literal (no expansion, glob, tilde, or
+# `..` can hide in the charset), absolute only when written under a zone's
+# canonical root. <mode>: `leaf` (only the last component may be missing),
+# `parents` (any trailing components may be, for `mkdir -p`), or `exists`.
+# <zones>: `wt` (the default: the worktree), `write` (the zone of each live
+# write arm), `read` (a copy's source: the worktree, and the scratch root
+# under the scratch arm), or `sc` (the scratch root). No component may be a
+# symlink; the target lies strictly inside a zone, outside every excluded path
+# of the worktree, and, when it exists, is a directory or a regular file with
+# one link.
 ob_path() {
-  local w=$1 mode=$2 acc comp missing=0
+  local w=$1 mode=$2 zones=${3-wt} acc comp missing=0 wt_ok=0 sc_ok=0
   local -a comps=()
   OB_PATH=''
+  OB_ZONE=''
+  case $zones in
+    wt | read) [ -z "$REC_WT" ] || wt_ok=1 ;;
+    write) ! ob_live || wt_ok=1 ;;
+  esac
+  case $zones in
+    read | write | sc) ! sc_live || sc_ok=1 ;;
+  esac
+  [ "$wt_ok$sc_ok" != 00 ] || return 1
   case $w in
     '' | -* | *[!A-Za-z0-9._/@+%,:-]*) return 1 ;;
   esac
@@ -1355,12 +1419,14 @@ ob_path() {
   esac
   case $w in
     /*)
-      case $w in
-        "$REC_WT"/*) ;;
-        *) return 1 ;;
-      esac
-      acc=$REC_WT
-      w=${w#"$REC_WT"/}
+      if [ "$wt_ok" = 1 ] && [ "${w#"$REC_WT"/}" != "$w" ]; then
+        acc=$REC_WT
+      elif [ "$sc_ok" = 1 ] && [ "${w#"$REC_SCRATCH"/}" != "$w" ]; then
+        acc=$REC_SCRATCH
+      else
+        return 1
+      fi
+      w=${w#"$acc"/}
       ;;
     *) acc=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1 ;;
   esac
@@ -1379,11 +1445,14 @@ ob_path() {
     [ -e "$acc" ] || missing=1
   done
   [ "$missing" = 0 ] || [ "$mode" != exists ] || return 1
-  case $acc in
-    "$REC_WT"/*) ;;
-    *) return 1 ;;
-  esac
-  ob_excluded "$acc" && return 1
+  if [ "$wt_ok" = 1 ] && [ "${acc#"$REC_WT"/}" != "$acc" ]; then
+    ob_excluded "$acc" && return 1
+    OB_ZONE=wt
+  elif [ "$sc_ok" = 1 ] && [ "${acc#"$REC_SCRATCH"/}" != "$acc" ]; then
+    OB_ZONE=sc
+  else
+    return 1
+  fi
   if [ -e "$acc" ]; then
     if [ -f "$acc" ]; then
       [ "$(find "$acc" -maxdepth 0 -links 1 2>/dev/null)" = "$acc" ] || return 1
@@ -1394,11 +1463,11 @@ ob_path() {
   OB_PATH=$acc
 }
 
-# ob_target <word> <mode> <recursive>: ob_path, and for a recursive act on a
-# directory, nothing excluded beneath it.
+# ob_target <word> <mode> <recursive> [<zones>]: ob_path, and for a recursive
+# act on a worktree directory, nothing excluded beneath it.
 ob_target() {
-  ob_path "$1" "$2" || return 1
-  [ "$3" = 1 ] && [ -d "$OB_PATH" ] && ! ob_tree_clean "$OB_PATH" && return 1
+  ob_path "$1" "$2" "${4-wt}" || return 1
+  [ "$3" = 1 ] && [ "$OB_ZONE" = wt ] && [ -d "$OB_PATH" ] && ! ob_tree_clean "$OB_PATH" && return 1
   return 0
 }
 
@@ -1416,14 +1485,14 @@ ob_redirect() {
     '>' | '>>' | '>|' | '&>' | '&>>') ;;
     *) return 1 ;;
   esac
-  ob_live && ob_path "$2" leaf && ob_mark write
+  wr_live && ob_path "$2" leaf write && ob_mark write
 }
 
 # guard_rm: `rm` with the removal flags only (no `-i`, no
 # `--no-preserve-root`); a recursive removal is checked below its target.
 guard_rm() {
   local i a ends=0 rec=0 n=0
-  ob_live || return 1
+  wr_live || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$ends" = 0 ]; then
@@ -1449,7 +1518,7 @@ guard_rm() {
           ;;
       esac
     fi
-    ob_target "$a" leaf "$rec" || return 1
+    ob_target "$a" leaf "$rec" write || return 1
     n=$((n + 1))
   done
   [ "$n" -ge 1 ] && ob_mark write
@@ -1457,7 +1526,7 @@ guard_rm() {
 
 guard_touch() {
   local i a ends=0 n=0
-  ob_live || return 1
+  wr_live || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$ends" = 0 ]; then
@@ -1476,34 +1545,41 @@ guard_touch() {
           ;;
       esac
     fi
-    ob_path "$a" leaf || return 1
+    ob_path "$a" leaf write || return 1
     n=$((n + 1))
   done
   [ "$n" -ge 1 ] && ob_mark write
 }
 
-# ob_copy_move <cp|mv> <recursive> <operand>...: the operand rule `cp` and
-# `mv` share. Every source exists inside the worktree (a moved one is a
-# target too); the destination is a new path, or an existing directory whose
-# entry for each source is checked as the target. A recursive copy lands only
+# ob_copy_move <cp|mv> <recursive> <wt|write> <operand>...: the operand rule
+# `cp` and `mv` share, over the worktree alone or the live write arms' zones.
+# Every source exists inside a zone (a moved one is a target, so in a write
+# zone; a copied one is read, so the worktree or, under the scratch arm, the
+# scratch root); the destination is a new path, or an existing directory
+# whose entry for each source is checked as the target. A directory leaving
+# or entering the worktree holds no excluded path. A recursive copy lands only
 # where nothing exists yet, so it never writes through an existing file.
 ob_copy_move() {
-  local verb=$1 rec=$2 n dst s b final
-  shift 2
+  local verb=$1 rec=$2 zones=$3 n dst s b final src src_zone src_dir
+  shift 3
   n=$#
   [ "$n" -ge 2 ] || return 1
+  src=$zones
+  [ "$zones" = wt ] || [ "$verb" = mv ] || src=read
   dst=${!n}
-  ob_path "$dst" leaf || return 1
+  ob_path "$dst" leaf "$zones" || return 1
   local dst_dir=0
   [ -d "$OB_PATH" ] && dst_dir=1
   [ "$dst_dir" = 1 ] || [ "$n" -eq 2 ] || return 1
   while [ "$#" -gt 1 ]; do
     s=$1
     shift
-    ob_path "$s" exists || return 1
+    ob_path "$s" exists "$src" || return 1
+    src_zone=$OB_ZONE
+    src_dir=''
     if [ -d "$OB_PATH" ]; then
       [ "$verb" = mv ] || [ "$rec" = 1 ] || return 1
-      ob_tree_clean "$OB_PATH" || return 1
+      src_dir=$OB_PATH
     fi
     if [ "$dst_dir" = 1 ]; then
       b=${s%/}
@@ -1512,9 +1588,12 @@ ob_copy_move() {
     else
       final=$dst
     fi
-    ob_path "$final" leaf || return 1
+    ob_path "$final" leaf "$zones" || return 1
     if [ "$rec" = 1 ] && [ -e "$OB_PATH" ]; then
       return 1
+    fi
+    if [ -n "$src_dir" ] && { [ "$src_zone" = wt ] || [ "$OB_ZONE" = wt ]; }; then
+      ob_tree_clean "$src_dir" || return 1
     fi
   done
   return 0
@@ -1526,7 +1605,7 @@ ob_copy_move() {
 guard_cp() {
   local i a ends=0 rec=0 n=0
   local -a ops=()
-  ob_live || return 1
+  wr_live || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$ends" = 0 ]; then
@@ -1555,7 +1634,7 @@ guard_cp() {
     ops[n]=$a
     n=$((n + 1))
   done
-  ob_copy_move cp "$rec" ${ops[@]+"${ops[@]}"} || return 1
+  ob_copy_move cp "$rec" write ${ops[@]+"${ops[@]}"} || return 1
   if [ "$rec" = 1 ]; then
     ob_mark link
   else
@@ -1566,7 +1645,7 @@ guard_cp() {
 guard_mv() {
   local i a ends=0 n=0
   local -a ops=()
-  ob_live || return 1
+  wr_live || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$ends" = 0 ]; then
@@ -1588,7 +1667,39 @@ guard_mv() {
     ops[n]=$a
     n=$((n + 1))
   done
-  ob_copy_move mv 0 ${ops[@]+"${ops[@]}"} && ob_mark link
+  ob_copy_move mv 0 write ${ops[@]+"${ops[@]}"} && ob_mark link
+}
+
+# guard_mktemp: the scratch arm's own writer. With no template it creates
+# under TMPDIR, which the launcher set to the scratch root; a template must
+# lie in the scratch root, since without `-p` or `-t` a relative one names
+# the working directory. Only `-d` and `-q`: `-p`, `-t`, and `--tmpdir` pick
+# another directory, and `-u` is not a write.
+guard_mktemp() {
+  local i a ends=0 n=0
+  sc_live || return 1
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$ends" = 0 ]; then
+      case $a in
+        --)
+          ends=1
+          continue
+          ;;
+        --directory | --quiet) continue ;;
+        --*) return 1 ;;
+        -?*)
+          case ${a#-} in
+            *[!dq]*) return 1 ;;
+          esac
+          continue
+          ;;
+      esac
+    fi
+    n=$((n + 1))
+    [ "$n" -eq 1 ] && ob_path "$a" leaf sc || return 1
+  done
+  ob_mark write
 }
 
 # ob_git_ready: the git acts run in the worktree the record names, with its
@@ -1752,7 +1863,7 @@ ob_git() {
         ops[n]=$a
         n=$((n + 1))
       done
-      ob_copy_move mv 0 ${ops[@]+"${ops[@]}"} && ob_mark link
+      ob_copy_move mv 0 wt ${ops[@]+"${ops[@]}"} && ob_mark link
       return
       ;;
     restore | checkout)
@@ -4351,14 +4462,15 @@ classify_verb() {
     gh) guard_gh ;;
     mise) guard_mise ;;
     lefthook) guard_lefthook ;;
-    # Writers, approved inside the spec-root write zone or under the
-    # own-branch arm.
+    # Writers, approved inside the spec-root write zone or under a policy
+    # arm.
     tee) guard_tee ;;
     mkdir) guard_mkdir ;;
     rm) guard_rm ;;
     touch) guard_touch ;;
     cp) guard_cp ;;
     mv) guard_mv ;;
+    mktemp) guard_mktemp ;;
     # Trusted repo-code runners (path-contained) and the fish recursor.
     bash | sh) guard_bashsh ;;
     fish) guard_fish ;;
@@ -4887,11 +4999,23 @@ verify_known_simple() {
   fi
   # Redirects first: a write to a real file defers regardless of the verb,
   # unless its target is in the spec-root write zone (covers a leading
-  # redirect with no command too, e.g. `> f cat x`).
+  # redirect with no command too, e.g. `> f cat x`). A bare target takes the
+  # tracked values as a split word does, which leaves a value holding a space
+  # unresolved; a tracked value holds no pattern character to glob.
+  local rtw
   for ((i = 0; i < rn; i++)); do
-    classify_redirect "${ro[i]}" "${rt[i]}" || spec_zone_redirect "${ro[i]}" "${rt[i]}" \
-      || ob_redirect "${ro[i]}" "${rt[i]}" || return 1
-    environ_redirect_ok "${rt[i]}" || return 1
+    rtw=${rt[i]}
+    if [ "$VAR_C" -gt 0 ] && [ "${rtx[i]}" = 00 ]; then
+      case $rtw in
+        *'$'*)
+          expand_word "$rtw" split
+          rtw=$EXPANDED
+          ;;
+      esac
+    fi
+    classify_redirect "${ro[i]}" "$rtw" || spec_zone_redirect "${ro[i]}" "$rtw" \
+      || ob_redirect "${ro[i]}" "$rtw" || return 1
+    environ_redirect_ok "$rtw" || return 1
   done
   # A command with redirects but no words (pure `> file`) already handled;
   # an empty simple command (e.g. a trailing separator) is a no-op.
@@ -4981,7 +5105,7 @@ verify_tokens() {
   # reads these): words, their literal-dollar, quote-start, expansion, glob,
   # zsh-option and mixed-quoting flags, substitution indexes, and the
   # redirects. Reset by fin().
-  local -a cw=() cx=() cqp=() cdyn=() cglob=() cz=() cqm=() csub=() ro=() rt=()
+  local -a cw=() cx=() cqp=() cdyn=() cglob=() cz=() cqm=() csub=() ro=() rt=() rtx=()
   local cwn=0 rn=0
   # The open `for` loops, innermost last: the loop variable's VAR slot, its
   # head words in LW, the word being verified, the first body token, and the
@@ -5064,6 +5188,7 @@ verify_tokens() {
     csub=()
     ro=()
     rt=()
+    rtx=()
     cwn=0
     rn=0
     return 0
@@ -5142,6 +5267,7 @@ verify_tokens() {
       [ -z "${TOK_SUBS[nxt]}" ] || return 1
       ro[rn]=$val
       rt[rn]=${TOK_VAL[nxt]}
+      rtx[rn]=${TOK_NOEXP[nxt]}${TOK_GLOB[nxt]}
       rn=$((rn + 1))
       idx=$((idx + 2))
       continue
@@ -5261,6 +5387,17 @@ analyze_command() {
   local VAR_C=0 LW_N=0
   local LH_NAME='' LH_START=0 LH_COUNT=0 LH_NEXT=0
   local PENDING_ASSIGN_N='' PENDING_ASSIGN_V='' PENDING_ASSIGN_O=0 PENDING_ASSIGN_S=0 PENDING_CD='' PREFIXED=0
+  # Under the scratch arm, `$TMPDIR` is the recorded scratch root: the
+  # launcher exported it, and assign_name_ok refuses re-pointing it. A
+  # `fish -c` string is left to fish's own rules.
+  if [ "$SC_ON" = 1 ] && [ "$depth" -eq 0 ]; then
+    VAR_N[0]=TMPDIR
+    VAR_V[0]=$REC_SCRATCH
+    VAR_L[0]=0
+    VAR_O[0]=0
+    VAR_S[0]=0
+    VAR_C=1
+  fi
   tokenize "$cmd" || return 1
   # Each `|`-separated segment holds a command or a redirect, and its first
   # word is no reserved word: anything else is not a pipeline.
@@ -5371,6 +5508,10 @@ main() {
         esac
       fi
       ;;
+  esac
+  SC_ON=0
+  case " $REC_POLICY " in
+    *" scratch "*) [ -z "$REC_SCRATCH" ] || SC_ON=1 ;;
   esac
   # Shared across `fish -c` recursion so nesting cannot multiply the bound.
   LOOP_PASSES=0
