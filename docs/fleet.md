@@ -27,8 +27,8 @@ until renames land; read "tower" below as the orchestrator.
 
 ## The one command
 
-From a Claude Code session, in a checkout whose `specs/` holds one or more
-signed-off (Ready or Active) bundles:
+From a Claude Code session, in a checkout whose spec root (`specs/` by
+default) holds one or more signed-off (Ready or Active) bundles:
 
 ```text
 /orchestrate --fleet
@@ -1064,10 +1064,11 @@ through the session listing instead.
   Schedule it per supervised spec, e.g.:
 
   ```cron
-  */5 * * * * cd /path/to/repo && scripts/fleet-tower-watchdog.sh specs/<spec>
+  */5 * * * * cd /path/to/repo && scripts/fleet-tower-watchdog.sh <spec-dir>
   ```
 
-  (ensure `claude` and `tmux` are on cron's `PATH`).
+  (`<spec-dir>` is the bundle directory, `specs/<spec>` under the default
+  spec root; ensure `claude` and `tmux` are on cron's `PATH`).
 - **Interactively-led towers** hold the human's actual conversation, which
   only `claude --resume <session-id>` can restore — so nothing relaunches
   them. Instead the `SessionStart` (`startup`) hook
