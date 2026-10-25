@@ -224,9 +224,9 @@ Dispatch, capture-pane observation, and
 Attaching stays available at any time for a multiplexer-fluent operator (the
 mapping's persona a); it is never required. The meta step itself dispatches
 only through the stream-json and headless rungs and parks a unit whose
-resolved rung is tmux or subagent; the tmux task arm carries only a rendered
-task brief, never the meta step's prompt, so this plumbing serves single-spec
-towers.
+resolved rung is tmux or subagent; the meta step renders no task brief, the
+only prompt the tmux task arm carries, so this plumbing serves single-spec
+towers for now.
 
 **The attention surface (the queue as default, D-13).** The fleet-entry loop
 keeps the attention store current and renders it, through

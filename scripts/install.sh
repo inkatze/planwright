@@ -9,7 +9,7 @@
 #   <claude-dir>/planwright/doctrine/   rule docs
 #   <claude-dir>/planwright/scripts/    helper scripts (incl. the resolver)
 #   <claude-dir>/planwright/config/     tracked default config
-#   <claude-dir>/planwright/templates/  shipped templates scripts read
+#   <claude-dir>/planwright/templates/  shipped templates
 #   <claude-dir>/planwright/plugin.json plugin manifest (writer-mode namespace
 #                                       source for adopter-overlay resolution)
 #   <claude-dir>/skills/<name>/         planwright skills, when present
