@@ -1,0 +1,1 @@
+match ^classify-ci-failure: file not found or unreadable: --entry-point-probe$

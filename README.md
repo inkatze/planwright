@@ -133,7 +133,9 @@ of what stays yours, what is a policy, and who owns what is
 
 ### The four-file spec
 
-An instrument flight files a spec in `specs/<feature>/` as four files:
+An instrument flight files a spec in `specs/<feature>/` (the default spec
+root; the `spec_root` option moves it, see
+[Spec location](docs/spec-location.md)) as four files:
 
 - `requirements.md` — what must be true (REQ-IDs), with a `Status:` that moves
   `Draft` → `Ready` → `Active` → `Done`.
@@ -223,8 +225,9 @@ controls hold at fleet scale. See [Fleet operation](docs/fleet.md).
 - [Customizing with overlays](docs/overlays.md) — the four-layer model and
   per-kind merge rules.
 - [Conventions](docs/conventions.md) — branch, worktree, and repo conventions.
-- [Spec location](docs/spec-location.md) — where bundles live, the spec root's
-  postures, and how authoring works in each.
+- [Spec location](docs/spec-location.md) — where bundles live: the
+  `spec_root` option and its marker, the three postures and how authoring
+  works in each, holder layout and guards, and named observation targets.
 - [Orchestration state](docs/orchestration-state.md) — how progress is derived
   from git/GitHub evidence rather than kept in a mutable ledger.
 - [Fleet operation](docs/fleet.md) — the approachable path: the one entry
@@ -251,8 +254,8 @@ skills/           the planwright skills (one directory each)
 doctrine/         the framework rule docs
 scripts/          portable-shell entry points (installer, resolver, checks)
 config/           tracked default config
-docs/             guides (getting-started, architecture, overlays, conventions, options)
-specs/            planwright's own specs (bootstrap = the founding spec)
+docs/             guides (getting-started, architecture, overlays, conventions, spec location, options)
+specs/            planwright's own specs, at the default spec root (bootstrap = the founding spec)
 tests/            shell tests for the scripts
 ```
 

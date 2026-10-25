@@ -1,0 +1,1 @@
+match ^usage: full-suite-run\.sh \[--run <id>\] -- <command> \[<arg>\.\.\.\]$
