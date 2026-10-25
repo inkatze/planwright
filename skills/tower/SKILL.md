@@ -83,7 +83,7 @@ is the one sweep output read.
    `no-flights` or `no-origin`); else what `scripts/flight-sweep.sh sweep`
    prints. Its rows say which flights landed, await the operator, fly, died
    (positive evidence only), stranded, or are unknown, and name the plugin-root
-   pair. Exit 0 or 5 is a render; any other exit is reported and the reads
+   pair and a parked flight's private partial record. Exit 0 or 5 is a render; any other exit is reported and the reads
    below used: flight branches
    (`git branch --list --format='%(refname:short)' 'planwright/flight/*'`,
    bounded to the unmerged ones), each one's landing — its PR in any state

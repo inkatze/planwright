@@ -201,6 +201,13 @@ printf '100\ttmux-flight-%s\tflight:%s\t-\ttmux\t-\tprocess %s\n' "$OLD7" "$OLD7
 printf '101\ttmux-flight-%s\tflight:%s\n' "$OLD3" "$OLD3" >>"$PLANWRIGHT_FLEET_STATE_DIR/registry"
 /bin/sh "$ATTN" decide "tmux-flight-$QUEUED" "flight:$QUEUED" "Which way?" a "a|b" >/dev/null \
   || fail "fixture: could not queue a decision"
+# Partial records beside the briefs (REQ-E1.9): the parked flight's latest one
+# is surfaced; an in-air flight's, and a symlink, never are.
+(umask 077 && mkdir -p "$c/fleet/flights/$QUEUED" "$c/fleet/flights/$AIR")
+printf 'old\n' >"$c/fleet/flights/$QUEUED/partial-000001.md"
+printf 'new\n' >"$c/fleet/flights/$QUEUED/partial-000002.md"
+ln -s "$c/fleet/flights/$QUEUED/partial-000001.md" "$c/fleet/flights/$QUEUED/partial-000009.md"
+printf 'air\n' >"$c/fleet/flights/$AIR/partial-000001.md"
 
 prs="$c/prs.tsv"
 pr_json() { printf '{"state":"%s","isDraft":true,"url":"%s","isCrossRepository":%s}' "$1" "$2" "$3"; }
@@ -263,6 +270,11 @@ r=$(row "$out" "$OLD3")
   || fail "a three-column registry row reads unknown liveness, never dead (got: $r)"
 r=$(row "$out" "$QUEUED")
 [ "$(field "$r" 3)" = awaiting-operator ] || fail "a queued decision reads awaiting-operator (got: $r)"
+prow=$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "partial"')
+[ "$prow" = "partial${TAB}$QUEUED${TAB}$c/fleet/flights/$QUEUED/partial-000002.md" ] \
+  || fail "REQ-E1.9: the sweep must surface a parked flight's latest partial record, and only it (got: $prow)"
+printf '%s\n' "$out" | grep -A1 "^flight${TAB}$QUEUED${TAB}" | tail -n 1 | grep -q "^partial${TAB}$QUEUED${TAB}" \
+  || fail "REQ-E1.9: the partial row must follow its flight's row"
 r=$(row "$out" "$PRINT")
 [ "$(field "$r" 3)" = in-air ] && [ "$(field "$r" 5)" = unknown ] \
   || fail "a print-rung flight is never dead: its liveness is unknown (got: $r)"

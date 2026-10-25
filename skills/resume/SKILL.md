@@ -236,7 +236,7 @@ rows and states.
 
 - **Exit 0** is the render. Lead with the flights that need the operator
   (awaiting the operator, dead, stranded, or unknown), each by flight id with
-  its landing or worktree, then one status line: the count per state,
+  its landing or worktree and any `partial` row's path, then one status line: the count per state,
   "partial load" when any `forge`, `registry`, or `queue` row other than `ok`
   names a read not made (a `forge` skipped for `no-flights` or `no-origin`
   aside), and plugin-root skew when the `root-skew` row says `yes`.
