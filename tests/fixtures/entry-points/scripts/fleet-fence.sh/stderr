@@ -1,0 +1,1 @@
+match ^usage: fleet-fence\.sh refname --spec <spec> <unit-id>$

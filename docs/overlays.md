@@ -89,6 +89,13 @@ Every option is listed in the [options reference](options-reference.md); an
 undocumented option fails planwright's own CI. Set an option in any layer with
 a flat `key: value` line.
 
+Options whose values are one machine's paths belong in the machine-local
+layer: `spec_root`, which moves the spec home off the default `specs/`, and
+`observation_targets`, which names other projects' roots to route
+observations to. `spec_root` is always read as the primary checkout sees it,
+so a task worktree honours the primary's machine-local value. See
+[Spec location](spec-location.md).
+
 ### Doctrine / process docs — `scripts/resolve-rule-doc.sh`
 
 | Layer | Location |
