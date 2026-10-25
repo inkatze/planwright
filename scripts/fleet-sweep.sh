@@ -84,7 +84,9 @@
 #    worker brief under the fleet home, retired once its worktree is gone
 #    (flight-dispatch.sh retire), and the derived flight index of a checkout
 #    that no longer exists (flight-sweep.sh prune). Both are swept here, each
-#    removal audited, so neither outlives its flight silently. Flight
+#    removal audited, so neither outlives its flight silently. A tmux task
+#    worker's task brief is retired beside them once its unit's worktree is
+#    gone (fleet-task-brief.sh retire). Flight
 #    worktrees themselves are registered worktrees, already in the scope of passes 1 and 2.
 #    It runs after the registry reconcile, so the dispatch records it reads
 #    are already healed or retired for this cycle.
@@ -173,6 +175,7 @@ WT="$script_dir/fleet-worktree-track.sh"
 SYNC="$script_dir/tasks-pr-sync.sh"
 FLIGHT_DISPATCH="$script_dir/flight-dispatch.sh"
 FLIGHT_SWEEP="$script_dir/flight-sweep.sh"
+TASK_BRIEF="$script_dir/fleet-task-brief.sh"
 FLIGHT_LIFECYCLE="$script_dir/flight-lifecycle.sh"
 LOCK="$script_dir/orchestrate-lock.sh"
 CONFIG_GET="$script_dir/config-get.sh"
@@ -848,12 +851,13 @@ flight_residue() {
   fr_tab=$(printf '\t')
   if [ "$fr_rc" -ne 0 ]; then
     fr_why=$(printf '%s\n' "$fr_all" | grep -v -e "^retired$fr_tab" -e "^pruned$fr_tab" | tail -n 1)
-    warn "$FR_NAME exited $fr_rc${fr_why:+ ($(sanitize_printable "$fr_why"))} — flight residues left for the next sweep"
+    warn "$FR_NAME exited $fr_rc${fr_why:+ ($(sanitize_printable "$fr_why"))} — its residues left for the next sweep"
   fi
   printf '%s\n' "$fr_all" | while IFS="$fr_tab" read -r fr_kind fr_what; do
-    case $fr_kind in
-      retired) audit flight-brief-retire flight-residue "retired the brief of flight $fr_what (its worktree is gone)" ;;
-      pruned)
+    case $FR_NAME:$fr_kind in
+      'task brief retire:retired') audit task-brief-retire task-residue "retired the task brief of $fr_what (its worktree is gone)" ;;
+      *:retired) audit flight-brief-retire flight-residue "retired the brief of flight $fr_what (its worktree is gone)" ;;
+      *:pruned)
         # The audit grammar caps the text and refuses some bytes a path can
         # carry; the path's tail is what identifies the checkout.
         [ "${#fr_what}" -le 400 ] || fr_what="...$(printf '%s' "$fr_what" | tail -c 397)"
@@ -875,6 +879,10 @@ flight_residue_pass() {
   if [ -x "$FLIGHT_SWEEP" ]; then
     FR_NAME='flight index prune'
     flight_residue "$FLIGHT_SWEEP" prune
+  fi
+  if [ -x "$TASK_BRIEF" ]; then
+    FR_NAME='task brief retire'
+    flight_residue "$TASK_BRIEF" retire --repo-root "$repo"
   fi
 }
 
