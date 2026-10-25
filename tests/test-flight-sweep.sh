@@ -210,6 +210,14 @@ printf 'old\n' >"$c/fleet/flights/$QUEUED/partial-000001.md"
 printf 'new\n' >"$c/fleet/flights/$QUEUED/partial-000002.md"
 ln -s "$c/fleet/flights/$QUEUED/partial-000001.md" "$c/fleet/flights/$QUEUED/partial-000009.md"
 printf 'air\n' >"$c/fleet/flights/$AIR/partial-000001.md"
+# A landed flight that parked after landing (its PR no longer a draft) still
+# surfaces its record; a landed one with nothing queued does not.
+(umask 077 && mkdir -p "$c/fleet/flights/$REC" "$c/fleet/flights/$PR")
+printf 'late\n' >"$c/fleet/flights/$REC/partial-000001.md"
+printf 'done\n' >"$c/fleet/flights/$PR/partial-000001.md"
+reg "tmux-flight-$REC" "$REC" tmux "process $live_pid"
+/bin/sh "$ATTN" decide "tmux-flight-$REC" "flight:$REC" "Which way?" a "a|b" >/dev/null \
+  || fail "fixture: could not queue the landed flight's decision"
 
 prs="$c/prs.tsv"
 pr_json() { printf '{"state":"%s","isDraft":true,"url":"%s","isCrossRepository":%s}' "$1" "$2" "$3"; }
@@ -278,8 +286,11 @@ prow=$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$QUEUED" '$1 == "partial" && 
 prow=$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$AIR" '$1 == "partial" && $2 == id')
 [ "$prow" = "partial${TAB}$AIR${TAB}$c/fleet/flights/$AIR/partial-000001.md" ] \
   || fail "REQ-E1.9: a park whose queue push failed must still surface its partial record (got: $prow)"
-[ "$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "partial"' | wc -l | tr -d ' ')" -eq 2 ] \
-  || fail "REQ-E1.9: only flights with a partial record get a partial row"
+prow=$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$REC" '$1 == "partial" && $2 == id')
+[ "$prow" = "partial${TAB}$REC${TAB}$c/fleet/flights/$REC/partial-000001.md" ] \
+  || fail "REQ-E1.9: a flight that parked after landing must surface its partial record (got: $prow)"
+[ "$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "partial"' | wc -l | tr -d ' ')" -eq 3 ] \
+  || fail "REQ-E1.9: a landed flight with no queued decision gets no partial row"
 printf '%s\n' "$out" | grep -A1 "^flight${TAB}$QUEUED${TAB}" | tail -n 1 | grep -q "^partial${TAB}$QUEUED${TAB}" \
   || fail "REQ-E1.9: the partial row must follow its flight's row"
 r=$(row "$out" "$PRINT")
