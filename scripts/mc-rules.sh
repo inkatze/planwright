@@ -376,7 +376,13 @@ parse_store() {
       if (cur["withdrawn"] == "true" && cur["supersedes"] == "-") bad("withdrawal " cur["id"] " names no entry")
       if (cur["subject"] == "") bad("entry " cur["id"] " has an empty subject")
       if (cur["source"] == "") bad("entry " cur["id"] " has an empty source")
-      if (cur["supersedes"] != "-" && !(cur["supersedes"] in ids)) bad("entry " cur["id"] " supersedes " cur["supersedes"] ", which no earlier entry is")
+      if (cur["supersedes"] != "-") {
+        if (!(cur["supersedes"] in ids)) bad("entry " cur["id"] " supersedes " cur["supersedes"] ", which no earlier entry is")
+        if (cur["supersedes"] in by) bad("entry " cur["id"] " supersedes " cur["supersedes"] ", already superseded by " by[cur["supersedes"]])
+        if (cur["supersedes"] in wd) bad("entry " cur["id"] " supersedes " cur["supersedes"] ", which is a withdrawal")
+        by[cur["supersedes"]] = cur["id"]
+      }
+      if (cur["withdrawn"] == "true") wd[cur["id"]] = 1
       if (cur["id"] in ids) bad("entry " cur["id"] " appears twice")
       ids[cur["id"]] = 1
       row = cur[F[1]]

@@ -446,6 +446,27 @@ corrupt() { # corrupt <label> <needle> <awk program>
 awk '$0 == "    date: 2026-10-28" { $0 = "    date: 2028-02-29" } { print }' "$tmp/store.bak" >"$store"
 rules list alpha
 expect_rc "a leap day in a leap year reads" 0
+# entry <id> <supersedes> <withdrawn>: a hand-written store entry.
+entry() {
+  printf '%s\n' "  - id: $1" '    text: "Hand written"' '    subject: "hand"' '    source: "op"' \
+    "    date: 2026-10-28" "    scope: program" "    supersedes: $2" "    withdrawn: $3"
+}
+{
+  cat "$tmp/store.bak"
+  entry r-90 r-1 false
+} >"$store"
+rules list alpha
+expect_rc "a second replacement of one entry is refused" 1
+expect_err "the refusal names the earlier supersession" "already superseded"
+{
+  cat "$tmp/store.bak"
+  entry r-90 - false
+  entry r-91 r-90 true
+  entry r-92 r-91 false
+} >"$store"
+rules list alpha
+expect_rc "an entry superseding a withdrawal is refused" 1
+expect_err "the refusal names the withdrawal" "is a withdrawal"
 printf '\001' | cat "$tmp/store.bak" - >"$store"
 rules list alpha
 expect_rc "a store carrying a control character is refused" 1
