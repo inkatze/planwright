@@ -8,6 +8,8 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OB
   GIT_COMMON_DIR GIT_NAMESPACE GIT_PREFIX GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 CHECK="$REPO_ROOT/scripts/check-diff-scoped.sh"
 
 failures=0
@@ -289,11 +291,15 @@ out=$(cd "$R" && GIT_LITERAL_PATHSPECS=1 "$CHECK" --list scripts/alpha.sh 2>&1)
 assert_contains "an inherited literal-pathspec setting still selects tests" "test	tests/test-alpha.sh" "$out"
 printf '# edit\n' >>"$R/docs/README.md"
 chmod 000 "$R/.git/index"
-out=$(ck --list --base HEAD 2>&1)
-rc=$?
+if hermetic_access_denied r "$R/.git/index"; then
+  out=$(ck --list --base HEAD 2>&1)
+  rc=$?
+  assert_exit "a git failure listing the changes is an error, not an empty change set" 2 "$rc"
+  assert_lacks "a git failure does not read as nothing changed" "nothing changed" "$out"
+else
+  echo "skip: git failure listing the changes: the running user still reads $R/.git/index under mode 000"
+fi
 chmod 644 "$R/.git/index"
-assert_exit "a git failure listing the changes is an error, not an empty change set" 2 "$rc"
-assert_lacks "a git failure does not read as nothing changed" "nothing changed" "$out"
 g checkout -q -- docs/README.md
 # An inherited repository selector never points the check at another repository.
 printf '# edit\n' >>"$R/docs/README.md"

@@ -18,6 +18,8 @@ unset CDPATH
 umask 077
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 repo_root=$(cd "$here/.." && pwd)
 RUN="$repo_root/scripts/step-run.sh"
 SR="$repo_root/scripts/step-record.sh"
@@ -229,16 +231,16 @@ verdict $? "misrouted, undeclared, malformed, and stateless calls are refused wi
   "a refusal case failed (above)"
 
 # --- a failure after the take still releases the session's slot -----------------------------
-if [ "$(id -u)" -ne 0 ]; then
-  chmod 500 "$wt/.claude/steps/$r"
+chmod 500 "$wt/.claude/steps/$r"
+if hermetic_access_denied w "$wt/.claude/steps/$r"; then
   srun begin --run "$r" --point pre-pr --step ses --owner "$me" >/dev/null 2>&1
   rc=$?
-  chmod 700 "$wt/.claude/steps/$r"
   [ "$rc" -eq 4 ] && [ -z "$(sp report gate)" ]
   verdict $? "a begin failing after its take releases the slot" "rc=$rc held=$(sp report gate)"
 else
-  ok "a begin failing after its take releases the slot (skipped as root: a read-only run directory cannot fail a write)"
+  printf '%s\n' "skip: begin failing after its take: the running user still writes $wt/.claude/steps/$r under mode 500"
 fi
+chmod 700 "$wt/.claude/steps/$r"
 
 # --- a refused context value fails the step without running it (REQ-A1.6) ------------------
 PR=abc srun command --run "$r" --point pre-pr --step iso >"$tmp/out" 2>/dev/null

@@ -41,6 +41,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 CARRY="$here/../scripts/observation-carry.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
@@ -52,8 +54,7 @@ carry_adopter=$(mktemp -d "${TMPDIR:-/tmp}/obs-carry.adopter.XXXXXX") || exit 1
 trap 'rm -rf "$carry_adopter"' EXIT
 PLANWRIGHT_ADOPTER_OVERLAY=$carry_adopter
 export PLANWRIGHT_ADOPTER_OVERLAY
-unset PLANWRIGHT_REPO_ROOT PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_ROOT \
-  CLAUDE_PLUGIN_ROOT CLAUDE_PLUGIN_DATA
+unset CLAUDE_PLUGIN_DATA
 
 fail() {
   echo "FAIL: $1" >&2

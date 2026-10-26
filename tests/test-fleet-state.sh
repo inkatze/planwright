@@ -36,6 +36,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 FS="$here/../scripts/fleet-state.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
@@ -924,24 +926,27 @@ echo "ok: untrusted diagnostics are stripped of control/escape bytes (no termina
 # assert the first ("it is not a lock symlink"), which sends an operator
 # hitting the second to inspect the wrong thing entirely.
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" = 0 ]; then
-  echo "skip: unlock permission case needs a non-root user (root ignores the directory mode)"
-else
-  home_perm="$tmp/perm-home"
-  mkdir -p "$home_perm"
-  penv() {
-    env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-      PLANWRIGHT_FLEET_STATE_DIR="$home_perm" /bin/sh "$FS" "$@"
-  }
-  penv lock >/dev/null || fail "perm: could not take the lock to begin with"
-  [ -L "$home_perm/.fleet.lock" ] || fail "perm: the lock is not a symlink, so this case tests nothing"
-  chmod 500 "$home_perm" || fail "perm: could not make the home unwritable"
+home_perm="$tmp/perm-home"
+mkdir -p "$home_perm"
+penv() {
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+    PLANWRIGHT_FLEET_STATE_DIR="$home_perm" /bin/sh "$FS" "$@"
+}
+penv lock >/dev/null || fail "perm: could not take the lock to begin with"
+[ -L "$home_perm/.fleet.lock" ] || fail "perm: the lock is not a symlink, so this case tests nothing"
+chmod 500 "$home_perm" || fail "perm: could not make the home unwritable"
+rc=skip
+if hermetic_access_denied w "$home_perm"; then
   # `|| rc=$?` on the assignment itself: under `set -e` a failing command
   # substitution ends the script before the next line runs, which would skip
   # the chmod below and leave the fixture undeletable.
   rc=0
   out=$(penv unlock 2>&1) || rc=$?
-  chmod 700 "$home_perm"
+else
+  echo "skip: unlock permission case: the running user still writes $home_perm under mode 500"
+fi
+chmod 700 "$home_perm"
+if [ "$rc" != skip ]; then
   [ "$rc" = 2 ] || fail "perm: an unlock that could not remove the lock must exit 2, got $rc"
   case $out in
     *"still present"*) ;;

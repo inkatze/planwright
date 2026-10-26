@@ -36,6 +36,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 RELAY="$here/../scripts/orchestrate-relay.sh"
 
 fail() {
@@ -295,8 +297,12 @@ esc=$(printf '\033')
 unreadable="$tmp/unreadable-msg.txt"
 printf 'body\n' >"$unreadable"
 chmod 000 "$unreadable"
-rc_of 2 "relay-command tmux must reject an unreadable message file" -- \
-  "$RELAY" relay-command tmux "@3" "$unreadable"
+if hermetic_access_denied r "$unreadable"; then
+  rc_of 2 "relay-command tmux must reject an unreadable message file" -- \
+    "$RELAY" relay-command tmux "@3" "$unreadable"
+else
+  echo "skip: 12a unreadable message file: the running user still reads $unreadable under mode 000"
+fi
 chmod 644 "$unreadable"
 
 # 12b. valid_msgfile hardening: an EXISTING message file whose PATH carries a

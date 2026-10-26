@@ -38,6 +38,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 FSD="$here/../scripts/fleet-stuck-detector.sh"
 tab=$(printf '\t')
 # Host git config must not reach the fixtures (status.showUntrackedFiles,
@@ -829,14 +831,16 @@ printf '%s\n' "$out" | grep -q "^worker	other-1	finished-but-unreaped	live-peer	
 printf '%s\n' "$out" | grep -q "^worker	$w	working	this-tower	" || fail "scan: $w row missing or wrong"
 [ "$(printf '%s\n' "$out" | grep -c '^anomaly	bad handle	handle-malformed$')" = 1 ] || fail "scan: torn handle not reported once"
 [ "$(grep -c '^liveness' "$tmp/presence-calls")" = 1 ] || fail "scan asked the presence surface $(grep -c '^liveness' "$tmp/presence-calls") times for one distinct token"
-if [ "$(id -u)" != 0 ]; then
-  chmod 000 "$h10/attention/state"
+chmod 000 "$h10/attention/state"
+if hermetic_access_denied r "$h10/attention/state"; then
   out=$(run "$h10" scan --tower-id "$self_id" 2>/dev/null) || fail "unreadable store scan exited non-zero"
   printf '%s\n' "$out" | grep -q '^anomaly	-	store-unreadable$' || fail "an unreadable store must be reported, not read as empty"
   out=$(run "$h10" classify "$w" --tower-id "$self_id" 2>/dev/null) || fail "unreadable store classify exited non-zero"
   [ "$(ev "$out" attention-status)" = unreadable ] || fail "unreadable store: '$(ev "$out" attention-status)'"
-  chmod 600 "$h10/attention/state"
+else
+  echo "skip: unreadable attention store: the running user still reads $h10/attention/state under mode 000"
 fi
+chmod 600 "$h10/attention/state"
 echo "ok: the output grammar is pinned and script-parseable; anomalies are reported (REQ-C1.8)"
 
 # ---------------------------------------------------------------------------

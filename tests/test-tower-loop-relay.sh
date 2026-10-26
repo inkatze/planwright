@@ -20,6 +20,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 TLC="$here/../scripts/tower-loop-comms.sh"
 TQ="$here/../scripts/tower-queue.sh"
 FA="$here/../scripts/fleet-attention.sh"
@@ -272,10 +274,15 @@ k_pending=i00000004
 printf 'planwright: pending.\n' >"$push_dir/$k_pending"
 chmod 0600 "$push_dir/$k_pending"
 chmod 0000 "$push_dir"
-rc=$(step_rc_of --tower "$A" --evidence "$ev" --now 4880)
+if hermetic_access_denied r "$push_dir"; then
+  rc=$(step_rc_of --tower "$A" --evidence "$ev" --now 4880)
+  chmod 0700 "$push_dir"
+  [ "$rc" != 0 ] || fail "an unlistable pending-push directory read as an idle one"
+  grep -q 'cannot be listed' "$errf" || fail "the unlistable push directory was not named"
+else
+  echo "skip: unlistable pending-push directory: the running user still reads $push_dir under mode 0000"
+fi
 chmod 0700 "$push_dir"
-[ "$rc" != 0 ] || fail "an unlistable pending-push directory read as an idle one"
-grep -q 'cannot be listed' "$errf" || fail "the unlistable push directory was not named"
 rm -f "$push_dir/$k_pending"
 
 # Nor may a regular file where the push directory should be: `notify` cannot

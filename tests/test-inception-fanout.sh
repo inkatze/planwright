@@ -24,6 +24,8 @@ LC_ALL=C
 export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 FANOUT="$REPO_ROOT/scripts/inception-fanout.sh"
 VALIDATE="$REPO_ROOT/scripts/inception-validate.sh"
 
@@ -109,7 +111,7 @@ mode_of() { ls -ld "$1" | cut -c1-10; }
 export PLANWRIGHT_INCEPTION_TODAY=2026-08-26
 export PLANWRIGHT_ROOT="$REPO_ROOT"
 export PLANWRIGHT_REPO_ROOT=none
-unset CLAUDE_PLUGIN_ROOT CLAUDE_DIR CLAUDE_PLUGIN_DATA POWERS PLANWRIGHT_FANOUT_SEED
+unset CLAUDE_DIR CLAUDE_PLUGIN_DATA POWERS PLANWRIGHT_FANOUT_SEED
 umask 022
 
 # A team overlay: a second card with a stance axis, a third with a model
@@ -261,10 +263,12 @@ v="$(fresh)"
 mkdir -p "$v/exports"
 chmod 555 "$v/exports"
 # Root writes through a mode bit, so these checks only mean something as a user.
-if [ "$(id -u)" != 0 ]; then
+if hermetic_access_denied w "$v/exports"; then
   out="$("$FANOUT" frame "$v" 2>&1)"
   assert_eq "frame: an unwritable exports/ fails rather than reporting success" "2" "$?"
   assert_not_contains "frame: and prints no success line" "frame	exports/frame.md" "$out"
+else
+  echo "skip: frame into an unwritable exports/: the running user still writes $v/exports under mode 555"
 fi
 chmod 755 "$v/exports"
 
@@ -419,10 +423,12 @@ v2="$(fresh)"
 assert_eq "roster: no frame yet is refused" "2" "$?"
 run="$(newrun)"
 chmod 555 "$run"
-if [ "$(id -u)" != 0 ]; then
+if hermetic_access_denied w "$run"; then
   out="$("$FANOUT" roster --run "$run" --backend subagent --seat product-strategy "$v" 2>&1)"
   assert_eq "roster: an unwritable run fails rather than disclosing a roster" "2" "$?"
   assert_not_contains "roster: and prints no disclosure" "sessions	" "$out"
+else
+  echo "skip: roster into an unwritable run: the running user still writes $run under mode 555"
 fi
 chmod 755 "$run"
 
@@ -522,10 +528,12 @@ assert_eq "brief: an unknown seat is refused" "2" "$?"
 "$FANOUT" brief --run "$run" '../x' "$v" >/dev/null 2>&1
 assert_eq "brief: a hostile seat id is refused" "2" "$?"
 chmod 000 "$run/frame.md"
-if [ "$(id -u)" != 0 ]; then
+if hermetic_access_denied r "$run/frame.md"; then
   out="$("$FANOUT" brief --run "$run" seat-1 "$v" 2>/dev/null)"
   assert_eq "brief: an unreadable frame fails" "2" "$?"
   assert_eq "brief: and hands out no partial brief" "" "$out"
+else
+  echo "skip: brief from an unreadable frame: the running user still reads $run/frame.md under mode 000"
 fi
 chmod 644 "$run/frame.md"
 

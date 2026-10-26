@@ -51,6 +51,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 script="$here/../scripts/spec-model.sh"
 repo_root=$(cd "$here/.." && pwd)
 tab=$(printf '\t')
@@ -587,13 +589,17 @@ lacks Orphan
 unreq="$tmp/unreadable-req/demo"
 make_bundle "$unreq" Active
 chmod 000 "$unreq/requirements.md"
-run_m 0 "$unreq"
-lacks "can't open"
-rec FILE requirements absent
-# The readable siblings still parse, and the status falls back to one of them.
-rec BUNDLE demo Active
-[ "$(count_tag DEC)" -gt 0 ] || fail "unreadable requirements.md should not suppress readable siblings"
-[ "$(count_tag REQ)" -eq 0 ] || fail "unreadable requirements.md should yield no REQ records"
+if hermetic_access_denied r "$unreq/requirements.md"; then
+  run_m 0 "$unreq"
+  lacks "can't open"
+  rec FILE requirements absent
+  # The readable siblings still parse, and the status falls back to one of them.
+  rec BUNDLE demo Active
+  [ "$(count_tag DEC)" -gt 0 ] || fail "unreadable requirements.md should not suppress readable siblings"
+  [ "$(count_tag REQ)" -eq 0 ] || fail "unreadable requirements.md should yield no REQ records"
+else
+  printf '%s\n' "skip: unreadable requirements.md: the running user still reads $unreq/requirements.md under mode 000"
+fi
 chmod u+rwx "$unreq/requirements.md"
 
 # A readable requirements.md with an unreadable sibling: the parse gate must
@@ -602,11 +608,15 @@ chmod u+rwx "$unreq/requirements.md"
 unsib="$tmp/unreadable-sibling/demo"
 make_bundle "$unsib" Active
 chmod 000 "$unsib/design.md"
-run_m 0 "$unsib"
-lacks "can't open"
-rec FILE design absent
-rec REQ REQ-A1.1 A live
-[ "$(count_tag DEC)" -eq 0 ] || fail "unreadable design.md should yield no DEC records"
+if hermetic_access_denied r "$unsib/design.md"; then
+  run_m 0 "$unsib"
+  lacks "can't open"
+  rec FILE design absent
+  rec REQ REQ-A1.1 A live
+  [ "$(count_tag DEC)" -eq 0 ] || fail "unreadable design.md should yield no DEC records"
+else
+  printf '%s\n' "skip: unreadable design.md sibling: the running user still reads $unsib/design.md under mode 000"
+fi
 chmod u+rwx "$unsib/design.md"
 
 # ---------------------------------------------------------------------------

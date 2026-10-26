@@ -25,6 +25,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 # shellcheck source=tests/lib/fleet-adversarial-fixture.sh
 . "$here/lib/fleet-adversarial-fixture.sh"
 
@@ -183,9 +185,7 @@ ran conc:contended:fleet-lock
 sj_launch cE "$ev_done" "$peer_id"
 cEp="$sup $wrk"
 poll_until --what 'finished-but-unreaped' -- classified cE finished-but-unreaped || fail "fixture: cE never finished"
-sleep 0 &
-dead_holder=$!
-wait "$dead_holder" || :
+dead_holder=$(dead_owner_pid)
 mkdir -p "$ihome/reap-locks"
 ln -s "$dead_holder-1700000000-1" "$ihome/reap-locks/cE"
 args=''

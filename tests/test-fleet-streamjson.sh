@@ -48,6 +48,10 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 SJ="$here/../scripts/fleet-streamjson.sh"
 FA="$here/../scripts/fleet-attention.sh"
 # shellcheck source=tests/lib/fixture-procs.sh
@@ -1557,21 +1561,19 @@ echo "ok: c28 launch refuses a symlinked state directory (REQ-B1.3)"
 #     from "could not read" by awk's exit code, and busybox awk does not
 #     separate those, so readability has to be checked rather than assumed.
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" = 0 ]; then
-  echo "skip: c29 unreadable-journal injection needs a non-root user (running as root)"
-else
-  home="$tmp/h29"
-  rec="$tmp/r29"
-  mkdir -p "$rec"
-  ev29="$tmp/ev29"
-  printf '%s\n%s\n%s\n' "$line_init" "$line_perm" "$line_result" >"$ev29"
-  printf 'unreadable journal\n' >"$tmp/prompt29"
-  senv "$home" "$rec" SHIM_EVENTS="$ev29" -- \
-    launch sjw29 execution-backends:4 --prompt-file "$tmp/prompt29" --foreground \
-    || fail "c29: foreground launch exited non-zero"
-  wdir29="$home/streamjson/sjw29"
-  [ -f "$wdir29/journal" ] || fail "c29: no journal to make unreadable"
-  chmod 000 "$wdir29/journal" || fail "c29: cannot make the journal unreadable"
+home="$tmp/h29"
+rec="$tmp/r29"
+mkdir -p "$rec"
+ev29="$tmp/ev29"
+printf '%s\n%s\n%s\n' "$line_init" "$line_perm" "$line_result" >"$ev29"
+printf 'unreadable journal\n' >"$tmp/prompt29"
+senv "$home" "$rec" SHIM_EVENTS="$ev29" -- \
+  launch sjw29 execution-backends:4 --prompt-file "$tmp/prompt29" --foreground \
+  || fail "c29: foreground launch exited non-zero"
+wdir29="$home/streamjson/sjw29"
+[ -f "$wdir29/journal" ] || fail "c29: no journal to make unreadable"
+chmod 000 "$wdir29/journal" || fail "c29: cannot make the journal unreadable"
+if hermetic_access_denied r "$wdir29/journal"; then
   #   The hazard is BUSYBOX awk, which exits 1 for an unreadable operand where
   #   gnu/mawk exit 2. On a host with the latter the pre-existing exit-code
   #   arm already covers this, so a test run against the host's own awk passes
@@ -1591,7 +1593,7 @@ exec $real_awk "\$@"
 AWKSHIM
   chmod +x "$tmp/bin29/awk"
   printf 'x\n' >"$tmp/probe29"
-  chmod 000 "$tmp/probe29"
+  chmod 000 "$tmp/probe29" # hermetic-exempt: runs only inside the journal's denial probe above, same user and mode
   PATH="$tmp/bin29:$PATH" awk '{ print }' "$tmp/probe29" >/dev/null 2>&1
   [ "$?" = 1 ] || fail "c29: the awk shim does not reproduce busybox's exit 1 — this case would prove nothing"
   chmod 644 "$tmp/probe29"
@@ -1609,6 +1611,9 @@ AWKSHIM
     *"held="*attention*) fail "c29 control: attention stayed held with a readable journal: $out" ;;
   esac
   echo "ok: c29 an unreadable receipt journal leaves the attention class held (REQ-E1.5)"
+else
+  chmod 644 "$wdir29/journal"
+  echo "skip: c29 unreadable-journal injection: the running user still reads $wdir29/journal under mode 000"
 fi
 
 # ---------------------------------------------------------------------------
@@ -1920,9 +1925,7 @@ case $out in
   "status sjw35 awaiting-input pending=2 oldest="[0-9]*"s supervisor=$$ worker=$$") : ;;
   *) fail "c35: the count covers every pending row and the age the readable ones, got: $out" ;;
 esac
-sh -c ':' &
-dead35=$!
-wait "$dead35"
+dead35=$(dead_owner_pid) || fail "c35: no PID is free to stand for a dead supervisor"
 printf '%s\n' "$dead35" >"$w35/supervisor.pid"
 out=$(senv "$home" "$tmp/r35" -- status sjw35) || :
 case $out in
@@ -2096,18 +2099,16 @@ echo "ok: c38 a spooled re-ask of a settled request is re-opened, not dropped"
 #     re-reported every beat; status still counts it, and a close removes it.
 #     A read-only journal makes the append fail; root writes through that, so
 #     the leg is skipped there.
-if [ "$(id -u)" = 0 ]; then
-  echo "skip: c38f a set-aside spool (running as root, a read-only journal still takes the write)"
-else
-  home="$tmp/h38f"
-  wdir38f="$home/streamjson/sjw38f"
-  senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_SLEEP=300 -- \
-    launch sjw38f execution-backends:4 --prompt-file "$tmp/prompt38" &
-  poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir38f/journal" \
-    || fail "c38f: the receipt was never journaled"
-  senv "$home" "$rec" -- answer sjw38f "$req_perm" --allow >/dev/null \
-    || fail "c38f: answer exited non-zero"
-  chmod 444 "$wdir38f/journal"
+home="$tmp/h38f"
+wdir38f="$home/streamjson/sjw38f"
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_SLEEP=300 -- \
+  launch sjw38f execution-backends:4 --prompt-file "$tmp/prompt38" &
+poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir38f/journal" \
+  || fail "c38f: the receipt was never journaled"
+senv "$home" "$rec" -- answer sjw38f "$req_perm" --allow >/dev/null \
+  || fail "c38f: answer exited non-zero"
+chmod 444 "$wdir38f/journal"
+if hermetic_access_denied w "$wdir38f/journal"; then
   printf '%s\n%s\n' "$(date +%s)" "$line_q" >"$wdir38f/deferred-$req_q"
   poll_until --what 'the set-aside spool' -- test -f "$wdir38f/undrained-$req_q" \
     || fail "c38f: a spool whose journal write failed was not set aside"
@@ -2130,6 +2131,10 @@ else
   senv "$home" "$rec" -- stop sjw38f --grace 2 >/dev/null || fail "c38f: stop exited non-zero"
   [ ! -e "$wdir38f/undrained-$req_q" ] || fail "c38f: a close left the set-aside receipt behind"
   echo "ok: c38 a spool that cannot land is set aside once, counted, and removed by a close"
+else
+  chmod 644 "$wdir38f/journal"
+  senv "$home" "$rec" -- stop sjw38f --grace 2 >/dev/null || fail "c38f: stop exited non-zero"
+  echo "skip: c38f set-aside spool: the running user still writes $wdir38f/journal under mode 444"
 fi
 # ---------------------------------------------------------------------------
 # c39: a turn result does not hide a later request. A persistent worker writes
@@ -2159,9 +2164,7 @@ esac
 age39=${out#*oldest=}
 age39=${age39%%s *}
 [ "$age39" -ge 120 ] || fail "c39: oldest must be the request's age, got: $out"
-sh -c ':' &
-dead39=$!
-wait "$dead39"
+dead39=$(dead_owner_pid) || fail "c39: no PID is free to stand for a dead supervisor"
 printf '%s\n' "$dead39" >"$w39/supervisor.pid"
 out=$(senv "$home" "$tmp/r39" -- status sjw39) || fail "c39: status exited non-zero"
 case $out in

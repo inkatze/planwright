@@ -42,6 +42,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 FP="$here/../scripts/fleet-presence.sh"
 
 fail() {
@@ -355,19 +357,27 @@ printf '%s\n' "$out" | grep -q "gc	$uuid_a" || fail "positively-dead record not 
 # (owner-only, passes the group/other privacy gate) makes rm fail.
 run "$h9" publish --checkout "$co_a" --session-id "$uuid_a" --pid 22222 >/dev/null
 chmod 0500 "$sub9"
-err9="$tmp/h9-err"
-out=$(run "$h9" discover --checkout "$co_a" --pid $$ --min-interval 0 2>"$err9") \
-  || {
-    chmod 0700 "$sub9"
-    fail "discover over a read-only sub-surface failed"
-  }
+denied=0
+if hermetic_access_denied w "$sub9"; then
+  denied=1
+  err9="$tmp/h9-err"
+  out=$(run "$h9" discover --checkout "$co_a" --pid $$ --min-interval 0 2>"$err9") \
+    || {
+      chmod 0700 "$sub9"
+      fail "discover over a read-only sub-surface failed"
+    }
+else
+  echo "skip: failed gc unlink: the running user still writes $sub9 under mode 0500"
+fi
 chmod 0700 "$sub9"
-printf '%s\n' "$out" | grep -q "gc-fail	$uuid_a" \
-  || fail "failed unlink not reported as gc-fail (got: $out)"
-printf '%s\n' "$out" | grep -q "gc	$uuid_a$" \
-  && fail "failed unlink falsely reported as gc"
-[ -f "$sub9/$uuid_a" ] || fail "gc-fail fixture: record unexpectedly gone"
-grep -qi "could not GC" "$err9" || fail "gc failure not surfaced on stderr"
+if [ "$denied" = 1 ]; then
+  printf '%s\n' "$out" | grep -q "gc-fail	$uuid_a" \
+    || fail "failed unlink not reported as gc-fail (got: $out)"
+  printf '%s\n' "$out" | grep -q "gc	$uuid_a$" \
+    && fail "failed unlink falsely reported as gc"
+  [ -f "$sub9/$uuid_a" ] || fail "gc-fail fixture: record unexpectedly gone"
+  grep -qi "could not GC" "$err9" || fail "gc failure not surfaced on stderr"
+fi
 rm -f "$sub9/$uuid_a"
 echo "ok: alive/unknown never reclaim (bytes untouched); only positively-dead GCs; failed unlink surfaced"
 
@@ -448,11 +458,19 @@ printf '%s\n' "$out" | grep -q "sole-tower=no" \
 # unreadable — surfaced assume-live, never the benign mid-scan vanish.
 printf 'pw-presence-v1	x\n' >"$sub11/four-perms"
 chmod 000 "$sub11/four-perms"
-out=$(run "$h11" discover --checkout "$co_a" --pid $$ --min-interval 0 2>/dev/null) \
-  || fail "discover over a mode-000 record failed"
+denied=0
+if hermetic_access_denied r "$sub11/four-perms"; then
+  denied=1
+  out=$(run "$h11" discover --checkout "$co_a" --pid $$ --min-interval 0 2>/dev/null) \
+    || fail "discover over a mode-000 record failed"
+else
+  echo "skip: mode-000 presence record: the running user still reads $sub11/four-perms under mode 000"
+fi
 chmod 600 "$sub11/four-perms"
-printf '%s\n' "$out" | grep -q "peer-unreadable	four-perms	unreadable" \
-  || fail "mode-000 record read as absent, not as an unreadable peer (REQ-A1.6)"
+if [ "$denied" = 1 ]; then
+  printf '%s\n' "$out" | grep -q "peer-unreadable	four-perms	unreadable" \
+    || fail "mode-000 record read as absent, not as an unreadable peer (REQ-A1.6)"
+fi
 # A well-formed record carrying ANOTHER repo's id inside this sub-surface is
 # a surfaced anomaly: excluded from the peer set, never GC'd.
 other_repo_id=$(basename "$(run "$h11" surface --checkout "$co_other")")
@@ -502,12 +520,19 @@ mkdir -p "$h12b"
 run "$h12b" publish --checkout "$co_a" --session-id "$uuid_a" --pid 55555 >/dev/null
 sub12b=$(run "$h12b" surface --checkout "$co_a")
 chmod 000 "$sub12b"
-rc=0
-errb="$tmp/h12b-err"
-run "$h12b" discover --checkout "$co_a" --pid $$ --min-interval 0 >/dev/null 2>"$errb" || rc=$?
+rc=skip
+if hermetic_access_denied r "$sub12b"; then
+  rc=0
+  errb="$tmp/h12b-err"
+  run "$h12b" discover --checkout "$co_a" --pid $$ --min-interval 0 >/dev/null 2>"$errb" || rc=$?
+else
+  echo "skip: unreadable presence sub-surface: the running user still reads $sub12b under mode 000"
+fi
 chmod 700 "$sub12b"
-[ "$rc" = 3 ] || fail "unreadable surface read as exit $rc, expected unknown-peer-status 3"
-grep -qi "unknown peer status" "$errb" || fail "unreadable surface did not surface unknown-peer-status"
+if [ "$rc" != skip ]; then
+  [ "$rc" = 3 ] || fail "unreadable surface read as exit $rc, expected unknown-peer-status 3"
+  grep -qi "unknown peer status" "$errb" || fail "unreadable surface did not surface unknown-peer-status"
+fi
 # (c) Concurrent-bootstrap contract: a surface a PEER already bootstrapped
 # (sentinels + 0700 dirs pre-existing, our tower's mkdir would EEXIST) is
 # success, not an error.

@@ -7,6 +7,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 CHECK="$REPO_ROOT/scripts/check-review-miss.sh"
 DOC="$REPO_ROOT/doctrine/review-independence.md"
 
@@ -144,39 +146,58 @@ case $out in
 esac
 rm -f "$obs/entries/$escname"
 
-if [ "$(id -u)" -ne 0 ]; then
-  printf '%s\n' "- 2026-10-03 [planwright] review-miss(correctness, pruned): #43 a.sh: unreadable" >"$obs/entries/2026-10-03-review-miss-0000ffff.md"
-  chmod 000 "$obs/entries/2026-10-03-review-miss-0000ffff.md"
+frag="$obs/entries/2026-10-03-review-miss-0000ffff.md"
+printf '%s\n' "- 2026-10-03 [planwright] review-miss(correctness, pruned): #43 a.sh: unreadable" >"$frag"
+chmod 000 "$frag"
+if hermetic_access_denied r "$frag"; then
   rc=0
   out=$(/bin/sh "$CHECK" --obs-dir "$obs" 2>&1) || rc=$?
   assert_exit "an unreadable fragment is an error, never a pass" 2 "$rc"
   assert_contains "says the fragment cannot be read" "cannot be read" "$out"
-  chmod 644 "$obs/entries/2026-10-03-review-miss-0000ffff.md"
-  rm -f "$obs/entries/2026-10-03-review-miss-0000ffff.md"
+else
+  echo "skip: unreadable fragment: the running user still reads $frag under mode 000"
+fi
+chmod 644 "$frag"
+rm -f "$frag"
 
-  printf '%s\n' "- 2026-10-03 [planwright] review-miss(correctness, pruned): #43 a.sh: unreadable" >"$obs/entries/2026-10-03-review-miss-0000ffff.md"
-  chmod 000 "$obs/entries/2026-10-03-review-miss-0000ffff.md"
-  printf '%s\n' "- 2026-10-03 [planwright] review-miss(correctness, pruned): no PR" >"$obs/entries/2026-10-03-review-miss-0000fffe.md"
+printf '%s\n' "- 2026-10-03 [planwright] review-miss(correctness, pruned): #43 a.sh: unreadable" >"$frag"
+chmod 000 "$frag"
+printf '%s\n' "- 2026-10-03 [planwright] review-miss(correctness, pruned): no PR" >"$obs/entries/2026-10-03-review-miss-0000fffe.md"
+if hermetic_access_denied r "$frag"; then
   rc=0
   out=$(/bin/sh "$CHECK" --obs-dir "$obs" 2>&1) || rc=$?
   assert_exit "an unreadable fragment keeps exit 2 past a later malformed miss" 2 "$rc"
-  chmod 644 "$obs/entries/2026-10-03-review-miss-0000ffff.md"
-  rm -f "$obs/entries/2026-10-03-review-miss-0000ffff.md" "$obs/entries/2026-10-03-review-miss-0000fffe.md"
+else
+  echo "skip: unreadable fragment past a malformed miss: the running user still reads $frag under mode 000"
+fi
+chmod 644 "$frag"
+rm -f "$frag" "$obs/entries/2026-10-03-review-miss-0000fffe.md"
 
-  for mode in 000 444; do
-    chmod "$mode" "$obs/archive"
+for mode in 000 444; do
+  case $mode in
+    000) access=r ;;
+    *) access=w ;;
+  esac
+  chmod "$mode" "$obs/archive"
+  if hermetic_access_denied "$access" "$obs/archive"; then
     rc=0
     out=$(/bin/sh "$CHECK" --obs-dir "$obs" 2>&1) || rc=$?
     assert_exit "a store directory at mode $mode is an error, never a pass" 2 "$rc"
-    chmod 755 "$obs/archive"
-  done
+  else
+    echo "skip: store directory at mode $mode: the running user keeps $access access to $obs/archive"
+  fi
+  chmod 755 "$obs/archive"
+done
 
-  chmod 600 "$obs"
+chmod 600 "$obs"
+if [ ! -x "$obs" ]; then
   rc=0
   out=$(/bin/sh "$CHECK" --obs-dir "$obs" 2>&1) || rc=$?
   assert_exit "a store root that cannot be searched is an error, never a pass" 2 "$rc"
-  chmod 755 "$obs"
+else
+  echo "skip: unsearchable store root: the running user still searches $obs under mode 600"
 fi
+chmod 755 "$obs"
 
 : >"$obs/entries/2026-10-03-review-miss-0000eeee.md"
 rc=0
@@ -247,13 +268,16 @@ assert_not_contains "the reader never reads the out-of-vocabulary miss" "vibes" 
 rc=0
 rbt_miss_fragment "$T/gone/2026-10-04-review-miss-0000aaaa.md" || rc=$?
 assert_exit "a fragment a drain moved away is reported gone" 4 "$rc"
-if [ "$(id -u)" -ne 0 ]; then
-  printf '%s\n' "- 2026-10-04 [planwright] an ordinary note" >"$ledger/2026-10-04-note-00001111.md"
-  chmod 000 "$ledger/2026-10-04-note-00001111.md"
+note="$ledger/2026-10-04-note-00001111.md"
+printf '%s\n' "- 2026-10-04 [planwright] an ordinary note" >"$note"
+chmod 000 "$note"
+if hermetic_access_denied r "$note"; then
   rbt_read_ledger "$T/rows.tsv" "$ledger"
   assert_eq "the reader never counts an unreadable non-miss fragment" 1 "$RBT_LEDGER_MALFORMED"
-  chmod 644 "$ledger/2026-10-04-note-00001111.md"
+else
+  echo "skip: unreadable non-miss fragment: the running user still reads $note under mode 000"
 fi
+chmod 644 "$note"
 
 # --- the reader: a slug mismatch counts, an unreadable miss counts, a copy in
 # both directories is read once, an unlistable directory counts ---
@@ -265,17 +289,24 @@ cp "$l2/entries/2026-10-05-review-miss-00003333.md" "$l2/archive/"
 rbt_read_ledger "$T/rows2.tsv" "$l2/entries" "$l2/archive"
 assert_eq "the reader counts a miss text under another slug" 1 "$RBT_LEDGER_MALFORMED"
 assert_eq "the reader reads a fragment in both directories once" 1 "$(wc -l <"$T/rows2.tsv" | tr -d ' ')"
-if [ "$(id -u)" -ne 0 ]; then
-  printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, pruned): #52 a.sh: unreadable" >"$l2/entries/2026-10-05-review-miss-00004444.md"
-  chmod 000 "$l2/entries/2026-10-05-review-miss-00004444.md"
+miss="$l2/entries/2026-10-05-review-miss-00004444.md"
+printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, pruned): #52 a.sh: unreadable" >"$miss"
+chmod 000 "$miss"
+if hermetic_access_denied r "$miss"; then
   rbt_read_ledger "$T/rows2.tsv" "$l2/entries" "$l2/archive"
   assert_eq "the reader counts an unreadable miss" 2 "$RBT_LEDGER_MALFORMED"
-  chmod 644 "$l2/entries/2026-10-05-review-miss-00004444.md"
-  chmod 300 "$l2/archive"
+else
+  echo "skip: unreadable miss: the running user still reads $miss under mode 000"
+fi
+chmod 644 "$miss"
+chmod 300 "$l2/archive"
+if hermetic_access_denied r "$l2/archive"; then
   rbt_read_ledger "$T/rows2.tsv" "$l2/archive"
   assert_eq "the reader counts a directory it cannot list" 1 "$RBT_LEDGER_MALFORMED"
-  chmod 755 "$l2/archive"
+else
+  echo "skip: unlistable directory: the running user still lists $l2/archive under mode 300"
 fi
+chmod 755 "$l2/archive"
 
 # --- the doctrine states the vocabulary the scripts enforce ---
 doc_tokens() {

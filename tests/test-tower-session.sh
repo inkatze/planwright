@@ -11,8 +11,11 @@
 # shellcheck disable=SC2016 # the unexpanded $ forms are the inputs under test
 # shellcheck disable=SC2034 # the decide globals are read by the shared expect and reason_has
 unset CDPATH
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 # shellcheck source=tests/lib/policy-guard-harness.sh
-. "$(cd "$(dirname "$0")" && pwd)/lib/policy-guard-harness.sh"
+. "$here/lib/policy-guard-harness.sh"
 
 cp "$REAL_SCRIPTS/tower-session.sh" "$S/"
 TS="$S/tower-session.sh"
@@ -226,8 +229,12 @@ chmod 602 "$STORE/$MARKED"
 ts_bash "$MARKED" 'ls'
 expect deny "a world-writable mark denies"
 chmod 000 "$STORE/$MARKED"
-ts_bash "$MARKED" 'ls'
-expect deny "an unreadable mark denies"
+if hermetic_access_denied r "$STORE/$MARKED"; then
+  ts_bash "$MARKED" 'ls'
+  expect deny "an unreadable mark denies"
+else
+  echo "skip: unreadable mark: the running user still reads $STORE/$MARKED under mode 000"
+fi
 reset_store
 printf 'tower\t1\tprompt\n' >"$SANDBOX/elsewhere"
 chmod 600 "$SANDBOX/elsewhere"
@@ -264,10 +271,14 @@ ts_bash "$OTHER" 'ls'
 expect deny "a store that is not a directory counts as unsearchable and denies"
 reset_store
 chmod 000 "$FLEET"
-ts_bash "$MARKED" 'ls'
-expect deny "an unsearchable fleet home counts as marked and denies"
-ts_bash "$OTHER" 'ls'
-expect deny "an unsearchable fleet home denies for any session id"
+if hermetic_access_denied r "$FLEET"; then
+  ts_bash "$MARKED" 'ls'
+  expect deny "an unsearchable fleet home counts as marked and denies"
+  ts_bash "$OTHER" 'ls'
+  expect deny "an unsearchable fleet home denies for any session id"
+else
+  echo "skip: unsearchable fleet home: the running user still reads $FLEET under mode 000"
+fi
 reset_store
 TS_FLEET="$SANDBOX/absent-fleet" ts_bash "$MARKED" 'git reset --hard HEAD'
 expect defer "a missing store defers"

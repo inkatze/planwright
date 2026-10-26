@@ -21,6 +21,10 @@ repo_root=$(cd "$here/.." && pwd)
 SR="$repo_root/scripts/step-record.sh"
 GOLDEN="$here/fixtures/step-record/checklist.golden"
 TAB=$(printf '\t')
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
 
@@ -795,11 +799,15 @@ verdict "a step refused after its point completed leaves nothing behind" "rc=$rc
 # A completion that cannot be written is a runtime failure, not a completed point.
 r10=$(sr2 new-run)
 chmod 500 "$w2/.claude/steps/$r10"
-sr2 write --completion --run "$r10" --point pre-ci --head "$HEAD_SHA" >/dev/null 2>"$tmp/err10"
-rc=$?
+if hermetic_access_denied w "$w2/.claude/steps/$r10"; then
+  sr2 write --completion --run "$r10" --point pre-ci --head "$HEAD_SHA" >/dev/null 2>"$tmp/err10"
+  rc=$?
+  [ "$rc" -eq 1 ] && ! grep -q "already completed" "$tmp/err10"
+  verdict "an unwritable run dir fails a completion with exit 1" "rc=$rc, or reported as already completed"
+else
+  printf '%s\n' "skip: unwritable run dir completion: the running user still writes $w2/.claude/steps/$r10 under mode 500"
+fi
 chmod 700 "$w2/.claude/steps/$r10"
-[ "$rc" -eq 1 ] && ! grep -q "already completed" "$tmp/err10"
-verdict "an unwritable run dir fails a completion with exit 1" "rc=$rc, or reported as already completed"
 
 # A run id or record path that cannot be printed.
 nbefore=$(find "$w2/.claude/steps" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')
@@ -912,11 +920,15 @@ verdict "a symlinked run directory is refused" "symlinked run read"
 rm -f "$w10/.claude/steps/000001"
 mkdir "$w10/.claude/steps/000001"
 chmod 000 "$w10/.claude/steps/000001"
-"$SR" --worktree "$w10" list >/dev/null 2>&1
-rc=$?
+if hermetic_access_denied r "$w10/.claude/steps/000001"; then
+  "$SR" --worktree "$w10" list >/dev/null 2>&1
+  rc=$?
+  [ "$rc" -eq 1 ]
+  verdict "an unreadable run directory is refused" "rc=$rc"
+else
+  printf '%s\n' "skip: unreadable run directory: the running user still reads $w10/.claude/steps/000001 under mode 000"
+fi
 chmod 700 "$w10/.claude/steps/000001"
-[ "$rc" -eq 1 ]
-verdict "an unreadable run directory is refused" "rc=$rc"
 
 # The default worktree is the enclosing top level; outside git it is a usage
 # error. --excerpt-file resolves against the caller's directory.
@@ -1291,9 +1303,7 @@ verdict "an exhausted record counter counts records as well as markers" "record 
 wk="$tmp/wk"
 fresh "$wk"
 mkdir -p "$wk/.claude/steps"
-sh -c 'exit 0' &
-deadpid=$!
-wait "$deadpid"
+deadpid=$(dead_owner_pid) || fail "no dead owner pid is available"
 ln -s "$deadpid-1700000000-1" "$wk/.claude/steps/.lock"
 rk=$("$SR" --worktree "$wk" new-run 2>/dev/null)
 [ "$rk" = 000001 ] && [ ! -L "$wk/.claude/steps/.lock" ]

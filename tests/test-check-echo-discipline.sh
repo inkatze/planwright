@@ -25,6 +25,8 @@ LC_ALL=C
 export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 CHECKER="$REPO_ROOT/scripts/check-echo-discipline.sh"
 
 failures=0
@@ -965,9 +967,13 @@ make_root "$tmp/unreadable"
 filler "$tmp/unreadable"
 write_script "$tmp/unreadable/scripts/secret.sh" 'printf "%s\n" fine'
 chmod 000 "$tmp/unreadable/scripts/secret.sh"
-out="$(/bin/bash "$CHECKER" "$tmp/unreadable" 2>&1)"
-assert "an unreadable file fails closed" 2 $?
-assert_contains "the unreadable failure names the file" "$out" "scripts/secret.sh"
+if hermetic_access_denied r "$tmp/unreadable/scripts/secret.sh"; then
+  out="$(/bin/bash "$CHECKER" "$tmp/unreadable" 2>&1)"
+  assert "an unreadable file fails closed" 2 $?
+  assert_contains "the unreadable failure names the file" "$out" "scripts/secret.sh"
+else
+  echo "skip: unreadable file: the running user still reads $tmp/unreadable/scripts/secret.sh under mode 000"
+fi
 chmod 644 "$tmp/unreadable/scripts/secret.sh"
 
 make_root "$tmp/linkdir"

@@ -35,6 +35,8 @@ LC_ALL=C
 export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 HOOK="$REPO_ROOT/scripts/ready-guard.sh"
 HOOKS_JSON="$REPO_ROOT/hooks/hooks.json"
 
@@ -1065,23 +1067,22 @@ run_stubbed_resolver "the guard drops the repo-side layers before calling the re
   deny 'if [ "${PLANWRIGHT_REPO_ROOT-}" = none ] && [ -z "${PLANWRIGHT_LOCAL_CONFIG-}" ]; then echo refuse; else echo conflict-only; fi'
 
 # An unreadable resolver applies refuse: the same stub the positive control
-# shows relaxing when readable. Root reads a mode-000 file, so the case
-# cannot be staged there.
-if [ "$(id -u)" != 0 ]; then
-  printf '%s\n' "printf 'conflict-only\n'" >"$STUBBED/resolve-policy-knob.sh"
-  chmod 000 "$STUBBED/resolve-policy-knob.sh"
+# shows relaxing when readable.
+printf '%s\n' "printf 'conflict-only\n'" >"$STUBBED/resolve-policy-knob.sh"
+chmod 000 "$STUBBED/resolve-policy-knob.sh"
+if hermetic_access_denied r "$STUBBED/resolve-policy-knob.sh"; then
   reset_stub_env
   STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
   SAVED_HOOK=$HOOK
   HOOK="$STUBBED/ready-guard.sh"
   run_hook "$(bash_payload 'gh pr ready 42')"
   HOOK=$SAVED_HOOK
-  chmod 644 "$STUBBED/resolve-policy-knob.sh"
   assert_deny_because "an unreadable resolver beside the guard applies refuse" '7 commit'
   assert_no_sentinels "an unreadable resolver beside the guard: no git/curl/wget/claude ran"
 else
-  echo "skip: the unreadable-resolver case needs a non-root user"
+  echo "skip: unreadable resolver: the running user still reads $STUBBED/resolve-policy-knob.sh under mode 000"
 fi
+chmod 644 "$STUBBED/resolve-policy-knob.sh"
 
 # The knob is read only for a behind PR: a marker-writing stub resolver leaves
 # no marker for a current PR and leaves one for a behind PR.

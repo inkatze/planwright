@@ -17,6 +17,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 SCREEN="$REPO_ROOT/scripts/check-retired-phrasings.sh"
 
 failures=0
@@ -323,15 +325,17 @@ printf 'Foo Bar\n' >"$r/config/retired-phrasings.txt"
 run "$r"
 assert_exit "an uppercase pattern fails closed" 2 $?
 
-if [ "$(id -u)" -ne 0 ]; then
-  r="$TMP/unreadable"
-  mkfixture "$r"
-  printf 'planwright never auto-merges.\n' >"$r/docs/locked.md"
-  chmod 000 "$r/docs/locked.md"
+r="$TMP/unreadable"
+mkfixture "$r"
+printf 'planwright never auto-merges.\n' >"$r/docs/locked.md"
+chmod 000 "$r/docs/locked.md"
+if hermetic_access_denied r "$r/docs/locked.md"; then
   run "$r"
   assert_exit "an unreadable file fails closed" 2 $?
-  chmod 644 "$r/docs/locked.md"
+else
+  echo "skip: unreadable file: the running user still reads $r/docs/locked.md under mode 000"
 fi
+chmod 644 "$r/docs/locked.md"
 
 "$SCREEN" >"$TMP/out" 2>&1
 real=$?

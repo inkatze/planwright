@@ -23,6 +23,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 TL="$here/../scripts/tower-loop-log.sh"
 TQ="$here/../scripts/tower-queue.sh"
 FA="$here/../scripts/fleet-attention.sh"
@@ -287,21 +289,29 @@ echo "ok: an oversize turn is drained rather than left to break the producer"
 # and so is a store directory that cannot be searched, which would otherwise
 # read as no store at all. Root reads through a mode of 0000, and a tick that
 # went through would coalesce into the spans the scorecard case below expects,
-# so both permission cases run only as a non-root user.
-if [ "$(id -u)" != 0 ]; then
-  chmod 0000 "$home/attention/state"
+# so each permission case ticks only where the access is really denied.
+chmod 0000 "$home/attention/state"
+if hermetic_access_denied r "$home/attention/state"; then
   rc=0
   run /bin/sh "$TL" tick --tower "$tower" --now 9450 >/dev/null 2>"$tmp/err" || rc=$?
   chmod 0600 "$home/attention/state"
   [ "$rc" = 6 ] || fail "unreadable store: exit $rc, expected 6"
   grep -q 'cannot be read' "$tmp/err" || fail "unreadable store: the refusal is not explained"
-  chmod 0000 "$home/attention"
+else
+  echo "skip: unreadable store: the running user still reads $home/attention/state under mode 0000"
+fi
+chmod 0600 "$home/attention/state"
+chmod 0000 "$home/attention"
+if hermetic_access_denied r "$home/attention"; then
   rc=0
   run /bin/sh "$TL" tick --tower "$tower" --now 9450 >/dev/null 2>"$tmp/err" || rc=$?
   chmod 0700 "$home/attention"
   [ "$rc" = 6 ] || fail "unsearchable store directory: exit $rc, expected 6 (not an idle fleet)"
   grep -q 'cannot be read' "$tmp/err" || fail "unsearchable store directory: the refusal is not explained"
+else
+  echo "skip: unsearchable store directory: the running user still reads $home/attention under mode 0000"
 fi
+chmod 0700 "$home/attention"
 mv "$home/attention/state" "$tmp/state.bak"
 ln -s "$tmp/does-not-exist" "$home/attention/state"
 rc=0

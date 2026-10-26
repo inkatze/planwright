@@ -703,7 +703,7 @@ xr_det "$xb"
 G_SCRIPTS=$xr gate "$xw" trig why --repo-root "$tmp/xr-B" --grace 1
 expect 0 "a verdict for checkout B closing checkout B's unit"
 wait "$xrun" 2>/dev/null || :
-! kill -0 "$xrun" 2>/dev/null || fail "a verdict bound to checkout B's unit did not close it"
+! kill -0 "$xrun" 2>/dev/null || fail "a verdict bound to checkout B's unit did not close it" # hermetic-exempt: the wait above returning is the close; a PID reused in that instant fails loudly, never passes
 echo "ok: a headless close refuses a unit the handle resolves to in another checkout, and closes the one the verdict describes"
 
 # --- the audit record names worker, owner, evidence, and what was released --

@@ -232,6 +232,10 @@ run = "/bin/bash scripts/check-backend-capability-drift.sh"
 description = "CDPATH house-pattern guard: fail on any shell file under scripts/, tests/, or githooks/ that resolves paths through a cd command substitution without a top-level 'unset CDPATH'; enumerates by shebang or .sh suffix so both the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (guard-coverage Task 10, REQ-G1.2, REQ-H1.3, D-12)"
 run = "/bin/bash scripts/check-cdpath.sh"
 
+[tasks."check:test-hermeticity"]
+description = "test-hermeticity guard: fail a test under tests/ (fixtures excluded) whose outcome depends on the host: a chmod taking owner read or write away with no access probe before its restore, a $! PID used again after wait reaped it, or a read of a variable tests/lib/hermetic-env.sh lists in a file that does not source that library; a `# hermetic-exempt: <reason>` comment excludes a line; fails closed on a missing library, an empty list, or anything that would narrow the scan"
+run = "/bin/bash scripts/check-test-hermeticity.sh"
+
 [tasks."check:echo-discipline"]
 description = "printf-not-echo guard: fail on a shell file under scripts/, tests/, or githooks/ whose `echo` carries any expansion (a variable, a positional, a command substitution) without a `# trusted: <reason>` annotation on that line, or that puts `sanitize_printable` output into the printf FORMAT operand or a printf `%b` (dash re-expands backslash escape TEXT into live control bytes); and fail on any shell file, bash included, that sources scripts/echo-safety.sh without first testing it readable; enumerates by shebang or .sh suffix, exempts bash-shebang files from the echo rule only, and fails closed on anything that would narrow the scan"
 run = "/bin/bash scripts/check-echo-discipline.sh"
@@ -354,6 +358,7 @@ depends = [
   "check:doctrine-index",
   "check:doctrine-manifest",
   "check:cdpath",
+  "check:test-hermeticity",
   "check:echo-discipline",
   "check:script-modes",
   "check:script-invocation",

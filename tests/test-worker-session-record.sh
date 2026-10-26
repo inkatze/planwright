@@ -15,6 +15,8 @@ for v in $(compgen -e); do
 done
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 WRITER="$REPO_ROOT/scripts/worker-session-record.sh"
 GUARD="$REPO_ROOT/scripts/worker-command-guard.sh"
 ENVWRAP="$REPO_ROOT/scripts/fleet-dispatch-env.sh"

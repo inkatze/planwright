@@ -41,6 +41,10 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 LADDER="$here/../scripts/allocation-ladder.sh"
 LEDGER="$here/../scripts/allocation-ledger.sh"
 TAB=$(printf '\t')
@@ -348,9 +352,7 @@ tok6=$("$LEDGER" lock lockowner:unit --owner-pid $$) || fail "8j: a hold whose o
 "$LEDGER" unlock lockowner:unit "$tok6"
 # `owner` names only a live owner: an inherited hold whose owner is gone is a
 # lock the next waiter breaks, not a hold for a child to keep using.
-sh -c 'exit 0' &
-gone_eng=$!
-wait "$gone_eng" 2>/dev/null || :
+gone_eng=$(dead_owner_pid) || fail "8l: no dead owner pid available"
 ln -s "$gone_eng-0-0-$gone_eng-1" "$lock_file"
 [ -z "$("$LEDGER" owner lockowner:unit)" ] || fail "8l: owner named a token whose process is gone"
 rm -f "$lock_file"
@@ -393,13 +395,7 @@ rm -f "$squat"
 # that only looks for a MISSING parent directory never fires, because the
 # directory is right there.
 chmod 555 "$lock_home"
-if (: >"$lock_home/.probe") 2>/dev/null; then
-  # A user who writes through mode 555 (root, or a permissive filesystem)
-  # cannot exercise this case; skipping beats asserting something untrue.
-  rm -f "$lock_home/.probe"
-  chmod 755 "$lock_home"
-  echo "ok: unwritable-store lock case skipped (this user writes through mode 555)"
-else
+if hermetic_access_denied w "$lock_home"; then
   l_start=$(date +%s)
   l_held=0
   "$LEDGER" lock unwritable:unit >/dev/null 2>&1 && l_held=1
@@ -408,7 +404,10 @@ else
   [ "$l_held" = 0 ] || fail "8i: a lock was reported held on an unwritable store"
   [ "$l_elapsed" -le 30 ] \
     || fail "8i: an unwritable store spun ${l_elapsed}s before refusing; it must fail closed at once"
+else
+  echo "skip: 8i unwritable-store lock: the running user still writes $lock_home under mode 555"
 fi
+chmod 755 "$lock_home"
 
 # STALE IS THE OWNER PROCESS'S ABSENCE, NEVER AN AGE. The lock below is dated to
 # the year 2000 and its owner is a running process; an age rule would break it
@@ -561,10 +560,12 @@ h3=health3:unit
 h3_file=$("$LEDGER" path "$h3")
 printf 'x\n' >"$h3_file"
 chmod 000 "$h3_file"
-if [ "$(id -u)" != 0 ]; then
+if hermetic_access_denied r "$h3_file"; then
   if "$LEDGER" health "$h3" >/dev/null 2>&1; then
     fail "9f: an unreadable ledger was reported healthy"
   fi
+else
+  echo "skip: 9f unreadable ledger: the running user still reads $h3_file under mode 000"
 fi
 chmod 644 "$h3_file"
 

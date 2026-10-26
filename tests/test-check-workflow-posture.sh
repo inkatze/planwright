@@ -19,6 +19,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 GUARD="$REPO_ROOT/scripts/check-workflow-posture.sh"
 
 failures=0
@@ -1408,18 +1410,18 @@ jobs:\r
       - run: echo x\r
 '
 
-# A workflow file the parser cannot READ is not a clean tree. Skipped under
-# root, where mode 000 does not deny a read and the case cannot be staged.
-if [ "$(id -u)" -ne 0 ]; then
-  d="$(mkdir_case fail-unreadable)"
-  printf 'name: x\n' >"$d/x.yml"
-  chmod 000 "$d/x.yml"
+# A workflow file the parser cannot READ is not a clean tree. Skipped where
+# mode 000 does not deny the running user a read and the case cannot be staged.
+d="$(mkdir_case fail-unreadable)"
+printf 'name: x\n' >"$d/x.yml"
+chmod 000 "$d/x.yml"
+if hermetic_access_denied r "$d/x.yml"; then
   out="$("$GUARD" "$d" 2>&1)"
   assert_exit "an unreadable workflow file fails closed" 1 $?
-  chmod 644 "$d/x.yml"
 else
-  echo "ok: an unreadable workflow file fails closed (skipped: running as root)"
+  echo "skip: unreadable workflow file: the running user still reads $d/x.yml under mode 000"
 fi
+chmod 644 "$d/x.yml"
 
 # ---------------------------------------------------------------------------
 # Usage and the real tree.

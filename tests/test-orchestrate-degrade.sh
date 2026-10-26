@@ -42,7 +42,7 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
-unset PLANWRIGHT_ORCH_STATE_DIR PLANWRIGHT_BACKEND_TMUX PLANWRIGHT_BACKEND_SUBAGENT \
+unset PLANWRIGHT_BACKEND_TMUX PLANWRIGHT_BACKEND_SUBAGENT \
   PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT PLANWRIGHT_BACKEND_HEADLESS_ONESHOT
 
 # headless-oneshot's presence default is now the installed-CLI probe
@@ -54,6 +54,8 @@ PLANWRIGHT_BACKEND_HEADLESS_ONESHOT=0
 export PLANWRIGHT_BACKEND_HEADLESS_ONESHOT
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 DEGRADE="$here/../scripts/orchestrate-degrade.sh"
 
 fail() {

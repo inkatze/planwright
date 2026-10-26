@@ -34,6 +34,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 FA="$here/../scripts/fleet-audit.sh"
 
 fail() {
@@ -312,13 +314,18 @@ err=$(PLANWRIGHT_FLEET_STATE_DIR="$notadir_home" /bin/bash "$FA" query 2>&1 >/de
 echo "ok: an audit path that is not a directory fails the query loudly (exit 2)"
 
 # 8c. An UNREADABLE audit dir must not masquerade as an empty trail either
-#     (the script's own fail-closed guard). Skipped under root, where mode
-#     000 is still readable — the check-memory-links.sh test's idiom.
-if [ "$(id -u)" -ne 0 ]; then
-  chmod 000 "$fleet_home/audit"
+#     (the script's own fail-closed guard). Skipped where mode 000 is still
+#     readable (root, or a capability override).
+chmod 000 "$fleet_home/audit"
+rc=skip
+if hermetic_access_denied r "$fleet_home/audit"; then
   rc=0
   err=$(run query 2>&1 >/dev/null) || rc=$?
-  chmod 755 "$fleet_home/audit"
+else
+  echo "skip: unreadable audit dir: the running user still reads $fleet_home/audit under mode 000"
+fi
+chmod 755 "$fleet_home/audit"
+if [ "$rc" != skip ]; then
   [ "$rc" = 2 ] || fail "unreadable audit dir: query exit $rc, expected 2"
   [ -n "$err" ] || fail "unreadable audit dir: no diagnostic emitted"
   echo "ok: an unreadable audit dir fails the query loudly (exit 2)"

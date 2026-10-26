@@ -26,6 +26,8 @@
 #                                   fleet-dispatch-env.sh obey SEAM_MODE (see
 #                                   below); prints its scripts directory
 unset CDPATH
+# shellcheck source=tests/lib/hermetic-env.sh
+. "${BASH_SOURCE[0]%/*}/hermetic-env.sh"
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 PRIM="$ROOT/scripts/fleet-dispatch-worktree.sh"
 FLIGHT="$ROOT/scripts/flight-dispatch.sh"
@@ -37,7 +39,7 @@ export GIT_CONFIG_SYSTEM=/dev/null
 # stub server's environment holds decoys for every pinned value instead.
 PLANWRIGHT_ROOT=$ROOT
 export PLANWRIGHT_ROOT
-unset CLAUDE_PLUGIN_ROOT PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX PLANWRIGHT_REPO_ROOT
+unset PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX
 PLANWRIGHT_TOWER_ID=p1.t1.c1
 export PLANWRIGHT_TOWER_ID
 tlh_server_env PLANWRIGHT_ROOT=/decoy-root CLAUDE_PLUGIN_ROOT=/decoy-root \
