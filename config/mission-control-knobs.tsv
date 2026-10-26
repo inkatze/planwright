@@ -8,6 +8,9 @@ program-registry	mission_control_programs	scripts/mc-program.sh
 program-home-root	mission_control_home_root	scripts/mc-program.sh
 default-duty-set	mission_control_default_duties	scripts/mc-program.sh
 default-source-map	mission_control_default_sources	scripts/mc-program.sh
+kb-index-budget	mission_control_kb_index_budget	scripts/mc-kb.sh
+kb-entry-cap	mission_control_kb_entry_cap	scripts/mc-kb.sh
+kb-lock-wait	mission_control_kb_lock_wait	scripts/mc-kb.sh
 runner-interval	mission_control_runner_interval	scripts/mc-watch.sh
 failsafe-tick-cadence	mission_control_tick_cadence	scripts/mc-wake.sh
 snapshot-cadence	mission_control_snapshot_cadence	scripts/mc-snapshot.sh
