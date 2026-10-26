@@ -477,6 +477,7 @@ the list lacked; the annotation moved below the task's fields.)*
 ## Awaiting input
 
 - **Task 8** — pending ready-flip: ready-guard failed on a606c53e3b12
+- **Task 5** — pending ready-flip: review-converged failed on f8c964f89099
 
 ## Deferred
 

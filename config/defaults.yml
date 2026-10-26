@@ -999,3 +999,38 @@ mission_control_kb_entry_cap: 8192
 # How many seconds a knowledge-base writer waits on another writer's lock
 # before it fails, never interleaving.
 mission_control_kb_lock_wait: 5
+# How often the watcher runner (scripts/mc-watch.sh run) makes a pass: arms
+# the enabled duties' watchers, re-arms a stopped one, relays pending wakes
+# and runs the failsafe tick. A cadence: a positive count of s, m, h or d.
+mission_control_runner_interval: 1m
+# The daemon-side failsafe tick's cadence (scripts/mc-wake.sh tick): how often
+# a session without the mod is checked for events the push relay did not
+# submit.
+mission_control_tick_cadence: 5m
+# How often each snapshot-mode source is refreshed, source: cadence. A source
+# left out refreshes at the cadence its adapter declares in
+# config/snapshot-adapters.yaml.
+mission_control_snapshot_cadence: {forge: 5m}
+# How long a program's events stay in the attention store before the runner
+# prunes them, with their delivery marks. A cadence.
+mission_control_event_retention: 7d
+# Which pull requests the forge adapter tracks in a program's repositories:
+# open (every open pull request) or authored (the open ones the forge CLI's
+# own account opened).
+mission_control_forge_tracked: open
+# The rate-limit headroom at or below which a snapshot adapter's next read
+# waits for the limit's reset instead of polling.
+mission_control_ratelimit_floor: 50
+# The budget a program's own budget map is laid over, key by key: live
+# sessions, source polls per hour across every snapshot-mode source, the
+# highest watcher cost class armed (spend_ceiling, or spend_<duty> for one
+# duty, its hyphens written as underscores), context steps, and host load
+# as a percent of the host's processors.
+# yamllint disable-line rule:line-length
+mission_control_default_budget: {sessions: 4, polls_per_hour: 120, spend_ceiling: high, context_steps: 200, host_load: 100}
+# The degradation ladder's thresholds, as the percent of its limit the most
+# used budget dimension has reached: throttle doubles every cadence (at this
+# rung and every one above it),
+# pause_watchers stops high-cost watchers, hold_dispatch also stops
+# medium-cost ones and refuses new sessions and heavy work.
+mission_control_budget_ladder: {throttle: 70, pause_watchers: 85, hold_dispatch: 100}
