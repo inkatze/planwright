@@ -49,7 +49,7 @@ HOST_PATH="$toolchain:$PATH"
 # fixture_tree <dir>: a minimal tree install.sh accepts, with fixture entry
 # points under scripts/.
 fixture_tree() {
-  mkdir -p "$1/scripts" "$1/doctrine" "$1/config"
+  mkdir -p "$1/scripts" "$1/doctrine" "$1/config" "$1/templates"
   cp -p "$REPO_ROOT/scripts/install.sh" "$1/scripts/install.sh"
   cat >"$1/scripts/uses-posix.sh" <<'EOF'
 #!/bin/sh
