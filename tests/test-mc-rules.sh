@@ -372,10 +372,11 @@ expect_out "a missing held file raises an item" "item${tab}self-check"
 rules selfcheck alpha --held "$held" --durable "$durable"
 expect_rc "a self-check without a digest is a usage error" 2
 expect_out "a self-check usage error raises an item" "item${tab}self-check"
-(cd "$tmp" && cp "$held" 'held=1')
-mc_run mc-rules.sh selfcheck alpha --digest "$digest" --held "$tmp/held=1" --durable "$durable" </dev/null
+# Relative to the runner's directory, where awk would read it as name=value.
+cp "$held" "$repo/held=1"
+mc_run mc-rules.sh selfcheck alpha --digest "$digest" --held 'held=1' --durable "$durable" </dev/null
 expect_rc "a held file named like an awk assignment is read as a file" 1
-expect_err "the held file named like an assignment is the one refused" "held=1:4"
+expect_err "the held file named like an assignment is the one refused" "./held=1:4"
 mc_run mc-rules.sh load
 expect_rc "a load naming no program is a usage error" 2
 expect_out "a load naming no program raises an item" "item${tab}rules-load"
