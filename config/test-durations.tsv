@@ -336,7 +336,6 @@ test-check-doctrine-manifest.sh	0.184
 test-obs-consume-legacy.sh	0.181
 test-check-glob-allow-rules.sh	0.175
 test-docs-inversion.sh	0.158
-test-fleet-home.sh	0.132
 test-resolve-installed-roots.sh	0.124
 test-spec-comprehension-coverage.sh	0.115
 test-pr-title-trigger.sh	0.113
@@ -367,3 +366,5 @@ test-allocation-ladder.sh	0.021
 test-execute-task-status-gate.sh	0.021
 test-echo-safety.sh	0.015
 test-bsd-awk-multiline.sh	0.011
+test-hermetic-env.sh	0.400
+test-check-test-hermeticity.sh	14.000

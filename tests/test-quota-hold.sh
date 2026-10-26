@@ -59,8 +59,8 @@ trap '[ -z "$bg_loop" ] || kill "$bg_loop" 2>/dev/null; rm -rf "$tmp"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# shellcheck source=tests/lib/fleet-home.sh
-. "$here/lib/fleet-home.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
 
@@ -764,10 +764,15 @@ run prune --now "$NOW" >/dev/null 2>&1 || rc=$?
 new_home prune-unsearchable
 mkdir -p "$home/fleet/quota/sample-cli"
 chmod 000 "$home/fleet/quota"
-rc=0
-run prune --now "$NOW" >/dev/null 2>&1 || rc=$?
-chmod 700 "$home/fleet/quota"
-[ "$rc" = 6 ] || fail "prune over an unsearchable store exited $rc, not 6"
+if hermetic_access_denied r "$home/fleet/quota"; then
+  rc=0
+  run prune --now "$NOW" >/dev/null 2>&1 || rc=$?
+  chmod 700 "$home/fleet/quota"
+  [ "$rc" = 6 ] || fail "prune over an unsearchable store exited $rc, not 6"
+else
+  chmod 700 "$home/fleet/quota"
+  echo "skip: prune over an unsearchable store: the running user still reads $home/fleet/quota under mode 000"
+fi
 for pos in vendor hold; do
   new_home "symlink-resume-$pos"
   mkdir -p "$home/fleet/quota" "$tmp/resume-link-$pos"
@@ -938,38 +943,46 @@ pass "the render names a missing reset, plural units, and the configured retenti
 
 # A store status cannot read fails closed: never a held vendor rendered clear
 # or missing.
-if [ "$(id -u)" = 0 ]; then
-  echo "skip: unreadable-store checks (root reads through mode 000)"
-else
-  new_home stats-unreadable
-  run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "quota" --now "$NOW" >/dev/null 2>&1 || fail "unreadable fixture: hold failed"
-  qs="$home/fleet/quota"
-  for f in "$qs/sample-reviewer/hold.tsv" "$qs/sample-reviewer/ledger.tsv" "$qs/sample-reviewer" "$qs"; do
-    mode=600
-    [ -f "$f" ] || mode=700
-    chmod 000 "$f"
-    rc=0
-    run status --now "$NOW" >/dev/null 2>&1 || rc=$?
-    render=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-      PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
-      /bin/sh "$FSTATS" render 2>/dev/null) || render="(render exited non-zero)"
-    chmod "$mode" "$f"
+new_home stats-unreadable
+run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "quota" --now "$NOW" >/dev/null 2>&1 || fail "unreadable fixture: hold failed"
+qs="$home/fleet/quota"
+for f in "$qs/sample-reviewer/hold.tsv" "$qs/sample-reviewer/ledger.tsv" "$qs/sample-reviewer" "$qs"; do
+  mode=600
+  [ -f "$f" ] || mode=700
+  chmod 000 "$f"
+  denied=0
+  hermetic_access_denied r "$f" && denied=1
+  rc=0
+  run status --now "$NOW" >/dev/null 2>&1 || rc=$?
+  render=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+    /bin/sh "$FSTATS" render 2>/dev/null) || render="(render exited non-zero)"
+  chmod "$mode" "$f"
+  if [ "$denied" = 1 ]; then
     [ "$rc" = 6 ] || fail "status over an unreadable ${f#"$qs"/} exited $rc, not 6"
     printf '%s\n' "$render" | grep -q '^  vendors:        unknown$' || fail "render over an unreadable ${f#"$qs"/} is not unknown: $render"
-  done
-  for f in "$qs/sample-reviewer" "$qs"; do
-    chmod 000 "$f"
-    rc=0
-    run status --vendor sample-reviewer --now "$NOW" >/dev/null 2>&1 || rc=$?
-    rrc=0
-    run resume --vendor sample-reviewer --now "$NOW" >/dev/null 2>&1 || rrc=$?
-    chmod 700 "$f"
+  else
+    echo "skip: status over an unreadable ${f#"$qs"/}: the running user still reads $f under mode 000"
+  fi
+done
+for f in "$qs/sample-reviewer" "$qs"; do
+  chmod 000 "$f"
+  denied=0
+  hermetic_access_denied r "$f" && denied=1
+  rc=0
+  run status --vendor sample-reviewer --now "$NOW" >/dev/null 2>&1 || rc=$?
+  rrc=0
+  run resume --vendor sample-reviewer --now "$NOW" >/dev/null 2>&1 || rrc=$?
+  chmod 700 "$f"
+  if [ "$denied" = 1 ]; then
     [ "$rc" = 6 ] || fail "status --vendor under an unsearchable ${f#"$qs"} exited $rc, not 6"
     [ "$rrc" = 6 ] || fail "resume under an unsearchable ${f#"$qs"} exited $rrc, not 6"
-  done
-  grep -q "${TAB}spec-a:task-1${TAB}" "$qs/sample-reviewer/hold.tsv" || fail "a refused resume released the vendor"
-  pass "status and resume fail closed over an unreadable or unsearchable store"
-fi
+  else
+    echo "skip: status and resume under an unsearchable ${f#"$qs"}: the running user still reads $f under mode 000"
+  fi
+done
+grep -q "${TAB}spec-a:task-1${TAB}" "$qs/sample-reviewer/hold.tsv" || fail "a refused resume released the vendor"
+pass "status and resume fail closed over an unreadable or unsearchable store"
 
 # A stated reset of 0 is still a stated reset in the status view.
 new_home reset-zero

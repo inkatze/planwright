@@ -245,6 +245,10 @@ fi
 
 # --- running -----------------------------------------------------------------
 
+# Each test is pinned as scripts/run-tests.sh pins a file, from the same list.
+_hermetic_env_defer=1
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$(dirname "$0")/../tests/lib/hermetic-env.sh" || die 2 "could not load tests/lib/hermetic-env.sh"
 status=0
 n=0
 while IFS= read -r t; do
@@ -252,20 +256,16 @@ while IFS= read -r t; do
   sentinel=$work/sentinel/$n
   rc=0
   (
-    export PLANWRIGHT_FLEET_STATE_DIR="$sentinel/fleet"
-    [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$sentinel/plugin-data"
-    [ -z "${CLAUDE_DIR+set}" ] || export CLAUDE_DIR="$sentinel/claude"
+    hermetic_env_clear
+    hermetic_env_sentinel "$sentinel"
     export SPEC_WALKTHROUGH_DOT_TIMEOUT="${SPEC_WALKTHROUGH_DOT_TIMEOUT:-60}"
     # shellcheck disable=SC2086 # --runner is a command line by contract
     exec $runner "./$t"
   ) >"$work/out" 2>&1 </dev/null || rc=$?
-  for fh in "$sentinel/fleet" "$sentinel/plugin-data" "$sentinel/claude"; do
-    if [ -e "$fh" ] || [ -L "$fh" ]; then
-      printf '%s\n' "$prog: the test wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (tests/lib/fleet-home.sh)" >>"$work/out"
-      rc=1
-      break
-    fi
-  done
+  if hermetic_env_sentinel_written "$sentinel"; then
+    printf '%s\n' "$prog: the test wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (fleet_home_pin, tests/lib/hermetic-env.sh)" >>"$work/out"
+    rc=1
+  fi
   if [ "$rc" -eq 0 ]; then
     say 'pass\ttest\t%s\n' "$t"
   else

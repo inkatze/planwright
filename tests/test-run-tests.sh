@@ -479,6 +479,33 @@ out="$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR /bin/bash "$RUNNER" "$tmp/unset-a
 assert "an unset plugin-data or writer arm stays unset for the file" 0 $?
 out="$(/bin/bash "$RUNNER" "$tmp/pinned" 2>&1)"
 assert "a file that pins its own fleet home passes" 0 $?
+
+# 21. The cleared variables the clearing library lists are unset for every
+#     file, and PLANWRIGHT_TEST_PIN_ENV=0 hands the caller's values through
+#     untouched, every arm included, so the perturbed run's decoys reach the
+#     suites. Each listed cleared variable is checked, read from the library.
+mkdir -p "$tmp/cleared" "$tmp/unpinned"
+# shellcheck disable=SC2016
+cleared=$(_hermetic_env_defer=1 /bin/bash -c '. "$1/tests/lib/hermetic-env.sh"; printf "%s " $hermetic_env_cleared' _ "$REPO_ROOT")
+{
+  printf '#!/bin/bash\nfor v in %s; do\n' "$cleared"
+  # shellcheck disable=SC2016 # the generated file expands these, not this one
+  printf '  eval "[ -z \\"\\${$v+set}\\" ]" || { printf "inherited %%s\\n" "$v"; exit 1; }\ndone\n'
+} >"$tmp/cleared/test-cleared.sh"
+decoys=""
+for v in $cleared; do decoys="$decoys $v=/decoy"; done
+# shellcheck disable=SC2086
+out="$(env $decoys /bin/bash "$RUNNER" "$tmp/cleared" 2>&1)"
+assert "every cleared variable reaches a file unset" 0 $?
+cat >"$tmp/unpinned/test-unpinned.sh" <<EOF
+#!/bin/bash
+[ "\$PLANWRIGHT_ROOT" = /decoy ] && [ "\$PLANWRIGHT_FLEET_STATE_DIR" = "$tmp/operator-fleet" ] \\
+  && [ "\$CLAUDE_PLUGIN_DATA" = "$tmp/operator-data" ]
+EOF
+out="$(PLANWRIGHT_ROOT=/decoy PLANWRIGHT_TEST_PIN_ENV=0 /bin/bash "$RUNNER" "$tmp/unpinned" 2>&1)"
+assert "PLANWRIGHT_TEST_PIN_ENV=0 hands the caller's values through untouched" 0 $?
+out="$(PLANWRIGHT_ROOT=/decoy /bin/bash "$RUNNER" "$tmp/unpinned" 2>&1)"
+assert "without the switch the same file sees the pinned values" 1 $?
 unset PLANWRIGHT_FLEET_STATE_DIR CLAUDE_PLUGIN_DATA
 
 if [ "$failures" -gt 0 ]; then
