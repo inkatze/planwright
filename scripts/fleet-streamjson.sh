@@ -67,6 +67,8 @@
 #                    without one is a write in flight, never a completion.
 #   supervisor.pid / worker.pid / recover.lock / journal.lock / launch.lock
 #   scope            the dispatch scope, when the launch supplied one
+#   scratch-root     the worktree scratch root the launch handed the worker
+#                    as its TMPDIR, which only a final close removes
 #   supervisor.log   the detached supervisor's own stderr
 #   .init.* / .frame.* / .journal.* / .session.* / .pid.* / .ratelimit.*
 #                    mktemp-beside-target staging
@@ -217,7 +219,7 @@
 #       attention item + notify push. The outcome is operator escalation on
 #       the attention surface — never an auto-answer, never a worker kill.
 #       Prints `alarm <worker> <id> <age>` per firing.
-#   fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe]
+#   fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe] [--final]
 #       Close the worker: terminate its process tree and release the locks,
 #       scratch temp, and attention record it holds. Prints one of
 #       `stop <worker> stopped released=<classes>`,
@@ -233,6 +235,10 @@
 #       An unknown handle is exit 2, not `already-closed`, so a typo never
 #       reads as a successful close, and a close asked for from inside the
 #       worker's own process tree is refused with exit 3 rather than attempted.
+#       --final also removes, once the close completes, the worktree scratch
+#       root the launch recorded in <dir>/scratch-root: the close no recover
+#       follows, and the one a reap makes (scripts/fleet-cleanup.sh process).
+#       A plain close keeps it for the recover.
 #       --observe runs the same checks and probes and releases nothing, printing
 #       `stop <worker> would-release=<classes>` for what a close would take now,
 #       or `stop <worker> already-closed`; the periodic sweep's observing mode
@@ -433,7 +439,7 @@ usage() {
     echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
     echo "       fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]"
-    echo "       fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe]"
+    echo "       fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe] [--final]"
     echo "       fleet-streamjson.sh status <worker>"
     echo "       fleet-streamjson.sh pending [<worker>...]"
     printf '%s\n' "  <scope> is $SCOPE_SHAPE"
@@ -1665,7 +1671,10 @@ stop_pidfiles='supervisor.pid worker.pid'
 # script's writers create beside their targets, and the residue of a broken
 # lock. Everything else in the state directory is the durable record a close
 # keeps: the capture, the journal, the session, the stored envelopes, the
-# result, and the rate-limit frame, whose reading outlives its worker.
+# result, and the rate-limit frame, whose reading outlives its worker. The
+# worker's scratch root is not here: it belongs to the worktree, outlives a
+# plain stop for the recover that may follow, and goes with a final close or
+# the worktree's reclaim (scripts/worker-session-record.sh).
 scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* .ratelimit.* .deferred.* *.lock#* *.broken.*'
 
 # stop_match <worker> <dir> — the argv the supervisor re-execs itself with.
@@ -2091,11 +2100,25 @@ cmd_launch() {
   # The session record the worker's command guard reads its self-approval
   # policy and unit identity from, rewritten from current config on every launch and recover; without one
   # the guard keeps to its read-only arm. An inherited path never stands in.
+  # The record also names the worktree's scratch root, which every launch
+  # and recover of the worker finds again; it becomes the worker's TMPDIR,
+  # and only the worker's, so the supervisor keeps its temp files out of a
+  # directory the worker may write to.
   unset PLANWRIGHT_WORKER_SESSION_RECORD
-  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" 2>/dev/null </dev/null) || session_record=''
+  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --scratch 2>/dev/null </dev/null) || session_record=''
   if [ -n "$session_record" ]; then
     PLANWRIGHT_WORKER_SESSION_RECORD=$session_record
     export PLANWRIGHT_WORKER_SESSION_RECORD
+    scratch_root=$(sed -n 's/^scratch_root=//p' "$session_record" 2>/dev/null) || scratch_root=''
+    if [ -n "$scratch_root" ]; then
+      printf '%s\n' "$scratch_root" >"$dir/scratch-root" \
+        || printf '%s\n' "$me: cannot record the scratch root for $dir; a final close will leave it to the worktree reclaim" >&2
+      # A wrapper path holding `=` would read as one more assignment.
+      case $1 in
+        *=*) ;;
+        *) set -- env "TMPDIR=$scratch_root" "$@" ;;
+      esac
+    fi
   fi
 
   if [ "$foreground" = 1 ]; then
@@ -2591,6 +2614,7 @@ cmd_stop() {
   }
   grace=$grace_default
   observe=0
+  final=0
   while [ $# -gt 0 ]; do
     case $1 in
       --grace)
@@ -2600,6 +2624,10 @@ cmd_stop() {
         ;;
       --observe)
         observe=1
+        shift
+        ;;
+      --final)
+        final=1
         shift
         ;;
       *)
@@ -2632,7 +2660,12 @@ cmd_stop() {
     stop_observe "$dir" "$worker" "$st_root/attention/state"
     return
   fi
-  stop_walk "$dir" "$worker" "$st_root/attention/state" "$grace"
+  sw_rc=0
+  stop_walk "$dir" "$worker" "$st_root/attention/state" "$grace" || sw_rc=$?
+  if [ "$final" = 1 ] && [ "$sw_rc" = 0 ] && ! stop_scratch_root_release "$dir" "$st_root"; then
+    printf '%s\n' "$me: closed $worker but could not remove its worktree scratch root" >&2
+  fi
+  return "$sw_rc"
 }
 
 # cmd__tick <worker> <dir> <supervisor-pid> <worker-pid> — the escalation

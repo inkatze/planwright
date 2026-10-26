@@ -120,6 +120,7 @@ printf 'ghost=%s\n' "${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >>"$SHIM_R
 printf 'plugin_root=%s\n' "${CLAUDE_PLUGIN_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'spec_root=%s\n' "${PLANWRIGHT_WORKER_SPEC_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'record=%s\n' "${PLANWRIGHT_WORKER_SESSION_RECORD-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'tmpdir=%s\n' "${TMPDIR-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'handle=%s\n' "${PLANWRIGHT_WORKER_HANDLE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'scope=%s\n' "${PLANWRIGHT_WORKER_SCOPE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'inbound=%s\n' "${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >>"$SHIM_RECORD_DIR/env"
@@ -819,6 +820,72 @@ esac
 grep -qx "worktree_root=$(cd "$tmp/wt39" && pwd -P)" "$rec39" 2>/dev/null \
   || fail "c39: the worker's session record does not name its worktree"
 echo "ok: c39 the worker gets a fresh session record, never an inherited one (REQ-G1.8)"
+# The worker's scratch root (worker-permission-ergonomics REQ-G1.2): its
+# TMPDIR, and only the worker's, is the worktree's root under the fleet home,
+# which its session record names; a recover keeps it, contents and all, and
+# so does a stop, which a recover may follow.
+wt39=$(cd "$tmp/wt39" && pwd -P)
+root39="$(cd "$tmp/h39" 2>/dev/null && pwd -P)/scratch/$(printf '%s' "$wt39" | git hash-object --stdin)"
+tmp39=$(grep '^tmpdir=' "$tmp/r39/env" | tail -n 1)
+[ "${tmp39#tmpdir=}" = "$root39" ] && [ -d "$root39" ] \
+  || fail "c39: the worker's TMPDIR was '${tmp39#tmpdir=}', expected the worktree's scratch root $root39"
+grep -qx "scratch_root=$root39" "$rec39" 2>/dev/null \
+  || fail "c39: the worker's session record does not name its scratch root"
+: >"$root39/kept"
+recover39() {
+  (
+    for _v in $(env | sed -n 's/^\(PLANWRIGHT_[A-Za-z0-9_]*\)=.*/\1/p'); do
+      unset "$_v"
+    done
+    cd "$tmp/wt39" && senv "$tmp/h39" "$tmp/r39" GIT_CEILING_DIRECTORIES="$tmp" \
+      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 SHIM_EVENTS="$tmp/ev9" SHIM_READ_FIRST=0 -- \
+      recover sjw39b --foreground
+  ) >/dev/null 2>&1
+}
+n39=$(grep -c '^tmpdir=' "$tmp/r39/env")
+recover39 || fail "c39: the recover exited non-zero"
+tmp39=$(grep '^tmpdir=' "$tmp/r39/env" | tail -n 1)
+[ "$(grep -c '^tmpdir=' "$tmp/r39/env")" -gt "$n39" ] && [ "${tmp39#tmpdir=}" = "$root39" ] \
+  && [ -f "$root39/kept" ] \
+  || fail "c39: the recovered worker's TMPDIR was '${tmp39#tmpdir=}', or it never ran, or the root lost its contents"
+senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 >/dev/null 2>&1 || fail "c39: the stop exited non-zero"
+[ -f "$root39/kept" ] || fail "c39: the stop removed the scratch root a recover may still need"
+n39=$(grep -c '^tmpdir=' "$tmp/r39/env")
+recover39 || fail "c39: the recover after the stop exited non-zero"
+[ "$(grep -c '^tmpdir=' "$tmp/r39/env")" -gt "$n39" ] && [ -f "$root39/kept" ] \
+  || fail "c39: the recover after a stop did not find the same root"
+senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 --final >/dev/null 2>&1 || fail "c39: the final stop exited non-zero"
+[ ! -e "$root39" ] && [ ! -e "$tmp/h39/streamjson/sjw39b/scratch-root" ] \
+  || fail "c39: the final stop left the scratch root or its pointer behind"
+echo "ok: c39 the worker's TMPDIR is its worktree's scratch root, kept across a recover and a stop, removed by the final stop (REQ-G1.2)"
+# The final close removes only a pointer of the writer's own shape,
+# <fleet-home>/scratch/<sha1>, and never through a symlink; a read-only
+# directory the worker left does not stop the removal.
+h39r=$(cd "$tmp/h39" && pwd -P)
+mkdir -p "$tmp/u39" "$tmp/out39/keep" "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro/deep"
+chmod 500 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"
+ln -s "$tmp/out39" "$h39r/scratch/$(printf 'b%.0s' $(seq 40))"
+release39() {
+  printf '%s\n' "$1" >"$tmp/u39/scratch-root"
+  (
+    # shellcheck source=scripts/fleet-stop-lib.sh
+    . "$here/../scripts/fleet-stop-lib.sh"
+    stop_scratch_root_release "$tmp/u39" "$tmp/h39"
+  )
+}
+for bad39 in "$tmp/out39" "$h39r/scratch/../../out39" "$h39r/scratch/$(printf 'g%.0s' $(seq 40))" \
+  "$h39r/scratch/$(printf 'a%.0s' $(seq 39))" "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"; do
+  ! release39 "$bad39" && [ -f "$tmp/u39/scratch-root" ] \
+    || fail "c39: the final close accepted the pointer '$bad39'"
+done
+[ -d "$tmp/out39/keep" ] && [ -d "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro/deep" ] \
+  || fail "c39: a refused pointer removed something"
+release39 "$h39r/scratch/$(printf 'b%.0s' $(seq 40))" >/dev/null 2>&1
+[ -d "$tmp/out39/keep" ] || fail "c39: the final close followed a symlinked root out of the fleet home"
+release39 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" && [ ! -e "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" ] \
+  && [ ! -e "$tmp/u39/scratch-root" ] \
+  || fail "c39: the final close did not remove a root holding a read-only directory"
+echo "ok: c39 the final close removes only a scratch root of the writer's shape, through no symlink (REQ-G1.2)"
 
 # ---------------------------------------------------------------------------
 # c10: hostile inputs are refused before any path use.

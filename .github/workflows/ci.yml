@@ -40,6 +40,9 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
     # The bash 3.2 parse step's image.
     env:
       BASH32_IMAGE: bash:3.2@sha256:0fd7cb8499c63a3c9345e7088a9cd83bb69f6e895e83833859aff838a0312091
@@ -154,6 +157,23 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: /bin/sh scripts/check-purged-identifiers.sh --commit-range "origin/${BASE_REF}..HEAD"
+
+      # A PR titled with the `comments` scope declares itself comment-only, so
+      # its surface files must keep every code line the base has. The title is
+      # fetched live, never read from the event payload: this workflow does not
+      # fire on `edited`, so only a live read lets a rerun see a corrected title.
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          PR_NUMBER: ${{ github.event.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .title)
+          if printf '%s\n' "$title" | grep -Eq '^[a-z]+\(comments\)!?: '; then
+            /bin/sh scripts/check-comment-budget.sh --code-invariant "origin/${BASE_REF}"
+          else
+            echo "not a comments-scoped PR; the code-invariance check does not apply"
+          fi
 
   # The suite in three shards (scripts/run-tests.sh --shard), split by the
   # committed duration table so each runs about a third of the suite's time.

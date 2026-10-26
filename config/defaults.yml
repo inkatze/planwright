@@ -775,6 +775,10 @@ instruction_budget_closure_floor: 1000
 # surface never fails the check. Grounded in the ~40-word present surface
 # (tool-discovery.sh) plus headroom, same test-and-measure discipline (D-13).
 instruction_budget_injected_warn: 200
+# Comment-block budget: the largest contiguous comment block per file, in
+# lines, boundary-inclusive (doctrine/comment-hygiene.md).
+comment_block_warn: 12
+comment_block_error: 25
 # Manifest-completeness assertion (prompt-hygiene REQ-A1.2, wired at Task 3). When
 # true, every skills/*/SKILL.md must declare a doctrine manifest, so a manifest-less
 # skill cannot silently under-report its start-load once manifests are the corpus
