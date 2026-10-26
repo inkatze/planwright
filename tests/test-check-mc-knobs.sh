@@ -89,6 +89,9 @@ reset_fixture() {
   cp "$repo_root/config/mission-control-knobs.tsv" "$core/config/"
   cp "$repo_root/docs/options-reference.md" "$core/docs/"
   cp "$repo_root"/scripts/mc-*.sh "$core/scripts/"
+  grep -v '^#' "$repo_root/config/mission-control-knobs.tsv" | cut -f3 | while IFS= read -r c; do
+    [ -z "$c" ] || [ -e "$core/$c" ] || cp "$repo_root/$c" "$core/$c"
+  done
 }
 run_fixture() { run_guard --core "$core"; }
 

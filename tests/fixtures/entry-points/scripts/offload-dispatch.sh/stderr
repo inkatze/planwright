@@ -1,1 +1,1 @@
-match ^offload-dispatch: usage: offload-dispatch <dispatch <backend> <prompt-file> \[--unit <id>\] \| report <backend> <handle>>$
+match ^offload-dispatch: usage: offload-dispatch <dispatch <backend> <prompt-file> \[--unit <id>\] \[--key <selection-key>\] \[--strict-tier\] \[--profile <kind>\] \[--name <name>\] \| report <backend> <handle>>$

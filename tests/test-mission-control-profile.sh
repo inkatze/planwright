@@ -6,6 +6,8 @@
 # every other entry the tower's.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
+
+# shellcheck disable=SC2015,SC2016 # ok only prints; the hook text names the root variable literally
 set -u
 LC_ALL=C
 export LC_ALL

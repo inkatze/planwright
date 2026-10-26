@@ -179,6 +179,7 @@ grep -qF "$promptfile" "$tmp/tmux-argv" || fail "dispatch tmux: prompt-file path
 # never be parsed as a claude option. Any resolved launch-tier flags arrive as
 # argv the spawned shell forwards through "$@", ahead of that pin, so they are
 # never spliced into the script text.
+# shellcheck disable=SC2016 # the spawned shell's literal text is the needle
 grep -q 'exec "$@" -- "$p"' "$tmp/tmux-argv" \
   || fail "dispatch tmux: the launch is not pinned with -- end-of-options"
 grep -qx 'claude' "$tmp/tmux-argv" || fail "dispatch tmux: claude is not the launched command word"
@@ -198,8 +199,9 @@ grep -q '/config/mission-control-settings.json$' "$tmp/tmux-argv" || fail "dispa
 grep -qx -- '--settings' "$tmp/tmux-argv" || fail "dispatch tmux --profile: no --settings word"
 [ "$(grep -cx 'mc-alpha-reviewer-1' "$tmp/tmux-argv")" = 2 ] \
   || fail "dispatch tmux --name: the name must name both the window and the session"
-grep -qx -- '--model' "$tmp/tmux-argv" && grep -qx 'opus' "$tmp/tmux-argv" \
-  || fail "dispatch tmux --key execution: the execution key's model is not applied"
+if ! grep -qx -- '--model' "$tmp/tmux-argv" || ! grep -qx 'opus' "$tmp/tmux-argv"; then
+  fail "dispatch tmux --key execution: the execution key's model is not applied"
+fi
 for bad in '--profile /tmp/x.json' '--profile bogus' '--name bad=name' '--key Bad-Key'; do
   rc=0
   # shellcheck disable=SC2086 # the option and its value, split on purpose

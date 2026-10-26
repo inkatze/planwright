@@ -259,6 +259,7 @@ cmd_launch() {
     rm -f "$row"
     die "a launch directory for $name already exists with no registry row; remove $(sanitize_printable "$ldir") after checking it" 3
   fi
+  # not-a-lock: the reservation is the row above; this only creates the directory it owns
   (umask 077 && mkdir "$ldir") 2>/dev/null || {
     rm -f "$row"
     die "cannot create the launch directory for $name"
