@@ -143,6 +143,18 @@ else
   ok "its marks go with it"
 fi
 
+# The wake's command path survives any quote in it.
+for path in "/plain/x" "/a b/it's/x.sh" "''" "a'"; do
+  quoted=$(prog=t script_dir="$repo_root/scripts" /bin/bash -c '. "$script_dir/echo-safety.sh"; . "$script_dir/mc-lib.sh"; mc_quote "$1"' _ "$path")
+  back=""
+  eval "back=$quoted"
+  if [ "$back" = "$path" ]; then
+    ok "mc_quote round-trips: $path"
+  else
+    fail "mc_quote does not round-trip '$path' (got '$back' from $quoted)"
+  fi
+done
+
 # ---------------------------------------------------------------------------
 # REQ-E1.3: through the stream-json relay a wake is submitted to a session
 # without the mod.

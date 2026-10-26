@@ -334,9 +334,13 @@ runner_exit() {
   # A second signal must not cut the wait short.
   trap '' TERM INT HUP
   if [ "$runner_sleeping" -eq 1 ]; then
-    [ -z "$runner_child" ] || kill "$runner_child" 2>/dev/null
+    # The sleep is the one job then, recorded or not yet.
+    # shellcheck disable=SC2046 # one pid per word
+    kill $(jobs -p) 2>/dev/null
   else
-    # Every child: a pass started a moment ago may not be recorded yet.
+    # Every child: a pass started a moment ago may not be recorded yet. The
+    # pass runs in a subshell, so the watcher loops it arms are that
+    # subshell's children, never this shell's, and this wait ends with it.
     wait
   fi
   pw_lock_release_all
@@ -418,7 +422,11 @@ loop() {
 case $verb in
   pass)
     take_runner_lock
-    pass || exit 1
+    # In a subshell, as `run` makes it, so the loops it arms are not this
+    # shell's jobs and a TERM waits for the pass alone.
+    (pass) &
+    runner_child=$!
+    wait "$runner_child" || exit 1
     ;;
   run)
     interval=$(mc_knob mission_control_runner_interval mc_parse_cadence) || exit 1
