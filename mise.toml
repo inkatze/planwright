@@ -133,7 +133,7 @@ case $root in "$(pwd -P)"/*) root=${root#"$(pwd -P)"/} ;; esac
 '''
 
 [tasks."lint:json"]
-description = "validate the plugin + marketplace manifests, plugin-global hook registration, and the worker/tower-settings permissions/hook fragments"
+description = "validate the plugin + marketplace manifests, plugin-global hook registration, and the worker, tower and mission-control settings permissions/hook fragments"
 run = '''
 set -e
 jq . .claude-plugin/plugin.json >/dev/null
@@ -146,6 +146,8 @@ jq . config/worker-settings.json >/dev/null
 echo worker-settings.json valid
 jq . config/tower-settings.json >/dev/null
 echo tower-settings.json valid
+jq . config/mission-control-settings.json >/dev/null
+echo mission-control-settings.json valid
 '''
 
 [tasks."lint:plugin-schema"]

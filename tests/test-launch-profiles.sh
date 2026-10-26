@@ -37,16 +37,24 @@ command -v jq >/dev/null 2>&1 || {
 # the one hook there that is not the policy guard.
 guard_of() {
   jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[] | .command
-    | capture("^\"\\$CLAUDE_PLUGIN_ROOT\"/scripts/(?<g>[a-z-]+-command-guard\\.sh)$").g' "$1" | head -1
+    | capture("^\"\\$CLAUDE_PLUGIN_ROOT\"/scripts/(?<g>[a-z-]+-command-guard\\.sh( [a-z-]+)?)$").g' "$1" | head -1
 }
 
-# guard_allows <guard script> <command>
+# guard_allows <guard script [mode]> <command>
 guard_allows() {
-  local out
+  local out script=${1%% *} mode=''
+  [ "$script" = "$1" ] || mode=${1#* }
   out=$(jq -nc --arg c "$2" --arg w "$REPO_ROOT" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w, hook_event_name:"PreToolUse"}' \
-    | env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" CLAUDE_PROJECT_DIR="$REPO_ROOT" /bin/bash "$REPO_ROOT/scripts/$1" 2>/dev/null)
+    | env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" CLAUDE_PROJECT_DIR="$REPO_ROOT" /bin/bash "$REPO_ROOT/scripts/$script" ${mode:+"$mode"} 2>/dev/null)
   [ "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)" = allow ]
 }
+
+tmp=$(mktemp -d) || exit 1
+trap 'rm -rf "$tmp"' EXIT
+PG_CFG="$tmp/local.yml"
+PG_ADOPTER="$tmp/adopter"
+mkdir -p "$PG_ADOPTER"
+printf 'ready_flip_policy: unit-owner\n' >"$PG_CFG"
 
 profiles=$(/bin/sh "$REPO_ROOT/scripts/mission-control-launch.sh" kinds | cut -f2 | sort -u)
 [ -n "$profiles" ] || fail "the launcher lists no kind"
@@ -83,6 +91,17 @@ for p in $profiles; do
         fi
         ;;
     esac
+    # The mission-control policy guard runs beside the command guard, so a
+    # sanctioned command must also pass it with the flip policy permitting.
+    if [ "$p" = mission-control ]; then
+      pg_out=$(jq -nc --arg c "$cmd" --arg w "$REPO_ROOT" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
+        | env PLANWRIGHT_LOCAL_CONFIG="$PG_CFG" PLANWRIGHT_ADOPTER_OVERLAY="$PG_ADOPTER" CLAUDE_PROJECT_DIR="$REPO_ROOT" \
+          /bin/bash "$REPO_ROOT/scripts/policy-guard.sh" mission-control bash 2>/dev/null)
+      case $pg_out in
+        *'"deny"'*) fail "[$p] the policy guard refuses a sanctioned command: $cmd" ;;
+        *) ok "[$p] the policy guard lets it through: ${cmd#"$REPO_ROOT"/}" ;;
+      esac
+    fi
   done <"$ROWS"
 done
 known=" $(printf '%s\n' "$profiles" | tr '\n' ' ') "

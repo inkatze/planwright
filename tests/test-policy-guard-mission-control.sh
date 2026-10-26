@@ -16,6 +16,8 @@ SCRATCH="$SANDBOX/scratch"
 FIXHOME="$SANDBOX/fixhome"
 mkdir -p "$SCRATCH/proj/.claude" "$FIXHOME/.claude"
 gitq init --bare "$SCRATCH/bare.git"
+# A link to a .claude directory whose hooks directory does not exist yet.
+ln -s "$FIXHOME/.claude" "$SCRATCH/cl"
 TAB=$(printf '\t')
 
 # pg_file <tier> <tool> <path> — run the guard on a file-tool payload.
@@ -44,7 +46,7 @@ rows=0
 denies=0
 defers=0
 classes=' '
-while IFS="$TAB" read -r want class surface knob input; do
+while IFS="$TAB" read -r want class surface knob reason input; do
   case $want in '' | '#'*) continue ;; esac
   rows=$((rows + 1))
   case " $classes " in *" $class "*) ;; *) classes="$classes$class " ;; esac
@@ -64,13 +66,14 @@ while IFS="$TAB" read -r want class surface knob input; do
       ;;
   esac
   expect "$want" "[mission-control] $class: $input"
+  [ "$want" != deny ] || [ "$reason" = - ] || reason_has "$reason" "[mission-control] $class refused for its own reason: $input"
   case $want in
     deny) denies=$((denies + 1)) ;;
     defer) defers=$((defers + 1)) ;;
   esac
 done <"$ROWS"
 
-for c in git-mutation merge settings-write repo-write flip-outside rewrite protected-push remote-delete flip-inside read; do
+for c in git-mutation merge mcp-flip gh-write settings-write repo-write flip-outside flip-other-repo rewrite protected-push remote-delete flip-inside read; do
   case "$classes" in
     *" $c "*) pass "the table carries a $c row" ;;
     *) fail "the table carries no $c row" ;;
@@ -112,6 +115,12 @@ pg_file mission-control Write "$SCRATCH/../repo-escape/x/../../unit/README.md"
 expect deny "[mission-control] a path with a dot-dot component is refused"
 pg_file mission-control NotebookEdit "$UNIT/nb.ipynb"
 expect deny "[mission-control] a notebook edit inside a repository is refused"
+pg_payload mission-control file "$(jq -n --arg s "$SCRATCH/ok.txt" --arg r "$UNIT/nb.ipynb" \
+  '{tool_name:"NotebookEdit", tool_input:{file_path:$s, notebook_path:$r}}')"
+expect deny "[mission-control] every path field is checked, not only the first"
+long=$(printf 'x%.0s' $(seq 1 17000))
+pg mission-control "cat ~/.claude/settings.json $long"
+expect deny "[mission-control] an over-long command naming a settings file is refused without parsing"
 
 no_gh_calls
 finish

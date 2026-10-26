@@ -215,10 +215,7 @@ RE_TOWER_SURGERY="${RE_GIT_HEAD}(update-ref|filter-branch|filter-repo)([^[:alnum
 RE_TOWER_RESET="${RE_GIT_HEAD}reset([[:space:]].*)?[[:space:]]--h"
 RE_TOWER_BRANCH="${RE_GIT_HEAD}branch([[:space:]].*)?[[:space:]](-[[:alnum:]]*[fMC]|--f(o(r(ce?)?)?)?([^[:alnum:]_-]|\$))"
 RE_TOWER_WORKTREE="${RE_GIT_HEAD}worktree[[:space:]]+(add|remove|move)([^[:alnum:]_-]|\$)"
-# The mission-control tier's crude form: git, then any subcommand that can
-# change a repository (the listing forms of branch, tag, config, remote,
-# stash, worktree and notes included, since a wrapped text is not parsed).
-RE_MC_GIT_MUTATION="${RE_GIT_HEAD}(add|am|apply|bisect|branch|checkout|cherry-pick|clean|clone|commit|config|fetch|filter-branch|filter-repo|gc|init|lfs|maintenance|merge|mv|notes|prune|pull|push|rebase|reflog|remote|repack|replace|reset|restore|revert|rm|sparse-checkout|stash|submodule|switch|symbolic-ref|tag|update-index|update-ref|worktree)([^[:alnum:]_-]|\$)"
+RE_GIT_SUB="${RE_GIT_HEAD}([A-Za-z][A-Za-z0-9_-]*)"
 RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-ad'
 RE_FOR_MERGE='(^|[^[:alnum:]_-])--for-merge([^[:alnum:]_-]|$)'
 
@@ -282,6 +279,23 @@ raw_force_push_call() {
   return 1
 }
 
+# mc_raw_git_mutation <text> — 0 when an unparsed text runs git with anything
+# but an always-read subcommand, with -c configuration, or beside a GIT_*
+# assignment. A wrapped text is not parsed, so the listing forms of commands
+# that can also write count as writes here.
+mc_raw_git_mutation() {
+  local t=$1 sub
+  while [[ $t =~ $RE_GIT_SUB ]]; do
+    sub=${BASH_REMATCH[4]}
+    # The caller holds nocasematch on, so this compares case-blind.
+    case " $MC_GIT_READS " in *" $sub "*) ;; *) return 0 ;; esac
+    case ${BASH_REMATCH[0]} in *' -c'* | *--config-env*) return 0 ;; esac
+    [[ ! $1 =~ GIT_[A-Za-z0-9_]*= ]] || return 0
+    t=${t#*"${BASH_REMATCH[0]}"}
+  done
+  return 1
+}
+
 raw_evidence_one() {
   local t=$1 rc=1
   # Case-insensitive: a case-insensitive filesystem runs `git REBASE`.
@@ -293,7 +307,7 @@ raw_evidence_one() {
   elif tower_floor && { [[ $t =~ $RE_TOWER_SURGERY ]] || [[ $t =~ $RE_TOWER_RESET ]] \
     || [[ $t =~ $RE_TOWER_BRANCH ]] || [[ $t =~ $RE_TOWER_WORKTREE ]]; }; then
     rc=0
-  elif [ "${TIER:-}" = mission-control ] && [[ $t =~ $RE_MC_GIT_MUTATION ]]; then
+  elif [ "${TIER:-}" = mission-control ] && mc_raw_git_mutation "$t"; then
     rc=0
   fi
   # A worker's wrapped or substituted call of the force-push helper.
@@ -1363,6 +1377,24 @@ classify_gh() {
     esac
   done
   [ "$k" -lt "$n" ] || return 0
+  if [ "$TIER" = mission-control ]; then
+    local j=$((k + 1))
+    while [ "$j" -lt "$n" ]; do
+      case ${SW[$j]} in
+        -R | --repo) j=$((j + 2)) ;;
+        --repo=* | -R?*) j=$((j + 1)) ;;
+        *) break ;;
+      esac
+    done
+    case "${SW[$k]} ${SW[$j]:-}" in
+      'pr checkout' | 'pr co' | 'pr update-branch' | 'repo sync' | 'repo clone' | 'repo create' | 'repo delete' | \
+        'repo fork' | 'repo rename' | 'repo edit' | 'repo archive' | 'release create' | 'release delete' | \
+        'release edit' | 'release upload' | 'release delete-asset')
+        deny_now "mission control writes no branch on the host and edits no repository, and gh $(sanitize_printable "${SW[$k]} ${SW[$j]:-}" 'this command') does one or the other - refusing. Dispatch the change to a session."
+        return 0
+        ;;
+    esac
+  fi
   case ${SW[$k]} in
     api) classify_gh_api "$si" "$((k + 1))" "$eff" "$eff_ok" ;;
     pr)
@@ -1417,6 +1449,20 @@ classify_gh_ready() {
   if [ "$undo" = 1 ]; then
     deny_now 'gh pr ready --undo is denied: re-drafting a pull request is reserved to the corrective helper that follows a reviewer request (scripts/request-reviewer.sh). Ask the operator if a PR needs to go back to draft.'
     return 0
+  fi
+  # The policy is read from the repository the command runs in, so mission
+  # control, which spans repositories, may flip only a PR of that one.
+  if [ "$TIER" = mission-control ]; then
+    local other=0
+    for a in "${SW[@]}"; do
+      case $a in -R | --repo | --repo=* | -R?* | *://*) other=1 ;; esac
+    done
+    case $P_CMD in *GH_REPO* | *GH_HOST*) other=1 ;; esac
+    [ -z "${GH_REPO:-}" ] && [ -z "${GH_HOST:-}" ] || other=1
+    if [ "$other" = 1 ]; then
+      deny_now 'this flip names a repository (--repo, a PR URL, GH_REPO or GH_HOST) other than the one whose ready_flip_policy the guard reads - refusing. Run gh pr ready <number> from that repository'"'"'s own checkout.'
+      return 0
+    fi
   fi
   queue_flip "$eff" "$eff_ok"
 }
@@ -2005,18 +2051,42 @@ GIT_BUILTINS=' add am annotate apply archive backfill bisect blame branch bugrep
 
 GIT_ENV=0
 
+# The git subcommands that only read, whatever their arguments, once the
+# writing and executing flags below are refused.
+MC_GIT_READS=' status log show diff rev-parse ls-files ls-remote ls-tree cat-file for-each-ref merge-base describe blame annotate grep shortlog rev-list name-rev show-ref show-branch whatchanged var count-objects check-ignore check-attr check-mailmap check-ref-format diff-tree diff-files diff-index range-diff cherry help version verify-commit verify-tag patch-id '
+
 # mc_git_reads <subcommand> <first-arg-index> — 0 when the git segment in SW[]
-# only reads: an inspection command, or the listing form of a command that
-# can also write. Anything else counts as a mutation at the mission-control
-# tier.
+# only reads: an inspection command with no flag that writes a file or runs a
+# program, or the listing form of a command that can also write, whose read
+# verb comes first. An option is skipped only when it is known: one the guard
+# cannot place may take the next word as its value, so it counts as a write.
 mc_git_reads() {
-  local sub=$1 a pos=0 first='' list=0 skip=0
+  local sub=$1 a first=${SW[$2]:-} pos=0 list=0 skip=0 after=0
+  for a in "${SW[@]:$2}"; do
+    [ "$a" != -- ] || break
+    case $a in
+      --output | --output=* | --output-directory | --output-directory=* | --ext-diff | --textconv) return 1 ;;
+    esac
+    case $sub:$a in
+      grep:--open-files-in-pager* | grep:-O* | grep:-[!-]*O*) return 1 ;;
+    esac
+  done
+  case " $MC_GIT_READS " in *" $sub "*) return 0 ;; esac
   case $sub in
-    status | log | show | diff | rev-parse | ls-files | ls-remote | ls-tree | cat-file | for-each-ref | \
-      merge-base | describe | blame | annotate | grep | shortlog | rev-list | name-rev | show-ref | \
-      show-branch | whatchanged | var | count-objects | check-ignore | check-attr | check-mailmap | \
-      check-ref-format | diff-tree | diff-files | diff-index | range-diff | cherry | help | version | \
-      verify-commit | verify-tag | patch-id)
+    stash | notes)
+      case $first in list | show) return 0 ;; esac
+      return 1
+      ;;
+    worktree) [ "$first" = list ] && return 0 || return 1 ;;
+    reflog)
+      case $first in '' | show | exists) return 0 ;; esac
+      return 1
+      ;;
+    remote)
+      case $first in show | get-url) return 0 ;; esac
+      for a in "${SW[@]:$2}"; do
+        case $a in -v | --verbose) ;; *) return 1 ;; esac
+      done
       return 0
       ;;
   esac
@@ -2025,7 +2095,12 @@ mc_git_reads() {
       skip=0
       continue
     fi
+    if [ "$after" = 1 ]; then
+      pos=$((pos + 1))
+      continue
+    fi
     case $sub:$a in
+      *:--) after=1 ;;
       branch:-l | branch:--list | tag:-l | tag:--list) list=1 ;;
       branch:--contains | branch:--no-contains | branch:--merged | branch:--no-merged | branch:--points-at | \
         branch:--sort | branch:--format | tag:--contains | tag:--no-contains | tag:--merged | \
@@ -2039,50 +2114,25 @@ mc_git_reads() {
         branch:--points-at=* | branch:--sort=* | branch:--format=* | branch:--column=* | branch:--color=* | \
         tag:--contains=* | tag:--no-contains=* | tag:--merged=* | tag:--no-merged=* | tag:--points-at=* | \
         tag:--sort=* | tag:--format=* | tag:--column=* | tag:--color=*) ;;
-      branch:-* | tag:-*) return 1 ;;
       config:--get | config:--get-all | config:--get-regexp | config:--get-urlmatch | config:--list | \
         config:-l | config:--get-colors | config:--get-color) list=1 ;;
-      config:--add | config:--unset | config:--unset-all | config:--replace-all | config:--rename-section | \
-        config:--remove-section | config:-e | config:--edit) return 1 ;;
-      *:--) break ;;
-      *:-*) ;;
-      *)
-        [ -n "$first" ] || first=$a
-        pos=$((pos + 1))
-        ;;
+      config:--global | config:--system | config:--local | config:--worktree | config:--show-origin | \
+        config:--show-scope | config:--null | config:-z | config:--name-only | config:--includes | \
+        config:--no-includes | config:--all | config:--regexp | config:--fixed-value | config:--bool | \
+        config:--int | config:--path | config:--type=* | config:--default=* | config:--url=* | \
+        config:--value=*) ;;
+      symbolic-ref:-q | symbolic-ref:--quiet | symbolic-ref:--short | symbolic-ref:--no-recurse) ;;
+      *:-*) return 1 ;;
+      *) pos=$((pos + 1)) ;;
     esac
   done
   case $sub in
     branch | tag) [ "$pos" = 0 ] || [ "$list" = 1 ] ;;
     config)
-      case $first in
-        get | list) return 0 ;;
-      esac
+      case $first in get | list) return 0 ;; esac
       [ "$list" = 1 ]
       ;;
-    remote)
-      case $first in
-        '' | show | get-url) return 0 ;;
-      esac
-      return 1
-      ;;
-    worktree) [ "$first" = list ] ;;
-    stash | notes)
-      case $first in
-        list | show) return 0 ;;
-      esac
-      return 1
-      ;;
-    reflog)
-      case $first in
-        '' | show | exists) return 0 ;;
-      esac
-      return 1
-      ;;
-    symbolic-ref)
-      case " ${SW[*]:$2} " in *" -d "* | *" --delete "*) return 1 ;; esac
-      [ "$pos" = 1 ]
-      ;;
+    symbolic-ref) [ "$pos" = 1 ] ;;
     *) return 1 ;;
   esac
 }
@@ -2165,6 +2215,12 @@ classify_git() {
       ;;
   esac
   if [ "$TIER" = mission-control ]; then
+    # Configuration and environment can make any read run a program (an
+    # fsmonitor, an external diff, a pager).
+    if [ "$cflag" = 1 ] || [ "$GIT_ENV" = 1 ] || [ "$ST_CFG" = 1 ]; then
+      deny_now "mission control runs no git mutation, and this git command carries -c configuration or a GIT_* variable, which can make even a read run a program - refusing (fail closed). Run it without them."
+      return 0
+    fi
     case " $GIT_BUILTINS " in
       *" $LC "*)
         mc_git_reads "$LC" "$((k + 1))" \
@@ -3334,14 +3390,19 @@ handle_mcp() {
 # --------------------------------------------------------------------------
 # The mission-control tier's settings and repository writes.
 
-# A file that sets a session's posture: a settings file (settings.json,
-# settings.local.json, managed-settings.json, the user-level .claude.json), an
-# MCP server list (.mcp.json), a planwright configuration layer
-# (planwright.yml, planwright.local.yml, where ready_flip_policy lives), or
-# anything under a .claude hooks or plugins directory. The bracketed letter
+# A file that sets a session's posture, by name: a settings file
+# (settings.json, settings.local.json, managed-settings.json, a shipped
+# <kind>-settings.json profile, the user-level .claude.json), an MCP server
+# list (.mcp.json), or a planwright configuration layer (planwright.yml,
+# planwright.local.yml, where ready_flip_policy lives). The bracketed letter
 # keeps the static no-model-client check from reading the name as a client.
-RE_MC_POSTURE='(^|[^[:alnum:]_.-])(((managed-)?settings(\.local)?|\.c[l]aude|\.mcp)\.json|planwright(\.local)?\.yml)([^[:alnum:]_-]|$)|\.c[l]aude/(hooks|plugins)/'
-MC_SETTINGS_DENY='mission control writes no settings or configuration file, and this command names one in a form that is not a plain read (a redirect, an in-place edit, or a command other than cat, head, tail, jq, grep, wc, ls, stat, diff or cmp) - refusing. A settings change is handed to the operator ready to apply.'
+RE_MC_POSTURE_NAME='(^|[^[:alnum:]_.])(((managed-)?settings(\.local)?|\.c[l]aude|\.mcp)\.json|planwright(\.local)?\.yml)([^[:alnum:]_-]|$)'
+# Directories whose files load as posture. The file surface alone checks
+# them: an installed planwright script runs from under .claude/plugins.
+RE_MC_POSTURE_DIR='/\.c[l]aude/(hooks|plugins|agents|skills|commands)/'
+# A word that could spell a posture file once the shell expands it.
+RE_MC_POSTURE_STEM='\.c[l]aude|\.mcp|settings|planwright\.'
+MC_SETTINGS_DENY='mission control writes no settings or configuration file, and this command names one, or could through an expansion, in a form that is not a plain read - refusing. Read it with a plain reader such as cat, grep or jq, and hand a settings change to the operator ready to apply.'
 
 # mc_settings_named <text> — 0 at the mission-control tier when the text,
 # with its quote and escape characters removed, names a posture file.
@@ -3349,30 +3410,59 @@ mc_settings_named() {
   [ "${TIER:-}" = mission-control ] || return 1
   local t=${1//[\"\'\\]/} rc=1
   shopt -s nocasematch
-  [[ $t =~ $RE_MC_POSTURE ]] && rc=0
+  [[ $t =~ $RE_MC_POSTURE_NAME ]] && rc=0
   shopt -u nocasematch
   return "$rc"
 }
 
-# mc_settings_screen <command> — refuse a command naming a posture file
-# unless every segment is a read-only command and nothing is redirected but
-# to /dev/null or another stream.
+# mc_stem <text> — 0 when the text carries a posture stem, case-blind.
+mc_stem() {
+  local rc=1
+  shopt -s nocasematch
+  [[ ${1//[\"\'\\]/} =~ $RE_MC_POSTURE_STEM ]] && rc=0
+  shopt -u nocasematch
+  return "$rc"
+}
+
+# mc_settings_screen <command> — refuse a command that names a posture file
+# unless every segment is a plain reader and nothing is redirected but to
+# /dev/null or another stream, and refuse a word that could expand into one.
 mc_settings_screen() {
-  local t=$1 si=0
-  mc_settings_named "$t" || return 0
+  local t=$1 si=0 k named=0 w
+  mc_settings_named "$t" && named=1
+  [ "$named" = 1 ] || mc_stem "$t" || return 0
+  [ "${#t}" -le "$MAX_CMD_LEN" ] || emit_deny "$MC_SETTINGS_DENY"
+  tokenize "$t" || emit_deny "$MC_SETTINGS_DENY"
+  k=0
+  while [ "$k" -lt "${#W[@]}" ]; do
+    w=${W[$k]}
+    case $w in
+      *'*'* | *'?'* | *'['* | *'{'*) mc_stem "$w" && emit_deny "$MC_SETTINGS_DENY" ;;
+    esac
+    [ "${WL[$k]}" = 1 ] || ! mc_stem "$w" || emit_deny "$MC_SETTINGS_DENY"
+    k=$((k + 1))
+  done
+  [ "$named" = 1 ] || return 0
   t=${t//&>\/dev\/null/}
   t=${t//[0-9]>\/dev\/null/}
   t=${t//>\/dev\/null/}
   t=${t//[0-9]>&[0-9]/}
   case $t in *'>'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
-  tokenize "$1" || emit_deny "$MC_SETTINGS_DENY"
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
     if [ "${#SW[@]}" -gt 0 ]; then
       [ "${SWL[0]}" = 1 ] || emit_deny "$MC_SETTINGS_DENY"
+      case ${SW[0]} in
+        */*)
+          case ${SW[0]} in
+            /bin/[!/]* | /usr/bin/[!/]*) ;;
+            *) emit_deny "$MC_SETTINGS_DENY" ;;
+          esac
+          ;;
+      esac
       lc "${SW[0]##*/}"
       case $LC in
-        cat | head | tail | jq | grep | egrep | fgrep | rg | wc | ls | stat | diff | cmp) ;;
+        cat | head | tail | jq | grep | egrep | fgrep | wc | ls | stat | diff | cmp) ;;
         *) emit_deny "$MC_SETTINGS_DENY" ;;
       esac
     fi
@@ -3394,26 +3484,38 @@ mc_repo_walk() {
   done
 }
 
-# handle_file <payload> — an Edit, Write, MultiEdit or NotebookEdit call at the
-# mission-control tier: refuse a posture file, a path inside a repository
-# (read lexically and, from its deepest existing directory, physically), a
-# symbolic link, and any path the guard cannot read.
-handle_file() {
-  local path d phys=''
-  path=$(printf '%s' "$1" | jq -r '.tool_input
-    | if type == "object" then (.file_path // .notebook_path // empty) else empty end
-    | if type == "string" then gsub("\u0000"; "") else empty end' 2>/dev/null) || path=''
-  [ -n "$path" ] \
-    || emit_deny 'this file-tool payload names no file path the guard can read, so it cannot tell whether it writes a repository or a settings file - refusing (fail closed).'
+# mc_posture_path <path> — refuse a path naming a posture file or lying under
+# a posture directory.
+mc_posture_path() {
+  local rc=1
+  shopt -s nocasematch
+  [[ $1 =~ $RE_MC_POSTURE_DIR ]] && rc=0
+  shopt -u nocasematch
+  if [ "$rc" = 0 ] || mc_settings_named "${1##*/}"; then
+    emit_deny "mission control never writes a settings or configuration file, nor widens its own posture; this path $2 one. A settings change is handed to the operator ready to apply."
+  fi
+}
+
+# mc_file_path <path> — one file-tool path: refuse a posture file, a path
+# inside a repository (read lexically and, from its deepest existing
+# directory, physically with the missing remainder kept), a symbolic link,
+# and any path the guard cannot read.
+mc_file_path() {
+  local path=$1 d phys rest
   case $path in
     /*) ;;
     *) emit_deny 'this file-tool path is not absolute, so the guard cannot place it - refusing (fail closed). Name the file by its absolute path.' ;;
   esac
+  while :; do
+    case $path in
+      *//*) path=${path//\/\//\/} ;;
+      *) break ;;
+    esac
+  done
   case "$path/" in
     */./* | */../*) emit_deny 'this file-tool path carries a . or .. component, which the guard does not resolve - refusing (fail closed). Name the file by its plain absolute path.' ;;
   esac
-  mc_settings_named "$path" \
-    && emit_deny 'mission control never writes a settings or configuration file, nor widens its own posture; a settings change is handed to the operator ready to apply.'
+  mc_posture_path "$path" is
   [ ! -L "$path" ] \
     || emit_deny 'this file-tool path is a symbolic link, which could reach a repository or a settings file - refusing (fail closed).'
   d=${path%/*}
@@ -3425,9 +3527,31 @@ handle_file() {
   done
   phys=$(cd -P -- "$d" 2>/dev/null && pwd) \
     || emit_deny 'the guard cannot resolve this file-tool path - refusing (fail closed).'
-  [ "$phys" = "$d" ] || mc_repo_walk "$phys" resolves
-  mc_settings_named "$phys/${path##*/}" \
-    && emit_deny 'mission control never writes a settings or configuration file, nor widens its own posture; this path resolves to one.'
+  [ "$phys" = "$d" ] && return 0
+  rest=${path#"$d"}
+  mc_repo_walk "$phys" resolves
+  mc_posture_path "${phys%/}$rest" "resolves to"
+}
+
+# handle_file <payload> — an Edit, Write, MultiEdit or NotebookEdit call at the
+# mission-control tier: every path field it carries passes mc_file_path.
+handle_file() {
+  local paths p n=0
+  paths=$(printf '%s' "$1" | jq -r '.tool_input
+    | if type == "object" then [.file_path, .notebook_path] else [] end
+    | .[] | select(. != null)
+    | if type == "string" and (test("[\u0000\n]") | not) then . else "unreadable" end' 2>/dev/null) || paths=''
+  # A value that is not a plain one-line string comes through as a relative
+  # word, which mc_file_path refuses.
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    n=$((n + 1))
+    mc_file_path "$p"
+  done <<EOF
+$paths
+EOF
+  [ "$n" -gt 0 ] \
+    || emit_deny 'this file-tool payload names no file path the guard can read, so it cannot tell whether it writes a repository or a settings file - refusing (fail closed).'
   return 0
 }
 

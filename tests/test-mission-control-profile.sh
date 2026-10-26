@@ -94,6 +94,35 @@ for surface in bash mcp file; do
     fail "the $surface surface does not run 'policy-guard.sh mission-control $surface' with the fail-closed suffix"
   fi
 done
+# Only the planwright scripts mission control runs are approved unprompted;
+# the tower's own mode keeps approving every planwright script.
+guard_says() { # <mode or ''> <command> — allow or defer
+  local out
+  out=$(jq -nc --arg c "$2" --arg w "$REPO_ROOT" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
+    | env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" CLAUDE_PROJECT_DIR="$REPO_ROOT" /bin/bash "$REPO_ROOT/scripts/tower-command-guard.sh" ${1:+"$1"} 2>/dev/null)
+  out=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)
+  printf '%s\n' "${out:-defer}"
+}
+for s in converge-sync-main.sh release-publish.sh wire-githooks.sh fleet-dispatch-worktree.sh; do
+  [ "$(guard_says mission-control "$REPO_ROOT/scripts/$s")" = defer ] \
+    && ok "mission-control mode leaves $s to the permission prompt" \
+    || fail "mission-control mode approves $s unprompted"
+  [ "$(guard_says '' "$REPO_ROOT/scripts/$s")" = allow ] \
+    && ok "tower mode still approves $s" || fail "tower mode stopped approving $s"
+  [ "$(guard_says mission-control "bash $REPO_ROOT/scripts/$s")" = defer ] \
+    && ok "mission-control mode leaves bash $s to the prompt" || fail "mission-control mode approves bash $s"
+done
+for s in mission-control-launch.sh mc-rules.sh fleet-streamjson.sh offload-dispatch.sh spec-status.sh; do
+  [ "$(guard_says mission-control "$REPO_ROOT/scripts/$s")" = allow ] \
+    && ok "mission-control mode approves $s" || fail "mission-control mode does not approve $s"
+done
+[ "$(guard_says bogus "git status")" = defer ] && ok "an unknown guard mode approves nothing" \
+  || fail "an unknown guard mode still approves"
+case $bash_cmds in
+  *'"$CLAUDE_PLUGIN_ROOT"/scripts/tower-command-guard.sh mission-control'*) ok "the profile runs the command guard in mission-control mode" ;;
+  *) fail "the profile does not run the command guard in mission-control mode" ;;
+esac
+
 file_matcher='Edit|Write|MultiEdit|NotebookEdit'
 for tool in Edit Write MultiEdit NotebookEdit; do
   [[ $tool =~ ^($file_matcher)$ ]] && ok "the file matcher covers $tool" || fail "the file matcher misses $tool"
