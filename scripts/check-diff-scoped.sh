@@ -149,6 +149,8 @@ if [ -z "$runner" ]; then
   if [ -x /bin/bash ]; then runner=/bin/bash; else runner=bash; fi
 fi
 
+# Resolved before the cd below, which would strand a relative $0.
+self_dir=$(cd "$(dirname "$0")" && pwd -P) || die 2 "cannot resolve the script's own directory"
 top=$(git rev-parse --show-toplevel 2>/dev/null) || die 2 "not inside a git work tree"
 cd "$top"
 
@@ -246,9 +248,11 @@ fi
 # --- running -----------------------------------------------------------------
 
 # Each test is pinned as scripts/run-tests.sh pins a file, from the same list.
+# A failed `.` ends a POSIX shell before any `||`, so readability is checked first.
+[ -r "$self_dir/../tests/lib/hermetic-env.sh" ] || die 2 "could not load tests/lib/hermetic-env.sh"
 _hermetic_env_defer=1
 # shellcheck source=tests/lib/hermetic-env.sh
-. "$(dirname "$0")/../tests/lib/hermetic-env.sh" || die 2 "could not load tests/lib/hermetic-env.sh"
+. "$self_dir/../tests/lib/hermetic-env.sh"
 status=0
 n=0
 while IFS= read -r t; do
