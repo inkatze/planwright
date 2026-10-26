@@ -1,6 +1,6 @@
 #!/bin/sh
 # flight-sweep.sh — the shared flight sweep and its derived index
-# (tower-front-door D-9; REQ-E1.3, REQ-F1.3, REQ-F1.4, REQ-F1.6).
+# (tower-front-door D-9, D-21; REQ-E1.3, REQ-E1.9, REQ-F1.3, REQ-F1.4, REQ-F1.6).
 #
 # One implementation reconstructs what is in flight for a checkout from
 # durable evidence alone, so every surface that renders flights reads the same
@@ -19,7 +19,9 @@
 #     or a query mechanism that cannot answer reads `unknown`. Silence is never
 #     death;
 #   - whether it waits on the operator: its worker's decision-queue row, read
-#     from the attention store as the other fleet readers read it.
+#     from the attention store as the other fleet readers read it;
+#   - its partial record, the private record a parking worker renders beside
+#     its brief under the fleet home.
 # A read that fails is named unknown in the render, never shown as empty: the
 # forge, registry, and queue rows say which reads were made.
 #
@@ -83,6 +85,12 @@
 #     liveness  alive | dead | unknown, for a flight with a worktree; - otherwise
 #     handle    the registered worker handle, or -
 #     worktree  its path, or -
+#   partial<TAB><id><TAB><path>, after the row of any flight that has one,
+#     landed or not: the latest private partial record it rendered when it
+#     parked, so a park whose queue push failed, before or after landing,
+#     still shows one. It is read only from a fleet
+#     home, flights directory, and brief directory private to the user, and
+#     only as a regular file
 # The primary checkout is never a flight's worktree, even with a flight branch
 # checked out, and a worktree path carrying a control byte is left out.
 #
@@ -396,6 +404,21 @@ forge_secs() {
   [ "$_left" -ge "$FS_SECS" ] || FS_SECS=$_left
 }
 
+# partial_record <id> — print the path of the flight's latest partial record
+# (flight-record.sh partial: `partial-<run>.md` beside its brief, the highest
+# run id), read only from a fleet home, flights directory, and brief directory
+# private to the user, and only a regular file, never a symlink; false when
+# there is none.
+partial_record() {
+  [ "$home_trusted" -eq 1 ] || return 1
+  _bd="$fleet_home/flights/$1"
+  private_dir "$fleet_home/flights" && private_dir "$_bd" || return 1
+  _p=$(find "$_bd" -mindepth 1 -maxdepth 1 -type f -name 'partial-[0-9][0-9][0-9][0-9][0-9][0-9].md' \
+    2>/dev/null </dev/null | sort | tail -n 1)
+  [ -n "$_p" ] && ! has_ctl "$_p" || return 1
+  printf '%s\n' "$_p"
+}
+
 render=''
 emit() {
   render="$render$1$LF"
@@ -574,6 +597,9 @@ cmd_sweep() {
         ;;
     esac
     flights="${flights}flight$TAB$id$TAB$state$TAB$landing$TAB$live$TAB$handle$TAB${wt:--}$LF"
+    if _partial=$(partial_record "$id"); then
+      flights="${flights}partial$TAB$id$TAB$_partial$LF"
+    fi
     IFS=$LF
   done
   IFS=$_old_ifs
@@ -594,7 +620,7 @@ cmd_sweep() {
   emit "forge$TAB$forge_state$TAB$forge_reason"
   emit "registry$TAB$registry_state"
   emit "queue$TAB$queue_state"
-  [ -z "$flights" ] || render="$render$(printf '%s' "$flights" | sort -t "$TAB" -k2,2)$LF"
+  [ -z "$flights" ] || render="$render$(printf '%s' "$flights" | sort -t "$TAB" -k2,2 -k1,1)$LF"
   printf '%s' "$render"
   [ "$write" -eq 0 ] || write_index
 }

@@ -121,7 +121,7 @@ printf '%s\n' "$b" | grep -qF "\`'$ROOT/scripts/resolve-steps.sh' <point> --expl
   || fail "the brief must pin the resolver to the root it names"
 printf '%s\n' "$b" | grep -q 'never `--attended`' || fail "the brief must resolve every point unattended"
 printf '%s\n' "$b" | grep -qF 'PLANWRIGHT_STEP_UNIT_KIND=flight' || fail "the brief must set unit kind flight"
-flat "$b" | grep -q 'ends, parks, or stops the unit (the pause protocol or a stop condition), park the flight instead' \
+flat "$b" | grep -q 'ends, parks, or stops the unit (the pause protocol or a stop condition), park the flight (`point`) instead' \
   || fail "the brief must map the pause protocol and the stop conditions to the flight park"
 fid=$(field "$OUT" flight)
 printf '%s\n' "$b" | grep -qF "launch tier takes the unit \`flight:$fid\`" \
@@ -174,7 +174,7 @@ flat "$post" | grep -q 'with the same inputs, never by editing the PR body by ha
   || fail "the re-emit must keep the first render's inputs"
 flat "$post" | grep -q 'A refusal of your own inputs is fixed and the re-emit re-run' \
   || fail "a refusal of the worker's own inputs must be fixed and re-run, not parked"
-flat "$post" | grep -q 'any other non-zero exit from the render, or from the edit, parks the flight' \
+flat "$post" | grep -q 'any other non-zero exit from the render parks the flight (`renderer`), and one from the edit parks the flight (`landing`)' \
   || fail "any other failed re-render or edit must park the flight"
 flat "$post" | grep -q 'its `## Pending sign-off` heading demoted to `####`' \
   || fail "the regenerated checklist's heading must be demoted under the record's"
@@ -192,15 +192,15 @@ grep -qF "grep -q '^A relaunched worker runs this landed check'" "$ROOT/scripts/
   || fail "flight-lifecycle.sh must recognize the landed-check brief by its anchored phrase"
 printf '%s\n' "$b" | grep -q '^A relaunched worker runs this landed check' \
   || fail "the brief must carry, at a line's start, the phrase flight-lifecycle.sh recognizes"
-flat "$post" | grep -q 'A non-zero exit from the completion push parks the flight, naming what it printed' \
+flat "$post" | grep -q 'A non-zero exit from the completion push parks the flight (`landing`), its partial record naming what it printed' \
   || fail "a failed completion push must park the pr-home flight"
 flat "$b" | grep -q 'A relaunched worker runs this landed check before it fires any point' \
   || fail "a relaunched pr-home worker must check landing before it fires any point"
-flat "$b" | grep -q 'A non-zero exit from the view or the list parks the flight: a failed lookup is never "no PR" or "not open"' \
+flat "$b" | grep -q 'A non-zero exit from the view or the list parks the flight (`landing`): a failed lookup is never "no PR" or "not open"' \
   || fail "a failed PR lookup must park, never read as no PR"
 flat "$b" | grep -q 'in this order. When `record/pr-url` exists, it is the flight.s own record of its PR:' \
   || fail "the flight's own recorded PR must decide first"
-flat "$b" | grep -q 'must print `OPEN` for the flight to have landed, and anything else parks it. Otherwise it lists the same-repository PRs on this branch in every state' \
+flat "$b" | grep -q 'must print `OPEN` for the flight to have landed, and anything else parks it (`landing`). Otherwise it lists the same-repository PRs on this branch in every state' \
   || fail "a recorded PR lands the flight only while open; the lookup decides only without one"
 flat "$b" | grep -q 'Exactly one line, `OPEN` at `git rev-parse HEAD`, is the flight.s PR, and it has landed' \
   || fail "only one open PR at this branch's tip lands the flight"
@@ -243,9 +243,9 @@ flat "$b" | grep -q "an interrupted land's leftover, which it clears at once, be
   || fail "an interrupted land's leftover must be cleared before a re-fired point can commit it"
 printf '%s\n' "$b" | grep -q '^A relaunched worker runs this landed check' \
   || fail "the file-home brief must carry the phrase flight-lifecycle.sh recognizes"
-flat "$b" | grep -q 'A non-zero exit from the completion push parks the flight, naming what it printed' \
+flat "$b" | grep -q 'A non-zero exit from the completion push parks the flight (`landing`), its partial record naming what it printed' \
   || fail "a failed completion push must park the file-home flight"
-flat "$b" | grep -q 'A non-zero exit from that line parks the flight, naming what the line printed' \
+flat "$b" | grep -q 'A non-zero exit from that line parks the flight (`landing`), its partial record naming what the line printed' \
   || fail "a failed leftover cleanup must park the flight"
 printf '%s\n' "$b" | grep -qF "git rm -q --cached --ignore-unmatch -- 'specs/_flights/$fid.md' && rm -f -- 'specs/_flights/$fid.md' 'specs/_flights'/.$fid.md.*" \
   || fail "a relaunched file-home worker must clear an interrupted land's record and temp link"

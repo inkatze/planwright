@@ -331,9 +331,10 @@ for f in $shipped; do
   [ "$rc" -eq 0 ] || printf '%s\n' "$out" >&2
 done
 
-# The seven researched core cards ship (inception REQ-P1.10, D-17), with the
-# default tiers inception D-4 places and fast rot on the two cards the task
-# flags high-rot. A card D-4 leaves unplaced is checked for presence only.
+# The seven researched core cards and the commissioned eighth ship (inception
+# REQ-P1.10, D-17), with the default tiers inception D-4 places and fast rot on
+# the two cards the task flags high-rot. A card D-4 leaves unplaced is checked
+# for presence only.
 header_value() {
   awk -v k="**$2:**" 'index($0, k) == 1 {
     sub(/^\*\*[A-Za-z][A-Za-z-]*:\*\*/, ""); gsub(/^[ \t]+|[ \t]+$/, ""); print; exit
@@ -353,7 +354,15 @@ org-design structure-only -
 intellectual-property human-authority fast
 ai-agent-architecture agent-senior fast
 software-engineering agent-senior -
+ml-llm-engineering-evals - -
 EOF
+
+# REQ-P1.11: a commissioned card cites the demand evidence behind its
+# commission, here the consumed 2026-06-17 observation.
+commissioned="$REPO_ROOT/cards/ml-llm-engineering-evals.md"
+demand="$(awk '/^## Sources$/ { s = 1; next } s && /^## / { s = 0 } s' "$commissioned" 2>/dev/null)"
+assert_contains "commissioned card: Sources cite the demand observation" \
+  "observations log, 2026-06-17" "$demand"
 
 card_ids="$(for f in $shipped; do
   b=${f##*/}

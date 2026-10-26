@@ -22,7 +22,8 @@
 #     value must not mask an unwired clone), pointing elsewhere, or with
 #     missing/non-executable hook files; passes only on a fully wired
 #     clone; and fails (never silently skips) outside a git work tree
-#     (REQ-A1.3); both scripts reject extra arguments (usage, exit 2) and
+#     (REQ-A1.3); both scripts reject unknown or extra arguments (usage,
+#     exit 2; the wire step accepts only its lone --if-tracked) and
 #     commit-msg fails closed on a missing message-file argument (c7b);
 #   - the CI wiring is pinned decidable: ci.yml runs the wire step before
 #     `mise run check`, and check:githooks is a member of the `check`
@@ -356,6 +357,12 @@ st=0
 st=0
 (cd "$r" && /bin/sh "$WIRE" extra >/dev/null 2>&1) || st=$?
 [ "$st" -eq 2 ] || fail "c7b: wire with an extra argument must exit 2 (usage), got $st"
+for args in "--if-tracked extra" "--bogus"; do
+  st=0
+  # shellcheck disable=SC2086 # one argument per word
+  (cd "$r" && /bin/sh "$WIRE" $args >/dev/null 2>&1) || st=$?
+  [ "$st" -eq 2 ] || fail "c7b: wire with '$args' must exit 2 (usage), got $st"
+done
 cm="$r/githooks/commit-msg"
 st=0
 (cd "$r" && /bin/sh "$cm" >/dev/null 2>"$tmp/stderr.capture") || st=$?

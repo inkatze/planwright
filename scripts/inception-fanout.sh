@@ -261,9 +261,15 @@ need_helper() {
 
 # A venture directory, version-gated by the validator (REQ-C1.7) before any
 # read, its bundle files and output directories never followed through a link.
-# bundle_lock: the venture's bundle lock, held until exit.
+# bundle_lock: the venture's bundle lock, held until exit. It lives in the
+# clone's own git directory (a worktree's included), where no save can commit
+# it; only a venture outside any git repository keeps it beside the bundle.
 bundle_lock() {
-  if [ -d "$venture/.git" ]; then bl_lock="$venture/.git/planwright-bundle.lock"; else bl_lock="$venture/.planwright-bundle.lock"; fi
+  if bl_gitdir=$(git -C "$venture" rev-parse --absolute-git-dir 2>/dev/null); then
+    bl_lock="$bl_gitdir/planwright-bundle.lock"
+  else
+    bl_lock="$venture/.planwright-bundle.lock"
+  fi
   pw_lock_acquire "$bl_lock" "${PLANWRIGHT_BUNDLE_LOCK_TRIES:-500}" || die 2 "the bundle is busy (another writer holds $bl_lock); try again"
 }
 

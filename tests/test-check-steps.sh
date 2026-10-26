@@ -2,7 +2,7 @@
 # Tests for scripts/check-steps.sh — the guard that resolves every named point
 # in check mode against a repository's own configuration and sweeps the
 # retired convergence knob's key (custom-steps REQ-A1.3, REQ-F1.1, REQ-F1.2,
-# REQ-H1.4).
+# REQ-H1.4, REQ-I1.11, REQ-I1.12).
 #
 # The real-repository case runs the guard as `mise run check` does. Every
 # other case runs it against a fixture core root and a fixture repository, so
@@ -135,9 +135,23 @@ write_core_defaults() { # extra lines on stdin are appended
   } >"$core/config/defaults.yml"
 }
 tracked="$repo/.claude/planwright.yml"
+tracked_cat="$repo/.claude/catalogs/steps.yaml"
+mkdir -p "$repo/.claude/catalogs" "$repo/bin"
+printf '#!/bin/sh\nexit 0\n' >"$repo/bin/fixture-tool"
+chmod +x "$repo/bin/fixture-tool"
 reset_fixture() {
   write_core_defaults </dev/null
   printf 'steps_convergence: [self-review]\n' >"$tracked"
+  rm -f "$tracked_cat"
+}
+# cat_entry <id> <field: value>...: append one entry to the repo-tracked
+# catalog, writing the `steps:` header on first use.
+cat_entry() {
+  id=$1
+  shift
+  [ -s "$tracked_cat" ] || printf 'steps:\n' >"$tracked_cat"
+  printf '  - id: %s\n' "$id" >>"$tracked_cat"
+  for kv in "$@"; do printf '    %s\n' "$kv" >>"$tracked_cat"; done
 }
 run_fixture() { run_guard --core "$core" --repo "$repo"; }
 
@@ -164,6 +178,64 @@ printf 'steps_post_merge: [self-review]\n' >>"$tracked"
 run_fixture
 expect_fail "REQ-A1.3: a non-empty list at an unwired point fails"
 expect_out "REQ-A1.3: the failure names the unwired point" "post-merge"
+
+# REQ-I1.12: a repo-tracked catalog declaring pool, paths, and refire resolves
+# green, the re-fire step listed at both points that may carry one.
+reset_fixture
+cat_entry gate "kind: command" "target: bin/fixture-tool" "pool: host-gate" \
+  "paths: . scripts/ tests/a_b.sh" "refire: post-pr"
+cat_entry lint "kind: command" "target: bin/fixture-tool" "pool: host-gate"
+printf 'steps_pre_ci: [gate, lint]\nsteps_pre_pr: [gate]\n' >>"$tracked"
+run_fixture
+expect_rc "REQ-I1.12: a configuration declaring pool, paths, and refire passes" 0
+
+# REQ-I1.11: each refusal fails the guard, naming the step and the field.
+# malformed_field <label> <needle> <field lines...>: the entry listed at
+# pre-ci, where a well-formed re-fire step may sit.
+malformed_field() {
+  label=$1
+  needle=$2
+  shift 2
+  reset_fixture
+  cat_entry bad-gate "$@"
+  printf 'steps_pre_ci: [bad-gate]\n' >>"$tracked"
+  run_fixture
+  expect_fail "REQ-I1.11: $label fails"
+  expect_out "REQ-I1.11: $label names the step" "bad-gate"
+  expect_out "REQ-I1.11: $label names the field" "$needle"
+}
+malformed_field "a malformed pool name" "pool name" \
+  "kind: command" "target: bin/fixture-tool" "pool: Host-Gate"
+malformed_field "a paths word outside its grammar" "paths word" \
+  "kind: command" "target: bin/fixture-tool" "paths: src/../etc"
+malformed_field "a refire value other than post-pr" "refire value" \
+  "kind: command" "target: bin/fixture-tool" "paths: ." "refire: pre-pr"
+malformed_field "refire without paths" "refire without paths" \
+  "kind: command" "target: bin/fixture-tool" "refire: post-pr"
+malformed_field "pool on a skill step" "pool on a skill step" \
+  "kind: skill" "target: polish" "pool: host-gate"
+malformed_field "paths on a skill step" "paths on a skill step" \
+  "kind: skill" "target: polish" "paths: ."
+malformed_field "refire on a skill step" "refire on a skill step" \
+  "kind: skill" "target: polish" "refire: post-pr"
+malformed_field "pool on a prompt step" "pool on a prompt step" \
+  "kind: prompt" "target: p" "pool: host-gate"
+malformed_field "paths on a prompt step" "paths on a prompt step" \
+  "kind: prompt" "target: p" "paths: ."
+malformed_field "refire on a prompt step" "refire on a prompt step" \
+  "kind: prompt" "target: p" "refire: post-pr"
+malformed_field "refire with hosting continue" "refire with hosting continue" \
+  "kind: command" "target: bin/fixture-tool" "paths: ." "refire: post-pr" "hosting: continue"
+
+# REQ-I1.11: a well-formed re-fire step listed outside steps_pre_ci and
+# steps_pre_pr fails, naming the step, the field, and the point.
+reset_fixture
+cat_entry late-gate "kind: command" "target: bin/fixture-tool" "paths: ." "refire: post-pr"
+printf 'steps_post_pr: [late-gate]\n' >>"$tracked"
+run_fixture
+expect_fail "REQ-I1.11: a misplaced re-fire step fails"
+expect_out "REQ-I1.11: the misplaced re-fire failure names the step" "late-gate"
+expect_out "REQ-I1.11: the misplaced re-fire failure names the field and the point" "refire at post-pr"
 
 # REQ-F1.1: the retired key fails in the repo-tracked config, naming the key
 # and the file.

@@ -100,6 +100,8 @@ mkdir -p "$PLUGIN_ROOT/scripts"
 : >"$PLUGIN_ROOT/scripts/fleet-streamjson.sh"
 : >"$PLUGIN_ROOT/scripts/orchestrate-relay.sh"
 : >"$PLUGIN_ROOT/scripts/fleet-tower-launch.sh"
+: >"$PLUGIN_ROOT/scripts/fleet-task-brief.sh"
+: >"$PLUGIN_ROOT/scripts/fleet-dispatch-worktree.sh"
 : >"$PLUGIN_ROOT/scripts/tower-force-push.sh"
 ln -f "$PLUGIN_ROOT/scripts/tower-force-push.sh" "$PLUGIN_ROOT/scripts/fp-hard.sh"
 ln -f "$PLUGIN_ROOT/scripts/tower-force-push.sh" "$PLUGIN_ROOT/scripts/fp-hard"
@@ -819,6 +821,14 @@ assert_defer "claude --settings override (denylist would miss)" "claude --worktr
 # Bash string defers on its --settings flag (fleet-messaging D-19).
 assert_allow "tower launcher approved wholesale" "$PLUGIN_ROOT/scripts/fleet-tower-launch.sh demo --unattended"
 assert_allow "tower launcher bash-prefixed" "bash $PLUGIN_ROOT/scripts/fleet-tower-launch.sh demo"
+# The tmux task dispatch renders the unit's task brief, then hands its path to
+# the dispatch primitive (fleet-messaging D-25): both are planwright scripts by
+# resolved literal path, approved wholesale.
+assert_allow "task brief render" "$PLUGIN_ROOT/scripts/fleet-task-brief.sh render demo 4.5 --tower tower-alpha"
+assert_allow "task dispatch with its brief" \
+  "$PLUGIN_ROOT/scripts/fleet-dispatch-worktree.sh dispatch demo 4.5 --brief /home/u/.fleet/tasks/demo/4.5/brief.md"
+assert_defer "task dispatch with its brief from a lookalike outside the roots" \
+  "$LOOKALIKE/scripts/fleet-dispatch-worktree.sh dispatch demo 4.5 --brief /home/u/.fleet/tasks/demo/4.5/brief.md"
 assert_defer "the launch the tower launcher replaces defers as a raw string" \
   "claude -p --name planwright-tower-demo-1 --settings $PLUGIN_ROOT/config/tower-settings.json '/orchestrate --watch demo'"
 assert_defer "claude --setting-sources override (denylist would miss)" "claude --worktree fh-task-7 --setting-sources user"

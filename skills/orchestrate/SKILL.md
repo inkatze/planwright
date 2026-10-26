@@ -256,7 +256,12 @@ it when relaying to or cleaning up after a worker.
   PR-merge/force-push guardrails; a human merges it in (planwright
   never edits settings.json, REQ-I1.2).
 - **tmux** (opt-in). An interactive worker in a detached session
-  `scripts/fleet-dispatch-worktree.sh` creates. Observe stuck/finished/errored
+  `scripts/fleet-dispatch-worktree.sh` creates. Every task dispatch first
+  renders the unit's task brief, `scripts/fleet-task-brief.sh render <spec>
+  <id>` (plus `--tower <name>` when `scripts/fleet-messaging.sh self-name`
+  prints one), and passes the path on its `brief` line as `--brief` (a
+  failed render stops the dispatch): the opening turn
+  rides the launch, no message or keystroke. Observe stuck/finished/errored
   workers with **capture-pane**; message one `ListAgents` lists via
   `SendMessage`, else relay only through `scripts/orchestrate-relay.sh`
   (attributed, dialog-refusing, confirmed), **never** send-keys. Treat

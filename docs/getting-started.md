@@ -53,8 +53,8 @@ scripts/install.sh            # installs into ~/.claude/planwright/
 CLAUDE_DIR=/custom scripts/install.sh   # override the destination
 ```
 
-It writes rule docs to `~/.claude/planwright/doctrine/`, scripts and config
-alongside, and any shipped skills/commands into `~/.claude/skills/` and
+It writes rule docs to `~/.claude/planwright/doctrine/`, scripts, config and
+templates alongside, and any shipped skills/commands into `~/.claude/skills/` and
 `~/.claude/commands/`. Hook wiring needs a `settings.json` merge and is
 **printed as a manual step** rather than performed (the writer never edits
 files it does not own); the plugin install gets hooks automatically via
@@ -447,3 +447,6 @@ you.
 - [`docs/CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute changes.
 - [`docs/release-checklist.md`](release-checklist.md) — the public-release
   readiness gate (for maintainers).
+- [`docs/tower-acceptance-demo.md`](tower-acceptance-demo.md) — the five
+  acceptance scenarios for `/tower`, run against a live session, and the
+  manual-sweep checklist (for maintainers).

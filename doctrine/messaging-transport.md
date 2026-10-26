@@ -11,8 +11,8 @@ stages: until a path's script ships, that path runs as its fallback.
 
 Citations: fleet-messaging REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-G1.5,
 REQ-G1.6, REQ-A1.1, REQ-A1.6, REQ-E1.1, REQ-E1.2, REQ-F1.2, REQ-F1.4, REQ-F1.6,
-REQ-F1.7, REQ-H1.2, REQ-H1.4 · fleet-messaging D-1, D-3, D-4, D-5, D-9, D-13,
-D-14, D-16, D-17, D-26.
+REQ-F1.7, REQ-H1.2, REQ-H1.4, REQ-D1.9, REQ-G1.8 · fleet-messaging D-1, D-3,
+D-4, D-5, D-9, D-13, D-14, D-16, D-17, D-26.
 
 ## Signal versus record
 
@@ -28,7 +28,12 @@ durable artifact.
   stop that ends the worker's turn fires a notice** (a fork or park the worker
   halts on, or completion). A mid-turn suspension, such as a permission or
   elicitation dialog, ends no turn and fires nothing; it is the healing sweep's
-  case, surfacing there as a stale heartbeat.
+  case, surfacing there as a stale heartbeat. Beside the notice, the
+  **question message** is the one model-composed upward path: one per recorded
+  fork (a halt needing a decision is one), never resent, from a worker whose
+  task brief names its tower. The fork is recorded first (the `fork` verb), so
+  the row and notice stay the record and the push; a park sends none, and the
+  message never carries completion or status.
 - **Downward** (tower to worker), a steer or a decision answer is an
   instruction addressed to a session and carries its text; for an answer, the
   persisted answer artifact is the recovery source, never a second record.
@@ -74,20 +79,24 @@ demoted consumer; operator-facing cadences keep today's intervals.
 
 ## The per-path fallback table
 
-The fixed path set. A path a session cannot use (probe absent, rung ineligible)
-takes its fallback column from the start, and a rung the Fallback column gives
-a path of its own (a `stream-json-persistent` decision answer, a
-`headless-oneshot` worker) takes it whether or not messaging is available.
+The fixed path set, plus the question row. A path a session cannot use (probe
+absent, rung ineligible) takes its fallback column from the start, and a rung
+the Fallback column gives a path of its own (a `stream-json-persistent`
+decision answer, a `headless-oneshot` worker) takes it whether or not
+messaging is available.
 
 | Path | With messaging | Fallback |
 | --- | --- | --- |
 | Tower→worker steer | `fleet-messaging.sh send --to-worker`, through the relay's messaging arm | per rung: on `tmux` the attributed buffer-paste, then operator handoff; on `stream-json-persistent` operator handoff, no attributed steer delivery existing there; on `headless-oneshot` none, the rung advertising no steer-in-flight |
 | Decision answer | claimed and persisted, then `fleet-messaging.sh send --to-worker` from `fleet-decision.sh` | per rung: on `tmux` the attributed buffer-paste, then operator handoff (today's undelivered-answer surfacing); on `stream-json-persistent` never a message, the supervisor's control response (`fleet-streamjson.sh answer`) being the path; on `headless-oneshot` none, the rung holding no fork to answer |
 | Worker→tower idle notice | the harness's one-shot notice, subscribed by the tower | the healing sweep, which reads the row the worker already wrote |
+| Worker→tower question message | composed by a briefed worker's model, one per recorded fork | the fork's own row and idle notice, with no step to select it |
 | The tower's own wake | a `--watch` step ends its turn and is woken by an idle notice, a peer message, or the harness's scheduled wakeup | today's metronome |
 | Poll cadence: the attention watcher's healing sweep | demoted to `messaging_heal_cadence_seconds` | its retained cadence; it is never removed |
 | Poll cadence: the dashboard's projection refresh | not demoted: it faces the operator | its retained cadence |
 | Tower↔tower advisory | composed by the tower's model through the harness's message tool, addressed by session name | not sent, the status quo; an advisory is never on the correctness path |
+
+The task worker's opening turn rides the launch and is not a messaging path.
 
 ## The discipline ladder
 
