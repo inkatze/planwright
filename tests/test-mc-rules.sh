@@ -310,6 +310,11 @@ expect_out "two scopes render both" "Duty rule one"
 expect_out "two scopes render both (second)" "Other repo rule"
 rules render alpha --scope bogus
 expect_rc "an unknown scope kind is refused" 2
+rules render alpha --scope duty:nowhere
+expect_rc "a well-formed scope no entry carries renders" 0
+expect_out "that render is labelled with its scope" "scope duty:nowhere, digest"
+expect_out "that render carries the program rules" "Docs need review"
+expect_no_out "that render leaves out every scoped rule" "Duty rule one"
 
 brief="$tmp/brief.md"
 printf '%s\n' "# Fixture brief" "" "Do the task." "" >"$brief"
