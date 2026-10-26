@@ -1,0 +1,46 @@
+# The panel mod's engine surface: every hook, call on
+# `$` and environment read `claude plugin validate` reports for
+# hooks/mission-control/register.tsx. scripts/check-panel-mod.sh fails on
+# anything the report lists that is not here, so a new call is a reviewed
+# change to this file.
+#
+# <kind> <entry>, kind hook, call or env.
+
+# Bring-up, the slash command that reopens the pane, and the hand-back of the
+# wake target at the end.
+hook session.start
+hook session.end
+hook command.run{command=mission-control}
+# Idle tracking and the completed-wake count.
+hook turn.start
+hook turn.complete
+# Presence from the operator's prompt events.
+hook prompt.submit
+# Rule re-injection and the handover's deferral.
+hook session.compact
+# The pane and the band.
+hook ui.render{component=Pane, requestId=mission-control}
+hook ui.render{component=AbovePrompt}
+
+# The redraw timer, the failsafe tick and the radar.
+call $.clock.every
+call $.clock.now
+call $.command.register
+# Whether this session is mission control, and its wake target.
+call $.env.get
+# The stores, read and written only through planwright's own scripts.
+call $.process.run
+# The wake and the tick prompt.
+call $.prompt.submit
+# Context percent and rate limits.
+call $.session.usage
+call $.state.get
+call $.state.set
+call $.ui.open
+call $.ui.resolve
+# The text fallback where nothing draws the pane.
+call $.ui.status
+call $.ui.toast
+
+env PLANWRIGHT_MC_PROGRAM
+env PLANWRIGHT_MC_TARGET

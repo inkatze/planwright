@@ -10,6 +10,10 @@ default-duty-set	mission_control_default_duties	scripts/mc-program.sh
 default-source-map	mission_control_default_sources	scripts/mc-program.sh
 runner-interval	mission_control_runner_interval	scripts/mc-watch.sh
 failsafe-tick-cadence	mission_control_tick_cadence	scripts/mc-wake.sh
+panel-redraw-cadence	mission_control_panel_refresh	scripts/mc-panel.sh
+handover-context-threshold	mission_control_handover_context	scripts/mc-panel.sh
+handover-wake-ceiling	mission_control_handover_wakes	scripts/mc-panel.sh
+handover-compaction-ceiling	mission_control_handover_compactions	scripts/mc-panel.sh
 snapshot-cadence	mission_control_snapshot_cadence	scripts/mc-snapshot.sh
 forge-tracked-set	mission_control_forge_tracked	scripts/mc-adapter-forge.sh
 rate-limit-floor	mission_control_ratelimit_floor	scripts/mc-snapshot.sh

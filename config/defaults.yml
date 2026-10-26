@@ -994,10 +994,21 @@ mission_control_default_sources: {work-items: specs:record, code-state: forge:sn
 # the enabled duties' watchers, re-arms a stopped one, relays pending wakes
 # and runs the failsafe tick. A cadence: a positive count of s, m, h or d.
 mission_control_runner_interval: 1m
-# The daemon-side failsafe tick's cadence (scripts/mc-wake.sh tick): how often
-# a session without the mod is checked for events the push relay did not
-# submit.
+# The failsafe tick's cadence: how often a session is checked for events the
+# push did not submit, by the daemon (scripts/mc-wake.sh tick) for a session
+# without the mod and by the mod's own timer where it loads.
 mission_control_tick_cadence: 5m
+# How often the panel mod rereads the stores and redraws: the cadence its
+# wake runs at, so a pending event reaches an idle session within one.
+mission_control_panel_refresh: 10s
+# The handover trigger: the measured context percent at which the session
+# raises its handover, the completed-wake count that stands in where the
+# harness measures no context (a wake is one duty trigger or one operator
+# turn), and the compaction count that raises it whichever of the two
+# applies.
+mission_control_handover_context: 70
+mission_control_handover_wakes: 150
+mission_control_handover_compactions: 2
 # How often each snapshot-mode source is refreshed, source: cadence. A source
 # left out refreshes at the cadence its adapter declares in
 # config/snapshot-adapters.yaml.

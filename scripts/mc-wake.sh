@@ -26,7 +26,7 @@ done
 LISTED_MAX=20
 
 usage() {
-  mc_usage_fail "usage: mc-wake.sh target add|remove|list --program <p> [<worker>] [--mod] | relay --program <p> | tick --program <p> [--now <epoch>]"
+  mc_usage_fail "usage: mc-wake.sh target add|remove|list --program <p> [<worker>] [--mod] | relay --program <p> | tick --program <p> [--now <epoch>] | compose --program <p> <target>"
 }
 
 help_text() {
@@ -92,6 +92,11 @@ Usage:
       `not-due<TAB><seconds left>` before the cadence has passed; else
       `tick`, then the relay's lines over every event not yet submitted;
       or `paused` (`blocked`) as the relay.
+  mc-wake.sh compose --program <p> <target>
+      the wake a session with the mod submits itself: `idle`, or
+      `wake<TAB><n><TAB><id> <id>...` then the wake's text, over the
+      target's events not yet submitted (the tick's selection). Sends and
+      marks nothing: the mod marks the ids submitted once its prompt is in.
 
 Exit codes: 0 done (a refused or unreachable target is reported, not a
 failure); 1 a store that cannot be read or written (the fleet registry
@@ -146,6 +151,41 @@ mc_require_program "$program"
 runtime=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory for '$program'"
 targets="$runtime/wake-targets"
 
+# select_events <target> unmarked|unsubmitted: the target's events for one
+# wake, in SEL_ROWS (at most LISTED_MAX), SEL_TOTAL (all of them), SEL_N and
+# SEL_IDS (space separated).
+select_events() {
+  SEL_ROWS=$(mc_event list --program "$program" --target "$1" --pending) || return 1
+  if [ "$2" = unsubmitted ]; then
+    # Never-sent events first, so a backlog of staged ones nobody has
+    # acknowledged cannot keep a newer event out of every wake.
+    SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | awk -F '\t' 'NF && $NF == "-"; NF && $NF != "-" { s[++n] = $0 } END { for (i = 1; i <= n; i++) print s[i] }')
+  else
+    SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | awk -F '\t' '$NF == "-"')
+  fi
+  SEL_TOTAL=$(printf '%s' "$SEL_ROWS" | awk 'NF { n++ } END { print n + 0 }')
+  # One wake carries the first LISTED_MAX; the rest wait for a later wake.
+  SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | M=$LISTED_MAX awk 'NF && ++n <= ENVIRON["M"] + 0')
+  SEL_N=$(printf '%s\n' "$SEL_ROWS" | awk 'NF { n++ } END { print n + 0 }')
+  SEL_IDS=$(printf '%s\n' "$SEL_ROWS" | awk -F '\t' 'NF { printf "%s%s", sep, $1; sep = " " }')
+}
+
+# wake_text <rows> <total> <ids> submitted|staged <target>: the wake, naming
+# each event's kind and subject and never its free text.
+wake_text() {
+  wt_cmd=$(mc_quote "$script_dir/mc-event.sh") || return 1
+  wt_n=$(printf '%s\n' "$1" | awk 'NF { n++ } END { print n + 0 }')
+  printf 'mission control (%s): %s event(s) pending' "$program" "$2"
+  [ "$wt_n" -eq "$2" ] || printf ', %s of them here' "$wt_n"
+  printf '.\n'
+  printf '%s\n' "$1" | awk -F '\t' 'NF { print "- " $3 " " $4 }'
+  printf 'Read them with: %s list --program %s %s\n' "$wt_cmd" "$program" "$3"
+  if [ "$4" = staged ]; then
+    printf 'Then acknowledge them with: %s mark --program %s --target %s submitted %s\n' \
+      "$wt_cmd" "$program" "$5" "$3"
+  fi
+}
+
 # send <worker> unmarked|unsubmitted: one wake for the worker's events that
 # carry no mark, or that are not yet submitted.
 send() {
@@ -183,37 +223,18 @@ send() {
       return 0
       ;;
   esac
-  sd_rows=$(mc_event list --program "$program" --target "$sd_w" --pending) || return 1
-  if [ "$2" = unsubmitted ]; then
-    # Never-sent events first, so a backlog of staged ones nobody has
-    # acknowledged cannot keep a newer event out of every wake.
-    sd_rows=$(printf '%s\n' "$sd_rows" | awk -F '\t' 'NF && $NF == "-"; NF && $NF != "-" { s[++n] = $0 } END { for (i = 1; i <= n; i++) print s[i] }')
-  else
-    sd_rows=$(printf '%s\n' "$sd_rows" | awk -F '\t' '$NF == "-"')
-  fi
-  sd_total=$(printf '%s' "$sd_rows" | awk 'NF { n++ } END { print n + 0 }')
+  select_events "$sd_w" "$2" || return 1
+  sd_rows=$SEL_ROWS
+  sd_total=$SEL_TOTAL
+  sd_n=$SEL_N
+  sd_ids=$SEL_IDS
   if [ "$sd_total" -eq 0 ]; then
     printf 'idle\t%s\n' "$sd_w"
     return 0
   fi
-  # One wake carries the first LISTED_MAX; the rest wait for a later wake.
-  sd_rows=$(printf '%s\n' "$sd_rows" | M=$LISTED_MAX awk 'NF && ++n <= ENVIRON["M"] + 0')
-  sd_n=$(printf '%s\n' "$sd_rows" | awk 'NF { n++ } END { print n + 0 }')
-  sd_ids=$(printf '%s\n' "$sd_rows" | awk -F '\t' 'NF { printf "%s%s", sep, $1; sep = " " }')
-  sd_cmd=$(mc_quote "$script_dir/mc-event.sh") || return 1
   mkdir -p "$runtime/wake" || return 1
   sd_msg=$(mktemp "$runtime/wake/$sd_w.XXXXXX") || return 1
-  {
-    printf 'mission control (%s): %s event(s) pending' "$program" "$sd_total"
-    [ "$sd_n" -eq "$sd_total" ] || printf ', %s of them here' "$sd_n"
-    printf '.\n'
-    printf '%s\n' "$sd_rows" | awk -F '\t' 'NF { print "- " $3 " " $4 }'
-    printf 'Read them with: %s list --program %s %s\n' "$sd_cmd" "$program" "$sd_ids"
-    if [ "$sd_mark" = staged ]; then
-      printf 'Then acknowledge them with: %s mark --program %s --target %s submitted %s\n' \
-        "$sd_cmd" "$program" "$sd_w" "$sd_ids"
-    fi
-  } >"$sd_msg" || {
+  wake_text "$sd_rows" "$sd_total" "$sd_ids" "$sd_mark" "$sd_w" >"$sd_msg" || {
     rm -f "$sd_msg"
     return 1
   }
@@ -328,6 +349,18 @@ case $verb in
       find "$runtime/wake" -type f -mtime +7 -exec rm -f {} + 2>/dev/null || :
     fi
     exit "$tick_rc"
+    ;;
+  compose)
+    [ "${#args[@]}" -eq 1 ] || usage
+    w=${args[0]}
+    mc_valid_handle "$w" || mc_usage_fail "invalid target '$(sanitize_printable "$w")'"
+    select_events "$w" unsubmitted || mc_fail "cannot read the events for '$w'"
+    if [ "$SEL_TOTAL" -eq 0 ]; then
+      printf 'idle\n'
+      exit 0
+    fi
+    printf 'wake\t%s\t%s\n' "$SEL_N" "$SEL_IDS"
+    wake_text "$SEL_ROWS" "$SEL_TOTAL" "$SEL_IDS" submitted "$w" || mc_fail "cannot quote the event command"
     ;;
   *) usage ;;
 esac
