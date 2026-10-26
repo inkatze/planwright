@@ -404,6 +404,49 @@ STUB
 SUITE
 expect "dead-owner: an escaped \$pid in a heredoc body is the stub's, not a use" 0 "clean" "$r"
 
+# A wait line is read one command at a time: a use after the wait on the
+# same line is a use, a wait on one PID does not hide another's, and a
+# command merely starting with "wait" is no wait.
+r=$(root_with wait-then-use)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+pid=$!
+wait; printf '%s\n' "$pid" >lock
+SUITE
+expect "dead-owner: a use after a bare wait on the same line fails" 1 "test-case.sh:4: dead-owner" "$r"
+r=$(root_with wait-other)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+p1=$!
+wait "$p1"
+sleep 0 &
+p2=$!
+wait "$p2"; printf '%s\n' "$p1" >lock
+SUITE
+expect "dead-owner: a wait on one PID does not hide a use of another" 1 "test-case.sh:7: dead-owner" "$r"
+r=$(root_with wait-prefix)
+printf '#!/bin/bash\nsleep 0 &\npid=$!\nwait2>/dev/null\nprintf "%%s\\n" "$pid" >lock\n' >"$r/tests/test-case.sh"
+expect "dead-owner: a command named wait2 is no wait" 0 "clean" "$r"
+r=$(root_with probe-brace-suffix)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+chmod 000 "${f}x"
+[ -r "$fx" ] || exit 1
+chmod 644 "${f}x"
+SUITE
+expect "mode-bit: a probe of \$fx is not a probe of \${f}x" 1 "test-case.sh:2: mode-bit" "$r"
+r=$(root_with subst-heredoc-one-line)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+out="$(cat <<'STUB'
+chmod 000 "$1"
+STUB
+)"
+SUITE
+expect "a heredoc opened on the line of a \"\$( keeps its body text" 0 "clean" "$r"
+
 # A library name holding a glob character is malformed as written, never
 # expanded to the files it would match.
 r=$(root_with glob-name sourced-read.sh)

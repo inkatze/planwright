@@ -529,8 +529,13 @@ assert "a runner without the clearing library fails the run" 1 $?
 assert_contains "the missing library is named" "could not load tests/lib/hermetic-env.sh" "$out"
 assert_contains "each file fails once, with no timing hole on top" "2 of 2 test file" "$out"
 assert_not_contains "a refused file reports no timing hole" "no timing entry" "$out"
-out="$(/bin/bash "$tmp/rt-noarm/scripts/run-tests.sh" "$tmp/pass" 2>&1)"
+out="$(PLANWRIGHT_TEST_TIMING_REPORT="$tmp/noarm-report.tsv" /bin/bash "$tmp/rt-noarm/scripts/run-tests.sh" "$tmp/pass" 2>&1)"
 assert "a pinned variable with no arm fails the run" 1 $?
+if grep -q "^file	test-alpha.sh	" "$tmp/noarm-report.tsv" 2>/dev/null; then
+  assert "a file the runner never ran has no timing row" 0 1
+else
+  assert "a file the runner never ran has no timing row" 0 0
+fi
 assert_contains "the unpinnable list is named" "could not pin the fleet home" "$out"
 assert_not_contains "a file the runner never ran is not blamed for a fleet-home write" "wrote into the fleet home" "$out"
 assert_contains "an unpinnable file fails once" "2 of 2 test file" "$out"

@@ -17,11 +17,13 @@
 #              restore) or the end of the file; where it sits relative to the
 #              assertion is not checked.
 #   dead-owner a PID captured from `$!`, reaped with `wait` (a bare `wait`
-#              reaps every capture), then used again, in code or in an
-#              unquoted heredoc body, as though it still named nobody. The
-#              host may already have handed that PID to another process.
-#              Conforming fixtures draw a PID from tests/lib/dead-owner.sh, or
-#              a token the lock library minted for a holder that has exited.
+#              reaps every capture; a line is read a command at a time, so
+#              a use after the wait on its own line counts), then used again,
+#              in code or in an unquoted heredoc body, as though it still
+#              named nobody. The host may already have handed that PID to
+#              another process. Conforming fixtures draw a PID from
+#              tests/lib/dead-owner.sh, or a token the lock library minted
+#              for a holder that has exited.
 #   unsourced  a suite that reads one of the listed configuration or root
 #              variables (tests/lib/hermetic-env.sh owns the list) without
 #              sourcing that library first, which clears them; its fleet_home
@@ -278,14 +280,28 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
   # mask(s): <s> with every quoted or escaped character replaced, quotes
   # kept and length preserved, so a command word or an operator is found only
   # where the shell would read one.
-  function mask(s,   out, i, c, q) {
-    out = ""; q = ""
+  # A $( inside double quotes reopens unquoted text until its ), as the
+  # shell reads it; st is the stack of open quotes and parentheses.
+  function mask(s,   out, i, c, st, top) {
+    out = ""; st = ""
     for (i = 1; i <= length(s); i++) {
       c = substr(s, i, 1)
-      if (q != "'"'"'" && c == "\\") { out = out "__"; i++; continue }
-      if (q == "" && (c == "'"'"'" || c == "\"")) { q = c; out = out c; continue }
-      if (q != "" && c == q) { q = ""; out = out c; continue }
-      out = out (q == "" ? c : "_")
+      top = substr(st, length(st), 1)
+      if (top == "'"'"'") {
+        if (c == "'"'"'") { st = substr(st, 1, length(st) - 1); out = out c }
+        else out = out "_"
+        continue
+      }
+      if (c == "\\") { out = out "__"; i++; continue }
+      if (top == "\"") {
+        if (c == "\"") { st = substr(st, 1, length(st) - 1); out = out c; continue }
+        if (c == "$" && substr(s, i + 1, 1) == "(") { st = st "("; out = out "$("; i++; continue }
+        out = out "_"
+        continue
+      }
+      if (c == "'"'"'" || c == "\"" || c == "(") { st = st c; out = out c; continue }
+      if (c == ")" && top == "(") st = substr(st, 1, length(st) - 1)
+      out = out c
     }
     return out
   }
@@ -328,7 +344,9 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
   function braceless(s,   out) {
     out = ""
     while (match(s, /\$\{[A-Za-z_][A-Za-z0-9_]*\}/)) {
-      out = out substr(s, 1, RSTART - 1) "$" substr(s, RSTART + 2, RLENGTH - 3)
+      # ${f}x is not $fx: a brace before a name character stays.
+      if (substr(s, RSTART + RLENGTH, 1) ~ /[A-Za-z0-9_]/) out = out substr(s, 1, RSTART + RLENGTH - 1)
+      else out = out substr(s, 1, RSTART - 1) "$" substr(s, RSTART + 2, RLENGTH - 3)
       s = substr(s, RSTART + RLENGTH)
     }
     return out s
@@ -343,7 +361,7 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
     }
     return 0
   }
-  function scan(path,   line, prev, body, delim, heredoc, heredoc_dash, quoted, n, r, pre, dash, v, k, m, mc, e, sourced, is_lib, re_v, instr, s, off, u, len, bare, waits) {
+  function scan(path,   line, prev, body, delim, heredoc, heredoc_dash, quoted, n, r, pre, dash, v, k, m, mc, e, sourced, is_lib, re_v, instr, s, off, u, len) {
     heredoc = ""; heredoc_dash = 0; quoted = 0; n = 0; prev = ""
     sourced = 0; nreads = 0
     split("", readln); split("", readvar)
@@ -364,7 +382,7 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
         # is a read; a quoted body is text handed to something else.
         if (!quoted && !is_lib && line ~ namere && !exempt(line, prev)) note_read(expanded(line, 1), n)
         # An unquoted body also expands a reaped PID into what it writes.
-        if (!quoted) dead_use(expanded(line, 1), n, prev)
+        if (!quoted) dead_use(expanded(line, 1), n, prev, line)
         prev = line
         continue
       }
@@ -430,20 +448,8 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
         sub(/^([;&{]|[ \t;]?(then|do|else)[ \t])?[ \t]*((local|declare|readonly|export|typeset)[ \t]+(-[A-Za-z]+[ \t]+)?)?/, "", v); sub(/="?\$!$/, "", v)
         spawned[v] = 1; reaped[v] = 0
       } else {
-        # A wait line reaps; it is never itself a use of what it reaps.
-        bare = (index(line, "wait") && mc ~ /(^|[;&|( \t])wait[ \t]*($|[;&|)]|[0-9]*[<>])/)
-        waits = (index(line, "wait") && mc ~ /(^|[;&|( \t])wait[ \t]/)
-        if (bare) {
-          for (v in spawned) if (!reaped[v]) reaped[v] = n
-        }
-        if (waits) {
-          for (v in spawned) {
-            if (!index(line, v)) continue
-            re_v = "\\$\\{?" v "([^A-Za-z0-9_]|$)"
-            if (line ~ re_v) reaped[v] = n
-          }
-        }
-        if (!bare && !waits) dead_use(line, n, prev)
+        if (index(line, "wait")) wait_line(line, mc, n, prev)
+        else dead_use(line, n, prev, line)
       }
 
       # A heredoc opens only at a << the shell reads as one: not a here-string
@@ -476,13 +482,43 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
     }
   }
   # dead_use(line, n, prev): report a use of a captured PID after its wait.
-  function dead_use(line, n, prev,   v, re_v) {
+  # dead_use(text, n, prev, whole): report a use in <text> of a captured PID
+  # after its wait; <whole> is the line an exclusion marker is read from.
+  function dead_use(text, n, prev, whole,   v, re_v) {
     for (v in spawned) {
-      if (!reaped[v] || !index(line, v)) continue
+      if (!reaped[v] || !index(text, v)) continue
       re_v = "\\$\\{?" v "([^A-Za-z0-9_]|$)"
-      if (line !~ re_v || line ~ /^[ \t]*(kill|wait)[ \t]/) continue
-      if (!exempt(line, prev)) report(path_now, n, "dead-owner", "uses $" v " after line " reaped[v] " reaped it")
+      if (text !~ re_v || text ~ /^[ \t]*(kill|wait)[ \t]/) continue
+      if (!exempt(whole, prev)) report(path_now, n, "dead-owner", "uses $" v " after line " reaped[v] " reaped it")
       delete spawned[v]; delete reaped[v]
+    }
+  }
+  # wait_line(line, mc, n, prev): walk a line holding a wait one command at a
+  # time, split where the masked code <mc> has ; & or |, in order: a wait
+  # reaps (a bare one, redirections aside, every capture; one with operands
+  # the captures it names), a kill is no use, and any other command is
+  # checked for a use of what an earlier command reaped.
+  function wait_line(line, mc, n, prev,   whole, k, len, seg, cseg, after, v, re_v) {
+    whole = line
+    while (mc != "") {
+      if (match(mc, /[;&|]+/)) { k = RSTART; len = RLENGTH }
+      else { k = length(mc) + 1; len = 0 }
+      cseg = substr(mc, 1, k - 1); seg = substr(line, 1, k - 1)
+      mc = substr(mc, k + len); line = substr(line, k + len)
+      if (cseg ~ /^[ \t{(!]*((if|then|do|else|elif|while|until)[ \t]+)*wait([ \t<>)}]|$)/) {
+        after = cseg
+        sub(/^[ \t{(!]*((if|then|do|else|elif|while|until)[ \t]+)*wait/, "", after)
+        if (after ~ /^[ \t]*([0-9]*[<>][^ \t]*[ \t]*)*[)}]*[ \t]*$/) {
+          for (v in spawned) if (!reaped[v]) reaped[v] = n
+        } else {
+          for (v in spawned) {
+            re_v = "\\$\\{?" v "([^A-Za-z0-9_]|$)"
+            if (index(seg, v) && seg ~ re_v) reaped[v] = n
+          }
+        }
+      } else if (cseg !~ /^[ \t{(!]*kill([ \t]|$)/) {
+        dead_use(seg, n, prev, whole)
+      }
     }
   }
   BEGIN {
