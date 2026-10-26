@@ -458,7 +458,8 @@ graduated scope (`venture` when untracked, else the track label):
 A location is venture-relative inside the venture, else `<repo>:<path>`.
 `pending` gives way to the spec's location once that spec's `## Sources`
 cites the lineage key the seed carries, `inception:<venture-id>[/<label>]`.
-Either direction missing is a lineage finding.
+Either direction missing is a lineage finding; a `pending` spec is not, since
+no spec exists yet to cite the key.
 
 ## Format-version rules
 
