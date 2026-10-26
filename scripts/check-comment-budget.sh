@@ -230,8 +230,11 @@ require_git() {
 list_tracked() {
   require_git
   git -C "$root" -c core.quotepath=off ls-files -s >"$work/ls" || die "git ls-files failed; failing closed"
-  # A path mid-merge is listed once per conflict stage.
-  sed 's/ .*	/	/' "$work/ls" | awk '!seen[$0]++' | surface_names >"$work/names"
+  # A path mid-merge is listed once per conflict stage, each with its own mode.
+  sed 's/ .*	/	/' "$work/ls" >"$work/staged" || die "reading the git listing failed; failing closed"
+  awk -F '	' '!seen[substr($0, length($1) + 2)]++' "$work/staged" >"$work/unique" \
+    || die "reading the git listing failed; failing closed"
+  surface_names <"$work/unique" >"$work/names" || die "filtering the surface failed; failing closed"
   keep_files "$root" "$1" <"$work/names"
 }
 
@@ -263,7 +266,9 @@ code_invariant() {
   case $ref in
     "" | -*) die "--code-invariant needs a ref that does not start with -" ;;
   esac
-  [ "$(clean "$ref")" = "$ref" ] || die "the ref carries a control byte"
+  case $ref in
+    *[[:cntrl:]]*) die "the ref carries a control byte" ;;
+  esac
   require_git
   # git diff names paths from the top level, so a deeper root would match nothing.
   [ "$(git -C "$root" rev-parse --show-toplevel)" = "$root" ] || die "--code-invariant needs --root at the repository's top level"
@@ -335,13 +340,16 @@ elif [ "$scoped" -eq 1 ]; then
   list_tracked "$work/tracked"
   : >"$work/args"
   for sp in "$@"; do
-    [ "$(clean "$sp")" = "$sp" ] || die "path $(clean "$sp") carries a control byte; failing closed"
+    case $sp in
+      *[[:cntrl:]]*) die "path $(clean "$sp") carries a control byte; failing closed" ;;
+    esac
     case $sp in
       /* | ../* | */../* | .. | */..) die "path $(clean "$sp") leaves the root; failing closed" ;;
     esac
     printf '%s\n' "${sp#./}" >>"$work/args"
   done
-  awk 'NR == FNR { tracked[$0] = 1; next } ($0 in tracked) && !seen[$0]++' "$work/tracked" "$work/args" >"$list"
+  awk 'NR == FNR { tracked[$0] = 1; next } ($0 in tracked) && !seen[$0]++' "$work/tracked" "$work/args" >"$list" \
+    || die "filtering the given paths failed; failing closed"
   [ -s "$list" ] || {
     printf '%s: no surface file among the given paths.\n' "$me"
     exit 0

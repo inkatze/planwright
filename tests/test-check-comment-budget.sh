@@ -417,13 +417,15 @@ track "$r"
 git -C "$r" commit -qm base
 git -C "$r" checkout -q -b one
 printf 'y\n' >"$r/scripts/c.sh"
+chmod 755 "$r/scripts/c.sh"
 git -C "$r" commit -qam one
 git -C "$r" checkout -q -
 printf 'z\n' >"$r/scripts/c.sh"
 git -C "$r" commit -qam two
 git -C "$r" merge -q one >/dev/null 2>&1
+if [ -n "$(git -C "$r" ls-files -u)" ]; then ok "the fixture is mid-merge"; else fail "the fixture merge did not conflict"; fi
 run "$r"
-assert_out "each conflict stage does not count as another file" "2 file(s) measured"
+assert_out "each conflict stage, whatever its mode, does not count as another file" "2 file(s) measured"
 
 echo "## pre-commit scoping"
 r="$TMP/scoped"
@@ -439,6 +441,11 @@ run "$r" scripts/big.sh
 assert_exit "a staged path over the error threshold fails" 1 $?
 run "$r" README.md
 assert_exit "no surface path among the staged ones passes" 0 $?
+utf=$(printf 'scripts/a\342\200\224b.sh')
+mkscript "$r/$utf" 3
+track "$r"
+run "$r" "$utf"
+assert_exit "a staged path with a multibyte character is measured, not refused" 0 $?
 mkscript "$r/scripts/mid.sh" 15
 track "$r"
 printf 'pending-cleanup|scripts/big.sh|Task 8|over\nexempt|scripts/mid.sh|own surface\n' >"$r/config/comment-budget-exemptions.txt"
@@ -517,7 +524,7 @@ if grep -q '^\[tasks."check:comment-budget"\]$' "$REPO_ROOT/mise.toml" \
 else
   fail "check:comment-budget is not wired into the check aggregate in mise.toml"
 fi
-awk '/- name: comment-budget/ { on = 1 } on' "$REPO_ROOT/lefthook.yml" >"$TMP/job"
+awk '/- name: comment-budget/ { on = 1; print; next } on && /- name:/ { exit } on' "$REPO_ROOT/lefthook.yml" >"$TMP/job"
 if grep -qF 'run: /bin/sh scripts/check-comment-budget.sh {staged_files}' "$TMP/job"; then
   ok "the pre-commit job passes the staged paths"
 else
