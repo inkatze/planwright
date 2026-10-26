@@ -79,7 +79,9 @@ trap 'rm -rf "$scratch"' EXIT
 # scan rather than narrowing it.
 collect() {
   cl_dir=$(cd -- "$1" && pwd) || die "cannot enter $1"
-  # The list is one path per line, so a name carrying a newline would split.
+  # The list is one path per line, so a newline in the root or in any name
+  # under it would split a path.
+  case $cl_dir in *"$NL"*) die "the path of $1 carries a newline" ;; esac
   (cd -- "$cl_dir" && find . -name "*$NL*" -print) >"$3.nl" || die "cannot list every file under $1"
   [ ! -s "$3.nl" ] || die "a file name under $1 carries a newline"
   if [ "$2" = yes ]; then

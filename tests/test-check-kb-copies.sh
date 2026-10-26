@@ -154,6 +154,18 @@ run --kb "$tmp/kb" --specs "$tmp/specs"
 if [ "$RC" -eq 2 ]; then ok "a file name carrying a newline fails closed"; else fail "a newline file name exited $RC"; fi
 rm -f "$tmp/kb/new
 line.md"
+mkdir -p "$tmp/split
+root/duty"
+printf '%s\n' "# Notes" >"$tmp/split
+root/duty/n.md"
+run --kb "$tmp/split
+root" --specs "$tmp/specs"
+case $RC:$ERR in
+  2:*"carries a newline"*) ok "a scan root whose own path carries a newline fails closed, by name" ;;
+  *) fail "a newline in the root exited $RC: $ERR" ;;
+esac
+rm -rf "$tmp/split
+root"
 run --help
 case $RC:$OUT in
   0:*"at least 60 characters"*) ok "--help prints the rule with its threshold" ;;
