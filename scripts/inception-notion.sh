@@ -141,16 +141,20 @@ parse_blocks() {
 }
 
 # next_cursor <payload> — the next page's cursor, or nothing on the last page;
-# status 1 when more pages follow but the cursor fails its grammar, since
-# stopping there would report a partial read as complete.
+# status 1 when the payload is not a list page, or more pages follow but the
+# cursor fails its grammar, since stopping there would report a partial read
+# as complete.
 next_cursor() {
+  # A success that is not a list page would otherwise read as an empty last
+  # page, and the walk would report complete.
+  jq -e '(.results | type == "array") and (.has_more | type == "boolean")' "$1" >/dev/null 2>&1 || return 1
   [ "$(jq -r '.has_more == true' "$1")" = true ] || return 0
   _nc=$(jq -r '.next_cursor // "" | strings' "$1" | awk '/^[A-Za-z0-9-]+$/ { print; exit }')
   [ -n "$_nc" ] || return 1
   printf '%s\n' "$_nc"
 }
 
-NO_CURSOR="Notion said more results follow but gave no usable cursor; the harvest stops rather than report a partial read as complete"
+NO_CURSOR="Notion answered with something other than a list page, or said more results follow but gave no usable cursor; the harvest stops rather than report a partial read as complete"
 
 # --- arguments ---------------------------------------------------------------
 

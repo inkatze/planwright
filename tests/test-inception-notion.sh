@@ -213,6 +213,20 @@ assert_contains "unusable cursor: says why" "cursor" "$(cat "$tmp/err")"
 assert_not_contains "unusable cursor: no summary is printed" "summary	" "$out"
 assert_not_contains "unusable cursor: it reaches no URL" "evil" "$(cat "$tmp/logbc/argv")"
 
+# A success response that is not a list page (no results array, no has_more)
+# would otherwise read as an empty last page and report the walk complete.
+printf '%s\n' '{}' >"$tmp/not-a-list.json"
+printf 'GET /v1/comments?block_id=%s&page_size=100 not-a-list.json 200\nGET /v1/blocks/%s/children?page_size=100 blocks-empty.json 200\n' "$PAGE" "$PAGE" >"$tmp/routesnl"
+notion_fake_install "$tmp/binnl" "$tmp" "$tmp/routesnl" "$tmp/lognl" || exit 1
+out="$(PATH="$tmp/binnl:$PATH" "$NOTION" harvest "$v" 2>"$tmp/err")"
+assert_eq "not a list page: the harvest fails" "1" "$?"
+assert_not_contains "not a list page: no summary is printed" "summary	" "$out"
+printf 'GET /v1/comments?block_id=%s&page_size=100 comments-empty.json 200\nGET /v1/blocks/%s/children?page_size=100 not-a-list.json 200\n' "$PAGE" "$PAGE" >"$tmp/routesnl2"
+notion_fake_install "$tmp/binnl2" "$tmp" "$tmp/routesnl2" "$tmp/lognl2" || exit 1
+out="$(PATH="$tmp/binnl2:$PATH" "$NOTION" harvest "$v" 2>"$tmp/err")"
+assert_eq "not a list page of blocks: the harvest fails" "1" "$?"
+assert_not_contains "not a list page of blocks: no summary is printed" "summary	" "$out"
+
 # 401 and 404 name their plain causes.
 printf '%s\n' '{"object":"error","status":401,"code":"unauthorized"}' >"$tmp/error-401.json"
 printf '%s\n' '{"object":"error","status":404,"code":"object_not_found"}' >"$tmp/error-404.json"
