@@ -141,6 +141,18 @@ expect_rc "an adapter id starting with bad passes the check" 0
 mc_run mc-snapshot.sh refresh --program alpha --source badger --now 1000
 expect_out "and is refreshed" "refreshed${tab}badger"
 
+# The adapters listing: each valid merged entry, and each invalid one named.
+setup
+printf '  - id: broken\n    script: scripts/tracker-adapter.sh\n    cadence: 10m\n' \
+  >>"$repo/.claude/catalogs/snapshot-adapters.yaml"
+mc_run mc-snapshot.sh adapters
+expect_rc "adapters lists the merged catalog" 0
+expect_out "a core entry is listed" "forge${tab}scripts/mc-adapter-forge.sh${tab}5m"
+expect_out "an overlay entry is listed" "tracker${tab}scripts/tracker-adapter.sh${tab}"
+expect_out "an invalid entry is listed as bad, named" "bad${tab}broken${tab}summary: missing"
+mc_run mc-snapshot.sh adapters --program alpha
+expect_rc "adapters takes no program" 2
+
 # ---------------------------------------------------------------------------
 # Patch ids with no id to compute, and a diff read refused for the rate
 # limit.
