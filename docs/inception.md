@@ -130,15 +130,17 @@ from it.
   if the venture wants the stricter posture.
 - **A review cycle on a surface stakeholders already use.**
   `scripts/inception-review-cycle.sh` exports a snapshot of the committed
-  bundle to a review surface, harvests the comments left there into the
+  bundle to a review surface, harvests the open comments left there into the
   tracked `feedback/ledger.md` as quoted, untrusted data, and applies only the
   items you triage, each as a commit confined to one bundle section and citing
   its source. Nothing a stakeholder edits on the copy comes back. Every export
   needs your confirmation, and the next one waits until the last is harvested
   in full and every item is triaged. The reference adapter is Notion
-  (`scripts/inception-notion.sh`); its destination page and token are
-  machine-local (below). The contract, including the Notion integration's
-  required capabilities, is [review-seam](../doctrine/review-seam.md).
+  (`scripts/inception-notion.sh`): it reads only unresolved comments, and the
+  destination page must have no child pages, since an export replaces the
+  page's whole content. Its destination page and token are machine-local
+  (below). The contract, including the Notion integration's required
+  capabilities, is [review-seam](../doctrine/review-seam.md).
 
 ## The persona layer and its boundaries
 
