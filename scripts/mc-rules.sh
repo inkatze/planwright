@@ -34,7 +34,8 @@
 #       the active rules in scope as a markdown block between marker lines,
 #       the shape a launched session's brief embeds; program rules are in
 #       every scope, `--scope program` renders them alone, and no --scope
-#       renders every rule
+#       renders every rule; a --scope is checked for its shape only, so one
+#       no entry carries renders the program rules alone
 #   mc-rules.sh load <program>       the bring-up load: render with no scope
 #   mc-rules.sh conflicts <program>  the shared-subject report
 #   mc-rules.sh selfcheck <program> --digest <hex> --held <file>
