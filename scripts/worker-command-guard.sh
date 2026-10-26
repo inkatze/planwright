@@ -5039,7 +5039,9 @@ verify_known_simple() {
           ;;
       esac
     fi
-    classify_redirect "${ro[i]}" "$rtw" || spec_zone_redirect "${ro[i]}" "$rtw" \
+    # The spec-root zone keeps its plain-literal rule: only the policy arms
+    # read the expanded target.
+    classify_redirect "${ro[i]}" "${rt[i]}" || spec_zone_redirect "${ro[i]}" "${rt[i]}" \
       || ob_redirect "${ro[i]}" "$rtw" || return 1
     environ_redirect_ok "$rtw" || return 1
   done

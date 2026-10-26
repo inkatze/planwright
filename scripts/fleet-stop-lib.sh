@@ -45,6 +45,8 @@
 # read reports the process class held, and a self-hosting check that cannot
 # answer refuses the close.
 
+unset CDPATH
+
 # The settling wait after SIGKILL, in seconds. Not operator-tunable: SIGKILL is
 # not refusable, so this bounds how long the kernel takes to reap, not how long
 # a process is given to cooperate.
