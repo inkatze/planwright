@@ -19,7 +19,8 @@
 # changed. On stdout it may print
 #   ratelimit<TAB><remaining><TAB><reset-epoch>
 # and the seam holds the source's next read until <reset-epoch> when
-# <remaining> is at or under mission_control_ratelimit_floor. Exit 0: the
+# <remaining> is at or under mission_control_ratelimit_floor, whatever the
+# adapter's exit, since a failed read spent headroom too. Exit 0: the
 # body is the new snapshot. Exit 75: the source refused the read for its rate
 # limit; nothing is replaced, and with no reset at or under the floor the
 # hold lasts the source's cadence. Any other exit: the read failed, the last snapshot stays

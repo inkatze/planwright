@@ -182,6 +182,12 @@ TRACKER_RL="0${tab}500" TRACKER_EXIT=75 mc_run mc-snapshot.sh refresh --program 
 expect_out "a reset already past is ignored: the hold is the cadence" "held${tab}tracker${tab}1600"
 
 setup
+TRACKER_RL="0${tab}2500" TRACKER_EXIT=1 mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1000
+expect_out "a failed read is reported failed" "failed${tab}tracker${tab}1"
+mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1100
+expect_out "and its exhausted headroom still holds the next read" "held${tab}tracker${tab}2500"
+
+setup
 printf '99999999999\n' >"$tmp/hold"
 mkdir -p "$fleet/mission-control/alpha/snapshots"
 cp "$tmp/hold" "$fleet/mission-control/alpha/snapshots/tracker.hold"
