@@ -57,6 +57,9 @@
 #   scripts/inception-review-cycle.sh  the same bundle lock, so a review
 #                          step's ledger rewrite or applied change cannot
 #                          interleave with another writer
+#   scripts/mc-rules.sh    a mission-control program's rule store, so
+#                          concurrent writers each land their entry under
+#                          a distinct id
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is
