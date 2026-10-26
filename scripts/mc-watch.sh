@@ -58,8 +58,9 @@
 #       hold the runner lock and make a pass every
 #       mission_control_runner_interval until killed; --once makes one pass
 #       and exits with its status. A failed pass is reported and retried at
-#       the next interval. A TERM ends the runner at once while it sleeps,
-#       and once the pass in flight finishes otherwise.
+#       the next interval. A TERM to the runner's pid ends it at once while
+#       it sleeps, and once the pass in flight finishes otherwise; a signal
+#       to its whole process group stops the pass where it is.
 #   mc-watch.sh status --program <p> [--now <epoch>]
 #       watcher<TAB><duty><TAB><script><TAB><cadence><TAB><cost><TAB>running|stopped|unverified
 #         <TAB><seconds since the last run|-><TAB><seconds until the next|->
@@ -327,9 +328,13 @@ EOF
 runner_child=""
 runner_sleeping=0
 # runner_exit <status>: a sleep is cut short; a pass in flight finishes first,
-# so nothing it started runs on once the lock is released. A pass has no
-# deadline of its own, so one stuck in a hung adapter needs a KILL, which
-# leaves that pass running without the lock.
+# so nothing it started runs on once the lock is released. That holds for a
+# signal sent to the runner's pid. One sent to its whole process group (a
+# closed terminal, timeout(1), a service manager) also reaches the pass,
+# which stops where it is: its subshell cannot ignore the signal, since the
+# watcher loops it starts would inherit that and could then never be
+# stopped. A pass has no deadline of its own, so one stuck in a hung adapter
+# needs a KILL, which leaves that pass running without the lock.
 runner_exit() {
   # A second signal must not cut the wait short.
   trap '' TERM INT HUP

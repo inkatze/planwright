@@ -342,11 +342,12 @@ check "a loop whose state directory is gone exits" poll_until --what "the orphan
 # A TERM to a pass lets it finish and then frees the lock, whatever loops it
 # armed.
 setup '[alpha-duty]'
-mc_env /bin/bash "$repo_root/scripts/mc-watch.sh" pass --program alpha >/dev/null 2>&1 &
+mc_env /bin/bash "$repo_root/scripts/mc-watch.sh" pass --program alpha >"$tmp/term-pass.out" 2>&1 &
 pass_pid=$!
 check "a pass arms a watcher" poll_until --what "an armed record" -- sh -c "ls '$wdir'/*.rec >/dev/null 2>&1"
 kill "$pass_pid" 2>/dev/null
 check "a pass signalled after arming still ends" poll_until --what "the pass's exit" -- pid_gone "$pass_pid"
+check "and finishes its steps first" grep -q "^wake${tab}" "$tmp/term-pass.out"
 mc_run mc-watch.sh pass --program alpha
 expect_no_out "and leaves the runner lock free" "busy"
 
