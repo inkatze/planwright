@@ -589,6 +589,31 @@ expect "a long line of substitutions beside a wait-like word is scanned" 0 "clea
 if [ $((SECONDS - started)) -gt 20 ]; then
   fail "the long substitution line took $((SECONDS - started))s to scan"
 fi
+# A run of parenthesised words before a wait the pattern then rejects is the
+# shape an ambiguous token would backtrack on; timeout, where the host has
+# it, turns such a hang into a failure.
+r=$(root_with long-paren-line)
+{
+  printf '#!/bin/bash\nsleep 0 &\npid=$!\n'
+  i=0
+  while [ "$i" -lt 40 ]; do
+    printf ' (a)'
+    i=$((i + 1))
+  done
+  printf ' x wait\n'
+} >"$r/tests/test-case.sh"
+started=$SECONDS
+if command -v timeout >/dev/null 2>&1; then
+  out=$(timeout 60 /bin/bash "$CHECKER" "$r" 2>&1)
+else
+  out=$(/bin/bash "$CHECKER" "$r" 2>&1)
+fi
+rc=$?
+if [ "$rc" -eq 0 ] && [ $((SECONDS - started)) -le 20 ]; then
+  pass "a long run of parenthesised words before a wait is scanned at once"
+else
+  fail "the parenthesised line took $((SECONDS - started))s (exit $rc): $out"
+fi
 
 # A library name holding a glob character is malformed as written, never
 # expanded to the files it would match.
