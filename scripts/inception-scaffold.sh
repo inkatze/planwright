@@ -41,9 +41,11 @@
 #
 # Output: one `wrote <path>` or `kept <path>` line per scaffold file
 #   (`updated CLAUDE.md` when the import is appended to an existing one), then
-#   a one-line rung summary. A CLAUDE.md the scaffold will not write (a
-#   symbolic link, not a regular file, not readable, or an append that fails)
-#   gets a warning on stderr instead of a line.
+#   a one-line rung summary. A scaffold file that is a symbolic link or sits
+#   under one is not written, --force included, and a CLAUDE.md the scaffold
+#   will not write (a symbolic link, not a regular file, not readable, or an
+#   append that fails) is not either: each gets a warning on stderr instead of
+#   a line, the rest are still written, and the exit stays 0.
 #
 # Exit: 0 emitted · 2 usage or environment error.
 #
