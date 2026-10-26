@@ -1,0 +1,1 @@
+match ^step-record\.sh: --worktree: not given and not inside a git work tree$

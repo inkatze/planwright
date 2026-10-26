@@ -1,0 +1,1 @@
+match ^check-memory-links: not a bundle directory: --entry-point-probe$

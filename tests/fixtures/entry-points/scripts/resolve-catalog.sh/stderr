@@ -1,0 +1,1 @@
+match ^resolve-catalog: unknown option '--entry-point-probe'$

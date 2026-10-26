@@ -1,0 +1,1 @@
+match ^usage: fleet-dispatch-env\.sh <cmd> \[args\.\.\.\]           \(exec <cmd> with the hardened dispatch env\)$
