@@ -476,7 +476,7 @@ the list lacked; the annotation moved below the task's fields.)*
 
 ## Awaiting input
 
-(none yet)
+- **Task 8** — pending ready-flip: ready-guard failed on a606c53e3b12
 
 ## Deferred
 
