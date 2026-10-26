@@ -95,6 +95,9 @@ assert_contains "the annotator's call runs in safe mode" "--safe-mode" "$argv"
 assert_contains "the annotator's call keeps no raw text on disk" "--no-session-persistence" "$argv"
 assert_contains "the prompt offers every class but declined" "spec-conflict:" "$argv"
 assert_lacks "the prompt never offers declined as a class" "  declined:" "$argv"
+for r in host-dependent guard-bypass procedure-order; do
+  assert_contains "the prompt offers the audit category class $r" "  $r: " "$argv"
+done
 export STUB_REPLY='{"is_error":true,"result":"API Error"}'
 printf '%s\n' "$req" | "$ANNOTATE" >/dev/null 2>&1
 assert_exit "an annotator error result is a failure" 1 $?
