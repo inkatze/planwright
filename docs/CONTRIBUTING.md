@@ -123,8 +123,9 @@ mise run check      # the full local equivalent of the CI gate
   runner (`check:guard-wiring`), and every `check:`/`lint:`/`scan:` task must
   be reachable from the aggregate (`check:task-registration`), so a guard task
   can never exist only in CI logs;
-- the instruction-budget guard over skills and doctrine, and the advisory
-  emit-sidedness report.
+- the instruction-budget guard over skills and doctrine, the comment-block
+  budget guard over the comments in shell, config YAML, root tool config and
+  workflow files, and the advisory emit-sidedness report.
 
 The `check` task's `depends` list in `mise.toml`, with the `check:non-test`
 aggregate it names, is the authoritative inventory; the two registration
@@ -356,10 +357,25 @@ recorded before the 2026-07-26 header-`**Status:**` exclusion (or with the
 interim whole-file form) mismatches over content nobody edited and takes the
 one-time self-re-anchor described in `doctrine/spec-format.md`.
 
+### The comment-budget mirror at commit time
+
+`scripts/check-comment-budget.sh` runs as a second `pre-commit` job through
+the same wiring, measuring only the staged files of its surface. It has the
+same posture as the anchor-freshness mirror: best-effort, reading the working
+tree rather than the staged index, with `mise run check` in CI as the
+normative gate. The rule it enforces is
+[comment-hygiene](../doctrine/comment-hygiene.md).
+
 ### Commit and PR conventions
 
 - **Conventional commits** (`type(scope): subject`) — enforced on commits ahead
   of `origin/main` and on the PR title.
+- **A `comments` scope declares a comment-only PR** (`type(comments):
+  subject`). CI then requires every code line of the comment-budget guard's
+  surface files to match the base (`check-comment-budget.sh
+  --code-invariant`). CI reads the title when it runs but does not run again
+  on a title edit, so after retitling a PR into or out of that scope, push or
+  re-run its checks.
 - **Pushed history is append-only**, outside the operator-requested
   force-push and secret-purge gates
   ([the floor](../doctrine/human-gates.md#the-floor)). Rewriting `main`, a
