@@ -26,7 +26,8 @@
 #       the fleet home is per machine, keyed by spec and task id alone.
 #       The fleet home and every directory below it on the path are created
 #       owner-only and must be private to the user and never a symlink; the
-#       brief lands owner-only by rename, replacing whatever sat at its name.
+#       brief lands owner-only by rename, replacing a file or link at its name
+#       (a directory there is refused, exit 4).
 #   fleet-task-brief.sh retire [--repo-root <dir>]
 #       Remove the brief directory of each of this checkout's task units
 #       whose worktree (`<repo>/.claude/worktrees/<spec>-task-<id>`) is gone,
