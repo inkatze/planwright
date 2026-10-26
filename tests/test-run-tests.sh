@@ -513,6 +513,26 @@ out="$(PLANWRIGHT_ROOT=/decoy /bin/bash "$RUNNER" "$tmp/unpinned" 2>&1)"
 assert "without the switch the same file sees the pinned values" 1 $?
 unset PLANWRIGHT_FLEET_STATE_DIR CLAUDE_PLUGIN_DATA
 
+# 22. A runner that cannot load the clearing library, or cannot pin a listed
+#     variable, runs nothing and fails the file once, never against whatever
+#     the caller exported.
+mkdir -p "$tmp/rt-nolib/scripts" "$tmp/rt-noarm/scripts" "$tmp/rt-noarm/tests/lib"
+cp "$RUNNER" "$tmp/rt-nolib/scripts/run-tests.sh"
+cp "$RUNNER" "$tmp/rt-noarm/scripts/run-tests.sh"
+{
+  cat "$REPO_ROOT/tests/lib/hermetic-env.sh"
+  # shellcheck disable=SC2016 # the line is for the generated library
+  printf '%s\n' 'hermetic_env_pinned="$hermetic_env_pinned NO_ARM_VAR"'
+} >"$tmp/rt-noarm/tests/lib/hermetic-env.sh"
+out="$(/bin/bash "$tmp/rt-nolib/scripts/run-tests.sh" "$tmp/pass" 2>&1)"
+assert "a runner without the clearing library fails the run" 1 $?
+assert_contains "the missing library is named" "could not load tests/lib/hermetic-env.sh" "$out"
+assert_contains "each file fails once, with no timing hole on top" "2 of 2 test file" "$out"
+assert_not_contains "a refused file reports no timing hole" "no timing entry" "$out"
+out="$(/bin/bash "$tmp/rt-noarm/scripts/run-tests.sh" "$tmp/pass" 2>&1)"
+assert "a pinned variable with no arm fails the run" 1 $?
+assert_contains "the unpinnable list is named" "could not pin the fleet home" "$out"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

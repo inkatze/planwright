@@ -96,6 +96,28 @@ else
   pass "an unresolved inherited home is never a leak"
 fi
 
+# 4b. The library finds fleet-state.sh from where it was sourced, even when it
+#     was sourced by a relative path and the suite has since changed directory.
+# shellcheck disable=SC2016
+if (cd "$here/.." && env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR PLANWRIGHT_FLEET_STATE_DIR="$tmp/op" \
+  /bin/bash -c '. tests/lib/hermetic-env.sh; cd /; fleet_home_leaked "$1"' _ "$tmp/suite-root"); then
+  pass "a relative source still reads the inherited registry after a cd"
+else
+  fail "a relative source lost the inherited registry after a cd"
+fi
+
+# 4c. A leak check that cannot run (here: sourced outside bash, so the
+#     library cannot find fleet-state.sh) reports a leak, never a clean home.
+# shellcheck disable=SC2016
+if out=$(PLANWRIGHT_FLEET_STATE_DIR="$tmp/op" /bin/sh -c '. "$1/lib/hermetic-env.sh"; fleet_home_leaked "$2"' _ "$here" "$tmp/nothing-here" 2>&1); then
+  case $out in
+    *"rather than a check that never ran"*) pass "a leak check that cannot run reports a leak and says why" ;;
+    *) fail "a leak check that cannot run gave no reason: $out" ;;
+  esac
+else
+  fail "a leak check that cannot run read as a clean home"
+fi
+
 # 5. Sourcing clears every cleared variable and leaves the pinned ones; a
 #    deferred source clears nothing.
 # shellcheck disable=SC2016
@@ -172,6 +194,29 @@ else
   pass "a write under any sentinel arm is detected and an untouched home is not"
 fi
 
+# 7b. Every pinned variable has an arm, and a pinned name without one fails
+#     the pin and reads as written, so the runner never runs a file against
+#     the inherited home on a list it cannot pin.
+# shellcheck disable=SC2016
+if /bin/bash -c '. "$1/lib/hermetic-env.sh"; hermetic_env_sentinel "$2/arms"' _ "$here" "$tmp"; then
+  pass "every pinned variable has a sentinel arm"
+else
+  fail "a pinned variable in the list has no sentinel arm"
+fi
+# shellcheck disable=SC2016
+if /bin/bash -c '. "$1/lib/hermetic-env.sh"; hermetic_env_pinned="$hermetic_env_pinned NO_ARM_VAR"; hermetic_env_sentinel "$2/noarm"' _ "$here" "$tmp"; then
+  fail "a pinned name with no arm pinned cleanly"
+else
+  pass "a pinned name with no arm fails the pin"
+fi
+mkdir -p "$tmp/noarm-written"
+# shellcheck disable=SC2016
+if /bin/bash -c '. "$1/lib/hermetic-env.sh"; hermetic_env_pinned="NO_ARM_VAR $hermetic_env_pinned"; hermetic_env_sentinel_written "$2"' _ "$here" "$tmp/noarm-written"; then
+  pass "a pinned name with no arm reads as written"
+else
+  fail "a pinned name with no arm read as an untouched home"
+fi
+
 # 8. The access probe: a readable file is not denied, a missing one is, and an
 #    unknown access kind is a usage error.
 # shellcheck source=tests/lib/hermetic-env.sh
@@ -194,6 +239,21 @@ if [ "$rc" -eq 2 ]; then
 else
   fail "an unknown access kind returned $rc"
 fi
+
+# 8b. A real mode-bit denial is denied, read and write alike, wherever the
+#     running user honours the mode; elsewhere the case skips by name.
+printf 'x\n' >"$tmp/locked"
+chmod 000 "$tmp/locked"
+if hermetic_access_denied r "$tmp/locked"; then
+  if hermetic_access_denied w "$tmp/locked"; then
+    pass "a mode-000 file is denied for read and write"
+  else
+    fail "a mode-000 file the user cannot read was writable"
+  fi
+else
+  echo "skip: mode-000 denial case: the running user reads mode 000"
+fi
+chmod 644 "$tmp/locked"
 
 # 9. dead_owner_pid names no process and sits above the host's pid_max.
 # shellcheck source=tests/lib/dead-owner.sh

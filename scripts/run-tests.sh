@@ -240,6 +240,7 @@ if [ "${1:-}" = "--run-one" ]; then
   if ! _hermetic_env_defer=1 . "${0%/*}/../tests/lib/hermetic-env.sh"; then
     printf '%s\n' "run-tests: could not load tests/lib/hermetic-env.sh; $name not run" \
       >"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+    : >"$PLANWRIGHT_TEST_LOG_DIR/$name.norun"
     : >"$PLANWRIGHT_TEST_LOG_DIR/$name.fail"
     echo "FAIL: $name (log printed at end)" >&2
     exit 0
@@ -285,20 +286,25 @@ if [ "${1:-}" = "--run-one" ]; then
   #
   # The cleared variables are unset for the same reason: a root or overlay
   # path inherited from the caller would decide what the file reads. Turning
-  # the pinning off hands the caller's values through untouched, sentinel
-  # check included, so the perturbed run's decoys reach the suites.
+  # the pinning off hands the caller's values through untouched and skips the
+  # sentinel check, so the perturbed run's decoys reach the suites.
   fleet_sentinel="$PLANWRIGHT_TEST_LOG_DIR/$name.fleet"
   pin_env=1
   [ "${PLANWRIGHT_TEST_PIN_ENV:-1}" != 0 ] || pin_env=0
   # The switch is this run's alone: a suite that drives a nested runner must
   # get its default pinning, not the outer run's opt-out.
   unset PLANWRIGHT_TEST_PIN_ENV
+  pin_failed=0
   if [ "$pin_env" -eq 1 ]; then
     hermetic_env_clear
-    hermetic_env_sentinel "$fleet_sentinel"
+    hermetic_env_sentinel "$fleet_sentinel" || pin_failed=1
   fi
   started="$(now_ms)"
-  if /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; then
+  if [ "$pin_failed" -eq 1 ]; then
+    printf '%s\n' "run-tests: could not pin the fleet home for $name (a pinned variable in tests/lib/hermetic-env.sh has no arm); not run" \
+      >"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+    verdict="fail"
+  elif /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; then
     verdict="done"
   else
     verdict="fail"
@@ -813,6 +819,8 @@ for t in ${files[@]+"${files[@]}"}; do
     echo ""
     echo "=== FAIL: $name ==="
     cat "$log_dir/$name.log" 2>/dev/null || echo "(no captured log)"
+    # A file refused before it ran has no timing to account for.
+    [ ! -e "$log_dir/$name.norun" ] || continue
   elif [ ! -e "$log_dir/$name.done" ]; then
     fails=$((fails + 1))
     echo ""
