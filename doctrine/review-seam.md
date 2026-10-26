@@ -56,9 +56,11 @@ it. So:
 
 - **It is quoted, never executed.** The ledger stores it as quoted (`>`)
   lines, one per line of the comment, with control characters stripped, so no
-  comment can forge a heading or a field. Every value taken from the surface
-  is checked against its grammar before it is used: a source id before it
-  keys the ledger, an API id before it goes into a URL. Stored values lose
+  comment can forge a heading or a field. Every identifier taken from the
+  surface is checked against its grammar before it is used: a source id
+  before it keys the ledger, an API id before it goes into a URL. Free text
+  (an author's name, a comment) has no grammar to check; it is sanitized and
+  quoted instead. Stored values lose
   only C0 control characters and DEL, and a length cap never cuts a UTF-8
   character in half; the wider strip that terminal output gets would mangle
   multibyte text.
