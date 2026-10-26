@@ -16,7 +16,9 @@
 #   date     YYYY-MM-DD, or `today` for the current UTC date
 #   scope    program (in force everywhere), duty:<id> naming a duty the
 #            program enables, or repo:<name> where <name> is the last path
-#            component of one of the program's repositories; default program
+#            component of one of the program's repositories; default
+#            program. A scope some entry already carries is accepted as is,
+#            so a recorded reversal survives a configuration change
 #
 # Usage:
 #   mc-rules.sh add <program> --text <t> --subject <s> --source <s>
@@ -195,9 +197,18 @@ check_scope() {
   [ "${#sc_name}" -le 64 ] || die 2 "--scope '$1' names more than 64 characters"
 }
 
-# scope_known <program> <scope>: a written scope names a duty the program
-# enables or one of its repositories, so the launcher can deliver it.
+# scope_known <program> <scope>: a scope new to the store names a duty the
+# program enables or one of its repositories, so the launcher can deliver
+# it. A scope an entry already carries passes, so a reversal recorded under
+# an earlier configuration still runs.
 scope_known() {
+  case $2 in
+    duty:* | repo:*)
+      snap_store
+      sk_entries=$(parse_store) || exit 1
+      printf '%s\n' "$sk_entries" | awk -F '\t' -v s="$2" '$6 == s { f = 1 } END { exit !f }' && return 0
+      ;;
+  esac
   case $2 in
     duty:*)
       sk_list=$(/bin/bash "$script_dir/mc-program.sh" get "$1" duties) || exit 1
@@ -294,10 +305,13 @@ resolve_home() {
 # another's parse. Runs in this shell, never a subshell.
 snap_store() {
   STORE_TEXT=""
+  STORE_PRESENT=0
   [ -e "$STORE" ] || [ -L "$STORE" ] || return 0
   [ ! -L "$STORE" ] || die 1 "$STORE is a symbolic link; refusing to read through it"
   [ -f "$STORE" ] && [ -r "$STORE" ] || die 1 "$STORE is not a readable file"
-  STORE_TEXT=$(cat "$STORE" && printf x) || die 1 "cannot read $STORE"
+  STORE_PRESENT=1
+  # A NUL would vanish in the substitution; as \001 the grammar refuses it.
+  STORE_TEXT=$(tr '\000' '\001' <"$STORE" && printf x) || die 1 "cannot read $STORE"
   STORE_TEXT=${STORE_TEXT%x}
   utf8 "$STORE_TEXT" || die 1 "$STORE is not UTF-8 text"
 }
@@ -305,7 +319,7 @@ snap_store() {
 # parse_store: print STORE_TEXT's entries, one per line, the fields in FIELDS
 # order and tab separated, with every value unescaped.
 parse_store() {
-  [ -n "$STORE_TEXT" ] || return 0
+  [ "$STORE_PRESENT" -eq 1 ] || return 0
   printf '%s' "$STORE_TEXT" | FILE=$(sanitize_printable "$STORE") WANT=$FORMAT FIELDS=$FIELDS awk '
     function bad(msg) {
       printf "mc-rules: %s:%d: %s\n", ENVIRON["FILE"], NR, msg > "/dev/stderr"
@@ -563,22 +577,21 @@ case $verb in
     exit 0
     ;;
 esac
-[ $# -ge 1 ] || usage
-program=$1
-shift
-
+program=${1:-}
 case $verb in
   load)
     ITEM_ORIGIN=rules-load ITEM_ASPECT=load
-    ITEM_TEXT="the active rules of program $program could not be loaded"
+    ITEM_TEXT="the active rules of program ${program:-(none named)} could not be loaded"
     ITEM_CLOSES="repair the rule store, then reload the rules"
     ;;
   selfcheck)
     ITEM_ORIGIN=self-check ITEM_ASPECT=run
-    ITEM_TEXT="the self-check of program $program could not run"
+    ITEM_TEXT="the self-check of program ${program:-(none named)} could not run"
     ITEM_CLOSES="repair what failed, then rerun the self-check"
     ;;
 esac
+[ $# -ge 1 ] || usage
+shift
 
 case $verb in
   add)
@@ -682,9 +695,12 @@ case $verb in
     need digest "$digest"
     need held "$held"
     need durable "$durable"
+    # A relative name shaped like name=value is an assignment to awk.
+    case $held in /*) ;; *) held=./$held ;; esac
+    case $durable in /*) ;; *) durable=./$durable ;; esac
     for f in "$held" "$durable"; do
       [ -f "$f" ] && [ -r "$f" ] || die 1 "$f is not a readable file"
-      bad_line=$(awk '!/^[ ]*$/ && !/^(item|session) [A-Za-z0-9._:-]+$/ { print NR; exit }' "$f")
+      bad_line=$(awk '!/^[ ]*$/ && !/^(item|session) [A-Za-z0-9._:-]+$/ { print NR; exit }' <"$f")
       [ -z "$bad_line" ] || die 1 "$f:$bad_line: not an 'item <id>' or 'session <handle>' line"
     done
     resolve_home "$program"

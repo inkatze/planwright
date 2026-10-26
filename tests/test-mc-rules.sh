@@ -372,6 +372,13 @@ expect_out "a missing held file raises an item" "item${tab}self-check"
 rules selfcheck alpha --held "$held" --durable "$durable"
 expect_rc "a self-check without a digest is a usage error" 2
 expect_out "a self-check usage error raises an item" "item${tab}self-check"
+(cd "$tmp" && cp "$held" 'held=1')
+mc_run mc-rules.sh selfcheck alpha --digest "$digest" --held "$tmp/held=1" --durable "$durable" </dev/null
+expect_rc "a held file named like an awk assignment is read as a file" 1
+expect_err "the held file named like an assignment is the one refused" "held=1:4"
+mc_run mc-rules.sh load
+expect_rc "a load naming no program is a usage error" 2
+expect_out "a load naming no program raises an item" "item${tab}rules-load"
 rules load nosuch
 expect_rc "the load of an unconfigured program fails" 3
 expect_out "a load that cannot resolve its program raises an item" "item${tab}rules-load"
@@ -410,20 +417,23 @@ expect_err "the missing field is named" "format"
 } >"$store"
 rules list alpha
 expect_rc "a store with a line outside the grammar is refused" 1
-corrupt() { # corrupt <label> <needle> <sed expression>
-  sed "$3" "$tmp/store.bak" >"$store"
+corrupt() { # corrupt <label> <needle> <awk program>
+  awk "$3" "$tmp/store.bak" >"$store"
   rules list alpha
   expect_rc "$1 is refused" 1
   expect_err "the refusal of $1 names the defect" "$2"
 }
-corrupt "a duplicated id" "appears twice" 's/^  - id: r-2$/  - id: r-1/'
-corrupt "a missing field" "lacks its source field" '/^    source: "op"$/{x;s/^$/done/;x;t keep;d;:keep}'
-corrupt "an unknown escape" "unknown escape" 's/^    text: "Docs need review"$/    text: "Docs \\q review"/'
-corrupt "a supersedes naming no earlier entry" "which no earlier entry is" 's/^    supersedes: r-1$/    supersedes: r-99/'
-corrupt "a repeated field" "repeats its date field" 's/^    date: 2026-10-28$/    date: 2026-10-28\n    date: 2026-10-28/'
-corrupt "an impossible date" "is not a YYYY-MM-DD date" 's/^    date: 2026-10-28$/    date: 2026-13-28/'
-corrupt "an id past nine digits" "is not a rule id" 's/^  - id: r-1$/  - id: r-1234567890/'
-corrupt "a missing rules list" "expected the rules: list" 's/^rules:$/entries:/'
+# shellcheck disable=SC2016 # awk programs, expanded by awk
+{
+  corrupt "a duplicated id" "appears twice" '$0 == "  - id: r-2" { $0 = "  - id: r-1" } { print }'
+  corrupt "a missing field" "lacks its source field" '$0 == "    source: \"op\"" && !done { done = 1; next } { print }'
+  corrupt "an unknown escape" "unknown escape" '$0 == "    text: \"Docs need review\"" { $0 = "    text: \"Docs \\q review\"" } { print }'
+  corrupt "a supersedes naming no earlier entry" "which no earlier entry is" '$0 == "    supersedes: r-1" { $0 = "    supersedes: r-99" } { print }'
+  corrupt "a repeated field" "repeats its date field" '{ print } $0 == "    date: 2026-10-28" && !done { done = 1; print }'
+  corrupt "an impossible date" "is not a YYYY-MM-DD date" '$0 == "    date: 2026-10-28" { $0 = "    date: 2026-13-28" } { print }'
+  corrupt "an id past nine digits" "is not a rule id" '$0 == "  - id: r-1" { $0 = "  - id: r-1234567890" } { print }'
+  corrupt "a missing rules list" "expected the rules: list" '$0 == "rules:" { $0 = "entries:" } { print }'
+}
 printf '\001' | cat "$tmp/store.bak" - >"$store"
 rules list alpha
 expect_rc "a store carrying a control character is refused" 1
@@ -431,6 +441,15 @@ printf '\377\n' | cat "$tmp/store.bak" - >"$store"
 rules list alpha
 expect_rc "a store that is not UTF-8 is refused" 1
 expect_err "the refusal says why" "not UTF-8"
+: >"$store"
+rules list alpha
+expect_rc "an empty store file is refused" 1
+expect_err "the empty store's refusal names the format field" "format"
+rules load alpha
+expect_out "the load of an empty store file raises an item" "item${tab}rules-load"
+printf '\000' | cat "$tmp/store.bak" - >"$store"
+rules list alpha
+expect_rc "a store carrying a NUL is refused" 1
 rm -f "$store"
 ln -s "$tmp/store.bak" "$store"
 rules list alpha
@@ -549,6 +568,17 @@ if [ ! -e "$tmp/injected" ]; then
 else
   fail "a reversal ran a substitution from the text"
 fi
+
+# A reversal recorded under an earlier configuration still runs.
+rules add alpha --text "Inbox rule" --subject inbox-rule --source op --date 2026-10-28 --scope duty:inbox
+ib_id=$(printf '%s\n' "$OUT" | sed -n 's/^rule \(r-[0-9]*\) added.*/\1/p')
+rules supersede alpha "$ib_id" --text "Inbox rule, revised" --source op --date 2026-10-28
+ib_undo=$(printf '%s\n' "$OUT" | sed -n 2p)
+cp "$tracked" "$tmp/tracked.bak"
+printf '%s\n' "program_alpha_duties: [session-keeper]" >>"$tracked"
+run_reversal "$ib_undo"
+expect_rc "a reversal still runs after the duty is disabled" 0
+cp "$tmp/tracked.bak" "$tracked"
 
 rules bogus alpha
 expect_rc "an unknown verb is a usage error" 2
