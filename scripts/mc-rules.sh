@@ -85,7 +85,6 @@ done
 
 FORMAT=1
 FIELDS="id text subject source date scope supersedes withdrawn"
-tab=$(printf '\t')
 
 scratch=""
 # shellcheck disable=SC2329 # invoked from the EXIT trap
@@ -215,6 +214,7 @@ read_store() {
   [ -f "$STORE" ] && [ -r "$STORE" ] || die 1 "$STORE is not a readable file"
   command -v iconv >/dev/null 2>&1 || die 1 "iconv is missing, so $STORE cannot be checked as UTF-8"
   # Compared, not just run: an iconv that drops invalid bytes may exit 0.
+  # shellcheck disable=SC2094 # both sides only read the store
   iconv -f UTF-8 -t UTF-8 <"$STORE" 2>/dev/null | cmp -s - "$STORE" || die 1 "$STORE is not UTF-8 text"
   FILE=$STORE WANT=$FORMAT FIELDS=$FIELDS awk '
     function bad(msg) {

@@ -61,7 +61,11 @@ field() { printf '%s\n' "$1" | cut -f "$2"; }
 rules add alpha --text "Never merge" --source "operator, turn" --date 2026-10-25
 expect_rc "add without a subject is refused" 2
 expect_err "the refusal names the subject" "subject"
-[ ! -e "$store" ] && ok "a refused add writes no store" || fail "a refused add wrote a store"
+if [ ! -e "$store" ]; then
+  ok "a refused add writes no store"
+else
+  fail "a refused add wrote a store"
+fi
 
 rules add alpha --subject merging --source "operator" --date 2026-10-25
 expect_rc "add without text is refused" 2
@@ -91,32 +95,45 @@ rules add alpha --text "Never merge a pull request" --subject merging --source "
 expect_rc "a complete add succeeds" 0
 first=$(printf '%s\n' "$OUT" | sed -n 1p)
 undo=$(printf '%s\n' "$OUT" | sed -n 2p)
-[ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 2 ] && ok "add prints the echo line and the undo entry" \
-  || fail "add printed other than two lines: $OUT"
+if [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 2 ]; then
+  ok "add prints the echo line and the undo entry"
+else
+  fail "add printed other than two lines: $OUT"
+fi
 case $first in
   "rule r-1 added (program): merging: Never merge a pull request") ok "the echo names the id, scope, subject and text" ;;
   *) fail "unexpected echo: $first" ;;
 esac
-[ "$(field "$undo" 1)" = undo ] && [ "$(field "$undo" 2)" = rule-add ] \
-  && [ "$(field "$undo" 3)" = merging ] && [ "$(field "$undo" 4)" = r-1 ] \
-  && ok "the undo entry carries the act, subject and target" || fail "unexpected undo entry: $undo"
+if [ "$(field "$undo" 1)" = undo ] && [ "$(field "$undo" 2)" = rule-add ] && [ "$(field "$undo" 3)" = merging ] && [ "$(field "$undo" 4)" = r-1 ]; then
+  ok "the undo entry carries the act, subject and target"
+else
+  fail "unexpected undo entry: $undo"
+fi
 reversal=$(field "$undo" 6)
 case $reversal in
   "mc-rules.sh supersede alpha r-1 --withdraw "*) ok "the reversal withdraws the added entry" ;;
   *) fail "unexpected reversal: $reversal" ;;
 esac
-grep -qx 'format: 1' "$store" && ok "the store carries its format field" || fail "the store lacks 'format: 1'"
-perm=$(ls -ld "$home" | cut -c1-10)
-[ "$perm" = drwx------ ] && ok "the home is created private" || fail "the home is created $perm"
+if grep -qx 'format: 1' "$store"; then
+  ok "the store carries its format field"
+else
+  fail "the store lacks 'format: 1'"
+fi
+perm=$(find "$home" -prune -perm 700)
+if [ "$perm" = "$home" ]; then
+  ok "the home is created private"
+else
+  fail "the home is not created mode 700"
+fi
 
 rules list alpha
 expect_rc "list reads the store" 0
 line=$(printf '%s\n' "$OUT" | grep "^r-1$tab")
-[ "$(field "$line" 2)" = active ] && [ "$(field "$line" 3)" = 2026-10-25 ] \
-  && [ "$(field "$line" 4)" = program ] && [ "$(field "$line" 5)" = merging ] \
-  && [ "$(field "$line" 6)" = "Never merge a pull request" ] \
-  && [ "$(field "$line" 7)" = "operator, mission-control turn" ] \
-  && ok "list shows the text, subject, source, date and scope" || fail "unexpected list line: $line"
+if [ "$(field "$line" 2)" = active ] && [ "$(field "$line" 3)" = 2026-10-25 ] && [ "$(field "$line" 4)" = program ] && [ "$(field "$line" 5)" = merging ] && [ "$(field "$line" 6)" = "Never merge a pull request" ] && [ "$(field "$line" 7)" = "operator, mission-control turn" ]; then
+  ok "list shows the text, subject, source, date and scope"
+else
+  fail "unexpected list line: $line"
+fi
 
 # Quotes, backslashes and UTF-8 round-trip through the store.
 tricky='Say "no" to C:\temp \\ and résumé'
@@ -124,10 +141,16 @@ rules add alpha --text "$tricky" --subject 'quoting "test"' --source op --date t
 expect_rc "a value with quotes, backslashes and UTF-8 is stored" 0
 rules active alpha
 line=$(printf '%s\n' "$OUT" | grep "^r-2$tab")
-[ "$(field "$line" 6)" = "$tricky" ] && [ "$(field "$line" 5)" = 'quoting "test"' ] \
-  && ok "quotes, backslashes and UTF-8 round-trip" || fail "the round-trip changed the text: $line"
-[ "$(field "$line" 3)" = "$(date -u +%Y-%m-%d)" ] && ok "--date today records the current date" \
-  || fail "--date today recorded $(field "$line" 3)"
+if [ "$(field "$line" 6)" = "$tricky" ] && [ "$(field "$line" 5)" = 'quoting "test"' ]; then
+  ok "quotes, backslashes and UTF-8 round-trip"
+else
+  fail "the round-trip changed the text: $line"
+fi
+if [ "$(field "$line" 3)" = "$(date -u +%Y-%m-%d)" ]; then
+  ok "--date today records the current date"
+else
+  fail "--date today recorded $(field "$line" 3)"
+fi
 
 # The reversal runs from the undo entry and leaves the entry in list only.
 rev=${reversal#mc-rules.sh }
@@ -150,15 +173,20 @@ rules supersede alpha r-4 --text "Merge main only on conflict" --source op --dat
 expect_rc "supersede succeeds" 0
 expect_out "the supersede echo names both ids" "rule r-5 supersedes r-4"
 sup_undo=$(printf '%s\n' "$OUT" | sed -n 2p)
-[ "$(field "$sup_undo" 2)" = rule-supersede ] && ok "a supersede carries an undo entry" \
-  || fail "unexpected supersede undo entry: $sup_undo"
+if [ "$(field "$sup_undo" 2)" = rule-supersede ]; then
+  ok "a supersede carries an undo entry"
+else
+  fail "unexpected supersede undo entry: $sup_undo"
+fi
 rules active alpha
 expect_no_out "the superseded entry leaves the active set" "Rebase onto main daily"
 expect_out "the replacement is active" "Merge main only on conflict"
 line=$(printf '%s\n' "$OUT" | grep "^r-5$tab")
-[ "$(field "$line" 5)" = syncing ] && [ "$(field "$line" 8)" = "$new_id" ] \
-  && ok "the replacement inherits the subject and names what it supersedes" \
-  || fail "unexpected replacement line: $line"
+if [ "$(field "$line" 5)" = syncing ] && [ "$(field "$line" 8)" = "$new_id" ]; then
+  ok "the replacement inherits the subject and names what it supersedes"
+else
+  fail "unexpected replacement line: $line"
+fi
 rules list alpha
 expect_out "the superseded entry stays in list" "r-4${tab}superseded"
 
@@ -188,8 +216,11 @@ rules add alpha --text "Merge main weekly" --subject " Syncing " --source op --d
 rules add alpha --text "Docs need review" --subject docs --source op --date 2026-10-27
 rules conflicts alpha
 expect_rc "the report runs with a shared subject" 0
-[ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 1 ] && ok "one shared subject, one report line" \
-  || fail "unexpected report: $OUT"
+if [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 1 ]; then
+  ok "one shared subject, one report line"
+else
+  fail "unexpected report: $OUT"
+fi
 expect_out "two active entries sharing a subject are reported" "shared${tab}syncing${tab}r-6,r-7"
 expect_no_out "different subjects are not reported" "docs"
 
@@ -218,10 +249,11 @@ brief="$tmp/brief.md"
 printf '%s\n' "# Fixture brief" "" "Do the task." "" >"$brief"
 rules render alpha --scope repo:planwright
 printf '%s\n' "$OUT" >>"$brief"
-grep -q '^<!-- mc-rules begin: program alpha' "$brief" && grep -q '^<!-- mc-rules end -->$' "$brief" \
-  && grep -qF -- "- **docs**: Docs need review" "$brief" \
-  && ok "a fixture brief contains the rendered rules between their markers" \
-  || fail "the fixture brief lacks the rendered rules"
+if grep -q '^<!-- mc-rules begin: program alpha' "$brief" && grep -q '^<!-- mc-rules end -->$' "$brief" && grep -qF -- "- **docs**: Docs need review" "$brief"; then
+  ok "a fixture brief contains the rendered rules between their markers"
+else
+  fail "the fixture brief lacks the rendered rules"
+fi
 
 # ---------------------------------------------------------------------------
 # REQ-B1.3 / REQ-B1.7: the bring-up load and the post-compaction self-check.
@@ -231,7 +263,11 @@ expect_rc "the bring-up load succeeds" 0
 expect_out "the load carries every scope" "Duty rule one"
 expect_out "the load carries every scope (repository)" "Other repo rule"
 digest=$(printf '%s\n' "$OUT" | sed -n 's/^<!-- mc-rules begin: .* digest \([0-9a-f]*\) -->$/\1/p')
-[ "${#digest}" -eq 64 ] && ok "the load's marker carries the active set's digest" || fail "no digest in: $OUT"
+if [ "${#digest}" -eq 64 ]; then
+  ok "the load's marker carries the active set's digest"
+else
+  fail "no digest in: $OUT"
+fi
 
 held="$tmp/held"
 durable="$tmp/durable"
@@ -261,7 +297,11 @@ expect_rc "a malformed working picture is refused" 1
 rules add alpha --text "One more" --subject more --source op --date 2026-10-28
 rules load alpha
 d2=$(printf '%s\n' "$OUT" | sed -n 's/^<!-- mc-rules begin: .* digest \([0-9a-f]*\) -->$/\1/p')
-[ -n "$d2" ] && [ "$d2" != "$digest" ] && ok "a new rule changes the digest" || fail "the digest did not change"
+if [ -n "$d2" ] && [ "$d2" != "$digest" ]; then
+  ok "a new rule changes the digest"
+else
+  fail "the digest did not change"
+fi
 
 # ---------------------------------------------------------------------------
 # The format field: an unknown or missing format is refused, named.
@@ -304,9 +344,17 @@ while [ "$i" -lt 8 ]; do
 done
 for p in $pids; do wait "$p"; done
 after=$(grep -c '^  - id: ' "$store")
-[ "$after" -eq $((before + 8)) ] && ok "eight concurrent adds all land" || fail "concurrent adds landed $((after - before)) of 8"
+if [ "$after" -eq $((before + 8)) ]; then
+  ok "eight concurrent adds all land"
+else
+  fail "concurrent adds landed $((after - before)) of 8"
+fi
 dups=$(grep '^  - id: ' "$store" | sort | uniq -d)
-[ -z "$dups" ] && ok "concurrent adds take distinct ids" || fail "duplicate ids: $dups"
+if [ -z "$dups" ]; then
+  ok "concurrent adds take distinct ids"
+else
+  fail "duplicate ids: $dups"
+fi
 
 mc_run mc-rules.sh bogus alpha
 expect_rc "an unknown verb is a usage error" 2
