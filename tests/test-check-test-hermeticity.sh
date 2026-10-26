@@ -115,23 +115,16 @@ else
 fi
 
 # --- the parse the shapes rest on ----------------------------------------------
-# case_root <name>: a root whose one suite, tests/test-case.sh, the caller
-# writes next.
-case_root() {
-  r=$(root_with "$1")
-  printf '%s\n' "$r"
-}
-
 # A here-string or an arithmetic shift is no heredoc: mistaking one swallows
 # the rest of the file as a body and hides what follows it.
-r=$(case_root here-string)
+r=$(root_with here-string)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 read -r y <<< hello
 chmod 000 "$f"
 SUITE
 expect "a here-string does not hide a later mode-bit fixture" 1 "test-case.sh:3: mode-bit" "$r"
-r=$(case_root shift)
+r=$(root_with shift)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 n=$((1<<3))
@@ -141,7 +134,7 @@ expect "an arithmetic shift does not hide a later mode-bit fixture" 1 "test-case
 
 # A quote inside a string before the operator still leaves the heredoc open,
 # so the stub's body stays text.
-r=$(case_root quote-before-heredoc)
+r=$(root_with quote-before-heredoc)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 printf "it's\n" >/dev/null; cat >stub <<'EOF'
@@ -152,7 +145,7 @@ SUITE
 expect "a quoted heredoc opened after a quote-holding string stays text" 0 "clean" "$r"
 
 # A string whose closing quote sits on a line opening with # still closes.
-r=$(case_root hash-line-in-string)
+r=$(root_with hash-line-in-string)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 x='a
@@ -162,10 +155,10 @@ SUITE
 expect "a #-led line inside a string does not leave the string open" 1 "test-case.sh:4: unsourced" "$r"
 
 # --- mode-bit edges ------------------------------------------------------------
-r=$(case_root short-mode)
+r=$(root_with short-mode)
 printf '#!/bin/bash\nchmod 0 "$f"\n' >"$r/tests/test-case.sh"
 expect "mode-bit: a short numeric mode is read as chmod pads it" 1 "test-case.sh:2: mode-bit" "$r"
-r=$(case_root unrelated-probe)
+r=$(root_with unrelated-probe)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 chmod 000 "$f"
@@ -173,14 +166,14 @@ chmod 000 "$f"
 chmod 644 "$f"
 SUITE
 expect "mode-bit: a probe of another path does not satisfy the fixture" 1 "test-case.sh:2: mode-bit" "$r"
-r=$(case_root mkdir-mode)
+r=$(root_with mkdir-mode)
 printf '#!/bin/bash\nmkdir -m 500 "$d"\nmkdir -m 0700 "$e"\n' >"$r/tests/test-case.sh"
 expect "mode-bit: a mkdir given a restrictive mode fails, a 0700 one does not" 1 \
   "test-case.sh:2: mode-bit" "$r"
 case $out in
   *"test-case.sh:3:"*) fail "mode-bit: a mkdir -m 0700 was flagged: $out" ;;
 esac
-r=$(case_root mkdir-probed)
+r=$(root_with mkdir-probed)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 mkdir -m 500 "$d"
@@ -189,7 +182,7 @@ SUITE
 expect "mode-bit: a mkdir -m fixture probing its target passes" 0 "clean" "$r"
 
 # --- dead-owner edges ----------------------------------------------------------
-r=$(case_root quoted-capture)
+r=$(root_with quoted-capture)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 sleep 0 &
@@ -198,7 +191,7 @@ wait "$pid"
 printf '%s\n' "$pid" >lock
 SUITE
 expect "dead-owner: a quoted \$! capture is still a capture" 1 "test-case.sh:5: dead-owner" "$r"
-r=$(case_root local-capture)
+r=$(root_with local-capture)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 f() {
@@ -209,7 +202,7 @@ f() {
 }
 SUITE
 expect "dead-owner: a local \$! capture is still a capture" 1 "test-case.sh:6: dead-owner" "$r"
-r=$(case_root bare-wait)
+r=$(root_with bare-wait)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 sleep 0 &
@@ -218,7 +211,7 @@ wait
 ln -s "$pid-0-1" lock
 SUITE
 expect "dead-owner: a bare wait reaps the capture" 1 "test-case.sh:5: dead-owner" "$r"
-r=$(case_root heredoc-use)
+r=$(root_with heredoc-use)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 sleep 0 &
@@ -229,7 +222,7 @@ $pid
 EOF
 SUITE
 expect "dead-owner: a reaped PID expanded into an unquoted heredoc body fails" 1 "test-case.sh:6: dead-owner" "$r"
-r=$(case_root dead-exempt)
+r=$(root_with dead-exempt)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 sleep 0 &
@@ -241,26 +234,195 @@ SUITE
 expect "dead-owner: an exclusion with a reason excludes the use" 0 "clean" "$r"
 
 # --- unsourced edges -----------------------------------------------------------
-r=$(case_root read-before-source)
+r=$(root_with read-before-source)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 printf '%s\n' "$PLANWRIGHT_ROOT"
 . "$(dirname "$0")/lib/hermetic-env.sh"
 SUITE
 expect "unsourced: a read before the source fails" 1 "test-case.sh:2: unsourced: reads \$PLANWRIGHT_ROOT before line 3" "$r"
-r=$(case_root quoted-source)
+r=$(root_with quoted-source)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 msg='run . tests/lib/hermetic-env.sh first'
 echo "$msg $PLANWRIGHT_ROOT"
 SUITE
 expect "unsourced: a source spelled inside a string is no source" 1 "test-case.sh:3: unsourced" "$r"
-r=$(case_root unsourced-exempt)
+r=$(root_with unsourced-exempt)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
 x=${PLANWRIGHT_ROOT:-} # hermetic-exempt: reports the inherited value, by design
 SUITE
 expect "unsourced: an exclusion with a reason excludes the read" 0 "clean" "$r"
+
+# A heredoc inside a command substitution opened within a double-quoted
+# string is still a heredoc, and its quoted body stays text.
+r=$(root_with subst-heredoc)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+out="$(
+  cat <<'STUB'
+chmod 000 "$1"
+don't
+STUB
+)"
+echo "$out $PLANWRIGHT_ROOT"
+SUITE
+expect "a heredoc inside \"\$( stays a heredoc, its body text" 1 "test-case.sh:8: unsourced" "$r"
+case $out in
+  *"test-case.sh:4:"*) fail "a heredoc body inside \"\$( was scanned as code: $out" ;;
+esac
+
+# Inside a multi-line string, a << opens nothing and a source line is text.
+r=$(root_with string-heredoc)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+msg="first
+cat <<EOF
+. tests/lib/hermetic-env.sh
+"
+chmod 000 "$f"
+echo "$msg $PLANWRIGHT_ROOT"
+SUITE
+expect "a << or a source inside a string opens and sources nothing" 1 "test-case.sh:6: mode-bit" "$r"
+case $out in
+  *"test-case.sh:7: unsourced"*) ;;
+  *) fail "a source spelled inside a multi-line string counted as a source: $out" ;;
+esac
+
+# An escaped quote inside a double-quoted string does not end it.
+r=$(root_with escaped-quote)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+echo "say \"hi\" <<EOF"
+chmod 000 "$f"
+SUITE
+expect "an escaped quote does not expose a quoted << as a heredoc" 1 "test-case.sh:3: mode-bit" "$r"
+
+# A #-led line inside a string is string text, and expands there.
+r=$(root_with hash-read)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+msg="x
+#$PLANWRIGHT_ROOT
+"
+SUITE
+expect "a read on a #-led line inside a string is a read" 1 "test-case.sh:3: unsourced" "$r"
+
+# --- mode-bit spellings ----------------------------------------------------------
+r=$(root_with mkdir-spellings)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+mkdir -vm 500 "$a"
+mkdir --mode 500 "$b"
+mkdir -pm 500 "$c"
+mkdir -m500 "$d"
+mkdir --mode=500 "$e"
+SUITE
+out=$(/bin/bash "$CHECKER" "$r" 2>&1)
+missed=""
+for l in 2 3 4 5 6; do
+  case $out in
+    *"test-case.sh:$l: mode-bit"*) ;;
+    *) missed="$missed $l" ;;
+  esac
+done
+if [ -z "$missed" ]; then
+  pass "mode-bit: every mkdir mode spelling opens a fixture"
+else
+  fail "mode-bit: mkdir spellings on lines$missed went unflagged: $out"
+fi
+r=$(root_with mkdir-no-restore)
+printf '#!/bin/bash\nchmod 000 "$f"\nmkdir -m 700 "$f"\n' >"$r/tests/test-case.sh"
+expect "mode-bit: a mkdir never restores an open fixture" 1 \
+  "test-case.sh:2: mode-bit: removes owner access to \"\$f\" with no access probe after it" "$r"
+r=$(root_with probe-prefix)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+chmod 000 "$f"
+[ -r "$file" ] || exit 1
+chmod 644 "$f"
+SUITE
+expect "mode-bit: a probe of a longer name is not a probe of the target" 1 "test-case.sh:2: mode-bit" "$r"
+r=$(root_with probe-spellings)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+chmod 000 $f
+if hermetic_access_denied r "${f}"; then :; fi
+chmod 644 "$f"
+SUITE
+expect "mode-bit: a probe spelling the target with other quotes or braces counts" 0 "clean" "$r"
+
+# --- dead-owner spellings ----------------------------------------------------------
+r=$(root_with capture-spellings)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+readonly p1=$!
+if true; then p2=$!; fi
+wait "$p1" "$p2"
+echo "$p1" >lock1
+echo "$p2" >lock2
+SUITE
+out=$(/bin/bash "$CHECKER" "$r" 2>&1)
+case $out in
+  *"test-case.sh:6: dead-owner"*"test-case.sh:7: dead-owner"* | *"test-case.sh:7: dead-owner"*"test-case.sh:6: dead-owner"*)
+    pass "dead-owner: captures after readonly and after then are captures"
+    ;;
+  *) fail "dead-owner: a readonly or then capture went unflagged: $out" ;;
+esac
+r=$(root_with wait-redirect)
+printf '#!/bin/bash\nsleep 0 &\npid=$!\nwait 2>/dev/null\necho "$pid" >lock\n' >"$r/tests/test-case.sh"
+expect "dead-owner: a bare wait with a redirect reaps the capture" 1 "test-case.sh:5: dead-owner" "$r"
+r=$(root_with wait-line-use)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 30 &
+pid=$!
+cleanup() { kill "$pid" 2>/dev/null; wait; }
+{ kill "$pid"; wait; } 2>/dev/null
+SUITE
+expect "dead-owner: a line that waits is not a use of what it reaps" 0 "clean" "$r"
+r=$(root_with wait-in-comment)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 30 &
+pid=$!
+do_thing # and wait
+printf '%s\n' "$pid" >lock
+SUITE
+expect "dead-owner: wait in a trailing comment reaps nothing" 0 "clean" "$r"
+r=$(root_with escaped-body-use)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+pid=$!
+wait "$pid"
+cat >stub <<STUB
+echo \$pid >out
+STUB
+SUITE
+expect "dead-owner: an escaped \$pid in a heredoc body is the stub's, not a use" 0 "clean" "$r"
+
+# A library name holding a glob character is malformed as written, never
+# expanded to the files it would match.
+r=$(root_with glob-name sourced-read.sh)
+cat >"$r/tests/lib/hermetic-env.sh" <<'LIB'
+hermetic_env_names() { printf '%s\n' '*'; }
+LIB
+mkdir -p "$tmp/glob-cwd"
+: >"$tmp/glob-cwd/VALIDNAME"
+out=$(cd "$tmp/glob-cwd" && /bin/bash "$CHECKER" "$r" 2>&1)
+rc=$?
+case $out in
+  *"malformed name"*) named=1 ;;
+  *) named=0 ;;
+esac
+if [ "$rc" -eq 2 ] && [ "$named" -eq 1 ]; then
+  pass "a glob character in a listed name is refused as written"
+else
+  fail "a glob name was expanded or accepted (exit $rc): $out"
+fi
 
 # --- exclusions --------------------------------------------------------------
 expect "an exclusion marker with a reason excludes its line" 0 "clean" \

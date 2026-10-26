@@ -11,7 +11,8 @@
 #              there and the test fails for a reason unrelated to the guard
 #              under test. A probe is a call to hermetic_access_denied
 #              (tests/lib/hermetic-env.sh) or a `[ -r ... ]` / `[ -w ... ]` /
-#              `test -r|-w` test whose line names the same target, anywhere
+#              `test -r|-w` test whose line names the same target (`$x` and
+#              `${x}` alike, never as the prefix of a longer name), anywhere
 #              between the mode change and the next chmod of that target (the
 #              restore) or the end of the file; where it sits relative to the
 #              assertion is not checked.
@@ -27,8 +28,9 @@
 #              helpers carry the pinning, so a suite pinning through them
 #              conforms. A read is any `$NAME` or `${NAME...}` in code or in
 #              an unquoted heredoc body, which the suite itself expands; a
-#              read on a line before the source is still an offense, and a
-#              source spelled inside a quoted string is no source.
+#              read on a line above the source is still an offense, inside a
+#              function body defined there too, and a source spelled inside a
+#              quoted string is no source.
 #
 # Not code, so never an offense: full-line comments, and heredoc bodies for
 # the mode-bit shape (a chmod written into a stub runs later, in the stub).
@@ -101,8 +103,9 @@ Flagged:
               [ -r ] / [ -w ] test) before its next chmod or the end of the file
   dead-owner  a $! PID used again after it was reaped with wait; draw one from
               tests/lib/dead-owner.sh or a lock-library token instead
-  unsourced   a read of a listed configuration or root variable in a file
-              that does not source tests/lib/hermetic-env.sh before it
+  unsourced   a read of a listed configuration or root variable on a line
+              above the file's source of tests/lib/hermetic-env.sh, or in a
+              file that never sources it
 
 Excluded: an offending line carrying, or following, a
 `# hermetic-exempt: <reason>` comment.
@@ -300,8 +303,8 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
       t = tok[i]
       if (t == "") continue
       if (mk) {
-        if (t == "-m" || t ~ /^-p+m$/) { cm_mode = tok[++i]; continue }
-        if (t ~ /^-p*m./) { sub(/^-p*m/, "", t); cm_mode = t; continue }
+        if (t == "-m" || t == "--mode" || t ~ /^-[A-Za-z]*m$/) { cm_mode = tok[++i]; continue }
+        if (t ~ /^-[A-Za-z]*m./) { sub(/^-[A-Za-z]*m/, "", t); cm_mode = t; continue }
         if (t ~ /^--mode=/) { cm_mode = substr(t, 8); continue }
         if (t ~ /^-/) continue
         if (cm_mode == "") return 0
@@ -321,7 +324,26 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
     gsub(/["'"'"']/, "", s)
     return s
   }
-  function scan(path,   line, prev, body, delim, heredoc, heredoc_dash, quoted, n, r, pre, dash, v, k, m, e, sourced, is_lib, re_v, instr, s, off, u, len) {
+  # braceless(s): <s> with each ${name} spelled $name.
+  function braceless(s,   out) {
+    out = ""
+    while (match(s, /\$\{[A-Za-z_][A-Za-z0-9_]*\}/)) {
+      out = out substr(s, 1, RSTART - 1) "$" substr(s, RSTART + 2, RLENGTH - 3)
+      s = substr(s, RSTART + RLENGTH)
+    }
+    return out s
+  }
+  # names(u, t): <u> holds <t> not followed by a name character, so a probe of
+  # $file is not a probe of $f.
+  function names(u, t,   k, off) {
+    off = 0
+    while ((k = index(substr(u, off + 1), t))) {
+      if (substr(u, off + k + length(t), 1) !~ /[A-Za-z0-9_]/) return 1
+      off += k
+    }
+    return 0
+  }
+  function scan(path,   line, prev, body, delim, heredoc, heredoc_dash, quoted, n, r, pre, dash, v, k, m, mc, e, sourced, is_lib, re_v, instr, s, off, u, len, bare, waits) {
     heredoc = ""; heredoc_dash = 0; quoted = 0; n = 0; prev = ""
     sourced = 0; nreads = 0
     split("", readln); split("", readvar)
@@ -342,23 +364,30 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
         # is a read; a quoted body is text handed to something else.
         if (!quoted && !is_lib && line ~ namere && !exempt(line, prev)) note_read(expanded(line, 1), n)
         # An unquoted body also expands a reaped PID into what it writes.
-        if (!quoted) dead_use(line, n, prev)
+        if (!quoted) dead_use(expanded(line, 1), n, prev)
         prev = line
         continue
       }
       if (line ~ /^[ \t]*$/) { prev = line; continue }
-      # A line opening with # is a comment only outside a quoted string; inside
-      # one it is string text, whose closing quote the quoting state must see.
+      # Whether the line opens inside a string: a single-quoted one, or a
+      # double-quoted one not since reopened as a command substitution.
+      instr = (insq || substr(qstack, length(qstack), 1) == "d")
+      # A line opening with # is a comment only outside a string; inside one
+      # it is string text, whose closing quote the quoting state must see.
       if (line ~ /^[ \t]*#/) {
-        if (insq || index(qstack, "d")) {
+        if (instr) {
           e = expanded(line, 0)
           if (!is_lib && e ~ namere && !exempt(line, prev)) note_read(e, n)
         }
         prev = line
         continue
       }
-      instr = (insq || index(qstack, "d"))
-      m = mask(line)
+      # mask() walks the line a character at a time, so it runs only for a
+      # line one of its readers below could match. mc drops a trailing
+      # comment, whose words are not commands.
+      m = (line ~ /hermetic|-[rw][ \t]|wait|<</) ? mask(line) : line
+      mc = m
+      sub(/(^|[ \t])#.*$/, "", mc)
 
       # Only a source the shell runs counts: the dot or `source` word must
       # sit outside quotes, on a line that does not open inside a string.
@@ -381,8 +410,8 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
       # open target closes it (the restore); a restrictive chmod, or a mkdir
       # given a restrictive mode, opens one.
       if (line ~ /hermetic_access_denied|-[rw][ \t]/ && (m ~ /hermetic_access_denied[ \t]/ || m ~ /(\[|test)[ \t]+(![ \t]+)?-[rw][ \t]/)) {
-        u = unquoted(line)
-        for (k in open_line) if (index(u, unquoted(k))) probed[k] = 1
+        u = braceless(unquoted(line))
+        for (k in open_line) if (names(u, braceless(unquoted(k)))) probed[k] = 1
       }
       if (chmod_args(line)) {
         if (cm_restore && (cm_target in open_line)) {
@@ -396,21 +425,25 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
 
       # dead-owner: a $! capture, its wait (a bare wait reaps every capture),
       # then a later use of the PID.
-      if (match(line, /(^|[;&{]|then|do|else)[ \t]*((local|declare|readonly|export|typeset)[ \t]+(-[A-Za-z]+[ \t]+)?)?[A-Za-z_][A-Za-z0-9_]*="?\$!/)) {
+      if (match(line, /(^|[;&{]|(^|[ \t;])(then|do|else)[ \t])[ \t]*((local|declare|readonly|export|typeset)[ \t]+(-[A-Za-z]+[ \t]+)?)?[A-Za-z_][A-Za-z0-9_]*="?\$!/)) {
         v = substr(line, RSTART, RLENGTH)
-        sub(/^([;&{]|then|do|else)?[ \t]*((local|declare|readonly|export|typeset)[ \t]+(-[A-Za-z]+[ \t]+)?)?/, "", v); sub(/="?\$!$/, "", v)
+        sub(/^([;&{]|[ \t;]?(then|do|else)[ \t])?[ \t]*((local|declare|readonly|export|typeset)[ \t]+(-[A-Za-z]+[ \t]+)?)?/, "", v); sub(/="?\$!$/, "", v)
         spawned[v] = 1; reaped[v] = 0
       } else {
-        if (m ~ /(^|[;&|( \t])wait[ \t]*($|[;&|)])/) {
+        # A wait line reaps; it is never itself a use of what it reaps.
+        bare = (index(line, "wait") && mc ~ /(^|[;&|( \t])wait[ \t]*($|[;&|)]|[0-9]*[<>])/)
+        waits = (index(line, "wait") && mc ~ /(^|[;&|( \t])wait[ \t]/)
+        if (bare) {
           for (v in spawned) if (!reaped[v]) reaped[v] = n
         }
-        for (v in spawned) {
-          if (!index(line, v)) continue
-          re_v = "\\$\\{?" v "([^A-Za-z0-9_]|$)"
-          if (line !~ re_v) continue
-          if (m ~ /(^|[;&|( \t])wait[ \t]/) { reaped[v] = n; continue }
+        if (waits) {
+          for (v in spawned) {
+            if (!index(line, v)) continue
+            re_v = "\\$\\{?" v "([^A-Za-z0-9_]|$)"
+            if (line ~ re_v) reaped[v] = n
+          }
         }
-        dead_use(line, n, prev)
+        if (!bare && !waits) dead_use(line, n, prev)
       }
 
       # A heredoc opens only at a << the shell reads as one: not a here-string
@@ -448,7 +481,6 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
       if (!reaped[v] || !index(line, v)) continue
       re_v = "\\$\\{?" v "([^A-Za-z0-9_]|$)"
       if (line !~ re_v || line ~ /^[ \t]*(kill|wait)[ \t]/) continue
-      if (mask(line) ~ /(^|[;&|( \t])wait[ \t]/) continue
       if (!exempt(line, prev)) report(path_now, n, "dead-owner", "uses $" v " after line " reaped[v] " reaped it")
       delete spawned[v]; delete reaped[v]
     }
