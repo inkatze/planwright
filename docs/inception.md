@@ -114,7 +114,7 @@ from it.
   acts. A first publish is always offered for
   your confirmation, and so is every later one unless this machine has
   auto-republish on for the venture (below) and that page's first publish is
-  on record. A page that looks like it carries a
+  on record with the artifact it created. A page that looks like it carries a
   credential is never offered.
 - **The GitHub web path.** On a private-remote venture a stakeholder can read
   and edit the bundle in the GitHub web UI. The scaffolded
@@ -173,7 +173,7 @@ the layer whose reach fits it. Full resolution rules are in the
 
 | Setting | The capability (core) | The value (yours) | Default, and why it is the safe one |
 | --- | --- | --- | --- |
-| `ventures_root` (config key) | A configurable home for venture repositories, resolved through the overlay layers | Where your ventures live; a path on one machine, so usually machine-local or adopter, and repo-tracked only for a team that shares a layout | `~/ventures`: outside every work repository, so a venture never lands inside one |
+| `ventures_root` (config key) | A configurable home for venture repositories, resolved through the overlay layers | Where your ventures live; a path on one machine, so usually machine-local or adopter, and repo-tracked only for a team that shares a layout | `~/ventures`: a directory of its own under your home, not inside a work checkout |
 | Auto-republish (per venture) | Replacing an already-confirmed published page with its refreshed export without asking again | Whether this venture, on this machine, republishes without the question; set with `inception-publish.sh auto on\|off <venture-dir>` | Off: every publish is offered. Stored in the clone's git directory, never in a tracked file, so a stakeholder's commit cannot switch publishing on |
 | Persona seat backend | None new: seats dispatch through the existing [backend capability contract](../doctrine/backend-capability-contract.md) (subagent, tmux, print, or in-session) | Which rung a run uses, fixed when the seats are rostered and disclosed at Gate 1; a per-seat model only on the `subagent` rung | The rung the host can run; a weaker rung is reported as a degradation, never hidden |
 | Discipline cards and decision domains | The catalogs and their four-layer merge | Your team's or company's own cards and domains | The core cards and domains only |
