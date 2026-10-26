@@ -143,8 +143,9 @@ loop saw and dismissed carries reason `declined`. Three reasons name the
 external-review audit's categories: `host-dependent` (a test whose result
 depends on the host running it), `guard-bypass` (a guard evaded by another
 spelling of what it blocks), and `procedure-order` (an ordered procedure
-running a step before what it needs, or skipping one). The vocabularies only
-grow: no token is renamed or removed, so an existing writer keeps working.
+running a step before what it needs, or skipping a step it
+requires). The vocabularies only grow: no token is renamed or removed, so an
+existing writer keeps working.
 `scripts/check-review-miss.sh`, run under `mise run check:obs`, refuses a
 fragment that is a miss by slug or entry text and breaks the grammar; a writer
 checks a text first with its `--text` mode. The readers are the backtest
