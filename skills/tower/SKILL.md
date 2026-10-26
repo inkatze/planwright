@@ -233,7 +233,7 @@ and places the flight through
 the id, writes the worker brief, and places the isolated worktree on a
 `planwright/flight/<flight-id>` branch. A flight beyond the bound comes back
 declined; relay its re-ask line, nothing is queued (REQ-C1.5). The worker loads
-full doctrine, converges through the convergence point's steps, renders
+full doctrine, fires every in-run point by `/execute-task`'s procedure, renders
 the record through `scripts/flight-record.sh` (the quoted ask, or the summary
 standing in for a private one, sanitized per `security-posture` and
 markup-neutralized per `flight-rules`), and lands it.

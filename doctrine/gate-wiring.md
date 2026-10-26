@@ -11,7 +11,7 @@ operator-dialogue REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15 ·
 prose-disposition REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4 ·
 prose-disposition D-5 · custom-steps REQ-D1.2, REQ-D1.5 · human-gates
 REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-B1.9,
-REQ-B1.10, D-3, D-12, D-13, D-16.
+REQ-B1.10, D-3, D-12, D-13, D-16 · tower-front-door D-22.
 The PR-body assembly section additionally realizes output-hygiene
 REQ-A1.1–REQ-A1.4 and D-2.
 
@@ -222,7 +222,9 @@ attendance (interactive asks, headless parks), never a loop trigger.
   nothing in the zone until directed.
 - **Dispatched or unattended worker.** Record the unit to `tasks.md` Awaiting
   input (the halt destination REQ-F1.5 defines), with the finding, the
-  trigger, and the recommended fix or alternatives, then end the step. Work
+  trigger, and the recommended fix or alternatives, then end the step.
+  Flights park through the flight park instead
+  ([flight-rules](flight-rules.md)). Work
   already applied stays on the branch as committed: a pause never resets,
   stashes, or rewrites prior dispositions. The pause content respects artifact
   data-hygiene ([Security Posture](security-posture.md)): describe the

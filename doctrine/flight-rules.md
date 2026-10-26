@@ -18,10 +18,11 @@ stake and reversibility already scale rigor inside a change; here they choose th
 route the whole request takes (D-1).
 
 Citations: tower-front-door REQ-A1.2, REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4,
-REQ-B1.5, REQ-B1.6, REQ-C1.6, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-F1.3,
-REQ-F1.5, REQ-F1.6, REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-H1.4 ·
-tower-front-door D-1, D-2, D-3, D-4, D-5, D-6, D-7, D-10 · custom-steps
-REQ-F1.5 · human-gates REQ-C1.1, REQ-F1.1, REQ-F1.2.
+REQ-B1.5, REQ-B1.6, REQ-C1.6, REQ-C1.7, REQ-C1.8, REQ-E1.2, REQ-E1.6, REQ-E1.9,
+REQ-E1.10, REQ-E1.11, REQ-E1.12, REQ-F1.3, REQ-F1.5, REQ-F1.6, REQ-G1.1,
+REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-H1.4 · tower-front-door D-1, D-2, D-3, D-4,
+D-5, D-6, D-7, D-10, D-16, D-17, D-20, D-21, D-22 · custom-steps REQ-F1.5 ·
+human-gates REQ-C1.1, REQ-F1.1, REQ-F1.2.
 
 ## The routing rule (D-4)
 
@@ -145,25 +146,44 @@ flipped, and neither artifact carries a verdict on the work. The full field
 set the grade reads, the fixture, and the grade live beside the harness, in
 `tests/behavioral-evals/`.
 
-## The audit record (D-6)
+## Points on a flight (D-16, D-17)
+
+A visual flight fires every in-run point [custom-steps](custom-steps.md) wires
+in `/execute-task` (never a flip point), in the same order and at the same
+moments, with unit kind `flight` (REQ-C1.7). `convergence` keeps its `main`
+sync; a flight with no remote records it as not run, with the reason. Every
+step kind runs under the task runner contract, with no flight-only grammar,
+refusal, or knob (REQ-C1.8). Dispatch runs `/execute-task`'s pre-flight point
+check and refuses exactly where it stops a task unit, naming the point and step
+id; a step it skips is skipped on the flight too, named in the report and the
+brief (D-16).
+
+The worker runs each point by `/execute-task`'s *Points* procedure under the
+root its brief pins, the one dispatch checked under, always unattended; where
+that procedure ends or parks a unit through the gate-wiring
+[pause protocol](gate-wiring.md#pause-protocol), a flight parks through the
+flight park (*The parked record*), writing no spec state (D-17). `post-pr`
+fires only on a draft PR; on the file home the record says it did not (D-18).
+
+## The audit record (D-6, D-20)
 
 On the specless path the record, not a spec, is what carries trust. The flight
-worker authors and lands it, and it carries (REQ-E1.1):
+worker authors and lands it, and it carries (REQ-E1.6):
 
-- the **quoted ask**, sanitized per [security-posture](security-posture.md)
-  data-hygiene and markup-neutralized before it reaches any committed or remote
-  surface;
+- the **public statement of the ask**: the ask itself, or, when the tower gave
+  a public summary of a private ask, that summary followed by a fixed line
+  saying the worker was briefed beyond it (D-20), sanitized per
+  [security-posture](security-posture.md) data-hygiene and markup-neutralized
+  before it reaches any committed or remote surface. A private ask reaches
+  the worker only through its brief, and every surface it writes stays at the
+  summary's level;
 - the **routing decision and its grounds**, as stated in the conversation;
-- the **convergence audit tables** the review skills produce: lens coverage, the
-  four buckets, the declined log, and the pending-sign-off checklist, plus the
-  convergence point's step table ([custom-steps](custom-steps.md)), a `none`
-  row when its list was empty;
-- **any rigor scoping actually applied** inside the convergence point's list
-  (`steps_convergence`, run with unit kind `flight`;
-  [custom-steps](custom-steps.md)). Visual flight runs the same convergence
-  list instrument flight runs, its skill steps only (a command or prompt step
-  refuses the flight); proportionality may scope rigor inside a pass, but a
-  scoping that is not declared did not happen (D-7);
+- the **audit tables** the review skills produce (lens coverage, the four
+  buckets, the declined log, the pending-sign-off checklist) and the step
+  table of **every point the flight fired**, a `none` row when a point's list
+  was empty, and a not-fired `post-pr` row on the file home (D-16, D-18);
+- **any rigor scoping actually applied**: proportionality may scope rigor
+  inside a pass, but a scoping that is not declared did not happen (D-7);
 - the **worker handle**; and
 - the **revert path**.
 
@@ -171,17 +191,16 @@ The record's home is adaptive and **declared at routing time** (D-6, REQ-E1.2):
 the draft PR body where every push destination of `origin` is covered by a
 `flight_pr_hosts` entry (empty by default, opted into outside the repo-tracked
 config) and `gh` is authenticated to the first destination's host, a committed
-per-flight record file riding the flight's own branch otherwise. A worker
-re-checks the destination before its push and parks on a mismatch. Both homes render
-human-first (REQ-E1.5) — a lead a human PR author would write (what changed, why,
+per-flight record file riding the flight's own branch otherwise. Both homes render
+human-first (REQ-E1.11) — a lead a human PR author would write (what changed, why,
 how it was verified; no restated prompt, no filler) with the full contract
 collapsed below it. One renderer, `scripts/flight-record.sh`, lays out both
 homes and lands the file home as exactly one commit on the flight's branch, at
 the record path its caller passes (`scripts/flight-dispatch.sh` computes it; the
-renderer composes no spec-home path of its own). It quotes the ask inside a
-fence the ask cannot close, indented off column zero, so no markup the ask
-carries renders or reads as the record's structure, and it
-refuses a lead that restates the ask (D-6, REQ-E1.5). The record opens with
+renderer composes no spec-home path of its own). It quotes the public statement
+inside a fence it cannot close, indented off column zero, so no markup it
+carries renders or reads as the record's structure, and it refuses a lead that
+restates the public statement or the private ask (D-6, D-20). The record opens with
 `<!-- planwright:flight-record id=<flight-id> home=<pr|file> -->` and ends with
 `<!-- planwright:flight-record-end -->`, each alone on a column-zero line, and
 no input the ask or the worker supplies can put either marker there, so a
@@ -192,11 +211,39 @@ decisions, so it owes no named reader and no drain ritual
 ([accumulator-taxonomy](accumulator-taxonomy.md)). The pending-sign-off checklist
 it renders keeps its own PR-review drain.
 
-## Specless traceability (D-6, REQ-E1.4)
+### Where dispatch refuses a home (D-22, REQ-E1.10)
 
-Specless is not traceless. **Specless traceability is the ask, the route and its
-grounds, the evidence, and the revert path, cited in the record.** That is the
-whole definition, and every visual flight owes all four.
+Dispatch refuses a record home, placing nothing, under each condition below;
+a worker re-checks the declaration before its push, parking on a mismatch:
+
+- **The PR home**, when it is asked for and `home` would not declare it:
+  `origin` is absent; `flight_pr_hosts` cannot be read; a push destination of
+  `origin` is not a recognized network remote, or is one no `flight_pr_hosts`
+  entry approves; or `gh` is not authenticated to the first destination's host.
+- **The file home**, given or declared, when the spec root lies outside the
+  checkout: the record is committed on the flight's branch, so only a root
+  inside the checkout can hold it. When the PR home is unavailable too, the
+  refusal names why.
+- **Either home**, when the spec root does not resolve for the checkout, or
+  its config overlay cannot be read.
+
+### The parked record (D-21)
+
+A flight that parks, for any reason, first renders its partial record (the
+review findings so far, the declined log, the park reason) beside its brief
+under the fleet home: never committed or pushed, written create-only, following
+no symlink, contained to the brief directory (REQ-E1.9). The park notification
+names only the kind of park, since its channel may leave the host. The flight
+sweep surfaces the record's path, so every surface rendering the sweep shows
+it. It persists while the flight's worktree exists and goes with the brief
+directory the sweep retiring the flight removes: bounded (D-10).
+
+## Specless traceability (D-6, D-20, REQ-E1.12)
+
+Specless is not traceless. **Specless traceability is the public statement of
+the ask, the route and its grounds, the evidence, and the revert path, cited in
+the record.** That is the whole definition, and every visual flight owes all
+four.
 
 REQ-level traceability — requirements, design decisions, task citations, a test
 spec pinning each REQ to a verification path — is precisely what escalation to
