@@ -141,9 +141,10 @@ export function handoverReason(view: PanelView): string | null {
   return wakes !== undefined && view.wakes >= wakes ? `${view.wakes} wakes` : null
 }
 
-export function emptyView(program: string): PanelView {
+export function emptyView(program: string, target: string): PanelView {
   return {
     program,
+    target,
     digest: null,
     contextPercent: null,
     rateLimits: [],
@@ -151,7 +152,6 @@ export function emptyView(program: string): PanelView {
     wakes: 0,
     ticks: 0,
     lastTickAt: null,
-    lastWakeAt: null,
     handover: null,
     isFallback: false,
     fault: null,

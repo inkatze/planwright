@@ -27,6 +27,7 @@ export type PanelRateLimit = { kind: string; percentUsed: number }
 
 export type PanelView = {
   program: string
+  target: string
   digest: PanelDigest | null
   contextPercent: number | null
   rateLimits: PanelRateLimit[]
@@ -34,7 +35,6 @@ export type PanelView = {
   wakes: number
   ticks: number
   lastTickAt: number | null
-  lastWakeAt: number | null
   handover: string | null
   isFallback: boolean
   fault: string | null

@@ -96,13 +96,23 @@ mc_run fleet-state.sh register w-one mission-control:alpha --backend stream-json
 mc_run fleet-state.sh register w-gone mission-control:alpha --backend tmux --death-handle "tmux-window mc 4"
 mc_run fleet-state.sh retire w-gone mission-control:alpha --backend tmux --death-handle "tmux-window mc 4"
 mc_run mc-event.sh emit --program alpha --now 1000 pr-ready pr-7
+# A live session whose observed name is `closed` (nine fields), and one
+# known only by a legacy three-field record.
+printf '900\tw-named\tflight:docs\t-\tstream-json\t-\tnone\tclosed\t-\n900\tw-legacy\tflight:old\n' >>"$fleet/registry"
 home=$fixhome/.config/planwright/mission-control/alpha
 mkdir -p "$home/kb"
 printf '<!-- format: 1 -->\n- %s: an entry\n' "\`a.md\`" >"$home/kb/index.md"
+TZ=UTC touch -t 197001010015.00 "$home/kb/index.md"
 {
+  printf '# format: 1\n'
   printf 'decisions-197001-1\t1970-01-01T00:10:00Z\tflip pr-7\tready-flip\tpr-7\tgreen\tnone\t-\n'
-  printf 'decisions-197001-2\t1970-01-01T00:15:00Z\trelaunch w-one\trelaunch\tw-one\tstalled\tnone\tsession-keeper\n'
+  printf 'decisions-197001-2\t1970-01-01T00:11:00Z\tmerge order\tretarget\tpr-9\tbase merged\tnone\t-\n'
 } >"$home/kb/decisions-1970-01.log"
+{
+  printf '# format: 1\n'
+  printf 'decisions-197002-1\t1970-02-01T00:10:00Z\tpark task-3\tpark\ttask-3\tfork\tnone\t-\n'
+  printf 'decisions-197002-2\t1970-02-01T00:15:00Z\trelaunch w-one\trelaunch\tw-one\tstalled\tnone\tsession-keeper\n'
+} >"$home/kb/decisions-1970-02.log"
 runtime=$fleet/mission-control/alpha
 printf 'format\t1\ntaken\t900\ninterruptions_per_hour\t2.5\nsettled_share\t80\n' >"$runtime/measures"
 # A watcher record whose loop is gone, its last run at 600 on a 5m cadence.
@@ -110,23 +120,31 @@ mkdir -p "$runtime/watchers"
 printf '999999\t500\talpha-duty\tscripts/alpha-watch.sh\t5m\tlow\n' >"$runtime/watchers/alpha-duty.alpha-watch.rec"
 printf '600\t0\t0\n' >"$runtime/watchers/alpha-duty.alpha-watch.last"
 
-mc_run mc-panel.sh digest --program alpha --target mc-alpha --now 1030
+mc_run mc-panel.sh digest --program alpha --target mc-alpha --knobs --now 1030
 expect_rc "the digest" 0
 record "the digest opens with its format" format 1
 record "the digest names its program" program alpha
 record "the digest is stamped" taken 1030
 record "REQ-F1.1: a live session is in flight" flight w-one mission-control:alpha stream-json
 expect_no_out "a retired session is not in flight" "w-gone"
+record "a live session named closed stays in flight" flight w-named flight:docs stream-json
+record "a legacy three-field record is in flight, its backend unknown" flight w-legacy flight:old -
 record "REQ-F1.1: what waits on the operator" waiting 0
 record "REQ-E1.3: the target's pending events" pending 1
-record "REQ-F1.1: recent decisions, newest first" decision 1970-01-01T00:15:00Z "relaunch w-one" relaunch
+got=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "decision" { printf "%s|", $2 }')
+if [ "$got" = "1970-02-01T00:15:00Z|1970-02-01T00:10:00Z|1970-01-01T00:11:00Z|" ]; then
+  ok "REQ-F1.1: the three newest decisions, newest first, across segments"
+else
+  fail "REQ-F1.1: decisions read '$got'"
+fi
+record "a decision carries its subject and act" decision 1970-02-01T00:15:00Z "relaunch w-one" relaunch
 record "REQ-L1.4: the budget rung" rung normal "every dimension under the throttle threshold"
 expect_out "REQ-L1.4: headroom per dimension" "headroom${tab}polls_per_hour${tab}"
 record "REQ-L1.4: a watcher's expiry, a next run already passed" watcher alpha-duty alpha-watch.sh stopped -130
 record "REQ-H1.4: the forge source with its mode and age" source code-state forge snapshot 30
 record "REQ-H1.4: a record source carries no age" source decisions specs record -
 record "REQ-H1.4: a class with no source is cited" source designs - cited -
-expect_out "REQ-F1.1: knowledge-base freshness" "kb${tab}"
+record "REQ-F1.1: knowledge-base freshness, the index's age" kb 130
 record "REQ-M1.8: interruptions per hour, with their age" measure interruptions_per_hour 2.5 130
 record "REQ-M1.8: the settled share" measure settled_share 80 130
 record "REQ-L1.5: the context threshold knob" knob handover-context 70
@@ -135,20 +153,14 @@ record "REQ-L1.5: the compaction ceiling knob" knob handover-compactions 2
 record "the redraw cadence knob, in seconds" knob refresh 10
 record "the tick cadence knob, in seconds" knob tick 300
 record "D-29: no handover verb yet" handover absent
-expect_out "REQ-F1.2: the text line" "line${tab}mission control alpha: 1 in flight"
+record "REQ-F1.2: the text line" line "mission control alpha: 3 in flight, 0 waiting, 1 pending, rung normal, tracker snapshot 30s old"
+mc_run mc-panel.sh digest --program alpha --now 1030
+expect_no_out "knobs only with --knobs" "knob${tab}"
 
 # The text form alone, as a session without the mod reads it.
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
 expect_rc "the line" 0
-case $OUT in
-  "mission control alpha: 1 in flight, 0 waiting, 1 pending, rung normal"*) ok "REQ-F1.2: the line form" ;;
-  *) fail "REQ-F1.2: unexpected line '$OUT'" ;;
-esac
-case $OUT in
-  *"
-"*) fail "the line is one line" ;;
-  *) ok "the line is one line" ;;
-esac
+expect_eq "REQ-F1.2: the line form, one line" "mission control alpha: 3 in flight, 0 waiting, 1 pending, rung normal, tracker snapshot 30s old"
 
 # A store that cannot be read is said, never drawn as empty.
 printf 'format\t9\n' >"$runtime/measures"
@@ -160,12 +172,35 @@ mc_run mc-panel.sh digest --program alpha --now 1030
 record "REQ-M1.8: no measures yet" measure - none -
 
 # Stored text never reaches a terminal raw.
-printf 'decisions-197001-3\t1970-01-01T00:20:00Z\tbad \033[2Jsubject\tact\tx\ty\tnone\t-\n' >>"$home/kb/decisions-1970-01.log"
+printf 'decisions-197002-3\t1970-01-01T00:20:00Z\tbad \033[2Jsubject\tact\tx\ty\tnone\t-\n' >>"$home/kb/decisions-1970-02.log"
 mc_run mc-panel.sh digest --program alpha --now 1030
 case $OUT in
   *"$(printf '\033')"*) fail "a control byte reached the digest" ;;
   *) ok "control bytes are dropped from stored text" ;;
 esac
+
+# A segment of an unknown format, or a symlinked knowledge base, is
+# unreadable, never drawn.
+printf '# format: 9\n' >"$home/kb/decisions-1970-03.log"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "a segment of an unknown format is unreadable" unreadable "decisions log"
+expect_no_out "and none of its decisions are drawn" "decision${tab}"
+rm -f "$home/kb/decisions-1970-03.log"
+mv "$home/kb" "$home/kb.real"
+ln -s "$home/kb.real" "$home/kb"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "a symlinked knowledge base is unreadable" unreadable "decisions log"
+rm -f "$home/kb"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "no index yet reads as not written" kb -
+mv "$home/kb.real" "$home/kb"
+
+# A handover ceiling of 0 would fire at once: refused like any invalid value.
+printf 'mission_control_handover_compactions: 0\n' >>"$tracked"
+mc_run mc-panel.sh digest --program alpha --knobs --now 1030
+record "a zero compaction ceiling is refused" unreadable "knob mission_control_handover_compactions"
+setup_tracked=$(grep -v '^mission_control_handover_compactions' "$tracked")
+printf '%s\n' "$setup_tracked" >"$tracked"
 
 mc_run mc-panel.sh digest --program beta
 expect_rc "an unconfigured program" 3

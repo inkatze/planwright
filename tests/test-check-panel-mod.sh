@@ -53,9 +53,11 @@ cp "$repo_root/hooks/mods.json" "$plug/hooks/"
 cp -R "$repo_root/hooks/mission-control" "$plug/hooks/"
 cp -R "$repo_root/types" "$plug/"
 
-# The fake CLI. FAKE_VERSION sets the version; FAKE_CALLS the calls the
-# report lists; FAKE_PASS and FAKE_FAIL the summary of a clean run;
-# FAKE_SEED_CAUGHT=0 lets a seeded copy pass.
+# The fake CLI. FAKE_VERSION sets the version; FAKE_HOOKS, FAKE_CALLS,
+# FAKE_ENV_READS and FAKE_ENV_WRITES what the report lists, FAKE_NO_NOTES an
+# empty report, FAKE_VALIDATE_EXIT its exit; FAKE_PASS and FAKE_FAIL the
+# summary of a clean run; FAKE_SEED_CAUGHT=0 lets a seeded copy pass and
+# FAKE_SEED_EMPTY=1 makes it run nothing.
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/claude" <<'EOF'
 #!/bin/sh
@@ -63,16 +65,27 @@ case "$1 ${2:-}" in
   "--version ") echo "${FAKE_VERSION:-2.1.310} (Claude Code)" ;;
   "plugin validate")
     m="./mission-control/register.tsx"
-    printf '{"success": true, "contents": [{"type": "hooks", "notes": [%s, %s, %s, %s]}]}\n' \
-      "\"$m hooks: session.start, ui.render{component=Pane, requestId=mission-control}\"" \
-      "\"$m calls: ${FAKE_CALLS:-\$.process.run (via run), \$.ui.resolve}\"" \
-      "\"$m env reads: PLANWRIGHT_MC_PROGRAM\"" \
-      "\"$m env writes: nothing\""
+    if [ -n "${FAKE_NO_NOTES:-}" ]; then
+      printf '{"success": true, "contents": [{"type": "hooks", "notes": []}]}\n'
+    else
+      printf '{"success": true, "contents": [{"type": "hooks", "notes": [%s, %s, %s, %s]}]}\n' \
+        "\"$m hooks: ${FAKE_HOOKS:-session.start, ui.render{component=Pane, requestId=mission-control}}\"" \
+        "\"$m calls: ${FAKE_CALLS:-\$.process.run (via run), \$.ui.resolve}\"" \
+        "\"$m env reads: ${FAKE_ENV_READS:-PLANWRIGHT_MC_PROGRAM}\"" \
+        "\"$m env writes: ${FAKE_ENV_WRITES:-nothing}\""
+    fi
+    exit "${FAKE_VALIDATE_EXIT:-0}"
     ;;
   "plugin test")
-    if grep -q seededDefect "$3/hooks/mission-control/panel.tsx" && [ "${FAKE_SEED_CAUGHT:-1}" = 1 ]; then
-      printf ' 19 pass\n 6 fail\n'
-      exit 1
+    if grep -q seededDefect "$3/hooks/mission-control/panel.tsx"; then
+      if [ -n "${FAKE_SEED_EMPTY:-}" ]; then
+        printf ' 0 pass\n 0 fail\n'
+        exit 1
+      fi
+      if [ "${FAKE_SEED_CAUGHT:-1}" = 1 ]; then
+        printf ' 9 pass\n 6 fail\n'
+        exit 1
+      fi
     fi
     printf ' %s pass\n %s fail\n' "${FAKE_PASS:-25}" "${FAKE_FAIL:-0}"
     [ "${FAKE_FAIL:-0}" = 0 ] || exit 1
@@ -116,6 +129,30 @@ rc_is "a later minor passes the floor" 0
 run 'FAKE_CALLS=$.process.run (via run), $.ui.resolve, $.http.fetch'
 rc_is "a call the design does not name fails" 1
 has "the extra call is named" "$ERR" 'uses call $.http.fetch'
+
+run 'FAKE_HOOKS=session.start, tool.call{tool=Bash}'
+rc_is "a hook the design does not name fails" 1
+has "the extra hook is named" "$ERR" 'uses hook tool.call{tool=Bash}'
+
+run 'FAKE_ENV_READS=PLANWRIGHT_MC_PROGRAM, HOME'
+rc_is "an environment read the design does not name fails" 1
+has "the extra read is named" "$ERR" 'uses env HOME'
+
+run 'FAKE_ENV_WRITES=PATH'
+rc_is "an environment write the design does not name fails" 1
+has "the extra write is named" "$ERR" 'uses envwrite PATH'
+
+run FAKE_NO_NOTES=1
+rc_is "a report naming nothing for the module fails" 1
+has "the empty report is named" "$ERR" "names no hook or call"
+
+run FAKE_VALIDATE_EXIT=1
+rc_is "a failed validate fails" 1
+has "the failed validate is named" "$ERR" "claude plugin validate failed"
+
+run FAKE_SEED_EMPTY=1
+rc_is "a seeded run that ran nothing proves nothing" 1
+has "the empty seeded run is named" "$ERR" "without failing a drawing test"
 
 run FAKE_PASS=0
 rc_is "a run that executed no test fails" 1

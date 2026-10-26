@@ -18,6 +18,19 @@ function headroomTight(view: PanelView): string | null {
   return `${top.dimension} ${top.percent}%`
 }
 
+// A count from a store the digest could not read is unknown, never zero.
+function flightCount(view: PanelView): string {
+  const d = view.digest
+  if (!d) return '?'
+  return d.unreadable.includes('fleet registry') ? '?' : String(d.flights.length)
+}
+
+function kbLine(view: PanelView): string {
+  const d = view.digest
+  if (d?.unreadable.includes('knowledge base')) return 'knowledge base unreadable'
+  return `knowledge base ${d?.kbAge == null ? 'not written yet' : `${age(d.kbAge)} old`}`
+}
+
 function limits(view: PanelView): string {
   return view.rateLimits.map(r => `${r.kind} ${Math.round(r.percentUsed)}%`).join(' · ')
 }
@@ -26,7 +39,7 @@ export function bandText(view: PanelView): string {
   const d = view.digest
   const parts = [`✈ ${view.program}`]
   if (d) {
-    parts.push(`${d.flights.length} in flight`, `${d.waiting ?? '?'} holding`)
+    parts.push(`${flightCount(view)} in flight`, `${d.waiting ?? '?'} holding`)
     if (d.pending !== null && d.pending > 0) parts.push(`${d.pending} inbound`)
     parts.push(`rung ${d.rung.name}`)
   } else {
@@ -51,7 +64,7 @@ export function Band(t: Table, view: PanelView, isHeld: boolean) {
   )
 }
 
-function Section(t: Table, title: string, rows: string[], empty: string) {
+function Section(t: Table, title: string, rows: string[], empty = '') {
   const { Box, Text } = t
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -73,12 +86,11 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
     )
   }
   const tight = headroomTight(view)
+  const rl = limits(view)
   const instruments = [
-    `context ${view.contextPercent === null ? 'not measured' : `${view.contextPercent}%`}${
-      limits(view) ? ` · ${limits(view)}` : ''
-    }`,
+    `context ${view.contextPercent === null ? 'not measured' : `${view.contextPercent}%`}${rl ? ` · ${rl}` : ''}`,
     `compactions since start ${view.compactions} · wakes ${view.wakes}`,
-    `knowledge base ${d.kbAge === null ? 'not written yet' : `${age(d.kbAge)} old`}`,
+    kbLine(view),
     ...d.measures.map(m =>
       m.name === '-' ? `measures ${m.value}` : `${m.name.replace(/_/g, ' ')} ${m.value} (${age(m.age)} old)`,
     ),
@@ -103,7 +115,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
       {d.unreadable.length > 0 && <Text color="error">Unreadable: {d.unreadable.join(', ')}</Text>}
       {Section(
         t,
-        `In flight (${d.flights.length})`,
+        `In flight (${flightCount(view)})`,
         d.flights.map(f => `${f.worker}  ${f.scope}  ${f.backend}`),
         'Nothing in flight.',
       )}
@@ -114,7 +126,6 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
           `${d.waiting === null ? 'unknown' : d.waiting} waiting on you`,
           ...(d.pending !== null ? [`${d.pending} event(s) inbound`] : []),
         ],
-        '',
       )}
       {Section(
         t,
@@ -140,7 +151,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
         d.sources.map(s => `${s.cls}: ${s.source === '-' ? 'none' : s.source} ${s.mode}${s.age === null ? '' : `, ${age(s.age)} old`}`),
         'No source map.',
       )}
-      {Section(t, 'Instruments', instruments, '')}
+      {Section(t, 'Instruments', instruments)}
     </Box>
   )
 }

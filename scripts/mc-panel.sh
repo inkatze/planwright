@@ -26,7 +26,7 @@ done
 DECISIONS_SHOWN=3
 
 usage() {
-  mc_usage_fail "usage: mc-panel.sh digest|line --program <p> [--target <t>] [--now <epoch>] | presence --program <p> --prompt|--refresh [--now <epoch>]"
+  mc_usage_fail "usage: mc-panel.sh digest|line --program <p> [--target <t>] [--knobs] [--now <epoch>] | presence --program <p> --prompt|--refresh [--now <epoch>]"
 }
 
 help_text() {
@@ -37,23 +37,29 @@ the presence marker the mod feeds from prompt events.
 
 The mod (hooks/mission-control/) runs `digest` on its redraw timer and
 draws only what it prints; nothing here calls a model or writes a store
-but the presence marker. A store that cannot be read is said as such,
+but the presence marker. The mod is active only in a session started with
+PLANWRIGHT_MC_PROGRAM=<program> in its environment (and optionally
+PLANWRIGHT_MC_TARGET=<its wake target>, the program's name by default),
+which it reads once and clears. A store that cannot be read is said as such,
 never drawn as empty.
 
 Usage:
-  mc-panel.sh digest --program <p> [--target <t>] [--now <epoch>]
+  mc-panel.sh digest --program <p> [--target <t>] [--knobs] [--now <epoch>]
       one record per line, tab separated, in this order:
         format<TAB>1
         program<TAB><p>
         taken<TAB><epoch>
-        knob<TAB>refresh|tick<TAB><seconds>   the mod's redraw and tick
-                                             cadences
+        knob<TAB>refresh|tick<TAB><seconds>   with --knobs: the mod's redraw
+                                             and tick cadences
         knob<TAB>handover-context|handover-wakes|handover-compactions<TAB><n>
-                                             the handover trigger's
-                                             thresholds
+                                             with --knobs: the handover
+                                             trigger's thresholds
         flight<TAB><worker><TAB><scope><TAB><backend>
-                                             a live fleet registry session
-        waiting<TAB><n>                      the operator queue's items
+                                             a live fleet registry session,
+                                             `-` for a field its record lacks
+        waiting<TAB><n|->                    the operator queue's items, `-`
+                                             where the backend surfaces the
+                                             queue itself
         pending<TAB><n>                      the target's events not yet
                                              submitted (with --target)
         decision<TAB><time><TAB><subject><TAB><act>
@@ -67,7 +73,8 @@ Usage:
         source<TAB><class><TAB><source><TAB><mode><TAB><age|->
                                              every fact class, `-` for a
                                              class with no source
-        kb<TAB><age|->                       the knowledge-base index's age
+        kb<TAB><age|->                       the knowledge-base index's age,
+                                             `-` before it is written
         measure<TAB><name><TAB><value><TAB><age>
                                              the interruption and
                                              settled-share measures, or
@@ -79,10 +86,11 @@ Usage:
         line<TAB><text>                      the line form, last
       Stored text has every control byte dropped.
   mc-panel.sh line --program <p> [--target <t>] [--now <epoch>]
-      the line form alone, for a status line or a session without the mod
+      the line form alone, for a session without the mod; it makes every
+      read the digest makes, so it is no per-redraw status line
   mc-panel.sh presence --program <p> --prompt|--refresh [--now <epoch>]
-      write the presence marker the operator queue reads,
-      <runtime>/presence:
+      write the presence marker, the producer side of the operator queue's
+      presence input (no queue verb reads it yet), <runtime>/presence:
         format<TAB>1
         producer<TAB>mission-control-panel
         written<TAB><epoch>
@@ -110,6 +118,7 @@ program=""
 target=""
 now=""
 presence_kind=""
+with_knobs=0
 while [ $# -gt 0 ]; do
   case $1 in
     --program | --target | --now)
@@ -120,6 +129,10 @@ while [ $# -gt 0 ]; do
         --now) now=$2 ;;
       esac
       shift 2
+      ;;
+    --knobs)
+      with_knobs=1
+      shift
       ;;
     --prompt | --refresh)
       [ -z "$presence_kind" ] || usage
@@ -132,22 +145,30 @@ done
 [ -n "$program" ] || usage
 case $verb in
   digest | line) [ -z "$presence_kind" ] || usage ;;
-  presence) [ -n "$presence_kind" ] && [ -z "$target" ] || usage ;;
+  presence) [ -n "$presence_kind" ] && [ -z "$target" ] && [ "$with_knobs" -eq 0 ] || usage ;;
   *) usage ;;
 esac
 [ -z "$target" ] || mc_valid_handle "$target" || mc_usage_fail "invalid target '$(sanitize_printable "$target")'"
-mc_now_arg "$now"
 mc_require_program "$program"
 export PLANWRIGHT_MC_CHECKED="$program"
 runtime=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory for '$program'"
 
-mc_parse_pct() {
+parse_pct() {
   mc_valid_uint "$1" && [ "$1" -ge 1 ] && [ "$1" -le 100 ] || return 1
+  printf '%s\n' "$1"
+}
+# A ceiling of 0 would raise the handover at once, so 0 is refused.
+parse_positive() {
+  mc_valid_uint "$1" && [ "$1" -ge 1 ] || return 1
   printf '%s\n' "$1"
 }
 
 # mtime <file>: its modification epoch, GNU stat first, then BSD.
 mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+
+# age_of <epoch>: seconds since it, a stamp after now (a stepped clock)
+# reading as 0.
+age_of() { printf '%s\n' $((NOW > $1 ? NOW - $1 : 0)); }
 
 clean_field() { printf '%s' "$1" | tr -d '\000-\037\177'; }
 
@@ -155,6 +176,9 @@ if [ "$verb" = presence ]; then
   pres=$runtime/presence
   mc_lock || mc_fail "cannot take the fleet lock"
   trap 'mc_unlock' EXIT
+  # Stamped once the lock is held, so a write that waited behind a later
+  # one never moves the marker back in time.
+  mc_now_arg "$now"
   last=$NOW
   if [ "$presence_kind" = refresh ]; then
     last=-
@@ -167,21 +191,23 @@ if [ "$verb" = presence ]; then
     | mc_write "$pres" || mc_fail "cannot write the presence marker"
   exit 0
 fi
+mc_now_arg "$now"
 
 # Each read below prints its records; a store it cannot read prints
 # `unreadable<TAB><store>` and the digest goes on.
-D_FLIGHT=0
+D_FLIGHT=-
 D_WAITING=-
 D_PENDING=-
 D_RUNG=-
 D_OLDEST=""
+HOME_DIR=""
 
 knobs() {
   for kn in refresh:mission_control_panel_refresh:mc_parse_cadence \
     tick:mission_control_tick_cadence:mc_parse_cadence \
-    handover-context:mission_control_handover_context:mc_parse_pct \
-    handover-wakes:mission_control_handover_wakes:mc_parse_uint \
-    handover-compactions:mission_control_handover_compactions:mc_parse_uint; do
+    handover-context:mission_control_handover_context:parse_pct \
+    handover-wakes:mission_control_handover_wakes:parse_positive \
+    handover-compactions:mission_control_handover_compactions:parse_positive; do
     kn_name=${kn%%:*}
     kn_rest=${kn#*:}
     if kn_v=$(mc_knob "${kn_rest%%:*}" "${kn_rest#*:}"); then
@@ -198,22 +224,28 @@ flights() {
     printf 'unreadable\tfleet registry\n'
     return 0
   }
-  # The last record per worker wins; a closed one is retired.
-  FLIGHTS=$(printf '%s\n' "$fl_reg" | awk -F '\t' '
-    NF >= 5 { last[$2] = $0; if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2 } }
+  # The last record per worker wins; only an eight-field record whose last
+  # field is `closed` is retired, the rule every registry reader applies.
+  fl_rows=$(printf '%s\n' "$fl_reg" | awk -F '\t' '
+    NF >= 2 { last[$2] = $0; if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2 } }
     END {
       for (i = 1; i <= n; i++) {
-        split(last[order[i]], f, "\t")
-        if (f[8] == "closed") continue
-        print "flight\t" f[2] "\t" f[3] "\t" f[5]
+        nf = split(last[order[i]], f, "\t")
+        if (nf == 8 && f[8] == "closed") continue
+        print "flight\t" f[2] "\t" (nf >= 3 ? f[3] : "-") "\t" (nf >= 5 ? f[5] : "-")
       }
     }' | mc_clean)
-  [ -z "$FLIGHTS" ] || printf '%s\n' "$FLIGHTS"
-  D_FLIGHT=$(printf '%s' "$FLIGHTS" | awk 'NF { n++ } END { print n + 0 }')
+  [ -z "$fl_rows" ] || printf '%s\n' "$fl_rows"
+  D_FLIGHT=$(printf '%s' "$fl_rows" | awk 'NF { n++ } END { print n + 0 }')
 }
 
 waiting() {
-  if wt_n=$(/bin/sh "$script_dir/fleet-attention.sh" queue --count 2>/dev/null) && mc_valid_uint "$wt_n"; then
+  if ! wt_n=$(/bin/sh "$script_dir/fleet-attention.sh" queue --count 2>/dev/null); then
+    printf 'unreadable\toperator queue\n'
+  elif [ -z "$wt_n" ]; then
+    # The backend surfaces the queue itself and the count is deferred to it.
+    printf 'waiting\t-\n'
+  elif mc_valid_uint "$wt_n"; then
     D_WAITING=$wt_n
     printf 'waiting\t%s\n' "$wt_n"
   else
@@ -231,24 +263,44 @@ pending() {
   fi
 }
 
-decisions() {
-  dc_home=$(/bin/bash "$script_dir/mc-program.sh" get "$program" home 2>/dev/null) || {
+program_home() {
+  HOME_DIR=$(/bin/bash "$script_dir/mc-program.sh" get "$program" home 2>/dev/null) || {
+    HOME_DIR=""
     printf 'unreadable\tprogram home\n'
-    return 0
   }
-  KB=$dc_home/kb
-  set +f
-  dc_segs=$(ls "$KB"/decisions-[0-9][0-9][0-9][0-9]-[0-9][0-9].log 2>/dev/null)
-  set -f
-  [ -n "$dc_segs" ] || return 0
-  # Segment names sort by month; the last lines of the newest segments are
-  # the newest decisions.
-  # shellcheck disable=SC2086 # one segment path per word, none holds a space
-  dc_rows=$(cat $dc_segs 2>/dev/null) || {
+}
+
+decisions() {
+  [ -n "$HOME_DIR" ] || return 0
+  dc_kb=$HOME_DIR/kb
+  [ ! -L "$dc_kb" ] || {
     printf 'unreadable\tdecisions log\n'
     return 0
   }
-  printf '%s\n' "$dc_rows" | awk -F '\t' -v max="$DECISIONS_SHOWN" '
+  # Segment names sort by month, so the newest decisions are at the end of
+  # the newest segments; only the last two are read.
+  dc_segs=""
+  set +f
+  for dc_f in "$dc_kb"/decisions-[0-9][0-9][0-9][0-9]-[0-9][0-9].log; do
+    [ -e "$dc_f" ] || [ -L "$dc_f" ] || continue
+    dc_segs="$dc_segs$dc_f
+"
+  done
+  set -f
+  [ -n "$dc_segs" ] || return 0
+  dc_rows=""
+  while IFS= read -r dc_f; do
+    [ -n "$dc_f" ] || continue
+    if [ -L "$dc_f" ] || [ "$(head -n 1 "$dc_f" 2>/dev/null)" != "# format: 1" ]; then
+      printf 'unreadable\tdecisions log\n'
+      return 0
+    fi
+    dc_rows="$dc_rows$(tail -n "$DECISIONS_SHOWN" "$dc_f")
+"
+  done <<EOF
+$(printf '%s' "$dc_segs" | tail -n 2)
+EOF
+  printf '%s' "$dc_rows" | awk -F '\t' -v max="$DECISIONS_SHOWN" '
     NF >= 4 && $2 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/ { row[++n] = $2 "\t" $3 "\t" $4 }
     END { for (i = n; i > 0 && i > n - max; i--) print "decision\t" row[i] }' | mc_clean
 }
@@ -276,7 +328,13 @@ watchers() {
     printf 'unreadable\twatchers\n'
     return 0
   }
-  printf '%s\n' "$wa" | awk -F '\t' '$1 == "watcher" { n = split($3, p, "/"); print "watcher\t" $2 "\t" p[n] "\t" $6 "\t" $8 }' | mc_clean
+  # Soonest (or most overdue) first, so a panel showing only the first few
+  # never hides an expiry.
+  printf '%s\n' "$wa" | awk -F '\t' '$1 == "watcher" {
+      n = split($3, p, "/")
+      key = ($8 ~ /^-?[0-9]+$/) ? $8 + 0 : 999999999999
+      printf "%015d\twatcher\t%s\t%s\t%s\t%s\n", key + 500000000000, $2, p[n], $6, $8
+    }' | sort | cut -f2- | mc_clean
 }
 
 sources() {
@@ -292,14 +350,17 @@ sources() {
 }
 
 kb() {
-  kb_age=-
-  if [ -n "${KB:-}" ] && [ -f "$KB/index.md" ]; then
-    if kb_t=$(mtime "$KB/index.md") && mc_valid_uint "$kb_t"; then
-      # An index stamped after now (a stepped clock) reads as fresh.
-      kb_age=$((NOW > kb_t ? NOW - kb_t : 0))
-    fi
+  if [ -z "$HOME_DIR" ]; then
+    printf 'unreadable\tknowledge base\n'
+    return 0
   fi
-  printf 'kb\t%s\n' "$kb_age"
+  if [ ! -e "$HOME_DIR/kb/index.md" ]; then
+    printf 'kb\t-\n'
+  elif kb_t=$(mtime "$HOME_DIR/kb/index.md") && mc_valid_uint "$kb_t"; then
+    printf 'kb\t%s\n' "$(age_of "$kb_t")"
+  else
+    printf 'unreadable\tknowledge base\n'
+  fi
 }
 
 measures() {
@@ -314,7 +375,7 @@ measures() {
   fi
   ms_taken=$(awk -F '\t' '$1 == "taken" { print $2; exit }' "$ms")
   ms_age=-
-  ! mc_valid_uint "$ms_taken" || ms_age=$((NOW - ms_taken))
+  ! mc_valid_uint "$ms_taken" || ms_age=$(age_of "$ms_taken")
   awk -F '\t' -v age="$ms_age" '
     ($1 == "interruptions_per_hour" || $1 == "settled_share") && $2 ~ /^[0-9]+(\.[0-9]+)?$/ { print "measure\t" $1 "\t" $2 "\t" age }' "$ms"
 }
@@ -337,10 +398,11 @@ the_line() {
 
 digest() {
   printf 'format\t%s\nprogram\t%s\ntaken\t%s\n' "$MC_FORMAT" "$program" "$NOW"
-  knobs
+  [ "$with_knobs" -eq 0 ] || knobs
   flights
   waiting
   pending
+  program_home
   decisions
   budget
   watchers

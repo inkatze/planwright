@@ -420,6 +420,7 @@ mc_run fleet-state.sh retire gone mission-control:alpha --backend tmux --death-h
 mc_run fleet-state.sh register printer mission-control:alpha --backend print --death-handle none
 mc_run fleet-state.sh register windowless mission-control:alpha --backend tmux --death-handle "process 4242"
 mc_run mc-event.sh emit --program alpha pr-ready pr-13
+mc_run mc-panel.sh presence --program alpha --refresh
 mc_run mc-wake.sh relay --program alpha
 expect_out "D-6: a session with the mod is woken by the mod" "mod${tab}modded"
 expect_out "a target the fleet registry lacks is unreachable" "unreachable${tab}ghost${tab}not in the fleet registry"
@@ -429,6 +430,11 @@ expect_out "a tmux record with no window is unreachable" "unreachable${tab}windo
 expect_out "a hand-written window the relay's grammar refuses is unreachable" "unreachable${tab}badwin${tab}no valid tmux window recorded"
 mc_run mc-wake.sh target list --program alpha
 expect_out "target list" "modded${tab}mod"
+# The mod stopped restamping the presence marker: the relay takes the target
+# back, rather than leaving it with no wake at all.
+mc_run mc-panel.sh presence --program alpha --refresh --now 1000
+mc_run mc-wake.sh relay --program alpha
+expect_out "REQ-E1.4: a mod target whose presence lapsed goes back to the relay" "unreachable${tab}modded${tab}not in the fleet registry"
 mc_run mc-wake.sh target remove --program alpha ghost
 mc_run mc-wake.sh target list --program alpha
 expect_no_out "target remove" "ghost"
@@ -439,6 +445,8 @@ mc_run mc-wake.sh relay --program alpha
 expect_eq "the relay honours the daemon pause" "paused"
 mc_run mc-wake.sh tick --program alpha --now 99999
 expect_eq "the tick honours the daemon pause" "paused"
+mc_run mc-wake.sh compose --program alpha modded
+expect_eq "the mod's compose honours the daemon pause" "paused"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-wake: $failures failure(s)" >&2

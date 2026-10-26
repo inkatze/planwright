@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# mc-wake.sh — the daemon side of mission control's wake: the relay that
-# pushes a program's pending events (scripts/mc-event.sh) to its sessions
-# that run without the mod, and the failsafe tick behind it.
+# mc-wake.sh — mission control's wake: the relay that pushes a program's
+# pending events (scripts/mc-event.sh) to its sessions that run without the
+# mod, the failsafe tick behind it, and the wake a session with the mod
+# composes here and submits itself.
 #
 # `mc-wake.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
@@ -24,6 +25,10 @@ done
 . "$script_dir/mc-lib.sh" || exit 2
 
 LISTED_MAX=20
+# The panel mod restamps the presence marker every minute; a `mod` target
+# whose marker is older than this has lost its mod, and the relay and the
+# tick take it back.
+MOD_LEASE=300
 
 usage() {
   mc_usage_fail "usage: mc-wake.sh target add|remove|list --program <p> [<worker>] [--mod] | relay --program <p> | tick --program <p> [--now <epoch>] | compose --program <p> <target>"
@@ -31,15 +36,19 @@ usage() {
 
 help_text() {
   cat <<'HELP'
-mc-wake.sh — the daemon side of mission control's wake: the relay that
-pushes a program's pending events (scripts/mc-event.sh) to its sessions
-that run without the mod, and the failsafe tick behind it.
+mc-wake.sh — mission control's wake: the relay that pushes a program's
+pending events (scripts/mc-event.sh) to its sessions that run without the
+mod, the failsafe tick behind it, and the wake a session with the mod
+composes here and submits itself.
 
 A WAKE TARGET is a registered session (a fleet registry worker,
 scripts/fleet-state.sh) the program's events should wake, recorded with
 whether the mod loads in it. A session with the mod is woken by the mod,
-which watches the attention store itself; the relay and the tick leave it
-alone.
+which composes its wake with `compose` at its redraw and tick cadences;
+the relay and the tick leave it alone while the program's presence marker
+(scripts/mc-panel.sh presence) is younger than five minutes, and treat it
+as a target without the mod once the marker is older, so a session whose
+mod died is not left with no wake at all.
 
 THE RELAY goes through the fleet's own session relay for the backend the
 registry records for the worker, and it never types into a session:
@@ -95,8 +104,9 @@ Usage:
   mc-wake.sh compose --program <p> <target>
       the wake a session with the mod submits itself: `idle`, or
       `wake<TAB><n><TAB><id> <id>...` then the wake's text, over the
-      target's events not yet submitted (the tick's selection). Sends and
-      marks nothing: the mod marks the ids submitted once its prompt is in.
+      target's events not yet submitted (the tick's selection); or
+      `paused` (`blocked`) as the relay. Sends and marks nothing: the mod
+      marks the ids submitted once its prompt is in.
 
 Exit codes: 0 done (a refused or unreachable target is reported, not a
 failure); 1 a store that cannot be read or written (the fleet registry
@@ -270,6 +280,16 @@ send() {
   printf '%s\t%s\t%s\n' "$sd_said" "$sd_w" "$sd_n"
 }
 
+# mod_live: the program's presence marker, which only the mod writes, is
+# younger than MOD_LEASE.
+mod_live() {
+  ml_pres=$runtime/presence
+  mc_format_ok "$ml_pres" || return 1
+  ml_at=$(awk -F '\t' '$1 == "written" { print $2; exit }' "$ml_pres")
+  mc_valid_uint "$ml_at" || return 1
+  [ $((NOW - ml_at)) -lt "$MOD_LEASE" ]
+}
+
 # each unmarked|unsubmitted: send to every target without the mod. One
 # target's failure is named and the rest still sent to; the status is 1 then.
 each() {
@@ -279,7 +299,7 @@ each() {
   ea_rc=0
   while IFS='	' read -r ea_w ea_mod; do
     mc_valid_handle "$ea_w" || continue
-    if [ "$ea_mod" = mod ]; then
+    if [ "$ea_mod" = mod ] && mod_live; then
       printf 'mod\t%s\n' "$ea_w"
       continue
     fi
@@ -354,6 +374,7 @@ case $verb in
     [ "${#args[@]}" -eq 1 ] || usage
     w=${args[0]}
     mc_valid_handle "$w" || mc_usage_fail "invalid target '$(sanitize_printable "$w")'"
+    mc_gate_or_exit mc-wake
     select_events "$w" unsubmitted || mc_fail "cannot read the events for '$w'"
     if [ "$SEL_TOTAL" -eq 0 ]; then
       printf 'idle\n'

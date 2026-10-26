@@ -1,5 +1,5 @@
 import { mock } from 'claude-code/testing'
-import type { MockClock } from 'claude-code/testing'
+import type { Engine, MockClock } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 // The world beneath the mod in the plugin tests: every call it makes on `$`
@@ -9,13 +9,13 @@ export const START = 1_000_000_000
 
 const tab = (...f: (string | number)[]) => f.join('\t')
 
-export function digestText(o: { pending?: number; extra?: string[] } = {}): string {
+export function digestText(o: { pending?: number; extra?: string[]; refresh?: number; tick?: number } = {}): string {
   return [
     tab('format', 1),
     tab('program', 'alpha'),
     tab('taken', 1000),
-    tab('knob', 'refresh', 10),
-    tab('knob', 'tick', 300),
+    tab('knob', 'refresh', o.refresh ?? 10),
+    tab('knob', 'tick', o.tick ?? 300),
     tab('knob', 'handover-context', 70),
     tab('knob', 'handover-wakes', 3),
     tab('knob', 'handover-compactions', 2),
@@ -44,12 +44,54 @@ export const WAKE = ['wake\t1\te1000.ab12', 'mission control (alpha): 1 event(s)
   '\n',
 )
 
+export const PANE = {
+  plugin: 'planwright',
+  component: 'Pane',
+  requestId: 'mission-control',
+  props: {
+    title: 'Mission control',
+    isFocused: false,
+    bodyColumns: 60,
+    placement: 'dock',
+    scroll: { offset: 0, bodyRows: 40 },
+    view: {},
+  },
+} as const
+
+export const BAND = {
+  plugin: 'planwright',
+  component: 'AbovePrompt',
+  requestId: 'band',
+  props: {
+    hasSurvey: false,
+    isWorking: false,
+    maxRows: 3,
+    bodyColumns: 120,
+    scroll: { offset: 0, bodyRows: 3 },
+    view: {},
+  },
+} as const
+
+export const turn = (id: string, agentId?: string) => ({ text: '', turnId: id, ...(agentId ? { agentId } : {}) })
+export const done = (id: string, agentId?: string) =>
+  ({
+    text: '',
+    turnId: id,
+    answer: '',
+    durationMs: 5,
+    isAborted: false,
+    reason: 'answer',
+    ...(agentId ? { agentId } : {}),
+  }) as const
+
 export type World = {
   clock: MockClock
   runs: string[][]
   submitted: string[]
   statuses: (string | undefined)[]
   toasts: string[]
+  opened: number
+  envWrites: [string, string | undefined][]
   set: (o: Partial<Fixture>) => void
 }
 
@@ -57,11 +99,15 @@ export type Fixture = {
   digest: string
   digestExit: number
   wake: string
+  composeExit: number
+  markExit: number
+  emitExit: number
   rules: string
   rulesExit: number
   isPlaced: boolean
+  isDropped: boolean
   contextPercent: number | undefined
-  program: string | undefined
+  env: Record<string, string>
 }
 
 export function world(on: On, given: Partial<Fixture> = {}): World {
@@ -69,11 +115,15 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     digest: digestText(),
     digestExit: 0,
     wake: 'idle',
+    composeExit: 0,
+    markExit: 0,
+    emitExit: 0,
     rules: '<!-- rules begin -->\n- R1 never merge\n<!-- rules end -->',
     rulesExit: 0,
     isPlaced: true,
+    isDropped: false,
     contextPercent: 42,
-    program: 'alpha',
+    env: { PLANWRIGHT_MC_PROGRAM: 'alpha' },
     ...given,
   }
   const w: World = {
@@ -82,13 +132,22 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     submitted: [],
     statuses: [],
     toasts: [],
+    opened: 0,
+    envWrites: [],
     set: o => Object.assign(fx, o),
   }
-  mock.env(on, fx.program === undefined ? {} : { PLANWRIGHT_MC_PROGRAM: fx.program })
+  mock.env(on, fx.env)
+  on('env.set', (_, e) => {
+    w.envWrites.push([e.name, e.value])
+    return { value: {} }
+  })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
   on('command.register', () => ({ value: { command: 'mission-control' } }))
-  on('ui.open', () => ({ value: fx.isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'no-surface' } }))
+  on('ui.open', () => {
+    w.opened += 1
+    return { value: fx.isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'no-surface' } }
+  })
   on('ui.status', (_, e) => {
     w.statuses.push(e.text)
     return { value: undefined }
@@ -105,6 +164,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     },
   }))
   on('prompt.submit', (_, e) => {
+    if (fx.isDropped) return { drop: 'a guard refused it' }
     w.submitted.push(e.text)
     return { text: e.text }
   })
@@ -116,13 +176,21 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     w.runs.push(argv)
     const script = (argv[1] ?? '').split('/').pop()
     const verb = argv[2]
-    const ok = (stdout: string, exitCode = 0) => ({
-      value: { exitCode, stdout, stderr: exitCode === 0 ? '' : 'store unreadable', isStdoutTruncated: false, isStderrTruncated: false },
+    const answer = (stdout: string, exitCode = 0) => ({
+      value: {
+        exitCode,
+        stdout,
+        stderr: exitCode === 0 ? '' : 'store unreadable',
+        isStdoutTruncated: false,
+        isStderrTruncated: false,
+      },
     })
-    if (script === 'mc-panel.sh' && verb === 'digest') return ok(fx.digest, fx.digestExit)
-    if (script === 'mc-wake.sh' && verb === 'compose') return ok(fx.wake)
-    if (script === 'mc-rules.sh') return ok(fx.rulesExit === 0 ? fx.rules : '', fx.rulesExit)
-    return ok('')
+    if (script === 'mc-panel.sh' && verb === 'digest') return answer(fx.digest, fx.digestExit)
+    if (script === 'mc-wake.sh' && verb === 'compose') return answer(fx.wake, fx.composeExit)
+    if (script === 'mc-event.sh' && verb === 'mark') return answer('', fx.markExit)
+    if (script === 'mc-event.sh' && verb === 'emit') return answer('e1.ff', fx.emitExit)
+    if (script === 'mc-rules.sh') return answer(fx.rulesExit === 0 ? fx.rules : '', fx.rulesExit)
+    return answer('')
   })
   return w
 }
@@ -130,4 +198,8 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
 export const ran = (w: World, script: string, verb: string): string[][] =>
   w.runs.filter(r => (r[1] ?? '').endsWith(`/scripts/${script}`) && r[2] === verb)
 
-export const start = { cwd: '/', surface: 'terminal', isInteractive: true } as const
+// Starts the session and lets the bring-up the start hook schedules run.
+export async function boot($: Engine, w: World) {
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await w.clock.settle()
+}

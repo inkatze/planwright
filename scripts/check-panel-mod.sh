@@ -93,22 +93,21 @@ awk '
   /^hooks: / { emit("hook", substr($0, 8)) }
   /^calls: / { l = substr($0, 8); gsub(/ \(via [^)]*\)/, "", l); emit("call", l) }
   /^env reads: / { emit("env", substr($0, 12)) }
-  /^env writes: / && $0 != "env writes: nothing" { print "envwrite " substr($0, 13) }
+  /^env writes: / { emit("envwrite", substr($0, 13)) }
 ' "$scratch/notes" | sort -u >"$scratch/reported"
 grep -Ev '^[[:space:]]*(#|$)' "$surface" | sort -u >"$scratch/allowed"
 if [ ! -s "$scratch/reported" ]; then
   finding "the validate report names no hook or call for $MOD (is the module still listed?)"
 fi
-comm -23 "$scratch/reported" "$scratch/allowed" | while IFS= read -r extra; do
-  echo "$prog: $MOD uses $extra, which config/panel-mod-surface.txt does not name" >&2
-  echo x
-done >"$scratch/extras"
-[ ! -s "$scratch/extras" ] || findings=$((findings + $(wc -l <"$scratch/extras")))
+comm -23 "$scratch/reported" "$scratch/allowed" >"$scratch/extras"
+while IFS= read -r extra; do
+  finding "$MOD uses $extra, which config/panel-mod-surface.txt does not name"
+done <"$scratch/extras"
 comm -13 "$scratch/reported" "$scratch/allowed" | while IFS= read -r stale; do
   echo "$prog: warning: config/panel-mod-surface.txt names $stale, which the module no longer uses" >&2
 done
 
-# run_tests <dir> <log>: the plugin tests; prints `<pass> <fail>`.
+# run_tests <dir> <log>: the plugin tests; prints `<exit> <pass> <fail>`.
 run_tests() {
   claude plugin test "$1" >"$2" 2>&1
   rt_rc=$?
@@ -130,12 +129,15 @@ else
   echo "$prog: $t_pass plugin tests passed on claude $version"
 fi
 
-# 4. A seeded drawing defect: a prop no surface takes on the pane's boxes.
+# 4. A seeded drawing defect: a prop no surface takes on the pane's boxes,
+# run against the drawing tests alone.
 seed=$scratch/seeded
 mkdir -p "$seed/.claude-plugin" "$seed/hooks" "$seed/config"
 if ! { cp "$root/.claude-plugin/plugin.json" "$seed/.claude-plugin/" \
   && cp "$root/hooks/mods.json" "$seed/hooks/" \
-  && cp -R "$root/hooks/mission-control" "$seed/hooks/" \
+  && mkdir -p "$seed/hooks/mission-control" \
+  && cp "$root/hooks/mission-control"/*.ts "$root/hooks/mission-control"/*.tsx "$seed/hooks/mission-control/" \
+  && rm -f "$seed/hooks/mission-control/wake.test.tsx" "$seed/hooks/mission-control/compaction.test.tsx" \
   && cp -R "$root/types" "$seed/"; }; then
   echo "$prog: cannot copy the mod to seed a defect" >&2
   exit 2
@@ -150,6 +152,11 @@ $(run_tests "$seed" "$scratch/seeded.log")
 EOF
   if [ "$s_rc" -eq 0 ] && [ "$s_fail" -eq 0 ]; then
     finding "the plugin tests passed over a seeded drawing defect, so they would not catch one"
+  elif [ "$s_fail" -eq 0 ] || [ "$s_pass" -eq 0 ]; then
+    # Failing for another reason (nothing ran, or nothing loaded) proves
+    # nothing about drawing defects.
+    finding "the seeded run failed without failing a drawing test (exit $s_rc, $s_pass pass, $s_fail fail)"
+    sed -n '1,40p' "$scratch/seeded.log" >&2
   else
     echo "$prog: the seeded drawing defect fails the suite ($s_fail of $((s_pass + s_fail)) tests)"
   fi
