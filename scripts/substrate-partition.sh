@@ -13,7 +13,8 @@
 #   git       the script is itself a tracked git hook
 #   githook   named in a tracked git hook's code
 #   hook      named in a hook registration's command (hooks/hooks.json and the
-#             worker and tower settings fragments under config/)
+#             worker, tower and mission-control settings fragments under
+#             config/)
 #   skill     named anywhere in a skill body (skills/**/SKILL.md)
 #   script    named in another layer script's code
 #   task      named in the run body of a task in mise.toml, or its `file`
