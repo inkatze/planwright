@@ -773,6 +773,46 @@ chmod 644 "$tmp/badroot/config/worker-settings.json"
 echo "ok: c9 pinned non-bare launch shape with the settings pin, prompt-as-data, --bare and --settings refused, missing fragment fails closed (REQ-A1.9, D-12, D-19)"
 
 # ---------------------------------------------------------------------------
+# c9p (mission-control REQ-G1.1): --profile pins another shipped fragment by
+#    kind, a recover relaunches under the recorded one, and anything else is
+#    refused.
+# ---------------------------------------------------------------------------
+for kind in tower mission-control; do
+  : >"$rec/argv"
+  senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+    launch "sjw9p-$kind" mission-control:3 --prompt-file "$tmp/prompt9" --profile "$kind" --foreground \
+    || fail "c9p: a --profile $kind launch exited non-zero"
+  case $(cat "$rec/argv") in
+    *"--settings "*"/config/$kind-settings.json"*) : ;;
+    *) fail "c9p: a --profile $kind launch must pin $kind-settings.json: $(cat "$rec/argv")" ;;
+  esac
+  [ "$(cat "$home/streamjson/sjw9p-$kind/profile" 2>/dev/null)" = "$kind" ] \
+    || fail "c9p: the launch must record the $kind profile for its recover"
+done
+: >"$rec/argv"
+senv "$home" "$rec" -- \
+  launch sjw9q mission-control:3 --prompt-file "$tmp/prompt9" --profile "$tmp/other.json" --foreground >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c9p: a --profile that is not a shipped kind must be refused (exit 2)"
+[ ! -s "$rec/argv" ] || fail "c9p: the refused --profile launch must never spawn the worker"
+mkdir -p "$home/streamjson/sjw9t"
+printf 'mission-control:3\n' >"$home/streamjson/sjw9t/scope"
+printf 'tower\n' >"$home/streamjson/sjw9t/profile"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- \
+  launch sjw9t --resume-session "$sid" --foreground >/dev/null 2>&1
+case $(cat "$rec/argv") in
+  *"--settings "*"/config/tower-settings.json"*) : ;;
+  *) fail "c9p: a relaunch must pin the recorded tower profile: $(cat "$rec/argv")" ;;
+esac
+printf 'bogus\n' >"$home/streamjson/sjw9t/profile"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- \
+  launch sjw9t --resume-session "$sid" --foreground >/dev/null 2>&1
+[ $? -eq 7 ] || fail "c9p: a relaunch with an unknown recorded profile must be refused (exit 7)"
+[ ! -s "$rec/argv" ] || fail "c9p: the refused relaunch must never spawn the worker"
+echo "ok: c9p --profile pins a shipped fragment by kind and a recover keeps it (mission-control REQ-G1.1)"
+
+# ---------------------------------------------------------------------------
 # c39 (custom-spec-location REQ-E1.7): the spec-root hand-off. A worker whose
 #     work repository keeps its spec root outside it (here a plain store) gets
 #     that root as PLANWRIGHT_WORKER_SPEC_ROOT; a worker whose root is in its

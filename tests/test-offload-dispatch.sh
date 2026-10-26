@@ -179,9 +179,45 @@ grep -qF "$promptfile" "$tmp/tmux-argv" || fail "dispatch tmux: prompt-file path
 # never be parsed as a claude option. Any resolved launch-tier flags arrive as
 # argv the spawned shell forwards through "$@", ahead of that pin, so they are
 # never spliced into the script text.
-grep -q 'claude "$@" -- ' "$tmp/tmux-argv" \
-  || fail "dispatch tmux: claude launch not pinned with -- end-of-options"
+grep -q 'exec "$@" -- "$p"' "$tmp/tmux-argv" \
+  || fail "dispatch tmux: the launch is not pinned with -- end-of-options"
+grep -qx 'claude' "$tmp/tmux-argv" || fail "dispatch tmux: claude is not the launched command word"
+grep -q 'fleet-dispatch-env.sh\|--settings' "$tmp/tmux-argv" \
+  && fail "dispatch tmux: a petition with no --profile must launch claude directly, with no profile"
 ok "dispatch tmux reports the spawned window handle; petition rides an absolutized file read behind --"
+
+# 4a. a session-kind launch: --profile goes through the dispatch-env wrapper
+#     with the shipped fragment, --name names the window and the session, and
+#     --key resolves the tier at that allocation key.
+: >"$tmp/tmux-argv"
+out=$(PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT /bin/sh "$script" \
+  dispatch tmux "$promptfile" --profile mission-control --name mc-alpha-reviewer-1 --key execution) \
+  || fail "dispatch tmux --profile exited nonzero"
+grep -q 'fleet-dispatch-env.sh$' "$tmp/tmux-argv" || fail "dispatch tmux --profile: not launched through fleet-dispatch-env.sh"
+grep -q '/config/mission-control-settings.json$' "$tmp/tmux-argv" || fail "dispatch tmux --profile: the mission-control fragment is not passed"
+grep -qx -- '--settings' "$tmp/tmux-argv" || fail "dispatch tmux --profile: no --settings word"
+[ "$(grep -cx 'mc-alpha-reviewer-1' "$tmp/tmux-argv")" = 2 ] \
+  || fail "dispatch tmux --name: the name must name both the window and the session"
+grep -qx -- '--model' "$tmp/tmux-argv" && grep -qx 'opus' "$tmp/tmux-argv" \
+  || fail "dispatch tmux --key execution: the execution key's model is not applied"
+for bad in '--profile /tmp/x.json' '--profile bogus' '--name bad=name' '--key Bad-Key'; do
+  rc=0
+  # shellcheck disable=SC2086 # the option and its value, split on purpose
+  run_stub dispatch tmux "$promptfile" $bad >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 2 ] || fail "dispatch tmux $bad: expected exit 2, got $rc"
+done
+rc=0
+run dispatch print "$promptfile" --profile worker >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "dispatch print --profile: expected exit 2 (tmux only), got $rc"
+mkdir -p "$tmp/noprof/scripts"
+cp "$here"/../scripts/*.sh "$tmp/noprof/scripts/"
+: >"$tmp/tmux-argv"
+rc=0
+PATH="$stubbin:$PATH" sandbox_env env PLANWRIGHT_ROOT="$tmp/noprof" /bin/sh "$tmp/noprof/scripts/offload-dispatch.sh" \
+  dispatch tmux "$promptfile" --profile tower >/dev/null 2>"$tmp/err4a" || rc=$?
+[ "$rc" -eq 2 ] || fail "dispatch tmux --profile with no readable profile: expected exit 2, got $rc"
+[ ! -s "$tmp/tmux-argv" ] || fail "dispatch tmux --profile with no readable profile: tmux was still called"
+ok "dispatch tmux --profile/--name/--key launch a session kind under its shipped fragment"
 
 # 4b. a RELATIVE prompt-file path is absolutized before dispatch. The
 #     expected form is pwd-normalized (a TMPDIR with a trailing slash makes

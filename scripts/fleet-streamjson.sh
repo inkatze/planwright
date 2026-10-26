@@ -19,7 +19,11 @@
 # D-19/REQ-E1.4. Pinning means never passing `--bare`, always passing the
 # fragment under the root the core root chain names (fleet-launch-profile.sh),
 # and REFUSING a caller-supplied `--bare`,
-# `--settings`, or `--name`. The fragment is the mode source:
+# `--settings`, or `--name`. `launch --profile <kind>` picks another of the
+# shipped fragments by kind (tower or mission-control, for the sessions
+# scripts/mission-control-launch.sh starts), resolved the same way and
+# recorded so a recover relaunches under it; a path is never accepted. The
+# fragment is the mode source:
 # Claude Code honors a `defaultMode` of auto from the operator's own user
 # settings, so a worker launched without a readable fragment inherits the LLM
 # approval classifier in place of the human-reviewed allowlist, and the stdio
@@ -167,8 +171,10 @@
 #
 # Usage:
 #   fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>
-#       [--cwd <dir>] [--foreground] [-- <extra claude args>...]
-#       Launch a worker under a supervisor. Detached by default (prints
+#       [--profile worker|tower|mission-control] [--cwd <dir>] [--foreground]
+#       [-- <extra claude args>...]
+#       Launch a worker under a supervisor, under the settings fragment of
+#       --profile (default worker). Detached by default (prints
 #       `launched <worker> dir <dir>`); --foreground runs the supervisor
 #       loop in this process (fixtures; returns the worker's exit code). A
 #       caller-supplied `--bare` (or `-b`) in the extra args is refused
@@ -434,7 +440,7 @@ valid_posnum() {
 
 usage() {
   {
-    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--cwd <dir>] [--foreground] [-- <extra args>...]"
+    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
     echo "       fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]"
@@ -1459,16 +1465,16 @@ refuse_mode_overrides() {
   done
 }
 
-# worker_settings_path — print the reviewed permission fragment the launch
-# pins: the worker profile under the root the core root chain names
+# worker_settings_path <kind> — print the reviewed permission fragment the
+# launch pins: the <kind> profile under the root the core root chain names
 # (fleet-launch-profile.sh), whose first arms are the roots the dispatch-env
 # wrapper pins the worker to, so the profile and the hooks it names come from
 # one install. Fails closed when it cannot be
 # read: an unverifiable mode source is no mode source, and a worker launched
 # without one inherits the operator's (see the header).
 worker_settings_path() {
-  if ! ws_path=$(/bin/sh "$script_dir/fleet-launch-profile.sh" worker </dev/null); then
-    printf '%s\n' "$me: refusing to launch: without its worker-settings fragment the worker inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
+  if ! ws_path=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$1" </dev/null); then
+    printf '%s\n' "$me: refusing to launch: without its $1-settings fragment the session inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
     return 7
   fi
   printf '%s\n' "$ws_path"
@@ -1896,11 +1902,20 @@ cmd_launch() {
   run_cwd=''
   foreground=0
   resume_sid=''
+  profile=''
   while [ $# -gt 0 ]; do
     case $1 in
       --prompt-file)
         [ $# -ge 2 ] || usage
         prompt_file=$2
+        shift 2
+        ;;
+      --profile)
+        [ $# -ge 2 ] || usage
+        case $2 in
+          worker | tower | mission-control) profile=$2 ;;
+          *) usage ;;
+        esac
         shift 2
         ;;
       --cwd)
@@ -1967,7 +1982,23 @@ cmd_launch() {
     printf '%s\n' "$me: refusing to launch: the worker handle is outside the relay's stream-json-persistent grammar (orchestrate-relay.sh validate-handle), which names the session" >&2
     exit 2
   fi
-  worker_settings=$(worker_settings_path) || exit 7
+  # A recover relaunches under the fragment its launch recorded; a launch from
+  # before the record existed was a worker's.
+  if [ -n "$resume_sid" ] && [ -z "$profile" ]; then
+    pf_dir=$(worker_dir "$worker") || exit 2
+    if [ -e "$pf_dir/profile" ] || [ -L "$pf_dir/profile" ]; then
+      profile=$(cat "$pf_dir/profile" 2>/dev/null) || profile=''
+      case $profile in
+        worker | tower | mission-control) ;;
+        *)
+          printf '%s\n' "$me: refusing to recover $worker: its recorded settings profile is unreadable or unknown" >&2
+          exit 7
+          ;;
+      esac
+    fi
+  fi
+  [ -n "$profile" ] || profile=worker
+  worker_settings=$(worker_settings_path "$profile") || exit 7
   dispatch_env=$(dispatch_env_path) || exit 8
   guard_preflight "$dispatch_env" "${run_cwd:-$PWD}"
   gp_rc=$?
@@ -2032,6 +2063,9 @@ cmd_launch() {
 
   if [ -n "$scope" ]; then
     printf '%s\n' "$scope" >"$dir/scope"
+  fi
+  if [ -z "$resume_sid" ]; then
+    printf '%s\n' "$profile" >"$dir/profile" || exit 2
   fi
   # The worker identity its hooks key on (attention rows, liveness, and its
   # self-registration), and the inbound layer the messaging probe reads beside

@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_about": "planwright mission-control settings profile (mission-control D-10, REQ-G1.1, REQ-G1.4, REQ-I1.2). The Claude Code settings fragment a MISSION-CONTROL session runs under, delivered by scripts/mission-control-launch.sh as a `--settings` launch, the only supported delivery; the launcher exports CLAUDE_PLUGIN_ROOT as the planwright root holding the guards, and a running session picks up a changed profile only on relaunch. planwright never edits settings.json itself. IT IS THE TOWER PROFILE (config/tower-settings.json, whose _about documents the shared floor entry by entry) WITH THREE CHANGES. (1) The ready flip: `Bash(gh pr ready:*)` moves from deny to allow, and the policy guard below, at its `mission-control` tier, lets a flip through only inside ready_flip_policy (a `human` value, which every repository the operator does not own sets, refuses it), with the plugin's ready-guard hook checking currency next; a hook deny always wins over this allow. The GitHub MCP flip stays denied whole, so `gh pr ready <number>` is the one flip path. (2) Non-authoring: the policy guard's `mission-control` tier refuses every git mutation (only inspection and listing forms pass) and every gh api branch write, where the tower tier lets commits and unprotected pushes through. (3) No settings or repository writes: a third PreToolUse matcher runs the guard on the Edit, Write, MultiEdit and NotebookEdit tools, refusing a settings file (settings.json, settings.local.json, managed-settings.json, the user-level .claude.json) and any path inside a git work tree, and the Bash guard refuses a command naming a settings file unless it only reads it; a settings change mission control proposes is handed to the operator ready to apply. Every other entry (the deny list, the force-push helper's ask entry, the tower command guard's allow-only approvals) is the tower profile's, and tests/test-mission-control-profile.sh holds the two deny lists in parity. Each policy hook carries the tower profile's fail-closed suffix: a guard that did not run refuses the call. SCOPED: this profile belongs only on a mission-control session's launch, never on a tower's, a worker's, or a human's interactive settings.",
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Edit",
+      "Write",
+      "Bash(gh pr ready:*)"
+    ],
+    "ask": [
+      "Bash(*tower-force-push*)"
+    ],
+    "deny": [
+      "Bash(gh pr merge:*)",
+      "Bash(git merge:*)",
+      "Bash(git pull:*)",
+      "Bash(git rebase:*)",
+      "Bash(git commit --amend:*)",
+      "Bash(git commit * --amend*)",
+      "Bash(git commit --squash:*)",
+      "Bash(git commit --squash*)",
+      "Bash(git commit * --squash*)",
+      "Bash(git commit --fixup:*)",
+      "Bash(git commit --fixup*)",
+      "Bash(git commit * --fixup*)",
+      "Bash(git commit --am*)",
+      "Bash(git commit * --am*)",
+      "Bash(git commit --sq*)",
+      "Bash(git commit * --sq*)",
+      "Bash(git commit --fix*)",
+      "Bash(git commit * --fix*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(git filter-repo:*)",
+      "Bash(git branch -f:*)",
+      "Bash(git branch --force:*)",
+      "Bash(git update-ref:*)",
+      "Bash(git worktree add --force:*)",
+      "Bash(git worktree add -f:*)",
+      "Bash(git worktree add * --force*)",
+      "Bash(git worktree add * -f*)",
+      "Bash(git worktree add --detach:*)",
+      "Bash(git worktree add * --detach*)",
+      "Bash(git worktree add -b main:*)",
+      "Bash(git worktree add * -b main)",
+      "Bash(git worktree add * -b main *)",
+      "Bash(git worktree add -B main:*)",
+      "Bash(git worktree add * -B main)",
+      "Bash(git worktree add * -B main *)",
+      "Bash(git worktree add * main)",
+      "Bash(git worktree add * main *)",
+      "Bash(git worktree add *refs/heads/main)",
+      "Bash(git worktree add *refs/heads/main *)",
+      "Bash(git worktree add *heads/main)",
+      "Bash(git worktree add *heads/main *)",
+      "Bash(git worktree add *origin/main)",
+      "Bash(git worktree add *origin/main *)",
+      "Bash(git worktree remove --force:*)",
+      "Bash(git worktree remove -f:*)",
+      "Bash(git worktree remove * --force*)",
+      "Bash(git worktree remove * -f*)",
+      "Bash(git worktree move * --force*)",
+      "Bash(git worktree move --force:*)",
+      "Bash(git worktree move * -f*)",
+      "Bash(git worktree move -f:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git push --force-with-lease=*)",
+      "Bash(git push -f:*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push *+*)",
+      "Bash(git push *:main)",
+      "Bash(git push *:main *)",
+      "Bash(git push * main)",
+      "Bash(git push * main *)",
+      "Bash(git push *refs/heads/main)",
+      "Bash(git push *heads/main)",
+      "Bash(git push *heads/main *)",
+      "Bash(git push *:master)",
+      "Bash(git push *:master *)",
+      "Bash(git push * master)",
+      "Bash(git push * master *)",
+      "Bash(git push *heads/master)",
+      "Bash(git push *heads/master *)",
+      "Bash(git push *:planwright/*/spec)",
+      "Bash(git push *:planwright/*/spec *)",
+      "Bash(git push * planwright/*/spec)",
+      "Bash(git push * planwright/*/spec *)",
+      "Bash(git push *heads/planwright/*/spec)",
+      "Bash(git push *heads/planwright/*/spec *)",
+      "Bash(git push --mirror:*)",
+      "Bash(git push * --mirror*)",
+      "Bash(git push --all:*)",
+      "Bash(git push * --all*)",
+      "Bash(git push --mi*)",
+      "Bash(git push * --mi*)",
+      "Bash(git push --al*)",
+      "Bash(git push * --al*)",
+      "Bash(git push --b*)",
+      "Bash(git push * --b*)",
+      "Bash(git push * : *)",
+      "Bash(git -c * push:*)",
+      "mcp__github__merge_pull_request",
+      "mcp__github__update_pull_request",
+      "mcp__github__push_files",
+      "mcp__github__create_or_update_file",
+      "mcp__github__delete_file",
+      "mcp__*__merge_pull_request",
+      "mcp__*__update_pull_request",
+      "mcp__*__push_files",
+      "mcp__*__create_or_update_file",
+      "mcp__*__delete_file",
+      "mcp__*__update_pull_request_branch",
+      "mcp__*__create_pull_request",
+      "mcp__github__update_pull_request_branch"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PLUGIN_ROOT\"/scripts/tower-command-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PLUGIN_ROOT\"/scripts/policy-guard.sh mission-control bash || { echo 'planwright policy-guard.sh did not run, so this call is refused: export CLAUDE_PLUGIN_ROOT as a planwright plugin root holding scripts/policy-guard.sh, then relaunch mission control' >&2; exit 2; }"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github__update_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PLUGIN_ROOT\"/scripts/policy-guard.sh mission-control mcp || { echo 'planwright policy-guard.sh did not run, so this call is refused: export CLAUDE_PLUGIN_ROOT as a planwright plugin root holding scripts/policy-guard.sh, then relaunch mission control' >&2; exit 2; }"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PLUGIN_ROOT\"/scripts/policy-guard.sh mission-control file || { echo 'planwright policy-guard.sh did not run, so this call is refused: export CLAUDE_PLUGIN_ROOT as a planwright plugin root holding scripts/policy-guard.sh, then relaunch mission control' >&2; exit 2; }"
+          }
+        ]
+      }
+    ]
+  }
+}
