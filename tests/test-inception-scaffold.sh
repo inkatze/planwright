@@ -702,6 +702,36 @@ rc=$?
 assert_eq "CLAUDE_DIR install: the credential is refused" "1" "$rc"
 assert_not_contains "CLAUDE_DIR install: planwright is found" "planwright not found" "$out"
 
+# With CLAUDE_DIR set, the core root chain's writer-mode arm is that directory
+# alone, so the probe reads a copy left at ~/.claude/planwright as absent; the
+# hook must agree rather than run guards the probe said would be skipped.
+cdx_home="$tmp/cdx-home"
+mkdir -p "$cdx_home/.claude/planwright/scripts" "$tmp/cdx-claude"
+for s in "$REPO_ROOT/scripts/"inception-*.sh; do
+  printf '%s\n' '#!/bin/sh' 'echo "HOME-COPY ran" >&2' 'exit 1' >"$cdx_home/.claude/planwright/scripts/${s##*/}"
+done
+probe_out="$(env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT HOME="$cdx_home" CLAUDE_DIR="$tmp/cdx-claude" \
+  /bin/sh "$REPO_ROOT/scripts/inception-venture.sh" detect 2>&1)"
+assert_contains "CLAUDE_DIR set: the probe reads the ~/.claude copy as absent" \
+  "$(printf 'plugin\tabsent')" "$probe_out"
+cdx_v="$tmp/venture-claude-dir-mismatch"
+mkdir -p "$cdx_v"
+inception_fixture_write "$cdx_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$cdx_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$cdx_v" >/dev/null 2>&1
+out="$(cd "$cdx_v" && git add -A \
+  && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT HOME="$cdx_home" CLAUDE_DIR="$tmp/cdx-claude" \
+    PLANWRIGHT_SECRET_SCREEN_TOOL=none git commit -qm "CLAUDE_DIR elsewhere" 2>&1)"
+assert_not_contains "CLAUDE_DIR set: the hook skips the ~/.claude copy too" "HOME-COPY" "$out"
+assert_contains "CLAUDE_DIR set: the hook says planwright is not found, as the probe did" \
+  "planwright not found" "$out"
+
 # A planwright copy whose renderer predates --mode and --output cannot render
 # the pages the hook asks for. That is a failed render: it warns and the commit
 # goes through, never refused for an environment reason.

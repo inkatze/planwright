@@ -30,7 +30,7 @@
 #
 # The emitted hook resolves planwright at RUN time: it sources the machine-local
 # .planwright-local.sh, finds a copy (PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT,
-# $CLAUDE_DIR/planwright, ~/.claude/planwright, the plugin cache), then lets a copy that ships the root
+# the writer-mode copy at ${CLAUDE_DIR:-~/.claude}/planwright, the plugin cache), then lets a copy that ships the root
 # helper name the install root through the core root chain. No install path is baked into the tracked file: a venture repo
 # is cloned onto other machines, and a hard-coded path would break on all of
 # them. When planwright cannot be resolved, the hook warns loudly and lets the
@@ -235,8 +235,8 @@ fi
 # splits into candidate fragments that resolve to nothing, planwright reads as
 # not installed, and every guard below skips itself (shellcheck SC2231).
 pw=
-for cand in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" "${CLAUDE_DIR:+$CLAUDE_DIR/planwright}" \
-  "$HOME/.claude/planwright" "$HOME"/.claude/plugins/cache/planwright/planwright/*; do
+for cand in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
+  "${CLAUDE_DIR:-$HOME/.claude}/planwright" "$HOME"/.claude/plugins/cache/planwright/planwright/*; do
   if [ -n "$cand" ] && [ -r "$cand/scripts/inception-validate.sh" ]; then
     pw=$cand
     break
@@ -742,7 +742,8 @@ avoids it entirely.
 ## Where planwright comes from
 
 The hook resolves planwright at run time: \`PLANWRIGHT_ROOT\`, then \`CLAUDE_PLUGIN_ROOT\`, then
-the plugin cache under \`~/.claude\`. No install path is baked into the tracked hook, because this
+\`planwright\` under \`CLAUDE_DIR\` (\`~/.claude\` when it is unset), then the plugin cache under
+\`~/.claude\`. No install path is baked into the tracked hook, because this
 repo gets cloned onto machines where that path does not exist. If planwright lives somewhere
 unusual on your machine, set it in \`.planwright-local.sh\` (gitignored, machine-local, never
 secrets):
