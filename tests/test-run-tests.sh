@@ -9,7 +9,7 @@ unset CDPATH
 # Knobs an outer run may carry: a nested run below that inherited one would
 # write its report, order its queue or size itself by the outer setting.
 unset PLANWRIGHT_TEST_TIMING_REPORT PLANWRIGHT_TEST_DURATIONS PLANWRIGHT_TEST_JOBS \
-  PLANWRIGHT_TEST_SLOTS PLANWRIGHT_TEST_FORCE_SERIAL
+  PLANWRIGHT_TEST_SLOTS PLANWRIGHT_TEST_FORCE_SERIAL PLANWRIGHT_TEST_PIN_ENV
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNNER="$REPO_ROOT/scripts/run-tests.sh"
@@ -487,6 +487,10 @@ assert "a file that pins its own fleet home passes" 0 $?
 mkdir -p "$tmp/cleared" "$tmp/unpinned"
 # shellcheck disable=SC2016
 cleared=$(_hermetic_env_defer=1 /bin/bash -c '. "$1/tests/lib/hermetic-env.sh"; printf "%s " $hermetic_env_cleared' _ "$REPO_ROOT")
+case $cleared in
+  *[A-Z]*) ;;
+  *) assert "the library yields its cleared variables" 0 1 ;;
+esac
 {
   printf '#!/bin/bash\nfor v in %s; do\n' "$cleared"
   # shellcheck disable=SC2016 # the generated file expands these, not this one
@@ -500,10 +504,11 @@ assert "every cleared variable reaches a file unset" 0 $?
 cat >"$tmp/unpinned/test-unpinned.sh" <<EOF
 #!/bin/bash
 [ "\$PLANWRIGHT_ROOT" = /decoy ] && [ "\$PLANWRIGHT_FLEET_STATE_DIR" = "$tmp/operator-fleet" ] \\
-  && [ "\$CLAUDE_PLUGIN_DATA" = "$tmp/operator-data" ]
+  && [ "\$CLAUDE_PLUGIN_DATA" = "$tmp/operator-data" ] && [ "\$CLAUDE_DIR" = "$tmp/operator-claude" ] \\
+  && [ -z "\${PLANWRIGHT_TEST_PIN_ENV+set}" ]
 EOF
-out="$(PLANWRIGHT_ROOT=/decoy PLANWRIGHT_TEST_PIN_ENV=0 /bin/bash "$RUNNER" "$tmp/unpinned" 2>&1)"
-assert "PLANWRIGHT_TEST_PIN_ENV=0 hands the caller's values through untouched" 0 $?
+out="$(PLANWRIGHT_ROOT=/decoy CLAUDE_DIR="$tmp/operator-claude" PLANWRIGHT_TEST_PIN_ENV=0 /bin/bash "$RUNNER" "$tmp/unpinned" 2>&1)"
+assert "PLANWRIGHT_TEST_PIN_ENV=0 hands the caller's values through untouched, but not the switch itself" 0 $?
 out="$(PLANWRIGHT_ROOT=/decoy /bin/bash "$RUNNER" "$tmp/unpinned" 2>&1)"
 assert "without the switch the same file sees the pinned values" 1 $?
 unset PLANWRIGHT_FLEET_STATE_DIR CLAUDE_PLUGIN_DATA

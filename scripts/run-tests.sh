@@ -290,6 +290,9 @@ if [ "${1:-}" = "--run-one" ]; then
   fleet_sentinel="$PLANWRIGHT_TEST_LOG_DIR/$name.fleet"
   pin_env=1
   [ "${PLANWRIGHT_TEST_PIN_ENV:-1}" != 0 ] || pin_env=0
+  # The switch is this run's alone: a suite that drives a nested runner must
+  # get its default pinning, not the outer run's opt-out.
+  unset PLANWRIGHT_TEST_PIN_ENV
   if [ "$pin_env" -eq 1 ]; then
     hermetic_env_clear
     hermetic_env_sentinel "$fleet_sentinel"
