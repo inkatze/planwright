@@ -124,10 +124,9 @@ partial graduation therefore records a continuing top-level outcome
 (`Recycle` or `Hold`) with `<label>=Graduate` in `Tracks:`, and the
 graduated track's
 declaration bullet gains its `— graduated <date>` annotation. In a tracked
-venture a top-level `Graduate` or `Kill` is recorded only when every declared track is
-graduated or ended by then, this record included, since either closes the
-venture; a `Graduate` or `Kill` record that leaves a live track unannotated is
-a validation finding. An `On-hold`
+venture a closing `Graduate` or `Kill` is recorded only when every declared
+track is graduated or ended by then, this record included; one leaving a live
+track unannotated is a validation finding. An `On-hold`
 venture resumes to `Exploring` by operator act, or closes via a gate run or
 operator declaration. Killed and Abandoned ventures are archived with a brief
 post-mortem note appended to the changelog. Every status change is a
@@ -458,8 +457,7 @@ graduated scope (`venture` when untracked, else the track label):
 A location is venture-relative inside the venture, else `<repo>:<path>`.
 `pending` gives way to the spec's location once that spec's `## Sources`
 cites the lineage key the seed carries, `inception:<venture-id>[/<label>]`.
-Either direction missing is a lineage finding; a `pending` spec is not, since
-no spec exists yet to cite the key.
+Either direction missing is a lineage finding; `pending` is not.
 
 ## Format-version rules
 
