@@ -990,3 +990,7 @@ mission_control_default_duties: [session-keeper, inbox, readiness-check, conflic
 # designs is cited by default.
 # yamllint disable-line rule:line-length
 mission_control_default_sources: {work-items: specs:record, code-state: forge:snapshot, decisions: specs:record, deadlines: specs:record}
+# The rung scripts/mission-control-launch.sh starts a session on when the
+# launch names none: stream-json (a supervised session reached by message) or
+# tmux (a detached window).
+mission_control_launch_backend: stream-json

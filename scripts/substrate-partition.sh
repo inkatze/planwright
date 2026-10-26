@@ -226,7 +226,7 @@ dups=$(awk '/^scripts\// { b = $0; sub(/.*\//, "", b); print b }' "$work/layer" 
 # The settings fragments are optional; each registration that exists must
 # register something, or its scripts would drop a tier unnoticed.
 : >"$work/hookcmds"
-for f in hooks/hooks.json config/worker-settings.json config/tower-settings.json; do
+for f in hooks/hooks.json config/worker-settings.json config/tower-settings.json config/mission-control-settings.json; do
   [ -e "$repo_root/$f" ] || continue
   jq -r '.hooks // {} | [.. | objects | .command? // empty | strings] | .[]' "$repo_root/$f" \
     >"$work/hookcmds.one" 2>/dev/null || fail_closed "$f is not readable JSON"

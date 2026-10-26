@@ -60,8 +60,9 @@
 #
 # Usage: check-hook-contracts.sh [--hooks <file>]... [--fixtures <dir>]
 #                               [--implementer <Event>]...
-#        --hooks defaults to the three surfaces planwright registers through:
-#        hooks/hooks.json, config/worker-settings.json, config/tower-settings.json.
+#        --hooks defaults to the four surfaces planwright registers through:
+#        hooks/hooks.json and the worker, tower and mission-control settings
+#        fragments under config/.
 #        The first --hooks replaces that set; further ones add to it.
 # Exit:  0 clean · 1 findings · 2 usage or environment error (fail closed).
 set -u
@@ -72,14 +73,15 @@ FIXTURE_DIR="$REPO_ROOT/tests/fixtures/hook-payloads"
 IMPLEMENTERS=""
 HOOK_TIMEOUT=20
 
-# planwright registers hooks in three places, and all three are the surface:
-# the plugin-global file, plus the worker and tower settings fragments that
-# each wire a PreToolUse command guard. Checking only the first would report
-# clean over two thirds of what actually gets registered.
+# planwright registers hooks in four places, and all four are the surface:
+# the plugin-global file, plus the worker, tower and mission-control settings
+# fragments that each wire a PreToolUse command guard. Checking only the first
+# would report clean over most of what actually gets registered.
 HOOKS_FILES=(
   "$REPO_ROOT/hooks/hooks.json"
   "$REPO_ROOT/config/worker-settings.json"
   "$REPO_ROOT/config/tower-settings.json"
+  "$REPO_ROOT/config/mission-control-settings.json"
 )
 HOOKS_OVERRIDDEN=0
 

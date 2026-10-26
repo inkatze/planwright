@@ -186,13 +186,14 @@ fi
 # future genuine invocation cannot hide merely by resembling them):
 #   - whole-line comments (leading `#`) are documentation, not code;
 #   - the Claude Code PERMISSIONS POLICY files, whose `gh pr merge` token is a
-#     DENY rule (it BANS merging) — the opposite of a violation. Both the worker
-#     policy (config/worker-settings.json) and the tower policy
-#     (config/tower-settings.json, fleet-hardening D-8) carry the deny, so both
+#     DENY rule (it BANS merging) — the opposite of a violation. The worker
+#     policy (config/worker-settings.json), the tower policy
+#     (config/tower-settings.json, fleet-hardening D-8) and the mission-control
+#     policy (config/mission-control-settings.json) carry the deny, so they
 #     are excluded by PATH and separately asserted to be a deny.
 # Note the detection code in scripts/tasks-pr-sync.sh uses the `gh_pr` wrapper
 # (underscore), which never matches the literal `gh pr merge` scanned here.
-POLICY_FILES="config/worker-settings.json config/tower-settings.json"
+POLICY_FILES="config/worker-settings.json config/tower-settings.json config/mission-control-settings.json"
 # The policy guard names the merge spellings to REFUSE them, like the
 # permissions files; it is excluded by path the same way and proven below to
 # deny them. The policy-class merge helper is the one agent merge call site

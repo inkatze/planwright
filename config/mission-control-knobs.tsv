@@ -8,3 +8,4 @@ program-registry	mission_control_programs	scripts/mc-program.sh
 program-home-root	mission_control_home_root	scripts/mc-program.sh
 default-duty-set	mission_control_default_duties	scripts/mc-program.sh
 default-source-map	mission_control_default_sources	scripts/mc-program.sh
+launch-backend	mission_control_launch_backend	scripts/mission-control-launch.sh
