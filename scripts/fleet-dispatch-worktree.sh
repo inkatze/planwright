@@ -134,11 +134,11 @@
 #
 # Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
 # without one trailing slash; scripts/spec-id-lib.sh):
-#   fleet-dispatch-worktree.sh dispatch <spec> <id> \
+#   fleet-dispatch-worktree.sh dispatch <spec> <id> [--brief <abs-file>] \
 #       [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] \
 #       [-- <extra launch args>...]
-#       Validate, fetch `<base>`, reconcile, `git worktree add -b`, launch, then
-#       confirm. The report is `dispatch<TAB><key><TAB><value>` lines (branch,
+#       Validate, fetch `<base>`, reconcile, `git worktree add -b`, wire the
+#       hook backstop, launch, then confirm. The report is `dispatch<TAB><key><TAB><value>` lines (branch,
 #       worktree, base), `launch` lines (session, window, handle, since,
 #       token), and `confirm` lines (outcome, session, handle, reason).
 #       Its exit status is the launch outcome (0, 14, or 16 below), never
@@ -157,6 +157,12 @@
 #                        Launches no worker, so it takes no post-`--` launch
 #                        args (refused, not dropped), and the tmux rung's
 #                        charset does not apply to it.
+#       --brief          the task brief (scripts/fleet-task-brief.sh render)
+#                        the launch hands the worker, under the flight arm's
+#                        confinement below with the unit's own
+#                        `<fleet-home>/tasks/<spec>/<id>/brief.md` the only
+#                        path accepted, every directory from the fleet home
+#                        down private to the user.
 #       Everything after `--` is passed through to the `claude` launch argv.
 #   fleet-dispatch-worktree.sh dispatch --flight <flight-id> [--brief <abs-file>] \
 #       [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] \
@@ -306,6 +312,7 @@ LAUNCH_SPEC_ROOT=""
 LAUNCH_RECORD=""
 MARKER="$script_dir/orchestrate-marker.sh"
 TRACK="$script_dir/fleet-worktree-track.sh"
+WIRE="$script_dir/wire-githooks.sh"
 FLEET_STATE="$script_dir/fleet-state.sh"
 
 # How recent an orchestrate-marker must be to count as a LIVE dispatch when no
@@ -326,7 +333,7 @@ warn() {
 
 usage() {
   cat >&2 <<'EOF'
-usage: fleet-dispatch-worktree.sh dispatch <spec> <id> [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
+usage: fleet-dispatch-worktree.sh dispatch <spec> <id> [--brief <abs-file>] [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh dispatch --flight <flight-id> [--brief <abs-file>] [--relaunch] [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh attach <suffix> --dry-run [--brief <abs-file>] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh confirm --session <name> --handle <handle> [--since <epoch|unknown>] [--token <hex>]
@@ -338,8 +345,8 @@ EOF
 REGISTER="$script_dir/fleet-register.sh"
 TAB=$(printf '\t')
 
-# The one prompt a flight dispatch hands its worker (dispatch --flight --brief);
-# empty for every other launch.
+# The one prompt a brief launch hands its worker (dispatch --brief); empty for
+# every other launch.
 ATTACH_PROMPT=''
 
 # --- Session names --------------------------------------------------------
@@ -614,10 +621,11 @@ valid_flight() {
 # BRIEF_PATH — the canonical path valid_brief accepted.
 BRIEF_PATH=''
 
-# valid_brief <path> <flight-id> — the brief the launch hands a flight worker
-# is that flight's own `brief.md` under the fleet home, after canonicalization,
-# on a conservative charset: its path rides the prompt argv, so no other file
-# can be handed to a worker as its instructions.
+# valid_brief <path> <unit-dir> — the brief the launch hands a worker is its
+# unit's own `brief.md` under the fleet home (<unit-dir> is `flights/<flight-id>`
+# or `tasks/<spec>/<id>`), after canonicalization, on a conservative charset:
+# its path rides the prompt argv, so no other file can be handed to a worker as
+# its instructions.
 valid_brief() {
   case $1 in
     /*) ;;
@@ -633,13 +641,20 @@ valid_brief() {
   _vb_home=$(/bin/sh "$FLEET_STATE" root 2>/dev/null </dev/null) || return 1
   [ -n "$_vb_home" ] || return 1
   _vb_home=$(cd "$_vb_home" 2>/dev/null && pwd -P) || return 1
-  [ "$_vb_dir" = "$_vb_home/flights/$2" ] || return 1
+  [ "$_vb_dir" = "$_vb_home/$2" ] || return 1
   case $_vb_dir in
     *[!A-Za-z0-9._/@+-]*) return 1 ;;
   esac
   # Anyone who can write one of these directories can swap the brief a
   # worker is told to follow.
-  private_dir "$_vb_home" && private_dir "$_vb_home/flights" && private_dir "$_vb_dir" || return 1
+  private_dir "$_vb_home" || return 1
+  _vb_at=$_vb_home
+  _vb_rest=$2/
+  while [ -n "$_vb_rest" ]; do
+    _vb_at=$_vb_at/${_vb_rest%%/*}
+    _vb_rest=${_vb_rest#*/}
+    private_dir "$_vb_at" || return 1
+  done
   BRIEF_PATH="$_vb_dir/brief.md"
 }
 
@@ -657,7 +672,7 @@ refuse_resume_beside_brief() {
   for _rb in "$@"; do
     case $_rb in
       --continue | -c | --resume | --resume=* | -r | -r=*)
-        warn "refusing $_rb beside a flight brief: a brief launch starts a fresh session"
+        warn "refusing $_rb beside a brief: a brief launch starts a fresh session"
         exit 2
         ;;
     esac
@@ -970,7 +985,7 @@ do_attach() {
       warn "--brief is a flight option: the suffix must be flight-<flight-id>"
       exit 2
     fi
-    valid_brief "$_abrief" "$_aflight" || {
+    valid_brief "$_abrief" "flights/$_aflight" || {
       warn "--brief must be the flight's own brief.md under the fleet home (flights/<flight-id>/), non-empty, on the path charset [A-Za-z0-9._/@+-], in directories only you can write"
       exit 2
     }
@@ -1292,13 +1307,9 @@ do_dispatch() {
     }
   else
     [ -n "$_spec" ] && [ -n "$_id" ] || usage
-    [ -z "$_brief" ] || {
-      warn "--brief is a flight option (--flight <flight-id>)"
-      usage
-    }
   fi
   if [ "$_brief_set" -eq 1 ] && [ -z "$_brief" ]; then
-    warn "--brief is empty: name the flight's own brief.md, or drop --brief"
+    warn "--brief is empty: name the unit's own brief.md, or drop --brief"
     exit 2
   fi
   if [ -n "$_brief" ] && [ "$_no_attach" -eq 1 ]; then
@@ -1327,7 +1338,7 @@ do_dispatch() {
       exit 2
     }
     if [ -n "$_brief" ]; then
-      valid_brief "$_brief" "$_flight" || {
+      valid_brief "$_brief" "flights/$_flight" || {
         warn "--brief must be the flight's own brief.md under the fleet home (flights/<flight-id>/), non-empty, on the path charset [A-Za-z0-9._/@+-], in directories only you can write"
         exit 2
       }
@@ -1350,6 +1361,13 @@ do_dispatch() {
       warn "invalid task id (D-36 grammar): $_id"
       exit 2
     }
+    if [ -n "$_brief" ]; then
+      valid_brief "$_brief" "tasks/$_spec/$_id" || {
+        warn "--brief must be the unit's own brief.md under the fleet home (tasks/<spec>/<id>/), non-empty, on the path charset [A-Za-z0-9._/@+-], in directories only you can write"
+        exit 2
+      }
+      ATTACH_PROMPT="Read $BRIEF_PATH and follow it exactly."
+    fi
     _suffix="$_spec-task-$_id"
     _branch="planwright/$_spec/task-$_id"
   fi
@@ -1675,6 +1693,23 @@ do_dispatch() {
         _made_worktree=1
       fi
     fi
+  fi
+
+  # A worktree this run placed is wired to the tracked hook backstop rather
+  # than trusted to inherit the clone's core.hooksPath, which Claude Code's
+  # own worktree creation rewrites to an absolute path. Every note the wire
+  # step prints is relayed, so a replaced or re-enabled value stays visible; a
+  # failure does not fail the dispatch, since check:githooks reports it inside
+  # the worktree. The write is clone-wide, so a failed launch's undo leaves it.
+  if [ "$_made_worktree" -eq 1 ]; then
+    _wrc=0
+    _werr=$(cd "$_worktree" && "$WIRE" --if-tracked 2>&1 >/dev/null </dev/null) || _wrc=$?
+    while IFS= read -r _wline; do
+      [ -z "$_wline" ] || warn "$_wline"
+    done <<WERR
+$_werr
+WERR
+    [ "$_wrc" -eq 0 ] || warn "the hook backstop was not wired in $_worktree (exit $_wrc)"
   fi
 
   # Push the worktree into the registry and stamp the dispatch marker (the

@@ -23,7 +23,8 @@
 #    session without both is a silent no-op. Event -> transition map:
 #      stop                Stop              -> idle   (working -> idle; a LIVE
 #                          fork-park is PRESERVED, not cleared — a turn-end is not
-#                          a dead worker, fleet-hardening Task 2 NS-4)
+#                          a dead worker, fleet-hardening Task 2 NS-4) + an idle
+#                          exit-edge marker whenever the row now reads idle
 #      permission-request  PermissionRequest -> awaiting-input (permission) +
 #                          a pending-permission marker. The row carries the
 #                          `permission` marker in field 9 and the prompt's own
@@ -33,7 +34,9 @@
 #                          permission OR a fork-park marker is live (the
 #                          documented awaiting-human -> working INFERENCE /
 #                          resume exit edge; D-1 for permissions, fleet-
-#                          hardening Task 2 D-2 for the fork-park)
+#                          hardening Task 2 D-2 for the fork-park); or, when an
+#                          idle marker is present, idle -> working once under
+#                          --unless-awaiting (the resume edge)
 #      session-end         SessionEnd        -> ended  (session termination)
 #      stop-failure        StopFailure       -> hung   (turn ended on an API
 #                          error resembles a stopped-responding worker —
@@ -1285,6 +1288,7 @@ case "$cmd" in
     }
     marker="$root/liveness/pending/$handle"
     await_marker="$root/liveness/awaiting/$handle"
+    idle_marker="$root/liveness/idle/$handle"
     case "$event" in
       session-start)
         # The worker's own startup confirmation (fleet-hardening D-15): the
@@ -1405,32 +1409,46 @@ case "$cmd" in
         #   2. A FORK-PARK (fleet-hardening Task 2, D-2): the next tool use after
         #      an answered AskUserQuestion fork is the worker resuming — the exit
         #      edge, awaiting-human -> working.
+        #   3. An IDLE marker: the Stop push left it, so this tool use is the
+        #      worker resuming from idle, whatever resumed it (a message, an
+        #      operator's typed turn).
         # Known inference limitation (D-1): a parallel unrelated tool's
         # PostToolUse can clear a still-pending marker; the ground-truth
         # reconcile (REQ-A1.8) re-derives the awaiting state next sweep.
-        if [ ! -e "$marker" ] && [ ! -e "$await_marker" ]; then
+        if [ ! -e "$marker" ] && [ ! -e "$await_marker" ] && [ ! -e "$idle_marker" ]; then
           exit 0
         fi
-        # Each resolving branch drops BOTH markers, not just the one it fired on:
-        # a permission decide overwriting a fork-park row (or vice versa) leaves
-        # the other marker co-resident, and a leaked marker must never outlive
-        # the row it identified (the liveness-artifacts-cleanup discipline).
+        # Each resolving branch drops EVERY marker, not just the one it fired on:
+        # a permission decide overwriting a fork-park row (or vice versa), or
+        # either landing after a stop, leaves the others co-resident, and a
+        # leaked marker must never outlive the row it identified (the
+        # liveness-artifacts-cleanup discipline).
         if marker_live_permission "$root" "$handle"; then
-          rm -f "$marker" "$await_marker" 2>/dev/null || true
+          rm -f "$marker" "$await_marker" "$idle_marker" 2>/dev/null || true
           "$FA" heartbeat "$handle" "$scope" working >/dev/null 2>&1 \
             || echo "fleet-liveness: state push (working) failed; reconcile self-heals (D-1)" >&2
         elif marker_live_awaiting "$root" "$handle"; then
-          rm -f "$marker" "$await_marker" 2>/dev/null || true
+          rm -f "$marker" "$await_marker" "$idle_marker" 2>/dev/null || true
           "$FA" heartbeat "$handle" "$scope" working >/dev/null 2>&1 \
             || echo "fleet-liveness: state push (working) failed; reconcile self-heals (D-1)" >&2
         else
-          # A leaked/stale marker (either kind): the row was re-decided since (a
-          # flailing or crash-disable escalation now occupies it) or the
+          # A leaked/stale decision marker (either kind): the row was re-decided
+          # since (a flailing or crash-disable escalation now occupies it) or the
           # permission / fork already resolved. Drop the orphan marker(s) but
           # NEVER clobber the current row — auto-resolving a queued human
           # decision is the REQ-A1.3 violation.
           [ -e "$marker" ] && rm -f "$marker" 2>/dev/null
           [ -e "$await_marker" ] && rm -f "$await_marker" 2>/dev/null
+          # The idle edge carries no decision identity, so its only guard is
+          # --unless-awaiting: a decision queued after the stop survives the
+          # write atomically. Consume first, so a later tool's PostToolUse
+          # finds no marker; two truly concurrent ones may both write, which
+          # is harmless (the same working heartbeat).
+          if [ -e "$idle_marker" ]; then
+            rm -f "$idle_marker" 2>/dev/null || true
+            "$FA" heartbeat "$handle" "$scope" working --unless-awaiting >/dev/null 2>&1 \
+              || echo "fleet-liveness: state push (working) failed; reconcile self-heals (D-1)" >&2
+          fi
         fi
         exit 0
         ;;
@@ -1505,6 +1523,22 @@ case "$cmd" in
           [ -e "$await_marker" ] && rm -f "$await_marker" 2>/dev/null
           "$FA" heartbeat "$handle" "$scope" "$target" --unless-awaiting >/dev/null 2>&1 \
             || printf '%s\n' "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
+        fi
+        # The idle exit-edge marker: read the row back rather than trusting the
+        # branch taken, since an --unless-awaiting push may have no-op'd over a
+        # preserved fork-park or a queued decision. Any other outcome drops a
+        # leftover marker, so a resume never fires the edge over a row the stop
+        # did not idle. Unlike the decision markers, nothing reads this one's
+        # heartbeat back: post-tool-use acts on its presence alone, and the
+        # value is only there for a human inspecting the directory.
+        if [ "$event" = stop ] && [ "$(store_row_field "$root" "$handle" "$FIELD_STATE")" = idle ]; then
+          idle_ts=$(store_row_field "$root" "$handle" "$FIELD_HEARTBEAT")
+          if ! mkdir -p "$root/liveness/idle" 2>/dev/null \
+            || ! atomic_write_file "$idle_marker" "$idle_ts" 2>/dev/null; then
+            echo "fleet-liveness: idle exit-edge marker write failed; the worker reads idle until the sweep heals it rather than on its next tool use (warn)" >&2
+          fi
+        else
+          rm -f "$idle_marker" 2>/dev/null || true
         fi
         exit 0
         ;;
