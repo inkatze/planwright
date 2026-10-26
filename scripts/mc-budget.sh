@@ -18,7 +18,8 @@
 # when never recorded) in <runtime>/in-use, polls from the poll log `poll`
 # keeps (<runtime>/polls), host load as measured (the one-minute load
 # average over the processor count) or as --load gives it. A store that
-# exists but cannot be read fails the call, never counted as zero.
+# exists but cannot be read, or an in-use value that is not a whole number,
+# fails the call, never counted as zero.
 #
 # The rung, lowest to highest; the highest that applies wins:
 #   normal          every dimension below the ladder's throttle threshold
@@ -180,6 +181,7 @@ in_use_of() {
       printf '%s\n' "$iu_v"
       return 0
     fi
+    [ -z "$iu_v" ] || mc_fail "the in-use record's $1 is not a whole number"
   fi
   printf '0\n'
 }

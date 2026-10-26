@@ -32,7 +32,9 @@
 # mission_control_tick_cadence it sends every target without the mod one
 # wake for its events not yet submitted, staged ones included, so an event
 # the push missed, or staged and nobody acknowledged, is found within one
-# tick. A tick with nothing pending sends nothing.
+# tick. A tick with nothing pending sends nothing. Relays and ticks are
+# serialized by the runner's pass (scripts/mc-watch.sh); one run by hand
+# beside a live runner may send a target the same wake twice.
 #
 # Usage:
 #   mc-wake.sh target add --program <p> <worker> [--mod]

@@ -211,6 +211,10 @@ else
   expect_rc "and is never rewritten over" 1
 fi
 chmod 600 "$fleet/mission-control/alpha/in-use"
+printf 'sessions\tmany\n' >"$fleet/mission-control/alpha/in-use"
+mc_run mc-budget.sh admit --program alpha session --now 100000 --load 0
+expect_rc "a malformed in-use value fails, never counted as zero" 1
+expect_err "the malformed dimension is named" "sessions"
 
 # A poll logged by a caller whose clock reads later survives a rewrite.
 program '{polls_per_hour: 10}'
