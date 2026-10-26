@@ -548,7 +548,12 @@ Self-critique pass: nothing further.
 
 Signed off: 2026-10-24
 
-### Execution research: Task 5 (2026-10-25)
+### Execution research: Task 5 (2026-10-25, after sign-off)
+
+Recorded during Task 5's execution, after the sign-off above, as
+`/execute-task`'s research step appends to the risk register. It is not
+part of the walked and signed section and changes no decision; the sign-off
+in section 8 covers the brief as it stood on 2026-10-24.
 
 Scoping: version-sensitive APIs only (the forge's GraphQL schema and the
 fleet's two session relays); no new dependency, so a short pass against

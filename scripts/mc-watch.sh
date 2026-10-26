@@ -38,14 +38,16 @@
 #      handover stop medium-cost ones too, and a watcher above its duty's
 #      spend class is not armed;
 #   3. each watcher: running, armed, or stopped and re-armed, the stop
-#      emitted as a `watcher-stopped` event before the re-arm; a script that
-#      does not resolve, or a cadence that does not parse, is reported
-#      unresolvable and neither armed nor evented; a record no longer in the
+#      emitted as a `watcher-stopped` event before the re-arm; a live one
+#      whose catalog cadence or cost changed is restarted on the new values
+#      (`updated`, no event); a script that does not resolve, or a cadence
+#      that does not parse, is reported unresolvable and neither armed nor
+#      evented, a live loop for it stopped; a record no longer in the
 #      catalog's armed set is disarmed;
 #   4. old events pruned (scripts/mc-event.sh prune), the snapshots
 #      (scripts/mc-snapshot.sh refresh), the wake relay and the tick
 #      (scripts/mc-wake.sh relay, tick).
-# One line per act: armed, rearmed, running (with `unverified` when the
+# One line per act: armed, rearmed, updated, running (with `unverified` when the
 # process table could not be read for its pid, and nothing is re-armed),
 # paused (with the rung or the spend class), unresolvable, disarmed, stopped
 # (with the event id), then the event, snapshot and wake scripts' own lines
@@ -274,11 +276,27 @@ pass() {
       printf 'paused\t%s\t%s\t%s\n' "$duty" "$script" "$reason"
       continue
     fi
+    # Checked before a live record is accepted too: a script removed since it
+    # was armed would otherwise fail at every run behind a `running` line.
+    if ! mc_resolve_script "$script" "$program" >/dev/null || ! mc_seconds "$cadence" >/dev/null; then
+      [ ! -f "$wdir/$s.rec" ] || stop_slot "$s"
+      printf 'unresolvable\t%s\t%s\n' "$duty" "$script"
+      status=1
+      continue
+    fi
     if [ -f "$wdir/$s.rec" ]; then
       pid=$(record_pid "$s")
       ours "$pid" "$s"
       case $? in
         0)
+          # A loop reads its cadence once, so a catalog change restarts it.
+          IFS='	' read -r _ _ _ _ rec_cadence rec_cost <"$wdir/$s.rec"
+          if [ "$rec_cadence" != "$cadence" ] || [ "$rec_cost" != "$cost" ]; then
+            stop_slot "$s"
+            arm "$s" "$duty" "$script" "$cadence" "$cost" || return 1
+            printf 'updated\t%s\t%s\n' "$duty" "$script"
+            continue
+          fi
           printf 'running\t%s\t%s\n' "$duty" "$script"
           continue
           ;;
@@ -287,12 +305,6 @@ pass() {
           continue
           ;;
       esac
-    fi
-    if ! mc_resolve_script "$script" "$program" >/dev/null || ! mc_seconds "$cadence" >/dev/null; then
-      [ ! -f "$wdir/$s.rec" ] || stop_slot "$s"
-      printf 'unresolvable\t%s\t%s\n' "$duty" "$script"
-      status=1
-      continue
     fi
     if [ -f "$wdir/$s.rec" ]; then
       id=$(mc_event emit --program "$program" -- \

@@ -140,7 +140,7 @@ mc_now_arg "$now"
 # load_adapters: ADAPTERS, id<TAB>script<TAB>cadence per valid merged entry
 # and a `bad<TAB><id><TAB><problem>` line per invalid one.
 load_adapters() {
-  la_cat=$(/bin/bash "$script_dir/resolve-catalog.sh" snapshot-adapters 2>/dev/null) \
+  la_cat=$(/bin/bash "$script_dir/resolve-catalog.sh" snapshot-adapters) \
     || mc_fail "the snapshot-adapters catalog does not resolve"
   ADAPTERS=$(printf '%s\n' "$la_cat" | awk '
     function trim(s) { sub(/^[ ]+/, "", s); sub(/[ ]+$/, "", s); return s }

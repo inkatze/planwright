@@ -10,7 +10,8 @@
 #
 # Usage:
 #   mc-event.sh emit --program <p> [--now <epoch>] [--] <kind> <subject> [<text>]
-#       record an event and print its id. <kind> is kebab; <subject> is the
+#       record an event and print its id. <kind> is kebab, at most 64
+#       characters; <subject> is the
 #       fleet field grammar (letters, digits, . _ = @ : -), at most 128
 #       characters; <text> carries no C0 or DEL byte and is at most 512
 #       bytes. A byte in the C1 range is accepted, since UTF-8 text uses it,
@@ -61,13 +62,19 @@ usage() {
   mc_usage_fail "usage: mc-event.sh emit --program <p> [--now <epoch>] [--] <kind> <subject> [<text>] | list --program <p> [--target <t> [--pending]] [<id>...] | mark --program <p> --target <t> submitted|staged <id>... | prune --program <p> [--now <epoch>]"
 }
 
+# valid_id <id>: e<epoch>.<hex>, the epoch a whole number and the suffix a
+# nonempty run of lowercase hex digits.
 valid_id() {
   case $1 in
-    e[0-9]*.*) ;;
+    e*.*) ;;
     *) return 1 ;;
   esac
-  case $1 in
-    *[!a-z0-9.]* | *.*.*) return 1 ;;
+  vi_rest=${1#e}
+  vi_epoch=${vi_rest%%.*}
+  vi_hex=${vi_rest#*.}
+  mc_valid_uint "$vi_epoch" || return 1
+  case $vi_hex in
+    "" | *[!0-9a-f]*) return 1 ;;
   esac
 }
 
@@ -114,6 +121,9 @@ if [ -n "$target" ]; then
 fi
 mc_now_arg "$now"
 store=$(mc_event_store "$program") || mc_fail "cannot create the event store for '$program'"
+if [ -L "$store" ] || [ -L "$store/events" ] || [ -L "$store/marks" ]; then
+  mc_fail "the event store for '$program' is reached through a symbolic link"
+fi
 [ -r "$store/events" ] && [ -x "$store/events" ] || mc_fail "cannot read the event store for '$program'"
 if [ -n "$target" ] && [ -L "$store/marks/$target" ]; then
   mc_fail "the marks for '$target' are a symbolic link"
@@ -125,7 +135,7 @@ case $verb in
     kind=${args[0]}
     subject=${args[1]}
     text=${args[2]:-}
-    mc_valid_kebab "$kind" || mc_usage_fail "invalid event kind '$(sanitize_printable "$kind")'"
+    mc_valid_kebab "$kind" && [ "${#kind}" -le 64 ] || mc_usage_fail "invalid event kind '$(sanitize_printable "$kind")'"
     mc_valid_handle "$subject" || mc_usage_fail "invalid event subject '$(sanitize_printable "$subject")'"
     if [ "${#text}" -gt 512 ] || ! mc_valid_text "$text"; then
       mc_usage_fail "event text carries a control character or is over 512 bytes"
@@ -146,10 +156,11 @@ case $verb in
     done
     set +f
     for f in "$store/events"/e*; do
-      [ -f "$f" ] || continue
+      [ -f "$f" ] || [ -L "$f" ] || continue
       id=${f##*/}
       valid_id "$id" || continue
       [ "$only" = " " ] || case $only in *" $id "*) ;; *) continue ;; esac
+      # A dangling link is named too, not passed over in silence.
       if [ -L "$f" ]; then
         printf '%s\n' "$prog: skipping $id: a symbolic link" >&2
         continue
@@ -165,7 +176,7 @@ case $verb in
       # Every field was checked on write, but the store is a file anyone
       # running as the operator can edit, and a wake carries its kind and
       # subject into a session: each is checked again here.
-      if ! mc_valid_uint "$ev_at" || ! mc_valid_kebab "$ev_kind" || ! mc_valid_handle "$ev_subject" \
+      if ! mc_valid_uint "$ev_at" || ! mc_valid_kebab "$ev_kind" || [ "${#ev_kind}" -gt 64 ] || ! mc_valid_handle "$ev_subject" \
         || [ "${#ev_text}" -gt 512 ] || ! mc_valid_text "$ev_text"; then
         printf '%s\n' "$prog: skipping $id: its stored fields break the event grammar" >&2
         continue

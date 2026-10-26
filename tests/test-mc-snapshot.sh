@@ -77,6 +77,8 @@ case $patch7 in
   *) ok "REQ-M1.1: the row carries a patch id" ;;
 esac
 mc_run mc-snapshot.sh read --program alpha forge --now 1061
+expect_rc "REQ-M1.1: a second duty reads the same snapshot" 0
+expect_out "REQ-M1.1: and sees its age" "age${tab}61${tab}"
 mc_run mc-snapshot.sh refresh --program alpha --now 1100
 expect_out "REQ-M1.1: a second refresh inside the cadence does not read" "fresh${tab}forge${tab}100"
 if [ "$(gh_calls 'api graphql')" -eq 1 ]; then
@@ -182,7 +184,7 @@ fi
 
 setup
 mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1000
-sed 's/^format\t1$/format\t7/' "$fleet/mission-control/alpha/snapshots/tracker" >"$tmp/s"
+awk -F '\t' -v OFS='\t' '$1 == "format" { $2 = 7 } { print }' "$fleet/mission-control/alpha/snapshots/tracker" >"$tmp/s"
 cp "$tmp/s" "$fleet/mission-control/alpha/snapshots/tracker"
 mc_run mc-snapshot.sh read --program alpha tracker --now 1000
 expect_rc "D-8: a snapshot of unknown format is refused" 1

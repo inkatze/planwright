@@ -114,6 +114,8 @@ tracker_reads() { if [ -f "$TRACKER_LOG" ]; then wc -l <"$TRACKER_LOG" | tr -d '
 # setup [budget]: program alpha mapping code-state to the forge and work-items
 # to the fixture tracker, the tracker's adapter registered by overlay.
 setup() {
+  unset GH_LIMITED GH_REMAINING GH_DIFF_FAIL GH_DIFF_LIMITED GH_DIFF_EMPTY \
+    TRACKER_RL TRACKER_EXIT TRACKER_ERR
   reset_mc_fixture
   rm -rf "$fleet" "$GH_LOG" "$TRACKER_LOG"
   cat >"$repo/.claude/catalogs/snapshot-adapters.yaml" <<'EOF'

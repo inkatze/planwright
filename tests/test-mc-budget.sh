@@ -243,7 +243,7 @@ fi
 
 program '{}'
 mc_run mc-budget.sh report --program alpha --now 100000 --load 0
-sed 's/^format\t1$/format\t9/' "$fleet/mission-control/alpha/budget" >"$tmp/b" && cp "$tmp/b" "$fleet/mission-control/alpha/budget"
+awk -F '\t' -v OFS='\t' '$1 == "format" { $2 = 9 } { print }' "$fleet/mission-control/alpha/budget" >"$tmp/b" && cp "$tmp/b" "$fleet/mission-control/alpha/budget"
 mc_run mc-budget.sh read --program alpha
 expect_rc "D-8: a budget file of an unknown format is refused" 1
 expect_err "D-8: the refusal names the field" "format"
