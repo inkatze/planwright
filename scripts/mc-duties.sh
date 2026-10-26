@@ -192,7 +192,8 @@ walk() {
       for (j = 1; j <= ns; j++) skipped[sk[j]] = 1
       for (j = 1; j <= c; j++) {
         if (en[j] == "" || en[j] in skipped) continue
-        if (!(en[j] in idx)) { print "missing\t" en[j]; continue }
+        # "!" never starts a kebab id, so the marker never collides with a duty id.
+        if (!(en[j] in idx)) { print "!missing\t" en[j]; continue }
         i = idx[en[j]]
         if (val[i, "lifecycle"] == "off") continue
         if (mode == "files") { print ids[i] "\t" val[i, "files"]; continue }
@@ -315,7 +316,7 @@ armed() { # armed <watchers|files> <program>
   [ "$rc" -eq 0 ] || exit "$rc"
   out=$(printf '%s\n' "$cat_out" | ENABLED=$enabled SKIP=$(printf '%s\n' "$skipped" | awk '{ print substr($0, index($0, "\t") + 1) }') walk "$1") \
     || fail "the catalog reader failed"
-  missing=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "missing" { print $2 }')
+  missing=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "!missing" { print $2 }')
   if [ -n "$missing" ]; then
     printf '%s\n' "$missing" | while IFS= read -r m; do
       printf '%s\n' "$prog: program '$2' enables '$(sanitize_printable "$m")', which the duties catalog lacks" >&2

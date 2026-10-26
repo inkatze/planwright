@@ -158,6 +158,31 @@ expect_eq "REQ-C1.4: a disabled duty resolves to no watchers" ""
 mc_run mc-duties.sh files --program alpha
 expect_eq "REQ-C1.4: a disabled duty resolves to no files" ""
 
+# A duty may be named missing without reading as an unknown enabled one.
+cat >"$repo/.claude/catalogs/duties.yaml" <<'EOF'
+duties:
+  - id: missing
+    summary: "A duty named like the reader's marker"
+    triggers: []
+    watchers: [scripts/missing-watch.sh@5m/low]
+    wake: none
+    rules: []
+    kinds: []
+    files: missing-duty
+    lifecycle: live
+    never-propose: false
+EOF
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [missing]
+EOF
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "a duty named missing arms" 0
+expect_eq "a duty named missing arms its own watcher" "missing${tab}scripts/missing-watch.sh${tab}5m${tab}low"
+rm -f "$repo/.claude/catalogs/duties.yaml"
+
 cat >"$tracked" <<EOF
 mission_control_programs: [alpha]
 program_alpha_repositories: [$repo]
