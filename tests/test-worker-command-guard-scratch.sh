@@ -125,6 +125,11 @@ assert_defer "F1.4: a tracked value holding a space stays unresolved" "d='$SC/a 
 assert_defer "F1.4: no .git under the root" "mkdir -p \$TMPDIR/r/.git" Bash "$WT"
 assert_defer "F1.4: no mise config under the root" "echo x > \$TMPDIR/mise.toml" Bash "$WT"
 assert_defer "F1.4: no lefthook config under the root" "touch \$TMPDIR/r/lefthook.yml" Bash "$WT"
+assert_allow "F1.4: a bare assignment beside a redirect through another variable" "X=$SC/o; Y=1 >\$X" Bash "$WT"
+mkdir -p "$SC/gd/.git"
+assert_defer "F1.4: a move of a tree holding .git" "mv \$TMPDIR/gd \$TMPDIR/gd2" Bash "$WT"
+assert_defer "F1.4: a recursive copy of a tree holding .git" "cp -r \$TMPDIR/gd \$TMPDIR/gd3" Bash "$WT"
+assert_allow "F1.4: removing that tree stays approvable" "rm -rf \$TMPDIR/gd" Bash "$WT"
 
 echo "### REQ-F1.4 — the shell's TMPDIR must be the recorded root"
 ln -s "$SC" "$CORPUS_BOX/scratch.link"

@@ -1760,8 +1760,11 @@ MERR
   # rewrites nothing the winner reads.
   # The worker's scratch root, its TMPDIR, is the worktree's, kept for
   # every later launch there and removed when the worktree is reclaimed
-  # (fleet-cleanup.sh worktree).
-  LAUNCH_RECORD=$(/bin/sh "$script_dir/worker-session-record.sh" write "$_worktree" "$_token" --scratch \
+  # (fleet-cleanup.sh worktree). A worktree this run created starts with an
+  # empty one: a root left there belonged to an earlier worktree at the path.
+  _scratch_opt=--scratch
+  [ "$_made_worktree" -ne 1 ] || _scratch_opt=--fresh-scratch
+  LAUNCH_RECORD=$(/bin/sh "$script_dir/worker-session-record.sh" write "$_worktree" "$_token" "$_scratch_opt" \
     2>/dev/null </dev/null) || LAUNCH_RECORD=''
   LAUNCH_TMPDIR=''
   [ -z "$LAUNCH_RECORD" ] || LAUNCH_TMPDIR=$(sed -n 's/^scratch_root=//p' "$LAUNCH_RECORD" 2>/dev/null) || LAUNCH_TMPDIR=''

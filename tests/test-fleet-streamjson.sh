@@ -854,7 +854,10 @@ n39=$(grep -c '^tmpdir=' "$tmp/r39/env")
 recover39 || fail "c39: the recover after the stop exited non-zero"
 [ "$(grep -c '^tmpdir=' "$tmp/r39/env")" -gt "$n39" ] && [ -f "$root39/kept" ] \
   || fail "c39: the recover after a stop did not find the same root"
-echo "ok: c39 the worker's TMPDIR is its worktree's scratch root, kept across a recover and a stop (REQ-G1.2)"
+senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 --final >/dev/null 2>&1 || fail "c39: the final stop exited non-zero"
+[ ! -e "$root39" ] && [ ! -e "$tmp/h39/streamjson/sjw39b/scratch-root" ] \
+  || fail "c39: the final stop left the scratch root or its pointer behind"
+echo "ok: c39 the worker's TMPDIR is its worktree's scratch root, kept across a recover and a stop, removed by the final stop (REQ-G1.2)"
 
 # ---------------------------------------------------------------------------
 # c10: hostile inputs are refused before any path use.

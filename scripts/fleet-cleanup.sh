@@ -78,7 +78,8 @@
 #           failed completion or one with unlanded work (exit 9): the
 #           detector leaves those unclassified for the operator.
 #
-#       The close itself is the rung's own `stop`
+#       The close itself is the rung's own `stop --final`, the last close,
+#       which also removes the worker's scratch root
 #       (scripts/fleet-streamjson.sh, scripts/fleet-dispatch-headless.sh), so
 #       the fleet has one kill path: this arm matches no process, sends no
 #       signal, and releases nothing of its own. It runs under the worker's
@@ -988,7 +989,8 @@ EOF
       exit 5
     fi
     stop_rc=0
-    result=$(/bin/sh "$script_dir/$rung" stop "$worker" "$@") || stop_rc=$?
+    # A reap is the worker's last close, so its scratch root goes too.
+    result=$(/bin/sh "$script_dir/$rung" stop "$worker" "$@" --final) || stop_rc=$?
     [ -z "$result" ] || printf '%s\n' "$result"
 
     held=""

@@ -800,9 +800,11 @@ have it name them. The event capture, the persisted session, the rate-limit
 reading, and the receipt journal survive a stop: they are the durable record,
 not runtime. So does the worker's scratch root, the directory its launch
 exported as its `TMPDIR` and named in its session record: it belongs to the
-worktree, under `<fleet home>/scratch/`, so every stop, `recover`, and
-relaunch of the worker finds it again, contents and all, on every rung, and
-`fleet-cleanup.sh worktree` removes it when it reclaims the worktree. The
+worktree, under `<fleet home>/scratch/`, so every plain stop, `recover`, and
+relaunch of the worker finds it again, contents and all, on every rung. A
+final close (`stop --final`, which a reap through `fleet-cleanup.sh process`
+makes) removes it, and so does `fleet-cleanup.sh worktree` when it reclaims
+the worktree. The
 journal survives as a file but not untouched — the close
 marks its still-`pending` receipts `undeliverable` and discards any spooled
 receipt, because a close

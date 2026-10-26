@@ -240,6 +240,15 @@ if [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC"; then
 else
   fail "G1.2: a scratch root was recorded unasked"
 fi
+mkdir -p "$root/old/ro"
+chmod 500 "$root/old/ro"
+REC=$(/bin/sh "$WRITER" write "$WT" "$id" --fresh-scratch 2>/dev/null)
+if [ "$(field scratch_root)" = "$root" ] && [ -d "$root" ] && [ -z "$(ls -A "$root")" ]; then
+  pass "G1.2: --fresh-scratch empties a root an earlier worktree at the path left"
+else
+  fail "G1.2: --fresh-scratch left entries behind in $root"
+fi
+: >"$root/kept"
 if /bin/sh "$WRITER" write "$WT" --scratch --scratch >/dev/null 2>&1; then
   fail "G1.2: a repeated --scratch was accepted"
 else

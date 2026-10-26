@@ -2,7 +2,8 @@
 # worker-session-record.sh — write a dispatched worker's session record: the
 # launch-time inputs its command guard trusts.
 #
-# Usage: worker-session-record.sh write <worktree> [<launch-id>] [--scratch]
+# Usage: worker-session-record.sh write <worktree> [<launch-id>]
+#          [--scratch | --fresh-scratch]
 #
 # Resolves, once, from the worktree the worker will run in:
 #   policy             worker_self_approval through the overlay layers,
@@ -21,14 +22,18 @@
 #   scratch_root       with --scratch, the worktree's scratch root,
 #                      <fleet-home>/scratch/<sha1-of-worktree-root>, whatever
 #                      the launch id: created owner-only when absent and kept,
-#                      contents and all, when present, so every stop, recover,
-#                      and relaunch of the worker finds the same root. It must
-#                      be this user's own directory, reached through no
-#                      symlink; one that is not is omitted with a warning,
-#                      which leaves the worker without the scratch arm. The
-#                      launcher exports the recorded root as the worker's
-#                      TMPDIR, and `fleet-cleanup.sh worktree` removes it with
-#                      the worktree it belongs to: the unit's reap
+#                      contents and all, when present, so every plain stop,
+#                      recover, and relaunch of the worker finds the same
+#                      root. It must be this user's own directory, reached
+#                      through no symlink; one that is not is omitted with a
+#                      warning, which leaves the worker without the scratch
+#                      arm. The launcher exports the recorded root as the
+#                      worker's TMPDIR; the rung's final close (`stop
+#                      --final`, which a reap makes) or `fleet-cleanup.sh
+#                      worktree` removes it.
+#                      --fresh-scratch empties a root left from an earlier
+#                      worktree at the same path first, for a launcher that
+#                      has just created the worktree
 # and writes them as `key=value` lines to
 # <fleet-home>/session-records/<sha1-of-worktree-root>.record, owner-only, by
 # an atomic rename, printing the path. A <launch-id> (16 to 64 lowercase hex
@@ -55,7 +60,7 @@ die() {
   exit "${2:-1}"
 }
 
-usage="usage: $me write <worktree> [<launch-id>] [--scratch]"
+usage="usage: $me write <worktree> [<launch-id>] [--scratch | --fresh-scratch]"
 [ "$#" -ge 2 ] && [ "$1" = write ] || die "$usage" 2
 wt_arg=$2
 shift 2
@@ -64,9 +69,10 @@ have_id=0
 want_scratch=0
 while [ "$#" -gt 0 ]; do
   case $1 in
-    --scratch)
+    --scratch | --fresh-scratch)
       [ "$want_scratch" = 0 ] || die "$usage" 2
       want_scratch=1
+      [ "$1" = --scratch ] || want_scratch=2
       shift
       ;;
     -*) die "$usage" 2 ;;
@@ -216,8 +222,13 @@ scratch_make() {
 }
 
 scratch=''
-if [ "$want_scratch" = 1 ] && mkdir -p -- "$home/scratch" 2>/dev/null; then
-  scratch=$(scratch_make "$home/scratch/$wt_key") || scratch=''
+sroot=$home/scratch/$wt_key
+if [ "$want_scratch" = 2 ] && [ -d "$sroot" ] && [ ! -L "$sroot" ]; then
+  find "$sroot" -type d ! -perm -700 -exec chmod u+rwx {} \; 2>/dev/null || :
+  rm -rf -- "$sroot" 2>/dev/null || :
+fi
+if [ "$want_scratch" != 0 ] && mkdir -p -- "$home/scratch" 2>/dev/null; then
+  scratch=$(scratch_make "$sroot") || scratch=''
 fi
 [ "$want_scratch" = 0 ] || [ -n "$scratch" ] \
   || printf '%s: the scratch root is unusable; the worker gets no scratch arm\n' "$me" >&2

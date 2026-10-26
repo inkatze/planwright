@@ -1566,11 +1566,11 @@ guard_touch() {
 # Every source exists inside a zone (a moved one is a target, so in a write
 # zone; a copied one is read, so the worktree or, under the scratch arm, the
 # scratch root); the destination is a new path, or an existing directory
-# whose entry for each source is checked as the target. A directory leaving
-# or entering the worktree holds no excluded path. A recursive copy lands only
+# whose entry for each source is checked as the target. A directory copied
+# or moved holds no excluded path, in either zone. A recursive copy lands only
 # where nothing exists yet, so it never writes through an existing file.
 ob_copy_move() {
-  local verb=$1 rec=$2 zones=$3 n dst s b final src src_zone src_dir
+  local verb=$1 rec=$2 zones=$3 n dst s b final src src_dir
   shift 3
   n=$#
   [ "$n" -ge 2 ] || return 1
@@ -1585,7 +1585,6 @@ ob_copy_move() {
     s=$1
     shift
     ob_path "$s" exists "$src" || return 1
-    src_zone=$OB_ZONE
     src_dir=''
     if [ -d "$OB_PATH" ]; then
       [ "$verb" = mv ] || [ "$rec" = 1 ] || return 1
@@ -1602,7 +1601,7 @@ ob_copy_move() {
     if [ "$rec" = 1 ] && [ -e "$OB_PATH" ]; then
       return 1
     fi
-    if [ -n "$src_dir" ] && { [ "$src_zone" = wt ] || [ "$OB_ZONE" = wt ]; }; then
+    if [ -n "$src_dir" ]; then
       ob_tree_clean "$src_dir" || return 1
     fi
   done
@@ -5016,15 +5015,22 @@ verify_known_simple() {
   # tracked values as a split word does, which leaves a value holding a space
   # unresolved; a tracked value holds no pattern character to glob.
   # On a bare assignment (`X=a >$X`) the shell assigns first and expands the
-  # target with the new value, so that target stays unresolved.
-  local rtw rexp=1
+  # target with the new value, so a target naming that variable stays
+  # unresolved (any name it prefixes, too, which only defers more).
+  local rtw rexp rname=''
   if [ "$cwn" -eq 1 ]; then
     case ${cw[0]} in
-      [A-Za-z_]*=*) rexp=0 ;;
+      [A-Za-z_]*=*) rname=${cw[0]%%=*} ;;
     esac
   fi
   for ((i = 0; i < rn; i++)); do
     rtw=${rt[i]}
+    rexp=1
+    if [ -n "$rname" ]; then
+      case $rtw in
+        *"\$$rname"* | *"\${$rname"*) rexp=0 ;;
+      esac
+    fi
     if [ "$rexp" = 1 ] && [ "$VAR_C" -gt 0 ] && [ "${rtx[i]}" = 00 ]; then
       case $rtw in
         *'$'*)
