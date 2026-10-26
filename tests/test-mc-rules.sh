@@ -613,6 +613,15 @@ run_reversal "$ib_undo"
 expect_rc "a reversal still runs after the duty is disabled" 0
 cp "$tmp/tracked.bak" "$tracked"
 
+# Two repositories sharing a last path component leave repo:<name> unable to
+# say which one it means.
+sed "s|^program_alpha_repositories: .*|program_alpha_repositories: [$repo, $tmp/work/twin, $tmp/fork/twin]|" \
+  "$tmp/tracked.bak" >"$tracked"
+rules add alpha --text "Forked" --subject forked --source op --date 2026-10-28 --scope repo:twin
+expect_rc "a repository name two repositories end in is refused" 2
+expect_err "the refusal says the name is ambiguous" "is ambiguous"
+cp "$tmp/tracked.bak" "$tracked"
+
 rules bogus alpha
 expect_rc "an unknown verb is a usage error" 2
 
