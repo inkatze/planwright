@@ -317,6 +317,12 @@ printf 'foo(bar\n' >"$r/config/retired-phrasings.txt"
 run "$r"
 assert_exit "a malformed pattern fails closed" 2 $?
 
+r="$TMP/trailingbs"
+mkfixture "$r"
+printf 'foo\\\n' >"$r/config/retired-phrasings.txt"
+run "$r"
+assert_exit "a pattern ending in a lone backslash fails closed" 2 $?
+
 r="$TMP/upperpat"
 mkfixture "$r"
 printf 'Foo Bar\n' >"$r/config/retired-phrasings.txt"
