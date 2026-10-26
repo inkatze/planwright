@@ -2,19 +2,20 @@
 
 This doctrine turns the tmux operator's hand-relay protocol between towers and
 workers into an enforceable capability with two parts: an explicit **division
-of labor** and an **attributed, non-impersonating relay that works against a
-live, busy worker**. One audited script, `scripts/orchestrate-relay.sh`,
-enforces the relay's mechanics and delegates every messaging post to
-`scripts/fleet-messaging.sh`, the messaging enforcement point the
-[Messaging Transport](messaging-transport.md) doctrine names.
+of labor** and an **attributed, non-impersonating relay**, which reaches a
+live, busy worker by messaging. One audited script,
+`scripts/orchestrate-relay.sh`, enforces the relay's mechanics and delegates
+every messaging post to `scripts/fleet-messaging.sh`, the messaging
+enforcement point the [Messaging Transport](messaging-transport.md) doctrine
+names.
 
 Citations: orchestration-fleet REQ-D1.2 (division of labor), orchestration-fleet
 REQ-D1.3 (attributed, non-impersonating relay), orchestration-fleet REQ-B1.7
 (relay/spawn security bounds), orchestration-fleet REQ-A1.6 (fleet-artifact data
-hygiene) · orchestration-fleet D-7, tower-comms D-12 · fleet-messaging REQ-G1.4,
-REQ-G1.7, D-13, D-14 · worker-permission-ergonomics REQ-G1.4 (unattended
-means parked), REQ-F1.2 (the guard the only self-approval mechanism), D-9,
-D-12.
+hygiene) · orchestration-fleet D-7, tower-comms D-12 · fleet-messaging REQ-C1.7,
+REQ-G1.4, REQ-G1.7, REQ-G1.8, REQ-G1.9, D-13, D-14, D-27, D-29 ·
+worker-permission-ergonomics REQ-G1.4 (unattended means parked), REQ-F1.2
+(the guard the only self-approval mechanism), D-9, D-12.
 
 ## Division of labor
 
@@ -59,8 +60,9 @@ rather than *asking that branch's owner to*? If so, it crossed the boundary.
 
 ## Attributed, non-impersonating relay
 
-A tower steers and observes a **live, busy worker mid-task** — not a paused one.
-The relay discipline keeps the worker's authorization boundary intact.
+A tower steers a **live, busy worker mid-task** by messaging, read between
+its tool calls, and observes it by a read. The relay discipline keeps the
+worker's authorization boundary intact.
 **Tower-to-worker** relay is attributed in every form below, which is what keeps
 it non-impersonating. **Tower-to-tower** coordination between peer towers (for
 example, reconcile-then-quick-PR hand-offs) is an advisory under the
@@ -112,17 +114,29 @@ attribution header, with the message body left in its file (see data
 discipline below). It has no `send-keys` path by construction, and a source
 audit (its test) proves the code contains none.
 
-**A paste stages; one Enter submits.** On Claude Code 2.1.270 a multi-line paste
-becomes an unsubmittable `[Pasted text]` placeholder that blocks every later
-paste. So the tmux paste is **one unterminated pointer line** (`… read
-<absolute message file>`), never the body. `deliver` reads the pane first and
-refuses, pasting nothing (exit 3), while a selection prompt is open, since a
-paste would answer it, a paste placeholder is staged, or an earlier relay sits
-unsubmitted in the input box; afterwards it
-confirms delivery by the paste's fresh tag showing in the pane, never assumes
-it (exit 4 when it never shows: observe before re-sending). The handle is
-explicit (operator-named), never the active pane. `relay-command stream-json`
-instead emits `fleet-streamjson.sh steer`: a user turn on the worker's own
+**The paste relay's contract.** The paste serves only where messaging cannot
+deliver: the ladder's fallback step, the redelivery paste included, and an
+in-pane target a message cannot reach (a dialog waiting in the pane, never a
+permission prompt; a slash command). A relay is **one short pointer line**
+(`… read <absolute message file>`) with no trailing newline, the payload in
+that file, since a multi-line paste becomes a `[Pasted text]` placeholder
+blocking every later paste: the paste stages the line and never submits it
+unattended. One Enter from a human submits it; a paste into a busy worker
+queues behind its turn. `deliver` reads the pane only to guard and confirm
+the paste, refusing (exit 3) while a selection prompt, a staged placeholder,
+or an earlier relay holds the input box.
+
+Each relay leaves a **pending relay** record stamped with its emit time,
+cleared only by a strictly later stamp from the worker's `UserPromptSubmit`
+hook, never by a tool use or the pane, and dropped at session end. The tower
+checks after every paste, a bounded window later, reading that hook evidence,
+never the pane: a pending relay is raised to the operator as its own
+attention item, whatever the worker's row reads, until it clears, and is
+never re-pasted (`relay-command tmux` refuses meanwhile). Until the record and
+its check ship, `deliver`'s refusal over an unsubmitted earlier relay is the
+only guard. An interrupt stays the operator's: no relay path sends a
+keystroke. The handle is explicit (operator-named), never the active pane.
+`relay-command stream-json` instead emits `fleet-streamjson.sh steer`: a user turn on the worker's own
 stdin, a real submit with a receipt row — the unattended path.
 
 ### Observe-in-flight: capture-pane, a read never a write
@@ -151,6 +165,28 @@ the operator. No tower, supervisor, or relay answers it, whether on its own
 judgment or on the strength of the policy, which only the guard evaluates.
 The policy is the only self-approval surface: a standing decision is not a
 second one, being the operator's own answer recorded in advance.
+
+## The supervisor duty
+
+The session that dispatched a worker, its **supervising session**, stays that
+worker's operator until the work is finished: the orchestrator for a task
+unit, the `/tower` session for a flight (the format glossary's transitional
+note). The question message and the already-idle re-arm reach task workers
+only, so their handling is `/orchestrate`'s. The supervising session:
+
+- answers the worker's questions from the task, the spec, and the code;
+- answers an in-task prompt it could act on itself;
+- relays to the operator only what it cannot answer or what is the
+  operator's to decide (a genuine fork, consent, sign-off), and carries the
+  answer back to the worker;
+- never hands a worker over for the operator to attend unless the operator
+  asks.
+
+Two bounds hold. It never answers a harness permission prompt on its own
+judgment, and every answer it gives unattended stays inside the
+[Autonomous-Safe-Decision Policy](autonomous-safe-decision.md). How a
+question that reaches the operator is queued, settled, and delivered is
+the [Tower Conversation](tower-comms.md) doctrine's.
 
 ## Security bounds
 

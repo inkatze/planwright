@@ -54,6 +54,9 @@
 #                          cannot lose each other's change
 #   scripts/inception-fanout.sh   a venture's bundle, so concurrent staff and
 #                          record runs cannot lose an entry or a record
+#   scripts/inception-review-cycle.sh  the same bundle lock, so a review
+#                          step's ledger rewrite or applied change cannot
+#                          interleave with another writer
 #   scripts/fleet-task-brief.sh   the fleet home's task briefs, so a retire
 #                          never removes a brief a render is writing
 #

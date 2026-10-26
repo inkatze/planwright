@@ -1,0 +1,1 @@
+- 2026-10-25 [planwright] The fleet home is resolved and checked three ways across the flight scripts (flight-lifecycle.sh flight_dir, flight-sweep.sh resolve_home/canon_home, flight-record.sh partial); they differ on relative-home refusal and control-byte checks. A shared resolver in flight-common.sh would make one rule.
