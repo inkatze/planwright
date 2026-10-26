@@ -858,6 +858,34 @@ senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 --final >/dev/null 2>&1 || f
 [ ! -e "$root39" ] && [ ! -e "$tmp/h39/streamjson/sjw39b/scratch-root" ] \
   || fail "c39: the final stop left the scratch root or its pointer behind"
 echo "ok: c39 the worker's TMPDIR is its worktree's scratch root, kept across a recover and a stop, removed by the final stop (REQ-G1.2)"
+# The final close removes only a pointer of the writer's own shape,
+# <fleet-home>/scratch/<sha1>, and never through a symlink; a read-only
+# directory the worker left does not stop the removal.
+h39r=$(cd "$tmp/h39" && pwd -P)
+mkdir -p "$tmp/u39" "$tmp/out39/keep" "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro/deep"
+chmod 500 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"
+ln -s "$tmp/out39" "$h39r/scratch/$(printf 'b%.0s' $(seq 40))"
+release39() {
+  printf '%s\n' "$1" >"$tmp/u39/scratch-root"
+  (
+    # shellcheck source=scripts/fleet-stop-lib.sh
+    . "$here/../scripts/fleet-stop-lib.sh"
+    stop_scratch_root_release "$tmp/u39" "$tmp/h39"
+  )
+}
+for bad39 in "$tmp/out39" "$h39r/scratch/../../out39" "$h39r/scratch/$(printf 'g%.0s' $(seq 40))" \
+  "$h39r/scratch/$(printf 'a%.0s' $(seq 39))" "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"; do
+  ! release39 "$bad39" && [ -f "$tmp/u39/scratch-root" ] \
+    || fail "c39: the final close accepted the pointer '$bad39'"
+done
+[ -d "$tmp/out39/keep" ] && [ -d "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro/deep" ] \
+  || fail "c39: a refused pointer removed something"
+release39 "$h39r/scratch/$(printf 'b%.0s' $(seq 40))" >/dev/null 2>&1
+[ -d "$tmp/out39/keep" ] || fail "c39: the final close followed a symlinked root out of the fleet home"
+release39 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" && [ ! -e "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" ] \
+  && [ ! -e "$tmp/u39/scratch-root" ] \
+  || fail "c39: the final close did not remove a root holding a read-only directory"
+echo "ok: c39 the final close removes only a scratch root of the writer's shape, through no symlink (REQ-G1.2)"
 
 # ---------------------------------------------------------------------------
 # c10: hostile inputs are refused before any path use.
