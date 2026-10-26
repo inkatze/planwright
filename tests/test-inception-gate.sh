@@ -686,6 +686,13 @@ mkdir -p "$prod/specs/-"
 out=$(cd "$prod/specs" && OLDPWD=/ "$GATE" lineage --spec - "$vroot/probe" 2>&1)
 rc=$?
 assert_eq "a spec directory named - is that directory, not the previous one" 0 "$rc"
+mkv dash
+ready "$vroot/dash"
+"$GATE" record --outcome Graduate --decider "Dana Reyes" --rationale ready "$vroot/dash" >/dev/null 2>&1
+out=$(cd "$prod" && "$GATE" seed --dest -specs "$vroot/dash" 2>&1)
+rc=$?
+assert_eq "a destination named with a leading dash is that directory" 0 "$rc"
+assert_eq "and the seed lands under it" 1 "$(find "$prod/-specs/_pending" -name 'inception-dash.md' 2>/dev/null | wc -l | tr -d ' ')"
 out=$(cd "$prod/specs" && "$GATE" lineage --spec ../specs/capture "$vroot/probe" 2>&1)
 assert_contains "an ordinary relative spec path is accepted" "lineage	venture	linked" "$out"
 mv "$g/specs" "$g/specs-moved"
