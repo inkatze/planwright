@@ -10,24 +10,28 @@
 # nor a withdrawal; list keeps them all.
 #
 #   subject  free text, one per entry; the shared-subject report groups on
-#            it case-folded with its spaces collapsed
+#            its key: ASCII letters lowercased, runs of spaces collapsed,
+#            ends trimmed (other letters compare as written)
 #   source   who said it, when and where
 #   date     YYYY-MM-DD, or `today` for the current UTC date
-#   scope    program (in force everywhere), duty:<duty-id> or
-#            repo:<repository-name>; default program
+#   scope    program (in force everywhere), duty:<id> naming a duty the
+#            program enables, or repo:<name> where <name> is the last path
+#            component of one of the program's repositories; default program
 #
 # Usage:
 #   mc-rules.sh add <program> --text <t> --subject <s> --source <s>
 #       --date <d> [--scope <scope>]
-#   mc-rules.sh supersede <program> <id> (--text <t> | --withdraw)
-#       [--subject <s>] [--scope <scope>] --source <s> --date <d>
+#   mc-rules.sh supersede <program> <id>
+#       (--text <t> [--subject <s>] [--scope <scope>] | --withdraw)
+#       --source <s> --date <d>
 #       a replacement inherits the old entry's subject and scope unless given
 #   mc-rules.sh list <program>       every entry, oldest first
 #   mc-rules.sh active <program>     the active set, in the same shape
 #   mc-rules.sh render <program> [--scope <scope>]...
 #       the active rules in scope as a markdown block between marker lines,
 #       the shape a launched session's brief embeds; program rules are in
-#       every scope, and no --scope renders every rule
+#       every scope, `--scope program` renders them alone, and no --scope
+#       renders every rule
 #   mc-rules.sh load <program>       the bring-up load: render with no scope
 #   mc-rules.sh conflicts <program>  the shared-subject report
 #   mc-rules.sh selfcheck <program> --digest <hex> --held <file>
@@ -39,29 +43,42 @@
 #
 # Output, tab separated:
 #   add, supersede   an echo line, then the undo entry:
-#                    undo  <act>  <subject>  <target id>  <source>  <reversal>
-#                    where the reversal is a shell-quoted mc-rules.sh command
+#                    undo  <act>  <subject>  <new id>  <grounds>  <reversal>
+#                    act rule-add, rule-supersede or rule-withdraw; new id the
+#                    entry the act wrote; grounds its source; reversal a
+#                    shell-quoted command naming this script by its bare
+#                    name, run as the installed planwright's scripts/
+#                    mc-rules.sh
 #   list, active     <id> <status> <date> <scope> <subject> <text> <source>
 #                    <supersedes>; status active, superseded or withdrawal,
 #                    and `-` for a withdrawal's text or no supersedes
-#   conflicts        shared <subject> <id>,<id>[,...] per subject that more
+#   conflicts        shared <subject key> <id>,<id>[,...] per key that more
 #                    than one active entry carries
 #   render, load     the begin marker names the program, the format, the
 #                    scope and the SHA-256 digest of the rendered entries;
 #                    load's digest is the one selfcheck compares
-#   load, selfcheck  on failure, one line per operator item to raise:
-#                    item  <origin>  <aspect>  <what failed>
+#   selfcheck        on a pass: self-check passed: rules <digest>,
+#                    <n> open items, <n> live sessions
+#   load, selfcheck  on any failure, whatever its exit code, at least one
+#                    line per operator item to raise:
+#                    item  <origin>  <aspect>  <what failed>  <closes>
+#                    where closes is the act that settles the item
 # --held and --durable hold `item <id>` and `session <handle>` lines.
 #
 # The store opens with its format field; a store whose format is missing or
 # unknown is refused with the field named, as is any line outside the
-# grammar this script writes. Writes take the store's lock
-# (scripts/lock-lib.sh) and replace the file by rename, so readers take no
-# lock and never see a torn store.
+# grammar this script writes, an absent field included. The field set is
+# fixed at format 1: a new field is a new format and its migration. Writes
+# take the store's lock (scripts/lock-lib.sh) and replace the file by
+# rename, so readers take no lock and never see a torn store; a reader reads
+# the file once and checks and parses that one copy.
 #
 # Exit codes: 0 done; 1 a refused or unreadable store, an entry that cannot
-# be superseded, a failed write or lock, a failed load or self-check;
-# 2 usage or an invalid value; 3 the program is not configured.
+# be superseded, a program home that does not resolve, a missing tool
+# (iconv, a SHA-256 tool), a failed write or lock, a failed load or
+# self-check; 2 usage or an invalid value; 3 the program is not configured.
+# An entry written whose lock then fails to release still exits 0, with a
+# warning on stderr: the write landed, and retrying would add it twice.
 #
 # Portable bash 3.2 / BSD tooling; iconv checks values are UTF-8.
 set -u
@@ -85,12 +102,30 @@ done
 
 FORMAT=1
 FIELDS="id text subject source date scope supersedes withdrawn"
+MAX_TEXT=2000
+MAX_SHORT=200
+
+# A load or self-check that fails for any reason is an operator item; the
+# exit handler raises the generic one when the verb raised none itself.
+ITEM_ORIGIN=""
+ITEM_ASPECT=""
+ITEM_TEXT=""
+ITEM_CLOSES=""
+ITEM_RAISED=0
+item() { # item <aspect> <what failed> <closes>
+  printf 'item\t%s\t%s\t%s\t%s\n' "$ITEM_ORIGIN" "$1" "$(sanitize_printable "$2")" "$3"
+  ITEM_RAISED=1
+}
 
 scratch=""
 # shellcheck disable=SC2329 # invoked from the EXIT trap
 cleanup() {
+  cl_rc=$?
   pw_lock_release_all
   [ -z "$scratch" ] || rm -f "$scratch"
+  if [ "$cl_rc" -ne 0 ] && [ -n "$ITEM_ORIGIN" ] && [ "$ITEM_RAISED" -eq 0 ]; then
+    item "$ITEM_ASPECT" "$ITEM_TEXT" "$ITEM_CLOSES"
+  fi
 }
 trap cleanup EXIT
 trap 'exit 129' HUP
@@ -116,20 +151,28 @@ check_value() {
   case $2 in
     *[[:cntrl:]]* | *$'\302'[$'\200'-$'\237']*) die 2 "--$1 carries a control character" ;;
   esac
-  command -v iconv >/dev/null 2>&1 || die 1 "iconv is missing, so --$1 cannot be checked as UTF-8"
-  [ "$(printf '%s' "$2" | iconv -f UTF-8 -t UTF-8 2>/dev/null)" = "$2" ] || die 2 "--$1 is not UTF-8 text"
+  utf8 "$2" || die 2 "--$1 is not UTF-8 text"
 }
 
-trim() { # trim <value>: without its leading and trailing spaces
-  tr_v=$1
+# utf8 <text>: whether the text is valid UTF-8. Compared, not just run: an
+# iconv that drops invalid bytes may exit 0.
+utf8() {
+  command -v iconv >/dev/null 2>&1 || die 1 "iconv is missing, so text cannot be checked as UTF-8"
+  u8_rt=$(printf '%s' "$1" | iconv -f UTF-8 -t UTF-8 2>/dev/null && printf x)
+  [ "$u8_rt" = "$1"x ]
+}
+
+# trim <var>: strip the named variable's leading and trailing spaces.
+trim() {
+  eval "tm_v=\$$1"
   while :; do
-    case $tr_v in
-      ' '*) tr_v=${tr_v# } ;;
-      *' ') tr_v=${tr_v% } ;;
+    case $tm_v in
+      ' '*) tm_v=${tm_v# } ;;
+      *' ') tm_v=${tm_v% } ;;
       *) break ;;
     esac
   done
-  printf '%s' "$tr_v"
+  eval "$1=\$tm_v"
 }
 
 check_scope() {
@@ -152,52 +195,91 @@ check_scope() {
   [ "${#sc_name}" -le 64 ] || die 2 "--scope '$1' names more than 64 characters"
 }
 
-check_date() {
+# scope_known <program> <scope>: a written scope names a duty the program
+# enables or one of its repositories, so the launcher can deliver it.
+scope_known() {
+  case $2 in
+    duty:*)
+      sk_list=$(/bin/bash "$script_dir/mc-program.sh" get "$1" duties) || exit 1
+      sk_what="duty '${2#duty:}' is not enabled for program $1"
+      ;;
+    repo:*)
+      sk_repos=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories) || exit 1
+      sk_list=$(printf '%s\n' "$sk_repos" | sed 's:/*$::; s:.*/::')
+      if printf '%s\n' "$sk_list" | sort | uniq -d | grep -Fxq -- "${2#repo:}"; then
+        die 2 "--scope '$2' is ambiguous: two of program $1's repositories end in that name"
+      fi
+      sk_what="no repository of program $1 ends in '${2#repo:}'"
+      ;;
+    *) return 0 ;;
+  esac
+  printf '%s\n' "$sk_list" | grep -Fxq -- "${2#*:}" || die 2 "--scope '$2': $sk_what"
+}
+
+# resolve_date <arg>: set DATE to a calendar-shaped YYYY-MM-DD.
+resolve_date() {
   case $1 in
     today)
       DATE=$(date -u +%Y-%m-%d) || die 1 "cannot read the current date"
       ;;
-    [0-9][0-9][0-9][0-9]-[01][0-9]-[0-3][0-9]) DATE=$1 ;;
-    *) die 2 "--date '$1' is not YYYY-MM-DD or today" ;;
+    [0-9][0-9][0-9][0-9]-0[1-9]-0[1-9] | [0-9][0-9][0-9][0-9]-0[1-9]-[12][0-9] | [0-9][0-9][0-9][0-9]-0[1-9]-3[01] | \
+      [0-9][0-9][0-9][0-9]-1[0-2]-0[1-9] | [0-9][0-9][0-9][0-9]-1[0-2]-[12][0-9] | [0-9][0-9][0-9][0-9]-1[0-2]-3[01])
+      DATE=$1
+      ;;
+    *) die 2 "--date '$1' is not a YYYY-MM-DD date or today" ;;
   esac
 }
 
+# An id's number stays within nine digits, so awk's arithmetic on it is
+# exact and the next id never prints in exponent form.
 check_id() {
   case $1 in
     r-[1-9] | r-[1-9]*[0-9]) ;;
     *) die 2 "'$1' is not a rule id (r-<n>)" ;;
   esac
   case ${1#r-} in
-    *[!0-9]*) die 2 "'$1' is not a rule id (r-<n>)" ;;
+    *[!0-9]* | ??????????*) die 2 "'$1' is not a rule id (r-<n>, at most nine digits)" ;;
   esac
 }
 
-# sq <value>: the value single-quoted for a shell.
-sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
-# yq <value>: the value double-quoted for the store, \ and " escaped.
-yq() { printf '"%s"' "$(printf '%s' "$1" | sed 's/[\\"]/\\&/g')"; }
+shell_quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+# store_quote <value>: the value double-quoted for the store, \ and " escaped.
+store_quote() { printf '"%s"' "$(printf '%s' "$1" | sed 's/[\\"]/\\&/g')"; }
 
-sha256() { # sha256 <file>
+sha256() { # sha256: the SHA-256 of stdin in hex
   if command -v sha256sum >/dev/null 2>&1; then
-    sh_d=$(sha256sum <"$1")
+    dg_d=$(sha256sum)
   elif command -v shasum >/dev/null 2>&1; then
-    sh_d=$(shasum -a 256 <"$1")
+    dg_d=$(shasum -a 256)
   elif command -v openssl >/dev/null 2>&1; then
-    sh_d=$(openssl dgst -sha256 -r <"$1")
+    dg_d=$(openssl dgst -sha256 -r)
   else
     die 1 "no SHA-256 tool (sha256sum, shasum or openssl) is on PATH"
   fi
-  sh_d=${sh_d%%[!0-9a-f]*}
-  [ "${#sh_d}" -eq 64 ] || die 1 "the SHA-256 tool printed no digest"
-  printf '%s\n' "$sh_d"
+  dg_d=${dg_d%%[!0-9a-f]*}
+  [ "${#dg_d}" -eq 64 ] || die 1 "the SHA-256 tool printed no digest"
+  printf '%s\n' "$dg_d"
+}
+# digest_of <rows>: hashed from a pipe, so no copy of the rules leaves the
+# program home.
+digest_of() {
+  if [ -n "$1" ]; then
+    printf '%s\n' "$1" | sha256
+  else
+    sha256 </dev/null
+  fi
 }
 
-# resolve_home <program>: set HOME_DIR and STORE, or exit with mc-program's
-# own code (2 an invalid name, 3 not configured).
+# resolve_home <program>: set HOME_DIR and STORE, or exit 2 (an invalid
+# name), 3 (not configured) or 1 (any other failure).
 resolve_home() {
   HOME_DIR=$(/bin/bash "$script_dir/mc-program.sh" get "$1" home)
   rh_rc=$?
-  [ "$rh_rc" -eq 0 ] || exit "$rh_rc"
+  case $rh_rc in
+    0) ;;
+    2 | 3) exit "$rh_rc" ;;
+    *) die 1 "the home of program $1 does not resolve (mc-program.sh exit $rh_rc)" ;;
+  esac
   case $HOME_DIR in
     /*) ;;
     *) die 1 "the program home '$HOME_DIR' is not absolute" ;;
@@ -205,18 +287,26 @@ resolve_home() {
   STORE=$HOME_DIR/rules.yaml
 }
 
-# read_store: print the store's entries, one per line, the fields in FIELDS
-# order and tab separated, with every value unescaped; nothing when no store
-# exists yet. A store this script would not have written is refused.
-read_store() {
+# snap_store: read the store once into STORE_TEXT (empty when there is no
+# store yet), refusing a link, a file that is not UTF-8 text, or one this
+# script would not have written; every later check and parse reads that one
+# copy, so a rename landing mid-read cannot pair one version's check with
+# another's parse. Runs in this shell, never a subshell.
+snap_store() {
+  STORE_TEXT=""
   [ -e "$STORE" ] || [ -L "$STORE" ] || return 0
   [ ! -L "$STORE" ] || die 1 "$STORE is a symbolic link; refusing to read through it"
   [ -f "$STORE" ] && [ -r "$STORE" ] || die 1 "$STORE is not a readable file"
-  command -v iconv >/dev/null 2>&1 || die 1 "iconv is missing, so $STORE cannot be checked as UTF-8"
-  # Compared, not just run: an iconv that drops invalid bytes may exit 0.
-  # shellcheck disable=SC2094 # both sides only read the store
-  iconv -f UTF-8 -t UTF-8 <"$STORE" 2>/dev/null | cmp -s - "$STORE" || die 1 "$STORE is not UTF-8 text"
-  FILE=$STORE WANT=$FORMAT FIELDS=$FIELDS awk '
+  STORE_TEXT=$(cat "$STORE" && printf x) || die 1 "cannot read $STORE"
+  STORE_TEXT=${STORE_TEXT%x}
+  utf8 "$STORE_TEXT" || die 1 "$STORE is not UTF-8 text"
+}
+
+# parse_store: print STORE_TEXT's entries, one per line, the fields in FIELDS
+# order and tab separated, with every value unescaped.
+parse_store() {
+  [ -n "$STORE_TEXT" ] || return 0
+  printf '%s' "$STORE_TEXT" | FILE=$(sanitize_printable "$STORE") WANT=$FORMAT FIELDS=$FIELDS awk '
     function bad(msg) {
       printf "mc-rules: %s:%d: %s\n", ENVIRON["FILE"], NR, msg > "/dev/stderr"
       failed = 1
@@ -225,6 +315,10 @@ read_store() {
     function unq(v,   out, i, c, n) {
       if (length(v) < 2 || v !~ /^".*"$/) bad("a value is not a quoted string")
       v = substr(v, 2, length(v) - 2)
+      if (index(v, "\\") == 0) {
+        if (index(v, "\"")) bad("an unescaped quote inside a quoted value")
+        return v
+      }
       out = ""
       n = length(v)
       for (i = 1; i <= n; i++) {
@@ -287,9 +381,9 @@ read_store() {
     {
       if (key == "text" || key == "subject" || key == "source") v = unq(v)
       else if (key == "id" || key == "supersedes") {
-        if (v !~ /^r-[1-9][0-9]*$/ && !(key == "supersedes" && v == "-")) bad("\"" v "\" is not a rule id")
+        if ((v !~ /^r-[1-9][0-9]*$/ || length(v) > 11) && !(key == "supersedes" && v == "-")) bad("\"" v "\" is not a rule id")
       } else if (key == "date") {
-        if (v !~ /^[0-9][0-9][0-9][0-9]-[01][0-9]-[0-3][0-9]$/) bad("\"" v "\" is not a YYYY-MM-DD date")
+        if (v !~ /^[0-9][0-9][0-9][0-9]-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/) bad("\"" v "\" is not a YYYY-MM-DD date")
       } else if (key == "scope") {
         if (v != "program" && v !~ /^duty:[a-z0-9][a-z0-9-]*$/ && v !~ /^repo:[A-Za-z0-9][A-Za-z0-9._-]*$/) bad("\"" v "\" is not a scope")
       } else if (key == "withdrawn") {
@@ -303,13 +397,19 @@ read_store() {
       if (!have_rules) bad("the store has no rules: list")
       flush()
     }
-  ' "$STORE" || exit 1
+  ' || exit 1
+}
+
+# read_store: snap and parse, for a caller in a command substitution.
+read_store() {
+  snap_store
+  parse_store
 }
 
 # rows <entries>: list rows, each entry's status derived.
 rows() {
   printf '%s\n' "$1" | awk -F '\t' '
-    NF { n++; e[n] = $0; id[n] = $1; sup[n] = $7; wd[n] = $8; if ($7 != "-") gone[$7] = 1 }
+    NF { n++; e[n] = $0; id[n] = $1; wd[n] = $8; if ($7 != "-") gone[$7] = 1 }
     END {
       for (i = 1; i <= n; i++) {
         split(e[i], f, "\t")
@@ -329,16 +429,6 @@ in_scope() {
     n == 0 || $4 == "program" || ($4 in want)'
 }
 
-digest_of() { # digest_of <rows>
-  dg_file=$(mktemp) || die 1 "cannot create a scratch file"
-  [ -z "$1" ] || printf '%s\n' "$1" >"$dg_file"
-  dg=$(sha256 "$dg_file")
-  dg_rc=$?
-  rm -f "$dg_file"
-  [ "$dg_rc" -eq 0 ] || exit 1
-  printf '%s\n' "$dg"
-}
-
 render() { # render <program> <scopes> <scope label>
   rd_entries=$(read_store) || exit 1
   rd_rows=$(active_rows "$rd_entries" | in_scope "$2")
@@ -353,64 +443,86 @@ render() { # render <program> <scopes> <scope label>
   printf '%s\n' "<!-- mc-rules end -->"
 }
 
-# append <text> <subject> <source> <date> <scope> <supersedes> <withdrawn>:
-# under the store's lock, re-read the store, run $PRECHECK against it, then
-# write the store with the entry appended under the next free id, set in
-# NEW_ID. Called in this shell, never a subshell, so the hold is this
-# process's and the exit trap releases it.
+# append <precheck> <text> <subject> <source> <date> <scope> <supersedes>
+# <withdrawn>: under the store's lock, re-read the store, run the precheck
+# function against its entries, then write the store with the entry
+# appended under the next free id, set in NEW_ID. The precheck may refine
+# the entry through ENTRY_SUBJECT and ENTRY_SCOPE. Called in this shell,
+# never a subshell, so the hold is this process's and the exit trap
+# releases it; the caller releases it with release_store once it has
+# reported the write.
 append() {
+  ap_precheck=$1
+  ENTRY_SUBJECT=$3
+  ENTRY_SCOPE=$6
   if [ ! -d "$HOME_DIR" ]; then
     (umask 077 && mkdir -p "$HOME_DIR") || die 1 "cannot create the program home $HOME_DIR"
   fi
-  ap_lock=$HOME_DIR/rules.lock
+  STORE_LOCK=$HOME_DIR/rules.lock
   ap_rc=0
-  pw_lock_acquire "$ap_lock" || ap_rc=$?
+  pw_lock_acquire "$STORE_LOCK" || ap_rc=$?
   case $ap_rc in
     0) ;;
-    1) die 1 "the rule store is busy (another writer holds $ap_lock); try again" ;;
-    *) die 1 "cannot take the rule store lock at $ap_lock" ;;
+    1) die 1 "the rule store is busy (another writer holds $STORE_LOCK); try again" ;;
+    *) die 1 "cannot take the rule store lock at $STORE_LOCK" ;;
   esac
-  ap_entries=$(read_store) || exit 1
-  "$PRECHECK" "$ap_entries"
+  snap_store
+  ap_entries=$(parse_store) || exit 1
+  "$ap_precheck" "$ap_entries"
   ap_n=$(printf '%s\n' "$ap_entries" | awk -F '\t' 'NF { n = substr($1, 3) + 0; if (n > m) m = n } END { print m + 1 }')
   NEW_ID=r-$ap_n
+  check_id "$NEW_ID"
   scratch=$(mktemp "$HOME_DIR/.rules.yaml.XXXXXX") || die 1 "cannot create a scratch file in $HOME_DIR"
   {
-    if [ -s "$STORE" ]; then
-      cat "$STORE"
+    if [ -n "$STORE_TEXT" ]; then
+      printf '%s' "$STORE_TEXT"
+      # A hand edit can leave the last line unterminated.
+      case $STORE_TEXT in
+        *"
+") ;;
+        *) printf '\n' ;;
+      esac
     else
       printf '%s\n' "# A mission-control program's rule store, written by scripts/mc-rules.sh." "format: $FORMAT" "rules:"
     fi
     printf '%s\n' "  - id: $NEW_ID" \
-      "    text: $(yq "$1")" \
-      "    subject: $(yq "$2")" \
-      "    source: $(yq "$3")" \
-      "    date: $4" \
-      "    scope: $5" \
-      "    supersedes: $6" \
-      "    withdrawn: $7"
+      "    text: $(store_quote "$2")" \
+      "    subject: $(store_quote "$ENTRY_SUBJECT")" \
+      "    source: $(store_quote "$4")" \
+      "    date: $5" \
+      "    scope: $ENTRY_SCOPE" \
+      "    supersedes: $7" \
+      "    withdrawn: $8"
   } >"$scratch" || die 1 "cannot write $scratch"
   chmod 600 "$scratch" || die 1 "cannot set the mode of $scratch"
   mv -f "$scratch" "$STORE" || die 1 "cannot replace $STORE"
   scratch=""
-  pw_lock_release "$ap_lock" || die 1 "the store is written, but its lock at $ap_lock was not released"
+}
+
+release_store() {
+  pw_lock_release "$STORE_LOCK" \
+    || say "warning: entry $NEW_ID is written, but the lock at $STORE_LOCK was not released; do not retry the write"
 }
 
 no_check() { :; }
 
-# The entry being superseded, found active by check_target under the lock.
-target_line() {
-  rows "$1" | awk -F '\t' -v id="$TARGET" '$1 == id'
-}
+# check_target <entries>: the entry TARGET names is active; its fields
+# become the replacement's defaults (OLD_*, ENTRY_SUBJECT, ENTRY_SCOPE).
 check_target() {
-  ct_line=$(target_line "$1")
+  ct_line=$(rows "$1" | awk -F '\t' -v id="$TARGET" '$1 == id')
   [ -n "$ct_line" ] || die 1 "no entry $TARGET in the store"
-  ct_status=$(printf '%s\n' "$ct_line" | cut -f2)
+  IFS='	' read -r _ ct_status _ OLD_SCOPE OLD_SUBJECT OLD_TEXT _ _ <<EOF
+$ct_line
+EOF
   [ "$ct_status" = active ] || die 1 "entry $TARGET is $ct_status, not active, so it cannot be superseded"
-  OLD_LINE=$ct_line
+  ENTRY_SUBJECT=${SUBJECT:-$OLD_SUBJECT}
+  ENTRY_SCOPE=${SCOPE:-$OLD_SCOPE}
 }
 
-# Option parsing for add and supersede.
+undo_line() { # undo_line <act> <reversal>
+  printf 'undo\t%s\t%s\t%s\t%s\t%s\n' "$1" "$ENTRY_SUBJECT" "$NEW_ID" "$SOURCE" "$2"
+}
+
 TEXT="" SUBJECT="" SOURCE="" DATE_ARG="" SCOPE="" WITHDRAW=0
 parse_opts() {
   while [ $# -gt 0 ]; do
@@ -433,6 +545,9 @@ parse_opts() {
       *) usage ;;
     esac
   done
+  trim TEXT
+  trim SUBJECT
+  trim SOURCE
 }
 
 need() { # need <field> <value>
@@ -453,29 +568,38 @@ program=$1
 shift
 
 case $verb in
+  load)
+    ITEM_ORIGIN=rules-load ITEM_ASPECT=load
+    ITEM_TEXT="the active rules of program $program could not be loaded"
+    ITEM_CLOSES="repair the rule store, then reload the rules"
+    ;;
+  selfcheck)
+    ITEM_ORIGIN=self-check ITEM_ASPECT=run
+    ITEM_TEXT="the self-check of program $program could not run"
+    ITEM_CLOSES="repair what failed, then rerun the self-check"
+    ;;
+esac
+
+case $verb in
   add)
     parse_opts "$@"
     [ "$WITHDRAW" -eq 0 ] || usage
-    TEXT=$(trim "$TEXT")
-    SUBJECT=$(trim "$SUBJECT")
-    SOURCE=$(trim "$SOURCE")
     need text "$TEXT"
     need subject "$SUBJECT"
     need source "$SOURCE"
     need date "$DATE_ARG"
-    check_value text "$TEXT" 2000
-    check_value subject "$SUBJECT" 200
-    check_value source "$SOURCE" 200
-    check_date "$DATE_ARG"
+    check_value text "$TEXT" "$MAX_TEXT"
+    check_value subject "$SUBJECT" "$MAX_SHORT"
+    check_value source "$SOURCE" "$MAX_SHORT"
+    resolve_date "$DATE_ARG"
     SCOPE=${SCOPE:-program}
     check_scope "$SCOPE"
     resolve_home "$program"
-    PRECHECK=no_check
-    append "$TEXT" "$SUBJECT" "$SOURCE" "$DATE" "$SCOPE" - false
-    id=$NEW_ID
-    printf '%s\n' "rule $id added ($SCOPE): $SUBJECT: $TEXT"
-    printf 'undo\trule-add\t%s\t%s\t%s\t%s\n' "$SUBJECT" "$id" "$SOURCE" \
-      "mc-rules.sh supersede $program $id --withdraw --source $(sq "undo of $id") --date today"
+    scope_known "$program" "$SCOPE"
+    append no_check "$TEXT" "$SUBJECT" "$SOURCE" "$DATE" "$SCOPE" - false
+    printf '%s\n' "rule $NEW_ID added ($ENTRY_SCOPE): $ENTRY_SUBJECT: $TEXT"
+    undo_line rule-add "mc-rules.sh supersede $program $NEW_ID --withdraw --source $(shell_quote "undo of $NEW_ID") --date today"
+    release_store
     ;;
   supersede)
     [ $# -ge 1 ] || usage
@@ -483,56 +607,36 @@ case $verb in
     shift
     check_id "$TARGET"
     parse_opts "$@"
-    TEXT=$(trim "$TEXT")
-    SUBJECT=$(trim "$SUBJECT")
-    SOURCE=$(trim "$SOURCE")
     if [ "$WITHDRAW" -eq 1 ]; then
       [ -z "$TEXT" ] && [ -z "$SUBJECT" ] && [ -z "$SCOPE" ] || die 2 "--withdraw takes no --text, --subject or --scope"
     else
       need text "$TEXT"
-      check_value text "$TEXT" 2000
+      check_value text "$TEXT" "$MAX_TEXT"
     fi
-    [ -z "$SUBJECT" ] || check_value subject "$SUBJECT" 200
+    [ -z "$SUBJECT" ] || check_value subject "$SUBJECT" "$MAX_SHORT"
     [ -z "$SCOPE" ] || check_scope "$SCOPE"
     need source "$SOURCE"
     need date "$DATE_ARG"
-    check_value source "$SOURCE" 200
-    check_date "$DATE_ARG"
+    check_value source "$SOURCE" "$MAX_SHORT"
+    resolve_date "$DATE_ARG"
     resolve_home "$program"
-    # Checked again under the lock, where it decides; this read names the
-    # inherited subject and scope and the old text for the reversal.
-    entries=$(read_store) || exit 1
-    check_target "$entries"
-    old_subject=$(printf '%s\n' "$OLD_LINE" | cut -f5)
-    old_scope=$(printf '%s\n' "$OLD_LINE" | cut -f4)
-    old_text=$(printf '%s\n' "$OLD_LINE" | cut -f6)
-    SUBJECT=${SUBJECT:-$old_subject}
-    SCOPE=${SCOPE:-$old_scope}
-    PRECHECK=check_target
+    [ -z "$SCOPE" ] || scope_known "$program" "$SCOPE"
     if [ "$WITHDRAW" -eq 1 ]; then
-      append "" "$SUBJECT" "$SOURCE" "$DATE" "$SCOPE" "$TARGET" true
-      id=$NEW_ID
-      printf '%s\n' "rule $id withdraws $TARGET: $SUBJECT"
-      printf 'undo\trule-withdraw\t%s\t%s\t%s\t%s\n' "$SUBJECT" "$id" "$SOURCE" \
-        "mc-rules.sh add $program --text $(sq "$old_text") --subject $(sq "$SUBJECT") --scope $SCOPE --source $(sq "undo of $id") --date today"
+      append check_target "" "" "$SOURCE" "$DATE" "" "$TARGET" true
+      printf '%s\n' "rule $NEW_ID withdraws $TARGET: $ENTRY_SUBJECT"
+      undo_line rule-withdraw "mc-rules.sh add $program --text $(shell_quote "$OLD_TEXT") --subject $(shell_quote "$OLD_SUBJECT") --scope $OLD_SCOPE --source $(shell_quote "undo of $NEW_ID") --date today"
     else
-      append "$TEXT" "$SUBJECT" "$SOURCE" "$DATE" "$SCOPE" "$TARGET" false
-      id=$NEW_ID
-      printf '%s\n' "rule $id supersedes $TARGET ($SCOPE): $SUBJECT: $TEXT"
-      printf 'undo\trule-supersede\t%s\t%s\t%s\t%s\n' "$SUBJECT" "$id" "$SOURCE" \
-        "mc-rules.sh supersede $program $id --text $(sq "$old_text") --subject $(sq "$old_subject") --scope $old_scope --source $(sq "undo of $id") --date today"
+      append check_target "$TEXT" "" "$SOURCE" "$DATE" "" "$TARGET" false
+      printf '%s\n' "rule $NEW_ID supersedes $TARGET ($ENTRY_SCOPE): $ENTRY_SUBJECT: $TEXT"
+      undo_line rule-supersede "mc-rules.sh supersede $program $NEW_ID --text $(shell_quote "$OLD_TEXT") --subject $(shell_quote "$OLD_SUBJECT") --scope $OLD_SCOPE --source $(shell_quote "undo of $NEW_ID") --date today"
     fi
+    release_store
     ;;
   list | active | conflicts | load)
     [ $# -eq 0 ] || usage
     resolve_home "$program"
     if [ "$verb" = load ]; then
-      # A load that cannot be confirmed is the operator's to see.
-      if ! out=$(render "$program" "" all); then
-        printf 'item\trules-load\tload\tthe active rules of program %s could not be loaded from %s\n' "$program" "$STORE"
-        exit 1
-      fi
-      printf '%s\n' "$out"
+      render "$program" "" all
       exit 0
     fi
     entries=$(read_store) || exit 1
@@ -560,7 +664,7 @@ case $verb in
       shift 2
     done
     resolve_home "$program"
-    label=$(trim "$scopes")
+    label=${scopes# }
     render "$program" "$scopes" "${label:-all}"
     ;;
   selfcheck)
@@ -578,29 +682,30 @@ case $verb in
     need digest "$digest"
     need held "$held"
     need durable "$durable"
-    resolve_home "$program"
     for f in "$held" "$durable"; do
       [ -f "$f" ] && [ -r "$f" ] || die 1 "$f is not a readable file"
-      bad=$(awk '!/^[ ]*$/ && !/^(item|session) [A-Za-z0-9._:-]+$/ { print NR; exit }' "$f")
-      [ -z "$bad" ] || die 1 "$f:$bad: not an 'item <id>' or 'session <handle>' line"
+      bad_line=$(awk '!/^[ ]*$/ && !/^(item|session) [A-Za-z0-9._:-]+$/ { print NR; exit }' "$f")
+      [ -z "$bad_line" ] || die 1 "$f:$bad_line: not an 'item <id>' or 'session <handle>' line"
     done
+    resolve_home "$program"
     if ! entries=$(read_store); then
-      printf 'item\tself-check\trules\tthe rule store of program %s cannot be read\n' "$program"
+      item rules "the rule store of program $program cannot be read" "repair the rule store, then reload the rules"
       exit 1
     fi
     store_digest=$(digest_of "$(active_rows "$entries")") || exit 1
     failed=0
     if [ "$digest" != "$store_digest" ]; then
-      printf 'item\tself-check\trules\tthe loaded rules (digest %s) are not the active set (digest %s); reload them\n' \
-        "$(sanitize_printable "$digest")" "$store_digest"
+      item rules "the loaded rules (digest $digest) are not the active set (digest $store_digest)" "reload the rules"
       failed=1
     fi
     for kind in item session; do
-      missing=$(awk -v k="$kind" 'NR == FNR { if ($1 == k) h[$2] = 1; next } $1 == k && !($2 in h) { printf "%s%s", sep, $2; sep = " " }' "$held" "$durable")
+      missing=$(H=$held awk -v k="$kind" '
+        FILENAME == ENVIRON["H"] { if ($1 == k) h[$2] = 1; next }
+        $1 == k && !($2 in h) { printf "%s%s", sep, $2; sep = " " }' "$held" "$durable")
       [ -z "$missing" ] && continue
       case $kind in
-        item) printf 'item\tself-check\titems\topen items missing from the working picture: %s\n' "$missing" ;;
-        session) printf 'item\tself-check\tsessions\tlive sessions missing from the working picture: %s\n' "$missing" ;;
+        item) item items "open items missing from the held picture: $missing" "re-derive the open items from the queue" ;;
+        session) item sessions "live sessions missing from the held picture: $missing" "re-derive the live sessions from the registry" ;;
       esac
       failed=1
     done
