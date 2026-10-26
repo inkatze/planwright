@@ -476,7 +476,7 @@ the list lacked; the annotation moved below the task's fields.)*
 
 ## Awaiting input
 
-(none yet)
+- **Task 5** — post-pr step `cubic-pr` halted (`.claude/steps/000002/002-step-post-pr.rec`): two declines of cubic findings on PR #745 await the operator's sign-off, drafted in the PR body. The forward-merge of `origin/main` is also blocked until `main`'s `scripts/mc-rules.sh` passes the comment-budget guard, which the pre-commit hook runs on the merge's staged files.
 
 ## Deferred
 
