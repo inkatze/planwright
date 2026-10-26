@@ -705,10 +705,12 @@ cites() {
     BEGIN { key = ENVIRON["GATE_CITE_KEY"] }
     /^## / { on = ($0 ~ /^## Sources[ \t]*$/); next }
     on {
-      s = $0
+      s = $0; o = 0
       while ((p = index(s, key)) > 0) {
+        pv = o + p > 1 ? substr($0, o + p - 1, 1) : ""
         nx = substr(s, p + length(key), 1)
-        if (nx !~ /[a-z0-9\/-]/) { found = 1; exit }
+        if (pv !~ /[A-Za-z0-9_-]/ && nx !~ /[a-z0-9\/-]/) { found = 1; exit }
+        o += p + length(key) - 1
         s = substr(s, p + length(key))
       }
     }

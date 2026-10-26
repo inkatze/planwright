@@ -558,6 +558,9 @@ assert_contains "J1.5 link names a spec without requirements" "lineage	venture	s
 printf '# X — Requirements\n\n## Sources\n\n- **near miss** — (inception:out-graduate-x)\n' >"$g/specs/capture-surface/requirements.md"
 gate lineage "$g"
 assert_contains "J1.5 a longer key does not cite a shorter one" "lineage	venture	spec-side-missing" "$out"
+printf '# X — Requirements\n\n## Sources\n\n- **near miss** — (notinception:out-graduate)\n' >"$g/specs/capture-surface/requirements.md"
+gate lineage "$g"
+assert_contains "J1.5 a key inside a longer word does not cite it" "lineage	venture	spec-side-missing" "$out"
 
 # Failure injection: a validator that crashes on the staged bundle, and an mv
 # that fails on one file, must leave the bundle as it was.
