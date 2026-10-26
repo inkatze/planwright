@@ -248,7 +248,7 @@ list_tree() {
     index($0, ENVIRON["B"]) != 1 { bad = 1; exit }
     { print "-\t" substr($0, length(ENVIRON["B"]) + 1) }
     END { exit bad }' "$work/find" >"$work/rel" || die "a listed path holds a newline; failing closed"
-  surface_names <"$work/rel" >"$work/names"
+  surface_names <"$work/rel" >"$work/names" || die "filtering the surface failed; failing closed"
   keep_files "$1" "$2" <"$work/names"
 }
 
@@ -281,8 +281,8 @@ code_invariant() {
     || die "git diff against the merge-base failed; failing closed"
   git -C "$root" -c core.quotepath=off ls-files --others --exclude-standard >"$work/untracked" \
     || die "listing untracked files failed; failing closed"
-  sed 's/^/A	/' "$work/untracked" >>"$work/diff"
-  surface_names <"$work/diff" >"$work/names"
+  sed 's/^/A	/' "$work/untracked" >>"$work/diff" || die "reading the untracked listing failed; failing closed"
+  surface_names <"$work/diff" >"$work/names" || die "filtering the surface failed; failing closed"
   ci_seen=0
   ci_bad=0
   while IFS= read -r ci_line; do

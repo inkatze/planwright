@@ -336,6 +336,17 @@ run "$r" --code-invariant no-such-ref
 assert_exit "an unresolvable ref fails closed" 2 $?
 run "$r" --code-invariant --upload-pack=x
 assert_exit "a ref shaped like an option is refused" 2 $?
+# An awk that fails only on the surface filter's program, so every other step still runs.
+mkdir -p "$TMP/badawk"
+real_awk=$(command -v awk)
+printf '#!/bin/sh\ncase "$*" in *"function surface("*) exit 2 ;; esac\nexec %s "$@"\n' "$real_awk" >"$TMP/badawk/awk"
+chmod +x "$TMP/badawk/awk"
+printf '#!/bin/sh\nx=99\n' >"$r/scripts/a.sh"
+PATH="$TMP/badawk:$PATH" "$GUARD" --root "$r" --code-invariant base >"$TMP/out" 2>&1
+assert_exit "--code-invariant fails closed when the surface filter fails, never passing vacuously" 2 $?
+PATH="$TMP/badawk:$PATH" "$GUARD" --root "$r" --audit "$r" >"$TMP/out" 2>&1
+assert_exit "--audit <tree> fails closed when the surface filter fails" 2 $?
+git -C "$r" checkout -q -- scripts/a.sh
 run "$r" --audit --code-invariant base
 assert_exit "--audit then --code-invariant is refused, not run as the later mode" 2 $?
 run "$r" --code-invariant base --audit
