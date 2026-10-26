@@ -379,6 +379,11 @@ assert_not_contains "H1.4 without git there is no hook, so no absent-plugin line
 PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT="$REPO_ROOT" venture detect
 assert_contains "H1.4 a loaded plugin root reads as loaded" "$(printf 'plugin\tloaded')" "$out"
 
+mkdir -p "$tmp/cache-home/.claude/plugins/cache/planwright/planwright/9.9.9/scripts"
+: >"$tmp/cache-home/.claude/plugins/cache/planwright/planwright/9.9.9/scripts/inception-validate.sh"
+PATH="$stubs/gh-ok:$PATH" HOME="$tmp/cache-home" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT='' venture detect
+assert_contains "H1.4 an install only in the plugin cache reads as loaded" "$(printf 'plugin\tloaded')" "$out"
+
 PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_INCEPTION_HOST=cowork venture create --home local --root "$tmp/v-cowork" cw
 assert_eq "H1.4 create on a Cowork host succeeds" 0 "$rc"
 assert_contains "H1.4 a local home on a Cowork host lands on the session rung" "$(printf 'rung\tsession')" "$out"
