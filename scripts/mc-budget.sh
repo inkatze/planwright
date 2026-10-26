@@ -148,6 +148,9 @@ load_limits() {
         ;;
     esac
     case $ll_k in
+      spend_ | spend__* | spend_*[!a-z0-9_]*)
+        mc_fail "budget: $(sanitize_printable "$ll_k"): not spend_<duty>, the duty's hyphens written as underscores"
+        ;;
       spend_ceiling | spend_*)
         valid_class "$ll_v" || mc_fail "budget: $ll_k: '$(sanitize_printable "$ll_v")' is not low, medium or high"
         ;;

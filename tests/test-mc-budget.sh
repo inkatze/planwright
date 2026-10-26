@@ -194,6 +194,13 @@ mc_run mc-budget.sh report --program alpha --now 100000 --load 0
 expect_rc "an unknown spend class is refused" 1
 expect_err "the bad spend class is named" "spend_ceiling"
 
+for key in spend_ spend_BAD spend_alpha-duty spend__alpha; do
+  program "{$key: low}"
+  mc_run mc-budget.sh report --program alpha --now 100000 --load 0
+  expect_rc "a malformed spend key ($key) is refused" 1
+  expect_err "the malformed spend key ($key) is named" "$key"
+done
+
 program '{}'
 mc_run mc-budget.sh record --program alpha sessions 010
 expect_rc "a number with a leading zero is refused, never read as octal" 2
