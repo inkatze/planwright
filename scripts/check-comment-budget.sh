@@ -90,8 +90,9 @@ blank lines and lines starting `#` are skipped; one entry per path):
 
 --code-invariant <ref>  For every surface file that differs between the
   merge-base of <ref> and HEAD on one side and the working tree on the
-  other (untracked files included), compare the sequence of code lines. A
-  changed sequence, or a surface file added or deleted since the
+  other (untracked files included), compare the sequence of code lines.
+  A trailing comment is part of its code line, so editing one is a code
+  change. A changed sequence, or a surface file added or deleted since the
   merge-base, is named and exits 1. githooks/ files without an extension
   count as surface by name here. --root must be the repository's top
   level. The known limit holds here too: a changed heredoc body line

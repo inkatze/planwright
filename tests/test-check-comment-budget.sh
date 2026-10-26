@@ -298,6 +298,15 @@ run "$r" --code-invariant base
 assert_exit "a changed code line fails" 1 $?
 assert_out "the changed file is named" "code changed: scripts/a.sh"
 git -C "$r" checkout -q -- scripts/a.sh
+printf '#!/bin/sh\n# why\nx=1 # trailing\n\ny=2\n' >"$r/scripts/a.sh"
+run "$r" --code-invariant base
+assert_exit "a trailing comment is part of its code line, so adding one fails" 1 $?
+if "$GUARD" --help | tr '\n' ' ' | grep -qF 'A trailing comment is part of its code line'; then
+  ok "the usage text says a trailing comment counts as code under --code-invariant"
+else
+  fail "the usage text does not say a trailing comment counts as code under --code-invariant"
+fi
+git -C "$r" checkout -q -- scripts/a.sh
 mkscript "$r/scripts/new.sh" 1
 run "$r" --code-invariant base
 assert_exit "an added surface file fails" 1 $?
