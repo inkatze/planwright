@@ -732,15 +732,21 @@ while [ "$i" -lt "$N" ]; do
       fail "[mission-control] the profile wires no policy guard for: $RC_SPELL"
     else
       got=$(pg_run "$args" "$RC_SPELL" "$RC_POLICY")
-      [ "$got" = deny ] && pass "[mission-control] pguard deny: $RC_SPELL" \
-        || fail "[mission-control] pguard expected deny, got $got: $RC_SPELL"
+      if [ "$got" = deny ]; then
+        pass "[mission-control] pguard deny: $RC_SPELL"
+      else
+        fail "[mission-control] pguard expected deny, got $got: $RC_SPELL"
+      fi
     fi
   fi
   rc_want tprof
   if [ "$RC_WANT" = deny ]; then
     got=$(profile_verdict "$MC_SETTINGS" "$RC_SPELL" deny)
-    [ "$got" = deny ] && pass "[mission-control] profile deny: $RC_SPELL" \
-      || fail "[mission-control] profile expected deny, got $got: $RC_SPELL"
+    if [ "$got" = deny ]; then
+      pass "[mission-control] profile deny: $RC_SPELL"
+    else
+      fail "[mission-control] profile expected deny, got $got: $RC_SPELL"
+    fi
   fi
 done
 
