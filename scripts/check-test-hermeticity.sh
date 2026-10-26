@@ -330,6 +330,10 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
       }
       cm_target = t
       sub(/[;)]+$/, "", cm_target)
+      # An odd quote count means the token ran on into the closing quote of
+      # an enclosing "$( substitution, as in x="$(chmod 000 "$f")".
+      t = cm_target
+      if (gsub(/"/, "", t) % 2) { sub(/"$/, "", cm_target); sub(/[;)]+$/, "", cm_target) }
       break
     }
     return (cm_mode != "")
@@ -350,6 +354,22 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
       s = substr(s, RSTART + RLENGTH)
     }
     return out s
+  }
+  # quotesplit(s): <s> with each $name a quote separates from a following
+  # name character spelled ${name}, so "$f"x and ${f}x compare as one path.
+  function quotesplit(s,   out, k, t) {
+    out = ""
+    while (match(s, /\$[A-Za-z_][A-Za-z0-9_]*["'"'"']+[A-Za-z0-9_]/)) {
+      k = RSTART; t = substr(s, RSTART, RLENGTH)
+      match(t, /^\$[A-Za-z_][A-Za-z0-9_]*/)
+      out = out substr(s, 1, k - 1) "${" substr(t, 2, RLENGTH - 1) "}"
+      s = substr(s, k + RLENGTH)
+    }
+    return out s
+  }
+  # canon(s): the spelling a probe and a target are compared in.
+  function canon(s) {
+    return braceless(unquoted(quotesplit(s)))
   }
   # names(u, t): <u> holds <t> not followed by a name character, so a probe of
   # $file is not a probe of $f.
@@ -428,8 +448,8 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
       # open target closes it (the restore); a restrictive chmod, or a mkdir
       # given a restrictive mode, opens one.
       if (line ~ /hermetic_access_denied|-[rw][ \t]/ && (m ~ /hermetic_access_denied[ \t]/ || m ~ /(\[|test)[ \t]+(![ \t]+)?-[rw][ \t]/)) {
-        u = braceless(unquoted(line))
-        for (k in open_line) if (names(u, braceless(unquoted(k)))) probed[k] = 1
+        u = canon(line)
+        for (k in open_line) if (names(u, canon(k))) probed[k] = 1
       }
       if (chmod_args(line)) {
         if (cm_restore && (cm_target in open_line)) {
@@ -481,7 +501,6 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
       else if (readln[k] < sourced) report(path, readln[k], "unsourced", "reads $" readvar[k] " before line " sourced " sources tests/lib/hermetic-env.sh")
     }
   }
-  # dead_use(line, n, prev): report a use of a captured PID after its wait.
   # dead_use(text, n, prev, whole): report a use in <text> of a captured PID
   # after its wait; <whole> is the line an exclusion marker is read from.
   function dead_use(text, n, prev, whole,   v, re_v) {
@@ -497,7 +516,9 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
   # time, split where the masked code <mc> has ; & or |, in order: a wait
   # reaps (a bare one, redirections aside, every capture; one with operands
   # the captures it names), a kill is no use, and any other command is
-  # checked for a use of what an earlier command reaped.
+  # checked for a use of what an earlier command reaped. The wait or kill
+  # word is found anywhere a command word can sit (after if, !, time, a case
+  # pattern, a $( ...), not only at the start of the command.
   function wait_line(line, mc, n, prev,   whole, k, len, seg, cseg, after, v, re_v) {
     whole = line
     while (mc != "") {
@@ -505,9 +526,8 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
       else { k = length(mc) + 1; len = 0 }
       cseg = substr(mc, 1, k - 1); seg = substr(line, 1, k - 1)
       mc = substr(mc, k + len); line = substr(line, k + len)
-      if (cseg ~ /^[ \t{(!]*((if|then|do|else|elif|while|until)[ \t]+)*wait([ \t<>)}]|$)/) {
-        after = cseg
-        sub(/^[ \t{(!]*((if|then|do|else|elif|while|until)[ \t]+)*wait/, "", after)
+      if (match(cseg, /(^|[ \t{(!)])wait([ \t<>)}]|$)/)) {
+        after = substr(cseg, RSTART + index(substr(cseg, RSTART, RLENGTH), "wait") + 3)
         if (after ~ /^[ \t]*([0-9]*[<>][^ \t]*[ \t]*)*[)}]*[ \t]*$/) {
           for (v in spawned) if (!reaped[v]) reaped[v] = n
         } else {
@@ -516,7 +536,7 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
             if (index(seg, v) && seg ~ re_v) reaped[v] = n
           }
         }
-      } else if (cseg !~ /^[ \t{(!]*kill([ \t]|$)/) {
+      } else if (cseg !~ /(^|[ \t{(!)])kill([ \t]|$)/) {
         dead_use(seg, n, prev, whole)
       }
     }

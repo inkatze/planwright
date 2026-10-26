@@ -447,6 +447,67 @@ STUB
 SUITE
 expect "a heredoc opened on the line of a \"\$( keeps its body text" 0 "clean" "$r"
 
+# A wait reaps wherever a command word can sit, and a kill there is no use.
+r=$(root_with wait-positions)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+p1=$!
+if ! wait "$p1"; then echo failed; fi
+sleep 0 &
+p2=$!
+time wait "$p2"
+sleep 0 &
+p3=$!
+case $mode in stop) wait "$p3" ;; esac
+sleep 0 &
+p4=$!
+rc=$(wait "$p4"; echo $?)
+echo "$p1 $p2 $p3 $p4" >lock
+SUITE
+expect "dead-owner: a wait after if !, time, a case pattern or \$( still reaps" 1 "test-case.sh:14: dead-owner" "$r"
+missed=""
+for v in p1 p2 p3 p4; do
+  case $out in
+    *"uses \$$v after"*) ;;
+    *) missed="$missed $v" ;;
+  esac
+done
+[ -z "$missed" ] || fail "dead-owner: waits on$missed went unread: $out"
+r=$(root_with kill-after-then)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+pid=$!
+wait "$pid"; if true; then kill "$pid" 2>/dev/null; fi
+SUITE
+expect "dead-owner: a kill after then is no use" 0 "clean" "$r"
+
+# A chmod inside a double-quoted $( ) names its own target, and a target
+# spelled "$f"x is the same path as ${f}x and not $fx.
+r=$(root_with chmod-in-subst)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+x="$(chmod 000 "$f")"
+if hermetic_access_denied r "$f"; then :; fi
+chmod 644 "$f"
+SUITE
+expect "mode-bit: a chmod inside \"\$( ) is matched to its probe and restore" 0 "clean" "$r"
+r=$(root_with quote-split)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+chmod 000 "${f}x"
+[ -r "$f"x ] || echo denied
+chmod 644 "${f}x"
+chmod 000 "$g"x
+[ -r "$gx" ] || exit 1
+chmod 644 "$g"x
+SUITE
+expect "mode-bit: \"\$g\"x is not \$gx" 1 "test-case.sh:5: mode-bit" "$r"
+case $out in
+  *"test-case.sh:2:"*) fail "mode-bit: a probe of \"\$f\"x did not satisfy \${f}x: $out" ;;
+esac
+
 # A library name holding a glob character is malformed as written, never
 # expanded to the files it would match.
 r=$(root_with glob-name sourced-read.sh)
