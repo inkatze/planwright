@@ -40,7 +40,6 @@ tmp=$(cd "$tmp" && pwd -P) || exit 1
 . "$here/lib/mission-control-fixture.sh"
 
 wdir="$fleet/mission-control/alpha/watchers"
-loop_args() { printf '/bin/bash %s loop --program alpha --slot %s' "$repo_root/scripts/mc-watch.sh" "$1"; }
 
 # Every watcher loop this suite starts is recorded by pid in a .rec file;
 # those pids are stopped on the way out, and only while the process is still
@@ -54,8 +53,9 @@ reap() {
     case $rp_pid in
       "" | *[!0-9]*) continue ;;
     esac
-    [ "$(ps -ww -o args= -p "$rp_pid" 2>/dev/null)" = "$(loop_args "$rp_slot")" ] || continue
-    kill "$rp_pid" 2>/dev/null
+    case $(ps -ww -o args= -p "$rp_pid" 2>/dev/null) in
+      "/bin/bash /"*"/mc-watch.sh loop --program alpha --slot $rp_slot") kill "$rp_pid" 2>/dev/null ;;
+    esac
   done
 }
 run_pid=""
@@ -338,6 +338,19 @@ mc_run mc-event.sh list --program alpha
 expect_no_out "REQ-E1.1: no event is emitted under the pause" "watcher-stopped"
 rm -rf "$wdir"
 check "a loop whose state directory is gone exits" poll_until --what "the orphaned loop's exit" -- pid_gone "$fast_pid"
+
+# A runner installed under a path with a space still recognizes its loops.
+setup '[alpha-duty]'
+mkdir -p "$tmp/with space"
+cp -R "$repo_root/scripts" "$tmp/with space/scripts"
+(mc_env /bin/bash "$tmp/with space/scripts/mc-watch.sh" pass --program alpha) >"$tmp/space.out" 2>&1
+(mc_env /bin/bash "$tmp/with space/scripts/mc-watch.sh" pass --program alpha) >"$tmp/space.out" 2>&1
+if grep -q "^running${tab}alpha-duty${tab}scripts/alpha-watch.sh" "$tmp/space.out"; then
+  ok "a loop under an install path with a space is recognized"
+else
+  fail "a loop under a path with a space was not recognized: $(cat "$tmp/space.out")"
+fi
+(mc_env /bin/bash "$tmp/with space/scripts/mc-watch.sh" stop --program alpha) >/dev/null 2>&1
 
 # ---------------------------------------------------------------------------
 # A watcher that cannot resolve is reported, never armed or evented; a duty

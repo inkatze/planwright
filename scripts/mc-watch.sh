@@ -70,7 +70,8 @@
 #       stop every armed watcher and drop its record, printing
 #       disarmed<TAB><duty> per watcher; under the runner lock, so with a
 #       runner live it prints `busy` and exits 1 (stop the runner first). A
-#       program no longer configured can still be stopped.
+#       program no longer configured can still be stopped; one with no
+#       runtime state here exits 3.
 #   mc-watch.sh loop --program <p> --slot <slot>      (internal)
 #
 # Exit codes: 0 done; 1 a catalog, budget or store failure, an unresolvable
@@ -173,7 +174,8 @@ slots() {
 # 2 the process table could not be read for a live pid. The script's path
 # may be spelled any way (a symlinked root, another install), but it is an
 # absolute path to an existing mc-watch.sh, run by /bin/bash with exactly the
-# loop's arguments after it.
+# loop's arguments after it. A loop whose install was removed since is not
+# recognized; it exits at its next wake, its record already gone.
 ours() {
   mc_valid_uint "$1" || return 1
   kill -0 "$1" 2>/dev/null || return 1
@@ -325,14 +327,17 @@ EOF
 runner_child=""
 runner_sleeping=0
 # runner_exit <status>: a sleep is cut short; a pass in flight finishes first,
-# so nothing it started runs on once the lock is released.
+# so nothing it started runs on once the lock is released. A pass has no
+# deadline of its own, so one stuck in a hung adapter needs a KILL, which
+# leaves that pass running without the lock.
 runner_exit() {
-  if [ -n "$runner_child" ]; then
-    if [ "$runner_sleeping" -eq 1 ]; then
-      kill "$runner_child" 2>/dev/null
-    else
-      wait "$runner_child" 2>/dev/null
-    fi
+  # A second signal must not cut the wait short.
+  trap '' TERM INT HUP
+  if [ "$runner_sleeping" -eq 1 ]; then
+    [ -z "$runner_child" ] || kill "$runner_child" 2>/dev/null
+  else
+    # Every child: a pass started a moment ago may not be recorded yet.
+    wait
   fi
   pw_lock_release_all
   exit "$1"
@@ -432,9 +437,9 @@ case $verb in
         exit "$pass_rc"
       fi
       [ "$pass_rc" -eq 0 ] || printf '%s\n' "$prog: the pass failed; retrying at the next interval" >&2
+      runner_sleeping=1
       sleep "$secs" &
       runner_child=$!
-      runner_sleeping=1
       wait "$runner_child"
       runner_child=""
       runner_sleeping=0

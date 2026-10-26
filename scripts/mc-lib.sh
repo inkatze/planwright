@@ -220,7 +220,8 @@ mc_quote() {
   case $1 in
     *[[:cntrl:]]*) return 1 ;;
   esac
-  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+  mq_close="'\\''"
+  printf "'%s'" "${1//\'/$mq_close}"
 }
 
 # mc_write <file>: stdin to <file> through a sibling temporary and a rename,

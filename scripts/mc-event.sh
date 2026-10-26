@@ -13,8 +13,9 @@
 #       record an event and print its id. <kind> is kebab; <subject> is the
 #       fleet field grammar (letters, digits, . _ = @ : -), at most 128
 #       characters; <text> carries no C0 or DEL byte and is at most 512
-#       bytes (a C1 byte is kept, as UTF-8 needs it, and stripped by every
-#       reader on the way to a terminal).
+#       bytes. A byte in the C1 range is accepted, since UTF-8 text uses it,
+#       but every reader drops it on the way to a terminal, so such text
+#       reads back mangled.
 #   mc-event.sh list --program <p> [--target <t> [--pending]] [<id>...]
 #       one <id><TAB><epoch><TAB><kind><TAB><subject><TAB><text> line per
 #       event (only the named ones, when ids are given), in id order, which

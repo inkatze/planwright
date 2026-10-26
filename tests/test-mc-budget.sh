@@ -222,6 +222,13 @@ if grep -q '^100010' "$fleet/mission-control/alpha/polls"; then
 else
   fail "REQ-L1.2: a later caller's poll was dropped"
 fi
+printf '100400\ttracker\n' >>"$fleet/mission-control/alpha/polls"
+mc_run mc-budget.sh poll --program alpha forge --now 100000
+if grep -q '^100400' "$fleet/mission-control/alpha/polls"; then
+  fail "a poll stamped past the five-minute skew was kept"
+else
+  ok "a poll stamped past the five-minute skew is dropped"
+fi
 
 program '{}'
 mc_run mc-budget.sh report --program alpha --now 100000 --load 0

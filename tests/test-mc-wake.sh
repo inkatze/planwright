@@ -342,7 +342,7 @@ done
 mc_run mc-wake.sh relay --program alpha
 expect_out "a wake carries at most twenty events" "staged${tab}tw${tab}20"
 msg=$(sed -n 's/.*read \(.*\)$/\1/p' "$tmp/tmux/pasted")
-if grep -q '23 event(s) pending, the oldest 20 here' "$msg" && [ "$(grep -c '^- pr-ready' "$msg")" -eq 20 ]; then
+if grep -q '23 event(s) pending, 20 of them here' "$msg" && [ "$(grep -c '^- pr-ready' "$msg")" -eq 20 ]; then
   ok "the wake counts the backlog and lists twenty"
 else
   fail "the wake does not cap its list: $(cat "$msg")"
@@ -350,6 +350,19 @@ fi
 printf '%s\n' "$idle_pane" >"$tmp/tmux/pane"
 mc_run mc-wake.sh relay --program alpha
 expect_out "the rest go in the next wake" "staged${tab}tw${tab}3"
+# Twenty-three staged and unacknowledged: a new event still reaches the tick's
+# wake, ahead of them.
+mc_run mc-event.sh emit --program alpha pr-ready pr-newest
+printf '%s\n' "$dialog_pane" >"$tmp/tmux/pane"
+mc_run mc-wake.sh relay --program alpha
+printf '%s\n' "$idle_pane" >"$tmp/tmux/pane"
+mc_run mc-wake.sh tick --program alpha --now 50000
+msg=$(sed -n 's/.*read \(.*\)$/\1/p' "$tmp/tmux/pasted")
+if grep -q '^- pr-ready pr-newest$' "$msg"; then
+  ok "the tick puts a never-sent event ahead of a staged backlog"
+else
+  fail "the tick's wake left the new event out: $(cat "$msg")"
+fi
 
 tmux_target
 mc_run mc-wake.sh tick --program alpha --now 10000

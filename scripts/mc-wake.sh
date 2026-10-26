@@ -18,8 +18,9 @@
 #             no newline, so the wake is STAGED and its events marked staged
 #             until the session acknowledges them (below)
 #   any other backend, or a retired worker: unreachable, nothing sent
-# One wake per target carries its oldest 20 pending events, never-sent ones
-# ahead of staged ones (the rest wait for a later wake), naming each one's kind and subject, re-checked against
+# One wake per target carries 20 of its pending events, oldest first and,
+# in the tick, never-sent ones ahead of staged ones (the rest wait for a
+# later wake), naming each one's kind and subject, re-checked against
 # their grammar, never its free text, which the session reads through the
 # `mc-event.sh list --program <p> <id>...` command the wake prints. It is
 # written to a file of its own under <runtime>/wake/, which a staged pointer
@@ -178,7 +179,7 @@ send() {
     printf 'idle\t%s\n' "$sd_w"
     return 0
   fi
-  # One wake carries the oldest LISTED_MAX; the rest wait for the next pass.
+  # One wake carries the first LISTED_MAX; the rest wait for a later wake.
   sd_rows=$(printf '%s\n' "$sd_rows" | M=$LISTED_MAX awk 'NF && ++n <= ENVIRON["M"] + 0')
   sd_n=$(printf '%s\n' "$sd_rows" | awk 'NF { n++ } END { print n + 0 }')
   sd_ids=$(printf '%s\n' "$sd_rows" | awk -F '\t' 'NF { printf "%s%s", sep, $1; sep = " " }')
@@ -187,7 +188,7 @@ send() {
   sd_msg=$(mktemp "$runtime/wake/$sd_w.XXXXXX") || return 1
   {
     printf 'mission control (%s): %s event(s) pending' "$program" "$sd_total"
-    [ "$sd_n" -eq "$sd_total" ] || printf ', the oldest %s here' "$sd_n"
+    [ "$sd_n" -eq "$sd_total" ] || printf ', %s of them here' "$sd_n"
     printf '.\n'
     printf '%s\n' "$sd_rows" | awk -F '\t' 'NF { print "- " $3 " " $4 }'
     printf 'Read them with: %s list --program %s %s\n' "$sd_cmd" "$program" "$sd_ids"
