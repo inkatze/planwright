@@ -2,8 +2,7 @@
 # worker-session-record.sh — write a dispatched worker's session record: the
 # launch-time inputs its command guard trusts.
 #
-# Usage: worker-session-record.sh write <worktree> [<launch-id>]
-#          [--scratch <dir> | --scratch-home]
+# Usage: worker-session-record.sh write <worktree> [<launch-id>] [--scratch]
 #
 # Resolves, once, from the worktree the worker will run in:
 #   policy             worker_self_approval through the overlay layers,
@@ -19,19 +18,17 @@
 #                      when unset) and that remote's default branch as
 #                      recorded locally, else main
 #   worker_base_merge  the human-gates knob (omitted when it cannot be read)
-#   scratch_root       the worker's scratch root, when an option names one:
-#                      --scratch <dir> (an absolute path whose parent exists,
-#                      the launcher's own per-worker state directory) or
-#                      --scratch-home (<fleet-home>/scratch/<record key>, for
-#                      a rung with no state directory of its own). It is
-#                      created owner-only when absent and kept, contents and
-#                      all, when present, so a recover finds the same root; it
-#                      must be this user's own directory, reached through no
-#                      symlink, apart from the worktree and the record both
-#                      ways. One that is not is omitted with a warning, which
-#                      leaves the worker without the scratch arm; the launcher
-#                      exports the recorded root as the worker's TMPDIR, and
-#                      the rung's final close or reap removes it
+#   scratch_root       with --scratch, the worktree's scratch root,
+#                      <fleet-home>/scratch/<sha1-of-worktree-root>, whatever
+#                      the launch id: created owner-only when absent and kept,
+#                      contents and all, when present, so every stop, recover,
+#                      and relaunch of the worker finds the same root. It must
+#                      be this user's own directory, reached through no
+#                      symlink; one that is not is omitted with a warning,
+#                      which leaves the worker without the scratch arm. The
+#                      launcher exports the recorded root as the worker's
+#                      TMPDIR, and `fleet-cleanup.sh worktree` removes it with
+#                      the worktree it belongs to: the unit's reap
 # and writes them as `key=value` lines to
 # <fleet-home>/session-records/<sha1-of-worktree-root>.record, owner-only, by
 # an atomic rename, printing the path. A <launch-id> (16 to 64 lowercase hex
@@ -58,29 +55,18 @@ die() {
   exit "${2:-1}"
 }
 
-usage="usage: $me write <worktree> [<launch-id>] [--scratch <dir> | --scratch-home]"
+usage="usage: $me write <worktree> [<launch-id>] [--scratch]"
 [ "$#" -ge 2 ] && [ "$1" = write ] || die "$usage" 2
 wt_arg=$2
 shift 2
 launch_id=''
 have_id=0
-scratch_mode=''
-scratch_arg=''
+want_scratch=0
 while [ "$#" -gt 0 ]; do
   case $1 in
     --scratch)
-      [ -z "$scratch_mode" ] && [ "$#" -ge 2 ] || die "$usage" 2
-      case $2 in
-        /?*) ;;
-        *) die "--scratch takes an absolute path" 2 ;;
-      esac
-      scratch_mode=dir
-      scratch_arg=$2
-      shift 2
-      ;;
-    --scratch-home)
-      [ -z "$scratch_mode" ] || die "$usage" 2
-      scratch_mode=home
+      [ "$want_scratch" = 0 ] || die "$usage" 2
+      want_scratch=1
       shift
       ;;
     -*) die "$usage" 2 ;;
@@ -199,7 +185,8 @@ case $dir/ in
   "$wt"/*) die "the fleet home lies inside the worktree, where the worker could rewrite its record" ;;
 esac
 
-key=$(printf '%s' "$wt" | git hash-object --stdin 2>/dev/null) || die "cannot name the record"
+wt_key=$(printf '%s' "$wt" | git hash-object --stdin 2>/dev/null) || die "cannot name the record"
+key=$wt_key
 [ -z "$launch_id" ] || key=$key-$launch_id
 rec=$dir/$key.record
 
@@ -210,9 +197,8 @@ scratch_make() {
   case $sm in
     *[[:cntrl:]]*) return 1 ;;
   esac
-  if [ ! -e "$sm" ] && [ ! -L "$sm" ]; then
-    mkdir -- "$sm" 2>/dev/null || return 1 # not-a-lock: creating the scratch root, whose checks follow
-  fi
+  # An existing root is kept; the checks below decide either way.
+  mkdir -- "$sm" 2>/dev/null || : # not-a-lock: creating the scratch root, whose checks follow
   [ -d "$sm" ] && [ ! -L "$sm" ] || return 1
   [ "$(find "$sm" -maxdepth 0 -user "$(id -u)" 2>/dev/null)" = "$sm" ] || return 1
   chmod 700 -- "$sm" 2>/dev/null || return 1
@@ -230,15 +216,10 @@ scratch_make() {
 }
 
 scratch=''
-case $scratch_mode in
-  dir) scratch=$(scratch_make "$scratch_arg") || scratch='' ;;
-  home)
-    if mkdir -p -- "$home/scratch" 2>/dev/null; then
-      scratch=$(scratch_make "$home/scratch/$key") || scratch=''
-    fi
-    ;;
-esac
-[ -z "$scratch_mode" ] || [ -n "$scratch" ] \
+if [ "$want_scratch" = 1 ] && mkdir -p -- "$home/scratch" 2>/dev/null; then
+  scratch=$(scratch_make "$home/scratch/$wt_key") || scratch=''
+fi
+[ "$want_scratch" = 0 ] || [ -n "$scratch" ] \
   || printf '%s: the scratch root is unusable; the worker gets no scratch arm\n' "$me" >&2
 tmp=$(mktemp "$dir/.$key.XXXXXX") || die "cannot write the record"
 if ! {

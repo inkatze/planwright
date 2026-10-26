@@ -798,13 +798,12 @@ attention record the worker held. `--grace` takes a whole number of seconds
 within the bounds the script declares; run `stop` with an out-of-range value to
 have it name them. The event capture, the persisted session, the rate-limit
 reading, and the receipt journal survive a stop: they are the durable record,
-not runtime. The scratch temp includes the worker's scratch root, the
-`tmp/` directory under its state directory that its launch exported as its
-`TMPDIR` and named in its session record: a `recover` keeps it, contents and
-all, and the close removes it. The headless rung keeps its worker's scratch
-root the same way, and the tmux rung, which has no close of its own, keeps it
-under the fleet home, where reclaiming the worktree removes it. The journal
-survives as a file but not untouched — the close
+not runtime. So does the worker's scratch root, the directory its launch
+exported as its `TMPDIR` and named in its session record: it belongs to the
+worktree, under `<fleet home>/scratch/`, so every stop, `recover`, and
+relaunch of the worker finds it again, contents and all, on every rung, and
+`fleet-cleanup.sh worktree` removes it when it reclaims the worktree. The
+journal survives as a file but not untouched — the close
 marks its still-`pending` receipts `undeliverable` and discards any spooled
 receipt, because a close
 makes them undeliverable by definition and a receipt left pending is what

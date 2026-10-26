@@ -801,17 +801,18 @@ h19() {
   esac
   grep -qx "worktree_root=$(cd "$wt" && pwd -P)" "$(cat "$rec/record")" 2>/dev/null \
     || fail "h19: the worker's session record does not name its worktree"
-  # Its scratch root (REQ-G1.2): <unit>/tmp, exported as TMPDIR and named in
-  # the record; the close releases it with the rest of the scratch class.
-  local unit19
-  unit19=$(cd "$STATE/19" && pwd -P)
-  [ "$(cat "$rec/tmpdir")" = "$unit19/tmp" ] && [ -d "$unit19/tmp" ] \
-    || fail "h19: the worker got TMPDIR '$(cat "$rec/tmpdir")', expected its scratch root $unit19/tmp"
-  grep -qx "scratch_root=$unit19/tmp" "$(cat "$rec/record")" 2>/dev/null \
+  # Its scratch root (REQ-G1.2): the worktree's, under the fleet home,
+  # exported as TMPDIR and named in the record; a close leaves it for the
+  # worktree's reclaim.
+  local root19
+  root19="$(cd "$PLANWRIGHT_FLEET_STATE_DIR" && pwd -P)/scratch/$(printf '%s' "$(cd "$wt" && pwd -P)" | git hash-object --stdin)"
+  [ "$(cat "$rec/tmpdir")" = "$root19" ] && [ -d "$root19" ] \
+    || fail "h19: the worker got TMPDIR '$(cat "$rec/tmpdir")', expected its scratch root $root19"
+  grep -qx "scratch_root=$root19" "$(cat "$rec/record")" 2>/dev/null \
     || fail "h19: the worker's session record does not name its scratch root"
   PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" /bin/sh "$FDH" stop "headless-$SPEC-task-19" --grace 2 >/dev/null 2>&1 \
     || fail "h19: the close exited non-zero"
-  [ ! -e "$unit19/tmp" ] || fail "h19: the close left the scratch root behind"
+  [ -d "$root19" ] || fail "h19: the close removed the worktree's scratch root"
   make_fake "$rec"
   rm -f "$wt/.claude/planwright.local.yml"
   printf 'p' | launch_h19 20 "$wt" || {

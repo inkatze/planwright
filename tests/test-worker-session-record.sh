@@ -216,22 +216,23 @@ else
 fi
 
 echo "### REQ-G1.2 — the scratch root"
-mkdir -p "$T/state/w1"
-REC=$(/bin/sh "$WRITER" write "$WT" --scratch "$T/state/w1/tmp" 2>"$T/err")
+wt_key=$(printf '%s' "$WT" | git hash-object --stdin)
+root="$PLANWRIGHT_FLEET_STATE_DIR/scratch/$wt_key"
+REC=$(/bin/sh "$WRITER" write "$WT" --scratch 2>"$T/err")
 RC=$?
-mode=$(stat -c %a "$T/state/w1/tmp" 2>/dev/null || stat -f %Lp "$T/state/w1/tmp" 2>/dev/null)
-if [ "$RC" -eq 0 ] && [ "$(field scratch_root)" = "$T/state/w1/tmp" ] && [ -d "$T/state/w1/tmp" ] \
-  && [ -O "$T/state/w1/tmp" ] && [ "$mode" = 700 ]; then
-  pass "G1.2: --scratch creates an owner-only root this user owns and records it"
+mode=$(stat -c %a "$root" 2>/dev/null || stat -f %Lp "$root" 2>/dev/null)
+if [ "$RC" -eq 0 ] && [ "$(field scratch_root)" = "$root" ] && [ -d "$root" ] && [ -O "$root" ] \
+  && [ "$mode" = 700 ]; then
+  pass "G1.2: --scratch creates the worktree's owner-only root under the fleet home and records it"
 else
   fail "G1.2: --scratch (rc=$RC, mode=$mode, $(tr '\n' ' ' <"$REC" 2>/dev/null) $(cat "$T/err"))"
 fi
-: >"$T/state/w1/tmp/kept"
-REC=$(/bin/sh "$WRITER" write "$WT" --scratch "$T/state/w1/tmp" 2>/dev/null)
-if [ "$(field scratch_root)" = "$T/state/w1/tmp" ] && [ -f "$T/state/w1/tmp/kept" ]; then
-  pass "G1.2: a rewrite (a recover) keeps the same root and its contents"
+: >"$root/kept"
+REC=$(/bin/sh "$WRITER" write "$WT" "$id" --scratch 2>/dev/null)
+if [ "$(field scratch_root)" = "$root" ] && [ -f "$root/kept" ]; then
+  pass "G1.2: another launch of the worktree keeps the same root and its contents"
 else
-  fail "G1.2: the rewrite did not keep the root"
+  fail "G1.2: the relaunch did not keep the root ('$(field scratch_root)')"
 fi
 REC=$(/bin/sh "$WRITER" write "$WT" 2>/dev/null)
 if [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC"; then
@@ -239,51 +240,27 @@ if [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC"; then
 else
   fail "G1.2: a scratch root was recorded unasked"
 fi
-for bad in "$WT/build-tmp" "$T/state/missing-parent/tmp"; do
-  REC=$(/bin/sh "$WRITER" write "$WT" --scratch "$bad" 2>"$T/err")
-  RC=$?
-  if [ "$RC" -eq 0 ] && [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC" && [ -s "$T/err" ]; then
-    pass "G1.2: an unusable root ($bad) is omitted with a warning, the record still written"
-  else
-    fail "G1.2: unusable root $bad (rc=$RC, $(tr '\n' ' ' <"$REC" 2>/dev/null))"
-  fi
-done
-rm -rf "$WT/build-tmp"
+if /bin/sh "$WRITER" write "$WT" --scratch --scratch >/dev/null 2>&1; then
+  fail "G1.2: a repeated --scratch was accepted"
+else
+  pass "G1.2: a repeated --scratch is a usage error"
+fi
 mkdir -p "$T/elsewhere"
-ln -s "$T/elsewhere" "$T/state/w1/linked"
-REC=$(/bin/sh "$WRITER" write "$WT" --scratch "$T/state/w1/linked" 2>/dev/null)
-if [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC"; then
-  pass "G1.2: a root that is a symlink is omitted"
+mv "$root" "$root.moved"
+ln -s "$T/elsewhere" "$root"
+REC=$(/bin/sh "$WRITER" write "$WT" --scratch 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC" && [ -s "$T/err" ]; then
+  pass "G1.2: a root that is a symlink is omitted with a warning, the record still written"
 else
-  fail "G1.2: a symlinked root was recorded"
+  fail "G1.2: a symlinked root (rc=$RC, $(tr '\n' ' ' <"$REC" 2>/dev/null))"
 fi
-REC=$(/bin/sh "$WRITER" write "$WT" --scratch "$MAIN" 2>/dev/null)
-if [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC"; then
-  pass "G1.2: a root holding the worktree is omitted"
-else
-  fail "G1.2: a root holding the worktree was recorded"
-fi
-if /bin/sh "$WRITER" write "$WT" --scratch relative/tmp >/dev/null 2>&1; then
-  fail "G1.2: a relative --scratch was accepted"
-else
-  pass "G1.2: a relative --scratch is a usage error"
-fi
-if /bin/sh "$WRITER" write "$WT" --scratch "$T/a" --scratch-home >/dev/null 2>&1; then
-  fail "G1.2: two scratch options were accepted"
-else
-  pass "G1.2: two scratch options are a usage error"
-fi
-REC=$(/bin/sh "$WRITER" write "$WT" "$id" --scratch-home 2>/dev/null)
-home_root="$PLANWRIGHT_FLEET_STATE_DIR/scratch/$(basename "$REC" .record)"
-if [ "$(field scratch_root)" = "$home_root" ] && [ -d "$home_root" ]; then
-  pass "G1.2: --scratch-home keys the root under the fleet home by the record's own name"
-else
-  fail "G1.2: --scratch-home recorded '$(field scratch_root)', expected $home_root"
-fi
+rm -f "$root"
+mv "$root.moved" "$root"
 set_layer repo-tracked 'worker_self_approval: scratch'
-REC=$(/bin/sh "$WRITER" write "$WT" --scratch "$T/state/w1/tmp" 2>/dev/null)
+REC=$(/bin/sh "$WRITER" write "$WT" --scratch 2>/dev/null)
 out=$(jq -cn --arg c 'touch $TMPDIR/x && mktemp -d' --arg w "$WT" '{tool_name:"Bash",tool_input:{command:$c},cwd:$w}' \
-  | (cd "$WT" && PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/bash "$GUARD" 2>/dev/null))
+  | (cd "$WT" && TMPDIR=$root PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/bash "$GUARD" 2>/dev/null))
 if [ "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)" = allow ]; then
   pass "G1.2: the guard takes the launched record's scratch root"
 else
@@ -363,8 +340,8 @@ if [ $? -eq 2 ]; then
 else
   fail "G1.8: a missing record was accepted"
 fi
-out=$(TMPDIR=/inherited /bin/sh "$ENVWRAP" --tmpdir "$T/state/w1/tmp" /bin/sh -c 'printf %s "$TMPDIR"' 2>&1)
-if [ "$out" = "$T/state/w1/tmp" ]; then
+out=$(TMPDIR=/inherited /bin/sh "$ENVWRAP" --tmpdir "$root" /bin/sh -c 'printf %s "$TMPDIR"' 2>&1)
+if [ "$out" = "$root" ]; then
   pass "G1.2: --tmpdir is exported as the worker's TMPDIR"
 else
   fail "G1.2: wrapper exported TMPDIR '$out'"

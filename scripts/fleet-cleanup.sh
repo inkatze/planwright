@@ -34,8 +34,9 @@
 #       identity is resolved from the caller's own pane ($TMUX_PANE via
 #       `tmux display-message`); it is refused if it resolves to that window.
 #   fleet-cleanup.sh worktree <path> <trigger> <reasoning> [--merged-pr <n>]
-#       Remove a clean, provably-reclaimable git worktree (git worktree remove).
-#       Refused if <path> is (or contains) the caller's own worktree, or if it
+#       Remove a clean, provably-reclaimable git worktree (git worktree remove),
+#       with the session records and the scratch root the fleet home keeps for
+#       it (scripts/worker-session-record.sh). Refused if <path> is (or contains) the caller's own worktree, or if it
 #       carries uncommitted work, or if neither evidence path below holds:
 #         A. upstream parity — a configured upstream, zero commits ahead;
 #         B. --merged-pr <n> — this script verifies via `gh` that PR <n> is
@@ -677,9 +678,11 @@ case "$cmd" in
     fi
     # The worktree's session records (scripts/worker-session-record.sh) name
     # a worktree that no longer exists, and the tmux rung writes one per
-    # launch, so this is where they stop accumulating. The scratch roots
-    # that rung keeps under the fleet home, one per launch, go with them:
-    # reclaiming the worktree is that worker's reap.
+    # launch, so this is where they stop accumulating. The worktree's scratch
+    # root goes with them: every rung keeps it under the fleet home across
+    # stops and recovers, and reclaiming the worktree is the unit's reap.
+    # Directories the worker left without write permission are opened first,
+    # without following a link, or the removal would stop at them.
     rec_home=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || rec_home=""
     rec_key=$(printf '%s' "$target_wt" | git hash-object --stdin 2>/dev/null) || rec_key=""
     case $rec_home:$rec_key in
@@ -689,12 +692,13 @@ case "$cmd" in
             \( -name "$rec_key.record" -o -name "$rec_key-*.record" \) \
             -exec rm -f -- {} + 2>/dev/null \
           || warn "removed worktree '$path' but could not remove its session records"
-        [ ! -d "$rec_home/scratch" ] \
-          || find "$rec_home/scratch" -mindepth 1 -maxdepth 1 -type d \
-            \( -name "$rec_key" -o -name "$rec_key-*" \) \
-            -exec rm -rf -- {} + 2>/dev/null \
-          || warn "removed worktree '$path' but could not remove its scratch roots"
+        if [ -d "$rec_home/scratch/$rec_key" ] && [ ! -L "$rec_home/scratch/$rec_key" ]; then
+          find "$rec_home/scratch/$rec_key" -type d ! -perm -700 -exec chmod u+rwx {} \; 2>/dev/null || :
+          rm -rf -- "${rec_home:?}/scratch/$rec_key" 2>/dev/null \
+            || warn "removed worktree '$path' but could not remove its scratch root"
+        fi
         ;;
+      *) warn "removed worktree '$path' but could not name its session records and scratch root, so they stay" ;;
     esac
     if ! audit worktree-cleanup cleanup "$trigger" "$reasoning"; then
       warn "removed worktree '$path' but FAILED to record it in the audit trail"

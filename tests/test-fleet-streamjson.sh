@@ -821,29 +821,40 @@ grep -qx "worktree_root=$(cd "$tmp/wt39" && pwd -P)" "$rec39" 2>/dev/null \
   || fail "c39: the worker's session record does not name its worktree"
 echo "ok: c39 the worker gets a fresh session record, never an inherited one (REQ-G1.8)"
 # The worker's scratch root (worker-permission-ergonomics REQ-G1.2): its
-# TMPDIR is <dir>/tmp, which its session record names; a recover keeps it,
-# contents and all, and the close removes it.
-wdir39=$(cd "$tmp/h39/streamjson/sjw39b" 2>/dev/null && pwd -P)
+# TMPDIR, and only the worker's, is the worktree's root under the fleet home,
+# which its session record names; a recover keeps it, contents and all, and
+# so does a stop, which a recover may follow.
+wt39=$(cd "$tmp/wt39" && pwd -P)
+root39="$(cd "$tmp/h39" 2>/dev/null && pwd -P)/scratch/$(printf '%s' "$wt39" | git hash-object --stdin)"
 tmp39=$(grep '^tmpdir=' "$tmp/r39/env" | tail -n 1)
-[ -n "$wdir39" ] && [ "${tmp39#tmpdir=}" = "$wdir39/tmp" ] && [ -d "$wdir39/tmp" ] \
-  || fail "c39: the worker's TMPDIR was '${tmp39#tmpdir=}', expected its own scratch root $wdir39/tmp"
-grep -qx "scratch_root=$wdir39/tmp" "$rec39" 2>/dev/null \
+[ "${tmp39#tmpdir=}" = "$root39" ] && [ -d "$root39" ] \
+  || fail "c39: the worker's TMPDIR was '${tmp39#tmpdir=}', expected the worktree's scratch root $root39"
+grep -qx "scratch_root=$root39" "$rec39" 2>/dev/null \
   || fail "c39: the worker's session record does not name its scratch root"
-: >"$wdir39/tmp/kept"
-(
-  for _v in $(env | sed -n 's/^\(PLANWRIGHT_[A-Za-z0-9_]*\)=.*/\1/p'); do
-    unset "$_v"
-  done
-  cd "$tmp/wt39" && senv "$tmp/h39" "$tmp/r39" GIT_CEILING_DIRECTORIES="$tmp" \
-    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 SHIM_EVENTS="$tmp/ev9" SHIM_READ_FIRST=0 -- \
-    recover sjw39b --foreground
-) >/dev/null 2>&1 || fail "c39: the recover exited non-zero"
+: >"$root39/kept"
+recover39() {
+  (
+    for _v in $(env | sed -n 's/^\(PLANWRIGHT_[A-Za-z0-9_]*\)=.*/\1/p'); do
+      unset "$_v"
+    done
+    cd "$tmp/wt39" && senv "$tmp/h39" "$tmp/r39" GIT_CEILING_DIRECTORIES="$tmp" \
+      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 SHIM_EVENTS="$tmp/ev9" SHIM_READ_FIRST=0 -- \
+      recover sjw39b --foreground
+  ) >/dev/null 2>&1
+}
+n39=$(grep -c '^tmpdir=' "$tmp/r39/env")
+recover39 || fail "c39: the recover exited non-zero"
 tmp39=$(grep '^tmpdir=' "$tmp/r39/env" | tail -n 1)
-[ "${tmp39#tmpdir=}" = "$wdir39/tmp" ] && [ -f "$wdir39/tmp/kept" ] \
-  || fail "c39: the recovered worker's TMPDIR was '${tmp39#tmpdir=}' or its contents were lost"
+[ "$(grep -c '^tmpdir=' "$tmp/r39/env")" -gt "$n39" ] && [ "${tmp39#tmpdir=}" = "$root39" ] \
+  && [ -f "$root39/kept" ] \
+  || fail "c39: the recovered worker's TMPDIR was '${tmp39#tmpdir=}', or it never ran, or the root lost its contents"
 senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 >/dev/null 2>&1 || fail "c39: the stop exited non-zero"
-[ ! -e "$wdir39/tmp" ] || fail "c39: the close left the scratch root behind"
-echo "ok: c39 the worker's TMPDIR is its own scratch root, kept by a recover and removed by the close (REQ-G1.2)"
+[ -f "$root39/kept" ] || fail "c39: the stop removed the scratch root a recover may still need"
+n39=$(grep -c '^tmpdir=' "$tmp/r39/env")
+recover39 || fail "c39: the recover after the stop exited non-zero"
+[ "$(grep -c '^tmpdir=' "$tmp/r39/env")" -gt "$n39" ] && [ -f "$root39/kept" ] \
+  || fail "c39: the recover after a stop did not find the same root"
+echo "ok: c39 the worker's TMPDIR is its worktree's scratch root, kept across a recover and a stop (REQ-G1.2)"
 
 # ---------------------------------------------------------------------------
 # c10: hostile inputs are refused before any path use.

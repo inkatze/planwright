@@ -1758,9 +1758,10 @@ MERR
   # one the guard keeps to its read-only arm, so it never blocks a launch.
   # The record is this launch's own, so losing the session race below
   # rewrites nothing the winner reads.
-  # The worker's scratch root, its TMPDIR, is this launch's own too, under
-  # the fleet home; reclaiming the worktree removes it (fleet-cleanup.sh).
-  LAUNCH_RECORD=$(/bin/sh "$script_dir/worker-session-record.sh" write "$_worktree" "$_token" --scratch-home \
+  # The worker's scratch root, its TMPDIR, is the worktree's, kept for
+  # every later launch there and removed when the worktree is reclaimed
+  # (fleet-cleanup.sh worktree).
+  LAUNCH_RECORD=$(/bin/sh "$script_dir/worker-session-record.sh" write "$_worktree" "$_token" --scratch \
     2>/dev/null </dev/null) || LAUNCH_RECORD=''
   LAUNCH_TMPDIR=''
   [ -z "$LAUNCH_RECORD" ] || LAUNCH_TMPDIR=$(sed -n 's/^scratch_root=//p' "$LAUNCH_RECORD" 2>/dev/null) || LAUNCH_TMPDIR=''
@@ -1780,7 +1781,7 @@ MERR
           # Everything this dispatch would own is the winner's: remove,
           # clear, and write nothing.
           warn "already-in-flight: another dispatch created $_session first; its worktree, branch, and marker are left as they are"
-          launch_record_drop
+          launch_record_drop keep-scratch
           exit 3
           ;;
       esac
@@ -1849,12 +1850,15 @@ start_dir_ok() {
   [ "$sdo_phys" = "$2" ]
 }
 
-# launch_record_drop — remove this launch's own session record and scratch
-# root, for a launch whose worker never ran.
+# launch_record_drop [keep-scratch] — remove this launch's own session record,
+# for a launch whose worker never ran, and the worktree's scratch root with
+# it unless told to keep it: a launch that lost the race leaves it to the
+# winner, and an undo removes it with the worktree.
 launch_record_drop() {
   [ -z "$LAUNCH_RECORD" ] || rm -f -- "$LAUNCH_RECORD"
+  [ "${1-}" != keep-scratch ] || return 0
   case $LAUNCH_TMPDIR in
-    /?*) rm -rf -- "$LAUNCH_TMPDIR" 2>/dev/null || : ;;
+    /?*) rm -rf -- "$LAUNCH_TMPDIR" 2>/dev/null || warn "could not remove the scratch root $LAUNCH_TMPDIR" ;;
   esac
 }
 
