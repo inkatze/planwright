@@ -69,12 +69,14 @@ The skill asks once per venture, with nothing pre-selected:
 The home degrades rather than fails: a git repository, then a plain folder
 when git is missing, then session-only when the filesystem will not outlive
 the session (a cloud session). Every degradation is said before the first
-question and again at hand-off. A local venture can move to a private remote
-later without losing its history (`inception-venture.sh add-remote`).
+question and again at hand-off. A local venture kept in git can move to a
+private remote later without losing its history (`inception-venture.sh
+add-remote`); a plain folder has no history to move and is refused.
 
 ## Non-engineer and expert modes
 
-The skill also asks once how saving should look. Both modes work on the same
+The skill also asks once how saving should look, unless you have already
+shown which you want. Both modes work on the same
 repository, so a venture can change hands between them.
 
 - **Handled for you.** Every save is reported in plain words ("saved",
@@ -117,9 +119,12 @@ from it.
 - **The GitHub web path.** On a private-remote venture a stakeholder can read
   and edit the bundle in the GitHub web UI. The scaffolded
   `.github/workflows/venture-guard.yml` scans for secrets and validates
-  each change against the version before it, so a web edit that mangles an identifier, breaks the
+  each pull request against its base and each push to `main` against the
+  commit before it, so a web edit that mangles an identifier, breaks the
   structure, or rewrites a recorded gate run fails CI, while ordinary prose
-  edits pass. The workflow ships pinned to action tags and planwright's
+  edits pass. When an event gives it no usable baseline (the first push to
+  `main`, say), it says the comparison did not run and validates the bundle
+  alone. The workflow ships pinned to action tags and planwright's
   default branch; `hygiene-wiring.md` explains how to pin it to commit SHAs
   if the venture wants the stricter posture.
 
