@@ -2,43 +2,7 @@
 # mc-event.sh — a mission-control program's events, kept in the attention
 # store at <fleet-home>/attention/mission-control/<program>/.
 #
-# An event is one immutable file under events/, named by its id
-# (e<epoch>.<hex>), holding one line:
-#   <epoch><TAB><kind><TAB><subject><TAB><text>
-# Delivery to a wake target is recorded beside it, never in it: a mark file
-# marks/<target>/<id> holding submitted or staged.
-#
-# Usage:
-#   mc-event.sh emit --program <p> [--now <epoch>] [--] <kind> <subject> [<text>]
-#       record an event and print its id. <kind> is kebab, at most 64
-#       characters; <subject> is the
-#       fleet field grammar (letters, digits, . _ = @ : -), at most 128
-#       characters; <text> carries no C0 or DEL byte and is at most 512
-#       bytes. A byte in the C1 range is accepted, since UTF-8 text uses it,
-#       but every reader drops it on the way to a terminal, so such text
-#       reads back mangled.
-#   mc-event.sh list --program <p> [--target <t> [--pending]] [<id>...]
-#       one <id><TAB><epoch><TAB><kind><TAB><subject><TAB><text> line per
-#       event (only the named ones, when ids are given), in id order, which
-#       is emission order to the second (events of one second in no set
-#       order); with --target a sixth field, the target's mark or -;
-#       --pending keeps only events the target has not been submitted. An
-#       event whose stored fields break the grammar emit enforces, or whose
-#       file is a symbolic link, is skipped with a warning on stderr.
-#   mc-event.sh mark --program <p> --target <t> submitted|staged <id>...
-#       record a delivery of each event. A submitted mark is final: staging
-#       never overwrites it. Every id is checked before any is marked; one
-#       that names no event (pruned since, say) is skipped and named on
-#       stderr, and the call exits 3 after marking the rest.
-#   mc-event.sh prune --program <p> [--now <epoch>]
-#       drop events, and their marks, older than
-#       mission_control_event_retention; prints `pruned<TAB><n>`.
-#
-# Exit codes: 0 done; 1 the store cannot be read or written, or an invalid
-# retention knob; 2 usage or a value outside its grammar; 3 an id that names
-# no event (mark).
-#
-# Portable bash 3.2 / BSD tooling.
+# `mc-event.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
 set -f
 LC_ALL=C
@@ -78,6 +42,56 @@ valid_id() {
   esac
 }
 
+help_text() {
+  cat <<'HELP'
+mc-event.sh — a mission-control program's events, kept in the attention
+store at <fleet-home>/attention/mission-control/<program>/.
+
+An event is one immutable file under events/, named by its id
+(e<epoch>.<hex>), holding one line:
+  <epoch><TAB><kind><TAB><subject><TAB><text>
+Delivery to a wake target is recorded beside it, never in it: a mark file
+marks/<target>/<id> holding submitted or staged.
+
+Usage:
+  mc-event.sh emit --program <p> [--now <epoch>] [--] <kind> <subject> [<text>]
+      record an event and print its id. <kind> is kebab, at most 64
+      characters; <subject> is the
+      fleet field grammar (letters, digits, . _ = @ : -), at most 128
+      characters; <text> carries no C0 or DEL byte and is at most 512
+      bytes. A byte in the C1 range is accepted, since UTF-8 text uses it,
+      but every reader drops it on the way to a terminal, so such text
+      reads back mangled.
+  mc-event.sh list --program <p> [--target <t> [--pending]] [<id>...]
+      one <id><TAB><epoch><TAB><kind><TAB><subject><TAB><text> line per
+      event (only the named ones, when ids are given), in id order, which
+      is emission order to the second (events of one second in no set
+      order); with --target a sixth field, the target's mark or -;
+      --pending keeps only events the target has not been submitted. An
+      event whose stored fields break the grammar emit enforces, or whose
+      file is a symbolic link, is skipped with a warning on stderr.
+  mc-event.sh mark --program <p> --target <t> submitted|staged <id>...
+      record a delivery of each event. A submitted mark is final: staging
+      never overwrites it. Every id is checked before any is marked; one
+      that names no event (pruned since, say) is skipped and named on
+      stderr, and the call exits 3 after marking the rest.
+  mc-event.sh prune --program <p> [--now <epoch>]
+      drop events, and their marks, older than
+      mission_control_event_retention; prints `pruned<TAB><n>`.
+
+Exit codes: 0 done; 1 the store cannot be read or written, or an invalid
+retention knob; 2 usage or a value outside its grammar; 3 an id that names
+no event (mark).
+
+Portable bash 3.2 / BSD tooling.
+HELP
+}
+case ${1:-} in
+  --help | -h)
+    help_text
+    exit 0
+    ;;
+esac
 [ $# -ge 1 ] || usage
 verb=$1
 shift

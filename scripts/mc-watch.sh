@@ -5,84 +5,7 @@
 # current, and drives the wake relay and the failsafe tick. Every step is a
 # script; none calls a model.
 #
-# A WATCHER is a catalog entry's script (scripts/mc-duties.sh watchers: the
-# armed duties' <id>, <script>, <cadence>, <cost>), resolved against the
-# planwright root and then the program's repositories. Armed, it runs in its
-# own detached loop process (`mc-watch.sh loop`), once per cadence, with
-# PLANWRIGHT_MC_PROGRAM and PLANWRIGHT_MC_DUTY set; each stdout line of the
-# form
-#   event<TAB><kind><TAB><subject>[<TAB><text>]
-# becomes an event (scripts/mc-event.sh emit) and every other line is
-# ignored; a line the event store refuses is counted, not dropped silently.
-# A loop re-checks the fleet daemon gate before each run and skips the run
-# while the gate is closed, doubles its cadence at any budget rung above
-# normal (and when the budget file cannot be read), and exits once its
-# record is gone. Stopping a loop stops the watcher run it is waiting on,
-# with that run's own children where setsid is available.
-#
-# THE RECORD of an armed watcher is <runtime>/watchers/<slot>.rec, the slot
-# derived from the duty and the script:
-#   <pid><TAB><armed epoch><TAB><duty><TAB><script><TAB><cadence><TAB><cost>
-# <slot>.last holds `<epoch><TAB><exit><TAB><refused events>` of its latest
-# run and <slot>.log the loop's stderr. A pid is only trusted, or signalled,
-# while that process's whole argument list is this runner's loop for that
-# slot.
-#
-# A PASS holds the program's runner lock (<runtime>/runner.lock, through
-# scripts/lock-lib.sh), so two runners never interleave, and in order:
-#   1. the fleet daemon gate (scripts/fleet-daemon-gate.sh): paused prints
-#      `paused` (`blocked<TAB><exit>` for a broken gate) and arms, re-arms
-#      and sends nothing;
-#   2. the budget (scripts/mc-budget.sh report, which rewrites the budget
-#      file): pause-watchers stops high-cost watchers, hold-dispatch and
-#      handover stop medium-cost ones too, and a watcher above its duty's
-#      spend class is not armed;
-#   3. each watcher: running, armed, or stopped and re-armed, the stop
-#      emitted as a `watcher-stopped` event before the re-arm; a live one
-#      whose catalog cadence or cost changed is restarted on the new values
-#      (`updated`, no event); a script that does not resolve, or a cadence
-#      that does not parse, is reported unresolvable and neither armed nor
-#      evented, a live loop for it stopped; a record no longer in the
-#      catalog's armed set is disarmed;
-#   4. old events pruned (scripts/mc-event.sh prune), the snapshots
-#      (scripts/mc-snapshot.sh refresh), the wake relay and the tick
-#      (scripts/mc-wake.sh relay, tick).
-# One line per act: armed, rearmed, updated, running (with `unverified` when the
-# process table could not be read for its pid, and nothing is re-armed),
-# paused (with the rung or the spend class), unresolvable, disarmed, stopped
-# (with the event id), then the event, snapshot and wake scripts' own lines
-# prefixed `event`, `snapshot` and `wake`. A pass whose lock another runner
-# holds prints `busy`.
-#
-# Usage:
-#   mc-watch.sh pass --program <p> [--now <epoch>]
-#   mc-watch.sh run --program <p> [--once]
-#       hold the runner lock and make a pass every
-#       mission_control_runner_interval until killed; --once makes one pass
-#       and exits with its status. A failed pass is reported and retried at
-#       the next interval. A TERM to the runner's pid ends it at once while
-#       it sleeps, and once the pass in flight finishes otherwise; a signal
-#       to its whole process group stops the pass where it is.
-#   mc-watch.sh status --program <p> [--now <epoch>]
-#       watcher<TAB><duty><TAB><script><TAB><cadence><TAB><cost><TAB>running|stopped|unverified
-#         <TAB><seconds since the last run|-><TAB><seconds until the next|->
-#         <TAB><last exit|-><TAB><events refused in the last run|->
-#       one line per record; a next-run time already passed is negative, the
-#       watcher's expiry
-#   mc-watch.sh stop --program <p>
-#       stop every armed watcher and drop its record, printing
-#       disarmed<TAB><duty> per watcher; under the runner lock, so with a
-#       runner live it prints `busy` and exits 1 (stop the runner first). A
-#       program no longer configured can still be stopped; one with no
-#       runtime state here exits 3.
-#   mc-watch.sh loop --program <p> --slot <slot>      (internal)
-#
-# Exit codes: 0 done; 1 a catalog, budget or store failure, an unresolvable
-# watcher, a blocked daemon gate, an event, snapshot or wake step that
-# failed, or stop beside a live runner; 2 usage; 3 the program is not
-# configured.
-#
-# Portable bash 3.2 / BSD tooling.
+# `mc-watch.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
 set -f
 LC_ALL=C
@@ -108,6 +31,100 @@ usage() {
   mc_usage_fail "usage: mc-watch.sh pass|status --program <p> [--now <epoch>] | run --program <p> [--once] | stop --program <p>"
 }
 
+help_text() {
+  cat <<'HELP'
+mc-watch.sh — mission control's watcher runner: the daemon that arms every
+enabled duty's watchers at their cadence, re-arms one that stopped (the
+stop itself an event), keeps the source snapshots and the budget file
+current, and drives the wake relay and the failsafe tick. Every step is a
+script; none calls a model.
+
+A WATCHER is a catalog entry's script (scripts/mc-duties.sh watchers: the
+armed duties' <id>, <script>, <cadence>, <cost>), resolved against the
+planwright root and then the program's repositories. Armed, it runs in its
+own detached loop process (`mc-watch.sh loop`), once per cadence, with
+PLANWRIGHT_MC_PROGRAM and PLANWRIGHT_MC_DUTY set; each stdout line of the
+form
+  event<TAB><kind><TAB><subject>[<TAB><text>]
+becomes an event (scripts/mc-event.sh emit) and every other line is
+ignored; a line the event store refuses is counted, not dropped silently.
+A loop re-checks the fleet daemon gate before each run and skips the run
+while the gate is closed, doubles its cadence at any budget rung above
+normal (and when the budget file cannot be read), and exits once its
+record is gone. Stopping a loop stops the watcher run it is waiting on,
+with that run's own children where setsid is available.
+
+THE RECORD of an armed watcher is <runtime>/watchers/<slot>.rec, the slot
+derived from the duty and the script:
+  <pid><TAB><armed epoch><TAB><duty><TAB><script><TAB><cadence><TAB><cost>
+<slot>.last holds `<epoch><TAB><exit><TAB><refused events>` of its latest
+run and <slot>.log the loop's stderr. A pid is only trusted, or signalled,
+while that process's whole argument list is this runner's loop for that
+slot.
+
+A PASS holds the program's runner lock (<runtime>/runner.lock, through
+scripts/lock-lib.sh), so two runners never interleave, and in order:
+  1. the fleet daemon gate (scripts/fleet-daemon-gate.sh): paused prints
+     `paused` (`blocked<TAB><exit>` for a broken gate) and arms, re-arms
+     and sends nothing;
+  2. the budget (scripts/mc-budget.sh report, which rewrites the budget
+     file): pause-watchers stops high-cost watchers, hold-dispatch and
+     handover stop medium-cost ones too, and a watcher above its duty's
+     spend class is not armed;
+  3. each watcher: running, armed, or stopped and re-armed, the stop
+     emitted as a `watcher-stopped` event before the re-arm; a live one
+     whose catalog cadence or cost changed is restarted on the new values
+     (`updated`, no event); a script that does not resolve, or a cadence
+     that does not parse, is reported unresolvable and neither armed nor
+     evented, a live loop for it stopped; a record no longer in the
+     catalog's armed set is disarmed;
+  4. old events pruned (scripts/mc-event.sh prune), the snapshots
+     (scripts/mc-snapshot.sh refresh), the wake relay and the tick
+     (scripts/mc-wake.sh relay, tick).
+One line per act: armed, rearmed, updated, running (with `unverified` when the
+process table could not be read for its pid, and nothing is re-armed),
+paused (with the rung or the spend class), unresolvable, disarmed, stopped
+(with the event id), then the event, snapshot and wake scripts' own lines
+prefixed `event`, `snapshot` and `wake`. A pass whose lock another runner
+holds prints `busy`.
+
+Usage:
+  mc-watch.sh pass --program <p> [--now <epoch>]
+  mc-watch.sh run --program <p> [--once]
+      hold the runner lock and make a pass every
+      mission_control_runner_interval until killed; --once makes one pass
+      and exits with its status. A failed pass is reported and retried at
+      the next interval. A TERM to the runner's pid ends it at once while
+      it sleeps, and once the pass in flight finishes otherwise; a signal
+      to its whole process group stops the pass where it is.
+  mc-watch.sh status --program <p> [--now <epoch>]
+      watcher<TAB><duty><TAB><script><TAB><cadence><TAB><cost><TAB>running|stopped|unverified
+        <TAB><seconds since the last run|-><TAB><seconds until the next|->
+        <TAB><last exit|-><TAB><events refused in the last run|->
+      one line per record; a next-run time already passed is negative, the
+      watcher's expiry
+  mc-watch.sh stop --program <p>
+      stop every armed watcher and drop its record, printing
+      disarmed<TAB><duty> per watcher; under the runner lock, so with a
+      runner live it prints `busy` and exits 1 (stop the runner first). A
+      program no longer configured can still be stopped; one with no
+      runtime state here exits 3.
+  mc-watch.sh loop --program <p> --slot <slot>      (internal)
+
+Exit codes: 0 done; 1 a catalog, budget or store failure, an unresolvable
+watcher, a blocked daemon gate, an event, snapshot or wake step that
+failed, or stop beside a live runner; 2 usage; 3 the program is not
+configured.
+
+Portable bash 3.2 / BSD tooling.
+HELP
+}
+case ${1:-} in
+  --help | -h)
+    help_text
+    exit 0
+    ;;
+esac
 [ $# -ge 1 ] || usage
 verb=$1
 shift

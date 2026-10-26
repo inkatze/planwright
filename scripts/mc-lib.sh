@@ -2,16 +2,7 @@
 # shellcheck disable=SC2034,SC2154 # prog and script_dir are the sourcing script's; MC_FORMAT is read there
 # mc-lib.sh — helpers mission control's runtime scripts share (sourced, never
 # executed). The sourcing script sets `prog` and `script_dir` and has sourced
-# echo-safety.sh first.
-#
-# Runtime state (watcher records, source snapshots, the budget file, wake
-# targets) lives under the plugin data home, in the fleet home
-# scripts/fleet-state.sh resolves: <fleet-home>/mission-control/<program>/.
-# Events live in the attention store beside it:
-# <fleet-home>/attention/mission-control/<program>/. Neither is the program
-# home, which holds work product only.
-#
-# Portable bash 3.2 / BSD tooling.
+# echo-safety.sh first. Portable bash 3.2 / BSD tooling.
 
 MC_FORMAT=1
 
@@ -195,7 +186,13 @@ mc_fleet_home() {
   printf '%s\n' "$mfh"
 }
 
-# mc_runtime <program>: the program's runtime directory, created.
+# Runtime state (watcher records, source snapshots, the budget file, wake
+# targets) lives under the plugin data home, in the fleet home
+# scripts/fleet-state.sh resolves; events live in the attention store beside
+# it. Neither is the program home, which holds work product only.
+#
+# mc_runtime <program>: the program's runtime directory,
+# <fleet-home>/mission-control/<program>/, created.
 mc_runtime() {
   mr_home=$(mc_fleet_home) || return 1
   mr_dir="$mr_home/mission-control/$1"
@@ -204,7 +201,7 @@ mc_runtime() {
 }
 
 # mc_event_store <program>: the program's event directory in the attention
-# store, created.
+# store, <fleet-home>/attention/mission-control/<program>/, created.
 mc_event_store() {
   me_home=$(mc_fleet_home) || return 1
   me_dir="$me_home/attention/mission-control/$1"

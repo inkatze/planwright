@@ -2,72 +2,7 @@
 # mc-budget.sh — a mission-control program's budget: its limits, what is in
 # use against them, the headroom left and the degradation rung.
 #
-# The limits are mission_control_default_budget with the program's own
-# budget map (scripts/mc-program.sh get <p> budget) laid over it key by key:
-#   sessions        live sessions
-#   polls_per_hour  source polls in the last hour, every snapshot-mode source
-#                   counted together
-#   context_steps   context steps
-#   host_load       host load, percent of the host's processors
-#   spend_ceiling   the highest watcher cost class armed (low, medium, high);
-#                   spend_<duty> sets one duty's, the duty's hyphens written
-#                   as underscores
-# Any other key is refused, named.
-#
-# What is in use: sessions and context_steps as `record` last set them (0
-# when never recorded) in <runtime>/in-use, polls from the poll log `poll`
-# keeps (<runtime>/polls), host load as measured (the one-minute load
-# average over the processor count) or as --load gives it. A store that
-# exists but cannot be read, or an in-use value that is not a whole number,
-# fails the call, never counted as zero.
-#
-# The rung, lowest to highest; the highest that applies wins:
-#   normal          every dimension below the ladder's throttle threshold
-#   throttle        the most used dimension at or over throttle: every cadence
-#                   doubles, at this rung and every one above it
-#   pause-watchers  at or over pause_watchers: high-cost watchers stop
-#   hold-dispatch   at or over hold_dispatch, or a quota hold
-#                   (scripts/quota-hold.sh, the `limited` outcome, or a quota
-#                   store that cannot be read): medium-cost
-#                   watchers stop too, and no session or heavy work is admitted
-#   handover        context steps at their limit: the session hands over
-#   paused          the fleet daemon pause (scripts/fleet-daemon-gate.sh), or
-#                   a gate that cannot be read: nothing autonomous runs
-# The thresholds are mission_control_budget_ladder's percents.
-#
-# Usage:
-#   mc-budget.sh report --program <p> [--now <epoch>] [--load <pct>]
-#       compute, write the budget file (<runtime>/budget) and print it:
-#         format<TAB>1
-#         program<TAB><p>
-#         taken<TAB><epoch>
-#         rung<TAB><rung><TAB><reason>
-#         dimension<TAB><name><TAB><used><TAB><limit><TAB><headroom><TAB><pct>
-#         spend<TAB>ceiling<TAB><class>
-#         spend<TAB><duty><TAB><class>     one per duty with its own class
-#   mc-budget.sh rung --program <p> [--now <epoch>] [--load <pct>]
-#       the same computation; prints the rung alone
-#   mc-budget.sh admit --program <p> session|heavy [--now <epoch>] [--load <pct>]
-#       exit 0 printing `admitted`; exit 1 refused, printing
-#       queued<TAB><reason>. Heavy work is scheduled by host load: it waits
-#       while host load is at or over the throttle threshold, whatever the
-#       session count
-#   mc-budget.sh poll --program <p> <source> [--now <epoch>]
-#       count one poll of <source> when the hour's polls are under the cap
-#       (exit 0); at the cap nothing is counted (exit 4, printing capped)
-#   mc-budget.sh record --program <p> sessions|context_steps <n>
-#       set what is in use
-#   mc-budget.sh ceiling --program <p> <duty>
-#       the duty's spend ceiling
-#   mc-budget.sh read --program <p>
-#       print the budget file as last written; refuses one whose format this
-#       script does not know, naming it
-#
-# Exit codes: 0 done; 1 refused (admit), an invalid budget or ladder, or a
-# store that cannot be read or written; 2 usage; 3 the program is not
-# configured; 4 capped (poll).
-#
-# Portable bash 3.2 / BSD tooling.
+# `mc-budget.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
 set -f
 LC_ALL=C
@@ -93,6 +28,85 @@ usage() {
   mc_usage_fail "usage: mc-budget.sh report|rung --program <p> [--now <epoch>] [--load <pct>] | admit --program <p> session|heavy [--now <epoch>] [--load <pct>] | poll --program <p> <source> [--now <epoch>] | record --program <p> sessions|context_steps <n> | ceiling --program <p> <duty> | read --program <p>"
 }
 
+help_text() {
+  cat <<'HELP'
+mc-budget.sh — a mission-control program's budget: its limits, what is in
+use against them, the headroom left and the degradation rung.
+
+The limits are mission_control_default_budget with the program's own
+budget map (scripts/mc-program.sh get <p> budget) laid over it key by key:
+  sessions        live sessions
+  polls_per_hour  source polls in the last hour, every snapshot-mode source
+                  counted together
+  context_steps   context steps
+  host_load       host load, percent of the host's processors
+  spend_ceiling   the highest watcher cost class armed (low, medium, high);
+                  spend_<duty> sets one duty's, the duty's hyphens written
+                  as underscores
+Any other key is refused, named.
+
+What is in use: sessions and context_steps as `record` last set them (0
+when never recorded) in <runtime>/in-use, polls from the poll log `poll`
+keeps (<runtime>/polls), host load as measured (the one-minute load
+average over the processor count) or as --load gives it. A store that
+exists but cannot be read, or an in-use value that is not a whole number,
+fails the call, never counted as zero.
+
+The rung, lowest to highest; the highest that applies wins:
+  normal          every dimension below the ladder's throttle threshold
+  throttle        the most used dimension at or over throttle: every cadence
+                  doubles, at this rung and every one above it
+  pause-watchers  at or over pause_watchers: high-cost watchers stop
+  hold-dispatch   at or over hold_dispatch, or a quota hold
+                  (scripts/quota-hold.sh, the `limited` outcome, or a quota
+                  store that cannot be read): medium-cost
+                  watchers stop too, and no session or heavy work is admitted
+  handover        context steps at their limit: the session hands over
+  paused          the fleet daemon pause (scripts/fleet-daemon-gate.sh), or
+                  a gate that cannot be read: nothing autonomous runs
+The thresholds are mission_control_budget_ladder's percents.
+
+Usage:
+  mc-budget.sh report --program <p> [--now <epoch>] [--load <pct>]
+      compute, write the budget file (<runtime>/budget) and print it:
+        format<TAB>1
+        program<TAB><p>
+        taken<TAB><epoch>
+        rung<TAB><rung><TAB><reason>
+        dimension<TAB><name><TAB><used><TAB><limit><TAB><headroom><TAB><pct>
+        spend<TAB>ceiling<TAB><class>
+        spend<TAB><duty><TAB><class>     one per duty with its own class
+  mc-budget.sh rung --program <p> [--now <epoch>] [--load <pct>]
+      the same computation; prints the rung alone
+  mc-budget.sh admit --program <p> session|heavy [--now <epoch>] [--load <pct>]
+      exit 0 printing `admitted`; exit 1 refused, printing
+      queued<TAB><reason>. Heavy work is scheduled by host load: it waits
+      while host load is at or over the throttle threshold, whatever the
+      session count
+  mc-budget.sh poll --program <p> <source> [--now <epoch>]
+      count one poll of <source> when the hour's polls are under the cap
+      (exit 0); at the cap nothing is counted (exit 4, printing capped)
+  mc-budget.sh record --program <p> sessions|context_steps <n>
+      set what is in use
+  mc-budget.sh ceiling --program <p> <duty>
+      the duty's spend ceiling
+  mc-budget.sh read --program <p>
+      print the budget file as last written; refuses one whose format this
+      script does not know, naming it
+
+Exit codes: 0 done; 1 refused (admit), an invalid budget or ladder, or a
+store that cannot be read or written; 2 usage; 3 the program is not
+configured; 4 capped (poll).
+
+Portable bash 3.2 / BSD tooling.
+HELP
+}
+case ${1:-} in
+  --help | -h)
+    help_text
+    exit 0
+    ;;
+esac
 [ $# -ge 1 ] || usage
 verb=$1
 shift

@@ -3,82 +3,7 @@
 # snapshot-mode source per program, refreshed by the source's adapter, read
 # by every duty. No duty polls a source itself.
 #
-# The program's state-source map (scripts/mc-program.sh get <p> sources)
-# names the sources; those in `snapshot` mode are refreshed here. Each needs
-# an adapter in the merged snapshot-adapters catalog
-# (config/snapshot-adapters.yaml and its overlays, the header there holding
-# the entry grammar). A source's cadence is its mission_control_snapshot_cadence
-# entry, else the adapter's own.
-#
-# THE ADAPTER CONTRACT. The seam runs
-#   <script> refresh --program <p> --out <file> [--previous <file>]
-# with the program's first repository as the working directory and
-# PLANWRIGHT_MC_PROGRAM=<p> in the environment. The adapter writes the
-# snapshot body to <file>, tab-separated lines of its own shape; --previous
-# names the last snapshot, so an adapter can carry forward what has not
-# changed. On stdout it may print
-#   ratelimit<TAB><remaining><TAB><reset-epoch>
-# and the seam holds the source's next read until <reset-epoch> when
-# <remaining> is at or under mission_control_ratelimit_floor, whatever the
-# adapter's exit, since a failed read spent headroom too. Exit 0: the
-# body is the new snapshot. Exit 75: the source refused the read for its rate
-# limit; nothing is replaced, and with no reset at or under the floor the
-# hold lasts the source's cadence. Any other exit: the read failed, the last snapshot stays
-# and keeps aging. Every hold is clamped to the later of the cadence and an
-# hour, and a reset already past is ignored. The adapter's stderr is passed
-# through with control bytes stripped.
-#
-# A SNAPSHOT is <runtime>/snapshots/<source>:
-#   format<TAB>1
-#   source<TAB><source>
-#   taken<TAB><epoch>
-#   <body lines>
-# and <runtime>/snapshots/<source>.hold holds the epoch a held source waits
-# for. Refreshes are serialized by the runner's pass (scripts/mc-watch.sh);
-# a refresh run by hand beside a live runner may read a source twice.
-#
-# Usage:
-#   mc-snapshot.sh refresh --program <p> [--source <s>] [--now <epoch>] [--rung <rung>]
-#       refresh every snapshot-mode source (or one) that is due, printing
-#       one line per source:
-#         refreshed<TAB><s>            the adapter read it
-#         fresh<TAB><s><TAB><age>      younger than its cadence; no read
-#         held<TAB><s><TAB><until>     waiting for a rate limit to reset
-#         capped<TAB><s>               the budget's polls per hour are spent
-#         failed<TAB><s><TAB><exit>    the adapter failed (`poll` when the
-#                                      poll count did)
-#       or a problem on stderr, with no line, for a source with no usable
-#       adapter or an invalid cadence entry (exit 1);
-#       or `paused` under the fleet daemon pause (`blocked<TAB><exit>` when
-#       the gate itself is broken), with nothing read. Each read counts one
-#       poll against the budget (scripts/mc-budget.sh). At any budget rung
-#       above normal every cadence doubles; --rung passes the rung in (the
-#       runner's, just computed) instead of computing it again.
-#   mc-snapshot.sh read --program <p> <source> [--now <epoch>]
-#       the snapshot, after one status line:
-#         source<TAB><s><TAB>mode<TAB>snapshot<TAB>age<TAB><secs><TAB>cadence<TAB><secs><TAB>fresh|stale
-#       stale once its age passes its configured cadence. Never reads the
-#       source.
-#   mc-snapshot.sh list --program <p> [--now <epoch>]
-#       class<TAB>source<TAB>mode<TAB>age, one line per fact class, age `-`
-#       for a record or cited source and for a snapshot not yet taken
-#   mc-snapshot.sh adapters
-#       id<TAB>script<TAB>cadence per valid merged entry, and
-#       bad<TAB><id><TAB><problem> per invalid one
-#   mc-snapshot.sh check (--program <p> | --defaults)
-#       every snapshot-mode source in the program's map (or the shipped
-#       default map) has an adapter entry with an id, a summary, a script
-#       path of the catalog's grammar and a cadence (whether the script
-#       exists is refresh's question); each problem on stderr as
-#       mc-snapshot: <program>: sources: <problem>, the label being
-#       mission_control_default_sources under --defaults
-#
-# Exit codes: 0 done; 1 a failed read, a missing adapter (check), an invalid
-# catalog or snapshot, a store that cannot be written, or a blocked daemon
-# gate; 2 usage; 3 the program is not configured, or no snapshot of the
-# source yet (read).
-#
-# Portable bash 3.2 / BSD tooling.
+# `mc-snapshot.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
 set -f
 LC_ALL=C
@@ -102,6 +27,96 @@ usage() {
   mc_usage_fail "usage: mc-snapshot.sh refresh --program <p> [--source <s>] [--now <epoch>] [--rung <rung>] | read --program <p> <source> [--now <epoch>] | list --program <p> [--now <epoch>] | adapters | check (--program <p> | --defaults)"
 }
 
+help_text() {
+  cat <<'HELP'
+mc-snapshot.sh — the source snapshot seam: one age-stamped snapshot per
+snapshot-mode source per program, refreshed by the source's adapter, read
+by every duty. No duty polls a source itself.
+
+The program's state-source map (scripts/mc-program.sh get <p> sources)
+names the sources; those in `snapshot` mode are refreshed here. Each needs
+an adapter in the merged snapshot-adapters catalog
+(config/snapshot-adapters.yaml and its overlays, the header there holding
+the entry grammar). A source's cadence is its mission_control_snapshot_cadence
+entry, else the adapter's own.
+
+THE ADAPTER CONTRACT. The seam runs
+  <script> refresh --program <p> --out <file> [--previous <file>]
+with the program's first repository as the working directory and
+PLANWRIGHT_MC_PROGRAM=<p> in the environment. The adapter writes the
+snapshot body to <file>, tab-separated lines of its own shape; --previous
+names the last snapshot, so an adapter can carry forward what has not
+changed. On stdout it may print
+  ratelimit<TAB><remaining><TAB><reset-epoch>
+and the seam holds the source's next read until <reset-epoch> when
+<remaining> is at or under mission_control_ratelimit_floor, whatever the
+adapter's exit, since a failed read spent headroom too. Exit 0: the
+body is the new snapshot. Exit 75: the source refused the read for its rate
+limit; nothing is replaced, and with no reset at or under the floor the
+hold lasts the source's cadence. Any other exit: the read failed, the last snapshot stays
+and keeps aging. Every hold is clamped to the later of the cadence and an
+hour, and a reset already past is ignored. The adapter's stderr is passed
+through with control bytes stripped.
+
+A SNAPSHOT is <runtime>/snapshots/<source>:
+  format<TAB>1
+  source<TAB><source>
+  taken<TAB><epoch>
+  <body lines>
+and <runtime>/snapshots/<source>.hold holds the epoch a held source waits
+for. Refreshes are serialized by the runner's pass (scripts/mc-watch.sh);
+a refresh run by hand beside a live runner may read a source twice.
+
+Usage:
+  mc-snapshot.sh refresh --program <p> [--source <s>] [--now <epoch>] [--rung <rung>]
+      refresh every snapshot-mode source (or one) that is due, printing
+      one line per source:
+        refreshed<TAB><s>            the adapter read it
+        fresh<TAB><s><TAB><age>      younger than its cadence; no read
+        held<TAB><s><TAB><until>     waiting for a rate limit to reset
+        capped<TAB><s>               the budget's polls per hour are spent
+        failed<TAB><s><TAB><exit>    the adapter failed (`poll` when the
+                                     poll count did)
+      or a problem on stderr, with no line, for a source with no usable
+      adapter or an invalid cadence entry (exit 1);
+      or `paused` under the fleet daemon pause (`blocked<TAB><exit>` when
+      the gate itself is broken), with nothing read. Each read counts one
+      poll against the budget (scripts/mc-budget.sh). At any budget rung
+      above normal every cadence doubles; --rung passes the rung in (the
+      runner's, just computed) instead of computing it again.
+  mc-snapshot.sh read --program <p> <source> [--now <epoch>]
+      the snapshot, after one status line:
+        source<TAB><s><TAB>mode<TAB>snapshot<TAB>age<TAB><secs><TAB>cadence<TAB><secs><TAB>fresh|stale
+      stale once its age passes its configured cadence. Never reads the
+      source.
+  mc-snapshot.sh list --program <p> [--now <epoch>]
+      class<TAB>source<TAB>mode<TAB>age, one line per fact class, age `-`
+      for a record or cited source and for a snapshot not yet taken
+  mc-snapshot.sh adapters
+      id<TAB>script<TAB>cadence per valid merged entry, and
+      bad<TAB><id><TAB><problem> per invalid one
+  mc-snapshot.sh check (--program <p> | --defaults)
+      every snapshot-mode source in the program's map (or the shipped
+      default map) has an adapter entry with an id, a summary, a script
+      path of the catalog's grammar and a cadence (whether the script
+      exists is refresh's question); each problem on stderr as
+      mc-snapshot: <program>: sources: <problem>, the label being
+      mission_control_default_sources under --defaults
+
+Exit codes: 0 done; 1 a failed read, a missing adapter (check), an invalid
+catalog or snapshot, a store that cannot be written, or a blocked daemon
+gate; 2 usage; 3 the program is not configured, or no snapshot of the
+source yet (read).
+
+Portable bash 3.2 / BSD tooling.
+HELP
+}
+case ${1:-} in
+  --help | -h)
+    help_text
+    exit 0
+    ;;
+esac
 [ $# -ge 1 ] || usage
 verb=$1
 shift

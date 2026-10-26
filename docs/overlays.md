@@ -129,8 +129,8 @@ catalog; each entry's card file sits beside its layer's catalog, under
 control's duty catalog; `config/duties.yaml`'s header holds the entry
 grammar), and **snapshot-adapters** (the adapter each snapshot-mode source
 of a mission-control program is refreshed by;
-`config/snapshot-adapters.yaml`'s header holds the entry grammar and the
-adapter contract).
+`config/snapshot-adapters.yaml` holds the entry grammar and
+`scripts/mc-snapshot.sh --help` the adapter contract).
 
 ## 3. How each kind merges
 

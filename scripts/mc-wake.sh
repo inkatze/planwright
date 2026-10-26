@@ -3,70 +3,7 @@
 # pushes a program's pending events (scripts/mc-event.sh) to its sessions
 # that run without the mod, and the failsafe tick behind it.
 #
-# A WAKE TARGET is a registered session (a fleet registry worker,
-# scripts/fleet-state.sh) the program's events should wake, recorded with
-# whether the mod loads in it. A session with the mod is woken by the mod,
-# which watches the attention store itself; the relay and the tick leave it
-# alone.
-#
-# THE RELAY goes through the fleet's own session relay for the backend the
-# registry records for the worker, and it never types into a session:
-#   stream-json, stream-json-persistent
-#             scripts/fleet-streamjson.sh steer: a user turn on the worker's
-#             stdin, so the wake is SUBMITTED and its events marked so
-#   tmux      scripts/orchestrate-relay.sh deliver tmux: a buffer paste with
-#             no newline, so the wake is STAGED and its events marked staged
-#             until the session acknowledges them (below)
-#   any other backend, or a retired worker: unreachable, nothing sent
-# One wake per target carries 20 of its pending events, oldest first and,
-# in the tick, never-sent ones ahead of staged ones (the rest wait for a
-# later wake), naming each one's kind and subject, re-checked against
-# their grammar, never its free text, which the session reads through the
-# `mc-event.sh list --program <p> <id>...` command the wake prints. It is
-# written to a file of its own under <runtime>/wake/, which a staged pointer
-# reads and which the tick deletes after a week. A staged wake asks the
-# session to acknowledge with `mc-event.sh mark ... submitted <id>...` once
-# read, which is what moves its events from staged to submitted.
-#
-# THE TICK is the failsafe for both paths: at most once per
-# mission_control_tick_cadence it sends every target without the mod one
-# wake for its events not yet submitted, staged ones included, so an event
-# the push missed, or staged and nobody acknowledged, is found within one
-# tick. A tick with nothing pending sends nothing. Relays and ticks are
-# serialized by the runner's pass (scripts/mc-watch.sh); one run by hand
-# beside a live runner may send a target the same wake twice.
-#
-# Usage:
-#   mc-wake.sh target add --program <p> <worker> [--mod]
-#   mc-wake.sh target remove --program <p> <worker>
-#   mc-wake.sh target list --program <p>       <worker><TAB>mod|no-mod
-#   mc-wake.sh relay --program <p>
-#       push each target's events no relay has delivered: one line per
-#       target,
-#         submitted|staged<TAB><worker><TAB><n>
-#         unconfirmed<TAB><worker><TAB><n>     the paste ran but was not seen;
-#                                              marked staged, never re-pasted
-#                                              by the relay
-#         mod<TAB><worker>                     the mod wakes it
-#         idle<TAB><worker>                    nothing to send
-#         unreachable<TAB><worker><TAB><why>
-#         refused<TAB><worker><TAB><exit>      the relay declined (a dialog
-#                                              open, an earlier wake staged)
-#         failed<TAB><worker>                  its events could not be read
-#                                              or marked (named on stderr)
-#       or `paused` under the fleet daemon pause (`blocked<TAB><exit>` when
-#       the gate itself is broken).
-#   mc-wake.sh tick --program <p> [--now <epoch>]
-#       `not-due<TAB><seconds left>` before the cadence has passed; else
-#       `tick`, then the relay's lines over every event not yet submitted;
-#       or `paused` (`blocked`) as the relay.
-#
-# Exit codes: 0 done (a refused or unreachable target is reported, not a
-# failure); 1 a store that cannot be read or written (the fleet registry
-# included), a failed target, or a blocked daemon gate; 2 usage; 3 the
-# program is not configured.
-#
-# Portable bash 3.2 / BSD tooling.
+# `mc-wake.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
 set -f
 LC_ALL=C
@@ -92,6 +29,84 @@ usage() {
   mc_usage_fail "usage: mc-wake.sh target add|remove|list --program <p> [<worker>] [--mod] | relay --program <p> | tick --program <p> [--now <epoch>]"
 }
 
+help_text() {
+  cat <<'HELP'
+mc-wake.sh — the daemon side of mission control's wake: the relay that
+pushes a program's pending events (scripts/mc-event.sh) to its sessions
+that run without the mod, and the failsafe tick behind it.
+
+A WAKE TARGET is a registered session (a fleet registry worker,
+scripts/fleet-state.sh) the program's events should wake, recorded with
+whether the mod loads in it. A session with the mod is woken by the mod,
+which watches the attention store itself; the relay and the tick leave it
+alone.
+
+THE RELAY goes through the fleet's own session relay for the backend the
+registry records for the worker, and it never types into a session:
+  stream-json, stream-json-persistent
+            scripts/fleet-streamjson.sh steer: a user turn on the worker's
+            stdin, so the wake is SUBMITTED and its events marked so
+  tmux      scripts/orchestrate-relay.sh deliver tmux: a buffer paste with
+            no newline, so the wake is STAGED and its events marked staged
+            until the session acknowledges them (below)
+  any other backend, or a retired worker: unreachable, nothing sent
+One wake per target carries 20 of its pending events, oldest first and,
+in the tick, never-sent ones ahead of staged ones (the rest wait for a
+later wake), naming each one's kind and subject, re-checked against
+their grammar, never its free text, which the session reads through the
+`mc-event.sh list --program <p> <id>...` command the wake prints. It is
+written to a file of its own under <runtime>/wake/, which a staged pointer
+reads and which the tick deletes after a week. A staged wake asks the
+session to acknowledge with `mc-event.sh mark ... submitted <id>...` once
+read, which is what moves its events from staged to submitted.
+
+THE TICK is the failsafe for both paths: at most once per
+mission_control_tick_cadence it sends every target without the mod one
+wake for its events not yet submitted, staged ones included, so an event
+the push missed, or staged and nobody acknowledged, is found within one
+tick. A tick with nothing pending sends nothing. Relays and ticks are
+serialized by the runner's pass (scripts/mc-watch.sh); one run by hand
+beside a live runner may send a target the same wake twice.
+
+Usage:
+  mc-wake.sh target add --program <p> <worker> [--mod]
+  mc-wake.sh target remove --program <p> <worker>
+  mc-wake.sh target list --program <p>       <worker><TAB>mod|no-mod
+  mc-wake.sh relay --program <p>
+      push each target's events no relay has delivered: one line per
+      target,
+        submitted|staged<TAB><worker><TAB><n>
+        unconfirmed<TAB><worker><TAB><n>     the paste ran but was not seen;
+                                             marked staged, never re-pasted
+                                             by the relay
+        mod<TAB><worker>                     the mod wakes it
+        idle<TAB><worker>                    nothing to send
+        unreachable<TAB><worker><TAB><why>
+        refused<TAB><worker><TAB><exit>      the relay declined (a dialog
+                                             open, an earlier wake staged)
+        failed<TAB><worker>                  its events could not be read
+                                             or marked (named on stderr)
+      or `paused` under the fleet daemon pause (`blocked<TAB><exit>` when
+      the gate itself is broken).
+  mc-wake.sh tick --program <p> [--now <epoch>]
+      `not-due<TAB><seconds left>` before the cadence has passed; else
+      `tick`, then the relay's lines over every event not yet submitted;
+      or `paused` (`blocked`) as the relay.
+
+Exit codes: 0 done (a refused or unreachable target is reported, not a
+failure); 1 a store that cannot be read or written (the fleet registry
+included), a failed target, or a blocked daemon gate; 2 usage; 3 the
+program is not configured.
+
+Portable bash 3.2 / BSD tooling.
+HELP
+}
+case ${1:-} in
+  --help | -h)
+    help_text
+    exit 0
+    ;;
+esac
 [ $# -ge 1 ] || usage
 verb=$1
 shift

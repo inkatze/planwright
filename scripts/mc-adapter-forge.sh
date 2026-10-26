@@ -2,28 +2,7 @@
 # mc-adapter-forge.sh — the shipped snapshot adapter for the forge (GitHub
 # through the gh CLI and its own authentication; nothing is stored).
 #
-# Implements the adapter contract scripts/mc-snapshot.sh's header states:
-#   mc-adapter-forge.sh refresh --program <p> --out <file> [--previous <file>]
-# For each of the program's repositories, one GraphQL read takes the newest
-# 50 open pull requests by update time, keeps the tracked ones
-# (mission_control_forge_tracked: all of them, or only those the gh account
-# authored), counts unresolved threads over the first 100, and writes one
-# line per pull request:
-#   pr<TAB><owner/name><TAB><number><TAB><head sha><TAB><draft true|false>
-#     <TAB><mergeable><TAB><review decision|NONE><TAB><open threads>
-#     <TAB><checks state|NONE><TAB><reviews><TAB><comments><TAB><patch id>
-# The patch id (git patch-id --stable over the pull request's diff) is
-# carried forward from --previous while the head is unchanged, so an
-# unchanged patch costs no read; a changed head costs one diff read. It is
-# `none` for a diff with no patch id (carried forward like an id) and `-`
-# when the diff could not be read (read again next time).
-#
-# Prints `ratelimit<TAB><remaining><TAB><reset-epoch>` from the GraphQL rate
-# limit, the lowest seen across the repositories. Exit 0 the snapshot is
-# written; 75 the forge refused a read for its rate limit; 1 any other failed
-# listing read or an unexpected field; 2 usage.
-#
-# Portable bash 3.2 / BSD tooling; gh's built-in --jq does the JSON.
+# `mc-adapter-forge.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
 set -f
 LC_ALL=C
@@ -45,6 +24,41 @@ done
 
 usage() { mc_usage_fail "usage: mc-adapter-forge.sh refresh --program <p> --out <file> [--previous <file>]"; }
 
+help_text() {
+  cat <<'HELP'
+mc-adapter-forge.sh — the shipped snapshot adapter for the forge (GitHub
+through the gh CLI and its own authentication; nothing is stored).
+
+Implements the adapter contract `scripts/mc-snapshot.sh --help` states:
+  mc-adapter-forge.sh refresh --program <p> --out <file> [--previous <file>]
+For each of the program's repositories, one GraphQL read takes the newest
+50 open pull requests by update time, keeps the tracked ones
+(mission_control_forge_tracked: all of them, or only those the gh account
+authored), counts unresolved threads over the first 100, and writes one
+line per pull request:
+  pr<TAB><owner/name><TAB><number><TAB><head sha><TAB><draft true|false>
+    <TAB><mergeable><TAB><review decision|NONE><TAB><open threads>
+    <TAB><checks state|NONE><TAB><reviews><TAB><comments><TAB><patch id>
+The patch id (git patch-id --stable over the pull request's diff) is
+carried forward from --previous while the head is unchanged, so an
+unchanged patch costs no read; a changed head costs one diff read. It is
+`none` for a diff with no patch id (carried forward like an id) and `-`
+when the diff could not be read (read again next time).
+
+Prints `ratelimit<TAB><remaining><TAB><reset-epoch>` from the GraphQL rate
+limit, the lowest seen across the repositories. Exit 0 the snapshot is
+written; 75 the forge refused a read for its rate limit; 1 any other failed
+listing read or an unexpected field; 2 usage.
+
+Portable bash 3.2 / BSD tooling; gh's built-in --jq does the JSON.
+HELP
+}
+case ${1:-} in
+  --help | -h)
+    help_text
+    exit 0
+    ;;
+esac
 [ $# -ge 1 ] && [ "$1" = refresh ] || usage
 shift
 program=""
