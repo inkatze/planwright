@@ -508,6 +508,31 @@ case $out in
   *"test-case.sh:2:"*) fail "mode-bit: a probe of \"\$f\"x did not satisfy \${f}x: $out" ;;
 esac
 
+# The word wait or kill as an argument or a case label is plain text: it
+# reaps nothing and hides no use.
+r=$(root_with wait-as-text)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 5 &
+pid=$!
+printf '%s\n' "$out" | grep -q wait
+echo wait
+f() { local wait; }
+case "$action" in
+  wait) echo "$pid" ;;
+esac
+echo "$pid" >log
+SUITE
+expect "dead-owner: wait as an argument or a case label reaps nothing" 0 "clean" "$r"
+r=$(root_with kill-as-text)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+pid=$!
+wait "$pid"; log_step kill "$pid"
+SUITE
+expect "dead-owner: kill as an argument does not hide a use" 1 "test-case.sh:4: dead-owner" "$r"
+
 # A library name holding a glob character is malformed as written, never
 # expanded to the files it would match.
 r=$(root_with glob-name sourced-read.sh)

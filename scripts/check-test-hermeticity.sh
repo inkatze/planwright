@@ -517,8 +517,9 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
   # reaps (a bare one, redirections aside, every capture; one with operands
   # the captures it names), a kill is no use, and any other command is
   # checked for a use of what an earlier command reaped. The wait or kill
-  # word is found anywhere a command word can sit (after if, !, time, a case
-  # pattern, a $( ...), not only at the start of the command.
+  # word counts only where a command word sits: at the start of the command,
+  # or after if, then, !, time, a case pattern, a $( or the like; as an
+  # argument (grep -q wait) or a case label (wait) it is plain text.
   function wait_line(line, mc, n, prev,   whole, k, len, seg, cseg, after, v, re_v) {
     whole = line
     while (mc != "") {
@@ -526,8 +527,8 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
       else { k = length(mc) + 1; len = 0 }
       cseg = substr(mc, 1, k - 1); seg = substr(line, 1, k - 1)
       mc = substr(mc, k + len); line = substr(line, k + len)
-      if (match(cseg, /(^|[ \t{(!)])wait([ \t<>)}]|$)/)) {
-        after = substr(cseg, RSTART + index(substr(cseg, RSTART, RLENGTH), "wait") + 3)
+      if (match(cseg, /^[ \t{(!]*(((if|then|do|else|elif|while|until|time|command|builtin|!)[ \t]+|case[ \t].*[ \t]in[ \t]+[^ \t()]+\)[ \t]*|[^ \t()]+\)[ \t]*|.*\$\(|.*`)[ \t{(!]*)*wait/) && substr(cseg, RLENGTH + 1, 1) ~ /^([ \t<>}]|)$/) {
+        after = substr(cseg, RLENGTH + 1)
         if (after ~ /^[ \t]*([0-9]*[<>][^ \t]*[ \t]*)*[)}]*[ \t]*$/) {
           for (v in spawned) if (!reaped[v]) reaped[v] = n
         } else {
@@ -536,7 +537,7 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
             if (index(seg, v) && seg ~ re_v) reaped[v] = n
           }
         }
-      } else if (cseg !~ /(^|[ \t{(!)])kill([ \t]|$)/) {
+      } else if (!match(cseg, /^[ \t{(!]*(((if|then|do|else|elif|while|until|time|command|builtin|!)[ \t]+|case[ \t].*[ \t]in[ \t]+[^ \t()]+\)[ \t]*|[^ \t()]+\)[ \t]*|.*\$\(|.*`)[ \t{(!]*)*kill/) || substr(cseg, RLENGTH + 1, 1) !~ /^([ \t]|)$/) {
         dead_use(seg, n, prev, whole)
       }
     }
