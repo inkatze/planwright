@@ -30,8 +30,8 @@
 #   pw_lock_owner <path>                 print the holder's token
 #   pw_lock_owner_alive <token>          0 the owner is running, 1 it is gone
 #   PW_LOCK_TOKEN                        set by a successful acquire
-#   PW_LOCK_BROKEN                       the dead owner's token the last
-#                                        acquire verb removed, else empty
+#   PW_LOCK_BROKEN                       the dead owners' tokens the last
+#                                        acquire verb removed, one per line
 #
 # THE LOCK-HOLDER LIST. Every script that implements an ADVISORY LOCK sources
 # this file and takes its locks through it:
@@ -62,11 +62,11 @@
 #   scripts/mc-rules.sh    a mission-control program's rule store, so
 #                          concurrent writers each land their entry under
 #                          a distinct id
-#   scripts/fleet-task-brief.sh   the fleet home's task briefs, so a retire
-#                          never removes a brief a render is writing
 #   scripts/mc-kb.sh       a mission-control knowledge base's stores, log
 #                          segments and bodies, one writer per file, held for
 #                          the script itself or on a caller's behalf
+#   scripts/fleet-task-brief.sh   the fleet home's task briefs, so a retire
+#                          never removes a brief a render is writing
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is
@@ -188,10 +188,10 @@ PW_LOCK_HELD=''
 # The caller's handle on its own hold: every verb that takes a lock publishes
 # the token here so a cross-process release can prove ownership.
 PW_LOCK_TOKEN=''
-# Set by every acquire verb, whatever it returns: the token of the dead
-# owner whose link this call removed, empty when it removed none. A break
-# whose publish then loses to a peer still counts, since the dead link is
-# gone either way. A caller that logs released holders reads it here: a probe
+# Set by every acquire verb, whatever it returns: the tokens of the dead
+# owners whose links this call removed, one per line, empty when it removed
+# none. A break whose publish then loses to a peer still counts, since the
+# dead link is gone either way. A caller that logs released holders reads it here: a probe
 # of its own before the call misses an owner that dies between that probe
 # and the call's.
 PW_LOCK_BROKEN=''
@@ -922,7 +922,7 @@ _pw_lock_break() {
     return 1
   fi
   rm -f "$_pwb_taken" 2>/dev/null || :
-  PW_LOCK_BROKEN=$_pwb_dead
+  PW_LOCK_BROKEN=${PW_LOCK_BROKEN:+$PW_LOCK_BROKEN$PW_LOCK_NL}$_pwb_dead
   if _pw_lock_publish "$_pwb_lock" "$_pwb_token" "${_pwb_depth:-1}"; then
     rm -f "$_pwb_claim" 2>/dev/null || :
     return 0

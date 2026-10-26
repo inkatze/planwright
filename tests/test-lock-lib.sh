@@ -2404,6 +2404,34 @@ case $out in
   "2 []") pass "a refused acquire clears PW_LOCK_BROKEN too" ;;
   *) fail "a refused acquire read '$out'" ;;
 esac
+out="$(run_sh x '
+  for v in pw_lock_acquire pw_lock_try_detached pw_lock_acquire_detached; do
+    PW_LOCK_BROKEN=stale
+    "$v" "$1/fresh-$v.lock" 1 || exit 9
+    printf "%s[%s] " "$v" "$PW_LOCK_BROKEN"
+  done
+')"
+case $out in
+  "pw_lock_acquire[] pw_lock_try_detached[] pw_lock_acquire_detached[] ") pass "every acquire verb resets PW_LOCK_BROKEN" ;;
+  *) fail "a verb kept a stale PW_LOCK_BROKEN: '$out'" ;;
+esac
+rm -f "$tmp"/fresh-*.lock*
+# A break whose publish loses to a peer still removed the dead link, and says
+# so: staged by a publish that always loses.
+sh -c 'exit 0' &
+lost_pid=$!
+wait "$lost_pid" 2>/dev/null
+ln -s "$lost_pid-0-1" "$tmp/lost.lock"
+out="$(run_sh x '
+  _pw_lock_publish() { return 1; }
+  pw_lock_try "$1/lost.lock"
+  printf "%s [%s]\n" "$?" "$PW_LOCK_BROKEN"
+')"
+case $out in
+  "1 [$lost_pid-0-1]") pass "a break whose publish loses still names the dead owner" ;;
+  *) fail "a lost publish read '$out'" ;;
+esac
+rm -f "$tmp"/lost.lock*
 kill "$broken_live" 2>/dev/null
 wait "$broken_live" 2>/dev/null
 rm -f "$tmp"/busy.lock*
