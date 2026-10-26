@@ -770,6 +770,19 @@ else
   echo "ok: worktree clone: no lock file in the work tree"
 fi
 
+# ---------------------------------------------------------------------------
+# 26. A failure after the snapshot went out says it went out, even before a
+#     ledger exists to record it.
+# ---------------------------------------------------------------------------
+v9="$tmp/venture9"
+inception_fixture_write "$v9" || exit 1
+git -C "$v9" init -q . && git -C "$v9" add -A && git -C "$v9" commit -qm "chore: seed the venture" || exit 1
+"$NOTION" configure --page "$PAGE" "$v9" >/dev/null || exit 1
+printf 'not a directory\n' >"$v9/feedback"
+"$CYCLE" export --adapter notion --confirmed "$v9" >/dev/null 2>"$tmp/err"
+assert_eq "no room for the ledger after the export: refused" "2" "$?"
+assert_contains "no room for the ledger after the export: says the snapshot went out" "already been sent" "$(cat "$tmp/err")"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

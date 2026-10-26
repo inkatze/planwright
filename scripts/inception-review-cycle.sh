@@ -97,10 +97,15 @@ BUNDLE_FILES="brief.md disciplines.md assumptions.md decisions.md plan.md"
 LEDGER_REL=feedback/ledger.md
 LEDGER_VERSION=1
 
+# sent_to: set once an export has left the machine and until its ledger
+# record is committed, so any failure in between says the snapshot went out.
+sent_to=
 die() {
   code=$1
   shift
   printf 'inception-review-cycle: %s\n' "$*" >&2
+  [ -z "$sent_to" ] \
+    || printf 'inception-review-cycle: the snapshot had already been sent to %s, and the ledger does not record it yet; harvest that page before exporting again\n' "$sent_to" >&2
   exit "$code"
 }
 
@@ -622,6 +627,7 @@ cmd_export() {
     printf '\n' >&2
   }
 
+  sent_to=$dest
   mkdir -p "$target/feedback" || die 2 "cannot create feedback/"
   ledger_guard
   next=$((cycle + 1))
@@ -642,8 +648,11 @@ cmd_export() {
   printf 'chore(feedback): export review cycle %s\n\nSnapshot of %s sent through the %s adapter.\n' "$next" "$sha" "$adapter" >"$work/msg"
   # Not restored: the export already went out, so the ledger keeps the record
   # of it and every later step waits until it is committed.
-  commit_paths "$work/msg" "$LEDGER_REL" \
-    || die 2 "the export went out but the ledger commit failed; commit the ledger (git add $LEDGER_REL && git commit) before the next step"
+  commit_paths "$work/msg" "$LEDGER_REL" || {
+    sent_to=
+    die 2 "the export went out but the ledger commit failed; commit the ledger (git add $LEDGER_REL && git commit) before the next step"
+  }
+  sent_to=
   printf 'cycle\t%s\n' "$next"
   printf 'snapshot\t%s\n' "$sha"
   printf 'destination\t%s\n' "$dest"
