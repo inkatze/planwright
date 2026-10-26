@@ -31,11 +31,14 @@
 # include list that never names the file (data, fixtures that are malformed on
 # purpose, generated files).
 #
-# Each test runs as scripts/run-tests.sh runs a file: PLANWRIGHT_FLEET_STATE_DIR,
-# and CLAUDE_PLUGIN_DATA and CLAUDE_DIR when set, point at a sentinel home of
-# its own, and a test that creates anything there fails, since under a fleet
-# worker it would have written the operator's real state; and
-# SPEC_WALKTHROUGH_DOT_TIMEOUT defaults to the suite's load headroom.
+# Each test runs as scripts/run-tests.sh runs a file: the root and
+# configuration variables tests/lib/hermetic-env.sh clears are unset;
+# PLANWRIGHT_FLEET_STATE_DIR, and CLAUDE_PLUGIN_DATA and CLAUDE_DIR when set,
+# point at a sentinel home of its own, and a test that creates anything there
+# fails, since under a fleet worker it would have written the operator's real
+# state; and SPEC_WALKTHROUGH_DOT_TIMEOUT defaults to the suite's load
+# headroom. The runner's PLANWRIGHT_TEST_PIN_ENV switch does not apply here:
+# this check always pins.
 #
 # Paths and output come from the branch, so non-printable bytes are stripped
 # from everything printed.

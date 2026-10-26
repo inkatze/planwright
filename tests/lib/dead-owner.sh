@@ -12,7 +12,7 @@
 #
 #   dead_owner_pid   print a PID above every supported host's range: Linux
 #                    caps pid_max at 2^22, macOS and the BSDs at 99999. Fails,
-#                    printing nothing, if a process somehow answers to it
+#                    printing nothing, if kill -0 reaches a process at it
 
 dead_owner_pid() {
   if kill -0 4194305 2>/dev/null; then
