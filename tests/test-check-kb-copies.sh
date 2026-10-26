@@ -148,6 +148,17 @@ if [ "$RC" -eq 2 ]; then ok "a knowledge base of empty files fails closed"; else
 run --kb "$tmp/kb" --specs "$tmp/specs"
 if [ "$RC" -eq 2 ]; then ok "a file name awk would read as an assignment fails closed"; else fail "an '=' file name exited $RC"; fi
 rm -f "$tmp/kb/a=b.md"
+run --help
+case $RC:$OUT in
+  0:*"at least 60 characters"*) ok "--help prints the rule with its threshold" ;;
+  *) fail "--help exited $RC or lacks the threshold" ;;
+esac
+printf '%s\n' "An overview file at the spec root's top level is spec text, not reserved." >"$tmp/specs/_overview.md"
+printf '%s\n' "An overview file at the spec root's top level is spec text, not reserved." >"$tmp/kb/duty/notes.md"
+run --kb "$tmp/kb" --specs "$tmp/specs"
+if [ "$RC" -eq 1 ]; then ok "an underscore-prefixed file at the top level is still compared"; else fail "a top-level underscore file was skipped (exit $RC)"; fi
+rm -f "$tmp/specs/_overview.md"
+printf '%s\n' "# Notes" >"$tmp/kb/duty/notes.md"
 run --bogus
 if [ "$RC" -eq 2 ]; then ok "an unknown argument is a usage error"; else fail "an unknown argument exited $RC"; fi
 

@@ -78,7 +78,7 @@ trap 'rm -rf "$scratch"' EXIT
 collect() {
   cl_dir=$(cd -- "$1" && pwd) || die "cannot enter $1"
   if [ "$2" = yes ]; then
-    (cd -- "$cl_dir" && find . -path './_*' -prune -o -type f -name '*.md' -print) >"$3.raw"
+    (cd -- "$cl_dir" && find . -path './_*' -type d -prune -o -type f -name '*.md' -print) >"$3.raw"
   else
     (cd -- "$cl_dir" && find . -type f -name '*.md' -print) >"$3.raw"
   fi || die "cannot list every file under $1"
@@ -91,7 +91,7 @@ load() {
   FILES=()
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    case $f in *=*) die "a $2 file name carries '=': $f" ;; esac
+    case $f in *=*) die "a $2 file name carries '=': $(printf '%s' "$f" | tr -d '[:cntrl:]')" ;; esac
     FILES[${#FILES[@]}]=$f
   done <"$1"
 }
@@ -115,7 +115,8 @@ MIN=$MIN_CHARS awk '
     kb_lines++
     l = norm($0)
     if (length(l) >= ENVIRON["MIN"] && (l in seen)) {
-      printf "%s:%d: copies %s\n", FILENAME, FNR, seen[l]
+      f = FILENAME; s = seen[l]; gsub(/[[:cntrl:]]/, "?", f); gsub(/[[:cntrl:]]/, "?", s)
+      printf "%s:%d: copies %s\n", f, FNR, s
       found = 1
     }
   }
