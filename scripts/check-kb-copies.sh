@@ -11,13 +11,13 @@
 #   --kb <dir>     the knowledge base to scan, every *.md under it (default
 #                  tests/fixtures/mission-control/kb, the fixtures CI lints)
 #   --specs <dir>  the spec root, every *.md under it outside the
-#                  underscore-prefixed reserved directories (default the
-#                  root scripts/resolve-root.sh resolves)
+#                  underscore-prefixed reserved directories directly under
+#                  it (default the root scripts/resolve-root.sh resolves)
 #
 # Exit codes: 0 clean; 1 a copied line (each named as
 # <kb-file>:<line>: copies <spec-file>); 2 usage, or an input that would
-# narrow the scan to nothing (a missing directory, no knowledge-base file, no
-# spec line long enough to compare).
+# narrow the scan (a missing or unlistable directory, no knowledge-base file
+# or line, no spec line long enough to compare).
 #
 # Portable bash 3.2 / BSD tooling.
 set -u
@@ -56,50 +56,60 @@ fi
 [ -d "$kb" ] || die "no knowledge base at $kb"
 [ -d "$specs" ] || die "no spec root at $specs"
 
-# collect <dir> <prune-reserved>: every *.md under <dir>, NUL-free names one
-# per line; a name carrying a newline or an `=` (awk would read it as an
-# assignment) fails the scan rather than being skipped.
+scratch=$(mktemp -d) || die "cannot create a scratch directory"
+trap 'rm -rf "$scratch"' EXIT
+
+# collect <dir> <prune-reserved> <out>: every *.md under <dir>, sorted, one
+# per line into <out>; the reserved directories are the underscore-prefixed
+# ones directly under the spec root. A find that errors (an unreadable
+# subdirectory) fails the scan rather than narrowing it.
 collect() {
   if [ "$2" = yes ]; then
-    find "$1" -name '_*' -prune -o -type f -name '*.md' -print
+    find "$1" -path "$1/_*" -prune -o -type f -name '*.md' -print >"$3.raw"
   else
-    find "$1" -type f -name '*.md' -print
-  fi
+    find "$1" -type f -name '*.md' -print >"$3.raw"
+  fi || die "cannot list every file under $1"
+  sort "$3.raw" >"$3" || die "cannot list every file under $1"
 }
-spec_files=()
-while IFS= read -r f; do
-  case $f in *=*) die "a spec file name carries '=': $f" ;; esac
-  spec_files[${#spec_files[@]}]=$f
-done <<EOF
-$(collect "$specs" yes | sort)
-EOF
-kb_files=()
-while IFS= read -r f; do
-  [ -n "$f" ] || continue
-  case $f in *=*) die "a knowledge-base file name carries '=': $f" ;; esac
-  kb_files[${#kb_files[@]}]=$f
-done <<EOF
-$(collect "$kb" no | sort)
-EOF
+# load <list> <what>: FILES from the list; awk would read a name carrying `=`
+# as an assignment, so such a name fails the scan.
+load() {
+  FILES=()
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    case $f in *=*) die "a $2 file name carries '=': $f" ;; esac
+    FILES[${#FILES[@]}]=$f
+  done <"$1"
+}
+collect "$specs" yes "$scratch/spec-list"
+collect "$kb" no "$scratch/kb-list"
+load "$scratch/spec-list" spec
+spec_files=("${FILES[@]+"${FILES[@]}"}")
+load "$scratch/kb-list" knowledge-base
+kb_files=("${FILES[@]+"${FILES[@]}"}")
 [ "${#kb_files[@]}" -gt 0 ] || die "no Markdown file under $kb"
-[ "${#spec_files[@]}" -gt 0 ] && [ -n "${spec_files[0]}" ] || die "no Markdown file under $specs"
+[ "${#spec_files[@]}" -gt 0 ] || die "no Markdown file under $specs"
 
 MIN=$MIN_CHARS awk '
-  function norm(s) { gsub(/[ \t]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }
+  function norm(s) { sub(/\r$/, "", s); gsub(/[ \t]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }
   phase != "kb" {
     l = norm($0)
     if (length(l) >= ENVIRON["MIN"] && !(l in seen)) { seen[l] = FILENAME; n++ }
     next
   }
-  FNR == 1 && n == 0 { print "check-kb-copies: no spec line is long enough to compare" > "/dev/stderr"; exit 2 }
   {
+    read++
     l = norm($0)
     if (length(l) >= ENVIRON["MIN"] && (l in seen)) {
       printf "%s:%d: copies %s\n", FILENAME, FNR, seen[l]
       found = 1
     }
   }
-  END { if (found) exit 1 }
+  END {
+    if (n == 0) { print "check-kb-copies: no spec line is long enough to compare" > "/dev/stderr"; exit 2 }
+    if (read == 0) { print "check-kb-copies: the knowledge base holds no line to compare" > "/dev/stderr"; exit 2 }
+    if (found) exit 1
+  }
 ' "${spec_files[@]}" phase=kb "${kb_files[@]}"
 rc=$?
 case $rc in

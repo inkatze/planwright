@@ -90,6 +90,28 @@ run --kb "$tmp/kb" --specs "$tmp/specs"
 if [ "$RC" -eq 0 ]; then ok "an underscore-prefixed reserved directory is not spec text"; else fail "a reserved-directory line was flagged: $OUT"; fi
 
 # ---------------------------------------------------------------------------
+# The length threshold, carriage returns and nested underscore files.
+# ---------------------------------------------------------------------------
+l59=$(awk 'BEGIN { s = ""; while (length(s) < 59) s = s "x"; print s }')
+l60="${l59}y"
+printf '%s\n' "$l59" "$l60" >"$tmp/specs/demo/lengths.md"
+printf '%s\n' "$l59" >"$tmp/kb/duty/notes.md"
+run --kb "$tmp/kb" --specs "$tmp/specs"
+if [ "$RC" -eq 0 ]; then ok "a shared line one short of the threshold is not a copy"; else fail "a 59-character line was flagged"; fi
+printf '%s\r\n' "$l60" >"$tmp/kb/duty/notes.md"
+run --kb "$tmp/kb" --specs "$tmp/specs"
+if [ "$RC" -eq 1 ]; then ok "a shared line at the threshold is a copy, a carriage return notwithstanding"; else fail "a 60-character CRLF copy passed (exit $RC)"; fi
+rm -f "$tmp/specs/demo/lengths.md"
+printf '%s\n' "A bundle file whose own name starts with an underscore is still spec text." \
+  >"$tmp/specs/demo/_ambiguities.md"
+printf '%s\n' "A bundle file whose own name starts with an underscore is still spec text." \
+  >"$tmp/kb/duty/notes.md"
+run --kb "$tmp/kb" --specs "$tmp/specs"
+if [ "$RC" -eq 1 ]; then ok "only the reserved directories directly under the spec root are held out"; else fail "a nested underscore file was skipped (exit $RC)"; fi
+rm -f "$tmp/specs/demo/_ambiguities.md"
+printf '%s\n' "# Notes" >"$tmp/kb/duty/notes.md"
+
+# ---------------------------------------------------------------------------
 # Inputs that would narrow the scan fail closed.
 # ---------------------------------------------------------------------------
 run --kb "$tmp/absent" --specs "$tmp/specs"
@@ -99,6 +121,18 @@ run --kb "$tmp/empty" --specs "$tmp/specs"
 if [ "$RC" -eq 2 ]; then ok "a knowledge base with no Markdown file fails closed"; else fail "an empty knowledge base exited $RC"; fi
 run --kb "$tmp/kb" --specs "$tmp/empty"
 if [ "$RC" -eq 2 ]; then ok "a spec root with no Markdown file fails closed"; else fail "an empty spec root exited $RC"; fi
+mkdir -p "$tmp/short/demo"
+printf '%s\n' "# Short" "short lines only" >"$tmp/short/demo/design.md"
+run --kb "$tmp/kb" --specs "$tmp/short"
+if [ "$RC" -eq 2 ]; then ok "a spec root with no line long enough fails closed"; else fail "a short spec root exited $RC"; fi
+mkdir -p "$tmp/emptykb"
+: >"$tmp/emptykb/blank.md"
+run --kb "$tmp/emptykb" --specs "$tmp/specs"
+if [ "$RC" -eq 2 ]; then ok "a knowledge base of empty files fails closed"; else fail "an empty-file knowledge base exited $RC"; fi
+: >"$tmp/kb/a=b.md"
+run --kb "$tmp/kb" --specs "$tmp/specs"
+if [ "$RC" -eq 2 ]; then ok "a file name awk would read as an assignment fails closed"; else fail "an '=' file name exited $RC"; fi
+rm -f "$tmp/kb/a=b.md"
 run --bogus
 if [ "$RC" -eq 2 ]; then ok "an unknown argument is a usage error"; else fail "an unknown argument exited $RC"; fi
 

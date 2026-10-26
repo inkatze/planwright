@@ -253,7 +253,7 @@ description = "mission control's knob inventory: every behaviour in config/missi
 run = "/bin/bash scripts/check-mc-knobs.sh"
 
 [tasks."check:kb-copies"]
-description = "mission control's cite-never-copy lint: fail when a knowledge-base Markdown file under tests/fixtures/mission-control/kb carries a spec bundle's line verbatim (compared trimmed and blank-collapsed, lines of the length scripts/check-kb-copies.sh sets and longer, the spec root's underscore-prefixed reserved directories held out), each copy named by file, line and the spec it copies; fails closed on a missing directory or nothing to compare"
+description = "mission control's cite-never-copy lint: fail when a knowledge-base Markdown file under tests/fixtures/mission-control/kb carries a spec bundle's line verbatim (compared trimmed and blank-collapsed, lines of the length scripts/check-kb-copies.sh sets and longer, the underscore-prefixed reserved directories directly under the spec root held out), each copy named by file, line and the spec it copies; fails closed on a missing or unlistable directory or nothing to compare"
 run = "/bin/bash scripts/check-kb-copies.sh"
 
 [tasks."check:steps"]
