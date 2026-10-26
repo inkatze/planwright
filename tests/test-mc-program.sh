@@ -100,6 +100,25 @@ mc_run mc-program.sh posture alpha
 expect_rc "a spec root that is no directory has no posture" 1
 expect_err "the missing spec root is named" "spec_root"
 
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$tmp/locked-store" "$tmp/locked-repo" "$tmp/locked-home"
+  chmod 000 "$tmp/locked-store" "$tmp/locked-repo" "$tmp/locked-home"
+  alpha_block "$tmp/locked-store"
+  mc_run mc-program.sh posture alpha
+  expect_rc "a spec root that cannot be entered has no posture" 1
+  expect_err "the unenterable spec root is named" "alpha: spec_root: '$tmp/locked-store' cannot be entered"
+  printf 'mission_control_programs: [alpha]\nprogram_alpha_repositories: [%s/locked-repo]\nprogram_alpha_spec_root: %s/specs\n' "$tmp" "$other" >"$tracked"
+  mc_run mc-program.sh posture alpha
+  expect_rc "a repository that cannot be entered leaves the posture unknown" 1
+  expect_err "the unenterable repository is named" "alpha: repositories: '$tmp/locked-repo' cannot be entered"
+  alpha_block
+  printf 'program_alpha_home: %s/locked-home/alpha\n' "$tmp" >>"$tracked"
+  mc_run mc-program.sh get alpha home
+  expect_rc "a home whose ancestor cannot be entered fails closed" 1
+  expect_err "the unresolvable home is named" "alpha: home: '$tmp/locked-home/alpha' cannot be resolved"
+  chmod 755 "$tmp/locked-store" "$tmp/locked-repo" "$tmp/locked-home"
+fi
+
 # Missing fields are named.
 printf 'mission_control_programs: [alpha]\n' >"$tracked"
 mc_run mc-program.sh validate alpha

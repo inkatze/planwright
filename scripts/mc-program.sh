@@ -460,7 +460,7 @@ home_of() {
 
 # canonical <path>: <path> with its longest existing ancestor resolved
 # through symlinks, so a link or a .. segment there cannot hide that one
-# path lies inside another.
+# path lies inside another. Fails when that ancestor cannot be entered.
 canonical() {
   cn_head=$1
   while :; do
@@ -478,7 +478,7 @@ canonical() {
     cn_head=${cn_head%/*}
     [ -n "$cn_head" ] || cn_head=/
   done
-  cn_dir=$(cd "$cn_head" 2>/dev/null && pwd -P) || cn_dir=$cn_head
+  cn_dir=$(cd "$cn_head" 2>/dev/null && pwd -P) || return 1
   printf '%s%s\n' "${cn_dir%/}" "$cn_tail"
 }
 
@@ -496,10 +496,16 @@ field_home() {
       problem "$1" home "cannot be checked against the program's repositories, which do not resolve"
       return 1
     }
-    fh_canon=$(canonical "$fh_home")
+    fh_canon=$(canonical "$fh_home") || {
+      problem "$1" home "'$fh_home' cannot be resolved, so it cannot be checked against the repositories"
+      return 1
+    }
     while IFS= read -r r; do
       [ -n "$r" ] || continue
-      r_canon=$(canonical "$r")
+      r_canon=$(canonical "$r") || {
+        problem "$1" home "the repository '$r' cannot be resolved, so the home cannot be checked against it"
+        return 1
+      }
       case $fh_canon/ in
         "${r_canon%/}"/*)
           problem "$1" home "'$fh_home' is inside the work repository '$r'"
@@ -537,6 +543,10 @@ posture() {
     problem "$1" spec_root "'$root' is not a directory"
     return 1
   fi
+  if ! (cd "$root") 2>/dev/null; then
+    problem "$1" spec_root "'$root' cannot be entered, so the posture is unknown"
+    return 1
+  fi
   root_git=$(common_dir "$root")
   if [ -z "$root_git" ]; then
     printf '%s\n' plain
@@ -546,6 +556,10 @@ posture() {
   present=0
   while IFS= read -r r; do
     [ -d "$r" ] || continue
+    if ! (cd "$r") 2>/dev/null; then
+      problem "$1" repositories "'$r' cannot be entered, so the posture is unknown"
+      return 1
+    fi
     present=1
     if [ "$(common_dir "$r")" = "$root_git" ]; then
       printf '%s\n' same-repo
