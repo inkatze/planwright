@@ -42,8 +42,9 @@ pre-commit:
       glob: "specs/**"
       run: /bin/sh scripts/check-anchor-freshness.sh
 
-    # Measures only the staged surface files; `mise run check` is normative.
-    # In these globs `*` crosses `/`, as the guard's own surface match does.
+    # Measures the working-tree content of the staged surface files (the limit
+    # named above); `mise run check` is normative. In these globs `*` crosses
+    # `/`, as the guard's own surface match does.
     - name: comment-budget
       glob:
         - "scripts/*.sh"

@@ -1,9 +1,10 @@
 # Comment-block budget suppression list.
 #
 # scripts/check-comment-budget.sh reads this file as data, never evaluated;
-# doctrine/comment-hygiene.md is the rule. Blank lines and lines beginning
-# with '#' are ignored. One entry per path, the path repository-relative. Two
-# forms, each requiring a reason:
+# doctrine/comment-hygiene.md is the rule, and the guard's --help holds the
+# exact entry grammar. Blank lines and lines beginning with '#' are ignored.
+# One entry per path, the path repository-relative. Two forms, each requiring
+# a reason:
 #
 #   exempt|<path>|<reason>
 #       Permanent. Only for an own-surface section the disposition taxonomy
@@ -19,15 +20,56 @@
 #       form is an error.
 #
 # The pending-cleanup entries below were generated, not hand-written: every
-# file the error threshold caught when the guard landed, Task 6 for
-# scripts/fleet-*.sh, Task 7 for the orchestration, allocation, spec, and
-# release families, Task 8 for everything else.
+# file the error threshold caught when the guard landed, under the cleanup
+# task whose path list in the prose-disposition bundle's tasks.md names it:
+# Task 6 the fleet family, Task 7 its orchestration, allocation, spec and
+# release families and the five single scripts it lists, Task 8 the rest.
+# They are grouped by task so that each cleanup PR removes one contiguous
+# group and parallel cleanup PRs do not conflict.
 
-pending-cleanup|.github/workflows/release-please.yml|Task 8|over the error threshold when the guard landed
-pending-cleanup|config/defaults.yml|Task 8|over the error threshold when the guard landed
-pending-cleanup|config/guard-catalog.yaml|Task 8|over the error threshold when the guard landed
-pending-cleanup|config/test-time-budget.yml|Task 8|over the error threshold when the guard landed
-pending-cleanup|lefthook.yml|Task 8|over the error threshold when the guard landed
+# Task 6
+pending-cleanup|scripts/fleet-allocate.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-attention-reconcile.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-attention-watch.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-attention.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-audit.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-cleanup.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-credit-continuation.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-daemon-gate.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-dashboard.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-death-evidence.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-decision.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-dispatch-env.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-dispatch-guard.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-dispatch-headless.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-dispatch-worktree.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-fence.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-liveness.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-messaging.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-pane-detect.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-pane-vocabulary.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-presence.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-reap-lock.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-register.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-registry-reconcile.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-resource-select.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-state.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-stats.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-status.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-statusline.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-stop-lib.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-streamjson.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-stuck-detector.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-sweep.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-throttle.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-tower-launch.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-tower-marker.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-tower-signpost.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-tower-watchdog.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-usage-gate.sh|Task 6|over the error threshold when the guard landed
+pending-cleanup|scripts/fleet-worktree-track.sh|Task 6|over the error threshold when the guard landed
+
+# Task 7
 pending-cleanup|scripts/allocation-adapt.sh|Task 7|over the error threshold when the guard landed
 pending-cleanup|scripts/allocation-apply.sh|Task 7|over the error threshold when the guard landed
 pending-cleanup|scripts/allocation-feedback.sh|Task 7|over the error threshold when the guard landed
@@ -35,6 +77,48 @@ pending-cleanup|scripts/allocation-ladder.sh|Task 7|over the error threshold whe
 pending-cleanup|scripts/allocation-ledger.sh|Task 7|over the error threshold when the guard landed
 pending-cleanup|scripts/allocation-petition.sh|Task 7|over the error threshold when the guard landed
 pending-cleanup|scripts/allocation-select.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/converge-sync-main.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/dispatch-fetch.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/main-currency.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/offload-dispatch.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/orchestrate-backends.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/orchestrate-degrade.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/orchestrate-lock.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/orchestrate-marker-home.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/orchestrate-marker.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/orchestrate-meta-select.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/orchestrate-meta-step.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/orchestrate-relay.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/orchestrate-select.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/orchestrate-state.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/release-arm.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/release-bookkeeping.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/release-checklist.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/release-lib.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/release-publish.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/release-window-check.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-anchor.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-assemble.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-decisionmap.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-graph.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-model.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-onepager.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-parse.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-scope.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-status.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-store-worktree.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-teachback.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-translate.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-validate.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/spec-walkthrough.sh|Task 7|over the error threshold when the guard landed
+pending-cleanup|scripts/tasks-pr-sync.sh|Task 7|over the error threshold when the guard landed
+
+# Task 8
+pending-cleanup|.github/workflows/release-please.yml|Task 8|over the error threshold when the guard landed
+pending-cleanup|config/defaults.yml|Task 8|over the error threshold when the guard landed
+pending-cleanup|config/guard-catalog.yaml|Task 8|over the error threshold when the guard landed
+pending-cleanup|config/test-time-budget.yml|Task 8|over the error threshold when the guard landed
+pending-cleanup|lefthook.yml|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/anchor-sweep.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/behavioral-eval.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/bounded-run.sh|Task 8|over the error threshold when the guard landed
@@ -80,50 +164,8 @@ pending-cleanup|scripts/claude-frames.sh|Task 8|over the error threshold when th
 pending-cleanup|scripts/config-get.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/context-budget-monitor.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/context-budget-peer.sh|Task 8|over the error threshold when the guard landed
-pending-cleanup|scripts/converge-sync-main.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/dispatch-fetch.sh|Task 7|over the error threshold when the guard landed
 pending-cleanup|scripts/drain-gates.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/echo-safety.sh|Task 8|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-allocate.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-attention-reconcile.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-attention-watch.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-attention.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-audit.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-cleanup.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-credit-continuation.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-daemon-gate.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-dashboard.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-death-evidence.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-decision.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-dispatch-env.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-dispatch-guard.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-dispatch-headless.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-dispatch-worktree.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-fence.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-liveness.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-messaging.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-pane-detect.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-pane-vocabulary.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-presence.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-reap-lock.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-register.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-registry-reconcile.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-resource-select.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-state.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-stats.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-status.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-statusline.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-stop-lib.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-streamjson.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-stuck-detector.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-sweep.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-throttle.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-tower-launch.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-tower-marker.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-tower-signpost.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-tower-watchdog.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-usage-gate.sh|Task 6|over the error threshold when the guard landed
-pending-cleanup|scripts/fleet-worktree-track.sh|Task 6|over the error threshold when the guard landed
 pending-cleanup|scripts/flight-dispatch.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/flight-id.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/flight-lifecycle.sh|Task 8|over the error threshold when the guard landed
@@ -141,7 +183,6 @@ pending-cleanup|scripts/inception-validate.sh|Task 8|over the error threshold wh
 pending-cleanup|scripts/inception-venture.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/install.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/lock-lib.sh|Task 8|over the error threshold when the guard landed
-pending-cleanup|scripts/main-currency.sh|Task 7|over the error threshold when the guard landed
 pending-cleanup|scripts/measure-test-time.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/merge-admitted.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/merge-class.sh|Task 8|over the error threshold when the guard landed
@@ -151,17 +192,6 @@ pending-cleanup|scripts/obs-consume.sh|Task 8|over the error threshold when the 
 pending-cleanup|scripts/obs-record.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/obs-render.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/observation-carry.sh|Task 8|over the error threshold when the guard landed
-pending-cleanup|scripts/offload-dispatch.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/orchestrate-backends.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/orchestrate-degrade.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/orchestrate-lock.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/orchestrate-marker-home.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/orchestrate-marker.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/orchestrate-meta-select.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/orchestrate-meta-step.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/orchestrate-relay.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/orchestrate-select.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/orchestrate-state.sh|Task 7|over the error threshold when the guard landed
 pending-cleanup|scripts/planwright-commit-trailers.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/policy-guard.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/prompt-eval.sh|Task 8|over the error threshold when the guard landed
@@ -169,12 +199,6 @@ pending-cleanup|scripts/quota-hold.sh|Task 8|over the error threshold when the g
 pending-cleanup|scripts/ready-flip.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/ready-guard.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/refresh-test-durations.sh|Task 8|over the error threshold when the guard landed
-pending-cleanup|scripts/release-arm.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/release-bookkeeping.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/release-checklist.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/release-lib.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/release-publish.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/release-window-check.sh|Task 7|over the error threshold when the guard landed
 pending-cleanup|scripts/request-reviewer.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/resolve-card.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/resolve-catalog.sh|Task 8|over the error threshold when the guard landed
@@ -203,27 +227,12 @@ pending-cleanup|scripts/rubric-grade.sh|Task 8|over the error threshold when the
 pending-cleanup|scripts/run-tests.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/seed-purged-identifiers.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/sign-off-checklist.sh|Task 8|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-anchor.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-assemble.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-decisionmap.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-graph.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-model.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-onepager.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-parse.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-scope.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-status.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-store-worktree.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-teachback.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-translate.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-validate.sh|Task 7|over the error threshold when the guard landed
-pending-cleanup|scripts/spec-walkthrough.sh|Task 7|over the error threshold when the guard landed
 pending-cleanup|scripts/step-pool.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/step-record.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/step-run.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/substrate-attribute.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/substrate-baseline.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/substrate-partition.sh|Task 8|over the error threshold when the guard landed
-pending-cleanup|scripts/tasks-pr-sync.sh|Task 7|over the error threshold when the guard landed
 pending-cleanup|scripts/tower-command-guard.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/tower-force-push.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|scripts/tower-loop-comms.sh|Task 8|over the error threshold when the guard landed

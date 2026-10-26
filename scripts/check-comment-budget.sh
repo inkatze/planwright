@@ -42,10 +42,12 @@ Surface (tracked files only, or every file under <tree> for --audit):
 
 Check (the default). A run at or over the warn threshold is a warning (exit
 stays 0); at or over the error threshold, an error (exit 1) unless the
-suppression list covers the file. Given <path> arguments (the pre-commit
-job passes the staged paths), only those that are surface files are
-measured. Knobs resolve through the configuration chain; a missing or
-non-numeric knob, or warn above error, aborts (exit 2).
+suppression list covers the file. A file with an entry of either form
+draws no warning either. Given <path> arguments (the pre-commit job passes
+the staged paths), only those that are surface files are measured, as
+their working-tree content. Knobs resolve through the configuration chain;
+a knob that is missing or not a positive integer, or warn above error,
+aborts (exit 2).
 
 Suppression list, config/comment-budget-exemptions.txt (absent = empty;
 blank lines and lines starting `#` are skipped; one entry per path):
@@ -53,7 +55,8 @@ blank lines and lines starting `#` are skipped; one entry per path):
       permanent: an own-surface section the taxonomy gives no split and no
       other home, or a file the heredoc limit misfires on.
   pending-cleanup|<path>|Task <N>|<reason>
-      transitional: names the cleanup task that removes it.
+      transitional: names the cleanup task that removes it (<N> is a task
+      id, digits with an optional .<digits>).
   <path> is repository-relative; an absolute path or a `..` segment is
   refused. A missing reason, an unknown form, a malformed field, or a
   second entry for one path is an error. An entry whose file trips no
@@ -85,16 +88,20 @@ blank lines and lines starting `#` are skipped; one entry per path):
     none       neither: evidence-free
   Words per block counts the text after each line's leading `#` marks.
 
---code-invariant <ref>  For every surface file changed between the
-  merge-base of <ref> and HEAD and the working tree (untracked files
-  included), compare the sequence of code lines. A changed sequence, or a
-  surface file added or deleted since the merge-base, is named and exits 1.
-  githooks/ files without an extension count as surface by name here.
+--code-invariant <ref>  For every surface file that differs between the
+  merge-base of <ref> and HEAD on one side and the working tree on the
+  other (untracked files included), compare the sequence of code lines. A
+  changed sequence, or a surface file added or deleted since the
+  merge-base, is named and exits 1. githooks/ files without an extension
+  count as surface by name here. --root must be the repository's top
+  level. The known limit holds here too: a changed heredoc body line
+  beginning with `#` is not seen as a code change.
 
 Exit: 0 pass · 1 a budget error, a suppression-list error, or a code
 change · 2 usage, a knob that does not resolve, or an input that would make
-the run vacuous or unsafe (no surface file, an unreadable file, a symlink, a
-path carrying a control byte, a ref that does not resolve).
+the run vacuous or unsafe (no surface file outside a <path> run, which
+exits 0 when none of its paths is one; an unreadable file; a symlink; a
+path carrying a control byte; a ref that does not resolve).
 EOF
 }
 
@@ -187,7 +194,7 @@ surface_names() {
   }'
 }
 
-# keep_files <base> <out>: read surface_names output; refuse quoted paths and
+# keep_files <dir> <out>: read surface_names output; refuse quoted paths and
 # symlinks, drop what is gone, and keep a githooks/ hook only with a shebang.
 keep_files() {
   : >"$2"
@@ -202,6 +209,7 @@ keep_files() {
     case $kf_path in
       githooks/*.*) ;;
       githooks/*)
+        [ -r "$1/$kf_path" ] || die "surface file $(clean "$kf_path") is unreadable; failing closed"
         kf_first=""
         IFS= read -r kf_first <"$1/$kf_path" || [ -n "$kf_first" ] || continue
         case $kf_first in
@@ -222,16 +230,17 @@ require_git() {
 list_tracked() {
   require_git
   git -C "$root" -c core.quotepath=off ls-files -s >"$work/ls" || die "git ls-files failed; failing closed"
-  sed 's/ .*	/	/' "$work/ls" | surface_names >"$work/names"
+  # A path mid-merge is listed once per conflict stage.
+  sed 's/ .*	/	/' "$work/ls" | awk '!seen[$0]++' | surface_names >"$work/names"
   keep_files "$root" "$1" <"$work/names"
 }
 
 # list_tree <dir> <out>: every surface file under an arbitrary directory.
 list_tree() {
   find "$1" \( -type f -o -type l \) -print >"$work/find" || die "listing the tree failed; failing closed"
-  B=$1 awk '
-    index($0, ENVIRON["B"] "/") != 1 { bad = 1; exit }
-    { print "-\t" substr($0, length(ENVIRON["B"]) + 2) }
+  B=${1%/}/ awk '
+    index($0, ENVIRON["B"]) != 1 { bad = 1; exit }
+    { print "-\t" substr($0, length(ENVIRON["B"]) + 1) }
     END { exit bad }' "$work/find" >"$work/rel" || die "a listed path holds a newline; failing closed"
   surface_names <"$work/rel" >"$work/names"
   keep_files "$1" "$2" <"$work/names"
@@ -256,9 +265,11 @@ code_invariant() {
   esac
   [ "$(clean "$ref")" = "$ref" ] || die "the ref carries a control byte"
   require_git
+  # git diff names paths from the top level, so a deeper root would match nothing.
+  [ "$(git -C "$root" rev-parse --show-toplevel)" = "$root" ] || die "--code-invariant needs --root at the repository's top level"
   git -C "$root" rev-parse --verify --quiet "$ref^{commit}" >/dev/null || die "ref $(clean "$ref") does not resolve to a commit"
-  base=$(git -C "$root" merge-base "$ref" HEAD) || die "no merge-base between $(clean "$ref") and HEAD"
-  git -C "$root" -c core.quotepath=off diff --no-renames --name-status "$base" -- >"$work/diff" \
+  merge_base=$(git -C "$root" merge-base "$ref" HEAD) || die "no merge-base between $(clean "$ref") and HEAD"
+  git -C "$root" -c core.quotepath=off diff --no-renames --name-status "$merge_base" -- >"$work/diff" \
     || die "git diff against the merge-base failed; failing closed"
   git -C "$root" -c core.quotepath=off ls-files --others --exclude-standard >"$work/untracked" \
     || die "listing untracked files failed; failing closed"
@@ -276,7 +287,7 @@ code_invariant() {
         if [ -h "$root/$ci_path" ]; then
           die "surface file $(clean "$ci_path") is a symlink, which the guard does not follow; failing closed"
         fi
-        git -C "$root" show "$base:$ci_path" >"$work/before" 2>/dev/null \
+        git -C "$root" show "$merge_base:$ci_path" >"$work/before" 2>/dev/null \
           || die "could not read $(clean "$ci_path") at the merge-base; failing closed"
         code_lines <"$work/before" >"$work/before.code"
         code_lines <"$root/$ci_path" >"$work/after.code" \
@@ -315,23 +326,22 @@ error=$(getknob comment_block_error) || exit 2
 [ "$warn" -le "$error" ] || die "comment_block_warn ($warn) is above comment_block_error ($error); failing loud"
 
 list="$work/list"
-base_dir=$root
+measure_dir=$root
 if [ "$mode" = audit ] && [ -n "$tree" ]; then
   [ -d "$tree" ] || die "the audit tree is not a directory"
-  base_dir=$(cd "$tree" && pwd -P) || exit 2
-  list_tree "$base_dir" "$list"
+  measure_dir=$(cd "$tree" && pwd -P) || exit 2
+  list_tree "$measure_dir" "$list"
 elif [ "$scoped" -eq 1 ]; then
   list_tracked "$work/tracked"
-  : >"$list"
+  : >"$work/args"
   for sp in "$@"; do
+    [ "$(clean "$sp")" = "$sp" ] || die "path $(clean "$sp") carries a control byte; failing closed"
     case $sp in
       /* | ../* | */../* | .. | */..) die "path $(clean "$sp") leaves the root; failing closed" ;;
     esac
-    sp=${sp#./}
-    if grep -Fx -e "$sp" "$work/tracked" >/dev/null && ! grep -Fx -e "$sp" "$list" >/dev/null; then
-      printf '%s\n' "$sp" >>"$list"
-    fi
+    printf '%s\n' "${sp#./}" >>"$work/args"
   done
+  awk 'NR == FNR { tracked[$0] = 1; next } ($0 in tracked) && !seen[$0]++' "$work/tracked" "$work/args" >"$list"
   [ -s "$list" ] || {
     printf '%s: no surface file among the given paths.\n' "$me"
     exit 0
@@ -350,7 +360,7 @@ if [ -n "$exemptions" ] && [ ! -r "$exemptions" ]; then
   die "config/comment-budget-exemptions.txt is unreadable; failing closed"
 fi
 
-ME=$me MODE=$mode BASE=$base_dir LIST=$list EXEMPT=$exemptions WARN=$warn ERROR=$error \
+ME=$me MODE=$mode DIR=$measure_dir LIST=$list EXEMPT=$exemptions WARN=$warn ERROR=$error \
   CLOSEOUT=$closeout SCOPED=$scoped awk '
 function clean(s) { gsub(/[\001-\037\177]|\302[\200-\237]/, "?", s); return s }
 function closed(msg) {
@@ -399,7 +409,7 @@ function read_exemptions(path,   line, f, n, kind, p, reason, task, rc) {
   if (rc < 0) closed("config/comment-budget-exemptions.txt could not be read")
   close(path)
 }
-function words(s,   n, w) { n = split(s, w, /[ \t]+/); if (n > 0 && w[1] == "") n--; if (n > 0 && w[n] == "") n--; return n }
+function words(s,   w) { s = trim(s); return s == "" ? 0 : split(s, w, /[ \t]+/) }
 function classify(text,   lt) {
   if (text ~ /REQ-[A-Z]+[0-9]/ || text ~ /(^|[^A-Za-z0-9_-])D-[0-9]/ || text ~ /[Tt]ask [0-9]/ ||
       text ~ /obs:[0-9a-f][0-9a-f][0-9a-f][0-9a-f]/) return "cites"
@@ -411,12 +421,12 @@ function classify(text,   lt) {
 # end_run: close the current run of comment lines in file i.
 function end_run(i,   c) {
   if (run == 0) return
-  if (run > largest[i]) { largest[i] = run; lstart[i] = rstart }
+  if (run > largest[i] && (run >= 2 || !audit_mode)) { largest[i] = run; lstart[i] = rstart }
   if (run >= 2) {
     nblk[i]++; blines[i] += run
-    if (ENVIRON["MODE"] == "audit") {
+    if (audit_mode) {
       c = classify(rtext)
-      nb++; bfile[nb] = i; bstart[nb] = rstart; blen[nb] = run; bwords[nb] = words(rtext); bclass[nb] = c
+      nb++; fblock[i, nblk[i]] = nb; bstart[nb] = rstart; blen[nb] = run; bwords[nb] = words(rtext); bclass[nb] = c
       cls_blocks[c]++; cls_lines[c] += run
       if (run >= errth) { at_err++; at_err_lines += run }
     }
@@ -432,8 +442,7 @@ function measure(i, path,   line, ln, rc, t) {
     if (line ~ /^[ \t]*#/) {
       if (run == 0) rstart = ln
       run++; com[i]++
-      t = line; sub(/^[ \t]*#+/, "", t)
-      rtext = rtext " " t
+      if (audit_mode) { t = line; sub(/^[ \t]*#+/, "", t); rtext = rtext " " t }
       continue
     }
     end_run(i)
@@ -446,13 +455,14 @@ function measure(i, path,   line, ln, rc, t) {
 BEGIN {
   warnth = ENVIRON["WARN"] + 0; errth = ENVIRON["ERROR"] + 0
   closeout = ENVIRON["CLOSEOUT"] == "1"
-  if (ENVIRON["MODE"] == "check") read_exemptions(ENVIRON["EXEMPT"])
+  audit_mode = ENVIRON["MODE"] == "audit"
+  if (!audit_mode) read_exemptions(ENVIRON["EXEMPT"])
   while ((getline p < ENVIRON["LIST"]) > 0) {
     nf++; rel[nf] = p; largest[nf] = 0; lstart[nf] = 0
     measured[p] = nf
-    measure(nf, ENVIRON["BASE"] "/" p)
+    measure(nf, ENVIRON["DIR"] "/" p)
   }
-  if (ENVIRON["MODE"] == "audit") audit()
+  if (audit_mode) audit()
   else check()
 }
 function audit(   i, j, k, t, b, f, tot_blocks, tot_lines, tot_com, tot_code, big, bigat) {
@@ -474,8 +484,10 @@ function audit(   i, j, k, t, b, f, tot_blocks, tot_lines, tot_com, tot_code, bi
   }
   for (j = 1; j <= nf; j++) {
     f = order[j]
-    for (b = 1; b <= nb; b++) if (bfile[b] == f)
+    for (k = 1; k <= nblk[f]; k++) {
+      b = fblock[f, k]
       printf "block\t%d\t%d\t%s\t%s:%d\n", blen[b], bwords[b], bclass[b], clean(rel[f]), bstart[b]
+    }
   }
   printf "total\tfiles\t%d\n", nf
   printf "total\tblocks\t%d\n", tot_blocks
@@ -489,7 +501,7 @@ function audit(   i, j, k, t, b, f, tot_blocks, tot_lines, tot_com, tot_code, bi
   printf "total\trationale_blocks\t%d\ntotal\trationale_lines\t%d\n", cls_blocks["rationale"], cls_lines["rationale"]
   printf "total\tnone_blocks\t%d\ntotal\tnone_lines\t%d\n", cls_blocks["none"], cls_lines["none"]
 }
-function check(   i, p, w, kind, suppressed, warns, stale, e) {
+function check(   i, p, kind, suppressed, warns, stale, e) {
   for (i = 1; i <= nf; i++) {
     p = rel[i]
     kind = (p in ekind) ? ekind[p] : ""

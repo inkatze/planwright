@@ -33,10 +33,12 @@ fi
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-# Hermetic configuration: only the fixture's own layers resolve.
-export CLAUDE_PLUGIN_ROOT="" CLAUDE_PLUGIN_DATA="" PLANWRIGHT_ROOT="" PLANWRIGHT_LOCAL_CONFIG=""
-export PLANWRIGHT_ADOPTER_OVERLAY="$TMP/no-adopter"
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+# Hermetic configuration: only the fixture's own layers resolve, and a
+# machine-local overlay on this host never reaches the real-tree runs.
+export CLAUDE_PLUGIN_ROOT="" CLAUDE_PLUGIN_DATA="" PLANWRIGHT_ROOT=""
+export PLANWRIGHT_LOCAL_CONFIG="$TMP/no-local.yml" PLANWRIGHT_ADOPTER_OVERLAY="$TMP/no-adopter"
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME="$TMP"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 
 # comments <n>: n comment lines.
@@ -58,8 +60,8 @@ mkrepo() {
 
 track() { git -C "$1" add -A; }
 
-# script <file> <block lines>: a script whose one block has that many lines.
-script() {
+# mkscript <file> <block lines>: a script whose one block has that many lines.
+mkscript() {
   mkdir -p "$(dirname "$1")"
   {
     printf '#!/bin/sh\n'
@@ -77,16 +79,16 @@ run() {
 echo "## threshold arithmetic and boundary inclusivity"
 r="$TMP/thresh"
 mkrepo "$r"
-script "$r/scripts/at-warn.sh" 12
-script "$r/scripts/below-warn.sh" 11
-script "$r/scripts/below-error.sh" 24
+mkscript "$r/scripts/at-warn.sh" 12
+mkscript "$r/scripts/below-warn.sh" 11
+mkscript "$r/scripts/below-error.sh" 24
 track "$r"
 run "$r"
 assert_exit "warnings alone leave the exit zero" 0 $?
 assert_out "a block exactly at warn warns" "WARN: scripts/at-warn.sh:2: a 12-line comment block"
 refute_out "a block one below warn does not" "below-warn.sh"
 assert_out "a block one below error only warns" "WARN: scripts/below-error.sh:2: a 24-line"
-script "$r/scripts/at-error.sh" 25
+mkscript "$r/scripts/at-error.sh" 25
 track "$r"
 run "$r"
 assert_exit "a block exactly at error fails" 1 $?
@@ -123,6 +125,7 @@ mkrepo "$r"
 } >"$r/scripts/a.sh"
 track "$r"
 run "$r"
+assert_exit "short runs pass" 0 $?
 refute_out "a blank line and a code line each end a run" "WARN"
 {
   comments 11
@@ -150,9 +153,9 @@ echo "## surface and its exclusions"
 r="$TMP/surface"
 mkrepo "$r"
 for f in scripts/a.sh scripts/sub/b.sh tests/c.sh tests/lib/d.sh githooks/e.sh hooks/f.sh; do
-  script "$r/$f" 25
+  mkscript "$r/$f" 25
 done
-script "$r/githooks/pre-commit" 25
+mkscript "$r/githooks/pre-commit" 25
 mkdir -p "$r/.github/workflows" "$r/docs"
 for f in config/g.yml config/h.yaml lefthook.yml mise.toml .github/workflows/ci.yml .github/workflows/x.yaml; do
   mkdir -p "$(dirname "$r/$f")"
@@ -169,7 +172,7 @@ for f in docs/out.sh config/list.txt config/x.json scripts/notes.txt githooks/RE
   } >"$r/$f"
 done
 track "$r"
-script "$r/scripts/untracked.sh" 25
+mkscript "$r/scripts/untracked.sh" 25
 run "$r"
 assert_exit "the surface errors" 1 $?
 for f in scripts/a.sh scripts/sub/b.sh tests/c.sh tests/lib/d.sh githooks/e.sh hooks/f.sh githooks/pre-commit \
@@ -183,9 +186,9 @@ done
 echo "## suppression forms"
 r="$TMP/supp"
 mkrepo "$r"
-script "$r/scripts/big.sh" 30
-script "$r/scripts/pending.sh" 30
-script "$r/scripts/clean.sh" 3
+mkscript "$r/scripts/big.sh" 30
+mkscript "$r/scripts/pending.sh" 30
+mkscript "$r/scripts/clean.sh" 3
 track "$r"
 exempt="$r/config/comment-budget-exemptions.txt"
 printf '# header\n\nexempt|scripts/big.sh|a usage section with no other home\npending-cleanup|scripts/pending.sh|Task 8|over at landing\n' >"$exempt"
@@ -234,7 +237,7 @@ mkrepo "$r"
   printf '# kept because the order matters\n# otherwise it races\nx=2\n'
   printf '# just restating\n# what follows\n# here and\n# there\ny=3\n'
 } >"$r/scripts/a.sh"
-script "$r/scripts/b.sh" 30
+mkscript "$r/scripts/b.sh" 30
 track "$r"
 run "$r" --audit
 assert_exit "--audit exits zero" 0 $?
@@ -263,6 +266,20 @@ mkdir -p "$TMP/tree/scripts"
 cp "$r/scripts/a.sh" "$TMP/tree/scripts/"
 run "$r" --audit "$TMP/tree"
 assert_out "--audit <tree> measures an untracked tree" "$(printf 'total\tfiles\t1')"
+mkdir -p "$TMP/classes/scripts"
+printf '%s\n' 'x=0' '# see Task 7' '# here' 'x=1' '# obs:a81cee76 noted' '# again' 'x=2' \
+  '# build XD-9 here' '# and more' 'x=3' '# REQ-A1.1 because' '# both' 'x=4' '#' '# word ' 'x=5' \
+  '# keep it so that callers work' '# y' 'x=6' >"$TMP/classes/scripts/c.sh"
+printf 'x\n# solo\ny\n' >"$TMP/classes/scripts/d.sh"
+run "$r" --audit "$TMP/classes/"
+assert_exit "--audit <tree/> with a trailing slash runs" 0 $?
+assert_out "a task id alone is a citation" "$(printf 'block\t2\t4\tcites\tscripts/c.sh:2')"
+assert_out "an observation id alone is a citation" "$(printf 'block\t2\t3\tcites\tscripts/c.sh:5')"
+assert_out "D-<n> inside a word is not a citation" "$(printf 'block\t2\t5\tnone\tscripts/c.sh:8')"
+assert_out "a citation wins over rationale language" "$(printf 'block\t2\t3\tcites\tscripts/c.sh:11')"
+assert_out "a one-word block counts one word" "$(printf 'block\t2\t1\tnone\tscripts/c.sh:14')"
+assert_out "a phrase alone is rationale language" "$(printf 'block\t2\t7\trationale\tscripts/c.sh:17')"
+assert_out "a lone comment line is no file's largest block" "$(printf 'file\t0\t0\t0\t0\t1\t2\tscripts/d.sh')"
 
 echo "## code invariance"
 r="$TMP/inv"
@@ -281,15 +298,22 @@ run "$r" --code-invariant base
 assert_exit "a changed code line fails" 1 $?
 assert_out "the changed file is named" "code changed: scripts/a.sh"
 git -C "$r" checkout -q -- scripts/a.sh
-script "$r/scripts/new.sh" 1
+mkscript "$r/scripts/new.sh" 1
 run "$r" --code-invariant base
 assert_exit "an added surface file fails" 1 $?
 assert_out "the added file is named" "code changed: scripts/new.sh (added"
-rm "$r/scripts/new.sh"
+git -C "$r" add scripts/new.sh
+run "$r" --code-invariant base
+assert_exit "a staged added surface file fails" 1 $?
+git -C "$r" rm -q -f scripts/new.sh
 git -C "$r" rm -q scripts/a.sh
 run "$r" --code-invariant base
 assert_exit "a deleted surface file fails" 1 $?
+assert_out "the deleted file is named" "code changed: scripts/a.sh (deleted"
 git -C "$r" reset -q --hard
+mkdir -p "$r/sub"
+run "$r/sub" --code-invariant base
+assert_exit "a root below the top level is refused, not passed vacuously" 2 $?
 git -C "$r" checkout -q -b feature
 printf '#!/bin/sh\n# feature comment\nx=1\n\ny=2\n' >"$r/scripts/a.sh"
 git -C "$r" commit -qam feature
@@ -307,9 +331,10 @@ assert_exit "a ref shaped like an option is refused" 2 $?
 echo "## knob resolution and the fail-loud abort"
 r="$TMP/knobs"
 mkrepo "$r"
-script "$r/scripts/a.sh" 5
+mkscript "$r/scripts/a.sh" 5
 track "$r"
 run "$r"
+assert_exit "the default knobs resolve" 0 $?
 refute_out "five lines are under the default warn" "WARN"
 mkdir -p "$r/.claude"
 printf 'comment_block_warn: 5\n' >"$r/.claude/planwright.yml"
@@ -323,6 +348,9 @@ assert_out "the abort names the knob" "comment_block_error"
 printf 'comment_block_warn: 12\ncomment_block_error: lots\n' >"$r/config/defaults.yml"
 run "$r"
 assert_exit "a non-numeric knob aborts" 2 $?
+printf 'comment_block_warn: 0\ncomment_block_error: 25\n' >"$r/config/defaults.yml"
+run "$r"
+assert_exit "a zero knob aborts" 2 $?
 printf 'comment_block_warn: 30\ncomment_block_error: 25\n' >"$r/config/defaults.yml"
 run "$r"
 assert_exit "warn above error aborts" 2 $?
@@ -330,7 +358,7 @@ assert_exit "warn above error aborts" 2 $?
 echo "## untrusted-input refusals"
 r="$TMP/untrusted"
 mkrepo "$r"
-script "$r/scripts/a.sh" 2
+mkscript "$r/scripts/a.sh" 2
 printf '#!/bin/sh\n# $(touch %s/pwned) `touch %s/pwned2`; rm -rf /\n# $HOME * ?\nx=1\n' "$TMP" "$TMP" >"$r/scripts/meta.sh"
 track "$r"
 printf 'exempt|../outside.sh|escape\nexempt|/etc/passwd|absolute\n' >"$r/config/comment-budget-exemptions.txt"
@@ -342,15 +370,22 @@ if [ -e "$TMP/pwned" ] || [ -e "$TMP/pwned2" ]; then fail "comment text was eval
 rm "$r/config/comment-budget-exemptions.txt"
 run "$r" ../outside.sh
 assert_exit "a path argument leaving the root is refused" 2 $?
+mkdir -p "$TMP/outside"
+mkscript "$TMP/outside/secret.sh" 30
+ln -s "$TMP/outside/secret.sh" "$r/link"
+run "$r" "$(printf 'scripts/a.sh\nlink')"
+assert_exit "a path argument carrying a newline is refused" 2 $?
+refute_out "the smuggled line is never measured" "link:"
+rm "$r/link"
 esc=$(printf 'x\033[31my')
-script "$r/scripts/$esc.sh" 25
+mkscript "$r/scripts/$esc.sh" 25
 track "$r"
 run "$r"
 assert_exit "a surface path carrying a control byte fails closed" 2 $?
 if LC_ALL=C grep -q '[[:cntrl:]]' "$TMP/out"; then fail "a control byte reached the output"; else ok "the refusal carries no control byte"; fi
 git -C "$r" rm -q --cached "scripts/$esc.sh"
 mkdir -p "$TMP/esctree/scripts"
-script "$TMP/esctree/scripts/$esc.sh" 25
+mkscript "$TMP/esctree/scripts/$esc.sh" 25
 run "$r" --audit "$TMP/esctree"
 assert_exit "--audit over a tree with an escape in a file name runs" 0 $?
 if LC_ALL=C tr -d '\t\n' <"$TMP/out" | LC_ALL=C grep -q '[[:cntrl:]]'; then
@@ -363,12 +398,38 @@ ln -s a.sh "$r/scripts/link.sh"
 track "$r"
 run "$r"
 assert_exit "a symlinked surface file fails closed" 2 $?
+git -C "$r" rm -q -f scripts/link.sh
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$r/githooks"
+  mkscript "$r/githooks/pre-commit" 30
+  track "$r"
+  chmod 000 "$r/githooks/pre-commit"
+  run "$r"
+  assert_exit "an unreadable extensionless hook fails closed, never skipped" 2 $?
+  chmod 644 "$r/githooks/pre-commit"
+fi
+
+echo "## a path mid-merge is measured once"
+r="$TMP/conflict"
+mkrepo "$r"
+printf 'x\n' >"$r/scripts/c.sh"
+track "$r"
+git -C "$r" commit -qm base
+git -C "$r" checkout -q -b one
+printf 'y\n' >"$r/scripts/c.sh"
+git -C "$r" commit -qam one
+git -C "$r" checkout -q -
+printf 'z\n' >"$r/scripts/c.sh"
+git -C "$r" commit -qam two
+git -C "$r" merge -q one >/dev/null 2>&1
+run "$r"
+assert_out "each conflict stage does not count as another file" "2 file(s) measured"
 
 echo "## pre-commit scoping"
 r="$TMP/scoped"
 mkrepo "$r"
-script "$r/scripts/big.sh" 25
-script "$r/scripts/ok.sh" 3
+mkscript "$r/scripts/big.sh" 25
+mkscript "$r/scripts/ok.sh" 3
 printf 'x\n' >"$r/README.md"
 track "$r"
 run "$r" scripts/ok.sh README.md scripts/ok.sh
@@ -378,6 +439,13 @@ run "$r" scripts/big.sh
 assert_exit "a staged path over the error threshold fails" 1 $?
 run "$r" README.md
 assert_exit "no surface path among the staged ones passes" 0 $?
+mkscript "$r/scripts/mid.sh" 15
+track "$r"
+printf 'pending-cleanup|scripts/big.sh|Task 8|over\nexempt|scripts/mid.sh|own surface\n' >"$r/config/comment-budget-exemptions.txt"
+run "$r" scripts/big.sh scripts/mid.sh
+assert_exit "a staged file its pending-cleanup entry covers passes" 0 $?
+refute_out "an entry silences its file's warning too" "WARN: scripts/mid.sh"
+rm "$r/config/comment-budget-exemptions.txt"
 
 echo "## stdin is never read"
 # A pre-commit hook runs with the terminal on stdin; a passing run must not wait on it.
@@ -387,15 +455,16 @@ holder=$!
 "$GUARD" --root "$r" scripts/ok.sh <"$TMP/stdin" >"$TMP/out" 2>&1 &
 gpid=$!
 i=0
-while kill -0 "$gpid" 2>/dev/null && [ "$i" -lt 60 ]; do
-  sleep 1
+while kill -0 "$gpid" 2>/dev/null && [ "$i" -lt 600 ]; do
+  sleep 0.1
   i=$((i + 1))
 done
 if kill -0 "$gpid" 2>/dev/null; then
   fail "a passing run blocks on an open stdin"
   kill "$gpid" 2>/dev/null
 else
-  ok "a passing run never waits on stdin"
+  wait "$gpid"
+  assert_exit "a passing run never waits on stdin" 0 $?
 fi
 kill "$holder" 2>/dev/null
 wait 2>/dev/null
@@ -448,20 +517,32 @@ if grep -q '^\[tasks."check:comment-budget"\]$' "$REPO_ROOT/mise.toml" \
 else
   fail "check:comment-budget is not wired into the check aggregate in mise.toml"
 fi
-if awk '/- name: comment-budget/ { on = 1 } on && /run:/ { print; exit }' "$REPO_ROOT/lefthook.yml" \
-  | grep -qF 'scripts/check-comment-budget.sh {staged_files}' \
-  && awk '/- name: comment-budget/ { on = 1 } on && /run:/ { exit } on' "$REPO_ROOT/lefthook.yml" | grep -qF '"scripts/*.sh"'; then
-  ok "the pre-commit job passes the staged paths and is scoped to the surface globs"
+awk '/- name: comment-budget/ { on = 1 } on' "$REPO_ROOT/lefthook.yml" >"$TMP/job"
+if grep -qF 'run: /bin/sh scripts/check-comment-budget.sh {staged_files}' "$TMP/job"; then
+  ok "the pre-commit job passes the staged paths"
 else
-  fail "lefthook.yml has no surface-scoped comment-budget job over {staged_files}"
+  fail "lefthook.yml has no comment-budget job over {staged_files}"
 fi
+for g in '"scripts/*.sh"' '"tests/*.sh"' '"githooks/*"' '"hooks/*.sh"' '"config/*.{yml,yaml}"' \
+  '"lefthook.yml"' '"mise.toml"' '".github/workflows/*.{yml,yaml}"'; do
+  if grep -qF -- "- $g" "$TMP/job"; then ok "the pre-commit job globs $g"; else fail "the pre-commit job does not glob $g"; fi
+done
 ci="$REPO_ROOT/.github/workflows/ci.yml"
-if grep -qF 'check-comment-budget.sh --code-invariant "origin/${BASE_REF}"' "$ci" \
-  && grep -qF '\(comments\)' "$ci" && grep -qF 'gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .title' "$ci"; then
-  ok "ci.yml runs --code-invariant on comments-scoped PRs, the title fetched live"
+awk '/check-comment-budget.sh --code-invariant/ { print buf $0; exit } /^      - / { buf = "" } { buf = buf $0 "\n" }' "$ci" >"$TMP/step"
+if grep -qF "if: github.event_name == 'pull_request'" "$TMP/step" \
+  && grep -qF 'gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .title' "$TMP/step" \
+  && grep -qF '\(comments\)' "$TMP/step"; then
+  ok "ci.yml runs --code-invariant in one PR-only step on comments-scoped titles, fetched live"
 else
-  fail "ci.yml lacks the comments-scoped --code-invariant step"
+  fail "ci.yml lacks the PR-only comments-scoped --code-invariant step: $(cat "$TMP/step")"
 fi
+title_re=$(sed -n "s/.*grep -Eq '\([^']*\)'.*/\1/p" "$TMP/step")
+for t in 'refactor(comments): x' 'fix(comments)!: x'; do
+  if printf '%s\n' "$t" | grep -Eq "$title_re"; then ok "title '$t' runs the check"; else fail "title '$t' does not run the check"; fi
+done
+for t in 'docs: comments' 'chore(comments-x): y' 'feat(guards): comments'; do
+  if printf '%s\n' "$t" | grep -Eq "$title_re"; then fail "title '$t' runs the check"; else ok "title '$t' does not run the check"; fi
+done
 if grep -qF 'github.event.pull_request.title' "$ci"; then
   fail "ci.yml reads the title from the event payload, which a rerun replays stale"
 else
@@ -471,9 +552,11 @@ fi
 echo "## the audit reproduces the v0.36.0 headline figures"
 if git -C "$REPO_ROOT" rev-parse -q --verify 'v0.36.0^{commit}' >/dev/null; then
   # The tag's scripts/ holds only top-level *.sh files; the files count pins that.
-  mkdir -p "$TMP/v036"
+  # Knobs come from a root holding only the shipped defaults, so no overlay moves the threshold.
+  mkdir -p "$TMP/v036" "$TMP/pinned/config"
+  cp "$REPO_ROOT/config/defaults.yml" "$TMP/pinned/config/"
   git -C "$REPO_ROOT" archive v0.36.0 scripts/ | tar -x -C "$TMP/v036"
-  "$GUARD" --audit "$TMP/v036" >"$TMP/out" 2>&1
+  "$GUARD" --root "$TMP/pinned" --audit "$TMP/v036" >"$TMP/out" 2>&1
   for want in 'files	128' 'blocks	2526' 'block_lines	20119' 'blocks_at_error	138' 'block_lines_at_error	8729'; do
     assert_out "v0.36.0 scripts/*.sh: ${want%%	*} ${want#*	}" "total	$want"
   done
