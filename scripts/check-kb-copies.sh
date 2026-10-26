@@ -61,15 +61,19 @@ trap 'rm -rf "$scratch"' EXIT
 
 # collect <dir> <prune-reserved> <out>: every *.md under <dir>, sorted, one
 # per line into <out>; the reserved directories are the underscore-prefixed
-# ones directly under the spec root. A find that errors (an unreadable
-# subdirectory) fails the scan rather than narrowing it.
+# ones directly under the spec root. find runs from inside <dir>, so neither
+# a trailing slash, a glob character nor a leading dash in the path changes
+# what it matches. A find that errors (an unreadable subdirectory) fails the
+# scan rather than narrowing it.
 collect() {
+  cl_dir=$(cd -- "$1" && pwd) || die "cannot enter $1"
   if [ "$2" = yes ]; then
-    find "$1" -path "$1/_*" -prune -o -type f -name '*.md' -print >"$3.raw"
+    (cd -- "$cl_dir" && find . -path './_*' -prune -o -type f -name '*.md' -print) >"$3.raw"
   else
-    find "$1" -type f -name '*.md' -print >"$3.raw"
+    (cd -- "$cl_dir" && find . -type f -name '*.md' -print) >"$3.raw"
   fi || die "cannot list every file under $1"
-  sort "$3.raw" >"$3" || die "cannot list every file under $1"
+  CL_DIR=$cl_dir awk '{ sub(/^\.\//, ""); print ENVIRON["CL_DIR"] "/" $0 }' "$3.raw" | sort >"$3" \
+    || die "cannot sort the file list for $1"
 }
 # load <list> <what>: FILES from the list; awk would read a name carrying `=`
 # as an assignment, so such a name fails the scan.
@@ -94,11 +98,11 @@ MIN=$MIN_CHARS awk '
   function norm(s) { sub(/\r$/, "", s); gsub(/[ \t]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }
   phase != "kb" {
     l = norm($0)
-    if (length(l) >= ENVIRON["MIN"] && !(l in seen)) { seen[l] = FILENAME; n++ }
+    if (length(l) >= ENVIRON["MIN"] && !(l in seen)) { seen[l] = FILENAME; spec_lines++ }
     next
   }
   {
-    read++
+    kb_lines++
     l = norm($0)
     if (length(l) >= ENVIRON["MIN"] && (l in seen)) {
       printf "%s:%d: copies %s\n", FILENAME, FNR, seen[l]
@@ -106,8 +110,8 @@ MIN=$MIN_CHARS awk '
     }
   }
   END {
-    if (n == 0) { print "check-kb-copies: no spec line is long enough to compare" > "/dev/stderr"; exit 2 }
-    if (read == 0) { print "check-kb-copies: the knowledge base holds no line to compare" > "/dev/stderr"; exit 2 }
+    if (spec_lines == 0) { print "check-kb-copies: no spec line is long enough to compare" > "/dev/stderr"; exit 2 }
+    if (kb_lines == 0) { print "check-kb-copies: the knowledge base holds no line to compare" > "/dev/stderr"; exit 2 }
     if (found) exit 1
   }
 ' "${spec_files[@]}" phase=kb "${kb_files[@]}"

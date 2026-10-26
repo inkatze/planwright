@@ -109,6 +109,21 @@ printf '%s\n' "A bundle file whose own name starts with an underscore is still s
 run --kb "$tmp/kb" --specs "$tmp/specs"
 if [ "$RC" -eq 1 ]; then ok "only the reserved directories directly under the spec root are held out"; else fail "a nested underscore file was skipped (exit $RC)"; fi
 rm -f "$tmp/specs/demo/_ambiguities.md"
+printf '%s\n' "An observation fragment line long enough to be compared by the lint here." \
+  >"$tmp/kb/duty/notes.md"
+run --kb "$tmp/kb" --specs "$tmp/specs/"
+if [ "$RC" -eq 0 ]; then ok "a trailing slash on the spec root still holds the reserved directories out"; else fail "a trailing slash let a reserved directory in (exit $RC)"; fi
+mkdir -p "$tmp/-dash/duty"
+printf '%s\n' "# Dash" >"$tmp/-dash/duty/n.md"
+if (cd "$tmp" && /bin/bash "$lint" --kb -dash --specs specs >/dev/null 2>&1); then ok "a directory named with a leading dash is scanned as a directory"; else fail "a leading-dash directory failed the scan"; fi
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$tmp/specs/locked"
+  chmod 000 "$tmp/specs/locked"
+  run --kb "$tmp/kb" --specs "$tmp/specs"
+  chmod 700 "$tmp/specs/locked"
+  if [ "$RC" -eq 2 ]; then ok "an unlistable spec directory fails closed"; else fail "an unlistable spec directory exited $RC"; fi
+  rmdir "$tmp/specs/locked"
+fi
 printf '%s\n' "# Notes" >"$tmp/kb/duty/notes.md"
 
 # ---------------------------------------------------------------------------
