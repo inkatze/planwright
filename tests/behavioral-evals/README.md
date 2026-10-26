@@ -286,7 +286,9 @@ parsed in an escape-safe, non-code-bearing form; surfaced artifact values pass
 the echo-safety sanitizer; only fixture content reaches a third-party grader;
 grader-backend credentials are read from the environment / a secret store, never
 committed or recorded; the session runs with publishing disabled
-(`PLANWRIGHT_PUBLISH_DISABLED=1` — no push / PR / ready flip); and any
+(`PLANWRIGHT_PUBLISH_DISABLED=1` — no push / PR / ready flip in the harness's
+own runs; the flight scripts do not read it, so the operator-run fallback's
+live flights still publish); and any
 driver-produced sign-off is stamped eval-only / non-authoritative so it can never
 be mistaken for a human sign-off.
 
