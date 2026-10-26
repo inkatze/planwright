@@ -16,7 +16,8 @@
 #   9c. `retire`, and every dispatch, removes the brief directories of this
 #       checkout's retired flights only, past a grace and once no dispatch is
 #       placing them, keyed on the worktree path; it fails closed on a busy
-#       lock, an unreadable worktree list, or an unsafe flights directory.
+#       lock, an unreadable worktree list, or an unsafe flights directory. A
+#       parked flight's partial record goes with its brief (REQ-E1.9).
 #   10. The report names an installed worker root, its version, and any skew,
 #       with escape text in a version kept inert; CRLF grounds are one line.
 #   11. A dispatch from a linked worktree reads the primary's config and
@@ -309,6 +310,14 @@ fb=$(field "$OUT" flight)
   || fail "fixture: the dispatch must leave the flight's lifecycle row for retire to clear"
 mkdir -p "$c/fleet/flights/other-0123abcd"
 printf '%s\n' "$c/elsewhere" >"$c/fleet/flights/other-0123abcd/checkout"
+# REQ-E1.9: a parked flight's partial record lives beside its brief and goes
+# with it when the flight retires.
+printf 'None yet.\n' >"$c/park.md"
+"$ROOT/scripts/flight-record.sh" partial --flight-id "$fa" --kind point --reason-file "$c/park.md" \
+  --findings-file "$c/park.md" --declined-file "$c/park.md" \
+  --partial-path "$c/fleet/flights/$fa/partial-000001.md" >/dev/null 2>&1 </dev/null \
+  || fail "fixture: could not render a partial record beside the brief"
+[ -f "$c/fleet/flights/$fa/partial-000001.md" ] || fail "fixture: the partial record is not beside the brief"
 gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fa"
 age "$c/fleet/flights/$fa" "$c/fleet/flights/other-0123abcd"
 WTLIST_FAIL_FLAG="$c/wl.flag"
@@ -322,6 +331,7 @@ rm -f "$WTLIST_FAIL_FLAG"
 run retire --repo-root "$c/primary"
 [ "$RC" -eq 0 ] || fail "retire exited $RC: $ERR"
 [ ! -e "$c/fleet/flights/$fa" ] || fail "retire must remove a retired flight's brief directory"
+[ ! -e "$c/fleet/flights/$fa/partial-000001.md" ] || fail "REQ-E1.9: retiring the flight must remove its partial record"
 printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fa$" || fail "retire must report what it removed (out: $OUT)"
 [ -z "$(awk -F "$TAB" -v w="print-flight-$fa" '$1 == w' "$c/fleet/attention/state" 2>/dev/null)" ] \
   || fail "retire must clear a retired flight's lifecycle row from the attention store"

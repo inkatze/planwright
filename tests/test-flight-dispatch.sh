@@ -29,7 +29,10 @@
 #      the brief prints runs as written (REQ-E1.2). With a public summary the
 #      ask stays private to the brief directory (REQ-E1.7): it reaches no
 #      report, worktree, branch, or other fleet-home file, the summary is not
-#      echoed, and the brief carries the privacy instruction.
+#      echoed, and the brief carries the privacy instruction. Every park site
+#      names its kind, and the one park procedure renders the private partial
+#      record beside the brief, its printed line running as written, before
+#      a kind-only park push (REQ-E1.9).
 #   5. Concurrency (REQ-C1.5): a flight beyond `max_parallel_units` is declined
 #      with a re-ask line, no id minted and nothing placed; a freed slot (the
 #      worktree removed, or its directory gone and prunable) admits the
@@ -299,6 +302,51 @@ if grep -v '^[[:space:]]*#' "$ROOT/scripts/flight-dispatch.sh" \
   fail "flight-dispatch.sh reads the backend set itself: rung selection belongs to /offload"
 fi
 
+# park_sites <brief> <id> <brief-dir> <handle> <kinds> — REQ-E1.9: every park
+# site the brief names carries its kind, each of <kinds> at some site; the park
+# procedure renders the private partial record into the brief directory
+# before its one awaiting-decision push, and that push carries the kind alone;
+# and the partial line the brief prints runs as written.
+# shellcheck source=scripts/flight-common.sh
+KINDS=$(. "$ROOT/scripts/flight-common.sh" && printf '%s' "$PARK_KINDS")
+[ -n "$KINDS" ] || fail "fixture: cannot read the park kinds from flight-common.sh"
+# shellcheck disable=SC2016 # backticks are Markdown code spans
+park_sites() {
+  _flat=$(printf '%s\n' "$1" | tr '\n' ' ' | tr -s ' ')
+  _sites=$(printf '%s\n' "$_flat" | grep -oE 'parks? (the flight|it)( \(`[a-z-]+`\))?')
+  [ "$(printf '%s\n' "$_sites" | grep -c .)" -ge 5 ] || fail "REQ-E1.9: fixture: too few park sites found in the brief"
+  printf '%s\n' "$_sites" | while IFS= read -r _s; do
+    _k=$(printf '%s\n' "$_s" | sed -n 's/.*(`\([a-z-]*\)`)$/\1/p')
+    case " $KINDS " in
+      *" $_k "*) ;;
+      *) echo "FAIL: REQ-E1.9: a park site names no kind: '$_s'" >&2 && echo x ;;
+    esac
+  done | grep -q x && fail "REQ-E1.9: every park site must name its kind"
+  for _k in $KINDS; do
+    printf '%s\n' "$_flat" | grep -Fq "\`$_k\`" || fail "REQ-E1.9: the park procedure does not name the kind '$_k'"
+  done
+  for _k in $5; do
+    printf '%s\n' "$_sites" | grep -Fq "(\`$_k\`)" || fail "REQ-E1.9: no park site names the kind '$_k'"
+  done
+  _partial="flight-record.sh' partial --flight-id $2 --kind <kind> --reason-file '$3/record/park-reason.md' --findings-file '$3/record/park-findings.md' --declined-file '$3/record/park-declined.md' --partial-path '$3'/partial-<run>.md"
+  _pushl="flight-lifecycle.sh' push awaiting-decision $2 --handle $4 --reason '<kind>'"
+  printf '%s\n' "$1" | grep -Fq -- "$_partial" || fail "REQ-E1.9: the park procedure must render the partial record into the brief directory"
+  [ "$(printf '%s\n' "$1" | grep -c 'push awaiting-decision')" -eq 1 ] \
+    || fail "REQ-E1.9: the brief must push a park from the one park procedure only"
+  printf '%s\n' "$1" | grep -Fq -- "$_pushl" || fail "REQ-E1.9: the park notification must carry the kind alone"
+  _pl=$(printf '%s\n' "$1" | grep -nF -- "$_partial" | head -n 1 | cut -d: -f1)
+  _ql=$(printf '%s\n' "$1" | grep -nF -- "$_pushl" | head -n 1 | cut -d: -f1)
+  [ -n "$_pl" ] && [ -n "$_ql" ] && [ "$_pl" -lt "$_ql" ] \
+    || fail "REQ-E1.9: the partial record must be rendered before the park is pushed"
+  for _f in park-reason park-findings park-declined; do printf 'None yet.\n' >"$3/record/$_f.md"; done
+  _line=$(printf '%s\n' "$1" | grep -F -- "$_partial" | head -n 1 | sed 's/^ *`//;s/`$//;s/<kind>/point/;s/<run>/000001/')
+  /bin/sh -c "$_line" >/dev/null 2>"$tmp/partial.err" </dev/null \
+    || fail "REQ-E1.9: the brief's partial line must run as written: $(cat "$tmp/partial.err")"
+  grep -q 'Kind of park: `point`' "$3/partial-000001.md" 2>/dev/null \
+    || fail "REQ-E1.9: the brief's partial line must write the record beside the brief"
+  rm -f "$3/partial-000001.md" "$3/record/park-reason.md" "$3/record/park-findings.md" "$3/record/park-declined.md"
+}
+
 # --- 3 + 4. print rung: placement, report, brief ----------------------------
 new_case
 dispatch_print
@@ -417,8 +465,7 @@ printf '%s\n' "$b" | grep -q 'prompts on a .cd. before a .git. call' \
 [ "$(printf '%s\n' "$b" | tail -n 1 | cut -c1-15)" = '`FLIGHT-RESULT:' ] || fail "brief does not end on the result line"
 printf '%s\n' "$b" | grep -Fq "flight-lifecycle.sh' push awaiting-decision $fid --handle print-flight-$fid --reason" \
   || fail "a hard pause must push the awaiting-decision lifecycle event"
-printf '%s\n' "$b" | grep -q "carries no single quote" \
-  || fail "the pause push line must keep the reason free of single quotes"
+park_sites "$b" "$fid" "$(dirname "$brief")" "print-flight-$fid" "$KINDS"
 printf '%s\n' "$b" | grep -Fq "flight-lifecycle.sh' push completion $fid --handle print-flight-$fid --landing \"pr:" \
   || fail "a pr-home brief must push the completion with the PR link"
 printf '%s\n' "$b" | grep -q "you are a relaunched worker" || fail "the brief must tell a relaunched worker to carry on from its commits"
@@ -466,6 +513,7 @@ printf '%s\n' "$b" | grep -Fq "flight-record.sh' land --flight-id $fid" \
 printf '%s\n' "$b" | grep "flight-record.sh' land " | grep -Fq -- "--record-path 'specs/_flights/$fid.md'" \
   || fail "a file-home brief must pass the record path it computed to flight-record.sh"
 printf '%s\n' "$b" | grep -q 'render --home pr' && fail "a file-home brief must not render a PR body"
+park_sites "$b" "$fid" "$(dirname "$(field "$OUT" brief)")" "print-flight-$fid" "hard-pause point renderer landing question"
 printf '%s\n' "$b" | grep -Fq "flight-lifecycle.sh' push completion $fid --handle print-flight-$fid --landing 'record:specs/_flights/$fid.md'" \
   || fail "a file-home brief must push the completion with the record path"
 # The land line the brief prints lands the record when run as written.

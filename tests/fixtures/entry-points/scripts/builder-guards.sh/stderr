@@ -1,0 +1,1 @@
+match ^builder-guards: unknown option '--entry-point-probe'$

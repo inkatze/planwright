@@ -1,0 +1,132 @@
+---
+# planwright core duties catalog: mission control's duty seam.
+#
+# A duty is one thing mission control watches or does on the operator's
+# behalf. THIS file is the core seed scripts/resolve-catalog.sh merges with
+# the adopter / repo-tracked / machine-local overlay catalogs
+# (catalogs/duties.yaml, .claude/catalogs/duties.yaml,
+# .claude/catalogs.local/duties.yaml): append/union, supersede-by-id. An
+# overlay adds a custom duty with a new id, or replaces a shipped one with
+# `supersede: true` and every field restated. scripts/mc-duties.sh reads the
+# merged view; scripts/check-duties.sh validates it.
+#
+# Entry fields, every one required:
+#   id             kebab identifier
+#   summary        one line: what the duty saves the operator
+#   triggers       [event, ...] kebab events that start the duty's judgment
+#   watchers       [<script>@<cadence>/<cost>, ...]; <script> a relative path
+#                  of letters, digits, `.`, `_`, `-` and `/`, starting with
+#                  neither `/` nor `-`, with no `..` segment; <cadence> a
+#                  positive count of s, m, h or d;
+#                  <cost> the cost class, low, medium or high, the order the
+#                  budget ladder pauses watchers in
+#   wake           the kebab event that reaches the session, or none
+#   rules          [subject, ...] kebab subjects of the rules it contributes
+#   kinds          [kind, ...] kebab operator-item kinds it may raise
+#   files          the kebab subdirectory it owns under the knowledge base,
+#                  unique across the catalog
+#   lifecycle      off (arms nothing), shadow or live; write off quoted, "off",
+#                  so a YAML linter does not read it as a boolean
+#   never-propose  true or false
+#
+# The shipped set is the default duties a program enables
+# (mission_control_default_duties). Each ships `off` with no watchers until
+# the work that builds it lands; an `off` duty arms nothing and owns nothing,
+# enabled or not.
+#
+# The reader is a constrained awk parser, not full YAML: list items at
+# two-space and fields at four-space indentation, values unquoted or
+# double-quoted single-line scalars (no single quotes, no inline "# ..."
+# comments, no block scalars).
+
+duties:
+  - id: session-keeper
+    summary: "Drives each launched session to done, retires it on landing, reclaims its worktree"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: session-keeper
+    lifecycle: "off"
+    never-propose: false
+  - id: inbox
+    summary: "Turns everything waiting on the operator into decide-ready items and drafts"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: inbox
+    lifecycle: "off"
+    never-propose: false
+  - id: readiness-check
+    summary: "Walks the primary evidence before a pull request is offered as ready"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: readiness-check
+    lifecycle: "off"
+    never-propose: false
+  - id: conflict-radar
+    summary: "Predicts overlapping changes across branches and works out merge order and retargets"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: conflict-radar
+    lifecycle: "off"
+    never-propose: false
+  - id: deadline-watch
+    summary: "Lets known dates drive priority and what the operator hears first after time away"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: deadline-watch
+    lifecycle: "off"
+    never-propose: false
+  - id: prepared-moments
+    summary: "Assembles the packet for a decision before the operator is asked to make it"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: prepared-moments
+    lifecycle: "off"
+    never-propose: false
+  - id: undo-ledger
+    summary: "Records how to reverse every act taken on the operator's behalf"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: undo-ledger
+    lifecycle: "off"
+    never-propose: false
+  - id: self-audit
+    summary: "Checks what was done against the standing rules and flags rules that collide"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: self-audit
+    lifecycle: "off"
+    never-propose: false
+  - id: proposals
+    summary: "Notices repeated manual steps and proposes the smallest mechanism that covers them"
+    triggers: []
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: proposals
+    lifecycle: "off"
+    never-propose: false
