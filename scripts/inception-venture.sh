@@ -343,7 +343,7 @@ print_degraded() {
   fi
   # A plain folder has no hook to skip anything; the line above already says so.
   if [ "$plugin" = absent ] && [ "$has_git" = yes ] && [ "$pd_rung" != plain ]; then
-    printf 'degraded\t%s\n' 'planwright was not found from this session (PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT, ~/.claude), so a venture commit made here will skip the venture guards unless the venture'"'"'s .planwright-local.sh sets PLANWRIGHT_ROOT'
+    printf 'degraded\t%s\n' 'planwright was not found from this session (PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT, CLAUDE_DIR, ~/.claude), so a venture commit made here will skip the venture guards unless the venture'"'"'s .planwright-local.sh sets PLANWRIGHT_ROOT'
   fi
 }
 

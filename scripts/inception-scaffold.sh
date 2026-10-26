@@ -30,7 +30,7 @@
 #
 # The emitted hook resolves planwright at RUN time: it sources the machine-local
 # .planwright-local.sh, finds a copy (PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT,
-# ~/.claude/planwright, the plugin cache), then lets a copy that ships the root
+# $CLAUDE_DIR/planwright, ~/.claude/planwright, the plugin cache), then lets a copy that ships the root
 # helper name the install root through the core root chain. No install path is baked into the tracked file: a venture repo
 # is cloned onto other machines, and a hard-coded path would break on all of
 # them. When planwright cannot be resolved, the hook warns loudly and lets the
@@ -235,7 +235,7 @@ fi
 # splits into candidate fragments that resolve to nothing, planwright reads as
 # not installed, and every guard below skips itself (shellcheck SC2231).
 pw=
-for cand in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
+for cand in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" "${CLAUDE_DIR:+$CLAUDE_DIR/planwright}" \
   "$HOME/.claude/planwright" "$HOME"/.claude/plugins/cache/planwright/planwright/*; do
   if [ -n "$cand" ] && [ -r "$cand/scripts/inception-validate.sh" ]; then
     pw=$cand
@@ -249,7 +249,7 @@ done
 # found above. The helper runs as a child, so the values the loop read are
 # handed to it: .planwright-local.sh sets PLANWRIGHT_ROOT without exporting it.
 if [ -n "$pw" ] && [ -r "$pw/scripts/resolve-root.sh" ]; then
-  if pw_root=$(PLANWRIGHT_ROOT=${PLANWRIGHT_ROOT:-} CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-} \
+  if pw_root=$(PLANWRIGHT_ROOT=${PLANWRIGHT_ROOT:-} CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-} CLAUDE_DIR=${CLAUDE_DIR:-} \
     /bin/sh "$pw/scripts/resolve-root.sh" install 2>/dev/null) &&
     [ -r "$pw_root/scripts/inception-validate.sh" ]; then
     pw=$pw_root

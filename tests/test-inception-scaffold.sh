@@ -675,6 +675,33 @@ assert_contains "unexported pin: the pinned copy rendered and staged the dashboa
 assert_contains "unexported pin: the pinned copy rendered and staged the pitch" \
   "exports/pitch.html" "$pin_staged"
 
+# A writer-mode install under a custom CLAUDE_DIR is an arm of the core root
+# chain, so `inception-venture.sh probe` reports it as loaded; the hook must
+# find the same copy, or a commit skips the guards that report promised.
+cd_claude="$tmp/custom-claude-dir"
+mkdir -p "$cd_claude/planwright/scripts" "$tmp/cd-home"
+cp "$REPO_ROOT/scripts/"inception-*.sh "$REPO_ROOT/scripts/resolve-root.sh" \
+  "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/spec-parse.sh" \
+  "$REPO_ROOT/scripts/html-escape.sh" "$cd_claude/planwright/scripts/" || exit 1
+cd_v="$tmp/venture-claude-dir"
+mkdir -p "$cd_v"
+inception_fixture_write "$cd_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$cd_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$cd_v" >/dev/null 2>&1
+printf '%s\n' "token: ghp_""0123456789abcdefghijklmnopqrstuvwxyz" >"$cd_v/leak.md"
+out="$(cd "$cd_v" && git add -A \
+  && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT HOME="$tmp/cd-home" CLAUDE_DIR="$cd_claude" \
+    PLANWRIGHT_SECRET_SCREEN_TOOL=none git commit -qm "credential, CLAUDE_DIR install" 2>&1)"
+rc=$?
+assert_eq "CLAUDE_DIR install: the credential is refused" "1" "$rc"
+assert_not_contains "CLAUDE_DIR install: planwright is found" "planwright not found" "$out"
+
 # A planwright copy whose renderer predates --mode and --output cannot render
 # the pages the hook asks for. That is a failed render: it warns and the commit
 # goes through, never refused for an environment reason.
