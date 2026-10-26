@@ -1,0 +1,1 @@
+match ^usage: spec-validate\.sh \[--baseline <ref>\] <specs-root-or-spec-dir>$

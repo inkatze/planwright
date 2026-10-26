@@ -1,0 +1,26 @@
+{
+  "object": "list",
+  "results": [
+    {
+      "object": "comment",
+      "id": "c1000000-0000-4000-8000-000000000001",
+      "parent": { "type": "page_id", "page_id": "22222222-2222-4222-8222-222222222222" },
+      "discussion_id": "d1000000-0000-4000-8000-000000000001",
+      "created_time": "2026-10-20T15:04:00.000Z",
+      "last_edited_time": "2026-10-20T15:04:00.000Z",
+      "created_by": { "object": "user", "id": "u1000000-0000-4000-8000-000000000001" },
+      "rich_text": [
+        { "type": "text", "text": { "content": "The appetite reads " }, "plain_text": "The appetite reads " },
+        { "type": "text", "text": { "content": "too generous" }, "annotations": { "bold": true }, "plain_text": "too generous" },
+        { "type": "text", "text": { "content": ".\nCut it to four weeks?" }, "plain_text": ".\nCut it to four weeks?" }
+      ],
+      "display_name": { "type": "user", "resolved_name": "Avery Ops" },
+      "attachments": []
+    }
+  ],
+  "next_cursor": "e1000000-0000-4000-8000-000000000001",
+  "has_more": true,
+  "type": "comment",
+  "comment": {},
+  "request_status": "complete"
+}

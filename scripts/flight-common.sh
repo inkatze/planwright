@@ -1,11 +1,27 @@
 # shellcheck shell=sh
-# flight-common.sh — helpers shared by flight-dispatch.sh and flight-sweep.sh
-# (sourced, never executed), so the two judge a path and report the resolved
-# plugin-root pair one way: a tower and its workers running different
-# planwright versions is visible at dispatch and in the sweep's render alike.
+# flight-common.sh — helpers the flight scripts share (sourced, never
+# executed), so they judge a path, a park's kind, and the resolved plugin-root
+# pair one way: a tower and its workers running different planwright versions
+# is visible at dispatch and in the sweep's render alike.
 #
-# The sourcing script sets ROOTS to scripts/resolve-installed-roots.sh and LF
-# to a newline before calling these.
+# A script calling worker_root sets ROOTS to scripts/resolve-installed-roots.sh
+# and LF to a newline first.
+
+# PARK_KINDS — the kinds of park a flight's brief names. A park's notification
+# carries its kind alone, since the channel may leave the host; the detail
+# stays in the private partial record.
+PARK_KINDS='hard-pause point not-draft renderer destination landing question'
+
+# park_kind <word> — true when the word is exactly one of PARK_KINDS.
+park_kind() {
+  case $1 in
+    '' | *[!a-z-]*) return 1 ;;
+  esac
+  case " $PARK_KINDS " in
+    *" $1 "*) return 0 ;;
+  esac
+  return 1
+}
 
 # has_ctl <text> — true when the text carries a control byte, which would
 # break a TAB-separated report line or split it in two.

@@ -1,0 +1,1 @@
+match ^step-run: not inside a git work tree$

@@ -258,16 +258,18 @@ run_hook "$home3" "$w" "$s" post-tool-use >/dev/null 2>&1 || fail "variant: post
 echo "ok: a permission:<suffix> reason is the permission family to the liveness oracle"
 
 # ---------------------------------------------------------------------------
-# 5. REQ-A1.1 — post-tool-use with NO pending permission is a fast no-op: no
+# 5. REQ-A1.1 — post-tool-use with NO exit-edge marker is a fast no-op: no
 #    state change (push fires only on the enumerated transitions, not on every
-#    tool call).
+#    tool call). The stop's idle marker is removed first: its resume edge is
+#    covered in test-fleet-liveness-idle-edge.sh.
 # ---------------------------------------------------------------------------
 run_hook "$home3" "$w" "$s" stop >/dev/null 2>&1 || fail "setup stop failed"
+rm -f "$home3/liveness/idle/$w"
 before=$(cat "$home3/attention/state")
 run_hook "$home3" "$w" "$s" post-tool-use >/dev/null 2>&1 || fail "bare post-tool-use: non-zero exit"
 after=$(cat "$home3/attention/state")
-[ "$before" = "$after" ] || fail "bare post-tool-use rewrote the store (must only act after a pending permission)"
-echo "ok: post-tool-use without a pending permission changes nothing"
+[ "$before" = "$after" ] || fail "bare post-tool-use rewrote the store (must only act on an exit-edge marker)"
+echo "ok: post-tool-use without an exit-edge marker changes nothing"
 
 # ---------------------------------------------------------------------------
 # 6. Risk 28 — the deny path: permission-request then stop (turn ended, no
