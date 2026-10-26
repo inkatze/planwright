@@ -31,7 +31,8 @@
 # Usage: check-retired-phrasings.sh [--root <dir>]
 #   --root  the tree to screen (default: this script's repository)
 # Exit: 0 clean · 1 a retired phrasing · 2 usage, or an input that would make
-#   the scan vacuous (a missing, unreadable, or empty pattern file, a symlink
+#   the scan vacuous (a missing, unreadable, or empty pattern file, a pattern
+#   whose groups or bracket expressions do not close, a symlink
 #   in a surface, a failed listing, a path holding a newline, an unreadable
 #   file, zero files), or a paragraph over 256 KiB or 4096 lines, whose
 #   quadratic join would stall the gate.
@@ -102,6 +103,35 @@ ROOT=$root PATTERNS=$patterns LIST=$list ME=$me awk '
 # C0 controls, DEL, and C1 controls in their UTF-8 form; other UTF-8 (an
 # arrow in a pattern) passes through.
 function clean(s) { gsub(/[\001-\037\177]|\302[\200-\237]/, "?", s); return s }
+# Whether the groups and bracket expressions of a pattern close. Checked here
+# because awks disagree on an unbalanced ERE: gawk and mawk refuse it, while
+# busybox on musl compiles `foo(bar` and matches nothing, a silent pass.
+function wellformed(p,   i, n, c, depth) {
+  n = length(p); depth = 0
+  for (i = 1; i <= n; i++) {
+    c = substr(p, i, 1)
+    if (c == "\\") { i++; continue }
+    if (c == "(") depth++
+    else if (c == ")") { if (--depth < 0) return 0 }
+    else if (c == "[") {
+      i++
+      if (substr(p, i, 1) == "^") i++
+      if (substr(p, i, 1) == "]") i++
+      while (i <= n && substr(p, i, 1) != "]") {
+        if (substr(p, i, 2) ~ /^\[[:.=]/) {
+          c = substr(p, i + 1, 1)
+          i += 2
+          while (i <= n && substr(p, i, 2) != c "]") i++
+          if (i > n) return 0
+          i++
+        }
+        i++
+      }
+      if (i > n) return 0
+    }
+  }
+  return depth == 0
+}
 function closed(msg) {
   printf "%s: %s; failing closed.\n", ENVIRON["ME"], msg > "/dev/stderr"
   failed = 1
@@ -136,6 +166,7 @@ BEGIN {
     if (line ~ /^#/ || line ~ /^[ \t]*$/) continue
     sub(/[ \t]+$/, "", line)
     if (line != tolower(line)) closed("config/retired-phrasings.txt holds an uppercase pattern, which never matches the lowercased text")
+    if (!wellformed(line)) closed("config/retired-phrasings.txt holds a malformed pattern: " clean(line))
     pat[++npat] = line
   }
   if (rc < 0) closed("config/retired-phrasings.txt could not be read")
