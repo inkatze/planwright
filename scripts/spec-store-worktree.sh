@@ -112,6 +112,7 @@ done
 branch="planwright/$id/spec"
 wt="$holder/.claude/worktrees/$id-spec"
 hg() { git -C "$holder" "$@"; }
+made_wt=0
 
 # is_spec_wt — true when $wt is the holder's own worktree on $branch.
 is_spec_wt() {
@@ -128,9 +129,13 @@ is_spec_wt() {
 add_wt() {
   what=$1
   shift
-  add_err=$(hg worktree add -q "$@" 2>&1 >/dev/null) && return 0
+  add_err=$(hg worktree add -q "$@" 2>&1 >/dev/null) && {
+    made_wt=1
+    return 0
+  }
   if is_spec_wt; then
     say "warning: git reported a failure after opening $wt: $add_err"
+    made_wt=1
     return 0
   fi
   say "git could not $what: $add_err"
@@ -320,5 +325,18 @@ if [ -d "$bundle" ]; then
     say "refused: $link is neither a directory nor a regular file"
     exit 4
   }
+fi
+
+# A worktree this run opened is wired to the holder's tracked hook backstop
+# rather than trusted to inherit core.hooksPath, which Claude Code's own
+# worktree creation rewrites to an absolute path. Every note the wire step
+# prints is relayed; a failure is a warning.
+if [ "$made_wt" -eq 1 ]; then
+  wrc=0
+  werr=$(cd "$wt" && "$script_dir/wire-githooks.sh" --if-tracked 2>&1 >/dev/null </dev/null) || wrc=$?
+  printf '%s\n' "$werr" | while IFS= read -r wline; do
+    [ -z "$wline" ] || say "$wline"
+  done
+  [ "$wrc" -eq 0 ] || say "warning: the hook backstop was not wired in $wt (exit $wrc)"
 fi
 printf 'worktree\t%s\nbundle\t%s\nbranch\t%s\n' "$wt" "$bundle" "$branch"
