@@ -12,6 +12,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 repo_root=$(cd "$here/.." && pwd)
 
 failures=0
@@ -100,9 +102,11 @@ mc_run mc-program.sh posture alpha
 expect_rc "a spec root that is no directory has no posture" 1
 expect_err "the missing spec root is named" "spec_root"
 
-if [ "$(id -u)" -ne 0 ]; then
-  mkdir -p "$tmp/locked-store" "$tmp/locked-repo" "$tmp/locked-home"
-  chmod 000 "$tmp/locked-store" "$tmp/locked-repo" "$tmp/locked-home"
+mkdir -p "$tmp/locked-store" "$tmp/locked-repo" "$tmp/locked-home"
+chmod 000 "$tmp/locked-store" "$tmp/locked-repo" "$tmp/locked-home"
+if ! hermetic_access_denied r "$tmp/locked-store"; then
+  echo "skip: unenterable spec root, repository and home: the running user still reads $tmp/locked-store under mode 000"
+else
   alpha_block "$tmp/locked-store"
   mc_run mc-program.sh posture alpha
   expect_rc "a spec root that cannot be entered has no posture" 1
@@ -116,8 +120,8 @@ if [ "$(id -u)" -ne 0 ]; then
   mc_run mc-program.sh get alpha home
   expect_rc "a home whose ancestor cannot be entered fails closed" 1
   expect_err "the unresolvable home is named" "alpha: home: '$tmp/locked-home/alpha' cannot be resolved"
-  chmod 755 "$tmp/locked-store" "$tmp/locked-repo" "$tmp/locked-home"
 fi
+chmod 755 "$tmp/locked-store" "$tmp/locked-repo" "$tmp/locked-home"
 
 # Missing fields are named.
 printf 'mission_control_programs: [alpha]\n' >"$tracked"
