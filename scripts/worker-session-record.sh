@@ -207,7 +207,8 @@ scratch_make() {
   mkdir -- "$sm" 2>/dev/null || : # not-a-lock: creating the scratch root, whose checks follow
   [ -d "$sm" ] && [ ! -L "$sm" ] || return 1
   [ "$(find "$sm" -maxdepth 0 -user "$(id -u)" 2>/dev/null)" = "$sm" ] || return 1
-  chmod 700 -- "$sm" 2>/dev/null || return 1
+  # BSD chmod reads a `--` after the mode as a file; the path is absolute.
+  chmod 700 "$sm" 2>/dev/null || return 1
   sm=$(cd -P -- "$sm" 2>/dev/null && pwd -P) || return 1
   case $sm/ in
     "$wt"/* | "$dir"/*) return 1 ;;
