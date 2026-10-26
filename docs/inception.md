@@ -50,11 +50,12 @@ skill itself is [`skills/inception/SKILL.md`](../skills/inception/SKILL.md).
    [inception-format](../doctrine/inception-format.md#venture-lifecycle).
 
 **Not in this release:** the skill's gate, export, and publish modes, the
-graduation hand-off into `/spec-draft`, the Notion adapter, and the Cowork
-sync bridge. Asked for a gate, export, or publish mode, the skill says it is
-not in this release; it never improvises a gate record or an export those
-layers own. The renderer and the publish helper below already ship: the
-pre-commit hook drives the renderer, and you can run either script directly.
+graduation hand-off into `/spec-draft`, and the Cowork sync bridge. Asked for
+a gate, export, or publish mode, the skill says it is not in this release; it
+never improvises a gate record or an export those layers own. The renderer,
+the publish helper, and the review cycle below already ship as scripts the
+skill does not drive yet: the pre-commit hook drives the renderer, and you can
+run any of them directly.
 
 ## Where a venture lives
 
@@ -127,6 +128,17 @@ from it.
   alone. The workflow ships pinned to action tags and planwright's
   default branch; `hygiene-wiring.md` explains how to pin it to commit SHAs
   if the venture wants the stricter posture.
+- **A review cycle on a surface stakeholders already use.**
+  `scripts/inception-review-cycle.sh` exports a snapshot of the committed
+  bundle to a review surface, harvests the comments left there into the
+  tracked `feedback/ledger.md` as quoted, untrusted data, and applies only the
+  items you triage, each as a commit confined to one bundle section and citing
+  its source. Nothing a stakeholder edits on the copy comes back. Every export
+  needs your confirmation, and the next one waits until the last is harvested
+  in full and every item is triaged. The reference adapter is Notion
+  (`scripts/inception-notion.sh`); its destination page and token are
+  machine-local (below). The contract, including the Notion integration's
+  required capabilities, is [review-seam](../doctrine/review-seam.md).
 
 ## The persona layer and its boundaries
 
@@ -177,9 +189,10 @@ the layer whose reach fits it. Full resolution rules are in the
 | Auto-republish (per venture) | Replacing an already-confirmed published page with its refreshed export without asking again | Whether this venture, on this machine, republishes without the question; set with `inception-publish.sh auto on\|off <venture-dir>` | Off: every publish is offered. Stored in the clone's git directory, never in a tracked file, so a stakeholder's commit cannot switch publishing on |
 | Persona seat backend | None new: seats dispatch through the existing [backend capability contract](../doctrine/backend-capability-contract.md) (subagent, tmux, print, or in-session) | Which rung a run uses, fixed when the seats are rostered and disclosed at Gate 1; a per-seat model only on the `subagent` rung | The rung the host can run; a weaker rung is reported as a degradation, never hidden |
 | Discipline cards and decision domains | The catalogs and their four-layer merge | Your team's or company's own cards and domains | The core cards and domains only |
+| Review-cycle destination (Notion page and token) | Exporting to and harvesting from a review surface through an adapter | Which page receives this venture's snapshots, and the integration token, set with `inception-notion.sh configure --page <page-id> [--token-file <path>] <venture-dir>` or `PLANWRIGHT_NOTION_TOKEN` | None: with no page or no token the adapter does nothing. The page id is kept in the clone's git directory and the token never enters the venture, so a commit cannot redirect an export |
 | Registry home (`PLANWRIGHT_INCEPTION_DATA_DIR`) | A machine-local registry, telemetry, and feedback drop | A different directory on this machine | Under `CLAUDE_PLUGIN_DATA`; without either, the elicitation runs without the registry and says so, while the portfolio and status views report it unavailable |
 | `PLANWRIGHT_INCEPTION_EPHEMERAL`, `PLANWRIGHT_VENTURE_STRICT`, `PLANWRIGHT_SECRET_SCREEN_TOOL` | Ephemeral-session detection, strict bundle validation in the hook, whether the secret screen uses gitleaks (when it does not, the built-in pattern screen runs, so screening is never off) | A per-session or per-machine override | The probe's own reading, warn-only validation, and `auto` |
 | `PLANWRIGHT_ROOT` (venture hook) | The venture's pre-commit hook locating a planwright copy to run its guards from | Where planwright lives on this machine, set in the venture's gitignored `.planwright-local.sh` | Unset: the hook searches the plugin root and the usual install locations, and warns and skips every guard when none is found |
 
-The adapter seam and its Notion reference adapter land in a later release;
-whatever settings they need follow the same split.
+A further review-surface adapter would follow the same split: the seam is
+core, and where it sends the bundle is yours, kept on the machine.
