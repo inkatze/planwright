@@ -198,6 +198,10 @@ smoke --modes writer,carrier
 expect "an unknown delivery mode is a usage error" 2 $?
 smoke --modes ''
 expect "an empty mode list is a usage error" 2 $?
+smoke --modes ' '
+expect "a blank mode list is a usage error" 2 $?
+smoke --modes 'writer marketplace'
+expect "a space-separated mode list is a usage error" 2 $?
 smoke --modes writer,writer
 expect "a mode named twice is a usage error" 2 $?
 smoke --modes writer --source "$src" --entry /bin/true

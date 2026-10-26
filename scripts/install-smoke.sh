@@ -76,6 +76,11 @@ done
 case ,$modes, in
   ,, | *,,*) die 2 "--modes is empty" ;;
 esac
+# A blank or space-separated list would split to fewer modes than it names,
+# a blank one to none, and pass having installed nothing.
+case $modes in
+  *[!a-z,]*) die 2 "--modes takes comma-separated mode names" ;;
+esac
 mode_list=$(printf '%s\n' "$modes" | tr ',' ' ')
 seen=' '
 for m in $mode_list; do
