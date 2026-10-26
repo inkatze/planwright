@@ -1,23 +1,8 @@
 #!/usr/bin/env bash
 # check-kb-copies.sh — the knowledge base cites specs, never copies them: fail
-# when a knowledge-base Markdown file carries a line of a spec bundle verbatim.
-#
-# A line is compared after trimming and collapsing runs of blanks. Only lines
-# of at least MIN_CHARS characters count, so a short heading, a list marker or
-# a table rule never matches by accident; a longer spec line repeated in the
-# knowledge base is a copy, and the fix is a link to it.
-#
-# Usage: check-kb-copies.sh [--kb <dir>] [--specs <dir>]
-#   --kb <dir>     the knowledge base to scan, every *.md under it (default
-#                  tests/fixtures/mission-control/kb, the fixtures CI lints)
-#   --specs <dir>  the spec root, every *.md under it outside the
-#                  underscore-prefixed reserved directories directly under
-#                  it (default the root scripts/resolve-root.sh resolves)
-#
-# Exit codes: 0 clean; 1 a copied line (each named as
-# <kb-file>:<line>: copies <spec-file>); 2 usage, or an input that would
-# narrow the scan (a missing or unlistable directory, no knowledge-base file
-# or line, no spec line long enough to compare).
+# when a knowledge-base Markdown file carries a spec bundle's line verbatim.
+# `check-kb-copies.sh --help` prints the comparison rule, options and exit
+# codes.
 #
 # Portable bash 3.2 / BSD tooling.
 set -u
@@ -34,6 +19,27 @@ die() {
   printf '%s\n' "$prog: $1" >&2
   exit 2
 }
+help_text() {
+  cat <<EOF
+check-kb-copies.sh: fail when a knowledge-base Markdown file carries a line
+of a spec bundle verbatim. A line is compared after trimming and collapsing
+runs of blanks. Only lines of at least $MIN_CHARS characters count, so a short
+heading, a list marker or a table rule never matches by accident; a longer
+spec line repeated in the knowledge base is a copy, and the fix is a link.
+
+Usage: check-kb-copies.sh [--kb <dir>] [--specs <dir>]
+  --kb <dir>     the knowledge base to scan, every *.md under it (default
+                 tests/fixtures/mission-control/kb, the fixtures CI lints)
+  --specs <dir>  the spec root, every *.md under it outside the
+                 underscore-prefixed reserved directories directly under
+                 it (default the root scripts/resolve-root.sh resolves)
+
+Exit codes: 0 clean; 1 a copied line (each named as
+<kb-file>:<line>: copies <spec-file>); 2 usage, or an input that would
+narrow the scan (a missing or unlistable directory, no knowledge-base file
+or line, no spec line long enough to compare).
+EOF
+}
 
 kb=$root/tests/fixtures/mission-control/kb
 specs=''
@@ -47,7 +53,11 @@ while [ $# -gt 0 ]; do
       esac
       shift 2
       ;;
-    *) die "unknown argument: $1" ;;
+    --help | -h)
+      help_text
+      exit 0
+      ;;
+    *) die "unknown argument: $1 (--help for usage)" ;;
   esac
 done
 if [ -z "$specs" ]; then

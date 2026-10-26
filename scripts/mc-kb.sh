@@ -1,102 +1,8 @@
 #!/usr/bin/env bash
-# mc-kb.sh — a mission-control program's knowledge base: the layout under the
-# program home (scripts/mc-program.sh resolves it, never inside one of the
-# program's repositories), its index, capped reads, the append-only logs,
-# the follow-up ledger, the source table and the mechanism inventory.
-#
-# Layout, under <home>/kb/:
-#   index.md         one line per entry, "- `<path>`: <summary>", loaded
-#                    whole within mission_control_kb_index_budget lines
-#   <duty dir>/      one per armed duty, named by its catalog `files` field
-#   <log>-<YYYY-MM>.log
-#                    monthly segments of the decisions, undo, would-have and
-#                    locks logs: append-only, one entry per line,
-#                    id<TAB>ts<TAB>subject<TAB>act<TAB>target<TAB>grounds
-#                    <TAB>reversal<TAB>duty; the id is
-#                    <log>-<YYYYMM>-<n>, the subject free text, the reversal
-#                    `none` or `argv:` and the command's words with `%` and
-#                    space percent-encoded, the duty a catalog duty's id or
-#                    `-`; the locks log records each dead holder's lock
-#                    released, under the locked file's kb/ path
-#   followups.tsv    id<TAB>opened<TAB>owner<TAB>trigger<TAB>state<TAB>text
-#                    <TAB>evidence<TAB>closed; a trigger is date:<YYYY-MM-DD>
-#                    or event:<name>
-#   sources.tsv      name<TAB>kind<TAB>watermark<TAB>ref; kind living (the
-#                    watermark is the epoch second it was last refreshed) or
-#                    consumed (the watermark is how far it was consumed, in
-#                    the source's own terms); an omitted watermark records
-#                    the current epoch second for either kind
-#   mechanisms.tsv   kind<TAB>mechanism<TAB>where<TAB>source
-# Every store's first line carries its format field ("# format: 1", or
-# "<!-- format: 1 -->" in index.md, and in each segment's .seal sidecar);
-# a store with a missing or unknown format is refused and named. Specs and
-# tickets are cited by link, never copied (scripts/check-kb-copies.sh).
-#
-# A segment is never rewritten: its sidecar records the length and checksum
-# of what has been appended, and an append refuses a segment whose recorded
-# prefix changed, a segment with entries and no sidecar, and a sidecar whose
-# segment is gone. Bytes past the recorded length that end mid-line are an
-# append a crash cut short, and the next append drops them, warning. The
-# checksum catches an accidental rewrite, not a deliberate one: the sidecar
-# is as writable as the segment. Every write after a store's creation holds
-# the file's lock (<file>.lock, scripts/lock-lib.sh), waiting at least
-# mission_control_kb_lock_wait seconds; a writer whose acquire breaks the
-# lock of a holder no longer running reports the release and logs it.
-#
-# Usage (every verb takes --program <name> before its own options):
-#   init                              create the layout and the armed duties'
-#                                     directories; an empty directory of a
-#                                     disarmed duty is removed, a non-empty
-#                                     one reported and kept
-#   index                             print the index within its budget
-#   index-add <path> <summary>        index an entry, replacing its line
-#   read <path>                       print an indexed body within the entry
-#                                     cap (mission_control_kb_entry_cap bytes)
-#   append <decisions|undo|would-have> --subject <s> --act <text>
-#          [--target <t>] [--grounds <text>] [--duty <id>]
-#          [--no-reversal | -- <command>...]
-#                                     log an act and print its id; an undo
-#                                     entry states its reversal or that it
-#                                     has none, a would-have entry its duty;
-#                                     the acts reverting, reverted and revert
-#                                     failed are revert's own
-#   query <decisions|undo|would-have|locks> --subject <s>
-#                                     the entries for a subject, every
-#                                     segment, the subject matched with ASCII
-#                                     case folded, blank runs collapsed and
-#                                     ends trimmed (the rule store's key)
-#   revert <undo-id>                  run an entry's reversal once and print
-#                                     the id of the entry logging the
-#                                     outcome; a `reverting` entry is logged
-#                                     first, so an interrupted revert is
-#                                     never run again unasked. The reversal
-#                                     runs as its words through exec (never a
-#                                     shell, a function or a builtin), in the
-#                                     caller's directory and umask, its output
-#                                     on stderr; a bare first word naming a
-#                                     planwright script runs from this
-#                                     installation, any other through PATH,
-#                                     so record reversals with absolute paths
-#   lock <path> [--holder <pid>]      claim a file's write lock for a process
-#                                     (default the caller), printing the
-#                                     token; never a locks segment
-#   unlock <path> --token <token>     release it
-#   followup add --owner <o> --trigger <t> --text <text>
-#   followup due [--date <YYYY-MM-DD>] [--event <name>]...
-#   followup close <id> --evidence <text>
-#   followup list
-#   source set <name> --kind <living|consumed> --ref <ref> [--watermark <w>]
-#   inventory-refresh                 rewrite the mechanism inventory from the
-#                                     installed planwright and host surfaces
-#                                     and move its watermark, the two
-#                                     published together
-#   freshness                         <name><TAB><epoch><TAB><age-seconds> per
-#                                     store, log and living source
-#
-# Exit codes: 0 done; 1 refused (a store's format, a cap, a budget, a held
-# lock, a rewritten segment, an entry not found, a failed reversal, a
-# program whose home does not resolve); 2 usage or an invalid value;
-# 3 the program is not configured.
+# mc-kb.sh — a mission-control program's knowledge base under the program
+# home: its index, capped reads, append-only logs, locks, follow-up ledger,
+# source table and mechanism inventory. `mc-kb.sh --help` prints the layout,
+# the verbs and the exit codes.
 #
 # Portable bash 3.2 / BSD tooling.
 set -u
@@ -137,8 +43,110 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+help_text() {
+  cat <<'EOF'
+mc-kb.sh — a mission-control program's knowledge base: the layout under the
+program home (scripts/mc-program.sh resolves it, never inside one of the
+program's repositories), its index, capped reads, the append-only logs,
+the follow-up ledger, the source table and the mechanism inventory.
+
+Layout, under <home>/kb/:
+  index.md         one line per entry, "- `<path>`: <summary>", loaded
+                   whole within mission_control_kb_index_budget lines
+  <duty dir>/      one per armed duty, named by its catalog `files` field
+  <log>-<YYYY-MM>.log
+                   monthly segments of the decisions, undo, would-have and
+                   locks logs: append-only, one entry per line,
+                   id<TAB>ts<TAB>subject<TAB>act<TAB>target<TAB>grounds
+                   <TAB>reversal<TAB>duty; the id is
+                   <log>-<YYYYMM>-<n>, the subject free text, the reversal
+                   `none` or `argv:` and the command's words with `%` and
+                   space percent-encoded, the duty a catalog duty's id or
+                   `-`; the locks log records each dead holder's lock
+                   released, under the locked file's kb/ path
+  followups.tsv    id<TAB>opened<TAB>owner<TAB>trigger<TAB>state<TAB>text
+                   <TAB>evidence<TAB>closed; a trigger is date:<YYYY-MM-DD>
+                   or event:<name>
+  sources.tsv      name<TAB>kind<TAB>watermark<TAB>ref; kind living (the
+                   watermark is the epoch second it was last refreshed) or
+                   consumed (the watermark is how far it was consumed, in
+                   the source's own terms); an omitted watermark records
+                   the current epoch second for either kind
+  mechanisms.tsv   kind<TAB>mechanism<TAB>where<TAB>source
+Every store's first line carries its format field ("# format: 1", or
+"<!-- format: 1 -->" in index.md, and in each segment's .seal sidecar);
+a store with a missing or unknown format is refused and named. Specs and
+tickets are cited by link, never copied (scripts/check-kb-copies.sh).
+
+A segment is never rewritten: its sidecar records the length and checksum
+of what has been appended, and an append refuses a segment whose recorded
+prefix changed, a segment with entries and no sidecar, and a sidecar whose
+segment is gone. Bytes past the recorded length that end mid-line are an
+append a crash cut short, and the next append drops them, warning. The
+checksum catches an accidental rewrite, not a deliberate one: the sidecar
+is as writable as the segment. Every write after a store's creation holds
+the file's lock (<file>.lock, scripts/lock-lib.sh), waiting at least
+mission_control_kb_lock_wait seconds; a writer whose acquire breaks the
+lock of a holder no longer running reports the release and logs it.
+
+Usage (every verb takes --program <name> before its own options):
+  init                              create the layout and the armed duties'
+                                    directories; an empty directory of a
+                                    disarmed duty is removed, a non-empty
+                                    one reported and kept
+  index                             print the index within its budget
+  index-add <path> <summary>        index an entry, replacing its line
+  read <path>                       print an indexed body within the entry
+                                    cap (mission_control_kb_entry_cap bytes)
+  append <decisions|undo|would-have> --subject <s> --act <text>
+         [--target <t>] [--grounds <text>] [--duty <id>]
+         [--no-reversal | -- <command>...]
+                                    log an act and print its id; an undo
+                                    entry states its reversal or that it
+                                    has none, a would-have entry its duty;
+                                    the acts reverting, reverted and revert
+                                    failed are revert's own
+  query <decisions|undo|would-have|locks> --subject <s>
+                                    the entries for a subject, every
+                                    segment, the subject matched with ASCII
+                                    case folded, blank runs collapsed and
+                                    ends trimmed (the rule store's key)
+  revert <undo-id>                  run an entry's reversal once and print
+                                    the id of the entry logging the
+                                    outcome; a `reverting` entry is logged
+                                    first, so an interrupted revert is
+                                    never run again unasked. The reversal
+                                    runs as its words through exec (never a
+                                    shell, a function or a builtin), in the
+                                    caller's directory and umask, its output
+                                    on stderr; a bare first word naming a
+                                    planwright script runs from this
+                                    installation, any other through PATH,
+                                    so record reversals with absolute paths
+  lock <path> [--holder <pid>]      claim a file's write lock for a process
+                                    (default the caller), printing the
+                                    token; never a locks segment
+  unlock <path> --token <token>     release it
+  followup add --owner <o> --trigger <t> --text <text>
+  followup due [--date <YYYY-MM-DD>] [--event <name>]...
+  followup close <id> --evidence <text>
+  followup list
+  source set <name> --kind <living|consumed> --ref <ref> [--watermark <w>]
+  inventory-refresh                 rewrite the mechanism inventory from the
+                                    installed planwright and host surfaces
+                                    and move its watermark, the two
+                                    published together
+  freshness                         <name><TAB><epoch><TAB><age-seconds> per
+                                    store, log and living source
+
+Exit codes: 0 done; 1 refused (a store's format, a cap, a budget, a held
+lock, a rewritten segment, an entry not found, a failed reversal, a
+program whose home does not resolve); 2 usage or an invalid value;
+3 the program is not configured.
+EOF
+}
 usage() {
-  printf '%s\n' "usage: mc-kb.sh <verb> --program <name> [args]; verbs: init, index, index-add, read, append, query, revert, lock, unlock, followup, source, inventory-refresh, freshness" >&2
+  printf '%s\n' "usage: mc-kb.sh <verb> --program <name> [args]; verbs: init, index, index-add, read, append, query, revert, lock, unlock, followup, source, inventory-refresh, freshness; mc-kb.sh --help for the layout and each verb" >&2
   exit 2
 }
 say() { printf '%s\n' "$prog: $(sanitize_printable "$1")" >&2; }
@@ -1076,6 +1084,12 @@ v_freshness() {
 # --- dispatch ----------------------------------------------------------------
 
 [ $# -ge 1 ] || usage
+case $1 in
+  --help | -h | help)
+    help_text
+    exit 0
+    ;;
+esac
 verb=$1
 shift
 # --program is taken where it leads the options, so an option's value that
