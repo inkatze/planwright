@@ -519,7 +519,7 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
   # builtin, a case pattern with its paren, a function head. Each occurrence
   # is tested on its own against a pattern with no open-ended part that
   # reads every prefix one way only: a brace or bang separates only when a
-  # blank follows it, as the shell requires of those reserved words, and a
+  # blank or a paren follows it, where the shell ends those words, and a
   # case pattern never starts with one nor a function name ends on one, so
   # no run of characters is both inside a token and between two.
   function cmdword(s, w,   off, k, p, c) {
@@ -529,7 +529,7 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
       p = substr(s, 1, k - 1)
       sub(/.*(\$\(|`)/, "", p)
       c = substr(s, k + length(w), 1)
-      if ((c == "" || c ~ (w == "wait" ? "[ \t<>}]" : "[ \t]")) && p ~ /^[ \t{(!]*((if|then|do|else|elif|while|until|command|builtin|time|-p|case[ \t]+[^ \t]+[ \t]+in|[^ \t(){!][^ \t()]*\)|[A-Za-z_][A-Za-z0-9_:-]*[ \t]*\([ \t]*\)|function[ \t]+[^ \t(]*[^ \t({!](\(\))?)([ \t(]|[{!][ \t])+)*$/) return k + length(w)
+      if ((c == "" || c ~ (w == "wait" ? "[ \t<>}]" : "[ \t]")) && p ~ /^[ \t{(!]*((if|then|do|else|elif|while|until|command|builtin|time|-p|case[ \t]+[^ \t]+[ \t]+in|[^ \t(){!][^ \t()]*\)|[A-Za-z_][A-Za-z0-9_:-]*[ \t]*\([ \t]*\)|function[ \t]+[^ \t(]*[^ \t({!](\(\))?)([ \t(]|[{!][ \t(])+)*$/) return k + length(w)
       off = k
     }
     return 0

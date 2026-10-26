@@ -562,6 +562,24 @@ if [ -z "$missed" ]; then
 else
   fail "dead-owner: waits on$missed went unread: $out"
 fi
+r=$(root_with wait-after-bang-paren)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+p1=$!
+if !(wait "$p1"); then :; fi
+sleep 0 &
+p2=$!
+if true; then {(wait "$p2"); }; fi
+echo "$p1 $p2" >log
+SUITE
+out=$(/bin/bash "$CHECKER" "$r" 2>&1)
+case $out in
+  *"uses \$p1 after"*"uses \$p2 after"* | *"uses \$p2 after"*"uses \$p1 after"*)
+    pass "dead-owner: a wait right after a bang or brace and a paren reaps"
+    ;;
+  *) fail "dead-owner: a wait after !( or {( went unread: $out" ;;
+esac
 r=$(root_with kill-in-head)
 cat >"$r/tests/test-case.sh" <<'SUITE'
 #!/bin/bash
@@ -593,7 +611,7 @@ fi
 # shape an ambiguous token would backtrack on; timeout, where the host has
 # it, turns such a hang into a failure.
 for tok in ' (a)' ' !a)' ' {a)' ' function a{{{{' ' function a!!!!' \
-  ' if{a)' ' do!a)' ' function a{if' ' function f{a)' ' then{if!a)'; do
+  ' if{a)' ' do!a)' ' function a{if' ' function f{a)' ' then{if!a)' ' if{(a)' ' a){('; do
   r=$(root_with long-token-line)
   {
     printf '#!/bin/bash\nsleep 0 &\npid=$!\n'
