@@ -961,3 +961,28 @@ ventures_root: ~/ventures
 # values are paths on one machine, so the machine-local or adopter layer is
 # their usual home.
 observation_targets: {}
+
+# Mission control.
+# Every mission_control_* key is inventoried in config/mission-control-knobs.tsv
+# and documented in docs/options-reference.md; scripts/check-mc-knobs.sh
+# keeps the three in step.
+#
+# The programs mission control runs, an inline list of names. Each program
+# is a block of program_<name>_* keys; scripts/mc-program.sh's header holds
+# the name and field grammar. A program spans repositories, so the adopter
+# layer is the usual home of its block.
+mission_control_programs: []
+# Where a program's home defaults to, as <root>/<program>: a human-owned
+# location outside every work repository, absolute or ~/.
+mission_control_home_root: ~/.config/planwright/mission-control
+# The duties a program enables when its block names none: the shipped set in
+# config/duties.yaml.
+# yamllint disable-line rule:line-length
+mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals]
+# The state-source map a program declaring none resolves to: class:
+# source:mode entries over the fact classes (work-items, code-state,
+# decisions, deadlines, designs), mode record, snapshot or cited. A class the
+# map leaves out resolves to cited, here and in a program's own map, so
+# designs is cited by default.
+# yamllint disable-line rule:line-length
+mission_control_default_sources: {work-items: specs:record, code-state: forge:snapshot, decisions: specs:record, deadlines: specs:record}
