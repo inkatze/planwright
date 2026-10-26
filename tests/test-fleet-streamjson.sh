@@ -815,8 +815,9 @@ senv "$home" "$rec" SHIM_READ_FIRST=0 -- \
 senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_WORKER_HANDLE=stale -- \
   launch sjw9i mission-control:3 --prompt-file "$tmp/prompt9" --profile tower --foreground \
   || fail "c9p: the identity-case tower launch exited non-zero"
-grep -qx 'handle=<unset>' "$rec/env" && grep -qx 'scope=<unset>' "$rec/env" \
-  || fail "c9p: a tower-profile session must carry no worker identity: $(cat "$rec/env")"
+if ! grep -qx 'handle=<unset>' "$rec/env" || ! grep -qx 'scope=<unset>' "$rec/env"; then
+  fail "c9p: a tower-profile session must carry no worker identity: $(cat "$rec/env")"
+fi
 grep -qx 'inbound=accept' "$rec/env" || fail "c9p: a tower-profile session must still accept inbound messages"
 # A recover with no recorded profile: a worker's from before the record
 # existed keeps the worker fragment, a mission-control launch's is refused.

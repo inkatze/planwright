@@ -62,6 +62,9 @@
 #                          a distinct id
 #   scripts/fleet-task-brief.sh   the fleet home's task briefs, so a retire
 #                          never removes a brief a render is writing
+#   scripts/mission-control-launch.sh   a launched session's name, so a
+#                          launch's reservation and a retire never act on
+#                          one row at once
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is

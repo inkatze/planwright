@@ -203,10 +203,12 @@ if ! grep -qx -- '--model' "$tmp/tmux-argv" || ! grep -qx 'opus' "$tmp/tmux-argv
   fail "dispatch tmux --key execution: the execution key's model is not applied"
 fi
 root_real=$(cd "$here/.." && pwd -P)
-grep -qx -- '--root' "$tmp/tmux-argv" && grep -qxF "$root_real" "$tmp/tmux-argv" \
-  || fail "dispatch tmux --profile: the wrapper is not pinned to this install's root"
-grep -qx -- '--inbound' "$tmp/tmux-argv" && grep -qx 'accept' "$tmp/tmux-argv" \
-  || fail "dispatch tmux --profile: the session does not accept inbound messages"
+if ! grep -qx -- '--root' "$tmp/tmux-argv" || ! grep -qxF "$root_real" "$tmp/tmux-argv"; then
+  fail "dispatch tmux --profile: the wrapper is not pinned to this install's root"
+fi
+if ! grep -qx -- '--inbound' "$tmp/tmux-argv" || ! grep -qx 'accept' "$tmp/tmux-argv"; then
+  fail "dispatch tmux --profile: the session does not accept inbound messages"
+fi
 grep -qx -- '--identity' "$tmp/tmux-argv" && fail "dispatch tmux --profile mission-control: a non-worker profile carried the worker identity"
 : >"$tmp/tmux-argv"
 PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT /bin/sh "$script" \

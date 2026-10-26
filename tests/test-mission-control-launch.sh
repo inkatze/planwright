@@ -79,7 +79,9 @@ IFS= read -r line || line=''
 printf '%s\n' "$line" >"$SHIM_RECORD_DIR/stdin"
 exit 0
 SHIM
-# The tmux stub: a window table under $TMUX_STUB, argv recorded per call.
+# The tmux stub: a window table under $TMUX_STUB (one file per window id,
+# holding its name), argv recorded per call. TMUX_LIST_FAIL makes listing
+# fail, as an unreachable server does.
 cat >"$tmp/bin/tmux" <<'STUB'
 #!/bin/sh
 all="$*"
@@ -89,9 +91,24 @@ case $1 in
     n=$(($(cat "$TMUX_STUB/next" 2>/dev/null || echo 1)))
     echo $((n + 1)) >"$TMUX_STUB/next"
     shift
-    : >"$TMUX_STUB/@$n"
     printf '%s\n' "$@" >"$TMUX_STUB/argv-@$n"
+    wname=''
+    while [ "$#" -gt 0 ]; do
+      [ "$1" = -n ] && wname=$2
+      shift
+    done
+    printf '%s\n' "$wname" >"$TMUX_STUB/@$n"
+    # TMUX_LOCK_DIR: the directory a launch writes its row into turns
+    # read-only once the window exists.
+    [ -z "${TMUX_LOCK_DIR:-}" ] || chmod 500 "$TMUX_LOCK_DIR"
     echo "@$n"
+    ;;
+  list-windows)
+    [ "${TMUX_LIST_FAIL:-0}" = 1 ] && exit 1
+    for w in "$TMUX_STUB"/@*; do
+      [ -f "$w" ] || continue
+      printf '%s %s\n' "${w##*/}" "$(cat "$w")"
+    done
     ;;
   display-message)
     t=''
@@ -122,7 +139,9 @@ ml() {
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \
     CLAUDE_DIR="$tmp/claude" HOME="$fixhome" PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
+    TMUX_PANE="${ML_TMUX_PANE:-}" \
     SHIM_RECORD_DIR="${SHIM_RECORD_DIR:-$tmp}" TMUX_STUB="$tmp/tmux" TMUX_KILL_FAIL="${TMUX_KILL_FAIL:-0}" \
+    TMUX_LIST_FAIL="${TMUX_LIST_FAIL:-0}" TMUX_LOCK_DIR="${TMUX_LOCK_DIR:-}" \
     /bin/sh "$LAUNCH" "$@" 2>"$tmp/stderr")
   RC=$?
   ERR=$(cat "$tmp/stderr")
@@ -152,11 +171,28 @@ printf '%s\n' "# Fixture brief" "" "Review the open pull requests." >"$tmp/brief
 # REQ-D1.1, REQ-G1.1, REQ-M1.7, REQ-B1.4: every kind launches with its brief,
 # rules, profile, tier and name, and registers a row with owner and kind.
 # ---------------------------------------------------------------------------
+# A distinct tier at each selection key, so each kind's argv shows which key
+# it resolved at.
+cat >>"$tracked" <<'EOF'
+allocation_model_orchestrate_dispatch: haiku
+allocation_effort_orchestrate_dispatch: low
+allocation_model_execute_step: sonnet
+allocation_effort_execute_step: high
+allocation_model_offload: opus
+allocation_effort_offload: low
+EOF
 for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
   case $kind in
     tower | orchestrator) prof=tower ;;
     mission-control) prof=mission-control ;;
     *) prof=worker ;;
+  esac
+  case $kind in
+    tower | mission-control) want_tier='--model haiku --effort low' ;;
+    orchestrator) want_tier='--model sonnet --effort medium' ;;
+    worker) want_tier='--model opus --effort high' ;;
+    reviewer) want_tier='--model sonnet --effort high' ;;
+    ad-hoc) want_tier='--model opus --effort low' ;;
   esac
   rec="$tmp/rec-$kind"
   mkdir -p "$rec"
@@ -192,18 +228,15 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
   else
     fail "[$kind] the registry row is missing or incomplete: $(cat "$row" 2>/dev/null)"
   fi
-  case $(field tier) in
-    */*) ok "[$kind] the tier was resolved through the allocation seam ($(field tier))" ;;
-    *) fail "[$kind] the report carries no resolved tier" ;;
+  case " $argv " in
+    *" $want_tier "*) ok "[$kind] the session runs at its key's tier ($want_tier)" ;;
+    *) fail "[$kind] the session's argv lacks its key's tier '$want_tier': $argv" ;;
   esac
+  first=$(head -n 1 "$fleet/mission-control/launch/$name/brief.md")
+  [ "$first" = '# Fixture brief' ] && ok "[$kind] the composed brief opens with the brief itself" \
+    || fail "[$kind] the composed brief opens with '$first'"
   wait_done "$name"
 done
-
-# The execution key's shipped tier reaches the worker's argv.
-case " $(cat "$tmp/rec-worker/argv") " in
-  *" --model opus --effort high "*) ok "the worker kind runs at the execution key's tier" ;;
-  *) fail "the worker's argv lacks the execution tier: $(cat "$tmp/rec-worker/argv")" ;;
-esac
 ml list
 [ "$(printf '%s\n' "$OUT" | grep -c .)" = 6 ] && ok "list shows the six launched sessions" \
   || fail "list does not show six sessions: $OUT"
@@ -282,6 +315,10 @@ ml launch --program alpha --kind worker --scope empty-brief --brief "$tmp/absent
 # REQ-D1.5: retire leaves no row and no pane; a partial release says so.
 # ---------------------------------------------------------------------------
 worker_name=$n1
+env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-attention.sh" heartbeat "$worker_name" spec:alpha-worker working \
+  || fail "fixture: the attention row was not seeded"
+env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-attention.sh" render 2>/dev/null | grep -q "$worker_name" \
+  || fail "fixture: the seeded attention row does not render"
 ml retire "$worker_name"
 if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q "^retire	$worker_name	released	"; then
   ok "retire releases a finished stream-json session"
@@ -296,6 +333,11 @@ last=$(env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet
 case $last in *"	closed") ok "the fleet registry record is closed" ;; *) fail "the fleet registry record is not closed: $last" ;; esac
 ml list
 case $OUT in *"$worker_name"*) fail "list still shows the retired session" ;; *) ok "list no longer shows the retired session" ;; esac
+if env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-attention.sh" render 2>/dev/null | grep -q "$worker_name"; then
+  fail "the retired session's attention row survived"
+else
+  ok "the retired session has no attention row"
+fi
 ml retire "$worker_name"
 [ "$RC" = 3 ] && ok "retiring a name with no row exits 3" || fail "a second retire exited $RC"
 
@@ -303,22 +345,161 @@ win=$(awk -F '\t' '$1 == "handle" { print $2 }' "$fleet/mission-control/sessions
 [ -e "$tmp/tmux/$win" ] && ok "the tmux session has a live window ($win) before retire" || fail "the tmux launch left no window"
 argv_t=$(cat "$tmp/tmux/argv-$win" 2>/dev/null)
 case $argv_t in
-  *fleet-dispatch-env.sh*--settings*"$core/config/worker-settings.json"*--name*"$pane_name"*) ok "the tmux window runs the session under its profile and name" ;;
+  *fleet-dispatch-env.sh*--root*--inbound*--identity*"$pane_name"*--settings*"$repo_root/config/worker-settings.json"*--name*"$pane_name"*) ok "the tmux window runs the session under its profile and name" ;;
   *) fail "the tmux window's argv lacks the profile or name: $argv_t" ;;
 esac
 grep -qF 'Never hand the operator a pane' "$fleet/mission-control/launch/$pane_name/brief.md" \
   && ok "the tmux session's brief carries the rules" || fail "the tmux session's brief lacks the rules"
 TMUX_KILL_FAIL=1 ml retire "$pane_name"
-if [ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -q "^retire	$pane_name	partial	.*held=.*pane"; then
-  ok "a window that will not close is reported as a partial release (exit 1)"
+if [ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -q "^retire	$pane_name	partial	released=-	held=pane,registry,attention,row$"; then
+  ok "a window that will not close is reported partial, holding its fleet record and attention row (exit 1)"
 else
   fail "a failed pane close was not reported partial: exit $RC, $OUT"
 fi
 [ -f "$fleet/mission-control/sessions/$pane_name" ] && ok "a partial release keeps the row for a retry" || fail "a partial release dropped the row"
+: >"$tmp/tmux/calls"
+TMUX_LIST_FAIL=1 ml retire "$pane_name"
+if [ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -q 'held=pane' && ! grep -q '^kill-window' "$tmp/tmux/calls"; then
+  ok "a tmux server that cannot be listed holds the pane rather than reading it as gone"
+else
+  fail "an unlistable tmux server was read as released: exit $RC, $OUT"
+fi
+ML_TMUX_PANE=$win ml retire "$pane_name"
+[ "$RC" = 3 ] && ok "retire refuses from inside the session's own window (exit 3)" || fail "a self-window retire exited $RC"
 ml retire "$pane_name"
 [ "$RC" = 0 ] && ok "a retry completes the release" || fail "the retry exited $RC: $OUT"
 [ ! -e "$tmp/tmux/$win" ] && ok "the retired session has no pane" || fail "the pane survived retire"
 [ ! -e "$fleet/mission-control/sessions/$pane_name" ] && ok "the retired tmux session has no row" || fail "the tmux row survived retire"
+
+# A stale row whose window id another server reused for another window: that
+# window is not the session's and is left alone.
+reuse_row="$fleet/mission-control/sessions/mc-alpha-ad-hoc-1111111111"
+printf 'other-session\n' >"$tmp/tmux/@99"
+printf 'format\t1\nname\tmc-alpha-ad-hoc-1111111111\nstate\tlaunched\nbackend\ttmux\nhandle\t@99\n' >"$reuse_row"
+: >"$tmp/tmux/calls"
+ml retire mc-alpha-ad-hoc-1111111111
+if [ "$RC" = 0 ] && [ -e "$tmp/tmux/@99" ] && ! grep -q '^kill-window' "$tmp/tmux/calls"; then
+  ok "a reused window id of another name is not killed"
+else
+  fail "retire killed a reused window id: exit $RC, $OUT"
+fi
+rm -f "$tmp/tmux/@99"
+
+# A launch that died after its reservation: retire finishes it; a launch
+# still in flight is refused.
+dead_row="$fleet/mission-control/sessions/mc-alpha-worker-2222222222"
+sh -c 'exit 0' &
+dead_pid=$!
+wait "$dead_pid"
+printf 'format\t1\nname\tmc-alpha-worker-2222222222\nstate\tlaunching\ntoken\tx\npid\t%s\nbackend\tstream-json\nhandle\tmc-alpha-worker-2222222222\n' "$dead_pid" >"$dead_row"
+ml retire mc-alpha-worker-2222222222
+[ "$RC" = 0 ] && [ ! -e "$dead_row" ] && ok "retire clears the reservation of a launch that died" \
+  || fail "a dead launch's reservation was not cleared: exit $RC, $OUT $ERR"
+printf '#!/bin/sh\nsleep 30\n' >"$tmp/bin/mission-control-launch-fake.sh"
+chmod +x "$tmp/bin/mission-control-launch-fake.sh"
+"$tmp/bin/mission-control-launch-fake.sh" &
+live_pid=$!
+printf 'format\t1\nname\tmc-alpha-worker-2222222222\nstate\tlaunching\ntoken\tx\npid\t%s\nbackend\tstream-json\nhandle\tmc-alpha-worker-2222222222\n' "$live_pid" >"$dead_row"
+ml retire mc-alpha-worker-2222222222
+[ "$RC" = 3 ] && [ -e "$dead_row" ] && ok "retire refuses a launch still in flight (exit 3)" \
+  || fail "an in-flight launch was retired: exit $RC, $OUT"
+kill "$live_pid" 2>/dev/null
+wait "$live_pid" 2>/dev/null
+rm -f "$dead_row"
+
+# A launch or retire of a name whose lock another live process holds.
+mkdir -p "$fleet/mission-control/locks"
+ln -s "$$-$(date +%s)-1" "$fleet/mission-control/locks/mc-alpha-reviewer-3333333333"
+printf 'format\t1\nname\tmc-alpha-reviewer-3333333333\nstate\tlaunched\nbackend\tstream-json\nhandle\tmc-alpha-reviewer-3333333333\n' \
+  >"$fleet/mission-control/sessions/mc-alpha-reviewer-3333333333"
+ml retire mc-alpha-reviewer-3333333333
+[ "$RC" = 3 ] && ok "a retire whose name lock is held is refused (exit 3)" || fail "a locked retire exited $RC: $ERR"
+rm -f "$fleet/mission-control/locks/mc-alpha-reviewer-3333333333" "$fleet/mission-control/sessions/mc-alpha-reviewer-3333333333"
+
+# A stream-json rung that refuses after the reservation leaves no row and no
+# launch directory, and closes what it may have started.
+ml name --program alpha --kind reviewer --scope rung-fails
+rf_name=$OUT
+sleep 30 &
+rf_pid=$!
+mkdir -p "$fleet/streamjson/$rf_name"
+printf '%s\n' "$rf_pid" >"$fleet/streamjson/$rf_name/supervisor.pid"
+ml launch --program alpha --kind reviewer --scope rung-fails --brief "$tmp/brief.md"
+if [ "$RC" = 1 ] && [ ! -e "$fleet/mission-control/sessions/$rf_name" ] && [ ! -e "$fleet/mission-control/launch/$rf_name" ]; then
+  ok "a rung that does not start leaves no row and no launch directory (exit 1)"
+else
+  fail "a failed rung start left state: exit $RC, $ERR"
+fi
+if kill -0 "$rf_pid" 2>/dev/null; then
+  fail "the failed launch did not close the supervisor its name records"
+  kill "$rf_pid" 2>/dev/null
+else
+  ok "the failed launch closed the supervisor its name records"
+fi
+wait "$rf_pid" 2>/dev/null
+
+# A leftover launch directory with no row is cleared by the next launch.
+ml name --program alpha --kind reviewer --scope leftover
+lo_name=$OUT
+mkdir -p "$fleet/mission-control/launch/$lo_name"
+: >"$fleet/mission-control/launch/$lo_name/stale"
+rec="$tmp/rec-leftover"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope leftover --brief "$tmp/brief.md"
+[ "$RC" = 0 ] && [ ! -e "$fleet/mission-control/launch/$lo_name/stale" ] \
+  && ok "a launch clears a leftover launch directory of its name" || fail "a leftover launch directory wedged the name: exit $RC, $ERR"
+wait_for "$rec/stdin" >/dev/null
+wait_done "$lo_name"
+
+# A launch directory that cannot be removed holds the row.
+mkdir -p "$fleet/mission-control/launch/$lo_name/locked"
+: >"$fleet/mission-control/launch/$lo_name/locked/f"
+chmod 500 "$fleet/mission-control/launch/$lo_name/locked"
+if [ -w "$fleet/mission-control/launch/$lo_name/locked" ]; then
+  ok "skip: mode 500 does not stop this user removing files"
+else
+  ml retire "$lo_name"
+  if [ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -q 'held=row' && [ -e "$fleet/mission-control/sessions/$lo_name" ]; then
+    ok "a launch directory that will not go holds the row (exit 1)"
+  else
+    fail "an unremovable launch directory was reported released: exit $RC, $OUT"
+  fi
+fi
+chmod 700 "$fleet/mission-control/launch/$lo_name/locked"
+ml retire "$lo_name"
+[ "$RC" = 0 ] && ok "the retry releases it" || fail "the retry after the launch directory exited $RC: $OUT"
+
+# A fleet marker that does not match its record is not counted released.
+ml name --program alpha --kind orchestrator --scope spec:alpha-orchestrator
+orch=$OUT
+if [ -f "$fleet/dispatch-markers/$orch" ]; then
+  awk -F '\t' 'BEGIN { OFS = "\t" } { $2 = "spec:tampered"; print }' "$fleet/dispatch-markers/$orch" >"$tmp/marker"
+  cat "$tmp/marker" >"$fleet/dispatch-markers/$orch"
+  ml retire "$orch"
+  if [ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -q 'held=registry'; then
+    ok "a marker the fleet registry would not retire holds the registry class"
+  else
+    fail "a mismatched marker was counted released: exit $RC, $OUT"
+  fi
+else
+  fail "fixture: the orchestrator session has no fleet marker"
+fi
+
+# A session that started but whose row could not be written is stopped.
+ml name --program alpha --kind ad-hoc --scope row-fails
+rw_name=$OUT
+before=$(cat "$tmp/tmux/next" 2>/dev/null)
+TMUX_LOCK_DIR="$fleet/mission-control/sessions" ml launch --program alpha --kind ad-hoc --scope row-fails \
+  --brief "$tmp/brief.md" --backend tmux
+chmod 700 "$fleet/mission-control/sessions"
+said_stopped=0
+case $ERR in *"was stopped"*) said_stopped=1 ;; esac
+if [ "$RC" = 1 ] && [ ! -e "$tmp/tmux/@$before" ] && [ "$said_stopped" = 1 ]; then
+  ok "a session whose row cannot be written is stopped (exit 1)"
+else
+  fail "a started session with no row was left running: exit $RC, $ERR"
+fi
+rm -f "$fleet/mission-control/sessions/$rw_name"
 
 # A row whose window id is not @ and digits never reaches tmux.
 bad_row="$fleet/mission-control/sessions/mc-alpha-ad-hoc-0000000000"
@@ -340,7 +521,21 @@ ml retire "$OUT"
 [ "$RC" = 2 ] && case $ERR in *format*) true ;; *) false ;; esac \
   && ok "a row with an unknown format is refused, naming the field" || fail "an unknown-format row was not refused: $RC $ERR"
 ml kinds
-[ "$(printf '%s\n' "$OUT" | grep -c .)" = 6 ] && ok "kinds lists the six session kinds" || fail "kinds: $OUT"
+want_kinds=$(printf '%s\t%s\t%s\n' tower tower orchestrate_dispatch orchestrator tower bookkeeping worker worker execution \
+  reviewer worker execute_step ad-hoc worker offload mission-control mission-control orchestrate_dispatch)
+[ "$OUT" = "$want_kinds" ] && ok "kinds prints each kind's profile and key" || fail "kinds: $OUT"
+ml list
+if [ "$RC" = 0 ] && case $ERR in *"format field is not"*) true ;; *) false ;; esac \
+  && printf '%s\n' "$OUT" | grep -q '^mc-alpha-orchestrator'; then
+  ok "list warns on an unknown-format row and still lists the rest"
+else
+  fail "list with an unknown-format row: exit $RC, out $OUT, err $ERR"
+fi
+if empty_out=$(env PLANWRIGHT_FLEET_STATE_DIR="$tmp/empty-fleet" /bin/sh "$LAUNCH" list 2>&1) && [ -z "$empty_out" ]; then
+  ok "list with no registry prints nothing"
+else
+  fail "list with no registry: $empty_out"
+fi
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
