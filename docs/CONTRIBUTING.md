@@ -300,7 +300,16 @@ scripts/wire-githooks.sh   # sets core.hooksPath=githooks for the whole clone
 clone, and the hooks no-op cleanly on a checkout whose branch predates them.
 `mise run check` includes `check:githooks`, which fails loudly on an unwired
 or half-wired clone but never wires anything itself; CI wires explicitly and
-then verifies. The hooks bind humans too, not just agent sessions, and are
+then verifies. Claude Code's own worktree creation (EnterWorktree, an agent's
+worktree isolation, or an operator's hand-launch of a new worktree name)
+rewrites a relative `core.hooksPath` to an absolute path into the primary
+checkout, so every worktree then runs the primary checkout's hooks and
+`check:githooks` fails. planwright's own creation scripts
+(`scripts/fleet-dispatch-worktree.sh`, `scripts/spec-store-worktree.sh`)
+therefore run `wire-githooks.sh --if-tracked` in each worktree they create,
+which restores the relative value and reports the value it replaced or that
+it wired an unset one; after a native creation, re-run the wire step
+yourself. The hooks bind humans too, not just agent sessions, and are
 accident-catchers with an honestly stated boundary, not tamper-proofing:
 `--amend` combined with `-m`/`-F` carries no client-hook signal and is
 refused by the tower profile's deny globs and, for a worker, decided by the
@@ -311,7 +320,10 @@ amend, rare, means `--amend -m`/`-F` or temporarily unsetting
 `core.hooksPath`), and `git rebase --no-verify`
 bypasses `pre-rebase`. One caution inherited from tracked hooks: on an
 untrusted fork checkout, unset `core.hooksPath` before running covered git
-commands, since the checkout's own hook files would execute locally.
+commands, since the checkout's own hook files would execute locally; the
+unset lasts only until the next planwright dispatch creates a worktree in
+the clone, which wires the hooks back on (and says so), so dispatch nothing
+in that clone meanwhile.
 
 ### The anchor-freshness mirror at commit time
 

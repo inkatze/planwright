@@ -1217,6 +1217,32 @@ assert_contains "wiring: Gate 1 is in the main conversation" "**Gate 1, in the m
 assert_contains "wiring: Gate 2 is in the main conversation" "**Gate 2, in the main conversation.**" "$proc"
 assert_contains "wiring: a seat never prompts the human" "A seat never prompts the human" "$proc"
 
+# ---------------------------------------------------------------------------
+# The bundle lock lives in the clone's git directory, where no save can
+# commit it, a worktree clone included.
+# ---------------------------------------------------------------------------
+wv="$(fresh)"
+git -C "$wv" init -q . && git -C "$wv" add -A \
+  && git -C "$wv" -c user.name=t -c user.email=t@example.invalid commit -qm seed || exit 1
+git -C "$wv" worktree add -q "$tmp/wt-clone" >/dev/null 2>&1 || exit 1
+wt_lock="$(git -C "$tmp/wt-clone" rev-parse --absolute-git-dir)/planwright-bundle.lock"
+# shellcheck disable=SC2016 # expanded by the holder's own shell
+bash -c '. "$1" && pw_lock_acquire "$2" 1 && : >"$3" && exec sleep 30' _ \
+  "$REPO_ROOT/scripts/lock-lib.sh" "$wt_lock" "$tmp/wt-held" &
+wt_holder=$!
+n=0
+while [ ! -f "$tmp/wt-held" ] && [ "$n" -lt 100 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+out="$(PLANWRIGHT_BUNDLE_LOCK_TRIES=1 "$FANOUT" staff "$tmp/wt-clone" 2>&1)"
+assert_eq "worktree clone: staff waits on the git-directory lock" "2" "$?"
+assert_contains "worktree clone: says the bundle is busy" "busy" "$out"
+kill "$wt_holder" 2>/dev/null
+wait "$wt_holder" 2>/dev/null
+"$FANOUT" staff "$tmp/wt-clone" >/dev/null 2>&1
+assert_no_file "worktree clone: no lock file in the work tree" "$tmp/wt-clone/.planwright-bundle.lock"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-fanout: $failures assertion(s) failed" >&2
   exit 1

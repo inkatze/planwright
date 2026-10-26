@@ -1075,7 +1075,7 @@ c27() {
   run_prim dispatch --flight demo-0123abcd demo 1 --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 2 ] || fail "c27: --flight with <spec> <id> must be refused (exit 2), got $RC"
   run_prim dispatch demo 1 --brief "$tmp/brief.md" --repo-root "$tmp/primary" --attach-dry-run
-  [ "$RC" -eq 2 ] || fail "c27: --brief on a task dispatch must be refused (exit 2), got $RC"
+  [ "$RC" -eq 2 ] || fail "c27: a task dispatch must refuse a brief outside its own task directory (exit 2), got $RC"
   run_prim dispatch --flight demo-0123abcd --brief brief.md --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 2 ] || fail "c27: a relative --brief must be refused (exit 2), got $RC"
   run_prim dispatch --flight demo-0123abcd --brief "$tmp/nope.md" --repo-root "$tmp/primary" --attach-dry-run
@@ -1420,7 +1420,122 @@ c33() {
     || fail "c33: the missing-marker summary is not the last line: $_err"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33; do
+# ---------------------------------------------------------------------------
+# c34 — a task dispatch takes the unit's own task brief (REQ-C1.6): the fixed
+# prompt after `--`, the path and never the content on argv, and every other
+# brief refused with nothing created.
+# ---------------------------------------------------------------------------
+c34() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c34.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  tmp=$(cd "$tmp" && pwd -P)
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  _own="$tmp/fleet/tasks/demo/4.5"
+  mkdir -p "$_own" "$tmp/fleet/tasks/demo/5" "$tmp/fleet/tasks/other/4.5" "$tmp/elsewhere/4.5"
+  chmod 700 "$tmp/fleet" "$tmp/fleet/tasks" "$tmp/fleet/tasks/demo" "$_own"
+  printf 'SECRET-BRIEF-CONTENT\n' >"$_own/brief.md"
+  printf 'brief\n' >"$tmp/fleet/tasks/demo/5/brief.md"
+  printf 'brief\n' >"$tmp/fleet/tasks/other/4.5/brief.md"
+  printf 'brief\n' >"$tmp/elsewhere/4.5/brief.md"
+  printf 'brief\n' >"$tmp/brief.md"
+
+  run_prim dispatch demo 4.5 --brief "$_own/brief.md" --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 0 ] || {
+    fail "c34: a task dispatch with its own brief must be accepted, got exit $RC"
+    return
+  }
+  case $OUT in
+    *"${TAB}--settings${TAB}$(cd "$here/.." && pwd -P)/config/worker-settings.json${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
+    *) fail "c34: the attach plan must hand the worker exactly the fixed prompt, got: $OUT" ;;
+  esac
+  case $OUT in
+    *SECRET-BRIEF-CONTENT*) fail "c34: the brief's content must never ride argv" ;;
+  esac
+  [ -d "$tmp/primary/.claude/worktrees/demo-task-4.5" ] || fail "c34: the accepted dispatch placed no worktree"
+
+  _branch_made() {
+    if gitc "$tmp/primary" for-each-ref --format='%(refname)' refs/heads/planwright/demo/task-4.5 | grep -q .; then
+      return 0
+    fi
+    return 1
+  }
+  gitc "$tmp/primary" worktree remove --force "$tmp/primary/.claude/worktrees/demo-task-4.5"
+  gitc "$tmp/primary" branch -q -D planwright/demo/task-4.5
+  rm -rf "$tmp/markers"
+  _refuse() {
+    run_prim dispatch demo 4.5 --brief "$1" --repo-root "$tmp/primary" --attach-dry-run
+    [ "$RC" -eq 2 ] || fail "c34: $2 must be refused (exit 2), got $RC"
+    if _branch_made; then
+      fail "c34: a refused task brief ($2) created the task branch"
+    fi
+    [ ! -e "$tmp/primary/.claude/worktrees/demo-task-4.5" ] \
+      || fail "c34: a refused task brief ($2) placed a worktree"
+  }
+  _refuse "$tmp/brief.md" "a brief outside the fleet home"
+  _refuse "$tmp/elsewhere/4.5/brief.md" "a brief outside <fleet-home>/tasks/<spec>/<id>/"
+  _refuse "$tmp/fleet/tasks/demo/5/brief.md" "another task's brief"
+  _refuse "$tmp/fleet/tasks/other/4.5/brief.md" "another spec's brief"
+  _refuse "$_own/../4.5/brief.md" "a dotted path"
+  _refuse "brief.md" "a relative path"
+  # An empty file.
+  : >"$_own/brief.md"
+  _refuse "$_own/brief.md" "an empty brief"
+  printf 'brief\n' >"$_own/brief.md"
+  # A group-writable directory on the path, each level in turn.
+  for _d in "$tmp/fleet" "$tmp/fleet/tasks" "$tmp/fleet/tasks/demo" "$_own"; do
+    chmod 770 "$_d"
+    _refuse "$_own/brief.md" "a group-writable $_d"
+    chmod 700 "$_d"
+  done
+  # A symlinked directory on the path: the spec directory replaced by a link
+  # to a private directory holding the same layout.
+  mv "$tmp/fleet/tasks/demo" "$tmp/real-demo"
+  ln -s "$tmp/real-demo" "$tmp/fleet/tasks/demo"
+  _refuse "$_own/brief.md" "a symlinked spec directory"
+  rm "$tmp/fleet/tasks/demo"
+  mv "$tmp/real-demo" "$tmp/fleet/tasks/demo"
+  # A symlinked brief.md in the unit's own directory.
+  mv "$_own/brief.md" "$_own/real.md"
+  ln -s "$_own/real.md" "$_own/brief.md"
+  _refuse "$_own/brief.md" "a symlinked brief.md"
+  rm "$_own/brief.md"
+  mv "$_own/real.md" "$_own/brief.md"
+  # A path off the charset.
+  export PLANWRIGHT_FLEET_STATE_DIR="$tmp/fl eet"
+  mkdir -p "$tmp/fl eet/tasks/demo/4.5"
+  chmod -R go-w "$tmp/fl eet"
+  printf 'brief\n' >"$tmp/fl eet/tasks/demo/4.5/brief.md"
+  _refuse "$tmp/fl eet/tasks/demo/4.5/brief.md" "a path off the charset"
+  export PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet"
+  # --continue and --resume beside a brief.
+  for _x in --continue -c --resume -r --resume=abc -r=abc; do
+    run_prim dispatch demo 4.5 --brief "$_own/brief.md" --repo-root "$tmp/primary" --attach-dry-run -- "$_x"
+    [ "$RC" -eq 2 ] || fail "c34: $_x beside a task brief must be refused (exit 2), got $RC"
+  done
+  if _branch_made; then
+    fail "c34: a resume beside a task brief created the task branch"
+  fi
+  # The refusal names the unit's own confinement.
+  _err=$("$PRIM" dispatch demo 4.5 --brief "$tmp/brief.md" --repo-root "$tmp/primary" \
+    --attach-dry-run </dev/null 2>&1 >/dev/null)
+  case $_err in
+    *"the unit's own brief.md"*"tasks/<spec>/<id>/"*) ;;
+    *) fail "c34: a stray task brief must be refused by the confinement, got: $_err" ;;
+  esac
+  # --relaunch stays a flight option.
+  # Pinned on its own refusal; --attach-dry-run keeps a regression from launching.
+  _err=$("$PRIM" dispatch demo 4.5 --brief "$_own/brief.md" --relaunch --repo-root "$tmp/primary" --attach-dry-run \
+    </dev/null 2>&1 >/dev/null)
+  RC=$?
+  [ "$RC" -eq 2 ] || fail "c34: --relaunch on a task dispatch must be refused (exit 2), got $RC"
+  case $_err in
+    *"--relaunch is a flight option"*) ;;
+    *) fail "c34: --relaunch on a task dispatch must be refused as a flight option, got: $_err" ;;
+  esac
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33 c34; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true
