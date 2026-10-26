@@ -131,6 +131,7 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --audit)
+      [ "$mode" = check ] || die "--audit and --code-invariant are separate modes; give one, once"
       mode=audit
       shift
       if [ "$#" -gt 0 ]; then
@@ -145,6 +146,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     --code-invariant)
       [ "$#" -ge 2 ] || die "--code-invariant needs a ref"
+      [ "$mode" = check ] || die "--audit and --code-invariant are separate modes; give one, once"
       mode=invariant
       ref=$2
       shift 2

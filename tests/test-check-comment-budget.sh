@@ -327,6 +327,12 @@ run "$r" --code-invariant no-such-ref
 assert_exit "an unresolvable ref fails closed" 2 $?
 run "$r" --code-invariant --upload-pack=x
 assert_exit "a ref shaped like an option is refused" 2 $?
+run "$r" --audit --code-invariant base
+assert_exit "--audit then --code-invariant is refused, not run as the later mode" 2 $?
+run "$r" --code-invariant base --audit
+assert_exit "--code-invariant then --audit is refused, not run as the later mode" 2 $?
+run "$r" --audit --audit
+assert_exit "a repeated mode option is refused" 2 $?
 
 echo "## knob resolution and the fail-loud abort"
 r="$TMP/knobs"
