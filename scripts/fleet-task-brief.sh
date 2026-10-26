@@ -24,8 +24,9 @@
 #       beside the brief for retire. A unit whose brief another checkout
 #       recorded, and whose worktree there still exists, is refused (exit 4):
 #       the fleet home is per machine, keyed by spec and task id alone.
-#       The fleet home and every directory below it on the path are created
-#       owner-only and must be private to the user and never a symlink; the
+#       The fleet home (judged at its canonical path) and every directory
+#       below it on the path are created owner-only and must be private to
+#       the user, the ones below it never a symlink; the
 #       brief lands owner-only by rename, replacing a file or link at its name
 #       (a directory there is refused, exit 4).
 #   fleet-task-brief.sh retire [--repo-root <dir>]
