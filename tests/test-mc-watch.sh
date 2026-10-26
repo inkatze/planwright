@@ -90,10 +90,14 @@ EOF
 cat >"$core/scripts/fast-watch.sh" <<'EOF'
 #!/bin/sh
 printf 'run\n' >>"$WATCH_RUNS/fast-watch"
+printf 'event\tfast-due\tlast-line'
 EOF
 cat >"$core/scripts/heavy-watch.sh" <<'EOF'
 #!/bin/sh
 printf 'run\n' >>"$WATCH_RUNS/heavy-watch"
+sleep 60 &
+printf '%s\n' "$!" >"$WATCH_RUNS/heavy-child"
+wait
 EOF
 cat >"$repo/scripts/tracker-adapter.sh" <<'EOF'
 #!/bin/sh
@@ -179,7 +183,7 @@ check() { # check <label> <command...>
   shift
   if "$@"; then ok "$ck_label"; else fail "$ck_label"; fi
 }
-seed_polls() { # seed_polls <n>: poll-log lines stamped now
+seed_polls_now() { # seed_polls_now <n>: poll-log lines stamped now
   mkdir -p "$fleet/mission-control/alpha"
   sp_now=$(date +%s)
   sp_i=0
@@ -232,6 +236,8 @@ expect_out "a killed watcher shows stopped" "scripts/alpha-watch.sh${tab}5m${tab
 mc_run mc-watch.sh pass --program alpha
 expect_out "REQ-E1.5: the stop is reported with its event" "stopped${tab}alpha-duty${tab}scripts/alpha-watch.sh${tab}e"
 expect_out "REQ-E1.1: the watcher is re-armed in the same pass" "rearmed${tab}alpha-duty${tab}scripts/alpha-watch.sh"
+order=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "stopped" { s = NR } $1 == "rearmed" { r = NR } END { print (s && r && s < r) ? "ok" : "bad" }')
+check "REQ-E1.5: the stop is reported before the re-arm" test "$order" = ok
 mc_run mc-event.sh list --program alpha
 expect_out "REQ-E1.5: a watcher-stopped event lands in the attention store" "watcher-stopped${tab}alpha-duty${tab}scripts/alpha-watch.sh stopped"
 new=$(rec_pid "$watch_slot")
@@ -243,6 +249,19 @@ fi
 check "REQ-E1.1: the re-armed watcher runs" poll_until --what "the re-armed watcher's run" -- ran alpha-watch 2
 check "REQ-E1.5: the stop event was in the store before the re-armed watcher ran" \
   grep -q '^alpha-duty 1$' "$WATCH_RUNS/alpha-watch"
+
+# A process whose arguments merely end like the slot's loop is not trusted.
+loop_pid=$(rec_pid "$watch_slot")
+kill "$loop_pid" 2>/dev/null
+check "the live loop exits" poll_until --what "the loop's exit" -- pid_gone "$loop_pid"
+/bin/bash -c 'sleep 30; :' /x/mc-watch.sh loop --program alpha --slot "$watch_slot" &
+decoy=$!
+printf '%s\t1\talpha-duty\tscripts/alpha-watch.sh\t5m\tlow\n' "$decoy" >"$wdir/$watch_slot.rec"
+mc_run mc-watch.sh pass --program alpha
+expect_out "a decoy ending in the loop's arguments is not taken for it" "rearmed${tab}alpha-duty${tab}scripts/alpha-watch.sh"
+check "and is left alone" kill -0 "$decoy"
+kill "$decoy" 2>/dev/null
+new=$(rec_pid "$watch_slot")
 
 # A record whose pid now names some other process is not trusted as live.
 printf '%s\t1\talpha-duty\tscripts/alpha-watch.sh\t5m\tlow\n' "$$" >"$wdir/$watch_slot.rec"
@@ -258,11 +277,17 @@ setup '[alpha-duty, fast-duty]' 'polls_per_hour: 20'
 mc_run mc-watch.sh pass --program alpha
 expect_out "a high-cost watcher is armed with headroom" "armed${tab}fast-duty${tab}scripts/heavy-watch.sh"
 heavy_pid=$(rec_pid "$(slot_for heavy-watch.sh)")
-seed_polls 17
+seed_polls_now 17
 mc_run mc-watch.sh pass --program alpha
 expect_out "REQ-L1.2: pause-watchers stops the high-cost watcher" "paused${tab}fast-duty${tab}scripts/heavy-watch.sh${tab}budget rung pause-watchers"
 expect_out "REQ-L1.2: it leaves the medium-cost one" "running${tab}alpha-duty${tab}scripts/alpha-sweep.sh"
 check "REQ-L1.2: the paused watcher's process is stopped" poll_until --what "the paused watcher's exit" -- pid_gone "$heavy_pid"
+heavy_child=$(cat "$WATCH_RUNS/heavy-child" 2>/dev/null)
+if [ -n "$heavy_child" ]; then
+  check "a stop takes the watcher run's own children with it" poll_until --what "the watcher's child's exit" -- pid_gone "$heavy_child"
+else
+  fail "the high-cost watcher never recorded its child"
+fi
 sweep_pid=$(rec_pid "$(slot_for alpha-sweep.sh)")
 mc_run mc-budget.sh record --program alpha context_steps 200
 mc_run mc-watch.sh pass --program alpha
@@ -287,6 +312,8 @@ check "REQ-L1.4: a pass keeps the budget file current" test -f "$fleet/mission-c
 setup '[fast-duty]'
 mc_run mc-watch.sh pass --program alpha
 check "a 1s watcher runs repeatedly" poll_until --what "three fast runs" -- ran fast-watch 3
+mc_run mc-event.sh list --program alpha
+expect_out "an event on a last line with no newline still lands" "fast-due${tab}last-line"
 fast_pid=$(rec_pid "$(slot_for fast-watch.sh)")
 printf '%s\n' "fleet_daemon_pause: true" >>"$tracked"
 # Let a run already past the gate finish, then hold a window: an assertion
@@ -359,24 +386,45 @@ expect_out "and is reported" "snapshot${tab}failed${tab}tracker${tab}1"
 setup '[beta-duty]'
 mc_run mc-watch.sh run --program alpha --once
 expect_rc "run --once makes one pass and exits" 0
-(
-  cd "$repo" && exec env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
-    -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
-    -u XDG_CONFIG_HOME \
-    PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" CLAUDE_DIR="$tmp/claude" HOME="$fixhome" \
-    PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
-    /bin/bash "$repo_root/scripts/mc-watch.sh" run --program alpha
-) >/dev/null 2>&1 &
+mc_env /bin/bash "$repo_root/scripts/mc-watch.sh" run --program alpha >/dev/null 2>&1 &
 run_pid=$!
-check "a runner holds the runner lock" poll_until --what "the runner's lock" -- sh -c "[ -L '$fleet/mission-control/alpha/runner.lock' ] || [ -e '$fleet/mission-control/alpha/runner.lock' ]"
+check "a runner holds the runner lock" poll_until --deadline 30 --what "the runner's lock" -- sh -c "[ -L '$fleet/mission-control/alpha/runner.lock' ] || [ -e '$fleet/mission-control/alpha/runner.lock' ]"
 mc_run mc-watch.sh pass --program alpha
 expect_eq "a second runner's pass stands aside" "busy"
+mc_run mc-watch.sh stop --program alpha
+expect_rc "stop beside a live runner refuses" 1
+expect_eq "and says busy" "busy"
+# The tick stamps last at the end of a pass, so the runner is now asleep.
+check "the runner's first pass ends" poll_until --what "the first pass's tick" -- test -f "$fleet/mission-control/alpha/last-tick"
+sleep 1
 kill "$run_pid" 2>/dev/null
-check "the runner exits on TERM" poll_until --what "the runner's exit" -- pid_gone "$run_pid"
+# The runner sleeps out a 1m interval: a TERM handled only after it would
+# miss this deadline.
+check "the runner exits on TERM at once" poll_until --deadline 10 --what "the runner's exit" -- pid_gone "$run_pid"
 run_pid=""
 mc_run mc-watch.sh pass --program alpha
 expect_rc "the lock is free once the runner is gone" 0
+
+setup '[lost-duty]'
+mc_run mc-watch.sh run --program alpha --once
+expect_rc "run --once exits with the pass's status" 1
+printf '%s\n' "mission_control_runner_interval: 1s" >>"$tracked"
+mc_env /bin/bash "$repo_root/scripts/mc-watch.sh" run --program alpha >/dev/null 2>"$tmp/run.err" &
+run_pid=$!
+check "a failed pass is retried at the next interval" poll_until --what "two failed passes" -- \
+  sh -c "[ \"\$(grep -c 'the pass failed' '$tmp/run.err')\" -ge 2 ]"
+kill "$run_pid" 2>/dev/null
+check "the retrying runner exits on TERM" poll_until --deadline 10 --what "the runner's exit" -- pid_gone "$run_pid"
+run_pid=""
+
+setup '[alpha-duty]'
+mc_run mc-watch.sh pass --program alpha
+pids=$(cut -f1 "$wdir"/*.rec)
+printf '%s\n' "mission_control_programs: []" >"$tracked"
+mc_run mc-watch.sh stop --program alpha
+expect_rc "a program dropped from configuration can still be stopped" 0
+# shellcheck disable=SC2086 # one pid per word
+check "its watchers end" poll_until --what "the dropped program's watchers' exit" -- pid_gone $pids
 
 # ---------------------------------------------------------------------------
 # REQ-C1.5: no runner, relay, snapshot or budget path calls a model. The gate

@@ -21,8 +21,8 @@
 # and the seam holds the source's next read until <reset-epoch> when
 # <remaining> is at or under mission_control_ratelimit_floor. Exit 0: the
 # body is the new snapshot. Exit 75: the source refused the read for its rate
-# limit; nothing is replaced, and with no usable reset the hold lasts the
-# source's cadence. Any other exit: the read failed, the last snapshot stays
+# limit; nothing is replaced, and with no reset at or under the floor the
+# hold lasts the source's cadence. Any other exit: the read failed, the last snapshot stays
 # and keeps aging. Every hold is clamped to the later of the cadence and an
 # hour, and a reset already past is ignored. The adapter's stderr is passed
 # through with control bytes stripped.
@@ -46,7 +46,8 @@
 #         capped<TAB><s>               the budget's polls per hour are spent
 #         failed<TAB><s><TAB><exit>    the adapter failed (`poll` when the
 #                                      poll count did)
-#       or a problem on stderr for a source with no usable adapter (exit 1);
+#       or a problem on stderr, with no line, for a source with no usable
+#       adapter or an invalid cadence entry (exit 1);
 #       or `paused` under the fleet daemon pause (`blocked<TAB><exit>` when
 #       the gate itself is broken), with nothing read. Each read counts one
 #       poll against the budget (scripts/mc-budget.sh). At any budget rung
@@ -72,8 +73,9 @@
 #       mission_control_default_sources under --defaults
 #
 # Exit codes: 0 done; 1 a failed read, a missing adapter (check), an invalid
-# catalog or snapshot, or a store that cannot be written; 2 usage; 3 the
-# program is not configured, or no snapshot of the source yet (read).
+# catalog or snapshot, a store that cannot be written, or a blocked daemon
+# gate; 2 usage; 3 the program is not configured, or no snapshot of the
+# source yet (read).
 #
 # Portable bash 3.2 / BSD tooling.
 set -u
@@ -199,10 +201,14 @@ snapshot_sources() {
   printf '%s\n' "$1" | awk -F '\t' '$3 == "snapshot" && !seen[$2]++ { print $2 }'
 }
 
+# taken_of <file>: the snapshot's epoch; fails on a missing or malformed
+# header and on an epoch after now, which a stepped clock or an edited file
+# leaves and which would otherwise read as fresh until the clock caught up.
 taken_of() {
   mc_format_ok "$1" || return 1
-  awk -F '\t' 'NR == 3 && $1 == "taken" && $2 ~ /^[0-9]+$/ { print $2; ok = 1; exit }
-    END { exit !ok }' "$1"
+  to_t=$(awk -F '\t' 'NR == 3 && $1 == "taken" { print $2; ok = 1; exit } END { exit !ok }' "$1") || return 1
+  mc_valid_uint "$to_t" && [ "$to_t" -le "$NOW" ] || return 1
+  printf '%s\n' "$to_t"
 }
 
 case $verb in
@@ -313,6 +319,11 @@ $src
       fi
       if [ -f "$snapdir/$src.hold" ]; then
         hold_until=$(head -n 1 "$snapdir/$src.hold")
+        # A stored hold is clamped on read as well as on write.
+        hold_max=$((NOW + (cad > 3600 ? cad : 3600)))
+        if mc_valid_uint "$hold_until" && [ "$hold_until" -gt "$hold_max" ]; then
+          hold_until=$hold_max
+        fi
         if mc_valid_uint "$hold_until" && [ "$NOW" -lt "$hold_until" ]; then
           printf 'held\t%s\t%s\n' "$src" "$hold_until"
           continue

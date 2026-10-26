@@ -12,6 +12,8 @@
 #   $fixhome   HOME for the scripts under test
 #   $fleet     the fleet home (PLANWRIGHT_FLEET_STATE_DIR) the runtime
 #              scripts keep their state and events under
+#   mc_env <command...>         exec a command against the fixture (in a
+#                               subshell only)
 #   mc_run <script> [args...]   run scripts/<script> against the fixture;
 #                               sets RC, OUT (stdout) and ERR (stderr)
 
@@ -82,16 +84,24 @@ reset_mc_fixture() {
     "$repo/.claude/catalogs/snapshot-adapters.yaml" "$adopter/catalogs/snapshot-adapters.yaml"
 }
 
-mc_run() {
-  mc_script=$1
-  shift
-  OUT=$(cd "$repo" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
+# mc_env <command...>: exec a command in the fixture's repository with every
+# layer pointed at the fixture and the host's plugin context cleared. It
+# replaces the shell it runs in, so call it only in a subshell: a command
+# substitution, or in the background, where $! is then the command itself.
+mc_env() {
+  cd "$repo" && exec env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
     -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
-    -u XDG_CONFIG_HOME \
+    -u XDG_CONFIG_HOME -u PLANWRIGHT_MC_CHECKED -u PLANWRIGHT_MC_PROGRAM -u PLANWRIGHT_MC_DUTY \
     PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
     PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" CLAUDE_DIR="$tmp/claude" HOME="$fixhome" \
     PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
-    /bin/bash "$repo_root/scripts/$mc_script" "$@" 2>"$tmp/stderr")
+    "$@"
+}
+
+mc_run() {
+  mc_script=$1
+  shift
+  OUT=$(mc_env /bin/bash "$repo_root/scripts/$mc_script" "$@" 2>"$tmp/stderr")
   RC=$?
   ERR=$(cat "$tmp/stderr")
 }

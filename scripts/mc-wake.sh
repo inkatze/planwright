@@ -18,10 +18,12 @@
 #             no newline, so the wake is STAGED and its events marked staged
 #             until the session acknowledges them (below)
 #   any other backend, or a retired worker: unreachable, nothing sent
-# One wake per target lists the pending events' kinds and subjects (at most
-# 20, then a count), never their free text, which the session reads through
-# `mc-event.sh list`; it is written to a file of its own under
-# <runtime>/wake/, which a staged pointer reads. A staged wake asks the
+# One wake per target carries its oldest 20 pending events (the rest wait for
+# the next pass), naming each one's kind and subject, re-checked against
+# their grammar, never its free text, which the session reads through the
+# `mc-event.sh list --program <p> <id>...` command the wake prints. It is
+# written to a file of its own under <runtime>/wake/, which a staged pointer
+# reads and which the tick deletes after a week. A staged wake asks the
 # session to acknowledge with `mc-event.sh mark ... submitted <id>...` once
 # read, which is what moves its events from staged to submitted.
 #
@@ -47,6 +49,8 @@
 #         unreachable<TAB><worker><TAB><why>
 #         refused<TAB><worker><TAB><exit>      the relay declined (a dialog
 #                                              open, an earlier wake staged)
+#         failed<TAB><worker>                  its events could not be read
+#                                              or marked (named on stderr)
 #       or `paused` under the fleet daemon pause (`blocked<TAB><exit>` when
 #       the gate itself is broken).
 #   mc-wake.sh tick --program <p> [--now <epoch>]
@@ -55,8 +59,9 @@
 #       or `paused` (`blocked`) as the relay.
 #
 # Exit codes: 0 done (a refused or unreachable target is reported, not a
-# failure); 1 a store that cannot be read or written; 2 usage; 3 the program
-# is not configured.
+# failure); 1 a store that cannot be read or written (the fleet registry
+# included), a failed target, or a blocked daemon gate; 2 usage; 3 the
+# program is not configured.
 #
 # Portable bash 3.2 / BSD tooling.
 set -u
@@ -162,23 +167,27 @@ send() {
   esac
   sd_rows=$(mc_event list --program "$program" --target "$sd_w" --pending) || return 1
   [ "$2" = unsubmitted ] || sd_rows=$(printf '%s\n' "$sd_rows" | awk -F '\t' '$NF == "-"')
-  sd_n=$(printf '%s' "$sd_rows" | awk 'NF { n++ } END { print n + 0 }')
-  if [ "$sd_n" -eq 0 ]; then
+  sd_total=$(printf '%s' "$sd_rows" | awk 'NF { n++ } END { print n + 0 }')
+  if [ "$sd_total" -eq 0 ]; then
     printf 'idle\t%s\n' "$sd_w"
     return 0
   fi
-  sd_ids=$(printf '%s\n' "$sd_rows" | awk -F '\t' 'NF { print $1 }')
+  # One wake carries the oldest LISTED_MAX; the rest wait for the next pass.
+  sd_rows=$(printf '%s\n' "$sd_rows" | M=$LISTED_MAX awk 'NF && ++n <= ENVIRON["M"] + 0')
+  sd_n=$(printf '%s\n' "$sd_rows" | awk 'NF { n++ } END { print n + 0 }')
+  sd_ids=$(printf '%s\n' "$sd_rows" | awk -F '\t' 'NF { printf "%s%s", sep, $1; sep = " " }')
+  sd_cmd=$(mc_quote "$script_dir/mc-event.sh") || sd_cmd=mc-event.sh
   mkdir -p "$runtime/wake" || return 1
   sd_msg=$(mktemp "$runtime/wake/$sd_w.XXXXXX") || return 1
   {
-    printf 'mission control (%s): %s event(s) pending.\n' "$program" "$sd_n"
-    printf '%s\n' "$sd_rows" | M=$LISTED_MAX awk -F '\t' 'NF { n++; if (n <= ENVIRON["M"] + 0) print "- " $3 " " $4 }
-      END { if (n > ENVIRON["M"] + 0) print "- and " (n - ENVIRON["M"]) " more" }'
-    printf 'Read them with: %s list --program %s --target %s --pending\n' \
-      "$script_dir/mc-event.sh" "$program" "$sd_w"
+    printf 'mission control (%s): %s event(s) pending' "$program" "$sd_total"
+    [ "$sd_n" -eq "$sd_total" ] || printf ', the oldest %s here' "$sd_n"
+    printf '.\n'
+    printf '%s\n' "$sd_rows" | awk -F '\t' 'NF { print "- " $3 " " $4 }'
+    printf 'Read them with: %s list --program %s %s\n' "$sd_cmd" "$program" "$sd_ids"
     if [ "$sd_mark" = staged ]; then
       printf 'Then acknowledge them with: %s mark --program %s --target %s submitted %s\n' \
-        "$script_dir/mc-event.sh" "$program" "$sd_w" "$(printf '%s\n' "$sd_ids" | tr '\n' ' ' | sed 's/ $//')"
+        "$sd_cmd" "$program" "$sd_w" "$sd_ids"
     fi
   } >"$sd_msg" || {
     rm -f "$sd_msg"
@@ -210,25 +219,34 @@ send() {
       ;;
   esac
   # shellcheck disable=SC2086 # one event id per word
-  mc_event mark --program "$program" --target "$sd_w" "$sd_mark" $sd_ids || return 1
+  mc_event mark --program "$program" --target "$sd_w" "$sd_mark" $sd_ids
+  # Exit 3: an event was pruned since it was listed; the rest are marked.
+  case $? in 0 | 3) ;; *) return 1 ;; esac
   printf '%s\t%s\t%s\n' "$sd_said" "$sd_w" "$sd_n"
 }
 
-# each unmarked|unsubmitted: send to every target without the mod.
+# each unmarked|unsubmitted: send to every target without the mod. One
+# target's failure is named and the rest still sent to; the status is 1 then.
 each() {
   [ -f "$targets" ] || return 0
   REGISTRY=$(/bin/sh "$script_dir/fleet-state.sh" registry 2>/dev/null) || mc_fail "cannot read the fleet registry"
   ea_list=$(cat "$targets") || mc_fail "cannot read the wake targets"
+  ea_rc=0
   while IFS='	' read -r ea_w ea_mod; do
     mc_valid_handle "$ea_w" || continue
     if [ "$ea_mod" = mod ]; then
       printf 'mod\t%s\n' "$ea_w"
       continue
     fi
-    send "$ea_w" "$1" || mc_fail "cannot read or mark the events for '$ea_w'"
+    if ! send "$ea_w" "$1"; then
+      printf '%s\n' "$prog: cannot read or mark the events for '$ea_w'" >&2
+      printf 'failed\t%s\n' "$ea_w"
+      ea_rc=1
+    fi
   done <<EOF
 $ea_list
 EOF
+  return "$ea_rc"
 }
 
 case $verb in
@@ -257,7 +275,7 @@ case $verb in
   relay)
     [ "${#args[@]}" -eq 0 ] || usage
     mc_gate_or_exit mc-wake
-    each unmarked
+    each unmarked || exit 1
     ;;
   tick)
     [ "${#args[@]}" -eq 0 ] || usage
@@ -276,12 +294,16 @@ case $verb in
       exit 0
     fi
     printf 'tick\n'
-    each unsubmitted
+    tick_rc=0
+    each unsubmitted || tick_rc=1
+    # Stamped whatever one target did, so a failing target is retried at the
+    # tick's cadence rather than at every pass.
     printf '%s\n' "$NOW" | mc_write "$runtime/last-tick" || mc_fail "cannot record the tick"
     if [ -d "$runtime/wake" ]; then
       # Wake files a week old have long been read or superseded.
       find "$runtime/wake" -type f -mtime +7 -exec rm -f {} + 2>/dev/null || :
     fi
+    exit "$tick_rc"
     ;;
   *) usage ;;
 esac

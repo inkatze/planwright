@@ -50,9 +50,13 @@ mc_valid_uint() {
   esac
   [ "${#1}" -le 12 ]
 }
-# Printable text: no C0, DEL or C1 byte, the range sanitize_printable strips.
+# Text with no C0 or DEL byte. A byte in the C1 range is let through, since
+# it is also a UTF-8 continuation byte; every reader strips C1 on the way to
+# a terminal (sanitize_printable, mc_clean).
 mc_valid_text() {
-  [ "$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237')" = "$1" ]
+  case $1 in
+    *[[:cntrl:]]*) return 1 ;;
+  esac
 }
 
 # mc_seconds <cadence>: a positive count of s, m, h or d, in seconds.
@@ -209,6 +213,15 @@ mc_event_store() {
 }
 
 mc_event() { /bin/bash "$script_dir/mc-event.sh" "$@"; }
+
+# mc_quote <word>: the word single-quoted for a shell, or failure when it
+# carries a single quote or a control byte.
+mc_quote() {
+  case $1 in
+    *"'"* | *[[:cntrl:]]*) return 1 ;;
+  esac
+  printf "'%s'" "$1"
+}
 
 # mc_write <file>: stdin to <file> through a sibling temporary and a rename,
 # so a reader sees the old file or the new one, never a torn one.

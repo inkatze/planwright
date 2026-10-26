@@ -26,11 +26,12 @@
 #                   doubles, at this rung and every one above it
 #   pause-watchers  at or over pause_watchers: high-cost watchers stop
 #   hold-dispatch   at or over hold_dispatch, or a quota hold
-#                   (scripts/quota-hold.sh, the `limited` outcome): medium-cost
+#                   (scripts/quota-hold.sh, the `limited` outcome, or a quota
+#                   store that cannot be read): medium-cost
 #                   watchers stop too, and no session or heavy work is admitted
 #   handover        context steps at their limit: the session hands over
-#   paused          the fleet daemon pause (scripts/fleet-daemon-gate.sh):
-#                   nothing autonomous runs
+#   paused          the fleet daemon pause (scripts/fleet-daemon-gate.sh), or
+#                   a gate that cannot be read: nothing autonomous runs
 # The thresholds are mission_control_budget_ladder's percents.
 #
 # Usage:
@@ -183,11 +184,13 @@ in_use_of() {
   printf '0\n'
 }
 
-# recent_polls: the poll log's lines inside the hour ending now; the one
-# predicate the cap and the report both count with.
+# recent_polls [keep]: the poll log's lines inside the hour ending now, the
+# one predicate the cap and the report both count with; with `keep`, every
+# line after the hour began, a later one a concurrent caller logged
+# included, which is what a rewrite of the log must keep.
 recent_polls() {
   [ -e "$runtime/polls" ] || return 0
-  N=$NOW awk -F '\t' '$1 ~ /^[0-9]+$/ && $1 > ENVIRON["N"] - 3600 && $1 <= ENVIRON["N"] + 0' "$runtime/polls" \
+  N=$NOW K=${1:-} awk -F '\t' '$1 ~ /^[0-9]+$/ && $1 > ENVIRON["N"] - 3600 && (ENVIRON["K"] != "" || $1 <= ENVIRON["N"] + 0)' "$runtime/polls" \
     || mc_fail "cannot read the poll log"
 }
 
@@ -209,8 +212,10 @@ host_load() {
   A=$hl_avg C=$hl_cpus awk 'BEGIN { printf "%d\n", ENVIRON["A"] * 100 / ENVIRON["C"] }'
 }
 
+# quota_held: 0 a vendor is held, 1 none is, 2 the store cannot be read,
+# which the rung treats as held.
 quota_held() {
-  qh_out=$(/bin/sh "$script_dir/quota-hold.sh" status 2>/dev/null) || return 0
+  qh_out=$(/bin/sh "$script_dir/quota-hold.sh" status 2>/dev/null) || return 2
   printf '%s\n' "$qh_out" | awk -F '\t' '$1 == "vendor" && $3 == "held" { f = 1 } END { exit !f }'
 }
 
@@ -256,9 +261,18 @@ compute() {
     RUNG=throttle
   fi
   [ "$RUNG" = normal ] || REASON="$top_dim at $top_pct%"
-  if [ "$RUNG" != hold-dispatch ] && quota_held; then
-    RUNG=hold-dispatch
-    REASON="a quota hold (limited)"
+  if [ "$RUNG" != hold-dispatch ]; then
+    quota_held
+    case $? in
+      0)
+        RUNG=hold-dispatch
+        REASON="a quota hold (limited)"
+        ;;
+      2)
+        RUNG=hold-dispatch
+        REASON="the quota store cannot be read"
+        ;;
+    esac
   fi
   if [ "$steps_used" -ge "$(mc_lookup context_steps "$LIMITS")" ]; then
     RUNG=handover
@@ -333,8 +347,8 @@ case $verb in
     cap=$(mc_lookup polls_per_hour "$LIMITS")
     mc_lock || mc_fail "cannot take the fleet lock"
     trap 'mc_unlock' EXIT
-    kept=$(recent_polls) || exit 1
-    count=$(printf '%s' "$kept" | awk 'END { print NR }')
+    kept=$(recent_polls keep) || exit 1
+    count=$(printf '%s\n' "$kept" | N=$NOW awk -F '\t' 'NF && $1 <= ENVIRON["N"] + 0 { n++ } END { print n + 0 }')
     if [ "$count" -ge "$cap" ]; then
       printf 'capped\t%s polls in the last hour, the cap is %s\n' "$count" "$cap"
       exit 4

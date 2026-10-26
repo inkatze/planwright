@@ -9,25 +9,30 @@
 # marks/<target>/<id> holding submitted or staged.
 #
 # Usage:
-#   mc-event.sh emit --program <p> [--] <kind> <subject> [<text>]
+#   mc-event.sh emit --program <p> [--now <epoch>] [--] <kind> <subject> [<text>]
 #       record an event and print its id. <kind> is kebab; <subject> is the
 #       fleet field grammar (letters, digits, . _ = @ : -), at most 128
-#       characters; <text> is printable (no control byte, C1 included), at
-#       most 512 bytes.
-#   mc-event.sh list --program <p> [--target <t> [--pending]]
+#       characters; <text> carries no control byte and is at most 512 bytes.
+#   mc-event.sh list --program <p> [--target <t> [--pending]] [<id>...]
 #       one <id><TAB><epoch><TAB><kind><TAB><subject><TAB><text> line per
-#       event, ordered by the second it was emitted (events of one second in
-#       no set order); with --target a sixth field, the target's mark or -;
-#       --pending keeps only events the target has not been submitted.
+#       event (only the named ones, when ids are given), in id order, which
+#       is emission order to the second (events of one second in no set
+#       order); with --target a sixth field, the target's mark or -;
+#       --pending keeps only events the target has not been submitted. An
+#       event whose stored fields break the grammar emit enforces, or whose
+#       file is a symbolic link, is skipped with a warning on stderr.
 #   mc-event.sh mark --program <p> --target <t> submitted|staged <id>...
 #       record a delivery of each event. A submitted mark is final: staging
-#       never overwrites it.
+#       never overwrites it. Every id is checked before any is marked; one
+#       that names no event (pruned since, say) is skipped and named on
+#       stderr, and the call exits 3 after marking the rest.
 #   mc-event.sh prune --program <p> [--now <epoch>]
 #       drop events, and their marks, older than
 #       mission_control_event_retention; prints `pruned<TAB><n>`.
 #
-# Exit codes: 0 done; 1 the store cannot be read or written; 2 usage or a
-# value outside its grammar; 3 no such event (mark).
+# Exit codes: 0 done; 1 the store cannot be read or written, or an invalid
+# retention knob; 2 usage or a value outside its grammar; 3 an id that names
+# no event (mark).
 #
 # Portable bash 3.2 / BSD tooling.
 set -u
@@ -50,7 +55,7 @@ done
 . "$script_dir/mc-lib.sh" || exit 2
 
 usage() {
-  mc_usage_fail "usage: mc-event.sh emit --program <p> [--] <kind> <subject> [<text>] | list --program <p> [--target <t> [--pending]] | mark --program <p> --target <t> submitted|staged <id>... | prune --program <p> [--now <epoch>]"
+  mc_usage_fail "usage: mc-event.sh emit --program <p> [--now <epoch>] [--] <kind> <subject> [<text>] | list --program <p> [--target <t> [--pending]] [<id>...] | mark --program <p> --target <t> submitted|staged <id>... | prune --program <p> [--now <epoch>]"
 }
 
 valid_id() {
@@ -107,6 +112,9 @@ fi
 mc_now_arg "$now"
 store=$(mc_event_store "$program") || mc_fail "cannot create the event store for '$program'"
 [ -r "$store/events" ] && [ -x "$store/events" ] || mc_fail "cannot read the event store for '$program'"
+if [ -n "$target" ] && [ -L "$store/marks/$target" ]; then
+  mc_fail "the marks for '$target' are a symbolic link"
+fi
 
 case $verb in
   emit)
@@ -127,13 +135,22 @@ case $verb in
     printf '%s\n' "$id"
     ;;
   list)
-    [ "${#args[@]}" -eq 0 ] || usage
     [ "$pending" -eq 0 ] || [ -n "$target" ] || usage
+    only=" "
+    for id in ${args[@]+"${args[@]}"}; do
+      valid_id "$id" || mc_usage_fail "invalid event id '$(sanitize_printable "$id")'"
+      only="$only$id "
+    done
     set +f
     for f in "$store/events"/e*; do
       [ -f "$f" ] || continue
       id=${f##*/}
       valid_id "$id" || continue
+      [ "$only" = " " ] || case $only in *" $id "*) ;; *) continue ;; esac
+      if [ -L "$f" ]; then
+        printf '%s\n' "$prog: skipping $id: a symbolic link" >&2
+        continue
+      fi
       mark=-
       if [ -n "$target" ] && [ -f "$store/marks/$target/$id" ]; then
         IFS= read -r mark <"$store/marks/$target/$id" || mark=-
@@ -141,10 +158,16 @@ case $verb in
       if [ "$pending" -eq 1 ] && [ "$mark" = submitted ]; then
         continue
       fi
-      IFS='	' read -r ev_at ev_kind ev_subject ev_text <"$f" || continue
-      # Every field was checked on write; the store is still a file anyone
-      # running as the operator can edit, so each is cleaned on the way out.
-      line="$(sanitize_printable "$ev_at")	$(sanitize_printable "$ev_kind")	$(sanitize_printable "$ev_subject")	$(sanitize_printable "$ev_text")"
+      IFS='	' read -r ev_at ev_kind ev_subject ev_text <"$f" || [ -n "$ev_at" ] || continue
+      # Every field was checked on write, but the store is a file anyone
+      # running as the operator can edit, and a wake carries its kind and
+      # subject into a session: each is checked again here.
+      if ! mc_valid_uint "$ev_at" || ! mc_valid_kebab "$ev_kind" || ! mc_valid_handle "$ev_subject" \
+        || [ "${#ev_text}" -gt 512 ] || ! mc_valid_text "$ev_text"; then
+        printf '%s\n' "$prog: skipping $id: its stored fields break the event grammar" >&2
+        continue
+      fi
+      line="$ev_at	$ev_kind	$ev_subject	$(sanitize_printable "$ev_text")"
       if [ -n "$target" ]; then
         printf '%s\t%s\t%s\n' "$id" "$line" "$(sanitize_printable "$mark" -)"
       else
@@ -160,13 +183,17 @@ case $verb in
       submitted | staged) ;;
       *) usage ;;
     esac
-    mkdir -p "$store/marks/$target" || mc_fail "cannot create the marks for '$target'"
     for id in "${args[@]:1}"; do
       valid_id "$id" || mc_usage_fail "invalid event id '$(sanitize_printable "$id")'"
-      [ -f "$store/events/$id" ] || {
+    done
+    mkdir -p "$store/marks/$target" || mc_fail "cannot create the marks for '$target'"
+    missing=0
+    for id in "${args[@]:1}"; do
+      if [ ! -f "$store/events/$id" ]; then
         printf '%s\n' "$prog: no event $id" >&2
-        exit 3
-      }
+        missing=1
+        continue
+      fi
       if [ "$state" = submitted ]; then
         printf 'submitted\n' | mc_write "$store/marks/$target/$id" || mc_fail "cannot mark $id"
       elif [ ! -e "$store/marks/$target/$id" ]; then
@@ -178,6 +205,7 @@ case $verb in
         ) 2>/dev/null || [ -e "$store/marks/$target/$id" ] || mc_fail "cannot mark $id"
       fi
     done
+    [ "$missing" -eq 0 ] || exit 3
     ;;
   prune)
     [ "${#args[@]}" -eq 0 ] || usage
@@ -192,7 +220,11 @@ case $verb in
       at=${id#e}
       at=${at%%.*}
       mc_valid_uint "$at" && [ "$at" -lt "$cutoff" ] || continue
-      rm -f "$f" "$store/marks"/*/"$id" || mc_fail "cannot prune $id"
+      rm -f "$f" || mc_fail "cannot prune $id"
+      for md in "$store/marks"/*; do
+        [ -d "$md" ] && [ ! -L "$md" ] || continue
+        rm -f "$md/$id" || mc_fail "cannot prune the marks of $id"
+      done
       n=$((n + 1))
     done
     set -f

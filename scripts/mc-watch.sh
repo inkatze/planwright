@@ -16,8 +16,9 @@
 # ignored; a line the event store refuses is counted, not dropped silently.
 # A loop re-checks the fleet daemon gate before each run and skips the run
 # while the gate is closed, doubles its cadence at any budget rung above
-# normal, and exits once its record is gone. Stopping a loop stops the
-# watcher run it is waiting on.
+# normal (and when the budget file cannot be read), and exits once its
+# record is gone. Stopping a loop stops the watcher run it is waiting on,
+# with that run's own children where setsid is available.
 #
 # THE RECORD of an armed watcher is <runtime>/watchers/<slot>.rec, the slot
 # derived from the duty and the script:
@@ -44,32 +45,37 @@
 #   4. old events pruned (scripts/mc-event.sh prune), the snapshots
 #      (scripts/mc-snapshot.sh refresh), the wake relay and the tick
 #      (scripts/mc-wake.sh relay, tick).
-# One line per act: armed, rearmed, running, paused (with the rung or the
-# spend class), unresolvable, disarmed, stopped (with the event id), then the
-# event, snapshot and wake scripts' own lines prefixed `event`, `snapshot`
-# and `wake`. A pass whose lock another runner holds prints `busy`.
+# One line per act: armed, rearmed, running (with `unverified` when the
+# process table could not be read for its pid, and nothing is re-armed),
+# paused (with the rung or the spend class), unresolvable, disarmed, stopped
+# (with the event id), then the event, snapshot and wake scripts' own lines
+# prefixed `event`, `snapshot` and `wake`. A pass whose lock another runner
+# holds prints `busy`.
 #
 # Usage:
 #   mc-watch.sh pass --program <p> [--now <epoch>]
 #   mc-watch.sh run --program <p> [--once]
 #       hold the runner lock and make a pass every
 #       mission_control_runner_interval until killed; --once makes one pass
-#       and exits. A failed pass is reported and retried at the next
-#       interval.
+#       and exits with its status. A failed pass is reported and retried at
+#       the next interval.
 #   mc-watch.sh status --program <p> [--now <epoch>]
-#       watcher<TAB><duty><TAB><script><TAB><cadence><TAB><cost><TAB>running|stopped
+#       watcher<TAB><duty><TAB><script><TAB><cadence><TAB><cost><TAB>running|stopped|unverified
 #         <TAB><seconds since the last run|-><TAB><seconds until the next|->
 #         <TAB><last exit|-><TAB><events refused in the last run|->
 #       one line per record; a next-run time already passed is negative, the
 #       watcher's expiry
 #   mc-watch.sh stop --program <p>
 #       stop every armed watcher and drop its record, printing
-#       disarmed<TAB><duty> per watcher; a live runner arms them again at
-#       its next pass, so stop the runner first
+#       disarmed<TAB><duty> per watcher; under the runner lock, so with a
+#       runner live it prints `busy` and exits 1 (stop the runner first). A
+#       program no longer configured can still be stopped.
 #   mc-watch.sh loop --program <p> --slot <slot>      (internal)
 #
-# Exit codes: 0 done; 1 a catalog, budget or store failure, or a snapshot or
-# wake step that failed; 2 usage; 3 the program is not configured.
+# Exit codes: 0 done; 1 a catalog, budget or store failure, an unresolvable
+# watcher, a blocked daemon gate, an event, snapshot or wake step that
+# failed, or stop beside a live runner; 2 usage; 3 the program is not
+# configured.
 #
 # Portable bash 3.2 / BSD tooling.
 set -u
@@ -123,13 +129,18 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$program" ] || usage
-[ -z "$now" ] || mc_valid_uint "$now" || mc_usage_fail "--now takes an epoch"
+mc_now_arg "$now"
 case $slot in
   *[!a-z0-9.-]*) mc_usage_fail "invalid slot" ;;
 esac
-mc_require_program "$program"
-PLANWRIGHT_MC_CHECKED=$program
-export PLANWRIGHT_MC_CHECKED
+# A program dropped from configuration can still be stopped.
+if [ "$verb" = stop ]; then
+  mc_valid_program "$program" || mc_usage_fail "invalid program name '$(sanitize_printable "$program")'"
+else
+  mc_require_program "$program"
+  PLANWRIGHT_MC_CHECKED=$program
+  export PLANWRIGHT_MC_CHECKED
+fi
 runtime=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory for '$program'"
 wdir="$runtime/watchers"
 mkdir -p "$wdir" || mc_fail "cannot create the watcher directory"
@@ -151,14 +162,26 @@ slots() {
   set -f
 }
 
-# ours <pid> <slot>: 0 the pid is this runner's loop for the slot, 1 it is
-# not, 2 the process table could not be read for a live pid.
+# ours <pid> <slot>: 0 the pid is a runner loop for the slot, 1 it is not,
+# 2 the process table could not be read for a live pid. The script's path
+# may be spelled any way (a symlinked root, another install), but it is one
+# word ending in mc-watch.sh, run by /bin/bash with exactly the loop's
+# arguments after it.
 ours() {
   mc_valid_uint "$1" || return 1
   kill -0 "$1" 2>/dev/null || return 1
   # BSD ps cuts an argument list to the terminal's width without -ww.
   ou_args=$(ps -ww -o args= -p "$1" 2>/dev/null) || ou_args=$(ps -o args= -p "$1" 2>/dev/null) || return 2
-  [ "$ou_args" = "/bin/bash $script_dir/mc-watch.sh loop --program $program --slot $2" ]
+  ou_tail=" loop --program $program --slot $2"
+  case $ou_args in
+    "/bin/bash "*"/mc-watch.sh$ou_tail") ;;
+    *) return 1 ;;
+  esac
+  ou_path=${ou_args#/bin/bash }
+  ou_path=${ou_path%"$ou_tail"}
+  case $ou_path in
+    *" "*) return 1 ;;
+  esac
 }
 
 record_pid() { [ -f "$wdir/$1.rec" ] && cut -f1 "$wdir/$1.rec" | head -n 1; }
@@ -218,6 +241,8 @@ pass() {
   case $rung in
     pause-watchers) allowed=2 ;;
     hold-dispatch | handover) allowed=1 ;;
+    # The gate closed between this pass's check and the budget's.
+    paused) allowed=0 ;;
   esac
   wanted=""
   status=0
@@ -289,12 +314,15 @@ EOF
   return "$status"
 }
 
-runner_sleep=""
+runner_child=""
 runner_exit() {
-  [ -z "$runner_sleep" ] || kill "$runner_sleep" 2>/dev/null
+  [ -z "$runner_child" ] || kill "$runner_child" 2>/dev/null
   pw_lock_release_all
   exit "$1"
 }
+# take_runner_lock: hold the program's runner lock for this process, or print
+# `busy` and exit (0 for a pass, which simply stands aside; 1 for stop, which
+# did not do what was asked).
 take_runner_lock() {
   trap 'pw_lock_release_all' EXIT
   trap 'runner_exit 130' INT
@@ -305,6 +333,7 @@ take_runner_lock() {
     0) return 0 ;;
     1)
       printf 'busy\n'
+      [ "$verb" != stop ] || exit 1
       exit 0
       ;;
   esac
@@ -326,19 +355,23 @@ loop() {
     exit 1
   }
   child=""
-  trap '[ -z "$child" ] || kill "$child" 2>/dev/null; exit 0' TERM INT HUP
+  out=""
+  # Under setsid this loop leads its own process group, so a stop takes the
+  # watcher's own children with it; elsewhere it takes the watcher.
+  trap 'trap - TERM INT HUP; [ -z "$out" ] || rm -f "$out"; [ -z "$child" ] || kill "$child" 2>/dev/null; kill -TERM -- -$$ 2>/dev/null; exit 0' TERM INT HUP
   while :; do
-    [ -d "$wdir" ] && [ "$(record_pid "$slot")" = "$$" ] || exit 0
+    [ "$(record_pid "$slot")" = "$$" ] || exit 0
     if mc_gate mc-watch; then
       out=$(mktemp "$wdir/.$slot.out.XXXXXX") || exit 1
       # Run in the background and waited for, so a TERM stops this run too.
-      PLANWRIGHT_MC_PROGRAM=$program PLANWRIGHT_MC_DUTY=$duty /bin/bash "$path" </dev/null >"$out" &
+      env -u PLANWRIGHT_MC_CHECKED PLANWRIGHT_MC_PROGRAM="$program" PLANWRIGHT_MC_DUTY="$duty" \
+        /bin/bash "$path" </dev/null >"$out" &
       child=$!
       wait "$child"
       rc=$?
       child=""
       refused=0
-      while IFS='	' read -r tag kind subject text; do
+      while IFS='	' read -r tag kind subject text || [ -n "$tag" ]; do
         [ "$tag" = event ] || continue
         text=${text%"$(printf '\r')"}
         subject=${subject%"$(printf '\r')"}
@@ -347,9 +380,12 @@ loop() {
         fi
       done <"$out"
       rm -f "$out"
+      out=""
       printf '%s\t%s\t%s\n' "$(mc_now)" "$rc" "$refused" | mc_write "$wdir/$slot.last" 2>/dev/null || :
     fi
-    lp_rung=$(mc_file_rung "$runtime/budget") || lp_rung=normal
+    # A budget file that cannot be read is pressure, as the snapshot seam
+    # reads an uncomputable rung.
+    lp_rung=$(mc_file_rung "$runtime/budget") || lp_rung=unknown
     sleep $((secs * $(mc_cadence_factor "$lp_rung"))) &
     child=$!
     wait "$child"
@@ -368,22 +404,33 @@ case $verb in
     take_runner_lock
     while :; do
       # A subshell, so a failure that exits inside the pass ends the pass,
-      # not the daemon.
-      (pass) || printf '%s\n' "$prog: the pass failed; retrying at the next interval" >&2
-      [ "$once" -eq 0 ] || exit 0
-      # Waited for in the background, so a TERM is handled at once.
+      # not the daemon; in the background and waited for, like the sleep, so
+      # a TERM is handled at once.
+      (pass) &
+      runner_child=$!
+      wait "$runner_child"
+      pass_rc=$?
+      runner_child=""
+      if [ "$once" -eq 1 ]; then
+        exit "$pass_rc"
+      fi
+      [ "$pass_rc" -eq 0 ] || printf '%s\n' "$prog: the pass failed; retrying at the next interval" >&2
       sleep "$secs" &
-      runner_sleep=$!
-      wait "$runner_sleep"
-      runner_sleep=""
+      runner_child=$!
+      wait "$runner_child"
+      runner_child=""
     done
     ;;
   status)
     mc_now_arg "$now"
     for s in $(slots); do
       IFS='	' read -r pid _ duty script cadence cost <"$wdir/$s.rec" || continue
-      state=stopped
-      ! ours "$pid" "$s" || state=running
+      ours "$pid" "$s"
+      case $? in
+        0) state=running ;;
+        2) state=unverified ;;
+        *) state=stopped ;;
+      esac
       since=-
       next=-
       last_rc=-
@@ -402,6 +449,7 @@ case $verb in
     done
     ;;
   stop)
+    take_runner_lock
     for s in $(slots); do
       dd=$(cut -f3 "$wdir/$s.rec")
       stop_slot "$s"

@@ -16,7 +16,9 @@ head2=2222222222222222222222222222222222222222
 # The gh shim: logs every call; serves the repository name, a GraphQL page
 # as JSON run through the adapter's own --jq program (by jq, which gh embeds),
 # and a diff. GH_REMAINING sets the reported rate-limit headroom; GH_LIMITED
-# makes every call a rate-limit refusal; GH_DIFF_FAIL makes diff reads fail.
+# makes every call a rate-limit refusal; GH_DIFF_FAIL makes diff reads fail,
+# GH_DIFF_LIMITED refuses them for the rate limit, GH_DIFF_EMPTY serves an
+# empty diff.
 command -v jq >/dev/null 2>&1 || {
   echo "FAIL: jq is required to run the forge adapter's jq program" >&2
   exit 1
@@ -44,6 +46,11 @@ case "$1 $2" in
       echo "HTTP 406: the diff exceeded the maximum number of lines" >&2
       exit 1
     fi
+    if [ -n "${GH_DIFF_LIMITED:-}" ]; then
+      echo "API rate limit exceeded for user" >&2
+      exit 1
+    fi
+    [ -z "${GH_DIFF_EMPTY:-}" ] || exit 0
     printf 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+%s\n' "$3"
     ;;
   *) exit 1 ;;
@@ -97,6 +104,7 @@ while [ $# -gt 0 ]; do
 done
 printf 'item\tT-1\topen\n' >"$out"
 [ -z "${TRACKER_RL:-}" ] || printf 'ratelimit\t%s\n' "$TRACKER_RL"
+[ -z "${TRACKER_ERR:-}" ] || printf 'tracker \033[2Jboom\n' >&2
 exit "${TRACKER_EXIT:-0}"
 EOF
 TRACKER_LOG="$tmp/tracker.log"

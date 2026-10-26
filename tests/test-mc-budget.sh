@@ -166,11 +166,14 @@ expect_rc "REQ-L1.2: a session under the limit is admitted" 0
 mc_run mc-budget.sh record --program alpha sessions 4
 mc_run mc-budget.sh admit --program alpha heavy --now 100000 --load 0
 expect_out "REQ-L1.2: sessions at their limit reach hold-dispatch, which queues heavy work too" "queued${tab}hold-dispatch"
+# With hold_dispatch above 100%, sessions at their limit is not yet a rung;
+# the session count alone queues the session.
 program '{sessions: 5}'
+printf '%s\n' "mission_control_budget_ladder: {throttle: 120, pause_watchers: 130, hold_dispatch: 150}" >>"$tracked"
 mc_run mc-budget.sh record --program alpha sessions 5
 mc_run mc-budget.sh admit --program alpha session --now 100000 --load 0
 expect_rc "REQ-L1.2: a session at the sessions limit is queued" 1
-expect_out "REQ-L1.2: the queue names the reason" "queued${tab}"
+expect_out "REQ-L1.2: the queue names the sessions limit" "queued${tab}sessions at their limit"
 
 # ---------------------------------------------------------------------------
 # Spend class per duty; invalid input is refused, named.
@@ -199,11 +202,26 @@ program '{}'
 mkdir -p "$fleet/mission-control/alpha"
 printf 'sessions\t1\n' >"$fleet/mission-control/alpha/in-use"
 chmod 000 "$fleet/mission-control/alpha/in-use"
-mc_run mc-budget.sh report --program alpha --now 100000 --load 0
-expect_rc "an unreadable in-use record fails, never counted as zero" 1
-mc_run mc-budget.sh record --program alpha context_steps 1
-expect_rc "and is never rewritten over" 1
+if [ -r "$fleet/mission-control/alpha/in-use" ]; then
+  ok "skipped: the unreadable-store case (this user reads a mode-000 file)"
+else
+  mc_run mc-budget.sh report --program alpha --now 100000 --load 0
+  expect_rc "an unreadable in-use record fails, never counted as zero" 1
+  mc_run mc-budget.sh record --program alpha context_steps 1
+  expect_rc "and is never rewritten over" 1
+fi
 chmod 600 "$fleet/mission-control/alpha/in-use"
+
+# A poll logged by a caller whose clock reads later survives a rewrite.
+program '{polls_per_hour: 10}'
+mkdir -p "$fleet/mission-control/alpha"
+printf '100010\ttracker\n' >"$fleet/mission-control/alpha/polls"
+mc_run mc-budget.sh poll --program alpha forge --now 100000
+if grep -q '^100010' "$fleet/mission-control/alpha/polls"; then
+  ok "REQ-L1.2: a rewrite of the poll log keeps a later caller's poll"
+else
+  fail "REQ-L1.2: a later caller's poll was dropped"
+fi
 
 program '{}'
 mc_run mc-budget.sh report --program alpha --now 100000 --load 0

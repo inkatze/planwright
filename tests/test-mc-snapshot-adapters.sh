@@ -131,6 +131,70 @@ bad_adapter "an adapter with no summary" "summary: missing" "script: scripts/tra
 bad_adapter "an adapter script climbing out" "script: not a relative path" 'summary: "x"' "script: ../tracker-adapter.sh" "cadence: 10m"
 bad_adapter "an adapter with a bad cadence" "cadence '10 minutes'" 'summary: "x"' "script: scripts/tracker-adapter.sh" 'cadence: "10 minutes"'
 
+# ---------------------------------------------------------------------------
+# Patch ids with no id to compute, and a diff read refused for the rate
+# limit.
+# ---------------------------------------------------------------------------
+setup
+GH_DIFF_EMPTY=1 mc_run mc-snapshot.sh refresh --program alpha --source forge --now 1000
+mc_run mc-snapshot.sh read --program alpha forge --now 1000
+expect_out "a diff with no patch id reads none" "${tab}SUCCESS${tab}3${tab}4${tab}none"
+GH_DIFF_EMPTY=1 mc_run mc-snapshot.sh refresh --program alpha --source forge --now 1400
+if [ "$(gh_calls 'pr diff')" -eq 2 ]; then
+  ok "none is carried forward over an unchanged head"
+else
+  fail "none was read again ($(gh_calls 'pr diff') diff reads)"
+fi
+
+setup
+GH_DIFF_LIMITED=1 mc_run mc-snapshot.sh refresh --program alpha --source forge --now 1000
+expect_out "a diff read refused for the rate limit holds the source" "held${tab}forge${tab}1300"
+
+# ---------------------------------------------------------------------------
+# Holds: a reset already past, a stored hold far in the future; a snapshot
+# stamped after now; a quoted cadence map; the adapter's stderr; the rung
+# computed by refresh itself.
+# ---------------------------------------------------------------------------
+setup
+TRACKER_RL="0${tab}500" TRACKER_EXIT=75 mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1000
+expect_out "a reset already past is ignored: the hold is the cadence" "held${tab}tracker${tab}1600"
+
+setup
+printf '99999999999\n' >"$tmp/hold"
+mkdir -p "$fleet/mission-control/alpha/snapshots"
+cp "$tmp/hold" "$fleet/mission-control/alpha/snapshots/tracker.hold"
+mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1000
+expect_out "a stored hold is clamped on read" "held${tab}tracker${tab}4600"
+
+setup
+mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 5000
+mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1000
+expect_out "a snapshot stamped after now is refreshed, never read as fresh" "refreshed${tab}tracker"
+mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 9000
+mc_run mc-snapshot.sh read --program alpha tracker --now 8000
+expect_rc "and is refused by read" 1
+
+setup
+printf '%s\n' 'mission_control_snapshot_cadence: {"forge": "5m", "tracker": "1m"}' >>"$tracked"
+mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1000
+mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1061
+expect_out "a quoted cadence map is read like an unquoted one" "refreshed${tab}tracker"
+
+setup
+TRACKER_ERR=1 mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1000
+expect_err "the adapter's stderr is passed through" "tracker [2Jboom"
+case $ERR in
+  *"$(printf '\033')"*) fail "an escape byte from the adapter reached stderr" ;;
+  *) ok "with its control bytes stripped" ;;
+esac
+
+setup 10
+mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1000
+mkdir -p "$fleet/mission-control/alpha"
+for _ in 1 2 3 4 5 6; do printf '1900\tforge\n'; done >>"$fleet/mission-control/alpha/polls"
+mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1900
+expect_out "REQ-L1.2: refresh computes the rung itself and doubles the cadence at throttle" "fresh${tab}tracker${tab}900"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-snapshot-adapters: $failures failure(s)" >&2
   exit 1
