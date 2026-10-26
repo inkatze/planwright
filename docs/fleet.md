@@ -1344,11 +1344,11 @@ transitions to the attention store the instant they happen, through
 
 | Hook event | Transition pushed |
 | --- | --- |
-| `Stop` | working → `idle` (the turn ended). A **live fork-park is preserved**, not cleared — a turn-end is not a dead worker, so `Stop` never downgrades an awaiting-human fork-park (fleet-hardening Task 2 NS-4) |
+| `Stop` | working → `idle` (the turn ended), plus an **idle exit-edge marker** whenever the row now reads `idle`, written by temp-and-rename like the other markers. A **live fork-park is preserved**, not cleared — a turn-end is not a dead worker, so `Stop` never downgrades an awaiting-human fork-park (fleet-hardening Task 2 NS-4) — and that stop leaves no idle marker |
 | `PermissionRequest` | working → `awaiting-input`, queued, plus a pending-permission marker; the row carries the `permission` marker in field 9 and the prompt's own command text in field 12 |
-| `PostToolUse` | `awaiting-input` → working — when a live **decision marker** exists: a pending-permission marker (the human allowed the next tool use) or a fork-park marker (the worker resumed from a fork; fleet-hardening Task 2). Otherwise a fast no-op |
-| `SessionEnd` | → `ended` (session termination) |
-| `StopFailure` | → `hung` (a turn ended on an API error resembles a stopped-responding worker — the decided kickoff risk-row-27 mapping) |
+| `PostToolUse` | `awaiting-input` → working — when a live **decision marker** exists: a pending-permission marker (the human allowed the next tool use) or a fork-park marker (the worker resumed from a fork; fleet-hardening Task 2). `idle` → working when the **idle exit-edge marker** exists: the worker resumed after a stop, whatever resumed it (fleet-messaging D-28). The marker is consumed, so the edge writes once, and the write never overwrites an `awaiting-input` row (a decision queued after the stop survives). With no marker present, a fast no-op |
+| `SessionEnd` | → `ended` (session termination); drops a leftover idle marker |
+| `StopFailure` | → `hung` (a turn ended on an API error resembles a stopped-responding worker — the decided kickoff risk-row-27 mapping); drops a leftover idle marker |
 | `Notification` | working → `awaiting-input` + a fork-park marker, for a genuine fork / input-wait `notification_type` only (fleet-hardening Task 2, D-2). The instant a worker parks at an `AskUserQuestion` fork it fires `Notification`; the arm gates on the payload reason (a permission-park, an auth / completion notification, or an unknown type push nothing) and pushes an `awaiting-human` record with the reason — no pane capture |
 | `SessionStart` (`startup`, `resume`) | → `working`, carrying the worker's `PLANWRIGHT_WORKER_LAUNCH_TOKEN` in field 9 as `launch:<hex>` when the launch set one. This is the tmux launch's startup confirmation: the dispatch waits, bounded, for the row carrying its own token and reports `started`, `failed-at-startup` (tmux says the session is gone), or `started-unconfirmed` (fleet-hardening D-15). A queued decision is never overwritten |
 
