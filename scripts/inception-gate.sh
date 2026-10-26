@@ -1085,9 +1085,10 @@ cmd_seed() {
     exit 1
   }
 
+  # Checked before the command substitution, which drops a trailing newline.
+  check_path "$_dest" "the destination"
   _dest=$(trim_slashes "$_dest")
   check_dir_arg "$_dest" "the destination"
-  check_path "$_dest" "the destination"
   [ ! -L "$_dest" ] || die 1 "the destination is a symbolic link; name the directory itself"
   if [ -d "$_dest" ]; then
     # cd -P: a logical cd would collapse `link/..` textually and enter a
@@ -1174,9 +1175,10 @@ cmd_seed() {
 # --- link / lineage ----------------------------------------------------------
 
 spec_dir() {
+  # Checked before the command substitution, which drops a trailing newline.
+  check_path "$1" "the spec directory"
   set -- "$(trim_slashes "$1")"
   check_dir_arg "$1" "the spec directory"
-  check_path "$1" "the spec directory"
   [ ! -L "$1" ] || die 1 "the spec directory is a symbolic link; name the directory itself"
   [ -d "$1" ] || die 1 "no spec directory at $(sanitize_printable "$1" '?')"
   (cd -P "$1" && pwd -P) || die 2 "cannot enter the spec directory"

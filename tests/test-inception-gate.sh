@@ -353,6 +353,11 @@ assert_eq "F1.1 an ungraduated venture yields no seed" 1 "$rc"
 g="$vroot/out-graduate"
 esc=$(printf '\033')
 set_field "$g/decisions.md" DEC-2 Consequences "one integration to own ${esc}[31mand relay latency"
+nl='
+'
+gate seed --dest "$(specroot "$g")$nl" "$g"
+assert_eq "F1.1 a destination ending in a newline is refused, not read as its sibling" 1 "$rc"
+assert_contains "F1.1 the refusal names the control character" "control character" "$out"
 gate seed --dest "$(specroot "$g")" "$g"
 assert_eq "F1.1 seed exits 0" 0 "$rc"
 seedf="$g/specs/_pending/inception-out-graduate.md"
@@ -398,6 +403,9 @@ assert_eq "J1.5 the venture side names the spec" 1 "$(grep -c '— spec: `specs/
 gate lineage "$g"
 assert_contains "J1.5 both directions read linked" "lineage	venture	linked" "$out"
 assert_eq "J1.5 linked is clean" 0 "$rc"
+gate link --spec "$g/specs/capture-surface$nl" "$g"
+assert_eq "J1.5 a spec directory ending in a newline is refused, not read as its sibling" 1 "$rc"
+assert_contains "J1.5 the refusal names the control character" "control character" "$out"
 cp "$g/brief.md" "$tmp/brief.linked"
 gate link --spec "$g/specs/capture-surface" "$g"
 assert_eq "J1.5 linking the recorded spec again exits 0" 0 "$rc"
