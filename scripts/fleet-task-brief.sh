@@ -279,7 +279,12 @@ do_render() {
   resolve_repo "$repo_arg"
   resolve_home --create
   private_child "$home/tasks"
-  take_lock 400 || die 4 "the task brief lock stayed held by another render or retire"
+  take_lock 400
+  case $? in
+    0) ;;
+    1) die 4 "the task brief lock stayed held by another render or retire" ;;
+    *) die 4 "cannot take the task brief lock; nothing was written" ;;
+  esac
   private_child "$home/tasks/$spec"
   unit="$home/tasks/$spec/$id"
   private_child "$unit"

@@ -286,6 +286,18 @@ OUT=$(
 [ "$OUT" = "rc=0" ] || fail "retire under a held lock must be a silent no-op, got: $OUT"
 [ -f "$home/tasks/demo/8/brief.md" ] || fail "retire removed a brief while the lock was held"
 
+# A lock that cannot be created is an error, not another holder's contention.
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 500 "$home/tasks"
+  render demo 9
+  chmod 700 "$home/tasks"
+  [ "$RC" -eq 4 ] && [ -z "$OUT" ] || fail "render with an uncreatable lock must exit 4 printing nothing, got $RC: $OUT"
+  case $ERR in
+    *"cannot take the task brief lock"*) ;;
+    *) fail "render must report an uncreatable lock as a lock error, not contention, got: $ERR" ;;
+  esac
+fi
+
 # An unreadable spec directory is named and skipped; the rest still retire.
 if [ "$(id -u)" -ne 0 ]; then
   OUT=$("$SCRIPT" render other 1 --repo-root "$repo" 2>&1) || fail "fixture: other spec render: $OUT"
