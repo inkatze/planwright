@@ -986,3 +986,12 @@ mission_control_default_duties: [session-keeper, inbox, readiness-check, conflic
 # designs is cited by default.
 # yamllint disable-line rule:line-length
 mission_control_default_sources: {work-items: specs:record, code-state: forge:snapshot, decisions: specs:record, deadlines: specs:record}
+# The knowledge base's loading caps (scripts/mc-kb.sh): the index, loaded
+# whole at bring-up, holds at most this many entry lines; a body above the
+# entry cap, in bytes, is never read inline but offloaded to a read-only
+# session that returns an answer.
+mission_control_kb_index_budget: 150
+mission_control_kb_entry_cap: 8192
+# How many seconds a knowledge-base writer waits on another writer's lock
+# before it fails, never interleaving.
+mission_control_kb_lock_wait: 5

@@ -252,6 +252,10 @@ run = "/bin/bash scripts/check-duties.sh"
 description = "mission control's knob inventory: every behaviour in config/mission-control-knobs.tsv names a mission_control_* knob the defaults ship, every such key resolves to a non-empty default through scripts/config-get.sh, is claimed by a behaviour and has a docs/options-reference.md row naming its evidence, and no scanned reader names an undeclared mission_control_* key"
 run = "/bin/bash scripts/check-mc-knobs.sh"
 
+[tasks."check:kb-copies"]
+description = "mission control's cite-never-copy lint: fail when a knowledge-base Markdown file under tests/fixtures/mission-control/kb carries a spec bundle's line verbatim (compared trimmed and blank-collapsed, lines of the length scripts/check-kb-copies.sh sets and longer, the spec root's underscore-prefixed reserved directories held out), each copy named by file, line and the spec it copies; fails closed on a missing directory or nothing to compare"
+run = "/bin/bash scripts/check-kb-copies.sh"
+
 [tasks."check:steps"]
 description = "custom-steps guard: resolve every named point (wired and unwired) through scripts/resolve-steps.sh in check mode against this repository's core and repo-tracked configuration, the adopter overlay and machine-local config file held out (a gitignored catalogs.local/ catalog is still read), failing on a step that does not resolve, a malformation, or a non-empty list at an unwired point; and fail on the retired review_sequence key outside the transitional line scripts/check-steps.sh describes"
 run = "/bin/bash scripts/check-steps.sh"
@@ -368,6 +372,7 @@ depends = [
   "check:spec-literals",
   "check:duties",
   "check:mc-knobs",
+  "check:kb-copies",
   "check:steps",
   "check:task-registration",
   "check:lock-primitive",

@@ -59,6 +59,8 @@
 #                          interleave with another writer
 #   scripts/fleet-task-brief.sh   the fleet home's task briefs, so a retire
 #                          never removes a brief a render is writing
+#   scripts/mc-kb.sh       a mission-control knowledge base's stores and log
+#                          segments, one writer per file
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is
