@@ -10,9 +10,19 @@
 wdir="$fleet/mission-control/alpha/watchers"
 
 # Every watcher loop this suite starts is recorded by pid in a .rec file;
-# those pids are stopped on the way out, and only while the process is still
-# that slot's loop.
+# those pids are stopped, and only while the process is still that slot's
+# loop. A loop takes its watcher run and that run's children with it (it
+# leads its own process group under setsid); one still alive after the
+# poll window is killed, so nothing writes into the next case's state.
+is_loop() { # is_loop <pid> <slot>
+  case $(ps -ww -o args= -p "$1" 2>/dev/null) in
+    "/bin/bash /"*"/mc-watch.sh loop --program alpha --slot $2") return 0 ;;
+  esac
+  return 1
+}
 reap() {
+  rp_pids=""
+  rp_slots=""
   for rp_f in "$wdir"/*.rec; do
     [ -f "$rp_f" ] || continue
     rp_pid=$(cut -f1 "$rp_f")
@@ -21,9 +31,18 @@ reap() {
     case $rp_pid in
       "" | *[!0-9]*) continue ;;
     esac
-    case $(ps -ww -o args= -p "$rp_pid" 2>/dev/null) in
-      "/bin/bash /"*"/mc-watch.sh loop --program alpha --slot $rp_slot") kill "$rp_pid" 2>/dev/null ;;
-    esac
+    is_loop "$rp_pid" "$rp_slot" || continue
+    kill "$rp_pid" 2>/dev/null
+    rp_pids="$rp_pids $rp_pid"
+    rp_slots="$rp_slots $rp_pid:$rp_slot"
+  done
+  [ -n "$rp_pids" ] || return 0
+  # Ten seconds, not the default minute: a loop handles TERM at once, and
+  # this runs before every case.
+  # shellcheck disable=SC2086 # one pid per word
+  poll_until --deadline 10 --what "the reaped loops' exit" -- pid_gone $rp_pids 2>/dev/null && return 0
+  for rp_ps in $rp_slots; do
+    ! is_loop "${rp_ps%%:*}" "${rp_ps#*:}" || kill -KILL "${rp_ps%%:*}" 2>/dev/null
   done
 }
 run_pid=""
@@ -87,6 +106,7 @@ export WATCH_RUNS WATCH_EVENTS
 # beside the core seed's.
 setup() {
   reap
+  unset TRACKER_EXIT
   reset_mc_fixture
   rm -rf "$fleet" "$tmp/runs"/*
   cat >"$repo/.claude/catalogs/duties.yaml" <<'EOF'
