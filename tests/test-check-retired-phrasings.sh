@@ -323,13 +323,13 @@ printf 'foo\\\n' >"$r/config/retired-phrasings.txt"
 run "$r"
 assert_exit "a pattern ending in a lone backslash fails closed" 2 $?
 
-for bad in 'foo[bar' 'foo[[:alpha' 'foo[[:alpha:]'; do
-  r="$TMP/badbracket"
+for bad in 'foo)bar' 'foo[bar' 'foo[[:alpha' 'foo[[:alpha:]'; do
+  r="$TMP/badgroup"
   rm -rf "$r"
   mkfixture "$r"
   printf '%s\n' "$bad" >"$r/config/retired-phrasings.txt"
   run "$r"
-  assert_exit "an unclosed bracket expression fails closed: $bad" 2 $?
+  assert_exit "an unbalanced group or bracket expression fails closed: $bad" 2 $?
 done
 
 r="$TMP/goodbracket"
