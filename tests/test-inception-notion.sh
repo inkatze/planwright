@@ -227,6 +227,14 @@ out="$(PATH="$tmp/binnl2:$PATH" "$NOTION" harvest "$v" 2>"$tmp/err")"
 assert_eq "not a list page of blocks: the harvest fails" "1" "$?"
 assert_not_contains "not a list page of blocks: no summary is printed" "summary	" "$out"
 
+# A cursor that comes back unchanged would page forever; the harvest stops.
+cur="$(jq -r .next_cursor "$FIX/comments-page-1.json")"
+printf 'GET /v1/comments?block_id=%s&page_size=100 comments-page-1.json 200\nGET /v1/comments?block_id=%s&page_size=100&start_cursor=%s comments-page-1.json 200\n' "$PAGE" "$PAGE" "$cur" >"$tmp/routesrc"
+notion_fake_install "$tmp/binrc" "$tmp" "$tmp/routesrc" "$tmp/logrc" || exit 1
+out="$(PATH="$tmp/binrc:$PATH" timeout 60 "$NOTION" harvest "$v" 2>"$tmp/err")"
+assert_eq "repeated cursor: the harvest fails" "1" "$?"
+assert_not_contains "repeated cursor: no summary is printed" "summary	" "$out"
+
 # 401 and 404 name their plain causes.
 printf '%s\n' '{"object":"error","status":401,"code":"unauthorized"}' >"$tmp/error-401.json"
 printf '%s\n' '{"object":"error","status":404,"code":"object_not_found"}' >"$tmp/error-404.json"

@@ -140,17 +140,18 @@ parse_blocks() {
     | @tsv' "$1"
 }
 
-# next_cursor <payload> — the next page's cursor, or nothing on the last page;
-# status 1 when the payload is not a list page, or more pages follow but the
-# cursor fails its grammar, since stopping there would report a partial read
-# as complete.
+# next_cursor <payload> [<previous-cursor>] — the next page's cursor, or
+# nothing on the last page; status 1 when the payload is not a list page, or
+# more pages follow but the cursor fails its grammar or repeats the one just
+# followed (which would page forever), since stopping there would report a
+# partial read as complete.
 next_cursor() {
   # A success that is not a list page would otherwise read as an empty last
   # page, and the walk would report complete.
   jq -e '(.results | type == "array") and (.has_more | type == "boolean")' "$1" >/dev/null 2>&1 || return 1
   [ "$(jq -r '.has_more == true' "$1")" = true ] || return 0
   _nc=$(jq -r '.next_cursor // "" | strings' "$1" | awk '/^[A-Za-z0-9-]+$/ { print; exit }')
-  [ -n "$_nc" ] || return 1
+  [ -n "$_nc" ] && [ "$_nc" != "${2:-}" ] || return 1
   printf '%s\n' "$_nc"
 }
 
@@ -393,7 +394,7 @@ comments_of() {
   while :; do
     request GET "/v1/comments?block_id=$1&page_size=100${_cursor:+&start_cursor=$_cursor}"
     parse_comments "$resp" "$2" >>"$items" || die 1 "a comments response did not parse"
-    _cursor=$(next_cursor "$resp") || die 1 "$NO_CURSOR"
+    _cursor=$(next_cursor "$resp" "$_cursor") || die 1 "$NO_CURSOR"
     [ -n "$_cursor" ] || break
   done
 }
@@ -422,7 +423,7 @@ while :; do
       [ "$kids" != 1 ] || printf '%s\n' "$bid" >>"$queue"
     done <"$work/children.tsv"
     [ "$status" = complete ] || break
-    cursor=$(next_cursor "$resp") || die 1 "$NO_CURSOR"
+    cursor=$(next_cursor "$resp" "$cursor") || die 1 "$NO_CURSOR"
     [ -n "$cursor" ] || break
   done
   [ "$status" = complete ] || break
