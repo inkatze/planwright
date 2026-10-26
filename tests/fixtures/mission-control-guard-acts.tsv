@@ -1,0 +1,77 @@
+# The mission-control tier's guard fixture rows: each act the
+# `mission-control` tier of scripts/policy-guard.sh refuses or lets through,
+# driven by tests/test-policy-guard-mission-control.sh.
+#
+# expect<TAB>class<TAB>surface<TAB>knob<TAB>input
+#   expect   deny, or defer (the guard stays silent and the call reaches the
+#            permission layer)
+#   surface  bash: <input> is the command; file: <input> is `<tool> <path>`
+#            for an Edit, Write, MultiEdit or NotebookEdit payload; mcp:
+#            <input> is the update_pull_request tool_input as JSON
+#   knob     `-` for the harness defaults, else one machine-local line
+# @UNIT@ is the harness's unit clone, @SCRATCH@ a directory in no repository
+# and @HOME@ a fixture home outside both.
+deny	git-mutation	bash	-	git commit -m wip
+deny	git-mutation	bash	-	git add -A
+deny	git-mutation	bash	-	git checkout -b scratch
+deny	git-mutation	bash	-	git switch main
+deny	git-mutation	bash	-	git restore README.md
+deny	git-mutation	bash	-	git stash
+deny	git-mutation	bash	-	git branch scratch
+deny	git-mutation	bash	-	git branch -D planwright/demo/task-2
+deny	git-mutation	bash	-	git tag v9
+deny	git-mutation	bash	-	git config user.name someone
+deny	git-mutation	bash	-	git remote add other https://example.invalid/x.git
+deny	git-mutation	bash	-	git fetch origin
+deny	git-mutation	bash	-	git cherry-pick HEAD
+deny	git-mutation	bash	-	git worktree add ../scratch
+deny	git-mutation	bash	-	git -C @UNIT@ reset --hard HEAD
+deny	git-mutation	bash	-	git update-ref refs/heads/x HEAD
+deny	git-mutation	bash	-	sh -c 'git add -A'
+deny	git-mutation	bash	-	git co main
+deny	merge	bash	-	git merge origin/main
+deny	merge	bash	-	git pull origin main
+deny	merge	bash	-	gh pr merge 42 --squash
+deny	merge	bash	-	scripts/merge-admitted.sh --pr 42
+deny	merge	bash	-	gh api -X PUT repos/acme/widgets/pulls/42/merge
+deny	merge	mcp	-	{"draft":false}
+deny	settings-write	file	-	Write @HOME@/.claude/settings.json
+deny	settings-write	file	-	Edit @SCRATCH@/proj/.claude/settings.local.json
+deny	settings-write	file	-	MultiEdit @HOME@/.claude/settings.json
+deny	settings-write	file	-	Write @HOME@/.claude.json
+deny	settings-write	bash	-	cp @SCRATCH@/x.json @HOME@/.claude.json
+deny	settings-write	bash	-	cp @SCRATCH@/x.json @HOME@/.claude/settings.json
+deny	settings-write	bash	-	printf '{}' > .claude/settings.local.json
+deny	settings-write	bash	-	jq '.permissions={}' @HOME@/.claude/settings.json > @SCRATCH@/s.json
+deny	settings-write	bash	-	sed -i s/a/b/ @HOME@/.claude/settings.json
+deny	repo-write	file	-	Write @UNIT@/README.md
+deny	repo-write	file	-	Edit @UNIT@/new-dir/notes.md
+deny	flip-outside	bash	ready_flip_policy: human	gh pr ready 42
+deny	redraft	bash	-	gh pr ready 42 --undo
+deny	rewrite	bash	-	git rebase origin/main
+deny	rewrite	bash	-	git commit --amend --no-edit
+deny	rewrite	bash	-	git push --force-with-lease origin planwright/demo/task-1
+deny	rewrite	bash	-	git push origin +planwright/demo/task-1
+deny	protected-push	bash	-	git push origin main
+deny	protected-push	bash	-	git push origin HEAD:refs/heads/main
+deny	protected-push	bash	-	gh api -X PATCH repos/acme/widgets/git/refs/heads/main -f sha=abc
+deny	remote-delete	bash	-	git push origin --delete planwright/demo/task-2
+deny	remote-delete	bash	-	git push origin :planwright/demo/task-2
+deny	remote-delete	bash	-	gh api -X DELETE repos/acme/widgets/git/refs/heads/planwright/demo/task-2
+defer	flip-inside	bash	ready_flip_policy: unit-owner	gh pr ready 42
+defer	rewrite-on-request	bash	-	scripts/tower-force-push.sh --branch planwright/demo/task-1
+defer	read	bash	-	git status
+defer	read	bash	-	git log --oneline -5
+defer	read	bash	-	git diff origin/main...HEAD
+defer	read	bash	-	git branch --list
+defer	read	bash	-	git branch -a
+defer	read	bash	-	git config --get remote.origin.url
+defer	read	bash	-	git remote -v
+defer	read	bash	-	git worktree list
+defer	read	bash	-	git stash list
+defer	read	bash	-	gh pr view 42
+defer	read	bash	-	jq . @HOME@/.claude/settings.json
+defer	read	bash	-	cat .claude/settings.local.json
+defer	read	bash	-	jq .mcpServers @HOME@/.claude.json 2>/dev/null
+defer	read	bash	-	cat config/tower-settings.json
+defer	scratch-write	file	-	Write @SCRATCH@/relay-message.txt
