@@ -184,7 +184,7 @@ Routing is never silent. At routing time the tower states, to the operator in
 the same turn, the route and its grounds in one line: **the trigger that fired
 and the one-line evidence for it** — *"visual flight: a one-file wording change,
 one revert from undone"*. A route stated without grounds is a defect. The
-statement is what the flight record quotes (REQ-E1.1).
+statement is what the flight record quotes (REQ-E1.6).
 
 ### The override (REQ-B1.4, D-5)
 

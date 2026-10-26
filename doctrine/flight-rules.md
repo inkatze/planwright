@@ -21,7 +21,7 @@ Citations: tower-front-door REQ-A1.2, REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4,
 REQ-B1.5, REQ-B1.6, REQ-C1.6, REQ-C1.7, REQ-C1.8, REQ-E1.2, REQ-E1.6, REQ-E1.9,
 REQ-E1.10, REQ-E1.11, REQ-E1.12, REQ-F1.3, REQ-F1.5, REQ-F1.6, REQ-G1.1,
 REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-H1.4 · tower-front-door D-1, D-2, D-3, D-4,
-D-5, D-6, D-7, D-10, D-16, D-17, D-20, D-21, D-22 · custom-steps REQ-F1.5 ·
+D-5, D-6, D-7, D-10, D-16, D-17, D-18, D-20, D-21, D-22 · custom-steps REQ-F1.5 ·
 human-gates REQ-C1.1, REQ-F1.1, REQ-F1.2.
 
 ## The routing rule (D-4)
@@ -149,7 +149,7 @@ set the grade reads, the fixture, and the grade live beside the harness, in
 ## Points on a flight (D-16, D-17)
 
 A visual flight fires every in-run point [custom-steps](custom-steps.md) wires
-in `/execute-task` (never a flip point), in the same order and at the same
+in `/execute-task` (never a flip point), in the same order, at the same
 moments, with unit kind `flight` (REQ-C1.7). `convergence` keeps its `main`
 sync; a flight with no remote records it as not run, with the reason. Every
 step kind runs under the task runner contract, with no flight-only grammar,
