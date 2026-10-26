@@ -12,7 +12,10 @@
 #   - a configured program whose block does not validate
 #     (scripts/mc-program.sh validate: repositories, spec root, home, budget,
 #     a source map naming an unknown class or mode), or whose enabled list
-#     names a duty the catalog lacks.
+#     names a duty the catalog lacks;
+#   - a `snapshot` source, in the default state-source map or a program's,
+#     with no adapter in the merged snapshot-adapters catalog
+#     (scripts/mc-snapshot.sh check), the source named.
 #
 # Only the core and repo-tracked layers are read: the adopter overlay and the
 # machine-local config are pointed at an empty scratch directory, and HOME
@@ -154,13 +157,18 @@ if default_duties=$(run mc-program.sh default duties); then
 else
   relay mission_control_default_duties
 fi
-run mc-program.sh default sources >/dev/null || relay mission_control_default_sources
+if run mc-program.sh default sources >/dev/null; then
+  run mc-snapshot.sh check --defaults || relay mission_control_default_sources
+else
+  relay mission_control_default_sources
+fi
 run mc-program.sh default home >/dev/null || relay mission_control_home_root
 
 if programs=$(run mc-program.sh list); then
   for p in $programs; do
     if run mc-program.sh validate "$p"; then
       valid=1
+      run mc-snapshot.sh check --program "$p" || relay "program '$p' sources"
     else
       valid=0
       relay "program '$p'"

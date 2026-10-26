@@ -125,9 +125,12 @@ that recognize a metered service's limit refusals; see
 [Vendor quotas](quota.md)), **discipline-cards** (the persona-seat card
 catalog; each entry's card file sits beside its layer's catalog, under
 `cards/` or `cards.local/`; see
-[Discipline Cards](../doctrine/discipline-cards.md)), and **duties** (mission
+[Discipline Cards](../doctrine/discipline-cards.md)), **duties** (mission
 control's duty catalog; `config/duties.yaml`'s header holds the entry
-grammar).
+grammar), and **snapshot-adapters** (the adapter each snapshot-mode source
+of a mission-control program is refreshed by;
+`config/snapshot-adapters.yaml`'s header holds the entry grammar and the
+adapter contract).
 
 ## 3. How each kind merges
 

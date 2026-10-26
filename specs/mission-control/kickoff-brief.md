@@ -548,6 +548,33 @@ Self-critique pass: nothing further.
 
 Signed off: 2026-10-24
 
+### Execution research: Task 5 (2026-10-25)
+
+Scoping: version-sensitive APIs only (the forge's GraphQL schema and the
+fleet's two session relays); no new dependency, so a short pass against
+primary sources.
+
+- **Forge read shape.** One GraphQL query per repository carries the rate
+  limit, the viewer, and per pull request the head, draft state,
+  mergeability, review decision, thread resolution, the rollup check state
+  and the review and comment counts; checked live against the forge with
+  gh's built-in jq, which has `fromdateiso8601`. The patch id needs a
+  diff read per pull request, so the adapter carries it forward while the
+  head is unchanged. Tradeoff: the newest 50 open pull requests and the
+  first 100 threads per pull request, stated in the adapter's header.
+- **Row 5 (submit or stage).** The relay ships here as Task 5 requires,
+  on what the fleet's own relays already document: the stream-json steer
+  writes a user turn on the worker's stdin (a submit), and the tmux
+  buffer-paste deliberately loads no newline (a stage, measured in
+  `scripts/orchestrate-relay.sh`). The tick re-sends anything not
+  submitted, so a staged or refused wake is found within one tick. Task
+  7's research record still decides the mod's path and may refine the
+  per-backend table; no new risk.
+- **Adapter registration.** Registered through a `snapshot-adapters`
+  catalog merged by the existing catalog resolver, the shape D-3 chose for
+  duties, so a later bundle adds an adapter with an overlay entry and no
+  seam change.
+
 ## 8. Sign-off
 
 First activation, full walkthrough, every section above signed, no

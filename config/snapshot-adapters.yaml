@@ -1,0 +1,37 @@
+---
+# planwright core snapshot-adapters catalog: mission control's source
+# snapshot seam.
+#
+# An adapter refreshes one age-stamped snapshot of one snapshot-mode source
+# (a program's state-source map names the sources and their modes). THIS
+# file is the core seed scripts/resolve-catalog.sh merges with the adopter /
+# repo-tracked / machine-local overlay catalogs
+# (catalogs/snapshot-adapters.yaml, .claude/catalogs/snapshot-adapters.yaml,
+# .claude/catalogs.local/snapshot-adapters.yaml): append/union,
+# supersede-by-id. An overlay registers an adapter for a new source with a new
+# id. scripts/mc-snapshot.sh reads the merged view; a snapshot-mode source no
+# entry names fails check:duties.
+#
+# Entry fields, every one required:
+#   id       the source the adapter serves, the kebab name the state-source
+#            map uses
+#   summary  one line: what the snapshot holds
+#   script   the adapter, a relative path of letters, digits, `.`, `_`, `-`
+#            and `/`, starting with neither `/` nor `-`, with no `..`
+#            segment, resolved against the planwright root first and then
+#            each of the program's repositories
+#   cadence  the refresh cadence when mission_control_snapshot_cadence names
+#            none for the source: a positive count of s, m, h or d
+#
+# The adapter contract, which scripts/mc-snapshot.sh's header states in full:
+# `<script> refresh --program <p> --out <file> [--previous <file>]` writes
+# the snapshot body, reports rate-limit headroom on stdout, and exits 75 when
+# the source refused the read for its rate limit.
+#
+# The reader is the constrained awk parser config/duties.yaml describes.
+
+adapters:
+  - id: forge
+    summary: "Per tracked pull request: head, draft, mergeability, review, checks, patch id"
+    script: scripts/mc-adapter-forge.sh
+    cadence: 5m
