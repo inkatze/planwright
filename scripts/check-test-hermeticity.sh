@@ -512,14 +512,32 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
       delete spawned[v]; delete reaped[v]
     }
   }
+  # cmdword(s, w): the position just past the first <w> in <s> that sits
+  # where a command word does, else 0. The text before an occurrence, cut
+  # after its last $( or backtick, must be only words that introduce a
+  # command: if, then, do, else, elif, while, until, !, time [-p], command,
+  # builtin, a case pattern with its paren, a function head. Each occurrence
+  # is tested on its own, with no open-ended pattern, so the cost stays
+  # linear in the line.
+  function cmdword(s, w,   off, k, p, c) {
+    off = 0
+    while ((k = index(substr(s, off + 1), w))) {
+      k += off
+      p = substr(s, 1, k - 1)
+      sub(/.*(\$\(|`)/, "", p)
+      c = substr(s, k + length(w), 1)
+      if ((c == "" || c ~ (w == "wait" ? "[ \t<>}]" : "[ \t]")) && p ~ /^[ \t{(!]*((if|then|do|else|elif|while|until|command|builtin|time|-p|case[ \t]+[^ \t]+[ \t]+in|\(?[^ \t()]+\)|[A-Za-z_][A-Za-z0-9_:-]*[ \t]*\([ \t]*\)|function[ \t]+[^ \t(]+(\(\))?)[ \t{(!]+)*$/) return k + length(w)
+      off = k
+    }
+    return 0
+  }
   # wait_line(line, mc, n, prev): walk a line holding a wait one command at a
   # time, split where the masked code <mc> has ; & or |, in order: a wait
   # reaps (a bare one, redirections aside, every capture; one with operands
   # the captures it names), a kill is no use, and any other command is
   # checked for a use of what an earlier command reaped. The wait or kill
-  # word counts only where a command word sits: at the start of the command,
-  # or after if, then, !, time, a case pattern, a $( or the like; as an
-  # argument (grep -q wait) or a case label (wait) it is plain text.
+  # word counts only where a command word sits (see cmdword); as an argument
+  # (grep -q wait) or a case label (wait) it is plain text.
   function wait_line(line, mc, n, prev,   whole, k, len, seg, cseg, after, v, re_v) {
     whole = line
     while (mc != "") {
@@ -527,8 +545,8 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
       else { k = length(mc) + 1; len = 0 }
       cseg = substr(mc, 1, k - 1); seg = substr(line, 1, k - 1)
       mc = substr(mc, k + len); line = substr(line, k + len)
-      if (match(cseg, /^[ \t{(!]*(((if|then|do|else|elif|while|until|time|command|builtin|!)[ \t]+|case[ \t].*[ \t]in[ \t]+[^ \t()]+\)[ \t]*|[^ \t()]+\)[ \t]*|.*\$\(|.*`)[ \t{(!]*)*wait/) && substr(cseg, RLENGTH + 1, 1) ~ /^([ \t<>}]|)$/) {
-        after = substr(cseg, RLENGTH + 1)
+      if ((k = cmdword(cseg, "wait"))) {
+        after = substr(cseg, k)
         if (after ~ /^[ \t]*([0-9]*[<>][^ \t]*[ \t]*)*[)}]*[ \t]*$/) {
           for (v in spawned) if (!reaped[v]) reaped[v] = n
         } else {
@@ -537,7 +555,7 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
             if (index(seg, v) && seg ~ re_v) reaped[v] = n
           }
         }
-      } else if (!match(cseg, /^[ \t{(!]*(((if|then|do|else|elif|while|until|time|command|builtin|!)[ \t]+|case[ \t].*[ \t]in[ \t]+[^ \t()]+\)[ \t]*|[^ \t()]+\)[ \t]*|.*\$\(|.*`)[ \t{(!]*)*kill/) || substr(cseg, RLENGTH + 1, 1) !~ /^([ \t]|)$/) {
+      } else if (!cmdword(cseg, "kill")) {
         dead_use(seg, n, prev, whole)
       }
     }

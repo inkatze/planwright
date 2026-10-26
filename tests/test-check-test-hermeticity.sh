@@ -533,6 +533,63 @@ wait "$pid"; log_step kill "$pid"
 SUITE
 expect "dead-owner: kill as an argument does not hide a use" 1 "test-case.sh:4: dead-owner" "$r"
 
+# A function head, a parenthesised case pattern and time -p all put the next
+# word in command position.
+r=$(root_with wait-in-heads)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+p1=$!
+reap() { wait "$p1" 2>/dev/null; }
+sleep 0 &
+p2=$!
+case $x in (a) wait "$p2" ;; esac
+sleep 0 &
+p3=$!
+time -p wait "$p3"
+echo "$p1 $p2 $p3" >log
+SUITE
+out=$(/bin/bash "$CHECKER" "$r" 2>&1)
+missed=""
+for v in p1 p2 p3; do
+  case $out in
+    *"uses \$$v after"*) ;;
+    *) missed="$missed $v" ;;
+  esac
+done
+if [ -z "$missed" ]; then
+  pass "dead-owner: a wait after a function head, a (pattern) or time -p reaps"
+else
+  fail "dead-owner: waits on$missed went unread: $out"
+fi
+r=$(root_with kill-in-head)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+pid=$!
+wait "$pid"
+stop() { kill "$pid" 2>/dev/null; wait "$pid"; }
+SUITE
+expect "dead-owner: a kill opening a function body is no use" 0 "clean" "$r"
+
+# The command-position test stays linear: a long line of substitutions
+# beside a wait-like word scans at once.
+r=$(root_with long-subst-line)
+{
+  printf '#!/bin/bash\nsleep 0 &\npid=$!\necho'
+  i=0
+  while [ "$i" -lt 40 ]; do
+    printf ' x$(a) b`c` d)'
+    i=$((i + 1))
+  done
+  printf ' waitx\n'
+} >"$r/tests/test-case.sh"
+started=$SECONDS
+expect "a long line of substitutions beside a wait-like word is scanned" 0 "clean" "$r"
+if [ $((SECONDS - started)) -gt 20 ]; then
+  fail "the long substitution line took $((SECONDS - started))s to scan"
+fi
+
 # A library name holding a glob character is malformed as written, never
 # expanded to the files it would match.
 r=$(root_with glob-name sourced-read.sh)
