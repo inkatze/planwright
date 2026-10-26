@@ -678,7 +678,13 @@ fi
 mkdir -p "$tmp/fx" && cp "$FIX"/*.json "$tmp/fx/"
 key="AKIA""ABCDEFGHIJKLMNOP"
 long_author="$(printf 'b%.0s' $(seq 1 119))ü"
+pem_begin="-----BEGIN RSA PRIVATE KEY""-----"
+pem_body="MIIEowIBAAKCAQEA7Zx2Lm""9Rt4Wb8Nc1Yv6Ha3Pd5Sj0Ug2EfKq"
+pem_end="-----END RSA PRIVATE KEY""-----"
 jq --arg t "Use $key for the pilot.
+$pem_begin
+$pem_body
+$pem_end
 The rest is fine." --arg a "$long_author" '.results[0].rich_text[0].plain_text = $t | .results[0].display_name = {type: "user", resolved_name: $a}' \
   "$FIX/comments-page-2.json" >"$tmp/fx/comments-secret.json"
 sed 's/comments-page-2.json/comments-secret.json/' "$tmp/routes.base" >"$tmp/routes6"
@@ -696,6 +702,8 @@ assert_contains "credential comment: every item recorded" "new	3" "$out"
 assert_not_contains "credential comment: the key is not in the ledger" "ABCDEFGHIJKLMNOP" "$(cat "$v7/feedback/ledger.md")"
 assert_contains "credential comment: the line is marked withheld" "redacted" "$(cat "$v7/feedback/ledger.md")"
 assert_contains "credential comment: the rest of the comment is kept" "> The rest is fine." "$(cat "$v7/feedback/ledger.md")"
+assert_not_contains "credential comment: no line of a pasted private key is kept" "$pem_body" "$(cat "$v7/feedback/ledger.md")"
+assert_not_contains "credential comment: nor its armour" "PRIVATE KEY" "$(cat "$v7/feedback/ledger.md")"
 assert_contains "credential comment: the operator is told" "redacted" "$(cat "$tmp/err")"
 assert_not_contains "credential comment: the key is not printed" "ABCDEFGHIJKLMNOP" "$(cat "$tmp/err")"
 assert_eq "capped author: cut before the split character" "$(printf 'b%.0s' $(seq 1 119))" "$(field_of "$v7" FB-2 Author)"
