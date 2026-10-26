@@ -2395,6 +2395,15 @@ case $out in
   "1 []") pass "a busy try leaves PW_LOCK_BROKEN empty" ;;
   *) fail "a busy try read '$out'" ;;
 esac
+out="$(run_sh x '
+  PW_LOCK_BROKEN=stale
+  pw_lock_acquire_for "$1/busy.lock" notapid 1 2>/dev/null
+  printf "%s [%s]\n" "$?" "$PW_LOCK_BROKEN"
+')"
+case $out in
+  "2 []") pass "a refused acquire clears PW_LOCK_BROKEN too" ;;
+  *) fail "a refused acquire read '$out'" ;;
+esac
 kill "$broken_live" 2>/dev/null
 wait "$broken_live" 2>/dev/null
 rm -f "$tmp"/busy.lock*

@@ -30,8 +30,8 @@
 #   pw_lock_owner <path>                 print the holder's token
 #   pw_lock_owner_alive <token>          0 the owner is running, 1 it is gone
 #   PW_LOCK_TOKEN                        set by a successful acquire
-#   PW_LOCK_BROKEN                       the dead owner's token an attempt
-#                                        broke to acquire, else empty
+#   PW_LOCK_BROKEN                       the dead owner's token the last
+#                                        acquire verb removed, else empty
 #
 # THE LOCK-HOLDER LIST. Every script that implements an ADVISORY LOCK sources
 # this file and takes its locks through it:
@@ -185,10 +185,12 @@ PW_LOCK_HELD=''
 # The caller's handle on its own hold: every verb that takes a lock publishes
 # the token here so a cross-process release can prove ownership.
 PW_LOCK_TOKEN=''
-# Set by every acquisition attempt: the token of the dead owner it broke on
-# the way in, empty when it broke none. A caller that logs released holders
-# reads it here, since a probe of its own taken before the attempt misses an
-# owner that dies between that probe and the attempt's.
+# Set by every acquire verb, whatever it returns: the token of the dead
+# owner whose link this call removed, empty when it removed none. A break
+# whose publish then loses to a peer still counts, since the dead link is
+# gone either way. A caller that logs released holders reads it here: a probe
+# of its own before the call misses an owner that dies between that probe
+# and the call's.
 PW_LOCK_BROKEN=''
 PW_LOCK_SEQ=0
 PW_LOCK_EPOCH=''
@@ -917,6 +919,7 @@ _pw_lock_break() {
     return 1
   fi
   rm -f "$_pwb_taken" 2>/dev/null || :
+  PW_LOCK_BROKEN=$_pwb_dead
   if _pw_lock_publish "$_pwb_lock" "$_pwb_token" "${_pwb_depth:-1}"; then
     rm -f "$_pwb_claim" 2>/dev/null || :
     return 0
@@ -940,7 +943,6 @@ _pw_lock_try_core() {
   # to travel out of band or it is simply lost, and the first release then
   # unlinks while the outer sections are still inside.
   _pwt_owed=${4:-0}
-  PW_LOCK_BROKEN=''
   _pw_lock_probe_again=0
   _pw_lock_owed_depth=0
   _pw_lock_require_readlink || return 2
@@ -1005,7 +1007,6 @@ _pw_lock_try_core() {
     fi
     _pw_lock_break "$_pwt_lock" "$_pwt_owner" "$_pwt_token" "$_pwt_depth"
     _pwt_rc=$?
-    [ "$_pwt_rc" -ne 0 ] || PW_LOCK_BROKEN=$_pwt_owner
     # A break that did not win found something in motion — a peer breaking the
     # same owner, or a claim it has just reclaimed — so the next spin looks
     # again rather than waiting out a stride for a situation that is changing.
@@ -1088,6 +1089,7 @@ _pw_lock_acquire_core() {
 # PW_LOCK_TOKEN is the token to prove it), 1 a live holder has it, 2 a real
 # error.
 pw_lock_try() {
+  PW_LOCK_BROKEN=''
   _pw_lock_path_ok pw_lock_try "${1:-}" || return 2
   _pw_lock_try_core "$1" "$$" 1
 }
@@ -1095,6 +1097,7 @@ pw_lock_try() {
 # pw_lock_acquire <path> [<max-tries>] — spin until held or the budget runs
 # out. 0 held, 1 a live holder kept it for the whole budget, 2 a real error.
 pw_lock_acquire() {
+  PW_LOCK_BROKEN=''
   _pw_lock_path_ok pw_lock_acquire "${1:-}" || return 2
   _pw_lock_acquire_core "$1" "${2:-$PW_LOCK_MAX_TRIES}" "$$"
 }
@@ -1152,12 +1155,14 @@ _pw_lock_take_disowned() {
 # That is the trade the liveness rule makes: it never breaks a live lock, and in
 # exchange it cannot guess about a hold with no owner to ask about.
 pw_lock_try_detached() {
+  PW_LOCK_BROKEN=''
   _pw_lock_path_ok pw_lock_try_detached "${1:-}" || return 2
   _pw_lock_take_disowned pw_lock_try_detached "$1" "detached-$$" ''
 }
 
 # pw_lock_acquire_detached <path> [<max-tries>] — the spinning form.
 pw_lock_acquire_detached() {
+  PW_LOCK_BROKEN=''
   _pw_lock_path_ok pw_lock_acquire_detached "${1:-}" || return 2
   _pw_lock_take_disowned pw_lock_acquire_detached "$1" "detached-$$" "${2:-$PW_LOCK_MAX_TRIES}"
 }
@@ -1170,6 +1175,7 @@ pw_lock_acquire_detached() {
 # a caller naming a pid that is already gone gets a lock anyone may break,
 # which is the correct outcome and not an error.
 pw_lock_acquire_for() {
+  PW_LOCK_BROKEN=''
   _pw_lock_path_ok pw_lock_acquire_for "${1:-}" || return 2
   case ${2:-} in
     '' | 0* | *[!0-9]*)
