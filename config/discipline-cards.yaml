@@ -1,5 +1,5 @@
 ---
-# planwright discipline-cards catalog — the core seed (inception Tasks 4-5;
+# planwright discipline-cards catalog — the core seed (inception Tasks 4-6;
 # REQ-P1.10, D-17).
 #
 # doctrine/discipline-cards.md is the normative home: the card format, where
@@ -27,3 +27,5 @@ cards:
     discipline: "AI and agent architecture"
   - id: software-engineering
     discipline: "Software engineering"
+  - id: ml-llm-engineering-evals
+    discipline: "ML/LLM engineering and evals"

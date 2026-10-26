@@ -256,6 +256,18 @@ run = "/bin/sh scripts/check-task-registration.sh"
 description = "cite-don't-copy guard: fail when the universal-binary bundle's prose (outside its Sources and Changelog sections and a verdict decision's measurement and cost-benefit lines) carries a figure that a dated snapshot (docs/substrate/*.md or docs/substrate-*.md) also carries, so the bundle cites the snapshot instead of freezing its numbers; task, section, step and wave numerals and the id-valued metadata fields are references, not figures; exemptions live in scripts/check-number-copy-exempt.tsv with a reason each, and a stale one fails (universal-binary Task 3, REQ-A1.4, D-4)"
 run = "/bin/sh scripts/check-number-copy.sh"
 
+[tasks."check:entry-points"]
+description = "frozen entry-point guard: every script a skill body, a hook registration, or a tracked git hook names (the partition's entry points) must have a recorded fixture under tests/fixtures/entry-points/ and, run from a read-only copy of the tree in a clean environment, still exit, print to stdout, and write stderr as recorded; fails on an entry point without a fixture, a fixture whose entry point is gone or no longer one, a run exiting with the reserved shim fetch-failure code, and a shim (`# planwright-shim-target:`) of a script the partition flags. Computes the partition and passes it in. Record a fixture with `scripts/check-entry-points.sh --partition <file> --record <path> -- <args>` (universal-binary Task 2.1, REQ-E1.2, REQ-A1.3, D-10)"
+run = '''
+p=$(mktemp "${TMPDIR:-/tmp}/substrate-partition.XXXXXX") || exit 5
+trap 'rm -f "$p"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+/bin/sh scripts/substrate-partition.sh >"$p" || { rc=$?; [ "$rc" -gt 128 ] && exit "$rc"; exit 5; }
+/bin/sh scripts/check-entry-points.sh --partition "$p"
+'''
+
 [tasks."check:lock-primitive"]
 description = "retired-mkdir guard over advisory locking: fail on any shell file under scripts/, tests/, or githooks/ that reads a `mkdir`'s exit status as a lock-acquisition signal, the primitive that was measured losing mutual exclusion in the ordinary acquire/read-modify-write/release cycle; scripts/lock-lib.sh is the one acquisition primitive now, and a site that consumes mkdir's status for something else (a mode-pinned bootstrap where EEXIST is success, a best-effort creation, a deliberate atomicity probe) says so with a `# not-a-lock: <reason>` annotation; enumerates by shebang or .sh suffix so the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (universal-binary Task 1, D-11, REQ-E1.5)"
 run = "/bin/bash scripts/check-lock-primitive.sh"
@@ -350,6 +362,7 @@ depends = [
   "check:task-registration",
   "check:lock-primitive",
   "check:number-copy",
+  "check:entry-points",
   "check:bash32",
   "check:guard-wiring",
   "check:sidedness",

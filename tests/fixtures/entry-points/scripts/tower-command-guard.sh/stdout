@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"planwright tower-command-guard: enumerated known-safe tower orchestration / read-only / bounded temp-file command shape (deterministic, no LLM)"}}

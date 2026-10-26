@@ -1,0 +1,1 @@
+match ^fleet-attention: unknown command '--entry-point-probe' \(heartbeat\|decide\|fork\|claim\|park\|permission\|clear\|render\|queue\|notify\|relay\)$
