@@ -76,6 +76,7 @@ deny	settings-write	file	-	settings or configuration file	Write @SCRATCH@/cl/hoo
 deny	settings-write	file	-	settings or configuration file	Write @HOME@/.claude/agents/x.md
 deny	settings-write	file	-	settings or configuration file	Write @HOME@/.claude/skills/x/SKILL.md
 deny	settings-write	file	-	settings or configuration file	Write @HOME@/.claude/commands/x.md
+deny	settings-write	file	-	settings or configuration file	Write @HOME@/.claude/planwright/planwright/fleet/streamjson/mc-x/profile
 deny	settings-write	file	-	settings or configuration file	Write @SCRATCH@/proj/config/tower-settings.json
 deny	settings-write	bash	-	settings or configuration file	cp @SCRATCH@/x.json @HOME@/.claude/settings.json
 deny	settings-write	bash	-	settings or configuration file	cp @SCRATCH@/x.json @HOME@/.claude.json

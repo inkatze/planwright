@@ -45,6 +45,11 @@
 #                    unreadable profile refuses the dispatch (exit 2)
 #         --name <name>  (tmux only) the session and window name, in the
 #                    stream-json-persistent handle grammar
+#         --scope <scope>  (tmux only) the worker scope a worker-profile
+#                    session's identity carries beside --name (default
+#                    offload); the wrapper is pinned to this install's root
+#                    and accepts inbound messages, and only a worker-profile
+#                    session carries the worker identity
 #
 #   report <backend> <handle>
 #       Emit the standardized report for an already-dispatched worker (the
@@ -148,7 +153,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 usage() {
-  printf '%s\n' "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] [--key <selection-key>] [--strict-tier] [--profile <kind>] [--name <name>] | report <backend> <handle>>" >&2
+  printf '%s\n' "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] [--key <selection-key>] [--strict-tier] [--profile <kind>] [--name <name>] [--scope <scope>] | report <backend> <handle>>" >&2
 }
 
 # --------------------------------------------------------------------------
@@ -168,6 +173,7 @@ D_KEY=offload
 D_STRICT=0
 D_PROFILE=''
 D_NAME=''
+D_SCOPE=offload
 
 resolve_tier() {
   # $1 backend, $2 unit
@@ -433,7 +439,14 @@ cmd_dispatch() {
   launch_env=''
   launch_settings=''
   if [ -n "$D_PROFILE" ]; then
-    launch_settings=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$D_PROFILE" </dev/null) || exit 2
+    # The profile and the hooks it names come from this install: the wrapper
+    # is pinned to the same root, which also drops a tower identity the tmux
+    # server's environment may carry.
+    launch_root=$(cd -- "$script_dir/.." 2>/dev/null && pwd -P) || {
+      printf '%s\n' "$me: dispatch: cannot resolve this install's root for the profile launch" >&2
+      exit 2
+    }
+    launch_settings=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$D_PROFILE" --root "$launch_root" </dev/null) || exit 2
     launch_env="$script_dir/fleet-dispatch-env.sh"
     if [ ! -f "$launch_env" ] || [ ! -x "$launch_env" ]; then
       printf '%s\n' "$me: dispatch: $launch_env is missing or not executable, so the profile's hooks would find no planwright root; refusing" >&2
@@ -497,7 +510,10 @@ cmd_dispatch() {
   [ -z "$D_NAME" ] || win_name=$D_NAME
   set -- offload-worker "$promptfile"
   if [ -n "$launch_env" ]; then
-    set -- "$@" "$launch_env" claude --settings "$launch_settings"
+    set -- "$@" "$launch_env" --root "$launch_root" --inbound accept
+    # Only a worker carries the worker identity its hooks key on.
+    [ "$D_PROFILE" != worker ] || [ -z "$D_NAME" ] || set -- "$@" --identity "$D_NAME" "$D_SCOPE"
+    set -- "$@" claude --settings "$launch_settings"
   else
     set -- "$@" claude
   fi
@@ -617,6 +633,24 @@ case "$sub" in
               exit 2
               ;;
           esac
+          shift 2
+          ;;
+        --scope)
+          [ "$#" -ge 2 ] || {
+            usage
+            exit 2
+          }
+          case $2 in
+            '' | -* | *[!A-Za-z0-9._=@:-]*)
+              printf '%s\n' "$me: dispatch: refusing malformed --scope '$(sanitize_printable "$2" "(unprintable)")'" >&2
+              exit 2
+              ;;
+          esac
+          [ "${#2}" -le 128 ] || {
+            printf '%s\n' "$me: dispatch: --scope exceeds 128 bytes" >&2
+            exit 2
+          }
+          D_SCOPE=$2
           shift 2
           ;;
         --name)

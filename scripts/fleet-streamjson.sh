@@ -10,12 +10,12 @@
 # WHAT THIS IS (D-5). A supervisor process owns a stream-json worker's stdio:
 # it launches the worker (`claude -p --input-format stream-json
 # --output-format stream-json --verbose --permission-prompt-tool stdio
-# --settings <config/worker-settings.json> --name <worker>`, with the worker
-# identity and PLANWRIGHT_MESSAGING_INBOUND=accept exported, so its hooks
-# write attention rows and register its session name (fleet-messaging D-8,
-# D-19); a handle outside the relay's stream-json-persistent grammar, which
+# --settings <config/<profile>-settings.json> --name <worker>`, the profile
+# worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept and, for a
+# worker, the worker identity exported, so its hooks write attention rows and
+# register its session name (fleet-messaging D-8, D-19); a handle outside the relay's stream-json-persistent grammar, which
 # names the session, is refused; non-`--bare` pinned per
-# D-12/REQ-A1.5, and the worker-settings fragment pinned per fleet-autonomy
+# D-12/REQ-A1.5, and the settings fragment pinned per fleet-autonomy
 # D-19/REQ-E1.4. Pinning means never passing `--bare`, always passing the
 # fragment under the root the core root chain names (fleet-launch-profile.sh),
 # and REFUSING a caller-supplied `--bare`,
@@ -291,7 +291,9 @@
 #   exit 3 AFTER surfacing the attention item); 4 recovery halt: no usable
 #   session to resume; 5 recovery halt: the `--resume` relaunch failed; 6 a
 #   partial close: some class of the release set is still held; 7 the
-#   worker-settings fragment the launch pins is missing or unreadable; 8 the
+#   settings fragment of the launch's profile is missing or unreadable, or a
+#   recover finds its recorded profile unreadable, unknown, or (for a
+#   mission-control launch) absent; 8 the
 #   dispatch-env wrapper the launch goes through is missing or unreadable; 9
 #   the launch preflight could not prove the worker's auto-approve hook will
 #   approve its opening plugin-script call (see LAUNCH PREFLIGHT).
@@ -302,8 +304,9 @@
 # plumbing approved and the worker pended on its first tool call with nothing
 # to say so (2026-09-12, format-grammar task 7: the guard trusted the root the
 # LAUNCHER lives in, the skill called scripts under the root Claude Code
-# INSTALLED the plugin at). So before spawning, `launch` runs the hook the
-# worker will run (scripts/worker-command-guard.sh under the CLAUDE_PLUGIN_ROOT
+# INSTALLED the plugin at). So before spawning a worker-profile session,
+# `launch` runs the hook the worker will run (scripts/worker-command-guard.sh
+# under the CLAUDE_PLUGIN_ROOT
 # the dispatch-env wrapper exports, through that wrapper and so with the
 # environment the worker gets) against a synthetic PreToolUse payload for
 # `<root>/scripts/resolve-rule-doc.sh spec-format`, once per root the worker
@@ -317,7 +320,8 @@
 # all, refuses the same way. PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT is `refuse`
 # by default; =warn downgrades every refusal to a warning (an operator who
 # intends to answer every prompt by hand); =off skips the proof; any other
-# value is a usage error (exit 2).
+# value is a usage error (exit 2). A tower or mission-control profile wires
+# the tower command guard instead, so its launch runs no preflight.
 #
 # ESCALATION TICK. The pending-age alarm used to be scan-only (`alarm-scan`),
 # and nothing in the fleet ran the scan, so a worker parked on an unanswerable
@@ -1465,14 +1469,14 @@ refuse_mode_overrides() {
   done
 }
 
-# worker_settings_path <kind> — print the reviewed permission fragment the
+# profile_settings_path <kind> — print the reviewed permission fragment the
 # launch pins: the <kind> profile under the root the core root chain names
 # (fleet-launch-profile.sh), whose first arms are the roots the dispatch-env
 # wrapper pins the worker to, so the profile and the hooks it names come from
 # one install. Fails closed when it cannot be
 # read: an unverifiable mode source is no mode source, and a worker launched
 # without one inherits the operator's (see the header).
-worker_settings_path() {
+profile_settings_path() {
   if ! ws_path=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$1" </dev/null); then
     printf '%s\n' "$me: refusing to launch: without its $1-settings fragment the session inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
     return 7
@@ -1983,7 +1987,9 @@ cmd_launch() {
     exit 2
   fi
   # A recover relaunches under the fragment its launch recorded; a launch from
-  # before the record existed was a worker's.
+  # before the record existed was a worker's. The mission-control launcher
+  # (its sessions are named mc-*) always records one, so a missing record
+  # there is never read as the worker posture.
   if [ -n "$resume_sid" ] && [ -z "$profile" ]; then
     pf_dir=$(worker_dir "$worker") || exit 2
     if [ -e "$pf_dir/profile" ] || [ -L "$pf_dir/profile" ]; then
@@ -1995,13 +2001,23 @@ cmd_launch() {
           exit 7
           ;;
       esac
+    else
+      case $worker in
+        mc-*)
+          printf '%s\n' "$me: refusing to recover $worker: a mission-control launch records its settings profile, and this one has none" >&2
+          exit 7
+          ;;
+      esac
     fi
   fi
   [ -n "$profile" ] || profile=worker
-  worker_settings=$(worker_settings_path "$profile") || exit 7
+  launch_settings=$(profile_settings_path "$profile") || exit 7
   dispatch_env=$(dispatch_env_path) || exit 8
-  guard_preflight "$dispatch_env" "${run_cwd:-$PWD}"
-  gp_rc=$?
+  # The preflight proves the worker command guard, the hook only the worker
+  # profile wires; the other profiles' approvals are pinned statically by
+  # tests/test-launch-profiles.sh.
+  gp_rc=0
+  [ "$profile" != worker ] || guard_preflight "$dispatch_env" "${run_cwd:-$PWD}" || gp_rc=$?
   [ "$gp_rc" -eq 0 ] || exit "$gp_rc"
 
   dir=$(worker_dir "$worker") || exit 2
@@ -2077,10 +2093,18 @@ cmd_launch() {
     printf '%s\n' "$me: refusing to launch $worker: no worker scope (PLANWRIGHT_WORKER_SCOPE) to export; its launch recorded none" >&2
     exit 2
   fi
-  PLANWRIGHT_WORKER_HANDLE=$worker
-  PLANWRIGHT_WORKER_SCOPE=$id_scope
+  # Only a worker carries the worker identity: the scripts that refuse a
+  # worker (the force-push helper among them) must not refuse a tower or a
+  # mission-control session.
+  if [ "$profile" = worker ]; then
+    PLANWRIGHT_WORKER_HANDLE=$worker
+    PLANWRIGHT_WORKER_SCOPE=$id_scope
+    export PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE
+  else
+    unset PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN
+  fi
   PLANWRIGHT_MESSAGING_INBOUND=accept
-  export PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_MESSAGING_INBOUND
+  export PLANWRIGHT_MESSAGING_INBOUND
 
   init_msg=$(mktemp "$dir/.init.XXXXXX") || exit 2
   if [ -n "$resume_sid" ]; then
@@ -2101,7 +2125,7 @@ cmd_launch() {
   # prompt tool (the receipt channel), the reviewed worker-settings fragment
   # (the mode source), and NEVER --bare.
   set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
-    --verbose --permission-prompt-tool stdio --settings "$worker_settings" --name "$worker" "$@"
+    --verbose --permission-prompt-tool stdio --settings "$launch_settings" --name "$worker" "$@"
   if [ -n "$resume_sid" ]; then
     set -- "$@" --resume "$resume_sid"
   fi

@@ -202,7 +202,20 @@ grep -qx -- '--settings' "$tmp/tmux-argv" || fail "dispatch tmux --profile: no -
 if ! grep -qx -- '--model' "$tmp/tmux-argv" || ! grep -qx 'opus' "$tmp/tmux-argv"; then
   fail "dispatch tmux --key execution: the execution key's model is not applied"
 fi
-for bad in '--profile /tmp/x.json' '--profile bogus' '--name bad=name' '--key Bad-Key'; do
+root_real=$(cd "$here/.." && pwd -P)
+grep -qx -- '--root' "$tmp/tmux-argv" && grep -qxF "$root_real" "$tmp/tmux-argv" \
+  || fail "dispatch tmux --profile: the wrapper is not pinned to this install's root"
+grep -qx -- '--inbound' "$tmp/tmux-argv" && grep -qx 'accept' "$tmp/tmux-argv" \
+  || fail "dispatch tmux --profile: the session does not accept inbound messages"
+grep -qx -- '--identity' "$tmp/tmux-argv" && fail "dispatch tmux --profile mission-control: a non-worker profile carried the worker identity"
+: >"$tmp/tmux-argv"
+PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT /bin/sh "$script" \
+  dispatch tmux "$promptfile" --profile worker --name mc-alpha-worker-1 --scope spec:alpha-3 >/dev/null \
+  || fail "dispatch tmux --profile worker exited nonzero"
+if ! grep -A2 -x -- '--identity' "$tmp/tmux-argv" | tr '\n' ' ' | grep -q 'mc-alpha-worker-1 spec:alpha-3'; then
+  fail "dispatch tmux --profile worker: the worker identity is not name and scope"
+fi
+for bad in '--profile /tmp/x.json' '--profile bogus' '--name bad=name' '--key Bad-Key' '--scope a/b'; do
   rc=0
   # shellcheck disable=SC2086 # the option and its value, split on purpose
   run_stub dispatch tmux "$promptfile" $bad >/dev/null 2>&1 || rc=$?
@@ -219,6 +232,22 @@ PATH="$stubbin:$PATH" sandbox_env env PLANWRIGHT_ROOT="$tmp/noprof" /bin/sh "$tm
   dispatch tmux "$promptfile" --profile tower >/dev/null 2>"$tmp/err4a" || rc=$?
 [ "$rc" -eq 2 ] || fail "dispatch tmux --profile with no readable profile: expected exit 2, got $rc"
 [ ! -s "$tmp/tmux-argv" ] || fail "dispatch tmux --profile with no readable profile: tmux was still called"
+# --strict-tier: an unreachable allocation store (allocation-apply exit 6)
+# refuses with exit 6 and no tmux call, where the default degrades.
+mkdir -p "$tmp/store6/config"
+cp -R "$here/../scripts" "$tmp/store6/scripts"
+cp "$here/../config/"*-settings.json "$tmp/store6/config/"
+printf '#!/bin/sh\nexit 6\n' >"$tmp/store6/scripts/allocation-apply.sh"
+: >"$tmp/tmux-argv"
+rc=0
+PATH="$stubbin:$PATH" sandbox_env /bin/sh "$tmp/store6/scripts/offload-dispatch.sh" dispatch tmux "$promptfile" --strict-tier \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 6 ] || fail "dispatch tmux --strict-tier with an unreachable store: expected exit 6, got $rc"
+[ ! -s "$tmp/tmux-argv" ] || fail "dispatch tmux --strict-tier with an unreachable store: tmux was still called"
+rc=0
+PATH="$stubbin:$PATH" sandbox_env /bin/sh "$tmp/store6/scripts/offload-dispatch.sh" dispatch tmux "$promptfile" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 0 ] || fail "dispatch tmux without --strict-tier must degrade past an unreachable store, got $rc"
 ok "dispatch tmux --profile/--name/--key launch a session kind under its shipped fragment"
 
 # 4b. a RELATIVE prompt-file path is absolutized before dispatch. The

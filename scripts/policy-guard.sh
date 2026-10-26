@@ -3397,9 +3397,10 @@ handle_mcp() {
 # planwright.local.yml, where ready_flip_policy lives). The bracketed letter
 # keeps the static no-model-client check from reading the name as a client.
 RE_MC_POSTURE_NAME='(^|[^[:alnum:]_.])(((managed-)?settings(\.local)?|\.c[l]aude|\.mcp)\.json|planwright(\.local)?\.yml)([^[:alnum:]_-]|$)'
-# Directories whose files load as posture. The file surface alone checks
+# Directories whose files load as posture, the planwright fleet home among
+# them (a recorded launch profile lives there). The file surface alone checks
 # them: an installed planwright script runs from under .claude/plugins.
-RE_MC_POSTURE_DIR='/\.c[l]aude/(hooks|plugins|agents|skills|commands)/'
+RE_MC_POSTURE_DIR='/\.c[l]aude/(hooks|plugins|agents|skills|commands|planwright)/'
 # A word that could spell a posture file once the shell expands it.
 RE_MC_POSTURE_STEM='\.c[l]aude|\.mcp|settings|planwright\.'
 MC_SETTINGS_DENY='mission control writes no settings or configuration file, and this command names one, or could through an expansion, in a form that is not a plain read - refusing. Read it with a plain reader such as cat, grep or jq, and hand a settings change to the operator ready to apply.'

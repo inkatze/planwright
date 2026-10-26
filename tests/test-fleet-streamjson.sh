@@ -810,6 +810,46 @@ senv "$home" "$rec" SHIM_READ_FIRST=0 -- \
   launch sjw9t --resume-session "$sid" --foreground >/dev/null 2>&1
 [ $? -eq 7 ] || fail "c9p: a relaunch with an unknown recorded profile must be refused (exit 7)"
 [ ! -s "$rec/argv" ] || fail "c9p: the refused relaunch must never spawn the worker"
+# Only a worker carries the worker identity.
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_WORKER_HANDLE=stale -- \
+  launch sjw9i mission-control:3 --prompt-file "$tmp/prompt9" --profile tower --foreground \
+  || fail "c9p: the identity-case tower launch exited non-zero"
+grep -qx 'handle=<unset>' "$rec/env" && grep -qx 'scope=<unset>' "$rec/env" \
+  || fail "c9p: a tower-profile session must carry no worker identity: $(cat "$rec/env")"
+grep -qx 'inbound=accept' "$rec/env" || fail "c9p: a tower-profile session must still accept inbound messages"
+# A recover with no recorded profile: a worker's from before the record
+# existed keeps the worker fragment, a mission-control launch's is refused.
+mkdir -p "$home/streamjson/sjw9old"
+printf 'mission-control:3\n' >"$home/streamjson/sjw9old/scope"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9old --resume-session "$sid" --foreground >/dev/null 2>&1
+case $(cat "$rec/argv") in
+  *"--settings "*"/config/worker-settings.json"*) : ;;
+  *) fail "c9p: a recover with no record must keep the worker fragment: $(cat "$rec/argv")" ;;
+esac
+mkdir -p "$home/streamjson/mc-alpha-tower-0123456789"
+printf 'mission-control:3\n' >"$home/streamjson/mc-alpha-tower-0123456789/scope"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch mc-alpha-tower-0123456789 --resume-session "$sid" --foreground >/dev/null 2>&1
+[ $? -eq 7 ] || fail "c9p: a mission-control recover with no recorded profile must be refused (exit 7)"
+[ ! -s "$rec/argv" ] || fail "c9p: the refused mission-control recover must never spawn"
+# The preflight proves the worker guard, so only a worker launch needs it.
+mkdir -p "$tmp/nowg"
+cp -R "$here/../scripts" "$tmp/nowg/scripts"
+cp -R "$here/../config" "$tmp/nowg/config"
+rm -f "$tmp/nowg/scripts/worker-command-guard.sh"
+for kind in worker tower; do
+  : >"$rec/argv"
+  env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+    SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" /bin/sh "$tmp/nowg/scripts/fleet-streamjson.sh" \
+    launch "sjw9g-$kind" mission-control:3 --prompt-file "$tmp/prompt9" --profile "$kind" --foreground >/dev/null 2>&1
+  pf_rc=$?
+  case $kind in
+    worker) [ "$pf_rc" -eq 9 ] || fail "c9p: a worker launch with no worker guard must fail its preflight (exit 9), got $pf_rc" ;;
+    tower) [ "$pf_rc" -eq 0 ] || fail "c9p: a tower launch must not run the worker-guard preflight, got $pf_rc" ;;
+  esac
+done
 echo "ok: c9p --profile pins a shipped fragment by kind and a recover keeps it (mission-control REQ-G1.1)"
 
 # ---------------------------------------------------------------------------
