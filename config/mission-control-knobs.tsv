@@ -8,3 +8,11 @@ program-registry	mission_control_programs	scripts/mc-program.sh
 program-home-root	mission_control_home_root	scripts/mc-program.sh
 default-duty-set	mission_control_default_duties	scripts/mc-program.sh
 default-source-map	mission_control_default_sources	scripts/mc-program.sh
+runner-interval	mission_control_runner_interval	scripts/mc-watch.sh
+failsafe-tick-cadence	mission_control_tick_cadence	scripts/mc-wake.sh
+snapshot-cadence	mission_control_snapshot_cadence	scripts/mc-snapshot.sh
+forge-tracked-set	mission_control_forge_tracked	scripts/mc-adapter-forge.sh
+rate-limit-floor	mission_control_ratelimit_floor	scripts/mc-snapshot.sh
+default-budget	mission_control_default_budget	scripts/mc-budget.sh
+degradation-ladder	mission_control_budget_ladder	scripts/mc-budget.sh
+event-retention	mission_control_event_retention	scripts/mc-event.sh
