@@ -131,6 +131,16 @@ bad_adapter "an adapter with no summary" "summary: missing" "script: scripts/tra
 bad_adapter "an adapter script climbing out" "script: not a relative path" 'summary: "x"' "script: ../tracker-adapter.sh" "cadence: 10m"
 bad_adapter "an adapter with a bad cadence" "cadence '10 minutes'" 'summary: "x"' "script: scripts/tracker-adapter.sh" 'cadence: "10 minutes"'
 
+# A valid id that merely starts with "bad" is an adapter like any other.
+setup
+printf '  - id: badger\n    summary: "x"\n    script: scripts/tracker-adapter.sh\n    cadence: 10m\n' \
+  >>"$repo/.claude/catalogs/snapshot-adapters.yaml"
+sed 's/work-items: tracker:snapshot/work-items: badger:snapshot/' "$tracked" >"$tmp/tracked" && cp "$tmp/tracked" "$tracked"
+mc_run mc-snapshot.sh check --program alpha
+expect_rc "an adapter id starting with bad passes the check" 0
+mc_run mc-snapshot.sh refresh --program alpha --source badger --now 1000
+expect_out "and is refreshed" "refreshed${tab}badger"
+
 # ---------------------------------------------------------------------------
 # Patch ids with no id to compute, and a diff read refused for the rate
 # limit.

@@ -169,7 +169,7 @@ adapter() {
       A_PROBLEM="snapshot source '$1' has no registered adapter"
       return 1
       ;;
-    bad*)
+    "bad	"*)
       A_PROBLEM="snapshot source '$1': adapter $(printf '%s' "$ad_row" | cut -f3)"
       return 1
       ;;
