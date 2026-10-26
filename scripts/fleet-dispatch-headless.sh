@@ -819,7 +819,8 @@ do_run_worker() {
     PLANWRIGHT_WORKER_SESSION_RECORD=$r_record
     export PLANWRIGHT_WORKER_SESSION_RECORD
     r_scratch=$(sed -n 's/^scratch_root=//p' "$r_record" 2>/dev/null) || r_scratch=''
-    [ -z "$r_scratch" ] || printf '%s\n' "$r_scratch" >"$r_unit/scratch-root" || :
+    [ -z "$r_scratch" ] || printf '%s\n' "$r_scratch" >"$r_unit/scratch-root" \
+      || warn "cannot record the scratch root for $r_unit; a final close will leave it to the worktree reclaim"
   fi
 
   # The dispatch-time identity env (fleet-liveness.sh hook contract): the

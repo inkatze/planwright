@@ -2111,7 +2111,8 @@ cmd_launch() {
     export PLANWRIGHT_WORKER_SESSION_RECORD
     scratch_root=$(sed -n 's/^scratch_root=//p' "$session_record" 2>/dev/null) || scratch_root=''
     if [ -n "$scratch_root" ]; then
-      printf '%s\n' "$scratch_root" >"$dir/scratch-root" || :
+      printf '%s\n' "$scratch_root" >"$dir/scratch-root" \
+        || printf '%s\n' "$me: cannot record the scratch root for $dir; a final close will leave it to the worktree reclaim" >&2
       # A wrapper path holding `=` would read as one more assignment.
       case $1 in
         *=*) ;;
