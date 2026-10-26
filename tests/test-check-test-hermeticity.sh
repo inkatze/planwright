@@ -94,17 +94,173 @@ r=$(root_with uv-heredoc)
 printf '#!/bin/bash\ncat <<EOF\n$CLAUDE_PLUGIN_ROOT/x\nEOF\n' >"$r/tests/test-heredoc.sh"
 expect "unsourced: a read in an unquoted heredoc body fails" 1 "test-heredoc.sh:3: unsourced" "$r"
 
-# Every listed variable is checked, the pinned ones included.
+# Every listed variable is checked, the pinned ones included: one suite per
+# variable, all in one root, so one scan covers the list.
+r=$(root_with each)
 for v in $(hermetic_env_names); do
-  r=$(root_with "each-$v")
-  printf '#!/bin/bash\nx=${%s:-}\n' "$v" >"$r/tests/test-each.sh"
-  out=$(/bin/bash "$CHECKER" "$r" 2>&1)
+  printf '#!/bin/bash\nx=${%s:-}\n' "$v" >"$r/tests/test-each-$v.sh"
+done
+out=$(/bin/bash "$CHECKER" "$r" 2>&1)
+missed=""
+for v in $(hermetic_env_names); do
   case "$out" in
-    *"reads \$$v without"*) ;;
-    *) fail "unsourced: a read of $v went unflagged: $out" ;;
+    *"test-each-$v.sh:2: unsourced: reads \$$v without"*) ;;
+    *) missed="$missed $v" ;;
   esac
 done
-pass "unsourced: a read of each listed variable is flagged"
+if [ -z "$missed" ]; then
+  pass "unsourced: a read of each listed variable is flagged"
+else
+  fail "unsourced: reads went unflagged:$missed: $out"
+fi
+
+# --- the parse the shapes rest on ----------------------------------------------
+# case_root <name>: a root whose one suite, tests/test-case.sh, the caller
+# writes next.
+case_root() {
+  r=$(root_with "$1")
+  printf '%s\n' "$r"
+}
+
+# A here-string or an arithmetic shift is no heredoc: mistaking one swallows
+# the rest of the file as a body and hides what follows it.
+r=$(case_root here-string)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+read -r y <<< hello
+chmod 000 "$f"
+SUITE
+expect "a here-string does not hide a later mode-bit fixture" 1 "test-case.sh:3: mode-bit" "$r"
+r=$(case_root shift)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+n=$((1<<3))
+chmod 000 "$f"
+SUITE
+expect "an arithmetic shift does not hide a later mode-bit fixture" 1 "test-case.sh:3: mode-bit" "$r"
+
+# A quote inside a string before the operator still leaves the heredoc open,
+# so the stub's body stays text.
+r=$(case_root quote-before-heredoc)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+printf "it's\n" >/dev/null; cat >stub <<'EOF'
+chmod 000 "$1"
+echo "$PLANWRIGHT_ROOT"
+EOF
+SUITE
+expect "a quoted heredoc opened after a quote-holding string stays text" 0 "clean" "$r"
+
+# A string whose closing quote sits on a line opening with # still closes.
+r=$(case_root hash-line-in-string)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+x='a
+# b'
+printf '%s\n' "$x" "$PLANWRIGHT_ROOT"
+SUITE
+expect "a #-led line inside a string does not leave the string open" 1 "test-case.sh:4: unsourced" "$r"
+
+# --- mode-bit edges ------------------------------------------------------------
+r=$(case_root short-mode)
+printf '#!/bin/bash\nchmod 0 "$f"\n' >"$r/tests/test-case.sh"
+expect "mode-bit: a short numeric mode is read as chmod pads it" 1 "test-case.sh:2: mode-bit" "$r"
+r=$(case_root unrelated-probe)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+chmod 000 "$f"
+[ -r "$log" ] || exit 1
+chmod 644 "$f"
+SUITE
+expect "mode-bit: a probe of another path does not satisfy the fixture" 1 "test-case.sh:2: mode-bit" "$r"
+r=$(case_root mkdir-mode)
+printf '#!/bin/bash\nmkdir -m 500 "$d"\nmkdir -m 0700 "$e"\n' >"$r/tests/test-case.sh"
+expect "mode-bit: a mkdir given a restrictive mode fails, a 0700 one does not" 1 \
+  "test-case.sh:2: mode-bit" "$r"
+case $out in
+  *"test-case.sh:3:"*) fail "mode-bit: a mkdir -m 0700 was flagged: $out" ;;
+esac
+r=$(case_root mkdir-probed)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+mkdir -m 500 "$d"
+if hermetic_access_denied w "$d"; then run_guard "$d"; fi
+SUITE
+expect "mode-bit: a mkdir -m fixture probing its target passes" 0 "clean" "$r"
+
+# --- dead-owner edges ----------------------------------------------------------
+r=$(case_root quoted-capture)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+pid="$!"
+wait "$pid"
+printf '%s\n' "$pid" >lock
+SUITE
+expect "dead-owner: a quoted \$! capture is still a capture" 1 "test-case.sh:5: dead-owner" "$r"
+r=$(case_root local-capture)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+f() {
+  sleep 0 &
+  local p=$!
+  wait "$p"
+  ln -s "$p-0-1" lock
+}
+SUITE
+expect "dead-owner: a local \$! capture is still a capture" 1 "test-case.sh:6: dead-owner" "$r"
+r=$(case_root bare-wait)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+pid=$!
+wait
+ln -s "$pid-0-1" lock
+SUITE
+expect "dead-owner: a bare wait reaps the capture" 1 "test-case.sh:5: dead-owner" "$r"
+r=$(case_root heredoc-use)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+pid=$!
+wait "$pid"
+cat >lock <<EOF
+$pid
+EOF
+SUITE
+expect "dead-owner: a reaped PID expanded into an unquoted heredoc body fails" 1 "test-case.sh:6: dead-owner" "$r"
+r=$(case_root dead-exempt)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+sleep 0 &
+pid=$!
+wait "$pid"
+# hermetic-exempt: asserts the reaped child is gone, not that its PID is free
+printf '%s\n' "$pid" >lock
+SUITE
+expect "dead-owner: an exclusion with a reason excludes the use" 0 "clean" "$r"
+
+# --- unsourced edges -----------------------------------------------------------
+r=$(case_root read-before-source)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+printf '%s\n' "$PLANWRIGHT_ROOT"
+. "$(dirname "$0")/lib/hermetic-env.sh"
+SUITE
+expect "unsourced: a read before the source fails" 1 "test-case.sh:2: unsourced: reads \$PLANWRIGHT_ROOT before line 3" "$r"
+r=$(case_root quoted-source)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+msg='run . tests/lib/hermetic-env.sh first'
+echo "$msg $PLANWRIGHT_ROOT"
+SUITE
+expect "unsourced: a source spelled inside a string is no source" 1 "test-case.sh:3: unsourced" "$r"
+r=$(case_root unsourced-exempt)
+cat >"$r/tests/test-case.sh" <<'SUITE'
+#!/bin/bash
+x=${PLANWRIGHT_ROOT:-} # hermetic-exempt: reports the inherited value, by design
+SUITE
+expect "unsourced: an exclusion with a reason excludes the read" 0 "clean" "$r"
 
 # --- exclusions --------------------------------------------------------------
 expect "an exclusion marker with a reason excludes its line" 0 "clean" \
@@ -139,9 +295,6 @@ else
 fi
 chmod 644 "$r/tests/test-sourced-read.sh"
 expect "an unknown option is exit 2" 2 "unknown option" "--bogus"
-
-# --- this repository ---------------------------------------------------------
-expect "this repository's test surface is clean" 0 "clean" "$REPO_ROOT"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

@@ -166,6 +166,7 @@ test-tower-queue-catchup.sh	5.331
 test-inception-registry.sh	5.295
 test-review-reverify.sh	5.138
 test-obs-store-root.sh	5.100
+test-check-test-hermeticity.sh	5.000
 test-fleet-status.sh	4.827
 test-tower-floor-spellings.sh	4.713
 test-fleet-attention-reconcile.sh	4.697
@@ -265,6 +266,7 @@ test-spec-scope.sh	1.370
 test-fleet-attention-permission.sh	1.324
 test-invariant-churn-free.sh	1.256
 test-behavioral-eval-holder-halt.sh	1.237
+test-hermetic-env.sh	1.200
 test-fleet-registry-arity.sh	1.193
 test-walkthrough-e2e.sh	1.186
 test-tower-placement.sh	1.178
@@ -366,5 +368,3 @@ test-allocation-ladder.sh	0.021
 test-execute-task-status-gate.sh	0.021
 test-echo-safety.sh	0.015
 test-bsd-awk-multiline.sh	0.011
-test-hermetic-env.sh	0.400
-test-check-test-hermeticity.sh	14.000

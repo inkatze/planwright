@@ -1679,20 +1679,20 @@ fi
 #     second session over it. Its sibling supervisor.pid write is already
 #     fatal; this one was not.
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" = 0 ]; then
-  echo "skip: c31 needs a non-root user (root writes into a mode-500 directory)"
+home="$tmp/h31"
+wdir31="$home/streamjson/sjw31"
+mkdir -p "$wdir31" "$tmp/r31"
+#   Block only the worker.pid publish: a directory the publish cannot rename
+#   into. supervisor.pid is written before this and still succeeds, so the
+#   case exercises the second write and not a broken state directory.
+mkdir -m 500 "$wdir31/worker.pid"
+if ! hermetic_access_denied w "$wdir31/worker.pid"; then
+  echo "skip: c31: the running user writes into a mode-500 directory"
 else
-  home="$tmp/h31"
-  wdir31="$home/streamjson/sjw31"
-  mkdir -p "$wdir31" "$tmp/r31"
   ev="$tmp/ev31"
   printf '%s\n%s\n' "$line_init" "$line_result" >"$ev"
   mkdir -p "$tmp/c31"
   printf 'p\n' >"$tmp/c31/prompt"
-  #   Block only the worker.pid publish: a directory the publish cannot rename
-  #   into. supervisor.pid is written before this and still succeeds, so the
-  #   case exercises the second write and not a broken state directory.
-  mkdir -m 500 "$wdir31/worker.pid"
   #   Into a file, not a capture: a worker the failure left running would hold
   #   a capture pipe open and hang the case before the check below could name it.
   senv "$home" "$tmp/r31" SHIM_EVENTS="$ev" -- \

@@ -2,34 +2,37 @@
 # check-test-hermeticity.sh — fail the test shapes that pass or fail on the
 # running host rather than on the code under test.
 #
-# Three shapes, each one the external review audit kept finding on branches a
-# full lens pass had declared clean:
+# Three shapes:
 #
-#   mode-bit   a `chmod` that takes read or write away from the owner, with no
-#              probe that the access is now denied before the fixture's
-#              assertion. Root, or a capability override, reads and writes
-#              what the mode forbids, so the refusal the test asserts never
-#              happens there and the test fails for a reason unrelated to the
-#              guard under test. A probe is a call to
-#              hermetic_access_denied (tests/lib/hermetic-env.sh) or a
-#              `[ -r ... ]` / `[ -w ... ]` / `test -r|-w` test, anywhere
-#              between the chmod and the next chmod of the same target (the
-#              restore) or the end of the file.
-#   dead-owner a PID captured from `$!`, reaped with `wait`, then used again as
-#              though it still named nobody. The host may already have handed
-#              that PID to another process. Conforming fixtures draw a PID
-#              from tests/lib/dead-owner.sh, or a token the lock library
-#              minted for a holder that has exited.
+#   mode-bit   a `chmod`, or a `mkdir` given a mode, that takes read or write
+#              away from the owner, with no probe that the access is now
+#              denied. Root, or a capability override, reads and writes what
+#              the mode forbids, so the refusal the test asserts never happens
+#              there and the test fails for a reason unrelated to the guard
+#              under test. A probe is a call to hermetic_access_denied
+#              (tests/lib/hermetic-env.sh) or a `[ -r ... ]` / `[ -w ... ]` /
+#              `test -r|-w` test whose line names the same target, anywhere
+#              between the mode change and the next chmod of that target (the
+#              restore) or the end of the file; where it sits relative to the
+#              assertion is not checked.
+#   dead-owner a PID captured from `$!`, reaped with `wait` (a bare `wait`
+#              reaps every capture), then used again, in code or in an
+#              unquoted heredoc body, as though it still named nobody. The
+#              host may already have handed that PID to another process.
+#              Conforming fixtures draw a PID from tests/lib/dead-owner.sh, or
+#              a token the lock library minted for a holder that has exited.
 #   unsourced  a suite that reads one of the listed configuration or root
 #              variables (tests/lib/hermetic-env.sh owns the list) without
-#              sourcing that library, which clears them; its fleet_home
+#              sourcing that library first, which clears them; its fleet_home
 #              helpers carry the pinning, so a suite pinning through them
 #              conforms. A read is any `$NAME` or `${NAME...}` in code or in
-#              an unquoted heredoc body, which the suite itself expands.
+#              an unquoted heredoc body, which the suite itself expands; a
+#              read on a line before the source is still an offense, and a
+#              source spelled inside a quoted string is no source.
 #
 # Not code, so never an offense: full-line comments, and heredoc bodies for
-# the mode-bit and dead-owner shapes (a chmod written into a stub runs later,
-# in the stub). Only owner read and write count for mode-bit: a missing
+# the mode-bit shape (a chmod written into a stub runs later, in the stub).
+# Only owner read and write count for mode-bit: a missing
 # execute bit refuses root too, and a directory's search bit cannot be told
 # from a file's execute bit by text. Those, and every dependence with no
 # textual shape (locale, a symlinked temporary root), are the Tests lens's and
@@ -93,13 +96,13 @@ Usage:
   check-test-hermeticity.sh --help | -h
 
 Flagged:
-  mode-bit    a chmod removing owner read or write with no access probe
-              (hermetic_access_denied, or a [ -r ] / [ -w ] test) before the
-              next chmod of the same target or the end of the file
+  mode-bit    a chmod, or a mkdir -m, removing owner read or write with no
+              access probe naming the target (hermetic_access_denied, or a
+              [ -r ] / [ -w ] test) before its next chmod or the end of the file
   dead-owner  a $! PID used again after it was reaped with wait; draw one from
               tests/lib/dead-owner.sh or a lock-library token instead
   unsourced   a read of a listed configuration or root variable in a file
-              that does not source tests/lib/hermetic-env.sh
+              that does not source tests/lib/hermetic-env.sh before it
 
 Excluded: an offending line carrying, or following, a
 `# hermetic-exempt: <reason>` comment.
@@ -133,12 +136,16 @@ lib="$root/tests/lib/hermetic-env.sh"
 names=$(_hermetic_env_defer=1 /bin/bash -c '. "$1" && hermetic_env_names' _ "$lib" 2>/dev/null) \
   || fail_closed "the library under $safe_root did not yield its variable list"
 pattern=""
+# No pathname expansion: a name holding a glob character must reach the
+# malformed-name check as written, never as the files it matches.
+set -f
 for n in $names; do
   case "$n" in
     *[!A-Za-z0-9_]* | [0-9]*) fail_closed "the library lists a malformed name: $(sanitize_printable "$n" "(unprintable)")" ;;
   esac
   pattern="${pattern:+$pattern|}$n"
 done
+set +f
 [ -n "$pattern" ] || fail_closed "the library under $safe_root lists no variables"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/check-test-hermeticity.XXXXXX")" \
@@ -248,7 +255,8 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
   # judged by its owner digit; a symbolic one clause by clause.
   function restrictive(mode,   n, i, c, who, op, perms, k) {
     if (mode ~ /^[0-7]+$/) {
-      if (length(mode) < 3) return 0
+      # chmod pads a short mode with leading zeros: `chmod 0` is mode 000.
+      while (length(mode) < 3) mode = "0" mode
       c = substr(mode, length(mode) - 2, 1) + 0
       return (c < 6)
     }
@@ -264,43 +272,62 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
     }
     return 0
   }
-  # chmod_args(line) sets cm_mode and cm_target from a chmod on the line;
-  # returns 0 when there is none.
-  # mask(s): <s> with every quoted character replaced, quotes kept, so a
-  # command word is found only where the shell would read one.
+  # mask(s): <s> with every quoted or escaped character replaced, quotes
+  # kept and length preserved, so a command word or an operator is found only
+  # where the shell would read one.
   function mask(s,   out, i, c, q) {
     out = ""; q = ""
     for (i = 1; i <= length(s); i++) {
       c = substr(s, i, 1)
-      if (q == "" && c == "\\") { out = out "__"; i++; continue }
+      if (q != "'"'"'" && c == "\\") { out = out "__"; i++; continue }
       if (q == "" && (c == "'"'"'" || c == "\"")) { q = c; out = out c; continue }
       if (q != "" && c == q) { q = ""; out = out c; continue }
       out = out (q == "" ? c : "_")
     }
     return out
   }
-  function chmod_args(line,   rest, n, i, t) {
-    if (!index(line, "chmod") || !match(mask(line), /(^|[;&|(` \t])chmod[ \t]+/)) return 0
+  # chmod_args(line) sets cm_mode and cm_target from a chmod, or a mkdir
+  # given a mode, on the line; returns 0 when there is neither. cm_restore is
+  # 1 for a chmod, which can close an open fixture, and 0 for a mkdir.
+  function chmod_args(line,   rest, n, i, t, mk) {
+    cm_mode = ""; cm_target = ""; cm_restore = 1
+    if (index(line, "chmod") && match(mask(line), /(^|[;&|(` \t])chmod[ \t]+/)) mk = 0
+    else if (index(line, "mkdir") && index(line, "-") && match(mask(line), /(^|[;&|(` \t])mkdir[ \t]+/)) { mk = 1; cm_restore = 0 }
+    else return 0
     rest = substr(line, RSTART + RLENGTH)
     n = split(rest, tok, /[ \t]+/)
-    cm_mode = ""; cm_target = ""
     for (i = 1; i <= n; i++) {
       t = tok[i]
       if (t == "") continue
-      if (cm_mode == "" && t ~ /^-[RfvchHLP]+$/) continue
-      if (cm_mode == "") { cm_mode = t; continue }
+      if (mk) {
+        if (t == "-m" || t ~ /^-p+m$/) { cm_mode = tok[++i]; continue }
+        if (t ~ /^-p*m./) { sub(/^-p*m/, "", t); cm_mode = t; continue }
+        if (t ~ /^--mode=/) { cm_mode = substr(t, 8); continue }
+        if (t ~ /^-/) continue
+        if (cm_mode == "") return 0
+      } else {
+        if (cm_mode == "" && t ~ /^-[RfvchHLP]+$/) continue
+        if (cm_mode == "") { cm_mode = t; continue }
+      }
       cm_target = t
       sub(/[;)]+$/, "", cm_target)
       break
     }
     return (cm_mode != "")
   }
-  function scan(path,   line, prev, body, delim, heredoc, heredoc_dash, quoted, n, r, pre, dq, sq, dash, v, k, m, e, sourced, is_lib, re_v) {
+  # unquoted(s): <s> without its quote characters, so a probe and a chmod
+  # spelling one path with different quoting still match.
+  function unquoted(s) {
+    gsub(/["'"'"']/, "", s)
+    return s
+  }
+  function scan(path,   line, prev, body, delim, heredoc, heredoc_dash, quoted, n, r, pre, dash, v, k, m, e, sourced, is_lib, re_v, instr, s, off, u, len) {
     heredoc = ""; heredoc_dash = 0; quoted = 0; n = 0; prev = ""
     sourced = 0; nreads = 0
     split("", readln); split("", readvar)
     insq = 0; qstack = ""
     is_lib = (path == ENVIRON["HTH_LIB"])
+    path_now = path
     split("", open_line); split("", probed)
     split("", spawned); split("", reaped)
     while ((r = (getline line < path)) > 0) {
@@ -314,25 +341,51 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
         # The suite expands an unquoted body itself, so a listed name there
         # is a read; a quoted body is text handed to something else.
         if (!quoted && !is_lib && line ~ namere && !exempt(line, prev)) note_read(expanded(line, 1), n)
+        # An unquoted body also expands a reaped PID into what it writes.
+        if (!quoted) dead_use(line, n, prev)
         prev = line
         continue
       }
-      if (line ~ /^[ \t]*#/ || line ~ /^[ \t]*$/) { prev = line; continue }
+      if (line ~ /^[ \t]*$/) { prev = line; continue }
+      # A line opening with # is a comment only outside a quoted string; inside
+      # one it is string text, whose closing quote the quoting state must see.
+      if (line ~ /^[ \t]*#/) {
+        if (insq || index(qstack, "d")) {
+          e = expanded(line, 0)
+          if (!is_lib && e ~ namere && !exempt(line, prev)) note_read(e, n)
+        }
+        prev = line
+        continue
+      }
+      instr = (insq || index(qstack, "d"))
+      m = mask(line)
 
-      if (line ~ /(^|[;&|( \t])(\.|source)[ \t]+[^#]*hermetic-env\.sh/) sourced = 1
+      # Only a source the shell runs counts: the dot or `source` word must
+      # sit outside quotes, on a line that does not open inside a string.
+      if (!sourced && !instr && index(line, "hermetic-env.sh")) {
+        s = line; off = 0
+        while (match(s, /(^|[;&|( \t])(\.|source)[ \t]+[^#]*hermetic-env\.sh/)) {
+          k = off + RSTART
+          if (substr(line, k, 1) !~ /[.s]/) k++
+          if (substr(m, k, 1) == substr(line, k, 1)) { sourced = n; break }
+          off += RSTART; s = substr(s, RSTART + 1)
+        }
+      }
 
       # The quoting state must see every code line, so expanded() runs on
       # each; only a line naming a listed variable is matched against it.
       e = expanded(line, 0)
       if (!is_lib && e ~ namere && !exempt(line, prev)) note_read(e, n)
 
-      # mode-bit: a probe satisfies every open fixture; a chmod of an open
-      # target closes it (the restore); a restrictive chmod opens one.
-      if (line ~ /hermetic_access_denied|-[rw][ \t]/ && ((m = mask(line)) ~ /hermetic_access_denied[ \t]/ || m ~ /(\[|test)[ \t]+(![ \t]+)?-[rw][ \t]/)) {
-        for (k in open_line) probed[k] = 1
+      # mode-bit: a probe naming an open target satisfies it; a chmod of an
+      # open target closes it (the restore); a restrictive chmod, or a mkdir
+      # given a restrictive mode, opens one.
+      if (line ~ /hermetic_access_denied|-[rw][ \t]/ && (m ~ /hermetic_access_denied[ \t]/ || m ~ /(\[|test)[ \t]+(![ \t]+)?-[rw][ \t]/)) {
+        u = unquoted(line)
+        for (k in open_line) if (index(u, unquoted(k))) probed[k] = 1
       }
       if (chmod_args(line)) {
-        if (cm_target in open_line) {
+        if (cm_restore && (cm_target in open_line)) {
           if (!probed[cm_target]) report(path, open_line[cm_target], "mode-bit", "removes owner access to " cm_target " with no access probe before its next chmod")
           delete open_line[cm_target]; delete probed[cm_target]
         }
@@ -341,30 +394,33 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
         }
       }
 
-      # dead-owner: a $! capture, its wait, then a later use of the PID.
-      if (match(line, /(^|[;&])[ \t]*(local[ \t]+)?[A-Za-z_][A-Za-z0-9_]*=\$!/)) {
+      # dead-owner: a $! capture, its wait (a bare wait reaps every capture),
+      # then a later use of the PID.
+      if (match(line, /(^|[;&{]|then|do|else)[ \t]*((local|declare|readonly|export|typeset)[ \t]+(-[A-Za-z]+[ \t]+)?)?[A-Za-z_][A-Za-z0-9_]*="?\$!/)) {
         v = substr(line, RSTART, RLENGTH)
-        sub(/^[;&]?[ \t]*(local[ \t]+)?/, "", v); sub(/=\$!$/, "", v)
+        sub(/^([;&{]|then|do|else)?[ \t]*((local|declare|readonly|export|typeset)[ \t]+(-[A-Za-z]+[ \t]+)?)?/, "", v); sub(/="?\$!$/, "", v)
         spawned[v] = 1; reaped[v] = 0
       } else {
+        if (m ~ /(^|[;&|( \t])wait[ \t]*($|[;&|)])/) {
+          for (v in spawned) if (!reaped[v]) reaped[v] = n
+        }
         for (v in spawned) {
           if (!index(line, v)) continue
           re_v = "\\$\\{?" v "([^A-Za-z0-9_]|$)"
           if (line !~ re_v) continue
-          if (mask(line) ~ /(^|[;&|( \t])wait[ \t]/) { reaped[v] = n; continue }
-          if (reaped[v] && line !~ /^[ \t]*(kill|wait)[ \t]/) {
-            if (!exempt(line, prev)) report(path, n, "dead-owner", "uses $" v " after line " reaped[v] " reaped it")
-            delete spawned[v]; delete reaped[v]
-          }
+          if (m ~ /(^|[;&|( \t])wait[ \t]/) { reaped[v] = n; continue }
         }
+        dead_use(line, n, prev)
       }
 
-      if (match(line, /<<-?[ \t]*\\?['"'"'"]?[A-Za-z0-9_.+-]+/)) {
-        pre = substr(line, 1, RSTART - 1)
-        dq = gsub(/"/, "\"", pre)
-        sq = gsub(/'"'"'/, "&", pre)
-        if (dq % 2 == 0 && sq % 2 == 0) {
-          delim = substr(line, RSTART, RLENGTH)
+      # A heredoc opens only at a << the shell reads as one: not a here-string
+      # (<<<), not a shift inside arithmetic, not inside quotes.
+      if (!instr && index(line, "<<") && match(m, /(^|[^<])<<-?[ \t]*\\?['"'"'"]?[A-Za-z0-9_.+-]+/)) {
+        k = RSTART; len = RLENGTH
+        if (substr(m, k, 1) != "<") { k++; len-- }
+        pre = substr(m, 1, k - 1)
+        if (gsub(/\(\(/, "&", pre) <= gsub(/\)\)/, "&", pre)) {
+          delim = substr(line, k, len)
           dash = (delim ~ /^<<-/)
           sub(/^<<-?[ \t]*/, "", delim)
           quoted = (delim ~ /^[\\'"'"'"]/)
@@ -381,10 +437,20 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
     for (k in open_line) {
       if (!probed[k]) report(path, open_line[k], "mode-bit", "removes owner access to " k " with no access probe after it")
     }
-    if (!sourced) {
-      for (k = 1; k <= nreads; k++) {
-        report(path, readln[k], "unsourced", "reads $" readvar[k] " without sourcing tests/lib/hermetic-env.sh")
-      }
+    for (k = 1; k <= nreads; k++) {
+      if (!sourced) report(path, readln[k], "unsourced", "reads $" readvar[k] " without sourcing tests/lib/hermetic-env.sh")
+      else if (readln[k] < sourced) report(path, readln[k], "unsourced", "reads $" readvar[k] " before line " sourced " sources tests/lib/hermetic-env.sh")
+    }
+  }
+  # dead_use(line, n, prev): report a use of a captured PID after its wait.
+  function dead_use(line, n, prev,   v, re_v) {
+    for (v in spawned) {
+      if (!reaped[v] || !index(line, v)) continue
+      re_v = "\\$\\{?" v "([^A-Za-z0-9_]|$)"
+      if (line !~ re_v || line ~ /^[ \t]*(kill|wait)[ \t]/) continue
+      if (mask(line) ~ /(^|[;&|( \t])wait[ \t]/) continue
+      if (!exempt(line, prev)) report(path_now, n, "dead-owner", "uses $" v " after line " reaped[v] " reaped it")
+      delete spawned[v]; delete reaped[v]
     }
   }
   BEGIN {
