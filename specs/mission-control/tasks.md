@@ -476,7 +476,16 @@ the list lacked; the annotation moved below the task's fields.)*
 
 ## Awaiting input
 
-(none yet)
+- **Task 3** — convergence hard-paused on the zone screen: the first polish
+  pass found validated bypasses and failure modes in the mission-control
+  guard tier, its settings profile, the launcher and the two rungs
+  (permission-boundary and shell-construction code), so no fix was applied
+  and no PR opened. The implementation is committed on the task branch; the
+  findings, a recommended fix for each, and three operator forks (the flip's
+  ownership half, which planwright scripts mission control may run
+  unprompted, the pane rule's skill prose) are in the worktree's
+  `.claude/polish-audit.md`. Direct the fixes (recommended: apply all, forks
+  F1 option a and F2 option b) and resume the unit.
 
 ## Deferred
 
