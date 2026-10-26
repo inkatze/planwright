@@ -1,0 +1,1 @@
+match ^usage: allocation-adapt\.sh resolve <unit> --key <selection-key> \[--step <step>\] \[--attempt <n>\] \[--event <class>\]\.\.\. \[--reserved\] \[--step-type <class>\] \[--worktree <dir>\] \| derive <unit> --key <selection-key> \[--step-type <class>\] \(accepted, ignored: derive answers where the UNIT sits\)$
