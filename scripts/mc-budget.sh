@@ -186,11 +186,12 @@ in_use_of() {
 
 # recent_polls [keep]: the poll log's lines inside the hour ending now, the
 # one predicate the cap and the report both count with; with `keep`, every
-# line after the hour began, a later one a concurrent caller logged
-# included, which is what a rewrite of the log must keep.
+# line after the hour began up to five minutes past now, a later one a
+# concurrent caller logged included, which is what a rewrite of the log must
+# keep.
 recent_polls() {
   [ -e "$runtime/polls" ] || return 0
-  N=$NOW K=${1:-} awk -F '\t' '$1 ~ /^[0-9]+$/ && $1 > ENVIRON["N"] - 3600 && (ENVIRON["K"] != "" || $1 <= ENVIRON["N"] + 0)' "$runtime/polls" \
+  N=$NOW K=${1:-} awk -F '\t' '$1 ~ /^[0-9]+$/ && $1 > ENVIRON["N"] - 3600 && $1 <= ENVIRON["N"] + (ENVIRON["K"] != "" ? 300 : 0)' "$runtime/polls" \
     || mc_fail "cannot read the poll log"
 }
 

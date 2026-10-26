@@ -254,7 +254,8 @@ check "REQ-E1.5: the stop event was in the store before the re-armed watcher ran
 loop_pid=$(rec_pid "$watch_slot")
 kill "$loop_pid" 2>/dev/null
 check "the live loop exits" poll_until --what "the loop's exit" -- pid_gone "$loop_pid"
-/bin/bash -c 'sleep 30; :' /x/mc-watch.sh loop --program alpha --slot "$watch_slot" &
+# shellcheck disable=SC2016 # the decoy's own script, expanded by it
+/bin/bash -c 'sleep 30 & s=$!; trap "kill \$s; exit" TERM; wait' /x/mc-watch.sh loop --program alpha --slot "$watch_slot" &
 decoy=$!
 printf '%s\t1\talpha-duty\tscripts/alpha-watch.sh\t5m\tlow\n' "$decoy" >"$wdir/$watch_slot.rec"
 mc_run mc-watch.sh pass --program alpha
@@ -277,13 +278,17 @@ setup '[alpha-duty, fast-duty]' 'polls_per_hour: 20'
 mc_run mc-watch.sh pass --program alpha
 expect_out "a high-cost watcher is armed with headroom" "armed${tab}fast-duty${tab}scripts/heavy-watch.sh"
 heavy_pid=$(rec_pid "$(slot_for heavy-watch.sh)")
+check "the high-cost watcher starts its child" poll_until --what "the watcher's child" -- test -s "$WATCH_RUNS/heavy-child"
 seed_polls_now 17
 mc_run mc-watch.sh pass --program alpha
 expect_out "REQ-L1.2: pause-watchers stops the high-cost watcher" "paused${tab}fast-duty${tab}scripts/heavy-watch.sh${tab}budget rung pause-watchers"
 expect_out "REQ-L1.2: it leaves the medium-cost one" "running${tab}alpha-duty${tab}scripts/alpha-sweep.sh"
 check "REQ-L1.2: the paused watcher's process is stopped" poll_until --what "the paused watcher's exit" -- pid_gone "$heavy_pid"
 heavy_child=$(cat "$WATCH_RUNS/heavy-child" 2>/dev/null)
-if [ -n "$heavy_child" ]; then
+if ! command -v setsid >/dev/null 2>&1; then
+  ok "skipped: a stop takes a watcher's children only where setsid is available"
+  [ -z "$heavy_child" ] || kill "$heavy_child" 2>/dev/null
+elif [ -n "$heavy_child" ]; then
   check "a stop takes the watcher run's own children with it" poll_until --what "the watcher's child's exit" -- pid_gone "$heavy_child"
 else
   fail "the high-cost watcher never recorded its child"
@@ -414,7 +419,7 @@ run_pid=$!
 check "a failed pass is retried at the next interval" poll_until --what "two failed passes" -- \
   sh -c "[ \"\$(grep -c 'the pass failed' '$tmp/run.err')\" -ge 2 ]"
 kill "$run_pid" 2>/dev/null
-check "the retrying runner exits on TERM" poll_until --deadline 10 --what "the runner's exit" -- pid_gone "$run_pid"
+check "the retrying runner exits on TERM once its pass ends" poll_until --deadline 60 --what "the runner's exit" -- pid_gone "$run_pid"
 run_pid=""
 
 setup '[alpha-duty]'
@@ -423,6 +428,8 @@ pids=$(cut -f1 "$wdir"/*.rec)
 printf '%s\n' "mission_control_programs: []" >"$tracked"
 mc_run mc-watch.sh stop --program alpha
 expect_rc "a program dropped from configuration can still be stopped" 0
+mc_run mc-watch.sh stop --program nosuch
+expect_rc "a program that never ran here has nothing to stop" 3
 # shellcheck disable=SC2086 # one pid per word
 check "its watchers end" poll_until --what "the dropped program's watchers' exit" -- pid_gone $pids
 

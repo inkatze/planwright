@@ -165,6 +165,8 @@ mkdir -p "$fleet/mission-control/alpha/snapshots"
 cp "$tmp/hold" "$fleet/mission-control/alpha/snapshots/tracker.hold"
 mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1000
 expect_out "a stored hold is clamped on read" "held${tab}tracker${tab}4600"
+mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 5000
+expect_out "and the clamp is kept, so the hold ends" "refreshed${tab}tracker"
 
 setup
 mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 5000

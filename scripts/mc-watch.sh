@@ -58,7 +58,8 @@
 #       hold the runner lock and make a pass every
 #       mission_control_runner_interval until killed; --once makes one pass
 #       and exits with its status. A failed pass is reported and retried at
-#       the next interval.
+#       the next interval. A TERM ends the runner at once while it sleeps,
+#       and once the pass in flight finishes otherwise.
 #   mc-watch.sh status --program <p> [--now <epoch>]
 #       watcher<TAB><duty><TAB><script><TAB><cadence><TAB><cost><TAB>running|stopped|unverified
 #         <TAB><seconds since the last run|-><TAB><seconds until the next|->
@@ -133,9 +134,15 @@ mc_now_arg "$now"
 case $slot in
   *[!a-z0-9.-]*) mc_usage_fail "invalid slot" ;;
 esac
-# A program dropped from configuration can still be stopped.
+# A program dropped from configuration can still be stopped; one that never
+# ran here has nothing to stop.
 if [ "$verb" = stop ]; then
   mc_valid_program "$program" || mc_usage_fail "invalid program name '$(sanitize_printable "$program")'"
+  st_home=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
+  if [ ! -d "$st_home/mission-control/$program" ]; then
+    printf '%s\n' "$prog: program '$program' has no runtime state here" >&2
+    exit 3
+  fi
 else
   mc_require_program "$program"
   PLANWRIGHT_MC_CHECKED=$program
@@ -164,9 +171,9 @@ slots() {
 
 # ours <pid> <slot>: 0 the pid is a runner loop for the slot, 1 it is not,
 # 2 the process table could not be read for a live pid. The script's path
-# may be spelled any way (a symlinked root, another install), but it is one
-# word ending in mc-watch.sh, run by /bin/bash with exactly the loop's
-# arguments after it.
+# may be spelled any way (a symlinked root, another install), but it is an
+# absolute path to an existing mc-watch.sh, run by /bin/bash with exactly the
+# loop's arguments after it.
 ours() {
   mc_valid_uint "$1" || return 1
   kill -0 "$1" 2>/dev/null || return 1
@@ -180,7 +187,8 @@ ours() {
   ou_path=${ou_args#/bin/bash }
   ou_path=${ou_path%"$ou_tail"}
   case $ou_path in
-    *" "*) return 1 ;;
+    /*/mc-watch.sh) [ -f "$ou_path" ] ;;
+    *) return 1 ;;
   esac
 }
 
@@ -315,8 +323,17 @@ EOF
 }
 
 runner_child=""
+runner_sleeping=0
+# runner_exit <status>: a sleep is cut short; a pass in flight finishes first,
+# so nothing it started runs on once the lock is released.
 runner_exit() {
-  [ -z "$runner_child" ] || kill "$runner_child" 2>/dev/null
+  if [ -n "$runner_child" ]; then
+    if [ "$runner_sleeping" -eq 1 ]; then
+      kill "$runner_child" 2>/dev/null
+    else
+      wait "$runner_child" 2>/dev/null
+    fi
+  fi
   pw_lock_release_all
   exit "$1"
 }
@@ -404,8 +421,8 @@ case $verb in
     take_runner_lock
     while :; do
       # A subshell, so a failure that exits inside the pass ends the pass,
-      # not the daemon; in the background and waited for, like the sleep, so
-      # a TERM is handled at once.
+      # not the daemon; in the background and waited for, so a TERM is
+      # taken as soon as the pass ends (and at once during the sleep).
       (pass) &
       runner_child=$!
       wait "$runner_child"
@@ -417,8 +434,10 @@ case $verb in
       [ "$pass_rc" -eq 0 ] || printf '%s\n' "$prog: the pass failed; retrying at the next interval" >&2
       sleep "$secs" &
       runner_child=$!
+      runner_sleeping=1
       wait "$runner_child"
       runner_child=""
+      runner_sleeping=0
     done
     ;;
   status)

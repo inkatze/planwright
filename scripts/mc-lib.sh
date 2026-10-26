@@ -214,13 +214,13 @@ mc_event_store() {
 
 mc_event() { /bin/bash "$script_dir/mc-event.sh" "$@"; }
 
-# mc_quote <word>: the word single-quoted for a shell, or failure when it
-# carries a single quote or a control byte.
+# mc_quote <word>: the word single-quoted for a shell, an embedded single
+# quote written '\''; fails on a control byte.
 mc_quote() {
   case $1 in
-    *"'"* | *[[:cntrl:]]*) return 1 ;;
+    *[[:cntrl:]]*) return 1 ;;
   esac
-  printf "'%s'" "$1"
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
 # mc_write <file>: stdin to <file> through a sibling temporary and a rename,

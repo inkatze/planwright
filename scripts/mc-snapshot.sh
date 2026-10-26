@@ -323,6 +323,8 @@ $src
         hold_max=$((NOW + (cad > 3600 ? cad : 3600)))
         if mc_valid_uint "$hold_until" && [ "$hold_until" -gt "$hold_max" ]; then
           hold_until=$hold_max
+          # Written back, or a clamp taken from now would hold it forever.
+          printf '%s\n' "$hold_until" | mc_write "$snapdir/$src.hold" || mc_fail "cannot record the hold for '$src'"
         fi
         if mc_valid_uint "$hold_until" && [ "$NOW" -lt "$hold_until" ]; then
           printf 'held\t%s\t%s\n' "$src" "$hold_until"

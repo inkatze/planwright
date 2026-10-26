@@ -18,8 +18,8 @@
 #             no newline, so the wake is STAGED and its events marked staged
 #             until the session acknowledges them (below)
 #   any other backend, or a retired worker: unreachable, nothing sent
-# One wake per target carries its oldest 20 pending events (the rest wait for
-# the next pass), naming each one's kind and subject, re-checked against
+# One wake per target carries its oldest 20 pending events, never-sent ones
+# ahead of staged ones (the rest wait for a later wake), naming each one's kind and subject, re-checked against
 # their grammar, never its free text, which the session reads through the
 # `mc-event.sh list --program <p> <id>...` command the wake prints. It is
 # written to a file of its own under <runtime>/wake/, which a staged pointer
@@ -166,7 +166,13 @@ send() {
       ;;
   esac
   sd_rows=$(mc_event list --program "$program" --target "$sd_w" --pending) || return 1
-  [ "$2" = unsubmitted ] || sd_rows=$(printf '%s\n' "$sd_rows" | awk -F '\t' '$NF == "-"')
+  if [ "$2" = unsubmitted ]; then
+    # Never-sent events first, so a backlog of staged ones nobody has
+    # acknowledged cannot keep a newer event out of every wake.
+    sd_rows=$(printf '%s\n' "$sd_rows" | awk -F '\t' 'NF && $NF == "-"; NF && $NF != "-" { s[++n] = $0 } END { for (i = 1; i <= n; i++) print s[i] }')
+  else
+    sd_rows=$(printf '%s\n' "$sd_rows" | awk -F '\t' '$NF == "-"')
+  fi
   sd_total=$(printf '%s' "$sd_rows" | awk 'NF { n++ } END { print n + 0 }')
   if [ "$sd_total" -eq 0 ]; then
     printf 'idle\t%s\n' "$sd_w"
@@ -176,7 +182,7 @@ send() {
   sd_rows=$(printf '%s\n' "$sd_rows" | M=$LISTED_MAX awk 'NF && ++n <= ENVIRON["M"] + 0')
   sd_n=$(printf '%s\n' "$sd_rows" | awk 'NF { n++ } END { print n + 0 }')
   sd_ids=$(printf '%s\n' "$sd_rows" | awk -F '\t' 'NF { printf "%s%s", sep, $1; sep = " " }')
-  sd_cmd=$(mc_quote "$script_dir/mc-event.sh") || sd_cmd=mc-event.sh
+  sd_cmd=$(mc_quote "$script_dir/mc-event.sh") || return 1
   mkdir -p "$runtime/wake" || return 1
   sd_msg=$(mktemp "$runtime/wake/$sd_w.XXXXXX") || return 1
   {
