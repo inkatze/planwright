@@ -1,0 +1,1 @@
+- 2026-10-25 [planwright] mc-program.sh get <program> home costs about 0.57s per call (three config-get.sh --layers reads plus the repository containment check), several times the rule store work it gates; every mc-rules.sh verb pays it once, so one config pass for a plain home read would cut both the launcher render path and the test suite.
