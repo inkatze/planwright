@@ -2,19 +2,12 @@
 # check-panel-mod.sh — the panel mod's gate: the CLI at or above the mods
 # floor, the engine surface `claude plugin validate` reports held to
 # config/panel-mod-surface.txt, the plugin tests run and green, and the
-# suite shown to fail on a seeded drawing defect.
+# suite shown to fail on a seeded drawing defect. Without the claude CLI it
+# skips with a note (CI's lint job installs one); a CLI below the floor fails.
 #
-# Without the claude CLI it skips with a note, as check-plugin-schema.sh
-# does; CI's lint job installs the CLI, so there it always runs. A CLI below
-# the floor fails rather than skips: its tests would run against an engine
-# the mod does not support.
-#
-# Usage: check-panel-mod.sh [--root <dir>]
-#   --root <dir>  the plugin root (default: the checkout holding this script)
-# Exit codes: 0 clean or skipped; 1 a finding; 2 usage, or an input that
-# cannot be read.
-#
-# Portable bash 3.2 / BSD tooling.
+# Usage: check-panel-mod.sh [--root <dir>]   (default: this checkout)
+# Exit codes: 0 clean or skipped; 1 a finding; 2 usage or an unreadable
+# input. Portable bash 3.2 / BSD tooling.
 set -u
 LC_ALL=C
 export LC_ALL
