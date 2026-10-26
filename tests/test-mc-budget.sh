@@ -62,6 +62,17 @@ rung() { # rung <label> <want> [args...]
   expect_eq "$rg_label: the rung" "$rg_want"
 }
 
+# seed_polls <n> [epoch]: n poll-log lines, written straight to the store so
+# the rung cases do not pay a locked write each; the cap cases use `poll`.
+seed_polls() {
+  mkdir -p "$fleet/mission-control/alpha"
+  sp_i=0
+  while [ "$sp_i" -lt "$1" ]; do
+    printf '%s\tforge\n' "${2:-100000}"
+    sp_i=$((sp_i + 1))
+  done >>"$fleet/mission-control/alpha/polls"
+}
+
 polls() { # polls <source> <n> [epoch]
   pl_i=0
   while [ "$pl_i" -lt "$2" ]; do
@@ -74,7 +85,7 @@ polls() { # polls <source> <n> [epoch]
 # ---------------------------------------------------------------------------
 # REQ-L1.2: the budget file carries its format, every dimension and the rung.
 # ---------------------------------------------------------------------------
-program '{polls_per_hour: 10}'
+program '{polls_per_hour: 10, spend_alpha_duty: low}'
 mc_run mc-budget.sh report --program alpha --now 100000 --load 10
 expect_rc "REQ-L1.2: report" 0
 expect_out "REQ-L1.2: the budget file opens with its format" "format${tab}1"
@@ -83,6 +94,7 @@ expect_out "REQ-L1.2: the default sessions limit" "dimension${tab}sessions${tab}
 expect_out "REQ-L1.2: context steps are a dimension" "dimension${tab}context_steps${tab}"
 expect_out "REQ-L1.2: host load is a dimension" "dimension${tab}host_load${tab}10${tab}100${tab}90${tab}10"
 expect_out "REQ-L1.2: the spend ceiling" "spend${tab}ceiling${tab}high"
+expect_out "REQ-L1.2: a duty's own spend class is in the file" "spend${tab}alpha-duty${tab}low"
 expect_out "REQ-L1.2: an idle program is at the normal rung" "rung${tab}normal"
 if [ -f "$fleet/mission-control/alpha/budget" ]; then
   ok "REQ-L1.2: the budget file is written under the fleet home"
@@ -93,15 +105,21 @@ mc_run mc-budget.sh read --program alpha
 expect_out "REQ-L1.4: read prints the file the panel draws headroom from" "dimension${tab}polls_per_hour"
 
 # ---------------------------------------------------------------------------
-# REQ-L1.2: each rung from fixtures.
+# REQ-L1.2: each rung from fixtures, at its threshold exactly.
 # ---------------------------------------------------------------------------
-program '{polls_per_hour: 10}'
-polls forge 7
+program '{polls_per_hour: 20}'
+seed_polls 13
+rung "REQ-L1.2: under the throttle threshold is normal" normal --load 0
+seed_polls 1
 rung "REQ-L1.2: 70% of the poll cap throttles" throttle --load 0
-polls forge 2
-rung "REQ-L1.2: 90% pauses watchers" pause-watchers --load 0
-polls forge 1
+seed_polls 3
+rung "REQ-L1.2: 85% pauses watchers" pause-watchers --load 0
+mc_run mc-budget.sh report --program alpha --now 100000 --load 0
+expect_out "REQ-L1.2: the rung names the dimension" "polls_per_hour at 85%"
+seed_polls 3
 rung "REQ-L1.2: the cap reached holds dispatch" hold-dispatch --load 0
+mc_run mc-budget.sh rung --program alpha --now 103601 --load 0
+expect_eq "REQ-L1.2: polls an hour old no longer count toward the rung" "normal"
 
 program '{context_steps: 50}'
 mc_run mc-budget.sh record --program alpha context_steps 50
@@ -127,7 +145,7 @@ program '{polls_per_hour: 4}'
 polls forge 2 100000
 polls tracker 2 100000
 mc_run mc-budget.sh poll --program alpha forge --now 100000
-expect_rc "REQ-L1.2: a fifth poll across two sources is refused" 1
+expect_rc "REQ-L1.2: a fifth poll across two sources is refused as capped" 4
 expect_out "REQ-L1.2: the refusal says capped" "capped"
 mc_run mc-budget.sh poll --program alpha tracker --now 103601
 expect_rc "REQ-L1.2: polls older than an hour have aged out" 0
@@ -141,12 +159,21 @@ expect_rc "REQ-M1.6: heavy work at 80% host load is queued" 1
 expect_out "REQ-M1.6: it says host load" "host load at 80%"
 mc_run mc-budget.sh admit --program alpha heavy --now 100000 --load 20
 expect_rc "REQ-M1.6: heavy work at 20% host load is admitted" 0
-mc_run mc-budget.sh record --program alpha sessions 4
+expect_eq "REQ-M1.6: admitted says so" "admitted"
+mc_run mc-budget.sh record --program alpha sessions 3
 mc_run mc-budget.sh admit --program alpha session --now 100000 --load 0
-expect_rc "REQ-L1.2: a session over the sessions limit is queued" 1
+expect_rc "REQ-L1.2: a session under the limit is admitted" 0
+mc_run mc-budget.sh record --program alpha sessions 4
+mc_run mc-budget.sh admit --program alpha heavy --now 100000 --load 0
+expect_out "REQ-L1.2: sessions at their limit reach hold-dispatch, which queues heavy work too" "queued${tab}hold-dispatch"
+program '{sessions: 5}'
+mc_run mc-budget.sh record --program alpha sessions 5
+mc_run mc-budget.sh admit --program alpha session --now 100000 --load 0
+expect_rc "REQ-L1.2: a session at the sessions limit is queued" 1
+expect_out "REQ-L1.2: the queue names the reason" "queued${tab}"
 
 # ---------------------------------------------------------------------------
-# Spend class per duty; an invalid budget is refused, named.
+# Spend class per duty; invalid input is refused, named.
 # ---------------------------------------------------------------------------
 program '{spend_ceiling: medium, spend_alpha_duty: low}'
 mc_run mc-budget.sh ceiling --program alpha alpha-duty
@@ -163,6 +190,20 @@ program '{spend_ceiling: lavish}'
 mc_run mc-budget.sh report --program alpha --now 100000 --load 0
 expect_rc "an unknown spend class is refused" 1
 expect_err "the bad spend class is named" "spend_ceiling"
+
+program '{}'
+mc_run mc-budget.sh record --program alpha sessions 010
+expect_rc "a number with a leading zero is refused, never read as octal" 2
+
+program '{}'
+mkdir -p "$fleet/mission-control/alpha"
+printf 'sessions\t1\n' >"$fleet/mission-control/alpha/in-use"
+chmod 000 "$fleet/mission-control/alpha/in-use"
+mc_run mc-budget.sh report --program alpha --now 100000 --load 0
+expect_rc "an unreadable in-use record fails, never counted as zero" 1
+mc_run mc-budget.sh record --program alpha context_steps 1
+expect_rc "and is never rewritten over" 1
+chmod 600 "$fleet/mission-control/alpha/in-use"
 
 program '{}'
 mc_run mc-budget.sh report --program alpha --now 100000 --load 0

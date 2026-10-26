@@ -40,54 +40,120 @@ tmp=$(cd "$tmp" && pwd -P) || exit 1
 . "$here/lib/mission-control-fixture.sh"
 
 wdir="$fleet/mission-control/alpha/watchers"
+loop_args() { printf '/bin/bash %s loop --program alpha --slot %s' "$repo_root/scripts/mc-watch.sh" "$1"; }
 
 # Every watcher loop this suite starts is recorded by pid in a .rec file;
-# those pids, and only those, are stopped on the way out.
+# those pids are stopped on the way out, and only while the process is still
+# that slot's loop.
 reap() {
   for rp_f in "$wdir"/*.rec; do
     [ -f "$rp_f" ] || continue
     rp_pid=$(cut -f1 "$rp_f")
+    rp_slot=${rp_f##*/}
+    rp_slot=${rp_slot%.rec}
     case $rp_pid in
-      "" | *[!0-9]*) ;;
-      *) kill "$rp_pid" 2>/dev/null ;;
+      "" | *[!0-9]*) continue ;;
     esac
+    [ "$(ps -ww -o args= -p "$rp_pid" 2>/dev/null)" = "$(loop_args "$rp_slot")" ] || continue
+    kill "$rp_pid" 2>/dev/null
   done
 }
+run_pid=""
 cleanup() {
+  [ -z "$run_pid" ] || kill "$run_pid" 2>/dev/null
   reap
   rm -rf "$tmp"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 tab=$(printf '\t')
 
-# Fixture watchers: each run logs a line; alpha-watch also reports an event.
-mkdir -p "$core/scripts" "$tmp/runs"
+# Fixture watchers: each run logs a line. alpha-watch also reports an event,
+# a line the store refuses, and how many watcher-stopped events the store
+# held when it ran.
+mkdir -p "$core/scripts" "$tmp/runs" "$repo/scripts"
 cat >"$core/scripts/alpha-watch.sh" <<'EOF'
 #!/bin/sh
-printf '%s\n' "$PLANWRIGHT_MC_DUTY" >>"$WATCH_RUNS/alpha-watch"
+seen=$(grep -l watcher-stopped "$WATCH_EVENTS"/e* 2>/dev/null | wc -l | tr -d ' ')
+printf '%s %s\n' "$PLANWRIGHT_MC_DUTY" "$seen" >>"$WATCH_RUNS/alpha-watch"
 printf 'event\talpha-due\tpr-7\tseven is due\n'
+printf 'event\tBad Kind\tpr-7\n'
 printf 'chatter that is not an event\n'
 EOF
 cat >"$core/scripts/alpha-sweep.sh" <<'EOF'
 #!/bin/sh
 printf 'run\n' >>"$WATCH_RUNS/alpha-sweep"
 EOF
+cat >"$core/scripts/fast-watch.sh" <<'EOF'
+#!/bin/sh
+printf 'run\n' >>"$WATCH_RUNS/fast-watch"
+EOF
+cat >"$core/scripts/heavy-watch.sh" <<'EOF'
+#!/bin/sh
+printf 'run\n' >>"$WATCH_RUNS/heavy-watch"
+EOF
+cat >"$repo/scripts/tracker-adapter.sh" <<'EOF'
+#!/bin/sh
+out=""
+while [ $# -gt 0 ]; do
+  [ "$1" = --out ] && out=$2
+  shift
+done
+printf 'item\tT-1\topen\n' >"$out"
+exit "${TRACKER_EXIT:-0}"
+EOF
 WATCH_RUNS="$tmp/runs"
-export WATCH_RUNS
+WATCH_EVENTS="$fleet/attention/mission-control/alpha/events"
+export WATCH_RUNS WATCH_EVENTS
 
-# setup <duties> [budget]: program alpha with no snapshot source, so a pass
-# reads no forge, and a host-load limit no host reaches.
+# setup <duties> [budget] [sources]: program alpha with a host-load limit no
+# host reaches, and the fixture duties fast-duty (a 1s low-cost watcher and
+# an hourly high-cost one) and lost-duty (a script that does not exist)
+# beside the core seed's.
 setup() {
   reap
   reset_mc_fixture
   rm -rf "$fleet" "$tmp/runs"/*
+  cat >"$repo/.claude/catalogs/duties.yaml" <<'EOF'
+duties:
+  - id: fast-duty
+    summary: "A fast fixture duty"
+    triggers: []
+    watchers: [scripts/fast-watch.sh@1s/low, scripts/heavy-watch.sh@1h/high]
+    wake: none
+    rules: []
+    kinds: []
+    files: fast
+    lifecycle: live
+    never-propose: false
+  - id: lost-duty
+    summary: "A duty whose watcher is missing"
+    triggers: []
+    watchers: [scripts/nowhere.sh@5m/low]
+    wake: none
+    rules: []
+    kinds: []
+    files: lost
+    lifecycle: live
+    never-propose: false
+EOF
+  cat >"$repo/.claude/catalogs/snapshot-adapters.yaml" <<'EOF'
+adapters:
+  - id: tracker
+    summary: "A fixture tracker"
+    script: scripts/tracker-adapter.sh
+    cadence: 10m
+EOF
+  st_sources=${3:-'{work-items: specs:record}'}
   cat >"$tracked" <<EOF
 mission_control_programs: [alpha]
 program_alpha_repositories: [$repo]
 program_alpha_spec_root: $repo
 program_alpha_duties: $1
-program_alpha_sources: {work-items: specs:record}
+program_alpha_sources: $st_sources
 program_alpha_budget: {host_load: 1000000${2:+, $2}}
 EOF
 }
@@ -108,6 +174,20 @@ slot_for() { # slot_for <script-basename>: the slot recording that script
 }
 runs_of() { [ -f "$WATCH_RUNS/$1" ] && wc -l <"$WATCH_RUNS/$1" | tr -d ' ' || echo 0; }
 ran() { [ "$(runs_of "$1")" -ge "$2" ]; }
+check() { # check <label> <command...>
+  ck_label=$1
+  shift
+  if "$@"; then ok "$ck_label"; else fail "$ck_label"; fi
+}
+seed_polls() { # seed_polls <n>: poll-log lines stamped now
+  mkdir -p "$fleet/mission-control/alpha"
+  sp_now=$(date +%s)
+  sp_i=0
+  while [ "$sp_i" -lt "$1" ]; do
+    printf '%s\tforge\n' "$sp_now"
+    sp_i=$((sp_i + 1))
+  done >>"$fleet/mission-control/alpha/polls"
+}
 
 # ---------------------------------------------------------------------------
 # REQ-E1.1: a pass arms every armed duty's watchers; an `off` duty arms none.
@@ -118,52 +198,40 @@ expect_rc "REQ-E1.1: a pass" 0
 expect_out "REQ-E1.1: the live duty's first watcher is armed" "armed${tab}alpha-duty${tab}scripts/alpha-watch.sh"
 expect_out "REQ-E1.1: its second watcher is armed" "armed${tab}alpha-duty${tab}scripts/alpha-sweep.sh"
 expect_no_out "REQ-E1.1: an off duty arms nothing" "beta-duty"
-if poll_until --what "the first watcher run" -- ran alpha-watch 1; then
-  ok "REQ-E1.1: an armed watcher runs"
-else
-  fail "REQ-E1.1: the armed watcher never ran"
-fi
-if poll_until --what "the watcher's event" -- sh -c "grep -q 'alpha-due' '$fleet'/attention/mission-control/alpha/events/e* 2>/dev/null"; then
-  ok "REQ-E1.2: the watcher's declared event lands in the attention store"
-else
-  fail "REQ-E1.2: the watcher's event never landed"
-fi
+check "REQ-E1.1: an armed watcher runs" poll_until --what "the first watcher run" -- ran alpha-watch 1
+check "REQ-E1.2: the watcher's declared event lands in the attention store" \
+  poll_until --what "the watcher's event" -- sh -c "grep -q 'alpha-due' '$WATCH_EVENTS'/e* 2>/dev/null"
 mc_run mc-event.sh list --program alpha
 expect_out "REQ-E1.2: the event carries its kind, subject and text" "alpha-due${tab}pr-7${tab}seven is due"
 expect_no_out "REQ-E1.2: a line that is not an event is ignored" "chatter"
 watch_slot=$(slot_for alpha-watch.sh)
-if [ "$(cat "$WATCH_RUNS/alpha-watch")" = alpha-duty ]; then
-  ok "the watcher is told its duty"
-else
-  fail "PLANWRIGHT_MC_DUTY not passed"
-fi
+check "the watcher is told its duty" grep -q '^alpha-duty ' "$WATCH_RUNS/alpha-watch"
 
 mc_run mc-watch.sh pass --program alpha
 expect_out "REQ-E1.1: a second pass leaves a live watcher running" "running${tab}alpha-duty${tab}scripts/alpha-watch.sh"
 expect_no_out "REQ-E1.1: nothing is re-armed while it runs" "rearmed"
 
+check "the run's status is recorded" poll_until --what "the run record" -- test -s "$wdir/$watch_slot.last"
 mc_run mc-watch.sh status --program alpha
 expect_out "REQ-L1.4: status shows each watcher with its cadence and cost" "watcher${tab}alpha-duty${tab}scripts/alpha-watch.sh${tab}5m${tab}low${tab}running"
 expect_out "REQ-L1.4: and the medium-cost sweep" "watcher${tab}alpha-duty${tab}scripts/alpha-sweep.sh${tab}1h${tab}medium${tab}running"
+expect_out "a refused event line is counted, beside the run's exit" "${tab}0${tab}1"
+printf '%s\t0\t0\n' 1000 >"$wdir/$watch_slot.last"
+mc_run mc-watch.sh status --program alpha --now 1400
+expect_out "REQ-L1.4: a run past its cadence shows a negative time to the next, its expiry" "${tab}400${tab}-100${tab}0${tab}0"
 
 # ---------------------------------------------------------------------------
 # REQ-E1.5, REQ-E1.1: a killed watcher is an event, then re-armed within one
-# pass.
+# pass; the event lands before the re-armed watcher runs.
 # ---------------------------------------------------------------------------
 old=$(rec_pid "$watch_slot")
 kill "$old"
-poll_until --what "the killed watcher's exit" -- pid_gone "$old" || fail "the killed watcher outlived its kill"
+check "the killed watcher exits" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
 mc_run mc-watch.sh status --program alpha
 expect_out "a killed watcher shows stopped" "scripts/alpha-watch.sh${tab}5m${tab}low${tab}stopped"
 mc_run mc-watch.sh pass --program alpha
 expect_out "REQ-E1.5: the stop is reported with its event" "stopped${tab}alpha-duty${tab}scripts/alpha-watch.sh${tab}e"
 expect_out "REQ-E1.1: the watcher is re-armed in the same pass" "rearmed${tab}alpha-duty${tab}scripts/alpha-watch.sh"
-order=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "stopped" { s = NR } $1 == "rearmed" { r = NR } END { print (s && r && s < r) ? "ok" : "bad" }')
-if [ "$order" = ok ]; then
-  ok "REQ-E1.5: the event comes before the re-arm"
-else
-  fail "REQ-E1.5: the re-arm preceded the event"
-fi
 mc_run mc-event.sh list --program alpha
 expect_out "REQ-E1.5: a watcher-stopped event lands in the attention store" "watcher-stopped${tab}alpha-duty${tab}scripts/alpha-watch.sh stopped"
 new=$(rec_pid "$watch_slot")
@@ -172,118 +240,167 @@ if [ -n "$new" ] && [ "$new" != "$old" ] && kill -0 "$new" 2>/dev/null; then
 else
   fail "REQ-E1.1: no live re-armed watcher"
 fi
-if poll_until --what "the re-armed watcher's run" -- ran alpha-watch 2; then
-  ok "REQ-E1.1: the re-armed watcher runs"
-else
-  fail "REQ-E1.1: the re-armed watcher never ran"
-fi
+check "REQ-E1.1: the re-armed watcher runs" poll_until --what "the re-armed watcher's run" -- ran alpha-watch 2
+check "REQ-E1.5: the stop event was in the store before the re-armed watcher ran" \
+  grep -q '^alpha-duty 1$' "$WATCH_RUNS/alpha-watch"
 
 # A record whose pid now names some other process is not trusted as live.
 printf '%s\t1\talpha-duty\tscripts/alpha-watch.sh\t5m\tlow\n' "$$" >"$wdir/$watch_slot.rec"
 kill "$new" 2>/dev/null
 mc_run mc-watch.sh pass --program alpha
 expect_out "a recycled pid is not taken for the watcher" "rearmed${tab}alpha-duty${tab}scripts/alpha-watch.sh"
-if kill -0 "$$"; then
-  ok "the process the stale record named is left alone"
-else
-  fail "the runner signalled a stranger"
-fi
+check "the process the stale record named is left alone" kill -0 "$$"
 
 # ---------------------------------------------------------------------------
-# REQ-L1.2: the budget rungs pause watchers by cost class; the spend ceiling.
+# REQ-L1.2: the budget rungs pause watchers by cost class; the spend class.
 # ---------------------------------------------------------------------------
-sweep_slot=$(slot_for alpha-sweep.sh)
-sweep_pid=$(rec_pid "$sweep_slot")
-mc_run mc-budget.sh record --program alpha sessions 4
+setup '[alpha-duty, fast-duty]' 'polls_per_hour: 20'
 mc_run mc-watch.sh pass --program alpha
-expect_out "REQ-L1.2: hold-dispatch pauses the medium-cost watcher" "paused${tab}alpha-duty${tab}scripts/alpha-sweep.sh${tab}budget rung hold-dispatch"
+expect_out "a high-cost watcher is armed with headroom" "armed${tab}fast-duty${tab}scripts/heavy-watch.sh"
+heavy_pid=$(rec_pid "$(slot_for heavy-watch.sh)")
+seed_polls 17
+mc_run mc-watch.sh pass --program alpha
+expect_out "REQ-L1.2: pause-watchers stops the high-cost watcher" "paused${tab}fast-duty${tab}scripts/heavy-watch.sh${tab}budget rung pause-watchers"
+expect_out "REQ-L1.2: it leaves the medium-cost one" "running${tab}alpha-duty${tab}scripts/alpha-sweep.sh"
+check "REQ-L1.2: the paused watcher's process is stopped" poll_until --what "the paused watcher's exit" -- pid_gone "$heavy_pid"
+sweep_pid=$(rec_pid "$(slot_for alpha-sweep.sh)")
+mc_run mc-budget.sh record --program alpha context_steps 200
+mc_run mc-watch.sh pass --program alpha
+expect_out "REQ-L1.2: handover stops the medium-cost watcher too" "paused${tab}alpha-duty${tab}scripts/alpha-sweep.sh${tab}budget rung handover"
 expect_out "REQ-L1.2: the low-cost watcher keeps running" "running${tab}alpha-duty${tab}scripts/alpha-watch.sh"
-if poll_until --what "the paused sweep's exit" -- pid_gone "$sweep_pid"; then
-  ok "REQ-L1.2: the paused watcher's process is stopped"
-else
-  fail "REQ-L1.2: the paused watcher still runs"
-fi
-mc_run mc-budget.sh record --program alpha sessions 0
+check "REQ-L1.2: the medium-cost watcher's process is stopped" poll_until --what "the sweep's exit" -- pid_gone "$sweep_pid"
+mc_run mc-budget.sh record --program alpha context_steps 0
+: >"$fleet/mission-control/alpha/polls"
 mc_run mc-watch.sh pass --program alpha
 expect_out "REQ-L1.2: with headroom back the watcher is armed again" "armed${tab}alpha-duty${tab}scripts/alpha-sweep.sh"
 
 setup '[alpha-duty]' 'spend_alpha_duty: low'
 mc_run mc-watch.sh pass --program alpha
-expect_out "REQ-L1.2: a watcher over its duty's spend class is not armed" "paused${tab}alpha-duty${tab}scripts/alpha-sweep.sh${tab}above the low spend ceiling"
+expect_out "REQ-L1.2: a watcher over its duty's spend class is not armed" "paused${tab}alpha-duty${tab}scripts/alpha-sweep.sh${tab}above the low spend class"
 expect_out "REQ-L1.2: one within it is" "armed${tab}alpha-duty${tab}scripts/alpha-watch.sh"
-if [ -f "$fleet/mission-control/alpha/budget" ]; then
-  ok "REQ-L1.4: a pass keeps the budget file current"
-else
-  fail "REQ-L1.4: no budget file after a pass"
-fi
+check "REQ-L1.4: a pass keeps the budget file current" test -f "$fleet/mission-control/alpha/budget"
 
 # ---------------------------------------------------------------------------
-# REQ-E1.1: the runner honours the daemon pause.
+# REQ-E1.1: the runner and every live loop honour the daemon pause; a loop
+# whose state is gone exits.
 # ---------------------------------------------------------------------------
-watch_slot=$(slot_for alpha-watch.sh)
-paused_pid=$(rec_pid "$watch_slot")
+setup '[fast-duty]'
+mc_run mc-watch.sh pass --program alpha
+check "a 1s watcher runs repeatedly" poll_until --what "three fast runs" -- ran fast-watch 3
+fast_pid=$(rec_pid "$(slot_for fast-watch.sh)")
 printf '%s\n' "fleet_daemon_pause: true" >>"$tracked"
-kill "$paused_pid"
-poll_until --what "the watcher's exit" -- pid_gone "$paused_pid" || fail "the watcher outlived its kill"
+# Let a run already past the gate finish, then hold a window: an assertion
+# that nothing happens, so a fixed wait rather than a poll.
+sleep 2
+before=$(runs_of fast-watch)
+sleep 3
+if [ "$(runs_of fast-watch)" -eq "$before" ]; then
+  ok "REQ-E1.1: a live watcher loop skips its runs under the pause"
+else
+  fail "REQ-E1.1: a watcher ran under the pause ($before then $(runs_of fast-watch) runs)"
+fi
+kill "$(rec_pid "$(slot_for heavy-watch.sh)")" 2>/dev/null
 mc_run mc-watch.sh pass --program alpha
 expect_eq "REQ-E1.1: a paused pass does nothing but say so" "paused"
-if [ "$(rec_pid "$watch_slot")" = "$paused_pid" ]; then
-  ok "REQ-E1.1: nothing is re-armed under the pause"
-else
-  fail "REQ-E1.1: a watcher was re-armed under the pause"
-fi
 mc_run mc-event.sh list --program alpha
 expect_no_out "REQ-E1.1: no event is emitted under the pause" "watcher-stopped"
+rm -rf "$wdir"
+check "a loop whose state directory is gone exits" poll_until --what "the orphaned loop's exit" -- pid_gone "$fast_pid"
 
 # ---------------------------------------------------------------------------
-# A duty the program no longer enables is disarmed; stop stops them all.
+# A watcher that cannot resolve is reported, never armed or evented; a duty
+# the program no longer enables is disarmed; stop stops them all.
 # ---------------------------------------------------------------------------
+setup '[lost-duty]'
+mc_run mc-watch.sh pass --program alpha
+expect_rc "an unresolvable watcher fails the pass" 1
+expect_out "it is reported" "unresolvable${tab}lost-duty${tab}scripts/nowhere.sh"
+mc_run mc-watch.sh pass --program alpha
+mc_run mc-event.sh list --program alpha
+expect_no_out "and floods no watcher-stopped event" "watcher-stopped"
+
 setup '[alpha-duty]'
 mc_run mc-watch.sh pass --program alpha
 sweep_pid=$(rec_pid "$(slot_for alpha-sweep.sh)")
 sed 's/^program_alpha_duties: .*/program_alpha_duties: [beta-duty]/' "$tracked" >"$tmp/t" && cp "$tmp/t" "$tracked"
 mc_run mc-watch.sh pass --program alpha
 expect_out "a disabled duty's watchers are disarmed" "disarmed${tab}alpha-duty"
-if poll_until --what "the disarmed watcher's exit" -- pid_gone "$sweep_pid"; then
-  ok "the disarmed watcher's process is stopped"
-else
-  fail "a disarmed watcher still runs"
-fi
-if ls "$wdir"/*.rec >/dev/null 2>&1; then
-  fail "a disarmed watcher kept its record"
-else
-  ok "no record is left"
-fi
+check "the disarmed watcher's process is stopped" poll_until --what "the disarmed watcher's exit" -- pid_gone "$sweep_pid"
+if ls "$wdir"/*.rec >/dev/null 2>&1; then fail "a disarmed watcher kept its record"; else ok "no record is left"; fi
 
 setup '[alpha-duty]'
 mc_run mc-watch.sh pass --program alpha
 pids=$(cut -f1 "$wdir"/*.rec)
 mc_run mc-watch.sh stop --program alpha
 expect_rc "stop" 0
+expect_out "stop names what it disarmed" "disarmed${tab}alpha-duty"
 # shellcheck disable=SC2086 # one pid per word
-if poll_until --what "every stopped watcher's exit" -- pid_gone $pids; then
-  ok "stop ends every watcher"
-else
-  fail "a watcher outlived stop"
-fi
+check "stop ends every watcher" poll_until --what "every stopped watcher's exit" -- pid_gone $pids
 
 # ---------------------------------------------------------------------------
-# REQ-C1.5: no runner, watcher-relay, snapshot or budget path calls a model.
-# The gate is checked against a seeded file first, so it can fail.
+# REQ-E1.3, REQ-M1.1: a pass refreshes the snapshots and runs the relay and
+# the tick; a failed step fails the pass.
+# ---------------------------------------------------------------------------
+setup '[beta-duty]' '' '{work-items: tracker:snapshot}'
+mc_run mc-wake.sh target add --program alpha ghost
+mc_run mc-event.sh emit --program alpha pr-ready pr-1
+mc_run mc-watch.sh pass --program alpha
+expect_rc "a pass with a source and a wake target" 0
+expect_out "REQ-M1.1: the pass refreshes the snapshot" "snapshot${tab}refreshed${tab}tracker"
+expect_out "REQ-E1.3: the pass relays the wake" "wake${tab}unreachable${tab}ghost"
+expect_out "REQ-E1.3: the pass runs the tick" "wake${tab}tick"
+TRACKER_EXIT=1 mc_run mc-watch.sh pass --program alpha --now "$(($(date +%s) + 3600))"
+expect_rc "a failed snapshot step fails the pass" 1
+expect_out "and is reported" "snapshot${tab}failed${tab}tracker${tab}1"
+
+# ---------------------------------------------------------------------------
+# The runner: run --once, and one runner per program.
+# ---------------------------------------------------------------------------
+setup '[beta-duty]'
+mc_run mc-watch.sh run --program alpha --once
+expect_rc "run --once makes one pass and exits" 0
+(
+  cd "$repo" && exec env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
+    -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
+    -u XDG_CONFIG_HOME \
+    PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+    PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" CLAUDE_DIR="$tmp/claude" HOME="$fixhome" \
+    PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
+    /bin/bash "$repo_root/scripts/mc-watch.sh" run --program alpha
+) >/dev/null 2>&1 &
+run_pid=$!
+check "a runner holds the runner lock" poll_until --what "the runner's lock" -- sh -c "[ -L '$fleet/mission-control/alpha/runner.lock' ] || [ -e '$fleet/mission-control/alpha/runner.lock' ]"
+mc_run mc-watch.sh pass --program alpha
+expect_eq "a second runner's pass stands aside" "busy"
+kill "$run_pid" 2>/dev/null
+check "the runner exits on TERM" poll_until --what "the runner's exit" -- pid_gone "$run_pid"
+run_pid=""
+mc_run mc-watch.sh pass --program alpha
+expect_rc "the lock is free once the runner is gone" 0
+
+# ---------------------------------------------------------------------------
+# REQ-C1.5: no runner, relay, snapshot or budget path calls a model. The gate
+# is checked against one seeded file per spelling first, so it can fail.
 # ---------------------------------------------------------------------------
 no_model() { # no_model <file...>: the code lines that would start a model
-  grep -nE '(^|[^A-Za-z0-9_./-])claude([[:space:]]|$)|offload-dispatch|mission-control-launch|streamjson\.sh"?[[:space:]]+launch|anthropic' "$@" \
+  grep -nE '(^|[^A-Za-z0-9_.-])"?(/[A-Za-z0-9_./-]*/)?(claude|gemini|codex)"?([[:space:]]|$)|\$\{?[A-Z_]*(CLAUDE|MODEL|LLM)[A-Z_]*|offload-dispatch|mission-control-launch|fleet-[a-z-]*\.sh"?[[:space:]]+launch|anthropic' "$@" \
     | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#'
 }
-printf '#!/bin/sh\n# claude is only named here\nclaude -p "summarize"\n' >"$tmp/seeded.sh"
-if no_model "$tmp/seeded.sh" >/dev/null; then
-  ok "REQ-C1.5: the gate catches a seeded model call"
-else
-  fail "REQ-C1.5: the gate misses a seeded model call"
-fi
+# shellcheck disable=SC2016 # the seeds are source text, never expanded
+for seeded in 'claude -p "summarize"' '"claude" -p x' '/usr/local/bin/claude -p x' \
+  'gemini -p x' 'codex exec x' '${CLAUDE_BIN:-claude} -p x' \
+  '/bin/sh "$d/fleet-streamjson.sh" launch w s' 'fleet-tmux.sh launch w'; do
+  printf '#!/bin/sh\n# claude is only named here\n%s\n' "$seeded" >"$tmp/seeded.sh"
+  if no_model "$tmp/seeded.sh" >/dev/null; then
+    ok "REQ-C1.5: the gate catches: $seeded"
+  else
+    fail "REQ-C1.5: the gate misses: $seeded"
+  fi
+done
 found=$(no_model "$repo_root"/scripts/mc-watch.sh "$repo_root"/scripts/mc-wake.sh \
   "$repo_root"/scripts/mc-event.sh "$repo_root"/scripts/mc-snapshot.sh \
-  "$repo_root"/scripts/mc-adapter-forge.sh "$repo_root"/scripts/mc-budget.sh "$repo_root"/scripts/mc-lib.sh)
+  "$repo_root"/scripts/mc-adapter-forge.sh "$repo_root"/scripts/mc-budget.sh \
+  "$repo_root"/scripts/mc-lib.sh "$repo_root"/scripts/mc-duties.sh "$repo_root"/scripts/mc-program.sh)
 if [ -z "$found" ]; then
   ok "REQ-C1.5: no runner step calls a model"
 else

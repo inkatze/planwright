@@ -15,3 +15,4 @@ forge-tracked-set	mission_control_forge_tracked	scripts/mc-adapter-forge.sh
 rate-limit-floor	mission_control_ratelimit_floor	scripts/mc-snapshot.sh
 default-budget	mission_control_default_budget	scripts/mc-budget.sh
 degradation-ladder	mission_control_budget_ladder	scripts/mc-budget.sh
+event-retention	mission_control_event_retention	scripts/mc-event.sh

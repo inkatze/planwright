@@ -24,9 +24,10 @@
 #            none for the source: a positive count of s, m, h or d
 #
 # The adapter contract, which scripts/mc-snapshot.sh's header states in full:
-# `<script> refresh --program <p> --out <file> [--previous <file>]` writes
-# the snapshot body, reports rate-limit headroom on stdout, and exits 75 when
-# the source refused the read for its rate limit.
+# `<script> refresh --program <p> --out <file> [--previous <file>]`, run
+# with PLANWRIGHT_MC_PROGRAM set, writes the snapshot body, reports
+# rate-limit headroom on stdout, and exits 75 when the source refused the
+# read for its rate limit.
 #
 # The reader is the constrained awk parser config/duties.yaml describes.
 

@@ -40,89 +40,8 @@ tmp=$(cd "$tmp" && pwd -P) || exit 1
 # shellcheck source=tests/lib/mission-control-fixture.sh
 . "$here/lib/mission-control-fixture.sh"
 
-tab=$(printf '\t')
-head1=1111111111111111111111111111111111111111
-head2=2222222222222222222222222222222222222222
-
-# The gh shim: logs every call; serves the repository name, a GraphQL page
-# (as gh's --jq would print it) and a diff. GH_REMAINING sets the reported
-# rate-limit headroom; GH_LIMITED makes every call a rate-limit refusal.
-mkdir -p "$tmp/bin"
-cat >"$tmp/bin/gh" <<'EOF'
-#!/bin/sh
-printf '%s\n' "$1 $2" >>"$GH_LOG"
-if [ -n "${GH_LIMITED:-}" ]; then
-  echo "API rate limit exceeded for user" >&2
-  exit 1
-fi
-case "$1 $2" in
-  "repo view") echo "acme/widgets" ;;
-  "api graphql")
-    printf 'ratelimit\t%s\t%s\n' "${GH_REMAINING:-4000}" 9000000
-    printf '7\t%s\tfalse\tMERGEABLE\tAPPROVED\t2\tSUCCESS\t3\t4\n' "$GH_HEAD"
-    printf '9\t%s\ttrue\tUNKNOWN\tNONE\t0\tNONE\t0\t1\n' "$GH_HEAD"
-    ;;
-  "pr diff")
-    printf 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+%s\n' "$3"
-    ;;
-  *) exit 1 ;;
-esac
-EOF
-chmod +x "$tmp/bin/gh"
-GH_LOG="$tmp/gh.log"
-GH_HEAD=$head1
-export GH_LOG GH_HEAD
-PATH="$tmp/bin:$PATH"
-export PATH
-
-gh_calls() { if [ -f "$GH_LOG" ]; then grep -c "$1" "$GH_LOG"; else echo 0; fi; }
-
-# The shipped forge adapter, reached from the fixture core root.
-mkdir -p "$core/scripts"
-cat >"$core/scripts/mc-adapter-forge.sh" <<EOF
-#!/bin/sh
-exec /bin/bash '$repo_root/scripts/mc-adapter-forge.sh' "\$@"
-EOF
-# A second source's fixture adapter, resolved from the program's repository:
-# counts its reads; TRACKER_RL prints a rate-limit line; TRACKER_EXIT sets
-# its exit.
-mkdir -p "$repo/scripts"
-cat >"$repo/scripts/tracker-adapter.sh" <<'EOF'
-#!/bin/sh
-printf 'read\n' >>"$TRACKER_LOG"
-out=""
-while [ $# -gt 0 ]; do
-  [ "$1" = --out ] && out=$2
-  shift
-done
-printf 'item\tT-1\topen\n' >"$out"
-[ -z "${TRACKER_RL:-}" ] || printf 'ratelimit\t%s\n' "$TRACKER_RL"
-exit "${TRACKER_EXIT:-0}"
-EOF
-TRACKER_LOG="$tmp/tracker.log"
-export TRACKER_LOG
-tracker_reads() { if [ -f "$TRACKER_LOG" ]; then wc -l <"$TRACKER_LOG" | tr -d ' '; else echo 0; fi; }
-
-# setup [budget]: program alpha mapping code-state to the forge and work-items
-# to the fixture tracker, the tracker's adapter registered by overlay.
-setup() {
-  reset_mc_fixture
-  rm -rf "$fleet" "$GH_LOG" "$TRACKER_LOG"
-  cat >"$repo/.claude/catalogs/snapshot-adapters.yaml" <<'EOF'
-adapters:
-  - id: tracker
-    summary: "A fixture tracker"
-    script: scripts/tracker-adapter.sh
-    cadence: 10m
-EOF
-  cat >"$tracked" <<EOF
-mission_control_programs: [alpha]
-program_alpha_repositories: [$repo]
-program_alpha_spec_root: $repo
-program_alpha_sources: {code-state: forge:snapshot, work-items: tracker:snapshot, decisions: specs:record}
-program_alpha_budget: {polls_per_hour: ${1:-100}, host_load: 1000000}
-EOF
-}
+# shellcheck source=tests/lib/mc-snapshot-fixture.sh
+. "$here/lib/mc-snapshot-fixture.sh"
 
 # ---------------------------------------------------------------------------
 # REQ-M1.1: one forge read per cadence however many duties read it; each
@@ -149,6 +68,8 @@ expect_rc "REQ-M1.1: a duty reads the forge snapshot" 0
 expect_out "REQ-M1.1: the snapshot reports its age and mode" "source${tab}forge${tab}mode${tab}snapshot${tab}age${tab}60${tab}cadence${tab}300${tab}fresh"
 expect_out "REQ-M1.1: the forge row carries head, draft, mergeability, review, threads, checks, reviews, comments" \
   "pr${tab}acme/widgets${tab}7${tab}${head1}${tab}false${tab}MERGEABLE${tab}APPROVED${tab}2${tab}SUCCESS${tab}3${tab}4${tab}"
+expect_out "REQ-M1.1: a draft with no decision and no checks reads NONE" \
+  "pr${tab}acme/widgets${tab}9${tab}${head1}${tab}true${tab}UNKNOWN${tab}NONE${tab}0${tab}NONE${tab}0${tab}1${tab}"
 first=$OUT
 patch7=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "pr" && $3 == 7 { print $12 }')
 case $patch7 in
@@ -206,16 +127,16 @@ expect_out "REQ-H1.4: a class the map leaves out is cited" "designs${tab}-${tab}
 # polling.
 # ---------------------------------------------------------------------------
 setup
-TRACKER_RL="0${tab}5000" mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1000
+TRACKER_RL="0${tab}4000" mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 1000
 expect_out "the read that reports exhausted headroom still lands" "refreshed${tab}tracker"
 mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 2000
-expect_out "REQ-M1.1: past its cadence, the source waits for the reset" "held${tab}tracker${tab}5000"
+expect_out "REQ-M1.1: past its cadence, the source waits for the reset" "held${tab}tracker${tab}4000"
 if [ "$(tracker_reads)" -eq 1 ]; then
   ok "REQ-M1.1: a held source is not polled"
 else
   fail "REQ-M1.1: a held source was polled ($(tracker_reads) reads)"
 fi
-mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 5001
+mc_run mc-snapshot.sh refresh --program alpha --source tracker --now 4001
 expect_out "REQ-M1.1: after the reset the source is read again" "refreshed${tab}tracker"
 
 setup
@@ -230,7 +151,7 @@ expect_out "the forge adapter turns a rate-limit refusal into exit 75" "held${ta
 setup
 GH_REMAINING=10 mc_run mc-snapshot.sh refresh --program alpha --source forge --now 1000
 mc_run mc-snapshot.sh refresh --program alpha --source forge --now 3000
-expect_out "the forge's low headroom (under the floor) holds it to the reset" "held${tab}forge${tab}9000000"
+expect_out "the forge's low headroom (under the floor) holds it, clamped to an hour" "held${tab}forge${tab}4600"
 
 # ---------------------------------------------------------------------------
 # REQ-L1.2: every snapshot-mode source's polls count against one cap.

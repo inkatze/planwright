@@ -4,21 +4,24 @@
 #
 # Implements the adapter contract scripts/mc-snapshot.sh's header states:
 #   mc-adapter-forge.sh refresh --program <p> --out <file> [--previous <file>]
-# For each of the program's repositories, one GraphQL read lists the tracked
-# pull requests (mission_control_forge_tracked: every open one, or only those
-# the gh account authored; the newest 50 by update time, threads counted over
-# the first 100) and writes one line per pull request:
+# For each of the program's repositories, one GraphQL read takes the newest
+# 50 open pull requests by update time, keeps the tracked ones
+# (mission_control_forge_tracked: all of them, or only those the gh account
+# authored), counts unresolved threads over the first 100, and writes one
+# line per pull request:
 #   pr<TAB><owner/name><TAB><number><TAB><head sha><TAB><draft true|false>
 #     <TAB><mergeable><TAB><review decision|NONE><TAB><open threads>
-#     <TAB><checks state|NONE><TAB><reviews><TAB><comments><TAB><patch id|->
-# The patch id (git patch-id --stable over the pull request's diff) is carried
-# forward from --previous while the head is unchanged, so an unchanged patch
-# costs no read; a changed head costs one diff read.
+#     <TAB><checks state|NONE><TAB><reviews><TAB><comments><TAB><patch id>
+# The patch id (git patch-id --stable over the pull request's diff) is
+# carried forward from --previous while the head is unchanged, so an
+# unchanged patch costs no read; a changed head costs one diff read. It is
+# `none` for a diff with no patch id (carried forward like an id) and `-`
+# when the diff could not be read (read again next time).
 #
 # Prints `ratelimit<TAB><remaining><TAB><reset-epoch>` from the GraphQL rate
 # limit, the lowest seen across the repositories. Exit 0 the snapshot is
 # written; 75 the forge refused a read for its rate limit; 1 any other failed
-# read or an unexpected field; 2 usage.
+# listing read or an unexpected field; 2 usage.
 #
 # Portable bash 3.2 / BSD tooling; gh's built-in --jq does the JSON.
 set -u
@@ -66,13 +69,13 @@ mc_valid_program "$program" || mc_usage_fail "invalid program name '$(sanitize_p
 command -v gh >/dev/null 2>&1 || mc_fail "gh is not installed"
 
 # shellcheck disable=SC2329 # called by name through mc_knob
-is_tracked() {
+parse_tracked() {
   case $1 in
     open | authored) printf '%s\n' "$1" ;;
     *) return 1 ;;
   esac
 }
-tracked=$(mc_knob mission_control_forge_tracked is_tracked) || exit 1
+tracked=$(mc_knob mission_control_forge_tracked parse_tracked) || exit 1
 repos=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories) || exit 1
 
 errf=$(mktemp) || mc_fail "mktemp failed"
@@ -97,14 +100,14 @@ gh_read() {
 QUERY='query($owner:String!,$name:String!){ rateLimit{ remaining resetAt } viewer{ login } repository(owner:$owner,name:$name){ pullRequests(states:OPEN,first:50,orderBy:{field:UPDATED_AT,direction:DESC}){ nodes{ number headRefOid isDraft mergeable reviewDecision author{ login } reviewThreads(first:100){ nodes{ isResolved } } commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } reviews{ totalCount } comments{ totalCount } } } } }'
 # The first line is the rate limit; then one row per tracked pull request.
 # shellcheck disable=SC2016 # jq, not shell
-JQ='"ratelimit\t\(.data.rateLimit.remaining)\t\(.data.rateLimit.resetAt | fromdateiso8601)",
+JQ='def tracked: "'"$tracked"'";
+  "ratelimit\t\(.data.rateLimit.remaining)\t\(.data.rateLimit.resetAt | fromdateiso8601)",
   (.data.viewer.login as $me | .data.repository.pullRequests.nodes[]
-   | select($tracked == "open" or .author.login == $me)
+   | select(tracked == "open" or .author.login == $me)
    | [.number, .headRefOid, .isDraft, .mergeable, (.reviewDecision // "NONE"),
       ([.reviewThreads.nodes[] | select(.isResolved | not)] | length),
       (.commits.nodes[0].commit.statusCheckRollup.state // "NONE"),
       .reviews.totalCount, .comments.totalCount] | @tsv)'
-JQ="def tracked: \"$tracked\"; ${JQ//\$tracked/tracked}"
 
 low_remaining=""
 low_reset=""
@@ -112,53 +115,60 @@ while IFS= read -r repo; do
   [ -n "$repo" ] || continue
   slug=$(cd "$repo" && gh_read repo view --json nameWithOwner --jq .nameWithOwner) || exit $?
   case $slug in
-    */*) ;;
-    *) mc_fail "unexpected repository name for $(sanitize_printable "$repo")" ;;
-  esac
-  case $slug in
-    *[!A-Za-z0-9._/-]* | */*/*) mc_fail "unexpected repository name '$(sanitize_printable "$slug")'" ;;
+    */*/* | *[!A-Za-z0-9._/-]*) mc_fail "unexpected repository name '$(sanitize_printable "$slug")'" ;;
+    ?*/?*) ;;
+    *) mc_fail "unexpected repository name '$(sanitize_printable "$slug")'" ;;
   esac
   rows=$(gh_read api graphql -f owner="${slug%%/*}" -f name="${slug#*/}" -f query="$QUERY" --jq "$JQ") || exit $?
   first=1
-  while IFS='	' read -r a b c d e f g h i; do
+  while IFS='	' read -r number head draft mergeable decision threads checks reviews comments; do
     if [ "$first" -eq 1 ]; then
       first=0
-      if [ "$a" != ratelimit ] || ! mc_valid_uint "$b" || ! mc_valid_uint "$c"; then
+      # The rate-limit line reads into the first three fields.
+      if [ "$number" != ratelimit ] || ! mc_valid_uint "$head" || ! mc_valid_uint "$draft"; then
         mc_fail "unexpected rate-limit line from the forge"
       fi
-      if [ -z "$low_remaining" ] || [ "$b" -lt "$low_remaining" ]; then
-        low_remaining=$b
-        low_reset=$c
+      if [ -z "$low_remaining" ] || [ "$head" -lt "$low_remaining" ]; then
+        low_remaining=$head
+        low_reset=$draft
       fi
       continue
     fi
-    mc_valid_uint "$a" || mc_fail "unexpected pull request number from the forge"
-    case $b in
-      *[!0-9a-f]* | "") mc_fail "unexpected head for #$a" ;;
+    mc_valid_uint "$number" || mc_fail "unexpected pull request number from the forge"
+    case $head in
+      *[!0-9a-f]* | "") mc_fail "unexpected head for #$number" ;;
     esac
-    case $c in true | false) ;; *) mc_fail "unexpected draft state for #$a" ;; esac
-    for v in "$d" "$e" "$g"; do
+    case $draft in true | false) ;; *) mc_fail "unexpected draft state for #$number" ;; esac
+    for v in "$mergeable" "$decision" "$checks"; do
       case $v in
-        "" | *[!A-Z_]*) mc_fail "unexpected state field for #$a" ;;
+        "" | *[!A-Z_]*) mc_fail "unexpected state field for #$number" ;;
       esac
     done
-    for v in "$f" "$h" "$i"; do
-      mc_valid_uint "$v" || mc_fail "unexpected count for #$a"
+    for v in "$threads" "$reviews" "$comments"; do
+      mc_valid_uint "$v" || mc_fail "unexpected count for #$number"
     done
     patch=""
     if [ -n "$previous" ] && [ -f "$previous" ]; then
-      patch=$(awk -F '\t' -v s="$slug" -v n="$a" -v h="$b" \
-        '$1 == "pr" && $2 == s && $3 == n && $4 == h && $12 ~ /^[0-9a-f]+$/ { print $12; exit }' "$previous")
+      patch=$(S=$slug N=$number H=$head awk -F '\t' '$1 == "pr" && $2 == ENVIRON["S"] && $3 == ENVIRON["N"] && $4 == ENVIRON["H"] && ($12 ~ /^[0-9a-f]+$/ || $12 == "none") { print $12; exit }' "$previous")
     fi
     if [ -z "$patch" ]; then
-      diff=$(gh_read pr diff "$a" -R "$slug") || exit $?
-      patch=$(printf '%s\n' "$diff" | git patch-id --stable 2>/dev/null | awk 'NR == 1 { print $1 }')
-      case $patch in
-        "" | *[!0-9a-f]*) patch=- ;;
-      esac
+      # One unreadable diff (too large for the forge, say) leaves that
+      # pull request's id unknown rather than failing the whole snapshot.
+      if diff=$(gh pr diff "$number" -R "$slug" 2>"$errf"); then
+        patch=$(printf '%s\n' "$diff" | git patch-id --stable 2>/dev/null | awk 'NR == 1 { print $1 }')
+        case $patch in
+          "" | *[!0-9a-f]*) patch=none ;;
+        esac
+      elif grep -qi 'rate limit' "$errf"; then
+        printf '%s\n' "$prog: the forge refused a read for its rate limit" >&2
+        exit 75
+      else
+        patch=-
+      fi
     fi
     printf 'pr\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$slug" "$a" "$b" "$c" "$d" "$e" "$f" "$g" "$h" "$i" "$patch" >>"$body"
+      "$slug" "$number" "$head" "$draft" "$mergeable" "$decision" "$threads" "$checks" \
+      "$reviews" "$comments" "$patch" >>"$body" || mc_fail "cannot stage the snapshot body"
   done <<EOF
 $rows
 EOF
