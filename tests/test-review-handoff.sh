@@ -34,6 +34,12 @@ assert_lacks() {
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/rho.XXXXXX")
 trap 'rm -rf "$T"' EXIT
+# Physical, since the builder prints and compares physical paths and macOS's
+# TMPDIR sits under the /var symlink.
+T=$(cd "$T" && pwd -P) || exit 1
+
+# sedi <script> <file>: an in-place sed edit, without GNU sed's -i.
+sedi() { sed "$1" "$2" >"$2.sedi" && mv "$2.sedi" "$2"; }
 
 g() { git -C "$R" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
 
@@ -423,8 +429,8 @@ printf '#!/bin/sh\nshow() {\n  :\n}\n' >"$R4/lib.sh"
 g4 add -A
 g4 commit -q -m base
 B4BASE=$(g4 rev-parse HEAD)
-sed -i 's/^x=1$/x=2/' "$R4/$weird"
-sed -i 's/^z=3$/z=4/' "$R4/other.sh"
+sedi 's/^x=1$/x=2/' "$R4/$weird"
+sedi 's/^z=3$/z=4/' "$R4/other.sh"
 printf '#!/bin/sh\nshow() {\n  printf changed\n}\n' >"$R4/lib.sh"
 printf 'show \033[31mred\233m bytes\n' >>"$R4/docs/ref.txt"
 g4 commit -q -am "change"
@@ -445,16 +451,21 @@ g4 commit -q -m "a colon path"
 build4 --base "$B4BASE" >/dev/null 2>&1
 assert_contains "a :digits: path is split at its own line number" "show	function	docs/a:12:b.txt:2" "$(cat "$R4/.claude/review-handoff/callers.tsv" 2>/dev/null)"
 # A refused path git prints raw (an 8-bit byte, unquoted) is noted without it.
+# A UTF-8-normalizing file system (macOS/APFS) refuses the byte in a name, so
+# the case is skipped there; the Linux runs are where it has teeth.
 B4HEAD=$(g4 rev-parse HEAD)
-printf 'x\n' >"$R4/-$(printf '\233')x.txt"
-g4 add -A
-g4 commit -q -m "a refused name"
-build4 --base "$B4BASE" --delta "$B4HEAD" >/dev/null 2>&1
-assert_contains "the refused name is noted" "skipped-path" "$(cat "$R4/.claude/review-handoff/caller-search.txt" 2>/dev/null)"
-if LC_ALL=C grep -q "$(printf '\233')" "$R4/.claude/review-handoff/caller-search.txt"; then
-  fail "skipped-path notes carry no control bytes"
+if (printf 'x\n' >"$R4/-$(printf '\233')x.txt") 2>/dev/null; then
+  g4 add -A
+  g4 commit -q -m "a refused name"
+  build4 --base "$B4BASE" --delta "$B4HEAD" >/dev/null 2>&1
+  assert_contains "the refused name is noted" "skipped-path" "$(cat "$R4/.claude/review-handoff/caller-search.txt" 2>/dev/null)"
+  if LC_ALL=C grep -q "$(printf '\233')" "$R4/.claude/review-handoff/caller-search.txt"; then
+    fail "skipped-path notes carry no control bytes"
+  else
+    ok "skipped-path notes carry no control bytes"
+  fi
 else
-  ok "skipped-path notes carry no control bytes"
+  ok "the refused name is noted (skipped: this file system refuses the byte in a name)"
 fi
 
 # A committed .claude symlink must not carry the bundle out of the repository.

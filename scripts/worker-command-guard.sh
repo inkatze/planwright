@@ -1136,7 +1136,10 @@ $DENY_RULES
 EOF
   [ "$n" -gt 0 ] || return 0
   deny_glob_ere "$globs"
-  mapfile -t eres <<<"${DENY_ERE%$'\n'}"
+  # A read loop, not mapfile: bash 3.2 (the macOS /bin/bash) has no mapfile.
+  while IFS= read -r rule; do
+    eres+=("$rule")
+  done <<<"${DENY_ERE%$'\n'}"
   [ "${#eres[@]}" -eq "$n" ] || return 1
   for ((i = 0; i < n; i++)); do
     if [ "${tails:i:1}" = w ]; then
