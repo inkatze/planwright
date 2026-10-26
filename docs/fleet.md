@@ -512,6 +512,22 @@ It therefore raises the same attention signals (a fork-park push, a status
 row) that tmux workers started without the wrapper never did; that is the
 identity working, not new noise.
 
+### The task worker's opening turn
+
+A tmux task worker starts working from a file handed to it at launch, so its
+first turn needs no message and no keystroke, and works whether or not
+cross-session messaging is available:
+
+| Piece | What it is |
+| --- | --- |
+| `fleet-dispatch-worktree.sh dispatch <spec> <id> --brief <abs-file>` | Hands the worker one fixed prompt, `Read <abs-file> and follow it exactly.`, after `--`: the path rides argv, never the content. Only the unit's own task brief is accepted, after canonicalization, on the path charset `[A-Za-z0-9._/@+-]`, non-empty, never a symlink, with the fleet home and every directory below it on the path private to you; `--continue` and `--resume` are refused beside it. |
+| `<fleet-home>/tasks/<spec>/<id>/brief.md` | The task brief, written owner-only by `scripts/fleet-task-brief.sh render <spec> <id> [--tower <name>]` from the shipped template `templates/task-brief/brief.md` and validated fields alone. It names the unit's `/execute-task` invocation and, given the tower's session name, that name and the question rule: record the question as a fork first, one message per fork, sent only when `fleet-messaging.sh effective-mode --direction worker-to-tower` prints `tiered` or `open`. Without a name the worker has no upward message path. |
+| Retirement | The sweep's residue pass (`fleet-task-brief.sh retire`) removes a task brief once its unit's worktree is gone, past a short grace that covers the render-before-create window. |
+
+The tower's `/orchestrate` tmux dispatch step renders the brief and passes
+`--brief` on every task dispatch, adding `--tower` when
+`scripts/fleet-messaging.sh self-name` prints the tower's name.
+
 ## Personas: pick your combination of the two seams
 
 Each kind of operator resolves as a combination of (execution backend ×
@@ -1773,9 +1789,10 @@ which first clears a per-spec lock whose recorded holder is provably gone
 (`orchestrate-lock.sh sweep`, audited as `reconcile lock-sweep`);
 the process reap; the registry reconcile, which heals and retires dispatch
 records from their markers (see *The dispatch record*) and, terminating
-nothing, runs in both modes; the flight residues, which retire a gone
-flight's brief (clearing its attention row) and prune the flight index of a
-checkout that no longer exists; and the flight crash policy, below.
+nothing, runs in both modes; the residues, which retire a gone
+flight's brief (clearing its attention row), prune the flight index of a
+checkout that no longer exists, and retire a task brief whose unit's worktree
+is gone; and the flight crash policy, below.
 The registry reconcile follows the reap so a worker closed this cycle is
 retired in the same one, and the flight passes follow the reconcile so the
 dispatch records they read are already settled.
