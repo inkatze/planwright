@@ -195,10 +195,12 @@ parses zero keys).
 
 ## Inception settings outside the config layers
 
-`/inception` introduces one config key, `ventures_root`, above. Its other
-settings deliberately live outside the four config layers, because each value
+`/inception` introduces one config key, `ventures_root`, above. The settings
+below deliberately live outside the four config layers, because each value
 belongs to one venture clone or one machine and a tracked file would let a
-collaborator's commit change it. The [inception guide](inception.md#settings-and-which-side-of-the-boundary-each-is-on)
+collaborator's commit change it. The discipline cards and decision domains it
+reads are catalog content, which does ride the layers (see
+[Customizing with overlays](overlays.md#3-how-each-kind-merges)). The [inception guide](inception.md#settings-and-which-side-of-the-boundary-each-is-on)
 gives each one's capability-vs-style classification.
 
 | Setting | Default | Effect | Set by |
@@ -206,7 +208,8 @@ gives each one's capability-vs-style classification.
 | Auto-republish, per venture | off | When on, and a first publish of a page was confirmed with its artifact on record, `offer` answers `republish` so the refreshed page may replace that artifact without asking again; off, every publish is offered. Kept in the clone's git directory (`planwright-publish.local` beside `HEAD`), never in the work tree, so a pull cannot switch it on; a value that does not parse reads as off. Outside a git repository there is nowhere to keep it, so `auto` refuses and every publish is offered as a first one. | `scripts/inception-publish.sh auto on\|off <venture-dir>` |
 | `PLANWRIGHT_INCEPTION_DATA_DIR` | `$CLAUDE_PLUGIN_DATA/inception` | Where the machine-local venture registry, catalog telemetry, and feedback drop live; must be absolute. With neither variable set, or a value that is not absolute, the registry is unavailable: the elicitation proceeds without it, saying so, and the portfolio and status views report it unavailable and stop. | environment |
 | `PLANWRIGHT_INCEPTION_EPHEMERAL` | unset (probe) | `1` or `0` overrides the ephemeral-session probe in either direction, for a host it misreads; on an ephemeral host a local-only venture lasts only as long as the session, while the private-remote home still persists. | environment |
-| `PLANWRIGHT_VENTURE_STRICT` | unset (warn) | `1` makes the venture pre-commit hook block on bundle findings instead of warning. On a remote-backed venture CI blocks regardless. | environment of the shell that commits |
+| `PLANWRIGHT_VENTURE_STRICT` | unset (warn) | `1` makes the venture pre-commit hook block on bundle findings instead of warning. On a remote-backed venture CI fails on findings regardless of this value, for pull requests and pushes to `main`. | environment of the shell that commits |
+| `PLANWRIGHT_ROOT` | unset (search) | Where the venture pre-commit hook finds the planwright copy it runs its guards from. Unset, it tries `CLAUDE_PLUGIN_ROOT`, then the usual install locations; with no copy found it warns and skips every guard, the secret screen included. Set it in the venture's gitignored `.planwright-local.sh`, which the hook sources. | `.planwright-local.sh` in the venture |
 | `PLANWRIGHT_SECRET_SCREEN_TOOL` | `auto` | Whether the venture secret screen uses gitleaks: `auto` or `gitleaks` uses it when installed, `none` skips it. The built-in pattern screen runs whenever gitleaks does not, so no value turns screening off. | environment |
 
 The persona fan-out adds no setting: seats dispatch through the backend

@@ -19,7 +19,8 @@ skill itself is [`skills/inception/SKILL.md`](../skills/inception/SKILL.md).
 
 1. **Start.** `/inception <idea or seed path>` checks the environment, asks
    once where the venture lives (below), creates the repository under
-   `ventures_root`, and scaffolds its hygiene guards.
+   `ventures_root` (in a scratch directory instead when you choose no durable
+   home), and scaffolds its hygiene guards.
 2. **Elicit.** A phased conversation: seed intake, the opportunity, the
    discipline walk with its staffing and stakeholder map, a reframing
    checkpoint, the minimum core (success metric, kill criteria, blocking
@@ -91,7 +92,8 @@ scaffold's `hygiene-wiring.md` in the venture says so and records what else
 was wired. The hook needs planwright on that machine: where it cannot find a
 copy, it warns and skips every guard, the secret screen included (set
 `PLANWRIGHT_ROOT` in the venture's gitignored `.planwright-local.sh` to point
-it at one). On a private-remote venture, CI still runs.
+it at one). On a private-remote venture, CI still runs on pull requests and
+on pushes to `main`.
 
 ## Stakeholder surfaces
 
@@ -167,11 +169,12 @@ the layer whose reach fits it. Full resolution rules are in the
 | Setting | The capability (core) | The value (yours) | Default, and why it is the safe one |
 | --- | --- | --- | --- |
 | `ventures_root` (config key) | A configurable home for venture repositories, resolved through the overlay layers | Where your ventures live; a path on one machine, so usually machine-local or adopter, and repo-tracked only for a team that shares a layout | `~/ventures`: outside every work repository, so a venture never lands inside one |
-| Auto-republish (per venture) | Replacing an already-confirmed published page with its refreshed export without asking again | Whether this venture, on this machine, republishes without the question; set with `inception-publish.sh auto on\|off` | Off: every publish is offered. Stored in the clone's git directory, never in a tracked file, so a stakeholder's commit cannot switch publishing on |
+| Auto-republish (per venture) | Replacing an already-confirmed published page with its refreshed export without asking again | Whether this venture, on this machine, republishes without the question; set with `inception-publish.sh auto on\|off <venture-dir>` | Off: every publish is offered. Stored in the clone's git directory, never in a tracked file, so a stakeholder's commit cannot switch publishing on |
 | Persona seat backend | None new: seats dispatch through the existing [backend capability contract](../doctrine/backend-capability-contract.md) (subagent, tmux, print, or in-session) | Which rung a run uses, fixed when the seats are rostered and disclosed at Gate 1; a per-seat model only on the `subagent` rung | The rung the host can run; a weaker rung is reported as a degradation, never hidden |
 | Discipline cards and decision domains | The catalogs and their four-layer merge | Your team's or company's own cards and domains | The core cards and domains only |
 | Registry home (`PLANWRIGHT_INCEPTION_DATA_DIR`) | A machine-local registry, telemetry, and feedback drop | A different directory on this machine | Under `CLAUDE_PLUGIN_DATA`; without either, the elicitation runs without the registry and says so, while the portfolio and status views report it unavailable |
 | `PLANWRIGHT_INCEPTION_EPHEMERAL`, `PLANWRIGHT_VENTURE_STRICT`, `PLANWRIGHT_SECRET_SCREEN_TOOL` | Ephemeral-session detection, strict bundle validation in the hook, whether the secret screen uses gitleaks (when it does not, the built-in pattern screen runs, so screening is never off) | A per-session or per-machine override | The probe's own reading, warn-only validation, and `auto` |
+| `PLANWRIGHT_ROOT` (venture hook) | The venture's pre-commit hook locating a planwright copy to run its guards from | Where planwright lives on this machine, set in the venture's gitignored `.planwright-local.sh` | Unset: the hook searches the plugin root and the usual install locations, and warns and skips every guard when none is found |
 
 The adapter seam and its Notion reference adapter land in a later release;
 whatever settings they need follow the same split.
