@@ -1,10 +1,10 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2034,SC2154 # the sourcing suite sets `here` and reads the paths and results set here
 # flight-dispatch-fixture.sh — the shared fixture for the scripts/flight-dispatch.sh
-# suites (sourced, never executed). tests/test-flight-dispatch.sh and
-# tests/test-flight-dispatch-paths.sh split the cases between them so the two
-# share the runner's parallelism rather than one file's budget; each sets
-# `here` to its own directory before sourcing this and ends with `finish`.
+# suites (sourced, never executed). The tests/test-flight-dispatch*.sh suites
+# split the cases between them so they share the runner's parallelism rather
+# than one file's budget; each sets `here` to its own directory before
+# sourcing this and ends with `finish`.
 #
 # Every case builds its own fixture through new_case, so a case can move
 # between the files without carrying state from another.

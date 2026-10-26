@@ -1165,10 +1165,11 @@ done
 # hold a space or come out empty. tokenize, tok_push, verify_simple,
 # verify_tokens and analyze_command also differ because only the worker guard
 # admits a narrow command substitution; the tower guard defers every one.
-# guard_rm differs because the worker's approves only own-branch removals
-# inside its recorded worktree, a policy the tower guard does not have.
+# guard_rm and guard_mktemp differ because the worker's approve only removals
+# inside its recorded worktree or scratch root and creation inside that scratch
+# root, a policy the tower guard does not have.
 DISTINCT_FNS="analyze_command canon_under classify_verb expand_word guard_bashsh \
-guard_gh guard_git guard_mise guard_rm is_planwright_script main \
+guard_gh guard_git guard_mise guard_mktemp guard_rm is_planwright_script main \
 tokenize tok_push verify_simple verify_tokens"
 
 fn_names() { grep -oE '^[a-z_][a-z0-9_]*\(\)' "$1" | tr -d '()' | sort -u; }

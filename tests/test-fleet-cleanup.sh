@@ -376,6 +376,11 @@ other_key=$(printf '%s' "$tmp/wt-other" | git hash-object --stdin)
 : >"$fleet_home/session-records/$rec_key.record"
 : >"$fleet_home/session-records/$rec_key-0123456789abcdef.record"
 : >"$fleet_home/session-records/$other_key.record"
+mkdir -p "$fleet_home/scratch/$rec_key/sub/ro" "$fleet_home/scratch/$other_key" "$tmp/scratch-outside"
+: >"$fleet_home/scratch/$rec_key/sub/ro/x"
+chmod 500 "$fleet_home/scratch/$rec_key/sub/ro"
+: >"$tmp/scratch-outside/keep"
+ln -s "$tmp/scratch-outside" "$fleet_home/scratch/$rec_key/sub/link"
 rc=0
 run_worktree "$main_repo" "$wt_clean" "merged branch" "reclaiming clean worktree" \
   >/dev/null 2>&1 || rc=$?
@@ -386,6 +391,12 @@ run_worktree "$main_repo" "$wt_clean" "merged branch" "reclaiming clean worktree
   || fail "clean worktree: its session records survived the reclaim"
 [ -e "$fleet_home/session-records/$other_key.record" ] \
   || fail "clean worktree: another worktree's session record was removed"
+[ ! -e "$fleet_home/scratch/$rec_key" ] \
+  || fail "clean worktree: its scratch root survived the reclaim, read-only directory and all"
+[ -f "$tmp/scratch-outside/keep" ] \
+  || fail "clean worktree: the reclaim followed a link out of the scratch root"
+[ -d "$fleet_home/scratch/$other_key" ] \
+  || fail "clean worktree: another worktree's scratch root was removed"
 rows=$(audit_rows --mechanism worktree-cleanup)
 case $rows in
   *cleanup*) ;;

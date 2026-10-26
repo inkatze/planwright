@@ -310,6 +310,7 @@ FETCH="$script_dir/dispatch-fetch.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
 LAUNCH_SPEC_ROOT=""
 LAUNCH_RECORD=""
+LAUNCH_TMPDIR=""
 MARKER="$script_dir/orchestrate-marker.sh"
 TRACK="$script_dir/fleet-worktree-track.sh"
 WIRE="$script_dir/wire-githooks.sh"
@@ -1111,6 +1112,7 @@ print_plan() {
   pp_claude=$(command -v claude 2>/dev/null) || pp_claude=claude
   launch_roots "${_repo_root:-${_aroot:-}}"
   LAUNCH_RECORD='<session-record>'
+  LAUNCH_TMPDIR='<scratch-root>'
   resolve_launch_profile || exit 12
   # A plan with no identity would be refused at launch; refuse it before a
   # word of it is printed (the bare legacy `task-<id>` suffix names no spec).
@@ -1165,6 +1167,7 @@ tmux_launch() {
   set -- --inbound accept "$@"
   [ -z "$LAUNCH_SPEC_ROOT" ] || set -- --spec-root "$LAUNCH_SPEC_ROOT" "$@"
   [ -z "$LAUNCH_RECORD" ] || set -- --session-record "$LAUNCH_RECORD" "$@"
+  [ -z "$LAUNCH_TMPDIR" ] || set -- --tmpdir "$LAUNCH_TMPDIR" "$@"
   [ -z "$LAUNCH_HOME" ] || set -- --fleet-home "$LAUNCH_HOME" "$@"
   [ -z "$LAUNCH_ROOT" ] || set -- --root "$LAUNCH_ROOT" "$@"
   [ -z "$tl_token" ] || set -- --launch-token "$tl_token" "$@"
@@ -1790,7 +1793,16 @@ MERR
   # one the guard keeps to its read-only arm, so it never blocks a launch.
   # The record is this launch's own, so losing the session race below
   # rewrites nothing the winner reads.
-  LAUNCH_RECORD=$(/bin/sh "$script_dir/worker-session-record.sh" write "$_worktree" "$_token" 2>/dev/null </dev/null) || LAUNCH_RECORD=''
+  # The worker's scratch root, its TMPDIR, is the worktree's, kept for
+  # every later launch there and removed when the worktree is reclaimed
+  # (fleet-cleanup.sh worktree). A worktree this run created starts with an
+  # empty one: a root left there belonged to an earlier worktree at the path.
+  _scratch_opt=--scratch
+  [ "$_made_worktree" -ne 1 ] || _scratch_opt=--fresh-scratch
+  LAUNCH_RECORD=$(/bin/sh "$script_dir/worker-session-record.sh" write "$_worktree" "$_token" "$_scratch_opt" \
+    2>/dev/null </dev/null) || LAUNCH_RECORD=''
+  LAUNCH_TMPDIR=''
+  [ -z "$LAUNCH_RECORD" ] || LAUNCH_TMPDIR=$(sed -n 's/^scratch_root=//p' "$LAUNCH_RECORD" 2>/dev/null) || LAUNCH_TMPDIR=''
   tmux_launch run "$TMUX_BIN" "$_session" "$_worktree" "$_handle" "$_scope" \
     "$_token" "$WORKER_CLI" "$@"
   _ns_rc=$?
@@ -1807,7 +1819,7 @@ MERR
           # Everything this dispatch would own is the winner's: remove,
           # clear, and write nothing.
           warn "already-in-flight: another dispatch created $_session first; its worktree, branch, and marker are left as they are"
-          [ -z "$LAUNCH_RECORD" ] || rm -f -- "$LAUNCH_RECORD"
+          launch_record_drop keep-scratch
           exit 3
           ;;
       esac
@@ -1876,6 +1888,18 @@ start_dir_ok() {
   [ "$sdo_phys" = "$2" ]
 }
 
+# launch_record_drop [keep-scratch] — remove this launch's own session record,
+# for a launch whose worker never ran, and the worktree's scratch root with
+# it unless told to keep it: a launch that lost the race leaves it to the
+# winner, and an undo removes it with the worktree.
+launch_record_drop() {
+  [ -z "$LAUNCH_RECORD" ] || rm -f -- "$LAUNCH_RECORD"
+  [ "${1-}" != keep-scratch ] || return 0
+  case $LAUNCH_TMPDIR in
+    /?*) rm -rf -- "$LAUNCH_TMPDIR" 2>/dev/null || warn "could not remove the scratch root $LAUNCH_TMPDIR" ;;
+  esac
+}
+
 # undo_launch [unanswered] — after a post-create failure, remove only what
 # this run created: its worktree and its branch (never a branch it adopted),
 # then the marker it set, and none of them while a session may run in the
@@ -1895,7 +1919,7 @@ undo_launch() {
     fi
     ul_wt_left=1
   elif [ "$_made_worktree" -eq 1 ]; then
-    [ -z "$LAUNCH_RECORD" ] || rm -f -- "$LAUNCH_RECORD"
+    launch_record_drop
     if [ -L "$_worktree" ]; then
       ul_wt_left=1
     elif [ -d "$_worktree" ]; then
