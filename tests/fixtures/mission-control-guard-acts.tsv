@@ -29,6 +29,8 @@ deny	git-mutation	bash	-	git -C @UNIT@ reset --hard HEAD
 deny	git-mutation	bash	-	git update-ref refs/heads/x HEAD
 deny	git-mutation	bash	-	sh -c 'git add -A'
 deny	git-mutation	bash	-	git co main
+deny	git-mutation	bash	-	"$HOME/bin/git" add -A
+deny	git-mutation	bash	-	bash -c "git stash"
 deny	merge	bash	-	git merge origin/main
 deny	merge	bash	-	git pull origin main
 deny	merge	bash	-	gh pr merge 42 --squash
@@ -44,8 +46,16 @@ deny	settings-write	bash	-	cp @SCRATCH@/x.json @HOME@/.claude/settings.json
 deny	settings-write	bash	-	printf '{}' > .claude/settings.local.json
 deny	settings-write	bash	-	jq '.permissions={}' @HOME@/.claude/settings.json > @SCRATCH@/s.json
 deny	settings-write	bash	-	sed -i s/a/b/ @HOME@/.claude/settings.json
+deny	settings-write	file	-	Write @SCRATCH@/proj/.mcp.json
+deny	settings-write	file	-	Write @HOME@/.config/planwright/planwright.yml
+deny	settings-write	file	-	Write @SCRATCH@/proj/.claude/planwright.local.yml
+deny	settings-write	file	-	Write @HOME@/.claude/hooks/pre-tool.sh
+deny	settings-write	file	-	Write @HOME@/.claude/plugins/marketplace/x.json
+deny	settings-write	bash	-	printf 'ready_flip_policy: unit-owner' > @HOME@/.config/planwright/planwright.yml
 deny	repo-write	file	-	Write @UNIT@/README.md
 deny	repo-write	file	-	Edit @UNIT@/new-dir/notes.md
+deny	repo-write	file	-	Write @SCRATCH@/bare.git/hooks/pre-commit
+defer	scratch-write	file	-	Write @HOME@/.claude/projects/proj/memory/note.md
 deny	flip-outside	bash	ready_flip_policy: human	gh pr ready 42
 deny	redraft	bash	-	gh pr ready 42 --undo
 deny	rewrite	bash	-	git rebase origin/main

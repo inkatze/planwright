@@ -20,10 +20,11 @@
 # branch, tag, stash, worktree or remote, a config get, and the inspection
 # commands), an alias or external subcommand, a wrapped git text naming a
 # mutating subcommand, and every gh api branch write deny with no read. It
-# writes no settings and no repository: a file-tool path that is a Claude Code
-# settings file or lies inside a git work tree denies, and so does a Bash
-# command naming a settings file unless it only reads it (no redirect, no
-# in-place edit, read-only commands throughout). Its ready flip follows
+# writes no posture file and no repository: a file-tool path that is a
+# settings, MCP or planwright configuration file, lies under a .claude hooks
+# or plugins directory, or lies inside a work tree or bare repository denies,
+# and so does a Bash command naming such a file unless it only reads it (no
+# redirect, no in-place edit, read-only commands throughout). Its flip follows
 # ready_flip_policy as a worker's does, the ready-guard's currency check
 # running next; the MCP flip stays denied whole, as the tower's is.
 #
@@ -1183,6 +1184,9 @@ classify_segments() {
       ! names_helper "$verb" || queue_merge_helper "$eff" "$eff_ok"
       [[ $verb =~ $RE_ROOTED_SCRIPT ]] \
         || deny_now "this command's name is an expansion the guard cannot read ($(sanitize_printable "$verb" 'unprintable')), so it could be git or gh - refusing (fail closed). Write the command name literally, or as \"\$ROOT/path/to/script\"."
+      # A rooted git is git, and only a literal one is classified by subcommand.
+      [ "$TIER" != mission-control ] || [ "$base_verb" != git ] \
+        || deny_now "mission control runs no git mutation, and this git is named through an expansion whose subcommand the guard does not classify - refusing (fail closed). Call git by its plain name."
       for w in "${SW[@]}"; do
         lc "$w"
         if [[ $LC =~ $RESERVED_WORD_RE ]]; then
@@ -3330,25 +3334,27 @@ handle_mcp() {
 # --------------------------------------------------------------------------
 # The mission-control tier's settings and repository writes.
 
-# A Claude Code settings file by name: settings.json, settings.local.json,
-# managed-settings.json, or the user-level .claude.json. The bracketed letter
-# keeps the static no-model-client check from reading the file name as a
-# client.
-RE_MC_SETTINGS='(^|[^[:alnum:]_.-])((managed-)?settings(\.local)?|\.c[l]aude)\.json([^[:alnum:]_-]|$)'
-MC_SETTINGS_DENY='mission control writes no settings file, and this command names one in a form that is not a plain read (a redirect, an in-place edit, or a command other than cat, head, tail, jq, grep, wc, ls, stat, diff or cmp) - refusing. A settings change is handed to the operator ready to apply.'
+# A file that sets a session's posture: a settings file (settings.json,
+# settings.local.json, managed-settings.json, the user-level .claude.json), an
+# MCP server list (.mcp.json), a planwright configuration layer
+# (planwright.yml, planwright.local.yml, where ready_flip_policy lives), or
+# anything under a .claude hooks or plugins directory. The bracketed letter
+# keeps the static no-model-client check from reading the name as a client.
+RE_MC_POSTURE='(^|[^[:alnum:]_.-])(((managed-)?settings(\.local)?|\.c[l]aude|\.mcp)\.json|planwright(\.local)?\.yml)([^[:alnum:]_-]|$)|\.c[l]aude/(hooks|plugins)/'
+MC_SETTINGS_DENY='mission control writes no settings or configuration file, and this command names one in a form that is not a plain read (a redirect, an in-place edit, or a command other than cat, head, tail, jq, grep, wc, ls, stat, diff or cmp) - refusing. A settings change is handed to the operator ready to apply.'
 
 # mc_settings_named <text> — 0 at the mission-control tier when the text,
-# with its quote and escape characters removed, names a settings file.
+# with its quote and escape characters removed, names a posture file.
 mc_settings_named() {
   [ "${TIER:-}" = mission-control ] || return 1
   local t=${1//[\"\'\\]/} rc=1
   shopt -s nocasematch
-  [[ $t =~ $RE_MC_SETTINGS ]] && rc=0
+  [[ $t =~ $RE_MC_POSTURE ]] && rc=0
   shopt -u nocasematch
   return "$rc"
 }
 
-# mc_settings_screen <command> — refuse a command naming a settings file
+# mc_settings_screen <command> — refuse a command naming a posture file
 # unless every segment is a read-only command and nothing is redirected but
 # to /dev/null or another stream.
 mc_settings_screen() {
@@ -3374,12 +3380,26 @@ mc_settings_screen() {
   done
 }
 
+# mc_repo_walk <dir> <how> — refuse when <dir> or an ancestor is a git work
+# tree (it holds a .git entry) or a bare repository (HEAD, objects and refs).
+mc_repo_walk() {
+  local d=$1
+  while :; do
+    if [ -e "$d/.git" ] || { [ -f "$d/HEAD" ] && [ -d "$d/objects" ] && [ -d "$d/refs" ]; }; then
+      emit_deny "mission control edits no repository, and this path $2 inside one; every change goes through a session it dispatches."
+    fi
+    [ "$d" != / ] || return 0
+    d=${d%/*}
+    [ -n "$d" ] || d=/
+  done
+}
+
 # handle_file <payload> — an Edit, Write, MultiEdit or NotebookEdit call at the
-# mission-control tier: refuse a settings file, a path inside a git work tree
+# mission-control tier: refuse a posture file, a path inside a repository
 # (read lexically and, from its deepest existing directory, physically), a
 # symbolic link, and any path the guard cannot read.
 handle_file() {
-  local path d phys
+  local path d phys=''
   path=$(printf '%s' "$1" | jq -r '.tool_input
     | if type == "object" then (.file_path // .notebook_path // empty) else empty end
     | if type == "string" then gsub("\u0000"; "") else empty end' 2>/dev/null) || path=''
@@ -3392,34 +3412,23 @@ handle_file() {
   case "$path/" in
     */./* | */../*) emit_deny 'this file-tool path carries a . or .. component, which the guard does not resolve - refusing (fail closed). Name the file by its plain absolute path.' ;;
   esac
-  mc_settings_named "${path##*/}" \
-    && emit_deny 'mission control never writes a settings file, nor widens its own posture; a settings change is handed to the operator ready to apply.'
+  mc_settings_named "$path" \
+    && emit_deny 'mission control never writes a settings or configuration file, nor widens its own posture; a settings change is handed to the operator ready to apply.'
   [ ! -L "$path" ] \
     || emit_deny 'this file-tool path is a symbolic link, which could reach a repository or a settings file - refusing (fail closed).'
   d=${path%/*}
   [ -n "$d" ] || d=/
-  phys=''
-  while :; do
-    [ ! -e "$d/.git" ] \
-      || emit_deny 'mission control edits no repository, and this path lies inside a git work tree; every change goes through a session it dispatches.'
-    if [ -z "$phys" ] && [ -d "$d" ]; then
-      phys=$(cd -P -- "$d" 2>/dev/null && pwd) \
-        || emit_deny 'the guard cannot resolve this file-tool path - refusing (fail closed).'
-      [ "$phys" != "$d" ] || phys=/
-    fi
-    [ "$d" != / ] || break
+  mc_repo_walk "$d" lies
+  while [ ! -d "$d" ]; do
     d=${d%/*}
     [ -n "$d" ] || d=/
   done
-  [ "$phys" != / ] || return 0
-  d=$phys
-  while [ -n "$d" ]; do
-    [ ! -e "$d/.git" ] \
-      || emit_deny 'mission control edits no repository, and this path resolves inside a git work tree; every change goes through a session it dispatches.'
-    [ "$d" != / ] || break
-    d=${d%/*}
-    [ -n "$d" ] || d=/
-  done
+  phys=$(cd -P -- "$d" 2>/dev/null && pwd) \
+    || emit_deny 'the guard cannot resolve this file-tool path - refusing (fail closed).'
+  [ "$phys" = "$d" ] || mc_repo_walk "$phys" resolves
+  mc_settings_named "$phys/${path##*/}" \
+    && emit_deny 'mission control never writes a settings or configuration file, nor widens its own posture; this path resolves to one.'
+  return 0
 }
 
 handle_bash() {

@@ -320,6 +320,18 @@ ml retire "$pane_name"
 [ ! -e "$tmp/tmux/$win" ] && ok "the retired session has no pane" || fail "the pane survived retire"
 [ ! -e "$fleet/mission-control/sessions/$pane_name" ] && ok "the retired tmux session has no row" || fail "the tmux row survived retire"
 
+# A row whose window id is not @ and digits never reaches tmux.
+bad_row="$fleet/mission-control/sessions/mc-alpha-ad-hoc-0000000000"
+printf 'format\t1\nname\tmc-alpha-ad-hoc-0000000000\nbackend\ttmux\nhandle\t@1;x\n' >"$bad_row"
+: >"$tmp/tmux/calls"
+ml retire mc-alpha-ad-hoc-0000000000
+if [ "$RC" = 2 ] && [ ! -s "$tmp/tmux/calls" ]; then
+  ok "a row naming a malformed window id is refused before any tmux call"
+else
+  fail "a malformed window id reached retire: exit $RC, calls: $(cat "$tmp/tmux/calls")"
+fi
+rm -f "$bad_row"
+
 # A row in a format the launcher does not know is refused, naming the field.
 ml name --program alpha --kind tower --scope spec:alpha-tower
 tower_row="$fleet/mission-control/sessions/$OUT"

@@ -15,6 +15,7 @@ ROWS="$REPO_ROOT/tests/fixtures/mission-control-guard-acts.tsv"
 SCRATCH="$SANDBOX/scratch"
 FIXHOME="$SANDBOX/fixhome"
 mkdir -p "$SCRATCH/proj/.claude" "$FIXHOME/.claude"
+gitq init --bare "$SCRATCH/bare.git"
 TAB=$(printf '\t')
 
 # pg_file <tier> <tool> <path> — run the guard on a file-tool payload.

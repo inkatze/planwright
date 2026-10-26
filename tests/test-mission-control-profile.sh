@@ -34,10 +34,11 @@ jq -e . "$MC" >/dev/null 2>&1 || {
 
 # --- the deny, ask and allow lists ------------------------------------------
 
-want=$(jq -c '.permissions.deny | map(select(. != "Bash(gh pr ready:*)"))' "$TOWER")
+# The one mission-control-only deny: a host-side branch the tower may create.
+want=$(jq -c '.permissions.deny | map(select(. != "Bash(gh pr ready:*)")) + ["mcp__*__create_branch"]' "$TOWER")
 got=$(jq -c '.permissions.deny' "$MC")
 if [ "$want" = "$got" ]; then
-  ok "the deny list is the tower's, less the ready flip, in the same order"
+  ok "the deny list is the tower's, less the ready flip, plus the MCP branch create, in the same order"
 else
   fail "the deny list drifted from the tower's: missing $(jq -nc --argjson w "$want" --argjson g "$got" '$w - $g'), extra $(jq -nc --argjson w "$want" --argjson g "$got" '$g - $w') (or reordered)"
 fi

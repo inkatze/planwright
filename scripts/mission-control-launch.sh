@@ -113,6 +113,18 @@ valid_name() {
   [ "${#1}" -le 64 ]
 }
 
+# valid_window <id> — a tmux window id: @ and digits only.
+valid_window() {
+  case $1 in
+    @[0-9]*) ;;
+    *) return 1 ;;
+  esac
+  case ${1#@} in
+    *[!0-9]*) return 1 ;;
+  esac
+  [ "${#1}" -le 12 ]
+}
+
 sha256_hex() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum | cut -d' ' -f1
@@ -325,13 +337,10 @@ cmd_launch() {
           ;;
       esac
       handle=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "handle" { print $2; exit }')
-      case $handle in
-        @[0-9]*) ;;
-        *)
-          release_reservation
-          die "the tmux rung reported no usable window for $name" 1
-          ;;
-      esac
+      valid_window "$handle" || {
+        release_reservation
+        die "the tmux rung reported no usable window for $name" 1
+      }
       tier=rung
       ;;
   esac
@@ -421,10 +430,7 @@ cmd_retire() {
       esac
       ;;
     tmux)
-      case $handle in
-        @[0-9]*) ;;
-        *) die "the registry row for $name names no usable window" 2 ;;
-      esac
+      valid_window "$handle" || die "the registry row for $name names no usable window" 2
       if [ -n "${TMUX_PANE:-}" ]; then
         self=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}' 2>/dev/null) || self=''
         [ "$self" != "$handle" ] || die "refusing to retire $name from inside its own window" 3
