@@ -122,7 +122,7 @@ poll_until --deadline 0 --interval 1.1 -- past_deadline 2>/dev/null || rc=$?
 # --- p7 ---------------------------------------------------------------------
 sleep 30 &
 live=$!
-dead=$(dead_owner_pid)
+dead=$(dead_owner_pid) || fail "p7: dead_owner_pid found a process at its PID"
 pid_gone "$dead" || fail "p7: an exited process must count as gone"
 pid_gone "$dead" "$live" && fail "p7: a live process must keep pid_gone false"
 kill "$live"

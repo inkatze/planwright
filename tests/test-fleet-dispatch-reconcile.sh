@@ -962,15 +962,24 @@ chmod 000 "$srepo2"
 exit 0
 STUB
 chmod +x "$nocd/scripts/fleet-stuck-detector.sh"
-h=$(home s2)
-st=0
-at "$h" "$nocd/scripts" -- fleet-sweep.sh --repo "$srepo2" --tower-id "$owner" >"$tmp/out" 2>"$tmp/err" || st=$?
-chmod 755 "$srepo2"
-out=$(cat "$tmp/out")
-printf '%s\n' "$out" | grep -q "^registry${tab}failed${tab}no-checkout$" \
-  || fail "s2: an unenterable checkout was not reported as such: $out"
-grep -q 'could not enter the checkout' "$tmp/err" || fail "s2: the warning does not say the checkout could not be entered: $(cat "$tmp/err")"
-ok s2 "a checkout the reconcile cannot enter is reported as that, not as a reconcile failure"
+# The stub's mode change runs inside the sweep, so the denial is probed on a
+# directory staged the same way first.
+mkdir "$tmp/s2-probe"
+chmod 000 "$tmp/s2-probe"
+if hermetic_access_denied r "$tmp/s2-probe"; then
+  h=$(home s2)
+  st=0
+  at "$h" "$nocd/scripts" -- fleet-sweep.sh --repo "$srepo2" --tower-id "$owner" >"$tmp/out" 2>"$tmp/err" || st=$?
+  chmod 755 "$srepo2"
+  out=$(cat "$tmp/out")
+  printf '%s\n' "$out" | grep -q "^registry${tab}failed${tab}no-checkout$" \
+    || fail "s2: an unenterable checkout was not reported as such: $out"
+  grep -q 'could not enter the checkout' "$tmp/err" || fail "s2: the warning does not say the checkout could not be entered: $(cat "$tmp/err")"
+  ok s2 "a checkout the reconcile cannot enter is reported as that, not as a reconcile failure"
+else
+  echo "skip: s2 unenterable checkout: the running user still enters a mode-000 directory"
+fi
+chmod 755 "$tmp/s2-probe"
 
 # ===========================================================================
 # w1 — no seam still says no reconcile exists.

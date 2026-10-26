@@ -448,7 +448,8 @@ wait "$anc_waiter" 2>/dev/null || true
 kill "$anc_pid" 2>/dev/null || true
 wait "$anc_pid" 2>/dev/null || true
 rm -f "$anc_lock"
-anc_token="999999999-$(date +%s)-1"
+anc_dead=$(dead_owner_pid) || fail "8j: dead_owner_pid found a process at its PID"
+anc_token="$anc_dead-$(date +%s)-1"
 ln -s "$anc_token" "$anc_lock" || fail "8j: could not re-stage the ancient lock"
 touch -h -t 200001010000 "$anc_lock" 2>/dev/null || true
 anc_new=$("$LEDGER" lock ancient:unit) || fail "8j: a lock whose owner is gone was not collectable"

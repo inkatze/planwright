@@ -81,6 +81,8 @@ trap cleanup EXIT
 
 # shellcheck source=tests/lib/hermetic-env.sh
 . "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
 
@@ -743,7 +745,7 @@ h16() {
   mkdir -p "$STATE/$ID"
   # Simulate a worker that finished but could not record its exit: a dead pid
   # plus a finish-error marker. status must refuse to guess (unknown), not died.
-  printf '999999999\n' >"$STATE/$ID/pid" # a pid that is not alive
+  dead_owner_pid >"$STATE/$ID/pid" || fail "h16: dead_owner_pid found a process at its PID"
   : >"$STATE/$ID/finish-error"
   code=0
   st=$(run_fdh status "$SPEC" "$ID") || code=$?

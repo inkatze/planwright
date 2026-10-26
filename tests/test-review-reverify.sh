@@ -6,6 +6,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 REVERIFY="$REPO_ROOT/scripts/review-reverify.sh"
 
 failures=0
@@ -349,18 +351,28 @@ fi
 out=$(rv --records "$REC" --timeout 00 2>&1)
 assert_exit "an all-zero --timeout is refused" 2 $?
 
-# A log that cannot be written is a setup failure, never a regression verdict.
-mkdir "$T/ro-logs"
-printf 'review-repro 1\nfinding RO\nkind test\nrun chmod a-w %s/ro-logs\nexit 0\n' "$T" >"$T/ro.txt"
-out=$(rv --records "$T/ro.txt" --log-dir "$T/ro-logs" 2>&1)
-assert_exit "an unwritable log is exit 4, not regressed" 4 $?
-chmod u+w "$T/ro-logs"
+# The two cases below take access away inside a record's run line, where
+# root still reads and writes; the denial is probed on a path staged the same
+# way first, and both skip by name where it does not hold.
+printf 'x\n' >"$T/mode-probe"
+chmod 000 "$T/mode-probe"
+if hermetic_access_denied r "$T/mode-probe" && hermetic_access_denied w "$T/mode-probe"; then
+  # A log that cannot be written is a setup failure, never a regression verdict.
+  mkdir "$T/ro-logs"
+  printf 'review-repro 1\nfinding RO\nkind test\nrun chmod a-w %s/ro-logs\nexit 0\n' "$T" >"$T/ro.txt"
+  out=$(rv --records "$T/ro.txt" --log-dir "$T/ro-logs" 2>&1)
+  assert_exit "an unwritable log is exit 4, not regressed" 4 $?
+  chmod u+w "$T/ro-logs"
 
-# Output that cannot be read never passes an output-lacks check.
-printf 'review-repro 1\nfinding UNREAD\nkind test\nrun echo forbidden-text; chmod 000 ../out\nexit 0\noutput-lacks forbidden-text\n' >"$T/unread.txt"
-out=$(rv --records "$T/unread.txt" 2>&1)
-assert_exit "unreadable output is not a held fix" 1 $?
-assert_contains "unreadable output is named" "cannot read" "$out"
+  # Output that cannot be read never passes an output-lacks check.
+  printf 'review-repro 1\nfinding UNREAD\nkind test\nrun echo forbidden-text; chmod 000 ../out\nexit 0\noutput-lacks forbidden-text\n' >"$T/unread.txt"
+  out=$(rv --records "$T/unread.txt" 2>&1)
+  assert_exit "unreadable output is not a held fix" 1 $?
+  assert_contains "unreadable output is named" "cannot read" "$out"
+else
+  echo "skip: unwritable-log and unreadable-output cases: the running user reads and writes mode 000"
+fi
+chmod 644 "$T/mode-probe"
 
 # --- malformed records are refused before anything runs -----------------------
 refused() {
