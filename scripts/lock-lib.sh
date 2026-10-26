@@ -30,6 +30,8 @@
 #   pw_lock_owner <path>                 print the holder's token
 #   pw_lock_owner_alive <token>          0 the owner is running, 1 it is gone
 #   PW_LOCK_TOKEN                        set by a successful acquire
+#   PW_LOCK_BROKEN                       the dead owner's token an attempt
+#                                        broke to acquire, else empty
 #
 # THE LOCK-HOLDER LIST. Every script that implements an ADVISORY LOCK sources
 # this file and takes its locks through it:
@@ -59,8 +61,9 @@
 #                          interleave with another writer
 #   scripts/fleet-task-brief.sh   the fleet home's task briefs, so a retire
 #                          never removes a brief a render is writing
-#   scripts/mc-kb.sh       a mission-control knowledge base's stores and log
-#                          segments, one writer per file
+#   scripts/mc-kb.sh       a mission-control knowledge base's stores, log
+#                          segments and bodies, one writer per file, held for
+#                          the script itself or on a caller's behalf
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is
@@ -171,8 +174,9 @@
 #
 # POSIX sh on the macOS + Linux support bar. No bashisms, no `local`.
 #
-# shellcheck disable=SC2034 # PW_LOCK_TOKEN is this library's output, read by
-# the caller and by cross-process releases, never by the library itself.
+# shellcheck disable=SC2034 # PW_LOCK_TOKEN and PW_LOCK_BROKEN are this
+# library's output, read by the caller (and PW_LOCK_TOKEN by cross-process
+# releases), never by the library itself.
 
 # The registry of locks this shell holds: one "<depth> <token> <path>" record
 # per line, always newline-terminated. Path comes last because it is the only
@@ -181,6 +185,11 @@ PW_LOCK_HELD=''
 # The caller's handle on its own hold: every verb that takes a lock publishes
 # the token here so a cross-process release can prove ownership.
 PW_LOCK_TOKEN=''
+# Set by every acquisition attempt: the token of the dead owner it broke on
+# the way in, empty when it broke none. A caller that logs released holders
+# reads it here, since a probe of its own taken before the attempt misses an
+# owner that dies between that probe and the attempt's.
+PW_LOCK_BROKEN=''
 PW_LOCK_SEQ=0
 PW_LOCK_EPOCH=''
 PW_LOCK_TRAP_ARMED=''
@@ -931,6 +940,7 @@ _pw_lock_try_core() {
   # to travel out of band or it is simply lost, and the first release then
   # unlinks while the outer sections are still inside.
   _pwt_owed=${4:-0}
+  PW_LOCK_BROKEN=''
   _pw_lock_probe_again=0
   _pw_lock_owed_depth=0
   _pw_lock_require_readlink || return 2
@@ -995,6 +1005,7 @@ _pw_lock_try_core() {
     fi
     _pw_lock_break "$_pwt_lock" "$_pwt_owner" "$_pwt_token" "$_pwt_depth"
     _pwt_rc=$?
+    [ "$_pwt_rc" -ne 0 ] || PW_LOCK_BROKEN=$_pwt_owner
     # A break that did not win found something in motion — a peer breaking the
     # same owner, or a claim it has just reclaimed — so the next spin looks
     # again rather than waiting out a stride for a situation that is changing.

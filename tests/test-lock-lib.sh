@@ -2356,6 +2356,49 @@ assert_exit "a hidden process answering EPERM reads alive" 0 $?
 hidden_table_probe "No such process"
 assert_exit "and a hidden table's absent process reads dead whatever its path" 1 $?
 
+# ---------------------------------------------------------------------------
+# 61. An acquire says which dead owner it broke, and only then
+# ---------------------------------------------------------------------------
+#
+# A caller that must log a dead holder's release cannot learn it from a probe
+# of its own taken before the acquire: the owner may die between that probe
+# and the acquire's, and the acquire then breaks it unseen. PW_LOCK_BROKEN
+# names the token the acquire itself broke, and is empty otherwise.
+
+sh -c 'exit 0' &
+broken_pid=$!
+wait "$broken_pid" 2>/dev/null
+ln -s "$broken_pid-0-1" "$tmp/broken.lock"
+out="$(run_sh x '
+  pw_lock_try "$1/broken.lock" || exit 9
+  printf "%s\n" "$PW_LOCK_BROKEN"
+  pw_lock_release "$1/broken.lock"
+  pw_lock_try "$1/broken.lock" || exit 9
+  printf "[%s]\n" "$PW_LOCK_BROKEN"
+')"
+assert_exit "an acquire over a dead owner succeeds" 0 $?
+case $out in
+  "$broken_pid-0-1
+[]") pass "PW_LOCK_BROKEN names the broken token, and is empty on a free path" ;;
+  *) fail "PW_LOCK_BROKEN read '$out'" ;;
+esac
+rm -f "$tmp"/broken.lock*
+sleep 120 &
+broken_live=$!
+ln -s "$broken_live-0-1" "$tmp/busy.lock"
+out="$(run_sh x '
+  PW_LOCK_BROKEN=stale
+  pw_lock_try "$1/busy.lock"
+  printf "%s [%s]\n" "$?" "$PW_LOCK_BROKEN"
+')"
+case $out in
+  "1 []") pass "a busy try leaves PW_LOCK_BROKEN empty" ;;
+  *) fail "a busy try read '$out'" ;;
+esac
+kill "$broken_live" 2>/dev/null
+wait "$broken_live" 2>/dev/null
+rm -f "$tmp"/busy.lock*
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else
