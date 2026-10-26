@@ -1,15 +1,9 @@
 # shellcheck shell=bash
-# Shared fixture for the autonomy tests (decisions, calibration, proposals,
-# shadow mode, the self-audit): program alpha with its home under $tmp, the
-# fixture core duties plus gamma-duty in shadow from the repo-tracked
-# overlay, and an initialized knowledge base.
-#
-# Source after tests/lib/mission-control-fixture.sh. After sourcing:
-#   $home, $kb      the program home and its knowledge base
-#   seg_write <log> <YYYY-MM> [<entry line>...]
-#                   a hand-written past segment, for entries whose time a
-#                   test controls (readers check the format line only)
-#   iso_epoch <ISO> the epoch of a UTC YYYY-MM-DDTHH:MM:SSZ time
+# Shared fixture for the autonomy tests, sourced after
+# tests/lib/mission-control-fixture.sh: program alpha, its home ($home) and
+# initialized knowledge base ($kb), and gamma-duty in shadow from the
+# repo-tracked overlay. seg_write hand-writes a past segment for entries
+# whose time a test controls (readers check only its format line).
 
 : "${tmp:?}" "${repo:?}" "${tracked:?}"
 

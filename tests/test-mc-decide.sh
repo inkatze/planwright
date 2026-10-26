@@ -57,7 +57,8 @@ d1=$(field "$OUT" 2)
 seg=$(cat "$kb/decisions-$month.log")
 case $seg in
   *"$d1${tab}"*"${tab}Stale worktree${tab}reclaimed the merged worker's worktree${tab}-${tab}settled auto-applicable r-1: PR merged, nothing unpushed${tab}"*)
-    ok "the log carries the decided-by-mission-control grounds: reason, class, rules, text" ;;
+    ok "the log carries the decided-by-mission-control grounds: reason, class, rules, text"
+    ;;
   *) fail "the decisions log lacks the settled entry: $seg" ;;
 esac
 
