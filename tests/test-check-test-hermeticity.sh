@@ -592,7 +592,8 @@ fi
 # A run of parenthesised words before a wait the pattern then rejects is the
 # shape an ambiguous token would backtrack on; timeout, where the host has
 # it, turns such a hang into a failure.
-for tok in ' (a)' ' !a)' ' {a)' ' function a{{{{' ' function a!!!!'; do
+for tok in ' (a)' ' !a)' ' {a)' ' function a{{{{' ' function a!!!!' \
+  ' if{a)' ' do!a)' ' function a{if' ' function f{a)' ' then{if!a)'; do
   r=$(root_with long-token-line)
   {
     printf '#!/bin/bash\nsleep 0 &\npid=$!\n'
