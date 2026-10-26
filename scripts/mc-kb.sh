@@ -15,7 +15,7 @@
 #                    <TAB>reversal<TAB>duty; the id is
 #                    <log>-<YYYYMM>-<n>, the subject free text, the reversal
 #                    `none` or `argv:` and the command's words with `%` and
-#                    space percent-encoded, the duty the acting duty's id or
+#                    space percent-encoded, the duty a catalog duty's id or
 #                    `-`; the locks log records each dead holder's lock
 #                    released, under the locked file's kb/ path
 #   followups.tsv    id<TAB>opened<TAB>owner<TAB>trigger<TAB>state<TAB>text
@@ -24,7 +24,8 @@
 #   sources.tsv      name<TAB>kind<TAB>watermark<TAB>ref; kind living (the
 #                    watermark is the epoch second it was last refreshed) or
 #                    consumed (the watermark is how far it was consumed, in
-#                    the source's own terms)
+#                    the source's own terms); an omitted watermark records
+#                    the current epoch second for either kind
 #   mechanisms.tsv   kind<TAB>mechanism<TAB>where<TAB>source
 # Every store's first line carries its format field ("# format: 1", or
 # "<!-- format: 1 -->" in index.md, and in each segment's .seal sidecar);
@@ -34,12 +35,13 @@
 # A segment is never rewritten: its sidecar records the length and checksum
 # of what has been appended, and an append refuses a segment whose recorded
 # prefix changed, a segment with entries and no sidecar, and a sidecar whose
-# segment is gone. The checksum catches an accidental rewrite, not a
-# deliberate one: the sidecar is as writable as the segment. Every write
-# after a store's creation holds the file's lock (<file>.lock,
-# scripts/lock-lib.sh), waiting up to mission_control_kb_lock_wait seconds;
-# a writer whose acquire breaks the lock of a holder no longer running
-# reports the release and logs it.
+# segment is gone. Bytes past the recorded length that end mid-line are an
+# append a crash cut short, and the next append drops them, warning. The
+# checksum catches an accidental rewrite, not a deliberate one: the sidecar
+# is as writable as the segment. Every write after a store's creation holds
+# the file's lock (<file>.lock, scripts/lock-lib.sh), waiting at least
+# mission_control_kb_lock_wait seconds; a writer whose acquire breaks the
+# lock of a holder no longer running reports the release and logs it.
 #
 # Usage (every verb takes --program <name> before its own options):
 #   init                              create the layout and the armed duties'
@@ -55,19 +57,26 @@
 #          [--no-reversal | -- <command>...]
 #                                     log an act and print its id; an undo
 #                                     entry states its reversal or that it
-#                                     has none; the acts `reverted` and
-#                                     `revert failed` are revert's own
+#                                     has none, a would-have entry its duty;
+#                                     the acts reverting, reverted and revert
+#                                     failed are revert's own
 #   query <decisions|undo|would-have|locks> --subject <s>
 #                                     the entries for a subject, every
 #                                     segment, the subject matched with ASCII
-#                                     case folded and blank runs collapsed
-#   revert <undo-id>                  run an entry's reversal once and log it:
-#                                     its words, never through a shell, in
-#                                     the caller's directory and umask, a bare
-#                                     first word naming a planwright script
-#                                     run from this installation, its output
-#                                     on stderr; record reversals with
-#                                     absolute paths
+#                                     case folded, blank runs collapsed and
+#                                     ends trimmed (the rule store's key)
+#   revert <undo-id>                  run an entry's reversal once and print
+#                                     the id of the entry logging the
+#                                     outcome; a `reverting` entry is logged
+#                                     first, so an interrupted revert is
+#                                     never run again unasked. The reversal
+#                                     runs as its words through exec (never a
+#                                     shell, a function or a builtin), in the
+#                                     caller's directory and umask, its output
+#                                     on stderr; a bare first word naming a
+#                                     planwright script runs from this
+#                                     installation, any other through PATH,
+#                                     so record reversals with absolute paths
 #   lock <path> [--holder <pid>]      claim a file's write lock for a process
 #                                     (default the caller), printing the
 #                                     token; never a locks segment
@@ -79,7 +88,8 @@
 #   source set <name> --kind <living|consumed> --ref <ref> [--watermark <w>]
 #   inventory-refresh                 rewrite the mechanism inventory from the
 #                                     installed planwright and host surfaces
-#                                     and move its watermark
+#                                     and move its watermark, the two
+#                                     published together
 #   freshness                         <name><TAB><epoch><TAB><age-seconds> per
 #                                     store, log and living source
 #
@@ -113,11 +123,13 @@ done
 FORMAT=1
 LOGS="decisions undo would-have locks"
 STORES="index.md followups.tsv sources.tsv mechanisms.tsv"
-MECH_HEADER="# kind	mechanism	where	source"
 tab=$(printf '\t')
+MECH_HEADER="# kind${tab}mechanism${tab}where${tab}source"
 scratch=''
+TMP=''
 on_exit() {
   pw_lock_release_all
+  [ -z "$TMP" ] || rm -f "$TMP"
   [ -z "$scratch" ] || rm -rf "$scratch"
 }
 trap on_exit EXIT
@@ -139,6 +151,7 @@ bad() {
   exit 2
 }
 lbl() { printf 'kb/%s' "${1#"$KB"/}"; }
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 # text_ok <label> <value>: a single-line field with no tab or control byte.
 text_ok() {
@@ -164,13 +177,14 @@ subject_ok() {
     *) bad "the subject is blank" ;;
   esac
 }
-count_rows() { # count_rows <file>: entry lines, never a failed read's empty
+count_rows() { # count_rows <file>: ROWS, the entry lines, never a failed read's empty
   cr=$(grep -vc '^#' "$1")
   case $cr in
     "" | *[!0-9]*) refuse "cannot read $(lbl "$1")" ;;
   esac
   ROWS=$cr
 }
+ends_in_newline() { [ ! -s "$1" ] || [ "$(tail -c 1 "$1" | wc -l | tr -d ' ')" -eq 1 ]; }
 now_iso() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 now_epoch() { date -u '+%s'; }
 mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
@@ -234,11 +248,19 @@ require_kb() {
   [ -d "$KB" ] || refuse "no knowledge base at $KB (run mc-kb.sh init --program $PROGRAM)"
 }
 
+# format_line_ok <line>: the line is a known format field, either form.
+format_line_ok() {
+  case $1 in
+    "# format: $FORMAT" | "<!-- format: $FORMAT -->") return 0 ;;
+  esac
+  return 1
+}
 # check_format <file>: the store's first line names a known format.
 check_format() {
   [ ! -L "$1" ] || refuse "store $(lbl "$1") is a symlink"
   [ -f "$1" ] || refuse "store $(lbl "$1") is missing (run mc-kb.sh init --program $PROGRAM)"
   cf_first=$(head -n 1 "$1")
+  format_line_ok "$cf_first" && return 0
   case $cf_first in
     "<!-- format: "*" -->")
       cf_v=${cf_first#"<!-- format: "}
@@ -247,11 +269,11 @@ check_format() {
     "# format: "*) cf_v=${cf_first#"# format: "} ;;
     *) refuse "store $(lbl "$1") has no format field" ;;
   esac
-  [ "$cf_v" = "$FORMAT" ] || refuse "store $(lbl "$1") has unknown format $cf_v"
+  refuse "store $(lbl "$1") has unknown format $cf_v"
 }
 
 # new_store <file> <header lines...>: create the store when absent, never
-# clobbering one a concurrent init created first, else check its format.
+# clobbering one a concurrent init created first, then check its format.
 new_store() {
   ns_file=$1
   shift
@@ -264,29 +286,23 @@ new_store() {
   check_format "$ns_file"
 }
 
-# tmp_for <file>: a fresh dot-named sibling to stage a rewrite in; a leading
-# dot keeps it out of every path kb_path admits.
+# Staged rewrites: tmp_for names a fresh dot-named sibling (a leading dot
+# keeps it out of every path kb_path admits, and on_exit removes it), the
+# caller writes TMP, then publish renames it over the store once its format
+# line checks; drop_staged abandons it.
 tmp_for() {
-  TMP=$(dirname "$1")/.$(basename "$1").$$.new
+  TMP=${1%/*}/.${1##*/}.$$.new
   rm -f "$TMP"
 }
-# publish <file>: rename the staged TMP over <file> once its format line
-# checks, else drop it and refuse.
-publish() {
-  if ! check_staged "$TMP" || ! mv -f "$TMP" "$1"; then
-    rm -f "$TMP"
-    refuse "cannot rewrite $(lbl "$1")"
-  fi
-}
-check_staged() {
-  case $(head -n 1 "$1" 2>/dev/null) in
-    "# format: $FORMAT" | "<!-- format: $FORMAT -->") return 0 ;;
-  esac
-  return 1
-}
-stage_failed() {
+drop_staged() { # drop_staged <file>
   rm -f "$TMP"
+  TMP=''
   refuse "cannot rewrite $(lbl "$1")"
+}
+publish() { # publish <file>
+  format_line_ok "$(head -n 1 "$TMP" 2>/dev/null)" || drop_staged "$1"
+  mv -f "$TMP" "$1" || drop_staged "$1"
+  TMP=''
 }
 
 # kb_path <path>: validate a knowledge-base relative path and set KP to it
@@ -297,7 +313,10 @@ kb_path() {
     "" | /* | .* | -* | */.* | *//* | */) bad "invalid knowledge-base path: $1" ;;
     *[!A-Za-z0-9._/-]*) bad "invalid knowledge-base path: $1" ;;
   esac
-  kp_dir=$(dirname -- "$1")
+  case $1 in
+    */*) kp_dir=${1%/*} ;;
+    *) kp_dir=. ;;
+  esac
   kp_real=$(cd "$KB/$kp_dir" 2>/dev/null && pwd -P) || refuse "no such directory in the knowledge base: $kp_dir"
   kp_kb=$(cd "$KB" && pwd -P) || refuse "cannot read $KB"
   case $kp_real in
@@ -310,7 +329,7 @@ kb_path() {
 # is_store <path>: a store, log segment or lock at the top level, compared
 # with case folded for case-insensitive filesystems.
 is_store() {
-  is_p=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  is_p=$(lower "$1")
   case $is_p in
     */*) return 1 ;;
     *.log | *.lock) return 0 ;;
@@ -340,40 +359,56 @@ lock_wait() {
 }
 
 # claim <file> [<holder-pid>]: take <file>'s write lock for this process, or
-# for <holder-pid>, within the lock wait; a holder found no longer running
-# is released by the acquire, reported and logged. Sets CLAIM_TOKEN.
+# for <holder-pid>, waiting at least the lock wait; every dead owner the
+# acquire broke on the way (PW_LOCK_BROKEN) is reported and logged. Sets
+# CLAIM_TOKEN.
 CLAIM_TOKEN=''
 claim() {
-  local cl_lock cl_label cl_start cl_dead cl_tok cl_rc cl_token
+  local cl_lock cl_label cl_start cl_dead cl_tok cl_rc
   cl_lock=$1.lock
   cl_label=$(lbl "$1")
   lock_wait
-  cl_start=$(now_epoch)
+  cl_start=$SECONDS
+  cl_dead=''
   while :; do
+    # About a second of lock-lib's own spin per pass, so the holder is probed
+    # at its stride rather than on every try.
     if [ $# -ge 2 ]; then
-      pw_lock_acquire_for "$cl_lock" "$2" 1
+      pw_lock_acquire_for "$cl_lock" "$2" 50
     else
-      pw_lock_try "$cl_lock"
+      pw_lock_acquire "$cl_lock" 50
     fi
     cl_rc=$?
+    [ -z "$PW_LOCK_BROKEN" ] || cl_dead="$cl_dead ${PW_LOCK_BROKEN%%-*}"
     [ "$cl_rc" -eq 1 ] || break
-    if [ $(($(now_epoch) - cl_start)) -ge "$LOCK_WAIT" ]; then
+    if [ $((SECONDS - cl_start)) -ge "$LOCK_WAIT" ]; then
       cl_tok=$(pw_lock_owner "$cl_lock")
       refuse "$cl_label is locked by pid ${cl_tok%%-*}; gave up after ${LOCK_WAIT}s"
     fi
-    sleep 0.1 2>/dev/null || sleep 1
   done
   [ "$cl_rc" -eq 0 ] || refuse "cannot take the lock on $cl_label (an unwritable directory, or a path lock-lib.sh refuses)"
-  cl_token=$PW_LOCK_TOKEN
-  cl_dead=${PW_LOCK_BROKEN%%-*}
-  if [ -n "$cl_dead" ]; then
-    say "released the lock on $cl_label left by pid $cl_dead, which is no longer running"
-    # In a subshell, so a lock log that cannot be written warns rather than
-    # failing the write that broke the lock.
-    (do_append locks "$cl_label" "released a dead holder's lock" "pid $cl_dead" "the holder is not running" none -) \
-      || say "warning: the release on $cl_label could not be logged"
-  fi
-  CLAIM_TOKEN=$cl_token
+  CLAIM_TOKEN=$PW_LOCK_TOKEN
+  for cl_pid in $cl_dead; do
+    case $cl_pid in
+      *[!0-9]*) cl_pid='?' ;;
+    esac
+    say "released the lock on $cl_label left by pid $cl_pid, which is no longer running"
+    log_release "$cl_label" "$cl_pid"
+  done
+}
+
+# log_release <label> <pid>: log a dead holder's release. In a subshell, so a
+# locks log that cannot be written warns rather than failing the write that
+# broke the lock, and so the nested claim cannot touch this shell's globals.
+# Bash runs no EXIT trap in a subshell, so the subshell releases the locks
+# segment itself; releasing everything there would also drop the lock the
+# parent is writing under, which the subshell's registry copy names too.
+log_release() {
+  (
+    lr_seg=$KB/locks-$(date -u '+%Y-%m').log
+    trap 'pw_lock_release "$lr_seg.lock" 2>/dev/null' EXIT
+    do_append locks "$1" "released a dead holder's lock" "pid $2" "the holder is not running" none -
+  ) || say "warning: the release on $1 could not be logged"
 }
 release() { pw_lock_release "$1.lock" || refuse "cannot release the lock on $(lbl "$1")"; }
 
@@ -388,11 +423,17 @@ log_ok() { # log_ok <name> <allowed...>
   bad "unknown log: $lo_name (one of: $*)"
 }
 
-seal_of() { printf '%s\n' "$(dirname "$1")/.$(basename "$1" .log).seal"; }
+seal_of() { # seal_of <segment>
+  so_base=${1##*/}
+  printf '%s\n' "${1%/*}/.${so_base%.log}.seal"
+}
 
-# seal_ok <segment>: the prefix the last append recorded is unchanged.
+# seal_ok <segment>: the prefix the last append recorded is unchanged; sets
+# SEALED to its length (0 for a header-only segment with no sidecar yet).
+SEALED=0
 seal_ok() {
   so_seal=$(seal_of "$1")
+  SEALED=0
   if [ ! -f "$so_seal" ]; then
     count_rows "$1"
     [ "$ROWS" -eq 0 ]
@@ -407,14 +448,14 @@ seal_ok() {
   esac
   so_size=$(wc -c <"$1" | tr -d ' ')
   [ "$so_size" -ge "$so_len" ] || return 1
-  [ "$(head -c "$so_len" "$1" | cksum | awk '{ print $1 }')" = "$so_sum" ]
+  [ "$(head -c "$so_len" "$1" | cksum | awk '{ print $1 }')" = "$so_sum" ] || return 1
+  SEALED=$so_len
 }
 seal_write() {
   sw_seal=$(seal_of "$1")
   tmp_for "$sw_seal"
-  if ! printf '# format: %s\n%s %s\n' "$FORMAT" "$(wc -c <"$1" | tr -d ' ')" "$(cksum <"$1" | awk '{ print $1 }')" >"$TMP"; then
-    stage_failed "$sw_seal"
-  fi
+  printf '# format: %s\n%s %s\n' "$FORMAT" "$(wc -c <"$1" | tr -d ' ')" "$(cksum <"$1" | awk '{ print $1 }')" >"$TMP" \
+    || drop_staged "$sw_seal"
   publish "$sw_seal"
 }
 
@@ -429,6 +470,13 @@ do_append() {
   if [ -f "$da_seg" ] || [ -L "$da_seg" ]; then
     check_format "$da_seg"
     seal_ok "$da_seg" || refuse "segment $(lbl "$da_seg") was rewritten since its last append; logs are append-only"
+    if ! ends_in_newline "$da_seg"; then
+      # Unsealed bytes ending mid-line: an append a crash cut short.
+      tmp_for "$da_seg"
+      head -c "$SEALED" "$da_seg" >"$TMP" || drop_staged "$da_seg"
+      publish "$da_seg"
+      say "warning: dropped a partial line a crash left at the end of $(lbl "$da_seg")"
+    fi
   else
     [ ! -e "$(seal_of "$da_seg")" ] || refuse "segment $(lbl "$da_seg") is gone but its seal remains; logs are append-only"
     printf '# format: %s\n' "$FORMAT" >"$da_seg" || refuse "cannot write $(lbl "$da_seg")"
@@ -443,22 +491,32 @@ do_append() {
   LAST_ID=$da_id
 }
 
-# segments <log>: every segment of a log, oldest first, one path per line.
-segments() {
+# segment_list <log> [<from-month>]: SEGS, the log's segments oldest first,
+# from the given YYYY-MM on when one is given.
+segment_list() {
+  SEGS=()
   set +f
   for sg in "$KB/$1"-[0-9][0-9][0-9][0-9]-[0-9][0-9].log; do
-    [ -f "$sg" ] && printf '%s\n' "$sg"
+    [ -f "$sg" ] || continue
+    if [ $# -ge 2 ]; then
+      sg_month=${sg%.log}
+      sg_month=${sg_month##*-}
+      sg_year=${sg%-*.log}
+      sg_year=${sg_year##*-}
+      [ ! "$sg_year-$sg_month" \< "$2" ] || continue
+    fi
+    SEGS[${#SEGS[@]}]=$sg
   done
   set -f
 }
-# segment_list <log>: SEGS, the segments as an array.
-segment_list() {
-  SEGS=()
-  while IFS= read -r sl; do
-    [ -n "$sl" ] && SEGS[${#SEGS[@]}]=$sl
-  done <<EOF
-$(segments "$1")
-EOF
+
+# awk_segments <awk-program>: run the program over SEGS after each segment's
+# format line checks; the caller passes the program's inputs in the
+# environment.
+awk_segments() {
+  [ "${#SEGS[@]}" -gt 0 ] || return 0
+  for qs in "${SEGS[@]}"; do check_format "$qs"; done
+  awk -F '\t' "$1" "${SEGS[@]}"
 }
 
 # The subject key the rule store groups on: ASCII case folded, blank runs
@@ -536,10 +594,11 @@ v_index_add() {
     head -n 1 "$KB/index.md" \
       && P="- \`$1\`: " awk 'NR > 1 && index($0, ENVIRON["P"]) != 1 && $0 != ""' "$KB/index.md" \
       && printf '%s\n' "- \`$1\`: $2"
-  } >"$TMP" || stage_failed "$KB/index.md"
+  } >"$TMP" || drop_staged "$KB/index.md"
   lines=$(awk 'NR > 1 && $0 != "" { n++ } END { print n + 0 }' "$TMP")
   if [ "$lines" -gt "$budget" ]; then
     rm -f "$TMP"
+    TMP=''
     refuse "indexing $1 would put the index at $lines lines, over its budget of $budget (mission_control_kb_index_budget); retire an entry or raise the knob"
   fi
   publish "$KB/index.md"
@@ -606,11 +665,16 @@ v_append() {
   subject_ok "$subject"
   need "--act" "$act"
   case $act in
-    reverted | "revert failed") bad "the act '$act' is recorded by revert only" ;;
+    reverting | reverted | "revert failed") bad "the act '$act' is recorded by revert only" ;;
   esac
   text_ok "--target" "$target"
   text_ok "--grounds" "$grounds"
-  [ -z "$duty" ] || kebab_ok "--duty" "$duty"
+  if [ -n "$duty" ]; then
+    kebab_ok "--duty" "$duty"
+    /bin/bash "$script_dir/mc-duties.sh" get "$duty" id >/dev/null 2>&1 || bad "--duty names no duty in the catalog: $duty"
+  elif [ "$log" = would-have ]; then
+    bad "a would-have entry names its duty (--duty)"
+  fi
   if [ -z "$rev" ]; then
     [ "$log" != undo ] || bad "an undo entry states its reversal (-- <command>...) or --no-reversal"
     rev=none
@@ -620,23 +684,15 @@ v_append() {
   printf '%s\n' "$LAST_ID"
 }
 
-# query_segments <log> <awk-program>: run the program over every segment of
-# the log after its format line checks; S carries the subject.
-query_segments() {
-  segment_list "$1"
-  [ "${#SEGS[@]}" -gt 0 ] || return 0
-  for qs in "${SEGS[@]}"; do check_format "$qs"; done
-  awk -F '\t' "$2" "${SEGS[@]}"
-}
-
 v_query() {
   [ $# -eq 3 ] && [ "$2" = --subject ] || usage
   # shellcheck disable=SC2086 # LOGS is a word list; globbing is off
   log_ok "$1" $LOGS
   subject_ok "$3"
   require_kb
+  segment_list "$1"
   # shellcheck disable=SC2016 # an awk program, expanded by awk
-  S=$3 query_segments "$1" "$SUBJECT_KEY_AWK"'
+  S=$3 awk_segments "$SUBJECT_KEY_AWK"'
     BEGIN { want = key(ENVIRON["S"]) }
     !/^#/ && key($3) == want'
 }
@@ -653,27 +709,35 @@ v_revert() {
   require_kb
   ym=${1#undo-}
   ym=${ym%%-*}
-  seg=$KB/undo-${ym%??}-${ym#????}.log
+  ym=${ym%??}-${ym#????}
+  seg=$KB/undo-$ym.log
   [ -f "$seg" ] || refuse "no undo entry $1"
-  # One revert at a time: the already-reverted check, the run and its log
-  # entry hold this lock together, so an entry's reversal runs once.
-  claim "$KB/.revert"
+  cur=$KB/undo-$(date -u '+%Y-%m').log
+  # The outcome check and the `reverting` entry are one critical section on
+  # the segment that entry lands in, so two reverts of one entry cannot both
+  # proceed; the reversal then runs outside every lock.
+  claim "$cur"
   check_format "$seg"
   seal_ok "$seg" || refuse "segment $(lbl "$seg") was rewritten since its last append; its reversals are not run"
-  entry=$(I=$1 awk -F '\t' '!/^#/ && $1 == ENVIRON["I"] { print; exit }' "$seg")
+  entry=$(head -c "$SEALED" "$seg" | I=$1 awk -F '\t' '!/^#/ && $1 == ENVIRON["I"] { print; exit }')
   [ -n "$entry" ] || refuse "no undo entry $1"
-  r_subject=$(printf '%s\n' "$entry" | cut -f 3)
-  r_rev=$(printf '%s\n' "$entry" | cut -f 7)
-  r_duty=$(printf '%s\n' "$entry" | cut -f 8)
+  IFS=$tab read -r _ _ r_subject _ _ _ r_rev r_duty <<EOF
+$entry
+EOF
   case $r_rev in
     argv:?*) ;;
     *) refuse "undo entry $1 records no reversal" ;;
   esac
-  ensure_scratch
+  segment_list undo "$ym"
   # shellcheck disable=SC2016 # an awk program, expanded by awk
-  I=$1 query_segments undo '!/^#/ && $4 == "reverted" && $5 == ENVIRON["I"] { print "y"; exit }' >"$scratch/reverted" \
+  last=$(I=$1 awk_segments '!/^#/ && $5 == ENVIRON["I"] && ($4 == "reverting" || $4 == "reverted" || $4 == "revert failed") { a = $4 } END { print a }') \
     || refuse "the undo log could not be read"
-  [ ! -s "$scratch/reverted" ] || refuse "undo entry $1 was already reverted"
+  case $last in
+    reverted) refuse "undo entry $1 was already reverted" ;;
+    reverting) refuse "a revert of undo entry $1 started and logged no outcome; check whether its reversal ran, then log the outcome" ;;
+  esac
+  do_append undo "$r_subject" reverting "$1" "-" none "${r_duty:--}"
+  release "$cur"
   args=()
   IFS=' '
   for w in ${r_rev#argv:}; do
@@ -683,19 +747,22 @@ v_revert() {
   unset IFS
   case ${args[0]} in
     */*) ;;
-    *) [ ! -f "$script_dir/${args[0]}" ] || [ ! -x "$script_dir/${args[0]}" ] || args[0]=$script_dir/${args[0]} ;;
+    *)
+      if [ -f "$script_dir/${args[0]}" ] && [ -x "$script_dir/${args[0]}" ]; then
+        args[0]=$script_dir/${args[0]}
+      fi
+      ;;
   esac
   (
     umask "$caller_umask"
-    "${args[@]}"
+    exec "${args[@]}"
   ) >&2
   r_rc=$?
   if [ "$r_rc" -ne 0 ]; then
-    do_append undo "$r_subject" "revert failed" "$1" "exit $r_rc" none "$r_duty"
-    refuse "the reversal of $1 failed (exit $r_rc)"
+    do_append undo "$r_subject" "revert failed" "$1" "exit $r_rc" none "${r_duty:--}"
+    refuse "the reversal of $1 failed (exit $r_rc); logged as $LAST_ID"
   fi
-  do_append undo "$r_subject" reverted "$1" "exit 0" none "$r_duty"
-  release "$KB/.revert"
+  do_append undo "$r_subject" reverted "$1" "exit 0" none "${r_duty:--}"
   printf '%s\n' "$LAST_ID"
 }
 
@@ -719,7 +786,7 @@ v_lock() {
   esac
   require_kb
   kb_path "$file"
-  case $file in
+  case $(lower "$file") in
     locks-*) bad "the locks log is written only by the knowledge base itself" ;;
   esac
   claim "$KP" "$holder"
@@ -769,6 +836,7 @@ v_followup() {
       esac
       need "--text" "$text"
       claim "$fu"
+      ends_in_newline "$fu" || refuse "kb/followups.tsv ends in a partial line; repair it by hand"
       count_rows "$fu"
       n=$((ROWS + 1))
       printf 'f-%s\t%s\t%s\t%s\topen\t%s\t-\t-\n' "$n" "$(now_iso)" "$owner" "$trigger" "$text" >>"$fu" \
@@ -826,7 +894,7 @@ v_followup() {
       I=$id V=$evidence T=$(now_iso) awk -F '\t' -v OFS='\t' '
         !/^#/ && $1 == ENVIRON["I"] { $5 = "closed"; $7 = ENVIRON["V"]; $8 = ENVIRON["T"] }
         { print }
-      ' "$fu" >"$TMP" || stage_failed "$fu"
+      ' "$fu" >"$TMP" || drop_staged "$fu"
       publish "$fu"
       release "$fu"
       ;;
@@ -848,7 +916,7 @@ set_source() {
   {
     N=$1 awk -F '\t' '/^#/ || $1 != ENVIRON["N"]' "$ss" \
       && printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4"
-  } >"$TMP" || stage_failed "$ss"
+  } >"$TMP" || drop_staged "$ss"
   publish "$ss"
   release "$ss"
 }
@@ -886,8 +954,7 @@ v_source() {
 }
 
 # inventory_rows: kind<TAB>mechanism<TAB>where<TAB>source, one per mechanism
-# the installed planwright and host can make deterministic. Routines have no
-# local record to read, so the kind is listed as a host capability.
+# read from the installed planwright and host surfaces.
 inventory_rows() {
   core=${PLANWRIGHT_ROOT:-$script_dir/..}
   ver=$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$core/.claude-plugin/plugin.json" 2>/dev/null | head -n 1)
@@ -925,19 +992,30 @@ EOF
     IFS=$tab
     for f in $files; do
       [ -f "$f" ] || continue
-      F=$f jq -r '
+      # Into a file first: jq streams, so rows before a failure would land.
+      if F=$f jq -r '
         def clean: tostring | gsub("[[:cntrl:]]"; "?");
         ($ENV.F | clean) as $f
         | ((.hooks // {}) | to_entries[] | (.key | clean) as $e | (.value // [])[]
           | ["hook", ($e + " " + ((.matcher // "*") | clean)), $f, $f]),
         ((.permissions // {}) | to_entries[] | select(.key == "allow" or .key == "ask" or .key == "deny")
           | .key as $l | (.value // [])[] | ["permission", ($l + ": " + (. | clean)), $f, $f])
-        | @tsv' "$f" 2>/dev/null || say "warning: $f does not parse as settings JSON; skipped"
+        | @tsv' "$f" >"$scratch/settings" 2>/dev/null; then
+        cat "$scratch/settings"
+      else
+        say "warning: $f does not parse as settings JSON; skipped"
+      fi
     done
     unset IFS
   else
     say "warning: jq is not on PATH; no hook or permission rows"
   fi
+}
+
+# The kinds the host offers with no local record to read (a routine lives in
+# the host's scheduler) or that this program's own stores provide.
+capability_rows() {
+  claude_dir=${CLAUDE_DIR:-$HOME/.claude}
   printf '%s\n' \
     "hook${tab}(a new hook on any host event)${tab}$claude_dir/settings.json${tab}host capability" \
     "permission${tab}(a new allow, ask or deny rule)${tab}$claude_dir/settings.json${tab}host capability" \
@@ -950,23 +1028,28 @@ v_inventory_refresh() {
   require_kb
   inv=$KB/mechanisms.tsv
   check_format "$inv"
+  check_format "$KB/sources.tsv"
   ensure_scratch
   inventory_rows >"$scratch/raw" || refuse "the mechanism inventory could not be read"
+  read_rows=$(awk -F '\t' 'NF == 4 { n++ } END { print n + 0 }' "$scratch/raw")
+  [ "$read_rows" -gt 0 ] || refuse "no mechanism could be read from the installed surfaces; the stored inventory is kept"
+  capability_rows >>"$scratch/raw" || refuse "the mechanism inventory could not be read"
   awk -F '\t' 'NF == 4' "$scratch/raw" | sort -u >"$scratch/rows" || refuse "the mechanism inventory could not be sorted"
   rows=$(grep -c . "$scratch/rows")
-  [ "$rows" -gt 0 ] || refuse "the mechanism inventory came out empty; the stored one is kept"
-  # The watermark is taken under the lock, and the source row moves while the
-  # inventory is still held, so two refreshes never pair one's rows with the
-  # other's watermark.
+  # Both locks before either file moves, inventory then sources (the order
+  # every writer takes them in), so the rows and their watermark land as a
+  # pair and two refreshes never interleave.
   claim "$inv"
+  claim "$KB/sources.tsv"
   wm=$(now_epoch)
   tmp_for "$inv"
   {
     printf '# format: %s\n# refreshed: %s\n%s\n' "$FORMAT" "$wm" "$MECH_HEADER" \
       && cat "$scratch/rows"
-  } >"$TMP" || stage_failed "$inv"
+  } >"$TMP" || drop_staged "$inv"
   publish "$inv"
   set_source mechanism-inventory living "$wm" kb/mechanisms.tsv
+  release "$KB/sources.tsv"
   release "$inv"
   printf '%s\n' "$rows mechanisms"
 }

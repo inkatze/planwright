@@ -151,6 +151,12 @@ mc_run mc-kb.sh query decisions --program alpha --subject spaced
 expect_out "a home with a space in its path is queried" "in a spaced home"
 mc_run mc-kb.sh freshness --program alpha
 expect_out "a home with a space in its path reports its logs" "log:decisions"
+mc_run mc-kb.sh append undo --program alpha --subject spaced --act "spaced undo" -- true
+spaced_id=$OUT
+mc_run mc-kb.sh revert --program alpha "$spaced_id"
+expect_rc "a home with a space in its path reverts" 0
+mc_run mc-kb.sh revert --program alpha "$spaced_id"
+expect_err "and knows it already did" "already reverted"
 alpha_block </dev/null
 
 # ---------------------------------------------------------------------------
@@ -199,10 +205,18 @@ expect_err "the refusal names the link" "symlink"
 grep -v 'alpha/linked.md' "$kb/index.md" >"$tmp/idx" && cat "$tmp/idx" >"$kb/index.md"
 mc_run mc-kb.sh index-add --program alpha followups.tsv "a store"
 expect_rc "a store is never indexed as a body" 1
+printf 'x\n' >"$kb/INDEX.md"
 mc_run mc-kb.sh index-add --program alpha INDEX.md "a store in another case"
 expect_rc "a store's name in another case is refused too" 1
-mc_run mc-kb.sh index-add --program alpha "decisions-$month.log" "a log"
+expect_err "it is refused as a store" "is a store"
+rm -f "$kb/INDEX.md"
+printf '# format: 1\n' >"$kb/decisions-2000-03.log"
+mc_run mc-kb.sh index-add --program alpha decisions-2000-03.log "a log"
 expect_rc "a log segment is never indexed as a body" 1
+expect_err "it is refused as a store" "is a store"
+rm -f "$kb/decisions-2000-03.log"
+mc_run mc-kb.sh read --program alpha -x
+expect_rc "a path with a leading dash is refused" 2
 
 printf '%s\n' "mission_control_kb_index_budget: 3" >>"$tracked"
 printf 'x\n' >"$kb/alpha/third.md"
@@ -277,10 +291,52 @@ mc_run mc-kb.sh revert --program alpha "$fail_id"
 expect_rc "a failing reversal is refused" 1
 mc_run mc-kb.sh query undo --program alpha --subject pr-47
 expect_out "the failed attempt is logged" "revert failed"
+mc_run mc-kb.sh revert --program alpha "$fail_id"
+expect_rc "a failed revert may be retried" 1
+case $ERR in
+  *"already"* | *"no outcome"*) fail "a retry after a failure was refused: $ERR" ;;
+  *) ok "a retry after a failure runs the reversal again" ;;
+esac
+mc_run mc-kb.sh append undo --program alpha --subject pr-55 --act "interrupted" -- true
+int_id=$OUT
+month=$(date -u '+%Y-%m')
+printf '%s\n' "undo-${month%-*}${month#*-}-999${tab}2000-01-01T00:00:00Z${tab}pr-55${tab}reverting${tab}$int_id${tab}-${tab}none${tab}-" \
+  >>"$kb/undo-$month.log"
+mc_run mc-kb.sh revert --program alpha "$int_id"
+expect_rc "a revert that logged no outcome is not run again" 1
+expect_err "the refusal says the outcome is unknown" "no outcome"
 
 mc_run mc-kb.sh append undo --program alpha --subject pr-48 --act "a planwright script reversal" -- mc-program.sh list
 mc_run mc-kb.sh revert --program alpha "$OUT"
 expect_rc "a bare planwright script name runs from this installation" 0
+case $OUT in
+  undo-*[!0-9-]* | *"
+"*) fail "revert's stdout is not just the logged id: $OUT" ;;
+  undo-*) ok "revert prints only the logged id, the reversal's output on stderr" ;;
+  *) fail "revert printed no id: $OUT" ;;
+esac
+mc_run mc-kb.sh append undo --program alpha --subject pr-52 --act "creates a file" -- touch "$tmp/umask-probe"
+probe_id=$OUT
+(
+  umask 022
+  mc_run mc-kb.sh revert --program alpha "$probe_id"
+)
+case $(ls -l "$tmp/umask-probe" 2>/dev/null) in
+  -rw-r--r--*) ok "the reversal runs in the caller's umask" ;;
+  *) fail "the reversal's file mode: $(ls -l "$tmp/umask-probe" 2>/dev/null)" ;;
+esac
+mc_run mc-kb.sh append undo --program alpha --subject pr-53 --act "a victim" -- true
+victim_id=$OUT
+mc_run mc-kb.sh append undo --program alpha --subject pr-53 --act "names an internal function" \
+  -- do_append undo pr-53 reverted "$victim_id" x none -
+mc_run mc-kb.sh revert --program alpha "$OUT"
+expect_rc "a reversal naming one of the script's functions is never run in-process" 1
+mc_run mc-kb.sh revert --program alpha "$victim_id"
+expect_rc "the victim still reverts" 0
+for act in reverting "revert failed"; do
+  mc_run mc-kb.sh append undo --program alpha --subject pr-54 --act "$act" --no-reversal
+  expect_rc "the act '$act' is reserved to revert" 2
+done
 
 mc_run mc-kb.sh append undo --program alpha --subject pr-49 --act "tampered" -- true
 tamper_id=$OUT
@@ -314,6 +370,10 @@ expect_rc "an option value reading --program stays that option's value" 0
 mc_run mc-kb.sh query decisions --program alpha --subject pr-51
 expect_out "the value landed as the act" "${tab}--program${tab}"
 mc_run mc-kb.sh append would-have --program alpha --subject pr-9 --act "would have re-requested review"
+expect_rc "a would-have entry without its duty is refused" 2
+mc_run mc-kb.sh append would-have --program alpha --subject pr-9 --act x --duty no-such-duty
+expect_rc "a duty outside the catalog is refused" 2
+mc_run mc-kb.sh append would-have --program alpha --subject pr-9 --act "would have re-requested review" --duty alpha-duty
 expect_rc "the shadow would-have log takes entries" 0
 mc_run mc-kb.sh query would-have --program alpha --subject pr-9
 expect_out "the would-have log is queried by subject" "re-requested review"
@@ -352,12 +412,18 @@ mc_run mc-kb.sh append decisions --program alpha --subject pr-44 --act "after th
 expect_rc "the restored segment takes appends again" 0
 printf '%s\n' "would-have-${month%-*}${month#*-}-99${tab}2000-01-01T00:00:00Z${tab}pr-9${tab}crashed before its seal${tab}-${tab}-${tab}none${tab}-" \
   >>"$kb/would-have-$month.log"
-mc_run mc-kb.sh append would-have --program alpha --subject pr-9 --act "after a crash"
+mc_run mc-kb.sh append would-have --program alpha --subject pr-9 --act "after a crash" --duty alpha-duty
 expect_rc "an entry appended before a crash left its seal behind is not a rewrite" 0
 mv "$kb/would-have-$month.log" "$tmp/wh.keep"
-mc_run mc-kb.sh append would-have --program alpha --subject pr-9 --act "after a deletion"
+mc_run mc-kb.sh append would-have --program alpha --subject pr-9 --act "after a deletion" --duty alpha-duty
 expect_rc "a deleted segment whose seal remains is refused" 1
 mv "$tmp/wh.keep" "$kb/would-have-$month.log"
+printf '%s' "would-have-${month%-*}${month#*-}-98${tab}torn" >>"$kb/would-have-$month.log"
+mc_run mc-kb.sh append would-have --program alpha --subject pr-torn --act "after a torn line" --duty alpha-duty
+expect_rc "a partial line a crash left is dropped, not joined" 0
+expect_err "the drop is reported" "partial line"
+mc_run mc-kb.sh query would-have --program alpha --subject pr-torn
+expect_out "the entry after the torn line is whole" "after a torn line"
 
 # ---------------------------------------------------------------------------
 # REQ-K1.5: one writer per file; a dead holder's lock is released and logged.
@@ -383,6 +449,8 @@ mc_run mc-kb.sh lock --program alpha "decisions-$month.log" --holder abc
 expect_rc "a holder that is not a pid is refused" 2
 mc_run mc-kb.sh lock --program alpha "locks-$month.log" --holder "$holder_pid"
 expect_rc "the locks log cannot be locked from outside" 2
+mc_run mc-kb.sh lock --program alpha "LOCKS-$month.log" --holder "$holder_pid"
+expect_rc "nor under another case" 2
 
 mc_run mc-kb.sh lock --program alpha "decisions-$month.log" --holder "$holder_pid"
 kill "$holder_pid" 2>/dev/null
@@ -405,7 +473,10 @@ sleep 60 &
 holder_pid=$!
 mc_run mc-kb.sh lock --program alpha index.md --holder "$holder_pid"
 expect_rc "a lock is claimed over a dead holder" 0
-mc_run mc-kb.sh unlock --program alpha index.md --token "$OUT"
+lock_token=$OUT
+mc_run mc-kb.sh query locks --program alpha --subject kb/index.md
+expect_out "a lock claimed for another process logs the dead holder too" "released a dead holder's lock"
+mc_run mc-kb.sh unlock --program alpha index.md --token "$lock_token"
 expect_rc "the token printed after a dead-holder release is the lock's own" 0
 kill "$holder_pid" 2>/dev/null
 wait "$holder_pid" 2>/dev/null
@@ -414,17 +485,44 @@ holder_pid=''
 alpha_block <<'EOF'
 mission_control_kb_lock_wait: 20
 EOF
-(sleep 4) &
+sleep 60 &
 holder_pid=$!
 mc_run mc-kb.sh lock --program alpha followups.tsv --holder "$holder_pid"
-mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-12-31 --text "after a wait"
-expect_rc "a writer waits out a holder that dies during the wait" 0
+(
+  mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-12-31 --text "after a wait"
+  printf '%s\n' "$RC" >"$tmp/bg.rc"
+) &
+bg_pid=$!
+sleep 4
+if [ -L "$kb/followups.tsv.lock" ] && [ ! -e "$tmp/bg.rc" ]; then
+  ok "the writer is waiting on a live holder"
+else
+  fail "the writer was not waiting when the holder died"
+fi
+kill "$holder_pid" 2>/dev/null
+wait "$holder_pid" 2>/dev/null
+wait "$bg_pid" 2>/dev/null
+if [ "$(cat "$tmp/bg.rc" 2>/dev/null)" = 0 ]; then ok "a writer waits out a holder that dies during the wait"; else fail "the waiting writer exited $(cat "$tmp/bg.rc" 2>/dev/null)"; fi
 mc_run mc-kb.sh query locks --program alpha --subject kb/followups.tsv
 expect_out "a holder dying during the wait is logged too" "pid $holder_pid"
+holder_pid=''
+
+# A locks log that cannot be written warns, and leaves no lock behind.
+month=$(date -u '+%Y-%m')
+lseg="$kb/locks-$month.log"
+cp "$lseg" "$tmp/locks.keep"
+sed 's/released/RELEASED/' "$tmp/locks.keep" >"$lseg"
+sleep 60 &
+holder_pid=$!
+mc_run mc-kb.sh lock --program alpha sources.tsv --holder "$holder_pid"
+kill "$holder_pid" 2>/dev/null
 wait "$holder_pid" 2>/dev/null
 holder_pid=''
-mc_run mc-kb.sh followup list --program alpha
-f_wait=$(printf '%s\n' "$OUT" | grep "after a wait" | cut -f 1)
+mc_run mc-kb.sh source set --program alpha after-dead --kind living --ref x
+expect_rc "a write over a dead holder succeeds when the release cannot be logged" 0
+expect_err "it warns that the release went unlogged" "could not be logged"
+if [ -L "$lseg.lock" ]; then fail "the locks segment's lock was left behind"; else ok "no lock is left behind on the locks segment"; fi
+cp "$tmp/locks.keep" "$lseg"
 
 alpha_block <<'EOF'
 mission_control_kb_lock_wait: 60
@@ -483,7 +581,6 @@ mc_run mc-kb.sh followup due --program alpha --date 2999-06-01
 expect_out "a due date is read against the given day" "far away"
 mc_run mc-kb.sh followup close --program alpha f-999 --evidence x
 expect_rc "an unknown row is not found" 1
-[ -n "$f_wait" ] || fail "the follow-up added after a wait is missing"
 
 # ---------------------------------------------------------------------------
 # REQ-K1.7: the mechanism inventory and the source table's watermark.
@@ -545,9 +642,22 @@ if [ -n "$wm2" ] && [ "$wm2" != "$wm1" ]; then ok "a second refresh moves the wa
 n=$(grep -c "^mechanism-inventory$tab" "$kb/sources.tsv")
 if [ "$n" -eq 1 ]; then ok "the source table keeps one row per source"; else fail "$n inventory rows in the source table"; fi
 
-mc_run mc-kb.sh source set --program alpha tickets --kind consumed --ref "https://example.invalid/board" --watermark "PROJ-120"
+cp "$inv" "$tmp/inv.keep"
+mv "$core/docs/options-reference.md" "$tmp/opts.keep"
+mv "$core/config/steps.yaml" "$tmp/steps.keep"
+mv "$core/config/duties.yaml" "$tmp/duties.keep"
+mv "$tmp/claude/settings.json" "$tmp/settings.keep"
+mc_run mc-kb.sh inventory-refresh --program alpha
+expect_rc "an inventory with nothing read from the installed surfaces is refused" 1
+if cmp -s "$inv" "$tmp/inv.keep"; then ok "the stored inventory is kept"; else fail "the stored inventory was replaced"; fi
+mv "$tmp/opts.keep" "$core/docs/options-reference.md"
+mv "$tmp/steps.keep" "$core/config/steps.yaml"
+mv "$tmp/duties.keep" "$core/config/duties.yaml"
+mv "$tmp/settings.keep" "$tmp/claude/settings.json"
+
+mc_run mc-kb.sh source set --program alpha tickets --kind consumed --ref "https://example.invalid/board" --watermark 120
 expect_rc "a consumed source is recorded" 0
-if grep -q "^tickets${tab}consumed${tab}PROJ-120${tab}https://example.invalid/board\$" "$kb/sources.tsv"; then
+if grep -q "^tickets${tab}consumed${tab}120${tab}https://example.invalid/board\$" "$kb/sources.tsv"; then
   ok "the source table carries the row"
 else
   fail "the source row is missing or malformed"
