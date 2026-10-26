@@ -583,6 +583,10 @@ assert_contains "J1.5 a key inside a longer word does not cite it" "lineage	vent
 printf '# X — Requirements\n\n## Sources\n\n- **near miss** — (inception:out-graduateX, inception:out-graduate_2)\n' >"$g/specs/capture-surface/requirements.md"
 gate lineage "$g"
 assert_contains "J1.5 a key run on into capitals or an underscore does not cite it" "lineage	venture	spec-side-missing" "$out"
+# shellcheck disable=SC2016 # literal backticks in a written file, not an expansion
+printf '# X — Requirements\n\n## Sources\n\n```\n- **example** — (inception:out-graduate)\n```\n' >"$g/specs/capture-surface/requirements.md"
+gate lineage "$g"
+assert_contains "J1.5 a key inside a fenced example does not cite it" "lineage	venture	spec-side-missing" "$out"
 
 # Failure injection: a validator that crashes on the staged bundle, and an mv
 # that fails on one file, must leave the bundle as it was.

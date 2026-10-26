@@ -696,12 +696,13 @@ check_path() {
   esac
 }
 
-# cites <spec-dir> <key> — the spec's requirements.md Sources names the key.
+# cites <spec-dir> <key> — the spec's requirements.md Sources names the key
+# outside a fenced example.
 cites() {
   [ -f "$1/requirements.md" ] && [ ! -L "$1/requirements.md" ] || return 2
   # The key can be bundle text, so it travels by the environment: awk -v
   # would rewrite its backslash escapes.
-  GATE_CITE_KEY=$2 awk '
+  GATE_CITE_KEY=$2 awk "$spec_parse_awk_fence"'
     BEGIN { key = ENVIRON["GATE_CITE_KEY"] }
     /^## / { on = ($0 ~ /^## Sources[ \t]*$/); next }
     on {
