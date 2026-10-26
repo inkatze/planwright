@@ -1048,7 +1048,7 @@ v_source() {
 # read from the installed planwright and host surfaces.
 inventory_rows() {
   ensure_scratch
-  core=${PLANWRIGHT_ROOT:-$script_dir/..}
+  core=$(/bin/sh "$script_dir/resolve-root.sh" install 2>/dev/null) || core=$script_dir/..
   ver=$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$core/.claude-plugin/plugin.json" 2>/dev/null | head -n 1)
   [ -n "$ver" ] || ver=unknown
   opts=$core/docs/options-reference.md
