@@ -226,8 +226,10 @@ sroot=$home/scratch/$wt_key
 if [ "$want_scratch" = 2 ] && [ -d "$sroot" ] && [ ! -L "$sroot" ]; then
   find "$sroot" -type d ! -perm -700 -exec chmod u+rwx {} \; 2>/dev/null || :
   rm -rf -- "$sroot" 2>/dev/null || :
+  # A root that would not empty keeps an earlier worker's files: no root.
+  [ ! -e "$sroot" ] || want_scratch=3
 fi
-if [ "$want_scratch" != 0 ] && mkdir -p -- "$home/scratch" 2>/dev/null; then
+if { [ "$want_scratch" = 1 ] || [ "$want_scratch" = 2 ]; } && mkdir -p -- "$home/scratch" 2>/dev/null; then
   scratch=$(scratch_make "$sroot") || scratch=''
 fi
 [ "$want_scratch" = 0 ] || [ -n "$scratch" ] \

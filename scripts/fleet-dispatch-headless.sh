@@ -821,10 +821,6 @@ do_run_worker() {
     r_scratch=$(sed -n 's/^scratch_root=//p' "$r_record" 2>/dev/null) || r_scratch=''
     [ -z "$r_scratch" ] || printf '%s\n' "$r_scratch" >"$r_unit/scratch-root" || :
   fi
-  # A wrapper path holding `=` would read as one more assignment.
-  case $ENVWRAP in
-    *=*) r_scratch='' ;;
-  esac
 
   # The dispatch-time identity env (fleet-liveness.sh hook contract): the
   # worker session inherits these, so its plugin hooks push liveness for
@@ -852,7 +848,15 @@ do_run_worker() {
   # longer carries anything a close can match it by.
   r_worker=''
   trap '[ -z "$r_worker" ] || { kill "$r_worker" 2>/dev/null; wait "$r_worker" 2>/dev/null; }; finish 143; exit 0' TERM INT
-  env ${r_scratch:+"TMPDIR=$r_scratch"} "$ENVWRAP" "$@" <"$r_unit/prompt" >"$r_unit/result.json" 2>"$r_unit/stderr.log" &
+  if [ -n "$r_scratch" ]; then
+    (
+      TMPDIR=$r_scratch
+      export TMPDIR
+      exec "$ENVWRAP" "$@"
+    ) <"$r_unit/prompt" >"$r_unit/result.json" 2>"$r_unit/stderr.log" &
+  else
+    "$ENVWRAP" "$@" <"$r_unit/prompt" >"$r_unit/result.json" 2>"$r_unit/stderr.log" &
+  fi
   r_worker=$!
   r_rc=0
   wait "$r_worker" || r_rc=$?
