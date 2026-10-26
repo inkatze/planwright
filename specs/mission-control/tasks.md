@@ -476,7 +476,8 @@ the list lacked; the annotation moved below the task's fields.)*
 
 ## Awaiting input
 
-(none yet)
+- **Task 8** — halted at the `convergence` point: step `polish` ended `failed`
+  (record `.claude/steps/000001/004-step-convergence.rec`).
 
 ## Deferred
 
