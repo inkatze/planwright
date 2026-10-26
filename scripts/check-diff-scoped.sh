@@ -262,14 +262,23 @@ while IFS= read -r t; do
   n=$((n + 1))
   sentinel=$work/sentinel/$n
   rc=0
-  (
-    hermetic_env_clear
-    hermetic_env_sentinel "$sentinel"
-    export SPEC_WALKTHROUGH_DOT_TIMEOUT="${SPEC_WALKTHROUGH_DOT_TIMEOUT:-60}"
-    # shellcheck disable=SC2086 # --runner is a command line by contract
-    exec $runner "./$t"
-  ) >"$work/out" 2>&1 </dev/null || rc=$?
-  if hermetic_env_sentinel_written "$sentinel"; then
+  pinned=1
+  # A pin that cannot complete runs nothing: the test would see the caller's
+  # fleet home. Tried in a subshell first, so this shell stays unpinned.
+  if ! (hermetic_env_sentinel "$sentinel"); then
+    printf '%s\n' "$prog: could not pin the fleet home (a pinned variable in tests/lib/hermetic-env.sh has no arm); not run" >"$work/out"
+    rc=1
+    pinned=0
+  else
+    (
+      hermetic_env_clear
+      hermetic_env_sentinel "$sentinel"
+      export SPEC_WALKTHROUGH_DOT_TIMEOUT="${SPEC_WALKTHROUGH_DOT_TIMEOUT:-60}"
+      # shellcheck disable=SC2086 # --runner is a command line by contract
+      exec $runner "./$t"
+    ) >"$work/out" 2>&1 </dev/null || rc=$?
+  fi
+  if [ "$pinned" -eq 1 ] && hermetic_env_sentinel_written "$sentinel"; then
     printf '%s\n' "$prog: the test wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (fleet_home_pin, tests/lib/hermetic-env.sh)" >>"$work/out"
     rc=1
   fi

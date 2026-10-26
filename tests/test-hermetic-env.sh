@@ -97,26 +97,43 @@ else
 fi
 
 # 4b. The library finds fleet-state.sh from where it was sourced, even when it
-#     was sourced by a relative path and the suite has since changed directory.
+#     was sourced by a relative path and the suite has since changed directory:
+#     the leak is read from the registry, not reported because the check
+#     could not run.
 # shellcheck disable=SC2016
-if (cd "$here/.." && env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR PLANWRIGHT_FLEET_STATE_DIR="$tmp/op" \
-  /bin/bash -c '. tests/lib/hermetic-env.sh; cd /; fleet_home_leaked "$1"' _ "$tmp/suite-root"); then
-  pass "a relative source still reads the inherited registry after a cd"
+if out=$(cd "$here/.." && env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR PLANWRIGHT_FLEET_STATE_DIR="$tmp/op" \
+  /bin/bash -c '. tests/lib/hermetic-env.sh; cd /; fleet_home_leaked "$1"' _ "$tmp/suite-root" 2>&1); then
+  case $out in
+    *"never ran"*) fail "a relative source could not reach fleet-state.sh after a cd: $out" ;;
+    *) pass "a relative source still reads the inherited registry after a cd" ;;
+  esac
 else
   fail "a relative source lost the inherited registry after a cd"
 fi
 
-# 4c. A leak check that cannot run (here: sourced outside bash, so the
-#     library cannot find fleet-state.sh) reports a leak, never a clean home.
-# shellcheck disable=SC2016
-if out=$(PLANWRIGHT_FLEET_STATE_DIR="$tmp/op" /bin/sh -c '. "$1/lib/hermetic-env.sh"; fleet_home_leaked "$2"' _ "$here" "$tmp/nothing-here" 2>&1); then
-  case $out in
-    *"rather than a check that never ran"*) pass "a leak check that cannot run reports a leak and says why" ;;
-    *) fail "a leak check that cannot run gave no reason: $out" ;;
-  esac
-else
-  fail "a leak check that cannot run read as a clean home"
-fi
+# 4c. A leak check that cannot run reports a leak and says why, never a clean
+#     home: here the library is sourced from a tree with no fleet-state.sh,
+#     then from one whose registry verb fails.
+mkdir -p "$tmp/lonely/tests/lib" "$tmp/stubbed/tests/lib" "$tmp/stubbed/scripts" "$tmp/stub-home"
+cp "$here/lib/hermetic-env.sh" "$tmp/lonely/tests/lib/"
+cp "$here/lib/hermetic-env.sh" "$tmp/stubbed/tests/lib/"
+cat >"$tmp/stubbed/scripts/fleet-state.sh" <<'STUB'
+case $1 in
+  root) printf '%s\n' "$PLANWRIGHT_FLEET_STATE_DIR" ;;
+  *) exit 1 ;;
+esac
+STUB
+for tree in lonely stubbed; do
+  # shellcheck disable=SC2016
+  if out=$(PLANWRIGHT_FLEET_STATE_DIR="$tmp/stub-home" /bin/bash -c '. "$1/tests/lib/hermetic-env.sh"; fleet_home_leaked "$2"' _ "$tmp/$tree" "$tmp/nothing-here" 2>&1); then
+    case $out in
+      *"rather than a check that never ran"*) pass "$tree: a leak check that cannot run reports a leak and says why" ;;
+      *) fail "$tree: a leak check that cannot run gave no reason: $out" ;;
+    esac
+  else
+    fail "$tree: a leak check that cannot run read as a clean home"
+  fi
+done
 
 # 5. Sourcing clears every cleared variable and leaves the pinned ones; a
 #    deferred source clears nothing.

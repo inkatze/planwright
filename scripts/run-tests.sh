@@ -83,7 +83,9 @@
 #                                  set) replaced by a sentinel home; a file that
 #                                  creates anything in that home fails
 #   PLANWRIGHT_TEST_PIN_ENV        0 turns that pinning off, so the caller's
-#                                  values reach every file (the perturbed run)
+#                                  values reach every file (the perturbed run);
+#                                  the switch itself is not passed on, so a
+#                                  nested run pins by default
 #   SPEC_WALKTHROUGH_DOT_TIMEOUT   exported to every test (default 60 here:
 #                                  suite load headroom; caller value wins)
 #   PLANWRIGHT_TEST_IN_POOLED_FILE internal: the mark a pooled worker gives
@@ -303,13 +305,14 @@ if [ "${1:-}" = "--run-one" ]; then
   if [ "$pin_failed" -eq 1 ]; then
     printf '%s\n' "run-tests: could not pin the fleet home for $name (a pinned variable in tests/lib/hermetic-env.sh has no arm); not run" \
       >"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+    : >"$PLANWRIGHT_TEST_LOG_DIR/$name.norun"
     verdict="fail"
   elif /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; then
     verdict="done"
   else
     verdict="fail"
   fi
-  if [ "$pin_env" -eq 1 ] && hermetic_env_sentinel_written "$fleet_sentinel"; then
+  if [ "$pin_env" -eq 1 ] && [ "$pin_failed" -eq 0 ] && hermetic_env_sentinel_written "$fleet_sentinel"; then
     verdict="fail"
     printf '%s\n' "run-tests: $name wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (fleet_home_pin, tests/lib/hermetic-env.sh)" \
       >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"

@@ -532,6 +532,8 @@ assert_not_contains "a refused file reports no timing hole" "no timing entry" "$
 out="$(/bin/bash "$tmp/rt-noarm/scripts/run-tests.sh" "$tmp/pass" 2>&1)"
 assert "a pinned variable with no arm fails the run" 1 $?
 assert_contains "the unpinnable list is named" "could not pin the fleet home" "$out"
+assert_not_contains "a file the runner never ran is not blamed for a fleet-home write" "wrote into the fleet home" "$out"
+assert_contains "an unpinnable file fails once" "2 of 2 test file" "$out"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

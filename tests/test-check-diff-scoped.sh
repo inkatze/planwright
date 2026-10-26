@@ -274,6 +274,17 @@ out=$(cd "$R3/tests" && /bin/sh ../scripts/check-diff-scoped.sh --runner /bin/ba
 assert_exit "a relative invocation from a subdirectory runs the selected test" 0 $?
 assert_contains "the relative invocation ran the test" "pass	test	tests/test-r3.sh" "$out"
 
+# A list the check cannot pin runs nothing, and the refusal is not blamed on
+# the test as a fleet-home write.
+# shellcheck disable=SC2016 # the line is for the copied library
+printf '%s\n' 'hermetic_env_pinned="NO_ARM_VAR $hermetic_env_pinned"' >>"$R3/tests/lib/hermetic-env.sh"
+printf '#!/bin/bash\ntouch "%s/r3-ran"\n' "$T" >"$R3/tests/test-r3.sh"
+out=$(cd "$R3" && /bin/sh scripts/check-diff-scoped.sh --runner /bin/bash tests/test-r3.sh 2>&1 </dev/null)
+assert_exit "an unpinnable list fails the selected test" 1 $?
+assert_contains "the unpinnable list is named" "could not pin the fleet home" "$out"
+assert_lacks "the refusal is not blamed on the test" "wrote into the fleet home" "$out"
+if [ -e "$T/r3-ran" ]; then fail "a test ran on a list the check could not pin"; else ok "a test never runs on a list the check could not pin"; fi
+
 # Each test gets the suite's load headroom for spec-graph's dot watchdog.
 # shellcheck disable=SC2016 # the fixture's variable is for the fixture's shell
 printf '#!/bin/bash\n[ "$SPEC_WALKTHROUGH_DOT_TIMEOUT" = "${WANT:-60}" ]\n' >"$R2/tests/test-dot-headroom.sh"

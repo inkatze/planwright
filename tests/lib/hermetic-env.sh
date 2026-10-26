@@ -23,11 +23,13 @@
 #                             point the pinned variables at arms under <dir>:
 #                             the fleet override always, the plugin-data and
 #                             writer arms only when set, so a file sees the
-#                             set/unset shape it would have seen without it
+#                             set/unset shape it would have seen without it;
+#                             fails when a pinned variable has no arm
 #   hermetic_env_sentinel_written <dir>
 #                             succeed when anything exists at a pinned arm
 #                             under <dir>: a write that would have landed in
-#                             the inherited home
+#                             the inherited home. A pinned variable with no
+#                             arm also succeeds, since it cannot be checked
 #   fleet_home_pin <dir>      point every arm of the fleet chain at <dir>, an
 #                             absolute path it can create (else it fails and
 #                             pins nothing): the override at <dir>/fleet, the
@@ -44,8 +46,9 @@
 #                             records are read through fleet-state.sh's own
 #                             registry verb, so the check follows wherever
 #                             that store keeps them. A check that cannot run
-#                             (no fleet-state.sh to reach, an unreadable
-#                             registry) also succeeds, naming why on stderr
+#                             (no fleet-state.sh to reach, or its registry
+#                             verb failing) also succeeds, naming why on
+#                             stderr
 #   fleet_home_inherited      print the inherited fleet home (empty when the
 #                             inherited environment resolved none)
 #   hermetic_access_denied <r|w> <path>
@@ -182,7 +185,7 @@ fleet_home_leaked() {
   fi
   [ -n "$_fh_home" ] && [ -d "$_fh_home" ] || return 1
   if ! _fh_records=$(PLANWRIGHT_FLEET_STATE_DIR="$_fh_home" /bin/sh "$_he_lib_dir/../../scripts/fleet-state.sh" registry 2>/dev/null); then
-    printf '%s\n' "fleet_home_leaked: could not read the inherited registry; reporting a leak rather than a check that never ran" >&2
+    printf '%s\n' "fleet_home_leaked: the registry verb failed on the inherited home; reporting a leak rather than a check that never ran" >&2
     return 0
   fi
   case $_fh_records in
