@@ -27,15 +27,18 @@ done
 . "$script_dir/lock-lib.sh" || exit 2
 
 FORMAT=1
+claude_dir=${CLAUDE_DIR:-$HOME/.claude}
 LOGS="decisions undo would-have locks"
 STORES="index.md followups.tsv sources.tsv mechanisms.tsv"
 tab=$(printf '\t')
 MECH_HEADER="# kind${tab}mechanism${tab}where${tab}source"
 scratch=''
 TMP=''
+TMP2=''
 on_exit() {
   pw_lock_release_all
   [ -z "$TMP" ] || rm -f "$TMP"
+  [ -z "$TMP2" ] || rm -f "$TMP2"
   [ -z "$scratch" ] || rm -rf "$scratch"
 }
 trap on_exit EXIT
@@ -111,11 +114,13 @@ Usage (every verb takes --program <name> before its own options):
                                     segment, the subject matched with ASCII
                                     case folded, blank runs collapsed and
                                     ends trimmed (the rule store's key)
-  revert <undo-id>                  run an entry's reversal once and print
+  revert <undo-id> [--outcome <reverted|failed> --grounds <text>]
+                                    run an entry's reversal once and print
                                     the id of the entry logging the
                                     outcome; a `reverting` entry is logged
                                     first, so an interrupted revert is
-                                    never run again unasked. The reversal
+                                    never run again unasked, and --outcome
+                                    settles one, running nothing. The reversal
                                     runs as its words through exec (never a
                                     shell, a function or a builtin), in the
                                     caller's directory and umask, its output
@@ -186,11 +191,11 @@ subject_ok() {
   esac
 }
 count_rows() { # count_rows <file>: ROWS, the entry lines, never a failed read's empty
-  cr=$(grep -vc '^#' "$1")
-  case $cr in
+  cr_n=$(grep -vc '^#' "$1")
+  case $cr_n in
     "" | *[!0-9]*) refuse "cannot read $(lbl "$1")" ;;
   esac
-  ROWS=$cr
+  ROWS=$cr_n
 }
 ends_in_newline() { [ ! -s "$1" ] || [ "$(tail -c 1 "$1" | wc -l | tr -d ' ')" -eq 1 ]; }
 now_iso() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
@@ -206,7 +211,12 @@ ensure_scratch() {
 # invalid repo-tracked or core value fails.
 KNOB=''
 int_knob() {
-  ik_lines=$(/bin/sh "$script_dir/config-get.sh" --layers "$1") || refuse "reading $1 failed"
+  ik_lines=$(/bin/sh "$script_dir/config-get.sh" --layers "$1")
+  case $? in
+    0) ;;
+    3) refuse "$1 is not set (broken install)" ;;
+    *) refuse "reading $1 failed" ;;
+  esac
   ik_rev=$(printf '%s\n' "$ik_lines" | awk '{ l[NR] = $0 } END { for (i = NR; i > 0; i--) print l[i] }')
   while IFS= read -r ik_line; do
     [ -n "$ik_line" ] || continue
@@ -222,8 +232,8 @@ int_knob() {
         ;;
     esac
     case $ik_layer in
-      adopter | machine-local) say "warning: the $ik_layer value of $1 is not a positive integer; degrading to the next lower layer" ;;
-      *) refuse "the $ik_layer value of $1 is not a positive integer" ;;
+      adopter | machine-local) say "warning: the $ik_layer value of $1 is not a positive integer of at most nine digits; degrading to the next lower layer" ;;
+      *) refuse "the $ik_layer value of $1 is not a positive integer of at most nine digits" ;;
     esac
   done <<EOF
 $ik_rev
@@ -297,25 +307,32 @@ new_store() {
 # Staged rewrites: tmp_for names a fresh dot-named sibling (a leading dot
 # keeps it out of every path kb_path admits, and on_exit removes it), the
 # caller writes TMP, then publish renames it over the store once its format
-# line checks; drop_staged abandons it.
+# line checks; discard_staged abandons it, refuse_staged abandons it and
+# refuses.
 tmp_for() {
   TMP=${1%/*}/.${1##*/}.$$.new
   rm -f "$TMP"
 }
-drop_staged() { # drop_staged <file>
-  rm -f "$TMP"
+discard_staged() {
+  [ -z "$TMP" ] || rm -f "$TMP"
   TMP=''
+}
+refuse_staged() { # refuse_staged <file>
+  discard_staged
   refuse "cannot rewrite $(lbl "$1")"
 }
 publish() { # publish <file>
-  format_line_ok "$(head -n 1 "$TMP" 2>/dev/null)" || drop_staged "$1"
-  mv -f "$TMP" "$1" || drop_staged "$1"
+  format_line_ok "$(head -n 1 "$TMP" 2>/dev/null)" || refuse_staged "$1"
+  mv -f "$TMP" "$1" || refuse_staged "$1"
   TMP=''
 }
 
 # kb_path <path>: validate a knowledge-base relative path and set KP to it
-# absolute; the path must stay inside the knowledge base, symlinks resolved.
+# absolute and KREL to its canonical relative form, which the store and locks
+# guards check; the path must stay inside the knowledge base, symlinks
+# resolved.
 KP=''
+KREL=''
 kb_path() {
   case $1 in
     "" | /* | .* | -* | */.* | *//* | */) bad "invalid knowledge-base path: $1" ;;
@@ -328,7 +345,8 @@ kb_path() {
   kp_real=$(cd "$KB/$kp_dir" 2>/dev/null && pwd -P) || refuse "no such directory in the knowledge base: $kp_dir"
   kp_kb=$(cd "$KB" && pwd -P) || refuse "cannot read $KB"
   case $kp_real in
-    "$kp_kb" | "$kp_kb"/*) ;;
+    "$kp_kb") KREL=${1##*/} ;;
+    "$kp_kb"/*) KREL=${kp_real#"$kp_kb"/}/${1##*/} ;;
     *) refuse "$1 resolves outside the knowledge base" ;;
   esac
   KP=$KB/$1
@@ -352,7 +370,7 @@ is_store() {
 # top level, never a symlink, a log or one of the stores.
 body_path() {
   kb_path "$1"
-  ! is_store "$1" || refuse "$1 is a store, read through its own verb"
+  ! is_store "$KREL" || refuse "$1 is a store, read through its own verb"
   [ ! -L "$KP" ] || refuse "$1 is a symlink; a body is never read through a link"
   [ -f "$KP" ] || refuse "no such entry: $1"
 }
@@ -368,11 +386,11 @@ lock_wait() {
 
 # claim <file> [<holder-pid>]: take <file>'s write lock for this process, or
 # for <holder-pid>, waiting at least the lock wait; every dead owner the
-# acquire broke on the way (PW_LOCK_BROKEN) is reported and logged. Sets
-# CLAIM_TOKEN.
+# acquire calls removed on the way (PW_LOCK_BROKEN) is reported and logged,
+# a refusal included. Sets CLAIM_TOKEN.
 CLAIM_TOKEN=''
 claim() {
-  local cl_lock cl_label cl_start cl_dead cl_tok cl_rc
+  local cl_lock cl_label cl_start cl_dead cl_tok cl_rc cl_pid
   cl_lock=$1.lock
   cl_label=$(lbl "$1")
   lock_wait
@@ -387,35 +405,56 @@ claim() {
       pw_lock_acquire "$cl_lock" 50
     fi
     cl_rc=$?
-    [ -z "$PW_LOCK_BROKEN" ] || cl_dead="$cl_dead ${PW_LOCK_BROKEN%%-*}"
+    while IFS= read -r cl_tok; do
+      [ -n "$cl_tok" ] || continue
+      cl_pid=${cl_tok%%-*}
+      case $cl_pid in
+        "" | *[!0-9]*) cl_pid='?' ;;
+      esac
+      cl_dead="$cl_dead $cl_pid"
+    done <<EOF
+$PW_LOCK_BROKEN
+EOF
     [ "$cl_rc" -eq 1 ] || break
-    if [ $((SECONDS - cl_start)) -ge "$LOCK_WAIT" ]; then
+    if [ $((SECONDS - cl_start)) -gt "$LOCK_WAIT" ]; then
+      report_releases "$1" "$cl_label" "$cl_dead"
       cl_tok=$(pw_lock_owner "$cl_lock")
       refuse "$cl_label is locked by pid ${cl_tok%%-*}; gave up after ${LOCK_WAIT}s"
     fi
   done
-  [ "$cl_rc" -eq 0 ] || refuse "cannot take the lock on $cl_label (an unwritable directory, or a path lock-lib.sh refuses)"
+  if [ "$cl_rc" -ne 0 ]; then
+    report_releases "$1" "$cl_label" "$cl_dead"
+    refuse "cannot take the lock on $cl_label (an unwritable directory, or a path lock-lib.sh refuses)"
+  fi
   CLAIM_TOKEN=$PW_LOCK_TOKEN
-  for cl_pid in $cl_dead; do
-    case $cl_pid in
-      *[!0-9]*) cl_pid='?' ;;
-    esac
-    say "released the lock on $cl_label left by pid $cl_pid, which is no longer running"
-    log_release "$cl_label" "$cl_pid"
+  report_releases "$1" "$cl_label" "$cl_dead"
+}
+
+# report_releases <file> <label> <pids>: report and log each dead holder's
+# release.
+report_releases() {
+  for rr_pid in $3; do
+    say "released the lock on $2 left by pid $rr_pid, which is no longer running"
+    log_release "$2" "$rr_pid"
   done
 }
 
 # log_release <label> <pid>: log a dead holder's release. In a subshell, so a
 # locks log that cannot be written warns rather than failing the write that
 # broke the lock, and so the nested claim cannot touch this shell's globals.
-# Bash runs no EXIT trap in a subshell, so the subshell releases the locks
-# segment itself; releasing everything there would also drop the lock the
-# parent is writing under, which the subshell's registry copy names too.
+# A subshell does not inherit on_exit, so its own trap releases the locks
+# segment unless the append got as far as releasing it. Releasing it twice
+# would unlink an outer hold: logging the release of the locks segment's own
+# dead holder nests here, inside the append that broke it. Releasing
+# everything would also drop the lock the parent is writing under, which the
+# subshell's copy of the lock registry names too.
 log_release() {
   (
+    lr_done=''
     lr_seg=$KB/locks-$(date -u '+%Y-%m').log
-    trap 'pw_lock_release "$lr_seg.lock" 2>/dev/null' EXIT
+    trap '[ -n "$lr_done" ] || pw_lock_release "$lr_seg.lock" 2>/dev/null; discard_staged' EXIT
     do_append locks "$1" "released a dead holder's lock" "pid $2" "the holder is not running" none -
+    lr_done=1
   ) || say "warning: the release on $1 could not be logged"
 }
 release() { pw_lock_release "$1.lock" || refuse "cannot release the lock on $(lbl "$1")"; }
@@ -432,8 +471,8 @@ log_ok() { # log_ok <name> <allowed...>
 }
 
 seal_of() { # seal_of <segment>
-  so_base=${1##*/}
-  printf '%s\n' "${1%/*}/.${so_base%.log}.seal"
+  sf_base=${1##*/}
+  printf '%s\n' "${1%/*}/.${sf_base%.log}.seal"
 }
 
 # seal_ok <segment>: the prefix the last append recorded is unchanged; sets
@@ -463,16 +502,17 @@ seal_write() {
   sw_seal=$(seal_of "$1")
   tmp_for "$sw_seal"
   printf '# format: %s\n%s %s\n' "$FORMAT" "$(wc -c <"$1" | tr -d ' ')" "$(cksum <"$1" | awk '{ print $1 }')" >"$TMP" \
-    || drop_staged "$sw_seal"
+    || refuse_staged "$sw_seal"
   publish "$sw_seal"
 }
 
 # do_append <log> <subject> <act> <target> <grounds> <reversal> <duty>:
-# append one entry under the segment's lock, setting LAST_ID.
+# append one entry under the segment's lock, setting LAST_ID; DA_MONTH, when
+# set, names the segment's month instead of the current one.
 LAST_ID=''
 do_append() {
   local da_month da_seg da_id
-  da_month=$(date -u '+%Y-%m')
+  da_month=${DA_MONTH:-$(date -u '+%Y-%m')}
   da_seg=$KB/$1-$da_month.log
   claim "$da_seg"
   if [ -f "$da_seg" ] || [ -L "$da_seg" ]; then
@@ -481,10 +521,16 @@ do_append() {
     if ! ends_in_newline "$da_seg"; then
       # Unsealed bytes ending mid-line: an append a crash cut short.
       tmp_for "$da_seg"
-      head -c "$SEALED" "$da_seg" >"$TMP" || drop_staged "$da_seg"
+      if [ "$SEALED" -gt 0 ]; then
+        head -c "$SEALED" "$da_seg" >"$TMP" || refuse_staged "$da_seg"
+      else
+        printf '# format: %s\n' "$FORMAT" >"$TMP" || refuse_staged "$da_seg"
+      fi
       publish "$da_seg"
       say "warning: dropped a partial line a crash left at the end of $(lbl "$da_seg")"
     fi
+    # A header a crash left unsealed is sealed before the first entry lands.
+    [ -f "$(seal_of "$da_seg")" ] || seal_write "$da_seg"
   else
     [ ! -e "$(seal_of "$da_seg")" ] || refuse "segment $(lbl "$da_seg") is gone but its seal remains; logs are append-only"
     printf '# format: %s\n' "$FORMAT" >"$da_seg" || refuse "cannot write $(lbl "$da_seg")"
@@ -523,7 +569,7 @@ segment_list() {
 # environment.
 awk_segments() {
   [ "${#SEGS[@]}" -gt 0 ] || return 0
-  for qs in "${SEGS[@]}"; do check_format "$qs"; done
+  for as_seg in "${SEGS[@]}"; do check_format "$as_seg"; done
   awk -F '\t' "$1" "${SEGS[@]}"
 }
 
@@ -602,11 +648,10 @@ v_index_add() {
     head -n 1 "$KB/index.md" \
       && P="- \`$1\`: " awk 'NR > 1 && index($0, ENVIRON["P"]) != 1 && $0 != ""' "$KB/index.md" \
       && printf '%s\n' "- \`$1\`: $2"
-  } >"$TMP" || drop_staged "$KB/index.md"
+  } >"$TMP" || refuse_staged "$KB/index.md"
   lines=$(awk 'NR > 1 && $0 != "" { n++ } END { print n + 0 }' "$TMP")
   if [ "$lines" -gt "$budget" ]; then
-    rm -f "$TMP"
-    TMP=''
+    discard_staged
     refuse "indexing $1 would put the index at $lines lines, over its budget of $budget (mission_control_kb_index_budget); retire an entry or raise the knob"
   fi
   publish "$KB/index.md"
@@ -706,46 +751,68 @@ v_query() {
 }
 
 v_revert() {
-  [ $# -eq 1 ] || usage
-  case $1 in
+  [ $# -eq 1 ] || [ $# -eq 5 ] || usage
+  r_id=$1
+  r_outcome='' r_grounds=''
+  if [ $# -eq 5 ]; then
+    [ "$2" = --outcome ] && [ "$4" = --grounds ] || usage
+    case $3 in
+      reverted) r_outcome=reverted ;;
+      failed) r_outcome="revert failed" ;;
+      *) bad "--outcome is reverted or failed" ;;
+    esac
+    need "--grounds" "$5"
+    r_grounds=$5
+  fi
+  case $r_id in
     undo-[0-9][0-9][0-9][0-9][0-9][0-9]-[1-9]*) ;;
-    *) bad "invalid undo entry id: $1" ;;
+    *) bad "invalid undo entry id: $r_id" ;;
   esac
-  case ${1#undo-??????-} in
-    *[!0-9]*) bad "invalid undo entry id: $1" ;;
+  case ${r_id#undo-??????-} in
+    *[!0-9]*) bad "invalid undo entry id: $r_id" ;;
   esac
   require_kb
-  ym=${1#undo-}
-  ym=${ym%%-*}
-  ym=${ym%??}-${ym#????}
-  seg=$KB/undo-$ym.log
-  [ -f "$seg" ] || refuse "no undo entry $1"
-  cur=$KB/undo-$(date -u '+%Y-%m').log
-  # The outcome check and the `reverting` entry are one critical section on
-  # the segment that entry lands in, so two reverts of one entry cannot both
-  # proceed; the reversal then runs outside every lock.
-  claim "$cur"
-  check_format "$seg"
-  seal_ok "$seg" || refuse "segment $(lbl "$seg") was rewritten since its last append; its reversals are not run"
-  entry=$(head -c "$SEALED" "$seg" | I=$1 awk -F '\t' '!/^#/ && $1 == ENVIRON["I"] { print; exit }')
-  [ -n "$entry" ] || refuse "no undo entry $1"
+  entry_month=${r_id#undo-}
+  entry_month=${entry_month%%-*}
+  entry_month=${entry_month%??}-${entry_month#????}
+  entry_seg=$KB/undo-$entry_month.log
+  [ -f "$entry_seg" ] || refuse "no undo entry $r_id"
+  cur_month=$(date -u '+%Y-%m')
+  cur_seg=$KB/undo-$cur_month.log
+  # The outcome check and the entry that follows it are one critical section
+  # on the segment that entry lands in (its month pinned), so two reverts of
+  # one entry cannot both proceed; the reversal then runs outside every lock.
+  claim "$cur_seg"
+  check_format "$entry_seg"
+  seal_ok "$entry_seg" || refuse "segment $(lbl "$entry_seg") was rewritten since its last append; its reversals are not run"
+  entry=$(head -c "$SEALED" "$entry_seg" | I=$r_id awk -F '\t' '!/^#/ && $1 == ENVIRON["I"] { print; exit }')
+  [ -n "$entry" ] || refuse "no undo entry $r_id"
   IFS=$tab read -r _ _ r_subject _ _ _ r_rev r_duty <<EOF
 $entry
 EOF
   case $r_rev in
     argv:?*) ;;
-    *) refuse "undo entry $1 records no reversal" ;;
+    *) refuse "undo entry $r_id records no reversal" ;;
   esac
-  segment_list undo "$ym"
+  segment_list undo "$entry_month"
   # shellcheck disable=SC2016 # an awk program, expanded by awk
-  last=$(I=$1 awk_segments '!/^#/ && $5 == ENVIRON["I"] && ($4 == "reverting" || $4 == "reverted" || $4 == "revert failed") { a = $4 } END { print a }') \
+  last_outcome=$(I=$r_id awk_segments '!/^#/ && $5 == ENVIRON["I"] && ($4 == "reverting" || $4 == "reverted" || $4 == "revert failed") { a = $4 } END { print a }') \
     || refuse "the undo log could not be read"
-  case $last in
-    reverted) refuse "undo entry $1 was already reverted" ;;
-    reverting) refuse "a revert of undo entry $1 started and logged no outcome; check whether its reversal ran, then log the outcome" ;;
+  if [ -n "$r_outcome" ]; then
+    # Settling a revert that logged no outcome: the operator states what the
+    # reversal did; nothing runs.
+    [ "$last_outcome" = reverting ] || refuse "undo entry $r_id has no revert awaiting an outcome"
+    DA_MONTH=$cur_month do_append undo "$r_subject" "$r_outcome" "$r_id" "$r_grounds" none "${r_duty:--}"
+    release "$cur_seg"
+    printf '%s\n' "$LAST_ID"
+    return 0
+  fi
+  case $last_outcome in
+    reverted) refuse "undo entry $r_id was already reverted" ;;
+    reverting) refuse "a revert of undo entry $r_id started and logged no outcome; check whether its reversal ran, then settle it with revert $r_id --outcome reverted|failed --grounds <what you found>" ;;
   esac
-  do_append undo "$r_subject" reverting "$1" "-" none "${r_duty:--}"
-  release "$cur"
+  DA_MONTH=$cur_month do_append undo "$r_subject" reverting "$r_id" "-" none "${r_duty:--}"
+  release "$cur_seg"
   args=()
   IFS=' '
   for w in ${r_rev#argv:}; do
@@ -763,15 +830,25 @@ EOF
   esac
   (
     umask "$caller_umask"
-    exec "${args[@]}"
+    exec -- "${args[@]}"
   ) >&2
   r_rc=$?
-  if [ "$r_rc" -ne 0 ]; then
-    do_append undo "$r_subject" "revert failed" "$1" "exit $r_rc" none "${r_duty:--}"
-    refuse "the reversal of $1 failed (exit $r_rc); logged as $LAST_ID"
+  if [ "$r_rc" -eq 0 ]; then
+    r_act=reverted
+  else
+    r_act="revert failed"
   fi
-  do_append undo "$r_subject" reverted "$1" "exit 0" none "${r_duty:--}"
-  printf '%s\n' "$LAST_ID"
+  # In a subshell, so a log that cannot be written is reported as such rather
+  # than as a failed revert: the reversal has already run.
+  if ! r_logged=$(
+    trap 'pw_lock_release_all; discard_staged' EXIT
+    DA_MONTH=$cur_month do_append undo "$r_subject" "$r_act" "$r_id" "exit $r_rc" none "${r_duty:--}"
+    printf '%s' "$LAST_ID"
+  ); then
+    refuse "the reversal of $r_id ran (exit $r_rc) but its outcome could not be logged; the entry stays awaiting an outcome (revert $r_id --outcome)"
+  fi
+  [ "$r_rc" -eq 0 ] || refuse "the reversal of $r_id failed (exit $r_rc); logged as $r_logged"
+  printf '%s\n' "$r_logged"
 }
 
 v_lock() {
@@ -794,7 +871,7 @@ v_lock() {
   esac
   require_kb
   kb_path "$file"
-  case $(lower "$file") in
+  case $(lower "$KREL") in
     locks-*) bad "the locks log is written only by the knowledge base itself" ;;
   esac
   claim "$KP" "$holder"
@@ -818,9 +895,7 @@ v_followup() {
   [ $# -ge 1 ] || usage
   sub=$1
   shift
-  require_kb
   fu=$KB/followups.tsv
-  check_format "$fu"
   case $sub in
     add)
       owner='' trigger='' text=''
@@ -843,6 +918,8 @@ v_followup() {
         *) bad "a trigger is date:<YYYY-MM-DD> or event:<name>" ;;
       esac
       need "--text" "$text"
+      require_kb
+      check_format "$fu"
       claim "$fu"
       ends_in_newline "$fu" || refuse "kb/followups.tsv ends in a partial line; repair it by hand"
       count_rows "$fu"
@@ -872,6 +949,8 @@ v_followup() {
         esac
         shift 2
       done
+      require_kb
+      check_format "$fu"
       D=$day E=$events awk -F '\t' '
         /^#/ || $5 != "open" { next }
         $4 ~ /^date:/ && substr($4, 6) <= ENVIRON["D"] { print; next }
@@ -894,6 +973,8 @@ v_followup() {
       esac
       case ${id#f-} in *[!0-9]*) bad "invalid follow-up id: $id" ;; esac
       need "--evidence (a row closes only with evidence)" "$evidence"
+      require_kb
+      check_format "$fu"
       claim "$fu"
       state=$(I=$id awk -F '\t' '!/^#/ && $1 == ENVIRON["I"] { print $5; exit }' "$fu")
       [ -n "$state" ] || refuse "no follow-up $id"
@@ -902,12 +983,14 @@ v_followup() {
       I=$id V=$evidence T=$(now_iso) awk -F '\t' -v OFS='\t' '
         !/^#/ && $1 == ENVIRON["I"] { $5 = "closed"; $7 = ENVIRON["V"]; $8 = ENVIRON["T"] }
         { print }
-      ' "$fu" >"$TMP" || drop_staged "$fu"
+      ' "$fu" >"$TMP" || refuse_staged "$fu"
       publish "$fu"
       release "$fu"
       ;;
     list)
       [ $# -eq 0 ] || usage
+      require_kb
+      check_format "$fu"
       grep -v '^#' "$fu"
       ;;
     *) usage ;;
@@ -924,7 +1007,7 @@ set_source() {
   {
     N=$1 awk -F '\t' '/^#/ || $1 != ENVIRON["N"]' "$ss" \
       && printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4"
-  } >"$TMP" || drop_staged "$ss"
+  } >"$TMP" || refuse_staged "$ss"
   publish "$ss"
   release "$ss"
 }
@@ -964,6 +1047,7 @@ v_source() {
 # inventory_rows: kind<TAB>mechanism<TAB>where<TAB>source, one per mechanism
 # read from the installed planwright and host surfaces.
 inventory_rows() {
+  ensure_scratch
   core=${PLANWRIGHT_ROOT:-$script_dir/..}
   ver=$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$core/.claude-plugin/plugin.json" 2>/dev/null | head -n 1)
   [ -n "$ver" ] || ver=unknown
@@ -978,16 +1062,15 @@ inventory_rows() {
     say "warning: no options reference at $opts; no knob rows"
   fi
   if steps=$(/bin/bash "$script_dir/resolve-catalog.sh" steps --explain 2>/dev/null); then
-    printf '%s\n' "$steps" | awk -F '\t' 'NF >= 2 && $1 != "" { gsub(/[[:cntrl:]]/, "?", $1); gsub(/[[:cntrl:]]/, "?", $2); printf "catalog-step\t%s\tthe %s steps catalog\tscripts/resolve-catalog.sh steps\n", $1, $2 }'
+    printf '%s\n' "$steps" | catalog_rows catalog-step steps "scripts/resolve-catalog.sh steps"
   else
     say "warning: the steps catalog does not resolve; no catalog-step rows"
   fi
   if duties=$(/bin/bash "$script_dir/mc-duties.sh" list 2>/dev/null); then
-    printf '%s\n' "$duties" | awk -F '\t' 'NF >= 2 && $1 != "" { gsub(/[[:cntrl:]]/, "?", $1); gsub(/[[:cntrl:]]/, "?", $2); printf "duty\t%s\tthe %s duties catalog\tscripts/mc-duties.sh list\n", $1, $2 }'
+    printf '%s\n' "$duties" | catalog_rows duty duties "scripts/mc-duties.sh list"
   else
     say "warning: the duties catalog does not resolve; no duty rows"
   fi
-  claude_dir=${CLAUDE_DIR:-$HOME/.claude}
   files="$claude_dir/settings.json$tab$claude_dir/settings.local.json"
   repos=$(/bin/bash "$script_dir/mc-program.sh" get "$PROGRAM" repositories 2>/dev/null) || repos=''
   while IFS= read -r r; do
@@ -1020,10 +1103,18 @@ EOF
   fi
 }
 
+# catalog_rows <kind> <catalog> <source>: inventory rows from a catalog's
+# <id><TAB><layer> lines on stdin.
+catalog_rows() {
+  K=$1 C=$2 S=$3 awk -F '\t' 'NF >= 2 && $1 != "" {
+    gsub(/[[:cntrl:]]/, "?", $1); gsub(/[[:cntrl:]]/, "?", $2)
+    printf "%s\t%s\tthe %s %s catalog\t%s\n", ENVIRON["K"], $1, $2, ENVIRON["C"], ENVIRON["S"]
+  }'
+}
+
 # The kinds the host offers with no local record to read (a routine lives in
 # the host's scheduler) or that this program's own stores provide.
 capability_rows() {
-  claude_dir=${CLAUDE_DIR:-$HOME/.claude}
   printf '%s\n' \
     "hook${tab}(a new hook on any host event)${tab}$claude_dir/settings.json${tab}host capability" \
     "permission${tab}(a new allow, ask or deny rule)${tab}$claude_dir/settings.json${tab}host capability" \
@@ -1050,14 +1141,26 @@ v_inventory_refresh() {
   claim "$inv"
   claim "$KB/sources.tsv"
   wm=$(now_epoch)
+  ss=$KB/sources.tsv
+  tmp_for "$ss"
+  ss_tmp=$TMP
+  TMP2=$ss_tmp
+  {
+    awk -F '\t' '/^#/ || $1 != "mechanism-inventory"' "$ss" \
+      && printf 'mechanism-inventory\tliving\t%s\tkb/mechanisms.tsv\n' "$wm"
+  } >"$ss_tmp" || refuse_staged "$ss"
+  format_line_ok "$(head -n 1 "$ss_tmp")" || refuse_staged "$ss"
   tmp_for "$inv"
   {
     printf '# format: %s\n# refreshed: %s\n%s\n' "$FORMAT" "$wm" "$MECH_HEADER" \
       && cat "$scratch/rows"
-  } >"$TMP" || drop_staged "$inv"
+  } >"$TMP" || refuse_staged "$inv"
+  # Both staged and checked; the two renames run back to back.
   publish "$inv"
-  set_source mechanism-inventory living "$wm" kb/mechanisms.tsv
-  release "$KB/sources.tsv"
+  TMP=$ss_tmp
+  TMP2=''
+  publish "$ss"
+  release "$ss"
   release "$inv"
   printf '%s\n' "$rows mechanisms"
 }
