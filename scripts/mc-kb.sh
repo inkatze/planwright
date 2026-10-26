@@ -35,10 +35,12 @@ MECH_HEADER="# kind${tab}mechanism${tab}where${tab}source"
 scratch=''
 TMP=''
 TMP2=''
+TMP3=''
 on_exit() {
   pw_lock_release_all
   [ -z "$TMP" ] || rm -f "$TMP"
   [ -z "$TMP2" ] || rm -f "$TMP2"
+  [ -z "$TMP3" ] || rm -f "$TMP3"
   [ -z "$scratch" ] || rm -rf "$scratch"
 }
 trap on_exit EXIT
@@ -264,6 +266,15 @@ resolve_program() {
 }
 require_kb() {
   [ -d "$KB" ] || refuse "no knowledge base at $KB (run mc-kb.sh init --program $PROGRAM)"
+  kb_contained
+}
+# kb_contained: the knowledge base is a real directory in the program home,
+# never a link that would carry every store somewhere else.
+kb_contained() {
+  [ ! -L "$KB" ] || refuse "$KB is a symlink; the knowledge base is a directory in the program home"
+  kc_kb=$(cd "$KB" && pwd -P) || refuse "cannot read $KB"
+  kc_home=$(cd "$HOME_DIR" && pwd -P) || refuse "cannot read $HOME_DIR"
+  [ "$kc_kb" = "$kc_home/kb" ] || refuse "$KB resolves outside the program home"
 }
 
 # format_line_ok <line>: the line is a known format field, either form.
@@ -588,7 +599,9 @@ encode_word() {
 v_init() {
   [ $# -eq 0 ] || usage
   duty_rows=$(/bin/bash "$script_dir/mc-duties.sh" files --program "$PROGRAM") || refuse "the duties of program $PROGRAM do not resolve"
+  [ ! -L "$KB" ] || refuse "$KB is a symlink; the knowledge base is a directory in the program home"
   mkdir -p "$KB" || refuse "cannot create $KB"
+  kb_contained
   new_store "$KB/index.md" "<!-- format: $FORMAT -->"
   new_store "$KB/followups.tsv" "# format: $FORMAT" "# id${tab}opened${tab}owner${tab}trigger${tab}state${tab}text${tab}evidence${tab}closed"
   new_store "$KB/sources.tsv" "# format: $FORMAT" "# name${tab}kind${tab}watermark${tab}ref"
@@ -1155,11 +1168,19 @@ v_inventory_refresh() {
     printf '# format: %s\n# refreshed: %s\n%s\n' "$FORMAT" "$wm" "$MECH_HEADER" \
       && cat "$scratch/rows"
   } >"$TMP" || refuse_staged "$inv"
-  # Both staged and checked; the two renames run back to back.
+  # Both staged and checked; the two renames run back to back, and the old
+  # inventory is kept aside so a failed second rename puts it back.
+  inv_bak=${inv%/*}/.${inv##*/}.$$.bak
+  TMP3=$inv_bak
+  ln -f "$inv" "$inv_bak" || refuse_staged "$inv"
   publish "$inv"
-  TMP=$ss_tmp
+  if ! mv -f "$ss_tmp" "$ss"; then
+    mv -f "$inv_bak" "$inv"
+    refuse "cannot rewrite kb/sources.tsv; the inventory was put back as it was"
+  fi
   TMP2=''
-  publish "$ss"
+  rm -f "$inv_bak"
+  TMP3=''
   release "$ss"
   release "$inv"
   printf '%s\n' "$rows mechanisms"

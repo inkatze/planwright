@@ -146,8 +146,14 @@ run --kb "$tmp/emptykb" --specs "$tmp/specs"
 if [ "$RC" -eq 2 ]; then ok "a knowledge base of empty files fails closed"; else fail "an empty-file knowledge base exited $RC"; fi
 : >"$tmp/kb/a=b.md"
 run --kb "$tmp/kb" --specs "$tmp/specs"
-if [ "$RC" -eq 2 ]; then ok "a file name awk would read as an assignment fails closed"; else fail "an '=' file name exited $RC"; fi
+if [ "$RC" -eq 0 ]; then ok "a file name carrying '=' is scanned like any other"; else fail "an '=' file name exited $RC"; fi
 rm -f "$tmp/kb/a=b.md"
+: >"$tmp/kb/new
+line.md"
+run --kb "$tmp/kb" --specs "$tmp/specs"
+if [ "$RC" -eq 2 ]; then ok "a file name carrying a newline fails closed"; else fail "a newline file name exited $RC"; fi
+rm -f "$tmp/kb/new
+line.md"
 run --help
 case $RC:$OUT in
   0:*"at least 60 characters"*) ok "--help prints the rule with its threshold" ;;

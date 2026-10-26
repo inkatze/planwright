@@ -89,6 +89,16 @@ alpha_block </dev/null
 mc_run mc-kb.sh init --program nobody
 expect_rc "an unconfigured program is not found" 3
 
+mkdir -p "$tmp/linkhome/alpha" "$tmp/elsewhere"
+ln -s "$tmp/elsewhere" "$tmp/linkhome/alpha/kb"
+printf '%s\n' "program_alpha_home: $tmp/linkhome/alpha" >>"$tracked"
+mc_run mc-kb.sh init --program alpha
+expect_rc "a knowledge base that is a symlink is refused" 1
+if [ -z "$(ls -A "$tmp/elsewhere")" ]; then ok "nothing lands where the link points"; else fail "init wrote through a symlinked knowledge base"; fi
+mc_run mc-kb.sh index --program alpha
+expect_rc "every verb refuses a symlinked knowledge base" 1
+alpha_block </dev/null
+
 # ---------------------------------------------------------------------------
 # REQ-K1.3: per-duty files follow enablement.
 # ---------------------------------------------------------------------------
@@ -211,11 +221,9 @@ expect_rc "a store reached through a link to the root is still a store" 1
 mc_run mc-kb.sh lock --program alpha "top/locks-$month.log" --holder 1
 expect_rc "the locks log reached through a link to the root is still refused" 2
 rm -f "$kb/top"
-printf 'x\n' >"$kb/INDEX.md"
 mc_run mc-kb.sh index-add --program alpha INDEX.md "a store in another case"
 expect_rc "a store's name in another case is refused too" 1
 expect_err "it is refused as a store" "is a store"
-rm -f "$kb/INDEX.md"
 printf '# format: 1\n' >"$kb/decisions-2000-03.log"
 mc_run mc-kb.sh index-add --program alpha decisions-2000-03.log "a log"
 expect_rc "a log segment is never indexed as a body" 1

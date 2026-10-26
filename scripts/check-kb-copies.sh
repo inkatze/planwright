@@ -13,6 +13,8 @@ unset CDPATH
 
 prog=check-kb-copies
 MIN_CHARS=60
+NL='
+'
 root=$(cd "$(dirname "$0")/.." && pwd) || exit 2
 
 die() {
@@ -77,6 +79,9 @@ trap 'rm -rf "$scratch"' EXIT
 # scan rather than narrowing it.
 collect() {
   cl_dir=$(cd -- "$1" && pwd) || die "cannot enter $1"
+  # The list is one path per line, so a name carrying a newline would split.
+  (cd -- "$cl_dir" && find . -name "*$NL*" -print) >"$3.nl" || die "cannot list every file under $1"
+  [ ! -s "$3.nl" ] || die "a file name under $1 carries a newline"
   if [ "$2" = yes ]; then
     (cd -- "$cl_dir" && find . -path './_*' -type d -prune -o -type f -name '*.md' -print) >"$3.raw"
   else
@@ -85,21 +90,20 @@ collect() {
   CL_DIR=$cl_dir awk '{ sub(/^\.\//, ""); print ENVIRON["CL_DIR"] "/" $0 }' "$3.raw" | sort >"$3" \
     || die "cannot sort the file list for $1"
 }
-# load <list> <what>: FILES from the list; awk would read a name carrying `=`
-# as an assignment, so such a name fails the scan.
+# load <list>: FILES from the list. Every path is absolute, so awk never reads
+# one as a variable assignment.
 load() {
   FILES=()
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    case $f in *=*) die "a $2 file name carries '=': $(printf '%s' "$f" | tr -d '[:cntrl:]')" ;; esac
     FILES[${#FILES[@]}]=$f
   done <"$1"
 }
 collect "$specs" yes "$scratch/spec-list"
 collect "$kb" no "$scratch/kb-list"
-load "$scratch/spec-list" spec
+load "$scratch/spec-list"
 spec_files=("${FILES[@]+"${FILES[@]}"}")
-load "$scratch/kb-list" knowledge-base
+load "$scratch/kb-list"
 kb_files=("${FILES[@]+"${FILES[@]}"}")
 [ "${#kb_files[@]}" -gt 0 ] || die "no Markdown file under $kb"
 [ "${#spec_files[@]}" -gt 0 ] || die "no Markdown file under $specs"

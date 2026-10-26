@@ -178,8 +178,9 @@
 # POSIX sh on the macOS + Linux support bar. No bashisms, no `local`.
 #
 # shellcheck disable=SC2034 # PW_LOCK_TOKEN and PW_LOCK_BROKEN are this
-# library's output, read by the caller (and PW_LOCK_TOKEN by cross-process
-# releases), never by the library itself.
+# library's output, read by the caller and PW_LOCK_TOKEN by cross-process
+# releases too; the library reads PW_LOCK_TOKEN never and PW_LOCK_BROKEN only
+# to append to it.
 
 # The registry of locks this shell holds: one "<depth> <token> <path>" record
 # per line, always newline-terminated. Path comes last because it is the only
