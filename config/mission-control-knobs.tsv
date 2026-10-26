@@ -19,3 +19,9 @@ rate-limit-floor	mission_control_ratelimit_floor	scripts/mc-snapshot.sh
 default-budget	mission_control_default_budget	scripts/mc-budget.sh
 degradation-ladder	mission_control_budget_ladder	scripts/mc-budget.sh
 event-retention	mission_control_event_retention	scripts/mc-event.sh
+calibration-restore	mission_control_calibration_restore	scripts/mc-decide.sh
+measure-window	mission_control_measure_window	scripts/mc-decide.sh
+repeat-threshold	mission_control_repeat_threshold	scripts/mc-proposals.sh
+repeat-window	mission_control_repeat_window	scripts/mc-proposals.sh
+shadow-promotion	mission_control_shadow_promote_after	scripts/mc-shadow.sh
+audit-idle-period	mission_control_audit_idle_after	scripts/mc-audit.sh

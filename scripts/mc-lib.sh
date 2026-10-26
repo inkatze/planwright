@@ -67,6 +67,32 @@ mc_seconds() {
 
 mc_now() { date +%s; }
 
+# mc_iso <epoch>: the UTC time the knowledge base stamps entries with, which
+# compares as a string in time order.
+mc_iso() {
+  date -u -d "@$1" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -r "$1" '+%Y-%m-%dT%H:%M:%SZ'
+}
+
+# The reasons grammar of a decisions-log entry's grounds, scripts/mc-decide.sh
+# --help's: `<reason> <class> <rules>: <text>`. MC_GROUNDS_AWK defines
+# grounds(g), which sets G_REASON, G_CLASS and G_RULES (`-` for none) and
+# returns 1, or returns 0 for grounds outside the grammar.
+# shellcheck disable=SC2016 # an awk program, expanded by awk
+MC_GROUNDS_AWK='function grounds(g,   p, n, w) {
+  G_REASON = ""; G_CLASS = ""; G_RULES = ""
+  p = index(g, ": ")
+  if (!p) return 0
+  n = split(substr(g, 1, p - 1), w, " ")
+  if (n != 3 || w[1] !~ /^(settled|ask-first|human-gate|fork|hard-disqualifier|reserved-proposal|revoke|confirm|correction|manual|answer)$/) return 0
+  G_REASON = w[1]; G_CLASS = w[2]; G_RULES = w[3]
+  return 1
+}
+function asked(r) { return r ~ /^(ask-first|human-gate|fork|hard-disqualifier|reserved-proposal)$/ }'
+
+# The subject key scripts/mc-rules.sh groups on and scripts/mc-kb.sh queries
+# by; change all three together.
+MC_SUBJECT_KEY_AWK='function key(s) { s = tolower(s); gsub(/[ ]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }'
+
 # mc_now_arg <raw>: NOW set to <raw>, an epoch, or to the clock when empty.
 mc_now_arg() {
   if [ -n "$1" ]; then
