@@ -112,6 +112,12 @@ rules add alpha --text "Never merge" --subject merging --source operator --date 
 expect_rc "an impossible month and day are refused" 2
 rules add alpha --text "Never merge" --subject merging --source operator --date 2026-00-10
 expect_rc "month zero is refused" 2
+rules add alpha --text "Never merge" --subject merging --source operator --date 2026-02-30
+expect_rc "a day past the end of its month is refused" 2
+rules add alpha --text "Never merge" --subject merging --source operator --date 2026-02-29
+expect_rc "February 29 outside a leap year is refused" 2
+rules add alpha --text "Never merge" --subject merging --source operator --date 2026-04-31
+expect_rc "the 31st of a 30-day month is refused" 2
 rules add alpha --text "Never merge" --subject merging --source operator --date 2026-10-25 --scope duty:no-such-duty
 expect_rc "a duty the program does not enable is refused" 2
 expect_err "the refusal names the duty" "no-such-duty"
@@ -432,9 +438,14 @@ corrupt() { # corrupt <label> <needle> <awk program>
   corrupt "a supersedes naming no earlier entry" "which no earlier entry is" '$0 == "    supersedes: r-1" { $0 = "    supersedes: r-99" } { print }'
   corrupt "a repeated field" "repeats its date field" '{ print } $0 == "    date: 2026-10-28" && !done { done = 1; print }'
   corrupt "an impossible date" "is not a YYYY-MM-DD date" '$0 == "    date: 2026-10-28" { $0 = "    date: 2026-13-28" } { print }'
+  corrupt "a day past the end of its month" "is not a YYYY-MM-DD date" '$0 == "    date: 2026-10-28" { $0 = "    date: 2026-02-29" } { print }'
   corrupt "an id past nine digits" "is not a rule id" '$0 == "  - id: r-1" { $0 = "  - id: r-1234567890" } { print }'
   corrupt "a missing rules list" "expected the rules: list" '$0 == "rules:" { $0 = "entries:" } { print }'
 }
+# shellcheck disable=SC2016 # an awk program, expanded by awk
+awk '$0 == "    date: 2026-10-28" { $0 = "    date: 2028-02-29" } { print }' "$tmp/store.bak" >"$store"
+rules list alpha
+expect_rc "a leap day in a leap year reads" 0
 printf '\001' | cat "$tmp/store.bak" - >"$store"
 rules list alpha
 expect_rc "a store carrying a control character is refused" 1

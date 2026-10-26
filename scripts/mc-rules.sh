@@ -13,7 +13,8 @@
 #            its key: ASCII letters lowercased, runs of spaces collapsed,
 #            ends trimmed (other letters compare as written)
 #   source   who said it, when and where
-#   date     YYYY-MM-DD, or `today` for the current UTC date
+#   date     a calendar date as YYYY-MM-DD, or `today` for the current UTC
+#            date
 #   scope    program (in force everywhere), duty:<id> naming a duty the
 #            program enables, or repo:<name> where <name> is the last path
 #            component of one of the program's repositories; default
@@ -69,7 +70,8 @@
 #
 # The store opens with its format field; a store whose format is missing or
 # unknown is refused with the field named, as is any line outside the
-# grammar this script writes, an absent field included. The field set is
+# grammar this script writes, an absent field included; blank lines and
+# lines opening with # are skipped wherever they fall. The field set is
 # fixed at format 1: a new field is a new format and its migration. Writes
 # take the store's lock (scripts/lock-lib.sh) and replace the file by
 # rename, so readers take no lock and never see a torn store; a reader reads
@@ -227,7 +229,27 @@ scope_known() {
   printf '%s\n' "$sk_list" | grep -Fxq -- "${2#*:}" || die 2 "--scope '$2': $sk_what"
 }
 
-# resolve_date <arg>: set DATE to a calendar-shaped YYYY-MM-DD.
+# real_day <YYYY-MM-DD>: whether a shape-checked date's day falls within its
+# month, February 29 only in a leap year.
+real_day() {
+  cd_y=$((10#${1%%-*}))
+  cd_m=${1#*-}
+  cd_d=${cd_m#*-}
+  cd_m=${cd_m%-*}
+  case $cd_m in
+    04 | 06 | 09 | 11) cd_max=30 ;;
+    02)
+      cd_max=28
+      if { [ $((cd_y % 4)) -eq 0 ] && [ $((cd_y % 100)) -ne 0 ]; } || [ $((cd_y % 400)) -eq 0 ]; then
+        cd_max=29
+      fi
+      ;;
+    *) cd_max=31 ;;
+  esac
+  [ "${cd_d#0}" -le "$cd_max" ]
+}
+
+# resolve_date <arg>: set DATE to a calendar date as YYYY-MM-DD.
 resolve_date() {
   case $1 in
     today)
@@ -235,6 +257,7 @@ resolve_date() {
       ;;
     [0-9][0-9][0-9][0-9]-0[1-9]-0[1-9] | [0-9][0-9][0-9][0-9]-0[1-9]-[12][0-9] | [0-9][0-9][0-9][0-9]-0[1-9]-3[01] | \
       [0-9][0-9][0-9][0-9]-1[0-2]-0[1-9] | [0-9][0-9][0-9][0-9]-1[0-2]-[12][0-9] | [0-9][0-9][0-9][0-9]-1[0-2]-3[01])
+      real_day "$1" || die 2 "--date '$1' is not a YYYY-MM-DD date or today"
       DATE=$1
       ;;
     *) die 2 "--date '$1' is not a YYYY-MM-DD date or today" ;;
@@ -398,6 +421,10 @@ parse_store() {
         if ((v !~ /^r-[1-9][0-9]*$/ || length(v) > 11) && !(key == "supersedes" && v == "-")) bad("\"" v "\" is not a rule id")
       } else if (key == "date") {
         if (v !~ /^[0-9][0-9][0-9][0-9]-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/) bad("\"" v "\" is not a YYYY-MM-DD date")
+        split(v, dp, "-")
+        y = dp[1] + 0; m = dp[2] + 0
+        mx = m == 2 ? ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0 ? 29 : 28) : (m == 4 || m == 6 || m == 9 || m == 11 ? 30 : 31)
+        if (dp[3] + 0 > mx) bad("\"" v "\" is not a YYYY-MM-DD date")
       } else if (key == "scope") {
         if (v != "program" && v !~ /^duty:[a-z0-9][a-z0-9-]*$/ && v !~ /^repo:[A-Za-z0-9][A-Za-z0-9._-]*$/) bad("\"" v "\" is not a scope")
       } else if (key == "withdrawn") {
