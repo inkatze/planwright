@@ -28,7 +28,6 @@ done
 CLASSES="auto-applicable agent-resolvable needs-sign-off hygiene"
 ROUTES="human-gate fork hard-disqualifier reserved-proposal"
 SHAPES="correction manual answer"
-tab=$(printf '\t')
 
 help_text() {
   cat <<'HELP'
@@ -246,7 +245,10 @@ v_verdict() { # v_verdict <revoke|confirm> <args...>
   while [ $# -gt 0 ]; do
     [ $# -ge 2 ] || usage
     case $1 in
-      --grounds) [ "$verdict" = revoke ] && text=$2 || usage ;;
+      --grounds)
+        [ "$verdict" = revoke ] || usage
+        text=$2
+        ;;
       *) usage ;;
     esac
     shift 2

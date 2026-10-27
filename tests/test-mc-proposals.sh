@@ -72,7 +72,7 @@ note --shape correction --subject "ready  FLIPS" --text "again: walk before the 
 prop scan --program alpha
 expect_out "a second correction on the same subject key is a repeat" "repeat${tab}"
 p_flip=$(pattern_of "ready flips")
-[ -n "$p_flip" ] && ok "the repeat carries its pattern id" || fail "no pattern for the repeat: $OUT"
+if [ -n "$p_flip" ]; then ok "the repeat carries its pattern id"; else fail "no pattern for the repeat: $OUT"; fi
 expect_out "the repeat counts both entries" "${tab}correction${tab}ready flips${tab}-${tab}2${tab}"
 
 prop propose --program alpha --pattern "$p_flip" \
