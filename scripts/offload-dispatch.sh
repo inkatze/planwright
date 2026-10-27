@@ -174,6 +174,7 @@ D_STRICT=0
 D_PROFILE=''
 D_NAME=''
 D_SCOPE=offload
+D_SCOPE_SET=0
 
 resolve_tier() {
   # $1 backend, $2 unit
@@ -432,8 +433,8 @@ cmd_dispatch() {
     exit 2
   fi
 
-  if [ "$backend" = print ] && { [ -n "$D_PROFILE" ] || [ -n "$D_NAME" ]; }; then
-    printf '%s\n' "$me: dispatch: --profile and --name apply to the tmux rung only" >&2
+  if [ "$backend" = print ] && { [ -n "$D_PROFILE" ] || [ -n "$D_NAME" ] || [ "$D_SCOPE_SET" = 1 ]; }; then
+    printf '%s\n' "$me: dispatch: --profile, --name and --scope apply to the tmux rung only" >&2
     exit 2
   fi
   launch_env=''
@@ -510,6 +511,10 @@ cmd_dispatch() {
   [ -z "$D_NAME" ] || win_name=$D_NAME
   set -- offload-worker "$promptfile"
   if [ -n "$launch_env" ]; then
+    # The wrapper keeps an identity the tmux server's environment carries,
+    # so a session that is no worker has it dropped here.
+    [ "$D_PROFILE" = worker ] \
+      || set -- "$@" env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_WORKER_LAUNCH_TOKEN
     set -- "$@" "$launch_env" --root "$launch_root" --inbound accept
     # Only a worker carries the worker identity its hooks key on.
     [ "$D_PROFILE" != worker ] || [ -z "$D_NAME" ] || set -- "$@" --identity "$D_NAME" "$D_SCOPE"
@@ -641,7 +646,7 @@ case "$sub" in
             exit 2
           }
           case $2 in
-            '' | -* | *[!A-Za-z0-9._=@:-]*)
+            '' | -* | . | .. | *[!A-Za-z0-9._=@:-]*)
               printf '%s\n' "$me: dispatch: refusing malformed --scope '$(sanitize_printable "$2" "(unprintable)")'" >&2
               exit 2
               ;;
@@ -651,6 +656,7 @@ case "$sub" in
             exit 2
           }
           D_SCOPE=$2
+          D_SCOPE_SET=1
           shift 2
           ;;
         --name)

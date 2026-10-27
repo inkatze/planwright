@@ -124,6 +124,7 @@ printf 'tmpdir=%s\n' "${TMPDIR-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'handle=%s\n' "${PLANWRIGHT_WORKER_HANDLE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'scope=%s\n' "${PLANWRIGHT_WORKER_SCOPE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'inbound=%s\n' "${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'launch_token=%s\n' "${PLANWRIGHT_WORKER_LAUNCH_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
 n=${SHIM_READ_FIRST:-1}
 i=0
 while [ "$i" -lt "$n" ]; do
@@ -812,13 +813,16 @@ senv "$home" "$rec" SHIM_READ_FIRST=0 -- \
 [ ! -s "$rec/argv" ] || fail "c9p: the refused relaunch must never spawn the worker"
 # Only a worker carries the worker identity.
 : >"$rec/env"
-senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_WORKER_HANDLE=stale -- \
+senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_WORKER_HANDLE=stale PLANWRIGHT_WORKER_LAUNCH_TOKEN=0123456789abcdef -- \
   launch sjw9i mission-control:3 --prompt-file "$tmp/prompt9" --profile tower --foreground \
   || fail "c9p: the identity-case tower launch exited non-zero"
 if ! grep -qx 'handle=<unset>' "$rec/env" || ! grep -qx 'scope=<unset>' "$rec/env"; then
   fail "c9p: a tower-profile session must carry no worker identity: $(cat "$rec/env")"
 fi
 grep -qx 'inbound=accept' "$rec/env" || fail "c9p: a tower-profile session must still accept inbound messages"
+grep -qx 'launch_token=<unset>' "$rec/env" || fail "c9p: a tower-profile session must carry no worker launch token"
+[ "$(cat "$home/streamjson/sjw9i/profile")" = tower ] && [ ! -e "$home/streamjson/sjw9i/profile.tmp" ] \
+  || fail "c9p: the profile record must be written whole, with no temporary left"
 # A recover with no recorded profile: a worker's from before the record
 # existed keeps the worker fragment, a mission-control launch's is refused.
 mkdir -p "$home/streamjson/sjw9old"

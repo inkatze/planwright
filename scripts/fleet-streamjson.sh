@@ -13,8 +13,9 @@
 # --settings <config/<profile>-settings.json> --name <worker>`, the profile
 # worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept and, for a
 # worker, the worker identity exported, so its hooks write attention rows and
-# register its session name (fleet-messaging D-8, D-19); a handle outside the relay's stream-json-persistent grammar, which
-# names the session, is refused; non-`--bare` pinned per
+# register its session name (fleet-messaging D-8, D-19); a handle outside
+# the relay's stream-json-persistent grammar, which names the session, is
+# refused; non-`--bare` pinned per
 # D-12/REQ-A1.5, and the settings fragment pinned per fleet-autonomy
 # D-19/REQ-E1.4. Pinning means never passing `--bare`, always passing the
 # fragment under the root the core root chain names (fleet-launch-profile.sh),
@@ -306,8 +307,8 @@
 # LAUNCHER lives in, the skill called scripts under the root Claude Code
 # INSTALLED the plugin at). So before spawning a worker-profile session,
 # `launch` runs the hook the worker will run (scripts/worker-command-guard.sh
-# under the CLAUDE_PLUGIN_ROOT
-# the dispatch-env wrapper exports, through that wrapper and so with the
+# under the CLAUDE_PLUGIN_ROOT the dispatch-env wrapper exports, through that
+# wrapper and so with the
 # environment the worker gets) against a synthetic PreToolUse payload for
 # `<root>/scripts/resolve-rule-doc.sh spec-format`, once per root the worker
 # could run scripts from: this launcher's own root, that plugin root, and every
@@ -2080,8 +2081,9 @@ cmd_launch() {
   if [ -n "$scope" ]; then
     printf '%s\n' "$scope" >"$dir/scope"
   fi
+  # Written whole by rename, so a recover never reads a truncated record.
   if [ -z "$resume_sid" ]; then
-    printf '%s\n' "$profile" >"$dir/profile" || exit 2
+    printf '%s\n' "$profile" >"$dir/profile.tmp" && mv -f "$dir/profile.tmp" "$dir/profile" || exit 2
   fi
   # The worker identity its hooks key on (attention rows, liveness, and its
   # self-registration), and the inbound layer the messaging probe reads beside

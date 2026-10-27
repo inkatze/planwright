@@ -210,6 +210,9 @@ if ! grep -qx -- '--inbound' "$tmp/tmux-argv" || ! grep -qx 'accept' "$tmp/tmux-
   fail "dispatch tmux --profile: the session does not accept inbound messages"
 fi
 grep -qx -- '--identity' "$tmp/tmux-argv" && fail "dispatch tmux --profile mission-control: a non-worker profile carried the worker identity"
+for v in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN; do
+  grep -qx -- "$v" "$tmp/tmux-argv" || fail "dispatch tmux --profile mission-control: an inherited $v is not dropped"
+done
 : >"$tmp/tmux-argv"
 PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT /bin/sh "$script" \
   dispatch tmux "$promptfile" --profile worker --name mc-alpha-worker-1 --scope spec:alpha-3 >/dev/null \
@@ -217,15 +220,18 @@ PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT /
 if ! grep -A2 -x -- '--identity' "$tmp/tmux-argv" | tr '\n' ' ' | grep -q 'mc-alpha-worker-1 spec:alpha-3'; then
   fail "dispatch tmux --profile worker: the worker identity is not name and scope"
 fi
-for bad in '--profile /tmp/x.json' '--profile bogus' '--name bad=name' '--key Bad-Key' '--scope a/b'; do
+for bad in '--profile /tmp/x.json' '--profile bogus' '--name bad=name' '--key Bad-Key' '--scope a/b' '--scope ..' '--scope .'; do
   rc=0
   # shellcheck disable=SC2086 # the option and its value, split on purpose
   run_stub dispatch tmux "$promptfile" $bad >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 2 ] || fail "dispatch tmux $bad: expected exit 2, got $rc"
 done
-rc=0
-run dispatch print "$promptfile" --profile worker >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 2 ] || fail "dispatch print --profile: expected exit 2 (tmux only), got $rc"
+for opt in '--profile worker' '--scope s'; do
+  rc=0
+  # shellcheck disable=SC2086 # the option and its value, split on purpose
+  run dispatch print "$promptfile" $opt >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 2 ] || fail "dispatch print $opt: expected exit 2 (tmux only), got $rc"
+done
 mkdir -p "$tmp/noprof/scripts"
 cp "$here"/../scripts/*.sh "$tmp/noprof/scripts/"
 : >"$tmp/tmux-argv"
