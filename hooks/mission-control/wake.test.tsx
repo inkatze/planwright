@@ -168,6 +168,8 @@ test('the presence marker is restamped every minute', SLOW, async ($, on) => {
   const first = refreshes()
   await w.clock.advance(60_000)
   expect(refreshes()).toBe(first + 1)
+  // The relay reads the target's own lease, which the restamp carries.
+  expect(ran(w, 'mc-panel.sh', 'presence').at(-1)).toEqual(expect.arrayContaining(['--target', 'alpha']))
 })
 
 test('the session end hands the target back to the relay', async ($, on) => {

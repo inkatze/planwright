@@ -26,7 +26,7 @@ done
 DECISIONS_SHOWN=3
 
 usage() {
-  mc_usage_fail "usage: mc-panel.sh digest|line --program <p> [--target <t>] [--knobs] [--now <epoch>] | presence --program <p> --prompt|--refresh [--now <epoch>]"
+  mc_usage_fail "usage: mc-panel.sh digest|line --program <p> [--target <t>] [--knobs] [--now <epoch>] | presence --program <p> --prompt|--refresh [--target <t>] [--now <epoch>]"
 }
 
 help_text() {
@@ -88,7 +88,7 @@ Usage:
   mc-panel.sh line --program <p> [--target <t>] [--now <epoch>]
       the line form alone, for a session without the mod; it makes every
       read the digest makes, so it is no per-redraw status line
-  mc-panel.sh presence --program <p> --prompt|--refresh [--now <epoch>]
+  mc-panel.sh presence --program <p> --prompt|--refresh [--target <t>] [--now <epoch>]
       write the presence marker, the producer side of the operator queue's
       presence input (no queue verb reads it yet), <runtime>/presence:
         format<TAB>1
@@ -97,7 +97,10 @@ Usage:
         last-prompt<TAB><epoch|->
       --prompt records a prompt event now; --refresh restamps the
       producer and keeps the last prompt, so a marker that stops being
-      refreshed means the producer is gone
+      refreshed means the producer is gone. With --target, the target's
+      own lease, <runtime>/leases/<t> (the epoch written), is restamped
+      too: what scripts/mc-wake.sh reads to tell a live `mod` target from
+      one whose mod died
 
 Exit codes: 0 done; 1 the program list or the presence marker cannot be
 read or written; 2 usage; 3 the program is not configured.
@@ -145,7 +148,7 @@ done
 [ -n "$program" ] || usage
 case $verb in
   digest | line) [ -z "$presence_kind" ] || usage ;;
-  presence) [ -n "$presence_kind" ] && [ -z "$target" ] && [ "$with_knobs" -eq 0 ] || usage ;;
+  presence) [ -n "$presence_kind" ] && [ "$with_knobs" -eq 0 ] || usage ;;
   *) usage ;;
 esac
 [ -z "$target" ] || mc_valid_handle "$target" || mc_usage_fail "invalid target '$(sanitize_printable "$target")'"
@@ -189,15 +192,20 @@ if [ "$verb" = presence ]; then
   fi
   printf 'format\t%s\nproducer\tmission-control-panel\nwritten\t%s\nlast-prompt\t%s\n' "$MC_FORMAT" "$NOW" "$last" \
     | mc_write "$pres" || mc_fail "cannot write the presence marker"
+  if [ -n "$target" ]; then
+    mkdir -p "$runtime/leases" || mc_fail "cannot create the lease directory"
+    printf '%s\n' "$NOW" | mc_write "$runtime/leases/$target" || mc_fail "cannot write the lease for '$target'"
+  fi
   exit 0
 fi
 mc_now_arg "$now"
 
 # Each read below prints its records; a store it cannot read prints
 # `unreadable<TAB><store>` and the digest goes on.
-D_FLIGHT=-
-D_WAITING=-
-D_PENDING=-
+# A count from a store that could not be read is unknown, never a number.
+D_FLIGHT='?'
+D_WAITING='?'
+D_PENDING='?'
 D_RUNG=-
 D_OLDEST=""
 HOME_DIR=""
@@ -307,6 +315,10 @@ EOF
 
 budget() {
   bg_file=$runtime/budget
+  if [ -L "$bg_file" ]; then
+    printf 'unreadable\tbudget\n'
+    return 0
+  fi
   if [ ! -e "$bg_file" ]; then
     printf 'rung\t-\tno budget computed yet\n'
     return 0
@@ -367,6 +379,10 @@ kb() {
 
 measures() {
   ms=$runtime/measures
+  if [ -L "$ms" ]; then
+    printf 'measure\t-\tunreadable\t-\n'
+    return 0
+  fi
   if [ ! -e "$ms" ]; then
     printf 'measure\t-\tnone\t-\n'
     return 0
@@ -378,8 +394,13 @@ measures() {
   ms_taken=$(awk -F '\t' '$1 == "taken" { print $2; exit }' "$ms")
   ms_age=-
   ! mc_valid_uint "$ms_taken" || ms_age=$(age_of "$ms_taken")
-  awk -F '\t' -v age="$ms_age" '
-    ($1 == "interruptions_per_hour" || $1 == "settled_share") && $2 ~ /^[0-9]+(\.[0-9]+)?$/ { print "measure\t" $1 "\t" $2 "\t" age }' "$ms"
+  ms_rows=$(awk -F '\t' -v age="$ms_age" '
+    ($1 == "interruptions_per_hour" || $1 == "settled_share") && $2 ~ /^[0-9]+(\.[0-9]+)?$/ { print "measure\t" $1 "\t" $2 "\t" age }' "$ms")
+  if [ -n "$ms_rows" ]; then
+    printf '%s\n' "$ms_rows"
+  else
+    printf 'measure\t-\tnone\t-\n'
+  fi
 }
 
 handover() {

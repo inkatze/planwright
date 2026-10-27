@@ -25,8 +25,8 @@ done
 . "$script_dir/mc-lib.sh" || exit 2
 
 LISTED_MAX=20
-# The panel mod restamps the presence marker every minute; a `mod` target
-# whose marker is older than this has lost its mod, and the relay and the
+# The panel mod restamps its target's lease every minute; a `mod` target
+# whose lease is older than this has lost its mod, and the relay and the
 # tick take it back.
 MOD_LEASE=300
 
@@ -45,10 +45,11 @@ A WAKE TARGET is a registered session (a fleet registry worker,
 scripts/fleet-state.sh) the program's events should wake, recorded with
 whether the mod loads in it. A session with the mod is woken by the mod,
 which composes its wake with `compose` at its redraw and tick cadences;
-the relay and the tick leave it alone while the program's presence marker
-(scripts/mc-panel.sh presence) is younger than five minutes, and treat it
-as a target without the mod once the marker is older, so a session whose
-mod died is not left with no wake at all.
+the relay and the tick leave it alone while its lease, which the mod
+restamps every minute (scripts/mc-panel.sh presence --target), is younger
+than five minutes, and treat it as a target without the mod once the lease
+is older, missing or stamped after now, so a session whose mod died is not
+left with no wake at all.
 
 THE RELAY goes through the fleet's own session relay for the backend the
 registry records for the worker, and it never types into a session:
@@ -280,14 +281,14 @@ send() {
   printf '%s\t%s\t%s\n' "$sd_said" "$sd_w" "$sd_n"
 }
 
-# mod_live: the program's presence marker, which only the mod writes, is
-# younger than MOD_LEASE.
+# mod_live <target>: the target's lease, which only its mod writes, is
+# younger than MOD_LEASE; one stamped after now proves nothing.
 mod_live() {
-  ml_pres=$runtime/presence
-  mc_format_ok "$ml_pres" || return 1
-  ml_at=$(awk -F '\t' '$1 == "written" { print $2; exit }' "$ml_pres")
+  ml_lease=$runtime/leases/$1
+  [ -f "$ml_lease" ] && [ ! -L "$ml_lease" ] || return 1
+  ml_at=$(head -n 1 "$ml_lease")
   mc_valid_uint "$ml_at" || return 1
-  [ $((NOW - ml_at)) -lt "$MOD_LEASE" ]
+  [ "$ml_at" -le "$NOW" ] && [ $((NOW - ml_at)) -lt "$MOD_LEASE" ]
 }
 
 # each unmarked|unsubmitted: send to every target without the mod. One
@@ -299,7 +300,7 @@ each() {
   ea_rc=0
   while IFS='	' read -r ea_w ea_mod; do
     mc_valid_handle "$ea_w" || continue
-    if [ "$ea_mod" = mod ] && mod_live; then
+    if [ "$ea_mod" = mod ] && mod_live "$ea_w"; then
       printf 'mod\t%s\n' "$ea_w"
       continue
     fi

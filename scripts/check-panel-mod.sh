@@ -46,7 +46,7 @@ command -v jq >/dev/null 2>&1 || {
   exit 2
 }
 
-scratch=$(mktemp -d) || exit 2
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/check-panel-mod.XXXXXX") || exit 2
 trap 'rm -rf "$scratch"' EXIT
 findings=0
 finding() {

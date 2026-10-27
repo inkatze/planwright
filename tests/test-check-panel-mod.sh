@@ -14,6 +14,9 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# The fake CLI's controls, so none leaks in from the caller.
+unset FAKE_VERSION FAKE_HOOKS FAKE_CALLS FAKE_ENV_READS FAKE_ENV_WRITES FAKE_NO_NOTES \
+  FAKE_VALIDATE_EXIT FAKE_PASS FAKE_FAIL FAKE_SEED_CAUGHT FAKE_SEED_EMPTY FAKE_SEED_NOLOAD
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
@@ -180,7 +183,7 @@ rc_is "a seed that cannot apply fails" 1
 has "the unapplied seed is named" "$ERR" "seeded defect did not apply"
 cp "$repo_root/hooks/mission-control/panel.tsx" "$plug/hooks/mission-control/panel.tsx"
 
-OUT=$(env PATH="/usr/bin:/bin" /bin/bash "$check" --root "$plug" 2>&1)
+OUT=$(PATH="$tmp/no-claude" /bin/bash "$check" --root "$plug" 2>&1)
 RC=$?
 rc_is "without the CLI the gate skips (exit 0)" 0
 has "the skip is said" "$OUT" "not on PATH; skipping"

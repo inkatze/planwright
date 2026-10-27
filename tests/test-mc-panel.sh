@@ -232,6 +232,26 @@ case $(cat "$pres") in
 esac
 mc_run mc-panel.sh presence --program alpha --now 4200
 expect_rc "presence needs --prompt or --refresh" 2
+mc_run mc-panel.sh presence --program alpha --refresh --target mc-alpha --now 4300
+if [ "$(cat "$runtime/leases/mc-alpha" 2>/dev/null)" = 4300 ]; then
+  ok "a target's lease is restamped with the marker"
+else
+  fail "the lease reads '$(cat "$runtime/leases/mc-alpha" 2>/dev/null)'"
+fi
+
+# A store that is a symlink is unreadable, never unwritten.
+mv "$runtime/budget" "$runtime/budget.saved"
+ln -s "$tmp/nowhere" "$runtime/budget"
+ln -s "$tmp/nowhere" "$runtime/measures"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "a symlinked budget is unreadable" unreadable budget
+record "symlinked measures are unreadable" measure - unreadable -
+rm -f "$runtime/budget" "$runtime/measures"
+mv "$runtime/budget.saved" "$runtime/budget"
+printf 'format\t1\ntaken\t900\n' >"$runtime/measures"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "measures with no rows read as none" measure - none -
+rm -f "$runtime/measures"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-panel: $failures failure(s)" >&2

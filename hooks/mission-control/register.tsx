@@ -223,7 +223,7 @@ async function claim($: EngineInterface) {
 // On its own timer, so the lease the relay reads never lapses between
 // redraws, whatever the redraw cadence.
 async function restampPresence($: EngineInterface) {
-  if (ctx) await run($, 'mc-panel.sh', ['presence', '--program', ctx.program, '--refresh'])
+  if (ctx) await run($, 'mc-panel.sh', ['presence', '--program', ctx.program, '--refresh', '--target', ctx.target])
 }
 
 async function tick($: EngineInterface) {
@@ -287,7 +287,7 @@ async function bringUp($: EngineInterface) {
 }
 
 async function recordPresence($: EngineInterface) {
-  if (ctx) await run($, 'mc-panel.sh', ['presence', '--program', ctx.program, '--prompt'])
+  if (ctx) await run($, 'mc-panel.sh', ['presence', '--program', ctx.program, '--prompt', '--target', ctx.target])
 }
 
 export const register: Register = on => {
