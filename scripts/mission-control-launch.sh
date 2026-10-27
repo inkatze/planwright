@@ -502,7 +502,14 @@ cmd_launch() {
       dr=$?
       case $dr in
         0) ;;
-        1) refuse "the tmux rung did not start $name" 1 ;;
+        1)
+          # The rung exits 1 also after a window it created reported an
+          # unusable id; that window carries the session's name.
+          if stop_session tmux -; then
+            refuse "the tmux rung did not start $name" 1
+          fi
+          die "the tmux rung did not start $name, and a window it may have created could not be closed; retire it by name" 1
+          ;;
         3) refuse "refusing to launch $name: the admission gate withholds it (offload-dispatch exit 3)" 4 ;;
         5) refuse "refusing to launch $name: the allocation seam is a broken install (offload-dispatch exit 5)" 4 ;;
         4 | 6) refuse "refusing to launch $name: no launch tier resolves at the $K_KEY key (offload-dispatch exit $dr)" 4 ;;

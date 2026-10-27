@@ -101,7 +101,12 @@ case $1 in
     # TMUX_LOCK_DIR: the directory a launch writes its row into turns
     # read-only once the window exists.
     [ -z "${TMUX_LOCK_DIR:-}" ] || chmod 500 "$TMUX_LOCK_DIR"
-    echo "@$n"
+    # TMUX_BAD_ID: the window exists, but the id printed for it is unusable.
+    if [ "${TMUX_BAD_ID:-0}" = 1 ]; then
+      echo 'not a window id'
+    else
+      echo "@$n"
+    fi
     ;;
   list-windows)
     [ "${TMUX_LIST_FAIL:-0}" = 1 ] && exit 1
@@ -154,7 +159,7 @@ ml() {
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
     TMUX_PANE="${ML_TMUX_PANE:-}" \
     SHIM_RECORD_DIR="${SHIM_RECORD_DIR:-$tmp}" TMUX_STUB="$tmp/tmux" TMUX_KILL_FAIL="${TMUX_KILL_FAIL:-0}" \
-    TMUX_LIST_FAIL="${TMUX_LIST_FAIL:-0}" TMUX_LOCK_DIR="${TMUX_LOCK_DIR:-}" TMUX_NO_SERVER="${TMUX_NO_SERVER:-0}" \
+    TMUX_LIST_FAIL="${TMUX_LIST_FAIL:-0}" TMUX_LOCK_DIR="${TMUX_LOCK_DIR:-}" TMUX_NO_SERVER="${TMUX_NO_SERVER:-0}" TMUX_BAD_ID="${TMUX_BAD_ID:-0}" \
     /bin/sh "$LAUNCH" "$@" 2>"$tmp/stderr")
   RC=$?
   ERR=$(cat "$tmp/stderr")
@@ -575,6 +580,18 @@ fi
 [ ! -e "$fleet/dispatch-markers/@$before" ] && ok "the stopped session's fleet marker is retired" \
   || fail "the stopped session's fleet marker was left behind"
 rm -f "$fleet/mission-control/sessions/$rw_name"
+
+# A window the rung created but could not name is closed by name before the
+# reservation is released.
+bad_before=$(cat "$tmp/tmux/next" 2>/dev/null)
+TMUX_BAD_ID=1 ml launch --program alpha --kind ad-hoc --scope bad-window --brief "$tmp/brief.md" --backend tmux
+bad_rc=$RC
+ml name --program alpha --kind ad-hoc --scope bad-window
+if [ "$bad_rc" = 1 ] && [ ! -e "$tmp/tmux/@$bad_before" ] && [ ! -e "$fleet/mission-control/sessions/$OUT" ]; then
+  ok "a window the rung could not name is closed and the name released (exit 1)"
+else
+  fail "a window with an unusable id: exit $bad_rc, window $(ls "$tmp/tmux/@$bad_before" 2>&1), row $(cat "$fleet/mission-control/sessions/$OUT" 2>/dev/null)"
+fi
 
 # A row whose window id is not @ and digits never reaches tmux.
 bad_row="$fleet/mission-control/sessions/mc-alpha-ad-hoc-0000000000"
