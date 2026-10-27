@@ -198,3 +198,26 @@ test('knobs that arrive after a failed first reading set the cadences then', asy
   expect(ran(w, 'mc-panel.sh', 'digest').length).toBe(after + 1)
   expect(ran(w, 'mc-panel.sh', 'digest').at(-1)).not.toContain('--knobs')
 })
+
+test('a lasting fault clearing leaves a failing reading on the pane', async ($, on) => {
+  const w = world(on, { claimExit: 1 })
+  await boot($, w)
+  w.set({ digestExit: 1, claimExit: 0 })
+  await w.clock.advance(10_000)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^Fault:/ }))?.text).toBe('Fault: store unreadable')
+  await ui.unmount()
+})
+
+test('a knob unread at bring-up is read again until every knob arrives', async ($, on) => {
+  const partial = digestText().replace(/^knob\thandover-context.*$/m, 'unreadable\tknob mission_control_handover_context')
+  const w = world(on, { digest: partial })
+  await boot($, w)
+  await w.clock.advance(10_000)
+  expect(ran(w, 'mc-panel.sh', 'digest').at(-1)).toContain('--knobs')
+  w.set({ digest: digestText(), contextPercent: 75 })
+  await w.clock.advance(10_000)
+  expect(ran(w, 'mc-event.sh', 'emit').at(-1)?.slice(-3)).toEqual(['handover-due', 'alpha', 'context at 75%'])
+  await w.clock.advance(10_000)
+  expect(ran(w, 'mc-panel.sh', 'digest').at(-1)).not.toContain('--knobs')
+})

@@ -38,6 +38,8 @@ let hasKnobs = false
 // Faults the next good digest must not clear (an unclaimed target, events
 // that could not be marked, an activation that leaked), one per kind.
 let lasting: Record<string, string> = {}
+// Why the last digest failed; cleared by the next good one.
+let readFault: string | null = null
 let timers: Timer[] = []
 let armedWith = ''
 let tickMs = DEFAULT_TICK_S * 1000
@@ -75,8 +77,8 @@ async function fault($: EngineInterface, text: string) {
   await patch($, x => ({ ...x, fault: text }))
 }
 
-function lastingText(): string | null {
-  const all = Object.values(lasting)
+function standingFault(): string | null {
+  const all = [...(readFault ? [readFault] : []), ...Object.values(lasting)]
   return all.length > 0 ? all.join('; ') : null
 }
 
@@ -86,7 +88,7 @@ async function lastingFault($: EngineInterface, kind: string, text: string | nul
     const { [kind]: _gone, ...rest } = lasting
     lasting = rest
   }
-  await patch($, x => ({ ...x, fault: lastingText() }))
+  await patch($, x => ({ ...x, fault: standingFault() }))
 }
 
 async function emit($: EngineInterface, kind: string, text: string): Promise<boolean> {
@@ -173,11 +175,16 @@ async function refresh($: EngineInterface) {
     const args = ['digest', '--program', ctx.program, '--target', ctx.target]
     const got = await run($, 'mc-panel.sh', withKnobs ? [...args, '--knobs'] : args)
     const digest = got.ok ? parseDigest(got.out) : null
-    if (digest && withKnobs && Object.keys(digest.knobs).length > 0) hasKnobs = true
+    // Done once a reading names every knob; until then each reading's
+    // knobs are laid over the last.
+    if (digest && withKnobs && !digest.unreadable.some(u => u.startsWith('knob '))) hasKnobs = true
+    readFault = digest ? null : got.err || 'the digest could not be read'
     await patch($, x => ({
       ...x,
-      digest: digest ? { ...digest, knobs: withKnobs ? digest.knobs : (x.digest?.knobs ?? {}) } : x.digest,
-      fault: digest ? lastingText() : got.err || 'the digest could not be read',
+      digest: digest
+        ? { ...digest, knobs: withKnobs ? { ...(x.digest?.knobs ?? {}), ...digest.knobs } : (x.digest?.knobs ?? {}) }
+        : x.digest,
+      fault: standingFault(),
     }))
     const usage = await $.session.usage()
     const pct = usage.context.percent
@@ -301,6 +308,7 @@ export const register: Register = on => {
     isClaimed = false
     hasKnobs = false
     lasting = {}
+    readFault = null
     timers = []
     armedWith = ''
     // A session this one starts must not take its wakes: the variables are
