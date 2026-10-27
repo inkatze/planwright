@@ -133,4 +133,4 @@ skipped=$(printf '%s\n%s\n' "$decisions" "$undo" | awk -F '\t' 'NF && NF != 8 { 
     }
     for (s = 1; s <= ns; s++) { printf "finding\tshared-subject\t%s\t-\t%s\n", sids[s], skey[s]; n++ }
     printf "audit\t%d findings\n", n
-  }' | mc_clean
+  }' | mc_clean_text

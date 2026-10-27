@@ -26,7 +26,7 @@ ok() { echo "ok: $1"; }
   exit 1
 }
 
-tmp=$(mktemp -d) || exit 1
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-mc-audit.XXXXXX") || exit 1
 if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
   echo "FAIL: mktemp -d produced no usable directory" >&2
   exit 1
@@ -98,6 +98,12 @@ expect_out "a rule with no act for the period is idle" "finding${tab}idle-rule${
 audit run --program alpha --now "$(iso_epoch 2026-02-01T12:00:00Z)"
 expect_no_out "a rule acted on inside the period is not idle" "idle-rule${tab}r-1"
 
+rule "Café hours" "no deploys after six" "$today"
+decide --class hygiene --subject "Café hours" --act "deployed at seven" --grounds "late fix"
+audit run --program alpha
+expect_out "a finding keeps a subject written in UTF-8" "${tab}café hours"
+rules_sum=$(cksum <"$home/rules.yaml")
+audit run --program alpha
 if [ "$(cksum <"$home/rules.yaml")" = "$rules_sum" ]; then ok "the audit writes no rule"; else fail "the audit edited the rule store"; fi
 
 audit run --program nobody

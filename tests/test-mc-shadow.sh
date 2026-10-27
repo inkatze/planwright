@@ -26,7 +26,7 @@ ok() { echo "ok: $1"; }
   exit 1
 }
 
-tmp=$(mktemp -d) || exit 1
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-mc-shadow.XXXXXX") || exit 1
 if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
   echo "FAIL: mktemp -d produced no usable directory" >&2
   exit 1

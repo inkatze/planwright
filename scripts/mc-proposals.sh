@@ -250,7 +250,7 @@ v_scan() {
   stores
   sc_rep=$(repeats) || exit $?
   printf '%s\n' "$sc_rep" | awk -F '\t' 'NR == FNR { if ($0 !~ /^#/) seen[$3] = 1; next }
-    $1 != "" && !($1 in seen) { print "repeat\t" $0 }' "$STORE" - | mc_clean
+    $1 != "" && !($1 in seen) { print "repeat\t" $0 }' "$STORE" - | mc_clean_text
 }
 
 v_propose() {
@@ -339,7 +339,7 @@ EOF
     "$where" "$source" "$change" "$cadence" "$intervene" "$cost" "$off" open -)
   store_write "$old
 $new-"
-  printf 'proposal\t%s\t%s\t%s\t%s\n' "$id" "$kind" "$mech" "$where" | mc_clean
+  printf 'proposal\t%s\t%s\t%s\t%s\n' "$id" "$kind" "$mech" "$where" | mc_clean_text
 }
 
 v_show() {
@@ -365,7 +365,7 @@ v_show() {
       printf 'settings\tready to apply, never written: %s\n' "$(col 10)"
     fi
     printf 'decline\tsay no and this pattern is not proposed again; "not now" parks it until a trigger\n'
-  } | mc_clean
+  } | mc_clean_text
 }
 
 v_outcome() { # v_outcome <accept|decline|park|reopen> <id> [--trigger <t>]
@@ -399,10 +399,10 @@ v_outcome() { # v_outcome <accept|decline|park|reopen> <id> [--trigger <t>]
         printf 'applied\trule\t%s\n' "$RID"
       elif settings_kind "$(col 8)" "$(col 10)"; then
         set_state "$id" accepted
-        printf 'handover-operator\t%s\t%s\n' "$(col 10)" "$(col 12)" | mc_clean
+        printf 'handover-operator\t%s\t%s\n' "$(col 10)" "$(col 12)" | mc_clean_text
       else
         set_state "$id" accepted
-        printf 'handover\t%s\t%s\n' "$(col 10)" "$(col 12)" | mc_clean
+        printf 'handover\t%s\t%s\n' "$(col 10)" "$(col 12)" | mc_clean_text
       fi
       ;;
     decline)
@@ -434,7 +434,7 @@ v_outcome() { # v_outcome <accept|decline|park|reopen> <id> [--trigger <t>]
 v_list() {
   [ $# -eq 0 ] || usage
   stores
-  awk -F '\t' '!/^#/ && NF >= 17 { printf "%s\t%s\t%s\t%s\t%s\n", $1, $17, $8, $9, $5 }' "$STORE" | mc_clean
+  awk -F '\t' '!/^#/ && NF >= 17 { printf "%s\t%s\t%s\t%s\t%s\n", $1, $17, $8, $9, $5 }' "$STORE" | mc_clean_text
 }
 
 [ $# -ge 1 ] || usage

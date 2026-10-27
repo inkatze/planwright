@@ -213,6 +213,10 @@ EOF
 # mc_clean: stdin to stdout with every byte that is neither printable nor a
 # tab dropped, for a store read back to a terminal.
 mc_clean() { awk '{ gsub(/[^[:print:]\t]/, ""); print }'; }
+# mc_clean_text: the same for UTF-8 text, dropping only the C0 controls but
+# tab, DEL and the C1 controls (UTF-8 encodes them \302\200 to \302\237),
+# so subjects written in other scripts read back whole.
+mc_clean_text() { awk '{ gsub(/[\001-\010\013-\037\177]/, ""); gsub(/\302[\200-\237]/, ""); print }'; }
 
 mc_fleet_home() {
   mfh=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null) && [ -n "$mfh" ] || return 1
