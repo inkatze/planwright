@@ -12,7 +12,9 @@
 #                               never inside a listed repository
 #   duties        [id, ...]     enabled duties; default
 #                               mission_control_default_duties
-#   budget        {key: value}  the program's budget; default empty
+#   budget        {key: value}  the program's budget; default empty, laid
+#                               over mission_control_default_budget by
+#                               scripts/mc-budget.sh
 #   sources       {class: source:mode, ...}
 #                               the state-source map; default
 #                               mission_control_default_sources

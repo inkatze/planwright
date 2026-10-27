@@ -1,89 +1,8 @@
 #!/usr/bin/env bash
 # mc-rules.sh — a mission-control program's rule store: the ground rules and
 # standing decisions, kept in rules.yaml in the program home
-# (scripts/mc-program.sh resolves the home).
-#
-# An entry carries id, text, subject, source, date, scope, supersedes and
-# withdrawn. A rule is never edited: a changed rule is a new entry that
-# supersedes the old one, and a withdrawal is an entry that supersedes one
-# with no replacement text. The active set is every entry neither superseded
-# nor a withdrawal; list keeps them all.
-#
-#   subject  free text, one per entry; the shared-subject report groups on
-#            its key: ASCII letters lowercased, runs of spaces collapsed,
-#            ends trimmed (other letters compare as written)
-#   source   who said it, when and where
-#   date     a calendar date as YYYY-MM-DD, or `today` for the current UTC
-#            date
-#   scope    program (in force everywhere), duty:<id> naming a duty the
-#            program enables, or repo:<name> where <name> is the last path
-#            component of one of the program's repositories; default
-#            program. A scope some entry already carries is accepted as is,
-#            so a recorded reversal survives a configuration change
-#
-# Usage:
-#   mc-rules.sh add <program> --text <t> --subject <s> --source <s>
-#       --date <d> [--scope <scope>]
-#   mc-rules.sh supersede <program> <id>
-#       (--text <t> [--subject <s>] [--scope <scope>] | --withdraw)
-#       --source <s> --date <d>
-#       a replacement inherits the old entry's subject and scope unless given
-#   mc-rules.sh list <program>       every entry, oldest first
-#   mc-rules.sh active <program>     the active set, in the same shape
-#   mc-rules.sh render <program> [--scope <scope>]...
-#       the active rules in scope as a markdown block between marker lines,
-#       the shape a launched session's brief embeds; program rules are in
-#       every scope, `--scope program` renders them alone, and no --scope
-#       renders every rule; a --scope is checked for its shape only, so one
-#       no entry carries renders the program rules alone
-#   mc-rules.sh load <program>       the bring-up load: render with no scope
-#   mc-rules.sh conflicts <program>  the shared-subject report
-#   mc-rules.sh selfcheck <program> --digest <hex> --held <file>
-#       --durable <file>
-#       the post-compaction self-check: the digest the session's load
-#       carried against the store's, and the open items and live sessions
-#       of --durable (read from their stores by the caller) against those
-#       the session holds in --held
-#
-# Output, tab separated:
-#   add, supersede   an echo line, then the undo entry:
-#                    undo  <act>  <subject>  <new id>  <grounds>  <reversal>
-#                    act rule-add, rule-supersede or rule-withdraw; new id the
-#                    entry the act wrote; grounds its source; reversal a
-#                    shell-quoted command naming this script by its bare
-#                    name, run as the installed planwright's scripts/
-#                    mc-rules.sh
-#   list, active     <id> <status> <date> <scope> <subject> <text> <source>
-#                    <supersedes>; status active, superseded or withdrawal,
-#                    and `-` for a withdrawal's text or no supersedes
-#   conflicts        shared <subject key> <id>,<id>[,...] per key that more
-#                    than one active entry carries
-#   render, load     the begin marker names the program, the format, the
-#                    scope and the SHA-256 digest of the rendered entries;
-#                    load's digest is the one selfcheck compares
-#   selfcheck        on a pass: self-check passed: rules <digest>,
-#                    <n> open items, <n> live sessions
-#   load, selfcheck  on any failure, whatever its exit code, at least one
-#                    line per operator item to raise:
-#                    item  <origin>  <aspect>  <what failed>  <closes>
-#                    where closes is the act that settles the item
-# --held and --durable hold `item <id>` and `session <handle>` lines.
-#
-# The store opens with its format field; a store whose format is missing or
-# unknown is refused with the field named, as is any line outside the
-# grammar this script writes, an absent field included; blank lines and
-# lines opening with # are skipped wherever they fall. The field set is
-# fixed at format 1: a new field is a new format and its migration. Writes
-# take the store's lock (scripts/lock-lib.sh) and replace the file by
-# rename, so readers take no lock and never see a torn store; a reader reads
-# the file once and checks and parses that one copy.
-#
-# Exit codes: 0 done; 1 a refused or unreadable store, an entry that cannot
-# be superseded, a program home that does not resolve, a missing tool
-# (iconv, a SHA-256 tool), a failed write or lock, a failed load or
-# self-check; 2 usage or an invalid value; 3 the program is not configured.
-# An entry written whose lock then fails to release still exits 0, with a
-# warning on stderr: the write landed, and retrying would add it twice.
+# (scripts/mc-program.sh resolves the home). `--help` prints the contract:
+# the entry grammar, verbs, outputs, store format and exit codes.
 #
 # Portable bash 3.2 / BSD tooling; iconv checks values are UTF-8.
 set -u
@@ -145,6 +64,97 @@ die() { # die <code> <message>
 usage() {
   printf '%s\n' "usage: mc-rules.sh add|supersede|list|active|render|load|conflicts|selfcheck <program> ... (mc-rules.sh --help)" >&2
   exit 2
+}
+help() {
+  cat <<'EOF'
+mc-rules.sh — a mission-control program's rule store: the ground rules and
+standing decisions, kept in rules.yaml in the program home
+(scripts/mc-program.sh resolves the home).
+
+An entry carries id, text, subject, source, date, scope, supersedes and
+withdrawn. A rule is never edited: a changed rule is a new entry that
+supersedes the old one, and a withdrawal is an entry that supersedes one
+with no replacement text. The active set is every entry neither superseded
+nor a withdrawal; list keeps them all.
+
+  subject  free text, one per entry; the shared-subject report groups on
+           its key: ASCII letters lowercased, runs of spaces collapsed,
+           ends trimmed (other letters compare as written)
+  source   who said it, when and where
+  date     a calendar date as YYYY-MM-DD, or `today` for the current UTC
+           date
+  scope    program (in force everywhere), duty:<id> naming a duty the
+           program enables, or repo:<name> where <name> is the last path
+           component of one of the program's repositories; default
+           program. A scope some entry already carries is accepted as is,
+           so a recorded reversal survives a configuration change
+
+Usage:
+  mc-rules.sh add <program> --text <t> --subject <s> --source <s>
+      --date <d> [--scope <scope>]
+  mc-rules.sh supersede <program> <id>
+      (--text <t> [--subject <s>] [--scope <scope>] | --withdraw)
+      --source <s> --date <d>
+      a replacement inherits the old entry's subject and scope unless given
+  mc-rules.sh list <program>       every entry, oldest first
+  mc-rules.sh active <program>     the active set, in the same shape
+  mc-rules.sh render <program> [--scope <scope>]...
+      the active rules in scope as a markdown block between marker lines,
+      the shape a launched session's brief embeds; program rules are in
+      every scope, `--scope program` renders them alone, and no --scope
+      renders every rule; a --scope is checked for its shape only, so one
+      no entry carries renders the program rules alone
+  mc-rules.sh load <program>       the bring-up load: render with no scope
+  mc-rules.sh conflicts <program>  the shared-subject report
+  mc-rules.sh selfcheck <program> --digest <hex> --held <file>
+      --durable <file>
+      the post-compaction self-check: the digest the session's load
+      carried against the store's, and the open items and live sessions
+      of --durable (read from their stores by the caller) against those
+      the session holds in --held
+
+Output, tab separated:
+  add, supersede   an echo line, then the undo entry:
+                   undo  <act>  <subject>  <new id>  <grounds>  <reversal>
+                   act rule-add, rule-supersede or rule-withdraw; new id the
+                   entry the act wrote; grounds its source; reversal a
+                   shell-quoted command naming this script by its bare
+                   name, run as the installed planwright's scripts/
+                   mc-rules.sh
+  list, active     <id> <status> <date> <scope> <subject> <text> <source>
+                   <supersedes>; status active, superseded or withdrawal,
+                   and `-` for a withdrawal's text or no supersedes
+  conflicts        shared <subject key> <id>,<id>[,...] per key that more
+                   than one active entry carries
+  render, load     the begin marker names the program, the format, the
+                   scope and the SHA-256 digest of the rendered entries;
+                   load's digest is the one selfcheck compares
+  selfcheck        on a pass: self-check passed: rules <digest>,
+                   <n> open items, <n> live sessions
+  load, selfcheck  on any failure, whatever its exit code, at least one
+                   line per operator item to raise:
+                   item  <origin>  <aspect>  <what failed>  <closes>
+                   where closes is the act that settles the item
+--held and --durable hold `item <id>` and `session <handle>` lines.
+
+The store opens with its format field; a store whose format is missing or
+unknown is refused with the field named, as is any line outside the
+grammar this script writes, an absent field included; blank lines and
+lines opening with # are skipped wherever they fall. The field set is
+fixed at format 1: a new field is a new format and its migration. Writes
+take the store's lock (scripts/lock-lib.sh) and replace the file by
+rename, so readers take no lock and never see a torn store; a reader reads
+the file once and checks and parses that one copy.
+
+Exit codes: 0 done; 1 a refused or unreadable store, an entry that cannot
+be superseded, a program home that does not resolve, a missing tool
+(iconv, a SHA-256 tool), a failed write or lock, a failed load or
+self-check; 2 usage or an invalid value; 3 the program is not configured.
+An entry written whose lock then fails to release still exits 0, with a
+warning on stderr: the write landed, and retrying would add it twice.
+
+Portable bash 3.2 / BSD tooling; iconv checks values are UTF-8.
+EOF
 }
 
 # check_value <field> <value> <max-bytes>: a non-empty single-line UTF-8
@@ -607,7 +617,7 @@ verb=$1
 shift
 case $verb in
   -h | --help)
-    awk 'NR>=2 { if ($0 ~ /^#/) { sub(/^# ?/, ""); print } else exit }' "$0"
+    help
     exit 0
     ;;
 esac

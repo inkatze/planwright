@@ -2356,6 +2356,86 @@ assert_exit "a hidden process answering EPERM reads alive" 0 $?
 hidden_table_probe "No such process"
 assert_exit "and a hidden table's absent process reads dead whatever its path" 1 $?
 
+# ---------------------------------------------------------------------------
+# 61. An acquire says which dead owner it broke, and only then
+# ---------------------------------------------------------------------------
+#
+# A caller that must log a dead holder's release cannot learn it from a probe
+# of its own taken before the acquire: the owner may die between that probe
+# and the acquire's, and the acquire then breaks it unseen. PW_LOCK_BROKEN
+# names the token the acquire itself broke, and is empty otherwise.
+
+sh -c 'exit 0' &
+broken_pid=$!
+wait "$broken_pid" 2>/dev/null
+ln -s "$broken_pid-0-1" "$tmp/broken.lock"
+out="$(run_sh x '
+  pw_lock_try "$1/broken.lock" || exit 9
+  printf "%s\n" "$PW_LOCK_BROKEN"
+  pw_lock_release "$1/broken.lock"
+  pw_lock_try "$1/broken.lock" || exit 9
+  printf "[%s]\n" "$PW_LOCK_BROKEN"
+')"
+assert_exit "an acquire over a dead owner succeeds" 0 $?
+case $out in
+  "$broken_pid-0-1
+[]") pass "PW_LOCK_BROKEN names the broken token, and is empty on a free path" ;;
+  *) fail "PW_LOCK_BROKEN read '$out'" ;;
+esac
+rm -f "$tmp"/broken.lock*
+sleep 120 &
+broken_live=$!
+ln -s "$broken_live-0-1" "$tmp/busy.lock"
+out="$(run_sh x '
+  PW_LOCK_BROKEN=stale
+  pw_lock_try "$1/busy.lock"
+  printf "%s [%s]\n" "$?" "$PW_LOCK_BROKEN"
+')"
+case $out in
+  "1 []") pass "a busy try leaves PW_LOCK_BROKEN empty" ;;
+  *) fail "a busy try read '$out'" ;;
+esac
+out="$(run_sh x '
+  PW_LOCK_BROKEN=stale
+  pw_lock_acquire_for "$1/busy.lock" notapid 1 2>/dev/null
+  printf "%s [%s]\n" "$?" "$PW_LOCK_BROKEN"
+')"
+case $out in
+  "2 []") pass "a refused acquire clears PW_LOCK_BROKEN too" ;;
+  *) fail "a refused acquire read '$out'" ;;
+esac
+out="$(run_sh x '
+  for v in pw_lock_acquire pw_lock_try_detached pw_lock_acquire_detached; do
+    PW_LOCK_BROKEN=stale
+    "$v" "$1/fresh-$v.lock" 1 || exit 9
+    printf "%s[%s] " "$v" "$PW_LOCK_BROKEN"
+  done
+')"
+case $out in
+  "pw_lock_acquire[] pw_lock_try_detached[] pw_lock_acquire_detached[] ") pass "every acquire verb resets PW_LOCK_BROKEN" ;;
+  *) fail "a verb kept a stale PW_LOCK_BROKEN: '$out'" ;;
+esac
+rm -f "$tmp"/fresh-*.lock*
+# A break whose publish loses to a peer still removed the dead link, and says
+# so: staged by a publish that always loses.
+sh -c 'exit 0' &
+lost_pid=$!
+wait "$lost_pid" 2>/dev/null
+ln -s "$lost_pid-0-1" "$tmp/lost.lock"
+out="$(run_sh x '
+  _pw_lock_publish() { return 1; }
+  pw_lock_try "$1/lost.lock"
+  printf "%s [%s]\n" "$?" "$PW_LOCK_BROKEN"
+')"
+case $out in
+  "1 [$lost_pid-0-1]") pass "a break whose publish loses still names the dead owner" ;;
+  *) fail "a lost publish read '$out'" ;;
+esac
+rm -f "$tmp"/lost.lock*
+kill "$broken_live" 2>/dev/null
+wait "$broken_live" 2>/dev/null
+rm -f "$tmp"/busy.lock*
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else
