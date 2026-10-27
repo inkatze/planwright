@@ -477,6 +477,12 @@ the list lacked; the annotation moved below the task's fields.)*
 ## Awaiting input
 
 - **Task 5** — pending ready-flip: review-converged failed on f8c964f89099
+- **Task 3** — PR #751 parked before its ready flip: cubic converged with 0
+  issues and CI is green on 9d7cfe05, but the PR conflicts with main in
+  `.gitleaksignore` (the same fixture entry landed through #752 with a
+  different comment line). Clearing it means merging main, which the ruling
+  keeps out of the flip path; after a merge, the fresh convergence pass and
+  the flip run on the new head.
 
 ## Deferred
 
