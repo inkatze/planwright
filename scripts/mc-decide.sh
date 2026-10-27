@@ -49,9 +49,11 @@ reason   settled (taken), ask-first or a route (asked), revoke or confirm
          answer (a repeat noted for the proposal detector)
 class    a decision class, or `-`
 rules    the comma-separated rule-store ids the decision acts under, or
-         `-`; the self-audit (scripts/mc-audit.sh) flags an act on a ruled
-         subject that cites no rule
-Entries outside the grammar are someone else's and every reader skips them.
+         `-`; the self-audit (scripts/mc-audit.sh) flags an act on an
+         active rule's subject that does not cite that rule
+Entries outside the grammar are someone else's: the ledger, the measures
+and the repeat detector skip them, and the self-audit counts them as acts
+citing no rule.
 
 Calibration: an operator's revoke of a settled decision lowers its class to
 ask-first; mission_control_calibration_restore confirmations of the class's
@@ -101,22 +103,16 @@ in_list() { # in_list <word> <list>
   esac
   return 1
 }
-kb() { /bin/bash "$script_dir/mc-kb.sh" "$@"; }
-
-# entries: every decisions-log entry, oldest first.
-entries() {
-  kb entries --program "$PROGRAM" decisions
-  case $? in
-    0) ;;
-    3) exit 3 ;;
-    *) mc_fail "the decisions log cannot be read" ;;
-  esac
-}
+entries() { mc_kb_entries "$PROGRAM" decisions; }
+trap mc_kb_unlock EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # append <log> <args...>: an entry through mc-kb.sh; sets ENTRY_ID.
 ENTRY_ID=''
 append() {
-  ENTRY_ID=$(kb append --program "$PROGRAM" "$@")
+  ENTRY_ID=$(mc_kb append --program "$PROGRAM" "$@")
   case $? in
     0) ;;
     2) exit 2 ;;
@@ -145,13 +141,16 @@ ledger_rows() {
       }
     }'
 }
-restore_knob() { mc_knob mission_control_calibration_restore mc_parse_uint || exit 1; }
+restore_knob() { mc_knob mission_control_calibration_restore mc_parse_count || exit 1; }
 
 # entry_line <id>: the entry's line, with REVOKED and CONFIRMED set when a
-# later revoke or confirmation names it.
+# later revoke or confirmation names it, and REASON and CLASS its grounds'
+# (empty outside the grammar).
 ENTRY=''
 REVOKED=0
 CONFIRMED=0
+REASON=''
+CLASS=''
 entry_line() {
   el_all=$(entries) || exit $?
   ENTRY=$(printf '%s\n' "$el_all" | I=$1 awk -F '\t' '$1 == ENVIRON["I"] { print; exit }')
@@ -163,9 +162,6 @@ entry_line() {
     END { print r + 0, c + 0 }')
   REVOKED=${el_v% *}
   CONFIRMED=${el_v#* }
-}
-# entry_reason: REASON and CLASS of ENTRY under the grammar, empty outside it.
-entry_reason() {
   # shellcheck disable=SC2016 # an awk program, expanded by awk
   er=$(printf '%s\n' "$ENTRY" | awk -F '\t' "$MC_GROUNDS_AWK"'{ if (grounds($6)) print G_REASON, G_CLASS }')
   REASON=${er% *}
@@ -202,20 +198,23 @@ v_decide() {
 
   if [ -n "$duty" ]; then
     mc_valid_kebab "$duty" || mc_usage_fail "--duty takes a duty id"
-    armed=$(/bin/bash "$script_dir/mc-duties.sh" files --program "$PROGRAM") || mc_fail "the duties of program $PROGRAM do not resolve"
-    printf '%s\n' "$armed" | D=$duty awk -F '\t' '$1 == ENVIRON["D"] { f = 1 } END { exit !f }' \
-      || mc_fail "duty $duty is not armed in program $PROGRAM (not enabled, or off)"
+    mc_duty_armed "$PROGRAM" "$duty" || mc_fail "duty $duty is not armed in program $PROGRAM (not enabled, or off)"
     lifecycle=$(/bin/bash "$script_dir/mc-duties.sh" get "$duty" lifecycle) || mc_fail "the lifecycle of duty $duty does not resolve"
   else
     lifecycle=live
   fi
 
   reason=${route:-settled}
-  all=$(entries) || exit $?
-  restore=$(restore_knob) || exit $?
-  if [ -z "$route" ] && printf '%s\n' "$all" | ledger_rows "$restore" \
-    | C=$class awk -F '\t' '$2 == ENVIRON["C"] && $3 == "ask-first" { f = 1 } END { exit !f }'; then
-    reason=ask-first
+  if [ -z "$route" ]; then
+    # Held to the append, so a revoke cannot land between the class read
+    # and the decision taken on it.
+    mc_kb_lock "$PROGRAM" verdicts
+    restore=$(restore_knob) || exit $?
+    all=$(entries) || exit $?
+    if printf '%s\n' "$all" | ledger_rows "$restore" \
+      | C=$class awk -F '\t' '$2 == ENVIRON["C"] && $3 == "ask-first" { f = 1 } END { exit !f }'; then
+      reason=ask-first
+    fi
   fi
   full="$reason ${class:--} ${rules:--}: $grounds"
   if [ "$lifecycle" = shadow ]; then
@@ -223,11 +222,7 @@ v_decide() {
     printf 'would-have\t%s\n' "$ENTRY_ID"
     return 0
   fi
-  if [ -n "$duty" ]; then
-    append decisions --subject "$subject" --act "$act" --target "$target" --grounds "$full" --duty "$duty"
-  else
-    append decisions --subject "$subject" --act "$act" --target "$target" --grounds "$full"
-  fi
+  append decisions --subject "$subject" --act "$act" --target "$target" --grounds "$full" --duty "$duty"
   if [ "$reason" = settled ]; then
     printf 'decided\t%s\t%s\n' "$ENTRY_ID" "$class"
   else
@@ -253,13 +248,10 @@ v_verdict() { # v_verdict <revoke|confirm> <args...>
     esac
     shift 2
   done
-  case $id in
-    decisions-[0-9]*-[0-9]*) ;;
-    *) mc_usage_fail "a decision id is decisions-<YYYYMM>-<n>" ;;
-  esac
+  mc_valid_entry_id decisions "$id" || mc_usage_fail "a decision id is decisions-<YYYYMM>-<n>"
   mc_require_program "$PROGRAM"
+  mc_kb_lock "$PROGRAM" verdicts
   entry_line "$id"
-  entry_reason
   [ "$REVOKED" -eq 0 ] || mc_fail "decision $id is already revoked"
   if [ "$verdict" = revoke ]; then
     [ "$REASON" = settled ] || mc_fail "decision $id was not taken by mission control, so there is nothing to revoke"
@@ -293,12 +285,19 @@ v_note() {
     shift 2
   done
   in_list "$shape" "$SHAPES" || mc_usage_fail "--shape is one of: $SHAPES"
+  [ -n "$subject" ] || mc_usage_fail "--subject is required"
+  [ -n "$text" ] || mc_usage_fail "--text is required: the quote or the act"
   case $shape in
     manual)
       [ -n "$target" ] || mc_usage_fail "a manual step names the event it followed (--target)"
       mc_valid_kebab "$target" || mc_usage_fail "a manual step's --target is a kebab event name"
       ;;
-    answer) [ -n "$target" ] || mc_usage_fail "an answer names the answer given (--target)" ;;
+    answer)
+      case $target in
+        *[!\ ]*) ;;
+        *) mc_usage_fail "an answer names the answer given (--target)" ;;
+      esac
+      ;;
   esac
   mc_require_program "$PROGRAM"
   append decisions --subject "$subject" --act "$text" --target "$target" --grounds "$shape - -: noted"

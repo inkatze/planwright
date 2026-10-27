@@ -42,7 +42,11 @@ tmp=$(cd "$tmp" && pwd -P) || exit 1
 tab=$(printf '\t')
 shadow() { mc_run mc-shadow.sh "$@"; }
 field() { printf '%s\n' "$1" | cut -f "$2"; }
-month=$(date -u '+%Y-%m')
+seg_of() {
+  so=${1##*-have-}
+  so=${so%%-*}
+  printf '%s/would-have-%s-%s.log\n' "$kb" "${so%??}" "${so#????}"
+}
 events() { mc_run mc-event.sh list --program alpha; }
 
 # ---------------------------------------------------------------------------
@@ -52,11 +56,12 @@ shadow raise --program alpha --duty gamma-duty -- gamma-item pr-12 "would ask th
 expect_rc "a shadow duty's item is accepted" 0
 expect_out "it becomes a would-have entry" "would-have${tab}would-have-"
 w1=$(field "$OUT" 2)
-case $(cat "$kb/would-have-$month.log") in
+case $(cat "$(seg_of "$w1")") in
   *"$w1${tab}"*"${tab}pr-12${tab}gamma-item: would ask the operator to merge${tab}"*"${tab}gamma-duty") ok "the entry names the duty, the item kind and its text" ;;
-  *) fail "the would-have entry is not as expected: $(cat "$kb/would-have-$month.log")" ;;
+  *) fail "the would-have entry is not as expected: $(cat "$(seg_of "$w1")")" ;;
 esac
 events
+expect_rc "the attention store reads" 0
 expect_eq "nothing was raised for the shadow duty" ""
 
 shadow raise --program alpha --duty alpha-duty -- alpha-item pr-12 "merge order changed"
@@ -71,6 +76,9 @@ shadow raise --program alpha --duty gamma-duty -- alpha-item pr-12 "x"
 expect_rc "a kind the duty does not declare is refused" 2
 shadow raise --program alpha --duty gamma-duty -- gamma-item "pr 12" "x"
 expect_rc "a subject outside the event grammar is refused in shadow too" 2
+long=$(printf '%0600d' 0)
+shadow raise --program alpha --duty gamma-duty -- gamma-item pr-12 "$long"
+expect_rc "text the live path would refuse is refused in shadow too" 2
 
 # ---------------------------------------------------------------------------
 # Promotion is suggested after the configured count of agreed entries.
@@ -85,6 +93,10 @@ shadow agree --program alpha "$w1"
 expect_rc "an entry is agreed once" 1
 shadow agree --program alpha would-have-190001-1
 expect_rc "agreeing with no such entry is refused" 1
+mc_run mc-decide.sh decide --program alpha --duty gamma-duty --class hygiene --subject pr-12 --act agreed --target "$w1" --grounds forged
+mc_run mc-kb.sh append would-have --program alpha --subject pr-12 --act agreed --target "$w1" --duty gamma-duty
+shadow promotion --program alpha
+expect_eq "an entry another writer names agreed is no agreement" "shadow${tab}gamma-duty${tab}1${tab}2"
 shadow raise --program alpha --duty gamma-duty -- gamma-item pr-13 "would ask again"
 w2=$(field "$OUT" 2)
 shadow agree --program alpha "$w2"

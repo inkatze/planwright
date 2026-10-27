@@ -39,7 +39,8 @@ Usage:
       event grammar in both, so promotion changes nothing else.
   mc-shadow.sh agree --program <p> <would-have entry id>
       the operator agrees with what the duty would have done, logged as an
-      `agreed` would-have entry naming it; each entry is agreed once
+      `agreed` would-have entry naming it, with grounds no other writer
+      uses; each entry is agreed once
   mc-shadow.sh promotion --program <p>
       per armed shadow duty, promote<TAB><id><TAB><agreed><TAB><needed>
       once the agreed entries reach mission_control_shadow_promote_after,
@@ -54,17 +55,16 @@ HELP
 usage() {
   mc_usage_fail "usage: mc-shadow.sh raise --program <p> --duty <id> -- <kind> <subject> [<text>] | agree --program <p> <id> | promotion --program <p> (mc-shadow.sh --help)"
 }
-kb() { /bin/bash "$script_dir/mc-kb.sh" "$@"; }
 duties() { /bin/bash "$script_dir/mc-duties.sh" "$@"; }
+trap mc_kb_unlock EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-# armed: the program's armed duties, <id><TAB><dir> lines.
-armed() {
-  duties files --program "$PROGRAM" || mc_fail "the duties of program $PROGRAM do not resolve"
-}
-# would_have: every would-have entry, oldest first.
-would_have() {
-  kb entries --program "$PROGRAM" would-have || mc_fail "the would-have log cannot be read"
-}
+# An agreement is a would-have entry with act `agreed` and grounds AGREED,
+# which no other writer's grounds take (scripts/mc-decide.sh writes its
+# reasons grammar), so an entry another writer names `agreed` never counts.
+AGREED='agree: the operator agrees'
 
 v_raise() {
   duty=''
@@ -88,10 +88,9 @@ v_raise() {
   mc_valid_kebab "$kind" && [ "${#kind}" -le 64 ] || mc_usage_fail "the kind is kebab, at most 64 characters"
   mc_valid_handle "$subject" || mc_usage_fail "the subject takes the event grammar (letters, digits, . _ = @ : -)"
   mc_valid_text "$text" || mc_usage_fail "the text carries a control character"
+  [ "${#text}" -le 512 ] || mc_usage_fail "the text is longer than 512 bytes"
   mc_require_program "$PROGRAM"
-  a=$(armed) || exit $?
-  printf '%s\n' "$a" | D=$duty awk -F '\t' '$1 == ENVIRON["D"] { f = 1 } END { exit !f }' \
-    || mc_fail "duty $duty is not armed in program $PROGRAM (not enabled, or off); it raises nothing"
+  mc_duty_armed "$PROGRAM" "$duty" || mc_fail "duty $duty is not armed in program $PROGRAM (not enabled, or off); it raises nothing"
   kinds=$(duties get "$duty" kinds) || mc_fail "the kinds of duty $duty do not resolve"
   K=$kind L=$kinds awk 'BEGIN {
     l = ENVIRON["L"]; gsub(/^[[ ]+|[] ]+$/, "", l)
@@ -106,7 +105,7 @@ v_raise() {
       printf 'raised\t%s\n' "$id"
       ;;
     shadow)
-      id=$(kb append would-have --program "$PROGRAM" --subject "$subject" --act "$kind: ${text:-$kind}" --duty "$duty") \
+      id=$(mc_kb append would-have --program "$PROGRAM" --subject "$subject" --act "$kind: ${text:-$kind}" --duty "$duty") \
         || mc_fail "the would-have entry was not written"
       printf 'would-have\t%s\n' "$id"
       ;;
@@ -116,34 +115,37 @@ v_raise() {
 
 v_agree() {
   [ $# -eq 1 ] || usage
-  case $1 in
-    would-have-[0-9]*-[0-9]*) ;;
-    *) mc_usage_fail "a would-have entry id is would-have-<YYYYMM>-<n>" ;;
-  esac
+  mc_valid_entry_id would-have "$1" || mc_usage_fail "a would-have entry id is would-have-<YYYYMM>-<n>"
   mc_require_program "$PROGRAM"
-  all=$(would_have) || exit $?
-  line=$(printf '%s\n' "$all" | I=$1 awk -F '\t' '$1 == ENVIRON["I"] && $4 != "agreed" { print; exit }')
+  mc_kb_lock "$PROGRAM" agreements
+  all=$(mc_kb_entries "$PROGRAM" would-have) || exit $?
+  line=$(printf '%s\n' "$all" | I=$1 A=$AGREED awk -F '\t' '$1 == ENVIRON["I"] && !($4 == "agreed" && $6 == ENVIRON["A"]) { print; exit }')
   [ -n "$line" ] || mc_fail "no would-have entry $1"
-  if printf '%s\n' "$all" | I=$1 awk -F '\t' '$4 == "agreed" && $5 == ENVIRON["I"] { f = 1 } END { exit !f }'; then
+  if printf '%s\n' "$all" | I=$1 A=$AGREED awk -F '\t' '$4 == "agreed" && $6 == ENVIRON["A"] && $5 == ENVIRON["I"] { f = 1 } END { exit !f }'; then
     mc_fail "would-have entry $1 is already agreed"
   fi
   subject=$(printf '%s\n' "$line" | cut -f 3)
   duty=$(printf '%s\n' "$line" | cut -f 8)
-  id=$(kb append would-have --program "$PROGRAM" --subject "$subject" --act agreed --target "$1" \
-    --grounds "the operator agrees" --duty "$duty") || mc_fail "the agreement was not written"
+  id=$(mc_kb append would-have --program "$PROGRAM" --subject "$subject" --act agreed --target "$1" \
+    --grounds "$AGREED" --duty "$duty") || mc_fail "the agreement was not written"
   printf 'agreed\t%s\t%s\n' "$1" "$id"
 }
 
 v_promotion() {
   [ $# -eq 0 ] || usage
   mc_require_program "$PROGRAM"
-  need=$(mc_knob mission_control_shadow_promote_after mc_parse_uint) || exit 1
-  a=$(armed) || exit $?
-  all=$(would_have) || exit $?
+  need=$(mc_knob mission_control_shadow_promote_after mc_parse_count) || exit 1
+  a=$(duties files --program "$PROGRAM") || mc_fail "the duties of program $PROGRAM do not resolve"
+  all=$(mc_kb_entries "$PROGRAM" would-have) || exit $?
+  # One count per agreed entry, however often it was agreed.
+  counts=$(printf '%s\n' "$all" | A=$AGREED awk -F '\t' '$4 == "agreed" && $6 == ENVIRON["A"] && !seen[$5]++ { n[$8]++ }
+    END { for (d in n) print d "\t" n[d] }')
   while IFS="$(printf '\t')" read -r d _; do
     [ -n "$d" ] || continue
-    [ "$(duties get "$d" lifecycle)" = shadow ] || continue
-    n=$(printf '%s\n' "$all" | D=$d awk -F '\t' '$4 == "agreed" && $8 == ENVIRON["D"] { n++ } END { print n + 0 }')
+    lc=$(duties get "$d" lifecycle) || mc_fail "the lifecycle of duty $d does not resolve"
+    [ "$lc" = shadow ] || continue
+    n=$(mc_lookup "$d" "$counts")
+    n=${n:-0}
     if [ "$n" -ge "$need" ]; then
       printf 'promote\t%s\t%s\t%s\n' "$d" "$n" "$need"
     else

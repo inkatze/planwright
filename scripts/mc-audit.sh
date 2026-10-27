@@ -32,9 +32,10 @@ Usage:
 
 An act is a decisions-log entry mission control took (reason `settled` in
 scripts/mc-decide.sh's reasons grammar, or grounds outside the grammar) or
-an undo-log entry, the rule store's own rule-add, rule-supersede and
-rule-withdraw entries aside; asked decisions, verdicts and noted repeats
-are not acts. An act cites the rules its grounds name. Subjects compare by
+an undo-log entry, aside from the rule store's own rule-add,
+rule-supersede and rule-withdraw entries and the reverting, reverted and
+revert failed entries scripts/mc-kb.sh revert writes; asked decisions,
+verdicts and noted repeats are not acts. An act cites the rules its grounds name. Subjects compare by
 the rule store's subject key. Findings, one line each:
   finding<TAB>against-rule<TAB><rule id><TAB><entry id><TAB><subject key>
       an act on an active rule's subject, on or after the rule's date,
@@ -82,14 +83,14 @@ idle_s=$(mc_seconds "$idle")
 
 rules=$(/bin/bash "$script_dir/mc-rules.sh" active "$PROGRAM") || mc_fail "the rule store cannot be read"
 shared=$(/bin/bash "$script_dir/mc-rules.sh" conflicts "$PROGRAM") || mc_fail "the shared-subject report failed"
-decisions=$(/bin/bash "$script_dir/mc-kb.sh" entries --program "$PROGRAM" decisions) || mc_fail "the decisions log cannot be read"
-undo=$(/bin/bash "$script_dir/mc-kb.sh" entries --program "$PROGRAM" undo) || mc_fail "the undo log cannot be read"
+decisions=$(mc_kb_entries "$PROGRAM" decisions) || exit $?
+undo=$(mc_kb_entries "$PROGRAM" undo) || exit $?
 
 # One stream: R lines (the active rules), A lines (the acts, each with the
 # rules it cites), S lines (the shared subjects).
 {
   printf '%s\n' "$rules" | awk -F '\t' 'NF >= 5 { printf "R\t%s\t%s\t%s\n", $1, $3, $5 }'
-  # shellcheck disable=SC2016 # an awk program, expanded by awk
+  # shellcheck disable=SC2016 # the awk program after the pipe, expanded by awk
   {
     printf '%s\n' "$decisions" | awk '{ print "decisions\t" $0 }'
     printf '%s\n' "$undo" | awk '{ print "undo\t" $0 }'
@@ -97,20 +98,25 @@ undo=$(/bin/bash "$script_dir/mc-kb.sh" entries --program "$PROGRAM" undo) || mc
     NF >= 7 {
       parsed = grounds($7)
       if ($1 == "decisions" && parsed && G_REASON != "settled") next
-      if ($1 == "undo" && $5 ~ /^rule-(add|supersede|withdraw)$/) next
+      if ($1 == "undo" && $5 ~ /^(rule-(add|supersede|withdraw)|reverting|reverted|revert failed)$/) next
       printf "A\t%s\t%s\t%s\t%s\n", $2, $3, $4, (parsed ? G_RULES : "-")
     }'
   printf '%s\n' "$shared" | awk -F '\t' '$1 == "shared" { printf "S\t%s\t%s\n", $2, $3 }'
 } | TO=$(mc_iso "$NOW") FROM=$(mc_iso $((NOW - idle_s))) awk -F '\t' "$MC_SUBJECT_KEY_AWK"'
   $1 == "R" { nr++; rid[nr] = $2; rdate[nr] = $3; rkey[nr] = key($4); next }
-  $1 == "A" && $3 <= ENVIRON["TO"] { na++; aid[na] = $2; ats[na] = $3; akey[na] = key($4); acite[na] = "," $5 ","; next }
+  $1 == "A" && $3 <= ENVIRON["TO"] {
+    na++; aid[na] = $2; ats[na] = $3; acite[na] = "," $5 ","
+    k = key($4); bykey[k] = bykey[k] " " na
+    next
+  }
   $1 == "S" { ns++; skey[ns] = $2; sids[ns] = $3; next }
   END {
     n = 0
     for (r = 1; r <= nr; r++) {
       recent = 0
-      for (a = 1; a <= na; a++) {
-        if (akey[a] != rkey[r]) continue
+      m = split(bykey[rkey[r]], hit, " ")
+      for (h = 1; h <= m; h++) {
+        a = hit[h]
         if (ats[a] >= ENVIRON["FROM"]) recent = 1
         if (substr(ats[a], 1, 10) >= rdate[r] && index(acite[a], "," rid[r] ",") == 0) {
           printf "finding\tagainst-rule\t%s\t%s\t%s\n", rid[r], aid[a], rkey[r]; n++

@@ -44,7 +44,13 @@ decide() { mc_run mc-decide.sh "$@"; }
 field() { printf '%s\n' "$1" | cut -f "$2"; }
 # ledger_row <class>: the ledger line for a class, from the last OUT.
 ledger_row() { printf '%s\n' "$OUT" | awk -F '\t' -v c="$1" '$1 == "class" && $2 == c'; }
-month=$(date -u '+%Y-%m')
+# seg_of <entry id>: the segment file the entry was appended to, read from
+# the id so a run crossing a month boundary reads the right one.
+seg_of() {
+  so=${1#*-}
+  so=${so%%-*}
+  printf '%s/%s-%s-%s.log\n' "$kb" "${1%%-*}" "${so%??}" "${so#????}"
+}
 
 # ---------------------------------------------------------------------------
 # REQ-F1.8: a decision the record settles is taken and logged with grounds.
@@ -54,7 +60,7 @@ decide decide --program alpha --class auto-applicable --subject "Stale worktree"
 expect_rc "a settled decision is taken" 0
 expect_out "it is reported as decided" "decided${tab}decisions-"
 d1=$(field "$OUT" 2)
-seg=$(cat "$kb/decisions-$month.log")
+seg=$(cat "$(seg_of "$d1")")
 case $seg in
   *"$d1${tab}"*"${tab}Stale worktree${tab}reclaimed the merged worker's worktree${tab}-${tab}settled auto-applicable r-1: PR merged, nothing unpushed${tab}"*)
     ok "the log carries the decided-by-mission-control grounds: reason, class, rules, text"
@@ -66,8 +72,9 @@ for r in human-gate fork hard-disqualifier reserved-proposal; do
   decide decide --program alpha --route "$r" --subject "Gate $r" --act "would mark the PR ready" --grounds "owed to the operator"
   expect_rc "a $r decision is queued, not taken" 0
   expect_out "it is reported as an ask with its reason ($r)" "ask${tab}$r${tab}decisions-"
+  q1=$(field "$OUT" 3)
 done
-case $(cat "$kb/decisions-$month.log") in
+case $(cat "$(seg_of "$q1")") in
   *"${tab}human-gate - -: owed to the operator${tab}"*) ok "a queued decision is logged with its reason" ;;
   *) fail "the queued decision's reason is not in the log" ;;
 esac
@@ -89,11 +96,14 @@ expect_rc "grounds may carry a colon" 0
 decide decide --program alpha --class hygiene --duty gamma-duty --subject "Shadow" --act "would reclaim" --grounds "dry run"
 expect_rc "a shadow duty's decision is accepted" 0
 expect_out "it is written as a would-have entry" "would-have${tab}would-have-"
-if grep -q "${tab}Shadow${tab}" "$kb/decisions-$month.log"; then
+if grep -q "${tab}Shadow${tab}" "$(seg_of "$q1")"; then
   fail "a shadow duty's decision reached the decisions log"
 else
   ok "a shadow duty's decision stays out of the decisions log"
 fi
+mc_run mc-event.sh list --program alpha
+expect_rc "the attention store reads" 0
+expect_eq "a shadow duty's decision raises nothing" ""
 decide decide --program alpha --class hygiene --duty beta-duty --subject s --act a --grounds g
 expect_rc "a decision for a duty that is off is refused" 1
 
@@ -114,6 +124,12 @@ decide revoke --program alpha "$d1"
 expect_rc "a decision is revoked once" 1
 decide revoke --program alpha decisions-190001-1
 expect_rc "a revoke naming no decision is refused" 1
+decide revoke --program alpha "decisions-1$(printf '\033')[31m-1"
+expect_rc "an id outside the grammar is refused before any lookup" 2
+case $ERR in
+  *"$(printf '\033')"*) fail "the refusal echoed an escape byte" ;;
+  *) ok "the refusal carries no escape byte" ;;
+esac
 decide ledger --program alpha
 row=$(ledger_row auto-applicable)
 if [ "$(field "$row" 3)" = ask-first ]; then ok "a revoke lowers the class to ask-first"; else fail "the class was not lowered: $row"; fi
@@ -172,6 +188,9 @@ decide note --program alpha --shape manual --subject "Polish" --text "ran polish
 expect_rc "a manual step names its event" 2
 decide note --program alpha --shape habit --subject s --text t
 expect_rc "an unknown shape is refused" 2
+decide note --program alpha --shape correction --subject s
+expect_rc "a note without its text is refused" 2
+expect_err "the missing flag is the one named" "--text"
 
 # ---------------------------------------------------------------------------
 # REQ-M1.8: interruptions per hour and the settled share, from the log.
@@ -196,9 +215,13 @@ expect_rc "an empty window computes" 0
 expect_out "an empty window has no settled share" "settled-share${tab}-"
 decide measures --program alpha --now "$now" --window soon
 expect_rc "a window that is not a cadence is refused" 2
+printf '%s\n' "mission_control_measure_window: 2h" >>"$tracked"
 decide measures --program alpha --now "$now"
 expect_rc "the window defaults to its knob" 0
-expect_out "the default window comes from the knob" "window${tab}86400"
+expect_out "the default window comes from the knob" "window${tab}7200"
+sed 's/^mission_control_calibration_restore: .*/mission_control_calibration_restore: 0/' "$tracked" >"$tmp/t" && mv "$tmp/t" "$tracked"
+decide ledger --program alpha
+expect_rc "a restore count of zero is refused" 1
 
 decide ledger --program nobody
 expect_rc "an unconfigured program is not found" 3

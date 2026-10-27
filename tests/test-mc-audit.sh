@@ -68,6 +68,10 @@ decide --class hygiene --subject "Worktree reclaim" --act "reclaimed wt-3" --gro
 mc_run mc-kb.sh append undo --program alpha --subject "Pushes" --act "pushed main" --grounds "fast-forward" --no-reversal
 undo_flag=$OUT
 mc_run mc-kb.sh append undo --program alpha --subject "Pushes" --act rule-add --target r-3 --grounds "the operator" --no-reversal
+mc_run mc-kb.sh append undo --program alpha --subject "Pushes" --act "pushed a branch" --grounds "settled hygiene r-3,r-4: named branch" -- true
+cited_undo=$OUT
+mc_run mc-kb.sh revert --program alpha "$cited_undo"
+[ "$RC" -eq 0 ] || fail "the fixture revert failed: $ERR"
 mc_run mc-decide.sh note --program alpha --shape correction --subject "Ready flips" --text "walk first"
 rules_sum=$(cksum <"$home/rules.yaml")
 
@@ -79,6 +83,9 @@ expect_no_out "an act citing its rule is not flagged" "${tab}r-2${tab}decisions-
 expect_out "an undo-logged act is compared too" "finding${tab}against-rule${tab}r-3${tab}$undo_flag${tab}pushes"
 expect_no_out "the rule store's own maintenance is not an act against it" "${tab}undo-$(date -u '+%Y%m')-2${tab}"
 expect_no_out "an operator's noted correction is not an act" "walk first"
+expect_no_out "a cited undo act is not flagged" "${tab}$cited_undo${tab}"
+expect_no_out "revert's own bookkeeping is not an act" "${tab}undo-$(date -u '+%Y%m')-4${tab}"
+expect_no_out "nor its outcome entry" "${tab}undo-$(date -u '+%Y%m')-5${tab}"
 expect_out "two active entries sharing a subject are flagged" "finding${tab}shared-subject${tab}r-3,r-4${tab}-${tab}pushes"
 expect_no_out "a rule stated inside the period is not idle" "idle-rule${tab}r-2"
 expect_no_out "a withdrawn rule is not audited" "${tab}r-5${tab}"

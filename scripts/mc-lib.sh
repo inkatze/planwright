@@ -236,6 +236,42 @@ mc_event_store() {
 }
 
 mc_event() { /bin/bash "$script_dir/mc-event.sh" "$@"; }
+mc_kb() { /bin/bash "$script_dir/mc-kb.sh" "$@"; }
+
+# mc_kb_entries <program> <log>: every entry of a knowledge-base log, oldest
+# first; an unconfigured program exits 3, any other failure 1.
+mc_kb_entries() {
+  mc_kb entries --program "$1" "$2"
+  case $? in
+    0) ;;
+    3) exit 3 ;;
+    *) mc_fail "the $2 log cannot be read" ;;
+  esac
+}
+
+# mc_kb_lock <program> <kb path>: hold a knowledge-base write lock for this
+# shell (MC_KB_LOCK), released by mc_kb_unlock, which the sourcing script's
+# EXIT trap calls. The path need not name a store: a lock on a sibling name
+# serializes a check-then-append without holding the log's own lock, which
+# the append takes itself.
+MC_KB_LOCK=''
+MC_KB_LOCKED=''
+mc_kb_lock() {
+  MC_KB_LOCK=$(mc_kb lock --program "$1" "$2" --holder $$) || mc_fail "cannot take the lock on kb/$2"
+  MC_KB_LOCKED="$1 $2"
+}
+mc_kb_unlock() {
+  [ -n "$MC_KB_LOCK" ] || return 0
+  mc_kb unlock --program "${MC_KB_LOCKED%% *}" "${MC_KB_LOCKED#* }" --token "$MC_KB_LOCK" >/dev/null 2>&1
+  MC_KB_LOCK=''
+}
+
+# mc_duty_armed <program> <duty>: whether the program arms the duty (enabled,
+# lifecycle shadow or live); fails when the duties do not resolve.
+mc_duty_armed() {
+  mda=$(/bin/bash "$script_dir/mc-duties.sh" files --program "$1") || mc_fail "the duties of program $1 do not resolve"
+  printf '%s\n' "$mda" | D=$2 awk -F '\t' '$1 == ENVIRON["D"] { f = 1 } END { exit !f }'
+}
 
 # mc_quote <word>: the word single-quoted for a shell, an embedded single
 # quote written '\''; fails on a control byte.
@@ -373,6 +409,26 @@ mc_parse_cadence() {
 mc_parse_uint() {
   mc_valid_uint "$1" || return 1
   printf '%s\n' "$1"
+}
+mc_parse_count() { # a count of at least one
+  mc_valid_uint "$1" && [ "$1" -gt 0 ] || return 1
+  printf '%s\n' "$1"
+}
+
+# mc_valid_entry_id <log> <id>: <log>-<YYYYMM>-<n>, as scripts/mc-kb.sh
+# numbers entries.
+mc_valid_entry_id() {
+  mvi=${2#"$1"-}
+  case $mvi in
+    "$2" | *-*-* | [!0-9]*) return 1 ;;
+    *-*) ;;
+    *) return 1 ;;
+  esac
+  case ${mvi%%-*} in
+    [0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+    *) return 1 ;;
+  esac
+  mc_valid_uint "${mvi#*-}"
 }
 
 # mc_lookup <key> <key<TAB>value lines>: the value for <key>, if any.
