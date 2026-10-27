@@ -29,6 +29,7 @@
 #      requirement is vacuously satisfied (this is what lets Task 6 land
 #      independently of Task 7, brief §6), and becomes enforced the moment the
 #      profile ships — so a later tower-settings author cannot omit it silently.
+#      The mission-control profile carries it too wherever it ships.
 #
 # Usage:
 #   check-glob-allow-rules.sh              full check: footgun scan over
@@ -38,7 +39,7 @@
 #
 # Doc-presence paths are overridable via env (defaults resolve under the repo
 # root): GLOB_ALLOW_OVERLAYS, GLOB_ALLOW_GHOST_DOC, GLOB_ALLOW_WORKER_SETTINGS,
-# GLOB_ALLOW_TOWER_SETTINGS.
+# GLOB_ALLOW_TOWER_SETTINGS, GLOB_ALLOW_MC_SETTINGS.
 #
 # Exit codes: 0 clean, 1 a footgun rule or a missing doc/cross-reference, 2
 # usage error (an input file that does not exist or cannot be read — fail
