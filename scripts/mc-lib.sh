@@ -104,9 +104,9 @@ mc_now_arg() {
 }
 
 # mc_require_program <p>: exit 2 on a name outside the grammar, 3 unless the
-# program is configured, 1 when the program list cannot be read. The runner
-# exports PLANWRIGHT_MC_CHECKED=<p> to the scripts a pass starts, after
-# checking once itself.
+# program is configured, 1 when the program list cannot be read. A pass
+# exports PLANWRIGHT_MC_CHECKED=<p> once checked, so the scripts it starts
+# skip the list.
 mc_require_program() {
   mc_valid_program "$1" || mc_usage_fail "invalid program name '$(sanitize_printable "$1")'"
   [ "${PLANWRIGHT_MC_CHECKED:-}" != "$1" ] || return 0
@@ -116,7 +116,11 @@ $mrp_list
 " in
     *"
 $1
-"*) return 0 ;;
+"*)
+      PLANWRIGHT_MC_CHECKED=$1
+      export PLANWRIGHT_MC_CHECKED
+      return 0
+      ;;
   esac
   printf '%s\n' "$prog: program '$1' is not configured" >&2
   exit 3
