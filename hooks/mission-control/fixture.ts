@@ -107,6 +107,7 @@ export type Fixture = {
   rulesExit: number
   isPlaced: boolean
   isDropped: boolean
+  isEnvDenied: boolean
   contextPercent: number | undefined
   env: Record<string, string>
 }
@@ -124,6 +125,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     rulesExit: 0,
     isPlaced: true,
     isDropped: false,
+    isEnvDenied: false,
     contextPercent: 42,
     env: { PLANWRIGHT_MC_PROGRAM: 'alpha' },
     ...given,
@@ -141,6 +143,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
   on('env.get', (_, e) => ({ value: fx.env[e.name] }))
   on('env.set', (_, e) => {
     w.envWrites.push([e.name, e.value])
+    if (fx.isEnvDenied) return { value: { deny: 'managed' } }
     if (e.value === undefined) delete fx.env[e.name]
     else fx.env[e.name] = e.value
     return { value: {} }

@@ -110,8 +110,8 @@ test('a failed digest keeps the last reading and names the fault', async ($, on)
   w.set({ digestExit: 1 })
   await w.clock.advance(10_000)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /Last reading failed/ }))?.text).toBe(
-    'Last reading failed: store unreadable',
+  expect((await ui.find({ type: 'Text', text: /^Fault:/ }))?.text).toBe(
+    'Fault: store unreadable',
   )
   expect(await ui.find({ type: 'Text', text: /In flight \(2\)/ })).toBeDefined()
   await ui.unmount()
@@ -174,4 +174,27 @@ test('a target outside the handle grammar falls back to the program', async ($, 
   await boot($, w)
   expect(ran(w, 'mc-wake.sh', 'target')[0]).toEqual(expect.arrayContaining(['alpha', '--mod']))
   expect(ran(w, 'mc-wake.sh', 'target')[0]).not.toContain('bad;target')
+})
+
+test('a refused clear of the activation stays on the pane', async ($, on) => {
+  const w = world(on, { isEnvDenied: true })
+  await boot($, w)
+  await w.clock.advance(10_000)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^Fault:/ }))?.text).toBe(
+    'Fault: the activation could not be cleared: sessions started from here inherit it',
+  )
+  await ui.unmount()
+})
+
+test('knobs that arrive after a failed first reading set the cadences then', async ($, on) => {
+  const w = world(on, { digestExit: 1, digest: digestText({ refresh: 3, tick: 60 }) })
+  await boot($, w)
+  await w.clock.advance(10_000)
+  w.set({ digestExit: 0 })
+  await w.clock.advance(10_000)
+  const after = ran(w, 'mc-panel.sh', 'digest').length
+  await w.clock.advance(3_000)
+  expect(ran(w, 'mc-panel.sh', 'digest').length).toBe(after + 1)
+  expect(ran(w, 'mc-panel.sh', 'digest').at(-1)).not.toContain('--knobs')
 })

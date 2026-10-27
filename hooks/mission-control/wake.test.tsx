@@ -114,7 +114,7 @@ test('a dropped wake is not marked, and is tried again', async ($, on) => {
   expect(ran(w, 'mc-event.sh', 'mark')).toEqual([])
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ type: 'Text', text: /dropped/ }))?.text).toBe(
-    'Last reading failed: the wake was dropped: a guard refused it',
+    'Fault: the wake was dropped: a guard refused it',
   )
   await ui.unmount()
   w.set({ isDropped: false })

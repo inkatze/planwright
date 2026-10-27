@@ -57,7 +57,7 @@ cp -R "$repo_root/types" "$plug/"
 # FAKE_ENV_READS and FAKE_ENV_WRITES what the report lists, FAKE_NO_NOTES an
 # empty report, FAKE_VALIDATE_EXIT its exit; FAKE_PASS and FAKE_FAIL the
 # summary of a clean run; FAKE_SEED_CAUGHT=0 lets a seeded copy pass and
-# FAKE_SEED_EMPTY=1 makes it run nothing.
+# FAKE_SEED_EMPTY=1 makes it run nothing, FAKE_SEED_NOLOAD=1 fail to load.
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/claude" <<'EOF'
 #!/bin/sh
@@ -82,8 +82,12 @@ case "$1 ${2:-}" in
         printf ' 0 pass\n 0 fail\n'
         exit 1
       fi
+      if [ -n "${FAKE_SEED_NOLOAD:-}" ]; then
+        printf 'HooksError: hooks module did not load\n 0 pass\n 14 fail\n'
+        exit 1
+      fi
       if [ "${FAKE_SEED_CAUGHT:-1}" = 1 ]; then
-        printf ' 9 pass\n 6 fail\n'
+        printf 'a tree Box refuses: unknown prop seededDefect\n 9 pass\n 6 fail\n'
         exit 1
       fi
     fi
@@ -153,6 +157,10 @@ has "the failed validate is named" "$ERR" "claude plugin validate failed"
 run FAKE_SEED_EMPTY=1
 rc_is "a seeded run that ran nothing proves nothing" 1
 has "the empty seeded run is named" "$ERR" "without failing a drawing test"
+
+run FAKE_SEED_NOLOAD=1
+rc_is "a seeded copy that does not load proves nothing" 1
+has "the unloaded seeded copy is named" "$ERR" "without failing a drawing test"
 
 run FAKE_PASS=0
 rc_is "a run that executed no test fails" 1

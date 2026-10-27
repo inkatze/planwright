@@ -152,7 +152,7 @@ $(run_tests "$seed" "$scratch/seeded.log")
 EOF
   if [ "$s_rc" -eq 0 ] && [ "$s_fail" -eq 0 ]; then
     finding "the plugin tests passed over a seeded drawing defect, so they would not catch one"
-  elif [ "$s_fail" -eq 0 ]; then
+  elif [ "$s_fail" -eq 0 ] || ! grep -q seededDefect "$scratch/seeded.log"; then
     # Failing for another reason (nothing ran, or nothing loaded) proves
     # nothing about drawing defects.
     finding "the seeded run failed without failing a drawing test (exit $s_rc, $s_pass pass, $s_fail fail)"

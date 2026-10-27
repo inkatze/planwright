@@ -35,9 +35,11 @@ let isRefreshing = false
 let isRaising = false
 let isClaimed = false
 let hasKnobs = false
-// A fault the next good digest must not clear: an unclaimed target, events
-// that could not be marked.
-let lasting: string | null = null
+// Faults the next good digest must not clear (an unclaimed target, events
+// that could not be marked, an activation that leaked), one per kind.
+let lasting: Record<string, string> = {}
+let timers: Timer[] = []
+let armedWith = ''
 let tickMs = DEFAULT_TICK_S * 1000
 // A wake whose events could not be marked is not sent again before this.
 let wakeHeldUntil = 0
@@ -73,9 +75,18 @@ async function fault($: EngineInterface, text: string) {
   await patch($, x => ({ ...x, fault: text }))
 }
 
-async function lastingFault($: EngineInterface, text: string | null) {
-  lasting = text
-  if (text) await fault($, text)
+function lastingText(): string | null {
+  const all = Object.values(lasting)
+  return all.length > 0 ? all.join('; ') : null
+}
+
+async function lastingFault($: EngineInterface, kind: string, text: string | null) {
+  if (text) lasting = { ...lasting, [kind]: text }
+  else {
+    const { [kind]: _gone, ...rest } = lasting
+    lasting = rest
+  }
+  await patch($, x => ({ ...x, fault: lastingText() }))
 }
 
 async function emit($: EngineInterface, kind: string, text: string): Promise<boolean> {
@@ -141,11 +152,11 @@ async function wake($: EngineInterface, isTick: boolean) {
     // Exit 3: an event was pruned since the wake was composed; the rest are marked.
     if (!marked.ok && marked.code !== 3) {
       wakeHeldUntil = now + tickMs
-      await lastingFault($, `the wake's events could not be marked: ${marked.err}`)
+      await lastingFault($, 'mark', `the wake's events could not be marked: ${marked.err}`)
       $.ui.toast('Mission control: a wake was sent but its events could not be marked')
       return
     }
-    if (lasting?.startsWith("the wake's events")) await lastingFault($, null)
+    if (lasting.mark) await lastingFault($, 'mark', null)
     await patch($, x => ({ ...x, digest: x.digest && { ...x.digest, pending: 0 } }))
   } finally {
     isSubmitting = false
@@ -162,11 +173,11 @@ async function refresh($: EngineInterface) {
     const args = ['digest', '--program', ctx.program, '--target', ctx.target]
     const got = await run($, 'mc-panel.sh', withKnobs ? [...args, '--knobs'] : args)
     const digest = got.ok ? parseDigest(got.out) : null
-    if (digest && withKnobs && digest.knobs['handover-context'] !== undefined) hasKnobs = true
+    if (digest && withKnobs && Object.keys(digest.knobs).length > 0) hasKnobs = true
     await patch($, x => ({
       ...x,
       digest: digest ? { ...digest, knobs: withKnobs ? digest.knobs : (x.digest?.knobs ?? {}) } : x.digest,
-      fault: digest ? lasting : got.err || 'the digest could not be read',
+      fault: digest ? lastingText() : got.err || 'the digest could not be read',
     }))
     const usage = await $.session.usage()
     const pct = usage.context.percent
@@ -179,6 +190,7 @@ async function refresh($: EngineInterface) {
     if (v?.isFallback) $.ui.status(fallbackLine(v))
     await checkHandover($)
     if (!isClaimed) await claim($)
+    await armTimers($)
   } catch (err) {
     await fault($, oneLine(String(err)))
   } finally {
@@ -197,8 +209,8 @@ async function claim($: EngineInterface) {
   if (!ctx) return
   const claimed = await run($, 'mc-wake.sh', ['target', 'add', '--program', ctx.program, ctx.target, '--mod'])
   isClaimed = claimed.ok
-  if (claimed.ok && lasting?.startsWith('the wake target')) await lastingFault($, null)
-  if (!claimed.ok) await lastingFault($, `the wake target could not be claimed: ${claimed.err}`)
+  if (claimed.ok && lasting.claim) await lastingFault($, 'claim', null)
+  if (!claimed.ok) await lastingFault($, 'claim', `the wake target could not be claimed: ${claimed.err}`)
 }
 
 // On its own timer, so the lease the relay reads never lapses between
@@ -236,19 +248,34 @@ async function open($: EngineInterface) {
   if (v) $.ui.status(v.isFallback ? fallbackLine(v) : undefined)
 }
 
+// The cadences from the knobs, or the defaults until a reading carries
+// them; armed again once, when the knobs first arrive.
+async function armTimers($: EngineInterface) {
+  const knobs = (await view($))?.digest?.knobs
+  const refreshMs = (knobs?.refresh ?? DEFAULT_REFRESH_S) * 1000
+  const nextTickMs = (knobs?.tick ?? DEFAULT_TICK_S) * 1000
+  const key = `${refreshMs}/${nextTickMs}`
+  if (key === armedWith) return
+  armedWith = key
+  for (const t of timers) t.cancel()
+  tickMs = nextTickMs
+  timers = [
+    $.clock.every(refreshMs, () => void refresh($)),
+    $.clock.every(tickMs, () => void tick($)),
+    $.clock.every(PRESENCE_EVERY_MS, () => void restampPresence($)),
+  ]
+}
+
 // Out of the start hook, which the first prompt waits on: the presence
-// marker, the first reading (which claims the target), then the timers.
+// marker, then the first reading, which claims the target and arms the
+// timers.
 async function bringUp($: EngineInterface) {
   if (!ctx) return
   try {
     await restampPresence($)
     await refresh($)
   } finally {
-    const knobs = (await view($))?.digest?.knobs
-    tickMs = (knobs?.tick ?? DEFAULT_TICK_S) * 1000
-    $.clock.every((knobs?.refresh ?? DEFAULT_REFRESH_S) * 1000, () => void refresh($))
-    $.clock.every(tickMs, () => void tick($))
-    $.clock.every(PRESENCE_EVERY_MS, () => void restampPresence($))
+    await armTimers($)
   }
 }
 
@@ -273,14 +300,21 @@ export const register: Register = on => {
     ctx = { program, target, root: $.plugin.root }
     isClaimed = false
     hasKnobs = false
-    lasting = null
+    lasting = {}
+    timers = []
+    armedWith = ''
     // A session this one starts must not take its wakes: the variables are
     // read once and cleared, and a reload finds the program in the view.
     let cleared = true
     try {
       const a = await $.env.set('PLANWRIGHT_MC_PROGRAM', undefined)
+      cleared = !('deny' in a && a.deny)
+    } catch {
+      cleared = false
+    }
+    try {
       const b = await $.env.set('PLANWRIGHT_MC_TARGET', undefined)
-      cleared = !('deny' in a && a.deny) && !('deny' in b && b.deny)
+      cleared = cleared && !('deny' in b && b.deny)
     } catch {
       cleared = false
     }
@@ -289,7 +323,9 @@ export const register: Register = on => {
     }
     // A turn that ran across a reload ended unheard.
     await update($, isBusy, () => false)
-    if (!cleared) await lastingFault($, 'the activation could not be cleared: sessions started from here inherit it')
+    if (!cleared) {
+      await lastingFault($, 'activation', 'the activation could not be cleared: sessions started from here inherit it')
+    }
     await $.command.register({ name: 'mission-control', description: 'Open the mission-control panel' })
     await open($)
     $.clock.after(0, () => void bringUp($))

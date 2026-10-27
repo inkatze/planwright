@@ -109,7 +109,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
       )}
       {view.fault && (
         <Text color="error">
-          Last reading failed: {view.fault}
+          Fault: {view.fault}
         </Text>
       )}
       {d.unreadable.length > 0 && <Text color="error">Unreadable: {d.unreadable.join(', ')}</Text>}
