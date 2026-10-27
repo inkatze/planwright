@@ -122,12 +122,13 @@ check_store() {
   [ "$(head -n 1 "$1")" = "# format: $MC_FORMAT" ] || mc_fail "store $cs_label has a missing or unknown format field"
 }
 lock_store() { mc_kb_lock "$PROGRAM" proposals.tsv; }
-# store_write: stdin over the store through a dot-named sibling, which no
-# knowledge-base path admits, once its format line checks; the caller holds
-# the lock and has read every input before writing.
+# store_write <content>: the content over the store through a dot-named
+# sibling, which no knowledge-base path admits, once its format line checks.
+# Called in this shell, never in a pipeline, so a refusal ends the verb; the
+# caller holds the lock.
 store_write() {
   STAGED=$(mktemp "${STORE%/*}/.proposals.tsv.XXXXXX") || mc_fail "cannot stage kb/proposals.tsv"
-  cat >"$STAGED" || mc_fail "cannot stage kb/proposals.tsv"
+  printf '%s\n' "$1" >"$STAGED" || mc_fail "cannot stage kb/proposals.tsv"
   [ "$(head -n 1 "$STAGED")" = "# format: $MC_FORMAT" ] || mc_fail "the staged kb/proposals.tsv lost its format field"
   mv -f "$STAGED" "$STORE" || mc_fail "cannot rewrite kb/proposals.tsv"
   STAGED=''
@@ -194,7 +195,7 @@ set_state() {
   ss_out=$(I=$1 S=$2 T=${3:--} C=$ss_closed awk -F '\t' 'BEGIN { OFS = "\t" }
     $1 == ENVIRON["I"] { $17 = ENVIRON["S"]; $18 = ENVIRON["T"]; $19 = ENVIRON["C"] }
     { print }' "$STORE") || mc_fail "cannot read kb/proposals.tsv"
-  printf '%s\n' "$ss_out" | store_write
+  store_write "$ss_out"
 }
 require_state() { # require_state <id> <state...>
   rs_id=$1
@@ -218,26 +219,26 @@ close_followups() {
 }
 
 # accept_rule <id>: add the proposal's rule and log its undo entry, setting
-# RID; a rule an earlier, interrupted accept added is found by its source
-# and reused, so a retry never adds the rule twice.
+# RID. A rule an earlier, interrupted accept added is found by its source and
+# reused, and its undo entry logged if that accept stopped short of it, so a
+# retry never adds the rule twice or leaves it without its reversal.
 RID=''
 accept_rule() {
   ar_src="mechanization proposal $1, accepted by the operator"
   ar_list=$(/bin/bash "$script_dir/mc-rules.sh" active "$PROGRAM") || mc_fail "the rule store cannot be read"
   RID=$(printf '%s\n' "$ar_list" | S=$ar_src awk -F '\t' '$7 == ENVIRON["S"] { print $1; exit }')
-  [ -z "$RID" ] || return 0
-  ar_out=$(/bin/bash "$script_dir/mc-rules.sh" add "$PROGRAM" --text "$(col 12)" --subject "$(col 5)" \
-    --source "$ar_src" --date today) || mc_fail "the rule was not added; proposal $1 stays open"
-  RID=$(printf '%s\n' "$ar_out" | sed -n '1s/^rule \(r-[0-9][0-9]*\) .*/\1/p')
-  [ -n "$RID" ] || mc_fail "the rule store did not report the rule it added; proposal $1 stays open"
-  ar_undo=$(printf '%s\n' "$ar_out" | awk -F '\t' '$1 == "undo" { print; exit }')
-  ar_rev=$(printf '%s\n' "$ar_undo" | cut -f 6)
-  [ -n "$ar_rev" ] || mc_fail "the rule store printed no reversal for $RID; proposal $1 stays open"
-  # The reversal is mc-rules.sh's own shell-quoted command line, split here
-  # into the words the undo log records.
-  eval "set -- $ar_rev"
-  mc_kb append undo --program "$PROGRAM" --subject "$(col 5)" --act rule-add --target "$RID" \
-    --grounds "$ar_src" -- "$@" >/dev/null || mc_fail "the undo entry for $RID was not logged; proposal $1 stays open"
+  if [ -z "$RID" ]; then
+    ar_out=$(/bin/bash "$script_dir/mc-rules.sh" add "$PROGRAM" --text "$(col 12)" --subject "$(col 5)" \
+      --source "$ar_src" --date today) || mc_fail "the rule was not added; proposal $1 stays open"
+    RID=$(printf '%s\n' "$ar_out" | sed -n '1s/^rule \(r-[0-9][0-9]*\) .*/\1/p')
+    [ -n "$RID" ] || mc_fail "the rule store did not report the rule it added; proposal $1 stays open"
+  fi
+  ar_logged=$(mc_kb query undo --program "$PROGRAM" --subject "$(col 5)") || mc_fail "the undo log cannot be read"
+  printf '%s\n' "$ar_logged" | R=$RID awk -F '\t' '$4 == "rule-add" && $5 == ENVIRON["R"] { f = 1 } END { exit !f }' && return 0
+  # The reversal mc-rules.sh prints for an add, as its words.
+  mc_kb append undo --program "$PROGRAM" --subject "$(col 5)" --act rule-add --target "$RID" --grounds "$ar_src" \
+    -- mc-rules.sh supersede "$PROGRAM" "$RID" --withdraw --source "undo of $RID" --date today >/dev/null \
+    || mc_fail "the undo entry for $RID was not logged; accept proposal $1 again to log it"
 }
 
 # --- verbs -------------------------------------------------------------------
@@ -327,12 +328,10 @@ EOF
   n=$(awk -F '\t' '!/^#/ && NF { n++ } END { print n + 0 }' "$STORE")
   id=p-$((n + 1))
   old=$(cat "$STORE") || mc_fail "cannot read kb/proposals.tsv"
-  {
-    printf '%s\n' "$old"
-    printf '%s\t' "$id" "$(mc_iso "$(mc_now)")" "$pattern" "$shape" "$subject" "$target" "$evidence" "$kind" "$mech" \
-      "$where" "$source" "$change" "$cadence" "$intervene" "$cost" "$off" open -
-    printf '%s\n' -
-  } | store_write
+  new=$(printf '%s\t' "$id" "$(mc_iso "$(mc_now)")" "$pattern" "$shape" "$subject" "$target" "$evidence" "$kind" "$mech" \
+    "$where" "$source" "$change" "$cadence" "$intervene" "$cost" "$off" open -)
+  store_write "$old
+$new-"
   printf 'proposal\t%s\t%s\t%s\t%s\n' "$id" "$kind" "$mech" "$where" | mc_clean
 }
 
