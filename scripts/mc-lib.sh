@@ -67,6 +67,35 @@ mc_seconds() {
 
 mc_now() { date +%s; }
 
+# mc_iso <epoch>: the UTC time the knowledge base stamps entries with, which
+# compares as a string in time order.
+mc_iso() {
+  date -u -d "@$1" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -r "$1" '+%Y-%m-%dT%H:%M:%SZ'
+}
+
+# The reasons grammar of a decisions-log entry's grounds, scripts/mc-decide.sh
+# --help's: `<reason> <class> <rules>: <text>`. MC_GROUNDS_AWK defines
+# grounds(g), which sets G_REASON, G_CLASS and G_RULES (`-` for none) and
+# returns 1, or returns 0 for grounds outside the grammar: a reason, class
+# or rules word scripts/mc-decide.sh never writes.
+# shellcheck disable=SC2016 # an awk program, expanded by awk
+MC_GROUNDS_AWK='function grounds(g,   p, n, w) {
+  G_REASON = ""; G_CLASS = ""; G_RULES = ""
+  p = index(g, ": ")
+  if (!p) return 0
+  n = split(substr(g, 1, p - 1), w, " ")
+  if (n != 3 || w[1] !~ /^(settled|ask-first|human-gate|fork|hard-disqualifier|reserved-proposal|revoke|confirm|correction|manual|answer)$/) return 0
+  if (w[2] !~ /^(-|auto-applicable|agent-resolvable|needs-sign-off|hygiene)$/) return 0
+  if (w[3] != "-" && w[3] !~ /^r-[1-9][0-9]*(,r-[1-9][0-9]*)*$/) return 0
+  G_REASON = w[1]; G_CLASS = w[2]; G_RULES = w[3]
+  return 1
+}
+function asked(r) { return r ~ /^(ask-first|human-gate|fork|hard-disqualifier|reserved-proposal)$/ }'
+
+# The subject key scripts/mc-rules.sh groups on and scripts/mc-kb.sh queries
+# by; change all three together.
+MC_SUBJECT_KEY_AWK='function key(s) { s = tolower(s); gsub(/[ ]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }'
+
 # mc_now_arg <raw>: NOW set to <raw>, an epoch, or to the clock when empty.
 mc_now_arg() {
   if [ -n "$1" ]; then
@@ -78,9 +107,9 @@ mc_now_arg() {
 }
 
 # mc_require_program <p>: exit 2 on a name outside the grammar, 3 unless the
-# program is configured, 1 when the program list cannot be read. The runner
-# exports PLANWRIGHT_MC_CHECKED=<p> to the scripts a pass starts, after
-# checking once itself.
+# program is configured, 1 when the program list cannot be read. A pass
+# exports PLANWRIGHT_MC_CHECKED=<p> once checked, so the scripts it starts
+# skip the list.
 mc_require_program() {
   mc_valid_program "$1" || mc_usage_fail "invalid program name '$(sanitize_printable "$1")'"
   [ "${PLANWRIGHT_MC_CHECKED:-}" != "$1" ] || return 0
@@ -90,7 +119,11 @@ $mrp_list
 " in
     *"
 $1
-"*) return 0 ;;
+"*)
+      PLANWRIGHT_MC_CHECKED=$1
+      export PLANWRIGHT_MC_CHECKED
+      return 0
+      ;;
   esac
   printf '%s\n' "$prog: program '$1' is not configured" >&2
   exit 3
@@ -180,6 +213,10 @@ EOF
 # mc_clean: stdin to stdout with every byte that is neither printable nor a
 # tab dropped, for a store read back to a terminal.
 mc_clean() { awk '{ gsub(/[^[:print:]\t]/, ""); print }'; }
+# mc_clean_text: the same for UTF-8 text, dropping only the C0 controls but
+# tab, DEL and the C1 controls (UTF-8 encodes them \302\200 to \302\237),
+# so subjects written in other scripts read back whole.
+mc_clean_text() { awk '{ gsub(/[\001-\010\013-\037\177]/, ""); gsub(/\302[\200-\237]/, ""); print }'; }
 
 mc_fleet_home() {
   mfh=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null) && [ -n "$mfh" ] || return 1
@@ -210,6 +247,58 @@ mc_event_store() {
 }
 
 mc_event() { /bin/bash "$script_dir/mc-event.sh" "$@"; }
+mc_kb() { /bin/bash "$script_dir/mc-kb.sh" "$@"; }
+
+# mc_sha256: the SHA-256 of stdin in hex; fails with no SHA-256 tool.
+mc_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    msh=$(sha256sum)
+  elif command -v shasum >/dev/null 2>&1; then
+    msh=$(shasum -a 256)
+  elif command -v openssl >/dev/null 2>&1; then
+    msh=$(openssl dgst -sha256 -r)
+  else
+    return 1
+  fi
+  msh=${msh%%[!0-9a-f]*}
+  [ "${#msh}" -eq 64 ] || return 1
+  printf '%s\n' "$msh"
+}
+
+# mc_kb_entries <program> <log>: every entry of a knowledge-base log, oldest
+# first; an unconfigured program exits 3, any other failure 1.
+mc_kb_entries() {
+  mc_kb entries --program "$1" "$2"
+  case $? in
+    0) ;;
+    3) exit 3 ;;
+    *) mc_fail "the $2 log cannot be read" ;;
+  esac
+}
+
+# mc_kb_lock <program> <kb path>: hold a knowledge-base write lock for this
+# shell (MC_KB_LOCK), released by mc_kb_unlock, which the sourcing script's
+# EXIT trap calls. The path need not name a store: a lock on a sibling name
+# serializes a check-then-append without holding the log's own lock, which
+# the append takes itself.
+MC_KB_LOCK=''
+MC_KB_LOCKED=''
+mc_kb_lock() {
+  MC_KB_LOCK=$(mc_kb lock --program "$1" "$2" --holder $$) || mc_fail "cannot take the lock on kb/$2"
+  MC_KB_LOCKED="$1 $2"
+}
+mc_kb_unlock() {
+  [ -n "$MC_KB_LOCK" ] || return 0
+  mc_kb unlock --program "${MC_KB_LOCKED%% *}" "${MC_KB_LOCKED#* }" --token "$MC_KB_LOCK" >/dev/null 2>&1
+  MC_KB_LOCK=''
+}
+
+# mc_duty_armed <program> <duty>: whether the program arms the duty (enabled,
+# lifecycle shadow or live); fails when the duties do not resolve.
+mc_duty_armed() {
+  mda=$(/bin/bash "$script_dir/mc-duties.sh" files --program "$1") || mc_fail "the duties of program $1 do not resolve"
+  printf '%s\n' "$mda" | D=$2 awk -F '\t' '$1 == ENVIRON["D"] { f = 1 } END { exit !f }'
+}
 
 # mc_quote <word>: the word single-quoted for a shell, an embedded single
 # quote written '\''; fails on a control byte.
@@ -347,6 +436,26 @@ mc_parse_cadence() {
 mc_parse_uint() {
   mc_valid_uint "$1" || return 1
   printf '%s\n' "$1"
+}
+mc_parse_count() { # a count of at least one
+  mc_valid_uint "$1" && [ "$1" -gt 0 ] || return 1
+  printf '%s\n' "$1"
+}
+
+# mc_valid_entry_id <log> <id>: <log>-<YYYYMM>-<n>, as scripts/mc-kb.sh
+# numbers entries.
+mc_valid_entry_id() {
+  mvi=${2#"$1"-}
+  case $mvi in
+    "$2" | *-*-* | [!0-9]*) return 1 ;;
+    *-*) ;;
+    *) return 1 ;;
+  esac
+  case ${mvi%%-*} in
+    [0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+    *) return 1 ;;
+  esac
+  mc_valid_uint "${mvi#*-}" && [ "${mvi#*-}" -gt 0 ]
 }
 
 # mc_lookup <key> <key<TAB>value lines>: the value for <key>, if any.

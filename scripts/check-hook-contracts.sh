@@ -60,9 +60,9 @@
 #
 # Usage: check-hook-contracts.sh [--hooks <file>]... [--fixtures <dir>]
 #                               [--implementer <Event>]...
-#        --hooks defaults to the four surfaces planwright registers through:
-#        hooks/hooks.json and the worker, tower and mission-control settings
-#        fragments under config/.
+#        --hooks defaults to every surface planwright registers through:
+#        hooks/hooks.json, hooks/mods.json, and the worker, tower and
+#        mission-control settings fragments under config/.
 #        The first --hooks replaces that set; further ones add to it.
 # Exit:  0 clean · 1 findings · 2 usage or environment error (fail closed).
 set -u
@@ -73,12 +73,15 @@ FIXTURE_DIR="$REPO_ROOT/tests/fixtures/hook-payloads"
 IMPLEMENTERS=""
 HOOK_TIMEOUT=20
 
-# planwright registers hooks in four places, and all four are the surface:
-# the plugin-global file, plus the worker, tower and mission-control settings
-# fragments that each wire a PreToolUse command guard. Checking only the first
-# would report clean over most of what actually gets registered.
+# Every file planwright registers hooks through is the surface: the
+# plugin-global files (hooks/hooks.json, and hooks/mods.json, which the
+# manifest names beside it for the panel mod's module), plus the worker,
+# tower and mission-control settings fragments that each wire a PreToolUse
+# command guard. Checking only the first would report clean over most of
+# what gets registered.
 HOOKS_FILES=(
   "$REPO_ROOT/hooks/hooks.json"
+  "$REPO_ROOT/hooks/mods.json"
   "$REPO_ROOT/config/worker-settings.json"
   "$REPO_ROOT/config/tower-settings.json"
   "$REPO_ROOT/config/mission-control-settings.json"

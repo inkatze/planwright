@@ -29,9 +29,10 @@ done
 FORMAT=1
 claude_dir=${CLAUDE_DIR:-$HOME/.claude}
 LOGS="decisions undo would-have locks"
-STORES="index.md followups.tsv sources.tsv mechanisms.tsv"
+STORES="index.md followups.tsv sources.tsv mechanisms.tsv proposals.tsv"
 tab=$(printf '\t')
 MECH_HEADER="# kind${tab}mechanism${tab}where${tab}source"
+PROP_HEADER="# id${tab}opened${tab}pattern${tab}shape${tab}subject${tab}target${tab}evidence${tab}kind${tab}mechanism${tab}where${tab}source${tab}change${tab}cadence${tab}intervene${tab}cost${tab}off${tab}state${tab}trigger${tab}closed"
 scratch=''
 TMP=''
 TMP2=''
@@ -78,6 +79,8 @@ Layout, under <home>/kb/:
                    the source's own terms); an omitted watermark records
                    the current epoch second for either kind
   mechanisms.tsv   kind<TAB>mechanism<TAB>where<TAB>source
+  proposals.tsv    the mechanization proposal record
+                   (scripts/mc-proposals.sh --help holds its columns)
 Every store's first line carries its format field ("# format: 1", or
 "<!-- format: 1 -->" in index.md, and in each segment's .seal sidecar);
 a store with a missing or unknown format is refused and named. Specs and
@@ -116,6 +119,9 @@ Usage (every verb takes --program <name> before its own options):
                                     segment, the subject matched with ASCII
                                     case folded, blank runs collapsed and
                                     ends trimmed (the rule store's key)
+  entries <decisions|undo|would-have|locks>
+                                    every entry of a log, every segment,
+                                    oldest first
   revert <undo-id> [--outcome <reverted|failed> --grounds <text>]
                                     run an entry's reversal once and print
                                     the id of the entry logging the
@@ -153,7 +159,7 @@ program whose home does not resolve); 2 usage or an invalid value;
 EOF
 }
 usage() {
-  printf '%s\n' "usage: mc-kb.sh <verb> --program <name> [args]; verbs: init, index, index-add, read, append, query, revert, lock, unlock, followup, source, inventory-refresh, freshness; mc-kb.sh --help for the layout and each verb" >&2
+  printf '%s\n' "usage: mc-kb.sh <verb> --program <name> [args]; verbs: init, index, index-add, read, append, query, entries, revert, lock, unlock, followup, source, inventory-refresh, freshness; mc-kb.sh --help for the layout and each verb" >&2
   exit 2
 }
 say() { printf '%s\n' "$prog: $(sanitize_printable "$1")" >&2; }
@@ -606,6 +612,7 @@ v_init() {
   new_store "$KB/followups.tsv" "# format: $FORMAT" "# id${tab}opened${tab}owner${tab}trigger${tab}state${tab}text${tab}evidence${tab}closed"
   new_store "$KB/sources.tsv" "# format: $FORMAT" "# name${tab}kind${tab}watermark${tab}ref"
   new_store "$KB/mechanisms.tsv" "# format: $FORMAT" "$MECH_HEADER"
+  new_store "$KB/proposals.tsv" "# format: $FORMAT" "$PROP_HEADER"
   armed=''
   while IFS="$tab" read -r d_id d_dir; do
     [ -n "$d_id" ] || continue
@@ -761,6 +768,15 @@ v_query() {
   S=$3 awk_segments "$SUBJECT_KEY_AWK"'
     BEGIN { want = key(ENVIRON["S"]) }
     !/^#/ && key($3) == want'
+}
+
+v_entries() {
+  [ $# -eq 1 ] || usage
+  # shellcheck disable=SC2086 # LOGS is a word list; globbing is off
+  log_ok "$1" $LOGS
+  require_kb
+  segment_list "$1"
+  awk_segments '!/^#/'
 }
 
 v_revert() {
@@ -1242,7 +1258,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 case $verb in
-  init | index | index-add | read | append | query | revert | lock | unlock | followup | source | inventory-refresh | freshness) ;;
+  init | index | index-add | read | append | query | entries | revert | lock | unlock | followup | source | inventory-refresh | freshness) ;;
   *) usage ;;
 esac
 resolve_program
@@ -1254,6 +1270,7 @@ case $verb in
   read) v_read "$@" ;;
   append) v_append "$@" ;;
   query) v_query "$@" ;;
+  entries) v_entries "$@" ;;
   revert) v_revert "$@" ;;
   lock) v_lock "$@" ;;
   unlock) v_unlock "$@" ;;

@@ -413,7 +413,19 @@ expect_out "a query reads the current segment" "approved the plan"
 expect_no_out "a query matches the whole subject" "a near miss"
 lines=$(printf '%s\n' "$OUT" | grep -c .)
 if [ "$lines" -eq 2 ]; then ok "a query returns only the matching lines"; else fail "a query returned $lines lines"; fi
+mc_run mc-kb.sh entries --program alpha decisions
+expect_rc "entries reads a log" 0
+case $(printf '%s\n' "$OUT" | head -n 1) in
+  "decisions-200001-1${tab}"*) ok "entries starts with the oldest segment" ;;
+  *) fail "entries does not start with the oldest segment: $OUT" ;;
+esac
+expect_out "entries reads the current segment" "approved the plan"
+expect_no_out "entries prints no format line" "# format"
+mc_run mc-kb.sh entries --program alpha nonsense
+expect_rc "entries names a known log" 2
 printf '# format: 9\n' >"$kb/decisions-2000-02.log"
+mc_run mc-kb.sh entries --program alpha decisions
+expect_rc "entries refuses a segment with an unknown format" 1
 mc_run mc-kb.sh query decisions --program alpha --subject pr-42
 expect_rc "a segment with an unknown format is refused" 1
 expect_err "the segment is named" "decisions-2000-02.log"
