@@ -11,3 +11,5 @@ ad7bb3d9914bc72e781d1943114516f31f989298:tests/test-inception-publish.sh:generic
 ad7bb3d9914bc72e781d1943114516f31f989298:tests/test-inception-scaffold.sh:generic-api-key:291
 # Inception review-cycle snapshot-screen fixture (an AWS-shaped key the export must refuse).
 3d02f357d8953dcc1549232cddf7738261e9552f:tests/test-inception-review-cycle.sh:aws-access-token:529
+# Stream-json identity test fixture (a worker launch token a tower session must drop).
+3bd39c2967a9585146352106023c70e593e14577:tests/test-fleet-streamjson.sh:generic-api-key:816

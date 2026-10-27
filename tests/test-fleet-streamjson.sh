@@ -813,7 +813,7 @@ senv "$home" "$rec" SHIM_READ_FIRST=0 -- \
 [ ! -s "$rec/argv" ] || fail "c9p: the refused relaunch must never spawn the worker"
 # Only a worker carries the worker identity.
 : >"$rec/env"
-senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_WORKER_HANDLE=stale PLANWRIGHT_WORKER_LAUNCH_TOKEN=0123456789abcdef -- \
+senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_WORKER_HANDLE=stale PLANWRIGHT_WORKER_LAUNCH_TOKEN=aaaaaaaaaaaaaaaa -- \
   launch sjw9i mission-control:3 --prompt-file "$tmp/prompt9" --profile tower --foreground \
   || fail "c9p: the identity-case tower launch exited non-zero"
 if ! grep -qx 'handle=<unset>' "$rec/env" || ! grep -qx 'scope=<unset>' "$rec/env"; then
