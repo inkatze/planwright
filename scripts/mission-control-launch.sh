@@ -73,11 +73,12 @@ and the row only once it is gone; a window counts as closed only when tmux
 lists the windows and that one is not among them.
 
 Exit codes: 0 done; 1 the rung failed to start the session (or it started,
-could not be recorded, and was stopped), or a retire released only part of
-it; 2 usage, an invalid value, or a registry row or launch directory the
+could not be recorded, and was stopped), or it started or may have and could
+not be closed, so its row stays for a retire, or a retire released only part
+of it; 2 usage, an invalid value, or a registry row or launch directory the
 launcher cannot read or write; 3 the name is held, or a launch or retire of
-it is in flight (launch), or there is no row, a launch of it is still in
-flight, or the caller runs inside its window (retire); 4 a launch refused
+it is in flight (launch), or there is no row, a launch or another retire of
+it is in flight, or the caller runs inside its window (retire); 4 a launch refused
 before it started: no readable profile, an unresolvable rung knob, no
 resolvable tier (an unreachable allocation store or a malformed tier knob),
 the admission gate withholding it, a broken allocation install, a program
@@ -118,7 +119,7 @@ valid_program() {
 
 valid_scope() {
   case $1 in
-    '' | *[!A-Za-z0-9._=@:-]* | . | ..) return 1 ;;
+    '' | -* | *[!A-Za-z0-9._=@:-]* | . | ..) return 1 ;;
   esac
   [ "${#1}" -le 128 ]
 }
@@ -260,7 +261,13 @@ row_write() {
     rm -f "$rw_tmp"
     return 1
   fi
-  if [ -f "$1" ] && [ "$(row_get "$1" token)" != "$2" ]; then
+  # A non-empty row is rewritten only while it is still this launch's; a
+  # launched row is never created where a retire removed the reservation.
+  if [ -s "$1" ] && [ "$(row_get "$1" token)" != "$2" ]; then
+    rm -f "$rw_tmp"
+    return 1
+  fi
+  if [ "$3" = launched ] && [ ! -s "$1" ]; then
     rm -f "$rw_tmp"
     return 1
   fi
@@ -268,6 +275,41 @@ row_write() {
     rm -f "$rw_tmp"
     return 1
   }
+}
+
+# stop_session <backend> <handle> — close a session this launch started; 0
+# only on proof it is gone.
+stop_session() {
+  case $1 in
+    stream-json)
+      ss_out=$(/bin/sh "$script_dir/fleet-streamjson.sh" stop "$2" --final </dev/null 2>/dev/null)
+      ss_rc=$?
+      case $ss_out in
+        "stop $2 stopped "* | "stop $2 already-closed") return 0 ;;
+      esac
+      # An unknown worker never got a state directory: nothing ran.
+      [ "$ss_rc" = 2 ] && [ ! -d "$FH/streamjson/$2" ] && return 0
+      return 1
+      ;;
+    tmux)
+      release_pane "$name" "$2"
+      return
+      ;;
+  esac
+  return 1
+}
+
+# release_fleet_entry <name> <handle> — retire the fleet registry marker the
+# rung wrote under <handle> and clear the session's attention row; 0 only
+# when both are gone.
+release_fleet_entry() {
+  rf_marker="$FH/dispatch-markers/$2"
+  if [ "$2" != - ] && { [ -e "$rf_marker" ] || [ -L "$rf_marker" ]; }; then
+    rf_fields=$(cat "$rf_marker" 2>/dev/null) || rf_fields=''
+    /bin/sh "$script_dir/fleet-register.sh" --retire-marker "$rf_marker" --expect "$rf_fields" >/dev/null 2>&1 </dev/null || :
+    if [ -e "$rf_marker" ] || [ -L "$rf_marker" ]; then return 1; fi
+  fi
+  /bin/sh "$script_dir/fleet-attention.sh" clear "$1" >/dev/null 2>&1 </dev/null
 }
 
 # --------------------------------------------------------------------------
@@ -353,15 +395,20 @@ cmd_launch() {
   [ "$backend" != stream-json ] || handle=$name
   token=$(new_token)
 
-  # The reservation: under the name lock, a complete row linked into place
-  # only where none exists, so a held name is reported and never replaced,
-  # and a row on disk always names its backend, launcher pid and token.
+  # The reservation: a complete row linked into place only where none
+  # exists, so a held name is reported and never replaced, and a row on disk
+  # always names its backend and token. The name lock is held for the whole
+  # launch: a retire meeting it knows the launch is still in flight, and one
+  # finding it free knows a `launching` row is a launch that died.
   name_lock "$name"
   if [ -e "$row" ] || [ -L "$row" ]; then
     die "the session name $name is held by a registered session; retire it before launching again" 3
   fi
-  rtmp="$REG/.reserve.$$"
-  row_write "$rtmp" "$token" launching || die "cannot write the reservation for $name"
+  rtmp=$(mktemp "$REG/.reserve.XXXXXX") || die "cannot write the reservation for $name"
+  if ! row_write "$rtmp" "$token" launching; then
+    rm -f "$rtmp"
+    die "cannot write the reservation for $name"
+  fi
   if ! ln "$rtmp" "$row" 2>/dev/null; then
     rm -f "$rtmp"
     [ ! -e "$row" ] || die "the session name $name is held by a registered session; retire it before launching again" 3
@@ -371,15 +418,22 @@ cmd_launch() {
   # A launch directory with no row is a leftover of a launch that died; the
   # reservation now owns the name, so it is cleared.
   rm -rf "$ldir"
-  name_unlock
 
   release_reservation() {
     rm -rf "$ldir"
-    [ ! -e "$ldir" ] || return 1
-    [ "$(row_get "$row" token 2>/dev/null)" != "$token" ] || rm -f "$row"
+    if [ -e "$ldir" ]; then
+      printf '%s\n' "$me: the launch directory $(sanitize_printable "$ldir") could not be removed" >&2
+      return 1
+    fi
+    [ "$(row_get "$row" token 2>/dev/null)" = "$token" ] || return 0
+    rm -f "$row"
+    if [ -e "$row" ]; then
+      printf '%s\n' "$me: the reservation $(sanitize_printable "$row") could not be removed" >&2
+      return 1
+    fi
   }
   refuse() { # <message> <exit>
-    release_reservation || printf '%s\n' "$me: the launch directory $(sanitize_printable "$ldir") could not be removed" >&2
+    release_reservation || :
     die "$1" "$2"
   }
 
@@ -421,12 +475,26 @@ cmd_launch() {
       [ "$model" = inherit ] || set -- "$@" --model "$model"
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"
       tier="$model/$effort"
-      if ! /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null; then
-        # A supervisor that came up after the rung stopped waiting would run
-        # with no row, so it is closed before the name is released.
-        /bin/sh "$script_dir/fleet-streamjson.sh" stop "$name" --final </dev/null >/dev/null 2>&1 || :
-        refuse "the stream-json rung did not start $name" 1
-      fi
+      sr=0
+      /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
+      case $sr in
+        0) ;;
+        3)
+          # A launch or a live session the rung already holds under this
+          # name is not this launch's to stop.
+          refuse "the stream-json rung already holds a session named $name; it was left running" 1
+          ;;
+        *)
+          # A supervisor that came up after the rung stopped waiting would run
+          # with no row, so it is closed before the name is released, and the
+          # row stays where the close is not proven.
+          if stop_session stream-json "$name"; then
+            release_fleet_entry "$name" "$name" || :
+            refuse "the stream-json rung did not start $name" 1
+          fi
+          die "the stream-json rung did not start $name, and what it may have started could not be closed; retire it by name" 1
+          ;;
+      esac
       ;;
     tmux)
       out=$(cd "$cwd" && /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
@@ -449,12 +517,8 @@ cmd_launch() {
   if ! row_write "$row" "$token" launched; then
     # The session runs, but no row records it: stop it rather than leave it
     # where retire cannot find it.
-    stopped=1
-    case $backend in
-      stream-json) /bin/sh "$script_dir/fleet-streamjson.sh" stop "$name" --final </dev/null >/dev/null 2>&1 && stopped=0 ;;
-      tmux) tmux kill-window -t "$handle" >/dev/null 2>&1 && stopped=0 ;;
-    esac
-    if [ "$stopped" = 0 ]; then
+    if stop_session "$backend" "$handle"; then
+      release_fleet_entry "$name" "$handle" || :
       refuse "$name started but its registry row could not be completed, so it was stopped" 1
     fi
     die "$name started but its registry row could not be completed and it could not be stopped; retire it by name" 1
@@ -496,22 +560,47 @@ cmd_name() {
 # windows_named <name> — print the ids of the tmux windows named <name>, or
 # return 1 when tmux cannot list them.
 windows_named() {
-  wn_list=$(tmux list-windows -a -F '#{window_id} #{window_name}' 2>/dev/null) || return 1
+  if ! wn_list=$(tmux list-windows -a -F '#{window_id} #{window_name}' 2>&1); then
+    # No server means no window: positive evidence, unlike other errors.
+    case $wn_list in
+      *'no server running'* | *'error connecting to'*'No such file or directory'*) return 0 ;;
+    esac
+    return 1
+  fi
   printf '%s\n' "$wn_list" | awk -v n="$1" '$2 == n && $1 ~ /^@[0-9]+$/ { print $1 }'
 }
 
-# release_pane <name> <window-id or -> — close the session's window. Released
-# only on positive evidence that it is gone: a listing that succeeds and
-# carries no window of that id and name. A window id another server reused
-# for a window of another name is not the session's.
+# window_ids — print every live window id, or return 1 when tmux cannot list
+# them (no server: none).
+window_ids() {
+  if ! wi_list=$(tmux list-windows -a -F '#{window_id}' 2>&1); then
+    case $wi_list in
+      *'no server running'* | *'error connecting to'*'No such file or directory'*) return 0 ;;
+    esac
+    return 1
+  fi
+  printf '%s\n' "$wi_list"
+}
+
+# release_pane <name> <window-id or -> — close the session's window, setting
+# RP_IDS to the ids it closed. Released only on positive evidence that it is
+# gone: a listing that succeeds (or no server at all) and carries no window
+# of that id and name. A recorded id live under another name is held.
 release_pane() {
   rp_ids=$(windows_named "$1") || return 1
   if [ "$2" != - ]; then
     case "$NL$rp_ids$NL" in
       *"$NL$2$NL"*) rp_ids=$2 ;;
-      *) rp_ids='' ;;
+      *)
+        # Live under another name: renamed, or reused by another server.
+        # Either way it is not proven gone, and it is not killed.
+        rp_all=$(window_ids) || return 1
+        case "$NL$rp_all$NL" in *"$NL$2$NL"*) return 1 ;; esac
+        rp_ids=''
+        ;;
     esac
   fi
+  RP_IDS=$rp_ids
   for rp_id in $rp_ids; do
     tmux kill-window -t "$rp_id" >/dev/null 2>&1 || :
   done
@@ -520,16 +609,6 @@ release_pane() {
     case "$NL$rp_left$NL" in *"$NL$rp_id$NL"*) return 1 ;; esac
   done
   return 0
-}
-
-# launcher_alive <pid> — 0 when the launcher process that wrote a row runs.
-launcher_alive() {
-  case $1 in '' | *[!0-9]*) return 1 ;; esac
-  kill -0 "$1" 2>/dev/null || return 1
-  case $(ps -o args= -p "$1" 2>/dev/null) in
-    *mission-control-launch*) return 0 ;;
-  esac
-  return 1
 }
 
 cmd_retire() {
@@ -546,9 +625,6 @@ cmd_retire() {
   state=$(row_get "$row" state)
   backend=$(row_get "$row" backend)
   handle=$(row_get "$row" handle)
-  if [ "$state" = launching ] && launcher_alive "$(row_get "$row" pid)"; then
-    die "a launch of $name is still in flight; retire it once the launch has ended" 3
-  fi
   released='' held=''
   add_released() { released="$released,$1"; }
   add_held() { held="$held,$1"; }
@@ -587,14 +663,20 @@ cmd_retire() {
   else
     # The rung registered the session in the fleet registry under its own
     # handle: the session name on stream-json, the window id on tmux.
-    marker="$FH/dispatch-markers/$handle"
-    if [ "$handle" != - ] && { [ -e "$marker" ] || [ -L "$marker" ]; }; then
-      fields=$(cat "$marker" 2>/dev/null) || fields=''
-      /bin/sh "$script_dir/fleet-register.sh" --retire-marker "$marker" --expect "$fields" >/dev/null 2>&1 </dev/null || :
-      if [ -e "$marker" ] || [ -L "$marker" ]; then add_held registry; else add_released registry; fi
-    else
-      add_released registry
-    fi
+    # A tmux row the launch never completed names no window; the windows
+    # closed by name carry the markers then.
+    ids=$handle
+    [ "$backend" != tmux ] || [ "$handle" != - ] || ids=${RP_IDS:-}
+    reg_ok=1
+    for id in $ids; do
+      marker="$FH/dispatch-markers/$id"
+      if [ "$id" != - ] && { [ -e "$marker" ] || [ -L "$marker" ]; }; then
+        fields=$(cat "$marker" 2>/dev/null) || fields=''
+        /bin/sh "$script_dir/fleet-register.sh" --retire-marker "$marker" --expect "$fields" >/dev/null 2>&1 </dev/null || :
+        if [ -e "$marker" ] || [ -L "$marker" ]; then reg_ok=0; fi
+      fi
+    done
+    if [ "$reg_ok" = 1 ]; then add_released registry; else add_held registry; fi
     if /bin/sh "$script_dir/fleet-attention.sh" clear "$name" >/dev/null 2>&1 </dev/null; then
       add_released attention
     else
@@ -628,12 +710,14 @@ cmd_list() {
   [ "$#" -eq 0 ] || usage
   fleet_home
   [ -d "$REG" ] || return 0
+  [ -r "$REG" ] && [ -x "$REG" ] || die "cannot read the registry $(sanitize_printable "$REG")" 2
   set +f
   set -- "$REG"/mc-*
   set -f
   for f in "$@"; do
     [ -f "$f" ] && [ ! -L "$f" ] || continue
     case ${f##*/} in *.tmp.*) continue ;; esac
+    [ -r "$f" ] || die "cannot read the registry row $(sanitize_printable "${f##*/}")" 2
     if ! row_format_ok "$f"; then
       printf '%s\n' "$me: skipping the registry row $(sanitize_printable "${f##*/}"): its format field is not $FORMAT" >&2
       continue

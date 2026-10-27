@@ -105,6 +105,19 @@ case $1 in
     ;;
   list-windows)
     [ "${TMUX_LIST_FAIL:-0}" = 1 ] && exit 1
+    if [ "${TMUX_NO_SERVER:-0}" = 1 ]; then
+      echo "no server running on /tmp/tmux-stub/default" >&2
+      exit 1
+    fi
+    case $all in
+      *'#{window_id} #{window_name}'*) ;;
+      *)
+        for w in "$TMUX_STUB"/@*; do
+          [ -f "$w" ] && printf '%s\n' "${w##*/}"
+        done
+        exit 0
+        ;;
+    esac
     for w in "$TMUX_STUB"/@*; do
       [ -f "$w" ] || continue
       printf '%s %s\n' "${w##*/}" "$(cat "$w")"
@@ -141,7 +154,7 @@ ml() {
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
     TMUX_PANE="${ML_TMUX_PANE:-}" \
     SHIM_RECORD_DIR="${SHIM_RECORD_DIR:-$tmp}" TMUX_STUB="$tmp/tmux" TMUX_KILL_FAIL="${TMUX_KILL_FAIL:-0}" \
-    TMUX_LIST_FAIL="${TMUX_LIST_FAIL:-0}" TMUX_LOCK_DIR="${TMUX_LOCK_DIR:-}" \
+    TMUX_LIST_FAIL="${TMUX_LIST_FAIL:-0}" TMUX_LOCK_DIR="${TMUX_LOCK_DIR:-}" TMUX_NO_SERVER="${TMUX_NO_SERVER:-0}" \
     /bin/sh "$LAUNCH" "$@" 2>"$tmp/stderr")
   RC=$?
   ERR=$(cat "$tmp/stderr")
@@ -300,9 +313,25 @@ ml launch --program alpha --kind worker --scope no-tier-tmux --brief "$tmp/brief
 [ "$RC" = 4 ] && ok "the tmux rung refuses a launch with no resolvable tier too (exit 4)" || fail "the tmux rung's tier-less launch exited $RC: $ERR"
 cp "$tmp/tracked.bak" "$tracked"
 
+# The allocation seam's own refusals keep their reasons.
+mkdir -p "$tmp/s3"
+cp -R "$repo_root/scripts" "$tmp/s3/scripts"
+for code in 3 5; do
+  printf '#!/bin/sh\nexit %s\n' "$code" >"$tmp/s3/scripts/allocation-apply.sh"
+  LAUNCH="$tmp/s3/scripts/mission-control-launch.sh" ml launch --program alpha --kind worker --scope "seam-$code" --brief "$tmp/brief.md"
+  case $code in
+    3) want='admission gate' ;;
+    5) want='broken install' ;;
+  esac
+  case $ERR in
+    *"$want"*) [ "$RC" = 4 ] && ok "allocation exit $code is refused naming the $want (exit 4)" || fail "allocation exit $code exited $RC" ;;
+    *) fail "allocation exit $code: the refusal does not name the $want: $ERR" ;;
+  esac
+done
+
 ml launch --program beta --kind worker --scope x --brief "$tmp/brief.md"
 [ "$RC" = 4 ] && ok "a program that is not configured is refused (exit 4)" || fail "an unconfigured program exited $RC"
-for bad in '--kind janitor' '--scope a/b' '--program Alpha' '--backend print' '--rules program'; do
+for bad in '--kind janitor' '--scope a/b' '--scope -x' '--program Alpha' '--backend print' '--rules program'; do
   set -- --program alpha --kind worker --scope bad-input --brief "$tmp/brief.md"
   # shellcheck disable=SC2086 # the option and its value, split on purpose
   ml launch "$@" $bad
@@ -348,6 +377,11 @@ case $argv_t in
   *fleet-dispatch-env.sh*--root*--inbound*--identity*"$pane_name"*--settings*"$repo_root/config/worker-settings.json"*--name*"$pane_name"*) ok "the tmux window runs the session under its profile and name" ;;
   *) fail "the tmux window's argv lacks the profile or name: $argv_t" ;;
 esac
+if printf '%s\n' "$argv_t" | grep -A2 -x -- '--identity' | tr '\n' ' ' | grep -q "$pane_name pane-check"; then
+  ok "the tmux session's worker identity carries its scope"
+else
+  fail "the tmux session's identity lacks its scope: $argv_t"
+fi
 grep -qF 'Never hand the operator a pane' "$fleet/mission-control/launch/$pane_name/brief.md" \
   && ok "the tmux session's brief carries the rules" || fail "the tmux session's brief lacks the rules"
 TMUX_KILL_FAIL=1 ml retire "$pane_name"
@@ -371,19 +405,39 @@ ml retire "$pane_name"
 [ ! -e "$tmp/tmux/$win" ] && ok "the retired session has no pane" || fail "the pane survived retire"
 [ ! -e "$fleet/mission-control/sessions/$pane_name" ] && ok "the retired tmux session has no row" || fail "the tmux row survived retire"
 
-# A stale row whose window id another server reused for another window: that
-# window is not the session's and is left alone.
+# A row whose window id is live under another name (renamed, or reused by
+# another server): neither killed nor read as gone.
 reuse_row="$fleet/mission-control/sessions/mc-alpha-ad-hoc-1111111111"
 printf 'other-session\n' >"$tmp/tmux/@99"
 printf 'format\t1\nname\tmc-alpha-ad-hoc-1111111111\nstate\tlaunched\nbackend\ttmux\nhandle\t@99\n' >"$reuse_row"
 : >"$tmp/tmux/calls"
 ml retire mc-alpha-ad-hoc-1111111111
-if [ "$RC" = 0 ] && [ -e "$tmp/tmux/@99" ] && ! grep -q '^kill-window' "$tmp/tmux/calls"; then
-  ok "a reused window id of another name is not killed"
+if [ "$RC" = 1 ] && [ -e "$tmp/tmux/@99" ] && ! grep -q '^kill-window' "$tmp/tmux/calls" \
+  && printf '%s\n' "$OUT" | grep -q 'held=pane'; then
+  ok "a window id live under another name is held and not killed"
 else
-  fail "retire killed a reused window id: exit $RC, $OUT"
+  fail "a window id under another name: exit $RC, $OUT"
 fi
 rm -f "$tmp/tmux/@99"
+TMUX_NO_SERVER=1 ml retire mc-alpha-ad-hoc-1111111111
+[ "$RC" = 0 ] && [ ! -e "$reuse_row" ] && ok "with no tmux server the window is gone and retire completes" \
+  || fail "a retire with no tmux server: exit $RC, $OUT"
+
+# A tmux reservation that never recorded its window: retire closes the window
+# by name and retires the marker under its id.
+nh_name=mc-alpha-ad-hoc-4444444444
+printf '%s\n' "$nh_name" >"$tmp/tmux/@77"
+mkdir -p "$fleet/dispatch-markers"
+printf 'format\t1\nname\t%s\nstate\tlaunching\ntoken\tx\nbackend\ttmux\nhandle\t-\n' "$nh_name" >"$fleet/mission-control/sessions/$nh_name"
+env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-register.sh" --handle @77 --backend tmux \
+  --scope offload --death-handle 'tmux-window stub @77' >/dev/null 2>&1
+[ -f "$fleet/dispatch-markers/@77" ] || fail "fixture: no marker for @77"
+ml retire "$nh_name"
+if [ "$RC" = 0 ] && [ ! -e "$tmp/tmux/@77" ] && [ ! -e "$fleet/dispatch-markers/@77" ]; then
+  ok "a reservation with no window id closes its window by name and retires its marker"
+else
+  fail "a no-handle tmux reservation: exit $RC, $OUT, marker $(ls "$fleet/dispatch-markers" 2>/dev/null)"
+fi
 
 # A launch that died after its reservation: retire finishes it; a launch
 # still in flight is refused.
@@ -395,17 +449,22 @@ printf 'format\t1\nname\tmc-alpha-worker-2222222222\nstate\tlaunching\ntoken\tx\
 ml retire mc-alpha-worker-2222222222
 [ "$RC" = 0 ] && [ ! -e "$dead_row" ] && ok "retire clears the reservation of a launch that died" \
   || fail "a dead launch's reservation was not cleared: exit $RC, $OUT $ERR"
-printf '#!/bin/sh\nsleep 30\n' >"$tmp/bin/mission-control-launch-fake.sh"
-chmod +x "$tmp/bin/mission-control-launch-fake.sh"
-"$tmp/bin/mission-control-launch-fake.sh" &
-live_pid=$!
-printf 'format\t1\nname\tmc-alpha-worker-2222222222\nstate\tlaunching\ntoken\tx\npid\t%s\nbackend\tstream-json\nhandle\tmc-alpha-worker-2222222222\n' "$live_pid" >"$dead_row"
+# A launch in flight holds its name's lock, whatever its row says.
+printf 'format\t1\nname\tmc-alpha-worker-2222222222\nstate\tlaunching\ntoken\tx\npid\t1\nbackend\tstream-json\nhandle\tmc-alpha-worker-2222222222\n' >"$dead_row"
+mkdir -p "$fleet/mission-control/locks"
+ln -s "$$-$(date +%s)-1" "$fleet/mission-control/locks/mc-alpha-worker-2222222222"
 ml retire mc-alpha-worker-2222222222
 [ "$RC" = 3 ] && [ -e "$dead_row" ] && ok "retire refuses a launch still in flight (exit 3)" \
   || fail "an in-flight launch was retired: exit $RC, $OUT"
-kill "$live_pid" 2>/dev/null
-wait "$live_pid" 2>/dev/null
-rm -f "$dead_row"
+rm -f "$fleet/mission-control/locks/mc-alpha-worker-2222222222" "$dead_row"
+ml name --program alpha --kind reviewer --scope locked-launch
+mkdir -p "$fleet/mission-control/locks"
+ln -s "$$-$(date +%s)-1" "$fleet/mission-control/locks/$OUT"
+ll_name=$OUT
+ml launch --program alpha --kind reviewer --scope locked-launch --brief "$tmp/brief.md"
+[ "$RC" = 3 ] && [ ! -e "$fleet/mission-control/sessions/$ll_name" ] \
+  && ok "a launch whose name lock is held is refused (exit 3)" || fail "a locked launch exited $RC: $ERR"
+rm -f "$fleet/mission-control/locks/$ll_name"
 
 # A launch or retire of a name whose lock another live process holds.
 mkdir -p "$fleet/mission-control/locks"
@@ -431,12 +490,26 @@ else
   fail "a failed rung start left state: exit $RC, $ERR"
 fi
 if kill -0 "$rf_pid" 2>/dev/null; then
-  fail "the failed launch did not close the supervisor its name records"
+  ok "a session the rung already held under the name is left running"
   kill "$rf_pid" 2>/dev/null
 else
-  ok "the failed launch closed the supervisor its name records"
+  fail "the failed launch stopped a session it never started"
 fi
 wait "$rf_pid" 2>/dev/null
+rm -rf "${fleet:?}/streamjson/$rf_name"
+# A rung that fails for another reason (here its dispatch wrapper is
+# missing, exit 8) has nothing running, so the name is released.
+mkdir -p "$tmp/s8"
+cp -R "$repo_root/scripts" "$tmp/s8/scripts"
+rm -f "$tmp/s8/scripts/fleet-dispatch-env.sh"
+LAUNCH="$tmp/s8/scripts/mission-control-launch.sh" ml launch --program alpha --kind reviewer --scope rung-fails-2 --brief "$tmp/brief.md"
+rf2_rc=$RC
+ml name --program alpha --kind reviewer --scope rung-fails-2
+if [ "$rf2_rc" = 1 ] && [ ! -e "$fleet/mission-control/sessions/$OUT" ] && [ ! -e "$fleet/mission-control/launch/$OUT" ]; then
+  ok "a rung that fails to start a session leaves no row once nothing runs (exit 1)"
+else
+  fail "a failed rung start: exit $rf2_rc, row $(cat "$fleet/mission-control/sessions/$OUT" 2>/dev/null)"
+fi
 
 # A leftover launch directory with no row is cleared by the next launch.
 ml name --program alpha --kind reviewer --scope leftover
@@ -499,6 +572,8 @@ if [ "$RC" = 1 ] && [ ! -e "$tmp/tmux/@$before" ] && [ "$said_stopped" = 1 ]; th
 else
   fail "a started session with no row was left running: exit $RC, $ERR"
 fi
+[ ! -e "$fleet/dispatch-markers/@$before" ] && ok "the stopped session's fleet marker is retired" \
+  || fail "the stopped session's fleet marker was left behind"
 rm -f "$fleet/mission-control/sessions/$rw_name"
 
 # A row whose window id is not @ and digits never reaches tmux.
@@ -531,6 +606,14 @@ if [ "$RC" = 0 ] && case $ERR in *"format field is not"*) true ;; *) false ;; es
 else
   fail "list with an unknown-format row: exit $RC, out $OUT, err $ERR"
 fi
+chmod 000 "$fleet/mission-control/sessions"
+if [ -r "$fleet/mission-control/sessions" ]; then
+  ok "skip: mode 000 does not stop this user reading the registry"
+else
+  ml list
+  [ "$RC" = 2 ] && ok "list on an unreadable registry fails (exit 2)" || fail "list on an unreadable registry exited $RC: $OUT"
+fi
+chmod 700 "$fleet/mission-control/sessions"
 if empty_out=$(env PLANWRIGHT_FLEET_STATE_DIR="$tmp/empty-fleet" /bin/sh "$LAUNCH" list 2>&1) && [ -z "$empty_out" ]; then
   ok "list with no registry prints nothing"
 else
