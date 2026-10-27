@@ -170,7 +170,7 @@ async function refresh($: EngineInterface) {
   if (!ctx || isRefreshing) return
   isRefreshing = true
   try {
-    // Knobs are read until a reading carries them, then carried on.
+    // Knobs are read until a reading names all of them, then carried on.
     const withKnobs = !hasKnobs
     const args = ['digest', '--program', ctx.program, '--target', ctx.target]
     const got = await run($, 'mc-panel.sh', withKnobs ? [...args, '--knobs'] : args)
