@@ -183,7 +183,7 @@ v_decide() {
       --target) target=$2 ;;
       --duty) duty=$2 ;;
       --rule)
-        mc_valid_uint "${2#r-}" && [ "${2#r-}" != "$2" ] || mc_usage_fail "--rule takes a rule-store id, r-<n>"
+        mc_valid_uint "${2#r-}" && [ "${2#r-}" != "$2" ] && [ "${2#r-}" -gt 0 ] || mc_usage_fail "--rule takes a rule-store id, r-<n>"
         rules=${rules:+$rules,}$2
         ;;
       *) usage ;;

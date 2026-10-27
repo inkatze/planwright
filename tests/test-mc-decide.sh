@@ -89,6 +89,8 @@ decide decide --program alpha --subject s --act a --grounds g
 expect_rc "a decision with neither class nor route is refused" 2
 decide decide --program alpha --class hygiene --subject s --act a --grounds g --rule "r 1"
 expect_rc "a malformed rule id is refused" 2
+decide decide --program alpha --class hygiene --subject s --act a --grounds g --rule r-0
+expect_rc "rule r-0, which no store numbers, is refused" 2
 decide decide --program alpha --class hygiene --subject s --act a --grounds "two: colons"
 expect_rc "grounds may carry a colon" 0
 
@@ -124,6 +126,8 @@ decide revoke --program alpha "$d1"
 expect_rc "a decision is revoked once" 1
 decide revoke --program alpha decisions-190001-1
 expect_rc "a revoke naming no decision is refused" 1
+decide revoke --program alpha decisions-202601-0
+expect_rc "entry number zero is outside the id grammar" 2
 decide revoke --program alpha "decisions-1$(printf '\033')[31m-1"
 expect_rc "an id outside the grammar is refused before any lookup" 2
 case $ERR in
@@ -196,6 +200,7 @@ expect_err "the missing flag is the one named" "--text"
 # REQ-M1.8: interruptions per hour and the settled share, from the log.
 # ---------------------------------------------------------------------------
 seg_write decisions 2026-01 \
+  "decisions-202601-7${tab}2026-01-10T11:40:00Z${tab}g${tab}act${tab}-${tab}settled bold -: g${tab}none${tab}-" \
   "decisions-202601-1${tab}2026-01-10T08:00:00Z${tab}a${tab}act${tab}-${tab}settled hygiene -: g${tab}none${tab}-" \
   "decisions-202601-2${tab}2026-01-10T09:00:00Z${tab}b${tab}act${tab}-${tab}settled hygiene -: g${tab}none${tab}-" \
   "decisions-202601-3${tab}2026-01-10T10:00:00Z${tab}c${tab}act${tab}-${tab}settled auto-applicable -: g${tab}none${tab}-" \

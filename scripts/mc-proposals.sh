@@ -164,7 +164,8 @@ repeats() {
       }
       END { for (i = 1; i <= n; i++) if (c[order[i]] >= ENVIRON["N"] + 0) print order[i] "\037" c[order[i]] "\037" ids[order[i]] }' \
     | while IFS="$us" read -r r_shape r_key r_target r_count r_ids; do
-      r_sum=$(printf '%s\t%s\t%s' "$r_shape" "$r_key" "$r_target" | cksum | awk '{ print $1 }')
+      r_sum=$(printf '%s\t%s\t%s' "$r_shape" "$r_key" "$r_target" | mc_sha256) || mc_fail "no SHA-256 tool (sha256sum, shasum or openssl) is on PATH"
+      r_sum=$(printf '%s' "$r_sum" | cut -c 1-32)
       printf 'pat-%s\t%s\t%s\t%s\t%s\t%s\n' "$r_sum" "$r_shape" "$r_key" "$r_target" "$r_count" "$r_ids"
     done
 }
@@ -208,14 +209,15 @@ require_state() { # require_state <id> <state...>
 }
 
 followup_text() { printf 're-raise mechanization proposal %s (mc-proposals.sh reopen)' "$1"; }
-# close_followups <id> <evidence>: close the open follow-ups parking left.
+# close_followups <id> <evidence>: close the open follow-ups parking left;
+# a close that fails ends the verb, naming the follow-up still open.
 close_followups() {
-  cf_rows=$(kb followup list --program "$PROGRAM") || mc_fail "the follow-up ledger cannot be read"
-  printf '%s\n' "$cf_rows" | T=$(followup_text "$1") awk -F '\t' '$5 == "open" && $6 == ENVIRON["T"] { print $1 }' \
-    | while IFS= read -r cf_id; do
-      kb followup close --program "$PROGRAM" "$cf_id" --evidence "$2" >/dev/null \
-        || printf '%s\n' "$prog: warning: follow-up $cf_id could not be closed" >&2
-    done
+  cf_rows=$(kb followup list --program "$PROGRAM") || mc_fail "the proposal moved, but the follow-up ledger cannot be read, so its parking follow-up is still open"
+  cf_ids=$(printf '%s\n' "$cf_rows" | T=$(followup_text "$1") awk -F '\t' '$5 == "open" && $6 == ENVIRON["T"] { print $1 }')
+  for cf_id in $cf_ids; do
+    kb followup close --program "$PROGRAM" "$cf_id" --evidence "$2" >/dev/null \
+      || mc_fail "the proposal moved, but its parking follow-up $cf_id could not be closed; close it with mc-kb.sh followup close"
+  done
 }
 
 # accept_rule <id>: add the proposal's rule and log its undo entry, setting
@@ -272,8 +274,13 @@ v_propose() {
     shift 2
   done
   case $pattern in
-    pat-[0-9]*) mc_valid_uint "${pattern#pat-}" || mc_usage_fail "--pattern takes a pattern id from scan, pat-<n>" ;;
-    *) mc_usage_fail "--pattern takes a pattern id from scan, pat-<n>" ;;
+    pat-[0-9a-f]*)
+      case ${pattern#pat-} in
+        *[!0-9a-f]*) mc_usage_fail "--pattern takes a pattern id from scan, pat-<hex>" ;;
+      esac
+      [ "${#pattern}" -eq 36 ] || mc_usage_fail "--pattern takes a pattern id from scan, pat-<hex>"
+      ;;
+    *) mc_usage_fail "--pattern takes a pattern id from scan, pat-<hex>" ;;
   esac
   text_arg --change "$change"
   text_arg --cadence "$cadence"

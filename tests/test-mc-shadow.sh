@@ -97,6 +97,14 @@ mc_run mc-decide.sh decide --program alpha --duty gamma-duty --class hygiene --s
 mc_run mc-kb.sh append would-have --program alpha --subject pr-12 --act agreed --target "$w1" --duty gamma-duty
 shadow promotion --program alpha
 expect_eq "an entry another writer names agreed is no agreement" "shadow${tab}gamma-duty${tab}1${tab}2"
+forged=$(mc_run mc-kb.sh query would-have --program alpha --subject pr-12 && printf '%s\n' "$OUT" | awk -F '\t' '$4 == "agreed" && $6 == "-" { print $1; exit }')
+shadow agree --program alpha "$forged"
+expect_rc "agreeing with an agreement row is refused" 1
+shadow raise --program alpha --duty gamma-duty -- gamma-item pr-14
+case $(mc_run mc-kb.sh query would-have --program alpha --subject pr-14 && printf '%s\n' "$OUT") in
+  *"${tab}gamma-item: ${tab}"*) ok "an item with no text is recorded with no text" ;;
+  *) fail "the shadow record invented text: $OUT" ;;
+esac
 shadow raise --program alpha --duty gamma-duty -- gamma-item pr-13 "would ask again"
 w2=$(field "$OUT" 2)
 shadow agree --program alpha "$w2"

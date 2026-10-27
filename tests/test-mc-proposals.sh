@@ -129,7 +129,7 @@ expect_no_out "no proposal was recorded for the uncovered repeat" "rebase or mer
 
 prop propose --program alpha --pattern "$p_ans" --candidate rule --change c --cadence c --intervene c --cost c
 expect_rc "a proposal without its off switch is refused" 2
-prop propose --program alpha --pattern pat-1 --candidate rule --change c --cadence c --intervene c --cost c --off c
+prop propose --program alpha --pattern pat-00000000000000000000000000000000 --candidate rule --change c --cadence c --intervene c --cost c --off c
 expect_rc "a pattern that is not at the threshold is refused" 1
 
 # ---------------------------------------------------------------------------

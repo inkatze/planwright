@@ -105,7 +105,7 @@ v_raise() {
       printf 'raised\t%s\n' "$id"
       ;;
     shadow)
-      id=$(mc_kb append would-have --program "$PROGRAM" --subject "$subject" --act "$kind: ${text:-$kind}" --duty "$duty") \
+      id=$(mc_kb append would-have --program "$PROGRAM" --subject "$subject" --act "$kind: $text" --duty "$duty") \
         || mc_fail "the would-have entry was not written"
       printf 'would-have\t%s\n' "$id"
       ;;
@@ -119,8 +119,9 @@ v_agree() {
   mc_require_program "$PROGRAM"
   mc_kb_lock "$PROGRAM" agreements
   all=$(mc_kb_entries "$PROGRAM" would-have) || exit $?
-  line=$(printf '%s\n' "$all" | I=$1 A=$AGREED awk -F '\t' '$1 == ENVIRON["I"] && !($4 == "agreed" && $6 == ENVIRON["A"]) { print; exit }')
+  line=$(printf '%s\n' "$all" | I=$1 awk -F '\t' '$1 == ENVIRON["I"] { print; exit }')
   [ -n "$line" ] || mc_fail "no would-have entry $1"
+  [ "$(printf '%s\n' "$line" | cut -f 4)" != agreed ] || mc_fail "would-have entry $1 is an agreement, not something a duty would have done"
   if printf '%s\n' "$all" | I=$1 A=$AGREED awk -F '\t' '$4 == "agreed" && $6 == ENVIRON["A"] && $5 == ENVIRON["I"] { f = 1 } END { exit !f }'; then
     mc_fail "would-have entry $1 is already agreed"
   fi

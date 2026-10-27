@@ -76,7 +76,8 @@ mc_iso() {
 # The reasons grammar of a decisions-log entry's grounds, scripts/mc-decide.sh
 # --help's: `<reason> <class> <rules>: <text>`. MC_GROUNDS_AWK defines
 # grounds(g), which sets G_REASON, G_CLASS and G_RULES (`-` for none) and
-# returns 1, or returns 0 for grounds outside the grammar.
+# returns 1, or returns 0 for grounds outside the grammar: a reason, class
+# or rules word scripts/mc-decide.sh never writes.
 # shellcheck disable=SC2016 # an awk program, expanded by awk
 MC_GROUNDS_AWK='function grounds(g,   p, n, w) {
   G_REASON = ""; G_CLASS = ""; G_RULES = ""
@@ -84,6 +85,8 @@ MC_GROUNDS_AWK='function grounds(g,   p, n, w) {
   if (!p) return 0
   n = split(substr(g, 1, p - 1), w, " ")
   if (n != 3 || w[1] !~ /^(settled|ask-first|human-gate|fork|hard-disqualifier|reserved-proposal|revoke|confirm|correction|manual|answer)$/) return 0
+  if (w[2] !~ /^(-|auto-applicable|agent-resolvable|needs-sign-off|hygiene)$/) return 0
+  if (w[3] != "-" && w[3] !~ /^r-[1-9][0-9]*(,r-[1-9][0-9]*)*$/) return 0
   G_REASON = w[1]; G_CLASS = w[2]; G_RULES = w[3]
   return 1
 }
@@ -241,6 +244,22 @@ mc_event_store() {
 
 mc_event() { /bin/bash "$script_dir/mc-event.sh" "$@"; }
 mc_kb() { /bin/bash "$script_dir/mc-kb.sh" "$@"; }
+
+# mc_sha256: the SHA-256 of stdin in hex; fails with no SHA-256 tool.
+mc_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    msh=$(sha256sum)
+  elif command -v shasum >/dev/null 2>&1; then
+    msh=$(shasum -a 256)
+  elif command -v openssl >/dev/null 2>&1; then
+    msh=$(openssl dgst -sha256 -r)
+  else
+    return 1
+  fi
+  msh=${msh%%[!0-9a-f]*}
+  [ "${#msh}" -eq 64 ] || return 1
+  printf '%s\n' "$msh"
+}
 
 # mc_kb_entries <program> <log>: every entry of a knowledge-base log, oldest
 # first; an unconfigured program exits 3, any other failure 1.
@@ -432,7 +451,7 @@ mc_valid_entry_id() {
     [0-9][0-9][0-9][0-9][0-9][0-9]) ;;
     *) return 1 ;;
   esac
-  mc_valid_uint "${mvi#*-}"
+  mc_valid_uint "${mvi#*-}" && [ "${mvi#*-}" -gt 0 ]
 }
 
 # mc_lookup <key> <key<TAB>value lines>: the value for <key>, if any.

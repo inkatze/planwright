@@ -46,7 +46,8 @@ the rule store's subject key. Findings, one line each:
   finding<TAB>shared-subject<TAB><id>,<id>[,...]<TAB>-<TAB><subject key>
       active entries sharing a subject (scripts/mc-rules.sh conflicts);
       whether they conflict is the operator's call
-then audit<TAB><n> findings. A finding is the operator's item or a rule
+then audit<TAB><n> findings. A log line that is not a whole entry is
+skipped with a warning on stderr. A finding is the operator's item or a rule
 proposal for the caller to raise; the audit raises and edits nothing.
 
 Exit codes: 0 audited; 1 a store or log that cannot be read; 2 usage or an
@@ -85,6 +86,10 @@ rules=$(/bin/bash "$script_dir/mc-rules.sh" active "$PROGRAM") || mc_fail "the r
 shared=$(/bin/bash "$script_dir/mc-rules.sh" conflicts "$PROGRAM") || mc_fail "the shared-subject report failed"
 decisions=$(mc_kb_entries "$PROGRAM" decisions) || exit $?
 undo=$(mc_kb_entries "$PROGRAM" undo) || exit $?
+# A line short of an entry's fields (a crash's partial append, until the next
+# append drops it) is skipped, and said, so a clean audit never hides one.
+skipped=$(printf '%s\n%s\n' "$decisions" "$undo" | awk -F '\t' 'NF && NF != 8 { n++ } END { print n + 0 }')
+[ "$skipped" -eq 0 ] || printf '%s\n' "$prog: warning: skipped $skipped log line(s) that are not whole entries" >&2
 
 # One stream: R lines (the active rules), A lines (the acts, each with the
 # rules it cites), S lines (the shared subjects).
