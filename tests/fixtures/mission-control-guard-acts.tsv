@@ -185,3 +185,6 @@ deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git cat-file -
 deny	git-mutation	bash	-	runs no git mutation	git ls-remote --u=/tmp/x.sh .
 defer	read	bash	-	-	timeout 30 git log --until=yesterday
 defer	read	bash	-	-	timeout 30 git rev-list --filter=blob:none HEAD
+defer	help-prompt	bash	-	-	git help status
+defer	help-prompt	bash	-	-	git help --web status
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git help --web status'

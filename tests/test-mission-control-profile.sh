@@ -116,7 +116,7 @@ for s in mission-control-launch.sh mc-rules.sh fleet-streamjson.sh offload-dispa
   [ "$(guard_says mission-control "$REPO_ROOT/scripts/$s")" = allow ] \
     && ok "mission-control mode approves $s" || fail "mission-control mode does not approve $s"
 done
-for c in 'mise run release' 'mise tasks run check' 'mise run check'; do
+for c in 'mise run release' 'mise tasks run check' 'mise run check' 'git help status' 'git help --web status'; do
   [ "$(guard_says mission-control "$c")" = defer ] && ok "mission-control mode leaves '$c' to the prompt" \
     || fail "mission-control mode approves '$c' unprompted"
 done

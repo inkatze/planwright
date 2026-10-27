@@ -2107,7 +2107,7 @@ GIT_ENV=0
 
 # The git subcommands that only read, whatever their arguments, once the
 # writing and executing flags below are refused.
-MC_GIT_READS=' status log show diff rev-parse ls-files ls-remote ls-tree cat-file for-each-ref merge-base describe blame annotate grep shortlog rev-list name-rev show-ref show-branch whatchanged var count-objects check-ignore check-attr check-mailmap check-ref-format diff-tree diff-files diff-index range-diff cherry help version verify-commit verify-tag patch-id '
+MC_GIT_READS=' status log show diff rev-parse ls-files ls-remote ls-tree cat-file for-each-ref merge-base describe blame annotate grep shortlog rev-list name-rev show-ref show-branch whatchanged var count-objects check-ignore check-attr check-mailmap check-ref-format diff-tree diff-files diff-index range-diff cherry version verify-commit verify-tag patch-id '
 
 # mc_git_reads <subcommand> <first-arg-index> — 0 when the git segment in SW[]
 # only reads: an inspection command with no flag that writes a file or runs a
@@ -2273,6 +2273,12 @@ classify_git() {
         }
       ;;
   esac
+  # git help is no read (--web and the configured man viewers run a
+  # program), but it changes nothing either: the guard leaves it to the
+  # operator's prompt.
+  if [ "$TIER" = mission-control ] && [ "$LC" = help ]; then
+    return 0
+  fi
   if [ "$TIER" = mission-control ]; then
     # Configuration, environment and a moved exec path can make any read run
     # a program (an fsmonitor, an external diff, a pager, a remote helper).
