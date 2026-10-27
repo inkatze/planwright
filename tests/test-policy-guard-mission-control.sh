@@ -66,14 +66,14 @@ while IFS="$TAB" read -r want class surface knob reason input; do
       ;;
   esac
   expect "$want" "[mission-control] $class: $input"
-  [ "$want" != deny ] || [ "$reason" = - ] || reason_has "$reason" "[mission-control] $class refused for its own reason: $input"
+  [ "$want" = defer ] || [ "$reason" = - ] || reason_has "$reason" "[mission-control] $class refused for its own reason: $input"
   case $want in
     deny) denies=$((denies + 1)) ;;
     defer) defers=$((defers + 1)) ;;
   esac
 done <"$ROWS"
 
-for c in git-mutation merge mcp-flip gh-write settings-write repo-write flip-outside flip-other-repo rewrite protected-push remote-delete flip-inside read; do
+for c in git-mutation merge mcp-flip gh-write settings-write repo-write flip-human flip-other-repo rewrite protected-push remote-delete flip-inside read; do
   case "$classes" in
     *" $c "*) pass "the table carries a $c row" ;;
     *) fail "the table carries no $c row" ;;
@@ -96,7 +96,12 @@ pg mission-control 'gh pr ready 42'
 reads ready_flip_policy "a flip reads only ready_flip_policy"
 set_knobs 'ready_flip_policy: human'
 pg mission-control 'gh pr ready 42'
-reason_has 'ready_flip_policy is human' "the out-of-policy flip names the knob"
+expect ask "[mission-control] a flip under human asks the operator"
+reads ready_flip_policy "the asked flip read only ready_flip_policy"
+pg mission-control 'gh pr ready 42 && git commit -m wip'
+expect deny "[mission-control] a refusal elsewhere in the command outranks the flip's ask"
+pg worker 'gh pr ready 42'
+expect deny "[worker] a flip under human still denies at the worker tier"
 set_knobs 'ready_flip_policy: unit-owner'
 GH_REPO=employer/widgets pg mission-control 'gh pr ready 42'
 expect deny "[mission-control] a flip under a GH_REPO the session inherited is refused"

@@ -31,12 +31,14 @@
 # command naming a posture file passes only as a plain read, and a word or
 # redirect target that could expand into one denies (the directories are the
 # file surface's alone: an installed planwright script runs from under
-# .claude/plugins). Its flip follows ready_flip_policy as a worker's does, for
-# a PR of the repository it runs in only, the ready-guard's currency check
-# running next; the MCP flip stays denied whole, as the tower's is.
+# .claude/plugins). Its flip, for a PR of the repository it runs in only,
+# follows ready_flip_policy: unit-owner defers to the ready-guard's currency
+# check, human asks the operator; the MCP flip stays denied whole, as the
+# tower's is.
 #
 # MODALITY. Like the ready-guard and unlike the allow-only command guards, this
-# guard emits deny, so a missed deny defeats it and a false deny blocks work.
+# guard emits deny, so a missed deny defeats it and a false deny blocks work;
+# its one ask is the mission-control flip under ready_flip_policy: human.
 # Every refusal names its remedy.
 #
 # ORDER. The intercepted call is classified first, with no knob read: a call
@@ -63,8 +65,10 @@
 #   flip        `gh pr ready <n>` and the MCP draft->ready transition.
 #               tower: deny. worker: ready_flip_policy (unit-owner defers, so
 #               the ready-guard's currency check runs next). mission-control:
-#               as a worker, and a flip naming another repository (--repo, a
-#               PR URL, GH_REPO, GH_HOST) denies.
+#               unit-owner defers as a worker's does, and human asks the
+#               operator, whose yes is the request to flip, the reason naming
+#               the setting that settles it; a flip naming another repository
+#               (--repo, a PR URL, GH_REPO, GH_HOST) denies.
 #   undo        `gh pr ready --undo` and the MCP ready->draft transition: deny,
 #               the corrective helper being the only sanctioned re-draft.
 #               Running scripts/request-reviewer.sh performs no act here, so
@@ -194,6 +198,17 @@ emit_deny() {
   esac
   out=$(jq -nc --arg r "$reason" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}' 2>/dev/null) \
+    || out=''
+  [ -n "$out" ] || emit_deny_constant
+  printf '%s\n' "$out"
+  exit 0
+}
+
+# emit_ask <reason> — leave the call to the operator's own answer.
+emit_ask() {
+  local out
+  out=$(jq -nc --arg r "$REASON_PREFIX$1" \
+    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$r}}' 2>/dev/null) \
     || out=''
   [ -n "$out" ] || emit_deny_constant
   printf '%s\n' "$out"
@@ -3079,7 +3094,12 @@ eval_pending() {
       push) eval_push "$rest" ;;
     esac
   done
+  # Asked only once nothing else in the command was refused.
+  [ "$MC_FLIP_ASK" = 0 ] || emit_ask "$MC_FLIP_ASK_REASON"
 }
+
+MC_FLIP_ASK=0
+MC_FLIP_ASK_REASON='ready_flip_policy is human in this repository, so mission control flips this pull request only on your request: a yes to this prompt is your request to mark it ready. To settle it for good, set ready_flip_policy in the repository'"'"'s planwright config (planwright.yml in its project settings directory): unit-owner lets mission control flip its pull requests, and human with a Bash(gh pr ready:*) deny rule in the repository'"'"'s project settings file (settings.json in that directory) keeps mission control hands-off.'
 
 eval_flip() {
   local dir=$1
@@ -3087,7 +3107,14 @@ eval_flip() {
   read_knob ready_flip_policy "$dir" human unit-owner
   case $KNOB_VAL in
     unit-owner) return 0 ;;
-    *) emit_deny 'ready_flip_policy is human, so only a person marks a task pull request ready; leave it a draft and name it in your handoff.' ;;
+    *)
+      # Mission control acts for the operator, who answers the prompt.
+      if [ "$TIER" = mission-control ]; then
+        MC_FLIP_ASK=1
+        return 0
+      fi
+      emit_deny 'ready_flip_policy is human, so only a person marks a task pull request ready; leave it a draft and name it in your handoff.'
+      ;;
   esac
 }
 

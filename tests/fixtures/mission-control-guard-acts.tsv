@@ -3,8 +3,8 @@
 # driven by tests/test-policy-guard-mission-control.sh.
 #
 # expect<TAB>class<TAB>surface<TAB>knob<TAB>reason<TAB>input
-#   expect   deny, or defer (the guard stays silent and the call reaches the
-#            permission layer)
+#   expect   deny, ask (the operator's answer decides), or defer (the guard
+#            stays silent and the call reaches the permission layer)
 #   surface  bash: <input> is the command; file: <input> is `<tool> <path>`
 #            for an Edit, Write, MultiEdit or NotebookEdit payload; mcp:
 #            <input> is the update_pull_request tool_input as JSON
@@ -125,7 +125,8 @@ deny	settings-write	bash	-	settings or configuration file	printf 'ready_flip_pol
 deny	repo-write	file	-	edits no repository	Write @UNIT@/README.md
 deny	repo-write	file	-	edits no repository	Edit @UNIT@/new-dir/notes.md
 deny	repo-write	file	-	edits no repository	Write @SCRATCH@/bare.git/hooks/pre-commit
-deny	flip-outside	bash	ready_flip_policy: human	ready_flip_policy is human	gh pr ready 42
+ask	flip-human	bash	ready_flip_policy: human	your request to mark.*ready_flip_policy in .*planwright config \(planwright\.yml	gh pr ready 42
+ask	flip-human	bash	ready_flip_policy: human	unit-owner.*Bash\(gh pr ready:\*\)	gh pr ready 42 --undo=false
 deny	flip-other-repo	bash	-	names a repository	gh pr ready 42 --repo employer/widgets
 deny	flip-other-repo	bash	-	names a repository	gh pr ready 42 -R employer/widgets
 deny	flip-other-repo	bash	-	names a repository	gh -R employer/widgets pr ready 42
