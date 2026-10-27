@@ -102,8 +102,9 @@ Usage:
       too: what scripts/mc-wake.sh reads to tell a live `mod` target from
       one whose mod died
 
-Exit codes: 0 done; 1 the program list, the presence marker or a target's
-lease cannot be read or written; 2 usage; 3 the program is not configured.
+Exit codes: 0 done; 1 the program list or the presence marker cannot be
+read or written, or a target's lease cannot be written (its directory a
+symlink included); 2 usage; 3 the program is not configured.
 
 Portable bash 3.2 / BSD tooling.
 HELP
