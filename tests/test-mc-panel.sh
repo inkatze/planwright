@@ -239,6 +239,14 @@ else
   fail "the lease reads '$(cat "$runtime/leases/mc-alpha" 2>/dev/null)'"
 fi
 
+mv "$runtime/leases" "$runtime/leases.real"
+ln -s "$runtime/leases.real" "$runtime/leases"
+mc_run mc-panel.sh presence --program alpha --refresh --target mc-alpha --now 4400
+expect_rc "a symlinked lease directory is refused" 1
+if [ "$(cat "$runtime/leases.real/mc-alpha")" = 4300 ]; then ok "and nothing is written through it"; else fail "a lease was written through the symlink"; fi
+rm -f "$runtime/leases"
+mv "$runtime/leases.real" "$runtime/leases"
+
 # A store that is a symlink is unreadable, never unwritten.
 mv "$runtime/budget" "$runtime/budget.saved"
 ln -s "$tmp/nowhere" "$runtime/budget"

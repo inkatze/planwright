@@ -443,6 +443,15 @@ expect_out "a lease is the target's own" "unreachable${tab}modded${tab}not in th
 mc_run mc-panel.sh presence --program alpha --refresh --target modded --now 99999999999
 mc_run mc-wake.sh relay --program alpha
 expect_out "a lease from the future does not hold the target" "unreachable${tab}modded${tab}not in the fleet registry"
+# A symlinked lease directory holds nothing either.
+mc_run mc-panel.sh presence --program alpha --refresh --target modded
+lroot=$fleet/mission-control/alpha
+mv "$lroot/leases" "$lroot/leases.real"
+ln -s "$lroot/leases.real" "$lroot/leases"
+mc_run mc-wake.sh relay --program alpha
+expect_out "a symlinked lease directory does not hold the target" "unreachable${tab}modded${tab}not in the fleet registry"
+rm -f "$lroot/leases"
+mv "$lroot/leases.real" "$lroot/leases"
 mc_run mc-wake.sh target remove --program alpha ghost
 mc_run mc-wake.sh target list --program alpha
 expect_no_out "target remove" "ghost"

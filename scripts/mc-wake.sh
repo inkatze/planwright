@@ -285,7 +285,7 @@ send() {
 # younger than MOD_LEASE; one stamped after now proves nothing.
 mod_live() {
   ml_lease=$runtime/leases/$1
-  [ -f "$ml_lease" ] && [ ! -L "$ml_lease" ] || return 1
+  [ ! -L "$runtime/leases" ] && [ -f "$ml_lease" ] && [ ! -L "$ml_lease" ] || return 1
   ml_at=$(head -n 1 "$ml_lease")
   mc_valid_uint "$ml_at" || return 1
   [ "$ml_at" -le "$NOW" ] && [ $((NOW - ml_at)) -lt "$MOD_LEASE" ]

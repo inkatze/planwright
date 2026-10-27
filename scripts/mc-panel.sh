@@ -193,6 +193,9 @@ if [ "$verb" = presence ]; then
   printf 'format\t%s\nproducer\tmission-control-panel\nwritten\t%s\nlast-prompt\t%s\n' "$MC_FORMAT" "$NOW" "$last" \
     | mc_write "$pres" || mc_fail "cannot write the presence marker"
   if [ -n "$target" ]; then
+    # A symlinked lease directory would send the lease, and the relay's read
+    # of it, somewhere else.
+    [ ! -L "$runtime/leases" ] || mc_fail "the lease directory is a symlink"
     mkdir -p "$runtime/leases" || mc_fail "cannot create the lease directory"
     printf '%s\n' "$NOW" | mc_write "$runtime/leases/$target" || mc_fail "cannot write the lease for '$target'"
   fi
