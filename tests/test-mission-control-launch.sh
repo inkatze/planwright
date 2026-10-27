@@ -35,7 +35,7 @@ for t in jq git; do
   }
 done
 
-tmp=$(mktemp -d) || exit 1
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/mc-launch.XXXXXX") || exit 1
 tmp=$(cd "$tmp" && pwd -P) || exit 1
 fleet="$tmp/fleet"
 cleanup() {

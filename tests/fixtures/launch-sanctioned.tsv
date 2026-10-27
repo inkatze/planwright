@@ -1,7 +1,9 @@
 # The commands each launch profile's sessions run routinely, which must never
 # prompt (mission-control REQ-G1.1): tests/test-launch-profiles.sh checks each
 # is denied by no rule of its profile and is approved by the profile's allow
-# list or by the Bash command guard the profile wires.
+# list or by the Bash command guard the profile wires. The mission-control
+# `gh pr ready` row holds under ready_flip_policy unit-owner, the value the
+# check runs with; under human the policy guard asks the operator.
 #
 # profile<TAB>command    (@ROOT@ is the planwright root holding scripts/)
 mission-control	@ROOT@/scripts/mission-control-launch.sh launch --program alpha --kind worker --scope spec:alpha-3 --brief /tmp/brief.md

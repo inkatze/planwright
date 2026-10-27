@@ -49,7 +49,7 @@ guard_allows() {
   [ "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)" = allow ]
 }
 
-tmp=$(mktemp -d) || exit 1
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/pw-launch-profiles.XXXXXX") || exit 1
 trap 'rm -rf "$tmp"' EXIT
 PG_CFG="$tmp/local.yml"
 PG_ADOPTER="$tmp/adopter"
