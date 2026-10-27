@@ -477,6 +477,7 @@ the list lacked; the annotation moved below the task's fields.)*
 ## Awaiting input
 
 - **Task 5** — pending ready-flip: review-converged failed on f8c964f89099
+- **Task 7** — post-pr: cubic-pr halted (.claude/steps/000001/007-step-post-pr.rec)
 
 ## Deferred
 
