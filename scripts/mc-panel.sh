@@ -37,10 +37,10 @@ the presence marker the mod feeds from prompt events.
 
 The mod (hooks/mission-control/) runs `digest` on its redraw timer and
 draws only what it prints; nothing here calls a model or writes a store
-but the presence marker. The mod is active only in a session started with
-PLANWRIGHT_MC_PROGRAM=<program> in its environment (and optionally
-PLANWRIGHT_MC_TARGET=<its wake target>, the program's name by default),
-which it reads once and clears. A store that cannot be read is said as such,
+but the presence marker and, with --target, the target's lease. The mod
+is active only in a session started with PLANWRIGHT_MC_PROGRAM=<program>
+in its environment (and optionally PLANWRIGHT_MC_TARGET=<its wake
+target>, the program's name by default), which it reads once and clears. A store that cannot be read is said as such,
 never drawn as empty.
 
 Usage:
@@ -102,8 +102,8 @@ Usage:
       too: what scripts/mc-wake.sh reads to tell a live `mod` target from
       one whose mod died
 
-Exit codes: 0 done; 1 the program list or the presence marker cannot be
-read or written; 2 usage; 3 the program is not configured.
+Exit codes: 0 done; 1 the program list, the presence marker or a target's
+lease cannot be read or written; 2 usage; 3 the program is not configured.
 
 Portable bash 3.2 / BSD tooling.
 HELP
