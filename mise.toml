@@ -142,6 +142,8 @@ jq . .claude-plugin/marketplace.json >/dev/null
 echo marketplace.json valid
 jq . hooks/hooks.json >/dev/null
 echo hooks.json valid
+jq . hooks/mods.json >/dev/null
+echo mods.json valid
 jq . config/worker-settings.json >/dev/null
 echo worker-settings.json valid
 jq . config/tower-settings.json >/dev/null
@@ -251,6 +253,10 @@ run = "/bin/sh scripts/check-spec-literals.sh"
 [tasks."check:duties"]
 description = "mission control's duty and program guard: the merged duties catalog resolves without a resolver warning and every entry carries the grammar config/duties.yaml documents (the failing field named), the shipped default duty set names catalog duties, and every configured program validates (repositories, spec root, home, budget, a state-source map with known classes and modes) and enables only catalog duties; core and repo-tracked layers only, the adopter overlay and machine-local config held out"
 run = "/bin/bash scripts/check-duties.sh"
+
+[tasks."check:panel-mod"]
+description = "the panel mod: the claude CLI at or above the mods floor, every hook, call and environment read `claude plugin validate` reports named in config/panel-mod-surface.txt, the plugin tests (`claude plugin test`) green and not empty, and the suite failing on a seeded drawing defect (skips with a note where the claude CLI is absent)"
+run = "/bin/bash scripts/check-panel-mod.sh"
 
 [tasks."check:mc-knobs"]
 description = "mission control's knob inventory: every behaviour in config/mission-control-knobs.tsv names a mission_control_* knob the defaults ship, every such key resolves to a non-empty default through scripts/config-get.sh, is claimed by a behaviour and has a docs/options-reference.md row naming its evidence, and no scanned reader names an undeclared mission_control_* key"
@@ -377,6 +383,7 @@ depends = [
   "check:spec-literals",
   "check:duties",
   "check:mc-knobs",
+  "check:panel-mod",
   "check:kb-copies",
   "check:steps",
   "check:task-registration",

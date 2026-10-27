@@ -580,6 +580,54 @@ primary sources.
   duties, so a later bundle adds an adapter with an overlay entry and no
   seam change.
 
+### Execution research: Task 7 (2026-10-26, after sign-off)
+
+Recorded during Task 7's execution, as the Task 5 record above was; it
+changes no decision and is not part of the signed section.
+
+Scoping: one version-sensitive API (the Claude Code mods API, read from the
+type declarations and validator the installed CLI ships, 2.1.310) and the
+relay question risk row 5 left to this task; no new dependency, so a short
+pass against those primary sources and local probes.
+
+- **Row 5, per backend (submit or stage).**
+
+  | Path | Submits or stages | Fallback |
+  | --- | --- | --- |
+  | The mod (`$.prompt.submit`) | Submits: the prompt starts a turn of its own once the session is idle, and the call resolves as that turn starts. The mod holds a wake while its session is busy and marks the events submitted only after the call resolves. | Its own tick, at the tick cadence. |
+  | stream-json, stream-json-persistent (`fleet-streamjson.sh steer`) | Submits: a user turn on the worker's stdin. | The daemon tick. |
+  | tmux (`orchestrate-relay.sh deliver tmux`) | Stages only: a buffer paste with no newline. | The daemon tick re-stages until the session acknowledges. |
+  | Any other backend (a one-shot print run, a cloud session) | Neither: no session relay reaches it, and the relay reports it unreachable. | None; a wake cannot reach such a session at all. |
+
+- **Idle.** The API has no idle query. The mod tracks the main loop's
+  `turn.start` and `turn.complete` and holds a wake between them, then
+  submits it as the turn completes; a timer alone would wait a redraw.
+- **Context and limits.** `$.session.usage()` carries the context percent
+  and the rate-limit windows the status line shows; either may be absent
+  (no reading yet, no subscription), so the completed-wake count stands in
+  for the percent exactly as D-29 states.
+- **Compaction.** The `session.compact` hook appends the rendered rules to
+  the compacted conversation on its way up, rather than appending a row
+  after it, which could land before the engine replaces the transcript. A
+  deferral is a `skip`, never for a manual compaction, only while a
+  handover verb is installed, and not past 95% context.
+- **Packaging.** The module is listed in a second hooks file the manifest's
+  `hooks` field names, so `hooks/hooks.json` and its guard hooks are
+  untouched; `claude plugin details` lists every event that file registers
+  with the field in place. Whether a CLI below the floor reads the second
+  file cleanly was not probed (a second CLI install is ruled out for
+  workers); the floor is the accepted dependency of risk row 6.
+- **Tests.** The plugin-test kit offers no filesystem or process access,
+  so the mod reads every store through one script whose output the tests
+  supply; that script is tested in the shell suite against real fixture
+  stores. Each plugin test was checked to fail under a mutation of the
+  behaviour it covers before it was trusted.
+- **Edges to later units.** The presence marker is the producer side the
+  routed queue amendment's presence verb reads; the measures file is what
+  Task 9's measures write; the `handover-due` event is what Task 16 acts
+  on; the decisions log is read in the layout Task 8 writes. Each absent
+  store draws as absent, never as empty.
+
 ## 8. Sign-off
 
 First activation, full walkthrough, every section above signed, no

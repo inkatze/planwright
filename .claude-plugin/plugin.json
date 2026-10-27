@@ -24,5 +24,7 @@
     "ai-agents",
     "claude-code"
   ],
+  "hooks": "./hooks/mods.json",
+  "types": "./types/index.d.ts",
   "defaultEnabled": true
 }
