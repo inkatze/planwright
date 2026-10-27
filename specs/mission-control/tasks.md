@@ -477,15 +477,6 @@ the list lacked; the annotation moved below the task's fields.)*
 ## Awaiting input
 
 - **Task 5** — pending ready-flip: review-converged failed on f8c964f89099
-- **Task 3** — PR #751 (draft, CI green) parked at its post-pr cubic step:
-  three cubic findings wait on the operator, each with a recommended
-  disposition in the PR body's audit record. Two are fixes in
-  hard-disqualifier zones (the launcher keeps a tmux window the rung created
-  but could not name untracked; the guard lets `git help`, which can run a
-  program, through as a read), recommended to apply with tests; one is a
-  judgment call (whether mission control's flip under `unit-owner` should
-  reach only the PRs it launched), recommended to document the current
-  scope and leave a narrower one to a follow-on. Direct them and resume.
 
 ## Deferred
 
