@@ -123,7 +123,7 @@ test('a dropped wake is not marked, and is tried again', async ($, on) => {
   expect(ran(w, 'mc-event.sh', 'mark')).toHaveLength(1)
 })
 
-test('a wake whose events cannot be marked is not sent again before the tick', SLOW, async ($, on) => {
+test('a wake whose events cannot be marked is held for one tick period', SLOW, async ($, on) => {
   const w = world(on, { markExit: 1 })
   await boot($, w)
   w.set({ digest: digestText({ pending: 1 }), wake: WAKE })
@@ -190,4 +190,50 @@ test('a /clear keeps the target and starts the counts over', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /compactions since start 0 · wakes 0/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('a pruned event (mark exit 3) still counts as marked', async ($, on) => {
+  const w = world(on, { markExit: 3 })
+  await boot($, w)
+  w.set({ digest: digestText({ pending: 1 }), wake: WAKE })
+  await w.clock.advance(10_000)
+  expect(w.toasts).toEqual([])
+  w.set({ wake: 'idle' })
+  await w.clock.advance(10_000)
+  expect(w.submitted).toHaveLength(1)
+})
+
+test('a failed claim stays on the pane and is retried until it lands', async ($, on) => {
+  const w = world(on, { claimExit: 1 })
+  await boot($, w)
+  await w.clock.advance(10_000)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /the wake target could not be claimed/ })).toBeDefined()
+  const tries = ran(w, 'mc-wake.sh', 'target').length
+  expect(tries).toBeGreaterThan(1)
+  w.set({ claimExit: 0 })
+  await w.clock.advance(10_000)
+  await w.clock.advance(10_000)
+  expect(ran(w, 'mc-wake.sh', 'target')).toHaveLength(tries + 1)
+  expect(await ui.find({ type: 'Text', text: /could not be claimed/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the presence marker keeps its lease under a slow redraw cadence', SLOW, async ($, on) => {
+  const w = world(on, { digest: digestText({ refresh: 600 }) })
+  await boot($, w)
+  const refreshes = () => ran(w, 'mc-panel.sh', 'presence').filter(r => r.includes('--refresh')).length
+  const first = refreshes()
+  await w.clock.advance(240_000)
+  expect(refreshes()).toBe(first + 4)
+})
+
+test('a reload finds the program and target in the view once the variables are cleared', async ($, on) => {
+  const w = world(on, { env: { PLANWRIGHT_MC_PROGRAM: 'alpha', PLANWRIGHT_MC_TARGET: 'mc-main' } })
+  await boot($, w)
+  const before = ran(w, 'mc-wake.sh', 'target').length
+  await boot($, w)
+  const claims = ran(w, 'mc-wake.sh', 'target')
+  expect(claims).toHaveLength(before + 1)
+  expect(claims.at(-1)).toEqual(expect.arrayContaining(['alpha', 'mc-main', '--mod']))
 })

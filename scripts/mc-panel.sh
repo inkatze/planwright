@@ -354,7 +354,9 @@ kb() {
     printf 'unreadable\tknowledge base\n'
     return 0
   fi
-  if [ ! -e "$HOME_DIR/kb/index.md" ]; then
+  if [ -L "$HOME_DIR/kb" ] || { [ -e "$HOME_DIR/kb" ] && { ! [ -r "$HOME_DIR/kb" ] || ! [ -x "$HOME_DIR/kb" ]; }; }; then
+    printf 'unreadable\tknowledge base\n'
+  elif [ ! -e "$HOME_DIR/kb/index.md" ]; then
     printf 'kb\t-\n'
   elif kb_t=$(mtime "$HOME_DIR/kb/index.md") && mc_valid_uint "$kb_t"; then
     printf 'kb\t%s\n' "$(age_of "$kb_t")"

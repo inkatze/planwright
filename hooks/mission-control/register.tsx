@@ -33,7 +33,11 @@ let ctx: Ctx | null = null
 let isSubmitting = false
 let isRefreshing = false
 let isRaising = false
-let lastPresence = 0
+let isClaimed = false
+let hasKnobs = false
+// A fault the next good digest must not clear: an unclaimed target, events
+// that could not be marked.
+let lasting: string | null = null
 let tickMs = DEFAULT_TICK_S * 1000
 // A wake whose events could not be marked is not sent again before this.
 let wakeHeldUntil = 0
@@ -69,6 +73,11 @@ async function fault($: EngineInterface, text: string) {
   await patch($, x => ({ ...x, fault: text }))
 }
 
+async function lastingFault($: EngineInterface, text: string | null) {
+  lasting = text
+  if (text) await fault($, text)
+}
+
 async function emit($: EngineInterface, kind: string, text: string): Promise<boolean> {
   if (!ctx) return false
   const r = await run($, 'mc-event.sh', ['emit', '--program', ctx.program, '--', kind, ctx.program, oneLine(text)])
@@ -99,13 +108,15 @@ async function checkHandover($: EngineInterface) {
 // Submits the target's events not yet submitted, when the session is idle;
 // a busy session holds them for the next redraw or the turn's end.
 async function wake($: EngineInterface, isTick: boolean) {
-  if (!ctx || isSubmitting || (await read($, isBusy))) return
-  const v = await view($)
-  if (v?.digest?.rung.name === 'paused') return
-  const now = await $.clock.now()
-  if (now < wakeHeldUntil) return
+  if (!ctx || isSubmitting) return
+  // Taken before any await, so two callers never compose the same events.
   isSubmitting = true
   try {
+    if (await read($, isBusy)) return
+    const v = await view($)
+    if (v?.digest?.rung.name === 'paused') return
+    const now = await $.clock.now()
+    if (now < wakeHeldUntil) return
     const composed = await run($, 'mc-wake.sh', ['compose', '--program', ctx.program, ctx.target])
     if (!composed.ok) {
       await fault($, `the wake could not be composed: ${composed.err}`)
@@ -130,10 +141,11 @@ async function wake($: EngineInterface, isTick: boolean) {
     // Exit 3: an event was pruned since the wake was composed; the rest are marked.
     if (!marked.ok && marked.code !== 3) {
       wakeHeldUntil = now + tickMs
-      await fault($, `the wake's events could not be marked: ${marked.err}`)
+      await lastingFault($, `the wake's events could not be marked: ${marked.err}`)
       $.ui.toast('Mission control: a wake was sent but its events could not be marked')
       return
     }
+    if (lasting?.startsWith("the wake's events")) await lastingFault($, null)
     await patch($, x => ({ ...x, digest: x.digest && { ...x.digest, pending: 0 } }))
   } finally {
     isSubmitting = false
@@ -141,18 +153,20 @@ async function wake($: EngineInterface, isTick: boolean) {
   }
 }
 
-async function refresh($: EngineInterface, withKnobs = false) {
+async function refresh($: EngineInterface) {
   if (!ctx || isRefreshing) return
   isRefreshing = true
   try {
+    // Knobs are read until a reading carries them, then carried on.
+    const withKnobs = !hasKnobs
     const args = ['digest', '--program', ctx.program, '--target', ctx.target]
     const got = await run($, 'mc-panel.sh', withKnobs ? [...args, '--knobs'] : args)
     const digest = got.ok ? parseDigest(got.out) : null
+    if (digest && withKnobs && digest.knobs['handover-context'] !== undefined) hasKnobs = true
     await patch($, x => ({
       ...x,
-      // Knobs are read once at bring-up and carried on.
       digest: digest ? { ...digest, knobs: withKnobs ? digest.knobs : (x.digest?.knobs ?? {}) } : x.digest,
-      fault: digest ? null : got.err || 'the digest could not be read',
+      fault: digest ? lasting : got.err || 'the digest could not be read',
     }))
     const usage = await $.session.usage()
     const pct = usage.context.percent
@@ -164,11 +178,7 @@ async function refresh($: EngineInterface, withKnobs = false) {
     const v = await view($)
     if (v?.isFallback) $.ui.status(fallbackLine(v))
     await checkHandover($)
-    const now = await $.clock.now()
-    if (now - lastPresence >= PRESENCE_EVERY_MS) {
-      lastPresence = now
-      await run($, 'mc-panel.sh', ['presence', '--program', ctx.program, '--refresh'])
-    }
+    if (!isClaimed) await claim($)
   } catch (err) {
     await fault($, oneLine(String(err)))
   } finally {
@@ -179,6 +189,22 @@ async function refresh($: EngineInterface, withKnobs = false) {
   // redraws go on meanwhile.
   if ((v?.digest?.pending ?? 0) > 0) void wake($, false)
   await syncRadar($)
+}
+
+// Tells the relay this target is the mod's; retried each redraw until it
+// lands, since a target the relay also wakes gets every wake twice.
+async function claim($: EngineInterface) {
+  if (!ctx) return
+  const claimed = await run($, 'mc-wake.sh', ['target', 'add', '--program', ctx.program, ctx.target, '--mod'])
+  isClaimed = claimed.ok
+  if (claimed.ok && lasting?.startsWith('the wake target')) await lastingFault($, null)
+  if (!claimed.ok) await lastingFault($, `the wake target could not be claimed: ${claimed.err}`)
+}
+
+// On its own timer, so the lease the relay reads never lapses between
+// redraws, whatever the redraw cadence.
+async function restampPresence($: EngineInterface) {
+  if (ctx) await run($, 'mc-panel.sh', ['presence', '--program', ctx.program, '--refresh'])
 }
 
 async function tick($: EngineInterface) {
@@ -210,20 +236,20 @@ async function open($: EngineInterface) {
   if (v) $.ui.status(v.isFallback ? fallbackLine(v) : undefined)
 }
 
-// Out of the start hook, which the first prompt waits on: the first reading,
-// then the timers, then the claim that tells the relay this target is ours.
+// Out of the start hook, which the first prompt waits on: the presence
+// marker, the first reading (which claims the target), then the timers.
 async function bringUp($: EngineInterface) {
   if (!ctx) return
   try {
-    await refresh($, true)
+    await restampPresence($)
+    await refresh($)
   } finally {
     const knobs = (await view($))?.digest?.knobs
     tickMs = (knobs?.tick ?? DEFAULT_TICK_S) * 1000
     $.clock.every((knobs?.refresh ?? DEFAULT_REFRESH_S) * 1000, () => void refresh($))
     $.clock.every(tickMs, () => void tick($))
+    $.clock.every(PRESENCE_EVERY_MS, () => void restampPresence($))
   }
-  const claimed = await run($, 'mc-wake.sh', ['target', 'add', '--program', ctx.program, ctx.target, '--mod'])
-  if (!claimed.ok) await fault($, `the wake target could not be claimed: ${claimed.err}`)
 }
 
 async function recordPresence($: EngineInterface) {
@@ -244,16 +270,26 @@ export const register: Register = on => {
         : prior?.program === program
           ? prior.target
           : program
+    ctx = { program, target, root: $.plugin.root }
+    isClaimed = false
+    hasKnobs = false
+    lasting = null
     // A session this one starts must not take its wakes: the variables are
     // read once and cleared, and a reload finds the program in the view.
-    await $.env.set('PLANWRIGHT_MC_PROGRAM', undefined)
-    await $.env.set('PLANWRIGHT_MC_TARGET', undefined)
-    ctx = { program, target, root: $.plugin.root }
+    let cleared = true
+    try {
+      const a = await $.env.set('PLANWRIGHT_MC_PROGRAM', undefined)
+      const b = await $.env.set('PLANWRIGHT_MC_TARGET', undefined)
+      cleared = !('deny' in a && a.deny) && !('deny' in b && b.deny)
+    } catch {
+      cleared = false
+    }
     if (!prior || prior.program !== program || prior.target !== target) {
       await update($, panel, () => emptyView(program, target))
     }
     // A turn that ran across a reload ended unheard.
     await update($, isBusy, () => false)
+    if (!cleared) await lastingFault($, 'the activation could not be cleared: sessions started from here inherit it')
     await $.command.register({ name: 'mission-control', description: 'Open the mission-control panel' })
     await open($)
     $.clock.after(0, () => void bringUp($))
@@ -290,6 +326,7 @@ export const register: Register = on => {
       await update($, isBusy, () => false)
       await patch($, x => ({ ...x, wakes: x.wakes + 1 }))
       await checkHandover($)
+      await syncRadar($)
       // After the hook: the submit resolves only once the session is idle.
       $.clock.after(0, () => void wake($, false))
     }
@@ -298,7 +335,6 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     if (ctx && (e.origin.kind === 'composer' || e.origin.kind === 'bridge')) {
-      lastPresence = await $.clock.now()
       // Never holds the operator's prompt on the fleet lock.
       $.clock.after(0, () => void recordPresence($))
     }
@@ -310,7 +346,12 @@ export const register: Register = on => {
     if (!ctx || e.agentId !== undefined || e.trigger === 'precompute') return next(e)
     const before = await view($)
     if (e.trigger !== 'manual' && before?.handover && before.digest?.isHandoverInstalled) {
-      const pct = (await $.session.usage()).context.percent
+      let pct: number | undefined
+      try {
+        pct = (await $.session.usage()).context.percent
+      } catch {
+        pct = undefined
+      }
       if (pct !== undefined && pct < DEFER_CEILING_PCT) {
         return { skip: 'mission control: deferred while the handover is due' }
       }

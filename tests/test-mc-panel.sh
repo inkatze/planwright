@@ -190,6 +190,7 @@ mv "$home/kb" "$home/kb.real"
 ln -s "$home/kb.real" "$home/kb"
 mc_run mc-panel.sh digest --program alpha --now 1030
 record "a symlinked knowledge base is unreadable" unreadable "decisions log"
+record "and its freshness is unreadable, not unwritten" unreadable "knowledge base"
 rm -f "$home/kb"
 mc_run mc-panel.sh digest --program alpha --now 1030
 record "no index yet reads as not written" kb -

@@ -100,6 +100,7 @@ export type Fixture = {
   digestExit: number
   wake: string
   composeExit: number
+  claimExit: number
   markExit: number
   emitExit: number
   rules: string
@@ -116,6 +117,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     digestExit: 0,
     wake: 'idle',
     composeExit: 0,
+    claimExit: 0,
     markExit: 0,
     emitExit: 0,
     rules: '<!-- rules begin -->\n- R1 never merge\n<!-- rules end -->',
@@ -136,9 +138,11 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     envWrites: [],
     set: o => Object.assign(fx, o),
   }
-  mock.env(on, fx.env)
+  on('env.get', (_, e) => ({ value: fx.env[e.name] }))
   on('env.set', (_, e) => {
     w.envWrites.push([e.name, e.value])
+    if (e.value === undefined) delete fx.env[e.name]
+    else fx.env[e.name] = e.value
     return { value: {} }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -187,6 +191,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     })
     if (script === 'mc-panel.sh' && verb === 'digest') return answer(fx.digest, fx.digestExit)
     if (script === 'mc-wake.sh' && verb === 'compose') return answer(fx.wake, fx.composeExit)
+    if (script === 'mc-wake.sh' && verb === 'target') return answer('', argv.includes('--mod') ? fx.claimExit : 0)
     if (script === 'mc-event.sh' && verb === 'mark') return answer('', fx.markExit)
     if (script === 'mc-event.sh' && verb === 'emit') return answer('e1.ff', fx.emitExit)
     if (script === 'mc-rules.sh') return answer(fx.rulesExit === 0 ? fx.rules : '', fx.rulesExit)
