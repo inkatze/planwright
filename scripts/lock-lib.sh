@@ -67,6 +67,9 @@
 #                          the script itself or on a caller's behalf
 #   scripts/fleet-task-brief.sh   the fleet home's task briefs, so a retire
 #                          never removes a brief a render is writing
+#   scripts/mission-control-launch.sh   a launched session's name, held
+#                          for a whole launch and a whole retire, so the two
+#                          never act on one row at once
 #   scripts/mc-watch.sh    a mission-control program's runner lock, so two
 #                          runners never arm or relay over each other
 #

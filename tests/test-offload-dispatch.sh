@@ -179,9 +179,84 @@ grep -qF "$promptfile" "$tmp/tmux-argv" || fail "dispatch tmux: prompt-file path
 # never be parsed as a claude option. Any resolved launch-tier flags arrive as
 # argv the spawned shell forwards through "$@", ahead of that pin, so they are
 # never spliced into the script text.
-grep -q 'claude "$@" -- ' "$tmp/tmux-argv" \
-  || fail "dispatch tmux: claude launch not pinned with -- end-of-options"
+# shellcheck disable=SC2016 # the spawned shell's literal text is the needle
+grep -q 'exec "$@" -- "$p"' "$tmp/tmux-argv" \
+  || fail "dispatch tmux: the launch is not pinned with -- end-of-options"
+grep -qx 'claude' "$tmp/tmux-argv" || fail "dispatch tmux: claude is not the launched command word"
+grep -q 'fleet-dispatch-env.sh\|--settings' "$tmp/tmux-argv" \
+  && fail "dispatch tmux: a petition with no --profile must launch claude directly, with no profile"
 ok "dispatch tmux reports the spawned window handle; petition rides an absolutized file read behind --"
+
+# 4a. a session-kind launch: --profile goes through the dispatch-env wrapper
+#     with the shipped fragment, --name names the window and the session, and
+#     --key resolves the tier at that allocation key.
+: >"$tmp/tmux-argv"
+out=$(PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT /bin/sh "$script" \
+  dispatch tmux "$promptfile" --profile mission-control --name mc-alpha-reviewer-1 --key execution) \
+  || fail "dispatch tmux --profile exited nonzero"
+grep -q 'fleet-dispatch-env.sh$' "$tmp/tmux-argv" || fail "dispatch tmux --profile: not launched through fleet-dispatch-env.sh"
+grep -q '/config/mission-control-settings.json$' "$tmp/tmux-argv" || fail "dispatch tmux --profile: the mission-control fragment is not passed"
+grep -qx -- '--settings' "$tmp/tmux-argv" || fail "dispatch tmux --profile: no --settings word"
+[ "$(grep -cx 'mc-alpha-reviewer-1' "$tmp/tmux-argv")" = 2 ] \
+  || fail "dispatch tmux --name: the name must name both the window and the session"
+if ! grep -qx -- '--model' "$tmp/tmux-argv" || ! grep -qx 'opus' "$tmp/tmux-argv"; then
+  fail "dispatch tmux --key execution: the execution key's model is not applied"
+fi
+root_real=$(cd "$here/.." && pwd -P)
+if ! grep -qx -- '--root' "$tmp/tmux-argv" || ! grep -qxF "$root_real" "$tmp/tmux-argv"; then
+  fail "dispatch tmux --profile: the wrapper is not pinned to this install's root"
+fi
+if ! grep -qx -- '--inbound' "$tmp/tmux-argv" || ! grep -qx 'accept' "$tmp/tmux-argv"; then
+  fail "dispatch tmux --profile: the session does not accept inbound messages"
+fi
+grep -qx -- '--identity' "$tmp/tmux-argv" && fail "dispatch tmux --profile mission-control: a non-worker profile carried the worker identity"
+for v in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN; do
+  grep -qx -- "$v" "$tmp/tmux-argv" || fail "dispatch tmux --profile mission-control: an inherited $v is not dropped"
+done
+: >"$tmp/tmux-argv"
+PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT /bin/sh "$script" \
+  dispatch tmux "$promptfile" --profile worker --name mc-alpha-worker-1 --scope spec:alpha-3 >/dev/null \
+  || fail "dispatch tmux --profile worker exited nonzero"
+if ! grep -A2 -x -- '--identity' "$tmp/tmux-argv" | tr '\n' ' ' | grep -q 'mc-alpha-worker-1 spec:alpha-3'; then
+  fail "dispatch tmux --profile worker: the worker identity is not name and scope"
+fi
+for bad in '--profile /tmp/x.json' '--profile bogus' '--name bad=name' '--key Bad-Key' '--scope a/b' '--scope ..' '--scope .'; do
+  rc=0
+  # shellcheck disable=SC2086 # the option and its value, split on purpose
+  run_stub dispatch tmux "$promptfile" $bad >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 2 ] || fail "dispatch tmux $bad: expected exit 2, got $rc"
+done
+for opt in '--profile worker' '--scope s'; do
+  rc=0
+  # shellcheck disable=SC2086 # the option and its value, split on purpose
+  run dispatch print "$promptfile" $opt >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 2 ] || fail "dispatch print $opt: expected exit 2 (tmux only), got $rc"
+done
+mkdir -p "$tmp/noprof/scripts"
+cp "$here"/../scripts/*.sh "$tmp/noprof/scripts/"
+: >"$tmp/tmux-argv"
+rc=0
+PATH="$stubbin:$PATH" sandbox_env env PLANWRIGHT_ROOT="$tmp/noprof" /bin/sh "$tmp/noprof/scripts/offload-dispatch.sh" \
+  dispatch tmux "$promptfile" --profile tower >/dev/null 2>"$tmp/err4a" || rc=$?
+[ "$rc" -eq 2 ] || fail "dispatch tmux --profile with no readable profile: expected exit 2, got $rc"
+[ ! -s "$tmp/tmux-argv" ] || fail "dispatch tmux --profile with no readable profile: tmux was still called"
+# --strict-tier: an unreachable allocation store (allocation-apply exit 6)
+# refuses with exit 6 and no tmux call, where the default degrades.
+mkdir -p "$tmp/store6/config"
+cp -R "$here/../scripts" "$tmp/store6/scripts"
+cp "$here/../config/"*-settings.json "$tmp/store6/config/"
+printf '#!/bin/sh\nexit 6\n' >"$tmp/store6/scripts/allocation-apply.sh"
+: >"$tmp/tmux-argv"
+rc=0
+PATH="$stubbin:$PATH" sandbox_env /bin/sh "$tmp/store6/scripts/offload-dispatch.sh" dispatch tmux "$promptfile" --strict-tier \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 6 ] || fail "dispatch tmux --strict-tier with an unreachable store: expected exit 6, got $rc"
+[ ! -s "$tmp/tmux-argv" ] || fail "dispatch tmux --strict-tier with an unreachable store: tmux was still called"
+rc=0
+PATH="$stubbin:$PATH" sandbox_env /bin/sh "$tmp/store6/scripts/offload-dispatch.sh" dispatch tmux "$promptfile" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 0 ] || fail "dispatch tmux without --strict-tier must degrade past an unreachable store, got $rc"
+ok "dispatch tmux --profile/--name/--key launch a session kind under its shipped fragment"
 
 # 4b. a RELATIVE prompt-file path is absolutized before dispatch. The
 #     expected form is pwd-normalized (a TMPDIR with a trailing slash makes

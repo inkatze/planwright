@@ -1,0 +1,1 @@
+- 2026-10-27 [planwright] The mission-control command-guard allow list (MC_SCRIPTS in scripts/tower-command-guard.sh) names its mc-* scripts one by one, so the ones landed later (mc-decide, mc-shadow, mc-audit, mc-proposals, mc-panel) reach the permission prompt in a mission-control session; the task that wires their routine use should decide which join the list.

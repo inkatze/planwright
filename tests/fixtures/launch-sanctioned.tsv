@@ -1,0 +1,35 @@
+# The commands each launch profile's sessions run routinely, which must never
+# prompt (mission-control REQ-G1.1): tests/test-launch-profiles.sh checks each
+# is denied by no rule of its profile and is approved by the profile's allow
+# list or by the Bash command guard the profile wires. The mission-control
+# `gh pr ready` row holds under ready_flip_policy unit-owner, the value the
+# check runs with; under human the policy guard asks the operator.
+#
+# profile<TAB>command    (@ROOT@ is the planwright root holding scripts/)
+mission-control	@ROOT@/scripts/mission-control-launch.sh launch --program alpha --kind worker --scope spec:alpha-3 --brief /tmp/brief.md
+mission-control	@ROOT@/scripts/mission-control-launch.sh retire mc-alpha-worker-0123456789
+mission-control	@ROOT@/scripts/mission-control-launch.sh list
+mission-control	@ROOT@/scripts/mc-rules.sh active alpha
+mission-control	@ROOT@/scripts/mc-rules.sh add alpha --text t --subject s --source operator --date today
+mission-control	@ROOT@/scripts/fleet-streamjson.sh status mc-alpha-worker-0123456789
+mission-control	@ROOT@/scripts/fleet-streamjson.sh steer mc-alpha-worker-0123456789 --message-file /tmp/msg.txt
+mission-control	gh pr ready 42
+mission-control	gh pr view 42
+mission-control	gh pr list
+mission-control	git status
+mission-control	git log --oneline -5
+mission-control	tmux capture-pane -p -t %1
+tower	@ROOT@/scripts/fleet-streamjson.sh status w1
+tower	@ROOT@/scripts/orchestrate-state.sh specs/demo
+tower	gh pr view 42
+tower	git status
+tower	git log --oneline -5
+tower	tmux capture-pane -p -t %1
+worker	git status
+worker	git add -A
+worker	git commit -m wip
+worker	git push origin planwright/demo/task-1
+worker	gh pr create --draft --title t --body b
+worker	gh pr ready 42
+worker	mise run check
+worker	@ROOT@/scripts/spec-validate.sh specs/demo

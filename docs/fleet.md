@@ -782,10 +782,10 @@ by the resolved literal path (`<root>/scripts/fleet-streamjson.sh pending`, per
 [plugin-script invocation](../doctrine/plugin-script-invocation.md)); a `~` path
 or an unexpanded `$CLAUDE_PLUGIN_ROOT` falls to the permission prompt instead.
 
-Before spawning anything, `launch` proves the auto-approve hook the worker
-will run (`scripts/worker-command-guard.sh` under the plugin root the
-dispatch-env wrapper exports, run through that wrapper so it sees the worker's
-environment) will approve the worker's opening move — the
+Before spawning a worker-profile session, `launch` proves the auto-approve
+hook the worker will run (`scripts/worker-command-guard.sh` under the plugin
+root the dispatch-env wrapper exports, run through that wrapper so it sees the
+worker's environment) will approve the worker's opening move — the
 `<root>/scripts/resolve-rule-doc.sh` call `/execute-task` makes before any
 task work — once per root the worker could run scripts from: the launcher's
 own root, that plugin root, and every root `scripts/resolve-installed-roots.sh`
@@ -1391,8 +1391,8 @@ dispatch-side wiring is in place for the `headless-oneshot` backend**
 session's hooks push), **for the tmux worktree rung** (its launch runs the
 worker through `fleet-dispatch-env.sh --identity`, with the launch token the
 `SessionStart` row carries), **and for the `stream-json-persistent` rung**
-(`fleet-streamjson.sh launch` exports the handle and the scope its launch
-persisted, a relaunch included). Sessions no dispatch seam launched still
+(`fleet-streamjson.sh launch` exports, for a worker-profile launch, the handle
+and the scope its launch persisted, a relaunch included). Sessions no dispatch seam launched still
 no-op this handler and stay on the existing observation path (a graceful
 REQ-A1.1 degradation, no breakage).
 The hook payload is drained, never parsed,
@@ -2339,12 +2339,18 @@ naming `config/worker-settings.json`, and the watchdog's default relaunch and
 (a custom `PLANWRIGHT_TOWER_LAUNCHER` passes its own, or none),
 each with `PLANWRIGHT_MESSAGING_INBOUND=accept` exported beside it (the layer
 the messaging probe reads, since a `--settings` profile is not one of the
-settings files it parses). Each launch also names its session with `--name`:
+settings files it parses). The mission-control launcher
+(`scripts/mission-control-launch.sh`) starts other session kinds on the same
+seams: `fleet-streamjson.sh launch --profile <kind>` and
+`offload-dispatch.sh dispatch tmux --profile <kind>` pin the tower or
+mission-control profile by kind, never by path, and a session under either
+carries no worker identity. Each launch also names its session with `--name`:
 the worker's registry handle, `planwright-tower-<spec>` for a relaunch, and
 `planwright-tower-<spec>-<epoch>-<pid>` for a handover, so the retiring tower
 and its replacement never share a name, nor do two launches in one second.
-The profile comes from the planwright root the core root chain names
-(`PLANWRIGHT_ROOT` first), resolved by `scripts/fleet-launch-profile.sh`; a
+Except on `offload-dispatch.sh`, which resolves the profile and pins the
+wrapper to its own install root, the profile comes from the planwright root
+the core root chain names (`PLANWRIGHT_ROOT` first), resolved by `scripts/fleet-launch-profile.sh`; a
 profile that cannot be read refuses the launch, naming the file, rather than
 starting a session under the operator's own settings. On Claude Code 2.1.303,
 two `-p` launches given the same `--name` both start and both carry that name: the CLI neither renames
