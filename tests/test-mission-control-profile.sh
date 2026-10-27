@@ -116,6 +116,18 @@ for s in mission-control-launch.sh mc-rules.sh fleet-streamjson.sh offload-dispa
   [ "$(guard_says mission-control "$REPO_ROOT/scripts/$s")" = allow ] \
     && ok "mission-control mode approves $s" || fail "mission-control mode does not approve $s"
 done
+for c in 'mise run release' 'mise tasks run check' 'mise run check'; do
+  [ "$(guard_says mission-control "$c")" = defer ] && ok "mission-control mode leaves '$c' to the prompt" \
+    || fail "mission-control mode approves '$c' unprompted"
+done
+[ "$(guard_says '' 'mise run check')" = allow ] && ok "tower mode still approves mise run" \
+  || fail "tower mode stopped approving mise run"
+[ "$(guard_says mission-control 'mise tasks ls')" = allow ] && ok "mission-control mode still approves a task listing" \
+  || fail "mission-control mode stopped approving mise tasks ls"
+for s in mc-program.sh mc-duties.sh spec-validate.sh spec-graph.sh orchestrate-state.sh fleet-status.sh resolve-rule-doc.sh; do
+  [ "$(guard_says mission-control "$REPO_ROOT/scripts/$s")" = allow ] \
+    && ok "mission-control mode approves $s" || fail "mission-control mode does not approve $s"
+done
 [ "$(guard_says bogus "git status")" = defer ] && ok "an unknown guard mode approves nothing" \
   || fail "an unknown guard mode still approves"
 case $bash_cmds in

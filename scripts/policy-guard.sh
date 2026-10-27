@@ -15,17 +15,24 @@
 # mission-control tier's alone and defers at the others. A payload that
 # cannot be read denies at every surface.
 #
-# THE MISSION-CONTROL TIER is the tower tier with three differences. It runs
-# no git mutation: every git subcommand outside a read-only set (a listing
-# branch, tag, stash, worktree or remote, a config get, and the inspection
-# commands), an alias or external subcommand, a wrapped git text naming a
-# mutating subcommand, and every gh api branch write deny with no read. It
-# writes no posture file and no repository: a file-tool path that is a
-# settings, MCP or planwright configuration file, lies under a .claude hooks
-# or plugins directory, or lies inside a work tree or bare repository denies,
-# and so does a Bash command naming such a file unless it only reads it (no
-# redirect, no in-place edit, read-only commands throughout). Its flip follows
-# ready_flip_policy as a worker's does, the ready-guard's currency check
+# THE MISSION-CONTROL TIER is the tower tier with three differences, each
+# denying with no read. It runs no git mutation: a git subcommand outside a
+# read-only set (the inspection commands and the listing forms of branch, tag,
+# stash, worktree, remote and config, an unknown option counting as a write),
+# a read flag that writes a file or runs a program (any abbreviation git
+# accepts), -c configuration, a GIT_* variable or a moved exec path, an alias
+# or external subcommand, a wrapped git text outside the always-read set, a gh
+# api branch write, and the gh commands that write a branch on the host or a
+# repository locally (pr checkout and update-branch, the repo and release
+# writes). It writes no posture file and no repository: a file-tool path that
+# names a settings, MCP or planwright configuration file or a shipped profile,
+# lies under a .claude hooks, plugins, agents, skills, commands or planwright
+# directory, or lies inside a work tree or bare repository denies; in Bash, a
+# command naming a posture file passes only as a plain read, and a word or
+# redirect target that could expand into one denies (the directories are the
+# file surface's alone: an installed planwright script runs from under
+# .claude/plugins). Its flip follows ready_flip_policy as a worker's does, for
+# a PR of the repository it runs in only, the ready-guard's currency check
 # running next; the MCP flip stays denied whole, as the tower's is.
 #
 # MODALITY. Like the ready-guard and unlike the allow-only command guards, this
@@ -55,7 +62,9 @@
 # ACTS.
 #   flip        `gh pr ready <n>` and the MCP draft->ready transition.
 #               tower: deny. worker: ready_flip_policy (unit-owner defers, so
-#               the ready-guard's currency check runs next).
+#               the ready-guard's currency check runs next). mission-control:
+#               as a worker, and a flip naming another repository (--repo, a
+#               PR URL, GH_REPO, GH_HOST) denies.
 #   undo        `gh pr ready --undo` and the MCP ready->draft transition: deny,
 #               the corrective helper being the only sanctioned re-draft.
 #               Running scripts/request-reviewer.sh performs no act here, so
@@ -215,7 +224,20 @@ RE_TOWER_SURGERY="${RE_GIT_HEAD}(update-ref|filter-branch|filter-repo)([^[:alnum
 RE_TOWER_RESET="${RE_GIT_HEAD}reset([[:space:]].*)?[[:space:]]--h"
 RE_TOWER_BRANCH="${RE_GIT_HEAD}branch([[:space:]].*)?[[:space:]](-[[:alnum:]]*[fMC]|--f(o(r(ce?)?)?)?([^[:alnum:]_-]|\$))"
 RE_TOWER_WORKTREE="${RE_GIT_HEAD}worktree[[:space:]]+(add|remove|move)([^[:alnum:]_-]|\$)"
+# The subcommand is capture group 4: RE_GIT_HEAD holds three groups, and a
+# group added there moves it.
 RE_GIT_SUB="${RE_GIT_HEAD}([A-Za-z][A-Za-z0-9_-]*)"
+# Read-form flags that write a file or run a program, any abbreviation git
+# accepts included; a wrapped text is not parsed, so these refuse anywhere in
+# it beside a git invocation.
+RE_MC_GIT_ENV="(^|[[:space:];|&(\"'])GIT_[A-Za-z0-9_]*="
+RE_MC_GIT_CONFIG='[[:space:]](-c|--config-env)([[:space:]=]|$)'
+RE_MC_GIT_GREP_O='[[:space:]]grep[[:space:]](.*[[:space:]])?-[A-Za-z]*O'
+# Prefixes that only these subcommands give an executing meaning: every
+# abbreviation of --upload-pack in ls-remote, of --filters in cat-file.
+RE_MC_GIT_LSREMOTE_U='[[:space:]]ls-remote[[:space:]](.*[[:space:]])?--u'
+RE_MC_GIT_CATFILE_FIL='[[:space:]]cat-file[[:space:]](.*[[:space:]])?--fil'
+RE_MC_GIT_EXEC_FLAG='(^|[[:space:]])(--outp[^[:space:]]*|--ext[^[:space:]]*|--textc[^[:space:]]*|--op[^[:space:]]*|--exec[^[:space:]]*)'
 RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-ad'
 RE_FOR_MERGE='(^|[^[:alnum:]_-])--for-merge([^[:alnum:]_-]|$)'
 
@@ -284,14 +306,30 @@ raw_force_push_call() {
 # assignment. A wrapped text is not parsed, so the listing forms of commands
 # that can also write count as writes here.
 mc_raw_git_mutation() {
-  local t=$1 sub
+  local t=$1 m sub n=0 rc=1
+  [[ $1 =~ $RE_GIT_SUB ]] || return 1
+  # The caller holds nocasematch on; -c and -C differ, and so do the flags.
+  shopt -u nocasematch
+  if [[ $1 =~ $RE_MC_GIT_ENV ]] || [[ $1 =~ $RE_MC_GIT_EXEC_FLAG ]] || [[ $1 =~ $RE_MC_GIT_GREP_O ]] \
+    || [[ $1 =~ $RE_MC_GIT_LSREMOTE_U ]] || [[ $1 =~ $RE_MC_GIT_CATFILE_FIL ]]; then
+    rc=0
+  fi
+  shopt -s nocasematch
+  [ "$rc" = 1 ] || return 0
+  # Bounded, so a long text cannot hold the hook: past the bound it refuses.
   while [[ $t =~ $RE_GIT_SUB ]]; do
+    m=${BASH_REMATCH[0]}
     sub=${BASH_REMATCH[4]}
-    # The caller holds nocasematch on, so this compares case-blind.
+    n=$((n + 1))
+    [ "$n" -le 64 ] || return 0
+    # Case-blind under the caller's nocasematch.
     case " $MC_GIT_READS " in *" $sub "*) ;; *) return 0 ;; esac
-    case ${BASH_REMATCH[0]} in *' -c'* | *--config-env*) return 0 ;; esac
-    [[ ! $1 =~ GIT_[A-Za-z0-9_]*= ]] || return 0
-    t=${t#*"${BASH_REMATCH[0]}"}
+    # git's own options, between git and the subcommand: -c, never -C.
+    shopt -u nocasematch
+    [[ $m =~ $RE_MC_GIT_CONFIG ]] && rc=0
+    shopt -s nocasematch
+    [ "$rc" = 1 ] || return 0
+    t=${t#*"$m"}
   done
   return 1
 }
@@ -1388,6 +1426,7 @@ classify_gh() {
     done
     case "${SW[$k]} ${SW[$j]:-}" in
       'pr checkout' | 'pr co' | 'pr update-branch' | 'repo sync' | 'repo clone' | 'repo create' | 'repo delete' | \
+        'repo set-default' | \
         'repo fork' | 'repo rename' | 'repo edit' | 'repo archive' | 'release create' | 'release delete' | \
         'release edit' | 'release upload' | 'release delete-asset')
         deny_now "mission control writes no branch on the host and edits no repository, and gh $(sanitize_printable "${SW[$k]} ${SW[$j]:-}" 'this command') does one or the other - refusing. Dispatch the change to a session."
@@ -2064,11 +2103,13 @@ mc_git_reads() {
   local sub=$1 a first=${SW[$2]:-} pos=0 list=0 skip=0 after=0
   for a in "${SW[@]:$2}"; do
     [ "$a" != -- ] || break
+    # git takes any unambiguous prefix of a long option, so the prefixes
+    # refuse too.
     case $a in
-      --output | --output=* | --output-directory | --output-directory=* | --ext-diff | --textconv) return 1 ;;
+      --outp* | --ext* | --textc*) return 1 ;;
     esac
     case $sub:$a in
-      grep:--open-files-in-pager* | grep:-O* | grep:-[!-]*O*) return 1 ;;
+      grep:--op* | grep:-O* | grep:-[!-]*O* | ls-remote:--u* | ls-remote:--exec* | cat-file:--fil*) return 1 ;;
     esac
   done
   case " $MC_GIT_READS " in *" $sub "*) return 0 ;; esac
@@ -2079,8 +2120,11 @@ mc_git_reads() {
       ;;
     worktree) [ "$first" = list ] && return 0 || return 1 ;;
     reflog)
-      case $first in '' | show | exists) return 0 ;; esac
-      return 1
+      case $first in '' | show | exists | -*) ;; *) return 1 ;; esac
+      for a in "${SW[@]:$2}"; do
+        case $a in expire | delete | drop) return 1 ;; esac
+      done
+      return 0
       ;;
     remote)
       case $first in show | get-url) return 0 ;; esac
@@ -2215,8 +2259,12 @@ classify_git() {
       ;;
   esac
   if [ "$TIER" = mission-control ]; then
-    # Configuration and environment can make any read run a program (an
-    # fsmonitor, an external diff, a pager).
+    # Configuration, environment and a moved exec path can make any read run
+    # a program (an fsmonitor, an external diff, a pager, a remote helper).
+    local gw
+    for gw in "${SW[@]:1:$((k - 1))}"; do
+      case $gw in --exec-path=*) cflag=1 ;; esac
+    done
     if [ "$cflag" = 1 ] || [ "$GIT_ENV" = 1 ] || [ "$ST_CFG" = 1 ]; then
       deny_now "mission control runs no git mutation, and this git command carries -c configuration or a GIT_* variable, which can make even a read run a program - refusing (fail closed). Run it without them."
       return 0
@@ -3425,30 +3473,55 @@ mc_stem() {
   return "$rc"
 }
 
+# mc_literal_word <word> — 0 when an unquoted word expands to itself apart
+# from a leading ~ or $HOME, which name the user's own home and no other file.
+mc_literal_word() {
+  local r=$1
+  r=${r#\~}
+  r=${r#\$HOME}
+  r=${r#\$\{HOME\}}
+  [ "$r" != "$1" ] || return 1
+  case $r in *'$'* | *'`'* | *'*'* | *'?'* | *'['* | *'{'* | *'~'*) return 1 ;; esac
+  return 0
+}
+
 # mc_settings_screen <command> — refuse a command that names a posture file
 # unless every segment is a plain reader and nothing is redirected but to
-# /dev/null or another stream, and refuse a word that could expand into one.
+# /dev/null or another stream, and refuse a word or redirect target that
+# could expand into one. A relative name after a cd into a posture directory
+# is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 si=0 k named=0 w
+  local t=$1 r si=0 k named=0 w m
   mc_settings_named "$t" && named=1
   [ "$named" = 1 ] || mc_stem "$t" || return 0
   [ "${#t}" -le "$MAX_CMD_LEN" ] || emit_deny "$MC_SETTINGS_DENY"
+  r=${t//&>\/dev\/null/}
+  r=${r//[0-9]>\/dev\/null/}
+  r=${r//>\/dev\/null/}
+  r=${r//[0-9]>&[0-9]/}
+  [ "$named" = 0 ] || case $r in *'>'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
+  while [[ $r =~ \>+[[:space:]]*([^[:space:]\;\|\&\<\>]+) ]]; do
+    m=${BASH_REMATCH[0]}
+    w=${BASH_REMATCH[1]}
+    case $w in *'$'* | *'`'* | *'*'* | *'?'* | *'['* | *'{'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
+    ! mc_stem "$w" || emit_deny "$MC_SETTINGS_DENY"
+    r=${r#*"$m"}
+  done
+  # Only a word that can expand needs the parse.
+  case $t in
+    *'$'* | *'`'* | *'*'* | *'?'* | *'['* | *'{'* | *'~'*) ;;
+    *) [ "$named" = 1 ] || return 0 ;;
+  esac
   tokenize "$t" || emit_deny "$MC_SETTINGS_DENY"
   k=0
   while [ "$k" -lt "${#W[@]}" ]; do
     w=${W[$k]}
-    case $w in
-      *'*'* | *'?'* | *'['* | *'{'*) mc_stem "$w" && emit_deny "$MC_SETTINGS_DENY" ;;
-    esac
-    [ "${WL[$k]}" = 1 ] || ! mc_stem "$w" || emit_deny "$MC_SETTINGS_DENY"
+    if [ "${WL[$k]}" != 1 ] && mc_stem "$w" && ! mc_literal_word "$w"; then
+      emit_deny "$MC_SETTINGS_DENY"
+    fi
     k=$((k + 1))
   done
   [ "$named" = 1 ] || return 0
-  t=${t//&>\/dev\/null/}
-  t=${t//[0-9]>\/dev\/null/}
-  t=${t//>\/dev\/null/}
-  t=${t//[0-9]>&[0-9]/}
-  case $t in *'>'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
     if [ "${#SW[@]}" -gt 0 ]; then
@@ -3485,8 +3558,9 @@ mc_repo_walk() {
   done
 }
 
-# mc_posture_path <path> — refuse a path naming a posture file or lying under
-# a posture directory.
+# mc_posture_path <path> <verb> — refuse a path naming a posture file or
+# lying under a posture directory; <verb> completes the refusal's "this path
+# <verb> one".
 mc_posture_path() {
   local rc=1
   shopt -s nocasematch

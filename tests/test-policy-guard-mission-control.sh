@@ -97,6 +97,19 @@ reads ready_flip_policy "a flip reads only ready_flip_policy"
 set_knobs 'ready_flip_policy: human'
 pg mission-control 'gh pr ready 42'
 reason_has 'ready_flip_policy is human' "the out-of-policy flip names the knob"
+set_knobs 'ready_flip_policy: unit-owner'
+GH_REPO=employer/widgets pg mission-control 'gh pr ready 42'
+expect deny "[mission-control] a flip under a GH_REPO the session inherited is refused"
+many=''
+for _ in $(seq 1 70); do many="$many git status;"; done
+start=$SECONDS
+pg mission-control "sh -c '$many'"
+expect deny "[mission-control] a wrapped text past the git-invocation bound is refused"
+if [ $((SECONDS - start)) -lt 10 ]; then
+  pass "the bounded wrapped-text screen answers quickly"
+else
+  fail "the wrapped-text screen took $((SECONDS - start))s"
+fi
 pg_file mission-control Write "$FIXHOME/.claude/settings.json"
 reason_has 'settings' "the settings refusal names settings"
 pg_file mission-control Write "$UNIT/README.md"
@@ -119,7 +132,7 @@ pg_payload mission-control file "$(jq -n --arg s "$SCRATCH/ok.txt" --arg r "$UNI
   '{tool_name:"NotebookEdit", tool_input:{file_path:$s, notebook_path:$r}}')"
 expect deny "[mission-control] every path field is checked, not only the first"
 long=$(printf 'x%.0s' $(seq 1 17000))
-pg mission-control "cat ~/.claude/settings.json $long"
+pg mission-control "cat $FIXHOME/.claude/settings.json $long"
 expect deny "[mission-control] an over-long command naming a settings file is refused without parsing"
 
 no_gh_calls

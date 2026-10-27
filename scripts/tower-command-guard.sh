@@ -26,6 +26,13 @@
 # mechanism this task must not perturb, and a self-contained security script is
 # auditable without a cross-file dependency that could break at runtime.
 #
+# Usage: tower-command-guard.sh [tower | mission-control]. The tower profile
+# wires it with no argument (tower mode). config/mission-control-settings.json
+# wires `mission-control`, which narrows the planwright scripts it approves to
+# the ones mission control runs routinely (MC_SCRIPTS below) and approves no
+# `mise run`, so every other script and task reaches the prompt. An unknown
+# mode approves nothing.
+#
 # Security contract (identical to the worker guard's — the whole point):
 #   * No LLM in the decision path (REQ-E1.3); purely deterministic shell. The
 #     analyzed command is inert DATA — never eval-ed, re-expanded, or executed.
@@ -1711,6 +1718,9 @@ guard_mise() {
     run) ;; # fall through to the shell-override guard below
     *) return 1 ;;
   esac
+  # A task runs whatever its body says, a release among them, so under the
+  # mission-control mode a task run reaches the prompt.
+  [ "$GUARD_MODE" != mission-control ] || return 1
   for (( ; i < cwn; i++)); do
     case ${cw[i]} in
       --shell | --shell=*) return 1 ;;
