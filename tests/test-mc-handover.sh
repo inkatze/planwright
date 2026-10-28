@@ -222,6 +222,8 @@ mkdir -p "$fleet/mission-control/alpha/leases"
 printf "%s\n" "$(($(date +%s) - 600))" >"$fleet/mission-control/alpha/leases/operator-term"
 ho holder --program alpha
 [ "$(col holder 6)" = stale ] && ok "a lease older than the bound makes it stale" || fail "the old lease: $OUT"
+ho path --program alpha
+[ "$OUT" = "path${tab}unattended" ] && ok "a stale attended holder has no terminal to hand over, so the path is unattended" || fail "path over the stale holder: $OUT"
 
 # ---------------------------------------------------------------------------
 # REQ-L1.6: where the holder is the operator's own session the
@@ -230,6 +232,7 @@ ho holder --program alpha
 printf "%s\n" "$(date +%s)" >"$fleet/mission-control/alpha/leases/operator-term"
 ho path --program alpha
 [ "$(col path 2)" = operator-act ] && ok "an attended holder's path is the operator's act" || fail "path: $OUT $ERR"
+[ "$(col path 3)" = "claude '/planwright:mission-control alpha'" ] && ok "the act is one command: a fresh session running the resume" || fail "the act is not one command: $OUT"
 ho launch --program alpha --brief "$tmp/brief.md" --handover
 [ "$RC" = 4 ] && ok "no successor is launched over an attended holder" || fail "a launch over the attended holder exited $RC"
 ho offer --program alpha
@@ -240,7 +243,10 @@ ho offer --program alpha
 printf 'format\t1\nsession\tmc-x\npredecessor\t../../escape\npredecessor-kind\tregistry\nlaunched\t1\nmode\thandover\nverified\t1\n' \
   >"$fleet/mission-control/alpha/successor"
 ho take --program alpha --session mc-x --window 1s
-[ "$RC" = 1 ] && ok "a successor record naming a handle outside the grammar is refused" || fail "the tampered record's take exited $RC: $OUT"
+case "$RC:$ERR" in
+  1:*"outside the handle grammar"*) ok "a successor record naming a handle outside the grammar is refused" ;;
+  *) fail "the tampered record was not refused for its handle: exit $RC: $ERR" ;;
+esac
 holder_is "and the name stays put" operator-term
 
 echo

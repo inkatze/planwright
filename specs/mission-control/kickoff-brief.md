@@ -656,9 +656,9 @@ the CLI's session documentation; no new dependency, so a short pass.
   session, the harness cannot move the operator's terminal to a launched
   successor, so a handover launch over it is refused (`launch --handover`
   exits 4): the
-  handover is offered on the panel as one operator act (`/clear`, then the
-  mission-control command with the program name), which runs as the
-  resume. This is the D-30 fallback, never a degraded session.
+  handover is offered on the panel as one operator act (one command opening
+  a fresh session that runs the mission-control command with the program
+  name), which runs as the resume. This is the D-30 fallback, never a degraded session.
 - **Tests.** Each guarded behaviour in the shell suite was checked to fail
   under a mutation of it before it was trusted.
 

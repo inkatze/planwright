@@ -68,8 +68,9 @@ Usage:
       <TAB>live|stale, or holder<TAB>- with no holder
   mc-handover.sh path --program <p>
       path<TAB>unattended, or path<TAB>operator-act<TAB><command> where
-      the holder is attended: the harness cannot move the operator's
-      terminal to a launched session, so the handover is one operator act
+      the holder is a live attended session: the harness cannot move the
+      operator's terminal to a launched session, so the handover is one
+      operator act, the command opening a fresh session that resumes
   mc-handover.sh offer --program <p>
       raise that act as an operator item (event handover-act) for the
       panel; prints offered<TAB><event id>
@@ -82,7 +83,7 @@ Usage:
   mc-handover.sh launch --program <p> --brief <file> [--handover | --asked]
       [--backend stream-json|tmux] [--cwd <abs-dir>] [--now <epoch>]
       launch the successor through the launcher (kind mission-control,
-      scope gen-<generation>-<epoch>), its brief carrying the handover file's
+      scope gen-<generation>-<epoch>-<nonce>), its brief carrying the handover file's
       path. A live holder admits only the operator's ask (--asked) or a
       live handover (--handover: a handover file naming the live
       holder); any other launch is refused naming the holder, and a
@@ -578,7 +579,9 @@ case $verb in
     need context "$context"
     mc_valid_uint "$wakes" || mc_usage_fail "--wakes takes a count"
     mc_valid_uint "$compactions" || mc_usage_fail "--compactions takes a count"
-    [ "$context" = - ] || mc_valid_uint "$context" || mc_usage_fail "--context takes a percent or -"
+    if [ "$context" != - ] && { ! mc_valid_uint "$context" || [ "$context" -gt 100 ]; }; then
+      mc_usage_fail "--context takes a percent from 0 to 100, or -"
+    fi
     if k=$(mc_knob mission_control_handover_compactions mc_parse_count) && [ "$compactions" -ge "$k" ]; then
       printf 'due\t%s compactions\n' "$compactions"
     elif [ "$context" != - ]; then
@@ -606,9 +609,9 @@ case $verb in
   path | offer)
     runtime_paths
     read_holder
-    act="/clear, then /planwright:mission-control $program"
+    act="claude '/planwright:mission-control $program'"
     if [ "$verb" = path ]; then
-      if [ "$H_KIND" = attended ]; then printf 'path\toperator-act\t%s\n' "$act"; else printf 'path\tunattended\n'; fi
+      if [ "$H_KIND" = attended ] && [ "$H_LIVE" -eq 1 ]; then printf 'path\toperator-act\t%s\n' "$act"; else printf 'path\tunattended\n'; fi
       exit 0
     fi
     id=$(mc_event emit --program "$program" --now "$NOW" -- handover-act "$program" "handover due: $act") \
@@ -680,9 +683,11 @@ case $verb in
           ;;
       esac
     fi
-    # The launch time keeps a relaunch from reusing the name of a successor
+    # A per-launch nonce keeps a relaunch from reusing the name of a successor
     # that died, which a release to it may still name.
-    scope="gen-$((H_GEN + 1))-$NOW"
+    nonce=$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+    [ -n "$nonce" ] || mc_fail "cannot draw a nonce for the successor's name"
+    scope="gen-$((H_GEN + 1))-$NOW-$nonce"
     name=$(/bin/sh "$script_dir/mission-control-launch.sh" name --program "$program" --kind mission-control --scope "$scope" </dev/null) \
       || mc_fail "the launcher cannot name the successor"
     # The record is reserved before the launch, so a second launch meets it

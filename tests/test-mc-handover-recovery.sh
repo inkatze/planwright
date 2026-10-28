@@ -163,6 +163,7 @@ for c in "take --program beta --session operator-b --window bogus" \
   "launch --program beta --brief $tmp/brief.md --backend nowhere" \
   "due --program beta --context x --wakes 0 --compactions 0" \
   "verify --program beta --session operator-b --picture $tmp/bpic --digest abc --ledger -" \
+  "due --program beta --context 101 --wakes 0 --compactions 0" \
   "frobnicate --program beta"; do
   # shellcheck disable=SC2086 # each case is a word list on purpose
   ho $c
@@ -176,6 +177,18 @@ printf '%s\n' "mission_control_handover_context: 50" >>"$tracked"
 ho due --program beta --context 50 --wakes 0 --compactions 0
 [ "$OUT" = "due${tab}context at 50%" ] && ok "the context threshold is the knob's" || fail "the knob was not read: $OUT $ERR"
 cp "$tmp/tracked.keep" "$tracked"
+
+# A relaunch in the same second as a successor that died gets a name of its
+# own, so a release to the dead one can never match it.
+ho launch --program beta --brief "$tmp/brief.md" --asked --now 1800000000
+s1=$(col successor 2)
+wait_done "$s1"
+run mission-control-launch.sh retire "$s1"
+ho launch --program beta --brief "$tmp/brief.md" --asked --now 1800000000
+s2=$(col successor 2)
+wait_done "$s2"
+[ -n "$s1" ] && [ -n "$s2" ] && [ "$s1" != "$s2" ] && ok "a same-second relaunch gets a name of its own" || fail "the relaunch reused $s1 (got '$s2')"
+run mission-control-launch.sh retire "$s2"
 
 echo
 if [ "$failures" -gt 0 ]; then
