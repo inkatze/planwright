@@ -30,7 +30,7 @@ ok() { echo "ok: $1"; }
   exit 1
 }
 
-tmp=$(mktemp -d) || exit 1
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/mc-stall.XXXXXX") || exit 1
 if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
   echo "FAIL: mktemp -d produced no usable directory" >&2
   exit 1
@@ -141,7 +141,8 @@ expect_state() { # expect_state <label> <name> <state>
     printf '%s\n' "----- stdout -----" "$OUT" "----- stderr -----" "$ERR" "------------------" >&2
   fi
 }
-events() { mc_env /bin/bash "$repo_root/scripts/mc-event.sh" list --program alpha 2>/dev/null; }
+# mc_env replaces the shell it runs in, so the listing runs in a subshell.
+events() { (mc_env /bin/bash "$repo_root/scripts/mc-event.sh" list --program alpha 2>/dev/null); }
 expect_event() { # expect_event <label> <kind> <subject>
   if events | awk -F '\t' -v k="$2" -v s="$3" '$3 == k && $4 == s { f = 1 } END { exit !f }'; then
     ok "$1"

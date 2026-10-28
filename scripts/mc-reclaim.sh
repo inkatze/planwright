@@ -8,6 +8,9 @@ set -f
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# The caller's git environment must not choose the repository or config a
+# destructive check reads.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM
 
 prog=mc-reclaim
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
@@ -46,9 +49,9 @@ the worktree's .git file alone. This script's git calls on the worktree
 name that git directory, and every git call that reads the worktree, the
 removal's included, runs with core.fsmonitor and hooks off. The
 predicate's arms, each refusing on its own:
-  live-user      a process of this user has its working directory in the
-                 worktree, or none of the process table's working
-                 directories can be read (another user's processes are not
+  live-user      a process the reclaim can see has its working directory
+                 in the worktree, or the process table will not show even
+                 this process's own (another user's processes are not
                  visible without privilege)
   uncommitted    git status lists a change or an untracked file, or the
                  worktree holds a submodule
@@ -173,11 +176,14 @@ parse_paths() {
   }'
 }
 
-# live_users <dir>: print the pid of every process of this user whose
-# working directory is <dir> or below it; fails when no working directory
-# can be read at all.
+# live_users <dir>: print the pid of every visible process whose working
+# directory is <dir> or below it; fails when the process table will not
+# show this process its own.
 live_users() {
   if [ -L /proc/self/cwd ]; then
+    # A procfs that will not show this process its own working directory
+    # shows none of the operator's either.
+    readlink "/proc/$$/cwd" >/dev/null 2>&1 || return 1
     # One find over procfs: a readlink per process costs seconds on a busy
     # host. The path is escaped so -lname matches it literally.
     lu_glob=$(printf '%s' "$1" | sed 's/[][*?\\]/\\&/g')

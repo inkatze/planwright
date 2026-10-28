@@ -14,6 +14,8 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# A caller's git environment must not steer the fixture repositories.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd -P)
@@ -34,7 +36,7 @@ command -v git >/dev/null 2>&1 || {
   exit 1
 }
 
-tmp=$(mktemp -d) || exit 1
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/mc-reclaim.XXXXXX") || exit 1
 if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
   echo "FAIL: mktemp -d produced no usable directory" >&2
   exit 1
@@ -118,7 +120,14 @@ pr() {
 }
 
 reclaim() { mc_run mc-reclaim.sh "$@"; }
-sha() { sha256sum "$1" 2>/dev/null | cut -c1-64 || shasum -a 256 "$1" | cut -c1-64; }
+if command -v sha256sum >/dev/null 2>&1; then
+  sha() { sha256sum "$1" | cut -c1-64; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha() { shasum -a 256 "$1" | cut -c1-64; }
+else
+  echo "FAIL: no SHA-256 tool (sha256sum or shasum) to check the copies" >&2
+  exit 1
+fi
 
 # --- each predicate arm refuses -------------------------------------------
 

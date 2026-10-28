@@ -207,7 +207,8 @@ liveness() {
         fi
       done
       if [ -z "$lv_pid" ]; then
-        if [ ! -e "$lv_dir/worker.pid" ] && [ ! -e "$lv_dir/supervisor.pid" ]; then
+        if [ ! -e "$lv_dir/worker.pid" ] && [ ! -L "$lv_dir/worker.pid" ] \
+          && [ ! -e "$lv_dir/supervisor.pid" ] && [ ! -L "$lv_dir/supervisor.pid" ]; then
           L_STATE=dead L_REASON='the supervisor removed its pidfiles'
         fi
         return 0
@@ -406,7 +407,11 @@ classify_one() {
     printf '%s\n' "$prog: cannot keep the sample for $c_name" >&2
     return 1
   fi
-  pw_lock_release "$c_lock" || :
+  pw_lock_release "$c_lock"
+  if [ "$?" = 2 ]; then
+    printf '%s\n' "$prog: cannot release the sample lock for $c_name" >&2
+    return 1
+  fi
   printf '%s\t%s\t%s\t%s\t%s\n' "$c_name" "$c_kind" "$c_state" "$(sanitize_printable "$c_reason")" "$c_event"
 }
 

@@ -672,10 +672,11 @@ local probes against the installed git and the existing fleet scripts.
   window gone from a healthy server, or the pid in it gone; a stream-json
   worker's recorded pid gone, or a state directory whose supervisor removed
   both pidfiles on exit. A window id is trusted only while the window
-  still carries the session's name. "In use" is a process of the operator's
-  user whose working directory is in the worktree, read from procfs or,
-  where there is none, `lsof`; another user's processes are not visible
-  without privilege.
+  still carries the session's name. "In use" is any process the reclaim
+  can see whose working directory is in the worktree, read from procfs or,
+  where there is none, `lsof`; in practice those are the operator's own,
+  since another user's are not visible without privilege, and a procfs
+  that hides this process's own working directory refuses the reclaim.
 - **Pane signals.** The selector, staged-paste, busy and input-box markers
   come from `scripts/fleet-pane-vocabulary.sh`, the one place the TUI's
   text is pinned, matched as whole strings: under `LC_ALL=C` a bracket class
