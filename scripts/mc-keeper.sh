@@ -12,7 +12,7 @@ unset CDPATH
 
 prog=mc-keeper
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-for lib in echo-safety.sh mc-lib.sh; do
+for lib in echo-safety.sh mc-lib.sh lock-lib.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
     printf '%s\n' "$prog: $lib is missing or unreadable (broken install)" >&2
     exit 2
@@ -22,6 +22,8 @@ done
 . "$script_dir/echo-safety.sh" || exit 2
 # shellcheck source=scripts/mc-lib.sh
 . "$script_dir/mc-lib.sh" || exit 2
+# shellcheck source=scripts/lock-lib.sh
+. "$script_dir/lock-lib.sh" || exit 2
 
 help_text() {
   cat <<'HELP'
@@ -77,9 +79,9 @@ Usage:
       runner): the stall scan (scripts/mc-stall.sh scan, which emits its own
       events), then sweep, each landing one session-landed event in the
       program's event store, subject the session, text
-      `<state>, retired|held[: <what stayed>]`, printing
+      `<owner/name>#<pr> <state>, retired|held[: <what stayed>]`, printing
         announced<TAB>session-landed<TAB><session>
-      once per session, state and outcome while the session stays tracked,
+      once per pull request, state and outcome while it stays tracked,
       so a landing held run after run wakes the session once; the program
       from PLANWRIGHT_MC_PROGRAM when --program is absent
 
@@ -163,20 +165,19 @@ row_live() {
   rows | R=$1 awk 'BEGIN { r = ENVIRON["R"] } $0 == r { f = 1 } END { exit !f }'
 }
 
+# The ledger has its own lock, never the fleet lock: a retire runs inside
+# its critical section, and the retire's own steps take the fleet lock.
+ledger_lock() {
+  pw_lock_acquire "$runtime/keeper.lock" || mc_fail "cannot take the ledger lock"
+}
+ledger_unlock() { pw_lock_release "$runtime/keeper.lock" >/dev/null 2>&1; }
+
 # replace_row <row> [<new row>]: put <new row> in place of that exact row,
-# or drop it, under the fleet lock.
+# or drop it; the caller holds the ledger lock.
 replace_row() {
-  mc_lock || mc_fail "cannot take the fleet lock"
-  rr_rows=$(rows) || {
-    mc_unlock
-    exit 1
-  }
+  rr_rows=$(rows) || exit 1
   rr_kept=$(printf '%s\n' "$rr_rows" | R=$1 N=${2:-} awk 'BEGIN { r = ENVIRON["R"]; n = ENVIRON["N"] } $0 == r { if (n != "") print n; next } NF { print }')
-  { printf '# format: 1\n' && { [ -z "$rr_kept" ] || printf '%s\n' "$rr_kept"; }; } | mc_write "$ledger" || {
-    mc_unlock
-    mc_fail "cannot rewrite $ledger"
-  }
-  mc_unlock
+  { printf '# format: 1\n' && { [ -z "$rr_kept" ] || printf '%s\n' "$rr_kept"; }; } | mc_write "$ledger" || mc_fail "cannot rewrite $ledger"
 }
 
 # say <tag> <session> [<text>]: a sweep line, or under the runner the
@@ -190,7 +191,7 @@ say() {
     retired | held) ;;
     *) return 0 ;;
   esac
-  mc_announce "$program" "$seen" "$2	$sw_state	$1" session-landed "$2" "$sw_state, $1${3:+: $3}"
+  mc_announce "$program" "$seen" "$2	$sw_r#$sw_p	$sw_state	$1" session-landed "$2" "$sw_r#$sw_p $sw_state, $1${3:+: $3}"
 }
 
 sweep() {
@@ -220,19 +221,20 @@ EOF
     esac
     sw_held=""
     # A session retired on an earlier sweep is not retired again: the name
-    # may since belong to a relaunch of the same scope. The row is re-read
-    # under the lock up to the retire, so a track re-pointing the session
-    # meanwhile is never retired for this pull request.
+    # may since belong to a relaunch of the same scope. The row is re-read,
+    # the retire run and its retired stage written in one hold of the
+    # ledger lock, so a track re-pointing the session meanwhile is never
+    # retired for this pull request, nor drops the line still owed a
+    # reclaim.
     if [ "$sw_stage" != retired ]; then
-      mc_lock || mc_fail "cannot take the fleet lock"
+      ledger_lock
       if ! row_live "$sw_row"; then
-        mc_unlock
+        ledger_unlock
         continue
       fi
       say landed "$sw_s" "$sw_state"
       sw_out=$(launcher retire "$sw_s" 2>&1)
       sw_retire=$?
-      mc_unlock
       case $sw_retire in
         0) ;;
         3)
@@ -254,6 +256,7 @@ EOF
         replace_row "$sw_row" "$sw_next"
         sw_row=$sw_next
       fi
+      ledger_unlock
     else
       row_live "$sw_row" || continue
       say landed "$sw_s" "$sw_state"
@@ -272,21 +275,21 @@ EOF
     fi
     # The row goes only once the store holds the landing, so a refused
     # event is raised again on the next sweep.
-    if [ "$events" = 0 ]; then
+    if [ "$events" = 0 ] || say retired "$sw_s"; then
+      ledger_lock
       replace_row "$sw_row"
-      printf 'dropped\t%s\n' "$sw_s"
-    elif say retired "$sw_s"; then
-      replace_row "$sw_row"
+      ledger_unlock
+      [ "$events" = 1 ] || printf 'dropped\t%s\n' "$sw_s"
     else
       sw_rc=1
     fi
   done <<EOF
 $sw_rows
 EOF
-  # The announced set keeps only sessions still tracked.
+  # The announced set keeps only the pull requests still tracked.
   if [ "$events" = 1 ] && [ -f "$seen" ]; then
-    sw_live=$(rows | cut -f1) || exit 1
-    sw_kept=$(LIVE=$sw_live awk -F '\t' 'BEGIN { n = split(ENVIRON["LIVE"], l, "\n"); for (i = 1; i <= n; i++) live[l[i]] = 1 } ($1 in live)' "$seen") || return 1
+    sw_live=$(rows | awk -F '\t' '{ print $1 "\t" $2 "#" $3 }') || exit 1
+    sw_kept=$(LIVE=$sw_live awk -F '\t' 'BEGIN { n = split(ENVIRON["LIVE"], l, "\n"); for (i = 1; i <= n; i++) live[l[i]] = 1 } (($1 "\t" $2) in live)' "$seen") || return 1
     { [ -z "$sw_kept" ] || printf '%s\n' "$sw_kept"; } | mc_write "$seen" || return 1
   fi
   return "$sw_rc"
@@ -301,8 +304,8 @@ case $verb in
       - | /*) ;;
       *) mc_usage_fail "--worktree takes an absolute path" ;;
     esac
-    mc_lock || mc_fail "cannot take the fleet lock"
-    trap mc_unlock EXIT
+    trap pw_lock_release_all EXIT
+    ledger_lock
     current=$(rows) || exit 1
     kept=$(printf '%s\n' "$current" | S=$session awk -F '\t' 'NF && ($1 != ENVIRON["S"] || $5 == "retired")')
     {
@@ -321,7 +324,7 @@ case $verb in
       /bin/bash "$script_dir/mc-stall.sh" scan --program "$program" ${now:+--now "$now"} >/dev/null || rc=1
     fi
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
-    trap mc_unlock EXIT
+    trap pw_lock_release_all EXIT
     sweep || rc=1
     exit "$rc"
     ;;

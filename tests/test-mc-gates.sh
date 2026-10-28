@@ -80,6 +80,9 @@ expect_out "the repository's conflict rule applies" "merge${tab}conflicts${tab}s
 mc_run mc-gates.sh resolve --program alpha --repo acme/api
 expect_out "REQ-I1.7: a repository's method wins over the program's, even written earlier" "merge${tab}method${tab}merge"
 expect_no_out "REQ-I1.7: another repository's step does not apply" "cubic-pr"
+mc_run mc-gates.sh resolve --program alpha --repo ACME/Web --label UI
+expect_out "a slug and a label match whatever their case" "ready${tab}evidence${tab}screenshot"
+expect_out "the repository's rows too" "ready${tab}steps${tab}cubic-pr"
 mc_run mc-gates.sh resolve --program alpha --repo acme/web --label backend --path src/a.c
 expect_no_out "an unmatched label adds nothing" "screenshot"
 expect_no_out "an unmatched path adds nothing" "Walkthrough"

@@ -44,11 +44,12 @@ cat >"$tmp/bin/gh" <<EOF
 #!/bin/sh
 case "\$*" in
   *"pr view 7 "*) cat "$tmp/state7" ;;
-  *"pr view 8 "*) echo OPEN ;;
+  *"pr view 8 "*) cat "$tmp/state8" ;;
   *) exit 1 ;;
 esac
 EOF
 chmod +x "$tmp/bin/gh"
+echo OPEN >"$tmp/state8"
 
 # ---------------------------------------------------------------------------
 # REQ-D1.5: a session whose pull request landed is retired and dropped; an
@@ -82,7 +83,7 @@ ERR=$(cat "$tmp/stderr")
 expect_rc "under the runner, the failed read still fails the run" 1
 expect_eq "under the runner, a landing is announced and nothing else printed" "announced${tab}session-landed${tab}mc-alpha-worker-three"
 mc_run mc-event.sh list --program alpha
-expect_out "the landing lands in the event store" "session-landed${tab}mc-alpha-worker-three${tab}CLOSED, retired"
+expect_out "the landing lands in the event store" "session-landed${tab}mc-alpha-worker-three${tab}acme/web#7 CLOSED, retired"
 
 # A landing that stays held wakes the session once, not every run.
 mkdir -p "$tmp/dirty"
@@ -103,6 +104,23 @@ if grep -q "^mc-alpha-worker-four${tab}acme/web${tab}7${tab}.*${tab}retired$" "$
 else
   fail "tracking a relaunch lost the retired line: $(cat "$ledger")"
 fi
+
+# The relaunch's own landing is its own event, not taken for the retired
+# line's: the retired line waits on its worktree, the new one lands.
+echo MERGED >"$tmp/state8"
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
+mc_run mc-event.sh list --program alpha
+expect_out "the relaunch's landing is raised" "session-landed${tab}mc-alpha-worker-four${tab}acme/web#8 MERGED, retired"
+if grep -q "^mc-alpha-worker-four${tab}acme/web${tab}8${tab}" "$ledger"; then fail "the relaunch's landed line stayed"; else ok "and its line dropped"; fi
+if grep -q "^mc-alpha-worker-four${tab}acme/web${tab}7${tab}.*${tab}retired$" "$ledger"; then ok "while the retired line still waits on its worktree"; else fail "the retired line went: $(cat "$ledger")"; fi
+echo OPEN >"$tmp/state8"
+
+mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-six --repo acme/.github --pr 8
+expect_rc "a repository named with a leading dot is a slug" 0
+for bad in acme/.. acme/-x ./x acme; do
+  mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-six --repo "$bad" --pr 8
+  expect_rc "not a slug: $bad" 2
+done
 
 # A refused landing event keeps the line, so the next run raises it.
 mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-five --repo acme/web --pr 7
