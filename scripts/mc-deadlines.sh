@@ -12,7 +12,7 @@ unset CDPATH
 
 prog=mc-deadlines
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-for lib in echo-safety.sh mc-lib.sh; do
+for lib in echo-safety.sh mc-lib.sh spec-parse.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
     printf '%s\n' "$prog: $lib is missing or unreadable (broken install)" >&2
     exit 2
@@ -22,6 +22,8 @@ done
 . "$script_dir/echo-safety.sh" || exit 2
 # shellcheck source=scripts/mc-lib.sh
 . "$script_dir/mc-lib.sh" || exit 2
+# shellcheck source=scripts/spec-parse.sh
+. "$script_dir/spec-parse.sh" || exit 2
 
 help_text() {
   cat <<'HELP'
@@ -184,10 +186,11 @@ gather() {
         # (a tab or newline in it, say) could forge a store line.
         mc_valid_kebab "$ga_n" || continue
         [ -f "$ga_b/tasks.md" ] || continue
-        # A task block runs to the next H2 or H3 heading.
-        N=$ga_n awk '
-          /^##[#]? / { t = "" }
-          /^### Task [0-9]+(\.[0-9]+)? / { t = $3 }
+        # A task block runs to the next H2 or H3 heading; the task heading
+        # grammar and the code-fence skip are the shared spec-parse lib's.
+        # shellcheck disable=SC2016 # awk source
+        N=$ga_n awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
+          /^##[#]? / { t = spec_parse_task_id($0) }
           /^(- )?\*\*Due:\*\* [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ ]*$/ && t != "" { print ENVIRON["N"] ":task-" t "\t" $NF "\trecord:specs" }' \
           "$ga_b/tasks.md" || mc_fail "cannot read $ga_b/tasks.md"
         if [ -f "$ga_b/requirements.md" ]; then
