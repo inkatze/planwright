@@ -1,13 +1,9 @@
 #!/bin/bash
-# Tests for scripts/mc-handover.sh — mission control's succession: the
-# trigger, the handover file, the successor launched through the launcher,
-# its self-check, the transfer of the program name, the predecessor's
-# retirement and the operator-asked resume (mission-control REQ-A1.1,
-# REQ-A1.7, REQ-B1.7, REQ-L1.3, REQ-L1.5, REQ-L1.6).
-#
-# Successors launch on the stream-json rung against a CLI shim that reads
-# its first message and exits, so each registry row is real and each retire
-# goes through the launcher.
+# Tests for scripts/mc-handover.sh — mission control's succession, from the
+# trigger to the resume (mission-control REQ-A1.1, REQ-A1.7, REQ-B1.7,
+# REQ-L1.3, REQ-L1.5, REQ-L1.6). Successors launch on the stream-json rung
+# against a CLI shim that reads its first message and exits, so each
+# registry row is real and each retire goes through the launcher.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 # shellcheck disable=SC2015 # ok only prints, so a fail arm never follows a passing check
