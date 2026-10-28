@@ -628,6 +628,39 @@ pass against those primary sources and local probes.
   on; the decisions log is read in the layout Task 8 writes. Each absent
   store draws as absent, never as empty.
 
+### Execution research: Task 4 (2026-10-28, after sign-off)
+
+Recorded during Task 4's execution, as the records above were; it changes
+no decision and is not part of the signed section.
+
+Scoping: two security-touching patterns (a script that copies files out of a
+worktree into the program home, and one that removes a worktree) and the
+process-table read liveness rests on; no new dependency, so a short pass of
+local probes against the installed git and the existing fleet scripts.
+
+- **Ignored files and removal.** A probe showed `git worktree remove`
+  deletes a clean worktree's ignored files without a word, so the backup
+  must finish and verify before the removal starts, never after.
+- **Removal reused, not rebuilt.** `scripts/fleet-cleanup.sh worktree`
+  already removes a worktree on positive evidence (clean, and pushed or
+  merged at exactly its head), behind the daemon gate, the self-target
+  guard and the audit trail. The reclaim runs its own predicate and backup,
+  then hands the removal to that arm from the main checkout.
+- **Copying out of a worktree.** Only files git reports ignored are copied;
+  a symbolic link is never followed and a file whose directory resolves
+  outside the worktree is refused, so a worktree cannot steer a copy of an
+  arbitrary file into the program home. A bad copy is taken back on
+  refusal, so it cannot block the next attempt.
+- **Liveness.** The session's pid comes from where its rung records it (the
+  stream-json `worker.pid`, the tmux pane pid) and its state from `ps -o
+  stat=`: empty is gone, `Z` is a zombie. "In use" is a process whose
+  working directory is in the worktree, read from procfs or, where there is
+  none, `lsof`; neither available refuses rather than guessing.
+- **Pane signals.** The selector, staged-paste and busy markers come from
+  `scripts/fleet-pane-vocabulary.sh`, the one place the TUI's text is
+  pinned. The busy-unchanged hash drops spinner lines, whose timer ticks
+  every second, so only the work above them counts as change.
+
 ## 8. Sign-off
 
 First activation, full walkthrough, every section above signed, no
