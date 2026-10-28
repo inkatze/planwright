@@ -65,6 +65,8 @@ g() { git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false
 # A work repository with a remote, and a worktree per case.
 git init -q --bare "$tmp/origin.git"
 g clone -q "$tmp/origin.git" "$proj" 2>/dev/null
+# The host's init.defaultBranch must not decide the fixture's branch name.
+g -C "$proj" checkout -q -B main
 printf '.claude/steps\n.claude/polish-audit.md\n.claude/handover.md\n' >"$proj/.gitignore"
 g -C "$proj" add .gitignore
 g -C "$proj" commit -qm init
