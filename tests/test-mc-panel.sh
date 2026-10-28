@@ -152,7 +152,7 @@ record "REQ-L1.5: the wake ceiling knob" knob handover-wakes 150
 record "REQ-L1.5: the compaction ceiling knob" knob handover-compactions 2
 record "the redraw cadence knob, in seconds" knob refresh 10
 record "the tick cadence knob, in seconds" knob tick 300
-record "D-29: no handover verb yet" handover absent
+record "D-29: the handover verb is installed" handover available
 record "REQ-F1.2: the text line" line "mission control alpha: 3 in flight, 0 waiting, 1 pending, rung normal, tracker snapshot 30s old"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "knobs only with --knobs" "knob${tab}"
