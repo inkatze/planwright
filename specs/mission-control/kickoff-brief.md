@@ -628,7 +628,7 @@ pass against those primary sources and local probes.
   on; the decisions log is read in the layout Task 8 writes. Each absent
   store draws as absent, never as empty.
 
-### Execution research: Task 4 (2026-10-28, after sign-off)
+### Execution research: Task 4 (2026-10-27, after sign-off)
 
 Recorded during Task 4's execution, as the records above were; it changes
 no decision and is not part of the signed section.
@@ -646,20 +646,39 @@ local probes against the installed git and the existing fleet scripts.
   merged at exactly its head), behind the daemon gate, the self-target
   guard and the audit trail. The reclaim runs its own predicate and backup,
   then hands the removal to that arm from the main checkout.
+- **A worker-written `.git` file.** A worktree's `.git` file is the
+  worker's to write, and git trusts it: a review pass showed a forged one
+  pointing at a repository built in the worktree runs `core.fsmonitor`
+  during a plain `git status`. The reclaim takes the worktree only when the
+  program repository's own `worktrees/<id>/gitdir` points back at it, then
+  names that git directory on every call with `core.fsmonitor` and hooks
+  off.
 - **Copying out of a worktree.** Only files git reports ignored are copied;
-  a symbolic link is never followed and a file whose directory resolves
-  outside the worktree is refused, so a worktree cannot steer a copy of an
-  arbitrary file into the program home. A bad copy is taken back on
-  refusal, so it cannot block the next attempt.
-- **Liveness.** The session's pid comes from where its rung records it (the
-  stream-json `worker.pid`, the tmux pane pid) and its state from `ps -o
-  stat=`: empty is gone, `Z` is a zombie. "In use" is a process whose
-  working directory is in the worktree, read from procfs or, where there is
-  none, `lsof`; neither available refuses rather than guessing.
-- **Pane signals.** The selector, staged-paste and busy markers come from
-  `scripts/fleet-pane-vocabulary.sh`, the one place the TUI's text is
-  pinned. The busy-unchanged hash drops spinner lines, whose timer ticks
-  every second, so only the work above them counts as change.
+  a symbolic link is never followed, a file name holding a newline is
+  refused (it would split the file list), and a source or destination
+  directory that resolves outside its root is refused, so a worktree cannot
+  steer a copy of an arbitrary file into the program home or a copy out of
+  it. A refused reclaim takes back the copies it made, so none blocks the
+  next attempt.
+- **Untracked files.** `git status` honours `status.showUntrackedFiles`, so
+  the clean check names `--untracked-files=all`: with `no` set, an untracked
+  file passed and `git worktree remove` deleted it.
+- **Liveness.** Death is `scripts/fleet-death-evidence.sh`'s positive
+  verdict, which tells lost observability from a gone process: a tmux
+  window gone from a healthy server, or the pid in it gone; a stream-json
+  worker's recorded pid gone, or a state directory whose supervisor removed
+  both pidfiles on exit. A window id is trusted only while the window
+  still carries the session's name. "In use" is a process of the operator's
+  user whose working directory is in the worktree, read from procfs or,
+  where there is none, `lsof`; another user's processes are not visible
+  without privilege.
+- **Pane signals.** The selector, staged-paste, busy and input-box markers
+  come from `scripts/fleet-pane-vocabulary.sh`, the one place the TUI's
+  text is pinned, matched as whole strings: under `LC_ALL=C` a bracket class
+  of box glyphs matches single bytes, which a review pass caught skipping
+  every line opening with a bullet glyph. The busy-unchanged hash drops
+  spinner lines, whose timer ticks every second, so only the work above
+  them counts as change.
 
 ## 8. Sign-off
 

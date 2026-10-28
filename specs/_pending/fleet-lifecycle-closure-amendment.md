@@ -1,7 +1,7 @@
 # Seed brief: amend `fleet-lifecycle-closure` (resource classes for every session kind)
 
-Captured 2026-10-28 by `mission-control` Task 4, which routed this work here
-rather than absorbing it (that bundle's D-11 and D-22).
+Captured 2026-10-27 by `mission-control` Task 4, which routed this work here
+rather than absorbing it (mission-control's D-11 and D-22).
 
 Suggested invocation, from a fresh session in the planwright repo:
 
@@ -34,6 +34,8 @@ nothing says a future rung or kind owes them a close or a detector.
 - **The stall sample** `mc-stall.sh` keeps per session under the program's
   runtime directory, and the `stall-<state>` events it emits into the
   program's attention store (pruned by `mission_control_event_retention`).
+  A relaunch under the same name starts a fresh sample, but nothing removes
+  a retired session's sample yet: `retire` has no close for it.
 - **The reclaimed worktree and its reclaim folder**: `scripts/mc-reclaim.sh`
   opens a backup under the program home's `reclaimed/<repository>/<branch>/`
   and closes the worktree through `fleet-cleanup.sh worktree`, refusing
