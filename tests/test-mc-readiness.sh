@@ -197,8 +197,17 @@ esac
 exit 1
 EOF
 chmod +x "$tmp/bin/gh"
+# The worktree is a worker's: its own git configuration must run nothing
+# while its step records are read.
+printf '#!/bin/sh\nprintf ran >"%s/fsmonitor-ran"\n' "$tmp" >"$tmp/bin/fsmon"
+chmod +x "$tmp/bin/fsmon"
+git -C "$repo" config core.fsmonitor "$tmp/bin/fsmon"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected"
 expect_rc "collect" 0
+if [ ! -e "$tmp/fsmonitor-ran" ]; then ok "the worktree's fsmonitor never runs during collect"; else fail "collect ran the worktree's fsmonitor"; fi
+git -C "$repo" ls-files >/dev/null 2>&1
+if [ -e "$tmp/fsmonitor-ran" ]; then ok "and the fixture's fsmonitor does run for a plain git read"; else fail "the fsmonitor fixture never fires, so the check above proves nothing"; fi
+git -C "$repo" config --unset core.fsmonitor
 c=$(cat "$tmp/collected" 2>/dev/null)
 has() { case $c in *"$2"*) ok "$1" ;; *) fail "$1: the collection lacks '$2'" ;; esac }
 hasnt() { case $c in *"$2"*) fail "$1: the collection carries '$2'" ;; *) ok "$1" ;; esac }

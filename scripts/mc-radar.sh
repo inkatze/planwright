@@ -32,8 +32,10 @@ dependency graph, and the stack retargets a base merge calls for.
 Usage:
   mc-radar.sh overlap --checkout <dir> --base <ref> <branch> <branch>...
       each branch's change against its merge base with <ref>, compared
-      pairwise in base-side lines (an insertion counts as the line it
-      lands at), one line per overlap, pairs in argument order:
+      pairwise in base-side lines, one line per overlap, pairs in argument
+      order; two changes meet when no unchanged line separates them (an
+      insertion sits between the lines around it), as a three-way merge
+      would conflict, and the range reported spans both:
         same-file<TAB><a><TAB><b><TAB><path>
         same-line<TAB><a><TAB><b><TAB><path><TAB><first>-<last>
       a path both branches touch gets a same-file line (a binary or
@@ -129,7 +131,7 @@ valid_ref() {
 }
 
 # hunks <repo> <base> <branch>: <branch><TAB><path><TAB><first><TAB><last>
-# per changed base-side range, and <branch><TAB><path><TAB>0<TAB>0 per path
+# <TAB><half-line first><TAB><half-line last> per changed base-side range, and <branch><TAB><path><TAB>0<TAB>0 per path
 # the branch touches at all (a binary or mode-only change has no range).
 # Returns 3 when the branch shares no history with the base, 1 when a git
 # read fails.
@@ -149,10 +151,12 @@ hunks() {
     /^@@ / && p != "" {
       hdr = 0
       split($2, o, ","); a = substr(o[1], 2) + 0; n = (2 in o) ? o[2] + 0 : 1
-      if (n == 0) { lo = a; hi = a } else { lo = a; hi = a + n - 1 }
+      # Half-line positions place an insertion between the lines it falls
+      # between: line k is 2k, an insertion after line a is 2a+1.
+      if (n == 0) { lo = a; hi = a; dlo = 2 * a + 1; dhi = dlo } else { lo = a; hi = a + n - 1; dlo = 2 * lo; dhi = 2 * hi }
       if (lo < 1) lo = 1
       if (hi < lo) hi = lo
-      print ENVIRON["B"] "\t" p "\t" lo "\t" hi
+      print ENVIRON["B"] "\t" p "\t" lo "\t" hi "\t" dlo "\t" dhi
     }'
 }
 
@@ -193,7 +197,7 @@ overlap() {
       if (!(($1, $2) in has)) { has[$1, $2] = 1; fl[$1] = fl[$1] (fl[$1] == "" ? "" : "\n") $2 }
       next
     }
-    { k = $1 SUBSEP $2; c = ++nh[k]; L[k, c] = $3 + 0; H[k, c] = $4 + 0 }
+    { k = $1 SUBSEP $2; c = ++nh[k]; L[k, c] = $3 + 0; H[k, c] = $4 + 0; DL[k, c] = $5 + 0; DH[k, c] = $6 + 0 }
     END {
       for (i = 1; i <= nb; i++) for (j = i + 1; j <= nb; j++) {
         a = name[i]; b = name[j]
@@ -203,16 +207,18 @@ overlap() {
           if (f == "" || !((b, f) in has)) continue
           print "same-file\t" a "\t" b "\t" f
           # Git lists the hunks of a file in base-line order, so one sweep over
-          # both lists finds every meeting range.
+          # both lists finds every meeting range. Ranges meet when no
+          # unchanged line separates them, as a three-way merge sees a
+          # conflict: within two half-line positions.
           ka = a SUBSEP f; kb = b SUBSEP f; lo = 0; hi = 0; u = 1; v = 1
           while (u <= nh[ka] && v <= nh[kb]) {
-            if (L[ka, u] <= H[kb, v] && L[kb, v] <= H[ka, u]) {
-              l = (L[ka, u] > L[kb, v]) ? L[ka, u] : L[kb, v]
-              h = (H[ka, u] < H[kb, v]) ? H[ka, u] : H[kb, v]
+            if (DL[ka, u] <= DH[kb, v] + 2 && DL[kb, v] <= DH[ka, u] + 2) {
+              l = (L[ka, u] < L[kb, v]) ? L[ka, u] : L[kb, v]
+              h = (H[ka, u] > H[kb, v]) ? H[ka, u] : H[kb, v]
               if (!lo || l < lo) lo = l
               if (h > hi) hi = h
             }
-            if (H[ka, u] < H[kb, v]) u++; else v++
+            if (DH[ka, u] < DH[kb, v]) u++; else v++
           }
           if (lo) print "same-line\t" a "\t" b "\t" f "\t" lo "-" hi
         }

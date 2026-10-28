@@ -37,8 +37,8 @@ other line is five tab-separated fields:
   gate    ready | merge
   scope   program (match `*`), repo (match a forge slug, owner/name),
           label (a label name) or path (a glob over changed paths, `*`
-          crossing `/`); a slug matches whatever its case, as the forge
-          treats it
+          crossing `/`); a slug or a label matches whatever its case, as
+          the forge treats them
   ready keys, each row adding one member to a set:
     steps     a step id that must be recorded passed or applied at the head
     evidence  smoke, walk or screenshot: evidence that must be recorded,
@@ -179,7 +179,7 @@ function glob(s, g,   r, i, c) {
 }
 function inlist(v, list,   n, a, i) {
   n = split(list, a, "\n")
-  for (i = 1; i <= n; i++) if (a[i] != "" && a[i] == v) return 1
+  for (i = 1; i <= n; i++) if (a[i] != "" && tolower(a[i]) == tolower(v)) return 1
   return 0
 }
 function anypath(g,   n, a, i) {

@@ -65,6 +65,7 @@ PATH="$tmp/bin:$PATH" mc_run mc-keeper.sh sweep --program alpha
 expect_rc "a sweep with a failed read reports it" 1
 expect_out "REQ-D1.5: the landed pull request is seen" "landed${tab}mc-alpha-worker-one${tab}MERGED"
 expect_out "REQ-D1.5: its session is retired" "retired${tab}mc-alpha-worker-one"
+expect_out "and its line dropped" "dropped${tab}mc-alpha-worker-one"
 expect_out "the open one is left" "open${tab}mc-alpha-worker-two"
 expect_out "the failed read is named" "unknown${tab}mc-alpha-worker-bad"
 if ! grep -q "worker-one" "$ledger" && grep -q "worker-two" "$ledger" && grep -q "worker-bad" "$ledger"; then
@@ -96,6 +97,25 @@ else
   fail "the held session's ledger row: $(cat "$ledger")"
 fi
 if [ "$(head -n 1 "$ledger")" = "# format: 1" ]; then ok "the ledger carries its format"; else fail "the ledger lacks its format line"; fi
+mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-four --repo acme/web --pr 8
+if grep -q "^mc-alpha-worker-four${tab}acme/web${tab}7${tab}.*${tab}retired$" "$ledger" && grep -q "^mc-alpha-worker-four${tab}acme/web${tab}8${tab}" "$ledger"; then
+  ok "a relaunch tracked under the name keeps the retired line waiting on its worktree"
+else
+  fail "tracking a relaunch lost the retired line: $(cat "$ledger")"
+fi
+
+# A refused landing event keeps the line, so the next run raises it.
+mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-five --repo acme/web --pr 7
+events_dir="$fleet/attention/mission-control/alpha/events"
+chmod 500 "$events_dir"
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
+RC=$?
+chmod 700 "$events_dir"
+expect_rc "a refused landing event fails the run" 1
+if grep -q "^mc-alpha-worker-five${tab}" "$ledger"; then ok "and keeps the line"; else fail "the line went with the event refused"; fi
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
+expect_out "the next run raises it" "announced${tab}session-landed${tab}mc-alpha-worker-five"
+if grep -q "^mc-alpha-worker-five${tab}" "$ledger"; then fail "the landed line stayed once its event was stored"; else ok "and then drops the line"; fi
 
 # ---------------------------------------------------------------------------
 # REQ-M1.4: the next ready unit dispatches while another waits on CI.

@@ -84,6 +84,11 @@ g commit -am bin-a
 g checkout -q -b bin-b main
 printf '\000\003' >"$tmp/work/blob.bin"
 g commit -am bin-b
+# Changes on neighbouring lines conflict in a three-way merge; one
+# unchanged line between them does not.
+edit adj-a main 25 near-a
+edit adj-b main 26 near-b
+edit gap-c main 28 far-c
 # A path holding a space: git ends its header name with a tab.
 g checkout -q main
 seq 1 9 >"$tmp/work/a b.txt"
@@ -137,6 +142,9 @@ expect_out "a binary file both branches change is a same-file overlap" "same-fil
 mc_run mc-radar.sh overlap --checkout "$tmp/work" --base main sql-a sql-b
 expect_out "a deleted line reading like a header is not one" "same-line${tab}sql-a${tab}sql-b${tab}s.sql${tab}8-8"
 expect_no_out "and plants no path" "spoofed"
+mc_run mc-radar.sh overlap --checkout "$tmp/work" --base main adj-a adj-b gap-c
+expect_out "changes on neighbouring lines meet" "same-line${tab}adj-a${tab}adj-b${tab}app.txt${tab}25-26"
+expect_no_out "one unchanged line between keeps them apart" "same-line${tab}adj-b${tab}gap-c"
 mc_run mc-radar.sh overlap --checkout "$tmp/work" --base main sp-a sp-b
 expect_out "a path with a space gets its same-line overlap" "same-line${tab}sp-a${tab}sp-b${tab}a b.txt${tab}5-5"
 mc_run mc-radar.sh overlap --checkout "$tmp/work" --base no-such-base feat-a feat-b

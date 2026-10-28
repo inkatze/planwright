@@ -43,7 +43,9 @@ retired for the old pull request).
 Usage:
   mc-keeper.sh track --program <p> --session <name> --repo <owner/name>
                      --pr <n> [--worktree <dir>]
-      record the session's pull request; a later track replaces it
+      record the session's pull request; a later track replaces the
+      session's active line, while a line already retired and waiting to
+      reclaim its worktree stays until that is done
   mc-keeper.sh sweep --program <p>
       for each tracked session whose pull request is MERGED or CLOSED (one
       gh read each, bounded): retire it (scripts/mission-control-launch.sh
@@ -52,9 +54,10 @@ Usage:
       the landing is in the event store; a line a later track replaced
       meanwhile is left alone; one line per act:
         landed<TAB><session><TAB><state>
-        retired<TAB><session>
+        retired<TAB><session>                the retire just done
         reclaimed<TAB><session><TAB><worktree>
         held<TAB><session><TAB><what stayed>
+        dropped<TAB><session>                the line, once nothing is left
         open<TAB><session>
         unknown<TAB><session><TAB><why>      the read failed; kept
   mc-keeper.sh next --program <p> --spec <dir> [--now <epoch>]
@@ -215,14 +218,22 @@ EOF
         continue
         ;;
     esac
-    row_live "$sw_row" || continue
-    say landed "$sw_s" "$sw_state"
     sw_held=""
     # A session retired on an earlier sweep is not retired again: the name
-    # may since belong to a relaunch of the same scope.
+    # may since belong to a relaunch of the same scope. The row is re-read
+    # under the lock up to the retire, so a track re-pointing the session
+    # meanwhile is never retired for this pull request.
     if [ "$sw_stage" != retired ]; then
+      mc_lock || mc_fail "cannot take the fleet lock"
+      if ! row_live "$sw_row"; then
+        mc_unlock
+        continue
+      fi
+      say landed "$sw_s" "$sw_state"
       sw_out=$(launcher retire "$sw_s" 2>&1)
-      case $? in
+      sw_retire=$?
+      mc_unlock
+      case $sw_retire in
         0) ;;
         3)
           # No row means already retired, or never launched through the
@@ -238,10 +249,14 @@ EOF
         *) sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))" ;;
       esac
       if [ -z "$sw_held" ]; then
+        [ "$events" = 1 ] || printf 'retired\t%s\n' "$sw_s"
         sw_next="$sw_s	$sw_r	$sw_p	$sw_w	retired"
         replace_row "$sw_row" "$sw_next"
         sw_row=$sw_next
       fi
+    else
+      row_live "$sw_row" || continue
+      say landed "$sw_s" "$sw_state"
     fi
     if [ -z "$sw_held" ] && [ "$sw_w" != "-" ] && [ -d "$sw_w" ]; then
       if sw_out=$(/bin/bash "$script_dir/mc-reclaim.sh" reclaim --program "$program" "$sw_w" 2>&1); then
@@ -257,7 +272,10 @@ EOF
     fi
     # The row goes only once the store holds the landing, so a refused
     # event is raised again on the next sweep.
-    if say retired "$sw_s"; then
+    if [ "$events" = 0 ]; then
+      replace_row "$sw_row"
+      printf 'dropped\t%s\n' "$sw_s"
+    elif say retired "$sw_s"; then
       replace_row "$sw_row"
     else
       sw_rc=1
@@ -286,7 +304,7 @@ case $verb in
     mc_lock || mc_fail "cannot take the fleet lock"
     trap mc_unlock EXIT
     current=$(rows) || exit 1
-    kept=$(printf '%s\n' "$current" | S=$session awk -F '\t' 'NF && $1 != ENVIRON["S"]')
+    kept=$(printf '%s\n' "$current" | S=$session awk -F '\t' 'NF && ($1 != ENVIRON["S"] || $5 == "retired")')
     {
       printf '# format: 1\n'
       [ -z "$kept" ] || printf '%s\n' "$kept"
@@ -295,13 +313,14 @@ case $verb in
     printf 'tracked\t%s\t%s#%s\n' "$session" "$slug" "$pr"
     ;;
   sweep | watch)
-    command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
     rc=0
     events=0
     if [ "$verb" = watch ]; then
       events=1
+      # The stall scan needs no forge, so a missing gh never stops it.
       /bin/bash "$script_dir/mc-stall.sh" scan --program "$program" ${now:+--now "$now"} >/dev/null || rc=1
     fi
+    command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
     trap mc_unlock EXIT
     sweep || rc=1
     exit "$rc"

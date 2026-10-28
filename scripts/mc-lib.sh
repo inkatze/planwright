@@ -474,7 +474,7 @@ mc_valid_sha() {
 # mc_valid_slug <owner/name>: a forge repository slug.
 mc_valid_slug() {
   case $1 in
-    */*/* | /* | */ | .* | */.* | *[!A-Za-z0-9._/-]*) return 1 ;;
+    */*/* | /* | */ | -* | */-* | . | ./* | .. | ../* | */. | */.. | *[!A-Za-z0-9._/-]*) return 1 ;;
     ?*/?*) ;;
     *) return 1 ;;
   esac
