@@ -11,7 +11,7 @@ unset CDPATH
 
 prog=mc-reclaim
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-for lib in echo-safety.sh mc-lib.sh; do
+for lib in echo-safety.sh mc-lib.sh lock-lib.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
     printf '%s\n' "$prog: $lib is missing or unreadable (broken install)" >&2
     exit 2
@@ -21,11 +21,12 @@ done
 . "$script_dir/echo-safety.sh" || exit 2
 # shellcheck source=scripts/mc-lib.sh
 . "$script_dir/mc-lib.sh" || exit 2
+# shellcheck source=scripts/lock-lib.sh
+. "$script_dir/lock-lib.sh" || exit 2
 
 GH_BOUND=20
 NL='
 '
-OLD_IFS=$IFS
 
 help_text() {
   cat <<'HELP'
@@ -40,32 +41,47 @@ Usage:
       the worktree through scripts/fleet-cleanup.sh.
 
 <worktree> is the absolute path of a linked worktree of one of the program's
-repositories. The predicate's arms, each refusing on its own:
-  live-user      a process has its working directory in the worktree, or
-                 the process table's working directories cannot be read
+repositories, proved from that repository's own git directory, never from
+the worktree's .git file alone; every git call runs with the repository's
+git directory named and core.fsmonitor and hooks off. The predicate's arms,
+each refusing on its own:
+  live-user      a process of this user has its working directory in the
+                 worktree, or none of the process table's working
+                 directories can be read (another user's processes are not
+                 visible without privilege)
   uncommitted    git status lists a change or an untracked file
-  no-pr, pr-open the forge has no PR for the branch, or one is still open;
-                 a merged or closed one passes
-  unpushed       a commit is on no remote-tracking ref, unless the PR merged
-                 at exactly the worktree's HEAD
-and the shape checks: not-a-worktree, main-checkout, detached, pr-unreadable.
+  no-pr, pr-open the forge has no PR from this repository for the branch,
+                 or one is still open; a merged or closed one passes
+  unpushed       the branch is neither at parity with its upstream nor the
+                 head of a PR merged at exactly the worktree's HEAD, the
+                 evidence fleet-cleanup.sh's removal itself requires
+and the shape checks: not-a-worktree, not-program-repo, main-checkout,
+detached, bad-branch, pr-unreadable. A reclaim adds:
+  backup         a copy failed, differs from its source, would replace a
+                 different file already in the reclaim folder, or the
+                 folder resolves outside the program home's reclaimed/;
+                 a file name holding a newline is refused
+  removal        fleet-cleanup.sh refused the removal (its exit and last
+                 line follow), or a process entered the worktree since the
+                 predicate ran
 
 The backup copies every git-ignored file the mission_control_reclaim_files
 knob matches (worktree-relative paths, `*` in the last component, a
 directory taken whole, a symbolic link never followed) into
 <program home>/reclaimed/<repository>/<branch>/, at the same relative path,
-and compares each copy's size and SHA-256 with its source. A copy that
-fails, differs, or would replace a different file already there refuses the
-reclaim with the worktree untouched. The removal is fleet-cleanup.sh's
-guarded `worktree` arm, run from the repository's main checkout.
+and compares each copy's size and SHA-256 with its source. A refused
+reclaim takes back every copy it made, so the worktree and the reclaim
+folder are as they were; one reclaim of a folder runs at a time.
 
 Output, tab separated:
   <verb> <worktree> ok <merged|closed> #<n>              check passed
   reclaim <worktree> reclaimed <folder> <n> files
   <verb> <worktree> refused <arm> <detail>
 
-Exit codes: 0 passed or reclaimed; 1 refused; 2 usage, or a path that is
-not absolute; 3 the program is not configured.
+Exit codes: 0 passed or reclaimed; 1 refused (a refused line on stdout),
+or, with only a message on stderr, the program's home, repositories or the
+file-set knob do not resolve; 2 usage, or a path that is not absolute;
+3 the program is not configured.
 HELP
 }
 
@@ -74,24 +90,32 @@ usage() {
 }
 
 CREATED=''
-refuse() { # refuse <arm> <detail>
-  # A refused backup takes back the copies it made, so a bad copy never
-  # blocks the next attempt as "a different file already there".
-  if [ -n "$CREATED" ]; then
-    while IFS= read -r rf_f; do
-      [ -z "$rf_f" ] || rm -f "$rf_f"
-    done <<EOF
+DEST_LOCK=''
+rollback() {
+  while IFS= read -r rb_f; do
+    [ -z "$rb_f" ] || rm -f "$rb_f"
+  done <<EOF
 $CREATED
 EOF
-  fi
+  CREATED=''
+}
+refuse() { # refuse <arm> <detail>
+  rollback
+  [ -z "$DEST_LOCK" ] || pw_lock_release "$DEST_LOCK" || :
   printf '%s\t%s\t%s\t%s\t%s\n' "$VERB" "$(sanitize_printable "$WT")" refused "$1" "$(sanitize_printable "$2")"
   exit 1
 }
 
-# mc_parse_paths <raw>: an inline list of worktree-relative paths, one per
+# g <args...>: git against the proved worktree, with the repository's git
+# directory named and the worktree-steerable exec hooks off.
+g() {
+  git --git-dir="$GITDIR" --work-tree="$WT" -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
+}
+
+# parse_paths <raw>: an inline list of worktree-relative paths, one per
 # line; fails on an absolute path, a `..` component, a `*` outside the last
 # component, or a control byte.
-mc_parse_paths() {
+parse_paths() {
   RAW=$1 awk 'BEGIN {
     r = ENVIRON["RAW"]
     if (r ~ /[[:cntrl:]]/) exit 1
@@ -102,8 +126,8 @@ mc_parse_paths() {
     n = split(r, a, ",")
     for (i = 1; i <= n; i++) {
       p = a[i]; sub(/^[ ]+/, "", p); sub(/[ ]+$/, "", p)
-      if (p ~ /^".*"$/) p = substr(p, 2, length(p) - 2)
-      if (p == "" || p ~ /^\// || p ~ /(^|\/)\.\.?(\/|$)/ || p ~ /[][?{}\\]/) exit 1
+      if (p ~ /^".*"$/ || p ~ /^\047.*\047$/) p = substr(p, 2, length(p) - 2)
+      if (p == "" || p ~ /^\// || p ~ /(^|\/)\.\.?(\/|$)/ || p ~ /[][?{}\\\047"]/) exit 1
       d = p; sub(/[^\/]*$/, "", d)
       if (d ~ /\*/) exit 1
       print p
@@ -111,8 +135,9 @@ mc_parse_paths() {
   }'
 }
 
-# live_users <dir>: print the pid of every process whose working directory is
-# <dir> or below it; fails when the working directories cannot be read.
+# live_users <dir>: print the pid of every process of this user whose
+# working directory is <dir> or below it; fails when no working directory
+# can be read at all.
 live_users() {
   if [ -L /proc/self/cwd ]; then
     # One find over procfs: a readlink per process costs seconds on a busy
@@ -168,46 +193,90 @@ case $WT in
 esac
 [ "$WT" = "$(sanitize_printable "$WT")" ] || mc_usage_fail "refusing a worktree path with a control byte"
 mc_require_program "$PROGRAM"
-HOME_DIR=$(/bin/bash "$script_dir/mc-program.sh" get "$PROGRAM" home) || mc_fail "the home of program $PROGRAM does not resolve"
-FILES=$(mc_knob mission_control_reclaim_files mc_parse_paths) || exit 1
+REPOS=$(/bin/bash "$script_dir/mc-program.sh" get "$PROGRAM" repositories) || mc_fail "the repositories of program $PROGRAM do not resolve"
 
-# --- shape ------------------------------------------------------------------
+# --- shape: a linked worktree of a program repository ------------------------
 
 [ -d "$WT" ] || refuse not-a-worktree "no such directory"
 WT=$(cd "$WT" && pwd -P) || refuse not-a-worktree "not a traversable directory"
-top=$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null) || top=''
-top=$(cd "$top" 2>/dev/null && pwd -P) || top=''
-[ "$top" = "$WT" ] || refuse not-a-worktree "not the root of a git worktree"
-MAIN=$(git -C "$WT" worktree list --porcelain 2>/dev/null | awk '/^worktree / { print substr($0, 10); exit }')
-MAIN=$(cd "$MAIN" 2>/dev/null && pwd -P) || refuse not-a-worktree "its main checkout cannot be found"
-[ "$MAIN" != "$WT" ] || refuse main-checkout "the repository's main checkout is never reclaimed"
-BRANCH=$(git -C "$WT" symbolic-ref --quiet --short HEAD 2>/dev/null) || refuse detached "HEAD names no branch"
-git check-ref-format --branch "$BRANCH" >/dev/null 2>&1 || refuse detached "the branch name is not a valid ref"
+# The worktree's .git file is the worker's to write, so it only names a
+# candidate: the repository's own worktrees/<id>/gitdir must point back.
+MAIN='' GITDIR=''
+gd_raw=''
+if [ -f "$WT/.git" ] && [ ! -L "$WT/.git" ]; then
+  gd_raw=$(sed -n '1s/^gitdir: //p' "$WT/.git" 2>/dev/null)
+fi
+case $gd_raw in
+  '') ;;
+  /*) gd_abs=$gd_raw ;;
+  *) gd_abs="$WT/$gd_raw" ;;
+esac
+gd=''
+[ -z "$gd_raw" ] || gd=$(cd "$gd_abs" 2>/dev/null && pwd -P) || gd=''
+while IFS= read -r repo; do
+  [ -n "$repo" ] || continue
+  r_top=$(cd "$repo" 2>/dev/null && pwd -P) || continue
+  [ "$r_top" != "$WT" ] || refuse main-checkout "the repository's main checkout is never reclaimed"
+  [ -n "$gd" ] || continue
+  r_common=$(git -C "$r_top" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || continue
+  r_common=$(cd "$r_common" 2>/dev/null && pwd -P) || continue
+  case ${gd#"$r_common"/worktrees/} in
+    "$gd" | '' | */*) continue ;;
+  esac
+  back=$(head -n 1 "$gd/gitdir" 2>/dev/null) || continue
+  case $back in
+    /*) ;;
+    *) back="$gd/$back" ;;
+  esac
+  back_dir=$(cd "${back%/.git}" 2>/dev/null && pwd -P) || continue
+  [ "$back_dir" = "$WT" ] && [ "${back##*/}" = .git ] || continue
+  MAIN=$r_top GITDIR=$gd
+  break
+done <<EOF
+$REPOS
+EOF
+[ -n "$MAIN" ] || refuse not-program-repo "not a linked worktree of a repository program $PROGRAM lists"
 REPO_NAME=${MAIN##*/}
+while IFS= read -r repo; do
+  [ -n "$repo" ] || continue
+  o_top=$(cd "$repo" 2>/dev/null && pwd -P) || continue
+  [ "$o_top" = "$MAIN" ] || [ "${o_top##*/}" != "$REPO_NAME" ] \
+    || refuse not-program-repo "two of the program's repositories are named $REPO_NAME, so the reclaim folder would be shared"
+done <<EOF
+$REPOS
+EOF
 case $REPO_NAME in
   '' | . | .. | -*) refuse not-a-worktree "the main checkout's directory name cannot name a folder" ;;
 esac
-HEAD_OID=$(git -C "$WT" rev-parse HEAD 2>/dev/null) || refuse not-a-worktree "HEAD is unreadable"
+BRANCH=$(g symbolic-ref --quiet --short HEAD 2>/dev/null) || refuse detached "HEAD names no branch"
+git check-ref-format --branch "$BRANCH" >/dev/null 2>&1 || refuse bad-branch "the branch name is not a valid ref"
+HEAD_OID=$(g rev-parse HEAD 2>/dev/null) || refuse not-a-worktree "HEAD is unreadable"
 
-# --- the predicate ------------------------------------------------------------
+# --- the predicate -------------------------------------------------------------
 
 users=$(live_users "$WT") || refuse live-user "the process table's working directories cannot be read"
 [ -z "$users" ] || refuse live-user "in use by pid $(printf '%s' "$users" | tr '\n' ' ' | sed 's/ $//')"
 
-status=$(git -C "$WT" status --porcelain 2>/dev/null) || refuse uncommitted "git status failed"
+status=$(g status --porcelain --untracked-files=all 2>/dev/null) || refuse uncommitted "git status failed"
 [ -z "$status" ] || refuse uncommitted "$(printf '%s\n' "$status" | wc -l | tr -d ' ') path(s) changed or untracked"
 
-prs=$(cd "$WT" && /bin/sh "$script_dir/bounded-run.sh" "$GH_BOUND" gh pr list --head "$BRANCH" --state all \
-  --json number,state,headRefOid --template '{{range .}}{{.number}} {{.state}} {{.headRefOid}}{{"\n"}}{{end}}' 2>/dev/null </dev/null) \
+prs=$(cd "$MAIN" && /bin/sh "$script_dir/bounded-run.sh" "$GH_BOUND" gh pr list --head "$BRANCH" --state all \
+  --json number,state,headRefOid,isCrossRepository \
+  --template '{{range .}}{{.number}} {{.state}} {{.headRefOid}} {{.isCrossRepository}}{{"\n"}}{{end}}' 2>/dev/null </dev/null) \
   || refuse pr-unreadable "the forge query failed or did not finish within ${GH_BOUND}s"
 PR_STATE='' PR_NUM='' MERGED_PR=''
-while read -r p_num p_state p_oid p_extra; do
+while read -r p_num p_state p_oid p_cross p_extra; do
   [ -n "$p_num" ] || continue
   if [ -n "$p_extra" ] || ! mc_valid_uint "$p_num"; then
     refuse pr-unreadable "the forge returned a line outside the asked shape"
   fi
   case $p_oid in
     *[!0-9a-f]* | '') refuse pr-unreadable "the forge returned no usable head oid" ;;
+  esac
+  case $p_cross in
+    true) continue ;;
+    false) ;;
+    *) refuse pr-unreadable "the forge did not say whether PR #$p_num comes from a fork" ;;
   esac
   case $p_state in
     OPEN) refuse pr-open "PR #$p_num is open" ;;
@@ -224,11 +293,13 @@ while read -r p_num p_state p_oid p_extra; do
 done <<EOF
 $prs
 EOF
-[ -n "$PR_STATE" ] || refuse no-pr "the forge has no PR for branch $BRANCH"
+[ -n "$PR_STATE" ] || refuse no-pr "the forge has no PR from this repository for branch $BRANCH"
 
-ahead=$(git -C "$WT" rev-list --count HEAD --not --remotes 2>/dev/null) || refuse unpushed "the unpushed count is unreadable"
-if [ "$ahead" != 0 ] && [ -z "$MERGED_PR" ]; then
-  refuse unpushed "$ahead commit(s) on no remote-tracking ref"
+if [ -z "$MERGED_PR" ]; then
+  g rev-parse --verify --quiet '@{upstream}' >/dev/null 2>&1 \
+    || refuse unpushed "no upstream and no PR merged at HEAD, so nothing proves the commits are pushed"
+  ahead=$(g rev-list --count '@{upstream}..HEAD' 2>/dev/null) || refuse unpushed "the unpushed count is unreadable"
+  [ "$ahead" = 0 ] || refuse unpushed "$ahead commit(s) ahead of the upstream"
 fi
 
 if [ "$VERB" = check ]; then
@@ -236,33 +307,49 @@ if [ "$VERB" = check ]; then
   exit 0
 fi
 
-# --- the backup ---------------------------------------------------------------
+# --- the backup ----------------------------------------------------------------
 
-DEST="$HOME_DIR/reclaimed/$REPO_NAME/$BRANCH"
+HOME_DIR=$(/bin/bash "$script_dir/mc-program.sh" get "$PROGRAM" home) || mc_fail "the home of program $PROGRAM does not resolve"
+FILES=$(mc_knob mission_control_reclaim_files parse_paths) || exit 1
+RECLAIMED="$HOME_DIR/reclaimed"
+DEST="$RECLAIMED/$REPO_NAME/$BRANCH"
+(umask 077 && mkdir -p "$DEST") 2>/dev/null || refuse backup "cannot create the reclaim folder"
+RECLAIMED_P=$(cd "$RECLAIMED" && pwd -P) || refuse backup "cannot resolve the reclaim folder"
+DEST_P=$(cd "$DEST" && pwd -P) || refuse backup "cannot resolve the reclaim folder"
+[ "$DEST_P" = "$RECLAIMED_P/$REPO_NAME/$BRANCH" ] || refuse backup "the reclaim folder resolves through a symbolic link"
+pw_lock_trap_install
+trap 'rollback; exit 1' HUP INT TERM
+DEST_LOCK="$RECLAIMED_P/.lock.$(printf '%s/%s' "$REPO_NAME" "$BRANCH" | mc_sha256)"
+pw_lock_acquire "$DEST_LOCK" || {
+  DEST_LOCK=''
+  refuse backup "another reclaim of this folder is running"
+}
+
 list=''
 while IFS= read -r pat; do
   [ -n "$pat" ] || continue
   # The pattern's `*` expands here, and only here; a space is no separator.
   set +f
+  old_ifs=$IFS
   IFS=$NL
   # shellcheck disable=SC2086
   set -- "$WT"/$pat
-  IFS=$OLD_IFS
+  IFS=$old_ifs
   set -f
   for m in "$@"; do
     [ -e "$m" ] && [ ! -L "$m" ] || continue
     if [ -d "$m" ]; then
-      found=$(find "$m" -type f 2>/dev/null) || refuse backup "cannot list $(sanitize_printable "${m#"$WT"/}")"
-      list="$list$found
-"
+      [ -z "$(find "$m" -name "*$NL*" 2>/dev/null | head -n 1)" ] || refuse backup "a file name under ${m#"$WT"/} holds a newline"
+      found=$(find "$m" -type f 2>/dev/null) || refuse backup "cannot list ${m#"$WT"/}"
+      list="$list$found$NL"
     elif [ -f "$m" ]; then
-      list="$list$m
-"
+      list="$list$m$NL"
     fi
   done
 done <<EOF
 $FILES
 EOF
+list=$(printf '%s' "$list" | awk 'NF && !seen[$0]++')
 
 n=0
 while IFS= read -r src; do
@@ -273,7 +360,13 @@ while IFS= read -r src; do
     "$WT"/*) ;;
     *) refuse backup "$rel resolves outside the worktree" ;;
   esac
-  git -C "$WT" check-ignore -q -- "$rel" 2>/dev/null || continue
+  g check-ignore -q -- "$rel" 2>/dev/null
+  case $? in
+    0) ;;
+    1) continue ;;
+    *) refuse backup "git cannot say whether $rel is ignored" ;;
+  esac
+  [ -f "$src" ] && [ ! -L "$src" ] || refuse backup "$rel is no longer a regular file"
   dst="$DEST/$rel"
   src_sum=$(mc_sha256 <"$src") || refuse backup "cannot hash $rel"
   if [ -e "$dst" ] || [ -L "$dst" ]; then
@@ -281,8 +374,12 @@ while IFS= read -r src; do
       || refuse backup "the reclaim folder already holds a different $rel"
   else
     (umask 077 && mkdir -p "${dst%/*}") 2>/dev/null || refuse backup "cannot create the folder for $rel"
-    CREATED="$CREATED$dst
-"
+    dst_dir=$(cd "${dst%/*}" && pwd -P) || refuse backup "cannot resolve the folder for $rel"
+    case "$dst_dir/" in
+      "$DEST_P"/*) ;;
+      *) refuse backup "the folder for $rel resolves outside the reclaim folder" ;;
+    esac
+    CREATED="$CREATED$dst$NL"
     cp "$src" "$dst" 2>/dev/null || refuse backup "the copy of $rel failed"
   fi
   [ -f "$dst" ] || refuse backup "the copy of $rel is missing"
@@ -293,11 +390,10 @@ done <<EOF
 $list
 EOF
 
-# --- the removal ----------------------------------------------------------------
+# --- the removal ---------------------------------------------------------------
 
-# Verified copies stay even if the removal is refused.
-CREATED=''
-
+users=$(live_users "$WT") || refuse removal "the process table's working directories cannot be read"
+[ -z "$users" ] || refuse removal "a process entered the worktree: pid $(printf '%s' "$users" | tr '\n' ' ' | sed 's/ $//')"
 set -- worktree "$WT" "mission-control reclaim" "program $PROGRAM: $PR_STATE PR #$PR_NUM, $n audit file(s) backed up"
 [ -z "$MERGED_PR" ] || set -- "$@" --merged-pr "$MERGED_PR"
 fc_err=$(cd "$MAIN" && /bin/sh "$script_dir/fleet-cleanup.sh" "$@" 2>&1 >/dev/null </dev/null)
@@ -305,5 +401,8 @@ fc_rc=$?
 if [ "$fc_rc" != 0 ] && [ "$fc_rc" != 6 ]; then
   refuse removal "fleet-cleanup exit $fc_rc: $(printf '%s' "$fc_err" | tail -n 1)"
 fi
+CREATED=''
+trap - HUP INT TERM
+pw_lock_release "$DEST_LOCK" || :
 [ "$fc_rc" = 0 ] || printf '%s\n' "$prog: the worktree was removed but its audit-trail record failed" >&2
 printf 'reclaim\t%s\treclaimed\t%s\t%s files\n' "$(sanitize_printable "$WT")" "$(sanitize_printable "$DEST")" "$n"

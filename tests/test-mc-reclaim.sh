@@ -108,9 +108,10 @@ PATH="$tmp/bin:$PATH"
 GH_STUB="$tmp/gh"
 export PATH GH_STUB
 
-# pr <branch> <number> <state> <oid>: the forge's one PR for <branch>.
+# pr <branch> <number> <state> <oid> [<cross-repository>]: the forge's one PR
+# for <branch>.
 pr() {
-  printf '%s %s %s\n' "$2" "$3" "$4" >"$GH_STUB/list.$(printf '%s' "$1" | tr / _)"
+  printf '%s %s %s %s\n' "$2" "$3" "$4" "${5:-false}" >"$GH_STUB/list.$(printf '%s' "$1" | tr / _)"
   printf '%s %s' "$3" "$4" >"$GH_STUB/view.$2"
 }
 
@@ -161,6 +162,56 @@ reclaim reclaim --program alpha "$proj"
 expect_rc "the main checkout is never reclaimed" 1
 expect_out "the refusal names the main checkout" "main-checkout"
 
+worktree wt-hidden feat/hidden
+pr feat/hidden 20 MERGED "$(git -C "$tmp/work/wt-hidden" rev-parse HEAD)"
+g -C "$proj" config status.showUntrackedFiles no
+printf 'stray\n' >"$tmp/work/wt-hidden/stray"
+reclaim check --program alpha "$tmp/work/wt-hidden"
+g -C "$proj" config --unset status.showUntrackedFiles
+expect_rc "an untracked file the config hides from status still refuses" 1
+expect_out "the hidden untracked file names the uncommitted arm" "uncommitted"
+
+worktree wt-subdir feat/subdir
+pr feat/subdir 21 MERGED "$(git -C "$tmp/work/wt-subdir" rev-parse HEAD)"
+mkdir -p "$tmp/work/wt-subdir/.claude/steps/000001/deep"
+(cd "$tmp/work/wt-subdir/.claude/steps/000001/deep" && exec sleep 600) &
+user_pid=$!
+reclaim check --program alpha "$tmp/work/wt-subdir"
+expect_out "a process in a subdirectory refuses as a live user" "live-user"
+kill "$user_pid" 2>/dev/null
+wait "$user_pid" 2>/dev/null
+user_pid=''
+
+worktree wt-mergedhead feat/mergedhead
+printf 'local\n' >>"$tmp/work/wt-mergedhead/f"
+g -C "$tmp/work/wt-mergedhead" commit -qam local
+pr feat/mergedhead 22 MERGED "$(git -C "$tmp/work/wt-mergedhead" rev-parse HEAD)"
+reclaim check --program alpha "$tmp/work/wt-mergedhead"
+expect_rc "a commit the remote branch lacks passes when the PR merged at exactly HEAD" 0
+pr feat/mergedhead 22 MERGED "$(git -C "$tmp/work/wt-mergedhead" rev-parse HEAD~1)"
+reclaim check --program alpha "$tmp/work/wt-mergedhead"
+expect_out "a PR merged at another head does not excuse an unpushed commit" "unpushed"
+
+worktree wt-fork feat/fork
+pr feat/fork 23 MERGED "$(git -C "$tmp/work/wt-fork" rev-parse HEAD)" true
+reclaim check --program alpha "$tmp/work/wt-fork"
+expect_out "a PR from a fork does not count for the branch" "no-pr"
+pr feat/fork 23 DRAFTED "$(git -C "$tmp/work/wt-fork" rev-parse HEAD)"
+reclaim check --program alpha "$tmp/work/wt-fork"
+expect_out "a PR state the script does not know refuses" "pr-unreadable"
+
+git init -q "$tmp/other"
+g -C "$tmp/other" commit -q --allow-empty -m init
+g -C "$tmp/other" worktree add -q "$tmp/work/wt-foreign" -b feat/foreign 2>/dev/null
+reclaim check --program alpha "$tmp/work/wt-foreign"
+expect_out "a worktree of a repository the program does not list is refused" "not-program-repo"
+
+worktree wt-forged feat/forged
+pr feat/forged 24 MERGED "$(git -C "$tmp/work/wt-forged" rev-parse HEAD)"
+printf 'gitdir: %s\n' "$(git -C "$tmp/other" rev-parse --absolute-git-dir)" >"$tmp/work/wt-forged/.git"
+reclaim check --program alpha "$tmp/work/wt-forged"
+expect_out "a .git file pointing elsewhere is not trusted" "not-program-repo"
+
 # --- the backup is verified before anything goes ----------------------------
 
 worktree wt-cpfail feat/cpfail
@@ -173,7 +224,28 @@ RC=$?
 ERR=$(cat "$tmp/stderr")
 expect_rc "a failed backup refuses the reclaim" 1
 expect_out "the refusal says the backup failed" "backup"
+expect_out "the refusal says which copy failed" "the copy of .claude/"
 [ -d "$tmp/work/wt-cpfail" ] && ok "a failed backup leaves the worktree" || fail "a failed backup removed the worktree"
+
+worktree wt-link feat/link
+pr feat/link 25 MERGED "$(git -C "$tmp/work/wt-link" rev-parse HEAD)"
+printf 'outside secret\n' >"$tmp/outside.txt"
+ln -s "$tmp/outside.txt" "$tmp/work/wt-link/.claude/steps/leak"
+reclaim reclaim --program alpha "$tmp/work/wt-link"
+expect_rc "a worktree holding a symbolic link still reclaims" 0
+[ ! -e "$home/reclaimed/proj/feat/link/.claude/steps/leak" ] && ok "a symbolic link is never followed into the backup" \
+  || fail "the backup followed a symbolic link out of the worktree"
+
+worktree wt-clash feat/clash
+pr feat/clash 26 MERGED "$(git -C "$tmp/work/wt-clash" rev-parse HEAD)"
+mkdir -p "$home/reclaimed/proj/feat/clash/.claude"
+printf 'an older audit\n' >"$home/reclaimed/proj/feat/clash/.claude/polish-audit.md"
+reclaim reclaim --program alpha "$tmp/work/wt-clash"
+expect_rc "a different file already in the reclaim folder refuses" 1
+expect_out "the refusal names the clash" "already holds a different"
+[ "$(cat "$home/reclaimed/proj/feat/clash/.claude/polish-audit.md")" = "an older audit" ] \
+  && ok "the older file is kept" || fail "the older file was overwritten"
+[ -d "$tmp/work/wt-clash" ] && ok "a clash leaves the worktree" || fail "a clash removed the worktree"
 
 worktree wt-corrupt feat/corrupt
 pr feat/corrupt 16 MERGED "$(git -C "$tmp/work/wt-corrupt" rev-parse HEAD)"
@@ -237,10 +309,17 @@ worktree wt-knob feat/knob
 printf 'notes/\n' >>"$(git -C "$tmp/work/wt-knob" rev-parse --git-common-dir)/info/exclude"
 mkdir -p "$tmp/work/wt-knob/notes"
 printf 'kept\n' >"$tmp/work/wt-knob/notes/run.log"
+printf 'tracked\n' >"$tmp/work/wt-knob/notes/tracked.log"
+g -C "$tmp/work/wt-knob" add -f notes/tracked.log
+g -C "$tmp/work/wt-knob" commit -qm tracked
+g -C "$tmp/work/wt-knob" push -q 2>/dev/null
 pr feat/knob 19 MERGED "$(git -C "$tmp/work/wt-knob" rev-parse HEAD)"
 reclaim reclaim --program alpha "$tmp/work/wt-knob"
 expect_rc "a reclaim under a configured file set" 0
+expect_out "the reclaim counts the files it backed up" "1 files"
 [ -f "$home/reclaimed/proj/feat/knob/notes/run.log" ] && ok "the configured pattern is copied" || fail "the configured pattern was not copied"
+[ ! -e "$home/reclaimed/proj/feat/knob/notes/tracked.log" ] && ok "a tracked file the pattern matches is not copied" \
+  || fail "a tracked file was copied"
 [ ! -e "$home/reclaimed/proj/feat/knob/.claude/polish-audit.md" ] && ok "the default set is replaced, not added to" \
   || fail "the default set was copied under a configured one"
 
