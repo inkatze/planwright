@@ -42,9 +42,9 @@ Usage:
 
 <worktree> is the absolute path of a linked worktree of one of the program's
 repositories, proved from that repository's own git directory, never from
-the worktree's .git file alone. This script's git calls name that git
-directory, and every git call, the removal's included, runs with
-core.fsmonitor and hooks off. The predicate's arms, each refusing on its
+the worktree's .git file alone. This script's git calls on the worktree
+name that git directory, and every git call that reads the worktree, the
+removal's included, runs with core.fsmonitor and hooks off. The predicate's arms, each refusing on its
 own:
   live-user      a process of this user has its working directory in the
                  worktree, or none of the process table's working
@@ -127,15 +127,18 @@ make_dir() {
     md_p="$md_p/$md_part"
     [ ! -L "$md_p" ] || refuse backup "${md_p#"$HOME_DIR"/} is a symbolic link"
     if [ ! -e "$md_p" ]; then
-      (umask 077 && mkdir "$md_p") 2>/dev/null || refuse backup "cannot create ${md_p#"$HOME_DIR"/}"
-      MADE="$MADE$md_p$NL"
+      # A concurrent reclaim may make a shared folder first; it is then theirs.
+      if (umask 077 && mkdir "$md_p") 2>/dev/null; then
+        MADE="$MADE$md_p$NL"
+      fi
+      [ ! -L "$md_p" ] || refuse backup "${md_p#"$HOME_DIR"/} is a symbolic link"
     fi
     [ -d "$md_p" ] || refuse backup "${md_p#"$HOME_DIR"/} is not a directory"
   done
 }
 refuse() { # refuse <arm> <detail>
-  rollback
   [ -z "$DEST_LOCK" ] || pw_lock_release "$DEST_LOCK" || :
+  rollback
   printf '%s\t%s\t%s\t%s\t%s\n' "$VERB" "$(sanitize_printable "$WT")" refused "$1" "$(sanitize_printable "$2")"
   exit 1
 }
@@ -294,8 +297,8 @@ users=$(live_users "$WT") || refuse live-user "the process table's working direc
 
 # A submodule's own git directory is the worker's to configure, and status
 # would run its filters; the removal refuses a worktree holding one anyway.
-gitlinks=$(g ls-files --stage 2>/dev/null | awk '$1 == "160000"' | head -n 1) || refuse uncommitted "git ls-files failed"
-[ -z "$gitlinks" ] || refuse uncommitted "the worktree holds a submodule"
+staged=$(g ls-files --stage 2>/dev/null) || refuse uncommitted "git ls-files failed"
+[ -z "$(printf '%s\n' "$staged" | awk '$1 == "160000"')" ] || refuse uncommitted "the worktree holds a submodule"
 status=$(g status --porcelain --untracked-files=all --ignore-submodules=all 2>/dev/null) || refuse uncommitted "git status failed"
 [ -z "$status" ] || refuse uncommitted "$(printf '%s\n' "$status" | wc -l | tr -d ' ') path(s) changed or untracked"
 
@@ -428,7 +431,7 @@ while IFS= read -r src; do
   src_sum=$(mc_sha256 <"$src") || refuse backup "cannot hash $rel"
   if [ -e "$dst" ] || [ -L "$dst" ]; then
     [ -f "$dst" ] && [ ! -L "$dst" ] && [ "$(mc_sha256 <"$dst")" = "$src_sum" ] \
-      || refuse backup "the reclaim folder already holds a different $rel"
+      || refuse backup "the reclaim folder already holds a different $rel (an earlier refused removal keeps its copies; check it and remove it to retry)"
   else
     CREATED="$CREATED$dst$NL"
     cp "$src" "$dst" 2>/dev/null || refuse backup "the copy of $rel failed"
@@ -447,8 +450,8 @@ users=$(live_users "$WT") || refuse removal "the process table's working directo
 [ -z "$users" ] || refuse removal "a process entered the worktree: pid $(printf '%s' "$users" | tr '\n' ' ' | sed 's/ $//')"
 # From here the copies stay whatever happens: a removal that fails partway
 # may already have deleted their sources.
-CREATED='' MADE=''
 trap '' HUP INT TERM
+CREATED='' MADE=''
 set -- worktree "$WT" "mission-control reclaim" "program $PROGRAM: $PR_STATE PR #$PR_NUM, $n audit file(s) backed up"
 [ -z "$MERGED_PR" ] || set -- "$@" --merged-pr "$MERGED_PR"
 fc_err=$(cd "$MAIN" && GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false \

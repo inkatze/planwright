@@ -281,6 +281,10 @@ question_above_input() {
 classify_one() {
   c_name=${1##*/}
   read_row "$1" || {
+    if [ ! -e "$1" ]; then
+      printf '%s\n' "$prog: the registry row $c_name is gone; skipped" >&2
+      return 3
+    fi
     printf '%s\n' "$prog: cannot read the registry row $c_name" >&2
     return 1
   }

@@ -267,6 +267,15 @@ expect_out "the refusal names the clash" "already holds a different"
   && ok "the older file is kept" || fail "the older file was overwritten"
 [ -d "$tmp/work/wt-clash" ] && ok "a clash leaves the worktree" || fail "a clash removed the worktree"
 
+worktree wt-linkdir feat/linkdir
+pr feat/linkdir 31 MERGED "$(git -C "$tmp/work/wt-linkdir" rev-parse HEAD)"
+mkdir -p "$tmp/elsewhere" "$home/reclaimed/proj/feat/linkdir"
+ln -s "$tmp/elsewhere" "$home/reclaimed/proj/feat/linkdir/.claude"
+reclaim reclaim --program alpha "$tmp/work/wt-linkdir"
+expect_out "a symbolic link on the way into the reclaim folder refuses" "is a symbolic link"
+[ -z "$(find "$tmp/elsewhere" -type f)" ] && ok "nothing is copied through the link" || fail "a copy went through the link"
+rm -f "$home/reclaimed/proj/feat/linkdir/.claude"
+
 worktree wt-paused feat/paused
 pr feat/paused 30 MERGED "$(git -C "$tmp/work/wt-paused" rev-parse HEAD)"
 printf 'fleet_daemon_pause: true\n' >>"$tracked"

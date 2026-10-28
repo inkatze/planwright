@@ -44,7 +44,8 @@
 #   leaves in the input box (2.1.293), which nothing submits and which holds
 #   every later paste behind it.
 #
-# Every needle is matched as a plain substring through the sh `case` glob, so
+# Every needle but the input-box anchors (prefixes, below) is matched as a
+# plain substring through the sh `case` glob, so
 # no regex metacharacter in a needle is ever interpreted; the caller lowercases
 # the haystack once and the needle emitters lowercase their overrides, so a
 # mixed-case override matches instead of silently never matching.

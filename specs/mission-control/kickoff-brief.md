@@ -651,9 +651,9 @@ local probes against the installed git and the existing fleet scripts.
   pointing at a repository built in the worktree runs `core.fsmonitor`
   during a plain `git status`. The reclaim takes the worktree only when the
   program repository's own `worktrees/<id>/gitdir` points back at it,
-  names that git directory on its own calls, and turns `core.fsmonitor` and
-  hooks off for every git call, the removal's included, through git's
-  environment configuration. A submodule is refused outright: its git
+  names that git directory on its own calls on the worktree, and turns
+  `core.fsmonitor` and hooks off for every git call that reads it, the
+  removal's included, through git's environment configuration. A submodule is refused outright: its git
   directory is the worker's to configure and status would run its filters.
 - **Copying out of a worktree.** Only files git reports ignored are copied;
   a symbolic link is never followed, a file name holding a newline is
