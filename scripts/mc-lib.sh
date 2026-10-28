@@ -535,10 +535,15 @@ mc_announce_prune() {
 
 # mc_untrusted_git <args>: git with what a worker-written checkout's own
 # configuration could run turned off (fsmonitor, hooks, a lazy fetch through
-# a remote helper or ssh command, signature display). The settings ride the
-# environment, which outranks the repository's configuration, so they reach
-# a git a called script runs too: export them with mc_untrusted_git_env.
+# a remote helper or ssh command, signature display) and no inherited
+# repository selector. The settings ride the environment, which outranks the
+# repository's configuration, so they reach a git a called script runs too:
+# export them with mc_untrusted_git_env.
 mc_untrusted_git_env() {
+  # An inherited repository selector would point git away from the checkout
+  # the caller names, and inherited configuration would ride along.
+  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG_PARAMETERS
   GIT_CONFIG_COUNT=4
   GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false
   GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null

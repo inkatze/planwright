@@ -755,9 +755,10 @@ of local probes.
   stdin and never through a shell.
 - **A worker's git configuration.** Every git read mission control makes in
   a worker-written checkout (the packet's log, the step records a walk
-  collects) runs with fsmonitor, hooks, signature display and lazy fetching
-  off through the environment, which outranks the checkout's own
-  configuration: a probe showed a partial-clone checkout otherwise runs its
+  collects) or over worker-pushed branches (the radar's diffs) runs with
+  fsmonitor, hooks, signature display and lazy fetching off, and no
+  inherited repository selector, through the environment, which outranks the
+  checkout's own configuration: a probe showed a partial-clone checkout otherwise runs its
   ssh command on a missing commit. The clipboard command is never read from
   the repo-tracked layer.
 - **The duty catalog's list form.** The session-keeper's triggers do not

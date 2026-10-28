@@ -123,6 +123,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Branches are pushed by workers, so every git read here runs as it would in
+# a worker's checkout.
+mc_untrusted_git_env
+
 valid_ref() {
   case $1 in
     "" | -* | *..* | *[!A-Za-z0-9._/@-]*) return 1 ;;
@@ -137,7 +141,11 @@ valid_ref() {
 # read fails.
 hunks() {
   git -C "$1" rev-parse --verify --quiet "$3^{commit}" >/dev/null 2>&1 || return 1
-  hk_mb=$(git -C "$1" merge-base "$2" "$3" 2>/dev/null) || return 3
+  # merge-base exits 1 for no common ancestor; anything else is a failed read.
+  hk_mb=$(git -C "$1" merge-base "$2" "$3" 2>/dev/null) || {
+    [ $? -eq 1 ] && return 3
+    return 1
+  }
   hk_names=$(git -C "$1" diff --name-only --no-color --no-ext-diff --no-renames "$hk_mb" "$3" -- 2>/dev/null) || return 1
   hk_diff=$(git -C "$1" diff -U0 --no-prefix --no-color --no-ext-diff --no-renames --no-textconv "$hk_mb" "$3" -- 2>/dev/null) || return 1
   [ -z "$hk_names" ] || printf '%s\n' "$hk_names" | B=$3 awk '{ print ENVIRON["B"] "\t" $0 "\t0\t0" }'

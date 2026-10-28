@@ -182,9 +182,11 @@ case $verb in
         *) return 1 ;;
       esac
     }
-    # The knob names a command this script runs, so the repo-tracked layer,
-    # the one a repository commits, is not read for it.
-    layers=$(/bin/sh "$script_dir/config-get.sh" --layers mission_control_clipboard 2>/dev/null) \
+    # The knob names a command this script runs, so a value from the
+    # repo-tracked layer, the one a repository commits, is never used. A
+    # repo-tracked file the config reader refuses whole still fails the read,
+    # its reason passed through.
+    layers=$(/bin/sh "$script_dir/config-get.sh" --layers mission_control_clipboard) \
       || mc_fail "mission_control_clipboard cannot be read"
     clip=""
     while IFS='	' read -r layer raw; do

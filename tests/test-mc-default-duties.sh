@@ -9,6 +9,9 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Fixture git calls must reach the fixture repositories, never one an
+# inherited selector (a git hook's GIT_DIR, say) points at.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
@@ -20,7 +23,7 @@ fail() {
 }
 ok() { echo "ok: $1"; }
 
-tmp=$(mktemp -d) || exit 1
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-mc-default-duties.XXXXXX") || exit 1
 tmp=$(cd "$tmp" && pwd -P) || exit 1
 
 # shellcheck source=tests/lib/mission-control-fixture.sh

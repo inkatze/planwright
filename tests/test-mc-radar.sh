@@ -10,6 +10,9 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Fixture git calls must reach the fixture repositories, never one an
+# inherited selector (a git hook's GIT_DIR, say) points at.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
@@ -21,7 +24,7 @@ fail() {
 }
 ok() { echo "ok: $1"; }
 
-tmp=$(mktemp -d) || exit 1
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-mc-radar.XXXXXX") || exit 1
 tmp=$(cd "$tmp" && pwd -P) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
@@ -186,7 +189,7 @@ expect_eq "a merge with nothing stacked on it retargets nothing" ""
 mc_run mc-radar.sh retarget --graph "$tmp/graph" --merged web:nope
 expect_rc "an unknown merged unit fails" 1
 printf 'unit\tapi\tfeat-y\tmain\tapi:feat-z\nunit\tapi\tfeat-z\tmain\tapi:feat-y\n' >>"$tmp/graph"
-sed -i.bak '/feat-y\tmain\t-$/d' "$tmp/graph"
+sed -i.bak "/feat-y${tab}main${tab}-\$/d" "$tmp/graph" && rm -f "$tmp/graph.bak"
 mc_run mc-radar.sh order --graph "$tmp/graph"
 expect_rc "a cycle fails" 1
 expect_err "named" "a cycle among"

@@ -10,6 +10,9 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Fixture git calls must reach the fixture repositories, never one an
+# inherited selector (a git hook's GIT_DIR, say) points at.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
@@ -21,7 +24,7 @@ fail() {
 }
 ok() { echo "ok: $1"; }
 
-tmp=$(mktemp -d) || exit 1
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-mc-gates.XXXXXX") || exit 1
 tmp=$(cd "$tmp" && pwd -P) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
@@ -171,6 +174,8 @@ mc_run mc-gates.sh resolve --program beta
 expect_rc "an unconfigured program" 3
 mc_run mc-gates.sh check --program alpha --repo acme/web
 expect_rc "check takes no pull request" 2
+mc_run mc-gates.sh resolve --program alpha --repo not-a-slug
+expect_rc "resolve refuses a repository that is not owner/name" 2
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-gates: $failures failure(s)" >&2

@@ -9,6 +9,9 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Fixture git calls must reach the fixture repositories, never one an
+# inherited selector (a git hook's GIT_DIR, say) points at.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
@@ -20,7 +23,7 @@ fail() {
 }
 ok() { echo "ok: $1"; }
 
-tmp=$(mktemp -d) || exit 1
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-mc-deadlines.XXXXXX") || exit 1
 tmp=$(cd "$tmp" && pwd -P) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
@@ -111,8 +114,12 @@ rank${tab}3${tab}other:task-9${tab}none${tab}-
 rank${tab}4${tab}billing${tab}dated${tab}2026-12-01"
 
 mc_run mc-deadlines.sh due --program alpha --now "$NOW"
-expect_out "the first turn after silence opens with the urgent unit" "billing:task-1"
-expect_out "and the overdue one" "billing:task-2"
+if [ "$(printf '%s\n' "$OUT" | head -n 1 | cut -f2)" = billing:task-2 ]; then
+  ok "the first turn after silence opens with the overdue unit, earliest first"
+else
+  fail "due does not open with the overdue unit: $OUT"
+fi
+expect_out "then the urgent one" "billing:task-1"
 expect_no_out "not a far date" "2026-12-01"
 
 printf 'mission_control_deadline_horizon: 40d\n' >>"$tracked"

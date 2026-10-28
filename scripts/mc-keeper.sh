@@ -73,7 +73,8 @@ Usage:
                                              (scripts/mc-budget.sh admit,
                                              its reason after a colon)
       a unit in progress never holds back a ready one; a session holds a
-      unit when the launcher lists the scope <spec>:task-<id>
+      unit when the launcher lists the scope <spec>:task-<id> for this
+      program
   mc-keeper.sh watch [--program <p>] [--now <epoch>]
       the duty's watcher (also what a run with no arguments does under the
       runner): the stall scan (scripts/mc-stall.sh scan, which emits its own
@@ -262,7 +263,9 @@ EOF
       row_live "$sw_row" || continue
       say landed "$sw_s" "$sw_state"
     fi
-    if [ -z "$sw_held" ] && [ "$sw_w" != "-" ] && [ -d "$sw_w" ]; then
+    # A worktree already gone needs no reclaim; any other path, even one that
+    # cannot be read, goes to the reclaim, whose refusal holds the line.
+    if [ -z "$sw_held" ] && [ "$sw_w" != "-" ] && { [ -e "$sw_w" ] || [ -L "$sw_w" ]; }; then
       if sw_out=$(/bin/bash "$script_dir/mc-reclaim.sh" reclaim --program "$program" "$sw_w" 2>&1); then
         [ "$events" = 1 ] || printf 'reclaimed\t%s\t%s\n' "$sw_s" "$sw_w"
       elif ! row_live "$sw_row"; then
@@ -343,7 +346,7 @@ case $verb in
     mc_valid_kebab "$name" || mc_fail "the spec bundle's name is outside the identifier grammar"
     state=$(cd "$top" && /bin/bash "$script_dir/orchestrate-state.sh" "$rel" 2>/dev/null) || mc_fail "the unit states of $name cannot be derived"
     sessions=$(launcher list 2>/dev/null) || mc_fail "the launcher's sessions cannot be listed"
-    held=$(printf '%s\n' "$sessions" | N=$name awk -F '\t' 'index($4, ENVIRON["N"] ":task-") == 1 { print $4 }')
+    held=$(printf '%s\n' "$sessions" | P=$program N=$name awk -F '\t' '$2 == ENVIRON["P"] && index($4, ENVIRON["N"] ":task-") == 1 { print $4 }')
     admit=$(/bin/bash "$script_dir/mc-budget.sh" admit --program "$program" session ${now:+--now "$now"} 2>/dev/null)
     case $? in
       0) hold="" ;;

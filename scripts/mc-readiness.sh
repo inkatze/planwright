@@ -82,11 +82,13 @@ Usage:
       for the head, labels, paths, check contexts and body, one GraphQL
       read for the first 100 review threads (a thread opened by a bot is a
       finding, answered once resolved or replied to by a person other than
-      the pull request's author), the step
+      the pull request's author, with a login), the step
       records of --worktree (scripts/step-record.sh list), the recorded
       evidence for that head, and the ready-flip guard
       (scripts/ready-guard.sh, given the flip it would refuse) run from the
-      program's first repository; nothing is written to any repository
+      program's first repository, then the head read once more, a head that
+      moved meanwhile failing the guard; nothing is written to any
+      repository
   mc-readiness.sh check --program <p> --repo <owner/name> --pr <n>
                         [--worktree <dir>]
       collect, then walk, printing the walk
@@ -105,8 +107,8 @@ Usage:
       printing
         announced<TAB>readiness-due<TAB><subject>
       the program from PLANWRIGHT_MC_PROGRAM when --program is absent;
-      a program with no code-state snapshot, or none taken yet, raises
-      nothing. Each event is emitted to the program's event store, subject
+      a program with no code-state snapshot, none taken yet, or one past
+      its cadence (stale), raises nothing. Each event is emitted to the program's event store, subject
       <owner>:<name>:<n>, and a head counts as announced only once the
       store holds its event. A subject outside the event grammar (over 128
       characters, say) falls back to pr-<checksum>, the slug in the text.
@@ -272,7 +274,7 @@ CAP=100
 
 # collect <program> <slug> <pr> <worktree> <out>
 collect() {
-  cl_tmp=$(mktemp -d) || mc_fail "cannot create a scratch directory"
+  cl_tmp=$(mktemp -d "${TMPDIR:-/tmp}/mc-readiness.XXXXXX") || mc_fail "cannot create a scratch directory"
   # shellcheck disable=SC2064 # the path is fixed now
   trap "rm -rf '$cl_tmp'" EXIT
   cl_owner=${2%%/*}
@@ -309,7 +311,7 @@ collect() {
       | "thread\t" + $t.id + "\t" + (if $t.isResolved then "resolved" else "open" end),
         (if ($t.comments.nodes[0] // {} | bot) then
           "finding\t" + ($t.comments.nodes[0].author.login // "-") + "\t" + $t.id + "\t"
-          + (if $t.isResolved or ([$t.comments.nodes[1:][] | select((bot | not) and ((.author.login // "") != $me))] | length > 0)
+          + (if $t.isResolved or ([$t.comments.nodes[1:][] | select((bot | not) and ((.author.login // "") != "") and ((.author.login // "") != $me))] | length > 0)
              then "answered" else "unanswered" end)
          else empty end))' >"$cl_tmp/threads" 2>"$cl_tmp/err" \
     || mc_fail "the review thread read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
@@ -353,6 +355,10 @@ collect() {
   else
     cl_guard="guard	ready-guard	fail	the guard did not run"
   fi
+  # The guard read the pull request after the evidence did; a head that moved
+  # in between leaves evidence for a head no longer current.
+  cl_now=$(gh pr view "$3" --repo "$2" --json headRefOid --jq .headRefOid 2>/dev/null) || cl_now=""
+  [ "$cl_now" = "$cl_head" ] || cl_guard="guard	head	fail	the head moved to ${cl_now:-an unread head} while the evidence was collected"
   {
     printf '# format: 1\nrepo\t%s\n' "$2"
     awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } { print }' "$cl_tmp/pr"
@@ -365,7 +371,7 @@ case $verb in
   walk)
     [ -n "$evidence" ] || usage
     [ -r "$evidence" ] || mc_fail "the evidence file is unreadable: $(sanitize_printable "$evidence")"
-    scratch=$(mktemp -d) || mc_fail "cannot create a scratch directory"
+    scratch=$(mktemp -d "${TMPDIR:-/tmp}/mc-readiness.XXXXXX") || mc_fail "cannot create a scratch directory"
     # shellcheck disable=SC2064 # the path is fixed now
     trap "rm -rf '$scratch'" EXIT
     if [ -n "$program" ]; then
@@ -389,7 +395,7 @@ case $verb in
       exit 0
     fi
     [ -z "$out" ] || usage
-    work=$(mktemp -d) || mc_fail "cannot create a scratch directory"
+    work=$(mktemp -d "${TMPDIR:-/tmp}/mc-readiness.XXXXXX") || mc_fail "cannot create a scratch directory"
     (collect "$program" "$slug" "$pr" "$worktree" "$work/evidence") || {
       rm -rf "$work"
       exit 1
@@ -431,6 +437,10 @@ case $verb in
       0) ;;
       3) exit 0 ;;
       *) mc_fail "the $source snapshot cannot be read" ;;
+    esac
+    # A stale snapshot may show a head long gone; wait for a fresh one.
+    case $(printf '%s\n' "$snap" | head -n 1) in
+      *"	stale") exit 0 ;;
     esac
     runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime directory"
     seen="$runtime/readiness-announced"

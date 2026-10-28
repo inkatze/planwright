@@ -116,7 +116,10 @@ while [ $# -gt 0 ]; do
       case $1 in
         --program) program=$2 ;;
         --file) file=$2 ;;
-        --repo) repo=$2 ;;
+        --repo)
+          mc_valid_slug "$2" || mc_usage_fail "--repo takes owner/name"
+          repo=$2
+          ;;
         --label) labels="$labels$2
 " ;;
         --path) paths="$paths$2
@@ -165,7 +168,7 @@ else
   src=/dev/null
 fi
 FILE=${file:-none} POLICY=$policy REPO=$repo LABELS=$labels PATHS=$paths VERB=$verb awk -F '\t' '
-function refuse(why) { printf "%s:%d: %s\n", ENVIRON["FILE"], NR, why > "/dev/stderr"; bad = 1 }
+function refuse(why) { gsub(/[^[:print:]]/, "?", why); printf "%s:%d: %s\n", ENVIRON["FILE"], NR, why > "/dev/stderr"; bad = 1 }
 function glob(s, g,   r, i, c) {
   r = "^"
   for (i = 1; i <= length(g); i++) {

@@ -157,7 +157,7 @@ case $verb in
       [ -n "$checkout" ] && [ -d "$checkout" ] || mc_usage_fail "--head takes --checkout, a directory"
       mc_valid_sha "$head" || mc_usage_fail "--head takes a full 40-hex sha"
     fi
-    scratch=$(mktemp -d) || mc_fail "cannot create a scratch directory"
+    scratch=$(mktemp -d "${TMPDIR:-/tmp}/mc-packet.XXXXXX") || mc_fail "cannot create a scratch directory"
     # shellcheck disable=SC2064 # the path is fixed now
     trap "rm -rf '$scratch'" EXIT
     changed=$scratch/changed

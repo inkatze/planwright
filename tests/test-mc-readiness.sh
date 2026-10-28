@@ -10,6 +10,9 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Fixture git calls must reach the fixture repositories, never one an
+# inherited selector (a git hook's GIT_DIR, say) points at.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
@@ -21,7 +24,7 @@ fail() {
 }
 ok() { echo "ok: $1"; }
 
-tmp=$(mktemp -d) || exit 1
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-mc-readiness.XXXXXX") || exit 1
 tmp=$(cd "$tmp" && pwd -P) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
@@ -178,7 +181,9 @@ cat >"$tmp/threads.json" <<'EOF'
       {"author": {"__typename": "User", "login": "me"}}]}},
     {"id": "t3", "isResolved": false, "comments": {"nodes": [{"author": {"__typename": "User", "login": "copilot[bot]"}},
       {"author": {"__typename": "User", "login": "alice"}}]}},
-    {"id": "t4", "isResolved": false, "comments": {"nodes": [{"author": {"__typename": "User", "login": "alice"}}]}}
+    {"id": "t4", "isResolved": false, "comments": {"nodes": [{"author": {"__typename": "User", "login": "alice"}}]}},
+    {"id": "t5", "isResolved": false, "comments": {"nodes": [{"author": {"__typename": "Bot", "login": "cubic-dev-ai"}},
+      {"author": null}]}}
   ]}}}}}
 EOF
 cat >"$tmp/bin/gh" <<EOF
@@ -191,12 +196,16 @@ for a in "\$@"; do
   prev=\$a
 done
 case "\$1 \$2" in
-  "pr view") case "\$*" in *statusCheckRollup*) exec jq -r "\$jqp" "$tmp/pr.json" ;; esac ;;
+  "pr view") case "\$*" in
+    *statusCheckRollup*) exec jq -r "\$jqp" "$tmp/pr.json" ;;
+    *headRefOid*) cat "$tmp/headnow"; exit 0 ;;
+  esac ;;
   "api graphql") exec jq -r "\$jqp" "$tmp/threads.json" ;;
 esac
 exit 1
 EOF
 chmod +x "$tmp/bin/gh"
+printf '%s\n' "$head" >"$tmp/headnow"
 # The worktree is a worker's: its own git configuration must run nothing
 # while its step records are read.
 printf '#!/bin/sh\nprintf ran >"%s/fsmonitor-ran"\n' "$tmp" >"$tmp/bin/fsmon"
@@ -223,6 +232,8 @@ has "a bot thread the author alone replied to is unanswered" "finding${tab}cubic
 has "a bot thread another person replied to is answered" "finding${tab}copilot[bot]${tab}t3${tab}answered"
 hasnt "a person's thread is no finding" "finding${tab}alice"
 has "a person's open thread is collected" "thread${tab}t4${tab}open"
+has "a reply with no author is no answer" "finding${tab}cubic-dev-ai${tab}t5${tab}unanswered"
+hasnt "the head stood still, so no head guard fails" "guard${tab}head"
 has "REQ-D1.8: the recorded cadence step is collected" "step${tab}polish${tab}applied${tab}$head"
 has "a corrected judgment at the head stands" "evidence${tab}screenshot${tab}shots/home.png${tab}$head${tab}ok"
 hasnt "the judgment it replaced does not" "shots/home.png${tab}$head${tab}error"
@@ -238,6 +249,13 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/w
 expect_rc "check refuses while the guard does" 4
 expect_out "the guard named" "fail${tab}guard${tab}ready-guard"
 expect_out "and the pending check" "fail${tab}check${tab}deploy is PENDING"
+# A head that moves while the evidence is collected fails the walk.
+printf '%s\n' 4444444444444444444444444444444444444444 >"$tmp/headnow"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a head moved during collection fails" "guard${tab}head${tab}fail${tab}the head moved to 4444444444444444444444444444444444444444"
+printf '%s\n' "$head" >"$tmp/headnow"
+
 # A list that comes back at its cap may have been cut, and is refused.
 sed 's/"hasNextPage": false/"hasNextPage": true/' "$tmp/threads.json" >"$tmp/t.json" && mv "$tmp/t.json" "$tmp/threads.json"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
@@ -286,6 +304,12 @@ expect_rc "a refused event fails the run" 1
 mc_run mc-readiness.sh watch --program alpha
 expect_rc "the next run" 0
 expect_eq "raises it again, now stored" "announced${tab}readiness-due${tab}acme:web:7"
+
+# A stale snapshot announces nothing.
+printf 'format\t1\nsource\tforge\ntaken\t%s\npr\tacme/web\t11\t%s\ttrue\tMERGEABLE\tNONE\t0\tSUCCESS\t0\t0\tp5\n' $((now - 86400)) "$H" >"$snapdir/forge"
+mc_run mc-readiness.sh watch --program alpha
+expect_rc "a stale snapshot" 0
+expect_eq "announces nothing" ""
 
 sed -i.bak 's/^program_alpha_sources: .*/program_alpha_sources: {work-items: specs:record}/' "$tracked"
 mc_run mc-readiness.sh watch --program alpha
