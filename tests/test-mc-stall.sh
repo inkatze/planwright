@@ -62,27 +62,45 @@ sh -c 'exit 0' &
 dead_pid=$!
 wait "$dead_pid"
 
-# The tmux stub: window @N's pane pid in $TMUX_STUB/N.pid, its pane text in
-# $TMUX_STUB/N.pane; a window with no file is not there.
+# The tmux stub: window @N exists while $TMUX_STUB/N.name holds its name;
+# its pane pid is in N.pid and its pane text in N.pane.
 mkdir -p "$tmp/bin" "$tmp/tmux"
 cat >"$tmp/bin/tmux" <<'STUB'
 #!/bin/sh
 verb=$1
 shift
-w=''
+w='' fmt=''
 while [ "$#" -gt 0 ]; do
   case $1 in
     -t) w=$2; shift 2 ;;
-    *) shift ;;
+    -F | -p | -a) shift ;;
+    *) fmt=$1; shift ;;
   esac
 done
+n=${w#@}
 case $verb in
-  display-message) f="$TMUX_STUB/${w#@}.pid" ;;
-  capture-pane) f="$TMUX_STUB/${w#@}.pane" ;;
+  ls) exit 0 ;;
+  list-windows)
+    for f in "$TMUX_STUB"/*.name; do
+      [ -f "$f" ] || continue
+      id=${f##*/}
+      printf '@%s\t%s\n' "${id%.name}" "$(cat "$f")"
+    done
+    exit 0
+    ;;
+  display-message)
+    [ -f "$TMUX_STUB/$n.name" ] || { echo "can't find window: $w" >&2; exit 1; }
+    case $fmt in
+      *window_name*) printf '%s\t%s\n' "$(cat "$TMUX_STUB/$n.name")" "$(cat "$TMUX_STUB/$n.pid")" ;;
+      *) cat "$TMUX_STUB/$n.pid" ;;
+    esac
+    ;;
+  capture-pane)
+    [ -f "$TMUX_STUB/$n.name" ] || { echo "can't find window: $w" >&2; exit 1; }
+    cat "$TMUX_STUB/$n.pane"
+    ;;
   *) exit 1 ;;
 esac
-[ -f "$f" ] || { echo "can't find window: $w" >&2; exit 1; }
-cat "$f"
 STUB
 chmod +x "$tmp/bin/tmux"
 PATH="$tmp/bin:$PATH"
@@ -91,21 +109,25 @@ export PATH TMUX_STUB
 
 reg="$fleet/mission-control/sessions"
 mkdir -p "$reg"
-# row <name> <kind> <backend> <handle>: a registry row as the launcher
-# completes it.
+# row <name> <kind> <backend> <handle> [<state> [<token>]]: a registry row as
+# the launcher writes it; a tmux row names its window after the session.
 row() {
-  printf 'format\t1\nname\t%s\nstate\tlaunched\ntoken\tt\npid\t1\nprogram\talpha\nowner\tmission-control:alpha\nkind\t%s\nscope\ts\nbackend\t%s\nhandle\t%s\nprofile\tworker\ntier\t-\nbrief\t-\nlaunched\t0\n' \
-    "$1" "$2" "$3" "$4" >"$reg/$1"
+  printf 'format\t1\nname\t%s\nstate\t%s\ntoken\t%s\npid\t1\nprogram\talpha\nowner\tmission-control:alpha\nkind\t%s\nscope\ts\nbackend\t%s\nhandle\t%s\nprofile\tworker\ntier\t-\nbrief\t-\nlaunched\t0\n' \
+    "$1" "${5:-launched}" "${6:-t}" "$2" "$3" "$4" >"$reg/$1"
+  [ "$3" != tmux ] || printf '%s\n' "$1" >"$tmp/tmux/${4#@}.name"
 }
-# window <n> <pid or -> <pane file>: the stub's window @n.
+# window <n> <pid> <pane file>: the stub's window @n's pane.
 window() {
-  if [ "$2" = - ]; then rm -f "$tmp/tmux/$1.pid"; else printf '%s\n' "$2" >"$tmp/tmux/$1.pid"; fi
+  printf '%s\n' "$2" >"$tmp/tmux/$1.pid"
   cp "$3" "$tmp/tmux/$1.pane"
 }
-# sj <name> <pid or ->: the stream-json rung's worker.pid for <name>.
+# sj <name> <pid | - | none>: the stream-json rung's state directory for
+# <name> with worker.pid holding <pid>, with no pidfile (-), or absent (none).
 sj() {
+  rm -rf "$fleet/streamjson/$1"
+  [ "$2" = none ] && return 0
   mkdir -p "$fleet/streamjson/$1"
-  if [ "$2" = - ]; then rm -f "$fleet/streamjson/$1/worker.pid"; else printf '%s\n' "$2" >"$fleet/streamjson/$1/worker.pid"; fi
+  [ "$2" = - ] || printf '%s\n' "$2" >"$fleet/streamjson/$1/worker.pid"
 }
 
 stall() { mc_run mc-stall.sh "$@"; }
@@ -188,7 +210,7 @@ busy_pane() { # busy_pane <file> <seconds> <work line>
 EOF
 }
 
-# --- liveness: the registry pid and process state (REQ-D1.2) --------------
+# --- liveness: the recorded pid and process state (REQ-D1.2) --------------
 
 row mc-alpha-worker-dead worker stream-json mc-alpha-worker-dead
 sj mc-alpha-worker-dead "$dead_pid"
@@ -197,8 +219,32 @@ expect_rc "classify a session whose recorded pid has exited" 0
 expect_state "a stable pane with a dead pid reads dead" mc-alpha-worker-dead dead
 expect_event "the dead state emits an attention event" stall-dead mc-alpha-worker-dead
 
+row mc-alpha-worker-ended worker stream-json mc-alpha-worker-ended
+sj mc-alpha-worker-ended -
+stall classify --program alpha --now 1000 mc-alpha-worker-ended
+expect_state "a supervisor that removed its pidfiles reads dead" mc-alpha-worker-ended dead
+
+busy_pane "$tmp/busy-dead.pane" 4 "Writing the fix."
+row mc-alpha-ad-hoc-panedead ad-hoc tmux @8
+window 8 "$dead_pid" "$tmp/busy-dead.pane"
+stall classify --program alpha --now 1000 mc-alpha-ad-hoc-panedead
+expect_state "a dead pane process reads dead whatever the pane shows" mc-alpha-ad-hoc-panedead dead
+
+row mc-alpha-tower-gone tower tmux @9
+window 9 "$live_pid" "$tmp/idle.pane"
+rm -f "$tmp/tmux/9.name"
+stall classify --program alpha --now 1000 mc-alpha-tower-gone
+expect_state "a window gone from the server reads dead" mc-alpha-tower-gone dead
+expect_out "the dead state names the window" "window @9 gone"
+
+row mc-alpha-worker-reused worker tmux @10
+window 10 "$live_pid" "$tmp/idle.pane"
+printf 'someone-else\n' >"$tmp/tmux/10.name"
+stall classify --program alpha --now 1000 mc-alpha-worker-reused
+expect_state "a window id now naming another window reads unknown" mc-alpha-worker-reused unknown
+
 row mc-alpha-reviewer-nopid reviewer stream-json mc-alpha-reviewer-nopid
-sj mc-alpha-reviewer-nopid -
+sj mc-alpha-reviewer-nopid none
 busy_pane "$tmp/b1.pane" 3 "Reading the diff."
 busy_pane "$tmp/b2.pane" 9 "Reading the tests."
 stall classify --program alpha --now 1000 --pane "$tmp/b1.pane" mc-alpha-reviewer-nopid
@@ -276,13 +322,86 @@ expect_state "an idle pane unchanged for many windows reads idle, not stalled" m
 [ "$(event_count stall-busy-unchanged mc-alpha-ad-hoc-idle)" = 0 ] && ok "an unchanged idle pane emits no stall event" \
   || fail "an unchanged idle pane emitted a stall event"
 
+# --- each state only on its own signal ---------------------------------------
+
+cat >"$tmp/busy-bg.pane" <<'EOF'
+⏺ Running the lens agents.
+
+✻ Thinking… (40s · esc to interrupt)
+  Waiting for 2 background agents… (ctrl+b to manage)
+────────────────────────────────────────
+❯
+────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+EOF
+row mc-alpha-worker-busybg worker tmux @11
+window 11 "$live_pid" "$tmp/busy-bg.pane"
+stall classify --program alpha --now 1000 mc-alpha-worker-busybg
+expect_state "a main turn still running beside background agents reads working" mc-alpha-worker-busybg working
+
+cat >"$tmp/busy-q.pane" <<'EOF'
+⏺ Should I also update the docs?
+
+✻ Thinking… (4s · esc to interrupt)
+
+────────────────────────────────────────
+❯
+────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+EOF
+row mc-alpha-reviewer-busyq reviewer tmux @12
+window 12 "$live_pid" "$tmp/busy-q.pane"
+stall classify --program alpha --now 1000 mc-alpha-reviewer-busyq
+expect_state "a question above a busy footer reads working, not idle-question" mc-alpha-reviewer-busyq working
+
+cat >"$tmp/answered.pane" <<'EOF'
+⏺ Should I push the branch?
+⏺ Pushed; the PR is open as a draft.
+
+────────────────────────────────────────
+❯
+────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+EOF
+row mc-alpha-tower-answered tower tmux @13
+window 13 "$live_pid" "$tmp/answered.pane"
+stall classify --program alpha --now 1000 mc-alpha-tower-answered
+expect_state "an earlier question followed by a statement reads idle" mc-alpha-tower-answered idle
+
+cat >"$tmp/oneline-q.pane" <<'EOF'
+⏺ Shall I push the branch?
+
+────────────────────────────────────────
+❯
+────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+EOF
+row mc-alpha-ad-hoc-oneq ad-hoc tmux @14
+window 14 "$live_pid" "$tmp/oneline-q.pane"
+stall classify --program alpha --now 1000 mc-alpha-ad-hoc-oneq
+expect_state "a one-line reply ending on a question reads idle-question" mc-alpha-ad-hoc-oneq idle-question
+
+# --- a relaunch starts a fresh sample ------------------------------------------
+
+row mc-alpha-worker-again worker stream-json mc-alpha-worker-again launched first
+sj mc-alpha-worker-again "$dead_pid"
+stall classify --program alpha --now 1000 mc-alpha-worker-again
+row mc-alpha-worker-again worker stream-json mc-alpha-worker-again launched second
+stall classify --program alpha --now 1100 mc-alpha-worker-again
+[ "$(event_count stall-dead mc-alpha-worker-again)" = 2 ] && ok "a relaunched session that dies again raises its own event" \
+  || fail "a relaunch under the same name inherited the old sample's state"
+
 # --- scan: every registered session of the program -------------------------
+
+row mc-alpha-worker-launching worker tmux @15 launching
+window 15 "$live_pid" "$tmp/selector.pane"
 
 stall scan --program alpha --now 2000
 expect_rc "scan the program's sessions" 0
 for n in mc-alpha-worker-dead mc-alpha-orchestrator-sel mc-alpha-ad-hoc-paste mc-alpha-worker-bg mc-alpha-tower-q mc-alpha-reviewer-busy mc-alpha-ad-hoc-idle mc-alpha-tower-live; do
   [ -n "$(state_of "$n")" ] && ok "scan classifies $n" || fail "scan left out $n"
 done
+expect_no_out "scan leaves a launch still in flight alone" "mc-alpha-worker-launching"
 printf 'format\t1\nname\tmc-beta-worker-x\nstate\tlaunched\nprogram\tbeta\nkind\tworker\nbackend\ttmux\nhandle\t@9\n' >"$reg/mc-beta-worker-x"
 stall scan --program alpha --now 2000
 expect_no_out "scan leaves another program's sessions out" "mc-beta-worker-x"
@@ -299,6 +418,10 @@ expect_rc "a row of an unknown format is refused" 2
 expect_err "the refusal names the format field" "format"
 stall classify --program gamma --now 1000 mc-alpha-worker-dead
 expect_rc "an unconfigured program is refused" 3
+chmod 300 "$reg"
+stall scan --program alpha --now 3000
+chmod 700 "$reg"
+expect_rc "an unreadable registry fails the scan rather than reading as empty" 1
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

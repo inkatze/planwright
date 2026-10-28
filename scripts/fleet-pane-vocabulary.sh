@@ -1,7 +1,8 @@
 # shellcheck shell=sh
 # fleet-pane-vocabulary.sh — the codified Claude Code TUI marker vocabulary
 # and the footer classifier over it (sourced, never executed) by every pane consumer
-# (fleet-pane-detect.sh, fleet-stuck-detector.sh, orchestrate-relay.sh). This is
+# (fleet-pane-detect.sh, fleet-stuck-detector.sh, orchestrate-relay.sh,
+# mc-stall.sh). This is
 # the SINGLE point a tower updates if the TUI footer or dialog text changes —
 # the whole value of codifying the pane discipline once (fleet-hardening D-3)
 # instead of every consumer re-deriving a fragile heuristic; the
@@ -49,11 +50,39 @@
 # mixed-case override matches instead of silently never matching.
 
 busy_markers() {
+  main_turn_markers
+  background_markers
+}
+
+# The busy markers split by whose work they show: the main agent's running
+# turn, or background agents still running after it.
+main_turn_markers() {
+  printf '%s\n' 'esc to interrupt'
+}
+
+background_markers() {
   cat <<'MARKERS'
-esc to interrupt
 background agent
 to manage
 MARKERS
+}
+
+# Input-box anchors (plain prefixes of a line, leading blanks stripped): the
+# prompt glyphs that open the input line, and the border glyphs that frame
+# the box above it.
+input_prompt_prefixes() {
+  cat <<'PREFIXES'
+❯
+>
+│ >
+PREFIXES
+}
+
+input_box_borders() {
+  cat <<'BORDERS'
+╭
+─
+BORDERS
 }
 
 spinner_words() {
