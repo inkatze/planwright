@@ -628,6 +628,44 @@ pass against those primary sources and local probes.
   on; the decisions log is read in the layout Task 8 writes. Each absent
   store draws as absent, never as empty.
 
+### Execution research: Task 16 (2026-10-28, after sign-off)
+
+Recorded during Task 16's execution, as the records above were; it changes
+no decision and is not part of the signed section.
+
+Scoping: one version-sensitive question, how a successor takes the program
+name unattended (D-30's research item), read from the installed CLI
+(2.1.312: its `--help` and the mods session surface its binary carries) and
+the CLI's session documentation; no new dependency, so a short pass.
+
+- **What the harness offers.** A session's name is a display name set at
+  launch (`claude -n <name>`: the prompt box, the resume picker and the
+  terminal title) or by the interactive `/rename` command inside that
+  session; `--resume` finds a session by id or that name. The mods session
+  surface has no rename or name-transfer call. Public issue reports of
+  renamed sessions that resume by name cannot find (several CLI versions)
+  argue against building on it.
+- **The takeover path chosen.** The program name is planwright's own
+  holder record under the program's runtime directory, moved by
+  `scripts/mc-handover.sh take` (or `resume`) once the predecessor releases
+  (or the handover window closes), never the harness's display name. Sessions
+  reach mission control through the event store and the wake, which
+  address the program, so the transfer is unattended for every session the
+  launcher started.
+- **The one-act fallback.** Where the holder is the operator's own
+  session, the harness cannot move the operator's terminal to a launched
+  successor, so a handover launch over it is refused (`launch --handover`
+  exits 4): the
+  handover is offered on the panel as one operator act (one command opening
+  a fresh session that runs the mission-control command with the program
+  name), which runs as the resume. This is the D-30 fallback, never a degraded session.
+- **Tests.** Each guarded behaviour in the shell suite was checked to fail
+  under a mutation of it before it was trusted.
+
+Sources: `claude --help` (2.1.312, `-n/--name`, `-r/--resume`); Claude Code
+sessions documentation, <https://code.claude.com/docs/en/sessions>; public
+reports such as <https://github.com/anthropics/claude-code/issues/26249>.
+
 ## 8. Sign-off
 
 First activation, full walkthrough, every section above signed, no
