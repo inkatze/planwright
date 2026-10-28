@@ -462,3 +462,69 @@ mc_valid_entry_id() {
 mc_lookup() {
   printf '%s\n' "$2" | K=$1 awk -F '\t' '$1 == ENVIRON["K"] { print $2; exit }'
 }
+
+# mc_valid_sha <sha>: a full 40-hex commit id.
+mc_valid_sha() {
+  case $1 in
+    *[!0-9a-f]*) return 1 ;;
+  esac
+  [ "${#1}" -eq 40 ]
+}
+
+# mc_valid_slug <owner/name>: a forge repository slug.
+mc_valid_slug() {
+  case $1 in
+    */*/* | /* | */ | .* | */.* | *[!A-Za-z0-9._/-]*) return 1 ;;
+    ?*/?*) ;;
+    *) return 1 ;;
+  esac
+  [ "${#1}" -le 200 ]
+}
+
+# mc_program_home <program>: the program home, or the script fails.
+mc_program_home() {
+  /bin/bash "$script_dir/mc-program.sh" get "$1" home || mc_fail "the home of program $1 does not resolve"
+}
+
+# mc_store_ok <file>: a program-home store opening with "# format: 1"; an
+# empty file fails, so nothing is appended below a missing format line.
+mc_store_ok() {
+  awk 'NR == 1 { ok = ($0 == "# format: 1"); exit } END { exit !ok }' "$1"
+}
+
+# mc_store_init <file>: create the store with its format line, or check the
+# one there; fails naming the file.
+mc_store_init() {
+  if [ -e "$1" ]; then
+    mc_store_ok "$1" || mc_fail "the store has a missing or unknown format: $1"
+  else
+    mkdir -p "${1%/*}" || mc_fail "cannot create ${1%/*}"
+    printf '# format: 1\n' >"$1" || mc_fail "cannot create $1"
+  fi
+}
+
+# mc_announce <program> <seen-file> <key> <kind> <subject> <text>: emit the
+# event once per key, its text flattened to one line of at most 500
+# characters. The key is recorded only once the event store holds the
+# event, so a refused or interrupted emit is tried again on the next run.
+# Prints `announced<TAB><kind><TAB><subject>`; fails on a refused event
+# or a seen file that cannot be read or written.
+mc_announce() {
+  [ -f "$2" ] || : >"$2" || return 1
+  [ -r "$2" ] || return 1
+  if K=$3 awk 'BEGIN { k = ENVIRON["K"] } $0 == k { f = 1; exit } END { exit !f }' "$2"; then
+    return 0
+  fi
+  # The event text is one line of printable text within the store's cap.
+  ma_text=$(printf '%s' "$6" | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-500)
+  mc_event emit --program "$1" -- "$4" "$5" "$ma_text" >/dev/null || return 1
+  { tail -n 999 "$2" && printf '%s\n' "$3"; } | mc_write "$2" || return 1
+  printf 'announced\t%s\t%s\n' "$4" "$5"
+}
+
+# mc_subject <prefix> <key>: a stable event subject for a key outside the
+# subject grammar, <prefix>-<checksum>; the readable key goes in the event's
+# text.
+mc_subject() {
+  printf '%s-%s\n' "$1" "$(printf '%s' "$2" | cksum | awk '{ print $1 }')"
+}

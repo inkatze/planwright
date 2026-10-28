@@ -37,15 +37,20 @@ Usage:
   mc-packet.sh look --program <p> --unit <unit> --head <sha>
       record that the operator looked at the unit at <head>
   mc-packet.sh assemble --program <p> --unit <unit> --readiness <file>
-                        [--look <file>] [--repo <dir> --head <sha>]
+                        [--focus <file>] [--checkout <dir> --head <sha>]
                         [--risks <file>] [--order <file>]
       the packet, its sections always in this order:
         Readiness             the walk (scripts/mc-readiness.sh walk), whole
-        What to look at       --look's lines
+        What to look at       --focus's lines
         Changed since you last looked
                               the commits between the recorded look and
-                              --head in --repo (`first look` with none
-                              recorded, `nothing` at the same head)
+                              --head in --checkout (`first look` with none
+                              recorded, `nothing` at the same head, and a
+                              line saying so when the recorded head is no
+                              longer in the checkout); the read runs with
+                              the checkout's fsmonitor, hooks and signature
+                              display off, since a worker may write its
+                              configuration
         Risks                 --risks' lines
         Order                 --order's lines (scripts/mc-radar.sh order)
       a section with no input reads `- none`; a readiness file that does
@@ -60,7 +65,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-packet.sh look --program <p> --unit <unit> --head <sha> | assemble --program <p> --unit <unit> --readiness <file> [--look <file>] [--repo <dir> --head <sha>] [--risks <file>] [--order <file>]"
+  mc_usage_fail "usage: mc-packet.sh look --program <p> --unit <unit> --head <sha> | assemble --program <p> --unit <unit> --readiness <file> [--focus <file>] [--checkout <dir> --head <sha>] [--risks <file>] [--order <file>]"
 }
 
 case ${1:-} in
@@ -82,7 +87,7 @@ risks=""
 order=""
 while [ $# -gt 0 ]; do
   case $1 in
-    --program | --unit | --head | --readiness | --look | --repo | --risks | --order)
+    --program | --unit | --head | --readiness | --focus | --checkout | --risks | --order)
       [ $# -ge 2 ] || usage
       mc_valid_text "$2" || mc_usage_fail "$1 takes text with no control byte"
       case $1 in
@@ -90,8 +95,8 @@ while [ $# -gt 0 ]; do
         --unit) unit=$2 ;;
         --head) head=$2 ;;
         --readiness) readiness=$2 ;;
-        --look) look=$2 ;;
-        --repo) repo=$2 ;;
+        --focus) look=$2 ;;
+        --checkout) repo=$2 ;;
         --risks) risks=$2 ;;
         --order) order=$2 ;;
       esac
@@ -102,18 +107,18 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$program" ] && [ -n "$unit" ] || usage
 case $unit in *'	'*) mc_usage_fail "--unit takes no tab" ;; esac
-valid_sha() {
-  case $1 in
-    *[!0-9a-f]*) return 1 ;;
-  esac
-  [ "${#1}" -eq 40 ]
-}
 mc_require_program "$program"
-home=$(/bin/bash "$script_dir/mc-program.sh" get "$program" home) || mc_fail "the home of program $program does not resolve"
+home=$(mc_program_home "$program") || exit 1
 store="$home/kb/prepared-moments/looks.tsv"
 if [ -e "$store" ]; then
-  awk 'NR == 1 { exit ($0 != "# format: 1") } END { if (NR == 0) exit 1 }' "$store" || mc_fail "the looks store has a missing or unknown format: $store"
+  mc_store_ok "$store" || mc_fail "the looks store has a missing or unknown format: $store"
 fi
+
+# safe_git <args>: git on the checkout with what its configuration could
+# run turned off.
+safe_git() {
+  git -C "$repo" -c core.fsmonitor=false -c core.hooksPath=/dev/null -c log.showSignature=false "$@"
+}
 
 section() { # section <title> <file|"">
   printf '\n%s\n' "$1"
@@ -126,7 +131,7 @@ section() { # section <title> <file|"">
 
 case $verb in
   look)
-    valid_sha "$head" || mc_usage_fail "--head takes a full 40-hex sha"
+    mc_valid_sha "$head" || mc_usage_fail "--head takes a full 40-hex sha"
     [ -z "$readiness$look$repo$risks$order" ] || usage
     mkdir -p "${store%/*}" || mc_fail "cannot create ${store%/*}"
     trap mc_kb_unlock EXIT
@@ -149,8 +154,8 @@ case $verb in
       [ -z "$f" ] || [ -r "$f" ] || mc_fail "unreadable: $(sanitize_printable "$f")"
     done
     if [ -n "$repo$head" ]; then
-      [ -n "$repo" ] && [ -d "$repo" ] || mc_usage_fail "--head takes --repo, a directory"
-      valid_sha "$head" || mc_usage_fail "--head takes a full 40-hex sha"
+      [ -n "$repo" ] && [ -d "$repo" ] || mc_usage_fail "--head takes --checkout, a directory"
+      mc_valid_sha "$head" || mc_usage_fail "--head takes a full 40-hex sha"
     fi
     scratch=$(mktemp -d) || mc_fail "cannot create a scratch directory"
     # shellcheck disable=SC2064 # the path is fixed now
@@ -159,12 +164,15 @@ case $verb in
     if [ -n "$head" ]; then
       last=""
       [ ! -e "$store" ] || last=$(U=$unit awk -F '\t' 'NR > 1 && $1 == ENVIRON["U"] { print $2 }' "$store" | tail -n 1)
+      [ -z "$last" ] || mc_valid_sha "$last" || mc_fail "the looks store holds an invalid head for $(sanitize_printable "$unit"): $store"
       if [ -z "$last" ]; then
         printf -- '- first look\n' >"$changed"
       elif [ "$last" = "$head" ]; then
         printf -- '- nothing\n' >"$changed"
+      elif ! safe_git cat-file -e "$last^{commit}" 2>/dev/null; then
+        printf -- '- the head last looked at (%s) is no longer in the checkout\n' "$(printf '%s' "$last" | cut -c1-12)" >"$changed"
       else
-        git -C "$repo" log --no-color --format='- %h %s' "$last..$head" -- >"$changed" 2>/dev/null \
+        safe_git log --no-color --no-show-signature --format='- %h %s' --end-of-options "$last..$head" -- >"$changed" 2>/dev/null \
           || mc_fail "the commits since the last look cannot be read"
         [ -s "$changed" ] || printf -- '- nothing\n' >"$changed"
       fi

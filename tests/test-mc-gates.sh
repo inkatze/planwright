@@ -80,8 +80,27 @@ expect_out "the repository's conflict rule applies" "merge${tab}conflicts${tab}s
 mc_run mc-gates.sh resolve --program alpha --repo acme/api
 expect_out "REQ-I1.7: a repository's method wins over the program's, even written earlier" "merge${tab}method${tab}merge"
 expect_no_out "REQ-I1.7: another repository's step does not apply" "cubic-pr"
+mc_run mc-gates.sh resolve --program alpha --repo acme/web --label backend --path src/a.c
 expect_no_out "an unmatched label adds nothing" "screenshot"
+expect_no_out "an unmatched path adds nothing" "Walkthrough"
+mc_run mc-gates.sh resolve --program alpha --repo acme/api
 expect_out "and the conflicts default stays" "merge${tab}conflicts${tab}operator"
+cp "$gates" "$tmp/keep"
+printf 'merge\tpath\tsrc/*\tconflicts\tsession\nmerge\tlabel\tui\tconflicts\toperator\nmerge\trepo\tacme/cli\tmethod\tsquash\nmerge\trepo\tacme/cli\tmethod\trebase\nmerge\trepo\t-\tmethod\tmerge\n' >>"$gates"
+mc_run mc-gates.sh resolve --program alpha --repo acme/api --label ui --path src/a.c
+expect_out "a path's value wins over a label's, written first or not" "merge${tab}conflicts${tab}session"
+mc_run mc-gates.sh resolve --program alpha --repo acme/cli
+expect_out "a later line wins at the same scope" "merge${tab}method${tab}rebase"
+mc_run mc-gates.sh resolve --program alpha
+expect_out "with no repository named, no repo line applies" "merge${tab}method${tab}squash"
+cp "$tmp/keep" "$gates"
+# The runner works from the fixture repository, so this relative name is
+# read there; awk would take a bare `bad=1` operand for an assignment.
+cp "$gates" "$repo/bad=1"
+printf 'merge\tprogram\t*\tauto-merge\ttrue\n' >>"$repo/bad=1"
+mc_run mc-gates.sh check --file "bad=1"
+expect_rc "a relative file named like an assignment is still read" 1
+expect_err "and its merge line refused" "would authorize a merge"
 
 # ---------------------------------------------------------------------------
 # REQ-I1.7: a condition that would authorize a merge, or place a flip below

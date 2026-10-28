@@ -51,11 +51,13 @@ Usage:
   mc-inbox.sh draft --program <p> --to <recipient> --file <body>
       put the draft on the clipboard (mission_control_clipboard: `auto`
       takes the first of pbcopy, wl-copy, xclip and xsel found; otherwise
-      the absolute path of a command that reads the text on stdin) and log
-      recipient, size and SHA-256 (never the text) to the program home's
-      kb/inbox/drafts.tsv. Nothing is sent: this script has no sending
-      path; sending waits for the operator's yes on the exact text and
-      recipient.
+      the absolute path of a command that reads the text on stdin; read
+      from the core, adopter and machine-local layers only, a repo-tracked
+      value ignored with a warning) and log it to the program home's
+      kb/inbox/drafts.tsv ("# format: 1", then
+      <UTC time><TAB><recipient><TAB><bytes><TAB><SHA-256>, never the
+      text). Nothing is sent: this script has no sending path; sending
+      waits for the operator's yes on the exact text and recipient.
         clipboard<TAB><recipient><TAB><bytes>
 
 Exit codes: 0 done; 1 a refused item, no clipboard tool, or a store that
@@ -179,7 +181,34 @@ case $verb in
         *) return 1 ;;
       esac
     }
-    clip=$(mc_knob mission_control_clipboard parse_clip) || exit 1
+    # The knob names a command this script runs, so only layers outside every
+    # checkout (core, adopter, machine-local) are read: a committed
+    # repo-tracked value would let a repository pick it.
+    layers=$(/bin/sh "$script_dir/config-get.sh" --layers mission_control_clipboard 2>/dev/null) \
+      || mc_fail "mission_control_clipboard cannot be read"
+    clip=""
+    while IFS='	' read -r layer raw; do
+      [ -n "$layer" ] || continue
+      case $layer in
+        repo-tracked)
+          printf '%s\n' "$prog: warning: the repo-tracked value of mission_control_clipboard is ignored; set it in the adopter or machine-local layer" >&2
+          continue
+          ;;
+      esac
+      if clip=$(parse_clip "$raw"); then
+        break
+      fi
+      case $layer in
+        adopter | machine-local)
+          printf '%s\n' "$prog: warning: the $layer value of mission_control_clipboard is invalid ('$(sanitize_printable "$raw")'); degrading to the next lower layer" >&2
+          clip=""
+          ;;
+        *) mc_fail "mission_control_clipboard: invalid $layer value '$(sanitize_printable "$raw")'" ;;
+      esac
+    done <<EOF
+$(printf '%s\n' "$layers" | awk '{ l[NR] = $0 } END { for (i = NR; i > 0; i--) print l[i] }')
+EOF
+    [ -n "$clip" ] || mc_fail "mission_control_clipboard is not set (broken install)"
     set --
     if [ "$clip" = auto ]; then
       if command -v pbcopy >/dev/null 2>&1; then
@@ -197,20 +226,20 @@ case $verb in
       [ -x "$clip" ] || mc_fail "mission_control_clipboard names no executable: $clip"
       set -- "$clip"
     fi
-    "$@" <"$file" >/dev/null 2>&1 || mc_fail "the clipboard command failed"
-    bytes=$(wc -c <"$file" | tr -d ' ')
-    sum=$(mc_sha256 <"$file") || mc_fail "no SHA-256 tool"
-    home=$(/bin/bash "$script_dir/mc-program.sh" get "$program" home) || mc_fail "the home of program $program does not resolve"
+    home=$(mc_program_home "$program") || exit 1
     store="$home/kb/inbox/drafts.tsv"
+    trap 'mc_kb_unlock; [ -z "${snap:-}" ] || rm -f "$snap"' EXIT
     mkdir -p "${store%/*}" || mc_fail "cannot create ${store%/*}"
-    trap mc_kb_unlock EXIT
     mc_kb_lock "$program" inbox/drafts.tsv
-    if [ -e "$store" ]; then
-      awk 'NR == 1 { exit ($0 != "# format: 1") }' "$store" || mc_fail "the drafts log has an unknown format: $store"
-    else
-      printf '# format: 1\n' >"$store" || mc_fail "cannot create $store"
-    fi
-    printf '%s\t%s\t%s\t%s\n' "$(mc_iso "$(mc_now)")" "$to" "$bytes" "$sum" >>"$store" || mc_fail "cannot append to $store"
+    mc_store_init "$store"
+    # One snapshot feeds the clipboard, the size and the hash, so the log
+    # describes exactly what went on the clipboard.
+    snap=$(mktemp) || mc_fail "cannot create a scratch file"
+    cat "$file" >"$snap" || mc_fail "the draft cannot be read"
+    bytes=$(wc -c <"$snap" | tr -d ' ')
+    sum=$(mc_sha256 <"$snap") || mc_fail "no SHA-256 tool"
+    "$@" <"$snap" >/dev/null 2>&1 || mc_fail "the clipboard command failed"
+    printf '%s\t%s\t%s\t%s\n' "$(mc_iso "$(mc_now)")" "$to" "$bytes" "$sum" >>"$store" || mc_fail "the draft is on the clipboard, but the drafts log cannot be appended: $store"
     printf 'clipboard\t%s\t%s\n' "$to" "$bytes"
     ;;
   *) usage ;;

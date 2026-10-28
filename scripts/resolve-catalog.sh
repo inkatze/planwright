@@ -68,6 +68,11 @@
 # and skipped; the warning names the layer so a consumer can apply its
 # by-layer policy. These warnings come from the merge path only: a core-only
 # catalog in yaml mode is emitted verbatim, while --explain always merges.
+# The duties catalog alone also lets a flow list left open on its field line
+# continue on lines indented five or more spaces until one closes it; the
+# merge path joins them into the one-line list they mean, and its reader
+# (scripts/mc-duties.sh) joins them the same way in a verbatim core seed.
+# Every other catalog keeps one-line lists, since its readers do not join.
 #
 # Path confinement (D-8, REQ-E1.5, risk R8): each present overlay file is routed
 # through resolve-overlay-root.sh --contain, which canonicalizes the joined path
@@ -423,10 +428,9 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
   # warnings below can flag them.
   /^[ \t]*$/ { next }
 
-  # A flow list left open on its field line continues on lines indented past
-  # the field, joined with a space until one closes it, so a long list wraps
-  # under a line-length limit and reads as the one-line list it means.
-  have_entry && open_list && /^      [ \t]*[^ \t]/ {
+  # A duties flow list left open on its field line continues (see the
+  # header, Entry format).
+  have_entry && open_list && /^     [ ]*[^ \t]/ {
     raw = $0
     sub(/^[ \t]+/, "", raw)
     sub(/[ \t]*$/, "", raw)
@@ -457,7 +461,7 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
       cur_fields = cur_fields (cur_fields == "" ? "" : "\n") raw
       val = raw
       sub(/^[^:]*:[ \t]*/, "", val)
-      open_list = (val ~ /^\[/ && val !~ /\][ \t]*$/)
+      open_list = (name == "duties" && val ~ /^\[/ && val !~ /\][ \t]*$/)
     }
     next
   }

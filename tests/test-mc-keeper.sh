@@ -77,8 +77,20 @@ mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-three --repo
 echo CLOSED >"$tmp/state7"
 OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>"$tmp/stderr")
 RC=$?
-expect_out "under the runner, a landing is an event" "event${tab}session-landed${tab}mc-alpha-worker-three${tab}CLOSED, retired"
-expect_no_out "and an open pull request is quiet" "worker-two"
+ERR=$(cat "$tmp/stderr")
+expect_rc "under the runner, the failed read still fails the run" 1
+expect_eq "under the runner, a landing is announced and nothing else printed" "announced${tab}session-landed${tab}mc-alpha-worker-three"
+mc_run mc-event.sh list --program alpha
+expect_out "the landing lands in the event store" "session-landed${tab}mc-alpha-worker-three${tab}CLOSED, retired"
+
+# A landing that stays held wakes the session once, not every run.
+mkdir -p "$tmp/dirty"
+mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-four --repo acme/web --pr 7 --worktree "$tmp/dirty"
+held_run_1=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>"$tmp/held.err")
+held_run_2=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
+case $held_run_1 in *"announced${tab}session-landed${tab}mc-alpha-worker-four"*) ok "a held landing is announced" ;; *) fail "a held landing was not announced: $held_run_1 $(cat "$tmp/held.err")" ;; esac
+case $held_run_2 in *worker-four*) fail "a held landing was announced again: $held_run_2" ;; *) ok "and not again while it stays held" ;; esac
+if grep -q "worker-four" "$ledger"; then ok "a held session stays tracked"; else fail "a held session was dropped"; fi
 
 # ---------------------------------------------------------------------------
 # REQ-M1.4: the next ready unit dispatches while another waits on CI.
@@ -120,6 +132,14 @@ expect_out "REQ-M1.4: the unit waiting on CI is named waiting" "waiting${tab}dem
 expect_out "REQ-M1.4: the next ready unit dispatches" "dispatch${tab}demo:task-2"
 expect_no_out "a unit whose dependency is in flight does not" "demo:task-3"
 expect_no_out "REQ-M1.3: the unit with a branch is not dispatched again" "dispatch${tab}demo:task-1"
+
+# The budget's admission holds dispatch when no session would be admitted.
+sed -i.bak 's/^program_alpha_budget: .*/program_alpha_budget: {host_load: 1000000, sessions: 1}/' "$tracked"
+mc_run mc-budget.sh record --program alpha sessions 1
+mc_run mc-keeper.sh next --program alpha --spec "$repo/specs/demo"
+expect_rc "next under a full budget" 0
+expect_out "REQ-M1.4: a ready unit is held while the budget admits no session" "held${tab}demo:task-2${tab}the budget holds dispatch (sessions at their limit)"
+expect_no_out "and is not dispatched" "dispatch${tab}"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-keeper: $failures failure(s)" >&2

@@ -132,6 +132,9 @@ expect_rc "an evidence file with no format line is refused" 4
 # Without the label, no screenshot is required.
 walk_with "no label" '/^label/d; /^evidence/d'
 expect_rc "REQ-I1.7: an unlabelled pull request needs no screenshot" 0
+walk_with "stale screenshot" '/^label/d; /^evidence/d' "evidence${tab}screenshot${tab}x.png${tab}2222222222222222222222222222222222222222${tab}ok"
+expect_rc "a screenshot judged ok at another head is refused, required or not" 4
+expect_out "named" "x.png was judged at another head"
 
 # ---------------------------------------------------------------------------
 # record: evidence the session opened and judged.
@@ -146,63 +149,127 @@ mc_run mc-readiness.sh record --program alpha --repo acme/web --pr 7 --head abc 
 expect_rc "a short head is a usage error" 2
 
 # ---------------------------------------------------------------------------
-# collect: the forge read, the step records and the guard, at the head.
+# collect: the forge read, the step records and the guard, at the head. The
+# gh stub runs the script's own jq programs over fixture JSON.
 # ---------------------------------------------------------------------------
 git -C "$repo" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m one
 head=$(git -C "$repo" rev-parse HEAD)
-mc_run mc-readiness.sh record --program alpha --repo acme/web --pr 7 --head "$head" --kind screenshot --ref shots/home.png --judgment ok
+rec() { mc_run mc-readiness.sh record --program alpha --repo "$1" --pr "$2" --head "$3" --kind screenshot --ref "$4" --judgment "$5"; }
+rec acme/web 7 "$head" shots/home.png error
+rec acme/web 7 "$head" shots/home.png ok
+rec acme/web 7 "$H" shots/stale.png ok
+rec acme/web 8 "$head" shots/other-pr.png ok
 (cd "$repo" && PLANWRIGHT_ROOT="$core" /bin/bash "$repo_root/scripts/step-record.sh" new-run >/dev/null \
   && /bin/bash "$repo_root/scripts/step-record.sh" write --run 000001 --point convergence --step polish --kind skill \
     --target polish --hosting isolated --backend none --head "$head" --end-head "$head" \
     --start 2026-10-28T00:00:00Z --end 2026-10-28T00:01:00Z --outcome applied >/dev/null) || fail "the fixture step record"
 mkdir -p "$tmp/bin"
+cat >"$tmp/pr.json" <<EOF
+{"headRefOid": "$head", "labels": [{"name": "ui"}], "files": [{"path": "src/app.c"}],
+ "body": "## Summary\nAdds the thing.",
+ "statusCheckRollup": [{"name": "build", "conclusion": "SUCCESS"},
+   {"context": "deploy", "state": "PENDING", "conclusion": ""}]}
+EOF
+cat >"$tmp/threads.json" <<'EOF'
+{"data": {"repository": {"pullRequest": {"author": {"login": "me"},
+  "reviewThreads": {"pageInfo": {"hasNextPage": false}, "nodes": [
+    {"id": "t1", "isResolved": true, "comments": {"nodes": [{"author": {"__typename": "Bot", "login": "cubic-dev-ai"}}]}},
+    {"id": "t2", "isResolved": false, "comments": {"nodes": [{"author": {"__typename": "Bot", "login": "cubic-dev-ai"}},
+      {"author": {"__typename": "User", "login": "me"}}]}},
+    {"id": "t3", "isResolved": false, "comments": {"nodes": [{"author": {"__typename": "User", "login": "copilot[bot]"}},
+      {"author": {"__typename": "User", "login": "alice"}}]}},
+    {"id": "t4", "isResolved": false, "comments": {"nodes": [{"author": {"__typename": "User", "login": "alice"}}]}}
+  ]}}}}}
+EOF
 cat >"$tmp/bin/gh" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" >>"$tmp/gh.calls"
+jqp=""
+prev=""
+for a in "\$@"; do
+  [ "\$prev" = --jq ] && jqp=\$a
+  prev=\$a
+done
 case "\$1 \$2" in
-  "pr view")
-    case "\$*" in
-      *statusCheckRollup*) printf 'head\t%s\nlabel\tui\npath\tsrc/app.c\ncheck\tbuild\tSUCCESS\nbodyline\t## Summary\n' "$head" ;;
-      *) exit 1 ;;
-    esac
-    ;;
-  "api graphql") printf 'thread\tt1\tresolved\nfinding\tcubic-dev-ai[bot]\tt1\tanswered\n' ;;
-  *) exit 1 ;;
+  "pr view") case "\$*" in *statusCheckRollup*) exec jq -r "\$jqp" "$tmp/pr.json" ;; esac ;;
+  "api graphql") exec jq -r "\$jqp" "$tmp/threads.json" ;;
 esac
+exit 1
 EOF
 chmod +x "$tmp/bin/gh"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected"
 expect_rc "collect" 0
 c=$(cat "$tmp/collected" 2>/dev/null)
-case $c in "# format: 1"*) ok "the evidence carries its format" ;; *) fail "the collected evidence lacks its format line" ;; esac
-case $c in *"head${tab}$head"*) ok "REQ-D1.8: the head is the forge's" ;; *) fail "no head collected" ;; esac
-case $c in *"step${tab}polish${tab}applied${tab}$head"*) ok "REQ-D1.8: the recorded cadence step is collected" ;; *) fail "no step collected: $c" ;; esac
-case $c in *"evidence${tab}screenshot${tab}shots/home.png${tab}$head${tab}ok"*) ok "the recorded screenshot judgment at the head is collected" ;; *) fail "no screenshot collected" ;; esac
-case $c in *"guard${tab}ready-guard${tab}"*) ok "D-25: the ready-flip guard is composed" ;; *) fail "no guard verdict collected" ;; esac
-case $c in *"finding${tab}cubic-dev-ai[bot]"*) ok "the automated reviewer's finding is collected" ;; *) fail "no finding collected" ;; esac
-case $c in *"repo${tab}acme/web"*) ok "the repository is named for the conditions" ;; *) fail "no repo line" ;; esac
+has() { case $c in *"$2"*) ok "$1" ;; *) fail "$1: the collection lacks '$2'" ;; esac }
+hasnt() { case $c in *"$2"*) fail "$1: the collection carries '$2'" ;; *) ok "$1" ;; esac }
+has "the evidence carries its format" "# format: 1"
+has "REQ-D1.8: the head is the forge's" "head${tab}$head"
+has "REQ-D1.8: each check context is read on its own" "check${tab}build${tab}SUCCESS"
+has "an empty conclusion reads its state" "check${tab}deploy${tab}PENDING"
+has "the body is read line by line" "bodyline${tab}Adds the thing."
+has "labels are read" "label${tab}ui"
+has "paths are read" "path${tab}src/app.c"
+has "a resolved bot thread is an answered finding" "finding${tab}cubic-dev-ai${tab}t1${tab}answered"
+has "a bot thread the author alone replied to is unanswered" "finding${tab}cubic-dev-ai${tab}t2${tab}unanswered"
+has "a bot thread another person replied to is answered" "finding${tab}copilot[bot]${tab}t3${tab}answered"
+hasnt "a person's thread is no finding" "${tab}t4${tab}answered"
+has "a person's open thread is collected" "thread${tab}t4${tab}open"
+has "REQ-D1.8: the recorded cadence step is collected" "step${tab}polish${tab}applied${tab}$head"
+has "a corrected judgment at the head stands" "evidence${tab}screenshot${tab}shots/home.png${tab}$head${tab}ok"
+hasnt "the judgment it replaced does not" "shots/home.png${tab}$head${tab}error"
+hasnt "evidence at another head is left out" "shots/stale.png"
+hasnt "evidence of another pull request is left out" "shots/other-pr.png"
+has "D-25: the ready-flip guard is composed" "guard${tab}ready-guard${tab}"
+has "the repository is named for the conditions" "repo${tab}acme/web"
 if grep -q 'pr ready' "$tmp/gh.calls" 2>/dev/null; then fail "a flip was attempted"; else ok "nothing flips a pull request"; fi
 # The stub cannot satisfy the guard's own reads, so it fails closed, and the
 # walk over the collection refuses on it.
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/web --pr 7 --worktree "$repo"
 expect_rc "check refuses while the guard does" 4
 expect_out "the guard named" "fail${tab}guard${tab}ready-guard"
+expect_out "and the pending check" "fail${tab}check${tab}deploy is PENDING"
+# A list that comes back at its cap may have been cut, and is refused.
+sed 's/"hasNextPage": false/"hasNextPage": true/' "$tmp/threads.json" >"$tmp/t.json" && mv "$tmp/t.json" "$tmp/threads.json"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "more threads than one read returns is marked" "truncated${tab}review threads"
+walk_with "truncated" '-' "truncated${tab}files"
+expect_rc "a truncated read is refused" 4
+expect_out "named" "fail${tab}truncated${tab}the files read hit its cap"
 
 # ---------------------------------------------------------------------------
-# watch: one readiness-due event per new head of a green draft.
+# watch: one readiness-due event per new head of a green draft, landed in the
+# event store.
 # ---------------------------------------------------------------------------
 snapdir="$fleet/mission-control/alpha/snapshots"
 mkdir -p "$snapdir"
 now=$(date +%s)
-printf 'format\t1\nsource\tforge\ntaken\t%s\npr\tacme/web\t7\t%s\ttrue\tMERGEABLE\tNONE\t0\tSUCCESS\t0\t0\tp1\npr\tacme/web\t8\t%s\ttrue\tMERGEABLE\tNONE\t2\tSUCCESS\t0\t0\tp2\npr\tacme/web\t9\t%s\tfalse\tMERGEABLE\tNONE\t0\tSUCCESS\t0\t0\tp3\n' \
-  "$now" "$H" "$H" "$H" >"$snapdir/forge"
+snap() { # snap <head of #7>
+  printf 'format\t1\nsource\tforge\ntaken\t%s\n' "$now"
+  printf 'pr\tacme/web\t7\t%s\ttrue\tMERGEABLE\tNONE\t0\tSUCCESS\t0\t0\tp1\n' "$1"
+  printf 'pr\tacme/web\t8\t%s\ttrue\tMERGEABLE\tNONE\t2\tSUCCESS\t0\t0\tp2\n' "$H"
+  printf 'pr\tacme/web\t9\t%s\tfalse\tMERGEABLE\tNONE\t0\tSUCCESS\t0\t0\tp3\n' "$H"
+  printf 'pr\tacme/web\t10\t%s\ttrue\tMERGEABLE\tNONE\t0\tFAILURE\t0\t0\tp4\n' "$H"
+}
+snap "$H" >"$snapdir/forge"
 OUT=$(mc_env env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-readiness.sh" 2>"$tmp/stderr")
 RC=$?
 ERR=$(cat "$tmp/stderr")
 expect_rc "the watcher runs with no arguments under the runner" 0
-expect_eq "only the green draft with no open thread is due" "event${tab}readiness-due${tab}acme/web#7${tab}head 111111111111"
+expect_eq "only the green draft with no open thread is due" "announced${tab}readiness-due${tab}acme:web:7"
+mc_run mc-event.sh list --program alpha
+expect_out "the event lands in the store, within the subject grammar" "readiness-due${tab}acme:web:7${tab}acme/web#7 head 111111111111"
 mc_run mc-readiness.sh watch --program alpha
+expect_rc "a second pass" 0
 expect_eq "an announced head is not announced again" ""
+snap "$head" >"$snapdir/forge"
+mc_run mc-readiness.sh watch --program alpha
+expect_eq "a new head is announced again" "announced${tab}readiness-due${tab}acme:web:7"
+
+sed -i.bak 's/^program_alpha_sources: .*/program_alpha_sources: {work-items: specs:record}/' "$tracked"
+mc_run mc-readiness.sh watch --program alpha
+expect_rc "a program with no code-state snapshot raises nothing, quietly" 0
+expect_eq "nothing" ""
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-readiness: $failures failure(s)" >&2

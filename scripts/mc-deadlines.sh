@@ -31,16 +31,19 @@ the first turn after silence. No calendar is read.
 
 THE SOURCES, by the program's deadlines fact class (scripts/mc-program.sh
 get <p> sources):
-  record, source specs   a `- **Due:** YYYY-MM-DD` line in a task block of
-                         a bundle's tasks.md under the spec root dates the
-                         unit <bundle>:task-<id>; one in requirements.md
-                         dates the bundle
+  record, source specs   a `**Due:** YYYY-MM-DD` line, bulleted or not, in
+                         a task block of a bundle's tasks.md under the spec
+                         root (the block running to the next H2 or H3)
+                         dates the unit <bundle>:task-<id>; the first such
+                         line in requirements.md dates the bundle
   snapshot               each `due<TAB><unit><TAB><YYYY-MM-DD>` line of the
                          source's snapshot (scripts/mc-snapshot.sh read)
   cited                  nothing is read; the operator's dates only
 and always the operator's stated dates, kept in the program home's
 kb/deadline-watch/dates.tsv ("# format: 1", then
-unit<TAB>date<TAB>note). A unit is free text with no tab.
+unit<TAB>date<TAB>note). An operator's unit takes letters, digits and
+. _ = @ : - (at most 128), the event subject grammar. A date that names no
+calendar day is refused on add and dropped from a store.
 
 The horizon is mission_control_deadline_horizon: a date at most that many
 whole days away is urgent, one already past overdue.
@@ -61,12 +64,18 @@ Usage:
       overdue units first, then urgent ones, each earliest first, then the
       rest in the order given
   mc-deadlines.sh watch [--program <p>] [--now <epoch>]
-      the duty's watcher: one event per urgent or overdue unit per day
-        event<TAB>deadline-near<TAB><unit><TAB>due <date> (<n> days)
-      the program from PLANWRIGHT_MC_PROGRAM when --program is absent
+      the duty's watcher (also what a run with no arguments does under the
+      runner): one deadline-near event per urgent or overdue unit per day,
+      subject the unit (a checksum subject for a store's unit outside the
+      grammar), text `<unit> due <date> (<n> days, <source>)`, printing
+        announced<TAB>deadline-near<TAB><subject>
+      a unit counts as announced for the day only once the program's event
+      store holds the event; the program from PLANWRIGHT_MC_PROGRAM when
+      --program is absent
 
-Exit codes: 0 done; 1 a store or source that cannot be read or written;
-2 usage; 3 the program is not configured.
+Exit codes: 0 done; 1 a store or source that cannot be read or written, an
+invalid horizon knob, or an event the store refused; 2 usage; 3 the
+program is not configured.
 
 Portable bash 3.2 / BSD tooling.
 HELP
@@ -127,25 +136,34 @@ valid_date() {
     [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]) ;;
     *) return 1 ;;
   esac
-  vd_m=${1#*-}
-  vd_m=${vd_m%-*}
-  vd_d=${1##*-}
-  [ "$vd_m" != 00 ] && [ "$vd_m" -le 12 ] 2>/dev/null && [ "$vd_d" != 00 ]
+  printf '%s\n' "$1" | awk "$DATE_AWK"' { exit !real($0) }'
 }
 
-home=$(/bin/bash "$script_dir/mc-program.sh" get "$program" home) || mc_fail "the home of program $program does not resolve"
+# real(s): s, a YYYY-MM-DD string, names a day of the calendar.
+# shellcheck disable=SC2016 # an awk program
+DATE_AWK='function real(s,   y, m, d, md) {
+  if (s !~ /^[0-9][0-9][0-9][0-9]-[01][0-9]-[0-3][0-9]$/) return 0
+  y = substr(s, 1, 4) + 0; m = substr(s, 6, 2) + 0; d = substr(s, 9, 2) + 0
+  if (m < 1 || m > 12 || d < 1) return 0
+  md = (m == 2) ? ((y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)) ? 29 : 28) : ((m == 4 || m == 6 || m == 9 || m == 11) ? 30 : 31)
+  return d <= md
+}'
+
+home=$(mc_program_home "$program") || exit 1
 store="$home/kb/deadline-watch/dates.tsv"
 
 check_store() {
   [ -e "$store" ] || return 0
-  awk 'NR == 1 { exit ($0 != "# format: 1") } END { if (NR == 0) exit 1 }' "$store" || mc_fail "the dates store has a missing or unknown format: $store"
+  mc_store_ok "$store" || mc_fail "the dates store has a missing or unknown format: $store"
 }
 
 # gather: unit<TAB>date<TAB>source for every known date, operator dates
 # first so they win.
 gather() {
   check_store
-  [ ! -e "$store" ] || awk -F '\t' 'NR > 1 && NF >= 2 { print $1 "\t" $2 "\toperator" }' "$store"
+  if [ -e "$store" ]; then
+    awk -F '\t' 'NR > 1 && NF >= 2 { print $1 "\t" $2 "\toperator" }' "$store" || mc_fail "the dates store cannot be read: $store"
+  fi
   ga_src=$(/bin/bash "$script_dir/mc-program.sh" get "$program" sources) || mc_fail "the source map of program $program does not resolve"
   ga_line=$(printf '%s\n' "$ga_src" | awk -F '\t' '$1 == "deadlines" { print $2 "\t" $3 }')
   ga_source=${ga_line%%	*}
@@ -161,12 +179,16 @@ gather() {
         ga_n=${ga_b##*/}
         case $ga_n in _* | '*') continue ;; esac
         [ -f "$ga_b/tasks.md" ] || continue
+        # A task block runs to the next H2 or H3 heading.
         N=$ga_n awk '
+          /^##[#]? / { t = "" }
           /^### Task [0-9]+(\.[0-9]+)? / { t = $3 }
-          /^## / { t = "" }
-          /^- \*\*Due:\*\* [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ ]*$/ && t != "" { print ENVIRON["N"] ":task-" t "\t" $3 "\trecord:specs" }' "$ga_b/tasks.md"
-        [ ! -f "$ga_b/requirements.md" ] \
-          || N=$ga_n awk '/^\*\*Due:\*\* [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ ]*$/ { print ENVIRON["N"] "\t" $2 "\trecord:specs"; exit }' "$ga_b/requirements.md"
+          /^(- )?\*\*Due:\*\* [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ ]*$/ && t != "" { print ENVIRON["N"] ":task-" t "\t" $NF "\trecord:specs" }' \
+          "$ga_b/tasks.md" || mc_fail "cannot read $ga_b/tasks.md"
+        if [ -f "$ga_b/requirements.md" ]; then
+          N=$ga_n awk '/^(- )?\*\*Due:\*\* [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ ]*$/ { print ENVIRON["N"] "\t" $NF "\trecord:specs"; exit }' \
+            "$ga_b/requirements.md" || mc_fail "cannot read $ga_b/requirements.md"
+        fi
       done
       set -f
       ;;
@@ -191,17 +213,18 @@ horizon_days() {
   printf '%s\n' $((hd / 86400))
 }
 
-# listing: deadline lines, earliest first, invalid dates dropped.
+# listing: deadline lines, earliest first; a date that names no calendar
+# day is dropped.
 listing() {
   ls_raw=$(gather) || exit 1
   [ -n "$ls_raw" ] || return 0
-  printf '%s\n' "$ls_raw" | T=$(today_days) awk -F '\t' '
+  printf '%s\n' "$ls_raw" | T=$(today_days) awk -F '\t' "$DATE_AWK"'
     function days(s,   y, m, d) {
       y = substr(s, 1, 4) + 0; m = substr(s, 6, 2) + 0; d = substr(s, 9, 2) + 0
       if (m <= 2) { y--; m += 12 }
       return 365 * y + int(y / 4) - int(y / 100) + int(y / 400) + int((153 * (m - 3) + 2) / 5) + d - 719469
     }
-    $2 !~ /^[0-9][0-9][0-9][0-9]-[01][0-9]-[0-3][0-9]$/ { next }
+    !real($2) { next }
     $1 in seen { next }
     { seen[$1] = 1; print $2 "\t" "deadline\t" $1 "\t" $2 "\t" (days($2) - ENVIRON["T"]) "\t" $3 }' \
     | sort -t '	' -k1,1 -s | cut -f2-
@@ -210,28 +233,33 @@ listing() {
 case $verb in
   add)
     [ -n "$unit" ] || mc_usage_fail "--unit names the dated unit"
-    case $unit in *'	'*) mc_usage_fail "--unit takes no tab" ;; esac
+    mc_valid_handle "$unit" || mc_usage_fail "--unit takes letters, digits and . _ = @ : - only, at most 128"
     case $note in *'	'*) mc_usage_fail "--note takes no tab" ;; esac
-    valid_date "$due" || mc_usage_fail "--due takes YYYY-MM-DD"
+    valid_date "$due" || mc_usage_fail "--due takes a calendar day, YYYY-MM-DD"
     check_store
     mkdir -p "${store%/*}" || mc_fail "cannot create ${store%/*}"
     trap mc_kb_unlock EXIT
     mc_kb_lock "$program" deadline-watch/dates.tsv
+    kept=""
+    if [ -e "$store" ]; then
+      kept=$(U=$unit awk -F '\t' 'NR > 1 && $1 != ENVIRON["U"]' "$store") || mc_fail "the dates store cannot be read: $store"
+    fi
     {
       printf '# format: 1\n'
-      [ ! -e "$store" ] || U=$unit awk -F '\t' 'NR > 1 && $1 != ENVIRON["U"]' "$store"
+      [ -z "$kept" ] || printf '%s\n' "$kept"
       printf '%s\t%s\t%s\n' "$unit" "$due" "$note"
     } | mc_write "$store" || mc_fail "cannot write $store"
     printf 'dated\t%s\t%s\n' "$unit" "$due"
     ;;
   list) listing ;;
   due)
-    h=$(horizon_days)
-    listing | H=$h awk -F '\t' '$4 + 0 <= ENVIRON["H"] + 0'
+    h=$(horizon_days) || exit 1
+    dl=$(listing) || exit 1
+    [ -z "$dl" ] || printf '%s\n' "$dl" | H=$h awk -F '\t' '$4 + 0 <= ENVIRON["H"] + 0'
     ;;
   rank)
     [ "${#units[@]}" -gt 0 ] || usage
-    h=$(horizon_days)
+    h=$(horizon_days) || exit 1
     dl=$(listing) || exit 1
     for u in "${units[@]}"; do printf '%s\n' "$u"; done | H=$h DL=$dl awk -F '\t' '
       BEGIN { n = split(ENVIRON["DL"], l, "\n"); for (i = 1; i <= n; i++) { split(l[i], f, "\t"); if (f[2] != "") { D[f[2]] = f[3]; L[f[2]] = f[4] } } }
@@ -243,16 +271,22 @@ case $verb in
       }' | sort -t '	' -k1,1n -k2,2 -s | awk -F '\t' '{ print "rank\t" NR "\t" $3 "\t" $4 "\t" $5 }'
     ;;
   watch)
-    h=$(horizon_days)
+    h=$(horizon_days) || exit 1
+    dl=$(listing) || exit 1
     runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime directory"
     seen="$runtime/deadlines-announced"
-    [ -f "$seen" ] || : >"$seen"
     day=$(today_days)
-    new=$(listing | H=$h D=$day awk -F '\t' '$4 + 0 <= ENVIRON["H"] + 0 { print ENVIRON["D"] "\t" $2 "\t" $3 "\t" $4 }' \
-      | awk 'FILENAME == ARGV[1] { s[$0] = 1; next } !($0 in s)' "$seen" -)
-    [ -n "$new" ] || exit 0
-    printf '%s\n' "$new" | awk -F '\t' '{ print "event\tdeadline-near\t" $2 "\tdue " $3 " (" $4 " days)" }'
-    { cat "$seen" && printf '%s\n' "$new"; } | tail -n 500 | mc_write "$seen" || mc_fail "cannot record the announced dates"
+    rc=0
+    while IFS='	' read -r w_tag w_unit w_date w_left w_src; do
+      [ "$w_tag" = deadline ] && [ "$w_left" -le "$h" ] 2>/dev/null || continue
+      w_subject=$w_unit
+      mc_valid_handle "$w_subject" || w_subject=$(mc_subject deadline "$w_unit")
+      mc_announce "$program" "$seen" "$day	$w_unit	$w_date" deadline-near "$w_subject" \
+        "$w_unit due $w_date ($w_left days, $w_src)" || rc=1
+    done <<EOF
+$dl
+EOF
+    exit "$rc"
     ;;
   *) usage ;;
 esac

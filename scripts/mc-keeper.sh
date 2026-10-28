@@ -42,34 +42,40 @@ Usage:
       record the session's pull request; a later track replaces it
   mc-keeper.sh sweep --program <p>
       for each tracked session whose pull request is MERGED or CLOSED (one
-      gh read each): retire it (scripts/mission-control-launch.sh retire),
-      then reclaim its worktree (scripts/mc-reclaim.sh reclaim), and drop
-      its line once both are done; one line per act:
+      gh read each, bounded): retire it (scripts/mission-control-launch.sh
+      retire), then reclaim its worktree (scripts/mc-reclaim.sh reclaim),
+      and drop its exact line once both are done; a line a later track
+      replaced meanwhile is left alone; one line per act:
         landed<TAB><session><TAB><state>
         retired<TAB><session>
         reclaimed<TAB><session><TAB><worktree>
         held<TAB><session><TAB><what stayed>
         open<TAB><session>
         unknown<TAB><session><TAB><why>      the read failed; kept
-  mc-keeper.sh next --program <p> --spec <dir>
+  mc-keeper.sh next --program <p> --spec <dir> [--now <epoch>]
       the units of the spec bundle at <dir> (scripts/orchestrate-state.sh,
       run from the directory's repository) that can start now:
         dispatch<TAB><spec>:task-<id>        ready and held by no session
         waiting<TAB><spec>:task-<id><TAB>in-progress
         held<TAB><spec>:task-<id><TAB><why>  ready, but a launched session
                                              holds its scope, or the budget
-                                             holds dispatch
+                                             does not admit a session
+                                             (scripts/mc-budget.sh admit)
       a unit in progress never holds back a ready one; a session holds a
       unit when the launcher lists the scope <spec>:task-<id>
-  mc-keeper.sh watch [--program <p>]
+  mc-keeper.sh watch [--program <p>] [--now <epoch>]
       the duty's watcher (also what a run with no arguments does under the
       runner): the stall scan (scripts/mc-stall.sh scan, which emits its own
-      events), then sweep, each landing an event
-        event<TAB>session-landed<TAB><session><TAB><state>, retired|held
-      the program from PLANWRIGHT_MC_PROGRAM when --program is absent
+      events), then sweep, each landing one session-landed event in the
+      program's event store, subject the session, text
+      `<state>, retired|held[: <what stayed>]`, printing
+        announced<TAB>session-landed<TAB><session>
+      once per session, state and outcome, so a landing held run after run
+      wakes the session once; the program from PLANWRIGHT_MC_PROGRAM when
+      --program is absent
 
-Exit codes: 0 done; 1 a store, a read or a retire or reclaim that failed;
-2 usage; 3 the program is not configured.
+Exit codes: 0 done; 1 a store, a read, a retire or reclaim that failed, or
+an event the store refused; 2 usage; 3 the program is not configured.
 
 Portable bash 3.2 / BSD tooling.
 HELP
@@ -97,9 +103,10 @@ slug=""
 pr=""
 worktree="-"
 spec=""
+now=""
 while [ $# -gt 0 ]; do
   case $1 in
-    --program | --session | --repo | --pr | --worktree | --spec)
+    --program | --session | --repo | --pr | --worktree | --spec | --now)
       [ $# -ge 2 ] || usage
       mc_valid_text "$2" || mc_usage_fail "$1 takes text with no control byte"
       case $1 in
@@ -109,6 +116,10 @@ while [ $# -gt 0 ]; do
         --pr) pr=$2 ;;
         --worktree) worktree=$2 ;;
         --spec) spec=$2 ;;
+        --now)
+          mc_valid_uint "$2" || mc_usage_fail "--now takes an epoch"
+          now=$2
+          ;;
       esac
       shift 2
       ;;
@@ -120,73 +131,109 @@ done
 mc_require_program "$program"
 runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime directory"
 ledger="$runtime/keeper.tsv"
+seen="$runtime/keeper-announced"
 
 launcher() { /bin/bash "$script_dir/mission-control-launch.sh" "$@"; }
 
-# sweep [events]: the sweep; with `events`, an event line per landing.
+# A forge read that hangs must not stall the stall scan sharing this run.
+GH_BOUND=60
+gh_bounded() { /bin/sh "$script_dir/bounded-run.sh" "$GH_BOUND" gh "$@"; }
+
+# row_live <row>: the exact ledger row is still there (a later track may
+# have re-pointed the session).
+row_live() {
+  [ -f "$ledger" ] || return 1
+  R=$1 awk 'BEGIN { r = ENVIRON["R"] } $0 == r { f = 1 } END { exit !f }' "$ledger"
+}
+
+# drop_row <row>: remove that exact row, under the fleet lock.
+drop_row() {
+  mc_lock || mc_fail "cannot take the fleet lock"
+  dr_kept=$(R=$1 awk 'BEGIN { r = ENVIRON["R"] } $0 != r' "$ledger") || {
+    mc_unlock
+    mc_fail "cannot read $ledger"
+  }
+  { [ -z "$dr_kept" ] || printf '%s\n' "$dr_kept"; } | mc_write "$ledger" || {
+    mc_unlock
+    mc_fail "cannot rewrite $ledger"
+  }
+  mc_unlock
+}
+
+# say <tag> <session> [<text>]: a sweep line, or under the runner the
+# session's landing as an event, once per session, state and outcome.
+say() {
+  if [ "$events" = 0 ]; then
+    printf '%s\t%s%s\n' "$1" "$2" "${3:+	$3}"
+    return 0
+  fi
+  case $1 in
+    retired | held) ;;
+    *) return 0 ;;
+  esac
+  mc_announce "$program" "$seen" "$2	$sw_state	$1	${3:-}" session-landed "$2" \
+    "$sw_state, $1${3:+: $3}"
+}
+
 sweep() {
   [ -f "$ledger" ] || return 0
   sw_rc=0
   sw_rows=$(cat "$ledger") || mc_fail "cannot read $ledger"
-  while IFS='	' read -r sw_s sw_r sw_p sw_w; do
-    [ -n "$sw_s" ] || continue
-    sw_state=$(gh pr view "$sw_p" --repo "$sw_r" --json state --jq .state 2>/dev/null) || {
-      printf 'unknown\t%s\tthe pull request read failed\n' "$sw_s"
+  while IFS= read -r sw_row; do
+    [ -n "$sw_row" ] || continue
+    IFS='	' read -r sw_s sw_r sw_p sw_w <<EOF
+$sw_row
+EOF
+    sw_state=$(gh_bounded pr view "$sw_p" --repo "$sw_r" --json state --jq .state 2>/dev/null) || {
+      [ "$events" = 1 ] || printf 'unknown\t%s\tthe pull request read failed\n' "$sw_s"
       sw_rc=1
       continue
     }
     case $sw_state in
       MERGED | CLOSED) ;;
       OPEN)
-        [ -n "${1:-}" ] || printf 'open\t%s\n' "$sw_s"
+        say open "$sw_s"
         continue
         ;;
       *)
-        printf 'unknown\t%s\tstate %s\n' "$sw_s" "$(sanitize_printable "$sw_state")"
+        [ "$events" = 1 ] || printf 'unknown\t%s\tstate %s\n' "$sw_s" "$(sanitize_printable "$sw_state")"
         sw_rc=1
         continue
         ;;
     esac
-    [ -n "${1:-}" ] || printf 'landed\t%s\t%s\n' "$sw_s" "$sw_state"
+    row_live "$sw_row" || continue
+    say landed "$sw_s" "$sw_state"
     sw_held=""
     sw_out=$(launcher retire "$sw_s" 2>&1)
     case $? in
-      0) [ -n "${1:-}" ] || printf 'retired\t%s\n' "$sw_s" ;;
+      0) ;;
       3)
-        # No row: already retired, or never launched through the launcher.
-        if ! launcher list 2>/dev/null | S=$sw_s awk -F '\t' '$1 == ENVIRON["S"] { f = 1 } END { exit !f }'; then
-          [ -n "${1:-}" ] || printf 'retired\t%s\n' "$sw_s"
+        # No row means already retired, or never launched through the
+        # launcher; a row still listed means a launch or retire in flight.
+        if sw_list=$(launcher list 2>/dev/null); then
+          if printf '%s\n' "$sw_list" | S=$sw_s awk -F '\t' '$1 == ENVIRON["S"] { f = 1 } END { exit !f }'; then
+            sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))"
+          fi
         else
-          sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))"
+          sw_held="session (the launcher's list cannot be read)"
         fi
         ;;
       *) sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))" ;;
     esac
-    if [ -z "$sw_held" ] && [ "$sw_w" != "-" ]; then
-      if [ -d "$sw_w" ]; then
-        if sw_out=$(/bin/bash "$script_dir/mc-reclaim.sh" reclaim --program "$program" "$sw_w" 2>&1); then
-          [ -n "${1:-}" ] || printf 'reclaimed\t%s\t%s\n' "$sw_s" "$sw_w"
-        else
-          sw_held="worktree ($(printf '%s' "$sw_out" | tail -n 1 | mc_clean))"
-        fi
+    if [ -z "$sw_held" ] && [ "$sw_w" != "-" ] && [ -d "$sw_w" ]; then
+      if sw_out=$(/bin/bash "$script_dir/mc-reclaim.sh" reclaim --program "$program" "$sw_w" 2>&1); then
+        [ "$events" = 1 ] || printf 'reclaimed\t%s\t%s\n' "$sw_s" "$sw_w"
+      else
+        sw_held="worktree ($(printf '%s' "$sw_out" | tail -n 1 | mc_clean))"
       fi
     fi
     if [ -n "$sw_held" ]; then
-      if [ -n "${1:-}" ]; then
-        printf 'event\tsession-landed\t%s\t%s, held: %s\n' "$sw_s" "$sw_state" "$sw_held"
-      else
-        printf 'held\t%s\t%s\n' "$sw_s" "$sw_held"
-      fi
+      say held "$sw_s" "$sw_held" || sw_rc=1
       sw_rc=1
       continue
     fi
-    [ -z "${1:-}" ] || printf 'event\tsession-landed\t%s\t%s, retired\n' "$sw_s" "$sw_state"
-    mc_lock || mc_fail "cannot take the fleet lock"
-    S=$sw_s awk -F '\t' '$1 != ENVIRON["S"]' "$ledger" | mc_write "$ledger" || {
-      mc_unlock
-      mc_fail "cannot rewrite $ledger"
-    }
-    mc_unlock
+    say retired "$sw_s" || sw_rc=1
+    drop_row "$sw_row"
   done <<EOF
 $sw_rows
 EOF
@@ -196,8 +243,7 @@ EOF
 case $verb in
   track)
     mc_valid_handle "$session" || mc_usage_fail "--session takes a launched session's name"
-    case $slug in */?* | ?*/*) ;; *) mc_usage_fail "--repo takes owner/name" ;; esac
-    case $slug in *[!A-Za-z0-9._/-]* | */*/* | .* | */.*) mc_usage_fail "--repo takes owner/name" ;; esac
+    mc_valid_slug "$slug" || mc_usage_fail "--repo takes owner/name"
     mc_valid_uint "$pr" && [ "$pr" -gt 0 ] || mc_usage_fail "--pr takes a pull request number"
     case $worktree in
       -) ;;
@@ -206,8 +252,12 @@ case $verb in
     esac
     mc_lock || mc_fail "cannot take the fleet lock"
     trap mc_unlock EXIT
+    kept=""
+    if [ -f "$ledger" ]; then
+      kept=$(S=$session awk -F '\t' '$1 != ENVIRON["S"]' "$ledger") || mc_fail "cannot read $ledger"
+    fi
     {
-      [ ! -f "$ledger" ] || S=$session awk -F '\t' '$1 != ENVIRON["S"]' "$ledger"
+      [ -z "$kept" ] || printf '%s\n' "$kept"
       printf '%s\t%s\t%s\t%s\n' "$session" "$slug" "$pr" "$worktree"
     } | mc_write "$ledger" || mc_fail "cannot write $ledger"
     printf 'tracked\t%s\t%s#%s\n' "$session" "$slug" "$pr"
@@ -215,11 +265,13 @@ case $verb in
   sweep | watch)
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
     rc=0
+    events=0
     if [ "$verb" = watch ]; then
-      /bin/bash "$script_dir/mc-stall.sh" scan --program "$program" >/dev/null || rc=1
+      events=1
+      /bin/bash "$script_dir/mc-stall.sh" scan --program "$program" ${now:+--now "$now"} >/dev/null || rc=1
     fi
     trap mc_unlock EXIT
-    if [ "$verb" = watch ]; then sweep events || rc=1; else sweep || rc=1; fi
+    sweep || rc=1
     exit "$rc"
     ;;
   next)
@@ -231,9 +283,18 @@ case $verb in
     name=${abs##*/}
     mc_valid_kebab "$name" || mc_fail "the spec bundle's name is outside the identifier grammar"
     state=$(cd "$top" && /bin/bash "$script_dir/orchestrate-state.sh" "$rel" 2>/dev/null) || mc_fail "the unit states of $name cannot be derived"
-    held=$(launcher list 2>/dev/null | N=$name awk -F '\t' 'index($4, ENVIRON["N"] ":task-") == 1 { print $4 }') || held=""
-    rung=$(/bin/bash "$script_dir/mc-budget.sh" rung --program "$program" 2>/dev/null) || rung=unknown
-    printf '%s\n' "$state" | N=$name H=$held R=$rung awk -F '\t' '
+    sessions=$(launcher list 2>/dev/null) || mc_fail "the launcher's sessions cannot be listed"
+    held=$(printf '%s\n' "$sessions" | N=$name awk -F '\t' 'index($4, ENVIRON["N"] ":task-") == 1 { print $4 }')
+    admit=$(/bin/bash "$script_dir/mc-budget.sh" admit --program "$program" session ${now:+--now "$now"} 2>/dev/null)
+    case $? in
+      0) hold="" ;;
+      1)
+        hold=$(printf '%s\n' "$admit" | awk -F '\t' '$1 == "queued" { print $2; exit }')
+        [ -n "$hold" ] || hold="refused"
+        ;;
+      *) hold="the budget cannot be read" ;;
+    esac
+    printf '%s\n' "$state" | N=$name H=$held Q=$hold awk -F '\t' '
       BEGIN { n = split(ENVIRON["H"], h, "\n"); for (i = 1; i <= n; i++) if (h[i] != "") H[h[i]] = 1 }
       $1 != "task" { next }
       {
@@ -241,7 +302,7 @@ case $verb in
         if ($3 == "in-progress") print "waiting\t" u "\tin-progress"
         else if ($3 != "ready") next
         else if (u in H) print "held\t" u "\ta launched session holds it"
-        else if (ENVIRON["R"] == "hold-dispatch" || ENVIRON["R"] == "handover" || ENVIRON["R"] == "unknown") print "held\t" u "\tthe budget holds dispatch (" ENVIRON["R"] ")"
+        else if (ENVIRON["Q"] != "") print "held\t" u "\tthe budget holds dispatch (" ENVIRON["Q"] ")"
         else print "dispatch\t" u
       }'
     ;;

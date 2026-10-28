@@ -60,7 +60,10 @@ same scope. Sets take the union of every matching line.
 THE FLOORS. No condition places a flip or a merge below the human-gates
 floors: a merge key or value that would authorize or enable a merge (any
 key other than the four above, or a value such as auto) is refused at
-load, and so is `flip request` while ready_flip_policy is not unit-owner.
+load, and so is `flip request` while ready_flip_policy is not unit-owner
+(read through scripts/resolve-policy-knob.sh from the program's first
+repository). Since no condition can authorize a merge, every merge_policy
+bounds them.
 A load with any refused line refuses the whole file; nothing is evaluated
 from it.
 
@@ -101,7 +104,7 @@ case $verb in
 esac
 program=""
 file=""
-repo="-"
+repo=""
 labels=""
 paths=""
 while [ $# -gt 0 ]; do
@@ -124,12 +127,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 if [ "$verb" = check ]; then
-  [ "$repo" = "-" ] && [ -z "$labels$paths" ] || usage
+  [ -z "$repo$labels$paths" ] || usage
 fi
 if [ -n "$program" ]; then
   [ -z "$file" ] || usage
   mc_require_program "$program"
-  home=$(/bin/bash "$script_dir/mc-program.sh" get "$program" home) || mc_fail "the home of program $program does not resolve"
+  home=$(mc_program_home "$program") || exit 1
   file="$home/gates.tsv"
   [ -e "$file" ] || file=""
 else
@@ -137,7 +140,14 @@ else
   [ -e "$file" ] || mc_fail "no gate-condition file at $(sanitize_printable "$file")"
 fi
 
-policy=$(/bin/sh "$script_dir/config-get.sh" ready_flip_policy 2>/dev/null) || mc_fail "ready_flip_policy cannot be read"
+# The policy is read the way the flip helpers read it, from the program's
+# first repository when a program is named, so its repo-tracked layer counts.
+policy_dir=.
+if [ -n "$program" ]; then
+  policy_dir=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories | head -n 1)
+  [ -n "$policy_dir" ] && [ -d "$policy_dir" ] || mc_fail "the program's first repository is not a directory here"
+fi
+policy=$(cd "$policy_dir" && /bin/sh "$script_dir/resolve-policy-knob.sh" ready_flip_policy 2>/dev/null) || mc_fail "ready_flip_policy cannot be read"
 [ -n "$policy" ] || mc_fail "ready_flip_policy cannot be read"
 
 # The loader: every line checked, then the resolution for the pull request
@@ -145,7 +155,11 @@ policy=$(/bin/sh "$script_dir/config-get.sh" ready_flip_policy 2>/dev/null) || m
 # stderr and fail the load.
 if [ -n "$file" ]; then
   [ -r "$file" ] || mc_fail "the gate-condition file is unreadable: $(sanitize_printable "$file")"
-  src=$file
+  # A relative operand of the form name=value would be an awk assignment.
+  case $file in
+    /*) src=$file ;;
+    *) src=./$file ;;
+  esac
 else
   src=/dev/null
 fi
@@ -206,7 +220,7 @@ NR == 1 {
     if (v == "request" && ENVIRON["POLICY"] != "unit-owner") { refuse("ready flip request would place a flip below ready_flip_policy (" ENVIRON["POLICY"] ")"); next }
   } else { refuse("unknown ready key \"" k "\" (steps, evidence, body, flip)"); next }
   if (ENVIRON["VERB"] != "resolve") next
-  hit = (s == "program") || (s == "repo" && m == ENVIRON["REPO"]) || (s == "label" && inlist(m, ENVIRON["LABELS"])) || (s == "path" && anypath(m))
+  hit = (s == "program") || (s == "repo" && ENVIRON["REPO"] != "" && m == ENVIRON["REPO"]) || (s == "label" && inlist(m, ENVIRON["LABELS"])) || (s == "path" && anypath(m))
   if (!hit) next
   if (k in setk) {
     if (!((g, k, v) in seen)) { seen[g, k, v] = 1; order[++n] = g "\t" k "\t" v }

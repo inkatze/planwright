@@ -96,8 +96,8 @@ walk() {
       if (v in idx) dupid[n] = 1; else idx[v] = n
       next
     }
-    # A flow list left open on its field line continues on the lines
-    # indented past the field until one closes it (config/duties.yaml).
+    # A flow list left open on its field line continues on lines indented
+    # five or more spaces until one closes it (config/duties.yaml).
     /^     +[^ ]/ && n > 0 && cont != "" {
       v = trim($0); val[n, cont] = val[n, cont] " " v
       if (v ~ /\]$/) cont = ""

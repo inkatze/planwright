@@ -54,8 +54,12 @@ cat >"$repo/specs/billing/tasks.md" <<'EOF'
 ### Task 2 — Refunds
 
 - **Deliverables:** y
+
+### Notes on task 2
+
+- **Due:** 2026-11-05
 EOF
-printf '%s\n' '# Billing — Requirements' '' '**Due:** 2026-12-01' >"$repo/specs/billing/requirements.md"
+printf '%s\n' '# Billing — Requirements' '' '- **Due:** 2026-12-01' >"$repo/specs/billing/requirements.md"
 printf '%s\n' '### Task 1 — Ignored' '- **Due:** 2026-10-01' >"$repo/specs/_observations/tasks.md"
 # 2026-11-01T12:00:00Z
 NOW=1793534400
@@ -68,6 +72,7 @@ expect_rc "list" 0
 expect_out "a task block's due line dates its unit" "deadline${tab}billing:task-1${tab}2026-11-03${tab}2${tab}record:specs"
 expect_out "a requirements due line dates the bundle" "deadline${tab}billing${tab}2026-12-01${tab}30${tab}record:specs"
 expect_no_out "a reserved directory is not a bundle" "2026-10-01"
+expect_no_out "a due line under a later H3 is not the task's" "2026-11-05"
 
 mc_run mc-deadlines.sh add --program alpha --unit "billing:task-2" --due 2026-10-30 --note "the operator said so"
 expect_rc "an operator-stated date is recorded" 0
@@ -79,7 +84,13 @@ expect_no_out "the store's date for that unit is dropped" "billing:task-1${tab}2
 first=$(printf '%s\n' "$OUT" | head -n 1 | cut -f2)
 if [ "$first" = billing:task-2 ]; then ok "earliest first"; else fail "list is not earliest first: $first"; fi
 mc_run mc-deadlines.sh add --program alpha --unit x --due 2026-13-01
-expect_rc "an invalid date is refused" 2
+expect_rc "an invalid month is refused" 2
+mc_run mc-deadlines.sh add --program alpha --unit x --due 2026-02-29
+expect_rc "a day past its month's end is refused" 2
+mc_run mc-deadlines.sh add --program alpha --unit x --due 2028-02-29
+expect_rc "a leap day is a day" 0
+mc_run mc-deadlines.sh add --program alpha --unit "Q4 launch" --due 2026-11-30
+expect_rc "a unit outside the subject grammar is refused" 2
 if [ "$(head -n 1 "$mchome/kb/deadline-watch/dates.tsv")" = "# format: 1" ]; then ok "the store carries its format"; else fail "no format line"; fi
 
 # ---------------------------------------------------------------------------
@@ -103,16 +114,31 @@ printf 'mission_control_deadline_horizon: 40d\n' >>"$tracked"
 mc_run mc-deadlines.sh rank --program alpha --now "$NOW" billing
 expect_out "the horizon is a knob" "rank${tab}1${tab}billing${tab}urgent${tab}2026-12-01"
 program '{deadlines: specs:record}'
+printf 'mission_control_deadline_horizon: soon\n' >>"$tracked"
+for v in due rank watch; do
+  mc_run mc-deadlines.sh "$v" --program alpha --now "$NOW" billing
+  [ "$v" = rank ] || mc_run mc-deadlines.sh "$v" --program alpha --now "$NOW"
+  expect_rc "an invalid repo-tracked horizon fails $v" 1
+done
+program '{deadlines: specs:record}'
 
 # ---------------------------------------------------------------------------
 # watch: one event per urgent unit per day.
 # ---------------------------------------------------------------------------
+OUT=$(mc_env env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-deadlines.sh" 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "the watcher runs with no arguments under the runner" 0
 mc_run mc-deadlines.sh watch --program alpha --now "$NOW"
-expect_out "an urgent unit raises an event" "event${tab}deadline-near${tab}billing:task-1${tab}due 2026-11-03 (2 days)"
-mc_run mc-deadlines.sh watch --program alpha --now "$NOW"
+expect_rc "watch" 0
+expect_out "an urgent unit is announced" "announced${tab}deadline-near${tab}billing:task-1"
+mc_run mc-event.sh list --program alpha
+expect_out "the event lands in the store" "deadline-near${tab}billing:task-1${tab}billing:task-1 due 2026-11-03 (2 days, operator)"
+mc_run mc-deadlines.sh watch --program alpha --now $((NOW + 3600))
+expect_rc "a second pass" 0
 expect_eq "not twice the same day" ""
 mc_run mc-deadlines.sh watch --program alpha --now $((NOW + 86400))
-expect_out "again the next day" "billing:task-1${tab}due 2026-11-03 (1 days)"
+expect_out "again the next day" "announced${tab}deadline-near${tab}billing:task-1"
 
 # ---------------------------------------------------------------------------
 # The other modes: a snapshot store's due lines; cited reads nothing.
@@ -134,6 +160,10 @@ printf 'garbage\n' >"$mchome/kb/deadline-watch/dates.tsv"
 mc_run mc-deadlines.sh list --program alpha --now "$NOW"
 expect_rc "a store with an unknown format is refused" 1
 expect_err "named" "unknown format"
+mc_run mc-deadlines.sh due --program alpha --now "$NOW"
+expect_rc "and due fails rather than report nothing due" 1
+mc_run mc-deadlines.sh watch --program alpha --now "$NOW"
+expect_rc "and so does the watcher" 1
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-deadlines: $failures failure(s)" >&2

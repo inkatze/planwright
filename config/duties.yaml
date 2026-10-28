@@ -30,15 +30,17 @@
 #   never-propose  true or false
 #
 # The shipped set is the default duties a program enables
-# (mission_control_default_duties). Each ships `off` with no watchers until
-# the work that builds it lands; an `off` duty arms nothing and owns nothing,
-# enabled or not.
+# (mission_control_default_duties). A duty ships `off`, with no watchers,
+# until the work that builds it lands, and `live` from then on; an `off` duty
+# arms nothing and owns nothing, enabled or not. A trigger may name an event
+# a later piece of work produces (the operator queue's, the skill's own);
+# until then it never fires.
 #
 # The reader is a constrained awk parser, not full YAML: list items at
 # two-space and fields at four-space indentation, values unquoted or
 # double-quoted single-line scalars (no single quotes, no inline "# ..."
-# comments, no block scalars). A flow list may wrap onto lines indented past
-# its field; they are joined with a space until the `]`.
+# comments, no block scalars). A flow list may wrap onto lines indented five
+# or more spaces; they are joined with a space until the `]`.
 
 duties:
   - id: session-keeper

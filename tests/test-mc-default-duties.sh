@@ -58,6 +58,9 @@ for d in session-keeper inbox readiness-check conflict-radar deadline-watch prep
   expect_out "Task 10: $d resolves from the catalog and is armed" "$d${tab}"
 done
 
+mc_run mc-duties.sh get session-keeper triggers
+expect_out "the shipped wrapped trigger list joins whole" "stall-dead, stall-open-selector, stall-unsubmitted-prompt, stall-turn-ended-background, stall-idle-question, stall-busy-unchanged, stall-unknown, session-landed]"
+
 mc_run mc-duties.sh watchers --program alpha
 expect_rc "the watchers resolve" 0
 expect_out "session-keeper's watcher" "session-keeper${tab}scripts/mc-keeper.sh${tab}2m${tab}low"

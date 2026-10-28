@@ -47,6 +47,9 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       judgment ok, error or missing
   guard<TAB><name><TAB>pass|fail<TAB><detail>
                                       a ready-flip guard's verdict
+  truncated<TAB><what>                a forge list that came back at its
+                                      cap of 100 (files, checks, review
+                                      threads), so it may have been cut
   bodyline<TAB><text>                 one per line of the pull request body
   report<TAB><text>                   a session's own claim: read, never
                                       counted
@@ -57,7 +60,8 @@ THE WALK refuses, each failure one line:
     passes;
   - no individual check, or any check outside SUCCESS, NEUTRAL and
     SKIPPED, whatever the rollup says;
-  - an open thread, an unanswered finding, a failed guard;
+  - an open thread, an unanswered finding, a failed guard, a truncated
+    read;
   - any screenshot whose judgment is not ok, or recorded at another head;
   - each required step (ready steps) with no passed or applied record
     ending on the head;
@@ -76,7 +80,8 @@ Usage:
       write the evidence at the pull request's current head: one gh read
       for the head, labels, paths, check contexts and body, one GraphQL
       read for the first 100 review threads (a thread opened by a bot is a
-      finding, answered once resolved or replied to by a person), the step
+      finding, answered once resolved or replied to by a person other than
+      the pull request's author), the step
       records of --worktree (scripts/step-record.sh list), the recorded
       evidence for that head, and the ready-flip guard
       (scripts/ready-guard.sh, given the flip it would refuse) run from the
@@ -88,16 +93,23 @@ Usage:
                          --head <sha> --kind smoke|walk|screenshot
                          --ref <ref> --judgment ok|error|missing
       record evidence the session opened and judged, in the program home's
-      kb/readiness-check/evidence.tsv
+      kb/readiness-check/evidence.tsv ("# format: 1", then
+      <owner/name><TAB><pr><TAB><head><TAB><kind><TAB><ref><TAB><judgment>);
+      the latest record of a kind and ref at a head is the one collected
   mc-readiness.sh watch [--program <p>]
-      the duty's watcher: for each draft pull request in the code-state
-      snapshot whose checks are green and whose threads are resolved, one
-      readiness-due event per new head
-        event<TAB>readiness-due<TAB><owner/name>#<n><TAB>head <sha12>
-      the program from PLANWRIGHT_MC_PROGRAM when --program is absent
+      the duty's watcher (also what a run with no arguments does under the
+      runner): for each draft pull request in the code-state snapshot whose
+      checks are green and whose threads are resolved, one readiness-due
+      event per new head, printing
+        announced<TAB>readiness-due<TAB><subject>
+      the program from PLANWRIGHT_MC_PROGRAM when --program is absent;
+      a program with no code-state snapshot, or none taken yet, raises
+      nothing. Each event is emitted to the program's event store, subject
+      <owner>:<name>:<n>, and a head counts as announced only once the
+      store holds its event.
 
-Exit codes: 0 ready, or done; 1 a failed read or store; 2 usage; 3 the
-program is not configured, or no code-state snapshot (watch); 4 not ready.
+Exit codes: 0 ready, or done; 1 a failed read, store or event; 2 usage; 3
+the program is not configured; 4 not ready.
 
 Portable bash 3.2 / BSD tooling; gh's built-in --jq does the JSON.
 HELP
@@ -154,31 +166,22 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-valid_slug() {
-  case $1 in
-    */*/* | /* | */ | .* | */.* | *[!A-Za-z0-9._/-]*) return 1 ;;
-    */*) ;;
-    *) return 1 ;;
-  esac
-  [ "${#1}" -le 200 ]
-}
-valid_sha() {
-  case $1 in
-    *[!0-9a-f]*) return 1 ;;
-  esac
-  [ "${#1}" -eq 40 ]
-}
 need_pr() {
-  valid_slug "$slug" || mc_usage_fail "--repo takes owner/name"
+  mc_valid_slug "$slug" || mc_usage_fail "--repo takes owner/name"
   mc_valid_uint "$pr" && [ "$pr" -gt 0 ] || mc_usage_fail "--pr takes a pull request number"
 }
 
-home_of() {
-  /bin/bash "$script_dir/mc-program.sh" get "$1" home || mc_fail "the home of program $1 does not resolve"
+# operand <path>: the path as an awk file operand, never read as an
+# assignment (awk takes a `name=value` operand for one).
+operand() {
+  case $1 in
+    /*) printf '%s\n' "$1" ;;
+    *) printf './%s\n' "$1" ;;
+  esac
 }
 
 evidence_store() { # evidence_store <program>: the store's path, its directory created
-  es_home=$(home_of "$1")
+  es_home=$(mc_program_home "$1") || exit 1
   es_dir="$es_home/kb/readiness-check"
   mkdir -p "$es_dir" || mc_fail "cannot create $es_dir"
   printf '%s\n' "$es_dir/evidence.tsv"
@@ -199,6 +202,7 @@ $1 == "check" { nc++; if (!pass_check($3)) fail("check", $2 " is " $3) }
 $1 == "thread" && $3 != "resolved" { fail("thread", $2 " is open") }
 $1 == "finding" && $4 != "answered" { fail("finding", $2 " " $3 " is unanswered") }
 $1 == "guard" && $3 != "pass" { fail("guard", $2 ": " $4) }
+$1 == "truncated" { fail("truncated", "the " $2 " read hit its cap; what lies past it is unread") }
 $1 == "step" { steps[++ns] = $2 "\t" $3 "\t" $4 }
 $1 == "evidence" { ev[++ne] = $2 "\t" $3 "\t" $4 "\t" $5 }
 $1 == "bodyline" { body = body substr($0, 10) "\n" }
@@ -228,14 +232,15 @@ END {
     exit 4
   }
   print "ready\t" head
-}' "$2" "$1"
+}' "$(operand "$2")" "$(operand "$1")"
 }
 
 # conditions_for <program> <evidence> <out>: the gate conditions for the
 # evidence's repo, labels and paths.
 conditions_for() {
   cf_args=()
-  cf_repo=$(awk -F '\t' '$1 == "repo" { print $2; exit }' "$2")
+  cf_ev=$(operand "$2")
+  cf_repo=$(awk -F '\t' '$1 == "repo" { print $2; exit }' "$cf_ev")
   [ -z "$cf_repo" ] || cf_args+=(--repo "$cf_repo")
   while IFS='	' read -r cf_k cf_v; do
     case $cf_k in
@@ -243,10 +248,14 @@ conditions_for() {
       path) cf_args+=(--path "$cf_v") ;;
     esac
   done <<EOF
-$(awk -F '\t' '($1 == "label" || $1 == "path") && NF >= 2 { print $1 "\t" $2 }' "$2")
+$(awk -F '\t' '($1 == "label" || $1 == "path") && NF >= 2 { print $1 "\t" $2 }' "$cf_ev")
 EOF
   /bin/bash "$script_dir/mc-gates.sh" resolve --program "$1" ${cf_args[@]+"${cf_args[@]}"} >"$3"
 }
+
+# The forge reads cap a list at 100; a list that comes back full may have
+# been cut, and the walk refuses on a `truncated` line rather than pass.
+CAP=100
 
 # collect <program> <slug> <pr> <worktree> <out>
 collect() {
@@ -259,6 +268,8 @@ collect() {
   gh pr view "$3" --repo "$2" --json headRefOid,labels,files,body,statusCheckRollup --jq '
     def clean: tostring | gsub("[\t\r\n]"; " ");
     "head\t" + .headRefOid,
+    "count\tfiles\t" + ((.files // []) | length | tostring),
+    "count\tchecks\t" + ((.statusCheckRollup // []) | length | tostring),
     (.labels[]? | "label\t" + (.name | clean)),
     (.files[]? | "path\t" + (.path | clean)),
     (.statusCheckRollup[]? | "check\t" + ((.name // .context // "-") | clean) + "\t"
@@ -266,20 +277,27 @@ collect() {
     ((.body // "") | split("\n")[] | "bodyline\t" + (gsub("[\t\r]"; " ")))' >"$cl_tmp/pr" 2>"$cl_tmp/err" \
     || mc_fail "the pull request read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
   cl_head=$(awk -F '\t' '$1 == "head" { print $2; exit }' "$cl_tmp/pr")
-  valid_sha "$cl_head" || mc_fail "the pull request read returned no head"
+  mc_valid_sha "$cl_head" || mc_fail "the pull request read returned no head"
+  # A finding is answered once its thread is resolved, or a person other
+  # than the pull request's author replied: the author's sessions post as
+  # the author, and their own word is never evidence.
   # shellcheck disable=SC2016 # a GraphQL query and a jq program
-  gh api graphql -F owner="$cl_owner" -F name="$cl_name" -F number="$3" -f query='
+  gh api graphql -f owner="$cl_owner" -f name="$cl_name" -F number="$3" -f query='
     query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-        reviewThreads(first: 100) { nodes { id isResolved
+        author { login }
+        reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { id isResolved
           comments(first: 50) { nodes { author { __typename login } } } } } } } }' --jq '
     def bot: ((.author.__typename // "") == "Bot") or ((.author.login // "") | endswith("[bot]"));
-    .data.repository.pullRequest.reviewThreads.nodes[] | . as $t
-    | "thread\t" + $t.id + "\t" + (if $t.isResolved then "resolved" else "open" end),
-      (if ($t.comments.nodes[0] // {} | bot) then
-        "finding\t" + ($t.comments.nodes[0].author.login // "-") + "\t" + $t.id + "\t"
-        + (if $t.isResolved or ([$t.comments.nodes[1:][] | select(bot | not)] | length > 0) then "answered" else "unanswered" end)
-       else empty end)' >"$cl_tmp/threads" 2>"$cl_tmp/err" \
+    .data.repository.pullRequest as $p | ($p.author.login // "") as $me
+    | (if $p.reviewThreads.pageInfo.hasNextPage then "truncated\treview threads" else empty end),
+      ($p.reviewThreads.nodes[] | . as $t
+      | "thread\t" + $t.id + "\t" + (if $t.isResolved then "resolved" else "open" end),
+        (if ($t.comments.nodes[0] // {} | bot) then
+          "finding\t" + ($t.comments.nodes[0].author.login // "-") + "\t" + $t.id + "\t"
+          + (if $t.isResolved or ([$t.comments.nodes[1:][] | select((bot | not) and ((.author.login // "") != $me))] | length > 0)
+             then "answered" else "unanswered" end)
+         else empty end))' >"$cl_tmp/threads" 2>"$cl_tmp/err" \
     || mc_fail "the review thread read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
   : >"$cl_tmp/steps"
   if [ -n "$4" ]; then
@@ -289,15 +307,25 @@ collect() {
       $1 == "record" { t = s = o = h = "" }
       $1 == "type" { t = $2 } $1 == "step" { s = $2 } $1 == "outcome" { o = $2 } $1 == "end-head" { h = $2 }
       /^$/ { if (t == "step" && s != "") print "step\t" s "\t" o "\t" h; t = "" }
-      END { if (t == "step" && s != "") print "step\t" s "\t" o "\t" h }' "$cl_tmp/records" >"$cl_tmp/steps"
+      END { if (t == "step" && s != "") print "step\t" s "\t" o "\t" h }' "$cl_tmp/records" >"$cl_tmp/steps" \
+      || mc_fail "the step records cannot be parsed"
   fi
-  cl_store=$(evidence_store "$1")
+  cl_store=$(evidence_store "$1") || exit 1
   : >"$cl_tmp/evidence"
   if [ -f "$cl_store" ]; then
-    awk -F '\t' 'NR == 1 { if ($0 != "# format: 1") exit 1; next }' "$cl_store" || mc_fail "the evidence store has an unknown format: $cl_store"
-    R=$2 P=$3 H=$cl_head awk -F '\t' 'NR > 1 && $1 == ENVIRON["R"] && $2 == ENVIRON["P"] && $3 == ENVIRON["H"] { print "evidence\t" $4 "\t" $5 "\t" $3 "\t" $6 }' "$cl_store" >"$cl_tmp/evidence"
+    mc_store_ok "$cl_store" || mc_fail "the evidence store has a missing or unknown format: $cl_store"
+    # The latest record of each piece of evidence at the head stands, so a
+    # judgment corrected at the same head replaces the earlier one.
+    R=$2 P=$3 H=$cl_head awk -F '\t' '
+      NR > 1 && $1 == ENVIRON["R"] && $2 == ENVIRON["P"] && $3 == ENVIRON["H"] {
+        k = $4 "\t" $5; if (!(k in j)) o[++n] = k; j[k] = $6
+      }
+      END { for (i = 1; i <= n; i++) { split(o[i], f, "\t"); print "evidence\t" f[1] "\t" f[2] "\t" ENVIRON["H"] "\t" j[o[i]] } }' \
+      "$cl_store" >"$cl_tmp/evidence" || mc_fail "the evidence store cannot be read: $cl_store"
   fi
-  cl_first=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories | head -n 1)
+  cl_repos=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories) || mc_fail "the repositories of program $1 do not resolve"
+  cl_first=$(printf '%s\n' "$cl_repos" | head -n 1)
+  [ -n "$cl_first" ] && [ -d "$cl_first" ] || mc_fail "the program's first repository is not a directory here"
   printf '{"tool_name":"Bash","tool_input":{"command":"gh pr ready %s --repo %s"}}' "$3" "$2" >"$cl_tmp/payload"
   if cl_verdict=$(cd "$cl_first" && /bin/bash "$script_dir/ready-guard.sh" <"$cl_tmp/payload" 2>/dev/null); then
     case $cl_verdict in
@@ -312,7 +340,8 @@ collect() {
   fi
   {
     printf '# format: 1\nrepo\t%s\n' "$2"
-    cat "$cl_tmp/pr" "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/evidence"
+    awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } { print }' "$cl_tmp/pr"
+    cat "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/evidence"
     printf '%s\n' "$cl_guard"
   } | mc_clean_text | mc_write "$5" || mc_fail "cannot write $(sanitize_printable "$5")"
 }
@@ -362,20 +391,16 @@ case $verb in
   record)
     [ -n "$program" ] || usage
     need_pr
-    valid_sha "$head" || mc_usage_fail "--head takes a full 40-hex sha"
+    mc_valid_sha "$head" || mc_usage_fail "--head takes a full 40-hex sha"
     case $kind in smoke | walk | screenshot) ;; *) mc_usage_fail "--kind takes smoke, walk or screenshot" ;; esac
     case $judgment in ok | error | missing) ;; *) mc_usage_fail "--judgment takes ok, error or missing" ;; esac
     [ -n "$ref" ] || mc_usage_fail "--ref takes the evidence's path or link"
     case $ref in *'	'*) mc_usage_fail "--ref takes no tab" ;; esac
     mc_require_program "$program"
-    store=$(evidence_store "$program")
+    store=$(evidence_store "$program") || exit 1
     trap mc_kb_unlock EXIT
     mc_kb_lock "$program" readiness-check/evidence.tsv
-    if [ -e "$store" ]; then
-      awk 'NR == 1 { exit ($0 != "# format: 1") }' "$store" || mc_fail "the evidence store has an unknown format: $store"
-    else
-      printf '# format: 1\n' >"$store" || mc_fail "cannot create $store"
-    fi
+    mc_store_init "$store"
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$slug" "$pr" "$head" "$kind" "$ref" "$judgment" >>"$store" || mc_fail "cannot append to $store"
     printf 'recorded\t%s#%s\t%s\t%s\n' "$slug" "$pr" "$kind" "$judgment"
     ;;
@@ -383,27 +408,30 @@ case $verb in
     [ -n "$program" ] || program=${PLANWRIGHT_MC_PROGRAM:-}
     [ -n "$program" ] || usage
     mc_require_program "$program"
-    source=$(/bin/bash "$script_dir/mc-program.sh" get "$program" sources | awk -F '\t' '$1 == "code-state" && $3 == "snapshot" { print $2 }')
-    if [ -z "$source" ]; then
-      printf '%s\n' "$prog: program $program holds no code-state snapshot" >&2
-      exit 3
-    fi
+    sources=$(/bin/bash "$script_dir/mc-program.sh" get "$program" sources) || mc_fail "the source map of program $program does not resolve"
+    source=$(printf '%s\n' "$sources" | awk -F '\t' '$1 == "code-state" && $3 == "snapshot" { print $2 }')
+    # A program whose code state is not snapshotted has nothing to watch.
+    [ -n "$source" ] || exit 0
     snap=$(/bin/bash "$script_dir/mc-snapshot.sh" read --program "$program" "$source")
     case $? in
       0) ;;
-      3) exit 3 ;;
+      3) exit 0 ;;
       *) mc_fail "the $source snapshot cannot be read" ;;
     esac
     runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime directory"
     seen="$runtime/readiness-announced"
-    [ -f "$seen" ] || : >"$seen"
-    due=$(printf '%s\n' "$snap" | awk -F '\t' '$1 == "pr" && $5 == "true" && $8 == "0" && $9 == "SUCCESS" { print $2 "#" $3 "\t" $4 }' \
-      | awk -F '\t' 'FILENAME == ARGV[1] { s[$0] = 1; next } !($0 in s)' "$seen" -)
-    [ -n "$due" ] || exit 0
-    printf '%s\n' "$due" | while IFS='	' read -r w_pr w_head; do
-      printf 'event\treadiness-due\t%s\thead %s\n' "$w_pr" "$(printf '%s' "$w_head" | cut -c1-12)"
-    done
-    { cat "$seen" && printf '%s\n' "$due"; } | tail -n 500 | mc_write "$seen" || mc_fail "cannot record the announced heads"
+    due=$(printf '%s\n' "$snap" | awk -F '\t' '$1 == "pr" && $5 == "true" && $8 == "0" && $9 == "SUCCESS" { print $2 "\t" $3 "\t" $4 }')
+    rc=0
+    while IFS='	' read -r w_slug w_n w_head; do
+      [ -n "$w_slug" ] || continue
+      w_subject="${w_slug%%/*}:${w_slug#*/}:$w_n"
+      mc_valid_handle "$w_subject" || w_subject=$(mc_subject pr "$w_slug#$w_n")
+      mc_announce "$program" "$seen" "$w_slug#$w_n	$w_head" readiness-due "$w_subject" \
+        "$w_slug#$w_n head $(printf '%s' "$w_head" | cut -c1-12)" || rc=1
+    done <<EOF
+$due
+EOF
+    exit "$rc"
     ;;
   *) usage ;;
 esac

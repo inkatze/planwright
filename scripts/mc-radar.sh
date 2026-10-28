@@ -30,14 +30,16 @@ predicted across a program's branches, merge order from the whole
 dependency graph, and the stack retargets a base merge calls for.
 
 Usage:
-  mc-radar.sh overlap --repo <dir> --base <ref> <branch> <branch>...
+  mc-radar.sh overlap --checkout <dir> --base <ref> <branch> <branch>...
       each branch's change against its merge base with <ref>, compared
       pairwise in base-side lines (an insertion counts as the line it
       lands at), one line per overlap, pairs in argument order:
         same-file<TAB><a><TAB><b><TAB><path>
         same-line<TAB><a><TAB><b><TAB><path><TAB><first>-<last>
-      a path both branches touch gets a same-file line, and a same-line
-      line too when their changed line ranges meet
+      a path both branches touch gets a same-file line (a binary or
+      mode-only change included), and a same-line line too when their
+      changed line ranges meet; a branch sharing no history with <ref> is
+      skipped with a warning
   mc-radar.sh order --graph <file>
       the merge order across every repository in the graph:
         order<TAB><n><TAB><repo><TAB><branch>
@@ -49,11 +51,17 @@ Usage:
       unit's own base:
         retarget<TAB><repo><TAB><branch><TAB><old base><TAB><new base>
   mc-radar.sh watch [--program <p>]
-      the duty's watcher: in each of the program's repositories, every
-      origin branch but the default compared against the default (the
-      first 50 by name), one event per same-line overlap not seen before:
-        event<TAB>conflict-predicted<TAB><repo>:<a>+<b><TAB><path> lines <first>-<last>
-      the program from PLANWRIGHT_MC_PROGRAM when --program is absent
+      the duty's watcher (also what a run with no arguments does under the
+      runner): in each of the program's repositories, every origin branch
+      but the default compared against the default (the 50 most recently
+      committed), one conflict-predicted event per branch pair and path
+      with a same-line overlap not announced before, its text
+      `<repo>:<a>+<b> <path> lines <first>-<last>`, printing
+        announced<TAB>conflict-predicted<TAB><subject>
+      The event lands in the program's event store; a pair counts as
+      announced only once the store holds it. A repository with no origin
+      default branch is reported and fails the run. The program comes from
+      PLANWRIGHT_MC_PROGRAM when --program is absent.
 
 THE GRAPH file opens with "# format: 1"; blank lines and `#` lines are
 skipped; every other line is
@@ -61,15 +69,16 @@ skipped; every other line is
 <repo> a name the program uses for the repository, <dependencies> `-` or
 a comma list of <repo>:<branch> naming other units in any repository.
 
-Exit codes: 0 done; 1 a git read that failed, an invalid graph or an
-unknown merged unit; 2 usage; 3 the program is not configured (watch).
+Exit codes: 0 done; 1 a git read that failed or an unknown branch, an
+invalid graph, an unknown merged unit, or an event the store refused; 2
+usage; 3 the program is not configured (watch).
 
 Portable bash 3.2 / BSD tooling.
 HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-radar.sh overlap --repo <dir> --base <ref> <branch>... | order --graph <file> | retarget --graph <file> --merged <repo>:<branch> | watch [--program <p>]"
+  mc_usage_fail "usage: mc-radar.sh overlap --checkout <dir> --base <ref> <branch>... | order --graph <file> | retarget --graph <file> --merged <repo>:<branch> | watch [--program <p>]"
 }
 
 case ${1:-} in
@@ -92,12 +101,12 @@ merged=""
 branches=()
 while [ $# -gt 0 ]; do
   case $1 in
-    --program | --repo | --base | --graph | --merged)
+    --program | --checkout | --base | --graph | --merged)
       [ $# -ge 2 ] || usage
       mc_valid_text "$2" || mc_usage_fail "$1 takes text with no control byte"
       case $1 in
         --program) program=$2 ;;
-        --repo) repo=$2 ;;
+        --checkout) repo=$2 ;;
         --base) base=$2 ;;
         --graph) graph=$2 ;;
         --merged) merged=$2 ;;
@@ -120,56 +129,86 @@ valid_ref() {
 }
 
 # hunks <repo> <base> <branch>: <branch><TAB><path><TAB><first><TAB><last>
-# per changed base-side range.
+# per changed base-side range, and <branch><TAB><path><TAB>0<TAB>0 per path
+# the branch touches at all (a binary or mode-only change has no range).
+# Returns 3 when the branch shares no history with the base, 1 when a git
+# read fails.
 hunks() {
-  hk_mb=$(git -C "$1" merge-base "$2" "$3" 2>/dev/null) || {
-    printf '%s\n' "$prog: no merge base of $(sanitize_printable "$3") and $(sanitize_printable "$2")" >&2
-    return 1
-  }
-  git -C "$1" -c core.quotePath=false diff -U0 --no-color --no-ext-diff --no-renames --no-textconv "$hk_mb" "$3" -- 2>/dev/null \
-    | B=$3 awk '
-      /^--- / { p = substr($0, 5); if (p ~ /^a\//) p = substr(p, 3); next }
-      /^\+\+\+ / { q = substr($0, 5); if (q ~ /^b\//) q = substr(q, 3); if (p == "/dev/null") p = q; next }
-      /^@@ / {
-        split($2, o, ","); a = substr(o[1], 2) + 0; n = (2 in o) ? o[2] + 0 : 1
-        if (n == 0) { lo = a; hi = a } else { lo = a; hi = a + n - 1 }
-        if (lo < 1) lo = 1
-        if (hi < lo) hi = lo
-        print ENVIRON["B"] "\t" p "\t" lo "\t" hi
-      }'
+  git -C "$1" rev-parse --verify --quiet "$3^{commit}" >/dev/null 2>&1 || return 1
+  hk_mb=$(git -C "$1" merge-base "$2" "$3" 2>/dev/null) || return 3
+  hk_names=$(git -C "$1" diff --name-only --no-color --no-ext-diff --no-renames "$hk_mb" "$3" -- 2>/dev/null) || return 1
+  hk_diff=$(git -C "$1" diff -U0 --no-prefix --no-color --no-ext-diff --no-renames --no-textconv "$hk_mb" "$3" -- 2>/dev/null) || return 1
+  [ -z "$hk_names" ] || printf '%s\n' "$hk_names" | B=$3 awk '{ print ENVIRON["B"] "\t" $0 "\t0\t0" }'
+  # Paths come from a file's header only: in a -U0 diff a removed line
+  # reading `-- x` prints as `--- x`, and must not be taken for one.
+  printf '%s\n' "$hk_diff" | B=$3 awk '
+    /^diff --git / { hdr = 1; p = ""; next }
+    hdr && /^--- / { p = substr($0, 5); next }
+    hdr && /^\+\+\+ / { if (p == "/dev/null" || p == "") p = substr($0, 5); next }
+    /^@@ / && p != "" {
+      hdr = 0
+      split($2, o, ","); a = substr(o[1], 2) + 0; n = (2 in o) ? o[2] + 0 : 1
+      if (n == 0) { lo = a; hi = a } else { lo = a; hi = a + n - 1 }
+      if (lo < 1) lo = 1
+      if (hi < lo) hi = lo
+      print ENVIRON["B"] "\t" p "\t" lo "\t" hi
+    }'
 }
 
-# overlap <repo> <base> <branch>...
+# overlap <repo> <base> <branch>...: the overlap lines, pairs in argument
+# order. A branch with no merge base is left out with a warning, so one
+# unrelated branch (a gh-pages, say) does not blind the rest.
 overlap() {
   ov_repo=$1
   ov_base=$2
   shift 2
   ov_all=""
+  ov_order=""
   for ov_b in "$@"; do
-    ov_h=$(hunks "$ov_repo" "$ov_base" "$ov_b") || return 1
+    ov_h=$(hunks "$ov_repo" "$ov_base" "$ov_b")
+    case $? in
+      0) ;;
+      3)
+        printf '%s\n' "$prog: skipping $(sanitize_printable "$ov_b"): no merge base with $(sanitize_printable "$ov_base")" >&2
+        continue
+        ;;
+      *)
+        printf '%s\n' "$prog: $(sanitize_printable "$ov_b") cannot be read (no such commit, or a failed diff)" >&2
+        return 1
+        ;;
+    esac
+    ov_order="$ov_order$ov_b
+"
     [ -z "$ov_h" ] || ov_all="$ov_all$ov_h
 "
   done
-  printf '%s' "$ov_all" | awk -F '\t' '
-    { if (!($1 in rank)) { rank[$1] = ++nb; name[nb] = $1 }
-      n++; B[n] = $1; P[n] = $2; L[n] = $3 + 0; H[n] = $4 + 0
-      if (!(($1, $2) in has)) { has[$1, $2] = 1; files[$2] = files[$2] "\n" $1 } }
+  printf '%s' "$ov_all" | ORDER=$ov_order awk -F '\t' '
+    BEGIN { nb = split(ENVIRON["ORDER"], name, "\n"); if (nb && name[nb] == "") nb-- }
+    $3 == 0 {
+      if (!(($1, $2) in has)) { has[$1, $2] = 1; fl[$1] = fl[$1] (fl[$1] == "" ? "" : "\n") $2 }
+      next
+    }
+    { k = $1 SUBSEP $2; c = ++nh[k]; L[k, c] = $3 + 0; H[k, c] = $4 + 0 }
     END {
       for (i = 1; i <= nb; i++) for (j = i + 1; j <= nb; j++) {
         a = name[i]; b = name[j]
-        for (f in files) if (((a, f) in has) && ((b, f) in has)) {
+        nf = split(fl[a], files, "\n")
+        for (x = 1; x <= nf; x++) {
+          f = files[x]
+          if (f == "" || !((b, f) in has)) continue
           print "same-file\t" a "\t" b "\t" f
-          lo = 0; hi = 0
-          for (x = 1; x <= n; x++) if (B[x] == a && P[x] == f)
-            for (y = 1; y <= n; y++) if (B[y] == b && P[y] == f && L[x] <= H[y] && L[y] <= H[x]) {
-              l = (L[x] > L[y]) ? L[x] : L[y]; h = (H[x] < H[y]) ? H[x] : H[y]
+          ka = a SUBSEP f; kb = b SUBSEP f; lo = 0; hi = 0
+          for (u = 1; u <= nh[ka]; u++) for (v = 1; v <= nh[kb]; v++)
+            if (L[ka, u] <= H[kb, v] && L[kb, v] <= H[ka, u]) {
+              l = (L[ka, u] > L[kb, v]) ? L[ka, u] : L[kb, v]
+              h = (H[ka, u] < H[kb, v]) ? H[ka, u] : H[kb, v]
               if (!lo || l < lo) lo = l
               if (h > hi) hi = h
             }
           if (lo) print "same-line\t" a "\t" b "\t" f "\t" lo "-" hi
         }
       }
-    }' | sort -t '	' -k1,1r -k2,2 -k3,3 -k4,4
+    }'
 }
 
 # load_graph <file>: the graph's unit lines, checked.
@@ -251,17 +290,27 @@ case $verb in
     mc_require_program "$program"
     runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime directory"
     seen="$runtime/radar-announced"
-    [ -f "$seen" ] || : >"$seen"
     repos=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories) || mc_fail "the repositories of program $program do not resolve"
-    found=""
     rc=0
     while IFS= read -r r; do
       [ -n "$r" ] || continue
-      def=$(git -C "$r" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || continue
+      def=$(git -C "$r" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || {
+        printf '%s\n' "$prog: $(sanitize_printable "$r"): no origin default branch (refs/remotes/origin/HEAD)" >&2
+        rc=1
+        continue
+      }
       def=${def#refs/remotes/}
-      list=$(git -C "$r" for-each-ref --format='%(refname:short)' refs/remotes/origin/ 2>/dev/null | awk -v d="$def" '$0 != d && $0 != "origin/HEAD" && $0 != "origin"' | sort | head -n 50)
+      # The most recently committed branches first, so long-dead ones do not
+      # crowd live work out of the cap.
+      list=$(git -C "$r" for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin/ 2>/dev/null) || {
+        printf '%s\n' "$prog: $(sanitize_printable "$r"): the branch list cannot be read" >&2
+        rc=1
+        continue
+      }
       set --
       while IFS= read -r b; do
+        [ "$#" -lt 50 ] || break
+        case $b in "$def" | origin/HEAD | origin) continue ;; esac
         valid_ref "$b" && set -- "$@" "$b"
       done <<EOF
 $list
@@ -273,16 +322,17 @@ EOF
       }
       name=${r%/}
       name=${name##*/}
-      found="$found$(printf '%s\n' "$lines" | N=$name awk -F '\t' '$1 == "same-line" { print ENVIRON["N"] ":" $2 "+" $3 "\t" $4 " lines " $5 }')
-"
+      while IFS='	' read -r k a b path range; do
+        [ "$k" = same-line ] || continue
+        key="$r	$a+$b	$path"
+        mc_announce "$program" "$seen" "$key" conflict-predicted "$(mc_subject conflict "$key")" \
+          "$name:$a+$b $path lines $range" || rc=1
+      done <<EOF
+$lines
+EOF
     done <<EOF
 $repos
 EOF
-    new=$(printf '%s' "$found" | awk 'NF' | awk 'FILENAME == ARGV[1] { s[$0] = 1; next } !($0 in s)' "$seen" -)
-    if [ -n "$new" ]; then
-      printf '%s\n' "$new" | awk -F '\t' '{ print "event\tconflict-predicted\t" $1 "\t" $2 }'
-      { cat "$seen" && printf '%s\n' "$new"; } | tail -n 500 | mc_write "$seen" || mc_fail "cannot record the announced overlaps"
-    fi
     exit "$rc"
     ;;
   *) usage ;;
