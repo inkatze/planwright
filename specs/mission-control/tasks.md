@@ -478,7 +478,6 @@ the list lacked; the annotation moved below the task's fields.)*
 
 - **Task 5** — pending ready-flip: review-converged failed on f8c964f89099
 - **Task 7** — pending ready-flip: ci-rollup failed on 72eefc8197df
-- **Task 10** — post-pr cubic-pr halted (.claude/steps/000001/008-step-post-pr.rec)
 
 ## Deferred
 
