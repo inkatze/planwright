@@ -1079,3 +1079,11 @@ mission_control_shadow_promote_after: 5
 # How long an active rule may go with no act on its subject before the
 # self-audit (scripts/mc-audit.sh) reports it idle. A cadence.
 mission_control_audit_idle_after: 30d
+# How near a known date makes its unit urgent (scripts/mc-deadlines.sh): a
+# date at most this many whole days away ranks ahead of undated work and
+# opens the first turn after silence. A cadence, read in whole days.
+mission_control_deadline_horizon: 3d
+# Where a draft for a person goes (scripts/mc-inbox.sh draft): auto takes
+# the first clipboard tool found (pbcopy, wl-copy, xclip, xsel), or the
+# absolute path of a command that reads the text on stdin. Never a sender.
+mission_control_clipboard: auto

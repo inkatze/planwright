@@ -390,6 +390,7 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
 
   # A column-0 line is either a section header or the end of a sequence.
   /^[^ \t]/ {
+    open_list = 0
     flush_entry()
     if ($0 ~ /^[A-Za-z][A-Za-z0-9_-]*:[ \t]*$/) {
       section = $0
@@ -413,6 +414,7 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
     cur_lost = 0
     cur_fields = ""
     cur_section = section
+    open_list = 0
     have_entry = 1
     next
   }
@@ -420,6 +422,18 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
   # Blank and whitespace-only lines are skipped before the indented-line
   # warnings below can flag them.
   /^[ \t]*$/ { next }
+
+  # A flow list left open on its field line continues on lines indented past
+  # the field, joined with a space until one closes it, so a long list wraps
+  # under a line-length limit and reads as the one-line list it means.
+  have_entry && open_list && /^      [ \t]*[^ \t]/ {
+    raw = $0
+    sub(/^[ \t]+/, "", raw)
+    sub(/[ \t]*$/, "", raw)
+    cur_fields = cur_fields " " raw
+    if (raw ~ /\]$/) open_list = 0
+    next
+  }
 
   # An entry field at four-space indent. `supersede:` is a merge directive, not
   # catalog data — captured as the marker, kept out of the emitted payload.
@@ -441,6 +455,9 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
       if (val == "true") cur_supersede = 1
     } else {
       cur_fields = cur_fields (cur_fields == "" ? "" : "\n") raw
+      val = raw
+      sub(/^[^:]*:[ \t]*/, "", val)
+      open_list = (val ~ /^\[/ && val !~ /\][ \t]*$/)
     }
     next
   }
