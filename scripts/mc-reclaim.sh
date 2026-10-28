@@ -44,8 +44,8 @@ Usage:
 repositories, proved from that repository's own git directory, never from
 the worktree's .git file alone. This script's git calls on the worktree
 name that git directory, and every git call that reads the worktree, the
-removal's included, runs with core.fsmonitor and hooks off. The predicate's arms, each refusing on its
-own:
+removal's included, runs with core.fsmonitor and hooks off. The
+predicate's arms, each refusing on its own:
   live-user      a process of this user has its working directory in the
                  worktree, or none of the process table's working
                  directories can be read (another user's processes are not
@@ -133,7 +133,7 @@ make_dir() {
       fi
       [ ! -L "$md_p" ] || refuse backup "${md_p#"$HOME_DIR"/} is a symbolic link"
     fi
-    [ -d "$md_p" ] || refuse backup "${md_p#"$HOME_DIR"/} is not a directory"
+    [ -d "$md_p" ] || refuse backup "cannot create ${md_p#"$HOME_DIR"/}, or it is not a directory"
   done
 }
 refuse() { # refuse <arm> <detail>
