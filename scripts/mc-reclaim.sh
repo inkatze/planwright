@@ -128,6 +128,7 @@ make_dir() {
     [ ! -L "$md_p" ] || refuse backup "${md_p#"$HOME_DIR"/} is a symbolic link"
     if [ ! -e "$md_p" ]; then
       # A concurrent reclaim may make a shared folder first; it is then theirs.
+      # not-a-lock: records which folders this run made, for its rollback
       if (umask 077 && mkdir "$md_p") 2>/dev/null; then
         MADE="$MADE$md_p$NL"
       fi
