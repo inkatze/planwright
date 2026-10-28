@@ -137,8 +137,8 @@ take and resume print, in order:
                               for the program, the event
                               mission-control-announce raised once for all
   line<TAB><the one line the operator sees>
-Any verb raising an item that mc-event.sh refuses prints
-unraised<TAB><kind><TAB><subject> as well.
+Any verb but offer raising an item that mc-event.sh refuses prints
+unraised<TAB><kind><TAB><subject> as well; offer exits 1 instead.
 
 Exit codes: 0 done; 1 refused (a store's format, a failed self-check, a
 session that is not the holder or the verified successor, a failed write,
@@ -235,7 +235,10 @@ home_path() {
   hp_rc=$?
   case $hp_rc in
     0) ;;
-    2 | 3) exit "$hp_rc" ;;
+    2 | 3)
+      say "the home of program $program does not resolve (mc-program.sh exit $hp_rc)"
+      exit "$hp_rc"
+      ;;
     *) mc_fail "the home of program $program does not resolve (mc-program.sh exit $hp_rc)" ;;
   esac
   case $HOME_DIR in
@@ -255,8 +258,8 @@ session_live() {
       sl_l="$RUNTIME/leases/$1"
       [ ! -L "$RUNTIME/leases" ] && [ -f "$sl_l" ] && [ ! -L "$sl_l" ] || return 0
       sl_at=$(head -n 1 "$sl_l" 2>/dev/null)
-      mc_valid_uint "$sl_at" || return 0
-      [ "$sl_at" -le "$NOW" ] && [ $((NOW - sl_at)) -lt "$LEASE_FRESH" ]
+      mc_valid_uint "$sl_at" && [ "$sl_at" -le "$NOW" ] || return 0
+      [ $((NOW - sl_at)) -lt "$LEASE_FRESH" ]
       ;;
     *) mc_fail "a record names an unknown session kind '$(sanitize_printable "$2")'" ;;
   esac
@@ -278,8 +281,9 @@ read_holder() {
   if session_live "$H_SESSION" "$H_KIND"; then H_LIVE=1; fi
 }
 
+# The script's own EXIT trap releases every lock, so lock-lib's trap, which
+# would replace it, is never installed.
 lock() {
-  pw_lock_trap_install
   pw_lock_acquire "$LOCK" 100 || mc_fail "cannot take the handover lock of program $program"
 }
 unlock() { pw_lock_release "$LOCK" || :; }
@@ -381,9 +385,16 @@ wait_release() {
   wr_end=$(($(mc_now) + $4))
   while :; do
     released_to "$1" "$3" && return 0
+    # Liveness is judged at the real clock; NOW keeps the caller's --now,
+    # which the holder record is stamped with.
+    wr_keep=$NOW
     NOW=$(mc_now)
-    session_live "$1" "$2" || return 1
-    [ "$NOW" -lt "$wr_end" ] || return 1
+    wr_now=$NOW
+    session_live "$1" "$2"
+    wr_live=$?
+    NOW=$wr_keep
+    [ "$wr_live" -eq 0 ] || return 1
+    [ "$wr_now" -lt "$wr_end" ] || return 1
     sleep 1
   done
 }
@@ -632,7 +643,12 @@ case $verb in
     if [ -f "$SUCC" ]; then
       store_check "$SUCC"
       pend=$(kv_handle "$SUCC" session) || exit 1
-      if [ "$pend" != "$H_SESSION" ] && row_exists "$pend"; then
+      pend_owner=$(kv "$SUCC" owner)
+      in_flight=0
+      if [ "$(kv "$SUCC" verified)" = - ] && mc_valid_uint "$pend_owner" && kill -0 "$pend_owner" 2>/dev/null; then
+        in_flight=1
+      fi
+      if [ "$pend" != "$H_SESSION" ] && { row_exists "$pend" || [ "$in_flight" -eq 1 ]; }; then
         say "a successor, $pend, is already pending for program $program"
         exit 3
       fi
@@ -700,7 +716,7 @@ case $verb in
     got=$(printf '%s\n' "$lout" | awk -F '\t' '$1 == "launch" && $2 == "name" { print $3; exit }')
     if [ "$got" != "$name" ]; then
       drop_reservation
-      retire_session "$name" registry >/dev/null || :
+      ! mc_valid_handle "$got" || retire_session "$got" registry >/dev/null || :
       mc_fail "the launcher named the successor '$(sanitize_printable "$got")', not $name"
     fi
     printf 'successor\t%s\n' "$name"

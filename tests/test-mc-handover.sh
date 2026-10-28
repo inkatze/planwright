@@ -22,100 +22,10 @@ fail() {
 }
 ok() { echo "ok: $1"; }
 tab=$(printf '\t')
+suite=test-mc-handover
 
-for t in jq git; do
-  command -v "$t" >/dev/null 2>&1 || {
-    echo "FAIL: $t is required to run this suite" >&2
-    exit 1
-  }
-done
-[ -f "$repo_root/scripts/mc-handover.sh" ] || {
-  echo "FAIL: scripts/mc-handover.sh missing" >&2
-  exit 1
-}
-
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-mc-handover.XXXXXX") || exit 1
-if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
-  echo "FAIL: mktemp -d produced no usable directory" >&2
-  exit 1
-fi
-tmp=$(cd "$tmp" && pwd -P) || exit 1
-fleet="$tmp/fleet"
-cleanup() {
-  for d in "$fleet"/streamjson/*/; do
-    [ -d "$d" ] || continue
-    env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-streamjson.sh" \
-      stop "$(basename "$d")" --grace 1 >/dev/null 2>&1 || :
-  done
-  rm -rf "$tmp"
-}
-trap cleanup EXIT
-
-# shellcheck source=tests/lib/mission-control-fixture.sh
-. "$here/lib/mission-control-fixture.sh"
-reset_mc_fixture
-cp "$repo_root/config/defaults.yml" "$core/config/defaults.yml"
-for p in worker tower mission-control; do
-  cp "$repo_root/config/$p-settings.json" "$core/config/"
-done
-mkdir -p "$repo/specs" "$fleet" "$tmp/bin"
-home="$tmp/mc-home/alpha"
-bhome="$tmp/mc-home/beta"
-cat >"$tracked" <<EOF
-mission_control_programs: [alpha, beta]
-program_alpha_repositories: [$repo]
-program_alpha_spec_root: $repo/specs
-program_alpha_home: $home
-program_alpha_duties: [alpha-duty]
-program_beta_repositories: [$repo]
-program_beta_spec_root: $repo/specs
-program_beta_home: $bhome
-program_beta_duties: [alpha-duty]
-EOF
-cat >"$tmp/bin/claude" <<'SHIM'
-#!/bin/sh
-IFS= read -r line || line=''
-exit 0
-SHIM
-chmod +x "$tmp/bin/claude"
-
-# run <script> <args...>: against the fixture, the shim on PATH. Sets RC,
-# OUT, ERR.
-run() {
-  r_script=$1
-  shift
-  OUT=$(cd "$repo" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
-    -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
-    -u XDG_CONFIG_HOME -u TMUX -u TMUX_PANE -u PLANWRIGHT_MC_CHECKED -u PLANWRIGHT_MC_PROGRAM \
-    -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_TOWER_ID \
-    PATH="$tmp/bin:$PATH" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" \
-    PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \
-    CLAUDE_DIR="$tmp/claude" HOME="$fixhome" PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
-    PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
-    /bin/bash "$repo_root/scripts/$r_script" "$@" 2>"${RUN_ERR:-$tmp/stderr}")
-  RC=$?
-  ERR=$(cat "${RUN_ERR:-$tmp/stderr}")
-}
-ho() { run mc-handover.sh "$@"; }
-col() { printf '%s\n' "$OUT" | awk -F '\t' -v k="$1" -v c="$2" '$1 == k { print $c; exit }'; }
-rowfile() { printf '%s\n' "$fleet/mission-control/sessions/$1"; }
-# wait_done <name>: until the shim's supervisor has recorded the run's end.
-wait_done() {
-  n=0
-  until [ -s "$fleet/streamjson/$1/result" ] || [ "$n" -ge 100 ]; do
-    sleep 0.1
-    n=$((n + 1))
-  done
-}
-holder_is() { # holder_is <label> <handle> [<program>]
-  ho holder --program "${3:-alpha}"
-  if [ "$(col holder 2)" = "$2" ]; then ok "$1"; else fail "$1: the holder is '$(col holder 2)', not $2"; fi
-}
-events_of() { # events_of <kind> [<program>]: the program's events of that kind
-  run mc-event.sh list --program "${2:-alpha}"
-  printf '%s\n' "$OUT" | awk -F '\t' -v k="$1" '$3 == k'
-}
-count_of() { events_of "$@" | grep -c .; }
+# shellcheck source=tests/lib/mc-handover-fixture.sh
+. "$here/lib/mc-handover-fixture.sh"
 
 run mc-rules.sh add alpha --text "Never hand the operator a pane" --subject panes --source "operator, fixture" --date 2026-10-26
 [ "$RC" = 0 ] || fail "fixture: the rule was not added: $ERR"
@@ -124,7 +34,6 @@ run mc-kb.sh init --program alpha
 run mc-rules.sh load alpha
 digest=$(printf '%s\n' "$OUT" | sed -n 's/.*, digest \([0-9a-f]*\) -->.*/\1/p' | head -n 1)
 [ "${#digest}" = 64 ] || fail "fixture: no rules digest from the load: $OUT"
-printf '%s\n' "# Mission control" "" "Run program alpha." >"$tmp/brief.md"
 printf '%s\n' "item q-1" "session mc-worker-1" >"$tmp/picture"
 printf '%s\n' "item q-1" >"$tmp/picture-short"
 : >"$tmp/empty"
@@ -333,124 +242,6 @@ printf 'format\t1\nsession\tmc-x\npredecessor\t../../escape\npredecessor-kind\tr
 ho take --program alpha --session mc-x --window 1s
 [ "$RC" = 1 ] && ok "a successor record naming a handle outside the grammar is refused" || fail "the tampered record's take exited $RC: $OUT"
 holder_is "and the name stays put" operator-term
-
-# ---------------------------------------------------------------------------
-# A second program: recovery and edge paths.
-# ---------------------------------------------------------------------------
-run mc-kb.sh init --program beta
-run mc-rules.sh load beta
-bdigest=$(printf '%s\n' "$OUT" | sed -n 's/.*, digest \([0-9a-f]*\) -->.*/\1/p' | head -n 1)
-[ "${#bdigest}" = 64 ] || fail "fixture: no rules digest for beta: $OUT"
-printf '%s\n' "item b-1" >"$tmp/bpic"
-bhf="$bhome/handover.tsv"
-ho holder --program beta
-[ "$OUT" = "holder${tab}-" ] && ok "a program nobody holds says so" || fail "the empty holder: $OUT"
-ho launch --program beta --brief "$tmp/brief.md"
-b1=$(col successor 2)
-wait_done "$b1"
-ho verify --program beta --session "$b1" --picture "$tmp/bpic" --digest "$bdigest" --ledger - --durable "$tmp/bpic"
-ho take --program beta --session "$b1" --window 1s
-holder_is "fixture: beta's first session holds its name" "$b1" beta
-ho path --program beta
-[ "$OUT" = "path${tab}unattended" ] && ok "a launched holder hands over unattended" || fail "path: $OUT"
-
-run mc-kb.sh append decisions --program beta --subject fixture --act "noted" --no-reversal
-bled=$(printf '%s\n' "$OUT" | head -n 1)
-# A decisions log that cannot be read is never written down as no ledger.
-if [ "$(id -u)" != 0 ]; then
-  for seg in "$bhome"/kb/decisions-*.log; do chmod 000 "$seg"; done
-  ho write --program beta --session "$b1" --picture "$tmp/bpic" --digest "$bdigest"
-  [ "$RC" != 0 ] && [ ! -f "$bhf" ] && ok "an unreadable ledger fails the write" || fail "the write over an unreadable ledger exited $RC"
-  for seg in "$bhome"/kb/decisions-*.log; do chmod 600 "$seg"; done
-fi
-# A relative picture shaped like an awk assignment is still read as a file.
-printf '%s\n' "item b-1" >"$repo/item=a"
-OUT=$(printf '%s\n' "item injected" | {
-  ho write --program beta --session "$b1" --picture item=a --digest "$bdigest"
-  printf '%s\n' "$RC"
-})
-grep -qx "item${tab}b-1" "$bhf" && ! grep -q injected "$bhf" && ok "the picture is read from its file, never stdin" || fail "the picture was not read from its file: $(cat "$bhf")"
-rm -f "$repo/item=a"
-
-# A predecessor that died after writing its handover file: the successor
-# verifies against that file and takes the name without waiting.
-run mission-control-launch.sh retire "$b1"
-ho holder --program beta
-[ "$(col holder 6)" = stale ] && ok "a holder whose row is gone is stale" || fail "the dead holder: $OUT"
-ho launch --program beta --brief "$tmp/brief.md" --handover
-b2=$(col successor 2)
-wait_done "$b2"
-ho verify --program beta --session "$b2" --picture "$tmp/bpic" --digest "$bdigest" --ledger "$bled"
-[ "$RC" = 0 ] && ok "the successor of a dead predecessor verifies against its file" || fail "the dead predecessor's successor: $RC $OUT $ERR"
-t0=$(date +%s)
-ho take --program beta --session "$b2" --window 30s
-[ "$RC" = 0 ] && [ "$(col took 4)" = retired ] && [ "$(col retire 3)" = gone ] && ok "it takes the name from the dead predecessor" || fail "the take from the dead predecessor: $RC $OUT"
-[ $(($(date +%s) - t0)) -lt 10 ] && ok "without waiting out the window" || fail "the take waited for a predecessor already gone"
-
-# A release made to one successor never lets another take the name.
-ho write --program beta --session "$b2" --picture "$tmp/bpic" --digest "$bdigest"
-ho launch --program beta --brief "$tmp/brief.md" --handover
-b3=$(col successor 2)
-wait_done "$b3"
-ho verify --program beta --session "$b3" --picture "$tmp/bpic" --digest "$bdigest" --ledger "$bled"
-ho release --program beta --session "$b2"
-[ "$(col released 3)" = "$b3" ] || fail "fixture: the release did not name $b3: $OUT $ERR"
-run mission-control-launch.sh retire "$b3"
-ho launch --program beta --brief "$tmp/brief.md" --handover
-b4=$(col successor 2)
-wait_done "$b4"
-ho verify --program beta --session "$b4" --picture "$tmp/bpic" --digest "$bdigest" --ledger "$bled"
-ho take --program beta --session "$b4" --window 1s
-[ "$RC" = 0 ] && [ "$(col took 4)" = retired ] && ok "a release to another successor does not count as this one's" || fail "the misdirected release: $RC $OUT"
-
-# REQ-A1.1: the operator-asked launch against a live holder ends with one
-# holder, the successor; with no handover file its ledger is checked
-# against the log.
-ho launch --program beta --brief "$tmp/brief.md" --asked
-[ "$RC" = 0 ] && ok "the operator's ask launches over a live holder" || fail "the asked launch exited $RC: $ERR"
-b5=$(col successor 2)
-wait_done "$b5"
-ho verify --program beta --session "$b5" --picture "$tmp/bpic" --digest "$bdigest" --ledger - --durable "$tmp/bpic"
-[ "$RC" = 1 ] && ok "a ledger behind the log fails a durable self-check" || fail "the durable stale ledger exited $RC"
-ho verify --program beta --session "$b5" --picture "$tmp/bpic" --digest "$bdigest" --ledger "$bled" --durable "$tmp/bpic"
-[ "$RC" = 0 ] || fail "the asked successor's verify exited $RC: $OUT $ERR"
-ho take --program beta --session "$b5" --window 1s
-[ "$RC" = 0 ] && [ ! -f "$(rowfile "$b4")" ] && ok "the asked successor ends as the one holder" || fail "the asked take: $RC $OUT"
-holder_is "the name resolves to the asked successor" "$b5" beta
-
-# A resume while a successor is pending retires the stranded successor.
-ho launch --program beta --brief "$tmp/brief.md" --asked
-b6=$(col successor 2)
-wait_done "$b6"
-ho resume --program beta --session operator-b --picture "$tmp/bpic" --digest "$bdigest" --durable "$tmp/bpic" --window 1s
-[ "$RC" = 0 ] || fail "the resume over a pending successor exited $RC: $OUT $ERR"
-case $OUT in *"retire${tab}$b6${tab}released"*) ok "the stranded successor is retired" ;; *) fail "the stranded successor was not retired: $OUT" ;; esac
-[ ! -f "$(rowfile "$b6")" ] && ok "and its row is gone" || fail "the stranded successor's row stayed"
-
-ho release --program beta --session mc-nobody
-[ "$RC" = 1 ] && ok "a session that does not hold the name cannot release it" || fail "a non-holder's release exited $RC"
-ho release --program beta --session operator-b
-[ "$RC" = 1 ] && ok "a release with no successor or request is refused" || fail "the orphan release exited $RC"
-ho resume --program beta --session mc-unregistered --kind registry --picture "$tmp/bpic" --digest "$bdigest" --durable "$tmp/bpic"
-[ "$RC" = 1 ] && ok "a registry resume needs the session's row" || fail "the rowless registry resume exited $RC"
-
-for c in "take --program beta --session operator-b --window bogus" \
-  "launch --program beta --brief $tmp/brief.md --backend nowhere" \
-  "due --program beta --context x --wakes 0 --compactions 0" \
-  "verify --program beta --session operator-b --picture $tmp/bpic --digest abc --ledger -" \
-  "frobnicate --program beta"; do
-  # shellcheck disable=SC2086 # each case is a word list on purpose
-  ho $c
-  [ "$RC" = 2 ] && ok "usage: $c (exit 2)" || fail "usage: $c exited $RC"
-done
-ho holder --program gamma
-[ "$RC" = 3 ] && ok "a program that is not configured exits 3" || fail "the unconfigured program exited $RC"
-
-cp "$tracked" "$tmp/tracked.keep"
-printf '%s\n' "mission_control_handover_context: 50" >>"$tracked"
-ho due --program beta --context 50 --wakes 0 --compactions 0
-[ "$OUT" = "due${tab}context at 50%" ] && ok "the context threshold is the knob's" || fail "the knob was not read: $OUT $ERR"
-cp "$tmp/tracked.keep" "$tracked"
 
 echo
 if [ "$failures" -gt 0 ]; then
