@@ -647,14 +647,15 @@ the CLI's session documentation; no new dependency, so a short pass.
   argue against building on it.
 - **The takeover path chosen.** The program name is planwright's own
   holder record under the program's runtime directory, moved by
-  `scripts/mc-handover.sh take` once the predecessor releases (or the
-  handover window closes), never the harness's display name. Sessions
+  `scripts/mc-handover.sh take` (or `resume`) once the predecessor releases
+  (or the handover window closes), never the harness's display name. Sessions
   reach mission control through the event store and the wake, which
   address the program, so the transfer is unattended for every session the
   launcher started.
 - **The one-act fallback.** Where the holder is the operator's own
   session, the harness cannot move the operator's terminal to a launched
-  successor, so no successor is launched over it (a launch exits 4): the
+  successor, so a handover launch over it is refused (`launch --handover`
+  exits 4): the
   handover is offered on the panel as one operator act (`/clear`, then the
   mission-control command with the program name), which runs as the
   resume. This is the D-30 fallback, never a degraded session.
