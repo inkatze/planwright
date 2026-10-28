@@ -76,6 +76,9 @@
 #                          decide from one sample or emit one event twice
 #   scripts/mc-reclaim.sh  a reclaim folder, so two reclaims of one branch
 #                          never copy into or roll back the same folder
+#   scripts/mc-handover.sh   a mission-control program's handover lock, so a
+#                          take, a resume, a release and a launch never move
+#                          the program name over each other
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is

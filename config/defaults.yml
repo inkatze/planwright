@@ -1030,6 +1030,10 @@ mission_control_panel_refresh: 10s
 mission_control_handover_context: 70
 mission_control_handover_wakes: 150
 mission_control_handover_compactions: 2
+# How long a successor waits for its predecessor to release the program
+# name before it retires the predecessor itself and takes the name. A
+# cadence.
+mission_control_handover_window: 2m
 # How often each snapshot-mode source is refreshed, source: cadence. A source
 # left out refreshes at the cadence its adapter declares in
 # config/snapshot-adapters.yaml.
