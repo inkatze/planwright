@@ -143,6 +143,17 @@ mc_run mc-gates.sh check --program alpha
 expect_rc "an unknown ready key is refused" 1
 expect_err "named" 'unknown ready key "skip-checks"'
 
+# Each malformed line, its fields joined by `|`.
+for bad in 'merge|program|*|order|fifo' 'merge|program|*|method|fast-forward' \
+  'merge|program|*|conflicts|anyone' 'ready|program|*|steps|Polish Pass' \
+  'ready|program|*|evidence|video' 'ready|program|*|steps' 'ready|program|acme|steps|polish' \
+  'ready|team|x|steps|polish' 'deploy|program|*|steps|polish'; do
+  cp "$tmp/good" "$gates"
+  printf '%s\n' "$bad" | tr '|' '\t' >>"$gates"
+  mc_run mc-gates.sh check --program alpha
+  expect_rc "a malformed line is refused at load: $bad" 1
+done
+
 printf 'format: 2\n' >"$gates"
 mc_run mc-gates.sh check --program alpha
 expect_rc "an unknown format is refused" 1

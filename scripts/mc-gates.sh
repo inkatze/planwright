@@ -37,7 +37,8 @@ other line is five tab-separated fields:
   gate    ready | merge
   scope   program (match `*`), repo (match a forge slug, owner/name),
           label (a label name) or path (a glob over changed paths, `*`
-          crossing `/`)
+          crossing `/`); a slug matches whatever its case, as the forge
+          treats it
   ready keys, each row adding one member to a set:
     steps     a step id that must be recorded passed or applied at the head
     evidence  smoke, walk or screenshot: evidence that must be recorded,
@@ -62,7 +63,7 @@ floors: a merge key or value that would authorize or enable a merge (any
 key other than the four above, or a value such as auto) is refused at
 load, and so is `flip request` while ready_flip_policy is not unit-owner
 (read through scripts/resolve-policy-knob.sh from the program's first
-repository). Since no condition can authorize a merge, every merge_policy
+repository, or from the current directory under --file). Since no condition can authorize a merge, every merge_policy
 bounds them.
 A load with any refused line refuses the whole file; nothing is evaluated
 from it.
@@ -220,7 +221,7 @@ NR == 1 {
     if (v == "request" && ENVIRON["POLICY"] != "unit-owner") { refuse("ready flip request would place a flip below ready_flip_policy (" ENVIRON["POLICY"] ")"); next }
   } else { refuse("unknown ready key \"" k "\" (steps, evidence, body, flip)"); next }
   if (ENVIRON["VERB"] != "resolve") next
-  hit = (s == "program") || (s == "repo" && ENVIRON["REPO"] != "" && m == ENVIRON["REPO"]) || (s == "label" && inlist(m, ENVIRON["LABELS"])) || (s == "path" && anypath(m))
+  hit = (s == "program") || (s == "repo" && ENVIRON["REPO"] != "" && tolower(m) == tolower(ENVIRON["REPO"])) || (s == "label" && inlist(m, ENVIRON["LABELS"])) || (s == "path" && anypath(m))
   if (!hit) next
   if (k in setk) {
     if (!((g, k, v) in seen)) { seen[g, k, v] = 1; order[++n] = g "\t" k "\t" v }

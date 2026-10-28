@@ -33,8 +33,12 @@ Driving a session to done (answering what the record settles, relaying only
 forks and operator-only blockers) is the mission-control session's
 judgment; this script holds the mechanics around it.
 
-THE LEDGER is <runtime>/keeper.tsv, one line per tracked session:
-  <session><TAB><owner/name><TAB><pr><TAB><worktree|->
+THE LEDGER is <runtime>/keeper.tsv, "# format: 1" then one line per
+tracked session:
+  <session><TAB><owner/name><TAB><pr><TAB><worktree|-><TAB><stage>
+the stage `-`, or `retired` once a sweep retired the session and only its
+worktree is left to reclaim (so a relaunch under the same name is never
+retired for the old pull request).
 
 Usage:
   mc-keeper.sh track --program <p> --session <name> --repo <owner/name>
@@ -44,8 +48,9 @@ Usage:
       for each tracked session whose pull request is MERGED or CLOSED (one
       gh read each, bounded): retire it (scripts/mission-control-launch.sh
       retire), then reclaim its worktree (scripts/mc-reclaim.sh reclaim),
-      and drop its exact line once both are done; a line a later track
-      replaced meanwhile is left alone; one line per act:
+      and drop its exact line once both are done and, under the runner,
+      the landing is in the event store; a line a later track replaced
+      meanwhile is left alone; one line per act:
         landed<TAB><session><TAB><state>
         retired<TAB><session>
         reclaimed<TAB><session><TAB><worktree>
@@ -60,7 +65,8 @@ Usage:
         held<TAB><spec>:task-<id><TAB><why>  ready, but a launched session
                                              holds its scope, or the budget
                                              does not admit a session
-                                             (scripts/mc-budget.sh admit)
+                                             (scripts/mc-budget.sh admit,
+                                             its reason after a colon)
       a unit in progress never holds back a ready one; a session holds a
       unit when the launcher lists the scope <spec>:task-<id>
   mc-keeper.sh watch [--program <p>] [--now <epoch>]
@@ -70,12 +76,14 @@ Usage:
       program's event store, subject the session, text
       `<state>, retired|held[: <what stayed>]`, printing
         announced<TAB>session-landed<TAB><session>
-      once per session, state and outcome, so a landing held run after run
-      wakes the session once; the program from PLANWRIGHT_MC_PROGRAM when
-      --program is absent
+      once per session, state and outcome while the session stays tracked,
+      so a landing held run after run wakes the session once; the program
+      from PLANWRIGHT_MC_PROGRAM when --program is absent
 
-Exit codes: 0 done; 1 a store, a read, a retire or reclaim that failed, or
-an event the store refused; 2 usage; 3 the program is not configured.
+Exit codes: 0 done; 1 a store, a read, a retire or reclaim that failed or
+is still held (a launch or retire in flight, a worktree not yet
+reclaimable), or an event the store refused; 2 usage; 3 the program is not
+configured.
 
 Portable bash 3.2 / BSD tooling.
 HELP
@@ -139,21 +147,29 @@ launcher() { /bin/bash "$script_dir/mission-control-launch.sh" "$@"; }
 GH_BOUND=60
 gh_bounded() { /bin/sh "$script_dir/bounded-run.sh" "$GH_BOUND" gh "$@"; }
 
+# rows: the ledger's rows, after its format line.
+rows() {
+  [ -f "$ledger" ] || return 0
+  mc_store_ok "$ledger" || mc_fail "the ledger has a missing or unknown format: $ledger"
+  awk 'NR > 1' "$ledger" || mc_fail "cannot read $ledger"
+}
+
 # row_live <row>: the exact ledger row is still there (a later track may
 # have re-pointed the session).
 row_live() {
-  [ -f "$ledger" ] || return 1
-  R=$1 awk 'BEGIN { r = ENVIRON["R"] } $0 == r { f = 1 } END { exit !f }' "$ledger"
+  rows | R=$1 awk 'BEGIN { r = ENVIRON["R"] } $0 == r { f = 1 } END { exit !f }'
 }
 
-# drop_row <row>: remove that exact row, under the fleet lock.
-drop_row() {
+# replace_row <row> [<new row>]: put <new row> in place of that exact row,
+# or drop it, under the fleet lock.
+replace_row() {
   mc_lock || mc_fail "cannot take the fleet lock"
-  dr_kept=$(R=$1 awk 'BEGIN { r = ENVIRON["R"] } $0 != r' "$ledger") || {
+  rr_rows=$(rows) || {
     mc_unlock
-    mc_fail "cannot read $ledger"
+    exit 1
   }
-  { [ -z "$dr_kept" ] || printf '%s\n' "$dr_kept"; } | mc_write "$ledger" || {
+  rr_kept=$(printf '%s\n' "$rr_rows" | R=$1 N=${2:-} awk 'BEGIN { r = ENVIRON["R"]; n = ENVIRON["N"] } $0 == r { if (n != "") print n; next } NF { print }')
+  { printf '# format: 1\n' && { [ -z "$rr_kept" ] || printf '%s\n' "$rr_kept"; }; } | mc_write "$ledger" || {
     mc_unlock
     mc_fail "cannot rewrite $ledger"
   }
@@ -171,17 +187,15 @@ say() {
     retired | held) ;;
     *) return 0 ;;
   esac
-  mc_announce "$program" "$seen" "$2	$sw_state	$1	${3:-}" session-landed "$2" \
-    "$sw_state, $1${3:+: $3}"
+  mc_announce "$program" "$seen" "$2	$sw_state	$1" session-landed "$2" "$sw_state, $1${3:+: $3}"
 }
 
 sweep() {
-  [ -f "$ledger" ] || return 0
   sw_rc=0
-  sw_rows=$(cat "$ledger") || mc_fail "cannot read $ledger"
+  sw_rows=$(rows) || exit 1
   while IFS= read -r sw_row; do
     [ -n "$sw_row" ] || continue
-    IFS='	' read -r sw_s sw_r sw_p sw_w <<EOF
+    IFS='	' read -r sw_s sw_r sw_p sw_w sw_stage <<EOF
 $sw_row
 EOF
     sw_state=$(gh_bounded pr view "$sw_p" --repo "$sw_r" --json state --jq .state 2>/dev/null) || {
@@ -204,22 +218,31 @@ EOF
     row_live "$sw_row" || continue
     say landed "$sw_s" "$sw_state"
     sw_held=""
-    sw_out=$(launcher retire "$sw_s" 2>&1)
-    case $? in
-      0) ;;
-      3)
-        # No row means already retired, or never launched through the
-        # launcher; a row still listed means a launch or retire in flight.
-        if sw_list=$(launcher list 2>/dev/null); then
-          if printf '%s\n' "$sw_list" | S=$sw_s awk -F '\t' '$1 == ENVIRON["S"] { f = 1 } END { exit !f }'; then
-            sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))"
+    # A session retired on an earlier sweep is not retired again: the name
+    # may since belong to a relaunch of the same scope.
+    if [ "$sw_stage" != retired ]; then
+      sw_out=$(launcher retire "$sw_s" 2>&1)
+      case $? in
+        0) ;;
+        3)
+          # No row means already retired, or never launched through the
+          # launcher; a row still listed means a launch or retire in flight.
+          if sw_list=$(launcher list 2>/dev/null); then
+            if printf '%s\n' "$sw_list" | S=$sw_s awk -F '\t' '$1 == ENVIRON["S"] { f = 1 } END { exit !f }'; then
+              sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))"
+            fi
+          else
+            sw_held="session (the launcher's list cannot be read)"
           fi
-        else
-          sw_held="session (the launcher's list cannot be read)"
-        fi
-        ;;
-      *) sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))" ;;
-    esac
+          ;;
+        *) sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))" ;;
+      esac
+      if [ -z "$sw_held" ]; then
+        sw_next="$sw_s	$sw_r	$sw_p	$sw_w	retired"
+        replace_row "$sw_row" "$sw_next"
+        sw_row=$sw_next
+      fi
+    fi
     if [ -z "$sw_held" ] && [ "$sw_w" != "-" ] && [ -d "$sw_w" ]; then
       if sw_out=$(/bin/bash "$script_dir/mc-reclaim.sh" reclaim --program "$program" "$sw_w" 2>&1); then
         [ "$events" = 1 ] || printf 'reclaimed\t%s\t%s\n' "$sw_s" "$sw_w"
@@ -228,15 +251,26 @@ EOF
       fi
     fi
     if [ -n "$sw_held" ]; then
-      say held "$sw_s" "$sw_held" || sw_rc=1
+      say held "$sw_s" "$sw_held"
       sw_rc=1
       continue
     fi
-    say retired "$sw_s" || sw_rc=1
-    drop_row "$sw_row"
+    # The row goes only once the store holds the landing, so a refused
+    # event is raised again on the next sweep.
+    if say retired "$sw_s"; then
+      replace_row "$sw_row"
+    else
+      sw_rc=1
+    fi
   done <<EOF
 $sw_rows
 EOF
+  # The announced set keeps only sessions still tracked.
+  if [ "$events" = 1 ] && [ -f "$seen" ]; then
+    sw_live=$(rows | cut -f1) || exit 1
+    sw_kept=$(LIVE=$sw_live awk -F '\t' 'BEGIN { n = split(ENVIRON["LIVE"], l, "\n"); for (i = 1; i <= n; i++) live[l[i]] = 1 } ($1 in live)' "$seen") || return 1
+    { [ -z "$sw_kept" ] || printf '%s\n' "$sw_kept"; } | mc_write "$seen" || return 1
+  fi
   return "$sw_rc"
 }
 
@@ -246,19 +280,17 @@ case $verb in
     mc_valid_slug "$slug" || mc_usage_fail "--repo takes owner/name"
     mc_valid_uint "$pr" && [ "$pr" -gt 0 ] || mc_usage_fail "--pr takes a pull request number"
     case $worktree in
-      -) ;;
-      /*) case $worktree in *'	'*) mc_usage_fail "--worktree takes no tab" ;; esac ;;
+      - | /*) ;;
       *) mc_usage_fail "--worktree takes an absolute path" ;;
     esac
     mc_lock || mc_fail "cannot take the fleet lock"
     trap mc_unlock EXIT
-    kept=""
-    if [ -f "$ledger" ]; then
-      kept=$(S=$session awk -F '\t' '$1 != ENVIRON["S"]' "$ledger") || mc_fail "cannot read $ledger"
-    fi
+    current=$(rows) || exit 1
+    kept=$(printf '%s\n' "$current" | S=$session awk -F '\t' 'NF && $1 != ENVIRON["S"]')
     {
+      printf '# format: 1\n'
       [ -z "$kept" ] || printf '%s\n' "$kept"
-      printf '%s\t%s\t%s\t%s\n' "$session" "$slug" "$pr" "$worktree"
+      printf '%s\t%s\t%s\t%s\t-\n' "$session" "$slug" "$pr" "$worktree"
     } | mc_write "$ledger" || mc_fail "cannot write $ledger"
     printf 'tracked\t%s\t%s#%s\n' "$session" "$slug" "$pr"
     ;;
@@ -288,11 +320,12 @@ case $verb in
     admit=$(/bin/bash "$script_dir/mc-budget.sh" admit --program "$program" session ${now:+--now "$now"} 2>/dev/null)
     case $? in
       0) hold="" ;;
-      1)
+      *)
+        # A refusal names its reason on a queued line; an exit with none
+        # is a budget that could not be read, which holds dispatch too.
         hold=$(printf '%s\n' "$admit" | awk -F '\t' '$1 == "queued" { print $2; exit }')
-        [ -n "$hold" ] || hold="refused"
+        [ -n "$hold" ] || hold="the budget cannot be read"
         ;;
-      *) hold="the budget cannot be read" ;;
     esac
     printf '%s\n' "$state" | N=$name H=$held Q=$hold awk -F '\t' '
       BEGIN { n = split(ENVIRON["H"], h, "\n"); for (i = 1; i <= n; i++) if (h[i] != "") H[h[i]] = 1 }
@@ -302,7 +335,7 @@ case $verb in
         if ($3 == "in-progress") print "waiting\t" u "\tin-progress"
         else if ($3 != "ready") next
         else if (u in H) print "held\t" u "\ta launched session holds it"
-        else if (ENVIRON["Q"] != "") print "held\t" u "\tthe budget holds dispatch (" ENVIRON["Q"] ")"
+        else if (ENVIRON["Q"] != "") print "held\t" u "\tthe budget holds dispatch: " ENVIRON["Q"]
         else print "dispatch\t" u
       }'
     ;;

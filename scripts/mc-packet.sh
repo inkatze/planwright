@@ -48,9 +48,10 @@ Usage:
                               recorded, `nothing` at the same head, and a
                               line saying so when the recorded head is no
                               longer in the checkout); the read runs with
-                              the checkout's fsmonitor, hooks and signature
-                              display off, since a worker may write its
-                              configuration
+                              what the checkout's own configuration could
+                              run turned off (mc_untrusted_git in
+                              scripts/mc-lib.sh), since a worker may write
+                              it
         Risks                 --risks' lines
         Order                 --order's lines (scripts/mc-radar.sh order)
       a section with no input reads `- none`; a readiness file that does
@@ -81,8 +82,8 @@ program=""
 unit=""
 head=""
 readiness=""
-look=""
-repo=""
+focus=""
+checkout=""
 risks=""
 order=""
 while [ $# -gt 0 ]; do
@@ -95,8 +96,8 @@ while [ $# -gt 0 ]; do
         --unit) unit=$2 ;;
         --head) head=$2 ;;
         --readiness) readiness=$2 ;;
-        --focus) look=$2 ;;
-        --checkout) repo=$2 ;;
+        --focus) focus=$2 ;;
+        --checkout) checkout=$2 ;;
         --risks) risks=$2 ;;
         --order) order=$2 ;;
       esac
@@ -106,7 +107,6 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$program" ] && [ -n "$unit" ] || usage
-case $unit in *'	'*) mc_usage_fail "--unit takes no tab" ;; esac
 mc_require_program "$program"
 home=$(mc_program_home "$program") || exit 1
 store="$home/kb/prepared-moments/looks.tsv"
@@ -114,11 +114,7 @@ if [ -e "$store" ]; then
   mc_store_ok "$store" || mc_fail "the looks store has a missing or unknown format: $store"
 fi
 
-# safe_git <args>: git on the checkout with what its configuration could
-# run turned off.
-safe_git() {
-  git -C "$repo" -c core.fsmonitor=false -c core.hooksPath=/dev/null -c log.showSignature=false "$@"
-}
+safe_git() { mc_untrusted_git -C "$checkout" "$@"; }
 
 section() { # section <title> <file|"">
   printf '\n%s\n' "$1"
@@ -132,13 +128,17 @@ section() { # section <title> <file|"">
 case $verb in
   look)
     mc_valid_sha "$head" || mc_usage_fail "--head takes a full 40-hex sha"
-    [ -z "$readiness$look$repo$risks$order" ] || usage
+    [ -z "$readiness$focus$checkout$risks$order" ] || usage
     mkdir -p "${store%/*}" || mc_fail "cannot create ${store%/*}"
     trap mc_kb_unlock EXIT
     mc_kb_lock "$program" prepared-moments/looks.tsv
+    kept=""
+    if [ -e "$store" ]; then
+      kept=$(U=$unit awk -F '\t' 'NR > 1 && $1 != ENVIRON["U"]' "$store") || mc_fail "the looks store cannot be read: $store"
+    fi
     {
       printf '# format: 1\n'
-      [ ! -e "$store" ] || U=$unit awk -F '\t' 'NR > 1 && $1 != ENVIRON["U"]' "$store"
+      [ -z "$kept" ] || printf '%s\n' "$kept"
       printf '%s\t%s\t%s\n' "$unit" "$head" "$(mc_now)"
     } | mc_write "$store" || mc_fail "cannot write $store"
     printf 'looked\t%s\t%s\n' "$unit" "$head"
@@ -150,11 +150,11 @@ case $verb in
       ready | not-ready) ;;
       *) mc_fail "the readiness result does not open with ready or not-ready; no packet without it" ;;
     esac
-    for f in "$look" "$risks" "$order"; do
+    for f in "$focus" "$risks" "$order"; do
       [ -z "$f" ] || [ -r "$f" ] || mc_fail "unreadable: $(sanitize_printable "$f")"
     done
-    if [ -n "$repo$head" ]; then
-      [ -n "$repo" ] && [ -d "$repo" ] || mc_usage_fail "--head takes --checkout, a directory"
+    if [ -n "$checkout$head" ]; then
+      [ -n "$checkout" ] && [ -d "$checkout" ] || mc_usage_fail "--head takes --checkout, a directory"
       mc_valid_sha "$head" || mc_usage_fail "--head takes a full 40-hex sha"
     fi
     scratch=$(mktemp -d) || mc_fail "cannot create a scratch directory"
@@ -181,7 +181,7 @@ case $verb in
     fi
     printf 'Packet: %s\n' "$unit" | mc_clean_text
     section Readiness "$readiness"
-    section "What to look at" "$look"
+    section "What to look at" "$focus"
     section "Changed since you last looked" "$changed"
     section Risks "$risks"
     section Order "$order"

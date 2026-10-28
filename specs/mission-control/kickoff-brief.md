@@ -738,7 +738,8 @@ of local probes.
 - **Readiness from primary evidence.** The collector reads each check
   context on its own, never the rollup, so a red context under a green
   rollup fails the walk; a thread opened by a bot is a finding, answered
-  once resolved or replied to by a person. A finding written only in a
+  once resolved or replied to by a person other than the pull request's
+  author, whose own sessions post under that login. A finding written only in a
   review body is not read: its answered state has no general marker, so the
   walk leaves it to the reviewer duty a follow-on bundle owns.
 - **The guard composed, not reimplemented.** The ready-flip floor is
@@ -752,6 +753,13 @@ of local probes.
   conservative grammar (no leading dash, no `..`) before any git call; the
   clipboard command is `auto` or an absolute path, run with the draft on
   stdin and never through a shell.
+- **A worker's git configuration.** Every git read mission control makes in
+  a worker-written checkout (the packet's log, the step records a walk
+  collects) runs with fsmonitor, hooks, signature display and lazy fetching
+  off through the environment, which outranks the checkout's own
+  configuration: a probe showed a partial-clone checkout otherwise runs its
+  ssh command on a missing commit. The clipboard command is never read from
+  the repo-tracked layer.
 - **The duty catalog's list form.** The session-keeper's triggers do not
   fit the line-length lint on one line, and the reader took only one-line
   lists. The catalog grammar (D-3's API surface, a low-stake additive call)

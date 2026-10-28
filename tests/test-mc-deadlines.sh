@@ -58,6 +58,10 @@ cat >"$repo/specs/billing/tasks.md" <<'EOF'
 ### Notes on task 2
 
 - **Due:** 2026-11-05
+
+### Task 3 — Credits
+
+- **Due:** 2026-02-31
 EOF
 printf '%s\n' '# Billing — Requirements' '' '- **Due:** 2026-12-01' >"$repo/specs/billing/requirements.md"
 printf '%s\n' '### Task 1 — Ignored' '- **Due:** 2026-10-01' >"$repo/specs/_observations/tasks.md"
@@ -73,6 +77,7 @@ expect_out "a task block's due line dates its unit" "deadline${tab}billing:task-
 expect_out "a requirements due line dates the bundle" "deadline${tab}billing${tab}2026-12-01${tab}30${tab}record:specs"
 expect_no_out "a reserved directory is not a bundle" "2026-10-01"
 expect_no_out "a due line under a later H3 is not the task's" "2026-11-05"
+expect_no_out "a stored date naming no calendar day is dropped" "billing:task-3"
 
 mc_run mc-deadlines.sh add --program alpha --unit "billing:task-2" --due 2026-10-30 --note "the operator said so"
 expect_rc "an operator-stated date is recorded" 0
@@ -115,9 +120,10 @@ mc_run mc-deadlines.sh rank --program alpha --now "$NOW" billing
 expect_out "the horizon is a knob" "rank${tab}1${tab}billing${tab}urgent${tab}2026-12-01"
 program '{deadlines: specs:record}'
 printf 'mission_control_deadline_horizon: soon\n' >>"$tracked"
-for v in due rank watch; do
-  mc_run mc-deadlines.sh "$v" --program alpha --now "$NOW" billing
-  [ "$v" = rank ] || mc_run mc-deadlines.sh "$v" --program alpha --now "$NOW"
+mc_run mc-deadlines.sh rank --program alpha --now "$NOW" billing
+expect_rc "an invalid repo-tracked horizon fails rank" 1
+for v in due watch; do
+  mc_run mc-deadlines.sh "$v" --program alpha --now "$NOW"
   expect_rc "an invalid repo-tracked horizon fails $v" 1
 done
 program '{deadlines: specs:record}'
@@ -147,9 +153,14 @@ program '{deadlines: tracker:snapshot}'
 printf '%s\n' 'adapters:' '  - id: tracker' '    summary: "A fixture tracker"' '    script: scripts/tracker-adapter.sh' \
   '    cadence: 10m' >"$repo/.claude/catalogs/snapshot-adapters.yaml"
 mkdir -p "$fleet/mission-control/alpha/snapshots"
-printf 'format\t1\nsource\ttracker\ntaken\t%s\ndue\tPROJ-12\t2026-11-02\n' "$NOW" >"$fleet/mission-control/alpha/snapshots/tracker"
+printf 'format\t1\nsource\ttracker\ntaken\t%s\ndue\tPROJ-12\t2026-11-02\ndue\tQ4 launch\t2026-11-02\n' "$NOW" >"$fleet/mission-control/alpha/snapshots/tracker"
 mc_run mc-deadlines.sh list --program alpha --now "$NOW"
 expect_out "a snapshot store's dates are read" "deadline${tab}PROJ-12${tab}2026-11-02${tab}1${tab}snapshot:tracker"
+mc_run mc-deadlines.sh watch --program alpha --now "$NOW"
+expect_rc "a store's unit outside the subject grammar still raises its event" 0
+expect_out "under a checksum subject" "announced${tab}deadline-near${tab}deadline-"
+mc_run mc-event.sh list --program alpha
+expect_out "the unit itself in the text" "Q4 launch due 2026-11-02"
 expect_no_out "the record store is not, in snapshot mode" "record:specs"
 program '{deadlines: calendar:cited}'
 mc_run mc-deadlines.sh list --program alpha --now "$NOW"

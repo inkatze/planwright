@@ -158,6 +158,24 @@ expect_rc "an invalid machine-local value degrades" 0
 expect_err "with a warning" "degrading to the next lower layer"
 if cmp -s "$tmp/draft" "$tmp/xsel-got"; then ok "to auto"; else fail "the degraded draft missed the clipboard"; fi
 
+# A clipboard path that is not executable, a clipboard command that fails,
+# and `auto` with no tool on PATH each fail the draft.
+printf 'mission_control_clipboard: %s\n' "$tmp/draft" >"$tmp/absent.yml"
+mc_run mc-inbox.sh draft --program alpha --to Sam --file "$tmp/draft"
+expect_rc "a clipboard path that is not executable fails" 1
+printf '#!/bin/sh\nexit 3\n' >"$tmp/bin/badclip"
+chmod +x "$tmp/bin/badclip"
+printf 'mission_control_clipboard: %s\n' "$tmp/bin/badclip" >"$tmp/absent.yml"
+mc_run mc-inbox.sh draft --program alpha --to Sam --file "$tmp/draft"
+expect_rc "a failing clipboard command fails the draft" 1
+expect_err "named" "the clipboard command failed"
+: >"$tmp/absent.yml"
+rm -f "$tmp/path/xsel" "$tmp/tracked.clip"
+sed -i.bak '/^mission_control_clipboard:/d' "$tracked"
+PATH="$tmp/path" mc_run mc-inbox.sh draft --program alpha --to Sam --file "$tmp/draft"
+expect_rc "auto with no clipboard tool fails" 1
+expect_err "named" "no clipboard tool found"
+
 # ---------------------------------------------------------------------------
 # REQ-F1.14: the packet, the readiness result first.
 # ---------------------------------------------------------------------------

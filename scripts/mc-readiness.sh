@@ -48,8 +48,9 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   guard<TAB><name><TAB>pass|fail<TAB><detail>
                                       a ready-flip guard's verdict
   truncated<TAB><what>                a forge list that came back at its
-                                      cap of 100 (files, checks, review
-                                      threads), so it may have been cut
+                                      cap of 100 (files, checks, labels,
+                                      review threads), so it may have been
+                                      cut
   bodyline<TAB><text>                 one per line of the pull request body
   report<TAB><text>                   a session's own claim: read, never
                                       counted
@@ -100,13 +101,15 @@ Usage:
       the duty's watcher (also what a run with no arguments does under the
       runner): for each draft pull request in the code-state snapshot whose
       checks are green and whose threads are resolved, one readiness-due
-      event per new head, printing
+      event per new head (announced again once a head clears and returns),
+      printing
         announced<TAB>readiness-due<TAB><subject>
       the program from PLANWRIGHT_MC_PROGRAM when --program is absent;
       a program with no code-state snapshot, or none taken yet, raises
       nothing. Each event is emitted to the program's event store, subject
       <owner>:<name>:<n>, and a head counts as announced only once the
-      store holds its event.
+      store holds its event. A subject outside the event grammar (over 128
+      characters, say) falls back to pr-<checksum>, the slug in the text.
 
 Exit codes: 0 ready, or done; 1 a failed read, store or event; 2 usage; 3
 the program is not configured; 4 not ready.
@@ -187,8 +190,18 @@ evidence_store() { # evidence_store <program>: the store's path, its directory c
   printf '%s\n' "$es_dir/evidence.tsv"
 }
 
-# walk <evidence> <conditions>: the verdict; returns 4 when not ready.
+# walk <evidence> <conditions>: the verdict; returns 4 when not ready, 1
+# when the walk itself fails.
 walk() {
+  walk_awk "$@"
+  wk_rc=$?
+  case $wk_rc in
+    0 | 4) return "$wk_rc" ;;
+  esac
+  printf '%s\n' "$prog: the walk failed (awk exit $wk_rc)" >&2
+  return 1
+}
+walk_awk() {
   awk -F '\t' '
 function fail(what, detail) { fails[++nf] = "fail\t" what "\t" detail }
 function pass_check(s) { return s == "SUCCESS" || s == "NEUTRAL" || s == "SKIPPED" }
@@ -270,6 +283,7 @@ collect() {
     "head\t" + .headRefOid,
     "count\tfiles\t" + ((.files // []) | length | tostring),
     "count\tchecks\t" + ((.statusCheckRollup // []) | length | tostring),
+    "count\tlabels\t" + ((.labels // []) | length | tostring),
     (.labels[]? | "label\t" + (.name | clean)),
     (.files[]? | "path\t" + (.path | clean)),
     (.statusCheckRollup[]? | "check\t" + ((.name // .context // "-") | clean) + "\t"
@@ -301,7 +315,8 @@ collect() {
     || mc_fail "the review thread read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
   : >"$cl_tmp/steps"
   if [ -n "$4" ]; then
-    /bin/bash "$script_dir/step-record.sh" --worktree "$4" list >"$cl_tmp/records" 2>"$cl_tmp/err" \
+    # The worktree is a worker's, so its git configuration runs nothing here.
+    (mc_untrusted_git_env && /bin/bash "$script_dir/step-record.sh" --worktree "$4" list) >"$cl_tmp/records" 2>"$cl_tmp/err" \
       || mc_fail "the step records of $(sanitize_printable "$4") cannot be read"
     awk -F '\t' '
       $1 == "record" { t = s = o = h = "" }
@@ -395,7 +410,6 @@ case $verb in
     case $kind in smoke | walk | screenshot) ;; *) mc_usage_fail "--kind takes smoke, walk or screenshot" ;; esac
     case $judgment in ok | error | missing) ;; *) mc_usage_fail "--judgment takes ok, error or missing" ;; esac
     [ -n "$ref" ] || mc_usage_fail "--ref takes the evidence's path or link"
-    case $ref in *'	'*) mc_usage_fail "--ref takes no tab" ;; esac
     mc_require_program "$program"
     store=$(evidence_store "$program") || exit 1
     trap mc_kb_unlock EXIT
@@ -422,8 +436,11 @@ case $verb in
     seen="$runtime/readiness-announced"
     due=$(printf '%s\n' "$snap" | awk -F '\t' '$1 == "pr" && $5 == "true" && $8 == "0" && $9 == "SUCCESS" { print $2 "\t" $3 "\t" $4 }')
     rc=0
+    live=""
     while IFS='	' read -r w_slug w_n w_head; do
       [ -n "$w_slug" ] || continue
+      live="$live$w_slug#$w_n	$w_head
+"
       w_subject="${w_slug%%/*}:${w_slug#*/}:$w_n"
       mc_valid_handle "$w_subject" || w_subject=$(mc_subject pr "$w_slug#$w_n")
       mc_announce "$program" "$seen" "$w_slug#$w_n	$w_head" readiness-due "$w_subject" \
@@ -431,6 +448,7 @@ case $verb in
     done <<EOF
 $due
 EOF
+    mc_announce_prune "$seen" "$live" || rc=1
     exit "$rc"
     ;;
   *) usage ;;

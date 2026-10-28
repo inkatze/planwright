@@ -84,6 +84,17 @@ g commit -am bin-a
 g checkout -q -b bin-b main
 printf '\000\003' >"$tmp/work/blob.bin"
 g commit -am bin-b
+# A path holding a space: git ends its header name with a tab.
+g checkout -q main
+seq 1 9 >"$tmp/work/a b.txt"
+g add "a b.txt"
+g commit -m spaced
+g checkout -q -b sp-a main
+sed -i.bak '5s/.*/x/' "$tmp/work/a b.txt" && rm -f "$tmp/work/a b.txt.bak"
+g commit -am sp-a
+g checkout -q -b sp-b main
+sed -i.bak '5s/.*/y/' "$tmp/work/a b.txt" && rm -f "$tmp/work/a b.txt.bak"
+g commit -am sp-b
 # A deleted line reading like a file header must not be taken for one.
 g checkout -q main
 printf '%s\n' '-- a/spoofed.sql' 1 2 3 4 5 6 7 >"$tmp/work/s.sql"
@@ -126,6 +137,10 @@ expect_out "a binary file both branches change is a same-file overlap" "same-fil
 mc_run mc-radar.sh overlap --checkout "$tmp/work" --base main sql-a sql-b
 expect_out "a deleted line reading like a header is not one" "same-line${tab}sql-a${tab}sql-b${tab}s.sql${tab}8-8"
 expect_no_out "and plants no path" "spoofed"
+mc_run mc-radar.sh overlap --checkout "$tmp/work" --base main sp-a sp-b
+expect_out "a path with a space gets its same-line overlap" "same-line${tab}sp-a${tab}sp-b${tab}a b.txt${tab}5-5"
+mc_run mc-radar.sh overlap --checkout "$tmp/work" --base no-such-base feat-a feat-b
+expect_rc "an unknown base fails" 1
 mc_run mc-radar.sh overlap --checkout "$tmp/work" --base main feat-b feat-a pages
 expect_rc "a branch with no shared history is skipped, not fatal" 0
 expect_err "with a warning" "skipping pages: no merge base"
@@ -173,6 +188,10 @@ expect_rc "an unknown dependency fails" 1
 printf 'unit\tapi\tfeat-y\tmain\t-\n' >"$tmp/graph"
 mc_run mc-radar.sh order --graph "$tmp/graph"
 expect_rc "a graph with no format line fails" 1
+printf '# format: 1\n' >"$tmp/graph"
+mc_run mc-radar.sh order --graph "$tmp/graph"
+expect_rc "an empty graph orders nothing" 0
+expect_eq "and prints nothing" ""
 printf '# format: 1\nunit\tapi\tfeat-y\tmain\t-\nunit\tapi\tfeat-y\tdev\t-\n' >"$tmp/graph"
 mc_run mc-radar.sh order --graph "$tmp/graph"
 expect_rc "a duplicate unit fails" 1
@@ -201,6 +220,10 @@ expect_no_out "no event for branches that only share the file" "feat-c"
 mc_run mc-radar.sh watch --program alpha
 expect_rc "a second pass" 0
 expect_eq "an announced overlap is not announced again" ""
+git -C "$tmp/clone" symbolic-ref --delete refs/remotes/origin/HEAD
+mc_run mc-radar.sh watch --program alpha
+expect_rc "a repository with no origin default branch fails the run" 1
+expect_err "named" "no origin default branch"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-radar: $failures failure(s)" >&2

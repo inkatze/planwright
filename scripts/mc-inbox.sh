@@ -53,7 +53,9 @@ Usage:
       takes the first of pbcopy, wl-copy, xclip and xsel found; otherwise
       the absolute path of a command that reads the text on stdin; read
       from the core, adopter and machine-local layers only, a repo-tracked
-      value ignored with a warning) and log it to the program home's
+      value ignored with a warning; the machine-local file is the gitignored
+      planwright.local.yml, so a repository that commits one anyway is
+      choosing it) and log it to the program home's
       kb/inbox/drafts.tsv ("# format: 1", then
       <UTC time><TAB><recipient><TAB><bytes><TAB><SHA-256>, never the
       text). Nothing is sent: this script has no sending path; sending
@@ -168,7 +170,6 @@ case $verb in
       esac
     done
     [ -n "$program" ] && [ -n "$to" ] && [ -n "$file" ] || usage
-    case $to in *'	'*) mc_usage_fail "--to takes no tab" ;; esac
     [ -f "$file" ] && [ -r "$file" ] || mc_fail "the draft is unreadable: $(sanitize_printable "$file")"
     mc_require_program "$program"
     parse_clip() {
@@ -181,9 +182,8 @@ case $verb in
         *) return 1 ;;
       esac
     }
-    # The knob names a command this script runs, so only layers outside every
-    # checkout (core, adopter, machine-local) are read: a committed
-    # repo-tracked value would let a repository pick it.
+    # The knob names a command this script runs, so the repo-tracked layer,
+    # the one a repository commits, is not read for it.
     layers=$(/bin/sh "$script_dir/config-get.sh" --layers mission_control_clipboard 2>/dev/null) \
       || mc_fail "mission_control_clipboard cannot be read"
     clip=""

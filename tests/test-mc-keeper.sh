@@ -90,7 +90,12 @@ held_run_1=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRA
 held_run_2=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
 case $held_run_1 in *"announced${tab}session-landed${tab}mc-alpha-worker-four"*) ok "a held landing is announced" ;; *) fail "a held landing was not announced: $held_run_1 $(cat "$tmp/held.err")" ;; esac
 case $held_run_2 in *worker-four*) fail "a held landing was announced again: $held_run_2" ;; *) ok "and not again while it stays held" ;; esac
-if grep -q "worker-four" "$ledger"; then ok "a held session stays tracked"; else fail "a held session was dropped"; fi
+if grep -q "^mc-alpha-worker-four${tab}.*${tab}retired$" "$ledger"; then
+  ok "a held session stays tracked, marked retired so a relaunch under its name is never retired for it"
+else
+  fail "the held session's ledger row: $(cat "$ledger")"
+fi
+if [ "$(head -n 1 "$ledger")" = "# format: 1" ]; then ok "the ledger carries its format"; else fail "the ledger lacks its format line"; fi
 
 # ---------------------------------------------------------------------------
 # REQ-M1.4: the next ready unit dispatches while another waits on CI.
@@ -131,14 +136,14 @@ expect_rc "next" 0
 expect_out "REQ-M1.4: the unit waiting on CI is named waiting" "waiting${tab}demo:task-1${tab}in-progress"
 expect_out "REQ-M1.4: the next ready unit dispatches" "dispatch${tab}demo:task-2"
 expect_no_out "a unit whose dependency is in flight does not" "demo:task-3"
-expect_no_out "REQ-M1.3: the unit with a branch is not dispatched again" "dispatch${tab}demo:task-1"
+expect_no_out "REQ-M1.3: a unit with a branch in flight is not dispatched again" "dispatch${tab}demo:task-1"
 
 # The budget's admission holds dispatch when no session would be admitted.
 sed -i.bak 's/^program_alpha_budget: .*/program_alpha_budget: {host_load: 1000000, sessions: 1}/' "$tracked"
 mc_run mc-budget.sh record --program alpha sessions 1
 mc_run mc-keeper.sh next --program alpha --spec "$repo/specs/demo"
 expect_rc "next under a full budget" 0
-expect_out "REQ-M1.4: a ready unit is held while the budget admits no session" "held${tab}demo:task-2${tab}the budget holds dispatch (sessions at their limit)"
+expect_out "REQ-M1.4: a ready unit is held while the budget admits no session" "held${tab}demo:task-2${tab}the budget holds dispatch: hold-dispatch (sessions at 100%)"
 expect_no_out "and is not dispatched" "dispatch${tab}"
 
 if [ "$failures" -ne 0 ]; then

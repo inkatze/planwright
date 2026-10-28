@@ -212,7 +212,7 @@ has "paths are read" "path${tab}src/app.c"
 has "a resolved bot thread is an answered finding" "finding${tab}cubic-dev-ai${tab}t1${tab}answered"
 has "a bot thread the author alone replied to is unanswered" "finding${tab}cubic-dev-ai${tab}t2${tab}unanswered"
 has "a bot thread another person replied to is answered" "finding${tab}copilot[bot]${tab}t3${tab}answered"
-hasnt "a person's thread is no finding" "${tab}t4${tab}answered"
+hasnt "a person's thread is no finding" "finding${tab}alice"
 has "a person's open thread is collected" "thread${tab}t4${tab}open"
 has "REQ-D1.8: the recorded cadence step is collected" "step${tab}polish${tab}applied${tab}$head"
 has "a corrected judgment at the head stands" "evidence${tab}screenshot${tab}shots/home.png${tab}$head${tab}ok"
@@ -220,6 +220,7 @@ hasnt "the judgment it replaced does not" "shots/home.png${tab}$head${tab}error"
 hasnt "evidence at another head is left out" "shots/stale.png"
 hasnt "evidence of another pull request is left out" "shots/other-pr.png"
 has "D-25: the ready-flip guard is composed" "guard${tab}ready-guard${tab}"
+hasnt "and it ran, its own verdict collected" "the guard did not run"
 has "the repository is named for the conditions" "repo${tab}acme/web"
 if grep -q 'pr ready' "$tmp/gh.calls" 2>/dev/null; then fail "a flip was attempted"; else ok "nothing flips a pull request"; fi
 # The stub cannot satisfy the guard's own reads, so it fails closed, and the
@@ -265,6 +266,17 @@ expect_eq "an announced head is not announced again" ""
 snap "$head" >"$snapdir/forge"
 mc_run mc-readiness.sh watch --program alpha
 expect_eq "a new head is announced again" "announced${tab}readiness-due${tab}acme:web:7"
+
+# A refused event leaves its head unannounced, so the next run raises it.
+snap 3333333333333333333333333333333333333333 >"$snapdir/forge"
+events_dir="$fleet/attention/mission-control/alpha/events"
+chmod 500 "$events_dir"
+mc_run mc-readiness.sh watch --program alpha
+chmod 700 "$events_dir"
+expect_rc "a refused event fails the run" 1
+mc_run mc-readiness.sh watch --program alpha
+expect_rc "the next run" 0
+expect_eq "raises it again, now stored" "announced${tab}readiness-due${tab}acme:web:7"
 
 sed -i.bak 's/^program_alpha_sources: .*/program_alpha_sources: {work-items: specs:record}/' "$tracked"
 mc_run mc-readiness.sh watch --program alpha

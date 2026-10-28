@@ -55,7 +55,7 @@ Usage:
       runner): in each of the program's repositories, every origin branch
       but the default compared against the default (the 50 most recently
       committed), one conflict-predicted event per branch pair and path
-      with a same-line overlap not announced before, its text
+      with a same-line overlap not announced while it stays live, its text
       `<repo>:<a>+<b> <path> lines <first>-<last>`, printing
         announced<TAB>conflict-predicted<TAB><subject>
       The event lands in the program's event store; a pair counts as
@@ -140,11 +140,12 @@ hunks() {
   hk_diff=$(git -C "$1" diff -U0 --no-prefix --no-color --no-ext-diff --no-renames --no-textconv "$hk_mb" "$3" -- 2>/dev/null) || return 1
   [ -z "$hk_names" ] || printf '%s\n' "$hk_names" | B=$3 awk '{ print ENVIRON["B"] "\t" $0 "\t0\t0" }'
   # Paths come from a file's header only: in a -U0 diff a removed line
-  # reading `-- x` prints as `--- x`, and must not be taken for one.
+  # reading `-- x` prints as `--- x`, and must not be taken for one. Git
+  # ends a header name holding a space with a tab, dropped here.
   printf '%s\n' "$hk_diff" | B=$3 awk '
     /^diff --git / { hdr = 1; p = ""; next }
-    hdr && /^--- / { p = substr($0, 5); next }
-    hdr && /^\+\+\+ / { if (p == "/dev/null" || p == "") p = substr($0, 5); next }
+    hdr && /^--- / { p = substr($0, 5); sub(/\t$/, "", p); next }
+    hdr && /^\+\+\+ / { if (p == "/dev/null" || p == "") { p = substr($0, 5); sub(/\t$/, "", p) }; next }
     /^@@ / && p != "" {
       hdr = 0
       split($2, o, ","); a = substr(o[1], 2) + 0; n = (2 in o) ? o[2] + 0 : 1
@@ -162,6 +163,10 @@ overlap() {
   ov_repo=$1
   ov_base=$2
   shift 2
+  git -C "$ov_repo" rev-parse --verify --quiet "$ov_base^{commit}" >/dev/null 2>&1 || {
+    printf '%s\n' "$prog: the base $(sanitize_printable "$ov_base") is not a commit here" >&2
+    return 1
+  }
   ov_all=""
   ov_order=""
   for ov_b in "$@"; do
@@ -197,14 +202,18 @@ overlap() {
           f = files[x]
           if (f == "" || !((b, f) in has)) continue
           print "same-file\t" a "\t" b "\t" f
-          ka = a SUBSEP f; kb = b SUBSEP f; lo = 0; hi = 0
-          for (u = 1; u <= nh[ka]; u++) for (v = 1; v <= nh[kb]; v++)
+          # Git lists the hunks of a file in base-line order, so one sweep over
+          # both lists finds every meeting range.
+          ka = a SUBSEP f; kb = b SUBSEP f; lo = 0; hi = 0; u = 1; v = 1
+          while (u <= nh[ka] && v <= nh[kb]) {
             if (L[ka, u] <= H[kb, v] && L[kb, v] <= H[ka, u]) {
               l = (L[ka, u] > L[kb, v]) ? L[ka, u] : L[kb, v]
               h = (H[ka, u] < H[kb, v]) ? H[ka, u] : H[kb, v]
               if (!lo || l < lo) lo = l
               if (h > hi) hi = h
             }
+            if (H[ka, u] < H[kb, v]) u++; else v++
+          }
           if (lo) print "same-line\t" a "\t" b "\t" f "\t" lo "-" hi
         }
       }
@@ -214,6 +223,10 @@ overlap() {
 # load_graph <file>: the graph's unit lines, checked.
 load_graph() {
   [ -r "$1" ] || mc_fail "the graph is unreadable: $(sanitize_printable "$1")"
+  case $1 in
+    /*) lg_file=$1 ;;
+    *) lg_file=./$1 ;;
+  esac
   awk -F '\t' '
     function bad(why) { printf "mc-radar: %s:%d: %s\n", FILENAME, FNR, why > "/dev/stderr"; err = 1 }
     NR == 1 { if ($0 != "# format: 1") { bad("unknown format (want \"# format: 1\")"); exit } ; next }
@@ -224,7 +237,7 @@ load_graph() {
       if (k in seen) { bad("duplicate unit " k); next }
       seen[k] = 1; print $2 "\t" $3 "\t" $4 "\t" $5
     }
-    END { if (NR == 0) { printf "mc-radar: %s: empty, with no format line\n", FILENAME > "/dev/stderr"; exit 1 } ; exit err }' "$1"
+    END { if (NR == 0) { printf "mc-radar: %s: empty, with no format line\n", FILENAME > "/dev/stderr"; exit 1 } ; exit err }' "$lg_file"
 }
 
 case $verb in
@@ -238,6 +251,10 @@ case $verb in
   order | retarget)
     [ -n "$graph" ] && [ "${#branches[@]}" -eq 0 ] || usage
     units=$(load_graph "$graph") || exit 1
+    if [ -z "$units" ]; then
+      [ "$verb" = order ] || mc_fail "the merged unit $(sanitize_printable "$merged") is not in the graph"
+      exit 0
+    fi
     if [ "$verb" = retarget ]; then
       case $merged in
         *:?*) ;;
@@ -290,6 +307,8 @@ case $verb in
     mc_require_program "$program"
     runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime directory"
     seen="$runtime/radar-announced"
+    [ -f "$seen" ] || : >"$seen" || mc_fail "cannot create $seen"
+    live=""
     repos=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories) || mc_fail "the repositories of program $program do not resolve"
     rc=0
     while IFS= read -r r; do
@@ -322,17 +341,30 @@ EOF
       }
       name=${r%/}
       name=${name##*/}
-      while IFS='	' read -r k a b path range; do
-        [ "$k" = same-line ] || continue
-        key="$r	$a+$b	$path"
+      # Keys already announced are dropped in one pass, so only new ones
+      # pay for a subject and an emit.
+      keyed=$(printf '%s\n' "$lines" | R=$r awk -F '\t' '$1 == "same-line" { print ENVIRON["R"] "\t" $2 "+" $3 "\t" $4 "\t" $5 }')
+      [ -n "$keyed" ] || continue
+      live="$live$(printf '%s\n' "$keyed" | cut -f1-3)
+"
+      new=$(printf '%s\n' "$keyed" | awk -F '\t' 'FILENAME == ARGV[1] { s[$0] = 1; next } !(($1 "\t" $2 "\t" $3) in s)' "$seen" -) || {
+        rc=1
+        continue
+      }
+      while IFS='	' read -r kr pair path range; do
+        [ -n "$kr" ] || continue
+        key="$kr	$pair	$path"
         mc_announce "$program" "$seen" "$key" conflict-predicted "$(mc_subject conflict "$key")" \
-          "$name:$a+$b $path lines $range" || rc=1
+          "$name:$pair $path lines $range" || rc=1
       done <<EOF
-$lines
+$new
 EOF
     done <<EOF
 $repos
 EOF
+    # A repository whose read failed keeps its keys, so nothing it already
+    # announced is raised again once it reads cleanly.
+    [ "$rc" -ne 0 ] || mc_announce_prune "$seen" "$live" || rc=1
     exit "$rc"
     ;;
   *) usage ;;

@@ -35,7 +35,9 @@ get <p> sources):
                          a task block of a bundle's tasks.md under the spec
                          root (the block running to the next H2 or H3)
                          dates the unit <bundle>:task-<id>; the first such
-                         line in requirements.md dates the bundle
+                         line in requirements.md dates the bundle; a bundle
+                         named outside the identifier grammar is skipped,
+                         and a spec root that is not a directory fails
   snapshot               each `due<TAB><unit><TAB><YYYY-MM-DD>` line of the
                          source's snapshot (scripts/mc-snapshot.sh read)
   cited                  nothing is read; the operator's dates only
@@ -172,12 +174,15 @@ gather() {
     record)
       [ "$ga_source" = specs ] || return 0
       ga_root=$(/bin/bash "$script_dir/mc-program.sh" get "$program" spec_root) || mc_fail "the spec root of program $program does not resolve"
-      [ -d "$ga_root" ] || return 0
+      [ -d "$ga_root" ] || mc_fail "the spec root of program $program is not a directory: $ga_root"
       set +f
       for ga_b in "$ga_root"/*/; do
         ga_b=${ga_b%/}
         ga_n=${ga_b##*/}
         case $ga_n in _* | '*') continue ;; esac
+        # A bundle name becomes a unit; one outside the identifier grammar
+        # (a tab or newline in it, say) could forge a store line.
+        mc_valid_kebab "$ga_n" || continue
         [ -f "$ga_b/tasks.md" ] || continue
         # A task block runs to the next H2 or H3 heading.
         N=$ga_n awk '
@@ -234,7 +239,6 @@ case $verb in
   add)
     [ -n "$unit" ] || mc_usage_fail "--unit names the dated unit"
     mc_valid_handle "$unit" || mc_usage_fail "--unit takes letters, digits and . _ = @ : - only, at most 128"
-    case $note in *'	'*) mc_usage_fail "--note takes no tab" ;; esac
     valid_date "$due" || mc_usage_fail "--due takes a calendar day, YYYY-MM-DD"
     check_store
     mkdir -p "${store%/*}" || mc_fail "cannot create ${store%/*}"
@@ -277,8 +281,11 @@ case $verb in
     seen="$runtime/deadlines-announced"
     day=$(today_days)
     rc=0
+    live=""
     while IFS='	' read -r w_tag w_unit w_date w_left w_src; do
       [ "$w_tag" = deadline ] && [ "$w_left" -le "$h" ] 2>/dev/null || continue
+      live="$live$day	$w_unit	$w_date
+"
       w_subject=$w_unit
       mc_valid_handle "$w_subject" || w_subject=$(mc_subject deadline "$w_unit")
       mc_announce "$program" "$seen" "$day	$w_unit	$w_date" deadline-near "$w_subject" \
@@ -286,6 +293,7 @@ case $verb in
     done <<EOF
 $dl
 EOF
+    mc_announce_prune "$seen" "$live" || rc=1
     exit "$rc"
     ;;
   *) usage ;;

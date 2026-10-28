@@ -507,8 +507,9 @@ mc_store_init() {
 # event once per key, its text flattened to one line of at most 500
 # characters. The key is recorded only once the event store holds the
 # event, so a refused or interrupted emit is tried again on the next run.
-# Prints `announced<TAB><kind><TAB><subject>`; fails on a refused event
-# or a seen file that cannot be read or written.
+# Prints `announced<TAB><kind><TAB><subject>`; fails on a refused event or a
+# seen file that cannot be read or written. A watcher ends its run with
+# mc_announce_prune, so the seen set holds only what is still live.
 mc_announce() {
   [ -f "$2" ] || : >"$2" || return 1
   [ -r "$2" ] || return 1
@@ -518,9 +519,36 @@ mc_announce() {
   # The event text is one line of printable text within the store's cap.
   ma_text=$(printf '%s' "$6" | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-500)
   mc_event emit --program "$1" -- "$4" "$5" "$ma_text" >/dev/null || return 1
-  { tail -n 999 "$2" && printf '%s\n' "$3"; } | mc_write "$2" || return 1
+  printf '%s\n' "$3" >>"$2" || return 1
   printf 'announced\t%s\t%s\n' "$4" "$5"
 }
+
+# mc_announce_prune <seen-file> <live keys>: keep only the keys this run
+# still produced (newline separated), so an item that clears and comes back
+# is announced again, and the set never outgrows what is live.
+mc_announce_prune() {
+  [ -f "$1" ] || return 0
+  map_kept=$(LIVE=$2 awk 'BEGIN { n = split(ENVIRON["LIVE"], l, "\n"); for (i = 1; i <= n; i++) if (l[i] != "") live[l[i]] = 1 }
+    ($0 in live) && !($0 in seen) { seen[$0] = 1; print }' "$1") || return 1
+  { [ -z "$map_kept" ] || printf '%s\n' "$map_kept"; } | mc_write "$1"
+}
+
+# mc_untrusted_git <args>: git with what a worker-written checkout's own
+# configuration could run turned off (fsmonitor, hooks, a lazy fetch through
+# a remote helper or ssh command, signature display). The settings ride the
+# environment, which outranks the repository's configuration, so they reach
+# a git a called script runs too: export them with mc_untrusted_git_env.
+mc_untrusted_git_env() {
+  GIT_CONFIG_COUNT=4
+  GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false
+  GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null
+  GIT_CONFIG_KEY_2=protocol.allow GIT_CONFIG_VALUE_2=never
+  GIT_CONFIG_KEY_3=log.showSignature GIT_CONFIG_VALUE_3=false
+  GIT_NO_LAZY_FETCH=1
+  export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1 \
+    GIT_CONFIG_KEY_2 GIT_CONFIG_VALUE_2 GIT_CONFIG_KEY_3 GIT_CONFIG_VALUE_3 GIT_NO_LAZY_FETCH
+}
+mc_untrusted_git() { (mc_untrusted_git_env && git "$@"); }
 
 # mc_subject <prefix> <key>: a stable event subject for a key outside the
 # subject grammar, <prefix>-<checksum>; the readable key goes in the event's
