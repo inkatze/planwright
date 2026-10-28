@@ -185,9 +185,15 @@ case $verb in
     # The knob names a command this script runs, so a value from the
     # repo-tracked layer, the one a repository commits, is never used. A
     # repo-tracked file the config reader refuses whole still fails the read,
-    # its reason passed through.
-    layers=$(/bin/sh "$script_dir/config-get.sh" --layers mission_control_clipboard) \
-      || mc_fail "mission_control_clipboard cannot be read"
+    # its reason passed through, sanitized: it can carry a path.
+    cg_err=$(mktemp "${TMPDIR:-/tmp}/mc-inbox.XXXXXX") || mc_fail "cannot create a scratch file"
+    if ! layers=$(/bin/sh "$script_dir/config-get.sh" --layers mission_control_clipboard 2>"$cg_err"); then
+      cg_why=$(head -c 400 "$cg_err" | tr '\n' ' ')
+      rm -f "$cg_err"
+      mc_fail "mission_control_clipboard cannot be read: $(sanitize_printable "$cg_why")"
+    fi
+    sanitize_printable "$(cat "$cg_err")" | awk 'NF' >&2
+    rm -f "$cg_err"
     clip=""
     while IFS='	' read -r layer raw; do
       [ -n "$layer" ] || continue

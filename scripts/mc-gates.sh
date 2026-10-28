@@ -168,7 +168,7 @@ else
   src=/dev/null
 fi
 FILE=${file:-none} POLICY=$policy REPO=$repo LABELS=$labels PATHS=$paths VERB=$verb awk -F '\t' '
-function refuse(why) { gsub(/[^[:print:]]/, "?", why); printf "%s:%d: %s\n", ENVIRON["FILE"], NR, why > "/dev/stderr"; bad = 1 }
+function refuse(why,   f) { f = ENVIRON["FILE"]; gsub(/[^[:print:]]/, "?", f); gsub(/[^[:print:]]/, "?", why); printf "%s:%d: %s\n", f, NR, why > "/dev/stderr"; bad = 1 }
 function glob(s, g,   r, i, c) {
   r = "^"
   for (i = 1; i <= length(g); i++) {
@@ -231,7 +231,7 @@ NR == 1 {
   } else if (!((g, k) in at) || rank[s] >= at[g, k]) { at[g, k] = rank[s]; one[g, k] = v }
 }
 END {
-  if (NR == 0 && ENVIRON["FILE"] != "none") { printf "%s: empty, with no format line\n", ENVIRON["FILE"] > "/dev/stderr"; exit 1 }
+  if (NR == 0 && ENVIRON["FILE"] != "none") { f = ENVIRON["FILE"]; gsub(/[^[:print:]]/, "?", f); printf "%s: empty, with no format line\n", f > "/dev/stderr"; exit 1 }
   if (bad) exit 1
   if (ENVIRON["VERB"] != "resolve") exit 0
   for (i = 1; i <= n; i++) print order[i]

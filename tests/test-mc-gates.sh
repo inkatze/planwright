@@ -107,6 +107,11 @@ printf 'merge\tprogram\t*\tauto-merge\ttrue\n' >>"$repo/bad=1"
 mc_run mc-gates.sh check --file "bad=1"
 expect_rc "a relative file named like an assignment is still read" 1
 expect_err "and its merge line refused" "would authorize a merge"
+esc=$(printf '\233')
+cp "$repo/bad=1" "$repo/bad${esc}[2J.tsv"
+mc_run mc-gates.sh check --file "bad${esc}[2J.tsv"
+expect_rc "a refusal under a file name carrying a C1 control byte" 1
+case $ERR in *"$esc"*) fail "the refusal echoed a control byte from the file name" ;; *) ok "the file name is echoed without its control byte" ;; esac
 
 # ---------------------------------------------------------------------------
 # REQ-I1.7: a condition that would authorize a merge, or place a flip below

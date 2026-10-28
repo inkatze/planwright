@@ -275,8 +275,7 @@ CAP=100
 # collect <program> <slug> <pr> <worktree> <out>
 collect() {
   cl_tmp=$(mktemp -d "${TMPDIR:-/tmp}/mc-readiness.XXXXXX") || mc_fail "cannot create a scratch directory"
-  # shellcheck disable=SC2064 # the path is fixed now
-  trap "rm -rf '$cl_tmp'" EXIT
+  trap 'rm -rf "$cl_tmp"' EXIT
   cl_owner=${2%%/*}
   cl_name=${2#*/}
   # shellcheck disable=SC2016 # a jq program
@@ -372,8 +371,7 @@ case $verb in
     [ -n "$evidence" ] || usage
     [ -r "$evidence" ] || mc_fail "the evidence file is unreadable: $(sanitize_printable "$evidence")"
     scratch=$(mktemp -d "${TMPDIR:-/tmp}/mc-readiness.XXXXXX") || mc_fail "cannot create a scratch directory"
-    # shellcheck disable=SC2064 # the path is fixed now
-    trap "rm -rf '$scratch'" EXIT
+    trap 'rm -rf "$scratch"' EXIT
     if [ -n "$program" ]; then
       [ -z "$conditions" ] || usage
       mc_require_program "$program"
