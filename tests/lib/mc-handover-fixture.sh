@@ -6,9 +6,12 @@
 # the suites assert with. The sourcing suite sets `here`, `repo_root` and
 # `suite` (its scratch prefix) and defines fail() and ok() first.
 
+# The fixture resolves paths through a cd in a command substitution.
+unset CDPATH
+
 for t in jq git; do
   command -v "$t" >/dev/null 2>&1 || {
-    echo "FAIL: $t is required to run this suite" >&2
+    printf '%s\n' "FAIL: $t is required to run this suite" >&2
     exit 1
   }
 done

@@ -72,6 +72,9 @@
 #                          never act on one row at once
 #   scripts/mc-watch.sh    a mission-control program's runner lock, so two
 #                          runners never arm or relay over each other
+#   scripts/mc-handover.sh   a mission-control program's handover lock, so a
+#                          take, a resume, a release and a launch never move
+#                          the program name over each other
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is
