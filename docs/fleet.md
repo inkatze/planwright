@@ -1696,7 +1696,8 @@ given.
 **The pane signatures are a platform surface.** The permission-dialog text
 and the busy footer markers live in one sourced file,
 `scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`,
-`fleet-stuck-detector.sh` and the relay's `deliver` step;
+`fleet-stuck-detector.sh`, the relay's `deliver` step and mission control's
+stall detector (`scripts/mc-stall.sh`);
 `FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
 the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
 are verified against the installed CLI's own bundle at each change and

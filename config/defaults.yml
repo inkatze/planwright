@@ -1003,6 +1003,14 @@ mission_control_kb_entry_cap: 8192
 # How many seconds a knowledge-base writer waits on another writer's lock
 # before it fails, never interleaving.
 mission_control_kb_lock_wait: 5
+# How long a busy session's pane may stay unchanged, spinner lines aside,
+# before scripts/mc-stall.sh reads it busy-unchanged. A cadence; time alone
+# never makes a stall, only beside a busy marker and an unchanged pane.
+mission_control_stall_window: 10m
+# The ignored audit files scripts/mc-reclaim.sh copies into the program
+# home's reclaim folder before a worktree goes: worktree-relative paths, a
+# `*` allowed in the last component, a directory taken whole.
+mission_control_reclaim_files: [.claude/steps, .claude/polish-audit.md, .claude/handover.md]
 # How often the watcher runner (scripts/mc-watch.sh run) makes a pass: arms
 # the enabled duties' watchers, re-arms a stopped one, relays pending wakes
 # and runs the failsafe tick. A cadence: a positive count of s, m, h or d.

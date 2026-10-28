@@ -72,6 +72,10 @@
 #                          never act on one row at once
 #   scripts/mc-watch.sh    a mission-control program's runner lock, so two
 #                          runners never arm or relay over each other
+#   scripts/mc-stall.sh    a session's stall sample, so two passes never
+#                          decide from one sample or emit one event twice
+#   scripts/mc-reclaim.sh  a reclaim folder, so two reclaims of one branch
+#                          never copy into or roll back the same folder
 #   scripts/mc-handover.sh   a mission-control program's handover lock, so a
 #                          take, a resume, a release and a launch never move
 #                          the program name over each other

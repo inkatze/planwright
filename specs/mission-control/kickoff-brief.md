@@ -628,6 +628,64 @@ pass against those primary sources and local probes.
   on; the decisions log is read in the layout Task 8 writes. Each absent
   store draws as absent, never as empty.
 
+### Execution research: Task 4 (2026-10-27, after sign-off)
+
+Recorded during Task 4's execution, as the records above were; it changes
+no decision and is not part of the signed section.
+
+Scoping: two security-touching patterns (a script that copies files out of a
+worktree into the program home, and one that removes a worktree) and the
+process-table read liveness rests on; no new dependency, so a short pass of
+local probes against the installed git and the existing fleet scripts.
+
+- **Ignored files and removal.** A probe showed `git worktree remove`
+  deletes a clean worktree's ignored files without a word, so the backup
+  must finish and verify before the removal starts, never after.
+- **Removal reused, not rebuilt.** `scripts/fleet-cleanup.sh worktree`
+  already removes a worktree on positive evidence (clean, and pushed or
+  merged at exactly its head), behind the daemon gate, the self-target
+  guard and the audit trail. The reclaim runs its own predicate and backup,
+  then hands the removal to that arm from the main checkout.
+- **A worker-written `.git` file.** A worktree's `.git` file is the
+  worker's to write, and git trusts it: a review pass showed a forged one
+  pointing at a repository built in the worktree runs `core.fsmonitor`
+  during a plain `git status`. The reclaim takes the worktree only when the
+  program repository's own `worktrees/<id>/gitdir` points back at it,
+  names that git directory on its own calls on the worktree, and turns
+  `core.fsmonitor` and hooks off for every git call that reads it, the
+  removal's included, through git's environment configuration. A submodule
+  is refused outright: its git directory is the worker's to configure and
+  status would run its filters.
+- **Copying out of a worktree.** Only files git reports ignored are copied;
+  a symbolic link is never followed, a file name holding a newline is
+  refused (it would split the file list), and a source or destination
+  directory that resolves outside its root is refused, so a worktree cannot
+  steer a copy of an arbitrary file into the program home or a copy out of
+  it. A refusal before the removal takes back the copies and folders it
+  made, so none blocks the next attempt; once the removal starts the copies
+  stay, since a removal failing partway may already have deleted their
+  sources.
+- **Untracked files.** `git status` honours `status.showUntrackedFiles`, so
+  the clean check names `--untracked-files=all`: with `no` set, an untracked
+  file passed and `git worktree remove` deleted it.
+- **Liveness.** Death is `scripts/fleet-death-evidence.sh`'s positive
+  verdict, which tells lost observability from a gone process: a tmux
+  window gone from a healthy server, or the pid in it gone; a stream-json
+  worker's recorded pid gone, or a state directory whose supervisor removed
+  both pidfiles on exit. A window id is trusted only while the window
+  still carries the session's name. "In use" is any process the reclaim
+  can see whose working directory is in the worktree, read from procfs or,
+  where there is none, `lsof`; in practice those are the operator's own,
+  since another user's are not visible without privilege, and a procfs
+  that hides this process's own working directory refuses the reclaim.
+- **Pane signals.** The selector, staged-paste, busy and input-box markers
+  come from `scripts/fleet-pane-vocabulary.sh`, the one place the TUI's
+  text is pinned, matched as whole strings: under `LC_ALL=C` a bracket class
+  of box glyphs matches single bytes, which a review pass caught skipping
+  every line opening with a bullet glyph. The busy-unchanged hash drops
+  spinner lines, whose timer ticks every second, so only the work above
+  them counts as change.
+
 ### Execution research: Task 16 (2026-10-28, after sign-off)
 
 Recorded during Task 16's execution, as the records above were; it changes
