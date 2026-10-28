@@ -1,7 +1,7 @@
 # Tower comms — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-10-25
+**Last reviewed:** 2026-10-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -648,13 +648,18 @@ logged with the reversal pointer for the session that owns the reversal
 (mission control's undo ledger, mission-control D-24) to run, and the
 script never runs one: running a reversal is an action, and the queue holds
 no actions of its own. Content for both kinds lives in the action-item
-ledger or its pre-ship fallback, the home approvals already use, so the
-containment-checked declared roots do not grow; a decided-by-mission-control
-item names mission control's undo-ledger entry by identifier only. `add`
-admits a decided-by-mission-control item only from a caller whose published
-presence record declares the mission-control session kind, and never on a
-permission prompt, a reserved control, a human gate, or a hard-disqualifier
-zone. When mission control answers a worker's question, the question item
+ledger or its pre-ship fallback, the home approvals already use, written
+there before the record is added or re-kinded, so the containment-checked
+declared roots do not grow; a decided-by-mission-control item names mission
+control's undo-ledger entry by identifier only. `add` admits a
+decided-by-mission-control item only from a caller whose session kind, read
+from mission control's launcher registry (mission-control Task 3), is the
+`mission-control` kind, which Task 11 adds to the registry's accepted
+session kinds since mission-control D-1 declares mission control a session
+kind and that task's registry omits it (a presence record is self-declared, the registry is
+written by the launcher), only with the explicit gate field D-21 defines set
+to `none`, and never on a permission prompt, a reserved control, a human
+gate, or a hard-disqualifier zone. When mission control answers a worker's question, the question item
 still settles by the evidence the answer produces (the `claim` close,
 REQ-B1.2); the reviewable item beside it is the record the operator reviews.
 
@@ -682,21 +687,27 @@ the same order, as everything else.
 window, and the window's end, which is one of the options (the declared
 default) or `park`. All three are fixed at `add`, so nothing at expiry is
 chosen by judgment, and the window runs from the item's birth, defaulting to
-`tower_picklist_window`. The settling pass evaluates expiry against the
+`tower_picklist_window` (default 30 minutes). The settling pass evaluates expiry against the
 window's end time on every pass, level-triggered like every other closing
 condition, so a pass that runs late still records the window's end time
 rather than its own. On a default the item becomes settled-by-default
 (D-20); on `park` it stays an open question marked parked, the tower parks
 the unit it blocks through the Awaiting-input route, and nothing is
-answered. Either way the queue never waits on the operator. `add` refuses a
-declared default, admitting only `park`, on a worker permission prompt (the
-REQ-E1.8 marker), on options naming a reserved control (the REQ-E1.9
-shapes), and on an item its adder declares a human gate or a
-hard-disqualifier zone: those are answered only by the operator or by a
+answered. Either way the queue never waits on the operator. A picklist with
+a declared default, like every decided-by-mission-control item, carries an
+explicit gate field, `gate=none|human-gate|disqualifier-zone`, and `add`
+refuses the record without it, so an omitted declaration can never read as
+`none`. `add` refuses a declared default, admitting only `park`, on a worker
+permission prompt (the REQ-E1.8 marker), on options naming a reserved
+control (the REQ-E1.9 shapes), and on a gate of `human-gate` or
+`disqualifier-zone`; the settling pass applies a default only at
+`gate=none`. Those classes are answered only by the operator or by a
 written rule (D-12), and a timer must never be the thing that answers them.
 A picklist's declaration is logged with the item's birth, so a rebuild
 restores it; one whose declaring line has rotated out is rebuilt as a plain
-question, the safe direction of loss.
+question, the safe direction of loss. A revocation removes the window too,
+and picklist items merge only when their options, end, and window end are
+identical, so a merge never changes what a window would apply.
 
 **Alternatives considered:**
 - Start the window at the first knock or delivery. Rejected because: the
@@ -748,11 +759,14 @@ write time, and the operator's last prompt-event time or an explicit away.
 The mission-control panel is the producer (mission-control D-6), writing on
 each prompt event and refreshing on its timer, so a marker that stops being
 refreshed means the producer is gone, not that the operator is. While the
-marker is fresh (written within `tower_presence_ttl`), the operator is
-present when the last prompt event falls within `tower_quiet_interval` and
-away otherwise; absent, stale, or unreadable, presence falls back to D-9's
-quiet-interval rule unchanged, and each switch between the two sources is
-logged. Presence gates delivery (`next` hands nothing over while the
+marker is fresh (written within `tower_presence_ttl`, default 2 minutes),
+the operator is present when the last prompt event falls within
+`tower_quiet_interval` and away otherwise; absent, stale, or unreadable,
+presence falls back to D-9's quiet-interval rule unchanged, and each switch
+between the two sources is logged. Whichever source is read, a reply on the
+attention marker later than the presence marker's write marks the operator
+present, so a reply in this conversation always outranks a stale panel
+reading. Presence gates delivery (`next` hands nothing over while the
 operator is away, mission-control REQ-F1.4) and drives the away transition
 D-9's push keys on, but it never confirms attention: knock-first and the
 harness-written attention marker (D-6) stay exactly as they are, because a
@@ -777,16 +791,18 @@ the fallback path is the shipped, tested one.
 
 **Decision:** When the top item names a subject, `next` hands over with it
 the other open, unleased, undelivered, deliverable items on the same
-subject, of any kind, up to `tower_batch_max` items, ordered inside the
+subject, of any kind, up to `tower_batch_max` items (default 3), ordered inside the
 batch by the consequence order and each leased to the calling tower; the
 rest wait for a later call. A subject is the existing subject key (worker
 handle, PR number, or branch) or the free-text subject an adder records
 (mission-control D-5's shared key), compared by byte equality after
 case-folding and whitespace collapse, never by similarity, so the batch
 stays mechanical. A paired contradiction on that subject joins the batch as
-its pair; an item naming no subject goes alone. The batch counts as the one
-hand-over per call, each member is still closed on its own, and the batch
-ranks as its highest-ranked member. The consequence order places the two
+its pair, counting two toward the cap and joining only if both fit; an item
+naming no subject goes alone. The batch counts as the one hand-over per
+call (a reply releases the next hand-over, REQ-C1.15), each member is still
+closed on its own, the batch ranks as its highest-ranked member, and the
+scorecard's multi-ask measure counts it once with its size beside it. The consequence order places the two
 reviewable kinds after the operator's requests and before news.
 
 **Alternatives considered:**
@@ -838,10 +854,11 @@ mechanical.
   human gates, hard-disqualifier zones and permission prompts never default
   and never take a mission-control decision (REQ-H1.5).
 
-## Open questions for the delta kickoff
+## Delta kickoff rulings (confirmed 2026-10-28)
 
-Drafted unattended on 2026-10-25. Each line is the choice the worker made
-where mission-control left one open; the kickoff confirms or overturns it.
+Drafted unattended on 2026-10-25 as the choices the worker made where
+mission-control left one open, and confirmed as drafted by the operator at
+the 2026-10-28 delta kickoff. None remains open.
 
 1. **Settled-by-default is the same record re-kinded** rather than a closed
    question plus a new review item (D-20).
@@ -852,9 +869,9 @@ where mission-control left one open; the kickoff confirms or overturns it.
 4. **Default-refused classes**: permission prompts, reserved controls, human
    gates and hard-disqualifier zones end only in `park` (D-21).
 5. **Decided-by-mission-control is admitted only from a caller whose
-   presence record declares the mission-control session kind** (D-20); this
-   needs that kind to exist in the presence record, which mission-control
-   Task 1 or 2 supplies.
+   session kind, read from mission control's launcher registry, is the
+   mission-control kind** (D-20); the registry is mission-control Task 3's,
+   a hard cross-spec dependency of Task 11.
 6. **Content home for both reviewable kinds is the ledger or its fallback**,
    naming mission control's undo-ledger entry by identifier only (D-20).
 7. **Order**: requests, then settled-by-default, then

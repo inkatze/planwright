@@ -1,7 +1,7 @@
 # Tower comms — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-10-25
+**Last reviewed:** 2026-10-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -26,7 +26,7 @@ text. The scorecard's "items delivered in prose with no queue record"
 measure counts the negative case over the same session's log (Task 1).
 Tested over a fixture session in Task 8.
 
-### REQ-A1.2 — Five kinds, each with a closing condition [test]
+### REQ-A1.2 — Five kinds, each with a closing condition [test] (superseded by REQ-A1.10)
 
 The `add` verb accepts exactly the five kinds and refuses any other; a
 record without a closing condition, or with one naming a future automatic
@@ -34,7 +34,9 @@ step, is refused with a message; an urgency outside `high`, `normal`, `low`
 is refused, and a worker-question item inherits its attention-store row's
 priority; a standing decision is accepted, never appears in `next` or in the
 ranking, and its closing condition reads as the operator's revocation. Unit
-tests in Task 3.
+tests in Task 3. The closing-condition, urgency, and standing-decision
+checks are unchanged; the closed kind set now pins to REQ-A1.10, below, and
+Task 11 updates the shipped five-kinds assertion.
 
 ### REQ-A1.3 — Content in its home, delivery state in the store [test]
 
@@ -59,7 +61,7 @@ and a loosened mode refuses the write; a lock-saturation test holds the lock
 past `tower_hook_lock_wait` and the blocked verb reports the expiry as an
 error rather than writing. Unit tests in Task 3.
 
-### REQ-A1.5 — Loss costs one redelivery per open item [test + Gherkin]
+### REQ-A1.5 — Loss costs one redelivery per open item [test + Gherkin] (superseded by REQ-A1.13)
 
 Scenario: given a populated queue, when the store file is deleted and the
 script runs `next`, then the queue is rebuilt from the content homes and at
@@ -69,7 +71,9 @@ deleted and rebuilt, then the shelved item returns at once and the settled
 history is read back from the event log instead. Scenario: given an
 undelivered attention-sourced item whose row has since moved on, when the
 store is rebuilt, then that item is absent and its log line is present.
-Unit tests in Task 3.
+Unit tests in Task 3. Verification now pins to REQ-A1.13, below: the
+moved-on item is recorded as settled with its reason rather than absent,
+and Task 11 updates the shipped assertion.
 
 ### REQ-A1.6 — Constrained grammar and echo safety [test]
 
@@ -117,17 +121,24 @@ Unit tests in Task 3.
 field and `counts` count settled-by-default and decided-by-mission-control
 items without degrading to the unreadable marker; neither kind is ever
 pushed while the operator is away; each closes on `ack` (reviewed) or on
-`revoke`. Supersedes REQ-A1.2's entry, which stays for the five kinds it
-names. Unit tests in Task 11.
+`revoke`; content for either kind is in the ledger or its fallback before
+the record is added or re-kinded, so a failed content write leaves no
+record. Supersedes REQ-A1.2's entry for the closed kind set. Unit tests in
+Task 11.
 
 ### REQ-A1.11 — Picklist declared at birth [test]
 
 A picklist with fewer than two options, an end naming no option and not
 `park`, or a window that fails the grammar is refused; a window left unset
-takes `tower_picklist_window`; a declared default is refused, and `park`
+takes `tower_picklist_window`; a picklist with a declared default and no
+`gate` field is refused; a declared default is refused, and `park`
 admitted, on a permission-marked question, on options naming a
-reserved-control shape, and on an item declared a human gate or a
-hard-disqualifier zone. Unit tests in Task 11.
+reserved-control shape, and on a gate of `human-gate` or
+`disqualifier-zone`; the settling pass applies a default only at
+`gate=none`. A revocation, and a rebuild that cannot read the declaration,
+leave the item with no window; two picklist items on one subject merge only
+when options, end, and window end are identical, and a pair differing in
+any of the three stays two items. Unit tests in Task 11.
 
 ### REQ-A1.12 — A timed-out picklist settles to its default and stays visible [test + Gherkin]
 
@@ -151,12 +162,17 @@ as settled with that reason rather than missing. Unit tests in Task 11.
 
 ### REQ-A1.14 — Who may add a mission-control decision [test]
 
-A decided-by-mission-control `add` from a caller whose presence record does
-not declare the mission-control session kind is refused, as is one with no
-grounds pointer or no reversal field, and one whose subject is a permission
-prompt, a reserved control, a human gate, or a hard-disqualifier zone; one
-from a mission-control identity is accepted and listed. Unit tests in Task
-11.
+A decided-by-mission-control `add` from a caller whose row in a fixture
+launcher registry (standing in for mission-control Task 3's) does not record
+the mission-control session kind is refused, including a caller whose
+presence record claims that kind with no such registry row; so is one with
+no grounds pointer, no reversal field, no `gate` field, or a gate other
+than `none`, and one whose subject is a permission prompt, a reserved
+control, a human gate, or a hard-disqualifier zone; one from a
+mission-control registry row is accepted and listed. Scenario: given the
+launcher registry, when a row of kind `mission-control` is registered, then
+it is accepted, and a row of an unknown kind is still refused. Unit tests in
+Task 11.
 
 ## REQ-B — Settling and merging
 
@@ -228,16 +244,19 @@ run past every timeout, lease expiry, shelve return, and the retention
 horizon, then the item stays open and each pass logs the source as
 unavailable; when a later fixture supplies the evidence, then the item
 settles with its reason. Scenario: given an unreviewed reviewable item older
-than the retention horizon, then it is still in the store. Unit tests in
-Task 11.
+than the retention horizon, then it is still in the store. Scenario: given a
+decided-by-mission-control item, when the operator revokes it, then it
+leaves the open set by that revocation. Unit tests in Task 11.
 
 ### REQ-B1.7 — A settled-by-evidence item carries its reason [test + Gherkin]
 
 Scenario: given an item whose PR merged, when the settling pass runs, then
 the item settles with a reason naming that PR, the log line carries it, and
-`show` and `catchup` render it beside the item. Every settling fixture in
-Task 11 asserts a non-empty reason drawn from the REQ-B1.7 set; no route out
-of the open set leaves a record without one.
+`show` and `catchup` render it beside the item. Scenario: given a reviewable
+item reviewed or revoked, then its reason names the review or revocation
+with the reversal pointer. Every settling fixture in Task 11 asserts a
+non-empty reason drawn from the REQ-B1.7 set; no route out of the open set
+leaves a record without one.
 
 ### REQ-B1.8 — Review and revoke [test + Gherkin]
 
@@ -250,13 +269,15 @@ acknowledged, then it closes as reviewed. Unit tests in Task 11.
 
 ## REQ-C — Attention and delivery
 
-### REQ-C1.1 — At most one hand-over per call [test]
+### REQ-C1.1 — At most one hand-over per call [test] (superseded by REQ-C1.12)
 
 `next` prints one item, one knock line, or nothing, under every queue size
 in the fixture set; a paired contradiction prints as the one item it is
 handed over as, not two; two towers calling in the same window each get
 their own one, which is the accepted per-conversation reading of the bound.
-Unit test in Task 3.
+Unit test in Task 3. Verification now pins to REQ-C1.12, below, where a
+subject batch is a third shape of the one hand-over; Task 13 updates the
+shipped one-item assertion.
 
 ### REQ-C1.2 — Knock first, content after attention [test + Gherkin]
 
@@ -277,20 +298,32 @@ The rule doc states the answerable-alone and one-layer-on-request rules
 (Task 7). Manually checked on the experiment sessions: each delivered item
 was answerable from its message, recorded in the Task 9 entry.
 
-### REQ-C1.4 — Any reply releases the next item [test + Gherkin]
+### REQ-C1.4 — Any reply releases the next item [test + Gherkin] (superseded by REQ-C1.15)
 
 Scenario: given two open items, when the operator replies to the first with
 anything and the attention marker advances, then the next is delivered; when
 the marker has not advanced, then no second item is delivered, whatever else
-the turn contained. Fixture session in Task 8.
+the turn contained. Fixture session in Task 8. Verification now pins to
+REQ-C1.15, below, which releases the next hand-over rather than the next
+item; Task 13 updates the shipped assertion.
 
-### REQ-C1.5 — Ordered by consequence [test]
+### REQ-C1.15 — Any reply releases the next hand-over [test + Gherkin]
+
+Scenario: given two open hand-overs on different subjects, when the operator
+replies to the first and the attention marker advances, then the second is
+handed over; when the marker has not advanced, then no second hand-over is
+handed over, whatever else the turn contained. Scenario: given a subject
+batch handed over, then its members arrive together as the one hand-over
+and no member counts as a volunteered second item. Unit tests in Task 13.
+
+### REQ-C1.5 — Ordered by consequence [test] (superseded by REQ-C1.13)
 
 A mixed fixture queue, run with attention confirmed so `next` prints one
 item rather than the knock line, orders blocked workers, approvals,
 requests, then news, with urgency then age inside each kind; a standing
 decision in the same fixture never appears in the ordering at all. Unit test
-in Task 3.
+in Task 3. Verification now pins to REQ-C1.13, below, which places the two
+reviewable kinds; Task 13 updates the shipped order assertion.
 
 ### REQ-C1.6 — Shelve with bounded return [test]
 
@@ -331,7 +364,7 @@ field renders only while a live tower presence exists, the render completes
 inside its stated latency ceiling over a full-sized store, and with any
 other channel the render includes nothing from the queue (Task 5).
 
-### REQ-C1.10 — Attention comes from the harness marker [test + Gherkin]
+### REQ-C1.10 — Attention comes from the harness marker [test + Gherkin] (superseded by REQ-C1.16)
 
 Scenario: given a tower whose marker file has not advanced since its last
 delivery, when `next` runs, then it hands over nothing, however many replies
@@ -345,14 +378,26 @@ the next delivery knocks again. Scenario: given `ack` called by a tower
 holding no lease on the item, then it is refused and logged as a duplicate
 no-op; given `ack` on an already-closed item, then it is a logged no-op; in
 neither case, nor on a successful `ack`, is a further item released. Unit
-tests in Tasks 2 and 3.
+tests in Tasks 2 and 3. Verification now pins to REQ-C1.16, below, which
+releases the next hand-over rather than the next item; Task 13 updates the
+shipped assertions.
+
+### REQ-C1.16 — Attention releases the next hand-over [test + Gherkin]
+
+The REQ-C1.10 scenarios, unchanged in mechanism, with the hand-over as the
+unit released. Scenario: given an attention session already knocked and a
+subject batch queued, when the operator replies, then the batch is handed
+over whole with no fresh knock, until the REQ-F1.7 quiet interval passes and
+the next delivery knocks again. Scenario: given `ack` on one member of a
+delivered batch, then that member closes, the others stay open, and no
+further hand-over is released. Unit tests in Task 13.
 
 ### REQ-C1.11 — Write failures surface [test]
 
 An unwritable store, an unwritable marker, and an unwritable log each make
 the verb report an error the turn carries, with no silent skip; a delivery
 whose log append fails still hands the item over and surfaces the error, and
-the redelivery it can cause is the one REQ-A1.5 already budgets. Unit tests
+the redelivery it can cause is the one REQ-A1.13 already budgets. Unit tests
 in Task 3.
 
 ### REQ-C1.12 — One hand-over per call: item, pair, or batch [test]
@@ -379,7 +424,9 @@ apart. Scenario: given two free-text subjects differing only in case and
 spacing, then they batch; differing in one word, they do not. Scenario:
 given an item naming no subject, then it is handed over alone. Scenario:
 given a leased batch, then a second tower receives none of its members.
-Unit tests in Task 13.
+Scenario: given two items already batched under a cap of three and a pair
+on the same subject, then the pair counts two, does not join, and waits
+whole for a later call. Unit tests in Task 13.
 
 ## REQ-D — Speech
 
@@ -499,12 +546,14 @@ leaves it open with the attempt logged. Fixtures in Task 6.
 
 ## REQ-F — Unattended operation and survival
 
-### REQ-F1.1 — Away by quiet interval [test]
+### REQ-F1.1 — Away by quiet interval [test] (superseded by REQ-F1.7)
 
 The away state machine: a knock with no reply past `tower_quiet_interval`
 yields away for that tower's conversation; any reply yields present; a
 second tower's state is unaffected by the first's; the knob's default, a
 `<n>m` override, and a sub-second value all parse. Unit tests in Task 5.
+The state machine is unchanged as the fallback; verification now pins to
+REQ-F1.7, below, which reads a presence marker first.
 
 ### REQ-F1.2 — The away push [test + Gherkin]
 
@@ -524,10 +573,12 @@ blocking item, one when a second worker blocks, one when an item passes
 evidence source that would show worsening is unavailable, then the re-knock
 is held rather than fired on a stale reading. Unit test in Task 5.
 
-### REQ-F1.4 — Nothing dropped or auto-answered while away [test]
+### REQ-F1.4 — Nothing dropped or auto-answered while away [test] (superseded by REQ-F1.8)
 
 Over a long fixture timeline with no operator reply, every item remains open
 or evidence-settled; no item is answered or dropped. Unit test in Task 4.
+Verification now pins to REQ-F1.8, below, where a declared default is the
+one answer taken; Task 11 updates the shipped nothing-answered assertion.
 
 ### REQ-F1.5 — A fresh tower resumes the queue [test + Gherkin]
 
@@ -557,7 +608,9 @@ saying away, then `next` hands over nothing and the away push follows
 REQ-F1.2. Scenario: given the marker stale past `tower_presence_ttl`,
 deleted, or corrupt, then presence follows the quiet-interval rule and the
 switch of source is logged once. Scenario: given a present marker and no
-reply on the attention marker, then no item content is handed over. A
+reply on the attention marker, then no item content is handed over.
+Scenario: given a fresh marker saying away, when a reply on the attention
+marker is later than the marker's write, then the operator is present. A
 marker write with a loosened directory mode or a malformed field is
 refused. Unit tests in Task 12.
 
@@ -650,7 +703,8 @@ park, a decided-by-mission-control birth, a review, a revocation, a presence
 source switch, a batch with its members) appends one line under the
 REQ-G1.7 grammar; over the extended fixture log the report reproduces the
 hand-computed breakout of the two reviewable kinds and their revocation
-rates. Unit tests in Tasks 11 through 14.
+rates, and counts a batch hand-over once in the multi-ask measure with its
+size beside it. Unit tests in Tasks 11 through 14.
 
 ## REQ-H — Invariants and hygiene
 
@@ -665,13 +719,15 @@ mechanical refusal still fires at match time (Task 6); the existing
 ready-guard and worker deny rules are untouched by every task's diff,
 verified by a human at each task's review.
 
-### REQ-H1.2 — Settle only by evidence or written rule [test]
+### REQ-H1.2 — Settle only by evidence or written rule [test] (superseded by REQ-H1.5)
 
 The settling pass's fixture set covers every settle path and each names an
 evidence source or a standing decision identifier; a fixture with neither
 leaves the item open; the only rule-driven settle is a permission prompt's
 (REQ-E1.5), and a non-command rule beside a matching item settles nothing
-(REQ-E1.7). Unit tests in Tasks 4 and 6.
+(REQ-E1.7). Unit tests in Tasks 4 and 6. Verification now pins to
+REQ-H1.5, below, which adds a picklist's declared default as a settle
+route; Task 11 updates the shipped assertion.
 
 ### REQ-H1.3 — Hygiene [test]
 
@@ -694,7 +750,8 @@ The settling fixtures cover every route and each names evidence, a
 standing-decision identifier, or a window's declared default; a fixture
 with none leaves the item open; no default and no mission-control decision
 is accepted on a permission prompt, a reserved control, a human gate, or a
-hard-disqualifier zone. Unit tests in Task 11.
+hard-disqualifier zone, and neither takes effect on a record whose `gate`
+field is absent or other than `none`. Unit tests in Task 11.
 
 ## REQ-I — Where the rules live
 

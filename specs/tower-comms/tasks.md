@@ -1,7 +1,7 @@
 # Tower comms — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-25
+**Last reviewed:** 2026-10-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -471,17 +471,25 @@ baseline exists, so the experiment has an honest before.
   free-text subject, a grounds pointer, and a reversal field (one step or
   `none`), each validated and sanitized like every other field; `add`
   accepting a picklist only on a question, defaulting the window to
-  `tower_picklist_window`, and refusing a declared default (admitting only
-  `park`) on a permission-marked item, on options naming a reserved-control
-  shape, and on an item declared a human gate or a hard-disqualifier zone;
-  `add` accepting a decided-by-mission-control item only from a caller
-  whose published presence record declares the mission-control session
-  kind, only with a grounds pointer and a reversal field, and never on those
-  same four subjects; content for both reviewable kinds written to the
-  ledger or its pre-ship fallback before the index record; the settling pass
-  applying an ended window against its end time (a default re-kinds the
-  record settled-by-default with the option and the end time; `park` marks
-  the question parked and answers nothing); the `revoke` verb (a
+  `tower_picklist_window` (default 30 minutes), requiring the explicit
+  `gate=none|human-gate|disqualifier-zone` field on every picklist with a
+  declared default and refusing the record without it, and refusing a
+  declared default (admitting only `park`) on a permission-marked item, on
+  options naming a reserved-control shape, and on a gate of `human-gate` or
+  `disqualifier-zone`; `add` accepting a decided-by-mission-control item
+  only from a caller whose session kind, read from mission control's
+  launcher registry, is the `mission-control` kind, with that kind added to
+  the registry's accepted session kinds (mission-control D-1), only with a
+  grounds
+  pointer, a reversal field, and the gate field set to `none`, and never on
+  those same four subjects; content for both reviewable kinds written to the
+  ledger or its pre-ship fallback before the record is added or re-kinded;
+  picklist items merging only when their options, end, and window end are
+  identical; the settling pass applying an ended window against its end
+  time, a default only at `gate=none` (a default re-kinds the record
+  settled-by-default with the option and the end time; `park` marks the
+  question parked and answers nothing); the window removed by a revocation
+  and by a rebuild that cannot read its declaration; the `revoke` verb (a
   settled-by-default item reopens as its question with no window; a
   decided-by-mission-control item closes as revoked; each revocation logged
   with the reversal pointer; nothing run); `ack` on a reviewable item
@@ -494,7 +502,10 @@ baseline exists, so the experiment has an honest before.
   with that reason; the log events for a picklist's declaration, a window's
   end, a decided-by-mission-control birth, a review, and a revocation; the
   `tower_picklist_window` knob in `config/defaults.yml` with its
-  `docs/options-reference.md` row, accepting sub-second values; committed
+  `docs/options-reference.md` row, accepting sub-second values; the shipped
+  tests asserting the superseded behaviour (five kinds only, a moved-on
+  source row dropped at rebuild, settling only by evidence or a written
+  rule, nothing answered while away) updated to the new rules; committed
   fixtures under `tests/fixtures/tower-comms/`; unit tests, the fixtures
   below among them.
 - **Done when:** a fixture question with options A and B, default B, and a
@@ -511,15 +522,21 @@ baseline exists, so the experiment has an honest before.
   later fixture supplies the evidence and it settles with its reason; a
   `park` window ends with the question still open, marked parked, and
   nothing answered; a default is refused on a permission-marked question,
-  on a reserved-control option, and on a declared human gate or
-  hard-disqualifier zone; a decided-by-mission-control `add` from a plain
-  tower identity, or with no reversal field, is refused, and one from a
-  mission-control identity is listed for review and closes on `ack`; a
+  on a reserved-control option, and on a `human-gate` or
+  `disqualifier-zone` gate, and a picklist with a declared default but no
+  gate field is refused; a decided-by-mission-control `add` from a caller
+  the fixture launcher registry records as a plain tower, from one with a
+  mission-control presence record but no such registry row, with no
+  reversal field, or with no gate field is refused, and one from a
+  mission-control registry row is listed for review and closes on `ack`;
+  the launcher registry accepts a row of kind `mission-control` and still
+  refuses an unknown kind; a
   deleted store rebuilds a reviewable item still awaiting review and records
   a moved-on source row as settled with its reason; no route out of the
   open set leaves a record without a reason; `check:options`,
   `check:test-time` and `mise run check` pass.
-- **Dependencies:** none
+- **Dependencies:** none; plus cross-spec (hard): `mission-control`
+  Task 3 (the launcher registry the caller-kind check reads)
 - **Citations:** D-20, D-21, D-22 · REQ-A1.10, REQ-A1.11, REQ-A1.12,
   REQ-A1.13, REQ-A1.14, REQ-B1.6, REQ-B1.7, REQ-B1.8, REQ-F1.8, REQ-G1.9,
   REQ-H1.5
@@ -535,17 +552,20 @@ baseline exists, so the experiment has an honest before.
   used by `next` and by the away transition: the marker first while it is
   fresh within `tower_presence_ttl`, present when the last prompt event
   falls within `tower_quiet_interval`, the quiet-interval rule as the
-  fallback when the marker is absent, stale, or unreadable, and a logged
-  event on each switch of source; `next` handing nothing over while the
-  operator is away; the attention marker and knock-first untouched; the
-  `tower_presence_ttl` knob in `config/defaults.yml` with its
+  fallback when the marker is absent, stale, or unreadable, a reply on the
+  attention marker later than the presence marker's write marking the
+  operator present whichever source is read, and a logged event on each
+  switch of source; `next` handing nothing over while the operator is away;
+  the attention marker and knock-first untouched; the `tower_presence_ttl`
+  knob (default 2 minutes) in `config/defaults.yml` with its
   `docs/options-reference.md` row, accepting sub-second values; a fixture
   marker standing in for the mission-control panel, which builds the real
   producer; unit tests.
 - **Done when:** with a fresh marker showing a recent prompt event, the
   operator reads present and a due knock is returned; with a fresh marker
   saying away, `next` hands over nothing and the away transition fires its
-  push exactly as REQ-F1.2 states; with the marker past
+  push exactly as REQ-F1.2 states, and a reply on the attention marker after
+  that marker's write marks the operator present; with the marker past
   `tower_presence_ttl`, deleted, or corrupted, presence follows the
   quiet-interval rule and the switch is logged once; a present marker never
   releases item content without a reply on the attention marker; a marker
@@ -566,13 +586,18 @@ baseline exists, so the experiment has an honest before.
   case-folding and whitespace collapse) across kinds, capped at
   `tower_batch_max`, ordered inside by the consequence order, every member
   leased to the calling tower and the rest waiting; a pair on that subject
-  joining the batch; an item with no subject handed over alone; the
-  consequence order with settled-by-default and decided-by-mission-control
-  after requests and before news, a batch ranking as its highest member;
-  the knock naming the batch; `ack` and `revoke` acting on one member at a
-  time; the batch logged with its members; the `tower_batch_max` knob in
-  `config/defaults.yml` with its `docs/options-reference.md` row; unit
-  tests.
+  joining the batch, counting two toward the cap and joining only if both
+  fit; an item with no subject handed over alone; a reply releasing the
+  next hand-over rather than the next item; the consequence order with
+  settled-by-default and decided-by-mission-control after requests and
+  before news, a batch ranking as its highest member; the knock naming the
+  batch; `ack` and `revoke` acting on one member at a time; the batch logged
+  with its members; the `tower_batch_max` knob (default 3) in
+  `config/defaults.yml` with its `docs/options-reference.md` row; the
+  shipped tests asserting the superseded behaviour (one item per call, a
+  reply or the attention marker releasing the next item, the four-kind
+  order) updated to the new
+  rules; unit tests.
 - **Done when:** four fixture items on one PR (a question, an approval, a
   settled-by-default item, and a news item) and one on another PR are handed
   over as one batch of the first PR's top three by the consequence order,
@@ -580,11 +605,13 @@ baseline exists, so the experiment has an honest before.
   apart; two free-text subjects differing only in case and spacing batch
   together, and two differing in one word do not; a second tower never
   receives a member of a leased batch; acknowledging one member leaves the
-  others open; an item with no subject is never batched; the order puts a
+  others open; a pair that would overflow the cap waits whole for a later
+  call; an item with no subject is never batched; the order puts a
   request above a settled-by-default item above a decided-by-mission-control
   item above news; `check:options` and `mise run check` pass.
 - **Dependencies:** 11
-- **Citations:** D-20, D-24 · REQ-C1.12, REQ-C1.13, REQ-C1.14, REQ-G1.9
+- **Citations:** D-20, D-24 · REQ-C1.12, REQ-C1.13, REQ-C1.14, REQ-C1.15,
+  REQ-C1.16, REQ-G1.9
 - **Estimated effort:** 1 day
 
 ### Task 14 — Scorecard, loop wiring, and docs for the queue changes
@@ -596,9 +623,13 @@ baseline exists, so the experiment has an honest before.
   numbers; the tower loop (`/orchestrate`'s watch and `--fleet` loops)
   rendering a batch hand-over and a reviewable item with the replies that
   review or revoke it, and calling `next` when a wake arrives with the tick
-  as the failsafe; no new rule-doc text; `docs/fleet.md`'s operator-queue section covering picklist windows,
-  the reviewable kinds and how to revoke one, presence and its fallback, and
-  batches; the three new knobs listed beside the existing nine.
+  as the failsafe; no new rule-doc text, though the
+  `doctrine/tower-comms.md` heading "One item, answerable alone" MAY be
+  reworded so it reads true of a batch hand-over; `docs/fleet.md`'s
+  operator-queue section covering picklist windows, the reviewable kinds
+  and how to revoke one, presence and its fallback, and batches; the new
+  knobs listed with the existing queue knobs; the scorecard's multi-ask
+  measure counting a batch once, its size reported beside it.
 - **Done when:** the report over the extended fixture reproduces its
   hand-computed breakout and revocation rates; a scripted tower session over
   a fixture fleet delivers a batch as one hand-over, shows a
@@ -614,17 +645,6 @@ baseline exists, so the experiment has an honest before.
 
 ## Awaiting input
 
-- **Task 11** — anchor re-review pending: the 2026-10-25 extension (the
-  queue changes mission control depends on; `## Changelog` in
-  requirements.md) supersedes REQs and decisions and adds Tasks 11 through
-  14, so the anchored-content delta is meaning-class and no anchor entry was
-  written; the freshness gate stays failed closed for this bundle.
-  Operator: run a `/spec-kickoff` delta re-walkthrough of the extension,
-  settling the open questions in design.md; its sign-off re-records the
-  anchor and removes this bullet and the next.
-- **Task 12** — anchor re-review pending: the same extension; this task has
-  no dependency edge, so it is parked here until that delta kickoff signs
-  off.
 - **Task 2** — the mechanical half (the prompt-submit hook, the per-pass
   tick, the loop's delivered-turn logging) is on
   `planwright/tower-comms/task-2` and lands with that branch's draft PR; the
