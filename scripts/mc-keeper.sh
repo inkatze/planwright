@@ -162,7 +162,8 @@ rows() {
 # row_live <row>: the exact ledger row is still there (a later track may
 # have re-pointed the session).
 row_live() {
-  rows | R=$1 awk 'BEGIN { r = ENVIRON["R"] } $0 == r { f = 1 } END { exit !f }'
+  rl_rows=$(rows) || exit 1
+  printf '%s\n' "$rl_rows" | R=$1 awk 'BEGIN { r = ENVIRON["R"] } $0 == r { f = 1 } END { exit !f }'
 }
 
 # The ledger has its own lock, never the fleet lock: a retire runs inside
@@ -181,7 +182,7 @@ replace_row() {
 }
 
 # say <tag> <session> [<text>]: a sweep line, or under the runner the
-# session's landing as an event, once per session, state and outcome.
+# session's landing as an event, once per pull request, state and outcome.
 say() {
   if [ "$events" = 0 ]; then
     printf '%s\t%s%s\n' "$1" "$2" "${3:+	$3}"
@@ -264,6 +265,9 @@ EOF
     if [ -z "$sw_held" ] && [ "$sw_w" != "-" ] && [ -d "$sw_w" ]; then
       if sw_out=$(/bin/bash "$script_dir/mc-reclaim.sh" reclaim --program "$program" "$sw_w" 2>&1); then
         [ "$events" = 1 ] || printf 'reclaimed\t%s\t%s\n' "$sw_s" "$sw_w"
+      elif ! row_live "$sw_row"; then
+        # Another sweep took the line and its worktree meanwhile.
+        continue
       else
         sw_held="worktree ($(printf '%s' "$sw_out" | tail -n 1 | mc_clean))"
       fi
@@ -288,7 +292,8 @@ $sw_rows
 EOF
   # The announced set keeps only the pull requests still tracked.
   if [ "$events" = 1 ] && [ -f "$seen" ]; then
-    sw_live=$(rows | awk -F '\t' '{ print $1 "\t" $2 "#" $3 }') || exit 1
+    sw_cur=$(rows) || exit 1
+    sw_live=$(printf '%s\n' "$sw_cur" | awk -F '\t' 'NF { print $1 "\t" $2 "#" $3 }')
     sw_kept=$(LIVE=$sw_live awk -F '\t' 'BEGIN { n = split(ENVIRON["LIVE"], l, "\n"); for (i = 1; i <= n; i++) live[l[i]] = 1 } (($1 "\t" $2) in live)' "$seen") || return 1
     { [ -z "$sw_kept" ] || printf '%s\n' "$sw_kept"; } | mc_write "$seen" || return 1
   fi
