@@ -28,6 +28,7 @@ done
 
 ROW_FORMAT=1
 PANE_LINES=20
+TMUX_BOUND=10
 FOOTER_LINES=8
 
 help_text() {
@@ -51,11 +52,14 @@ scripts/fleet-death-evidence.sh, never pane text or elapsed time:
                supervisor.pid); a state directory holding neither pidfile
                is a supervisor that has exited, since it removes both
 The states, first match wins:
-  dead                   the predicate reports the window or process gone
-  unknown                no liveness evidence either way (no pidfile or
-                         state directory, an unreachable tmux server, a
-                         window id now naming another window); the reason
-                         says whether the pane is changing, stable or absent
+  dead                   the predicate reports the window or process gone,
+                         or a stream-json state directory holds neither
+                         pidfile
+  unknown                no liveness evidence either way (no state
+                         directory, an unreadable pidfile, an unreachable
+                         or unresponsive tmux server, a window id now naming
+                         another window); the reason says whether the pane
+                         is absent, on its first sample, changing or stable
   open-selector          a dialog or select menu is open in the pane
   unsubmitted-prompt     the input box holds a staged paste
   turn-ended-background  the main turn ended with background agents running
@@ -85,7 +89,8 @@ Exit codes: 0 classified; 1 the registry, a sample or a lock could not be
 read or written, an event could not be emitted, the stall-window knob or the
 fleet home does not resolve; a scan classifies every other session first;
 2 usage, a malformed name or a registry row of an unknown format; 3 the
-program is not configured or no row names the session.
+program is not configured, or no launched row names the session (none, a
+launch still in flight, or a row naming another session).
 HELP
 }
 
@@ -141,9 +146,13 @@ $rr_out
 EOF
 }
 
+# bounded <cmd...>: run a tmux-reaching command under a wall-clock bound, so a
+# wedged server cannot hold a pass (and a session's lock) open.
+bounded() { /bin/sh "$script_dir/bounded-run.sh" "$TMUX_BOUND" "$@"; }
+
 # death <class> <args...>: dead, alive or unknown from the fleet predicate.
 death() {
-  d_out=$(/bin/sh "$script_dir/fleet-death-evidence.sh" "$@" 2>/dev/null </dev/null)
+  d_out=$(bounded /bin/sh "$script_dir/fleet-death-evidence.sh" "$@" 2>/dev/null </dev/null)
   case $d_out in
     dead | alive) printf '%s\n' "$d_out" ;;
     *) printf 'unknown\n' ;;
@@ -170,7 +179,7 @@ liveness() {
           return 0
           ;;
       esac
-      lv_line=$(tmux display-message -p -t "$3" '#{window_name}	#{pane_pid}' 2>/dev/null) || {
+      lv_line=$(bounded tmux display-message -p -t "$3" '#{window_name}	#{pane_pid}' 2>/dev/null) || {
         L_REASON="window $3 unreadable"
         return 0
       }
@@ -223,7 +232,7 @@ liveness() {
 # capture <backend> <handle>: the visible pane of a tmux session.
 capture() {
   [ "$1" = tmux ] && valid_window "$2" || return 1
-  tmux capture-pane -p -t "$2" 2>/dev/null
+  bounded tmux capture-pane -p -t "$2" 2>/dev/null
 }
 
 # trim_pane: the last PANE_LINES lines up to the last non-blank one, so a
@@ -277,7 +286,7 @@ classify_one() {
   }
   if [ "$R_name" != "$c_name" ]; then
     printf '%s\n' "$prog: the registry row $c_name names another session or is gone; skipped" >&2
-    return 0
+    return 3
   fi
   c_kind=$R_kind
   mc_valid_kebab "$c_kind" || c_kind=-
@@ -286,11 +295,21 @@ classify_one() {
     *[!A-Za-z0-9:.-]*) c_launch=- ;;
   esac
 
+  c_sample="$STALL_DIR/$c_name"
+  c_lock="$STALL_DIR/.lock.$c_name"
+  pw_lock_acquire "$c_lock" || {
+    printf '%s\n' "$prog: cannot take the sample lock for $c_name" >&2
+    return 1
+  }
+  # The pane and the clock are read under the lock, so a pass that waited
+  # never decides from a capture older than the sample it replaces.
+  [ -n "$NOW_RAW" ] || NOW=$(mc_now)
   c_pane=''
   c_have_pane=0
   if [ -n "$PANE_FILE" ]; then
     c_pane=$(trim_pane <"$PANE_FILE") || {
       printf '%s\n' "$prog: cannot read the pane file" >&2
+      pw_lock_release "$c_lock" || :
       return 1
     }
     c_have_pane=1
@@ -299,12 +318,6 @@ classify_one() {
     c_have_pane=1
   fi
 
-  c_sample="$STALL_DIR/$c_name"
-  c_lock="$STALL_DIR/.lock.$c_name"
-  pw_lock_acquire "$c_lock" || {
-    printf '%s\n' "$prog: cannot take the sample lock for $c_name" >&2
-    return 1
-  }
   c_prev_launch='' c_prev_hash='' c_prev_since='' c_prev_state=''
   if [ -f "$c_sample" ] && [ ! -L "$c_sample" ]; then
     IFS='	' read -r c_prev_launch c_prev_hash c_prev_since c_prev_state <"$c_sample" || :
@@ -439,7 +452,7 @@ done
 [ -n "$PROGRAM" ] || usage
 [ "$verb" = scan ] || [ -n "$NAME" ] || usage
 [ -z "$NAME" ] || valid_name "$NAME" || mc_usage_fail "invalid session name '$(sanitize_printable "$NAME")'"
-[ -z "$PANE_FILE" ] || [ -r "$PANE_FILE" ] || mc_usage_fail "cannot read the pane file $(sanitize_printable "$PANE_FILE")"
+[ -z "$PANE_FILE" ] || { [ -f "$PANE_FILE" ] && [ -r "$PANE_FILE" ]; } || mc_usage_fail "cannot read the pane file $(sanitize_printable "$PANE_FILE")"
 mc_now_arg "$NOW_RAW"
 mc_require_program "$PROGRAM"
 
@@ -447,7 +460,8 @@ STALL_RAW=$(mc_knob mission_control_stall_window mc_parse_cadence) || exit 1
 STALL_SECONDS=$(mc_seconds "$STALL_RAW")
 FLEET_HOME=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
 REG="$FLEET_HOME/mission-control/sessions"
-STALL_DIR="$FLEET_HOME/mission-control/$PROGRAM/stall"
+RUNTIME=$(mc_runtime "$PROGRAM") || mc_fail "cannot create the runtime directory of program $PROGRAM"
+STALL_DIR="$RUNTIME/stall"
 mkdir -p "$STALL_DIR" 2>/dev/null || mc_fail "cannot create $(sanitize_printable "$STALL_DIR")"
 pw_lock_trap_install
 
@@ -464,7 +478,12 @@ case $verb in
         exit 3
         ;;
     esac
-    classify_one "$row" || exit 1
+    if [ "$R_state" != launched ]; then
+      printf '%s\n' "$prog: $NAME is not launched (its row reads $(sanitize_printable "${R_state:-no state}"))" >&2
+      exit 3
+    fi
+    classify_one "$row"
+    exit $?
     ;;
   scan)
     if [ ! -e "$REG" ]; then
@@ -494,7 +513,8 @@ case $verb in
         *) continue ;;
       esac
       [ "$R_state" = launched ] || continue
-      classify_one "$row" || failed=1
+      classify_one "$row"
+      [ "$?" != 1 ] || failed=1
     done
     exit "$failed"
     ;;

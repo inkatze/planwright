@@ -650,16 +650,20 @@ local probes against the installed git and the existing fleet scripts.
   worker's to write, and git trusts it: a review pass showed a forged one
   pointing at a repository built in the worktree runs `core.fsmonitor`
   during a plain `git status`. The reclaim takes the worktree only when the
-  program repository's own `worktrees/<id>/gitdir` points back at it, then
-  names that git directory on every call with `core.fsmonitor` and hooks
-  off.
+  program repository's own `worktrees/<id>/gitdir` points back at it,
+  names that git directory on its own calls, and turns `core.fsmonitor` and
+  hooks off for every git call, the removal's included, through git's
+  environment configuration. A submodule is refused outright: its git
+  directory is the worker's to configure and status would run its filters.
 - **Copying out of a worktree.** Only files git reports ignored are copied;
   a symbolic link is never followed, a file name holding a newline is
   refused (it would split the file list), and a source or destination
   directory that resolves outside its root is refused, so a worktree cannot
   steer a copy of an arbitrary file into the program home or a copy out of
-  it. A refused reclaim takes back the copies it made, so none blocks the
-  next attempt.
+  it. A refusal before the removal takes back the copies and folders it
+  made, so none blocks the next attempt; once the removal starts the copies
+  stay, since a removal failing partway may already have deleted their
+  sources.
 - **Untracked files.** `git status` honours `status.showUntrackedFiles`, so
   the clean check names `--untracked-files=all`: with `no` set, an untracked
   file passed and `git worktree remove` deleted it.

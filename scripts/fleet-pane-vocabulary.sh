@@ -67,9 +67,10 @@ to manage
 MARKERS
 }
 
-# Input-box anchors (plain prefixes of a line, leading blanks stripped): the
-# prompt glyphs that open the input line, and the border glyphs that frame
-# the box above it.
+# Input-box anchors, matched as whole-string prefixes of a line with its
+# leading blanks stripped, unlike the substring needles below: the prompt
+# glyphs that open the input line, and the border glyphs that frame the box
+# above it.
 input_prompt_prefixes() {
   cat <<'PREFIXES'
 ❯

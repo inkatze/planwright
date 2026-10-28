@@ -212,6 +212,26 @@ printf 'gitdir: %s\n' "$(git -C "$tmp/other" rev-parse --absolute-git-dir)" >"$t
 reclaim check --program alpha "$tmp/work/wt-forged"
 expect_out "a .git file pointing elsewhere is not trusted" "not-program-repo"
 
+worktree wt-borrow feat/borrow
+pr feat/borrow 27 MERGED "$(git -C "$tmp/work/wt-borrow" rev-parse HEAD)"
+cp "$tmp/work/wt-open/.git" "$tmp/work/wt-borrow/.git"
+reclaim check --program alpha "$tmp/work/wt-borrow"
+expect_out "a .git file borrowing another worktree's git directory is not trusted" "not-program-repo"
+
+worktree wt-noup feat/noup
+g -C "$tmp/work/wt-noup" branch -q --unset-upstream
+pr feat/noup 28 CLOSED "$(git -C "$tmp/work/wt-noup" rev-parse HEAD)"
+reclaim check --program alpha "$tmp/work/wt-noup"
+expect_out "no upstream and no PR merged at HEAD refuses as unpushed" "unpushed"
+
+worktree wt-sub feat/sub
+g -C "$tmp/work/wt-sub" update-index --add --cacheinfo "160000,$(git -C "$tmp/work/wt-sub" rev-parse HEAD),sub"
+g -C "$tmp/work/wt-sub" commit -qm sub
+g -C "$tmp/work/wt-sub" push -q 2>/dev/null
+pr feat/sub 29 MERGED "$(git -C "$tmp/work/wt-sub" rev-parse HEAD)"
+reclaim check --program alpha "$tmp/work/wt-sub"
+expect_out "a worktree holding a submodule is refused" "submodule"
+
 # --- the backup is verified before anything goes ----------------------------
 
 worktree wt-cpfail feat/cpfail
@@ -247,6 +267,17 @@ expect_out "the refusal names the clash" "already holds a different"
   && ok "the older file is kept" || fail "the older file was overwritten"
 [ -d "$tmp/work/wt-clash" ] && ok "a clash leaves the worktree" || fail "a clash removed the worktree"
 
+worktree wt-paused feat/paused
+pr feat/paused 30 MERGED "$(git -C "$tmp/work/wt-paused" rev-parse HEAD)"
+printf 'fleet_daemon_pause: true\n' >>"$tracked"
+reclaim reclaim --program alpha "$tmp/work/wt-paused"
+sed -i.bak '/^fleet_daemon_pause: true$/d' "$tracked" && rm -f "$tracked.bak"
+expect_rc "a removal fleet-cleanup refuses refuses the reclaim" 1
+expect_out "the refusal names the removal arm" "removal"
+[ -d "$tmp/work/wt-paused" ] && ok "a refused removal leaves the worktree" || fail "a refused removal removed the worktree"
+[ -f "$home/reclaimed/proj/feat/paused/.claude/polish-audit.md" ] && ok "a refused removal keeps the verified copies" \
+  || fail "a refused removal took the copies back"
+
 worktree wt-corrupt feat/corrupt
 pr feat/corrupt 16 MERGED "$(git -C "$tmp/work/wt-corrupt" rev-parse HEAD)"
 mkdir -p "$tmp/corruptcp"
@@ -263,8 +294,8 @@ ERR=$(cat "$tmp/stderr")
 expect_rc "a hash mismatch refuses the reclaim" 1
 expect_out "the refusal names the hash mismatch" "hash mismatch"
 [ -d "$tmp/work/wt-corrupt" ] && ok "a hash mismatch leaves the worktree" || fail "a hash mismatch removed the worktree"
-[ -z "$(find "$home/reclaimed/proj/feat/corrupt" -type f 2>/dev/null)" ] && ok "a refused backup takes its copies back" \
-  || fail "a refused backup left copies in the reclaim folder"
+[ ! -e "$home/reclaimed/proj/feat/corrupt" ] && ok "a refused backup takes its copies and folders back" \
+  || fail "a refused backup left copies or folders in the reclaim folder"
 OUT=$(PATH="$tmp/corruptcp:$PATH" mc_env /bin/bash "$repo_root/scripts/mc-reclaim.sh" reclaim --program alpha "$tmp/work/wt-corrupt" 2>"$tmp/stderr")
 RC=$?
 expect_out "a retry meets the mismatch again, not a leftover copy" "hash mismatch"

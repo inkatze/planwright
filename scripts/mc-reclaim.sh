@@ -42,14 +42,16 @@ Usage:
 
 <worktree> is the absolute path of a linked worktree of one of the program's
 repositories, proved from that repository's own git directory, never from
-the worktree's .git file alone; every git call runs with the repository's
-git directory named and core.fsmonitor and hooks off. The predicate's arms,
-each refusing on its own:
+the worktree's .git file alone. This script's git calls name that git
+directory, and every git call, the removal's included, runs with
+core.fsmonitor and hooks off. The predicate's arms, each refusing on its
+own:
   live-user      a process of this user has its working directory in the
                  worktree, or none of the process table's working
                  directories can be read (another user's processes are not
                  visible without privilege)
-  uncommitted    git status lists a change or an untracked file
+  uncommitted    git status lists a change or an untracked file, or the
+                 worktree holds a submodule
   no-pr, pr-open the forge has no PR from this repository for the branch,
                  or one is still open; a merged or closed one passes
   unpushed       the branch is neither at parity with its upstream nor the
@@ -58,23 +60,26 @@ each refusing on its own:
 and the shape checks: not-a-worktree, not-program-repo, main-checkout,
 detached, bad-branch, pr-unreadable. A reclaim adds:
   backup         a copy failed, differs from its source, would replace a
-                 different file already in the reclaim folder, or the
-                 folder resolves outside the program home's reclaimed/;
-                 a file name holding a newline is refused
-  removal        fleet-cleanup.sh refused the removal (its exit and last
-                 line follow), or a process entered the worktree since the
-                 predicate ran
+                 different file already in the reclaim folder, a folder on
+                 its way is a symbolic link, another reclaim of the folder
+                 holds its lock, or a file name holds a newline
+  interrupted    a signal stopped the backup
+  removal        a process entered the worktree since the predicate ran, or
+                 fleet-cleanup.sh refused the removal (its exit and last
+                 line follow)
 
 The backup copies every git-ignored file the mission_control_reclaim_files
 knob matches (worktree-relative paths, `*` in the last component, a
 directory taken whole, a symbolic link never followed) into
 <program home>/reclaimed/<repository>/<branch>/, at the same relative path,
-and compares each copy's size and SHA-256 with its source. A refused
-reclaim takes back every copy it made, so the worktree and the reclaim
-folder are as they were; one reclaim of a folder runs at a time.
+and compares each copy's size and SHA-256 with its source. A refusal before
+the removal starts takes back every copy and folder it made; once the
+removal starts the copies stay, whatever its outcome, since a removal that
+fails partway may already have deleted their sources, and signals are held
+off until it ends.
 
 Output, tab separated:
-  <verb> <worktree> ok <merged|closed> #<n>              check passed
+  check <worktree> ok <merged|closed> #<n>
   reclaim <worktree> reclaimed <folder> <n> files
   <verb> <worktree> refused <arm> <detail>
 
@@ -89,7 +94,10 @@ usage() {
   mc_usage_fail "usage: mc-reclaim.sh check|reclaim --program <p> <worktree>"
 }
 
+# CREATED lists the copies this run made, MADE the directories it made
+# (deepest last); a refusal before the removal takes both back.
 CREATED=''
+MADE=''
 DEST_LOCK=''
 rollback() {
   while IFS= read -r rb_f; do
@@ -97,7 +105,33 @@ rollback() {
   done <<EOF
 $CREATED
 EOF
-  CREATED=''
+  printf '%s' "$MADE" | awk 'NF { l[++n] = $0 } END { for (i = n; i > 0; i--) print l[i] }' | while IFS= read -r rb_d; do
+    rmdir "$rb_d" 2>/dev/null || :
+  done
+  CREATED='' MADE=''
+}
+
+# make_dir <base> <rel>: create <base>/<rel> owner-only, refusing when any
+# part of it below <base> is a symbolic link, and note what it made.
+make_dir() {
+  md_p=$1
+  md_rest=$2
+  while [ -n "$md_rest" ]; do
+    md_part=${md_rest%%/*}
+    if [ "$md_part" = "$md_rest" ]; then
+      md_rest=''
+    else
+      md_rest=${md_rest#*/}
+    fi
+    [ -n "$md_part" ] || continue
+    md_p="$md_p/$md_part"
+    [ ! -L "$md_p" ] || refuse backup "${md_p#"$HOME_DIR"/} is a symbolic link"
+    if [ ! -e "$md_p" ]; then
+      (umask 077 && mkdir "$md_p") 2>/dev/null || refuse backup "cannot create ${md_p#"$HOME_DIR"/}"
+      MADE="$MADE$md_p$NL"
+    fi
+    [ -d "$md_p" ] || refuse backup "${md_p#"$HOME_DIR"/} is not a directory"
+  done
 }
 refuse() { # refuse <arm> <detail>
   rollback
@@ -199,6 +233,7 @@ REPOS=$(/bin/bash "$script_dir/mc-program.sh" get "$PROGRAM" repositories) || mc
 
 [ -d "$WT" ] || refuse not-a-worktree "no such directory"
 WT=$(cd "$WT" && pwd -P) || refuse not-a-worktree "not a traversable directory"
+[ "$WT" = "$(sanitize_printable "$WT")" ] || mc_usage_fail "refusing a worktree whose resolved path holds a control byte"
 # The worktree's .git file is the worker's to write, so it only names a
 # candidate: the repository's own worktrees/<id>/gitdir must point back.
 MAIN='' GITDIR=''
@@ -257,7 +292,11 @@ HEAD_OID=$(g rev-parse HEAD 2>/dev/null) || refuse not-a-worktree "HEAD is unrea
 users=$(live_users "$WT") || refuse live-user "the process table's working directories cannot be read"
 [ -z "$users" ] || refuse live-user "in use by pid $(printf '%s' "$users" | tr '\n' ' ' | sed 's/ $//')"
 
-status=$(g status --porcelain --untracked-files=all 2>/dev/null) || refuse uncommitted "git status failed"
+# A submodule's own git directory is the worker's to configure, and status
+# would run its filters; the removal refuses a worktree holding one anyway.
+gitlinks=$(g ls-files --stage 2>/dev/null | awk '$1 == "160000"' | head -n 1) || refuse uncommitted "git ls-files failed"
+[ -z "$gitlinks" ] || refuse uncommitted "the worktree holds a submodule"
+status=$(g status --porcelain --untracked-files=all --ignore-submodules=all 2>/dev/null) || refuse uncommitted "git status failed"
 [ -z "$status" ] || refuse uncommitted "$(printf '%s\n' "$status" | wc -l | tr -d ' ') path(s) changed or untracked"
 
 prs=$(cd "$MAIN" && /bin/sh "$script_dir/bounded-run.sh" "$GH_BOUND" gh pr list --head "$BRANCH" --state all \
@@ -311,19 +350,31 @@ fi
 
 HOME_DIR=$(/bin/bash "$script_dir/mc-program.sh" get "$PROGRAM" home) || mc_fail "the home of program $PROGRAM does not resolve"
 FILES=$(mc_knob mission_control_reclaim_files parse_paths) || exit 1
-RECLAIMED="$HOME_DIR/reclaimed"
-DEST="$RECLAIMED/$REPO_NAME/$BRANCH"
-(umask 077 && mkdir -p "$DEST") 2>/dev/null || refuse backup "cannot create the reclaim folder"
-RECLAIMED_P=$(cd "$RECLAIMED" && pwd -P) || refuse backup "cannot resolve the reclaim folder"
-DEST_P=$(cd "$DEST" && pwd -P) || refuse backup "cannot resolve the reclaim folder"
-[ "$DEST_P" = "$RECLAIMED_P/$REPO_NAME/$BRANCH" ] || refuse backup "the reclaim folder resolves through a symbolic link"
-pw_lock_trap_install
-trap 'rollback; exit 1' HUP INT TERM
-DEST_LOCK="$RECLAIMED_P/.lock.$(printf '%s/%s' "$REPO_NAME" "$BRANCH" | mc_sha256)"
-pw_lock_acquire "$DEST_LOCK" || {
-  DEST_LOCK=''
-  refuse backup "another reclaim of this folder is running"
+(umask 077 && mkdir -p "$HOME_DIR") 2>/dev/null || mc_fail "cannot create the home of program $PROGRAM"
+on_signal() {
+  rollback
+  printf '%s\t%s\t%s\t%s\t%s\n' "$VERB" "$(sanitize_printable "$WT")" refused interrupted "a signal stopped the backup; its copies were taken back"
+  exit 1
 }
+pw_lock_trap_install
+trap on_signal HUP INT TERM
+make_dir "$HOME_DIR" reclaimed
+RECLAIMED="$HOME_DIR/reclaimed"
+DEST_LOCK="$RECLAIMED/.lock.$(printf '%s/%s' "$REPO_NAME" "$BRANCH" | mc_sha256)"
+pw_lock_acquire "$DEST_LOCK"
+case $? in
+  0) ;;
+  1)
+    DEST_LOCK=''
+    refuse backup "another reclaim of this folder is running"
+    ;;
+  *)
+    DEST_LOCK=''
+    refuse backup "cannot take the reclaim folder's lock"
+    ;;
+esac
+make_dir "$RECLAIMED" "$REPO_NAME/$BRANCH"
+DEST="$RECLAIMED/$REPO_NAME/$BRANCH"
 
 list=''
 while IFS= read -r pat; do
@@ -337,6 +388,9 @@ while IFS= read -r pat; do
   IFS=$old_ifs
   set -f
   for m in "$@"; do
+    case $m in
+      *"$NL"*) refuse backup "a file name matching $pat holds a newline" ;;
+    esac
     [ -e "$m" ] && [ ! -L "$m" ] || continue
     if [ -d "$m" ]; then
       [ -z "$(find "$m" -name "*$NL*" 2>/dev/null | head -n 1)" ] || refuse backup "a file name under ${m#"$WT"/} holds a newline"
@@ -367,18 +421,15 @@ while IFS= read -r src; do
     *) refuse backup "git cannot say whether $rel is ignored" ;;
   esac
   [ -f "$src" ] && [ ! -L "$src" ] || refuse backup "$rel is no longer a regular file"
+  case $rel in
+    */*) make_dir "$DEST" "${rel%/*}" ;;
+  esac
   dst="$DEST/$rel"
   src_sum=$(mc_sha256 <"$src") || refuse backup "cannot hash $rel"
   if [ -e "$dst" ] || [ -L "$dst" ]; then
     [ -f "$dst" ] && [ ! -L "$dst" ] && [ "$(mc_sha256 <"$dst")" = "$src_sum" ] \
       || refuse backup "the reclaim folder already holds a different $rel"
   else
-    (umask 077 && mkdir -p "${dst%/*}") 2>/dev/null || refuse backup "cannot create the folder for $rel"
-    dst_dir=$(cd "${dst%/*}" && pwd -P) || refuse backup "cannot resolve the folder for $rel"
-    case "$dst_dir/" in
-      "$DEST_P"/*) ;;
-      *) refuse backup "the folder for $rel resolves outside the reclaim folder" ;;
-    esac
     CREATED="$CREATED$dst$NL"
     cp "$src" "$dst" 2>/dev/null || refuse backup "the copy of $rel failed"
   fi
@@ -394,15 +445,19 @@ EOF
 
 users=$(live_users "$WT") || refuse removal "the process table's working directories cannot be read"
 [ -z "$users" ] || refuse removal "a process entered the worktree: pid $(printf '%s' "$users" | tr '\n' ' ' | sed 's/ $//')"
+# From here the copies stay whatever happens: a removal that fails partway
+# may already have deleted their sources.
+CREATED='' MADE=''
+trap '' HUP INT TERM
 set -- worktree "$WT" "mission-control reclaim" "program $PROGRAM: $PR_STATE PR #$PR_NUM, $n audit file(s) backed up"
 [ -z "$MERGED_PR" ] || set -- "$@" --merged-pr "$MERGED_PR"
-fc_err=$(cd "$MAIN" && /bin/sh "$script_dir/fleet-cleanup.sh" "$@" 2>&1 >/dev/null </dev/null)
+fc_err=$(cd "$MAIN" && GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false \
+  GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null \
+  /bin/sh "$script_dir/fleet-cleanup.sh" "$@" 2>&1 >/dev/null </dev/null)
 fc_rc=$?
 if [ "$fc_rc" != 0 ] && [ "$fc_rc" != 6 ]; then
-  refuse removal "fleet-cleanup exit $fc_rc: $(printf '%s' "$fc_err" | tail -n 1)"
+  refuse removal "fleet-cleanup exit $fc_rc, copies kept: $(printf '%s' "$fc_err" | tail -n 1)"
 fi
-CREATED=''
-trap - HUP INT TERM
 pw_lock_release "$DEST_LOCK" || :
 [ "$fc_rc" = 0 ] || printf '%s\n' "$prog: the worktree was removed but its audit-trail record failed" >&2
 printf 'reclaim\t%s\treclaimed\t%s\t%s files\n' "$(sanitize_printable "$WT")" "$(sanitize_printable "$DEST")" "$n"

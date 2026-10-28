@@ -79,7 +79,7 @@ while [ "$#" -gt 0 ]; do
 done
 n=${w#@}
 case $verb in
-  ls) exit 0 ;;
+  ls) [ ! -e "$TMUX_STUB/down" ] ;;
   list-windows)
     for f in "$TMUX_STUB"/*.name; do
       [ -f "$f" ] || continue
@@ -237,6 +237,19 @@ stall classify --program alpha --now 1000 mc-alpha-tower-gone
 expect_state "a window gone from the server reads dead" mc-alpha-tower-gone dead
 expect_out "the dead state names the window" "window @9 gone"
 
+row mc-alpha-reviewer-down reviewer tmux @16
+window 16 "$live_pid" "$tmp/idle.pane"
+: >"$tmp/tmux/down"
+stall classify --program alpha --now 1000 mc-alpha-reviewer-down
+rm -f "$tmp/tmux/down"
+expect_state "an unreachable tmux server reads unknown, never dead" mc-alpha-reviewer-down unknown
+
+row mc-alpha-orchestrator-sup orchestrator stream-json mc-alpha-orchestrator-sup
+sj mc-alpha-orchestrator-sup -
+printf '%s\n' "$live_pid" >"$fleet/streamjson/mc-alpha-orchestrator-sup/supervisor.pid"
+stall classify --program alpha --now 1000 mc-alpha-orchestrator-sup
+expect_state "a live supervisor between workers reads live" mc-alpha-orchestrator-sup live
+
 row mc-alpha-worker-reused worker tmux @10
 window 10 "$live_pid" "$tmp/idle.pane"
 printf 'someone-else\n' >"$tmp/tmux/10.name"
@@ -324,6 +337,28 @@ expect_state "an idle pane unchanged for many windows reads idle, not stalled" m
 
 # --- each state only on its own signal ---------------------------------------
 
+spin_pane() { # spin_pane <file> <seconds>: a spinner line with no interrupt hint
+  cat >"$1" <<EOF
+⏺ Compiling the fixtures.
+
+✻ Herding… ($2s)
+
+────────────────────────────────────────
+❯
+────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+EOF
+}
+spin_pane "$tmp/spin-a.pane" 3
+spin_pane "$tmp/spin-b.pane" 700
+row mc-alpha-ad-hoc-spin ad-hoc tmux @17
+window 17 "$live_pid" "$tmp/spin-a.pane"
+stall classify --program alpha --now 1000 mc-alpha-ad-hoc-spin
+expect_state "a spinner word alone reads busy" mc-alpha-ad-hoc-spin working
+window 17 "$live_pid" "$tmp/spin-b.pane"
+stall classify --program alpha --now 1700 mc-alpha-ad-hoc-spin
+expect_state "a ticking spinner over unchanged work reads busy-unchanged" mc-alpha-ad-hoc-spin busy-unchanged
+
 cat >"$tmp/busy-bg.pane" <<'EOF'
 ⏺ Running the lens agents.
 
@@ -402,6 +437,8 @@ for n in mc-alpha-worker-dead mc-alpha-orchestrator-sel mc-alpha-ad-hoc-paste mc
   [ -n "$(state_of "$n")" ] && ok "scan classifies $n" || fail "scan left out $n"
 done
 expect_no_out "scan leaves a launch still in flight alone" "mc-alpha-worker-launching"
+stall classify --program alpha --now 2000 mc-alpha-worker-launching
+expect_rc "classify refuses a launch still in flight" 3
 printf 'format\t1\nname\tmc-beta-worker-x\nstate\tlaunched\nprogram\tbeta\nkind\tworker\nbackend\ttmux\nhandle\t@9\n' >"$reg/mc-beta-worker-x"
 stall scan --program alpha --now 2000
 expect_no_out "scan leaves another program's sessions out" "mc-beta-worker-x"
