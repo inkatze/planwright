@@ -286,6 +286,26 @@ out=$(run settle --now 11100) || fail "the pass over an answered question with a
 printf '%s\n' "$out" | grep -q "^window${TAB}$qc${TAB}" && fail "the pass printed a window line for an answered question: $out"
 echo "ok: a question the evidence answered settles by that evidence, never by its window's default"
 
+# --- one window whose review content cannot be written stops nothing else -------------
+
+attention_row w-f spec/t11 awaiting-input 1000 normal 'Keep going?' yes 'yes|no' fork iid-f
+qf=$(run add --kind question --worker w-f --origin w-f --closes 'the operator answers' --options 'yes|no' --end yes --gate none --window 500ms --now 12000) || fail "add the picklist whose content write will fail"
+printf 'request r3\n' >"$content/r3"
+r3=$(run add --kind request --root "$content" --pointer r3 --origin operator --closes 'the operator decides' --now 12000) || fail "add r3"
+rm -f "$content/r3"
+bad_helper="$tmp/refusing-ledger.sh"
+printf '#!/bin/sh\nexit 1\n' >"$bad_helper"
+chmod 0755 "$bad_helper"
+rc=0
+PLANWRIGHT_ACTION_LEDGER="$bad_helper" run settle --now 12100 >/dev/null || rc=$?
+[ "$rc" = 0 ] || fail "a refused review-content write failed the whole pass: exit $rc"
+[ "$(fld "$qf" 2)" = question ] && [ "$(fld "$qf" 31)" = 0 ] || fail "a window whose content was not written was applied: $(rec "$qf")"
+[ "$(fld "$r3" 12)" = closed ] || fail "the pass stopped before settling an unrelated item: $(rec "$r3")"
+grep -q "review content for $qf could not be written" "$errf" || fail "the failed content write was not reported"
+run settle --now 12200 >/dev/null || fail "the pass once the ledger takes the content"
+[ "$(fld "$qf" 2)" = settled-by-default ] || fail "the window did not apply once its content could be written: $(rec "$qf")"
+echo "ok: a window whose review content cannot be written stays a question and the pass settles the rest"
+
 # --- the long away timeline: open, evidence-settled or defaulted, never dropped -------
 
 all_ids=$(cut -f 1 "$store" | sort)

@@ -4067,8 +4067,13 @@ window_prepare() {
       resolve_queue_knobs
       _wk=1
     fi
-    ledger_put "review.$_wi.$_wt" settled-by-default "$now" "$_ws" - \
-      "the picklist window on $_wi ended on its default: $(redact "$_we") (window end $_wt)"
+    # ledger_put exits on any failure, and one item's must not stop the pass
+    # for every other item and every tower, so it runs in a subshell.
+    if ! (ledger_put "review.$_wi.$_wt" settled-by-default "$now" "$_ws" - \
+      "the picklist window on $_wi ended on its default: $(redact "$_we") (window end $_wt)"); then
+      err "the review content for $_wi could not be written; it stays a question until a pass can write it"
+      continue
+    fi
     printf '%s\n' "$_wi" >>"$REVIEW_FILE" || {
       err "cannot record the review content written"
       exit 6
