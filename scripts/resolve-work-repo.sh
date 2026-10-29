@@ -3,7 +3,8 @@
 # primary checkout of the repository whose task branches, pull requests, and
 # commit trailers carry the bundle's execution state.
 #
-# Usage: resolve-work-repo.sh <spec-dir>
+# Usage: resolve-work-repo.sh <spec-dir> [--repository <alias>]
+# --repository: the registry's (work-repo-registry.sh) checkout for <alias>.
 #
 # The current repository (resolve-root.sh repo --primary, so a worktree
 # answers with its primary checkout and PLANWRIGHT_REPO_ROOT, when set, names
@@ -18,7 +19,8 @@
 #
 # Exit: 0 printed · 2 usage, or no such directory · 3 no work repository (the
 #   bundle is in no repository and the current repository, if any, does not
-#   own it) · 4 PLANWRIGHT_REPO_ROOT refused
+#   own it) · 4 PLANWRIGHT_REPO_ROOT refused · 5 the alias resolves to
+#   nothing (unregistered, stale, ambiguous, unmarked root), why on stderr
 #
 # POSIX sh; dash-safe.
 set -u
@@ -30,12 +32,44 @@ say() {
   printf 'resolve-work-repo: %s\n' "$(printf '%s' "$1" | tr -d '\000-\037\177')" >&2
 }
 
-[ "$#" -eq 1 ] && [ -n "$1" ] || {
-  say "usage: resolve-work-repo.sh <spec-dir>"
+usage() {
+  say "usage: resolve-work-repo.sh <spec-dir> [--repository <alias>]"
   exit 2
 }
-bundle=$(cd -- "$1" 2>/dev/null && pwd -P) || {
-  say "no such spec directory: $1"
+spec_arg=""
+alias=""
+have_alias=0
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --repository)
+      [ "$#" -ge 2 ] && [ "$have_alias" -eq 0 ] || usage
+      alias=$2
+      have_alias=1
+      shift 2
+      ;;
+    "") usage ;;
+    *)
+      [ -z "$spec_arg" ] || usage
+      spec_arg=$1
+      shift
+      ;;
+  esac
+done
+[ -n "$spec_arg" ] || usage
+if [ "$have_alias" -eq 1 ]; then
+  case $alias in
+    "" | [!a-z0-9]* | *[!a-z0-9-]*)
+      say "refusing the alias '$alias': it must match ^[a-z0-9][a-z0-9-]*\$, at most 64 characters"
+      exit 2
+      ;;
+  esac
+  [ "${#alias}" -le 64 ] || {
+    say "refusing the alias '$alias': it must match ^[a-z0-9][a-z0-9-]*\$, at most 64 characters"
+    exit 2
+  }
+fi
+bundle=$(cd -- "$spec_arg" 2>/dev/null && pwd -P) || {
+  say "no such spec directory: $spec_arg"
   exit 2
 }
 parent=${bundle%/*}
@@ -43,6 +77,17 @@ parent=${bundle%/*}
 
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P) || exit 2
 root_helper=$script_dir/resolve-root.sh
+
+if [ "$have_alias" -eq 1 ]; then
+  /bin/sh "$root_helper" marker "$parent" >/dev/null 2>&1 || {
+    say "the alias '$alias' resolves to nothing: the spec root $parent carries no planwright-spec-root.yml marker, and only a marked root has registered repositories"
+    exit 5
+  }
+  # The registry names its own reason on stderr; any failure to answer is
+  # the alias resolving to nothing, never a fallback to the current repository.
+  /bin/sh "$script_dir/work-repo-registry.sh" lookup --root "$parent" "$alias" || exit 5
+  exit 0
+fi
 
 cur=""
 cur_rc=0

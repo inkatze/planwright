@@ -81,6 +81,8 @@
 #                          the program name over each other
 #   scripts/mc-keeper.sh   a mission-control program's keeper ledger, so a
 #                          track never re-points a session mid-retire
+#   scripts/work-repo-registry.sh   the work-repository registry, so
+#                          concurrent registrations each land their entry
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is
