@@ -1,14 +1,15 @@
 # The Four-File Spec Format (Meta-Spec)
 
-**Format-version:** 2
+**Format-version:** 3
 
 This document is the canonical, versioned definition of the planwright spec
-format: version 1 (the body of this document) and version 2 (its own
-section below, stated as deltas). A spec bundle declares the format-version
-it targets; the validator keys its rules off that declaration, and a future
-format change ships as a new version of this document rather than as a
-silent breaking change. A reader should be able to author a compliant
-bundle, at either version, from this document alone.
+format: version 1 (the body of this document), and versions 2 and 3 (each
+its own section below, stated as deltas). A spec bundle declares the
+format-version it targets; the validator keys its rules off that
+declaration, and a future format change ships as a new version of this
+document rather than as a silent breaking change. A reader should be able
+to author a compliant bundle, at any version it defines, from this document
+alone.
 
 Citations: REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6,
 REQ-A1.7, REQ-A1.8, REQ-B2.2 · D-1, D-20, D-25, D-40, D-45.
@@ -550,6 +551,74 @@ citation-range check on unqualified foreign ids and the coverage-based
 dead-path check on a changed requirement with an unchanged test-spec entry
 (format-grammar D-13, D-14).
 
+## Format-version 3 — per-task repositories
+
+Format-version 3 is version 2 plus one optional task definition field,
+`Repository:`, naming the repository whose branches, pull requests, and
+commit trailers carry that task's execution state (invariant-tasks D-13,
+D-14 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.8). A bundle opts in by
+declaring `**Format-version:** 3`, and declares it only when some task
+names a repository. Everything version 2 defines (the restricted stored
+`Status:` set, the `**Execution:**` pointer line, the four `tasks.md`
+sections, reference bullets, validation) carries over unchanged except this
+delta. Because the field is optional, upgrading a version 2 bundle is only
+the declaration bump.
+
+**The field.** A task block carries at most one `Repository:` bullet,
+placed after `Citations:` and before `Estimated effort:`:
+
+```markdown
+### Task <id> — <title>
+
+- **Deliverables:** <what the task produces>
+- **Done when:** <conditions an agent can evaluate>
+- **Dependencies:** <task ids, or "none">
+- **Citations:** <D-IDs> · <REQ-IDs>
+- **Repository:** <alias>
+- **Estimated effort:** <half day | N days>
+```
+
+The value is a single alias in the identifier grammar
+(`^[a-z0-9][a-z0-9-]*$`, at most 64 characters, matched whole as in *Spec
+identifiers*): never a path, URL, `owner/name` pair, host name, or list. A
+task names exactly one repository; work that spans repositories splits into
+tasks joined by `Dependencies:` edges, which may cross repositories. A
+block without the field belongs to the bundle's work repository, resolved
+by `scripts/resolve-work-repo.sh` as for any bundle (its holder arm
+included), so a version 3 bundle that never uses the field means exactly
+what its version 2 form meant. A task whose code lives in a holder
+repository names the holder's alias like any other repository.
+
+**Resolution.** The alias resolves to a local checkout only through the
+machine-local work-repository registry `custom-spec-location` defines;
+nothing in the bundle names a checkout, so the bundle stays portable across
+machines. The registry serves only bundles under a marker-bearing spec root
+(*Overview*), so the field requires one. A field that does not resolve on
+the machine running the derivation, for any reason (no live registry entry
+for the alias, a missing checkout, a root without a marker, a value outside
+the grammar, a second field in the block), derives the task
+`repository-unresolved` (*Glossary*) and never falls back to the bundle's
+work repository (invariant-tasks D-15).
+
+**Extraction and anchor.** The `Repository:` line and its continuations are
+definition content at every version (*Canonical `tasks.md`
+definition-content extraction*): adding, removing, or changing a task's
+repository moves the content anchor and takes the amendment ritual like any
+other definition edit, while a bundle with no field extracts
+byte-identically to its version 2 copy. `scripts/spec-anchor.sh` parses no
+`Format-version:` and gains no version keying.
+
+**Validation and version keying.** The validator enforces the field's rules
+(the alias grammar, at most one per block, the field present only under a
+version 3 declaration) at version 2's severities, and warns at every status
+on a field in a bundle whose spec root carries no marker; echoed values are
+sanitized. A `Repository:` field in a version 1 or 2 bundle is invalid, not
+ignored. Every version-keyed script gives version 3 its version 2 behavior
+plus the field, and a version this document does not define stays
+fail-closed, so an install that predates version 3 refuses a version 3
+bundle at its declaration rather than dispatching its tasks into the wrong
+repository.
+
 ## Stable IDs and supersession
 
 REQ-IDs, D-IDs, and task IDs are stable and never reused (D-20). A
@@ -803,10 +872,15 @@ The extraction maps `tasks.md` to a normalized byte stream:
    is excluded.
 2. **Keep definition lines only.** Within a block, keep: the heading line,
    and the five definition field bullets — `Deliverables`, `Done when`,
-   `Dependencies`, `Citations`, `Estimated effort` — each with its indented
-   continuation lines. Exclude every other bullet (`Status`,
-   `Last activity`, `Dispatch`, and any future annotation) and its
-   continuations, and any blank or prose line.
+   `Dependencies`, `Citations`, `Estimated effort` — plus the version 3
+   `Repository` field bullet, each with its indented continuation lines.
+   Exclude every other bullet (`Status`, `Last activity`, `Dispatch`, and
+   any future annotation) and its continuations, and any blank or prose
+   line. The `Repository` line is kept at **every** format version, so the
+   extraction stays version-agnostic: a field outside version 3 is the
+   validator's error, not an extraction carve-out, and a bundle in which no
+   block carries the field extracts byte-identically to the version 2
+   extraction (*Format-version 3*).
 3. **Sort by task id.** Records are ordered by task id, compared numerically
    component-wise (`2` < `2.5` < `3`), so document order — which changes when
    a block moves between sections — is irrelevant. Duplicate task ids are
@@ -1102,10 +1176,23 @@ the declared format-version:
   in flight. Sign-off makes a bundle `Ready` (stored, human-gated); the first
   task to derive In-progress derives it `Active` (orchestration-concurrency's
   single reconcile writer; never a second writer).
+- **`Repository:` field** — the optional format-version 3 task definition
+  field naming, by an alias the work-repository registry resolves, the one
+  repository whose branches, pull requests, and commit trailers carry that
+  task's execution state; a task without it belongs to the bundle's work
+  repository (*Format-version 3*).
+- **`repository-unresolved`** — the derived state of a task whose
+  `Repository:` field does not resolve on the machine running the
+  derivation: no live registry entry for the alias, a missing checkout, a
+  spec root without a marker, a value outside the alias grammar, or a
+  second field in the block. Such a task is never selected, a dependency on
+  it is unmet, a gate atom on it resolves unresolved, the bundle never
+  derives Done while it persists, and it never falls back to the work
+  repository (invariant-tasks D-15, REQ-F1.5).
 
 ## Versioning of this meta-spec
 
-This document is format-version 2 and defines versions 1 and 2. Changes to
+This document is format-version 3 and defines versions 1, 2, and 3. Changes to
 the format bump the version; bundles keep working under the version they
 declare, and the validator applies the rules for the declared version. A
 bundle migrates by updating its `Format-version:` line and conforming to
@@ -1128,6 +1215,18 @@ bundle untouched.
   2026-07-10 completion-annotation promotion below to version 1 bundles
   (invariant-tasks D-11): under version 2, completion is derived render
   content.
+- 2026-10-29 — **Format-version 3**: per-task repositories (invariant-tasks
+  D-13, D-14), defined in *Format-version 3 — per-task repositories*;
+  versions 1 and 2 are retained above, unchanged in meaning. The canonical
+  extraction keeps the `Repository:` line at every version, which moves no
+  existing anchor because no version 1 or 2 block may carry it (*Canonical
+  `tasks.md` definition-content extraction*), and the glossary gains the
+  field and the `repository-unresolved` state. Upgrading a version 2 bundle
+  is the declaration bump alone. The validator, extraction, and
+  version-keyed script changes, and the per-task derivation that consumes
+  the field, land as their own tasks; as with the earlier doctrine-half
+  entries, the rule is stated before the tooling catches up.
+  *(invariant-tasks D-13, D-14 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.8.)*
 
 Amendments that leave every format version's authoring rules intact are
 recorded here without a version bump — a bundle authored to the affected
