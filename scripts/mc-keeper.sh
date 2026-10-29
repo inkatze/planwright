@@ -75,8 +75,8 @@ Usage:
       a unit in progress never holds back a ready one; a session holds a
       unit when the launcher lists the scope <spec>:task-<id> for this
       program, or for another program whose repositories include the
-      spec's own (or one that cannot be told: no longer configured, or a
-      row naming none)
+      spec's own, matched by git common directory (or one that cannot be
+      told: no longer configured, or a row naming none)
   mc-keeper.sh watch [--program <p>] [--now <epoch>]
       the duty's watcher (also what a run with no arguments does under the
       runner): the stall scan (scripts/mc-stall.sh scan, which emits its own
@@ -270,11 +270,16 @@ EOF
     # path is gone only when its nearest existing ancestor can be entered
     # and shows it missing.
     sw_gone=0
-    if [ "$sw_w" != "-" ] && [ ! -e "$sw_w" ] && [ ! -L "$sw_w" ]; then
-      sw_up=${sw_w%/*}
-      while [ -n "$sw_up" ] && [ ! -e "$sw_up" ]; do sw_up=${sw_up%/*}; done
-      ! (cd "${sw_up:-/}" 2>/dev/null) || sw_gone=1
-    fi
+    case $sw_w in
+      /*)
+        if [ ! -e "$sw_w" ] && [ ! -L "$sw_w" ]; then
+          # A dangling link stops the walk: what it points at may come back.
+          sw_up=${sw_w%/*}
+          while [ -n "$sw_up" ] && [ ! -e "$sw_up" ] && [ ! -L "$sw_up" ]; do sw_up=${sw_up%/*}; done
+          ! (cd "${sw_up:-/}" 2>/dev/null) || sw_gone=1
+        fi
+        ;;
+    esac
     if [ -z "$sw_held" ] && [ "$sw_w" != "-" ] && [ "$sw_gone" = 0 ]; then
       if sw_out=$(/bin/bash "$script_dir/mc-reclaim.sh" reclaim --program "$program" "$sw_w" 2>&1); then
         [ "$events" = 1 ] || printf 'reclaimed\t%s\t%s\n' "$sw_s" "$sw_w"
@@ -358,9 +363,12 @@ case $verb in
     sessions=$(launcher list 2>/dev/null) || mc_fail "the launcher's sessions cannot be listed"
     # A unit is never dispatched twice: a session of this program holds it,
     # and so does one of another program whose repositories include the
-    # spec's own, compared as resolved paths. A session row naming no
+    # spec's own, compared by git common directory so a spec read from a
+    # worktree matches its primary checkout. A session row naming no
     # program, or a program that no longer resolves, cannot be told apart,
     # so it holds too.
+    common() { (cd "$1" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P); }
+    top_common=$(common "$top") || mc_fail "the git directory of the spec's repository cannot be resolved"
     others=$(printf '%s\n' "$sessions" | P=$program N=$name awk -F '\t' '$2 != ENVIRON["P"] && index($4, ENVIRON["N"] ":task-") == 1 { print ($2 == "" ? "-" : $2) }' | sort -u)
     shared=""
     while IFS= read -r op; do
@@ -374,8 +382,8 @@ case $verb in
       fi
       while IFS= read -r tr; do
         [ -n "$tr" ] || continue
-        tr_abs=$(cd "$tr" 2>/dev/null && pwd -P) || tr_abs=${tr%/}
-        if [ "$tr_abs" = "$top" ]; then
+        tr_common=$(common "$tr") || tr_common=""
+        if [ -n "$tr_common" ] && [ "$tr_common" = "$top_common" ]; then
           shared="$shared$op
 "
           break
