@@ -92,8 +92,12 @@
 # open until `ack` (reviewed) or `revoke`, which reopens a settled-by-default
 # item as its question with no window and closes a decided-by-mission-control
 # one, logging the reversal pointer and running nothing. Evidence never
-# closes either. `show <id>` renders one item with its settling reason, which
-# every route out of the open set records.
+# closes either. The review content sits in the ledger under
+# `review.<id>.<window end>` for a settled-by-default item and under
+# `m<eight hex>`, a checksum of the decision, for a decided-by-mission-control
+# one, whose record points at the ledger itself. `show <id>` renders one
+# item with its settling reason, which every route out of the open set
+# records.
 #
 # The identifier is derived from the content home's key (kind, home, pointer,
 # and for news the row's instance, for a path item its root), so an `add` of
@@ -194,17 +198,36 @@
 # logged no-op on a closed item. `shelve <id>` parks an item until
 # `tower_shelve_return` (or `--for`), releasing any lease, and never drops
 # it; it is refused the same way when another tower holds the lease. `settle
-# <id> --reason` closes one item on evidence, naming what settled it; `settle`
+# <id> --reason` closes one item on evidence, naming what settled it, and is
+# refused (exit 1) on a reviewable item, which evidence never closes; `settle`
 # with no id runs the level-triggered pass below. Every locked verb applies
 # the derived part — shelve returns, lease expiry, pointer refresh — before it
-# acts. `list`
+# acts.
+#
+# `ack` on a reviewable item closes it as reviewed and logs `reviewed`
+# rather than `acknowledged`. `revoke <id>` takes a reviewable item only and
+# prints `reopened` (a settled-by-default item, back to its question with no
+# window) or `revoked` (a decided-by-mission-control one, closed), then the
+# id, the kind and the reversal pointer; it is refused (exit 1) on any other
+# kind and, like `ack`, when another tower holds the lease (a `refused` line
+# logged), is a logged no-op on a closed item, and exits 2 for an unknown id.
+#
+# `list`
 # prints every open item and never a settled one (`--all` adds the closed
 # ones the store still keeps): id, kind, urgency, origin, birth epoch, a
-# state of open / delivered / shelved / leased:<tower> / closed, the content
-# pointer, and the closing condition. `counts` prints the open, unshelved
+# state of open / delivered / shelved / leased:<tower> / parked / closed, the
+# content pointer, and the closing condition. `counts` prints the open, unshelved
 # count per kind, the total over the ranked kinds, the top item's kind (what
 # the status line's `waiting` field reads), the number of store lines that
 # do not parse, and whether the store is present. Both are lock-free reads.
+#
+# `show <id>`, also lock-free, prints one item as tab-separated lines: `item`
+# (id, kind, urgency, its sources, birth epoch, the `list` state, the content
+# pointer, the closing condition); `reason` (the settling reason or -, and the
+# epoch it was recorded at, or 0); `picklist` (options, end, window end, gate,
+# and `parked` or -) when it has one; `review` (grounds and reversal) for a
+# reviewable item or one carrying either; and `topic` when it has one. It
+# exits 2 for an id the store does not hold and 6 when the store will not read.
 #
 # `counts` also prints a `presence` row, `live` or `none`, and prints it
 # FIRST — before the surface is verified and before a line of the store is
@@ -491,7 +514,13 @@
 #
 # Kinds: born settled merged knocked delivered acknowledged shelved pushed
 # session tick reply dropped unavailable refused picklist window reviewed
-# revoked. A `tick` needs `live=<n>`
+# revoked. The rebuild reads these keys back from the four picklist and
+# review kinds: `picklist` carries options, end (an option or park),
+# window_end and gate; `window` carries end (default or park), option, at
+# (the window end) and away; `reviewed` and `revoked` carry item_kind,
+# reversal and reason, `revoked` also its outcome (reopened or revoked); and a
+# `born` line carries topic, and for a decided-by-mission-control item its
+# grounds, reversal, gate and caller. A `tick` needs `live=<n>`
 # (the live-worker count) and coalesces with the previous line when that is a
 # tick from the same tower with the same count within `tower_tick_gap_max`:
 # the previous line's `until` advances instead of a new line landing, so a

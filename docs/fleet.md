@@ -153,7 +153,8 @@ the tower is telling you something it needs from you, it came off this queue.
   after it brings the next item. The one exception is a pair: two waiting
   items of the same kind about the same worker, PR, branch, or request arrive together
   as one hand-over, and you answer both. Blocked workers come first, then things
-  waiting for your go-ahead, then your own requests, then news; within a kind,
+  waiting for your go-ahead, then your own requests, then decisions taken
+  without you that wait for your review, then news; within a kind,
   the more urgent and then the older first. Each item is written so you can
   answer it from that message alone. Ask for more and you get one more layer,
   then the tower waits.
