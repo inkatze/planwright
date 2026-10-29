@@ -301,6 +301,7 @@ out=$(run settle --now 11100) || fail "the pass over an answered question with a
 [ "$(fld "$qc" 2)" = question ] && [ "$(fld "$qc" 12)" = closed ] || fail "a default was applied to a question the evidence had answered: $(rec "$qc")"
 [ "$(fld "$qc" 18)" = "answered by another route (its worker record was claimed)" ] || fail "the answered question carries '$(fld "$qc" 18)'"
 printf '%s\n' "$out" | grep -q "^window${TAB}$qc${TAB}" && fail "the pass printed a window line for an answered question: $out"
+grep -q "review\.$qc\." "$surface/ledger" && fail "the ledger records a default for a question the evidence answered"
 echo "ok: a question the evidence answered settles by that evidence, never by its window's default"
 
 # --- one window whose review content cannot be written stops nothing else -------------

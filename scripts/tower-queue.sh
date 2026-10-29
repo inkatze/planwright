@@ -4118,11 +4118,16 @@ window_prepare() {
   while IFS="$TAB" read -r _wi _we _wt _wg _ws _wh _wp; do
     is_item_id "$_wi" || continue
     [ "$_we" != park ] && [ "$_wg" = none ] || continue
-    # The pass parks a permission prompt rather than default it, so no
-    # content saying it defaulted is written for one.
-    if [ "$_wh" = attention ]; then
+    # The pass parks a permission prompt rather than default it, and settles
+    # a question whose row is gone or claimed before any window applies, so
+    # no content saying it defaulted is written for either. An item that
+    # evidence keyed by its id or subject settles still gets one, which no
+    # record then points at.
+    if [ "$_wh" = attention ] && [ -f "$attn_store" ]; then
+      attn_row "$_wp"
+      [ -n "$row_state" ] || continue
       attn_perm "$_wp"
-      [ "$p_f9" != permission ] || continue
+      [ "$p_f9" != permission ] && [ -z "$p_claim" ] || continue
     fi
     if [ "$_wk" = 0 ]; then
       resolve_queue_knobs
