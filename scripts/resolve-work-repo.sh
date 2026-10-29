@@ -20,7 +20,7 @@
 # Exit: 0 printed · 2 usage, or no such directory · 3 no work repository (the
 #   bundle is in no repository and the current repository, if any, does not
 #   own it) · 4 PLANWRIGHT_REPO_ROOT refused · 5 the alias resolves to
-#   nothing (unregistered, stale, ambiguous, unmarked root) · 6 no registry
+#   nothing (unregistered, stale, ambiguous, unmarked root, or no registry)
 #
 # POSIX sh; dash-safe.
 set -u
@@ -81,15 +81,10 @@ if [ "$have_alias" -eq 1 ]; then
     say "the alias '$alias' resolves to nothing: the spec root $parent carries no planwright-spec-root.yml marker, and only a marked root has registered repositories"
     exit 5
   }
-  # The registry names its own reason on stderr; neither failure falls back
-  # to the current repository.
-  rg_rc=0
-  /bin/sh "$script_dir/work-repo-registry.sh" lookup --root "$parent" "$alias" || rg_rc=$?
-  case $rg_rc in
-    0) exit 0 ;;
-    3) exit 5 ;;
-    *) exit 6 ;;
-  esac
+  # The registry names its own reason on stderr; any failure to answer is
+  # the alias resolving to nothing, never a fallback to the current repository.
+  /bin/sh "$script_dir/work-repo-registry.sh" lookup --root "$parent" "$alias" || exit 5
+  exit 0
 fi
 
 cur=""
