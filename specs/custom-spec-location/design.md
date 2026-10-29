@@ -1,7 +1,7 @@
 # Custom spec location — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-10-25
+**Last reviewed:** 2026-10-29
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -581,8 +581,8 @@ cache, never a source of truth: the truth is each work repository's own
 `spec_root` pointer (D-4: the mapping is the work repository's property),
 which every read rechecks (D-23), and `scan` rebuilds a lost registry. With
 no non-default root configured anywhere, nothing reads or writes it.
-*(Shape kept from the Deferred entry unattended; open question 1 in
-`requirements.md`.)*
+*(Shape kept from the Deferred entry; confirmed at the 2026-10-29 kickoff,
+settled ruling 1 in `requirements.md`.)*
 
 **Alternatives considered:**
 - An operator-maintained `work_repositories` map in the holder's
@@ -615,8 +615,8 @@ primary checkout; a work repository's own resolved spec root canonicalizes
 to the entry's root, or the holder contains it; the root's marker names
 the entry's project), ignores and reports a failing entry, and treats two
 live entries with one alias under one project as ambiguous. Writes replace
-the file atomically under a lock. *(Session-start registration chosen
-unattended; open question 2 in `requirements.md`.)*
+the file atomically under a lock. *(Session-start registration confirmed
+at the 2026-10-29 kickoff, settled ruling 1 in `requirements.md`.)*
 
 **Alternatives considered:**
 - `register` and `scan` only. Rejected for the default because: a holder
@@ -632,13 +632,16 @@ stale entry harmless.
 
 ### D-24: A repository's alias  (N, extension 2026-10-25)
 
-**Decision:** A repository's alias is its `repository_alias` value, read
-through the four overlay layers and normally set in the repo-tracked layer,
-and otherwise its `origin` remote's repository name (the last path segment,
+**Decision:** A repository's alias is its `repository_alias` value from
+the repo-tracked layer, when it matches the identifier grammar, and
+otherwise its `origin` remote's repository name (the last path segment,
 `.git` stripped, lowercased) when that matches the identifier grammar. A
-repository with neither is not registered, and the refusal names the option.
-The option ships absent (REQ-H1.3's dark-shipping rule). *(Chosen
-unattended; open question 3 in `requirements.md`.)*
+`repository_alias` set in any other layer is ignored with a warning, for
+the reason the machine-local alternative below is rejected. A repository
+with neither is not registered, and the refusal names the option. The
+option ships absent (REQ-H1.3's dark-shipping rule). *(Confirmed at the
+2026-10-29 kickoff, settled ruling 2 in `requirements.md`; the
+tracked-layer-only read amended in at the same kickoff.)*
 
 **Alternatives considered:**
 - The checkout directory's name. Rejected because: it differs between
@@ -664,16 +667,24 @@ format-version 3), otherwise to the project's single registered work
 repository other than the holder; no match or several refuses with the
 candidates named, never falling back to the holder. The same lookup is the
 seam `invariant-tasks`' derivation uses for an alias in any session
-(`--repository <alias>`). `/orchestrate` in a holder then dispatches the
-selected unit into that repository: worktree placement, task branch,
-worker working directory, pull request, and trailers there, the spec root
-handed to the worker's write zone (D-15), and the freshness gate reading
-the holder's primary view (D-14). The dispatch markers and the per-spec
+(`--repository <alias>`). `/orchestrate`, its meta-step included, then
+dispatches the selected unit into that repository: worktree placement,
+task branch, worker working directory, pull request, and trailers there,
+the spec root handed to the worker's write zone (D-15), and the freshness
+gate reading the bundle's primary view (D-14). The alias lookup governs
+dispatch in every session, not only a holder's: a work-repository session
+dispatching a task whose alias names another repository dispatches it
+there, never into the launch repository. The meta-step's refusal of a spec
+root outside the launch repository (obs:e1722435) is removed in the same
+change, since REQ-E1.4 already forbids a posture blocking a dispatch. The
+dispatch markers and the per-spec
 lock keep their existing per-bundle homes (the markers under the common git
 directory of the repository holding the bundle, the lock beside the bundle),
 so a holder session and a work-repository session see the same in-flight
-state. *(The single-repository default
-chosen unattended; open question 4 in `requirements.md`.)*
+state. *(The single-repository default confirmed at the 2026-10-29
+kickoff, settled ruling 3 in `requirements.md`; the any-session alias
+dispatch and the meta-step refusal removal amended in at the same
+kickoff.)*
 
 **Alternatives considered:**
 - Requiring every task in a holder bundle to name its repository. Rejected

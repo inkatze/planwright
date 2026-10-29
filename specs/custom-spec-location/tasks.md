@@ -1,7 +1,7 @@
 # Custom spec location — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-25
+**Last reviewed:** 2026-10-29
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -284,9 +284,8 @@ supported configuration ships while the doctrine still calls it wrong.
 
 *(Extension 2026-10-25: Tasks 11–13 build the reverse registry and dispatch
 from a holder. The order across bundles is this Task 11, then
-`invariant-tasks`' extension Tasks 10 and 11, then this Task 12; the
-dependency grammar has no cross-bundle edge, so the order is stated in the
-Done-when lines and in the open questions in `requirements.md`.)*
+`invariant-tasks`' extension Tasks 10 and 11, then this Task 12, carried as
+a cross-spec hard edge in Task 12's `Dependencies:` line.)*
 
 ### Task 11 — The work-repository registry
 
@@ -294,18 +293,27 @@ Done-when lines and in the open questions in `requirements.md`.)*
   (from a work repository, or with `--root` from a holder), `scan`,
   `lookup`, and `--explain`; the registry file in
   the plugin data home, replaced atomically under a lock; revalidation of
-  every entry on read; the alias rule (`repository_alias`, else the
-  `origin` repository name) with its refusal; registration from the
+  every entry on read; the alias rule (the repo-tracked
+  `repository_alias`, else the `origin` repository name, a value in another
+  layer ignored with a warning) with its refusal; registration from the
   session-start hook when the resolved spec root is not the default;
   `scripts/resolve-work-repo.sh <spec-dir> --repository <alias>` answering
-  from the registry, the seam `invariant-tasks`' derivation consumes; the
+  from the registry, the seam `invariant-tasks`' derivation consumes, with
+  a pinned exit contract: an alias that resolves to nothing (unregistered,
+  every entry failing revalidation, or ambiguous) exits with one dedicated
+  status, distinct from usage and grammar refusals, naming the reason on
+  stderr, so the derivation can map it to `unresolved`; the
   `repository_alias` row in the options reference, absent from
   `config/defaults.yml`; unit tests for each verb and each refusal.
 - **Done when:** a fixture work repository whose `spec_root` names a
   marker-bearing root in a fixture holder registers at session start under
   the marker's project with the `origin`-derived alias, and a second start
-  leaves the file byte-identical; `repository_alias` overrides that alias;
-  a repository with neither is refused naming the option; `lookup` drops an
+  leaves the file byte-identical; a repo-tracked `repository_alias`
+  overrides that alias and a machine-local one is ignored with a warning;
+  a repository with neither is refused naming the option; `--repository`
+  exits with its dedicated status for an unregistered, a stale, and an
+  ambiguous alias, and with a usage status for an alias outside the
+  grammar; `lookup` drops an
   entry whose checkout is gone, whose pointer no longer names the root, or
   whose marker names another project, and `--explain` reports each; two
   live entries with one alias resolve to nothing, naming both; a deleted
@@ -323,12 +331,15 @@ Done-when lines and in the open questions in `requirements.md`.)*
 - **Deliverables:** the holder arm of `scripts/resolve-work-repo.sh`
   (registry resolution by the task's alias or the single registered work
   repository, refusing on none or several); `/orchestrate` and its dispatch
-  scripts, started in a holder checkout, placing the worktree, task branch,
-  and worker in the task's work repository, handing the spec root to the
-  worker's write zone, and reading the freshness gate from the holder's
-  primary view; the dispatch markers and per-spec lock unchanged in their
-  per-bundle homes; fixture tests using the two-repository harness
-  `invariant-tasks`' extension provides.
+  scripts (`scripts/orchestrate-meta-step.sh` and the view
+  `scripts/dispatch-fetch.sh` reads included), started in a holder checkout
+  or in a work repository, placing the worktree, task branch, and worker in
+  the task's resolved work repository, handing the spec root to the
+  worker's write zone, and reading the freshness gate from the bundle's
+  primary view; the meta-step's refusal of a spec root outside the launch
+  repository removed (obs:e1722435); the dispatch markers and per-spec lock
+  unchanged in their per-bundle homes; fixture tests using the
+  two-repository harness `invariant-tasks`' extension provides.
 - **Done when:** from a fixture holder checkout, on a holder bundle whose
   Task 1 names `alpha` and whose Task 2 names `beta` and depends on Task 1,
   the selector dispatches Task 1 into the `alpha` checkout (worktree,
@@ -339,10 +350,16 @@ Done-when lines and in the open questions in `requirements.md`.)*
   field, or with the task's alias unregistered, the dispatch refuses naming
   the candidates and nothing is created in the holder; the dispatch marker
   is visible to a work-repository session's derivation of the same bundle;
-  a dispatch started in a work repository is unchanged on the existing
-  fixtures; runs after `invariant-tasks`' extension Tasks 10 and 11 have
-  merged; `mise run check` passes.
-- **Dependencies:** 11
+  from the `alpha` work-repository session, the same bundle's Task 2
+  (naming `beta`) dispatches into `beta` and nothing is created in
+  `alpha`; the meta-step run from a work repository whose spec root lies in
+  the holder dispatches instead of refusing; a dispatch of a task with no
+  alias started in a work repository is unchanged on the existing
+  fixtures; the ordering check: `invariant-tasks`' extension Tasks 10 and
+  11 have merged before this task's pull request opens (the selector reads
+  the cross-spec clause in `Dependencies:` as advisory, so this line is the
+  check); `mise run check` passes.
+- **Dependencies:** 11 (cross-spec, hard: `invariant-tasks` Task 10 and Task 11)
 - **Citations:** D-25, D-14, D-15 · REQ-I1.5, REQ-I1.6, REQ-E1.4,
   REQ-E1.5, REQ-E1.7
 - **Estimated effort:** 2 days
@@ -364,11 +381,6 @@ Done-when lines and in the open questions in `requirements.md`.)*
 
 ## Awaiting input
 
-- **Task 11** — anchor re-review pending: the reverse-registry and holder
-  dispatch extension (Tasks 11–13) is an unsigned meaning-class delta; run
-  the `/spec-kickoff` delta re-walkthrough, settle the open questions in
-  `requirements.md`, and remove this bullet at sign-off. Tasks 12 and 13
-  wait behind Task 11 through their dependency edges.
 - **Task 4** — draft PR #528 is open and reviewed, but its CI cannot go green: `scan:secrets` fails on a test fixture in another open branch's commit (the full-history scan sees every fetched ref, and main's own CI is red the same way), and mise stops the test suite when it does. PR #526 fixes it and is unmerged. Once #526 lands, merge `origin/main` into the task branch and re-run CI; the queued question Q1 in the PR body (how a probed output changed by work outside this migration is declared) also needs an answer.
 
 ## Deferred

@@ -1,7 +1,7 @@
 # Custom spec location — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-10-25
+**Last reviewed:** 2026-10-29
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -393,8 +393,11 @@ the **primary view** is the primary checkout's (or the holder's) copy
   *(Cites: D-3, D-4.)*
 - **REQ-H1.3** Every option this spec introduces SHALL ship dark: `spec_root`
   absent from `config/defaults.yml` (absent is unset; its options-reference
-  row states the default), `observation_targets` empty.
+  row states the default), `observation_targets` empty, `repository_alias`
+  absent (REQ-I1.7).
   *(Cites: D-3; customization-boundary criterion 5.)*
+  *(Amended at extension kickoff 2026-10-29: `repository_alias` named in the
+  list, gap-fill under the existing every-option rule.)*
 
 ## REQ-I — The work-repository registry and holder dispatch
 
@@ -413,10 +416,13 @@ the **primary view** is the primary checkout's (or the holder's) copy
   write a registry when no non-default root is configured.
   *(Cites: D-23.)*
 - **REQ-I1.3** A repository's alias SHALL be its `repository_alias` value
-  when one is set, and otherwise the repository name of its `origin` remote
-  when that name, lowercased, matches the identifier grammar. A repository
-  with neither SHALL NOT be registered, and the refusal SHALL name the
-  option to set.
+  from the repo-tracked layer when one is set and matches the identifier
+  grammar, and otherwise the repository name of its `origin` remote when
+  that name, lowercased, matches the identifier grammar. A
+  `repository_alias` value in any other layer SHALL be ignored with a
+  warning, since a machine-local alias could disagree across machines. A
+  repository with neither SHALL NOT be registered, and the refusal SHALL
+  name the option to set.
   *(Cites: D-24.)*
 - **REQ-I1.4** Every registry read SHALL revalidate each entry it uses: the
   checkout exists and is a primary checkout; a work repository's resolved
@@ -435,14 +441,21 @@ the **primary view** is the primary checkout's (or the holder's) copy
   one, SHALL refuse naming the candidates, and SHALL never fall back to the
   holder.
   *(Cites: D-25; mission-control REQ-H1.3 (Sources).)*
-- **REQ-I1.6** `/orchestrate` started in a holder checkout SHALL dispatch a
-  selected unit into its task's resolved work repository: the worktree, the
+- **REQ-I1.6** `/orchestrate`, including its meta-step, SHALL dispatch a
+  selected unit into its task's resolved work repository whichever
+  repository the session started in: a task carrying a `Repository:` alias
+  into the alias's registry resolution (REQ-I1.5's lookup) from a holder or
+  a work-repository session alike, and a task without one into the
+  repository REQ-I1.5 or the existing resolver answers. The worktree, the
   task branch, the worker's working directory, the pull request, and the
-  commit trailers there; the spec root handed to the worker's write zone
-  (REQ-E1.7); the dispatch markers and the per-spec lock in their existing
-  per-bundle home; and the freshness gate reading the holder's primary view
-  (REQ-E1.5). A dispatch started in a work repository SHALL be unchanged.
-  *(Cites: D-25; REQ-E1.4.)*
+  commit trailers are there; the spec root is handed to the worker's write
+  zone (REQ-E1.7); the dispatch markers and the per-spec lock stay in their
+  existing per-bundle home; and the freshness gate reads the bundle's
+  primary view (REQ-E1.5). A spec root outside the launch repository SHALL
+  never refuse a dispatch on that ground alone (REQ-E1.4). A dispatch
+  started in a work repository for a task without an alias SHALL otherwise
+  be unchanged.
+  *(Cites: D-25; REQ-E1.4; obs:e1722435.)*
 - **REQ-I1.7** With no non-default spec root configured in any layer, no
   registry SHALL be written or read and every resolution SHALL be
   byte-identical to before (the REQ-H1.1 fixture unchanged), and
@@ -455,39 +468,29 @@ the **primary view** is the primary checkout's (or the holder's) copy
   registration never leaves it torn.
   *(Cites: D-23.)*
 
-## Open questions for the kickoff
+## Settled rulings (extension kickoff, 2026-10-29)
 
-The extension was drafted by an unattended worker with no operator
-present. Each choice below is the option `mission-control` most directly
-implies; the kickoff confirms or reverses it.
+The extension was drafted unattended with its choices listed as open
+questions; the operator settled each at the kickoff. Record in
+`kickoff-brief.md` §9.
 
-1. **Runtime registry rather than a config map (D-22, D-23).** The deferred
-   entry's recorded shape (machine-local, rebuilt by scanning, keyed on the
-   marker) is kept. The alternative is an operator-maintained
-   `work_repositories` map in the holder's machine-local layer: simpler,
-   but it goes stale silently when a checkout moves.
-2. **Registration at session start (REQ-I1.2).** A work repository
-   registers whenever a planwright session starts in it. The alternative is
-   `register` and `scan` only, at the cost of a step the operator must
-   remember on each machine.
-3. **The alias: a tracked option, else the `origin` repository name
-   (D-24).** The alias appears in committed task blocks, so every machine
-   must compute the same one; a directory name does not, and a full remote
-   URL can carry a host name.
-4. **One registered work repository as the default for a task with no
-   alias (REQ-I1.5).** With several, the dispatch refuses rather than
-   guessing; the alternative is a per-bundle default alias.
-5. **Cross-bundle ordering.** Task 12's two-repository fixture needs
-   `invariant-tasks`' per-task repository field and per-repository
-   derivation (that bundle's extension Tasks 10 and 11), and that bundle's
-   Task 11 needs this bundle's Task 11. The dependency grammar has no
-   cross-bundle edge, so the order is carried in the Done-when lines and
-   here: this Task 11, then `invariant-tasks` Tasks 10 and 11, then this
-   Task 12.
-6. **Held by a park, not a status change.** The bundle derives Active, so
-   extend mode stores nothing; the delta is held by an `anchor re-review
-   pending` reference bullet on Task 11 in `tasks.md`, which the kickoff
-   removes at sign-off.
+1. **A runtime registry (D-22, D-23).** Machine-local runtime state,
+   auto-registered at session start, with `register` and `scan` for
+   on-demand registration and rebuilds; not an operator-maintained map.
+2. **The alias (D-24, REQ-I1.3).** The repo-tracked `repository_alias`,
+   else the `origin` repository name, resolved to a checkout only through
+   the registry.
+3. **The default for a task with no alias (REQ-I1.5).** The single
+   registered work repository; with several, the dispatch refuses.
+4. **One repository per task.** A task names at most one repository
+   (`invariant-tasks` format-version 3).
+5. **Cross-bundle ordering.** Carried as a cross-spec hard edge inside
+   Task 12's `Dependencies:` parenthetical (`invariant-tasks` Tasks 10 and
+   11), with a Done-when line as the ordering check; `invariant-tasks` Task
+   11 carries the edge to this Task 11. The selector reads the clause as
+   advisory today.
+6. **No status change.** The `anchor re-review pending` park on Task 11 is
+   removed at sign-off; the bundle keeps its derived status.
 
 ## Changelog
 
@@ -527,6 +530,17 @@ implies; the kickoff confirms or reverses it.
   obs:74a7f907, and obs:e1722435. Drafted unattended, so every choice an
   operator would have made is listed under *Open questions for the
   kickoff*.
+- 2026-10-29 — Extension kickoff sign-off (meaning-class, pre-merge for the
+  extension, in place): the open questions recorded as *Settled rulings*;
+  REQ-I1.6 dispatches an aliased task into its own repository from any
+  session and carries the meta-step's out-of-repository refusal removal
+  (obs:e1722435); REQ-I1.3 reads `repository_alias` from the repo-tracked
+  layer only and grammar-checks it; Task 11 pins the `--repository` exit
+  contract; Task 12 gains the cross-spec hard edge, the meta-step
+  deliverable, and the aliased work-repository case; the REQ-I1.6 test-spec
+  entry tagged `manual`; REQ-H1.3 names `repository_alias` (post-merge,
+  gap-fill, annotated); the Task 11 park removed, no status change. Record
+  in `kickoff-brief.md` §9.
 
 ## Sources
 
