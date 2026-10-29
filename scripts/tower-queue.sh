@@ -3395,7 +3395,9 @@ run_store_pass() {
           F[t, 17] = 0; F[t, 18] = "-"; F[t, 34] = "-"; F[t, 22] = 0
           print "status\treopened\t" rk "\t" clean(rv)
         } else {
-          F[t, 12] = "closed"; F[t, 17] = now; F[t, 18] = "revoked by the operator (reversal: " rv ")"
+          # Stamped like an `ack`, not a settlement: the operator closed it,
+          # so the catch-up of what settled without them does not list it.
+          F[t, 12] = "closed"; F[t, 15] = now; F[t, 18] = "revoked by the operator (reversal: " rv ")"
           print "status\trevoked\t" rk "\t" clean(rv)
         }
       }
@@ -6316,8 +6318,13 @@ cmd_catchup() {
     _lc=$(awk -v since="$since" "$AWK_PARSE"'
       { if (!parse($0, F, T) || !header_ok(F, T)) next
         if (first == 0 || F["seq"] + 0 < first) first = F["seq"] + 0
-        if ((F["kind"] == "settled" || F["kind"] == "merged") && F["ts"] + 0 > since + 0) n++ }
-      END { printf "%d %d\n", n + 0, first + 0 }' "$log_file" 2>/dev/null) || _lc=""
+        if (F["ts"] + 0 <= since + 0) next
+        if (F["kind"] == "settled" || F["kind"] == "merged") n++
+        # A default applied is listed from the store the same way, until a
+        # revocation reopens it as its question.
+        else if (F["kind"] == "window" && F["end"] == "default") wd[F["item"]]++
+        else if (F["kind"] == "revoked" && F["item_kind"] == "settled-by-default" && wd[F["item"]] > 0) wd[F["item"]]-- }
+      END { for (i in wd) n += wd[i]; printf "%d %d\n", n + 0, first + 0 }' "$log_file" 2>/dev/null) || _lc=""
     case "$_lc" in
       [0-9]*' '[0-9]*)
         log_settled=${_lc%% *}

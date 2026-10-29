@@ -176,6 +176,7 @@ printf '%s\n' "$out" | grep -q "^revoked${TAB}$d2${TAB}decided-by-mission-contro
 [ "$(fld "$d2" 12)" = closed ] || fail "a revoked decision stayed open"
 case "$(fld "$d2" 18)" in *"revoked by the operator (reversal: undo:u-20)"*) ;; *) fail "the revocation reason: '$(fld "$d2" 18)'" ;; esac
 grep -q "\"kind\":\"revoked\".*\"item\":\"$d2\".*\"reversal\":\"undo:u-20\".*\"outcome\":\"revoked\"" "$log_file" || fail "the revocation was not logged with its reversal pointer"
+run catchup | grep -q "^settled${TAB}$d2${TAB}" && fail "the catch-up of what settled without the operator lists their own revocation"
 echo "ok: a revoked decision leaves the open set by that revocation, logged with its reversal pointer"
 
 # --- the launcher registry accepts the mission-control kind ------------------------------

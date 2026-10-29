@@ -356,3 +356,36 @@ run settle --evidence "$ev" --now 40001 >/dev/null || fail "the pass that stamps
 run next --tower $A --evidence "$ev" --now 40002 >/dev/null || fail "next after the stamped pass"
 [ "$(cut -f 1 "$surface/settle.stamp")" = 40001 ] || fail "a malformed record with an ended window forced another pass: stamp $(cut -f 1 "$surface/settle.stamp")"
 echo "ok: a record the pass cannot read never keeps a window due"
+
+# --- the catch-up remainder counts defaults past the store's horizon (REQ-B1.7) -------
+
+home="$tmp/fleet-home-catchup"
+mkdir -p "$home"
+chmod 0700 "$home"
+surface="$home/tower-comms"
+store="$surface/queue"
+log_file="$surface/events.log"
+attn_dir="$home/attention"
+attn_store="$attn_dir/state"
+printf 'tower_catchup_limit: 1\n' >"$local_cfg"
+seed=$(run add --kind request --root "$content" --pointer seed --origin operator --closes 'the operator decides' --now 900) || fail "seed the catch-up store"
+run settle "$seed" --reason 'the seed' --now 901 >/dev/null || fail "settle the catch-up seed"
+for w in c1 c2 c3; do
+  attention_row "w-$w" "spec/$w" awaiting-input 1000 normal 'Which?' A 'A|B' fork "iid-$w"
+  run add --kind question --worker "w-$w" --origin "w-$w" --closes 'the operator answers' --options 'A|B' --end B --gate none --window 1s --now 1000 >/dev/null || fail "add $w"
+done
+run settle --now 1100 >/dev/null || fail "the pass that defaults all three"
+t=1200
+run next --tower $A --now $t >/dev/null || fail "the catch-up knock"
+for w in c1 c2 c3; do
+  t=$((t + 10))
+  marker $A $t
+  got=$(run next --tower $A --now $((t + 1))) || fail "hand over a default for review"
+  id=$(printf '%s\n' "$got" | awk -F "$TAB" '$1 == "item" { print $2; exit }')
+  [ -n "$id" ] || fail "no default handed over: $got"
+  run ack "$id" --tower $A --now $((t + 2)) >/dev/null || fail "review $id"
+done
+remainder=$(run catchup | awk -F "$TAB" '$1 == "remainder"')
+[ "$remainder" = "remainder${TAB}3${TAB}exact${TAB}-" ] || fail "the catch-up remainder lost the reviewed defaults past the horizon: '$remainder'"
+echo "ok: the catch-up remainder counts the defaults the store no longer keeps"
+: >"$local_cfg"
