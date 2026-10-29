@@ -311,7 +311,8 @@
 # On stdout the pass prints, tab-separated: `settled`, id, kind, away, the
 # reason, and the tower that was holding it (or -); `merged`, the absorbed id,
 # the id it went into, kind; `window`, the id, default or park, the option
-# applied (or -) and the window end; `unavailable` and the source; and finally `held`
+# applied (or -), the window end, and away (or - on a park); `unavailable` and
+# the source; and finally `held`
 # and the seconds the fleet lock was held. Every one of those also lands in the
 # event log. The `settled` tag is the pass's own shape and is NOT the catch-up's
 # — that one carries more fields, below.
@@ -3072,10 +3073,10 @@ function window_pass(   n, w, perm) {
       # Handed over again for review, by whichever tower asks next.
       F[n, 19] = "-"; F[n, 20] = 0; F[n, 14] = 0; F[n, 13] = 0
       changed = 1
-      print "window\t" clean(F[n, 1]) "\tdefault\t" clean(F[n, 28]) "\t" F[n, 29]
+      print "window\t" clean(F[n, 1]) "\tdefault\t" clean(F[n, 28]) "\t" F[n, 29] "\t" F[n, 22]
     } else if (F[n, 28] == "park" || F[n, 30] != "none" || perm) {
       F[n, 31] = 1; changed = 1
-      print "window\t" clean(F[n, 1]) "\tpark\t-\t" F[n, 29]
+      print "window\t" clean(F[n, 1]) "\tpark\t-\t" F[n, 29] "\t-"
     }
   }
 }
@@ -3645,10 +3646,10 @@ rebuild_if_absent() {
           bkind[i] = F["item_kind"]; burg[i] = F["urgency"]; borig[i] = F["origin"]; bts[i] = F["ts"] + 0
           bhome[i] = F["home"]; bptr[i] = F["pointer"]; binst[i] = F["instance"]; broot[i] = F["root"]; bpark[i] = F["park"]; bcl[i] = F["closes"]
           bsub[i] = fv("subject"); btopic[i] = fv("topic"); bgr[i] = fv("grounds"); brev[i] = fv("reversal"); bgate[i] = fv("gate")
-          delete popts[it]; delete pend[it]; delete pwe[it]; delete pgate[it]; delete wend[it]
+          delete popts[it]; delete pend[it]; delete pwe[it]; delete pgate[it]; delete wend[it]; delete waway[it]
         } else if (k == "picklist") {
           popts[it] = fv("options"); pend[it] = fv("end"); pwe[it] = fv("window_end"); pgate[it] = fv("gate")
-        } else if (k == "window") wend[it] = fv("end")
+        } else if (k == "window") { wend[it] = fv("end"); waway[it] = fv("away") }
         else if (k == "revoked") {
           if (fv("item_kind") == "decided-by-mission-control") closed[it] = 1
           else { delete pend[it]; delete pwe[it]; delete pgate[it]; delete wend[it] }
@@ -3662,23 +3663,23 @@ rebuild_if_absent() {
       it = bid[i]
       if (it in closed) continue
       kn = bkind[i]; po = nz(popts[it]); pe = nz(pend[it]); pw = (pwe[it] == "") ? "0" : pwe[it]; pg = nz(pgate[it]); pp = 0
-      st = 0; rs = "-"; rv = nz(brev[i])
+      st = 0; rs = "-"; rv = nz(brev[i]); aw = 0
       if (po == "-" || pe == "-") { pe = "-"; pw = "0"; pg = "-" }
       if (kn == "decided-by-mission-control") pg = nz(bgate[i])
       if (kn == "question" && (it in wend) && pe != "-") {
         if (wend[it] == "park") pp = 1
         else if (review_any || (("review." it "." pw) in led)) {
-          kn = "settled-by-default"; rv = sbd_rev; st = ceil(pw + 0)
+          kn = "settled-by-default"; rv = sbd_rev; st = ceil(pw + 0); aw = (waway[it] == "1") ? 1 : 0
           rs = "the window ended on its default: " pe " (window end " pw ")"
         } else { pe = "-"; pw = "0"; pg = "-" }
       }
-      tail = po "\t" pe "\t" pw "\t" pg "\t" pp "\t" nz(btopic[i]) "\t" nz(bgr[i]) "\t" rv "\t" st "\t" rs
+      tail = po "\t" pe "\t" pw "\t" pg "\t" pp "\t" nz(btopic[i]) "\t" nz(bgr[i]) "\t" rv "\t" st "\t" rs "\t" aw
       if (bhome[i] == "attention") {
         w = bptr[i]
         ii = (w in at_iid && at_iid[w] != "") ? at_iid[w] : "-"
         if (kn == "settled-by-default") {
           covered[w] = 1
-          print "cand\t" kn "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" ii "\t-\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" tail
+          print "cand\t" kn "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" ii "\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" tail
         } else if (kn == "question" && (w in at_state) && at_state[w] == "awaiting-input") {
           covered[w] = 1
           u = (at_prio[w] ~ /^(high|normal|low)$/) ? at_prio[w] : burg[i]
@@ -3691,7 +3692,7 @@ rebuild_if_absent() {
           if (!(w in at_state)) why = "its attention row is gone (found when the store was rebuilt)"
           else { s = at_state[w]; gsub(/[^a-z0-9-]/, "", s); why = "its attention row moved on (" s ") while the store was lost" }
           inst = (kn == "news") ? nz(binst[i]) : ii
-          print "gone\t" kn "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" inst "\t-\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" po "\t-\t0\t-\t0\t" nz(btopic[i]) "\t-\t-\t0\t" why
+          print "gone\t" kn "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" inst "\t-\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" po "\t-\t0\t-\t0\t" nz(btopic[i]) "\t-\t-\t0\t" why "\t0"
         } else print "drop\t" it
       } else if (bhome[i] == "path") {
         print "path\t" nz(kn) "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tpath\t" nz(bptr[i]) "\t" nz(binst[i]) "\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" tail
@@ -3700,7 +3701,7 @@ rebuild_if_absent() {
     for (w in at_state) if (at_state[w] == "awaiting-input" && !(w in covered)) {
       ii = (at_iid[w] == "") ? "-" : at_iid[w]
       u = (at_prio[w] ~ /^(high|normal|low)$/) ? at_prio[w] : "normal"
-      print "cand\tquestion\t" u "\t" w "\t" at_ts[w] + 0 "\tattention\t" w "\t" ii "\t-\t-\t'"$QUESTION_CLOSES"'\t-\tworker:" w "\t-\t-\t0\t-\t0\t-\t-\t-\t0\t-"
+      print "cand\tquestion\t" u "\t" w "\t" at_ts[w] + 0 "\tattention\t" w "\t" ii "\t-\t-\t'"$QUESTION_CLOSES"'\t-\tworker:" w "\t-\t-\t0\t-\t0\t-\t-\t-\t0\t-\t0"
     }
   }' >"$SCRATCH/cands" 2>"$SCRATCH/cands.err" || {
     err "the rebuild pass failed: $(sanitize_printable "$(head -n 1 "$SCRATCH/cands.err" 2>/dev/null)" "(no diagnostic)")"
@@ -3712,7 +3713,7 @@ rebuild_if_absent() {
   fi
   : >"$SCRATCH/new"
   _seen=""
-  while IFS="$TAB" read -r _tag _k _u _o _b _h _p _i _r _pk _c _was _sub _po _pe _pw _pg _pp _tp _gr _rv _st _rs; do
+  while IFS="$TAB" read -r _tag _k _u _o _b _h _p _i _r _pk _c _was _sub _po _pe _pw _pg _pp _tp _gr _rv _st _rs _aw; do
     case "$_tag" in
       drop)
         printf '%s\n' "$_k" >>"$SCRATCH/dropped"
@@ -3748,6 +3749,7 @@ rebuild_if_absent() {
       fi
     fi
     [ "$_pe" != - ] || _pw=0
+    [ "$_k" = settled-by-default ] && [ "$_aw" = 1 ] || _aw=0
     [ "$_tp" = - ] || is_text "$_tp" 200 || _tp=-
     if [ "$_k" = decided-by-mission-control ]; then
       if ! is_step "$_gr" || { [ "$_rv" != none ] && ! is_step "$_rv"; } || [ "$_pg" != none ]; then
@@ -3814,8 +3816,8 @@ rebuild_if_absent() {
     if [ "$_was" = "-" ]; then
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" "$_sub" >>"$SCRATCH/fresh"
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t0\t0\t0\t0\t%s\t%s\t-\t0\t%s\t0\t-\t-\t0\t0\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" "$_state" "$_st" "$_rs" "$_sub" \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t0\t0\t0\t0\t%s\t%s\t-\t0\t%s\t%s\t-\t-\t0\t0\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" "$_state" "$_st" "$_rs" "$_sub" "$_aw" \
       "$_po" "$_pe" "$_pw" "$_pg" "$_pp" "$_tp" "$_gr" "$_rv" >>"$SCRATCH/new" || exit 6
   done <"$SCRATCH/cands"
   # The debt lands before the store: a store whose births could never be
@@ -4518,7 +4520,7 @@ pass_logs() {
       settled) owe_log settled --now "$now" item="$_p1" item_kind="$_p2" away="$_p3" reason="$_p4" held_by="${_p5:--}" ;;
       merged) owe_log merged --now "$now" item="$_p1" into="$_p2" item_kind="$_p3" ;;
       unavailable) owe_log unavailable --now "$now" source="$_p1" ;;
-      window) owe_log window --now "$now" item="$_p1" end="$_p2" option="$_p3" at="$_p4" ;;
+      window) owe_log window --now "$now" item="$_p1" end="$_p2" option="$_p3" at="$_p4" away="${_p5:--}" ;;
     esac
   done <"$SCRATCH/passlog" || {
     err "cannot read back the pass's log lines; the settlements stand but the event log is incomplete"

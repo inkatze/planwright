@@ -213,12 +213,16 @@ attention_row w-sbd spec/t2 awaiting-input 2000 normal 'Squash or keep?' A 'A|B'
 attention_row w-park spec/t3 awaiting-input 2000 normal 'Ship now?' - 'now|later' fork iid-k
 attention_row w-rot spec/t4 awaiting-input 2000 normal 'Retry?' yes 'yes|no' fork iid-r
 attention_row w-news spec/t5 pr-ready 2000 normal - - -
-sbd=$(run add --kind question --worker w-sbd --origin w-sbd --closes 'the operator answers' --options 'A|B' --end B --gate none --window 1s --now 2000) || fail "add sbd"
+mkdir -p "$content" && printf "parked work\n" >"$content/sbd-park"
+sbd=$(run add --kind question --worker w-sbd --origin w-sbd --closes 'the operator answers' --root "$content" --park sbd-park --options 'A|B' --end B --gate none --window 1s --now 2000) || fail "add sbd"
 park=$(run add --kind question --worker w-park --origin w-park --closes 'the operator answers' --options 'now|later' --end park --window 1s --now 2000) || fail "add park"
 rot=$(run add --kind question --worker w-rot --origin w-rot --closes 'the operator answers' --options 'yes|no' --end no --gate none --window 1h --now 2000) || fail "add rot"
 news=$(run add --kind news --worker w-news --origin w-news --closes 'the operator has read it' --now 2000) || fail "add news"
 run settle --now 2005 >/dev/null || fail "the pass ending both windows"
 [ "$(fld "$sbd" 2)" = settled-by-default ] && [ "$(fld "$park" 31)" = 1 ] || fail "the windows did not end before the loss"
+[ "$(fld "$sbd" 22)" = 1 ] || fail "the fixture needs the default applied while the operator was away: $(rec "$sbd")"
+sbd_root=$(fld "$sbd" 9)
+[ "$sbd_root" != - ] || fail "the fixture needs a question with a declared root"
 
 # The loss: the store goes, the rot picklist's declaring line rotates out of
 # the log, and the news row moves on.
@@ -232,6 +236,8 @@ grep -q 'rebuilt' "$errf" || fail "the rebuild was not announced"
 
 [ "$(fld "$sbd" 2)" = settled-by-default ] && [ "$(fld "$sbd" 12)" = open ] || fail "the settled-by-default item did not come back awaiting review: $(rec "$sbd")"
 [ "$(fld "$sbd" 17)" = 2001 ] || fail "the rebuilt default lost its window end time"
+[ "$(fld "$sbd" 22)" = 1 ] || fail "the rebuilt default forgot it was applied while the operator was away"
+[ "$(fld "$sbd" 9)" = "$sbd_root" ] || fail "the rebuilt default lost the root its park path is relative to: $(rec "$sbd")"
 case "$(fld "$sbd" 18)" in *"default: B"*) ;; *) fail "the rebuilt default lost its reason" ;; esac
 [ "$(fld "$d3" 2)" = decided-by-mission-control ] && [ "$(fld "$d3" 12)" = open ] || fail "the unreviewed decision did not come back awaiting review"
 [ "$(fld "$d3" 33)" = undo:u-21 ] && [ "$(fld "$d3" 34)" = none ] || fail "the rebuilt decision lost its grounds or reversal"
