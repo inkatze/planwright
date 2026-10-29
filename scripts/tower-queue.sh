@@ -3627,9 +3627,12 @@ rebuild_if_absent() {
       if (rc < 0) { print "fail\tcannot read the attention store"; exit }
     }
     if (ledger_file != "") {
+      # The ledger decides only whether a default comes back, so one that
+      # will not read costs those defaults (they return as plain questions,
+      # the safe direction), never the rebuild of everything else.
       while ((rc = (getline l < ledger_file)) > 0) { split(l, g, "\t"); if (g[1] == "item") led[g[2]] = 1 }
       close(ledger_file)
-      if (rc < 0) { print "fail\tcannot read the ledger"; exit }
+      if (rc < 0) { split("", led); print "warn\tthe ledger would not read, so no settled-by-default item came back from it" }
     }
     nb = 0
     if (log_file != "") {
@@ -3707,8 +3710,9 @@ rebuild_if_absent() {
     err "the rebuild pass failed: $(sanitize_printable "$(head -n 1 "$SCRATCH/cands.err" 2>/dev/null)" "(no diagnostic)")"
     exit 6
   }
-  if [ "$(head -n 1 "$SCRATCH/cands" 2>/dev/null | cut -f 1)" = fail ]; then
-    err "the rebuild pass failed: $(sanitize_printable "$(head -n 1 "$SCRATCH/cands" | cut -f 2)" "(no diagnostic)")"
+  _rf=$(awk -F '\t' '$1 == "fail" { print $2; exit }' "$SCRATCH/cands" 2>/dev/null) || _rf="cannot read the rebuild's candidates"
+  if [ -n "$_rf" ]; then
+    err "the rebuild pass failed: $(sanitize_printable "$_rf" "(no diagnostic)")"
     exit 6
   fi
   : >"$SCRATCH/new"
@@ -3720,6 +3724,10 @@ rebuild_if_absent() {
         continue
         ;;
       cand | path | gone) ;;
+      warn)
+        err "rebuild: $(sanitize_printable "$_k" "(unprintable warning)")"
+        continue
+        ;;
       *) continue ;;
     esac
     # A candidate that fails the record grammar is dropped, never repaired:

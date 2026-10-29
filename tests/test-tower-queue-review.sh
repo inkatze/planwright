@@ -257,3 +257,16 @@ echo "ok: a deleted store rebuilds the reviewable items awaiting review, picklis
 awk -F "$TAB" '$12 == "closed" && ($18 == "-" || $18 == "") { print; bad = 1 } END { exit bad }' "$store" \
   || fail "a closed record carries no settling reason"
 echo "ok: every closed record carries its settling reason"
+
+# --- a ledger that will not read costs only the defaults it holds ----------------------
+
+chmod 0000 "$surface/ledger"
+rm -f "$store"
+rc=0
+run settle --now 9100 >/dev/null || rc=$?
+chmod 0600 "$surface/ledger"
+[ "$rc" = 0 ] || fail "an unreadable ledger failed the rebuild: exit $rc"
+grep -q 'the ledger would not read' "$errf" || fail "the unreadable ledger was not reported"
+[ "$(fld "$sbd" 2)" = question ] && [ "$(fld "$sbd" 28)" = - ] || fail "a default came back without its review content: $(rec "$sbd")"
+[ "$(fld "$d3" 2)" = decided-by-mission-control ] || fail "an unreadable ledger cost an item it does not decide: $(rec "$d3")"
+echo "ok: an unreadable ledger rebuilds its defaults as plain questions and everything else as before"
