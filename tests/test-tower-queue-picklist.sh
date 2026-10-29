@@ -410,3 +410,27 @@ remainder=$(run catchup | awk -F "$TAB" '$1 == "remainder"')
 [ "$remainder" = "remainder${TAB}3${TAB}exact${TAB}-" ] || fail "the catch-up remainder lost the reviewed defaults past the horizon: '$remainder'"
 echo "ok: the catch-up remainder counts the defaults the store no longer keeps"
 : >"$local_cfg"
+
+# --- a fallback ledger that fails its owner check refuses the verb, lock released -----
+
+home="$tmp/fleet-home-ledger-mode"
+mkdir -p "$home"
+chmod 0700 "$home"
+surface="$home/tower-comms"
+store="$surface/queue"
+log_file="$surface/events.log"
+attn_dir="$home/attention"
+attn_store="$attn_dir/state"
+seed=$(run add --kind request --root "$content" --pointer seed --origin operator --closes 'the operator decides' --now 900) || fail "seed the ledger-mode store"
+run settle "$seed" --reason 'the seed' --now 901 >/dev/null || fail "settle the ledger-mode seed"
+for w in l1 l2; do
+  attention_row "w-$w" "spec/$w" awaiting-input 1000 normal 'Which?' A 'A|B' fork "iid-$w"
+  run add --kind question --worker "w-$w" --origin w-$w --closes 'the operator answers' --options 'A|B' --end B --gate none --window 1s --now 1000 >/dev/null || fail "add $w"
+done
+printf 'format\t1\n' >"$surface/ledger"
+chmod 0644 "$surface/ledger"
+rc=0
+run settle --now 1100 >/dev/null || rc=$?
+[ "$rc" = 4 ] || fail "a fallback ledger that is not owner-only: exit $rc, expected the security refusal 4"
+[ ! -e "$home/.fleet.lock" ] && [ ! -L "$home/.fleet.lock" ] || fail "the refused ledger write left the fleet lock held"
+echo "ok: a fallback ledger failing its owner check refuses the pass outright and leaves no lock behind"

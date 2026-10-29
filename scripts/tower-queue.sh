@@ -4126,12 +4126,24 @@ window_prepare() {
     fi
     if [ "$_wk" = 0 ]; then
       resolve_queue_knobs
+      # A fallback ledger that fails the owner-only check is a security
+      # refusal for the whole verb, never one item's write failure.
+      if [ -z "$LEDGER_HELPER" ] && { [ -e "$surface/ledger" ] || [ -L "$surface/ledger" ]; }; then
+        check_private_file "$surface/ledger"
+      fi
       _wk=1
     fi
     # ledger_put exits on any failure, and one item's must not stop the pass
-    # for every other item and every tower, so it runs in a subshell.
-    if ! (ledger_put "review.$_wi.$_wt" settled-by-default "$now" "$_ws" - \
-      "the picklist window on $_wi ended on its default: $(redact "$_we") (window end $_wt)"); then
+    # for every other item and every tower, so it runs in a subshell. A
+    # subshell inherits no trap, so it carries its own lock release.
+    if ! (
+      trap 'release_lock' EXIT
+      trap 'exit 130' INT
+      trap 'exit 143' TERM
+      trap 'exit 129' HUP
+      ledger_put "review.$_wi.$_wt" settled-by-default "$now" "$_ws" - \
+        "the picklist window on $_wi ended on its default: $(redact "$_we") (window end $_wt)"
+    ); then
       err "the review content for $_wi could not be written; it stays a question until a pass can write it"
       continue
     fi
