@@ -2,7 +2,7 @@
 # Tests for scripts/tower-queue.sh's queue store under the fleet lock: the
 # concurrent-writer and lock-saturation cases, the owner-only surface, and
 # the rebuild from the content homes when the store is lost (REQ-A1.4,
-# REQ-A1.5, REQ-F1.5, REQ-G1.1). Split from test-tower-queue-store.sh so each
+# REQ-A1.13, REQ-F1.5, REQ-G1.1). Split from test-tower-queue-store.sh so each
 # file stays inside the per-file wall-clock budget.
 #
 # Contract under test:

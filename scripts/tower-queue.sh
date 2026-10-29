@@ -1,11 +1,11 @@
 #!/bin/sh
 # tower-queue.sh — the operator queue's script (tower-comms). Three parts:
 # the event log (`log`), the scorecard computed from it alone (`report`), and
-# the queue store with its verbs (`add`, `list`, `knock`, `next`, `ack`,
-# `shelve`, `settle`, `catchup`, `counts`) — D-2 to D-9, D-14, D-17 to D-19;
-# REQ-A1.1 to REQ-A1.9, REQ-B1.1 to REQ-B1.5, REQ-C1.1, REQ-C1.2, REQ-C1.5,
-# REQ-C1.6, REQ-C1.7, REQ-C1.9, REQ-C1.10, REQ-C1.11, REQ-F1.1 to REQ-F1.4,
-# REQ-F1.6, REQ-G1.1 to REQ-G1.8, REQ-H1.2.
+# the queue store with its verbs (`add`, `list`, `show`, `knock`, `next`,
+# `ack`, `revoke`, `shelve`, `settle`, `catchup`, `counts`) — D-2 to D-9,
+# D-14, D-17 to D-22; REQ-A1.1 to REQ-A1.14, REQ-B1.1 to REQ-B1.8, REQ-C1.1,
+# REQ-C1.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-C1.9, REQ-C1.10, REQ-C1.11,
+# REQ-F1.1 to REQ-F1.3, REQ-F1.6, REQ-F1.8, REQ-G1.1 to REQ-G1.9, REQ-H1.5.
 #
 # THE STORE. `<home>/tower-comms/queue`, one tab-separated record per item,
 # the index and delivery state only: the content lives where its kind already
@@ -16,7 +16,8 @@
 # against its grammar before a write and sanitized on the way out:
 #
 #    1 id          i + 8 hex, derived from the content home's key (below)
-#    2 kind        question | approval | request | news | standing
+#    2 kind        question | approval | request | news | standing |
+#                  settled-by-default | decided-by-mission-control
 #    3 urgency     high | normal | low (a worker question inherits its row's)
 #    4 origin      the source worker's handle, or the operator's turn
 #    5 born        epoch
@@ -62,10 +63,37 @@
 #                  and go permanently false every time it was lowered. Both
 #                  reset when the operator is present again, because a second
 #                  departure is a second transition into away.
+#   27 options     a question's picklist, two to eight labels joined by |, or -
+#   28 end         the window's end: one of the options (the declared
+#                  default), park, or - (no window, or one a revocation removed)
+#   29 window_end  epoch the window ends at, fractional allowed, or 0
+#   30 gate        none | human-gate | disqualifier-zone, or -
+#   31 parked      1 once a window ended on park, else 0
+#   32 topic       a free-text subject, or -
+#   33 grounds     where a decided-by-mission-control item's grounds are
+#                  recorded, or -
+#   34 reversal    the one step that reverses a reviewable item, none, or -
 #
-# A record written before any of the last six fields shipped is completed on
-# read (subject -, away 0, sources -, held_by -, pushed 0, pushes 0) and
-# rewritten by the next locked verb, so an older store is never stranded.
+# A record written before any of fields 21 to 34 shipped is completed on read
+# with each one's empty value and rewritten by the next locked verb, so an
+# older store is never stranded.
+#
+# THE REVIEWABLE KINDS (D-20, D-21). A question may declare a picklist at
+# `add`: its options, a window (`--window`, else `tower_picklist_window`) that
+# runs from its birth, and an end. A declared default needs `--gate`, and is
+# refused, only `park` admitted, on a permission prompt, on options naming a
+# reserved control, and behind a human gate or a hard-disqualifier zone. The
+# settling pass applies an ended window against its end time: a default
+# re-kinds the record settled-by-default, its review content written to the
+# ledger first; a park marks it parked and answers nothing. A
+# decided-by-mission-control item is born in that kind, only from a caller
+# mission control's launcher registry records as a launched mission-control
+# session, with its grounds, its reversal and `--gate none`. Both kinds stay
+# open until `ack` (reviewed) or `revoke`, which reopens a settled-by-default
+# item as its question with no window and closes a decided-by-mission-control
+# one, logging the reversal pointer and running nothing. Evidence never
+# closes either. `show <id>` renders one item with its settling reason, which
+# every route out of the open set records.
 #
 # The identifier is derived from the content home's key (kind, home, pointer,
 # and for news the row's instance, for a path item its root), so an `add` of
@@ -95,7 +123,8 @@
 #
 # ATTENTION AND THE LEASE (`next`). `next` hands over at most one item per
 # call, ordered by consequence: questions (blocked workers) before approvals
-# before the operator's requests before news, then urgency, then age. It is
+# before the operator's requests before the two reviewable kinds before news,
+# then urgency, then age. It is
 # knock-first, enforced here rather than by instruction: the only thing that
 # confirms attention is the per-tower marker file the prompt-submit hook
 # writes at `<home>/tower-comms/attention/<tower>` — one line holding the
@@ -231,8 +260,8 @@
 # makes a lost push visible: the stamp lands before the transport runs, so a
 # failure is reported rather than retried.
 #
-# THE SETTLING PASS (`settle` with no id) — D-5, REQ-B1.1 to REQ-B1.5,
-# REQ-F1.4, REQ-H1.2. Level-triggered: every pass re-evaluates every open
+# THE SETTLING PASS (`settle` with no id) — D-5, D-21, D-22, REQ-B1.1 to
+# REQ-B1.6, REQ-F1.8, REQ-H1.5. Level-triggered: every pass re-evaluates every open
 # item's closing condition against the evidence available NOW, never a stream
 # of events since the last pass, so an item whose condition was met before the
 # previous pass still settles. One pass serves a whole tower-loop iteration:
@@ -281,13 +310,14 @@
 #
 # On stdout the pass prints, tab-separated: `settled`, id, kind, away, the
 # reason, and the tower that was holding it (or -); `merged`, the absorbed id,
-# the id it went into, kind; `unavailable` and the source; and finally `held`
+# the id it went into, kind; `window`, the id, default or park, the option
+# applied (or -) and the window end; `unavailable` and the source; and finally `held`
 # and the seconds the fleet lock was held. Every one of those also lands in the
 # event log. The `settled` tag is the pass's own shape and is NOT the catch-up's
 # — that one carries more fields, below.
 #
-# A standing decision is not re-evaluated: it is the one kind no evidence
-# closes, since what closes it is the operator revoking the rule (REQ-A1.2).
+# A standing decision is not re-evaluated, nor is a reviewable item: no
+# evidence closes them, only the operator revoking or reviewing (REQ-A1.10).
 #
 # MERGING (REQ-B1.3). In the same pass, over every open, unleased,
 # undelivered, unshelved candidate that has a question and an option set to
@@ -347,16 +377,20 @@
 # REBUILD. When the store is absent a locked verb rebuilds it inside the lock
 # (absence re-checked there, so two towers cannot both rebuild) from the
 # content homes: every awaiting-input attention row becomes a question item,
-# and every `born` line in the event log with no `acknowledged`, `settled`
-# or rebuild `dropped` after it is re-registered when its content home still
-# holds the content — with the same identifier, since it comes from the same
-# key — or logged as `dropped` with reason `rebuild` when the home has moved
-# on (a path home is re-checked for containment exactly as `add` checks it)
-# or the line's identifier does not derive from its own key. A rebuilt item
-# is undelivered and the per-tower delivery records go with the lost store,
-# so a delivered-but-open item is delivered once more; shelve deadlines and
-# settling reasons are the store's alone and do not return; the settled
-# history is the event log's (REQ-A1.5). The log lines a rebuild owes are
+# and every `born` line in the event log with no `acknowledged`, `reviewed`,
+# `settled`, `merged`, closing `revoked` or rebuild `dropped` after it is
+# re-registered when its content home still holds the content — with the
+# same identifier, since it comes from the same key — with its picklist read
+# back from its `picklist` and `window` lines (one whose declaration is gone
+# comes back a plain question, so a loss never adds a default) and a
+# settled-by-default item back awaiting review. An item whose row has moved
+# on or whose file has vanished is recorded as settled with that reason
+# (REQ-A1.13); a line whose identifier does not derive from its own key, or
+# whose path escapes its root, is logged as `dropped` with reason `rebuild`.
+# A rebuilt item is undelivered and the per-tower delivery records go with
+# the lost store, so a delivered-but-open item is delivered once more; shelve
+# deadlines are the store's alone and do not return; the settled history is
+# the event log's (REQ-A1.13). The log lines a rebuild owes are
 # written to `rebuild.debt` under the sub-surface before the store lands and
 # paid once the lock is released, by that verb or the next one.
 #
@@ -455,7 +489,8 @@
 #   log <kind> [--tower <id>] [--now <epoch>] [<key>=<value> ...]
 #
 # Kinds: born settled merged knocked delivered acknowledged shelved pushed
-# session tick reply dropped unavailable refused. A `tick` needs `live=<n>`
+# session tick reply dropped unavailable refused picklist window reviewed
+# revoked. A `tick` needs `live=<n>`
 # (the live-worker count) and coalesces with the previous line when that is a
 # tick from the same tower with the same count within `tower_tick_gap_max`:
 # the previous line's `until` advances instead of a new line landing, so a
@@ -1865,9 +1900,6 @@ REVIEW_CLOSES="the operator reviews or revokes it"
 # The reversal a settled-by-default item carries: revoking it reopens the
 # question, so that is the one step that undoes it.
 SBD_REVERSAL=reopen
-# The record's fields past the twenty-sixth, as a new record carries them:
-# options, end, window end, gate, parked, topic, grounds, reversal.
-REC_TAIL="-	-	0	-	0	-	-	-"
 # The most closed (acknowledged or settled) records a write keeps: the
 # catch-up knob is a small window, and the retention pass sorts what it
 # keeps, so a runaway value would put that sort inside the fleet lock on
