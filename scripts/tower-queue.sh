@@ -574,7 +574,7 @@ for _dep in "$FS" "$RCK"; do
 done
 JARGON="$script_dir/tower-jargon.txt"
 SCHEMA=1
-KINDS="born settled merged knocked delivered acknowledged shelved pushed session tick reply dropped unavailable refused"
+KINDS="born settled merged knocked delivered acknowledged shelved pushed session tick reply dropped unavailable refused picklist window reviewed revoked"
 TOWER_KINDS="reply acknowledged delivered knocked tick"
 RESERVED="v seq ts kind tower until"
 
@@ -585,7 +585,7 @@ usage: tower-queue.sh log <kind> [--tower <id>] [--now <epoch>] [<key>=<value> .
        tower-queue.sh report [--log <path>] [--now <epoch>] [--window <duration>] [--tick-gap-max <duration>]
        tower-queue.sh add --kind <kind> --origin <who> --closes <text> [--urgency high|normal|low] [--now <epoch>]
                       (--worker <handle> [--root <dir> --park <rel>] | --root <dir> --pointer <rel> [--park <rel>])
-                      [--subject worker:<handle>|pr:<n>|branch:<name>|ledger:<key>] [--key <content-key>]
+                      [--subject worker:<handle>|pr:<n>|branch:<name>|ledger:<key>] [--key <content-key>] [--topic <text>]
                       --closes defaults for a standing decision; a question inherits its row's urgency and refuses --urgency
        tower-queue.sh capture --kind request|approval|standing --text <text>
                       [--covers <free text> | --covers-command <prefix> ...] (a standing decision)
@@ -593,7 +593,13 @@ usage: tower-queue.sh log <kind> [--tower <id>] [--now <epoch>] [<key>=<value> .
        tower-queue.sh match --decision <id> --command <text>|-   (- reads it from stdin)
        tower-queue.sh knock [--now <epoch>]
        tower-queue.sh next [--tower <id>] [--now <epoch>] [--evidence <file>]
+       tower-queue.sh add --kind question --worker <handle> ... --options <a|b...> --end <option>|park
+                      [--window <duration>] [--gate none|human-gate|disqualifier-zone] (a picklist)
+       tower-queue.sh add --kind decided-by-mission-control --origin <who> --text <decision> --grounds <ptr>
+                      --reversal <step>|none --gate none [--tower <id>] [--subject <key>] [--topic <text>]
        tower-queue.sh ack <id> [--tower <id>] [--now <epoch>]
+       tower-queue.sh revoke <id> [--tower <id>] [--now <epoch>]
+       tower-queue.sh show <id> [--now <epoch>]
        tower-queue.sh shelve <id> [--tower <id>] [--for <duration>] [--now <epoch>]
        tower-queue.sh settle <id> --reason <text> [--now <epoch>]
        tower-queue.sh settle [--evidence <file>] [--now <epoch>]   the level-triggered pass
@@ -825,6 +831,7 @@ resolve_knobs() {
       tower_catchup_limit) catchup_limit=$_kv ;;
       tower_shelve_return) shelve_return=$_kv ;;
       tower_reknock_age) reknock_age=$_kv ;;
+      tower_picklist_window) picklist_window=$_kv ;;
     esac
   done
   rm -rf "$_kd"
@@ -1145,6 +1152,7 @@ cleanup() {
   [ -z "$EVID_FILE" ] || rm -f "$EVID_FILE" 2>/dev/null || true
   [ -z "$EVID_RAW" ] || rm -f "$EVID_RAW" 2>/dev/null || true
   [ -z "$RULE_FILE" ] || rm -f "$RULE_FILE" 2>/dev/null || true
+  [ -z "${REVIEW_FILE:-}" ] || rm -f "$REVIEW_FILE" 2>/dev/null || true
   [ -z "$KNOB_DIR" ] || rm -rf "$KNOB_DIR" 2>/dev/null || true
   [ -z "$SCRATCH" ] || rm -rf "$SCRATCH" 2>/dev/null || true
 }
@@ -1848,10 +1856,18 @@ cmd_report() {
 # The queue store: grammar and helpers
 # ---------------------------------------------------------------------------
 
-Q_KINDS="question approval request news standing"
+Q_KINDS="question approval request news standing settled-by-default decided-by-mission-control"
 Q_URGENCIES="high normal low"
+Q_GATES="none human-gate disqualifier-zone"
 STANDING_CLOSES="the operator revokes the rule"
 QUESTION_CLOSES="the operator answers"
+REVIEW_CLOSES="the operator reviews or revokes it"
+# The reversal a settled-by-default item carries: revoking it reopens the
+# question, so that is the one step that undoes it.
+SBD_REVERSAL=reopen
+# The record's fields past the twenty-sixth, as a new record carries them:
+# options, end, window end, gate, parked, topic, grounds, reversal.
+REC_TAIL="-	-	0	-	0	-	-	-"
 # The most closed (acknowledged or settled) records a write keeps: the
 # catch-up knob is a small window, and the retention pass sorts what it
 # keeps, so a runaway value would put that sort inside the fleet lock on
@@ -1924,6 +1940,40 @@ is_handle() {
     "" | . | .. | *[!A-Za-z0-9._=@:-]*) return 1 ;;
   esac
   [ "${#1}" -le 128 ]
+}
+
+# is_option_list <a|b|...> — a picklist's closed option set: two to eight
+# labels joined by `|`, each one to 64 bytes of text with no `|`, no edge
+# space, distinct, and neither `-` nor `park`, the two words the end field
+# reserves. Prints nothing; 0 when the list is admissible.
+is_option_list() {
+  is_text "$1" 600 || return 1
+  printf '%s\n' "$1" | awk -F '|' '{
+    if (NF < 2 || NF > 8) exit 1
+    for (i = 1; i <= NF; i++) {
+      o = $i
+      if (o == "" || length(o) > 64 || o ~ /^ / || o ~ / $/ || o == "-" || o == "park" || (o in seen)) exit 1
+      seen[o] = 1
+    }
+  }'
+}
+
+# is_option_in <option> <list> — 0 when the option is one of the list's labels.
+is_option_in() {
+  case "|$2|" in
+    *"|$1|"*) return 0 ;;
+  esac
+  return 1
+}
+
+# is_step <value> — a grounds pointer or a one-step reversal: one token of at
+# most 256 bytes naming where the record lives (an undo-ledger entry, a log
+# entry), never prose.
+is_step() {
+  case "$1" in
+    "" | - | *[!A-Za-z0-9._/@:=+#-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 256 ]
 }
 
 # is_subject <value> — the subject key the settling pass joins evidence on and
@@ -2745,7 +2795,7 @@ write_delivery() { # write_delivery <tower> <kt> <kitem> <dt> <ditem>
 build_towers_file() {
   : >"$SCRATCH/names"
   [ -z "${tower:-}" ] || printf '%s\n' "$tower" >>"$SCRATCH/names"
-  [ ! -s "$SCRATCH/snap" ] || awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26) && $19 != "-" { print $19 }' "$SCRATCH/snap" >>"$SCRATCH/names"
+  [ ! -s "$SCRATCH/snap" ] || awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && $19 != "-" { print $19 }' "$SCRATCH/snap" >>"$SCRATCH/names"
   # The settling pass runs under no tower of its own and still has to know
   # whether the operator is present anywhere before it records an item as
   # settled while they were away (REQ-B1.4), so it sweeps every conversation
@@ -2839,9 +2889,9 @@ commit_store() {
 # shellcheck disable=SC2016
 AWK_Q='
 function rec_ok(   i) {
-  if (NF != 26) return 0
+  if (NF != 34) return 0
   if ($1 !~ /^i[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/) return 0
-  if ($2 !~ /^(question|approval|request|news|standing)$/) return 0
+  if ($2 !~ /^(question|approval|request|news|standing|settled-by-default|decided-by-mission-control)$/) return 0
   if ($3 !~ /^(high|normal|low)$/) return 0
   if ($6 !~ /^(attention|path)$/) return 0
   if ($12 !~ /^(open|closed)$/) return 0
@@ -2852,10 +2902,21 @@ function rec_ok(   i) {
   if ($22 !~ /^[01]$/) return 0
   if ($25 !~ /^(0|[1-9][0-9]*)$/) return 0
   if ($26 !~ /^[012]$/) return 0
-  for (i = 1; i <= 26; i++) if ($i == "") return 0
+  # The picklist: an end needs an option set and names one of its labels or
+  # `park`; a window end needs an end. A revoked window keeps the options.
+  if ($27 != "-" && $27 !~ /^[^|]+(\|[^|]+)+$/) return 0
+  if ($28 != "-" && ($27 == "-" || ($28 != "park" && index("|" $27 "|", "|" $28 "|") == 0))) return 0
+  if ($29 !~ /^(0|[1-9][0-9]*(\.[0-9]+)?)$/ || ($29 != "0" && $28 == "-")) return 0
+  if ($30 !~ /^(-|none|human-gate|disqualifier-zone)$/) return 0
+  if ($31 !~ /^[01]$/) return 0
+  if ($33 != "-" && $33 !~ /^[A-Za-z0-9._\/@:=+#-]+$/) return 0
+  if ($34 != "-" && $34 !~ /^[A-Za-z0-9._\/@:=+#-]+$/) return 0
+  for (i = 1; i <= 34; i++) if ($i == "") return 0
   return 1
 }
-function krank(k) { return (k == "question") ? 0 : (k == "approval") ? 1 : (k == "request") ? 2 : (k == "news") ? 3 : 9 }
+# Requests, then the two reviewable kinds, then news (D-20).
+function krank(k) { return (k == "question") ? 0 : (k == "approval") ? 1 : (k == "request") ? 2 : (k == "settled-by-default") ? 3 : (k == "decided-by-mission-control") ? 4 : (k == "news") ? 5 : 9 }
+function reviewable(k) { return k == "settled-by-default" || k == "decided-by-mission-control" }
 function urank(u) { return (u == "high") ? 0 : (u == "normal") ? 1 : 2 }
 function better(a, b,   x, y) {
   x = krank(F[a, 2]); y = krank(F[b, 2]); if (x != y) return x < y
@@ -2896,6 +2957,7 @@ function load_attention(file,   l, f, n, rc) {
     at_scope[f[1]] = (f[2] != "-") ? f[2] : ""
     at_claim[f[1]] = (n >= 11 && f[11] != "-") ? f[11] : ""
     at_cmd[f[1]] = (n >= 12 && f[12] != "-") ? f[12] : ""
+    at_f9[f[1]] = (n >= 9) ? f[9] : ""
   }
   close(file)
   if (rc < 0) fail("cannot read the attention store")
@@ -2943,7 +3005,43 @@ function merge_key(n,   w, s) {
   # those on case-folded prose is exactly what the byte-equality rule exists to
   # prevent.
   if (at_q[w] == "" || at_opts[w] == "") return ""
-  return "q\002" norm(fsrep(fsrep(at_q[w], F[n, 4]), at_scope[w])) "\003" norm(fsrep(fsrep(at_opts[w], F[n, 4]), at_scope[w]))
+  # A picklist merges only with one that would end the same way at the same
+  # moment, so a merge never changes what a window applies (REQ-A1.11).
+  return "q\002" norm(fsrep(fsrep(at_q[w], F[n, 4]), at_scope[w])) "\003" norm(fsrep(fsrep(at_opts[w], F[n, 4]), at_scope[w])) "\004" F[n, 27] "\004" F[n, 28] "\004" F[n, 29]
+}
+# The questions whose settled-by-default content the shell wrote to the
+# ledger before the lock: only those may be re-kinded (REQ-A1.10).
+function load_reviews(file,   l, rc) {
+  if (file == "") return
+  while ((rc = (getline l < file)) > 0) review_ready[l] = 1
+  close(file)
+  if (rc < 0) fail("cannot read the review-content table")
+}
+function ceil(x) { return (x == int(x)) ? x : int(x) + 1 }
+# window_pass(): a picklist window that has ended applies its end, judged
+# against the window end time and recorded with it, never the pass time
+# (REQ-A1.12). A default applies only at gate none, on a question that is no
+# permission prompt, once its review content is in the ledger; anything else
+# ends as a park, which answers nothing.
+function window_pass(   n, w, perm) {
+  for (n = 1; n <= N; n++) {
+    if (!OK[n] || F[n, 12] != "open" || F[n, 2] != "question") continue
+    if (F[n, 29] + 0 <= 0 || F[n, 31] == 1 || F[n, 29] + 0 > now) continue
+    w = F[n, 7]
+    perm = (F[n, 6] == "attention" && (w in at_f9) && at_f9[w] == "permission")
+    if (F[n, 28] != "park" && F[n, 30] == "none" && !perm && (F[n, 1] in review_ready)) {
+      F[n, 2] = "settled-by-default"; F[n, 17] = ceil(F[n, 29] + 0)
+      F[n, 18] = "the window ended on its default: " F[n, 28] " (window end " F[n, 29] ")"
+      F[n, 34] = SBD_REV; F[n, 22] = !anyone_present()
+      # Handed over again for review, by whichever tower asks next.
+      F[n, 19] = "-"; F[n, 20] = 0; F[n, 14] = 0; F[n, 13] = 0
+      changed = 1
+      print "window\t" clean(F[n, 1]) "\tdefault\t" clean(F[n, 28]) "\t" F[n, 29]
+    } else if (F[n, 28] == "park" || F[n, 30] != "none" || perm) {
+      F[n, 31] = 1; changed = 1
+      print "window\t" clean(F[n, 1]) "\tpark\t-\t" F[n, 29]
+    }
+  }
 }
 # settle_reason(n): the closing condition re-read against the evidence
 # available NOW, or "" for an item that stays open. Order matters only in
@@ -2985,8 +3083,11 @@ function add_source(have, who,   i, p) {
 function settle_pass(   n, r, t, i, j, key, best, src, nsrc, parts, np) {
   attn_needed = 0
   away = !anyone_present()
+  window_pass()
   for (n = 1; n <= N; n++) {
-    if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing") continue
+    # A reviewable item closes on the operator`s review or revocation alone
+    # (REQ-A1.10), so no evidence is read against it.
+    if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing" || reviewable(F[n, 2])) continue
     r = settle_reason(n)
     if (r == "") continue
     F[n, 12] = "closed"; F[n, 17] = now; F[n, 18] = r; F[n, 22] = away; F[n, 24] = F[n, 19]
@@ -2995,7 +3096,7 @@ function settle_pass(   n, r, t, i, j, key, best, src, nsrc, parts, np) {
     print "settled\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" away "\t" r "\t" clean(F[n, 24])
   }
   for (n = 1; n <= N; n++) {
-    if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing") continue
+    if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing" || reviewable(F[n, 2])) continue
     if (F[n, 19] != "-" || F[n, 14] + 0 > 0 || F[n, 16] + 0 > 0) continue
     # An item the derived pass just marked non-deliverable is not a question
     # the operator will be asked. Keying one anyway lets it win the group and
@@ -3111,7 +3212,9 @@ function derived_pass(   n, eff, o, w, ii) {
       # whichever tower asks next, that one included.
       if (eff <= now) { F[n, 19] = "-"; F[n, 20] = 0; F[n, 14] = 0; changed = 1 }
     }
-    if (F[n, 6] == "attention") {
+    # A reviewable item`s content is in the ledger: the row it began on may
+    # move on without making the review undeliverable.
+    if (F[n, 6] == "attention" && !reviewable(F[n, 2])) {
       w = F[n, 7]
       if (!(w in at_state)) skip_reason[n] = "its row is gone from the attention store"
       else if (F[n, 2] == "question") {
@@ -3147,7 +3250,7 @@ function emit(out,   n, i, m, v, tv, j, line) {
     if (!OK[n]) { print L[n] > out; continue }
     if (n in drop) continue
     line = F[n, 1]
-    for (i = 2; i <= 26; i++) line = line "\t" F[n, i]
+    for (i = 2; i <= 34; i++) line = line "\t" F[n, i]
     print line > out
   }
   close(out)
@@ -3160,6 +3263,14 @@ function srcs(n) { return F[n, 4] ((F[n, 23] == "-") ? "" : "," F[n, 23]) }
 # line of the same hand-over must never disagree about its shape.
 function ptr_of(n) {
   return clean(F[n, 6] ":" ((F[n, 6] == "path") ? F[n, 9] "/" F[n, 7] : F[n, 7]) ((F[n, 8] == "-") ? "" : "@" F[n, 8]))
+}
+function list_state(n) {
+  if (F[n, 12] == "closed") return "closed"
+  if (F[n, 16] + 0 > now) return "shelved"
+  if (F[n, 14] + 0 > 0) return "delivered"
+  if (F[n, 19] != "-") return "leased:" F[n, 19]
+  if (F[n, 31] == 1) return "parked"
+  return "open"
 }
 function render_item(n, urg, age, orig) {
   if (urg == "") urg = F[n, 3]
@@ -3175,7 +3286,8 @@ function render_item(n, urg, age, orig) {
   if (NF == 23) { $24 = "-"; changed = 1 }
   if (NF == 24) { $25 = 0; changed = 1 }
   if (NF == 25) { $26 = 0; changed = 1 }
-  if (rec_ok()) { OK[N] = 1; for (i = 1; i <= 26; i++) F[N, i] = $i } else OK[N] = 0
+  if (NF == 26) { $27 = "-"; $28 = "-"; $29 = 0; $30 = "-"; $31 = 0; $32 = "-"; $33 = "-"; $34 = "-"; changed = 1 }
+  if (rec_ok()) { OK[N] = 1; for (i = 1; i <= 34; i++) F[N, i] = $i } else OK[N] = 0
 }
 '
 
@@ -3193,9 +3305,10 @@ run_store_pass() {
     -v evid_file="${EVID_FILE:-}" -v do_settle="${DO_SETTLE:-0}" \
     -v reknock="${reknock_age:-0}" -v hold="${REKNOCK_HOLD:-0}" \
     -v attn_present="$([ -n "$attn_file_for_awk" ] && echo 1 || echo 0)" \
-    -v out="$SCRATCH/new" -v tower="${tower:-}" -v record_file="$SCRATCH/record" -v reason_file="$SCRATCH/reason" "$@" "$AWK_Q"'
+    -v out="$SCRATCH/new" -v tower="${tower:-}" -v record_file="$SCRATCH/record" -v reason_file="$SCRATCH/reason" \
+    -v review_file="${REVIEW_FILE:-}" -v SBD_REV="$SBD_REVERSAL" "$@" "$AWK_Q"'
   BEGIN {
-    load_towers(towers_file); load_attention(attn_file); load_evidence(evid_file); changed = 0
+    load_towers(towers_file); load_attention(attn_file); load_evidence(evid_file); load_reviews(review_file); changed = 0
     record = ""; reason = ""
     if ((getline record < record_file) <= 0) record = ""
     close(record_file)
@@ -3211,18 +3324,44 @@ run_store_pass() {
     if (mode == "add") {
       t = 0
       for (n = 1; n <= N; n++) if (OK[n] && F[n, 1] == item) t = n
-      if (t && F[t, 12] == "open") { print "status\tpresent"; emit(out); print "changed\t" changed; exit }
       $0 = record
       if (!rec_ok()) fail("the new record does not parse")
+      # A picklist is declared at birth and never changes afterwards, so one
+      # offered for an item already open is refused rather than dropped.
+      if (t && F[t, 12] == "open" && $27 != "-" && (F[t, 27] != $27 || F[t, 28] != $28)) { print "status\tpicklist"; emit(out); print "changed\t" changed; exit }
+      if (t && F[t, 12] == "open") { print "status\tpresent"; emit(out); print "changed\t" changed; exit }
       if (t) {
         # The same content home queued again after its item closed: the
         # record is re-opened in place, born now, so one home is one id.
-        for (i = 1; i <= 26; i++) F[t, i] = $i
+        for (i = 1; i <= 34; i++) F[t, i] = $i
         changed = 1; print "status\treopened"; emit(out); print "changed\t" changed; exit
       }
       N++; OK[N] = 1; L[N] = ""
-      for (i = 1; i <= 26; i++) F[N, i] = $i
+      for (i = 1; i <= 34; i++) F[N, i] = $i
       changed = 1; print "status\tadded"; emit(out); print "changed\t" changed; exit
+    }
+    if (mode == "revoke") {
+      t = 0
+      for (n = 1; n <= N; n++) if (OK[n] && F[n, 1] == item) t = n
+      if (!t) print "status\tabsent"
+      else if (F[t, 12] == "closed") print "status\tclosed\t" clean(F[t, 2])
+      else if (!reviewable(F[t, 2])) print "status\tnotreviewable\t" clean(F[t, 2])
+      else if (F[t, 19] != "-" && F[t, 19] != tower) print "status\tnolease\t" clean(F[t, 19])
+      else {
+        rk = F[t, 2]; rv = F[t, 34]
+        F[t, 19] = "-"; F[t, 20] = 0; F[t, 14] = 0; F[t, 13] = 0; changed = 1
+        if (rk == "settled-by-default") {
+          # Back to the question it was, with no window, so it can never
+          # default a second time (REQ-B1.8).
+          F[t, 2] = "question"; F[t, 28] = "-"; F[t, 29] = 0; F[t, 30] = "-"; F[t, 31] = 0
+          F[t, 17] = 0; F[t, 18] = "-"; F[t, 34] = "-"; F[t, 22] = 0
+          print "status\treopened\t" rk "\t" clean(rv)
+        } else {
+          F[t, 12] = "closed"; F[t, 17] = now; F[t, 18] = "revoked by the operator (reversal: " rv ")"
+          print "status\trevoked\t" rk "\t" clean(rv)
+        }
+      }
+      emit(out); print "changed\t" changed; exit
     }
     if (mode == "ack" || mode == "settle" || mode == "shelve") {
       t = 0
@@ -3231,8 +3370,15 @@ run_store_pass() {
       else if (F[t, 12] == "closed") print "status\tclosed"
       else if (mode == "ack") {
         if (F[t, 19] != tower) print "status\tnolease\t" clean(F[t, 19])
-        else { F[t, 12] = "closed"; F[t, 15] = now; F[t, 19] = "-"; F[t, 20] = 0; changed = 1; print "status\tok\t" clean(F[t, 2]) }
-      } else if (mode == "settle") {
+        else {
+          # The reason every route out of the open set carries (REQ-B1.7).
+          if (reviewable(F[t, 2])) F[t, 18] = "reviewed by the operator (reversal: " F[t, 34] ")" ((F[t, 18] == "-") ? "" : "; " F[t, 18])
+          else F[t, 18] = "acknowledged by the operator"
+          F[t, 12] = "closed"; F[t, 15] = now; F[t, 19] = "-"; F[t, 20] = 0; changed = 1
+          print "status\tok\t" clean(F[t, 2]) "\t" clean(F[t, 34])
+        }
+      } else if (mode == "settle" && reviewable(F[t, 2])) print "status\treviewable\t" clean(F[t, 2])
+      else if (mode == "settle") {
         F[t, 12] = "closed"; F[t, 17] = now; F[t, 18] = reason; F[t, 24] = F[t, 19]
         F[t, 19] = "-"; F[t, 20] = 0; changed = 1
         print "status\tok\t" clean(F[t, 2]) "\t" clean(F[t, 24])
@@ -3410,12 +3556,26 @@ rebuild_if_absent() {
   [ ! -f "$store_file" ] || return 0
   : >"$SCRATCH/dropped"
   : >"$SCRATCH/fresh"
+  : >"$SCRATCH/gone"
   _rl=""
   [ ! -s "$log_file" ] || _rl=$log_file
   _ra=""
   [ ! -s "$attn_store" ] || _ra=$attn_store
-  awk -F '\t' -v log_file="$_rl" -v attn_file="$_ra" "$AWK_PARSE"'
+  # A settled-by-default item comes back only with its review content still
+  # in the fallback ledger. A helper's home is its own to keep, so with one
+  # installed the log's record of the window stands for it.
+  _rled=""
+  _rany=0
+  if [ -n "$LEDGER_HELPER" ]; then
+    _rany=1
+  elif [ -f "$surface/ledger" ] && [ ! -L "$surface/ledger" ]; then
+    _rled="$surface/ledger"
+  fi
+  awk -F '\t' -v log_file="$_rl" -v attn_file="$_ra" -v ledger_file="$_rled" -v review_any="$_rany" \
+    -v sbd_rev="$SBD_REVERSAL" "$AWK_PARSE"'
   function nz(s) { return (s == "") ? "-" : s }
+  function fv(k) { return (k in F) ? F[k] : "" }
+  function ceil(x) { return (x == int(x)) ? x : int(x) + 1 }
   BEGIN {
     if (attn_file != "") {
       while ((rc = (getline l < attn_file)) > 0) {
@@ -3425,10 +3585,16 @@ rebuild_if_absent() {
       close(attn_file)
       if (rc < 0) { print "fail\tcannot read the attention store"; exit }
     }
+    if (ledger_file != "") {
+      while ((rc = (getline l < ledger_file)) > 0) { split(l, g, "\t"); if (g[1] == "item") led[g[2]] = 1 }
+      close(ledger_file)
+      if (rc < 0) { print "fail\tcannot read the ledger"; exit }
+    }
     nb = 0
     if (log_file != "") {
       # Event order matters: a birth after a closure re-opens the item, and
-      # a closure after a birth closes it.
+      # a closure after a birth closes it. A revocation removes a window, so
+      # a revoked default is rebuilt as the plain question it went back to.
       while ((rc = (getline l < log_file)) > 0) {
         if (!parse(l, F, T) || !header_ok(F, T)) continue
         k = F["kind"]; it = ("item" in F) ? F["item"] : ""
@@ -3438,8 +3604,15 @@ rebuild_if_absent() {
           delete closed[it]
           bkind[i] = F["item_kind"]; burg[i] = F["urgency"]; borig[i] = F["origin"]; bts[i] = F["ts"] + 0
           bhome[i] = F["home"]; bptr[i] = F["pointer"]; binst[i] = F["instance"]; broot[i] = F["root"]; bpark[i] = F["park"]; bcl[i] = F["closes"]
-          bsub[i] = ("subject" in F) ? F["subject"] : ""
-        } else if (k == "acknowledged" || k == "settled" || k == "merged") closed[it] = 1
+          bsub[i] = fv("subject"); btopic[i] = fv("topic"); bgr[i] = fv("grounds"); brev[i] = fv("reversal"); bgate[i] = fv("gate")
+          delete popts[it]; delete pend[it]; delete pwe[it]; delete pgate[it]; delete wend[it]
+        } else if (k == "picklist") {
+          popts[it] = fv("options"); pend[it] = fv("end"); pwe[it] = fv("window_end"); pgate[it] = fv("gate")
+        } else if (k == "window") wend[it] = fv("end")
+        else if (k == "revoked") {
+          if (fv("item_kind") == "decided-by-mission-control") closed[it] = 1
+          else { delete pend[it]; delete pwe[it]; delete pgate[it]; delete wend[it] }
+        } else if (k == "acknowledged" || k == "settled" || k == "merged" || k == "reviewed") closed[it] = 1
         else if (k == "dropped" && ("reason" in F) && F["reason"] == "rebuild") closed[it] = 1
       }
       close(log_file)
@@ -3448,24 +3621,46 @@ rebuild_if_absent() {
     for (i = 1; i <= nb; i++) {
       it = bid[i]
       if (it in closed) continue
+      kn = bkind[i]; po = nz(popts[it]); pe = nz(pend[it]); pw = (pwe[it] == "") ? "0" : pwe[it]; pg = nz(pgate[it]); pp = 0
+      st = 0; rs = "-"; rv = nz(brev[i])
+      if (po == "-" || pe == "-") { pe = "-"; pw = "0"; pg = "-" }
+      if (kn == "decided-by-mission-control") pg = nz(bgate[i])
+      if (kn == "question" && (it in wend) && pe != "-") {
+        if (wend[it] == "park") pp = 1
+        else if (review_any || (("review." it "." pw) in led)) {
+          kn = "settled-by-default"; rv = sbd_rev; st = ceil(pw + 0)
+          rs = "the window ended on its default: " pe " (window end " pw ")"
+        } else { pe = "-"; pw = "0"; pg = "-" }
+      }
+      tail = po "\t" pe "\t" pw "\t" pg "\t" pp "\t" nz(btopic[i]) "\t" nz(bgr[i]) "\t" rv "\t" st "\t" rs
       if (bhome[i] == "attention") {
         w = bptr[i]
-        if (bkind[i] == "question" && (w in at_state) && at_state[w] == "awaiting-input") {
+        ii = (w in at_iid && at_iid[w] != "") ? at_iid[w] : "-"
+        if (kn == "settled-by-default") {
           covered[w] = 1
-          ii = (at_iid[w] == "") ? "-" : at_iid[w]
+          print "cand\t" kn "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" ii "\t-\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" tail
+        } else if (kn == "question" && (w in at_state) && at_state[w] == "awaiting-input") {
+          covered[w] = 1
           u = (at_prio[w] ~ /^(high|normal|low)$/) ? at_prio[w] : burg[i]
-          print "cand\t" nz(bkind[i]) "\t" nz(u) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" ii "\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i])
-        } else if (bkind[i] == "news" && (w in at_state) && at_state[w] "." at_ts[w] == binst[i]) {
-          print "cand\t" nz(bkind[i]) "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" nz(binst[i]) "\t-\t-\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i])
+          print "cand\t" kn "\t" nz(u) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" ii "\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" tail
+        } else if (kn == "news" && (w in at_state) && at_state[w] "." at_ts[w] == binst[i]) {
+          print "cand\t" kn "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" nz(binst[i]) "\t-\t-\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" tail
+        } else if (kn == "question" || kn == "news") {
+          # The log shows it open and its row has moved on: settled with that
+          # reason rather than dropped without a record (REQ-A1.13).
+          if (!(w in at_state)) why = "its attention row is gone (found when the store was rebuilt)"
+          else { s = at_state[w]; gsub(/[^a-z0-9-]/, "", s); why = "its attention row moved on (" s ") while the store was lost" }
+          inst = (kn == "news") ? nz(binst[i]) : ii
+          print "gone\t" kn "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" inst "\t-\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" po "\t-\t0\t-\t0\t" nz(btopic[i]) "\t-\t-\t0\t" why
         } else print "drop\t" it
       } else if (bhome[i] == "path") {
-        print "path\t" nz(bkind[i]) "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tpath\t" nz(bptr[i]) "\t-\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i])
+        print "path\t" nz(kn) "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tpath\t" nz(bptr[i]) "\t" nz(binst[i]) "\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" tail
       } else print "drop\t" it
     }
     for (w in at_state) if (at_state[w] == "awaiting-input" && !(w in covered)) {
       ii = (at_iid[w] == "") ? "-" : at_iid[w]
       u = (at_prio[w] ~ /^(high|normal|low)$/) ? at_prio[w] : "normal"
-      print "cand\tquestion\t" u "\t" w "\t" at_ts[w] + 0 "\tattention\t" w "\t" ii "\t-\t-\t'"$QUESTION_CLOSES"'\t-\tworker:" w
+      print "cand\tquestion\t" u "\t" w "\t" at_ts[w] + 0 "\tattention\t" w "\t" ii "\t-\t-\t'"$QUESTION_CLOSES"'\t-\tworker:" w "\t-\t-\t0\t-\t0\t-\t-\t-\t0\t-"
     }
   }' >"$SCRATCH/cands" 2>"$SCRATCH/cands.err" || {
     err "the rebuild pass failed: $(sanitize_printable "$(head -n 1 "$SCRATCH/cands.err" 2>/dev/null)" "(no diagnostic)")"
@@ -3477,13 +3672,13 @@ rebuild_if_absent() {
   fi
   : >"$SCRATCH/new"
   _seen=""
-  while IFS="$TAB" read -r _tag _k _u _o _b _h _p _i _r _pk _c _was _sub; do
+  while IFS="$TAB" read -r _tag _k _u _o _b _h _p _i _r _pk _c _was _sub _po _pe _pw _pg _pp _tp _gr _rv _st _rs; do
     case "$_tag" in
       drop)
         printf '%s\n' "$_k" >>"$SCRATCH/dropped"
         continue
         ;;
-      cand | path) ;;
+      cand | path | gone) ;;
       *) continue ;;
     esac
     # A candidate that fails the record grammar is dropped, never repaired:
@@ -3493,15 +3688,58 @@ rebuild_if_absent() {
       [ "$_was" = "-" ] || printf '%s\n' "$_was" >>"$SCRATCH/dropped"
       continue
     fi
-    if [ "$_tag" = path ]; then
-      # The same containment check `add` ran, on the home as it is now: the
-      # content must still be there, under its root, not through a link.
-      if ! (check_pointer "$_r" "$_p" content) >/dev/null 2>&1; then
-        printf '%s\n' "$_was" >>"$SCRATCH/dropped"
-        continue
+    # A declaration that will not parse is one the rebuild cannot read, so
+    # the window goes and the question comes back plain: a loss never adds a
+    # default (REQ-A1.13).
+    if { [ "$_po" != - ] && ! is_option_list "$_po"; } \
+      || { [ "$_pe" != - ] && [ "$_pe" != park ] && ! is_option_in "$_pe" "$_po"; } \
+      || ! printf '%s\n' "$_pw" | grep -Eq '^(0|[1-9][0-9]*(\.[0-9]+)?)$' \
+      || { [ "$_pg" != - ] && ! is_one_of "$_pg" "$Q_GATES"; }; then
+      _po=-
+      _pe=-
+      _pw=0
+      _pg=-
+      _pp=0
+      if [ "$_k" = settled-by-default ]; then
+        _k=question
+        _st=0
+        _rs=-
+        _rv=-
       fi
     fi
-    _id=$(id_for "$_k" "$_h" "$_p" "$_i" "$_r")
+    [ "$_pe" != - ] || _pw=0
+    [ "$_tp" = - ] || is_text "$_tp" 200 || _tp=-
+    if [ "$_k" = decided-by-mission-control ]; then
+      if ! is_step "$_gr" || { [ "$_rv" != none ] && ! is_step "$_rv"; } || [ "$_pg" != none ]; then
+        [ "$_was" = "-" ] || printf '%s\n' "$_was" >>"$SCRATCH/dropped"
+        continue
+      fi
+    else
+      _gr=-
+      [ "$_k" = settled-by-default ] || _rv=-
+    fi
+    _state=open
+    if [ "$_tag" = path ]; then
+      # The same containment check `add` ran, on the home as it is now: the
+      # content must still be there, under its root, not through a link. A
+      # clean pointer whose file has simply gone is a vanished home, settled
+      # with that reason; anything else is a line the rebuild will not trust.
+      if ! (check_pointer "$_r" "$_p" content) >/dev/null 2>&1; then
+        case "$_p" in
+          /* | .. | ../* | */.. | */../*) _vanished=0 ;;
+          *) if [ -d "$_r" ] && [ ! -e "$_r/$_p" ] && [ ! -L "$_r/$_p" ]; then _vanished=1; else _vanished=0; fi ;;
+        esac
+        if [ "$_vanished" = 0 ] || ! is_text "$_r" 1024 || ! is_text "$_p" 1024; then
+          printf '%s\n' "$_was" >>"$SCRATCH/dropped"
+          continue
+        fi
+        _tag=gone
+        _rs="its content home has vanished (found when the store was rebuilt)"
+      fi
+    fi
+    _idk=$_k
+    [ "$_k" != settled-by-default ] || _idk=question
+    _id=$(id_for "$_idk" "$_h" "$_p" "$_i" "$_r")
     if [ "$_was" != "-" ] && [ "$_was" != "$_id" ]; then
       err "rebuild: dropping a born line whose identifier does not derive from its own key ($(sanitize_printable "$_was" "?"))"
       printf '%s\n' "$_was" >>"$SCRATCH/dropped"
@@ -3523,11 +3761,22 @@ rebuild_if_absent() {
         _sub=-
       fi
     fi
+    if [ "$_tag" = gone ]; then
+      _state=closed
+      _st=$now
+      _po=-
+      _pe=-
+      _pw=0
+      _pg=-
+      _pp=0
+      printf '%s\t%s\t%s\n' "$_id" "$_k" "$_rs" >>"$SCRATCH/gone"
+    fi
     if [ "$_was" = "-" ]; then
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" "$_sub" >>"$SCRATCH/fresh"
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\t%s\t0\t-\t-\t0\t0\n' \
-      "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" "$_sub" >>"$SCRATCH/new" || exit 6
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t0\t0\t0\t0\t%s\t%s\t-\t0\t%s\t0\t-\t-\t0\t0\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" "$_state" "$_st" "$_rs" "$_sub" \
+      "$_po" "$_pe" "$_pw" "$_pg" "$_pp" "$_tp" "$_gr" "$_rv" >>"$SCRATCH/new" || exit 6
   done <"$SCRATCH/cands"
   # The debt lands before the store: a store whose births could never be
   # logged is worse than no store, which the next verb rebuilds again. A
@@ -3542,6 +3791,7 @@ rebuild_if_absent() {
     printf 'session\n'
     sed 's/^/born\t/' "$SCRATCH/fresh"
     sed 's/^/dropped\t/' "$SCRATCH/dropped"
+    sed 's/^/settled\t/' "$SCRATCH/gone"
   } >"$SCRATCH/debt" 2>/dev/null || {
     err "cannot record the rebuild's log debt"
     exit 6
@@ -3562,7 +3812,7 @@ rebuild_if_absent() {
   ls -1 "$delivery_dir" 2>/dev/null | while IFS= read -r _dn; do
     is_tower "$_dn" && rm -f "$delivery_dir/$_dn"
   done
-  err "the queue store was absent and has been rebuilt from the content homes ($(grep -c . "$SCRATCH/fresh") registered from their homes, $(grep -c . "$SCRATCH/dropped") dropped)"
+  err "the queue store was absent and has been rebuilt from the content homes ($(grep -c . "$SCRATCH/fresh") registered from their homes, $(grep -c . "$SCRATCH/gone") recorded as settled, $(grep -c . "$SCRATCH/dropped") dropped)"
 }
 
 # drain_debt — the log lines a rebuild owes, paid after the lock is released
@@ -3605,6 +3855,10 @@ EOF
       dropped)
         is_item_id "$_f1" || continue
         owe_log dropped --now "$now" item="$_f1" reason=rebuild
+        ;;
+      settled)
+        is_item_id "$_f1" || continue
+        owe_log settled --now "$now" item="$_f1" item_kind="$_f2" away=0 reason="$_f3" held_by=-
         ;;
       *) continue ;;
     esac
@@ -3744,12 +3998,50 @@ ev_prepare() {
   # The store is read lock-free here, the same way `list` and `counts` read it;
   # what the pass then acts on is re-read under the lock.
   if [ -f "$store_file" ]; then
-    awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26) && $12 == "open" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "/" $7 }' "$store_file" 2>/dev/null \
+    awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && $12 == "open" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "/" $7 }' "$store_file" 2>/dev/null \
       | while IFS="$TAB" read -r _gi _gp; do
         is_item_id "$_gi" || continue
         [ -f "$_gp" ] || printf 'settles\titem:%s\tits content home has gone\n' "$_gi"
       done >>"$EVID_FILE"
   fi
+}
+
+# window_prepare — before the lock, like the evidence: every picklist window
+# that has ended on a default gets its settled-by-default record written to
+# the ledger first (REQ-A1.10), and REVIEW_FILE names the items the pass may
+# then re-kind. One whose write fails stays a question, the safe direction.
+# WINDOW_DUE keeps `next` from reusing a pass that predates an ended window.
+REVIEW_FILE=""
+WINDOW_DUE=0
+window_prepare() {
+  REVIEW_FILE=""
+  WINDOW_DUE=0
+  [ -f "$store_file" ] || return 0
+  _wd=$(awk -F '\t' -v now="$now" 'NF == 34 && $12 == "open" && $2 == "question" && $29 != "0" && $31 == "0" && $29 + 0 <= now + 0 { print $1 "\t" $28 "\t" $29 "\t" $30 "\t" $21 }' "$store_file" 2>/dev/null) || _wd=""
+  [ -n "$_wd" ] || return 0
+  WINDOW_DUE=1
+  ensure_surface
+  REVIEW_FILE=$(mktemp "$surface/.review.XXXXXX" 2>/dev/null) || {
+    err "cannot create a scratch file for the review content"
+    exit 6
+  }
+  _wk=0
+  while IFS="$TAB" read -r _wi _we _wt _wg _ws; do
+    is_item_id "$_wi" || continue
+    [ "$_we" != park ] && [ "$_wg" = none ] || continue
+    if [ "$_wk" = 0 ]; then
+      resolve_queue_knobs
+      _wk=1
+    fi
+    ledger_put "review.$_wi.$_wt" settled-by-default "$now" "$_ws" - \
+      "the picklist window on $_wi ended on its default: $(redact "$_we") (window end $_wt)"
+    printf '%s\n' "$_wi" >>"$REVIEW_FILE" || {
+      err "cannot record the review content written"
+      exit 6
+    }
+  done <<EOF
+$_wd
+EOF
 }
 
 # attn_perm <worker> — the permission-record fields of the worker's attention
@@ -3917,12 +4209,12 @@ rule_prepare() {
   rule_debt_replay
   [ -f "$store_file" ] || return 0
   [ -f "$attn_store" ] || return 0
-  _rules=$(awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26) && $12 == "open" && $2 == "standing" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "\t" $7 "\t" $8 }' "$store_file" 2>/dev/null) || {
+  _rules=$(awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && $12 == "open" && $2 == "standing" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "\t" $7 "\t" $8 }' "$store_file" 2>/dev/null) || {
     err "cannot read the queue store for its standing decisions"
     exit 6
   }
   [ -n "$_rules" ] || return 0
-  _cands=$(awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26) && $12 == "open" && $2 != "standing" && $6 == "attention" { print $1 "\t" $7 }' "$store_file" 2>/dev/null) || {
+  _cands=$(awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && $12 == "open" && $2 != "standing" && $6 == "attention" { print $1 "\t" $7 }' "$store_file" 2>/dev/null) || {
     err "cannot read the queue store for its open items"
     exit 6
   }
@@ -4043,7 +4335,7 @@ surface_rules() {
   # `-` where a field is absent: a pre-subject 20-field record has no field 21,
   # and TAB is IFS whitespace, so an empty leading field would COLLAPSE in the
   # read below and shift every field one place left.
-  _si=$(awk -F '\t' -v i="$1" '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26) && ($1 "") == (i "") { print ((NF >= 21 && $21 != "") ? $21 : "-") "\t" $6 "\t" $7; exit }' "$store_file" 2>/dev/null) || return 0
+  _si=$(awk -F '\t' -v i="$1" '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && ($1 "") == (i "") { print ((NF >= 21 && $21 != "") ? $21 : "-") "\t" $6 "\t" $7; exit }' "$store_file" 2>/dev/null) || return 0
   [ -n "$_si" ] || return 0
   IFS="$TAB" read -r _ssub _shome _sptr <<EOF
 $_si
@@ -4058,7 +4350,7 @@ EOF
     fi
   fi
   [ "$_ssub" != "-" ] || return 0
-  _sr=$(awk -F '\t' -v s="$_ssub" '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26) && $12 == "open" && $2 == "standing" && $6 == "path" && $9 != "-" && ($21 "") == (s "") { print $1 "\t" $9 "\t" $7 "\t" $8 }' "$store_file" 2>/dev/null) || return 0
+  _sr=$(awk -F '\t' -v s="$_ssub" '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && $12 == "open" && $2 == "standing" && $6 == "path" && $9 != "-" && ($21 "") == (s "") { print $1 "\t" $9 "\t" $7 "\t" $8 }' "$store_file" 2>/dev/null) || return 0
   while IFS="$TAB" read -r _ri _rr _rp _rk; do
     is_item_id "$_ri" || continue
     ledger_readable "$_rr" "$_rp" || continue
@@ -4156,7 +4448,7 @@ pass_logs() {
   # write that failed leaves an empty file the loop reads as "nothing to
   # publish", and the verb would then report success over settlements that
   # never reached the log at all.
-  printf '%s\n' "$1" | awk -F '\t' '$1 == "settled" || $1 == "merged" || $1 == "unavailable"' >"$SCRATCH/passlog" || {
+  printf '%s\n' "$1" | awk -F '\t' '$1 == "settled" || $1 == "merged" || $1 == "unavailable" || $1 == "window"' >"$SCRATCH/passlog" || {
     err "cannot stage the pass's log lines; the settlements stand but none of them reached the event log"
     LOG_FAILED=6
     return 1
@@ -4166,6 +4458,7 @@ pass_logs() {
       settled) owe_log settled --now "$now" item="$_p1" item_kind="$_p2" away="$_p3" reason="$_p4" held_by="${_p5:--}" ;;
       merged) owe_log merged --now "$now" item="$_p1" into="$_p2" item_kind="$_p3" ;;
       unavailable) owe_log unavailable --now "$now" source="$_p1" ;;
+      window) owe_log window --now "$now" item="$_p1" end="$_p2" option="$_p3" at="$_p4" ;;
     esac
   done <"$SCRATCH/passlog" || {
     err "cannot read back the pass's log lines; the settlements stand but the event log is incomplete"
@@ -4231,6 +4524,106 @@ leave_store() {
 ADD_QUIET=0
 ADD_ID=""
 
+# mc_caller_ok <name> — 0 when mission control's launcher registry holds a
+# launched row for <name> of the mission-control session kind. The registry
+# is what the launcher writes; a presence record is what its subject says of
+# itself, so it is never read for this (REQ-A1.14).
+mc_caller_ok() {
+  _mr="$home/mission-control/sessions/$1"
+  [ ! -L "$_mr" ] && [ -f "$_mr" ] || return 1
+  # shellcheck disable=SC2012
+  _ml=$(ls -ln "$_mr" 2>/dev/null) || return 1
+  # shellcheck disable=SC2086
+  set -- $_ml
+  [ "${3:-}" = "$my_uid" ] || return 1
+  awk -F '\t' -v n="${_mr##*/}" '
+    $1 == "format" { f = $2 } $1 == "name" { m = $2 } $1 == "kind" { k = $2 } $1 == "state" { s = $2 }
+    END { exit (f == "1" && m == n && k == "mission-control" && s == "launched") ? 0 : 1 }' "$_mr" 2>/dev/null
+}
+
+# add_check_review_fields — the picklist and decided-by-mission-control
+# fields, every refusal made before anything is written (REQ-A1.11,
+# REQ-A1.14, REQ-H1.5). Sets window_end and dmc_caller.
+add_check_review_fields() {
+  window_end=0
+  dmc_caller=""
+  [ "$kind" != settled-by-default ] || refuse "a settled-by-default item is never added: it is a question whose picklist window ended on its default"
+  if [ -n "$topic" ]; then
+    topic=$(redact "$topic")
+    is_text "$topic" 200 || refuse "refusing --topic: at most 200 bytes with secrets redacted, no control byte or leading whitespace"
+  fi
+  [ -z "$gate" ] || is_one_of "$gate" "$Q_GATES" || refuse "refusing --gate '$(sanitize_printable "$gate" "(unprintable gate)")': one of $Q_GATES"
+  if [ -n "$options" ] || [ -n "$pick_end" ] || [ -n "$window" ]; then
+    [ "$kind" = question ] || refuse "a picklist is declared only on a question"
+    [ -n "$options" ] && [ -n "$pick_end" ] || refuse "a picklist needs --options <a|b...> and --end <option>|park"
+    options=$(redact "$options")
+    is_option_list "$options" || refuse "refusing --options: two to eight labels joined by |, each at most 64 bytes with no edge space, distinct, and none of them - or park"
+    [ "$pick_end" = park ] || is_option_in "$pick_end" "$options" || refuse "refusing --end '$(sanitize_printable "$pick_end" "(unprintable end)")': one of the options, or park"
+    if [ -n "$window" ]; then
+      is_duration "$window" || refuse "refusing --window '$(sanitize_printable "$window" "(unprintable span)")': a positive span such as 30m or 500ms"
+      _ws=$(duration_seconds "$window")
+    else
+      resolve_knobs tower_picklist_window:duration:30m
+      _ws=$picklist_window
+    fi
+    window_end=$(awk -v n="$now" -v s="$_ws" 'BEGIN { v = sprintf("%.3f", n + s); sub(/0+$/, "", v); sub(/\.$/, "", v); print v }')
+    if [ "$pick_end" != park ]; then
+      [ -n "$gate" ] || refuse "a picklist with a declared default needs --gate none|human-gate|disqualifier-zone; an omitted gate never reads as none"
+      [ "$gate" = none ] || refuse "refusing a declared default behind a $gate: only --end park is admitted there"
+      _wo=$options
+      while [ -n "$_wo" ]; do
+        _wl=${_wo%%|*}
+        if [ "$_wl" = "$_wo" ]; then _wo=""; else _wo=${_wo#*|}; fi
+        if reserved_control "$_wl"; then
+          refuse "refusing a declared default on options naming a reserved human control; only --end park is admitted"
+        fi
+      done
+    fi
+  elif [ -n "$gate" ] && [ "$kind" != decided-by-mission-control ]; then
+    refuse "--gate belongs to a picklist or a decided-by-mission-control item"
+  fi
+  if [ "$kind" != decided-by-mission-control ]; then
+    [ -z "$grounds" ] && [ -z "$reversal" ] && [ -z "$text" ] && [ -z "$tower_flag" ] \
+      || refuse "--grounds, --reversal, --text and --tower belong to a decided-by-mission-control item"
+    return 0
+  fi
+  resolve_tower "$tower_flag"
+  dmc_caller=$tower
+  mc_caller_ok "$dmc_caller" || refuse "refusing a decided-by-mission-control item from '$(sanitize_printable "$dmc_caller" "?")': mission control's launcher registry records no launched mission-control session by that name"
+  [ -n "$text" ] || refuse "a decided-by-mission-control item needs --text, the decision as taken"
+  is_step "$grounds" || refuse "a decided-by-mission-control item needs --grounds <pointer>: one token naming where its grounds are recorded"
+  [ "$reversal" = none ] || is_step "$reversal" || refuse "a decided-by-mission-control item needs --reversal <step>|none: one token naming its one-step reversal"
+  [ -n "$gate" ] || refuse "a decided-by-mission-control item needs --gate; an omitted gate never reads as none"
+  [ "$gate" = none ] || refuse "refusing a decided-by-mission-control item behind a $gate: a human gate or a hard-disqualifier zone is the operator's"
+  text=$(redact "$text")
+  is_text "$text" 512 || refuse "refusing --text: at most 512 bytes with secrets redacted, no control byte or leading whitespace, not shaped like a JSON value"
+  if reserved_control "$text"; then
+    refuse "refusing a decided-by-mission-control item on a reserved human control; those stay the operator's"
+  fi
+  case "$subject" in
+    worker:*)
+      attn_perm "${subject#worker:}"
+      [ "$p_f9" != permission ] || refuse "refusing a decided-by-mission-control item on a worker permission prompt; those are answered by the operator or a written rule"
+      ;;
+  esac
+}
+
+# add_write_decision — a decided-by-mission-control item's content, written
+# to the ledger before the record that points at it (REQ-A1.10). Sets
+# dmc_key, LED_ROOT and LED_REL.
+add_write_decision() {
+  dmc_key=$(printf '%s\t%s\t%s\t%s\t%s' "$text" "$grounds" "$reversal" "${subject:--}" "$dmc_caller" | cksum | cut -d' ' -f1)
+  is_count "$dmc_key" || {
+    err "cannot derive a ledger key (cksum did not answer)"
+    exit 6
+  }
+  dmc_key=$(printf 'm%08x' "$dmc_key")
+  resolve_queue_knobs
+  umask 077
+  ensure_surface
+  ledger_put "$dmc_key" decided-by-mission-control "$now" "${subject:--}" - "$text"
+}
+
 cmd_add() {
   kind=""
   origin=""
@@ -4242,13 +4635,32 @@ cmd_add() {
   park=""
   subject=""
   key=""
+  options=""
+  pick_end=""
+  window=""
+  gate=""
+  topic=""
+  grounds=""
+  reversal=""
+  text=""
+  tower_flag=""
   now=""
   now_set=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --kind | --origin | --closes | --urgency | --worker | --root | --pointer | --park | --subject | --key | --now)
+      --kind | --origin | --closes | --urgency | --worker | --root | --pointer | --park | --subject | --key | --now | \
+        --options | --end | --window | --gate | --topic | --grounds | --reversal | --text | --tower)
         [ "$#" -ge 2 ] || usage
         case "$1" in
+          --options) options=$2 ;;
+          --end) pick_end=$2 ;;
+          --window) window=$2 ;;
+          --gate) gate=$2 ;;
+          --topic) topic=$2 ;;
+          --grounds) grounds=$2 ;;
+          --reversal) reversal=$2 ;;
+          --text) text=$2 ;;
+          --tower) tower_flag=$2 ;;
           --kind) kind=$2 ;;
           --origin) origin=$2 ;;
           --closes) closes=$2 ;;
@@ -4276,8 +4688,11 @@ cmd_add() {
   [ -z "$urgency" ] || is_one_of "$urgency" "$Q_URGENCIES" || refuse "refusing urgency '$(sanitize_printable "$urgency" "(unprintable urgency)")': high, normal or low"
   parse_now
   resolve_surface
+  add_check_review_fields
   if [ "$kind" = standing ]; then
     [ -n "$closes" ] || closes=$STANDING_CLOSES
+  elif [ "$kind" = decided-by-mission-control ]; then
+    [ -n "$closes" ] || closes=$REVIEW_CLOSES
   else
     [ -n "$closes" ] || refuse "an item needs --closes <text>: the human action or the evidence that closes it"
   fi
@@ -4312,6 +4727,10 @@ cmd_add() {
       [ -n "$row_state" ] || refuse "no attention row for worker '$worker'; the content is written to its home before the index record"
       if [ "$kind" = question ]; then
         [ -z "$urgency" ] || refuse "a worker question inherits its row's priority; drop --urgency"
+        if [ -n "$pick_end" ] && [ "$pick_end" != park ]; then
+          attn_perm "$worker"
+          [ "$p_f9" != permission ] || refuse "refusing a declared default on a worker permission prompt: only --end park is admitted, since a timer never answers one"
+        fi
         [ "$row_state" = awaiting-input ] || refuse "worker '$worker' is not awaiting input (its row says '$(sanitize_printable "$row_state" "?")'), so there is no question to queue"
         is_one_of "$row_prio" "$Q_URGENCIES" && urgency=$row_prio || urgency=normal
         instance=$row_iid
@@ -4332,6 +4751,13 @@ cmd_add() {
       ;;
     *)
       [ -z "$worker" ] || refuse "a $kind item points at a file under a declared root: --root <dir> --pointer <rel>"
+      if [ "$kind" = decided-by-mission-control ]; then
+        [ -z "$pointer" ] && [ -z "$root" ] && [ -z "$key" ] || refuse "a decided-by-mission-control item's content is its --text, which add writes to the ledger itself"
+        add_write_decision
+        root=$LED_ROOT
+        pointer=$LED_REL
+        key=$dmc_key
+      fi
       [ -n "$pointer" ] || refuse "a $kind item needs --root <dir> --pointer <rel>, the content's home"
       check_pointer "$root" "$pointer" content
       ihome=path
@@ -4371,8 +4797,9 @@ cmd_add() {
     fi
   fi
   id=$(id_for "$kind" "$ihome" "$ptr" "$instance" "$PTR_ROOT")
-  record=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\t%s\t0\t-\t-\t0\t0' \
-    "$id" "$kind" "$urgency" "$origin" "$now" "$ihome" "$ptr" "$instance" "$PTR_ROOT" "$park_rel" "$closes" "$subject")
+  record=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\t%s\t0\t-\t-\t0\t0\t%s\t%s\t%s\t%s\t0\t%s\t%s\t%s' \
+    "$id" "$kind" "$urgency" "$origin" "$now" "$ihome" "$ptr" "$instance" "$PTR_ROOT" "$park_rel" "$closes" "$subject" \
+    "${options:--}" "${pick_end:--}" "${window_end:-0}" "${gate:--}" "${topic:--}" "${grounds:--}" "${reversal:--}")
 
   tower=""
   enter_store
@@ -4397,10 +4824,25 @@ cmd_add() {
       [ "$ADD_QUIET" = 1 ] && return 0
       finish_exit
       ;;
+    picklist)
+      err "refusing: $id is already open without this picklist, and a picklist is declared only when its item is born; nothing changed"
+      finish_exit 1
+      ;;
     added | reopened)
-      owe_log born --now "$now" item="$id" item_kind="$kind" urgency="$urgency" origin="$origin" \
-        home="$ihome" pointer="$ptr" instance="$instance" root="$PTR_ROOT" park="$park_rel" closes="$closes" \
-        subject="$subject"
+      # A decided-by-mission-control birth carries its grounds, reversal and
+      # gate on the born line itself, and a picklist its own line beside it,
+      # so a rebuild can restore both from the log (REQ-A1.13, REQ-G1.9).
+      if [ "$kind" = decided-by-mission-control ]; then
+        owe_log born --now "$now" item="$id" item_kind="$kind" urgency="$urgency" origin="$origin" \
+          home="$ihome" pointer="$ptr" instance="$instance" root="$PTR_ROOT" park="$park_rel" closes="$closes" \
+          subject="$subject" topic="${topic:--}" grounds="$grounds" reversal="$reversal" gate="$gate" caller="$dmc_caller"
+      else
+        owe_log born --now "$now" item="$id" item_kind="$kind" urgency="$urgency" origin="$origin" \
+          home="$ihome" pointer="$ptr" instance="$instance" root="$PTR_ROOT" park="$park_rel" closes="$closes" \
+          subject="$subject" topic="${topic:--}"
+      fi
+      [ -z "$options" ] || owe_log picklist --now "$now" item="$id" options="$options" end="$pick_end" \
+        window_end="$window_end" gate="${gate:--}"
       [ "$ADD_QUIET" = 1 ] && return 0
       finish_exit
       ;;
@@ -4600,9 +5042,10 @@ cmd_next() {
   # that serves this loop iteration has already run against the same evidence.
   ev_prepare "$evidence"
   rule_prepare
+  window_prepare
   enter_store
   ev_lock_key
-  if ev_reuse; then DO_SETTLE=0; else DO_SETTLE=1; fi
+  if ev_reuse && [ "$WINDOW_DUE" = 0 ]; then DO_SETTLE=0; else DO_SETTLE=1; fi
   # Presence is asserted, never inferred from an empty read: the hold exists
   # or it does not, and a test that cannot tell the two apart is the guard
   # that passes because its measurement went missing. It is read through the
@@ -4801,7 +5244,12 @@ cmd_ack() {
   item_pass ack -v item="$item"
   case "$st" in
     ok)
-      owe_log acknowledged --now "$now" --tower "$tower" item="$item" item_kind="$st_extra"
+      case "$st_extra" in
+        settled-by-default | decided-by-mission-control)
+          owe_log reviewed --now "$now" --tower "$tower" item="$item" item_kind="$st_extra" reversal="${st_held:--}"
+          ;;
+        *) owe_log acknowledged --now "$now" --tower "$tower" item="$item" item_kind="$st_extra" ;;
+      esac
       finish_exit
       ;;
     closed)
@@ -4816,6 +5264,46 @@ cmd_ack() {
         err "refusing: tower '$tower' holds no lease on item $item (held by '$(sanitize_printable "$st_extra" "?")'); an acknowledgement comes from the conversation the item was handed to (a logged duplicate no-op)"
       fi
       owe_log refused --now "$now" --tower "$tower" item="$item" verb=ack reason=no-lease
+      finish_exit 1
+      ;;
+    absent)
+      err "no item $item in the queue"
+      finish_exit 2
+      ;;
+    *)
+      err "the store pass returned nothing usable"
+      exit 6
+      ;;
+  esac
+}
+
+# cmd_revoke — the operator's revocation of a reviewable item (REQ-B1.8): a
+# settled-by-default item reopens as its question with no window, a
+# decided-by-mission-control one closes as revoked. The reversal pointer is
+# logged for the session that owns the reversal; nothing here runs it.
+cmd_revoke() {
+  parse_item_args revoke "$@"
+  resolve_tower "$tower_flag"
+  enter_store
+  item_pass revoke -v item="$item"
+  case "$st" in
+    reopened | revoked)
+      owe_log revoked --now "$now" --tower "$tower" item="$item" item_kind="$st_extra" reversal="${st_held:--}" outcome="$st"
+      printf '%s\t%s\t%s\t%s\n' "$st" "$item" "$st_extra" "$(sanitize_printable "${st_held:--}" "?")"
+      finish_exit
+      ;;
+    closed)
+      err "item $item is already closed; nothing to revoke (a logged no-op)"
+      owe_log refused --now "$now" --tower "$tower" item="$item" verb=revoke reason=already-closed
+      finish_exit
+      ;;
+    notreviewable)
+      err "refusing: item $item is a $st_extra, not a reviewable item; only a settled-by-default or a decided-by-mission-control item is revoked"
+      finish_exit 1
+      ;;
+    nolease)
+      err "refusing: item $item is held by another tower's conversation ('$(sanitize_printable "$st_extra" "?")') (a logged no-op)"
+      owe_log refused --now "$now" --tower "$tower" item="$item" verb=revoke reason=no-lease
       finish_exit 1
       ;;
     absent)
@@ -4895,6 +5383,7 @@ cmd_settle_pass() {
   resolve_surface
   ev_prepare "$evidence"
   rule_prepare
+  window_prepare
   tower=""
   enter_store
   ev_lock_key
@@ -4912,7 +5401,7 @@ cmd_settle_pass() {
   pass_writes "$result" || pw=6
   held=$(pass_held)
   leave_store
-  printf '%s\n' "$result" | awk -F '\t' '$1 == "settled" || $1 == "merged" || $1 == "unavailable"'
+  printf '%s\n' "$result" | awk -F '\t' '$1 == "settled" || $1 == "merged" || $1 == "unavailable" || $1 == "window"'
   rule_spoken "$result"
   printf 'held\t%s\n' "$held"
   pass_logs "$result"
@@ -4959,6 +5448,10 @@ cmd_settle() {
       err "item $item is already closed (a logged no-op)"
       owe_log refused --now "$now" item="$item" verb=settle reason=already-closed
       finish_exit
+      ;;
+    reviewable)
+      err "refusing: item $item is a $st_extra, which closes on the operator's review or revocation, never on evidence"
+      finish_exit 1
       ;;
     absent)
       err "no item $item in the queue"
@@ -5392,7 +5885,7 @@ cmd_match() {
   # answer channel's whole second opinion rests on this resolution.
   verify_read_surface
   [ -f "$store_file" ] || refuse "no queue store, so no standing decision to resolve"
-  _md=$(awk -F '\t' -v d="$decision" '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26) && ($1 "") == (d "") { print $2 "\t" $12 "\t" $6 "\t" $9 "\t" $7 "\t" $8; exit }' "$store_file" 2>/dev/null) || {
+  _md=$(awk -F '\t' -v d="$decision" '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && ($1 "") == (d "") { print $2 "\t" $12 "\t" $6 "\t" $9 "\t" $7 "\t" $8; exit }' "$store_file" 2>/dev/null) || {
     err "cannot read the queue store"
     exit 6
   }
@@ -5479,12 +5972,7 @@ cmd_list() {
     for (n = 1; n <= N; n++) {
       if (!OK[n]) { bad++; continue }
       if (F[n, 12] != "open" && !all) continue
-      if (F[n, 12] == "closed") st = "closed"
-      else if (F[n, 16] + 0 > now) st = "shelved"
-      else if (F[n, 14] + 0 > 0) st = "delivered"
-      else if (F[n, 19] != "-") st = "leased:" F[n, 19]
-      else st = "open"
-      print clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(F[n, 3]) "\t" clean(F[n, 4]) "\t" F[n, 5] "\t" clean(st) "\t" clean(F[n, 6] ":" ((F[n, 6] == "path") ? F[n, 9] "/" F[n, 7] : F[n, 7]) ((F[n, 8] == "-") ? "" : "@" F[n, 8])) "\t" clean(F[n, 11])
+      print clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(F[n, 3]) "\t" clean(F[n, 4]) "\t" F[n, 5] "\t" clean(list_state(n)) "\t" ptr_of(n) "\t" clean(F[n, 11])
     }
     if (bad > 0) print bad " store line(s) do not parse and were skipped" > "/dev/stderr"
   }' "$store_file" 2>"$SCRATCH/warn" || {
@@ -5492,6 +5980,59 @@ cmd_list() {
     exit 6
   }
   [ ! -s "$SCRATCH/warn" ] || err "$(sanitize_printable "$(head -n 1 "$SCRATCH/warn")" "(unprintable diagnostic)")"
+}
+
+# cmd_show <id> — one item, lock-free, with the reason it left the open set
+# and, where it has them, its picklist and its review fields (REQ-B1.7).
+cmd_show() {
+  item=""
+  now=""
+  now_set=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --now)
+        [ "$#" -ge 2 ] || usage
+        now=$2
+        now_set=1
+        shift 2
+        ;;
+      -*) usage ;;
+      *)
+        [ -z "$item" ] || usage
+        item=$1
+        shift
+        ;;
+    esac
+  done
+  [ -n "$item" ] || usage
+  is_item_id "$item" || refuse "refusing item id '$(sanitize_printable "$item" "(unprintable id)")': an identifier is i followed by eight hex digits"
+  parse_now
+  resolve_surface
+  verify_read_surface
+  [ -f "$store_file" ] || {
+    err "no item $item in the queue (no store yet)"
+    exit 2
+  }
+  _so=$(awk -F '\t' -v now="$now" -v item="$item" "$AWK_Q"'
+  END {
+    for (n = 1; n <= N; n++) {
+      if (!OK[n] || F[n, 1] != item) continue
+      print "item\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(F[n, 3]) "\t" clean(srcs(n)) "\t" F[n, 5] "\t" clean(list_state(n)) "\t" ptr_of(n) "\t" clean(F[n, 11])
+      print "reason\t" clean(F[n, 18]) "\t" F[n, 17]
+      if (F[n, 27] != "-") print "picklist\t" clean(F[n, 27]) "\t" clean(F[n, 28]) "\t" F[n, 29] "\t" clean(F[n, 30]) "\t" ((F[n, 31] == 1) ? "parked" : "-")
+      if (reviewable(F[n, 2]) || F[n, 33] != "-" || F[n, 34] != "-") print "review\t" clean(F[n, 33]) "\t" clean(F[n, 34])
+      if (F[n, 32] != "-") print "topic\t" clean(F[n, 32])
+      exit
+    }
+  }' "$store_file" 2>/dev/null) || {
+    err "cannot read the queue store"
+    exit 6
+  }
+  [ -n "$_so" ] || {
+    err "no item $item in the queue"
+    exit 2
+  }
+  printf '%s\n' "$_so"
 }
 
 cmd_counts() {
@@ -5519,7 +6060,7 @@ cmd_counts() {
   printf 'presence\t%s\n' "$(tower_presence)"
   verify_read_surface
   if [ ! -f "$store_file" ]; then
-    printf 'question\t0\napproval\t0\nrequest\t0\nnews\t0\nstanding\t0\ntotal\t0\ntop\t-\nmalformed\t0\nstore\tabsent\n'
+    printf 'question\t0\napproval\t0\nrequest\t0\nsettled-by-default\t0\ndecided-by-mission-control\t0\nnews\t0\nstanding\t0\ntotal\t0\ntop\t-\nmalformed\t0\nstore\tabsent\n'
     exit 0
   fi
   _ca=""
@@ -5546,9 +6087,11 @@ cmd_counts() {
     print "question\t" c["question"] + 0
     print "approval\t" c["approval"] + 0
     print "request\t" c["request"] + 0
+    print "settled-by-default\t" c["settled-by-default"] + 0
+    print "decided-by-mission-control\t" c["decided-by-mission-control"] + 0
     print "news\t" c["news"] + 0
     print "standing\t" c["standing"] + 0
-    print "total\t" c["question"] + c["approval"] + c["request"] + c["news"]
+    print "total\t" c["question"] + c["approval"] + c["request"] + c["settled-by-default"] + c["decided-by-mission-control"] + c["news"]
     print "top\t" (top ? clean(F[top, 2]) : "-")
     print "malformed\t" bad
     print "store\tpresent"
@@ -5658,7 +6201,7 @@ cmd_catchup() {
   fi
   [ -n "$since" ] || since=0
   if [ ! -f "$store_file" ]; then
-    printf 'remainder\t0\tfloor\tno-store\nopen\tquestion\t0\nopen\tapproval\t0\nopen\trequest\t0\nopen\tnews\t0\nopen\tstanding\t0\n'
+    printf 'remainder\t0\tfloor\tno-store\nopen\tquestion\t0\nopen\tapproval\t0\nopen\trequest\t0\nopen\tsettled-by-default\t0\nopen\tdecided-by-mission-control\t0\nopen\tnews\t0\nopen\tstanding\t0\n'
     exit 0
   fi
   SCRATCH=$(mktemp -d 2>/dev/null) || {
@@ -5675,7 +6218,12 @@ cmd_catchup() {
       if (!OK[n]) continue
       # The open counts read the same way `counts` reads them, shelved items
       # excluded, so the two never disagree about what is waiting.
-      if (F[n, 12] == "open") { if (F[n, 16] + 0 <= now) c[F[n, 2]]++; continue }
+      # A window`s default is settled without the operator and still open for
+      # review, so it is in the catch-up as well as in the open counts.
+      if (F[n, 12] == "open") {
+        if (F[n, 16] + 0 <= now) c[F[n, 2]]++
+        if (F[n, 2] != "settled-by-default") continue
+      }
       if (F[n, 17] + 0 <= 0 || F[n, 17] + 0 <= since + 0) continue
       m++; ci[m] = n; ct[m] = F[n, 17] + 0
     }
@@ -5693,6 +6241,8 @@ cmd_catchup() {
     print "open\tquestion\t" c["question"] + 0
     print "open\tapproval\t" c["approval"] + 0
     print "open\trequest\t" c["request"] + 0
+    print "open\tsettled-by-default\t" c["settled-by-default"] + 0
+    print "open\tdecided-by-mission-control\t" c["decided-by-mission-control"] + 0
     print "open\tnews\t" c["news"] + 0
     print "open\tstanding\t" c["standing"] + 0
   }' "$store_file" >"$SCRATCH/list" 2>/dev/null || {
@@ -5795,13 +6345,15 @@ case "$cmd" in
   knock) cmd_knock "$@" ;;
   next) cmd_next "$@" ;;
   ack) cmd_ack "$@" ;;
+  revoke) cmd_revoke "$@" ;;
+  show) cmd_show "$@" ;;
   shelve) cmd_shelve "$@" ;;
   settle) cmd_settle "$@" ;;
   catchup) cmd_catchup "$@" ;;
   list) cmd_list "$@" ;;
   counts) cmd_counts "$@" ;;
   *)
-    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | redact | report | add | capture | match | knock | next | ack | shelve | settle | catchup | list | counts)"
+    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | redact | report | add | capture | match | knock | next | ack | revoke | show | shelve | settle | catchup | list | counts)"
     exit 2
     ;;
 esac

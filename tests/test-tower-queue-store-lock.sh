@@ -104,7 +104,7 @@ wait
 [ "$(record_count)" = 16 ] || fail "two writers: $(record_count) records, expected 16"
 while IFS= read -r l; do
   nf=$(printf '%s\n' "$l" | awk -F '\t' '{ print NF }')
-  [ "$nf" = 26 ] || fail "torn record under two writers ($nf fields): $l"
+  [ "$nf" = 34 ] || fail "torn record under two writers ($nf fields): $l"
   case "$l" in
     i[0-9a-f]*"$TAB"open"$TAB"*) ;;
     *) fail "malformed record under two writers: $l" ;;
@@ -244,7 +244,7 @@ n2=$(run list | grep -c .)
 [ "$n1" = "$n2" ] && [ "$n1" -gt 0 ] || fail "list is not stable across processes ($n1 vs $n2)"
 echo "ok: a store one process wrote is read intact by another"
 
-# --- rebuild from the content homes when the store is lost (REQ-A1.5, REQ-F1.5) --------
+# --- rebuild from the content homes when the store is lost (REQ-A1.13, REQ-F1.5) --------
 
 rm -rf "$surface" "$attn_dir"
 mkdir -p "$attn_dir"
@@ -315,8 +315,15 @@ rec "$qk" >/dev/null || fail "rebuild lost the open question whose row still awa
 [ "$(rec "$qk" | cut -f 8)" = iid-k ] || fail "rebuild lost the question's instance id"
 [ "$(rec "$qk" | cut -f 14)" = 0 ] || fail "a rebuilt item should be undelivered (delivered once more, inside the budget)"
 rec "$qg" >/dev/null && fail "rebuild resurrected an acknowledged item"
-rec "$nn" >/dev/null && fail "rebuild kept a news item whose row moved on"
-grep -q "\"kind\":\"dropped\".*\"item\":\"$nn\".*\"reason\":\"rebuild\"" "$log_file" || fail "the dropped news item was not logged"
+# A moved-on source row is recorded as settled with that reason, never
+# dropped without a record (REQ-A1.13, superseding REQ-A1.5's drop).
+[ "$(rec "$nn" | cut -f 12)" = closed ] || fail "a news item whose row moved on was not recorded as settled at the rebuild"
+case "$(rec "$nn" | cut -f 18)" in
+  *"moved on (merged)"*) ;;
+  *) fail "the moved-on news item carries no reason naming its row: '$(rec "$nn" | cut -f 18)'" ;;
+esac
+grep -q "\"kind\":\"settled\".*\"item\":\"$nn\".*moved on" "$log_file" || fail "the moved-on news item's settlement was not logged with its reason"
+grep -q "\"kind\":\"dropped\".*\"item\":\"$nn\"" "$log_file" && fail "the moved-on news item was dropped rather than settled"
 rec "$ro" >/dev/null || fail "rebuild lost an open request whose content is still at its home (re-opened after a settle, so event order matters)"
 [ "$(rec "$ro" | cut -f 12)" = open ] || fail "the re-opened request was rebuilt closed"
 grep -q 'ic0ffee11' "$store" && fail "rebuild re-admitted a forged born line whose pointer escapes its root"
@@ -327,8 +334,12 @@ rec "$rd" >/dev/null || fail "rebuild lost the delivered-but-open request"
 rec "$rs" >/dev/null || fail "rebuild lost the shelved request"
 [ "$(rec "$rs" | cut -f 16)" = 0 ] || fail "a shelved item did not return at once after the rebuild (its deadline is the store's alone)"
 rec "$rt" >/dev/null && fail "rebuild resurrected a settled item (the settled history is the log's)"
-rec "$rv" >/dev/null && fail "rebuild kept a request whose content home vanished"
-grep -q "\"kind\":\"dropped\".*\"item\":\"$rv\".*\"reason\":\"rebuild\"" "$log_file" || fail "the vanished request's drop was not logged"
+[ "$(rec "$rv" | cut -f 12)" = closed ] || fail "a request whose content home vanished was not recorded as settled at the rebuild"
+case "$(rec "$rv" | cut -f 18)" in
+  *"content home has vanished"*) ;;
+  *) fail "the vanished request carries no reason: '$(rec "$rv" | cut -f 18)'" ;;
+esac
+grep -q "\"kind\":\"settled\".*\"item\":\"$rv\".*vanished" "$log_file" || fail "the vanished request's settlement was not logged with its reason"
 new_row=$(awk -F '\t' '$2 == "question" && $7 == "w-new"' "$store")
 [ -n "$new_row" ] || fail "rebuild missed an awaiting-input row with no record yet"
 [ "$(field "$new_row" 3)" = low ] || fail "the row-derived question did not inherit the row's priority"
@@ -342,7 +353,7 @@ for id in $qk $ro $rd $rs; do
   printf '%s\n' "$after_ids" | grep -q "^$id$" || fail "identifier $id was not derived identically at rebuild"
 done
 printf '%s\n' "$before_ids" | grep -q "^$qk$" || fail "fixture: $qk missing before the loss"
-[ "$(record_count)" = 5 ] || fail "rebuilt store holds $(record_count) records, expected 5 (the open question, three requests, the new row)"
+[ "$(record_count)" = 7 ] || fail "rebuilt store holds $(record_count) records, expected 7 (the open question, three requests, the new row, and the two recorded as settled)"
 echo "ok: a lost store rebuilds from the content homes with the same identifiers, redelivering at most once and dropping only what moved on"
 
 # The rebuild cleared the tower's own delivery record with the store, so the

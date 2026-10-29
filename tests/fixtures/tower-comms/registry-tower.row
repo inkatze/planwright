@@ -1,0 +1,15 @@
+format	1
+name	mc-fixture-tower-5f6a7b8c9d
+state	launched
+token	100-fixture
+pid	100
+program	fixture
+owner	operator
+kind	tower
+scope	fleet
+backend	stream-json
+handle	mc-fixture-tower-5f6a7b8c9d
+profile	tower
+tier	-
+brief	-
+launched	1000
