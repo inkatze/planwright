@@ -3661,7 +3661,7 @@ rebuild_if_absent() {
       # the safe direction), never the rebuild of everything else.
       while ((rc = (getline l < ledger_file)) > 0) { split(l, g, "\t"); if (g[1] == "item") led[g[2]] = 1 }
       close(ledger_file)
-      if (rc < 0) { split("", led); print "warn\tthe ledger would not read, so no settled-by-default item came back from it" }
+      if (rc < 0) { split("", led); ledwarn = 1 }
     }
     nb = 0
     if (log_file != "") {
@@ -3735,13 +3735,14 @@ rebuild_if_absent() {
       u = (at_prio[w] ~ /^(high|normal|low)$/) ? at_prio[w] : "normal"
       print "cand\tquestion\t" u "\t" w "\t" at_ts[w] + 0 "\tattention\t" w "\t" ii "\t-\t-\t'"$QUESTION_CLOSES"'\t-\tworker:" w "\t-\t-\t0\t-\t0\t-\t-\t-\t0\t-\t0"
     }
+    # Last, so a failure line stays the first one the shell checks.
+    if (ledwarn) print "warn\tthe ledger would not read, so no settled-by-default item came back from it"
   }' >"$SCRATCH/cands" 2>"$SCRATCH/cands.err" || {
     err "the rebuild pass failed: $(sanitize_printable "$(head -n 1 "$SCRATCH/cands.err" 2>/dev/null)" "(no diagnostic)")"
     exit 6
   }
-  _rf=$(awk -F '\t' '$1 == "fail" { print $2; exit }' "$SCRATCH/cands" 2>/dev/null) || _rf="cannot read the rebuild's candidates"
-  if [ -n "$_rf" ]; then
-    err "the rebuild pass failed: $(sanitize_printable "$_rf" "(no diagnostic)")"
+  if [ "$(head -n 1 "$SCRATCH/cands" 2>/dev/null | cut -f 1)" = fail ]; then
+    err "the rebuild pass failed: $(sanitize_printable "$(head -n 1 "$SCRATCH/cands" | cut -f 2)" "(no diagnostic)")"
     exit 6
   fi
   : >"$SCRATCH/new"
