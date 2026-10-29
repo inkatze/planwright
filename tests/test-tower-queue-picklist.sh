@@ -143,6 +143,15 @@ grep -q "\"kind\":\"picklist\".*\"item\":\"$p_knob\".*\"options\":\"yes|no\".*\"
   || fail "the picklist declaration was not logged with its birth"
 echo "ok: an unset window takes tower_picklist_window and the declaration is logged with the birth"
 
+printf 'tower_picklist_window: 500ms\n' >"$local_cfg"
+attention_row w-ks spec/t4s awaiting-input 1000 normal 'Retry now?' yes 'yes|no' fork iid-ks
+p_ks=$(run add --kind question --worker w-ks --origin w-ks --closes 'the operator answers' --options 'yes|no' --end no --gate none --now 1000) \
+  || fail "add with a sub-second knob window"
+[ "$(fld "$p_ks" 29)" = 1000.5 ] || fail "a sub-second tower_picklist_window was not honoured: window end '$(fld "$p_ks" 29)'"
+run settle "$p_ks" --reason 'the sub-second knob is not under test past here' --now 1000 >/dev/null || fail "settle the sub-second knob item"
+: >"$local_cfg"
+echo "ok: tower_picklist_window takes a sub-second span"
+
 # --- the Done-when fixture: options A and B, default B, a sub-second window -----------
 
 attention_row w-b spec/t5 awaiting-input 1000 normal 'Squash or keep?' A 'A|B' fork iid-b
@@ -275,6 +284,13 @@ else
   [ "$(fld "$m1" 18)" = "merged into $m3" ] || fail "two identical picklists did not merge: $(rec "$m1")"
 fi
 [ "$(fld "$m2" 12)" = open ] || fail "the picklist with its own window end was absorbed"
+attention_row w-m4 spec/t7a awaiting-input 1000 normal 'Rebuild the cache?' yes 'yes|no' fork iid-m4
+attention_row w-m5 spec/t7b awaiting-input 1000 normal 'Rebuild the cache?' yes 'yes|no' fork iid-m5
+m4=$(run add --kind question --worker w-m4 --origin w-m4 --closes 'the operator answers' --options 'yes|no' --end yes --gate none --window 1h --now 10000) || fail "add m4"
+m5=$(run add --kind question --worker w-m5 --origin w-m5 --closes 'the operator answers' --options 'no|yes' --end no --gate none --window 1h --now 10000) || fail "add m5"
+run settle --now 10003 >/dev/null || fail "the merge pass, ends or options differing"
+[ "$(fld "$m4" 12)" = open ] || fail "a picklist with another end was absorbed: $(rec "$m4")"
+[ "$(fld "$m5" 12)" = open ] || fail "a picklist with other options was absorbed: $(rec "$m5")"
 echo "ok: picklist items merge only when options, end and window end are identical"
 
 # --- evidence that already answered a question wins over its ended window -------------
@@ -384,6 +400,11 @@ for w in c1 c2 c3; do
   id=$(printf '%s\n' "$got" | awk -F "$TAB" '$1 == "item" { print $2; exit }')
   [ -n "$id" ] || fail "no default handed over: $got"
   run ack "$id" --tower $A --now $((t + 2)) >/dev/null || fail "review $id"
+  case "$(fld "$id" 18)" in
+    "reviewed by the operator (reversal: reopen); the window ended on its default: B"*) ;;
+    *) fail "an acknowledged default does not close as reviewed with its reversal: '$(fld "$id" 18)'" ;;
+  esac
+  grep -q "\"kind\":\"reviewed\".*\"item\":\"$id\".*\"item_kind\":\"settled-by-default\"" "$log_file" || fail "the review of $id was not logged"
 done
 remainder=$(run catchup | awk -F "$TAB" '$1 == "remainder"')
 [ "$remainder" = "remainder${TAB}3${TAB}exact${TAB}-" ] || fail "the catch-up remainder lost the reviewed defaults past the horizon: '$remainder'"

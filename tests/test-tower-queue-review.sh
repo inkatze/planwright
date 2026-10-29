@@ -183,15 +183,14 @@ echo "ok: a revoked decision leaves the open set by that revocation, logged with
 
 # --- the launcher registry accepts the mission-control kind ------------------------------
 
-if [ -x "$MCL" ]; then
-  PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$MCL" kinds | grep -q "^mission-control${TAB}" || fail "the launcher does not list the mission-control kind"
-  PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$MCL" name --program fixture --kind mission-control --scope fleet >/dev/null 2>&1 \
-    || fail "the launcher refused the mission-control kind"
-  rc=0
-  PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$MCL" name --program fixture --kind overseer --scope fleet >/dev/null 2>&1 || rc=$?
-  [ "$rc" = 2 ] || fail "the launcher accepted an unknown kind (exit $rc)"
-  echo "ok: the launcher registry accepts a mission-control row and still refuses an unknown kind"
-fi
+[ -f "$MCL" ] || fail "scripts/mission-control-launch.sh is missing, so its accepted kinds go unchecked"
+PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$MCL" kinds | grep -q "^mission-control${TAB}" || fail "the launcher does not list the mission-control kind"
+PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$MCL" name --program fixture --kind mission-control --scope fleet >/dev/null 2>&1 \
+  || fail "the launcher refused the mission-control kind"
+rc=0
+PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$MCL" name --program fixture --kind overseer --scope fleet >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "the launcher accepted an unknown kind (exit $rc)"
+echo "ok: the launcher registry accepts a mission-control row and still refuses an unknown kind"
 
 # --- retention keeps an unreviewed reviewable item past the horizon (REQ-B1.6) ----------
 
