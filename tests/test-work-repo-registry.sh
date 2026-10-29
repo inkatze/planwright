@@ -6,7 +6,8 @@
 # Plain bash 3.2, inline asserts.
 set -u
 unset CDPATH
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+  GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 REG="$REPO_ROOT/scripts/work-repo-registry.sh"
@@ -248,6 +249,7 @@ mkrepo "$tmp/plainwork"
 mkdir -p "$tmp/plainwork/specs/demo"
 run "$tmp/plainwork" "$SH" "$RWR" specs/demo --repository alpha
 assert_eq "--repository under an unmarked root exits 5" 5 "$rc"
+assert_contains "--repository under an unmarked root passes the resolver's reason" "planwright: refusing" "$err"
 run "$tmp/plainwork" "$SH" "$RWR" specs/demo
 assert_eq "without --repository the resolver is unchanged" "$tmp/plainwork" "$out"
 run "$tmp/elsewhere" env -u CLAUDE_PLUGIN_DATA "$SH" "$RWR" "$HUB/demo" --repository beta
@@ -271,6 +273,16 @@ mkdir -p "$tmp/scanroot/a
 b/.git"
 run "$tmp/elsewhere" "$SH" "$REG" scan "$tmp/scanroot"
 assert_eq "scan skips a path carrying a newline instead of splitting it" "" "$out"
+mkdir -p "$tmp/scanroot/locked"
+chmod 000 "$tmp/scanroot/locked"
+if [ -r "$tmp/scanroot/locked" ]; then
+  pass "an unreadable subtree (skipped: running as a user who reads anything)"
+else
+  run "$tmp/elsewhere" "$SH" "$REG" scan "$tmp/scanroot"
+  assert_eq "scan refuses when part of the tree cannot be read" 1 "$rc"
+  assert_contains "the incomplete scan says so" "incomplete" "$err"
+fi
+chmod 700 "$tmp/scanroot/locked"
 
 # --- REQ-I1.8: untrusted registry content -------------------------------------
 cp "$FILE" "$tmp/good.tsv"
@@ -378,6 +390,13 @@ run "$tmp/defaultrepo" "$SH" "$REG" register
 assert_eq "default root: register exits 0" 0 "$rc"
 assert_contains "default root: register says it skipped" "skipped" "$out"
 assert_eq "default root: no registry is created" "" "$(find "$DATA" -mindepth 1 2>/dev/null)"
+mkdir -p "$tmp/defaultrepo/specs" "$tmp/defaultrepo/.claude"
+mark "$tmp/defaultrepo/specs"
+printf 'spec_root: specs\n' >"$tmp/defaultrepo/.claude/planwright.yml"
+run "$tmp/defaultrepo" "$SH" "$REG" register
+assert_contains "a layer naming the default root, marker and all, is skipped" "skipped" "$out"
+assert_eq "a layer naming the default root writes no registry" "" "$(find "$DATA" -mindepth 1 2>/dev/null)"
+rm -rf "$tmp/defaultrepo/specs" "$tmp/defaultrepo/.claude"
 if grep -q '^repository_alias:' "$REPO_ROOT/config/defaults.yml"; then
   fail "config/defaults.yml carries repository_alias"
 else

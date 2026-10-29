@@ -77,8 +77,8 @@ script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P) || exit 2
 root_helper=$script_dir/resolve-root.sh
 
 if [ "$have_alias" -eq 1 ]; then
-  /bin/sh "$root_helper" marker "$parent" >/dev/null 2>&1 || {
-    say "the alias '$alias' resolves to nothing: the spec root $parent carries no planwright-spec-root.yml marker, and only a marked root has registered repositories"
+  /bin/sh "$root_helper" marker "$parent" >/dev/null || {
+    say "the alias '$alias' resolves to nothing: the spec root $parent has no valid planwright-spec-root.yml marker, and only a marked root has registered repositories"
     exit 5
   }
   # The registry names its own reason on stderr; any failure to answer is

@@ -65,7 +65,7 @@ usage() {
   exit 2
 }
 
-scratch=$(mktemp -d) || {
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/work-repo-registry.XXXXXX") || {
   printf 'work-repo-registry: cannot create a scratch directory\n' >&2
   exit 2
 }
@@ -125,6 +125,18 @@ in_repo() {
   ir_dir=$1
   shift
   (cd -- "$ir_dir" 2>/dev/null && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$root_helper" "$@" 2>/dev/null)
+}
+
+# default_root <dir>: the spec root <dir>'s repository would resolve with
+# spec_root cancelled, so a layer naming the default is told apart from a
+# relocated root without composing the default path here.
+default_root() {
+  dr_conf=$(scratch_file no-spec-root.yml)
+  printf 'spec_root: ""\n' >"$dr_conf"
+  dr_path=$(cd -- "$1" 2>/dev/null \
+    && env -u PLANWRIGHT_REPO_ROOT PLANWRIGHT_LOCAL_CONFIG="$dr_conf" /bin/sh "$root_helper" spec --primary 2>/dev/null) \
+    || return 1
+  canon "$dr_path" || printf '%s\n' "$dr_path"
 }
 
 marker_project() {
@@ -230,6 +242,10 @@ stale() {
     st_root=$(in_repo "$r_checkout" spec --primary) && st_root=$(canon "$st_root") || st_root=""
     [ "$st_root" = "$r_root" ] || {
       printf "the checkout's spec_root no longer names the root\n"
+      return
+    }
+    [ "$(default_root "$r_checkout")" != "$r_root" ] || {
+      printf "the root is the checkout's default spec root\n"
       return
     }
   else
@@ -359,13 +375,13 @@ cmd_register() {
     rg_source=${rg_line%%"$TAB"*}
     root=${rg_line#*"$TAB"}
     root=${root%%"$TAB"*}
-    # resolve-root.sh refuses a root other than the default without a marker,
-    # so an unmarked root is the default even when a layer names it.
-    if [ "$rg_source" = default ] || ! marker_project "$root" >/dev/null; then
+    if [ "$rg_source" != default ]; then
+      root=$(canon "$root") || die 1 "refusing the spec root $root: it cannot be entered"
+    fi
+    if [ "$rg_source" = default ] || [ "$(default_root .)" = "$root" ]; then
       printf 'skipped\tthe spec root is the default, so nothing is registered\n'
       exit 0
     fi
-    root=$(canon "$root") || die 1 "refusing the spec root $root: it cannot be entered"
     kind=work
   else
     case $rg_root in
@@ -408,13 +424,16 @@ cmd_scan() {
   for sc_dir in "$@"; do
     [ -d "$sc_dir" ] || die 1 "refusing to scan '$sc_dir': no such directory"
   done
+  sc_partial=0
   sc_list=$(scratch_file checkouts)
   sc_err=$(scratch_file scan-err)
   for sc_dir in "$@"; do
     sc_dir=$(canon "$sc_dir") || die 1 "refusing to scan a directory that cannot be entered"
     # A name carrying a newline would split into two paths when read back.
+    sc_find=0
     find "$sc_dir" -maxdepth 4 \( -name "*$NL*" -prune \) -o \( -type d -name .git -prune -print \) \
-      >"$sc_list" 2>/dev/null
+      >"$sc_list" 2>"$sc_err" || sc_find=1
+    [ "$sc_find" -eq 0 ] || sc_partial=1
     while IFS= read -r sc_git; do
       sc_co=${sc_git%/.git}
       [ "$(clean "$sc_co")" = "$sc_co" ] || {
@@ -442,6 +461,8 @@ cmd_scan() {
       esac
     done <"$sc_list"
   done
+  [ "$sc_partial" -eq 0 ] \
+    || die 1 "the scan was incomplete: part of a directory tree could not be read, so entries under it may be missing"
 }
 
 cmd_lookup() {
