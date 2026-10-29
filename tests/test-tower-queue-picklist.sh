@@ -409,7 +409,17 @@ for w in c1 c2 c3; do
 done
 remainder=$(run catchup | awk -F "$TAB" '$1 == "remainder"')
 [ "$remainder" = "remainder${TAB}3${TAB}exact${TAB}-" ] || fail "the catch-up remainder lost the reviewed defaults past the horizon: '$remainder'"
-echo "ok: the catch-up remainder counts the defaults the store no longer keeps"
+remainder=$(run catchup --since 1050 | awk -F "$TAB" '$1 == "remainder"')
+[ "$remainder" = "remainder${TAB}0${TAB}exact${TAB}-" ] || fail "a default whose window ended before --since was counted by its pass time: '$remainder'"
+attention_row w-c4 spec/c4 awaiting-input 1000 normal 'Which?' A 'A|B' fork iid-c4
+c4=$(run add --kind question --worker w-c4 --origin w-c4 --closes 'the operator answers' --options 'A|B' --end B --gate none --window 1s --now 1300) || fail "add c4"
+run settle --now 1400 >/dev/null || fail "the pass that defaults c4"
+marker $A 1401
+run next --tower $A --now 1402 >/dev/null || fail "hand over c4"
+run revoke "$c4" --tower $A --now 1403 >/dev/null || fail "revoke c4"
+remainder=$(run catchup | awk -F "$TAB" '$1 == "remainder"')
+[ "$remainder" = "remainder${TAB}3${TAB}exact${TAB}-" ] || fail "a revoked default still counts toward the remainder: '$remainder'"
+echo "ok: the catch-up remainder counts the defaults the store no longer keeps, by their window end, less any revoked"
 : >"$local_cfg"
 
 # --- a fallback ledger that fails its owner check refuses the verb, lock released -----
