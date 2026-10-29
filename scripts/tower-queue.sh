@@ -4051,7 +4051,16 @@ window_prepare() {
   REVIEW_FILE=""
   WINDOW_DUE=0
   [ -f "$store_file" ] || return 0
-  _wd=$(awk -F '\t' -v now="$now" 'NF == 34 && $12 == "open" && $2 == "question" && $29 != "0" && $31 == "0" && $29 + 0 <= now + 0 { print $1 "\t" $28 "\t" $29 "\t" $30 "\t" $21 }' "$store_file" 2>/dev/null) || _wd=""
+  # Only records the pass itself will read: one it skips as malformed would
+  # otherwise keep WINDOW_DUE set, and a full pass running, on every `next`.
+  _wd=$(awk -F '\t' -v now="$now" "$AWK_Q"'
+  END {
+    for (n = 1; n <= N; n++) {
+      if (!OK[n] || F[n, 12] != "open" || F[n, 2] != "question") continue
+      if (F[n, 29] + 0 <= 0 || F[n, 31] == 1 || F[n, 29] + 0 > now) continue
+      print F[n, 1] "\t" F[n, 28] "\t" F[n, 29] "\t" F[n, 30] "\t" F[n, 21] "\t" F[n, 6] "\t" F[n, 7]
+    }
+  }' "$store_file" 2>/dev/null) || _wd=""
   [ -n "$_wd" ] || return 0
   WINDOW_DUE=1
   ensure_surface
@@ -4060,9 +4069,15 @@ window_prepare() {
     exit 6
   }
   _wk=0
-  while IFS="$TAB" read -r _wi _we _wt _wg _ws; do
+  while IFS="$TAB" read -r _wi _we _wt _wg _ws _wh _wp; do
     is_item_id "$_wi" || continue
     [ "$_we" != park ] && [ "$_wg" = none ] || continue
+    # The pass parks a permission prompt rather than default it, so no
+    # content saying it defaulted is written for one.
+    if [ "$_wh" = attention ]; then
+      attn_perm "$_wp"
+      [ "$p_f9" != permission ] || continue
+    fi
     if [ "$_wk" = 0 ]; then
       resolve_queue_knobs
       _wk=1

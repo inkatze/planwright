@@ -324,3 +324,34 @@ echo "ok: over a long away timeline nothing is dropped and the only answer taken
 awk -F "$TAB" '$12 == "closed" && ($18 == "-" || $18 == "") { print; bad = 1 } END { exit bad }' "$store" \
   || fail "a closed record carries no settling reason"
 echo "ok: every closed record carries its settling reason"
+
+# --- the pass re-reads the gate and the permission marker itself (REQ-H1.5) ------------
+
+# add refuses both, so each record is written straight into the store.
+attention_row w-g spec/t12 awaiting-input 1000 normal 'Proceed?' yes 'yes|no' fork iid-g
+qg=$(run add --kind question --worker w-g --origin w-g --closes 'the operator answers' --options 'yes|no' --end park --window 1s --now 30000) || fail "add the gated picklist"
+for pair in "$p_perm:allow" "$qg:yes"; do
+  pid=${pair%%:*}
+  gate=none
+  [ "$pid" != "$qg" ] || gate=human-gate
+  grep -v "^$pid$TAB" "$store" >"$tmp/store.new"
+  rec "$pid" | awk -F "$TAB" -v OFS="$TAB" -v e="${pair#*:}" -v g="$gate" '{ $28 = e; $30 = g; $31 = 0; print }' >>"$tmp/store.new"
+  cat "$tmp/store.new" >"$store"
+done
+run settle --now 30100 >/dev/null || fail "the pass over the planted defaults"
+for pid in $p_perm $qg; do
+  [ "$(fld "$pid" 2)" = question ] && [ "$(fld "$pid" 31)" = 1 ] || fail "a planted default was applied, not parked: $(rec "$pid")"
+  grep -q "review\.$pid\." "$surface/ledger" && fail "review content was written for $pid, which the pass parks"
+done
+echo "ok: the pass parks a default on a permission prompt or behind a gate, and writes no review content for it"
+
+# --- a malformed record with an ended window never forces a pass on every next --------
+
+grep -v "^$qf$TAB" "$store" >"$tmp/store.new"
+rec "$qf" | awk -F "$TAB" -v OFS="$TAB" '{ $2 = "question"; $3 = "urgent"; $31 = 0; print }' >>"$tmp/store.new"
+cat "$tmp/store.new" >"$store"
+evidence "stamp${TAB}40000"
+run settle --evidence "$ev" --now 40001 >/dev/null || fail "the pass that stamps the evidence"
+run next --tower $A --evidence "$ev" --now 40002 >/dev/null || fail "next after the stamped pass"
+[ "$(cut -f 1 "$surface/settle.stamp")" = 40001 ] || fail "a malformed record with an ended window forced another pass: stamp $(cut -f 1 "$surface/settle.stamp")"
+echo "ok: a record the pass cannot read never keeps a window due"
