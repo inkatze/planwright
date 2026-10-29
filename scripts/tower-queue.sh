@@ -6142,7 +6142,7 @@ cmd_show() {
     for (n = 1; n <= N; n++) {
       if (!OK[n] || F[n, 1] != item) continue
       print "item\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(F[n, 3]) "\t" clean(srcs(n)) "\t" F[n, 5] "\t" clean(list_state(n)) "\t" ptr_of(n) "\t" clean(F[n, 11])
-      print "reason\t" clean(F[n, 18]) "\t" F[n, 17]
+      print "reason\t" clean(F[n, 18]) "\t" ((F[n, 15] + 0 > F[n, 17] + 0) ? F[n, 15] : F[n, 17])
       if (F[n, 27] != "-") print "picklist\t" clean(F[n, 27]) "\t" clean(F[n, 28]) "\t" F[n, 29] "\t" clean(F[n, 30]) "\t" ((F[n, 31] == 1) ? "parked" : "-")
       if (reviewable(F[n, 2]) || F[n, 33] != "-" || F[n, 34] != "-") print "review\t" clean(F[n, 33]) "\t" clean(F[n, 34])
       if (F[n, 32] != "-") print "topic\t" clean(F[n, 32])
