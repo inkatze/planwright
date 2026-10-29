@@ -561,8 +561,8 @@ declaring `**Format-version:** 3`, and declares it only when some task
 names a repository. Everything version 2 defines (the restricted stored
 `Status:` set, the `**Execution:**` pointer line, the four `tasks.md`
 sections, reference bullets, validation) carries over unchanged except this
-delta. Because the field is optional, upgrading a version 2 bundle is only
-the declaration bump.
+delta. A version 2 bundle upgrades by adding the field to the tasks that
+need it and bumping its declaration; nothing else in it converts.
 
 **The field.** A task block carries at most one `Repository:` bullet,
 placed after `Citations:` and before `Estimated effort:`:
@@ -1221,8 +1221,9 @@ bundle untouched.
   extraction keeps the `Repository:` line at every version, which moves no
   existing anchor because no version 1 or 2 block may carry it (*Canonical
   `tasks.md` definition-content extraction*), and the glossary gains the
-  field and the `repository-unresolved` state. Upgrading a version 2 bundle
-  is the declaration bump alone. The validator, extraction, and
+  field and the `repository-unresolved` state. A version 2 bundle upgrades
+  by adding the field to a task and bumping its declaration, with no other
+  conversion. The validator, extraction, and
   version-keyed script changes, and the per-task derivation that consumes
   the field, land as their own tasks; as with the earlier doctrine-half
   entries, the rule is stated before the tooling catches up.
