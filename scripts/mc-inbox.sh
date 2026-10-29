@@ -193,7 +193,7 @@ case $verb in
       mc_fail "mission_control_clipboard cannot be read: $(sanitize_printable "$cg_why")"
     fi
     # Line by line, so each warning stays its own line.
-    tr -d '\000-\011\013-\037\177\200-\237' <"$cg_err" | head -c 2000 >&2
+    tr -d '\000-\011\013-\037\177\200-\237' <"$cg_err" | head -c 2000 | awk '{ print }' >&2
     rm -f "$cg_err"
     clip=""
     while IFS='	' read -r layer raw; do

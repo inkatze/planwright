@@ -125,6 +125,11 @@ for bad in acme/.. acme/-x ./x acme; do
   expect_rc "not a slug: $bad" 2
 done
 
+# A worktree already gone, its parent with it, has nothing to reclaim.
+mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-eight --repo acme/web --pr 7 --worktree "$tmp/gone/deep/wt"
+PATH="$tmp/bin:$PATH" mc_run mc-keeper.sh sweep --program alpha
+expect_out "a gone worktree under a gone parent is dropped" "dropped${tab}mc-alpha-worker-eight"
+
 # A worktree whose directory cannot be entered still exists: it goes to the
 # reclaim, whose refusal holds the line, never treated as gone.
 mkdir -p "$tmp/locked/wt"

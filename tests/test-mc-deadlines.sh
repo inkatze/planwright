@@ -72,7 +72,7 @@ cat >"$repo/specs/billing/tasks.md" <<'EOF'
 - **Due:** 2026-11-02
 ```
 EOF
-printf '%s\n' '# Billing — Requirements' '' '- **Due:** 2026-12-01' >"$repo/specs/billing/requirements.md"
+printf '%s\n' '# Billing — Requirements' '' '```' '**Due:** 2026-01-01' '```' '' '- **Due:** 2026-12-01' >"$repo/specs/billing/requirements.md"
 printf '%s\n' '### Task 1 — Ignored' '- **Due:** 2026-10-01' >"$repo/specs/_observations/tasks.md"
 # 2026-11-01T12:00:00Z
 NOW=1793534400
@@ -85,6 +85,7 @@ expect_rc "list" 0
 expect_out "a task block's due line dates its unit" "deadline${tab}billing:task-1${tab}2026-11-03${tab}2${tab}record:specs"
 expect_out "a requirements due line dates the bundle" "deadline${tab}billing${tab}2026-12-01${tab}30${tab}record:specs"
 expect_no_out "a reserved directory is not a bundle" "2026-10-01"
+expect_no_out "a fenced Due line in requirements.md is an example" "2026-01-01"
 expect_no_out "a due line under a later H3 is not the task's" "2026-11-05"
 expect_no_out "a stored date naming no calendar day is dropped" "billing:task-3"
 expect_no_out "a Due line inside a code fence is an example, never read" "billing:task-4"
@@ -93,6 +94,12 @@ printf '%s\n' '### Task 1 — Open' '```' '- **Due:** 2026-11-02' >"$repo/specs/
 mc_run mc-deadlines.sh list --program alpha --now "$NOW"
 expect_rc "an unclosed code fence fails the read rather than drop later dates" 1
 expect_err "named" "an unclosed code fence"
+rm -rf "$repo/specs/broken"
+mkdir -p "$repo/specs/broken"
+printf '%s\n' '# Broken' '```' '**Due:** 2026-11-02' >"$repo/specs/broken/requirements.md"
+printf '%s\n' '# Broken — Tasks' >"$repo/specs/broken/tasks.md"
+mc_run mc-deadlines.sh list --program alpha --now "$NOW"
+expect_rc "an unclosed fence in requirements.md fails the read too" 1
 rm -rf "$repo/specs/broken"
 
 mc_run mc-deadlines.sh add --program alpha --unit "billing:task-2" --due 2026-10-30 --note "the operator said so"

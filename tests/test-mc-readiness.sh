@@ -255,6 +255,11 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme
 c=$(cat "$tmp/collected" 2>/dev/null)
 has "a head moved during collection fails" "guard${tab}head${tab}fail${tab}the head moved to 4444444444444444444444444444444444444444"
 printf '%s\n' "$head" >"$tmp/headnow"
+: >"$tmp/headnow"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a head that cannot be re-read fails as such" "guard${tab}head${tab}fail${tab}the head could not be re-read after the guard"
+printf '%s\n' "$head" >"$tmp/headnow"
 
 # A list that comes back at its cap may have been cut, and is refused.
 sed 's/"hasNextPage": false/"hasNextPage": true/' "$tmp/threads.json" >"$tmp/t.json" && mv "$tmp/t.json" "$tmp/threads.json"
@@ -304,6 +309,15 @@ expect_rc "a refused event fails the run" 1
 mc_run mc-readiness.sh watch --program alpha
 expect_rc "the next run" 0
 expect_eq "raises it again, now stored" "announced${tab}readiness-due${tab}acme:web:7"
+
+# Between one and two cadences old a snapshot still counts (a budget rung
+# doubles the refresh); past twice its cadence it announces nothing.
+printf 'format\t1\nsource\tforge\ntaken\t%s\npr\tacme/web\t12\t%s\ttrue\tMERGEABLE\tNONE\t0\tSUCCESS\t0\t0\tp6\n' $((now - 420)) "$H" >"$snapdir/forge"
+mc_run mc-readiness.sh watch --program alpha
+expect_out "a snapshot one and a half cadences old still announces" "announced${tab}readiness-due${tab}acme:web:12"
+printf 'format\t1\nsource\tforge\ntaken\t%s\npr\tacme/web\t13\t%s\ttrue\tMERGEABLE\tNONE\t0\tSUCCESS\t0\t0\tp7\n' $((now - 660)) "$H" >"$snapdir/forge"
+mc_run mc-readiness.sh watch --program alpha
+expect_eq "one past twice its cadence does not" ""
 
 # A stale snapshot announces nothing.
 printf 'format\t1\nsource\tforge\ntaken\t%s\npr\tacme/web\t11\t%s\ttrue\tMERGEABLE\tNONE\t0\tSUCCESS\t0\t0\tp5\n' $((now - 86400)) "$H" >"$snapdir/forge"
