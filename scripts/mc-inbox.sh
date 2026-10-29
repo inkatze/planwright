@@ -192,7 +192,8 @@ case $verb in
       rm -f "$cg_err"
       mc_fail "mission_control_clipboard cannot be read: $(sanitize_printable "$cg_why")"
     fi
-    sanitize_printable "$(cat "$cg_err")" | awk 'NF' >&2
+    # Line by line, so each warning stays its own line.
+    tr -d '\000-\011\013-\037\177\200-\237' <"$cg_err" | head -c 2000 >&2
     rm -f "$cg_err"
     clip=""
     while IFS='	' read -r layer raw; do
@@ -242,7 +243,7 @@ EOF
     mc_store_init "$store"
     # One snapshot feeds the clipboard, the size and the hash, so the log
     # describes exactly what went on the clipboard.
-    snap=$(mktemp) || mc_fail "cannot create a scratch file"
+    snap=$(mktemp "${TMPDIR:-/tmp}/mc-inbox.XXXXXX") || mc_fail "cannot create a scratch file"
     cat "$file" >"$snap" || mc_fail "the draft cannot be read"
     bytes=$(wc -c <"$snap" | tr -d ' ')
     sum=$(mc_sha256 <"$snap") || mc_fail "no SHA-256 tool"

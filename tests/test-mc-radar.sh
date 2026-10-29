@@ -128,6 +128,11 @@ mc_run mc-radar.sh overlap --checkout "$tmp/work" --base main feat-a feat-b
 expect_rc "overlap" 0
 expect_out "the radar flags a same-line overlap from two fixture branches" "same-line${tab}feat-a${tab}feat-b${tab}app.txt${tab}10-10"
 expect_out "and the same file" "same-file${tab}feat-a${tab}feat-b${tab}app.txt"
+# An inherited GIT_DIR (a git hook's, say) never points the radar away from
+# the checkout it names.
+git init -q "$tmp/elsewhere"
+GIT_DIR="$tmp/elsewhere/.git" mc_run mc-radar.sh overlap --checkout "$tmp/work" --base main feat-a feat-b
+expect_out "an inherited GIT_DIR is ignored" "same-line${tab}feat-a${tab}feat-b${tab}app.txt${tab}10-10"
 mc_run mc-radar.sh overlap --checkout "$tmp/work" --base main feat-a feat-c
 expect_out "two branches on one file, far apart, share the file" "same-file${tab}feat-a${tab}feat-c${tab}app.txt"
 expect_no_out "and not a line" "same-line"

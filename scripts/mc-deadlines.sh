@@ -37,7 +37,9 @@ get <p> sources):
                          a task block of a bundle's tasks.md under the spec
                          root (the block running to the next H2 or H3)
                          dates the unit <bundle>:task-<id>; the first such
-                         line in requirements.md dates the bundle; a bundle
+                         line in requirements.md dates the bundle; a Due
+                         line inside a code fence is an example and never
+                         read, and an unclosed fence fails the read; a bundle
                          named outside the identifier grammar is skipped,
                          and a spec root that is not a directory fails
   snapshot               each `due<TAB><unit><TAB><YYYY-MM-DD>` line of the
@@ -191,11 +193,15 @@ gather() {
         # shellcheck disable=SC2016 # awk source
         N=$ga_n awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
           /^##[#]? / { t = spec_parse_task_id($0) }
-          /^(- )?\*\*Due:\*\* [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ ]*$/ && t != "" { print ENVIRON["N"] ":task-" t "\t" $NF "\trecord:specs" }' \
-          "$ga_b/tasks.md" || mc_fail "cannot read $ga_b/tasks.md"
+          /^(- )?\*\*Due:\*\* [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ ]*$/ && t != "" { print ENVIRON["N"] ":task-" t "\t" $NF "\trecord:specs" }
+          END { spec_parse__fence_eof() }' \
+          "$ga_b/tasks.md" || mc_fail "cannot read $ga_b/tasks.md (an unclosed code fence fails it)"
         if [ -f "$ga_b/requirements.md" ]; then
-          N=$ga_n awk '/^(- )?\*\*Due:\*\* [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ ]*$/ { print ENVIRON["N"] "\t" $NF "\trecord:specs"; exit }' \
-            "$ga_b/requirements.md" || mc_fail "cannot read $ga_b/requirements.md"
+          # shellcheck disable=SC2016 # awk source
+          N=$ga_n awk "$spec_parse_awk_fence"'
+            /^(- )?\*\*Due:\*\* [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ ]*$/ && !got { print ENVIRON["N"] "\t" $NF "\trecord:specs"; got = 1 }
+            END { spec_parse__fence_eof() }' \
+            "$ga_b/requirements.md" || mc_fail "cannot read $ga_b/requirements.md (an unclosed code fence fails it)"
         fi
       done
       set -f

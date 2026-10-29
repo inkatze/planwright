@@ -125,6 +125,16 @@ for bad in acme/.. acme/-x ./x acme; do
   expect_rc "not a slug: $bad" 2
 done
 
+# A worktree whose directory cannot be entered still exists: it goes to the
+# reclaim, whose refusal holds the line, never treated as gone.
+mkdir -p "$tmp/locked/wt"
+mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-seven --repo acme/web --pr 7 --worktree "$tmp/locked/wt"
+chmod 000 "$tmp/locked"
+PATH="$tmp/bin:$PATH" mc_run mc-keeper.sh sweep --program alpha
+chmod 700 "$tmp/locked"
+expect_out "an unreadable worktree is held, not dropped" "held${tab}mc-alpha-worker-seven${tab}worktree"
+if grep -q "^mc-alpha-worker-seven${tab}" "$ledger"; then ok "and its line stays"; else fail "the unreadable worktree's line was dropped"; fi
+
 # A refused landing event keeps the line, so the next run raises it.
 mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-five --repo acme/web --pr 7
 events_dir="$fleet/attention/mission-control/alpha/events"

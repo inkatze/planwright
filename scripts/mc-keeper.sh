@@ -74,7 +74,8 @@ Usage:
                                              its reason after a colon)
       a unit in progress never holds back a ready one; a session holds a
       unit when the launcher lists the scope <spec>:task-<id> for this
-      program
+      program, or for another program sharing one of its repositories (or
+      one no longer configured)
   mc-keeper.sh watch [--program <p>] [--now <epoch>]
       the duty's watcher (also what a run with no arguments does under the
       runner): the stall scan (scripts/mc-stall.sh scan, which emits its own
@@ -265,7 +266,7 @@ EOF
     fi
     # A worktree already gone needs no reclaim; any other path, even one that
     # cannot be read, goes to the reclaim, whose refusal holds the line.
-    if [ -z "$sw_held" ] && [ "$sw_w" != "-" ] && { [ -e "$sw_w" ] || [ -L "$sw_w" ]; }; then
+    if [ -z "$sw_held" ] && [ "$sw_w" != "-" ] && { [ -e "$sw_w" ] || [ -L "$sw_w" ] || ! (cd "${sw_w%/*}" 2>/dev/null); }; then
       if sw_out=$(/bin/bash "$script_dir/mc-reclaim.sh" reclaim --program "$program" "$sw_w" 2>&1); then
         [ "$events" = 1 ] || printf 'reclaimed\t%s\t%s\n' "$sw_s" "$sw_w"
       elif ! row_live "$sw_row"; then
@@ -346,7 +347,29 @@ case $verb in
     mc_valid_kebab "$name" || mc_fail "the spec bundle's name is outside the identifier grammar"
     state=$(cd "$top" && /bin/bash "$script_dir/orchestrate-state.sh" "$rel" 2>/dev/null) || mc_fail "the unit states of $name cannot be derived"
     sessions=$(launcher list 2>/dev/null) || mc_fail "the launcher's sessions cannot be listed"
-    held=$(printf '%s\n' "$sessions" | P=$program N=$name awk -F '\t' '$2 == ENVIRON["P"] && index($4, ENVIRON["N"] ":task-") == 1 { print $4 }')
+    # A unit is never dispatched twice: a session of this program holds it,
+    # and so does one of another program sharing a repository with this one.
+    mine=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories) || mc_fail "the repositories of program $program do not resolve"
+    others=$(printf '%s\n' "$sessions" | P=$program N=$name awk -F '\t' '$2 != ENVIRON["P"] && index($4, ENVIRON["N"] ":task-") == 1 { print $2 }' | sort -u)
+    shared=""
+    while IFS= read -r op; do
+      [ -n "$op" ] || continue
+      # A program no longer configured cannot be told apart, so it holds.
+      theirs=$(/bin/bash "$script_dir/mc-program.sh" get "$op" repositories 2>/dev/null) || {
+        shared="$shared$op
+"
+        continue
+      }
+      if printf '%s\n' "$theirs" | MINE=$mine awk 'BEGIN { n = split(ENVIRON["MINE"], m, "\n"); for (i = 1; i <= n; i++) if (m[i] != "") mine[m[i]] = 1 } ($0 in mine) { f = 1 } END { exit !f }'; then
+        shared="$shared$op
+"
+      fi
+    done <<EOF
+$others
+EOF
+    held=$(printf '%s\n' "$sessions" | P=$program S=$shared N=$name awk -F '\t' '
+      BEGIN { n = split(ENVIRON["S"], s, "\n"); for (i = 1; i <= n; i++) if (s[i] != "") sh[s[i]] = 1 }
+      ($2 == ENVIRON["P"] || ($2 in sh)) && index($4, ENVIRON["N"] ":task-") == 1 { print $4 }')
     admit=$(/bin/bash "$script_dir/mc-budget.sh" admit --program "$program" session ${now:+--now "$now"} 2>/dev/null)
     case $? in
       0) hold="" ;;

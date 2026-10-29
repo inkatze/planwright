@@ -108,9 +108,10 @@ Usage:
         announced<TAB>readiness-due<TAB><subject>
       the program from PLANWRIGHT_MC_PROGRAM when --program is absent;
       a program with no code-state snapshot, none taken yet, or one past
-      its cadence (stale), raises nothing. Each event is emitted to the program's event store, subject
-      <owner>:<name>:<n>, and a head counts as announced only once the
-      store holds its event. A subject outside the event grammar (over 128
+      twice its cadence (the most a budget rung stretches a refresh)
+      raises nothing. Each event is emitted to the program's event store,
+      subject <owner>:<name>:<n>, and a head counts as announced only once
+      the store holds its event. A subject outside the event grammar (over 128
       characters, say) falls back to pr-<checksum>, the slug in the text.
 
 Exit codes: 0 ready, or done; 1 a failed read, store or event; 2 usage; 3
@@ -357,7 +358,11 @@ collect() {
   # The guard read the pull request after the evidence did; a head that moved
   # in between leaves evidence for a head no longer current.
   cl_now=$(gh pr view "$3" --repo "$2" --json headRefOid --jq .headRefOid 2>/dev/null) || cl_now=""
-  [ "$cl_now" = "$cl_head" ] || cl_guard="guard	head	fail	the head moved to ${cl_now:-an unread head} while the evidence was collected"
+  if [ -z "$cl_now" ]; then
+    cl_guard="guard	head	fail	the head could not be re-read after the guard"
+  elif [ "$cl_now" != "$cl_head" ]; then
+    cl_guard="guard	head	fail	the head moved to $cl_now while the evidence was collected"
+  fi
   {
     printf '# format: 1\nrepo\t%s\n' "$2"
     awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } { print }' "$cl_tmp/pr"
@@ -436,10 +441,11 @@ case $verb in
       3) exit 0 ;;
       *) mc_fail "the $source snapshot cannot be read" ;;
     esac
-    # A stale snapshot may show a head long gone; wait for a fresh one.
-    case $(printf '%s\n' "$snap" | head -n 1) in
-      *"	stale") exit 0 ;;
-    esac
+    # A snapshot past twice its cadence (the most any budget rung stretches
+    # a refresh) may show a head long gone; wait for a fresh one.
+    if ! printf '%s\n' "$snap" | head -n 1 | awk -F '\t' '$5 == "age" && $7 == "cadence" { ok = ($6 + 0 <= 2 * ($8 + 0)) } END { exit !ok }'; then
+      exit 0
+    fi
     runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime directory"
     seen="$runtime/readiness-announced"
     due=$(printf '%s\n' "$snap" | awk -F '\t' '$1 == "pr" && $5 == "true" && $8 == "0" && $9 == "SUCCESS" { print $2 "\t" $3 "\t" $4 }')
