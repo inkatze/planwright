@@ -92,8 +92,15 @@ walk() {
     /^[ ]*#/ || /^[ ]*$/ || /^---/ { next }
     /^  - id:/ {
       v = $0; sub(/^  - id:[ ]*/, "", v); v = unq(trim(v))
-      n++; ids[n] = v; nf[n] = 0
+      n++; ids[n] = v; nf[n] = 0; cont = ""
       if (v in idx) dupid[n] = 1; else idx[v] = n
+      next
+    }
+    # A flow list left open on its field line continues on lines indented
+    # five or more spaces until one closes it (config/duties.yaml).
+    /^     +[^ ]/ && n > 0 && cont != "" {
+      v = trim($0); val[n, cont] = val[n, cont] " " v
+      if (v ~ /\]$/) cont = ""
       next
     }
     /^    [^ ]/ && n > 0 {
@@ -101,6 +108,7 @@ walk() {
       if (!p) { k = line; v = "" } else { k = substr(line, 1, p - 1); v = unq(trim(substr(line, p + 1))) }
       if ((n, k) in has) dupf[n, k] = 1
       val[n, k] = v; has[n, k] = 1; nf[n]++; fk[n, nf[n]] = k
+      cont = (v ~ /^\[/ && v !~ /\]$/) ? k : ""
       next
     }
     # members(s, arr): an inline list into arr; returns the count, -1 when s

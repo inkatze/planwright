@@ -724,6 +724,49 @@ Sources: `claude --help` (2.1.312, `-n/--name`, `-r/--resume`); Claude Code
 sessions documentation, <https://code.claude.com/docs/en/sessions>; public
 reports such as <https://github.com/anthropics/claude-code/issues/26249>.
 
+### Execution research: Task 10 (2026-10-28, after sign-off)
+
+Recorded during Task 10's execution, as the records above were; it changes
+no decision and is not part of the signed section.
+
+Scoping: one version-sensitive API (the forge's review-thread GraphQL
+shape, read the way the Task 5 adapter reads its fields) and several
+security-touching patterns (git reads over branch names, a command named by
+a knob, a guard fed a synthetic payload); no new dependency, so a short pass
+of local probes.
+
+- **Readiness from primary evidence.** The collector reads each check
+  context on its own, never the rollup, so a red context under a green
+  rollup fails the walk; a thread opened by a bot is a finding, answered
+  once resolved or replied to by a person other than the pull request's
+  author, whose own sessions post under that login. A finding written only in a
+  review body is not read: its answered state has no general marker, so the
+  walk leaves it to the reviewer duty a follow-on bundle owns.
+- **The guard composed, not reimplemented.** The ready-flip floor is
+  `scripts/ready-guard.sh`, fed the flip it would refuse as data;
+  `ready-flip.sh evaluate` is not called, since its reconcile can commit and
+  push, and mission control writes no repository.
+- **Gate conditions.** A per-program file in the program home, refused
+  whole when any line would authorize a merge or ask for a flip the
+  configured policy does not allow; nothing evaluates from a refused file.
+- **Branch names and commands.** Branch and ref names are checked against a
+  conservative grammar (no leading dash, no `..`) before any git call; the
+  clipboard command is `auto` or an absolute path, run with the draft on
+  stdin and never through a shell.
+- **A worker's git configuration.** Every git read mission control makes in
+  a worker-written checkout (the packet's log, the step records a walk
+  collects) or over worker-pushed branches (the radar's diffs) runs with
+  fsmonitor, hooks, signature display and lazy fetching off, and no
+  inherited repository selector, through the environment, which outranks the
+  checkout's own configuration: a probe showed a partial-clone checkout otherwise runs its
+  ssh command on a missing commit. The clipboard command is never read from
+  the repo-tracked layer.
+- **The duty catalog's list form.** The session-keeper's triggers do not
+  fit the line-length lint on one line, and the reader took only one-line
+  lists. The catalog grammar (D-3's API surface, a low-stake additive call)
+  now lets a flow list wrap onto deeper-indented lines, joined by both the
+  merge path and the duties reader; a one-line list reads as before.
+
 ## 8. Sign-off
 
 First activation, full walkthrough, every section above signed, no
