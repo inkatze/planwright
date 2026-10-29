@@ -679,6 +679,39 @@ baseline exists, so the experiment has an honest before.
   bullet in that same commit, stamped `Planwright-Task: tower-comms/9`
   through `scripts/planwright-commit-trailers.sh`, so the task derives
   completed instead of turning selectable.
+- **Task 11** — parked at convergence (run `000001`, step `polish`,
+  outcome `halted`, record `.claude/steps/000001/004-step-convergence.rec`):
+  the implementation, its tests and seventeen sign-off fixes are committed
+  on `planwright/tower-comms/task-11`, unpushed, with no PR. Trigger: the
+  zone screen (authorization, permission and trust boundaries, secrets) on
+  five review findings, which an unattended run may not land. Operator:
+  direct each, then re-run this task with `--resume 000001:convergence`.
+  (1) `add --kind decided-by-mission-control` trusts the caller name the
+  caller passes, and a dead registry row still marked launched passes;
+  recommended: the launcher exports the row's token and `add` compares it
+  (alternatives: require the row's pid alive and an ancestor of the caller;
+  keep the name lookup REQ-A1.14 states and document the gap). (2) A default
+  can answer a reserved control named only in the question text, since only
+  the options are screened; recommended: screen the row's question text too.
+  (3) The rebuild restores a settled-by-default item from logged picklist
+  and window lines without re-checking the gate, the permission marker or
+  the options, and any same-user caller can append such lines; recommended:
+  restore one only at gate none, off a permission prompt, with no
+  reserved-control option, else as a plain question, and re-check reserved
+  controls in the settling pass. (4) Grounds, reversal and `--end` bypass
+  the redaction helper; recommended: refuse a value the helper would change.
+  (5) The registry row's mode and directories go unchecked, and the rebuild
+  reads the ledger without the owner check; recommended: refuse a row
+  writable by others, check both directories, read the ledger through the
+  owner check. Two contract forks ride along, no recommendation: (6) an open
+  settled-by-default item keeps its question's identifier (D-20), so the
+  worker's next question on that row reads as already queued until the
+  review closes (alternatives: put the row instance in a question's
+  identifier; move the reviewable item to a derived identifier; hold the new
+  question and say so); (7) nothing in the record points at the review
+  content, which is keyed `review.<id>.<window end>` in the ledger
+  (alternatives: carry the key in the record; re-point the record at the
+  ledger entry; leave it for Task 14's renderer to derive).
 
 ## Deferred
 
