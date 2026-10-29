@@ -7,17 +7,17 @@
 #   register [--root <dir>]   register this repository's primary checkout
 #                             against its resolved spec root, or, with --root,
 #                             as a holder against a marked root it contains
-#   scan <dir>...             register every git checkout found under <dir>
+#   scan <dir>...             register every git checkout at most three
+#                             levels below <dir> (a holder re-runs --root)
 #   lookup [--explain] --root <spec-root> [<alias>]
-#                             the live entries for the root, or the one
-#                             checkout <alias> names; --explain reports every
-#                             entry's verdict
-#   hook session-start        register quietly; says something only on refusal
+#                             the root's live entries, or <alias>'s checkout;
+#                             --explain gives every entry's verdict
+#   hook session-start        register; speaks only to warn or refuse
 #
 # The alias is repository_alias from the repo-tracked layer, else the origin
-# remote's name lowercased; another layer's value is ignored with a warning.
-# A repository whose spec root is the default is never registered, and no
-# registry is written for it. The file lives at
+# remote's name lowercased; another layer's value is ignored with a warning,
+# and an empty value is unset.
+# A default-root repository is never registered. The registry is
 # $CLAUDE_PLUGIN_DATA/work-repos/registry.tsv, rewritten whole under a lock.
 #
 # Exit: 0 done · 1 refused (an alias, a root, a path) · 2 usage · 3 nothing
@@ -36,6 +36,8 @@ TAB=$(printf '\t')
 NL='
 '
 GRAMMAR='^[a-z0-9][a-z0-9-]*$, at most 64 characters'
+CTL=$(printf '\001\002\003\004\005\006\007\010\011\012\013\014\015\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037\177_')
+CTL=${CTL%_}
 
 case $0 in
   */*) script_dir=${0%/*} ;;
@@ -67,9 +69,11 @@ scratch=$(mktemp -d) || {
   printf 'work-repo-registry: cannot create a scratch directory\n' >&2
   exit 2
 }
+we_new=""
 cleanup() {
   pw_lock_release_all
   rm -rf "$scratch"
+  [ -z "$we_new" ] || rm -f "$we_new"
 }
 trap cleanup EXIT
 trap 'cleanup; exit 129' HUP
@@ -91,7 +95,9 @@ plain_path() {
     /*) ;;
     *) return 1 ;;
   esac
-  [ "$(clean "$1")" = "$1" ] || return 1
+  case $1 in
+    *["$CTL"]*) return 1 ;;
+  esac
   case $1/ in
     *//* | */./* | */../*) return 1 ;;
   esac
@@ -128,6 +134,7 @@ marker_project() {
 
 home=""
 file=""
+# data_home create|read: set home and file; only create makes the directory.
 data_home() {
   case ${CLAUDE_PLUGIN_DATA:-} in
     "") die 6 "the registry is unavailable: no plugin data directory (CLAUDE_PLUGIN_DATA) is set" ;;
@@ -136,6 +143,10 @@ data_home() {
   esac
   home=${CLAUDE_PLUGIN_DATA%/}/work-repos
   file=$home/registry.tsv
+  case $1 in
+    create | read) ;;
+    *) die 2 "data_home: unknown mode $1" ;;
+  esac
   if [ "$1" = create ]; then
     mkdir -p "$home" 2>/dev/null && [ -d "$home" ] && [ ! -L "$home" ] \
       || die 6 "the registry is unavailable: cannot create $home"
@@ -143,6 +154,18 @@ data_home() {
   if [ -L "$file" ] || { [ -e "$file" ] && [ ! -f "$file" ]; }; then
     die 6 "the registry is unavailable: something other than a file sits at $file"
   fi
+  if [ -e "$file" ] && [ ! -r "$file" ]; then
+    die 6 "the registry is unavailable: $file cannot be read"
+  fi
+}
+
+# registry_rows <dest>: the registry's data rows; a read error is fatal, so
+# an unreadable file is never taken for an empty one.
+registry_rows() {
+  : >"$1"
+  [ -f "$file" ] || return 0
+  grep -v '^#' "$file" >"$1"
+  [ "$?" -le 1 ] || die 6 "the registry is unavailable: $file cannot be read"
 }
 
 # split_row <line>: set the r_* fields; fails unless there are exactly five.
@@ -243,32 +266,35 @@ derive_alias() {
   while IFS= read -r da_line; do
     da_layer=${da_line%%"$TAB"*}
     if [ "$da_layer" = repo-tracked ]; then
-      da_set=1
       da_value=${da_line#*"$TAB"}
+      [ -z "$da_value" ] || da_set=1
     else
       say "WARNING ignoring repository_alias from the $da_layer layer: only the repo-tracked layer sets it, so every clone agrees on the name"
     fi
   done <"$da_layers"
   if [ "$da_set" -eq 1 ]; then
     valid_id "$da_value" \
-      || die 1 "refusing repository_alias '$da_value' from the repo-tracked layer: it must match $GRAMMAR"
+      || die 1 "refusing the repo-tracked repository_alias: it must match $GRAMMAR"
     printf '%s\n' "$da_value"
     return 0
   fi
   da_url=$(git -C "$1" config --get remote.origin.url 2>/dev/null) || da_url=""
   [ -n "$da_url" ] \
     || die 1 "cannot name $1: it has no origin remote; set repository_alias in its .claude/planwright.yml to a name matching $GRAMMAR"
-  da_name=${da_url%/}
+  da_name=$(printf '%s' "$da_url" | tr '[:upper:]' '[:lower:]')
+  da_name=${da_name%/}
+  da_name=${da_name%/.git}
   da_name=${da_name%.git}
   da_name=${da_name##*/}
-  da_name=$(printf '%s' "${da_name##*:}" | tr '[:upper:]' '[:lower:]')
+  da_name=${da_name##*:}
   valid_id "$da_name" \
-    || die 1 "cannot name $1: its origin remote's name '$da_name' does not match $GRAMMAR; set repository_alias in its .claude/planwright.yml"
+    || die 1 "cannot name $1: its origin remote's name does not match $GRAMMAR; set repository_alias in its .claude/planwright.yml"
   printf '%s\n' "$da_name"
 }
 
-# write_entry: replace this checkout's entry for the root, keeping every other
-# well-formed row; an unchanged result is not rewritten.
+# write_entry: replace this checkout's entry for the root (cmd_register's
+# fields), keeping every other well-formed row; an unchanged result is not
+# rewritten.
 write_entry() {
   cd -- "$home" || die 6 "the registry is unavailable: cannot enter $home"
   pw_lock_acquire .registry.lock 400
@@ -278,8 +304,7 @@ write_entry() {
     *) die 6 "the registry is unavailable: cannot lock $file" ;;
   esac
   we_rows=$(scratch_file rows)
-  : >"$we_rows"
-  [ ! -f "$file" ] || grep -v '^#' "$file" >"$we_rows"
+  registry_rows "$we_rows"
   we_new=$(mktemp "$home/.registry.XXXXXX") || die 6 "the registry is unavailable: cannot write under $home"
   {
     printf '%s\n' "$HEADER"
@@ -287,7 +312,7 @@ write_entry() {
       while IFS= read -r we_line; do
         we_why=$(malformed "$we_line")
         if [ -n "$we_why" ]; then
-          say "WARNING dropping a malformed registry row ($we_why): $we_line"
+          say "WARNING dropping a malformed registry row ($we_why)"
           continue
         fi
         split_row "$we_line"
@@ -297,17 +322,14 @@ write_entry() {
       printf '%s\t%s\t%s\t%s\t%s\n' "$project" "$root" "$alias" "$kind" "$primary"
     } | sort -u
   } >"$we_new" || {
-    rm -f "$we_new"
     die 6 "the registry is unavailable: cannot write under $home"
   }
   if [ -f "$file" ] && cmp -s "$we_new" "$file"; then
     rm -f "$we_new"
   else
-    mv -f "$we_new" "$file" || {
-      rm -f "$we_new"
-      die 6 "the registry is unavailable: cannot replace $file"
-    }
+    mv -f "$we_new" "$file" || die 6 "the registry is unavailable: cannot replace $file"
   fi
+  we_new=""
   pw_lock_release_all
 }
 
@@ -327,8 +349,13 @@ cmd_register() {
     || die 3 "nothing to register: this is not inside a repository with a primary checkout"
   plain_path "$primary" || die 1 "refusing the checkout $primary: its path is not a plain absolute path"
   if [ -z "$rg_root" ]; then
-    rg_line=$(/bin/sh "$root_helper" spec --primary --explain 2>/dev/null) \
-      || die 3 "nothing to register: the spec root does not resolve here (resolve-root.sh spec --explain says why)"
+    rg_rc=0
+    rg_line=$(/bin/sh "$root_helper" spec --primary --explain 2>/dev/null) || rg_rc=$?
+    case $rg_rc in
+      0) ;;
+      3) die 3 "nothing to register: this is not inside a repository with a primary checkout" ;;
+      *) die 1 "refusing to register: the configured spec_root is refused (resolve-root.sh spec --explain says why)" ;;
+    esac
     rg_source=${rg_line%%"$TAB"*}
     root=${rg_line#*"$TAB"}
     root=${root%%"$TAB"*}
@@ -348,6 +375,16 @@ cmd_register() {
     [ "$(clean "$rg_root")" = "$rg_root" ] \
       || die 1 "refusing the root '$rg_root': its path carries a control byte or tab"
     root=$(canon "$rg_root") || die 1 "refusing the root '$rg_root': no such directory"
+    # A root inside a linked worktree names the primary checkout's copy.
+    rg_top=$(/bin/sh "$root_helper" repo --checkout 2>/dev/null) || rg_top=""
+    if [ -n "$rg_top" ] && [ "$rg_top" != "$primary" ]; then
+      case $root in
+        "$rg_top"/*)
+          root=$(canon "$primary/${root#"$rg_top"/}") \
+            || die 1 "refusing the root: the primary checkout ($primary) holds no copy of it"
+          ;;
+      esac
+    fi
     case $root in
       "$primary"/*) ;;
       *) die 1 "refusing the root $root: this checkout ($primary) does not contain it" ;;
@@ -372,7 +409,10 @@ cmd_scan() {
   sc_list=$(scratch_file checkouts)
   sc_err=$(scratch_file scan-err)
   for sc_dir in "$@"; do
-    find "$sc_dir" -maxdepth 4 -type d -name .git -prune -print >"$sc_list" 2>/dev/null
+    sc_dir=$(canon "$sc_dir") || die 1 "refusing to scan a directory that cannot be entered"
+    # A name carrying a newline would split into two paths when read back.
+    find "$sc_dir" -maxdepth 4 \( -name "*$NL*" -prune \) -o \( -type d -name .git -prune -print \) \
+      >"$sc_list" 2>/dev/null
     while IFS= read -r sc_git; do
       sc_co=${sc_git%/.git}
       [ "$(clean "$sc_co")" = "$sc_co" ] || {
@@ -380,9 +420,10 @@ cmd_scan() {
         continue
       }
       sc_rc=0
-      sc_out=$(cd -- "$sc_co" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$self" register 2>"$sc_err") || sc_rc=$?
+      sc_out=$({ cd -- "$sc_co" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$self" register; } 2>"$sc_err") || sc_rc=$?
       case $sc_rc in
         0)
+          grep '^work-repo-registry: WARNING' "$sc_err" >&2
           case $sc_out in
             skipped*) printf 'skipped\t%s\n' "$sc_co" ;;
             *) printf '%s\n' "$sc_out" ;;
@@ -433,12 +474,14 @@ cmd_lookup() {
     || die 3 "nothing is registered against $root: it carries no valid planwright-spec-root.yml marker"
   data_home read
   lk_rows=$(scratch_file lookup-rows)
-  : >"$lk_rows"
-  [ ! -f "$file" ] || grep -v '^#' "$file" >"$lk_rows"
+  registry_rows "$lk_rows"
   lk_live=""
   lk_count=0
   lk_dropped=0
   while IFS= read -r lk_line; do
+    if split_row "$lk_line" && [ "$r_root" != "$root" ]; then
+      continue
+    fi
     lk_why=$(malformed "$lk_line")
     if [ -n "$lk_why" ]; then
       say "WARNING ignoring a malformed registry row ($lk_why)"
@@ -478,13 +521,16 @@ cmd_lookup() {
   esac
 }
 
-# The hook stays silent unless a configured holder layout cannot be served:
-# its stdout becomes session context, so the line names what to fix.
+# The hook speaks only when a configured layout is refused or warned about:
+# its stdout becomes session context, so no line echoes a refused value.
 cmd_hook() {
   [ "$#" -eq 1 ] && [ "$1" = session-start ] || usage
   hk_err=$(scratch_file hook-err)
   hk_rc=0
   /bin/sh "$self" register >/dev/null 2>"$hk_err" || hk_rc=$?
+  grep '^work-repo-registry: WARNING' "$hk_err" | while IFS= read -r hk_line; do
+    printf 'planwright: %s\n' "$(clean "${hk_line#work-repo-registry: WARNING }")"
+  done
   case $hk_rc in
     0 | 3) ;;
     *)
