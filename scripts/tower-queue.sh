@@ -6382,9 +6382,11 @@ cmd_catchup() {
     _lc=$(awk -v since="$since" "$AWK_PARSE"'
       { if (!parse($0, F, T) || !header_ok(F, T)) next
         if (first == 0 || F["seq"] + 0 < first) first = F["seq"] + 0
-        # A default is dated by its window end on both sides, as the store
-        # dates it, never by the pass that applied it.
-        if (((F["kind"] == "window") ? F["at"] : F["ts"]) + 0 <= since + 0) next
+        # A default is dated by its window end rounded up, as the store dates
+        # it, never by the pass that applied it.
+        t = F["ts"] + 0
+        if (F["kind"] == "window") { t = F["at"] + 0; if (t != int(t)) t = int(t) + 1 }
+        if (t <= since + 0) next
         if (F["kind"] == "settled" || F["kind"] == "merged") n++
         # A default applied is listed from the store the same way, until a
         # revocation reopens it as its question.
