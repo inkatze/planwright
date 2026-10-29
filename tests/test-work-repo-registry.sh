@@ -250,6 +250,8 @@ run "$tmp/plainwork" "$SH" "$RWR" specs/demo --repository alpha
 assert_eq "--repository under an unmarked root exits 5" 5 "$rc"
 run "$tmp/plainwork" "$SH" "$RWR" specs/demo
 assert_eq "without --repository the resolver is unchanged" "$tmp/plainwork" "$out"
+run "$tmp/elsewhere" env -u CLAUDE_PLUGIN_DATA "$SH" "$RWR" "$HUB/demo" --repository beta
+assert_eq "--repository: an unavailable registry exits 6, not 5" 6 "$rc"
 rm -rf "$tmp/src/alpha-copy"
 
 # --- REQ-I1.1: scan rebuilds a deleted registry -----------------------------
