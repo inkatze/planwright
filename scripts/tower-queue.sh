@@ -1991,7 +1991,11 @@ is_option_list() {
 }
 
 # is_option_in <option> <list> — 0 when the option is one of the list's labels.
+# A value holding `|` would match a run of labels, never one.
 is_option_in() {
+  case "$1" in
+    "" | *"|"*) return 1 ;;
+  esac
   case "|$2|" in
     *"|$1|"*) return 0 ;;
   esac
@@ -2937,7 +2941,7 @@ function rec_ok(   i) {
   # The picklist: an end needs an option set and names one of its labels or
   # `park`; a window end needs an end. A revoked window keeps the options.
   if ($27 != "-" && $27 !~ /^[^|]+(\|[^|]+)+$/) return 0
-  if ($28 != "-" && ($27 == "-" || ($28 != "park" && index("|" $27 "|", "|" $28 "|") == 0))) return 0
+  if ($28 != "-" && ($27 == "-" || $28 ~ /\|/ || ($28 != "park" && index("|" $27 "|", "|" $28 "|") == 0))) return 0
   if ($29 !~ /^(0|[1-9][0-9]*(\.[0-9]+)?)$/ || ($29 != "0" && $28 == "-")) return 0
   if ($30 !~ /^(-|none|human-gate|disqualifier-zone)$/) return 0
   if ($31 !~ /^[01]$/) return 0

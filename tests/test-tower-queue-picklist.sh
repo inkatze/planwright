@@ -115,6 +115,7 @@ attention_row w-r spec/t3 awaiting-input 1000 normal 'How to land it?' - 'merge|
 
 refused "a picklist with one option" 'refusing --options' add --kind question --worker w-a --origin w-a --closes 'the operator answers' --options A --end A --gate none --now 1000
 refused "an end naming no option" 'refusing --end' add --kind question --worker w-a --origin w-a --closes 'the operator answers' --options 'A|B' --end C --gate none --now 1000
+refused "an end spanning two labels" 'refusing --end' add --kind question --worker w-a --origin w-a --closes 'the operator answers' --options 'A|B|C' --end 'A|B' --gate none --now 1000
 refused "a window that fails the grammar" 'refusing --window' add --kind question --worker w-a --origin w-a --closes 'the operator answers' --options 'A|B' --end B --gate none --window soon --now 1000
 refused "a declared default with no gate" 'needs --gate none|human-gate|disqualifier-zone' add --kind question --worker w-a --origin w-a --closes 'the operator answers' --options 'A|B' --end B --now 1000
 refused "a default behind a human gate" 'behind a human-gate' add --kind question --worker w-a --origin w-a --closes 'the operator answers' --options 'A|B' --end B --gate human-gate --now 1000
