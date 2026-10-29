@@ -3115,7 +3115,6 @@ function add_source(have, who,   i, p) {
 function settle_pass(   n, r, t, i, j, key, best, src, nsrc, parts, np) {
   attn_needed = 0
   away = !anyone_present()
-  window_pass()
   for (n = 1; n <= N; n++) {
     # A reviewable item closes on the operator`s review or revocation alone
     # (REQ-A1.10), so no evidence is read against it.
@@ -3127,6 +3126,9 @@ function settle_pass(   n, r, t, i, j, key, best, src, nsrc, parts, np) {
     changed = 1
     print "settled\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" away "\t" r "\t" clean(F[n, 24])
   }
+  # After the evidence, never before: a question the evidence already closed
+  # was answered, and a window applies only with no answer (REQ-A1.12).
+  window_pass()
   for (n = 1; n <= N; n++) {
     if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing" || reviewable(F[n, 2])) continue
     if (F[n, 19] != "-" || F[n, 14] + 0 > 0 || F[n, 16] + 0 > 0) continue

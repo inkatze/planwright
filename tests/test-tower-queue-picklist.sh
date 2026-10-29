@@ -276,6 +276,16 @@ fi
 [ "$(fld "$m2" 12)" = open ] || fail "the picklist with its own window end was absorbed"
 echo "ok: picklist items merge only when options, end and window end are identical"
 
+# --- evidence that already answered a question wins over its ended window -------------
+
+attention_row w-c spec/t10 awaiting-input 1000 normal 'Pick one?' A 'A|B' fork iid-c claimed-elsewhere
+qc=$(run add --kind question --worker w-c --origin w-c --closes 'the operator answers' --options 'A|B' --end B --gate none --window 500ms --now 11000) || fail "add the answered picklist"
+out=$(run settle --now 11100) || fail "the pass over an answered question with an ended window"
+[ "$(fld "$qc" 2)" = question ] && [ "$(fld "$qc" 12)" = closed ] || fail "a default was applied to a question the evidence had answered: $(rec "$qc")"
+[ "$(fld "$qc" 18)" = "answered by another route (its worker record was claimed)" ] || fail "the answered question carries '$(fld "$qc" 18)'"
+printf '%s\n' "$out" | grep -q "^window${TAB}$qc${TAB}" && fail "the pass printed a window line for an answered question: $out"
+echo "ok: a question the evidence answered settles by that evidence, never by its window's default"
+
 # --- the long away timeline: open, evidence-settled or defaulted, never dropped -------
 
 all_ids=$(cut -f 1 "$store" | sort)
