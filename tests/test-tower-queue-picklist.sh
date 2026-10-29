@@ -302,6 +302,12 @@ out=$(run settle --now 11100) || fail "the pass over an answered question with a
 [ "$(fld "$qc" 18)" = "answered by another route (its worker record was claimed)" ] || fail "the answered question carries '$(fld "$qc" 18)'"
 printf '%s\n' "$out" | grep -q "^window${TAB}$qc${TAB}" && fail "the pass printed a window line for an answered question: $out"
 grep -q "review\.$qc\." "$surface/ledger" && fail "the ledger records a default for a question the evidence answered"
+attention_row w-gone spec/t10g awaiting-input 1000 normal 'Pick again?' A 'A|B' fork iid-gone
+qgone=$(run add --kind question --worker w-gone --origin w-gone --closes 'the operator answers' --options 'A|B' --end B --gate none --window 500ms --now 11200) || fail "add the picklist whose row will go"
+awk -F "$TAB" '$1 != "w-gone"' "$attn_store" >"$tmp/attn" && cat "$tmp/attn" >"$attn_store"
+run settle --now 11300 >/dev/null || fail "the pass over a question whose row is gone"
+[ "$(fld "$qgone" 2)" = question ] && [ "$(fld "$qgone" 12)" = closed ] || fail "a default was applied to a question whose row is gone: $(rec "$qgone")"
+grep -q "review\.$qgone\." "$surface/ledger" && fail "the ledger records a default for a question whose row is gone"
 echo "ok: a question the evidence answered settles by that evidence, never by its window's default"
 
 # --- one window whose review content cannot be written stops nothing else -------------
