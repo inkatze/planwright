@@ -164,7 +164,7 @@ data_home() {
 registry_rows() {
   : >"$1"
   [ -f "$file" ] || return 0
-  grep -v '^#' "$file" >"$1"
+  grep -a -v '^#' "$file" >"$1"
   [ "$?" -le 1 ] || die 6 "the registry is unavailable: $file cannot be read"
 }
 
@@ -353,8 +353,8 @@ cmd_register() {
     rg_line=$(/bin/sh "$root_helper" spec --primary --explain 2>/dev/null) || rg_rc=$?
     case $rg_rc in
       0) ;;
-      3) die 3 "nothing to register: this is not inside a repository with a primary checkout" ;;
-      *) die 1 "refusing to register: the configured spec_root is refused (resolve-root.sh spec --explain says why)" ;;
+      5) die 1 "refusing to register: the configured spec_root is refused (resolve-root.sh spec --explain says why)" ;;
+      *) die 3 "nothing to register: the spec root cannot be read here (resolve-root.sh spec --explain says why)" ;;
     esac
     rg_source=${rg_line%%"$TAB"*}
     root=${rg_line#*"$TAB"}
@@ -375,9 +375,11 @@ cmd_register() {
     [ "$(clean "$rg_root")" = "$rg_root" ] \
       || die 1 "refusing the root '$rg_root': its path carries a control byte or tab"
     root=$(canon "$rg_root") || die 1 "refusing the root '$rg_root': no such directory"
-    # A root inside a linked worktree names the primary checkout's copy.
+    # A root inside a linked worktree of this same repository names the
+    # primary checkout's copy.
     rg_top=$(/bin/sh "$root_helper" repo --checkout 2>/dev/null) || rg_top=""
-    if [ -n "$rg_top" ] && [ "$rg_top" != "$primary" ]; then
+    rg_own=$(env -u PLANWRIGHT_REPO_ROOT /bin/sh "$root_helper" repo --primary 2>/dev/null) || rg_own=""
+    if [ -n "$rg_top" ] && [ "$rg_top" != "$primary" ] && [ "$rg_own" = "$primary" ]; then
       case $root in
         "$rg_top"/*)
           root=$(canon "$primary/${root#"$rg_top"/}") \

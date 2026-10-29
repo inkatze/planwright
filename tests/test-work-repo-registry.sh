@@ -303,6 +303,40 @@ run "$tmp/elsewhere" "$SH" "$REG" lookup --explain --root "$HUB" betaholder
 assert_contains "a holder entry whose checkout lacks the root is dropped" "does not contain the root" "$out"
 cp "$tmp/good.tsv" "$FILE"
 
+cp "$FILE" "$tmp/good.tsv"
+{
+  cat "$tmp/good.tsv"
+  printf 'hub\t%s\tctlpath\twork\t%s/be\001ta\n' "$HUB" "$tmp/src"
+  printf 'hub\t%s\tnul\0row\twork\t%s\n' "$HUB" "$tmp/src/beta"
+} >"$FILE"
+run "$tmp/elsewhere" "$SH" "$REG" lookup --explain --root "$HUB" ctlpath
+assert_contains "a control byte in a row's path is refused" "not a plain absolute path" "$out"
+run "$tmp/src/beta" "$SH" "$REG" register
+assert_eq "a NUL-bearing row never empties the registry" "$(grep -vc '^#' "$tmp/good.tsv")" "$(grep -avc '^#' "$FILE")"
+cp "$tmp/good.tsv" "$FILE"
+
+mkrepo "$tmp/src/caf$(printf '\303\251')" "https://example.invalid/acme/cafe.git"
+point "$tmp/src/caf$(printf '\303\251')" "$HUB"
+run "$tmp/src/caf$(printf '\303\251')" "$SH" "$REG" register
+assert_eq "a non-ASCII checkout path registers" 0 "$rc"
+run "$tmp/elsewhere" "$SH" "$REG" lookup --root "$HUB" cafe
+assert_eq "a non-ASCII checkout path resolves" "$tmp/src/caf$(printf '\303\251')" "$out"
+rm -rf "$tmp/src/caf$(printf '\303\251')"
+cp "$tmp/good.tsv" "$FILE"
+
+mkrepo "$tmp/badconf" "https://example.invalid/acme/badconf.git"
+mkdir -p "$tmp/badconf/.claude"
+printf -- '- list\n' >"$tmp/badconf/.claude/planwright.yml"
+run "$tmp/badconf" "$SH" "$REG" hook session-start
+assert_eq "an unreadable config with no spec_root keeps the hook silent" "" "$out"
+
+mkdir -p "$tmp/other-holder"
+mkrepo "$tmp/other-holder"
+mkdir -p "$tmp/other-holder/specs-hub"
+mark "$tmp/other-holder/specs-hub" other
+run "$tmp/other-holder" env PLANWRIGHT_REPO_ROOT="$tmp/holder" "$SH" "$REG" register --root specs-hub
+assert_eq "another repository's root is never remapped onto the named holder" 1 "$rc"
+
 chmod 000 "$FILE"
 if [ -r "$FILE" ]; then
   pass "an unreadable registry (skipped: running as a user who reads anything)"
