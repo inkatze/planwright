@@ -1,7 +1,7 @@
 # Invariant Tasks — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-25
+**Last reviewed:** 2026-10-29
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -221,9 +221,9 @@ the guard that protects their output exists.
 
 *(Extension 2026-10-25: Tasks 9–12 carry per-task repositories. Task 11
 resolves aliases through the work-repository registry that
-`custom-spec-location`'s extension builds; the dependency grammar has no
-cross-bundle edge, so that ordering is stated in Task 11's Done-when and in
-the open questions in `requirements.md`.)*
+`custom-spec-location`'s extension builds, carried as a cross-spec edge on
+its Dependencies line; the selector treats that edge as advisory, so Task
+11's Done-when keeps the check.)*
 
 ### Task 9 — Meta-spec format-version 3
 
@@ -232,14 +232,16 @@ the open questions in `requirements.md`.)*
   ritual: version 2 plus the optional `Repository:` task definition field
   (its position, the alias grammar, one per block, absent meaning the
   bundle's work repository, the alias resolving only through the
-  work-repository registry); the canonical extraction keeping the field
-  line as definition content in version 3; a glossary entry for the field
-  and the `unresolved` derived state; the version 1 and 2 text unchanged.
+  work-repository registry and so only under a marker-bearing spec root);
+  the canonical extraction keeping the field line as definition content at
+  every version; a glossary entry for the field and the
+  `repository-unresolved` derived state; the version 1 and 2 text
+  unchanged.
 - **Done when:** a reader can author a valid version 3 block from
-  `doctrine/spec-format.md` alone; the extraction section states that a
-  bundle without the field extracts byte-identically to version 2; the
-  versioning section carries the dated version 3 entry; the doctrine index
-  and `check:specs` pass.
+  `doctrine/spec-format.md` alone; the extraction section states that the
+  field line is kept at every version and that a bundle without the field
+  extracts byte-identically to version 2; the versioning section carries
+  the dated version 3 entry; the doctrine index and `check:specs` pass.
 - **Dependencies:** none
 - **Citations:** D-13, D-14 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.8
 - **Estimated effort:** half day
@@ -247,22 +249,28 @@ the open questions in `requirements.md`.)*
 ### Task 10 — Validator, extraction, and version keying for version 3
 
 - **Deliverables:** `scripts/spec-validate.sh` enforcing the version 3
-  field rules at the REQ-C1.5 severities, with echoed aliases sanitized;
-  the shared parse library and `scripts/spec-anchor.sh` keeping the field
-  line in a version 3 extraction; every script that reads
-  `Format-version:` giving version 3 its version 2 behavior and an
-  undefined version staying fail-closed; fixture tests for each rule.
+  field rules at the REQ-C1.5 severities, with echoed aliases sanitized,
+  and warning on a version 3 field under a spec root without a marker; the
+  shared parse library and `scripts/spec-anchor.sh` keeping the field line
+  in the extraction unconditionally, with no version keying added to the
+  anchor; every script that reads `Format-version:` giving version 3 its
+  version 2 behavior and an undefined version staying fail-closed; fixture
+  tests for each rule.
 - **Done when:** a version 3 fixture with a valid field passes; a field in
   a version 2 bundle, two fields in one block, a list value, a path value,
   a URL value, and an alias outside the grammar each fail on a signed
-  fixture and warn on a Draft one; an escape-byte alias is sanitized in
-  the error; a version 3 bundle with no field extracts to the same digest
-  as its version 2 copy, and adding a field changes the digest; a version 4
+  fixture and warn on a Draft one; a version 3 field under a root without
+  a marker warns at every status; an escape-byte alias is sanitized in the
+  error; a version 3 bundle with no field extracts to the same digest as
+  its version 2 copy, and adding a field changes the digest; a version 3
+  fixture gets its version 2 behavior from every version-keyed script,
+  including the helpers that test for version 2 by equality
+  (`scripts/halt-note.sh`, `scripts/ready-flip.sh`); a version 4
   declaration fails closed in every version-keyed script; every in-repo
   bundle still validates; `mise run check` passes.
 - **Dependencies:** 9
-- **Citations:** D-13, D-7 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.7,
-  REQ-C1.8, REQ-C1.9
+- **Citations:** D-13, D-14, D-7 · REQ-F1.1, REQ-F1.2, REQ-F1.3,
+  REQ-F1.7, REQ-C1.8, REQ-C1.9
 - **Estimated effort:** 1 day
 
 ### Task 11 — Per-repository derivation, selection, gates, and render
@@ -272,31 +280,37 @@ the open questions in `requirements.md`.)*
   the bundle's work repository, through the `--repository` lookup of
   `scripts/resolve-work-repo.sh`) and deriving each task from that
   repository's own branches, pull requests, and commit trailers, the
-  dispatch markers staying in their per-bundle home; the `unresolved`
-  state; the per-repository transient-failure
-  rule; `scripts/orchestrate-select.sh` and `scripts/drain-gates.sh`
-  reading dependency and gate state from that per-task derivation;
+  dispatch markers staying in their per-bundle home; the
+  `repository-unresolved` state, never falling back to the work
+  repository; the per-task transient-failure rule;
+  `scripts/orchestrate-select.sh` and `scripts/drain-gates.sh` reading
+  dependency and gate state from that per-task derivation;
   `scripts/spec-status.sh` showing each task's alias and naming an
   unresolved alias or a failing repository; a two-repository fixture
   harness (two fixture work repositories with stubbed pull-request
   evidence and a fixture registry) shared with `custom-spec-location`'s
   holder-dispatch tests.
-- **Done when:** on a version 3 fixture bundle whose Task 1 names repository
-  `alpha` and whose Task 2 names repository `beta` and depends on Task 1,
-  Task 1's merged pull request in `alpha` makes Task 2 selectable and
-  Task 1's branch alone in `alpha` does not; a same-named task branch
-  sitting in `beta` is not evidence for Task 1; Task 2's state derives from
-  `beta` only; an alias missing from the fixture registry derives
-  `unresolved`, is never selected, leaves its dependents unmet, resolves
-  its gate atoms unresolved, and blocks derived Done; a failing remote in
-  `beta` makes selection dispatch nothing and the render name `beta`; a
-  bundle with no field derives byte-identically to before on the existing
-  render fixtures; the alias resolution goes through the registry seam
-  `custom-spec-location` delivers (its extension's Task 11 merged first);
+- **Done when:** on a version 3 fixture bundle whose Task 1 names
+  repository `alpha`, whose Task 2 names repository `beta` and depends on
+  Task 1, and whose Task 3 names `alpha` and depends on Task 2: Task 1's
+  merged pull request in `alpha` makes Task 2 selectable and Task 1's
+  branch alone in `alpha` does not; a same-named task branch sitting in
+  `beta` is not evidence for Task 1; Task 2's state derives from `beta`
+  only; with `beta` missing from the fixture registry, Task 2 derives
+  `repository-unresolved`, is never selected, leaves Task 3 unmet,
+  resolves its gate atoms unresolved, and blocks derived Done, and a
+  malformed value or a duplicate field derives the same state with no
+  fallback; with a failing remote in `beta`, Task 2 and Task 3 are
+  withheld, Task 1 stays selectable, gate atoms on Task 2 resolve
+  unresolved, and the render names `beta`; a bundle with no field derives
+  byte-identically to before on the existing render fixtures; the alias
+  resolution goes through the registry seam `custom-spec-location`
+  delivers, its extension's Task 11 merged before dispatch, checked here
+  because the selector treats the cross-spec edge as advisory;
   `mise run check` passes.
-- **Dependencies:** 10
+- **Dependencies:** 10 (cross-spec, hard: `custom-spec-location` Task 11)
 - **Citations:** D-15, D-14, D-8, D-12 · REQ-F1.4, REQ-F1.5, REQ-F1.6,
-  REQ-B1.5
+  REQ-B1.7
 - **Estimated effort:** 2 days
 
 ### Task 12 — Skills and docs for version 3
@@ -304,7 +318,7 @@ the open questions in `requirements.md`.)*
 - **Deliverables:** `/spec-draft` offering the `Repository:` field when the
   elicitation surfaces a second repository and declaring version 3 only
   then; `/execute-task`'s dependency check and `/resume`'s status read
-  naming the per-task repository and the `unresolved` state;
+  naming the per-task repository and the `repository-unresolved` state;
   `docs/orchestration-state.md` describing per-task repositories, the
   alias, and where its checkout comes from.
 - **Done when:** each named skill's instructions branch on the declared
@@ -318,11 +332,7 @@ the open questions in `requirements.md`.)*
 
 ## Awaiting input
 
-- **Task 9** — anchor re-review pending: the per-task repositories
-  extension (Tasks 9–12) is an unsigned meaning-class delta; run the
-  `/spec-kickoff` delta re-walkthrough, settle the open questions in
-  `requirements.md`, and remove this bullet at sign-off. Tasks 10–12 wait
-  behind Task 9 through their dependency edges.
+(none yet)
 
 ## Deferred
 
@@ -352,4 +362,5 @@ the open questions in `requirements.md`.)*
 - Auto-merge at any tier — permanent carried invariant.
 - A task block naming more than one repository, and execution of a task
   that touches no repository (D-14).
-- Migrating existing bundles to format-version 3 (D-13).
+- Migrating existing bundles to format-version 3 (D-13): an automated
+  upgrade process is seeded in `specs/_pending/spec-format-upgrade.md`.

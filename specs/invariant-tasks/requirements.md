@@ -1,7 +1,7 @@
 # Invariant Tasks — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-10-25
+**Last reviewed:** 2026-10-29
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -105,7 +105,9 @@ that implement the format.
   execution (`custom-spec-location` excludes execution without a git work
   repository).
 - *(Extension 2026-10-25.)* Migrating existing bundles to version 3: a
-  bundle declares it only when a task needs the field.
+  bundle declares it only when a task needs the field; an automated upgrade
+  process for older bundles is seeded in
+  `specs/_pending/spec-format-upgrade.md`.
 
 ## REQ-A — The invariant committed ledger (format-version 2)
 
@@ -172,6 +174,27 @@ that implement the format.
   the remote and are still reported during a transient failure, marked as
   the only facts available.
   *(Cites: D-6, D-8; kickoff sign-off (2026-07-14).)*
+  **Superseded-by: REQ-B1.7** (2026-10-29) — the fail-closed scope narrows
+  from the bundle to the task, so tasks in healthy repositories keep
+  selecting.
+- **REQ-B1.7** (supersedes REQ-B1.5) The derivation SHALL distinguish a
+  transient evidence-fetch failure (remote configured but unreachable,
+  rate-limited, or erroring) from the no-remote mode, and SHALL fail closed
+  on it per task: a task whose evidence comes from a repository with a
+  failed fetch, or one of whose direct dependencies does, is never
+  selected, and gate task-completion atoms on a task whose own repository
+  failed resolve as unresolved. The render SHALL report each failure
+  distinctly, naming the repository, and SHALL never present a failed
+  repository's partial evidence as status; tasks whose evidence comes only
+  from healthy repositories render and select normally, and no derived
+  bundle status is claimed while any fetch has failed. The derivation
+  engine SHALL signal the failure distinctly (a documented signal its
+  consumers branch on); a definitive negative result (no PR exists for a
+  branch) is evidence, not failure. Locally-determinable facts (the stored
+  header, reference-bullet parked state) do not depend on the remote and
+  are still reported during a transient failure. A bundle whose tasks all
+  draw on one repository behaves exactly as under REQ-B1.5.
+  *(Cites: D-15, D-8, D-6; kickoff sign-off (2026-10-29).)*
 - **REQ-B1.6** Derived bundle status SHALL be computed only for bundles
   whose stored header reads Ready; Draft, Retired, and Superseded bundles
   render their stored state with no execution claim. A bundle with zero
@@ -297,22 +320,28 @@ that implement the format.
   optional task definition field, `Repository:`, naming the repository
   whose branches, pull requests, and commit trailers carry that task's
   execution state. A task block without the field SHALL belong to the
-  bundle's work repository, resolved exactly as today. Version 1 and 2
-  bundles SHALL stay valid unchanged, and a `Repository:` field in a bundle
-  that does not declare version 3 SHALL be invalid.
+  bundle's work repository, resolved by `scripts/resolve-work-repo.sh` as
+  for any bundle (including `custom-spec-location`'s holder arm). Version 1
+  and 2 bundles SHALL stay valid unchanged, and a `Repository:` field in a
+  bundle that does not declare version 3 SHALL be invalid.
   *(Cites: D-13; mission-control REQ-H1.2 (Sources); obs:74a7f907.)*
 - **REQ-F1.2** The field's value SHALL be a single alias matching the
   identifier grammar, never a path, URL, or host name; a block SHALL carry
   at most one `Repository:` field and the field SHALL name exactly one
   repository. The alias SHALL resolve to a local checkout only through the
   machine-local work-repository registry `custom-spec-location` defines;
-  nothing in the bundle SHALL name a checkout.
-  *(Cites: D-14.)*
-- **REQ-F1.3** The canonical `tasks.md` extraction SHALL keep a version 3
-  block's `Repository:` field line and its continuations as definition
-  content, so adding, removing, or changing a task's repository changes the
-  content anchor. For a bundle in which no block carries the field, the
-  extraction SHALL be byte-identical to the version 2 extraction.
+  nothing in the bundle SHALL name a checkout. The registry serves only
+  bundles under a marker-bearing spec root, so alias resolution SHALL
+  require one: under a root without a marker every task that names an
+  alias derives `repository-unresolved` (REQ-F1.5).
+  *(Cites: D-14; custom-spec-location REQ-I1.2, REQ-I1.7 (Sources).)*
+- **REQ-F1.3** The canonical `tasks.md` extraction SHALL keep a
+  `Repository:` field line and its continuations as definition content at
+  every format version, so adding, removing, or changing a task's
+  repository changes the content anchor and the extraction stays
+  version-agnostic (a field outside version 3 is a validator error, not an
+  extraction carve-out). For a bundle in which no block carries the field,
+  the extraction SHALL be byte-identical to the version 2 extraction.
   *(Cites: D-13.)*
 - **REQ-F1.4** The derivation engine SHALL derive each task's execution
   state from the repository that task's field names, or from the bundle's
@@ -322,66 +351,84 @@ that implement the format.
   consume this per-task derivation; the render SHALL show the alias of
   every task that names one.
   *(Cites: D-15; mission-control REQ-H1.2 (Sources).)*
-- **REQ-F1.5** A task whose alias does not resolve on the machine running
-  the derivation (no registry entry, a stale entry, a checkout that is
-  gone) SHALL derive a distinct `unresolved` state naming the alias: it is
-  never selected, a dependency on it is unmet, a gate atom on it resolves
-  unresolved, and the bundle never derives Done while any task is
-  unresolved. Tasks whose repositories resolve SHALL derive normally.
-  *(Cites: D-15.)*
-- **REQ-F1.6** REQ-B1.5's transient-failure rule SHALL hold per
-  repository: a failed evidence fetch in any repository the bundle's tasks
-  resolve to SHALL be reported naming that repository's alias, unit
-  selection for the bundle SHALL dispatch nothing, and gate atoms on that
-  repository's tasks SHALL resolve unresolved.
-  *(Cites: D-15, D-8.)*
+- **REQ-F1.5** A task whose `Repository:` field does not resolve on the
+  machine running the derivation SHALL derive a distinct
+  `repository-unresolved` state naming the alias. It does not resolve when
+  the registry has no entry for the alias, the entry is stale, the checkout
+  is gone, the spec root carries no marker, the value falls outside the
+  alias grammar, or the block carries more than one field; none of these
+  ever falls back to the bundle's work repository. A
+  `repository-unresolved` task is never selected, a dependency on it is
+  unmet, a gate atom on it resolves unresolved, and the bundle never
+  derives Done while any task is `repository-unresolved`. Tasks whose
+  repositories resolve SHALL derive normally.
+  *(Cites: D-15, D-14.)*
+- **REQ-F1.6** In a version 3 bundle, REQ-B1.7's per-task transient-failure
+  rule SHALL key on each task's resolved repository: the failure report
+  SHALL name the failing repository's alias (or the bundle's work
+  repository when no field names it), and a task SHALL be withheld from
+  selection when its own repository or the repository of any of its direct
+  dependencies failed, while every other task keeps selecting.
+  *(Cites: D-15, D-8; kickoff sign-off (2026-10-29).)*
 - **REQ-F1.7** The validator SHALL enforce the version 3 field rules (the
   field's grammar, at most one per block, the alias grammar, the field
   present only under a version 3 declaration) at the REQ-C1.5 severities,
-  with echoed values sanitized (REQ-C1.9); every version-keyed script SHALL
-  give version 3 its version 2 behavior plus the field, and an undefined
-  version SHALL stay fail-closed (REQ-C1.8).
-  *(Cites: D-13, D-7.)*
+  and SHALL warn at every status when a version 3 field sits in a bundle
+  whose spec root carries no marker; echoed values SHALL be sanitized
+  (REQ-C1.9). Every version-keyed script SHALL give version 3 its version
+  2 behavior plus the field, and an undefined version SHALL stay
+  fail-closed (REQ-C1.8).
+  *(Cites: D-13, D-7, D-14.)*
 - **REQ-F1.8** `doctrine/spec-format.md` SHALL define format-version 3
   through its versioning ritual, and `/spec-draft` SHALL declare version 3
   only for a bundle in which some task names a repository, offering the
   field when the elicitation surfaces a second repository.
   *(Cites: D-13, D-14.)*
 
-## Open questions for the kickoff
+## Settled at the kickoff (2026-10-29)
 
-The extension was drafted by an unattended worker with no operator
-present. Each choice below is the option `mission-control` most directly
-implies; the kickoff confirms or reverses it.
+The extension was drafted unattended; the operator settled each open
+choice at the delta re-walkthrough.
 
-1. **Version bump rather than an additive v2 field (D-13).** Version 2
-   says a block carries its five fields "and nothing else", and an older
-   install would silently drop an unknown bullet from the extraction and
-   dispatch into the launch repository; a bump makes that install refuse
-   the bundle instead. The alternative is an additive v2 field.
-2. **An alias, resolved by `custom-spec-location`'s registry (D-14).** The
-   alternatives, a checkout path or a remote URL, put machine layout or a
-   host name in a committed file.
-3. **One repository per task (D-14, REQ-F1.2).** A multi-repository unit
-   form was considered and not taken; multi-repository work splits into
-   tasks joined by edges, which now cross repositories.
-4. **Bundle-wide fail-closed on a transient failure in any one repository
-   (REQ-F1.6).** A per-repository scope would keep selecting in healthy
-   repositories at the cost of a second failure mode to reason about.
-5. **Cross-bundle ordering.** Task 11 resolves aliases through the registry
-   `custom-spec-location`'s extension delivers (that bundle's Task 11).
-   The dependency grammar has no cross-bundle edge, so the ordering is
-   carried in Task 11's Done-when and here; the kickoff confirms it.
-6. **The stored status was not reopened.** This bundle derived Done, and
-   extend mode would store Ready→Draft; the drafting run's instructions
-   forbade any status flip, so the header rests at Ready and the delta is
-   held by the `anchor re-review pending` park on Task 9 in `tasks.md`
-   (Tasks 10–12 wait behind it through their edges, and the freshness gate
-   refuses dispatch on the moved anchor in any case). The kickoff removes
-   the park at sign-off, or applies the reopen instead.
+1. **Version bump, not an additive v2 field (D-13).** Version 1 and 2 stay
+   untouched, and an install that predates version 3 refuses the bundle
+   rather than misrouting it. An automated upgrade for older bundles is
+   seeded in `specs/_pending/spec-format-upgrade.md`.
+2. **An alias, resolved only through `custom-spec-location`'s registry
+   (D-14).** Never a path or URL.
+3. **One repository per task (D-14, REQ-F1.2).** Multi-repository work
+   splits into tasks joined by dependency edges.
+4. **Per-task fail-closed on a transient failure (REQ-B1.7, REQ-F1.6).** A
+   task is withheld when its own repository or a direct dependency's
+   repository failed; tasks wholly in healthy repositories keep selecting.
+   Changed from the drafted bundle-wide rule.
+5. **Cross-bundle ordering as a Dependencies edge.** Task 11 carries a
+   `cross-spec, hard` edge on `custom-spec-location` Task 11. The selector
+   drops the clause, so the edge is advisory and Task 11's Done-when keeps
+   the check; making such edges gate selection is seeded in
+   `specs/_pending/selector-cross-spec-edges.md`.
+6. **No reopen.** The drafted Task 9 park is removed at sign-off and the
+   stored header stays Ready.
+7. **The anchor keeps the field line unconditionally (D-13, REQ-F1.3).**
+   `scripts/spec-anchor.sh` stays version-agnostic.
 
 ## Changelog
 
+- 2026-10-29 — Kickoff delta re-walkthrough of the per-task repository
+  extension (meaning-class). New REQ-B1.7 supersedes REQ-B1.5: transient
+  failures fail closed per task, not per bundle. REQ-F1.1, F1.2, F1.3,
+  F1.5, F1.6 and F1.7 amended in place before sign-off (holder-arm
+  wording; marker-bearing root precondition and its validator warning;
+  the anchor keeping the field line at every version; the alias-failure
+  state renamed `repository-unresolved` and widened to malformed and
+  duplicate fields; per-task keying of REQ-B1.7). D-13, D-14 and D-15
+  updated to match. Task 11 gains a `cross-spec, hard` Dependencies edge
+  on `custom-spec-location` Task 11 and a third fixture task; Task 10's
+  Done-when checks that version 3 gets version 2 behavior in every
+  version-keyed script. The Task 9 park is removed with no reopen. The
+  open questions are replaced by *Settled at the kickoff (2026-10-29)*,
+  and two pending notes are seeded (`spec-format-upgrade.md`,
+  `selector-cross-spec-edges.md`).
 - 2026-10-25 — Extension drafted via `/spec-draft --extend invariant-tasks`
   (meaning-class, awaiting kickoff): per-task repositories as
   format-version 3. New REQ-F1.1–REQ-F1.8, D-13–D-15, Tasks 9–12, and
@@ -545,6 +592,15 @@ implies; the kickoff confirms or reverses it.
   repository loses the cross-repository edges. Its proposal (an optional
   per-task field resolved through machine-local config, state from the
   union of the bundle's repositories) seeds REQ-F.
+- **custom-spec-location REQ-I1.2, REQ-I1.5 and REQ-I1.7 (extension
+  under kickoff, 2026-10-29).** The registry is written and read only for a
+  non-default, marker-bearing spec root, and the holder arm resolves a
+  field-less task to the project's one registered work repository; the
+  precondition in REQ-F1.2 and the wording in REQ-F1.1 follow from them.
+- **Pending notes `specs/_pending/spec-format-upgrade.md` and
+  `specs/_pending/selector-cross-spec-edges.md` (2026-10-29).** Seeded at
+  the kickoff: an automated upgrade for older bundles, and making
+  cross-spec dependency edges gate selection.
 - **custom-spec-location D-4 and its reverse-registry Deferred entry.** The
   marker that identifies a spec root, and the machine-local registry a
   later extension of that bundle builds; the alias this extension's field

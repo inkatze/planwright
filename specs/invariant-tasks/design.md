@@ -1,7 +1,7 @@
 # Invariant Tasks — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-10-25
+**Last reviewed:** 2026-10-29
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -356,13 +356,17 @@ definition field, `- **Repository:** <alias>`, placed after `Citations:`
 and before `Estimated effort:`. A block without it belongs to the bundle's
 work repository, so a version 3 bundle that never uses the field means
 exactly what its version 2 form meant. The canonical extraction keeps the
-field line as definition content in version 3, and since no existing block
+field line as definition content unconditionally, at every version, so
+`scripts/spec-anchor.sh` stays version-agnostic; since no existing block
 carries it, the extraction of every bundle without the field is
-byte-identical to version 2. Every version-keyed script gives version 3 its
+byte-identical to version 2, and a field outside version 3 is the
+validator's to reject. Every version-keyed script gives version 3 its
 version 2 behavior plus the field; an undefined version stays fail-closed
-(D-7). A bundle declares version 3 only when a task needs the field; no
-migration is offered or needed. *(Choice made unattended; open question 1
-in `requirements.md`.)*
+(D-7). A bundle declares version 3 only when a task needs the field.
+Because the field is optional, upgrading a version 2 bundle is only the
+`Format-version:` bump; an automated upgrade process for older bundles is
+seeded in `specs/_pending/spec-format-upgrade.md`. *(Confirmed at the
+2026-10-29 kickoff.)*
 
 **Alternatives considered:**
 - An additive field inside version 2. Rejected because: version 2 defines a
@@ -376,6 +380,9 @@ in `requirements.md`.)*
 - One bundle per repository. Rejected because: the cross-repository
   dependency edges are the point (obs:74a7f907), and the grammar has no
   cross-bundle edge.
+- Keying the extraction on version 3. Rejected because: the anchor script
+  parses no `Format-version:` by design, and keeping the line everywhere
+  costs nothing, since no version 1 or 2 block may carry it.
 
 **Chosen because:** the version declaration is the format's own seam
 (D-1, D-7): an install that knows version 3 reads the field, and one that
@@ -390,12 +397,15 @@ grammar (`^[a-z0-9][a-z0-9-]*$`, at most 64 characters). It resolves to a
 local checkout only through `custom-spec-location`'s machine-local
 work-repository registry, which maps a spec root's project to the aliases
 of the repositories registered against it; this bundle consumes that map
-and does not define it. A task names exactly one repository: work that
+and does not define it. The registry exists only for marker-bearing spec
+roots, so per-task repositories require one: under a root without a
+marker an aliased task derives `repository-unresolved`, and the validator
+warns on the field there. A task names exactly one repository: work that
 spans repositories splits into tasks joined by dependency edges, which
 D-15 makes cross-repository. A task whose code lives in the holder itself
 names the holder's alias like any other repository; a task that touches no
-repository stays outside execution. *(Choices made unattended; open
-questions 2 and 3 in `requirements.md`.)*
+repository stays outside execution. *(Confirmed at the 2026-10-29
+kickoff.)*
 
 **Alternatives considered:**
 - A checkout path. Rejected because: it is machine-specific, wrong on every
@@ -425,15 +435,20 @@ trailers), and joins the results; the dispatch markers keep their one
 per-bundle home, so every session reading the bundle sees the same
 in-flight units whichever repository they dispatched into. Dependency
 satisfaction reads the dependency's derived state wherever it lives, which
-is what "the repository it landed in" means. A task whose alias does not
-resolve derives `unresolved`, a distinct state that is never selected,
-never satisfies a dependency, never satisfies a gate atom, and blocks
-derived Done. A transient fetch failure in any one resolved repository
-fails selection closed for the bundle (REQ-B1.5 applied per repository).
-D-12's no-cache decision stands; the derivation's cost grows by one
-pull-request query per distinct repository, and D-12's revisit signals
-cover it. *(Bundle-wide fail-closed chosen unattended; open question 4 in
-`requirements.md`.)*
+is what "the repository it landed in" means. A task whose field does not
+resolve (an unknown or stale alias, a missing checkout, a root without a
+marker, a malformed value, or a duplicate field) derives
+`repository-unresolved`, a distinct state that is never selected, never
+satisfies a dependency, never satisfies a gate atom, blocks derived Done,
+and never falls back to the work repository. A transient fetch failure
+fails closed per task (REQ-B1.7): a task is withheld when its own
+repository or a direct dependency's repository failed, its gate atoms
+resolve unresolved when its own repository failed, the render names the
+failing repository, and tasks wholly in healthy repositories keep
+selecting. D-12's no-cache decision stands; the derivation's cost grows by
+one pull-request query per distinct repository, and D-12's revisit signals
+cover it. *(Per-task scope chosen at the 2026-10-29 kickoff, replacing the
+drafted bundle-wide rule.)*
 
 **Alternatives considered:**
 - Deriving from the union of all repositories' evidence for every task.
@@ -444,10 +459,12 @@ cover it. *(Bundle-wide fail-closed chosen unattended; open question 4 in
 - Treating an unresolved alias as "not started". Rejected because: it
   would make the task selectable and dispatch it into whatever repository
   the fallback picks, the failure this extension exists to stop.
-- Per-repository fail-closed on a transient failure. Rejected for now
-  because: the bundle's dependency graph crosses repositories, so a unit in
-  a healthy repository may depend on one in the failing repository; the
-  bundle-wide rule needs no reasoning about which edges cross.
+- Bundle-wide fail-closed on a transient failure in any one repository.
+  Rejected at the kickoff because: one unreachable repository would halt
+  work that lies wholly in healthy repositories. Direct dependencies
+  suffice: a dependency's derived state is the only cross-repository input
+  to a task's readiness, and a dependency that lives in a healthy
+  repository derives from known evidence.
 
 **Chosen because:** it keeps orchestration-concurrency's evidence chain
 unchanged within each repository and adds only the join, so a bundle
@@ -484,15 +501,19 @@ whose tasks all live in one repository derives exactly as before.
   before validation; the registry, not the bundle, supplies the checkout
   path, and the registry's own read-time validation is
   `custom-spec-location`'s. The render and validator echo the alias
-  through `sanitize_printable`. A derivation that runs `gh` in a second
+  through `sanitize_printable`. A value that fails the grammar, or a
+  second field in one block, derives `repository-unresolved` and never
+  falls back to the bundle's work repository, so a hostile or mistyped
+  value cannot misroute a unit. A derivation that runs `gh` in a second
   repository uses that repository's own remote; no credential is added.
 - **Extension decision-domains walk (2026-10-25).** Data modelling: a new
   format field, decided in D-13 and D-14. Versioning: format-version 3,
   D-13. Integration surface: the registry seam consumed from
   `custom-spec-location` (its `--repository` lookup), D-14. Concurrency:
   per-repository evidence with the dispatch markers kept in their one
-  per-bundle home, D-15. Observability: the render's per-task alias and the `unresolved`
-  state, REQ-F1.4 and REQ-F1.5. No new dependency.
+  per-bundle home, D-15. Observability: the render's per-task alias, the
+  `repository-unresolved` state, and the per-repository failure report,
+  REQ-F1.4, REQ-F1.5 and REQ-B1.7. No new dependency.
 - **This bundle is authored at format-version 1** — v2 does not exist until
   Task 1 ships. It is expected to be among the live bundles migrated by
   Task 6.
