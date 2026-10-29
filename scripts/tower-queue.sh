@@ -5308,9 +5308,10 @@ cmd_ack() {
     ok)
       case "$st_extra" in
         settled-by-default | decided-by-mission-control)
-          owe_log reviewed --now "$now" --tower "$tower" item="$item" item_kind="$st_extra" reversal="${st_held:--}"
+          owe_log reviewed --now "$now" --tower "$tower" item="$item" item_kind="$st_extra" reversal="${st_held:--}" \
+            reason="reviewed by the operator (reversal: ${st_held:--})"
           ;;
-        *) owe_log acknowledged --now "$now" --tower "$tower" item="$item" item_kind="$st_extra" ;;
+        *) owe_log acknowledged --now "$now" --tower "$tower" item="$item" item_kind="$st_extra" reason="acknowledged by the operator" ;;
       esac
       finish_exit
       ;;
@@ -5350,7 +5351,13 @@ cmd_revoke() {
   item_pass revoke -v item="$item"
   case "$st" in
     reopened | revoked)
-      owe_log revoked --now "$now" --tower "$tower" item="$item" item_kind="$st_extra" reversal="${st_held:--}" outcome="$st"
+      if [ "$st" = revoked ]; then
+        _rr="revoked by the operator (reversal: ${st_held:--})"
+      else
+        _rr="revoked by the operator; reopened as its question with no window"
+      fi
+      owe_log revoked --now "$now" --tower "$tower" item="$item" item_kind="$st_extra" reversal="${st_held:--}" outcome="$st" \
+        reason="$_rr"
       printf '%s\t%s\t%s\t%s\n' "$st" "$item" "$st_extra" "$(sanitize_printable "${st_held:--}" "?")"
       finish_exit
       ;;

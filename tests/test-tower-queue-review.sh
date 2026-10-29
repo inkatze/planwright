@@ -167,6 +167,7 @@ case "$(fld "$d1" 18)" in
   *) fail "the review reason does not name the reversal: '$(fld "$d1" 18)'" ;;
 esac
 grep -q "\"kind\":\"reviewed\".*\"item\":\"$d1\".*\"reversal\":\"undo:u-17\"" "$log_file" || fail "the review was not logged"
+grep -q "\"kind\":\"reviewed\".*\"item\":\"$d1\".*\"reason\":\"reviewed by the operator (reversal: undo:u-17)\"" "$log_file" || fail "the review log line carries no settling reason"
 echo "ok: a decision is handed over for review and closes on ack as reviewed, logged with its reversal"
 
 # Revoked: closed as revoked, the reversal pointer logged, nothing run.
@@ -176,6 +177,7 @@ printf '%s\n' "$out" | grep -q "^revoked${TAB}$d2${TAB}decided-by-mission-contro
 [ "$(fld "$d2" 12)" = closed ] || fail "a revoked decision stayed open"
 case "$(fld "$d2" 18)" in *"revoked by the operator (reversal: undo:u-20)"*) ;; *) fail "the revocation reason: '$(fld "$d2" 18)'" ;; esac
 grep -q "\"kind\":\"revoked\".*\"item\":\"$d2\".*\"reversal\":\"undo:u-20\".*\"outcome\":\"revoked\"" "$log_file" || fail "the revocation was not logged with its reversal pointer"
+grep -q "\"kind\":\"revoked\".*\"item\":\"$d2\".*\"reason\":\"revoked by the operator (reversal: undo:u-20)\"" "$log_file" || fail "the revocation log line carries no settling reason"
 run catchup | grep -q "^settled${TAB}$d2${TAB}" && fail "the catch-up of what settled without the operator lists their own revocation"
 echo "ok: a revoked decision leaves the open set by that revocation, logged with its reversal pointer"
 
