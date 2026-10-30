@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.63.0](https://github.com/inkatze/planwright/compare/v0.62.0...v0.63.0) (2026-10-30)
+
+
+### Features
+
+* **cards:** add the ML/LLM engineering and evals discipline card ([#728](https://github.com/inkatze/planwright/issues/728)) ([b01890a](https://github.com/inkatze/planwright/commit/b01890a1c114152d107686cd6aee98bf82922408))
+* **fleet:** mark a worker working again on its first tool use after a stop ([#725](https://github.com/inkatze/planwright/issues/725)) ([8f9d6ba](https://github.com/inkatze/planwright/commit/8f9d6ba3b4ab6042bd7bcae862356d8a3db904f1))
+* **fleet:** start tmux task workers from a confined launch-time brief ([#731](https://github.com/inkatze/planwright/issues/731)) ([fd12879](https://github.com/inkatze/planwright/commit/fd128797ac836f2948c307691265ca366401d829))
+* **flight:** keep a parked flight's partial record private beside its brief ([#727](https://github.com/inkatze/planwright/issues/727)) ([64bb6a7](https://github.com/inkatze/planwright/commit/64bb6a76d13cda03e9e13ef104173d4e4ca3be23))
+* **guards:** add the comment-block budget guard ([#742](https://github.com/inkatze/planwright/issues/742)) ([e55adaf](https://github.com/inkatze/planwright/commit/e55adaf6f494b215083208ec0b00d91b2e885f94))
+* **inception:** add the review-cycle seam and the Notion reference adapter ([#730](https://github.com/inkatze/planwright/issues/730)) ([c604305](https://github.com/inkatze/planwright/commit/c604305bc47018b5edbf8de471b86a95d9acbef3))
+* **inception:** add the venture gate and graduation ([#741](https://github.com/inkatze/planwright/issues/741)) ([dc1a70a](https://github.com/inkatze/planwright/commit/dc1a70aca788f068b983cde63345b28bc519a0e2))
+* **inception:** Cowork bridge and environment detection ([#732](https://github.com/inkatze/planwright/issues/732)) ([a541070](https://github.com/inkatze/planwright/commit/a54107080472bd3ba58fd415e5bc89dbbdf212ac))
+* **mission-control:** add autonomy calibration, proposals, shadow mode and the self-audit ([#750](https://github.com/inkatze/planwright/issues/750)) ([15da58f](https://github.com/inkatze/planwright/commit/15da58fde424eeeb2963fd34d46d99a180829895))
+* **mission-control:** add compaction handover and succession ([#753](https://github.com/inkatze/planwright/issues/753)) ([8ec55fb](https://github.com/inkatze/planwright/commit/8ec55fbaf27b126e47c8604aa62cb88fa0ee9f6c))
+* **mission-control:** add the default duties ([#755](https://github.com/inkatze/planwright/issues/755)) ([0daca3f](https://github.com/inkatze/planwright/commit/0daca3f903a5cc930b4175d30621dadc0a46bebe))
+* **mission-control:** add the knowledge base, ledgers and undo ([#747](https://github.com/inkatze/planwright/issues/747)) ([3c4891e](https://github.com/inkatze/planwright/commit/3c4891e5817ad76cea948e1dd337ec0d4ae624f7))
+* **mission-control:** add the launcher across session kinds ([#751](https://github.com/inkatze/planwright/issues/751)) ([42e3e3f](https://github.com/inkatze/planwright/commit/42e3e3f1fb66c1d5026486e97adfcf8ecd8f9ab0))
+* **mission-control:** add the panel mod ([#749](https://github.com/inkatze/planwright/issues/749)) ([c7428a3](https://github.com/inkatze/planwright/commit/c7428a3c39cda0d9f28c67c330635964ab719be0))
+* **mission-control:** add the program and duty catalog seams ([#721](https://github.com/inkatze/planwright/issues/721)) ([1278d0f](https://github.com/inkatze/planwright/commit/1278d0f184d85e36675ac53900ab230a2860fe80))
+* **mission-control:** add the rule store ([#744](https://github.com/inkatze/planwright/issues/744)) ([dd70b1a](https://github.com/inkatze/planwright/commit/dd70b1a0abf1cffd20027c45d9a0af047432036e))
+* **mission-control:** add the watcher runner, source snapshots and budget ([#745](https://github.com/inkatze/planwright/issues/745)) ([f37ff63](https://github.com/inkatze/planwright/commit/f37ff63bbb1eb3458e9121b407ce1c69dc34135f))
+* **mission-control:** name every session's stall states and reclaim worktrees safely ([#754](https://github.com/inkatze/planwright/issues/754)) ([7949434](https://github.com/inkatze/planwright/commit/7949434daaef04132011030beeace1b17898b089))
+* **review:** add miss-ledger tokens for the audit's categories ([#735](https://github.com/inkatze/planwright/issues/735)) ([a4ac951](https://github.com/inkatze/planwright/commit/a4ac9516e1e9a73866097a1137e59a5282924921))
+* **scripts:** freeze script entry points behind a recorded-fixture guard ([#722](https://github.com/inkatze/planwright/issues/722)) ([f091255](https://github.com/inkatze/planwright/commit/f09125593545a05a59685e539696ec64175d022d))
+* **spec-location:** add the work-repository registry ([#757](https://github.com/inkatze/planwright/issues/757)) ([200266c](https://github.com/inkatze/planwright/commit/200266c5b2f366fed646d85b34bf15d9c432e929))
+* **spec:** extend custom-spec-location with the reverse registry and holder dispatch ([#740](https://github.com/inkatze/planwright/issues/740)) ([28f0df0](https://github.com/inkatze/planwright/commit/28f0df0027ed5fa4f52f1887cd7597dd1eaf8e5d))
+* **spec:** extend invariant-tasks with per-task repositories ([#737](https://github.com/inkatze/planwright/issues/737)) ([a9ee2a6](https://github.com/inkatze/planwright/commit/a9ee2a665effce052fa6f0b70c50aead5f520252))
+* **spec:** extend tower-comms with the queue changes mission control needs ([#739](https://github.com/inkatze/planwright/issues/739)) ([3943419](https://github.com/inkatze/planwright/commit/3943419cdf7d07c61b63033a0eaea785ca2b754e))
+* **spec:** mission-control kickoff sign-off ([#716](https://github.com/inkatze/planwright/issues/716)) ([63b45ad](https://github.com/inkatze/planwright/commit/63b45adca2a69ec939102950e98bed5e2bc234a4))
+* **worker-guard:** give each worker a scratch root and approve writes inside it ([#743](https://github.com/inkatze/planwright/issues/743)) ([6f31d35](https://github.com/inkatze/planwright/commit/6f31d355a81b7ad0c9bf42a3bfef8f6d3276f921))
+
+
+### Bug Fixes
+
+* **ci:** allowlist the tower-comms fixture tokens on main so every PR's secret scan passes ([#760](https://github.com/inkatze/planwright/issues/760)) ([aa27a9d](https://github.com/inkatze/planwright/commit/aa27a9d81bb13c6734159a3bd8f88692b827ef30))
+* **githooks:** wire fresh worktrees to the tracked hooks path ([#723](https://github.com/inkatze/planwright/issues/723)) ([17eb7ce](https://github.com/inkatze/planwright/commit/17eb7ce79b5ac03f8cf5bfafbee62ed25de05f6a))
+* make the shell tests and mission-control scripts work on macOS and Alpine ([#759](https://github.com/inkatze/planwright/issues/759)) ([6c5d61d](https://github.com/inkatze/planwright/commit/6c5d61d6ba7f6599ecb9154851d71006ce0dfa6f))
+* **mission-control:** bring the rule store's header under the comment budget ([#748](https://github.com/inkatze/planwright/issues/748)) ([e048ff6](https://github.com/inkatze/planwright/commit/e048ff63ccd5a2a3061d9c9b7e277fe167a444c9))
+* **tests:** scope the tmux harness timer check to its own process ([#761](https://github.com/inkatze/planwright/issues/761)) ([3b60d30](https://github.com/inkatze/planwright/commit/3b60d30ebce5320d4d3f355f5a7743eced080331))
+
 ## [0.62.0](https://github.com/inkatze/planwright/compare/v0.61.0...v0.62.0) (2026-10-20)
 
 
