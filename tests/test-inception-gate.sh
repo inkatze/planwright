@@ -256,7 +256,9 @@ gate record --outcome Recycle --decider "Dana Reyes" --rationale "re-scoping the
 assert_eq "E1.3 a tripped criterion does not force Kill" 0 "$rc"
 assert_eq "E1.3 nothing auto-kills" Exploring "$(status_of "$vroot/trip" brief.md)"
 assert_eq "E1.3 the record carries the tripped state" 1 "$(grep -c '^Kill-criteria: KC-1 tripped, KC-2 tripped$' "$vroot/trip/brief.md")"
-PLANWRIGHT_INCEPTION_TODAY=2026-09-01 gate evaluate "$vroot/base"
+# A prefix assignment on a function call outlives the call in bash's POSIX
+# mode (macOS /bin/sh), so the earlier date goes on the command instead.
+out=$(PLANWRIGHT_INCEPTION_TODAY=2026-09-01 "$GATE" evaluate "$vroot/base" 2>&1)
 assert_contains "E1.3 a date within thirty days reads approaching" "kill	KC-2	2026-09-15	approaching" "$out"
 assert_not_contains "E1.3 an approaching criterion is not a kill prompt" "prompt	kill-or-rescope	KC-2" "$out"
 
