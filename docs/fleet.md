@@ -1798,9 +1798,11 @@ which first clears a per-spec lock whose recorded holder is provably gone
 the process reap; the registry reconcile, which heals and retires dispatch
 records from their markers (see *The dispatch record*) and, terminating
 nothing, runs in both modes; the residues, which retire a gone
-flight's brief (clearing its attention row), prune the flight index of a
-checkout that no longer exists, and retire a task brief whose unit's worktree
-is gone; and the flight crash policy, below.
+flight's brief directory (clearing its attention row, and removing with it
+the private partial record a parked flight rendered there, so that record
+lasts while the worktree exists and is gone with the sweep that retires the
+flight), prune the flight index of a checkout that no longer exists, and
+retire a task brief whose unit's worktree is gone; and the flight crash policy, below.
 The registry reconcile follows the reap so a worker closed this cycle is
 retired in the same one, and the flight passes follow the reconcile so the
 dispatch records they read are already settled.
