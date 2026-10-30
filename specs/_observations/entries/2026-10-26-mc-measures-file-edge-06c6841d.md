@@ -1,0 +1,1 @@
+- 2026-10-26 [planwright] mission control: the panel draws interruptions per hour and the settled share from <runtime>/measures (format 1, taken, interruptions_per_hour, settled_share), a file nothing writes yet; mission-control Task 9's measures should write it in that shape, or the panel's reader in scripts/mc-panel.sh should move to whatever Task 9 settles

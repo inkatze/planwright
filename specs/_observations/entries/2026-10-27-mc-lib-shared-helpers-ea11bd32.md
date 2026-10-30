@@ -1,0 +1,1 @@
+- 2026-10-27 [planwright] mission control scripts each carry their own program-home resolver (mc-rules.sh resolve_home, mc-panel.sh program_home, mc-handover.sh home_path) and mc-wake.sh and mc-handover.sh each read the mod lease; a shared mc-lib.sh helper for each would stop the copies drifting (the lease readers already differ on a missing lease, by design)

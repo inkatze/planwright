@@ -31,6 +31,7 @@ TOWER_GUARD="$REPO_ROOT/scripts/tower-command-guard.sh"
 POLICY_GUARD="$REPO_ROOT/scripts/policy-guard.sh"
 WORKER_SETTINGS="$REPO_ROOT/config/worker-settings.json"
 TOWER_SETTINGS="$REPO_ROOT/config/tower-settings.json"
+MC_SETTINGS="$REPO_ROOT/config/mission-control-settings.json"
 HOOKS_JSON="$REPO_ROOT/hooks/hooks.json"
 
 # shellcheck source=tests/lib/ready-guard-harness.sh
@@ -708,6 +709,44 @@ for copy in $RC_COPIES; do
   done <"$SANDBOX/verdicts.$copy"
   if [ "$i" != "$N" ]; then
     fail "$copy produced $i verdicts for $N lines"
+  fi
+done
+
+# --- the mission-control tier -----------------------------------------------
+# It carries the tower tier's denials, so every line the tower's policy guard
+# or profile denies is denied under mission control too. A flip is the one
+# difference (it follows ready_flip_policy there) and has its own table,
+# tests/fixtures/mission-control-guard-acts.tsv.
+load_profile "$MC_SETTINGS"
+[ -z "$LOAD_ERR" ] || fail "the mission-control profile did not load: $LOAD_ERR"
+i=0
+while [ "$i" -lt "$N" ]; do
+  rc_parse_line "${LINES[$i]}" || true
+  i=$((i + 1))
+  tier_has "$RC_TIER" tower || continue
+  case $RC_ACT in flip | undo-flip) continue ;; esac
+  rc_want pguard
+  if [ "$RC_WANT" = deny ]; then
+    args=$(pg_wiring_args "$MC_SETTINGS" "$(tool_of "$RC_SPELL")")
+    if [ -z "$args" ]; then
+      fail "[mission-control] the profile wires no policy guard for: $RC_SPELL"
+    else
+      got=$(pg_run "$args" "$RC_SPELL" "$RC_POLICY")
+      if [ "$got" = deny ]; then
+        pass "[mission-control] pguard deny: $RC_SPELL"
+      else
+        fail "[mission-control] pguard expected deny, got $got: $RC_SPELL"
+      fi
+    fi
+  fi
+  rc_want tprof
+  if [ "$RC_WANT" = deny ]; then
+    got=$(profile_verdict "$MC_SETTINGS" "$RC_SPELL" deny)
+    if [ "$got" = deny ]; then
+      pass "[mission-control] profile deny: $RC_SPELL"
+    else
+      fail "[mission-control] profile expected deny, got $got: $RC_SPELL"
+    fi
   fi
 done
 

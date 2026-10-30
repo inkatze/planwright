@@ -1,0 +1,190 @@
+# The mission-control tier's guard fixture rows: each act the
+# `mission-control` tier of scripts/policy-guard.sh refuses or lets through,
+# driven by tests/test-policy-guard-mission-control.sh.
+#
+# expect<TAB>class<TAB>surface<TAB>knob<TAB>reason<TAB>input
+#   expect   deny, ask (the operator's answer decides), or defer (the guard
+#            stays silent and the call reaches the permission layer)
+#   surface  bash: <input> is the command; file: <input> is `<tool> <path>`
+#            for an Edit, Write, MultiEdit or NotebookEdit payload; mcp:
+#            <input> is the update_pull_request tool_input as JSON
+#   knob     `-` for the harness defaults, else one machine-local line
+#   reason   an ERE the refusal's reason matches (`-` on a defer row); the
+#            rewrite, protected-push and remote-delete rows spelled through
+#            git meet the blanket git-mutation refusal, and their reason
+#            says so
+# @UNIT@ is the harness's unit clone, @SCRATCH@ a directory in no repository
+# and @HOME@ a fixture home outside both.
+deny	git-mutation	bash	-	runs no git mutation	git commit -m wip
+deny	git-mutation	bash	-	runs no git mutation	git add -A
+deny	git-mutation	bash	-	runs no git mutation	git checkout -b scratch
+deny	git-mutation	bash	-	runs no git mutation	git switch main
+deny	git-mutation	bash	-	runs no git mutation	git restore README.md
+deny	git-mutation	bash	-	runs no git mutation	git stash
+deny	git-mutation	bash	-	runs no git mutation	git stash -m list
+deny	git-mutation	bash	-	runs no git mutation	git stash --message list
+deny	git-mutation	bash	-	runs no git mutation	git branch scratch
+deny	git-mutation	bash	-	runs no git mutation	git branch -D planwright/demo/task-2
+deny	git-mutation	bash	-	runs no git mutation	git tag v9
+deny	git-mutation	bash	-	runs no git mutation	git config user.name someone
+deny	git-mutation	bash	-	runs no git mutation	git config --comment --get core.hooksPath /tmp/evil
+deny	git-mutation	bash	-	runs no git mutation	git config --file --get foo.bar baz
+deny	git-mutation	bash	-	runs no git mutation	git config --rename-sec list foo
+deny	git-mutation	bash	-	runs no git mutation	git notes --ref list add -m x HEAD
+deny	git-mutation	bash	-	runs no git mutation	git symbolic-ref -qd refs/heads/alias
+deny	git-mutation	bash	-	runs no git mutation	git symbolic-ref --del refs/heads/alias
+deny	git-mutation	bash	-	runs no git mutation	git symbolic-ref HEAD -- refs/heads/evil
+deny	git-mutation	bash	-	runs no git mutation	git remote add other https://example.invalid/x.git
+deny	git-mutation	bash	-	runs no git mutation	git fetch origin
+deny	git-mutation	bash	-	runs no git mutation	git cherry-pick HEAD
+deny	git-mutation	bash	-	runs no git mutation	git worktree add ../scratch
+deny	git-mutation	bash	-	runs no git mutation	git -C @UNIT@ reset --hard HEAD
+deny	git-mutation	bash	-	runs no git mutation	git update-ref refs/heads/x HEAD
+deny	git-mutation	bash	-	runs no git mutation	git stash list --output=.git/HEAD
+deny	git-mutation	bash	-	runs no git mutation	git log --output out.txt
+deny	git-mutation	bash	-	runs no git mutation	git diff --ext-diff
+deny	git-mutation	bash	-	runs no git mutation	git show --textconv HEAD
+deny	git-mutation	bash	-	runs no git mutation	git grep -Orm x
+deny	git-mutation	bash	-	runs no git mutation	git grep -rO x
+deny	git-mutation	bash	-	runs no git mutation	git grep --open=/tmp/x.sh hi
+deny	git-mutation	bash	-	runs no git mutation	git grep --open-files=/tmp/x.sh hi
+deny	git-mutation	bash	-	runs no git mutation	git ls-remote --upload-pack=/tmp/x.sh .
+deny	git-mutation	bash	-	runs no git mutation	git ls-remote --upl=/tmp/x.sh .
+deny	git-mutation	bash	-	runs no git mutation	git --exec-path=/tmp/x ls-remote https://example.invalid/r.git
+deny	git-mutation	bash	-	runs no git mutation	git cat-file --filters HEAD:README.md
+deny	git-mutation	bash	-	runs no git mutation	git grep --open-files-in-pager=/tmp/x.sh foo
+deny	git-mutation	bash	-	runs no git mutation	git -c core.fsmonitor=/tmp/x.sh status
+deny	git-mutation	bash	-	runs no git mutation	git -c diff.external=/tmp/x.sh diff
+deny	git-mutation	bash	-	runs no git mutation	GIT_EXTERNAL_DIFF=/tmp/x.sh git diff
+deny	git-mutation	bash	-	runs no git mutation	GIT_PAGER=/tmp/x.sh git log
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git add -A'
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git hash-object -w f'
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git read-tree --empty'
+deny	git-mutation	bash	-	reserved act|runs no git mutation	bash -c "git stash"
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'GIT_PAGER=/tmp/x.sh git log'
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git -c core.pager=/tmp/x.sh log'
+deny	git-mutation	bash	-	reserved act|runs no git mutation	timeout 30 git log --ext-diff
+deny	git-mutation	bash	-	runs no git mutation	git co main
+deny	git-mutation	bash	-	runs no git mutation	"$HOME/bin/git" add -A
+deny	merge	bash	-	runs no git mutation	git merge origin/main
+deny	merge	bash	-	runs no git mutation	git pull origin main
+deny	merge	bash	-	gh pr merge is denied	gh pr merge 42 --squash
+deny	merge	bash	-	never runs the merge helper	scripts/merge-admitted.sh --pr 42
+deny	merge	bash	-	merges a pull request	gh api -X PUT repos/acme/widgets/pulls/42/merge
+deny	mcp-flip	mcp	-	denied to mission control whatever its arguments	{"draft":false}
+deny	gh-write	bash	-	writes no branch|edits no repository	gh pr checkout 42
+deny	gh-write	bash	-	writes no branch|edits no repository	gh pr update-branch 42
+deny	gh-write	bash	-	writes no branch|edits no repository	gh repo sync
+deny	gh-write	bash	-	writes no branch|edits no repository	gh repo clone acme/widgets
+deny	gh-write	bash	-	writes no branch|edits no repository	gh release create v9 --target main
+deny	gh-write	bash	-	writes no branch|edits no repository	gh pr co 42
+deny	gh-write	bash	-	writes no branch|edits no repository	gh pr -R acme/widgets checkout 42
+deny	gh-write	bash	-	writes no branch|edits no repository	gh repo create acme/new
+deny	gh-write	bash	-	writes no branch|edits no repository	gh repo delete acme/widgets --yes
+deny	gh-write	bash	-	writes no branch|edits no repository	gh repo fork acme/widgets
+deny	gh-write	bash	-	writes no branch|edits no repository	gh repo rename widgets2
+deny	gh-write	bash	-	writes no branch|edits no repository	gh repo edit --default-branch x
+deny	gh-write	bash	-	writes no branch|edits no repository	gh repo archive acme/widgets
+deny	gh-write	bash	-	writes no branch|edits no repository	gh repo set-default other/repo
+deny	gh-write	bash	-	writes no branch|edits no repository	gh release delete v9
+deny	gh-write	bash	-	writes no branch|edits no repository	gh release edit v9
+deny	gh-write	bash	-	writes no branch|edits no repository	gh release upload v9 f
+deny	gh-write	bash	-	writes no branch|edits no repository	gh release delete-asset v9 f
+deny	settings-write	file	-	settings or configuration file	Write @HOME@/.claude/settings.json
+deny	settings-write	file	-	settings or configuration file	Edit @SCRATCH@/proj/.claude/settings.local.json
+deny	settings-write	file	-	settings or configuration file	MultiEdit @HOME@/.claude/settings.json
+deny	settings-write	file	-	settings or configuration file	Write @HOME@/.claude.json
+deny	settings-write	file	-	this path is one	Write @HOME@/.claude//hooks/x.sh
+deny	settings-write	file	-	settings or configuration file	Write @SCRATCH@/cl/hooks/evil.sh
+deny	settings-write	file	-	settings or configuration file	Write @HOME@/.claude/agents/x.md
+deny	settings-write	file	-	settings or configuration file	Write @HOME@/.claude/skills/x/SKILL.md
+deny	settings-write	file	-	settings or configuration file	Write @HOME@/.claude/commands/x.md
+deny	settings-write	file	-	settings or configuration file	Write @HOME@/.claude/planwright/planwright/fleet/streamjson/mc-x/profile
+deny	settings-write	file	-	settings or configuration file	Write @SCRATCH@/proj/config/tower-settings.json
+deny	settings-write	bash	-	settings or configuration file	cp @SCRATCH@/x.json @HOME@/.claude/settings.json
+deny	settings-write	bash	-	settings or configuration file	cp @SCRATCH@/x.json @HOME@/.claude.json
+deny	settings-write	bash	-	settings or configuration file	printf '{}' > .claude/settings.local.json
+deny	settings-write	bash	-	settings or configuration file	jq '.permissions={}' @HOME@/.claude/settings.json > @SCRATCH@/s.json
+deny	settings-write	bash	-	settings or configuration file	sed -i s/a/b/ @HOME@/.claude/settings.json
+deny	settings-write	bash	-	settings or configuration file	sed -i s/deny/allow/ @SCRATCH@/proj/config/mission-control-settings.json
+deny	settings-write	bash	-	settings or configuration file	rg --pre rm x @HOME@/.claude/settings.json
+deny	settings-write	bash	-	settings or configuration file	/tmp/q/cat @HOME@/.claude/settings.json
+deny	settings-write	bash	-	settings or configuration file	cp /tmp/x @HOME@/.claude/setting?.json
+deny	settings-write	bash	-	settings or configuration file	cp /tmp/x @HOME@/.claude/settings.js*
+deny	settings-write	bash	-	settings or configuration file	cp /tmp/x @HOME@/.claude/{settings,x}.json
+deny	settings-write	bash	-	settings or configuration file	cp /tmp/x @HOME@/.claude/$f.json
+deny	settings-write	bash	-	settings or configuration file	cp /tmp/x @HOME@/.claude/$'settings\x2ejson'
+deny	settings-write	bash	-	settings or configuration file	echo x > @HOME@/.claude/setting?.json
+deny	settings-write	bash	-	settings or configuration file	echo x > @HOME@/.claude/$f.json
+deny	settings-write	file	-	settings or configuration file	Write @SCRATCH@/proj/.mcp.json
+deny	settings-write	file	-	settings or configuration file	Write @HOME@/.config/planwright/planwright.yml
+deny	settings-write	file	-	settings or configuration file	Write @SCRATCH@/proj/.claude/planwright.local.yml
+deny	settings-write	file	-	settings or configuration file	Write @HOME@/.claude/hooks/pre-tool.sh
+deny	settings-write	file	-	settings or configuration file	Write @HOME@/.claude/plugins/marketplace/x.json
+deny	settings-write	bash	-	settings or configuration file	printf 'ready_flip_policy: unit-owner' > @HOME@/.config/planwright/planwright.yml
+deny	repo-write	file	-	edits no repository	Write @UNIT@/README.md
+deny	repo-write	file	-	edits no repository	Edit @UNIT@/new-dir/notes.md
+deny	repo-write	file	-	edits no repository	Write @SCRATCH@/bare.git/hooks/pre-commit
+ask	flip-human	bash	ready_flip_policy: human	your request to mark.*ready_flip_policy in .*planwright config \(planwright\.yml	gh pr ready 42
+ask	flip-human	bash	ready_flip_policy: human	unit-owner.*Bash\(gh pr ready:\*\)	gh pr ready 42 --undo=false
+deny	flip-other-repo	bash	-	names a repository	gh pr ready 42 --repo employer/widgets
+deny	flip-other-repo	bash	-	names a repository	gh pr ready 42 -R employer/widgets
+deny	flip-other-repo	bash	-	names a repository	gh -R employer/widgets pr ready 42
+deny	flip-other-repo	bash	-	names a repository	gh pr ready https://github.com/employer/widgets/pull/42
+deny	flip-other-repo	bash	-	names a repository	GH_REPO=employer/widgets gh pr ready 42
+deny	flip-other-repo	bash	-	names a repository	gh pr ready 42 -Remployer/widgets
+deny	flip-other-repo	bash	-	names a repository	gh pr ready 42 --repo=employer/widgets
+deny	flip-other-repo	bash	-	names a repository	GH_HOST=ghe.example.invalid gh pr ready 42
+deny	redraft	bash	-	re-drafting	gh pr ready 42 --undo
+deny	rewrite	bash	-	runs no git mutation	git rebase origin/main
+deny	rewrite	bash	-	runs no git mutation	git commit --amend --no-edit
+deny	rewrite	bash	-	runs no git mutation	git push --force-with-lease origin planwright/demo/task-1
+deny	rewrite	bash	-	runs no git mutation	git push origin +planwright/demo/task-1
+deny	protected-push	bash	-	runs no git mutation	git push origin main
+deny	protected-push	bash	-	runs no git mutation	git push origin HEAD:refs/heads/main
+deny	protected-push	bash	-	writes no branch on the host	gh api -X PATCH repos/acme/widgets/git/refs/heads/main -f sha=abc
+deny	remote-delete	bash	-	runs no git mutation	git push origin --delete planwright/demo/task-2
+deny	remote-delete	bash	-	runs no git mutation	git push origin :planwright/demo/task-2
+deny	remote-delete	bash	-	writes no branch on the host	gh api -X DELETE repos/acme/widgets/git/refs/heads/planwright/demo/task-2
+defer	flip-inside	bash	ready_flip_policy: unit-owner	-	gh pr ready 42
+defer	rewrite-on-request	bash	-	-	scripts/tower-force-push.sh --branch planwright/demo/task-1
+defer	read	bash	-	-	git status
+defer	read	bash	-	-	git log --oneline -5
+defer	read	bash	-	-	git log -n 3 -- README.md
+defer	read	bash	-	-	timeout 30 git status
+defer	read	bash	-	-	env LC_ALL=C git log -1
+defer	read	bash	-	-	echo $(git rev-parse HEAD)
+defer	read	bash	-	-	timeout 30 git -C @UNIT@ status
+defer	read	bash	-	-	digit_count=1 sh -c 'git status'
+defer	read	bash	-	-	git reflog -n 5
+defer	read	bash	-	-	git grep --or -e a -e b
+defer	read	bash	-	-	git diff origin/main...HEAD
+defer	read	bash	-	-	git branch --list
+defer	read	bash	-	-	git branch -a
+defer	read	bash	-	-	git branch --contains HEAD
+defer	read	bash	-	-	git config --get remote.origin.url
+defer	read	bash	-	-	git config get remote.origin.url
+defer	read	bash	-	-	git remote -v
+defer	read	bash	-	-	git worktree list
+defer	read	bash	-	-	git stash list
+defer	read	bash	-	-	git symbolic-ref --short HEAD
+defer	read	bash	-	-	gh pr view 42
+defer	read	bash	-	-	jq . @HOME@/.claude/settings.json
+defer	read	bash	-	-	cat .claude/settings.local.json
+defer	read	bash	-	-	jq .mcpServers @HOME@/.claude.json 2>/dev/null
+defer	read	bash	-	-	cat config/tower-settings.json
+defer	read	bash	-	-	cat ~/.claude/settings.json
+defer	read	bash	-	-	ls ~/.claude/
+defer	read	bash	-	-	echo "which settings? none"
+defer	read	bash	-	-	gh issue comment 3 --body 'see the settings [docs]'
+defer	read	bash	-	-	@HOME@/.claude/plugins/cache/planwright/scripts/spec-status.sh
+defer	scratch-write	file	-	-	Write @SCRATCH@/relay-message.txt
+defer	scratch-write	file	-	-	Write @HOME@/.claude/projects/proj/memory/note.md
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git ls-remote --u=/tmp/x.sh .'
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git cat-file --fil HEAD:x'
+deny	git-mutation	bash	-	runs no git mutation	git ls-remote --u=/tmp/x.sh .
+defer	read	bash	-	-	timeout 30 git log --until=yesterday
+defer	read	bash	-	-	timeout 30 git rev-list --filter=blob:none HEAD
+defer	help-prompt	bash	-	-	git help status
+defer	help-prompt	bash	-	-	git help --web status
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git help --web status'

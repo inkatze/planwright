@@ -1,0 +1,1 @@
+- 2026-10-26 [planwright] CI's pinned Claude Code CLI moved from 2.1.179 to 2.1.310 for the panel mod's tests, which puts it above the fleet-messaging floor; fleet-messaging's test-spec and design still argue a rejected alternative partly from CI's CLI sitting below that floor, so the version half of that argument no longer holds (the no-messaging-session half still does)

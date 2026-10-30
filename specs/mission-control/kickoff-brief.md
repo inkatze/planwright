@@ -548,6 +548,225 @@ Self-critique pass: nothing further.
 
 Signed off: 2026-10-24
 
+### Execution research: Task 5 (2026-10-25, after sign-off)
+
+Recorded during Task 5's execution, after the sign-off above, as
+`/execute-task`'s research step appends to the risk register. It is not
+part of the walked and signed section and changes no decision; the sign-off
+in section 8 covers the brief as it stood on 2026-10-24.
+
+Scoping: version-sensitive APIs only (the forge's GraphQL schema and the
+fleet's two session relays); no new dependency, so a short pass against
+primary sources.
+
+- **Forge read shape.** One GraphQL query per repository carries the rate
+  limit, the viewer, and per pull request the head, draft state,
+  mergeability, review decision, thread resolution, the rollup check state
+  and the review and comment counts; checked live against the forge with
+  gh's built-in jq, which has `fromdateiso8601`. The patch id needs a
+  diff read per pull request, so the adapter carries it forward while the
+  head is unchanged. Tradeoff: the newest 50 open pull requests and the
+  first 100 threads per pull request, stated in the adapter's header.
+- **Row 5 (submit or stage).** The relay ships here as Task 5 requires,
+  on what the fleet's own relays already document: the stream-json steer
+  writes a user turn on the worker's stdin (a submit), and the tmux
+  buffer-paste deliberately loads no newline (a stage, measured in
+  `scripts/orchestrate-relay.sh`). The tick re-sends anything not
+  submitted, so a staged or refused wake is found within one tick. Task
+  7's research record still decides the mod's path and may refine the
+  per-backend table; no new risk.
+- **Adapter registration.** Registered through a `snapshot-adapters`
+  catalog merged by the existing catalog resolver, the shape D-3 chose for
+  duties, so a later bundle adds an adapter with an overlay entry and no
+  seam change.
+
+### Execution research: Task 7 (2026-10-26, after sign-off)
+
+Recorded during Task 7's execution, as the Task 5 record above was; it
+changes no decision and is not part of the signed section.
+
+Scoping: one version-sensitive API (the Claude Code mods API, read from the
+type declarations and validator the installed CLI ships, 2.1.310) and the
+relay question risk row 5 left to this task; no new dependency, so a short
+pass against those primary sources and local probes.
+
+- **Row 5, per backend (submit or stage).**
+
+  | Path | Submits or stages | Fallback |
+  | --- | --- | --- |
+  | The mod (`$.prompt.submit`) | Submits: the prompt starts a turn of its own once the session is idle, and the call resolves as that turn starts. The mod holds a wake while its session is busy and marks the events submitted only after the call resolves. | Its own tick, at the tick cadence. |
+  | stream-json, stream-json-persistent (`fleet-streamjson.sh steer`) | Submits: a user turn on the worker's stdin. | The daemon tick. |
+  | tmux (`orchestrate-relay.sh deliver tmux`) | Stages only: a buffer paste with no newline. | The daemon tick re-stages until the session acknowledges. |
+  | Any other backend (a one-shot print run, a cloud session) | Neither: no session relay reaches it, and the relay reports it unreachable. | None; a wake cannot reach such a session at all. |
+
+- **Idle.** The API has no idle query. The mod tracks the main loop's
+  `turn.start` and `turn.complete` and holds a wake between them, then
+  submits it as the turn completes; a timer alone would wait a redraw.
+- **Context and limits.** `$.session.usage()` carries the context percent
+  and the rate-limit windows the status line shows; either may be absent
+  (no reading yet, no subscription), so the completed-wake count stands in
+  for the percent exactly as D-29 states.
+- **Compaction.** The `session.compact` hook appends the rendered rules to
+  the compacted conversation on its way up, rather than appending a row
+  after it, which could land before the engine replaces the transcript. A
+  deferral is a `skip`, never for a manual compaction, only while a
+  handover verb is installed, and not past 95% context.
+- **Packaging.** The module is listed in a second hooks file the manifest's
+  `hooks` field names, so `hooks/hooks.json` and its guard hooks are
+  untouched; `claude plugin details` lists every event that file registers
+  with the field in place. Whether a CLI below the floor reads the second
+  file cleanly was not probed (a second CLI install is ruled out for
+  workers); the floor is the accepted dependency of risk row 6.
+- **Tests.** The plugin-test kit offers no filesystem or process access,
+  so the mod reads every store through one script whose output the tests
+  supply; that script is tested in the shell suite against real fixture
+  stores. Each plugin test was checked to fail under a mutation of the
+  behaviour it covers before it was trusted.
+- **Edges to later units.** The presence marker is the producer side the
+  routed queue amendment's presence verb reads; the measures file is what
+  Task 9's measures write; the `handover-due` event is what Task 16 acts
+  on; the decisions log is read in the layout Task 8 writes. Each absent
+  store draws as absent, never as empty.
+
+### Execution research: Task 4 (2026-10-27, after sign-off)
+
+Recorded during Task 4's execution, as the records above were; it changes
+no decision and is not part of the signed section.
+
+Scoping: two security-touching patterns (a script that copies files out of a
+worktree into the program home, and one that removes a worktree) and the
+process-table read liveness rests on; no new dependency, so a short pass of
+local probes against the installed git and the existing fleet scripts.
+
+- **Ignored files and removal.** A probe showed `git worktree remove`
+  deletes a clean worktree's ignored files without a word, so the backup
+  must finish and verify before the removal starts, never after.
+- **Removal reused, not rebuilt.** `scripts/fleet-cleanup.sh worktree`
+  already removes a worktree on positive evidence (clean, and pushed or
+  merged at exactly its head), behind the daemon gate, the self-target
+  guard and the audit trail. The reclaim runs its own predicate and backup,
+  then hands the removal to that arm from the main checkout.
+- **A worker-written `.git` file.** A worktree's `.git` file is the
+  worker's to write, and git trusts it: a review pass showed a forged one
+  pointing at a repository built in the worktree runs `core.fsmonitor`
+  during a plain `git status`. The reclaim takes the worktree only when the
+  program repository's own `worktrees/<id>/gitdir` points back at it,
+  names that git directory on its own calls on the worktree, and turns
+  `core.fsmonitor` and hooks off for every git call that reads it, the
+  removal's included, through git's environment configuration. A submodule
+  is refused outright: its git directory is the worker's to configure and
+  status would run its filters.
+- **Copying out of a worktree.** Only files git reports ignored are copied;
+  a symbolic link is never followed, a file name holding a newline is
+  refused (it would split the file list), and a source or destination
+  directory that resolves outside its root is refused, so a worktree cannot
+  steer a copy of an arbitrary file into the program home or a copy out of
+  it. A refusal before the removal takes back the copies and folders it
+  made, so none blocks the next attempt; once the removal starts the copies
+  stay, since a removal failing partway may already have deleted their
+  sources.
+- **Untracked files.** `git status` honours `status.showUntrackedFiles`, so
+  the clean check names `--untracked-files=all`: with `no` set, an untracked
+  file passed and `git worktree remove` deleted it.
+- **Liveness.** Death is `scripts/fleet-death-evidence.sh`'s positive
+  verdict, which tells lost observability from a gone process: a tmux
+  window gone from a healthy server, or the pid in it gone; a stream-json
+  worker's recorded pid gone, or a state directory whose supervisor removed
+  both pidfiles on exit. A window id is trusted only while the window
+  still carries the session's name. "In use" is any process the reclaim
+  can see whose working directory is in the worktree, read from procfs or,
+  where there is none, `lsof`; in practice those are the operator's own,
+  since another user's are not visible without privilege, and a procfs
+  that hides this process's own working directory refuses the reclaim.
+- **Pane signals.** The selector, staged-paste, busy and input-box markers
+  come from `scripts/fleet-pane-vocabulary.sh`, the one place the TUI's
+  text is pinned, matched as whole strings: under `LC_ALL=C` a bracket class
+  of box glyphs matches single bytes, which a review pass caught skipping
+  every line opening with a bullet glyph. The busy-unchanged hash drops
+  spinner lines, whose timer ticks every second, so only the work above
+  them counts as change.
+
+### Execution research: Task 16 (2026-10-28, after sign-off)
+
+Recorded during Task 16's execution, as the records above were; it changes
+no decision and is not part of the signed section.
+
+Scoping: one version-sensitive question, how a successor takes the program
+name unattended (D-30's research item), read from the installed CLI
+(2.1.312: its `--help` and the mods session surface its binary carries) and
+the CLI's session documentation; no new dependency, so a short pass.
+
+- **What the harness offers.** A session's name is a display name set at
+  launch (`claude -n <name>`: the prompt box, the resume picker and the
+  terminal title) or by the interactive `/rename` command inside that
+  session; `--resume` finds a session by id or that name. The mods session
+  surface has no rename or name-transfer call. Public issue reports of
+  renamed sessions that resume by name cannot find (several CLI versions)
+  argue against building on it.
+- **The takeover path chosen.** The program name is planwright's own
+  holder record under the program's runtime directory, moved by
+  `scripts/mc-handover.sh take` (or `resume`) once the predecessor releases
+  (or the handover window closes), never the harness's display name. Sessions
+  reach mission control through the event store and the wake, which
+  address the program, so the transfer is unattended for every session the
+  launcher started.
+- **The one-act fallback.** Where the holder is the operator's own
+  session, the harness cannot move the operator's terminal to a launched
+  successor, so a handover launch over it is refused (`launch --handover`
+  exits 4): the
+  handover is offered on the panel as one operator act (one command opening
+  a fresh session that runs the mission-control command with the program
+  name), which runs as the resume. This is the D-30 fallback, never a degraded session.
+- **Tests.** Each guarded behaviour in the shell suite was checked to fail
+  under a mutation of it before it was trusted.
+
+Sources: `claude --help` (2.1.312, `-n/--name`, `-r/--resume`); Claude Code
+sessions documentation, <https://code.claude.com/docs/en/sessions>; public
+reports such as <https://github.com/anthropics/claude-code/issues/26249>.
+
+### Execution research: Task 10 (2026-10-28, after sign-off)
+
+Recorded during Task 10's execution, as the records above were; it changes
+no decision and is not part of the signed section.
+
+Scoping: one version-sensitive API (the forge's review-thread GraphQL
+shape, read the way the Task 5 adapter reads its fields) and several
+security-touching patterns (git reads over branch names, a command named by
+a knob, a guard fed a synthetic payload); no new dependency, so a short pass
+of local probes.
+
+- **Readiness from primary evidence.** The collector reads each check
+  context on its own, never the rollup, so a red context under a green
+  rollup fails the walk; a thread opened by a bot is a finding, answered
+  once resolved or replied to by a person other than the pull request's
+  author, whose own sessions post under that login. A finding written only in a
+  review body is not read: its answered state has no general marker, so the
+  walk leaves it to the reviewer duty a follow-on bundle owns.
+- **The guard composed, not reimplemented.** The ready-flip floor is
+  `scripts/ready-guard.sh`, fed the flip it would refuse as data;
+  `ready-flip.sh evaluate` is not called, since its reconcile can commit and
+  push, and mission control writes no repository.
+- **Gate conditions.** A per-program file in the program home, refused
+  whole when any line would authorize a merge or ask for a flip the
+  configured policy does not allow; nothing evaluates from a refused file.
+- **Branch names and commands.** Branch and ref names are checked against a
+  conservative grammar (no leading dash, no `..`) before any git call; the
+  clipboard command is `auto` or an absolute path, run with the draft on
+  stdin and never through a shell.
+- **A worker's git configuration.** Every git read mission control makes in
+  a worker-written checkout (the packet's log, the step records a walk
+  collects) or over worker-pushed branches (the radar's diffs) runs with
+  fsmonitor, hooks, signature display and lazy fetching off, and no
+  inherited repository selector, through the environment, which outranks the
+  checkout's own configuration: a probe showed a partial-clone checkout otherwise runs its
+  ssh command on a missing commit. The clipboard command is never read from
+  the repo-tracked layer.
+- **The duty catalog's list form.** The session-keeper's triggers do not
+  fit the line-length lint on one line, and the reader took only one-line
+  lists. The catalog grammar (D-3's API surface, a low-stake additive call)
+  now lets a flow list wrap onto deeper-indented lines, joined by both the
+  merge path and the duties reader; a one-line list reads as before.
+
 ## 8. Sign-off
 
 First activation, full walkthrough, every section above signed, no

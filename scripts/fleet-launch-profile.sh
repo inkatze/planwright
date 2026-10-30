@@ -1,7 +1,9 @@
 #!/bin/sh
 # fleet-launch-profile.sh — print the settings profile a fleet launch seam
 # passes with `--settings` (fleet-messaging D-19): `worker` for the three
-# worker dispatch seams, `tower` for the fleet tower launches.
+# worker dispatch seams, `tower` for the fleet tower launches, and
+# `mission-control` for scripts/mission-control-launch.sh, which also
+# resolves the other two for the session kinds it starts.
 #
 # The profile is `<root>/config/<kind>-settings.json`, the root being --root
 # when the seam already holds the one it pins its session to, else the one the
@@ -14,7 +16,7 @@
 # a symbolic link is refused with the path named, and the seam refuses its
 # launch on that exit.
 #
-# Usage: fleet-launch-profile.sh worker|tower [--root <abs-dir>]
+# Usage: fleet-launch-profile.sh worker|tower|mission-control [--root <abs-dir>]
 # Exit: 0 the absolute path printed; 1 the profile cannot be read (named on
 #   stderr); 2 usage, or no root resolves.
 #
@@ -28,13 +30,13 @@ unset CDPATH
 me=fleet-launch-profile
 
 usage() {
-  printf '%s\n' "usage: $me worker|tower [--root <abs-dir>]" >&2
+  printf '%s\n' "usage: $me worker|tower|mission-control [--root <abs-dir>]" >&2
   exit 2
 }
 
 [ "$#" -ge 1 ] || usage
 case $1 in
-  worker | tower) kind=$1 ;;
+  worker | tower | mission-control) kind=$1 ;;
   *) usage ;;
 esac
 shift

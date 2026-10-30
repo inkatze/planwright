@@ -122,10 +122,15 @@ The growable catalogs are **decision-domains** (the catalog behind the
 drift triggers), the builder's **guard catalog**, **steps** (the step
 definitions the attachment points run, §8), **vendors** (the adapters
 that recognize a metered service's limit refusals; see
-[Vendor quotas](quota.md)), and **discipline-cards** (the persona-seat card
+[Vendor quotas](quota.md)), **discipline-cards** (the persona-seat card
 catalog; each entry's card file sits beside its layer's catalog, under
 `cards/` or `cards.local/`; see
-[Discipline Cards](../doctrine/discipline-cards.md)).
+[Discipline Cards](../doctrine/discipline-cards.md)), **duties** (mission
+control's duty catalog; `config/duties.yaml`'s header holds the entry
+grammar), and **snapshot-adapters** (the adapter each snapshot-mode source
+of a mission-control program is refreshed by;
+`config/snapshot-adapters.yaml` holds the entry grammar and
+`scripts/mc-snapshot.sh --help` the adapter contract).
 
 ## 3. How each kind merges
 
@@ -545,8 +550,12 @@ of the hook.
 
 **Trust posture.** Step catalogs and point lists are read only from the
 human-owned layers. The core and adopter layers sit outside the worktree and
-outside a dispatched worker's write set. The repo-tracked and machine-local
-layers are the repository's own, so they get the trust the hook already
+outside a dispatched worker's write set. The core catalog is the one under
+the hook's own installation root, never under a root the environment names:
+when a worker's launch points `PLANWRIGHT_ROOT` or `CLAUDE_PLUGIN_ROOT` at
+another install than the hook's, a step only that install's core catalog
+declares defers to the normal prompt, for task and flight workers alike. The
+repo-tracked and machine-local layers are the repository's own, so they get the trust the hook already
 gives a script under the repository's `scripts/`: repository code is trusted
 to run. Declaring a command step in `.claude/catalogs/steps.yaml` is
 therefore a decision to let every worker in that repository run the line

@@ -120,9 +120,11 @@ printf 'ghost=%s\n' "${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >>"$SHIM_R
 printf 'plugin_root=%s\n' "${CLAUDE_PLUGIN_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'spec_root=%s\n' "${PLANWRIGHT_WORKER_SPEC_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'record=%s\n' "${PLANWRIGHT_WORKER_SESSION_RECORD-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'tmpdir=%s\n' "${TMPDIR-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'handle=%s\n' "${PLANWRIGHT_WORKER_HANDLE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'scope=%s\n' "${PLANWRIGHT_WORKER_SCOPE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'inbound=%s\n' "${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'launch_token=%s\n' "${PLANWRIGHT_WORKER_LAUNCH_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
 n=${SHIM_READ_FIRST:-1}
 i=0
 while [ "$i" -lt "$n" ]; do
@@ -772,6 +774,90 @@ chmod 644 "$tmp/badroot/config/worker-settings.json"
 echo "ok: c9 pinned non-bare launch shape with the settings pin, prompt-as-data, --bare and --settings refused, missing fragment fails closed (REQ-A1.9, D-12, D-19)"
 
 # ---------------------------------------------------------------------------
+# c9p (mission-control REQ-G1.1): --profile pins another shipped fragment by
+#    kind, a recover relaunches under the recorded one, and anything else is
+#    refused.
+# ---------------------------------------------------------------------------
+for kind in tower mission-control; do
+  : >"$rec/argv"
+  senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+    launch "sjw9p-$kind" mission-control:3 --prompt-file "$tmp/prompt9" --profile "$kind" --foreground \
+    || fail "c9p: a --profile $kind launch exited non-zero"
+  case $(cat "$rec/argv") in
+    *"--settings "*"/config/$kind-settings.json"*) : ;;
+    *) fail "c9p: a --profile $kind launch must pin $kind-settings.json: $(cat "$rec/argv")" ;;
+  esac
+  [ "$(cat "$home/streamjson/sjw9p-$kind/profile" 2>/dev/null)" = "$kind" ] \
+    || fail "c9p: the launch must record the $kind profile for its recover"
+done
+: >"$rec/argv"
+senv "$home" "$rec" -- \
+  launch sjw9q mission-control:3 --prompt-file "$tmp/prompt9" --profile "$tmp/other.json" --foreground >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c9p: a --profile that is not a shipped kind must be refused (exit 2)"
+[ ! -s "$rec/argv" ] || fail "c9p: the refused --profile launch must never spawn the worker"
+mkdir -p "$home/streamjson/sjw9t"
+printf 'mission-control:3\n' >"$home/streamjson/sjw9t/scope"
+printf 'tower\n' >"$home/streamjson/sjw9t/profile"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- \
+  launch sjw9t --resume-session "$sid" --foreground >/dev/null 2>&1
+case $(cat "$rec/argv") in
+  *"--settings "*"/config/tower-settings.json"*) : ;;
+  *) fail "c9p: a relaunch must pin the recorded tower profile: $(cat "$rec/argv")" ;;
+esac
+printf 'bogus\n' >"$home/streamjson/sjw9t/profile"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- \
+  launch sjw9t --resume-session "$sid" --foreground >/dev/null 2>&1
+[ $? -eq 7 ] || fail "c9p: a relaunch with an unknown recorded profile must be refused (exit 7)"
+[ ! -s "$rec/argv" ] || fail "c9p: the refused relaunch must never spawn the worker"
+# Only a worker carries the worker identity.
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_WORKER_HANDLE=stale PLANWRIGHT_WORKER_LAUNCH_TOKEN=aaaaaaaaaaaaaaaa -- \
+  launch sjw9i mission-control:3 --prompt-file "$tmp/prompt9" --profile tower --foreground \
+  || fail "c9p: the identity-case tower launch exited non-zero"
+if ! grep -qx 'handle=<unset>' "$rec/env" || ! grep -qx 'scope=<unset>' "$rec/env"; then
+  fail "c9p: a tower-profile session must carry no worker identity: $(cat "$rec/env")"
+fi
+grep -qx 'inbound=accept' "$rec/env" || fail "c9p: a tower-profile session must still accept inbound messages"
+grep -qx 'launch_token=<unset>' "$rec/env" || fail "c9p: a tower-profile session must carry no worker launch token"
+[ "$(cat "$home/streamjson/sjw9i/profile")" = tower ] && [ ! -e "$home/streamjson/sjw9i/profile.tmp" ] \
+  || fail "c9p: the profile record must be written whole, with no temporary left"
+# A recover with no recorded profile: a worker's from before the record
+# existed keeps the worker fragment, a mission-control launch's is refused.
+mkdir -p "$home/streamjson/sjw9old"
+printf 'mission-control:3\n' >"$home/streamjson/sjw9old/scope"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9old --resume-session "$sid" --foreground >/dev/null 2>&1
+case $(cat "$rec/argv") in
+  *"--settings "*"/config/worker-settings.json"*) : ;;
+  *) fail "c9p: a recover with no record must keep the worker fragment: $(cat "$rec/argv")" ;;
+esac
+mkdir -p "$home/streamjson/mc-alpha-tower-0123456789"
+printf 'mission-control:3\n' >"$home/streamjson/mc-alpha-tower-0123456789/scope"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch mc-alpha-tower-0123456789 --resume-session "$sid" --foreground >/dev/null 2>&1
+[ $? -eq 7 ] || fail "c9p: a mission-control recover with no recorded profile must be refused (exit 7)"
+[ ! -s "$rec/argv" ] || fail "c9p: the refused mission-control recover must never spawn"
+# The preflight proves the worker guard, so only a worker launch needs it.
+mkdir -p "$tmp/nowg"
+cp -R "$here/../scripts" "$tmp/nowg/scripts"
+cp -R "$here/../config" "$tmp/nowg/config"
+rm -f "$tmp/nowg/scripts/worker-command-guard.sh"
+for kind in worker tower; do
+  : >"$rec/argv"
+  env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+    SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" /bin/sh "$tmp/nowg/scripts/fleet-streamjson.sh" \
+    launch "sjw9g-$kind" mission-control:3 --prompt-file "$tmp/prompt9" --profile "$kind" --foreground >/dev/null 2>&1
+  pf_rc=$?
+  case $kind in
+    worker) [ "$pf_rc" -eq 9 ] || fail "c9p: a worker launch with no worker guard must fail its preflight (exit 9), got $pf_rc" ;;
+    tower) [ "$pf_rc" -eq 0 ] || fail "c9p: a tower launch must not run the worker-guard preflight, got $pf_rc" ;;
+  esac
+done
+echo "ok: c9p --profile pins a shipped fragment by kind and a recover keeps it (mission-control REQ-G1.1)"
+
+# ---------------------------------------------------------------------------
 # c39 (custom-spec-location REQ-E1.7): the spec-root hand-off. A worker whose
 #     work repository keeps its spec root outside it (here a plain store) gets
 #     that root as PLANWRIGHT_WORKER_SPEC_ROOT; a worker whose root is in its
@@ -819,6 +905,72 @@ esac
 grep -qx "worktree_root=$(cd "$tmp/wt39" && pwd -P)" "$rec39" 2>/dev/null \
   || fail "c39: the worker's session record does not name its worktree"
 echo "ok: c39 the worker gets a fresh session record, never an inherited one (REQ-G1.8)"
+# The worker's scratch root (worker-permission-ergonomics REQ-G1.2): its
+# TMPDIR, and only the worker's, is the worktree's root under the fleet home,
+# which its session record names; a recover keeps it, contents and all, and
+# so does a stop, which a recover may follow.
+wt39=$(cd "$tmp/wt39" && pwd -P)
+root39="$(cd "$tmp/h39" 2>/dev/null && pwd -P)/scratch/$(printf '%s' "$wt39" | git hash-object --stdin)"
+tmp39=$(grep '^tmpdir=' "$tmp/r39/env" | tail -n 1)
+[ "${tmp39#tmpdir=}" = "$root39" ] && [ -d "$root39" ] \
+  || fail "c39: the worker's TMPDIR was '${tmp39#tmpdir=}', expected the worktree's scratch root $root39"
+grep -qx "scratch_root=$root39" "$rec39" 2>/dev/null \
+  || fail "c39: the worker's session record does not name its scratch root"
+: >"$root39/kept"
+recover39() {
+  (
+    for _v in $(env | sed -n 's/^\(PLANWRIGHT_[A-Za-z0-9_]*\)=.*/\1/p'); do
+      unset "$_v"
+    done
+    cd "$tmp/wt39" && senv "$tmp/h39" "$tmp/r39" GIT_CEILING_DIRECTORIES="$tmp" \
+      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 SHIM_EVENTS="$tmp/ev9" SHIM_READ_FIRST=0 -- \
+      recover sjw39b --foreground
+  ) >/dev/null 2>&1
+}
+n39=$(grep -c '^tmpdir=' "$tmp/r39/env")
+recover39 || fail "c39: the recover exited non-zero"
+tmp39=$(grep '^tmpdir=' "$tmp/r39/env" | tail -n 1)
+[ "$(grep -c '^tmpdir=' "$tmp/r39/env")" -gt "$n39" ] && [ "${tmp39#tmpdir=}" = "$root39" ] \
+  && [ -f "$root39/kept" ] \
+  || fail "c39: the recovered worker's TMPDIR was '${tmp39#tmpdir=}', or it never ran, or the root lost its contents"
+senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 >/dev/null 2>&1 || fail "c39: the stop exited non-zero"
+[ -f "$root39/kept" ] || fail "c39: the stop removed the scratch root a recover may still need"
+n39=$(grep -c '^tmpdir=' "$tmp/r39/env")
+recover39 || fail "c39: the recover after the stop exited non-zero"
+[ "$(grep -c '^tmpdir=' "$tmp/r39/env")" -gt "$n39" ] && [ -f "$root39/kept" ] \
+  || fail "c39: the recover after a stop did not find the same root"
+senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 --final >/dev/null 2>&1 || fail "c39: the final stop exited non-zero"
+[ ! -e "$root39" ] && [ ! -e "$tmp/h39/streamjson/sjw39b/scratch-root" ] \
+  || fail "c39: the final stop left the scratch root or its pointer behind"
+echo "ok: c39 the worker's TMPDIR is its worktree's scratch root, kept across a recover and a stop, removed by the final stop (REQ-G1.2)"
+# The final close removes only a pointer of the writer's own shape,
+# <fleet-home>/scratch/<sha1>, and never through a symlink; a read-only
+# directory the worker left does not stop the removal.
+h39r=$(cd "$tmp/h39" && pwd -P)
+mkdir -p "$tmp/u39" "$tmp/out39/keep" "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro/deep"
+chmod 500 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"
+ln -s "$tmp/out39" "$h39r/scratch/$(printf 'b%.0s' $(seq 40))"
+release39() {
+  printf '%s\n' "$1" >"$tmp/u39/scratch-root"
+  (
+    # shellcheck source=scripts/fleet-stop-lib.sh
+    . "$here/../scripts/fleet-stop-lib.sh"
+    stop_scratch_root_release "$tmp/u39" "$tmp/h39"
+  )
+}
+for bad39 in "$tmp/out39" "$h39r/scratch/../../out39" "$h39r/scratch/$(printf 'g%.0s' $(seq 40))" \
+  "$h39r/scratch/$(printf 'a%.0s' $(seq 39))" "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"; do
+  ! release39 "$bad39" && [ -f "$tmp/u39/scratch-root" ] \
+    || fail "c39: the final close accepted the pointer '$bad39'"
+done
+[ -d "$tmp/out39/keep" ] && [ -d "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro/deep" ] \
+  || fail "c39: a refused pointer removed something"
+release39 "$h39r/scratch/$(printf 'b%.0s' $(seq 40))" >/dev/null 2>&1
+[ -d "$tmp/out39/keep" ] || fail "c39: the final close followed a symlinked root out of the fleet home"
+release39 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" && [ ! -e "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" ] \
+  && [ ! -e "$tmp/u39/scratch-root" ] \
+  || fail "c39: the final close did not remove a root holding a read-only directory"
+echo "ok: c39 the final close removes only a scratch root of the writer's shape, through no symlink (REQ-G1.2)"
 
 # ---------------------------------------------------------------------------
 # c10: hostile inputs are refused before any path use.

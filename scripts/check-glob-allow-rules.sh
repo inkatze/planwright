@@ -29,6 +29,7 @@
 #      requirement is vacuously satisfied (this is what lets Task 6 land
 #      independently of Task 7, brief §6), and becomes enforced the moment the
 #      profile ships — so a later tower-settings author cannot omit it silently.
+#      The mission-control profile carries it too wherever it ships.
 #
 # Usage:
 #   check-glob-allow-rules.sh              full check: footgun scan over
@@ -38,7 +39,7 @@
 #
 # Doc-presence paths are overridable via env (defaults resolve under the repo
 # root): GLOB_ALLOW_OVERLAYS, GLOB_ALLOW_GHOST_DOC, GLOB_ALLOW_WORKER_SETTINGS,
-# GLOB_ALLOW_TOWER_SETTINGS.
+# GLOB_ALLOW_TOWER_SETTINGS, GLOB_ALLOW_MC_SETTINGS.
 #
 # Exit codes: 0 clean, 1 a footgun rule or a missing doc/cross-reference, 2
 # usage error (an input file that does not exist or cannot be read — fail
@@ -122,11 +123,12 @@ doc_has() {
 
 # run_doc_presence — verify the guidance and cross-references exist.
 run_doc_presence() {
-  local overlays ghost worker tower
+  local overlays ghost worker tower mc
   overlays="${GLOB_ALLOW_OVERLAYS:-$repo_root/docs/overlays.md}"
   ghost="${GLOB_ALLOW_GHOST_DOC:-$repo_root/docs/fleet.md}"
   worker="${GLOB_ALLOW_WORKER_SETTINGS:-$repo_root/config/worker-settings.json}"
   tower="${GLOB_ALLOW_TOWER_SETTINGS:-$repo_root/config/tower-settings.json}"
+  mc="${GLOB_ALLOW_MC_SETTINGS:-$repo_root/config/mission-control-settings.json}"
 
   # 1. Guidance section present in the adopter allow-rule guidance.
   if ! doc_has "$overlays" "$GUIDE_HEADING"; then
@@ -152,6 +154,11 @@ run_doc_presence() {
     fi
   else
     echo "check-glob-allow-rules: tower-settings profile not present yet ($tower) — tower-guard cross-reference deferred to Task 7"
+  fi
+  # 5. The mission-control profile carries the note wherever it ships.
+  if [ -f "$mc" ] && ! doc_has "$mc" "$NOTE_MARKER"; then
+    echo "check-glob-allow-rules: mission-control profile $mc lacks the path-scoped allow-rule note ('$NOTE_MARKER …')" >&2
+    status=1
   fi
 }
 

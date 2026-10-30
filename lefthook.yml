@@ -41,3 +41,18 @@ pre-commit:
     - name: anchor-freshness
       glob: "specs/**"
       run: /bin/sh scripts/check-anchor-freshness.sh
+
+    # Measures the working-tree content of the staged surface files (the limit
+    # named above); `mise run check` is normative. In these globs `*` crosses
+    # `/`, as the guard's own surface match does.
+    - name: comment-budget
+      glob:
+        - "scripts/*.sh"
+        - "tests/*.sh"
+        - "githooks/*"
+        - "hooks/*.sh"
+        - "config/*.{yml,yaml}"
+        - "lefthook.yml"
+        - "mise.toml"
+        - ".github/workflows/*.{yml,yaml}"
+      run: /bin/sh scripts/check-comment-budget.sh {staged_files}

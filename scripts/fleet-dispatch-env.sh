@@ -90,6 +90,11 @@
 #                                               guard reads its self-approval
 #                                               policy and unit identity from
 #                                               (scripts/worker-session-record.sh)
+#                                             --tmpdir <dir>
+#                                               an existing absolute directory,
+#                                               exported as TMPDIR: the
+#                                               worker's scratch root its
+#                                               session record names
 #                                           A malformed or half-supplied option is
 #                                           refused (exit 2) before anything runs.
 #                                           Any launch option but --inbound
@@ -169,7 +174,7 @@ usage() {
   echo "usage: fleet-dispatch-env.sh <cmd> [args...]           (exec <cmd> with the hardened dispatch env)" >&2
   echo "       fleet-dispatch-env.sh --print                   (print the KEY=VALUE assignment(s), one per line)" >&2
   echo "       fleet-dispatch-env.sh --emit-launch <argv...>   (print the pin-carrying wrapped launch command line)" >&2
-  echo "       fleet-dispatch-env.sh [--check] [--identity <handle> <scope>] [--launch-token <hex>] [--root <dir>] [--fleet-home <dir>] [--spec-root <dir>] [--session-record <file>] [--inbound accept] <cmd> [args...]" >&2
+  echo "       fleet-dispatch-env.sh [--check] [--identity <handle> <scope>] [--launch-token <hex>] [--root <dir>] [--fleet-home <dir>] [--spec-root <dir>] [--session-record <file>] [--tmpdir <dir>] [--inbound accept] <cmd> [args...]" >&2
   exit 2
 }
 
@@ -206,6 +211,7 @@ opt_root=''
 opt_home=''
 opt_spec_root=''
 opt_record=''
+opt_tmpdir=''
 opt_inbound=''
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -266,6 +272,14 @@ while [ "$#" -gt 0 ]; do
       opt_record=$2
       shift 2
       ;;
+    --tmpdir)
+      [ -z "$opt_tmpdir" ] || refuse_option "--tmpdir given twice"
+      if [ "$#" -lt 2 ] || ! valid_abs_path "$2" || [ ! -d "$2" ]; then
+        refuse_option "--tmpdir must name an existing directory by its absolute path"
+      fi
+      opt_tmpdir=$2
+      shift 2
+      ;;
     --inbound)
       [ -z "$opt_inbound" ] || refuse_option "--inbound given twice"
       [ "$#" -ge 2 ] && [ "$2" = accept ] || refuse_option "--inbound takes the one value accept"
@@ -276,7 +290,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 opt_pins=0
-[ -z "$opt_handle$opt_token$opt_root$opt_home$opt_spec_root$opt_record" ] || opt_pins=1
+[ -z "$opt_handle$opt_token$opt_root$opt_home$opt_spec_root$opt_record$opt_tmpdir" ] || opt_pins=1
 opt_any=0
 [ "$opt_check" -eq 0 ] && [ "$opt_pins" -eq 0 ] && [ -z "$opt_inbound" ] || opt_any=1
 if [ "$opt_any" -eq 1 ]; then
@@ -485,6 +499,10 @@ fi
 if [ -n "$opt_record" ]; then
   PLANWRIGHT_WORKER_SESSION_RECORD=$opt_record
   export PLANWRIGHT_WORKER_SESSION_RECORD
+fi
+if [ -n "$opt_tmpdir" ]; then
+  TMPDIR=$opt_tmpdir
+  export TMPDIR
 fi
 if [ -n "$opt_inbound" ]; then
   PLANWRIGHT_MESSAGING_INBOUND=$opt_inbound

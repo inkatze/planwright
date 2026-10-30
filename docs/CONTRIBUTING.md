@@ -123,8 +123,9 @@ mise run check      # the full local equivalent of the CI gate
   runner (`check:guard-wiring`), and every `check:`/`lint:`/`scan:` task must
   be reachable from the aggregate (`check:task-registration`), so a guard task
   can never exist only in CI logs;
-- the instruction-budget guard over skills and doctrine, and the advisory
-  emit-sidedness report.
+- the instruction-budget guard over skills and doctrine, the comment-block
+  budget guard over the comments in shell, config YAML, root tool config and
+  workflow files, and the advisory emit-sidedness report.
 
 The `check` task's `depends` list in `mise.toml`, with the `check:non-test`
 aggregate it names, is the authoritative inventory; the two registration
@@ -299,7 +300,16 @@ scripts/wire-githooks.sh   # sets core.hooksPath=githooks for the whole clone
 clone, and the hooks no-op cleanly on a checkout whose branch predates them.
 `mise run check` includes `check:githooks`, which fails loudly on an unwired
 or half-wired clone but never wires anything itself; CI wires explicitly and
-then verifies. The hooks bind humans too, not just agent sessions, and are
+then verifies. Claude Code's own worktree creation (EnterWorktree, an agent's
+worktree isolation, or an operator's hand-launch of a new worktree name)
+rewrites a relative `core.hooksPath` to an absolute path into the primary
+checkout, so every worktree then runs the primary checkout's hooks and
+`check:githooks` fails. planwright's own creation scripts
+(`scripts/fleet-dispatch-worktree.sh`, `scripts/spec-store-worktree.sh`)
+therefore run `wire-githooks.sh --if-tracked` in each worktree they create,
+which restores the relative value and reports the value it replaced or that
+it wired an unset one; after a native creation, re-run the wire step
+yourself. The hooks bind humans too, not just agent sessions, and are
 accident-catchers with an honestly stated boundary, not tamper-proofing:
 `--amend` combined with `-m`/`-F` carries no client-hook signal and is
 refused by the tower profile's deny globs and, for a worker, decided by the
@@ -310,7 +320,10 @@ amend, rare, means `--amend -m`/`-F` or temporarily unsetting
 `core.hooksPath`), and `git rebase --no-verify`
 bypasses `pre-rebase`. One caution inherited from tracked hooks: on an
 untrusted fork checkout, unset `core.hooksPath` before running covered git
-commands, since the checkout's own hook files would execute locally.
+commands, since the checkout's own hook files would execute locally; the
+unset lasts only until the next planwright dispatch creates a worktree in
+the clone, which wires the hooks back on (and says so), so dispatch nothing
+in that clone meanwhile.
 
 ### The anchor-freshness mirror at commit time
 
@@ -344,10 +357,25 @@ recorded before the 2026-07-26 header-`**Status:**` exclusion (or with the
 interim whole-file form) mismatches over content nobody edited and takes the
 one-time self-re-anchor described in `doctrine/spec-format.md`.
 
+### The comment-budget mirror at commit time
+
+`scripts/check-comment-budget.sh` runs as a second `pre-commit` job through
+the same wiring, measuring only the staged files of its surface. It has the
+same posture as the anchor-freshness mirror: best-effort, reading the working
+tree rather than the staged index, with `mise run check` in CI as the
+normative gate. The rule it enforces is
+[comment-hygiene](../doctrine/comment-hygiene.md).
+
 ### Commit and PR conventions
 
 - **Conventional commits** (`type(scope): subject`) — enforced on commits ahead
   of `origin/main` and on the PR title.
+- **A `comments` scope declares a comment-only PR** (`type(comments):
+  subject`). CI then requires every code line of the comment-budget guard's
+  surface files to match the base (`check-comment-budget.sh
+  --code-invariant`). CI reads the title when it runs but does not run again
+  on a title edit, so after retitling a PR into or out of that scope, push or
+  re-run its checks.
 - **Pushed history is append-only**, outside the operator-requested
   force-push and secret-purge gates
   ([the floor](../doctrine/human-gates.md#the-floor)). Rewriting `main`, a

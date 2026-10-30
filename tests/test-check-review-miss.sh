@@ -50,6 +50,16 @@ assert_exit "accepts a conforming miss text" 0 "$rc"
 run_text 'review-miss(sibling-sweep, pruned): #7 lib/c.sh: a twin site kept the bug'
 assert_exit "accepts the sibling-sweep lens" 0 "$rc"
 
+# REQ-H1.7: the audit categories' tokens are accepted, the existing ones still are.
+for r in host-dependent guard-bypass procedure-order; do
+  run_text "review-miss(tests, $r): #12 scripts/a.sh: a miss in the $r category"
+  assert_exit "accepts the reason token $r" 0 "$rc"
+done
+run_text 'review-miss(procedure-tracing, procedure-order): #12 skills/x/SKILL.md: a step ran before its input existed'
+assert_exit "accepts the procedure-tracing lens" 0 "$rc"
+run_text 'review-miss(cross-file, outside-diff): #12 scripts/a.sh: an existing-token miss'
+assert_exit "still accepts an existing-token text" 0 "$rc"
+
 run_text 'review-miss(correctness, pruned): scripts/a.sh: no PR number'
 assert_exit "refuses a text without a PR number" 1 "$rc"
 assert_contains "names the grammar on refusal" "review-miss(<lens>, <reason>): #<pr> <path>:" "$out"
@@ -107,9 +117,14 @@ printf '%s\n' "- 2026-10-01 [planwright] an unrelated observation that discusses
 
 printf '%s\n' "- 2026-10-01 [planwright] review-missing tests let the cost metric drift" >"$obs/entries/2026-10-01-cost-drift-0000c0c0.md"
 
+printf '%s\n' "- 2026-10-01 [planwright] review-miss(tests, host-dependent): #47 tests/h.sh: the test read the host's umask" >"$obs/entries/2026-10-01-review-miss-0000a1a1.md"
+printf '%s\n' "- 2026-10-01 [planwright] review-miss(security, guard-bypass): #48 hooks/g.sh: a quoted spelling slipped the guard" >"$obs/entries/2026-10-01-review-miss-0000a2a2.md"
+printf '%s\n' "- 2026-10-01 [planwright] review-miss(procedure-tracing, procedure-order): #49 skills/s/SKILL.md: a step read state a later step writes" >"$obs/entries/2026-10-01-review-miss-0000a3a3.md"
+
 rc=0
 out=$(/bin/sh "$CHECK" --obs-dir "$obs" 2>&1) || rc=$?
-assert_exit "a store of conforming misses and other fragments is clean" 0 "$rc"
+assert_exit "a store of conforming misses, new and existing tokens alike, and other fragments is clean" 0 "$rc"
+rm -f "$obs"/entries/2026-10-01-review-miss-0000a[123]a[123].md
 
 printf '%s\n' "- 2026-10-02 [planwright] review-miss(correctness, pruned): scripts/b.sh: no PR number" >"$obs/entries/2026-10-02-review-miss-0000dddd.md"
 rc=0
@@ -243,6 +258,18 @@ rbt_read_ledger "$T/rows.tsv" "$ledger"
 assert_eq "the reader counts only the out-of-vocabulary miss as malformed" 1 "$RBT_LEDGER_MALFORMED"
 assert_contains "the reader keeps the conforming miss" "45	a.sh	pruned	correctness" "$(cat "$T/rows.tsv")"
 assert_not_contains "the reader never reads the out-of-vocabulary miss" "vibes" "$(cat "$T/rows.tsv")"
+
+ledger3="$T/ledger3"
+mkdir -p "$ledger3"
+printf '%s\n' "- 2026-10-04 [planwright] review-miss(tests, host-dependent): #60 tests/h.sh: host umask" >"$ledger3/2026-10-04-review-miss-00006060.md"
+printf '%s\n' "- 2026-10-04 [planwright] review-miss(security, guard-bypass): #61 hooks/g.sh: quoted spelling" >"$ledger3/2026-10-04-review-miss-00006161.md"
+printf '%s\n' "- 2026-10-04 [planwright] review-miss(procedure-tracing, procedure-order): #62 skills/s/SKILL.md: step order" >"$ledger3/2026-10-04-review-miss-00006262.md"
+rbt_read_ledger "$T/rows3.tsv" "$ledger3"
+assert_eq "the reader counts no new-token miss as malformed" 0 "$RBT_LEDGER_MALFORMED"
+rows3=$(cat "$T/rows3.tsv")
+assert_contains "the reader keeps a host-dependent miss" "60	tests/h.sh	host-dependent	tests" "$rows3"
+assert_contains "the reader keeps a guard-bypass miss" "61	hooks/g.sh	guard-bypass	security" "$rows3"
+assert_contains "the reader keeps a procedure-tracing, procedure-order miss" "62	skills/s/SKILL.md	procedure-order	procedure-tracing" "$rows3"
 
 rc=0
 rbt_miss_fragment "$T/gone/2026-10-04-review-miss-0000aaaa.md" || rc=$?

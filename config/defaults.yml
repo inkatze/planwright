@@ -775,6 +775,10 @@ instruction_budget_closure_floor: 1000
 # surface never fails the check. Grounded in the ~40-word present surface
 # (tool-discovery.sh) plus headroom, same test-and-measure discipline (D-13).
 instruction_budget_injected_warn: 200
+# Comment-block budget: the largest contiguous comment block per file, in
+# lines, boundary-inclusive (doctrine/comment-hygiene.md).
+comment_block_warn: 12
+comment_block_error: 25
 # Manifest-completeness assertion (prompt-hygiene REQ-A1.2, wired at Task 3). When
 # true, every skills/*/SKILL.md must declare a doctrine manifest, so a manifest-less
 # skill cannot silently under-report its start-load once manifests are the corpus
@@ -961,3 +965,126 @@ ventures_root: ~/ventures
 # values are paths on one machine, so the machine-local or adopter layer is
 # their usual home.
 observation_targets: {}
+
+# Mission control.
+# Every mission_control_* key is inventoried in config/mission-control-knobs.tsv
+# and documented in docs/options-reference.md; scripts/check-mc-knobs.sh
+# keeps the three in step.
+#
+# The programs mission control runs, an inline list of names. Each program
+# is a block of program_<name>_* keys; scripts/mc-program.sh's header holds
+# the name and field grammar. A program spans repositories, so the adopter
+# layer is the usual home of its block.
+mission_control_programs: []
+# Where a program's home defaults to, as <root>/<program>: a human-owned
+# location outside every work repository, absolute or ~/.
+mission_control_home_root: ~/.config/planwright/mission-control
+# The duties a program enables when its block names none: the shipped set in
+# config/duties.yaml.
+# yamllint disable-line rule:line-length
+mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals]
+# The state-source map a program declaring none resolves to: class:
+# source:mode entries over the fact classes (work-items, code-state,
+# decisions, deadlines, designs), mode record, snapshot or cited. A class the
+# map leaves out resolves to cited, here and in a program's own map, so
+# designs is cited by default.
+# yamllint disable-line rule:line-length
+mission_control_default_sources: {work-items: specs:record, code-state: forge:snapshot, decisions: specs:record, deadlines: specs:record}
+# The rung scripts/mission-control-launch.sh starts a session on when the
+# launch names none: stream-json (a supervised session reached by message) or
+# tmux (a detached window).
+mission_control_launch_backend: stream-json
+# The knowledge base's loading caps (scripts/mc-kb.sh): the index, loaded
+# whole at bring-up, holds at most this many entry lines; a body above the
+# entry cap, in bytes, is never read inline but offloaded to a read-only
+# session that returns an answer.
+mission_control_kb_index_budget: 150
+mission_control_kb_entry_cap: 8192
+# How many seconds a knowledge-base writer waits on another writer's lock
+# before it fails, never interleaving.
+mission_control_kb_lock_wait: 5
+# How long a busy session's pane may stay unchanged, spinner lines aside,
+# before scripts/mc-stall.sh reads it busy-unchanged. A cadence; time alone
+# never makes a stall, only beside a busy marker and an unchanged pane.
+mission_control_stall_window: 10m
+# The ignored audit files scripts/mc-reclaim.sh copies into the program
+# home's reclaim folder before a worktree goes: worktree-relative paths, a
+# `*` allowed in the last component, a directory taken whole.
+mission_control_reclaim_files: [.claude/steps, .claude/polish-audit.md, .claude/handover.md]
+# How often the watcher runner (scripts/mc-watch.sh run) makes a pass: arms
+# the enabled duties' watchers, re-arms a stopped one, relays pending wakes
+# and runs the failsafe tick. A cadence: a positive count of s, m, h or d.
+mission_control_runner_interval: 1m
+# The failsafe tick's cadence: how often a session is checked for events the
+# push did not submit, by the daemon (scripts/mc-wake.sh tick) for a session
+# without the mod and by the mod's own timer where it loads.
+mission_control_tick_cadence: 5m
+# How often the panel mod rereads the stores and redraws: the cadence its
+# wake runs at, so a pending event reaches an idle session within one.
+mission_control_panel_refresh: 10s
+# The handover trigger: the measured context percent at which the session
+# raises its handover, the completed-wake count that stands in where the
+# harness measures no context (a wake is one duty trigger or one operator
+# turn), and the compaction count that raises it whichever of the two
+# applies.
+mission_control_handover_context: 70
+mission_control_handover_wakes: 150
+mission_control_handover_compactions: 2
+# How long a successor waits for its predecessor to release the program
+# name before it retires the predecessor itself and takes the name. A
+# cadence.
+mission_control_handover_window: 2m
+# How often each snapshot-mode source is refreshed, source: cadence. A source
+# left out refreshes at the cadence its adapter declares in
+# config/snapshot-adapters.yaml.
+mission_control_snapshot_cadence: {forge: 5m}
+# How long a program's events stay in the attention store before the runner
+# prunes them, with their delivery marks. A cadence.
+mission_control_event_retention: 7d
+# Which pull requests the forge adapter tracks in a program's repositories:
+# open (every open pull request) or authored (the open ones the forge CLI's
+# own account opened).
+mission_control_forge_tracked: open
+# The rate-limit headroom at or below which a snapshot adapter's next read
+# waits for the limit's reset instead of polling.
+mission_control_ratelimit_floor: 50
+# The budget a program's own budget map is laid over, key by key: live
+# sessions, source polls per hour across every snapshot-mode source, the
+# highest watcher cost class armed (spend_ceiling, or spend_<duty> for one
+# duty, its hyphens written as underscores), context steps, and host load
+# as a percent of the host's processors.
+# yamllint disable-line rule:line-length
+mission_control_default_budget: {sessions: 4, polls_per_hour: 120, spend_ceiling: high, context_steps: 200, host_load: 100}
+# The degradation ladder's thresholds, as the percent of its limit the most
+# used budget dimension has reached: throttle doubles every cadence (at this
+# rung and every one above it),
+# pause_watchers stops high-cost watchers, hold_dispatch also stops
+# medium-cost ones and refuses new sessions and heavy work.
+mission_control_budget_ladder: {throttle: 70, pause_watchers: 85, hold_dispatch: 100}
+# How many operator confirmations of a decision class's decisions, since the
+# latest revoke of one of them, restore the class from ask-first
+# (scripts/mc-decide.sh).
+mission_control_calibration_restore: 3
+# The window the interruption and settled-share measures cover, ending now.
+# A cadence.
+mission_control_measure_window: 24h
+# The repeat detector (scripts/mc-proposals.sh scan): how many entries of
+# one shape, inside the window (a cadence), make a repeat worth a
+# mechanization proposal.
+mission_control_repeat_threshold: 2
+mission_control_repeat_window: 14d
+# How many of a shadow duty's would-have entries the operator agrees with
+# before scripts/mc-shadow.sh suggests promoting it to live.
+mission_control_shadow_promote_after: 5
+# How long an active rule may go with no act on its subject before the
+# self-audit (scripts/mc-audit.sh) reports it idle. A cadence.
+mission_control_audit_idle_after: 30d
+# How near a known date makes its unit urgent (scripts/mc-deadlines.sh): a
+# date at most this many whole days away ranks ahead of undated work and
+# opens the first turn after silence. A cadence, read in whole days.
+mission_control_deadline_horizon: 3d
+# Where a draft for a person goes (scripts/mc-inbox.sh draft): auto, the
+# first clipboard tool that script finds, or the absolute path of a command
+# that reads the text on stdin. Never a sender; never read from the
+# repo-tracked layer.
+mission_control_clipboard: auto

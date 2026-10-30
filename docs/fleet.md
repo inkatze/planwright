@@ -512,6 +512,22 @@ It therefore raises the same attention signals (a fork-park push, a status
 row) that tmux workers started without the wrapper never did; that is the
 identity working, not new noise.
 
+### The task worker's opening turn
+
+A tmux task worker starts working from a file handed to it at launch, so its
+first turn needs no message and no keystroke, and works whether or not
+cross-session messaging is available:
+
+| Piece | What it is |
+| --- | --- |
+| `fleet-dispatch-worktree.sh dispatch <spec> <id> --brief <abs-file>` | Hands the worker one fixed prompt, `Read <abs-file> and follow it exactly.`, after `--`: the path rides argv, never the content. Only the unit's own task brief is accepted, after canonicalization, on the path charset `[A-Za-z0-9._/@+-]`, non-empty, never a symlink, with the fleet home and every directory below it on the path private to you; `--continue` and `--resume` are refused beside it. |
+| `<fleet-home>/tasks/<spec>/<id>/brief.md` | The task brief, written owner-only by `scripts/fleet-task-brief.sh render <spec> <id> [--tower <name>]` from the shipped template `templates/task-brief/brief.md` and validated fields alone. It names the unit's `/execute-task` invocation and, given the tower's session name, that name and the question rule: record the question as a fork first, one message per fork, sent only when `fleet-messaging.sh effective-mode --direction worker-to-tower` prints `tiered` or `open`. Without a name the worker has no upward message path. |
+| Retirement | The sweep's residue pass (`fleet-task-brief.sh retire`) removes a task brief once its unit's worktree is gone, past a short grace that covers the render-before-create window. |
+
+The tower's `/orchestrate` tmux dispatch step renders the brief and passes
+`--brief` on every task dispatch, adding `--tower` when
+`scripts/fleet-messaging.sh self-name` prints the tower's name.
+
 ## Personas: pick your combination of the two seams
 
 Each kind of operator resolves as a combination of (execution backend ×
@@ -766,10 +782,10 @@ by the resolved literal path (`<root>/scripts/fleet-streamjson.sh pending`, per
 [plugin-script invocation](../doctrine/plugin-script-invocation.md)); a `~` path
 or an unexpanded `$CLAUDE_PLUGIN_ROOT` falls to the permission prompt instead.
 
-Before spawning anything, `launch` proves the auto-approve hook the worker
-will run (`scripts/worker-command-guard.sh` under the plugin root the
-dispatch-env wrapper exports, run through that wrapper so it sees the worker's
-environment) will approve the worker's opening move — the
+Before spawning a worker-profile session, `launch` proves the auto-approve
+hook the worker will run (`scripts/worker-command-guard.sh` under the plugin
+root the dispatch-env wrapper exports, run through that wrapper so it sees the
+worker's environment) will approve the worker's opening move — the
 `<root>/scripts/resolve-rule-doc.sh` call `/execute-task` makes before any
 task work — once per root the worker could run scripts from: the launcher's
 own root, that plugin root, and every root `scripts/resolve-installed-roots.sh`
@@ -798,7 +814,14 @@ attention record the worker held. `--grace` takes a whole number of seconds
 within the bounds the script declares; run `stop` with an out-of-range value to
 have it name them. The event capture, the persisted session, the rate-limit
 reading, and the receipt journal survive a stop: they are the durable record,
-not runtime. The journal survives as a file but not untouched — the close
+not runtime. So does the worker's scratch root, the directory its launch
+exported as its `TMPDIR` and named in its session record: it belongs to the
+worktree, under `<fleet home>/scratch/`, so every plain stop, `recover`, and
+relaunch of the worker finds it again, contents and all, on every rung. A
+final close (`stop --final`, which a reap through `fleet-cleanup.sh process`
+makes) removes it, and so does `fleet-cleanup.sh worktree` when it reclaims
+the worktree. The
+journal survives as a file but not untouched — the close
 marks its still-`pending` receipts `undeliverable` and discards any spooled
 receipt, because a close
 makes them undeliverable by definition and a receipt left pending is what
@@ -1344,11 +1367,11 @@ transitions to the attention store the instant they happen, through
 
 | Hook event | Transition pushed |
 | --- | --- |
-| `Stop` | working → `idle` (the turn ended). A **live fork-park is preserved**, not cleared — a turn-end is not a dead worker, so `Stop` never downgrades an awaiting-human fork-park (fleet-hardening Task 2 NS-4) |
+| `Stop` | working → `idle` (the turn ended), plus an **idle exit-edge marker** whenever the row now reads `idle`, written by temp-and-rename like the other markers. A **live fork-park is preserved**, not cleared — a turn-end is not a dead worker, so `Stop` never downgrades an awaiting-human fork-park (fleet-hardening Task 2 NS-4) — and that stop leaves no idle marker |
 | `PermissionRequest` | working → `awaiting-input`, queued, plus a pending-permission marker; the row carries the `permission` marker in field 9 and the prompt's own command text in field 12 |
-| `PostToolUse` | `awaiting-input` → working — when a live **decision marker** exists: a pending-permission marker (the human allowed the next tool use) or a fork-park marker (the worker resumed from a fork; fleet-hardening Task 2). Otherwise a fast no-op |
-| `SessionEnd` | → `ended` (session termination) |
-| `StopFailure` | → `hung` (a turn ended on an API error resembles a stopped-responding worker — the decided kickoff risk-row-27 mapping) |
+| `PostToolUse` | `awaiting-input` → working — when a live **decision marker** exists: a pending-permission marker (the human allowed the next tool use) or a fork-park marker (the worker resumed from a fork; fleet-hardening Task 2). `idle` → working when the **idle exit-edge marker** exists: the worker resumed after a stop, whatever resumed it (fleet-messaging D-28). The marker is consumed, so the edge writes once, and the write never overwrites an `awaiting-input` row (a decision queued after the stop survives). With no marker present, a fast no-op |
+| `SessionEnd` | → `ended` (session termination); drops a leftover idle marker |
+| `StopFailure` | → `hung` (a turn ended on an API error resembles a stopped-responding worker — the decided kickoff risk-row-27 mapping); drops a leftover idle marker |
 | `Notification` | working → `awaiting-input` + a fork-park marker, for a genuine fork / input-wait `notification_type` only (fleet-hardening Task 2, D-2). The instant a worker parks at an `AskUserQuestion` fork it fires `Notification`; the arm gates on the payload reason (a permission-park, an auth / completion notification, or an unknown type push nothing) and pushes an `awaiting-human` record with the reason — no pane capture |
 | `SessionStart` (`startup`, `resume`) | → `working`, carrying the worker's `PLANWRIGHT_WORKER_LAUNCH_TOKEN` in field 9 as `launch:<hex>` when the launch set one. This is the tmux launch's startup confirmation: the dispatch waits, bounded, for the row carrying its own token and reports `started`, `failed-at-startup` (tmux says the session is gone), or `started-unconfirmed` (fleet-hardening D-15). A queued decision is never overwritten |
 
@@ -1368,8 +1391,8 @@ dispatch-side wiring is in place for the `headless-oneshot` backend**
 session's hooks push), **for the tmux worktree rung** (its launch runs the
 worker through `fleet-dispatch-env.sh --identity`, with the launch token the
 `SessionStart` row carries), **and for the `stream-json-persistent` rung**
-(`fleet-streamjson.sh launch` exports the handle and the scope its launch
-persisted, a relaunch included). Sessions no dispatch seam launched still
+(`fleet-streamjson.sh launch` exports, for a worker-profile launch, the handle
+and the scope its launch persisted, a relaunch included). Sessions no dispatch seam launched still
 no-op this handler and stay on the existing observation path (a graceful
 REQ-A1.1 degradation, no breakage).
 The hook payload is drained, never parsed,
@@ -1519,7 +1542,7 @@ demand rather than lost:
 | Event | Pushed by | Row written |
 | --- | --- | --- |
 | `dispatch` | `flight-dispatch.sh`, once the flight is placed | `working` (tmux rung, when the worker's startup went unconfirmed and it has written nothing since its launch; a worker that confirmed or reported its own state keeps its row, and one that died at startup gets none), `idle` (print rung, no process until the operator launches it) |
-| `awaiting-decision` | the worker, at a hard pause, as its brief directs | `awaiting-input` with the reason, the one event the decision queue shows |
+| `awaiting-decision` | the worker, at any park, as its brief directs | `awaiting-input` with the kind of park alone (its detail stays in the private partial record), the one event the decision queue shows |
 | `completion` | the worker, right after it lands, as its brief directs | `pr-ready` (PR landing) or `done` (record landing); the landing reference is kept beside the brief and sent through `notification_channel`, a record landing with its branch |
 
 Each row is the flight worker's own (`tmux-flight-<id>` or `print-flight-<id>`,
@@ -1673,7 +1696,8 @@ given.
 **The pane signatures are a platform surface.** The permission-dialog text
 and the busy footer markers live in one sourced file,
 `scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`,
-`fleet-stuck-detector.sh` and the relay's `deliver` step;
+`fleet-stuck-detector.sh`, the relay's `deliver` step and mission control's
+stall detector (`scripts/mc-stall.sh`);
 `FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
 the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
 are verified against the installed CLI's own bundle at each change and
@@ -1773,9 +1797,10 @@ which first clears a per-spec lock whose recorded holder is provably gone
 (`orchestrate-lock.sh sweep`, audited as `reconcile lock-sweep`);
 the process reap; the registry reconcile, which heals and retires dispatch
 records from their markers (see *The dispatch record*) and, terminating
-nothing, runs in both modes; the flight residues, which retire a gone
-flight's brief (clearing its attention row) and prune the flight index of a
-checkout that no longer exists; and the flight crash policy, below.
+nothing, runs in both modes; the residues, which retire a gone
+flight's brief (clearing its attention row), prune the flight index of a
+checkout that no longer exists, and retire a task brief whose unit's worktree
+is gone; and the flight crash policy, below.
 The registry reconcile follows the reap so a worker closed this cycle is
 retired in the same one, and the flight passes follow the reconcile so the
 dispatch records they read are already settled.
@@ -2315,12 +2340,18 @@ naming `config/worker-settings.json`, and the watchdog's default relaunch and
 (a custom `PLANWRIGHT_TOWER_LAUNCHER` passes its own, or none),
 each with `PLANWRIGHT_MESSAGING_INBOUND=accept` exported beside it (the layer
 the messaging probe reads, since a `--settings` profile is not one of the
-settings files it parses). Each launch also names its session with `--name`:
+settings files it parses). The mission-control launcher
+(`scripts/mission-control-launch.sh`) starts other session kinds on the same
+seams: `fleet-streamjson.sh launch --profile <kind>` and
+`offload-dispatch.sh dispatch tmux --profile <kind>` pin the tower or
+mission-control profile by kind, never by path, and a session under either
+carries no worker identity. Each launch also names its session with `--name`:
 the worker's registry handle, `planwright-tower-<spec>` for a relaunch, and
 `planwright-tower-<spec>-<epoch>-<pid>` for a handover, so the retiring tower
 and its replacement never share a name, nor do two launches in one second.
-The profile comes from the planwright root the core root chain names
-(`PLANWRIGHT_ROOT` first), resolved by `scripts/fleet-launch-profile.sh`; a
+Except on `offload-dispatch.sh`, which resolves the profile and pins the
+wrapper to its own install root, the profile comes from the planwright root
+the core root chain names (`PLANWRIGHT_ROOT` first), resolved by `scripts/fleet-launch-profile.sh`; a
 profile that cannot be read refuses the launch, naming the file, rather than
 starting a session under the operator's own settings. On Claude Code 2.1.303,
 two `-p` launches given the same `--name` both start and both carry that name: the CLI neither renames
