@@ -268,6 +268,14 @@ else
   fail "scan did not restore the entries: $(cat "$tmp/after.tsv")"
 fi
 assert_contains "scan reports a refused checkout" "refused	$tmp/src/odd" "$out"
+mkdir -p "$tmp/wtroot"
+gitq -C "$tmp/src/beta" worktree add -q "$tmp/wtroot/beta-scan" -b scan-wt
+rm -f "$FILE"
+run "$tmp/elsewhere" "$SH" "$REG" scan "$tmp/wtroot"
+assert_contains "scan finds a linked worktree and registers its primary checkout" \
+  "registered	hub	beta	work	$tmp/src/beta" "$out"
+gitq -C "$tmp/src/beta" worktree remove --force "$tmp/wtroot/beta-scan"
+run "$tmp/elsewhere" "$SH" "$REG" scan "$tmp/src"
 
 mkdir -p "$tmp/scanroot/a
 b/.git"

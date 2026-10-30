@@ -431,7 +431,7 @@ cmd_scan() {
     sc_dir=$(canon "$sc_dir") || die 1 "refusing to scan a directory that cannot be entered"
     # A name carrying a newline would split into two paths when read back.
     sc_find=0
-    find "$sc_dir" -maxdepth 4 \( -name "*$NL*" -prune \) -o \( -type d -name .git -prune -print \) \
+    find "$sc_dir" -maxdepth 4 \( -name "*$NL*" -prune \) -o \( -name .git \( -type d -o -type f \) -prune -print \) \
       >"$sc_list" 2>"$sc_err" || sc_find=1
     [ "$sc_find" -eq 0 ] || sc_partial=1
     while IFS= read -r sc_git; do
