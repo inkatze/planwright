@@ -25,7 +25,7 @@
 # The bullet is `- **Task <id>** — <text>`, placed under the section heading
 # (replacing a `(none yet)` placeholder); a bullet for the task under another
 # of the three payload sections is refused, since a task carries at most one.
-# Format-version 2 bundles only: a version 1 bundle parks by moving the block,
+# Format-version 2 and 3 only: a version 1 bundle parks by moving the block,
 # which stays a hand edit. The file is replaced through a temp file in the
 # same directory, never written through a symlink, under a lock beside it
 # (scripts/lock-lib.sh), so concurrent halts on one bundle each land.
@@ -172,8 +172,8 @@ fi
   exit 4
 }
 fv=$(spec_parse_header_value "$file" Format-version) || fv=''
-[ "$fv" = 2 ] || {
-  say "$spec is not a format-version 2 bundle; a version 1 park moves the task block by hand"
+[ "$(spec_parse_format_arm "$fv")" = 2 ] || {
+  say "$spec is not a format-version 2 or 3 bundle; a version 1 park moves the task block by hand"
   exit 4
 }
 
