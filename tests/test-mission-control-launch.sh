@@ -288,7 +288,7 @@ case $OUT in
 esac
 pane_name=$(field name)
 pane_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$fleet/mission-control/sessions/$pane_name")
-grep -q 'PLANWRIGHT_MC_TOKEN' "$tmp/tmux/argv-$pane_handle" && fail "a tmux ad-hoc session was handed a mission-control token" \
+grep -q 'PLANWRIGHT_MC_TOKEN=' "$tmp/tmux/argv-$pane_handle" && fail "a tmux ad-hoc session was handed a mission-control token" \
   || ok "a tmux session of another kind holds no mission-control token"
 ml launch --program alpha --kind mission-control --scope tmux-token --brief "$tmp/brief.md" --backend tmux
 [ "$RC" = 0 ] || fail "the tmux mission-control launch exited $RC: $ERR"

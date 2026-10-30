@@ -520,9 +520,12 @@ cmd_dispatch() {
     [ "$D_PROFILE" != worker ] || [ -z "$D_NAME" ] || set -- "$@" --identity "$D_NAME" "$D_SCOPE"
     # A tmux window starts from the server's environment, not this one, so
     # the mission-control launcher's row token rides the argv, and only into
-    # a mission-control session.
+    # a mission-control session. Any other window drops one the server's
+    # environment carries.
     if [ "$D_PROFILE" = mission-control ] && [ -n "${PLANWRIGHT_MC_TOKEN:-}" ]; then
       set -- "$@" env "PLANWRIGHT_MC_TOKEN=$PLANWRIGHT_MC_TOKEN"
+    else
+      set -- "$@" env -u PLANWRIGHT_MC_TOKEN
     fi
     set -- "$@" claude --settings "$launch_settings"
   else
