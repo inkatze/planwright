@@ -2645,10 +2645,14 @@ has "0 error(s), 0 warning(s)"
 # value is given (an awk insert, so a hostile value is never a sed program).
 write_bundle_v3() {
   write_bundle_v2 "$1" "$2"
-  for bf in requirements design tasks test-spec; do
-    edit "$1/$bf.md" 's/^\*\*Format-version:\*\* 2$/**Format-version:** 3/'
-  done
+  set_fv "$1" 2 3
   [ $# -lt 3 ] || add_repository "$1" "$3"
+}
+# set_fv <dir> <from> <to> — re-declare all four files' Format-version.
+set_fv() {
+  for bf in requirements design tasks test-spec; do
+    edit "$1/$bf.md" "s/^\\*\\*Format-version:\\*\\* $2\$/**Format-version:** $3/"
+  done
 }
 # add_repository <dir> <value> — one more Repository: line under Task 1.
 add_repository() {
@@ -2678,7 +2682,10 @@ has "0 error(s), 0 warning(s)"
 
 # v3_fails <message> <setup...> — the setup (a shell function name plus its
 # arguments, run once per status) yields a gap that errors on the signed
-# Ready fixture and warns on Draft and on the Retired terminal record.
+# Ready fixture and warns on Draft and on the Retired terminal record. Each
+# rule is pinned at all three; its further value variants set
+# v3_warn_statuses=Draft to keep the suite inside its time budget.
+v3_warn_statuses="Draft Retired"
 v3_fails() {
   vmsg=$1
   shift
@@ -2686,7 +2693,7 @@ v3_fails() {
   run_v 1 "$marked/fixture"
   has "ERROR"
   has "$vmsg"
-  for st in Draft Retired; do
+  for st in $v3_warn_statuses; do
     "$@" "$st"
     run_v 0 "$marked/fixture"
     has "WARN"
@@ -2709,7 +2716,6 @@ v2_field() {
   add_repository "$marked/fixture" alpha
 }
 v1_field() {
-  # Retired and Ready are recognized v1 statuses too; Active is v1's live one.
   write_bundle "$marked/fixture" "$1"
   add_repository "$marked/fixture" alpha
 }
@@ -2723,6 +2729,7 @@ v3_fails "continues past its field line" v3_wrapped
 # 37d. The value is a single alias in the identifier grammar: never a list, a
 # path, a URL, an owner/name pair, or an off-grammar token.
 v3_fails "not a single alias" v3_value 'alpha, beta'
+v3_warn_statuses=Draft
 v3_fails "not a single alias" v3_value 'alpha beta'
 v3_fails "not a single alias" v3_value '../alpha'
 v3_fails "not a single alias" v3_value '/srv/alpha'
@@ -2732,6 +2739,7 @@ v3_fails "not a single alias" v3_value 'Alpha_1'
 v3_fails "not a single alias" v3_value '-alpha'
 v3_fails "not a single alias" v3_value ''
 v3_fails "not a single alias" v3_value "$(printf '%65s' '' | tr ' ' a)"
+v3_warn_statuses="Draft Retired"
 # The 64-character bound is inclusive.
 write_bundle_v3 "$marked/fixture" Ready "$(printf '%64s' '' | tr ' ' a)"
 run_v 0 "$marked/fixture"
@@ -2758,7 +2766,7 @@ esc=$(printf '\033')
 write_bundle_v3 "$marked/fixture" Ready "al${esc}[31mpha"
 run_v 1 "$marked/fixture"
 has "not a single alias"
-has "al[31mpha"
+has "al[31mpha (non-printable bytes removed)"
 lacks "$esc"
 write_bundle_v3 "$bare/fixture" Draft "al${esc}[31mpha"
 run_v 0 "$bare/fixture"
@@ -2784,11 +2792,53 @@ has "stored status Active is derived"
 
 # 37i. A version this validator does not define stays fail-closed.
 write_bundle_v3 "$marked/fixture" Draft alpha
-for bf in requirements design tasks test-spec; do
-  edit "$marked/fixture/$bf.md" 's/^\*\*Format-version:\*\* 3$/**Format-version:** 4/'
-done
+set_fv "$marked/fixture" 3 4
 run_v 1 "$marked/fixture"
 has "unsupported format-version: 4"
+
+# 37j. The Superseded terminal record warns like Retired.
+write_bundle_v3 "$marked/fixture" Superseded 'Not/An-Alias'
+edit "$marked/fixture/requirements.md" 's|^\*\*Status:\*\* Superseded$|&\
+**Superseded-by:** specs/other/|'
+run_v 0 "$marked/fixture"
+has "WARN"
+has "not a single alias"
+lacks "ERROR"
+
+# 37k. A CRLF blank line after a real field is not a continuation.
+# add_line <dir> <line> — <line> after Task 1's Citations line.
+add_line() {
+  REPO_LINE=$2 awk '
+    { print }
+    $0 == "- **Citations:** D-1 · REQ-X1.1" { print ENVIRON["REPO_LINE"] }
+  ' "$1/tasks.md" >"$1/tasks.md.new"
+  mv "$1/tasks.md.new" "$1/tasks.md"
+}
+write_bundle_v3 "$marked/fixture" Ready alpha
+add_line "$marked/fixture" "$(printf '  \r')"
+run_v 0 "$marked/fixture"
+lacks "continues past its field line"
+
+# 37l. The marker check names the root the bundle is addressed under: a
+# symlinked bundle directory in an unmarked root warns even when its target
+# sits under a marked one.
+write_bundle_v3 "$marked/fixture" Ready alpha
+ln -s "$marked/fixture" "$bare/linked"
+run_v 0 "$bare/linked"
+has "no valid planwright-spec-root.yml marker"
+rm "$bare/linked"
+
+# 37m. A marker check that cannot run is a hard finding, never read as a
+# missing marker (a broken install, here resolve-root.sh removed).
+broken_scripts="$tmp/broken-scripts"
+cp -R "$here/../scripts" "$broken_scripts"
+rm "$broken_scripts/resolve-root.sh"
+rc=0
+out=$("$broken_scripts/spec-validate.sh" "$marked/fixture" 2>&1) || rc=$?
+[ "$rc" -eq 1 ] || fail "broken marker check: expected exit 1, got $rc — output: $out"
+has "marker check could not run"
+lacks "no valid planwright-spec-root.yml marker"
+rm -rf "$broken_scripts"
 
 # --- usage errors ---
 run_v 2

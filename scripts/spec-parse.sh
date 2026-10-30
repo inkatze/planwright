@@ -276,10 +276,10 @@ spec_parse_fence_balance() {
 # task block sorted numerically by task id (component-wise: 2 < 2.5 < 10):
 # the heading line and the five definition field bullets — Deliverables,
 # Done when, Dependencies, Citations, Estimated effort — plus the version 3
-# Repository field bullet, with their indented continuation lines, each line terminated by a newline, byte-for-byte as in
-# the source. Everything else (section headings, intro prose, state
-# annotations, Deferred / Out-of-scope bullets, non-task H3 content) is
-# excluded.
+# Repository field bullet, with their indented continuation lines, each line
+# terminated by a newline, byte-for-byte as in the source. Everything else
+# (section headings, intro prose, state annotations, Deferred / Out-of-scope
+# bullets, non-task H3 content) is excluded.
 #
 # Id-grammar bounds (shared byte-for-byte with the three pre-lib copies):
 # task ids follow the meta-spec grammar `<n>` or `<n>.<m>`. The sort key
@@ -988,8 +988,9 @@ spec_parse_awk_grammar='
 
   # --- Task definition fields ----------------------------------------------
   # The canonical name of the definition field a bullet declares, or "" for
-  # anything else (a state annotation, a prose bullet). The same five fields
-  # the canonical extraction keeps.
+  # anything else (a state annotation, a prose bullet). The five required
+  # fields; the canonical extraction also keeps the optional version 3
+  # `Repository:` bullet, which this function does not name.
   function spec_parse_task_field(s) {
     if (s ~ /^- \*\*Deliverables:\*\*/) return "deliverables"
     if (s ~ /^- \*\*Done when:\*\*/) return "donewhen"
