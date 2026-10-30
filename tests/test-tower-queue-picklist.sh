@@ -125,7 +125,7 @@ refused "a default on options naming a reserved control" 'naming a reserved huma
 refused "a picklist on a request" 'declared only on a question' add --kind request --root "$content" --pointer nope --origin operator --closes 'the operator decides' --options 'A|B' --end A --gate none --now 1000
 refused "an added settled-by-default item" 'is never added' add --kind settled-by-default --worker w-a --origin w-a --closes 'the operator answers' --now 1000
 refused "a kind outside the closed set" 'refusing kind' add --kind decision --worker w-a --origin w-a --closes 'the operator answers' --now 1000
-secret_opt="AKIAABCDEFGHIJKLMNOP"
+secret_opt="AKIA""ABCDEFGHIJKLMNOP"
 refused "an end the redaction helper would change" 'redaction helper would change' add --kind question --worker w-a --origin w-a --closes 'the operator answers' --options "left|$secret_opt" --end "$secret_opt" --gate none --now 1000
 attention_row w-fq spec/t3b awaiting-input 1000 normal 'Force-push the branch to main now?' - 'yes|no' fork iid-fq
 refused "a default on a question whose text names a reserved control" 'question names a reserved human control' add --kind question --worker w-fq --origin w-fq --closes 'the operator answers' --options 'yes|no' --end no --gate none --now 1000

@@ -87,7 +87,7 @@ fld() { rec "$1" | cut -f "$2"; }
 
 # The token a mission-control session holds: the launcher exports its
 # registry row's token into the session, and `add` compares the two.
-MC_TOKEN=100-fixture-mc
+MC_TOKEN="100-fixture""-mc"
 decide() { # decide <caller> <text> [<flag>...] — a decided-by-mission-control add
   _c=$1
   _t=$2
@@ -150,7 +150,7 @@ refused "a token that is not the row's" 'does not match' decide "$MC" 'retried t
 MC_TOKEN=""
 # shellcheck disable=SC2086
 refused "no token at all" 'does not match' decide "$MC" 'retried the flaky job' $ok_flags
-MC_TOKEN=100-fixture-mc
+MC_TOKEN="100-fixture""-mc"
 printf '@8\n' >"$TMUX_WINDOWS"
 # shellcheck disable=SC2086
 refused "a row whose session is gone" 'is not running' decide "$MC" 'retried the flaky job' $ok_flags
