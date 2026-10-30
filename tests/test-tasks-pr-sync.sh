@@ -2240,6 +2240,37 @@ run_hook "$repo" "gh pr create --draft" "https://github.com/x/y/pull/8" \
 git -C "$repo" checkout -q main
 echo "ok: V2-F hook is fail-soft on an unparseable Format-version and writes nothing (REQ-C1.8)"
 
+# --- V2-F3: version 3 takes the v2 no-op; an undefined version (4) fails
+# closed on both CLI arms (invariant-tasks REQ-F1.7) ---------------------------
+# redeclare <repo> <version> — every bundle file re-declared, then committed.
+redeclare() {
+  for rdf in "$1"/specs/demo2/*.md; do
+    sed "s/^\\*\\*Format-version:\\*\\* 2\$/**Format-version:** $2/" "$rdf" >"$rdf.new"
+    mv "$rdf.new" "$rdf"
+  done
+  git -C "$1" add -A && git -C "$1" commit -qm "fixture: version $2"
+}
+repo=$tmp/v2f3
+make_v2_repo "$repo"
+redeclare "$repo" 3
+d_before=$(specs_digest "$repo")
+reconcile "$repo" specs/demo2 || fail "V2-F3: reconcile on a v3 bundle should exit 0 (the v2 clean no-op), got non-zero"
+(cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile-status specs/demo2) \
+  || fail "V2-F3: reconcile-status on a v3 bundle should exit 0 (the v2 clean no-op), got non-zero"
+[ "$d_before" = "$(specs_digest "$repo")" ] || fail "V2-F3: the writer wrote into a v3 bundle (REQ-F1.7)"
+repo=$tmp/v2f4
+make_v2_repo "$repo"
+redeclare "$repo" 4
+d_before=$(specs_digest "$repo")
+for arm in reconcile reconcile-status; do
+  rc=0
+  err=$( (cd "$repo" && PATH="$stub:$PATH" "$SYNC" "$arm" specs/demo2) 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 2 ] || fail "V2-F3: $arm on Format-version 4 should fail closed (exit 2), got $rc"
+  case "$err" in *Format-version*) ;; *) fail "V2-F3: $arm fail-closed error does not name Format-version: $err" ;; esac
+done
+[ "$d_before" = "$(specs_digest "$repo")" ] || fail "V2-F3: an undefined Format-version reached the write path"
+echo "ok: V2-F3 version 3 is the v2 no-op; an undefined version fails closed with no write (REQ-F1.7)"
+
 # --- V2-G: a torn bundle (requirements.md declares 2, tasks.md declares 1)
 # fails closed on every arm (REQ-C1.8: no script falls open to the v1 write
 # path). requirements.md is the authoritative version home, and do_status

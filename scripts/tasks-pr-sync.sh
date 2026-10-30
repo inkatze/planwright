@@ -133,8 +133,8 @@ unset CDPATH
 log() { printf 'tasks-pr-sync: %s\n' "$*" >&2; }
 
 # tasks_format_version <tasks.md>: print the bundle's declared format version
-# ("1" or "2") from the first `**Format-version:**` header line, trailing
-# whitespace/CR trimmed (a Markdown hard-break or CRLF checkout must not make a
+# (a version this writer defines: "1", "2", or "3") from the first
+# `**Format-version:**` header line, trailing whitespace/CR trimmed (a Markdown hard-break or CRLF checkout must not make a
 # valid value unrecognizable — mirrors scripts/spec-status.sh). Returns 1, and
 # prints nothing, on a missing or unparseable declaration: version keying is
 # fail-closed (invariant-tasks REQ-C1.8, D-7) — the caller must refuse to
@@ -143,19 +143,15 @@ log() { printf 'tasks-pr-sync: %s\n' "$*" >&2; }
 # discipline without needing a sanitizer here).
 tasks_format_version() {
   tfv=$(spec_parse_header_value "$1" Format-version 2>/dev/null) || tfv=""
-  case $tfv in
-    1 | 2)
-      printf '%s\n' "$tfv"
-      return 0
-      ;;
-    *) return 1 ;;
-  esac
+  spec_parse_format_arm "$tfv" >/dev/null || return 1
+  printf '%s\n' "$tfv"
 }
 
 # bundle_write_version <spec-dir>: resolve the format version governing the
 # write path, cross-checked against the bundle's authoritative version home.
-# Prints "1" or "2" on success. Returns 1 with nothing printed (reason logged)
-# when tasks.md's declaration is missing or unparseable (REQ-C1.8), when
+# Prints the rule arm on success ("1", or "2" for versions 2 and 3, which
+# share the v2 no-op), never the declared value. Returns 1 with nothing
+# printed (reason logged) when tasks.md's declaration is missing or unparseable (REQ-C1.8), when
 # requirements.md exists but cannot be read, or when requirements.md declares
 # a version different from tasks.md's — a torn or half-migrated bundle. The cross-check matters because do_status mirrors
 # derived Status headers into requirements.md itself: keying on tasks.md
@@ -188,7 +184,7 @@ bundle_write_version() {
     log "Format-version mismatch in $bwv_dir (tasks.md declares $bwv_tv; requirements.md disagrees); failing closed, no write (REQ-C1.8)"
     return 1
   fi
-  printf '%s\n' "$bwv_tv"
+  spec_parse_format_arm "$bwv_tv"
 }
 
 # The shared advisory-lock primitive and the derivation engine both ship beside
