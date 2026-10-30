@@ -418,6 +418,10 @@ run "$tmp/elsewhere" "$SH" "$REG" lookup
 assert_eq "lookup without --root is a usage error" 2 "$rc"
 run "$tmp/elsewhere" "$SH" "$REG" lookup --root "$HUB" 'Bad!'
 assert_eq "lookup of an alias outside the grammar is a usage error" 2 "$rc"
+run "$tmp/elsewhere" "$SH" "$REG" lookup --root "$HUB" --root "$tmp/elsewhere" beta
+assert_eq "lookup with a repeated --root is a usage error" 2 "$rc"
+run "$tmp/holder" "$SH" "$REG" register --root specs-hub --root unmarked
+assert_eq "register with a repeated --root is a usage error" 2 "$rc"
 run "$tmp/elsewhere" env -u CLAUDE_PLUGIN_DATA "$SH" "$REG" lookup --root "$HUB" beta
 assert_eq "no plugin data home: the registry is unavailable" 6 "$rc"
 

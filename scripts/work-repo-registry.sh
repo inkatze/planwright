@@ -354,7 +354,7 @@ cmd_register() {
   while [ "$#" -gt 0 ]; do
     case $1 in
       --root)
-        [ "$#" -ge 2 ] && [ -n "$2" ] || usage
+        [ "$#" -ge 2 ] && [ -n "$2" ] && [ -z "$rg_root" ] || usage
         rg_root=$2
         shift 2
         ;;
@@ -473,7 +473,7 @@ cmd_lookup() {
     case $1 in
       --explain) lk_explain=1 ;;
       --root)
-        [ "$#" -ge 2 ] && [ -n "$2" ] || usage
+        [ "$#" -ge 2 ] && [ -n "$2" ] && [ -z "$lk_root" ] || usage
         lk_root=$2
         shift
         ;;
