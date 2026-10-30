@@ -2106,8 +2106,23 @@ cmd_launch() {
     unset PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN
   fi
   # The mission-control launcher's row token binds that session's decisions
-  # to its registry row; no other session may inherit it.
-  [ "$profile" = mission-control ] || unset PLANWRIGHT_MC_TOKEN
+  # to its registry row; no other session may inherit it. A recover is run by
+  # whoever calls it, so the token comes from the recovered session's own row
+  # (the field tower-queue.sh mc_token_ok reads), never from the caller.
+  if [ "$profile" != mission-control ]; then
+    unset PLANWRIGHT_MC_TOKEN
+  elif [ -n "$resume_sid" ]; then
+    mc_tok=''
+    if mc_root=$(/bin/sh "$FS" root 2>/dev/null </dev/null); then
+      mc_tok=$(awk -F '\t' '$1 == "token" { print $2; exit }' "$mc_root/mission-control/sessions/$worker" 2>/dev/null) || mc_tok=''
+    fi
+    if [ -n "$mc_tok" ]; then
+      PLANWRIGHT_MC_TOKEN=$mc_tok
+      export PLANWRIGHT_MC_TOKEN
+    else
+      unset PLANWRIGHT_MC_TOKEN
+    fi
+  fi
   PLANWRIGHT_MESSAGING_INBOUND=accept
   export PLANWRIGHT_MESSAGING_INBOUND
 
