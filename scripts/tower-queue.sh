@@ -3647,7 +3647,13 @@ rebuild_if_absent() {
   if [ -n "$LEDGER_HELPER" ]; then
     _rany=1
   elif [ -f "$surface/ledger" ] && [ ! -L "$surface/ledger" ]; then
-    _rled="$surface/ledger"
+    # Through the owner-only check every writer holds it to: a ledger that
+    # fails it is not read, so no default comes back from it.
+    if (check_private_file "$surface/ledger") 2>"$SCRATCH/ledger.err"; then
+      _rled="$surface/ledger"
+    else
+      err "rebuild: the fallback ledger is not read, so its defaults come back as plain questions: $(sanitize_printable "$(head -n 1 "$SCRATCH/ledger.err")" "(no diagnostic)")"
+    fi
   fi
   awk -F '\t' -v log_file="$_rl" -v attn_file="$_ra" -v ledger_file="$_rled" -v review_any="$_rany" \
     -v sbd_rev="$SBD_REVERSAL" "$AWK_PARSE"'
@@ -4736,12 +4742,22 @@ ADD_ID=""
 # itself, so it is never read for this (REQ-A1.14).
 mc_caller_ok() {
   _mr="$home/mission-control/sessions/$1"
+  # The registry decides who may record a decision, so a widened directory
+  # or a row others can write is a security refusal, never a miss.
+  [ ! -d "$home/mission-control" ] || check_private_dir "$home/mission-control"
+  [ ! -d "${_mr%/*}" ] || check_private_dir "${_mr%/*}"
   [ ! -L "$_mr" ] && [ -f "$_mr" ] || return 1
   # shellcheck disable=SC2012
   _ml=$(ls -ln "$_mr" 2>/dev/null) || return 1
   # shellcheck disable=SC2086
   set -- $_ml
   [ "${3:-}" = "$my_uid" ] || return 1
+  case "${1:-}" in
+    -????w* | -???????w*)
+      err "security: the registry row $(sanitize_printable "$_mr" "(unprintable path)") is writable by others (mode $1); refusing it"
+      exit 4
+      ;;
+  esac
   awk -F '\t' -v n="${_mr##*/}" '
     $1 == "format" { f = $2 } $1 == "name" { m = $2 } $1 == "kind" { k = $2 } $1 == "state" { s = $2 }
     END { exit (f == "1" && m == n && k == "mission-control" && s == "launched") ? 0 : 1 }' "$_mr" 2>/dev/null

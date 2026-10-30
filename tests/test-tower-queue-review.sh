@@ -170,6 +170,24 @@ attention_row w-perm spec/t1 awaiting-input 1000 high 'Allow the command?' - - p
 refused "a permission prompt" 'on a worker permission prompt' decide "$MC" 'allowed the test run' --subject worker:w-perm --grounds undo:u-19 --reversal none --gate none --now 1000
 echo "ok: a decided-by-mission-control add is refused from a plain tower, from a presence claim, with another token or none, from a dead row, and without its grounds, reversal or gate, behind a gate, or on a reserved control or permission prompt"
 
+# The registry is what the caller check trusts, so a widened row or
+# directory is a security refusal (exit 4), not a lookup that passes.
+sec_refused() { # sec_refused <what> <reason> <path> <mode> — the add exits 4 while <path> has <mode>
+  _sp=$3
+  _sm=$(stat -c %a "$_sp" 2>/dev/null || stat -f %Lp "$_sp")
+  chmod "$4" "$_sp"
+  _rc=0
+  # shellcheck disable=SC2086
+  decide "$MC" 'retried the flaky job' $ok_flags >/dev/null || _rc=$?
+  chmod "$_sm" "$_sp"
+  [ "$_rc" = 4 ] || fail "$1: exit $_rc, expected 4"
+  grep -qF -- "$2" "$errf" || fail "$1: refused for another reason than '$2'"
+}
+sec_refused "a registry row others can write" 'writable by others' "$reg/$MC" 0620
+sec_refused "a sessions directory others can read" 'not verifiably owner-only' "$reg" 0755
+sec_refused "a registry directory others can read" 'not verifiably owner-only' "$home/mission-control" 0755
+echo "ok: a registry row writable by others, or either registry directory widened, is refused"
+
 # shellcheck disable=SC2086
 d1=$(decide "$MC" 'retried the flaky job' --subject pr:88 $ok_flags) || fail "the add from the mission-control registry row was refused"
 [ "$(fld "$d1" 2)" = decided-by-mission-control ] && [ "$(fld "$d1" 12)" = open ] || fail "the decision is not an open item: $(rec "$d1")"
@@ -331,3 +349,19 @@ for f in $f_res $f_gate $f_perm; do
     || fail "the rebuild restored an inadmissible default: $(rec "$f")"
 done
 echo "ok: a logged default on a reserved-control option, behind a gate, or on a permission prompt comes back as a plain question"
+
+# --- the rebuild reads the ledger only through the owner-only check -------------------
+
+attention_row w-lo spec/t9 awaiting-input 9400 normal 'Which one?' a 'a|b' fork iid-lo
+lo=$(run add --kind question --worker w-lo --origin w-lo --closes 'the operator answers' --options 'a|b' --end b --gate none --window 1s --now 9400) || fail "add lo"
+run settle --now 9405 >/dev/null || fail "the pass defaulting lo"
+[ "$(fld "$lo" 2)" = settled-by-default ] || fail "lo did not default before the loss"
+chmod 0644 "$surface/ledger"
+rm -f "$store"
+rc=0
+run settle --now 9500 >/dev/null || rc=$?
+chmod 0600 "$surface/ledger"
+[ "$rc" = 0 ] || fail "a widened ledger failed the rebuild outright: exit $rc"
+grep -q 'owner-only' "$errf" || fail "the widened ledger was not reported"
+[ "$(fld "$lo" 2)" = question ] && [ "$(fld "$lo" 28)" = - ] || fail "a default came back from a ledger that fails the owner-only check: $(rec "$lo")"
+echo "ok: a ledger that fails the owner-only check is not read at the rebuild, and its defaults come back plain"
