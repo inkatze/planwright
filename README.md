@@ -154,7 +154,7 @@ rest are there when you want to drive a stage yourself.
 | Stage | Command | What it does |
 | --- | --- | --- |
 | **Start** | `/tower` | The front door: ask in plain language; it answers, routes changes, and reports status. |
-| **Orient** | `/inception` | Turn a product-level idea with no repo yet into a venture repo and its inception bundle. |
+| **Orient** | `/inception` | Turn a product-level idea with no repo yet into a venture repo and its inception bundle ([guide](docs/inception.md)). |
 | **Author** | `/spec-draft` | Interactively elicit a four-file spec bundle (Status Draft). |
 | | `/spec-kickoff` | Walk a spec to sign-off and flip it Ready. *(your sign-off)* |
 | | `/spec-walkthrough` | Render a spec into a plain-language artifact for an unaided cold read. |
@@ -225,6 +225,9 @@ controls hold at fleet scale. See [Fleet operation](docs/fleet.md).
 - [Customizing with overlays](docs/overlays.md) — the four-layer model and
   per-kind merge rules.
 - [Conventions](docs/conventions.md) — branch, worktree, and repo conventions.
+- [Orienting an idea with `/inception`](docs/inception.md) — the venture
+  lifecycle, the non-engineer and expert modes, the stakeholder surfaces, the
+  persona layer and its boundaries, and the settings it adds.
 - [Spec location](docs/spec-location.md) — where bundles live: the
   `spec_root` option and its marker, the three postures and how authoring
   works in each, holder layout and guards, and named observation targets.

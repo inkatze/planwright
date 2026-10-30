@@ -918,3 +918,149 @@ Lens-pass: the delta-scoped lens review recorded in this section (inline
 walk, nine lenses, coverage table and dispositions above)
 Anchor: `ab632a4fa801c46c18e7250bbfd59960f309aef2` — computed as
 `scripts/spec-anchor.sh specs/tower-comms`
+
+### Delta re-walkthrough — the operator-queue amendment (2026-10-28)
+
+The 2026-10-25 extension (PR #739, spec commit `122cd870` at walkthrough
+start) adds the queue changes mission control depends on: D-20 through
+D-24, the REQs and supersessions its `## Changelog` entry in
+`requirements.md` names, and Tasks 11 through 14. It was drafted unattended,
+so its anchored-content delta was meaning-class with no anchor; this
+re-walkthrough re-reviews it. The bundle is pre-merge on the extension's own
+PR, so records the extension minted are amended in place; records already
+on main are superseded.
+
+**Scope walked:** the extension's REQs (section 3's groups A, B, C, F, G and
+H), D-20 through D-24 (section 4), Tasks 11 through 14 and the
+`## Awaiting input` state (section 6), and their test-spec entries (section
+5). The goal, glossary and risk register were not re-walked.
+
+#### Rulings confirmed
+
+Every item under design.md's former *Open questions for the delta kickoff*
+was confirmed as drafted (on item 10 the operator stated no preference, so
+the drafted choice stands); the section is retitled *Delta kickoff rulings
+(confirmed 2026-10-28)*:
+
+1. Settled-by-default is the same record re-kinded.
+2. A picklist window runs from the item's birth.
+3. Knob defaults: `tower_picklist_window` 30 minutes, `tower_presence_ttl`
+   2 minutes, `tower_batch_max` 3.
+4. Permission prompts, reserved controls, human gates and hard-disqualifier
+   zones end only in `park`.
+5. Decided-by-mission-control is admitted only from a mission-control
+   caller (the check's source corrected by lens finding 1).
+6. Both reviewable kinds keep content in the ledger or its fallback.
+7. Order: requests, settled-by-default, decided-by-mission-control, news.
+8. Presence never replaces the knock.
+9. Revoke reopens a settled-by-default item without a window and closes a
+   decided-by-mission-control one; the script runs no reversal.
+10. Batches cross kinds; free-text subjects compare by byte equality after
+    case-fold and whitespace collapse.
+11. Reviewable items never expire.
+12. Both reviewable kinds count on the scorecard's settled-without-the-
+    operator side, broken out, with revocation rates.
+
+Two later rulings on the lens pass's leftovers, A (Task 11 adds the
+registry's `mission-control` kind) and B (REQ-C1.10 superseded by
+REQ-C1.16), are recorded with the dispositions below.
+
+#### Lens review (delta-scoped)
+
+| Lens | Findings |
+| --- | --- |
+| Contract correctness / internal consistency | 5 |
+| Ambiguity | 1 |
+| Citation and coverage integrity | 2 |
+| Dead verification paths | 1 |
+| Decision-domain gaps | 1 |
+| Testability | none |
+| Cross-file consistency | 2 |
+| Documentation drift | 1 |
+| Security | 1 |
+| Perf/concurrency/error handling | n/a (spec) |
+| Altitude | n/a, no trigger |
+| Ship-gate | 1 (folded into finding 1) |
+
+Every finding was **applied**:
+
+1. REQ-A1.14's caller-kind check reads the session kind from mission
+   control's launcher registry (mission-control Task 3), not a presence
+   record; D-20, Task 11 and the REQ-A1.14 entry follow, Task 11 takes a
+   hard cross-spec dependency on that task, and ruling 5's wording is
+   corrected. The ship-gate item (Task 11 could ship before the registry
+   exists) is folded in here.
+2. An explicit `gate=none|human-gate|disqualifier-zone` field is mandatory
+   on every picklist with a declared default and every
+   decided-by-mission-control item; `add` refuses a record without it, and a
+   default applies only at `gate=none`, never to a permission prompt or a
+   reserved control (REQ-A1.11, REQ-A1.14, REQ-H1.5, D-21, Task 11, and the
+   REQ-A1.11 and REQ-A1.14 entries).
+3. REQ-C1.4 contradicted batching; superseded by REQ-C1.15 (the next
+   hand-over, not the next item), with its test-spec entry and Task 13.
+4. REQ-F1.7: a reply on the attention marker later than the presence
+   marker's write marks the operator present (D-23, Task 12, entry).
+5. REQ-A1.11: revocation, or a rebuild that cannot read the declaration,
+   removes the window; picklist items merge only on identical options, end
+   and window end (D-21, Task 11, entry).
+6. REQ-B1.7 lists the review or revocation, with the reversal pointer, as a
+   reason; REQ-B1.6 admits revocation as a way out (entries).
+7. REQ-A1.10 names the reviewable kinds' content home, written before the
+   record is added or re-kinded, extending REQ-A1.3's mapping (D-20, Task
+   11, entry).
+8. The superseded REQs' test-spec entries are marked `(superseded by
+   REQ-x)` with a pointer to the successor; Tasks 11 and 13 update the
+   shipped tests asserting the old behaviour.
+9. Stale citations repointed: REQ-C1.11 and its entry to REQ-A1.13
+   (expression-only, annotated in place); REQ-C1.10's REQ-F1.1 citation
+   moves to its successor REQ-C1.16 (ruling B below), leaving REQ-C1.10's
+   body frozen.
+10. Task 14's knob listing states a rule, not counts.
+11. The design section retitled as confirmed rulings, and the knob defaults
+    written into D-21, D-23, D-24 and Tasks 11 to 13.
+12. REQ-G1.9: a batch counts once in the multi-ask measure, its size beside
+    it (D-24, Task 14, entry).
+13. REQ-C1.14: a pair counts two toward `tower_batch_max` and joins only if
+    both fit (D-24, Task 13, entry).
+14. Task 14 may reword the `doctrine/tower-comms.md` heading "One item,
+    answerable alone".
+
+Two leftovers from applying the findings went to the operator, who ruled
+on both (2026-10-28); both are **applied**:
+
+- **A. The registry's `mission-control` kind.** mission-control Task 3's
+  launcher registry lists no `mission-control` kind, though mission-control
+  D-1 declares mission control a session kind. Ruling: tower-comms Task 11
+  adds it to the registry's accepted kinds (REQ-A1.14, D-20, Task 11's
+  Deliverables and Done when, a REQ-A1.14 test-spec scenario), and an
+  observation records the gap against mission-control.
+- **B. REQ-C1.10 superseded.** Its "each reply releasing the next item"
+  carried the contradiction finding 3 fixed in REQ-C1.4. Ruling: superseded
+  by REQ-C1.16, which says hand-over where REQ-C1.10 says item and carries
+  the REQ-F1.7 quiet-interval citation; REQ-C1.10's test-spec entry is
+  marked superseded beside the new entry, REQ-C1.15 and REQ-F1.7 cite
+  REQ-C1.16, and Task 13 cites it.
+
+The two `anchor re-review pending` bullets for Tasks 11 and 12 are removed
+from `## Awaiting input`, since this entry re-reviews the anchor.
+
+#### Pre-flip verification, queue-amendment re-walkthrough
+
+- **Post-lens stale-reference sweep.** Triggered, since REQ-C1.15 and
+  REQ-C1.16 were minted. A fixed-string sweep for every superseded REQ across the four
+  files finds live citations only in Tasks 1 to 10's `Citations:` lines,
+  which record what those tasks built and are left as written; the other
+  hits are the superseded records' frozen bodies, supersede pointers,
+  changelog history, and qualified mission-control citations naming that
+  bundle's own records.
+- **Lint.** `mise run lint:md` clean.
+- **Validator.** `scripts/spec-validate.sh specs/tower-comms` reports no
+  errors and no warnings.
+
+**No status flip.** The stored header stays Ready; `Last reviewed:` moves to
+2026-10-28 on the four spec files.
+
+Class: meaning
+Lens-pass: the delta-scoped lens review recorded in this entry (nine lenses plus altitude and ship-gate items, coverage table and dispositions above)
+Anchor: `95dab8343bff0cb8934dea2f95d7801f6292146a` — computed as
+`scripts/spec-anchor.sh specs/tower-comms`

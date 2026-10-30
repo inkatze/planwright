@@ -1,7 +1,7 @@
 # Tower comms — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-17
+**Last reviewed:** 2026-10-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -96,6 +96,10 @@ settled ones alone.)*
 the fleet home survives that, and the split keeps the storage rule and the
 ledger's ownership intact with nothing new to keep consistent.
 
+**Superseded-by: D-22** (2026-10-25), in part — an attention-sourced
+item whose source row moved on is settled with that reason at rebuild,
+never dropped.
+
 ### D-4: Five item kinds, one constrained record grammar  (N)
 
 **Decision:** An item is news, question, approval, request, or standing
@@ -124,6 +128,9 @@ operator's revocation as what closes it.)*
 
 **Chosen because:** it is the proven local idiom, and the refused-promise
 rule closes the park-note failure on record (obs:9dfdea07).
+
+**Superseded-by: D-20** (2026-10-25), in part — the closed set grows to
+seven kinds with the two reviewable ones.
 
 ### D-5: Settling by evidence; process events are claims  (N)
 
@@ -166,6 +173,10 @@ keys, and the pair as one delivered item.)*
 
 **Chosen because:** evidence is the only thing the recorded failures did not
 falsify.
+
+**Superseded-by: D-21, D-22** (2026-10-25), in part — a picklist
+window's declared default joins the settling routes, and nothing leaves the
+queue except by an answer or by evidence, with the reason recorded.
 
 ### D-6: The delivery protocol is a script, with vocabulary from alarm and on-call practice  (N)
 
@@ -215,6 +226,10 @@ and the fail-open delivery-line case.)*
 **Chosen because:** the reflex prefers a mechanism over model restraint
 where no judgment is needed, and two fields that solved many-sources-one-
 human long ago converge on the same verbs.
+
+**Superseded-by: D-24** (2026-10-25), in part — `next` hands over one
+item, one pair, or one subject batch, and the order places the two
+reviewable kinds.
 
 ### D-7: News is queued and urgency-gated; content waits for confirmed attention  (N)
 
@@ -289,6 +304,9 @@ the config keys.)*
 
 **Chosen because:** the operator chose the quiet interval, and the on-call
 model's ack-halts-escalation shape maps onto it directly.
+
+**Superseded-by: D-23** (2026-10-25), in part — a presence producer's
+marker is read first, and the quiet interval is its fallback.
 
 ### D-10: Speech register — a developer who knows planwright's basics  (N)
 
@@ -608,6 +626,196 @@ thing that can call the tool is a session.
 offers, it costs the script nothing but a marker file, and the tool already
 declines to interrupt an operator who is present.
 
+### D-20: Two reviewable kinds — settled-by-default and decided-by-mission-control  (N, extension 2026-10-25)
+
+**Decision:** The closed set of item kinds grows from five to seven. A
+settled-by-default item is a question whose picklist window ended on its
+declared default (D-21): the record keeps its identifier, its kind changes
+to settled-by-default, and it carries the option applied and the window's
+end time. A decided-by-mission-control item records a decision a
+mission-control session already took under its own autonomy rules
+(mission-control D-13); it is born in that kind, carrying a pointer to its
+grounds and a reversal field (one step, or `none`). Both kinds are
+**visible**: listed, counted by `counts` and the `waiting` field, ranked
+after the operator's requests and before news, delivered for review once
+the operator is present, and never pushed while they are away, because a
+review of something already done is never worth waking anyone for. Both
+are **reversible**: `ack` closes one as reviewed and a `revoke` verb closes
+or reopens it. Revoking a settled-by-default item reopens it as the
+original question with no window, so it can never default twice; revoking a
+decided-by-mission-control item closes it as revoked. The revocation is
+logged with the reversal pointer for the session that owns the reversal
+(mission control's undo ledger, mission-control D-24) to run, and the
+script never runs one: running a reversal is an action, and the queue holds
+no actions of its own. Content for both kinds lives in the action-item
+ledger or its pre-ship fallback, the home approvals already use, written
+there before the record is added or re-kinded, so the containment-checked
+declared roots do not grow; a decided-by-mission-control item names mission
+control's undo-ledger entry by identifier only. `add` admits a
+decided-by-mission-control item only from a caller whose session kind, read
+from mission control's launcher registry (mission-control Task 3), is the
+`mission-control` kind, which Task 11 adds to the registry's accepted
+session kinds since mission-control D-1 declares mission control a session
+kind and that task's registry omits it (a presence record is self-declared, the registry is
+written by the launcher), only with the explicit gate field D-21 defines set
+to `none`, and never on a permission prompt, a reserved control, a human
+gate, or a hard-disqualifier zone. When mission control answers a worker's question, the question item
+still settles by the evidence the answer produces (the `claim` close,
+REQ-B1.2); the reviewable item beside it is the record the operator reviews.
+
+**Alternatives considered:**
+- A settled-by-default question becomes a closed question plus a new news
+  item pointing at it. Rejected because: two records for one decision, and
+  the revoke has to find and reopen a closed record by a link.
+- Keep the five kinds and mark the outcome in a settling-reason field.
+  Rejected because: mission-control D-7 names them as kinds, and the
+  ranking, the counts, and the status-line field all key on kind, so a
+  reason field would leave the decision invisible in exactly the places the
+  operator looks.
+- Admit decided-by-mission-control items from any tower. Rejected because:
+  only the mission-control tier carries the calibrated autonomy rules
+  (mission-control D-13) that make a self-taken decision legitimate; a plain
+  tower settles only by evidence or a written rule.
+
+**Chosen because:** the item stays one record from question to review, and
+the operator sees every decision taken without them in the same queue, in
+the same order, as everything else.
+
+### D-21: Picklist windows end on a declared default or a park  (N, extension 2026-10-25)
+
+**Decision:** A question may carry a picklist: two or more options, a
+window, and the window's end, which is one of the options (the declared
+default) or `park`. All three are fixed at `add`, so nothing at expiry is
+chosen by judgment, and the window runs from the item's birth, defaulting to
+`tower_picklist_window` (default 30 minutes). The settling pass evaluates expiry against the
+window's end time on every pass, level-triggered like every other closing
+condition, so a pass that runs late still records the window's end time
+rather than its own. On a default the item becomes settled-by-default
+(D-20); on `park` it stays an open question marked parked, the tower parks
+the unit it blocks through the Awaiting-input route, and nothing is
+answered. Either way the queue never waits on the operator. A picklist with
+a declared default, like every decided-by-mission-control item, carries an
+explicit gate field, `gate=none|human-gate|disqualifier-zone`, and `add`
+refuses the record without it, so an omitted declaration can never read as
+`none`. `add` refuses a declared default, admitting only `park`, on a worker
+permission prompt (the REQ-E1.8 marker), on options naming a reserved
+control (the REQ-E1.9 shapes), and on a gate of `human-gate` or
+`disqualifier-zone`; the settling pass applies a default only at
+`gate=none`. Those classes are answered only by the operator or by a
+written rule (D-12), and a timer must never be the thing that answers them.
+A picklist's declaration is logged with the item's birth, so a rebuild
+restores it; one whose declaring line has rotated out is rebuilt as a plain
+question, the safe direction of loss. A revocation removes the window too,
+and picklist items merge only when their options, end, and window end are
+identical, so a merge never changes what a window would apply.
+
+**Alternatives considered:**
+- Start the window at the first knock or delivery. Rejected because: the
+  point of the window is that work continues while the operator is away,
+  and a window that starts only once they are present never runs out while
+  they are away.
+- Let any question default, the reserved controls included, on the
+  operator's own declared default. Rejected because: the floor is that a
+  reserved control and a human gate are answered by the operator, and a
+  default declared by whoever added the item is not the operator's answer.
+
+**Chosen because:** mission-control REQ-F1.6 asks exactly for this, and
+fixing the end at birth keeps the expiry mechanical (REQ-H1.4).
+
+### D-22: Nothing dropped — an item leaves only by an answer or by evidence, with its reason  (N, extension 2026-10-25)
+
+**Decision:** The open set shrinks by four routes only: the operator's
+answer or acknowledgement; evidence the item no longer applies (REQ-B1.2,
+absorption into a merge included); a matching written standing decision;
+and a picklist window's declared default, which leaves the item visible as
+settled-by-default rather than gone. Nothing else removes an open item: a
+timeout, a shelve, a lease expiry, a rebuild, the retention horizon, and an
+unreachable evidence source all leave it open. Every route out records a
+reason from that same set, named concretely (the PR number, the branch, the
+ledger item, the rule's identifier, the absorbing item, the option
+applied), and `catchup` and a new `show` verb render it beside the item. A
+reviewable item not yet reviewed counts as open for retention, so it never
+ages past the horizon unseen. The rebuild loses no item silently any more:
+an attention-sourced item the event log shows open whose source row has
+moved on is recorded as settled with that reason, where D-3 let it drop.
+
+**Alternatives considered:**
+- Expire stale items after a long horizon. Rejected because: it turns a
+  never-answered item into a silent drop, which mission-control REQ-F1.5
+  forbids.
+- Treat an unreachable source as evidence of nothing left to do. Rejected
+  because: B1.2 already distinguishes silence from absence, and a dead
+  source is exactly when a decision is most likely to be lost.
+
+**Chosen because:** it closes the one silent drop the bundle still allowed
+and makes the reason as visible as the item.
+
+### D-23: Presence — a producer's marker first, the quiet interval as fallback  (N, extension 2026-10-25)
+
+**Decision:** A per-tower presence marker, owner-only inside the fleet
+home's `0700` sub-surface beside the attention marker, is written only
+through a `presence` verb, which validates its fields: the producer, the
+write time, and the operator's last prompt-event time or an explicit away.
+The mission-control panel is the producer (mission-control D-6), writing on
+each prompt event and refreshing on its timer, so a marker that stops being
+refreshed means the producer is gone, not that the operator is. While the
+marker is fresh (written within `tower_presence_ttl`, default 2 minutes),
+the operator is present when the last prompt event falls within
+`tower_quiet_interval` and away otherwise; absent, stale, or unreadable,
+presence falls back to D-9's quiet-interval rule unchanged, and each switch
+between the two sources is logged. Whichever source is read, a reply on the
+attention marker later than the presence marker's write marks the operator
+present, so a reply in this conversation always outranks a stale panel
+reading. Presence gates delivery (`next` hands nothing over while the
+operator is away, mission-control REQ-F1.4) and drives the away transition
+D-9's push keys on, but it never confirms attention: knock-first and the
+harness-written attention marker (D-6) stay exactly as they are, because a
+prompt event in the panel is not a reply in this conversation. The
+`presence` verb runs the settling pass after each write, and a wake reaching
+the tower calls `next` at once; the tower loop's tick stays the failsafe
+(mission-control REQ-M1.2).
+
+**Alternatives considered:**
+- Let a fresh present marker replace the knock. Rejected because: the knock
+  is what confirms this conversation has the operator's attention, and the
+  panel's prompt events may come from another session.
+- Have the panel write the attention marker directly. Rejected because: the
+  attention marker has one writer by design (D-6), and two writers bring
+  back the lost-update rows the mission-control record argues against.
+
+**Chosen because:** mission-control D-7 names the mod's prompt events with
+the quiet interval as the fallback, and keeping attention separate means
+the fallback path is the shipped, tested one.
+
+### D-24: Delivery batched by subject  (N, extension 2026-10-25)
+
+**Decision:** When the top item names a subject, `next` hands over with it
+the other open, unleased, undelivered, deliverable items on the same
+subject, of any kind, up to `tower_batch_max` items (default 3), ordered inside the
+batch by the consequence order and each leased to the calling tower; the
+rest wait for a later call. A subject is the existing subject key (worker
+handle, PR number, or branch) or the free-text subject an adder records
+(mission-control D-5's shared key), compared by byte equality after
+case-folding and whitespace collapse, never by similarity, so the batch
+stays mechanical. A paired contradiction on that subject joins the batch as
+its pair, counting two toward the cap and joining only if both fit; an item
+naming no subject goes alone. The batch counts as the one hand-over per
+call (a reply releases the next hand-over, REQ-C1.15), each member is still
+closed on its own, the batch ranks as its highest-ranked member, and the
+scorecard's multi-ask measure counts it once with its size beside it. The consequence order places the two
+reviewable kinds after the operator's requests and before news.
+
+**Alternatives considered:**
+- Batch only items of the same kind. Rejected because: the operator thinks
+  about a PR, not about a kind, and a question and an approval on one PR
+  are one conversation.
+- No cap on the batch. Rejected because: an unbounded batch is the wall of
+  items the one-per-turn rule exists to prevent.
+
+**Chosen because:** mission-control REQ-F1.4 asks for one item or one
+coupled cluster per turn, batched by subject, and the cap keeps the bound
+mechanical.
+
 ## Cross-cutting concerns
 
 - **Decision domains walked.** Queues and async work: delivery is at least
@@ -634,3 +842,49 @@ declines to interrupt an operator who is present.
   and the capture echo add turns, and the step-count proxy counts turns. The
   intended net is smaller steps rather than fewer, and Task 8 measures the
   per-step context growth instead of asserting it.
+- **Extension decision domains (2026-10-25).** Concurrency: a batch leases
+  every member under the one lock, and the presence marker has one writer
+  verb, so the extension adds no second writer to any file. Security: the
+  presence marker and the new record fields (options, window, default,
+  subject, reversal) go through the same grammar, sanitizer, and owner-only
+  surface as everything else; the presence marker is trusted exactly as far
+  as the attention marker is, by its place on the owner-only surface.
+  Human comprehension: a default applied without the operator is shown to
+  them, never hidden in a reason field. Autonomy: the reserved controls,
+  human gates, hard-disqualifier zones and permission prompts never default
+  and never take a mission-control decision (REQ-H1.5).
+
+## Delta kickoff rulings (confirmed 2026-10-28)
+
+Drafted unattended on 2026-10-25 as the choices the worker made where
+mission-control left one open, and confirmed as drafted by the operator at
+the 2026-10-28 delta kickoff. None remains open.
+
+1. **Settled-by-default is the same record re-kinded** rather than a closed
+   question plus a new review item (D-20).
+2. **The window runs from the item's birth**, not from the first knock or
+   delivery (D-21).
+3. **Knob defaults**: `tower_picklist_window` 30 minutes,
+   `tower_presence_ttl` 2 minutes, `tower_batch_max` 3 (D-21, D-23, D-24).
+4. **Default-refused classes**: permission prompts, reserved controls, human
+   gates and hard-disqualifier zones end only in `park` (D-21).
+5. **Decided-by-mission-control is admitted only from a caller whose
+   session kind, read from mission control's launcher registry, is the
+   mission-control kind** (D-20); the registry is mission-control Task 3's,
+   a hard cross-spec dependency of Task 11.
+6. **Content home for both reviewable kinds is the ledger or its fallback**,
+   naming mission control's undo-ledger entry by identifier only (D-20).
+7. **Order**: requests, then settled-by-default, then
+   decided-by-mission-control, then news (REQ-C1.13).
+8. **Presence never replaces the knock**: it gates delivery and the away
+   transition, and attention still comes from the reply marker (D-23).
+9. **Revoke semantics**: a settled-by-default item reopens without a window;
+   a decided-by-mission-control item closes as revoked; the script runs no
+   reversal (D-20).
+10. **Batches cross kinds** on one subject, and the free-text subject
+    compares by byte equality after case-fold and whitespace collapse (D-24).
+11. **Reviewable items never expire**: they stay until reviewed or revoked,
+    ranked low (D-22).
+12. **Scorecard**: both reviewable kinds count on the headline's
+    settled-without-the-operator side, broken out, with revocation rates
+    (REQ-G1.9).

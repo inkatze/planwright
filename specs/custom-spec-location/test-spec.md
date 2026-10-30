@@ -1,7 +1,7 @@
 # Custom spec location — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-29
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -303,4 +303,84 @@ and recomputes equal after every migration task; the archived fragments'
 
 `config/defaults.yml` carries no `spec_root` key and an empty
 `observation_targets`; the options-reference check passes with the
-`spec_root` row present and the key absent.
+`spec_root` row present and the key absent. The `repository_alias` arm is
+the REQ-I1.7 entry's `config/defaults.yml` check.
+
+## REQ-I — The work-repository registry and holder dispatch
+
+### REQ-I1.1 — The registry and its rebuild [test]
+
+Registry tests (Task 11): a registration writes one entry under the
+marker's project and the root's canonical path, in the plugin data home
+and nowhere under a work tree; after the registry file is deleted, `scan`
+over the fixture directory restores the same entries.
+
+### REQ-I1.2 — Registration [test]
+
+A fixture session start in a work repository whose `spec_root` names a
+marker-bearing root registers it, and a second start leaves the registry
+byte-identical; `register --root` from a fixture holder registers the
+holder against a root it contains and refuses a root it does not (Task
+11).
+
+### REQ-I1.3 — The alias [test]
+
+The `origin`-derived alias is registered; a repo-tracked
+`repository_alias` value overrides it, a machine-local one is ignored with
+a warning, and one outside the identifier grammar is refused; a repository
+whose remote name fails the identifier grammar
+and that sets no option is refused with a message naming the option (Task
+11).
+
+### REQ-I1.4 — Revalidation on read [test]
+
+`lookup` ignores an entry whose checkout is gone, whose pointer no longer
+names the root, or whose root's marker names another project, and
+`--explain` reports each; two live entries with one alias under one
+project resolve to nothing and the message names both checkouts;
+`resolve-work-repo.sh --repository` exits with its one dedicated status
+for an unregistered, a stale, and an ambiguous alias (Task 11).
+
+### REQ-I1.5 — Holder resolution [test]
+
+From a fixture holder (Task 12): a task naming `alpha` resolves to the
+`alpha` checkout; a task with no field resolves to the single registered
+work repository; with two registered and no field, or with an unregistered
+alias, resolution refuses naming the candidates and never prints the
+holder.
+
+### REQ-I1.6 — Dispatch from a holder [test + Gherkin + manual]
+
+The two-repository holder fixture (Task 12): the selector run from the
+holder checkout dispatches Task 1 into `alpha` (worktree, branch, and
+worker working directory there) and, after Task 1's pull request merges in
+`alpha`, Task 2 into `beta`; run from the `alpha` work-repository session,
+Task 2 (naming `beta`) dispatches into `beta` with nothing created in
+`alpha`; the meta-step from a work repository whose spec root lies in the
+holder dispatches rather than refusing; a refused dispatch creates nothing
+in the holder; the dispatch marker is visible to a work-repository
+session's derivation; a dispatch of a task with no alias from a work
+repository is unchanged on the existing fixtures. The end-to-end `/orchestrate` scenario from a holder runs on
+demand through the behavioral-eval harness and is inventoried by the manual
+sweep:
+
+```gherkin
+Given a holder checkout with a signed holder bundle whose Task 1 names alpha
+  And alpha and beta registered against the bundle's root
+When the operator runs /orchestrate for the bundle in the holder
+Then Task 1's worktree and branch are created in the alpha checkout
+  And nothing is created in the holder
+```
+
+### REQ-I1.7 — Dark by default [test]
+
+With no non-default root configured, a session start writes no registry
+file, every resolution matches the REQ-H1.1 golden fixture, and
+`config/defaults.yml` carries no `repository_alias` key (Task 11).
+
+### REQ-I1.8 — Untrusted registry content [test]
+
+A hand-edited registry carrying an alias outside the grammar, a relative
+path, or a control byte is refused entry by entry with sanitized messages;
+two concurrent registrations leave a parseable file holding both entries
+(Task 11).

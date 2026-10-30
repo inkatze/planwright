@@ -100,6 +100,8 @@ mkdir -p "$PLUGIN_ROOT/scripts"
 : >"$PLUGIN_ROOT/scripts/fleet-streamjson.sh"
 : >"$PLUGIN_ROOT/scripts/orchestrate-relay.sh"
 : >"$PLUGIN_ROOT/scripts/fleet-tower-launch.sh"
+: >"$PLUGIN_ROOT/scripts/fleet-task-brief.sh"
+: >"$PLUGIN_ROOT/scripts/fleet-dispatch-worktree.sh"
 : >"$PLUGIN_ROOT/scripts/tower-force-push.sh"
 ln -f "$PLUGIN_ROOT/scripts/tower-force-push.sh" "$PLUGIN_ROOT/scripts/fp-hard.sh"
 ln -f "$PLUGIN_ROOT/scripts/tower-force-push.sh" "$PLUGIN_ROOT/scripts/fp-hard"
@@ -819,6 +821,14 @@ assert_defer "claude --settings override (denylist would miss)" "claude --worktr
 # Bash string defers on its --settings flag (fleet-messaging D-19).
 assert_allow "tower launcher approved wholesale" "$PLUGIN_ROOT/scripts/fleet-tower-launch.sh demo --unattended"
 assert_allow "tower launcher bash-prefixed" "bash $PLUGIN_ROOT/scripts/fleet-tower-launch.sh demo"
+# The tmux task dispatch renders the unit's task brief, then hands its path to
+# the dispatch primitive (fleet-messaging D-25): both are planwright scripts by
+# resolved literal path, approved wholesale.
+assert_allow "task brief render" "$PLUGIN_ROOT/scripts/fleet-task-brief.sh render demo 4.5 --tower tower-alpha"
+assert_allow "task dispatch with its brief" \
+  "$PLUGIN_ROOT/scripts/fleet-dispatch-worktree.sh dispatch demo 4.5 --brief /home/u/.fleet/tasks/demo/4.5/brief.md"
+assert_defer "task dispatch with its brief from a lookalike outside the roots" \
+  "$LOOKALIKE/scripts/fleet-dispatch-worktree.sh dispatch demo 4.5 --brief /home/u/.fleet/tasks/demo/4.5/brief.md"
 assert_defer "the launch the tower launcher replaces defers as a raw string" \
   "claude -p --name planwright-tower-demo-1 --settings $PLUGIN_ROOT/config/tower-settings.json '/orchestrate --watch demo'"
 assert_defer "claude --setting-sources override (denylist would miss)" "claude --worktree fh-task-7 --setting-sources user"
@@ -1155,10 +1165,11 @@ done
 # hold a space or come out empty. tokenize, tok_push, verify_simple,
 # verify_tokens and analyze_command also differ because only the worker guard
 # admits a narrow command substitution; the tower guard defers every one.
-# guard_rm differs because the worker's approves only own-branch removals
-# inside its recorded worktree, a policy the tower guard does not have.
+# guard_rm and guard_mktemp differ because the worker's approve only removals
+# inside its recorded worktree or scratch root and creation inside that scratch
+# root, a policy the tower guard does not have.
 DISTINCT_FNS="analyze_command canon_under classify_verb expand_word guard_bashsh \
-guard_gh guard_git guard_mise guard_rm is_planwright_script main \
+guard_gh guard_git guard_mise guard_mktemp guard_rm is_planwright_script main \
 tokenize tok_push verify_simple verify_tokens"
 
 fn_names() { grep -oE '^[a-z_][a-z0-9_]*\(\)' "$1" | tr -d '()' | sort -u; }

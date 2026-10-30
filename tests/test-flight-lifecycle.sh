@@ -132,12 +132,12 @@ brief_dir "$P"
 [ "$(field "$(row "print-flight-$P")" 3)" = idle ] \
   || fail "a print-rung flight has no process until the operator launches it, so its dispatch row is idle"
 
-"$SCRIPT" push awaiting-decision "$F" --handle "$H" --reason "scope outgrew visual flight: it touches the auth module" 2>"$tmp/err" \
+"$SCRIPT" push awaiting-decision "$F" --handle "$H" --reason hard-pause 2>"$tmp/err" \
   || fail "the awaiting-decision push failed: $(cat "$tmp/err")"
 r=$(row "$H")
 [ "$(field "$r" 3)" = awaiting-input ] || fail "the awaiting-decision push queues the worker (got: $r)"
 case $(field "$r" 9) in
-  *"scope outgrew visual flight"*) ;;
+  *"flight-parked: hard-pause"*) ;;
   *) fail "the awaiting-decision row carries the reason (got: $r)" ;;
 esac
 [ "$("$ATTN" queue --count 2>/dev/null)" = 1 ] || fail "an awaiting-decision push is one decision-queue item"
@@ -228,15 +228,17 @@ visit https://example.invalid/login" 2>/dev/null \
 /etc/passwd
 specs/_flights/$G.md" 2>/dev/null \
   && fail "a multi-line record landing must be refused"
-"$SCRIPT" push awaiting-decision "$G" --handle "$HG" --reason "$(printf 'a\033[2Jb')" 2>/dev/null \
-  && fail "a reason carrying a control byte must be refused"
 "$SCRIPT" push awaiting-decision "$G" --handle "$HG" --reason "" 2>/dev/null \
   && fail "an empty reason must be refused"
-# The store refuses text outside the printable range (a UTF-8 dash among it),
-# so the push refuses it first, as a refused input rather than a store outage.
-"$SCRIPT" push awaiting-decision "$G" --handle "$HG" --reason "$(printf 'scope grew \342\200\224 auth')" 2>/dev/null
-rc=$?
-[ "$rc" -eq 2 ] || fail "a reason the store would refuse is a refused input, exit 2 (got $rc)"
+# REQ-E1.9: the notification names only the kind of park, never its detail,
+# so free text, a control byte, and bytes the store would refuse are all
+# refused inputs.
+for reason in "scope outgrew visual flight: it touches the auth module" "point not-draft" "hard-pause " HARD-PAUSE \
+  "$(printf 'a\033[2Jb')" "$(printf 'scope grew \342\200\224 auth')"; do
+  "$SCRIPT" push awaiting-decision "$G" --handle "$HG" --reason "$reason" 2>/dev/null
+  rc=$?
+  [ "$rc" -eq 2 ] || fail "REQ-E1.9: a reason other than one kind of park must be refused, exit 2 ('$reason', got $rc)"
+done
 "$SCRIPT" push lunch "$G" --handle "$HG" 2>/dev/null && fail "an unknown event must be refused"
 
 # --- 4. Crash policy ------------------------------------------------------------
@@ -398,7 +400,7 @@ landed_flight "$I" record checked
 # The same, waiting on a decision it queued after landing: the operator rules.
 P=parked-aaaaaab9
 landed_flight "$P" record checked
-"$SCRIPT" push awaiting-decision "$P" --handle "tmux-flight-$P" --reason "the PR is no longer a draft" 2>/dev/null \
+"$SCRIPT" push awaiting-decision "$P" --handle "tmux-flight-$P" --reason not-draft 2>/dev/null \
   || fail "fixture: could not queue the parked flight's decision"
 /bin/sh "$STATE" register "tmux-flight-$P" "flight:$P" --backend tmux --death-handle "process $(dead_pid 15)" >/dev/null
 # The same, under a brief written before the landed check existed: its

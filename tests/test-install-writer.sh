@@ -53,6 +53,8 @@ assert_file "default config installed" "$claude_dir/planwright/config/defaults.y
 assert_file "doctrine installed" "$claude_dir/planwright/doctrine/README.md"
 assert_file "resolver installed" "$claude_dir/planwright/scripts/resolve-rule-doc.sh"
 assert_file "overlay-root resolver installed" "$claude_dir/planwright/scripts/resolve-overlay-root.sh"
+# fleet-task-brief.sh reads its template beside scripts/ at run time.
+assert_file "task brief template installed" "$claude_dir/planwright/templates/task-brief/brief.md"
 
 # 2b. The plugin manifest is copied so writer-mode adopter-overlay resolution
 #     can derive its namespace from the manifest `name` (D-3, REQ-A1.5). The
@@ -123,7 +125,7 @@ assert_file "default config still present" "$claude_dir/planwright/config/defaul
 #    location), install with CLAUDE_DIR unset and HOME redirected, and check
 #    everything landed under $HOME/.claude.
 src="$tmp/src"
-mkdir -p "$src/scripts" "$src/doctrine" "$src/config" \
+mkdir -p "$src/scripts" "$src/doctrine" "$src/config" "$src/templates" \
   "$src/skills/sample-skill" "$src/commands"
 cp "$INSTALLER" "$src/scripts/install.sh"
 echo "doc" >"$src/doctrine/sample.md"

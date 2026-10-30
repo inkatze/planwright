@@ -412,7 +412,7 @@ while IFS= read -r tw; do
     expect "$want" "evidence cell tower=$oe/$ow session=$st/$rs"
     if [ "$want" = 0 ]; then
       reaps=$((reaps + 1))
-      [ "$(cat "$tmp/stop-calls")" = "fleet-streamjson.sh stop w1" ] \
+      [ "$(cat "$tmp/stop-calls")" = "fleet-streamjson.sh stop w1 --final" ] \
         || fail "evidence cell $oe/$ow x $st/$rs: reaped through '$(cat "$tmp/stop-calls")'"
     else
       never_stopped "evidence cell $oe/$ow x $st/$rs"
@@ -515,7 +515,7 @@ echo "ok: a backend with no process close is refused (exit 5), never guessed at"
 det finished-but-unreaped dead-or-unknown completion:result=success stream-json-persistent dead
 gate w1 trig why --grace 7 --repo-root /some/repo --tower-id "$self_id"
 expect 0 "stream-json delegation"
-[ "$(cat "$tmp/stop-calls")" = "fleet-streamjson.sh stop w1 --grace 7" ] \
+[ "$(cat "$tmp/stop-calls")" = "fleet-streamjson.sh stop w1 --grace 7 --final" ] \
   || fail "stream-json delegation: the rung was asked '$(cat "$tmp/stop-calls")'"
 # Asked twice: once to decide, once more under the reap lock.
 [ "$(cat "$tmp/det-calls")" = "classify w1 --tower-id $self_id
@@ -524,11 +524,11 @@ classify w1 --tower-id $self_id" ] \
 det finished-but-unreaped dead-or-unknown completion:result=success headless-oneshot dead
 gate w1 trig why --grace 7 --repo-root /some/repo
 expect 0 "headless delegation"
-[ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1 --expect-dir /fx/state/w1 --repo-root /some/repo --grace 7" ] \
+[ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1 --expect-dir /fx/state/w1 --repo-root /some/repo --grace 7 --final" ] \
   || fail "headless delegation: the rung was asked '$(cat "$tmp/stop-calls")'"
 gate w1 trig why
 expect 0 "headless delegation without flags"
-[ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1 --expect-dir /fx/state/w1" ] \
+[ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1 --expect-dir /fx/state/w1 --final" ] \
   || fail "headless delegation without flags: the rung was asked '$(cat "$tmp/stop-calls")'"
 [ "$(cat "$tmp/det-calls")" = "classify w1
 classify w1" ] || fail "a bare call handed the detector '$(cat "$tmp/det-calls")'"

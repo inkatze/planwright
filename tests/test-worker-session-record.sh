@@ -215,6 +215,68 @@ else
   pass "G1.8: a malformed launch id is refused"
 fi
 
+echo "### REQ-G1.2 — the scratch root"
+wt_key=$(printf '%s' "$WT" | git hash-object --stdin)
+root="$PLANWRIGHT_FLEET_STATE_DIR/scratch/$wt_key"
+REC=$(/bin/sh "$WRITER" write "$WT" --scratch 2>"$T/err")
+RC=$?
+mode=$(stat -c %a "$root" 2>/dev/null || stat -f %Lp "$root" 2>/dev/null)
+if [ "$RC" -eq 0 ] && [ "$(field scratch_root)" = "$root" ] && [ -d "$root" ] && [ -O "$root" ] \
+  && [ "$mode" = 700 ]; then
+  pass "G1.2: --scratch creates the worktree's owner-only root under the fleet home and records it"
+else
+  fail "G1.2: --scratch (rc=$RC, mode=$mode, $(tr '\n' ' ' <"$REC" 2>/dev/null) $(cat "$T/err"))"
+fi
+: >"$root/kept"
+REC=$(/bin/sh "$WRITER" write "$WT" "$id" --scratch 2>/dev/null)
+if [ "$(field scratch_root)" = "$root" ] && [ -f "$root/kept" ]; then
+  pass "G1.2: another launch of the worktree keeps the same root and its contents"
+else
+  fail "G1.2: the relaunch did not keep the root ('$(field scratch_root)')"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" 2>/dev/null)
+if [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC"; then
+  pass "G1.2: no scratch option records no scratch root"
+else
+  fail "G1.2: a scratch root was recorded unasked"
+fi
+mkdir -p "$root/old/ro"
+chmod 500 "$root/old/ro"
+REC=$(/bin/sh "$WRITER" write "$WT" "$id" --fresh-scratch 2>/dev/null)
+if [ "$(field scratch_root)" = "$root" ] && [ -d "$root" ] && [ -z "$(ls -A "$root")" ]; then
+  pass "G1.2: --fresh-scratch empties a root an earlier worktree at the path left"
+else
+  fail "G1.2: --fresh-scratch left entries behind in $root"
+fi
+: >"$root/kept"
+if /bin/sh "$WRITER" write "$WT" --scratch --scratch >/dev/null 2>&1; then
+  fail "G1.2: a repeated --scratch was accepted"
+else
+  pass "G1.2: a repeated --scratch is a usage error"
+fi
+mkdir -p "$T/elsewhere"
+mv "$root" "$root.moved"
+ln -s "$T/elsewhere" "$root"
+REC=$(/bin/sh "$WRITER" write "$WT" --scratch 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC" && [ -s "$T/err" ]; then
+  pass "G1.2: a root that is a symlink is omitted with a warning, the record still written"
+else
+  fail "G1.2: a symlinked root (rc=$RC, $(tr '\n' ' ' <"$REC" 2>/dev/null))"
+fi
+rm -f "$root"
+mv "$root.moved" "$root"
+set_layer repo-tracked 'worker_self_approval: scratch'
+REC=$(/bin/sh "$WRITER" write "$WT" --scratch 2>/dev/null)
+out=$(jq -cn --arg c 'touch $TMPDIR/x && mktemp -d' --arg w "$WT" '{tool_name:"Bash",tool_input:{command:$c},cwd:$w}' \
+  | (cd "$WT" && TMPDIR=$root PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/bash "$GUARD" 2>/dev/null))
+if [ "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)" = allow ]; then
+  pass "G1.2: the guard takes the launched record's scratch root"
+else
+  fail "G1.2: the guard did not approve a scratch write under the launched record"
+fi
+set_layer repo-tracked 'worker_self_approval: own-branch'
+
 echo "### REQ-G1.8 — the guard's verdicts are fixed at launch"
 write "$WT"
 decide() {
@@ -286,6 +348,24 @@ if [ $? -eq 2 ]; then
   pass "G1.8: a missing record file is refused"
 else
   fail "G1.8: a missing record was accepted"
+fi
+out=$(TMPDIR=/inherited /bin/sh "$ENVWRAP" --tmpdir "$root" /bin/sh -c 'printf %s "$TMPDIR"' 2>&1)
+if [ "$out" = "$root" ]; then
+  pass "G1.2: --tmpdir is exported as the worker's TMPDIR"
+else
+  fail "G1.2: wrapper exported TMPDIR '$out'"
+fi
+/bin/sh "$ENVWRAP" --tmpdir relative/tmp true 2>/dev/null
+if [ $? -eq 2 ]; then
+  pass "G1.2: a relative --tmpdir is refused"
+else
+  fail "G1.2: a relative --tmpdir was accepted"
+fi
+/bin/sh "$ENVWRAP" --tmpdir "$T/none-dir" true 2>/dev/null
+if [ $? -eq 2 ]; then
+  pass "G1.2: a missing --tmpdir directory is refused"
+else
+  fail "G1.2: a missing --tmpdir directory was accepted"
 fi
 
 echo

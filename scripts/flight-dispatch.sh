@@ -1,7 +1,7 @@
 #!/bin/sh
 # flight-dispatch.sh — the visual-flight dispatch path (tower-front-door D-6,
-# D-7, D-11, D-16–D-18, D-20; REQ-B1.5, REQ-C1.1–C1.9, REQ-C1.11, REQ-C1.12,
-# REQ-E1.2, REQ-E1.7, REQ-G1.5).
+# D-7, D-11, D-16–D-18, D-20, D-21; REQ-B1.5, REQ-C1.1–C1.9, REQ-C1.11,
+# REQ-C1.12, REQ-E1.2, REQ-E1.7, REQ-E1.9, REQ-G1.5).
 #
 # The tower routes an ask onto visual flight; this primitive places it. It
 # composes existing seams and mints nothing beside them:
@@ -860,9 +860,9 @@ write_brief() {
   if [ "$HOME_DEST" != none ]; then
     _conv_item="3. \`convergence\`: after CI is green. Resolve the point, then sync \`main\`
    once, \`$(sh_quote "$brief_root/scripts/converge-sync-main.sh")\`, before its first step;
-   any non-zero exit parks the flight with the reason it printed, naming a
-   merge it left in progress for the operator to finish or abort. Its steps
-   are the flight's convergence."
+   any non-zero exit parks the flight (\`point\`), its partial record carrying
+   the reason it printed and any merge it left in progress for the operator
+   to finish or abort. Its steps are the flight's convergence."
   else
     _conv_item="3. \`convergence\`: after CI is green. Resolve the point. This flight has no
    \`origin\` remote, so the \`main\` sync is not run: complete the point with
@@ -884,19 +884,20 @@ write_brief() {
     _landing="Before pushing, re-check the destination the tower stated: run
 \`$(sh_quote "$brief_root/scripts/flight-dispatch.sh") home --repo-root $(sh_quote "$repo_root")\`.
 It must report home \`pr\` and origin \`$HOME_DEST\`; on anything else, or if it
-cannot run, push nothing and park the flight with what it reported. Then render
+cannot run, push nothing and park the flight (\`destination\`), its partial
+record carrying what it reported. Then render
 the record and, only on a clean render, push the branch and open the PR as a
 draft on the checked repository with the push-and-create line:
 \`$_recorder render --home pr $_inputs > $_body && git push -u origin $branch && gh pr create --draft --repo $HOME_DEST --title '<conventional title>' --body-file $_body > $(sh_quote "$_rd/pr-url.tmp") && mv $(sh_quote "$_rd/pr-url.tmp") $(sh_quote "$_rd/pr-url")\`
 Add $_optional to the render only when you wrote them. The record is the PR
 body. Never mark it ready and never merge: a flight's flip and merge stay with
 the human (doctrine/human-gates.md). A non-zero exit from the push or the
-create parks the flight.
+create parks the flight (\`landing\`).
 
 A relaunched worker runs this landed check before it fires any point, in this
 order. When \`record/pr-url\` exists, it is the flight's own record of its PR:
 \`gh pr view <url> --repo $HOME_DEST --json state --jq .state\` must print
-\`OPEN\` for the flight to have landed, and anything else parks it. Otherwise
+\`OPEN\` for the flight to have landed, and anything else parks it (\`landing\`). Otherwise
 it lists the same-repository PRs on this branch in every state, one
 \`<state> <head-sha> <url>\` line each:
 \`gh pr list --repo $HOME_DEST --head $branch --state all --json url,state,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .state + \" \" + .headRefOid + \" \" + .url' > $(sh_quote "$_rd/pr-url.found")\`
@@ -906,8 +907,8 @@ line, \`OPEN\` at \`git rev-parse HEAD\`, is the flight's PR, and it has landed,
 its URL recorded with
 \`awk '{ print \$3 }' $(sh_quote "$_rd/pr-url.found") > $(sh_quote "$_rd/pr-url.tmp") && mv $(sh_quote "$_rd/pr-url.tmp") $(sh_quote "$_rd/pr-url")\`.
 Anything else (more than one line, a PR not open, or one not at this
-branch's tip) parks the flight. A non-zero exit from the
-view or the list parks the flight: a failed lookup is never \"no PR\" or \"not
+branch's tip) parks the flight (\`landing\`). A non-zero exit from the
+view or the list parks the flight (\`landing\`): a failed lookup is never \"no PR\" or \"not
 open\". A landed relaunch skips the push-and-create line, fires \`post-pr\`
 only if the Relaunch bullet says it is still due, and runs the sequence after
 it (re-emit, draft check, completion) either way.
@@ -924,14 +925,15 @@ never by editing the PR body by hand, and never by re-running the
 push-and-create line:
 \`$_recorder render --home pr $_inputs --post-pr > $_body_new && gh pr edit <number> --repo $HOME_DEST --body-file $_body_new\`
 A refusal of your own inputs is fixed and the re-emit re-run (*The audit record*);
-any other non-zero exit from the render, or from the edit, parks the flight.
+any other non-zero exit from the render parks the flight (\`renderer\`), and one
+from the edit parks the flight (\`landing\`).
 Verify the PR is still a draft:
 \`gh pr view <number> --repo $HOME_DEST --json isDraft --jq .isDraft\` must print
-\`true\`; on anything else, park the flight. Then push the completion, with the
+\`true\`; on anything else, park the flight (\`not-draft\`). Then push the completion, with the
 PR link as the landing reference:
 \`$_push completion $_pushid --landing \"pr:\$(tail -n 1 $(sh_quote "$_rd/pr-url"))\"\`
-A non-zero exit from the completion push parks the flight, naming what it
-printed."
+A non-zero exit from the completion push parks the flight (\`landing\`), its
+partial record naming what it printed."
   else
     _landing="Land the record, which writes \`$record\` and commits exactly that one
 file on this branch:
@@ -939,8 +941,8 @@ file on this branch:
 Add $_optional only when you wrote them. Do not push and open no PR. The
 committed record is the landing reference; push the completion with it:
 \`$_push completion $_pushid --landing $(sh_quote "record:$record")\`
-A non-zero exit from the completion push parks the flight, naming what it
-printed.
+A non-zero exit from the completion push parks the flight (\`landing\`), its
+partial record naming what it printed.
 
 A relaunched worker runs this landed check before it fires any point. The
 flight has landed when \`git cat-file -e $(sh_quote "HEAD:$record")\` succeeds: it
@@ -948,7 +950,8 @@ skips the land and pushes the completion. Otherwise a record at that path is
 an interrupted land's leftover, which it clears at once, before any point can
 commit it:
 \`git rm -q --cached --ignore-unmatch -- $(sh_quote "$record") && rm -f -- $(sh_quote "$record") $(sh_quote "${record%/*}")/.$flight_id.md.*\`
-A non-zero exit from that line parks the flight, naming what the line printed."
+A non-zero exit from that line parks the flight (\`landing\`), its partial
+record naming what the line printed."
   fi
 
   {
@@ -1021,7 +1024,7 @@ A non-zero exit from that line parks the flight, naming what the line printed."
     printf '%s\n' "  landing, since such a point's commits could never reach the landed PR or"
     printf '%s\n' "  record."
     printf '%s\n' "- Wherever the procedure ends, parks, or stops the unit (the pause protocol"
-    printf '%s\n' "  or a stop condition), park the flight instead (*Hard pauses*): write"
+    printf '%s\n' "  or a stop condition), park the flight (\`point\`) instead (*Hard pauses*): write"
     printf '%s\n' "  nothing to any \`tasks.md\` or other spec state."
     printf '\n%s\n' "The points, in order:"
     printf '\n'
@@ -1040,12 +1043,32 @@ A non-zero exit from that line parks the flight, naming what the line printed."
     printf '\n## Hard pauses\n\n'
     printf '%s\n' "The gate-wiring hard pauses stay in force whatever the route or its grounds,"
     printf '%s\n' "an operator override included: a hard-disqualifier-zone finding, or scope"
-    printf '%s\n' "outgrowing this route, parks the flight, as does a point the procedure ends,"
-    printf '%s\n' "parks, or stops, and a PR no longer a draft. Stop, commit nothing further, push"
-    printf '%s\n' "the pause to the operator's decision queue with a one-line, plain-ASCII reason that"
-    printf '%s\n' "carries no single quote (the line runs in your shell; never paste quoted"
-    printf '%s\n' "content into it), \`$_push awaiting-decision $_pushid --reason '<reason>'\`,"
-    printf '%s\n' "and report \`parked\` with the reason, so the tower can re-route it."
+    printf '%s\n' "outgrowing this route, parks the flight (\`hard-pause\`). Every park this brief"
+    printf '%s\n' "names carries its kind in parentheses: \`hard-pause\`, \`point\` (a point the"
+    printf '%s\n' "procedure ends, parks, or stops), \`not-draft\`, \`renderer\`, \`destination\`,"
+    printf '%s\n' "\`landing\` (a landing step that failed), or \`question\` (one you may not wait"
+    printf '%s\n' "on). When two kinds fit, \`hard-pause\` wins over \`point\`. To park, whatever"
+    printf '%s\n' "the kind, in this order:"
+    printf '\n'
+    printf '%s\n' "1. Stop and commit nothing further."
+    printf '%s\n' "2. Render the partial record, private beside this brief, never committed or"
+    printf '%s\n' "   pushed. Write under \`$_rd\`: \`park-reason.md\` (what stopped the flight"
+    printf '%s\n' "   and what it printed), \`park-findings.md\` (the review findings so far), and"
+    printf '%s\n' "   \`park-declined.md\` (the declined log so far), each \`None yet.\` when empty,"
+    printf '%s\n' "   under *The audit record*'s input rules, the findings and the declined log"
+    printf '%s\n' "   taking \`####\` and deeper headings as the audit does. Then run, \`<run>\` being this"
+    printf '%s\n' "   launch's run id (\`$(sh_quote "$brief_root/scripts/step-record.sh") new-run\` if you have issued none):"
+    printf '%s\n' "   \`$_recorder partial --flight-id $flight_id --kind <kind> --reason-file $(sh_quote "$_rd/park-reason.md") --findings-file $(sh_quote "$_rd/park-findings.md") --declined-file $(sh_quote "$_rd/park-declined.md") --partial-path $(sh_quote "$brief_dir")/partial-<run>.md\`"
+    printf '%s\n' "   Fix a refusal of those inputs and run it again. When it reports that the"
+    printf '%s\n' "   record already exists (an earlier park under this run id), issue a fresh run"
+    printf '%s\n' "   id with \`new-run\`, the one exception to one run id per launch, and run it"
+    printf '%s\n' "   again under that id; never make one up. If it still cannot write the"
+    printf '%s\n' "   record, park without it."
+    printf '%s\n' "3. Push the park to the operator's decision queue with the kind alone as its"
+    printf '%s\n' "   reason, never the detail, which stays in the partial record because the"
+    printf '%s\n' "   notification may leave this host:"
+    printf '%s\n' "   \`$_push awaiting-decision $_pushid --reason '<kind>'\`"
+    printf '%s\n' "4. Report \`parked\` with the kind as the reason, so the tower can re-route it."
     printf '\n## The audit record\n\n'
     printf '%s\n' "Home: $record (declared at routing time). The record, per flight-rules"
     printf '%s\n' "*The audit record*, carries:"
@@ -1092,14 +1115,14 @@ A non-zero exit from that line parks the flight, naming what the line printed."
     printf '%s\n' "The renderer refuses a bad input or state with a message naming what to fix."
     printf '%s\n' "Fix your own inputs under \`record/\` and run it again. A refusal of the ask or"
     printf '%s\n' "the grounds, which are the operator's and never edited, or any other failure,"
-    printf '%s\n' "parks the flight."
+    printf '%s\n' "parks the flight (\`renderer\`)."
     printf '\n## Landing\n\n'
     printf '%s\n' "$_landing"
     printf '\n## Rules\n\n'
     printf '%s\n' "- Pushed history stays append-only: no force-push (doctrine/human-gates.md)."
     printf '%s\n' "- Write no spec state and edit no spec bundle under \`$spec_rel/<spec>/\`; a flight"
     printf '%s\n' "  is specless. The record file under \`$spec_rel/_flights/\` is not a bundle."
-    printf '%s\n' "- Unattended: never block on a question. What needs a human parks the flight."
+    printf '%s\n' "- Unattended: never block on a question. What needs a human parks the flight (\`question\`)."
     printf '%s\n' "- You already run in the flight's worktree: issue \`git\` and reads there without"
     printf '%s\n' "  a \`cd\`. Claude Code prompts on a \`cd\` before a \`git\` call whatever a hook decides."
     printf '\n%s\n' "When done, finish with one final line exactly:"

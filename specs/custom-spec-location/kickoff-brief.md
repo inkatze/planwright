@@ -850,3 +850,99 @@ Class: meaning
 Lens-pass: the *Lens review pass (delta-scoped, inline)* above in this entry
 Anchor: `18a3a6a08c7e16e0a32f64397a1e69e9eeb372fa` — computed as
 `scripts/spec-anchor.sh specs/custom-spec-location`
+
+### Amendment — reverse registry and holder dispatch extension, delta kickoff (2026-10-29)
+
+Delta-only kickoff of the 2026-10-25 extension (PR #740): REQ-I1.1–REQ-I1.8,
+D-22–D-25 (D-22 supersedes D-21), Tasks 11–13 and their test-spec entries,
+drafted unattended with its choices listed as open questions. The companion
+extension of `invariant-tasks` (PR #737, format-version 3 and the per-task
+`Repository:` field) consumes this bundle's registry seam.
+
+**Rulings (operator, 2026-10-29).**
+
+- A runtime registry, auto-registered at session start, with `register` and
+  `scan` on demand.
+- The alias is the repo-tracked `repository_alias`, else the `origin`
+  repository name, resolved to a checkout only through the registry.
+- A task with no alias defaults to the single registered work repository;
+  with several, the dispatch refuses.
+- One repository per task.
+- Cross-bundle ordering is a cross-spec hard edge inside Task 12's
+  `Dependencies:` parenthetical (`invariant-tasks` Task 10 and Task 11),
+  with a Done-when line as the ordering check; the selector reads the clause
+  as advisory today (a selector fix is seeded separately).
+- The Task 11 `anchor re-review pending` park is removed; no status change.
+
+On the companion (recorded for traceability, applied in its own bundle):
+the Repository field bumps to format-version 3, and fail-closed is per task
+(a task is blocked when its own or a dependency's repository had a transient
+failure; tasks in healthy repositories keep going).
+
+**Lens review pass (delta-scoped).** Spec lens set (`artifact-lenses`),
+plus the altitude and ship-gate check items.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness / internal consistency | F1, F2 | |
+| Ambiguity / interpretation forks | F6 | |
+| Citation and coverage integrity | none | Every REQ-I has a test-spec entry and a task; cited D-, REQ- and task ids exist. |
+| Dead verification paths | F4 | |
+| Decision-domain gaps | none | The extension walk covers storage, configuration, authorization, concurrency, integration, observability. |
+| Testability (Done-when) | none | |
+| Cross-file / cross-bundle consistency | F3, F5 | |
+| Documentation and glossary drift | F7 | |
+| Rendered-content safety | n/a | No prose rendered into an executing context. |
+
+Altitude check: not applicable (the delta keeps D-1's altitude and fires no
+altitude trigger).
+Ship-gate check: one finding (F2), the obs:e1722435 fix named only in prose;
+now a Task 12 deliverable.
+
+Dispositions (all applied in place; the extension is unmerged, REQ-H1.3 is
+merged and amended as gap-fill with an annotation):
+
+- F1 — applied: REQ-I1.6 and D-25 dispatch a task carrying an alias into
+  its own repository from any session, never the launch repository; a Task
+  12 Done-when case and the REQ-I1.6 test-spec entry cover it.
+- F2 — applied: Task 12 names `scripts/orchestrate-meta-step.sh` and the
+  `dispatch-fetch.sh` view and removes the meta-step's out-of-repository
+  refusal (obs:e1722435), with a Done-when case; REQ-I1.6 and D-25 state it.
+- F3 — applied: Task 12 `Dependencies:` carries `11` plus the
+  parenthetical cross-spec hard edge to `invariant-tasks` Task 10 and
+  Task 11; the prose ordering note and
+  open question 5 replaced; a Done-when ordering check kept, noting the
+  selector reads the clause as advisory (`spec_parse_dep_ids` drops the
+  parenthetical; the engine graph shows only edge 11→12).
+- F4 — applied: the REQ-I1.6 test-spec entry tagged `[test + Gherkin +
+  manual]`, so the drain sweep inventories it.
+- F5 — applied: Task 11 pins one dedicated `--repository` exit status for an
+  alias resolving to nothing (unregistered, stale, ambiguous), distinct from
+  usage and grammar refusals; the REQ-I1.4 test-spec entry checks it.
+- F6 — applied: REQ-I1.3 and D-24 read `repository_alias` from the
+  repo-tracked layer only, grammar-checked, a value in another layer ignored
+  with a warning; Task 11 and the REQ-I1.3 test-spec entry follow.
+- F7 — applied: REQ-H1.3 names `repository_alias` absent (REQ-I1.7), with an
+  `*(Amended at …)*` annotation; its test-spec entry points at REQ-I1.7's
+  check.
+- Sign-off edits — applied: the open questions recorded as *Settled
+  rulings* in `requirements.md`, D-22–D-25's open-question pointers
+  re-pointed, the Task 11 park removed, a dated `## Changelog` entry.
+
+Not verified at sign-off: whether first-come alias capture (an unrelated
+clone registering an alias before the real repository on a new machine) is
+a real poisoning path; the session-start hook's behaviour when registration
+is refused or the plugin data home does not resolve; whether the identifier
+grammar admits common lowercased origin names.
+
+Pre-flip verification: stale-reference sweep over the four spec files (no
+open-question pointer, Done-when ordering prose, or park text remains
+outside the historical changelog and the rulings record);
+`fish -c "mise run lint:md"` 0 errors; `scripts/spec-validate.sh
+specs/custom-spec-location` 0 errors, 0 warnings. `Last reviewed:` bumped to
+2026-10-29 on all four spec files; no status flip.
+
+Class: meaning
+Lens-pass: the delta-scoped lens review recorded in this entry (spec lens set plus altitude and ship-gate items, coverage table and dispositions above)
+Anchor: `50506c9a4a2e608c0fe0a25885e38d3c29f7a76c` — computed as
+`scripts/spec-anchor.sh specs/custom-spec-location`

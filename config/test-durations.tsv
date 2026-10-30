@@ -16,6 +16,7 @@ test-flight-record.sh	53.879
 test-flight-dispatch.sh	49.407
 test-flight-dispatch-paths.sh	46.982
 test-resolve-steps.sh	45.961
+test-check-comment-budget.sh	42.086
 test-worker-command-guard.sh	41.538
 test-check-echo-discipline.sh	41.228
 test-reserved-control-spellings.sh	40.648

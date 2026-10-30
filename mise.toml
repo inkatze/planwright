@@ -133,7 +133,7 @@ case $root in "$(pwd -P)"/*) root=${root#"$(pwd -P)"/} ;; esac
 '''
 
 [tasks."lint:json"]
-description = "validate the plugin + marketplace manifests, plugin-global hook registration, and the worker/tower-settings permissions/hook fragments"
+description = "validate the plugin + marketplace manifests, plugin-global hook registration, and the worker, tower and mission-control settings permissions/hook fragments"
 run = '''
 set -e
 jq . .claude-plugin/plugin.json >/dev/null
@@ -142,10 +142,14 @@ jq . .claude-plugin/marketplace.json >/dev/null
 echo marketplace.json valid
 jq . hooks/hooks.json >/dev/null
 echo hooks.json valid
+jq . hooks/mods.json >/dev/null
+echo mods.json valid
 jq . config/worker-settings.json >/dev/null
 echo worker-settings.json valid
 jq . config/tower-settings.json >/dev/null
 echo tower-settings.json valid
+jq . config/mission-control-settings.json >/dev/null
+echo mission-control-settings.json valid
 '''
 
 [tasks."lint:plugin-schema"]
@@ -176,6 +180,10 @@ run = ["/bin/bash scripts/check-obs.sh", "/bin/sh scripts/check-review-miss.sh"]
 description = "instruction-hygiene size guard: per-file / start-load / closure word budgets, manifest resolution, injected-context measurement, and the Task-8 closeout direction (no lingering pending-diet allowance) (prompt-hygiene Task 2, REQ-D1.4)"
 run = "/bin/bash scripts/check-instructions.sh --closeout"
 
+[tasks."check:comment-budget"]
+description = "comment-block budget guard: the largest contiguous comment block per file of the shell, config YAML, root tool config and workflow surface, against comment_block_warn and comment_block_error, with config/comment-budget-exemptions.txt as the suppression list (doctrine/comment-hygiene.md)"
+run = "/bin/sh scripts/check-comment-budget.sh"
+
 [tasks."check:no-ci-evals"]
 description = "standing CI-exclusion guard, so evals never run in CI. Three passes: a workflow-text scan of .github/workflows for a wired-in eval task or a direct runner call; a task-graph closure over depends/depends_post/wait_for from the tasks the workflows invoke, failing if it reaches the eval: namespace; and a scan of the run bodies in that closure, whose own task invocations feed it as edges. Parse boundary: mise.toml only, so file-based task definitions are outside it. Fails closed on an unparseable or zero-task mise.toml, on zero workflow roots, and on any input it cannot read. Run `scripts/check-no-ci-evals.sh --help` for the full contract, including what the graph passes deliberately do not follow."
 run = "/bin/sh scripts/check-no-ci-evals.sh"
@@ -205,7 +213,7 @@ description = "conditional coordination-artifact hygiene guard: when a coordinat
 run = "/bin/sh scripts/check-coordination-hygiene.sh"
 
 [tasks."check:hook-contracts"]
-description = "hook-registration guard over all three surfaces planwright registers through (hooks.json plus the worker and tower settings fragments): every registered event is modelled and payload-fixture-pinned, nothing is registered on an event whose silence refuses the operation (the WorktreeCreate outage shape) unless it is that operation's declared implementer, and decision hooks — run as registered, arguments included, with the worker identity neutralised — emit JSON naming their own event; fails closed on an unmodelled event or unreadable wiring (fleet-lifecycle-closure Task 2, REQ-H1.1, REQ-H1.2, D-11)"
+description = "hook-registration guard over all four surfaces planwright registers through (hooks.json plus the worker, tower and mission-control settings fragments): every registered event is modelled and payload-fixture-pinned, nothing is registered on an event whose silence refuses the operation (the WorktreeCreate outage shape) unless it is that operation's declared implementer, and decision hooks — run as registered, arguments included, with the worker identity neutralised — emit JSON naming their own event; fails closed on an unmodelled event or unreadable wiring (fleet-lifecycle-closure Task 2, REQ-H1.1, REQ-H1.2, D-11)"
 run = "/bin/bash scripts/check-hook-contracts.sh"
 
 [tasks."check:doctrine-index"]
@@ -243,6 +251,22 @@ run = "/bin/bash scripts/check-script-modes.sh"
 [tasks."check:spec-literals"]
 description = "flag the spec home composed as a literal path instead of resolved through scripts/resolve-root.sh (custom-spec-location REQ-G1.1)"
 run = "/bin/sh scripts/check-spec-literals.sh"
+
+[tasks."check:duties"]
+description = "mission control's duty and program guard: the merged duties catalog resolves without a resolver warning and every entry carries the grammar config/duties.yaml documents (the failing field named), the shipped default duty set names catalog duties, and every configured program validates (repositories, spec root, home, budget, a state-source map with known classes and modes) and enables only catalog duties; core and repo-tracked layers only, the adopter overlay and machine-local config held out"
+run = "/bin/bash scripts/check-duties.sh"
+
+[tasks."check:panel-mod"]
+description = "the panel mod: the claude CLI at or above the mods floor, every hook, call and environment read `claude plugin validate` reports named in config/panel-mod-surface.txt, the plugin tests (`claude plugin test`) green and not empty, and the suite failing on a seeded drawing defect (skips with a note where the claude CLI is absent)"
+run = "/bin/bash scripts/check-panel-mod.sh"
+
+[tasks."check:mc-knobs"]
+description = "mission control's knob inventory: every behaviour in config/mission-control-knobs.tsv names a mission_control_* knob the defaults ship, every such key resolves to a non-empty default through scripts/config-get.sh, is claimed by a behaviour and has a docs/options-reference.md row naming its evidence, and no scanned reader names an undeclared mission_control_* key"
+run = "/bin/bash scripts/check-mc-knobs.sh"
+
+[tasks."check:kb-copies"]
+description = "mission control's cite-never-copy lint: fail when a knowledge-base Markdown file under tests/fixtures/mission-control/kb carries a spec bundle's line verbatim (compared trimmed and blank-collapsed, lines of the length scripts/check-kb-copies.sh sets and longer, the underscore-prefixed reserved directories directly under the spec root held out), each copy named by file, line and the spec it copies; fails closed on a missing or unlistable directory or nothing to compare"
+run = "/bin/bash scripts/check-kb-copies.sh"
 
 [tasks."check:steps"]
 description = "custom-steps guard: resolve every named point (wired and unwired) through scripts/resolve-steps.sh in check mode against this repository's core and repo-tracked configuration, the adopter overlay and machine-local config file held out (a gitignored catalogs.local/ catalog is still read), failing on a step that does not resolve, a malformation, or a non-empty list at an unwired point; and fail on the retired review_sequence key outside the transitional line scripts/check-steps.sh describes"
@@ -343,6 +367,7 @@ depends = [
   "check:anchor-freshness",
   "check:obs",
   "check:instructions",
+  "check:comment-budget",
   "check:no-ci-evals",
   "check:workflow-posture",
   "check:githooks",
@@ -358,6 +383,10 @@ depends = [
   "check:script-modes",
   "check:script-invocation",
   "check:spec-literals",
+  "check:duties",
+  "check:mc-knobs",
+  "check:panel-mod",
+  "check:kb-copies",
   "check:steps",
   "check:task-registration",
   "check:lock-primitive",

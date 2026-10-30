@@ -41,7 +41,7 @@ class	expansion	4	shipped	unresolved or opaque $ operands, for-loop modelling, t
 class	run-order	6	shipped	cd, plain assignments, transparent prefixes, wait and inspection verbs
 class	substitution	7	shipped	argument-independent $(...) substitution
 class	own-branch	9	shipped	writes confined to the unit branch and worktree
-class	scratch	10	pending	writes confined to the scratch root
+class	scratch	10	shipped	writes confined to the scratch root
 class	floor	5	shipped	reserved acts the guard approves under no policy value
 class	uncovered	5	shipped	shapes no arm covers: interpreters, self-written scripts, runners, escapes
 
