@@ -140,7 +140,7 @@ userland) and in an Alpine container (musl, dash, busybox) on every pull
 request; they are statuses of their own, which `check` does not join. The
 install smoke (`scripts/install-smoke.sh`, installing through both delivery
 modes and running an adopter entry point with PATH narrowed to the allowlist
-its header gives: sh and bash with the POSIX utilities, `mktemp`, git, and
+the script defines: sh and bash with the POSIX utilities, `mktemp`, git, and
 gh) runs in the `lint` job and in both platform jobs. CI also runs a parse
 of every tracked shell file (outside `tests/fixtures/bash32/`) under the real
 bash 3.2, a step of the `lint` job in Docker's official `bash:3.2` image pinned by

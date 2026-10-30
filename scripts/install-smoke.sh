@@ -1,46 +1,22 @@
 #!/bin/sh
 # install-smoke.sh — install planwright through both delivery modes and run an
 # adopter-tier entry point through each with PATH narrowed to an allowlist, so
-# the no-toolchain constraint is exercised on runner images that carry
-# compilers, interpreters, and package managers by default (universal-binary
-# REQ-B1.1, REQ-B1.3).
+# the no-toolchain constraint holds on runner images that carry compilers,
+# interpreters, and package managers by default.
 #
 # Usage: install-smoke.sh [--modes <list>] [--source <dir>] [--entry <path>]
 #   --modes   comma-separated delivery modes, each at most once, default
 #             `writer,marketplace`:
-#               writer       scripts/install.sh into a scratch CLAUDE_DIR, run
-#                            under the allowlist PATH itself
+#               writer       scripts/install.sh into a scratch CLAUDE_DIR,
+#                            itself run under the allowlist PATH
 #               marketplace  `claude plugin marketplace add` of <source> and
 #                            `claude plugin install planwright@planwright` into
-#                            a scratch CLAUDE_CONFIG_DIR. The Claude CLI is the
-#                            adopter's own installer, so it runs on the
-#                            caller's PATH; a missing `claude` fails the run.
+#                            a scratch CLAUDE_CONFIG_DIR, on the caller's PATH
+#                            (the CLI is the adopter's own installer); a
+#                            missing `claude` fails the run.
 #   --source  the planwright tree to install, default this script's repo.
 #   --entry   a path relative to the installed root, run with no arguments in
-#             place of the default exercise (how a test proves the allowlist
-#             is real).
-#
-# The default exercise is scripts/step-record.sh, chosen from `mise run
-# substrate:partition` as the adopter-tier script with the largest coupling
-# profile: it issues a run, writes a record, renders it, and fingerprints a
-# path in a scratch git repository. Every entry point runs by its literal
-# installed path, so a delivery mode that drops the execute bit fails here.
-#
-# THE ALLOWLIST is REQ-B1.1's runtime set: a POSIX shell (sh, and bash as the
-# shell the bootstrap decision names) with the utilities POSIX.1-2024
-# specifies for it, git, and gh. POSIX's development utilities (c17, make,
-# lex, yacc, the SCCS set, and the rest) are left out, being the toolchain the
-# constraint excludes, and so are utilities no adopter script reaches for (the
-# UUCP and message-catalog sets, vi, localedef) and cd, umask, and unalias,
-# which only a builtin can implement. One non-POSIX name is added: mktemp, which POSIX has never
-# specified, which every matrix platform's stock userland ships, and which is
-# no compiler, interpreter, or package manager; the script layer creates every
-# scratch file through it. Each name is looked up file by file along the
-# caller's PATH, so one the shell also has as a builtin (printf, test, kill)
-# is still linked for xargs, env, and find -exec to run, and it is linked into
-# a scratch directory rather than exposing the directory holding it, which may
-# hold anything; a name the host lacks is simply absent. The entry point then
-# runs under `env -i`, so no variable carries a toolchain path in either.
+#             place of the default scripts/step-record.sh exercise.
 #
 # Exit: 0 every mode installed and its entry point succeeded; 1 a failed
 # install or entry point (named on stderr); 2 usage error.
@@ -112,6 +88,12 @@ trap 'exit 1' HUP INT TERM
 allow="$work/allow-bin"
 mkdir -p "$allow" || die 1 "cannot create the allowlist directory"
 
+# The runtime set: sh and bash with the utilities POSIX.1-2024 specifies,
+# git, and gh. Left out: POSIX's development utilities (c17, make, lex, yacc,
+# SCCS), the toolchain the constraint excludes; sets no adopter script uses
+# (UUCP, message catalogs, vi, localedef); and cd, umask, unalias, which only
+# a builtin can implement. mktemp is the one non-POSIX addition: every matrix
+# platform ships it, it is no toolchain, and every scratch file comes from it.
 tools='alias at awk basename batch bc bg cal cat chgrp chmod chown
 cksum cmp comm command compress cp crontab csplit cut date dd df diff dirname
 du echo ed env ex expand expr false fc fg file find fold fuser getconf getopts
@@ -124,6 +106,10 @@ unlink uudecode uuencode wait wc who write xargs zcat
 mktemp
 sh bash git gh'
 
+# Each name is found file by file and linked into a scratch directory, never
+# by exposing its PATH directory (which may hold anything); a shell builtin
+# (printf, test, kill) is still linked for xargs, env, and find -exec. A name
+# the host lacks is simply absent.
 set --
 for t in $tools; do
   ifs=$IFS
@@ -145,13 +131,16 @@ ln -s "$@" "$allow/" || die 1 "cannot link the allowlist"
 home="$work/home"
 mkdir -p "$home" || die 1 "cannot create the scratch HOME"
 
-# narrowed <command> [<arg>...]: run under the allowlist and nothing else.
+# narrowed <command> [<arg>...]: run under the allowlist and nothing else;
+# env -i keeps any variable from carrying a toolchain path.
 narrowed() {
   env -i PATH="$allow" HOME="$home" LC_ALL=C TMPDIR="$work" "$@"
 }
 
 # exercise <mode> <root>: the default entry-point run against one installed
-# copy, in a scratch repository of the mode's own.
+# copy, in a scratch repository of the mode's own. step-record.sh is the
+# adopter-tier script with the largest coupling profile in `mise run
+# substrate:partition` (a run, a record, a render, a fingerprint).
 exercise() {
   sr="$2/scripts/step-record.sh"
   repo="$work/repo.$1"
@@ -187,7 +176,8 @@ exercise() {
   esac
 }
 
-# check <mode> <root>: run the entry point against one installed copy.
+# check <mode> <root>: run the entry point against one installed copy, by its
+# literal path so a delivery mode that drops the execute bit fails here.
 check() {
   if [ -n "$entry" ]; then
     (cd "$work" && narrowed "$2/$entry") || die 1 "$1 mode: $entry failed under the allowlist PATH"
