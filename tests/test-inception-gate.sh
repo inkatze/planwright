@@ -239,6 +239,13 @@ assert_eq "E1.2 the fenced example is left untouched" 0 \
   "$(awk '/^```markdown/ { on = 1; next } /^```/ { on = 0 } on && /Gate 2|Hold/' "$vroot/fenced/brief.md" | wc -l | tr -d ' ')"
 assert_eq "E1.2 the record lands in the real gate log" 0 "$(validates_clean "$vroot/fenced")"
 
+mkv fencedpend
+ready "$vroot/fencedpend"
+awk '{ print } /^Rides the incident-tooling consolidation/ { print ""; print "```markdown"; print "_Pending: not yet elicited._"; print "```" }' \
+  "$vroot/fencedpend/brief.md" >"$tmp/b" && mv "$tmp/b" "$vroot/fencedpend/brief.md"
+gate evaluate "$vroot/fencedpend"
+assert_not_contains "E1.1 a pending marker quoted in a fenced example is not pending" "elicitation-pending" "$out"
+
 # --- REQ-E1.3 kill-criteria checking ----------------------------------------
 
 gate evaluate "$vroot/base"

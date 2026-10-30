@@ -361,7 +361,7 @@ gather_gate() {
   printf 'BADN\t%s\n' "$(grep -c . "$work/v.before")" >>"$work/all"
   _pend=0
   for _f in $FILES; do
-    _n=$(grep -c '_Pending: not yet elicited\._' "$vdir/$_f")
+    _n=$(awk "$spec_parse_awk_fence"'index($0, "_Pending: not yet elicited._") { n++ } END { print n + 0 }' "$vdir/$_f")
     _pend=$((_pend + _n))
   done
   printf 'PEND\t%s\n' "$_pend" >>"$work/all"

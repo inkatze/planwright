@@ -50,7 +50,8 @@ Doctrine: point-of-use evidence-quality (Phase 5, the minimum core; the gate)
 Doctrine: point-of-use proportionality (every skipped prompt)
 
 **The helpers.** Everything mechanical runs through
-`scripts/inception-venture.sh` (and `scripts/inception-fanout.sh`), called
+`scripts/inception-venture.sh` (and `scripts/inception-fanout.sh` and
+`scripts/inception-gate.sh`), called
 by their resolved literal absolute paths, one plain command per call
 (`doctrine/plugin-script-invocation.md`). Output a caller parses is
 `key<TAB>value` lines; a `degraded` line names a missing capability in plain
