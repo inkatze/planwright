@@ -68,7 +68,8 @@ Output, tab separated:
 
 A launch reserves the name with a complete row (backend, launcher pid and a
 token) before it starts anything, and a session that started but could not
-be recorded is stopped. A retire refuses a launch still in flight, closes the
+be recorded is stopped. A mission-control session starts holding that token
+as PLANWRIGHT_MC_TOKEN, which no other kind is handed. A retire refuses a launch still in flight, closes the
 process or window first, and releases the fleet record, the attention row
 and the row only once it is gone; a window counts as closed only when tmux
 lists the windows and that one is not among them.

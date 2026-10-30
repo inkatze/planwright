@@ -598,7 +598,9 @@
 #   4 the sub-surface, the log, a counter, the store, a marker, a delivery
 #   file, the evidence table or the settle stamp is not verifiably owner-only,
 #   the attention store or its directory
-#   is a redirect or foreign-owned, or a repo-tracked knob is malformed
+#   is a redirect or foreign-owned, mission control's launcher registry
+#   directory is widened or a registry row is writable by others (`add`
+#   of a decided-by-mission-control item), or a repo-tracked knob is malformed
 #   (the by-layer policy), or `tower_lease_interval` is below
 #   `tower_quiet_interval`, or `tower_catchup_limit` is above its cap; 5
 #   broken install;
@@ -668,6 +670,7 @@ usage: tower-queue.sh log <kind> [--tower <id>] [--now <epoch>] [<key>=<value> .
                       [--window <duration>] [--gate none|human-gate|disqualifier-zone] (a picklist)
        tower-queue.sh add --kind decided-by-mission-control --origin <who> --text <decision> --grounds <ptr>
                       --reversal <step>|none --gate none [--tower <id>] [--subject <key>] [--topic <text>]
+                      (from a running mission-control session holding its row's PLANWRIGHT_MC_TOKEN)
        tower-queue.sh ack <id> [--tower <id>] [--now <epoch>]
        tower-queue.sh revoke <id> [--tower <id>] [--now <epoch>]
        tower-queue.sh show <id> [--now <epoch>]
