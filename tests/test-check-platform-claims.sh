@@ -108,7 +108,9 @@ check --strict
 assert_eq "a due claim fails strict mode" 1 "$rc"
 
 { entry PC-2 'stale claim' 2026-06-01 2026-09-01; } | write_reg
-TODAY=2026-09-01 check --strict
+TODAY=2026-09-01
+check --strict
+unset TODAY
 assert_eq "a claim is not due on its re-verify date" 0 "$rc"
 
 # --- malformed registers fail in every mode --------------------------------
