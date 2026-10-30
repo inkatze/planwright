@@ -342,6 +342,38 @@ if [ "$(id -u)" != 0 ]; then
   echo "ok: a switch record that cannot be written fails next before the store commits"
 fi
 
+# --- a widened or redirected presence directory is read as the fallback -------
+# The write path refuses such a directory; the read path must not trust the
+# markers inside it either. It warns once per pass and reads every tower by the
+# quiet interval, as REQ-F1.7 reads an unreadable marker.
+
+G=tower-g
+qg=$(add_q wg high 8000)
+pres $G --away --now 8000 >/dev/null || fail "G away write: exit"
+chmod 0750 "$pdir"
+rc=0
+errs=$(run next --tower $G --now 8001 2>&1 >/dev/null) || rc=$?
+chmod 0700 "$pdir"
+[ "$rc" = 0 ] || fail "next under a widened presence directory: exit $rc"
+[ "$(pushes_for "$qg")" = 0 ] || fail "an away marker in a widened presence directory was trusted on read"
+[ "$(switches $G marker)" = 0 ] || fail "a marker in a widened presence directory was read as the source"
+[ "$(printf '%s\n' "$errs" | grep -c 'presence directory')" = 1 ] \
+  || fail "the widened presence directory was not warned about exactly once: '$errs'"
+mv "$pdir" "$tmp/presence.aside"
+ln -s "$tmp/presence.aside" "$pdir"
+rc=0
+run next --tower $G --now 8002 >/dev/null 2>&1 || rc=$?
+rm -f "$pdir"
+mv "$tmp/presence.aside" "$pdir"
+[ "$rc" = 0 ] || fail "next under a symlinked presence directory: exit $rc"
+[ "$(pushes_for "$qg")" = 0 ] || fail "an away marker behind a symlinked presence directory was trusted on read"
+[ "$(switches $G marker)" = 0 ] || fail "a marker behind a symlinked presence directory was read as the source"
+run next --tower $G --now 8003 >/dev/null 2>&1 || fail "next with the presence directory restored: exit"
+[ "$(switches $G marker)" = 1 ] || fail "the restored presence directory's marker was not read"
+[ "$(pushes_for "$qg")" = 1 ] || fail "the restored away marker did not push ($(pushes_for "$qg"))"
+run settle "$qg" --reason 'the worker landed it' --now 8100 >/dev/null 2>&1 || fail "settling qg"
+echo "ok: a widened or symlinked presence directory reads every tower from the fallback, warned once"
+
 # --- the knob ships with its default and its options-reference row -----------
 
 grep -q '^tower_presence_ttl: 2m$' "$here/../config/defaults.yml" || fail "config/defaults.yml does not ship tower_presence_ttl: 2m"

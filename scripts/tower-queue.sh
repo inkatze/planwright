@@ -226,8 +226,10 @@
 # The read: while the marker was written within `tower_presence_ttl` (fresh),
 # the operator is present when its last prompt event falls within
 # `tower_quiet_interval`, and away otherwise or when it says away; absent,
-# stale, malformed, naming an unknown producer, or failing verification, it
-# is the quiet-interval rule unchanged. Whichever source is read, a reply on
+# stale, malformed, naming an unknown producer, or failing verification (the
+# marker, or the presence directory, which is checked once per pass and then
+# read as the fallback for every tower), it is the quiet-interval rule
+# unchanged. Whichever source is read, a reply on
 # the attention marker later than the presence marker's write is present.
 # That reading drives everything that asks whether the operator is here: the
 # away push, the lease preemption, and the settled-while-away flag; the push
@@ -2787,6 +2789,10 @@ write_delivery() { # write_delivery <tower> <kt> <kitem> <dt> <ditem> <src>
 # attention, so the fallback is the conservative reading, and a planted or
 # widened marker must not be the one that decides the away push.
 read_presence() {
+  if [ "$PRESENCE_OK" != 1 ]; then
+    printf '0\t-\n'
+    return 0
+  fi
   _pf="$presence_dir/$1"
   [ -e "$_pf" ] || [ -L "$_pf" ] || {
     printf '0\t-\n'
@@ -2820,7 +2826,18 @@ read_presence() {
 # the quiet-interval fallback when it refuses verification (REQ-F1.7); a
 # peer's file that refuses verification leaves that peer out with a warning,
 # so one tower's widened marker cannot stop every other tower's verbs.
+PRESENCE_OK=1
 build_towers_file() {
+  # The directory is checked once per pass, as the write path checks it: a
+  # widened or redirected one makes every marker in it untrustworthy, so every
+  # tower reads the fallback and the pass says so once, not once per tower.
+  PRESENCE_OK=1
+  if [ -e "$presence_dir" ] || [ -L "$presence_dir" ]; then
+    (check_private_dir "$presence_dir") 2>/dev/null || {
+      PRESENCE_OK=0
+      err "the presence directory $(sanitize_printable "$presence_dir" "(unprintable path)") refuses verification; every tower's presence falls back to the quiet interval"
+    }
+  fi
   : >"$SCRATCH/names"
   [ -z "${tower:-}" ] || printf '%s\n' "$tower" >>"$SCRATCH/names"
   [ ! -s "$SCRATCH/snap" ] || awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26) && $19 != "-" { print $19 }' "$SCRATCH/snap" >>"$SCRATCH/names"
@@ -2838,8 +2855,10 @@ build_towers_file() {
     ls -1 "$delivery_dir" 2>/dev/null >>"$SCRATCH/names" || true
     # shellcheck disable=SC2012
     ls -1 "$marker_dir" 2>/dev/null >>"$SCRATCH/names" || true
-    # shellcheck disable=SC2012
-    ls -1 "$presence_dir" 2>/dev/null >>"$SCRATCH/names" || true
+    if [ "$PRESENCE_OK" = 1 ]; then
+      # shellcheck disable=SC2012
+      ls -1 "$presence_dir" 2>/dev/null >>"$SCRATCH/names" || true
+    fi
   fi
   : >"$SCRATCH/towers"
   sort -u "$SCRATCH/names" | while IFS= read -r _tn; do
