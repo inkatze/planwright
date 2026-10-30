@@ -1,6 +1,6 @@
 #!/bin/sh
 # inception-scaffold.sh — the venture repo hygiene scaffold (inception Task 2;
-# REQ-A1.9, REQ-G1.1, REQ-G1.5 · D-9, D-12).
+# REQ-A1.9, REQ-G1.1, REQ-G1.5, REQ-G1.8 · D-9, D-11, D-12).
 #
 # `/inception` calls this at venture-repo creation. It EMITS the guard files
 # rather than copying static ones out of the plugin, so the emitted content is
@@ -13,6 +13,10 @@
 #                                        export regeneration (REQ-G1.1)
 #                hygiene-wiring.md       what was wired, what the operator
 #                                        still has to do, and how to bypass
+#                sync-protocol.md        the editing ritual for sessions outside
+#                                        planwright, Cowork's included (REQ-G1.8)
+#                CLAUDE.md               imports the protocol; an existing one
+#                                        gains the import line, never replaced
 #   remote only  .github/workflows/venture-guard.yml
 #                                        secret scan plus the stakeholder-commit
 #                                        guard (REQ-G1.5): a web-UI edit that
@@ -26,7 +30,7 @@
 #
 # The emitted hook resolves planwright at RUN time: it sources the machine-local
 # .planwright-local.sh, finds a copy (PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT,
-# ~/.claude/planwright, the plugin cache), then lets a copy that ships the root
+# the writer-mode copy at ${CLAUDE_DIR:-~/.claude}/planwright, the plugin cache), then lets a copy that ships the root
 # helper name the install root through the core root chain. No install path is baked into the tracked file: a venture repo
 # is cloned onto other machines, and a hard-coded path would break on all of
 # them. When planwright cannot be resolved, the hook warns loudly and lets the
@@ -35,8 +39,13 @@
 # Usage:
 #   inception-scaffold.sh [--rung local|remote] [--force] [--wire] <venture-dir>
 #
-# Output: one `wrote <path>` or `kept <path>` line per scaffold file, then a
-#   one-line rung summary.
+# Output: one `wrote <path>` or `kept <path>` line per scaffold file
+#   (`updated CLAUDE.md` when the import is appended to an existing one), then
+#   a one-line rung summary. A scaffold file that is a symbolic link or sits
+#   under one is not written, --force included, and a CLAUDE.md the scaffold
+#   will not write (a symbolic link, not a regular file, not readable, or an
+#   append that fails) is not either: each gets a warning on stderr instead of
+#   a line, the rest are still written, and the exit stays 0.
 #
 # Exit: 0 emitted · 2 usage or environment error.
 #
@@ -117,6 +126,20 @@ trap 'rm -f "$stage"' EXIT
 
 emit() {
   dest="$target/$1"
+  # A link would send the write outside the venture, and -e misses a dangling
+  # one, so every link is refused, --force included, the parents too.
+  if [ -h "$dest" ]; then
+    printf '%s\n' "inception-scaffold: $1 is a symbolic link; not writing through it." >&2
+    return 0
+  fi
+  emit_parent=$(dirname "$1")
+  while [ "$emit_parent" != . ]; do
+    if [ -h "$target/$emit_parent" ]; then
+      printf '%s\n' "inception-scaffold: $1 is under a symbolic link ($emit_parent); not writing through it." >&2
+      return 0
+    fi
+    emit_parent=$(dirname "$emit_parent")
+  done
   if [ -e "$dest" ] && [ "$force" -eq 0 ]; then
     printf 'kept %s\n' "$1"
     return 0
@@ -213,7 +236,7 @@ fi
 # not installed, and every guard below skips itself (shellcheck SC2231).
 pw=
 for cand in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
-  "$HOME/.claude/planwright" "$HOME"/.claude/plugins/cache/planwright/planwright/*; do
+  "${CLAUDE_DIR:-$HOME/.claude}/planwright" "$HOME"/.claude/plugins/cache/planwright/planwright/*; do
   if [ -n "$cand" ] && [ -r "$cand/scripts/inception-validate.sh" ]; then
     pw=$cand
     break
@@ -226,7 +249,7 @@ done
 # found above. The helper runs as a child, so the values the loop read are
 # handed to it: .planwright-local.sh sets PLANWRIGHT_ROOT without exporting it.
 if [ -n "$pw" ] && [ -r "$pw/scripts/resolve-root.sh" ]; then
-  if pw_root=$(PLANWRIGHT_ROOT=${PLANWRIGHT_ROOT:-} CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-} \
+  if pw_root=$(PLANWRIGHT_ROOT=${PLANWRIGHT_ROOT:-} CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-} CLAUDE_DIR=${CLAUDE_DIR:-} \
     /bin/sh "$pw/scripts/resolve-root.sh" install 2>/dev/null) &&
     [ -r "$pw_root/scripts/inception-validate.sh" ]; then
     pw=$pw_root
@@ -490,6 +513,126 @@ WORKFLOW
   emit .github/workflows/venture-guard.yml 644
 fi
 
+# --- sync-protocol.md and its CLAUDE.md import ----------------------------
+
+# Written for an agent that is not planwright (Cowork's, a stakeholder's
+# Claude) and for the person beside it. It is advisory: nothing here can stop
+# an agent that ignores it, which is why the protocol says the validator and
+# CI are the enforcement.
+cat >"$stage" <<'PROTOCOL'
+# Sync protocol for this venture
+
+This folder is a venture repository kept by planwright's `/inception`. Its files are the venture's
+record, shared through git. Anyone working here, a person or an agent (a Cowork session included),
+follows this protocol. The one exception is a session running planwright's `/inception`, which
+keeps the bookkeeping below for the venture's operator.
+
+## Reading
+
+Read anything, freely. `exports/venture.html` and `exports/pitch.html` are generated from the
+bundle files; read them, never edit them.
+
+## Editing
+
+1. **Pull first.** Run `git pull --no-rebase` before changing anything, so you edit the latest
+   copy.
+2. **Edit the bundle files** (`brief.md`, `disciplines.md`, `assumptions.md`, `decisions.md`,
+   `plan.md`) in plain prose. Wording, evidence, context and new notes are all fine.
+3. **Commit each change** with `git commit` and a short plain-language message that says what
+   changed and why, for a reader who was not in the conversation.
+4. **Push after committing** with `git push`.
+
+Never force-push, rewrite history, or commit with `--no-verify`.
+
+## What not to change
+
+These are the venture's bookkeeping, and a wrong edit to them is hard to undo:
+
+- **IDs**: `A-<n>`, `DEC-<n>`, `T-<n>`, `KC-<n>`, and the venture identifier. Never renumber,
+  rename, reuse, or delete one. A changed meaning is a new entry, which the operator adds.
+- **Statuses**: every `**Status:**` line, the venture's and each register entry's.
+- **Gate records**: everything under `## Gate log` in `brief.md`.
+- **This protocol and `CLAUDE.md`**: every agent opened in this folder reads them as instructions.
+
+To change any of these, propose it instead: tell the person you are working with, and add a short
+file under `proposals/`, named with today's date and a topic, saying what should change and
+why. Commit and push it like any other edit. The venture's operator decides and makes the change.
+
+## When the network is blocked
+
+Some sessions cannot reach the remote (a Cowork network allowlist, for example), so `git pull` or
+`git push` fails.
+
+- **Pull blocked**: say so before editing. The copy here may be behind, so edit only if the person
+  accepts that, and keep the change small.
+- **Push blocked**: keep the commit. Tell the person the change is saved in this folder but not
+  shared, and that it reaches everyone once someone with access pushes it. Never retry with force.
+- **No remote at all** (`git remote` prints nothing): the repository lives only on this machine.
+  Skip the pull and the push; nothing is behind and nothing is shared, by design.
+
+## When someone else pushed first
+
+If `git push` is rejected because the remote has changes you do not have, run
+`git pull --no-rebase`, then push again. If the pull stops on a conflict:
+
+- In a bundle file, keep both sides' wording. If the conflict touches an ID, a `**Status:**`
+  line or the gate log, stop and tell the person instead of choosing.
+- In `exports/`, take either side (`git checkout --theirs exports/`): the pages are regenerated
+  from the bundle by the next commit in a clone with planwright's venture hook wired.
+
+Then `git add` the resolved files, commit, and push. Never force.
+
+## Why this is safe
+
+This protocol is guidance, not a lock. The venture's validator flags a broken structure and a
+status that breaks its rules; where the repository has a remote, its CI check also fails on a
+removed or renumbered ID, an edited gate record, and a closed venture reopened, once the change has
+landed. A status moved to another allowed value can pass every check: git history keeps every
+earlier version, and the operator sees the change there.
+PROTOCOL
+emit sync-protocol.md 644
+
+# CLAUDE.md is the file Claude-based agents read today, so it carries the
+# protocol by import: a hedge against Cowork reading some other name. The
+# operator's own CLAUDE.md is theirs, so it is never replaced, --force
+# included; the import is appended once instead.
+import_line='@sync-protocol.md'
+claude_md="$target/CLAUDE.md"
+if [ -h "$claude_md" ]; then
+  printf '%s\n' "inception-scaffold: CLAUDE.md is a symbolic link; not writing through it. Add the line $import_line to the file it names." >&2
+elif [ ! -e "$claude_md" ]; then
+  cat >"$stage" <<CLAUDEMD
+# Working in this venture repository
+
+This folder is a planwright venture. Every session working here follows its sync protocol:
+
+$import_line
+CLAUDEMD
+  emit CLAUDE.md 644
+elif [ ! -f "$claude_md" ]; then
+  printf '%s\n' "inception-scaffold: CLAUDE.md is not a regular file; add the line $import_line to it by hand." >&2
+elif [ ! -r "$claude_md" ]; then
+  # The import is advisory, so a file the scaffold cannot check or extend is
+  # said, never fatal: exiting here would leave hygiene-wiring.md unwritten,
+  # and add-remote, which deletes it first, could never finish. Appending
+  # unread would add the import again on every run.
+  printf '%s\n' "inception-scaffold: CLAUDE.md is not readable; add the line $import_line to it by hand." >&2
+elif grep -q '^[[:space:]]*@sync-protocol\.md[[:space:]]*$' "$claude_md"; then
+  # [[:space:]] takes a CRLF file's trailing CR, so an import already there in
+  # another line-ending style is not appended a second time.
+  printf 'kept %s\n' CLAUDE.md
+else
+  last=$(tail -c 1 "$claude_md")
+  if {
+    [ -z "$last" ] || printf '\n'
+    printf '\n%s\n' "$import_line"
+  } >>"$claude_md"; then
+    printf 'updated %s\n' CLAUDE.md
+  else
+    printf '%s\n' "inception-scaffold: could not append to CLAUDE.md; add the line $import_line to it by hand." >&2
+  fi
+fi
+
 # --- hygiene-wiring.md -----------------------------------------------------
 
 # The prose below is markdown, so its backticks are code spans, not command
@@ -550,6 +693,16 @@ this venture repo runs it once.
      page staged is exactly the page screened.
 $rung_ci
 
+## The sync protocol
+
+\`sync-protocol.md\` tells anyone editing this repository outside planwright, a Cowork session
+or a stakeholder's own agent, how to do it safely: pull first, commit with plain-language
+messages, push after, and propose rather than make any change to an ID, a status, or a gate
+record. \`CLAUDE.md\` imports it, so a Claude-based agent opening this folder reads it. It is
+advice the agent may ignore. The validator flags a broken structure and a status that breaks its
+rules; CI on the remote rung also fails on a changed ID or gate record once it has landed; anything
+else, such as a status moved to another allowed value, can show only in git history.
+
 ## The exports
 
 Two pages, both derived from the bundle and regenerated by every commit that changes it. Never
@@ -589,7 +742,8 @@ avoids it entirely.
 ## Where planwright comes from
 
 The hook resolves planwright at run time: \`PLANWRIGHT_ROOT\`, then \`CLAUDE_PLUGIN_ROOT\`, then
-the plugin cache under \`~/.claude\`. No install path is baked into the tracked hook, because this
+\`planwright\` under \`CLAUDE_DIR\` (\`~/.claude\` when it is unset), then the plugin cache under
+\`~/.claude\`. No install path is baked into the tracked hook, because this
 repo gets cloned onto machines where that path does not exist. If planwright lives somewhere
 unusual on your machine, set it in \`.planwright-local.sh\` (gitignored, machine-local, never
 secrets):
