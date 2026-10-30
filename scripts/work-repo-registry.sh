@@ -502,6 +502,8 @@ cmd_lookup() {
   lk_count=0
   lk_dropped=0
   while IFS= read -r lk_line; do
+    # A row of another root is skipped before its shape is judged; a
+    # well-formed row of this root keeps the fields this split set.
     if split_row "$lk_line" && [ "$r_root" != "$root" ]; then
       continue
     fi
@@ -511,8 +513,6 @@ cmd_lookup() {
       [ "$lk_explain" -eq 0 ] || printf 'refused\t%s\t%s\n' "$(clean "$lk_line" | cut -c1-200)" "$lk_why"
       continue
     fi
-    split_row "$lk_line"
-    [ "$r_root" = "$root" ] || continue
     [ -z "$lk_alias" ] || [ "$r_alias" = "$lk_alias" ] || continue
     lk_why=$(stale)
     if [ -n "$lk_why" ]; then
