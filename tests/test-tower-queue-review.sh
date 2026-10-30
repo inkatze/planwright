@@ -184,8 +184,11 @@ sec_refused() { # sec_refused <what> <reason> <path> <mode> — the add exits 4 
   grep -qF -- "$2" "$errf" || fail "$1: refused for another reason than '$2'"
 }
 sec_refused "a registry row others can write" 'writable by others' "$reg/$MC" 0620
+sec_refused "a registry row any user can write" 'writable by others' "$reg/$MC" 0602
 sec_refused "a sessions directory others can read" 'not verifiably owner-only' "$reg" 0755
+grep -qF "the launcher registry directory $reg " "$errf" || fail "the widened sessions directory is not named: $(cat "$errf")"
 sec_refused "a registry directory others can read" 'not verifiably owner-only' "$home/mission-control" 0755
+grep -qF "the launcher registry directory $home/mission-control " "$errf" || fail "the widened registry directory is not named: $(cat "$errf")"
 echo "ok: a registry row writable by others, or either registry directory widened, is refused"
 
 # shellcheck disable=SC2086

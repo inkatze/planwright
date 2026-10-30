@@ -4766,12 +4766,22 @@ ADD_ID=""
 # launched row for <name> of the mission-control session kind. The registry
 # is what the launcher writes; a presence record is what its subject says of
 # itself, so it is never read for this (REQ-A1.14).
+mc_registry_dir_ok() {
+  [ -d "$1" ] || return 0
+  # check_private_dir names no path (it speaks of this script's own
+  # sub-surface), so the registry directory is named after it.
+  (check_private_dir "$1") || {
+    err "security: refusing the launcher registry directory $(sanitize_printable "$1" "(unprintable path)") (see above)"
+    exit 4
+  }
+}
+
 mc_caller_ok() {
   _mr="$home/mission-control/sessions/$1"
   # The registry decides who may record a decision, so a widened directory
   # or a row others can write is a security refusal, never a miss.
-  [ ! -d "$home/mission-control" ] || check_private_dir "$home/mission-control"
-  [ ! -d "${_mr%/*}" ] || check_private_dir "${_mr%/*}"
+  mc_registry_dir_ok "$home/mission-control"
+  mc_registry_dir_ok "${_mr%/*}"
   [ ! -L "$_mr" ] && [ -f "$_mr" ] || return 1
   # shellcheck disable=SC2012
   _ml=$(ls -ln "$_mr" 2>/dev/null) || return 1
