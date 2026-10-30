@@ -203,6 +203,24 @@ expect_no_out "REQ-E1.1: no event is emitted under the pause" "watcher-stopped"
 rm -rf "$wdir"
 check "a loop whose state directory is gone exits" poll_until --what "the orphaned loop's exit" -- pid_gone "$fast_pid"
 
+# A loop that exits between the procfs readability test and the read is not
+# ours, and says nothing on stderr. The race cannot be timed, so the script's
+# own read line runs against a cmdline that cannot be opened.
+read_line=$(grep -F "<\"/proc/\$1/cmdline\"" "$repo_root/scripts/mc-watch.sh")
+if [ -z "$read_line" ]; then
+  fail "the procfs cmdline read is not found in mc-watch.sh"
+else
+  vanished="$tmp/vanished-pid/cmdline"
+  read_line=${read_line//\/proc\/\$1\/cmdline/$vanished}
+  read_err=$(/bin/bash -c "f() { $read_line; return 0; }; f" 2>&1)
+  read_rc=$?
+  if [ "$read_rc" -ne 0 ] && [ -z "$read_err" ]; then
+    ok "a vanished pid's unreadable cmdline reads as not ours, silently"
+  else
+    fail "a vanished pid's cmdline read: rc $read_rc, stderr '$read_err'"
+  fi
+fi
+
 # ---------------------------------------------------------------------------
 # REQ-C1.5: no runner, relay, snapshot or budget path calls a model. The gate
 # is checked against one seeded file per spelling first, so it can fail.
