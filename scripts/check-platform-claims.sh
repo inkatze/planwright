@@ -1,19 +1,6 @@
 #!/bin/sh
-# check-platform-claims.sh — guard the platform-claims register (inception
-# Task 14; D-11, REQ-H1.4).
-#
-# planwright relies on a few facts about hosts it does not control (how Cowork
-# runs a session, what a cloud sandbox keeps, what an API accepts). Those rot
-# faster than code, so each one is recorded in docs/platform-claims.md with its
-# source, the date it was last verified, and the date by which it must be
-# verified again.
-#
-# Two modes:
-#   default    the gate: a malformed register fails; a claim past its
-#              re-verify date is named on a `due` line but does not fail, so
-#              the suite never turns red on a calendar alone.
-#   --strict   the release step: a due claim fails too. Re-verify it against
-#              its source, then advance Verified and Re-verify-by.
+# check-platform-claims.sh: guard the platform-claims register. What the
+# register holds and when each mode runs is in docs/platform-claims.md.
 #
 # Usage:
 #   check-platform-claims.sh [--strict] [--today YYYY-MM-DD] [--root <dir>] [<register>]
@@ -26,7 +13,7 @@
 # Exit: 0 clean (due claims allowed outside --strict) · 1 a malformed or
 #   unreadable register, or a due claim under --strict · 2 usage.
 #
-# Portable POSIX sh; bash 3.2 / BSD tooling floor (REQ-K1.5).
+# Portable POSIX sh; bash 3.2 / BSD tooling floor.
 set -u
 
 LC_ALL=C
