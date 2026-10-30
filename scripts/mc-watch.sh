@@ -202,10 +202,16 @@ ours() {
   # busybox ps takes neither -p nor -ww, so procfs is read where it exists;
   # BSD ps cuts an argument list to the terminal's width without -ww.
   if [ -r "/proc/$1/cmdline" ]; then
-    ou_args=$(tr '\0' ' ' 2>/dev/null <"/proc/$1/cmdline") || return 2
+    ou_args=$(tr '\0' ' ' 2>/dev/null <"/proc/$1/cmdline") || {
+      kill -0 "$1" 2>/dev/null && return 2
+      return 1
+    }
     ou_args=${ou_args% }
   else
-    ou_args=$(ps -ww -o args= -p "$1" 2>/dev/null) || ou_args=$(ps -o args= -p "$1" 2>/dev/null) || return 2
+    ou_args=$(ps -ww -o args= -p "$1" 2>/dev/null) || ou_args=$(ps -o args= -p "$1" 2>/dev/null) || {
+      kill -0 "$1" 2>/dev/null && return 2
+      return 1
+    }
   fi
   ou_tail=" loop --program $program --slot $2"
   case $ou_args in

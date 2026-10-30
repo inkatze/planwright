@@ -205,16 +205,19 @@ check "a loop whose state directory is gone exits" poll_until --what "the orphan
 
 # A loop that exits between the procfs readability test and the read is not
 # ours, and says nothing on stderr. The race cannot be timed, so the script's
-# own read line runs against a cmdline that cannot be opened.
-read_line=$(grep -F "<\"/proc/\$1/cmdline\"" "$repo_root/scripts/mc-watch.sh")
+# own read runs against a cmdline that cannot be opened.
+read_line=$(awk 'index($0, "<\"/proc/$1/cmdline\"") { print; if (!/\{$/) exit; p = 1; next } p { print } p && /^    }$/ { exit }' "$repo_root/scripts/mc-watch.sh")
 if [ -z "$read_line" ]; then
   fail "the procfs cmdline read is not found in mc-watch.sh"
 else
   vanished="$tmp/vanished-pid/cmdline"
   read_line=${read_line//\/proc\/\$1\/cmdline/$vanished}
-  read_err=$(/bin/bash -c "f() { $read_line; return 0; }; f" 2>&1)
+  true &
+  vanished_pid=$!
+  wait "$vanished_pid"
+  read_err=$(/bin/bash -c "f() { $read_line; return 0; }; f $vanished_pid" 2>&1)
   read_rc=$?
-  if [ "$read_rc" -ne 0 ] && [ -z "$read_err" ]; then
+  if [ "$read_rc" -eq 1 ] && [ -z "$read_err" ]; then
     ok "a vanished pid's unreadable cmdline reads as not ours, silently"
   else
     fail "a vanished pid's cmdline read: rc $read_rc, stderr '$read_err'"
