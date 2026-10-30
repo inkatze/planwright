@@ -4781,8 +4781,17 @@ EOF
       fi
       ;;
     *)
-      [ "$changed" != 1 ] || commit_store || exit 6
-      [ "$p_src" = "$d_src" ] || write_delivery "$tower" "$d_kt" "$d_kitem" "$d_dt" "$d_ditem" "$p_src"
+      # A source switch is recorded first for the same reason: written after
+      # the commit, its failure would leave pushes stamped and never sent.
+      if [ "$p_src" != "$d_src" ]; then
+        write_delivery "$tower" "$d_kt" "$d_kitem" "$d_dt" "$d_ditem" "$p_src"
+        if [ "$changed" = 1 ] && ! commit_store; then
+          write_delivery "$tower" "$d_kt" "$d_kitem" "$d_dt" "$d_ditem" "$d_src"
+          exit 6
+        fi
+      else
+        [ "$changed" != 1 ] || commit_store || exit 6
+      fi
       ;;
   esac
   pw=0

@@ -312,6 +312,26 @@ run settle "$qe2" --reason 'the worker landed it' --now 6300 >/dev/null 2>&1 || 
 knobs 60s
 echo "ok: a reply outranks a fresh marker only while it is within the quiet interval"
 
+# --- a failed switch record leaves the store untouched -----------------------
+# When the delivery record cannot take the new source, `next` fails before the
+# store commits, so the away push it stamped is not spent unsent.
+
+if [ "$(id -u)" != 0 ]; then
+  F=tower-f
+  qf=$(add_q wf high 7000)
+  pres $F --away --now 7000 >/dev/null || fail "F away write: exit"
+  chmod 0500 "$surface/delivery"
+  rc=0
+  run next --tower $F --now 7001 >/dev/null 2>&1 || rc=$?
+  chmod 0700 "$surface/delivery"
+  [ "$rc" = 6 ] || fail "a delivery record that cannot be written did not fail next (exit $rc)"
+  [ "$(push_count "$qf")" = 0 ] || fail "the failed next spent the away push without sending it"
+  run next --tower $F --now 7002 >/dev/null 2>&1 || fail "next after the delivery directory was restored: exit"
+  [ "$(pushes_for "$qf")" = 1 ] || fail "the away push was lost to the failed switch record ($(pushes_for "$qf"))"
+  run settle "$qf" --reason 'the worker landed it' --now 7100 >/dev/null 2>&1 || fail "settling qf"
+  echo "ok: a switch record that cannot be written fails next before the store commits"
+fi
+
 # --- the knob ships with its default and its options-reference row -----------
 
 grep -q '^tower_presence_ttl: 2m$' "$here/../config/defaults.yml" || fail "config/defaults.yml does not ship tower_presence_ttl: 2m"
