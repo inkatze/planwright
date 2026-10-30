@@ -410,14 +410,12 @@ report() {
     if [ "$fv_rc" -ne 0 ]; then
       fv=unparseable
     fi
-    case "$fv" in
-      1 | 2) ;;
-      *)
-        printf 'error: tasks.md has a missing or unparseable Format-version: line - gates not evaluated (fail closed)\n'
-        n_err=$((n_err + 1))
-        continue
-        ;;
-    esac
+    # Keyed on the rule arm (version 3 takes the v2 arm), never the raw value.
+    if ! fv=$(spec_parse_format_arm "$fv"); then
+      printf 'error: tasks.md has a missing, unparseable, or undefined Format-version: line - gates not evaluated (fail closed)\n'
+      n_err=$((n_err + 1))
+      continue
+    fi
 
     # v2 completion evidence (REQ-C1.3, REQ-B1.4, REQ-B1.5): the completed set
     # comes from the derivation engine, minus every bullet-parked task (a live
