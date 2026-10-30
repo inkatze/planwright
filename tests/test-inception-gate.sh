@@ -525,6 +525,44 @@ assert_eq "F1.3 the closing record covers no track" 1 "$(grep -c '^Tracks: none$
 assert_eq "F1.3 the venture closes Graduated" Graduated "$(status_of "$vroot/closing" brief.md)"
 assert_eq "F1.3 the closed bundle validates" 0 "$(validates_clean "$vroot/closing")"
 
+# A killed track's open work does not hold the venture's closing Graduate
+# back, whether the track ended earlier or ends in the closing record.
+# open_measure_fork <dir> — an open one-way decision in the measure track.
+open_measure_fork() {
+  cat >>"$1/decisions.md" <<'EOF'
+
+### DEC-3 — where the handover timer starts
+
+- **Status:** open
+- **Door:** one-way
+- **Discipline:** product-strategy
+- **Deciders:** Dana Reyes
+- **Options:**
+  - at the first page — earliest signal, noisy
+  - at acknowledgement — cleaner, later
+- **Outcome:** open — waiting on the measure track
+- **Consequences:** fixes what the pipeline reports as handover time
+- **Feed-forward:** the measurement spec's metric section
+- **Track:** measure
+EOF
+}
+mkv closekill tracked
+ready "$vroot/closekill"
+open_measure_fork "$vroot/closekill"
+"$GATE" record --outcome Recycle --tracks "capture=Graduate,measure=Kill" --decider "Dana Reyes" --rationale a "$vroot/closekill" >/dev/null 2>&1
+gate record --outcome Graduate --decider "Dana Reyes" --rationale "capture is out; measure was killed" "$vroot/closekill"
+assert_eq "F1.3 an ended track's open fork does not block the closing Graduate" 0 "$rc"
+assert_eq "F1.3 the venture closes Graduated past a killed track" Graduated "$(status_of "$vroot/closekill" brief.md)"
+mkv closekill2 tracked
+ready "$vroot/closekill2"
+open_measure_fork "$vroot/closekill2"
+gate record --outcome Graduate --tracks "capture=Graduate,measure=Hold" --decider "Dana Reyes" --rationale x "$vroot/closekill2"
+assert_eq "F1.3 a closing Graduate still cannot leave a track on hold" 1 "$rc"
+gate record --outcome Graduate --tracks "capture=Graduate,measure=Kill" --decider "Dana Reyes" \
+  --rationale "capture is out; measure stops here" "$vroot/closekill2"
+assert_eq "F1.3 a track killed in the closing record does not block it" 0 "$rc"
+assert_eq "F1.3 the bundle closed past a killed track validates" 0 "$(validates_clean "$vroot/closekill2")"
+
 mkv killtracks tracked
 gate record --outcome Kill --tracks "capture=Hold,measure=Recycle" --decider "Dana Reyes" --rationale x "$vroot/killtracks"
 assert_eq "E1.2 a top-level Kill leaving a track live is refused" 1 "$rc"

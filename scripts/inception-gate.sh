@@ -369,23 +369,33 @@ gather_gate() {
 
 # The evaluation over $work/all. scope is a track label or empty; the record
 # lines (evidence, thresholds, kill-criteria) always cover the whole venture,
-# which is what the validator's coverage rules read.
+# which is what the validator's coverage rules read. A whole-venture
+# evaluation leaves out the entries of an ended track and of each track in
+# drop (comma-separated), those a record is killing: a killed track's open
+# work never holds the venture back.
 # shellcheck disable=SC2016 # awk source, not a shell expansion
 EVAL_AWK='
-BEGIN { FS = "\t"; split("synthetic opinion stated-intent costly-signal behavior", GL, " "); for (i in GL) GR[GL[i]] = 1 }
+BEGIN {
+  FS = "\t"; split("synthetic opinion stated-intent costly-signal behavior", GL, " "); for (i in GL) GR[GL[i]] = 1
+  n = split(drop, DL, ","); for (i = 1; i <= n; i++) OUT[DL[i]] = 1
+}
 $1 == "E" { EO[++ne] = $2; ET[$2] = $3; next }
 $1 == "F" { V[$2 SUBSEP $3] = $4; H[$2 SUBSEP $3] = 1; next }
 $1 == "STATUS" { status = $2; next }
 $1 == "TXT" && $2 == "Success metric" { metric = metric $3; next }
 $1 == "KC" { if ($3 == 0) kclive++; next }
 $1 == "DECIDER" { decider = $2; next }
-$1 == "TRACK" { TL[++nt] = $2; TD[$2] = $3; next }
+$1 == "TRACK" { TL[++nt] = $2; TD[$2] = $3; if ($4 ~ / — ended [0-9]/) OUT[$2] = 1; next }
 $1 == "G" { if ($2 + 0 > maxg) maxg = $2 + 0; next }
 $1 == "kill" { nk++; KI[nk] = $2; KDT[nk] = $3; KS[nk] = $4; next }
 $1 == "PEND" { pend = $2 + 0; next }
 $1 == "BADN" { badn = $2 + 0; next }
 function live(id) { return (id in ET) && !((id SUBSEP "Superseded-by") in H) }
-function inscope(id) { return scope == "" || !((id SUBSEP "Track") in H) || V[id SUBSEP "Track"] == scope }
+function inscope(id,   tk) {
+  if (!((id SUBSEP "Track") in H)) return 1
+  tk = V[id SUBSEP "Track"]
+  return scope == "" ? !(tk in OUT) : tk == scope
+}
 function st(id,   w) { split(V[id SUBSEP "Status"], w, " "); return w[1] }
 function grade(id,   w) { split(V[id SUBSEP "Evidence"], w, " "); return (w[1] in GR) ? w[1] : "none" }
 function has_item(list, x,   n, a, i) {
@@ -845,12 +855,6 @@ cmd_record() {
   _gd=$(ev decider "$work/eval")
   [ "$_dec" = "$_gd" ] \
     || die 1 "the decider must be the venture's gate decider, $(sanitize_printable "$_gd" '?'); record the call that person made"
-  if [ "$_out" = Graduate ] && [ "$(awk -F'\t' '$1 == "admissible" && $2 == "Graduate" { print $3 }' "$work/eval")" != yes ]; then
-    printf 'inception-gate: Graduate is not admissible; the evaluation names:\n' >&2
-    grep -E '^(gap|unmapped|orphan)	' "$work/eval" | strip_eval >&2
-    exit 1
-  fi
-
   # Tracks: every live track exactly once, a valid outcome each.
   _tline=
   : >"$work/tr"
@@ -901,6 +905,15 @@ cmd_record() {
     _tline=$(awk -F'\t' '{ s = s (NR > 1 ? ", " : "") $1 "=" $2 } END { print s }' "$work/tr")
   elif [ -n "$_seen_tracks" ]; then
     die 1 "the venture declares no tracks, so its record carries no tracks line"
+  fi
+  if [ "$_out" = Graduate ]; then
+    _drop=$(awk -F'\t' '$2 == "Kill" { s = s (s == "" ? "" : ",") $1 } END { print s }' "$work/tr")
+    awk -v scope= -v drop="$_drop" "$EVAL_AWK" "$work/all" >"$work/eval.close" || die 2 "cannot evaluate the venture"
+    if [ "$(awk -F'\t' '$1 == "admissible" && $2 == "Graduate" { print $3 }' "$work/eval.close")" != yes ]; then
+      printf 'inception-gate: Graduate is not admissible; the evaluation names:\n' >&2
+      grep -E '^(gap|unmapped|orphan)	' "$work/eval.close" | strip_eval >&2
+      exit 1
+    fi
   fi
 
   _d=$TODAY
