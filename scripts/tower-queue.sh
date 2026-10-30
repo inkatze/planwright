@@ -4658,6 +4658,46 @@ mc_caller_ok() {
     END { exit (f == "1" && m == n && k == "mission-control" && s == "launched") ? 0 : 1 }' "$_mr" 2>/dev/null
 }
 
+# mc_token_ok <name> — 0 when PLANWRIGHT_MC_TOKEN, which the launcher exports
+# into the session it starts, is the token on that session's registry row.
+# The name alone is the caller's own claim; the token binds it to the row.
+mc_token_ok() {
+  [ -n "${PLANWRIGHT_MC_TOKEN:-}" ] || return 1
+  _mt=$(awk -F '\t' '$1 == "token" { print $2; exit }' "$home/mission-control/sessions/$1" 2>/dev/null) || return 1
+  [ -n "$_mt" ] && [ "$_mt" = "$PLANWRIGHT_MC_TOKEN" ]
+}
+
+# mc_row_live <name> — 0 while the session the row names still runs: its
+# stream-json supervisor reports it running or awaiting input, or its tmux
+# window is listed. A row left `launched` by a session that died is refused.
+mc_row_live() {
+  _mr="$home/mission-control/sessions/$1"
+  _mb=$(awk -F '\t' '$1 == "backend" { print $2; exit }' "$_mr" 2>/dev/null) || return 1
+  _mh=$(awk -F '\t' '$1 == "handle" { print $2; exit }' "$_mr" 2>/dev/null) || return 1
+  case "$_mb" in
+    stream-json)
+      is_tower "$_mh" || return 1
+      [ -x "$script_dir/fleet-streamjson.sh" ] || return 1
+      _ms=$("$script_dir/fleet-streamjson.sh" status "$_mh" 2>/dev/null </dev/null) || return 1
+      case "$_ms" in
+        "status $_mh running"* | "status $_mh awaiting-input"*) return 0 ;;
+      esac
+      return 1
+      ;;
+    tmux)
+      case "$_mh" in
+        @[0-9]*) ;;
+        *) return 1 ;;
+      esac
+      case "${_mh#@}" in
+        *[!0-9]*) return 1 ;;
+      esac
+      tmux list-windows -a -F '#{window_id}' 2>/dev/null </dev/null | grep -qx -- "$_mh"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 # add_check_review_fields — the picklist and decided-by-mission-control
 # fields, every refusal made before anything is written (REQ-A1.11,
 # REQ-A1.14, REQ-H1.5). Sets window_end and dmc_caller.
@@ -4707,6 +4747,8 @@ add_check_review_fields() {
   resolve_tower "$tower_flag"
   dmc_caller=$tower
   mc_caller_ok "$dmc_caller" || refuse "refusing a decided-by-mission-control item from '$(sanitize_printable "$dmc_caller" "?")': mission control's launcher registry records no launched mission-control session by that name"
+  mc_token_ok "$dmc_caller" || refuse "refusing a decided-by-mission-control item from '$(sanitize_printable "$dmc_caller" "?")': PLANWRIGHT_MC_TOKEN does not match the token on its registry row"
+  mc_row_live "$dmc_caller" || refuse "refusing a decided-by-mission-control item from '$(sanitize_printable "$dmc_caller" "?")': the session its registry row names is not running"
   [ -n "$text" ] || refuse "a decided-by-mission-control item needs --text, the decision as taken"
   is_step "$grounds" || refuse "a decided-by-mission-control item needs --grounds <pointer>: one token naming where its grounds are recorded"
   [ "$reversal" = none ] || is_step "$reversal" || refuse "a decided-by-mission-control item needs --reversal <step>|none: one token naming its one-step reversal"

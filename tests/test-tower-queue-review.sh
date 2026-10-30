@@ -85,12 +85,30 @@ marker() {
 rec() { grep "^$1$TAB" "$store" || true; }
 fld() { rec "$1" | cut -f "$2"; }
 
+# The token a mission-control session holds: the launcher exports its
+# registry row's token into the session, and `add` compares the two.
+MC_TOKEN=100-fixture-mc
 decide() { # decide <caller> <text> [<flag>...] — a decided-by-mission-control add
   _c=$1
   _t=$2
   shift 2
-  run add --kind decided-by-mission-control --origin mission-control --tower "$_c" --text "$_t" "$@"
+  PLANWRIGHT_MC_TOKEN=$MC_TOKEN run add --kind decided-by-mission-control --origin mission-control --tower "$_c" --text "$_t" "$@"
 }
+
+# A tmux stub listing the windows in $TMUX_WINDOWS: the fixture rows name
+# tmux windows, and a row whose window is not listed is a dead session.
+mkdir -p "$tmp/bin"
+cat >"$tmp/bin/tmux" <<'STUB'
+case $1 in
+  list-windows) cat "$TMUX_WINDOWS" 2>/dev/null ;;
+  *) exit 1 ;;
+esac
+STUB
+chmod +x "$tmp/bin/tmux"
+PATH="$tmp/bin:$PATH"
+TMUX_WINDOWS="$tmp/windows"
+export PATH TMUX_WINDOWS
+printf '@7\n@8\n' >"$TMUX_WINDOWS"
 
 refused() { # refused <what> <the refusal's reason> <command...>
   _w=$1
@@ -126,6 +144,17 @@ mkdir -p "$home/presence/p1"
 printf 'kind\tmission-control\n' >"$home/presence/p1/mc-fixture-claimed-1234567890"
 # shellcheck disable=SC2086
 refused "a caller with a presence record and no registry row" 'launcher registry records no launched mission-control' decide mc-fixture-claimed-1234567890 'retried the flaky job' $ok_flags
+MC_TOKEN=100-fixture-other
+# shellcheck disable=SC2086
+refused "a token that is not the row's" 'does not match' decide "$MC" 'retried the flaky job' $ok_flags
+MC_TOKEN=""
+# shellcheck disable=SC2086
+refused "no token at all" 'does not match' decide "$MC" 'retried the flaky job' $ok_flags
+MC_TOKEN=100-fixture-mc
+printf '@8\n' >"$TMUX_WINDOWS"
+# shellcheck disable=SC2086
+refused "a row whose session is gone" 'is not running' decide "$MC" 'retried the flaky job' $ok_flags
+printf '@7\n@8\n' >"$TMUX_WINDOWS"
 refused "no reversal field" 'needs --reversal' decide "$MC" 'retried the flaky job' --grounds undo:u-17 --gate none --now 1000
 refused "no grounds pointer" 'needs --grounds' decide "$MC" 'retried the flaky job' --reversal none --gate none --now 1000
 refused "no gate field" 'needs --gate' decide "$MC" 'retried the flaky job' --grounds undo:u-17 --reversal none --now 1000
@@ -134,7 +163,7 @@ refused "a disqualifier zone" 'behind a disqualifier-zone' decide "$MC" 'retried
 refused "a reserved control" 'on a reserved human control' decide "$MC" 'merged PR 12 once green' --grounds undo:u-18 --reversal none --gate none --now 1000
 attention_row w-perm spec/t1 awaiting-input 1000 high 'Allow the command?' - - permission iid-p - 'npm test'
 refused "a permission prompt" 'on a worker permission prompt' decide "$MC" 'allowed the test run' --subject worker:w-perm --grounds undo:u-19 --reversal none --gate none --now 1000
-echo "ok: a decided-by-mission-control add is refused from a plain tower, from a presence claim, and without its grounds, reversal or gate, behind a gate, or on a reserved control or permission prompt"
+echo "ok: a decided-by-mission-control add is refused from a plain tower, from a presence claim, with another token or none, from a dead row, and without its grounds, reversal or gate, behind a gate, or on a reserved control or permission prompt"
 
 # shellcheck disable=SC2086
 d1=$(decide "$MC" 'retried the flaky job' --subject pr:88 $ok_flags) || fail "the add from the mission-control registry row was refused"

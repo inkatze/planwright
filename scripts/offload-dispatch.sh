@@ -518,6 +518,12 @@ cmd_dispatch() {
     set -- "$@" "$launch_env" --root "$launch_root" --inbound accept
     # Only a worker carries the worker identity its hooks key on.
     [ "$D_PROFILE" != worker ] || [ -z "$D_NAME" ] || set -- "$@" --identity "$D_NAME" "$D_SCOPE"
+    # A tmux window starts from the server's environment, not this one, so
+    # the mission-control launcher's row token rides the argv, and only into
+    # a mission-control session.
+    if [ "$D_PROFILE" = mission-control ] && [ -n "${PLANWRIGHT_MC_TOKEN:-}" ]; then
+      set -- "$@" env "PLANWRIGHT_MC_TOKEN=$PLANWRIGHT_MC_TOKEN"
+    fi
     set -- "$@" claude --settings "$launch_settings"
   else
     set -- "$@" claude

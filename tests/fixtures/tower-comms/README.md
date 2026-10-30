@@ -52,7 +52,9 @@ them, longer than the ten-minute bound: the stretch is one reported gap of
 `registry-mission-control.row` and `registry-tower.row` stand in for two rows
 of mission control's launcher registry (`scripts/mission-control-launch.sh`),
 in its own `key<TAB>value` row format: one launched session of the
-`mission-control` kind and one of the `tower` kind.
+`mission-control` kind and one of the `tower` kind, each on a tmux window
+the suite's tmux stub lists while the session counts as live, and each with
+its own token.
 `tests/test-tower-queue-review.sh` copies them under the fleet home's
 `mission-control/sessions/`, by their `name` field, to check that only the
 first may add a decided-by-mission-control item.

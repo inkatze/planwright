@@ -1,14 +1,14 @@
 format	1
 name	mc-fixture-mission-control-0a1b2c3d4e
 state	launched
-token	100-fixture
+token	100-fixture-mc
 pid	100
 program	fixture
 owner	operator
 kind	mission-control
 scope	fleet
-backend	stream-json
-handle	mc-fixture-mission-control-0a1b2c3d4e
+backend	tmux
+handle	@7
 profile	mission-control
 tier	-
 brief	-

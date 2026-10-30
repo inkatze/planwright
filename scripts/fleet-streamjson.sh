@@ -2105,6 +2105,9 @@ cmd_launch() {
   else
     unset PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN
   fi
+  # The mission-control launcher's row token binds that session's decisions
+  # to its registry row; no other session may inherit it.
+  [ "$profile" = mission-control ] || unset PLANWRIGHT_MC_TOKEN
   PLANWRIGHT_MESSAGING_INBOUND=accept
   export PLANWRIGHT_MESSAGING_INBOUND
 
