@@ -188,7 +188,11 @@ counts=$(run counts) || fail "counts exited non-zero"
 printf '%s\n' "$counts" | grep -q "^settled-by-default${TAB}1$" || fail "counts does not count it: $counts"
 printf '%s\n' "$counts" | grep -q "^malformed${TAB}0$" || fail "counts reads the new record as malformed: $counts"
 run catchup | grep -q "^settled${TAB}$q${TAB}settled-by-default" || fail "catchup does not carry the default applied without the operator"
-echo "ok: list, show, counts and catchup still show it"
+# The record points at its review content, the ledger entry the default wrote.
+[ "$(fld "$q" 33)" = "review.$q.1000.5" ] || fail "the record does not carry its review key: '$(fld "$q" 33)'"
+printf '%s\n' "$show" | grep -q "^item${TAB}$q${TAB}settled-by-default${TAB}[^${TAB}]*${TAB}[^${TAB}]*${TAB}[^${TAB}]*${TAB}[^${TAB}]*${TAB}ledger:review.$q.1000.5${TAB}" \
+  || fail "show does not point at the review content: $show"
+echo "ok: list, show, counts and catchup still show it, pointing at its review content"
 
 # A present operator is handed it for review; it is never pushed. The open
 # questions rank above it, so they are shelved out of the way first.
@@ -215,6 +219,8 @@ run settle --now 9000 >/dev/null || fail "the pass after the revoke"
 rc=0
 run revoke "$q" --tower $A --now 9001 >/dev/null || rc=$?
 [ "$rc" = 1 ] || fail "revoking a plain question: exit $rc, expected 1"
+[ "$(fld "$q" 33)" = - ] || fail "the reopened question still points at the review content"
+run show "$q" | grep -q "^item${TAB}$q${TAB}question${TAB}.*${TAB}attention:w-b@iid-b${TAB}" || fail "the reopened question does not point back at its row"
 echo "ok: revoke reopens the question with no window, and a later pass does not default it again"
 
 # --- a park answers nothing (REQ-A1.12) ------------------------------------------------

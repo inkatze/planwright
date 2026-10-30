@@ -71,7 +71,7 @@
 #   31 parked      1 once a window ended on park, else 0
 #   32 topic       a free-text subject, or -
 #   33 grounds     where a decided-by-mission-control item's grounds are
-#                  recorded, or -
+#                  recorded, a settled-by-default item's review key, or -
 #   34 reversal    the one step that reverses a reviewable item, none, or -
 #
 # A record written before any of fields 21 to 34 shipped is completed on read
@@ -95,7 +95,12 @@
 # closes either. The review content sits in the ledger under
 # `review.<id>.<window end>` for a settled-by-default item and under
 # `m<eight hex>`, a checksum of the decision, for a decided-by-mission-control
-# one, whose record points at the ledger itself. `show <id>` renders one
+# one. The record points at it: a decided-by-mission-control item's home is
+# the ledger, and a settled-by-default item carries its key in field 33, its
+# content pointer rendering as `ledger:<key>` until a revocation points it
+# back at the row. Since a mission-control session's caller name is its own
+# claim, `add` also requires the row's token, which the launcher exports as
+# PLANWRIGHT_MC_TOKEN, and a session that is still running. `show <id>` renders one
 # item with its settling reason, which every route out of the open set
 # records.
 #
@@ -3107,6 +3112,9 @@ function window_pass(   n, w, perm, rsv) {
       F[n, 2] = "settled-by-default"; F[n, 17] = ceil(F[n, 29] + 0)
       F[n, 18] = "the window ended on its default: " F[n, 28] " (window end " F[n, 29] ")"
       F[n, 34] = SBD_REV; F[n, 22] = !anyone_present()
+      # The ledger key the review content was written under, which ptr_of
+      # renders as the item content pointer.
+      F[n, 33] = "review." F[n, 1] "." F[n, 29]
       # Handed over again for review, by whichever tower asks next.
       F[n, 19] = "-"; F[n, 20] = 0; F[n, 14] = 0; F[n, 13] = 0
       changed = 1
@@ -3338,6 +3346,7 @@ function srcs(n) { return F[n, 4] ((F[n, 23] == "-") ? "" : "," F[n, 23]) }
 # One home for the rendered content pointer: the `item` line and the `pair`
 # line of the same hand-over must never disagree about its shape.
 function ptr_of(n) {
+  if (F[n, 2] == "settled-by-default" && F[n, 33] != "-") return clean("ledger:" F[n, 33])
   return clean(F[n, 6] ":" ((F[n, 6] == "path") ? F[n, 9] "/" F[n, 7] : F[n, 7]) ((F[n, 8] == "-") ? "" : "@" F[n, 8]))
 }
 function list_state(n) {
@@ -3435,7 +3444,7 @@ run_store_pass() {
           # Back to the question it was, with no window, so it can never
           # default a second time (REQ-B1.8).
           F[t, 2] = "question"; F[t, 28] = "-"; F[t, 29] = 0; F[t, 30] = "-"; F[t, 31] = 0
-          F[t, 17] = 0; F[t, 18] = "-"; F[t, 34] = "-"; F[t, 22] = 0
+          F[t, 17] = 0; F[t, 18] = "-"; F[t, 33] = "-"; F[t, 34] = "-"; F[t, 22] = 0
           print "status\treopened\t" rk "\t" clean(rv)
         } else {
           # Stamped like an `ack`, not a settlement: the operator closed it,
@@ -3871,6 +3880,7 @@ rebuild_if_absent() {
     fi
     case " $_seen " in *" $_id "*) continue ;; esac
     _seen="$_seen $_id"
+    [ "$_k" != settled-by-default ] || _gr="review.$_id.$_pw"
     # A born line from before the subject field shipped carries none, and one
     # that carries an unusable value is treated the same way: the worker the
     # item came from is what its content home still attests. `-` is a legal

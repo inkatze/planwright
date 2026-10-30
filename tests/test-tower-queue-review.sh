@@ -290,6 +290,7 @@ grep -q 'rebuilt' "$errf" || fail "the rebuild was not announced"
 
 [ "$(fld "$sbd" 2)" = settled-by-default ] && [ "$(fld "$sbd" 12)" = open ] || fail "the settled-by-default item did not come back awaiting review: $(rec "$sbd")"
 [ "$(fld "$sbd" 17)" = 2001 ] || fail "the rebuilt default lost its window end time"
+[ "$(fld "$sbd" 33)" = "review.$sbd.2001" ] || fail "the rebuilt default lost the pointer to its review content: '$(fld "$sbd" 33)'"
 [ "$(fld "$sbd" 22)" = 1 ] || fail "the rebuilt default forgot it was applied while the operator was away"
 [ "$(fld "$sbd" 9)" = "$sbd_root" ] || fail "the rebuilt default lost the root its park path is relative to: $(rec "$sbd")"
 case "$(fld "$sbd" 18)" in *"default: B"*) ;; *) fail "the rebuilt default lost its reason" ;; esac
