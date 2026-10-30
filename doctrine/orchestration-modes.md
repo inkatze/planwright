@@ -298,7 +298,10 @@ The out-of-session drain pass. Dispatches nothing; it:
 3. **Surfaces observation staleness**: report the accumulator's unmined count and
    oldest-entry age as the evaluator derives them — live fragments under
    `<root>/_observations/entries/` plus the frozen legacy file's unconsumed lines,
-   naming both, flagging stuck consumes and skipped invalid fragments.
+   naming both, flagging stuck consumes and skipped invalid fragments. Then the
+   venture drop's entry count from `scripts/inception-registry.sh drop-read`
+   (inception REQ-J1.8; `entry none` counts zero, exit 6 is named as
+   unavailable), its entries mined in `/spec-draft`, never here.
 4. **Reports a pending release** (autopilot-reflex REQ-F1.2, D-7, D-8): runs
    `scripts/release-bookkeeping.sh` over the shared comparator (`release-pending.sh`,
    the one definition of "pending" the untagged-window lock also reads,
