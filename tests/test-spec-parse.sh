@@ -1648,4 +1648,18 @@ spec_parse_latest_anchor_entry "$tmp/b-two.md" --bogus >/dev/null 2>&1 || rc=$?
 eq "an unknown flag is a usage refusal" 2 "$rc"
 echo "ok: the anchor-entry parse reads the newest entry, its own labels, and refuses the undecidable"
 
+# --- The declared Format-version to rule-arm map (invariant-tasks REQ-F1.7,
+# REQ-C1.8): version 3 takes the version 2 arm; anything undefined fails
+# closed with nothing printed.
+eq "version 1 keys the v1 arm" 1 "$(spec_parse_format_arm 1)"
+eq "version 2 keys the v2 arm" 2 "$(spec_parse_format_arm 2)"
+eq "version 3 keys the v2 arm" 2 "$(spec_parse_format_arm 3)"
+for bad in '' 0 4 10 02 ' 2' 2.0 3beta banana; do
+  rc=0
+  got=$(spec_parse_format_arm "$bad") || rc=$?
+  eq "undefined version '$bad' fails closed" 1 "$rc"
+  eq "undefined version '$bad' prints nothing" '' "$got"
+done
+echo "ok: the format-version arm map gives version 3 the v2 arm and refuses undefined versions"
+
 echo "PASS: test-spec-parse.sh"
