@@ -237,7 +237,7 @@ echo "ok: a delivered turn and an operator reply log with no queue present"
 # literal never appears contiguously in the source or the scanner's history
 # walk (the house pattern, see tests/test-inception-secret-screen.sh).
 secret_token="ghp_""ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
-kinds="born settled merged knocked delivered acknowledged shelved pushed session tick reply dropped unavailable refused"
+kinds="born settled merged knocked delivered acknowledged shelved pushed session tick reply dropped unavailable refused presence"
 before=$(line_count "$log_file")
 n=0
 for k in $kinds; do

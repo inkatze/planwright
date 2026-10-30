@@ -122,6 +122,7 @@ C=tower-c
 # --- the presence verb writes the marker owner-only (REQ-F1.7) ---------------
 
 out=$(pres $A --last-prompt 995 --now 1000) || fail "a well-formed presence write: exit"
+[ "$(printf '%s\n' "$out" | head -n 1)" = "presence${TAB}$A${TAB}1000" ] || fail "the presence write did not print presence, the tower and the write time: '$out'"
 [ -f "$pdir/$A" ] || fail "the presence write left no marker"
 [ "$(mode_of "$pdir")" = 700 ] || fail "the presence directory is not 0700 ($(mode_of "$pdir"))"
 [ "$(mode_of "$pdir/$A")" = 600 ] || fail "the presence marker is not 0600 ($(mode_of "$pdir/$A"))"
@@ -172,6 +173,7 @@ chmod 0600 "$surface/evidence"
 out=$(pres $A --last-prompt 1105 --now 1110) || fail "the presence write over arrived evidence: exit"
 [ "$(state_of "$qe")" = closed ] || fail "the presence write did not settle an item whose evidence had arrived"
 printf '%s\n' "$out" | grep -q "^settled${TAB}$qe${TAB}" || fail "the presence write did not report the settlement: '$out'"
+[ "$(printf '%s\n' "$out" | grep "^settled${TAB}$qe${TAB}" | cut -f 4)" = 0 ] || fail "a settlement under a fresh present marker was recorded as settled while away"
 rm -f "$surface/evidence"
 echo "ok: a presence write runs the settling pass and settles an item whose evidence has arrived"
 
@@ -260,20 +262,28 @@ run next --tower $B --now 3404 >/dev/null 2>&1 || fail "next back on the marker 
 printf 'not a marker\n' >"$pdir/$B"
 run next --tower $B --now 3405 >/dev/null 2>&1 || fail "next with a corrupt marker: exit"
 run next --tower $B --now 3406 >/dev/null 2>&1 || fail "next with the marker still corrupt: exit"
-[ "$(switches $B fallback)" = 4 ] || fail "corrupt markers' switches were not logged once each ($(switches $B fallback))"
-[ "$(switches $B marker)" = 4 ] || fail "the returns to the marker were not logged once each ($(switches $B marker))"
+pres $B --last-prompt 3407 --now 3407 >/dev/null || fail "fresh write after a corrupt marker: exit"
+run next --tower $B --now 3408 >/dev/null 2>&1 || fail "next back on the marker a fourth time: exit"
+chmod 0644 "$pdir/$B"
+run next --tower $B --now 3409 >/dev/null 2>&1 || fail "next with a widened marker: exit"
+chmod 0600 "$pdir/$B"
+[ "$(switches $B fallback)" = 5 ] || fail "corrupt or widened markers' switches were not logged once each ($(switches $B fallback))"
+[ "$(switches $B marker)" = 5 ] || fail "the returns to the marker were not logged once each ($(switches $B marker))"
 grep '"kind":"presence"' "$log_file" | grep -q '"from":"marker"' || fail "a switch line does not name the source it left"
 echo "ok: a stale, deleted or corrupt marker falls back to the quiet rule, each switch logged once"
 
 # --- tower_presence_ttl accepts a sub-second value ---------------------------
 
-knobs 500ms
+# 1500ms keeps its fraction: a second-old marker is fresh, so the value was
+# not truncated to zero, and a two-second-old one is stale, so it was not
+# rounded up.
+knobs 1500ms
 pres $C --last-prompt 4000 --now 4000 >/dev/null || fail "write under a sub-second ttl: exit"
 run next --tower $C --now 4001 >/dev/null 2>&1 || fail "next under a sub-second ttl: exit"
-[ "$(switches $C marker)" = 0 ] || fail "a marker a second old was read as fresh under a 500ms ttl"
+[ "$(switches $C marker)" = 1 ] || fail "a marker a second old was not fresh under a 1500ms ttl"
+run next --tower $C --now 4002 >/dev/null 2>&1 || fail "next two seconds after the write: exit"
+[ "$(switches $C fallback)" = 1 ] || fail "a marker two seconds old was still fresh under a 1500ms ttl"
 knobs 60s
-run next --tower $C --now 4002 >/dev/null 2>&1 || fail "next back under the 60s ttl: exit"
-[ "$(switches $C marker)" = 1 ] || fail "a two-second-old marker was not fresh under a 60s ttl"
 echo "ok: tower_presence_ttl takes a sub-second value"
 
 # --- a prompt event is not an answer: it never ends the push episode ---------
