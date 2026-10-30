@@ -840,11 +840,16 @@ tower_tick_gap_max: 10m
 #                        once per item, not on a repeat: the away push fires
 #                        when the item first meets an away conversation and
 #                        then only on worsening, never on a schedule.
+# tower_presence_ttl     how long a presence marker the producer wrote stays
+#                        fresh. While fresh it is read before the quiet
+#                        interval; once stale, absent or unreadable, presence
+#                        falls back to the quiet interval.
 tower_quiet_interval: 10m
 tower_lease_interval: 15m
 tower_catchup_limit: 20
 tower_shelve_return: 1h
 tower_reknock_age: 30m
+tower_presence_ttl: 2m
 
 # How a tower's bring-up is to respond to running in a checkout's main tree
 # rather than its own linked worktree; no bring-up reads it yet, so today no

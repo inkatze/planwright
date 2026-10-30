@@ -103,7 +103,8 @@
 # hook alone, by same-directory temp and rename so a reader never sees a
 # torn value. Per tower, `<home>/tower-comms/delivery/<tower>` records the
 # last knock and the last hand-over as one tab-separated line: knock epoch,
-# the item it named, hand-over epoch, the item it handed. Attention is
+# the item it named, hand-over epoch, the item it handed, and the presence
+# source that tower's last `next` read (below). Attention is
 # confirmed when the marker shows a reply at or after the last knock, later
 # than the last hand-over, and within `tower_quiet_interval` (a knock of the
 # tower's own opens the session: a marker with no knock on record confirms
@@ -201,7 +202,39 @@
 # `tower_quiet_interval`, and present again on any reply; away is per
 # conversation, so one tower's silence says nothing about another's. A tower
 # that has never spoken is neither: away is a state the operator can only be
-# in after something asked them something.
+# in after something asked them something. That is the quiet-interval rule,
+# and it is now the fallback of the presence read below.
+#
+# PRESENCE (`presence`, `next`) — D-23; REQ-F1.7, REQ-F1.9. A presence
+# producer (the mission-control panel, from its prompt events) writes a
+# per-tower marker at `<home>/tower-comms/presence/<tower>`, owner-only in a
+# 0700 directory verified before each write, only through
+#
+#   presence --tower <id> --producer <name> (--last-prompt <epoch> | --away)
+#            [--now <epoch>]
+#
+# one tab-separated line: the producer, the write time, and the last prompt
+# event's epoch or `away`. An unknown producer, a control byte, an unknown
+# flag, both or neither of the last two, and a prompt event later than the
+# write are refused (exit 2); a loosened directory or a redirected marker is
+# exit 4. It prints `presence`, the tower and the write time, then runs the
+# settling pass in the same call and prints what that pass prints, so the
+# event that moved presence settles what it can without waiting for a tick.
+#
+# The read: while the marker was written within `tower_presence_ttl` (fresh),
+# the operator is present when its last prompt event falls within
+# `tower_quiet_interval`, and away otherwise or when it says away; absent,
+# stale, malformed, naming an unknown producer, or failing verification, it
+# is the quiet-interval rule unchanged. Whichever source is read, a reply on
+# the attention marker later than the presence marker's write is present.
+# That reading drives everything that asks whether the operator is here: the
+# away push and its episode, the lease preemption, and the settled-while-away
+# flag. While a fresh marker reads away, `next` hands nothing over, not even
+# a knock. It never confirms attention: a present marker still waits for a
+# reply on the attention marker before content is handed over (knock-first
+# stands). Each `next` that reads a different source from the one its
+# tower's delivery record holds logs one `presence` line naming `from` and
+# `to`.
 #
 # `next` evaluates the push on every pass, independently of what it decides
 # about the hand-over — the push is about the operator, not about who
@@ -445,7 +478,7 @@
 # it back with no JSON tool on the host (REQ-G1.7). Every line carries the schema version, a
 # monotonic sequence read and bumped from the counter file inside the same
 # critical section, the timestamp, and the event kind; `reply`, `acknowledged`,
-# `delivered`, `knocked`, `pushed` and `tick` lines carry the writing tower's
+# `delivered`, `knocked`, `pushed`, `presence` and `tick` lines carry the writing tower's
 # identity, without which two towers' lines are indistinguishable (REQ-G1.6).
 # A `pushed` line carries the item, its kind and urgency, the `stage` the away
 # push fired at (`first` or `aged`), the channel, and the `outcome`:
@@ -455,7 +488,7 @@
 #   log <kind> [--tower <id>] [--now <epoch>] [<key>=<value> ...]
 #
 # Kinds: born settled merged knocked delivered acknowledged shelved pushed
-# session tick reply dropped unavailable refused. A `tick` needs `live=<n>`
+# session tick reply dropped unavailable refused presence. A `tick` needs `live=<n>`
 # (the live-worker count) and coalesces with the previous line when that is a
 # tick from the same tower with the same count within `tower_tick_gap_max`:
 # the previous line's `until` advances instead of a new line landing, so a
@@ -574,8 +607,9 @@ for _dep in "$FS" "$RCK"; do
 done
 JARGON="$script_dir/tower-jargon.txt"
 SCHEMA=1
-KINDS="born settled merged knocked delivered acknowledged shelved pushed session tick reply dropped unavailable refused"
-TOWER_KINDS="reply acknowledged delivered knocked tick"
+KINDS="born settled merged knocked delivered acknowledged shelved pushed session tick reply dropped unavailable refused presence"
+TOWER_KINDS="reply acknowledged delivered knocked tick presence"
+PRODUCERS="mission-control"
 RESERVED="v seq ts kind tower until"
 
 usage() {
@@ -593,6 +627,7 @@ usage: tower-queue.sh log <kind> [--tower <id>] [--now <epoch>] [<key>=<value> .
        tower-queue.sh match --decision <id> --command <text>|-   (- reads it from stdin)
        tower-queue.sh knock [--now <epoch>]
        tower-queue.sh next [--tower <id>] [--now <epoch>] [--evidence <file>]
+       tower-queue.sh presence --tower <id> --producer mission-control (--last-prompt <epoch> | --away) [--now <epoch>]
        tower-queue.sh ack <id> [--tower <id>] [--now <epoch>]
        tower-queue.sh shelve <id> [--tower <id>] [--for <duration>] [--now <epoch>]
        tower-queue.sh settle <id> --reason <text> [--now <epoch>]
@@ -825,6 +860,7 @@ resolve_knobs() {
       tower_catchup_limit) catchup_limit=$_kv ;;
       tower_shelve_return) shelve_return=$_kv ;;
       tower_reknock_age) reknock_age=$_kv ;;
+      tower_presence_ttl) presence_ttl=$_kv ;;
     esac
   done
   rm -rf "$_kd"
@@ -842,7 +878,7 @@ resolve_log_knobs() {
 resolve_queue_knobs() {
   resolve_knobs tower_hook_lock_wait:duration:2s tower_quiet_interval:duration:10m \
     tower_lease_interval:duration:15m tower_catchup_limit:posint:20 tower_shelve_return:duration:1h \
-    tower_reknock_age:duration:30m
+    tower_reknock_age:duration:30m tower_presence_ttl:duration:2m
   if awk -v l="$lease_iv" -v q="$quiet" 'BEGIN { exit (l < q) ? 0 : 1 }'; then
     err "tower_lease_interval (${lease_iv}s) is below tower_quiet_interval (${quiet}s); the lease is floored at the quiet interval, so raise the one or lower the other"
     exit 4
@@ -1018,6 +1054,7 @@ resolve_surface() {
   store_file="$surface/queue"
   delivery_dir="$surface/delivery"
   marker_dir="$surface/attention"
+  presence_dir="$surface/presence"
   attn_store="$home/attention/state"
 }
 
@@ -2692,13 +2729,16 @@ read_marker() {
   esac
 }
 
-# read_delivery <tower> — set d_kt d_kitem d_dt d_ditem from the tower's
+# read_delivery <tower> — set d_kt d_kitem d_dt d_ditem d_src from the tower's
 # delivery record; zeros when absent, and any malformed field reads as zero.
+# d_src is the presence source the tower's last `next` read, `fallback` when
+# the record predates it.
 read_delivery() {
   d_kt=0
   d_kitem=-
   d_dt=0
   d_ditem=-
+  d_src=fallback
   _df="$delivery_dir/$1"
   [ -e "$_df" ] || [ -L "$_df" ] || return 0
   check_private_file "$_df"
@@ -2706,7 +2746,8 @@ read_delivery() {
   _d2=""
   _d3=""
   _d4=""
-  if ! IFS="$TAB" read -r _d1 _d2 _d3 _d4 <"$_df" 2>/dev/null && [ -z "$_d1" ]; then
+  _d5=""
+  if ! IFS="$TAB" read -r _d1 _d2 _d3 _d4 _d5 <"$_df" 2>/dev/null && [ -z "$_d1" ]; then
     if [ -s "$_df" ]; then
       err "cannot read the delivery record $(sanitize_printable "$_df" "(unprintable path)")"
       exit 6
@@ -2717,15 +2758,16 @@ read_delivery() {
   is_item_id "$_d2" && d_kitem=$_d2
   is_epoch "$_d3" && d_dt=$_d3
   is_item_id "$_d4" && d_ditem=$_d4
+  [ "$_d5" != marker ] || d_src=marker
   return 0
 }
 
-write_delivery() { # write_delivery <tower> <kt> <kitem> <dt> <ditem>
+write_delivery() { # write_delivery <tower> <kt> <kitem> <dt> <ditem> <src>
   PENDING_TMP=$(mktemp "$delivery_dir/.$1.XXXXXX" 2>/dev/null) || {
     err "cannot create a scratch file for the delivery record"
     exit 6
   }
-  printf '%s\t%s\t%s\t%s\n' "$2" "$3" "$4" "$5" >"$PENDING_TMP" 2>/dev/null || {
+  printf '%s\t%s\t%s\t%s\t%s\n' "$2" "$3" "$4" "$5" "$6" >"$PENDING_TMP" 2>/dev/null || {
     err "cannot write the delivery record"
     exit 6
   }
@@ -2736,9 +2778,42 @@ write_delivery() { # write_delivery <tower> <kt> <kitem> <dt> <ditem>
   PENDING_TMP=""
 }
 
+# read_presence <tower> — the producer's presence marker as `<written><TAB>
+# <last>` (<last> an epoch or `away`), or `0<TAB>-` when it is absent, will not
+# verify, or does not parse. Each of those reads as the quiet-interval
+# fallback (REQ-F1.7) rather than an error: the marker never confirms
+# attention, so the fallback is the conservative reading, and a planted or
+# widened marker must not be the one that decides the away push.
+read_presence() {
+  _pf="$presence_dir/$1"
+  [ -e "$_pf" ] || [ -L "$_pf" ] || {
+    printf '0\t-\n'
+    return 0
+  }
+  (check_private_file "$_pf") 2>/dev/null || {
+    err "the presence marker for tower '$1' refuses verification; presence falls back to the quiet interval"
+    printf '0\t-\n'
+    return 0
+  }
+  _pp=""
+  _pw=""
+  _pl=""
+  _px=""
+  IFS="$TAB" read -r _pp _pw _pl _px <"$_pf" 2>/dev/null || [ -n "$_pp" ] || {
+    printf '0\t-\n'
+    return 0
+  }
+  if [ -z "$_px" ] && is_one_of "$_pp" "$PRODUCERS" && is_epoch "$_pw" && { [ "$_pl" = away ] || is_epoch "$_pl"; }; then
+    printf '%s\t%s\n' "$_pw" "$_pl"
+  else
+    printf '0\t-\n'
+  fi
+}
+
 # build_towers_file — the towers the pass must know about: the caller and
 # every lease owner in the snapshot, one line each: tower, last reply, last
-# knock, the item it named, last hand-over, the item it handed. The caller's
+# knock, the item it named, last hand-over, the item it handed, then the
+# presence marker's write time and last prompt (read_presence). The caller's
 # own files are verified strictly; a peer's file that refuses verification
 # leaves that peer out with a warning, so one tower's widened marker cannot
 # stop every other tower's verbs.
@@ -2749,7 +2824,7 @@ build_towers_file() {
   # The settling pass runs under no tower of its own and still has to know
   # whether the operator is present anywhere before it records an item as
   # settled while they were away (REQ-B1.4), so it sweeps every conversation
-  # that has a delivery record or a marker. `next` asks the same question
+  # that has a delivery record, an attention marker or a presence marker. `next` asks the same question
   # before it pushes (an operator replying in some conversation is not away,
   # whatever this one's silence says), so it sweeps too. Every other verb that
   # knows its own tower keeps the two-name table: the sweep costs a mode read
@@ -2760,6 +2835,8 @@ build_towers_file() {
     ls -1 "$delivery_dir" 2>/dev/null >>"$SCRATCH/names" || true
     # shellcheck disable=SC2012
     ls -1 "$marker_dir" 2>/dev/null >>"$SCRATCH/names" || true
+    # shellcheck disable=SC2012
+    ls -1 "$presence_dir" 2>/dev/null >>"$SCRATCH/names" || true
   fi
   : >"$SCRATCH/towers"
   sort -u "$SCRATCH/names" | while IFS= read -r _tn; do
@@ -2788,7 +2865,8 @@ build_towers_file() {
     if [ "$_tn" = "${tower:-}" ]; then
       _dl=$(printf '%s\t%s\t%s\t%s\n' "$d_kt" "$d_kitem" "$d_dt" "$d_ditem")
     fi
-    printf '%s\t%s\t%s\n' "$_tn" "${_tr:-0}" "$_dl" >>"$SCRATCH/towers" || exit 6
+    _pr=$(read_presence "$_tn")
+    printf '%s\t%s\t%s\t%s\n' "$_tn" "${_tr:-0}" "$_dl" "$_pr" >>"$SCRATCH/towers" || exit 6
   done || exit $?
 }
 
@@ -2869,6 +2947,7 @@ function load_towers(file,   l, f, rc) {
   while ((rc = (getline l < file)) > 0) {
     split(l, f, "\t")
     tw_reply[f[1]] = f[2] + 0; tw_kt[f[1]] = f[3] + 0; tw_kitem[f[1]] = f[4]; tw_dt[f[1]] = f[5] + 0; tw_ditem[f[1]] = f[6]
+    tw_pw[f[1]] = f[7] + 0; tw_pl[f[1]] = f[8]
   }
   close(file)
   if (rc < 0) fail("cannot read the tower table")
@@ -3052,25 +3131,25 @@ function attended(t,   r) {
   # A stamp past now (a skewed clock, a planted marker) has not happened yet.
   return (r <= now && r >= tw_kt[t] && r > tw_dt[t] && now - r <= quiet)
 }
-# present(t): the operator is not away in that conversation: a reply within
+# present_q(t): by the quiet-interval rule, the operator is not away in that conversation: a reply within
 # the quiet interval, or, while the marker has not appeared at all, a knock
 # or hand-over of that tower within the quiet interval (the marker is not
 # proof of absence until the quiet interval has run). A lease held by a
 # present tower is left alone even between a hand-over and its reply.
-function present(t,   last) {
+function present_q(t,   last) {
   if ((t in tw_reply) && tw_reply[t] > 0 && tw_reply[t] <= now) return (now - tw_reply[t] <= quiet)
   if (!(t in tw_kt)) return 0
   last = (tw_kt[t] > tw_dt[t]) ? tw_kt[t] : tw_dt[t]
   return (last > 0 && last <= now && now - last <= quiet)
 }
-# is_away(t): the operator is AWAY in that conversation — a knock or a hand-over
+# away_q(t): by the quiet-interval rule, the operator is AWAY in that conversation — a knock or a hand-over
 # there that has gone unanswered for longer than the quiet interval
-# (REQ-F1.1). Deliberately NOT !present(t): present() answers "may another
+# (REQ-F1.1). Deliberately NOT !present_q(t): present_q() answers "may another
 # tower take this lease", and reads a tower with no knock on record as absent,
 # which is the right answer for a lease and the wrong one for a push. Away is
 # a state the operator can only be IN after something asked them something and
 # they did not answer, so a tower that has never spoken is neither.
-function is_away(t,   last) {
+function away_q(t,   last) {
   if (!(t in tw_kt)) return 0
   last = (tw_kt[t] > tw_dt[t]) ? tw_kt[t] : tw_dt[t]
   if (last <= 0 || last > now) return 0
@@ -3087,13 +3166,34 @@ function anyone_present(   t) {
   for (t in tw_reply) if (present(t)) return 1
   return 0
 }
-# replied(t): the operator ANSWERED in that conversation within the quiet
-# interval. What ends a push episode is an answer; present() also reads a
+# replied_q(t): the operator ANSWERED in that conversation within the quiet
+# interval. What ends a push episode is an answer; present_q() also reads a
 # fresh knock or hand-over as presence, which is right for a lease and would
 # let a tower the operator has never typed in end the episode by knocking.
-function replied(t) {
+function replied_q(t) {
   return ((t in tw_reply) && tw_reply[t] > 0 && tw_reply[t] <= now && now - tw_reply[t] <= quiet)
 }
+# PRESENCE (REQ-F1.7, D-23). The producer`s marker is read first while it is
+# fresh; the three quiet-interval readings above are the fallback, unchanged.
+# fresh(t): the marker was written within tower_presence_ttl. A write stamped
+# past now has not happened yet, the same reading a reply stamp gets.
+function fresh(t) {
+  return ((t in tw_pw) && tw_pw[t] > 0 && tw_pw[t] <= now && now - tw_pw[t] <= ttl)
+}
+# mpresent(t): what a fresh marker says. A reply on the attention marker later
+# than the presence marker was written outranks it, so an answer in this
+# conversation is never overruled by a panel reading taken before it.
+function mpresent(t,   l) {
+  if (tw_reply[t] > tw_pw[t] && tw_reply[t] <= now) return 1
+  if (tw_pl[t] == "away") return 0
+  l = tw_pl[t] + 0
+  return (l > 0 && l <= now && now - l <= quiet)
+}
+function present(t) { return fresh(t) ? mpresent(t) : present_q(t) }
+# A fresh marker states away outright, so here a tower that has never knocked
+# can be away, which the fallback`s reading never allows.
+function is_away(t) { return fresh(t) ? !mpresent(t) : away_q(t) }
+function replied(t) { return fresh(t) ? mpresent(t) : replied_q(t) }
 function anyone_replied(   t) {
   for (t in tw_reply) if (replied(t)) return 1
   return 0
@@ -3191,7 +3291,7 @@ run_store_pass() {
   awk -F '\t' -v OFS='\t' -v mode="$_mode" -v now="$now" -v quiet="${quiet:-0}" -v lease_iv="${lease_iv:-0}" \
     -v limit="${catchup_limit:-20}" -v towers_file="$SCRATCH/towers" -v attn_file="$attn_file_for_awk" \
     -v evid_file="${EVID_FILE:-}" -v do_settle="${DO_SETTLE:-0}" \
-    -v reknock="${reknock_age:-0}" -v hold="${REKNOCK_HOLD:-0}" \
+    -v reknock="${reknock_age:-0}" -v ttl="${presence_ttl:-0}" -v hold="${REKNOCK_HOLD:-0}" \
     -v attn_present="$([ -n "$attn_file_for_awk" ] && echo 1 || echo 0)" \
     -v out="$SCRATCH/new" -v tower="${tower:-}" -v record_file="$SCRATCH/record" -v reason_file="$SCRATCH/reason" "$@" "$AWK_Q"'
   BEGIN {
@@ -3244,6 +3344,7 @@ run_store_pass() {
     }
     if (mode == "next") {
       me = attended(tower)
+      print "presence\t" (fresh(tower) ? "marker" : "fallback")
       top = 0; nwait = 0
       for (n = 1; n <= N; n++) {
         if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing") continue
@@ -3327,6 +3428,11 @@ run_store_pass() {
       if (r > now) r = 0
       nkt = kt; nkitem = tw_kitem[tower]; ndt = dt; nditem = tw_ditem[tower]
       if (!top) print "decision\tnone"
+      # Away by the marker hands nothing over, not even the knock: the
+      # operator is not there to read it, and the away push above is the
+      # escalation. Away by the fallback still knocks, since in that reading
+      # the knock is how the operator`s return is ever noticed.
+      else if (fresh(tower) && !mpresent(tower)) print "decision\taway"
       else if (me) {
         target = top
         if (kt > dt && tw_kitem[tower] != "-") for (n in cand) if (F[n, 1] == tw_kitem[tower]) target = n
@@ -4628,8 +4734,10 @@ cmd_next() {
   n_kitem=-
   n_dt=0
   n_ditem=-
+  p_src=fallback
   while IFS="$TAB" read -r _tag _a _b _c _d _e _f _g _h; do
     case "$_tag" in
+      presence) p_src=$_a ;;
       decision)
         dec_what=$_a
         dec_item=$_b
@@ -4654,20 +4762,23 @@ cmd_next() {
   done <<EOF
 $result
 EOF
+  # The source this tower last read rides on its delivery record, so a switch
+  # is logged once, by the first `next` that sees it (REQ-F1.7, REQ-G1.9).
+  read_delivery "$tower"
   case "$dec_what" in
     deliver | knock)
       # The delivery record goes first: a failure there leaves the store
       # untouched, whereas a stamped store with no record would hide the
       # item from its own holder until the backstop.
-      read_delivery "$tower"
-      write_delivery "$tower" "$n_kt" "$n_kitem" "$n_dt" "$n_ditem"
+      write_delivery "$tower" "$n_kt" "$n_kitem" "$n_dt" "$n_ditem" "$p_src"
       if [ "$changed" = 1 ] && ! commit_store; then
-        write_delivery "$tower" "$d_kt" "$d_kitem" "$d_dt" "$d_ditem"
+        write_delivery "$tower" "$d_kt" "$d_kitem" "$d_dt" "$d_ditem" "$d_src"
         exit 6
       fi
       ;;
     *)
       [ "$changed" != 1 ] || commit_store || exit 6
+      [ "$p_src" = "$d_src" ] || write_delivery "$tower" "$d_kt" "$d_kitem" "$d_dt" "$d_ditem" "$p_src"
       ;;
   esac
   pw=0
@@ -4688,6 +4799,7 @@ EOF
   # the lease backstop, which is the outcome the record-first order exists to
   # prevent. Published and logged first; the 6 is raised at the end.
   [ "$tower_fallback" = 0 ] || err "no presence identity resolved; this tower leases as '$tower' (a tower-session-scoped fallback)"
+  [ "$p_src" = "$d_src" ] || owe_log presence --now "$now" --tower "$tower" from="$d_src" to="$p_src"
   case "$dec_what" in
     deliver)
       printf '%s\n' "$out_line"
@@ -4722,6 +4834,88 @@ EOF
   fi
   [ "$pw" = 0 ] || exit 6
   finish_exit
+}
+
+# ---------------------------------------------------------------------------
+# presence
+# ---------------------------------------------------------------------------
+
+cmd_presence() {
+  p_tower=""
+  producer=""
+  last=""
+  p_away=0
+  now=""
+  now_set=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --tower | --producer | --last-prompt | --now)
+        [ "$#" -ge 2 ] || usage
+        case "$1" in
+          --tower) p_tower=$2 ;;
+          --producer) producer=$2 ;;
+          --last-prompt) last=$2 ;;
+          --now)
+            now=$2
+            now_set=1
+            ;;
+        esac
+        shift 2
+        ;;
+      --away)
+        p_away=1
+        shift
+        ;;
+      *) usage ;;
+    esac
+  done
+  is_tower "$p_tower" || refuse "refusing tower identity '$(sanitize_printable "$p_tower" "(unprintable identity)")': presence names the tower it describes with --tower"
+  if has_control "$producer" || ! is_one_of "$producer" "$PRODUCERS"; then
+    refuse "refusing producer '$(sanitize_printable "$producer" "(unprintable producer)")': the known producers are $PRODUCERS"
+  fi
+  parse_now
+  if [ "$p_away" = 1 ]; then
+    [ -z "$last" ] || refuse "refusing a presence write carrying both --last-prompt and --away"
+    last=away
+  else
+    is_epoch "$last" || refuse "refusing --last-prompt '$(sanitize_printable "$last" "(unprintable epoch)")': give the last prompt event's epoch, or --away"
+    [ "$last" -le "$now" ] || refuse "refusing --last-prompt $last: it is later than the write ($now)"
+  fi
+  resolve_surface
+  umask 077
+  ensure_surface
+  if [ -L "$presence_dir" ]; then
+    err "security: $(sanitize_printable "$presence_dir" "(unprintable path)") is a symlink — refusing to write through a redirect"
+    exit 4
+  fi
+  [ -d "$presence_dir" ] || mkdir "$presence_dir" 2>/dev/null || true # not-a-lock: best-effort creation
+  [ -d "$presence_dir" ] || {
+    err "cannot create the presence sub-surface $(sanitize_printable "$presence_dir" "(unprintable path)")"
+    exit 6
+  }
+  check_private_dir "$presence_dir"
+  check_private_file "$presence_dir/$p_tower"
+  PENDING_TMP=$(mktemp "$presence_dir/.$p_tower.XXXXXX" 2>/dev/null) || {
+    err "cannot create a scratch file for the presence marker"
+    exit 6
+  }
+  printf '%s\t%s\t%s\n' "$producer" "$now" "$last" >"$PENDING_TMP" 2>/dev/null || {
+    err "cannot write the presence marker"
+    exit 6
+  }
+  # Re-verified beside the rename it guards, the way verify_surface is.
+  verify_surface
+  check_private_dir "$presence_dir"
+  check_private_file "$presence_dir/$p_tower"
+  mv -f "$PENDING_TMP" "$presence_dir/$p_tower" 2>/dev/null || {
+    err "cannot replace the presence marker"
+    exit 6
+  }
+  PENDING_TMP=""
+  printf 'presence\t%s\t%s\n' "$p_tower" "$now"
+  # Push first (REQ-F1.9): the event that moved presence settles what it can
+  # now, rather than waiting for the tower loop's tick.
+  cmd_settle_pass --now "$now"
 }
 
 # ---------------------------------------------------------------------------
@@ -5794,6 +5988,7 @@ case "$cmd" in
   match) cmd_match "$@" ;;
   knock) cmd_knock "$@" ;;
   next) cmd_next "$@" ;;
+  presence) cmd_presence "$@" ;;
   ack) cmd_ack "$@" ;;
   shelve) cmd_shelve "$@" ;;
   settle) cmd_settle "$@" ;;
@@ -5801,7 +5996,7 @@ case "$cmd" in
   list) cmd_list "$@" ;;
   counts) cmd_counts "$@" ;;
   *)
-    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | redact | report | add | capture | match | knock | next | ack | shelve | settle | catchup | list | counts)"
+    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | redact | report | add | capture | match | knock | next | presence | ack | shelve | settle | catchup | list | counts)"
     exit 2
     ;;
 esac
