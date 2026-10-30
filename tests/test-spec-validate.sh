@@ -2766,6 +2766,7 @@ lacks "$esc"
 
 # 37g. A fenced example of the field is illustration, not a field.
 write_bundle_v2 "$marked/fixture" Ready
+# shellcheck disable=SC2016 # literal backticks: the fence is the fixture
 printf '\n```markdown\n### Task 9 — Example\n\n- **Repository:** Not/An-Alias\n```\n' \
   >>"$marked/fixture/tasks.md"
 run_v 0 "$marked/fixture"
