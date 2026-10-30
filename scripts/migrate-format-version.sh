@@ -531,7 +531,7 @@ process_bundle_locked() {
 
   # Fail-closed version keying (REQ-C1.8): no parsed version, no write path.
   case $fver in
-    1 | 2) ;;
+    1 | 2 | 3) ;;
     '')
       refuse "$bname" "missing or empty Format-version: declaration (fail closed; REQ-C1.8)"
       return 0
@@ -546,8 +546,9 @@ process_bundle_locked() {
       ;;
   esac
 
-  if [ "$fver" = "2" ]; then
-    # Already v2. A migration changelog marker means a signed migration ran
+  if [ "$(spec_parse_format_arm "$fver")" = "2" ]; then
+    # Already v2 (version 3 is version 2 plus the per-task Repository: field,
+    # so it takes this arm too). A migration changelog marker means a signed migration ran
     # here: complete a missing re-anchor entry (an interrupted run's last
     # step) rather than no-oping past it (REQ-D1.2). No marker means the
     # bundle was born v2 (or is a migrated Draft): leave it untouched.
@@ -557,7 +558,7 @@ process_bundle_locked() {
         return 0
       fi
       if grep -qF "$entry_marker" "$brief"; then
-        printf '%s\n' "unchanged (already format-version 2): $bname"
+        printf '%s\n' "unchanged (already format-version $fver): $bname"
         unchanged=$((unchanged + 1))
       elif append_reanchor "$bdir"; then
         printf '%s\n' "repaired: $bname (missing re-anchor entry appended)"
@@ -567,7 +568,7 @@ process_bundle_locked() {
         return 0
       fi
     else
-      printf '%s\n' "unchanged (already format-version 2): $bname"
+      printf '%s\n' "unchanged (already format-version $fver): $bname"
       unchanged=$((unchanged + 1))
     fi
     return 0

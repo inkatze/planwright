@@ -737,10 +737,29 @@ fi
 assert_same_tree "$repo3/specs/missing-fv" "$mfv_snap" "missing-Format-version bundle written"
 echo "ok: a missing Format-version is refused fail-closed with no write (REQ-C1.8)"
 
-# A numeric-but-unsupported Format-version (e.g. 3) takes its own refusal
+# Version 3 is version 2 plus the per-task Repository: field, so it takes the
+# already-v2 arm (invariant-tasks REQ-F1.7): a born-v3 bundle is left
+# byte-identical, never re-migrated and never handed a forged re-anchor.
+bornv3=$repo3/specs/born-v-three
+cp -R "$bornv2" "$bornv3"
+for bf in requirements design tasks test-spec; do
+  sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** 3/; s/^- \*\*Citations:\*\* REQ-A1.1$/&\
+- **Repository:** alpha/' "$bornv3/$bf.md" >"$tmp/b3" && mv "$tmp/b3" "$bornv3/$bf.md"
+done
+grep -q '^- \*\*Repository:\*\* alpha$' "$bornv3/tasks.md" || fail "born-v3 fixture: Repository: line not written"
+bv3_snap=$tmp/bv3.snap
+snapshot "$bornv3" "$bv3_snap"
+(cd "$repo3" && "$MIGRATE" specs/born-v-three >"$tmp/bv3.out" 2>&1) \
+  || fail "REQ-F1.7: a born-v3 bundle was refused: $(cat "$tmp/bv3.out")"
+assert_same_tree "$bornv3" "$bv3_snap" "born-v3 bundle written"
+grep -q 'unchanged (already format-version 3): born-v-three' "$tmp/bv3.out" \
+  || fail "born-v3 bundle not reported unchanged: $(cat "$tmp/bv3.out")"
+echo "ok: a version 3 bundle takes the already-v2 arm, left untouched (REQ-F1.7)"
+
+# A numeric-but-unsupported Format-version (e.g. 4) takes its own refusal
 # arm, distinct from unparseable: this migration implements exactly 1 → 2.
 seeded_bundle "$repo3/specs/future-fv" Ready
-sed 's/^\*\*Format-version:\*\* 1$/**Format-version:** 3/' \
+sed 's/^\*\*Format-version:\*\* 1$/**Format-version:** 4/' \
   "$repo3/specs/future-fv/requirements.md" >"$tmp/ff" \
   && mv "$tmp/ff" "$repo3/specs/future-fv/requirements.md"
 ffv_snap=$tmp/ffv.snap
