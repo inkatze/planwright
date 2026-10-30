@@ -3185,9 +3185,11 @@ function fresh(t) {
 }
 # mpresent(t): what a fresh marker says. A reply on the attention marker later
 # than the presence marker was written outranks it, so an answer in this
-# conversation is never overruled by a panel reading taken before it.
+# conversation is never overruled by a panel reading taken before it. It
+# lapses after the quiet interval as any reply does in the fallback, or a
+# tower_presence_ttl above that interval would keep a stale reply present.
 function mpresent(t,   l) {
-  if (tw_reply[t] > tw_pw[t] && tw_reply[t] <= now) return 1
+  if (tw_reply[t] > tw_pw[t] && tw_reply[t] <= now && now - tw_reply[t] <= quiet) return 1
   if (tw_pl[t] == "away") return 0
   l = tw_pl[t] + 0
   return (l > 0 && l <= now && now - l <= quiet)

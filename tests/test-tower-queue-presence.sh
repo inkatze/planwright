@@ -294,6 +294,24 @@ run next --tower $D --now 5290 >/dev/null 2>&1 || fail "next with D's marker sta
 run settle "$qd" --reason 'the worker landed it' --now 5300 >/dev/null 2>&1 || fail "settling qd"
 echo "ok: a prompt event on the marker never ends the push episode; only an answer does"
 
+# --- a reply outranks the marker only within the quiet interval --------------
+# With tower_presence_ttl above tower_quiet_interval, a reply later than an
+# away marker still lapses after the quiet interval, as it does in the
+# fallback, rather than reading present for as long as the marker is fresh.
+
+knobs 300s
+E=tower-e
+qe2=$(add_q we high 6000)
+pres $E --away --now 6000 >/dev/null || fail "E away write: exit"
+marker $E 6001
+run next --tower $E --now 6002 >/dev/null 2>&1 || fail "next with E's reply after the away marker: exit"
+[ "$(pushes_for "$qe2")" = 0 ] || fail "a reply later than the away marker did not read present"
+run next --tower $E --now 6250 >/dev/null 2>&1 || fail "next with E's reply past the quiet interval: exit"
+[ "$(pushes_for "$qe2")" = 1 ] || fail "a reply older than the quiet interval still outranked a fresh away marker ($(pushes_for "$qe2"))"
+run settle "$qe2" --reason 'the worker landed it' --now 6300 >/dev/null 2>&1 || fail "settling qe2"
+knobs 60s
+echo "ok: a reply outranks a fresh marker only while it is within the quiet interval"
+
 # --- the knob ships with its default and its options-reference row -----------
 
 grep -q '^tower_presence_ttl: 2m$' "$here/../config/defaults.yml" || fail "config/defaults.yml does not ship tower_presence_ttl: 2m"
