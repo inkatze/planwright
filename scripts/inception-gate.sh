@@ -1261,6 +1261,13 @@ cmd_link() {
   [ -n "$_cur" ] || die 1 "$_scope has no lineage record; seed it first"
   _loc=$(loc_of "$_sd") || die 1 "the spec directory is not inside a git repository"
   check_path "$_loc" "the spec location"
+  case $_sd in
+    "$vdir" | "$vdir"/*)
+      case $_loc in
+        *:*) die 1 "the spec location holds a colon, which the lineage record reads as a cross-repository location" ;;
+      esac
+      ;;
+  esac
   _key=$(lineage_key "$_scope")
   cites "$_sd" "$_key"
   case $? in
