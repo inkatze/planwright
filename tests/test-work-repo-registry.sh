@@ -308,6 +308,10 @@ run "$tmp/elsewhere" "$SH" "$REG" lookup --root "$HUB" beta
 assert_eq "valid rows still resolve beside malformed ones" "$tmp/src/beta" "$out"
 run "$tmp/src/beta" "$SH" "$REG" register
 assert_eq "a write drops the malformed rows" 0 "$(grep -c 'Bad!\|relative/' "$FILE")"
+run "$tmp/elsewhere" "$SH" "$REG" lookup --root "$HUB"
+assert_eq "a lookup without an alias lists the live entries (exit)" 0 "$rc"
+assert_contains "the listing names each entry" "entry	beta	work	$tmp/src/beta" "$out"
+assert_not_contains "the listing carries no explain rows" "live	" "$out"
 
 # Hand-edited rows that pass the shape check but fail revalidation.
 gitq -C "$tmp/src/beta" worktree add -q "$tmp/beta-wt" -b wt
