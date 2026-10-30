@@ -543,7 +543,7 @@ done
 venture resume-point "$rp"
 assert_contains "B1.7 a finished elicitation resumes into re-entry" "$(printf 'next\tcomplete')" "$out"
 
-sed 's/^\*\*Format-version:\*\* 1\.0$/**Format-version:** 9.0/' "$rp/plan.md" >"$rp/plan.md.new" && mv "$rp/plan.md.new" "$rp/plan.md"
+sed 's/^\*\*Format-version:\*\* 1\.[0-9][0-9]*$/**Format-version:** 9.0/' "$rp/plan.md" >"$rp/plan.md.new" && mv "$rp/plan.md.new" "$rp/plan.md"
 venture resume-point "$rp"
 assert_eq "C1.7 resume refuses an unsupported format-version (exit 3)" 3 "$rc"
 assert_contains "C1.7 the refusal is the validator's plain-language message" "unsupported format-version" "$out"

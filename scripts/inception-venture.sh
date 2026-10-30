@@ -531,7 +531,7 @@ cmd_bundle_init() {
 
 **Status:** Exploring
 **Last reviewed:** $d
-**Format-version:** 1.0
+**Format-version:** 1.1
 
 ## Opportunity
 
@@ -582,7 +582,7 @@ EOF
 
 **Status:** Exploring
 **Last reviewed:** $d
-**Format-version:** 1.0
+**Format-version:** 1.1
 
 ## Discipline map
 
@@ -612,7 +612,7 @@ EOF
 
 **Status:** Exploring
 **Last reviewed:** $d
-**Format-version:** 1.0
+**Format-version:** 1.1
 
 $PENDING
 EOF
