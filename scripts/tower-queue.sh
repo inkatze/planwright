@@ -228,8 +228,8 @@
 # is the quiet-interval rule unchanged. Whichever source is read, a reply on
 # the attention marker later than the presence marker's write is present.
 # That reading drives everything that asks whether the operator is here: the
-# away push and its episode, the lease preemption, and the settled-while-away
-# flag. While a fresh marker reads away, `next` hands nothing over, not even
+# away push, the lease preemption, and the settled-while-away flag; the push
+# episode still ends only on a reply, never on a prompt event. While a fresh marker reads away, `next` hands nothing over, not even
 # a knock. It never confirms attention: a present marker still waits for a
 # reply on the attention marker before content is handed over (knock-first
 # stands). Each `next` that reads a different source from the one its
@@ -3166,15 +3166,18 @@ function anyone_present(   t) {
   for (t in tw_reply) if (present(t)) return 1
   return 0
 }
-# replied_q(t): the operator ANSWERED in that conversation within the quiet
+# replied(t): the operator ANSWERED in that conversation within the quiet
 # interval. What ends a push episode is an answer; present_q() also reads a
 # fresh knock or hand-over as presence, which is right for a lease and would
 # let a tower the operator has never typed in end the episode by knocking.
-function replied_q(t) {
+# The presence marker never stands in here: a prompt event in the panel is
+# not an answer, and reading it as one re-arms the first push each time the
+# marker goes stale and fresh again.
+function replied(t) {
   return ((t in tw_reply) && tw_reply[t] > 0 && tw_reply[t] <= now && now - tw_reply[t] <= quiet)
 }
 # PRESENCE (REQ-F1.7, D-23). The producer`s marker is read first while it is
-# fresh; the three quiet-interval readings above are the fallback, unchanged.
+# fresh; the two quiet-interval readings above are the fallback, unchanged.
 # fresh(t): the marker was written within tower_presence_ttl. A write stamped
 # past now has not happened yet, the same reading a reply stamp gets.
 function fresh(t) {
@@ -3193,7 +3196,6 @@ function present(t) { return fresh(t) ? mpresent(t) : present_q(t) }
 # A fresh marker states away outright, so here a tower that has never knocked
 # can be away, which the fallback`s reading never allows.
 function is_away(t) { return fresh(t) ? !mpresent(t) : away_q(t) }
-function replied(t) { return fresh(t) ? mpresent(t) : replied_q(t) }
 function anyone_replied(   t) {
   for (t in tw_reply) if (replied(t)) return 1
   return 0

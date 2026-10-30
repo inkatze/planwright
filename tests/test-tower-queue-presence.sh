@@ -276,6 +276,24 @@ run next --tower $C --now 4002 >/dev/null 2>&1 || fail "next back under the 60s 
 [ "$(switches $C marker)" = 1 ] || fail "a two-second-old marker was not fresh under a 60s ttl"
 echo "ok: tower_presence_ttl takes a sub-second value"
 
+# --- a prompt event is not an answer: it never ends the push episode ---------
+# The marker going stale and fresh again while the operator never replies must
+# not re-arm the first push: only worsening pushes again (REQ-F1.3).
+
+D=tower-d
+qd=$(add_q wd high 5000)
+run next --tower $D --now 5001 >/dev/null 2>&1 || fail "D's knock: exit"
+pres $D --last-prompt 5150 --now 5150 >/dev/null || fail "D present write: exit"
+run next --tower $D --now 5160 >/dev/null 2>&1 || fail "next with D's marker fresh: exit"
+run next --tower $D --now 5220 >/dev/null 2>&1 || fail "next with D's marker stale: exit"
+[ "$(pushes_for "$qd")" = 1 ] || fail "the stale marker's fallback did not push once ($(pushes_for "$qd"))"
+pres $D --last-prompt 5150 --now 5225 >/dev/null || fail "D present refresh: exit"
+run next --tower $D --now 5226 >/dev/null 2>&1 || fail "next with D's marker fresh again: exit"
+run next --tower $D --now 5290 >/dev/null 2>&1 || fail "next with D's marker stale again: exit"
+[ "$(pushes_for "$qd")" = 1 ] || fail "a prompt event with no reply re-armed the first push ($(pushes_for "$qd"))"
+run settle "$qd" --reason 'the worker landed it' --now 5300 >/dev/null 2>&1 || fail "settling qd"
+echo "ok: a prompt event on the marker never ends the push episode; only an answer does"
+
 # --- the knob ships with its default and its options-reference row -----------
 
 grep -q '^tower_presence_ttl: 2m$' "$here/../config/defaults.yml" || fail "config/defaults.yml does not ship tower_presence_ttl: 2m"
