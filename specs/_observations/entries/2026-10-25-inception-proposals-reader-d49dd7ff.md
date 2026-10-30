@@ -1,0 +1,1 @@
+- 2026-10-25 [planwright] inception: the venture sync protocol tells outside agents to file protected changes under proposals/, but nothing in /inception (resume, handoff), the validator or the inception-format layout table reads or lists that directory, so a proposal lands silently until the operator happens to look

@@ -97,7 +97,7 @@ export PLANWRIGHT_INCEPTION_TODAY=2026-08-20
 # The built-in screen, not a host gitleaks whose rules may wave the fixture
 # token through (the scaffold suite pins it the same way).
 export PLANWRIGHT_SECRET_SCREEN_TOOL=none
-unset CLAUDE_CODE_REMOTE PLANWRIGHT_INCEPTION_EPHEMERAL
+unset CLAUDE_CODE_REMOTE PLANWRIGHT_INCEPTION_EPHEMERAL PLANWRIGHT_INCEPTION_HOST CLAUDE_PLUGIN_ROOT
 unset XDG_CONFIG_HOME GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_DIR GIT_WORK_TREE
 export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
 # Identity comes only from the GIT_* variables below, never guessed from the
@@ -332,6 +332,69 @@ assert_contains "A1.5 only CLAUDE_CODE_REMOTE=true reads as a cloud session" "$(
 
 PATH="$stubs/nogit:$PATH" PLANWRIGHT_INCEPTION_EPHEMERAL=1 venture detect
 assert_contains "H1.1 no git and ephemeral is still session-only" "$(printf 'local\tsession-only')" "$out"
+
+# =========================================================================
+# REQ-H1.4 — host and plugin detection, Cowork caveats
+# =========================================================================
+
+PATH="$stubs/gh-ok:$PATH" venture detect
+assert_contains "H1.4 no hosted-session signal reads as a local host" "$(printf 'host\tlocal')" "$out"
+assert_contains "H1.4 an install the venture hook resolves reads as loaded" "$(printf 'plugin\tloaded')" "$out"
+assert_not_contains "H1.4 a local host carries no Cowork caveat" "caveat" "$out"
+
+PATH="$stubs/gh-ok:$PATH" CLAUDE_CODE_REMOTE=true venture detect
+assert_contains "H1.4 a cloud session reads as the cloud host" "$(printf 'host\tcloud')" "$out"
+
+PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_INCEPTION_HOST=cowork venture detect
+assert_eq "H1.4 detect succeeds on a Cowork host" 0 "$rc"
+assert_contains "H1.4 the operator names a Cowork host" "$(printf 'host\tcowork')" "$out"
+assert_contains "H1.4 a Cowork host defaults to ephemeral" "$(printf 'ephemeral\tyes')" "$out"
+assert_contains "H1.4 a Cowork host's local arm is session-only" "$(printf 'local\tsession-only')" "$out"
+assert_contains "H1.4 the Cowork egress caveat is surfaced" "$(printf 'caveat\tCowork')" "$out"
+assert_contains "H1.4 the caveat names the network allowlist" "allowlist" "$out"
+assert_contains "H1.4 the caveat names the advisory protocol" "sync-protocol.md" "$out"
+
+PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_INCEPTION_HOST=cowork PLANWRIGHT_INCEPTION_EPHEMERAL=0 venture detect
+assert_contains "H1.4 a Cowork local session over a connected folder is durable on override" \
+  "$(printf 'local\tdurable')" "$out"
+assert_contains "H1.4 the caveat stays with the durable override" "$(printf 'caveat\tCowork')" "$out"
+
+PATH="$stubs/nogit:$PATH" PLANWRIGHT_INCEPTION_HOST=cowork venture detect
+assert_contains "H1.4 Cowork without git is still session-only" "$(printf 'local\tsession-only')" "$out"
+assert_contains "H1.4 Cowork without git names the missing git" "$(printf 'degraded\tgit unavailable')" "$out"
+
+PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_INCEPTION_HOST=bogus venture detect
+assert_eq "H1.4 an unrecognized host override still detects" 0 "$rc"
+assert_contains "H1.4 an unrecognized host override is ignored" "$(printf 'host\tlocal')" "$out"
+assert_contains "H1.4 an unrecognized host override is warned about" "PLANWRIGHT_INCEPTION_HOST" "$out"
+
+PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT='' venture detect
+assert_contains "H1.4 no install where the hook looks reads as absent" "$(printf 'plugin\tabsent')" "$out"
+assert_contains "H1.4 an absent plugin is a named degradation" "skip the venture guards" "$out"
+assert_contains "H1.4 the absent-plugin line names where the hook also looks" ".planwright-local.sh" "$out"
+
+PATH="$stubs/nogit:$PATH" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT='' venture detect
+assert_not_contains "H1.4 without git there is no hook, so no absent-plugin line" "skip the venture guards" "$out"
+
+PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT="$REPO_ROOT" venture detect
+assert_contains "H1.4 a loaded plugin root reads as loaded" "$(printf 'plugin\tloaded')" "$out"
+
+mkdir -p "$tmp/cache-home/.claude/plugins/cache/planwright/planwright/9.9.9/scripts"
+: >"$tmp/cache-home/.claude/plugins/cache/planwright/planwright/9.9.9/scripts/inception-validate.sh"
+PATH="$stubs/gh-ok:$PATH" HOME="$tmp/cache-home" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT='' venture detect
+assert_contains "H1.4 an install only in the plugin cache reads as loaded" "$(printf 'plugin\tloaded')" "$out"
+
+PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_INCEPTION_HOST=cowork venture create --home local --root "$tmp/v-cowork" cw
+assert_eq "H1.4 create on a Cowork host succeeds" 0 "$rc"
+assert_contains "H1.4 a local home on a Cowork host lands on the session rung" "$(printf 'rung\tsession')" "$out"
+assert_contains "H1.4 create repeats the Cowork caveat" "$(printf 'caveat\tCowork')" "$out"
+assert_exists "G1.8 create scaffolds the sync protocol" "$tmp/v-cowork/cw/sync-protocol.md"
+assert_contains "G1.8 create imports the protocol from CLAUDE.md" "@sync-protocol.md" \
+  "$(cat "$tmp/v-cowork/cw/CLAUDE.md" 2>/dev/null)"
+PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_INCEPTION_HOST=cowork venture handoff "$tmp/v-cowork/cw"
+assert_contains "H1.4 the handoff repeats the Cowork caveat" "$(printf 'caveat\tCowork')" "$out"
+PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT='' venture handoff "$tmp/v-cowork/cw"
+assert_contains "H1.5 the handoff repeats the absent-plugin degradation" "skip the venture guards" "$out"
 
 # =========================================================================
 # Creation guards (REQ-A1.4, REQ-A1.7 no-overwrite floor)
@@ -637,6 +700,9 @@ PATH="$stubs/nogit:$PATH" venture save --push "$pv" "Share a plain folder"
 assert_eq "H1.1 plain rung: a push is refused (exit 6)" 6 "$rc"
 PATH="$stubs/gh-ok:$PATH" venture add-remote "$pv"
 assert_eq "H1.3 a plain folder cannot gain a remote (exit 6)" 6 "$rc"
+PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_ROOT='' CLAUDE_PLUGIN_ROOT='' venture handoff "$pv"
+assert_contains "H1.5 a plain folder's handoff names its rung with git present" "$(printf 'rung\tplain')" "$out"
+assert_not_contains "H1.5 a plain folder has no hook, so no absent-plugin line" "skip the venture guards" "$out"
 printf 'token: %s\n' "ghp_""0123456789abcdefghijklmnopqrstuvwxyz" >"$pv/leak.md"
 PATH="$stubs/nogit:$PATH" venture save "$pv" "Leak attempt"
 assert_eq "A1.9 plain rung: a credential is flagged (exit 1)" 1 "$rc"
