@@ -1198,6 +1198,9 @@ cmd_seed() {
   [ ! -L "$_droot" ] && [ ! -L "$_pdir" ] || die 1 "the destination became a symbolic link; refusing to write through it"
   seed_tmp=$(mktemp "$_pdir/.inception-gate.XXXXXX") || die 2 "cannot write the seed"
   cp -p "$work/seed" "$seed_tmp" || die 2 "cannot write the seed"
+  # Held off until the lineage is recorded: a signal between the link and
+  # seed_placed= would leave a seed no lineage names and no cleanup removes.
+  trap '' INT TERM HUP
   if ! ln "$seed_tmp" "$_seed" 2>/dev/null; then
     [ ! -e "$_seed" ] && [ ! -L "$_seed" ] || die 1 "a seed already exists at _pending/$_name"
     die 2 "cannot place the seed (the destination may not support hard links)"
@@ -1208,6 +1211,9 @@ cmd_seed() {
   rm -f "$seed_tmp"
   seed_tmp=
   install_files brief.md
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   made_pdir=
   made_droot=
   printf 'seed\t%s\n' "$_seed" | strip_eval

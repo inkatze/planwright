@@ -683,6 +683,22 @@ assert_eq "and no scratch file stays in the venture" "" "$(find "$vroot/seedfail
 gate seed --dest "$(specroot "$vroot/seedfail")" "$vroot/seedfail"
 assert_eq "the seed can then be retried" 0 "$rc"
 
+# A signal right after the seed is linked into place must not strand it.
+realln=$(command -v ln)
+mkdir -p "$tmp/sigshim"
+# shellcheck disable=SC2016 # literal text for a written script, not an expansion
+printf '#!/bin/sh\n%s "$@" || exit\nfor a; do last=$a; done\ncase "$last" in */_pending/*) kill -TERM "$PPID" ;; esac\n' "$realln" >"$tmp/sigshim/ln"
+chmod +x "$tmp/sigshim/ln"
+mkv seedsig
+ready "$vroot/seedsig"
+"$GATE" record --outcome Graduate --decider "Dana Reyes" --rationale ready "$vroot/seedsig" >/dev/null 2>&1
+out=$(PATH="$tmp/sigshim:$PATH" "$GATE" seed --dest "$(specroot "$vroot/seedsig")" "$vroot/seedsig" 2>&1)
+rc=$?
+assert_eq "a signal once the seed is linked does not interrupt the seed" 0 "$rc"
+assert_eq "and the seed stays" yes "$([ -f "$vroot/seedsig/specs/_pending/inception-seedsig.md" ] && echo yes || echo no)"
+gate lineage "$vroot/seedsig"
+assert_contains "and its lineage is recorded" "lineage	venture	pending" "$out"
+
 mkv modes
 chmod 0644 "$vroot/modes/brief.md"
 gate record --outcome Hold --decider "Dana Reyes" --rationale x "$vroot/modes"
