@@ -666,6 +666,28 @@ loc_join() {
   esac
 }
 
+# in_venture <relative location> — the directory a recorded location resolves
+# to inside the venture; status 1 when it resolves nowhere but its nearest
+# existing ancestor lies inside the venture, 2 when it is refused.
+in_venture() {
+  case /$1/ in
+    //* | */../*) return 2 ;;
+  esac
+  if _iv=$(cd -P "$vdir/$1" 2>/dev/null && pwd -P); then
+    case $_iv in
+      "$vdir" | "$vdir"/*) printf '%s\n' "$_iv"; return 0 ;;
+    esac
+    return 2
+  fi
+  _iv=$(dirname "$vdir/$1")
+  while [ ! -d "$_iv" ]; do _iv=$(dirname "$_iv"); done
+  _iv=$(cd -P "$_iv" 2>/dev/null && pwd -P)
+  case $_iv in
+    "$vdir" | "$vdir"/*) return 1 ;;
+  esac
+  return 2
+}
+
 # trim_slashes <path> — the path without trailing slashes, which would make a
 # symbolic-link test follow the link it is meant to refuse, and with `./`
 # before a leading dash, which cd would read as an option or as $OLDPWD.
@@ -1290,37 +1312,21 @@ cmd_lineage() {
       *)
         # The recorded location is bundle text: it is read only once it
         # resolves to a directory inside the venture.
-        _sd=
-        case /$_sp/ in
-          //* | */../*) ;;
+        _rc=0
+        _sd=$(in_venture "$_sp") || _rc=$?
+        case $_rc in
+          0) ;;
+          1)
+            printf 'lineage\t%s\tspec-missing\n' "$(sanitize_printable "$_sc" '?')"
+            _bad=1
+            continue
+            ;;
           *)
-            if _sd=$(cd -P "$vdir/$_sp" 2>/dev/null && pwd -P); then
-              case $_sd in
-                "$vdir" | "$vdir"/*) ;;
-                *) _sd= ;;
-              esac
-            else
-              # It resolves nowhere: missing when its nearest existing
-              # ancestor lies inside the venture, refused otherwise.
-              _pp=$(dirname "$vdir/$_sp")
-              while [ ! -d "$_pp" ]; do _pp=$(dirname "$_pp"); done
-              _pp=$(cd -P "$_pp" 2>/dev/null && pwd -P)
-              case $_pp in
-                "$vdir" | "$vdir"/*)
-                  printf 'lineage\t%s\tspec-missing\n' "$(sanitize_printable "$_sc" '?')"
-                  _bad=1
-                  continue
-                  ;;
-              esac
-              _sd=
-            fi
+            printf 'lineage\t%s\trefused\n' "$(sanitize_printable "$_sc" '?')"
+            _bad=1
+            continue
             ;;
         esac
-        if [ -z "$_sd" ]; then
-          printf 'lineage\t%s\trefused\n' "$(sanitize_printable "$_sc" '?')"
-          _bad=1
-          continue
-        fi
         ;;
     esac
     if [ -z "$_sd" ]; then
