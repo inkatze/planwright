@@ -238,8 +238,14 @@ validate_live() {
   grep ' ERROR ' "$work/vlive" | sort >"$work/v.before"
 }
 
+# bundle_lock — the venture's bundle lock, the one inception-fanout.sh takes:
+# in the clone's own git directory, a worktree's included.
 bundle_lock() {
-  if [ -d "$vdir/.git" ]; then _bl="$vdir/.git/planwright-bundle.lock"; else _bl="$vdir/.planwright-bundle.lock"; fi
+  if _bl=$(git -C "$vdir" rev-parse --absolute-git-dir 2>/dev/null); then
+    _bl="$_bl/planwright-bundle.lock"
+  else
+    _bl="$vdir/.planwright-bundle.lock"
+  fi
   pw_lock_acquire "$_bl" "${PLANWRIGHT_BUNDLE_LOCK_TRIES:-500}"
   case $? in
     0) ;;

@@ -767,6 +767,57 @@ sed 's/^\*\*Format-version:\*\* 1.0$/**Format-version:** 9.0/' "$vroot/future/br
 gate evaluate "$vroot/future"
 assert_eq "an unsupported format-version is refused, not parsed" 3 "$rc"
 
+# --- the bundle lock ---------------------------------------------------------
+# A worktree venture's lock lives in its git directory, the one the fan-out
+# and review-cycle helpers take, so their writes exclude each other.
+
+mkv wt-main
+ready "$vroot/wt-main"
+git -C "$vroot/wt-main" add -A \
+  && git -C "$vroot/wt-main" -c user.name=t -c user.email=t@example.invalid commit -qm seed || exit 1
+git -C "$vroot/wt-main" worktree add -q "$vroot/wt-clone" >/dev/null 2>&1 || exit 1
+wt_lock="$(git -C "$vroot/wt-clone" rev-parse --absolute-git-dir)/planwright-bundle.lock"
+# shellcheck disable=SC2016 # expanded by the holder's own shell
+bash -c '. "$1" && pw_lock_acquire "$2" 1 && : >"$3" && exec sleep 30' _ \
+  "$REPO_ROOT/scripts/lock-lib.sh" "$wt_lock" "$tmp/wt-held" &
+wt_holder=$!
+n=0
+while [ ! -f "$tmp/wt-held" ] && [ "$n" -lt 100 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+out=$(PLANWRIGHT_BUNDLE_LOCK_TRIES=1 "$GATE" record --outcome Hold --decider "Dana Reyes" \
+  --rationale "waiting on budget" "$vroot/wt-clone" 2>&1)
+rc=$?
+assert_eq "a worktree venture's gate write waits on the git-directory lock" 2 "$rc"
+assert_contains "the refusal says the bundle is busy" "busy" "$out"
+kill "$wt_holder" 2>/dev/null
+wait "$wt_holder" 2>/dev/null
+gate record --outcome Hold --decider "Dana Reyes" --rationale "waiting on budget" "$vroot/wt-clone"
+assert_eq "the write goes ahead once the lock is free" 0 "$rc"
+
+# --- operator values ---------------------------------------------------------
+# A decider, rationale, or note lands on one line of the bundle, and a track
+# label must be one the format can declare.
+
+mkv values
+ready "$vroot/values"
+cp "$vroot/values/brief.md" "$tmp/values-brief"
+gate record --outcome Hold --decider "Dana Reyes" --rationale "   " "$vroot/values"
+assert_eq "a blank rationale is refused" 2 "$rc"
+assert_contains "the refusal says it is empty" "is empty" "$out"
+gate record --outcome Hold --decider "Dana$(printf '\t')Reyes" --rationale x "$vroot/values"
+assert_eq "a decider carrying a control character is refused" 1 "$rc"
+assert_contains "the refusal names the control character" "control character" "$out"
+gate archive --abandon --note "$(printf '%1001s' '' | tr ' ' x)" "$vroot/values"
+assert_eq "an over-long note is refused" 1 "$rc"
+assert_contains "the refusal names the limit" "longer than" "$out"
+assert_eq "a refused value leaves the brief untouched" same \
+  "$(cmp -s "$tmp/values-brief" "$vroot/values/brief.md" && echo same || echo changed)"
+gate evaluate --track "Capture" "$vroot/values"
+assert_eq "a malformed track label is refused" 2 "$rc"
+assert_contains "the refusal gives the label grammar" "a track label must match" "$out"
+
 # --- surfaces ----------------------------------------------------------------
 
 assert_contains "the skill routes the gate to the helper" "inception-gate.sh" "$(cat "$SKILL")"
