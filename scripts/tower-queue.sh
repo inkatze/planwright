@@ -1218,6 +1218,7 @@ cleanup() {
   [ -z "$EVID_RAW" ] || rm -f "$EVID_RAW" 2>/dev/null || true
   [ -z "$RULE_FILE" ] || rm -f "$RULE_FILE" 2>/dev/null || true
   [ -z "${REVIEW_FILE:-}" ] || rm -f "$REVIEW_FILE" 2>/dev/null || true
+  [ -z "${PARK_FILE:-}" ] || rm -f "$PARK_FILE" 2>/dev/null || true
   [ -z "$KNOB_DIR" ] || rm -rf "$KNOB_DIR" 2>/dev/null || true
   [ -z "$SCRATCH" ] || rm -rf "$SCRATCH" 2>/dev/null || true
 }
@@ -3089,13 +3090,20 @@ function ceil(x) { return (x == int(x)) ? x : int(x) + 1 }
 # (REQ-A1.12). A default applies only at gate none, on a question that is no
 # permission prompt, once its review content is in the ledger; anything else
 # ends as a park, which answers nothing.
-function window_pass(   n, w, perm) {
+function load_parks(file,   l, rc) {
+  if (file == "") return
+  while ((rc = (getline l < file)) > 0) park_now[l] = 1
+  close(file)
+  if (rc < 0) fail("cannot read the table of windows to park")
+}
+function window_pass(   n, w, perm, rsv) {
   for (n = 1; n <= N; n++) {
     if (!OK[n] || F[n, 12] != "open" || F[n, 2] != "question") continue
     if (F[n, 29] + 0 <= 0 || F[n, 31] == 1 || F[n, 29] + 0 > now) continue
     w = F[n, 7]
     perm = (F[n, 6] == "attention" && (w in at_f9) && at_f9[w] == "permission")
-    if (F[n, 28] != "park" && F[n, 30] == "none" && !perm && (F[n, 1] in review_ready)) {
+    rsv = (F[n, 1] in park_now)
+    if (F[n, 28] != "park" && F[n, 30] == "none" && !perm && !rsv && (F[n, 1] in review_ready)) {
       F[n, 2] = "settled-by-default"; F[n, 17] = ceil(F[n, 29] + 0)
       F[n, 18] = "the window ended on its default: " F[n, 28] " (window end " F[n, 29] ")"
       F[n, 34] = SBD_REV; F[n, 22] = !anyone_present()
@@ -3103,7 +3111,7 @@ function window_pass(   n, w, perm) {
       F[n, 19] = "-"; F[n, 20] = 0; F[n, 14] = 0; F[n, 13] = 0
       changed = 1
       print "window\t" clean(F[n, 1]) "\tdefault\t" clean(F[n, 28]) "\t" F[n, 29] "\t" F[n, 22]
-    } else if (F[n, 28] == "park" || F[n, 30] != "none" || perm) {
+    } else if (F[n, 28] == "park" || F[n, 30] != "none" || perm || rsv) {
       F[n, 31] = 1; changed = 1
       print "window\t" clean(F[n, 1]) "\tpark\t-\t" F[n, 29] "\t-"
     }
@@ -3374,9 +3382,9 @@ run_store_pass() {
     -v reknock="${reknock_age:-0}" -v hold="${REKNOCK_HOLD:-0}" \
     -v attn_present="$([ -n "$attn_file_for_awk" ] && echo 1 || echo 0)" \
     -v out="$SCRATCH/new" -v tower="${tower:-}" -v record_file="$SCRATCH/record" -v reason_file="$SCRATCH/reason" \
-    -v review_file="${REVIEW_FILE:-}" -v SBD_REV="$SBD_REVERSAL" "$@" "$AWK_Q"'
+    -v review_file="${REVIEW_FILE:-}" -v park_file="${PARK_FILE:-}" -v SBD_REV="$SBD_REVERSAL" "$@" "$AWK_Q"'
   BEGIN {
-    load_towers(towers_file); load_attention(attn_file); load_evidence(evid_file); load_reviews(review_file); changed = 0
+    load_towers(towers_file); load_attention(attn_file); load_evidence(evid_file); load_reviews(review_file); load_parks(park_file); changed = 0
     record = ""; reason = ""
     if ((getline record < record_file) <= 0) record = ""
     close(record_file)
@@ -4092,9 +4100,11 @@ ev_prepare() {
 # then re-kind. One whose write fails stays a question, the safe direction.
 # WINDOW_DUE keeps `next` from reusing a pass that predates an ended window.
 REVIEW_FILE=""
+PARK_FILE=""
 WINDOW_DUE=0
 window_prepare() {
   REVIEW_FILE=""
+  PARK_FILE=""
   WINDOW_DUE=0
   [ -f "$store_file" ] || return 0
   # Only records the pass itself will read: one it skips as malformed would
@@ -4114,6 +4124,10 @@ window_prepare() {
     err "cannot create a scratch file for the review content"
     exit 6
   }
+  PARK_FILE=$(mktemp "$surface/.park.XXXXXX" 2>/dev/null) || {
+    err "cannot create a scratch file for the windows to park"
+    exit 6
+  }
   _wk=0
   while IFS="$TAB" read -r _wi _we _wt _wg _ws _wh _wp; do
     is_item_id "$_wi" || continue
@@ -4128,6 +4142,15 @@ window_prepare() {
       [ -n "$row_state" ] || continue
       attn_perm "$_wp"
       [ "$p_f9" != permission ] && [ -z "$p_claim" ] || continue
+      # Re-read now, not at add: a row re-asked in place may have turned
+      # into a reserved control since. The pass parks it.
+      if attn_question_reserved "$_wp"; then
+        printf '%s\n' "$_wi" >>"$PARK_FILE" || {
+          err "cannot record a window to park"
+          exit 6
+        }
+        continue
+      fi
     fi
     if [ "$_wk" = 0 ]; then
       resolve_queue_knobs
@@ -4159,6 +4182,17 @@ window_prepare() {
   done <<EOF
 $_wd
 EOF
+}
+
+# attn_question_reserved <worker> — 0 when the question on the worker's
+# attention row names a reserved control. The options are not the only place
+# one can hide: "force-push to main?" with yes and no would let a timer answer
+# it (REQ-H1.5).
+attn_question_reserved() {
+  [ -f "$attn_store" ] || return 1
+  _aq=$(awk -F '\t' -v w="$1" '($1 "") == (w "") { print $6; exit }' "$attn_store" 2>/dev/null) || return 1
+  [ -n "$_aq" ] && [ "$_aq" != - ] || return 1
+  reserved_control "$_aq"
 }
 
 # attn_perm <worker> — the permission-record fields of the worker's attention
@@ -4889,6 +4923,9 @@ cmd_add() {
         if [ -n "$pick_end" ] && [ "$pick_end" != park ]; then
           attn_perm "$worker"
           [ "$p_f9" != permission ] || refuse "refusing a declared default on a worker permission prompt: only --end park is admitted, since a timer never answers one"
+          if attn_question_reserved "$worker"; then
+            refuse "refusing a declared default: the question names a reserved human control; only --end park is admitted"
+          fi
         fi
         [ "$row_state" = awaiting-input ] || refuse "worker '$worker' is not awaiting input (its row says '$(sanitize_printable "$row_state" "?")'), so there is no question to queue"
         is_one_of "$row_prio" "$Q_URGENCIES" && urgency=$row_prio || urgency=normal

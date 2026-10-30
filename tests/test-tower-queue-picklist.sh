@@ -125,7 +125,9 @@ refused "a default on options naming a reserved control" 'naming a reserved huma
 refused "a picklist on a request" 'declared only on a question' add --kind request --root "$content" --pointer nope --origin operator --closes 'the operator decides' --options 'A|B' --end A --gate none --now 1000
 refused "an added settled-by-default item" 'is never added' add --kind settled-by-default --worker w-a --origin w-a --closes 'the operator answers' --now 1000
 refused "a kind outside the closed set" 'refusing kind' add --kind decision --worker w-a --origin w-a --closes 'the operator answers' --now 1000
-echo "ok: add refuses a malformed picklist, a default with no gate or behind a gate, and a default on a permission prompt or a reserved control"
+attention_row w-fq spec/t3b awaiting-input 1000 normal 'Force-push the branch to main now?' - 'yes|no' fork iid-fq
+refused "a default on a question whose text names a reserved control" 'question names a reserved human control' add --kind question --worker w-fq --origin w-fq --closes 'the operator answers' --options 'yes|no' --end no --gate none --now 1000
+echo "ok: add refuses a malformed picklist, a default with no gate or behind a gate, and a default on a permission prompt or a reserved control, in the options or the question"
 
 p_perm=$(run add --kind question --worker w-perm --origin w-perm --closes 'the operator answers' --options 'allow|deny' --end park --now 1000) \
   || fail "park on a permission prompt was refused"
@@ -154,7 +156,7 @@ echo "ok: tower_picklist_window takes a sub-second span"
 
 # --- the Done-when fixture: options A and B, default B, a sub-second window -----------
 
-attention_row w-b spec/t5 awaiting-input 1000 normal 'Squash or keep?' A 'A|B' fork iid-b
+attention_row w-b spec/t5 awaiting-input 1000 normal 'Keep the old name or take the new one?' A 'A|B' fork iid-b
 q=$(run add --kind question --worker w-b --origin w-b --closes 'the operator answers' \
   --options 'A|B' --end B --gate none --window 500ms --subject pr:31 --now 1000) || fail "add the sub-second picklist"
 [ "$(fld "$q" 29)" = 1000.5 ] || fail "the window end is not the birth plus the window: '$(fld "$q" 29)'"
@@ -342,6 +344,18 @@ done
 [ "$(fld "$p_knob" 2)" = settled-by-default ] || fail "the knob-window picklist did not default over the away timeline"
 [ "$(fld "$p_perm" 2)" = question ] && [ "$(fld "$p_perm" 12)" = open ] || fail "the permission park was answered over the away timeline"
 echo "ok: over a long away timeline nothing is dropped and the only answer taken is a declared default"
+
+# --- the settling pass parks a default whose question turned into a reserved control ---
+
+attention_row w-tq spec/t10 awaiting-input 1000 normal 'Retry the job?' yes 'yes|no' fork iid-tq
+tq=$(run add --kind question --worker w-tq --origin w-tq --closes 'the operator answers' --options 'yes|no' --end yes --gate none --window 1s --now 40000) \
+  || fail "add the question that changes"
+# The row is re-asked in place before the window ends: same instance, new text.
+awk -F "$TAB" -v OFS="$TAB" '$1 == "w-tq" { $6 = "Rebase onto main and force-push?" } { print }' "$attn_store" >"$tmp/attn" && cat "$tmp/attn" >"$attn_store"
+run settle --now 40005 >/dev/null || fail "the pass over the changed question"
+[ "$(fld "$tq" 2)" = question ] && [ "$(fld "$tq" 31)" = 1 ] || fail "a default answered a question that now names a reserved control: $(rec "$tq")"
+grep -q "review.$tq" "$surface/ledger" && fail "review content was written for a question the pass parked"
+echo "ok: the settling pass parks, never defaults, a question whose text names a reserved control"
 
 # --- no route out of the open set leaves a record without a reason --------------------
 

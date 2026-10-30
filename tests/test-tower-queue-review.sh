@@ -240,7 +240,7 @@ echo "ok: an unreviewed reviewable item older than the horizon is still in the s
 
 # --- a deleted store rebuilds both reviewable kinds and every picklist (REQ-A1.13) ------
 
-attention_row w-sbd spec/t2 awaiting-input 2000 normal 'Squash or keep?' A 'A|B' fork iid-s
+attention_row w-sbd spec/t2 awaiting-input 2000 normal 'Keep the old name or take the new one?' A 'A|B' fork iid-s
 attention_row w-park spec/t3 awaiting-input 2000 normal 'Ship now?' - 'now|later' fork iid-k
 attention_row w-rot spec/t4 awaiting-input 2000 normal 'Retry?' yes 'yes|no' fork iid-r
 attention_row w-news spec/t5 pr-ready 2000 normal - - -
