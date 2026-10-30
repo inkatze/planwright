@@ -521,7 +521,7 @@ has "design.md: missing Format-version"
 
 write_bundle "$root/fixture" Draft
 edit "$root/fixture/requirements.md" \
-  's/^\*\*Format-version:\*\* 1$/**Format-version:** 3/'
+  's/^\*\*Format-version:\*\* 1$/**Format-version:** 4/'
 run_v 1 "$root/fixture"
 has "ERROR"
 has "unsupported format-version"
@@ -2637,6 +2637,157 @@ has "not defined in this bundle"
 cite Ready 'Carried from pair-flow Task 7: the plan and its D-45.'
 run_v 0 "$root/fixture"
 has "0 error(s), 0 warning(s)"
+
+# --- 37. Format-version 3: the per-task Repository: field (invariant-tasks
+# REQ-F1.1, REQ-F1.2, REQ-F1.7) ---
+# write_bundle_v3 <dir> <status> [<value>] — the v2 fixture declared version
+# 3, with `- **Repository:** <value>` after Task 1's Citations line when a
+# value is given (an awk insert, so a hostile value is never a sed program).
+write_bundle_v3() {
+  write_bundle_v2 "$1" "$2"
+  for bf in requirements design tasks test-spec; do
+    edit "$1/$bf.md" 's/^\*\*Format-version:\*\* 2$/**Format-version:** 3/'
+  done
+  [ $# -lt 3 ] || add_repository "$1" "$3"
+}
+# add_repository <dir> <value> — one more Repository: line under Task 1.
+add_repository() {
+  REPO_VALUE=$2 awk '
+    { print }
+    $0 == "- **Citations:** D-1 · REQ-X1.1" { print "- **Repository:** " ENVIRON["REPO_VALUE"] }
+  ' "$1/tasks.md" >"$1/tasks.md.new"
+  mv "$1/tasks.md.new" "$1/tasks.md"
+}
+# The registry serves only a marker-bearing spec root, so the field's home
+# fixtures live under one; $bare is the same layout with no marker.
+marked="$tmp/marked-specs"
+bare="$tmp/bare-specs"
+mkdir -p "$marked" "$bare"
+printf 'project: fixture\nlayout: 1\n' >"$marked/planwright-spec-root.yml"
+
+# 37a. A valid field under a marked root passes at every status class.
+for st in Draft Ready Retired; do
+  write_bundle_v3 "$marked/fixture" "$st" alpha
+  run_v 0 "$marked/fixture"
+  has "0 error(s), 0 warning(s)"
+done
+# A version 3 bundle that names no repository needs no marker.
+write_bundle_v3 "$bare/fixture" Ready
+run_v 0 "$bare/fixture"
+has "0 error(s), 0 warning(s)"
+
+# v3_fails <message> <setup...> — the setup (a shell function name plus its
+# arguments, run once per status) yields a gap that errors on the signed
+# Ready fixture and warns on Draft and on the Retired terminal record.
+v3_fails() {
+  vmsg=$1
+  shift
+  "$@" Ready
+  run_v 1 "$marked/fixture"
+  has "ERROR"
+  has "$vmsg"
+  for st in Draft Retired; do
+    "$@" "$st"
+    run_v 0 "$marked/fixture"
+    has "WARN"
+    has "$vmsg"
+    lacks "ERROR"
+  done
+}
+v3_value() { write_bundle_v3 "$marked/fixture" "$2" "$1"; }
+v3_twice() {
+  write_bundle_v3 "$marked/fixture" "$1" alpha
+  add_repository "$marked/fixture" beta
+}
+v3_wrapped() {
+  write_bundle_v3 "$marked/fixture" "$1" alpha
+  edit "$marked/fixture/tasks.md" 's/^- \*\*Repository:\*\* alpha$/&\
+  beta/'
+}
+v2_field() {
+  write_bundle_v2 "$marked/fixture" "$1"
+  add_repository "$marked/fixture" alpha
+}
+v1_field() {
+  # Retired and Ready are recognized v1 statuses too; Active is v1's live one.
+  write_bundle "$marked/fixture" "$1"
+  add_repository "$marked/fixture" alpha
+}
+
+# 37b. The field outside a version 3 declaration is invalid, not ignored.
+v3_fails "requires format-version 3" v2_field
+v3_fails "requires format-version 3" v1_field
+# 37c. At most one field per block; one repository per field.
+v3_fails "more than one Repository: field" v3_twice
+v3_fails "continues past its field line" v3_wrapped
+# 37d. The value is a single alias in the identifier grammar: never a list, a
+# path, a URL, an owner/name pair, or an off-grammar token.
+v3_fails "not a single alias" v3_value 'alpha, beta'
+v3_fails "not a single alias" v3_value 'alpha beta'
+v3_fails "not a single alias" v3_value '../alpha'
+v3_fails "not a single alias" v3_value '/srv/alpha'
+v3_fails "not a single alias" v3_value 'https://example.com/o/alpha'
+v3_fails "not a single alias" v3_value 'owner/alpha'
+v3_fails "not a single alias" v3_value 'Alpha_1'
+v3_fails "not a single alias" v3_value '-alpha'
+v3_fails "not a single alias" v3_value ''
+v3_fails "not a single alias" v3_value "$(printf '%65s' '' | tr ' ' a)"
+# The 64-character bound is inclusive.
+write_bundle_v3 "$marked/fixture" Ready "$(printf '%64s' '' | tr ' ' a)"
+run_v 0 "$marked/fixture"
+has "0 error(s), 0 warning(s)"
+
+# 37e. A field under a root with no valid marker warns at every status: the
+# alias cannot resolve there (REQ-F1.2), but the bundle is not malformed.
+for st in Draft Ready Retired; do
+  write_bundle_v3 "$bare/fixture" "$st" alpha
+  run_v 0 "$bare/fixture"
+  has "WARN"
+  has "no valid planwright-spec-root.yml marker"
+  lacks "ERROR"
+done
+# An invalid marker is no marker.
+printf 'project: Bad_Name\nlayout: 1\n' >"$bare/planwright-spec-root.yml"
+write_bundle_v3 "$bare/fixture" Ready alpha
+run_v 0 "$bare/fixture"
+has "no valid planwright-spec-root.yml marker"
+rm "$bare/planwright-spec-root.yml"
+
+# 37f. An escape-byte alias is rejected with its echo sanitized (REQ-C1.9).
+esc=$(printf '\033')
+write_bundle_v3 "$marked/fixture" Ready "al${esc}[31mpha"
+run_v 1 "$marked/fixture"
+has "not a single alias"
+has "al[31mpha"
+lacks "$esc"
+write_bundle_v3 "$bare/fixture" Draft "al${esc}[31mpha"
+run_v 0 "$bare/fixture"
+lacks "$esc"
+
+# 37g. A fenced example of the field is illustration, not a field.
+write_bundle_v2 "$marked/fixture" Ready
+printf '\n```markdown\n### Task 9 — Example\n\n- **Repository:** Not/An-Alias\n```\n' \
+  >>"$marked/fixture/tasks.md"
+run_v 0 "$marked/fixture"
+has "0 error(s), 0 warning(s)"
+
+# 37h. Version 3 takes every version 2 rule: a placement section still fails.
+write_bundle_v3 "$marked/fixture" Ready alpha
+printf '\n## In progress\n\n(none yet)\n' >>"$marked/fixture/tasks.md"
+run_v 1 "$marked/fixture"
+has "placement section \"## In progress\""
+write_bundle_v3 "$marked/fixture" Ready
+edit "$marked/fixture/requirements.md" 's/^\*\*Status:\*\* Ready$/**Status:** Active/'
+run_v 1 "$marked/fixture"
+has "stored status Active is derived"
+
+# 37i. A version this validator does not define stays fail-closed.
+write_bundle_v3 "$marked/fixture" Draft alpha
+for bf in requirements design tasks test-spec; do
+  edit "$marked/fixture/$bf.md" 's/^\*\*Format-version:\*\* 3$/**Format-version:** 4/'
+done
+run_v 1 "$marked/fixture"
+has "unsupported format-version: 4"
 
 # --- usage errors ---
 run_v 2

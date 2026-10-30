@@ -24,6 +24,8 @@
 #                               the kickoff brief's most recent anchor entry,
 #                               shared by the standing freshness guard and the
 #                               meta step's dispatch gate
+#   spec_parse_format_arm       the declared Format-version to rule-arm map
+#                               every version-keyed script selects through
 #   spec_parse_printable        the stderr path sanitizer the lib's own
 #                               diagnostics use, exported so a caller adding
 #                               context to a refusal reuses this byte range
@@ -128,6 +130,20 @@ spec_parse_printable() {
   spec_parse__p=$(printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177\200-\237')
   [ -n "$spec_parse__p" ] || spec_parse__p='(unprintable path)'
   printf '%s' "$spec_parse__p"
+}
+
+# spec_parse_format_arm <declared-version> — print the rule arm a declared
+# `Format-version:` selects: 1 for version 1, 2 for versions 2 and 3 (version
+# 3 is version 2 plus the per-task `Repository:` field, doctrine/spec-format.md
+# *Format-version 3*). Any other value, the empty string included, prints
+# nothing and returns 1: a version this lib does not define stays fail-closed,
+# so a consumer keys on the arm and never on the declared value itself.
+spec_parse_format_arm() {
+  case $1 in
+    1) printf '1\n' ;;
+    2 | 3) printf '2\n' ;;
+    *) return 1 ;;
+  esac
 }
 
 # spec_parse__readable <path> — internal: refuse a missing, unreadable, or
@@ -259,8 +275,8 @@ spec_parse_fence_balance() {
 # definition-content extraction (doctrine/spec-format.md). Emits, for each
 # task block sorted numerically by task id (component-wise: 2 < 2.5 < 10):
 # the heading line and the five definition field bullets — Deliverables,
-# Done when, Dependencies, Citations, Estimated effort — with their indented
-# continuation lines, each line terminated by a newline, byte-for-byte as in
+# Done when, Dependencies, Citations, Estimated effort — plus the version 3
+# Repository field bullet, with their indented continuation lines, each line terminated by a newline, byte-for-byte as in
 # the source. Everything else (section headings, intro prose, state
 # annotations, Deferred / Out-of-scope bullets, non-task H3 content) is
 # excluded.
@@ -327,7 +343,9 @@ spec_parse_extract_tasks() {
     }
     /^### / { in_task = 0; keep = 0; next }   # non-task H3 ends the block too
     !in_task { next }
-    /^- \*\*(Deliverables|Done when|Dependencies|Citations|Estimated effort):\*\*/ {
+    # Repository is kept at every format version, never keyed: a field
+    # outside version 3 is the validator error, not an extraction carve-out.
+    /^- \*\*(Deliverables|Done when|Dependencies|Citations|Repository|Estimated effort):\*\*/ {
       keep = 1
       buf[cur] = buf[cur] $0 "\n"
       next

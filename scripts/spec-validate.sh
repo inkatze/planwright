@@ -73,6 +73,18 @@
 #       only; any other column-0 bullet there is flagged (format-grammar
 #       REQ-D1.1). Deferred and Out of scope keep tolerating plain bullets.
 #
+# Format-version 3 (per-task repositories; invariant-tasks REQ-F1.1,
+# REQ-F1.2, REQ-F1.7 · D-13, D-14) takes every version 2 rule, plus:
+#
+#   22. A task block's `Repository:` field is a single alias in the
+#       identifier grammar on its field line, at most one per block, and
+#       present only under a version 3 declaration (a field in a version 1
+#       or 2 bundle is a finding at that version's severities, never
+#       ignored). An off-grammar value is echoed sanitized.
+#   23. A version 3 field under a spec root with no valid
+#       `planwright-spec-root.yml` marker warns at every status: the
+#       work-repository registry serves marked roots only.
+#
 # Version keying is fail-closed (REQ-C1.8): a missing or unparseable
 # `Format-version:` is an error at every status — the rules to apply cannot
 # be known without a parsed version — and neither version's extra rules are
@@ -541,8 +553,14 @@ parse_design() {
 # The heading and definition-field grammars are the shared lib's (Task 8;
 # REQ-B1.5), so "which five bullets are a task definition" has one answer here,
 # in the canonical extraction, and in the bundle reader.
+#
+# The format-version 3 `Repository:` field rules ride the same pass, keyed on
+# the declared version in $2 (empty when keying failed, which skips only the
+# version-presence rule). An off-grammar value is untrusted content, so it
+# leaves as an `RV <tab> task <tab> value` record for the caller to sanitize;
+# every field also emits `RF <tab> task` for the marker check.
 parse_tasks() {
-  awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
+  awk -v fv="$2" "$spec_parse_awk_fence$spec_parse_awk_grammar"'
     function flush() {
       if (cur == "") return
       if (!fdel) printf "F\tgap\tTask %s missing field: Deliverables\n", cur
@@ -604,10 +622,29 @@ parse_tasks() {
       seen[id] = 1
       cur = id
       fdel = fdw = fdep = fcit = feff = 0
+      nrepo = inrepo = wrapped = 0
       next
     }
     /^### / { flush(); next }
     cur == "" { next }
+    !/^[ \t]+[^ \t]/ { inrepo = 0 }
+    inrepo {
+      if (!wrapped) printf "F\tgap\tTask %s Repository: value continues past its field line (a task names exactly one repository, as a single alias on that line)\n", cur
+      wrapped = 1
+      next
+    }
+    /^- \*\*Repository:\*\*/ {
+      inrepo = 1
+      if (++nrepo == 2) printf "F\tgap\tTask %s carries more than one Repository: field (a task names exactly one repository)\n", cur
+      if (fv != "" && fv != "3") printf "F\tgap\tTask %s carries a Repository: field, which requires format-version 3 (this bundle declares %s)\n", cur, fv
+      rv = $0
+      sub(/^- \*\*Repository:\*\*/, "", rv)
+      sub(/^[ \t]+/, "", rv)
+      sub(/[ \t\r]+$/, "", rv)
+      if (rv !~ /^[a-z0-9][a-z0-9-]*$/ || length(rv) > 64) printf "RV\t%s\t%s\n", cur, rv
+      printf "RF\t%s\n", cur
+      next
+    }
     {
       fld = spec_parse_task_field($0)
       if (fld == "deliverables") fdel = 1
@@ -1348,8 +1385,8 @@ validate_bundle() {
   # agreeing sibling mirrors; a sibling conflict already carries its own
   # hard finding and skips keying entirely.
   [ -n "$fver_conflict" ] || case $fver in
-    1 | 2)
-      bundle_ver=$fver
+    1 | 2 | 3)
+      bundle_ver=$(spec_parse_format_arm "$fver")
       ;;
     '')
       printf 'hard\tmissing or empty Format-version: declaration (fail-closed: validation rules cannot be selected without a declared version)\n' >>"$fnd"
@@ -1359,7 +1396,7 @@ validate_bundle() {
         "$(sanitize_printable "$fver" "(unprintable)")" >>"$fnd"
       ;;
     *)
-      printf 'hard\tunsupported format-version: %s (this validator implements format-versions 1 and 2)\n' \
+      printf 'hard\tunsupported format-version: %s (this validator implements format-versions 1, 2, and 3)\n' \
         "$(sanitize_printable "$fver" "(unprintable)")" >>"$fnd"
       ;;
   esac
@@ -1424,9 +1461,23 @@ validate_bundle() {
   fi
 
   if [ -f "$bdir/tasks.md" ]; then
-    parse_tasks "$bdir/tasks.md" >"$gtmp/tagged"
+    tfv=
+    [ -z "$bundle_ver" ] || tfv=$fver
+    parse_tasks "$bdir/tasks.md" "$tfv" >"$gtmp/tagged"
     awk -F'\t' '$1 == "F" { print $2 "\t" $3 }' "$gtmp/tagged" >>"$fnd"
     all_t_ids=$(awk -F'\t' '$1 == "ALLT" { print $2 }' "$gtmp/tagged")
+    while IFS="$tab" read -r rtag rid rval; do
+      [ "$rtag" = "RV" ] || continue
+      printf 'gap\tTask %s Repository: value is not a single alias in the identifier grammar (^[a-z0-9][a-z0-9-]*$, at most 64 characters; never a path, URL, owner/name pair, or list): %s\n' \
+        "$rid" "$(sanitize_printable "$rval" "(empty or unprintable)")" >>"$fnd"
+    done <"$gtmp/tagged"
+    # The registry serves only a marker-bearing spec root (REQ-F1.2), so a
+    # version 3 field under any other root can never resolve. A warning at
+    # every status: the bundle is well formed, only unresolvable here.
+    if [ "$tfv" = 3 ] && grep -q '^RF' "$gtmp/tagged" \
+      && ! /bin/sh "$script_dir/resolve-root.sh" marker "$bdir/.." >/dev/null 2>&1; then
+      printf 'soft\ta Repository: field sits under a spec root with no valid planwright-spec-root.yml marker, so its alias cannot resolve (the work-repository registry serves marked roots only)\n' >>"$fnd"
+    fi
 
     # v2 invariant-ledger rules (REQ-C1.5): the shared task-structure
     # checks above still apply; these are the additional v2-only bans. A
