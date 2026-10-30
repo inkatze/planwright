@@ -376,6 +376,26 @@ run settle --now 41005 >/dev/null || fail "the pass over the changed options"
 [ "$(fld "$so" 2)" = question ] && [ "$(fld "$so" 31)" = 1 ] || fail "a default applied over options naming a reserved control: $(rec "$so")"
 echo "ok: the settling pass parks a stored default whose options name a reserved control"
 
+# --- a row re-asked after the pass judged it and before the lock waits a pass ----------
+
+attention_row w-tr spec/t12 awaiting-input 1000 normal 'Retry the job?' yes 'yes|no' fork iid-tr
+tr_q=$(run add --kind question --worker w-tr --origin w-tr --closes 'the operator answers' --options 'yes|no' --end yes --gate none --window 1s --now 42000) \
+  || fail "add the question re-asked mid-pass"
+# The ledger write runs between the judgment and the lock, so a helper that
+# re-asks the row there stands in for a writer racing the pass.
+race_helper="$tmp/racing-ledger.sh"
+cat >"$race_helper" <<STUB
+#!/bin/sh
+awk -F '\t' -v OFS='\t' '\$1 == "w-tr" { \$6 = "Rebase onto main and force-push?" } { print }' "$attn_store" >"$tmp/attn-race" && cat "$tmp/attn-race" >"$attn_store"
+printf '%s\t%s\n' "$content" race-ledger
+STUB
+chmod 0755 "$race_helper"
+PLANWRIGHT_ACTION_LEDGER="$race_helper" run settle --now 42005 >/dev/null || fail "the pass the row is re-asked in"
+[ "$(fld "$tr_q" 2)" = question ] || fail "a default applied to a row re-asked with a reserved control after it was judged: $(rec "$tr_q")"
+run settle --now 42010 >/dev/null || fail "the pass after the re-ask"
+[ "$(fld "$tr_q" 2)" = question ] && [ "$(fld "$tr_q" 31)" = 1 ] || fail "the next pass did not park the re-asked question: $(rec "$tr_q")"
+echo "ok: a row re-asked between the judgment and the lock is not defaulted, and the next pass parks it"
+
 # --- a new question on a row whose default awaits review is a new item -----------------
 
 attention_row w-nq spec/t12 awaiting-input 1000 normal 'Which one first?' a 'a|b' fork iid-nq1

@@ -245,10 +245,14 @@ mkdir -p "$home/streamjson/mc-fixture-sj"
 printf '%s\n' "$$" >"$home/streamjson/mc-fixture-sj/supervisor.pid"
 printf '%s\n' "$$" >"$home/streamjson/mc-fixture-sj/worker.pid"
 # shellcheck disable=SC2086
-d3=$(decide "$MC" 'rotated the sweep log' $ok_flags) || fail "the add from a running stream-json row was refused"
+d3=$(decide "$MC" 'rotated the sweep log' --topic 'the sweep log' $ok_flags) || fail "the add from a running stream-json row was refused"
+run show "$d3" | grep -q "^topic${TAB}the sweep log$" || fail "show does not render the topic"
+grep -q "\"kind\":\"born\".*\"item\":\"$d3\".*\"topic\":\"the sweep log\"" "$log_file" || fail "the birth was not logged with its topic"
+# shellcheck disable=SC2086
+refused "a topic over its length bound" 'refusing --topic' decide "$MC" 'rotated another log' --topic "$(printf 'x%.0s' $(seq 1 201))" $ok_flags
 run revoke "$d3" --tower t1 --now 1102 >/dev/null || fail "revoke d3"
 cp "$FIX/registry-mission-control.row" "$reg/$MC"
-echo "ok: a stream-json row is refused until its supervisor reports it running"
+echo "ok: a stream-json row is refused until its supervisor reports it running, and a topic is kept, logged and shown"
 
 # --- the launcher registry accepts the mission-control kind ------------------------------
 

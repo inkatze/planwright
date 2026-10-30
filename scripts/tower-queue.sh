@@ -3089,10 +3089,15 @@ function merge_key(n,   w, s) {
   return "q\002" norm(fsrep(fsrep(at_q[w], F[n, 4]), at_scope[w])) "\003" norm(fsrep(fsrep(at_opts[w], F[n, 4]), at_scope[w])) "\004" F[n, 27] "\004" F[n, 28] "\004" F[n, 29]
 }
 # The questions whose settled-by-default content the shell wrote to the
-# ledger before the lock: only those may be re-kinded (REQ-A1.10).
-function load_reviews(file,   l, rc) {
+# ledger before the lock: only those may be re-kinded (REQ-A1.10). Each line
+# also carries the options and the row question the shell judged, since
+# that judgment ran before the lock.
+function load_reviews(file,   l, rc, p) {
   if (file == "") return
-  while ((rc = (getline l < file)) > 0) review_ready[l] = 1
+  while ((rc = (getline l < file)) > 0) {
+    split(l, p, "\t")
+    review_ready[p[1]] = 1; review_opts[p[1]] = p[2]; review_q[p[1]] = p[3]
+  }
   close(file)
   if (rc < 0) fail("cannot read the review-content table")
 }
@@ -3108,6 +3113,15 @@ function load_parks(file,   l, rc) {
   close(file)
   if (rc < 0) fail("cannot read the table of windows to park")
 }
+# still_judged(n): the options and the row question are what window_prepare
+# found free of a reserved control; a change since then waits for the next
+# pass to judge it.
+function still_judged(n,   w) {
+  if (!(F[n, 1] in review_ready) || F[n, 27] != review_opts[F[n, 1]]) return 0
+  if (F[n, 6] != "attention") return 1
+  w = F[n, 7]
+  return (((w in at_q) && at_q[w] != "") ? at_q[w] : "-") == review_q[F[n, 1]]
+}
 function window_pass(   n, w, perm, rsv) {
   for (n = 1; n <= N; n++) {
     if (!OK[n] || F[n, 12] != "open" || F[n, 2] != "question") continue
@@ -3115,7 +3129,7 @@ function window_pass(   n, w, perm, rsv) {
     w = F[n, 7]
     perm = (F[n, 6] == "attention" && (w in at_f9) && at_f9[w] == "permission")
     rsv = (F[n, 1] in park_now)
-    if (F[n, 28] != "park" && F[n, 30] == "none" && !perm && !rsv && (F[n, 1] in review_ready)) {
+    if (F[n, 28] != "park" && F[n, 30] == "none" && !perm && !rsv && still_judged(n)) {
       F[n, 2] = "settled-by-default"; F[n, 17] = ceil(F[n, 29] + 0)
       F[n, 18] = "the window ended on its default: " F[n, 28] " (window end " F[n, 29] ")"
       F[n, 34] = SBD_REV; F[n, 22] = !anyone_present()
@@ -4185,6 +4199,7 @@ window_prepare() {
   }
   _wk=0
   while IFS="$TAB" read -r _wi _we _wt _wg _ws _wh _wp _wo; do
+    _wq=-
     is_item_id "$_wi" || continue
     [ "$_we" != park ] && [ "$_wg" = none ] || continue
     if options_reserved "$_wo"; then
@@ -4206,6 +4221,7 @@ window_prepare() {
       [ "$p_f9" != permission ] && [ -z "$p_claim" ] || continue
       # Re-read now, not at add: a row re-asked in place may have turned
       # into a reserved control since. The pass parks it.
+      _aq=""
       if attn_question_reserved "$_wp"; then
         printf '%s\n' "$_wi" >>"$PARK_FILE" || {
           err "cannot record a window to park"
@@ -4213,6 +4229,7 @@ window_prepare() {
         }
         continue
       fi
+      _wq=${_aq:--}
     fi
     if [ "$_wk" = 0 ]; then
       resolve_queue_knobs
@@ -4237,7 +4254,7 @@ window_prepare() {
       err "the review content for $_wi could not be written; it stays a question until a pass can write it"
       continue
     fi
-    printf '%s\n' "$_wi" >>"$REVIEW_FILE" || {
+    printf '%s\t%s\t%s\n' "$_wi" "$_wo" "$_wq" >>"$REVIEW_FILE" || {
       err "cannot record the review content written"
       exit 6
     }
