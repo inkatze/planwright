@@ -1,81 +1,26 @@
 #!/bin/sh
 # inception-gate.sh — the mechanical half of the /inception gate move and of
 # graduation (inception REQ-E1.1–E1.6, REQ-F1.1–F1.3, REQ-J1.5, REQ-J1.6 ·
-# D-14, D-15).
-#
-#   evaluate [--track <label>] <venture>
-#                         the minimum-core evaluation, the completeness check,
-#                         and the kill-criteria states, plus the record lines a
-#                         gate run would write
-#   record --outcome <Graduate|Hold|Recycle|Kill> --decider <name>
-#          --rationale <text> [--tracks <label>=<outcome>,...] <venture>
-#                         write the gate record, the status it implies, track
-#                         annotations, and the changelog entries
-#   seed --dest <spec-root> [--track <label>] <venture>
-#                         package a graduated scope as a /spec-draft seed under
-#                         <spec-root>/_pending/ and record its lineage;
-#                         <spec-root> is the destination repository's
-#                         resolved spec root (scripts/resolve-root.sh)
-#   link --spec <spec-dir> [--track <label>] <venture>
-#                         name the spec a seed spawned, once that spec cites
-#                         the venture back
-#   lineage [--spec <spec-dir>]... <venture>
-#                         check both lineage directions for every graduated
-#                         scope
-#   archive --note <text> [--abandon] <venture>
-#                         the post-mortem of a killed venture, or the
-#                         operator's abandonment of a live one; refreshes the
-#                         registry row and drops the post-mortem as an
-#                         observation
+# D-14, D-15). usage() below lists each subcommand, its output lines and the
+# gap kinds; doctrine/inception-format.md owns gate records, scopes, lineage
+# keys and the location forms written to the bundle.
 #
 # The outcome is always the caller's: nothing here picks one, a tripped kill
 # criterion only prints a `prompt` line, and Graduate is refused while the
 # evaluation names a gap. Nothing here invokes /spec-draft or any other skill,
-# commits, or pushes: the skill saves through inception-venture.sh save, and
-# the human takes the seed to /spec-draft (REQ-J1.6).
-#
-# <venture> is a directory (any argument holding a `/`, or `.`) or a venture
-# identifier under ventures_root. A scope is `venture` in an untracked venture
-# and a track label in a tracked one; its lineage key, which the spawned spec
-# cites in its Sources, is `inception:<id>` or `inception:<id>/<label>`.
-# Locations recorded in the bundle are relative to the venture when inside it
-# and `<repo>:<path>` otherwise (<repo> being the destination repository's
-# directory name), never a machine path.
-#
-# Output lines (key<TAB>fields):
-#   status <status> · scope venture|track <label> · decider <name>
-#   next-gate <n> · core met|unmet · gap <kind> [<id>|<count> [<detail>]]
-#   fork <DEC-n> open <door> · complete yes|no · unmapped <A-n>
-#   orphan <T-n> · kill <KC-n> <date> clear|approaching|tripped
-#   prompt kill-or-rescope <KC-n> · admissible <outcome> yes|no
-#   evidence|thresholds|kill-criteria <record line>
-#   track <label> live|done                                      evaluate
-#   recorded <n> <outcome> · status <old> <new> · track <label> graduated|ended
-#                                                                record
-#   seed <path> · lineage <scope> pending · cite <Sources entry>  seed
-#   lineage <scope> pending|linked|unchecked|spec-missing|spec-side-missing|
-#     venture-side-missing|refused (an in-venture location that is absolute,
-#     climbs with `..`, or resolves outside the venture)         lineage, link
-#   archived <status> · registry refreshed · observation dropped
-#   degraded <why>                                               archive
-# Gap kinds: elicitation-pending, bundle-findings, metric-missing,
-#   kill-criteria-missing, blocking-unresolved, blocking-invalidated,
-#   synthetic-desirability, fork-open-one-way. Bundle text loses tabs and its
-#   C0 and encoded C1 controls before it is printed or written to a seed.
+# commits, or pushes (REQ-J1.6).
 #
 # Every write stages the five files, applies the change, validates the staged
 # bundle, and moves only the changed files in, under the venture's bundle
 # lock; a change that would add a validator finding writes nothing. A gate
 # record also needs the bundle clean beforehand.
 #
-# Exit: 0 success · 1 refused (an inadmissible outcome, a decider who is not
-#   the gate decider, an uncovered or unknown track, a closed venture, a scope
-#   not graduated or already seeded, a refused path, a lineage finding, a
-#   validator finding the change would add) · 2 usage or environment error ·
-#   3 the validator refuses to read the bundle (passed through).
+# Exit: 0 success · 1 refused (an inadmissible outcome or decider, an
+#   uncovered or unknown track, a closed venture, a scope not graduated or
+#   already seeded, a refused path, a lineage or added validator finding) ·
+#   2 usage or environment error · 3 the validator refuses the bundle.
 #
 # Environment: PLANWRIGHT_INCEPTION_TODAY (YYYY-MM-DD) pins today's date.
-#
 # Portable POSIX sh + awk; bash 3.2 / BSD tooling floor (REQ-K1.5).
 set -u
 
@@ -117,6 +62,45 @@ usage: inception-gate.sh evaluate [--track <label>] <venture>
        inception-gate.sh link --spec <spec-dir> [--track <label>] <venture>
        inception-gate.sh lineage [--spec <spec-dir>]... <venture>
        inception-gate.sh archive --note <text> [--abandon] <venture>
+
+  evaluate  the minimum-core evaluation, the completeness check, the
+            kill-criteria states, and the record lines a gate run would write
+  record    write the gate record, the status it implies, track annotations,
+            and the changelog entries
+  seed      package a graduated scope as a /spec-draft seed under
+            <spec-root>/_pending/ and record its lineage; <spec-root> is the
+            destination repository's resolved spec root (resolve-root.sh)
+  link      name the spec a seed spawned, once that spec cites the venture
+  lineage   check both lineage directions for every graduated scope
+  archive   the post-mortem of a killed venture, or the abandonment of a live
+            one; refreshes the registry row, drops the post-mortem as an
+            observation
+
+<venture> is a directory (an argument holding a `/`, or `.`) or a venture
+identifier under ventures_root.
+
+Output lines (key<TAB>fields):
+  evaluate  status <status> · scope venture|track <label> · decider <name>
+            next-gate <n> · core met|unmet · gap <kind> [<id>|<count> [<detail>]]
+            fork <DEC-n> open <door> · complete yes|no · unmapped <A-n>
+            orphan <T-n> · kill <KC-n> <date> clear|approaching|tripped
+            prompt kill-or-rescope <KC-n> · admissible <outcome> yes|no
+            evidence|thresholds|kill-criteria <record line>
+            track <label> live|done
+  record    recorded <n> <outcome> · status <old> <new>
+            track <label> graduated|ended
+  seed      seed <path> · lineage <scope> pending · cite <Sources entry>
+  lineage, link
+            lineage <scope> pending|linked|unchecked|spec-missing|
+              spec-side-missing|venture-side-missing|refused (an in-venture
+              location that is absolute, climbs with `..`, or resolves
+              outside the venture)
+  archive   archived <status> · registry refreshed · observation dropped
+            degraded <why>
+Gap kinds: elicitation-pending, bundle-findings, metric-missing,
+  kill-criteria-missing, blocking-unresolved, blocking-invalidated,
+  synthetic-desirability, fork-open-one-way. Bundle text loses tabs and its
+  C0 and encoded C1 controls before it is printed or written to a seed.
 EOF
   exit 2
 }
@@ -691,7 +675,10 @@ in_venture() {
   esac
   if _iv=$(cd -P "$vdir/$1" 2>/dev/null && pwd -P); then
     case $_iv in
-      "$vdir" | "$vdir"/*) printf '%s\n' "$_iv"; return 0 ;;
+      "$vdir" | "$vdir"/*)
+        printf '%s\n' "$_iv"
+        return 0
+        ;;
     esac
     return 2
   fi
