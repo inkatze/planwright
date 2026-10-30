@@ -1,11 +1,11 @@
 #!/bin/sh
 # tower-queue.sh — the operator queue's script (tower-comms). Three parts:
 # the event log (`log`), the scorecard computed from it alone (`report`), and
-# the queue store with its verbs (`add`, `list`, `knock`, `next`, `ack`,
-# `shelve`, `settle`, `catchup`, `counts`) — D-2 to D-9, D-14, D-17 to D-19;
-# REQ-A1.1 to REQ-A1.9, REQ-B1.1 to REQ-B1.5, REQ-C1.1, REQ-C1.2, REQ-C1.5,
-# REQ-C1.6, REQ-C1.7, REQ-C1.9, REQ-C1.10, REQ-C1.11, REQ-F1.1 to REQ-F1.4,
-# REQ-F1.6, REQ-G1.1 to REQ-G1.8, REQ-H1.2.
+# the queue store with its verbs (`add`, `list`, `knock`, `next`, `presence`,
+# `ack`, `shelve`, `settle`, `catchup`, `counts`) — D-2 to D-9, D-14, D-17 to
+# D-19, D-23; REQ-A1.1 to REQ-A1.9, REQ-B1.1 to REQ-B1.5, REQ-C1.1, REQ-C1.2,
+# REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-C1.9, REQ-C1.10, REQ-C1.11, REQ-F1.1 to
+# REQ-F1.4, REQ-F1.6, REQ-F1.7, REQ-F1.9, REQ-G1.1 to REQ-G1.9, REQ-H1.2.
 #
 # THE STORE. `<home>/tower-comms/queue`, one tab-separated record per item,
 # the index and delivery state only: the content lives where its kind already
@@ -215,11 +215,13 @@
 #
 # one tab-separated line: the producer, the write time, and the last prompt
 # event's epoch or `away`. An unknown producer, a control byte, an unknown
-# flag, both or neither of the last two, and a prompt event later than the
-# write are refused (exit 2); a loosened directory or a redirected marker is
-# exit 4. It prints `presence`, the tower and the write time, then runs the
-# settling pass in the same call and prints what that pass prints, so the
-# event that moved presence settles what it can without waiting for a tick.
+# flag, both or neither of `--last-prompt` and `--away`, and a prompt event
+# later than the write are refused (exit 2); a loosened directory or a
+# redirected marker is exit 4. It prints `presence`, the tower and the write
+# time, then runs the settling pass in the same call and prints what that pass
+# prints, so the event that moved presence settles what it can without waiting
+# for a tick. A non-zero exit after that first line is the settling pass's,
+# with the marker already written.
 #
 # The read: while the marker was written within `tower_presence_ttl` (fresh),
 # the operator is present when its last prompt event falls within
@@ -2814,9 +2816,10 @@ read_presence() {
 # every lease owner in the snapshot, one line each: tower, last reply, last
 # knock, the item it named, last hand-over, the item it handed, then the
 # presence marker's write time and last prompt (read_presence). The caller's
-# own files are verified strictly; a peer's file that refuses verification
-# leaves that peer out with a warning, so one tower's widened marker cannot
-# stop every other tower's verbs.
+# own files are verified strictly, except the presence marker, which reads as
+# the quiet-interval fallback when it refuses verification (REQ-F1.7); a
+# peer's file that refuses verification leaves that peer out with a warning,
+# so one tower's widened marker cannot stop every other tower's verbs.
 build_towers_file() {
   : >"$SCRATCH/names"
   [ -z "${tower:-}" ] || printf '%s\n' "$tower" >>"$SCRATCH/names"
