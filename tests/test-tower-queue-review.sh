@@ -237,6 +237,19 @@ run catchup | grep -q "^settled${TAB}$d2${TAB}" && fail "the catch-up of what se
 run show "$d2" | grep -q "^reason${TAB}revoked by the operator (reversal: undo:u-20)${TAB}1101$" || fail "show does not date the revocation"
 echo "ok: a revoked decision leaves the open set by that revocation, logged with its reversal pointer"
 
+# A stream-json row is live only while its supervisor reports it running.
+awk -F '\t' -v OFS='\t' '$1 == "backend" { $2 = "stream-json" } $1 == "handle" { $2 = "mc-fixture-sj" } { print }' "$FIX/registry-mission-control.row" >"$reg/$MC"
+# shellcheck disable=SC2086
+refused "a stream-json row with no runtime" 'is not running' decide "$MC" 'rotated the sweep log' $ok_flags
+mkdir -p "$home/streamjson/mc-fixture-sj"
+printf '%s\n' "$$" >"$home/streamjson/mc-fixture-sj/supervisor.pid"
+printf '%s\n' "$$" >"$home/streamjson/mc-fixture-sj/worker.pid"
+# shellcheck disable=SC2086
+d3=$(decide "$MC" 'rotated the sweep log' $ok_flags) || fail "the add from a running stream-json row was refused"
+run revoke "$d3" --tower t1 --now 1102 >/dev/null || fail "revoke d3"
+cp "$FIX/registry-mission-control.row" "$reg/$MC"
+echo "ok: a stream-json row is refused until its supervisor reports it running"
+
 # --- the launcher registry accepts the mission-control kind ------------------------------
 
 [ -f "$MCL" ] || fail "scripts/mission-control-launch.sh is missing, so its accepted kinds go unchecked"

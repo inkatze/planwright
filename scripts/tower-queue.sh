@@ -1940,6 +1940,10 @@ REVIEW_CLOSES="the operator reviews or revokes it"
 # The reversal a settled-by-default item carries: revoking it reopens the
 # question, so that is the one step that undoes it.
 SBD_REVERSAL=reopen
+# Every record width the store has held, for the lock-free readers that see a
+# store not yet normalized: a reader missing the current width skips every
+# current record.
+REC_WIDTHS='(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34)'
 # The most closed (acknowledged or settled) records a write keeps: the
 # catch-up knob is a small window, and the retention pass sorts what it
 # keeps, so a runaway value would put that sort inside the fleet lock on
@@ -2870,7 +2874,7 @@ write_delivery() { # write_delivery <tower> <kt> <kitem> <dt> <ditem>
 build_towers_file() {
   : >"$SCRATCH/names"
   [ -z "${tower:-}" ] || printf '%s\n' "$tower" >>"$SCRATCH/names"
-  [ ! -s "$SCRATCH/snap" ] || awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && $19 != "-" { print $19 }' "$SCRATCH/snap" >>"$SCRATCH/names"
+  [ ! -s "$SCRATCH/snap" ] || awk -F '\t' "$REC_WIDTHS"' && $19 != "-" { print $19 }' "$SCRATCH/snap" >>"$SCRATCH/names"
   # The settling pass runs under no tower of its own and still has to know
   # whether the operator is present anywhere before it records an item as
   # settled while they were away (REQ-B1.4), so it sweeps every conversation
@@ -4137,7 +4141,7 @@ ev_prepare() {
   # The store is read lock-free here, the same way `list` and `counts` read it;
   # what the pass then acts on is re-read under the lock.
   if [ -f "$store_file" ]; then
-    awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && $12 == "open" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "/" $7 }' "$store_file" 2>/dev/null \
+    awk -F '\t' "$REC_WIDTHS"' && $12 == "open" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "/" $7 }' "$store_file" 2>/dev/null \
       | while IFS="$TAB" read -r _gi _gp; do
         is_item_id "$_gi" || continue
         [ -f "$_gp" ] || printf 'settles\titem:%s\tits content home has gone\n' "$_gi"
@@ -4450,12 +4454,12 @@ rule_prepare() {
   rule_debt_replay
   [ -f "$store_file" ] || return 0
   [ -f "$attn_store" ] || return 0
-  _rules=$(awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && $12 == "open" && $2 == "standing" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "\t" $7 "\t" $8 }' "$store_file" 2>/dev/null) || {
+  _rules=$(awk -F '\t' "$REC_WIDTHS"' && $12 == "open" && $2 == "standing" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "\t" $7 "\t" $8 }' "$store_file" 2>/dev/null) || {
     err "cannot read the queue store for its standing decisions"
     exit 6
   }
   [ -n "$_rules" ] || return 0
-  _cands=$(awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && $12 == "open" && $2 != "standing" && $6 == "attention" { print $1 "\t" $7 }' "$store_file" 2>/dev/null) || {
+  _cands=$(awk -F '\t' "$REC_WIDTHS"' && $12 == "open" && $2 != "standing" && $6 == "attention" { print $1 "\t" $7 }' "$store_file" 2>/dev/null) || {
     err "cannot read the queue store for its open items"
     exit 6
   }
@@ -4576,7 +4580,7 @@ surface_rules() {
   # `-` where a field is absent: a pre-subject 20-field record has no field 21,
   # and TAB is IFS whitespace, so an empty leading field would COLLAPSE in the
   # read below and shift every field one place left.
-  _si=$(awk -F '\t' -v i="$1" '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && ($1 "") == (i "") { print ((NF >= 21 && $21 != "") ? $21 : "-") "\t" $6 "\t" $7; exit }' "$store_file" 2>/dev/null) || return 0
+  _si=$(awk -F '\t' -v i="$1" "$REC_WIDTHS"' && ($1 "") == (i "") { print ((NF >= 21 && $21 != "") ? $21 : "-") "\t" $6 "\t" $7; exit }' "$store_file" 2>/dev/null) || return 0
   [ -n "$_si" ] || return 0
   IFS="$TAB" read -r _ssub _shome _sptr <<EOF
 $_si
@@ -4591,7 +4595,7 @@ EOF
     fi
   fi
   [ "$_ssub" != "-" ] || return 0
-  _sr=$(awk -F '\t' -v s="$_ssub" '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && $12 == "open" && $2 == "standing" && $6 == "path" && $9 != "-" && ($21 "") == (s "") { print $1 "\t" $9 "\t" $7 "\t" $8 }' "$store_file" 2>/dev/null) || return 0
+  _sr=$(awk -F '\t' -v s="$_ssub" "$REC_WIDTHS"' && $12 == "open" && $2 == "standing" && $6 == "path" && $9 != "-" && ($21 "") == (s "") { print $1 "\t" $9 "\t" $7 "\t" $8 }' "$store_file" 2>/dev/null) || return 0
   while IFS="$TAB" read -r _ri _rr _rp _rk; do
     is_item_id "$_ri" || continue
     ledger_readable "$_rr" "$_rp" || continue
@@ -6202,7 +6206,7 @@ cmd_match() {
   # answer channel's whole second opinion rests on this resolution.
   verify_read_surface
   [ -f "$store_file" ] || refuse "no queue store, so no standing decision to resolve"
-  _md=$(awk -F '\t' -v d="$decision" '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26 || NF == 34) && ($1 "") == (d "") { print $2 "\t" $12 "\t" $6 "\t" $9 "\t" $7 "\t" $8; exit }' "$store_file" 2>/dev/null) || {
+  _md=$(awk -F '\t' -v d="$decision" "$REC_WIDTHS"' && ($1 "") == (d "") { print $2 "\t" $12 "\t" $6 "\t" $9 "\t" $7 "\t" $8; exit }' "$store_file" 2>/dev/null) || {
     err "cannot read the queue store"
     exit 6
   }
