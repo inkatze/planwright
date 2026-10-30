@@ -1,7 +1,7 @@
 # Tower comms — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-17
+**Last reviewed:** 2026-10-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -63,6 +63,12 @@ measured evidence (D-15, D-16).
   change that lets the tower skills cite it.
 - The tower sessions this governs: the single-spec `/orchestrate` tower, the
   meta-tower and `--fleet` loop, and the `/tower` front door once it ships.
+- The queue changes mission control depends on (added 2026-10-25): a
+  presence input a producer writes, with the quiet interval as its
+  fallback; picklist windows that end on a declared default or a park; two
+  reviewable item kinds, settled-by-default and decided-by-mission-control;
+  the rule that nothing leaves the queue except by an answer or by evidence,
+  with the reason recorded; and delivery batched by subject.
 
 ### Out of scope
 
@@ -90,6 +96,11 @@ measured evidence (D-15, D-16).
 - Any weakening of artifact completeness: the queue changes what a turn
   shows, never what the bundle, the PR body, or the audit record contains.
   Permanent.
+- The presence producer itself (the mission-control panel and its prompt
+  events), when mission control may decide on its own, and running the
+  reversal of a decision it took. Owned by mission-control; this spec only
+  reads the presence marker, records the decision as a reviewable item, and
+  carries the pointer to its reversal.
 
 ## REQ-A — The operator queue
 
@@ -103,8 +114,29 @@ measured evidence (D-15, D-16).
   item SHALL state what closes it. A standing decision SHALL be registered
   in the queue but SHALL never be delivered and never ranked for delivery,
   and what closes it SHALL be the operator's revocation of the rule.
+  **Superseded-by: REQ-A1.10** (2026-10-25) — two reviewable kinds join the
+  closed set.
   *(Cites: D-4; drafting-session decision (2026-09-08); kickoff sign-off
   lens (2026-09-09).)*
+- **REQ-A1.10** (supersedes REQ-A1.2) An item SHALL be one of seven kinds:
+  the five REQ-A1.2 names (news, question, approval, request, and standing
+  decision), each with the closing condition REQ-A1.2 gives it, plus
+  settled-by-default (a question whose picklist window ended on its declared
+  default, which was applied without the operator, REQ-A1.12) and
+  decided-by-mission-control (a decision a mission-control session took on
+  its own, recorded with its grounds, REQ-A1.14). Each item SHALL state what
+  closes it. The two new kinds SHALL be visible (listed, counted, and
+  delivered for review once the operator is present, never pushed while
+  away) and reversible (each carries what reverses it), and what closes
+  either SHALL be the operator's acknowledgement of the review or their
+  revocation (REQ-B1.8). Content for either reviewable kind SHALL live in
+  the action-item ledger or its pre-ship fallback, extending REQ-A1.3's
+  content-home mapping to these two kinds, and SHALL be written there before
+  the record is added or re-kinded. A standing decision SHALL be registered
+  in the queue but SHALL never be delivered and never ranked for delivery,
+  and what closes it SHALL be the operator's revocation of the rule.
+  *(Cites: D-20; mission-control D-7, D-22 (Sources); drafting-session
+  decision (2026-10-25); delta kickoff lens (2026-10-28).)*
 - **REQ-A1.3** An item's content SHALL live in the durable home its kind
   already has: a worker's question in the worker attention store and, when
   parked, the owning spec's Awaiting-input bullet; a request, an approval,
@@ -144,8 +176,24 @@ measured evidence (D-15, D-16).
   at once, and the catch-up reads the settled history from the event log),
   and any undelivered attention-sourced item whose source row has moved on
   is dropped. The event log still records each drop.
+  **Superseded-by: REQ-A1.13** (2026-10-25) — a moved-on source settles
+  with its reason instead of being dropped.
   *(Cites: D-3; storage-classes doctrine (Sources); kickoff §3 REQ-A
   (2026-09-09); kickoff sign-off lens (2026-09-09).)*
+- **REQ-A1.13** (supersedes REQ-A1.5) Losing the queue store SHALL cost at
+  most one redelivery per delivered-but-open item, and every other loss it
+  causes SHALL be stated rather than implied. A successor tower rebuilds the
+  queue from the content homes and the event log: shelve deadlines go with
+  the store (a shelved item returns at once); settling reasons and each
+  picklist's declaration are read back from the event log, and a picklist
+  whose declaring line has rotated out of the log is rebuilt as a plain
+  question with no window, so a loss never adds a default; the two
+  reviewable kinds are rebuilt from their content home still awaiting
+  review; and an attention-sourced item the log shows open but whose source
+  row has moved on SHALL be recorded as settled with that reason, never
+  dropped without a record.
+  *(Cites: D-3, D-22; storage-classes doctrine (Sources); mission-control
+  REQ-F1.5 (Sources).)*
 - **REQ-A1.6** Queue records SHALL be single-line, constrained-field records
   with a stable identifier, validated against a declared grammar before any
   write, and every rendered value SHALL pass the echo-safety sanitizer. A
@@ -181,6 +229,52 @@ measured evidence (D-15, D-16).
   reader can tell whose lease it is.
   *(Cites: D-18; kickoff §3 REQ-A (2026-09-09); kickoff sign-off lens
   (2026-09-09).)*
+- **REQ-A1.11** A question item MAY carry a picklist: a closed set of two or
+  more options, a window, and the window's end, which SHALL be either one of
+  those options (the declared default) or `park`. All three SHALL be
+  declared when the item is added, validated against the record grammar,
+  and SHALL NOT change afterwards except by the operator's answer. The
+  window SHALL default to the `tower_picklist_window` knob, MAY be set per
+  item, and SHALL run from the item's birth. A picklist with a declared
+  default SHALL carry an explicit gate field,
+  `gate=none|human-gate|disqualifier-zone`, declared by its adder, and `add`
+  SHALL refuse such a record without one. `add` SHALL refuse a declared
+  default, admitting only `park`, on an item that is a worker permission
+  prompt (it carries the REQ-E1.8 marker), whose options name a reserved
+  control (the REQ-E1.9 shapes), or whose gate is `human-gate` or
+  `disqualifier-zone`; a declared default SHALL apply only when the gate is
+  `none`, and never to a permission prompt or a reserved control.
+  Revocation (REQ-B1.8), or a rebuild that cannot read the declaration
+  (REQ-A1.13), SHALL remove the window. A picklist item SHALL merge only
+  with one carrying identical options, end, and window end.
+  *(Cites: D-21; mission-control REQ-F1.6, REQ-G1.2 (Sources);
+  drafting-session decision (2026-10-25); delta kickoff lens
+  (2026-10-28).)*
+- **REQ-A1.12** When a picklist's window has ended with no operator answer,
+  the settling pass SHALL apply its end. On a declared default the item
+  SHALL become settled-by-default, carrying the option applied and the
+  window's end time, and SHALL stay visible (REQ-A1.10). On `park` the item
+  SHALL stay an open question marked parked, the tower parking the unit it
+  blocks through the existing Awaiting-input route, and nothing SHALL be
+  answered. Neither end SHALL wait for the operator, and work the item does
+  not block SHALL continue meanwhile. Expiry SHALL be evaluated against the
+  window's end time on every pass, so a pass that runs late applies the end
+  with the window's end time recorded, never the pass time.
+  *(Cites: D-21; mission-control REQ-F1.6, REQ-M1.2 (Sources).)*
+- **REQ-A1.14** `add` SHALL accept a decided-by-mission-control item only
+  from a caller whose session kind, read from mission control's launcher
+  registry (mission-control Task 3) and never from a presence record, is the
+  `mission-control` session kind (mission-control D-1), which the registry
+  SHALL accept among its session kinds; only with a pointer to its grounds, a
+  reversal field (a one-step reversal, or `none` when no one-step reversal
+  exists), and the explicit gate field REQ-A1.11 defines, refusing a record
+  without it; and SHALL refuse one whose gate is not `none` or whose subject
+  is a worker permission prompt, a reserved control, a human gate, or a
+  hard-disqualifier zone. The item records a decision already taken; the
+  queue SHALL NOT be what grants it.
+  *(Cites: D-20; mission-control D-13, D-24, REQ-F1.8 (Sources);
+  drafting-session decision (2026-10-25); delta kickoff lens
+  (2026-10-28).)*
 
 ## REQ-B — Settling and merging
 
@@ -236,6 +330,36 @@ measured evidence (D-15, D-16).
   deciding it; an item is decided only when the operator's reply closes it
   or a written standing decision covers it.
   *(Cites: D-5, D-12; obs:4b14e93a.)*
+- **REQ-B1.6** An open item SHALL leave the open set only by an operator
+  answer, acknowledgement, or revocation (REQ-B1.8), by evidence that it no longer applies (REQ-B1.2,
+  absorption into a merge under REQ-B1.3 included), by a matching written
+  standing decision (REQ-E1.5), or by its picklist window's declared default
+  (REQ-A1.12), which leaves it visible rather than gone. No timeout, shelve,
+  lease expiry, rebuild, retention horizon, or unreachable source SHALL
+  remove an open item: an item whose evidence source cannot be reached SHALL
+  stay open, logged as unavailable, until evidence settles it. A reviewable
+  item (REQ-A1.10) not yet reviewed is not closed and SHALL NOT fall past the
+  retention horizon (REQ-A1.3).
+  *(Cites: D-22; mission-control REQ-F1.5 (Sources).)*
+- **REQ-B1.7** Every item that leaves the open set SHALL carry its settling
+  reason in its record and its log line: the answer; the evidence, named
+  with its source (a PR by number, a branch, a ledger item, a `claim`
+  close); the standing decision's identifier; the item a merge absorbed it
+  into; the vanished content home; the moved-on source row; the window's
+  default, with the option applied; or the review or revocation, with the
+  reversal pointer. `catchup`, and a `show` verb rendering one item, SHALL
+  display that reason with the item.
+  *(Cites: D-22; mission-control REQ-F1.5 (Sources); delta kickoff lens
+  (2026-10-28).)*
+- **REQ-B1.8** The operator SHALL be able to review or revoke a reviewable
+  item with a reply the tower records through `ack` (reviewed) or a `revoke`
+  verb. Revoking a settled-by-default item SHALL reopen it as the original
+  question with no window, so it never defaults twice; revoking a
+  decided-by-mission-control item SHALL close it as revoked. Every
+  revocation SHALL be logged with the item's reversal pointer, for the
+  session that owns the reversal to run; the script SHALL NOT run a
+  reversal itself.
+  *(Cites: D-20; mission-control D-13, D-24 (Sources).)*
 
 ## REQ-C — Attention and delivery
 
@@ -246,8 +370,20 @@ measured evidence (D-15, D-16).
   item it is delivered as. The bound is per tower conversation, so towers
   running at once each hold their own; the lease (REQ-A1.7) keeps them off
   the same item but does not make one conversation of two.
+  **Superseded-by: REQ-C1.12** (2026-10-25) — a subject batch becomes a
+  third shape of the one hand-over.
   *(Cites: D-6; autopilot-reflex doctrine (Sources); kickoff sign-off lens
   (2026-09-09).)*
+- **REQ-C1.12** (supersedes REQ-C1.1) The tower SHALL obtain the next
+  hand-over from the queue script, which SHALL return at most one hand-over
+  per call, so that what a turn carries is bounded by mechanism rather than
+  by instruction. A hand-over SHALL be one item, one paired contradiction
+  (REQ-B1.3), or one subject batch (REQ-C1.14), and each item inside it
+  SHALL still be answered, acknowledged, or revoked on its own. The bound is
+  per tower conversation, so towers running at once each hold their own;
+  the lease (REQ-A1.7) keeps them off the same item but does not make one
+  conversation of two.
+  *(Cites: D-24; mission-control REQ-F1.4 (Sources).)*
 - **REQ-C1.2** Delivery SHALL be knock first: one line naming the kind and
   urgency of what is waiting, then nothing more until the operator replies.
   Item content SHALL NOT be delivered before the operator has confirmed
@@ -266,14 +402,32 @@ measured evidence (D-15, D-16).
 - **REQ-C1.4** Every reply from the operator (an advance of the REQ-C1.10
   attention marker) SHALL release the next item; the tower SHALL NOT
   volunteer a second item before the operator has replied to the first.
+  **Superseded-by: REQ-C1.15** (2026-10-28) — a reply releases the next
+  hand-over, so a subject batch is not a volunteered second item.
   *(Cites: D-6; drafting-session decision (2026-09-08); kickoff sign-off
   lens (2026-09-09).)*
+- **REQ-C1.15** (supersedes REQ-C1.4) Every reply from the operator (an
+  advance of the REQ-C1.16 attention marker) SHALL release the next
+  hand-over (REQ-C1.12); the tower SHALL NOT volunteer a second hand-over
+  before the operator has replied to the first.
+  *(Cites: D-6, D-24; delta kickoff lens (2026-10-28).)*
 - **REQ-C1.5** Items SHALL be ordered by consequence: blocked workers first,
   then approvals, then the operator's requests, then news; within a kind,
   higher urgency first, then oldest first. Standing decisions are not ranked
   at all, because they are never delivered (REQ-A1.2).
+  **Superseded-by: REQ-C1.13** (2026-10-25) — the two reviewable kinds take
+  their place in the order.
   *(Cites: D-6; attention-notification-capability doctrine (Sources);
   kickoff sign-off lens (2026-09-09).)*
+- **REQ-C1.13** (supersedes REQ-C1.5) Items SHALL be ordered by
+  consequence: blocked workers first, then approvals, then the operator's
+  requests, then settled-by-default items, then decided-by-mission-control
+  items, then news; within a kind, higher urgency first, then oldest first.
+  A subject batch SHALL rank as its highest-ranked member. Standing
+  decisions are not ranked at all, because they are never delivered
+  (REQ-A1.10).
+  *(Cites: D-20, D-24; mission-control REQ-F1.4 (Sources);
+  drafting-session decision (2026-10-25).)*
 - **REQ-C1.6** The operator MAY shelve an item with a reply meaning "later";
   a shelved item SHALL return on its own after the `tower_shelve_return`
   interval and SHALL never be dropped by shelving.
@@ -324,13 +478,44 @@ measured evidence (D-15, D-16).
   release the next; it SHALL refuse when the calling tower holds no lease on
   the item, logging that refusal as a duplicate no-op, and SHALL be a logged
   no-op on an item already closed.
+  **Superseded-by: REQ-C1.16** (2026-10-28) — a reply releases the next
+  hand-over, and the quiet interval is REQ-F1.7's.
   *(Cites: D-6; kickoff sign-off lens (2026-09-09).)*
+- **REQ-C1.16** (supersedes REQ-C1.10) Attention SHALL be confirmed only by
+  a marker the harness wrote: the prompt-submit hook SHALL write the time of
+  the operator's last reply to a per-tower marker file it alone owns under
+  the fleet home, taking no shared lock so the write is never dropped, and
+  `next` SHALL read that marker for the calling tower. Attention is per
+  tower; it holds for one attention session opened by one knock, each reply
+  releasing the next hand-over (REQ-C1.12) without a fresh knock, and it
+  lapses after the REQ-F1.7 quiet interval, after which the next delivery
+  knocks again. `next` SHALL hand over nothing until the marker shows a
+  reply later than its own last delivery to that tower. The `ack` verb SHALL
+  close one item and SHALL NOT release the next hand-over; it SHALL refuse
+  when the calling tower holds no lease on the item, logging that refusal as
+  a duplicate no-op, and SHALL be a logged no-op on an item already closed.
+  *(Cites: D-6, D-23, D-24; delta kickoff lens (2026-10-28).)*
 - **REQ-C1.11** A store, marker, or log that cannot be written SHALL be
   surfaced as an error in the turn, never silently skipped. A failed append
   of a delivery line SHALL be fail-open: the hand-over stands and the error
-  is surfaced, and the redelivery that risks stays inside the REQ-A1.5
+  is surfaced, and the redelivery that risks stays inside the REQ-A1.13
   budget.
   *(Cites: D-6; kickoff sign-off lens (2026-09-09).)*
+  *(Amended at delta kickoff 2026-10-28: the redelivery-budget citation
+  repointed from the superseded REQ-A1.5 to REQ-A1.13.)*
+- **REQ-C1.14** When the top item names a subject, `next` SHALL batch with
+  it the other open, unleased, undelivered, deliverable items naming the
+  same subject, of any kind, up to `tower_batch_max` items in all, ordered
+  inside the batch by REQ-C1.13 and each leased to the calling tower, the
+  rest waiting for a later call. A subject SHALL be a REQ-B1.3 subject key
+  (worker handle, PR number, or branch) or a free-text subject its adder
+  records, compared by byte equality after case-folding and whitespace
+  collapse. A paired contradiction on that subject SHALL join the batch as
+  its pair, counting two toward `tower_batch_max`, and only if both fit. An
+  item naming no subject SHALL be handed over alone.
+  *(Cites: D-24; mission-control REQ-F1.4, D-5 (Sources);
+  drafting-session decision (2026-10-25); delta kickoff lens
+  (2026-10-28).)*
 
 ## REQ-D — Speech
 
@@ -444,8 +629,31 @@ measured evidence (D-15, D-16).
   present again on any reply; away and present are per tower conversation,
   so one tower's silence says nothing about another's. The interval SHALL be
   a config knob with a documented default.
+  **Superseded-by: REQ-F1.7** (2026-10-25) — a presence input is read
+  first, the quiet interval becoming its fallback.
   *(Cites: D-9; drafting-session decision (2026-09-08); kickoff sign-off
   lens (2026-09-09).)*
+- **REQ-F1.7** (supersedes REQ-F1.1) The operator's presence in a tower's
+  conversation SHALL be read first from a presence input: a per-tower
+  presence marker inside the fleet home's owner-only sub-surface, written
+  only through the queue script's `presence` verb by a presence producer
+  (the mission-control panel, from its prompt events), carrying the
+  producer, the time it was written, and either the time of the operator's
+  last prompt event or an explicit away. While the marker is fresh (written
+  within `tower_presence_ttl`), the operator SHALL be present when its last
+  prompt event falls within `tower_quiet_interval`, and away otherwise or
+  when it says away. When the marker is absent, stale, or unreadable,
+  presence SHALL fall back to the quiet interval: a knock with no reply
+  within `tower_quiet_interval` marks the operator away, and any reply marks
+  them present. Whichever source is read, a reply on the REQ-C1.16 marker
+  later than the presence marker's write SHALL mark the operator present.
+  Each switch between the two sources SHALL be logged. Away
+  and present stay per tower conversation, every interval SHALL be a config
+  knob with a documented default, and `next` SHALL hand over nothing while
+  the operator is away. The presence input SHALL NOT confirm attention:
+  content still waits for the REQ-C1.16 marker.
+  *(Cites: D-23; mission-control D-6, D-7, REQ-F1.4 (Sources); delta
+  kickoff lens (2026-10-28).)*
 - **REQ-F1.2** The away push SHALL fire on the transition into away while
   any blocking item is open, and after that only on worsening (REQ-F1.3),
   through the existing notification seam. Pushes SHALL be deduped per item
@@ -465,7 +673,16 @@ measured evidence (D-15, D-16).
 - **REQ-F1.4** Items SHALL accumulate and settle among themselves while the
   operator is away exactly as when present; nothing SHALL be dropped or
   auto-answered for lack of attention.
+  **Superseded-by: REQ-F1.8** (2026-10-25) — a picklist window's declared
+  default becomes the one answer taken for lack of attention.
   *(Cites: D-5, D-9; obs:eea622de.)*
+- **REQ-F1.8** (supersedes REQ-F1.4) Items SHALL accumulate and settle while
+  the operator is away exactly as when present, and nothing SHALL be dropped
+  for lack of attention (REQ-B1.6). The one answer taken for lack of
+  attention SHALL be a picklist window's declared default (REQ-A1.12),
+  recorded as settled-by-default, visible, and revocable; a window ending in
+  `park` answers nothing.
+  *(Cites: D-21, D-22; mission-control REQ-F1.5, REQ-F1.6 (Sources).)*
 - **REQ-F1.5** A fresh tower session SHALL resume the queue from the store,
   which is authoritative at session start, scanning the content homes only
   when the store is absent; the operator's return from away SHALL be met
@@ -483,6 +700,12 @@ measured evidence (D-15, D-16).
   relayed line SHALL be one line under 200 characters in the REQ-D1.1 speech
   register.
   *(Cites: D-19; kickoff sign-off lens (2026-09-09).)*
+- **REQ-F1.9** Events SHALL reach the queue by push first: the `presence`
+  verb SHALL run the settling pass after each write, and a wake reaching the
+  tower session SHALL call `next` at once, so window ends and deliveries
+  follow the event rather than the next tick; the tower loop's tick SHALL
+  remain the failsafe that runs both when no wake arrives.
+  *(Cites: D-21, D-23; mission-control REQ-M1.2, D-6 (Sources).)*
 
 ## REQ-G — Measurement and the experiment
 
@@ -548,6 +771,18 @@ measured evidence (D-15, D-16).
   reuse that one helper rather than carry their own.
   *(Cites: D-14; security-posture doctrine (Sources); kickoff sign-off lens
   (2026-09-09).)*
+- **REQ-G1.9** Beside the REQ-G1.1 events, the log SHALL record a
+  picklist's declaration with its item's birth, a window ending on a default
+  or a park, a decided-by-mission-control item's birth, each review and each
+  revocation of a reviewable item, each switch of presence source, and each
+  batch handed over with its members. The scorecard SHALL break out
+  settled-by-default and decided-by-mission-control items from items settled
+  by evidence, counting both on the headline's settled-without-the-operator
+  side, and SHALL report each reviewable kind's revocation rate. In the
+  multi-ask measure (REQ-G1.2) a batch SHALL count once, its size reported
+  beside it.
+  *(Cites: D-14, D-20, D-24; mission-control REQ-F1.9, REQ-M1.8 (Sources);
+  delta kickoff lens (2026-10-28).)*
 
 ## REQ-H — Invariants and hygiene
 
@@ -563,7 +798,25 @@ measured evidence (D-15, D-16).
 - **REQ-H1.2** The tower SHALL settle an item on its own only by evidence
   (REQ-B1.2) or by a written standing decision (REQ-E1.5, REQ-E1.7), never
   by its own guess.
+  **Superseded-by: REQ-H1.5** (2026-10-25) — a picklist window's declared
+  default joins evidence and written rules as a settling route.
   *(Cites: D-5, D-12; obs:4b14e93a; kickoff sign-off lens (2026-09-09).)*
+- **REQ-H1.5** (supersedes REQ-H1.2) The tower SHALL settle an item on its
+  own only by evidence (REQ-B1.2), by a written standing decision
+  (REQ-E1.5, REQ-E1.7), or by the declared default of a picklist window the
+  item carried from its birth (REQ-A1.12), never by its own guess. A
+  decided-by-mission-control item records a decision a mission-control
+  session took under its own autonomy rules (REQ-A1.14), and the work item
+  it concerns settles only by the evidence that decision produced. Neither a
+  window's default nor a mission-control decision SHALL ever answer a worker
+  permission prompt, a reserved control, a human gate, or a
+  hard-disqualifier zone: the explicit gate field (REQ-A1.11) on every
+  picklist with a declared default and every decided-by-mission-control item
+  SHALL be what `add` and the settling pass read, and neither SHALL take
+  effect unless that field is `none`.
+  *(Cites: D-20, D-21; autonomous-safe-decision doctrine (Sources);
+  mission-control REQ-F1.8, REQ-G1.2 (Sources); delta kickoff lens
+  (2026-10-28).)*
 - **REQ-H1.3** No item, log line, or standing decision SHALL carry a secret,
   credential, internal hostname, or sensitive operational detail, and the
   one redaction helper (REQ-G1.8) SHALL be what enforces it. Inbound text
@@ -670,8 +923,55 @@ measured evidence (D-15, D-16).
   recorded deviations stay recorded in the kickoff risk register rather
   than being folded into its block. No task is added, removed, or
   re-scoped.
+- 2026-10-25 — Extended via `/spec-draft --extend tower-comms` (Draft
+  delta, meaning-class; awaits a `/spec-kickoff` delta re-walkthrough), the
+  amendment mission-control routes here (its D-7, D-22 and Task 6). Minted
+  D-20 through D-24; REQ-A1.10 (supersedes REQ-A1.2), REQ-A1.11, REQ-A1.12,
+  REQ-A1.13 (supersedes REQ-A1.5), REQ-A1.14, REQ-B1.6, REQ-B1.7, REQ-B1.8,
+  REQ-C1.12 (supersedes REQ-C1.1), REQ-C1.13 (supersedes REQ-C1.5),
+  REQ-C1.14, REQ-F1.7 (supersedes REQ-F1.1), REQ-F1.8 (supersedes
+  REQ-F1.4), REQ-F1.9, REQ-G1.9, and REQ-H1.5 (supersedes REQ-H1.2); D-3,
+  D-4, D-5, D-6 and D-9 marked superseded in part. Added Tasks 11 through
+  14 and their test-spec entries; the superseded REQs' entries stay beside
+  their successors. Drafted by an unattended worker: every choice the
+  mission-control spec did not settle is listed under design.md's *Open
+  questions for the delta kickoff* for the kickoff to confirm or overturn.
+  The altitude is unchanged (D-1): the delta is capability and mechanism
+  inside the existing queue, and no doctrine rule is added.
+- 2026-10-28 — `/spec-kickoff` delta re-walkthrough of the 2026-10-25
+  extension (meaning-class, pre-merge on the extension's own PR, so its new
+  records are amended in place). The design's open questions were confirmed
+  as drafted and retitled as rulings. Lens-review edits: REQ-C1.15 minted,
+  superseding REQ-C1.4 (a reply releases the next hand-over, not the next
+  item), and REQ-C1.16 minted, superseding REQ-C1.10 on the same ground and
+  carrying the REQ-F1.7 quiet-interval citation; REQ-A1.14's caller check
+  reads the session kind from mission control's launcher registry rather
+  than a presence record, Task 11 adding the `mission-control` kind to the
+  registry's accepted kinds (mission-control D-1); an explicit
+  gate field is mandatory on every picklist with a declared default and
+  every decided-by-mission-control item (REQ-A1.11, REQ-A1.14, REQ-H1.5);
+  REQ-A1.10 names the reviewable kinds' content home; REQ-A1.11 says what
+  removes a window and when picklist items merge; REQ-B1.6 and REQ-B1.7
+  admit revocation as a route out and a reason; REQ-C1.14 counts a pair as
+  two toward the batch cap; REQ-F1.7 lets a later reply mark the operator
+  present; REQ-G1.9 counts a batch once in the multi-ask measure. REQ-C1.11
+  had its citation of the superseded REQ-A1.5 repointed in place
+  (expression-only). The superseded REQs' test-spec entries are marked with
+  their successors.
 
 ## Sources
+
+- **mission-control (2026-10-24, Ready)** — the bundle that routes this
+  delta here: D-7 (the queue stays the single delivery authority; it gains
+  a presence input, picklist windows, and the two reviewable kinds), D-22
+  (cross-bundle edges), D-5 (the free-text `subject` key), D-6 (the panel as
+  presence producer and primary wake), D-13 (autonomy and calibration), D-24
+  (the undo ledger and its reversals), REQ-F1.4, REQ-F1.5, REQ-F1.6,
+  REQ-F1.8, REQ-F1.9, REQ-G1.2, REQ-M1.2 and REQ-M1.8, and its Task 6.
+- **Drafting-session decisions (2026-10-25)** — no operator was present; an
+  unattended fleet worker took the choice the mission-control spec most
+  directly implies wherever it left one open, and recorded each as an open
+  question in design.md for the delta kickoff.
 
 - **The invocation (2026-09-08)** — the operator's framing: the tower should
   keep a queue of items to relay, resolve them internally as events happen,

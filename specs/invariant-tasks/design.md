@@ -1,7 +1,7 @@
 # Invariant Tasks — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-07-14
+**Last reviewed:** 2026-10-29
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -349,6 +349,127 @@ secondary-rate-limit hits).
 cost and accepting it deliberately, with recorded signals that reopen the
 decision if reality disagrees.
 
+### D-13: Per-task repositories land as format-version 3  (N, extension 2026-10-25)
+
+**Decision:** Format-version 3 is version 2 plus one optional task
+definition field, `- **Repository:** <alias>`, placed after `Citations:`
+and before `Estimated effort:`. A block without it belongs to the bundle's
+work repository, so a version 3 bundle that never uses the field means
+exactly what its version 2 form meant. The canonical extraction keeps the
+field line as definition content unconditionally, at every version, so
+`scripts/spec-anchor.sh` stays version-agnostic; since no existing block
+carries it, the extraction of every bundle without the field is
+byte-identical to version 2, and a field outside version 3 is the
+validator's to reject. Every version-keyed script gives version 3 its
+version 2 behavior plus the field; an undefined version stays fail-closed
+(D-7). A bundle declares version 3 only when a task needs the field.
+Because the field is optional, upgrading a version 2 bundle is only the
+`Format-version:` bump; an automated upgrade process for older bundles is
+seeded in `specs/_pending/spec-format-upgrade.md`. *(Confirmed at the
+2026-10-29 kickoff.)*
+
+**Alternatives considered:**
+- An additive field inside version 2. Rejected because: version 2 defines a
+  block as its five fields "and nothing else", so the field would be a
+  silent format change, the exact case D-1 rejected; and an install that
+  predates it would drop the unknown bullet from the extraction and derive
+  and dispatch every task from the launch repository rather than refuse.
+- A bundle-level `Repositories:` header. Rejected because: the repository
+  is a property of a task, and a header list cannot say which task lives
+  where.
+- One bundle per repository. Rejected because: the cross-repository
+  dependency edges are the point (obs:74a7f907), and the grammar has no
+  cross-bundle edge.
+- Keying the extraction on version 3. Rejected because: the anchor script
+  parses no `Format-version:` by design, and keeping the line everywhere
+  costs nothing, since no version 1 or 2 block may carry it.
+
+**Chosen because:** the version declaration is the format's own seam
+(D-1, D-7): an install that knows version 3 reads the field, and one that
+does not refuses the bundle at its declaration, which is the fail-closed
+shape the derivation needs when the alternative is dispatching into the
+wrong repository.
+
+### D-14: The field holds an alias, resolved by the work-repository registry  (N, extension 2026-10-25)
+
+**Decision:** The `Repository:` value is one alias in the identifier
+grammar (`^[a-z0-9][a-z0-9-]*$`, at most 64 characters). It resolves to a
+local checkout only through `custom-spec-location`'s machine-local
+work-repository registry, which maps a spec root's project to the aliases
+of the repositories registered against it; this bundle consumes that map
+and does not define it. The registry exists only for marker-bearing spec
+roots, so per-task repositories require one: under a root without a
+marker an aliased task derives `repository-unresolved`, and the validator
+warns on the field there. A task names exactly one repository: work that
+spans repositories splits into tasks joined by dependency edges, which
+D-15 makes cross-repository. A task whose code lives in the holder itself
+names the holder's alias like any other repository; a task that touches no
+repository stays outside execution. *(Confirmed at the 2026-10-29
+kickoff.)*
+
+**Alternatives considered:**
+- A checkout path. Rejected because: it is machine-specific, wrong on every
+  other machine, and leaks a home-directory layout into a committed file.
+- A remote URL or `owner/name`. Rejected because: a remote names where
+  pull requests land, not the local checkout worktrees are placed in; two
+  checkouts of one remote would be indistinguishable; and a self-hosted
+  remote puts a host name in committed prose.
+- A multi-repository unit form (a block naming two or three repositories).
+  Rejected because: a unit's branch, worktree, pull request, and trailer
+  all live in one repository; a multi-repository unit needs a coordinated
+  multi-PR lifecycle no part of the pipeline has, while splitting costs one
+  dependency edge.
+
+**Chosen because:** the alias keeps the bundle portable across machines
+and free of local layout, and putting the alias-to-checkout map in the
+registry gives one machine-local answer to "where is that repository" for
+both the derivation here and holder dispatch there.
+
+### D-15: Derivation per task, joined across repositories  (N, extension 2026-10-25)
+
+**Decision:** The derivation engine resolves each task's repository (the
+field's alias through the registry, or the bundle's work repository),
+groups tasks by resolved repository, derives each group from that
+repository's own evidence (its branches, its pull requests, its commit
+trailers), and joins the results; the dispatch markers keep their one
+per-bundle home, so every session reading the bundle sees the same
+in-flight units whichever repository they dispatched into. Dependency
+satisfaction reads the dependency's derived state wherever it lives, which
+is what "the repository it landed in" means. A task whose field does not
+resolve (an unknown or stale alias, a missing checkout, a root without a
+marker, a malformed value, or a duplicate field) derives
+`repository-unresolved`, a distinct state that is never selected, never
+satisfies a dependency, never satisfies a gate atom, blocks derived Done,
+and never falls back to the work repository. A transient fetch failure
+fails closed per task (REQ-B1.7): a task is withheld when its own
+repository or a direct dependency's repository failed, its gate atoms
+resolve unresolved when its own repository failed, the render names the
+failing repository, and tasks wholly in healthy repositories keep
+selecting. D-12's no-cache decision stands; the derivation's cost grows by
+one pull-request query per distinct repository, and D-12's revisit signals
+cover it. *(Per-task scope chosen at the 2026-10-29 kickoff, replacing the
+drafted bundle-wide rule.)*
+
+**Alternatives considered:**
+- Deriving from the union of all repositories' evidence for every task.
+  Rejected because: a task branch name is the same in every repository
+  (`planwright/<spec>/task-<id>`), so a stray branch in the wrong
+  repository would count as evidence; scoping a task's evidence to its own
+  repository removes the ambiguity.
+- Treating an unresolved alias as "not started". Rejected because: it
+  would make the task selectable and dispatch it into whatever repository
+  the fallback picks, the failure this extension exists to stop.
+- Bundle-wide fail-closed on a transient failure in any one repository.
+  Rejected at the kickoff because: one unreachable repository would halt
+  work that lies wholly in healthy repositories. Direct dependencies
+  suffice: a dependency's derived state is the only cross-repository input
+  to a task's readiness, and a dependency that lives in a healthy
+  repository derives from known evidence.
+
+**Chosen because:** it keeps orchestration-concurrency's evidence chain
+unchanged within each repository and adds only the join, so a bundle
+whose tasks all live in one repository derives exactly as before.
+
 ## Cross-cutting concerns
 
 - **Security posture.** Three new untrusted-content surfaces are
@@ -374,6 +495,25 @@ decision if reality disagrees.
   orchestration-concurrency D-1 already vetted (Kubernetes level-triggered
   reconciliation, event-sourcing read models, git reachability; Terraform's
   mutable state file as the antipattern). No new dependency is adopted.
+- **Extension security posture (2026-10-25).** The `Repository:` value is
+  a new untrusted parse surface: it is validated against the identifier
+  grammar before any use and never interpolated into a path or command
+  before validation; the registry, not the bundle, supplies the checkout
+  path, and the registry's own read-time validation is
+  `custom-spec-location`'s. The render and validator echo the alias
+  through `sanitize_printable`. A value that fails the grammar, or a
+  second field in one block, derives `repository-unresolved` and never
+  falls back to the bundle's work repository, so a hostile or mistyped
+  value cannot misroute a unit. A derivation that runs `gh` in a second
+  repository uses that repository's own remote; no credential is added.
+- **Extension decision-domains walk (2026-10-25).** Data modelling: a new
+  format field, decided in D-13 and D-14. Versioning: format-version 3,
+  D-13. Integration surface: the registry seam consumed from
+  `custom-spec-location` (its `--repository` lookup), D-14. Concurrency:
+  per-repository evidence with the dispatch markers kept in their one
+  per-bundle home, D-15. Observability: the render's per-task alias, the
+  `repository-unresolved` state, and the per-repository failure report,
+  REQ-F1.4, REQ-F1.5 and REQ-B1.7. No new dependency.
 - **This bundle is authored at format-version 1** — v2 does not exist until
   Task 1 ships. It is expected to be among the live bundles migrated by
   Task 6.

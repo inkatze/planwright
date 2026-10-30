@@ -1,7 +1,8 @@
 #!/bin/sh
 # inception-venture.sh — the mechanical half of the /inception skill
 # (inception Task 7; REQ-A1.1, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.8,
-# REQ-A1.9, REQ-B1.7, REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.5 · D-5, D-19).
+# REQ-A1.9, REQ-B1.7, REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5 · D-5,
+# D-11, D-19).
 #
 # The skill holds the conversation; everything that must behave the same on
 # every run lives here as small subcommands, each data in, data out:
@@ -26,17 +27,21 @@
 #   handoff <venture-dir> the end-of-run state, degradations repeated
 #
 # Output is `key<TAB>value` lines wherever a caller parses it; `degraded`
-# lines name each missing capability in plain words, and the skill repeats
-# them at pre-flight and in its handoff (REQ-H1.5).
+# lines name each missing capability in plain words, `caveat` lines a host
+# limit that is not one (a Cowork session's), and the skill repeats both at
+# pre-flight and in its handoff (REQ-H1.5).
 #
 # The ladder (REQ-H1.1, D-5): a git repository (local-only or private remote),
 # then a plain folder when git is unavailable, then session-only when the
 # filesystem does not outlive the session. Capability degrades; the bundle is
 # always written.
 #
-# Ephemeral detection reads CLAUDE_CODE_REMOTE, which Claude Code documents as
-# set to `true` in a cloud session; PLANWRIGHT_INCEPTION_EPHEMERAL=1|0 is the
-# operator's override in either direction, for hosts the probe misreads.
+# Host detection reads CLAUDE_CODE_REMOTE, which Claude Code documents as set
+# to `true` in a cloud session; Cowork documents no such signal, so only
+# PLANWRIGHT_INCEPTION_HOST=cowork|cloud|local names it (another value is
+# warned about and ignored). A cloud or Cowork host is ephemeral;
+# PLANWRIGHT_INCEPTION_EPHEMERAL=1|0 is the operator's override in either
+# direction, for hosts the probe misreads or a Cowork connected folder.
 #
 # Exit: 0 success · 1 refused identifier (check-id, create, add-remote), a
 #   proposed variant (id), a save the venture's guard stopped, a push whose
@@ -54,8 +59,10 @@
 #   the message names it: add-remote on that venture finishes the setup).
 #
 # Environment: PLANWRIGHT_INCEPTION_TODAY (YYYY-MM-DD) pins today's date;
-#   the config overrides resolve-config-knob.sh honors apply to `root` and
-#   to `create` without `--root`.
+#   PLANWRIGHT_INCEPTION_HOST and PLANWRIGHT_INCEPTION_EPHEMERAL as above;
+#   PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT are among the places the `plugin`
+#   probe looks; the config overrides resolve-config-knob.sh honors apply to
+#   `root` and to `create` without `--root`.
 #
 # Portable POSIX sh; bash 3.2 / BSD tooling floor (REQ-K1.5).
 set -u
@@ -223,17 +230,58 @@ cmd_root() {
 
 # --- capability detection --------------------------------------------------
 
-# probe — set has_git, ephemeral, remote_state, remote_reason, local_state.
+# probe — set has_git, host, plugin, ephemeral, remote_state, remote_reason,
+# local_state.
 probe() {
   has_git=no
   git --version >/dev/null 2>&1 && has_git=yes
 
+  # Cowork documents no variable a session can read, so only the operator can
+  # name it; an unrecognized value is said and ignored, never guessed at.
+  host=local
+  [ "${CLAUDE_CODE_REMOTE:-}" = true ] && host=cloud
+  case ${PLANWRIGHT_INCEPTION_HOST:-} in
+    '') ;;
+    cowork | cloud | local) host=$PLANWRIGHT_INCEPTION_HOST ;;
+    *) printf '%s\n' 'inception-venture: warning: PLANWRIGHT_INCEPTION_HOST is not cowork, cloud, or local; ignored' >&2 ;;
+  esac
+
+  # The venture's pre-commit hook searches these same places, but only after
+  # sourcing the venture's .planwright-local.sh, which this helper never
+  # executes; so `absent` means "not found from this session", and the
+  # degraded line says so. The arms come from the resolver, minus its
+  # self-location arm (this copy, which the hook cannot see); the plugin
+  # cache, which the hook also searches, is outside the chain. The cache glob
+  # stays unquoted to expand.
+  plugin=absent
+  pw_arms=$(/bin/sh "$self_dir/resolve-root.sh" --explain install --all 2>/dev/null \
+    | awk -F '\t' '$1 != "self-location" { print $2 }') || pw_arms=
+  while IFS= read -r cand; do
+    if [ -n "$cand" ] && [ -r "$cand/scripts/inception-validate.sh" ]; then
+      plugin=loaded
+      break
+    fi
+  done <<EOF
+$pw_arms
+EOF
+  if [ "$plugin" = absent ]; then
+    for cand in "${HOME:-}"/.claude/plugins/cache/planwright/planwright/*; do
+      if [ -r "$cand/scripts/inception-validate.sh" ]; then
+        plugin=loaded
+        break
+      fi
+    done
+  fi
+
+  # A cloud sandbox, Cowork's included, is discarded when its session ends.
+  # A Cowork local session over a connected folder is the exception the
+  # override exists for.
   case ${PLANWRIGHT_INCEPTION_EPHEMERAL:-} in
     1) ephemeral=yes ;;
     0) ephemeral=no ;;
     *)
       ephemeral=no
-      [ "${CLAUDE_CODE_REMOTE:-}" = true ] && ephemeral=yes
+      [ "$host" = local ] || ephemeral=yes
       ;;
   esac
 
@@ -293,6 +341,18 @@ print_degraded() {
     && [ "$pd_home" != remote ] && [ "$pd_rung" != plain ]; then
     printf 'degraded\tthe private-remote home is unavailable (%s)\n' "$remote_reason"
   fi
+  # A plain folder has no hook to skip anything; the line above already says so.
+  if [ "$plugin" = absent ] && [ "$has_git" = yes ] && [ "$pd_rung" != plain ]; then
+    printf 'degraded\t%s\n' 'planwright was not found from this session (PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT, CLAUDE_DIR, ~/.claude), so a venture commit made here will skip the venture guards unless the venture'"'"'s .planwright-local.sh sets PLANWRIGHT_ROOT'
+  fi
+}
+
+# print_caveats — one `caveat` line per host-specific limit that is not a
+# missing capability, after a probe.
+print_caveats() {
+  [ "$host" = cowork ] || return 0
+  printf 'caveat\t%s\n' 'Cowork session: its network allowlist may block git pull and push; a save that cannot reach the remote stays here as a local commit and is reported as not shared'
+  printf 'caveat\t%s\n' 'Cowork session: Cowork'"'"'s own agent follows the venture'"'"'s sync-protocol.md (imported from CLAUDE.md) only as advice; the validator, CI on a remote venture, and git history are the enforcement'
 }
 
 cmd_detect() {
@@ -302,10 +362,13 @@ cmd_detect() {
     yes) printf 'git\tpresent\n' ;;
     *) printf 'git\tabsent\n' ;;
   esac
+  printf 'host\t%s\n' "$host"
+  printf 'plugin\t%s\n' "$plugin"
   printf 'ephemeral\t%s\n' "$ephemeral"
   printf 'remote\t%s\n' "$remote_state"
   printf 'local\t%s\n' "$local_state"
   print_degraded
+  print_caveats
 }
 
 # --- creation --------------------------------------------------------------
@@ -415,6 +478,7 @@ cmd_create() {
   printf 'home\t%s\n' "$home"
   printf 'rung\t%s\n' "$rung"
   print_degraded "$home" "$rung"
+  print_caveats
 }
 
 # --- the bundle skeleton ---------------------------------------------------
@@ -1077,6 +1141,7 @@ cmd_handoff() {
   printf 'bundle\t%s\n' "$bundle"
   printf 'next\t%s\n' "${next:-unknown}"
   print_degraded "$home" "$rung"
+  print_caveats
 }
 
 # --- dispatch --------------------------------------------------------------

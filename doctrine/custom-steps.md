@@ -16,13 +16,13 @@ with the scripts it calls. *Attended* narrows [gate-wiring](gate-wiring.md)'s
 pause-protocol distinction to the backend seam's launch record: a headless
 launch is unattended, any other attended. *Unit* widens
 [spec-format](spec-format.md)'s task-or-bundle sense to the spec bundle and
-the flight (D-13); a *unit run* is one `/execute-task` invocation, a flight's
-convergence, or a flip point's firing.
+the flight (D-13); a *unit run* is one `/execute-task` invocation, one launch
+of a flight's worker, or a flip point's firing.
 
 Citations: custom-steps REQ-A1.1–A1.6, REQ-B1.1–B1.7, REQ-C1.1–C1.8,
 REQ-D1.1–D1.12, REQ-E1.1–E1.3, REQ-E1.5, REQ-E1.6, REQ-F1.5, REQ-G1.1–G1.4,
 REQ-H1.3–H1.5, REQ-I1.1–I1.11, REQ-J1.1–J1.3 · custom-steps D-1–D-32 ·
-tower-front-door REQ-H1.1.
+tower-front-door REQ-C1.7, REQ-C1.8, REQ-H1.1, D-16, D-22.
 
 ## The point vocabulary
 
@@ -31,9 +31,9 @@ core can wire, so an adopter needing a moment planwright does not name records
 an observation, never an overlay point (REQ-A1.3, D-2). A point name outside
 this vocabulary is a resolver usage error.
 
-**Wired in `/execute-task`** (the *in-run points*), each fired once when the
-run reaches it (a re-execution against a unit with an open PR is a new run,
-REQ-A1.1), in this order (D-3):
+**Wired in `/execute-task` and fired on every flight** (the *in-run
+points*), each fired once when the run reaches it (a re-execution against a
+unit with an open PR is a new run, REQ-A1.1), in this order (D-3):
 
 | Point | Fires |
 | --- | --- |
@@ -60,8 +60,11 @@ attempt (REQ-A1.1, REQ-E1.3, D-2).
 list at one of these resolves no steps; the resolver and `check:steps` report
 it as unwired, never silently.
 
-**Flights.** A flight converges through `steps_convergence` with unit kind
-`flight`, skill steps only (REQ-F1.5; [flight-rules](flight-rules.md)).
+**Flights.** A flight fires every in-run point with unit kind `flight`,
+resolved unattended, every step kind under this contract, `post-pr` only
+once its PR exists; its convergence
+reads `steps_convergence` like any unit's (REQ-F1.5;
+[flight-rules](flight-rules.md)).
 
 ## The step entry
 
@@ -211,8 +214,9 @@ safety stop is `failed`; an unresolved hard-disqualifier finding is `halted`
 **Posture (REQ-D1.2).** A `halted` or `failed` step whose `on-failure` is
 `halt` ends the point. At an **in-run point** it ends the unit through the
 gate-wiring [pause protocol](gate-wiring.md#pause-protocol)'s destinations:
-an unattended run parks the unit to `tasks.md` Awaiting input; an attended
-session presents it and waits. At a **flip point** it refuses the flip and
+an unattended run parks the unit to `tasks.md` Awaiting input, and a flight
+parks through the flight park, writing no spec state; an attended session
+presents it and waits. At a **flip point** it refuses the flip and
 surfaces the step (kickoff recording the pending flip to Awaiting input). An
 Awaiting-input entry this doc causes names only the point, the validated
 step ids, the outcome, token, or cause (a pool wait's holders, a re-fire's

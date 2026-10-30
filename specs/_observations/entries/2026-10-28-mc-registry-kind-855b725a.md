@@ -1,0 +1,1 @@
+- 2026-10-28 [planwright] The mission-control Task 3 launcher registry lacks the mission-control session kind its D-1 declares, so tower-comms Task 11 adds it to the accepted kinds.

@@ -533,6 +533,13 @@ printf 'entries:\n  - id: gamma\n    note: "g"\n  - id: gamma\n      nested: x\n
 rc "$sb" testcat >/dev/null 2>"$tmp/shape.err"
 assert_absent "a lost line on a skipped duplicate is not reported against its namesake" "not a field" "$(cat "$tmp/shape.err")"
 
+# A wrapped flow list joins only in the duties catalog; any other catalog's
+# readers take one-line lists, so there it stays a lost line.
+printf 'entries:\n  - id: wrapped\n    tags: [a,\n           b]\n' >"$(adopter_cat "$sb" testcat)"
+out=$(rc "$sb" testcat 2>"$tmp/wrap.err")
+assert_contains "outside the duties catalog a wrapped list is not joined" "not a field" "$(cat "$tmp/wrap.err")"
+assert_absent "nor emitted joined" "[a, b]" "$out"
+
 # ---------------------------------------------------------------------------
 echo
 if [ "$failures" -eq 0 ]; then

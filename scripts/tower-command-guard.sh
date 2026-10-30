@@ -26,6 +26,13 @@
 # mechanism this task must not perturb, and a self-contained security script is
 # auditable without a cross-file dependency that could break at runtime.
 #
+# Usage: tower-command-guard.sh [tower | mission-control]. The tower profile
+# wires it with no argument (tower mode). config/mission-control-settings.json
+# wires `mission-control`, which narrows the planwright scripts it approves to
+# the ones mission control runs routinely (MC_SCRIPTS below) and approves no
+# `mise run`, so every other script and task reaches the prompt. An unknown
+# mode approves nothing.
+#
 # Security contract (identical to the worker guard's — the whole point):
 #   * No LLM in the decision path (REQ-E1.3); purely deterministic shell. The
 #     analyzed command is inert DATA — never eval-ed, re-expanded, or executed.
@@ -593,6 +600,18 @@ is_force_push_file() {
 # the tower's own, tighter policy. `tests/` is deliberately NOT
 # a trusted script directory for the tower (that is a worker-only shape), so the
 # tower set stays distinct from and tighter than the worker set (REQ-C1.2).
+# Under the mission-control profile (`tower-command-guard.sh mission-control`)
+# only the planwright scripts mission control runs routinely are approved;
+# every other one, a script that changes a repository among them, defers to
+# the permission prompt.
+MC_SCRIPTS=' mission-control-launch.sh mc-rules.sh mc-program.sh mc-duties.sh fleet-streamjson.sh offload-dispatch.sh spec-status.sh spec-validate.sh spec-graph.sh orchestrate-state.sh fleet-status.sh resolve-rule-doc.sh '
+script_in_mode() { # <path relative to its root>
+  [ "$GUARD_MODE" = mission-control ] || return 0
+  case $1 in scripts/*/*) return 1 ;; esac
+  case $MC_SCRIPTS in *" ${1#scripts/} "*) return 0 ;; esac
+  return 1
+}
+
 is_planwright_script() {
   local p=$1 cwd=$2 root proot full rel
   # The force-push path runs on the operator's request in the same turn, so
@@ -627,7 +646,7 @@ is_planwright_script() {
     if full=$(canon_under "$p" "$cwd" "$root"); then
       rel=${full#"$root"/}
       case $rel in
-        scripts/*) return 0 ;;
+        scripts/*) script_in_mode "$rel" && return 0 ;;
       esac
     fi
   fi
@@ -636,7 +655,7 @@ is_planwright_script() {
     if full=$(canon_under "$p" "$cwd" "$proot"); then
       rel=${full#"$proot"/}
       case $rel in
-        scripts/*) return 0 ;;
+        scripts/*) script_in_mode "$rel" && return 0 ;;
       esac
     fi
   fi
@@ -1699,6 +1718,9 @@ guard_mise() {
     run) ;; # fall through to the shell-override guard below
     *) return 1 ;;
   esac
+  # A task runs whatever its body says, a release among them, so under the
+  # mission-control mode a task run reaches the prompt.
+  [ "$GUARD_MODE" != mission-control ] || return 1
   for (( ; i < cwn; i++)); do
     case ${cw[i]} in
       --shell | --shell=*) return 1 ;;
@@ -2745,6 +2767,14 @@ cache_temp_dirs() {
 # Fail safe on any unexpected signal: empty stdout, exit 0. The hook never
 # blocks the tower's tool call.
 trap 'exit 0' HUP INT TERM PIPE
+
+# The profile that wires this hook names its mode; an unknown one approves
+# nothing, which for an allow-only guard is the safe side.
+GUARD_MODE=${1:-tower}
+case $GUARD_MODE in
+  tower | mission-control) ;;
+  *) exit 0 ;;
+esac
 
 main
 exit 0

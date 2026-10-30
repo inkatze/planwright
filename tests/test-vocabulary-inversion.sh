@@ -117,9 +117,9 @@ assert_contains "transitional note covers tower-named config" "config" "$note"
 assert_contains "transitional note ends at the renames" "renames land" "$note"
 assert_contains "transitional note cites its decision" "D-2" "$note"
 
-# --- Versioning: a dated entry, no version bump -----------------------------
-assert_contains "meta-spec version line is unchanged" \
-  "This document is format-version 2 and defines versions 1 and 2." "$versioning"
+# --- Versioning: the current version line; the supersession bumped none -----
+assert_contains "meta-spec version line names the current version" \
+  "This document is format-version 3 and defines versions 1, 2, and 3." "$versioning"
 supersession_entry="$(printf '%s\n' "$versioning" | awk '
   /^- 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9] — / { on = 0 }
   /^- 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9] — .*(Glossary|glossary).*(supersession|superseded)/ { on = 1 }

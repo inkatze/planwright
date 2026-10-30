@@ -30,75 +30,80 @@
 #   never-propose  true or false
 #
 # The shipped set is the default duties a program enables
-# (mission_control_default_duties). Each ships `off` with no watchers until
-# the work that builds it lands; an `off` duty arms nothing and owns nothing,
-# enabled or not.
+# (mission_control_default_duties). A duty ships `off`, with no watchers,
+# until the work that builds it lands, and `live` from then on; an `off` duty
+# arms nothing and owns nothing, enabled or not. A trigger may name an event
+# a later piece of work produces (the operator queue's, the skill's own);
+# until then it never fires.
 #
 # The reader is a constrained awk parser, not full YAML: list items at
 # two-space and fields at four-space indentation, values unquoted or
 # double-quoted single-line scalars (no single quotes, no inline "# ..."
-# comments, no block scalars).
+# comments, no block scalars). A flow list may wrap onto lines indented five
+# or more spaces; they are joined with a space until the `]`.
 
 duties:
   - id: session-keeper
     summary: "Drives each launched session to done, retires it on landing, reclaims its worktree"
-    triggers: []
-    watchers: []
-    wake: none
-    rules: []
-    kinds: []
+    triggers: [stall-dead, stall-open-selector, stall-unsubmitted-prompt,
+               stall-turn-ended-background, stall-idle-question, stall-busy-unchanged,
+               stall-unknown, session-landed]
+    watchers: [scripts/mc-keeper.sh@2m/low]
+    wake: session-landed
+    rules: [session-lifecycle]
+    kinds: [blocker]
     files: session-keeper
-    lifecycle: "off"
+    lifecycle: live
     never-propose: false
   - id: inbox
     summary: "Turns everything waiting on the operator into decide-ready items and drafts"
-    triggers: []
+    triggers: [operator-returned, decision-queued]
     watchers: []
     wake: none
-    rules: []
-    kinds: []
+    rules: [operator-voice]
+    kinds: [decision, draft]
     files: inbox
-    lifecycle: "off"
+    lifecycle: live
     never-propose: false
   - id: readiness-check
     summary: "Walks the primary evidence before a pull request is offered as ready"
-    triggers: []
-    watchers: []
-    wake: none
-    rules: []
-    kinds: []
+    triggers: [readiness-due]
+    watchers: [scripts/mc-readiness.sh@5m/low]
+    wake: readiness-due
+    rules: [ready-conditions]
+    kinds: [ready-offer]
     files: readiness-check
-    lifecycle: "off"
+    lifecycle: live
     never-propose: false
   - id: conflict-radar
     summary: "Predicts overlapping changes across branches and works out merge order and retargets"
-    triggers: []
-    watchers: []
-    wake: none
-    rules: []
-    kinds: []
+    triggers: [conflict-predicted, pr-merged]
+    watchers: [scripts/mc-radar.sh@15m/medium]
+    wake: conflict-predicted
+    rules: [merge-order]
+    kinds: [conflict, retarget]
     files: conflict-radar
-    lifecycle: "off"
+    lifecycle: live
     never-propose: false
   - id: deadline-watch
     summary: "Lets known dates drive priority and what the operator hears first after time away"
-    triggers: []
-    watchers: []
-    wake: none
-    rules: []
-    kinds: []
+    triggers: [deadline-near, operator-returned]
+    watchers: [scripts/mc-deadlines.sh@1h/low]
+    wake: deadline-near
+    rules: [deadlines]
+    kinds: [deadline]
     files: deadline-watch
-    lifecycle: "off"
+    lifecycle: live
     never-propose: false
   - id: prepared-moments
     summary: "Assembles the packet for a decision before the operator is asked to make it"
-    triggers: []
+    triggers: [readiness-due, ready-offer]
     watchers: []
     wake: none
-    rules: []
-    kinds: []
+    rules: [packets]
+    kinds: [packet]
     files: prepared-moments
-    lifecycle: "off"
+    lifecycle: live
     never-propose: false
   - id: undo-ledger
     summary: "Records how to reverse every act taken on the operator's behalf"

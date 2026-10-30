@@ -4,7 +4,8 @@
 # the profile under the planwright root the core root chain names, so
 # PLANWRIGHT_ROOT pointing at a copy is the one injector, and refuses visibly,
 # naming the profile, when it cannot be read (obs:eea622de).
-#   p1  `worker` and `tower` print the absolute profile path under the root
+#   p1  `worker`, `tower` and `mission-control` print the absolute profile
+#       path under the root
 #   p2  --root names the root explicitly, over PLANWRIGHT_ROOT
 #   p3  a missing, unreadable, non-regular, or symlinked profile (or config
 #       directory) exits 1 naming it
@@ -29,14 +30,15 @@ fail() {
 tmp=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/test-fleet-launch-profile.XXXXXX")" && pwd -P)
 trap 'chmod -R u+rwx "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
 
-# copy_root <dir> — a planwright root holding the two shipped profiles.
+# copy_root <dir> — a planwright root holding the shipped profiles.
 copy_root() {
   mkdir -p "$1/config" "$1/scripts"
-  cp "$REPO_ROOT/config/worker-settings.json" "$REPO_ROOT/config/tower-settings.json" "$1/config/"
+  cp "$REPO_ROOT/config/worker-settings.json" "$REPO_ROOT/config/tower-settings.json" \
+    "$REPO_ROOT/config/mission-control-settings.json" "$1/config/"
 }
 
 copy_root "$tmp/r1"
-for kind in worker tower; do
+for kind in worker tower mission-control; do
   out=$(PLANWRIGHT_ROOT="$tmp/r1" /bin/sh "$FLP" "$kind") || fail "p1: $kind exited non-zero"
   [ "$out" = "$tmp/r1/config/$kind-settings.json" ] || fail "p1: $kind printed '$out'"
 done

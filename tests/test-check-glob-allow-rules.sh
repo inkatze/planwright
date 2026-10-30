@@ -208,6 +208,28 @@ GLOB_ALLOW_OVERLAYS="$tmp/docs/overlays.md" \
   /bin/bash "$CHECKER" --docs >/dev/null 2>&1
 assert "doc-presence passes once the tower-settings note is added" 0 $?
 
+# The mission-control profile carries the note too.
+cat >"$tmp/config/mission-control-settings.json" <<EOF
+{ "_about": "mission-control settings with no glob-discipline note" }
+EOF
+GLOB_ALLOW_OVERLAYS="$tmp/docs/overlays.md" \
+  GLOB_ALLOW_GHOST_DOC="$tmp/docs/fleet.md" \
+  GLOB_ALLOW_WORKER_SETTINGS="$tmp/config/worker-settings.json" \
+  GLOB_ALLOW_TOWER_SETTINGS="$tmp/config/tower-settings.json" \
+  GLOB_ALLOW_MC_SETTINGS="$tmp/config/mission-control-settings.json" \
+  /bin/bash "$CHECKER" --docs >/dev/null 2>&1
+assert "the mission-control profile's note is required" 1 $?
+cat >"$tmp/config/mission-control-settings.json" <<EOF
+{ "_about": "$NOTE_MARKER /* glob." }
+EOF
+GLOB_ALLOW_OVERLAYS="$tmp/docs/overlays.md" \
+  GLOB_ALLOW_GHOST_DOC="$tmp/docs/fleet.md" \
+  GLOB_ALLOW_WORKER_SETTINGS="$tmp/config/worker-settings.json" \
+  GLOB_ALLOW_TOWER_SETTINGS="$tmp/config/tower-settings.json" \
+  GLOB_ALLOW_MC_SETTINGS="$tmp/config/mission-control-settings.json" \
+  /bin/bash "$CHECKER" --docs >/dev/null 2>&1
+assert "doc-presence passes once the mission-control note is added" 0 $?
+
 # --- 3. No LLM in the decision path (REQ-E1.3) ------------------------------
 
 # 3. A negative assertion: the check's source invokes no model/API — no curl,

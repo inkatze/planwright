@@ -85,8 +85,9 @@ sufficient execution rung and places the flight through
 `max_parallel_units`, mints the flight id, writes the worker brief, and places
 an isolated worktree on a `planwright/flight/<flight-id>` branch
 ([Conventions](conventions.md#flight-branches-tower-front-door-d-11)). The
-worker loads full doctrine, converges through the same `steps_convergence`
-list a task does, renders its audit record, and lands it: in the draft PR body
+worker loads full doctrine, fires every in-run point a task does (its
+convergence reading the same `steps_convergence` list), renders its audit
+record, and lands it: in the draft PR body
 when every push destination is covered by `flight_pr_hosts` and `gh` is
 authenticated, otherwise as a committed record at
 `_flights/<flight-id>.md` under the spec root (`specs/_flights/` by default)
