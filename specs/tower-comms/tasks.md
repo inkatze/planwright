@@ -679,23 +679,6 @@ baseline exists, so the experiment has an honest before.
   bullet in that same commit, stamped `Planwright-Task: tower-comms/9`
   through `scripts/planwright-commit-trailers.sh`, so the task derives
   completed instead of turning selectable.
-- **Task 12** — convergence paused on a hard-disqualifier zone (security:
-  a permission check). Finding: the queue script's read path lists the
-  presence directory (`tower-comms/presence` under the fleet home) and
-  verifies each marker file, but never the directory itself, so a widened
-  or symlinked directory is trusted on read while the `presence` verb
-  refuses the same directory on write (exit 4). Options: (a, recommended)
-  verify the directory once per pass (symlink test plus the owner-only
-  check, in a subshell) and, on failure, warn once and read every tower's
-  presence from the quiet-interval fallback, as REQ-F1.7 reads an
-  unreadable marker, with tests for a widened and a symlinked directory;
-  (b) refuse instead, exit 4 from `next` and the settling pass, as the
-  attention-marker directory is refused, which stops the queue rather
-  than falling back. The implementation and five pending-sign-off fixes
-  are committed on `planwright/tower-comms/task-12`, unpushed, no PR.
-  Operator: direct (a) or (b), then resume with
-  `/execute-task 12 tower-comms --resume 000001:convergence`, and remove
-  this bullet.
 
 ## Deferred
 
