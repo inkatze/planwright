@@ -3420,7 +3420,7 @@ run_store_pass() {
           if (OK[n] && F[n, 12] == "open" && F[n, 6] == "attention" && F[n, 7] == $7 && (F[n, 2] == "question" || (F[n, 2] == "settled-by-default" && F[n, 8] == $8))) t = n
       # A picklist is declared at birth and never changes afterwards, so one
       # offered for an item already open is refused rather than dropped.
-      if (t && F[t, 12] == "open" && $27 != "-" && (F[t, 27] != $27 || F[t, 28] != $28)) { print "status\tpicklist"; emit(out); print "changed\t" changed; exit }
+      if (t && F[t, 12] == "open" && $27 != "-" && (F[t, 27] != $27 || F[t, 28] != $28)) { print "status\tpicklist\t" F[t, 1]; emit(out); print "changed\t" changed; exit }
       if (t && F[t, 12] == "open") { print "status\tpresent\t" F[t, 1]; emit(out); print "changed\t" changed; exit }
       if (t) {
         # The same content home queued again after its item closed: the
@@ -5108,7 +5108,7 @@ cmd_add() {
   }
   pass_failed "$result" && exit 6
   st=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "status" { print $2; exit }')
-  _pid=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "status" && $2 == "present" { print $3; exit }')
+  _pid=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "status" && ($2 == "present" || $2 == "picklist") { print $3; exit }')
   ! is_item_id "$_pid" || id=$_pid
   changed=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "changed" { print $2; exit }')
   [ "$changed" != 1 ] || commit_store || exit 6

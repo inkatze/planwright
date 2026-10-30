@@ -417,6 +417,19 @@ rd2=$(run add --kind question --worker w-rd --origin w-rd --closes 'the operator
 [ "$rd2" = "$rd" ] || fail "the instance the default answered was queued again as a new question ($rd2, not $rd)"
 echo "ok: a question re-added at the instance its default answered is that default, not a new item"
 
+# --- a picklist refused on a re-forked row names the item that is open ------------------
+
+attention_row w-pr spec/t14 awaiting-input 1000 normal 'Which one?' - 'a|b' fork iid-pr1
+pr=$(run add --kind question --worker w-pr --origin w-pr --closes 'the operator answers' --now 44000) || fail "add the plain question"
+awk -F "$TAB" -v OFS="$TAB" '$1 == "w-pr" { $10 = "iid-pr2" } { print }' "$attn_store" >"$tmp/attn" && cat "$tmp/attn" >"$attn_store"
+run settle --now 44001 >/dev/null || fail "the pass refreshing the instance"
+rc=0
+pr_out=$(run add --kind question --worker w-pr --origin w-pr --closes 'the operator answers' --options 'a|b' --end park --now 44002) || rc=$?
+[ "$rc" = 1 ] || fail "a picklist offered for the open question: exit $rc, expected 1"
+[ "$pr_out" = "$pr" ] || fail "the picklist refusal printed '$pr_out', not the open item $pr"
+grep -qF "$pr is already open" "$errf" || fail "the picklist refusal does not name the open item $pr"
+echo "ok: a picklist refused on a re-forked row names the open item"
+
 # --- no route out of the open set leaves a record without a reason --------------------
 
 awk -F "$TAB" '$12 == "closed" && ($18 == "-" || $18 == "") { print; bad = 1 } END { exit bad }' "$store" \
