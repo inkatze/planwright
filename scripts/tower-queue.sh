@@ -4207,6 +4207,12 @@ $_wd
 EOF
 }
 
+# redacts_unchanged <value> — 0 when the one redaction helper leaves the
+# value as it is.
+redacts_unchanged() {
+  [ "$(redact "$1")" = "$1" ]
+}
+
 # options_reserved <a|b...> — 0 when any label of the option set names a
 # reserved control.
 options_reserved() {
@@ -4796,6 +4802,9 @@ add_check_review_fields() {
   if [ -n "$options" ] || [ -n "$pick_end" ] || [ -n "$window" ]; then
     [ "$kind" = question ] || refuse "a picklist is declared only on a question"
     [ -n "$options" ] && [ -n "$pick_end" ] || refuse "a picklist needs --options <a|b...> and --end <option>|park"
+    # Refused rather than redacted: the end is matched against the options,
+    # and a redacted end would match a redacted label nobody chose.
+    redacts_unchanged "$pick_end" || refuse "refusing --end: the redaction helper would change it, so it carries a secret-shaped value"
     options=$(redact "$options")
     is_option_list "$options" || refuse "refusing --options: two to eight labels joined by |, each at most 64 bytes with no edge space, distinct, and none of them - or park"
     [ "$pick_end" = park ] || is_option_in "$pick_end" "$options" || refuse "refusing --end '$(sanitize_printable "$pick_end" "(unprintable end)")': one of the options, or park"
@@ -4828,6 +4837,10 @@ add_check_review_fields() {
   mc_token_ok "$dmc_caller" || refuse "refusing a decided-by-mission-control item from '$(sanitize_printable "$dmc_caller" "?")': PLANWRIGHT_MC_TOKEN does not match the token on its registry row"
   mc_row_live "$dmc_caller" || refuse "refusing a decided-by-mission-control item from '$(sanitize_printable "$dmc_caller" "?")': the session its registry row names is not running"
   [ -n "$text" ] || refuse "a decided-by-mission-control item needs --text, the decision as taken"
+  # A pointer the helper would change is refused, not stored redacted: the
+  # store, `show` and the log must name the same record (REQ-H1.3).
+  [ -z "$grounds" ] || redacts_unchanged "$grounds" || refuse "refusing --grounds: the redaction helper would change it, so it carries a secret-shaped value"
+  [ -z "$reversal" ] || redacts_unchanged "$reversal" || refuse "refusing --reversal: the redaction helper would change it, so it carries a secret-shaped value"
   is_step "$grounds" || refuse "a decided-by-mission-control item needs --grounds <pointer>: one token naming where its grounds are recorded"
   [ "$reversal" = none ] || is_step "$reversal" || refuse "a decided-by-mission-control item needs --reversal <step>|none: one token naming its one-step reversal"
   [ -n "$gate" ] || refuse "a decided-by-mission-control item needs --gate; an omitted gate never reads as none"

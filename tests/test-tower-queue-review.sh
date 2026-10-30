@@ -155,6 +155,11 @@ printf '@8\n' >"$TMUX_WINDOWS"
 # shellcheck disable=SC2086
 refused "a row whose session is gone" 'is not running' decide "$MC" 'retried the flaky job' $ok_flags
 printf '@7\n@8\n' >"$TMUX_WINDOWS"
+# A secret-shaped pointer would be stored and shown verbatim, and the log
+# would redact what the store kept, so the two never agree (REQ-H1.3).
+secret_ptr="ghp_$(printf 'a%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36)"
+refused "a grounds pointer the redaction helper would change" 'redaction helper would change' decide "$MC" 'retried the flaky job' --grounds "$secret_ptr" --reversal none --gate none --now 1000
+refused "a reversal the redaction helper would change" 'redaction helper would change' decide "$MC" 'retried the flaky job' --grounds undo:u-17 --reversal "$secret_ptr" --gate none --now 1000
 refused "no reversal field" 'needs --reversal' decide "$MC" 'retried the flaky job' --grounds undo:u-17 --gate none --now 1000
 refused "no grounds pointer" 'needs --grounds' decide "$MC" 'retried the flaky job' --reversal none --gate none --now 1000
 refused "no gate field" 'needs --gate' decide "$MC" 'retried the flaky job' --grounds undo:u-17 --reversal none --now 1000
