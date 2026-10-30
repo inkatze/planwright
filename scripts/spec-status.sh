@@ -153,17 +153,15 @@ if ! fv=$(spec_parse_header_value "$tasks_md" Format-version); then
   printf '%s\n' "spec-status: unparseable Format-version: declaration in $tasks_md (fail closed)" >&2
   exit 2
 fi
-case "$fv" in
-  1 | 2) ;;
-  '')
-    printf '%s\n' "spec-status: $tasks_md has no Format-version: line; refusing to guess the format (fail closed)" >&2
-    exit 2
-    ;;
-  *)
-    printf '%s\n' "spec-status: unparseable Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
-    exit 2
-    ;;
-esac
+if [ -z "$fv" ]; then
+  printf '%s\n' "spec-status: $tasks_md has no Format-version: line; refusing to guess the format (fail closed)" >&2
+  exit 2
+fi
+# Keyed on the rule arm (version 3 takes the v2 arm), never the raw value.
+fv_arm=$(spec_parse_format_arm "$fv") || {
+  printf '%s\n' "spec-status: unparseable or undefined Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
+  exit 2
+}
 
 # --- Stored status (requirements.md, the authoritative home). --------------
 # Same lib parse, same fail-closed posture on a duplicate in-header
@@ -186,7 +184,7 @@ case "$stored" in
 esac
 # v2 restricts the stored vocabulary to the human-gated states (REQ-A1.3);
 # a stored Active/Done on a v2 bundle is malformed input, not a render mode.
-if [ "$fv" = 2 ]; then
+if [ "$fv_arm" = 2 ]; then
   case "$stored" in
     Active | Done)
       printf '%s\n' "spec-status: stored status '$stored' is not a v2 stored state (Active/Done are derived; REQ-A1.3)" >&2
@@ -235,7 +233,7 @@ fi
 # in the lib's record shape so every reader below is version-agnostic:
 #   ref<TAB><id><TAB><class><TAB><line><TAB><payload>
 #   refbad<TAB><raw-token><TAB><class><TAB><line>
-if [ "$fv" = 2 ]; then
+if [ "$fv_arm" = 2 ]; then
   parked_map=$(spec_parse_parked_map "$tasks_md") || {
     # Fail closed: an unreadable or malformed parked map would silently drop
     # an Awaiting-input park and let the bundle derive Done (REQ-B1.6's

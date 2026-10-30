@@ -175,17 +175,15 @@ if ! fv=$(printf '%s\n' "$tasks_content" | spec_parse_header_value - Format-vers
   printf '%s\n' "orchestrate-select: unparseable Format-version: declaration in $tasks_md (fail closed)" >&2
   exit 2
 fi
-case "$fv" in
-  1 | 2) ;;
-  '')
-    printf '%s\n' "orchestrate-select: $tasks_md has no Format-version: line; refusing to guess the format (fail closed)" >&2
-    exit 2
-    ;;
-  *)
-    printf '%s\n' "orchestrate-select: unparseable Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
-    exit 2
-    ;;
-esac
+if [ -z "$fv" ]; then
+  printf '%s\n' "orchestrate-select: $tasks_md has no Format-version: line; refusing to guess the format (fail closed)" >&2
+  exit 2
+fi
+# Keyed on the rule arm (version 3 takes the v2 arm), never the raw value.
+fv_arm=$(spec_parse_format_arm "$fv") || {
+  printf '%s\n' "orchestrate-select: unparseable or undefined Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
+  exit 2
+}
 
 # Live-truth state (orchestration-concurrency Task 5, D-3, REQ-B1.2; the
 # invariant-tasks Task 5 above is the format-version keying). In selection
@@ -219,7 +217,7 @@ inprogress=" "
 # unchecked capture would silently un-park every task.
 parked_any=" "
 parked_oos=" "
-if [ "$mode" = select ] && [ "$fv" = 2 ]; then
+if [ "$mode" = select ] && [ "$fv_arm" = 2 ]; then
   if ! parked_map=$(printf '%s\n' "$tasks_content" | spec_parse_parked_map -); then
     printf '%s\n' "orchestrate-select: could not derive the parked map from $tasks_md (fail closed)" >&2
     exit 2
@@ -277,7 +275,7 @@ if [ "$mode" = select ]; then
   # work whose only completion evidence sits behind the failed fetch: dispatch
   # nothing, distinct exit. v1 keeps its documented degraded-but-proceed
   # behavior (forwarded to stderr below) — v1 behavior unchanged.
-  if [ "$fv" = 2 ] \
+  if [ "$fv_arm" = 2 ] \
     && printf '%s\n' "$state_out" | awk -F"$TAB" '$1=="degraded" { f = 1 } END { exit !f }'; then
     dmsg=$(printf '%s\n' "$state_out" \
       | awk -F"$TAB" '$1=="degraded" { print $3; exit }')
@@ -312,7 +310,7 @@ fi
 # sequences (the drain-gates statuses-whitelist rationale).
 sel_rc=0
 sel_out=$(printf '%s\n' "$tasks_content" | ORCHESTRATE_SELECT_TASKS_MD="$tasks_md" \
-  awk -v mode="$mode" -v fv="$fv" \
+  awk -v mode="$mode" -v fv="$fv_arm" \
   -v completed="$completed" -v inprogress="$inprogress" \
   -v parked="$parked_any" -v parked_oos="$parked_oos" \
   "$spec_parse_awk_fence$spec_parse_awk_grammar"'

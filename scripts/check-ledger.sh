@@ -30,12 +30,12 @@
 #
 # Version keying (invariant-tasks Task 4; REQ-C1.4, REQ-C1.8, D-7): the
 # checks above describe format-version 1 snapshots. A file declaring
-# `**Format-version:** 2` gets the STRUCTURAL subset only — malformed
+# `**Format-version:** 2` (or 3, which takes the v2 rules) gets the STRUCTURAL subset only — malformed
 # heading, duplicate task id, and the orphan-block check with `## Tasks`
 # recognized as a valid section — because v2 commits no derived state:
 # the placement/annotation coherence checks and the >1-Status lint are
 # v1-only (a stray section or annotation on v2 is the validator's finding).
-# A missing or unparseable declaration is itself an exit-1 finding (fail
+# A missing, unparseable, or undefined declaration is itself an exit-1 finding (fail
 # closed: the rules to apply cannot be selected, and the file is never
 # silently checked under either version's rules).
 #
@@ -129,21 +129,20 @@ for f in "${files[@]}"; do
   if ! fver=$(spec_parse_header_value "$f" Format-version 2>/dev/null); then
     fver='duplicate or unreadable declaration'
   fi
-  case "$fver" in
-    1 | 2) ;;
-    *)
-      printf '%s:1: missing or unparseable Format-version (%s): ledger rules cannot be selected (fail closed; REQ-C1.8)\n' \
-        "$f" "$(printf '%s' "$fver" | tr -d '\000-\037\177\200-\237')"
-      [ "$status" -eq 2 ] || status=1
-      continue
-      ;;
-  esac
+  # The guard keys on the declared version's rule arm (version 3 takes the
+  # v2 rules), never on the declared value itself.
+  if ! farm=$(spec_parse_format_arm "$fver"); then
+    printf '%s:1: missing, unparseable, or undefined Format-version (%s): ledger rules cannot be selected (fail closed; REQ-C1.8)\n' \
+      "$f" "$(printf '%s' "$fver" | tr -d '\000-\037\177\200-\237')"
+    [ "$status" -eq 2 ] || status=1
+    continue
+  fi
 
   # The rule-selecting awk pass (one per file, after the version pre-pass
   # above). Findings go to stdout as `<file>:<line>: <message>`; the END
   # block exits 1 if any were emitted. The em-dash (U+2014) in the heading
   # separator is matched byte-wise under LC_ALL=C.
-  awk -v FILE="$f" -v VER="$fver" '
+  awk -v FILE="$f" -v VER="$farm" '
     function is_state_section(s) {
       # Format-version 2 keeps every definition block in the single ## Tasks
       # section (the meta-spec v2 shape, doctrine/spec-format.md; invariant-tasks

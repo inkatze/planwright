@@ -191,6 +191,34 @@ got=$(/bin/bash "$SEL" "$dv1spec") || fail "v2-parked fixture: non-zero exit ($?
 [ "$got" = 5 ] || fail "v2-parked: selected '$got', expected 5 (2/3/4 parked by bullets)"
 echo "ok: v2 reference bullets park their tasks in all three sections (REQ-C1.2)"
 
+# V1b. invariant-tasks REQ-F1.7 — version 3 takes the version 2 candidacy: the
+#      V1 fixture re-declared version 3 (with a Repository: field on the
+#      candidate) selects the same task, and an undefined version (4) fails
+#      closed in both modes.
+dv1b="$tmp/v3park"
+dv1bspec=$(new_spec "$dv1b" vthree)
+v2_tasks_md "$dv1bspec/tasks.md"
+awk '
+  $0 == "**Format-version:** 2" { print "**Format-version:** 3"; next }
+  { print }
+  /^### Task 5 / { t5 = 1 }
+  t5 && /^- \*\*Dependencies:\*\*/ { print "- **Repository:** alpha"; t5 = 0 }
+' "$dv1bspec/tasks.md" >"$dv1bspec/tasks.md.new" && mv "$dv1bspec/tasks.md.new" "$dv1bspec/tasks.md"
+grep -q '^- \*\*Repository:\*\* alpha$' "$dv1bspec/tasks.md" || fail "v3 fixture: Repository: line not written"
+seal_base "$dv1b"
+done_trailer "$dv1b" vthree 1
+got=$(/bin/bash "$SEL" "$dv1bspec") || fail "v3-parked fixture: non-zero exit ($?)"
+[ "$got" = 5 ] || fail "v3-parked: selected '$got', expected 5 (version 3 takes the v2 candidacy)"
+sed 's/^\*\*Format-version:\*\* 3$/**Format-version:** 4/' "$dv1bspec/tasks.md" >"$dv1bspec/tasks.md.new" \
+  && mv "$dv1bspec/tasks.md.new" "$dv1bspec/tasks.md"
+for mode in "" --critical-path; do
+  rc=0
+  # shellcheck disable=SC2086 # an empty mode is no argument
+  /bin/bash "$SEL" $mode "$dv1bspec" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "fv-4 ${mode:-select}: exit $rc, expected 2 (an undefined version fails closed)"
+done
+echo "ok: version 3 selects as version 2; an undefined version fails closed (REQ-F1.7)"
+
 # V2. REQ-C1.2 — equivalence with the v1 section model: the same states
 #     expressed as v1 section placement (task 2 in ## Awaiting input, 3 in
 #     ## Deferred, 4 in ## Out of scope) pick the same candidate.
