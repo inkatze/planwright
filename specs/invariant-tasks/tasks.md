@@ -332,7 +332,7 @@ its Dependencies line; the selector treats that edge as advisory, so Task
 
 ## Awaiting input
 
-(none yet)
+- **Task 9** — pending ready-flip: ready-guard failed on 33bd7e658d57
 
 ## Deferred
 
