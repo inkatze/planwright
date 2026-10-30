@@ -124,6 +124,125 @@ assert_not_contains "notes: no stale gitignore claim for the publish state" \
 # once in the notes rather than letting every operator rediscover it.
 assert_contains "notes: explain the post-partial-commit status" "git commit <path>" "$notes"
 
+# REQ-G1.8 — the Cowork sync protocol, and its import from CLAUDE.md.
+assert_file "local rung: sync protocol" "$v/sync-protocol.md"
+assert_file "local rung: CLAUDE.md" "$v/CLAUDE.md"
+assert_contains "local rung: reports the protocol" "wrote sync-protocol.md" "$out"
+proto="$(cat "$v/sync-protocol.md")"
+assert_contains "G1.8 protocol: pull before editing" "git pull" "$proto"
+assert_contains "G1.8 protocol: push after committing" "git push" "$proto"
+assert_contains "G1.8 protocol: edits land as commits" "git commit" "$proto"
+assert_contains "G1.8 protocol: commit messages in plain language" "plain-language" "$proto"
+assert_contains "G1.8 protocol: IDs are untouchable" "Never renumber" "$proto"
+assert_contains "G1.8 protocol: register statuses are untouchable" "**Status:**" "$proto"
+assert_contains "G1.8 protocol: gate records are untouchable" "## Gate log" "$proto"
+assert_contains "G1.8 protocol: protected changes become notes for the operator" "under \`proposals/\`" "$proto"
+assert_contains "G1.8 protocol: a blocked push degrades to a local commit" "**Push blocked**: keep the commit" "$proto"
+assert_contains "G1.8 protocol: says it is advisory, not the enforcement" "validator" "$proto"
+assert_contains "G1.8 CLAUDE.md imports the protocol" "@sync-protocol.md" "$(cat "$v/CLAUDE.md")"
+assert_contains "notes: name the sync protocol" "sync-protocol.md" "$notes"
+
+# An operator's CLAUDE.md is theirs: the import is appended once, never the
+# file replaced, --force included.
+v="$tmp/own-claude"
+mkdir -p "$v"
+printf '# Our venture\n\nHouse rules.\n' >"$v/CLAUDE.md"
+out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+assert_eq "G1.8 own CLAUDE.md: exit 0" "0" "$?"
+assert_contains "G1.8 own CLAUDE.md: reports the import added" "updated CLAUDE.md" "$out"
+claude_md="$(cat "$v/CLAUDE.md")"
+assert_contains "G1.8 own CLAUDE.md: the operator's text stays" "House rules." "$claude_md"
+assert_contains "G1.8 own CLAUDE.md: the import is appended" "@sync-protocol.md" "$claude_md"
+out="$("$SCAFFOLD" --rung local --force "$v" 2>&1)"
+assert_contains "G1.8 own CLAUDE.md: a re-run keeps it" "kept CLAUDE.md" "$out"
+assert_eq "G1.8 own CLAUDE.md: the import is never duplicated" "1" \
+  "$(grep -c '^@sync-protocol.md$' "$v/CLAUDE.md")"
+assert_contains "G1.8 own CLAUDE.md: --force keeps the operator's text" "House rules." "$(cat "$v/CLAUDE.md")"
+
+v="$tmp/linked-claude"
+mkdir -p "$v"
+printf 'elsewhere\n' >"$tmp/outside-claude.md"
+ln -s "$tmp/outside-claude.md" "$v/CLAUDE.md"
+out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+assert_eq "G1.8 linked CLAUDE.md: the scaffold still succeeds" "0" "$?"
+assert_contains "G1.8 linked CLAUDE.md: refused and said" "symbolic link" "$out"
+assert_eq "G1.8 linked CLAUDE.md: nothing written through the link" "elsewhere" "$(cat "$tmp/outside-claude.md")"
+
+# No emitted file is written through a symbolic link: not an existing link
+# (with or without --force), not a dangling one, not one in a parent directory.
+v="$tmp/linked-emit"
+mkdir -p "$v" "$tmp/outside-dir"
+printf 'theirs\n' >"$tmp/outside-proto.md"
+ln -s "$tmp/outside-proto.md" "$v/sync-protocol.md"
+ln -s "$tmp/outside-dangling.md" "$v/.gitignore"
+ln -s "$tmp/outside-dir" "$v/githooks"
+out="$("$SCAFFOLD" --rung local --force "$v" 2>&1)"
+assert_eq "linked emit: the scaffold still succeeds" "0" "$?"
+assert_contains "linked emit: a linked file is refused and said" "sync-protocol.md is a symbolic link" "$out"
+assert_eq "linked emit: --force writes nothing through a file link" "theirs" "$(cat "$tmp/outside-proto.md")"
+assert_no_file "linked emit: a dangling link is not followed" "$tmp/outside-dangling.md"
+assert_contains "linked emit: a dangling link is refused and said" ".gitignore is a symbolic link" "$out"
+assert_no_file "linked emit: nothing written through a linked directory" "$tmp/outside-dir/pre-commit"
+assert_contains "linked emit: a linked directory is refused and said" "githooks/pre-commit is under a symbolic link" "$out"
+assert_file "linked emit: the unlinked files are still written" "$v/hygiene-wiring.md"
+
+# A last line with no newline must not have the import glued onto it, or the
+# keep check would miss it and every re-run would append again.
+v="$tmp/unterminated-claude"
+mkdir -p "$v"
+printf '# Ours\nlast' >"$v/CLAUDE.md"
+"$SCAFFOLD" --rung local "$v" >/dev/null 2>&1
+"$SCAFFOLD" --rung local "$v" >/dev/null 2>&1
+assert_eq "G1.8 unterminated CLAUDE.md: the import is its own line, once" "1" \
+  "$(grep -c '^@sync-protocol.md$' "$v/CLAUDE.md")"
+assert_eq "G1.8 unterminated CLAUDE.md: the operator's last line stays whole" "1" \
+  "$(grep -c '^last$' "$v/CLAUDE.md")"
+
+# A CRLF file that already imports the protocol keeps it, not a second copy.
+v="$tmp/crlf-claude"
+mkdir -p "$v"
+printf '# Ours\r\n@sync-protocol.md\r\n' >"$v/CLAUDE.md"
+out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+assert_contains "G1.8 CRLF CLAUDE.md: the existing import is recognised" "kept CLAUDE.md" "$out"
+assert_eq "G1.8 CRLF CLAUDE.md: no second import" "1" "$(grep -c 'sync-protocol' "$v/CLAUDE.md")"
+
+v="$tmp/dir-claude"
+mkdir -p "$v/CLAUDE.md"
+out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+assert_eq "G1.8 CLAUDE.md directory: the scaffold still succeeds" "0" "$?"
+assert_contains "G1.8 CLAUDE.md directory: refused and said" "not a regular file" "$out"
+
+# Root reads and writes through any mode, so the mode cases prove nothing there.
+if [ "$(id -u)" -ne 0 ]; then
+  v="$tmp/readonly-claude"
+  mkdir -p "$v"
+  printf '# Ours\n' >"$v/CLAUDE.md"
+  chmod 444 "$v/CLAUDE.md"
+  out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+  assert_eq "G1.8 read-only CLAUDE.md: the scaffold still succeeds" "0" "$?"
+  assert_contains "G1.8 read-only CLAUDE.md: said, with the line to add" "@sync-protocol.md to it by hand" "$out"
+  assert_file "G1.8 read-only CLAUDE.md: the wiring notes are still written" "$v/hygiene-wiring.md"
+  assert_eq "G1.8 read-only CLAUDE.md: left as it was" "# Ours" "$(cat "$v/CLAUDE.md")"
+
+  v="$tmp/writeonly-claude"
+  mkdir -p "$v"
+  printf '# Ours\n' >"$v/CLAUDE.md"
+  chmod 200 "$v/CLAUDE.md"
+  "$SCAFFOLD" --rung local "$v" >/dev/null 2>&1
+  out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+  chmod 644 "$v/CLAUDE.md"
+  assert_eq "G1.8 unreadable CLAUDE.md: nothing appended blind" "# Ours" "$(cat "$v/CLAUDE.md")"
+  assert_contains "G1.8 unreadable CLAUDE.md: said" "not readable" "$out"
+
+  v="$tmp/readonly-imported-claude"
+  mkdir -p "$v"
+  printf '# Ours\n@sync-protocol.md\n' >"$v/CLAUDE.md"
+  chmod 444 "$v/CLAUDE.md"
+  out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+  assert_contains "G1.8 read-only CLAUDE.md that already imports: kept" "kept CLAUDE.md" "$out"
+  assert_not_contains "G1.8 read-only CLAUDE.md that already imports: no by-hand warning" "by hand" "$out"
+fi
+
 # ---------------------------------------------------------------------------
 # 2. The remote rung adds the CI guard (REQ-A1.9, REQ-G1.5).
 # ---------------------------------------------------------------------------
@@ -555,6 +674,63 @@ assert_contains "unexported pin: the pinned copy rendered and staged the dashboa
   "exports/venture.html" "$pin_staged"
 assert_contains "unexported pin: the pinned copy rendered and staged the pitch" \
   "exports/pitch.html" "$pin_staged"
+
+# A writer-mode install under a custom CLAUDE_DIR is an arm of the core root
+# chain, so `inception-venture.sh probe` reports it as loaded; the hook must
+# find the same copy, or a commit skips the guards that report promised.
+cd_claude="$tmp/custom-claude-dir"
+mkdir -p "$cd_claude/planwright/scripts" "$tmp/cd-home"
+cp "$REPO_ROOT/scripts/"inception-*.sh "$REPO_ROOT/scripts/resolve-root.sh" \
+  "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/spec-parse.sh" \
+  "$REPO_ROOT/scripts/html-escape.sh" "$cd_claude/planwright/scripts/" || exit 1
+cd_v="$tmp/venture-claude-dir"
+mkdir -p "$cd_v"
+inception_fixture_write "$cd_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$cd_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$cd_v" >/dev/null 2>&1
+printf '%s\n' "token: ghp_""0123456789abcdefghijklmnopqrstuvwxyz" >"$cd_v/leak.md"
+out="$(cd "$cd_v" && git add -A \
+  && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT HOME="$tmp/cd-home" CLAUDE_DIR="$cd_claude" \
+    PLANWRIGHT_SECRET_SCREEN_TOOL=none git commit -qm "credential, CLAUDE_DIR install" 2>&1)"
+rc=$?
+assert_eq "CLAUDE_DIR install: the credential is refused" "1" "$rc"
+assert_not_contains "CLAUDE_DIR install: planwright is found" "planwright not found" "$out"
+
+# With CLAUDE_DIR set, the core root chain's writer-mode arm is that directory
+# alone, so the probe reads a copy left at ~/.claude/planwright as absent; the
+# hook must agree rather than run guards the probe said would be skipped.
+cdx_home="$tmp/cdx-home"
+mkdir -p "$cdx_home/.claude/planwright/scripts" "$tmp/cdx-claude"
+for s in "$REPO_ROOT/scripts/"inception-*.sh; do
+  printf '%s\n' '#!/bin/sh' 'echo "HOME-COPY ran" >&2' 'exit 1' >"$cdx_home/.claude/planwright/scripts/${s##*/}"
+done
+probe_out="$(env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT HOME="$cdx_home" CLAUDE_DIR="$tmp/cdx-claude" \
+  /bin/sh "$REPO_ROOT/scripts/inception-venture.sh" detect 2>&1)"
+assert_contains "CLAUDE_DIR set: the probe reads the ~/.claude copy as absent" \
+  "$(printf 'plugin\tabsent')" "$probe_out"
+cdx_v="$tmp/venture-claude-dir-mismatch"
+mkdir -p "$cdx_v"
+inception_fixture_write "$cdx_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$cdx_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$cdx_v" >/dev/null 2>&1
+out="$(cd "$cdx_v" && git add -A \
+  && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT HOME="$cdx_home" CLAUDE_DIR="$tmp/cdx-claude" \
+    PLANWRIGHT_SECRET_SCREEN_TOOL=none git commit -qm "CLAUDE_DIR elsewhere" 2>&1)"
+assert_not_contains "CLAUDE_DIR set: the hook skips the ~/.claude copy too" "HOME-COPY" "$out"
+assert_contains "CLAUDE_DIR set: the hook says planwright is not found, as the probe did" \
+  "planwright not found" "$out"
 
 # A planwright copy whose renderer predates --mode and --output cannot render
 # the pages the hook asks for. That is a failed render: it warns and the commit

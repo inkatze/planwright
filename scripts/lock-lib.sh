@@ -56,6 +56,8 @@
 #                          cannot lose each other's change
 #   scripts/inception-fanout.sh   a venture's bundle, so concurrent staff and
 #                          record runs cannot lose an entry or a record
+#   scripts/inception-gate.sh     the same bundle lock, so a gate write and a
+#                          fan-out write cannot lose each other's change
 #   scripts/inception-review-cycle.sh  the same bundle lock, so a review
 #                          step's ledger rewrite or applied change cannot
 #                          interleave with another writer
@@ -81,6 +83,8 @@
 #                          the program name over each other
 #   scripts/mc-keeper.sh   a mission-control program's keeper ledger, so a
 #                          track never re-points a session mid-retire
+#   scripts/work-repo-registry.sh   the work-repository registry, so
+#                          concurrent registrations each land their entry
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is

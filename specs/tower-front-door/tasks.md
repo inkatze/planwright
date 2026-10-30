@@ -455,6 +455,8 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
+- **Task 18** — CI logic failure on PR #746: `tests/test-check-instructions.sh`'s closing gate refuses the new `below-target: start-load:tower` warning (margin 620 against the 1000 restoration target, floor 500 intact) that the flight-rules contract text raises. Operator's call: a declared exception for `start-load:tower` in `config/instruction-budget-exemptions.txt` (recommended; the text is contract with no other home, and the tower ruled a worker may not add it), or a compensating trim of about 380 words across the tower's run-start docs.
+
 ## Deferred
 
 - **Tower floor bypass paths from the skill core's review.** The deny

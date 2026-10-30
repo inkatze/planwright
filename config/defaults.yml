@@ -191,11 +191,9 @@ flight_pr_hosts: []
 # overlay catalogs); the list is resolved by scripts/resolve-steps.sh with
 # last-layer-wins per key and a warning naming every shadowed lower overlay
 # layer. `[]` runs nothing and is not malformed. doctrine/custom-steps.md
-# fixes when each point fires and what a step may do. Only the visual-flight
-# dispatch (scripts/flight-dispatch.sh) reads steps_convergence until
-# /execute-task is wired to the resolver; core then ships
-# behavior-identical, steps_convergence running the single /polish --nested
-# pass the retired convergence knob ran.
+# fixes when each point fires and what a step may do. /execute-task and every
+# visual flight fire the in-run points below; core ships steps_convergence
+# running the single /polish --nested pass the retired convergence knob ran.
 #
 # The in-run points of /execute-task, in firing order:
 steps_pre_implementation: []

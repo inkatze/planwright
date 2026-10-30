@@ -186,9 +186,26 @@ live_users() {
     readlink "/proc/$$/cwd" >/dev/null 2>&1 || return 1
     # One find over procfs: a readlink per process costs seconds on a busy
     # host. The path is escaped so -lname matches it literally.
-    lu_glob=$(printf '%s' "$1" | sed 's/[][*?\\]/\\&/g')
-    find /proc -mindepth 2 -maxdepth 2 -name cwd \( -lname "$lu_glob" -o -lname "$lu_glob/*" \) 2>/dev/null \
-      | awk -F / '$3 ~ /^[0-9]+$/ { print $3 }'
+    if [ -n "$(find "/proc/$$/cwd" -prune -lname '*' 2>/dev/null)" ]; then
+      lu_glob=$(printf '%s' "$1" | sed 's/[][*?\\]/\\&/g')
+      find /proc -mindepth 2 -maxdepth 2 -name cwd \( -lname "$lu_glob" -o -lname "$lu_glob/*" \) 2>/dev/null \
+        | awk -F / '$3 ~ /^[0-9]+$/ { print $3 }'
+      return 0
+    fi
+    # busybox find has no -lname, and a failed find reads as no live user.
+    lu_d=$1
+    set +f
+    set -- /proc/[0-9]*/cwd
+    set -f
+    for lu_c in "$@"; do
+      lu_t=$(readlink "$lu_c" 2>/dev/null) || continue
+      case $lu_t in
+        "$lu_d" | "$lu_d"/*)
+          lu_p=${lu_c#/proc/}
+          printf '%s\n' "${lu_p%/cwd}"
+          ;;
+      esac
+    done
     return 0
   fi
   command -v lsof >/dev/null 2>&1 || return 1
