@@ -620,7 +620,8 @@ install_files() {
       die 2 "cannot write $_f; the files already written were restored"
     fi
   done
-  moving=
+  # One command, so no signal lands between the bundle commit and the seed's.
+  moving='' seed_placed=''
   : >"$work/tmps"
 }
 
@@ -1160,12 +1161,12 @@ cmd_seed() {
     [ ! -e "$_seed" ] && [ ! -L "$_seed" ] || die 1 "a seed already exists at _pending/$_name"
     die 2 "cannot place the seed (the destination may not support hard links)"
   fi
+  # Until the lineage is recorded, an exit removes the seed again;
+  # install_files clears this in the same command that commits brief.md.
+  seed_placed=$_seed
   rm -f "$seed_tmp"
   seed_tmp=
-  # Until the lineage is recorded, an exit removes the seed again.
-  seed_placed=$_seed
   install_files brief.md
-  seed_placed=
   made_pdir=
   made_droot=
   printf 'seed\t%s\n' "$_seed" | strip_eval
