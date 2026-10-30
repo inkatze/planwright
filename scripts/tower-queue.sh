@@ -3413,9 +3413,11 @@ run_store_pass() {
       if (!rec_ok()) fail("the new record does not parse")
       # One open question per row: a row re-forked under an open question is
       # that question still, whatever its instance now reads.
+      # A default awaiting review answered the instance its question last
+      # read, which a re-fork before the window ended moved past its id.
       if ($2 == "question" && $6 == "attention")
         for (n = 1; n <= N; n++)
-          if (OK[n] && F[n, 12] == "open" && F[n, 2] == "question" && F[n, 6] == "attention" && F[n, 7] == $7) t = n
+          if (OK[n] && F[n, 12] == "open" && F[n, 6] == "attention" && F[n, 7] == $7 && (F[n, 2] == "question" || (F[n, 2] == "settled-by-default" && F[n, 8] == $8))) t = n
       # A picklist is declared at birth and never changes afterwards, so one
       # offered for an item already open is refused rather than dropped.
       if (t && F[t, 12] == "open" && $27 != "-" && (F[t, 27] != $27 || F[t, 28] != $28)) { print "status\tpicklist"; emit(out); print "changed\t" changed; exit }

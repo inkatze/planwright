@@ -403,6 +403,20 @@ run settle --now 42030 >/dev/null || fail "the rebuild after the re-fork"
 [ "$(awk -F "$TAB" '$7 == "w-nq" && $2 == "question" && $12 == "open"' "$store" | grep -c .)" = 1 ] || fail "the rebuild minted a second question on the row"
 echo "ok: a new question on a row whose default awaits review gets its own id, a re-fork under an open question does not, and both survive a rebuild"
 
+# --- a default that applied after a re-fork answered the row's current instance ---------
+
+attention_row w-rd spec/t13 awaiting-input 1000 normal 'Which one?' a 'a|b' fork iid-rd1
+rd=$(run add --kind question --worker w-rd --origin w-rd --closes 'the operator answers' --options 'a|b' --end a --gate none --window 2s --now 43000) \
+  || fail "add the question that re-forks before its default"
+awk -F "$TAB" -v OFS="$TAB" '$1 == "w-rd" { $10 = "iid-rd2" } { print }' "$attn_store" >"$tmp/attn" && cat "$tmp/attn" >"$attn_store"
+run settle --now 43001 >/dev/null || fail "the pass refreshing the instance before the window ends"
+[ "$(fld "$rd" 8)" = iid-rd2 ] || fail "the open question did not follow its row's re-fork: $(rec "$rd")"
+run settle --now 43005 >/dev/null || fail "the pass defaulting the re-forked question"
+[ "$(fld "$rd" 2)" = settled-by-default ] || fail "the re-forked question did not default: $(rec "$rd")"
+rd2=$(run add --kind question --worker w-rd --origin w-rd --closes 'the operator answers' --now 43006) || fail "re-add at the instance the default answered"
+[ "$rd2" = "$rd" ] || fail "the instance the default answered was queued again as a new question ($rd2, not $rd)"
+echo "ok: a question re-added at the instance its default answered is that default, not a new item"
+
 # --- no route out of the open set leaves a record without a reason --------------------
 
 awk -F "$TAB" '$12 == "closed" && ($18 == "-" || $18 == "") { print; bad = 1 } END { exit bad }' "$store" \
