@@ -1546,6 +1546,11 @@ matrix_case "matrix: an unnamed Alpine step fails" 1 "has a step with no" \
 matrix_case "matrix: a second Alpine shell suite fails" 1 "2 \`shell suite\`" \
   "M_ALP_STEP=      - name: shell suite
         run: mise run test"
+matrix_case "matrix: a second Alpine bake-off harness fails" 1 "2 \`bake-off harness\`" \
+  "M_ALP_STEP=      - name: bake-off harness
+        run: mise run substrate:bakeoff
+      - name: bake-off harness
+        run: mise run substrate:bakeoff"
 matrix_case "matrix: a second Alpine job fails" 1 "more than one Alpine job" \
   "M_LINT_STEP=  alpine-two:
     runs-on: ubuntu-latest
