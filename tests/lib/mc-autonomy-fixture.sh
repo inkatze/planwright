@@ -49,5 +49,8 @@ seg_write() { # seg_write <log> <YYYY-MM> [<entry line>...]
 }
 
 iso_epoch() {
-  date -u -d "$1" '+%s' 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" '+%s'
+  # GNU, busybox (which rejects the trailing Z without -D), then BSD.
+  date -u -d "$1" '+%s' 2>/dev/null \
+    || date -u -D '%Y-%m-%dT%H:%M:%SZ' -d "$1" '+%s' 2>/dev/null \
+    || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" '+%s'
 }
