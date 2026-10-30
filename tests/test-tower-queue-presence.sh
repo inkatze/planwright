@@ -149,6 +149,7 @@ refused 2 "a producer carrying a control byte" --tower $A --producer "$(printf '
 refused 2 "a last prompt carrying a control byte" --tower $A --producer mission-control --last-prompt "$(printf '1000\033')" --now 1002
 refused 2 "an unknown field" --tower $A --producer mission-control --last-prompt 1000 --mood calm --now 1002
 refused 2 "both a last prompt and away" --tower $A --producer mission-control --last-prompt 1000 --away --now 1002
+refused 2 "an empty last prompt beside away" --tower $A --producer mission-control --last-prompt '' --away --now 1002
 refused 2 "neither a last prompt nor away" --tower $A --producer mission-control --now 1002
 refused 2 "a last prompt later than the write" --tower $A --producer mission-control --last-prompt 1003 --now 1002
 refused 2 "no tower" --producer mission-control --last-prompt 1000 --now 1002

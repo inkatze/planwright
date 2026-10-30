@@ -4879,6 +4879,7 @@ cmd_presence() {
   p_tower=""
   producer=""
   last=""
+  last_set=0
   p_away=0
   now=""
   now_set=0
@@ -4889,7 +4890,10 @@ cmd_presence() {
         case "$1" in
           --tower) p_tower=$2 ;;
           --producer) producer=$2 ;;
-          --last-prompt) last=$2 ;;
+          --last-prompt)
+            last=$2
+            last_set=1
+            ;;
           --now)
             now=$2
             now_set=1
@@ -4910,7 +4914,7 @@ cmd_presence() {
   fi
   parse_now
   if [ "$p_away" = 1 ]; then
-    [ -z "$last" ] || refuse "refusing a presence write carrying both --last-prompt and --away"
+    [ "$last_set" = 0 ] || refuse "refusing a presence write carrying both --last-prompt and --away"
     last=away
   else
     is_epoch "$last" || refuse "refusing --last-prompt '$(sanitize_printable "$last" "(unprintable epoch)")': give the last prompt event's epoch, or --away"
