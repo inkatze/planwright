@@ -13,3 +13,8 @@ ad7bb3d9914bc72e781d1943114516f31f989298:tests/test-inception-scaffold.sh:generi
 3d02f357d8953dcc1549232cddf7738261e9552f:tests/test-inception-review-cycle.sh:aws-access-token:529
 # Fleet-streamjson worker launch-token test fixture (a fake token, not a credential).
 3bd39c2967a9585146352106023c70e593e14577:tests/test-fleet-streamjson.sh:generic-api-key:816
+# Tower-queue picklist redaction fixture (an AWS-shaped option the add must refuse).
+93bcefc2c964bd350d9cdea4349fe3a2ef0f1597:tests/test-tower-queue-picklist.sh:aws-access-token:128
+# Tower-queue review mission-control session tokens (fake tokens the binding test compares).
+a7875222cacef3bd790f0558b018c7996f3ab476:tests/test-tower-queue-review.sh:generic-api-key:90
+a7875222cacef3bd790f0558b018c7996f3ab476:tests/test-tower-queue-review.sh:generic-api-key:153

@@ -381,6 +381,7 @@ a cross-spec hard edge in Task 12's `Dependencies:` line.)*
 
 ## Awaiting input
 
+- **Task 11** — post-pr step `cubic-pr` halted on draft PR #757: cubic reviewed the first head, and its five findings are fixed, replied to and resolved, but it refused the re-review of the fix head because the workspace reached its monthly review limit (reviews resume 2026-11-05). The ready flip needs a cubic round on the current head: raise the cubic budget or wait, then re-run the cubic round. Record: `.claude/steps/000001/008-step-post-pr.rec`.
 - **Task 4** — draft PR #528 is open and reviewed, but its CI cannot go green: `scan:secrets` fails on a test fixture in another open branch's commit (the full-history scan sees every fetched ref, and main's own CI is red the same way), and mise stops the test suite when it does. PR #526 fixes it and is unmerged. Once #526 lands, merge `origin/main` into the task branch and re-run CI; the queued question Q1 in the PR body (how a probed output changed by work outside this migration is declared) also needs an answer.
 
 ## Deferred
