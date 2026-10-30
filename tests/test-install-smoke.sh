@@ -210,6 +210,10 @@ smoke --modes writer --source "$src" --entry ../src/scripts/uses-posix.sh
 expect "an entry path climbing out of the installed root is a usage error" 2 $?
 smoke --entry
 expect "a flag without its value is a usage error" 2 $?
+smoke --modes writer --source "$src" --entry ''
+expect "an empty entry path is a usage error" 2 $?
+smoke --modes writer --source '' --entry scripts/uses-posix.sh
+expect "an empty source is a usage error" 2 $?
 smoke --verbose
 expect "an unknown argument is a usage error" 2 $?
 smoke --source "$TMP"

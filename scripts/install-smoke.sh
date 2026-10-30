@@ -61,7 +61,7 @@ entry=
 while [ $# -gt 0 ]; do
   case $1 in
     --modes | --source | --entry)
-      [ $# -ge 2 ] || die 2 "$1 needs a value"
+      [ $# -ge 2 ] && [ -n "$2" ] || die 2 "$1 needs a value"
       case $1 in
         --modes) modes=$2 ;;
         --source) src=$2 ;;
