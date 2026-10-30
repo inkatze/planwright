@@ -3795,6 +3795,22 @@ rebuild_if_absent() {
       fi
     fi
     [ "$_pe" != - ] || _pw=0
+    # A default comes back only where one could have applied: the log is
+    # anyone's to append to under this user, so it is not trusted to say so.
+    if [ "$_k" = settled-by-default ]; then
+      _dw=-
+      [ "$_h" != attention ] || _dw=$_p
+      if ! default_admissible "$_dw" "$_po" "$_pe" "$_pg"; then
+        _k=question
+        _pe=-
+        _pw=0
+        _pg=-
+        _pp=0
+        _st=0
+        _rs=-
+        _rv=-
+      fi
+    fi
     [ "$_k" = settled-by-default ] && [ "$_aw" = 1 ] || _aw=0
     [ "$_tp" = - ] || is_text "$_tp" 200 || _tp=-
     if [ "$_k" = decided-by-mission-control ]; then
@@ -4114,7 +4130,7 @@ window_prepare() {
     for (n = 1; n <= N; n++) {
       if (!OK[n] || F[n, 12] != "open" || F[n, 2] != "question") continue
       if (F[n, 29] + 0 <= 0 || F[n, 31] == 1 || F[n, 29] + 0 > now) continue
-      print F[n, 1] "\t" F[n, 28] "\t" F[n, 29] "\t" F[n, 30] "\t" F[n, 21] "\t" F[n, 6] "\t" F[n, 7]
+      print F[n, 1] "\t" F[n, 28] "\t" F[n, 29] "\t" F[n, 30] "\t" F[n, 21] "\t" F[n, 6] "\t" F[n, 7] "\t" F[n, 27]
     }
   }' "$store_file" 2>/dev/null) || _wd=""
   [ -n "$_wd" ] || return 0
@@ -4129,9 +4145,16 @@ window_prepare() {
     exit 6
   }
   _wk=0
-  while IFS="$TAB" read -r _wi _we _wt _wg _ws _wh _wp; do
+  while IFS="$TAB" read -r _wi _we _wt _wg _ws _wh _wp _wo; do
     is_item_id "$_wi" || continue
     [ "$_we" != park ] && [ "$_wg" = none ] || continue
+    if options_reserved "$_wo"; then
+      printf '%s\n' "$_wi" >>"$PARK_FILE" || {
+        err "cannot record a window to park"
+        exit 6
+      }
+      continue
+    fi
     # The pass parks a permission prompt rather than default it, and settles
     # a question whose row is gone or claimed before any window applies, so
     # no content saying it defaulted is written for either. An item that
@@ -4182,6 +4205,32 @@ window_prepare() {
   done <<EOF
 $_wd
 EOF
+}
+
+# options_reserved <a|b...> — 0 when any label of the option set names a
+# reserved control.
+options_reserved() {
+  _ow=$1
+  while [ -n "$_ow" ]; do
+    _ol=${_ow%%|*}
+    if [ "$_ol" = "$_ow" ]; then _ow=""; else _ow=${_ow#*|}; fi
+    reserved_control "$_ol" && return 0
+  done
+  return 1
+}
+
+# default_admissible <worker|-> <options> <end> <gate> — 0 when a declared
+# default could apply at all: gate none, an end that is no park, options and
+# question naming no reserved control, and a row that is no permission
+# prompt. What `add` refuses, the rebuild and the pass refuse again, since a
+# store or a log line need not have come from `add` (REQ-H1.5).
+default_admissible() {
+  [ "$4" = none ] && [ "$3" != park ] && [ "$3" != - ] || return 1
+  ! options_reserved "$2" || return 1
+  [ "$1" != - ] || return 0
+  attn_perm "$1"
+  [ "$p_f9" != permission ] || return 1
+  ! attn_question_reserved "$1"
 }
 
 # attn_question_reserved <worker> — 0 when the question on the worker's
@@ -4761,14 +4810,9 @@ add_check_review_fields() {
     if [ "$pick_end" != park ]; then
       [ -n "$gate" ] || refuse "a picklist with a declared default needs --gate none|human-gate|disqualifier-zone; an omitted gate never reads as none"
       [ "$gate" = none ] || refuse "refusing a declared default behind a $gate: only --end park is admitted there"
-      _wo=$options
-      while [ -n "$_wo" ]; do
-        _wl=${_wo%%|*}
-        if [ "$_wl" = "$_wo" ]; then _wo=""; else _wo=${_wo#*|}; fi
-        if reserved_control "$_wl"; then
-          refuse "refusing a declared default on options naming a reserved human control; only --end park is admitted"
-        fi
-      done
+      if options_reserved "$options"; then
+        refuse "refusing a declared default on options naming a reserved human control; only --end park is admitted"
+      fi
     fi
   elif [ -n "$gate" ] && [ "$kind" != decided-by-mission-control ]; then
     refuse "--gate belongs to a picklist or a decided-by-mission-control item"

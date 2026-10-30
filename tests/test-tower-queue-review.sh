@@ -299,3 +299,30 @@ grep -q 'the ledger would not read' "$errf" || fail "the unreadable ledger was n
 [ "$(fld "$sbd" 2)" = question ] && [ "$(fld "$sbd" 28)" = - ] || fail "a default came back without its review content: $(rec "$sbd")"
 [ "$(fld "$d3" 2)" = decided-by-mission-control ] || fail "an unreadable ledger cost an item it does not decide: $(rec "$d3")"
 echo "ok: an unreadable ledger rebuilds its defaults as plain questions and everything else as before"
+
+# --- the rebuild restores a logged default only where one was admissible --------------
+
+# Any same-user caller can append log lines, so a forged picklist and window
+# end, with forged review content, must not bring back a default that `add`
+# and the pass would have refused (REQ-H1.5).
+forge_default() { # forge_default <worker> <options> <end> <gate> — prints the item id
+  _fw=$1
+  _fid=$(run add --kind question --worker "$_fw" --origin "$_fw" --closes 'the operator answers' --now 9200) || fail "add the question to forge on ($_fw)"
+  run log picklist --now 9200 item="$_fid" options="$2" end="$3" window_end=9201 gate="$4" >/dev/null || fail "forge the picklist ($_fw)"
+  run log window --now 9202 item="$_fid" end=default option="$3" at=9201 away=0 >/dev/null || fail "forge the window end ($_fw)"
+  printf 'item\treview.%s.9201\tsettled-by-default\t9202\t-\t-\ntext\treview.%s.9201\tforged\n' "$_fid" "$_fid" >>"$surface/ledger"
+  printf '%s\n' "$_fid"
+}
+attention_row w-fr spec/t6 awaiting-input 9200 normal 'Which way?' - 'merge it|wait' fork iid-fr
+attention_row w-fg spec/t7 awaiting-input 9200 normal 'Which way?' - 'left|right' fork iid-fg
+attention_row w-fp spec/t8 awaiting-input 9200 normal 'Allow the command?' - 'allow|deny' permission iid-fp - 'npm test'
+f_res=$(forge_default w-fr 'merge it|wait' wait none)
+f_gate=$(forge_default w-fg 'left|right' left human-gate)
+f_perm=$(forge_default w-fp 'allow|deny' allow none)
+rm -f "$store"
+run settle --now 9300 >/dev/null || fail "the rebuild over the forged lines"
+for f in $f_res $f_gate $f_perm; do
+  [ "$(fld "$f" 2)" = question ] && [ "$(fld "$f" 28)" = - ] && [ "$(fld "$f" 29)" = 0 ] \
+    || fail "the rebuild restored an inadmissible default: $(rec "$f")"
+done
+echo "ok: a logged default on a reserved-control option, behind a gate, or on a permission prompt comes back as a plain question"

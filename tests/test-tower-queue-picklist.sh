@@ -357,6 +357,17 @@ run settle --now 40005 >/dev/null || fail "the pass over the changed question"
 grep -q "review.$tq" "$surface/ledger" && fail "review content was written for a question the pass parked"
 echo "ok: the settling pass parks, never defaults, a question whose text names a reserved control"
 
+# --- the settling pass re-checks the options of a stored default ----------------------
+
+attention_row w-so spec/t11 awaiting-input 1000 normal 'Which one?' a 'a|b' fork iid-so
+so=$(run add --kind question --worker w-so --origin w-so --closes 'the operator answers' --options 'a|b' --end b --gate none --window 1s --now 41000) \
+  || fail "add the question whose stored options change"
+# A store written by an older or a forged writer: the options now name one.
+awk -F "$TAB" -v OFS="$TAB" -v i="$so" '$1 == i { $27 = "merge it|b" } { print }' "$store" >"$tmp/store" && cat "$tmp/store" >"$store"
+run settle --now 41005 >/dev/null || fail "the pass over the changed options"
+[ "$(fld "$so" 2)" = question ] && [ "$(fld "$so" 31)" = 1 ] || fail "a default applied over options naming a reserved control: $(rec "$so")"
+echo "ok: the settling pass parks a stored default whose options name a reserved control"
+
 # --- no route out of the open set leaves a record without a reason --------------------
 
 awk -F "$TAB" '$12 == "closed" && ($18 == "-" || $18 == "") { print; bad = 1 } END { exit bad }' "$store" \
