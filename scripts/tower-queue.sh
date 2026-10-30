@@ -100,8 +100,9 @@
 # records.
 #
 # The identifier is derived from the content home's key (kind, home, pointer,
-# and for news the row's instance, for a path item its root), so an `add` of
-# content already queued is a no-op that prints the existing id, content
+# the row's instance for a question or news, for a path item its root), so an
+# `add` of content already queued is a no-op that prints the existing id (for
+# a question, the row's open question whatever instance it re-forked to), content
 # queued again after its item closed re-opens that same item, and a rebuild
 # from the content homes mints the same ids the lost store held. Closing
 # conditions and settle reasons pass the same secret-shaped redaction the
@@ -2622,9 +2623,8 @@ check_pointer() {
 
 # item_id <kind> <home> <pointer> <instance> <root> — the identifier derived
 # from the content home's key: the fields joined by a tab, which no field
-# can carry, so two keys never read as one. A question's key carries no
-# instance (one awaiting-input row is one question, however often it
-# re-forks) and no attention-home key carries a root.
+# can carry, so two keys never read as one. No attention-home key carries a
+# root.
 item_id() {
   _ck=$(printf '%s\t%s\t%s\t%s\t%s' "$1" "$2" "$3" "$4" "$5" | cksum | cut -d' ' -f1)
   is_count "$_ck" || {
@@ -2635,12 +2635,12 @@ item_id() {
 }
 
 # id_for <kind> <home> <pointer> <instance> <root> — item_id over the key's
-# canonical form: instance dropped for a question, root dropped for an
-# attention home.
+# canonical form: root dropped for an attention home. A question keeps its
+# row's instance, so the next question on a row whose default still awaits
+# review is an item of its own; `add` keeps one open question per row.
 id_for() {
   _ii=$4
   _ir=$5
-  [ "$1" != question ] || _ii=-
   [ "$2" != attention ] || _ir=-
   item_id "$1" "$2" "$3" "$_ii" "$_ir"
 }
@@ -3402,10 +3402,15 @@ run_store_pass() {
       for (n = 1; n <= N; n++) if (OK[n] && F[n, 1] == item) t = n
       $0 = record
       if (!rec_ok()) fail("the new record does not parse")
+      # One open question per row: a row re-forked under an open question is
+      # that question still, whatever its instance now reads.
+      if ($2 == "question" && $6 == "attention")
+        for (n = 1; n <= N; n++)
+          if (OK[n] && F[n, 12] == "open" && F[n, 2] == "question" && F[n, 6] == "attention" && F[n, 7] == $7) t = n
       # A picklist is declared at birth and never changes afterwards, so one
       # offered for an item already open is refused rather than dropped.
       if (t && F[t, 12] == "open" && $27 != "-" && (F[t, 27] != $27 || F[t, 28] != $28)) { print "status\tpicklist"; emit(out); print "changed\t" changed; exit }
-      if (t && F[t, 12] == "open") { print "status\tpresent"; emit(out); print "changed\t" changed; exit }
+      if (t && F[t, 12] == "open") { print "status\tpresent\t" F[t, 1]; emit(out); print "changed\t" changed; exit }
       if (t) {
         # The same content home queued again after its item closed: the
         # record is re-opened in place, born now, so one home is one id.
@@ -3719,12 +3724,13 @@ rebuild_if_absent() {
           rs = "the window ended on its default: " pe " (window end " pw ")"
         } else { pe = "-"; pw = "0"; pg = "-" }
       }
-      tail = po "\t" pe "\t" pw "\t" pg "\t" pp "\t" nz(btopic[i]) "\t" nz(bgr[i]) "\t" rv "\t" st "\t" rs "\t" aw
+      tail = po "\t" pe "\t" pw "\t" pg "\t" pp "\t" nz(btopic[i]) "\t" nz(bgr[i]) "\t" rv "\t" st "\t" rs "\t" aw "\t" nz(binst[i])
       if (bhome[i] == "attention") {
         w = bptr[i]
         ii = (w in at_iid && at_iid[w] != "") ? at_iid[w] : "-"
         if (kn == "settled-by-default") {
-          covered[w] = 1
+          # A row asked again since the default is a new question too.
+          if (ii == nz(binst[i])) covered[w] = 1
           print "cand\t" kn "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" ii "\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" tail
         } else if (kn == "question" && (w in at_state) && at_state[w] == "awaiting-input") {
           covered[w] = 1
@@ -3738,7 +3744,7 @@ rebuild_if_absent() {
           if (!(w in at_state)) why = "its attention row is gone (found when the store was rebuilt)"
           else { s = at_state[w]; gsub(/[^a-z0-9-]/, "", s); why = "its attention row moved on (" s ") while the store was lost" }
           inst = (kn == "news") ? nz(binst[i]) : ii
-          print "gone\t" kn "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" inst "\t-\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" po "\t-\t0\t-\t0\t" nz(btopic[i]) "\t-\t-\t0\t" why "\t0"
+          print "gone\t" kn "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" inst "\t-\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" po "\t-\t0\t-\t0\t" nz(btopic[i]) "\t-\t-\t0\t" why "\t0\t" nz(binst[i])
         } else print "drop\t" it
       } else if (bhome[i] == "path") {
         print "path\t" nz(kn) "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tpath\t" nz(bptr[i]) "\t" nz(binst[i]) "\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" tail
@@ -3747,7 +3753,7 @@ rebuild_if_absent() {
     for (w in at_state) if (at_state[w] == "awaiting-input" && !(w in covered)) {
       ii = (at_iid[w] == "") ? "-" : at_iid[w]
       u = (at_prio[w] ~ /^(high|normal|low)$/) ? at_prio[w] : "normal"
-      print "cand\tquestion\t" u "\t" w "\t" at_ts[w] + 0 "\tattention\t" w "\t" ii "\t-\t-\t'"$QUESTION_CLOSES"'\t-\tworker:" w "\t-\t-\t0\t-\t0\t-\t-\t-\t0\t-\t0"
+      print "cand\tquestion\t" u "\t" w "\t" at_ts[w] + 0 "\tattention\t" w "\t" ii "\t-\t-\t'"$QUESTION_CLOSES"'\t-\tworker:" w "\t-\t-\t0\t-\t0\t-\t-\t-\t0\t-\t0\t-"
     }
     # Last, so a failure line stays the first one the shell checks.
     if (ledwarn) print "warn\tthe ledger would not read, so no settled-by-default item came back from it"
@@ -3761,7 +3767,7 @@ rebuild_if_absent() {
   fi
   : >"$SCRATCH/new"
   _seen=""
-  while IFS="$TAB" read -r _tag _k _u _o _b _h _p _i _r _pk _c _was _sub _po _pe _pw _pg _pp _tp _gr _rv _st _rs _aw; do
+  while IFS="$TAB" read -r _tag _k _u _o _b _h _p _i _r _pk _c _was _sub _po _pe _pw _pg _pp _tp _gr _rv _st _rs _aw _bi; do
     case "$_tag" in
       drop)
         printf '%s\n' "$_k" >>"$SCRATCH/dropped"
@@ -3851,9 +3857,17 @@ rebuild_if_absent() {
     [ "$_k" != settled-by-default ] || _idk=question
     _id=$(id_for "$_idk" "$_h" "$_p" "$_i" "$_r")
     if [ "$_was" != "-" ] && [ "$_was" != "$_id" ]; then
-      err "rebuild: dropping a born line whose identifier does not derive from its own key ($(sanitize_printable "$_was" "?"))"
-      printf '%s\n' "$_was" >>"$SCRATCH/dropped"
-      continue
+      # A question's id carries the instance it was born with, which the
+      # row may have re-forked past; one born before ids carried it has none.
+      _idok=0
+      [ -z "$_bi" ] || [ "$(id_for "$_idk" "$_h" "$_p" "$_bi" "$_r")" != "$_was" ] || _idok=1
+      [ "$_idok" = 1 ] || [ "$_idk" != question ] || [ "$(id_for "$_idk" "$_h" "$_p" - "$_r")" != "$_was" ] || _idok=1
+      if [ "$_idok" = 0 ]; then
+        err "rebuild: dropping a born line whose identifier does not derive from its own key ($(sanitize_printable "$_was" "?"))"
+        printf '%s\n' "$_was" >>"$SCRATCH/dropped"
+        continue
+      fi
+      _id=$_was
     fi
     case " $_seen " in *" $_id "*) continue ;; esac
     _seen="$_seen $_id"
@@ -5082,6 +5096,8 @@ cmd_add() {
   }
   pass_failed "$result" && exit 6
   st=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "status" { print $2; exit }')
+  _pid=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "status" && $2 == "present" { print $3; exit }')
+  ! is_item_id "$_pid" || id=$_pid
   changed=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "changed" { print $2; exit }')
   [ "$changed" != 1 ] || commit_store || exit 6
   leave_store

@@ -370,6 +370,33 @@ run settle --now 41005 >/dev/null || fail "the pass over the changed options"
 [ "$(fld "$so" 2)" = question ] && [ "$(fld "$so" 31)" = 1 ] || fail "a default applied over options naming a reserved control: $(rec "$so")"
 echo "ok: the settling pass parks a stored default whose options name a reserved control"
 
+# --- a new question on a row whose default awaits review is a new item -----------------
+
+attention_row w-nq spec/t12 awaiting-input 1000 normal 'Which one first?' a 'a|b' fork iid-nq1
+nq1=$(run add --kind question --worker w-nq --origin w-nq --closes 'the operator answers' --options 'a|b' --end a --gate none --window 1s --now 42000) \
+  || fail "add the first question on the row"
+run settle --now 42005 >/dev/null || fail "the pass defaulting the first question"
+[ "$(fld "$nq1" 2)" = settled-by-default ] || fail "the first question did not default"
+# The worker asks again on the same row: a new fork instance.
+awk -F "$TAB" -v OFS="$TAB" '$1 == "w-nq" { $6 = "And which one second?"; $10 = "iid-nq2" } { print }' "$attn_store" >"$tmp/attn" && cat "$tmp/attn" >"$attn_store"
+nq2=$(run add --kind question --worker w-nq --origin w-nq --closes 'the operator answers' --now 42010) || fail "add the second question on the row"
+[ "$nq2" != "$nq1" ] || fail "the second question on the row was swallowed by the default awaiting review ($nq1)"
+[ "$(fld "$nq1" 2)" = settled-by-default ] && [ "$(fld "$nq2" 2)" = question ] && [ "$(fld "$nq2" 12)" = open ] \
+  || fail "the default and the new question are not both open: $(rec "$nq1") / $(rec "$nq2")"
+# A row re-forked under an open plain question is still that one question.
+awk -F "$TAB" -v OFS="$TAB" '$1 == "w-nq" { $10 = "iid-nq3" } { print }' "$attn_store" >"$tmp/attn" && cat "$tmp/attn" >"$attn_store"
+run settle --now 42020 >/dev/null || fail "the pass refreshing the instance"
+nq3=$(run add --kind question --worker w-nq --origin w-nq --closes 'the operator answers' --now 42021) || fail "re-add after the re-fork"
+[ "$nq3" = "$nq2" ] || fail "a re-forked row under an open question minted a second item ($nq3, not $nq2)"
+[ "$(awk -F "$TAB" '$7 == "w-nq" && $2 == "question" && $12 == "open"' "$store" | grep -c .)" = 1 ] || fail "the row carries two open questions"
+rm -f "$store"
+run settle --now 42030 >/dev/null || fail "the rebuild after the re-fork"
+[ "$(fld "$nq2" 2)" = question ] && [ "$(fld "$nq2" 12)" = open ] && [ "$(fld "$nq2" 8)" = iid-nq3 ] \
+  || fail "the rebuild lost the re-forked question's id: $(awk -F "$TAB" '$7 == "w-nq"' "$store")"
+[ "$(fld "$nq1" 2)" = settled-by-default ] || fail "the rebuild lost the default awaiting review beside the new question"
+[ "$(awk -F "$TAB" '$7 == "w-nq" && $2 == "question" && $12 == "open"' "$store" | grep -c .)" = 1 ] || fail "the rebuild minted a second question on the row"
+echo "ok: a new question on a row whose default awaits review gets its own id, a re-fork under an open question does not, and both survive a rebuild"
+
 # --- no route out of the open set leaves a record without a reason --------------------
 
 awk -F "$TAB" '$12 == "closed" && ($18 == "-" || $18 == "") { print; bad = 1 } END { exit bad }' "$store" \
