@@ -120,10 +120,10 @@ marker $A 300
 run next --tower $A --now 301 >/dev/null || fail "knock before the mixed round"
 marker $A 302
 first=$(run next --tower $A --now 303) || fail "deliver before the mixed round"
-# The eight approvals share a subject, so the hand-over is a pair (REQ-B1.3):
-# the `item` line first, then its `pair` line. This round is about the store
-# under concurrency, so it acts on the item line alone.
-fid=$(field "$first" 2 | head -n 1)
+# The eight approvals share a subject, so the hand-over is a subject batch
+# (REQ-C1.14): a `batch` line, then `item` lines with a `pair` line. This round
+# is about the store under concurrency, so it acts on the first item alone.
+fid=$(printf '%s\n' "$first" | awk -F '\t' '$1 == "item" { print $2; exit }')
 ids=$(cut -f 1 "$store" | grep -v "^$fid$" | head -n 4)
 (
   run ack "$fid" --tower $A --now 304 >/dev/null 2>&1

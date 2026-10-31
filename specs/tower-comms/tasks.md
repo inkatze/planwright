@@ -690,6 +690,13 @@ baseline exists, so the experiment has an honest before.
   `recover` and direct launches). Record:
   `.claude/steps/000002/005-step-post-pr.rec`.
 
+- **Task 13** — parked at post-pr, step `cubic-pr` halted
+  (`.claude/steps/000001/008-step-post-pr.rec`): the cubic quota is
+  exhausted until 2026-11-05, so PR #771 waits for the operator's cubic and
+  panel rounds. Also queued there: CI's suite-time gate is already over
+  budget on main, and the new batch test adds to it; the PR body lists the
+  three options.
+
 ## Deferred
 
 - **Extend the conversation rules to `/spec-kickoff`, `/spec-draft`,

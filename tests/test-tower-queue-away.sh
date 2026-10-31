@@ -61,7 +61,7 @@ TAB=$(printf '\t')
 
 # The core defaults the resolver falls back to, so the test never depends on
 # the repo's own config/defaults.yml for the knobs it pins here.
-printf 'notification_channel: none\ntower_hook_lock_wait: 2s\ntower_quiet_interval: 10m\ntower_lease_interval: 15m\ntower_catchup_limit: 20\ntower_shelve_return: 1h\ntower_reknock_age: 30m\ntower_tick_gap_max: 10m\ntower_log_rotate_age: 30d\ntower_report_window: 7d\n' >"$core_cfg"
+printf 'notification_channel: none\ntower_hook_lock_wait: 2s\ntower_quiet_interval: 10m\ntower_lease_interval: 15m\ntower_catchup_limit: 20\ntower_shelve_return: 1h\ntower_reknock_age: 30m\ntower_tick_gap_max: 10m\ntower_log_rotate_age: 30d\ntower_report_window: 7d\ntower_batch_max: 3\n' >"$core_cfg"
 
 channel() { printf 'notification_channel: %s\n' "$1" >"$tracked_cfg"; }
 channel none

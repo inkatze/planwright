@@ -3,8 +3,8 @@
 # the event log (`log`), the scorecard computed from it alone (`report`), and
 # the queue store with its verbs (`add`, `list`, `show`, `knock`, `next`,
 # `ack`, `revoke`, `shelve`, `settle`, `catchup`, `counts`) — D-2 to D-9,
-# D-14, D-17 to D-22; REQ-A1.1 to REQ-A1.14, REQ-B1.1 to REQ-B1.8, REQ-C1.1,
-# REQ-C1.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-C1.9, REQ-C1.10, REQ-C1.11,
+# D-14, D-17 to D-22, D-24; REQ-A1.1 to REQ-A1.14, REQ-B1.1 to REQ-B1.8,
+# REQ-C1.1, REQ-C1.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-C1.9 to REQ-C1.16,
 # REQ-F1.1 to REQ-F1.3, REQ-F1.6, REQ-F1.8, REQ-G1.1 to REQ-G1.9, REQ-H1.5.
 #
 # THE STORE. `<home>/tower-comms/queue`, one tab-separated record per item,
@@ -131,10 +131,11 @@
 # log's, REQ-A1.5); every locked verb commits what the derived pass changed,
 # whatever its own outcome.
 #
-# ATTENTION AND THE LEASE (`next`). `next` hands over at most one item per
-# call, ordered by consequence: questions (blocked workers) before approvals
-# before the operator's requests before the two reviewable kinds before news,
-# then urgency, then age. It is
+# ATTENTION AND THE LEASE (`next`). `next` hands over at most one hand-over
+# per call (REQ-C1.12): one item, one pair, or one subject batch (below),
+# ordered by consequence: questions (blocked workers) before approvals before
+# the operator's requests before settled-by-default before
+# decided-by-mission-control before news, then urgency, then age. It is
 # knock-first, enforced here rather than by instruction: the only thing that
 # confirms attention is the per-tower marker file the prompt-submit hook
 # writes at `<home>/tower-comms/attention/<tower>` — one line holding the
@@ -146,15 +147,18 @@
 # confirmed when the marker shows a reply at or after the last knock, later
 # than the last hand-over, and within `tower_quiet_interval` (a knock of the
 # tower's own opens the session: a marker with no knock on record confirms
-# nothing, and one reply releases one item);
+# nothing, and one reply releases one hand-over);
 # then `next` hands over the item the knock pinned (or the top item when the
-# top has not been pinned) and stamps the hand-over, printing one line:
-# `item`, id, kind, urgency, the origins (the source, plus any merged into it,
-# comma-joined), age in seconds, the content pointer
+# top has not been pinned), with its pair or batch, and stamps the hand-over,
+# printing, after any `batch` line (THE SUBJECT BATCH), one line per unit,
+# each followed by any `pair` line (PAIRING): `item`, id, kind, urgency, the
+# origins (the source, plus any merged into it, comma-joined), age in
+# seconds, the content pointer
 # (`attention:<worker>[@instance]` or `path:<root>/<rel>`), the park path
 # or -, and the closing condition, tab-separated. With attention unconfirmed
-# it prints the knock line — `knock`, kind and urgency of the top item, and
-# how many items are waiting for this tower, tab-separated — when a knock
+# it prints the knock line — `knock`, kind and urgency of the top item, how
+# many items are waiting for this tower, and how many the hand-over would
+# carry at the knock, tab-separated — when a knock
 # is due: nothing is outstanding, the last hand-over has gone unanswered
 # past the quiet interval, or the top item changed since the knock (the
 # lease that knock pinned goes with it). While a knock or a hand-over is
@@ -199,9 +203,9 @@
 # reported while the hand-over stands (REQ-C1.11), and a refused away push,
 # which is reported while the item stays queued.
 #
-# `ack <id>` closes an item and never releases the next; it is refused (exit
-# 1, a `refused` line logged) when the caller holds no lease on it and is a
-# logged no-op on a closed item. `shelve <id>` parks an item until
+# `ack <id>` closes one item and never releases the next hand-over; it is
+# refused (exit 1, a `refused` line logged) when the caller holds no lease on
+# it and is a logged no-op on a closed item. `shelve <id>` parks an item until
 # `tower_shelve_return` (or `--for`), releasing any lease, and never drops
 # it; it is refused the same way when another tower holds the lease. `settle
 # <id> --reason` closes one item on evidence, naming what settled it, and is
@@ -371,10 +375,25 @@
 # condition — `pair`, the partner's id, its content pointer, its park path and
 # its closing condition. The partner is the OLDEST candidate on that subject, so
 # the two inherited fields both stay meaningful and nothing starves; a third
-# item on the subject waits. Both are leased and stamped delivered, so the bound
-# of one hand-over per call holds (REQ-C1.1) — and both ids are acknowledged:
-# an unacknowledged partner is not lost, but it waits out the lease backstop
-# before it is offered again.
+# item on the subject is not paired. Both are leased and stamped delivered —
+# and both ids are acknowledged: an unacknowledged partner is not lost, but it
+# waits out the lease backstop before it is offered again.
+#
+# THE SUBJECT BATCH (D-24, REQ-C1.14). When the top item names a subject, the
+# other open, unleased, undelivered, deliverable items naming it, of any kind,
+# go over with it up to `tower_batch_max` items in all, in consequence order,
+# each leased and stamped delivered; the rest wait. An item names its subject
+# key, its free-text topic, or both, and two items share a subject when either
+# matches after case-folding and whitespace collapse. A pair counts two and
+# joins only if both fit, and the first unit that does not fit ends the batch,
+# so nothing lower-ranked jumps it; the top item and its own partner always
+# go. An item naming neither goes alone. A batch prints a `batch` line first —
+# `batch`, the item count, the member ids comma-joined — then each unit's
+# `item` line and any `pair` line; the `delivered` log line carries the same
+# `batch` and `size`. Each member is still acknowledged, revoked or shelved on
+# its own. The knock leases only the top item, so the size it names is the
+# batch as it stood then: the hand-over is rebuilt at delivery, and members
+# taken or added since change it without a fresh knock.
 #
 # CATCH-UP (`catchup`, D-8, REQ-B1.4, REQ-C1.8). A lock-free read of what
 # settled without the operator since their last reply in that tower's
@@ -906,6 +925,7 @@ resolve_knobs() {
       tower_shelve_return) shelve_return=$_kv ;;
       tower_reknock_age) reknock_age=$_kv ;;
       tower_picklist_window) picklist_window=$_kv ;;
+      tower_batch_max) batch_max=$_kv ;;
     esac
   done
   rm -rf "$_kd"
@@ -923,7 +943,7 @@ resolve_log_knobs() {
 resolve_queue_knobs() {
   resolve_knobs tower_hook_lock_wait:duration:2s tower_quiet_interval:duration:10m \
     tower_lease_interval:duration:15m tower_catchup_limit:posint:20 tower_shelve_return:duration:1h \
-    tower_reknock_age:duration:30m
+    tower_reknock_age:duration:30m tower_batch_max:posint:3
   if awk -v l="$lease_iv" -v q="$quiet" 'BEGIN { exit (l < q) ? 0 : 1 }'; then
     err "tower_lease_interval (${lease_iv}s) is below tower_quiet_interval (${quiet}s); the lease is floored at the quiet interval, so raise the one or lower the other"
     exit 4
@@ -3003,6 +3023,61 @@ function better(a, b,   x, y) {
   if (F[a, 5] + 0 != F[b, 5] + 0) return F[a, 5] + 0 < F[b, 5] + 0
   return F[a, 1] < F[b, 1]
 }
+# The subject batch (D-24). An item names up to two subjects, its key and its
+# free-text topic; two items are on one subject when either matches after
+# case-folding and whitespace collapse, never by similarity.
+function same_subject(a, b) {
+  if (F[a, 21] != "-" && norm(F[a, 21]) == norm(F[b, 21])) return 1
+  return F[a, 32] != "-" && F[b, 32] != "-" && norm(F[a, 32]) == norm(F[b, 32])
+}
+# The pairing partner (REQ-B1.3) from `pool`: the OLDEST unplaced item of the
+# same kind on the same subject key, so the urgency and age the pair inherits
+# both stay meaningful and nothing starves; the id breaks a tie.
+# A pair needs t`s exact key; the batch also needs the partner on the subject of
+# `lead`, the hand-over`s target, which a member joined by topic may not share.
+function mate_of(t, lead,   n, m) {
+  m = 0
+  if (F[t, 21] == "-") return 0
+  for (n in pool)
+    if (n != t && !(n in placed) && F[n, 2] == F[t, 2] && F[n, 21] == F[t, 21] && same_subject(lead, n))
+      if (!m || F[n, 5] + 0 < F[m, 5] + 0 || (F[n, 5] + 0 == F[m, 5] + 0 && F[n, 1] < F[m, 1])) m = n
+  return m
+}
+# One rule for the batch size a knock names and the hand-over it promises:
+# a member past the target is neither leased nor delivered (REQ-B1.3,
+# REQ-C1.14).
+function unclaimed(n) { return F[n, 19] == "-" && F[n, 14] + 0 == 0 }
+# build_batch(t, cap): the hand-over around t, as units (an item, or an item
+# and its pair partner) in BL/BM, BU units and BSZ items. The caller fills
+# `pool` with the candidates `unclaimed` admits. t and its partner always
+# go; past them the other items on t`s subject join in consequence order while
+# they fit under cap, a pair counting two, and the first that does not fit
+# stops the walk so nothing lower-ranked jumps it. t stays first even when a
+# member outranks it, as t may be the item a knock pinned.
+function build_batch(t, cap,   n, i, j, k, v, x, mm, sz, cnt) {
+  split("", placed); split("", paired); split("", BL); split("", BM); split("", bo)
+  placed[t] = 1; BU = 1; BL[1] = t; BM[1] = mate_of(t, t); BSZ = BM[1] ? 2 : 1
+  if (BM[1]) placed[BM[1]] = 1
+  paired[F[t, 2], F[t, 21]] = 1
+  if (F[t, 21] == "-" && F[t, 32] == "-") return
+  cnt = 0
+  for (n in pool) if (!(n in placed) && same_subject(t, n)) bo[++cnt] = n
+  for (i = 2; i <= cnt; i++) {
+    v = bo[i]; j = i - 1
+    while (j >= 1 && better(v, bo[j])) { bo[j + 1] = bo[j]; j-- }
+    bo[j + 1] = v
+  }
+  for (k = 1; k <= cnt; k++) {
+    x = bo[k]
+    if (x in placed) continue
+    mm = ((F[x, 2], F[x, 21]) in paired) ? 0 : mate_of(x, t)
+    sz = mm ? 2 : 1
+    if (BSZ + sz > cap) break
+    BU++; BL[BU] = x; BM[BU] = mm; BSZ += sz; placed[x] = 1
+    if (mm) placed[mm] = 1
+    paired[F[x, 2], F[x, 21]] = 1
+  }
+}
 function clean(s) { gsub(/[^[:print:]]/, "", s); return s }
 function fail(what) { print "fail\t" what; exit }
 function load_towers(file,   l, f, rc) {
@@ -3412,7 +3487,7 @@ run_store_pass() {
     -v reknock="${reknock_age:-0}" -v hold="${REKNOCK_HOLD:-0}" \
     -v attn_present="$([ -n "$attn_file_for_awk" ] && echo 1 || echo 0)" \
     -v out="$SCRATCH/new" -v tower="${tower:-}" -v record_file="$SCRATCH/record" -v reason_file="$SCRATCH/reason" \
-    -v review_file="${REVIEW_FILE:-}" -v park_file="${PARK_FILE:-}" -v SBD_REV="$SBD_REVERSAL" "$@" "$AWK_Q"'
+    -v review_file="${REVIEW_FILE:-}" -v park_file="${PARK_FILE:-}" -v SBD_REV="$SBD_REVERSAL" -v bmax="${batch_max:-3}" "$@" "$AWK_Q"'
   BEGIN {
     load_towers(towers_file); load_attention(attn_file); load_evidence(evid_file); load_reviews(review_file); load_parks(park_file); changed = 0
     record = ""; reason = ""
@@ -3591,35 +3666,34 @@ run_store_pass() {
       else if (me) {
         target = top
         if (kt > dt && tw_kitem[tower] != "-") for (n in cand) if (F[n, 1] == tw_kitem[tower]) target = n
-        # Pairing (REQ-B1.3): at most two candidates of the same kind naming
-        # the same subject go over as ONE unit, so the hand-over stays one
-        # decision and a third on that subject waits for the next call.
-        # The partner is the OLDEST candidate on the subject, not the
-        # best-ranked one: the delivered pair inherits the highest urgency and
-        # the oldest age of its sources, so taking the oldest keeps both
-        # inherited fields meaningful, and starvation is the failure that
-        # actually degrades a decision queue. The id breaks a tie.
-        # `cand` admits an item an away tower still holds, because the target
-        # may take that lease over. A partner may not: REQ-B1.3 pairs only
-        # items that are neither leased nor delivered, so a pair is one
-        # hand-over of two waiting items, never a second tower reclaim.
-        mate = 0
-        if (F[target, 21] != "-")
-          for (n in cand)
-            if (n != target && F[n, 19] == "-" && F[n, 14] + 0 == 0 && F[n, 2] == F[target, 2] && F[n, 21] == F[target, 21])
-              if (!mate || F[n, 5] + 0 < F[mate, 5] + 0 || (F[n, 5] + 0 == F[mate, 5] + 0 && F[n, 1] < F[mate, 1])) mate = n
-        purg = F[target, 3]; page = now - F[target, 5]; porig = srcs(target)
-        if (mate) {
-          if (urank(F[mate, 3]) < urank(purg)) purg = F[mate, 3]
-          if (now - F[mate, 5] > page) page = now - F[mate, 5]
-          porig = porig "," srcs(mate)
-          F[mate, 19] = tower; F[mate, 20] = int(now + lease_iv); F[mate, 14] = now
+        # The one hand-over (REQ-C1.12): the target, its pair partner, and the
+        # rest of its subject batch. `cand` admits an item an away tower still
+        # holds, because the target may take that lease over; every other
+        # member must be neither leased nor delivered (REQ-B1.3, REQ-C1.14),
+        # never a second tower reclaim.
+        for (n in cand) if (unclaimed(n)) pool[n] = 1
+        build_batch(target, bmax)
+        members = ""; lines = ""
+        for (u = 1; u <= BU; u++) {
+          l = BL[u]; mate = BM[u]
+          purg = F[l, 3]; page = now - F[l, 5]; porig = srcs(l)
+          if (mate) {
+            if (urank(F[mate, 3]) < urank(purg)) purg = F[mate, 3]
+            if (now - F[mate, 5] > page) page = now - F[mate, 5]
+            porig = porig "," srcs(mate)
+            F[mate, 19] = tower; F[mate, 20] = int(now + lease_iv); F[mate, 14] = now
+          }
+          F[l, 19] = tower; F[l, 20] = int(now + lease_iv); F[l, 14] = now
+          members = members (members == "" ? "" : ",") clean(F[l, 1]) (mate ? "," clean(F[mate, 1]) : "")
+          lines = lines render_item(l, purg, page, porig) "\n"
+          if (mate) lines = lines "pair\t" clean(F[mate, 1]) "\t" ptr_of(mate) "\t" clean(F[mate, 10]) "\t" clean(F[mate, 11]) "\n"
+          if (u == 1) { lead = l; lmate = mate; lurg = purg }
         }
-        F[target, 19] = tower; F[target, 20] = int(now + lease_iv); F[target, 14] = now; changed = 1
-        ndt = now; nditem = F[target, 1]
-        print "decision\tdeliver\t" clean(F[target, 1]) "\t" clean(F[target, 2]) "\t" clean(purg) "\t" (mate ? clean(F[mate, 1]) : "-")
-        print render_item(target, purg, page, porig)
-        if (mate) print "pair\t" clean(F[mate, 1]) "\t" ptr_of(mate) "\t" clean(F[mate, 10]) "\t" clean(F[mate, 11])
+        changed = 1
+        ndt = now; nditem = F[lead, 1]
+        print "decision\tdeliver\t" clean(F[lead, 1]) "\t" clean(F[lead, 2]) "\t" clean(lurg) "\t" (lmate ? clean(F[lmate, 1]) : "-") "\t" ((BU > 1) ? members : "-") "\t" BSZ
+        if (BU > 1) print "batch\t" BSZ "\t" members
+        printf "%s", lines
       } else {
         # The same reading attended() takes: a reply stamped in the same second
         # as the knock answers the knock; a hand-over needs a later one.
@@ -3636,8 +3710,10 @@ run_store_pass() {
           if (F[top, 19] == "-") { F[top, 19] = tower; F[top, 20] = int(now + lease_iv) }
           F[top, 13] = now; changed = 1
           nkt = now; nkitem = F[top, 1]
+          for (n in cand) if (unclaimed(n)) pool[n] = 1
+          build_batch(top, bmax)
           print "decision\tknock\t" clean(F[top, 1]) "\t" clean(F[top, 2]) "\t" clean(F[top, 3])
-          print "knock\t" clean(F[top, 2]) "\t" clean(F[top, 3]) "\t" nwait
+          print "knock\t" clean(F[top, 2]) "\t" clean(F[top, 3]) "\t" nwait "\t" BSZ
         }
       }
       print "delivery\t" nkt "\t" nkitem "\t" ndt "\t" nditem
@@ -5184,12 +5260,13 @@ cmd_add() {
   esac
 }
 
-# render_knock <kind> <urgency> <count> — the one-line knock. The `knock` verb
-# and `next` both render through here, so the line the operator reads has one
-# home whichever produced it (D-6). It names what is waiting and never the
-# content: content waits for confirmed attention (REQ-C1.2).
+# render_knock <kind> <urgency> <count> <batch> — the one-line knock. The
+# `knock` verb and `next` both render through here, so the line the operator
+# reads has one home whichever produced it (D-6). It names what is waiting and
+# how many items the hand-over will carry, never the content or its subject:
+# content waits for confirmed attention (REQ-C1.2).
 render_knock() {
-  printf 'knock\t%s\t%s\t%s\n' "$1" "$2" "$3"
+  printf 'knock\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4"
 }
 
 # human_span <seconds> — a span short enough for a lock screen. One unit, the
@@ -5298,14 +5375,16 @@ cmd_knock() {
   [ -f "$store_file" ] || exit 0
   _ka=""
   [ ! -f "$attn_store" ] || _ka=$attn_store
+  resolve_knobs tower_batch_max:posint:3
   # The attention store is loaded so this verb can apply the same
   # not-deliverable rule `next` applies: an item whose row is gone or has moved
   # on is one `next` will never hand over, and knocking about it would be the
   # one thing a shared render cannot fix. What this verb cannot apply is the
   # part that needs a tower — the lease, and the caller's own outstanding
   # hand-over — so its count is what is waiting for the queue, not what is
-  # waiting for one conversation.
-  _kl=$(awk -F '\t' -v now="$now" -v attn_file="$_ka" \
+  # waiting for one conversation. The batch size is the exception: it leaves
+  # out leased and delivered items, as `next` would.
+  _kl=$(awk -F '\t' -v now="$now" -v attn_file="$_ka" -v bmax="$batch_max" \
     -v attn_present="$([ -n "$_ka" ] && echo 1 || echo 0)" "$AWK_Q"'
   BEGIN { load_attention(attn_file) }
   END {
@@ -5320,9 +5399,12 @@ cmd_knock() {
       # reasoning settle_reason applies to the same absence.
       if (attn_present && skip_reason[n] != "") continue
       nwait++
+      if (unclaimed(n)) pool[n] = 1
       if (!top || better(n, top)) top = n
     }
-    if (top) print clean(F[top, 2]) "\t" clean(F[top, 3]) "\t" nwait
+    if (!top) exit
+    build_batch(top, bmax)
+    print clean(F[top, 2]) "\t" clean(F[top, 3]) "\t" nwait "\t" BSZ
   }' "$store_file" 2>/dev/null) || {
     err "cannot read the queue store"
     exit 6
@@ -5332,7 +5414,7 @@ cmd_knock() {
   pass_failed "$_kl" && exit 6
   [ -n "$_kl" ] || exit 0
   render_knock "$(printf '%s\n' "$_kl" | cut -f 1)" "$(printf '%s\n' "$_kl" | cut -f 2)" \
-    "$(printf '%s\n' "$_kl" | cut -f 3)"
+    "$(printf '%s\n' "$_kl" | cut -f 3)" "$(printf '%s\n' "$_kl" | cut -f 4)"
 }
 
 # ---------------------------------------------------------------------------
@@ -5394,9 +5476,10 @@ cmd_next() {
   dec_kind=""
   dec_urg=""
   dec_pair=-
+  dec_batch=-
+  dec_size=1
   changed=0
   out_line=""
-  pair_line=""
   push_lines=""
   n_kt=0
   n_kitem=-
@@ -5410,6 +5493,8 @@ cmd_next() {
         dec_kind=$_c
         dec_urg=$_d
         [ -z "$_e" ] || dec_pair=$_e
+        [ -z "$_f" ] || dec_batch=$_f
+        [ -z "$_g" ] || dec_size=$_g
         ;;
       delivery)
         n_kt=$_a
@@ -5419,9 +5504,13 @@ cmd_next() {
         ;;
       changed) changed=$_a ;;
       skip) err "not handing over $(sanitize_printable "$_a" "?"): $(sanitize_printable "$_b" "?")" ;;
-      item) out_line="item	$_a	$_b	$_c	$_d	$_e	$_f	$_g	$_h" ;;
-      pair) pair_line="pair	$_a	$_b	$_c	$_d" ;;
-      knock) out_line=$(render_knock "$_a" "$_b" "$_c") ;;
+      batch) out_line="${out_line}batch	$_a	$_b
+" ;;
+      item) out_line="${out_line}item	$_a	$_b	$_c	$_d	$_e	$_f	$_g	$_h
+" ;;
+      pair) out_line="${out_line}pair	$_a	$_b	$_c	$_d
+" ;;
+      knock) out_line=$(render_knock "$_a" "$_b" "$_c" "$_d") ;;
       push) push_lines="${push_lines}${_a}	${_b}	${_c}	${_d}	${_e}	${_f}
 " ;;
     esac
@@ -5464,13 +5553,20 @@ EOF
   [ "$tower_fallback" = 0 ] || err "no presence identity resolved; this tower leases as '$tower' (a tower-session-scoped fallback)"
   case "$dec_what" in
     deliver)
-      printf '%s\n' "$out_line"
-      [ -z "$pair_line" ] || printf '%s\n' "$pair_line"
-      surface_rules "$dec_item"
-      [ "$dec_pair" = - ] || surface_rules "$dec_pair"
+      printf '%s' "$out_line"
+      # A pair or batch shares a subject, so a rule naming it is printed once.
+      _bm=$dec_item
+      [ "$dec_pair" = - ] || _bm="$_bm,$dec_pair"
+      [ "$dec_batch" = - ] || _bm=$dec_batch
+      while [ -n "$_bm" ]; do
+        surface_rules "${_bm%%,*}"
+        case "$_bm" in *,*) _bm=${_bm#*,} ;; *) _bm="" ;; esac
+      done | awk '!seen[$0]++'
+      set -- pair="$dec_pair"
+      [ "$dec_batch" = - ] || set -- "$@" batch="$dec_batch" size="$dec_size"
       # The one fail-open line: the hand-over stands, the failure is
       # surfaced, and the redelivery it risks is inside the loss budget.
-      log_event delivered --now "$now" --tower "$tower" item="$dec_item" item_kind="$dec_kind" urgency="$dec_urg" pair="$dec_pair" \
+      log_event delivered --now "$now" --tower "$tower" item="$dec_item" item_kind="$dec_kind" urgency="$dec_urg" "$@" \
         || err "the 'delivered' line did not reach the event log; the hand-over stands"
       ;;
     knock)

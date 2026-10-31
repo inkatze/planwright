@@ -47,12 +47,13 @@
 #            itself is shown to the operator only on request (REQ-C1.8), which
 #            is why the flag exists rather than the catch-up running every step.
 #         4. At most one hand-over (`tower-queue.sh next`): nothing, a `knock`
-#            line, or an `item` line and its companions. Knock-first, the
-#            one-item bound, the lease and the away push are all that verb's;
-#            this only carries its output.
-#         5. The delivered content. A hand-over is ONE unit but may carry two
-#            items (`next` pairs two on a subject and stamps both delivered), so
-#            each gets a `content` record and a fenced block:
+#            line, or `item` lines and their companions. Knock-first, the
+#            one-hand-over bound, the lease and the away push are all that
+#            verb's; this only carries its output.
+#         5. The delivered content. A hand-over is ONE unit but may carry
+#            several items (`next` pairs two on a subject, batches more on one,
+#            and stamps every one delivered), so each gets a `content` record
+#            and a fenced block:
 #
 #              content<TAB><id><TAB>file|row|unknown<TAB>read<TAB>no|yes
 #              content<TAB><id><TAB>file|row|unknown<TAB>unread<TAB><reason>
@@ -743,10 +744,10 @@ emit_content() {
     || printf 'content-truncated\t%s\t%s\n' "$_ec_id" "$Q_CONTENT_CAP"
 }
 
-# A hand-over is one unit but can carry two items: `next` pairs two items on one
-# subject and stamps BOTH delivered, so both need their content here. Rendering
-# only the `item` line would ask the operator to answer a partner they were
-# shown nothing of.
+# A hand-over is one unit but can carry several items: `next` pairs or batches
+# items on one subject and stamps EVERY one delivered, so each needs its content
+# here. Rendering only the first `item` line would ask the operator to answer
+# items they were shown nothing of.
 printf '%s\n' "${next_lines:-}" | awk -F "$TAB" '
   $1 == "item" { print $2 "\t" $7 }
   $1 == "pair" { print $2 "\t" $3 }

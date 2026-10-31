@@ -343,7 +343,7 @@ counts=$(run counts) || fail "counts: exit"
 [ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "top" { print $2 }')" = question ] || fail "counts: top kind is not question: $counts"
 echo "ok: counts prints the open count per kind and the top item's kind"
 
-# --- ordering by consequence (REQ-C1.5) -----------------------------------------
+# --- ordering by consequence (REQ-C1.13; the reviewable kinds: test-tower-queue-batch.sh)
 
 # Attention confirmed: knock, then a reply later than the knock, then each
 # delivery followed by a reply later than it. The fixture's clock spans more
