@@ -1,4 +1,3 @@
-# expect-line: 15
 # expect-line: 16
 # expect-line: 17
 # expect-line: 18
@@ -10,6 +9,8 @@
 # expect-line: 24
 # expect-line: 25
 # expect-line: 26
+# expect-line: 27
+# expect-line: 28
 # Each GNU-only option, combined short flags included.
 set -u
 mtime=$(stat -c %Y "$0") || exit 2
@@ -18,6 +19,7 @@ timeout 5 true
 p=$(readlink -f "$0") || exit 2
 d=$(date -d @0 +%Y) || exit 2
 grep -oP 'a+' "$0" >/dev/null
+grep -2P 'a+' "$0" >/dev/null
 printf '%s\0' "$0" | xargs -0r ls >/dev/null
 printf '%s\n' "$0" | xargs --no-run-if-empty ls >/dev/null
 printf '%s\n' 1.10 1.9 | sort -V >/dev/null
