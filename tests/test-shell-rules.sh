@@ -227,6 +227,27 @@ esac
 
 fresh_root "$root"
 printf '%s\n' 'true' >"$root/scripts/a.sh"
+mkdir -p "$tmp/elsewhere"
+ln -s "$tmp/elsewhere" "$root/scripts/linked"
+run_rule shell-mktemp-template "$root"
+if [ "$rc" -eq 2 ]; then
+  pass "a symlinked directory in scope fails closed rather than being followed"
+else
+  fail "a symlinked directory in scope exited $rc: $out"
+fi
+
+fresh_root "$root"
+printf '%s\n' 'true' >"$root/scripts/a.sh"
+printf '%s\n' 'true' >"$root/scripts/$(printf 'new\nline').sh"
+run_rule shell-mktemp-template "$root"
+if [ "$rc" -eq 2 ]; then
+  pass "a filename holding a newline fails closed"
+else
+  fail "a filename holding a newline exited $rc: $out"
+fi
+
+fresh_root "$root"
+printf '%s\n' 'true' >"$root/scripts/a.sh"
 ln -s /dev/null "$root/scripts/dev.sh"
 run_rule shell-mktemp-template "$root"
 if [ "$rc" -eq 2 ]; then
@@ -296,9 +317,12 @@ else
   fail "doctrine/guard-catalog.md does not name the shell rule set"
 fi
 for rule in $rules; do
-  if grep -q "^\[tasks\.\"check:$rule\"\]" "$MISE" \
-    && grep -q "^run = \"/bin/bash scripts/check-$rule.sh\"" "$MISE" \
-    && grep -q "^  \"check:$rule\",$" "$MISE"; then
+  # The run line must sit inside the rule's own task block, not anywhere.
+  if awk -v t="[tasks.\"check:$rule\"]" -v r="run = \"/bin/bash scripts/check-$rule.sh\"" '
+    /^\[/ { on = ($0 == t) }
+    on && $0 == r { f = 1 }
+    END { exit !f }
+  ' "$MISE" && grep -q "^  \"check:$rule\",$" "$MISE"; then
     pass "$rule: its own mise task, inside the check aggregate"
   else
     fail "$rule: no check:$rule task running scripts/check-$rule.sh in the check aggregate"

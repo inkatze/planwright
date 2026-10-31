@@ -65,6 +65,21 @@ printf '%s markdown other.sh "$out"\n' "$le" >>"$tmp/empty/tests/test-emit.sh"
 expect "an empty declaration is a finding" "$tmp/empty" 1 'unknown format "(none)"'
 scratch_root "$tmp/badfmt" '# Emits: markdown, html'
 expect "an unknown format is named in the finding" "$tmp/badfmt" 1 'unknown format "html"'
+scratch_root "$tmp/commented" '# Emits: markdown'
+printf '#!/bin/sh\n# %s markdown emit.sh "$out"\n' "$le" >"$tmp/commented/tests/test-emit.sh"
+expect "a commented-out lint call lints nothing" "$tmp/commented" 1 "emits markdown, but no test lints it"
+scratch_root "$tmp/late" '# Emits: markdown'
+{
+  printf '#!/bin/sh\n'
+  i=0
+  while [ "$i" -lt 40 ]; do
+    printf 'true\n'
+    i=$((i + 1))
+  done
+  printf '# Emits: yaml\n'
+} >"$tmp/late/scripts/late.sh"
+printf '# Emits: markdown\n' >"$tmp/late/scripts/emit.sh"
+expect "a declaration past the header's first 40 lines declares nothing" "$tmp/late" 0 "clean (1 declared"
 scratch_root "$tmp/a=b" '# Emits: markdown'
 out=$(cd "$tmp" && /bin/sh "$CHECK" a=b 2>&1 </dev/null)
 case "$?:$out" in
