@@ -2665,17 +2665,23 @@ check_owned() {
 # is verify_queue_surface, adjacent to the writes it guards).
 ensure_queue_surface() {
   ensure_surface
-  if [ -L "$delivery_dir" ]; then
-    err "security: $(sanitize_printable "$delivery_dir" "(unprintable path)") is a symlink — refusing to write through a redirect"
+  ensure_sub_surface "$delivery_dir" delivery
+  check_store_file "$store_file"
+}
+
+# ensure_sub_surface <dir> <name> — a directory under the surface, refused
+# when it is a symlink, created when absent, then verified owner-only.
+ensure_sub_surface() {
+  if [ -L "$1" ]; then
+    err "security: $(sanitize_printable "$1" "(unprintable path)") is a symlink — refusing to write through a redirect"
     exit 4
   fi
-  [ -d "$delivery_dir" ] || mkdir "$delivery_dir" 2>/dev/null || true # not-a-lock: best-effort creation
-  [ -d "$delivery_dir" ] || {
-    err "cannot create the delivery sub-surface $(sanitize_printable "$delivery_dir" "(unprintable path)")"
+  [ -d "$1" ] || mkdir "$1" 2>/dev/null || true # not-a-lock: best-effort creation
+  [ -d "$1" ] || {
+    err "cannot create the $2 sub-surface $(sanitize_printable "$1" "(unprintable path)")"
     exit 6
   }
-  check_private_dir "$delivery_dir"
-  check_store_file "$store_file"
+  check_private_dir "$1"
 }
 
 verify_queue_surface() {
@@ -4792,30 +4798,22 @@ EOF
   # is logged once, by the first `next` that sees it (REQ-F1.7, REQ-G1.9).
   read_delivery "$tower"
   case "$dec_what" in
-    deliver | knock)
-      # The delivery record goes first: a failure there leaves the store
-      # untouched, whereas a stamped store with no record would hide the
-      # item from its own holder until the backstop.
-      write_delivery "$tower" "$n_kt" "$n_kitem" "$n_dt" "$n_ditem" "$p_src"
-      if [ "$changed" = 1 ] && ! commit_store; then
-        write_delivery "$tower" "$d_kt" "$d_kitem" "$d_dt" "$d_ditem" "$d_src"
-        exit 6
-      fi
-      ;;
-    *)
-      # A source switch is recorded first for the same reason: written after
-      # the commit, its failure would leave pushes stamped and never sent.
-      if [ "$p_src" != "$d_src" ]; then
-        write_delivery "$tower" "$d_kt" "$d_kitem" "$d_dt" "$d_ditem" "$p_src"
-        if [ "$changed" = 1 ] && ! commit_store; then
-          write_delivery "$tower" "$d_kt" "$d_kitem" "$d_dt" "$d_ditem" "$d_src"
-          exit 6
-        fi
-      else
-        [ "$changed" != 1 ] || commit_store || exit 6
-      fi
-      ;;
+    deliver | knock) set -- "$n_kt" "$n_kitem" "$n_dt" "$n_ditem" ;;
+    *) set -- "$d_kt" "$d_kitem" "$d_dt" "$d_ditem" ;;
   esac
+  # The delivery record goes first: a failure there leaves the store
+  # untouched, whereas a stamped store with no record would hide the item
+  # from its own holder until the backstop, and a source switch written after
+  # the commit would leave pushes stamped and never sent.
+  if [ "$dec_what" = deliver ] || [ "$dec_what" = knock ] || [ "$p_src" != "$d_src" ]; then
+    write_delivery "$tower" "$1" "$2" "$3" "$4" "$p_src"
+    if [ "$changed" = 1 ] && ! commit_store; then
+      write_delivery "$tower" "$d_kt" "$d_kitem" "$d_dt" "$d_ditem" "$d_src"
+      exit 6
+    fi
+  else
+    [ "$changed" != 1 ] || commit_store || exit 6
+  fi
   pw=0
   if [ "$DO_SETTLE" = 1 ]; then
     pass_writes "$result" || pw=6
@@ -4923,16 +4921,7 @@ cmd_presence() {
   resolve_surface
   umask 077
   ensure_surface
-  if [ -L "$presence_dir" ]; then
-    err "security: $(sanitize_printable "$presence_dir" "(unprintable path)") is a symlink — refusing to write through a redirect"
-    exit 4
-  fi
-  [ -d "$presence_dir" ] || mkdir "$presence_dir" 2>/dev/null || true # not-a-lock: best-effort creation
-  [ -d "$presence_dir" ] || {
-    err "cannot create the presence sub-surface $(sanitize_printable "$presence_dir" "(unprintable path)")"
-    exit 6
-  }
-  check_private_dir "$presence_dir"
+  ensure_sub_surface "$presence_dir" presence
   check_private_file "$presence_dir/$p_tower"
   PENDING_TMP=$(mktemp "$presence_dir/.$p_tower.XXXXXX" 2>/dev/null) || {
     err "cannot create a scratch file for the presence marker"
