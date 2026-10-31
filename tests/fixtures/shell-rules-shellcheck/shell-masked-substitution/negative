@@ -1,0 +1,9 @@
+# shellcheck shell=bash
+# expect: none
+# Declared first, assigned on its own, so the failure reaches the ||.
+f() {
+  local out
+  out=$(git rev-parse HEAD) || return 1
+  printf '%s\n' "$out"
+}
+f

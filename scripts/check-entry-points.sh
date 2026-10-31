@@ -159,18 +159,18 @@ done <"$work/entry-points"
 
 # make_sandbox <dir>: a read-only copy of the tree in <dir>/tree.
 make_sandbox() {
-  mkdir -p "$1/tree" || return 1
+  mkdir -p -- "$1/tree" || return 1
   set +f
   for e in "$repo_root"/* "$repo_root"/.[!.]* "$repo_root"/..?*; do
     [ -e "$e" ] || [ -h "$e" ] || continue
     case ${e##*/} in .git | .claude | tests) continue ;; esac
-    cp -RP "$e" "$1/tree/" || {
+    cp -RP -- "$e" "$1/tree/" || {
       set -f
       return 1
     }
   done
   set -f
-  chmod -R a-w "$1/tree"
+  chmod -R -- a-w "$1/tree"
 }
 
 # run_ep <sandbox> <path> <args-file> <stdin-file> <out-prefix>: run one entry
@@ -179,7 +179,7 @@ make_sandbox() {
 runs=0
 run_ep() {
   runs=$((runs + 1))
-  rm -f "$5.out" "$5.err" "$5.rc"
+  rm -f -- "$5.out" "$5.err" "$5.rc"
   [ -r "$4" ] || return 5
   (
     sb=$1 ep=$2 argf=$3 inf=$4 o=$5

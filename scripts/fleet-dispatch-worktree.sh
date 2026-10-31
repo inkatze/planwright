@@ -638,7 +638,7 @@ valid_brief() {
   esac
   [ "$(basename "$1")" = brief.md ] || return 1
   [ -f "$1" ] && [ -r "$1" ] && [ -s "$1" ] && [ ! -L "$1" ] || return 1
-  _vb_dir=$(cd "$(dirname "$1")" 2>/dev/null && pwd -P) || return 1
+  _vb_dir=$(cd -- "$(dirname "$1")" 2>/dev/null && pwd -P) || return 1
   _vb_home=$(/bin/sh "$FLEET_STATE" root 2>/dev/null </dev/null) || return 1
   [ -n "$_vb_home" ] || return 1
   _vb_home=$(cd "$_vb_home" 2>/dev/null && pwd -P) || return 1
@@ -1884,7 +1884,7 @@ MERR
 # real directory, and is exactly the placed worktree.
 start_dir_ok() {
   [ ! -L "$1" ] && [ -d "$1" ] || return 1
-  sdo_phys=$(cd "$1" 2>/dev/null && pwd -P) || return 1
+  sdo_phys=$(cd -- "$1" 2>/dev/null && pwd -P) || return 1
   [ "$sdo_phys" = "$2" ]
 }
 

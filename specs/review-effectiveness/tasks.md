@@ -580,6 +580,8 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 
 ## Awaiting input
 
+- **Task 11** — post-pr: step cubic-pr halted; record `.claude/steps/000001/009-step-post-pr.rec`
+
 ## Deferred
 
 - **The private reviewer's design lessons.** A private reviewer the

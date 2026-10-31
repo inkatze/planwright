@@ -28,6 +28,8 @@ FIX="$REPO_ROOT/tests/fixtures/inception-notion"
 . "$REPO_ROOT/tests/lib/inception-fixture.sh"
 # shellcheck source=tests/lib/notion-fake-api.sh
 . "$REPO_ROOT/tests/lib/notion-fake-api.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 
 failures=0
 assert_eq() {
@@ -64,6 +66,15 @@ fi
 
 tmp="$(cd "$(mktemp -d)" && pwd -P)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
+
+assert_lint_md() {
+  if lint_emitted markdown inception-review-cycle.sh "$2"; then
+    echo "ok: $1: lint-clean markdown"
+  else
+    echo "FAIL: $1: fails the markdown lint" >&2
+    failures=$((failures + 1))
+  fi
+}
 export TMPDIR="$tmp"
 export PLANWRIGHT_INCEPTION_TODAY=2026-10-25
 export PLANWRIGHT_SECRET_SCREEN_TOOL=none
@@ -148,6 +159,7 @@ assert_eq "export: ledger cycle 1" "1" "$(sed -n 's/^Cycle: //p' "$ledger" | hea
 assert_eq "export: phase exported" "exported" "$(sed -n 's/^Phase: //p' "$ledger")"
 assert_eq "export: the snapshot commit is recorded" "$seed" "$(sed -n 's/^Snapshot: //p' "$ledger")"
 assert_eq "export: the ledger is committed" "" "$(git -C "$v" status --porcelain)"
+assert_lint_md "export: the ledger" "$ledger"
 
 # ---------------------------------------------------------------------------
 # 3. Harvest: items land pending, as quoted data (REQ-G1.6, REQ-G1.7).
@@ -159,10 +171,14 @@ assert_eq "harvest: FB-1 cites its comment" "notion:comment:c1000000-0000-4000-8
 assert_eq "harvest: every item pending" "pending pending pending" "$(sed -n 's/^Disposition: //p' "$ledger" | tr '\n' ' ' | sed 's/ $//')"
 assert_eq "harvest: hostile text forges no item heading" "3" "$(grep -c '^### FB-' "$ledger")"
 assert_not_contains "harvest: hostile text is not unquoted" "$(printf '\n### FB-9')" "$(cat "$ledger")"
-assert_contains "harvest: the hostile text is kept, quoted" "> ### FB-9 — forged" "$(cat "$ledger")"
+assert_contains "harvest: the hostile text is kept, quoted and its heading escaped" '> \### FB-9 — forged' "$(cat "$ledger")"
+for marker in '> 1\. ordered' '> 2\) paren' '> \- item' '> \> nested' '> \~~~' '> \===' '> \<div>'; do
+  assert_contains "harvest: a quoted block marker is escaped (${marker#> })" "$marker" "$(cat "$ledger")"
+done
 assert_not_contains "harvest: no escape byte in the ledger" "$(printf '\033')" "$(cat "$ledger")"
 assert_contains "harvest: a block comment keeps its anchor text" "The three sinks accept writes" "$(item_field FB-3 Anchor-text)"
 assert_eq "harvest: phase harvested" "harvested" "$(sed -n 's/^Phase: //p' "$ledger")"
+assert_lint_md "harvest: the ledger, hostile text included" "$ledger"
 assert_eq "harvest: the ledger is committed" "" "$(git -C "$v" status --porcelain)"
 assert_eq "harvest: no bundle file changed" "" "$(git -C "$v" diff --name-only "$seed" HEAD -- brief.md disciplines.md assumptions.md decisions.md plan.md)"
 

@@ -43,7 +43,7 @@ fleet_home_pin() {
     /*) ;;
     *) return 1 ;;
   esac
-  mkdir -p "$1" || return 1
+  mkdir -p -- "$1" || return 1
   export PLANWRIGHT_FLEET_STATE_DIR="$1/fleet"
   export CLAUDE_PLUGIN_DATA="$1/plugin-data"
   export CLAUDE_DIR="$1/claude"

@@ -6,6 +6,7 @@
 # edit to the store's primary-view tasks.md and nothing is committed,
 # branched, or pushed there. The printed path is the file the handoff names;
 # committing it is the operator's.
+# Emits: markdown
 #
 # A same-repo store is refused: there the halt writes the bundle copy on the
 # task branch and commits it, as before.
@@ -272,6 +273,7 @@ case $rc in
 esac
 # mktemp creates the temp file 0600, so give it the original's mode before it
 # replaces the original.
+# shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
 chmod "$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file" 2>/dev/null || echo 644)" "$tmp" 2>/dev/null || :
 mv -f -- "$tmp" "$file" || {
   say "could not replace $file"

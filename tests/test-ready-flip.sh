@@ -31,6 +31,13 @@ check() { # <label> <command...>
 }
 not() { ! "$@"; }
 
+[ -r "$REPO_ROOT/tests/lib/emitter-lint.sh" ] || {
+  echo "FAIL: tests/lib/emitter-lint.sh missing" >&2
+  exit 1
+}
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
+
 SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/ready-flip.XXXXXX") || exit 1
 trap 'rm -rf "$SANDBOX"' EXIT
 STUBBIN="$SANDBOX/bin"
@@ -274,6 +281,7 @@ check "the record names the head SHA" grep -q "$(gitf rev-parse HEAD)" "$GHS/com
 for p in ready-guard ci-rollup review-converged awaiting-input; do
   check "the record carries a passing row with evidence for $p" grep -Eq "^\| $p \| pass \| [^ |][^|]* \|$" "$GHS/comment.1"
 done
+check "the record passes the markdown lint" lint_emitted markdown ready-flip.sh "$GHS/comment.1"
 check "a pass writes no park" [ "$(leads)" = 0 ]
 check "the handoff says flipped" grep -q 'flipped' <<<"$OUT"
 
@@ -608,6 +616,7 @@ check "a failing flip call parks (exit 4)" [ "$CODE" = 4 ]
 check "the record and a follow-up comment were both written" [ "$(calls 'pr comment')" = 2 ]
 check "the follow-up names the failed flip" grep -qi 'flip was not made.*gh exit 1' "$GHS/comment.2"
 check "the follow-up says the flip was parked" grep -q 'parked under' "$GHS/comment.2"
+check "the follow-up passes the markdown lint" lint_emitted markdown ready-flip.sh "$GHS/comment.2"
 check "the park names flip-call" grep -q 'pending ready-flip: flip-call' <<<"$(bullet)"
 
 echo "# skips: no PR, no host CLI, already ready, the human policy"

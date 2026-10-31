@@ -25,6 +25,9 @@
 #             matches.
 #   core      true for the universal core catalog (REQ-G1.2); false/absent for
 #             breadth dimensions that are catalogued and growable but advisory.
+#   disposition  optional: the finding category a raised finding takes, as a
+#             slug, auto-applicable | agent-resolvable | needs-sign-off
+#             (doctrine/finding-categorization.md)
 #
 # The reader is a constrained awk parser, not full YAML: keep list items at
 # two-space and fields at four-space indentation, and values unquoted or
@@ -231,3 +234,74 @@ breadth:
     tool: cdpath-check
     detect: "manual"
     core: false
+  # Shell rule set: one entry per recurring shell defect class a mechanical
+  # check can own, the rule id the one a finding cites. disposition is the
+  # categorization a finding takes when its conditions hold; the
+  # security-sensitive and judgment-bearing rules route to sign-off.
+  # planwright's checks: scripts/check-<id>.sh for the scripted rules, each
+  # exempting a site with `# <id>: <reason>`; shellcheck's SC2155 for
+  # shell-masked-substitution (`# shellcheck disable=SC2155`);
+  # check:echo-discipline for shell-raw-echo (`# trusted: <reason>`);
+  # check:lock-primitive for shell-lock-contention (`# not-a-lock: <reason>`).
+  - id: shell-pipe-status
+    category: house-pattern
+    tool: pipe-status-check
+    detect: "manual"
+    core: false
+    disposition: needs-sign-off
+  - id: shell-masked-substitution
+    category: linter
+    tool: shellcheck
+    detect: "manual"
+    core: false
+    disposition: auto-applicable
+  - id: shell-fail-open-noop
+    category: house-pattern
+    tool: fail-open-noop-check
+    detect: "manual"
+    core: false
+    disposition: needs-sign-off
+  - id: shell-mktemp-template
+    category: house-pattern
+    tool: mktemp-template-check
+    detect: "manual"
+    core: false
+    disposition: auto-applicable
+  - id: shell-gnu-only-flag
+    category: house-pattern
+    tool: gnu-only-flag-check
+    detect: "manual"
+    core: false
+    disposition: needs-sign-off
+  - id: shell-dash-operand
+    category: house-pattern
+    tool: dash-operand-check
+    detect: "manual"
+    core: false
+    disposition: needs-sign-off
+  - id: shell-raw-echo
+    category: house-pattern
+    tool: echo-discipline-check
+    detect: "manual"
+    core: false
+    disposition: needs-sign-off
+  - id: shell-config-pin
+    category: house-pattern
+    tool: config-pin-check
+    detect: "manual"
+    core: false
+    disposition: needs-sign-off
+  - id: shell-lock-contention
+    category: house-pattern
+    tool: lock-primitive-check
+    detect: "manual"
+    core: false
+    disposition: needs-sign-off
+  # Emitter output linting: a script that emits YAML, Markdown or shell lints
+  # that output in its own tests (planwright: scripts/check-emitter-lint.sh).
+  - id: emitter-output-lint
+    category: house-pattern
+    tool: emitter-lint-check
+    detect: "manual"
+    core: false
+    disposition: needs-sign-off

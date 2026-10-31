@@ -5,6 +5,8 @@
 # through this helper; none composes a fragment path by hand and none appends
 # to a shared committed log.
 #
+# Emits: markdown
+#
 # What it does (REQ-A1.6): mint an 8-hex UID from a system entropy source,
 # validate every filename component against its anchored grammar under
 # LC_ALL=C (calendar-date validity included), containment-check the composed
@@ -439,6 +441,7 @@ if [ "$have_target" -eq 1 ]; then
   esac
   [ "${#target}" -le 64 ] || refuse 1 "target alias must be at most 64 characters"
   tg_rc=0
+  # shell-config-pin: records into the spec root of the checkout it runs in
   tg_out=$("$script_dir/config-get.sh" --explain observation_targets) || tg_rc=$?
   case $tg_rc in
     0) ;;

@@ -84,7 +84,7 @@ toplevel=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
   && toplevel=$(cd "$toplevel" && pwd -P) && [ "$toplevel" = "$repo" ] \
   || die "not a git toplevel: $(sanitize_printable "$repo")"
 
-scratch=$(mktemp -d) || die "mktemp -d failed"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/check-duties.XXXXXX") || die "mktemp -d failed"
 [ -n "$scratch" ] && [ -d "$scratch" ] || die "mktemp -d produced no directory"
 trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$scratch/adopter" "$scratch/claude" "$scratch/home" || die "cannot populate the scratch directory"

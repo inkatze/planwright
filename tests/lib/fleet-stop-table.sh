@@ -72,7 +72,7 @@ command -v jq >/dev/null 2>&1 || fail "jq is required: the stream-json launch pr
 
 # Physical temp path (macOS /var -> /private/var): the headless state base is
 # compared physically.
-tmp=$(cd "$(mktemp -d)" && pwd -P)
+tmp=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/fleet-stop-table.XXXXXX")" && pwd -P)
 strangers=''
 # pid_args <pid> — the pid's argv, or nothing. busybox ps has no -p, so the
 # pid is picked out of a full listing there.

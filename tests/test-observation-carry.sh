@@ -44,6 +44,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 CARRY="$here/../scripts/observation-carry.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$here/lib/emitter-lint.sh"
 TAB=$(printf '\t')
 
 # The carry's default store comes from the spec root the fixture repository
@@ -120,6 +122,7 @@ for a in "$@"; do
     --head) head="$a" ;;
     --jq) jqexpr="$a" ;;
     --base) base="$a" ;;
+    --body) printf '%s\n' "$a" >"$st/body" ;;
   esac
   [ "$a" = "--draft" ] && has_draft=1
   prev="$a"
@@ -272,6 +275,8 @@ c1() {
   # Default base origin/main → PR base 'main' (the remote segment stripped).
   grep -q "base=main" "$tmp/ghstate/create-log" \
     || fail "c1: PR base should be 'main' for default origin/main (got: $(cat "$tmp/ghstate/create-log"))"
+  lint_emitted markdown observation-carry.sh "$tmp/ghstate/body" \
+    || fail "c1: the PR body fails the markdown lint"
   # Never merged.
   [ ! -s "$tmp/ghstate/merge-log" ] || fail "c1: carry must never merge the PR"
   # Local main byte-for-byte unchanged.

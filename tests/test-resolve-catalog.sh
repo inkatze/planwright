@@ -13,6 +13,8 @@ export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RESOLVER="$REPO_ROOT/scripts/resolve-catalog.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 
 failures=0
 assert() {
@@ -134,6 +136,13 @@ assert_contains "supersede: alpha replaced (overlay note)" "overlay-a" "$out"
 assert_absent "supersede: alpha old note gone" "core-a" "$out"
 assert_contains "supersede: beta survives" "core-b" "$out"
 assert_absent "supersede: marker stripped from output" "supersede:" "$out"
+printf '%s\n' "$out" >"$tmp/merged.yaml"
+if lint_emitted yaml resolve-catalog.sh "$tmp/merged.yaml"; then
+  echo "ok: supersede: the merged catalog is lint-clean YAML"
+else
+  echo "FAIL: supersede: the merged catalog fails the YAML lint" >&2
+  failures=$((failures + 1))
+fi
 
 # ---------------------------------------------------------------------------
 # 2b. `supersede: false` (or any non-`true` value) is NOT a supersede marker

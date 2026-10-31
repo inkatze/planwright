@@ -93,6 +93,7 @@ emit_trimmed() {
 # single "<layer>TAB<value>" line on stdout (config-get B1.6).
 explain_out=""
 rc=0
+# shell-config-pin: a resolver, pinned by its caller (PLANWRIGHT_REPO_ROOT or the checkout it runs in)
 explain_out=$("$config_get" --explain dispatch_isolation) || rc=$?
 
 if [ "$rc" -eq 4 ]; then
@@ -136,7 +137,7 @@ case "$layer" in
     # the three overlay roots. PLANWRIGHT_REPO_ROOT=none leaves repo-tracked
     # and derived machine-local both absent; a guaranteed-absent adopter path
     # under a scratch dir blanks the adopter layer.
-    scratch=$(mktemp -d) || {
+    scratch=$(mktemp -d "${TMPDIR:-/tmp}/resolve-dispatch-isolation.XXXXXX") || {
       echo "resolve-dispatch-isolation: could not create a scratch dir to read the core default" >&2
       exit 5
     }

@@ -1,0 +1,14 @@
+# expect-line: none
+# Pinned reads, a cd-scoped read, a quoted mention and an annotated site.
+set -u
+script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
+config_get="$script_dir/config-get.sh"
+[ -x "$config_get" ] || exit 2
+a=$(PLANWRIGHT_REPO_ROOT="$1" "$config_get" key_a) || exit 2
+b=$(cd -- "$1" && /bin/sh "$script_dir/config-get.sh" key_b) || exit 2
+printf '%s\n' "config-get.sh failed" >&2
+c=$("$config_get" key_c) || exit 2 # shell-config-pin: run from the checkout it configures, by contract
+printf '%s %s %s\n' "$a" "$b" "$c"
+export PLANWRIGHT_REPO_ROOT=$(cd -- "$1" && pwd -P)
+d=$("$config_get" key_d) || exit 2
+printf '%s\n' "$d"

@@ -69,6 +69,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$here/.." && pwd)
 FDE="$REPO_ROOT/scripts/fleet-dispatch-env.sh"
 GUARD="$REPO_ROOT/scripts/worker-command-guard.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 VAR=CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION
 
 failures=0
@@ -280,6 +282,12 @@ EOF
     pass "c6: emitted launch is boundary-safe across spaces and metacharacters (REQ-B1.1)"
   else
     fail "c6: spaced-path / metacharacter token was not delivered intact, got: $out"
+  fi
+  printf '%s\n' "$emitted" >"$tmp/launch.sh"
+  if lint_emitted shell fleet-dispatch-env.sh "$tmp/launch.sh" sh; then
+    pass "c6: the emitted launch line parses and lints clean as sh"
+  else
+    fail "c6: the emitted launch line fails the shell lint: $emitted"
   fi
   rm -rf "$tmp"
 }

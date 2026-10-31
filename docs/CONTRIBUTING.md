@@ -108,6 +108,18 @@ mise run check      # the full local equivalent of the CI gate
   test before every source of `scripts/echo-safety.sh`, and every
   `scripts/*.sh` committed at the mode its first line declares (100755 with a
   shebang, 100644 for a shebang-less sourced library), read from the git index;
+- the scripted shell rules (`scripts/check-shell-*.sh`, one `check:shell-*`
+  task each) over `scripts/`, `githooks/` and `tests/lib/`: each rule's
+  `--help` states what it flags, and a site it should pass is exempted with
+  `# <rule-id>: <reason>` trailing the line or directly above it (the
+  catalog's other `shell-*` rules ride shellcheck, `check:echo-discipline`
+  and `check:lock-primitive`, each with its own annotation, named in
+  `config/guard-catalog.yaml`);
+- the emitter output linting guard (`check:emitter-lint`): a script whose
+  header (its first 40 lines) declares `# Emits: markdown`, `yaml` or
+  `shell` must be linted in that format by some `tests/*.sh` suite through
+  `tests/lib/emitter-lint.sh`'s `lint_emitted <format> <script-name> <file>`,
+  and every such call must name a declared script and format;
 - the shebang-honoring invocation check (`check:script-invocation`): no line in
   a skill or doctrine doc runs a script whose shebang names bash through `sh`;
 - the bash 3.2 construct lint (`check:bash32`): macOS ships bash 3.2 as

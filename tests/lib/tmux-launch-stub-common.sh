@@ -45,7 +45,7 @@ stub_claim_seq() {
 # private to this writer, then a rename.
 stub_write_file() {
   swf_tmp="${1%/*}/.tmp.$STUB_WRITER"
-  printf '%s' "$2" >"$swf_tmp" && mv -f "$swf_tmp" "$1"
+  printf '%s' "$2" >"$swf_tmp" && mv -f -- "$swf_tmp" "$1"
 }
 
 # stub_knob <name> <default> — set STUB_KNOB to the knob's value, or the

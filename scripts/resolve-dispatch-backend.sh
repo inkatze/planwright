@@ -236,6 +236,7 @@ TABC=$(printf '\t')
 read_key() {
   rk_out=''
   rk_rc=0
+  # shell-config-pin: a resolver, pinned by its caller (PLANWRIGHT_REPO_ROOT or the checkout it runs in)
   rk_out=$("$config_get" --explain "$1") || rk_rc=$?
   [ "$rk_rc" -eq 0 ] || return "$rk_rc"
   case "$rk_out" in
@@ -254,7 +255,7 @@ read_key() {
 # (the resolve-config-knob.sh degrade target). Prints the value; exit 3 when
 # core omits the key, other non-zero on a broken install.
 core_value() {
-  cv_scratch=$(mktemp -d) || return 5
+  cv_scratch=$(mktemp -d "${TMPDIR:-/tmp}/resolve-dispatch-backend.XXXXXX") || return 5
   cv_rc=0
   cv_val=$(
     PLANWRIGHT_ADOPTER_OVERLAY="$cv_scratch/no-adopter" \

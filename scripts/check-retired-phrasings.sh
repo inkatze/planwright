@@ -80,7 +80,7 @@ if [ ! -f "$patterns" ] || [ ! -r "$patterns" ]; then
   exit 2
 fi
 
-list=$(mktemp) || exit 2
+list=$(mktemp "${TMPDIR:-/tmp}/check-retired-phrasings.XXXXXX") || exit 2
 trap 'rm -f "$list"' EXIT
 trap 'exit 2' HUP INT TERM
 symlink() {

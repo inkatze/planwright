@@ -1,5 +1,6 @@
 #!/bin/sh
 # migrate-format-version.sh [specs-root | spec-dir]
+# Emits: markdown
 #
 # The one-shot v1→v2 spec-bundle migration (invariant-tasks Task 6;
 # REQ-D1.2, REQ-D1.3, REQ-A1.4, REQ-C1.8, REQ-C1.9 · D-10, D-3). Converts a
@@ -153,7 +154,7 @@ if [ ! -d "$target" ]; then
 fi
 
 today=$(date +%Y-%m-%d)
-gtmp=$(mktemp -d) || {
+gtmp=$(mktemp -d "${TMPDIR:-/tmp}/migrate-format-version.XXXXXX") || {
   echo "migrate-format-version: mktemp failed (cannot allocate a work dir)" >&2
   exit 2
 }
@@ -451,8 +452,8 @@ transform_header() {
 stage_write() {
   sw_tmp="$2.migrate.tmp"
   rm -f "$sw_tmp" || return 1
-  cp "$1" "$sw_tmp" || return 1
-  mv "$sw_tmp" "$2" || return 1
+  cp -- "$1" "$sw_tmp" || return 1
+  mv -- "$sw_tmp" "$2" || return 1
   return 0
 }
 

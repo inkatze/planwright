@@ -110,6 +110,7 @@ git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository"
 # governs is skipped on the resume path (REQ-B1.3); a lazy check inside the gate
 # would let a malformed value through on a resume. A non-boolean value is a clean
 # fail-closed configuration error.
+# shell-config-pin: run from the clean primary checkout it releases
 require_ci=$("$script_dir/config-get.sh" require_ci 2>/dev/null) || require_ci=""
 [ -n "$require_ci" ] || require_ci="true"
 case "$require_ci" in
@@ -332,6 +333,7 @@ if [ "$resume" -eq 0 ] && [ "$release_present" -eq 0 ]; then
   # so a broken config cannot defeat a require policy. Exit 3 (knob absent) is the
   # legitimate "unset" case and defaults to auto; only exit 4 hard-fails here.
   # Symmetric with the resume-path signing-mode read and require_ci (D-4/D-3).
+  # shell-config-pin: run from the clean primary checkout it releases
   mode=$("$script_dir/config-get.sh" require_signed_tags 2>/dev/null)
   cg_rc=$?
   if [ "$cg_rc" -eq 4 ]; then
@@ -437,6 +439,7 @@ if [ "$resume" -eq 1 ]; then
   # origin tag), so a broken config cannot defeat a `require` policy. Exit 3 (the
   # knob is absent from every layer) is the legitimate "unset" case and defaults
   # to auto; only exit 4 hard-fails here.
+  # shell-config-pin: run from the clean primary checkout it releases
   rmode=$("$script_dir/config-get.sh" require_signed_tags 2>/dev/null)
   cg_rc=$?
   if [ "$cg_rc" -eq 4 ]; then

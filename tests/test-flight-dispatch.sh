@@ -61,6 +61,8 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=tests/lib/flight-dispatch-fixture.sh
 . "$here/lib/flight-dispatch-fixture.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$here/lib/emitter-lint.sh"
 
 # --- 1. home ----------------------------------------------------------------
 new_case
@@ -405,6 +407,7 @@ printf '%s\n' "$OUT" | grep -q "^root${TAB}worker${TAB}unknown" \
 [ "$(field "$OUT" root-skew)" = unknown ] \
   || fail "with no installed plugin the skew must read unknown, got $(field "$OUT" root-skew)"
 
+lint_emitted markdown flight-dispatch.sh "$brief" || fail "the worker brief fails the markdown lint"
 b=$(cat "$brief")
 docs=$(grep -E '^Doctrine: (run-start|point-of-use) ' "$ROOT/skills/execute-task/SKILL.md" | awk '{print $3}')
 [ "$(printf '%s\n' "$docs" | grep -c .)" -ge 3 ] || fail "the /execute-task manifest parse found too few docs"

@@ -1,6 +1,7 @@
 #!/bin/sh
 # substrate-attribute.sh — attribute the mined observation set to script tiers
 # and defect classes, as the tier-by-class pain matrix.
+# Emits: markdown
 #
 # THE MINED SET. Every `obs:<uid>` the bundle's `## Sources` section (in its
 # requirements.md) cites, plus every frozen legacy-log line the legacy index

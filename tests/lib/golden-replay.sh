@@ -33,7 +33,7 @@
 # <out-dir>/<probe>@<vantage> and list the header fields on stdout, one record
 # per line. Returns non-zero on a malformed or duplicate header.
 _gr_split() {
-  mkdir -p "$2" || return 1
+  mkdir -p -- "$2" || return 1
   awk -v out="$2" -v want="$3" '
     function fail(msg) { print "golden-replay: " FILENAME ":" FNR ": " msg > "/dev/stderr"; bad = 1 }
     /^@@ / {

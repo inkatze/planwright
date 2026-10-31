@@ -322,8 +322,8 @@ claim_recorded() {
 
 # claim_record <claim> <token> — mark a held count as recorded under its token.
 claim_record() {
-  (umask 077 && printf '%s\n' "$2" >"$1.recorded.$$" && mv -f "$1.recorded.$$" "$1.recorded") 2>/dev/null && return 0
-  rm -f "$1.recorded.$$" 2>/dev/null
+  (umask 077 && printf '%s\n' "$2" >"$1.recorded.$$" && mv -f -- "$1.recorded.$$" "$1.recorded") 2>/dev/null && return 0
+  rm -f -- "$1.recorded.$$" 2>/dev/null
   return 1
 }
 
@@ -333,8 +333,8 @@ claim_record() {
 # detached hold nothing else will break, so it is named rather than swallowed.
 claim_release() {
   if [ -d "$1" ] && [ ! -L "$1" ]; then
-    rm -f "$1/recorded" 2>/dev/null
-    rmdir "$1" 2>/dev/null
+    rm -f -- "$1/recorded" 2>/dev/null
+    rmdir -- "$1" 2>/dev/null
     return 0
   fi
   [ -n "${2:-}" ] || return 0
@@ -348,7 +348,7 @@ claim_release() {
       return 2
       ;;
   esac
-  [ "$(head -n 1 "$1.recorded" 2>/dev/null)" != "$2" ] || rm -f "$1.recorded" 2>/dev/null
+  [ "$(head -n 1 "$1.recorded" 2>/dev/null)" != "$2" ] || rm -f -- "$1.recorded" 2>/dev/null
   return 0
 }
 

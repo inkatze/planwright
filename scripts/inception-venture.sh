@@ -3,6 +3,7 @@
 # (inception Task 7; REQ-A1.1, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.8,
 # REQ-A1.9, REQ-B1.7, REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5 · D-5,
 # D-11, D-19).
+# Emits: markdown
 #
 # The skill holds the conversation; everything that must behave the same on
 # every run lives here as small subcommands, each data in, data out:
@@ -685,7 +686,7 @@ cmd_mark_phase() {
   # Recorded once: a retried phase close adds no second line.
   phase_marked "$1" "$2" && return 0
   line="- $(today) — Elicitation: $2 phase complete."
-  tmp_path=$(mktemp "$1/.inception-venture.XXXXXX") || die 2 "cannot write in the venture directory"
+  tmp_path=$(mktemp -- "$1/.inception-venture.XXXXXX") || die 2 "cannot write in the venture directory"
   awk -v line="$line" '
     { buf[NR] = $0 }
     /^## Changelog[[:space:]]*$/ { inlog = 1; last = NR; next }
@@ -700,7 +701,7 @@ cmd_mark_phase() {
     }
   ' "$1/brief.md" >"$tmp_path" || die 2 "brief.md has no Changelog section to record the phase in"
   chmod "$(umask_mode)" "$tmp_path" || die 2 "cannot update brief.md"
-  mv "$tmp_path" "$1/brief.md" || die 2 "cannot update brief.md"
+  mv -- "$tmp_path" "$1/brief.md" || die 2 "cannot update brief.md"
   tmp_path=
 }
 
@@ -920,7 +921,7 @@ confirm_private() {
     if ! printf '%s\n' "$cp_hosts" | grep -qxF -- "$cp_host"; then
       die 6 "not shared: a push URL names a host the GitHub CLI is not signed in to, so its visibility cannot be checked; nothing was sent"
     fi
-    cp_vis=$( (cd "$1" && gh repo view "$cp_url" --json visibility --jq .visibility) 2>/dev/null) || cp_vis=
+    cp_vis=$( (cd -- "$1" && gh repo view "$cp_url" --json visibility --jq .visibility) 2>/dev/null) || cp_vis=
     case $cp_vis in
       PRIVATE) ;;
       '') die 6 "not shared: cannot confirm a remote repository is still private (is the GitHub CLI installed and signed in?); nothing was sent" ;;

@@ -225,13 +225,14 @@ read_map() {
 # defaults fails, and so does a read config-get.sh itself fails. validate
 # sets STRICT, failing on any invalid value so a degrade hides nothing.
 STRICT=0
-scratch_err=$(mktemp) || exit 2
+scratch_err=$(mktemp "${TMPDIR:-/tmp}/mc-program.XXXXXX") || exit 2
 trap 'rm -f "$scratch_err"' EXIT
 
 # layered <name> <field> <key> <parser>: the value of <key>, parsed by
 # `<parser> <name> <raw>`. Status 0 printed; 3 no layer sets a valid value;
 # 1 a failure, named on stderr.
 layered() {
+  # shell-config-pin: mission control's knobs live in the overlay layers of the checkout it runs from
   ly_lines=$(/bin/sh "$script_dir/config-get.sh" --layers "$3" 2>"$scratch_err")
   ly_rc=$?
   cat "$scratch_err" >&2
@@ -534,7 +535,7 @@ field_sources() { with_default "$1" sources mission_control_default_sources pars
 
 # common_dir <dir>: the canonical git common directory of <dir>, or nothing.
 common_dir() {
-  (cd "$1" 2>/dev/null && d=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+  (cd -- "$1" 2>/dev/null && d=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
     -u GIT_OBJECT_DIRECTORY -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT \
     git rev-parse --git-common-dir 2>/dev/null) && cd "$d" 2>/dev/null && pwd -P)
 }

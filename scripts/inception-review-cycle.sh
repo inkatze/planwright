@@ -1,6 +1,7 @@
 #!/bin/sh
 # inception-review-cycle.sh — the adapter seam for a venture's stakeholder
 # review cycle (inception REQ-G1.6, REQ-G1.7, REQ-G1.9 · D-10).
+# Emits: markdown
 #
 # The cycle is one-way: export a snapshot, harvest feedback as data, triage
 # each item, apply the accepted ones as attributed commits, re-export. The
@@ -692,6 +693,17 @@ function quoted(s,    n, lines, i, out, l) {
     l = lines[i]
     gsub(/\t/, "    ", l)
     gsub(/[\001-\037\177]/, "", l)
+    # A quoted line opening a block (a heading, a setext underline or break,
+    # a bullet or ordered list item, a nested quote, a fence, HTML) has its
+    # marker escaped, so harvested text renders as text inside the quote,
+    # never as structure.
+    if (match(l, /^ ? ? ?[#>`~<]/) || match(l, /^ ? ? ?[-+*]([ ]|$)/) || match(l, /^ ? ? ?[-=_*][-=_* ]*$/)) {
+      match(l, /^ ? ? ?/)
+      l = substr(l, 1, RLENGTH) "\\" substr(l, RLENGTH + 1)
+    } else if (match(l, /^ ? ? ?[0-9]+[.)]([ ]|$)/)) {
+      match(l, /^ ? ? ?[0-9]+/)
+      l = substr(l, 1, RLENGTH) "\\" substr(l, RLENGTH + 1)
+    }
     out = out (l == "" ? ">" : "> " l) "\n"
   }
   if (n == 0) out = ">\n"
@@ -750,7 +762,7 @@ redact_secrets() {
         next
       }
       { print }' "$1" >"$1.rd" || die 2 "cannot redact the harvested feedback; nothing was recorded"
-    mv "$1.rd" "$1" || die 2 "cannot redact the harvested feedback; nothing was recorded"
+    mv -- "$1.rd" "$1" || die 2 "cannot redact the harvested feedback; nothing was recorded"
   done
   if [ -s "$work/redacted" ]; then
     printf '%s\n' "inception-review-cycle: credential-shaped text was redacted at harvest from $(sort -u "$work/redacted" | grep '^FB-[0-9]*$' | tr '\n' ' ' | sed 's/ $//'); read the original on the review surface, and ask its author to remove it there" >&2

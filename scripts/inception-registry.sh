@@ -191,7 +191,7 @@ valid_flags() {
 # canonical <dir> — the directory's physical absolute path, or nothing.
 canonical() {
   [ -n "$1" ] && [ -d "$1" ] || return 1
-  (cd "$1" 2>/dev/null && pwd -P)
+  (cd -- "$1" 2>/dev/null && pwd -P)
 }
 
 # --- the data home -----------------------------------------------------------
@@ -228,10 +228,10 @@ begin_write() {
 }
 commit_write() {
   if [ -h "$1" ] || { [ -e "$1" ] && [ ! -f "$1" ]; }; then
-    rm -f "$1" 2>/dev/null
+    rm -f -- "$1" 2>/dev/null
     { [ -h "$1" ] || [ -e "$1" ]; } && unavailable "something other than a file sits at the registry path"
   fi
-  mv -f "$tmp_path" "$1" || unavailable "cannot write under the plugin data directory"
+  mv -f -- "$tmp_path" "$1" || unavailable "cannot write under the plugin data directory"
   tmp_path=
 }
 
@@ -496,7 +496,7 @@ cmd_status() {
   spath=$(printf '%s\n' "$r" | cut -f2)
   is_bundle "$spath" || die 2 "the bundle registered for $1 is no longer readable"
   printf 'venture\t%s\n' "$1"
-  serr=$(mktemp) || die 2 "cannot create a temporary file"
+  serr=$(mktemp "${TMPDIR:-/tmp}/inception-registry.XXXXXX") || die 2 "cannot create a temporary file"
   src=0
   render_status "$spath" 2>"$serr" || src=$?
   if [ "$src" -ne 0 ]; then
@@ -513,7 +513,7 @@ cmd_status() {
 append_private() {
   [ ! -h "$1" ] || unavailable "$(basename "$1") is a symbolic link; refusing to write through it"
   printf '%s\n' "$2" >>"$1" || unavailable "cannot write $(basename "$1")"
-  chmod 600 "$1" 2>/dev/null || unavailable "cannot secure $(basename "$1")"
+  chmod -- 600 "$1" 2>/dev/null || unavailable "cannot secure $(basename "$1")"
 }
 
 cmd_telemetry() {

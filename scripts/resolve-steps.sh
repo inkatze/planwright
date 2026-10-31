@@ -557,7 +557,7 @@ work=""
 pf_pids=""
 # shellcheck disable=SC2086 # the pid list is meant to word-split
 trap '[ -z "${pf_pids// /}" ] || kill $pf_pids 2>/dev/null; [ -z "$work" ] || rm -rf "$work"' EXIT
-work=$(mktemp -d) || die 5 "could not create a scratch directory"
+work=$(mktemp -d "${TMPDIR:-/tmp}/resolve-steps.XXXXXX") || die 5 "could not create a scratch directory"
 scratch="$work/scratch"
 replayed="$work/replayed"
 : >"$replayed"

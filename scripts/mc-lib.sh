@@ -70,6 +70,7 @@ mc_now() { date +%s; }
 # mc_iso <epoch>: the UTC time the knowledge base stamps entries with, which
 # compares as a string in time order.
 mc_iso() {
+  # shell-gnu-only-flag: BSD date -r is the fallback when GNU date -d fails
   date -u -d "@$1" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -r "$1" '+%Y-%m-%dT%H:%M:%SZ'
 }
 
@@ -313,8 +314,8 @@ mc_quote() {
 # mc_write <file>: stdin to <file> through a sibling temporary and a rename,
 # so a reader sees the old file or the new one, never a torn one.
 mc_write() {
-  mw_tmp=$(mktemp "$1.XXXXXX") || return 1
-  if cat >"$mw_tmp" && mv -f "$mw_tmp" "$1"; then
+  mw_tmp=$(mktemp -- "$1.XXXXXX") || return 1
+  if cat >"$mw_tmp" && mv -f -- "$mw_tmp" "$1"; then
     return 0
   fi
   rm -f "$mw_tmp"
@@ -362,6 +363,7 @@ mc_unlock() {
 # read, the policy scripts/mc-program.sh applies to a program's keys; an
 # invalid repo-tracked or core value, or a key no layer sets, fails.
 mc_knob() {
+  # shell-config-pin: mission control's knobs live in the overlay layers of the checkout it runs from
   mk_lines=$(/bin/sh "$script_dir/config-get.sh" --layers "$1" 2>/dev/null)
   mk_rc=$?
   case $mk_rc in
@@ -498,7 +500,7 @@ mc_store_init() {
   if [ -e "$1" ]; then
     mc_store_ok "$1" || mc_fail "the store has a missing or unknown format: $1"
   else
-    mkdir -p "${1%/*}" || mc_fail "cannot create ${1%/*}"
+    mkdir -p -- "${1%/*}" || mc_fail "cannot create ${1%/*}"
     printf '# format: 1\n' >"$1" || mc_fail "cannot create $1"
   fi
 }

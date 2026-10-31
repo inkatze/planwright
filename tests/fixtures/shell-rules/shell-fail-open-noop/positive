@@ -1,0 +1,26 @@
+# expect-line: 15
+# expect-line: 16
+# expect-line: 17
+# expect-line: 18
+# expect-line: 19
+# expect-line: 20
+# expect-line: 21
+# expect-line: 22
+# expect-line: 23
+# expect-line: 24
+# expect-line: 25
+# A failed gh read becomes an empty list, read as "no open PRs".
+set -u
+log=${TMPDIR:-/tmp}/gh.log
+prs=$(gh pr list --json number) || true
+n=$(gh pr list --json number) || :
+m=$(gh pr list --json number) 2>/dev/null || true
+o=`gh pr list --json number` || true
+q="open: $(gh pr list --json number)" || true
+r=$(gh pr list --json number) 2> /dev/null || true
+u=$(gh pr list --json number) </dev/null || true
+v=$(gh pr list --json number) 2>>"$log" || true
+w=$(gh pr list --json number) <<<"$log" || true
+x=$(gh pr list --json number) &>/dev/null || true
+y=$(gh pr list --json number) >|"$log" || true
+[ -n "$prs$n$m$o$q$r$u$v$w$x$y" ] || printf '%s\n' "no open PRs"

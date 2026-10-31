@@ -42,6 +42,12 @@ check_has() {
   echo "FAIL: scripts/substrate-attribute.sh missing or not executable" >&2
   exit 1
 }
+[ -r "$REPO_ROOT/tests/lib/emitter-lint.sh" ] || {
+  echo "FAIL: tests/lib/emitter-lint.sh missing" >&2
+  exit 1
+}
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-substrate-attribute.XXXXXX") || exit 1
 [ -n "$tmp" ] && [ -d "$tmp" ] || exit 1
@@ -231,6 +237,11 @@ check_eq "the class list has eleven classes" 11 "$(printf '%s\n' "$out" | wc -l 
 run "$base" --out "$tmp/snap.md"
 check_eq "--out exits zero" 0 "$rc"
 check_eq "--out writes the snapshot" "$first" "$(cat "$tmp/snap.md")"
+if lint_emitted markdown substrate-attribute.sh "$tmp/snap.md"; then
+  ok "the snapshot passes the markdown lint"
+else
+  bad "the snapshot fails the markdown lint"
+fi
 printf 'kept\n' >"$tmp/keep.md"
 run "$tmp/ambiguous" --out "$tmp/keep.md"
 check_eq "a failed run leaves --out untouched" "kept" "$(cat "$tmp/keep.md")"

@@ -81,7 +81,7 @@ if [ -z "$src" ]; then
 fi
 [ -f "$src/scripts/install.sh" ] || die 2 "no scripts/install.sh under $src"
 
-work=$(mktemp -d) || die 1 "mktemp failed"
+work=$(mktemp -d "${TMPDIR:-/tmp}/install-smoke.XXXXXX") || die 1 "mktemp failed"
 trap 'rm -rf "$work"' EXIT
 trap 'exit 1' HUP INT TERM
 
@@ -124,7 +124,7 @@ for t in $tools; do
   IFS=$ifs
 done
 [ $# -gt 0 ] || die 1 "no allowlisted tool is on PATH"
-ln -s "$@" "$allow/" || die 1 "cannot link the allowlist"
+ln -s -- "$@" "$allow/" || die 1 "cannot link the allowlist"
 [ -e "$allow/sh" ] || die 1 "no sh on PATH to build the allowlist from"
 [ -e "$allow/git" ] || die 1 "no git on PATH to build the allowlist from"
 

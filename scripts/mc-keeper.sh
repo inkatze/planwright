@@ -367,7 +367,7 @@ case $verb in
     # worktree matches its primary checkout. A session row naming no
     # program, or a program that no longer resolves, cannot be told apart,
     # so it holds too.
-    common() { (cd "$1" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P); }
+    common() { (cd -- "$1" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P); }
     top_common=$(common "$top") || mc_fail "the git directory of the spec's repository cannot be resolved"
     others=$(printf '%s\n' "$sessions" | P=$program N=$name awk -F '\t' '$2 != ENVIRON["P"] && index($4, ENVIRON["N"] ":task-") == 1 { print ($2 == "" ? "-" : $2) }' | sort -u)
     shared=""

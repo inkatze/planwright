@@ -166,7 +166,7 @@ if [ "$explicit_baseline" -eq 1 ]; then
   }
 fi
 
-wtmp=$(mktemp -d) || exit 2
+wtmp=$(mktemp -d "${TMPDIR:-/tmp}/check-anchor-freshness.XXXXXX") || exit 2
 trap 'rm -rf "$wtmp"' EXIT
 
 # --- the anchor tool ----------------------------------------------------

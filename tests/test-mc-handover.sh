@@ -26,6 +26,8 @@ suite=test-mc-handover
 
 # shellcheck source=tests/lib/mc-handover-fixture.sh
 . "$here/lib/mc-handover-fixture.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$here/lib/emitter-lint.sh"
 
 run mc-rules.sh add alpha --text "Never hand the operator a pane" --subject panes --source "operator, fixture" --date 2026-10-26
 [ "$RC" = 0 ] || fail "fixture: the rule was not added: $ERR"
@@ -100,6 +102,11 @@ ho launch --program alpha --brief "$tmp/brief.md" --handover
 [ "$RC" = 0 ] || fail "the handover launch exited $RC: $ERR"
 grep -qF "the handover file is $hf" "$fleet/mission-control/launch/$(col successor 2)/brief.md" \
   && ok "the successor's brief names the handover file" || fail "the successor's brief lacks the handover file's path"
+if lint_emitted markdown mc-handover.sh "$fleet/mission-control/launch/$(col successor 2)/brief.md"; then
+  ok "the successor's brief with its Succession section lints clean as markdown"
+else
+  fail "the successor's brief fails the markdown lint"
+fi
 n2=$(col successor 2)
 wait_done "$n2"
 [ "$n2" != "$n1" ] && ok "the successor has a name of its own" || fail "the successor reused $n1"

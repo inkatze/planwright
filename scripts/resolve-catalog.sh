@@ -6,6 +6,7 @@
 # and resolve-rule-doc.sh (doctrine, whole-doc shadow); this one merges data
 # catalogs by append/union with supersede-by-id, the merge contract the
 # engineering-builder guard catalog (bootstrap Task 16) consumes.
+# Emits: yaml
 #
 # planwright's four overlay layers, lowest to highest (REQ-A1.1): core defaults
 # < adopter overlay < repo-tracked overlay < machine-local overlay. Layer roots

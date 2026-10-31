@@ -24,6 +24,8 @@ SCAFFOLD="$REPO_ROOT/scripts/inception-scaffold.sh"
 
 # shellcheck source=tests/lib/inception-fixture.sh
 . "$REPO_ROOT/tests/lib/inception-fixture.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 
 failures=0
 assert_eq() {
@@ -133,6 +135,15 @@ assert_contains "G1.8 protocol: pull before editing" "git pull" "$proto"
 assert_contains "G1.8 protocol: push after committing" "git push" "$proto"
 assert_contains "G1.8 protocol: edits land as commits" "git commit" "$proto"
 assert_contains "G1.8 protocol: commit messages in plain language" "plain-language" "$proto"
+
+for f in hygiene-wiring.md sync-protocol.md CLAUDE.md; do
+  if lint_emitted markdown inception-scaffold.sh "$v/$f"; then
+    echo "ok: local rung: $f is lint-clean markdown"
+  else
+    echo "FAIL: local rung: $f fails the markdown lint" >&2
+    failures=$((failures + 1))
+  fi
+done
 assert_contains "G1.8 protocol: IDs are untouchable" "Never renumber" "$proto"
 assert_contains "G1.8 protocol: register statuses are untouchable" "**Status:**" "$proto"
 assert_contains "G1.8 protocol: gate records are untouchable" "## Gate log" "$proto"
@@ -265,15 +276,11 @@ assert_not_contains "workflow: no privileged fork trigger" "pull_request_target"
 notes="$(cat "$v/hygiene-wiring.md")"
 assert_contains "notes: name the remote rung" "remote" "$notes"
 
-if command -v yamllint >/dev/null 2>&1; then
-  if yamllint -d relaxed "$v/.github/workflows/venture-guard.yml" >/dev/null 2>&1; then
-    echo "ok: workflow: parses under yamllint"
-  else
-    echo "FAIL: workflow: yamllint rejected the emitted workflow" >&2
-    failures=$((failures + 1))
-  fi
+if lint_emitted markdown inception-scaffold.sh "$v/hygiene-wiring.md"; then
+  echo "ok: remote rung: hygiene-wiring.md is lint-clean markdown"
 else
-  echo "ok: workflow: yamllint absent, parse check skipped"
+  echo "FAIL: remote rung: hygiene-wiring.md fails the markdown lint" >&2
+  failures=$((failures + 1))
 fi
 
 # ---------------------------------------------------------------------------
@@ -596,13 +603,11 @@ assert_contains "workflow: says so when no baseline is usable" "did NOT run" "$w
 # containing a space split into fragments that resolved to nothing, planwright
 # read as absent, and every guard skipped itself while a credential committed.
 # Lint the generated hook here, or nowhere.
-if command -v shellcheck >/dev/null 2>&1; then
-  scout="$(shellcheck "$wf_v/githooks/pre-commit" 2>&1)"
-  screrc=$?
-  assert_eq "hook: the generated hook is shellcheck-clean" "0" "$screrc"
-  [ "$screrc" -eq 0 ] || printf '%s\n' "$scout" >&2
+if lint_emitted shell inception-scaffold.sh "$wf_v/githooks/pre-commit"; then
+  echo "ok: hook: the generated hook parses and is shellcheck-clean"
 else
-  echo "ok: hook shellcheck skipped (shellcheck not installed)"
+  echo "FAIL: hook: the generated hook fails the shell lint" >&2
+  failures=$((failures + 1))
 fi
 
 # A $HOME with a space must not disable guard discovery. Driven through the
@@ -1013,13 +1018,11 @@ assert_contains "exports swapped for a link mid-hook: the hook says so" "symboli
 
 # The repo's own `lint:yaml` covers tracked config, not what this script
 # generates, so the emitted workflow is linted here or nowhere.
-if command -v yamllint >/dev/null 2>&1; then
-  ylout="$(yamllint --strict "$wf" 2>&1)"
-  yrc=$?
-  assert_eq "workflow: the generated YAML is lint-clean" "0" "$yrc"
-  [ "$yrc" -eq 0 ] || printf '%s\n' "$ylout" >&2
+if lint_emitted yaml inception-scaffold.sh "$wf"; then
+  echo "ok: workflow: the generated YAML is lint-clean"
 else
-  echo "ok: workflow yamllint skipped (yamllint not installed)"
+  echo "FAIL: workflow: the generated YAML fails the yaml lint" >&2
+  failures=$((failures + 1))
 fi
 
 if [ "$failures" -ne 0 ]; then

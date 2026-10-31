@@ -363,7 +363,7 @@ unique_session() {
 # an rm. Returns non-zero on a containment violation or a removal failure.
 containment_rm() {
   [ -e "$1" ] || return 0
-  _cr_phys="$(cd "$1" 2>/dev/null && pwd -P)" || {
+  _cr_phys="$(cd -- "$1" 2>/dev/null && pwd -P)" || {
     warn "teardown: cannot canonicalize run tree '$1'"
     return 1
   }
