@@ -165,6 +165,16 @@ else
 fi
 chmod 755 "$T/frag/locked"
 rm -r "$T/frag/locked"
+mkdir -p "$T/sym/real" "$T/sym/clean"
+printf -- 'AcmeReview flagged the loop\n' >"$T/sym/real/2026-01-06-linked-0000ffff.md"
+printf -- '- a clean line\n' >"$T/sym/clean/2026-01-07-clean-00001111.md"
+ln -s real "$T/sym/dirlink"
+"$SCREEN" --text --names "$names" "$T/sym/dirlink" "$T/sym/clean" >/dev/null 2>&1
+assert_exit "text mode refuses a symlinked path, never reads through it" 2 $?
+ln -s ../real/2026-01-06-linked-0000ffff.md "$T/sym/clean/2026-01-08-link-00002222.md"
+"$SCREEN" --text --names "$names" "$T/sym/clean" >/dev/null 2>&1
+assert_exit "text mode refuses a symlink inside a directory, never skips it" 2 $?
+rm -r "$T/sym"
 mkdir -p "$T/empty-dir"
 "$SCREEN" --text --names "$names" "$T/empty-dir" >/dev/null 2>&1
 assert_exit "text mode refuses paths holding no files, never a pass" 2 $?

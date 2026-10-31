@@ -25,11 +25,11 @@
 # checks it at write time (review-backtest-refresh.sh).
 #
 # --text runs only the product-name check, over prose rather than a corpus:
-# every regular file under each path given (directories walked recursively),
-# its name and each line. It is the operator-local screen over committed prose
-# such as the observation fragments, so it requires the list; a refusal names
-# the file and line, never the matched text, though a file-name refusal's path
-# carries it.
+# every regular file under each path given (directories walked recursively,
+# a symlink anywhere refused), its name and each line. It is the operator-local
+# screen over committed prose such as the observation fragments, so it
+# requires the list; a refusal names the file and line, never the matched
+# text, though a file-name refusal's path carries it.
 #
 # Usage:
 #   review-corpus-screen.sh [--names <file>] [--require-names] <corpus.tsv>
@@ -149,8 +149,22 @@ if [ "$text" -eq 1 ]; then
   for p in "$@"; do
     # A leading ./ keeps a path named - from reading as stdin in awk's getline.
     case $p in /*) ;; *) p=./$p ;; esac
+    # find -type f skips a symlink, so one would pass unscreened; refuse it
+    # rather than read through it, as check-obs.sh does.
+    if [ -L "$p" ]; then
+      printf '%s\n' "$prog: a path is a symlink" >&2
+      exit 2
+    fi
     if [ -d "$p" ]; then
       # A subdirectory find cannot read would otherwise drop out unscreened.
+      find "$p" ! -type d ! -type f -print >"$T/found" || {
+        printf '%s\n' "$prog: path not readable" >&2
+        exit 2
+      }
+      if [ -s "$T/found" ]; then
+        printf '%s\n' "$prog: a path holds a symlink or other non-regular file" >&2
+        exit 2
+      fi
       find "$p" -type f -print >"$T/found" || {
         printf '%s\n' "$prog: path not readable" >&2
         exit 2
