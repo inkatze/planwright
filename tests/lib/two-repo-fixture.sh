@@ -4,7 +4,6 @@
 # spec root (project `hub`) at $TRF/holder/specs, held by a third repository,
 # plus a gh stub on PATH reading $TRF/gh/<repo>.tsv (headRefName, state,
 # number, mergedAt) and failing for a repository with $TRF/gh/<repo>.fail.
-# Built to be shared with custom-spec-location's holder-dispatch tests.
 #
 # Usage: trf_setup <scripts-dir> [<spec>], then run every command through
 # trf_env, which pins HOME, the plugin data home, the config layers, and git's

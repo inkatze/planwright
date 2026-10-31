@@ -170,6 +170,12 @@ for variant in malformed duplicate; do
   assert_eq "F1.5 a $variant field derives repository-unresolved, never the work repository" \
     "repository-unresolved${TAB}$code" "$(rec task 2)"
   assert_eq "F1.5 a $variant field leaves Task 3 unmet" "blocked${TAB}deps-unmet" "$(rec task 3)"
+  gates
+  if [ "$variant" = malformed ]; then
+    assert_has "F1.5 the sweep names the malformed field" "task 2 has a Repository: value that is not a single alias" "$report"
+  else
+    assert_has "F1.5 the sweep names the duplicate field" "task 2 carries more than one Repository: field" "$report"
+  fi
 done
 write_bundle '- **Repository:** alpha' '- **Repository:** beta' '- **Repository:** alpha'
 trf_register beta
@@ -233,9 +239,18 @@ assert_eq "F1.6 Task 3's dependency is met" "ready${TAB}deps-met" "$(rec task 3)
 select_unit
 assert_eq "F1.6 a dependent of a failed repository is never selected" "" "$sel"
 assert_eq "F1.6 and that is the transient failure" 3 "$sel_rc"
+trf_bundle "$(block 1 'Alpha first' none '- **Repository:** alpha')
+$(block 2 'Beta second' 1 '- **Repository:** beta')
+$(block 3 'Alpha third' 2 '- **Repository:** alpha')
+## Awaiting input
+
+- **Task 3** waits on a decision."
+select_unit
+assert_eq "F1.6 withheld work that is parked is no transient failure" 1 "$sel_rc"
+write_bundle '- **Repository:** alpha' '- **Repository:** beta' '- **Repository:** alpha'
 trf_branch alpha 3
 select_unit
-assert_eq "F1.6 withheld work that is already done or in flight is no transient failure" 1 "$sel_rc"
+assert_eq "F1.6 withheld work that is already in flight is no transient failure" 1 "$sel_rc"
 trf_heal_gh beta
 trf_reset_evidence
 

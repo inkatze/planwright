@@ -108,8 +108,8 @@
 #
 # Usage: orchestrate-state.sh <spec-dir>
 # Exit: 0 records emitted; 2 the spec dir / tasks.md is missing, unreadable, or
-#   holds no task records, the spec id fails its grammar, a base ref does not
-#   resolve in a repository a task derives from, the Repository: fields cannot
+#   holds no task records, the spec id fails its grammar, the base ref does
+#   not resolve in the work repository, the Repository: fields cannot
 #   be read, or a bundle whose version is not plainly 1, 2, or 3 carries one
 #   (fail closed — a malformed input must not silently report "nothing", and a
 #   field must never fall back to the work repository).
@@ -185,19 +185,24 @@ work_root=$repo_root
 # repository.
 fv=$(spec_parse_header_value "$tasks_md" Format-version 2>/dev/null) || fv=""
 repo_map=""
+# Only version 3, or a line that could be a field, is worth the parse: a
+# bundle with neither keeps the behavior it had.
+read_fields=0
 case $fv in
   1 | 2) ;;
-  *)
-    repo_map=$(spec_parse_repository_map "$tasks_md") || {
-      printf '%s\n' "orchestrate-state: could not read the Repository: fields of $tasks_md (fail closed)" >&2
-      exit 2
-    }
-    if [ "$fv" != 3 ] && [ -n "$repo_map" ]; then
-      printf '%s\n' "orchestrate-state: $tasks_md carries Repository: fields under a missing, unparseable, or undefined Format-version: (fail closed)" >&2
-      exit 2
-    fi
-    ;;
+  3) read_fields=1 ;;
+  *) ! grep -q '^- \*\*Repository:\*\*' "$tasks_md" || read_fields=1 ;;
 esac
+if [ "$read_fields" -eq 1 ]; then
+  repo_map=$(spec_parse_repository_map "$tasks_md") || {
+    printf '%s\n' "orchestrate-state: could not read the Repository: fields of $tasks_md (fail closed)" >&2
+    exit 2
+  }
+  if [ "$fv" != 3 ] && [ -n "$repo_map" ]; then
+    printf '%s\n' "orchestrate-state: $tasks_md carries Repository: fields under a missing, unparseable, or undefined Format-version: (fail closed)" >&2
+    exit 2
+  fi
+fi
 per_task=0
 [ -z "$repo_map" ] || per_task=1
 
@@ -267,13 +272,14 @@ now=$(date +%s)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-state.XXXXXX") || exit 2
 trap 'rm -rf "$scratch"' EXIT
 
-# load_repo <root> — point every evidence helper below at one repository: its
-# base ref, the refs the trailer scan reads, this spec's completion trailers,
-# and its PR states. Returns 2 (message on stderr) when the base does not
-# resolve to a commit, 3 when the gh probe failed; the degraded record is the
-# caller's to emit, keyed by mode.
+# load_repo <root> [<name>] — point every evidence helper below at one
+# repository: its base ref, the refs the trailer scan reads, this spec's
+# completion trailers, and its PR states. Returns 2 (message on stderr, naming
+# the repository when <name> is given) when the base does not resolve to a
+# commit, 3 when the gh probe failed; the caller acts on either, keyed by mode.
 load_repo() {
   repo_root=$1
+  lr_name=${2:+ in $2}
   fp_loaded=0
   fp_commits=""
   # Resolve the base ref reachability is measured against. Prefer a local main
@@ -296,7 +302,7 @@ load_repo() {
   # merged task as ready instead of failing closed (REQ-F1.1; same
   # `rev-parse --verify <ref>^{commit}` resolution guard spec-validate.sh uses).
   if ! git -C "$repo_root" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
-    printf '%s\n' "orchestrate-state: base ref '$base' does not resolve to a commit" >&2
+    printf '%s\n' "orchestrate-state: base ref '$base' does not resolve to a commit$lr_name" >&2
     return 2
   fi
 
@@ -864,7 +870,13 @@ failed=" "
 for key in $(awk -F"$TAB" '$3 != "u" && !seen[$3]++ { print $3 }' "$list"); do
   root=$(awk -F"$TAB" -v k="$key" '$1 == k { print $2; exit }' "$repos")
   lr=0
-  load_repo "$root" || lr=$?
+  if [ "$per_task" -eq 0 ]; then
+    load_repo "$root" || lr=$?
+  elif [ "$key" = 0 ] && [ "$(label_of_key 0)" = - ]; then
+    load_repo "$root" "the work repository" || lr=$?
+  else
+    load_repo "$root" "repository $(label_of_key "$key")" || lr=$?
+  fi
   if [ "$lr" -eq 3 ]; then
     if [ "$per_task" -eq 0 ]; then
       printf 'degraded%sgh%sgh query failed; deriving git-only\n' "$TAB" "$TAB"

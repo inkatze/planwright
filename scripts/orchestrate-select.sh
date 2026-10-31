@@ -498,7 +498,7 @@ for w in $withheld; do
   esac
 done
 if [ "$sel_rc" -eq 1 ] && [ -n "$pending_held" ]; then
-  printf '%s\n' "orchestrate-select: no unit is ready while withheld behind a failed repository: Task $(sanitize_printable "$(printf '%s' "$pending_held" | sed 's/ $//; s/ /, Task /g')"); dispatching nothing (REQ-B1.7)" >&2
+  printf '%s\n' "orchestrate-select: no unit is ready; withheld behind a failed repository: Task $(sanitize_printable "$(printf '%s' "$pending_held" | sed 's/ $//; s/ /, Task /g')"); dispatching nothing (REQ-B1.7)" >&2
   exit 3
 fi
 
