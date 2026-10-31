@@ -73,7 +73,18 @@ function rule_check(code, lineno,   head, p, last, closer) {
     gsub(/[ \t]/, "", closer)
     last = prev_code
     sub(/[ \t;]*(\}|fi|done|esac|\))[ \t]*$/, "", last)
-    if (closer == "esac") sub(/^.*\)/, "", last)
+    if (closer == "esac") {
+      # The last arm follows the last ;; or ;& (or the "in" of the header), and
+      # its pattern ends at the first ) after that: a cut to the last ) would
+      # run through a $(...) in the arm body.
+      sub(/[ \t;&]*$/, "", last)
+      while (match(last, /;;|;&/)) last = substr(last, RSTART + RLENGTH)
+      if (match(last, /(^|[ \t;&|(])case[ \t]/)) {
+        last = substr(last, RSTART + RLENGTH)
+        if (match(last, /[ \t]in([ \t]|$)/)) last = substr(last, RSTART + RLENGTH)
+      }
+      sub(/^[ \t]*\(?[^()]*\)/, "", last)
+    }
     sub(/[ \t;]*$/, "", last)
     sub(/^.*;/, "", last)
   }
