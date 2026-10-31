@@ -11,8 +11,9 @@
 # What a rule sees is one logical line at a time, length-preserved: quoted text
 # is masked (single-quoted bodies and double-quoted literal text become `x`,
 # double-quoted expansions and `$(...)` bodies stay readable), the trailing
-# comment and heredoc bodies are gone, a quoted string or a backslash
-# continuation spanning lines is joined, and inside a `case` block a pattern
+# comment and heredoc bodies are gone, a quoted string, a backslash
+# continuation or a line ending in a pipe or list operator is joined with the
+# lines it continues, and inside a `case` block a pattern
 # prefix (`a | b)`) is cut so its alternatives never read as a pipeline.
 # The globals rule_check may read: RAW (the same logical line unmasked, aligned
 # with code), prev_code (the previous logical line's code) and FILE (the path).
@@ -27,7 +28,8 @@
 
 # Exit codes: 0 clean, 1 an offense, 2 usage or a scan covering less than it
 # claims (an absent root or scope directory, an unreadable file, no files, a
-# file ending inside an open quote or heredoc).
+# symlink resolving to neither a file nor a directory, a file ending inside an
+# open quote or heredoc).
 
 unset CDPATH
 
@@ -177,6 +179,9 @@ function scan(path,   line, r, code, body, pre, delim, dash, lg, lgc, lgcmt, lst
       if (body == heredoc) heredoc = ""
       continue
     }
+    # bash lets blank and comment lines sit inside a pipeline or list after
+    # its trailing operator.
+    if (lg != "" && lgc ~ /(\||&&)[ \t]*$/ && line ~ /^[ \t]*(#.*)?$/) continue
     fresh = (lg == "" && st == "c")
     if (fresh && line ~ /^[ \t]*#/) { above = line; continue }
     if (fresh && line ~ /^[ \t]*$/) { above = ""; continue }
@@ -189,9 +194,10 @@ function scan(path,   line, r, code, body, pre, delim, dash, lg, lgc, lgcmt, lst
       delim = substr(line, RSTART, RLENGTH)
       dash = (delim ~ /^<<-/)
       sub(/^<<-?[ \t]*/, "", delim)
-      # An unquoted number is an arithmetic shift ($((1 << 4))), not a
-      # heredoc; reading it as one would swallow the rest of the file.
-      if (delim !~ /^[0-9]+$/) {
+      # Inside (( )) or after an unquoted number, << is an arithmetic shift,
+      # not a heredoc; reading it as one would swallow the rest of the file.
+      pre = substr(code, 1, RSTART - 1)
+      if (delim !~ /^[0-9]+$/ && gsub(/\(\(/, "&", pre) <= gsub(/\)\)/, "&", pre)) {
         sub(/^\\/, "", delim); sub(/^[\047"]/, "", delim)
         heredoc = delim; heredoc_dash = dash
       }
@@ -220,7 +226,7 @@ function cw_prefix() {
 function cmdword(code, name,   re) {
   # The regex below is the hot spot of every rule; a literal name absent from
   # the line cannot match it.
-  if (name !~ /[\\(]/ && !index(code, name)) return 0
+  if (name !~ /[\\(|.[*+?{^$]/ && !index(code, name)) return 0
   re = cw_prefix() "[\"]?([^ \t;&|()\"]*/)?" name "[\"]?([ \t;)|&]|$)"
   if (!match(code, re)) return 0
   CW_END = RSTART + RLENGTH
@@ -229,8 +235,9 @@ function cmdword(code, name,   re) {
 # Operand words of the command whose word ended at CW_END: split on blanks up
 # to the first ; | & ) at this level, redirections dropped. Fills OPS[1..n].
 function operands(code,   rest, n, k, w, words, cnt, skipnext) {
-  # The command word ended the command (`mktemp; next`): it has no operands.
-  if (substr(code, CW_END - 1, 1) ~ /[;|&)]/) return 0
+  # The command word ended the command (`mktemp; next`, or the line): it has
+  # no operands.
+  if (CW_END > length(code) || substr(code, CW_END - 1, 1) ~ /[;|&)]/) return 0
   rest = substr(code, CW_END - 1)
   sub(/^[\"]?[ \t;)|&]?/, "", rest)
   if (match(rest, /[;|&)]/)) rest = substr(rest, 1, RSTART - 1)

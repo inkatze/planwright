@@ -211,6 +211,18 @@ engine_case "a subshell in a case body keeps its commands" shell-dash-operand 3 
   'case $x in' '  a)' '    (cd "$1" && make)' '    ;;' 'esac'
 engine_case "a trailing pipe continues the pipeline onto the next line" shell-pipe-status 3 \
   'git log |' '  tail -n 1' 'rc=$?'
+engine_case "a shift by a name inside \$(( )) is not a heredoc" shell-mktemp-template 2 \
+  'x=$((1 << n))' 'f=$(mktemp) || exit 2'
+engine_case "a shift inside (( )) is not a heredoc" shell-mktemp-template 2 \
+  '(( m = 1 << bit ))' 'f=$(mktemp) || exit 2'
+engine_case "a quoted \${...} whose inner quotes hold a } stays in step" shell-mktemp-template 2 \
+  'x="${v%"}"}"' 'f=$(mktemp) || exit 2'
+engine_case "a command word ending the line takes no operands from the line" shell-mktemp-template 1 \
+  'mktemp'
+engine_case "a pipeline continues past a blank and a comment line" shell-pipe-status 5 \
+  'git log |' '' '  # keep the last' '  tail -n 1' 'rc=$?'
+engine_case "a \$'...' never closed fails closed" shell-mktemp-template exit2 \
+  "x=\$'open" 'true'
 engine_case "a heredoc never closed fails closed" shell-mktemp-template exit2 \
   'cat <<EOF' 'body'
 engine_case "a quote never closed fails closed" shell-mktemp-template exit2 \
