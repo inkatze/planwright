@@ -11,7 +11,8 @@ drain rituals, defines the `GATE(when:)` convention and its closed grammar
 pass that `/drain` and `/orchestrate --bookkeeping` share.
 
 Citations: REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5 · D-17, D-18,
-D-31 · custom-spec-location REQ-G1.4 · custom-spec-location D-5, D-17, D-18.
+D-31 · custom-spec-location REQ-G1.4 · custom-spec-location D-5, D-17, D-18 ·
+review-effectiveness REQ-I1.1, REQ-I1.2 · review-effectiveness D-20.
 
 ## The three classes
 
@@ -91,8 +92,9 @@ accumulator's classification four-tuple:
   `archive/` with its filename preserved (move second; idempotent on
   re-run, keyed on the UID). A frozen-log line is consumed by in-place
   annotation instead (`--legacy` — legacy lines carry no UID). A
-  recurrence, whose text carries `recurrence of obs:<uid>:` after any kind
-  prefix, is mined with the fragment it names, as one chain.
+  recurrence, whose text carries `recurrence of obs:<uid>:` after a
+  `<kind>(<arg>):` prefix where it has one, is mined with the fragment it
+  names, as one chain.
 
 **Archive-on-consume is this accumulator's *specific* ritual, not a fourth
 universal class-3 attribute** (output-hygiene REQ-B1.2 deliberately declined
@@ -113,12 +115,12 @@ test path and a quoted string with a live or archived one, miss-ledger
 fragments exempt. The caller then records a recurrence (`--recurrence
 <uid>`) or withdraws the fragment, never retrying under another slug.
 
-**Review before commit.** A pass that records fragments reviews them before
-committing them, wherever it commits them (per iteration in a loop, and the
-drift fragments of a Maintenance step): the spec lens set plus a duplication
-check against the store, each quoted message, named test, figure and
-attribution read against its source, the fragment's text read as quoted
-data. Every finding is dispositioned in the pass's audit record, and a
+**Review before commit.** A convergence pass that records fragments reviews
+them before committing them, wherever it commits them (per iteration in a
+loop, and the drift fragments of a Maintenance step): the spec lens set plus
+a duplication check against the store, each quoted message, named test,
+figure and attribution read against its source, the fragment's text read as
+quoted data. Every finding is dispositioned in the pass's audit record, and a
 fragment the review falsifies is corrected or withdrawn, never committed as
 written.
 

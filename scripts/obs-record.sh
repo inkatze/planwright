@@ -38,14 +38,16 @@
 # or control character is refused at write time.
 #
 # Usage:
-#   obs-record.sh --slug <slug> --scope <scope> --text <text> [--recurrence <uid>]
-#                 [--today <YYYY-MM-DD>] [--obs-dir <dir> | --target <alias>]
+#   obs-record.sh --slug <slug> --scope <scope> --text <text>
+#                 [--recurrence <uid>] [--today <YYYY-MM-DD>]
+#                 [--obs-dir <dir> | --target <alias>]
 #
 #   --slug     cosmetic kebab-case topic token (filename only; renameable,
 #              except review-miss)
 #   --scope    the `[<scope>]` bracket content (a repo/context identifier)
 #   --text     the observation prose (single line; no newlines/control chars)
-#   --recurrence  record a deliberate repeat of the fragment a duplicate
+#   --recurrence
+#              record a deliberate repeat of the fragment a duplicate
 #              refusal named (8-hex uid; see dup_matches); the text gains
 #              `recurrence of obs:<uid>: ` after a kind(...) prefix, else first
 #   --today    pin the minted date (tests); defaults to the system date
@@ -86,8 +88,8 @@
 # Exit codes: 0 success; 1 refusal (grammar, containment, content, hostile
 #   input, an unknown, malformed, or misshapen --target, a fragment the hygiene
 #   screen matches, a duplicate or a --recurrence uid it does not match, no
-#   resolvable default store, or an internal filesystem error); 2 usage error; 3 collision retry exhausted; 4 entropy source
-#   unavailable.
+#   resolvable default store, or an internal filesystem error); 2 usage error;
+#   3 collision retry exhausted; 4 entropy source unavailable.
 #
 # Portable: POSIX sh + BSD tooling (bash 3.2 / BSD compatible); no
 # fish/mise/tmux dependency (the framework-runtime portability rule).
