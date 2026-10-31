@@ -13,8 +13,10 @@
 # a failed dispatch produces a visible failure report and a nonzero exit,
 # never a silent drop (REQ-C1.5).
 #
-# Subcommands:
-#   dispatch <backend> <prompt-file>
+# Usage:
+#   offload-dispatch.sh dispatch <backend> <prompt-file> [--unit <id>]
+#       [--key <selection-key>] [--strict-tier] [--profile <kind>]
+#       [--name <name>] [--scope <scope>]
 #       Dispatch the petition in <prompt-file> to <backend> and emit the
 #       report. Drivable rungs:
 #         tmux   — `tmux new-window -d` running an interactive `claude` worker
@@ -51,7 +53,7 @@
 #                    and accepts inbound messages, and only a worker-profile
 #                    session carries the worker identity
 #
-#   report <backend> <handle>
+#   offload-dispatch.sh report <backend> <handle>
 #       Emit the standardized report for an already-dispatched worker (the
 #       harness-native rungs, or a re-report of a known handle). Backends:
 #       tmux, subagent.

@@ -557,7 +557,7 @@ case $section in
 esac
 tower=$(flat "$here/../skills/tower/SKILL.md" '## Refusals' '## Survival')
 # shellcheck disable=SC2016 # the backticks are markdown, matched literally
-for want in 'scripts/tower-force-push.sh confirm' 'never from a standing decision' 'run its `push` line only on the yes, in the same turn' 'its `purge` prints; the operator runs it'; do
+for want in 'scripts/tower-force-push.sh`'"'"'s `confirm' 'never from a standing decision' 'run its `push` line only on the yes, in the same turn' 'its `purge` prints; the operator runs it'; do
   case $tower in
     *"$want"*) ;;
     *) fail "the tower's refusals do not carry: $want" ;;

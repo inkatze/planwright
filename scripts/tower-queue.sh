@@ -7,6 +7,37 @@
 # REQ-C1.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-C1.9, REQ-C1.10, REQ-C1.11,
 # REQ-F1.1 to REQ-F1.3, REQ-F1.6, REQ-F1.8, REQ-G1.1 to REQ-G1.9, REQ-H1.5.
 #
+# Usage:
+#   tower-queue.sh log <kind> [--tower <id>] [--now <epoch>] [<key>=<value>...]
+#   tower-queue.sh redact [-]
+#   tower-queue.sh report [--log <path>] [--now <epoch>] [--window <duration>]
+#       [--tick-gap-max <duration>]
+#   tower-queue.sh add --kind <kind> --origin <who> [--closes <text>]
+#       [--urgency high|normal|low] [--now <epoch>] [--worker <handle>]
+#       [--root <dir>] [--park <rel>] [--pointer <rel>] [--subject <key>]
+#       [--key <content-key>] [--topic <text>] [--options <a|b...>]
+#       [--end <option>|park] [--window <duration>] [--gate <gate>]
+#       [--text <decision>] [--grounds <ptr>] [--reversal <step>|none]
+#       [--tower <id>]
+#   tower-queue.sh capture --kind request|approval|standing --text <text>
+#       [--covers <free text> | --covers-command <prefix>...]
+#       [--subject <key>] [--origin <who>] [--urgency high|normal|low]
+#       [--closes <text>] [--now <epoch>]
+#   tower-queue.sh match --decision <id> --command <text>|-
+#   tower-queue.sh knock [--now <epoch>]
+#   tower-queue.sh next [--tower <id>] [--now <epoch>] [--evidence <file>]
+#   tower-queue.sh ack <id> [--tower <id>] [--now <epoch>]
+#   tower-queue.sh revoke <id> [--tower <id>] [--now <epoch>]
+#   tower-queue.sh show <id> [--now <epoch>]
+#   tower-queue.sh shelve <id> [--tower <id>] [--for <duration>] [--now <epoch>]
+#   tower-queue.sh settle <id> --reason <text> [--now <epoch>]
+#   tower-queue.sh settle [--evidence <file>] [--now <epoch>]
+#   tower-queue.sh catchup [--tower <id>] [--since <epoch>] [--now <epoch>]
+#   tower-queue.sh list [--all] [--now <epoch>]
+#   tower-queue.sh counts [--now <epoch>]
+#
+#   Which add and capture flags go together is in usage() below.
+#
 # THE STORE. `<home>/tower-comms/queue`, one tab-separated record per item,
 # the index and delivery state only: the content lives where its kind already
 # does (a worker's question or a piece of news in the attention store row, a
