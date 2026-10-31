@@ -183,6 +183,12 @@ expect_shape counter-min-var-zero zero-row-floor \
 expect_clean counter-min-var-set \
   'MIN_ROWS=3' 'while IFS= read -r row; do' '  n=$((n + 1))' '  check_row "$row" || fail "row"' \
   'done <"$CORPUS"' '[ "$n" -lt "$MIN_ROWS" ] && fail "too few rows"'
+expect_clean counter-min-var-later-zero \
+  'MIN_ROWS=3' 'while IFS= read -r row; do' '  n=$((n + 1))' '  check_row "$row" || fail "row"' \
+  'done <"$CORPUS"' '[ "$n" -lt "$MIN_ROWS" ] && fail "too few rows"' 'MIN_ROWS=0'
+expect_shape counter-min-var-later-set zero-row-floor \
+  'MIN_ROWS=0' 'while IFS= read -r row; do' '  n=$((n + 1))' '  check_row "$row" || fail "row"' \
+  'done <"$CORPUS"' '[ "$n" -lt "$MIN_ROWS" ] && fail "too few rows"' 'MIN_ROWS=3'
 expect_shape floor-before-loop zero-row-floor \
   '[ "$n" -gt 0 ] || fail "no rows"' 'while IFS= read -r row; do' '  n=$((n + 1))' \
   '  check_row "$row" || fail "row"' 'done <"$CORPUS"'

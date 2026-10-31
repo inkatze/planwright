@@ -279,11 +279,14 @@ function counter_of(s,   name, rest) {
 }
 # A floor compares the counter to a literal or a min/floor variable; one that
 # admits zero rows (-ge 0, -gt -1, -lt 0, -le -1) is no floor.
-function bound(op, val,   v, nm) {
+# A min/floor variable is judged by its last numeric assignment before the comparison.
+function bound(op, val, at,   v, nm, k, hit) {
   if (val ~ /^"?[$][{]?[A-Za-z_]*([Mm][Ii][Nn]|[Ff][Ll][Oo][Oo][Rr])/) {
     nm = val; sub(/^"?[$][{]?/, "", nm); sub(/[^A-Za-z0-9_].*/, "", nm)
-    if (!(nm in AV)) return 1
-    val = AV[nm]
+    hit = 0
+    for (k = AN[nm]; k >= 1; k--) if (AI[nm, k] < at) { hit = k; break }
+    if (!hit) return 1
+    val = AV[nm, hit]
   }
   if (val !~ /^"?-?[0-9]+("|[^0-9]|$)/) return 0
   v = val; gsub(/"/, "", v); v = v + 0
@@ -303,7 +306,7 @@ function floor_after(names, from,   i, k, nn, nm, fwd, ar, rest, o) {
         rest = substr(S[i], RSTART + RLENGTH)
         o = substr(S[i], RSTART, RLENGTH)
         sub(/[ \t]+$/, "", o); sub(/.*[ \t(]/, "", o); sub(/.*[^-<>=!a-z]/, "", o)
-        if (bound(o, rest)) return 1
+        if (bound(o, rest, i)) return 1
       }
     }
   }
@@ -321,7 +324,8 @@ function statement(s, line,   segs, n, i, prev, seg, tgt, nm, v) {
     S[++ns] = seg; SL[ns] = line
     if (match(seg, /^[ \t]*((readonly|export|local)[ \t]+)?[A-Za-z_][A-Za-z0-9_]*="?-?[0-9]+"?[ \t]*$/)) {
       nm = seg; sub(/^[ \t]*((readonly|export|local)[ \t]+)?/, "", nm); v = nm
-      sub(/=.*/, "", nm); sub(/^[^=]*=/, "", v); gsub(/[" \t]/, "", v); AV[nm] = v
+      sub(/=.*/, "", nm); sub(/^[^=]*=/, "", v); gsub(/[" \t]/, "", v)
+      AN[nm]++; AV[nm, AN[nm]] = v; AI[nm, AN[nm]] = ns
     }
     if (ns > 1 && SL[ns - 1] >= line - 3 && reads_status(seg)) {
       prev = S[ns - 1]
@@ -373,7 +377,7 @@ function next_heredoc(   delim, i) {
   heredoc = delim
 }
 function scan(path,   r, raw, s, cur, start, body, i) {
-  heredoc = ""; hn = 0; q = ""; cur = ""; ns = 0; np = 0; sp = 0; pipefail = 0; negline = 0; pos = 0; nl = 0; split("", AV)
+  heredoc = ""; hn = 0; q = ""; cur = ""; ns = 0; np = 0; sp = 0; pipefail = 0; negline = 0; pos = 0; nl = 0; split("", AV); split("", AN); split("", AI)
   while ((r = (getline raw < path)) > 0) {
     nl++; sub(/\r$/, "", raw); R[nl] = raw
     if (heredoc != "") {
