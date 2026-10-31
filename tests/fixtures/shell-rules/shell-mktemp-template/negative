@@ -13,6 +13,8 @@ DOC
 awk '
   /mktemp/ { print "mktemp -d" }
 ' /dev/null
+p1=$(mktemp -p/tmp case.XXXXXX) || exit 2
+p2=$(mktemp -dp/tmp case.XXXXXX) || exit 2
 tmpl="$work/f.XXXXXX"
 f=$(mktemp "$tmpl") || exit 2
 g=$(mktemp) || exit 2 # shell-mktemp-template: a fixture of the reasoned escape
