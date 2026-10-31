@@ -193,7 +193,7 @@ awk '
     out = ""
     while (match(s, re)) {
       seg = substr(s, RSTART, RLENGTH); end = substr(seg, length(seg) - 1)
-      keep = end ~ /^[.!?][)]$/ && substr(seg, length(seg) - 3, 2) != ".." && substr(s, RSTART + RLENGTH) !~ /^[ \t]+[a-z]/
+      keep = end ~ /^[.!?][)]$/ && substr(seg, length(seg) - 3, 2) != ".." && substr(s, RSTART + RLENGTH) !~ /^[)"*_]*[ \t]+[a-z]/
       gsub(/[.!?;]/, "_", seg)
       if (keep) seg = substr(seg, 1, length(seg) - 2) end
       out = out substr(s, 1, RSTART - 1) seg; s = substr(s, RSTART + RLENGTH)

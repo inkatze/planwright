@@ -169,6 +169,8 @@ expect_count mid-paren-question 3 2 doctrine/mq.md "The checker asks three quest
 expect_count mid-paren-ellipsis 3 2 doctrine/me.md "Three read-only commands (ls, cat, ...) run without a prompt:" "- a" "- b"
 expect_quiet paren-end-code 'Run two passes (the second is the check.) `check` takes these inputs:' "- a" "- b" "- c"
 expect_count paren-ellipsis-end 3 2 doctrine/pe.md "Three tools (ls, cat, ...) The guard keeps these:" "- a" "- b"
+expect_count paren-emph-lower 3 2 doctrine/pl.md "Three rules apply *(see the note.)* to these files:" "- a" "- b"
+expect_count paren-quote-lower 3 2 doctrine/pq.md 'Three labels appear, "(On-demand lane.)" for lane one, in these places:' "- a" "- b"
 expect_count reference-plural 2 1 doctrine/ref.md "Two parts follow Task 12 rules:" "- a"
 
 expect_quiet nested "The scaffold offers two templates:" "" \
