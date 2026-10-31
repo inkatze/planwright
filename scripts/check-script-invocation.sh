@@ -31,7 +31,8 @@
 # required argument supplied or standing as a <placeholder>. A script with no
 # header the grammar reads fails each invocation. The grammar, and what counts
 # as an invocation, are stated once, in config/guard-catalog.yaml's
-# script-invocation entry; the header is read as text, never run.
+# script-invocation-house-pattern entry; the header is read as text, never
+# run.
 #
 # FAILS CLOSED on anything that would narrow the scan: no scripts/, no
 # shebanged script, no instruction file, a file it cannot read, and a symbolic
@@ -83,7 +84,8 @@ Usage:
 Scans the .md files under skills/ and doctrine/ for an `sh` invocation whose
 operand is a scripts/*.sh whose shebang names bash, and checks each script a
 code span or fenced line runs against the script's `# Usage` header (the
-grammar is in config/guard-catalog.yaml's script-invocation entry). Fix a
+grammar is in config/guard-catalog.yaml's script-invocation-house-pattern
+entry). Fix a
 flagged line by calling the script by its path, or through the interpreter
 its shebang names; fix a usage finding in the prose or in the header,
 whichever is wrong.
@@ -168,6 +170,13 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     sub(/[ \t]*\\$/, "", t)
     return t
   }
+  # Whether a synopsis so far leaves a [ or ( open, so the next line must
+  # continue it.
+  function open_group(s,    o, c) {
+    o = gsub(/[[(]/, "&", s)
+    c = gsub(/[])]/, "&", s)
+    return o > c
+  }
   function load_header(name,    f, line, r, inb, t, col, scol, cont, n, k) {
     hdone[name] = 1
     f = spath[name]
@@ -196,7 +205,7 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         ftext[name, ++n] = cut_gloss(t)
         scol = col
         cont = 1
-      } else if (cont && col > scol && t ~ /^([[<|-]|\.\.\.)/ && t !~ /[ \t][ \t][ \t]/) {
+      } else if (cont && col > scol && (open_group(ftext[name, n]) || (t ~ /^([[<|-]|\.\.\.)/ && t !~ /[ \t][ \t][ \t]/))) {
         ftext[name, n] = ftext[name, n] " " cut_gloss(t)
       } else {
         cont = 0
@@ -211,16 +220,19 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
   }
   # A synopsis, its name dropped: literal words (the subcommand), flags with
   # an optional <value> or a|b value, <placeholders>, [optional] groups,
-  # alternatives joined by |, a ... repeat, and a -- separator.
-  function parse_form(key, s,    tk, nt, i, t, depth, prevk, alt, np, parts, j, allf, allw, fl, val, ph) {
-    while (match(s, /<[^<>]* [^<>]*>/)) {
+  # (required choices), alternatives joined by |, a ... repeat, and a --
+  # separator. 0 when the grammar cannot read it.
+  function parse_form(key, s,    tk, nt, i, t, d, prevk, alt, np, parts, j, allf, allw, fl, val, ph, gt, gr, gi, gf, gm, gp, lastp, seenpos, kind) {
+    while (match(s, /<[^<> \t][^<>]* [^<>]*[^<> \t]>/)) {
       ph = substr(s, RSTART, RLENGTH)
       gsub(/[ \t]+/, "_", ph)
       s = substr(s, 1, RSTART - 1) ph substr(s, RSTART + RLENGTH)
     }
     gsub(/\.\.\.>/, ">...", s)
-    gsub(/[[(]/, " [ ", s)
-    gsub(/[])]/, " ] ", s)
+    gsub(/\[/, " [ ", s)
+    gsub(/\]/, " ] ", s)
+    gsub(/\(/, " ( ", s)
+    gsub(/\)/, " ) ", s)
     gsub(/\.\.\./, " ... ", s)
     nt = split(s, tk, /[ \t]+/)
     nRF[key] = 0
@@ -229,31 +241,53 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     PO[key] = 0
     PU[key] = 0
     DD[key] = 0
-    depth = 0
+    d = 0
+    gr[0] = 1
     prevk = ""
     alt = 0
+    lastp = 0
+    seenpos = 0
     for (i = 1; i <= nt && tk[i] == ""; i++) ;
     for (i++; i <= nt; i++) {
       t = tk[i]
       if (t == "") continue
-      if (t == "[") { depth++; prevk = ""; alt = 0; continue }
-      if (t == "]") { if (--depth < 0) return 0; prevk = "grp"; continue }
-      if (t == "|") { if (prevk == "") return 0; alt = 1; continue }
+      if (t == "[" || t == "(") {
+        d++
+        gt[d] = t
+        gr[d] = t == "(" && gr[d - 1]
+        gp[d] = 0
+        gm[d] = 0
+        gf[d] = 1
+        if (gr[d]) gi[d] = ++nRF[key]
+        if (gr[d]) RF[key, gi[d]] = "|"
+        prevk = ""
+        alt = 0
+        continue
+      }
+      if (t == "]" || t == ")") {
+        if (d < 1 || (t == "]") != (gt[d] == "[")) return 0
+        if (gr[d] && (gm[d] || RF[key, gi[d]] == "|")) RF[key, gi[d]] = ""
+        lastp = gp[d]
+        if (gp[d]) gp[d - 1] = 1
+        d--
+        prevk = "grp"
+        alt = 0
+        continue
+      }
+      if (t == "|") {
+        if (prevk == "") return 0
+        if (d && gt[d] == "(") gf[d] = 1
+        alt = 1
+        continue
+      }
       if (t == "...") {
         if (prevk == "") return 0
-        if (prevk == "pos" || prevk == "grp") PU[key] = 1
+        if (prevk == "pos" || (prevk == "grp" && lastp)) PU[key] = 1
         continue
       }
       if (t == "--") { DD[key] = 1; prevk = "dd"; alt = 0; continue }
       # A lone < or > notes what the script reads or writes, not an argument.
       if (t == "<" || t == ">") break
-      if ((t ~ /<[^<>]+>/ && t !~ /^-/) || t == "-") {
-        if (depth) PO[key]++
-        else if (!(alt && prevk == "pos")) PN[key, ++P[key]] = t
-        prevk = "pos"
-        alt = 0
-        continue
-      }
       np = split(t, parts, "|")
       allf = 1
       allw = 1
@@ -261,38 +295,54 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         if (parts[j] !~ /^--?[A-Za-z0-9][A-Za-z0-9_-]*(=<[^<>]+>)?$/) allf = 0
         if (parts[j] !~ /^[A-Za-z0-9_][A-Za-z0-9_.:,@+=\/-]*$/) allw = 0
       }
-      if (allf) {
+      kind = ""
+      if ((t ~ /<[^<>]+>/ && t !~ /^-/) || t == "-") kind = "pos"
+      else if (allf) kind = "flag"
+      else if (allw) kind = seenpos ? "pos" : "lit"
+      else return 0
+      # A choice between kinds is written inside ( ), never bare.
+      if (!d && alt && prevk != kind) return 0
+      if (d && gr[d] && gf[d]) {
+        if (kind == "flag") {
+          fl = parts[1]
+          sub(/=.*/, "", fl)
+          RF[key, gi[d]] = RF[key, gi[d]] fl "|"
+        } else gm[d] = 1
+        gf[d] = 0
+      }
+      if (kind == "pos") {
+        if (!(alt && prevk == "pos")) {
+          if (d) PO[key]++
+          else PN[key, ++P[key]] = t
+        }
+        for (j = d; j > 0; j--) gp[j] = 1
+        seenpos = 1
+      } else if (kind == "flag") {
+        val = 0
+        if (i < nt && tk[i + 1] !~ /^-/ && (tk[i + 1] ~ /<[^<>]+>/ || tk[i + 1] ~ /^[A-Za-z0-9_.-]+(\|[A-Za-z0-9_.-]+)+$/)) {
+          val = 1
+          i++
+        }
         for (j = 1; j <= np; j++) {
           fl = parts[j]
-          val = 0
-          if (fl ~ /=/) { sub(/=.*/, "", fl); val = 1 }
-          else if (np == 1 && i < nt && (tk[i + 1] ~ /^[^-].*<[^<>]+>/ || tk[i + 1] ~ /^<[^<>]+>/ || tk[i + 1] ~ /^[A-Za-z0-9_.-]+(\|[A-Za-z0-9_.-]+)+$/)) {
-            val = 1
-            i++
-          }
-          if (!((key SUBSEP fl) in FL) || val) FL[key, fl] = val
-          if (!depth) {
+          if (fl ~ /=/) { sub(/=.*/, "", fl); FL[key, fl] = 1 }
+          else if (!((key SUBSEP fl) in FL) || val) FL[key, fl] = val
+          if (!d) {
             if (j > 1 || (alt && prevk == "flag")) RF[key, nRF[key]] = RF[key, nRF[key]] fl "|"
             else RF[key, ++nRF[key]] = "|" fl "|"
           }
         }
-        prevk = "flag"
-        alt = 0
-        continue
-      }
-      if (allw) {
+      } else {
         for (j = 1; j <= np; j++) {
-          if (depth) OL[key, parts[j]] = 1
+          if (d) OL[key, parts[j]] = 1
           else if (j > 1 || (alt && prevk == "lit")) LS[key, nLS[key]] = LS[key, nLS[key]] parts[j] "|"
           else LS[key, ++nLS[key]] = "|" parts[j] "|"
         }
-        prevk = "lit"
-        alt = 0
-        continue
       }
-      return 0
+      prevk = kind
+      alt = 0
     }
-    return depth == 0
+    return d == 0
   }
   function isph(a) { return a ~ /<[^<>]+>/ }
   # "" when the invocation in IA[1..NA] fits the form, else a rank digit, a
@@ -305,20 +355,20 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     extra = ""
     for (i = 1; i <= NA; i++) {
       a = IA[i]
-      if (a == "...") continue
+      if (a == "..." || a == "\342\200\246") continue
       if (dd) { pos++; continue }
       if (a == "--") {
         if (!DD[key]) return "2 flag \047--\047 is not in its usage header"
         dd = 1
         continue
       }
-      if (a ~ /^--?[A-Za-z]/) {
+      if (a ~ /^--?[A-Za-z0-9]/) {
         fl = a
         hasv = 0
         if (fl ~ /=/) { sub(/=.*/, "", fl); hasv = 1 }
         if (!((key SUBSEP fl) in FL)) return "2 flag \047" fl "\047 is not in its usage header"
         if (FL[key, fl] && !hasv) {
-          if (i == NA || IA[i + 1] ~ /^--?[A-Za-z]/) return "4 missing a value for " fl
+          if (i == NA || IA[i + 1] ~ /^--?[A-Za-z0-9]/) return "4 missing a value for " fl
           i++
         }
         seen[fl] = 1
@@ -333,6 +383,7 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     }
     if (li <= nLS[key]) return "1 missing a subcommand"
     for (g = 1; g <= nRF[key]; g++) {
+      if (RF[key, g] == "") continue
       nm = split(RF[key, g], mem, "|")
       ok = 0
       for (j = 1; j <= nm; j++) if (mem[j] != "" && (mem[j] in seen)) ok = 1
@@ -360,31 +411,42 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     printf "check-script-invocation: %s:%d: scripts/%s: %s\n", rel, ln, name, msg
     found++
   }
-  function check_inv(name, ln,    k, err, best, bscore, sc, a1, i, nlit, haslit, ok) {
+  function valflag(name, fl,    k) {
+    for (k = 1; k <= nform[name]; k++) if ((name SUBSEP k SUBSEP fl) in FL && FL[name, k, fl]) return 1
+    return 0
+  }
+  function check_inv(name, ln,    k, err, best, bscore, sc, a1, i, nlit, haslit, ok, fl) {
     ninv++
     if (!(name in hdone)) load_header(name)
     if (!hok[name]) {
-      finding(ln, name, "has no usage header the grammar parses (the guard catalog entry script-invocation states it)")
+      finding(ln, name, "has no usage header the grammar parses (the guard catalog entry script-invocation-house-pattern states it)")
       return
     }
     best = ""
     bscore = -1
     haslit = 0
+    a1 = ""
+    for (i = 1; i <= NA; i++) {
+      if (IA[i] == "..." || IA[i] == "\342\200\246") continue
+      if (IA[i] ~ /^-/) {
+        fl = IA[i]
+        if (fl !~ /=/ && valflag(name, fl)) i++
+        continue
+      }
+      a1 = IA[i]
+      break
+    }
     for (k = 1; k <= nform[name]; k++) {
       err = match_form(name SUBSEP k)
       if (err == "") return
       if (nLS[name, k]) haslit = 1
       sc = substr(err, 1, 1) * 10
-      nlit = 0
-      if (nLS[name, k])
-        for (i = 1; i <= NA; i++) if (IA[i] !~ /^-/) { if (index(LS[name, k, 1], "|" IA[i] "|")) nlit = 1; break }
+      nlit = nLS[name, k] && a1 != "" && index(LS[name, k, 1], "|" a1 "|")
       sc += nlit * 100
       if (sc > bscore) { bscore = sc; best = substr(err, 3) }
     }
-    a1 = ""
-    for (i = 1; i <= NA; i++) if (IA[i] !~ /^-/) { a1 = IA[i]; break }
-    if (haslit && a1 == "") best = "missing a subcommand (its usage header lists: " subcommands(name) ")"
-    else if (haslit && bscore < 100 && !isph(a1)) {
+    if (haslit && a1 == "" && bscore != 20) best = "missing a subcommand (its usage header lists: " subcommands(name) ")"
+    else if (haslit && a1 != "" && bscore < 100 && !isph(a1)) {
       ok = 0
       for (k = 1; k <= nform[name]; k++) if (nLS[name, k] && index(LS[name, k, 1], "|" a1 "|")) ok = 1
       if (!ok) best = "unknown subcommand \047" a1 "\047 (its usage header lists: " subcommands(name) ")"
@@ -437,6 +499,12 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
             j = e
             continue
           }
+          if (c == "`" && (e = index(substr(s, j + 1), "`"))) {
+            QT[++NQ] = substr(s, j + 1, e - 1)
+            w = w substr(s, j, e + 1)
+            j += e
+            continue
+          }
           w = w c
         }
         i = j
@@ -450,7 +518,14 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         inw = 1
         continue
       }
-      if (c == "<" && match(substr(s, i), /^<[A-Za-z0-9_][^<> \t]*>/)) {
+      if (c == "`" && (e = index(substr(s, i + 1), "`"))) {
+        QT[++NQ] = substr(s, i + 1, e - 1)
+        w = w substr(s, i, e + 1)
+        i += e
+        inw = 1
+        continue
+      }
+      if (c == "<" && (match(substr(s, i), /^<[A-Za-z0-9_][^<>\t`]*[^<> \t`]>/) || match(substr(s, i), /^<[A-Za-z0-9_]>/))) {
         w = w substr(s, i, RLENGTH)
         i += RLENGTH - 1
         inw = 1
@@ -461,7 +536,7 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         continue
       }
       if (c == "&" && w ~ /[<>]$/) { w = w c; continue }
-      if (c == "|" || c == ";" || c == "&" || c == "(" || c == ")" || c == "`") {
+      if (c == "|" || c == ";" || c == "&" || c == "(" || c == ")") {
         if (inw) { TK[++NT] = w; TY[NT] = "w"; w = ""; inw = 0 }
         op = c
         if ((c == "|" || c == "&" || c == ";") && substr(s, i + 1, 1) == c) { op = op c; i++ }
@@ -478,25 +553,37 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
   }
   # Check every script run in command position in s, the body of a code span or
   # a fenced command line.
-  function scan_cmds(s, ln, fenced,    i, j, a, name, ran, skipc) {
+  function scan_cmds(s, ln, fenced,    i, j, a, w, p, name, ran, skipc) {
     tokenize(s)
     i = 1
     while (i <= NT) {
       while (i <= NT && TY[i] == "o") i++
       if (i > NT) break
-      if (TK[i] == "$") i++
-      while (i <= NT && TY[i] == "w" && TK[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) i++
-      while (i <= NT && TY[i] == "w" && TK[i] ~ /^(env|exec|command|time|nohup|setsid)$/) i++
-      ran = fenced
+      ran = fenced || NT > 1
       skipc = 0
+      # What may stand before a command: a prompt, keywords, assignments,
+      # wrappers and their options, and redirections.
+      do {
+        p = i
+        if (i > NT || TY[i] != "w") break
+        w = TK[i]
+        if (w ~ /^([$!{]|if|then|elif|else|do|while|until)$/ || w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) i++
+        else if (w ~ /^(env|exec|command|time|nohup|setsid)$/)
+          for (i++; i <= NT && TY[i] == "w" && TK[i] ~ /^-/; i++) ;
+        else if (w ~ /^[0-9]*[<>]/ && !isph(w)) {
+          i++
+          if (w ~ /^[0-9]*[<>]+&?$/) i++
+        }
+      } while (i > p)
       if (i <= NT && TY[i] == "w" && TK[i] ~ /(^|\/)(ba|da|z)?sh$/) {
         ran = 1
         for (i++; i <= NT && TY[i] == "w" && TK[i] ~ /^[-+]/; i++) {
-          if (TK[i] ~ /^-[A-Za-z]*c/) skipc = 1
-          if (TK[i] ~ /^[-+]o$/) i++
+          # -c runs a string, -n reads without running.
+          if (TK[i] ~ /^-[A-Za-z]*[cn]/) skipc = 1
+          if (TK[i] ~ /^[-+][A-Za-z]*o$/) i++
         }
       }
-      if (!skipc && i <= NT && TY[i] == "w" && TK[i] != "." && TK[i] != "source" && (name = script_of(TK[i])) != "") {
+      if (!skipc && i <= NT && TY[i] == "w" && (name = script_of(TK[i])) != "") {
         NA = 0
         for (j = i + 1; j <= NT && TY[j] == "w"; j++) {
           a = TK[j]
@@ -521,19 +608,9 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     scan_cmds(s, ln, fenced)
     for (q = 1; q <= NQ; q++) scan_cmds(QT[q], ln, 1)
   }
-  # The code spans of a prose line, a span left open carried to the next
-  # line of its paragraph.
-  function spans(line,    s, base, plen, pos, os, ol, rest, off, cs, cl, got, sl) {
-    s = line
-    base = FNR
-    plen = 0
-    if (pend != "") {
-      s = pend " " line
-      base = pline
-      plen = length(pend) + 1
-    }
-    pend = ""
-    pos = 1
+  # The code spans of s from pos, reported at line ln; an opener without a
+  # closer on the line leaves a span open for the next line of its block.
+  function scan_spans(s, pos, ln,    os, ol, rest, off, cs, cl, got) {
     while (match(substr(s, pos), /`+/)) {
       os = pos + RSTART - 1
       ol = RLENGTH
@@ -546,15 +623,45 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         if (cl == ol) { got = 1; break }
         off = cs + cl - 1
       }
-      sl = os <= plen ? base : FNR
       if (!got) {
-        pend = substr(s, os)
-        pline = sl
-        break
+        popen = ol
+        pend = rest
+        pline = ln
+        return
       }
-      scan(substr(rest, 1, cs - 1), sl, 0)
+      scan(substr(rest, 1, cs - 1), ln, 0)
       pos = os + ol + cs + cl - 1
     }
+  }
+  # A block ended with a span still open: its opener was literal text, so
+  # the rest of the block is read again without it.
+  function flush_spans(    s) {
+    while (popen) {
+      popen = 0
+      s = pend
+      pend = ""
+      scan_spans(s, 1, pline)
+    }
+  }
+  function spans(line,    off, cs, cl) {
+    if (popen) {
+      off = 0
+      while (match(substr(line, off + 1), /`+/)) {
+        cs = off + RSTART
+        cl = RLENGTH
+        if (cl == popen) {
+          popen = 0
+          scan(pend " " substr(line, 1, cs - 1), pline, 0)
+          pend = ""
+          scan_spans(line, cs + cl, FNR)
+          return
+        }
+        off = cs + cl - 1
+      }
+      pend = pend " " line
+      return
+    }
+    scan_spans(line, 1, FNR)
   }
   BEGIN {
     root = ENVIRON["CSI_ROOT"]
@@ -591,10 +698,13 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     if (!ndocs) fatal("no .md file under skills/ or doctrine/ in " root)
   }
   FNR == 1 {
+    if (NR > 1) flush_spans()
     rel = substr(FILENAME, length(root) + 1)
     infence = 0
     pend = ""
+    popen = 0
     fcont = ""
+    hdoc = ""
   }
   /sh/ {
     line = $0
@@ -667,10 +777,18 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     sub(/\r$/, "", line)
     t = line
     sub(/^[ \t]+/, "", t)
+    # A fence may open inside a list item or a quote.
+    ft = t
+    sub(/^(>[ \t]*)+/, "", ft)
+    sub(/^([-*+]|[0-9]+[.)])[ \t]+/, "", ft)
     if (infence) {
-      if (index(t, fmark) == 1 && t ~ /^(`+|~+)[ \t]*$/) {
+      if (index(ft, fmark) == 1 && ft ~ /^(`+|~+)[ \t]*$/) {
+        if (fcont != "") scan(fcont, fline, 1)
         infence = 0
         fcont = ""
+        hdoc = ""
+      } else if (hdoc != "") {
+        if (t == hdoc) hdoc = ""
       } else {
         if (fcont == "") fline = FNR
         t = fcont t
@@ -678,17 +796,28 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         else {
           fcont = ""
           scan(t, fline, 1)
+          # A heredoc body is data, not commands.
+          if (match(t, /<<-?[ \t]*[\047\042]?[A-Za-z_][A-Za-z0-9_]*/)) {
+            hdoc = substr(t, RSTART, RLENGTH)
+            sub(/^<<-?[ \t]*[\047\042]?/, "", hdoc)
+          }
         }
       }
-    } else if (match(t, /^```+/) || match(t, /^~~~+/)) {
+    } else if ((match(ft, /^```+/) && substr(ft, RLENGTH + 1) !~ /`/) || match(ft, /^~~~+/)) {
+      flush_spans()
       infence = 1
-      fmark = substr(t, 1, RLENGTH)
-      pend = ""
-    } else if (t == "") pend = ""
-    else spans(line)
+      fmark = substr(ft, 1, RLENGTH)
+      fcont = ""
+      hdoc = ""
+    } else if (t == "") flush_spans()
+    else {
+      if (t ~ /^#+([ \t]|$)/ || t ~ /^([-*+]|[0-9]+[.)])[ \t]/) flush_spans()
+      spans(line)
+    }
   }
   END {
     if (failed) exit 2
+    flush_spans()
     print ndocs + 0, nbash + 0, ninv + 0 > ENVIRON["CSI_SUMMARY"]
     exit found ? 1 : 0
   }

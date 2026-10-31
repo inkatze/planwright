@@ -104,7 +104,7 @@
 #       --pid <pid>) [--tmux-session <name> --tmux-window <name>]
 #       [--specs <csv>] [--fenced <csv>] [--meta]
 #   fleet-presence.sh discover --checkout <dir> (--session-id <uuid> |
-#       --pid <pid>) [--min-interval <sec>]
+#       --pid <pid>) [--min-interval <sec>]   (default 30; 0 disables the cap)
 #   fleet-presence.sh owner    --checkout <dir> (--session-id <uuid> |
 #       --pid <pid>) <spec>/<unit-id>
 #     (owner and attribute also take the unit ref as specs/<spec>/<unit-id>,

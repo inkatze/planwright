@@ -230,8 +230,8 @@ assert_not_contains "the scriptless scan does not read as clean" "$out" "clean (
 
 cp -R "$FIXTURES/clean" "$tmp/libsonly" || exit 1
 printf '# shellcheck shell=bash\n' >"$tmp/libsonly/scripts/bash-tool.sh"
-for lib in posix-tool sub-tool nohdr-tool; do
-  printf '# shellcheck shell=sh\n' >"$tmp/libsonly/scripts/$lib.sh"
+for lib in "$tmp/libsonly/scripts/"*.sh; do
+  printf '# shellcheck shell=sh\n' >"$lib"
 done
 out="$("$CHECKER" --repo-root "$tmp/libsonly" 2>&1)"
 assert "a scripts/ with no shebanged script fails closed" 2 $?
@@ -330,15 +330,16 @@ usage_fails() {
   uf_at=$((u_line + $1))
   uf_reason="$2"
   shift 2
+  uf_label="$*"
   uvariant uf "$@"
   out="$("$CHECKER" --repo-root "$tmp/uf" 2>&1)"
-  assert "flagged: $1" 1 $?
-  assert_contains "the line is named: $1" "$out" "skills/usage/SKILL.md:$uf_at:"
-  assert_contains "the reason is given: $1" "$out" "$uf_reason"
+  assert "flagged: $uf_label" 1 $?
+  assert_contains "the line is named: $uf_label" "$out" "skills/usage/SKILL.md:$uf_at:"
+  assert_contains "the reason is given: $uf_label" "$out" "$uf_reason"
   rm -rf "$tmp/uf"
 }
 
-usage_fails 0 "unknown subcommand 'launch'" 'Run `scripts/sub-tool.sh launch --spec <dir> 5`.'
+usage_fails 0 "unknown subcommand 'launch' (its usage header lists: run, list)" 'Run `scripts/sub-tool.sh launch --spec <dir> 5`.'
 usage_fails 0 "unknown subcommand 'lst'" 'Run `git log | scripts/sub-tool.sh lst`.'
 usage_fails 0 "flag '--verbose' is not in its usage header" 'Run `scripts/sub-tool.sh list --verbose`.'
 usage_fails 0 "flag '--dry-run' is not in its usage header" 'Run `scripts/sub-tool.sh list --dry-run`.'
@@ -355,7 +356,8 @@ usage_fails 0 "flag '--bogus' is not in its usage header" 'Run `scripts/sub-tool
 usage_fails 1 "flag '--bogus' is not in its usage header" '```sh' "scripts/sub-tool.sh run \\" '  --bogus' '```'
 usage_fails 1 "flag '--bogus' is not in its usage header" '```' 'x=$(scripts/sub-tool.sh list --bogus)' '```'
 
-for hdr in '# Usage: badhdr-tool.sh {start,stop}' '# Usage:' '# Usage: something else entirely'; do
+for hdr in '# Usage: badhdr-tool.sh {start,stop}' '# Usage:' '# Usage: something else entirely' \
+  '# Usage: badhdr-tool.sh <id> | --all' '# Usage: badhdr-tool.sh [start'; do
   uvariant badhdr 'Run `scripts/badhdr-tool.sh start`.'
   printf '#!/bin/sh\n%s\n:\n' "$hdr" >"$tmp/badhdr/scripts/badhdr-tool.sh"
   out="$("$CHECKER" --repo-root "$tmp/badhdr" 2>&1)"
@@ -380,6 +382,72 @@ for form in \
   assert "not flagged: $form" 0 $?
   rm -rf "$tmp/up"
 done
+
+# Each rule of the header grammar and of command position, against
+# feat-tool.sh, whose header uses all of them.
+usage_fails 0 "missing required flag --to|--to-worker" 'Run `scripts/feat-tool.sh send --message-file f`.'
+usage_fails 0 "missing required flag --pid|--session" 'Run `scripts/feat-tool.sh wait`.'
+usage_fails 0 "unexpected argument 'b'" 'Run `scripts/feat-tool.sh pick a b`.'
+usage_fails 0 "missing a value for --name" 'Run `scripts/feat-tool.sh pick --name`.'
+usage_fails 0 "missing a value for -n" 'Run `scripts/feat-tool.sh pick -n`.'
+usage_fails 0 "unexpected argument 'a'" 'Run `scripts/feat-tool.sh rows a`.'
+usage_fails 0 "flag '--' is not in its usage header" 'Run `scripts/feat-tool.sh rows -- x`.'
+usage_fails 0 "missing required argument <label>" 'Run `scripts/feat-tool.sh tag 7 on`.'
+usage_fails 0 "missing required argument <task>" 'Run `scripts/sub-tool.sh run --spec <dir> …`, the one-character ellipsis.'
+usage_fails 0 "flag '-hx' is not in its usage header" 'Run `scripts/sub-tool.sh -hx`.'
+usage_fails 0 "flag '--bogus' is not in its usage header" 'Run `scripts/sub-tool.sh --spec x run 5 --bogus`.'
+usage_fails 0 "missing a subcommand" 'Run `scripts/feat-tool.sh | jq .`, not a bare mention.'
+for form in \
+  'Run `FOO=1 scripts/feat-tool.sh lst`.' \
+  'Run `env FOO=1 scripts/feat-tool.sh lst`.' \
+  'Run `env -i scripts/feat-tool.sh lst`.' \
+  'Run `time -p scripts/feat-tool.sh lst`.' \
+  'Run `! scripts/feat-tool.sh lst`.' \
+  'Run `>/dev/null scripts/feat-tool.sh lst`.' \
+  'Run `bash -euo pipefail scripts/feat-tool.sh lst`.' \
+  'A stray ``` here, then `scripts/feat-tool.sh lst` there.'; do
+  usage_fails 0 "unknown subcommand 'lst'" "$form"
+done
+usage_fails 1 "unknown subcommand 'lst'" '- a stray ` tick' '- run `scripts/feat-tool.sh lst`'
+usage_fails 1 "unknown subcommand 'lst'" '```sh' '$ scripts/feat-tool.sh lst' '```'
+usage_fails 1 "unknown subcommand 'lst'" '```sh' 'if scripts/feat-tool.sh lst; then :; fi' '```'
+usage_fails 1 "unknown subcommand 'lst'" '```sh' 'x="`scripts/feat-tool.sh lst`"' '```'
+usage_fails 1 "unknown subcommand 'lst'" '```sh' "scripts/feat-tool.sh lst \\" '```'
+usage_fails 1 "unknown subcommand 'lst'" '- ```sh' '  scripts/feat-tool.sh lst' '  ```'
+
+for form in \
+  'Run `scripts/feat-tool.sh show <the spec dir>`.' \
+  'Run `scripts/feat-tool.sh show x --json < e.jsonl > out.txt`.' \
+  'Run `scripts/feat-tool.sh show x [--json]`, the flag marked optional.' \
+  'Run `scripts/feat-tool.sh send --to /run/s --message-file f`.' \
+  'Run `scripts/feat-tool.sh tag '"'"'7'"'"' on x`.' \
+  'Run `scripts/feat-tool.sh pick --name v a`.' \
+  'Run `scripts/feat-tool.sh exec -- ls -la`.' \
+  'Run `scripts/feat-tool.sh wait --session 3`.' \
+  'Run `scripts/feat-tool.sh rows --tag a --tag b -1`.' \
+  'Run `scripts/feat-tool.sh peek 4`, a path-named synopsis.' \
+  'Run `bash -n scripts/feat-tool.sh`, which runs nothing.' \
+  'Run `sh -c "scripts/feat-tool.sh lst"`, a string.' \
+  'Run `scripts/feat-tool.sh show x # lst`, the rest a comment.' \
+  'Open `scripts/feat-tool.sh' '' 'lst` after a blank line.'; do
+  uvariant up "$form"
+  out="$("$CHECKER" --repo-root "$tmp/up" 2>&1)"
+  assert "not flagged: $form" 0 $?
+  rm -rf "$tmp/up"
+done
+uvariant up '```sh' "cat >note.md <<'EOF'" 'scripts/feat-tool.sh lst is data' 'EOF' 'scripts/feat-tool.sh peek 1' '```'
+out="$("$CHECKER" --repo-root "$tmp/up" 2>&1)"
+assert "a heredoc body is not a command" 0 $?
+rm -rf "$tmp/up"
+
+# A header with CRLF line ends reads like one without.
+uvariant crlf 'Run `scripts/feat-tool.sh peek 4`.' 'Run `scripts/feat-tool.sh lst`.'
+printf '#!/bin/sh\r\n# Usage:\r\n#   feat-tool.sh peek <id>\r\n:\r\n' >"$tmp/crlf/scripts/feat-tool.sh"
+out="$("$CHECKER" --repo-root "$tmp/crlf" 2>&1)"
+assert "a CRLF header is read" 1 $?
+assert_contains "the CRLF header's subcommand is known" "$out" "lists: peek)"
+assert_not_contains "the conforming call against the CRLF header passes" "$out" "SKILL.md:$u_line:"
+rm -rf "$tmp/crlf"
 
 # Every usage finding is reported in one run, beside an sh finding.
 uvariant umany 'Run `scripts/sub-tool.sh lst`.' 'Run `sh scripts/bash-tool.sh --nope`.'

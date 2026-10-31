@@ -165,7 +165,7 @@ protocol's dispatched arm); attended, present and wait.
 This skill is the runner at its five in-run points; `custom-steps` owns the
 contract. Issue one run id (`scripts/step-record.sh new-run`) per invocation.
 `--resume <run>:<point>` runs start there, skipping what
-`scripts/step-run.sh resume --run <run> --from <run>:<point>` prints. **Run a point**
+`scripts/step-run.sh resume --run <this-run> --from <run>:<point>` prints. **Run a point**
 in the worktree, the `PLANWRIGHT_STEP_*` context exported (a PR number
 whenever one exists):
 
