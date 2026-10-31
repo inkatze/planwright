@@ -679,6 +679,11 @@ baseline exists, so the experiment has an honest before.
   bullet in that same commit, stamped `Planwright-Task: tower-comms/9`
   through `scripts/planwright-commit-trailers.sh`, so the task derives
   completed instead of turning selectable.
+- **Task 12** — the post-PR cubic review round (step `cubic-pr`) is halted:
+  the cubic workspace quota is exhausted until 2026-11-05. Draft PR #763
+  carries the implementation and both convergence rounds. Operator: run the
+  cubic round and the panel from another session, then the ready flip once
+  CI is green and the PR is mergeable, and remove this bullet.
 
 ## Deferred
 
