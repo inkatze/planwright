@@ -5,7 +5,7 @@
 #   resolve-root.sh [--explain] install [--all]
 #   resolve-root.sh [--explain] repo --primary | --checkout
 #   resolve-root.sh [--explain] spec [--primary] [--posture] [--init]
-#   resolve-root.sh [--explain] marker <dir>
+#   resolve-root.sh [--explain | --project] marker <dir>
 #   (flags may appear anywhere among the arguments)
 #
 # install   which planwright copy runs: the first surviving arm of the core
@@ -73,6 +73,8 @@
 #           spec kind requires of a root other than the default. Prints the
 #           canonical directory; reads no config and no repository, so a
 #           caller can vet a root that belongs to another checkout.
+#   --project   print the valid marker's project field instead, so a caller
+#               never parses the marker itself; refused with --explain.
 #
 # --explain prints "<source>\t<path>": the arm (PLANWRIGHT_ROOT,
 # CLAUDE_PLUGIN_ROOT, writer-mode, self-location) or the repo source
@@ -125,7 +127,7 @@ say() {
 }
 
 usage() {
-  say "usage: resolve-root.sh [--explain] install [--all] | repo --primary|--checkout | spec [--primary] [--posture] [--init] | marker <dir>"
+  say "usage: resolve-root.sh [--explain] install [--all] | repo --primary|--checkout | spec [--primary] [--posture] [--init] | marker [--project] <dir>"
   exit 2
 }
 
@@ -135,6 +137,7 @@ explain=0
 posture_only=0
 init=0
 all=0
+project_only=0
 marker_dir=""
 for arg in "$@"; do
   case $arg in
@@ -142,6 +145,7 @@ for arg in "$@"; do
     --all) all=1 ;;
     --posture) posture_only=1 ;;
     --init) init=1 ;;
+    --project) project_only=1 ;;
     --primary | --checkout)
       [ -z "$view" ] || usage
       view=${arg#--}
@@ -650,6 +654,7 @@ case $0 in
 esac
 
 [ "$all" -eq 0 ] || [ "$kind" = install ] || usage
+[ "$project_only" -eq 0 ] || { [ "$kind" = marker ] && [ "$explain" -eq 0 ]; } || usage
 case $kind in
   install | repo | marker)
     [ "$posture_only" -eq 0 ] && [ "$init" -eq 0 ] || usage
@@ -671,6 +676,10 @@ case $kind in
     [ "$(printf '%s' "$sr_primary" | tr -d '\000-\037\177')" = "$sr_primary" ] \
       || refuse_marker "its canonical path carries a control byte or tab"
     check_marker
+    if [ "$project_only" -eq 1 ]; then
+      printf '%s\n' "$cm_project"
+      exit 0
+    fi
     emit marker "$sr_primary"
     ;;
   repo | spec)
