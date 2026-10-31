@@ -11,3 +11,10 @@ case "$rc" in
 esac
 out=$(printf '%s\n' "$rc" | grep -c x)
 code=$?
+y=$(printf '%s' "${out}" | tr a b); rc=$?
+git log | tail -n 1; true
+rc=$?
+git log | tail -n 1; rc=${PIPESTATUS[0]}
+set -o pipefail
+git log | tail -n 1
+rc=$?

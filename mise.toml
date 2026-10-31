@@ -249,7 +249,7 @@ description = "printf-not-echo guard: fail on a shell file under scripts/, tests
 run = "/bin/bash scripts/check-echo-discipline.sh"
 
 [tasks."check:shell-pipe-status"]
-description = "shell rule shell-pipe-status: fail on a $? read straight after a pipeline, where it holds the last stage's status, a printf or echo producer and any file setting -o pipefail excepted (doctrine/guard-catalog.md, Shell rule set; --help states the escape hatch)"
+description = "shell rule shell-pipe-status: fail on a $? read straight after a pipeline, where it holds the last stage's status, a printf or echo producer, a line naming PIPESTATUS and every line after a set -o pipefail excepted (doctrine/guard-catalog.md, Shell rule set; --help states the escape hatch)"
 run = "/bin/bash scripts/check-shell-pipe-status.sh"
 
 [tasks."check:shell-fail-open-noop"]

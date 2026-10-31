@@ -15,9 +15,11 @@ Usage:
   check-shell-pipe-status.sh --help
 
 Flagged: a $? in the statement after a pipeline, on the same line after a ;
-or in the first statement of the next line, a pipeline inside a command
-substitution included (x=$(a | b); rc=$?). Not flagged: a line naming
-PIPESTATUS, and any file that sets -o pipefail.
+or in the first statement of the next statement line (blank and comment
+lines skipped), a pipeline inside a command substitution included
+(x=$(a | b); rc=$?). Not flagged: a pipeline whose upstream stages are only
+printf or echo, a line naming PIPESTATUS, and every line after a
+set -o pipefail.
 Fix: run the producer on its own and keep its status, or read PIPESTATUS.
 Exempt a line with a trailing or directly preceding
   # shell-pipe-status: <reason>
@@ -34,13 +36,13 @@ function has_pipe(s,   n, k, stages, st1) {
   n = split(s, stages, "|")
   for (k = 1; k < n; k++) {
     st1 = stages[k]
-    if (k == 1) sub(/^.*(\$\(|[;({]|\001\001|&&|then[ \t]|do[ \t])/, "", st1)
+    if (k == 1) sub(/^.*(\$\(|[;(]|(^|[ \t;&|])\{[ \t]|\001\001|&&|then[ \t]|do[ \t])/, "", st1)
     sub(/^[ \t]*/, "", st1)
     if (st1 !~ /^(printf|echo)([ \t]|$)/) return 1
   }
   return 0
 }
-function rule_check(code, lineno,   head, p) {
+function rule_check(code, lineno,   head, p, last) {
   if (code ~ /-[A-Za-z]*o[ \t]+pipefail/) pipefail = 1
   if (pipefail || code ~ /PIPESTATUS/) return ""
   p = index(code, "$?")
@@ -54,7 +56,11 @@ function rule_check(code, lineno,   head, p) {
     return ""
   }
   if (head ~ /(&&|\|\|)/) return ""
-  if (prev_code != "" && has_pipe(prev_code)) return "$? is read after the pipeline on the line above, so it holds the last stage status"
+  # Only the last statement of the line above sets $?.
+  last = prev_code
+  sub(/[ \t;]*$/, "", last)
+  sub(/^.*;/, "", last)
+  if (last != "" && has_pipe(last)) return "$? is read after the pipeline on the line above, so it holds the last stage status"
   return ""
 }
 '

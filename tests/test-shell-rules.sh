@@ -4,7 +4,7 @@
 # REQ-F1.1).
 #
 # Every rule has a fixture pair under tests/fixtures/shell-rules/<rule-id>/: a
-# `positive` the rule must flag at the line its `# expect-line:` header names,
+# `positive` the rule must flag at exactly the lines its `# expect-line:` headers name,
 # and a `negative` it must pass, the negative carrying the masked look-alikes
 # (quoted text, comments, heredoc bodies, annotated sites). The fixtures carry
 # no shebang and no .sh suffix so the repository's own sweeps skip them; each
@@ -75,12 +75,13 @@ for rule in $rules; do
       fail "$rule: the positive fixture exited $rc, not 1: $out"
       continue
     fi
-    case "$out" in
-      *"check-$rule: scripts/case.sh:$want: "*) pass "$rule: the positive fixture is flagged at line $want" ;;
-      *) fail "$rule: the positive fixture was not flagged at line $want: $out" ;;
-    esac
-    n=$(printf '%s\n' "$out" | grep -c "^check-$rule: ")
-    [ "$n" -eq 1 ] || fail "$rule: the positive fixture drew $n reports, not exactly one: $out"
+    want=$(sed -n 's/^# expect-line: //p' "$src" | sort -n | tr '\n' ' ')
+    got=$(printf '%s\n' "$out" | sed -n "s/^check-$rule: scripts\/case\.sh:\([0-9]*\): .*/\1/p" | sort -n | tr '\n' ' ')
+    if [ "$got" = "$want" ]; then
+      pass "$rule: the positive fixture is flagged at exactly lines $want"
+    else
+      fail "$rule: the positive fixture was flagged at lines [$got], not [$want]: $out"
+    fi
   done
 done
 
