@@ -348,6 +348,7 @@ target=""
 have_target=0
 have_text=0
 recurrence=""
+have_recurrence=0
 
 while [ $# -gt 0 ]; do
   case $1 in
@@ -382,6 +383,7 @@ while [ $# -gt 0 ]; do
         exit 2
       }
       recurrence=$2
+      have_recurrence=1
       shift 2
       ;;
     --today)
@@ -501,8 +503,8 @@ _slen=$(printf '%s' "$text" | tr -d '\000-\037\177' | wc -c | tr -d ' ')
 [ "$_tlen" = "$_slen" ] \
   || refuse 1 "entry text must not contain newlines or control characters"
 
-case $recurrence in
-  "" | [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+case $have_recurrence:$recurrence in
+  0: | 1:[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
   *) refuse 1 "recurrence uid must be 8 lowercase hex characters" ;;
 esac
 

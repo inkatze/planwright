@@ -109,16 +109,27 @@ echo "ok 4: --recurrence writes the marker after a kind prefix, else at the star
 o=$(store s5)
 seed "$o" entries gate-lock ffff0005 planwright "$LIVE_TEXT"
 seed "$o" entries other ffff0006 planwright 'an unrelated fragment'
-for uid in ffff0006 12345678 NOTAUID; do
+for pair in 'ffff0006|is not a fragment this text duplicates' \
+  '12345678|is not a fragment this text duplicates' \
+  'NOTAUID|8 lowercase hex' 'FFFF0005|8 lowercase hex' '|8 lowercase hex'; do
+  uid=${pair%%|*}
   rc=0
-  rec --obs-dir "$o" --slug gate-lock --scope planwright --recurrence "$uid" \
-    --text "$DUP_TEXT" >/dev/null 2>&1 || rc=$?
-  [ "$rc" -eq 1 ] || fail "5: --recurrence $uid expected exit 1, got $rc"
+  err=$(rec --obs-dir "$o" --slug gate-lock --scope planwright --recurrence "$uid" \
+    --text "$DUP_TEXT" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 1 ] || fail "5: --recurrence '$uid' expected exit 1, got $rc"
+  case $err in
+    *"${pair#*|}"*) ;;
+    *) fail "5: --recurrence '$uid' refused for the wrong reason: $err" ;;
+  esac
 done
 rc=0
-rec --obs-dir "$o" --slug fresh --scope planwright --recurrence ffff0005 \
-  --text 'a text that matches nothing' >/dev/null 2>&1 || rc=$?
+err=$(rec --obs-dir "$o" --slug fresh --scope planwright --recurrence ffff0005 \
+  --text 'a text that matches nothing' 2>&1 >/dev/null) || rc=$?
 [ "$rc" -eq 1 ] || fail "5: --recurrence on a text matching nothing expected exit 1, got $rc"
+case $err in
+  *"is not a fragment this text duplicates"*) ;;
+  *) fail "5: a recurrence of nothing refused for the wrong reason: $err" ;;
+esac
 [ "$(frags "$o")" -eq 2 ] || fail "5: a refused recurrence was written"
 echo "ok 5: a --recurrence uid the refusal did not match is refused"
 
