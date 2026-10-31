@@ -252,6 +252,8 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       t = tk[i]
       if (t == "") continue
       if (t == "[" || t == "(") {
+        # An alternative that opens with a group is not one opening flag.
+        if (d && gr[d] && gf[d]) { gm[d] = 1; gf[d] = 0 }
         d++
         gt[d] = t
         gr[d] = t == "(" && gr[d - 1]
@@ -473,8 +475,10 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
   }
   # Shell words and operators of s into TK/TY[1..NT]; quotes are removed, a
   # $( ) stays in its word and its body is queued for its own scan.
-  function tokenize(s,    L, i, c, w, inw, j, e, op) {
+  function tokenize(s,    L, i, c, w, inw, j, e, op, nocl, nobt) {
     NT = 0
+    nocl = 0
+    nobt = 0
     w = ""
     inw = 0
     L = length(s)
@@ -493,17 +497,25 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
           c = substr(s, j, 1)
           if (c == "\\") { w = w substr(s, j + 1, 1); j++; continue }
           if (c == "\042") break
-          if (c == "$" && substr(s, j + 1, 1) == "(" && (e = close_paren(s, j + 2))) {
-            QT[++NQ] = substr(s, j + 2, e - j - 2)
-            w = w substr(s, j, e - j + 1)
-            j = e
-            continue
+          # An unmatched $( or ` closes nothing later on the line either, so
+          # it is looked for once.
+          if (c == "$" && substr(s, j + 1, 1) == "(" && !nocl) {
+            if ((e = close_paren(s, j + 2))) {
+              QT[++NQ] = substr(s, j + 2, e - j - 2)
+              w = w substr(s, j, e - j + 1)
+              j = e
+              continue
+            }
+            nocl = 1
           }
-          if (c == "`" && (e = index(substr(s, j + 1), "`"))) {
-            QT[++NQ] = substr(s, j + 1, e - 1)
-            w = w substr(s, j, e + 1)
-            j += e
-            continue
+          if (c == "`" && !nobt) {
+            if ((e = index(substr(s, j + 1), "`"))) {
+              QT[++NQ] = substr(s, j + 1, e - 1)
+              w = w substr(s, j, e + 1)
+              j += e
+              continue
+            }
+            nobt = 1
           }
           w = w c
         }
@@ -511,21 +523,28 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         inw = 1
         continue
       }
-      if (c == "$" && substr(s, i + 1, 1) == "(" && (e = close_paren(s, i + 2))) {
-        QT[++NQ] = substr(s, i + 2, e - i - 2)
-        w = w substr(s, i, e - i + 1)
-        i = e
-        inw = 1
-        continue
+      if (c == "$" && substr(s, i + 1, 1) == "(" && !nocl) {
+        if ((e = close_paren(s, i + 2))) {
+          QT[++NQ] = substr(s, i + 2, e - i - 2)
+          w = w substr(s, i, e - i + 1)
+          i = e
+          inw = 1
+          continue
+        }
+        nocl = 1
       }
-      if (c == "`" && (e = index(substr(s, i + 1), "`"))) {
-        QT[++NQ] = substr(s, i + 1, e - 1)
-        w = w substr(s, i, e + 1)
-        i += e
-        inw = 1
-        continue
+      if (c == "`" && !nobt) {
+        if ((e = index(substr(s, i + 1), "`"))) {
+          QT[++NQ] = substr(s, i + 1, e - 1)
+          w = w substr(s, i, e + 1)
+          i += e
+          inw = 1
+          continue
+        }
+        nobt = 1
       }
-      if (c == "<" && (match(substr(s, i), /^<[A-Za-z0-9_][^<>\t`]*[^<> \t`]>/) || match(substr(s, i), /^<[A-Za-z0-9_]>/))) {
+      # A placeholder may hold blanks, but not end on a redirection (<in 2>).
+      if (c == "<" && ((match(substr(s, i), /^<[A-Za-z0-9_][^<>\t`]*[^<> \t`]>/) && substr(s, i, RLENGTH) !~ /[ \t][0-9&]*>$/) || match(substr(s, i), /^<[A-Za-z0-9_][^<> \t`]*>/))) {
         w = w substr(s, i, RLENGTH)
         i += RLENGTH - 1
         inw = 1
@@ -569,7 +588,11 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         w = TK[i]
         if (w ~ /^([$!{]|if|then|elif|else|do|while|until)$/ || w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) i++
         else if (w ~ /^(env|exec|command|time|nohup|setsid)$/)
-          for (i++; i <= NT && TY[i] == "w" && TK[i] ~ /^-/; i++) ;
+          for (i++; i <= NT && TY[i] == "w" && TK[i] ~ /^-/; i++) {
+            # command -v or -V names a path, it runs nothing.
+            if (w == "command" && TK[i] ~ /^-[A-Za-z]*[vV]/) skipc = 1
+            if ((w == "env" && TK[i] ~ /^-[uCS]$/) || (w == "exec" && TK[i] == "-a")) i++
+          }
         else if (w ~ /^[0-9]*[<>]/ && !isph(w)) {
           i++
           if (w ~ /^[0-9]*[<>]+&?$/) i++
@@ -580,7 +603,7 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         for (i++; i <= NT && TY[i] == "w" && TK[i] ~ /^[-+]/; i++) {
           # -c runs a string, -n reads without running.
           if (TK[i] ~ /^-[A-Za-z]*[cn]/) skipc = 1
-          if (TK[i] ~ /^[-+][A-Za-z]*o$/) i++
+          if (TK[i] ~ /^[-+][A-Za-z]*[oO]$/ || TK[i] ~ /^--(rcfile|init-file)$/) i++
         }
       }
       if (!skipc && i <= NT && TY[i] == "w" && (name = script_of(TK[i])) != "") {
@@ -602,6 +625,16 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       }
       while (i <= NT && TY[i] == "w") i++
     }
+  }
+  # The delimiter of a heredoc a command line opens, from its unquoted words.
+  function heredoc(s,    i) {
+    tokenize(s)
+    for (i = 1; i <= NT; i++) {
+      if (TY[i] != "w") continue
+      if (TK[i] ~ /^[0-9]*<<-?$/ && i < NT && TY[i + 1] == "w") return TK[i + 1]
+      if (TK[i] ~ /^[0-9]*<<-?[^<-]/) { sub(/^[0-9]*<<-?/, "", TK[i]); return TK[i] }
+    }
+    return ""
   }
   function scan(s, ln, fenced,    q) {
     NQ = 0
@@ -788,8 +821,10 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         fcont = ""
         hdoc = ""
       } else if (hdoc != "") {
+        if (fquote) sub(/^(>[ \t]*)+/, "", t)
         if (t == hdoc) hdoc = ""
       } else {
+        if (fquote) sub(/^(>[ \t]*)+/, "", t)
         if (fcont == "") fline = FNR
         t = fcont t
         if (t ~ /\\$/) fcont = substr(t, 1, length(t) - 1) " "
@@ -797,22 +832,22 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
           fcont = ""
           scan(t, fline, 1)
           # A heredoc body is data, not commands.
-          if (match(t, /<<-?[ \t]*[\047\042]?[A-Za-z_][A-Za-z0-9_]*/)) {
-            hdoc = substr(t, RSTART, RLENGTH)
-            sub(/^<<-?[ \t]*[\047\042]?/, "", hdoc)
-          }
+          hdoc = heredoc(t)
         }
       }
     } else if ((match(ft, /^```+/) && substr(ft, RLENGTH + 1) !~ /`/) || match(ft, /^~~~+/)) {
       flush_spans()
       infence = 1
       fmark = substr(ft, 1, RLENGTH)
+      fquote = t ~ /^>/
       fcont = ""
       hdoc = ""
     } else if (t == "") flush_spans()
     else {
       if (t ~ /^#+([ \t]|$)/ || t ~ /^([-*+]|[0-9]+[.)])[ \t]/) flush_spans()
       spans(line)
+      # A heading is a block of one line.
+      if (t ~ /^#+([ \t]|$)/) flush_spans()
     }
   }
   END {

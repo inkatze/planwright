@@ -440,6 +440,33 @@ out="$("$CHECKER" --repo-root "$tmp/up" 2>&1)"
 assert "a heredoc body is not a command" 0 $?
 rm -rf "$tmp/up"
 
+# A heredoc ends at its delimiter; <<< and a quoted << open none.
+usage_fails 4 "unknown subcommand 'lst'" '```sh' "cat >note.md <<'EOF'" 'scripts/feat-tool.sh lst is data' 'EOF' 'scripts/feat-tool.sh lst' '```'
+usage_fails 2 "unknown subcommand 'lst'" '```sh' 'cat <<< foo' 'scripts/feat-tool.sh lst' 'foo' '```'
+usage_fails 2 "unknown subcommand 'lst'" '```sh' 'printf "%s" "a<<EOF"' 'scripts/feat-tool.sh lst' '```'
+# A fence inside a quote, a heading ending a block, and a redirection after
+# an input redirection.
+usage_fails 1 "unknown subcommand 'lst'" '> ```sh' '> scripts/feat-tool.sh lst' '> ```'
+usage_fails 1 "unknown subcommand 'lst'" '# A stray ` tick' 'Run `scripts/feat-tool.sh lst` here.'
+usage_fails 0 "unexpected argument 'extra'" 'Run `scripts/feat-tool.sh peek 4 extra <in.txt 2>/dev/null`.'
+# Wrapper and launcher options that take a value.
+for form in \
+  'Run `env -u FOO scripts/feat-tool.sh lst`.' \
+  'Run `exec -a name scripts/feat-tool.sh lst`.' \
+  'Run `bash -O extglob scripts/feat-tool.sh lst`.'; do
+  usage_fails 0 "unknown subcommand 'lst'" "$form"
+done
+for form in \
+  'Run `command -v scripts/feat-tool.sh`, which runs nothing.' \
+  'Run `scripts/feat-tool.sh peek 4 <in.txt 2>/dev/null`.' \
+  'Run `scripts/feat-tool.sh pick --all`, an alternative opening with a group.' \
+  'Run `scripts/feat-tool.sh pick`, a choice met by its group.'; do
+  uvariant up "$form"
+  out="$("$CHECKER" --repo-root "$tmp/up" 2>&1)"
+  assert "not flagged: $form" 0 $?
+  rm -rf "$tmp/up"
+done
+
 # A header with CRLF line ends reads like one without.
 uvariant crlf 'Run `scripts/feat-tool.sh peek 4`.' 'Run `scripts/feat-tool.sh lst`.'
 printf '#!/bin/sh\r\n# Usage:\r\n#   feat-tool.sh peek <id>\r\n:\r\n' >"$tmp/crlf/scripts/feat-tool.sh"
