@@ -196,7 +196,7 @@ assert "a shebang with no trailing newline is read" 1 $?
 rm -rf "$tmp/shebang"
 
 variant shebang 'Run `sh scripts/posix-tool.sh`.'
-printf '#!/bin/bashful\n' >"$tmp/shebang/scripts/posix-tool.sh"
+printf '#!/bin/bashful\n# Usage:\n#   posix-tool.sh\n' >"$tmp/shebang/scripts/posix-tool.sh"
 "$CHECKER" --repo-root "$tmp/shebang" >/dev/null 2>&1
 assert "an interpreter merely starting with bash does not count" 0 $?
 rm -rf "$tmp/shebang"
@@ -230,7 +230,9 @@ assert_not_contains "the scriptless scan does not read as clean" "$out" "clean (
 
 cp -R "$FIXTURES/clean" "$tmp/libsonly" || exit 1
 printf '# shellcheck shell=bash\n' >"$tmp/libsonly/scripts/bash-tool.sh"
-printf '# shellcheck shell=sh\n' >"$tmp/libsonly/scripts/posix-tool.sh"
+for lib in posix-tool sub-tool nohdr-tool; do
+  printf '# shellcheck shell=sh\n' >"$tmp/libsonly/scripts/$lib.sh"
+done
 out="$("$CHECKER" --repo-root "$tmp/libsonly" 2>&1)"
 assert "a scripts/ with no shebanged script fails closed" 2 $?
 assert_not_contains "the libraries-only scan does not read as clean" "$out" "clean ("
@@ -306,6 +308,86 @@ assert_not_contains "the empty scan does not read as clean" "$out" "clean ("
 
 "$CHECKER" --bogus >/dev/null 2>&1
 assert "an unknown argument is a usage error" 2 $?
+
+# ---------------------------------------------------------------------------
+# 9. Usage headers (review-effectiveness REQ-F1.7): an invocation in a code
+#    span or fenced command line is checked against the invoked script's
+#    `# Usage` header. The clean fixture's usage skill holds the conforming
+#    and the unchecked forms; each case below appends to it.
+# ---------------------------------------------------------------------------
+# uvariant <name> <line>... — the clean fixture, its usage skill extended.
+uvariant() {
+  cp -R "$FIXTURES/clean" "$tmp/$1" || exit 1
+  v_dir="$tmp/$1"
+  shift
+  printf '%s\n' "$@" >>"$v_dir/skills/usage/SKILL.md" || exit 1
+}
+u_line=$(($(wc -l <"$FIXTURES/clean/skills/usage/SKILL.md") + 1))
+
+# usage_fails <offset> <reason> <line>... — the appended lines fail, the
+# finding naming the reason and the appended line <offset> past the first.
+usage_fails() {
+  uf_at=$((u_line + $1))
+  uf_reason="$2"
+  shift 2
+  uvariant uf "$@"
+  out="$("$CHECKER" --repo-root "$tmp/uf" 2>&1)"
+  assert "flagged: $1" 1 $?
+  assert_contains "the line is named: $1" "$out" "skills/usage/SKILL.md:$uf_at:"
+  assert_contains "the reason is given: $1" "$out" "$uf_reason"
+  rm -rf "$tmp/uf"
+}
+
+usage_fails 0 "unknown subcommand 'launch'" 'Run `scripts/sub-tool.sh launch --spec <dir> 5`.'
+usage_fails 0 "unknown subcommand 'lst'" 'Run `git log | scripts/sub-tool.sh lst`.'
+usage_fails 0 "flag '--verbose' is not in its usage header" 'Run `scripts/sub-tool.sh list --verbose`.'
+usage_fails 0 "flag '--dry-run' is not in its usage header" 'Run `scripts/sub-tool.sh list --dry-run`.'
+usage_fails 0 "missing required argument <task>" 'Run `scripts/sub-tool.sh run --spec <dir>`.'
+usage_fails 0 "missing required flag --spec" 'Run `scripts/sub-tool.sh run 5`.'
+usage_fails 0 "missing required flag --spec" 'Run `scripts/sub-tool.sh run ...`, an ellipsis standing for nothing.'
+usage_fails 0 "missing required argument <task>" 'Run `scripts/sub-tool.sh run --spec <dir> ...`.'
+usage_fails 0 "missing a value for --spec" 'Run `scripts/sub-tool.sh run 5 --spec`.'
+usage_fails 0 "unexpected argument 'extra'" 'Run `scripts/sub-tool.sh list extra`.'
+usage_fails 0 "no usage header" 'Run `scripts/nohdr-tool.sh --any`.'
+usage_fails 0 "no usage header" 'Run `sh scripts/nohdr-tool.sh`.'
+usage_fails 1 "missing a subcommand" '```sh' 'scripts/sub-tool.sh' '```'
+usage_fails 0 "flag '--bogus' is not in its usage header" 'Run `scripts/sub-tool.sh run' '--bogus <x>` across a wrapped span.'
+usage_fails 1 "flag '--bogus' is not in its usage header" '```sh' "scripts/sub-tool.sh run \\" '  --bogus' '```'
+usage_fails 1 "flag '--bogus' is not in its usage header" '```' 'x=$(scripts/sub-tool.sh list --bogus)' '```'
+
+for hdr in '# Usage: badhdr-tool.sh {start,stop}' '# Usage:' '# Usage: something else entirely'; do
+  uvariant badhdr 'Run `scripts/badhdr-tool.sh start`.'
+  printf '#!/bin/sh\n%s\n:\n' "$hdr" >"$tmp/badhdr/scripts/badhdr-tool.sh"
+  out="$("$CHECKER" --repo-root "$tmp/badhdr" 2>&1)"
+  assert "an unparseable header fails: $hdr" 1 $?
+  assert_contains "the unparseable header is named: $hdr" "$out" "no usage header the grammar parses"
+  rm -rf "$tmp/badhdr"
+done
+
+for form in \
+  'Run `scripts/sub-tool.sh run --spec <dir> <task>`.' \
+  'Run `scripts/sub-tool.sh <verb> --spec <dir> <task>`, the subcommand a placeholder.' \
+  'Run `scripts/sub-tool.sh run --spec x --mode fast 1 2 3`.' \
+  'Run `scripts/sub-tool.sh list` alone.' \
+  'Mention `scripts/nohdr-tool.sh` alone, or `scripts/nohdr-tool.sh`'"'"'s header.' \
+  'Source it: `. scripts/nohdr-tool.sh --any`.' \
+  'Run `scripts/posix-tool.sh scripts/nohdr-tool.sh`, a path argument.' \
+  'Say scripts/nohdr-tool.sh --any in prose, outside code.' \
+  'Run `scripts/missing-tool.sh --any` (no such script).' \
+  '    scripts/nohdr-tool.sh --any (an indented block is not a fence)'; do
+  uvariant up "$form"
+  out="$("$CHECKER" --repo-root "$tmp/up" 2>&1)"
+  assert "not flagged: $form" 0 $?
+  rm -rf "$tmp/up"
+done
+
+# Every usage finding is reported in one run, beside an sh finding.
+uvariant umany 'Run `scripts/sub-tool.sh lst`.' 'Run `sh scripts/bash-tool.sh --nope`.'
+out="$("$CHECKER" --repo-root "$tmp/umany" 2>&1)"
+assert "two kinds of finding fail together" 1 $?
+assert_contains "the usage finding is named" "$out" "skills/usage/SKILL.md:$u_line:"
+assert_contains "the sh finding is named" "$out" "shebang names bash"
+assert_contains "the second line's usage finding is named" "$out" "skills/usage/SKILL.md:$((u_line + 1)): scripts/bash-tool.sh: flag '--nope'"
 
 if [ "$failures" -gt 0 ]; then
   echo "test-check-script-invocation: $failures failure(s)" >&2

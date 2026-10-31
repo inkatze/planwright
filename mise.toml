@@ -301,7 +301,7 @@ description = "retired-mkdir guard over advisory locking: fail on any shell file
 run = "/bin/bash scripts/check-lock-primitive.sh"
 
 [tasks."check:script-invocation"]
-description = "shebang-honoring invocation guard: fail on a line in a .md file under skills/ or doctrine/ that runs, through an `sh` command word (bare or a path ending /sh), a top-level scripts/*.sh whose shebang names bash, the operand read past options, `--`, a `<` redirect, quotes, and `<placeholder>` prefixes; `sh -c` strings, by-path calls, and calls through bash pass; fails closed on no shebanged script, no instruction file, an unreadable file, or a symbolic link or newline-bearing name in scope (test-throughput REQ-E1.2, D-12)"
+description = "shebang-honoring and usage-header invocation guard: fail on a line in a .md file under skills/ or doctrine/ that runs, through an `sh` command word (bare or a path ending /sh), a top-level scripts/*.sh whose shebang names bash, the operand read past options, `--`, a `<` redirect, quotes, and `<placeholder>` prefixes; `sh -c` strings, by-path calls, and calls through bash pass; and on a code span or fenced command line running a shebanged scripts/*.sh in a way its `# Usage` header does not accept (an unknown subcommand, a flag the header lacks, a missing required argument, or no header the grammar in config/guard-catalog.yaml reads), a bare path mention and a sourced library unchecked; fails closed on no shebanged script, no instruction file, an unreadable file, or a symbolic link or newline-bearing name in scope (test-throughput REQ-E1.2, D-12; review-effectiveness REQ-F1.7, D-19)"
 run = "/bin/sh scripts/check-script-invocation.sh"
 
 [tasks."check:bash32"]

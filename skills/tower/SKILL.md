@@ -228,7 +228,7 @@ naming each path unquoted, as mktemp printed it (a quoted path, an
 unexpanded variable or `$(mktemp)` defers to the prompt), a kebab slug naming
 the flight, and the declared home. `/offload` picks the rung (REQ-C1.2)
 and places the flight through
-`scripts/flight-dispatch.sh dispatch`, which counts live flights against
+`scripts/flight-dispatch.sh`'s `dispatch`, which counts live flights against
 `max_parallel_units` in the same act (the tower never pre-counts), then mints
 the id, writes the worker brief, and places the isolated worktree on a
 `planwright/flight/<flight-id>` branch. A flight beyond the bound comes back
@@ -312,7 +312,7 @@ handle and observe hint; after that it only answers status, below.
 (an orchestrator, a drafting session, a worker), the tower sends it
 `SendMessage` when `ListAgents` lists it, loading both tools first when they
 are deferred; only an unlisted target, or a listed one `SendMessage` cannot
-reach, takes the pane relay, `scripts/orchestrate-relay.sh relay-command`. It
+reach, takes the pane relay, `scripts/orchestrate-relay.sh`'s `relay-command`. It
 never types or pastes into a pane by hand.
 
 ## Status on demand (REQ-A1.5)
@@ -354,7 +354,7 @@ handed back — never silently.
 - **Force-push.** Only when the operator asks for it in this turn, never
   from a standing decision or a relayed item, and never to main, a protected
   branch, or a spec branch (`doctrine/human-gates.md`). Run
-  `scripts/tower-force-push.sh confirm` (after its `reword` for a
+  `scripts/tower-force-push.sh`'s `confirm` (after its `reword` for a
   commit-range lint failure), put its question and options to the operator
   as they stand, and run its `push` line only on the yes, in the same turn;
   report the dropped commits and every legacy checklist id it names. For a

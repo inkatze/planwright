@@ -1,5 +1,5 @@
 #!/bin/sh
-# migrate-format-version.sh [specs-root | spec-dir]
+# Usage: migrate-format-version.sh [<specs-root> | <spec-dir>]
 #
 # The one-shot v1→v2 spec-bundle migration (invariant-tasks Task 6;
 # REQ-D1.2, REQ-D1.3, REQ-A1.4, REQ-C1.8, REQ-C1.9 · D-10, D-3). Converts a

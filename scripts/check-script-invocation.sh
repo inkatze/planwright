@@ -1,6 +1,7 @@
 #!/bin/sh
 # check-script-invocation.sh — no skill instruction runs a bash-shebanged
-# script through `sh`.
+# script through `sh`, and every script it runs is run the way the script's
+# usage header says.
 #
 # Called by its path, a script gets the interpreter its shebang names. `sh
 # <path>` overrides that with whatever /bin/sh is, and where that is dash
@@ -24,6 +25,14 @@
 # a script piped into `sh` on stdin, and an invocation split by a
 # backslash-newline.
 #
+# THE USAGE HEADER IS THE CONTRACT. A script a code span or fenced command
+# line in that prose runs, in command position, is checked against its `#
+# Usage` header: the subcommand one it lists, every flag one it accepts, every
+# required argument supplied or standing as a <placeholder>. A script with no
+# header the grammar reads fails each invocation. The grammar, and what counts
+# as an invocation, are stated once, in config/guard-catalog.yaml's
+# script-invocation entry; the header is read as text, never run.
+#
 # FAILS CLOSED on anything that would narrow the scan: no scripts/, no
 # shebanged script, no instruction file, a file it cannot read, and a symbolic
 # link or a name containing a newline under scripts/, skills/, or doctrine/
@@ -39,8 +48,9 @@
 #   check-script-invocation.sh [--repo-root <dir>]   default: this script's parent
 #   check-script-invocation.sh --help | -h
 #
-# Exit codes: 0 clean, 1 an instruction runs a bash script through sh, 2 usage
-# or a scan that could not cover what it claims.
+# Exit codes: 0 clean, 1 an instruction runs a bash script through sh or an
+# invocation its usage header does not accept, 2 usage or a scan that could
+# not cover what it claims.
 #
 # POSIX sh + awk; no fish/mise/tmux.
 set -u
@@ -64,15 +74,19 @@ fail_closed() {
 usage() {
   cat <<'EOF'
 check-script-invocation.sh — no skill instruction runs a bash-shebanged script
-through `sh`.
+through `sh`, or runs a script other than as its usage header says.
 
 Usage:
   check-script-invocation.sh [--repo-root <dir>]   default: this script's parent
   check-script-invocation.sh --help | -h
 
 Scans the .md files under skills/ and doctrine/ for an `sh` invocation whose
-operand is a scripts/*.sh whose shebang names bash. Fix a flagged line by
-calling the script by its path, or through the interpreter its shebang names.
+operand is a scripts/*.sh whose shebang names bash, and checks each script a
+code span or fenced line runs against the script's `# Usage` header (the
+grammar is in config/guard-catalog.yaml's script-invocation entry). Fix a
+flagged line by calling the script by its path, or through the interpreter
+its shebang names; fix a usage finding in the prose or in the header,
+whichever is wrong.
 
 Exit codes: 0 clean, 1 a flagged invocation, 2 usage or a scan that could not
 cover what it claims.
@@ -142,6 +156,406 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     failed = 1
     exit
   }
+  function is_syn(t, name,    w) {
+    w = t
+    sub(/[ \t].*/, "", w)
+    return w == name || substr(w, length(w) - length(name)) == "/" name
+  }
+  # The rest of a synopsis line past a run of three blanks and a word, or a
+  # parenthesis opening one, is its gloss.
+  function cut_gloss(t) {
+    if (match(t, /[ \t][ \t][ \t]+([^- \t[<(|]|\([^-<[])/)) t = substr(t, 1, RSTART - 1)
+    sub(/[ \t]*\\$/, "", t)
+    return t
+  }
+  function load_header(name,    f, line, r, inb, t, col, scol, cont, n, k) {
+    hdone[name] = 1
+    f = spath[name]
+    inb = 0
+    n = 0
+    cont = 0
+    while ((r = (getline line < f)) > 0) {
+      sub(/\r$/, "", line)
+      if (!inb) {
+        if (line !~ /^#[ \t]*Usage([ \t(:]|$)/) continue
+        inb = 1
+        t = line
+        sub(/^#[ \t]*Usage:?[ \t]*/, "", t)
+        if (t != "" && is_syn(t, name)) {
+          ftext[name, ++n] = cut_gloss(t)
+          scol = length(line) - length(t)
+          cont = 1
+        }
+        continue
+      }
+      if (line !~ /^#/) break
+      t = substr(line, 2)
+      sub(/^[ \t]+/, "", t)
+      col = length(line) - length(t)
+      if (is_syn(t, name)) {
+        ftext[name, ++n] = cut_gloss(t)
+        scol = col
+        cont = 1
+      } else if (cont && col > scol && t ~ /^([[<|-]|\.\.\.)/ && t !~ /[ \t][ \t][ \t]/) {
+        ftext[name, n] = ftext[name, n] " " cut_gloss(t)
+      } else {
+        cont = 0
+      }
+    }
+    if (r < 0) fatal("cannot read " spath[name])
+    close(f)
+    nform[name] = n
+    hok[name] = n > 0
+    for (k = 1; k <= n; k++)
+      if (!parse_form(name SUBSEP k, ftext[name, k])) hok[name] = 0
+  }
+  # A synopsis, its name dropped: literal words (the subcommand), flags with
+  # an optional <value> or a|b value, <placeholders>, [optional] groups,
+  # alternatives joined by |, a ... repeat, and a -- separator.
+  function parse_form(key, s,    tk, nt, i, t, depth, prevk, alt, np, parts, j, allf, allw, fl, val, ph) {
+    while (match(s, /<[^<>]* [^<>]*>/)) {
+      ph = substr(s, RSTART, RLENGTH)
+      gsub(/[ \t]+/, "_", ph)
+      s = substr(s, 1, RSTART - 1) ph substr(s, RSTART + RLENGTH)
+    }
+    gsub(/\.\.\.>/, ">...", s)
+    gsub(/[[(]/, " [ ", s)
+    gsub(/[])]/, " ] ", s)
+    gsub(/\.\.\./, " ... ", s)
+    nt = split(s, tk, /[ \t]+/)
+    nRF[key] = 0
+    nLS[key] = 0
+    P[key] = 0
+    PO[key] = 0
+    PU[key] = 0
+    DD[key] = 0
+    depth = 0
+    prevk = ""
+    alt = 0
+    for (i = 1; i <= nt && tk[i] == ""; i++) ;
+    for (i++; i <= nt; i++) {
+      t = tk[i]
+      if (t == "") continue
+      if (t == "[") { depth++; prevk = ""; alt = 0; continue }
+      if (t == "]") { if (--depth < 0) return 0; prevk = "grp"; continue }
+      if (t == "|") { if (prevk == "") return 0; alt = 1; continue }
+      if (t == "...") {
+        if (prevk == "") return 0
+        if (prevk == "pos" || prevk == "grp") PU[key] = 1
+        continue
+      }
+      if (t == "--") { DD[key] = 1; prevk = "dd"; alt = 0; continue }
+      # A lone < or > notes what the script reads or writes, not an argument.
+      if (t == "<" || t == ">") break
+      if ((t ~ /<[^<>]+>/ && t !~ /^-/) || t == "-") {
+        if (depth) PO[key]++
+        else if (!(alt && prevk == "pos")) PN[key, ++P[key]] = t
+        prevk = "pos"
+        alt = 0
+        continue
+      }
+      np = split(t, parts, "|")
+      allf = 1
+      allw = 1
+      for (j = 1; j <= np; j++) {
+        if (parts[j] !~ /^--?[A-Za-z0-9][A-Za-z0-9_-]*(=<[^<>]+>)?$/) allf = 0
+        if (parts[j] !~ /^[A-Za-z0-9_][A-Za-z0-9_.:,@+=\/-]*$/) allw = 0
+      }
+      if (allf) {
+        for (j = 1; j <= np; j++) {
+          fl = parts[j]
+          val = 0
+          if (fl ~ /=/) { sub(/=.*/, "", fl); val = 1 }
+          else if (np == 1 && i < nt && (tk[i + 1] ~ /^[^-].*<[^<>]+>/ || tk[i + 1] ~ /^<[^<>]+>/ || tk[i + 1] ~ /^[A-Za-z0-9_.-]+(\|[A-Za-z0-9_.-]+)+$/)) {
+            val = 1
+            i++
+          }
+          if (!((key SUBSEP fl) in FL) || val) FL[key, fl] = val
+          if (!depth) {
+            if (j > 1 || (alt && prevk == "flag")) RF[key, nRF[key]] = RF[key, nRF[key]] fl "|"
+            else RF[key, ++nRF[key]] = "|" fl "|"
+          }
+        }
+        prevk = "flag"
+        alt = 0
+        continue
+      }
+      if (allw) {
+        for (j = 1; j <= np; j++) {
+          if (depth) OL[key, parts[j]] = 1
+          else if (j > 1 || (alt && prevk == "lit")) LS[key, nLS[key]] = LS[key, nLS[key]] parts[j] "|"
+          else LS[key, ++nLS[key]] = "|" parts[j] "|"
+        }
+        prevk = "lit"
+        alt = 0
+        continue
+      }
+      return 0
+    }
+    return depth == 0
+  }
+  function isph(a) { return a ~ /<[^<>]+>/ }
+  # "" when the invocation in IA[1..NA] fits the form, else a rank digit, a
+  # space, and the reason; a higher rank is a nearer miss.
+  function match_form(key,    seen, i, a, fl, hasv, li, pos, dd, g, nm, mem, j, ok, extra) {
+    split("", seen)
+    li = 1
+    pos = 0
+    dd = 0
+    extra = ""
+    for (i = 1; i <= NA; i++) {
+      a = IA[i]
+      if (a == "...") continue
+      if (dd) { pos++; continue }
+      if (a == "--") {
+        if (!DD[key]) return "2 flag \047--\047 is not in its usage header"
+        dd = 1
+        continue
+      }
+      if (a ~ /^--?[A-Za-z]/) {
+        fl = a
+        hasv = 0
+        if (fl ~ /=/) { sub(/=.*/, "", fl); hasv = 1 }
+        if (!((key SUBSEP fl) in FL)) return "2 flag \047" fl "\047 is not in its usage header"
+        if (FL[key, fl] && !hasv) {
+          if (i == NA || IA[i + 1] ~ /^--?[A-Za-z]/) return "4 missing a value for " fl
+          i++
+        }
+        seen[fl] = 1
+        continue
+      }
+      if (li <= nLS[key]) {
+        if (index(LS[key, li], "|" a "|") || isph(a)) { li++; continue }
+        return "1 unknown subcommand \047" a "\047"
+      }
+      if ((key SUBSEP a) in OL) continue
+      if (++pos > P[key] + PO[key] && extra == "") extra = a
+    }
+    if (li <= nLS[key]) return "1 missing a subcommand"
+    for (g = 1; g <= nRF[key]; g++) {
+      nm = split(RF[key, g], mem, "|")
+      ok = 0
+      for (j = 1; j <= nm; j++) if (mem[j] != "" && (mem[j] in seen)) ok = 1
+      if (!ok) return "4 missing required flag " substr(RF[key, g], 2, length(RF[key, g]) - 2)
+    }
+    if (pos < P[key]) return "4 missing required argument " PN[key, pos + 1]
+    if (!PU[key] && extra != "") return "3 unexpected argument \047" extra "\047"
+    return ""
+  }
+  function subcommands(name,    k, s, l) {
+    s = ""
+    for (k = 1; k <= nform[name]; k++) {
+      if (!nLS[name, k]) continue
+      l = LS[name, k, 1]
+      gsub(/\|/, " ", l)
+      sub(/^ /, "", l)
+      sub(/ $/, "", l)
+      gsub(/ /, ", ", l)
+      if (index(", " s ", ", ", " l ", ")) continue
+      s = s (s == "" ? "" : ", ") l
+    }
+    return s
+  }
+  function finding(ln, name, msg) {
+    printf "check-script-invocation: %s:%d: scripts/%s: %s\n", rel, ln, name, msg
+    found++
+  }
+  function check_inv(name, ln,    k, err, best, bscore, sc, a1, i, nlit, haslit, ok) {
+    ninv++
+    if (!(name in hdone)) load_header(name)
+    if (!hok[name]) {
+      finding(ln, name, "has no usage header the grammar parses (the guard catalog entry script-invocation states it)")
+      return
+    }
+    best = ""
+    bscore = -1
+    haslit = 0
+    for (k = 1; k <= nform[name]; k++) {
+      err = match_form(name SUBSEP k)
+      if (err == "") return
+      if (nLS[name, k]) haslit = 1
+      sc = substr(err, 1, 1) * 10
+      nlit = 0
+      if (nLS[name, k])
+        for (i = 1; i <= NA; i++) if (IA[i] !~ /^-/) { if (index(LS[name, k, 1], "|" IA[i] "|")) nlit = 1; break }
+      sc += nlit * 100
+      if (sc > bscore) { bscore = sc; best = substr(err, 3) }
+    }
+    a1 = ""
+    for (i = 1; i <= NA; i++) if (IA[i] !~ /^-/) { a1 = IA[i]; break }
+    if (haslit && a1 == "") best = "missing a subcommand (its usage header lists: " subcommands(name) ")"
+    else if (haslit && bscore < 100 && !isph(a1)) {
+      ok = 0
+      for (k = 1; k <= nform[name]; k++) if (nLS[name, k] && index(LS[name, k, 1], "|" a1 "|")) ok = 1
+      if (!ok) best = "unknown subcommand \047" a1 "\047 (its usage header lists: " subcommands(name) ")"
+    }
+    finding(ln, name, best)
+  }
+  function script_of(w,    name) {
+    if (w !~ /(^|\/)scripts\/[A-Za-z0-9_.-]+\.sh$/) return ""
+    name = w
+    sub(/.*\//, "", name)
+    return (name in spath) ? name : ""
+  }
+  # The index of the ) closing a $( whose body starts at s[i], else 0.
+  function close_paren(s, i,    d, c, L, j) {
+    d = 1
+    L = length(s)
+    for (; i <= L; i++) {
+      c = substr(s, i, 1)
+      if (c == "\047") { j = index(substr(s, i + 1), "\047"); if (!j) return 0; i += j; continue }
+      if (c == "(") d++
+      else if (c == ")" && --d == 0) return i
+    }
+    return 0
+  }
+  # Shell words and operators of s into TK/TY[1..NT]; quotes are removed, a
+  # $( ) stays in its word and its body is queued for its own scan.
+  function tokenize(s,    L, i, c, w, inw, j, e, op) {
+    NT = 0
+    w = ""
+    inw = 0
+    L = length(s)
+    for (i = 1; i <= L; i++) {
+      c = substr(s, i, 1)
+      if (c == "\047") {
+        j = index(substr(s, i + 1), "\047")
+        if (!j) { w = w substr(s, i + 1); inw = 1; break }
+        w = w substr(s, i + 1, j - 1)
+        i += j
+        inw = 1
+        continue
+      }
+      if (c == "\042") {
+        for (j = i + 1; j <= L; j++) {
+          c = substr(s, j, 1)
+          if (c == "\\") { w = w substr(s, j + 1, 1); j++; continue }
+          if (c == "\042") break
+          if (c == "$" && substr(s, j + 1, 1) == "(" && (e = close_paren(s, j + 2))) {
+            QT[++NQ] = substr(s, j + 2, e - j - 2)
+            w = w substr(s, j, e - j + 1)
+            j = e
+            continue
+          }
+          w = w c
+        }
+        i = j
+        inw = 1
+        continue
+      }
+      if (c == "$" && substr(s, i + 1, 1) == "(" && (e = close_paren(s, i + 2))) {
+        QT[++NQ] = substr(s, i + 2, e - i - 2)
+        w = w substr(s, i, e - i + 1)
+        i = e
+        inw = 1
+        continue
+      }
+      if (c == "<" && match(substr(s, i), /^<[A-Za-z0-9_][^<> \t]*>/)) {
+        w = w substr(s, i, RLENGTH)
+        i += RLENGTH - 1
+        inw = 1
+        continue
+      }
+      if (c == " " || c == "\t") {
+        if (inw) { TK[++NT] = w; TY[NT] = "w"; w = ""; inw = 0 }
+        continue
+      }
+      if (c == "&" && w ~ /[<>]$/) { w = w c; continue }
+      if (c == "|" || c == ";" || c == "&" || c == "(" || c == ")" || c == "`") {
+        if (inw) { TK[++NT] = w; TY[NT] = "w"; w = ""; inw = 0 }
+        op = c
+        if ((c == "|" || c == "&" || c == ";") && substr(s, i + 1, 1) == c) { op = op c; i++ }
+        TK[++NT] = op
+        TY[NT] = "o"
+        continue
+      }
+      if (c == "#" && !inw) break
+      if (c == "\\") { w = w substr(s, i + 1, 1); i++; inw = 1; continue }
+      w = w c
+      inw = 1
+    }
+    if (inw) { TK[++NT] = w; TY[NT] = "w" }
+  }
+  # Check every script run in command position in s, the body of a code span or
+  # a fenced command line.
+  function scan_cmds(s, ln, fenced,    i, j, a, name, ran, skipc) {
+    tokenize(s)
+    i = 1
+    while (i <= NT) {
+      while (i <= NT && TY[i] == "o") i++
+      if (i > NT) break
+      if (TK[i] == "$") i++
+      while (i <= NT && TY[i] == "w" && TK[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) i++
+      while (i <= NT && TY[i] == "w" && TK[i] ~ /^(env|exec|command|time|nohup|setsid)$/) i++
+      ran = fenced
+      skipc = 0
+      if (i <= NT && TY[i] == "w" && TK[i] ~ /(^|\/)(ba|da|z)?sh$/) {
+        ran = 1
+        for (i++; i <= NT && TY[i] == "w" && TK[i] ~ /^[-+]/; i++) {
+          if (TK[i] ~ /^-[A-Za-z]*c/) skipc = 1
+          if (TK[i] ~ /^[-+]o$/) i++
+        }
+      }
+      if (!skipc && i <= NT && TY[i] == "w" && TK[i] != "." && TK[i] != "source" && (name = script_of(TK[i])) != "") {
+        NA = 0
+        for (j = i + 1; j <= NT && TY[j] == "w"; j++) {
+          a = TK[j]
+          if (a ~ /^[0-9]*<</) break
+          if (a ~ /^[0-9]*[<>]/ && !isph(substr(a, 1, index(a, ">")))) {
+            if (a ~ /^[0-9]*[<>]+&?$/) j++
+            continue
+          }
+          # Prose may mark an argument [optional] as a synopsis does.
+          if (a ~ /^\[/ || a ~ /\](\.\.\.)?$/) gsub(/^\[+|(\]|\.\.\.)+$/, "", a)
+          if (a != "") IA[++NA] = a
+        }
+        if (NA || ran) check_inv(name, ln)
+        i = j
+        continue
+      }
+      while (i <= NT && TY[i] == "w") i++
+    }
+  }
+  function scan(s, ln, fenced,    q) {
+    NQ = 0
+    scan_cmds(s, ln, fenced)
+    for (q = 1; q <= NQ; q++) scan_cmds(QT[q], ln, 1)
+  }
+  # The code spans of a prose line, a span left open carried to the next
+  # line of its paragraph.
+  function spans(line,    s, base, plen, pos, os, ol, rest, off, cs, cl, got, sl) {
+    s = line
+    base = FNR
+    plen = 0
+    if (pend != "") {
+      s = pend " " line
+      base = pline
+      plen = length(pend) + 1
+    }
+    pend = ""
+    pos = 1
+    while (match(substr(s, pos), /`+/)) {
+      os = pos + RSTART - 1
+      ol = RLENGTH
+      rest = substr(s, os + ol)
+      off = 0
+      got = 0
+      while (match(substr(rest, off + 1), /`+/)) {
+        cs = off + RSTART
+        cl = RLENGTH
+        if (cl == ol) { got = 1; break }
+        off = cs + cl - 1
+      }
+      sl = os <= plen ? base : FNR
+      if (!got) {
+        pend = substr(s, os)
+        pline = sl
+        break
+      }
+      scan(substr(rest, 1, cs - 1), sl, 0)
+      pos = os + ol + cs + cl - 1
+    }
+  }
   BEGIN {
     root = ENVIRON["CSI_ROOT"]
     errfile = ENVIRON["CSI_ERR"]
@@ -153,9 +567,10 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       sub(/\r$/, "", first)
       if (first !~ /^#!/) continue
       shebanged++
+      name = f
+      sub(/.*\//, "", name)
+      spath[name] = f
       if (first ~ /^#!(.*[\/ \t])?bash([ \t]|$)/) {
-        name = f
-        sub(/.*\//, "", name)
         bash[name] = 1
         nbash++
       }
@@ -175,7 +590,12 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     close(list)
     if (!ndocs) fatal("no .md file under skills/ or doctrine/ in " root)
   }
-  FNR == 1 { rel = substr(FILENAME, length(root) + 1) }
+  FNR == 1 {
+    rel = substr(FILENAME, length(root) + 1)
+    infence = 0
+    pend = ""
+    fcont = ""
+  }
   /sh/ {
     line = $0
     sub(/\r$/, "", line)
@@ -242,9 +662,34 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       }
     }
   }
+  {
+    line = $0
+    sub(/\r$/, "", line)
+    t = line
+    sub(/^[ \t]+/, "", t)
+    if (infence) {
+      if (index(t, fmark) == 1 && t ~ /^(`+|~+)[ \t]*$/) {
+        infence = 0
+        fcont = ""
+      } else {
+        if (fcont == "") fline = FNR
+        t = fcont t
+        if (t ~ /\\$/) fcont = substr(t, 1, length(t) - 1) " "
+        else {
+          fcont = ""
+          scan(t, fline, 1)
+        }
+      }
+    } else if (match(t, /^```+/) || match(t, /^~~~+/)) {
+      infence = 1
+      fmark = substr(t, 1, RLENGTH)
+      pend = ""
+    } else if (t == "") pend = ""
+    else spans(line)
+  }
   END {
     if (failed) exit 2
-    print ndocs + 0, nbash + 0 > ENVIRON["CSI_SUMMARY"]
+    print ndocs + 0, nbash + 0, ninv + 0 > ENVIRON["CSI_SUMMARY"]
     exit found ? 1 : 0
   }
 ' </dev/null >"$work/out" 2>"$work/awkerr" || rc=$?
@@ -261,6 +706,6 @@ case "$rc" in
     ;;
   *) fail_closed "the scan did not complete (awk exit $rc)" ;;
 esac
-read -r ndocs nbash <"$work/summary" || fail_closed "the scan wrote no summary"
-printf 'check-script-invocation: clean (%s instruction files, %s bash scripts)\n' \
-  "$ndocs" "$nbash"
+read -r ndocs nbash ninv <"$work/summary" || fail_closed "the scan wrote no summary"
+printf 'check-script-invocation: clean (%s instruction files, %s bash scripts, %s invocations checked against usage headers)\n' \
+  "$ndocs" "$nbash" "$ninv"

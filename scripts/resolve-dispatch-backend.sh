@@ -10,8 +10,8 @@
 # the one attended wrinkle D-8 defines — the tmux-context ask, persisted
 # spec-locally so stateless steps re-read the answer instead of re-asking.
 #
-# Subcommands:
-#   resolve <spec-dir> [--attended --session <token>]
+# Usage:
+#   resolve-dispatch-backend.sh resolve <spec-dir> [--attended --session <token>]
 #       Print TSV rows on stdout:
 #         configured<TAB><value><TAB><per-spec|global>
 #         ask<TAB>tmux            (only when the tmux-context ask should be
@@ -40,7 +40,7 @@
 #       unattended. --attended requires --session (the token IS the run
 #       boundary; a `--watch` loop is one run).
 #
-#   answer <spec-dir> --session <token> <yes|no>
+#   resolve-dispatch-backend.sh answer <spec-dir> --session <token> <yes|no>
 #       Record the operator's tmux-context answer for that tower session in
 #       the spec-local ask-state (atomic write; a symlink or non-regular file
 #       at the path is refused, never written through).

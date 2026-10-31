@@ -93,7 +93,7 @@
 # structural refusal reported as "retry next cycle", sends the operator after a
 # problem they do not have.
 #
-# USAGE:
+# Usage:
 #   main-currency.sh sync [--checkout <dir>] [--main-ref <branch>]
 set -eu
 LC_ALL=C

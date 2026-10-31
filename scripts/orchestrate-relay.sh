@@ -11,8 +11,8 @@
 # hand-constructing one — so the never-impersonate discipline is enforced in one
 # audited place instead of re-derived per relay.
 #
-# Subcommands:
-#   validate-handle <backend> <handle>
+# Usage:
+#   orchestrate-relay.sh validate-handle <backend> <handle>
 #       Validate a worker/tower handle against the declared per-backend grammar
 #       BEFORE it is ever used to target a worker (REQ-B1.7: handles parsed for
 #       targeting are validated before use). Exit 0 valid, exit 2
@@ -21,7 +21,7 @@
 #       substitution, whitespace, an option-injection leading dash, or an
 #       over-length token is refused, never interpolated.
 #
-#   relay-command <backend> <handle> <message-file>
+#   orchestrate-relay.sh relay-command <backend> <handle> <message-file>
 #       Print the ATTRIBUTED, non-impersonating relay command for a live worker.
 #       tmux: the `deliver` invocation below, by this script's literal path.
 #       It is the fallback for a target that is not a Claude Code peer the
@@ -41,7 +41,7 @@
 #       queue). Exit 2 on an invalid handle, a missing/unsafe message file, an
 #       unknown backend, or usage.
 #
-#   deliver tmux <handle> <message-file>
+#   orchestrate-relay.sh deliver tmux <handle> <message-file>
 #       Run the tmux buffer-paste (`load-buffer`/`paste-buffer`) — NEVER a
 #       `send-keys` path (REQ-D1.3: no impersonation of the worker's input) —
 #       refusing first and confirming after, never assuming. The pasted payload
@@ -69,7 +69,7 @@
 #       (default 5, at most 20) and PLANWRIGHT_RELAY_CONFIRM_SLEEP (seconds,
 #       default 1, at most 3) bound the confirmation wait to under a minute.
 #
-#   observe-command <backend> <handle>
+#   orchestrate-relay.sh observe-command <backend> <handle>
 #       Print the observe-in-flight status-read command (REQ-D1.3). tmux:
 #       `capture-pane -p` — a read, never a write; the handle is validated first.
 #       stream-json: `fleet-streamjson.sh status <handle>` (running,

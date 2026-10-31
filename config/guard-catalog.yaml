@@ -231,3 +231,44 @@ breadth:
     tool: cdpath-check
     detect: "manual"
     core: false
+  # Script-invocation house pattern: a script that skill or doctrine prose
+  # runs is run the way its shebang and its usage header say (planwright:
+  # scripts/check-script-invocation.sh).
+  #
+  # An invocation is a code span's body (one that wraps inside its paragraph
+  # included) or a fenced line (backslash continuations joined) with a path
+  # ending scripts/<name>.sh, a shebanged top-level script, in command
+  # position: first, or after | ; && || ( or inside $( ), past a `$ ` prompt,
+  # variable assignments, env/exec/command/time/nohup/setsid, and an
+  # sh/bash/dash/zsh launcher and its options. A span holding the path alone
+  # is a bare mention, and `.` or `source` sources: neither is checked.
+  # Redirections are skipped, and [ ] around a prose argument is dropped.
+  #
+  # The usage-header grammar. The header is the comment block holding a line
+  # that opens `# Usage` (text after `Usage:` on it included), up to the first
+  # line not starting with #. A synopsis is a block line whose first word is
+  # the script's file name; a following line indented deeper that starts with
+  # [ - < | or ... and holds no run of three blanks continues it, and a
+  # trailing \ is dropped. Three blanks and then a word, or a ( and a word,
+  # start a gloss, which is not read. In a synopsis, a word is a literal (the
+  # subcommand, before any positional); -x or --name is a flag, taking a value
+  # when written --name=<v> or followed by a token holding a <placeholder> or
+  # an a|b word list; a token holding a <placeholder> (blanks allowed inside
+  # the brackets), or a lone -, is a positional argument. [ ] and ( ) group
+  # what is optional, | separates alternatives, ... repeats, -- ends the
+  # options, and a lone < or > (what the script reads or writes) ends the
+  # synopsis. Literals, flags, and positionals outside every group are
+  # required. A header that yields no synopsis, or one this grammar cannot
+  # read, fails every invocation of its script. The header is read as text,
+  # never executed.
+  #
+  # An invocation passes when one synopsis accepts it: its subcommand listed,
+  # every flag one that synopsis names, a value after each value flag, every
+  # required flag and positional supplied, and no more positionals than the
+  # synopsis takes. A <placeholder> stands for any one subcommand, value, or
+  # argument; an ellipsis stands for nothing.
+  - id: script-invocation
+    category: house-pattern
+    tool: script-invocation-check
+    detect: "manual"
+    core: false

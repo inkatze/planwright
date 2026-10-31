@@ -384,7 +384,7 @@ most recent anchor entry never describes spec content that was not walked.
    D-13), whether or not a flip follows: resolve it (`scripts/resolve-steps.sh
    pre-spec-ready-flip --explain --attended`), run and record its steps under
    one new run, each record carrying its end head, complete it
-   (`scripts/step-record.sh write --completion`), then post
+   (`scripts/step-record.sh write --completion --run <run> --point <point>`), then post
    `scripts/step-record.sh status --point pre-spec-ready-flip --repo <base
    repo>` on the head the list ends on. A `failure` status or a failed post
    refuses the flip, recording the pending flip to Awaiting input naming the
