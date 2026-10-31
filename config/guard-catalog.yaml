@@ -245,7 +245,7 @@ breadth:
   # env/exec/command/time/nohup/setsid and their options, redirections, and
   # an sh/bash/dash/zsh launcher and its options. A span holding the path
   # alone is a bare mention, `.` or `source` sources, and a launcher's -c or
-  # -n runs nothing from the path: none of these is checked. Redirections
+  # -n and `command -v` run nothing from the path: none of these is checked. Redirections
   # among the arguments are skipped, and [ ] around a prose argument is
   # dropped.
   #
@@ -263,8 +263,10 @@ breadth:
   # holding a <placeholder> (blanks allowed inside the brackets), a lone -,
   # or a word after a positional (its value unchecked) is a positional
   # argument. [ ] groups what is optional; ( ) is a required choice, met by
-  # any one of the flags that open its alternatives (a choice with a
-  # non-flag alternative requires nothing); | separates alternatives of one
+  # any one of the flags that open its alternatives (a choice opening an
+  # alternative lends its own; a choice with an alternative opened by a
+  # non-flag, or holding nothing required, requires nothing); | separates
+  # alternatives of one
   # kind, and a choice between kinds is written inside ( ); ... repeats, and
   # after a group repeats positionals only if the group holds one; -- ends
   # the options; a lone < or > (what the script reads or writes) ends the

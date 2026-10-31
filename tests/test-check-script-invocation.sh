@@ -449,6 +449,10 @@ usage_fails 2 "unknown subcommand 'lst'" '```sh' 'printf "%s" "a<<EOF"' 'scripts
 usage_fails 1 "unknown subcommand 'lst'" '> ```sh' '> scripts/feat-tool.sh lst' '> ```'
 usage_fails 1 "unknown subcommand 'lst'" '# A stray ` tick' 'Run `scripts/feat-tool.sh lst` here.'
 usage_fails 0 "unexpected argument 'extra'" 'Run `scripts/feat-tool.sh peek 4 extra <in.txt 2>/dev/null`.'
+usage_fails 0 "missing required flag --y|--z" 'Run `scripts/feat-tool.sh one --x`.'
+usage_fails 0 "missing required flag --a|--b|--c" 'Run `scripts/feat-tool.sh two`.'
+usage_fails 4 "unknown subcommand 'lst'" '```sh' 'cat <<EOF>out.txt' 'data' 'EOF' 'scripts/feat-tool.sh lst' '```'
+usage_fails 1 "unknown subcommand 'lst'" '```sh' 'printf "%s %s" "$(echo "(")" "$(scripts/feat-tool.sh lst)"' '```'
 # Wrapper and launcher options that take a value.
 for form in \
   'Run `env -u FOO scripts/feat-tool.sh lst`.' \
@@ -460,7 +464,10 @@ for form in \
   'Run `command -v scripts/feat-tool.sh`, which runs nothing.' \
   'Run `scripts/feat-tool.sh peek 4 <in.txt 2>/dev/null`.' \
   'Run `scripts/feat-tool.sh pick --all`, an alternative opening with a group.' \
-  'Run `scripts/feat-tool.sh pick`, a choice met by its group.'; do
+  'Run `scripts/feat-tool.sh pick`, a choice met by its group.' \
+  'Run `scripts/feat-tool.sh one --z`.' \
+  'Run `scripts/feat-tool.sh two --c`, the outer choice met.' \
+  'Run `scripts/feat-tool.sh two --b`, the lent flag.'; do
   uvariant up "$form"
   out="$("$CHECKER" --repo-root "$tmp/up" 2>&1)"
   assert "not flagged: $form" 0 $?

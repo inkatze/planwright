@@ -222,7 +222,7 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
   # an optional <value> or a|b value, <placeholders>, [optional] groups,
   # (required choices), alternatives joined by |, a ... repeat, and a --
   # separator. 0 when the grammar cannot read it.
-  function parse_form(key, s,    tk, nt, i, t, d, prevk, alt, np, parts, j, allf, allw, fl, val, ph, gt, gr, gi, gf, gm, gp, lastp, seenpos, kind) {
+  function parse_form(key, s,    tk, nt, i, t, d, prevk, alt, np, parts, j, allf, allw, fl, val, ph, gt, gr, gi, gf, gm, gp, gs, lastp, seenpos, kind) {
     while (match(s, /<[^<> \t][^<>]* [^<>]*[^<> \t]>/)) {
       ph = substr(s, RSTART, RLENGTH)
       gsub(/[ \t]+/, "_", ph)
@@ -252,23 +252,33 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       t = tk[i]
       if (t == "") continue
       if (t == "[" || t == "(") {
-        # An alternative that opens with a group is not one opening flag.
-        if (d && gr[d] && gf[d]) { gm[d] = 1; gf[d] = 0 }
         d++
         gt[d] = t
         gr[d] = t == "(" && gr[d - 1]
         gp[d] = 0
         gm[d] = 0
         gf[d] = 1
-        if (gr[d]) gi[d] = ++nRF[key]
-        if (gr[d]) RF[key, gi[d]] = "|"
+        gs[d] = 0
+        if (gr[d] && d > 1 && gr[d - 1] && gf[d - 1]) {
+          # A choice opening an alternative of a choice lends it its flags.
+          gi[d] = gi[d - 1]
+          gs[d] = 1
+          gf[d - 1] = 0
+        } else if (gr[d]) {
+          gi[d] = ++nRF[key]
+          RF[key, gi[d]] = "|"
+        }
         prevk = ""
         alt = 0
         continue
       }
       if (t == "]" || t == ")") {
         if (d < 1 || (t == "]") != (gt[d] == "[")) return 0
-        if (gr[d] && (gm[d] || RF[key, gi[d]] == "|")) RF[key, gi[d]] = ""
+        # An alternative holding nothing required meets the choice by itself.
+        if (gr[d] && gf[d]) gm[d] = 1
+        if (gs[d]) {
+          if (gm[d]) gm[d - 1] = 1
+        } else if (gr[d] && (gm[d] || RF[key, gi[d]] == "|")) RF[key, gi[d]] = ""
         lastp = gp[d]
         if (gp[d]) gp[d - 1] = 1
         d--
@@ -278,7 +288,10 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       }
       if (t == "|") {
         if (prevk == "") return 0
-        if (d && gt[d] == "(") gf[d] = 1
+        if (d && gr[d]) {
+          if (gf[d]) gm[d] = 1
+          gf[d] = 1
+        }
         alt = 1
         continue
       }
@@ -468,6 +481,10 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     for (; i <= L; i++) {
       c = substr(s, i, 1)
       if (c == "\047") { j = index(substr(s, i + 1), "\047"); if (!j) return 0; i += j; continue }
+      if (c == "\042") {
+        for (i++; i <= L && substr(s, i, 1) != "\042"; i++) if (substr(s, i, 1) == "\\") i++
+        continue
+      }
       if (c == "(") d++
       else if (c == ")" && --d == 0) return i
     }
@@ -627,12 +644,17 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     }
   }
   # The delimiter of a heredoc a command line opens, from its unquoted words.
-  function heredoc(s,    i) {
+  function heredoc(s,    i, d) {
     tokenize(s)
     for (i = 1; i <= NT; i++) {
       if (TY[i] != "w") continue
-      if (TK[i] ~ /^[0-9]*<<-?$/ && i < NT && TY[i + 1] == "w") return TK[i + 1]
-      if (TK[i] ~ /^[0-9]*<<-?[^<-]/) { sub(/^[0-9]*<<-?/, "", TK[i]); return TK[i] }
+      d = ""
+      if (TK[i] ~ /^[0-9]*<<-?$/ && i < NT && TY[i + 1] == "w") d = TK[i + 1]
+      else if (TK[i] ~ /^[0-9]*<<-?[^<-]/) { d = TK[i]; sub(/^[0-9]*<<-?/, "", d) }
+      else continue
+      # The delimiter is a word; a redirection may follow it unspaced.
+      sub(/[^A-Za-z0-9_.-].*/, "", d)
+      return d
     }
     return ""
   }
