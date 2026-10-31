@@ -3026,14 +3026,15 @@ function better(a, b,   x, y) {
 # The subject batch (D-24). An item names up to two subjects, its key and its
 # free-text topic; two items are on one subject when either matches after
 # case-folding and whitespace collapse, never by similarity.
-function subj_norm(s) { s = tolower(s); gsub(/[ \t]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }
 function same_subject(a, b) {
-  if (F[a, 21] != "-" && subj_norm(F[a, 21]) == subj_norm(F[b, 21])) return 1
-  return F[a, 32] != "-" && F[b, 32] != "-" && subj_norm(F[a, 32]) == subj_norm(F[b, 32])
+  if (F[a, 21] != "-" && norm(F[a, 21]) == norm(F[b, 21])) return 1
+  return F[a, 32] != "-" && F[b, 32] != "-" && norm(F[a, 32]) == norm(F[b, 32])
 }
 # The pairing partner (REQ-B1.3) from `pool`: the OLDEST unplaced item of the
 # same kind on the same subject key, so the urgency and age the pair inherits
 # both stay meaningful and nothing starves; the id breaks a tie.
+# A pair needs t`s exact key; the batch also needs the partner on the subject of
+# `lead`, the hand-over`s target, which a member joined by topic may not share.
 function mate_of(t, lead,   n, m) {
   m = 0
   if (F[t, 21] == "-") return 0
