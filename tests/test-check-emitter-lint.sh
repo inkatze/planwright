@@ -98,10 +98,15 @@ case "$?:$out" in
   *) fail "an option with a control byte was not refused by name: $out" ;;
 esac
 scratch_root "$tmp/ctlname" '# Emits: markdown'
-printf '#!/bin/sh\n# Emits: html\n' >"$tmp/ctlname/scripts/$(printf 'e\233x').sh"
+# APFS refuses a name that is not UTF-8, so a raw C1 byte falls back to a C0 one.
+ctl=$(printf '\233')
+printf '#!/bin/sh\n# Emits: html\n' 2>/dev/null >"$tmp/ctlname/scripts/e${ctl}x.sh" || {
+  ctl=$(printf '\033')
+  printf '#!/bin/sh\n# Emits: html\n' >"$tmp/ctlname/scripts/e${ctl}x.sh"
+}
 out=$(/bin/sh "$CHECK" "$tmp/ctlname" 2>&1)
 case "$?:$out" in
-  *"$(printf '\233')"*) fail "a control byte in a script name reached the message" ;;
+  *"$ctl"*) fail "a control byte in a script name reached the message" ;;
   1:*"scripts/ex.sh declares an unknown format"*) pass "a script name's control bytes are stripped from the message" ;;
   *) fail "a script with a control byte in its name was not reported: $out" ;;
 esac
@@ -156,17 +161,24 @@ lint_case "$sh_" "a shell script that does not parse fails" 1 "$(printf '#!/bin/
 lint_case "$sh_" "an unquoted expansion fails shellcheck" 1:SC2086 "$(printf '#!/bin/sh\nrm $1\n')"
 lint_case "$sh_" "a bash-only construct under the sh dialect fails" 1:SC3030 "$(printf 'a=(1 2)\nprintf "%%s\\\\n" "${a[0]}"\n')" sh
 # A linter missing in CI is a failure, never a skip; outside CI, a skip line.
+# hash -r: bash 3.2 keeps hashed paths under a PATH prefix on a function call.
 printf 'key: value\n' >"$tmp/artifact"
 mkdir -p "$tmp/notools" || exit 1
 for tool in mktemp rm dirname cat sed head; do
   t_path=$(command -v "$tool") && ln -sf "$t_path" "$tmp/notools/$tool"
 done
-out=$(CI=1 PATH="$tmp/notools" lint_emitted "$yml" fixture "$tmp/artifact" 2>&1)
+out=$(
+  hash -r
+  CI=1 PATH="$tmp/notools" lint_emitted "$yml" fixture "$tmp/artifact" 2>&1
+)
 case "$?:$out" in
   1:*"yamllint is not on PATH in CI"*) pass "a linter missing in CI fails the lint" ;;
   *) fail "a linter missing in CI did not fail the lint: $out" ;;
 esac
-out=$(CI='' PATH="$tmp/notools" lint_emitted "$yml" fixture "$tmp/artifact" 2>&1)
+out=$(
+  hash -r
+  CI='' PATH="$tmp/notools" lint_emitted "$yml" fixture "$tmp/artifact" 2>&1
+)
 case "$?:$out" in
   0:*"skip: lint_emitted: fixture: yamllint is not on PATH"*) pass "a linter missing outside CI is a named skip" ;;
   *) fail "a linter missing outside CI was not a named skip: $out" ;;
