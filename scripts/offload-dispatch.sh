@@ -43,6 +43,11 @@
 #                    fleet-dispatch-env.sh with that shipped settings profile,
 #                    resolved by scripts/fleet-launch-profile.sh; an
 #                    unreadable profile refuses the dispatch (exit 2)
+#         --mc-token <token>  (tmux only) the mission-control launcher's
+#                    row token, letters, digits and . _ -; handed to a
+#                    mission-control-profile window alone, and the only
+#                    source of one (an inherited PLANWRIGHT_MC_TOKEN is
+#                    dropped)
 #         --name <name>  (tmux only) the session and window name, in the
 #                    stream-json-persistent handle grammar
 #         --scope <scope>  (tmux only) the worker scope a worker-profile
