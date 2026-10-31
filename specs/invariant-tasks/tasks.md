@@ -339,6 +339,12 @@ its Dependencies line; the selector treats that edge as advisory, so Task
   with three pending sign-offs (PS-1 to PS-3). Operator: run the cubic
   round and the panel from another session, then the ready flip once CI is
   green and the PR is mergeable, and remove this bullet.
+- **Task 11** — the post-PR cubic review round (step `cubic-pr`) is halted:
+  the cubic workspace quota is exhausted until 2026-11-05. Draft PR #770
+  carries the implementation and the three-iteration convergence record,
+  with one pending sign-off (PS-1). Operator: run the cubic round and the
+  panel from another session, then the ready flip once CI is green and the
+  PR is mergeable, and remove this bullet.
 
 ## Deferred
 

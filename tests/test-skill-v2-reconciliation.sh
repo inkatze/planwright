@@ -358,8 +358,8 @@ fi
 # --- Cross read: scripts/orchestrate-select.sh's exit-3 site.
 
 # REQ-A1.3: the selection prose documents exit 3 as the transient evidence hold.
-if printf '%s' "$oc" | grep -qE 'Exit 3 \(format-version 2 transient evidence hold\)'; then
-  ok "orchestrate: selection prose documents exit 3 as the v2 transient evidence hold (REQ-A1.3)"
+if printf '%s' "$oc" | grep -qE 'Exit 3 \(transient evidence hold: format-version 2'; then
+  ok "orchestrate: selection prose documents exit 3 as the transient evidence hold (REQ-A1.3)"
 else
   fail "orchestrate: selection prose does not document selector exit 3 (REQ-A1.3; matches scripts/orchestrate-select.sh's exit-3 contract)"
 fi

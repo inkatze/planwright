@@ -53,9 +53,10 @@
 # remote configured but the fetch failed) or an engine failure, v2 task atoms
 # resolve as UNRESOLVED (REQ-B1.5): never satisfied from partial evidence,
 # surfaced and counted as a report error, the sweep still completes. Version 3
-# takes the v2 resolution, except that a bundle whose tasks name a repository
-# resolves every task atom UNRESOLVED (counted as an error) until per-task
-# derivation exists: the engine reads the work repository only.
+# takes the v2 resolution, per task on a bundle whose tasks name repositories
+# (REQ-F1.5, REQ-B1.7): an atom on a task whose field does not resolve, or
+# whose own repository's evidence failed, resolves UNRESOLVED, each such
+# repository named in a counted error, while every other atom evaluates.
 #
 # Confidence (REQ-H1.5): a bullet's `Confidence: <low|medium|high>` field
 # (matched as a whole token in the entry text before the gate marker)
@@ -427,6 +428,7 @@ report() {
     # transient evidence failure (`degraded`), task atoms resolve as unresolved
     # instead of evaluating against partial evidence.
     v2comp=" "
+    v2unres=" "
     v2evfail=0
     if [ "$fv_arm" = 2 ]; then
       # The parked map (live reference bullets under the three human-payload
@@ -481,22 +483,6 @@ report() {
       done <<EOF
 $v2pre
 EOF
-      # Task atoms derive from the work repository alone, so on a bundle
-      # whose tasks name another repository they would read the wrong
-      # evidence: they stay unresolved until per-task derivation replaces
-      # this check.
-      if [ "$fv" = 3 ] && [ "$v2ntasks" -gt 0 ] && [ "$v2hasgate" -eq 1 ]; then
-        if ! v3repo=$(spec_parse_repository_tasks "$tasks" 2>/dev/null); then
-          printf 'error: could not read the Repository: fields - gates not evaluated (fail closed)\n'
-          n_err=$((n_err + 1))
-          continue
-        fi
-        if [ -n "$v3repo" ]; then
-          printf 'error: tasks name a repository and per-task repository derivation is unavailable - task-completion atoms resolve as unresolved (fail closed)\n'
-          n_err=$((n_err + 1))
-          v2evfail=1
-        fi
-      fi
       # The engine is consulted only when its output can be consumed: a bundle
       # with no unfenced task blocks has nothing to derive (every task atom is
       # already an unknown-id MALFORMED), and a bundle with no unfenced gate
@@ -516,16 +502,37 @@ EOF
             n_err=$((n_err + 1))
             v2evfail=1
           elif printf '%s\n' "$eng_out" \
-            | awk -F"$TAB" '$1 == "degraded" { f = 1 } END { exit !f }'; then
+            | awk -F"$TAB" '$1 == "degraded" && $2 != "repository" { f = 1 } END { exit !f }'; then
             # Detected by tag (the engine's documented consumption model),
             # never by message text (REQ-B1.5).
             printf 'error: transient evidence failure - task-completion atoms resolve as unresolved (REQ-B1.5)\n'
             n_err=$((n_err + 1))
             v2evfail=1
           else
+            # Per task on a bundle naming repositories (REQ-F1.5, REQ-B1.7):
+            # a task whose field does not resolve, or whose own repository
+            # failed, has its atoms resolve unresolved; the rest evaluate.
+            v2unres=" $(printf '%s\n' "$eng_out" \
+              | awk -F"$TAB" '($1 == "task" && $3 == "repository-unresolved") || ($1 == "withheld" && $3 == "own") { print $2 }' \
+              | tr '\n' ' ')"
+            v2notes=$(printf '%s\n' "$eng_out" | awk -F"$TAB" '
+              $1 == "task" && $3 == "repository-unresolved" { code[$2] = $4 }
+              $1 == "repository-unresolved" {
+                if (code[$2] == "alias-malformed") why = "has a Repository: value that is not a single alias"
+                else if (code[$2] == "alias-duplicate") why = "carries more than one Repository: field"
+                else why = "names repository " ($3 == "" ? "(empty)" : $3) ", which does not resolve here"
+                printf "error: task %s %s - its task-completion atoms resolve as unresolved (REQ-F1.5)\n", $2, why
+              }
+              $1 == "degraded" && $2 == "repository" {
+                printf "error: transient evidence failure in %s - task-completion atoms on its tasks resolve as unresolved (REQ-B1.7)\n", ($3 == "-" ? "the work repository" : "repository " $3)
+              }' | LC_ALL=C tr -d '\000-\011\013-\037\177')
+            if [ -n "$v2notes" ]; then
+              printf '%s\n' "$v2notes"
+              n_err=$((n_err + $(printf '%s\n' "$v2notes" | wc -l)))
+            fi
             for cid in $(printf '%s\n' "$eng_out" \
               | awk -F"$TAB" '$1 == "task" && $3 == "completed" { print $2 }'); do
-              case "$v2parked" in
+              case "$v2parked$v2unres" in
                 *" $cid "*) ;; # bullet authority: parked outranks evidence
                 *) v2comp="$v2comp$cid " ;;
               esac
@@ -553,7 +560,7 @@ EOF
     # applies to its taskless diagnostic; the statuses-whitelist comment
     # below documents the underlying -v hazard).
     if ! lines=$(DRAIN_GATES_TASKS_MD="$tasks" awk -v today="$today" -v statuses="$statuses" \
-      -v fv="$fv_arm" -v comp="$v2comp" -v evfail="$v2evfail" '
+      -v fv="$fv_arm" -v comp="$v2comp" -v evfail="$v2evfail" -v unres="$v2unres" '
       BEGIN {
         n = split(statuses, a, " ")
         for (i = 1; i <= n; i++) {
@@ -791,7 +798,7 @@ EOF
           # membership; v2 reads the derivation-engine completed set (bullet
           # authority already applied), unresolved when evidence is unavailable.
           if (fv == 2) {
-            if (evfail) return "unresolved"
+            if (evfail || index(unres, " " tk[2] " ") > 0) return "unresolved"
             return (index(comp, " " tk[2] " ") > 0) ? "met" : "unmet"
           }
           return (tk[2] in COMP) ? "met" : "unmet"
