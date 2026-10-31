@@ -46,7 +46,10 @@ those rules, and with `--names <file>` also a row naming a listed product.
 The product-name list is machine-local, at
 `$CLAUDE_PLUGIN_DATA/review-backtest/product-names.txt`, one name per line,
 and never committed; CI, which has no list, runs the rest of the screen
-through the test suite.
+through the test suite. `--text --names <file> <path>...` runs only the
+product-name check, over every file under the given paths (each file name
+and line), the operator-local screen over committed prose such as the
+observation fragments.
 
 ## Rebuilding the corpus
 

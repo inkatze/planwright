@@ -533,7 +533,7 @@ fi
 
 # Archived fragments keep their Consumed-by lines: a later consumption may add
 # one, a migration must not rewrite or drop one, nor remove the fragment.
-# Every fragment also gets a bare `<path> TAB` row, so its removal shows
+# Every fragment also gets a bare `<key> TAB` row, so its removal shows
 # whether or not it carries a line, and a first consumption removes nothing.
 # The legacy single-file archive carries its consumptions inline, one
 # `consumed-by: specs/<id> (<date>)` annotation each, counted as rows too.

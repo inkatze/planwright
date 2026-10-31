@@ -28,7 +28,8 @@
 # every regular file under each path given (directories walked recursively),
 # its name and each line. It is the operator-local screen over committed prose
 # such as the observation fragments, so it requires the list; a refusal names
-# the file and line, never the matched text.
+# the file and line, never the matched text, though a file-name refusal's path
+# carries it.
 #
 # Usage:
 #   review-corpus-screen.sh [--names <file>] [--require-names] <corpus.tsv>
