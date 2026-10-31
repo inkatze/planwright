@@ -11,7 +11,7 @@ unset CDPATH
 #             a fragment cannot meet off: a first-line heading (MD041), the
 #             prose line length (MD013), and the details/summary collapse a
 #             PR body uses (MD033); dialect `spec` lints a spec-bundle file
-#             under specs/.markdownlint.jsonc instead, as lint:md does
+#             under specs/.markdownlint.jsonc instead, MD041 still off
 #   yaml      yamllint --strict under the repository baseline, a document
 #             start marker not required
 #   shell     a parse with the dialect's shell (sh, or bash; default: the
@@ -35,7 +35,10 @@ lint_emitted() {
     printf '%s\n' "lint_emitted: $le_emitter: no emitted file at $le_file" >&2
     return 1
   }
-  le_dir=$(mktemp -d "${TMPDIR:-/tmp}/emitter-lint.XXXXXX") || return 1
+  le_dir=$(mktemp -d "${TMPDIR:-/tmp}/emitter-lint.XXXXXX") || {
+    printf '%s\n' "lint_emitted: $le_emitter: could not create a temporary directory" >&2
+    return 1
+  }
   le_rc=0
   case $le_fmt in
     markdown)

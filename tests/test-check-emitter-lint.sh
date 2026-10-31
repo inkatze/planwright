@@ -90,35 +90,55 @@ fi
 # The helper itself: each format passes a clean artifact and fails a defect.
 # shellcheck source=tests/lib/emitter-lint.sh
 . "$REPO_ROOT/tests/lib/emitter-lint.sh"
-# lint_case <format> <label> <want-status> <content> [<dialect>]
+# lint_case <format> <label> <want-status>[:<rule named>] <content> [<dialect>]
 lint_case() {
+  lc_want=${3%%:*} lc_rule=${3#*:}
+  [ "$lc_rule" != "$3" ] || lc_rule=""
   printf '%s\n' "$4" >"$tmp/artifact"
   lint_emitted "$1" fixture "$tmp/artifact" ${5:+"$5"} >"$tmp/lint.out" 2>&1
   got=$?
   if grep -q '^skip:' "$tmp/lint.out"; then
     printf '%s\n' "skip: $2: $(cat "$tmp/lint.out")"
-  elif [ "$got" -eq "$3" ]; then
-    pass "$2"
+  elif [ "$got" -ne "$lc_want" ]; then
+    fail "$2: status $got, not $lc_want: $(cat "$tmp/lint.out")"
+  elif [ -n "$lc_rule" ] && ! grep -qF -e "$lc_rule" "$tmp/lint.out"; then
+    fail "$2: the lint output does not name $lc_rule: $(cat "$tmp/lint.out")"
   else
-    fail "$2: status $got, not $3: $(cat "$tmp/lint.out")"
+    pass "$2"
   fi
 }
 md=markdown
 yml=yaml
 sh_=shell
 lint_case "$md" "a clean Markdown fragment passes" 0 "$(printf 'Some text.\n\n| a | b |\n| --- | --- |\n| 1 | 2 |')"
-lint_case "$md" "a Markdown heading without its blank line fails" 1 "$(printf '## Heading\ntext right below')"
+lint_case "$md" "a Markdown heading without its blank line fails" 1:MD022 "$(printf '## Heading\ntext right below')"
 lint_case "$md" "a details/summary collapse is allowed in a fragment" 0 "$(printf 'Text.\n\n<details>\n<summary>More</summary>\n\nBody.\n\n</details>')"
-lint_case "$md" "other inline HTML still fails" 1 "$(printf 'Text with <span>html</span>.')"
-lint_case "$md" "a list straight under a line fails under the baseline" 1 "$(printf '**Label:**\n- item')"
+lint_case "$md" "other inline HTML still fails" 1:MD033 "$(printf 'Text with <span>html</span>.')"
+lint_case "$md" "a list straight under a line fails under the baseline" 1:MD032 "$(printf '**Label:**\n- item')"
 lint_case "$md" "the spec dialect takes the spec bundle relaxation" 0 "$(printf '# T\n\n**Label:**\n- item')" spec
-lint_case "$md" "the spec dialect keeps the structural rules" 1 "$(printf '# T\n\n### Skipped level')" spec
+lint_case "$md" "the spec dialect keeps the structural rules" 1:MD001 "$(printf '# T\n\n### Skipped level')" spec
 lint_case "$yml" "clean YAML passes" 0 "$(printf 'key: value\nlist:\n  - one\n')"
-lint_case "$yml" "YAML with a duplicate key fails" 1 "$(printf 'key: a\nkey: b\n')"
+lint_case "$yml" "YAML with a duplicate key fails" 1:key-duplicates "$(printf 'key: a\nkey: b\n')"
 lint_case "$sh_" "a clean shell script passes" 0 "$(printf '#!/bin/sh\nprintf "%%s\\\\n" "$1"\n')"
 lint_case "$sh_" "a shell script that does not parse fails" 1 "$(printf '#!/bin/sh\nif true; then\n')"
-lint_case "$sh_" "an unquoted expansion fails shellcheck" 1 "$(printf '#!/bin/sh\nrm $1\n')"
-lint_case "$sh_" "a bash-only construct under the sh dialect fails" 1 "$(printf 'a=(1 2)\nprintf "%%s\\\\n" "${a[0]}"\n')" sh
+lint_case "$sh_" "an unquoted expansion fails shellcheck" 1:SC2086 "$(printf '#!/bin/sh\nrm $1\n')"
+lint_case "$sh_" "a bash-only construct under the sh dialect fails" 1:SC3030 "$(printf 'a=(1 2)\nprintf "%%s\\\\n" "${a[0]}"\n')" sh
+# A linter missing in CI is a failure, never a skip; outside CI, a skip line.
+printf 'key: value\n' >"$tmp/artifact"
+mkdir -p "$tmp/notools" || exit 1
+for tool in mktemp rm dirname cat sed head; do
+  t_path=$(command -v "$tool") && ln -sf "$t_path" "$tmp/notools/$tool"
+done
+out=$(CI=1 PATH="$tmp/notools" lint_emitted "$yml" fixture "$tmp/artifact" 2>&1)
+case "$?:$out" in
+  1:*"yamllint is not on PATH in CI"*) pass "a linter missing in CI fails the lint" ;;
+  *) fail "a linter missing in CI did not fail the lint: $out" ;;
+esac
+out=$(CI='' PATH="$tmp/notools" lint_emitted "$yml" fixture "$tmp/artifact" 2>&1)
+case "$?:$out" in
+  0:*"skip: lint_emitted: fixture: yamllint is not on PATH"*) pass "a linter missing outside CI is a named skip" ;;
+  *) fail "a linter missing outside CI was not a named skip: $out" ;;
+esac
 bogus=nonsense
 if lint_emitted "$bogus" fixture "$tmp/artifact" 2>/dev/null; then
   fail "an unknown format was accepted"
