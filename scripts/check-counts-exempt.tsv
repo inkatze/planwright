@@ -1,0 +1,14 @@
+# Exemptions for scripts/check-counts.sh: an introducing sentence whose count
+# is right although the list or table below it has another length. One row
+# per finding, the excerpt a substring of that sentence, with the reason the
+# two differ. A row clearing no finding fails the guard, so delete it with
+# its cause.
+#
+# file	excerpt	reason
+docs/allocation.md	At the three fleet task types	the count names the fleet task types, three of the table's rows; the fourth row is the general keys
+docs/fleet.md	merges three runtime sources plus the dispatch record	three sources plus one record are the table's four rows
+docs/fleet.md	The two session-grade rungs, verb by verb	the two rungs are the table's columns; its rows are the verbs
+docs/orchestration-state.md	The four derived states map to sections	two of the four states share the table's last row
+docs/tower-posture-delta.md	in code the two guards share	the count names the guards, not the fixes the list holds
+docs/tower-posture-delta.md	Eight entries are appended	the first bullet groups five of the eight entries
+doctrine/storage-classes.md	ask two questions	the table pairs each of its two questions with two answers

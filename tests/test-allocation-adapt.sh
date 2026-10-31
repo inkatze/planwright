@@ -378,8 +378,9 @@ run resolve stuck:unit --key drain --step s2 --attempt 1 --event flailing >/dev/
 last_state=""
 i=1
 while [ "$i" -le 3 ]; do
-  last_state=$(env_run "$FLV" crash-record stuck-worker spec-1 2>/dev/null | awk '{ print $1 }') \
+  crash_out=$(env_run "$FLV" crash-record stuck-worker spec-1 2>/dev/null) \
     || fail "13e: crash-record failed"
+  last_state=$(printf '%s\n' "$crash_out" | awk '{ print $1 }')
   i=$((i + 1))
 done
 [ "$last_state" = disabled ] \
