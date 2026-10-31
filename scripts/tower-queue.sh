@@ -525,8 +525,9 @@
 # revoked. The rebuild reads these keys back from the four picklist and
 # review kinds: `picklist` carries options, end (an option or park),
 # window_end and gate; `window` carries end (default or park), option, at
-# (the window end) and away; `reviewed` and `revoked` carry item_kind,
-# reversal and reason, `revoked` also its outcome (reopened or revoked); and a
+# (the window end), away and instance (the row instance it applied to);
+# `reviewed` and `revoked` carry item_kind, reversal and reason, `revoked`
+# also its outcome (reopened or revoked); and a
 # `born` line carries topic, and for a decided-by-mission-control item its
 # grounds, reversal, gate and caller. A `tick` needs `live=<n>`
 # (the live-worker count) and coalesces with the previous line when that is a
@@ -5632,7 +5633,8 @@ cmd_ack() {
 }
 
 # cmd_revoke — the operator's revocation of a reviewable item (REQ-B1.8): a
-# settled-by-default item reopens as its question with no window, a
+# settled-by-default item reopens as its question with no window (or closes
+# as revoked, naming it, while a newer question is open on its row), a
 # decided-by-mission-control one closes as revoked. The reversal pointer is
 # logged for the session that owns the reversal; nothing here runs it.
 cmd_revoke() {
