@@ -4798,15 +4798,25 @@ EOF
   # is logged once, by the first `next` that sees it (REQ-F1.7, REQ-G1.9).
   read_delivery "$tower"
   case "$dec_what" in
-    deliver | knock) set -- "$n_kt" "$n_kitem" "$n_dt" "$n_ditem" ;;
-    *) set -- "$d_kt" "$d_kitem" "$d_dt" "$d_ditem" ;;
+    deliver | knock)
+      w_kt=$n_kt
+      w_kitem=$n_kitem
+      w_dt=$n_dt
+      w_ditem=$n_ditem
+      ;;
+    *)
+      w_kt=$d_kt
+      w_kitem=$d_kitem
+      w_dt=$d_dt
+      w_ditem=$d_ditem
+      ;;
   esac
   # The delivery record goes first: a failure there leaves the store
   # untouched, whereas a stamped store with no record would hide the item
   # from its own holder until the backstop, and a source switch written after
   # the commit would leave pushes stamped and never sent.
   if [ "$dec_what" = deliver ] || [ "$dec_what" = knock ] || [ "$p_src" != "$d_src" ]; then
-    write_delivery "$tower" "$1" "$2" "$3" "$4" "$p_src"
+    write_delivery "$tower" "$w_kt" "$w_kitem" "$w_dt" "$w_ditem" "$p_src"
     if [ "$changed" = 1 ] && ! commit_store; then
       write_delivery "$tower" "$d_kt" "$d_kitem" "$d_dt" "$d_ditem" "$d_src"
       exit 6
