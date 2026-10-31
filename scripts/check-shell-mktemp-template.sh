@@ -15,7 +15,8 @@ Usage:
   check-shell-mktemp-template.sh [<root>]   scan scripts/, githooks/, tests/lib/
   check-shell-mktemp-template.sh --help
 
-Flagged: mktemp as a command word with no operand other than its options.
+Flagged: mktemp as a command word with no operand other than its options
+(the directory -p takes is not a template).
 Fix: pass a template, mktemp -d "${TMPDIR:-/tmp}/<name>.XXXXXX".
 Exempt a line with a trailing or directly preceding
   # shell-mktemp-template: <reason>
@@ -27,7 +28,11 @@ function rule_check(code, lineno,   rest, n, k, p) {
   rest = code
   while ((p = cmdword(rest, "mktemp")) > 0) {
     n = operands(rest)
-    for (k = 1; k <= n; k++) if (OPS[k] !~ /^-/) break
+    for (k = 1; k <= n; k++) {
+      # -p takes a directory, not a template.
+      if (OPS[k] == "-p") { k++; continue }
+      if (OPS[k] !~ /^-/) break
+    }
     if (k > n) return "mktemp is given no template; name one, mktemp -d \"${TMPDIR:-/tmp}/<name>.XXXXXX\""
     rest = substr(rest, CW_END)
   }

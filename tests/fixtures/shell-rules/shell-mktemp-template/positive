@@ -1,5 +1,10 @@
-# expect-line: 4
+# expect-line: 7
+# expect-line: 8
+# expect-line: 9
 # A scratch directory made with no template.
 set -u
+dir=${TMPDIR:-/tmp}
 work="$(mktemp -d)" || exit 2
-printf '%s\n' "$work"
+f=$(mktemp -p "$dir") || exit 2
+mktemp >/dev/null; printf '%s\n' made
+printf '%s\n' "$work" "$f"
