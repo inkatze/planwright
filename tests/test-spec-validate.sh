@@ -2811,7 +2811,9 @@ has "WARN"
 has "not a single alias"
 lacks "ERROR"
 
-# 37k. A CRLF blank line after a real field is not a continuation.
+# 37k. A near-miss of the field lead is no field to any reader, so it warns
+# at every status rather than silently leaving the task in the bundle's work
+# repository; a CRLF blank line after a real field is not a continuation.
 # add_line <dir> <line> — <line> after Task 1's Citations line.
 add_line() {
   REPO_LINE=$2 awk '
@@ -2820,6 +2822,15 @@ add_line() {
   ' "$1/tasks.md" >"$1/tasks.md.new"
   mv "$1/tasks.md.new" "$1/tasks.md"
 }
+for nm in '- **repository:** beta' '- **Repository**: beta' '* **Repository:** beta' \
+  '  - **Repository:** beta' '- Repository: beta'; do
+  write_bundle_v3 "$marked/fixture" Ready
+  add_line "$marked/fixture" "$nm"
+  run_v 0 "$marked/fixture"
+  has "WARN"
+  has "reads like a Repository: field"
+  lacks "ERROR"
+done
 write_bundle_v3 "$marked/fixture" Ready alpha
 add_line "$marked/fixture" "$(printf '  \r')"
 run_v 0 "$marked/fixture"

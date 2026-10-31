@@ -82,7 +82,10 @@
 #       present only under a version 3 declaration (a field in a version 1
 #       or 2 bundle is a finding at that version's severities, never
 #       ignored). An off-grammar value is echoed sanitized.
-#   23. A version 3 field under a spec root with no valid
+#   23. A near-miss of the field lead (case, bold or colon placement, bullet
+#       marker, indentation) warns at every status: no reader takes it as
+#       the field, so the task would silently stay in the work repository.
+#   24. A version 3 field under a spec root with no valid
 #       `planwright-spec-root.yml` marker warns at every status: the
 #       work-repository registry serves marked roots only.
 #
@@ -646,6 +649,13 @@ parse_tasks() {
       sub(/[ \t\r]+$/, "", rv)
       if (rv !~ /^[a-z0-9][a-z0-9-]*$/ || length(rv) > 64) printf "RV\t%s\t%s\n", cur, rv
       printf "RF\t%s\n", cur
+      next
+    }
+    # A near-miss lead (case, bold, or colon placement, a different bullet
+    # marker, an indented sub-bullet) is no field to any reader, so a typo
+    # would silently leave the task in the bundle work repository.
+    /^[ \t]*[-*+][ \t]+(\*\*)?[Rr][Ee][Pp][Oo][Ss][Ii][Tt][Oo][Rr][Yy][ \t]*(\*\*)?[ \t]*:/ {
+      printf "F\tsoft\tTask %s line tasks.md:%d reads like a Repository: field but is not the canonical `- **Repository:** <alias>` bullet, so no reader takes it as one\n", cur, NR
       next
     }
     {
