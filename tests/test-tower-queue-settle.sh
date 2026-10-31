@@ -2,8 +2,8 @@
 # Tests for scripts/tower-queue.sh's settling pass — the level-triggered
 # `settle` with no item id, the evidence that may close an item and the claims
 # that may not, unavailable sources, and the
-# the `catchup` verb (REQ-B1.1, REQ-B1.2, REQ-B1.4, REQ-B1.5, REQ-F1.4,
-# REQ-H1.2). Merging and pairing are in test-tower-queue-merge.sh.
+# the `catchup` verb (REQ-B1.1, REQ-B1.2, REQ-B1.4, REQ-B1.5, REQ-F1.8,
+# REQ-H1.5). Merging and pairing are in test-tower-queue-merge.sh.
 #
 # Contract under test:
 #   settle [--evidence <file>] [--now <epoch>]
@@ -149,7 +149,7 @@ grep -q "\"kind\":\"settled\".*\"item\":\"$r_pr\".*\"reason\":\"PR #42 is merged
   || fail "no settled event naming the evidence"
 echo "ok: an open or merged PR, commits on a branch and a closed ledger item each settle their own item and nothing else"
 
-# --- a worker's own completion report settles nothing (REQ-B1.2, REQ-H1.2) --------
+# --- a worker's own completion report settles nothing (REQ-B1.2, REQ-H1.5) --------
 
 attention_row w-done scope-1 awaiting-input 1000 normal 'proceed?' yes 'yes,no'
 q_done=$(run add --kind question --worker w-done --origin w-done --closes 'the operator answers' --now 1010) || fail "add the w-done question"
@@ -349,7 +349,7 @@ run settle --evidence "$ev" --now 2010 >/dev/null || fail "the present pass"
 [ "$(away_of "$r_here")" = 0 ] || fail "an item settled while the operator was replying was recorded as away"
 echo "ok: an item settled while the operator was away is recorded as such, and one settled while they were present is not"
 
-# --- nothing is dropped or auto-answered for lack of attention (REQ-F1.4) ---------
+# --- nothing is dropped or answered for lack of attention without a picklist (REQ-F1.8)
 
 rm -f "$surface/attention/$A"
 r_open1=$(add_req r-open1 - 2100) || fail "add r-open1"

@@ -476,7 +476,7 @@ waiting_field() {
     return 0
   fi
   case $wf_top in
-    question | approval | request | news) ;;
+    question | approval | request | settled-by-default | decided-by-mission-control | news) ;;
     -)
       # The closed set's own "nothing ranked": legitimate only with an empty
       # queue. A total above zero with no top item is a reading that

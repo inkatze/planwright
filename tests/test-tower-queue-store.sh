@@ -1,7 +1,7 @@
 #!/bin/bash
 # Tests for scripts/tower-queue.sh's queue store — the `add`, `list`,
 # `counts`, `settle` and `shelve` verbs, the record grammar and the
-# hostile-input table (REQ-A1.2, REQ-A1.3, REQ-A1.6, REQ-C1.5, REQ-C1.9,
+# hostile-input table (REQ-A1.3, REQ-A1.10, REQ-A1.6, REQ-C1.5, REQ-C1.9,
 # REQ-H1.3, REQ-H1.4). Attention, the lease and `ack` are in
 # test-tower-queue-next.sh; the lock, concurrency, the surface and the
 # rebuild are in test-tower-queue-store-lock.sh.
@@ -124,7 +124,7 @@ run add >/dev/null 2>&1 || rc=$?
 [ ! -e "$store" ] || fail "add with no args created a store"
 echo "ok: add with no args refused"
 
-# --- the five kinds, each with a closing condition (REQ-A1.2) -----------------
+# --- the five original kinds, each with a closing condition (REQ-A1.10) --------
 
 attention_row w-alpha spec-a/task-1 awaiting-input 1000 high 'Merge or rebase?' merge 'merge|rebase' fork iid-1
 attention_row w-beta spec-a/task-2 awaiting-input 1100 low 'Which base?' main 'main|dev' fork iid-2
@@ -200,7 +200,7 @@ echo "ok: a standing decision closes on the operator's revocation"
 # Every line carries the full record width.
 while IFS= read -r l; do
   nf=$(printf '%s\n' "$l" | awk -F '\t' '{ print NF }')
-  [ "$nf" = 26 ] || fail "a store line has $nf fields, expected 26: $l"
+  [ "$nf" = 34 ] || fail "a store line has $nf fields, expected 34: $l"
 done <"$store"
 echo "ok: every record has the declared field count"
 
