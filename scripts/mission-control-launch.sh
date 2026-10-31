@@ -6,6 +6,8 @@
 # PLANWRIGHT_MC_TOKEN), then registers owner, kind and scope. `--help` prints
 # the usage, the output shapes and the exit codes.
 #
+# Emits: markdown
+#
 # POSIX sh; no eval; every input is data. Pathname expansion is disabled.
 set -uf
 

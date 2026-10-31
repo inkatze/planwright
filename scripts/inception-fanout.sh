@@ -1,6 +1,7 @@
 #!/bin/sh
 # inception-fanout.sh — the mechanical half of the /inception persona fan-out
 # (inception REQ-P1.3–P1.9, REQ-B1.3, REQ-B1.5 · D-2, D-3, D-4, D-6, D-7, D-17, D-18).
+# Emits: markdown
 #
 # doctrine/persona-fanout.md is the procedure; this script is everything in it
 # that must come out the same on every run. The skill holds the gates and

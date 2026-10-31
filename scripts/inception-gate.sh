@@ -4,6 +4,7 @@
 # D-14, D-15). usage() below lists each subcommand, its output lines and the
 # gap kinds; doctrine/inception-format.md owns gate records, scopes, lineage
 # keys and the location forms written to the bundle.
+# Emits: markdown
 #
 # The outcome is always the caller's: nothing here picks one, a tripped kill
 # criterion only prints a `prompt` line, and Graduate is refused while the

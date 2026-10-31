@@ -23,6 +23,13 @@ GOLDEN="$here/fixtures/step-record/checklist.golden"
 TAB=$(printf '\t')
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
+[ -r "$here/lib/emitter-lint.sh" ] || {
+  echo "FAIL: tests/lib/emitter-lint.sh missing" >&2
+  exit 1
+}
+EMITTER_LINT_ROOT=$repo_root
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$here/lib/emitter-lint.sh"
 
 # The built-in screen, so the outcome does not depend on whether this host
 # has gitleaks installed.
@@ -1166,6 +1173,11 @@ else
 fi
 grep -Fq "## Steps at \`convergence\` (run \`$run1\`)" "$tmp/regen.md"
 verdict "regenerate re-emits the per-point tables from the records" "no step tables after the checklist"
+if lint_emitted markdown step-record.sh "$tmp/regen.md"; then
+  ok "the regenerated checklist and step tables pass the markdown lint"
+else
+  fail "the regenerated checklist and step tables fail the markdown lint"
+fi
 
 sr regenerate --base "$BASE" --head "$HEAD2" | grep -Fq "## Steps at \`pre-pr\` (run \`$run4\`)"
 verdict "regenerate defaults to the latest run" "default run not rendered"

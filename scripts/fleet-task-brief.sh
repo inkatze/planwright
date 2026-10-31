@@ -2,6 +2,8 @@
 # fleet-task-brief.sh — the task worker's launch-time brief (fleet-messaging
 # D-25, REQ-C1.6, REQ-H1.6).
 #
+# Emits: markdown
+#
 # A tmux task worker starts its opening turn from a file, never a message or a
 # keystroke: the tower's dispatch step renders the unit's task brief here, then
 # passes it to `fleet-dispatch-worktree.sh dispatch <spec> <id> --brief <path>`,

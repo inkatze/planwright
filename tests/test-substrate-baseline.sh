@@ -40,6 +40,12 @@ check_has() {
   echo "FAIL: scripts/substrate-baseline.sh missing or not executable" >&2
   exit 1
 }
+[ -r "$REPO_ROOT/tests/lib/emitter-lint.sh" ] || {
+  echo "FAIL: tests/lib/emitter-lint.sh missing" >&2
+  exit 1
+}
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-substrate-baseline.XXXXXX") || exit 1
 [ -n "$tmp" ] && [ -d "$tmp" ] || exit 1
@@ -215,6 +221,11 @@ check_eq "the clean fixture still passes" 0 "$rc"
 out=$("$SB" --as-of 2026-10-31 --spec "$fx/bundles/demo" --legacy "$fx/legacy.tsv" \
   --wallclock "$rec/wc.tsv" --hand-backs "$rec/hand-backs.tsv" --out "$tmp/cb.md" 2>&1)
 check_eq "--out writes the snapshot" "$first" "$(cat "$tmp/cb.md")"
+if lint_emitted markdown substrate-baseline.sh "$tmp/cb.md"; then
+  ok "the snapshot passes the markdown lint"
+else
+  bad "the snapshot fails the markdown lint"
+fi
 printf 'kept\n' >"$tmp/keep.md"
 "$SB" --as-of 2026-10-31 --spec "$fx/bundles/demo" --legacy "$fx/legacy.tsv" \
   --wallclock "$tmp/wc-zero.tsv" --hand-backs "$rec/hand-backs.tsv" --out "$tmp/keep.md" 2>/dev/null

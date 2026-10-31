@@ -1,6 +1,7 @@
 #!/bin/sh
 # inception-review-cycle.sh — the adapter seam for a venture's stakeholder
 # review cycle (inception REQ-G1.6, REQ-G1.7, REQ-G1.9 · D-10).
+# Emits: markdown
 #
 # The cycle is one-way: export a snapshot, harvest feedback as data, triage
 # each item, apply the accepted ones as attributed commits, re-export. The

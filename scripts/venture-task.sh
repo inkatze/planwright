@@ -1,6 +1,7 @@
 #!/bin/sh
 # venture-task.sh — the mechanical half of the venture-task contract
 # (inception Task 10; REQ-D1.1–D1.7, REQ-J1.3 · D-7, D-13).
+# Emits: markdown
 #
 # doctrine/venture-task.md is the normative contract; this script is its
 # shadow, small subcommands, each data in, data out:

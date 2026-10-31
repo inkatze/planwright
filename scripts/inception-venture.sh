@@ -3,6 +3,7 @@
 # (inception Task 7; REQ-A1.1, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.8,
 # REQ-A1.9, REQ-B1.7, REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5 · D-5,
 # D-11, D-19).
+# Emits: markdown
 #
 # The skill holds the conversation; everything that must behave the same on
 # every run lives here as small subcommands, each data in, data out:

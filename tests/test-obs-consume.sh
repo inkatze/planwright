@@ -60,6 +60,9 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 CONSUME="$here/../scripts/obs-consume.sh"
 REC="$here/../scripts/obs-record.sh"
+EMITTER_LINT_ROOT=$(cd "$here/.." && pwd -P)
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$here/lib/emitter-lint.sh"
 
 fail() {
   printf '%s\n' "FAIL: $1" >&2
@@ -151,6 +154,11 @@ grep -Fxq -e '- 2026-07-09 [planwright] a real observation' "$o/archive/$frag" \
 grep -Fxq 'Consumed-by: specs/my-spec (2026-07-10)' "$o/archive/$frag" \
   || fail "1: Consumed-by annotation is not the expected form"
 [ "$(frag_count "$o/entries")" -eq 0 ] || fail "1: entries/ must be empty"
+if lint_emitted markdown obs-consume.sh "$o/archive/$frag" spec; then
+  echo "ok 1: the consumed fragment lints clean as a spec-tree file"
+else
+  fail "1: the consumed fragment has markdownlint findings"
+fi
 echo "ok 1: a fragment consumed by UID moves to archive/ with one annotation"
 
 # --- 2. Slug rename then consume by UID ----------------------------------

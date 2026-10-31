@@ -79,6 +79,8 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 REC="$here/../scripts/obs-record.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$here/lib/emitter-lint.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
 
@@ -175,6 +177,11 @@ esac
 # The one-line entry form is the fragment's content.
 [ "$(cat "$frag")" = "- 2026-07-09 [planwright] a real observation" ] \
   || fail "1: fragment content is not the expected one-line entry form"
+if lint_emitted markdown obs-record.sh "$frag"; then
+  echo "ok 1b: the fragment lints clean as markdown"
+else
+  fail "1b: the fragment fails the markdown lint"
+fi
 # The only paths added are entries/ contents (the dir pre-existed).
 printf '%s\n' "$before" >"$tmp/before1"
 printf '%s\n' "$after" >"$tmp/after1"

@@ -3,6 +3,7 @@
 # parked flight's private partial record (tower-front-door Tasks 6, 14, 16,
 # and 17; D-6, D-18, D-20, D-21 · REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-E1.6,
 # REQ-E1.7, REQ-E1.8, REQ-E1.9, REQ-E1.11, REQ-C1.11).
+# Emits: markdown
 #
 # The flight worker authors the record's human parts (what changed and why,
 # how it was verified) and hands over the review audit and the step tables of

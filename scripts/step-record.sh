@@ -8,6 +8,7 @@
 # holds and where it folds; doctrine/gate-wiring.md owns the checklist format.
 # This header pins what those docs delegate here: the verbs, the storage
 # layout, the excerpt bound, the screen action, and the rendered shapes.
+# Emits: markdown
 #
 # Usage:
 #   step-record.sh [--worktree <dir>] new-run

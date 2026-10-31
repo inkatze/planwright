@@ -4,6 +4,7 @@
 # class admitted), or park the pending flip when a precondition fails
 # (doctrine/human-gates.md; the policy and its preconditions are the
 # human-gates spec's REQ-C1.2 to REQ-C1.4).
+# Emits: markdown
 #
 # Usage:
 #   ready-flip.sh reconcile --spec <dir> --task <id>... [--worktree <dir>]

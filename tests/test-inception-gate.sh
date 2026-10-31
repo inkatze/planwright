@@ -30,6 +30,8 @@ FORMAT_DOC="$REPO_ROOT/doctrine/inception-format.md"
 
 # shellcheck source=tests/lib/inception-fixture.sh
 . "$REPO_ROOT/tests/lib/inception-fixture.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 
 failures=0
 assert_eq() {
@@ -66,6 +68,15 @@ fi
 
 tmp="$(cd "$(mktemp -d)" && pwd -P)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
+
+assert_lint_md() {
+  if lint_emitted markdown inception-gate.sh "$2"; then
+    echo "ok: $1: lint-clean markdown"
+  else
+    echo "FAIL: $1: fails the markdown lint" >&2
+    failures=$((failures + 1))
+  fi
+}
 
 export HOME="$tmp/home"
 mkdir -p "$HOME"
@@ -306,6 +317,7 @@ assert_contains "E1.5 decider" "Decider: Dana Reyes" "$rec"
 assert_contains "E1.5 evidence cited" "Evidence: A-1 (behavior), A-2 (costly-signal)" "$rec"
 assert_contains "E1.5 thresholds evaluated" "Thresholds: A-1 pass, A-2 pass" "$rec"
 assert_contains "E1.5 kill-criteria states" "Kill-criteria: KC-1 tripped, KC-2 tripped" "$rec"
+assert_lint_md "E1.5 the brief carrying the gate record" "$vroot/out-graduate/brief.md"
 mkv broken
 ready "$vroot/broken"
 "$GATE" record --outcome Hold --decider "Dana Reyes" --rationale "waiting on budget" "$vroot/broken" >/dev/null 2>&1
@@ -323,6 +335,7 @@ assert_eq "E1.6 archive exits 0" 0 "$rc"
 assert_contains "E1.6 the archive is reported" "archived	Killed" "$out"
 assert_eq "E1.6 the post-mortem lands in the changelog" 1 \
   "$(grep -c '^- 2026-10-18 — post-mortem: the shadow run showed no time saved$' "$vroot/out-kill/brief.md")"
+assert_lint_md "E1.6 the archived brief" "$vroot/out-kill/brief.md"
 assert_eq "E1.6 the archived bundle validates" 0 "$(validates_clean "$vroot/out-kill")"
 assert_contains "E1.6 the registry is refreshed" "registry	refreshed" "$out"
 row=$("$REG" get out-kill 2>&1)
@@ -370,6 +383,7 @@ assert_contains "F1.1 the refusal names the control character" "control characte
 gate seed --dest "$(specroot "$g")" "$g"
 assert_eq "F1.1 seed exits 0" 0 "$rc"
 seedf="$g/specs/_pending/inception-out-graduate.md"
+assert_lint_md "F1.1 the seed" "$seedf"
 assert_contains "F1.1 the seed path is printed" "seed	$seedf" "$out"
 seed=$(cat "$seedf" 2>/dev/null)
 assert_contains "F1.1 the lineage key" "**Lineage:** inception:out-graduate" "$seed"
@@ -412,6 +426,7 @@ assert_eq "J1.5 the venture side names the spec" 1 "$(grep -c '— spec: `specs/
 gate lineage "$g"
 assert_contains "J1.5 both directions read linked" "lineage	venture	linked" "$out"
 assert_eq "J1.5 linked is clean" 0 "$rc"
+assert_lint_md "J1.5 the brief carrying the linked lineage" "$g/brief.md"
 gate link --spec "$g/specs/capture-surface$nl" "$g"
 assert_eq "J1.5 a spec directory ending in a newline is refused, not read as its sibling" 1 "$rc"
 assert_contains "J1.5 the refusal names the control character" "control character" "$out"
@@ -478,6 +493,7 @@ assert_eq "J1.5 linking a scope that was never seeded is refused" 1 "$rc"
 assert_contains "J1.5 the refusal asks for the seed first" "seed it first" "$out"
 gate seed --track capture --dest "$(specroot "$vroot/tracks")" "$vroot/tracks"
 assert_eq "F1.3 the graduated track seeds" 0 "$rc"
+assert_lint_md "F1.3 the track seed" "$vroot/tracks/specs/_pending/inception-tracks.capture.md"
 tseed=$(cat "$vroot/tracks/specs/_pending/inception-tracks.capture.md" 2>/dev/null)
 assert_contains "F1.3 the track seed carries the track key" "**Lineage:** inception:tracks/capture" "$tseed"
 assert_contains "F1.3 the track seed carries the track's entries" "### A-2 —" "$tseed"

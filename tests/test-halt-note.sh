@@ -13,6 +13,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 S="$REPO_ROOT/scripts"
 # shellcheck source=tests/lib/poll-until.sh
 . "$REPO_ROOT/tests/lib/poll-until.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 
 failures=0
 ok() { echo "ok: $1"; }
@@ -137,6 +139,11 @@ if grep -qx -- '- \*\*Task 1\*\* — the gate found an anchor mismatch; and the 
   ok "holder: a second halt adds a segment to the task's bullet"
 else
   fail "holder: no segment added (rc=$rc): $out"
+fi
+if lint_emitted markdown halt-note.sh "$z/demo/tasks.md" spec; then
+  ok "holder: the edited tasks.md lints clean as a spec-bundle file"
+else
+  fail "holder: the edited tasks.md has markdownlint findings"
 fi
 
 if [ "$(hermetic git -C "$h" rev-parse HEAD)" = "$head_before" ] \

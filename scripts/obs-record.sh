@@ -5,6 +5,8 @@
 # through this helper; none composes a fragment path by hand and none appends
 # to a shared committed log.
 #
+# Emits: markdown
+#
 # What it does (REQ-A1.6): mint an 8-hex UID from a system entropy source,
 # validate every filename component against its anchored grammar under
 # LC_ALL=C (calendar-date validity included), containment-check the composed

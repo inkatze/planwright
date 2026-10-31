@@ -6,6 +6,7 @@
 # edit to the store's primary-view tasks.md and nothing is committed,
 # branched, or pushed there. The printed path is the file the handoff names;
 # committing it is the operator's.
+# Emits: markdown
 #
 # A same-repo store is refused: there the halt writes the bundle copy on the
 # task branch and commits it, as before.

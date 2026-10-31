@@ -1,6 +1,7 @@
 #!/bin/sh
 # inception-scaffold.sh — the venture repo hygiene scaffold (inception Task 2;
 # REQ-A1.9, REQ-G1.1, REQ-G1.5, REQ-G1.8 · D-9, D-11, D-12).
+# Emits: yaml, shell, markdown
 #
 # `/inception` calls this at venture-repo creation. It EMITS the guard files
 # rather than copying static ones out of the plugin, so the emitted content is
@@ -653,7 +654,7 @@ if [ "$rung" = remote ]; then
 else
   rung_line='This venture is on the **local** rung: no remote, so no CI guard. The pre-commit hook is
 the whole enforcement surface. Add a remote later and re-run the scaffold to pick up the CI guard.'
-  rung_ci='- _No CI guard._ Nothing runs off this machine. Re-run the scaffold after adding a remote.'
+  rung_ci='- *No CI guard.* Nothing runs off this machine. Re-run the scaffold after adding a remote.'
 fi
 
 cat >"$stage" <<WIRING
