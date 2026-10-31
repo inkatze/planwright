@@ -43,8 +43,9 @@ Usage: check-counts.sh [--exempt <tsv>] [<root>]
        check-counts.sh --help | -h
 
 Read: the files git tracks under <root> ending in .md, in doctrine/, skills/,
-docs/, specs/_pending/, and a spec bundle under specs/ whose requirements.md
-declares **Status:** Draft (with no requirements.md tracked yet, a tracked
+docs/, the spec home's _pending/, and a spec bundle in the spec home (the
+scripts/resolve-root.sh spec answer at <root>, read only when it lies inside
+<root>) whose requirements.md declares **Status:** Draft (with no requirements.md tracked yet, a tracked
 design.md, tasks.md or test-spec.md declaring it). A bundle at any other
 status is skipped: its enumerations are the sign-off cross-check's. Fenced code is not prose.
 
@@ -110,7 +111,21 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-git -C "$root" ls-files -z -- doctrine skills docs specs >"$work/tracked" 2>/dev/null \
+root_abs=$(cd "$root" && pwd -P) || fail_closed "root could not be resolved"
+# The spec home is judged at <root>, never at an inherited repository.
+spec_home=$(cd "$root_abs" && PLANWRIGHT_REPO_ROOT='' /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null) \
+  || fail_closed "the spec home does not resolve"
+spec_rel=""
+if [ -d "$spec_home" ]; then
+  spec_abs=$(cd "$spec_home" && pwd -P) || fail_closed "the spec home could not be resolved"
+  case $spec_abs in
+    "$root_abs"/*) spec_rel=${spec_abs#"$root_abs"/} ;;
+  esac
+fi
+
+set -- doctrine skills docs
+[ -z "$spec_rel" ] || set -- "$@" "$spec_rel"
+git -C "$root" ls-files -z -- "$@" >"$work/tracked" 2>/dev/null \
   || fail_closed "git ls-files failed"
 
 nuls=$(tr -cd '\000' <"$work/tracked" | wc -c) || fail_closed "the file list could not be read"
@@ -119,9 +134,14 @@ lines=$(tr '\000' '\n' <"$work/tracked" | wc -l) || fail_closed "the file list c
 
 # A bundle is in scope only at Draft; the status is read once per bundle.
 tr '\0' '\n' <"$work/tracked" >"$work/names" || fail_closed "the file list could not be read"
-awk '
-  /\.md$/ && /^(doctrine|skills|docs|specs\/_pending)\// { print; next }
-  /\.md$/ && /^specs\/[^_\/][^\/]*\// { b = $0; sub(/^specs\//, "", b); sub(/\/.*/, "", b); print "B\t" b "\t" $0 }
+awk -v sp="$spec_rel/" '
+  !/\.md$/ { next }
+  /^(doctrine|skills|docs)\// { print; next }
+  sp != "/" && substr($0, 1, length(sp)) == sp {
+    rest = substr($0, length(sp) + 1)
+    if (rest ~ /^_pending\//) { print; next }
+    if (rest ~ /^[^_\/][^\/]*\//) { b = rest; sub(/\/.*/, "", b); print "B\t" b "\t" $0 }
+  }
 ' <"$work/names" >"$work/candidates" || fail_closed "the file list could not be built"
 
 : >"$work/list"
@@ -133,7 +153,7 @@ while IFS= read -r line; do
       f=${rest#*	}
       if [ "$b" != "${seen_bundle-}" ]; then
         seen_bundle=$b
-        req=$root/specs/$b/requirements.md
+        req=$root/$spec_rel/$b/requirements.md
         status=""
         [ ! -L "$req" ] || fail_closed "a bundle's requirements.md is a symlink, refusing to follow it"
         if [ -e "$req" ]; then
@@ -142,8 +162,8 @@ while IFS= read -r line; do
         else
           # Absent requirements.md: a sibling at Draft keeps the bundle in scope.
           for sib in design.md tasks.md test-spec.md; do
-            grep -Fqx "specs/$b/$sib" "$work/names" || continue
-            sib=$root/specs/$b/$sib
+            grep -Fqx "$spec_rel/$b/$sib" "$work/names" || continue
+            sib=$root/$spec_rel/$b/$sib
             [ -e "$sib" ] || [ -L "$sib" ] || continue
             [ ! -L "$sib" ] || fail_closed "a bundle's status file is a symlink, refusing to follow it"
             s_status=$(spec_parse_header_value "$sib" Status 2>/dev/null) \
