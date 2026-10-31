@@ -210,7 +210,7 @@ now_iso() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 now_epoch() { date -u '+%s'; }
 mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
 ensure_scratch() {
-  [ -n "$scratch" ] || scratch=$(mktemp -d) || refuse "cannot create a scratch directory"
+  [ -n "$scratch" ] || scratch=$(mktemp -d "${TMPDIR:-/tmp}/mc-kb.XXXXXX") || refuse "cannot create a scratch directory"
 }
 
 # int_knob <key>: set KNOB to a positive integer knob through config-get.sh

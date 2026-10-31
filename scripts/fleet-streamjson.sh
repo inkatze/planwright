@@ -1549,7 +1549,7 @@ guard_preflight() {
     [ "$gp_mode" = warn ] && return 0
     return 9
   fi
-  gp_tmp=$(mktemp) || {
+  gp_tmp=$(mktemp "${TMPDIR:-/tmp}/fleet-streamjson.XXXXXX") || {
     printf '%s\n' "$me: launch preflight: cannot create a temp file for the proof record (TMPDIR=${TMPDIR:-/tmp})" >&2
     [ "$gp_mode" = warn ] && return 0
     return 2

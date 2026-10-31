@@ -496,7 +496,7 @@ cmd_status() {
   spath=$(printf '%s\n' "$r" | cut -f2)
   is_bundle "$spath" || die 2 "the bundle registered for $1 is no longer readable"
   printf 'venture\t%s\n' "$1"
-  serr=$(mktemp) || die 2 "cannot create a temporary file"
+  serr=$(mktemp "${TMPDIR:-/tmp}/inception-registry.XXXXXX") || die 2 "cannot create a temporary file"
   src=0
   render_status "$spath" 2>"$serr" || src=$?
   if [ "$src" -ne 0 ]; then

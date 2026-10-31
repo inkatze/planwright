@@ -136,7 +136,7 @@ case "$layer" in
     # the three overlay roots. PLANWRIGHT_REPO_ROOT=none leaves repo-tracked
     # and derived machine-local both absent; a guaranteed-absent adopter path
     # under a scratch dir blanks the adopter layer.
-    scratch=$(mktemp -d) || {
+    scratch=$(mktemp -d "${TMPDIR:-/tmp}/resolve-dispatch-isolation.XXXXXX") || {
       echo "resolve-dispatch-isolation: could not create a scratch dir to read the core default" >&2
       exit 5
     }

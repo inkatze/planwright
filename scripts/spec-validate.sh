@@ -261,7 +261,7 @@ if [ ! -d "$target" ]; then
   exit 2
 fi
 
-gtmp=$(mktemp -d)
+gtmp=$(mktemp -d "${TMPDIR:-/tmp}/spec-validate.XXXXXX")
 trap 'rm -rf "$gtmp"' EXIT
 
 err=0

@@ -225,7 +225,7 @@ read_map() {
 # defaults fails, and so does a read config-get.sh itself fails. validate
 # sets STRICT, failing on any invalid value so a degrade hides nothing.
 STRICT=0
-scratch_err=$(mktemp) || exit 2
+scratch_err=$(mktemp "${TMPDIR:-/tmp}/mc-program.XXXXXX") || exit 2
 trap 'rm -f "$scratch_err"' EXIT
 
 # layered <name> <field> <key> <parser>: the value of <key>, parsed by

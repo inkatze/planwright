@@ -45,7 +45,7 @@ fi
 
 # Default cwd for containment: a scratch repo with a .git marker and a
 # scripts/ + tests/ dir so in-repo script/bats paths resolve inside it.
-SANDBOX="$(mktemp -d)" || exit 1
+SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/worker-command-guard-harness.XXXXXX")" || exit 1
 trap 'rm -rf "$SANDBOX"' EXIT
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/.git" # worktree-style .git file marker

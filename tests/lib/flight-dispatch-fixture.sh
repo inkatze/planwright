@@ -39,7 +39,7 @@ fail() {
   exit 1
 }
 
-tmp=$(mktemp -d)
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/flight-dispatch-fixture.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 tmp=$(cd "$tmp" && pwd -P)
 

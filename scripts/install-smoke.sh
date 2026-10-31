@@ -81,7 +81,7 @@ if [ -z "$src" ]; then
 fi
 [ -f "$src/scripts/install.sh" ] || die 2 "no scripts/install.sh under $src"
 
-work=$(mktemp -d) || die 1 "mktemp failed"
+work=$(mktemp -d "${TMPDIR:-/tmp}/install-smoke.XXXXXX") || die 1 "mktemp failed"
 trap 'rm -rf "$work"' EXIT
 trap 'exit 1' HUP INT TERM
 

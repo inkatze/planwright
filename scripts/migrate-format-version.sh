@@ -153,7 +153,7 @@ if [ ! -d "$target" ]; then
 fi
 
 today=$(date +%Y-%m-%d)
-gtmp=$(mktemp -d) || {
+gtmp=$(mktemp -d "${TMPDIR:-/tmp}/migrate-format-version.XXXXXX") || {
   echo "migrate-format-version: mktemp failed (cannot allocate a work dir)" >&2
   exit 2
 }

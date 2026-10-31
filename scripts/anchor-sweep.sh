@@ -167,7 +167,7 @@ sweep_bundle() {
   fi
 }
 
-gtmp=$(mktemp -d) || exit 2
+gtmp=$(mktemp -d "${TMPDIR:-/tmp}/anchor-sweep.XXXXXX") || exit 2
 trap 'rm -rf "$gtmp"' EXIT
 
 is_bundle() {

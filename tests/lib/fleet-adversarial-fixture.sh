@@ -31,7 +31,7 @@ fail() {
 
 command -v jq >/dev/null 2>&1 || fail "jq is required: the stream-json launch preflight runs the auto-approve hook"
 
-tmp=$(cd "$(mktemp -d)" && pwd -P)
+tmp=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/fleet-adversarial-fixture.XXXXXX")" && pwd -P)
 adv_cleanup() {
   set +e
   for p in $(jobs -p); do

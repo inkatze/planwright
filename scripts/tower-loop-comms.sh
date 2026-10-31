@@ -357,7 +357,7 @@ q_noev() {
 # A scratch dir for the hand-over's own records. The `while read` below cannot
 # consume a pipe: the loop body has to set variables the step still reads after
 # it, and a piped `while` runs in a subshell in every shell this targets.
-TMPDIR_STEP=$(mktemp -d 2>/dev/null) || {
+TMPDIR_STEP=$(mktemp -d "${TMPDIR:-/tmp}/tower-loop-comms.XXXXXX" 2>/dev/null) || {
   err "cannot create a scratch directory"
   exit 6
 }

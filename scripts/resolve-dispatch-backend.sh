@@ -254,7 +254,7 @@ read_key() {
 # (the resolve-config-knob.sh degrade target). Prints the value; exit 3 when
 # core omits the key, other non-zero on a broken install.
 core_value() {
-  cv_scratch=$(mktemp -d) || return 5
+  cv_scratch=$(mktemp -d "${TMPDIR:-/tmp}/resolve-dispatch-backend.XXXXXX") || return 5
   cv_rc=0
   cv_val=$(
     PLANWRIGHT_ADOPTER_OVERLAY="$cv_scratch/no-adopter" \

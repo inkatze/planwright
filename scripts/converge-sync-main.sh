@@ -338,8 +338,8 @@ EOF
   merged_entries "$resolve_state" | cmp -s - "$resolve_state.index" \
     || die 11 resolution-refused "the index changes paths outside the conflicted ones, which a resolution commit may not carry; unstage those changes (they belong in their own commit after the merge), and a directory/file conflict whose resolution moves a path elsewhere needs a human under halt"
   shown=$(path_list "$names")
-  msg=$(mktemp) || die 12 resolution-failed "a scratch file could not be created"
-  stamped=$(mktemp) || {
+  msg=$(mktemp "${TMPDIR:-/tmp}/converge-sync-main.XXXXXX") || die 12 resolution-failed "a scratch file could not be created"
+  stamped=$(mktemp "${TMPDIR:-/tmp}/converge-sync-main.XXXXXX") || {
     rm -f "$msg"
     die 12 resolution-failed "a scratch file could not be created"
   }
