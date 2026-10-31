@@ -46,8 +46,9 @@ Rules, each reported as file:line: rule:
                        tr, cat, wc, fold, column, nl, paste; not an awk program
                        calling exit, nor sort -c): the filter's status, not the
                        command under test. A read after the file enables
-                       pipefail (a set naming -o pipefail) is exempt; a set
-                       naming +o pipefail ends the exemption.
+                       pipefail (an unindented set naming -o pipefail that
+                       opens its statement) is exempt; a set naming
+                       +o pipefail anywhere ends the exemption.
   masked-status        a status read after a command ending in `|| true` or
                        `|| :`, or an if/elif/while condition ending in one.
   self-comparison      a [ ], [[ ]] or test comparison of an operand to itself,
@@ -313,7 +314,9 @@ function statement(s, line,   segs, n, i, prev, seg, tgt, nm, v) {
   for (i = 1; i <= n; i++) {
     seg = segs[i]
     if (seg ~ /^[ \t]*$/) continue
-    if (seg ~ /(^|[ \t])set[ \t][^|&]*-[A-Za-z]*o[ \t]+pipefail/) pipefail = 1
+    # Only an unindented set opening its statement reaches the rest of the
+    # file; one inside a function, subshell or block may be scoped to it.
+    if (i == 1 && seg ~ /^ ?set[ \t][^|&]*-[A-Za-z]*o[ \t]+pipefail/) pipefail = 1
     if (seg ~ /(^|[ \t])set[ \t][^|&]*\+[A-Za-z]*o[ \t]+pipefail/) pipefail = 0
     S[++ns] = seg; SL[ns] = line
     if (match(seg, /^[ \t]*((readonly|export|local)[ \t]+)?[A-Za-z_][A-Za-z0-9_]*="?-?[0-9]+"?[ \t]*$/)) {

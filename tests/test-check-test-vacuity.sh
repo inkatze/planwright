@@ -245,6 +245,12 @@ expect_shape escaped-dollar-quote self-comparison \
   "echo \\\$'a' b" '[ x = x ] && pass "equal"'
 expect_shape pipefail-elsewhere piped-status \
   'set -e && grep -o pipefail log' 'run | tail -n 5' 'rc=$?' 'assert "it ran" 0 "$rc"'
+expect_shape pipefail-in-subshell piped-status \
+  '(' '  set -o pipefail' '  other | wc -l' ')' 'run | tail -n 5' 'rc=$?' 'assert "it ran" 0 "$rc"'
+expect_shape pipefail-in-oneline-subshell piped-status \
+  '( set -o pipefail; other | wc -l )' 'run | tail -n 5' 'rc=$?' 'assert "it ran" 0 "$rc"'
+expect_shape pipefail-in-function piped-status \
+  'f() {' '  set -o pipefail' '}' 'run | tail -n 5' 'rc=$?' 'assert "it ran" 0 "$rc"'
 
 # Round-four shapes.
 expect_shape classes-around-pipe piped-status \
