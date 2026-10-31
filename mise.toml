@@ -172,6 +172,10 @@ run = "/bin/bash scripts/check-ledger.sh"
 description = "anchor-freshness guard over every non-Draft, non-terminal bundle: the brief's most recent anchor entry parses, uses a sanctioned command form, and recomputes equal; an edit to anchored content since the baseline carries a dated Changelog entry (anchor-integrity Task 4, REQ-D1.1, REQ-D1.2, REQ-D1.4, D-6)"
 run = "/bin/sh scripts/check-anchor-freshness.sh"
 
+[tasks."check:platform-claims"]
+description = "platform-claims register guard: every entry in docs/platform-claims.md is well formed and names a file that still exists; a claim past its re-verify date is listed without failing (the release checklist runs the --strict form, which fails on it)"
+run = "/bin/sh scripts/check-platform-claims.sh"
+
 [tasks."check:obs"]
 description = "observation fragment store guard: filename grammar, one-entry shape, UID uniqueness, no stray files (REQ-D1.4, REQ-A1.2, REQ-A1.3, REQ-A1.4); then the miss-ledger grammar over every review-miss fragment (review-effectiveness REQ-E1.5)"
 run = ["/bin/bash scripts/check-obs.sh", "/bin/sh scripts/check-review-miss.sh"]
@@ -366,6 +370,7 @@ depends = [
   "check:ledger",
   "check:anchor-freshness",
   "check:obs",
+  "check:platform-claims",
   "check:instructions",
   "check:comment-budget",
   "check:no-ci-evals",

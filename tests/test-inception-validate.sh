@@ -520,6 +520,12 @@ sed_i "$b/brief.md" 's|^Tracks: capture=Recycle, measure=Recycle$|Tracks: captur
 sed_i "$b/brief.md" 's|^\*\*Status:\*\* Exploring$|**Status:** Graduated|'
 expect "top-level Graduate leaves a live track" GATE-GRADUATE-LIVE-TRACK 1 "$b"
 
+b="$(fresh tracked)"
+sed_i "$b/brief.md" 's|^Outcome: Recycle$|Outcome: Kill|'
+sed_i "$b/brief.md" 's|^Tracks: capture=Recycle, measure=Recycle$|Tracks: capture=Kill, measure=Recycle|'
+sed_i "$b/brief.md" 's|^\*\*Status:\*\* Exploring$|**Status:** Killed|'
+expect "top-level Kill leaves a live track" GATE-KILL-LIVE-TRACK 1 "$b"
+
 b="$(fresh)"
 sed_i "$b/brief.md" 's|^Outcome: Recycle$|Outcome: Graduate|'
 sed_i "$b/brief.md" 's|^Thresholds: A-1 open, A-2 open$|Thresholds: A-1 pass, A-2 pass|'

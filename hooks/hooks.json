@@ -123,6 +123,26 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/work-repo-registry.sh hook session-start",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/work-repo-registry.sh hook session-start",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
