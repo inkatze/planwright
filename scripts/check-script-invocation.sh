@@ -38,7 +38,8 @@
 # shebanged script, no instruction file, a file it cannot read, and a symbolic
 # link or a name containing a newline under scripts/, skills/, or doctrine/
 # (the lists below are newline-separated, so such a name could forge an entry,
-# and a link's target would go unscanned).
+# and a link's target would go unscanned); and a command substitution nested
+# deeper than the scan follows.
 #
 # Untrusted input: the scanned files and their names are PR-controllable.
 # awk reads them as data and takes every path through ENVIRON or a list file,
@@ -222,7 +223,12 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
   # an optional <value> or a|b value, <placeholders>, [optional] groups,
   # (required choices), alternatives joined by |, a ... repeat, and a --
   # separator. 0 when the grammar cannot read it.
-  function parse_form(key, s,    tk, nt, i, t, d, prevk, alt, np, parts, j, allf, allw, fl, val, ph, gt, gr, gi, gf, gm, gp, gs, lastp, seenpos, kind) {
+  # Per open group at depth d: gtype its bracket; greq whether it is a
+  # required choice the check enforces; gslot its RF entry; gfresh whether its
+  # current alternative has no member yet; gmet whether some alternative is met
+  # without a flag; gpos whether it holds a positional; glent whether it lends its
+  # flags to the enclosing choice.
+  function parse_form(key, s,    tk, nt, i, t, d, prevk, alt, np, parts, j, allf, allw, fl, val, ph, gtype, greq, gslot, gfresh, gmet, gpos, glent, lastp, seenpos, kind) {
     while (match(s, /<[^<> \t][^<>]* [^<>]*[^<> \t]>/)) {
       ph = substr(s, RSTART, RLENGTH)
       gsub(/[ \t]+/, "_", ph)
@@ -242,7 +248,7 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     PU[key] = 0
     DD[key] = 0
     d = 0
-    gr[0] = 1
+    greq[0] = 1
     prevk = ""
     alt = 0
     lastp = 0
@@ -253,37 +259,37 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       if (t == "") continue
       if (t == "[" || t == "(") {
         d++
-        gt[d] = t
-        gr[d] = t == "(" && gr[d - 1]
-        gp[d] = 0
-        gm[d] = 0
-        gf[d] = 1
-        gs[d] = 0
-        if (gr[d] && d > 1 && gr[d - 1] && gf[d - 1]) {
+        gtype[d] = t
+        greq[d] = t == "(" && greq[d - 1]
+        gpos[d] = 0
+        gmet[d] = 0
+        gfresh[d] = 1
+        glent[d] = 0
+        if (greq[d] && d > 1 && greq[d - 1] && gfresh[d - 1]) {
           # A choice opening an alternative of a choice lends it its flags.
-          gi[d] = gi[d - 1]
-          gs[d] = 1
-          gf[d - 1] = 0
-        } else if (gr[d] && d > 1) {
+          gslot[d] = gslot[d - 1]
+          glent[d] = 1
+          gfresh[d - 1] = 0
+        } else if (greq[d] && d > 1) {
           # Required only under the alternative it sits in: not checked.
-          gr[d] = 0
-        } else if (gr[d]) {
-          gi[d] = ++nRF[key]
-          RF[key, gi[d]] = "|"
+          greq[d] = 0
+        } else if (greq[d]) {
+          gslot[d] = ++nRF[key]
+          RF[key, gslot[d]] = "|"
         }
         prevk = ""
         alt = 0
         continue
       }
       if (t == "]" || t == ")") {
-        if (d < 1 || (t == "]") != (gt[d] == "[")) return 0
+        if (d < 1 || (t == "]") != (gtype[d] == "[")) return 0
         # An alternative holding nothing required meets the choice by itself.
-        if (gr[d] && gf[d]) gm[d] = 1
-        if (gs[d]) {
-          if (gm[d]) gm[d - 1] = 1
-        } else if (gr[d] && (gm[d] || RF[key, gi[d]] == "|")) RF[key, gi[d]] = ""
-        lastp = gp[d]
-        if (gp[d]) gp[d - 1] = 1
+        if (greq[d] && gfresh[d]) gmet[d] = 1
+        if (glent[d]) {
+          if (gmet[d]) gmet[d - 1] = 1
+        } else if (greq[d] && (gmet[d] || RF[key, gslot[d]] == "|")) RF[key, gslot[d]] = ""
+        lastp = gpos[d]
+        if (gpos[d]) gpos[d - 1] = 1
         d--
         prevk = "grp"
         alt = 0
@@ -291,9 +297,9 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       }
       if (t == "|") {
         if (prevk == "") return 0
-        if (d && gr[d]) {
-          if (gf[d]) gm[d] = 1
-          gf[d] = 1
+        if (d && greq[d]) {
+          if (gfresh[d]) gmet[d] = 1
+          gfresh[d] = 1
         }
         alt = 1
         continue
@@ -320,22 +326,22 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       else return 0
       # A choice between kinds is written inside ( ), never bare.
       if (!d && alt && prevk != kind) return 0
-      if (d && gr[d] && gf[d]) {
+      if (d && greq[d] && gfresh[d]) {
         if (kind == "flag") {
           for (j = 1; j <= np; j++) {
             fl = parts[j]
             sub(/=.*/, "", fl)
-            RF[key, gi[d]] = RF[key, gi[d]] fl "|"
+            RF[key, gslot[d]] = RF[key, gslot[d]] fl "|"
           }
-        } else gm[d] = 1
-        gf[d] = 0
+        } else gmet[d] = 1
+        gfresh[d] = 0
       }
       if (kind == "pos") {
         if (!(alt && prevk == "pos")) {
           if (d) PO[key]++
           else PN[key, ++P[key]] = t
         }
-        for (j = d; j > 0; j--) gp[j] = 1
+        for (j = d; j > 0; j--) gpos[j] = 1
         seenpos = 1
       } else if (kind == "flag") {
         val = 0
@@ -496,12 +502,38 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     }
     return 0
   }
+  # Queue a command substitution body for its own scan, one level below the
+  # text it sits in. Each level re-reads the text nested inside it, so a deep
+  # nest costs time quadratic in its length: past a depth no instruction
+  # needs, the scan stops instead of stalling.
+  function enq(b) {
+    if (NOQ) return
+    if (QDEP >= 8) fatal(rel ":" FNR ": a command substitution nested more than 8 deep")
+    QT[++NQ] = b
+    QD[NQ] = QDEP + 1
+  }
+  # The index of the last character of the $( ) or ` ` substitution starting
+  # at s[k], its body queued, else 0. An unmatched $( or ` closes nothing later
+  # on the line either, so it is looked for once.
+  function subst(s, k,    e) {
+    if (substr(s, k, 2) == "$(") {
+      if (NOCL) return 0
+      if ((e = close_paren(s, k + 2))) { enq(substr(s, k + 2, e - k - 2)); return e }
+      NOCL = 1
+    } else if (substr(s, k, 1) == "`") {
+      if (NOBT) return 0
+      if ((e = index(substr(s, k + 1), "`"))) { enq(substr(s, k + 1, e - 1)); return k + e }
+      NOBT = 1
+    }
+    return 0
+  }
   # Shell words and operators of s into TK/TY[1..NT]; quotes are removed, a
-  # $( ) stays in its word and its body is queued for its own scan.
-  function tokenize(s,    L, i, c, w, inw, j, e, op, nocl, nobt) {
+  # $( ) stays in its word and, unless noq, its body is queued for its own scan.
+  function tokenize(s, noq,    L, i, c, w, inw, j, e, op) {
     NT = 0
-    nocl = 0
-    nobt = 0
+    NOQ = noq
+    NOCL = 0
+    NOBT = 0
     w = ""
     inw = 0
     L = length(s)
@@ -520,25 +552,10 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
           c = substr(s, j, 1)
           if (c == "\\") { w = w substr(s, j + 1, 1); j++; continue }
           if (c == "\042") break
-          # An unmatched $( or ` closes nothing later on the line either, so
-          # it is looked for once.
-          if (c == "$" && substr(s, j + 1, 1) == "(" && !nocl) {
-            if ((e = close_paren(s, j + 2))) {
-              QT[++NQ] = substr(s, j + 2, e - j - 2)
-              w = w substr(s, j, e - j + 1)
-              j = e
-              continue
-            }
-            nocl = 1
-          }
-          if (c == "`" && !nobt) {
-            if ((e = index(substr(s, j + 1), "`"))) {
-              QT[++NQ] = substr(s, j + 1, e - 1)
-              w = w substr(s, j, e + 1)
-              j += e
-              continue
-            }
-            nobt = 1
+          if ((c == "$" || c == "`") && (e = subst(s, j))) {
+            w = w substr(s, j, e - j + 1)
+            j = e
+            continue
           }
           w = w c
         }
@@ -546,25 +563,11 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         inw = 1
         continue
       }
-      if (c == "$" && substr(s, i + 1, 1) == "(" && !nocl) {
-        if ((e = close_paren(s, i + 2))) {
-          QT[++NQ] = substr(s, i + 2, e - i - 2)
-          w = w substr(s, i, e - i + 1)
-          i = e
-          inw = 1
-          continue
-        }
-        nocl = 1
-      }
-      if (c == "`" && !nobt) {
-        if ((e = index(substr(s, i + 1), "`"))) {
-          QT[++NQ] = substr(s, i + 1, e - 1)
-          w = w substr(s, i, e + 1)
-          i += e
-          inw = 1
-          continue
-        }
-        nobt = 1
+      if ((c == "$" || c == "`") && (e = subst(s, i))) {
+        w = w substr(s, i, e - i + 1)
+        i = e
+        inw = 1
+        continue
       }
       # A placeholder may hold blanks, but not end on a redirection (<in 2>).
       if (c == "<" && ((match(substr(s, i), /^<[A-Za-z0-9_][^<>\t`]*[^<> \t`]>/) && substr(s, i, RLENGTH) !~ /[ \t][0-9&]*>$/) || match(substr(s, i), /^<[A-Za-z0-9_][^<> \t`]*>/))) {
@@ -650,26 +653,32 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     }
   }
   # The delimiters of the heredocs a command line opens, from its unquoted
-  # words, in order, each ended by SUBSEP: the bodies follow one another.
-  function heredoc(s,    i, d, q) {
-    tokenize(s)
+  # words, in order, each ended by SUBSEP: the bodies follow one another. Each
+  # is marked - when a <<- lets its closing line be tab-indented, else =.
+  function heredoc(s,    i, d, q, m) {
+    tokenize(s, 1)
     q = ""
     for (i = 1; i <= NT; i++) {
       if (TY[i] != "w") continue
       d = ""
+      m = TK[i] ~ /^[0-9]*<<-/ ? "-" : "="
       if (TK[i] ~ /^[0-9]*<<-?$/ && i < NT && TY[i + 1] == "w") d = TK[++i]
       else if (TK[i] ~ /^[0-9]*<<-?[^<-]/) { d = TK[i]; sub(/^[0-9]*<<-?/, "", d) }
       else continue
       # The delimiter is a word; a redirection may follow it unspaced.
       sub(/[<>].*/, "", d)
-      if (d != "") q = q d SUBSEP
+      if (d != "") q = q m d SUBSEP
     }
     return q
   }
   function scan(s, ln, fenced,    q) {
     NQ = 0
+    QDEP = 0
     scan_cmds(s, ln, fenced)
-    for (q = 1; q <= NQ; q++) scan_cmds(QT[q], ln, 1)
+    for (q = 1; q <= NQ; q++) {
+      QDEP = QD[q]
+      scan_cmds(QT[q], ln, 1)
+    }
   }
   # The code spans of s from pos, reported at line ln; an opener without a
   # closer on the line leaves a span open for the next line of its block.
@@ -760,8 +769,21 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     close(list)
     if (!ndocs) fatal("no .md file under skills/ or doctrine/ in " root)
   }
+  # A fenced line as the shell reads it: past any quote markers and the
+  # indentation the fence itself sits at.
+  function fbody(l,    k) {
+    if (fquote) sub(/^[ \t]*(>[ \t]?)+/, "", l)
+    for (k = 0; k < fin && l ~ /^[ \t]/; k++) l = substr(l, 2)
+    return l
+  }
+  # A file ending inside a fence may leave a continued command pending.
+  function flush_file() {
+    flush_spans()
+    if (fcont != "") scan(fcont, fline, 1)
+    fcont = ""
+  }
   FNR == 1 {
-    if (NR > 1) flush_spans()
+    if (NR > 1) flush_file()
     rel = substr(FILENAME, length(root) + 1)
     infence = 0
     pend = ""
@@ -851,8 +873,11 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         fcont = ""
         hdoc = ""
       } else if (hdoc != "") {
-        if (fquote) sub(/^(>[ \t]*)+/, "", t)
-        if (t SUBSEP == substr(hdoc, 1, length(t) + 1)) hdoc = substr(hdoc, length(t) + 2)
+        # Only a <<- body may indent its closing line, and only with tabs.
+        hb = fbody(line)
+        hk = index(hdoc, SUBSEP)
+        if (substr(hdoc, 1, 1) == "-") sub(/^\t+/, "", hb)
+        if (hb == substr(hdoc, 2, hk - 2)) hdoc = substr(hdoc, hk + 1)
       } else {
         if (fquote) sub(/^(>[ \t]*)+/, "", t)
         if (fcont == "") fline = FNR
@@ -870,6 +895,8 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       infence = 1
       fmark = substr(ft, 1, RLENGTH)
       fquote = t ~ /^>/
+      fin = 0
+      fin = index(fbody(line), fmark) - 1
       fcont = ""
       hdoc = ""
     } else if (t == "") flush_spans()
@@ -882,7 +909,7 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
   }
   END {
     if (failed) exit 2
-    flush_spans()
+    flush_file()
     print ndocs + 0, nbash + 0, ninv + 0 > ENVIRON["CSI_SUMMARY"]
     exit found ? 1 : 0
   }

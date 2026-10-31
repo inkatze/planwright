@@ -461,6 +461,24 @@ usage_fails 4 "unknown subcommand 'lst'" '```sh' "cat <<'@@'" 'scripts/feat-tool
 usage_fails 4 "unknown subcommand 'lst'" '```sh' 'cat <<"END 1"' 'data' 'END 1' 'scripts/feat-tool.sh lst' '```'
 usage_fails 0 "unknown subcommand 'lst'" 'Run `echo $(printf \") "$(scripts/feat-tool.sh lst)"` here.'
 usage_fails 0 "missing required flag --x|-c|--cee" 'Run `scripts/feat-tool.sh three`.'
+# A plain << closes only on its delimiter unindented past the fence's own
+# indentation; a <<- closing line may be tab-indented.
+uvariant up '```sh' 'cat <<EOF' '  EOF' 'scripts/feat-tool.sh lst is data' 'EOF' 'scripts/feat-tool.sh peek 1' '```'
+out="$("$CHECKER" --repo-root "$tmp/up" 2>&1)"
+assert "an indented delimiter does not close a plain heredoc" 0 $?
+rm -rf "$tmp/up"
+usage_fails 4 "unknown subcommand 'lst'" '```sh' 'cat <<-EOF' 'scripts/feat-tool.sh lst is data' "${tab}EOF" 'scripts/feat-tool.sh lst' '```'
+usage_fails 4 "unknown subcommand 'lst'" '- ```sh' '  cat <<EOF' '  scripts/feat-tool.sh lst is data' '  EOF' '  scripts/feat-tool.sh lst' '  ```'
+# A file ending inside a fence still checks its last continued command.
+usage_fails 1 "unknown subcommand 'lst'" '```sh' "scripts/feat-tool.sh lst \\"
+# A deep nest of command substitutions stops the scan rather than stall it.
+nest8='$($($($($($($($(scripts/feat-tool.sh lst))))))))'
+usage_fails 0 "unknown subcommand 'lst'" "Run \`echo $nest8\` here."
+uvariant up "Run \`echo \$($nest8)\` here."
+out="$("$CHECKER" --repo-root "$tmp/up" 2>&1)"
+assert "a nest past the depth limit fails closed" 2 $?
+assert_contains "the depth limit is named" "$out" "nested more than 8 deep"
+rm -rf "$tmp/up"
 # Wrapper and launcher options that take a value.
 for form in \
   'Run `env -u FOO scripts/feat-tool.sh lst`.' \
