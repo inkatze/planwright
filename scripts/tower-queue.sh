@@ -3139,10 +3139,10 @@ function window_pass(   n, w, perm, rsv) {
       # Handed over again for review, by whichever tower asks next.
       F[n, 19] = "-"; F[n, 20] = 0; F[n, 14] = 0; F[n, 13] = 0
       changed = 1
-      print "window\t" clean(F[n, 1]) "\tdefault\t" clean(F[n, 28]) "\t" F[n, 29] "\t" F[n, 22]
+      print "window\t" clean(F[n, 1]) "\tdefault\t" clean(F[n, 28]) "\t" F[n, 29] "\t" F[n, 22] "\t" clean(F[n, 8])
     } else if (F[n, 28] == "park" || F[n, 30] != "none" || perm || rsv) {
       F[n, 31] = 1; changed = 1
-      print "window\t" clean(F[n, 1]) "\tpark\t-\t" F[n, 29] "\t-"
+      print "window\t" clean(F[n, 1]) "\tpark\t-\t" F[n, 29] "\t-\t" clean(F[n, 8])
     }
   }
 }
@@ -3729,13 +3729,13 @@ rebuild_if_absent() {
           bkind[i] = F["item_kind"]; burg[i] = F["urgency"]; borig[i] = F["origin"]; bts[i] = F["ts"] + 0
           bhome[i] = F["home"]; bptr[i] = F["pointer"]; binst[i] = F["instance"]; broot[i] = F["root"]; bpark[i] = F["park"]; bcl[i] = F["closes"]
           bsub[i] = fv("subject"); btopic[i] = fv("topic"); bgr[i] = fv("grounds"); brev[i] = fv("reversal"); bgate[i] = fv("gate")
-          delete popts[it]; delete pend[it]; delete pwe[it]; delete pgate[it]; delete wend[it]; delete waway[it]
+          delete popts[it]; delete pend[it]; delete pwe[it]; delete pgate[it]; delete wend[it]; delete waway[it]; delete winst[it]
         } else if (k == "picklist") {
           popts[it] = fv("options"); pend[it] = fv("end"); pwe[it] = fv("window_end"); pgate[it] = fv("gate")
-        } else if (k == "window") { wend[it] = fv("end"); waway[it] = fv("away") }
+        } else if (k == "window") { wend[it] = fv("end"); waway[it] = fv("away"); winst[it] = fv("instance") }
         else if (k == "revoked") {
           if (fv("item_kind") == "decided-by-mission-control") closed[it] = 1
-          else { delete pend[it]; delete pwe[it]; delete pgate[it]; delete wend[it] }
+          else { delete pend[it]; delete pwe[it]; delete pgate[it]; delete wend[it]; delete winst[it] }
         } else if (k == "acknowledged" || k == "settled" || k == "merged" || k == "reviewed") closed[it] = 1
         else if (k == "dropped" && ("reason" in F) && F["reason"] == "rebuild") closed[it] = 1
       }
@@ -3756,13 +3756,16 @@ rebuild_if_absent() {
           rs = "the window ended on its default: " pe " (window end " pw ")"
         } else { pe = "-"; pw = "0"; pg = "-" }
       }
-      tail = po "\t" pe "\t" pw "\t" pg "\t" pp "\t" nz(btopic[i]) "\t" nz(bgr[i]) "\t" rv "\t" st "\t" rs "\t" aw "\t" nz(binst[i])
+      tail = po "\t" pe "\t" pw "\t" pg "\t" pp "\t" nz(btopic[i]) "\t" nz(bgr[i]) "\t" rv "\t" st "\t" rs "\t" aw "\t" nz(binst[i]) "\t" nz(winst[it])
       if (bhome[i] == "attention") {
         w = bptr[i]
         ii = (w in at_iid && at_iid[w] != "") ? at_iid[w] : "-"
         if (kn == "settled-by-default") {
-          # A row asked again since the default is a new question too.
-          if (ii == nz(binst[i])) covered[w] = 1
+          # The default covers the row only while it still holds the
+          # instance the default answered; one asked again since is a new
+          # question. A window line from before the instance was logged
+          # falls back to the born instance.
+          if (ii == ((winst[it] != "") ? winst[it] : nz(binst[i]))) covered[w] = 1
           print "cand\t" kn "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" ii "\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" tail
         } else if (kn == "question" && (w in at_state) && at_state[w] == "awaiting-input") {
           covered[w] = 1
@@ -3776,7 +3779,7 @@ rebuild_if_absent() {
           if (!(w in at_state)) why = "its attention row is gone (found when the store was rebuilt)"
           else { s = at_state[w]; gsub(/[^a-z0-9-]/, "", s); why = "its attention row moved on (" s ") while the store was lost" }
           inst = (kn == "news") ? nz(binst[i]) : ii
-          print "gone\t" kn "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" inst "\t-\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" po "\t-\t0\t-\t0\t" nz(btopic[i]) "\t-\t-\t0\t" why "\t0\t" nz(binst[i])
+          print "gone\t" kn "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" inst "\t-\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" po "\t-\t0\t-\t0\t" nz(btopic[i]) "\t-\t-\t0\t" why "\t0\t" nz(binst[i]) "\t-"
         } else print "drop\t" it
       } else if (bhome[i] == "path") {
         print "path\t" nz(kn) "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tpath\t" nz(bptr[i]) "\t" nz(binst[i]) "\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i]) "\t" tail
@@ -3785,7 +3788,7 @@ rebuild_if_absent() {
     for (w in at_state) if (at_state[w] == "awaiting-input" && !(w in covered)) {
       ii = (at_iid[w] == "") ? "-" : at_iid[w]
       u = (at_prio[w] ~ /^(high|normal|low)$/) ? at_prio[w] : "normal"
-      print "cand\tquestion\t" u "\t" w "\t" at_ts[w] + 0 "\tattention\t" w "\t" ii "\t-\t-\t'"$QUESTION_CLOSES"'\t-\tworker:" w "\t-\t-\t0\t-\t0\t-\t-\t-\t0\t-\t0\t-"
+      print "cand\tquestion\t" u "\t" w "\t" at_ts[w] + 0 "\tattention\t" w "\t" ii "\t-\t-\t'"$QUESTION_CLOSES"'\t-\tworker:" w "\t-\t-\t0\t-\t0\t-\t-\t-\t0\t-\t0\t-\t-"
     }
     # Last, so a failure line stays the first one the shell checks.
     if (ledwarn) print "warn\tthe ledger would not read, so no settled-by-default item came back from it"
@@ -3799,7 +3802,7 @@ rebuild_if_absent() {
   fi
   : >"$SCRATCH/new"
   _seen=""
-  while IFS="$TAB" read -r _tag _k _u _o _b _h _p _i _r _pk _c _was _sub _po _pe _pw _pg _pp _tp _gr _rv _st _rs _aw _bi; do
+  while IFS="$TAB" read -r _tag _k _u _o _b _h _p _i _r _pk _c _was _sub _po _pe _pw _pg _pp _tp _gr _rv _st _rs _aw _bi _wn; do
     case "$_tag" in
       drop)
         printf '%s\n' "$_k" >>"$SCRATCH/dropped"
@@ -3842,8 +3845,13 @@ rebuild_if_absent() {
     # A default comes back only where one could have applied: the log is
     # anyone's to append to under this user, so it is not trusted to say so.
     if [ "$_k" = settled-by-default ]; then
+      # Judged against the row only while it still holds the instance the
+      # default applied to: a question asked there since is not the one the
+      # default answered (an older window line names no instance).
       _dw=-
-      [ "$_h" != attention ] || _dw=$_p
+      if [ "$_h" = attention ] && { [ -z "$_wn" ] || [ "$_wn" = - ] || [ "$_wn" = "$_i" ]; }; then
+        _dw=$_p
+      fi
       if ! default_admissible "$_dw" "$_po" "$_pe" "$_pg"; then
         _k=question
         _pe=-
@@ -4715,12 +4723,12 @@ pass_logs() {
     LOG_FAILED=6
     return 1
   }
-  while IFS="$TAB" read -r _tag _p1 _p2 _p3 _p4 _p5; do
+  while IFS="$TAB" read -r _tag _p1 _p2 _p3 _p4 _p5 _p6; do
     case "$_tag" in
       settled) owe_log settled --now "$now" item="$_p1" item_kind="$_p2" away="$_p3" reason="$_p4" held_by="${_p5:--}" ;;
       merged) owe_log merged --now "$now" item="$_p1" into="$_p2" item_kind="$_p3" ;;
       unavailable) owe_log unavailable --now "$now" source="$_p1" ;;
-      window) owe_log window --now "$now" item="$_p1" end="$_p2" option="$_p3" at="$_p4" away="${_p5:--}" ;;
+      window) owe_log window --now "$now" item="$_p1" end="$_p2" option="$_p3" at="$_p4" away="${_p5:--}" instance="${_p6:--}" ;;
     esac
   done <"$SCRATCH/passlog" || {
     err "cannot read back the pass's log lines; the settlements stand but the event log is incomplete"
