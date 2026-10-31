@@ -225,4 +225,26 @@ else
   echo "ok 11: skipped (root reads an unreadable file)"
 fi
 
+# --- 12. store shape: stray files, no archive/, two matches ---------------
+o=$(store s12)
+printf '%s\n' "- 2026-10-01 [planwright] $LIVE_TEXT" >"$o/entries/notes.md"
+printf '%s\n' "- 2026-10-01 [planwright] $LIVE_TEXT" >"$o/entries/2026-10-01-x-abcd0012.txt"
+printf '%s\n' "* 2026-10-01 [planwright] $LIVE_TEXT" >"$o/entries/2026-10-01-x-abcd0022.md"
+rec --obs-dir "$o" --slug n --scope planwright --text "$DUP_TEXT" >/dev/null \
+  || fail "12: a file outside the fragment grammar was read as a fragment"
+o=$(store s12b)
+rmdir "$o/archive"
+seed "$o" entries gate-lock abcd0032 planwright "$LIVE_TEXT"
+seed "$o" entries gate-lock abcd0042 planwright "$LIVE_TEXT"
+rc=0
+err=$(rec --obs-dir "$o" --slug n --scope planwright --text "$DUP_TEXT" 2>&1 >/dev/null) || rc=$?
+[ "$rc" -eq 1 ] || fail "12: a duplicate in a store with no archive/ expected exit 1, got $rc"
+case $err in
+  *obs:abcd0032*obs:abcd0042* | *obs:abcd0042*obs:abcd0032*) ;;
+  *) fail "12: the refusal does not name both matches: $err" ;;
+esac
+rec --obs-dir "$o" --slug n --scope planwright --recurrence abcd0042 --text "$DUP_TEXT" >/dev/null \
+  || fail "12: a recurrence of the second match was refused"
+echo "ok 12: only grammar-shaped fragments are read; no archive/ is fine; every match is named"
+
 echo "PASS: test-obs-record-duplicates.sh"
