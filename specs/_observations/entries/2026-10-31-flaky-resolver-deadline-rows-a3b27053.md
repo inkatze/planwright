@@ -1,0 +1,1 @@
+- 2026-10-31 [planwright] tests/test-worker-command-guard-steps.sh: the "declared line approved within the default deadline" and "slow resolver" rows failed once under load average ~14 on macOS and passed on rerun; their wall-clock bounds are load-sensitive
