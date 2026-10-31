@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # shell-rule-lib.sh — the shared scanner behind the shell rule checks
-# (scripts/check-shell-*.sh), sourced, never executed. doctrine/guard-catalog.md
-# ("Shell rule set") lists the rules; each rule is its own script and mise task
+# (scripts/check-shell-*.sh), sourced, never executed. config/guard-catalog.yaml
+# (the shell-* entries) lists the rules; each rule is its own script and mise task
 # so a rule that fires wrongly can be switched off alone.
 
 # A rule script sets SR_RULE (its catalog id), SR_USAGE (its --help text) and

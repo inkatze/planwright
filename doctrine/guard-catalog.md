@@ -191,7 +191,7 @@ CDPATH`, enumerating by shebang or suffix and failing closed on zero files:
 the convention holds only while a check holds it, since a harness that
 unsets `CDPATH` masks the regression. planwright's is `check:cdpath`. The
 `shell-*` entries and `emitter-output-lint` are guards of the same shape,
-each its own `check:` task here.
+each wired into `check` here.
 
 ## Extension
 

@@ -249,31 +249,31 @@ description = "printf-not-echo guard: fail on a shell file under scripts/, tests
 run = "/bin/bash scripts/check-echo-discipline.sh"
 
 [tasks."check:shell-pipe-status"]
-description = "shell rule shell-pipe-status: fail on a $? read straight after a pipeline, where it holds the last stage's status, a printf or echo producer, a line naming PIPESTATUS and every line after a set -o pipefail excepted (doctrine/guard-catalog.md, Shell rule set; --help states the escape hatch)"
+description = "shell rule shell-pipe-status: fail on a $? read straight after a pipeline, where it holds the last stage's status, a printf or echo producer, a line naming PIPESTATUS and every line after a set -o pipefail excepted (config/guard-catalog.yaml, the shell-* entries; --help states the escape hatch)"
 run = "/bin/bash scripts/check-shell-pipe-status.sh"
 
 [tasks."check:shell-fail-open-noop"]
-description = "shell rule shell-fail-open-noop: fail on an assignment from a command substitution whose failure a no-op alternative (|| true, || :) swallows, so an empty value reads as absent (doctrine/guard-catalog.md, Shell rule set; --help states the escape hatch)"
+description = "shell rule shell-fail-open-noop: fail on an assignment from a command substitution whose failure a no-op alternative (|| true, || :) swallows, so an empty value reads as absent (config/guard-catalog.yaml, the shell-* entries; --help states the escape hatch)"
 run = "/bin/bash scripts/check-shell-fail-open-noop.sh"
 
 [tasks."check:shell-mktemp-template"]
-description = "shell rule shell-mktemp-template: fail on a mktemp call given no template operand (doctrine/guard-catalog.md, Shell rule set; --help states the escape hatch)"
+description = "shell rule shell-mktemp-template: fail on a mktemp call given no template operand (config/guard-catalog.yaml, the shell-* entries; --help states the escape hatch)"
 run = "/bin/bash scripts/check-shell-mktemp-template.sh"
 
 [tasks."check:shell-gnu-only-flag"]
-description = "shell rule shell-gnu-only-flag: fail on a GNU-only command option (timeout, readlink -f, date -d, stat -c, grep -P, xargs -r, sort -V, sed -i without a suffix, find -printf) outside an annotated fallback (doctrine/guard-catalog.md, Shell rule set; --help states the escape hatch)"
+description = "shell rule shell-gnu-only-flag: fail on a GNU-only command option (timeout, readlink -f, date -d, stat -c, grep -P, xargs -r, sort -V, sed -i without a suffix, find -printf) outside an annotated fallback (config/guard-catalog.yaml, the shell-* entries; --help states the escape hatch)"
 run = "/bin/bash scripts/check-shell-gnu-only-flag.sh"
 
 [tasks."check:shell-dash-operand"]
-description = "shell rule shell-dash-operand: fail on a directory or file primitive handed a positional parameter with no -- before it (doctrine/guard-catalog.md, Shell rule set; --help states the escape hatch)"
+description = "shell rule shell-dash-operand: fail on a directory or file primitive handed a positional parameter with no -- before it (config/guard-catalog.yaml, the shell-* entries; --help states the escape hatch)"
 run = "/bin/bash scripts/check-shell-dash-operand.sh"
 
 [tasks."check:shell-config-pin"]
-description = "shell rule shell-config-pin: fail on a config-get.sh read pinned to no repository, neither PLANWRIGHT_REPO_ROOT nor a cd on its line (doctrine/guard-catalog.md, Shell rule set; --help states the escape hatch)"
+description = "shell rule shell-config-pin: fail on a config-get.sh read pinned to no repository, neither PLANWRIGHT_REPO_ROOT nor a cd on its line (config/guard-catalog.yaml, the shell-* entries; --help states the escape hatch)"
 run = "/bin/bash scripts/check-shell-config-pin.sh"
 
 [tasks."check:emitter-lint"]
-description = "emitter output linting guard: every script under scripts/ declaring an `# Emits:` format (markdown, yaml, shell) must be linted in that format by a test calling tests/lib/emitter-lint.sh's lint_emitted with the script's name, and every such call must name a declared emitter (doctrine/guard-catalog.md, Emitter output linting); fails closed on no declared emitter"
+description = "emitter output linting guard: every script under scripts/ declaring an `# Emits:` format (markdown, yaml, shell) must be linted in that format by a test calling tests/lib/emitter-lint.sh's lint_emitted with the script's name, and every such call must name a declared emitter (config/guard-catalog.yaml, emitter-output-lint); fails closed on no declared emitter"
 run = "/bin/sh scripts/check-emitter-lint.sh"
 
 [tasks."check:script-modes"]

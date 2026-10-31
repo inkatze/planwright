@@ -1,6 +1,6 @@
 #!/bin/sh
 # check-emitter-lint.sh — the emitter-output-lint guard
-# (doctrine/guard-catalog.md, "Emitter output linting"). A script that emits
+# (config/guard-catalog.yaml, emitter-output-lint). A script that emits
 # YAML, Markdown or shell declares it in its header, `# Emits: markdown, yaml`,
 # and some tests/*.sh suite must lint that output through
 # tests/lib/emitter-lint.sh: `lint_emitted <format> <script-name> <file>`.
