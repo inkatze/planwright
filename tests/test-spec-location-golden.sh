@@ -533,14 +533,16 @@ fi
 
 # Archived fragments keep their Consumed-by lines: a later consumption may add
 # one, a migration must not rewrite or drop one, nor remove the fragment.
-# Every fragment also gets a bare `<path> TAB` row, so its removal shows
+# Every fragment also gets a bare `<key> TAB` row, so its removal shows
 # whether or not it carries a line, and a first consumption removes nothing.
 # The legacy single-file archive carries its consumptions inline, one
 # `consumed-by: specs/<id> (<date>)` annotation each, counted as rows too.
+# A fragment is keyed by its UID (the name's last dash-separated token), the
+# identity obs:<uid> citations use; its slug may be reworded.
 consumed_lines() {
   (cd "$1" && set -- specs/_observations/archive/*.md && [ -f "$1" ] \
-    && awk 'FNR == 1 { print FILENAME "\t" }
-      /^Consumed-by: / { print FILENAME "\t" $0 }' "$@" \
+    && awk 'FNR == 1 { key = FILENAME; sub(/\.md$/, "", key); sub(/.*[-\/]/, "", key); key = "archive/" key; print key "\t" }
+      /^Consumed-by: / { print key "\t" $0 }' "$@" \
     && if [ -f specs/_observations/archive.md ]; then
       grep -io 'consumed-by: specs/[^ ]* ([^)]*)' specs/_observations/archive.md \
         | awk '{ print "specs/_observations/archive.md\t" $0 }'
@@ -561,6 +563,15 @@ if [ -n "$(consumed_lines "$tmp/cl-gone" | comm -23 "$tmp/cl-was.txt" -)" ]; the
   ok "bundles: a removed fragment with no Consumed-by line is a loss"
 else
   fail "bundles: a removed unconsumed fragment went unnoticed"
+fi
+for cl in slug-was slug-now; do mkdir -p "$tmp/cl-$cl/specs/_observations/archive"; done
+printf 'x\nConsumed-by: specs/demo (2026-01-01)\n' >"$tmp/cl-slug-was/specs/_observations/archive/2026-01-01-old-slug-0000aaaa.md"
+printf 'y\nConsumed-by: specs/demo (2026-01-01)\n' >"$tmp/cl-slug-now/specs/_observations/archive/2026-01-01-new-slug-0000aaaa.md"
+consumed_lines "$tmp/cl-slug-was" >"$tmp/cl-slug.txt"
+if [ -z "$(consumed_lines "$tmp/cl-slug-now" | comm -23 "$tmp/cl-slug.txt" -)" ]; then
+  ok "bundles: a fragment renamed under the same UID is not a loss"
+else
+  fail "bundles: a slug rename keeping the UID read as a lost fragment"
 fi
 
 printf -- '- 2026-01-01 [x] an entry — consumed-by: specs/demo (2026-01-02)\n' >"$tmp/cl-was/specs/_observations/archive.md"

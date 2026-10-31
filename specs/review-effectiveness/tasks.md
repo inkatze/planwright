@@ -580,6 +580,10 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 
 ## Awaiting input
 
+- **Task 15** — post-pr: the post-PR bot-reviewer step halted (its
+  workspace quota is exhausted until 2026-11-05, operator ruling); record
+  `.claude/steps/000001/008-step-post-pr.rec`.
+
 ## Deferred
 
 - **The private reviewer's design lessons.** A private reviewer the

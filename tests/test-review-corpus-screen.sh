@@ -127,6 +127,98 @@ f=$(corpus empty)
 "$SCREEN" "$f" >/dev/null 2>&1
 assert_exit "a corpus with zero rows is refused" 2 $?
 
+# --- text mode: the product-name check over prose files and directories ---
+mkdir -p "$T/frag/entries/nested" "$T/frag/archive"
+printf -- '- 2026-01-01 [x] the bot reviewer flagged the loop\n' >"$T/frag/entries/2026-01-01-clean-0000aaaa.md"
+printf -- '- 2026-01-02 [x] a clean line\nAcmeReview flagged the loop\n' >"$T/frag/archive/2026-01-02-body-0000bbbb.md"
+printf -- '- 2026-01-03 [x] a clean line\n' >"$T/frag/entries/nested/2026-01-03-acmereview-run-0000cccc.md"
+out=$("$SCREEN" --text --names "$names" "$T/frag" 2>&1)
+assert_exit "text mode refuses a directory holding a listed name" 1 $?
+assert_contains "text mode names the file and line of a body match" "2026-01-02-body-0000bbbb.md:2:" "$out"
+assert_contains "text mode screens a file name, recursing into subdirectories" "2026-01-03-acmereview-run-0000cccc.md: file name" "$out"
+assert_lacks "text mode passes a clean file" "0000aaaa" "$out"
+out_lc=$(printf '%s' "$out" | sed 's/[^:]*acmereview-run-0000cccc\.md//' | LC_ALL=C tr '[:upper:]' '[:lower:]')
+assert_lacks "text mode never prints the matched text" "acmereview flagged" "$out_lc"
+out=$("$SCREEN" --text --names "$names" "$T/frag/entries/2026-01-01-clean-0000aaaa.md" "$T/frag/archive" 2>&1)
+assert_exit "text mode takes files and directories together" 1 $?
+assert_lacks "text mode reads only the paths given" "0000cccc" "$out"
+rm "$T/frag/archive/2026-01-02-body-0000bbbb.md" "$T/frag/entries/nested/2026-01-03-acmereview-run-0000cccc.md"
+printf -- '- 2026-01-04 [x] the acmereviewer field is unset\n' >"$T/frag/entries/2026-01-04-inword-0000dddd.md"
+out=$("$SCREEN" --text --names "$names" "$T/frag" 2>&1)
+assert_exit "text mode passes clean files, a name inside a word included" 0 $?
+assert_contains "text mode reports the files it passed" "2 file(s) pass" "$out"
+out=$("$SCREEN" --text "$T/frag" 2>&1)
+assert_exit "text mode refuses to run without a name list" 2 $?
+assert_lacks "text mode's missing-list refusal names no flag it was not given" "--require-names" "$out"
+"$SCREEN" --text --names "$T/empty-names.txt" "$T/frag" >/dev/null 2>&1
+assert_exit "text mode refuses a list holding no names" 2 $?
+"$SCREEN" --text --names "$names" "$T/absent-dir" >/dev/null 2>&1
+assert_exit "text mode refuses a missing path" 2 $?
+mkdir -p "$T/frag/locked"
+printf -- 'AcmeReview flagged the loop\n' >"$T/frag/locked/2026-01-05-hidden-0000eeee.md"
+chmod 000 "$T/frag/locked"
+# As root the directory stays listable and the case would assert nothing.
+if ls "$T/frag/locked" >/dev/null 2>&1; then
+  echo "skip: chmod 000 left the directory listable, so the unreadable-subdirectory case did not run" >&2
+else
+  "$SCREEN" --text --names "$names" "$T/frag" >/dev/null 2>&1
+  assert_exit "text mode refuses a directory it cannot walk whole, never a pass" 2 $?
+fi
+chmod 755 "$T/frag/locked"
+rm -r "$T/frag/locked"
+printf -- 'AcmeReview flagged the loop\n' >"$T/frag/entries/2026-01-05-sealed-0000eeee.md"
+chmod 000 "$T/frag/entries/2026-01-05-sealed-0000eeee.md"
+if cat "$T/frag/entries/2026-01-05-sealed-0000eeee.md" >/dev/null 2>&1; then
+  echo "skip: chmod 000 left the file readable, so the unreadable-file case did not run" >&2
+else
+  "$SCREEN" --text --names "$names" "$T/frag" >/dev/null 2>&1
+  assert_exit "text mode refuses an unreadable file in a walkable directory, never a pass" 2 $?
+fi
+chmod 644 "$T/frag/entries/2026-01-05-sealed-0000eeee.md"
+rm "$T/frag/entries/2026-01-05-sealed-0000eeee.md"
+mkdir -p "$T/sym/real" "$T/sym/clean"
+printf -- 'AcmeReview flagged the loop\n' >"$T/sym/real/2026-01-06-linked-0000ffff.md"
+printf -- '- a clean line\n' >"$T/sym/clean/2026-01-07-clean-00001111.md"
+ln -s real "$T/sym/dirlink"
+"$SCREEN" --text --names "$names" "$T/sym/dirlink" "$T/sym/clean" >/dev/null 2>&1
+assert_exit "text mode refuses a symlinked path, never reads through it" 2 $?
+"$SCREEN" --text --names "$names" "$T/sym/dirlink/" >/dev/null 2>&1
+assert_exit "text mode refuses a symlinked path given with a trailing slash" 2 $?
+ln -s ../real/2026-01-06-linked-0000ffff.md "$T/sym/clean/2026-01-08-link-00002222.md"
+"$SCREEN" --text --names "$names" "$T/sym/clean" >/dev/null 2>&1
+assert_exit "text mode refuses a symlink inside a directory, never skips it" 2 $?
+rm -r "$T/sym"
+mkdir -p "$T/c1"
+csi=$(printf '\233')
+# A C1 byte (0x9B is a one-byte CSI) in a refused file name must not reach the
+# terminal; APFS refuses a name that is not valid UTF-8, so macOS skips this.
+if (
+  LC_ALL=C
+  : >"$T/c1/x${csi}acmereview-0000abcd.md"
+) 2>/dev/null; then
+  out=$(LC_ALL=C "$SCREEN" --text --names "$names" "$T/c1" 2>&1)
+  assert_exit "text mode refuses a listed name beside a C1 byte" 1 $?
+  case $out in
+    *"$csi"*) fail "text mode masks a C1 byte in a refused path" ;;
+    *) ok "text mode masks a C1 byte in a refused path" ;;
+  esac
+else
+  echo "skip: the filesystem refused a file name holding a C1 byte" >&2
+fi
+rm -r "$T/c1"
+printf -- '- a clean line\n' >"$T/-dash.md"
+(cd "$T" && "$SCREEN" --text --names "$names" -- -dash.md) >/dev/null 2>&1
+assert_exit "text mode takes a path after -- even when it starts with a dash" 0 $?
+rm "$T/-dash.md"
+mkdir -p "$T/nul"
+printf 'a clean start\000 AcmeReview after the NUL\n' >"$T/nul/2026-01-09-nul-00003333.md"
+"$SCREEN" --text --names "$names" "$T/nul" >/dev/null 2>&1
+assert_exit "text mode refuses a file holding a NUL byte, never a pass" 2 $?
+rm -r "$T/nul"
+mkdir -p "$T/empty-dir"
+"$SCREEN" --text --names "$names" "$T/empty-dir" >/dev/null 2>&1
+assert_exit "text mode refuses paths holding no files, never a pass" 2 $?
+
 # --- every committed corpus version passes its schema and hygiene screen ---
 found=0
 for c in "$CORPUS_ROOT"/v*/corpus.tsv; do
