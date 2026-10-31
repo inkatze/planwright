@@ -4,12 +4,13 @@
 # spec root (project `hub`) at $TRF/holder/specs, held by a third repository,
 # plus a gh stub on PATH reading $TRF/gh/<repo>.tsv (headRefName, state,
 # number, mergedAt) and failing for a repository with $TRF/gh/<repo>.fail.
-# Shared by the per-task derivation tests and the holder-dispatch tests.
+# Built to be shared with custom-spec-location's holder-dispatch tests.
 #
 # Usage: trf_setup <scripts-dir> [<spec>], then run every command through
 # trf_env, which pins HOME, the plugin data home, the config layers, and git's
 # config to the fixture.
 unset CDPATH
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 trf_env() {
   env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR \
@@ -93,7 +94,7 @@ trf_heal_gh() { rm -f "$TRF/gh/$1.fail"; }
 trf_reset_evidence() {
   rm -f "$TRF/gh/"*.tsv "$TRF/gh/"*.fail
   for r in alpha beta; do
-    for b in $(git -C "$TRF/src/$r" for-each-ref --format='%(refname:short)' "refs/heads/planwright/"); do
+    for b in $(trf_env git -C "$TRF/src/$r" for-each-ref --format='%(refname:short)' "refs/heads/planwright/"); do
       trf_git -C "$TRF/src/$r" branch -q -D "$b"
     done
   done

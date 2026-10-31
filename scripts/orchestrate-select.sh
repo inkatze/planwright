@@ -70,9 +70,9 @@
 # (REQ-B1.5). On a version 3 bundle whose tasks name repositories the failure
 # is per task (REQ-B1.7, REQ-F1.6): a task the engine withholds (its own or a
 # direct dependency's repository failed) is never selected, every other task
-# selects normally, and exit 3 means only withheld work was left. v1 selection
-# keeps its documented degraded-but-proceed behavior (the record is forwarded
-# to stderr) — v1 behavior unchanged.
+# selects normally, and exit 3 means no unit was ready while withheld work
+# remained. v1 selection keeps its documented degraded-but-proceed behavior
+# (the record is forwarded to stderr) — v1 behavior unchanged.
 #
 # A task whose `Repository:` field does not resolve (the engine's
 # `repository-unresolved` state) is never selected and never satisfies a
@@ -312,8 +312,12 @@ if [ "$mode" = select ]; then
     | awk -F"$TAB" '($1=="degraded" && $2!="repository") || $1=="contradiction"' >&2
   printf '%s\n' "$state_out" | awk -F"$TAB" '$1=="degraded" && $2=="repository" { print $3 "\t" $4 }' \
     | while IFS="$TAB" read -r d_repo d_msg; do
-      [ "$d_repo" != - ] || d_repo="the work repository"
-      printf '%s\n' "orchestrate-select: transient evidence failure in repository $(sanitize_printable "$d_repo" '(unprintable)') - $(sanitize_printable "$d_msg" '(no diagnostic from the engine)'); its tasks and their direct dependents are withheld (REQ-B1.7)" >&2
+      if [ "$d_repo" = - ]; then
+        d_repo="the work repository"
+      else
+        d_repo="repository $(sanitize_printable "$d_repo" '(unprintable)')"
+      fi
+      printf '%s\n' "orchestrate-select: transient evidence failure in $d_repo - $(sanitize_printable "$d_msg" '(no diagnostic from the engine)'); its tasks and their direct dependents are withheld (REQ-B1.7)" >&2
     done
 fi
 
@@ -483,10 +487,18 @@ sel_out=$(printf '%s\n' "$tasks_content" | ORCHESTRATE_SELECT_TASKS_MD="$tasks_m
   }
 ') || sel_rc=$?
 
-# Nothing was ready while some work is withheld behind a failed repository:
-# that is the transient failure, not an empty frontier.
-if [ "$sel_rc" -eq 1 ] && [ -n "$withheld" ]; then
-  printf '%s\n' "orchestrate-select: no unit is ready, and Task $(sanitize_printable "$(printf '%s' "$withheld" | sed 's/ $//; s/ /, Task /g')") is withheld behind a failed repository; dispatching nothing (REQ-B1.7)" >&2
+# Nothing was ready while work that could otherwise be picked (not done, not
+# in flight, not parked) is withheld behind a failed repository: that is the
+# transient failure, not an empty frontier.
+pending_held=""
+for w in $withheld; do
+  case "$completed$inprogress$parked_any" in
+    *" $w "*) ;;
+    *) pending_held="$pending_held$w " ;;
+  esac
+done
+if [ "$sel_rc" -eq 1 ] && [ -n "$pending_held" ]; then
+  printf '%s\n' "orchestrate-select: no unit is ready while withheld behind a failed repository: Task $(sanitize_printable "$(printf '%s' "$pending_held" | sed 's/ $//; s/ /, Task /g')"); dispatching nothing (REQ-B1.7)" >&2
   exit 3
 fi
 

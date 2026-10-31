@@ -11,6 +11,7 @@
 # exactly one place.
 #
 # For each task defined in <spec-dir>/tasks.md it derives one of four states
+# (a fifth, repository-unresolved, on a version 3 bundle; see below)
 # from the authoritative evidence set, applying the REQ-C1.2 precedence (git
 # ground truth wins):
 #
@@ -50,7 +51,6 @@
 #                                          conforming ids are still used, the
 #                                          non-conforming line is surfaced rather
 #                                          than digit-scraped (REQ-F1.1).
-#
 #
 # Format-version 3 per-task repositories (invariant-tasks D-15; REQ-F1.4,
 # REQ-F1.5, REQ-F1.6, REQ-B1.7). On a bundle declaring version 3 whose tasks
@@ -100,15 +100,19 @@
 #
 # Environment overrides (tests, worktree callers):
 #   PLANWRIGHT_BASE_REF        the integration ref reachability is measured
-#                              against (default: main → origin/main → HEAD).
+#                              against (default: main → origin/main → HEAD),
+#                              in every repository a task derives from.
 #   PLANWRIGHT_ORCH_STATE_DIR  the only dir holding per-task runtime markers;
 #                              unset, the read dirs orchestrate-marker-home.sh
 #                              resolves (a superset of the writer's).
 #
 # Usage: orchestrate-state.sh <spec-dir>
 # Exit: 0 records emitted; 2 the spec dir / tasks.md is missing, unreadable, or
-#   holds no task records, or the spec id fails its grammar (fail closed — a
-#   malformed input must not silently report "nothing").
+#   holds no task records, the spec id fails its grammar, a base ref does not
+#   resolve in a repository a task derives from, the Repository: fields cannot
+#   be read, or a bundle whose version is not plainly 1, 2, or 3 carries one
+#   (fail closed — a malformed input must not silently report "nothing", and a
+#   field must never fall back to the work repository).
 #
 # Portable POSIX sh + awk; bash 3.2 / BSD tooling. No gawk-only constructs,
 # no eval; all external input is treated as data. Pathname expansion is disabled
@@ -173,16 +177,27 @@ repo_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir") || {
 }
 work_root=$repo_root
 
-# A version 3 bundle's Repository: fields. An unparseable declaration reads as
-# no version 3 here; every consumer refuses such a bundle on its own read.
+# A version 3 bundle's Repository: fields. Versions 1 and 2 define no field
+# (the validator rejects one there), so they derive as they always have. A
+# declaration that is missing, unparseable, or undefined cannot say whether a
+# field is meant, and some consumers never read the version, so such a bundle
+# carrying a field fails closed rather than deriving it from the work
+# repository.
 fv=$(spec_parse_header_value "$tasks_md" Format-version 2>/dev/null) || fv=""
 repo_map=""
-if [ "$fv" = 3 ]; then
-  repo_map=$(spec_parse_repository_map "$tasks_md") || {
-    printf '%s\n' "orchestrate-state: could not read the Repository: fields of $tasks_md (fail closed)" >&2
-    exit 2
-  }
-fi
+case $fv in
+  1 | 2) ;;
+  *)
+    repo_map=$(spec_parse_repository_map "$tasks_md") || {
+      printf '%s\n' "orchestrate-state: could not read the Repository: fields of $tasks_md (fail closed)" >&2
+      exit 2
+    }
+    if [ "$fv" != 3 ] && [ -n "$repo_map" ]; then
+      printf '%s\n' "orchestrate-state: $tasks_md carries Repository: fields under a missing, unparseable, or undefined Format-version: (fail closed)" >&2
+      exit 2
+    fi
+    ;;
+esac
 per_task=0
 [ -z "$repo_map" ] || per_task=1
 
@@ -252,11 +267,11 @@ now=$(date +%s)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-state.XXXXXX") || exit 2
 trap 'rm -rf "$scratch"' EXIT
 
-# load_repo <root> <label> — point every evidence helper below at one
-# repository: its base ref, the refs the trailer scan reads, this spec's
-# completion trailers, and its PR states. Returns 2 (message on stderr) when
-# the base does not resolve to a commit, 3 when the gh probe failed; the
-# degraded record is the caller's to emit, keyed by mode.
+# load_repo <root> — point every evidence helper below at one repository: its
+# base ref, the refs the trailer scan reads, this spec's completion trailers,
+# and its PR states. Returns 2 (message on stderr) when the base does not
+# resolve to a commit, 3 when the gh probe failed; the degraded record is the
+# caller's to emit, keyed by mode.
 load_repo() {
   repo_root=$1
   fp_loaded=0
@@ -508,14 +523,10 @@ remote_branch_ahead() {
 
 # Membership test: is commit $1 on base's first-parent mainline? Used by the
 # branch-merged check below to tell a stale zero-commit fork (tip ON the line)
-# from genuinely merged work (tip OFF it). base is loop-invariant, so the
-# first-parent commit list is computed at most ONCE per run and cached — without
-# this the rev-list would re-walk the whole mainline for every task branch
-# reachable from base, making the check O(tasks × history). The loop below reads
-# from a here-doc (it runs in this shell, not a subshell), so the cache persists
-# across iterations.
-fp_loaded=0
-fp_commits=""
+# from genuinely merged work (tip OFF it). The first-parent commit list is
+# computed at most ONCE per repository and cached (load_repo resets it) —
+# without this the rev-list would re-walk the whole mainline for every task
+# branch reachable from base, making the check O(tasks × history).
 tip_on_first_parent() {
   if [ "$fp_loaded" -eq 0 ]; then
     fp_commits=$(git -C "$repo_root" rev-list --first-parent "$base" 2>/dev/null)
@@ -545,8 +556,10 @@ resolve_alias() {
   ra_reason=-
   # The registry seam: any failure to answer is the alias resolving to
   # nothing, never a fallback to the work repository (REQ-F1.5).
-  if ra_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" --repository "$1" </dev/null 2>"$scratch/resolve.err") \
-    && [ -n "$ra_root" ] && ra_root=$(canon "$ra_root"); then
+  ra_raw=""
+  ra_root=""
+  if ra_raw=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" --repository "$1" </dev/null 2>"$scratch/resolve.err") \
+    && [ -n "$ra_raw" ] && ra_root=$(canon "$ra_raw"); then
     if [ "$ra_root" = "$work_canon" ]; then
       ra_key=0
     else
@@ -560,7 +573,11 @@ resolve_alias() {
     fi
   else
     ra_key=u
-    ra_reason=$(tr -d '\000-\037\177' <"$scratch/resolve.err" 2>/dev/null)
+    ra_reason=$(tr '\n' ' ' <"$scratch/resolve.err" 2>/dev/null | tr -d '\000-\037\177')
+    ra_reason=${ra_reason% }
+    if [ -z "$ra_reason" ] && [ -n "$ra_raw" ]; then
+      ra_reason="the registry's checkout for it is not a readable directory"
+    fi
     [ -n "$ra_reason" ] || ra_reason="the work-repository registry has no live entry for it"
   fi
   printf '%s\t%s\t%s\n' "$1" "$ra_key" "$ra_reason" >>"$aliases"
@@ -597,7 +614,7 @@ while IFS="$TAB" read -r id deps; do
           ;;
       esac
       [ "$key" != u ] && ra_reason=-
-      printf '%s\t%s\t%s\t%s\n' "$id" "$fclass" "${fval:--}" "$ra_reason" >>"$fields"
+      printf '%s\t%s\t%s\t%s\n' "$id" "$fclass" "$fval" "$ra_reason" >>"$fields"
     fi
   fi
   printf '%s\t%s\t%s\t%s\n' "$order" "$id" "$key" "$deps" >>"$list"
@@ -645,11 +662,11 @@ parse_deps() {
   deps=$clean_deps
 }
 
-# derive_task <order> <id> <key> — the evidence-only verdict for one task, read
-# from the repository load_repo last pointed the helpers at.
+# derive_task <order> <key> — the evidence-only verdict for task $id (set by
+# the caller, as parse_deps reads it too), read from the repository load_repo
+# last pointed the helpers at.
 derive_task() {
   order=$1
-  key=$3
   branch="planwright/$spec_id/task-$id"
 
   br_merged=0
@@ -790,8 +807,6 @@ EOF
   c_date=""
   if [ "$evstate" = completed ]; then
     c_branch="planwright/$spec_id/task-$id"
-    c_pr=""
-    c_date=""
     # The canonical `PR #<n> merged <date>` form requires BOTH the PR number and
     # gh's own merge date from the batch. A PR number without a valid gh merge
     # date does NOT become a full stamp paired with some other date (a branch-tip
@@ -829,7 +844,7 @@ EOF
   fi
 
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$order" "$id" "$evstate" "$evidence" "$contra" \
-    "${c_pr:--}" "${c_date:--}" "$key" "$deps" >>"$work"
+    "${c_pr:--}" "${c_date:--}" "$2" "$deps" >>"$work"
 }
 
 # label_of_key <key> — how a repository is named in a record: the first
@@ -839,37 +854,32 @@ label_of_key() {
   printf '%s' "${lk:--}"
 }
 
-# Derive repository by repository, each read once. A repository whose
-# evidence cannot be read is recorded failed: on a bundle naming no
-# repository that is the bundle-wide record (or, for an unresolvable base, the
-# fail-closed exit) it always was; per task it fails only the tasks it holds,
-# and one whose base never resolved yields no evidence for them at all.
+# Derive repository by repository, each read once. A base that does not
+# resolve is a misconfiguration, not a transient failure, so it fails the
+# derivation closed in either mode. A failed gh probe is: on a bundle naming
+# no repository it is the bundle-wide record it always was; per task it fails
+# only the tasks its repository holds.
 failed=" "
 # shellcheck disable=SC2013 # keys are digits; a while-read would hand stdin to git and gh
 for key in $(awk -F"$TAB" '$3 != "u" && !seen[$3]++ { print $3 }' "$list"); do
   root=$(awk -F"$TAB" -v k="$key" '$1 == k { print $2; exit }' "$repos")
   lr=0
   load_repo "$root" || lr=$?
-  if [ "$lr" -ne 0 ]; then
+  if [ "$lr" -eq 3 ]; then
     if [ "$per_task" -eq 0 ]; then
-      [ "$lr" -eq 3 ] || exit 2
       printf 'degraded%sgh%sgh query failed; deriving git-only\n' "$TAB" "$TAB"
     else
       failed="$failed$key "
-      lmsg="gh query failed; deriving git-only"
-      [ "$lr" -eq 3 ] || lmsg="its base ref does not resolve to a commit"
-      printf 'degraded%srepository%s%s%s%s\n' "$TAB" "$TAB" "$(label_of_key "$key")" "$TAB" "$lmsg"
+      printf 'degraded%srepository%s%s%sgh query failed; deriving git-only\n' "$TAB" "$TAB" "$(label_of_key "$key")" "$TAB"
     fi
+  elif [ "$lr" -ne 0 ]; then
+    exit 2
   fi
   while IFS="$TAB" read -r t_order t_id t_key t_deps; do
     [ "$t_key" = "$key" ] || continue
     id=$t_id
     parse_deps "$t_deps"
-    if [ "$lr" -eq 2 ]; then
-      printf '%s\t%s\tunresolved\tpending\t0\t-\t-\t%s\t%s\n' "$t_order" "$t_id" "$t_key" "$deps" >>"$work"
-    else
-      derive_task "$t_order" "$t_id" "$t_key"
-    fi
+    derive_task "$t_order" "$t_key"
   done <"$list"
 done
 while IFS="$TAB" read -r t_order t_id t_key t_deps; do

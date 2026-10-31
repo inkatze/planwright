@@ -516,11 +516,15 @@ EOF
               | awk -F"$TAB" '($1 == "task" && $3 == "repository-unresolved") || ($1 == "withheld" && $3 == "own") { print $2 }' \
               | tr '\n' ' ')"
             v2notes=$(printf '%s\n' "$eng_out" | awk -F"$TAB" '
-              $1 == "repository-unresolved" { u[$3] = u[$3] (u[$3] == "" ? "" : ", ") "task " $2 }
-              $1 == "degraded" && $2 == "repository" { f[$3] = 1 }
-              END {
-                for (r in u) printf "error: %s names repository %s, which does not resolve here - its task-completion atoms resolve as unresolved (REQ-F1.5)\n", u[r], r
-                for (r in f) printf "error: transient evidence failure in %s - task-completion atoms on its tasks resolve as unresolved (REQ-B1.7)\n", (r == "-" ? "the work repository" : "repository " r)
+              $1 == "task" && $3 == "repository-unresolved" { code[$2] = $4 }
+              $1 == "repository-unresolved" {
+                if (code[$2] == "alias-malformed") why = "has a Repository: value that is not a single alias"
+                else if (code[$2] == "alias-duplicate") why = "carries more than one Repository: field"
+                else why = "names repository " ($3 == "" ? "(empty)" : $3) ", which does not resolve here"
+                printf "error: task %s %s - its task-completion atoms resolve as unresolved (REQ-F1.5)\n", $2, why
+              }
+              $1 == "degraded" && $2 == "repository" {
+                printf "error: transient evidence failure in %s - task-completion atoms on its tasks resolve as unresolved (REQ-B1.7)\n", ($3 == "-" ? "the work repository" : "repository " $3)
               }' | LC_ALL=C tr -d '\000-\011\013-\037\177')
             if [ -n "$v2notes" ]; then
               printf '%s\n' "$v2notes"

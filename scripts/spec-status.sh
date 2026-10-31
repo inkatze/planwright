@@ -360,7 +360,14 @@ $engine_out
 EOF
 [ "$repo_failed" -eq 0 ] \
   || echo 'evidence from a failed repository is not presented as status; its tasks and their direct dependents render as withheld'
+# Only a bundle naming repositories carries per-task records; a bundle without
+# them skips the per-task lookups.
+per_task_out=0
+if printf '%s\n' "$engine_out" | awk -F"$TAB" '$1 == "repository" || $1 == "repository-unresolved" || $1 == "withheld" { f = 1 } END { exit !f }'; then
+  per_task_out=1
+fi
 record_for() {
+  [ "$per_task_out" -eq 1 ] || return 0
   printf '%s\n' "$engine_out" \
     | awk -F"$TAB" -v t="$1" -v i="$2" '$1 == t && $2 == i { s = $3; for (k = 4; k <= NF; k++) s = s "\t" $k; print s; exit }'
 }
@@ -388,17 +395,27 @@ tasks_seen=0
 while IFS="$TAB" read -r tag id state ev; do
   [ "$tag" = task ] || continue
   tasks_seen=$((tasks_seen + 1))
+  where=""
+  unres=$(record_for repository-unresolved "$id")
+  alias=$(record_for repository "$id")
+  if [ -n "$unres" ]; then
+    where=" · repository $(sanitize_printable "${unres%%"$TAB"*}" '(empty)'): $(sanitize_printable "${unres#*"$TAB"}" '(no reason given)')"
+  elif [ -n "$alias" ]; then
+    where=" · repository $(sanitize_printable "$alias" '(unprintable)')"
+  fi
   class=$(parked_class_of "$id")
   if [ -n "$class" ]; then
     case "$class" in
       awaiting-input) await=$((await + 1)) ;;
-      *) : ;; # deferred / out-of-scope: excluded from the Done universe
+      # Deferred / out-of-scope leave the Done universe, except that the
+      # bundle never derives Done while any task is repository-unresolved.
+      *) [ "$state" != repository-unresolved ] || fwd=$((fwd + 1)) ;;
     esac
     payload=$(parked_payload_of "$id")
     if [ -n "$payload" ]; then
-      printf 'task %s %s (bullet: %s)\n' "$id" "$class" "$(sanitize_printable "$payload")"
+      printf 'task %s %s (bullet: %s)%s\n' "$id" "$class" "$(sanitize_printable "$payload")" "$where"
     else
-      printf 'task %s %s (parked)\n' "$id" "$class"
+      printf 'task %s %s (parked)%s\n' "$id" "$class" "$where"
     fi
     if [ "$state" = completed ]; then
       anomalies="${anomalies}anomaly: task $id is parked by a live $class bullet but its evidence derives completed (stale bullet)
@@ -410,9 +427,9 @@ while IFS="$TAB" read -r tag id state ev; do
   if [ -n "$held" ]; then
     fwd=$((fwd + 1))
     if [ "${held%%"$TAB"*}" = own ]; then
-      printf 'task %s withheld (evidence unavailable: %s failed)\n' "$id" "$(repo_name "${held#*"$TAB"}")"
+      printf 'task %s withheld (evidence unavailable: %s failed)%s\n' "$id" "$(repo_name "${held#*"$TAB"}")" "$where"
     else
-      printf 'task %s withheld (a direct dependency'"'"'s %s failed)\n' "$id" "$(repo_name "${held#*"$TAB"}")"
+      printf 'task %s withheld (a direct dependency'"'"'s %s failed)%s\n' "$id" "$(repo_name "${held#*"$TAB"}")" "$where"
     fi
     continue
   fi
@@ -431,14 +448,6 @@ while IFS="$TAB" read -r tag id state ev; do
     elif [ -n "$c_date" ]; then
       detail="$detail · merged $(sanitize_printable "$c_date")"
     fi
-  fi
-  where=""
-  unres=$(record_for repository-unresolved "$id")
-  alias=$(record_for repository "$id")
-  if [ -n "$unres" ]; then
-    where=" · repository $(sanitize_printable "${unres%%"$TAB"*}" '(empty)'): $(sanitize_printable "${unres#*"$TAB"}" '(no reason given)')"
-  elif [ -n "$alias" ]; then
-    where=" · repository $(sanitize_printable "$alias" '(unprintable)')"
   fi
   printf 'task %s %s (%s)%s\n' "$id" "$detail" "$(sanitize_printable "$ev")" "$where"
 done <<EOF

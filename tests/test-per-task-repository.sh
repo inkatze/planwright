@@ -52,7 +52,9 @@ block() {
 GATES='## Deferred
 
 - **Gate on the beta task.** Waits for Task 2.
-  **Gate:** GATE(when: task 2 completed). Citations: REQ-X.'
+  **Gate:** GATE(when: task 2 completed). Citations: REQ-X.
+- **Gate on the alpha task.** Waits for Task 1.
+  **Gate:** GATE(when: task 1 completed). Citations: REQ-X.'
 write_bundle() {
   trf_bundle "$(block 1 'Alpha first' none "$1")
 $(block 2 'Beta second' 1 "$2")
@@ -78,7 +80,7 @@ rec() {
   printf '%s\n' "$state" | awk -F"$TAB" -v t="$1" -v i="$2" \
     '$1 == t && $2 == i { s = $3; for (k = 4; k <= NF; k++) s = s "\t" $k; print s; exit }'
 }
-gate_row() { printf '%s\n' "$report" | grep -F 'Gate on the beta task'; }
+gate_row() { printf '%s\n' "$report" | grep -F "Gate on the $1 task"; }
 
 # --- REQ-F1.4: per-task derivation and dependencies ---------------------------
 trf_branch alpha 1
@@ -133,14 +135,25 @@ select_unit
 assert_eq "F1.5 nothing is selected (exit)" 1 "$sel_rc"
 assert_eq "F1.5 Task 2 is never selected" "" "$sel"
 gates
-assert_has "F1.5 the gate on Task 2 is pending" "PENDING" "$(gate_row)"
-assert_has "F1.5 the gate atom on Task 2 resolves unresolved" "unresolved" "$(gate_row)"
-assert_has "F1.5 the sweep names the unresolved repository" "beta" "$report"
+assert_has "F1.5 the gate on Task 2 is pending" "PENDING" "$(gate_row beta)"
+assert_has "F1.5 the gate atom on Task 2 resolves unresolved" "unresolved" "$(gate_row beta)"
+assert_has "F1.5 the sweep names the unresolved repository" "task 2 names repository beta, which does not resolve here" "$report"
+assert_has "F1.5 the gate on alpha's Task 1 still evaluates" "SATISFIED" "$(gate_row alpha)"
 trf_pr alpha 3 MERGED 45
 render
 assert_has "F1.5 the render names the unresolved alias" "task 2 repository-unresolved (alias-unresolved) · repository beta:" "$status"
 assert_has "F1.5 the bundle does not derive Done" "bundle status: Active (derived)" "$status"
-assert_not "F1.5 no Done claim" "bundle status: Done" "$status"
+# Deferring the unresolved task does not let the bundle derive Done either.
+trf_bundle "$(block 1 'Alpha first' none '- **Repository:** alpha')
+$(block 2 'Beta second' 1 '- **Repository:** beta')
+$(block 3 'Alpha third' 2 '- **Repository:** alpha')
+## Deferred
+
+- **Task 2** waits on beta's registration."
+render
+assert_has "F1.5 a deferred unresolved task still shows its alias" "task 2 deferred (bullet: waits on beta's registration.) · repository beta:" "$status"
+assert_not "F1.5 a deferred unresolved task keeps the bundle from Done" "bundle status: Done" "$status"
+write_bundle '- **Repository:** alpha' '- **Repository:** beta' '- **Repository:** alpha'
 
 trf_reset_evidence
 trf_pr alpha 1 MERGED 42
@@ -169,6 +182,22 @@ assert_has "F1.5 the reason names the missing marker" "marker" "$(rec repository
 mv "$TRF/marker.bak" "$TRF_ROOT/planwright-spec-root.yml"
 trf_reset_evidence
 
+# A field under a declaration that cannot say whether fields are meant fails
+# closed rather than deriving from the work repository.
+sed 's/^\*\*Format-version:\*\* 3$/**Format-version:** three/' "$BUNDLE/tasks.md" >"$TRF/tasks.tmp"
+cp "$BUNDLE/tasks.md" "$TRF/tasks.keep"
+mv "$TRF/tasks.tmp" "$BUNDLE/tasks.md"
+derive_rc=0
+(cd "$TRF/holder" && trf_env /bin/sh "$SCRIPTS/orchestrate-state.sh" "$BUNDLE" >/dev/null 2>&1) || derive_rc=$?
+assert_eq "a field under an undefined Format-version fails closed" 2 "$derive_rc"
+mv "$TRF/tasks.keep" "$BUNDLE/tasks.md"
+
+# A base that resolves in no task's repository is a misconfiguration, not a
+# transient failure.
+derive_rc=0
+(cd "$TRF/holder" && trf_env PLANWRIGHT_BASE_REF=no-such-base /bin/sh "$SCRIPTS/orchestrate-state.sh" "$BUNDLE" >/dev/null 2>&1) || derive_rc=$?
+assert_eq "an unresolvable base in an aliased repository fails closed" 2 "$derive_rc"
+
 # --- REQ-F1.6 / REQ-B1.7: a transient failure is keyed per task ---------------
 trf_fail_gh beta
 derive
@@ -178,21 +207,35 @@ assert_eq "F1.6 Task 3 is withheld on its dependency's repository" "dependency${
 assert_eq "F1.6 Task 1 is not withheld" "" "$(rec withheld 1)"
 select_unit
 assert_eq "F1.6 Task 1 stays selectable" 1 "$sel"
-assert_has "F1.6 selection reports the failing repository" "beta" "$sel_err"
-gates
-assert_has "F1.6 the gate atom on Task 2 resolves unresolved" "unresolved" "$(gate_row)"
-assert_has "F1.6 the sweep names the failing repository" "beta" "$report"
+assert_has "F1.6 selection reports the failing repository" "transient evidence failure in repository beta" "$sel_err"
 render
 assert_eq "F1.6 the render exits with the transient-failure status" 3 "$st_rc"
-assert_has "F1.6 the render names beta" "repository beta" "$status"
+assert_has "F1.6 the render names beta" "spec-status: transient evidence failure in repository beta" "$status"
 assert_has "F1.6 Task 1 renders from healthy evidence" "task 1 ready (deps-met) · repository alpha" "$status"
-assert_has "F1.6 Task 2's partial evidence is not shown as status" "task 2 withheld" "$status"
+assert_has "F1.6 Task 2's partial evidence is not shown as status" "task 2 withheld (evidence unavailable: repository beta failed) · repository beta" "$status"
 assert_not "F1.6 no derived bundle status is claimed" "(derived)" "$status"
 
 trf_pr alpha 1 MERGED 42
+gates
+assert_has "F1.6 the gate atom on Task 2 resolves unresolved" "unresolved" "$(gate_row beta)"
+assert_has "F1.6 the sweep names the failing repository" "transient evidence failure in repository beta" "$report"
+assert_has "F1.6 the gate on alpha's Task 1 still evaluates" "SATISFIED" "$(gate_row alpha)"
 select_unit
 assert_eq "F1.6 with only withheld work left, selection reports the transient failure" 3 "$sel_rc"
 assert_eq "F1.6 nothing is selected then" "" "$sel"
+
+# Task 2 completed by git evidence in beta: Task 3's dependency is met, yet
+# its repository failed, so Task 3 is still never selected.
+trf_git -C "$TRF/src/beta" commit -q --allow-empty -m "task 2 landed" -m "Planwright-Task: demo/2"
+derive
+assert_eq "F1.6 Task 2 completes from beta's git evidence" "completed${TAB}trailer" "$(rec task 2)"
+assert_eq "F1.6 Task 3's dependency is met" "ready${TAB}deps-met" "$(rec task 3)"
+select_unit
+assert_eq "F1.6 a dependent of a failed repository is never selected" "" "$sel"
+assert_eq "F1.6 and that is the transient failure" 3 "$sel_rc"
+trf_branch alpha 3
+select_unit
+assert_eq "F1.6 withheld work that is already done or in flight is no transient failure" 1 "$sel_rc"
 trf_heal_gh beta
 trf_reset_evidence
 
@@ -202,7 +245,7 @@ derive
 assert_eq "no field: no repository records" "" "$(printf '%s\n' "$state" | awk -F"$TAB" '$1 == "repository" || $1 == "withheld" || $1 == "repository-unresolved"')"
 assert_eq "no field: Task 1 derives from the work repository" "ready${TAB}deps-met" "$(rec task 1)"
 trf_fail_gh holder
-git -C "$TRF/holder" remote add origin https://example.invalid/acme/holder.git
+trf_git -C "$TRF/holder" remote add origin https://example.invalid/acme/holder.git
 derive
 assert_eq "no field: a failure is the bundle-wide record" "gh query failed; deriving git-only" "$(rec degraded gh)"
 
