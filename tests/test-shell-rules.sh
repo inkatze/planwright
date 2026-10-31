@@ -223,13 +223,23 @@ engine_case "a pipeline continues past a blank and a comment line" shell-pipe-st
   'git log |' '' '  # keep the last' '  tail -n 1' 'rc=$?'
 engine_case "a \$'...' never closed fails closed" shell-mktemp-template exit2 \
   "x=\$'open" 'true'
+engine_case "a positional default holding a blank is still flagged" shell-dash-operand 1 \
+  'mv "${1:-a b}" x'
 engine_case "a heredoc never closed fails closed" shell-mktemp-template exit2 \
   'cat <<EOF' 'body'
 engine_case "a quote never closed fails closed" shell-mktemp-template exit2 \
   'x="open' 'true'
 
 fresh_root "$root"
-printf 'cd ${1}\033[2J\n' >"$root/scripts/a.sh"
+printf '%s\n' 'rmdir "$1/empty"' >"$root/scripts/a.sh"
+run_rule shell-dash-operand "$root"
+case "$out" in
+  *'takes the positional $1 with'*) pass "a report names the positional parameter, not the masked word" ;;
+  *) fail "a report did not name the positional alone: $out" ;;
+esac
+
+fresh_root "$root"
+printf 'cd ${1:-\033[2J}\n' >"$root/scripts/a.sh"
 run_rule shell-dash-operand "$root"
 case "$rc:$out" in
   *"$(printf '\033')"*) fail "a control byte from the scanned file reached the report" ;;

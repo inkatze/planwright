@@ -33,8 +33,12 @@ function rule_check(code, lineno,   cmds, nc, c, rest, n, k) {
       n = operands(rest)
       for (k = 1; k <= n; k++) {
         if (OPS[k] == "--") break
-        # Name the parameter alone: the rest of the word is masked quoted text.
-        if (OPS[k] ~ /^"?\$(\{)?[1-9@*]/ && match(OPS[k], /\$(\{[^}]*\}|[1-9@*])/)) return cmds[c] " takes the positional " substr(OPS[k], RSTART, RLENGTH) " with no -- before it, so a value starting with - reads as an option"
+        if (OPS[k] ~ /^"?\$(\{)?[1-9@*]/) {
+          # Name the parameter alone: the rest of the word is masked quoted
+          # text. A ${...} the operand split cuts short keeps its head.
+          if (!match(OPS[k], /\$(\{[^}]*\}|[1-9@*])/)) match(OPS[k], /\$\{?[1-9@*]/)
+          return cmds[c] " takes the positional " substr(OPS[k], RSTART, RLENGTH) " with no -- before it, so a value starting with - reads as an option"
+        }
       }
       rest = substr(rest, CW_END)
     }
