@@ -157,6 +157,12 @@ expect_count break-stop 3 2 doctrine/break.md "Three rules:" "- a" "- b" "" "* *
 expect_count link 2 1 doctrine/link.md "See [the doc](a.b.md#x) for two items:" "- a"
 expect_count abbreviation 2 3 doctrine/abbr.md "Three devs. Here are two items:" "- a" "- b" "- c"
 expect_count one-row-table 2 1 doctrine/one.md "A table of two rows:" "| x |" "---"
+expect_count paren-cut 2 3 doctrine/paren.md "Two files hold this (see the guide. It is long):" "- a" "- b" "- c"
+expect_count wrapped 3 2 doctrine/w.md "The guard reads three" "inputs:" "- a" "- b"
+assert_contains "a wrapped sentence is reported on its last line" "$out" "doctrine/w.md:2:"
+expect_count inline-span 3 2 doctrine/span.md '```x``` is a span.' "" "Three items:" "- a" "- b"
+expect_quiet aligned-table "It keeps 2 rows:" "" "| a | b |" "| :--- | ---: |" "| 1 | 2 |" "| 3 | 4 |"
+expect_quiet short-delimiter "Three rows:" "" "| a |" "|:-:|" "| 1 |" "| 2 |" "| 3 |"
 expect_count reference-plural 2 1 doctrine/ref.md "Two parts follow Task 12 rules:" "- a"
 
 expect_quiet nested "The scaffold offers two templates:" "" \
@@ -172,7 +178,7 @@ expect_quiet code-span 'The `three` word is code here:' "- a"
 expect_quiet parenthetical "These (the last 16 chars) apply:" "- a"
 expect_quiet earlier-sentence "One sentence names three things. The next leads the list:" "- a"
 expect_quiet fenced '```' "Three lines:" "- a" '```'
-expect_quiet sibling "- **Facet.** It offers two things:" "- next" "- last"
+expect_quiet sibling "- **Facet.** It offers two things:" "- next" "- other" "- last"
 
 # Untracked files are not read, and a tracked file removed from the work tree
 # is not either.
@@ -299,6 +305,16 @@ case "$out" in
     ;;
   *) echo "ok: C1 control bytes are stripped from the output" ;;
 esac
+
+# A CRLF file is read like an LF one.
+r="$tmp/crlf"
+make_repo "$r"
+mkdir -p "$r/doctrine"
+printf 'Three parts:\r\n- a\r\n- b\r\n' >"$r/doctrine/crlf.md"
+git -C "$r" add doctrine/crlf.md
+out=$(check "$r")
+assert "a CRLF file's mismatch is found" 1 $?
+assert_contains "the CRLF finding states both numbers" "$out" "states 3, lists 2"
 
 # The shipped tree is green under the shipped exemption list.
 out=$(/bin/sh "$CHECKER" </dev/null 2>&1)

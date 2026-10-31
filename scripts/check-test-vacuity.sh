@@ -46,8 +46,8 @@ Rules, each reported as file:line: rule:
                        tr, cat, wc, fold, column, nl, paste; not an awk program
                        calling exit, nor sort -c): the filter's status, not the
                        command under test. A read after the file enables
-                       pipefail (set -o pipefail) is exempt; set +o pipefail
-                       ends the exemption.
+                       pipefail (a set naming -o pipefail) is exempt; a set
+                       naming +o pipefail ends the exemption.
   masked-status        a status read after a command ending in `|| true` or
                        `|| :`, or an if/elif/while condition ending in one.
   self-comparison      a [ ], [[ ]] or test comparison of an operand to itself,
@@ -62,8 +62,9 @@ Excluding a finding: append `# vacuity-ok: <reason>` to the reported line; the
 reason is required.
 
 Exit codes: 0 clean; 1 a finding; 2 usage error, a root without tests/, an
-unreadable file, a symlink to a directory or a non-regular file, a heredoc
-left open at end of file, or a scan reaching no shell files.
+unreadable file, a file name holding a newline, a symlink to a directory or a
+non-regular file, a heredoc or quoted string left open at end of file, or a
+scan reaching no shell files.
 EOF
 }
 
@@ -83,6 +84,9 @@ root="${1:-$repo_root}"
 work="$(mktemp -d "${TMPDIR:-/tmp}/check-test-vacuity.XXXXXX")" \
   || fail_closed "could not create a temporary directory"
 trap 'rm -rf "$work"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 find -P "$root/tests" \( -type f -o -type l \) -print0 >"$work/all" 2>/dev/null \
   || fail_closed "find failed under the tests directory"
@@ -124,22 +128,48 @@ function word(x, dq) {
   else gsub(/[|;&#<>() \t$`]/, "_", x)
   return x
 }
-function subst(s,   i, c, depth) {
-  depth = 1
-  for (i = 1; i <= length(s); i++) {
+# A command substitution inside double quotes is scanned for its closing
+# paren with its own quoting honoured, and may span lines (state "D").
+function subst(s,   i, c, n) {
+  n = length(s)
+  for (i = 1; i <= n; i++) {
     c = substr(s, i, 1)
-    if (c == "(") depth++
-    else if (c == ")" && --depth == 0) return i
+    if (sq == "s") { if (c == "'") sq = ""; continue }
+    if (c == "\\") { i++; continue }
+    if (sq == "d") {
+      if (c == "\"") sq = ""
+      else if (c == "$" && substr(s, i + 1, 1) == "(") { i++; stk[++sdepth] = "d"; sq = "" }
+      continue
+    }
+    if (c == "'") sq = "s"
+    else if (c == "\"") sq = "d"
+    else if (c == "(") stk[++sdepth] = ""
+    else if (c == ")") { sq = stk[sdepth]; if (--sdepth == 0) return i }
+  }
+  return 0
+}
+function ansi_end(s,   i, c, n) {
+  n = length(s)
+  for (i = 1; i <= n; i++) {
+    c = substr(s, i, 1)
+    if (c == "\\") i++
+    else if (c == "'") return i
   }
   return 0
 }
 function strip(s,   o, c, k, last) {
   o = ""
   while (s != "") {
-    if (q == "s") {
-      k = index(s, "'")
+    if (q == "s" || q == "a") {
+      k = q == "s" ? index(s, "'") : ansi_end(s)
       if (!k) return o word(s, 0)
       o = o word(substr(s, 1, k - 1), 0); s = substr(s, k + 1); q = ""
+      continue
+    }
+    if (q == "D") {
+      k = subst(s)
+      if (!k) return o s
+      o = o substr(s, 1, k); s = substr(s, k + 1); q = "d"
       continue
     }
     if (q == "d") {
@@ -147,12 +177,12 @@ function strip(s,   o, c, k, last) {
       o = o word(substr(s, 1, RSTART - 1), 1); c = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
       if (c == "\"") q = ""
       else if (c == "\\") { o = o "_"; s = substr(s, 2) }
-      else { k = subst(s); if (!k) return o "$(" s; o = o "$(" substr(s, 1, k); s = substr(s, k + 1) }
+      else { o = o "$("; sdepth = 1; stk[1] = ""; sq = ""; q = "D" }
       continue
     }
     if (!match(s, /['"#\\]/)) return o s
     o = o substr(s, 1, RSTART - 1); c = substr(s, RSTART, 1); s = substr(s, RSTART + 1)
-    if (c == "'") { o = o "\002"; q = "s" }
+    if (c == "'") { q = substr(o, length(o), 1) == "$" ? "a" : "s"; o = o "\002" }
     else if (c == "\"") { o = o "\""; q = "d" }
     else if (c == "\\") { o = o "\\" substr(s, 1, 1); s = substr(s, 2) }
     else {
@@ -169,16 +199,26 @@ function filter_stage(p,   n, parts, w) {
   n = split(p, parts, /\|/)
   if (n < 2) return 0
   w = parts[n]
+  sub(/\001.*/, "", w)
   sub(/^[ \t({!]+/, "", w)
   while (w ~ /^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]/) sub(/^[^ \t]+[ \t]+/, "", w)
   if (w ~ /^(awk|[^ \t]*\/awk)[ \t]/ && w ~ /exit/) return 0
-  if (w ~ /^(sort|[^ \t]*\/sort)[ \t].*[ \t]-[A-Za-z]*[cC]/) return 0
-  sub(/[ \t;)&|\001].*/, "", w)
+  if (w ~ /^(sort|[^ \t]*\/sort)([ \t].*)?[ \t]-[A-Za-z]*[cC]/) return 0
+  sub(/[ \t;)&|].*/, "", w)
   sub(/.*\//, "", w)
   return w ~ /^(tail|head|tee|sed|awk|cut|sort|uniq|tr|cat|wc|fold|column|nl|paste)$/
 }
 # The status of a command substitution is the status of its assignment only.
-function outer(s) { while (gsub(/\([^()]*\)/, "V", s)) ; return s }
+function outer(s,   o, i, c, d, n) {
+  o = ""; d = 0; n = length(s)
+  for (i = 1; i <= n; i++) {
+    c = substr(s, i, 1)
+    if (d) { if (c == "(") d++; else if (c == ")" && --d == 0) o = o "V"; continue }
+    if (c ~ /[$<>]/ && substr(s, i + 1, 1) == "(") { d = 1; i++; continue }
+    o = o c
+  }
+  return o
+}
 function stage_of(s) { return s ~ /^[ \t]*[A-Za-z_][A-Za-z0-9_]*="?\$\(/ ? s : outer(s) }
 function reads_status(s) { return s ~ /^[ \t]*[^;|&$]*\$\?/ && s !~ /^[ \t]*[^$]*\$\(/ }
 function is_neg(w) { return w ~ /^(assert_not_|assert_no_|assert_absent|assert_lacks|refute)/ }
@@ -256,8 +296,8 @@ function statement(s, line,   segs, n, i, prev, seg, tgt) {
   for (i = 1; i <= n; i++) {
     seg = segs[i]
     if (seg ~ /^[ \t]*$/) continue
-    if (seg ~ /(^|[ \t])set[ \t]+(-[A-Za-z]*o|-o)[ \t]+pipefail/) pipefail = 1
-    if (seg ~ /(^|[ \t])set[ \t]+\+o[ \t]+pipefail/) pipefail = 0
+    if (seg ~ /(^|[ \t])set[ \t].*-[A-Za-z]*o[ \t]+pipefail/) pipefail = 1
+    if (seg ~ /(^|[ \t])set[ \t].*\+[A-Za-z]*o[ \t]+pipefail/) pipefail = 0
     S[++ns] = seg; SL[ns] = line
     if (ns > 1 && SL[ns - 1] >= line - 3 && reads_status(seg)) {
       prev = S[ns - 1]
@@ -273,7 +313,7 @@ function statement(s, line,   segs, n, i, prev, seg, tgt) {
       report(line, "piped-status", "the chained assertion reads a filter stage's status")
     self_compare(seg, line)
     classify(seg, line)
-    if (seg ~ /(^[ \t]*|[|&][ \t]*|(^|[ \t])(then|do|else)[ \t]+)(while|until|for)[ \t]/) { sp++; LA[sp] = 0; LC[sp] = "" }
+    if (seg ~ /(^[ \t]*|[|&({][ \t]*|\$\([ \t]*|(^|[ \t])(then|do|else)[ \t]+)(while|until|for)[ \t]/) { sp++; LA[sp] = 0; LC[sp] = "" }
     if (sp && (seg ~ /(^|[ \t])(fail|pass|ok)([ \t]|$)/ || seg ~ /(^|[ \t])(assert|expect)[A-Za-z_]*[ \t]/)) LA[sp] = 1
     tgt = counter_of(seg)
     if (sp && tgt != "") LC[sp] = LC[sp] " " tgt
@@ -286,31 +326,42 @@ function statement(s, line,   segs, n, i, prev, seg, tgt) {
     }
   }
 }
-# A heredoc opens on the physical line its operator sits on, even mid-statement;
-# a delimiter must start like a word, so an arithmetic shift is not one.
-function heredoc_open(s,   pre, delim) {
-  if (!match(s, /<<-?[ \t]*(\002|"|\\)?[A-Za-z_][A-Za-z0-9_.+-]*/)) return
-  pre = substr(s, 1, RSTART - 1)
-  if (substr(s, RSTART, 3) == "<<<" || gsub(/\(\(/, "&", pre) > gsub(/\)\)/, "&", pre)) return
-  delim = substr(s, RSTART, RLENGTH)
+# A heredoc opens on the physical line its operator sits on, even mid-statement,
+# its body read after that line; several queue in order. An unquoted delimiter
+# must start like a word, so an arithmetic shift is not one.
+function heredoc_open(s,   pre, delim, at) {
+  while (match(s, /<<-?[ \t]*((\002|"|\\)[A-Za-z0-9_]|[A-Za-z_])[A-Za-z0-9_.+-]*/)) {
+    at = RSTART; delim = substr(s, RSTART, RLENGTH); pre = substr(s, 1, at - 1)
+    s = substr(s, at + RLENGTH)
+    if (substr(pre, length(pre), 1) == "<" || substr(delim, 3, 1) == "<") continue
+    if (gsub(/\(\(/, "&", pre) > gsub(/\)\)/, "&", pre)) continue
+    hq[++hn] = delim
+  }
+}
+function next_heredoc(   delim, i) {
+  if (!hn) { heredoc = ""; return }
+  delim = hq[1]
+  for (i = 1; i < hn; i++) hq[i] = hq[i + 1]
+  hn--
   hd = (delim ~ /^<<-/)
   sub(/^<<-?[ \t]*(\002|"|\\)?/, "", delim)
   heredoc = delim
 }
 function scan(path,   r, raw, s, cur, start, body, i) {
-  heredoc = ""; q = ""; cur = ""; ns = 0; np = 0; sp = 0; pipefail = 0; negline = 0; pos = 0; nl = 0
+  heredoc = ""; hn = 0; q = ""; cur = ""; ns = 0; np = 0; sp = 0; pipefail = 0; negline = 0; pos = 0; nl = 0
   while ((r = (getline raw < path)) > 0) {
     nl++; sub(/\r$/, "", raw); R[nl] = raw
     if (heredoc != "") {
       body = raw
       if (hd) sub(/^\t+/, "", body)
-      if (body == heredoc) heredoc = ""
+      if (body == heredoc) next_heredoc()
       continue
     }
     if (q == "" && (raw ~ /^[ \t]*#/ || raw ~ /^[ \t]*$/)) continue
     s = strip(raw)
     if (cur == "") start = nl
-    if (q == "") heredoc_open(s)
+    heredoc_open(s)
+    if (hn && heredoc == "") next_heredoc()
     if (q != "") { cur = cur " " s; continue }
     if (s ~ /\\$/) { sub(/\\$/, "", s); cur = cur " " s; continue }
     cur = cur " " s
@@ -321,6 +372,7 @@ function scan(path,   r, raw, s, cur, start, body, i) {
   close(path)
   if (r < 0) { unreadable = 1; return }
   if (heredoc != "") { print ENVIRON["TV_ME"] ": " clean(file) ": a heredoc is left open at end of file" > "/dev/stderr"; broken = 1 }
+  if (q != "") { print ENVIRON["TV_ME"] ": " clean(file) ": a quoted string is left open at end of file" > "/dev/stderr"; broken = 1 }
   if (cur != "") statement(cur, start)
   for (i = 1; i <= np; i++)
     if (!floor_after(PC[i], PL[i]) && !annotated(PL[i]))

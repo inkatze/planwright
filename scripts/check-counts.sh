@@ -4,8 +4,7 @@
 #
 # Usage: check-counts.sh [--exempt <tsv>] [<root>]
 #   <root>  a git work tree (default: this script's repository)
-#   --exempt  the exemption list (default: the one beside this script,
-#             whatever the root)
+#   --exempt  the exemption list (default: the one beside this script)
 #   check-counts.sh --help | -h
 # Exit codes: 0 clean; 1 a finding or a stale exemption; 2 usage error or a
 # scan that cannot cover what it claims. --help states what is read and how.
@@ -64,13 +63,13 @@ substring of the introducing sentence, read from --exempt or else the list
 beside this script whatever the root. A row clearing no finding fails, and a
 repeated file and excerpt pair is malformed.
 
-A tracked file absent from the work tree is not read; a tracked symlink or
-non-regular file fails closed.
+A tracked file absent from the work tree is not read.
 
 Exit codes: 0 clean; 1 a finding or a stale exemption; 2 usage error, a root
 that is not a git work tree, an unreadable file or exemption list, a Draft
-candidate whose requirements.md cannot be parsed, a tracked name holding a
-newline, a malformed exemption row, or a scan reaching no files.
+candidate whose requirements.md cannot be parsed, a tracked symlink or
+non-regular file, a tracked name holding a newline, a malformed exemption row,
+or a scan reaching no files.
 EOF
 }
 
@@ -187,14 +186,20 @@ awk '
     }
     return n == 1 ? v : 0
   }
-  # Abbreviation dots are masked, length kept, so the cut lands in s itself.
-  function mask(s,   out, seg) {
+  # Abbreviation dots, code spans and parentheses are masked, length kept, so
+  # no sentence ends inside them and the cut lands in s itself.
+  function blank(s, re,   out, seg) {
     out = ""
-    while (match(s, /(^|[^A-Za-z])(e\.g|i\.e|etc|vs)\./)) {
-      seg = substr(s, RSTART, RLENGTH); gsub(/\./, "_", seg)
+    while (match(s, re)) {
+      seg = substr(s, RSTART, RLENGTH); gsub(/[.!?;]/, "_", seg)
       out = out substr(s, 1, RSTART - 1) seg; s = substr(s, RSTART + RLENGTH)
     }
     return out s
+  }
+  function mask(s) {
+    s = blank(s, "(^|[^A-Za-z])(e[.]g|i[.]e|etc|vs)[.]")
+    s = blank(s, "`[^`]*`")
+    return blank(s, "[(][^()]*[)]")
   }
   function last_sentence(s,   m, start) {
     m = mask(s); start = 1
@@ -220,7 +225,7 @@ awk '
   function count_rows(j,   k, c) {
     c = 0
     for (k = j; k <= n && !code[k] && is_table(L[k]); k++) c++
-    if (c >= 2 && L[j + 1] ~ /^ *\| *:?---/) c -= 2
+    if (c >= 2 && L[j + 1] ~ /^ *\| *:?-+:? *\|/) c -= 2
     return c
   }
   # A fence closes only on a bare run of its own character at least as long.
@@ -237,18 +242,18 @@ awk '
         }
         continue
       }
-      if (match(line, /^ *(```+|~~~+)/)) { code[n] = 1; fence = substr(line, RSTART, RLENGTH); gsub(/ /, "", fence) }
+      if (line ~ /^ *(```+[^`]*|~~~+.*)$/ && match(line, /^ *(```+|~~~+)/)) { code[n] = 1; fence = substr(line, RSTART, RLENGTH); gsub(/ /, "", fence) }
     }
     close(path)
     if (r < 0) { unreadable = 1; return }
     for (i = 1; i <= n; i++) {
       if (code[i] || L[i] !~ /:[ \t]*$/ || is_heading(L[i]) || is_table(L[i])) continue
+      j = i + 1
+      if (j <= n && L[j] ~ /^[ \t]*$/) j++
+      if (j > n || code[j] || !(is_item(L[j]) || is_table(L[j]))) continue
       s = i
       if (!is_item(L[i]))
         for (k = i - 1; k >= 1 && !code[k] && L[k] !~ /^[ \t]*$/ && !is_heading(L[k]) && !is_table(L[k]); k--) { s = k; if (is_item(L[k])) break }
-      j = i + 1
-      if (j <= n && L[j] ~ /^[ \t]*$/) j++
-      if (j > n || code[j]) continue
       if (is_item(L[s]) ? indent(L[j]) <= indent(L[s]) : indent(L[j]) < indent(L[s])) continue
       if (is_item(L[j])) got = count_items(j)
       else if (is_table(L[j])) got = count_rows(j)

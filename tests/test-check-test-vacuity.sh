@@ -190,6 +190,57 @@ expect_shape corpus-echo-done zero-row-floor \
 expect_shape corpus-inner-assert zero-row-floor \
   'while IFS= read -r row; do' '  for x in a b; do' '    check "$x" || fail "row"' '  done' 'done <"$CORPUS"'
 
+# Round-two shapes: lexing that must not lose its place, and exemptions that
+# must not leak.
+expect_shape after-ansi self-comparison \
+  "echo \$'it\\'s'" '[ x = x ] && pass "equal"'
+expect_shape after-escaped-quote self-comparison \
+  "echo it\\'s" '[ x = x ] && pass "equal"'
+expect_shape after-nested-subst self-comparison \
+  'case "$(cell "$(row "it'"'"'s here")")" in' '  x) ok "x" ;;' 'esac' '[ x = x ] && pass "equal"'
+expect_shape after-subst-paren self-comparison \
+  'x="$(printf %s "$y" | grep -v '"'"'"Bash('"'"')"' '[ x = x ] && pass "equal"'
+expect_shape after-two-heredocs self-comparison \
+  'cmd 3<<A <<B' 'a' 'A' "it's" 'B' '[ x = x ] && pass "equal"'
+expect_shape after-digit-delimiter self-comparison \
+  "cat <<'1END'" "it's" '1END' '[ x = x ] && pass "equal"'
+expect_shape after-here-string self-comparison \
+  'grep -q x <<<foo || fail "x"' '[ x = x ] && pass "equal"'
+expect_shape piped-subshell piped-status \
+  '( run | tail -1 )' '[ $? -eq 0 ] || fail "x"'
+expect_shape piped-awk-or-exit piped-status \
+  "run | awk '{print \$1}' || exit 1" '[ $? -eq 0 ] || fail "x"'
+expect_clean piped-sort-c-alone \
+  'printf "%s\n" "$seqs" | sort -c || fail "not sorted"'
+expect_clean piped-euo-pipefail \
+  'set -euo pipefail' 'run | tail -n 5' 'rc=$?' 'assert "it ran" 0 "$rc"'
+expect_clean piped-split-pipefail \
+  'set -e -o pipefail' 'run | tail -n 5' 'rc=$?' 'assert "it ran" 0 "$rc"'
+expect_shape corpus-brace-loop zero-row-floor \
+  'while IFS= read -r row; do' '  { while read -r b; do echo; done; } <x' \
+  '  check_row "$row" || fail "row"' 'done <"$CORPUS"'
+expect_shape corpus-fail-counter zero-row-floor \
+  'while IFS= read -r row; do' '  check_row "$row" || fails=$((fails + 1))' '  pass "row"' \
+  'done <"$CORPUS"' '[ "$fails" -eq 0 ] || fail "rows failed"'
+fixture open-quote "x='oops" '[ x = x ]'
+out=$(check open-quote)
+assert "a quoted string left open at end of file fails closed" 2 $?
+
+# Each rule honours an annotation on the line it reports.
+expect_clean annotated-self \
+  '[ x = x ] && pass "equal" # vacuity-ok: a smoke line'
+expect_clean annotated-piped \
+  'run | tail -n 5' 'rc=$? # vacuity-ok: tail is the subject'
+expect_clean annotated-chain \
+  'run | tee "$log" && pass "it ran" # vacuity-ok: tee is the subject'
+expect_clean annotated-masked-if \
+  'if run || :; then pass "it ran"; fi # vacuity-ok: run is advisory'
+expect_clean annotated-floor \
+  'while IFS= read -r row; do' '  check_row "$row" || fail "row"' \
+  'done <"$CORPUS" # vacuity-ok: the corpus is generated above'
+expect_clean annotated-no-control \
+  'out=$(run)' 'assert_not_contains "no error" "$out" "error" # vacuity-ok: run always prints'
+
 # Only tests/test-*.sh files answer for a positive control, and tests/fixtures/
 # is data.
 fixture helper-file 'out=$(run)'
