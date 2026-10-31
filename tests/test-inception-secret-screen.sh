@@ -290,6 +290,18 @@ if command -v gitleaks >/dev/null 2>&1; then
     assert_eq "gitleaks arm: a leak behind an archive-like name .$ext exits 1" "1" "$?"
   done
 
+  cp "$tmp/key.pem" "$tmp/unreadable-key.pem"
+  chmod 000 "$tmp/unreadable-key.pem"
+  if [ -r "$tmp/unreadable-key.pem" ]; then
+    echo "ok: gitleaks unreadable-file case skipped (the mode did not take effect here)"
+  else
+    out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/unreadable-key.pem" 2>&1)"
+    rc=$?
+    assert_eq "gitleaks arm: an unreadable file refuses rather than reporting clean" "2" "$rc"
+    assert_contains "gitleaks arm: the refusal says it could not read the path" "cannot read a requested path" "$out"
+  fi
+  chmod 644 "$tmp/unreadable-key.pem"
+
   # Each path reports its own result. A shared status would make every clean
   # path after the first hit re-print the previous path's captured output, so
   # one leak across two arguments would read as two.
