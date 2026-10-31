@@ -29,7 +29,7 @@ function rule_reset() { }
 function rule_check(code, lineno) {
   # The value may open with text before the substitution ("pre$(...)"), use
   # backticks, and carry redirections before the ||.
-  if (code ~ /(^|[ \t;(])[A-Za-z_][A-Za-z0-9_]*=[^ \t;|&]*(\$\(|`).*(\)|`)"?([ \t]+[0-9]*(<|>>?)&?[ \t]*[^ \t;|&]+)*[ \t]*\|\|[ \t]*(true|:)[ \t]*([;)&|]|$)/)
+  if (code ~ /(^|[ \t;(])[A-Za-z_][A-Za-z0-9_]*=[^ \t;|&]*(\$\(|`).*(\)|`)"?([ \t]+(&|[0-9]*)(<<<|<>|>\||>>|<&|>&|<|>)[ \t]*[^ \t;|&]+)*[ \t]*\|\|[ \t]*(true|:)[ \t]*([;)&|]|$)/)
     return "a command substitution failure is swallowed by a no-op alternative, so an empty value reads as absent"
   return ""
 }
