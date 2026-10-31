@@ -453,6 +453,10 @@ usage_fails 0 "missing required flag --y|--z" 'Run `scripts/feat-tool.sh one --x
 usage_fails 0 "missing required flag --a|--b|--c" 'Run `scripts/feat-tool.sh two`.'
 usage_fails 4 "unknown subcommand 'lst'" '```sh' 'cat <<EOF>out.txt' 'data' 'EOF' 'scripts/feat-tool.sh lst' '```'
 usage_fails 1 "unknown subcommand 'lst'" '```sh' 'printf "%s %s" "$(echo "(")" "$(scripts/feat-tool.sh lst)"' '```'
+usage_fails 4 "unknown subcommand 'lst'" '```sh' "cat <<'@@'" 'scripts/feat-tool.sh lst is data' '@@' 'scripts/feat-tool.sh lst' '```'
+usage_fails 4 "unknown subcommand 'lst'" '```sh' 'cat <<"END 1"' 'data' 'END 1' 'scripts/feat-tool.sh lst' '```'
+usage_fails 0 "unknown subcommand 'lst'" 'Run `echo $(printf \") "$(scripts/feat-tool.sh lst)"` here.'
+usage_fails 0 "missing required flag --x|-c|--cee" 'Run `scripts/feat-tool.sh three`.'
 # Wrapper and launcher options that take a value.
 for form in \
   'Run `env -u FOO scripts/feat-tool.sh lst`.' \
@@ -467,7 +471,9 @@ for form in \
   'Run `scripts/feat-tool.sh pick`, a choice met by its group.' \
   'Run `scripts/feat-tool.sh one --z`.' \
   'Run `scripts/feat-tool.sh two --c`, the outer choice met.' \
-  'Run `scripts/feat-tool.sh two --b`, the lent flag.'; do
+  'Run `scripts/feat-tool.sh two --b`, the lent flag.' \
+  'Run `scripts/feat-tool.sh three --cee`, an alias spelling.' \
+  'Run `scripts/feat-tool.sh three --x`, the inner choice unchecked.'; do
   uvariant up "$form"
   out="$("$CHECKER" --repo-root "$tmp/up" 2>&1)"
   assert "not flagged: $form" 0 $?

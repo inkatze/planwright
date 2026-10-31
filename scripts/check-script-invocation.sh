@@ -264,6 +264,9 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
           gi[d] = gi[d - 1]
           gs[d] = 1
           gf[d - 1] = 0
+        } else if (gr[d] && d > 1) {
+          # Required only under the alternative it sits in: not checked.
+          gr[d] = 0
         } else if (gr[d]) {
           gi[d] = ++nRF[key]
           RF[key, gi[d]] = "|"
@@ -319,9 +322,11 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       if (!d && alt && prevk != kind) return 0
       if (d && gr[d] && gf[d]) {
         if (kind == "flag") {
-          fl = parts[1]
-          sub(/=.*/, "", fl)
-          RF[key, gi[d]] = RF[key, gi[d]] fl "|"
+          for (j = 1; j <= np; j++) {
+            fl = parts[j]
+            sub(/=.*/, "", fl)
+            RF[key, gi[d]] = RF[key, gi[d]] fl "|"
+          }
         } else gm[d] = 1
         gf[d] = 0
       }
@@ -480,6 +485,7 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     L = length(s)
     for (; i <= L; i++) {
       c = substr(s, i, 1)
+      if (c == "\\") { i++; continue }
       if (c == "\047") { j = index(substr(s, i + 1), "\047"); if (!j) return 0; i += j; continue }
       if (c == "\042") {
         for (i++; i <= L && substr(s, i, 1) != "\042"; i++) if (substr(s, i, 1) == "\\") i++
@@ -653,7 +659,7 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       else if (TK[i] ~ /^[0-9]*<<-?[^<-]/) { d = TK[i]; sub(/^[0-9]*<<-?/, "", d) }
       else continue
       # The delimiter is a word; a redirection may follow it unspaced.
-      sub(/[^A-Za-z0-9_.-].*/, "", d)
+      sub(/[<>].*/, "", d)
       return d
     }
     return ""

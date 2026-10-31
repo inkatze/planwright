@@ -264,11 +264,12 @@ breadth:
   # or a word after a positional (its value unchecked) is a positional
   # argument. [ ] groups what is optional; ( ) is a required choice, met by
   # any one of the flags that open its alternatives (a choice opening an
-  # alternative lends its own; a choice with an alternative opened by a
-  # non-flag, or holding nothing required, requires nothing); | separates
-  # alternatives of one
-  # kind, and a choice between kinds is written inside ( ); ... repeats, and
-  # after a group repeats positionals only if the group holds one; -- ends
+  # alternative lends its own, a choice elsewhere inside one is not
+  # checked, and a choice with an alternative opened by a non-flag, or
+  # holding nothing required, requires nothing); | separates alternatives
+  # of one kind, and a choice between kinds is written inside ( ); ...
+  # repeats, and after a group repeats positionals only if the group holds
+  # one; -- ends
   # the options; a lone < or > (what the script reads or writes) ends the
   # synopsis. Literals, flags, and positionals outside every group are
   # required. A header that yields no synopsis, or one this grammar cannot

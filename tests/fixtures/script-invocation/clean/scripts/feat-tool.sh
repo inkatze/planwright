@@ -9,6 +9,7 @@
 #   feat-tool.sh pick ([--all] | --pid <p>)
 #   feat-tool.sh one ([--x] --y | --z)
 #   feat-tool.sh two ((--a | --b) | --c)
+#   feat-tool.sh three (--x (--a | --b) | -c|--cee)
 #   feat-tool.sh exec -- <cmd>...
 #   feat-tool.sh rows [--tag <t>]... [-1]
 #   feat-tool.sh wait (--pid <pid> |
