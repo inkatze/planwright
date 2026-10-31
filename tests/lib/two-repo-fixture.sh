@@ -1,25 +1,15 @@
 # shellcheck shell=bash
-# two-repo-fixture.sh — a sourced harness: two work repositories, `alpha` and
-# `beta`, registered in a fixture work-repository registry against a marked
-# spec root held by a third repository, the holder, plus a gh stub whose pull
-# request evidence is per repository. Shared by the per-task derivation tests
-# and the holder-dispatch tests, so both read one layout.
+# two-repo-fixture.sh — a sourced harness: work repositories `alpha` and
+# `beta` registered in a fixture work-repository registry against a marked
+# spec root (project `hub`) at $TRF/holder/specs, held by a third repository,
+# plus a gh stub on PATH reading $TRF/gh/<repo>.tsv (headRefName, state,
+# number, mergedAt) and failing for a repository with $TRF/gh/<repo>.fail.
+# Shared by the per-task derivation tests and the holder-dispatch tests.
 #
-# Layout under $TRF (an absolute, symlink-free temp directory):
-#   holder/specs                the marked spec root (project `hub`)
-#   holder/specs/<spec>/        a bundle written by trf_bundle
-#   src/alpha, src/beta         work repositories, origin remotes on a
-#                               reserved domain, spec_root pointing at the root
-#   pdata/                      CLAUDE_PLUGIN_DATA, holding the registry
-#   ghstub/gh, gh/<repo>.tsv    the stub and each repository's PR rows
-#                               (headRefName<TAB>state<TAB>number<TAB>mergedAt);
-#                               gh/<repo>.fail makes that repository's query fail
-#
-# Every command a test runs against the fixture goes through trf_env, which
-# pins HOME, the plugin data home, the config layers, and git's config to the
-# fixture, and puts the stub first on PATH.
-#
-# Usage: trf_setup <script-dir> [<spec>]; then trf_env <command...>.
+# Usage: trf_setup <scripts-dir> [<spec>], then run every command through
+# trf_env, which pins HOME, the plugin data home, the config layers, and git's
+# config to the fixture.
+unset CDPATH
 
 trf_env() {
   env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR \
