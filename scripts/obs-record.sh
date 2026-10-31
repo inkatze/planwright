@@ -281,8 +281,8 @@ screen_class() {
 # dup_matches — print the uid of every live or archived fragment this one
 # duplicates: the same [<scope>] token, and a shared test path (a whole path
 # token with a tests/ component, compared in full) plus a shared quoted string
-# (a "..." or `...` span; one with no whitespace naming a test path counts as
-# the path). The slug is no key, since recurring kinds share one, and
+# (a "..." or `...` span; a blank one is no key, and one with no whitespace
+# naming a test path counts as the path). The slug is no key, since recurring kinds share one, and
 # miss-ledger fragments on either side are exempt, their identity being PR and
 # path. Fragment content is read as data only.
 dup_matches() {
@@ -290,9 +290,9 @@ dup_matches() {
   # shellcheck disable=SC2016 # an awk program; the backticks are its regex
   dm_prog='
     function tpath(w) {
-      sub(/^\.\//, "", w)
-      sub(/#.*/, "", w)
-      sub(/[.!?\/]+$/, "", w)
+      sub(/^\**(\.\/)?/, "", w)
+      sub(/[.!?\/*]+$/, "", w)
+      sub(/#L[0-9]+(-L?[0-9]+)?$/, "", w)
       return w ~ /(^|\/)tests\/[^\/]/ ? w : ""
     }
     function keys(t, paths, quotes,   s, tok, w, n, i) {
@@ -305,7 +305,7 @@ dup_matches() {
       }
       # No literal brace pair anywhere in this program: find -exec would
       # substitute it. \047 is the single quote the shell string cannot hold.
-      n = split(t, w, /[]{[ \t"`(),;:<>=|*\047}]+/)
+      n = split(t, w, /[]{[ \t"`(),;:<>=|\047}]+/)
       for (i = 1; i <= n; i++) if (tpath(w[i]) != "") paths[tpath(w[i])] = 1
     }
     function shares(a, b,   k) {

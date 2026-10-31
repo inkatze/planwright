@@ -176,15 +176,18 @@ for t in "again 'tests/a+b.sh' said \"e\"" 'tests/a+b.sh#L3 said "e"' \
   rec --obs-dir "$o" --slug n --scope planwright --text "$t" >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 1 ] || fail "9: a quoted, anchored or empty-quote variant was not refused: $t"
 done
+seed "$o" entries g abcd0059 planwright 'tests/g-*.sh and tests/a#b.sh fail "held"'
+seed "$o" entries b abcd0069 planwright 'tests/e.sh said "" and tests/e2.sh said " "'
 for t in 'plugins/b/tests/run.sh logged "err"' 'tests/a+c.sh said "e"' \
-  'mytests/m.sh printed "m"'; do
+  'mytests/m.sh printed "m"' 'tests/g-*.bats fail "held"' 'tests/a#c.sh fail "held"' \
+  'tests/e.sh said ""' 'tests/e2.sh said " "'; do
   rec --obs-dir "$o" --slug n --scope planwright --text "$t" >/dev/null \
     || fail "9: a distinct or non-test path was refused: $t"
 done
 seed "$o" entries w abcd0049 planwright 'tests/w.sh printed "tests/w.sh: lock held"'
 for t in 'see ./tests/a+b.sh: it said "e".' 'again skills/a/tests/run.sh. "err"' \
   'see (tests/a+b.sh) "e"' 'tests/a+b.sh, then "e"' '"tests/a+b.sh" said "e"' \
-  'again tests/w.sh printed "tests/w.sh: lock held"'; do
+  'again tests/w.sh printed "tests/w.sh: lock held"' '**tests/a+b.sh** said "e"'; do
   rc=0
   rec --obs-dir "$o" --slug n --scope planwright --text "$t" >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 1 ] || fail "9: the same path in other punctuation was not refused: $t"
