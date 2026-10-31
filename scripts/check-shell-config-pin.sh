@@ -45,9 +45,9 @@ function literal_call(code,   s, p, w, pre) {
 }
 function rule_check(code, lineno,   v, m) {
   if (self) return ""
-  # An export pins whatever its value holds; a plain assignment pins unless it
-  # is only a prefix to the command after it.
-  if (code ~ /(^|[ \t;])export[ \t]+PLANWRIGHT_REPO_ROOT([= \t;]|$)/) pinned = 1
+  # An exported assignment pins whatever its value holds; a plain one pins
+  # unless it is only a prefix to the command after it.
+  if (code ~ /(^|[ \t;])export[ \t]+PLANWRIGHT_REPO_ROOT=/) pinned = 1
   if (code ~ /(^|[ \t;])PLANWRIGHT_REPO_ROOT=/ && code !~ /PLANWRIGHT_REPO_ROOT=[^ \t;]*[ \t]+[^ \t;|&]/) pinned = 1
   if (match(RAW, /(^|[ \t;])[A-Za-z_][A-Za-z0-9_]*="?[^ \t"]*config-get\.sh"?[ \t]*($|;)/)) {
     m = substr(RAW, RSTART, RLENGTH)
