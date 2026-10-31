@@ -61,7 +61,6 @@ function xs(k,   r) {
 function push(c) { st = st c }
 function pop() { if (length(st) > 1) st = substr(st, 1, length(st) - 1) }
 function top() { return substr(st, length(st), 1) }
-# A quote (or a ${...} inside one) is open, so the logical line continues.
 # arith_open(s): s (a logical line up to some point) leaves an arithmetic
 # $(( or command-position (( open. Text inside ${...} is not counted.
 function arith_open(s,   opens) {
@@ -70,6 +69,7 @@ function arith_open(s,   opens) {
   opens += gsub(/(^|[;&|!{(`][ \t]*|(^|[ \t])(if|then|do|else|elif|while|until)[ \t]+)\(\(/, "&", s)
   return opens > gsub(/\)\)/, "&", s)
 }
+# A quote (or a ${...} inside one) is open, so the logical line continues.
 function inquote(   t) { t = top(); return (t == "s" || t == "d" || t == "a" || t == "B") }
 # mask(s): one physical line through the quote/substitution state machine,
 # carrying st across lines. Sets cmt to the comment text (or "").
