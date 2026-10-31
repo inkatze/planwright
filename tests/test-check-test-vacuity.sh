@@ -1,7 +1,7 @@
 #!/bin/bash
 # Tests for scripts/check-test-vacuity.sh, the test-vacuity guard (REQ-F1.4).
 #
-# shellcheck disable=SC2016 # fixture bodies are literal shell the guard reads.
+# shellcheck disable=SC2016,SC1003 # fixture bodies are literal shell the guard reads.
 set -u
 unset CDPATH
 LC_ALL=C
@@ -52,7 +52,7 @@ fixture() {
   } >"$f_root/tests/test-case.sh" || exit 1
 }
 
-check() { /bin/bash "$CHECKER" "$tmp/$1" 2>&1; }
+check() { /bin/bash "$CHECKER" "$tmp/$1" </dev/null 2>&1; }
 
 # expect_shape <name> <rule> <line>...: the fixture fails naming the rule.
 expect_shape() {
@@ -125,6 +125,100 @@ expect_clean not-a-corpus \
   'while IFS= read -r row; do' '  check_row "$row" || fail "row $row"' \
   'done <"$tmp/out"'
 
+# More shapes of each rule, and the twins each must leave alone.
+expect_shape neg-grep no-positive-control \
+  'out=$(run)' '! grep -q error "$log"'
+expect_clean test-control \
+  'out=$(run)' '[ -n "$out" ] || fail "no output"' 'assert_not_contains "no error" "$out" "error"'
+expect_clean grep-control \
+  'grep -q done "$log" || fail "not done"' 'assert_not_contains "no error" "$out" "error"'
+expect_shape piped-unspaced piped-status \
+  'run|tail -1' 'rc=$?' 'assert "it ran" 0 "$rc"'
+expect_shape piped-sed piped-status \
+  'run | sed -n 1p' 'rc=$?' 'assert "it ran" 0 "$rc"'
+expect_shape piped-quoted-assign piped-status \
+  'out="$(run | tail -1)"' 'rc=$?' 'assert "it ran" 0 "$rc"'
+expect_shape piped-assign-chain piped-status \
+  'out=$(run | tail -1) || fail "it failed"'
+expect_shape piped-pipefail-off piped-status \
+  'set -o pipefail' 'set +o pipefail' 'run | tail -n 5' 'rc=$?' 'assert "it ran" 0 "$rc"'
+expect_shape piped-before-pipefail piped-status \
+  'run | tail -n 5' 'rc=$?' 'assert "it ran" 0 "$rc"' 'set -euo pipefail'
+expect_shape piped-continued piped-status \
+  'run \' '  | tail -n 5' 'rc=$?' 'assert "it ran" 0 "$rc"'
+expect_clean piped-awk-exit \
+  'printf "%s\n" "$out" | awk '"'"'/x/ { f = 1 } END { exit !f }'"'"' || fail "no x"'
+expect_clean piped-sort-check \
+  'printf "%s\n" "$seqs" | sort -n -c || fail "not sorted"'
+expect_clean piped-in-test \
+  '[ "$(run | tail -1)" = done ] || fail "not done"'
+expect_clean piped-far-read \
+  'run | tail -n 5' 'a=1' 'b=2' 'c=3' 'd=4' 'rc=$?' 'assert "it ran" 0 "$rc"'
+expect_shape masked-colon masked-status \
+  'out=$(run) || :' 'rc=$?' 'assert "it ran" 0 "$rc"'
+expect_clean self-substitution \
+  '[ "$(gen)" = "$(gen)" ] || fail "nondeterministic"'
+expect_clean self-in-string \
+  'printf "%s\n" "while read r; do' '  [ a = a ]' 'done"' 'assert_contains "x" "$out" "y"'
+expect_clean self-in-heredoc \
+  'cat >"$f" <<EOF' '[ a = a ]' 'EOF' 'assert_contains "x" "$out" "y"'
+expect_clean self-in-continued-heredoc \
+  'cat >"$f" <<'"'"'BODY'"'"' &&' '[ a = a ]' 'BODY' '  pass "written"'
+expect_shape self-after-shift self-comparison \
+  'n=$((1 << 2))' '[ x = x ] && pass "equal"'
+expect_clean self-in-comment \
+  '# [ x = x ] reads as a comment' 'assert_contains "x" "$out" "y"'
+expect_shape counter-incr-form zero-row-floor \
+  'while IFS= read -r row; do' '  ((n++))' '  check_row "$row" || fail "row"' \
+  'done <"$CORPUS"' '[ "$n" -gt -1 ] || fail "no rows"'
+expect_clean counter-array \
+  'while IFS= read -r row; do' '  rows+=("$row")' '  check_row "$row" || fail "row"' \
+  'done <"$CORPUS"' '[ "${#rows[@]}" -gt 0 ] || fail "no rows"'
+expect_clean counter-min-var \
+  'while IFS= read -r row; do' '  n=$((n + 1))' '  check_row "$row" || fail "row"' \
+  'done <"$CORPUS"' '[ "$n" -lt "$CORPUS_MIN_ROWS" ] && fail "too few rows"'
+expect_shape floor-before-loop zero-row-floor \
+  '[ "$n" -gt 0 ] || fail "no rows"' 'while IFS= read -r row; do' '  n=$((n + 1))' \
+  '  check_row "$row" || fail "row"' 'done <"$CORPUS"'
+expect_clean corpus-no-assert \
+  'while IFS= read -r row; do' '  printf "%s\n" "$row" >>"$out"' 'done <"$CORPUS"'
+expect_shape corpus-nested-pipe zero-row-floor \
+  'while IFS= read -r row; do' '  printf "%s\n" "$row" | while read -r y; do :; done' \
+  '  check_row "$row" || fail "row"' 'done <"$CORPUS"'
+expect_shape corpus-echo-done zero-row-floor \
+  'while IFS= read -r row; do' '  log done' '  check_row "$row" || fail "row"' 'done <"$CORPUS"'
+expect_shape corpus-inner-assert zero-row-floor \
+  'while IFS= read -r row; do' '  for x in a b; do' '    check "$x" || fail "row"' '  done' 'done <"$CORPUS"'
+
+# Only tests/test-*.sh files answer for a positive control, and tests/fixtures/
+# is data.
+fixture helper-file 'out=$(run)'
+printf '%s\n' '#!/bin/bash' 'assert_not_contains "no error" "$out" "error"' >"$tmp/helper-file/tests/lib.sh"
+out=$(check helper-file)
+assert "a helper outside test-*.sh needs no positive control" 0 $?
+fixture fixtures-data 'out=$(run)'
+mkdir -p "$tmp/fixtures-data/tests/fixtures"
+printf '%s\n' '#!/bin/bash' '[ x = x ]' >"$tmp/fixtures-data/tests/fixtures/case.sh"
+out=$(check fixtures-data)
+assert "tests/fixtures/ is not scanned" 0 $?
+
+# A symlinked test is scanned; a symlink to a directory or device is refused.
+fixture linked 'out=$(run)'
+printf '%s\n' '#!/bin/bash' '[ x = x ]' >"$tmp/linked/real.sh"
+ln -s "$tmp/linked/real.sh" "$tmp/linked/tests/test-link.sh"
+out=$(check linked)
+assert "a symlinked test is scanned" 1 $?
+assert_contains "the symlinked test is named" "$out" "tests/test-link.sh"
+fixture linked-dir 'out=$(run)'
+ln -s "$tmp" "$tmp/linked-dir/tests/away"
+out=$(check linked-dir)
+assert "a symlinked directory is refused" 2 $?
+
+# A heredoc left open at end of file cannot be reported clean.
+fixture open-heredoc 'cat <<EOF' 'never closed'
+out=$(check open-heredoc)
+assert "an unterminated heredoc fails closed" 2 $?
+
 # An annotated line is a recorded exclusion; an empty reason is not.
 expect_clean annotated \
   'out=$(run) || true' 'rc=$? # vacuity-ok: run always exits 0, the output is the subject' \
@@ -144,11 +238,15 @@ assert_contains "the empty scan says so" "$out" "no shell files"
 out=$(/bin/bash "$CHECKER" --bogus 2>&1)
 assert "an unknown option is a usage error" 2 $?
 
-# The shipped test surface is green.
-out=$(/bin/bash "$CHECKER" 2>&1)
-rc=$?
-assert "this repository's test surface is green" 0 "$rc"
-[ "$rc" -eq 0 ] || printf '%s\n' "$out" >&2
+fixture unreadable 'out=$(run)'
+chmod 000 "$tmp/unreadable/tests/test-case.sh"
+if [ -r "$tmp/unreadable/tests/test-case.sh" ]; then
+  echo "ok: skipped the unreadable-file case: the running user reads mode-000 files"
+else
+  out=$(check unreadable)
+  assert "an unreadable test file fails closed" 2 $?
+fi
+chmod 644 "$tmp/unreadable/tests/test-case.sh"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures check(s) failed" >&2

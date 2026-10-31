@@ -108,6 +108,15 @@ mise run check      # the full local equivalent of the CI gate
   test before every source of `scripts/echo-safety.sh`, and every
   `scripts/*.sh` committed at the mode its first line declares (100755 with a
   shebang, 100644 for a shebang-less sourced library), read from the git index;
+- the count-versus-list check (`check:counts`): a count stated in the
+  sentence introducing a Markdown list or table equals its length, over the
+  tracked doctrine, skill, docs, Draft-bundle and `specs/_pending/` prose,
+  with exemptions in `scripts/check-counts-exempt.tsv`;
+- the test-vacuity check (`check:test-vacuity`): no test under `tests/`
+  asserts only absences, reads a status from a pipeline's filter stage or
+  past an always-true alternative, compares an operand to itself, or runs a
+  corpus loop with no row floor; an exclusion is a `# vacuity-ok: <reason>`
+  annotation on the reported line;
 - the shebang-honoring invocation check (`check:script-invocation`): no line in
   a skill or doctrine doc runs a script whose shebang names bash through `sh`;
 - the bash 3.2 construct lint (`check:bash32`): macOS ships bash 3.2 as
