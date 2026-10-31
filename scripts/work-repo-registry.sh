@@ -140,8 +140,7 @@ default_root() {
 }
 
 marker_project() {
-  mp_dir=$(/bin/sh "$root_helper" marker "$1" 2>/dev/null) || return 1
-  sed -n 's/^project:[[:space:]]*//p' "$mp_dir/planwright-spec-root.yml" | head -1 | sed 's/[[:space:]]*$//'
+  /bin/sh "$root_helper" marker --project "$1" 2>/dev/null
 }
 
 home=""
