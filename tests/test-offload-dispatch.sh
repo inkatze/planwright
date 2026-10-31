@@ -217,6 +217,18 @@ done
 # mission-control session's row token; a window handed none drops it.
 grep -A1 -x -- '-u' "$tmp/tmux-argv" | grep -qx PLANWRIGHT_MC_TOKEN \
   || fail "dispatch tmux --profile mission-control with no token: an inherited PLANWRIGHT_MC_TOKEN is not dropped"
+# The token is taken only as the launcher's explicit argument, never from
+# the dispatcher's own environment.
+: >"$tmp/tmux-argv"
+PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_MC_TOKEN=tok-env /bin/sh "$script" \
+  dispatch tmux "$promptfile" --profile mission-control --name mc-alpha-mc-1 --scope spec:alpha-3 >/dev/null \
+  || fail "dispatch tmux --profile mission-control with an inherited token exited nonzero"
+grep -q 'PLANWRIGHT_MC_TOKEN=' "$tmp/tmux-argv" && fail "dispatch tmux --profile mission-control: a token from the environment reached the window"
+: >"$tmp/tmux-argv"
+PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_MC_TOKEN=tok-env /bin/sh "$script" \
+  dispatch tmux "$promptfile" --profile mission-control --mc-token tok-arg --name mc-alpha-mc-2 --scope spec:alpha-3 >/dev/null \
+  || fail "dispatch tmux --profile mission-control --mc-token exited nonzero"
+grep -qx 'PLANWRIGHT_MC_TOKEN=tok-arg' "$tmp/tmux-argv" || fail "dispatch tmux --mc-token: the window does not hold the token it was given"
 : >"$tmp/tmux-argv"
 PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_MC_TOKEN=tok-1 /bin/sh "$script" \
   dispatch tmux "$promptfile" --profile worker --name mc-alpha-worker-1 --scope spec:alpha-3 >/dev/null \
