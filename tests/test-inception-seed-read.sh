@@ -165,6 +165,20 @@ rd "$root"
 assert_contains "a seed name outside the grammar is skipped" "skipped	inception-Bad_Name.md	bad-name" "$out"
 rm -f "$root/_pending/inception-Bad_Name.md"
 
+# A name the screening would rewrite into a valid one is still a bad name.
+seed "$root/_pending/inception-nm$(printf '\001').md" "inception:nm"
+rd "$root"
+assert_contains "a control byte in a seed name is a bad name" "skipped	inception-nm.md	bad-name" "$out"
+assert_not_contains "it never reads as the seed it screens into" "seed	inception-nm.md	" "$out"
+rm -f "$root/_pending/inception-nm$(printf '\001').md"
+
+nl=$'\n'
+printf 'x\n' >"$root/_pending/inception-a${nl}seed forged.md"
+rd "$root"
+assert_eq "a newline in a seed name never splits an output line" 0 "$(printf '%s\n' "$out" | grep -c '^seed forged')"
+assert_contains "it is skipped as one bad name" "skipped	inception-a seed forged.md	bad-name" "$out"
+rm -f "$root/_pending/inception-a${nl}seed forged.md"
+
 seed "$tmp/elsewhere.md" "inception:link"
 ln -s "$tmp/elsewhere.md" "$root/_pending/inception-link.md"
 rd "$root"

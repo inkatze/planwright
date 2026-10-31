@@ -48,9 +48,12 @@ clean() { tr -d '\000' | tr '\t' ' ' | awk '{ gsub(/[\001-\037\177]/, ""); gsub(
 found=0
 for f in "$pdir"/inception-*.md; do
   [ -e "$f" ] || [ -L "$f" ] || continue
-  name=$(basename "$f" | clean)
+  raw=${f##*/}
+  name=$(printf '%s' "$raw" | tr '\n' ' ' | clean)
   found=1
-  if ! printf '%s\n' "$name" | grep -Eqx 'inception-[a-z0-9][a-z0-9-]{0,63}(\.[a-z0-9][a-z0-9-]{0,31})?\.md'; then
+  # A name the screening changed is bad however it reads afterwards: it
+  # would collide with the seed it screens into.
+  if [ "$raw" != "$name" ] || ! printf '%s\n' "$name" | grep -Eqx 'inception-[a-z0-9][a-z0-9-]{0,63}(\.[a-z0-9][a-z0-9-]{0,31})?\.md'; then
     printf 'skipped\t%s\tbad-name\n' "$name"
     continue
   fi
