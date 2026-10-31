@@ -317,7 +317,7 @@ dup_matches() {
     FNR == 1 {
       n = FILENAME
       sub(/.*\//, "", n)
-      if (n ~ /-review-miss-[0-9a-f]+\.md$/) next
+      if (n ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-review-miss-[0-9a-f]+\.md$/) next
       L = length(n)
       uid = substr(n, L - 10, 8)
       if (substr(n, L - 11, 1) != "-" || substr(n, L - 2) != ".md" || uid !~ /^[0-9a-f]+$/) next

@@ -127,6 +127,19 @@ o=$(store s6)
 seed "$o" entries review-miss abab0006 planwright "$LIVE_TEXT"
 rec --obs-dir "$o" --slug review-miss --scope planwright --text "$DUP_TEXT" >/dev/null \
   || fail "6: a miss-ledger fragment matching another was refused"
+o=$(store s6new)
+seed "$o" entries gate-lock abab0016 planwright "$LIVE_TEXT"
+rec --obs-dir "$o" --slug review-miss --scope planwright --text "$DUP_TEXT" >/dev/null \
+  || fail "6: a new miss-ledger fragment matching an ordinary one was refused"
+o=$(store s6old)
+seed "$o" entries review-miss abab0026 planwright "$LIVE_TEXT"
+rec --obs-dir "$o" --slug gate-lock --scope planwright --text "$DUP_TEXT" >/dev/null \
+  || fail "6: an ordinary fragment matching a stored miss-ledger one was refused"
+o=$(store s6ci)
+seed "$o" entries ci-review-miss abab0036 planwright "$LIVE_TEXT"
+rc=0
+rec --obs-dir "$o" --slug gate-lock --scope planwright --text "$DUP_TEXT" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || fail "6: a ci-review-miss slug was exempted as a miss-ledger fragment"
 echo "ok 6: a miss-ledger fragment is not refused"
 
 # --- 7. no match across scopes ---------------------------------------------
