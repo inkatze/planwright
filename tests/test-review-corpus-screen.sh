@@ -192,7 +192,10 @@ mkdir -p "$T/c1"
 csi=$(printf '\233')
 # A C1 byte (0x9B is a one-byte CSI) in a refused file name must not reach the
 # terminal; APFS refuses a name that is not valid UTF-8, so macOS skips this.
-if (LC_ALL=C; : >"$T/c1/x${csi}acmereview-0000abcd.md") 2>/dev/null; then
+if (
+  LC_ALL=C
+  : >"$T/c1/x${csi}acmereview-0000abcd.md"
+) 2>/dev/null; then
   out=$(LC_ALL=C "$SCREEN" --text --names "$names" "$T/c1" 2>&1)
   assert_exit "text mode refuses a listed name beside a C1 byte" 1 $?
   case $out in

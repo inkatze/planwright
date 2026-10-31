@@ -37,7 +37,8 @@
 #
 # Exit codes: 0 every row (or file) passes; 1 one or more refused (each named
 # on stderr); 2 usage error, an unreadable corpus, list or path, a wrong
-# header, or a corpus with zero rows (or paths holding no files).
+# header, or a corpus with zero rows (or, in --text, paths holding no files,
+# a symlink or other non-regular file, or a file holding a NUL byte).
 set -eu
 LC_ALL=C
 export LC_ALL
@@ -154,7 +155,7 @@ if [ "$text" -eq 1 ]; then
     # rather than read through it, as check-obs.sh does. A trailing slash
     # would make -L test the link's target, so it is tested without one.
     q=$p
-    while :; do case $q in ?*/) q=${q%/} ;; *) break ;; esac; done
+    while :; do case $q in ?*/) q=${q%/} ;; *) break ;; esac done
     if [ -L "$q" ]; then
       printf '%s\n' "$prog: a path is a symlink" >&2
       exit 2
