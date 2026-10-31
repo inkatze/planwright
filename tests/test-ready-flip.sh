@@ -280,7 +280,8 @@ check "the handoff says flipped" grep -q 'flipped' <<<"$OUT"
 echo "# version 3 parks as version 2; an undefined version is refused (invariant-tasks REQ-F1.7)"
 # redeclare <version> — the unit's tasks.md re-declared, committed and pushed.
 redeclare() {
-  sed "s/^\\*\\*Format-version:\\*\\* 2\$/**Format-version:** $1/" "$F/wt/$TASKS" >"$F/wt/$TASKS.new"
+  sed "s/^\\*\\*Format-version:\\*\\* 2\$/**Format-version:** $1/; s/^- \\*\\*Deliverables:\\*\\* x\$/&\\
+- **Repository:** alpha/" "$F/wt/$TASKS" >"$F/wt/$TASKS.new"
   mv "$F/wt/$TASKS.new" "$F/wt/$TASKS"
   gitf commit -q -am "chore: version $1"
   gitf push -q origin "$BRANCH" 2>/dev/null
@@ -294,6 +295,7 @@ for v in 3 4; do
   before=$(origin_head)
   run_helper flip --spec specs/demo --task 1
   if [ "$v" = 3 ]; then
+    check "the version 3 fixture carries a Repository: field" grep -q '^- \*\*Repository:\*\* alpha$' "$F/wt/$TASKS"
     check "a version 3 failing rollup parks (exit 4)" [ "$CODE" = 4 ]
     check "the version 3 park names the predicate" grep -q '^- \*\*Task 1\*\* — pending ready-flip: ci-rollup' <<<"$(bullet)"
   else
