@@ -4,7 +4,8 @@
 #
 # Usage: check-counts.sh [--exempt <tsv>] [<root>]
 #   <root>  a git work tree (default: this script's repository)
-#   --exempt  the exemption list (default: scripts/check-counts-exempt.tsv)
+#   --exempt  the exemption list (default: the one beside this script,
+#             whatever the root)
 #   check-counts.sh --help | -h
 # Exit codes: 0 clean; 1 a finding or a stale exemption; 2 usage error or a
 # scan that cannot cover what it claims. --help states what is read and how.
@@ -15,6 +16,8 @@ set -uf
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# <root> alone names the repository read, never an inherited one.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 me=check-counts
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
@@ -48,18 +51,25 @@ enumerations are the sign-off cross-check's. Fenced code is not prose.
 Checked: a prose line ending in ':' (a paragraph, or a list item's own text)
 followed, at most one blank line later, by a list or a table. Its last sentence
 must hold exactly one plain count: a number word from two to twenty, or a
-numeral before a plural word that no reference word (task, step, phase,
-section, wave, stage, round, version, line, item) precedes. Code spans,
-hyphenated words, and a second distinct count make the sentence uncounted.
+numeral of 2 or more before a plural word of four letters or more that no
+reference word (task, step, phase, section, wave, stage, round, version,
+line, item, pr, issue, run, §) precedes. A count inside a code span, inside
+parentheses, or in a hyphenated word is not read; a second distinct count
+makes the sentence uncounted.
 The list's length is its top-level items (nested items and continuation
 paragraphs belong to their item); a table's is its body rows.
 
 Exemptions: one file<TAB>excerpt<TAB>reason row per finding, the excerpt a
-substring of the introducing sentence. A row clearing no finding fails.
+substring of the introducing sentence, read from --exempt or else the list
+beside this script whatever the root. A row clearing no finding fails, and a
+repeated file and excerpt pair is malformed.
+
+A tracked file absent from the work tree is not read.
 
 Exit codes: 0 clean; 1 a finding or a stale exemption; 2 usage error, a root
-that is not a git work tree, an unreadable file or exemption list, a malformed
-exemption row, or a scan reaching no files.
+that is not a git work tree, an unreadable file or exemption list, a Draft
+candidate whose requirements.md cannot be parsed, a tracked name holding a
+newline, a malformed exemption row, or a scan reaching no files.
 EOF
 }
 
@@ -99,8 +109,12 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-git -C "$root" ls-files -z -- doctrine skills docs specs >"$work/tracked" 2>"$work/err" \
+git -C "$root" ls-files -z -- doctrine skills docs specs >"$work/tracked" 2>/dev/null \
   || fail_closed "git ls-files failed"
+
+nuls=$(tr -cd '\000' <"$work/tracked" | wc -c) || fail_closed "the file list could not be read"
+lines=$(tr '\000' '\n' <"$work/tracked" | wc -l) || fail_closed "the file list could not be read"
+[ "$nuls" -eq "$lines" ] || fail_closed "a tracked name holds a newline, refusing to scan"
 
 # A bundle is in scope only at Draft; the status is read once per bundle.
 tr '\0' '\n' <"$work/tracked" | awk '
@@ -119,14 +133,16 @@ while IFS= read -r line; do
         seen_bundle=$b
         req=$root/specs/$b/requirements.md
         status=""
-        if [ -r "$req" ]; then
-          status=$(spec_parse_header_value "$req" Status 2>/dev/null) || status=""
+        if [ -e "$req" ]; then
+          status=$(spec_parse_header_value "$req" Status 2>/dev/null) \
+            || fail_closed "a bundle's requirements.md could not be parsed for its status"
         fi
       fi
       [ "$status" = Draft ] || continue
       ;;
     *) f=$line ;;
   esac
+  [ -e "$root/$f" ] || [ -L "$root/$f" ] || continue
   [ -r "$root/$f" ] || fail_closed "a tracked file is unreadable"
   printf '%s\n' "$f" >>"$work/list"
 done <"$work/candidates"
@@ -138,12 +154,12 @@ export CC_ROOT CC_LIST CC_EXEMPT CC_ME
 awk '
   function clean(s) { gsub(/[\001-\037\177]/, "", s); return s }
   function indent(s) { match(s, /^ */); return RLENGTH }
-  function is_item(s) { return s ~ /^ *([-*+]|[0-9]+[.)])[ \t]+[^ \t]/ }
+  function is_item(s) { return s ~ /^ *([-*+]|[0-9]+[.)])[ \t]+[^ \t]/ && s !~ /^ *(\* *\* *\*[ *]*|- *- *-[ -]*|_ *_ *_[ _]*)$/ }
   function is_table(s) { return s ~ /^ *\|/ }
-  function is_heading(s) { return s ~ /^ {0,3}#/ }
-  function words(   i) {
-    split("two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty", w, " ")
-    for (i = 1; i <= 19; i++) wv[w[i]] = i + 1
+  function is_heading(s) { return s ~ /^(   |  | )?#/ }
+  function words(   i, nw) {
+    nw = split("two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty", w, " ")
+    for (i = 1; i <= nw; i++) wv[w[i]] = i + 1
   }
   # The one count a sentence states, or 0 when it states none or several.
   function stated(s,   t, n, k, v, tok, pre, prev) {
@@ -161,17 +177,25 @@ awk '
       k = substr(tok, RSTART + 1, RLENGTH - 1); sub(/ .*/, "", k)
       tok = substr(tok, RSTART + RLENGTH - 1)
       prev = pre; sub(/[ (]+$/, "", prev); sub(/.*[ (-]/, "", prev)
-      if (prev ~ /^(tasks?|steps?|phases?|sections?|waves?|stages?|rounds?|versions?|lines?|items?|§)$/) continue
+      if (prev ~ /^(tasks?|steps?|phases?|sections?|waves?|stages?|rounds?|versions?|lines?|items?|prs?|issues?|runs?|§)$/) continue
       if (k + 0 < 2) continue
       if (!n || v != k + 0) { n++; v = k + 0 }
     }
     return n == 1 ? v : 0
   }
-  function last_sentence(s,   t) {
-    t = s
-    gsub(/(e\.g|i\.e|etc|vs)\./, "x", t)
-    while (match(t, /([.!?][)"*_]*|;)[ \t]+[^ \t]/)) t = substr(t, RSTART + RLENGTH - 1)
-    return t
+  # Abbreviation dots are masked, length kept, so the cut lands in s itself.
+  function mask(s,   out, seg) {
+    out = ""
+    while (match(s, /(^|[^A-Za-z])(e\.g|i\.e|etc|vs)\./)) {
+      seg = substr(s, RSTART, RLENGTH); gsub(/\./, "_", seg)
+      out = out substr(s, 1, RSTART - 1) seg; s = substr(s, RSTART + RLENGTH)
+    }
+    return out s
+  }
+  function last_sentence(s,   m, start) {
+    m = mask(s); start = 1
+    while (match(substr(m, start), /([.!?][)"*_]*|;)[ \t]+[^ \t]/)) start += RSTART + RLENGTH - 2
+    return substr(s, start)
   }
   function count_items(j,   k, I, c, prevblank, ind) {
     I = indent(L[j]); c = 0; prevblank = 0
@@ -192,16 +216,24 @@ awk '
   function count_rows(j,   k, c) {
     c = 0
     for (k = j; k <= n && !code[k] && is_table(L[k]); k++) c++
-    if (j + 1 <= n && L[j + 1] ~ /^ *\|? *:?-{3,}/) c -= 2
+    if (c >= 2 && L[j + 1] ~ /^ *\| *:?---/) c -= 2
     return c
   }
-  function scan(path, file,   r, line, i, s, k, j, text, sent, want, got, fence, key, hit) {
+  # A fence closes only on a bare run of its own character at least as long.
+  function scan(path, file,   r, line, i, s, k, j, text, sent, want, got, fence, run, key, hit) {
     n = 0; fence = ""
     while ((r = (getline line < path)) > 0) {
       sub(/\r$/, "", line)
       L[++n] = line; code[n] = 0
-      if (fence != "") { code[n] = 1; if (line ~ ("^ *" fence)) fence = ""; continue }
-      if (match(line, /^ *(```|~~~)/)) { code[n] = 1; fence = substr(line, RSTART + RLENGTH - 3, 3) }
+      if (fence != "") {
+        code[n] = 1
+        if (match(line, /^ *(```+|~~~+)[ \t]*$/)) {
+          run = substr(line, RSTART, RLENGTH); gsub(/[ \t]/, "", run)
+          if (substr(run, 1, 1) == substr(fence, 1, 1) && length(run) >= length(fence)) fence = ""
+        }
+        continue
+      }
+      if (match(line, /^ *(```+|~~~+)/)) { code[n] = 1; fence = substr(line, RSTART, RLENGTH); gsub(/ /, "", fence) }
     }
     close(path)
     if (r < 0) { unreadable = 1; return }
@@ -237,7 +269,7 @@ awk '
     f = ENVIRON["CC_EXEMPT"]
     while ((r = (getline l < f)) > 0) {
       if (l ~ /^#/ || l ~ /^[ \t]*$/) continue
-      if (split(l, p, "\t") != 3 || p[1] == "" || p[2] == "" || p[3] == "") { malformed = 1; exit }
+      if (split(l, p, "\t") != 3 || p[1] == "" || p[2] == "" || p[3] == "" || ((p[1] "\t" p[2]) in ex)) { malformed = 1; exit }
       ex[p[1] "\t" p[2]] = 1
     }
     if (r < 0) { unreadable = 1; exit }
@@ -251,7 +283,7 @@ awk '
     for (k in ex) if (!(k in used)) { split(k, p, "\t"); printf "%s: stale exemption: %s %s clears no finding\n", ENVIRON["CC_ME"], clean(p[1]), clean(p[2]); bad = 1 }
     exit bad ? 1 : 0
   }
-' >"$work/out"
+' >"$work/out" </dev/null
 rc=$?
 cat "$work/out"
 case $rc in

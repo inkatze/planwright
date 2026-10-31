@@ -11,6 +11,7 @@ LC_ALL=C
 GIT_CONFIG_GLOBAL=/dev/null
 GIT_CONFIG_NOSYSTEM=1
 export LC_ALL GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CHECKER="$REPO_ROOT/scripts/check-counts.sh"
@@ -77,18 +78,12 @@ bundle() {
     "The decision has three parts:" "" "- one" "- two"
 }
 
-check() { /bin/bash "$CHECKER" --exempt "$1/exempt.tsv" "$1" 2>&1; }
+check() { /bin/sh "$CHECKER" --exempt "$1/exempt.tsv" "$1" </dev/null 2>&1; }
 
-MATCH_LINES='The guard reads three inputs:|- the first|- the second|- the third'
-MISMATCH_LINES='The guard reads four inputs:|- the first|- the second|- the third'
-
-lines_of() {
-  old_ifs=$IFS
-  IFS='|'
-  # shellcheck disable=SC2086 # the split on | is the point
-  set -- $1
-  IFS=$old_ifs
-  printf '%s\n' "$@"
+# three_inputs <repo> <path> <stated>: an introducing sentence stating the
+# count over a three-item list.
+three_inputs() {
+  put "$1" "$2" "The guard reads $3 inputs:" "- the first" "- the second" "- the third"
 }
 
 # REQ-F1.3: a matching count passes and a mismatched one fails, in every
@@ -98,18 +93,15 @@ for surface in doctrine/rule.md skills/demo/SKILL.md docs/guide.md \
   r="$tmp/match-$(printf '%s' "$surface" | tr '/.' '__')"
   make_repo "$r"
   put "$r" specs/drafted/requirements.md "# drafted" "" "**Status:** Draft"
-  mkdir -p "$(dirname "$r/$surface")"
-  lines_of "$MATCH_LINES" >"$r/$surface"
-  git -C "$r" add -- "$surface"
+  three_inputs "$r" "$surface" three
   out=$(check "$r")
   assert "REQ-F1.3: a matching count passes in $surface" 0 $?
 
-  lines_of "$MISMATCH_LINES" >"$r/$surface"
-  git -C "$r" add -- "$surface"
+  three_inputs "$r" "$surface" four
   out=$(check "$r")
   assert "REQ-F1.3: a mismatched count fails in $surface" 1 $?
-  assert_contains "REQ-F1.3: the finding names $surface" "$out" "$surface"
-  assert_contains "REQ-F1.3: the finding states both numbers in $surface" "$out" "states 4, lists 3"
+  assert_contains "REQ-F1.3: the finding names the file, line and both numbers in $surface" \
+    "$out" "$surface:1: states 4, lists 3"
 done
 
 # REQ-F1.3: a bundle at Ready, Active, or Done is skipped; the same bundle at
@@ -128,78 +120,164 @@ out=$(check "$r")
 assert "REQ-F1.3: the same mismatch in a Draft bundle fails" 1 $?
 assert_contains "REQ-F1.3: the Draft bundle's file is named" "$out" "specs/draft-one/design.md"
 
-# Numerals, tables, and nested lists.
-r="$tmp/shapes"
-make_repo "$r"
-put "$r" doctrine/table.md "It keeps 2 columns:" "" \
+# expect_count <name> <stated> <listed> <path> <line>...: the lines, alone in a
+# repository, fail naming the path and both numbers.
+expect_count() {
+  e_r="$tmp/$1" e_want="states $2, lists $3" e_path=$4
+  shift 4
+  make_repo "$e_r"
+  put "$e_r" "$e_path" "$@"
+  out=$(check "$e_r")
+  assert "a mismatch is found in $e_path" 1 $?
+  assert_contains "the finding in $e_path reads: $e_want" "$out" "$e_path:"
+  assert_contains "the finding in $e_path states: $e_want" "$out" "$e_want"
+}
+
+# expect_quiet <name> <line>...: the lines, alone in doctrine/, are not a finding.
+expect_quiet() {
+  q_name=$1 q_r="$tmp/$1"
+  shift
+  make_repo "$q_r"
+  put "$q_r" doctrine/quiet.md "$@"
+  out=$(check "$q_r")
+  assert "not read as a mismatch: $q_name" 0 $?
+}
+
+expect_count table 2 3 doctrine/table.md "It keeps 2 columns:" "" \
   "| a | b |" "| --- | --- |" "| 1 | 2 |" "| 3 | 4 |" "| 5 | 6 |"
-put "$r" doctrine/nested.md "The scaffold offers two templates:" "" \
+expect_count item-lead 2 3 doctrine/item.md "- **Facet.** It offers two things:" \
+  "  - the first" "  - the second" "  - the third"
+expect_count eleven 11 2 doctrine/eleven.md "It has eleven parts:" "- a" "- b"
+expect_count closed-fence 2 1 doctrine/fence.md '```sh' "Three lines:" "- a" '```' \
+  "Two parts:" "- a"
+expect_count long-fence 2 3 doctrine/long.md '````md' '```sh' "Five items:" '```' "- a" '````' \
+  "Two parts:" "- a" "- b" "- c"
+expect_count heading-stop 3 2 doctrine/head.md "Three parts:" "- a" "- b" "## Next" "- c"
+expect_count break-stop 3 2 doctrine/break.md "Three rules:" "- a" "- b" "" "* * *"
+expect_count link 2 1 doctrine/link.md "See [the doc](a.b.md#x) for two items:" "- a"
+expect_count abbreviation 2 3 doctrine/abbr.md "Three devs. Here are two items:" "- a" "- b" "- c"
+expect_count one-row-table 2 1 doctrine/one.md "A table of two rows:" "| x |" "---"
+expect_count reference-plural 2 1 doctrine/ref.md "Two parts follow Task 12 rules:" "- a"
+
+expect_quiet nested "The scaffold offers two templates:" "" \
   "- first" "  - a detail of the first" "  - another detail" "" \
   "  A continuation paragraph of the first." "- second" "" "Closing prose."
-put "$r" doctrine/item.md "- **Facet.** It offers two things:" \
-  "  - the first" "  - the second" "  - the third"
-out=$(check "$r")
-assert "a numeral, a table, and a nested lead are each checked" 1 $?
-assert_contains "a table counts its body rows" "$out" "doctrine/table.md"
-assert_contains "the table finding states both numbers" "$out" "states 2, lists 3"
-assert_not_contains "a nested list counts its top level only" "$out" "doctrine/nested.md"
-assert_contains "a list item can lead a sub-list" "$out" "doctrine/item.md"
+expect_quiet no-count "The parts:" "- a"
+expect_quiet two-counts "Between two and five of these:" "- a"
+expect_quiet task-reference "Task 12 lands these guards:" "- a"
+expect_quiet pr-reference "Since PR 408 fixes these:" "- a" "- b"
+expect_quiet low-numeral "The 1 rules:" "- a" "- b"
+expect_quiet hyphenated "It uses two-space indentation:" "- a"
+expect_quiet code-span 'The `three` word is code here:' "- a"
+expect_quiet parenthetical "These (the last 16 chars) apply:" "- a"
+expect_quiet earlier-sentence "One sentence names three things. The next leads the list:" "- a"
+expect_quiet fenced '```' "Three lines:" "- a" '```'
+expect_quiet sibling "- **Facet.** It offers two things:" "- next" "- last"
 
-# Prose that states no count, two counts, or a reference number is not read as
-# a count, and code is not prose.
-r="$tmp/quiet"
-make_repo "$r"
-put "$r" doctrine/quiet.md \
-  "The parts:" "- a" "" \
-  "Between two and five of these:" "- a" "" \
-  "Task 2 wired these guards:" "- a" "" \
-  "It uses two-space indentation:" "- a" "" \
-  'The `three` word is code here:' "- a" "" \
-  "One sentence names three things. The next one leads the list:" "- a" "" \
-  '```' "Three lines:" "- a" '```'
-out=$(check "$r")
-assert "prose without a single plain count is not checked" 0 $?
-
-# Untracked files are not read.
+# Untracked files are not read, and a tracked file removed from the work tree
+# is not either.
 r="$tmp/untracked"
 make_repo "$r"
 put "$r" doctrine/clean.md "Nothing to count here."
-lines_of "$MISMATCH_LINES" >"$r/doctrine/scratch.md"
+three_inputs "$r" doctrine/gone.md four
+rm "$r/doctrine/gone.md"
+mkdir -p "$r/doctrine"
+printf '%s\n' "The guard reads four inputs:" "- a" >"$r/doctrine/scratch.md"
 out=$(check "$r")
-assert "an untracked file is not read" 0 $?
+assert "untracked and removed files are not read" 0 $?
 
-# Exemptions: a row clears its finding, and a row matching no finding fails.
+# Exemptions: a row clears its own file's finding only, a row matching no
+# finding fails, and an excerpt may carry an abbreviation.
 r="$tmp/exempt"
 make_repo "$r"
-mkdir -p "$r/doctrine"
-lines_of "$MISMATCH_LINES" >"$r/doctrine/x.md"
-git -C "$r" add doctrine/x.md
+three_inputs "$r" doctrine/x.md four
+three_inputs "$r" doctrine/y.md four
 printf 'doctrine/x.md\treads four inputs\tthe fourth is named in the prose above\n' >>"$r/exempt.tsv"
 out=$(check "$r")
-assert "an exemption row clears its finding" 0 $?
+assert "an exemption clears only its own file" 1 $?
+assert_contains "the unexempted twin is still reported" "$out" "doctrine/y.md:1:"
+assert_not_contains "the exempted file is cleared" "$out" "doctrine/x.md:1:"
+put "$r" doctrine/y.md "Pick, e.g. by hand, two things:" "- a"
+printf 'doctrine/y.md\te.g. by hand, two things\tthe second is implied\n' >>"$r/exempt.tsv"
+out=$(check "$r")
+assert "an excerpt carrying an abbreviation clears its finding" 0 $?
 printf 'doctrine/x.md\tno such sentence\tstale\n' >>"$r/exempt.tsv"
 out=$(check "$r")
 assert "a stale exemption fails" 1 $?
 assert_contains "the stale exemption is named" "$out" "no such sentence"
+cp "$r/exempt.tsv" "$r/exempt.bak"
+printf 'doctrine/x.md\treads four inputs\ta repeat\n' >>"$r/exempt.tsv"
+out=$(check "$r")
+assert "a repeated exemption row fails closed" 2 $?
+cp "$r/exempt.bak" "$r/exempt.tsv"
 printf 'malformed row\n' >>"$r/exempt.tsv"
 out=$(check "$r")
 assert "a malformed exemption row fails closed" 2 $?
 
-# Fail closed: no repository, nothing in scope, an unreadable exemption list.
+# The guard never reads stdin: a caller's input stays unread.
+r="$tmp/stdin"
+make_repo "$r"
+put "$r" doctrine/clean.md "Nothing to count here."
+left=$(printf 'kept\n' | {
+  /bin/sh "$CHECKER" --exempt "$r/exempt.tsv" "$r" >/dev/null 2>&1
+  IFS= read -r l
+  printf '%s' "$l"
+})
+assert_contains "stdin is left to the caller" "$left" "kept"
+
+# An inherited GIT_DIR does not redirect the scan away from <root>.
+r="$tmp/gitdir"
+make_repo "$r"
+three_inputs "$r" doctrine/x.md four
+make_repo "$tmp/decoy"
+put "$tmp/decoy" doctrine/clean.md "Nothing to count here."
+out=$(GIT_DIR="$tmp/decoy/.git" /bin/sh "$CHECKER" --exempt "$r/exempt.tsv" "$r" </dev/null 2>&1)
+assert "an inherited GIT_DIR is ignored" 1 $?
+
+# Fail closed: no repository, nothing in scope, an unreadable file or
+# exemption list, an unparseable Draft candidate, a name holding a newline.
 mkdir -p "$tmp/plain"
-out=$(/bin/bash "$CHECKER" --exempt "$tmp/exempt/exempt.tsv" "$tmp/plain" 2>&1)
+out=$(/bin/sh "$CHECKER" --exempt "$tmp/exempt/exempt.tsv" "$tmp/plain" </dev/null 2>&1)
 assert "a root that is not a git work tree fails closed" 2 $?
 make_repo "$tmp/empty"
 out=$(check "$tmp/empty")
 assert "a scan reaching no files fails closed" 2 $?
 assert_contains "the empty scan says so" "$out" "no files"
-out=$(/bin/bash "$CHECKER" --exempt "$tmp/nope.tsv" "$tmp/shapes" 2>&1)
+out=$(/bin/sh "$CHECKER" --exempt "$tmp/nope.tsv" "$tmp/untracked" </dev/null 2>&1)
 assert "an unreadable exemption list fails closed" 2 $?
-out=$(/bin/bash "$CHECKER" --bogus 2>&1)
+out=$(/bin/sh "$CHECKER" --bogus </dev/null 2>&1)
 assert "an unknown option is a usage error" 2 $?
 
+r="$tmp/unparsed"
+make_repo "$r"
+put "$r" doctrine/clean.md "Nothing to count here."
+put "$r" specs/broken/requirements.md "# broken" "" "**Status:** Draft" "**Status:** Ready"
+put "$r" specs/broken/design.md "Nothing."
+out=$(check "$r")
+assert "a bundle whose status cannot be parsed fails closed" 2 $?
+
+r="$tmp/newline"
+make_repo "$r"
+put "$r" doctrine/clean.md "Nothing to count here."
+put "$r" "doctrine/we
+ird.md" "Two things:" "- a"
+out=$(check "$r")
+assert "a tracked name holding a newline fails closed" 2 $?
+
+r="$tmp/unreadable"
+make_repo "$r"
+put "$r" doctrine/locked.md "Nothing to count here."
+chmod 000 "$r/doctrine/locked.md"
+if [ -r "$r/doctrine/locked.md" ]; then
+  echo "ok: skipped the unreadable-file case: the running user reads mode-000 files"
+else
+  out=$(check "$r")
+  assert "an unreadable tracked file fails closed" 2 $?
+fi
+chmod 644 "$r/doctrine/locked.md"
+
 # The shipped tree is green under the shipped exemption list.
-out=$(/bin/bash "$CHECKER" 2>&1)
+out=$(/bin/sh "$CHECKER" </dev/null 2>&1)
 rc=$?
 assert "this repository's tracked prose is green" 0 "$rc"
 [ "$rc" -eq 0 ] || printf '%s\n' "$out" >&2
