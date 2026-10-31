@@ -59,6 +59,14 @@
 # one shard job has run uniformly slower than its siblings even after the
 # split changed, which a single runner does not average out. 400s is the
 # slowest shard plus 37%.
+#
+# Suite total raised 2026-10-31 for growth the gate made visible. Across
+# eleven main runs from 2026-10-27 to 2026-10-31 (389 to 412 files) the
+# shards' summed wall-clocks measured 675s to 1075s, climbing with the file
+# count, and two of those runs failed at 1036s and 1075s on code that passed
+# every test; two pull-request runs the same day measured 1001s and 1002s.
+# 1400s is the slowest, 1075s, plus 30%. The slowest shard measured 262s to
+# 383s over the same runs, still under its 400s budget, which stays.
 per_file_seconds: 120
-suite_total_seconds: 1000
+suite_total_seconds: 1400
 shard_wall_seconds: 400
