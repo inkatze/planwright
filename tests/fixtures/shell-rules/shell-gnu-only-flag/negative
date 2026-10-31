@@ -13,3 +13,4 @@ esac
 m=$(stat -c %Y "$0" 2>/dev/null || stat -f %m "$0") # shell-gnu-only-flag: BSD fallback on the same line
 printf '%s\n' "$m"
 if [[ $1 =~ ^(env|timeout|xargs)$ ]]; then printf '%s\n' wrapper; fi
+date -v1d +%Y-%m-%d

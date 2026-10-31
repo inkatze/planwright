@@ -30,7 +30,7 @@ SR_AWK='
 function rule_reset() { }
 function gnu_flag(cmd, w) {
   if (cmd == "readlink") return (w ~ /^-[A-Za-z0-9]*f[A-Za-z0-9]*$/)
-  if (cmd == "date") return (w ~ /^-[A-Za-z0-9]*d/ || w ~ /^--date/)
+  if (cmd == "date") return (w ~ /^-[A-Za-z]*d/ || w ~ /^--date/)
   if (cmd == "stat") return (w ~ /^-[A-Za-z0-9]*c/ || w ~ /^--(format|printf)/)
   if (cmd == "grep") return (w ~ /^-[A-Za-z0-9]*P/ || w == "--perl-regexp")
   if (cmd == "xargs") return (w ~ /^-[A-Za-z0-9]*r[A-Za-z0-9]*$/ || w == "--no-run-if-empty")
