@@ -1,25 +1,7 @@
 #!/bin/sh
 # Unit test for scripts/obs-record.sh's duplicate refusal and its
-# --recurrence escape (review-effectiveness REQ-I1.1, D-20).
-#
-# Properties verified:
-#   1. A shared slug alone is never a duplicate: two skill-drift fragments
-#      with unrelated text are both written.
-#   2. A fragment sharing the scope token, a test path and a quoted string
-#      with a live fragment is refused (exit 1) naming obs:<uid>, nothing
-#      written; the same against an archived fragment.
-#   3. Half a key is not a match: a shared test path alone, a shared quoted
-#      string alone, and a backticked test path as the only shared span are
-#      each written.
-#   4. --recurrence <uid> naming the matched fragment writes the
-#      `recurrence of obs:<uid>:` marker after a skill-drift(...) prefix, and
-#      at the start of a text with no kind prefix.
-#   5. A --recurrence uid the refusal did not match is refused (a real
-#      fragment that is not the match, a uid with no match at all, a
-#      malformed uid), nothing written.
-#   6. A miss-ledger fragment (slug review-miss) matching another is written.
-#   7. A matching fragment in another scope does not refuse.
-#   8. scripts/check-obs.sh accepts a store carrying recurrence markers.
+# --recurrence escape (review-effectiveness REQ-I1.1, D-20). Each numbered
+# section states the property it verifies in its `ok` line.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor) and /bin/sh.
 set -eu
@@ -157,5 +139,22 @@ echo "ok 7: a matching fragment in another scope does not refuse"
 # --- 8. check-obs accepts the marker --------------------------------------
 "$CHK" --obs-dir "$tmp/s4" >/dev/null 2>&1 || fail "8: check-obs rejects a store with recurrence markers"
 echo "ok 8: check-obs accepts the recurrence marker"
+
+# --- 9. a test path is a whole token, compared in full ---------------------
+o=$(store s9)
+seed "$o" entries x abcd0009 planwright 'skills/a/tests/run.sh logged "err"'
+seed "$o" entries y abcd0019 planwright 'tests/a+b.sh said "e"'
+seed "$o" entries z abcd0029 planwright 'mytests/m.sh printed "m"'
+for t in 'plugins/b/tests/run.sh logged "err"' 'tests/a+c.sh said "e"' \
+  'mytests/m.sh printed "m"'; do
+  rec --obs-dir "$o" --slug n --scope planwright --text "$t" >/dev/null \
+    || fail "9: a distinct or non-test path was refused: $t"
+done
+for t in 'see ./tests/a+b.sh: it said "e".' 'again skills/a/tests/run.sh. "err"'; do
+  rc=0
+  rec --obs-dir "$o" --slug n --scope planwright --text "$t" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 1 ] || fail "9: the same path in other punctuation was not refused: $t"
+done
+echo "ok 9: a test path matches only the same whole path"
 
 echo "PASS: test-obs-record-duplicates.sh"

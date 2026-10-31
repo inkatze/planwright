@@ -277,27 +277,32 @@ screen_class() {
 }
 
 # dup_matches — print the uid of every live or archived fragment this one
-# duplicates: the same [<scope>] token, and a shared test path (a span under
-# tests/) plus a shared quoted string (a "..." or `...` span; one holding only
-# a test path counts as the path). The slug is no key, since recurring kinds
+# duplicates: the same [<scope>] token, and a shared test path (a whole path
+# token with a tests/ component, compared in full) plus a shared quoted string
+# (a "..." or `...` span; one holding only a test path counts as the path).
+# The slug is no key, since recurring kinds
 # share one, and miss-ledger fragments on either side are exempt, their
 # identity being PR and path. Fragment content is read as data only.
 dup_matches() {
   [ "$slug" != review-miss ] || return 0
   # shellcheck disable=SC2016 # an awk program; the backticks are its regex
   dm_prog='
-    function keys(t, paths, quotes,   s, tok) {
+    function tpath(w) {
+      sub(/^\.\//, "", w)
+      sub(/[.!?]+$/, "", w)
+      return w ~ /(^|\/)tests\/[^\/]/ ? w : ""
+    }
+    function keys(t, paths, quotes,   s, tok, w, n, i) {
       s = t
       while (match(s, /"[^"]+"|`[^`]+`/)) {
         tok = substr(s, RSTART + 1, RLENGTH - 2)
         s = substr(s, RSTART + RLENGTH)
-        if (tok !~ /^(\.\/)?tests\/[A-Za-z0-9._\/-]+$/) quotes[tok] = 1
+        if (tok ~ /[ \t]/ || tpath(tok) == "") quotes[tok] = 1
       }
-      s = " " t
-      while (match(s, /[^A-Za-z0-9_-]tests\/[A-Za-z0-9._\/-]*[A-Za-z0-9_-]/)) {
-        paths[substr(s, RSTART + 1, RLENGTH - 1)] = 1
-        s = substr(s, RSTART + RLENGTH)
-      }
+      # No literal brace pair anywhere in this program: find -exec would
+      # substitute it.
+      n = split(t, w,/[]{[ \t"`(),;:<>=}]+/)
+      for (i = 1; i <= n; i++) if (tpath(w[i]) != "") paths[tpath(w[i])] = 1
     }
     function shares(a, b,   k) {
       for (k in a) if (k in b) return 1
