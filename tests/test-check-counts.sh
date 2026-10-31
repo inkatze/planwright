@@ -227,6 +227,7 @@ cp "$r/exempt.bak" "$r/exempt.tsv"
 printf 'malformed row\n' >>"$r/exempt.tsv"
 out=$(check "$r")
 assert "a malformed exemption row fails closed" 2 $?
+
 # One exemption row clears one finding: a second sentence sharing its excerpt
 # is reported, not silently cleared with the first.
 r="$tmp/exempt-twice"
@@ -238,6 +239,20 @@ out=$(check "$r")
 assert "an exemption row matching two findings fails" 1 $?
 assert_contains "the over-broad exemption is named" "$out" "clears more than one finding"
 
+# A Draft bundle whose requirements.md is not committed yet is read by its
+# siblings' status, so it is still checked.
+r="$tmp/no-req"
+make_repo "$r"
+put "$r" doctrine/ok.md "Prose."
+put "$r" specs/partial/design.md "# Design" "" "**Status:** Draft" "" \
+  "The decision has three parts:" "" "- one" "- two"
+out=$(check "$r")
+assert "a Draft bundle without requirements.md is checked" 1 $?
+assert_contains "its sibling's mismatch is reported" "$out" "specs/partial/design.md:5:"
+put "$r" specs/partial/design.md "# Design" "" "**Status:** Ready" "" \
+  "The decision has three parts:" "" "- one" "- two"
+out=$(check "$r")
+assert "a Ready bundle without requirements.md is still skipped" 0 $?
 
 # The guard never reads stdin: a caller's input stays unread.
 r="$tmp/stdin"

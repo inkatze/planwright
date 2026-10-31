@@ -137,6 +137,16 @@ while IFS= read -r line; do
         if [ -e "$req" ]; then
           status=$(spec_parse_header_value "$req" Status 2>/dev/null) \
             || fail_closed "a bundle's requirements.md could not be parsed for its status"
+        else
+          # Absent requirements.md: a sibling at Draft keeps the bundle in scope.
+          for sib in design.md tasks.md test-spec.md; do
+            sib=$root/specs/$b/$sib
+            [ -e "$sib" ] || [ -L "$sib" ] || continue
+            [ ! -L "$sib" ] || fail_closed "a bundle's status file is a symlink, refusing to follow it"
+            s_status=$(spec_parse_header_value "$sib" Status 2>/dev/null) \
+              || fail_closed "a bundle file could not be parsed for its status"
+            [ "$s_status" != Draft ] || status=Draft
+          done
         fi
       fi
       [ "$status" = Draft ] || continue
