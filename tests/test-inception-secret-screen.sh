@@ -290,6 +290,11 @@ if command -v gitleaks >/dev/null 2>&1; then
     assert_eq "gitleaks arm: a leak behind an archive-like name .$ext exits 1" "1" "$?"
   done
 
+  # A rule keyed on the name alone still sees the name behind the plain copy.
+  printf 'nothing secret in the text\n' >"$tmp/bundle.p12"
+  PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/bundle.p12" >/dev/null 2>&1
+  assert_eq "gitleaks arm: a name-only rule still flags a .p12 file" "1" "$?"
+
   cp "$tmp/key.pem" "$tmp/unreadable-key.pem"
   chmod 000 "$tmp/unreadable-key.pem"
   if [ -r "$tmp/unreadable-key.pem" ]; then
@@ -530,7 +535,9 @@ PATH="$cfgstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/cle
 (cd "$repo" && PATH="$cfgstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" --staged) >/dev/null 2>&1
 scans=$(grep -e '--no-banner' "$tmp/gl-args.log" | grep -c -v planwright-canary)
 named=$(grep -e '--no-banner' "$tmp/gl-args.log" | grep -c -F -e "--config $REPO_ROOT/config/inception-gitleaks.toml")
-assert_eq "gitleaks config: both scans ran" "2" "$scans"
+# A clean file is scanned twice (its plain-name copy, then under its own name),
+# and the staged run once.
+assert_eq "gitleaks config: every scan ran" "3" "$scans"
 scans=$(grep -c -e '--no-banner' "$tmp/gl-args.log")
 assert_eq "gitleaks config: every scan names planwright's config" "$scans" "$named"
 

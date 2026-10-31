@@ -189,6 +189,15 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
     return 2
   }
 
+  # gitleaks_scan <path> — screen one file or directory, outside any git history.
+  gitleaks_scan() {
+    if [ -n "$gl_dir_flag" ]; then
+      gitleaks_run "$gl_dir_cmd" --no-git "$gl_dir_flag" "$1" --no-banner --redact
+    else
+      gitleaks_run "$gl_dir_cmd" "$1" --no-banner --redact
+    fi
+  }
+
   # The canary: a key block every rule set worth the name flags. A gitleaks
   # that loads no rules from the config (one too old for its `[extend]`, say)
   # would pass everything, so a canary it does not flag refuses the screen.
@@ -197,11 +206,7 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
   printf -- '%s\n%s\n%s\n' "-----BEGIN RSA PRIVATE KEY""-----" \
     "MIIEowIBAAKCAQEA7Zx2Lm""9Rt4Wb8Nc1Yv6Ha3Pd5Sj0Ug2EfKq" "-----END RSA PRIVATE KEY""-----" >"$canary"
   crc=0
-  if [ -n "$gl_dir_flag" ]; then
-    gitleaks_run "$gl_dir_cmd" --no-git "$gl_dir_flag" "$canary" --no-banner --redact 2>/dev/null || crc=$?
-  else
-    gitleaks_run "$gl_dir_cmd" "$canary" --no-banner --redact 2>/dev/null || crc=$?
-  fi
+  gitleaks_scan "$canary" 2>/dev/null || crc=$?
   case $crc in
     1) ;;
     0)
@@ -252,10 +257,13 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
         exit 2
       fi
     fi
-    if [ -n "$gl_dir_flag" ]; then
-      gitleaks_run "$gl_dir_cmd" --no-git "$gl_dir_flag" "$gp" --no-banner --redact || prc=$?
-    else
-      gitleaks_run "$gl_dir_cmd" "$gp" --no-banner --redact || prc=$?
+    gitleaks_scan "$gp" || prc=$?
+    # Some rules key on the name alone (a .p12 is a credential whatever it
+    # holds), and the plain-name copy hides it from them. A clean copy is
+    # followed by the original under its own name; a content hit is not, so
+    # one leak still reads as one.
+    if [ "$prc" -eq 0 ] && [ "$gp" != "$p" ]; then
+      gitleaks_scan "$p" || prc=$?
     fi
     # "Could not screen" outranks "found": one path nobody could read makes the
     # whole verdict untrustworthy, and this guard never reports on what it has
