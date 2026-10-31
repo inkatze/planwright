@@ -149,7 +149,12 @@ if [ "$text" -eq 1 ]; then
     # A leading ./ keeps a path named - from reading as stdin in awk's getline.
     case $p in /*) ;; *) p=./$p ;; esac
     if [ -d "$p" ]; then
-      find "$p" -type f -print | sort >>"$T/files"
+      # A subdirectory find cannot read would otherwise drop out unscreened.
+      find "$p" -type f -print >"$T/found" || {
+        printf '%s\n' "$prog: path not readable" >&2
+        exit 2
+      }
+      sort "$T/found" >>"$T/files"
     elif [ -f "$p" ] && [ -r "$p" ]; then
       printf '%s\n' "$p" >>"$T/files"
     else

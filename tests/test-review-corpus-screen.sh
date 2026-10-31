@@ -153,6 +153,18 @@ assert_exit "text mode refuses to run without a name list" 2 $?
 assert_exit "text mode refuses a list holding no names" 2 $?
 "$SCREEN" --text --names "$names" "$T/absent-dir" >/dev/null 2>&1
 assert_exit "text mode refuses a missing path" 2 $?
+mkdir -p "$T/frag/locked"
+printf -- 'AcmeReview flagged the loop\n' >"$T/frag/locked/2026-01-05-hidden-0000eeee.md"
+chmod 000 "$T/frag/locked"
+# As root the directory stays listable and the case would assert nothing.
+if ls "$T/frag/locked" >/dev/null 2>&1; then
+  echo "skip: chmod 000 left the directory listable, so the unreadable-subdirectory case did not run" >&2
+else
+  "$SCREEN" --text --names "$names" "$T/frag" >/dev/null 2>&1
+  assert_exit "text mode refuses a directory it cannot walk whole, never a pass" 2 $?
+fi
+chmod 755 "$T/frag/locked"
+rm -r "$T/frag/locked"
 mkdir -p "$T/empty-dir"
 "$SCREEN" --text --names "$names" "$T/empty-dir" >/dev/null 2>&1
 assert_exit "text mode refuses paths holding no files, never a pass" 2 $?
