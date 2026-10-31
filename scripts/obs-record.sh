@@ -328,10 +328,11 @@ dup_matches() {
       if (shares(fp, np) && shares(fq, nq)) print uid
     }'
   # -type f leaves out symlinks and FIFOs, which a read could follow or hang on.
+  # stderr is dropped: find and awk echo store paths, and refuse speaks instead.
   for _d in "$entries" "$archive"; do
     [ -d "$_d" ] || continue
     OBS_SCOPE=$scope OBS_TEXT=$text find "$_d/." ! -name . -prune -name '*.md' -type f \
-      -exec awk "$dm_prog" {} + || return 1
+      -exec awk "$dm_prog" {} + 2>/dev/null || return 1
   done
 }
 

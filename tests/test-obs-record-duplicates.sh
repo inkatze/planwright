@@ -192,4 +192,26 @@ for pair in \
 done
 echo "ok 10: the marker follows only a lowercase name(arg) prefix with no nested parentheses"
 
+# --- 11. an unreadable store refuses cleanly ---------------------------------
+if [ "$(id -u)" -ne 0 ]; then
+  o=$(store s11)
+  seed "$o" entries gate-lock abcd0011 planwright "$LIVE_TEXT"
+  chmod 000 "$o/entries/2026-10-01-gate-lock-abcd0011.md"
+  rc=0
+  err=$(rec --obs-dir "$o" --slug n --scope planwright --text 'a new "thing"' 2>&1 >/dev/null) || rc=$?
+  chmod 644 "$o/entries/2026-10-01-gate-lock-abcd0011.md"
+  [ "$rc" -eq 1 ] || fail "11: an unreadable fragment expected exit 1, got $rc"
+  case $err in
+    *"cannot read the store"*) ;;
+    *) fail "11: the refusal does not name the unreadable store: $err" ;;
+  esac
+  case $err in
+    *"$o"*) fail "11: the refusal echoes a store path: $err" ;;
+  esac
+  [ "$(frags "$o")" -eq 1 ] || fail "11: a fragment was written past an unreadable store"
+  echo "ok 11: an unreadable fragment refuses with the recorder's own message only"
+else
+  echo "ok 11: skipped (root reads an unreadable file)"
+fi
+
 echo "PASS: test-obs-record-duplicates.sh"
