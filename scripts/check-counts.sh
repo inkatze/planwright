@@ -133,6 +133,7 @@ while IFS= read -r line; do
         seen_bundle=$b
         req=$root/specs/$b/requirements.md
         status=""
+        [ ! -L "$req" ] || fail_closed "a bundle's requirements.md is a symlink, refusing to follow it"
         if [ -e "$req" ]; then
           status=$(spec_parse_header_value "$req" Status 2>/dev/null) \
             || fail_closed "a bundle's requirements.md could not be parsed for its status"

@@ -316,6 +316,19 @@ out=$(check "$r")
 assert "a CRLF file's mismatch is found" 1 $?
 assert_contains "the CRLF finding states both numbers" "$out" "states 3, lists 2"
 
+# A bundle's requirements.md reached through a symlink is refused, whatever
+# status it names.
+r="$tmp/req-link"
+make_repo "$r"
+put "$r" doctrine/clean.md "Nothing to count here."
+printf '%s\n' "# x" "" "**Status:** Ready" >"$tmp/outside-req.md"
+mkdir -p "$r/specs/linked"
+ln -s "$tmp/outside-req.md" "$r/specs/linked/requirements.md"
+git -C "$r" add specs/linked/requirements.md
+put "$r" specs/linked/design.md "Nothing."
+out=$(check "$r")
+assert "a symlinked requirements.md fails closed" 2 $?
+
 # The shipped tree is green under the shipped exemption list.
 out=$(/bin/sh "$CHECKER" </dev/null 2>&1)
 rc=$?
