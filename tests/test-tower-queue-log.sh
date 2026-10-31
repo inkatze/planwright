@@ -146,7 +146,7 @@ run log tick --tower "$tower" --now 1000 >/dev/null 2>&1 || rc=$?
 rc=0
 run log tick --tower "$tower" --now 1000 live=many >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "tick with non-numeric live: exit $rc, expected 2"
-for k in reply acknowledged delivered knocked; do
+for k in reply acknowledged delivered knocked presence; do
   rc=0
   run log "$k" --now 1000 item=q1 >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || fail "$k without --tower: exit $rc, expected 2"
@@ -237,7 +237,7 @@ echo "ok: a delivered turn and an operator reply log with no queue present"
 # literal never appears contiguously in the source or the scanner's history
 # walk (the house pattern, see tests/test-inception-secret-screen.sh).
 secret_token="ghp_""ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
-kinds="born settled merged knocked delivered acknowledged shelved pushed session tick reply dropped unavailable refused"
+kinds="born settled merged knocked delivered acknowledged shelved pushed session tick reply dropped unavailable refused presence"
 before=$(line_count "$log_file")
 n=0
 for k in $kinds; do

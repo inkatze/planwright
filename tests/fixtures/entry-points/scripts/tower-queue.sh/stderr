@@ -1,1 +1,1 @@
-match ^tower-queue: unknown command '--entry-point-probe' \(log \| redact \| report \| add \| capture \| match \| knock \| next \| ack \| revoke \| show \| shelve \| settle \| catchup \| list \| counts\)$
+match ^tower-queue: unknown command '--entry-point-probe' \(log \| redact \| report \| add \| capture \| match \| knock \| next \| presence \| ack \| revoke \| show \| shelve \| settle \| catchup \| list \| counts\)$
