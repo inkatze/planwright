@@ -136,6 +136,8 @@ r8=$(add_path r8 request normal 1000 --subject pr:8) || fail "add the other PR's
 run settle --now 1001 >/dev/null || fail "the settling pass that applies the window"
 [ "$(fld "$s" 2)" = settled-by-default ] || fail "the fixture's window did not default: '$(fld "$s" 2)'"
 
+out=$(run knock --now 1009) || fail "the knock verb"
+[ "$(printf '%s\n' "$out" | cut -f 5)" = 3 ] || fail "the knock verb does not name a batch of three: '$out'"
 out=$(run next --tower $A --now 1010) || fail "the batch knock"
 [ "$(lines_of "$out" knock | cut -f 5)" = 3 ] || fail "the knock does not name a batch of three: '$out'"
 case "$out" in *pr:7* | *"$q"*) fail "the knock leaked the batch's subject or an item" ;; esac
@@ -245,10 +247,13 @@ seed_store pf
 fa=$(add_path fa approval normal 1000 --subject pr:10) || fail "add fa"
 f1=$(add_path f1 request normal 1001 --subject pr:10) || fail "add f1"
 f2=$(add_path f2 request normal 1002 --subject pr:10) || fail "add f2"
+fz=$(add_path fz request normal 999) || fail "add fz"
 out=$(hand $A 1010)
 [ "$(ids_of "$out" item)" = "$fa $f1 " ] || fail "the batch with a fitting pair is wrong: '$(ids_of "$out" item)'"
 [ "$(ids_of "$out" pair)" = "$f2 " ] || fail "the fitting pair did not join as its pair: '$out'"
 [ "$(lines_of "$out" batch | cut -f 2)" = 3 ] || fail "the pair did not count two: '$out'"
+[ "$(lines_of "$out" batch | cut -f 3)" = "$fa,$f1,$f2" ] || fail "the batch line does not list the pair partner: '$out'"
+[ "$(fld "$fz" 19)" = - ] || fail "an item naming no subject joined a subject batch"
 echo "ok: a pair that fits joins the batch as its pair, counting two"
 
 # A rule on the subject goes over once with a lone pair, as with a batch.
