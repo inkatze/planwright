@@ -181,7 +181,10 @@ for t in 'plugins/b/tests/run.sh logged "err"' 'tests/a+c.sh said "e"' \
   rec --obs-dir "$o" --slug n --scope planwright --text "$t" >/dev/null \
     || fail "9: a distinct or non-test path was refused: $t"
 done
-for t in 'see ./tests/a+b.sh: it said "e".' 'again skills/a/tests/run.sh. "err"'; do
+seed "$o" entries w abcd0049 planwright 'tests/w.sh printed "tests/w.sh: lock held"'
+for t in 'see ./tests/a+b.sh: it said "e".' 'again skills/a/tests/run.sh. "err"' \
+  'see (tests/a+b.sh) "e"' 'tests/a+b.sh, then "e"' '"tests/a+b.sh" said "e"' \
+  'again tests/w.sh printed "tests/w.sh: lock held"'; do
   rc=0
   rec --obs-dir "$o" --slug n --scope planwright --text "$t" >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 1 ] || fail "9: the same path in other punctuation was not refused: $t"
@@ -198,7 +201,10 @@ for pair in \
   "Drift(x): |$P|recurrence of obs:abcd0010: Drift(x): $P" \
   "9x(y): |$P|recurrence of obs:abcd0010: 9x(y): $P" \
   "a(b(c): |$P|recurrence of obs:abcd0010: a(b(c): $P" \
-  "(x): |$P|recurrence of obs:abcd0010: (x): $P"; do
+  "(x): |$P|recurrence of obs:abcd0010: (x): $P" \
+  "foo): |$P|recurrence of obs:abcd0010: foo): $P" \
+  "a(b) c(d): |$P|recurrence of obs:abcd0010: a(b) c(d): $P" \
+  "k(b)c): |$P|recurrence of obs:abcd0010: k(b)c): $P"; do
   pre=${pair%%|*}
   rest=${pair#*|}
   body=${rest%%|*}
