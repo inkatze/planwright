@@ -282,6 +282,31 @@ if command -v gitleaks >/dev/null 2>&1; then
   assert_eq "gitleaks arm: a leak exits 1" "1" "$rc"
   assert_not_contains "gitleaks arm: the matched value is redacted" "$pk_body" "$out"
 
+  # A temp name whose random extension opens like an archive's, which
+  # gitleaks would otherwise skip unread.
+  for ext in 7zw3kN gzQ1ab zipK2c; do
+    cp "$tmp/key.pem" "$tmp/inception-venture.$ext"
+    PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/inception-venture.$ext" >/dev/null 2>&1
+    assert_eq "gitleaks arm: a leak behind an archive-like name .$ext exits 1" "1" "$?"
+  done
+
+  # A rule keyed on the name alone still sees the name behind the plain copy.
+  printf 'nothing secret in the text\n' >"$tmp/bundle.p12"
+  PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/bundle.p12" >/dev/null 2>&1
+  assert_eq "gitleaks arm: a name-only rule still flags a .p12 file" "1" "$?"
+
+  cp "$tmp/key.pem" "$tmp/unreadable-key.pem"
+  chmod 000 "$tmp/unreadable-key.pem"
+  if [ -r "$tmp/unreadable-key.pem" ]; then
+    echo "ok: gitleaks unreadable-file case skipped (the mode did not take effect here)"
+  else
+    out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/unreadable-key.pem" 2>&1)"
+    rc=$?
+    assert_eq "gitleaks arm: an unreadable file refuses rather than reporting clean" "2" "$rc"
+    assert_contains "gitleaks arm: the refusal says it could not read the path" "cannot read a requested path" "$out"
+  fi
+  chmod 644 "$tmp/unreadable-key.pem"
+
   # Each path reports its own result. A shared status would make every clean
   # path after the first hit re-print the previous path's captured output, so
   # one leak across two arguments would read as two.
@@ -510,7 +535,9 @@ PATH="$cfgstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/cle
 (cd "$repo" && PATH="$cfgstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" --staged) >/dev/null 2>&1
 scans=$(grep -e '--no-banner' "$tmp/gl-args.log" | grep -c -v planwright-canary)
 named=$(grep -e '--no-banner' "$tmp/gl-args.log" | grep -c -F -e "--config $REPO_ROOT/config/inception-gitleaks.toml")
-assert_eq "gitleaks config: both scans ran" "2" "$scans"
+# A clean file is scanned twice (its plain-name copy, then under its own name),
+# and the staged run once.
+assert_eq "gitleaks config: every scan ran" "3" "$scans"
 scans=$(grep -c -e '--no-banner' "$tmp/gl-args.log")
 assert_eq "gitleaks config: every scan names planwright's config" "$scans" "$named"
 
@@ -557,7 +584,10 @@ cat >"$oldgl/gitleaks" <<'OLDGL'
 case "$*" in *--help*) echo "  --exit-code int  exit code when leaks have been encountered"; exit 0 ;; esac
 [ "$1" = detect ] || exit 1
 case "$*" in *--no-git*) ;; *) echo "no leaks found"; exit 0 ;; esac
-case "$*" in *planwright-canary* | *old-leak*) exit 7 ;; esac
+case "$*" in *planwright-canary*) exit 7 ;; esac
+for a in "$@"; do
+  [ -f "$a" ] && grep -q 'pretend leak' "$a" && exit 7
+done
 exit 0
 OLDGL
 chmod 755 "$oldgl/gitleaks"
