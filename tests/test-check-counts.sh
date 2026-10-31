@@ -167,6 +167,8 @@ expect_count paren-end 3 2 doctrine/pend.md "Run two passes (the second is the c
 expect_quiet bare-pipe-table "It keeps two rows:" "| a" "| ---" "| 1" "| 2"
 expect_count mid-paren-question 3 2 doctrine/mq.md "The checker asks three questions (is it fresh? is it signed?) before it runs:" "- a" "- b"
 expect_count mid-paren-ellipsis 3 2 doctrine/me.md "Three read-only commands (ls, cat, ...) run without a prompt:" "- a" "- b"
+expect_quiet paren-end-code 'Run two passes (the second is the check.) `check` takes these inputs:' "- a" "- b" "- c"
+expect_count paren-ellipsis-end 3 2 doctrine/pe.md "Three tools (ls, cat, ...) The guard keeps these:" "- a" "- b"
 expect_count reference-plural 2 1 doctrine/ref.md "Two parts follow Task 12 rules:" "- a"
 
 expect_quiet nested "The scaffold offers two templates:" "" \

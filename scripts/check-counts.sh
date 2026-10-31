@@ -189,13 +189,13 @@ awk '
   }
   # Abbreviation dots, code spans and parentheses are masked, length kept, so
   # no sentence ends inside them and the cut lands in s itself.
-  function blank(s, re,   out, seg, end) {
+  function blank(s, re,   out, seg, end, keep) {
     out = ""
     while (match(s, re)) {
       seg = substr(s, RSTART, RLENGTH); end = substr(seg, length(seg) - 1)
+      keep = end ~ /^[.!?][)]$/ && substr(seg, length(seg) - 3, 2) != ".." && substr(s, RSTART + RLENGTH) !~ /^[ \t]+[a-z]/
       gsub(/[.!?;]/, "_", seg)
-      if (end ~ /^[.!?][)]$/ && substr(seg, length(seg) - 3, 2) != ".." && substr(s, RSTART + RLENGTH) ~ /^([ \t]+[A-Z]|[ \t]*$)/)
-        seg = substr(seg, 1, length(seg) - 2) end
+      if (keep) seg = substr(seg, 1, length(seg) - 2) end
       out = out substr(s, 1, RSTART - 1) seg; s = substr(s, RSTART + RLENGTH)
     }
     return out s
