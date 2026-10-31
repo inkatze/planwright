@@ -47,6 +47,46 @@ expect "no declared emitter fails closed" "$FIX/none" 2 "a broken scan"
 expect "a root without scripts/ fails closed" "$tmp" 2 "no scripts/ and tests/"
 expect "this repository's emitters are each linted" "$REPO_ROOT" 0 "each linted"
 
+# scratch_root <dir> <emits-line> — a root whose one script carries the line
+# and whose one test lints its markdown.
+le=lint_emitted
+scratch_root() {
+  mkdir -p "$1/scripts" "$1/tests" || exit 1
+  printf '#!/bin/sh\n%s\n' "$2" >"$1/scripts/emit.sh"
+  printf '#!/bin/sh\n%s markdown emit.sh "$out"\n' "$le" >"$1/tests/test-emit.sh"
+}
+scratch_root "$tmp/trail" '# Emits: markdown  '
+expect "trailing blanks after a declared format are not part of it" "$tmp/trail" 0 "clean (1 declared"
+scratch_root "$tmp/crlf" "$(printf '# Emits: markdown\r')"
+expect "a CRLF header line declares its format" "$tmp/crlf" 0 "clean (1 declared"
+scratch_root "$tmp/empty" '# Emits:'
+printf '# Emits: markdown\n' >"$tmp/empty/scripts/other.sh"
+printf '%s markdown other.sh "$out"\n' "$le" >>"$tmp/empty/tests/test-emit.sh"
+expect "an empty declaration is a finding" "$tmp/empty" 1 'unknown format "(none)"'
+scratch_root "$tmp/badfmt" '# Emits: markdown, html'
+expect "an unknown format is named in the finding" "$tmp/badfmt" 1 'unknown format "html"'
+scratch_root "$tmp/a=b" '# Emits: markdown'
+out=$(cd "$tmp" && /bin/sh "$CHECK" a=b 2>&1 </dev/null)
+case "$?:$out" in
+  0:*"clean (1 declared"*) pass "a relative root holding = is read as a path" ;;
+  *) fail "a relative root holding = was not read as a path: $out" ;;
+esac
+out=$(/bin/sh "$CHECK" --help extra 2>&1)
+if [ $? -eq 2 ]; then pass "--help with another argument is a usage error"; else fail "--help took another argument: $out"; fi
+out=$(/bin/sh "$CHECK" --bogus 2>&1)
+case "$?:$out" in
+  2:*"--bogus"*) pass "an unknown option is refused by name" ;;
+  *) fail "an unknown option was not refused by name: $out" ;;
+esac
+if [ "$(id -u)" -ne 0 ]; then
+  scratch_root "$tmp/locked" '# Emits: markdown'
+  chmod 000 "$tmp/locked/tests"
+  expect "an unlistable tests/ directory fails closed" "$tmp/locked" 2 "cannot be listed"
+  chmod 755 "$tmp/locked/tests"
+else
+  printf '%s\n' "skip: unlistable tests/ directory: running as root, which lists it anyway"
+fi
+
 # The helper itself: each format passes a clean artifact and fails a defect.
 # shellcheck source=tests/lib/emitter-lint.sh
 . "$REPO_ROOT/tests/lib/emitter-lint.sh"
