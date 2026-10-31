@@ -298,7 +298,7 @@ for v in 3 4; do
     check "the version 3 park names the predicate" grep -q '^- \*\*Task 1\*\* — pending ready-flip: ci-rollup' <<<"$(bullet)"
   else
     check "an undefined version (4) is refused (exit 5)" [ "$CODE" = 5 ]
-    check "the undefined-version refusal names the format" grep -q 'format-version' <<<"$OUT"
+    check "the undefined-version refusal names the declaration" grep -q 'undefined Format-version' <<<"$OUT"
     check "an undefined version writes no park" [ "$(origin_head)" = "$before" ]
   fi
   check "version $v makes no flip call" [ "$(calls 'pr ready')" = 0 ]

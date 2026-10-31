@@ -68,6 +68,8 @@
 #      Format-version: fails closed per spec; mixed v1+v2 roots key per spec;
 #      the engine is consulted only when unfenced task atoms could need it;
 #      prose bullets stay silent, near-misses warn; fences are illustration.
+#      38b: format-version 3 takes the v2 evaluation; an undefined version
+#      fails closed per spec.
 #  46.-47. v2 error-path rows: an engine-present-but-failing derivation
 #      resolves atoms as unresolved with its own counted error row; one
 #      PENDING row can carry both `- unmet:` and the unresolved clause.

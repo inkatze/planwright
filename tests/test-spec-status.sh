@@ -498,6 +498,8 @@ write_v2_spec "$spec8b" Ready
 awk '/^\(none yet\)$/ && !done { sub(/.*/, "- **Task 7** why is this blocked?"); done=1 } { print }' \
   "$spec8b/tasks.md" >"$spec8b/tasks.md.new" && mv "$spec8b/tasks.md.new" "$spec8b/tasks.md"
 to_version "$spec8b" 2 3
+awk '{ print } /^### Task 6 / { t6 = 1 } t6 && /^- \*\*Dependencies:\*\*/ { print "- **Repository:** alpha"; t6 = 0 }' \
+  "$spec8b/tasks.md" >"$spec8b/tasks.md.new" && mv "$spec8b/tasks.md.new" "$spec8b/tasks.md"
 seed_evidence "$repo8b"
 out=$("$RENDER" "$spec8b") || fail "F1.7: version 3 render exited non-zero"
 assert_has "$out" "format-version: 3" "F1.7 the render reports the declared version"

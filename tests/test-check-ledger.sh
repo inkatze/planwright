@@ -451,7 +451,13 @@ fi
 for v2f in v2-clean:0 v2-annot:0 v2-mal:1 v2-dup:1 v2-orphan:1; do
   name=${v2f%:*}
   want=${v2f#*:}
-  sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** 3/' "$tmp/$name.md" >"$tmp/$name-v3.md"
+  # Version 3 plus the field: a Repository: bullet after the first block body.
+  awk '{ print } /^- \*\*Estimated effort:\*\*/ && !d { print "- **Repository:** alpha"; d = 1 }' "$tmp/$name.md" \
+    | sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** 3/' >"$tmp/$name-v3.md"
+  grep -q '^\*\*Format-version:\*\* 3$' "$tmp/$name-v3.md" || {
+    echo "FAIL: v3: $name fixture was not re-declared" >&2
+    failures=$((failures + 1))
+  }
   run "$tmp/$name-v3.md"
   assert_exit "v3: $name keeps its v2 verdict" "$want" "$code"
   case $out in

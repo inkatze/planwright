@@ -96,6 +96,12 @@
 #   36. Review-pass regressions over sections 30-35 (block identity of the
 #       H3 scope, source line numbers, every occurrence named, CRLF,
 #       bounded citation strip, group prose, baseline fence handling).
+#   37. Format-version 3's Repository: field (invariant-tasks REQ-F1.1,
+#       REQ-F1.2, REQ-F1.7): a valid alias passes; the field outside version
+#       3, twice in a block, wrapped, or off the alias grammar fails on a
+#       signed fixture and warns on Draft and terminal ones; an unmarked
+#       root warns at every status, a broken marker check is a hard error;
+#       echoed values are sanitized; version 3 keeps every version 2 rule.
 #
 # Runs standalone: ./tests/test-spec-validate.sh
 set -eu

@@ -298,7 +298,8 @@ fi
 sed 's/^\*\*Format-version:\*\* 3$/**Format-version:** 4/' "$z/three/tasks.md" >"$z/four/tasks.md"
 cp "$z/four/tasks.md" "$tmp/four-before.md"
 note "$w" four 1 text
-if [ "$rc" -eq 4 ] && cmp -s "$z/four/tasks.md" "$tmp/four-before.md"; then
+if [ "$rc" -eq 4 ] && cmp -s "$z/four/tasks.md" "$tmp/four-before.md" \
+  && printf '%s' "$out" | grep -q 'undefined Format-version'; then
   ok "holder: an undefined version (4) is refused with no write"
 else
   fail "holder: version 4 (rc=$rc): $out"

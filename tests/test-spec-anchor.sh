@@ -25,6 +25,10 @@
 #      `**Status:**` line in body prose or inside a fence stays anchored, and a
 #      malformed, unterminated, or duplicate-Status header block fails closed
 #      (anchor-integrity REQ-A1.2).
+#  10. The format-version 3 `Repository:` line is anchored content at every
+#      version: a field-less version 3 bundle extracts byte-identically to
+#      its version 2 copy, and adding, changing, wrapping, or removing a field
+#      moves the anchor (invariant-tasks REQ-F1.3).
 #
 # Runs standalone: ./tests/test-spec-anchor.sh
 # (Joins the Task 2 shell test runner's suite when that lands.)

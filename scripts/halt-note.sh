@@ -33,7 +33,7 @@
 # Exit: 0 written, the file's path on stdout · 2 usage, a bad argument, or a
 #   broken install (a sibling library missing or not a readable file) ·
 #   3 the store is same-repo · 4 the bundle cannot take the bullet (missing,
-#   unreadable, not format-version 2, no such task or section, a fence left
+#   unreadable, not format-version 2 or 3, no such task or section, a fence left
 #   open, already parked) · 5 the spec root did not resolve · 6 the write or
 #   its lock failed.
 set -u
@@ -172,8 +172,12 @@ fi
   exit 4
 }
 fv=$(spec_parse_header_value "$file" Format-version) || fv=''
-[ "$(spec_parse_format_arm "$fv")" = 2 ] || {
-  say "$spec is not a format-version 2 or 3 bundle; a version 1 park moves the task block by hand"
+fv_arm=$(spec_parse_format_arm "$fv") || {
+  say "$spec has a missing, unparseable, or undefined Format-version; refusing to park"
+  exit 4
+}
+[ "$fv_arm" = 2 ] || {
+  say "$spec is a format-version 1 bundle; a version 1 park moves the task block by hand"
   exit 4
 }
 

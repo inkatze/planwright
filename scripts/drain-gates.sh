@@ -411,7 +411,7 @@ report() {
       fv=unparseable
     fi
     # Keyed on the rule arm (version 3 takes the v2 arm), never the raw value.
-    if ! fv=$(spec_parse_format_arm "$fv"); then
+    if ! fv_arm=$(spec_parse_format_arm "$fv"); then
       printf 'error: tasks.md has a missing, unparseable, or undefined Format-version: line - gates not evaluated (fail closed)\n'
       n_err=$((n_err + 1))
       continue
@@ -424,7 +424,7 @@ report() {
     # instead of evaluating against partial evidence.
     v2comp=" "
     v2evfail=0
-    if [ "$fv" = 2 ]; then
+    if [ "$fv_arm" = 2 ]; then
       # The parked map (live reference bullets under the three human-payload
       # sections) comes from the shared lib (REQ-B1.4, REQ-C1.1) — the single
       # v2 posture all four v2 parsers now consume, so it cannot re-diverge:
@@ -533,7 +533,7 @@ EOF
     # applies to its taskless diagnostic; the statuses-whitelist comment
     # below documents the underlying -v hazard).
     if ! lines=$(DRAIN_GATES_TASKS_MD="$tasks" awk -v today="$today" -v statuses="$statuses" \
-      -v fv="$fv" -v comp="$v2comp" -v evfail="$v2evfail" '
+      -v fv="$fv_arm" -v comp="$v2comp" -v evfail="$v2evfail" '
       BEGIN {
         n = split(statuses, a, " ")
         for (i = 1; i <= n; i++) {
