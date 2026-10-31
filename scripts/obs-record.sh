@@ -281,10 +281,10 @@ screen_class() {
 # dup_matches — print the uid of every live or archived fragment this one
 # duplicates: the same [<scope>] token, and a shared test path (a whole path
 # token with a tests/ component, compared in full) plus a shared quoted string
-# (a "..." or `...` span; one holding only a test path counts as the path).
-# The slug is no key, since recurring kinds
-# share one, and miss-ledger fragments on either side are exempt, their
-# identity being PR and path. Fragment content is read as data only.
+# (a "..." or `...` span; one with no whitespace naming a test path counts as
+# the path). The slug is no key, since recurring kinds share one, and
+# miss-ledger fragments on either side are exempt, their identity being PR and
+# path. Fragment content is read as data only.
 dup_matches() {
   [ "$slug" != review-miss ] || return 0
   # shellcheck disable=SC2016 # an awk program; the backticks are its regex
@@ -657,8 +657,9 @@ if [ -n "$recurrence" ]; then
     *) refuse 1 "obs:$recurrence is not a fragment this text duplicates; nothing written" ;;
   esac
   marker="recurrence of obs:$recurrence: "
-  # A kind prefix is `<name>(<arg>): `, the name lowercase kebab and the
-  # argument free of parentheses, as in skill-drift(execute-task, polish).
+  # A kind prefix is `<name>(<arg>): `, the name a lowercase letter then
+  # [a-z0-9._-] and the argument free of parentheses, as in
+  # skill-drift(execute-task, polish).
   kind=${text%%"): "*}
   name=${kind%%"("*}
   case $kind in
