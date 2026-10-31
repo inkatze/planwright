@@ -683,12 +683,7 @@ baseline exists, so the experiment has an honest before.
   workspace is at its monthly review limit (reviews resume 2026-11-05), so no
   cubic round has run on the PR, and the ready flip needs one on the current
   head; the operator runs the cubic and panel rounds from another session.
-  Three review forks also wait in the PR body for direction: NHJ-1 (the
-  rebuild judging a default against a re-forked row), NHJ-2 (`revoke`
-  reopening a default beside a newer question), and NHJ-3, a security-design
-  finding (the mission-control token following the caller's environment on
-  `recover` and direct launches). Record:
-  `.claude/steps/000002/005-step-post-pr.rec`.
+  Record: `.claude/steps/000002/005-step-post-pr.rec`.
 
 ## Deferred
 
