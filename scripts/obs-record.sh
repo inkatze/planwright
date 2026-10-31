@@ -118,8 +118,9 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 usage() {
   cat >&2 <<EOF
-usage: $prog --slug <slug> --scope <scope> --text <text> [--recurrence <uid>]
-              [--today <YYYY-MM-DD>] [--obs-dir <dir> | --target <alias>]
+usage: $prog --slug <slug> --scope <scope> --text <text>
+              [--recurrence <uid>] [--today <YYYY-MM-DD>]
+              [--obs-dir <dir> | --target <alias>]
 EOF
 }
 
