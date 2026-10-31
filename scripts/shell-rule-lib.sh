@@ -209,14 +209,19 @@ function scan(path,   line, r, code, body, pre, delim, dash, lg, lgc, lgcmt, lst
   if (heredoc != "" || inquote()) { print "?\t" path; return }
   if (lg != "") judge(lstart, lgc, lgcmt, lg)
 }
-# Command-word position of name in code, or 0. Admits the separators, the
-# keywords and the wrappers that leave name as the command run, an assignment
-# prefix, a shell running it as a script (/bin/sh name), and a path prefix.
+# What may precede a command word: a separator, then the keywords and the
+# wrappers that leave the next word as the command run, an assignment prefix,
+# and a shell running it as a script (/bin/sh name).
+function cw_prefix() {
+  return "(^|[;&|({!`]|\\$\\()[ \t]*((if|then|do|else|elif|while|until|time|command|exec|builtin|nohup|env|!|([^ \t;&|()]*/)?(ba)?sh)[ \t]+)*([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)*"
+}
+# Command-word position of name in code (after cw_prefix, with a path prefix
+# allowed), or 0.
 function cmdword(code, name,   re) {
   # The regex below is the hot spot of every rule; a literal name absent from
   # the line cannot match it.
   if (name !~ /[\\(]/ && !index(code, name)) return 0
-  re ="(^|[;&|({!`]|\\$\\()[ \t]*((if|then|do|else|elif|while|until|time|command|exec|builtin|nohup|env|!|([^ \t;&|()]*/)?(ba)?sh)[ \t]+)*([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)*[\"]?([^ \t;&|()\"]*/)?" name "[\"]?([ \t;)|&]|$)"
+  re = cw_prefix() "[\"]?([^ \t;&|()\"]*/)?" name "[\"]?([ \t;)|&]|$)"
   if (!match(code, re)) return 0
   CW_END = RSTART + RLENGTH
   return RSTART

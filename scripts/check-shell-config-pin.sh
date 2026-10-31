@@ -38,7 +38,7 @@ function literal_call(code,   s, p, w, pre) {
     while (w > 1 && substr(s, w - 1, 1) !~ /[ \t;&|()`]/) w--
     pre = substr(code, 1, length(RAW) - length(s) + w - 1)
     if (substr(s, w, p - w) !~ /=/ && substr(code, length(pre) + 1, 1) == substr(RAW, length(pre) + 1, 1) \
-      && pre ~ /(^|[;&|({!`]|\$\()[ \t]*((if|then|do|else|elif|while|until|time|command|exec|builtin|nohup|env|!|([^ \t;&|()]*\/)?(ba)?sh)[ \t]+)*([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)*$/) return 1
+      && pre ~ (cw_prefix() "$")) return 1
     s = substr(s, p + 13)
   }
   return 0
