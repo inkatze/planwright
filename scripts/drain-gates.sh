@@ -477,13 +477,29 @@ report() {
       done <<EOF
 $v2pre
 EOF
+      # Task atoms derive from the work repository alone, so on a bundle
+      # whose tasks name another repository they would read the wrong
+      # evidence: they stay unresolved until per-task derivation replaces
+      # this check.
+      if [ "$fv" = 3 ] && [ "$v2ntasks" -gt 0 ] && [ "$v2hasgate" -eq 1 ]; then
+        if ! v3repo=$(spec_parse_repository_tasks "$tasks" 2>/dev/null); then
+          printf 'error: could not read the Repository: fields - gates not evaluated (fail closed)\n'
+          n_err=$((n_err + 1))
+          continue
+        fi
+        if [ -n "$v3repo" ]; then
+          printf 'error: tasks name a repository and per-task repository derivation is unavailable - task-completion atoms resolve as unresolved (fail closed)\n'
+          n_err=$((n_err + 1))
+          v2evfail=1
+        fi
+      fi
       # The engine is consulted only when its output can be consumed: a bundle
       # with no unfenced task blocks has nothing to derive (every task atom is
       # already an unknown-id MALFORMED), and a bundle with no unfenced gate
       # marker has no atoms to resolve — either way a needless derivation
       # (git subprocesses, potentially a gh network call) would only inflate
       # the error tally on unrelated failures.
-      if [ "$v2ntasks" -gt 0 ] && [ "$v2hasgate" -eq 1 ]; then
+      if [ "$v2evfail" -eq 0 ] && [ "$v2ntasks" -gt 0 ] && [ "$v2hasgate" -eq 1 ]; then
         if [ ! -x "$state_engine" ]; then
           printf 'error: derivation engine unavailable - task-completion atoms resolve as unresolved (fail closed)\n'
           n_err=$((n_err + 1))

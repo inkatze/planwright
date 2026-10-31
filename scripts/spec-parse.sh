@@ -26,6 +26,8 @@
 #                               meta step's dispatch gate
 #   spec_parse_format_arm       the declared Format-version to rule-arm map
 #                               every version-keyed script selects through
+#   spec_parse_repository_tasks the ids of the task blocks that carry a
+#                               version 3 `Repository:` field
 #   spec_parse_printable        the stderr path sanitizer the lib's own
 #                               diagnostics use, exported so a caller adding
 #                               context to a refusal reuses this byte range
@@ -144,6 +146,31 @@ spec_parse_format_arm() {
     2 | 3) printf '2\n' ;;
     *) return 1 ;;
   esac
+}
+
+# spec_parse_repository_tasks <tasks.md|-> — print, one per line in document
+# order, the id of every unfenced task block carrying a `- **Repository:**`
+# field bullet, so a reader that cannot yet derive per-task repositories can
+# refuse such a bundle rather than derive its tasks from the wrong repository.
+# Prints nothing for a bundle that names no repository. Fails closed (non-zero,
+# message on stderr) on a missing, unreadable, or NUL-bearing file, or end of
+# file inside an open column-0 fence. `-` reads the caller's snapshot from
+# stdin under consumer contract (g).
+spec_parse_repository_tasks() {
+  # shellcheck disable=SC2016 # $3 is an awk field, not a shell expansion
+  spec_parse__repo_awk='
+    /^###? / { id = "" }
+    /^### Task [0-9]/ { id = $3; seen = 0; next }
+    id != "" && !seen && /^- \*\*Repository:\*\*/ { print id; seen = 1 }
+    END { spec_parse__fence_eof() }
+  '
+  if [ "$1" = - ]; then
+    LC_ALL=C awk "$spec_parse_awk_fence$spec_parse__repo_awk"
+    return $?
+  fi
+  spec_parse__readable "$1" || return 1
+  spec_parse__nul_screen "$1" || return 1
+  LC_ALL=C awk "$spec_parse_awk_fence$spec_parse__repo_awk" <"$1"
 }
 
 # spec_parse__readable <path> — internal: refuse a missing, unreadable, or

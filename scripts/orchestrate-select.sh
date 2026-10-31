@@ -184,6 +184,21 @@ fv_arm=$(spec_parse_format_arm "$fv") || {
   printf '%s\n' "orchestrate-select: unparseable or undefined Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
   exit 2
 }
+# This selector derives every task from the bundle's work repository, so a
+# task whose Repository: field names another one would select on the wrong
+# repository's evidence, the fallback the format forbids. Selection refuses
+# such a bundle until per-task derivation replaces this check; the
+# structural --critical-path reads no evidence and is unaffected.
+if [ "$mode" = select ] && [ "$fv" = 3 ]; then
+  if ! repo_tasks=$(printf '%s\n' "$tasks_content" | spec_parse_repository_tasks -); then
+    printf '%s\n' "orchestrate-select: could not read the Repository: fields of $tasks_md (fail closed)" >&2
+    exit 2
+  fi
+  if [ -n "$repo_tasks" ]; then
+    printf '%s\n' "orchestrate-select: tasks in $tasks_md name a repository (Task $(printf '%s' "$repo_tasks" | tr '\n' ' ' | sed 's/ $//; s/ /, Task /g')), and per-task repository derivation is unavailable here; refusing to select (fail closed)" >&2
+    exit 2
+  fi
+fi
 
 # Live-truth state (orchestration-concurrency Task 5, D-3, REQ-B1.2; the
 # invariant-tasks Task 5 above is the format-version keying). In selection

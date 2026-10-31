@@ -1662,4 +1662,26 @@ for bad in '' 0 4 10 02 ' 2' 2.0 3beta banana; do
 done
 echo "ok: the format-version arm map gives version 3 the v2 arm and refuses undefined versions"
 
+# --- The task-repository probe: unfenced task blocks carrying the field, in
+# document order, once each; fenced illustration and non-task H3s never count.
+# shellcheck disable=SC2016 # literal backticks: the fence is the fixture
+printf '%s\n' '# T' '' '## Tasks' '' '### Task 2 — b' '- **Repository:** beta' '- **Repository:** again' '' \
+  '### Task 1 — a' '- **Dependencies:** none' '' '### Notes' '- **Repository:** stray' '' \
+  '```markdown' '### Task 9 — example' '- **Repository:** fenced' '```' '' \
+  '### Task 3.5 — c' '- **Repository:** gamma' >"$tmp/repo-tasks.md"
+eq "the probe lists each field-bearing task once, in order" "$(printf '2\n3.5')" \
+  "$(spec_parse_repository_tasks "$tmp/repo-tasks.md")"
+eq "the probe reads a caller snapshot on stdin" "$(printf '2\n3.5')" \
+  "$(spec_parse_repository_tasks - <"$tmp/repo-tasks.md")"
+printf '%s\n' '# T' '' '### Task 1 — a' '- **Dependencies:** none' >"$tmp/repo-none.md"
+eq "a bundle naming no repository prints nothing" '' "$(spec_parse_repository_tasks "$tmp/repo-none.md")"
+printf '%s\n' '# T' '' '```' '### Task 1 — a' >"$tmp/repo-open.md"
+rc=0
+spec_parse_repository_tasks "$tmp/repo-open.md" >/dev/null 2>&1 || rc=$?
+eq "an unclosed fence fails closed" 3 "$rc"
+rc=0
+spec_parse_repository_tasks "$tmp/does-not-exist.md" >/dev/null 2>&1 || rc=$?
+eq "a missing file fails closed" 1 "$rc"
+echo "ok: the task-repository probe lists field-bearing tasks and fails closed on bad input"
+
 echo "PASS: test-spec-parse.sh"
