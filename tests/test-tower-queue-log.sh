@@ -146,7 +146,7 @@ run log tick --tower "$tower" --now 1000 >/dev/null 2>&1 || rc=$?
 rc=0
 run log tick --tower "$tower" --now 1000 live=many >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "tick with non-numeric live: exit $rc, expected 2"
-for k in reply acknowledged delivered knocked; do
+for k in reply acknowledged delivered knocked presence; do
   rc=0
   run log "$k" --now 1000 item=q1 >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || fail "$k without --tower: exit $rc, expected 2"

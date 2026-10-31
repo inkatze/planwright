@@ -375,6 +375,60 @@ run next --tower $G --now 8003 >/dev/null 2>&1 || fail "next with the presence d
 run settle "$qg" --reason 'the worker landed it' --now 8100 >/dev/null 2>&1 || fail "settling qg"
 echo "ok: a widened or symlinked presence directory reads every tower from the fallback, warned once"
 
+# --- the lease owner's presence is read from its marker ----------------------
+# A holder whose reply and hand-over are past the quiet interval keeps its
+# lease while a fresh marker says present; a holder that answered within the
+# interval loses it once a later marker says away.
+
+run settle "$q3" --reason 'the worker landed it' --now 9000 >/dev/null 2>&1 || fail "settling q3"
+H=tower-h
+I=tower-i
+qh=$(add_q wh high 9000)
+run next --tower $H --now 9001 >/dev/null 2>&1 || fail "H's knock: exit"
+marker $H 9002
+out=$(run next --tower $H --now 9003 2>/dev/null) || fail "H's hand-over: exit"
+[ "$(field "$out" 1)" = item ] || fail "qh was not handed to H: '$out'"
+pres $H --last-prompt 9140 --now 9145 >/dev/null || fail "H present write: exit"
+out=$(run next --tower $I --now 9150 2>/dev/null) || fail "next for I beside a present holder: exit"
+[ -z "$out" ] || fail "a holder present by its marker lost the lease past the quiet interval: '$out'"
+marker $H 9156
+pres $H --away --now 9157 >/dev/null || fail "H away write: exit"
+out=$(run next --tower $I --now 9160 2>/dev/null) || fail "next for I beside an away holder: exit"
+[ "$(field "$out" 1)" = knock ] || fail "a holder away by its marker kept the lease inside the quiet interval: '$out'"
+run settle "$qh" --reason 'the worker landed it' --now 9200 >/dev/null 2>&1 || fail "settling qh"
+echo "ok: the lease owner's presence is read from its marker, present or away"
+
+# --- a fresh away marker flags a settlement as settled while away -------------
+# A knock seconds old reads present by the quiet rule alone; the marker says
+# away and is read first.
+
+K=tower-k
+qk=$(add_q wk normal 9980 pr:9)
+run next --tower $K --now 9990 >/dev/null 2>&1 || fail "K's knock: exit"
+printf 'stamp\t9995\npr\t9\tmerged\n' >"$surface/evidence"
+chmod 0600 "$surface/evidence"
+out=$(pres $K --away --now 10000) || fail "K away write over arrived evidence: exit"
+rm -f "$surface/evidence"
+[ "$(printf '%s\n' "$out" | grep "^settled${TAB}$qk${TAB}" | cut -f 4)" = 1 ] \
+  || fail "a settlement under a fresh away marker was not recorded as settled while away: '$out'"
+echo "ok: a fresh away marker flags a settlement as settled while away"
+
+# --- another conversation's fresh present marker holds the away push ---------
+# The tower with only a presence marker is found by the sweep over the
+# presence directory; the operator present there is not away.
+
+L=tower-l
+M=tower-m
+ql=$(add_q wl high 10200)
+run next --tower $L --now 10201 >/dev/null 2>&1 || fail "L's knock: exit"
+pres $M --last-prompt 10300 --now 10305 >/dev/null || fail "M present write: exit"
+run next --tower $L --now 10310 >/dev/null 2>&1 || fail "next for L beside a present M: exit"
+[ "$(pushes_for "$ql")" = 0 ] || fail "the away push fired while another conversation's marker said present"
+run next --tower $L --now 10400 >/dev/null 2>&1 || fail "next for L with M's marker stale: exit"
+[ "$(pushes_for "$ql")" = 1 ] || fail "the away push did not fire once M's marker went stale ($(pushes_for "$ql"))"
+run settle "$ql" --reason 'the worker landed it' --now 10500 >/dev/null 2>&1 || fail "settling ql"
+echo "ok: another conversation's fresh present marker holds the away push"
+
 # --- the knob ships with its default and its options-reference row -----------
 
 grep -q '^tower_presence_ttl: 2m$' "$here/../config/defaults.yml" || fail "config/defaults.yml does not ship tower_presence_ttl: 2m"
