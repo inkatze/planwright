@@ -214,6 +214,19 @@ ln -s "$tmp" "$tmp/linked-dir/tests/away"
 out=$(check linked-dir)
 assert "a symlinked directory is refused" 2 $?
 
+# A file name's 8-bit control bytes never reach the output.
+fixture c1-name 'out=$(run)'
+printf '%s\n' '#!/bin/bash' '[ x = x ]' >"$tmp/c1-name/tests/test-a$(printf '\302\233')b.sh"
+out=$(check c1-name)
+assert "a finding in a file whose name carries a C1 byte is reported" 1 $?
+case "$out" in
+  *"$(printf '\233')"*)
+    echo "FAIL: a C1 control byte reached the output" >&2
+    failures=$((failures + 1))
+    ;;
+  *) echo "ok: C1 control bytes are stripped from file names" ;;
+esac
+
 # A heredoc left open at end of file cannot be reported clean.
 fixture open-heredoc 'cat <<EOF' 'never closed'
 out=$(check open-heredoc)

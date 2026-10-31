@@ -64,7 +64,8 @@ substring of the introducing sentence, read from --exempt or else the list
 beside this script whatever the root. A row clearing no finding fails, and a
 repeated file and excerpt pair is malformed.
 
-A tracked file absent from the work tree is not read.
+A tracked file absent from the work tree is not read; a tracked symlink or
+non-regular file fails closed.
 
 Exit codes: 0 clean; 1 a finding or a stale exemption; 2 usage error, a root
 that is not a git work tree, an unreadable file or exemption list, a Draft
@@ -143,6 +144,9 @@ while IFS= read -r line; do
     *) f=$line ;;
   esac
   [ -e "$root/$f" ] || [ -L "$root/$f" ] || continue
+  # A tracked symlink could print a file from outside the tree, or never end.
+  [ ! -L "$root/$f" ] || fail_closed "a tracked file is a symlink, refusing to follow it"
+  [ -f "$root/$f" ] || fail_closed "a tracked file is not a regular file"
   [ -r "$root/$f" ] || fail_closed "a tracked file is unreadable"
   printf '%s\n' "$f" >>"$work/list"
 done <"$work/candidates"
@@ -152,7 +156,7 @@ done <"$work/candidates"
 CC_ROOT=$root CC_LIST=$work/list CC_EXEMPT=$exempt CC_ME=$me
 export CC_ROOT CC_LIST CC_EXEMPT CC_ME
 awk '
-  function clean(s) { gsub(/[\001-\037\177]/, "", s); return s }
+  function clean(s) { gsub(/[\001-\037\177\200-\237]/, "", s); return s }
   function indent(s) { match(s, /^ */); return RLENGTH }
   function is_item(s) { return s ~ /^ *([-*+]|[0-9]+[.)])[ \t]+[^ \t]/ && s !~ /^ *(\* *\* *\*[ *]*|- *- *-[ -]*|_ *_ *_[ _]*)$/ }
   function is_table(s) { return s ~ /^ *\|/ }

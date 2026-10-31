@@ -276,6 +276,30 @@ else
 fi
 chmod 644 "$r/doctrine/locked.md"
 
+# A tracked symlink is refused rather than followed out of the tree, and
+# printed text loses its 8-bit control bytes.
+r="$tmp/symlink"
+make_repo "$r"
+put "$r" doctrine/clean.md "Nothing to count here."
+printf '%s\n' "The three tokens SECRET:" "- a" >"$tmp/outside.md"
+ln -s "$tmp/outside.md" "$r/doctrine/leak.md"
+git -C "$r" add doctrine/leak.md
+out=$(check "$r")
+assert "a tracked symlink fails closed" 2 $?
+assert_not_contains "nothing behind the symlink is printed" "$out" "SECRET"
+r="$tmp/c1"
+make_repo "$r"
+put "$r" doctrine/c1.md "$(printf 'The three \302\233tokens:')" "- a"
+out=$(check "$r")
+assert "a mismatch carrying a C1 control byte is reported" 1 $?
+case "$out" in
+  *"$(printf '\233')"*)
+    echo "FAIL: a C1 control byte reached the output" >&2
+    failures=$((failures + 1))
+    ;;
+  *) echo "ok: C1 control bytes are stripped from the output" ;;
+esac
+
 # The shipped tree is green under the shipped exemption list.
 out=$(/bin/sh "$CHECKER" </dev/null 2>&1)
 rc=$?

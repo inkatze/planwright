@@ -111,7 +111,7 @@ done <"$work/all"
 [ -s "$work/list" ] || fail_closed "no shell files found under tests/, a broken enumeration rather than a clean tree"
 
 cat >"$work/scan.awk" <<'AWK'
-function clean(s) { gsub(/[\001-\037\177]/, "", s); return s }
+function clean(s) { gsub(/[\001-\037\177\200-\237]/, "", s); return s }
 function report(line, rule, why) {
   printf "%s: %s:%d: %s: %s\n", ENVIRON["TV_ME"], clean(file), line, rule, why
   bad = 1
