@@ -198,11 +198,16 @@ derive_rc=0
 assert_eq "a field under an undefined Format-version fails closed" 2 "$derive_rc"
 mv "$TRF/tasks.keep" "$BUNDLE/tasks.md"
 
-# A base that resolves in no task's repository is a misconfiguration, not a
-# transient failure.
-derive_rc=0
-(cd "$TRF/holder" && trf_env PLANWRIGHT_BASE_REF=no-such-base /bin/sh "$SCRIPTS/orchestrate-state.sh" "$BUNDLE" >/dev/null 2>&1) || derive_rc=$?
-assert_eq "an unresolvable base in an aliased repository fails closed" 2 "$derive_rc"
+# A base that does not resolve in an aliased repository is a misconfiguration,
+# not a transient failure: that repository's tasks derive unresolved, and the
+# rest derive normally.
+trf_git -C "$TRF/src/alpha" branch develop main
+state=$(cd "$TRF/holder" && trf_env PLANWRIGHT_BASE_REF=develop /bin/sh "$SCRIPTS/orchestrate-state.sh" "$BUNDLE" 2>&1)
+assert_eq "a base that resolves in alpha derives Task 1 normally" "ready${TAB}deps-met" "$(rec task 1)"
+assert_eq "a base missing in beta leaves Task 2 unresolved" "repository-unresolved${TAB}alias-unresolved" "$(rec task 2)"
+assert_eq "the reason names the base" "beta${TAB}its checkout's base ref does not resolve to a commit" "$(rec repository-unresolved 2)"
+assert_eq "no transient failure is claimed for it" "" "$(rec degraded repository)"
+trf_git -C "$TRF/src/alpha" branch -D develop
 
 # --- REQ-F1.6 / REQ-B1.7: a transient failure is keyed per task ---------------
 trf_fail_gh beta

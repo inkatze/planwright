@@ -861,11 +861,14 @@ label_of_key() {
 }
 
 # Derive repository by repository, each read once. A base that does not
-# resolve is a misconfiguration, not a transient failure, so it fails the
-# derivation closed in either mode. A failed gh probe is: on a bundle naming
-# no repository it is the bundle-wide record it always was; per task it fails
-# only the tasks its repository holds.
+# resolve is a misconfiguration, not a transient failure: in the work
+# repository it fails the derivation closed, as it always has; in an aliased
+# repository its tasks derive repository-unresolved, so tasks elsewhere keep
+# deriving. A failed gh probe is transient: on a bundle naming no repository
+# it is the bundle-wide record it always was; per task it fails only the
+# tasks its repository holds.
 failed=" "
+unreadable=" "
 # shellcheck disable=SC2013 # keys are digits; a while-read would hand stdin to git and gh
 for key in $(awk -F"$TAB" '$3 != "u" && !seen[$3]++ { print $3 }' "$list"); do
   root=$(awk -F"$TAB" -v k="$key" '$1 == k { print $2; exit }' "$repos")
@@ -877,7 +880,10 @@ for key in $(awk -F"$TAB" '$3 != "u" && !seen[$3]++ { print $3 }' "$list"); do
   else
     load_repo "$root" "repository $(label_of_key "$key")" || lr=$?
   fi
-  if [ "$lr" -eq 3 ]; then
+  if [ "$lr" -eq 2 ] && [ "$per_task" -eq 1 ] && [ "$key" != 0 ]; then
+    unreadable="$unreadable$key "
+    continue
+  elif [ "$lr" -eq 3 ]; then
     if [ "$per_task" -eq 0 ]; then
       printf 'degraded%sgh%sgh query failed; deriving git-only\n' "$TAB" "$TAB"
     else
@@ -895,7 +901,15 @@ for key in $(awk -F"$TAB" '$3 != "u" && !seen[$3]++ { print $3 }' "$list"); do
   done <"$list"
 done
 while IFS="$TAB" read -r t_order t_id t_key t_deps; do
-  [ "$t_key" = u ] || continue
+  if [ "$t_key" != u ]; then
+    case "$unreadable" in
+      *" $t_key "*) ;;
+      *) continue ;;
+    esac
+    OS_ID=$t_id awk -F"$TAB" -v OFS="$TAB" \
+      '$1 == ENVIRON["OS_ID"] { $4 = "its checkout'"'"'s base ref does not resolve to a commit" } { print }' \
+      "$fields" >"$fields.new" && mv "$fields.new" "$fields" || exit 2
+  fi
   id=$t_id
   parse_deps "$t_deps"
   case $(awk -F"$TAB" -v i="$t_id" '$1 == i { print $2; exit }' "$fields") in
