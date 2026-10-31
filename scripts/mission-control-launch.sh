@@ -460,10 +460,10 @@ cmd_launch() {
   unit="mission-control:$name"
   # The row's token goes into the session, so a decided-by-mission-control
   # item it adds is bound to this row rather than to a name any caller can
-  # type (tower-comms REQ-A1.14). The rungs pass it to a mission-control
-  # session only.
-  PLANWRIGHT_MC_TOKEN=$token
-  export PLANWRIGHT_MC_TOKEN
+  # type (tower-comms REQ-A1.14). It is handed to the rung as an explicit
+  # argument, which passes it to a mission-control session only.
+  mc_tok_flag=''
+  [ "$K_PROFILE" != mission-control ] || mc_tok_flag=1
   case $backend in
     stream-json)
       plan=$(/bin/sh "$script_dir/allocation-apply.sh" plan --key "$K_KEY" --backend stream-json-persistent --unit "$unit" </dev/null)
@@ -479,7 +479,9 @@ cmd_launch() {
       if [ -z "$model" ] || [ -z "$effort" ]; then
         refuse "refusing to launch $name: the tier plan carries no model or effort row (broken install)" 4
       fi
-      set -- launch "$name" "$scope" --prompt-file "$composed" --profile "$K_PROFILE" --cwd "$cwd" --
+      set -- launch "$name" "$scope" --prompt-file "$composed" --profile "$K_PROFILE" --cwd "$cwd"
+      [ "$K_PROFILE" != mission-control ] || set -- "$@" --mc-token "$token"
+      set -- "$@" --
       [ "$model" = inherit ] || set -- "$@" --model "$model"
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"
       tier="$model/$effort"
@@ -506,7 +508,7 @@ cmd_launch() {
       ;;
     tmux)
       out=$(cd "$cwd" && /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
-        --key "$K_KEY" --strict-tier --profile "$K_PROFILE" --name "$name" --scope "$scope" </dev/null)
+        --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" --scope "$scope" </dev/null)
       dr=$?
       case $dr in
         0) ;;

@@ -172,10 +172,12 @@
 #
 # Usage:
 #   fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>
-#       [--profile worker|tower|mission-control] [--cwd <dir>] [--foreground]
-#       [-- <extra claude args>...]
+#       [--profile worker|tower|mission-control] [--mc-token <token>]
+#       [--cwd <dir>] [--foreground] [-- <extra claude args>...]
 #       Launch a worker under a supervisor, under the settings fragment of
-#       --profile (default worker). Detached by default (prints
+#       --profile (default worker). --mc-token is the mission-control
+#       launcher's row token, exported into a mission-control session only;
+#       none is taken from the environment. Detached by default (prints
 #       `launched <worker> dir <dir>`); --foreground runs the supervisor
 #       loop in this process (fixtures; returns the worker's exit code). A
 #       caller-supplied `--bare` (or `-b`) in the extra args is refused
@@ -445,7 +447,7 @@ valid_posnum() {
 
 usage() {
   {
-    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--cwd <dir>] [--foreground] [-- <extra args>...]"
+    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
     echo "       fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]"
@@ -1908,8 +1910,17 @@ cmd_launch() {
   foreground=0
   resume_sid=''
   profile=''
+  mc_token_arg=''
   while [ $# -gt 0 ]; do
     case $1 in
+      --mc-token)
+        [ $# -ge 2 ] || usage
+        case $2 in
+          '' | *[!A-Za-z0-9._-]*) usage ;;
+        esac
+        mc_token_arg=$2
+        shift 2
+        ;;
       --prompt-file)
         [ $# -ge 2 ] || usage
         prompt_file=$2
@@ -2111,7 +2122,16 @@ cmd_launch() {
   # (the field tower-queue.sh mc_token_ok reads), never from the caller.
   if [ "$profile" != mission-control ]; then
     unset PLANWRIGHT_MC_TOKEN
-  elif [ -n "$resume_sid" ]; then
+  elif [ -z "$resume_sid" ]; then
+    # A fresh launch holds a token only as the launcher's explicit argument,
+    # never one inherited from whoever runs it.
+    if [ -n "$mc_token_arg" ]; then
+      PLANWRIGHT_MC_TOKEN=$mc_token_arg
+      export PLANWRIGHT_MC_TOKEN
+    else
+      unset PLANWRIGHT_MC_TOKEN
+    fi
+  else
     mc_tok=''
     if mc_root=$(/bin/sh "$FS" root 2>/dev/null </dev/null); then
       mc_tok=$(awk -F '\t' '$1 == "token" { print $2; exit }' "$mc_root/mission-control/sessions/$worker" 2>/dev/null) || mc_tok=''
