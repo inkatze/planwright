@@ -650,11 +650,18 @@ if [ -n "$recurrence" ]; then
     *) refuse 1 "obs:$recurrence is not a fragment this text duplicates; nothing written" ;;
   esac
   marker="recurrence of obs:$recurrence: "
+  # A kind prefix is `<name>(<arg>): `, the name lowercase kebab and the
+  # argument free of parentheses, as in skill-drift(execute-task, polish).
   kind=${text%%"): "*}
+  name=${kind%%"("*}
   case $kind in
-    "$text" | *[!a-z0-9._\(-]* | *"("*"("* | [!a-z]*) text=$marker$text ;;
-    *"("*) text="$kind): $marker${text#*"): "}" ;;
-    *) text=$marker$text ;;
+    "$text" | "$name" | *")"* | *"("*"("*) text=$marker$text ;;
+    *)
+      case $name in
+        "" | [!a-z]* | *[!a-z0-9._-]*) text=$marker$text ;;
+        *) text="$kind): $marker${text#*"): "}" ;;
+      esac
+      ;;
   esac
 elif [ -n "$dups" ]; then
   refuse 1 "duplicate of $(printf '%s\n' "$dups" | sed 's/^/obs:/' | tr '\n' ' ')(same scope, a shared test path and quoted string); record it with --recurrence <uid> or withdraw it, never under another slug; nothing written"

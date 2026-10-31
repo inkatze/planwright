@@ -157,4 +157,26 @@ for t in 'see ./tests/a+b.sh: it said "e".' 'again skills/a/tests/run.sh. "err"'
 done
 echo "ok 9: a test path matches only the same whole path"
 
+# --- 10. what counts as a kind prefix ----------------------------------------
+o=$(store s10)
+seed "$o" entries gate-lock abcd0010 planwright "$LIVE_TEXT"
+P='tests/test-gate.sh "lock held by another gate"'
+for pair in \
+  "skill-drift(execute-task, polish): |$P|skill-drift(execute-task, polish): recurrence of obs:abcd0010: $P" \
+  "see (flaky): |$P|recurrence of obs:abcd0010: see (flaky): $P" \
+  "Drift(x): |$P|recurrence of obs:abcd0010: Drift(x): $P" \
+  "9x(y): |$P|recurrence of obs:abcd0010: 9x(y): $P" \
+  "a(b(c): |$P|recurrence of obs:abcd0010: a(b(c): $P" \
+  "(x): |$P|recurrence of obs:abcd0010: (x): $P"; do
+  pre=${pair%%|*}
+  rest=${pair#*|}
+  body=${rest%%|*}
+  want=${rest#*|}
+  out=$(rec --obs-dir "$o" --slug k --scope planwright --recurrence abcd0010 --text "$pre$body") \
+    || fail "10: a recurrence was refused: $pre"
+  [ "$(cat "$out")" = "- 2026-10-31 [planwright] $want" ] \
+    || fail "10: marker misplaced for '$pre': $(cat "$out")"
+done
+echo "ok 10: the marker follows only a lowercase name(arg) prefix with no nested parentheses"
+
 echo "PASS: test-obs-record-duplicates.sh"
