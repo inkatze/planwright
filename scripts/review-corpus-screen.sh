@@ -184,11 +184,11 @@ if [ "$text" -eq 1 ]; then
     exit 2
   fi
   # Each file is read as data: its name screened in BEGIN (an empty file has
-  # no first record), then every line. Control bytes are stripped from the
-  # path before it reaches stderr.
+  # no first record), then every line. Every non-printable byte in the path,
+  # C1 included, is masked before it reaches stderr.
   set +e
   awk -v prog="$prog" -v namesf="$names" -v list="$T/files" "$names_awk"'
-function show(p) { gsub(/[[:cntrl:]]/, "?", p); return p }
+function show(p) { gsub(/[^[:print:]]/, "?", p); return p }
 function base(p) { sub(/.*\//, "", p); return p }
 BEGIN {
   loadnames()

@@ -186,6 +186,25 @@ ln -s ../real/2026-01-06-linked-0000ffff.md "$T/sym/clean/2026-01-08-link-000022
 "$SCREEN" --text --names "$names" "$T/sym/clean" >/dev/null 2>&1
 assert_exit "text mode refuses a symlink inside a directory, never skips it" 2 $?
 rm -r "$T/sym"
+mkdir -p "$T/c1"
+csi=$(printf '\233')
+# A C1 byte (0x9B is a one-byte CSI) in a refused file name must not reach the
+# terminal; APFS refuses a name that is not valid UTF-8, so macOS skips this.
+if (LC_ALL=C; : >"$T/c1/x${csi}acmereview-0000abcd.md") 2>/dev/null; then
+  out=$(LC_ALL=C "$SCREEN" --text --names "$names" "$T/c1" 2>&1)
+  assert_exit "text mode refuses a listed name beside a C1 byte" 1 $?
+  case $out in
+    *"$csi"*) fail "text mode masks a C1 byte in a refused path" ;;
+    *) ok "text mode masks a C1 byte in a refused path" ;;
+  esac
+else
+  echo "skip: the filesystem refused a file name holding a C1 byte" >&2
+fi
+rm -r "$T/c1"
+printf -- '- a clean line\n' >"$T/-dash.md"
+(cd "$T" && "$SCREEN" --text --names "$names" -- -dash.md) >/dev/null 2>&1
+assert_exit "text mode takes a path after -- even when it starts with a dash" 0 $?
+rm "$T/-dash.md"
 mkdir -p "$T/empty-dir"
 "$SCREEN" --text --names "$names" "$T/empty-dir" >/dev/null 2>&1
 assert_exit "text mode refuses paths holding no files, never a pass" 2 $?
