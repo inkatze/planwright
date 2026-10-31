@@ -29,8 +29,8 @@ function rule_check(code, lineno,   rest, n, k, p) {
   while ((p = cmdword(rest, "mktemp")) > 0) {
     n = operands(rest)
     for (k = 1; k <= n; k++) {
-      # -p takes a directory, not a template.
-      if (OPS[k] == "-p") { k++; continue }
+      # -p takes a directory, not a template, alone or ending a flag cluster.
+      if (OPS[k] ~ /^-[A-Za-z]*p$/) { k++; continue }
       if (OPS[k] !~ /^-/) break
     }
     if (k > n) return "mktemp is given no template; name one, mktemp -d \"${TMPDIR:-/tmp}/<name>.XXXXXX\""
