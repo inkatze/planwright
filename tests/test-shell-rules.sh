@@ -249,6 +249,10 @@ engine_case "an annotation on a comment line inside a continued pipeline carries
   'x=$(true |' '  # shell-mktemp-template: a fixture of the carried annotation' '  mktemp)'
 engine_case "a quoted line that looks like a comment inside a continuation keeps the quote state" shell-mktemp-template clean \
   'v="${x//a/|' '#}"' 'printf "%s\n" "$v"'
+engine_case "a (( inside a parameter default does not hide the heredoc after it" shell-mktemp-template 4 \
+  'printf "%s\n" "${a:-((}" && cat <<EOF' 'mktemp' 'EOF' 'f=$(mktemp) || exit 2'
+engine_case "an arithmetic shift continued onto the next line opens no heredoc" shell-mktemp-template 3 \
+  '(( y = 1 \' '  << n ))' 'f=$(mktemp) || exit 2'
 engine_case "a \$'...' never closed fails closed" shell-mktemp-template exit2 \
   "x=\$'open" 'true'
 engine_case "a positional default holding a blank is still flagged" shell-dash-operand 1 \
