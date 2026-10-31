@@ -423,6 +423,19 @@ run settle --now 42030 >/dev/null || fail "the rebuild after the re-fork"
 [ "$(awk -F "$TAB" '$7 == "w-nq" && $2 == "question" && $12 == "open"' "$store" | grep -c .)" = 1 ] || fail "the rebuild minted a second question on the row"
 echo "ok: a new question on a row whose default awaits review gets its own id, a re-fork under an open question does not, and both survive a rebuild"
 
+# Revoking the default while a newer question is open on its row closes it as
+# revoked, naming that question, rather than reopening a second one.
+out=$(run revoke "$nq1" --tower tower-a --now 42040) || fail "revoke the default beside a newer question"
+printf '%s\n' "$out" | grep -q "^revoked${TAB}$nq1${TAB}settled-by-default${TAB}" || fail "revoke beside a newer question printed '$out'"
+[ "$(fld "$nq1" 12)" = closed ] || fail "the revoked default was reopened beside the newer question: $(rec "$nq1")"
+case "$(fld "$nq1" 18)" in *"$nq2"*) ;; *) fail "the revocation does not name the open question: '$(fld "$nq1" 18)'" ;; esac
+[ "$(awk -F "$TAB" '$7 == "w-nq" && $2 == "question" && $12 == "open"' "$store" | grep -c .)" = 1 ] || fail "the row carries two open questions after the revoke"
+grep -q "\"kind\":\"revoked\".*\"item\":\"$nq1\".*\"outcome\":\"revoked\"" "$log_file" || fail "the revocation beside a newer question was not logged as closed"
+rm -f "$store"
+run settle --now 42050 >/dev/null || fail "the rebuild after the revoke beside a newer question"
+[ "$(awk -F "$TAB" '$7 == "w-nq" && $2 == "question" && $12 == "open"' "$store" | grep -c .)" = 1 ] || fail "the rebuild reopened the revoked default beside the newer question: $(awk -F "$TAB" '$7 == "w-nq"' "$store")"
+echo "ok: revoking a default beside a newer open question closes it as revoked, names that question, and stays closed across a rebuild"
+
 # --- a default that applied after a re-fork answered the row's current instance ---------
 
 attention_row w-rd spec/t13 awaiting-input 1000 normal 'Which one?' a 'a|b' fork iid-rd1

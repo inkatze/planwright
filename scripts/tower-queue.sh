@@ -90,8 +90,10 @@
 # mission control's launcher registry records as a launched mission-control
 # session, with its grounds, its reversal and `--gate none`. Both kinds stay
 # open until `ack` (reviewed) or `revoke`, which reopens a settled-by-default
-# item as its question with no window and closes a decided-by-mission-control
-# one, logging the reversal pointer and running nothing. Evidence never
+# item as its question with no window (or, while a newer question is open on
+# its row, closes it naming that question) and closes a
+# decided-by-mission-control one, logging the reversal pointer and running
+# nothing. Evidence never
 # closes either. The review content sits in the ledger under
 # `review.<id>.<window end>` for a settled-by-default item and under
 # `m<eight hex>`, a checksum of the decision, for a decided-by-mission-control
@@ -3463,7 +3465,17 @@ run_store_pass() {
       else {
         rk = F[t, 2]; rv = F[t, 34]
         F[t, 19] = "-"; F[t, 20] = 0; F[t, 14] = 0; F[t, 13] = 0; changed = 1
-        if (rk == "settled-by-default") {
+        newer = 0
+        if (rk == "settled-by-default" && F[t, 6] == "attention")
+          for (n = 1; n <= N; n++)
+            if (n != t && OK[n] && F[n, 12] == "open" && F[n, 2] == "question" && F[n, 6] == "attention" && F[n, 7] == F[t, 7]) newer = n
+        if (newer) {
+          # The row has moved on to a newer question, which stays the one
+          # open question there: reopening this one would put two on it.
+          F[t, 12] = "closed"; F[t, 15] = now
+          F[t, 18] = "revoked by the operator; not reopened, since a newer question on its row, " F[newer, 1] ", is open"
+          print "status\trevoked\t" rk "\t" clean(rv) "\t" clean(F[newer, 1])
+        } else if (rk == "settled-by-default") {
           # Back to the question it was, with no window, so it can never
           # default a second time (REQ-B1.8).
           F[t, 2] = "question"; F[t, 28] = "-"; F[t, 29] = 0; F[t, 30] = "-"; F[t, 31] = 0
@@ -3734,7 +3746,9 @@ rebuild_if_absent() {
           popts[it] = fv("options"); pend[it] = fv("end"); pwe[it] = fv("window_end"); pgate[it] = fv("gate")
         } else if (k == "window") { wend[it] = fv("end"); waway[it] = fv("away"); winst[it] = fv("instance") }
         else if (k == "revoked") {
-          if (fv("item_kind") == "decided-by-mission-control") closed[it] = 1
+          # A default revoked beside a newer question closed rather than
+          # reopened, and its line says so.
+          if (fv("item_kind") == "decided-by-mission-control" || fv("outcome") == "revoked") closed[it] = 1
           else { delete pend[it]; delete pwe[it]; delete pgate[it]; delete wend[it]; delete winst[it] }
         } else if (k == "acknowledged" || k == "settled" || k == "merged" || k == "reviewed") closed[it] = 1
         else if (k == "dropped" && ("reason" in F) && F["reason"] == "rebuild") closed[it] = 1
@@ -5628,7 +5642,10 @@ cmd_revoke() {
   item_pass revoke -v item="$item"
   case "$st" in
     reopened | revoked)
-      if [ "$st" = revoked ]; then
+      _rn=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "status" { print $5; exit }')
+      if [ "$st" = revoked ] && is_item_id "$_rn"; then
+        _rr="revoked by the operator; not reopened, since a newer question on its row, $_rn, is open"
+      elif [ "$st" = revoked ]; then
         _rr="revoked by the operator (reversal: ${st_held:--})"
       else
         _rr="revoked by the operator; reopened as its question with no window"
