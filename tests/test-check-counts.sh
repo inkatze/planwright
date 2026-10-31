@@ -227,6 +227,17 @@ cp "$r/exempt.bak" "$r/exempt.tsv"
 printf 'malformed row\n' >>"$r/exempt.tsv"
 out=$(check "$r")
 assert "a malformed exemption row fails closed" 2 $?
+# One exemption row clears one finding: a second sentence sharing its excerpt
+# is reported, not silently cleared with the first.
+r="$tmp/exempt-twice"
+make_repo "$r"
+put "$r" doctrine/x.md "The guard reads four inputs:" "- a" "- b" "- c" "" \
+  "Later it reads four inputs:" "- a" "- b"
+printf 'doctrine/x.md\treads four inputs\tthe fourth is named in the prose above\n' >>"$r/exempt.tsv"
+out=$(check "$r")
+assert "an exemption row matching two findings fails" 1 $?
+assert_contains "the over-broad exemption is named" "$out" "clears more than one finding"
+
 
 # The guard never reads stdin: a caller's input stays unread.
 r="$tmp/stdin"

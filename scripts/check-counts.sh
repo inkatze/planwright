@@ -270,7 +270,12 @@ awk '
       want = stated(sent)
       if (!want || want == got) continue
       hit = 0
-      for (key in ex) { split(key, p, "\t"); if (p[1] == file && index(sent, p[2])) { used[key] = 1; hit = 1 } }
+      for (key in ex) {
+        split(key, p, "\t")
+        if (p[1] != file || !index(sent, p[2])) continue
+        if (key in used) { printf "%s: %s: exemption %s clears more than one finding\n", ENVIRON["CC_ME"], clean(file), clean(p[2]); bad = 1; continue }
+        used[key] = 1; hit = 1
+      }
       if (hit) continue
       sub(/^[ \t]+/, "", sent)
       printf "%s: %s:%d: states %d, lists %d: %s\n", ENVIRON["CC_ME"], clean(file), i, want, got, clean(sent)
