@@ -39,12 +39,17 @@
 #
 # Usage:
 #   obs-record.sh --slug <slug> --scope <scope> --text <text>
-#                 [--today <YYYY-MM-DD>] [--obs-dir <dir> | --target <alias>]
+#                 [--recurrence <uid>] [--today <YYYY-MM-DD>]
+#                 [--obs-dir <dir> | --target <alias>]
 #
 #   --slug     cosmetic kebab-case topic token (filename only; renameable,
 #              except review-miss)
 #   --scope    the `[<scope>]` bracket content (a repo/context identifier)
 #   --text     the observation prose (single line; no newlines/control chars)
+#   --recurrence
+#              record a deliberate repeat of the fragment a duplicate
+#              refusal named (8-hex uid; see dup_matches); the text gains
+#              `recurrence of obs:<uid>: ` after a kind(...) prefix, else first
 #   --today    pin the minted date (tests); defaults to the system date
 #   --obs-dir  the observations dir holding entries/ + archive/;
 #              defaults to _observations under the spec root's checkout-local
@@ -82,9 +87,9 @@
 #
 # Exit codes: 0 success; 1 refusal (grammar, containment, content, hostile
 #   input, an unknown, malformed, or misshapen --target, a fragment the hygiene
-#   screen matches, no resolvable default store, or an internal filesystem
-#   error); 2 usage error; 3 collision retry exhausted; 4 entropy source
-#   unavailable.
+#   screen matches, a duplicate or a --recurrence uid it does not match, no
+#   resolvable default store, or an internal filesystem error); 2 usage error;
+#   3 collision retry exhausted; 4 entropy source unavailable.
 #
 # Portable: POSIX sh + BSD tooling (bash 3.2 / BSD compatible); no
 # fish/mise/tmux dependency (the framework-runtime portability rule).
@@ -114,7 +119,8 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 usage() {
   cat >&2 <<EOF
 usage: $prog --slug <slug> --scope <scope> --text <text>
-              [--today <YYYY-MM-DD>] [--obs-dir <dir> | --target <alias>]
+              [--recurrence <uid>] [--today <YYYY-MM-DD>]
+              [--obs-dir <dir> | --target <alias>]
 EOF
 }
 
@@ -273,6 +279,68 @@ screen_class() {
     }'
 }
 
+# dup_matches — print the uid of every live or archived fragment this one
+# duplicates: the same [<scope>] token, and a shared test path (a whole path
+# token with a tests/ component, compared in full) plus a shared quoted string
+# (a "..." or `...` span; a blank one is no key, and one with no whitespace
+# naming a test path counts as the path). The slug is no key, since recurring
+# kinds share one, and miss-ledger fragments on either side are exempt, their
+# identity being PR and path. Fragment content is read as data only.
+dup_matches() {
+  [ "$slug" != review-miss ] || return 0
+  # shellcheck disable=SC2016 # an awk program; the backticks are its regex
+  dm_prog='
+    function tpath(w) {
+      sub(/^\**(\.\/)?/, "", w)
+      sub(/[.!?\/*]+$/, "", w)
+      sub(/#L[0-9]+(-L?[0-9]+)?$/, "", w)
+      return w ~ /(^|\/)tests\/[^\/]/ ? w : ""
+    }
+    function keys(t, paths, quotes,   s, tok, w, n, i) {
+      s = t
+      while (match(s, /"[^"]*"|`[^`]*`/)) {
+        tok = substr(s, RSTART + 1, RLENGTH - 2)
+        s = substr(s, RSTART + RLENGTH)
+        if (tok ~ /^[ \t]*$/) continue
+        if (tok ~ /[ \t]/ || tpath(tok) == "") quotes[tok] = 1
+      }
+      # No literal brace pair anywhere in this program: find -exec would
+      # substitute it. \047 is the single quote the shell string cannot hold.
+      n = split(t, w, /[]{[ \t"`(),;:<>=|\047}]+/)
+      for (i = 1; i <= n; i++) if (tpath(w[i]) != "") paths[tpath(w[i])] = 1
+    }
+    function shares(a, b,   k) {
+      for (k in a) if (k in b) return 1
+      return 0
+    }
+    BEGIN {
+      split("", np)
+      split("", nq)
+      keys(ENVIRON["OBS_TEXT"], np, nq)
+      pre = "[" ENVIRON["OBS_SCOPE"] "] "
+    }
+    FNR == 1 {
+      n = FILENAME
+      sub(/.*\//, "", n)
+      if (n ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-review-miss-[0-9a-f]+\.md$/) next
+      L = length(n)
+      uid = substr(n, L - 10, 8)
+      if (substr(n, L - 11, 1) != "-" || substr(n, L - 2) != ".md" || uid !~ /^[0-9a-f]+$/) next
+      if (substr($0, 1, 2) != "- " || substr($0, 14, length(pre)) != pre) next
+      split("", fp)
+      split("", fq)
+      keys(substr($0, 14 + length(pre)), fp, fq)
+      if (shares(fp, np) && shares(fq, nq)) print uid
+    }'
+  # -type f leaves out symlinks and FIFOs, which a read could follow or hang on.
+  # stderr is dropped: find and awk echo store paths, and refuse speaks instead.
+  for _d in "$entries" "$archive"; do
+    [ -d "$_d" ] || continue
+    OBS_SCOPE=$scope OBS_TEXT=$text find "$_d/." ! -name . -prune -name '*.md' -type f \
+      -exec awk "$dm_prog" {} + 2>/dev/null || return 1
+  done
+}
+
 # --- argument parsing ----------------------------------------------------
 
 slug=""
@@ -284,6 +352,8 @@ have_obsdir=0
 target=""
 have_target=0
 have_text=0
+recurrence=""
+have_recurrence=0
 
 while [ $# -gt 0 ]; do
   case $1 in
@@ -310,6 +380,15 @@ while [ $# -gt 0 ]; do
       }
       text=$2
       have_text=1
+      shift 2
+      ;;
+    --recurrence)
+      [ $# -ge 2 ] || {
+        usage
+        exit 2
+      }
+      recurrence=$2
+      have_recurrence=1
       shift 2
       ;;
     --today)
@@ -428,6 +507,11 @@ _tlen=$(printf '%s' "$text" | wc -c | tr -d ' ')
 _slen=$(printf '%s' "$text" | tr -d '\000-\037\177' | wc -c | tr -d ' ')
 [ "$_tlen" = "$_slen" ] \
   || refuse 1 "entry text must not contain newlines or control characters"
+
+case $have_recurrence:$recurrence in
+  0: | 1:[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+  *) refuse 1 "recurrence uid must be 8 lowercase hex characters" ;;
+esac
 
 # --- the store: named target, explicit, or the root's default ------------
 
@@ -566,6 +650,31 @@ canon_entries=$(cd "$entries" 2>/dev/null && pwd -P) \
   || refuse 1 "cannot resolve the entries directory"
 [ "$canon_entries" = "$entries" ] \
   || refuse 1 "entries path escapes the observations directory"
+
+dups=$(dup_matches) || refuse 1 "cannot read the store for the duplicate check"
+if [ -n "$recurrence" ]; then
+  case " $(printf '%s' "$dups" | tr '\n' ' ') " in
+    *" $recurrence "*) ;;
+    *) refuse 1 "obs:$recurrence is not a fragment this text duplicates; nothing written" ;;
+  esac
+  marker="recurrence of obs:$recurrence: "
+  # A kind prefix is `<name>(<arg>): `, the name a lowercase letter then
+  # [a-z0-9._-] and the argument free of parentheses, as in
+  # skill-drift(execute-task, polish).
+  kind=${text%%"): "*}
+  name=${kind%%"("*}
+  case $kind in
+    "$text" | "$name" | *")"* | *"("*"("*) text=$marker$text ;;
+    *)
+      case $name in
+        "" | [!a-z]* | *[!a-z0-9._-]*) text=$marker$text ;;
+        *) text="$kind): $marker${text#*"): "}" ;;
+      esac
+      ;;
+  esac
+elif [ -n "$dups" ]; then
+  refuse 1 "duplicate of $(printf '%s\n' "$dups" | sed 's/^/obs:/' | tr '\n' ' ')(same scope, a shared test path and quoted string); record it with --recurrence <uid> or withdraw it, never under another slug; nothing written"
+fi
 
 entry_line="- $entry_date [$scope] $text"
 
