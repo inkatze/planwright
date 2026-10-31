@@ -4,7 +4,7 @@
 # Enforces doctrine/spec-format.md's validator-enforceable invariants
 # (REQ-A2.1, REQ-A2.2, REQ-A1.8, REQ-A3.2; D-25, D-34), keyed off the
 # bundle's declared format-version (this implementation: format-versions
-# 1 and 2):
+# 1, 2, and 3):
 #
 #   1. Four-file presence.
 #   2. Header block: Status declared (missing warns, defaults to Draft);
@@ -53,7 +53,8 @@
 #      whitespace are not text.
 #
 # Format-version 2 (the invariant ledger; invariant-tasks REQ-C1.5,
-# REQ-C1.8, REQ-C1.9, REQ-D1.1 · D-3, D-5, D-7) adds, for v2 bundles only:
+# REQ-C1.8, REQ-C1.9, REQ-D1.1 · D-3, D-5, D-7) adds, for version 2 and 3
+# bundles only:
 #
 #   16. No placement sections: `## Forward plan`, `## In progress`, and
 #       `## Completed` do not exist (task blocks live in `## Tasks`).
@@ -73,14 +74,31 @@
 #       only; any other column-0 bullet there is flagged (format-grammar
 #       REQ-D1.1). Deferred and Out of scope keep tolerating plain bullets.
 #
+# Format-version 3 (per-task repositories; invariant-tasks REQ-F1.1,
+# REQ-F1.2, REQ-F1.7 · D-13, D-14) takes every version 2 rule, plus:
+#
+#   22. A task block's `Repository:` field is a single alias in the
+#       identifier grammar on its field line, at most one per block, and
+#       present only under a version 3 declaration (a field in a version 1
+#       or 2 bundle is a finding at that version's severities, never
+#       ignored). An off-grammar value is echoed sanitized.
+#   23. On a version 3 bundle, a near-miss of the field lead (case, emphasis
+#       or colon placement, bullet marker, indentation) warns at every
+#       status: no reader takes it as the field, so the task would silently
+#       stay in the work repository.
+#   24. A version 3 field under a spec root with no valid
+#       `planwright-spec-root.yml` marker warns at every status: the
+#       work-repository registry serves marked roots only.
+#
 # Version keying is fail-closed (REQ-C1.8): a missing or unparseable
 # `Format-version:` is an error at every status — the rules to apply cannot
-# be known without a parsed version — and neither version's extra rules are
+# be known without a parsed version — and no version's extra rules are
 # applied. Unparseable includes a DUPLICATE in-header `Format-version:` or
 # `Status:` declaration (REQ-A1.2, REQ-D1.9), which has no honest positional
 # winner; so does a header block or reference-bullet parse the shared grammar
-# lib refused (a NUL byte, or end-of-file inside an open column-0 fence). The declaration is read from requirements.md; when that file is
-# absent it falls back to the sibling mirrors (agreeing siblings resolve,
+# lib refused (a NUL byte, or end-of-file inside an open column-0 fence). The
+# declaration is read from requirements.md; when that file is absent it falls
+# back to the sibling mirrors (agreeing siblings resolve,
 # disagreeing siblings are a hard error). v1 bundles keep the v1 rules
 # unchanged (REQ-D1.1).
 #
@@ -539,10 +557,16 @@ parse_design() {
 # Fence-aware via the shared lexer (REQ-C1.2): a fenced mock block neither
 # duplicates the id it illustrates nor reports the definition fields it omits.
 # The heading and definition-field grammars are the shared lib's (Task 8;
-# REQ-B1.5), so "which five bullets are a task definition" has one answer here,
-# in the canonical extraction, and in the bundle reader.
+# REQ-B1.5), so "which five bullets are a required task definition" has one
+# answer here, in the canonical extraction, and in the bundle reader.
+#
+# The format-version 3 `Repository:` field rules ride the same pass, keyed on
+# the declared version in $2 (empty when keying failed, which skips only the
+# version-presence rule). An off-grammar value is untrusted content, so it
+# leaves as an `RV <tab> task <tab> value` record for the caller to sanitize;
+# every field also emits `RF <tab> task` for the marker check.
 parse_tasks() {
-  awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
+  awk -v fv="$2" "$spec_parse_awk_fence$spec_parse_awk_grammar"'
     function flush() {
       if (cur == "") return
       if (!fdel) printf "F\tgap\tTask %s missing field: Deliverables\n", cur
@@ -604,10 +628,38 @@ parse_tasks() {
       seen[id] = 1
       cur = id
       fdel = fdw = fdep = fcit = feff = 0
+      nrepo = inrepo = wrapped = 0
       next
     }
     /^### / { flush(); next }
     cur == "" { next }
+    !/^[ \t]+[^ \t]/ { inrepo = 0 }
+    inrepo && /^[ \t]+\r$/ { next }   # a CRLF blank line, not a continuation
+    inrepo {
+      if (!wrapped) printf "F\tgap\tTask %s Repository: value continues past its field line (a task names exactly one repository, as a single alias on that line)\n", cur
+      wrapped = 1
+      next
+    }
+    /^- \*\*Repository:\*\*/ {
+      inrepo = 1
+      if (++nrepo == 2) printf "F\tgap\tTask %s carries more than one Repository: field (a task names exactly one repository)\n", cur
+      if (fv != "" && fv != "3") printf "F\tgap\tTask %s carries a Repository: field, which requires format-version 3 (this bundle declares %s)\n", cur, fv
+      rv = $0
+      sub(/^- \*\*Repository:\*\*/, "", rv)
+      sub(/^[ \t]+/, "", rv)
+      sub(/[ \t\r]+$/, "", rv)
+      if (rv !~ /^[a-z0-9][a-z0-9-]*$/ || length(rv) > 64) printf "RV\t%s\t%s\n", cur, rv
+      printf "RF\t%s\n", cur
+      next
+    }
+    # A near-miss lead (case, emphasis, or colon placement, a different or
+    # numbered bullet marker, an indented sub-bullet) is no field to any
+    # reader, so on a version 3 bundle a typo would silently leave the task in
+    # the bundle work repository.
+    fv == "3" && /^[ \t]*([-*+]|[0-9]+[.)])[ \t]*(\*\*?|__?|`)?[Rr][Ee][Pp][Oo][Ss][Ii][Tt][Oo][Rr][Yy][ \t]*(\*\*?|__?|`)?[ \t]*:/ {
+      printf "F\tsoft\tTask %s line tasks.md:%d reads like a Repository: field but is not the canonical `- **Repository:** <alias>` bullet, so no reader takes it as one\n", cur, NR
+      next
+    }
     {
       fld = spec_parse_task_field($0)
       if (fld == "deliverables") fdel = 1
@@ -653,7 +705,7 @@ parse_tasks_v2() {
     # Suffixed variants ("## Completed (legacy)") stay ordinary headings:
     # canonical heading form belongs to the ledger guard, not this parser.
     function banned(nm, ln) {
-      printf "F\tgap\tplacement section \"## %s\" at tasks.md:%d does not exist in format-version 2 (task blocks live in \"## Tasks\"; execution state is derived)\n", nm, ln
+      printf "F\tgap\tplacement section \"## %s\" at tasks.md:%d does not exist from format-version 2 on (task blocks live in \"## Tasks\"; execution state is derived)\n", nm, ln
     }
     /^## Forward plan[ \t]*$/  { section = ""; in_task = 0; banned("Forward plan", NR); next }
     /^## In progress[ \t]*$/   { section = ""; in_task = 0; banned("In progress", NR); next }
@@ -673,7 +725,7 @@ parse_tasks_v2() {
       tok = substr($0, 5)
       sub(/:\*\*.*$/, "", tok)
       if (curid != "") loc = "Task " curid; else loc = "tasks.md:" NR
-      printf "F\tgap\tstate annotation bullet \"%s\" on %s does not exist in format-version 2 (the Status, Last activity, and Dispatch state annotations are derived state, never stored)\n", tok, loc
+      printf "F\tgap\tstate annotation bullet \"%s\" on %s does not exist from format-version 2 on (the Status, Last activity, and Dispatch state annotations are derived state, never stored)\n", tok, loc
       next
     }
     section == "Awaiting input" && /^- / { printf "AB\t%d\n", NR; next }
@@ -1193,6 +1245,24 @@ baseline_checks() {
   fi
 }
 
+# lexical_parent <dir> — the directory <dir> is named under, without resolving
+# symlinks: a symlinked bundle belongs to the spec root it is addressed from,
+# not to its target's.
+lexical_parent() {
+  lp=$1
+  while :; do
+    case $lp in ?*/) lp=${lp%/} ;; *) break ;; esac
+  done
+  case $lp in
+    . | .. | */. | */..) printf '%s\n' "$lp/.." ;;
+    */*)
+      lp=${lp%/*}
+      printf '%s\n' "${lp:-/}"
+      ;;
+    *) printf '.\n' ;;
+  esac
+}
+
 # validate_bundle <dir> <name> — run every bundle check, print the
 # severity-mapped findings, and update the global err/warn counters. Sets
 # the globals declared_status / live_req_ids / all_req_ids / all_d_ids /
@@ -1340,29 +1410,28 @@ validate_bundle() {
 
   # Version keying is fail-closed (REQ-C1.8, D-7): a missing, empty, or
   # unparseable declaration is a hard error at every status — the rules to
-  # apply cannot be known without a parsed version — and neither version's
+  # apply cannot be known without a parsed version — and no version's
   # extra rules run ($bundle_ver stays empty; the shared structural checks
   # still do). An undeclared numeric version is the REQ-A1.7 unsupported
   # error, equally hard. $fver comes from requirements.md (the
   # authoritative home) or, only when that file is absent, from the
   # agreeing sibling mirrors; a sibling conflict already carries its own
   # hard finding and skips keying entirely.
-  [ -n "$fver_conflict" ] || case $fver in
-    1 | 2)
-      bundle_ver=$fver
-      ;;
-    '')
-      printf 'hard\tmissing or empty Format-version: declaration (fail-closed: validation rules cannot be selected without a declared version)\n' >>"$fnd"
-      ;;
-    *[!0-9]*)
-      printf 'hard\tunparseable format-version: %s (fail-closed: validation rules cannot be selected without a parsed version)\n' \
-        "$(sanitize_printable "$fver" "(unprintable)")" >>"$fnd"
-      ;;
-    *)
-      printf 'hard\tunsupported format-version: %s (this validator implements format-versions 1 and 2)\n' \
-        "$(sanitize_printable "$fver" "(unprintable)")" >>"$fnd"
-      ;;
-  esac
+  if [ -z "$fver_conflict" ] && ! bundle_ver=$(spec_parse_format_arm "$fver"); then
+    case $fver in
+      '')
+        printf 'hard\tmissing or empty Format-version: declaration (fail-closed: validation rules cannot be selected without a declared version)\n' >>"$fnd"
+        ;;
+      *[!0-9]*)
+        printf 'hard\tunparseable format-version: %s (fail-closed: validation rules cannot be selected without a parsed version)\n' \
+          "$(sanitize_printable "$fver" "(unprintable)")" >>"$fnd"
+        ;;
+      *)
+        printf 'hard\tunsupported format-version: %s (this validator implements format-versions 1, 2, and 3)\n' \
+          "$(sanitize_printable "$fver" "(unprintable)")" >>"$fnd"
+        ;;
+    esac
+  fi
 
   if [ "$bundle_ver" = "2" ]; then
     # v2 stored status is restricted to the human-gated set (D-4 via
@@ -1372,11 +1441,11 @@ validate_bundle() {
     case $declared_status in
       Draft | Ready | Retired | Superseded | '') ;;
       Active | Done)
-        printf 'gap\tstored status %s is derived in format-version 2 (stored header restricted to Draft, Ready, Retired, Superseded)\n' \
+        printf 'gap\tstored status %s is derived from format-version 2 on (stored header restricted to Draft, Ready, Retired, Superseded)\n' \
           "$declared_status" >>"$fnd"
         ;;
       *)
-        printf 'hard\tunknown status: %s (format-version 2 stores Draft, Ready, Retired, or Superseded)\n' \
+        printf 'hard\tunknown status: %s (format-version 2 and later store Draft, Ready, Retired, or Superseded)\n' \
           "$(sanitize_printable "$declared_status" "(unprintable)")" >>"$fnd"
         ;;
     esac
@@ -1411,7 +1480,7 @@ validate_bundle() {
         printf 'gap\t%s: non-canonical **Execution:** pointer line: %s (fixed vocabulary: derived — see the status render)\n' \
           "$bf" "$(sanitize_printable "$pv" "(unprintable)")" >>"$fnd"
       else
-        printf 'gap\t%s: missing **Execution:** pointer line (format-version 2 header)\n' \
+        printf 'gap\t%s: missing **Execution:** pointer line (format-version 2 and later header)\n' \
           "$bf" >>"$fnd"
       fi
     done
@@ -1424,9 +1493,39 @@ validate_bundle() {
   fi
 
   if [ -f "$bdir/tasks.md" ]; then
-    parse_tasks "$bdir/tasks.md" >"$gtmp/tagged"
+    tfv=
+    [ -z "$bundle_ver" ] || tfv=$fver
+    parse_tasks "$bdir/tasks.md" "$tfv" >"$gtmp/tagged"
     awk -F'\t' '$1 == "F" { print $2 "\t" $3 }' "$gtmp/tagged" >>"$fnd"
     all_t_ids=$(awk -F'\t' '$1 == "ALLT" { print $2 }' "$gtmp/tagged")
+    while IFS="$tab" read -r rtag rid rval; do
+      [ "$rtag" = "RV" ] || continue
+      rshow=$(sanitize_printable "$rval" "(empty or unprintable)")
+      [ -z "$rval" ] || [ "$rshow" = "$rval" ] || rshow="$rshow (non-printable bytes removed)"
+      printf 'gap\tTask %s Repository: value is not a single alias in the identifier grammar (^[a-z0-9][a-z0-9-]*$, at most 64 characters; never a path, URL, owner/name pair, or list): %s\n' \
+        "$rid" "$rshow" >>"$fnd"
+    done <"$gtmp/tagged"
+    # The registry serves only a marker-bearing spec root (REQ-F1.2), so a
+    # version 3 field under any other root can never resolve. A warning at
+    # every status: the bundle is well formed, only unresolvable here. The
+    # root is the bundle's lexical parent: a symlinked bundle directory sits
+    # under the root it is named from, not its target's. Only the marker
+    # refusal (exit 5) means "no marker"; any other failure is a broken check.
+    if [ "$tfv" = 3 ] && grep -q '^RF' "$gtmp/tagged"; then
+      mrc=0
+      /bin/sh "$script_dir/resolve-root.sh" marker "$(lexical_parent "$bdir")" >/dev/null 2>"$gtmp/marker.err" || mrc=$?
+      case $mrc in
+        0) ;;
+        5)
+          printf 'soft\ta Repository: field sits under a spec root with no valid planwright-spec-root.yml marker, so its alias cannot resolve (the work-repository registry serves marked roots only): %s\n' \
+            "$(sanitize_printable "$(cat "$gtmp/marker.err" 2>/dev/null)" "(no diagnostic)")" >>"$fnd"
+          ;;
+        *)
+          printf 'hard\tthe spec-root marker check could not run (resolve-root.sh exit %s), so whether the Repository: aliases can resolve is unknown (fail closed): %s\n' \
+            "$mrc" "$(sanitize_printable "$(cat "$gtmp/marker.err" 2>/dev/null)" "(no diagnostic)")" >>"$fnd"
+          ;;
+      esac
+    fi
 
     # v2 invariant-ledger rules (REQ-C1.5): the shared task-structure
     # checks above still apply; these are the additional v2-only bans. A

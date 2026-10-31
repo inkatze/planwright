@@ -24,6 +24,10 @@
 #                               the kickoff brief's most recent anchor entry,
 #                               shared by the standing freshness guard and the
 #                               meta step's dispatch gate
+#   spec_parse_format_arm       the declared Format-version to rule-arm map
+#                               every version-keyed script selects through
+#   spec_parse_repository_tasks the ids of the task blocks that carry a
+#                               version 3 `Repository:` field
 #   spec_parse_printable        the stderr path sanitizer the lib's own
 #                               diagnostics use, exported so a caller adding
 #                               context to a refusal reuses this byte range
@@ -128,6 +132,51 @@ spec_parse_printable() {
   spec_parse__p=$(printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177\200-\237')
   [ -n "$spec_parse__p" ] || spec_parse__p='(unprintable path)'
   printf '%s' "$spec_parse__p"
+}
+
+# spec_parse_format_arm <declared-version> — print the rule arm a declared
+# `Format-version:` selects: 1 for version 1, 2 for versions 2 and 3 (version
+# 3 is version 2 plus the per-task `Repository:` field, doctrine/spec-format.md
+# *Format-version 3*). Any other value, the empty string included, prints
+# nothing and returns 1: a version this lib does not define stays fail-closed,
+# so a consumer keys on the arm and never on the declared value itself.
+spec_parse_format_arm() {
+  case $1 in
+    1) printf '1\n' ;;
+    2 | 3) printf '2\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+# spec_parse_repository_tasks <tasks.md|-> — print, one per line in document
+# order, the id of every unfenced task block carrying a `- **Repository:**`
+# field bullet (`?` for a task heading whose id fails the grammar), so a
+# reader that cannot yet derive per-task repositories can refuse such a bundle
+# rather than derive its tasks from the wrong repository. Prints nothing for a
+# bundle that names no repository. Fails closed (non-zero, message on stderr)
+# on a missing, unreadable, or NUL-bearing file, or end of file inside an open
+# column-0 fence. `-` reads the caller's snapshot from stdin under consumer
+# contract (g).
+spec_parse_repository_tasks() {
+  # shellcheck disable=SC2016 # awk source, not a shell expansion
+  spec_parse__repo_awk='
+    spec_parse_is_task_heading($0) {
+      id = spec_parse_task_id($0)
+      if (id == "") id = "?"
+      seen = 0
+      next
+    }
+    /^###? / { id = "" }
+    id != "" && !seen && /^- \*\*Repository:\*\*/ { print id; seen = 1 }
+    END { spec_parse__fence_eof() }
+  '
+  if [ "$1" = - ]; then
+    LC_ALL=C awk "$spec_parse_awk_fence$spec_parse_awk_grammar$spec_parse__repo_awk"
+    return $?
+  fi
+  spec_parse__readable "$1" || return 1
+  spec_parse__nul_screen "$1" || return 1
+  LC_ALL=C awk "$spec_parse_awk_fence$spec_parse_awk_grammar$spec_parse__repo_awk" <"$1"
 }
 
 # spec_parse__readable <path> — internal: refuse a missing, unreadable, or
@@ -259,11 +308,11 @@ spec_parse_fence_balance() {
 # definition-content extraction (doctrine/spec-format.md). Emits, for each
 # task block sorted numerically by task id (component-wise: 2 < 2.5 < 10):
 # the heading line and the five definition field bullets — Deliverables,
-# Done when, Dependencies, Citations, Estimated effort — with their indented
-# continuation lines, each line terminated by a newline, byte-for-byte as in
-# the source. Everything else (section headings, intro prose, state
-# annotations, Deferred / Out-of-scope bullets, non-task H3 content) is
-# excluded.
+# Done when, Dependencies, Citations, Estimated effort — plus the version 3
+# Repository field bullet, with their indented continuation lines, each line
+# terminated by a newline, byte-for-byte as in the source. Everything else
+# (section headings, intro prose, state annotations, Deferred / Out-of-scope
+# bullets, non-task H3 content) is excluded.
 #
 # Id-grammar bounds (shared byte-for-byte with the three pre-lib copies):
 # task ids follow the meta-spec grammar `<n>` or `<n>.<m>`. The sort key
@@ -327,7 +376,9 @@ spec_parse_extract_tasks() {
     }
     /^### / { in_task = 0; keep = 0; next }   # non-task H3 ends the block too
     !in_task { next }
-    /^- \*\*(Deliverables|Done when|Dependencies|Citations|Estimated effort):\*\*/ {
+    # Repository is kept at every format version, never keyed: a field
+    # outside version 3 is the validator error, not an extraction carve-out.
+    /^- \*\*(Deliverables|Done when|Dependencies|Citations|Repository|Estimated effort):\*\*/ {
       keep = 1
       buf[cur] = buf[cur] $0 "\n"
       next
@@ -970,8 +1021,9 @@ spec_parse_awk_grammar='
 
   # --- Task definition fields ----------------------------------------------
   # The canonical name of the definition field a bullet declares, or "" for
-  # anything else (a state annotation, a prose bullet). The same five fields
-  # the canonical extraction keeps.
+  # anything else (a state annotation, a prose bullet). The five required
+  # fields; the canonical extraction also keeps the optional version 3
+  # `Repository:` bullet, which this function does not name.
   function spec_parse_task_field(s) {
     if (s ~ /^- \*\*Deliverables:\*\*/) return "deliverables"
     if (s ~ /^- \*\*Done when:\*\*/) return "donewhen"

@@ -191,6 +191,64 @@ got=$(/bin/bash "$SEL" "$dv1spec") || fail "v2-parked fixture: non-zero exit ($?
 [ "$got" = 5 ] || fail "v2-parked: selected '$got', expected 5 (2/3/4 parked by bullets)"
 echo "ok: v2 reference bullets park their tasks in all three sections (REQ-C1.2)"
 
+# V1b. invariant-tasks REQ-F1.7 — version 3 takes the version 2 candidacy: the
+#      V1 fixture re-declared version 3 selects the same task. A task naming a
+#      repository cannot be derived from it yet, so selection refuses that
+#      bundle (exit 2) while the structural --critical-path matches version 2;
+#      an undefined version (4) fails closed in both modes.
+dv1b="$tmp/v3park"
+dv1bspec=$(new_spec "$dv1b" vthree)
+v2_tasks_md "$dv1bspec/tasks.md"
+sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** 3/' "$dv1bspec/tasks.md" >"$dv1bspec/tasks.md.new" \
+  && mv "$dv1bspec/tasks.md.new" "$dv1bspec/tasks.md"
+grep -q '^\*\*Format-version:\*\* 3$' "$dv1bspec/tasks.md" || fail "v3 fixture not re-declared"
+seal_base "$dv1b"
+done_trailer "$dv1b" vthree 1
+got=$(/bin/bash "$SEL" "$dv1bspec") || fail "v3-parked fixture: non-zero exit ($?)"
+[ "$got" = 5 ] || fail "v3-parked: selected '$got', expected 5 (version 3 takes the v2 candidacy)"
+cp_v2=$(/bin/bash "$SEL" --critical-path "$dv1spec") || fail "v2 --critical-path: non-zero exit"
+awk '
+  { print }
+  /^### Task 5 / { t5 = 1 }
+  t5 && /^- \*\*Dependencies:\*\*/ { print "- **Repository:** alpha"; t5 = 0 }
+' "$dv1bspec/tasks.md" >"$dv1bspec/tasks.md.new" && mv "$dv1bspec/tasks.md.new" "$dv1bspec/tasks.md"
+grep -q '^- \*\*Repository:\*\* alpha$' "$dv1bspec/tasks.md" || fail "v3 fixture: Repository: line not written"
+rc=0
+/bin/bash "$SEL" "$dv1bspec" >/dev/null 2>"$tmp/v3repo.err" || rc=$?
+[ "$rc" = 2 ] || fail "v3 Repository: select: exit $rc, expected 2 (no per-task derivation, fail closed)"
+grep -q 'name a repository (Task 5)' "$tmp/v3repo.err" \
+  || fail "v3 Repository: refusal does not name the task: $(cat "$tmp/v3repo.err")"
+# A heading the grammar accepts off its canonical form still counts.
+sed 's/^### Task 5 /### Task  5 /' "$dv1bspec/tasks.md" >"$tmp/v3ds.md"
+cp "$dv1bspec/tasks.md" "$tmp/v3canon.md"
+cp "$tmp/v3ds.md" "$dv1bspec/tasks.md"
+rc=0
+/bin/bash "$SEL" "$dv1bspec" >/dev/null 2>"$tmp/v3repo.err" || rc=$?
+[ "$rc" = 2 ] || fail "v3 Repository: under a double-space heading: exit $rc, expected 2"
+grep -q 'name a repository (Task 5)' "$tmp/v3repo.err" \
+  || fail "v3 Repository: under a double-space heading: refusal does not name Task 5: $(cat "$tmp/v3repo.err")"
+# An unclosed fence is named as such, not as an unreadable field.
+cp "$tmp/v3canon.md" "$dv1bspec/tasks.md"
+printf '\n```\n' >>"$dv1bspec/tasks.md"
+rc=0
+/bin/bash "$SEL" "$dv1bspec" >/dev/null 2>"$tmp/v3repo.err" || rc=$?
+[ "$rc" = 2 ] || fail "v3 open fence: exit $rc, expected 2"
+grep -q 'open column-0 code fence' "$tmp/v3repo.err" \
+  || fail "v3 open fence: refusal does not name the fence: $(cat "$tmp/v3repo.err")"
+cp "$tmp/v3canon.md" "$dv1bspec/tasks.md"
+cp_v3=$(/bin/bash "$SEL" --critical-path "$dv1bspec") || fail "v3 --critical-path: non-zero exit"
+[ "$cp_v3" = "$cp_v2" ] || fail "v3 --critical-path '$cp_v3' differs from v2 '$cp_v2'"
+sed 's/^\*\*Format-version:\*\* 3$/**Format-version:** 4/' "$dv1bspec/tasks.md" >"$dv1bspec/tasks.md.new" \
+  && mv "$dv1bspec/tasks.md.new" "$dv1bspec/tasks.md"
+for mode in "" --critical-path; do
+  rc=0
+  # shellcheck disable=SC2086 # an empty mode is no argument
+  /bin/bash "$SEL" $mode "$dv1bspec" >/dev/null 2>"$tmp/v4.err" || rc=$?
+  [ "$rc" = 2 ] || fail "fv-4 ${mode:-select}: exit $rc, expected 2 (an undefined version fails closed)"
+  grep -q 'undefined Format-version' "$tmp/v4.err" || fail "fv-4 ${mode:-select}: refusal does not name the version: $(cat "$tmp/v4.err")"
+done
+echo "ok: version 3 selects as version 2, refuses tasks naming a repository; an undefined version fails closed (REQ-F1.7)"
+
 # V2. REQ-C1.2 — equivalence with the v1 section model: the same states
 #     expressed as v1 section placement (task 2 in ## Awaiting input, 3 in
 #     ## Deferred, 4 in ## Out of scope) pick the same candidate.
@@ -390,6 +448,17 @@ v5_out=$(PATH="$degstub:$PATH" /bin/bash "$SEL" "$dv5spec" 2>"$v5_err") || rc=$?
 grep -q 'transient evidence failure' "$v5_err" \
   || fail "v2-degraded: stderr must name the transient failure (got: $(cat "$v5_err"))"
 echo "ok: v2 transient evidence failure exits 3 and dispatches nothing (REQ-B1.5)"
+
+# V5b. invariant-tasks REQ-F1.7 — version 3 keeps the v2 transient-failure
+#      refusal: the same fixture re-declared 3 exits 3 too.
+sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** 3/' "$dv5spec/tasks.md" >"$dv5spec/tasks.md.new" \
+  && mv "$dv5spec/tasks.md.new" "$dv5spec/tasks.md"
+grep -q '^\*\*Format-version:\*\* 3$' "$dv5spec/tasks.md" || fail "v3-degraded fixture not re-declared"
+rc=0
+v5_out=$(PATH="$degstub:$PATH" /bin/bash "$SEL" "$dv5spec" 2>"$v5_err") || rc=$?
+[ "$rc" = 3 ] || fail "v3-degraded: exit $rc, expected 3 (the v2 transient-failure refusal)"
+[ -z "$v5_out" ] || fail "v3-degraded: stdout must be empty (got '$v5_out')"
+echo "ok: a version 3 transient evidence failure exits 3 like version 2 (REQ-F1.7)"
 
 # V6. REQ-C1.9 — a reference bullet whose task id violates the task-id grammar
 #     is rejected with a sanitized stderr warning and never used; a well-formed

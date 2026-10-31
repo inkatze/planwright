@@ -41,17 +41,16 @@
 # drop or relocation.
 #
 # Done and terminal (Retired/Superseded) bundles are never rewritten; an
-# already-v2 bundle is a clean no-op. Idempotent and re-runnable after a
-# partial run: requirements.md (whose migration Changelog entry marks a
-# signed migration) is written last of the four files, so a re-run over an
+# already-v2 or version 3 bundle is a clean no-op. Idempotent and re-runnable
+# after a partial run: requirements.md (whose migration Changelog entry marks
+# a signed migration) is written last of the four files, so a re-run over an
 # interrupted bundle re-applies the per-file idempotent transforms and
-# completes a missing changelog line or re-anchor entry rather than
-# no-oping past a file that already reads v2 (D-10); the re-anchor's
-# changelog citation reuses the date already recorded in the changelog, so
-# a completion across a date boundary cites the real entry. A v2 bundle
-# with no migration changelog marker is treated as born-v2 and left
-# untouched — completing a "missing" re-anchor there would forge a
-# migration that never happened.
+# completes a missing changelog line or re-anchor entry rather than no-oping
+# past a file that already reads v2 (D-10); the re-anchor's changelog citation
+# reuses the date already recorded in the changelog, so a completion across a
+# date boundary cites the real entry. A v2 bundle with no migration changelog
+# marker is treated as born-v2 and left untouched — completing a "missing"
+# re-anchor there would forge a migration that never happened.
 #
 # Writes are serialized against the other tasks.md writers through the ONE
 # per-spec advisory lock (`scripts/orchestrate-lock.sh`, shared with the
@@ -323,6 +322,8 @@ restructure_tasks() {
         }
         next
       }
+      if (/^- \*\*Repository:\*\*/)
+        bail("the Task " blkid[cur] " block at tasks.md:" NR " carries a Repository: field, which requires format-version 3 (this migration writes 2)")
       if (/^- \*\*(Deliverables|Done when|Dependencies|Citations|Estimated effort):\*\*/) {
         skip = 0
         blk[cur] = blk[cur] $0 "\n"
@@ -530,8 +531,7 @@ process_bundle_locked() {
   entry_marker='format-version 2 migration)'
 
   # Fail-closed version keying (REQ-C1.8): no parsed version, no write path.
-  case $fver in
-    1 | 2) ;;
+  fv_arm=$(spec_parse_format_arm "$fver") || case $fver in
     '')
       refuse "$bname" "missing or empty Format-version: declaration (fail closed; REQ-C1.8)"
       return 0
@@ -546,18 +546,22 @@ process_bundle_locked() {
       ;;
   esac
 
-  if [ "$fver" = "2" ]; then
+  if [ "$fv_arm" = "2" ]; then
     # Already v2. A migration changelog marker means a signed migration ran
     # here: complete a missing re-anchor entry (an interrupted run's last
     # step) rather than no-oping past it (REQ-D1.2). No marker means the
     # bundle was born v2 (or is a migrated Draft): leave it untouched.
-    if grep -qF "$clog_marker" "$req"; then
+    # Version 3 takes this arm but never the repair: this migration only
+    # writes 2, so a version 3 bundle is never an interrupted run, and a
+    # re-anchor appended now would bless every edit since the bump
+    # (a Repository: field included) as expression-only.
+    if [ "$fver" = 2 ] && grep -qF "$clog_marker" "$req"; then
       if [ ! -f "$brief" ]; then
         refuse "$bname" "migration changelog entry present but kickoff-brief.md is missing (cannot complete the re-anchor)"
         return 0
       fi
       if grep -qF "$entry_marker" "$brief"; then
-        printf '%s\n' "unchanged (already format-version 2): $bname"
+        printf '%s\n' "unchanged (already format-version $fver): $bname"
         unchanged=$((unchanged + 1))
       elif append_reanchor "$bdir"; then
         printf '%s\n' "repaired: $bname (missing re-anchor entry appended)"
@@ -567,7 +571,7 @@ process_bundle_locked() {
         return 0
       fi
     else
-      printf '%s\n' "unchanged (already format-version 2): $bname"
+      printf '%s\n' "unchanged (already format-version $fver): $bname"
       unchanged=$((unchanged + 1))
     fi
     return 0

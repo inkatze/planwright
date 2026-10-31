@@ -283,6 +283,27 @@ if [ "$rc" -eq 4 ]; then
 else
   fail "holder: version 1 (rc=$rc): $out"
 fi
+# Version 3 is version 2 plus the Repository: field, so it parks the same way
+# (invariant-tasks REQ-F1.7); a version halt-note does not define is refused.
+mkdir -p "$z/three" "$z/four"
+tasks_v2 "$z/three/tasks.md"
+sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** 3/; s/^- \*\*Citations:\*\* D-1 · REQ-A1.1$/&\
+- **Repository:** alpha/' "$z/three/tasks.md" >"$z/three/tasks.md.new" && mv "$z/three/tasks.md.new" "$z/three/tasks.md"
+note "$w" three 1 "a version 3 park"
+if [ "$rc" -eq 0 ] && grep -q '^- \*\*Task 1\*\* — a version 3 park$' "$z/three/tasks.md"; then
+  ok "holder: a version 3 bundle parks as version 2"
+else
+  fail "holder: version 3 (rc=$rc): $out"
+fi
+sed 's/^\*\*Format-version:\*\* 3$/**Format-version:** 4/' "$z/three/tasks.md" >"$z/four/tasks.md"
+cp "$z/four/tasks.md" "$tmp/four-before.md"
+note "$w" four 1 text
+if [ "$rc" -eq 4 ] && cmp -s "$z/four/tasks.md" "$tmp/four-before.md" \
+  && printf '%s' "$out" | grep -q 'undefined Format-version'; then
+  ok "holder: an undefined version (4) is refused with no write"
+else
+  fail "holder: version 4 (rc=$rc): $out"
+fi
 tasks_v2 "$tmp/elsewhere-tasks.md"
 ln -s "$tmp/elsewhere-tasks.md" "$z/linked/tasks.md"
 note "$w" linked 1 text
