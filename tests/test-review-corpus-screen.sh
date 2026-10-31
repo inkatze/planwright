@@ -147,8 +147,9 @@ printf -- '- 2026-01-04 [x] the acmereviewer field is unset\n' >"$T/frag/entries
 out=$("$SCREEN" --text --names "$names" "$T/frag" 2>&1)
 assert_exit "text mode passes clean files, a name inside a word included" 0 $?
 assert_contains "text mode reports the files it passed" "2 file(s) pass" "$out"
-"$SCREEN" --text "$T/frag" >/dev/null 2>&1
+out=$("$SCREEN" --text "$T/frag" 2>&1)
 assert_exit "text mode refuses to run without a name list" 2 $?
+assert_lacks "text mode's missing-list refusal names no flag it was not given" "--require-names" "$out"
 "$SCREEN" --text --names "$T/empty-names.txt" "$T/frag" >/dev/null 2>&1
 assert_exit "text mode refuses a list holding no names" 2 $?
 "$SCREEN" --text --names "$names" "$T/absent-dir" >/dev/null 2>&1
@@ -165,6 +166,16 @@ else
 fi
 chmod 755 "$T/frag/locked"
 rm -r "$T/frag/locked"
+printf -- 'AcmeReview flagged the loop\n' >"$T/frag/entries/2026-01-05-sealed-0000eeee.md"
+chmod 000 "$T/frag/entries/2026-01-05-sealed-0000eeee.md"
+if cat "$T/frag/entries/2026-01-05-sealed-0000eeee.md" >/dev/null 2>&1; then
+  echo "skip: chmod 000 left the file readable, so the unreadable-file case did not run" >&2
+else
+  "$SCREEN" --text --names "$names" "$T/frag" >/dev/null 2>&1
+  assert_exit "text mode refuses an unreadable file in a walkable directory, never a pass" 2 $?
+fi
+chmod 644 "$T/frag/entries/2026-01-05-sealed-0000eeee.md"
+rm "$T/frag/entries/2026-01-05-sealed-0000eeee.md"
 mkdir -p "$T/sym/real" "$T/sym/clean"
 printf -- 'AcmeReview flagged the loop\n' >"$T/sym/real/2026-01-06-linked-0000ffff.md"
 printf -- '- a clean line\n' >"$T/sym/clean/2026-01-07-clean-00001111.md"

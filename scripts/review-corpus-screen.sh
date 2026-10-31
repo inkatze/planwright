@@ -90,14 +90,15 @@ if [ "$text" -eq 0 ]; then
     printf '%s\n' "$prog: corpus file not readable" >&2
     exit 2
   fi
-else
-  require_names=1
 fi
 if [ -n "$names" ]; then
   if [ ! -f "$names" ] || [ ! -r "$names" ]; then
     printf '%s\n' "$prog: product-name list not readable" >&2
     exit 2
   fi
+elif [ "$text" -eq 1 ]; then
+  printf '%s\n' "$prog: --text needs a product-name list (--names)" >&2
+  exit 2
 elif [ "$require_names" -eq 1 ]; then
   printf '%s\n' "$prog: --require-names given but no product-name list (--names)" >&2
   exit 2
