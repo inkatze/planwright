@@ -185,6 +185,14 @@ rd "$root"
 assert_contains "a symbolic-link seed is skipped" "skipped	inception-link.md	not-a-regular-file" "$out"
 rm -f "$root/_pending/inception-link.md"
 
+seed "$root/_pending/inception-locked.md" "inception:locked"
+chmod 000 "$root/_pending/inception-locked.md"
+rd "$root"
+chmod 644 "$root/_pending/inception-locked.md"
+assert_contains "an unreadable seed is skipped" "skipped	inception-locked.md	unreadable" "$out"
+assert_not_contains "it never reads as a seed" "seed	inception-locked.md	" "$out"
+rm -f "$root/_pending/inception-locked.md"
+
 # Control bytes and tabs in bundle text never reach the output raw.
 seed "$root/_pending/inception-ctl.md" "inception:ctl"
 printf -- '- **esc** \033[31mred\033[0m and\ttab\n' >"$tmp/ctl-line"
