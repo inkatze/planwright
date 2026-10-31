@@ -439,6 +439,10 @@ uvariant up '```sh' "cat >note.md <<'EOF'" 'scripts/feat-tool.sh lst is data' 'E
 out="$("$CHECKER" --repo-root "$tmp/up" 2>&1)"
 assert "a heredoc body is not a command" 0 $?
 rm -rf "$tmp/up"
+uvariant up '```sh' 'cat <<A - <<B' 'scripts/feat-tool.sh lst is data' 'A' 'scripts/feat-tool.sh lst is data too' 'B' 'scripts/feat-tool.sh peek 1' '```'
+out="$("$CHECKER" --repo-root "$tmp/up" 2>&1)"
+assert "every heredoc a line opens is data" 0 $?
+rm -rf "$tmp/up"
 
 # A heredoc ends at its delimiter; <<< and a quoted << open none.
 usage_fails 4 "unknown subcommand 'lst'" '```sh' "cat >note.md <<'EOF'" 'scripts/feat-tool.sh lst is data' 'EOF' 'scripts/feat-tool.sh lst' '```'

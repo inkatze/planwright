@@ -649,20 +649,22 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       while (i <= NT && TY[i] == "w") i++
     }
   }
-  # The delimiter of a heredoc a command line opens, from its unquoted words.
-  function heredoc(s,    i, d) {
+  # The delimiters of the heredocs a command line opens, from its unquoted
+  # words, in order, each ended by SUBSEP: the bodies follow one another.
+  function heredoc(s,    i, d, q) {
     tokenize(s)
+    q = ""
     for (i = 1; i <= NT; i++) {
       if (TY[i] != "w") continue
       d = ""
-      if (TK[i] ~ /^[0-9]*<<-?$/ && i < NT && TY[i + 1] == "w") d = TK[i + 1]
+      if (TK[i] ~ /^[0-9]*<<-?$/ && i < NT && TY[i + 1] == "w") d = TK[++i]
       else if (TK[i] ~ /^[0-9]*<<-?[^<-]/) { d = TK[i]; sub(/^[0-9]*<<-?/, "", d) }
       else continue
       # The delimiter is a word; a redirection may follow it unspaced.
       sub(/[<>].*/, "", d)
-      return d
+      if (d != "") q = q d SUBSEP
     }
-    return ""
+    return q
   }
   function scan(s, ln, fenced,    q) {
     NQ = 0
@@ -850,7 +852,7 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         hdoc = ""
       } else if (hdoc != "") {
         if (fquote) sub(/^(>[ \t]*)+/, "", t)
-        if (t == hdoc) hdoc = ""
+        if (t SUBSEP == substr(hdoc, 1, length(t) + 1)) hdoc = substr(hdoc, length(t) + 2)
       } else {
         if (fquote) sub(/^(>[ \t]*)+/, "", t)
         if (fcont == "") fline = FNR
