@@ -36,7 +36,11 @@ function has_pipe(s,   n, k, stages, st1) {
   n = split(s, stages, "|")
   for (k = 1; k < n; k++) {
     st1 = stages[k]
-    if (k == 1) sub(/^.*(\$\(|[;(]|(^|[ \t;&|])\{[ \t]|\001\001|&&|then[ \t]|do[ \t])/, "", st1)
+    # Cut through the last opener before the first stage, one leftmost match
+    # at a time: a greedy ^.* over an alternation is not longest in every awk.
+    if (k == 1)
+      while (match(st1, /\$\(|;|\(|(^|[ \t;&|])\{[ \t]|\001\001|&&|then[ \t]|do[ \t]/))
+        st1 = substr(st1, RSTART + RLENGTH)
     sub(/^[ \t]*/, "", st1)
     if (st1 !~ /^(printf|echo)([ \t]|$)/) return 1
   }
@@ -60,6 +64,8 @@ function rule_check(code, lineno,   head, p, last) {
   last = prev_code
   sub(/[ \t;]*$/, "", last)
   sub(/^.*;/, "", last)
+  # A compound command closing on that line returns its last pipeline.
+  if (last ~ /^[ \t]*(\}|fi|done|esac|\))[ \t]*$/) last = prev_code
   if (last != "" && has_pipe(last)) return "$? is read after the pipeline on the line above, so it holds the last stage status"
   return ""
 }

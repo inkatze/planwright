@@ -1,7 +1,9 @@
-# expect-line: 8
-# expect-line: 9
 # expect-line: 10
 # expect-line: 11
+# expect-line: 12
+# expect-line: 13
+# expect-line: 15
+# expect-line: 17
 # The producer's failure is hidden behind tail.
 set -u
 git log --oneline | tail -n 1
@@ -9,4 +11,8 @@ rc=$?
 git log | tail -n 1; rc=$?
 x=$(git log | head -n 1); rc=$?
 git log | head -n 1; code=${?}
+{ git log | tail -n 1; }
+rc=$?
+if true; then git log | head -n 1; fi
+rc=$?
 exit "$rc"
