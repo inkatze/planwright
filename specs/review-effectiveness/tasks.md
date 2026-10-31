@@ -580,6 +580,12 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 
 ## Awaiting input
 
+- **Task 12.1** — post-pr step `cubic-pr` halted on draft PR #776: not
+  triggered, because the cubic workspace quota is exhausted until
+  2026-11-05 (operator ruling); the operator runs cubic and the panel from
+  another session, after which the ready flip can be evaluated. Record:
+  `.claude/steps/000001/008-step-post-pr.rec`.
+
 ## Deferred
 
 - **The private reviewer's design lessons.** A private reviewer the
