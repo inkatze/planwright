@@ -150,9 +150,10 @@
 # nothing, and one reply releases one hand-over);
 # then `next` hands over the item the knock pinned (or the top item when the
 # top has not been pinned), with its pair or batch, and stamps the hand-over,
-# printing one line per item (after the `batch` line THE SUBJECT BATCH
-# describes): `item`, id, kind, urgency, the origins (the source, plus any
-# merged into it, comma-joined), age in seconds, the content pointer
+# printing, after any `batch` line (THE SUBJECT BATCH), one line per unit,
+# each followed by any `pair` line (PAIRING): `item`, id, kind, urgency, the
+# origins (the source, plus any merged into it, comma-joined), age in
+# seconds, the content pointer
 # (`attention:<worker>[@instance]` or `path:<root>/<rel>`), the park path
 # or -, and the closing condition, tab-separated. With attention unconfirmed
 # it prints the knock line — `knock`, kind and urgency of the top item, how
