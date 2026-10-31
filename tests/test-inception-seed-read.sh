@@ -112,7 +112,8 @@ assert_not_contains "a plain note is not reported" "idea.md" "$out"
 seed "$root/_pending/inception-ops.md" "inception:ops"
 rd "$root"
 assert_eq "J1.1 a seed reads cleanly" 0 "$rc"
-assert_contains "J1.1 the seed line carries the lineage key and gate" "seed	inception-ops.md	inception:ops	2	2026-10-18" "$out"
+assert_eq "J1.1 the seed line carries the lineage key, gate and date" "seed	inception-ops.md	inception:ops	2	2026-10-18" \
+  "$(printf '%s\n' "$out" | grep '^seed	inception-ops.md	')"
 assert_contains "J1.1 the suggested citation is surfaced verbatim" \
   "cite	inception-ops.md	- **Venture ops** — graduated inception seed (inception:ops, Gate 2, 2026-10-18)" "$out"
 assert_contains "J1.1 the venture's sources are preserved" \
@@ -190,6 +191,14 @@ assert_eq "a symbolic-link _pending is refused" 1 "$rc"
 assert_contains "the refusal says why" "symbolic link" "$err"
 rm -f "$root/_pending"
 mv "$tmp/real-pending" "$root/_pending"
+
+seed "$root/_pending/inception-hidden.md" "inception:hidden"
+chmod 000 "$root/_pending"
+rd "$root"
+chmod 755 "$root/_pending"
+assert_eq "an unreadable _pending is refused, not read as empty" 1 "$rc"
+assert_not_contains "it never reports no seed" "seed	none" "$out"
+rm -f "$root/_pending/inception-hidden.md"
 
 rd
 assert_eq "no spec root is a usage error" 2 "$rc"
