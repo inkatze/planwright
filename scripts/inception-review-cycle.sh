@@ -693,9 +693,13 @@ function quoted(s,    n, lines, i, out, l) {
     l = lines[i]
     gsub(/\t/, "    ", l)
     gsub(/[\001-\037\177]/, "", l)
-    # A quoted line opening like a heading is escaped, so harvested text
-    # renders as text inside the quote, never as structure.
-    if (match(l, /^ ? ? ?#/)) l = substr(l, 1, RLENGTH - 1) "\\" substr(l, RLENGTH)
+    # A quoted line opening a block (a heading, a setext underline or break,
+    # a list item, a nested quote, a fence, HTML) has its marker escaped, so
+    # harvested text renders as text inside the quote, never as structure.
+    if (match(l, /^ ? ? ?[#>`~<]/) || match(l, /^ ? ? ?[-+*]([ ]|$)/) || match(l, /^ ? ? ?[-=_*][-=_* ]*$/)) {
+      match(l, /^ ? ? ?/)
+      l = substr(l, 1, RLENGTH) "\\" substr(l, RLENGTH + 1)
+    }
     out = out (l == "" ? ">" : "> " l) "\n"
   }
   if (n == 0) out = ">\n"
