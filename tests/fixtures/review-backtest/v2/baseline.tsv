@@ -1,0 +1,72 @@
+review-backtest	1
+corpus	v2
+model	claude-opus-5-5
+seed	20261011
+cap	5
+plugin_commit	4659c7e3eddbcaa4cb9460f31618a600c3308f8f
+classes	claim-vs-code,declined,guard-bypass,host-dependent,lintable,other,outside-diff,procedure-order,pruned,runtime-tracing,spec-conflict
+excluded_unreplayable	228
+tokens_total	55679650
+class	claim-vs-code	5	0
+class	declined	2	1
+class	guard-bypass	5	1
+class	host-dependent	5	0
+class	lintable	5	3
+class	other	5	4
+class	outside-diff	5	2
+class	procedure-order	5	4
+class	pruned	5	2
+class	runtime-tracing	5	2
+class	spec-conflict	5	3
+row	r0393	claim-vs-code	missed
+row	r0681	claim-vs-code	missed
+row	r0987	claim-vs-code	missed
+row	r1337	claim-vs-code	missed
+row	r1317	claim-vs-code	missed
+row	r0525	declined	caught
+row	r0495	declined	missed
+row	r1195	guard-bypass	missed
+row	r1175	guard-bypass	missed
+row	r1135	guard-bypass	missed
+row	r1261	guard-bypass	caught
+row	r1393	guard-bypass	missed
+row	r1357	host-dependent	missed
+row	r1387	host-dependent	missed
+row	r1206	host-dependent	missed
+row	r1417	host-dependent	missed
+row	r1350	host-dependent	missed
+row	r1152	lintable	missed
+row	r0881	lintable	caught
+row	r0666	lintable	caught
+row	r0317	lintable	caught
+row	r1442	lintable	missed
+row	r0691	other	caught
+row	r1198	other	caught
+row	r1074	other	caught
+row	r0522	other	missed
+row	r0841	other	caught
+row	r1138	outside-diff	missed
+row	r0720	outside-diff	caught
+row	r0876	outside-diff	missed
+row	r0262	outside-diff	missed
+row	r1148	outside-diff	caught
+row	r1310	procedure-order	caught
+row	r1309	procedure-order	caught
+row	r1316	procedure-order	caught
+row	r1290	procedure-order	caught
+row	r1193	procedure-order	missed
+row	r0710	pruned	caught
+row	r0816	pruned	missed
+row	r0700	pruned	missed
+row	r0836	pruned	missed
+row	r1099	pruned	caught
+row	r0997	runtime-tracing	missed
+row	r0806	runtime-tracing	missed
+row	r0383	runtime-tracing	caught
+row	r1128	runtime-tracing	caught
+row	r1108	runtime-tracing	missed
+row	r1327	spec-conflict	caught
+row	r1286	spec-conflict	missed
+row	r1347	spec-conflict	caught
+row	r0846	spec-conflict	missed
+row	r0740	spec-conflict	caught
