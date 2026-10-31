@@ -177,6 +177,12 @@ expect_clean counter-array \
 expect_clean counter-min-var \
   'while IFS= read -r row; do' '  n=$((n + 1))' '  check_row "$row" || fail "row"' \
   'done <"$CORPUS"' '[ "$n" -lt "$CORPUS_MIN_ROWS" ] && fail "too few rows"'
+expect_shape counter-min-var-zero zero-row-floor \
+  'MIN_ROWS=0' 'while IFS= read -r row; do' '  n=$((n + 1))' '  check_row "$row" || fail "row"' \
+  'done <"$CORPUS"' '[ "$n" -lt "$MIN_ROWS" ] && fail "too few rows"'
+expect_clean counter-min-var-set \
+  'MIN_ROWS=3' 'while IFS= read -r row; do' '  n=$((n + 1))' '  check_row "$row" || fail "row"' \
+  'done <"$CORPUS"' '[ "$n" -lt "$MIN_ROWS" ] && fail "too few rows"'
 expect_shape floor-before-loop zero-row-floor \
   '[ "$n" -gt 0 ] || fail "no rows"' 'while IFS= read -r row; do' '  n=$((n + 1))' \
   '  check_row "$row" || fail "row"' 'done <"$CORPUS"'

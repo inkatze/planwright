@@ -278,8 +278,12 @@ function counter_of(s,   name, rest) {
 }
 # A floor compares the counter to a literal or a min/floor variable; one that
 # admits zero rows (-ge 0, -gt -1, -lt 0, -le -1) is no floor.
-function bound(op, val,   v) {
-  if (val ~ /^"?[$][{]?[A-Za-z_]*([Mm][Ii][Nn]|[Ff][Ll][Oo][Oo][Rr])/) return 1
+function bound(op, val,   v, nm) {
+  if (val ~ /^"?[$][{]?[A-Za-z_]*([Mm][Ii][Nn]|[Ff][Ll][Oo][Oo][Rr])/) {
+    nm = val; sub(/^"?[$][{]?/, "", nm); sub(/[^A-Za-z0-9_].*/, "", nm)
+    if (!(nm in AV)) return 1
+    val = AV[nm]
+  }
   if (val !~ /^"?-?[0-9]+("|[^0-9]|$)/) return 0
   v = val; gsub(/"/, "", v); v = v + 0
   if ((op == "-ge" || op == ">=" || op == "-lt" || op == "<") && v <= 0) return 0
@@ -304,7 +308,7 @@ function floor_after(names, from,   i, k, nn, nm, fwd, ar, rest, o) {
   }
   return 0
 }
-function statement(s, line,   segs, n, i, prev, seg, tgt) {
+function statement(s, line,   segs, n, i, prev, seg, tgt, nm, v) {
   n = split(s, segs, /;/)
   for (i = 1; i <= n; i++) {
     seg = segs[i]
@@ -312,6 +316,10 @@ function statement(s, line,   segs, n, i, prev, seg, tgt) {
     if (seg ~ /(^|[ \t])set[ \t][^|&]*-[A-Za-z]*o[ \t]+pipefail/) pipefail = 1
     if (seg ~ /(^|[ \t])set[ \t][^|&]*\+[A-Za-z]*o[ \t]+pipefail/) pipefail = 0
     S[++ns] = seg; SL[ns] = line
+    if (match(seg, /^[ \t]*((readonly|export|local)[ \t]+)?[A-Za-z_][A-Za-z0-9_]*="?-?[0-9]+"?[ \t]*$/)) {
+      nm = seg; sub(/^[ \t]*((readonly|export|local)[ \t]+)?/, "", nm); v = nm
+      sub(/=.*/, "", nm); sub(/^[^=]*=/, "", v); gsub(/[" \t]/, "", v); AV[nm] = v
+    }
     if (ns > 1 && SL[ns - 1] >= line - 3 && reads_status(seg)) {
       prev = S[ns - 1]
       if (!pipefail && filter_stage(stage_of(prev)) && !annotated(line))
@@ -362,7 +370,7 @@ function next_heredoc(   delim, i) {
   heredoc = delim
 }
 function scan(path,   r, raw, s, cur, start, body, i) {
-  heredoc = ""; hn = 0; q = ""; cur = ""; ns = 0; np = 0; sp = 0; pipefail = 0; negline = 0; pos = 0; nl = 0
+  heredoc = ""; hn = 0; q = ""; cur = ""; ns = 0; np = 0; sp = 0; pipefail = 0; negline = 0; pos = 0; nl = 0; split("", AV)
   while ((r = (getline raw < path)) > 0) {
     nl++; sub(/\r$/, "", raw); R[nl] = raw
     if (heredoc != "") {
