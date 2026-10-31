@@ -1606,7 +1606,7 @@ printf '%s\n' "$audit" "$helper" | grep -qE '>[[:space:]]*"?[^ "|&;]*\.pid"?([[:
   && fail "c25d: a pid file must not be published by a bare redirect"
 # The helper writes its temp and renames it; if the temp were the target the
 # rename would be a no-op and the window would be back.
-printf '%s\n' "$helper" | grep -qE "mv[[:space:]]+\"[\$]wp_tmp\"[[:space:]]+\"[\$]1\"" \
+printf '%s\n' "$helper" | grep -qE "mv[[:space:]]+(--[[:space:]]+)?\"[\$]wp_tmp\"[[:space:]]+\"[\$]1\"" \
   || fail "c25d: write_pidfile must rename its staging temp over the target"
 if [ "$c25b_ran" = 1 ]; then
   echo "ok: c25 launch elects a single initiator under contention and breaks a dead holder's lock (obs:917e384e)"
