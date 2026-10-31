@@ -244,6 +244,7 @@ rbt_read_ledger() {
       [ "$_rrl_rc" -ne 1 ] || continue
       _rrl_row=
       if [ "$_rrl_rc" -eq 0 ]; then
+        # shell-fail-open-noop: an empty row is counted malformed just below
         _rrl_row=$(rbt_miss_row "$RBT_MISS_TEXT") || :
       fi
       if [ -z "$_rrl_row" ]; then

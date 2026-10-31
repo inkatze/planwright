@@ -202,6 +202,7 @@ valid_epoch() {
 # utc_iso <epoch>: best-effort UTC rendering, byte-identical to
 # fleet-throttle.sh's helper.
 utc_iso() {
+  # shell-gnu-only-flag: GNU date -d is the fallback after BSD date -r
   ui_v=$(TZ=UTC date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) \
     || ui_v=$(TZ=UTC date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) \
     || ui_v="epoch $1"

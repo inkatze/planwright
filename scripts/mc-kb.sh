@@ -208,6 +208,7 @@ count_rows() { # count_rows <file>: ROWS, the entry lines, never a failed read's
 ends_in_newline() { [ ! -s "$1" ] || [ "$(tail -c 1 "$1" | wc -l | tr -d ' ')" -eq 1 ]; }
 now_iso() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 now_epoch() { date -u '+%s'; }
+# shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
 mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
 ensure_scratch() {
   [ -n "$scratch" ] || scratch=$(mktemp -d "${TMPDIR:-/tmp}/mc-kb.XXXXXX") || refuse "cannot create a scratch directory"
@@ -219,6 +220,7 @@ ensure_scratch() {
 # invalid repo-tracked or core value fails.
 KNOB=''
 int_knob() {
+  # shell-config-pin: mission control's knobs live in the overlay layers of the checkout it runs from
   ik_lines=$(/bin/sh "$script_dir/config-get.sh" --layers "$1")
   case $? in
     0) ;;

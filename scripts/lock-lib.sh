@@ -382,6 +382,7 @@ _pw_lock_etimes() {
     '' | *[!0-9]*) _pw_lock_etimes_out='' ;;
     *) return 0 ;;
   esac
+  # shell-fail-open-noop: the output is classified below, a diagnostic never read as an age
   _pwe_raw=$(ps -o etime= -p "$1" 2>&1 | tr -d ' ') || :
   case $_pwe_raw in
     *[!0-9:-]*)
@@ -548,6 +549,7 @@ pw_lock_owner_alive() {
   # with the running script's path, so an unanchored match reads every dead
   # owner as alive from any path containing the word. LC_ALL is pinned because
   # a translated message would read as absent and break a live process's lock.
+  # shell-fail-open-noop: only an EPERM message reads as alive; the process table already said absent
   _pwa_err=$(LC_ALL=C kill -0 "$_pwa_pid" 2>&1) || :
   case $_pwa_err in
     *[Pp]ermitted | *[Pp]ermission\ denied)

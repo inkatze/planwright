@@ -352,6 +352,7 @@ do_retire() {
     printf '%s\n' "$prog: part of $tasks could not be listed; what could be read is still retired" >&2
     failed=1
   }
+  # shell-fail-open-noop: a listing failure is reported above, and what could be read is still searched
   nl=$(find "$tasks" -mindepth 1 -maxdepth 2 -name "*$LF*" 2>/dev/null </dev/null) || :
   [ -z "$nl" ] || die 4 "refusing to retire: an entry under $tasks has a newline in its name; nothing was removed"
   old_ifs=$IFS

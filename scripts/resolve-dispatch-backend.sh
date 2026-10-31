@@ -236,6 +236,7 @@ TABC=$(printf '\t')
 read_key() {
   rk_out=''
   rk_rc=0
+  # shell-config-pin: a resolver, pinned by its caller (PLANWRIGHT_REPO_ROOT or the checkout it runs in)
   rk_out=$("$config_get" --explain "$1") || rk_rc=$?
   [ "$rk_rc" -eq 0 ] || return "$rk_rc"
   case "$rk_out" in

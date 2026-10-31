@@ -70,6 +70,7 @@ mc_now() { date +%s; }
 # mc_iso <epoch>: the UTC time the knowledge base stamps entries with, which
 # compares as a string in time order.
 mc_iso() {
+  # shell-gnu-only-flag: BSD date -r is the fallback when GNU date -d fails
   date -u -d "@$1" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -r "$1" '+%Y-%m-%dT%H:%M:%SZ'
 }
 
@@ -362,6 +363,7 @@ mc_unlock() {
 # read, the policy scripts/mc-program.sh applies to a program's keys; an
 # invalid repo-tracked or core value, or a key no layer sets, fails.
 mc_knob() {
+  # shell-config-pin: mission control's knobs live in the overlay layers of the checkout it runs from
   mk_lines=$(/bin/sh "$script_dir/config-get.sh" --layers "$1" 2>/dev/null)
   mk_rc=$?
   case $mk_rc in

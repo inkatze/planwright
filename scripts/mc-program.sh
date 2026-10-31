@@ -232,6 +232,7 @@ trap 'rm -f "$scratch_err"' EXIT
 # `<parser> <name> <raw>`. Status 0 printed; 3 no layer sets a valid value;
 # 1 a failure, named on stderr.
 layered() {
+  # shell-config-pin: mission control's knobs live in the overlay layers of the checkout it runs from
   ly_lines=$(/bin/sh "$script_dir/config-get.sh" --layers "$3" 2>"$scratch_err")
   ly_rc=$?
   cat "$scratch_err" >&2

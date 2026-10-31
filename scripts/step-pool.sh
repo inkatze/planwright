@@ -238,6 +238,7 @@ pid_running() {
 # uid column) is no answer at all, and the owner of the process's procfs
 # directory stands in.
 owner_uid() {
+  # shell-fail-open-noop: the answer is shape-checked below, a non-number falling back to procfs
   _ou=$(ps -o uid= -p "$owner" 2>&1) || :
   _ou=$(printf '%s' "$_ou" | tr -d ' ')
   case $_ou in
@@ -564,6 +565,7 @@ mark_holds() {
 # would not accept: the layer and value when config-get can name them, else
 # the resolver's own cause from the scratch file.
 refused() {
+  # shell-config-pin: the pool's knobs come from the checkout whose steps it runs
   _rf=$("$script_dir/config-get.sh" --explain "$1" 2>/dev/null) || _rf=''
   if [ -n "$_rf" ]; then
     warn "the ${_rf%%"$TAB"*} layer sets $1 to '$(sanitize_printable "${_rf#*"$TAB"}")', not $2; falling back to $3"
@@ -583,6 +585,7 @@ capacity() {
     # --no-degrade also exits 4 for a malformed file in any layer, set key or
     # not, so the key's own winning value decides. The shared read below
     # reports a malformed file.
+    # shell-config-pin: the pool's knobs come from the checkout whose steps it runs
     _ca_x=$("$script_dir/config-get.sh" --explain "$_ca_key" 2>/dev/null) || _ca_x=''
     if [ -z "$_ca_x" ]; then
       _ca_rc=5
