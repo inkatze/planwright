@@ -158,7 +158,7 @@ spec_parse_format_arm() {
 # column-0 fence. `-` reads the caller's snapshot from stdin under consumer
 # contract (g).
 spec_parse_repository_tasks() {
-  # shellcheck disable=SC2016 # $3 is an awk field, not a shell expansion
+  # shellcheck disable=SC2016 # awk source, not a shell expansion
   spec_parse__repo_awk='
     spec_parse_is_task_heading($0) {
       id = spec_parse_task_id($0)

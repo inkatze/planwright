@@ -225,6 +225,16 @@ cp "$tmp/v3ds.md" "$dv1bspec/tasks.md"
 rc=0
 /bin/bash "$SEL" "$dv1bspec" >/dev/null 2>"$tmp/v3repo.err" || rc=$?
 [ "$rc" = 2 ] || fail "v3 Repository: under a double-space heading: exit $rc, expected 2"
+grep -q 'name a repository (Task 5)' "$tmp/v3repo.err" \
+  || fail "v3 Repository: under a double-space heading: refusal does not name Task 5: $(cat "$tmp/v3repo.err")"
+# An unclosed fence is named as such, not as an unreadable field.
+cp "$tmp/v3canon.md" "$dv1bspec/tasks.md"
+printf '\n```\n' >>"$dv1bspec/tasks.md"
+rc=0
+/bin/bash "$SEL" "$dv1bspec" >/dev/null 2>"$tmp/v3repo.err" || rc=$?
+[ "$rc" = 2 ] || fail "v3 open fence: exit $rc, expected 2"
+grep -q 'open column-0 code fence' "$tmp/v3repo.err" \
+  || fail "v3 open fence: refusal does not name the fence: $(cat "$tmp/v3repo.err")"
 cp "$tmp/v3canon.md" "$dv1bspec/tasks.md"
 cp_v3=$(/bin/bash "$SEL" --critical-path "$dv1bspec") || fail "v3 --critical-path: non-zero exit"
 [ "$cp_v3" = "$cp_v2" ] || fail "v3 --critical-path '$cp_v3' differs from v2 '$cp_v2'"
