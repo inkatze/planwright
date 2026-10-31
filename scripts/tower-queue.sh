@@ -5552,19 +5552,16 @@ EOF
   case "$dec_what" in
     deliver)
       printf '%s' "$out_line"
-      if [ "$dec_batch" = - ]; then
-        surface_rules "$dec_item"
-        [ "$dec_pair" = - ] || surface_rules "$dec_pair"
-        set -- pair="$dec_pair"
-      else
-        # Members share a subject, so a rule naming it is printed once.
-        _bm=$dec_batch
-        while [ -n "$_bm" ]; do
-          surface_rules "${_bm%%,*}"
-          case "$_bm" in *,*) _bm=${_bm#*,} ;; *) _bm="" ;; esac
-        done | awk '!seen[$0]++'
-        set -- pair="$dec_pair" batch="$dec_batch" size="$dec_size"
-      fi
+      # A pair or batch shares a subject, so a rule naming it is printed once.
+      _bm=$dec_item
+      [ "$dec_pair" = - ] || _bm="$_bm,$dec_pair"
+      [ "$dec_batch" = - ] || _bm=$dec_batch
+      while [ -n "$_bm" ]; do
+        surface_rules "${_bm%%,*}"
+        case "$_bm" in *,*) _bm=${_bm#*,} ;; *) _bm="" ;; esac
+      done | awk '!seen[$0]++'
+      set -- pair="$dec_pair"
+      [ "$dec_batch" = - ] || set -- "$@" batch="$dec_batch" size="$dec_size"
       # The one fail-open line: the hand-over stands, the failure is
       # surfaced, and the redelivery it risks is inside the loss budget.
       log_event delivered --now "$now" --tower "$tower" item="$dec_item" item_kind="$dec_kind" urgency="$dec_urg" "$@" \
