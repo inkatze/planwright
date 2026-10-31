@@ -26,10 +26,10 @@
 #
 # --text runs only the product-name check, over prose rather than a corpus:
 # every regular file under each path given (directories walked recursively,
-# a symlink anywhere refused), its name and each line. It is the operator-local
-# screen over committed prose such as the observation fragments, so it
-# requires the list; a refusal names the file and line, never the matched
-# text, though a file-name refusal's path carries it.
+# a symlink anywhere or a file holding a NUL byte refused), its name and
+# each line. It is the operator-local screen over committed prose such as the
+# observation fragments, so it requires the list; a refusal names the file and
+# line, never the matched text, though a file-name refusal's path carries it.
 #
 # Usage:
 #   review-corpus-screen.sh [--names <file>] [--require-names] <corpus.tsv>
@@ -151,8 +151,11 @@ if [ "$text" -eq 1 ]; then
     # A leading ./ keeps a path named - from reading as stdin in awk's getline.
     case $p in /*) ;; *) p=./$p ;; esac
     # find -type f skips a symlink, so one would pass unscreened; refuse it
-    # rather than read through it, as check-obs.sh does.
-    if [ -L "$p" ]; then
+    # rather than read through it, as check-obs.sh does. A trailing slash
+    # would make -L test the link's target, so it is tested without one.
+    q=$p
+    while :; do case $q in ?*/) q=${q%/} ;; *) break ;; esac; done
+    if [ -L "$q" ]; then
       printf '%s\n' "$prog: a path is a symlink" >&2
       exit 2
     fi
@@ -183,6 +186,15 @@ if [ "$text" -eq 1 ]; then
     printf '%s\n' "$prog: the paths hold no files" >&2
     exit 2
   fi
+  # awk ends a line at a NUL on some implementations, so a name after one
+  # would pass unseen; a file holding one is refused rather than screened.
+  while IFS= read -r f; do
+    [ -r "$f" ] || continue
+    if [ "$(wc -c <"$f")" -ne "$(tr -d '\000' <"$f" | wc -c)" ]; then
+      printf '%s\n' "$prog: $(printf '%s' "$f" | tr -d '\000-\037\177\200-\237'): holds a NUL byte" >&2
+      exit 2
+    fi
+  done <"$T/files"
   # Each file is read as data: its name screened in BEGIN (an empty file has
   # no first record), then every line. Every non-printable byte in the path,
   # C1 included, is masked before it reaches stderr.

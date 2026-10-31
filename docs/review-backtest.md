@@ -49,7 +49,8 @@ and never committed; CI, which has no list, runs the rest of the screen
 through the test suite. `--text --names <file> <path>...` runs only the
 product-name check, over every file under the given paths (each file name
 and line), the operator-local screen over committed prose such as the
-observation fragments; a symlink is refused, never read through.
+observation fragments; a symlink is refused, never read through, and so is
+a file holding a NUL byte.
 
 ## Rebuilding the corpus
 
