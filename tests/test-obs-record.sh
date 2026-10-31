@@ -78,6 +78,7 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+EMITTER_LINT_ROOT=$(cd "$here/.." && pwd -P)
 REC="$here/../scripts/obs-record.sh"
 # shellcheck source=tests/lib/emitter-lint.sh
 . "$here/lib/emitter-lint.sh"
