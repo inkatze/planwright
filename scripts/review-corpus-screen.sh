@@ -188,13 +188,25 @@ if [ "$text" -eq 1 ]; then
   fi
   # awk ends a line at a NUL on some implementations, so a name after one
   # would pass unseen; a file holding one is refused rather than screened.
-  while IFS= read -r f; do
-    [ -r "$f" ] || continue
-    if [ "$(wc -c <"$f")" -ne "$(tr -d '\000' <"$f" | wc -c)" ]; then
-      printf '%s\n' "$prog: $(printf '%s' "$f" | tr -d '\000-\037\177\200-\237'): holds a NUL byte" >&2
-      exit 2
-    fi
-  done <"$T/files"
+  # One pass over every file finds whether any holds a NUL (a per-file screen
+  # costs seconds over the fragment tree); only then does the shared per-file
+  # screen run, to name the file. An unreadable file drops out of both counts
+  # alike and is refused by the read below.
+  total=$(tr '\n' '\000' <"$T/files" | xargs -0 cat 2>/dev/null | wc -c) || total=
+  kept=$(tr '\n' '\000' <"$T/files" | xargs -0 cat 2>/dev/null | tr -d '\000' | wc -c) || kept=
+  if [ -z "$total" ] || [ -z "$kept" ]; then
+    printf '%s\n' "$prog: the NUL screen could not read the files" >&2
+    exit 2
+  fi
+  if [ "$total" -ne "$kept" ]; then
+    # shellcheck source=scripts/spec-parse.sh
+    . "$here/spec-parse.sh" || exit 2
+    while IFS= read -r f; do
+      spec_parse__nul_screen "$f" || exit 2
+    done <"$T/files"
+    printf '%s\n' "$prog: a file holds a NUL byte" >&2
+    exit 2
+  fi
   # Each file is read as data: its name screened in BEGIN (an empty file has
   # no first record), then every line. Every non-printable byte in the path,
   # C1 included, is masked before it reaches stderr.
