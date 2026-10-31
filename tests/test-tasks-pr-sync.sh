@@ -2240,6 +2240,56 @@ run_hook "$repo" "gh pr create --draft" "https://github.com/x/y/pull/8" \
 git -C "$repo" checkout -q main
 echo "ok: V2-F hook is fail-soft on an unparseable Format-version and writes nothing (REQ-C1.8)"
 
+# --- V2-F3: version 3 takes the v2 no-op; an undefined version (4) fails
+# closed on both CLI arms (invariant-tasks REQ-F1.7) ---------------------------
+# redeclare <repo> <version> — every bundle file re-declared, then committed.
+redeclare() {
+  for rdf in "$1"/specs/demo2/*.md; do
+    sed "s/^\\*\\*Format-version:\\*\\* 2\$/**Format-version:** $2/" "$rdf" >"$rdf.new"
+    mv "$rdf.new" "$rdf"
+  done
+  git -C "$1" add -A && git -C "$1" commit -qm "fixture: version $2"
+}
+repo=$tmp/v2f3
+make_v2_repo "$repo"
+awk '{ print } /^- \*\*Citations:\*\* REQ-V2.1$/ { print "- **Repository:** alpha" }' \
+  "$repo/specs/demo2/tasks.md" >"$repo/specs/demo2/tasks.md.new"
+mv "$repo/specs/demo2/tasks.md.new" "$repo/specs/demo2/tasks.md"
+redeclare "$repo" 3
+grep -q '^- \*\*Repository:\*\* alpha$' "$repo/specs/demo2/tasks.md" || fail "V2-F3: fixture field not written"
+d_before=$(specs_digest "$repo")
+# The no-op message proves the v2 arm ran: an exit 0 with an unchanged digest
+# alone would also follow a v1 fall-through the in-writer gate refused.
+for arm in reconcile reconcile-status; do
+  err=$( (cd "$repo" && PATH="$stub:$PATH" "$SYNC" "$arm" specs/demo2) 2>&1 >/dev/null) \
+    || fail "V2-F3: $arm on a v3 bundle should exit 0 (the v2 clean no-op), got non-zero: $err"
+  case "$err" in
+    *"format-version 3 bundle; derived state is never stored"*) ;;
+    *) fail "V2-F3: $arm on a v3 bundle did not take the v2 no-op: $err" ;;
+  esac
+done
+git -C "$repo" checkout -q planwright/demo2/task-2
+run_hook "$repo" "gh pr create --draft" "https://github.com/x/y/pull/9" \
+  || fail "V2-F3: the hook on a v3 bundle should exit 0 (fail-soft), got non-zero"
+git -C "$repo" checkout -q main
+[ "$d_before" = "$(specs_digest "$repo")" ] || fail "V2-F3: the writer wrote into a v3 bundle (REQ-F1.7)"
+repo=$tmp/v2f4
+make_v2_repo "$repo"
+redeclare "$repo" 4
+d_before=$(specs_digest "$repo")
+for arm in reconcile reconcile-status; do
+  rc=0
+  err=$( (cd "$repo" && PATH="$stub:$PATH" "$SYNC" "$arm" specs/demo2) 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 2 ] || fail "V2-F3: $arm on Format-version 4 should fail closed (exit 2), got $rc"
+  case "$err" in *Format-version*) ;; *) fail "V2-F3: $arm fail-closed error does not name Format-version: $err" ;; esac
+done
+git -C "$repo" checkout -q planwright/demo2/task-2
+run_hook "$repo" "gh pr create --draft" "https://github.com/x/y/pull/10" \
+  || fail "V2-F3: the hook must stay fail-soft (exit 0) on Format-version 4"
+git -C "$repo" checkout -q main
+[ "$d_before" = "$(specs_digest "$repo")" ] || fail "V2-F3: an undefined Format-version reached the write path"
+echo "ok: V2-F3 version 3 is the v2 no-op; an undefined version fails closed with no write (REQ-F1.7)"
+
 # --- V2-G: a torn bundle (requirements.md declares 2, tasks.md declares 1)
 # fails closed on every arm (REQ-C1.8: no script falls open to the v1 write
 # path). requirements.md is the authoritative version home, and do_status

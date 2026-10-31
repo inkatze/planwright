@@ -45,7 +45,9 @@ aspirational.
    canonical reader `/spec-draft`, REQ-H1.6, with the drain pass surfacing its unmined
    count and age — its canonical definition is the next section);
    `_pending/notes.md` (local-only, gitignored; owner: the human who wrote
-   it); `tasks.md` Deferred entries (re-surfaced by their `GATE(when:)`
+   it); a graduated venture's seed, `_pending/inception-<id>[.<track>].md`
+   (written by `/inception`'s graduation, read by `/spec-draft`, removed by the
+   human once the spec it seeded cites it); `tasks.md` Deferred entries (re-surfaced by their `GATE(when:)`
    conditions through the drain pass). Ritual: the `GATE(when:)` convention
    plus the drain pass, and the canonical reader for seed material.
 

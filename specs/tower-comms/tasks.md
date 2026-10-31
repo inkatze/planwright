@@ -679,6 +679,16 @@ baseline exists, so the experiment has an honest before.
   bullet in that same commit, stamped `Planwright-Task: tower-comms/9`
   through `scripts/planwright-commit-trailers.sh`, so the task derives
   completed instead of turning selectable.
+- **Task 11** — post-pr step `cubic-pr` halted on draft PR #758: the cubic
+  workspace is at its monthly review limit (reviews resume 2026-11-05), so no
+  cubic round has run on the PR, and the ready flip needs one on the current
+  head; the operator runs the cubic and panel rounds from another session.
+  Three review forks also wait in the PR body for direction: NHJ-1 (the
+  rebuild judging a default against a re-forked row), NHJ-2 (`revoke`
+  reopening a default beside a newer question), and NHJ-3, a security-design
+  finding (the mission-control token following the caller's environment on
+  `recover` and direct launches). Record:
+  `.claude/steps/000002/005-step-post-pr.rec`.
 - **Task 12** — the post-PR cubic review round (step `cubic-pr`) is halted:
   the cubic workspace quota is exhausted until 2026-11-05. Draft PR #763
   carries the implementation and both convergence rounds. Operator: run the

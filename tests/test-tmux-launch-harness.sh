@@ -128,11 +128,12 @@ while :; do sleep 0.05; done"
   expect_one_fail "h1: a fractional bound" tlh_run_bounded --bound 1.5 true
   expect_one_fail "h1: a bound with no command" tlh_run_bounded --bound 2
 
-  # A fast run leaves no timer behind. The bound is odd enough that no other
-  # suite's timer shares it.
+  # A fast run leaves no timer behind. The timer is this shell's own child, so
+  # only this shell's children are searched: a machine-wide match would see
+  # another suite's `sleep <n>` that happens to share the bound.
   b=$((100 + $$ % 800))
   for i in 1 2 3 4 5 6 7 8 9 10; do tlh_run_bounded --bound "$b" true; done
-  [ "$(pgrep -x -f "sleep $b" | wc -l | tr -d ' ')" -eq 0 ] \
+  [ "$(pgrep -P $$ -x -f "sleep $b" | wc -l | tr -d ' ')" -eq 0 ] \
     || fail "h1: a run that returned must not leave its timer running"
 
   tlh_run_bounded tmux new-session -d -s quick -P -F "#{session_name}${TAB}#{window_id}" -c "$wt" -- sleep 30

@@ -193,6 +193,28 @@ kill "$user_pid" 2>/dev/null
 wait "$user_pid" 2>/dev/null
 user_pid=''
 
+# A find without -lname, as busybox's, takes the per-process procfs walk.
+worktree wt-nolname feat/nolname
+pr feat/nolname 23 MERGED "$(git -C "$tmp/work/wt-nolname" rev-parse HEAD)"
+mkdir -p "$tmp/nolname"
+real_find=$(command -v find)
+cat >"$tmp/nolname/find" <<STUB
+#!/bin/sh
+for a in "\$@"; do [ "\$a" = -lname ] && exit 1; done
+exec '$real_find' "\$@"
+STUB
+chmod +x "$tmp/nolname/find"
+(cd "$tmp/work/wt-nolname" && exec sleep 600) &
+user_pid=$!
+OUT=$(PATH="$tmp/nolname:$PATH" mc_env /bin/bash "$repo_root/scripts/mc-reclaim.sh" check --program alpha "$tmp/work/wt-nolname" 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "a find without -lname still refuses a live user" 1
+expect_out "the -lname-less walk names the live-user arm" "live-user"
+kill "$user_pid" 2>/dev/null
+wait "$user_pid" 2>/dev/null
+user_pid=''
+
 worktree wt-mergedhead feat/mergedhead
 printf 'local\n' >>"$tmp/work/wt-mergedhead/f"
 g -C "$tmp/work/wt-mergedhead" commit -qam local
