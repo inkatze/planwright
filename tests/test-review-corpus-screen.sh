@@ -127,6 +127,36 @@ f=$(corpus empty)
 "$SCREEN" "$f" >/dev/null 2>&1
 assert_exit "a corpus with zero rows is refused" 2 $?
 
+# --- text mode: the product-name check over prose files and directories ---
+mkdir -p "$T/frag/entries/nested" "$T/frag/archive"
+printf -- '- 2026-01-01 [x] the bot reviewer flagged the loop\n' >"$T/frag/entries/2026-01-01-clean-0000aaaa.md"
+printf -- '- 2026-01-02 [x] a clean line\nAcmeReview flagged the loop\n' >"$T/frag/archive/2026-01-02-body-0000bbbb.md"
+printf -- '- 2026-01-03 [x] a clean line\n' >"$T/frag/entries/nested/2026-01-03-acmereview-run-0000cccc.md"
+out=$("$SCREEN" --text --names "$names" "$T/frag" 2>&1)
+assert_exit "text mode refuses a directory holding a listed name" 1 $?
+assert_contains "text mode names the file and line of a body match" "2026-01-02-body-0000bbbb.md:2:" "$out"
+assert_contains "text mode screens a file name, recursing into subdirectories" "2026-01-03-acmereview-run-0000cccc.md: file name" "$out"
+assert_lacks "text mode passes a clean file" "0000aaaa" "$out"
+out_lc=$(printf '%s' "$out" | sed 's/[^:]*acmereview-run-0000cccc\.md//' | LC_ALL=C tr '[:upper:]' '[:lower:]')
+assert_lacks "text mode never prints the matched text" "acmereview flagged" "$out_lc"
+out=$("$SCREEN" --text --names "$names" "$T/frag/entries/2026-01-01-clean-0000aaaa.md" "$T/frag/archive" 2>&1)
+assert_exit "text mode takes files and directories together" 1 $?
+assert_lacks "text mode reads only the paths given" "0000cccc" "$out"
+rm "$T/frag/archive/2026-01-02-body-0000bbbb.md" "$T/frag/entries/nested/2026-01-03-acmereview-run-0000cccc.md"
+printf -- '- 2026-01-04 [x] the acmereviewer field is unset\n' >"$T/frag/entries/2026-01-04-inword-0000dddd.md"
+out=$("$SCREEN" --text --names "$names" "$T/frag" 2>&1)
+assert_exit "text mode passes clean files, a name inside a word included" 0 $?
+assert_contains "text mode reports the files it passed" "2 file(s) pass" "$out"
+"$SCREEN" --text "$T/frag" >/dev/null 2>&1
+assert_exit "text mode refuses to run without a name list" 2 $?
+"$SCREEN" --text --names "$T/empty-names.txt" "$T/frag" >/dev/null 2>&1
+assert_exit "text mode refuses a list holding no names" 2 $?
+"$SCREEN" --text --names "$names" "$T/absent-dir" >/dev/null 2>&1
+assert_exit "text mode refuses a missing path" 2 $?
+mkdir -p "$T/empty-dir"
+"$SCREEN" --text --names "$names" "$T/empty-dir" >/dev/null 2>&1
+assert_exit "text mode refuses paths holding no files, never a pass" 2 $?
+
 # --- every committed corpus version passes its schema and hygiene screen ---
 found=0
 for c in "$CORPUS_ROOT"/v*/corpus.tsv; do
