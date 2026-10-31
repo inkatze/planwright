@@ -580,8 +580,6 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 
 ## Awaiting input
 
-- **Task 11** — convergence: step polish failed (safety stop: loop detection); record `.claude/steps/000001/004-step-convergence.rec`
-
 ## Deferred
 
 - **The private reviewer's design lessons.** A private reviewer the
