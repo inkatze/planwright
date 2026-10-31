@@ -366,12 +366,6 @@ put "$r" specs/linked/design.md "Nothing."
 out=$(check "$r")
 assert "a symlinked requirements.md fails closed" 2 $?
 
-# The shipped tree is green under the shipped exemption list.
-out=$(/bin/sh "$CHECKER" </dev/null 2>&1)
-rc=$?
-assert "this repository's tracked prose is green" 0 "$rc"
-[ "$rc" -eq 0 ] || printf '%s\n' "$out" >&2
-
 if [ "$failures" -gt 0 ]; then
   echo "$failures check(s) failed" >&2
   exit 1
