@@ -25,8 +25,9 @@ lines of a scripts/*.sh file, each format one of markdown, yaml, shell.
 Linted: a tests/*.sh line calling `lint_emitted <format> <script-name>`.
 Fails on a declared format no test lints, on a lint_emitted call naming a
 script or format nothing declares, and on an unknown format.
-Exit codes: 0 clean, 1 a finding, 2 usage, or a root with no scripts/ or
-tests/ directory or no declared emitter (a broken scan, not a clean tree).
+Exit codes: 0 clean, 1 a finding, 2 usage, or a scan covering less than it
+claims: a root whose scripts/ or tests/ is missing or cannot be listed, an
+unreadable file, no declared emitter, or a grep or sort that failed.
 EOF
 }
 
@@ -35,13 +36,19 @@ fail_closed() {
   exit 2
 }
 
+# printable <text> — the text with control bytes (C0, DEL and C1) stripped,
+# for a name or value taken from a file or the command line.
+printable() {
+  printf '%s' "$1" | tr -d '\000-\037\177\200-\237'
+}
+
 case "${1:-}" in
   --help | -h)
     [ "$#" -eq 1 ] || fail_closed "--help takes no other arguments"
     usage
     exit 0
     ;;
-  -*) fail_closed "unknown option: $(printf '%s' "$1" | tr -d '\000-\037\177') (see --help)" ;;
+  -*) fail_closed "unknown option: $(printable "$1") (see --help)" ;;
 esac
 [ "$#" -le 1 ] || fail_closed "too many arguments (expected at most one root)"
 root=${1:-$(cd "$(dirname "$0")/.." && pwd -P)}
@@ -58,7 +65,7 @@ trap 'rm -rf "$work"' EXIT
 # and names through ENVIRON, so a path holding `=` or a backslash stays literal.
 for f in "$root"/scripts/*.sh; do
   [ -f "$f" ] || continue
-  [ -r "$f" ] || fail_closed "cannot read scripts/${f##*/}"
+  [ -r "$f" ] || fail_closed "cannot read scripts/$(printable "${f##*/}")"
   EL_NAME="${f##*/}" awk '
     BEGIN { name = ENVIRON["EL_NAME"] }
     NR > 40 { exit }
@@ -74,14 +81,14 @@ for f in "$root"/scripts/*.sh; do
         else print "!" name "\t" (fmts[k] == "" ? "(none)" : fmts[k])
       }
     }
-  ' <"$f" >>"$work/declared" || fail_closed "could not read scripts/${f##*/}"
+  ' <"$f" >>"$work/declared" || fail_closed "could not read scripts/$(printable "${f##*/}")"
 done
 [ -s "$work/declared" ] || fail_closed "no script under scripts/ declares an # Emits: format, a broken scan rather than a clean tree"
 
 # Linted pairs from the tests: `lint_emitted <format> <script>` as a call.
 for t in "$root"/tests/*.sh; do
   [ -f "$t" ] || continue
-  [ -r "$t" ] || fail_closed "cannot read tests/${t##*/}"
+  [ -r "$t" ] || fail_closed "cannot read tests/$(printable "${t##*/}")"
   awk '
     /^[ \t]*#/ { next }
     {
@@ -93,7 +100,7 @@ for t in "$root"/tests/*.sh; do
         line = substr(line, RSTART + RLENGTH)
       }
     }
-  ' <"$t" >>"$work/linted" || fail_closed "could not read tests/${t##*/}"
+  ' <"$t" >>"$work/linted" || fail_closed "could not read tests/$(printable "${t##*/}")"
 done
 : >>"$work/linted"
 
@@ -102,8 +109,8 @@ tab=$(printf '\t')
 while IFS="$tab" read -r script fmt; do
   case $script in
     '!'*)
-      printf '%s: scripts/%s declares an unknown format "%s" (markdown, yaml or shell)\n' "$me" "${script#!}" \
-        "$(printf '%s' "$fmt" | tr -d '\000-\037\177')" >&2
+      printf '%s: scripts/%s declares an unknown format "%s" (markdown, yaml or shell)\n' "$me" \
+        "$(printable "${script#!}")" "$(printable "$fmt")" >&2
       status=1
       continue
       ;;
@@ -115,7 +122,7 @@ while IFS="$tab" read -r script fmt; do
     *) fail_closed "could not search the linted pairs" ;;
   esac
   printf '%s: scripts/%s emits %s, but no test lints it (lint_emitted %s %s <file>)\n' \
-    "$me" "$script" "$fmt" "$fmt" "$script" >&2
+    "$me" "$(printable "$script")" "$fmt" "$fmt" "$(printable "$script")" >&2
   status=1
 done <"$work/declared"
 sort -u "$work/linted" >"$work/linted.u" || fail_closed "could not sort the linted pairs"

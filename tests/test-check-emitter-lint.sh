@@ -68,18 +68,21 @@ expect "an unknown format is named in the finding" "$tmp/badfmt" 1 'unknown form
 scratch_root "$tmp/commented" '# Emits: markdown'
 printf '#!/bin/sh\n# %s markdown emit.sh "$out"\n' "$le" >"$tmp/commented/tests/test-emit.sh"
 expect "a commented-out lint call lints nothing" "$tmp/commented" 1 "emits markdown, but no test lints it"
-scratch_root "$tmp/late" '# Emits: markdown'
-{
+# at_line <n> <format> — a script whose declaration of <format> sits on line <n>.
+at_line() {
   printf '#!/bin/sh\n'
-  i=0
-  while [ "$i" -lt 40 ]; do
+  i=2
+  while [ "$i" -lt "$1" ]; do
     printf 'true\n'
     i=$((i + 1))
   done
-  printf '# Emits: yaml\n'
-} >"$tmp/late/scripts/late.sh"
-printf '# Emits: markdown\n' >"$tmp/late/scripts/emit.sh"
-expect "a declaration past the header's first 40 lines declares nothing" "$tmp/late" 0 "clean (1 declared"
+  printf '# Emits: %s\n' "$2"
+}
+scratch_root "$tmp/late" '# Emits: markdown'
+at_line 41 yaml >"$tmp/late/scripts/late.sh"
+expect "a declaration on line 41 declares nothing" "$tmp/late" 0 "clean (1 declared"
+at_line 40 yaml >"$tmp/late/scripts/late.sh"
+expect "a declaration on line 40 still counts" "$tmp/late" 1 "late.sh emits yaml, but no test lints it"
 scratch_root "$tmp/a=b" '# Emits: markdown'
 out=$(cd "$tmp" && /bin/sh "$CHECK" a=b 2>&1 </dev/null)
 case "$?:$out" in
@@ -88,6 +91,11 @@ case "$?:$out" in
 esac
 out=$(/bin/sh "$CHECK" --help extra 2>&1)
 if [ $? -eq 2 ]; then pass "--help with another argument is a usage error"; else fail "--help took another argument: $out"; fi
+out=$(/bin/sh "$CHECK" "$(printf -- '-\233[2J')" 2>&1)
+case "$out" in
+  *"$(printf '\233')"*) fail "a C1 control byte in an option reached the message" ;;
+  *) pass "an option's control bytes, C1 included, are stripped from the message" ;;
+esac
 out=$(/bin/sh "$CHECK" --bogus 2>&1)
 case "$?:$out" in
   2:*"--bogus"*) pass "an unknown option is refused by name" ;;
