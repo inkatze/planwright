@@ -498,14 +498,25 @@ write_v2_spec "$spec8b" Ready
 awk '/^\(none yet\)$/ && !done { sub(/.*/, "- **Task 7** why is this blocked?"); done=1 } { print }' \
   "$spec8b/tasks.md" >"$spec8b/tasks.md.new" && mv "$spec8b/tasks.md.new" "$spec8b/tasks.md"
 to_version "$spec8b" 2 3
-awk '{ print } /^### Task 6 / { t6 = 1 } t6 && /^- \*\*Dependencies:\*\*/ { print "- **Repository:** alpha"; t6 = 0 }' \
-  "$spec8b/tasks.md" >"$spec8b/tasks.md.new" && mv "$spec8b/tasks.md.new" "$spec8b/tasks.md"
 seed_evidence "$repo8b"
 out=$("$RENDER" "$spec8b") || fail "F1.7: version 3 render exited non-zero"
 assert_has "$out" "format-version: 3" "F1.7 the render reports the declared version"
 assert_has "$(task_line "$out" 1)" completed "F1.7 v3 branch evidence derives"
 assert_has "$(task_line "$out" 7)" awaiting-input "F1.7 v3 reference bullet parks its task"
 assert_has "$out" "bundle status: Active (derived)" "F1.7 v3 bundle derives"
+# A task naming a repository cannot be derived from the work repository: the
+# render refuses rather than report its state, or Done, from the wrong one.
+awk '{ print } /^### Task 6 / { t6 = 1 } t6 && /^- \*\*Dependencies:\*\*/ { print "- **Repository:** alpha"; t6 = 0 }' \
+  "$spec8b/tasks.md" >"$spec8b/tasks.md.new" && cp "$spec8b/tasks.md" "$tmp/v3-nofield.md" \
+  && mv "$spec8b/tasks.md.new" "$spec8b/tasks.md"
+set +e
+out=$("$RENDER" "$spec8b" 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 2 ] || fail "F1.7: a v3 task naming a repository should exit 2, got $rc"
+assert_has "$out" "name a repository (Task 6)" "F1.7 the refusal names the task"
+assert_not "$out" "bundle status:" "F1.7 no bundle status derived from the work repository"
+cp "$tmp/v3-nofield.md" "$spec8b/tasks.md"
 sed 's/^\*\*Status:\*\* Ready$/**Status:** Active/' "$spec8b/requirements.md" \
   >"$spec8b/requirements.md.new" && mv "$spec8b/requirements.md.new" "$spec8b/requirements.md"
 set +e

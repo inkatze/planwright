@@ -59,7 +59,8 @@
 #            REQ-A1.2), an unrecognized stored status, a parked map the shared
 #            grammar lib refused (a NUL byte, or end-of-file inside an open
 #            column-0 fence), a missing or unreadable scripts/spec-parse.sh
-#            (broken install), or an engine failure
+#            (broken install), an engine failure, or a version 3 bundle whose
+#            tasks name a repository (no per-task derivation yet)
 #   exit 3   transient evidence failure: the remote is configured but the gh
 #            query failed (the engine's `degraded` record — its documented
 #            failure signal). Partial evidence is NOT presented as status; the
@@ -206,6 +207,22 @@ case "$stored" in
     ;;
 esac
 printf 'stored status: %s\n' "$stored"
+
+# The derivation reads every task from the bundle's work repository, so a
+# task whose Repository: field names another one would render, and could
+# derive Done, from the wrong repository's evidence. Such a bundle is refused
+# until per-task derivation replaces this check.
+if [ "$fv" = 3 ]; then
+  if ! repo_tasks=$(spec_parse_repository_tasks "$tasks_md"); then
+    printf '%s\n' "spec-status: could not read the Repository: fields of $(sanitize_printable "$tasks_md") (fail closed)" >&2
+    exit 2
+  fi
+  if [ -n "$repo_tasks" ]; then
+    repo_list=$(printf '%s' "$repo_tasks" | tr '\n' ' ' | sed 's/ $//; s/ /, Task /g')
+    printf '%s\n' "spec-status: tasks name a repository (Task $(sanitize_printable "$repo_list")), and per-task repository derivation is unavailable here; no execution state is derived (fail closed)" >&2
+    exit 2
+  fi
+fi
 
 # --- Task inventory. ---------------------------------------------------------
 # Count the task blocks the derivation would read. A zero-task bundle has
