@@ -277,6 +277,35 @@ done
 check "a pass writes no park" [ "$(leads)" = 0 ]
 check "the handoff says flipped" grep -q 'flipped' <<<"$OUT"
 
+echo "# version 3 parks as version 2; an undefined version is refused (invariant-tasks REQ-F1.7)"
+# redeclare <version> — the unit's tasks.md re-declared, committed and pushed.
+redeclare() {
+  sed "s/^\\*\\*Format-version:\\*\\* 2\$/**Format-version:** $1/; s/^- \\*\\*Deliverables:\\*\\* x\$/&\\
+- **Repository:** alpha/" "$F/wt/$TASKS" >"$F/wt/$TASKS.new"
+  mv "$F/wt/$TASKS.new" "$F/wt/$TASKS"
+  gitf commit -q -am "chore: version $1"
+  gitf push -q origin "$BRANCH" 2>/dev/null
+  record_review
+}
+for v in 3 4; do
+  fixture
+  set_policy unit-owner
+  redeclare "$v"
+  echo failing >"$GHS/ci"
+  before=$(origin_head)
+  run_helper flip --spec specs/demo --task 1
+  if [ "$v" = 3 ]; then
+    check "the version 3 fixture carries a Repository: field" grep -q '^- \*\*Repository:\*\* alpha$' "$F/wt/$TASKS"
+    check "a version 3 failing rollup parks (exit 4)" [ "$CODE" = 4 ]
+    check "the version 3 park names the predicate" grep -q '^- \*\*Task 1\*\* — pending ready-flip: ci-rollup' <<<"$(bullet)"
+  else
+    check "an undefined version (4) is refused (exit 5)" [ "$CODE" = 5 ]
+    check "the undefined-version refusal names the declaration" grep -q 'undefined Format-version' <<<"$OUT"
+    check "an undefined version writes no park" [ "$(origin_head)" = "$before" ]
+  fi
+  check "version $v makes no flip call" [ "$(calls 'pr ready')" = 0 ]
+done
+
 echo "# exactly one predicate fails: the PR stays draft and the predicate is parked"
 fixture
 set_policy unit-owner

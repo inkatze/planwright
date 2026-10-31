@@ -137,7 +137,8 @@ above always render in full.
 The decision queue above is the workers' list. A tower session keeps a second
 one for you: the **operator queue** (`scripts/tower-queue.sh`), which holds
 everything the tower means to put in front of you — a blocked worker's
-question, something waiting for your go-ahead, a request you made, and news —
+question, something waiting for your go-ahead, a request you made, a decision
+taken without you that waits for your review, and news —
 and hands it over one item at a time. Nothing reaches you as loose prose; if
 the tower is telling you something it needs from you, it came off this queue.
 
@@ -153,7 +154,8 @@ the tower is telling you something it needs from you, it came off this queue.
   after it brings the next item. The one exception is a pair: two waiting
   items of the same kind about the same worker, PR, branch, or request arrive together
   as one hand-over, and you answer both. Blocked workers come first, then things
-  waiting for your go-ahead, then your own requests, then news; within a kind,
+  waiting for your go-ahead, then your own requests, then decisions taken
+  without you that wait for your review, then news; within a kind,
   the more urgent and then the older first. Each item is written so you can
   answer it from that message alone. Ask for more and you get one more layer,
   then the tower waits.

@@ -33,7 +33,7 @@
 #            only do against a stamped evidence table. That is why --evidence
 #            is required; a table with no `stamp` line still costs a second
 #            pass. Its lines are
-#            passed through as the pass prints them — `settled`, `merged`,
+#            passed through as the pass prints them — `settled`, `merged`, `window`,
 #            `answered`, `unavailable`, `held`.
 #         2. The pending pushes (`fleet-attention.sh relay`), as
 #            `push<TAB><key><TAB><text>`, the text through `tower-queue.sh

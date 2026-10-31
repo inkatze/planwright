@@ -23,8 +23,8 @@
 #     the next blank line, heading of any level, or list item indented no
 #     deeper than it (its own sub-items belong to it);
 #   - the metadata field lines whose values are ids or plans, not figures:
-#     `**Format-version:**`, and a task's `**Dependencies:**` and
-#     `**Estimated effort:**`, at any indent;
+#     `**Format-version:**`, and a task's `**Dependencies:**`,
+#     `**Repository:**`, and `**Estimated effort:**`, at any indent;
 #   - a numeral that is a reference, not a quantity: one directly following
 #     task, section, step or wave (either case of the first letter), one
 #     continuing a plural's list (`Tasks 11 and 12`, `Tasks 5, 9, 10`), and
@@ -169,7 +169,7 @@ FNR == 1 { name = FILENAME; sub(/^.*\//, "", name); skip = 0; verdict = 0; indec
 verdict && /^[ \t]*- / { match($0, /^[ \t]*/); if (RLENGTH <= vindent) verdict = 0 }
 indec && /^[ \t]*(- )?\*\*(Measurements?|Cost-benefit):\*\*/ { verdict = 1; match($0, /^[ \t]*/); vindent = RLENGTH }
 skip || verdict { next }
-/^[ \t]*(- )?\*\*(Format-version|Dependencies|Estimated effort):\*\*/ { next }
+/^[ \t]*(- )?\*\*(Format-version|Dependencies|Repository|Estimated effort):\*\*/ { next }
 { n = figures($0, f, 0); for (i = 1; i <= n; i++) print name "\t" f[i] "\t" FNR }
 EOF
 cat >"$work/compare.awk" <<'EOF'
