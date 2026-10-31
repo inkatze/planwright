@@ -1668,10 +1668,11 @@ echo "ok: the format-version arm map gives version 3 the v2 arm and refuses unde
 printf '%s\n' '# T' '' '## Tasks' '' '### Task 2 — b' '- **Repository:** beta' '- **Repository:** again' '' \
   '### Task 1 — a' '- **Dependencies:** none' '' '### Notes' '- **Repository:** stray' '' \
   '```markdown' '### Task 9 — example' '- **Repository:** fenced' '```' '' \
-  '### Task 3.5 — c' '- **Repository:** gamma' >"$tmp/repo-tasks.md"
-eq "the probe lists each field-bearing task once, in order" "$(printf '2\n3.5')" \
+  '### Task 3.5 — c' '- **Repository:** gamma' '' '### Task  4 — d' '- **Repository:** delta' '' \
+  '### Task x — e' '- **Repository:** eps' >"$tmp/repo-tasks.md"
+eq "the probe lists each field-bearing task once, in order, any task heading counted" "$(printf '2\n3.5\n4\n?')" \
   "$(spec_parse_repository_tasks "$tmp/repo-tasks.md")"
-eq "the probe reads a caller snapshot on stdin" "$(printf '2\n3.5')" \
+eq "the probe reads a caller snapshot on stdin" "$(printf '2\n3.5\n4\n?')" \
   "$(spec_parse_repository_tasks - <"$tmp/repo-tasks.md")"
 printf '%s\n' '# T' '' '### Task 1 — a' '- **Dependencies:** none' >"$tmp/repo-none.md"
 eq "a bundle naming no repository prints nothing" '' "$(spec_parse_repository_tasks "$tmp/repo-none.md")"

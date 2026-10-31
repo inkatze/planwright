@@ -41,17 +41,16 @@
 # drop or relocation.
 #
 # Done and terminal (Retired/Superseded) bundles are never rewritten; an
-# already-v2 or version 3 bundle is a clean no-op. Idempotent and re-runnable after a
-# partial run: requirements.md (whose migration Changelog entry marks a
-# signed migration) is written last of the four files, so a re-run over an
+# already-v2 or version 3 bundle is a clean no-op. Idempotent and re-runnable
+# after a partial run: requirements.md (whose migration Changelog entry marks
+# a signed migration) is written last of the four files, so a re-run over an
 # interrupted bundle re-applies the per-file idempotent transforms and
-# completes a missing changelog line or re-anchor entry rather than
-# no-oping past a file that already reads v2 (D-10); the re-anchor's
-# changelog citation reuses the date already recorded in the changelog, so
-# a completion across a date boundary cites the real entry. A v2 bundle
-# with no migration changelog marker is treated as born-v2 and left
-# untouched — completing a "missing" re-anchor there would forge a
-# migration that never happened.
+# completes a missing changelog line or re-anchor entry rather than no-oping
+# past a file that already reads v2 (D-10); the re-anchor's changelog citation
+# reuses the date already recorded in the changelog, so a completion across a
+# date boundary cites the real entry. A v2 bundle with no migration changelog
+# marker is treated as born-v2 and left untouched — completing a "missing"
+# re-anchor there would forge a migration that never happened.
 #
 # Writes are serialized against the other tasks.md writers through the ONE
 # per-spec advisory lock (`scripts/orchestrate-lock.sh`, shared with the

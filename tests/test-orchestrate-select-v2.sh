@@ -218,6 +218,14 @@ rc=0
 [ "$rc" = 2 ] || fail "v3 Repository: select: exit $rc, expected 2 (no per-task derivation, fail closed)"
 grep -q 'name a repository (Task 5)' "$tmp/v3repo.err" \
   || fail "v3 Repository: refusal does not name the task: $(cat "$tmp/v3repo.err")"
+# A heading the grammar accepts off its canonical form still counts.
+sed 's/^### Task 5 /### Task  5 /' "$dv1bspec/tasks.md" >"$tmp/v3ds.md"
+cp "$dv1bspec/tasks.md" "$tmp/v3canon.md"
+cp "$tmp/v3ds.md" "$dv1bspec/tasks.md"
+rc=0
+/bin/bash "$SEL" "$dv1bspec" >/dev/null 2>"$tmp/v3repo.err" || rc=$?
+[ "$rc" = 2 ] || fail "v3 Repository: under a double-space heading: exit $rc, expected 2"
+cp "$tmp/v3canon.md" "$dv1bspec/tasks.md"
 cp_v3=$(/bin/bash "$SEL" --critical-path "$dv1bspec") || fail "v3 --critical-path: non-zero exit"
 [ "$cp_v3" = "$cp_v2" ] || fail "v3 --critical-path '$cp_v3' differs from v2 '$cp_v2'"
 sed 's/^\*\*Format-version:\*\* 3$/**Format-version:** 4/' "$dv1bspec/tasks.md" >"$dv1bspec/tasks.md.new" \

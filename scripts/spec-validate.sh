@@ -82,9 +82,10 @@
 #       present only under a version 3 declaration (a field in a version 1
 #       or 2 bundle is a finding at that version's severities, never
 #       ignored). An off-grammar value is echoed sanitized.
-#   23. A near-miss of the field lead (case, bold or colon placement, bullet
-#       marker, indentation) warns at every status: no reader takes it as
-#       the field, so the task would silently stay in the work repository.
+#   23. On a version 3 bundle, a near-miss of the field lead (case, emphasis
+#       or colon placement, bullet marker, indentation) warns at every
+#       status: no reader takes it as the field, so the task would silently
+#       stay in the work repository.
 #   24. A version 3 field under a spec root with no valid
 #       `planwright-spec-root.yml` marker warns at every status: the
 #       work-repository registry serves marked roots only.
@@ -651,10 +652,11 @@ parse_tasks() {
       printf "RF\t%s\n", cur
       next
     }
-    # A near-miss lead (case, bold, or colon placement, a different bullet
-    # marker, an indented sub-bullet) is no field to any reader, so a typo
-    # would silently leave the task in the bundle work repository.
-    /^[ \t]*[-*+][ \t]+(\*\*)?[Rr][Ee][Pp][Oo][Ss][Ii][Tt][Oo][Rr][Yy][ \t]*(\*\*)?[ \t]*:/ {
+    # A near-miss lead (case, emphasis, or colon placement, a different or
+    # numbered bullet marker, an indented sub-bullet) is no field to any
+    # reader, so on a version 3 bundle a typo would silently leave the task in
+    # the bundle work repository.
+    fv == "3" && /^[ \t]*([-*+]|[0-9]+[.)])[ \t]*(\*\*?|__?|`)?[Rr][Ee][Pp][Oo][Ss][Ii][Tt][Oo][Rr][Yy][ \t]*(\*\*?|__?|`)?[ \t]*:/ {
       printf "F\tsoft\tTask %s line tasks.md:%d reads like a Repository: field but is not the canonical `- **Repository:** <alias>` bullet, so no reader takes it as one\n", cur, NR
       next
     }
@@ -1243,6 +1245,24 @@ baseline_checks() {
   fi
 }
 
+# lexical_parent <dir> — the directory <dir> is named under, without resolving
+# symlinks: a symlinked bundle belongs to the spec root it is addressed from,
+# not to its target's.
+lexical_parent() {
+  lp=$1
+  while :; do
+    case $lp in ?*/) lp=${lp%/} ;; *) break ;; esac
+  done
+  case $lp in
+    . | .. | */. | */..) printf '%s\n' "$lp/.." ;;
+    */*)
+      lp=${lp%/*}
+      printf '%s\n' "${lp:-/}"
+      ;;
+    *) printf '.\n' ;;
+  esac
+}
+
 # validate_bundle <dir> <name> — run every bundle check, print the
 # severity-mapped findings, and update the global err/warn counters. Sets
 # the globals declared_status / live_req_ids / all_req_ids / all_d_ids /
@@ -1492,21 +1512,13 @@ validate_bundle() {
     # under the root it is named from, not its target's. Only the marker
     # refusal (exit 5) means "no marker"; any other failure is a broken check.
     if [ "$tfv" = 3 ] && grep -q '^RF' "$gtmp/tagged"; then
-      mb=$bdir
-      while :; do
-        case $mb in ?*/) mb=${mb%/} ;; *) break ;; esac
-      done
-      case $mb in
-        . | .. | */. | */..) mparent=$mb/.. ;;
-        */*) mparent=${mb%/*} && mparent=${mparent:-/} ;;
-        *) mparent=. ;;
-      esac
       mrc=0
-      /bin/sh "$script_dir/resolve-root.sh" marker "$mparent" >/dev/null 2>"$gtmp/marker.err" || mrc=$?
+      /bin/sh "$script_dir/resolve-root.sh" marker "$(lexical_parent "$bdir")" >/dev/null 2>"$gtmp/marker.err" || mrc=$?
       case $mrc in
         0) ;;
         5)
-          printf 'soft\ta Repository: field sits under a spec root with no valid planwright-spec-root.yml marker, so its alias cannot resolve (the work-repository registry serves marked roots only)\n' >>"$fnd"
+          printf 'soft\ta Repository: field sits under a spec root with no valid planwright-spec-root.yml marker, so its alias cannot resolve (the work-repository registry serves marked roots only): %s\n' \
+            "$(sanitize_printable "$(cat "$gtmp/marker.err" 2>/dev/null)" "(no diagnostic)")" >>"$fnd"
           ;;
         *)
           printf 'hard\tthe spec-root marker check could not run (resolve-root.sh exit %s), so whether the Repository: aliases can resolve is unknown (fail closed): %s\n' \

@@ -4,18 +4,19 @@
 # for the comprehension graph view (Task 7 of specs/spec-comprehension, D-6).
 #
 # A ready task is one the LIVE DERIVATION reports neither completed nor
-# in-progress, whose every dependency the derivation reports completed, and that
-# is a candidate under the bundle's declared format version (invariant-tasks
-# Task 5, D-8, REQ-C1.2): on a v1 bundle a candidate sits in `## Forward plan`;
-# on a v2 bundle (no placement sections) a candidate is any task NOT parked by a
-# live reference bullet (`- **Task <id>**` under ## Awaiting input / ## Deferred
-# / ## Out of scope — bullet task ids are grammar-validated before use,
-# REQ-C1.9). Among ready tasks the selector prefers the head of the
-# effort-weighted longest dependent chain — the unit that unblocks the
-# most downstream remaining work — and breaks ties FIFO, by first appearance in
-# tasks.md. This turns REQ-F1.2's critical-path-first rule into a deterministic,
-# testable computation instead of a hand-asserted one (the 2026-06-10
-# observation).
+# in-progress, whose every dependency the derivation reports completed, and
+# that is a candidate under the bundle's declared format version
+# (invariant-tasks Task 5, D-8, REQ-C1.2): on a v1 bundle a candidate sits in
+# `## Forward plan`; on a v2 bundle (no placement sections) a candidate is any
+# task NOT parked by a live reference bullet (`- **Task <id>**` under ##
+# Awaiting input / ## Deferred / ## Out of scope — bullet task ids are
+# grammar-validated before use, REQ-C1.9); a version 3 bundle takes the v2
+# candidacy. Among ready tasks the selector prefers the head of the
+# effort-weighted longest dependent chain — the unit that unblocks the most
+# downstream remaining work — and breaks ties FIFO, by first appearance in
+# tasks.md. This turns REQ-F1.2's critical-path-first rule into a
+# deterministic, testable computation instead of a hand-asserted one (the
+# 2026-06-10 observation).
 #
 # Live truth, not the committed snapshot (orchestration-concurrency Task 5, D-3,
 # REQ-B1.2). Completed / in-progress state is read from the derivation engine
@@ -53,21 +54,23 @@
 #
 # Exit: 0 a unit/path was produced (on stdout); 1 (selection only) no ready
 # unit this step; 2 the tasks.md is missing, unreadable, NUL-laden, holds no
-# task records, or has a missing/unparseable `Format-version:` line (REQ-C1.8 — the
-# candidacy rules cannot be known without a parsed version; both modes refuse
-# rather than guess; unparseable includes a DUPLICATE in-header declaration,
-# REQ-A1.2), or a parse the shared grammar lib refused — the parked map or the
-# task graph, either of which fails closed on end-of-file inside an open
-# column-0 fence — or a sourced helper is missing —
-# echo-safety.sh or spec-parse.sh (broken install, both modes) —, or
-# (selection only) the derivation engine is missing /
-# not executable or its derivation fails (no git work tree, invalid spec id) —
-# fail closed: a malformed file or unavailable live truth must not silently
-# report "nothing"; 3 (selection only, v2) transient evidence failure — the
-# remote is configured but the evidence fetch failed (the engine's `degraded`
-# record), so nothing is dispatched rather than selecting against partial
-# evidence (REQ-B1.5). v1 selection keeps its documented degraded-but-proceed
-# behavior (the record is forwarded to stderr) — v1 behavior unchanged.
+# task records, or has a missing, unparseable, or undefined `Format-version:`
+# line (REQ-C1.8 — the candidacy rules cannot be known without a parsed
+# version; both modes refuse rather than guess; unparseable includes a
+# DUPLICATE in-header declaration, REQ-A1.2), or a parse the shared grammar
+# lib refused — the parked map or the task graph, either of which fails closed
+# on end-of-file inside an open column-0 fence — or a sourced helper is
+# missing — echo-safety.sh or spec-parse.sh (broken install, both modes) —, or
+# (selection only) the derivation engine is missing / not executable or its
+# derivation fails (no git work tree, invalid spec id) — fail closed: a
+# malformed file or unavailable live truth must not silently report "nothing",
+# or (selection only) a version 3 bundle whose tasks name a repository, which
+# this selector cannot derive per task; 3 (selection only, v2 and v3)
+# transient evidence failure — the remote is configured but the evidence fetch
+# failed (the engine's `degraded` record), so nothing is dispatched rather
+# than selecting against partial evidence (REQ-B1.5). v1 selection keeps its
+# documented degraded-but-proceed behavior (the record is forwarded to stderr)
+# — v1 behavior unchanged.
 #
 # Portable POSIX sh + awk (bash 3.2 / BSD awk compatible): no gawk-only
 # constructs (3-arg match, gensub), no eval, input treated as data. The
@@ -190,12 +193,22 @@ fv_arm=$(spec_parse_format_arm "$fv") || {
 # such a bundle until per-task derivation replaces this check; the
 # structural --critical-path reads no evidence and is unaffected.
 if [ "$mode" = select ] && [ "$fv" = 3 ]; then
-  if ! repo_tasks=$(printf '%s\n' "$tasks_content" | spec_parse_repository_tasks -); then
-    printf '%s\n' "orchestrate-select: could not read the Repository: fields of $tasks_md (fail closed)" >&2
-    exit 2
-  fi
+  rt_rc=0
+  repo_tasks=$(printf '%s\n' "$tasks_content" | spec_parse_repository_tasks - 2>/dev/null) || rt_rc=$?
+  case $rt_rc in
+    0) ;;
+    3)
+      printf '%s\n' "orchestrate-select: end of file inside an open column-0 code fence in $(sanitize_printable "$tasks_md" '(unprintable path)'); the task graph would be truncated (fail closed)" >&2
+      exit 2
+      ;;
+    *)
+      printf '%s\n' "orchestrate-select: could not read the Repository: fields of $(sanitize_printable "$tasks_md" '(unprintable path)') (fail closed)" >&2
+      exit 2
+      ;;
+  esac
   if [ -n "$repo_tasks" ]; then
-    printf '%s\n' "orchestrate-select: tasks in $tasks_md name a repository (Task $(printf '%s' "$repo_tasks" | tr '\n' ' ' | sed 's/ $//; s/ /, Task /g')), and per-task repository derivation is unavailable here; refusing to select (fail closed)" >&2
+    repo_list=$(printf '%s' "$repo_tasks" | tr '\n' ' ' | sed 's/ $//; s/ /, Task /g')
+    printf '%s\n' "orchestrate-select: tasks in $(sanitize_printable "$tasks_md" '(unprintable path)') name a repository (Task $(sanitize_printable "$repo_list")), and per-task repository derivation is unavailable here; refusing to select (fail closed)" >&2
     exit 2
   fi
 fi

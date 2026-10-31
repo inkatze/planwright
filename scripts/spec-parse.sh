@@ -150,27 +150,33 @@ spec_parse_format_arm() {
 
 # spec_parse_repository_tasks <tasks.md|-> — print, one per line in document
 # order, the id of every unfenced task block carrying a `- **Repository:**`
-# field bullet, so a reader that cannot yet derive per-task repositories can
-# refuse such a bundle rather than derive its tasks from the wrong repository.
-# Prints nothing for a bundle that names no repository. Fails closed (non-zero,
-# message on stderr) on a missing, unreadable, or NUL-bearing file, or end of
-# file inside an open column-0 fence. `-` reads the caller's snapshot from
-# stdin under consumer contract (g).
+# field bullet (`?` for a task heading whose id fails the grammar), so a
+# reader that cannot yet derive per-task repositories can refuse such a bundle
+# rather than derive its tasks from the wrong repository. Prints nothing for a
+# bundle that names no repository. Fails closed (non-zero, message on stderr)
+# on a missing, unreadable, or NUL-bearing file, or end of file inside an open
+# column-0 fence. `-` reads the caller's snapshot from stdin under consumer
+# contract (g).
 spec_parse_repository_tasks() {
   # shellcheck disable=SC2016 # $3 is an awk field, not a shell expansion
   spec_parse__repo_awk='
+    spec_parse_is_task_heading($0) {
+      id = spec_parse_task_id($0)
+      if (id == "") id = "?"
+      seen = 0
+      next
+    }
     /^###? / { id = "" }
-    /^### Task [0-9]/ { id = $3; seen = 0; next }
     id != "" && !seen && /^- \*\*Repository:\*\*/ { print id; seen = 1 }
     END { spec_parse__fence_eof() }
   '
   if [ "$1" = - ]; then
-    LC_ALL=C awk "$spec_parse_awk_fence$spec_parse__repo_awk"
+    LC_ALL=C awk "$spec_parse_awk_fence$spec_parse_awk_grammar$spec_parse__repo_awk"
     return $?
   fi
   spec_parse__readable "$1" || return 1
   spec_parse__nul_screen "$1" || return 1
-  LC_ALL=C awk "$spec_parse_awk_fence$spec_parse__repo_awk" <"$1"
+  LC_ALL=C awk "$spec_parse_awk_fence$spec_parse_awk_grammar$spec_parse__repo_awk" <"$1"
 }
 
 # spec_parse__readable <path> — internal: refuse a missing, unreadable, or

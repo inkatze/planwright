@@ -46,12 +46,16 @@
 # grammar-validated before use and a violating id is rejected with a note
 # (REQ-C1.9). A missing or unparseable `Format-version:` fails closed as a
 # per-spec report error — the spec's gates are not evaluated under guessed
-# rules (REQ-C1.8); unparseable includes a DUPLICATE in-header declaration
-# (REQ-A1.2), and so does a parked map the grammar lib refused (a NUL byte, or
-# end-of-file inside an open column-0 fence). On a transient evidence failure (the engine's `degraded`
-# record: remote configured but the fetch failed) or an engine failure, v2
-# task atoms resolve as UNRESOLVED (REQ-B1.5): never satisfied from partial
-# evidence, surfaced and counted as a report error, the sweep still completes.
+# rules (REQ-C1.8), as does an undefined version; unparseable includes a
+# DUPLICATE in-header declaration (REQ-A1.2), and so does a parked map the
+# grammar lib refused (a NUL byte, or end-of-file inside an open column-0
+# fence). On a transient evidence failure (the engine's `degraded` record:
+# remote configured but the fetch failed) or an engine failure, v2 task atoms
+# resolve as UNRESOLVED (REQ-B1.5): never satisfied from partial evidence,
+# surfaced and counted as a report error, the sweep still completes. Version 3
+# takes the v2 resolution, except that a bundle whose tasks name a repository
+# resolves every task atom UNRESOLVED (counted as an error) until per-task
+# derivation exists: the engine reads the work repository only.
 #
 # Confidence (REQ-H1.5): a bullet's `Confidence: <low|medium|high>` field
 # (matched as a whole token in the entry text before the gate marker)
