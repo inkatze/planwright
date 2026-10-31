@@ -429,6 +429,22 @@ run next --tower $L --now 10400 >/dev/null 2>&1 || fail "next for L with M's mar
 run settle "$ql" --reason 'the worker landed it' --now 10500 >/dev/null 2>&1 || fail "settling ql"
 echo "ok: another conversation's fresh present marker holds the away push"
 
+# --- a fresh marker whose last prompt is older than the quiet interval -------
+# The marker is fresh but its prompt event has aged out, so it reads away: no
+# knock, and the away push fires. A recent prompt reads present again.
+
+N=tower-n
+qn=$(add_q wn high 11000)
+pres $N --last-prompt 10850 --now 11000 >/dev/null || fail "N aged-prompt write: exit"
+out=$(run next --tower $N --now 11001 2>/dev/null) || fail "next with N's aged prompt: exit"
+[ -z "$out" ] || fail "a fresh marker with a prompt past the quiet interval handed something over: '$out'"
+[ "$(pushes_for "$qn")" = 1 ] || fail "a fresh marker with a prompt past the quiet interval did not push ($(pushes_for "$qn"))"
+pres $N --last-prompt 11005 --now 11005 >/dev/null || fail "N recent-prompt write: exit"
+out=$(run next --tower $N --now 11006 2>/dev/null) || fail "next with N's recent prompt: exit"
+[ "$(field "$out" 1)" = knock ] || fail "a fresh marker with a recent prompt did not read present: '$out'"
+run settle "$qn" --reason 'the worker landed it' --now 11100 >/dev/null 2>&1 || fail "settling qn"
+echo "ok: a fresh marker whose last prompt is past the quiet interval reads away"
+
 # --- the knob ships with its default and its options-reference row -----------
 
 grep -q '^tower_presence_ttl: 2m$' "$here/../config/defaults.yml" || fail "config/defaults.yml does not ship tower_presence_ttl: 2m"
