@@ -694,10 +694,14 @@ function quoted(s,    n, lines, i, out, l) {
     gsub(/\t/, "    ", l)
     gsub(/[\001-\037\177]/, "", l)
     # A quoted line opening a block (a heading, a setext underline or break,
-    # a list item, a nested quote, a fence, HTML) has its marker escaped, so
-    # harvested text renders as text inside the quote, never as structure.
+    # a bullet or ordered list item, a nested quote, a fence, HTML) has its
+    # marker escaped, so harvested text renders as text inside the quote,
+    # never as structure.
     if (match(l, /^ ? ? ?[#>`~<]/) || match(l, /^ ? ? ?[-+*]([ ]|$)/) || match(l, /^ ? ? ?[-=_*][-=_* ]*$/)) {
       match(l, /^ ? ? ?/)
+      l = substr(l, 1, RLENGTH) "\\" substr(l, RLENGTH + 1)
+    } else if (match(l, /^ ? ? ?[0-9]+[.)]([ ]|$)/)) {
+      match(l, /^ ? ? ?[0-9]+/)
       l = substr(l, 1, RLENGTH) "\\" substr(l, RLENGTH + 1)
     }
     out = out (l == "" ? ">" : "> " l) "\n"
