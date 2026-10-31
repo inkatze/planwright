@@ -98,7 +98,7 @@ uncommitted files in the store, each named in the handoff
 
 ## The rule
 
-**One home per class; never mix.** When adding a file, ask three questions:
+**One home per class; never mix.** When adding a file, ask two questions:
 
 | Question | Answer | Class |
 | --- | --- | --- |
