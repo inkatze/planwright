@@ -282,6 +282,14 @@ if command -v gitleaks >/dev/null 2>&1; then
   assert_eq "gitleaks arm: a leak exits 1" "1" "$rc"
   assert_not_contains "gitleaks arm: the matched value is redacted" "$pk_body" "$out"
 
+  # A temp name whose random extension opens like an archive's, which
+  # gitleaks would otherwise skip unread.
+  for ext in 7zw3kN gzQ1ab zipK2c; do
+    cp "$tmp/key.pem" "$tmp/inception-venture.$ext"
+    PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/inception-venture.$ext" >/dev/null 2>&1
+    assert_eq "gitleaks arm: a leak behind an archive-like name .$ext exits 1" "1" "$?"
+  done
+
   # Each path reports its own result. A shared status would make every clean
   # path after the first hit re-print the previous path's captured output, so
   # one leak across two arguments would read as two.
@@ -557,7 +565,10 @@ cat >"$oldgl/gitleaks" <<'OLDGL'
 case "$*" in *--help*) echo "  --exit-code int  exit code when leaks have been encountered"; exit 0 ;; esac
 [ "$1" = detect ] || exit 1
 case "$*" in *--no-git*) ;; *) echo "no leaks found"; exit 0 ;; esac
-case "$*" in *planwright-canary* | *old-leak*) exit 7 ;; esac
+case "$*" in *planwright-canary*) exit 7 ;; esac
+for a in "$@"; do
+  [ -f "$a" ] && grep -q 'pretend leak' "$a" && exit 7
+done
 exit 0
 OLDGL
 chmod 755 "$oldgl/gitleaks"

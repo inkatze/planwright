@@ -240,10 +240,22 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
     # clean path after the first hit re-print the previous path's output, so one
     # leak across several arguments would read as several.
     prc=0
+    # gitleaks takes a file whose extension merely starts like an archive's
+    # (.7z…, .gz…, .zip…) for an archive and scans none of it, and a caller's
+    # mktemp name has a random extension. A file is scanned through a copy
+    # under a fixed plain name, so its name can never wave it through.
+    gp=$p
+    if [ -f "$p" ]; then
+      gp="$work/screened.txt"
+      if ! cp -- "$p" "$gp" 2>/dev/null; then
+        echo "inception-secret-screen: cannot read a requested path; refusing to pass it unscreened" >&2
+        exit 2
+      fi
+    fi
     if [ -n "$gl_dir_flag" ]; then
-      gitleaks_run "$gl_dir_cmd" --no-git "$gl_dir_flag" "$p" --no-banner --redact || prc=$?
+      gitleaks_run "$gl_dir_cmd" --no-git "$gl_dir_flag" "$gp" --no-banner --redact || prc=$?
     else
-      gitleaks_run "$gl_dir_cmd" "$p" --no-banner --redact || prc=$?
+      gitleaks_run "$gl_dir_cmd" "$gp" --no-banner --redact || prc=$?
     fi
     # "Could not screen" outranks "found": one path nobody could read makes the
     # whole verdict untrustworthy, and this guard never reports on what it has
