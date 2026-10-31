@@ -51,6 +51,42 @@
 #                                          non-conforming line is surfaced rather
 #                                          than digit-scraped (REQ-F1.1).
 #
+#
+# Format-version 3 per-task repositories (invariant-tasks D-15; REQ-F1.4,
+# REQ-F1.5, REQ-F1.6, REQ-B1.7). On a bundle declaring version 3 whose tasks
+# carry a `Repository:` field, each task derives from its own repository:
+# the field's alias resolved through `resolve-work-repo.sh --repository` (the
+# work-repository registry), the bundle's work repository when the field is
+# absent. A same-named task branch, PR, or trailer in another repository is no
+# evidence for the task. The dispatch markers keep their one per-bundle home.
+# Such a bundle adds these records (a bundle naming no repository emits none
+# and derives exactly as before):
+#
+#   repository<TAB><id><TAB><alias>        the task names <alias> (resolved or
+#                                          not).
+#   task<TAB><id><TAB>repository-unresolved<TAB><code>
+#                                          the field does not resolve here
+#                                          (code alias-unresolved, -malformed,
+#                                          or -duplicate); never selected,
+#                                          never satisfies a dependency or a
+#                                          gate atom, and never derived from
+#                                          the work repository instead.
+#   repository-unresolved<TAB><id><TAB><value><TAB><reason>
+#                                          the unresolved field's value and
+#                                          why (raw: callers sanitize).
+#   degraded<TAB>repository<TAB><label><TAB><message>
+#                                          one repository's evidence failed
+#                                          (label: its alias, `-` for the
+#                                          work repository). Same tag as the
+#                                          bundle-wide record, so a consumer
+#                                          that does not scope per task still
+#                                          fails closed on the whole bundle.
+#   withheld<TAB><id><TAB>own|dependency<TAB><label>
+#                                          the task's own repository, or a
+#                                          direct dependency's, failed: never
+#                                          selected; `own` also leaves its
+#                                          gate atoms unresolved and its
+#                                          evidence unpresentable as status.
 # No remote is first-class (REQ-A1.3): with no remote configured (or no gh on
 # PATH) the gh probe is skipped silently and state derives from git + trailer +
 # marker alone. Only a configured-but-failing gh emits a `degraded` record.
@@ -120,6 +156,14 @@ case "$spec_id" in
 esac
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+spec_parse_sh="$script_dir/spec-parse.sh"
+if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
+  printf '%s\n' "orchestrate-state: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$spec_parse_sh" || exit 2
+
 # Task state derives from the work repository, which is not necessarily the
 # one holding the bundle: a relocated spec root may sit in a holder or in no
 # repository at all.
@@ -127,98 +171,33 @@ repo_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir") || {
   printf '%s\n' "orchestrate-state: no work repository for $spec_dir" >&2
   exit 2
 }
+work_root=$repo_root
 
-# Resolve the base ref reachability is measured against. Prefer a local main
-# (the integration line), then a tracked origin/main, then HEAD as a last
-# resort. A worktree sitting on a task branch still measures against main, not
-# its own tip.
-base="${PLANWRIGHT_BASE_REF:-}"
-if [ -z "$base" ]; then
-  if git -C "$repo_root" show-ref --verify --quiet refs/heads/main; then
-    base=main
-  elif git -C "$repo_root" show-ref --verify --quiet refs/remotes/origin/main; then
-    base=origin/main
-  else
-    base=HEAD
-  fi
+# A version 3 bundle's Repository: fields. An unparseable declaration reads as
+# no version 3 here; every consumer refuses such a bundle on its own read.
+fv=$(spec_parse_header_value "$tasks_md" Format-version 2>/dev/null) || fv=""
+repo_map=""
+if [ "$fv" = 3 ]; then
+  repo_map=$(spec_parse_repository_map "$tasks_md") || {
+    printf '%s\n' "orchestrate-state: could not read the Repository: fields of $tasks_md (fail closed)" >&2
+    exit 2
+  }
 fi
+per_task=0
+[ -z "$repo_map" ] || per_task=1
+
+base_override="${PLANWRIGHT_BASE_REF:-}"
 # The base reaches git as a ref argument (log / rev-list / rev-parse). It is
 # operator-set via PLANWRIGHT_BASE_REF, but a value beginning with '-' would be
 # read as a git option (argument injection), so validate against a conservative
 # ref charset and fail closed on anything outside it (REQ-F1.1 framework-script
 # safety). The defaults (main / origin/main / HEAD) and normal ref names pass.
-case "$base" in
+case "$base_override" in
   -* | *[!a-zA-Z0-9/._-]*)
-    printf '%s\n' "orchestrate-state: refusing unsafe base ref '$base'" >&2
+    printf '%s\n' "orchestrate-state: refusing unsafe base ref '$base_override'" >&2
     exit 2
     ;;
 esac
-# The base must also resolve to a commit. A charset-valid but non-existent ref
-# (a typo'd PLANWRIGHT_BASE_REF, a deleted branch) would otherwise let every
-# later rev-list/rev-parse degrade silently to ahead=0/empty, mis-deriving a
-# merged task as ready instead of failing closed (REQ-F1.1; same
-# `rev-parse --verify <ref>^{commit}` resolution guard spec-validate.sh uses).
-if ! git -C "$repo_root" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
-  printf '%s\n' "orchestrate-state: base ref '$base' does not resolve to a commit" >&2
-  exit 2
-fi
-
-# Refs the completion-trailer scan reads. A merged PR's Planwright-Task trailer
-# lives on the remote until the local base is fetched AND fast-forwarded; if the
-# operator runs orchestrate before a fetch has reached local main, the trailer
-# sits on origin/main but NOT on local main, so a base-only scan misses it and
-# the task is re-dispatched even though it is genuinely merged (the acme-billing
-# grammar-backed-explain shape: local main lagged origin/main, the PR merged
-# from a non-convention branch so the gh head-ref map also missed, and the
-# trailer was the only completion anchor). Scan the UNION of base and its
-# remote-tracking counterpart so completion survives a stale local base. This
-# adds no network I/O (it reads whatever git already fetched) and never regresses
-# a local-only repo: with no upstream and no origin/<base>, the union is just
-# base. The merge-reachability arms below stay base-local by design, because
-# they reason about LOCAL task branches, whereas a merged PR's completion anchor
-# (the trailer) is what can lag the base. The remote-tracking in-progress arm
-# reads this union too, for the opposite reason: its branch lives on the remote.
-scan_refs="$base"
-# Prefer the configured upstream (correct when tracking is set); fall back to a
-# conventional origin/<base> when base is a local branch with no tracking config
-# (git does not require `main` to track `origin/main`, yet the merged trailer may
-# still sit there — exactly the untracked-local-main acme-billing case).
-remote_base=$(git -C "$repo_root" rev-parse --abbrev-ref --symbolic-full-name \
-  "$base@{upstream}" 2>/dev/null || true)
-if [ -z "$remote_base" ] && git -C "$repo_root" show-ref --verify --quiet "refs/heads/$base" \
-  && git -C "$repo_root" rev-parse --verify --quiet "refs/remotes/origin/$base^{commit}" >/dev/null 2>&1; then
-  remote_base="origin/$base"
-fi
-# The remote ref reaches git as a log argument, so validate it against the same
-# conservative charset base itself passes (REQ-F1.1), require it to be a genuine
-# remote-tracking ref that resolves, and skip it when it is just base again.
-# scan_refs stays intentionally unquoted at the call site (a space-separated ref
-# list); both tokens are charset-checked, so word-splitting yields exactly those
-# refs and nothing shell-significant.
-#
-# The remote-tracking guard matters: `base@{upstream}` can resolve to a LOCAL
-# branch (branch.<base>.remote=`.`, an operator who set main's upstream to a
-# local integration branch). A trailer on that local branch never reached the
-# remote, so honoring it would falsely complete a task and suppress its
-# re-dispatch. Only refs under refs/remotes/* are the "remote-tracking
-# counterpart" this union scan is meant to add, so require the resolved ref to
-# exist there and drop anything else back to a base-only scan.
-#
-# (Known limitation, intentionally unhandled: a full-ref base such as
-# `refs/heads/main` makes `@{upstream}` error and the origin/<base> fallback
-# probe miss, so the union silently narrows to base only — a graceful
-# degradation to the pre-union behavior, not a regression. base defaults to a
-# short name; a full-ref value is an unusual operator override.)
-if [ -n "$remote_base" ] && [ "$remote_base" != "$base" ]; then
-  case "$remote_base" in
-    -* | *[!a-zA-Z0-9/._-]*) remote_base="" ;;
-  esac
-  if [ -n "$remote_base" ] \
-    && git -C "$repo_root" show-ref --verify --quiet "refs/remotes/$remote_base" \
-    && git -C "$repo_root" rev-parse --verify --quiet "$remote_base^{commit}" >/dev/null 2>&1; then
-    scan_refs="$base $remote_base"
-  fi
-fi
 
 # Marker staleness threshold (minutes), via the config reader (defaults + the
 # overlay chain) as the work repository sees it. An absent key keeps the
@@ -270,97 +249,192 @@ fi
 
 now=$(date +%s)
 
-# Collect the Planwright-Task trailer values reachable from base (the completion
-# anchors). Each value is validated before use; a malformed/hostile value is
-# refused on the output stream and never matched against a task. Well-formed
-# values for OTHER specs are simply ignored (not ours, not an error).
-#
-# The whole commit message is scanned (%B), not git's footer-only trailer
-# parser (%(trailers)). A squash or rebase merge concatenates the constituent
-# commits' messages, so a Planwright-Task trailer that was a proper footer on
-# its original commit lands mid-body in the squashed message — where
-# %(trailers), which only parses the LAST paragraph, cannot see it. Scanning
-# every line whose first field is the Planwright-Task key recognizes the trailer
-# wherever the squash placed it, so completion survives however the PR was
-# merged and whatever the branch was named. The key match is case-insensitive,
-# matching git's own trailer parser (git treats trailer keys case-insensitively;
-# %(trailers) accepted a lowercased key, so this preserves that behavior).
-#
-# Trust boundary: this scan honors any well-formed `Planwright-Task: <id>` line
-# for THIS spec that sits at column 0 anywhere in a reachable message — that is
-# by design (the trailer is a completion *declaration*). The spec-id gate below
-# ignores other specs' trailers and the grammar refuses malformed values, so the
-# only thing this treats as completion is a well-formed column-0 declaration for
-# this exact spec; it is not a defense against a committer who writes that line.
-reachable_ours=" "
-if git -C "$repo_root" rev-parse --verify --quiet "$base" >/dev/null 2>&1; then
-  # awk (not sed) so the key can match case-insensitively via tolower() without
-  # relying on a non-portable sed `I` flag; `sub(/^[^:]*:[[:space:]]*/,"")` strips
-  # the key and its trailing space, leaving the value untouched (neither the key
-  # nor the <spec>/<id> value contains a colon, so the first colon is the split).
-  # scan_refs is base plus its remote-tracking counterpart (see the resolution
-  # above); intentionally unquoted so git logs the UNION of both refs. A trailer
-  # merged to origin/main but not yet on a stale local main is thus still seen.
-  # shellcheck disable=SC2086
-  trailer_raw=$(git -C "$repo_root" log $scan_refs --format='%B' 2>/dev/null \
-    | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { sub(/^[^:]*:[[:space:]]*/, ""); print }')
-  # Iterate values line by line; blank lines (commits without the trailer) are
-  # skipped. Read from a here-doc so the loop runs in this shell (no subshell).
-  while IFS= read -r tval; do
-    [ -n "$tval" ] || continue
-    # Strip surrounding whitespace a trailer may carry.
-    tval=$(printf '%s' "$tval" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-    [ -n "$tval" ] || continue
-    # Well-formed shape: <spec-id>/<task-id>, both against their grammars.
-    spec_part=${tval%%/*}
-    id_part=${tval#*/}
-    well_formed=1
-    case "$tval" in
-      */*) ;;
-      *) well_formed=0 ;;
-    esac
-    case "$spec_part" in
-      '' | *[!a-z0-9-]* | [!a-z0-9]* | flight) well_formed=0 ;;
-    esac
-    case "$id_part" in
-      '' | *[!0-9.]*) well_formed=0 ;;
-    esac
-    if [ "$well_formed" -ne 1 ] || ! printf '%s' "$id_part" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
-      printf 'refused%sPlanwright-Task%s%s\n' "$TAB" "$TAB" "$tval"
-      continue
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-state.XXXXXX") || exit 2
+trap 'rm -rf "$scratch"' EXIT
+
+# load_repo <root> <label> — point every evidence helper below at one
+# repository: its base ref, the refs the trailer scan reads, this spec's
+# completion trailers, and its PR states. Returns 2 (message on stderr) when
+# the base does not resolve to a commit, 3 when the gh probe failed; the
+# degraded record is the caller's to emit, keyed by mode.
+load_repo() {
+  repo_root=$1
+  fp_loaded=0
+  fp_commits=""
+  # Resolve the base ref reachability is measured against. Prefer a local main
+  # (the integration line), then a tracked origin/main, then HEAD as a last
+  # resort. A worktree sitting on a task branch still measures against main, not
+  # its own tip.
+  base=$base_override
+  if [ -z "$base" ]; then
+    if git -C "$repo_root" show-ref --verify --quiet refs/heads/main; then
+      base=main
+    elif git -C "$repo_root" show-ref --verify --quiet refs/remotes/origin/main; then
+      base=origin/main
+    else
+      base=HEAD
     fi
-    [ "$spec_part" = "$spec_id" ] || continue # another spec's trailer
-    case "$reachable_ours" in
-      *" $id_part "*) ;;
-      *) reachable_ours="$reachable_ours$id_part " ;;
+  fi
+  # The base must also resolve to a commit. A charset-valid but non-existent ref
+  # (a typo'd PLANWRIGHT_BASE_REF, a deleted branch) would otherwise let every
+  # later rev-list/rev-parse degrade silently to ahead=0/empty, mis-deriving a
+  # merged task as ready instead of failing closed (REQ-F1.1; same
+  # `rev-parse --verify <ref>^{commit}` resolution guard spec-validate.sh uses).
+  if ! git -C "$repo_root" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
+    printf '%s\n' "orchestrate-state: base ref '$base' does not resolve to a commit" >&2
+    return 2
+  fi
+
+  # Refs the completion-trailer scan reads. A merged PR's Planwright-Task trailer
+  # lives on the remote until the local base is fetched AND fast-forwarded; if the
+  # operator runs orchestrate before a fetch has reached local main, the trailer
+  # sits on origin/main but NOT on local main, so a base-only scan misses it and
+  # the task is re-dispatched even though it is genuinely merged (the acme-billing
+  # grammar-backed-explain shape: local main lagged origin/main, the PR merged
+  # from a non-convention branch so the gh head-ref map also missed, and the
+  # trailer was the only completion anchor). Scan the UNION of base and its
+  # remote-tracking counterpart so completion survives a stale local base. This
+  # adds no network I/O (it reads whatever git already fetched) and never regresses
+  # a local-only repo: with no upstream and no origin/<base>, the union is just
+  # base. The merge-reachability arms below stay base-local by design, because
+  # they reason about LOCAL task branches, whereas a merged PR's completion anchor
+  # (the trailer) is what can lag the base. The remote-tracking in-progress arm
+  # reads this union too, for the opposite reason: its branch lives on the remote.
+  scan_refs="$base"
+  # Prefer the configured upstream (correct when tracking is set); fall back to a
+  # conventional origin/<base> when base is a local branch with no tracking config
+  # (git does not require `main` to track `origin/main`, yet the merged trailer may
+  # still sit there — exactly the untracked-local-main acme-billing case).
+  remote_base=$(git -C "$repo_root" rev-parse --abbrev-ref --symbolic-full-name \
+    "$base@{upstream}" 2>/dev/null || true)
+  if [ -z "$remote_base" ] && git -C "$repo_root" show-ref --verify --quiet "refs/heads/$base" \
+    && git -C "$repo_root" rev-parse --verify --quiet "refs/remotes/origin/$base^{commit}" >/dev/null 2>&1; then
+    remote_base="origin/$base"
+  fi
+  # The remote ref reaches git as a log argument, so validate it against the same
+  # conservative charset base itself passes (REQ-F1.1), require it to be a genuine
+  # remote-tracking ref that resolves, and skip it when it is just base again.
+  # scan_refs stays intentionally unquoted at the call site (a space-separated ref
+  # list); both tokens are charset-checked, so word-splitting yields exactly those
+  # refs and nothing shell-significant.
+  #
+  # The remote-tracking guard matters: `base@{upstream}` can resolve to a LOCAL
+  # branch (branch.<base>.remote=`.`, an operator who set main's upstream to a
+  # local integration branch). A trailer on that local branch never reached the
+  # remote, so honoring it would falsely complete a task and suppress its
+  # re-dispatch. Only refs under refs/remotes/* are the "remote-tracking
+  # counterpart" this union scan is meant to add, so require the resolved ref to
+  # exist there and drop anything else back to a base-only scan.
+  #
+  # (Known limitation, intentionally unhandled: a full-ref base such as
+  # `refs/heads/main` makes `@{upstream}` error and the origin/<base> fallback
+  # probe miss, so the union silently narrows to base only — a graceful
+  # degradation to the pre-union behavior, not a regression. base defaults to a
+  # short name; a full-ref value is an unusual operator override.)
+  if [ -n "$remote_base" ] && [ "$remote_base" != "$base" ]; then
+    case "$remote_base" in
+      -* | *[!a-zA-Z0-9/._-]*) remote_base="" ;;
     esac
-  done <<EOF
+    if [ -n "$remote_base" ] \
+      && git -C "$repo_root" show-ref --verify --quiet "refs/remotes/$remote_base" \
+      && git -C "$repo_root" rev-parse --verify --quiet "$remote_base^{commit}" >/dev/null 2>&1; then
+      scan_refs="$base $remote_base"
+    fi
+  fi
+
+  # Collect the Planwright-Task trailer values reachable from base (the completion
+  # anchors). Each value is validated before use; a malformed/hostile value is
+  # refused on the output stream and never matched against a task. Well-formed
+  # values for OTHER specs are simply ignored (not ours, not an error).
+  #
+  # The whole commit message is scanned (%B), not git's footer-only trailer
+  # parser (%(trailers)). A squash or rebase merge concatenates the constituent
+  # commits' messages, so a Planwright-Task trailer that was a proper footer on
+  # its original commit lands mid-body in the squashed message — where
+  # %(trailers), which only parses the LAST paragraph, cannot see it. Scanning
+  # every line whose first field is the Planwright-Task key recognizes the trailer
+  # wherever the squash placed it, so completion survives however the PR was
+  # merged and whatever the branch was named. The key match is case-insensitive,
+  # matching git's own trailer parser (git treats trailer keys case-insensitively;
+  # %(trailers) accepted a lowercased key, so this preserves that behavior).
+  #
+  # Trust boundary: this scan honors any well-formed `Planwright-Task: <id>` line
+  # for THIS spec that sits at column 0 anywhere in a reachable message — that is
+  # by design (the trailer is a completion *declaration*). The spec-id gate below
+  # ignores other specs' trailers and the grammar refuses malformed values, so the
+  # only thing this treats as completion is a well-formed column-0 declaration for
+  # this exact spec; it is not a defense against a committer who writes that line.
+  reachable_ours=" "
+  if git -C "$repo_root" rev-parse --verify --quiet "$base" >/dev/null 2>&1; then
+    # awk (not sed) so the key can match case-insensitively via tolower() without
+    # relying on a non-portable sed `I` flag; `sub(/^[^:]*:[[:space:]]*/,"")` strips
+    # the key and its trailing space, leaving the value untouched (neither the key
+    # nor the <spec>/<id> value contains a colon, so the first colon is the split).
+    # scan_refs is base plus its remote-tracking counterpart (see the resolution
+    # above); intentionally unquoted so git logs the UNION of both refs. A trailer
+    # merged to origin/main but not yet on a stale local main is thus still seen.
+    # shellcheck disable=SC2086
+    trailer_raw=$(git -C "$repo_root" log $scan_refs --format='%B' 2>/dev/null \
+      | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { sub(/^[^:]*:[[:space:]]*/, ""); print }')
+    # Iterate values line by line; blank lines (commits without the trailer) are
+    # skipped. Read from a here-doc so the loop runs in this shell (no subshell).
+    while IFS= read -r tval; do
+      [ -n "$tval" ] || continue
+      # Strip surrounding whitespace a trailer may carry.
+      tval=$(printf '%s' "$tval" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+      [ -n "$tval" ] || continue
+      # Well-formed shape: <spec-id>/<task-id>, both against their grammars.
+      spec_part=${tval%%/*}
+      id_part=${tval#*/}
+      well_formed=1
+      case "$tval" in
+        */*) ;;
+        *) well_formed=0 ;;
+      esac
+      case "$spec_part" in
+        '' | *[!a-z0-9-]* | [!a-z0-9]* | flight) well_formed=0 ;;
+      esac
+      case "$id_part" in
+        '' | *[!0-9.]*) well_formed=0 ;;
+      esac
+      if [ "$well_formed" -ne 1 ] || ! printf '%s' "$id_part" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
+        printf 'refused%sPlanwright-Task%s%s\n' "$TAB" "$TAB" "$tval"
+        continue
+      fi
+      [ "$spec_part" = "$spec_id" ] || continue # another spec's trailer
+      case "$reachable_ours" in
+        *" $id_part "*) ;;
+        *) reachable_ours="$reachable_ours$id_part " ;;
+      esac
+    done <<EOF
 $trailer_raw
 EOF
-fi
-
-# Probe gh once for PR state, keyed by head ref. No-remote / no-gh is the
-# first-class path: skip the probe silently. Only a configured-but-failing gh
-# (remote present, gh on PATH, query errors) emits a degradation record.
-gh_lines=""
-have_remote=0
-[ -n "$(git -C "$repo_root" remote 2>/dev/null)" ] && have_remote=1
-if [ "$have_remote" -eq 1 ] && command -v gh >/dev/null 2>&1; then
-  # --limit is mandatory: `gh pr list` returns a single default page (30), which
-  # would silently truncate PR evidence on any repo carrying more PRs than that
-  # and mis-derive a task whose PR sits beyond the page. The probe keys by head
-  # ref and over-fetching is harmless, so request a generous ceiling.
-  # The batch also carries `number` and `mergedAt` so the completion-annotation
-  # stamp (output-hygiene Task 7, D-5, REQ-E1.2) reuses this one query — no new
-  # per-task lookup. Columns: headRefName<TAB>state<TAB>number<TAB>mergedAt.
-  if gh_out=$(cd "$repo_root" && gh pr list --state all --limit 1000 \
-    --json state,headRefName,number,mergedAt \
-    --jq '.[] | [.headRefName, .state, (.number|tostring), (.mergedAt // "")] | @tsv' 2>/dev/null); then
-    gh_lines=$gh_out
-  else
-    printf 'degraded%sgh%sgh query failed; deriving git-only\n' "$TAB" "$TAB"
   fi
-fi
+
+  # Probe gh once for PR state, keyed by head ref. No-remote / no-gh is the
+  # first-class path: skip the probe silently. Only a configured-but-failing gh
+  # (remote present, gh on PATH, query errors) is a degradation.
+  gh_lines=""
+  have_remote=0
+  [ -n "$(git -C "$repo_root" remote 2>/dev/null)" ] && have_remote=1
+  if [ "$have_remote" -eq 1 ] && command -v gh >/dev/null 2>&1; then
+    # --limit is mandatory: `gh pr list` returns a single default page (30), which
+    # would silently truncate PR evidence on any repo carrying more PRs than that
+    # and mis-derive a task whose PR sits beyond the page. The probe keys by head
+    # ref and over-fetching is harmless, so request a generous ceiling.
+    # The batch also carries `number` and `mergedAt` so the completion-annotation
+    # stamp (output-hygiene Task 7, D-5, REQ-E1.2) reuses this one query — no new
+    # per-task lookup. Columns: headRefName<TAB>state<TAB>number<TAB>mergedAt.
+    if gh_out=$(cd "$repo_root" && gh pr list --state all --limit 1000 \
+      --json state,headRefName,number,mergedAt \
+      --jq '.[] | [.headRefName, .state, (.number|tostring), (.mergedAt // "")] | @tsv' 2>/dev/null); then
+      gh_lines=$gh_out
+    else
+      return 3
+    fi
+  fi
+  return 0
+}
 
 gh_state_for() {
   # echo the gh state (OPEN|CLOSED|MERGED) for a head ref, empty if none.
@@ -376,11 +450,14 @@ gh_prinfo_for() {
 # Pass 1: parse the task records (ids + dependency lists, in file order) and,
 # for each, resolve the evidence-only verdict to a work file. Section placement
 # is NOT consulted — state is derived, not read (D-1). The work file lines are
-#   <id><TAB><evstate><TAB><evidence><TAB><contra><TAB><deps>
-# where evstate is completed|in-progress|unresolved, contra is 0|1, and deps is
-# a space-separated id list (kept last so embedded spaces are harmless).
-work=$(mktemp "${TMPDIR:-/tmp}/orchestrate-state.XXXXXX") || exit 2
-trap 'rm -f "$work"' EXIT
+#   <order><TAB><id><TAB><evstate><TAB><evidence><TAB><contra><TAB><pr><TAB><date><TAB><key><TAB><deps>
+# where order is the task's place in the file, evstate is completed |
+# in-progress | unresolved | repository-unresolved, contra is 0|1, pr and date
+# are the completion stamp (`-` when absent), key is the task's repository
+# index in the repos file (`u` when it does not resolve), and deps is a
+# space-separated id list (kept last so embedded spaces are harmless).
+work="$scratch/work"
+: >"$work"
 
 tasks=$(awk '
   /^### Task /{
@@ -447,16 +524,97 @@ tip_on_first_parent() {
   printf '%s\n' "$fp_commits" | grep -qx "$1"
 }
 
+# The repos file: <index><TAB><root>, index 0 the work repository; a task's
+# key indexes it. Each alias resolves once, and aliases naming one checkout
+# (the work repository's included) share its index, so a repository's
+# evidence is read once. Lines of the aliases file: <alias><TAB><key><TAB><reason>.
+repos="$scratch/repos"
+aliases="$scratch/aliases"
+printf '0\t%s\n' "$work_root" >"$repos"
+: >"$aliases"
+canon() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
+work_canon=$(canon "$work_root") || work_canon=$work_root
+next_index=1
+resolve_alias() {
+  ra_hit=$(awk -F"$TAB" -v a="$1" '$1 == a { print $2 "\t" $3; exit }' "$aliases")
+  if [ -n "$ra_hit" ]; then
+    ra_key=${ra_hit%%"$TAB"*}
+    ra_reason=${ra_hit#*"$TAB"}
+    return 0
+  fi
+  ra_reason=-
+  # The registry seam: any failure to answer is the alias resolving to
+  # nothing, never a fallback to the work repository (REQ-F1.5).
+  if ra_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" --repository "$1" </dev/null 2>"$scratch/resolve.err") \
+    && [ -n "$ra_root" ] && ra_root=$(canon "$ra_root"); then
+    if [ "$ra_root" = "$work_canon" ]; then
+      ra_key=0
+    else
+      # ENVIRON, not -v: -v would escape-process a backslash in the path.
+      ra_key=$(OS_ROOT=$ra_root awk -F"$TAB" '$2 == ENVIRON["OS_ROOT"] { print $1; exit }' "$repos")
+      if [ -z "$ra_key" ]; then
+        ra_key=$next_index
+        next_index=$((next_index + 1))
+        printf '%s\t%s\n' "$ra_key" "$ra_root" >>"$repos"
+      fi
+    fi
+  else
+    ra_key=u
+    ra_reason=$(tr -d '\000-\037\177' <"$scratch/resolve.err" 2>/dev/null)
+    [ -n "$ra_reason" ] || ra_reason="the work-repository registry has no live entry for it"
+  fi
+  printf '%s\t%s\t%s\n' "$1" "$ra_key" "$ra_reason" >>"$aliases"
+}
+
+# The task list: <order><TAB><id><TAB><key><TAB><deps>, plus one note per
+# field-bearing task in the field file: <id><TAB><class><TAB><value><TAB><reason>.
+list="$scratch/list"
+fields="$scratch/fields"
+: >"$list"
+: >"$fields"
+order=0
 while IFS="$TAB" read -r id deps; do
   [ -n "$id" ] || continue
+  order=$((order + 1))
+  key=0
+  if [ "$per_task" -eq 1 ]; then
+    frec=$(printf '%s\n' "$repo_map" | awk -F"$TAB" -v i="$id" '$1 == i { print $2 "\t" $3; exit }')
+    if [ -n "$frec" ]; then
+      fclass=${frec%%"$TAB"*}
+      fval=${frec#*"$TAB"}
+      case $fclass in
+        alias)
+          resolve_alias "$fval"
+          key=$ra_key
+          ;;
+        duplicate)
+          key=u
+          ra_reason="the task carries more than one Repository: field"
+          ;;
+        *)
+          key=u
+          ra_reason="the value is not a single alias in the identifier grammar"
+          ;;
+      esac
+      [ "$key" != u ] && ra_reason=-
+      printf '%s\t%s\t%s\t%s\n' "$id" "$fclass" "${fval:--}" "$ra_reason" >>"$fields"
+    fi
+  fi
+  printf '%s\t%s\t%s\t%s\n' "$order" "$id" "$key" "$deps" >>"$list"
+done <<EOF
+$tasks
+EOF
 
+# parse_deps <raw> — set deps to the conforming ids of a Dependencies line,
+# surfacing a malformed line.
+parse_deps() {
   # Validate dependency tokens against the task-id grammar before use (REQ-F1.1).
   # The Dependencies grammar is `<task ids, or "none">`; a line carrying tokens
   # outside it (stray prose, a typo) keeps only the conforming ids — so a number
   # embedded in prose never becomes a phantom dependency — and is surfaced as a
   # tagged record. `none` is the empty-set sentinel. Tokens split on commas and
   # whitespace, matching the comma-separated id-list grammar.
-  raw_deps=$deps
+  raw_deps=$1
   clean_deps=""
   deps_malformed=0
   for tok in $(printf '%s' "$raw_deps" | tr ',' ' '); do
@@ -485,7 +643,13 @@ while IFS="$TAB" read -r id deps; do
     printf 'malformed-deps%s%s%s%s\n' "$TAB" "$id" "$TAB" "$raw_deps"
   fi
   deps=$clean_deps
+}
 
+# derive_task <order> <id> <key> — the evidence-only verdict for one task, read
+# from the repository load_repo last pointed the helpers at.
+derive_task() {
+  order=$1
+  key=$3
   branch="planwright/$spec_id/task-$id"
 
   br_merged=0
@@ -613,57 +777,18 @@ EOF
     contra=1
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$evstate" "$evidence" "$contra" "$deps" >>"$work"
-done <<EOF
-$tasks
-EOF
-
-# Build the completed set, then emit the final stream. Unresolved tasks resolve
-# to ready (every dependency completed) or blocked (a dependency is not).
-completed=$(awk -F"$TAB" '$2=="completed"{print $1}' "$work" | tr '\n' ' ')
-
-while IFS="$TAB" read -r id evstate evidence contra deps; do
-  [ -n "$id" ] || continue
-  case "$evstate" in
-    completed | in-progress)
-      st=$evstate
-      ev=$evidence
-      ;;
-    *)
-      met=1
-      for d in $deps; do
-        case " $completed " in
-          *" $d "*) ;;
-          *)
-            met=0
-            break
-            ;;
-        esac
-      done
-      if [ "$met" -eq 1 ]; then
-        st=ready
-        ev="deps-met"
-      else
-        st=blocked
-        ev="deps-unmet"
-      fi
-      ;;
-  esac
-  printf 'task%s%s%s%s%s%s\n' "$TAB" "$id" "$TAB" "$st" "$TAB" "$ev"
-  if [ "$contra" = 1 ]; then
-    printf 'contradiction%s%s%scompletion attested in git but the PR is still open\n' \
-      "$TAB" "$id" "$TAB"
-  fi
-
   # Completion-annotation evidence (output-hygiene Task 7, D-5, REQ-E1.2): for a
-  # completed task, surface the PR number + merge date the reconcile stamps as
-  # `Completed · PR #<n> merged <YYYY-MM-DD>`. Order: the gh merged-PR batch
+  # completed task, the PR number + merge date the reconcile stamps as
+  # `Completed · PR #<n> merged <YYYY-MM-DD>`, read here while the helpers
+  # still point at the task's own repository. Order: the gh merged-PR batch
   # already fetched (number + mergedAt, no new per-task query); else a local
   # branch-tip date (branch evidence, no PR number); else nothing — the reconcile
   # then leaves the annotation untouched. gh/git output is validated as data
   # (REQ-F1.1): a non-numeric PR or a non-ISO date is dropped, never an invented
-  # value. Emit only when there is something to stamp.
-  if [ "$st" = completed ]; then
+  # value.
+  c_pr=""
+  c_date=""
+  if [ "$evstate" = completed ]; then
     c_branch="planwright/$spec_id/task-$id"
     c_pr=""
     c_date=""
@@ -701,8 +826,143 @@ while IFS="$TAB" read -r id evstate evidence contra deps; do
         c_date=$c_bd
       fi
     fi
-    if [ -n "$c_pr" ] || [ -n "$c_date" ]; then
-      printf 'completion%s%s%s%s%s%s\n' "$TAB" "$id" "$TAB" "$c_pr" "$TAB" "$c_date"
+  fi
+
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$order" "$id" "$evstate" "$evidence" "$contra" \
+    "${c_pr:--}" "${c_date:--}" "$key" "$deps" >>"$work"
+}
+
+# label_of_key <key> — how a repository is named in a record: the first
+# alias naming it, `-` for the work repository when no alias does.
+label_of_key() {
+  lk=$(awk -F"$TAB" -v k="$1" '$2 == k { printf "%s", $1; exit }' "$aliases")
+  printf '%s' "${lk:--}"
+}
+
+# Derive repository by repository, each read once. A repository whose
+# evidence cannot be read is recorded failed: on a bundle naming no
+# repository that is the bundle-wide record (or, for an unresolvable base, the
+# fail-closed exit) it always was; per task it fails only the tasks it holds,
+# and one whose base never resolved yields no evidence for them at all.
+failed=" "
+# shellcheck disable=SC2013 # keys are digits; a while-read would hand stdin to git and gh
+for key in $(awk -F"$TAB" '$3 != "u" && !seen[$3]++ { print $3 }' "$list"); do
+  root=$(awk -F"$TAB" -v k="$key" '$1 == k { print $2; exit }' "$repos")
+  lr=0
+  load_repo "$root" || lr=$?
+  if [ "$lr" -ne 0 ]; then
+    if [ "$per_task" -eq 0 ]; then
+      [ "$lr" -eq 3 ] || exit 2
+      printf 'degraded%sgh%sgh query failed; deriving git-only\n' "$TAB" "$TAB"
+    else
+      failed="$failed$key "
+      lmsg="gh query failed; deriving git-only"
+      [ "$lr" -eq 3 ] || lmsg="its base ref does not resolve to a commit"
+      printf 'degraded%srepository%s%s%s%s\n' "$TAB" "$TAB" "$(label_of_key "$key")" "$TAB" "$lmsg"
     fi
   fi
-done <"$work"
+  while IFS="$TAB" read -r t_order t_id t_key t_deps; do
+    [ "$t_key" = "$key" ] || continue
+    id=$t_id
+    parse_deps "$t_deps"
+    if [ "$lr" -eq 2 ]; then
+      printf '%s\t%s\tunresolved\tpending\t0\t-\t-\t%s\t%s\n' "$t_order" "$t_id" "$t_key" "$deps" >>"$work"
+    else
+      derive_task "$t_order" "$t_id" "$t_key"
+    fi
+  done <"$list"
+done
+while IFS="$TAB" read -r t_order t_id t_key t_deps; do
+  [ "$t_key" = u ] || continue
+  id=$t_id
+  parse_deps "$t_deps"
+  case $(awk -F"$TAB" -v i="$t_id" '$1 == i { print $2; exit }' "$fields") in
+    duplicate) ev=alias-duplicate ;;
+    malformed) ev=alias-malformed ;;
+    *) ev=alias-unresolved ;;
+  esac
+  printf '%s\t%s\trepository-unresolved\t%s\t0\t-\t-\tu\t%s\n' "$t_order" "$t_id" "$ev" "$deps" >>"$work"
+done <"$list"
+sort -n -k1,1 "$work" >"$scratch/sorted" || exit 2
+
+# Build the completed set, then emit the final stream in file order.
+# Unresolved tasks resolve to ready (every dependency completed) or blocked (a
+# dependency is not). Per task, a task whose repository failed is withheld, and
+# so is a not-yet-started task whose direct dependency's repository failed.
+completed=$(awk -F"$TAB" '$3=="completed"{print $2}' "$work" | tr '\n' ' ')
+failed_ids=$(awk -F"$TAB" -v f="$failed" 'index(f, " " $8 " ") { print $2 }' "$work" | tr '\n' ' ')
+
+while IFS="$TAB" read -r _ id evstate evidence contra c_pr c_date key deps; do
+  [ -n "$id" ] || continue
+  case "$evstate" in
+    completed | in-progress | repository-unresolved)
+      st=$evstate
+      ev=$evidence
+      ;;
+    *)
+      met=1
+      for d in $deps; do
+        case " $completed " in
+          *" $d "*) ;;
+          *)
+            met=0
+            break
+            ;;
+        esac
+      done
+      if [ "$met" -eq 1 ]; then
+        st=ready
+        ev="deps-met"
+      else
+        st=blocked
+        ev="deps-unmet"
+      fi
+      ;;
+  esac
+  printf 'task%s%s%s%s%s%s\n' "$TAB" "$id" "$TAB" "$st" "$TAB" "$ev"
+  if [ "$per_task" -eq 1 ]; then
+    frec=$(awk -F"$TAB" -v i="$id" '$1 == i { print $2 "\t" $3 "\t" $4; exit }' "$fields")
+    if [ -n "$frec" ]; then
+      fclass=${frec%%"$TAB"*}
+      frest=${frec#*"$TAB"}
+      fval=${frest%%"$TAB"*}
+      freason=${frest#*"$TAB"}
+      [ "$fclass" != alias ] || printf 'repository%s%s%s%s\n' "$TAB" "$id" "$TAB" "$fval"
+      if [ "$st" = repository-unresolved ]; then
+        printf 'repository-unresolved%s%s%s%s%s%s\n' "$TAB" "$id" "$TAB" "$fval" "$TAB" "$freason"
+      fi
+    fi
+  fi
+  if [ "$contra" = 1 ]; then
+    printf 'contradiction%s%s%scompletion attested in git but the PR is still open\n' \
+      "$TAB" "$id" "$TAB"
+  fi
+  if [ "$per_task" -eq 1 ]; then
+    case "$failed" in
+      *" $key "*)
+        printf 'withheld%s%s%sown%s%s\n' "$TAB" "$id" "$TAB" "$TAB" "$(label_of_key "$key")"
+        ;;
+      *)
+        if [ "$st" = ready ] || [ "$st" = blocked ]; then
+          for d in $deps; do
+            case " $failed_ids " in
+              *" $d "*)
+                dkey=$(awk -F"$TAB" -v i="$d" '$2 == i { print $8; exit }' "$work")
+                printf 'withheld%s%s%sdependency%s%s\n' "$TAB" "$id" "$TAB" "$TAB" "$(label_of_key "$dkey")"
+                break
+                ;;
+            esac
+          done
+        fi
+        ;;
+    esac
+  fi
+
+  # The completion stamp pass 1 read from the task's own repository: emitted
+  # only when there is something to stamp.
+  [ "$c_pr" != - ] || c_pr=""
+  [ "$c_date" != - ] || c_date=""
+  if [ "$st" = completed ] && { [ -n "$c_pr" ] || [ -n "$c_date" ]; }; then
+    printf 'completion%s%s%s%s%s%s\n' "$TAB" "$id" "$TAB" "$c_pr" "$TAB" "$c_date"
+  fi
+done <"$scratch/sorted"
