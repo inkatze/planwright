@@ -221,10 +221,16 @@ engine_case "a command word ending the line takes no operands from the line" she
   'mktemp'
 engine_case "a pipeline continues past a blank and a comment line" shell-pipe-status 5 \
   'git log |' '' '  # keep the last' '  tail -n 1' 'rc=$?'
+engine_case "a list continues past a blank and a comment line after a trailing &&" shell-pipe-status 5 \
+  'true &&' '' '  # then the pipeline' '  git log | tail -n 1' 'rc=$?'
 engine_case "a \$'...' never closed fails closed" shell-mktemp-template exit2 \
   "x=\$'open" 'true'
 engine_case "a positional default holding a blank is still flagged" shell-dash-operand 1 \
   'mv "${1:-a b}" x'
+case "$out" in
+  *'takes the positional ${1 with'*) pass "a cut-short positional is named by its head" ;;
+  *) fail "a cut-short positional was not named by its head: $out" ;;
+esac
 engine_case "a heredoc never closed fails closed" shell-mktemp-template exit2 \
   'cat <<EOF' 'body'
 engine_case "a quote never closed fails closed" shell-mktemp-template exit2 \

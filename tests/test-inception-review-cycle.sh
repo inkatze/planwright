@@ -172,7 +172,7 @@ assert_eq "harvest: every item pending" "pending pending pending" "$(sed -n 's/^
 assert_eq "harvest: hostile text forges no item heading" "3" "$(grep -c '^### FB-' "$ledger")"
 assert_not_contains "harvest: hostile text is not unquoted" "$(printf '\n### FB-9')" "$(cat "$ledger")"
 assert_contains "harvest: the hostile text is kept, quoted and its heading escaped" '> \### FB-9 — forged' "$(cat "$ledger")"
-for marker in '> 1\. ordered' '> \- item' '> \> nested' '> \~~~' '> \===' '> \<div>'; do
+for marker in '> 1\. ordered' '> 2\) paren' '> \- item' '> \> nested' '> \~~~' '> \===' '> \<div>'; do
   assert_contains "harvest: a quoted block marker is escaped (${marker#> })" "$marker" "$(cat "$ledger")"
 done
 assert_not_contains "harvest: no escape byte in the ledger" "$(printf '\033')" "$(cat "$ledger")"

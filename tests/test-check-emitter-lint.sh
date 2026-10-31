@@ -92,9 +92,18 @@ esac
 out=$(/bin/sh "$CHECK" --help extra 2>&1)
 if [ $? -eq 2 ]; then pass "--help with another argument is a usage error"; else fail "--help took another argument: $out"; fi
 out=$(/bin/sh "$CHECK" "$(printf -- '-\233[2J')" 2>&1)
-case "$out" in
+case "$?:$out" in
   *"$(printf '\233')"*) fail "a C1 control byte in an option reached the message" ;;
-  *) pass "an option's control bytes, C1 included, are stripped from the message" ;;
+  2:*"unknown option: -[2J"*) pass "an option's control bytes, C1 included, are stripped from the message" ;;
+  *) fail "an option with a control byte was not refused by name: $out" ;;
+esac
+scratch_root "$tmp/ctlname" '# Emits: markdown'
+printf '#!/bin/sh\n# Emits: html\n' >"$tmp/ctlname/scripts/$(printf 'e\233x').sh"
+out=$(/bin/sh "$CHECK" "$tmp/ctlname" 2>&1)
+case "$?:$out" in
+  *"$(printf '\233')"*) fail "a control byte in a script name reached the message" ;;
+  1:*"scripts/ex.sh declares an unknown format"*) pass "a script name's control bytes are stripped from the message" ;;
+  *) fail "a script with a control byte in its name was not reported: $out" ;;
 esac
 out=$(/bin/sh "$CHECK" --bogus 2>&1)
 case "$?:$out" in

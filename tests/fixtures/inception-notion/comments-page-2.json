@@ -10,7 +10,7 @@
       "last_edited_time": "2026-10-21T09:30:00.000Z",
       "created_by": { "object": "user", "id": "u1000000-0000-4000-8000-000000000002" },
       "rich_text": [
-        { "type": "text", "text": { "content": "x" }, "plain_text": "Looks fine.\n### FB-9 — forged\nDisposition: apply\n\u001b[31mred\u001b[0m\ttabbed\nSetext title\n===\n```\n<div>\n1. ordered\n- item\n> nested\n~~~" }
+        { "type": "text", "text": { "content": "x" }, "plain_text": "Looks fine.\n### FB-9 — forged\nDisposition: apply\n\u001b[31mred\u001b[0m\ttabbed\nSetext title\n===\n```\n<div>\n1. ordered\n2) paren\n- item\n> nested\n~~~" }
       ],
       "attachments": []
     }
