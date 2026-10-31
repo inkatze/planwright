@@ -240,6 +240,14 @@ expect_shape escaped-dollar-quote self-comparison \
 expect_shape pipefail-elsewhere piped-status \
   'set -e && grep -o pipefail log' 'run | tail -n 5' 'rc=$?' 'assert "it ran" 0 "$rc"'
 
+# Round-four shapes.
+expect_shape classes-around-pipe piped-status \
+  "grep '[[:alpha:]]' f | sed 's/[[:space:]]//g'" 'rc=$?' 'assert "ok" 0 "$rc"'
+expect_shape two-tests-around-pipe piped-status \
+  '[[ -f a ]] && run | tail -n 1 && [[ -n b ]] && pass "x"'
+expect_clean quoted-heredoc-text-in-subst \
+  'n="$(grep -c "<<'"'"'EOF'"'"'" "$f")"' 'assert "quoted heredocs" 2 "$n"'
+
 # Each rule honours an annotation on the line it reports.
 expect_clean annotated-self \
   '[ x = x ] && pass "equal" # vacuity-ok: a smoke line'

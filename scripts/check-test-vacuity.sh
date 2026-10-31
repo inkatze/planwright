@@ -131,15 +131,16 @@ function word(x, dq) {
 # A command substitution inside double quotes is scanned for its closing
 # paren with its own quoting honoured, and may span lines (state "D").
 function subst(s,   i, c, n) {
-  n = length(s)
+  n = length(s); so = ""
   for (i = 1; i <= n; i++) {
     c = substr(s, i, 1)
+    so = so ((c == "<" && sq != "") ? "_" : c)
     if (sq == "s") { if (c == "'") sq = ""; continue }
-    if (c == "\\") { i++; continue }
+    if (c == "\\") { i++; so = so substr(s, i, 1); continue }
     if (sq == "a") { if (c == "'") sq = ""; continue }
     if (sq == "d") {
       if (c == "\"") sq = ""
-      else if (c == "$" && substr(s, i + 1, 1) == "(") { i++; stk[++sdepth] = "d"; sq = "" }
+      else if (c == "$" && substr(s, i + 1, 1) == "(") { i++; so = so "("; stk[++sdepth] = "d"; sq = "" }
       continue
     }
     if (c == "'") sq = (i > 1 && substr(s, i - 1, 1) == "$" && substr(s, i - 2, 1) != "\\") ? "a" : "s"
@@ -169,8 +170,8 @@ function strip(s,   o, c, k, last) {
     }
     if (q == "D") {
       k = subst(s)
-      if (!k) return o s
-      o = o substr(s, 1, k); s = substr(s, k + 1); q = "d"
+      if (!k) return o so
+      o = o so; s = substr(s, k + 1); q = "d"
       continue
     }
     if (q == "d") {
@@ -195,8 +196,18 @@ function strip(s,   o, c, k, last) {
   return o
 }
 function annotated(i) { return R[i] ~ /#[ \t]*vacuity-ok:[ \t]*[^ \t]/ }
+# A [[ ]] test's regex alternation is not a pipe; only a real test keyword
+# opens one, closed by the nearest ]].
+function mask_tests(p,   st, rest) {
+  while (match(p, /(^|[ \t;&|(!{])\[\[[ \t]/)) {
+    st = RSTART + RLENGTH - 3; rest = substr(p, st)
+    if (!match(rest, /[ \t]\]\]([ \t;&|)]|$)/)) break
+    p = substr(p, 1, st - 1) "T" substr(rest, RSTART + 3)
+  }
+  return p
+}
 function filter_stage(p,   n, parts, w) {
-  gsub(/\[\[.*\]\]/, "T", p)
+  p = mask_tests(p)
   gsub(/\|\|/, "\001", p)
   n = split(p, parts, /\|/)
   if (n < 2) return 0

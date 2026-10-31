@@ -194,7 +194,8 @@ awk '
     while (match(s, re)) {
       seg = substr(s, RSTART, RLENGTH); end = substr(seg, length(seg) - 1)
       gsub(/[.!?;]/, "_", seg)
-      if (end ~ /^[.!?][)]$/) seg = substr(seg, 1, length(seg) - 2) end
+      if (end ~ /^[.!?][)]$/ && substr(seg, length(seg) - 3, 2) != ".." && substr(s, RSTART + RLENGTH) ~ /^([ \t]+[A-Z]|[ \t]*$)/)
+        seg = substr(seg, 1, length(seg) - 2) end
       out = out substr(s, 1, RSTART - 1) seg; s = substr(s, RSTART + RLENGTH)
     }
     return out s
