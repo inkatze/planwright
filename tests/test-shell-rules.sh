@@ -158,6 +158,24 @@ else
   fail "an absent root exited $rc"
 fi
 
+# The scratch directory's cleanup trap must not run text from TMPDIR: a quote
+# in it once closed the trap's quoting and ran what followed at exit.
+fresh_root "$root"
+printf '%s\n' 'true' >"$root/scripts/a.sh"
+qdir="$tmp/q';touch pwned;'q"
+mkdir -p "$qdir" "$tmp/qcwd" || exit 1
+out=$(cd "$tmp/qcwd" && TMPDIR=$qdir bash "$REPO_ROOT/scripts/check-shell-mktemp-template.sh" "$root" 2>&1)
+rc=$?
+if [ -e "$tmp/qcwd/pwned" ]; then
+  fail "a quote in TMPDIR ran text from it at exit"
+elif [ "$rc" -ne 0 ]; then
+  fail "a quote in TMPDIR broke the scan (exit $rc): $out"
+elif [ -n "$(ls -A "$qdir")" ]; then
+  fail "the scratch directory under a quoted TMPDIR was left behind"
+else
+  pass "a quote in TMPDIR is only a path to the cleanup trap"
+fi
+
 out=$(bash "$REPO_ROOT/scripts/check-shell-mktemp-template.sh" --bogus 2>&1)
 if [ $? -eq 2 ]; then
   pass "an unknown option is a usage error"

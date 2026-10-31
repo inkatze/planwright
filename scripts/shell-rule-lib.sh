@@ -281,8 +281,7 @@ sr_main() {
   done
   sr_work=$(mktemp -d "${TMPDIR:-/tmp}/check-$SR_RULE.XXXXXX") \
     || sr_fail_closed "could not create a temporary directory"
-  # shellcheck disable=SC2064 # expand the path now: the trap outlives the scope
-  trap "rm -rf '$sr_work'" EXIT
+  trap 'rm -rf "$sr_work"' EXIT
   : >"$sr_work/all"
   for sr_dir in $SR_SCOPE_DIRS; do
     find -P "$sr_root/$sr_dir" \( -type f -o -type l \) -print0 >>"$sr_work/all" 2>"$sr_work/err" \
