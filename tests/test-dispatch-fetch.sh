@@ -871,4 +871,35 @@ c18() {
 }
 c18
 
+# ---------------------------------------------------------------------------
+# Case 19 — the TTL knob is read from the repository being gated, not from the
+# caller's working directory (the shell-config-pin rule): the primary's
+# repo-tracked config sets a zero TTL, and a run from outside any repository
+# must still honour it and re-fetch.
+# ---------------------------------------------------------------------------
+c19() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c19.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  git -c init.defaultBranch=main init -q --bare "$tmp/origin.git"
+  git clone -q "$tmp/origin.git" "$tmp/primary" 2>/dev/null
+  write_spec "$tmp/primary" demo v1
+  mkdir -p "$tmp/primary/.claude" "$tmp/elsewhere"
+  printf '%s\n' 'dispatch_fetch_ttl: 0m' >"$tmp/primary/.claude/planwright.yml"
+  gitc "$tmp/primary" add -A
+  gitc "$tmp/primary" commit -q -m "spec v1"
+  gitc "$tmp/primary" branch -M main
+  gitc "$tmp/primary" push -q origin main
+  state="$tmp/state"
+  (cd "$tmp/elsewhere" && env -u PLANWRIGHT_REPO_ROOT -u PLANWRIGHT_DISPATCH_FETCH_TTL \
+    PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$state" "$FETCH" "$tmp/primary") >/dev/null \
+    || fail "c19: first run failed"
+  out=$(cd "$tmp/elsewhere" && env -u PLANWRIGHT_REPO_ROOT -u PLANWRIGHT_DISPATCH_FETCH_TTL \
+    PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$state" "$FETCH" "$tmp/primary") \
+    || fail "c19: second run failed"
+  [ "$(tag_val "$out" fetch)" = fetched ] \
+    || fail "c19: the gated repository's zero TTL was not honoured from another directory (got '$(tag_val "$out" fetch)')"
+  echo "ok: c19 — the TTL knob is read from the gated repository"
+}
+c19
+
 echo "PASS: test-dispatch-fetch.sh"
