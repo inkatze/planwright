@@ -28,12 +28,12 @@ Exit codes: 0 clean, 1 an offense, 2 usage or a broken enumeration.'
 SR_AWK='
 function rule_reset() { }
 function gnu_flag(cmd, w) {
-  if (cmd == "readlink") return (w ~ /^-[A-Za-z]*f[A-Za-z]*$/)
+  if (cmd == "readlink") return (w ~ /^-[A-Za-z0-9]*f[A-Za-z0-9]*$/)
   if (cmd == "date") return (w ~ /^-[A-Za-z]*d/ || w ~ /^--date/)
   if (cmd == "stat") return (w ~ /^-[A-Za-z]*c/ || w ~ /^--(format|printf)/)
   if (cmd == "grep") return (w ~ /^-[A-Za-z]*P/ || w == "--perl-regexp")
-  if (cmd == "xargs") return (w ~ /^-[A-Za-z]*r[A-Za-z]*$/ || w == "--no-run-if-empty")
-  if (cmd == "sort") return (w ~ /^-[A-Za-z]*V[A-Za-z]*$/ || w == "--version-sort")
+  if (cmd == "xargs") return (w ~ /^-[A-Za-z0-9]*r[A-Za-z0-9]*$/ || w == "--no-run-if-empty")
+  if (cmd == "sort") return (w ~ /^-[A-Za-z0-9]*V[A-Za-z0-9]*$/ || w == "--version-sort")
   if (cmd == "sed") return (w ~ /^-[A-Za-z]*i$/ || w ~ /^--in-place/)
   if (cmd == "find") return (w == "-printf")
   return 0
