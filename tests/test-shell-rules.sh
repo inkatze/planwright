@@ -245,6 +245,8 @@ engine_case "a pipeline continues past a blank and a comment line" shell-pipe-st
   'git log |' '' '  # keep the last' '  tail -n 1' 'rc=$?'
 engine_case "a list continues past a blank and a comment line after a trailing &&" shell-pipe-status 5 \
   'true &&' '' '  # then the pipeline' '  git log | tail -n 1' 'rc=$?'
+engine_case "a set +o pipefail ends the pipefail exemption" shell-pipe-status 4 \
+  'set -o pipefail' 'set +o pipefail' 'git log | tail -n 1' 'rc=$?'
 engine_case "an annotation on a comment line inside a continued pipeline carries" shell-mktemp-template clean \
   'x=$(true |' '  # shell-mktemp-template: a fixture of the carried annotation' '  mktemp)'
 engine_case "a quoted line that looks like a comment inside a continuation keeps the quote state" shell-mktemp-template clean \

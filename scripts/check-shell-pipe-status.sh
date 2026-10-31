@@ -19,7 +19,7 @@ or in the first statement of the next statement line (blank and comment
 lines skipped), a pipeline inside a command substitution included
 (x=$(a | b); rc=$?). Not flagged: a pipeline whose upstream stages are only
 printf or echo, a line naming PIPESTATUS, and every line after a
-set -o pipefail.
+set -o pipefail up to a set +o pipefail.
 Fix: run the producer on its own and keep its status, or read PIPESTATUS.
 Exempt a line with a trailing or directly preceding
   # shell-pipe-status: <reason>
@@ -49,6 +49,7 @@ function has_pipe(s,   n, k, stages, st1) {
 }
 function rule_check(code, lineno,   head, p, last, closer) {
   if (code ~ /-[A-Za-z]*o[ \t]+pipefail/) pipefail = 1
+  if (code ~ /\+[A-Za-z]*o[ \t]+pipefail/) pipefail = 0
   if (pipefail || code ~ /PIPESTATUS/) return ""
   p = index(code, "$?")
   if (!p) p = index(code, "${?}")
