@@ -26,8 +26,9 @@ Linted: a tests/*.sh line calling `lint_emitted <format> <script-name>`.
 Fails on a declared format no test lints, on a lint_emitted call naming a
 script or format nothing declares, and on an unknown format.
 Exit codes: 0 clean, 1 a finding, 2 usage, or a scan covering less than it
-claims: a root whose scripts/ or tests/ is missing or cannot be listed, an
-unreadable file, no declared emitter, or a grep or sort that failed.
+claims: a root whose scripts/ or tests/ is missing or cannot be listed, a
+temporary directory that cannot be made, an unreadable file, no declared
+emitter, or a grep or sort that failed.
 EOF
 }
 
@@ -37,7 +38,8 @@ fail_closed() {
 }
 
 # printable <text> — the text with control bytes (C0, DEL and C1) stripped,
-# for a name or value taken from a file or the command line.
+# for a name or value taken from a file or the command line. The byte range
+# is scripts/shell-rule-lib.sh's sr_sanitize_printable's; change both together.
 printable() {
   printf '%s' "$1" | tr -d '\000-\037\177\200-\237'
 }

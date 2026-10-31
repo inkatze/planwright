@@ -12,8 +12,8 @@
 # is masked (single-quoted bodies and double-quoted literal text become `x`,
 # double-quoted expansions and `$(...)` bodies stay readable), the trailing
 # comment and heredoc bodies are gone, a quoted string, a backslash
-# continuation or a line ending in a pipe or list operator is joined with the
-# lines it continues, and inside a `case` block a pattern
+# continuation or a line ending in |, || or && is joined with the lines it
+# continues, and inside a `case` block a pattern
 # prefix (`a | b)`) is cut so its alternatives never read as a pipeline.
 # The globals rule_check may read: RAW (the same logical line unmasked, aligned
 # with code), prev_code (the previous logical line's code) and FILE (the path).
@@ -26,10 +26,11 @@
 # hermeticity are owned by their own guards, and a portability defect in a
 # suite fails that suite on the platform it breaks.
 
-# Exit codes: 0 clean, 1 an offense, 2 usage or a scan covering less than it
-# claims (an absent root or scope directory, an unreadable file, no files, a
-# symlink resolving to neither a file nor a directory, a file ending inside an
-# open quote or heredoc).
+# Exit codes: 0 clean, 1 an offense, 2 usage or anything that keeps the scan
+# from covering every in-scope file: an absent root or scope directory, a
+# failed find, mktemp or awk, no files, a file name holding a newline or tab, a
+# symlinked directory or a symlink resolving to neither a file nor a directory,
+# an unreadable file, a file ending inside an open quote or heredoc.
 
 unset CDPATH
 
