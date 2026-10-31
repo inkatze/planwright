@@ -844,12 +844,17 @@ tower_tick_gap_max: 10m
 #                        birth before its declared end (a default option or
 #                        park) applies, when `add` is given no --window
 #                        (tower-comms D-21, REQ-A1.11).
+# tower_batch_max        how many items one hand-over from `next` may carry
+#                        when the top item names a subject: the other items
+#                        on that subject join it up to this many in all, a
+#                        pair counting two (tower-comms D-24, REQ-C1.14).
 tower_quiet_interval: 10m
 tower_lease_interval: 15m
 tower_catchup_limit: 20
 tower_shelve_return: 1h
 tower_reknock_age: 30m
 tower_picklist_window: 30m
+tower_batch_max: 3
 
 # How a tower's bring-up is to respond to running in a checkout's main tree
 # rather than its own linked worktree; no bring-up reads it yet, so today no
