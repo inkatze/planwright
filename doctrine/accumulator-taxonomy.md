@@ -90,7 +90,9 @@ accumulator's classification four-tuple:
   namespace form whatever the root), then moves the file to
   `archive/` with its filename preserved (move second; idempotent on
   re-run, keyed on the UID). A frozen-log line is consumed by in-place
-  annotation instead (`--legacy` — legacy lines carry no UID).
+  annotation instead (`--legacy` — legacy lines carry no UID). A
+  recurrence, whose text carries `recurrence of obs:<uid>:` after any kind
+  prefix, is mined with the fragment it names, as one chain.
 
 **Archive-on-consume is this accumulator's *specific* ritual, not a fourth
 universal class-3 attribute** (output-hygiene REQ-B1.2 deliberately declined
@@ -105,7 +107,20 @@ surfaces a non-zero helper exit rather than silently dropping the
 observation. A fragment about another project on the same machine goes to
 that project's accumulator through a named observation target, which the
 helper validates and screens for machine paths and hostnames before writing
-(custom-spec-location D-18); it is never relocated by hand.
+(custom-spec-location D-18); it is never relocated by hand. The helper
+refuses a duplicate, naming it: a fragment sharing the `[<scope>]` token, a
+test path and a quoted string with a live or archived one, miss-ledger
+fragments exempt. The caller then records a recurrence (`--recurrence
+<uid>`) or withdraws the fragment, never retrying under another slug.
+
+**Review before commit.** A pass that records fragments reviews them before
+committing them, wherever it commits them (per iteration in a loop, and the
+drift fragments of a Maintenance step): the spec lens set plus a duplication
+check against the store, each quoted message, named test, figure and
+attribution read against its source, the fragment's text read as quoted
+data. Every finding is dispositioned in the pass's audit record, and a
+fragment the review falsifies is corrected or withdrawn, never committed as
+written.
 
 **Citation form.** A spec bundle cites an observation as `obs:<uid>`, the
 fragment filename's 8-lowercase-hex UID: the entry's durable identity, which
