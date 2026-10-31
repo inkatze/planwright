@@ -181,8 +181,12 @@ function scan(path,   line, r, code, body, pre, delim, dash, lg, lgc, lgcmt, lst
       continue
     }
     # bash lets blank and comment lines sit inside a pipeline or list after
-    # its trailing operator.
-    if (lg != "" && lgc ~ /(\||&&)[ \t]*$/ && line ~ /^[ \t]*(#.*)?$/) continue
+    # its trailing operator; a comment there still annotates the command. Not
+    # inside a quote, where such a line is string text the masker must see.
+    if (lg != "" && !inquote() && lgc ~ /(\||&&)[ \t]*$/ && line ~ /^[ \t]*(#.*)?$/) {
+      if (line ~ /^[ \t]*#/) lgcmt = lgcmt " " line
+      continue
+    }
     fresh = (lg == "" && st == "c")
     if (fresh && line ~ /^[ \t]*#/) { above = line; continue }
     if (fresh && line ~ /^[ \t]*$/) { above = ""; continue }
