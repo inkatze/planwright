@@ -3042,13 +3042,17 @@ function mate_of(t, lead,   n, m) {
       if (!m || F[n, 5] + 0 < F[m, 5] + 0 || (F[n, 5] + 0 == F[m, 5] + 0 && F[n, 1] < F[m, 1])) m = n
   return m
 }
+# One rule for the batch size a knock names and the hand-over it promises:
+# a member past the target is neither leased nor delivered (REQ-B1.3,
+# REQ-C1.14).
+function unclaimed(n) { return F[n, 19] == "-" && F[n, 14] + 0 == 0 }
 # build_batch(t, cap): the hand-over around t, as units (an item, or an item
 # and its pair partner) in BL/BM, BU units and BSZ items. The caller fills
-# `pool` with the unleased, undelivered candidates. t and its partner always
+# `pool` with the candidates `unclaimed` admits. t and its partner always
 # go; past them the other items on t`s subject join in consequence order while
 # they fit under cap, a pair counting two, and the first that does not fit
 # stops the walk so nothing lower-ranked jumps it. t stays first even when a
-# member outranks it: t may be the item a knock pinned.
+# member outranks it, as t may be the item a knock pinned.
 function build_batch(t, cap,   n, i, j, k, v, x, mm, sz, cnt) {
   split("", placed); split("", paired); split("", BL); split("", BM); split("", bo)
   placed[t] = 1; BU = 1; BL[1] = t; BM[1] = mate_of(t, t); BSZ = BM[1] ? 2 : 1
@@ -3071,11 +3075,6 @@ function build_batch(t, cap,   n, i, j, k, v, x, mm, sz, cnt) {
     BU++; BL[BU] = x; BM[BU] = mm; BSZ += sz; placed[x] = 1
     if (mm) placed[mm] = 1
     paired[F[x, 2], F[x, 21]] = 1
-  }
-  for (i = 2; i <= BU; i++) {
-    v = BL[i]; x = BM[i]; j = i - 1
-    while (j >= 2 && better(v, BL[j])) { BL[j + 1] = BL[j]; BM[j + 1] = BM[j]; j-- }
-    BL[j + 1] = v; BM[j + 1] = x
   }
 }
 function clean(s) { gsub(/[^[:print:]]/, "", s); return s }
@@ -3671,7 +3670,7 @@ run_store_pass() {
         # holds, because the target may take that lease over; every other
         # member must be neither leased nor delivered (REQ-B1.3, REQ-C1.14),
         # never a second tower reclaim.
-        for (n in cand) if (F[n, 19] == "-" && F[n, 14] + 0 == 0) pool[n] = 1
+        for (n in cand) if (unclaimed(n)) pool[n] = 1
         build_batch(target, bmax)
         members = ""; lines = ""
         for (u = 1; u <= BU; u++) {
@@ -3710,7 +3709,7 @@ run_store_pass() {
           if (F[top, 19] == "-") { F[top, 19] = tower; F[top, 20] = int(now + lease_iv) }
           F[top, 13] = now; changed = 1
           nkt = now; nkitem = F[top, 1]
-          for (n in cand) if (F[n, 19] == "-" && F[n, 14] + 0 == 0) pool[n] = 1
+          for (n in cand) if (unclaimed(n)) pool[n] = 1
           build_batch(top, bmax)
           print "decision\tknock\t" clean(F[top, 1]) "\t" clean(F[top, 2]) "\t" clean(F[top, 3])
           print "knock\t" clean(F[top, 2]) "\t" clean(F[top, 3]) "\t" nwait "\t" BSZ
@@ -5399,7 +5398,7 @@ cmd_knock() {
       # reasoning settle_reason applies to the same absence.
       if (attn_present && skip_reason[n] != "") continue
       nwait++
-      if (F[n, 19] == "-" && F[n, 14] + 0 == 0) pool[n] = 1
+      if (unclaimed(n)) pool[n] = 1
       if (!top || better(n, top)) top = n
     }
     if (!top) exit

@@ -359,4 +359,21 @@ out=$(run next --tower $A --now 1013) || fail "the hand-over after the reply"
 [ "$(ids_of "$out" item)" = "$pa $pq " ] || fail "the knock's pinned item did not lead the hand-over: '$(ids_of "$out" item)'"
 echo "ok: the knock's pinned item leads the hand-over"
 
+# The first unit that does not fit ends the batch: a lone item ranked below an
+# overflowing pair does not jump it.
+reset_home stop
+seed_store st
+printf 'tower_quiet_interval: 100s\ntower_lease_interval: 200s\ntower_batch_max: 2\n' >"$local_cfg"
+attention_row w-sq spec/t1 awaiting-input 1000 normal 'Which base?' main 'main|dev' fork iid-sq
+attention_row w-sn spec/t2 'done' 1000 normal - - - - iid-sn
+sq=$(run add --kind question --worker w-sq --origin w-sq --closes 'the operator answers' --subject pr:40 --now 1000) || fail "add sq"
+sa1=$(add_path sa1 approval normal 1000 --subject pr:40) || fail "add sa1"
+sa2=$(add_path sa2 approval normal 1001 --subject pr:40) || fail "add sa2"
+sn=$(run add --kind news --worker w-sn --origin w-sn --closes 'the operator reads it' --subject pr:40 --now 1000) || fail "add sn"
+out=$(hand $A 1010)
+[ "$(ids_of "$out" item)" = "$sq " ] || fail "a lower-ranked item jumped an overflowing pair: '$(ids_of "$out" item)'"
+[ "$(fld "$sn" 19)" = - ] || fail "the news behind the overflowing pair was leased"
+[ "$(fld "$sa1" 19)$(fld "$sa2" 19)" = -- ] || fail "the overflowing pair was split into the batch"
+echo "ok: the first unit that does not fit ends the batch"
+
 echo "ALL PASS: tower-queue batch"
