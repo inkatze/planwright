@@ -333,6 +333,12 @@ its Dependencies line; the selector treats that edge as advisory, so Task
 ## Awaiting input
 
 - **Task 9** — pending ready-flip: ready-guard failed on 33bd7e658d57
+- **Task 10** — the post-PR cubic review round (step `cubic-pr`) is halted:
+  the cubic workspace quota is exhausted until 2026-11-05. Draft PR #765
+  carries the implementation and the four-iteration convergence record,
+  with three pending sign-offs (PS-1 to PS-3). Operator: run the cubic
+  round and the panel from another session, then the ready flip once CI is
+  green and the PR is mergeable, and remove this bullet.
 
 ## Deferred
 

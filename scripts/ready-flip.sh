@@ -18,7 +18,7 @@
 #       [--base <branch>] [--worktree <dir>]
 #
 #   --spec      the bundle directory, relative to the unit checkout
-#               (specs/<spec>); its tasks.md must be format-version 2
+#               (specs/<spec>); its tasks.md must be format-version 2 or 3
 #   --task      one task id of the unit; repeat it for a bundle
 #   --worktree  the unit checkout; default the enclosing git top level. It
 #               must sit on a planwright/<spec>/task-<ids> branch.
@@ -236,8 +236,11 @@ WT=$(git rev-parse --show-toplevel 2>/dev/null) || refuse 'not inside a git chec
 cd "$WT" 2>/dev/null || refuse 'the worktree cannot be entered'
 TASKS="$SPEC/tasks.md"
 [ -f "$TASKS" ] && [ ! -L "$TASKS" ] || refuse "$(sanitize_printable "$TASKS") is not a regular file"
-[ "$(spec_parse_header_value "$TASKS" Format-version 2>/dev/null)" = 2 ] \
-  || refuse 'only a format-version 2 bundle can be parked by this helper; park the flip by hand'
+TASKS_FV=$(spec_parse_header_value "$TASKS" Format-version 2>/dev/null) || TASKS_FV=''
+TASKS_ARM=$(spec_parse_format_arm "$TASKS_FV") \
+  || refuse 'the bundle has a missing, unparseable, or undefined Format-version'
+[ "$TASKS_ARM" = 2 ] \
+  || refuse 'only a format-version 2 or 3 bundle can be parked by this helper; park the flip by hand'
 SPEC_NAME=${SPEC##*/}
 [[ $SPEC_NAME =~ ^[a-z0-9][a-z0-9-]*$ ]] || refuse 'the spec directory name is not a spec identifier'
 BRANCH=$(git symbolic-ref --short -q HEAD 2>/dev/null) || BRANCH=''

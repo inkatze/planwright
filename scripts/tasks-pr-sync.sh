@@ -88,8 +88,8 @@
 # describes format-version 1 bundles. Before any write, the write path
 # resolves the bundle's declared `**Format-version:**` (tasks.md's
 # declaration, cross-checked against requirements.md, the authoritative
-# version home — see bundle_write_version): a format-version 2 bundle is a
-# clean no-op (derived state is never committed there — no placement,
+# version home — see bundle_write_version): a format-version 2 or 3 bundle is
+# a clean no-op (derived state is never committed there — no placement,
 # annotation, or derived-header writes), and a missing, unparseable, or
 # cross-file-conflicting declaration (or a requirements.md that exists but
 # cannot be read) fails closed with no write — exit 2 from the CLI arms, a
@@ -133,47 +133,47 @@ unset CDPATH
 log() { printf 'tasks-pr-sync: %s\n' "$*" >&2; }
 
 # tasks_format_version <tasks.md>: print the bundle's declared format version
-# ("1" or "2") from the first `**Format-version:**` header line, trailing
-# whitespace/CR trimmed (a Markdown hard-break or CRLF checkout must not make a
-# valid value unrecognizable — mirrors scripts/spec-status.sh). Returns 1, and
-# prints nothing, on a missing or unparseable declaration: version keying is
-# fail-closed (invariant-tasks REQ-C1.8, D-7) — the caller must refuse to
-# write rather than fall open to the v1 write path. The raw declared value is
-# untrusted file content and is deliberately NOT echoed in diagnostics (echo
-# discipline without needing a sanitizer here).
+# (a version this writer defines: "1", "2", or "3") from the first
+# `**Format-version:**` header line, trailing whitespace/CR trimmed (a
+# Markdown hard-break or CRLF checkout must not make a valid value
+# unrecognizable — mirrors scripts/spec-status.sh). Returns 1, and prints
+# nothing, on a missing, unparseable, or undefined declaration: version
+# keying is fail-closed (invariant-tasks REQ-C1.8, D-7) — the caller must
+# refuse to write rather than fall open to the v1 write path. A rejected raw
+# value is untrusted file content and is deliberately NOT echoed in
+# diagnostics (echo discipline without needing a sanitizer here); only a
+# defined version is ever printed.
 tasks_format_version() {
   tfv=$(spec_parse_header_value "$1" Format-version 2>/dev/null) || tfv=""
-  case $tfv in
-    1 | 2)
-      printf '%s\n' "$tfv"
-      return 0
-      ;;
-    *) return 1 ;;
-  esac
+  spec_parse_format_arm "$tfv" >/dev/null || return 1
+  printf '%s\n' "$tfv"
 }
 
-# bundle_write_version <spec-dir>: resolve the format version governing the
-# write path, cross-checked against the bundle's authoritative version home.
-# Prints "1" or "2" on success. Returns 1 with nothing printed (reason logged)
-# when tasks.md's declaration is missing or unparseable (REQ-C1.8), when
-# requirements.md exists but cannot be read, or when requirements.md declares
-# a version different from tasks.md's — a torn or half-migrated bundle. The cross-check matters because do_status mirrors
-# derived Status headers into requirements.md itself: keying on tasks.md
-# alone would let the v1 write path stamp derived state into a bundle whose
-# authoritative file declares v2 (the exact fall-open REQ-C1.8 forbids; the
-# validator errors on the mirror mismatch, and the writer refuses it too). A
-# requirements.md that is absent or carries no declaration leaves tasks.md's
-# value governing — legacy v1 bundles predate the header, and do_status
-# already no-ops without the file. A requirements.md that EXISTS but cannot be
-# read is a different input: the authoritative version home is hidden, so the
-# cross-check is impossible and letting tasks.md govern would be the same
-# fall-open — it fails closed, mirroring tasks_format_version's handling of an
-# unreadable tasks.md. The raw disagreeing value is untrusted file content and
-# is deliberately not echoed.
+# bundle_write_version <spec-dir> [--declared]: resolve the format version
+# governing the write path, cross-checked against the bundle's authoritative
+# version home. Prints the rule arm on success ("1", or "2" for versions 2 and
+# 3, which share the v2 no-op), followed by the declared value with
+# --declared, so a caller never re-reads a file that may have moved. Returns 1
+# with nothing printed (reason logged) when tasks.md's declaration is missing,
+# unparseable, or undefined (REQ-C1.8), when requirements.md exists but cannot
+# be read, or when requirements.md declares a version different from
+# tasks.md's — a torn or half-migrated bundle. The cross-check matters because
+# do_status mirrors derived Status headers into requirements.md itself: keying
+# on tasks.md alone would let the v1 write path stamp derived state into a
+# bundle whose authoritative file declares v2 (the exact fall-open REQ-C1.8
+# forbids; the validator errors on the mirror mismatch, and the writer refuses
+# it too). A requirements.md that is absent or carries no declaration leaves
+# tasks.md's value governing — legacy v1 bundles predate the header, and
+# do_status already no-ops without the file. A requirements.md that EXISTS but
+# cannot be read is a different input: the authoritative version home is
+# hidden, so the cross-check is impossible and letting tasks.md govern would
+# be the same fall-open — it fails closed, mirroring tasks_format_version's
+# handling of an unreadable tasks.md. The raw disagreeing value is untrusted
+# file content and is deliberately not echoed.
 bundle_write_version() {
   bwv_dir=$1
   if ! bwv_tv=$(tasks_format_version "$bwv_dir/tasks.md"); then
-    log "missing or unparseable Format-version in $bwv_dir/tasks.md; failing closed, no write (REQ-C1.8)"
+    log "missing, unparseable, or undefined Format-version in $bwv_dir/tasks.md; failing closed, no write (REQ-C1.8)"
     return 1
   fi
   if [ -e "$bwv_dir/requirements.md" ] || [ -L "$bwv_dir/requirements.md" ]; then
@@ -188,7 +188,12 @@ bundle_write_version() {
     log "Format-version mismatch in $bwv_dir (tasks.md declares $bwv_tv; requirements.md disagrees); failing closed, no write (REQ-C1.8)"
     return 1
   fi
-  printf '%s\n' "$bwv_tv"
+  bwv_arm=$(spec_parse_format_arm "$bwv_tv") || return 1
+  if [ "${2:-}" = --declared ]; then
+    printf '%s %s\n' "$bwv_arm" "$bwv_tv"
+  else
+    printf '%s\n' "$bwv_arm"
+  fi
 }
 
 # The shared advisory-lock primitive and the derivation engine both ship beside
@@ -968,8 +973,8 @@ run_reconcile() {
 # never relocates task blocks in legacy bundles. Drives the adoption migration
 # (kickoff-lifecycle Task 8; REQ-A1.7, D-4). Same fail-closed validation as
 # `reconcile` below (missing / non-spec / hostile dir, and a missing /
-# unparseable / cross-file-conflicting Format-version -> exit 2; a
-# format-version 2 bundle -> clean exit-0 no-op).
+# unparseable / undefined / cross-file-conflicting Format-version -> exit 2;
+# a format-version 2 or 3 bundle -> clean exit-0 no-op).
 if [ "${1:-}" = reconcile-status ]; then
   cli_arg="${2:-}"
   if [ -z "$cli_arg" ]; then
@@ -995,11 +1000,12 @@ if [ "${1:-}" = reconcile-status ]; then
   # is not an exit-2); a v2 bundle stores no derived Status, so the
   # status-only arm has nothing to reconcile.
   require_spec_parse || exit 2
-  if ! cli_ver=$(bundle_write_version "$cli_dir"); then
+  if ! cli_res=$(bundle_write_version "$cli_dir" --declared); then
     exit 2
   fi
+  cli_ver=${cli_res%% *}
   if [ "$cli_ver" = 2 ]; then
-    echo "tasks-pr-sync: format-version 2 bundle; derived state is never stored (REQ-C1.1) — nothing to reconcile" >&2
+    printf '%s\n' "tasks-pr-sync: format-version ${cli_res#* } bundle; derived state is never stored (REQ-C1.1) — nothing to reconcile" >&2
     exit 0
   fi
   run_reconcile "$cli_dir" closed status
@@ -1012,7 +1018,7 @@ fi
 # cross-file-conflicting Format-version, or an unreadable requirements.md
 # (REQ-C1.8) — so a caller (--bookkeeping, tests) sees a real error rather
 # than a silent skip; a
-# format-version 2 bundle is a clean exit-0 no-op (REQ-C1.1).
+# format-version 2 or 3 bundle is a clean exit-0 no-op (REQ-C1.1).
 if [ "${1:-}" = reconcile ]; then
   cli_arg="${2:-}"
   if [ -z "$cli_arg" ]; then
@@ -1037,15 +1043,16 @@ if [ "${1:-}" = reconcile ]; then
   # Version keying (REQ-C1.1, REQ-C1.8): mirror of the reconcile-status arm
   # above — exit 2 fail-closed on a missing/unparseable declaration, an
   # unreadable requirements.md, or a torn bundle (the resolver logs the
-  # reason), clean no-op exit 0 on a v2 bundle
+  # reason), clean no-op exit 0 on a v2 or v3 bundle
   # (no placement, annotation, or derived-header writes; the in-writer gate
   # re-checks under the lock).
   require_spec_parse || exit 2
-  if ! cli_ver=$(bundle_write_version "$cli_dir"); then
+  if ! cli_res=$(bundle_write_version "$cli_dir" --declared); then
     exit 2
   fi
+  cli_ver=${cli_res%% *}
   if [ "$cli_ver" = 2 ]; then
-    echo "tasks-pr-sync: format-version 2 bundle; derived state is never stored (REQ-C1.1) — nothing to reconcile" >&2
+    printf '%s\n' "tasks-pr-sync: format-version ${cli_res#* } bundle; derived state is never stored (REQ-C1.1) — nothing to reconcile" >&2
     exit 0
   fi
   # Containment + spec-id grammar are enforced by the shared lock primitive

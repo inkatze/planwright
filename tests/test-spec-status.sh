@@ -479,6 +479,64 @@ assert_not "$out" "bundle status:" "C1.8 unparseable version derives nothing"
 echo "ok: REQ-C1.8 missing/unparseable Format-version fails closed (exit 2)"
 
 # ---------------------------------------------------------------------------
+# 8b. invariant-tasks REQ-F1.7 — version 3 renders with the version 2
+#     behavior (reference bullets park, the stored Active is refused), and a
+#     version the render does not define (4) fails closed like a bad one.
+# ---------------------------------------------------------------------------
+# to_version <spec-dir> <from> <to> — re-declare every file's Format-version.
+to_version() {
+  for tvf in "$1"/requirements.md "$1"/tasks.md; do
+    sed "s/^\\*\\*Format-version:\\*\\* $2\$/**Format-version:** $3/" "$tvf" >"$tvf.new" \
+      && mv "$tvf.new" "$tvf"
+  done
+}
+repo8b="$tmp/v3"
+spec8b="$repo8b/specs/demo"
+mkdir -p "$repo8b"
+gitc_init "$repo8b"
+write_v2_spec "$spec8b" Ready
+awk '/^\(none yet\)$/ && !done { sub(/.*/, "- **Task 7** why is this blocked?"); done=1 } { print }' \
+  "$spec8b/tasks.md" >"$spec8b/tasks.md.new" && mv "$spec8b/tasks.md.new" "$spec8b/tasks.md"
+to_version "$spec8b" 2 3
+seed_evidence "$repo8b"
+out=$("$RENDER" "$spec8b") || fail "F1.7: version 3 render exited non-zero"
+assert_has "$out" "format-version: 3" "F1.7 the render reports the declared version"
+assert_has "$(task_line "$out" 1)" completed "F1.7 v3 branch evidence derives"
+assert_has "$(task_line "$out" 7)" awaiting-input "F1.7 v3 reference bullet parks its task"
+assert_has "$out" "bundle status: Active (derived)" "F1.7 v3 bundle derives"
+# A task naming a repository cannot be derived from the work repository: the
+# render refuses rather than report its state, or Done, from the wrong one.
+awk '{ print } /^### Task 6 / { t6 = 1 } t6 && /^- \*\*Dependencies:\*\*/ { print "- **Repository:** alpha"; t6 = 0 }' \
+  "$spec8b/tasks.md" >"$spec8b/tasks.md.new" && cp "$spec8b/tasks.md" "$tmp/v3-nofield.md" \
+  && mv "$spec8b/tasks.md.new" "$spec8b/tasks.md"
+set +e
+out=$("$RENDER" "$spec8b" 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 2 ] || fail "F1.7: a v3 task naming a repository should exit 2, got $rc"
+assert_has "$out" "name a repository (Task 6)" "F1.7 the refusal names the task"
+assert_not "$out" "bundle status:" "F1.7 no bundle status derived from the work repository"
+cp "$tmp/v3-nofield.md" "$spec8b/tasks.md"
+sed 's/^\*\*Status:\*\* Ready$/**Status:** Active/' "$spec8b/requirements.md" \
+  >"$spec8b/requirements.md.new" && mv "$spec8b/requirements.md.new" "$spec8b/requirements.md"
+set +e
+out=$("$RENDER" "$spec8b" 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 2 ] || fail "F1.7: a stored Active on version 3 should exit 2 (v2 restriction), got $rc"
+assert_has "$out" "not a v2 stored state" "F1.7 v3 keeps the v2 stored-status restriction"
+write_v2_spec "$spec8b" Ready
+to_version "$spec8b" 2 4
+set +e
+out=$("$RENDER" "$spec8b" 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 2 ] || fail "F1.7: an undefined Format-version (4) should exit 2, got $rc"
+assert_has "$out" "Format-version" "F1.7 undefined version names the line"
+assert_not "$out" "stored status:" "F1.7 undefined version renders nothing"
+echo "ok: REQ-F1.7 version 3 renders as version 2; an undefined version fails closed"
+
+# ---------------------------------------------------------------------------
 # 9. REQ-C1.9 — echo sanitization: terminal-escape bytes embedded in bullet
 #    text, header values, and engine-stream fields (a hostile trailer value, a
 #    malformed Dependencies line) never reach the output; a reference bullet
