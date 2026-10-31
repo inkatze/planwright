@@ -9,7 +9,7 @@
 # (quoted text, comments, heredoc bodies, annotated sites). The fixtures carry
 # no shebang and no .sh suffix so the repository's own sweeps skip them; each
 # is copied into a scratch root as scripts/case.sh before the rule runs.
-# shellcheck disable=SC2016 # fixture bodies are literal shell text
+# shellcheck disable=SC2016,SC1003 # fixture bodies are literal shell text
 set -u
 unset CDPATH
 LC_ALL=C
@@ -163,6 +163,86 @@ if [ $? -eq 2 ]; then
 else
   fail "an unknown option was accepted: $out"
 fi
+
+out=$(bash "$REPO_ROOT/scripts/check-shell-mktemp-template.sh" "$root" extra 2>&1)
+if [ $? -eq 2 ]; then
+  pass "a second operand is a usage error"
+else
+  fail "a second operand was accepted: $out"
+fi
+
+# engine_case <description> <rule> <want> <line>... — scans the lines as
+# scripts/a.sh; <want> is the one line the rule must flag, or `exit2`.
+engine_case() {
+  ec_desc=$1 ec_rule=$2 ec_want=$3
+  shift 3
+  fresh_root "$root"
+  printf '%s\n' "$@" >"$root/scripts/a.sh"
+  run_rule "$ec_rule" "$root"
+  if [ "$ec_want" = exit2 ]; then
+    if [ "$rc" -eq 2 ]; then pass "$ec_desc"; else fail "$ec_desc (exit $rc): $out"; fi
+    return
+  fi
+  n=$(printf '%s\n' "$out" | grep -c "^check-$ec_rule: ")
+  case "$rc:$n:$out" in
+    1:1:*"scripts/a.sh:$ec_want: "*) pass "$ec_desc" ;;
+    *) fail "$ec_desc (exit $rc, $n reports, want line $ec_want): $out" ;;
+  esac
+}
+
+engine_case "a trailing reasonless annotation exempts nothing" shell-mktemp-template 1 \
+  'f=$(mktemp) || exit 2 # shell-mktemp-template:'
+engine_case "a backslash continuation is one logical line, reported at its start" shell-mktemp-template 1 \
+  'f=$(mktemp \' '  -d) || exit 2'
+engine_case "a <<- heredoc body is skipped up to its tab-indented end" shell-mktemp-template 5 \
+  'cat <<-EOF' '	mktemp' '	EOF' 'true' 'f=$(mktemp) || exit 2'
+engine_case "a CRLF file is read as its lines" shell-mktemp-template 2 \
+  $'true\r' $'f=$(mktemp) || exit 2\r'
+engine_case "an arithmetic shift is not a heredoc, so the lines after it are judged" shell-mktemp-template 2 \
+  'm=$((1 << 4))' 'f=$(mktemp) || exit 2'
+engine_case "\$'...' quoting with an escaped quote leaves the masker in step" shell-mktemp-template 2 \
+  "x=\$'it\\'s'" 'f=$(mktemp) || exit 2'
+engine_case "a quoted \${...} holding its own quotes across lines leaves the masker in step" shell-mktemp-template 3 \
+  'r="${v#*"' '$k"}"' 'f=$(mktemp) || exit 2'
+engine_case "a command word ended by ; takes no operands from the next command" shell-mktemp-template 1 \
+  'mktemp; echo x'
+engine_case "a subshell in a case body keeps its commands" shell-dash-operand 3 \
+  'case $x in' '  a)' '    (cd "$1" && make)' '    ;;' 'esac'
+engine_case "a trailing pipe continues the pipeline onto the next line" shell-pipe-status 3 \
+  'git log |' '  tail -n 1' 'rc=$?'
+engine_case "a heredoc never closed fails closed" shell-mktemp-template exit2 \
+  'cat <<EOF' 'body'
+engine_case "a quote never closed fails closed" shell-mktemp-template exit2 \
+  'x="open' 'true'
+
+fresh_root "$root"
+printf 'cd ${1}\033[2J\n' >"$root/scripts/a.sh"
+run_rule shell-dash-operand "$root"
+case "$rc:$out" in
+  *"$(printf '\033')"*) fail "a control byte from the scanned file reached the report" ;;
+  1:*) pass "a report quoting the scanned file is stripped of control bytes" ;;
+  *) fail "the control-byte case was not flagged (exit $rc): $out" ;;
+esac
+
+fresh_root "$root"
+printf '%s\n' 'true' >"$root/scripts/a.sh"
+ln -s /dev/null "$root/scripts/dev.sh"
+run_rule shell-mktemp-template "$root"
+if [ "$rc" -eq 2 ]; then
+  pass "a symlink to a device fails closed rather than being read"
+else
+  fail "a symlink to a device exited $rc: $out"
+fi
+
+fresh_root "$root"
+printf '%s\n' 'f=$(mktemp) || exit 2' >"$root/scripts/a.sh"
+mkdir -p "$tmp/back\\nslash" || exit 1
+out=$(TMPDIR="$tmp/back\\nslash" bash "$REPO_ROOT/scripts/check-shell-mktemp-template.sh" "$root" 2>&1)
+rc=$?
+case "$rc:$out" in
+  1:*"scripts/a.sh:1: "*) pass "a backslash in TMPDIR reaches the scanner as a literal path" ;;
+  *) fail "a backslash in TMPDIR broke the scan (exit $rc): $out" ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Rules the linter carries: shellcheck's own code on the fixture pair.

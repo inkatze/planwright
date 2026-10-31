@@ -26,7 +26,8 @@
 # suite fails that suite on the platform it breaks.
 
 # Exit codes: 0 clean, 1 an offense, 2 usage or a scan covering less than it
-# claims (an absent root or scope directory, an unreadable file, no files).
+# claims (an absent root or scope directory, an unreadable file, no files, a
+# file ending inside an open quote or heredoc).
 
 unset CDPATH
 
@@ -57,6 +58,8 @@ function xs(k,   r) {
 function push(c) { st = st c }
 function pop() { if (length(st) > 1) st = substr(st, 1, length(st) - 1) }
 function top() { return substr(st, length(st), 1) }
+# A quote (or a ${...} inside one) is open, so the logical line continues.
+function inquote(   t) { t = top(); return (t == "s" || t == "d" || t == "a" || t == "B") }
 # mask(s): one physical line through the quote/substitution state machine,
 # carrying st across lines. Sets cmt to the comment text (or "").
 function mask(s,   n, i, c, nx, out, t, j, d, q, hit) {
@@ -65,9 +68,11 @@ function mask(s,   n, i, c, nx, out, t, j, d, q, hit) {
     t = top()
     # Copy the run of ordinary characters up to the next one that can change
     # state in one step; per-character concatenation is quadratic in awk.
-    q = (t == "s" || t == "d")
+    q = (t == "s" || t == "d" || t == "a")
     if (t == "s") hit = match(substr(s, i), /\047/)
+    else if (t == "a") hit = match(substr(s, i), /[\\\047]/)
     else if (t == "d") hit = match(substr(s, i), /[\\"$`]/)
+    else if (t == "B") hit = match(substr(s, i), /[\\"$`}]/)
     else hit = match(substr(s, i), /[\\\047"#$()`]/)
     if (!hit) { out = out (q ? xs(n - i + 1) : substr(s, i)); break }
     if (RSTART > 1) { out = out (q ? xs(RSTART - 1) : substr(s, i, RSTART - 1)); i += RSTART - 1 }
@@ -76,19 +81,30 @@ function mask(s,   n, i, c, nx, out, t, j, d, q, hit) {
       if (c == "\047") { pop(); out = out c } else out = out "x"
       continue
     }
+    # $'...' (bash ANSI-C quoting): a backslash escapes the next character,
+    # a quote included, so it cannot share the plain single-quote state.
+    if (t == "a") {
+      if (c == "\\" && i < n) { out = out "xx"; i++; continue }
+      if (c == "\047") { pop(); out = out c } else out = out "x"
+      continue
+    }
+    # B: a ${...} inside double quotes, kept readable; it may hold quotes of its
+    # own and span lines ("${v#*"<newline>$x"}").
+    if (t == "B") {
+      if (c == "\\" && i < n) { out = out c nx; i++; continue }
+      if (c == "}") { pop(); out = out c; continue }
+      if (c == "\"") { push("d"); out = out c; continue }
+      if (c == "$" && nx == "(") { push("C"); out = out "$("; i++; continue }
+      if (c == "$" && nx == "{") { push("B"); out = out "${"; i++; continue }
+      if (c == "`") { push("b"); out = out c; continue }
+      out = out c; continue
+    }
     if (t == "d") {
       if (c == "\\" && i < n) { out = out "xx"; i++; continue }
       if (c == "\"") { pop(); out = out c; continue }
       if (c == "$" && nx == "(") { push("C"); out = out "$("; i++; continue }
       if (c == "`") { push("b"); out = out c; continue }
-      if (c == "$" && nx == "{") {
-        d = 0
-        for (j = i; j <= n; j++) {
-          if (substr(s, j, 1) == "{") d++
-          else if (substr(s, j, 1) == "}") { d--; if (d == 0) break }
-        }
-        out = out substr(s, i, j - i + 1); i = j; continue
-      }
+      if (c == "$" && nx == "{") { push("B"); out = out "${"; i++; continue }
       if (c == "$" && nx ~ /[0-9@*#?!$-]/) { out = out c nx; i++; continue }
       if (c == "$" && nx ~ /[A-Za-z_]/) {
         j = i + 1
@@ -105,6 +121,7 @@ function mask(s,   n, i, c, nx, out, t, j, d, q, hit) {
       while (length(out) < n) out = out " "
       return out
     }
+    if (c == "$" && nx == "\047") { push("a"); out = out "$\047"; i++; continue }
     if (c == "$" && nx == "(") { push("C"); out = out "$("; i++; continue }
     if (c == "(") { push("p"); out = out c; continue }
     if (c == ")") { if (t == "C" || t == "p") pop(); out = out c; continue }
@@ -122,9 +139,12 @@ function annotated(text,   re) {
 function report(lineno, msg) { print FILE "\t" lineno "\t" msg; found = 1 }
 function judge(lineno, code, ccmt, rawl,   msg, a, e) {
   RAW = rawl
-  if (casedepth > 0 && match(code, /^[ \t]*\(?[^()]*\)/)) {
+  # Only where a pattern can start: the line after `case ... in` or after a
+  # branch end. A body line opening a subshell keeps its commands.
+  if (casedepth > 0 && casepat && match(code, /^[ \t]*\(?[^()]*\)/)) {
     code = sprintf("%" RLENGTH "s", "") substr(code, RLENGTH + 1)
   }
+  casepat = (casedepth > 0 && code ~ /;;|;&/)
   # A [[ =~ ]] pattern is a regex, not commands: its | is alternation.
   while ((a = index(code, "=~")) > 0) {
     msg = substr(code, a + 2)
@@ -132,7 +152,7 @@ function judge(lineno, code, ccmt, rawl,   msg, a, e) {
     if (!e) e = length(msg) + 1
     code = substr(code, 1, a - 1) "  " xs(e - 1) substr(msg, e)
   }
-  if (code ~ /(^|[ \t;(])case[ \t]/ && code ~ /[ \t]in([ \t]|$)/) casedepth++
+  if (code ~ /(^|[ \t;(])case[ \t]/ && code ~ /[ \t]in([ \t]|$)/) { casedepth++; casepat = 1 }
   if (code ~ /(^|[ \t;])esac([ \t;)]|$)/ && casedepth > 0) casedepth--
   msg = rule_check(code, lineno)
   if (msg != "") {
@@ -145,7 +165,7 @@ function judge(lineno, code, ccmt, rawl,   msg, a, e) {
   prev_code = code
 }
 function scan(path,   line, r, code, body, pre, delim, dash, lg, lgc, lgcmt, lstart, fresh) {
-  FILE = path; st = "c"; heredoc = ""; above = ""; prev_code = ""; casedepth = 0
+  FILE = path; st = "c"; heredoc = ""; above = ""; prev_code = ""; casedepth = 0; casepat = 0
   lg = ""; lgc = ""; lgcmt = ""; lstart = 0; nr = 0
   rule_reset()
   while ((r = (getline line < path)) > 0) {
@@ -168,23 +188,35 @@ function scan(path,   line, r, code, body, pre, delim, dash, lg, lgc, lgcmt, lst
     if (match(code, /<<-?[ \t]*\\?[\047"]?[A-Za-z0-9_.+-]+/) && substr(code, RSTART, 3) != "<<<" && (RSTART == 1 || substr(code, RSTART - 1, 1) != "<")) {
       delim = substr(line, RSTART, RLENGTH)
       dash = (delim ~ /^<<-/)
-      sub(/^<<-?[ \t]*/, "", delim); sub(/^\\/, "", delim); sub(/^[\047"]/, "", delim)
-      heredoc = delim; heredoc_dash = dash
+      sub(/^<<-?[ \t]*/, "", delim)
+      # An unquoted number is an arithmetic shift ($((1 << 4))), not a
+      # heredoc; reading it as one would swallow the rest of the file.
+      if (delim !~ /^[0-9]+$/) {
+        sub(/^\\/, "", delim); sub(/^[\047"]/, "", delim)
+        heredoc = delim; heredoc_dash = dash
+      }
     }
-    if (top() == "s" || top() == "d") continue
+    if (inquote()) continue
     if (code ~ /\\$/ && heredoc == "") { sub(/\\$/, "", lgc); sub(/\\$/, "", lg); continue }
+    # A trailing pipe or list operator continues the command on the next line.
+    if (heredoc == "" && code ~ /(\||&&)[ \t]*$/) continue
     judge(lstart, lgc, lgcmt, lg)
     above = ""; lg = ""; lgc = ""; lgcmt = ""
   }
   close(path)
   if (r < 0) { print "!\t" path; return }
+  # A heredoc or quote still open at end of file means the tail went unjudged.
+  if (heredoc != "" || inquote()) { print "?\t" path; return }
   if (lg != "") judge(lstart, lgc, lgcmt, lg)
 }
 # Command-word position of name in code, or 0. Admits the separators, the
 # keywords and the wrappers that leave name as the command run, an assignment
 # prefix, a shell running it as a script (/bin/sh name), and a path prefix.
 function cmdword(code, name,   re) {
-  re = "(^|[;&|({!`]|\\$\\()[ \t]*((if|then|do|else|elif|while|until|time|command|exec|builtin|nohup|env|!|([^ \t;&|()]*/)?(ba)?sh)[ \t]+)*([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)*[\"]?([^ \t;&|()\"]*/)?" name "[\"]?([ \t;)|&]|$)"
+  # The regex below is the hot spot of every rule; a literal name absent from
+  # the line cannot match it.
+  if (name !~ /[\\(]/ && !index(code, name)) return 0
+  re ="(^|[;&|({!`]|\\$\\()[ \t]*((if|then|do|else|elif|while|until|time|command|exec|builtin|nohup|env|!|([^ \t;&|()]*/)?(ba)?sh)[ \t]+)*([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)*[\"]?([^ \t;&|()\"]*/)?" name "[\"]?([ \t;)|&]|$)"
   if (!match(code, re)) return 0
   CW_END = RSTART + RLENGTH
   return RSTART
@@ -192,6 +224,8 @@ function cmdword(code, name,   re) {
 # Operand words of the command whose word ended at CW_END: split on blanks up
 # to the first ; | & ) at this level, redirections dropped. Fills OPS[1..n].
 function operands(code,   rest, n, k, w, words, cnt, skipnext) {
+  # The command word ended the command (`mktemp; next`): it has no operands.
+  if (substr(code, CW_END - 1, 1) ~ /[;|&)]/) return 0
   rest = substr(code, CW_END - 1)
   sub(/^[\"]?[ \t;)|&]?/, "", rest)
   if (match(rest, /[;|&)]/)) rest = substr(rest, 1, RSTART - 1)
@@ -239,7 +273,7 @@ sr_main() {
   : >"$sr_work/all"
   for sr_dir in $SR_SCOPE_DIRS; do
     find -P "$sr_root/$sr_dir" \( -type f -o -type l \) -print0 >>"$sr_work/all" 2>"$sr_work/err" \
-      || sr_fail_closed "find failed under $sr_safe_root/$sr_dir"
+      || sr_fail_closed "find failed under $sr_safe_root/$sr_dir: $(sr_sanitize_printable "$(head -n 1 "$sr_work/err")" "(no message)")"
   done
   : >"$sr_work/list"
   sr_count=0
@@ -256,6 +290,9 @@ sr_main() {
     if [ -L "$sr_file" ] && [ -d "$sr_file" ]; then
       sr_fail_closed "symlinked directory in the scan scope, refusing to follow: $(sr_sanitize_printable "$sr_rel" "(unprintable filename)")"
     fi
+    if [ -L "$sr_file" ] && [ -e "$sr_file" ] && [ ! -f "$sr_file" ]; then
+      sr_fail_closed "symlink in the scan scope resolves to neither a file nor a directory, refusing to read it: $(sr_sanitize_printable "$sr_rel" "(unprintable filename)")"
+    fi
     [ -r "$sr_file" ] \
       || sr_fail_closed "cannot read $(sr_sanitize_printable "$sr_rel" "(unprintable filename)"), so the scan would cover less than it claims"
     sr_first=''
@@ -270,7 +307,8 @@ sr_main() {
   [ "$sr_count" -gt 0 ] \
     || sr_fail_closed "no shell files found under $SR_SCOPE_DIRS in $sr_safe_root, a broken enumeration rather than a clean tree"
 
-  RULE=$SR_RULE awk -v listfile="$sr_work/list" "BEGIN { RULE = ENVIRON[\"RULE\"] }
+  # Values reach awk through ENVIRON: -v would expand backslash escapes in a path.
+  RULE=$SR_RULE SR_LIST="$sr_work/list" awk "BEGIN { RULE = ENVIRON[\"RULE\"]; listfile = ENVIRON[\"SR_LIST\"] }
 $SR_AWK
 $SR_ENGINE" >"$sr_work/offenders" || sr_fail_closed "the scan could not complete"
 
@@ -279,8 +317,11 @@ $SR_ENGINE" >"$sr_work/offenders" || sr_fail_closed "the scan could not complete
     [ -n "$sr_file" ] || continue
     [ "$sr_file" != "!" ] \
       || sr_fail_closed "could not read $(sr_sanitize_printable "${sr_line#"$sr_root"/}" "(unprintable filename)") during the scan"
+    [ "$sr_file" != "?" ] \
+      || sr_fail_closed "$(sr_sanitize_printable "${sr_line#"$sr_root"/}" "(unprintable filename)") ends inside an open quote or heredoc, so the scan could not judge its tail"
     printf '%s: %s:%s: %s\n' "check-$SR_RULE" \
-      "$(sr_sanitize_printable "${sr_file#"$sr_root"/}" "(unprintable filename)")" "$sr_line" "$sr_msg" >&2
+      "$(sr_sanitize_printable "${sr_file#"$sr_root"/}" "(unprintable filename)")" "$sr_line" \
+      "$(sr_sanitize_printable "$sr_msg" "(unprintable message)")" >&2
     sr_status=1
   done <"$sr_work/offenders"
   [ "$sr_status" -ne 0 ] || printf '%s: clean (%s files)\n' "check-$SR_RULE" "$sr_count"
