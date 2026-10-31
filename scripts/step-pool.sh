@@ -382,7 +382,7 @@ screen() {
   if [ ! -L "$1" ] && [ ! -e "$1" ]; then
     [ "$2" = yes ] || return 1
     # Owner-only from the first instant, parents included.
-    (umask 077 && mkdir -p "$1") 2>/dev/null
+    (umask 077 && mkdir -p -- "$1") 2>/dev/null
   fi
   # The numeric owner is the one field ls prints alike on BSD and GNU.
   # shellcheck disable=SC2012

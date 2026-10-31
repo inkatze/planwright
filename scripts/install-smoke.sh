@@ -124,7 +124,7 @@ for t in $tools; do
   IFS=$ifs
 done
 [ $# -gt 0 ] || die 1 "no allowlisted tool is on PATH"
-ln -s "$@" "$allow/" || die 1 "cannot link the allowlist"
+ln -s -- "$@" "$allow/" || die 1 "cannot link the allowlist"
 [ -e "$allow/sh" ] || die 1 "no sh on PATH to build the allowlist from"
 [ -e "$allow/git" ] || die 1 "no git on PATH to build the allowlist from"
 

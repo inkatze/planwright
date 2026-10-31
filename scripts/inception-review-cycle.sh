@@ -750,7 +750,7 @@ redact_secrets() {
         next
       }
       { print }' "$1" >"$1.rd" || die 2 "cannot redact the harvested feedback; nothing was recorded"
-    mv "$1.rd" "$1" || die 2 "cannot redact the harvested feedback; nothing was recorded"
+    mv -- "$1.rd" "$1" || die 2 "cannot redact the harvested feedback; nothing was recorded"
   done
   if [ -s "$work/redacted" ]; then
     printf '%s\n' "inception-review-cycle: credential-shaped text was redacted at harvest from $(sort -u "$work/redacted" | grep '^FB-[0-9]*$' | tr '\n' ' ' | sed 's/ $//'); read the original on the review surface, and ask its author to remove it there" >&2

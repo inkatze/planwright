@@ -182,7 +182,7 @@ resolve_home() {
 private_child() {
   [ ! -L "$1" ] || die 4 "refusing to write a task brief: $1 is a symlink"
   # not-a-lock: a concurrent render creating the same directory is fine
-  [ -d "$1" ] || (umask 077 && mkdir "$1") 2>/dev/null || [ -d "$1" ] \
+  [ -d "$1" ] || (umask 077 && mkdir -- "$1") 2>/dev/null || [ -d "$1" ] \
     || die 4 "cannot create $1"
   private_dir "$1" || die 4 "refusing to write a task brief: $1 is not a directory owned by you that only you can write"
 }
@@ -192,14 +192,14 @@ private_child() {
 # a link planted at the name is replaced, never written through. Never call it
 # in a pipeline: its die must end the script, not a subshell.
 land() {
-  _ld_tmp=$(mktemp "$1/.$2.tmp.XXXXXX") || die 4 "cannot create a temp file in $1"
+  _ld_tmp=$(mktemp -- "$1/.$2.tmp.XXXXXX") || die 4 "cannot create a temp file in $1"
   if ! printf '%s\n' "$3" >"$_ld_tmp" || ! chmod 600 "$_ld_tmp"; then
     rm -f "$_ld_tmp"
     die 4 "cannot write $1/$2"
   fi
   # mv onto a symlink to a directory would move into that directory.
-  [ ! -L "$1/$2" ] || rm -f "$1/$2"
-  if [ -d "$1/$2" ] || ! mv -f "$_ld_tmp" "$1/$2"; then
+  [ ! -L "$1/$2" ] || rm -f -- "$1/$2"
+  if [ -d "$1/$2" ] || ! mv -f -- "$_ld_tmp" "$1/$2"; then
     rm -f "$_ld_tmp"
     die 4 "cannot land $1/$2"
   fi
@@ -319,7 +319,7 @@ take_lock() {
 # last, so a removal that stops partway leaves what the next retire finds it by.
 retire_unit() {
   find "$1" -mindepth 1 -maxdepth 1 ! -name checkout -exec rm -rf {} + 2>/dev/null </dev/null || return 1
-  rm -f "$1/checkout" 2>/dev/null && rmdir "$1" 2>/dev/null && [ ! -e "$1" ]
+  rm -f -- "$1/checkout" 2>/dev/null && rmdir -- "$1" 2>/dev/null && [ ! -e "$1" ]
 }
 
 do_retire() {

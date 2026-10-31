@@ -189,8 +189,8 @@ if env --default-signal=INT,QUIT true 2>/dev/null; then signals=--default-signal
 # A record may leave read-only files in its copy (a module cache, a chmod);
 # removal makes them writable first, and a cleanup failure is never a verdict.
 scrub() {
-  chmod -R u+w "$1" 2>/dev/null || true
-  rm -rf "$1" 2>/dev/null || true
+  chmod -R -- u+w "$1" 2>/dev/null || true
+  rm -rf -- "$1" 2>/dev/null || true
 }
 # reap <pid> — end what a record left running in its session, whose id is the
 # pid of the record's session leader: the session's members read from /proc

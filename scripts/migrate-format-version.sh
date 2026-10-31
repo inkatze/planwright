@@ -451,8 +451,8 @@ transform_header() {
 stage_write() {
   sw_tmp="$2.migrate.tmp"
   rm -f "$sw_tmp" || return 1
-  cp "$1" "$sw_tmp" || return 1
-  mv "$sw_tmp" "$2" || return 1
+  cp -- "$1" "$sw_tmp" || return 1
+  mv -- "$sw_tmp" "$2" || return 1
   return 0
 }
 

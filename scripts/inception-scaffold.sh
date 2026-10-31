@@ -146,7 +146,7 @@ emit() {
   fi
   mkdir -p "$(dirname "$dest")" || exit 2
   cp "$stage" "$dest" || exit 2
-  chmod "$2" "$dest" || exit 2
+  chmod -- "$2" "$dest" || exit 2
   printf 'wrote %s\n' "$1"
 }
 

@@ -218,7 +218,7 @@ set_fields() {
 bump_reviewed() {
   _today=$(today)
   awk -v d="$_today" '!done && /^\*\*Last reviewed:\*\*/ { print "**Last reviewed:** " d; done = 1; next } { print }' "$1" >"$1.bump" \
-    && mv "$1.bump" "$1"
+    && mv -- "$1.bump" "$1"
 }
 
 # load_task <T-n> — read the task block into t_* variables; refuse when the
@@ -474,7 +474,7 @@ apply_updates() {
         printf 'Status\t%s\nOutcome\t%s\n' "$_st" "$_val" >>"$work/pairs"
         ;;
     esac
-    if ! set_fields "$2/$_f" "$_id" "$work/pairs" "$2/$_f.new" || ! mv "$2/$_f.new" "$2/$_f"; then
+    if ! set_fields "$2/$_f" "$_id" "$work/pairs" "$2/$_f.new" || ! mv -- "$2/$_f.new" "$2/$_f"; then
       die 2 "cannot rewrite $_f"
     fi
     case " $_changed " in

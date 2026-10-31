@@ -109,7 +109,7 @@ recompute() {
     *"git hash-object"*)
       # The interim form is defined relative to the bundle, and its own
       # failure must not be masked by the pipeline's last command.
-      rc_files=$(cd "$1" \
+      rc_files=$(cd -- "$1" \
         && git hash-object requirements.md design.md tasks.md test-spec.md) || return 1
       printf '%s\n' "$rc_files" | git hash-object --stdin
       ;;

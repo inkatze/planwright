@@ -81,12 +81,12 @@ corpus_git() { corpus_git_env -C "$CORPUS_WORKTREE" "$@"; }
 
 corpus_sandbox() {
   local box main wt scratch outside col
-  mkdir -p "$1" || return 1
+  mkdir -p -- "$1" || return 1
   [ -z "$(ls -A "$1")" ] || {
     printf 'corpus: sandbox box is not empty: %s\n' "$1" >&2
     return 1
   }
-  box=$(cd -P "$1" && pwd -P) || return 1
+  box=$(cd -P -- "$1" && pwd -P) || return 1
   main=$box/main
   wt=$box/worktree
   scratch=$box/scratch

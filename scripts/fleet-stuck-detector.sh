@@ -656,7 +656,7 @@ git_ro() {
 # also accept for a fleet home that happens to live inside a checkout).
 is_git_toplevel() {
   igt_top=$(git_ro "$1" rev-parse --show-toplevel 2>/dev/null) || return 1
-  igt_dir=$(cd "$1" 2>/dev/null && pwd -P) || return 1
+  igt_dir=$(cd -- "$1" 2>/dev/null && pwd -P) || return 1
   [ "$igt_top" = "$igt_dir" ]
 }
 

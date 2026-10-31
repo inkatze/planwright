@@ -184,8 +184,8 @@ fleet_home() {
 # private_dir <dir> — create it owner-only; refuse a symbolic link.
 private_dir() {
   [ ! -L "$1" ] || die "refusing $(sanitize_printable "$1"): a symbolic link"
-  (umask 077 && mkdir -p "$1") 2>/dev/null || die "cannot create $(sanitize_printable "$1")"
-  chmod 700 "$1" 2>/dev/null || :
+  (umask 077 && mkdir -p -- "$1") 2>/dev/null || die "cannot create $(sanitize_printable "$1")"
+  chmod -- 700 "$1" 2>/dev/null || :
 }
 
 # row_get <file> <key> — print the value of <key> in a registry row.
@@ -273,7 +273,7 @@ row_write() {
     rm -f "$rw_tmp"
     return 1
   fi
-  mv -f "$rw_tmp" "$1" || {
+  mv -f -- "$rw_tmp" "$1" || {
     rm -f "$rw_tmp"
     return 1
   }

@@ -342,7 +342,7 @@ refuse_staged() { # refuse_staged <file>
 }
 publish() { # publish <file>
   format_line_ok "$(head -n 1 "$TMP" 2>/dev/null)" || refuse_staged "$1"
-  mv -f "$TMP" "$1" || refuse_staged "$1"
+  mv -f -- "$TMP" "$1" || refuse_staged "$1"
   TMP=''
 }
 

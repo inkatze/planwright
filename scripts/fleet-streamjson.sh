@@ -520,8 +520,8 @@ lock_drop() {
 # A rename has no such window: the file is absent or complete, and absent is
 # what every reader already handles.
 write_pidfile() {
-  wp_tmp=$(mktemp "${1%/*}/.pid.XXXXXX") || return 1
-  printf '%s\n' "$2" >"$wp_tmp" && mv "$wp_tmp" "$1" && return 0
+  wp_tmp=$(mktemp -- "${1%/*}/.pid.XXXXXX") || return 1
+  printf '%s\n' "$2" >"$wp_tmp" && mv -- "$wp_tmp" "$1" && return 0
   rm -f "$wp_tmp" 2>/dev/null || :
   return 1
 }
@@ -609,13 +609,13 @@ journal_append() {
 # journal_set_state <dir> <id> <state> <epoch> — rewrite the id's row
 # atomically (temp + rename; caller holds the lock).
 journal_set_state() {
-  js_tmp=$(mktemp "$1/.journal.XXXXXX") || return 2
+  js_tmp=$(mktemp -- "$1/.journal.XXXXXX") || return 2
   awk -F'\t' -v OFS='\t' -v id="$2" -v st="$3" -v ep="$4" \
     '$1 == id { $4 = st; $5 = ep } { print }' "$1/journal" >"$js_tmp" || {
     rm -f "$js_tmp"
     return 2
   }
-  mv "$js_tmp" "$1/journal"
+  mv -- "$js_tmp" "$1/journal"
 }
 
 # journal_oldest_pending <dir> — print `<id> <kind>` for the oldest pending
@@ -933,7 +933,7 @@ attention_sync() {
 # without confirming turns it into the shared mark, which the tick acts on
 # whoever raised it, since the writer (the supervisor, say) may well live on.
 attention_give_up() {
-  mv -f "$2" "$1/attention.dirty" 2>/dev/null || : >"$1/attention.dirty" 2>/dev/null || :
+  mv -f -- "$2" "$1/attention.dirty" 2>/dev/null || : >"$1/attention.dirty" 2>/dev/null || :
 }
 
 # attention_dirty <dir> — whether a re-sync mark is the tick's to act on: the
@@ -958,7 +958,7 @@ attention_dirty() {
 # attention_clear_marks <dir> [all] — remove the marks attention_dirty would
 # act on, or every mark when the worker is being closed.
 attention_clear_marks() {
-  rm -f "$1/attention.dirty" 2>/dev/null || :
+  rm -f -- "$1/attention.dirty" 2>/dev/null || :
   set +f
   for ac_f in "$1"/attention.dirty.*; do
     [ -L "$ac_f" ] || [ -f "$ac_f" ] || continue
@@ -1115,7 +1115,7 @@ receipt_record() {
 # is still the only copy of the request.
 receipt_quarantine() {
   [ -n "${1:-}" ] || return 0
-  mv -f "$1" "${1%/*}/undrained-${1##*/deferred-}" 2>/dev/null || :
+  mv -f -- "$1" "${1%/*}/undrained-${1##*/deferred-}" 2>/dev/null || :
 }
 
 # receipt_requeue <dir> — put set-aside spools back where the drain looks, once:
@@ -1126,7 +1126,7 @@ receipt_requeue() {
     [ -f "$rq_f" ] && [ ! -L "$rq_f" ] || continue
     rq_id=${rq_f##*/undrained-}
     valid_reqid "$rq_id" || continue
-    [ -e "$1/deferred-$rq_id" ] || mv -f "$rq_f" "$1/deferred-$rq_id" 2>/dev/null || :
+    [ -e "$1/deferred-$rq_id" ] || mv -f -- "$rq_f" "$1/deferred-$rq_id" 2>/dev/null || :
   done
   set -f
 }
@@ -1141,8 +1141,8 @@ receipt_defer() {
   if [ -L "$1/deferred-$2" ] || { [ -e "$1/deferred-$2" ] && [ ! -f "$1/deferred-$2" ]; }; then
     return 1
   fi
-  rf_tmp=$(mktemp "$1/.deferred.XXXXXX") || return 1
-  if printf '%s\n%s\n' "$3" "$4" >"$rf_tmp" && mv "$rf_tmp" "$1/deferred-$2"; then
+  rf_tmp=$(mktemp -- "$1/.deferred.XXXXXX") || return 1
+  if printf '%s\n%s\n' "$3" "$4" >"$rf_tmp" && mv -- "$rf_tmp" "$1/deferred-$2"; then
     return 0
   fi
   rm -f "$rf_tmp" 2>/dev/null || :
@@ -1706,7 +1706,7 @@ stop_match() {
 # which is why the trailing `|| :` on that line does not make it non-fatal.
 stop_process_closed() {
   for spc_f in $stop_pidfiles; do
-    rm -rf "${1:?}/$spc_f" 2>/dev/null || :
+    rm -rf -- "${1:?}/$spc_f" 2>/dev/null || :
   done
 }
 
@@ -1839,14 +1839,14 @@ journal_close() {
   esac
   journal_lock "$1" || return 1
   jc_now=$(now_epoch) || jc_now=0
-  jc_tmp=$(mktemp "$1/.journal.XXXXXX") || {
+  jc_tmp=$(mktemp -- "$1/.journal.XXXXXX") || {
     journal_unlock "$1"
     return 1
   }
   jc_rc=0
   awk -F'\t' -v OFS='\t' -v ep="$jc_now" \
     '$4 == "pending" { $4 = "undeliverable"; $5 = ep } { print }' "$1/journal" >"$jc_tmp" \
-    && mv "$jc_tmp" "$1/journal" || jc_rc=1
+    && mv -- "$jc_tmp" "$1/journal" || jc_rc=1
   [ "$jc_rc" = 0 ] || rm -f "$jc_tmp" 2>/dev/null
   journal_unlock "$1"
   return "$jc_rc"

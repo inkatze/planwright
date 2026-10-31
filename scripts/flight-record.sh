@@ -567,7 +567,7 @@ redact() {
     REDACTED=$((_flags % 2))
     REDACTED_PERSONAL=$((_flags / 2))
   else
-    cp "$work/$1.clean" "$2" || die 4 "cannot copy --$1"
+    cp -- "$work/$1.clean" "$2" || die 4 "cannot copy --$1"
   fi
 }
 

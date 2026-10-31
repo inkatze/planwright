@@ -4079,7 +4079,7 @@ put_file() {
     err "cannot write $(sanitize_printable "$1" "(unprintable path)")"
     return 1
   }
-  mv -f "$PENDING_TMP" "$1" 2>/dev/null || {
+  mv -f -- "$PENDING_TMP" "$1" 2>/dev/null || {
     err "cannot replace $(sanitize_printable "$1" "(unprintable path)")"
     return 1
   }

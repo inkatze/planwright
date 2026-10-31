@@ -701,7 +701,7 @@ _pw_lock_displace() {
   # and the prompt reads stdin: a caller that inherited a terminal would stop
   # here, inside the step this whole family serializes on, with the question
   # itself swallowed by the redirect above it.
-  if mv -f "$1" "$_pw_lock_displaced" 2>/dev/null; then
+  if mv -f -- "$1" "$_pw_lock_displaced" 2>/dev/null; then
     # A RENAME THAT SUCCEEDED HAS NOT NECESSARILY DISPLACED ANYTHING. `mv src
     # dir` files the source INSIDE the directory and exits 0, the same
     # semantics the create is already guarded against. The derivation hands out
@@ -778,7 +778,7 @@ _pw_lock_link() {
   # almost never true is the whole cost.
   if [ -d "$2" ]; then
     _pwl_stray=${1##*/}
-    [ -z "$_pwl_stray" ] || rm -f "$2/$_pwl_stray" 2>/dev/null || :
+    [ -z "$_pwl_stray" ] || rm -f -- "$2/$_pwl_stray" 2>/dev/null || :
   fi
   return 1
 }
@@ -1371,18 +1371,18 @@ pw_lock_break_force() {
   _pw_lock_path_ok pw_lock_break_force "${1:-}" || return 2
   _pw_lock_sweep_claims "$1"
   if [ -L "$1" ]; then
-    rm -f "$1" 2>/dev/null || return 2
+    rm -f -- "$1" 2>/dev/null || return 2
     return 0
   fi
   if [ -d "$1" ]; then
-    rm -rf "$1" 2>/dev/null || return 2
+    rm -rf -- "$1" 2>/dev/null || return 2
     return 0
   fi
   # A regular file at a lock path is not a lock either, and an acquire refuses
   # to take the path over it. If the escape hatch refused it too, nothing in
   # the tree could clear it.
   if [ -e "$1" ]; then
-    rm -f "$1" 2>/dev/null || return 2
+    rm -f -- "$1" 2>/dev/null || return 2
   fi
   return 0
 }

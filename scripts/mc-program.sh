@@ -535,7 +535,7 @@ field_sources() { with_default "$1" sources mission_control_default_sources pars
 
 # common_dir <dir>: the canonical git common directory of <dir>, or nothing.
 common_dir() {
-  (cd "$1" 2>/dev/null && d=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+  (cd -- "$1" 2>/dev/null && d=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
     -u GIT_OBJECT_DIRECTORY -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT \
     git rev-parse --git-common-dir 2>/dev/null) && cd "$d" 2>/dev/null && pwd -P)
 }

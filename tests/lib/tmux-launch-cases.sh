@@ -111,7 +111,7 @@ calls_matching() {
 #   no-socket    has-session answers as tmux does when no socket exists
 # shellcheck disable=SC2016 # the printed lines expand in the written shim
 tmux_shim() {
-  mkdir -p "$1"
+  mkdir -p -- "$1"
   case $2 in
     hang-probe) printf '[ "$1" = has-session ] && exec sleep 600\n' ;;
     hang-new) printf '[ "$1" = new-session ] && exec sleep 600\n' ;;
@@ -130,7 +130,7 @@ tmux_shim() {
     cat "$1/tmux.body"
     printf 'exec %s "$@"\n' "'$TLH_BIN/tmux'"
   } >"$1/tmux"
-  chmod +x "$1/tmux"
+  chmod -- +x "$1/tmux"
 }
 
 registry_col() {

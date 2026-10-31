@@ -314,8 +314,8 @@ mc_quote() {
 # mc_write <file>: stdin to <file> through a sibling temporary and a rename,
 # so a reader sees the old file or the new one, never a torn one.
 mc_write() {
-  mw_tmp=$(mktemp "$1.XXXXXX") || return 1
-  if cat >"$mw_tmp" && mv -f "$mw_tmp" "$1"; then
+  mw_tmp=$(mktemp -- "$1.XXXXXX") || return 1
+  if cat >"$mw_tmp" && mv -f -- "$mw_tmp" "$1"; then
     return 0
   fi
   rm -f "$mw_tmp"
@@ -500,7 +500,7 @@ mc_store_init() {
   if [ -e "$1" ]; then
     mc_store_ok "$1" || mc_fail "the store has a missing or unknown format: $1"
   else
-    mkdir -p "${1%/*}" || mc_fail "cannot create ${1%/*}"
+    mkdir -p -- "${1%/*}" || mc_fail "cannot create ${1%/*}"
     printf '# format: 1\n' >"$1" || mc_fail "cannot create $1"
   fi
 }

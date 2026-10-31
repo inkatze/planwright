@@ -1217,7 +1217,7 @@ spec_dir() {
   check_dir_arg "$1" "the spec directory"
   [ ! -L "$1" ] || die 1 "the spec directory is a symbolic link; name the directory itself"
   [ -d "$1" ] || die 1 "no spec directory at $(sanitize_printable "$1" '?')"
-  (cd -P "$1" && pwd -P) || die 2 "cannot enter the spec directory"
+  (cd -P -- "$1" && pwd -P) || die 2 "cannot enter the spec directory"
 }
 
 cmd_link() {

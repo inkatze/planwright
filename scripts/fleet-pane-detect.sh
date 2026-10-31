@@ -434,7 +434,7 @@ state_dir_trusted() {
     '' | *[!0-9]*) return 1 ;;
   esac
   [ "$sdt_owner" = "$sdt_self" ] || return 1
-  chmod 0700 "$1" 2>/dev/null || return 1
+  chmod -- 0700 "$1" 2>/dev/null || return 1
   return 0
 }
 

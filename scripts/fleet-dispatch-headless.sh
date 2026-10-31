@@ -1090,9 +1090,9 @@ stop_process_closed() {
   [ "$stop_signalled" = 1 ] || return 0
   [ "$(stop_marker "$1")" = "$t_launched" ] || return 0
   [ ! -e "$1/exit" ] && [ ! -e "$1/finish-error" ] || return 0
-  if spc_tmp=$(mktemp "$1/.exit.XXXXXX") \
+  if spc_tmp=$(mktemp -- "$1/.exit.XXXXXX") \
     && printf '143 %s\n' "$(date +%s)" >"$spc_tmp" \
-    && mv -f "$spc_tmp" "$1/exit"; then
+    && mv -f -- "$spc_tmp" "$1/exit"; then
     return 0
   fi
   [ -z "${spc_tmp:-}" ] || rm -f "$spc_tmp" 2>/dev/null

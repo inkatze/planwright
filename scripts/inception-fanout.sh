@@ -320,7 +320,7 @@ refuse_existing() {
 # make_dir <dir> <what>: create on first use; a racing creator is not an error.
 make_dir() {
   # not-a-lock: creates an output directory on first use
-  mkdir "$1" 2>/dev/null || [ -d "$1" ] || die 2 "cannot create $2"
+  mkdir -- "$1" 2>/dev/null || [ -d "$1" ] || die 2 "cannot create $2"
   [ ! -h "$1" ] || die 2 "$2 is a symbolic link; refusing to follow it"
 }
 
