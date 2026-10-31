@@ -47,7 +47,39 @@ function has_pipe(s,   n, k, stages, st1) {
   }
   return 0
 }
-function rule_check(code, lineno,   head, p, last, closer) {
+# last_case_arm(body): the body of the last arm of a case statement. The last
+# arm follows the last ;; or ;& (or the "in" of the header), and its pattern
+# ends at the first ) after that: a cut to the last ) would run through a
+# $(...) in the arm body.
+function last_case_arm(body) {
+  sub(/[ \t;&]*$/, "", body)
+  while (match(body, /;;|;&/)) body = substr(body, RSTART + RLENGTH)
+  if (match(body, /(^|[ \t;&|(])case[ \t]/)) {
+    body = substr(body, RSTART + RLENGTH)
+    if (match(body, /[ \t]in([ \t]|$)/)) body = substr(body, RSTART + RLENGTH)
+  }
+  sub(/^[ \t]*\(?[^()]*\)/, "", body)
+  return body
+}
+# last_stmt(line): the statement whose status a $? on the next line reads. A
+# compound command closing on the line returns the status of the last
+# statement of its body: cut the closer (and, for esac, through the arm), then
+# take only that statement. A closer alone on its line leaves nothing.
+function last_stmt(line,   last, closer) {
+  last = line
+  sub(/[ \t;]*$/, "", last)
+  sub(/^.*;/, "", last)
+  if (!match(last, /^[ \t]*(\}|fi|done|esac|\))[ \t]*$/)) return last
+  closer = last
+  gsub(/[ \t]/, "", closer)
+  last = line
+  sub(/[ \t;]*(\}|fi|done|esac|\))[ \t]*$/, "", last)
+  if (closer == "esac") last = last_case_arm(last)
+  sub(/[ \t;]*$/, "", last)
+  sub(/^.*;/, "", last)
+  return last
+}
+function rule_check(code, lineno,   head, p, last) {
   if (code ~ /-[A-Za-z]*o[ \t]+pipefail/) pipefail = 1
   if (code ~ /\+[A-Za-z]*o[ \t]+pipefail/) pipefail = 0
   if (pipefail || code ~ /PIPESTATUS/) return ""
@@ -62,33 +94,7 @@ function rule_check(code, lineno,   head, p, last, closer) {
     return ""
   }
   if (head ~ /(&&|\|\|)/) return ""
-  # Only the last statement of the line above sets $?.
-  last = prev_code
-  sub(/[ \t;]*$/, "", last)
-  sub(/^.*;/, "", last)
-  # A compound command closing on that line returns the status of the last
-  # statement of its body: cut the closer (and, for esac, through the arm),
-  # then judge only that statement. A closer alone on its line leaves nothing.
-  if (match(last, /^[ \t]*(\}|fi|done|esac|\))[ \t]*$/)) {
-    closer = last
-    gsub(/[ \t]/, "", closer)
-    last = prev_code
-    sub(/[ \t;]*(\}|fi|done|esac|\))[ \t]*$/, "", last)
-    if (closer == "esac") {
-      # The last arm follows the last ;; or ;& (or the "in" of the header), and
-      # its pattern ends at the first ) after that: a cut to the last ) would
-      # run through a $(...) in the arm body.
-      sub(/[ \t;&]*$/, "", last)
-      while (match(last, /;;|;&/)) last = substr(last, RSTART + RLENGTH)
-      if (match(last, /(^|[ \t;&|(])case[ \t]/)) {
-        last = substr(last, RSTART + RLENGTH)
-        if (match(last, /[ \t]in([ \t]|$)/)) last = substr(last, RSTART + RLENGTH)
-      }
-      sub(/^[ \t]*\(?[^()]*\)/, "", last)
-    }
-    sub(/[ \t;]*$/, "", last)
-    sub(/^.*;/, "", last)
-  }
+  last = last_stmt(prev_code)
   if (last != "" && has_pipe(last)) return "$? is read after the pipeline on the line above, so it holds the last stage status"
   return ""
 }

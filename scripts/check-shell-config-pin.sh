@@ -32,15 +32,18 @@ function rule_reset() { split("", CG_VARS); pinned = 0; self = (FILE ~ /(^|\/)co
 function pinned_line(code) { return (code ~ /PLANWRIGHT_REPO_ROOT=/ || cmdword(code, "cd")) }
 # A literal config-get.sh in RAW counts only where the code view shows the
 # word unmasked at a command-word position, never inside a quoted message.
-function literal_call(code,   s, p, w, pre) {
+# s is the unscanned tail of RAW, so length(RAW) - length(s) is how far the
+# scan has advanced, which maps a position in s onto RAW and code alike.
+function literal_call(code,   lit, s, p, w, pre) {
+  lit = "config-get.sh"
   s = RAW
-  while ((p = index(s, "config-get.sh")) > 0) {
+  while ((p = index(s, lit)) > 0) {
     w = p
     while (w > 1 && substr(s, w - 1, 1) !~ /[ \t;&|()`]/) w--
     pre = substr(code, 1, length(RAW) - length(s) + w - 1)
     if (substr(s, w, p - w) !~ /=/ && substr(code, length(pre) + 1, 1) == substr(RAW, length(pre) + 1, 1) \
       && pre ~ (cw_prefix() "$")) return 1
-    s = substr(s, p + 13)
+    s = substr(s, p + length(lit))
   }
   return 0
 }
