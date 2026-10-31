@@ -50,7 +50,8 @@
 #       [--log-dir <dir>]
 #
 #   --timeout  per record, default 600, applied when timeout(1) exists; a
-#              timed-out command reports exit 124, or 137 when it ignored the
+#              timed-out command reports exit 124 (143 under busybox timeout,
+#              which reports the TERM it sent), or 137 when it ignored the
 #              signal and was killed 10 seconds later
 #
 # Exit codes: 0 every fix held (or no records); 1 one or more regressed; 2

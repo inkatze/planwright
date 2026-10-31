@@ -343,7 +343,10 @@ assert_contains "the log holds the record's output" "logged-output" "$(cat "$T/l
 if command -v timeout >/dev/null 2>&1; then
   printf 'review-repro 1\nfinding slow\nkind test\nrun sleep 5\nexit 0\n' >"$T/slow.txt"
   out=$(rv --records "$T/slow.txt" --timeout 1 2>&1)
-  assert_contains "a timed-out record reports 124" "regressed	slow	test	exit 124, expected 0" "$out"
+  # busybox timeout reports the TERM it sent, where GNU's reports 124.
+  code=124
+  if timeout --help 2>&1 | grep -q BusyBox; then code=143; fi
+  assert_contains "a timed-out record reports $code" "regressed	slow	test	exit $code, expected 0" "$out"
 fi
 
 out=$(rv --records "$REC" --timeout 00 2>&1)

@@ -97,9 +97,9 @@ mise run check      # the full local equivalent of the CI gate
   where it describes sessions that launcher created before the change, the
   prior launcher), since the tmux rung launches its worker in a detached
   session of its own;
-- the CI posture guards: the fork-PR workflow-posture check, the transitive
-  CI-eval exclusion over the workflows and the task graph, and the
-  glob-allow-rule discipline check;
+- the CI posture guards: the fork-PR and platform-matrix workflow-posture
+  check, the transitive CI-eval exclusion over the workflows and the task
+  graph, and the glob-allow-rule discipline check;
 - the house-pattern checks: `unset CDPATH` before a `cd` in command
   substitution, printf over echo for any expanded value in a file whose
   shebang does not name bash or that turns on bash's `xpg_echo` (an `echo`
@@ -134,10 +134,16 @@ pull request, split across parallel jobs: a `lint` job runs `check:non-test`,
 three `test` jobs each run a shard of the suite (`scripts/run-tests.sh
 --shard <i>/3`), and the `check` job, the status branch protection reads,
 passes only when they all do and the test-time budget gate passes over the
-three shards' timing reports together. It also runs two checks outside
-`mise run check`: the awk-sensitive suites on macOS, and a parse of every
-tracked shell file (outside `tests/fixtures/bash32/`) under the real bash 3.2,
-a step of the `lint` job in Docker's official `bash:3.2` image pinned by
+three shards' timing reports together. Beside them, the `macos-suite` and
+`alpine-suite` jobs run the full suite on macOS (the system bash 3.2 and BSD
+userland) and in an Alpine container (musl, dash, busybox) on every pull
+request; they are statuses of their own, which `check` does not join. The
+install smoke (`scripts/install-smoke.sh`, installing through both delivery
+modes and running an adopter entry point with PATH narrowed to the allowlist
+the script defines: sh and bash with the POSIX utilities, `mktemp`, git, and
+gh) runs in the `lint` job and in both platform jobs. CI also runs a parse
+of every tracked shell file (outside `tests/fixtures/bash32/`) under the real
+bash 3.2, a step of the `lint` job in Docker's official `bash:3.2` image pinned by
 digest in `.github/workflows/ci.yml`. To reproduce the parse, set
 `BASH32_IMAGE` to that job's `env` value and run the step's `run:` block,
 the `git ls-files` pipe included; to refresh the image, edit only that
