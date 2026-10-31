@@ -253,6 +253,9 @@ put "$r" specs/partial/design.md "# Design" "" "**Status:** Ready" "" \
   "The decision has three parts:" "" "- one" "- two"
 out=$(check "$r")
 assert "a Ready bundle without requirements.md is still skipped" 0 $?
+printf '%s\n' "# Tasks" "" "**Status:** Draft" >"$r/specs/partial/tasks.md"
+out=$(check "$r")
+assert "an untracked sibling does not put a bundle in scope" 0 $?
 
 # The guard never reads stdin: a caller's input stays unread.
 r="$tmp/stdin"

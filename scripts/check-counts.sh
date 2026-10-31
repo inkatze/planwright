@@ -117,10 +117,11 @@ lines=$(tr '\000' '\n' <"$work/tracked" | wc -l) || fail_closed "the file list c
 [ "$nuls" -eq "$lines" ] || fail_closed "a tracked name holds a newline, refusing to scan"
 
 # A bundle is in scope only at Draft; the status is read once per bundle.
-tr '\0' '\n' <"$work/tracked" | awk '
+tr '\0' '\n' <"$work/tracked" >"$work/names" || fail_closed "the file list could not be read"
+awk '
   /\.md$/ && /^(doctrine|skills|docs|specs\/_pending)\// { print; next }
   /\.md$/ && /^specs\/[^_\/][^\/]*\// { b = $0; sub(/^specs\//, "", b); sub(/\/.*/, "", b); print "B\t" b "\t" $0 }
-' >"$work/candidates" || fail_closed "the file list could not be built"
+' <"$work/names" >"$work/candidates" || fail_closed "the file list could not be built"
 
 : >"$work/list"
 while IFS= read -r line; do
@@ -140,6 +141,7 @@ while IFS= read -r line; do
         else
           # Absent requirements.md: a sibling at Draft keeps the bundle in scope.
           for sib in design.md tasks.md test-spec.md; do
+            grep -Fqx "specs/$b/$sib" "$work/names" || continue
             sib=$root/specs/$b/$sib
             [ -e "$sib" ] || [ -L "$sib" ] || continue
             [ ! -L "$sib" ] || fail_closed "a bundle's status file is a symlink, refusing to follow it"
