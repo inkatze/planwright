@@ -1,0 +1,6 @@
+# expect-line: 5
+# The producer's failure is hidden behind tail.
+set -u
+git log --oneline | tail -n 1
+rc=$?
+exit "$rc"

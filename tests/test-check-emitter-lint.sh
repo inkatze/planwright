@@ -1,0 +1,111 @@
+#!/bin/bash
+# Tests for the emitter-output-lint guard (review-effectiveness REQ-F1.2):
+# scripts/check-emitter-lint.sh over the fixture roots under
+# tests/fixtures/emitter-lint/, the lint helper tests/lib/emitter-lint.sh on a
+# clean and a defective artifact per format, the catalog entry, and the gate
+# wiring. The helper is called through a variable format here so the guard
+# never reads these calls as linting a real emitter.
+# shellcheck disable=SC2016 # fixture bodies are literal shell text
+set -u
+unset CDPATH
+LC_ALL=C
+export LC_ALL
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+CHECK="$REPO_ROOT/scripts/check-emitter-lint.sh"
+FIX="$REPO_ROOT/tests/fixtures/emitter-lint"
+
+failures=0
+pass() { printf 'ok: %s\n' "$1"; }
+fail() {
+  printf 'FAIL: %s\n' "$1" >&2
+  failures=$((failures + 1))
+}
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-check-emitter-lint.XXXXXX") || exit 1
+trap 'rm -rf "$tmp"' EXIT
+
+# expect <label> <root> <exit> <substring>
+expect() {
+  out=$(/bin/sh "$CHECK" "$2" 2>&1)
+  rc=$?
+  if [ "$rc" -ne "$3" ]; then
+    fail "$1: exit $rc, not $3: $out"
+    return
+  fi
+  case "$out" in
+    *"$4"*) pass "$1" ;;
+    *) fail "$1: output did not mention '$4': $out" ;;
+  esac
+}
+
+expect "every declared format linted is clean" "$FIX/clean" 0 "clean (2 declared"
+expect "a declared format no test lints fails" "$FIX/unlinted" 1 "emits yaml, but no test lints it"
+expect "a lint of an undeclared emitter fails" "$FIX/undeclared" 1 "lints markdown output of other.sh"
+expect "an unknown declared format fails" "$FIX/unknown" 1 "declares an unknown format"
+expect "no declared emitter fails closed" "$FIX/none" 2 "a broken scan"
+expect "a root without scripts/ fails closed" "$tmp" 2 "no scripts/ and tests/"
+expect "this repository's emitters are each linted" "$REPO_ROOT" 0 "each linted"
+
+# The helper itself: each format passes a clean artifact and fails a defect.
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
+# lint_case <format> <label> <want-status> <content> [<dialect>]
+lint_case() {
+  printf '%s\n' "$4" >"$tmp/artifact"
+  lint_emitted "$1" fixture "$tmp/artifact" ${5:+"$5"} >"$tmp/lint.out" 2>&1
+  got=$?
+  if grep -q '^skip:' "$tmp/lint.out"; then
+    printf '%s\n' "skip: $2: $(cat "$tmp/lint.out")"
+  elif [ "$got" -eq "$3" ]; then
+    pass "$2"
+  else
+    fail "$2: status $got, not $3: $(cat "$tmp/lint.out")"
+  fi
+}
+md=markdown
+yml=yaml
+sh_=shell
+lint_case "$md" "a clean Markdown fragment passes" 0 "$(printf 'Some text.\n\n| a | b |\n| --- | --- |\n| 1 | 2 |')"
+lint_case "$md" "a Markdown heading without its blank line fails" 1 "$(printf '## Heading\ntext right below')"
+lint_case "$md" "a details/summary collapse is allowed in a fragment" 0 "$(printf 'Text.\n\n<details>\n<summary>More</summary>\n\nBody.\n\n</details>')"
+lint_case "$md" "other inline HTML still fails" 1 "$(printf 'Text with <span>html</span>.')"
+lint_case "$md" "a list straight under a line fails under the baseline" 1 "$(printf '**Label:**\n- item')"
+lint_case "$md" "the spec dialect takes the spec bundle relaxation" 0 "$(printf '# T\n\n**Label:**\n- item')" spec
+lint_case "$md" "the spec dialect keeps the structural rules" 1 "$(printf '# T\n\n### Skipped level')" spec
+lint_case "$yml" "clean YAML passes" 0 "$(printf 'key: value\nlist:\n  - one\n')"
+lint_case "$yml" "YAML with a duplicate key fails" 1 "$(printf 'key: a\nkey: b\n')"
+lint_case "$sh_" "a clean shell script passes" 0 "$(printf '#!/bin/sh\nprintf "%%s\\\\n" "$1"\n')"
+lint_case "$sh_" "a shell script that does not parse fails" 1 "$(printf '#!/bin/sh\nif true; then\n')"
+lint_case "$sh_" "an unquoted expansion fails shellcheck" 1 "$(printf '#!/bin/sh\nrm $1\n')"
+lint_case "$sh_" "a bash-only construct under the sh dialect fails" 1 "$(printf 'a=(1 2)\nprintf "%%s\\\\n" "${a[0]}"\n')" sh
+bogus=nonsense
+if lint_emitted "$bogus" fixture "$tmp/artifact" 2>/dev/null; then
+  fail "an unknown format was accepted"
+else
+  pass "an unknown format is refused"
+fi
+
+# Catalog and wiring.
+if awk '/^  - id:/ { on = ($3 == "emitter-output-lint") } on && /^    disposition:/ { f = 1 } END { exit !f }' \
+  "$REPO_ROOT/config/guard-catalog.yaml"; then
+  pass "the guard catalog names emitter-output-lint with a disposition"
+else
+  fail "the guard catalog has no emitter-output-lint entry with a disposition"
+fi
+if grep -q '`emitter-output-lint`' "$REPO_ROOT/doctrine/guard-catalog.md"; then
+  pass "doctrine/guard-catalog.md names the guard"
+else
+  fail "doctrine/guard-catalog.md does not name the guard"
+fi
+if grep -q '^\[tasks\."check:emitter-lint"\]' "$REPO_ROOT/mise.toml" && grep -q '^  "check:emitter-lint",$' "$REPO_ROOT/mise.toml"; then
+  pass "check:emitter-lint is a task inside the check aggregate"
+else
+  fail "check:emitter-lint is not a task inside the check aggregate"
+fi
+
+if [ "$failures" -gt 0 ]; then
+  printf '%s failure(s)\n' "$failures" >&2
+  exit 1
+fi
+printf '%s\n' "all check-emitter-lint tests passed"

@@ -1,0 +1,15 @@
+# expect-line: none
+# Portable forms, masked look-alikes, and an annotated fallback.
+set -u
+sed -i.bak 's/a/b/' "$0.copy" || :
+sort -t: -k2 "$0" >/dev/null
+date -u +%Y
+printf '%s\n' "readlink -f is GNU-only" >&2
+grep -E 'timeout|sort -V' "$0" >/dev/null
+case "$1" in
+  timeout | gtimeout) printf '%s\n' wrapper ;;
+esac
+# stat -c is the GNU spelling
+m=$(stat -c %Y "$0" 2>/dev/null || stat -f %m "$0") # shell-gnu-only-flag: BSD fallback on the same line
+printf '%s\n' "$m"
+if [[ $1 =~ ^(env|timeout|xargs)$ ]]; then printf '%s\n' wrapper; fi

@@ -67,6 +67,8 @@ consuming script. Each entry is one mapping with scalar fields:
   literal `manual` never auto-fires (used by advisory breadth entries).
 - **`core`** — `true` for the universal core catalog; absent or `false` for
   advisory breadth dimensions.
+- **`disposition`** (optional) — the [finding category](finding-categorization.md)
+  a raised finding takes.
 
 ### Supported format
 
@@ -187,7 +189,9 @@ on a missing report or an unlisted test file. planwright's instance is
 check that flags a `$(cd ...)` in any shell file with no top-level `unset
 CDPATH`, enumerating by shebang or suffix and failing closed on zero files:
 the convention holds only while a check holds it, since a harness that
-unsets `CDPATH` masks the regression. planwright's is `check:cdpath`.
+unsets `CDPATH` masks the regression. planwright's is `check:cdpath`. The
+`shell-*` entries and `emitter-output-lint` are guards of the same shape,
+each its own `check:` task here.
 
 ## Extension
 
@@ -254,15 +258,10 @@ shell-and-docs stack has none. `tests/test-builder-guards.sh` asserts this
 reproduction on every CI run, grounded in planwright's actual wiring rather
 than a hard-coded list, so removing a guard from the repo breaks the dogfood.
 
-The dogfood reproduces the *universal core*. planwright also runs
-project-bespoke guards, including the spec validator, the doctrine link, index,
-options-reference and backend-capability tethers, the permission-matcher
-fixture, the git-hook backstop and its wiring check, the purged-identifier,
-workflow-posture and CI-eval-exclusion guards, the test-time budget, the
-CDPATH and echo-discipline house patterns, and the task-registration check that
-keeps every `check:`/`lint:`/`scan:` task inside `check` — which are project
-instances, not the universal core the builder reproduces for every adopter
-(pinned-action freshness is catalogued but not yet run here).
+The dogfood reproduces the *universal core*. The project-bespoke guards
+`mise.toml`'s `check` aggregate runs beyond it are project instances, not the
+universal core the builder reproduces for every adopter (pinned-action
+freshness is catalogued but not yet run here).
 Scoping the dogfood to the core (declared here per the proportionality rule)
 keeps the guarantee honest: the builder reproduces what is universal, and the
 project's own extensions stay the project's.

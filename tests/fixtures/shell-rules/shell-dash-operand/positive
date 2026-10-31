@@ -1,0 +1,4 @@
+# expect-line: 4
+# A caller's directory handed to mkdir with no end of options.
+set -u
+mkdir -p "$1/out" || exit 2

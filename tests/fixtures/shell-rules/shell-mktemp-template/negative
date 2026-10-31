@@ -1,0 +1,19 @@
+# expect-line: none
+# The house form, plus masked look-alikes: a quoted message, a comment, a
+# heredoc body, an awk program, an annotated site and a variable template.
+set -u
+work="$(mktemp -d "${TMPDIR:-/tmp}/case.XXXXXX")" || {
+  printf '%s\n' "mktemp -d failed" >&2
+  exit 2
+}
+# mktemp -d would be the bare form
+cat <<'DOC'
+mktemp -d
+DOC
+awk '
+  /mktemp/ { print "mktemp -d" }
+' /dev/null
+tmpl="$work/f.XXXXXX"
+f=$(mktemp "$tmpl") || exit 2
+g=$(mktemp) || exit 2 # shell-mktemp-template: a fixture of the reasoned escape
+printf '%s %s\n' "$f" "$g"

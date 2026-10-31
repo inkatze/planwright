@@ -1,0 +1,13 @@
+# expect-line: none
+# Status read from a single command, from PIPESTATUS, and masked forms.
+set -u
+out=$(git log --oneline) || exit 2
+rc=$?
+printf '%s\n' "$out" | tail -n 1
+printf '%s\n' 'a | b; rc=$?'
+grep -q x "$0" || rc=$?
+case "$rc" in
+  0 | 1) printf '%s\n' "$?" ;;
+esac
+out=$(printf '%s\n' "$rc" | grep -c x)
+code=$?

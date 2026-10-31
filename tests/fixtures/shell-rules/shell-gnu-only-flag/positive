@@ -1,0 +1,5 @@
+# expect-line: 4
+# A GNU-only stat format.
+set -u
+mtime=$(stat -c %Y "$0") || exit 2
+printf '%s\n' "$mtime"

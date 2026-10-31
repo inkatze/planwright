@@ -1,0 +1,8 @@
+# shellcheck shell=bash
+# expect: SC2155
+# The local masks the substitution's failure: the line's status is local's.
+f() {
+  local out=$(git rev-parse HEAD)
+  printf '%s\n' "$out"
+}
+f

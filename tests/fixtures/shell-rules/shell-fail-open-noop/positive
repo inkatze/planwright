@@ -1,0 +1,5 @@
+# expect-line: 4
+# A failed gh read becomes an empty list, read as "no open PRs".
+set -u
+prs=$(gh pr list --json number) || true
+[ -n "$prs" ] || printf '%s\n' "no open PRs"
