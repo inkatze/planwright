@@ -149,14 +149,15 @@
 # tower's own opens the session: a marker with no knock on record confirms
 # nothing, and one reply releases one hand-over);
 # then `next` hands over the item the knock pinned (or the top item when the
-# top has not been pinned) and stamps the hand-over, printing one line:
-# `item`, id, kind, urgency, the origins (the source, plus any merged into it,
-# comma-joined), age in seconds, the content pointer
+# top has not been pinned), with its pair or batch, and stamps the hand-over,
+# printing one line per item (after the `batch` line THE SUBJECT BATCH
+# describes): `item`, id, kind, urgency, the origins (the source, plus any
+# merged into it, comma-joined), age in seconds, the content pointer
 # (`attention:<worker>[@instance]` or `path:<root>/<rel>`), the park path
 # or -, and the closing condition, tab-separated. With attention unconfirmed
 # it prints the knock line — `knock`, kind and urgency of the top item, how
-# many items are waiting for this tower, and how many the hand-over will
-# carry, tab-separated — when a knock
+# many items are waiting for this tower, and how many the hand-over would
+# carry at the knock, tab-separated — when a knock
 # is due: nothing is outstanding, the last hand-over has gone unanswered
 # past the quiet interval, or the top item changed since the knock (the
 # lease that knock pinned goes with it). While a knock or a hand-over is
@@ -389,7 +390,9 @@
 # `batch`, the item count, the member ids comma-joined — then each unit's
 # `item` line and any `pair` line; the `delivered` log line carries the same
 # `batch` and `size`. Each member is still acknowledged, revoked or shelved on
-# its own.
+# its own. The knock leases only the top item, so the size it names is the
+# batch as it stood then: the hand-over is rebuilt at delivery, and members
+# taken or added since change it without a fresh knock.
 #
 # CATCH-UP (`catchup`, D-8, REQ-B1.4, REQ-C1.8). A lock-free read of what
 # settled without the operator since their last reply in that tower's
@@ -5377,7 +5380,8 @@ cmd_knock() {
   # one thing a shared render cannot fix. What this verb cannot apply is the
   # part that needs a tower — the lease, and the caller's own outstanding
   # hand-over — so its count is what is waiting for the queue, not what is
-  # waiting for one conversation.
+  # waiting for one conversation. The batch size is the exception: it leaves
+  # out leased and delivered items, as `next` would.
   _kl=$(awk -F '\t' -v now="$now" -v attn_file="$_ka" -v bmax="$batch_max" \
     -v attn_present="$([ -n "$_ka" ] && echo 1 || echo 0)" "$AWK_Q"'
   BEGIN { load_attention(attn_file) }

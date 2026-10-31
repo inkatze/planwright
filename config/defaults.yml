@@ -847,7 +847,8 @@ tower_tick_gap_max: 10m
 # tower_batch_max        how many items one hand-over from `next` may carry
 #                        when the top item names a subject: the other items
 #                        on that subject join it up to this many in all, a
-#                        pair counting two (tower-comms D-24, REQ-C1.14).
+#                        pair counting two; the top item's own pair always
+#                        goes whole (tower-comms D-24, REQ-C1.14).
 tower_quiet_interval: 10m
 tower_lease_interval: 15m
 tower_catchup_limit: 20
