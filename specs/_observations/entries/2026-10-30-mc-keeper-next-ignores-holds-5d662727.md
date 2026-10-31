@@ -1,0 +1,1 @@
+- 2026-10-30 [planwright] mc-keeper.sh next lists any task the derivation reports ready as dispatch, but never honoured the degraded record and does not read the version 3 withheld record, so it can suggest a task whose own or dependency repository failed; routing it through orchestrate-select.sh or filtering withheld ids would align it with selection.
