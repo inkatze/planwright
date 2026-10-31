@@ -44,8 +44,9 @@ Usage: check-counts.sh [--exempt <tsv>] [<root>]
 
 Read: the files git tracks under <root> ending in .md, in doctrine/, skills/,
 docs/, specs/_pending/, and a spec bundle under specs/ whose requirements.md
-declares **Status:** Draft. A bundle at any other status is skipped: its
-enumerations are the sign-off cross-check's. Fenced code is not prose.
+declares **Status:** Draft (with no requirements.md tracked yet, a tracked
+design.md, tasks.md or test-spec.md declaring it). A bundle at any other
+status is skipped: its enumerations are the sign-off cross-check's. Fenced code is not prose.
 
 Checked: a prose line ending in ':' (a paragraph, or a list item's own text)
 followed, at most one blank line later, by a list or a table. Its last sentence
