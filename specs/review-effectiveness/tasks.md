@@ -580,16 +580,6 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 
 ## Awaiting input
 
-- **Task 1.1** — parked for the operator's refresh run, as the task's
-  `Done when:` directs. The `v2` corpus needs an operator-local run of
-  `scripts/review-backtest-refresh.sh --label-reasons` over this
-  repository's PR history (the machine-local name list and annotator), then
-  a baseline replay over the `v2` default sample at the first version's
-  baseline plugin commit. Neither is recorded yet: no `v2` directory exists
-  under the backtest fixtures. Once the run is recorded, re-dispatch the
-  task to commit it, run the schema test and hygiene screen, and open the
-  PR. Freshness gate passed; dependencies 1 and 5.1 are completed.
-
 ## Deferred
 
 - **The private reviewer's design lessons.** A private reviewer the
