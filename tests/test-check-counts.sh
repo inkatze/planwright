@@ -163,6 +163,8 @@ assert_contains "a wrapped sentence is reported on its last line" "$out" "doctri
 expect_count inline-span 3 2 doctrine/span.md '```x``` is a span.' "" "Three items:" "- a" "- b"
 expect_quiet aligned-table "It keeps 2 rows:" "" "| a | b |" "| :--- | ---: |" "| 1 | 2 |" "| 3 | 4 |"
 expect_quiet short-delimiter "Three rows:" "" "| a |" "|:-:|" "| 1 |" "| 2 |" "| 3 |"
+expect_count paren-end 3 2 doctrine/pend.md "Run two passes (the second is the check.) The guard has three inputs:" "- a" "- b"
+expect_quiet bare-pipe-table "It keeps two rows:" "| a" "| ---" "| 1" "| 2"
 expect_count reference-plural 2 1 doctrine/ref.md "Two parts follow Task 12 rules:" "- a"
 
 expect_quiet nested "The scaffold offers two templates:" "" \

@@ -136,12 +136,13 @@ function subst(s,   i, c, n) {
     c = substr(s, i, 1)
     if (sq == "s") { if (c == "'") sq = ""; continue }
     if (c == "\\") { i++; continue }
+    if (sq == "a") { if (c == "'") sq = ""; continue }
     if (sq == "d") {
       if (c == "\"") sq = ""
       else if (c == "$" && substr(s, i + 1, 1) == "(") { i++; stk[++sdepth] = "d"; sq = "" }
       continue
     }
-    if (c == "'") sq = "s"
+    if (c == "'") sq = (i > 1 && substr(s, i - 1, 1) == "$" && substr(s, i - 2, 1) != "\\") ? "a" : "s"
     else if (c == "\"") sq = "d"
     else if (c == "(") stk[++sdepth] = ""
     else if (c == ")") { sq = stk[sdepth]; if (--sdepth == 0) return i }
@@ -182,7 +183,7 @@ function strip(s,   o, c, k, last) {
     }
     if (!match(s, /['"#\\]/)) return o s
     o = o substr(s, 1, RSTART - 1); c = substr(s, RSTART, 1); s = substr(s, RSTART + 1)
-    if (c == "'") { q = substr(o, length(o), 1) == "$" ? "a" : "s"; o = o "\002" }
+    if (c == "'") { q = (substr(o, length(o), 1) == "$" && substr(o, length(o) - 1, 1) != "\\") ? "a" : "s"; o = o "\002" }
     else if (c == "\"") { o = o "\""; q = "d" }
     else if (c == "\\") { o = o "\\" substr(s, 1, 1); s = substr(s, 2) }
     else {
@@ -195,6 +196,7 @@ function strip(s,   o, c, k, last) {
 }
 function annotated(i) { return R[i] ~ /#[ \t]*vacuity-ok:[ \t]*[^ \t]/ }
 function filter_stage(p,   n, parts, w) {
+  gsub(/\[\[.*\]\]/, "T", p)
   gsub(/\|\|/, "\001", p)
   n = split(p, parts, /\|/)
   if (n < 2) return 0
@@ -296,8 +298,8 @@ function statement(s, line,   segs, n, i, prev, seg, tgt) {
   for (i = 1; i <= n; i++) {
     seg = segs[i]
     if (seg ~ /^[ \t]*$/) continue
-    if (seg ~ /(^|[ \t])set[ \t].*-[A-Za-z]*o[ \t]+pipefail/) pipefail = 1
-    if (seg ~ /(^|[ \t])set[ \t].*\+[A-Za-z]*o[ \t]+pipefail/) pipefail = 0
+    if (seg ~ /(^|[ \t])set[ \t][^|&]*-[A-Za-z]*o[ \t]+pipefail/) pipefail = 1
+    if (seg ~ /(^|[ \t])set[ \t][^|&]*\+[A-Za-z]*o[ \t]+pipefail/) pipefail = 0
     S[++ns] = seg; SL[ns] = line
     if (ns > 1 && SL[ns - 1] >= line - 3 && reads_status(seg)) {
       prev = S[ns - 1]
@@ -329,10 +331,11 @@ function statement(s, line,   segs, n, i, prev, seg, tgt) {
 # A heredoc opens on the physical line its operator sits on, even mid-statement,
 # its body read after that line; several queue in order. An unquoted delimiter
 # must start like a word, so an arithmetic shift is not one.
-function heredoc_open(s,   pre, delim, at) {
-  while (match(s, /<<-?[ \t]*((\002|"|\\)[A-Za-z0-9_]|[A-Za-z_])[A-Za-z0-9_.+-]*/)) {
-    at = RSTART; delim = substr(s, RSTART, RLENGTH); pre = substr(s, 1, at - 1)
-    s = substr(s, at + RLENGTH)
+function heredoc_open(s,   pre, delim, rest, off) {
+  rest = s; off = 0
+  while (match(rest, /<<-?[ \t]*((\002|"|'|\\)[A-Za-z0-9_]|[A-Za-z_])[A-Za-z0-9_.+-]*/)) {
+    delim = substr(rest, RSTART, RLENGTH); pre = substr(s, 1, off + RSTART - 1)
+    off += RSTART + RLENGTH - 1; rest = substr(rest, RSTART + RLENGTH)
     if (substr(pre, length(pre), 1) == "<" || substr(delim, 3, 1) == "<") continue
     if (gsub(/\(\(/, "&", pre) > gsub(/\)\)/, "&", pre)) continue
     hq[++hn] = delim
@@ -344,7 +347,7 @@ function next_heredoc(   delim, i) {
   for (i = 1; i < hn; i++) hq[i] = hq[i + 1]
   hn--
   hd = (delim ~ /^<<-/)
-  sub(/^<<-?[ \t]*(\002|"|\\)?/, "", delim)
+  sub(/^<<-?[ \t]*(\002|"|'|\\)?/, "", delim)
   heredoc = delim
 }
 function scan(path,   r, raw, s, cur, start, body, i) {

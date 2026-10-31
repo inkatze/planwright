@@ -226,6 +226,20 @@ fixture open-quote "x='oops" '[ x = x ]'
 out=$(check open-quote)
 assert "a quoted string left open at end of file fails closed" 2 $?
 
+# Round-three shapes.
+expect_clean quoted-heredoc-in-subst \
+  'out="$(cat <<'"'"'X'"'"'' '[ a = a ] && pass "body"' 'X' ')"' 'assert_contains "x" "$out" "y"'
+expect_clean regex-alternation \
+  '[[ $kind =~ ^(head|tail)$ ]] && pass "matched"'
+expect_shape two-shifts self-comparison \
+  'y=$(( a << b )); z=$(( c << d ))' '[ x = x ] && pass "equal"'
+expect_shape ansi-in-subst self-comparison \
+  "x=\"\$(printf \$'it\\'s')\"" '[ x = x ] && pass "equal"'
+expect_shape escaped-dollar-quote self-comparison \
+  "echo \\\$'a' b" '[ x = x ] && pass "equal"'
+expect_shape pipefail-elsewhere piped-status \
+  'set -e && grep -o pipefail log' 'run | tail -n 5' 'rc=$?' 'assert "it ran" 0 "$rc"'
+
 # Each rule honours an annotation on the line it reports.
 expect_clean annotated-self \
   '[ x = x ] && pass "equal" # vacuity-ok: a smoke line'

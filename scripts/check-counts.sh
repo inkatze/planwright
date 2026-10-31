@@ -189,10 +189,12 @@ awk '
   }
   # Abbreviation dots, code spans and parentheses are masked, length kept, so
   # no sentence ends inside them and the cut lands in s itself.
-  function blank(s, re,   out, seg) {
+  function blank(s, re,   out, seg, end) {
     out = ""
     while (match(s, re)) {
-      seg = substr(s, RSTART, RLENGTH); gsub(/[.!?;]/, "_", seg)
+      seg = substr(s, RSTART, RLENGTH); end = substr(seg, length(seg) - 1)
+      gsub(/[.!?;]/, "_", seg)
+      if (end ~ /^[.!?][)]$/) seg = substr(seg, 1, length(seg) - 2) end
       out = out substr(s, 1, RSTART - 1) seg; s = substr(s, RSTART + RLENGTH)
     }
     return out s
@@ -226,7 +228,7 @@ awk '
   function count_rows(j,   k, c) {
     c = 0
     for (k = j; k <= n && !code[k] && is_table(L[k]); k++) c++
-    if (c >= 2 && L[j + 1] ~ /^ *\| *:?-+:? *\|/) c -= 2
+    if (c >= 2 && L[j + 1] ~ /^ *\| *:?-+:? *(\||$)/) c -= 2
     return c
   }
   # A fence closes only on a bare run of its own character at least as long.
