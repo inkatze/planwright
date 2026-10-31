@@ -187,7 +187,8 @@ done
 seed "$o" entries w abcd0049 planwright 'tests/w.sh printed "tests/w.sh: lock held"'
 for t in 'see ./tests/a+b.sh: it said "e".' 'again skills/a/tests/run.sh. "err"' \
   'see (tests/a+b.sh) "e"' 'tests/a+b.sh, then "e"' '"tests/a+b.sh" said "e"' \
-  'again tests/w.sh printed "tests/w.sh: lock held"' '**tests/a+b.sh** said "e"'; do
+  'again tests/w.sh printed "tests/w.sh: lock held"' '**tests/a+b.sh** said "e"' \
+  'see tests/a+b.sh#L3. "e"' '**tests/a+b.sh#L3-L5** said "e"'; do
   rc=0
   rec --obs-dir "$o" --slug n --scope planwright --text "$t" >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 1 ] || fail "9: the same path in other punctuation was not refused: $t"

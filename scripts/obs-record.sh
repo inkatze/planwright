@@ -282,9 +282,9 @@ screen_class() {
 # duplicates: the same [<scope>] token, and a shared test path (a whole path
 # token with a tests/ component, compared in full) plus a shared quoted string
 # (a "..." or `...` span; a blank one is no key, and one with no whitespace
-# naming a test path counts as the path). The slug is no key, since recurring kinds share one, and
-# miss-ledger fragments on either side are exempt, their identity being PR and
-# path. Fragment content is read as data only.
+# naming a test path counts as the path). The slug is no key, since recurring
+# kinds share one, and miss-ledger fragments on either side are exempt, their
+# identity being PR and path. Fragment content is read as data only.
 dup_matches() {
   [ "$slug" != review-miss ] || return 0
   # shellcheck disable=SC2016 # an awk program; the backticks are its regex
