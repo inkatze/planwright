@@ -291,19 +291,21 @@ dup_matches() {
   dm_prog='
     function tpath(w) {
       sub(/^\.\//, "", w)
-      sub(/[.!?]+$/, "", w)
+      sub(/#.*/, "", w)
+      sub(/[.!?\/]+$/, "", w)
       return w ~ /(^|\/)tests\/[^\/]/ ? w : ""
     }
     function keys(t, paths, quotes,   s, tok, w, n, i) {
       s = t
-      while (match(s, /"[^"]+"|`[^`]+`/)) {
+      while (match(s, /"[^"]*"|`[^`]*`/)) {
         tok = substr(s, RSTART + 1, RLENGTH - 2)
         s = substr(s, RSTART + RLENGTH)
+        if (tok ~ /^[ \t]*$/) continue
         if (tok ~ /[ \t]/ || tpath(tok) == "") quotes[tok] = 1
       }
       # No literal brace pair anywhere in this program: find -exec would
-      # substitute it.
-      n = split(t, w,/[]{[ \t"`(),;:<>=}]+/)
+      # substitute it. \047 is the single quote the shell string cannot hold.
+      n = split(t, w, /[]{[ \t"`(),;:<>=|*\047}]+/)
       for (i = 1; i <= n; i++) if (tpath(w[i]) != "") paths[tpath(w[i])] = 1
     }
     function shares(a, b,   k) {

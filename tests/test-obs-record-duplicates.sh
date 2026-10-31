@@ -169,6 +169,13 @@ o=$(store s9)
 seed "$o" entries x abcd0009 planwright 'skills/a/tests/run.sh logged "err"'
 seed "$o" entries y abcd0019 planwright 'tests/a+b.sh said "e"'
 seed "$o" entries z abcd0029 planwright 'mytests/m.sh printed "m"'
+seed "$o" entries q abcd0039 planwright 'tests/q.sh printed "q x"'
+for t in "again 'tests/a+b.sh' said \"e\"" 'tests/a+b.sh#L3 said "e"' \
+  'tests/a+b.sh| said "e"' 'tests/a+b.sh/ said "e"' 'empty "" then "q x" in tests/q.sh'; do
+  rc=0
+  rec --obs-dir "$o" --slug n --scope planwright --text "$t" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 1 ] || fail "9: a quoted, anchored or empty-quote variant was not refused: $t"
+done
 for t in 'plugins/b/tests/run.sh logged "err"' 'tests/a+c.sh said "e"' \
   'mytests/m.sh printed "m"'; do
   rec --obs-dir "$o" --slug n --scope planwright --text "$t" >/dev/null \
