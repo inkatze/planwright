@@ -47,7 +47,7 @@ function has_pipe(s,   n, k, stages, st1) {
   }
   return 0
 }
-function rule_check(code, lineno,   head, p, last) {
+function rule_check(code, lineno,   head, p, last, closer) {
   if (code ~ /-[A-Za-z]*o[ \t]+pipefail/) pipefail = 1
   if (pipefail || code ~ /PIPESTATUS/) return ""
   p = index(code, "$?")
@@ -65,8 +65,18 @@ function rule_check(code, lineno,   head, p, last) {
   last = prev_code
   sub(/[ \t;]*$/, "", last)
   sub(/^.*;/, "", last)
-  # A compound command closing on that line returns its last pipeline.
-  if (last ~ /^[ \t]*(\}|fi|done|esac|\))[ \t]*$/) last = prev_code
+  # A compound command closing on that line returns the status of the last
+  # statement of its body: cut the closer (and, for esac, through the arm),
+  # then judge only that statement. A closer alone on its line leaves nothing.
+  if (match(last, /^[ \t]*(\}|fi|done|esac|\))[ \t]*$/)) {
+    closer = last
+    gsub(/[ \t]/, "", closer)
+    last = prev_code
+    sub(/[ \t;]*(\}|fi|done|esac|\))[ \t]*$/, "", last)
+    if (closer == "esac") sub(/^.*\)/, "", last)
+    sub(/[ \t;]*$/, "", last)
+    sub(/^.*;/, "", last)
+  }
   if (last != "" && has_pipe(last)) return "$? is read after the pipeline on the line above, so it holds the last stage status"
   return ""
 }

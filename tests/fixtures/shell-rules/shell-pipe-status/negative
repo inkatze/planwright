@@ -17,6 +17,14 @@ rc=$?
 git log | tail -n 1; rc=${PIPESTATUS[0]}
 hout=$(cd "$0" && echo 'text' | tr a b)
 rc=$?
+if git log | grep -q x; then true; fi
+rc=$?
+for f in $(ls | sort); do true; done
+rc=$?
+case $(git log | head -n 1) in x) true ;; esac
+rc=$?
+{ git log | tail -n 1; true; }
+rc=$?
 set -o pipefail
 git log | tail -n 1
 rc=$?
