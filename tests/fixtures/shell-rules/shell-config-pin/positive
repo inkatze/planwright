@@ -1,7 +1,10 @@
-# expect-line: 6
-# A read through the variable, with no repository named.
+# expect-line: 8
+# expect-line: 9
+# Reads through the variable and by the literal path, with no repository named.
 set -u
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 config_get="$script_dir/config-get.sh"
+printf '%s\n' "config-get.sh is read below"
 v=$("$config_get" max_parallel_units) || exit 2
-printf '%s\n' "$v"
+w=$("$script_dir/config-get.sh" max_parallel_units) || exit 2
+printf '%s\n' "$v" "$w"

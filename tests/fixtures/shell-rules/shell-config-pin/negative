@@ -9,3 +9,6 @@ b=$(cd -- "$1" && /bin/sh "$script_dir/config-get.sh" key_b) || exit 2
 printf '%s\n' "config-get.sh failed" >&2
 c=$("$config_get" key_c) || exit 2 # shell-config-pin: run from the checkout it configures, by contract
 printf '%s %s %s\n' "$a" "$b" "$c"
+export PLANWRIGHT_REPO_ROOT=$(cd -- "$1" && pwd -P)
+d=$("$config_get" key_d) || exit 2
+printf '%s\n' "$d"
