@@ -345,4 +345,18 @@ out=$(hand $A 1010)
 [ "$(fld "$ra" 19)" = - ] || fail "the approval on another subject was handed over with the batch"
 echo "ok: a batch ranks as its highest member"
 
+# The knock pins its item: a higher-ranked member arriving on the same subject
+# between the knock and the reply joins the hand-over behind it, never ahead.
+reset_home pin
+seed_store pn
+attention_row w-pq spec/t1 awaiting-input 1000 normal 'Which base?' main 'main|dev' fork iid-pq
+pa=$(add_path pa approval normal 1000 --subject pr:30) || fail "add pa"
+run next --tower $A --now 1010 >"$tmp/knock" || fail "the knock on pa"
+grep -q "^knock$TAB" "$tmp/knock" || fail "no knock on pa: $(cat "$tmp/knock")"
+pq=$(run add --kind question --worker w-pq --origin w-pq --closes 'the operator answers' --subject pr:30 --now 1011) || fail "add pq"
+marker $A 1012
+out=$(run next --tower $A --now 1013) || fail "the hand-over after the reply"
+[ "$(ids_of "$out" item)" = "$pa $pq " ] || fail "the knock's pinned item did not lead the hand-over: '$(ids_of "$out" item)'"
+echo "ok: the knock's pinned item leads the hand-over"
+
 echo "ALL PASS: tower-queue batch"

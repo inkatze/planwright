@@ -3047,7 +3047,8 @@ function mate_of(t, lead,   n, m) {
 # `pool` with the unleased, undelivered candidates. t and its partner always
 # go; past them the other items on t`s subject join in consequence order while
 # they fit under cap, a pair counting two, and the first that does not fit
-# stops the walk so nothing lower-ranked jumps it.
+# stops the walk so nothing lower-ranked jumps it. t stays first even when a
+# member outranks it: t may be the item a knock pinned.
 function build_batch(t, cap,   n, i, j, k, v, x, mm, sz, cnt) {
   split("", placed); split("", paired); split("", BL); split("", BM); split("", bo)
   placed[t] = 1; BU = 1; BL[1] = t; BM[1] = mate_of(t, t); BSZ = BM[1] ? 2 : 1
@@ -3073,7 +3074,7 @@ function build_batch(t, cap,   n, i, j, k, v, x, mm, sz, cnt) {
   }
   for (i = 2; i <= BU; i++) {
     v = BL[i]; x = BM[i]; j = i - 1
-    while (j >= 1 && better(v, BL[j])) { BL[j + 1] = BL[j]; BM[j + 1] = BM[j]; j-- }
+    while (j >= 2 && better(v, BL[j])) { BL[j + 1] = BL[j]; BM[j + 1] = BM[j]; j-- }
     BL[j + 1] = v; BM[j + 1] = x
   }
 }
