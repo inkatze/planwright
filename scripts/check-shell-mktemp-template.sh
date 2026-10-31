@@ -20,7 +20,8 @@ Flagged: mktemp as a command word with no operand other than its options
 Fix: pass a template, mktemp -d "${TMPDIR:-/tmp}/<name>.XXXXXX".
 Exempt a line with a trailing or directly preceding
   # shell-mktemp-template: <reason>
-Exit codes: 0 clean, 1 an offense, 2 usage or a broken enumeration.'
+Exit codes: 0 clean, 1 an offense, 2 usage or a scan covering less than it
+claims (see scripts/shell-rule-lib.sh).'
 
 SR_AWK='
 function rule_reset() { }

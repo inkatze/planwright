@@ -21,7 +21,8 @@ Fix: handle the failure (|| die ...), or, where an empty value is the right
 reading of a failed command, say why with the annotation.
 Exempt a line with a trailing or directly preceding
   # shell-fail-open-noop: <reason>
-Exit codes: 0 clean, 1 an offense, 2 usage or a broken enumeration.'
+Exit codes: 0 clean, 1 an offense, 2 usage or a scan covering less than it
+claims (see scripts/shell-rule-lib.sh).'
 
 SR_AWK='
 function rule_reset() { }

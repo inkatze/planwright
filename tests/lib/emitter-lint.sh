@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # emitter-lint.sh — lint what a script emits, in the format it emits, from that
 # script's own test (sourced; the emitter-output-lint guard,
-# doctrine/guard-catalog.md). scripts/check-emitter-lint.sh holds every script
+# config/guard-catalog.yaml). scripts/check-emitter-lint.sh holds every script
 # declaring `# Emits: <format>` to a test calling lint_emitted with its name.
 
 unset CDPATH

@@ -24,7 +24,8 @@ the working directory is the repository by contract, say so with the
 annotation.
 Exempt a line with a trailing or directly preceding
   # shell-config-pin: <reason>
-Exit codes: 0 clean, 1 an offense, 2 usage or a broken enumeration.'
+Exit codes: 0 clean, 1 an offense, 2 usage or a scan covering less than it
+claims (see scripts/shell-rule-lib.sh).'
 
 SR_AWK='
 function rule_reset() { split("", CG_VARS); pinned = 0; self = (FILE ~ /(^|\/)config-get\.sh$/) }
