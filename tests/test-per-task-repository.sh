@@ -269,6 +269,24 @@ trf_git -C "$TRF/holder" remote add origin https://example.invalid/acme/holder.g
 derive
 assert_eq "no field: a failure is the bundle-wide record" "gh query failed; deriving git-only" "$(rec degraded gh)"
 
+# --- REQ-F1.4, REQ-B1.7: a field-less task on a bundle that names repositories
+# derives from the work repository, and that repository's failure is scoped to
+# it. The holder's gh still fails; Task 2's trailer in beta completes it.
+write_bundle '' '- **Repository:** beta' '- **Repository:** alpha'
+derive
+assert_eq "mixed: the work repository's failure is a per-repository record" "-${TAB}gh query failed; deriving git-only" "$(rec degraded repository)"
+assert_eq "mixed: the field-less task is withheld on its own repository" "own${TAB}-" "$(rec withheld 1)"
+assert_eq "mixed: the field-less task carries no repository record" "" "$(rec repository 1)"
+assert_eq "mixed: a fielded task still derives from its own repository" "completed${TAB}trailer" "$(rec task 2)"
+select_unit
+assert_eq "mixed: work outside the failed repository still selects" 3 "$sel"
+assert_has "mixed: selection names the work repository" "transient evidence failure in the work repository" "$sel_err"
+render
+assert_has "mixed: the render names the work repository" "task 1 withheld (evidence unavailable: the work repository failed)" "$status"
+gates
+assert_has "mixed: the sweep names the work repository" "transient evidence failure in the work repository" "$report"
+assert_has "mixed: the gate on the field-less task is unresolved" "unresolved" "$(gate_row alpha)"
+
 echo
 if [ "$failures" -eq 0 ]; then
   echo "all per-task repository tests passed"
