@@ -46,12 +46,16 @@
 # grammar-validated before use and a violating id is rejected with a note
 # (REQ-C1.9). A missing or unparseable `Format-version:` fails closed as a
 # per-spec report error — the spec's gates are not evaluated under guessed
-# rules (REQ-C1.8); unparseable includes a DUPLICATE in-header declaration
-# (REQ-A1.2), and so does a parked map the grammar lib refused (a NUL byte, or
-# end-of-file inside an open column-0 fence). On a transient evidence failure (the engine's `degraded`
-# record: remote configured but the fetch failed) or an engine failure, v2
-# task atoms resolve as UNRESOLVED (REQ-B1.5): never satisfied from partial
-# evidence, surfaced and counted as a report error, the sweep still completes.
+# rules (REQ-C1.8), as does an undefined version; unparseable includes a
+# DUPLICATE in-header declaration (REQ-A1.2), and so does a parked map the
+# grammar lib refused (a NUL byte, or end-of-file inside an open column-0
+# fence). On a transient evidence failure (the engine's `degraded` record:
+# remote configured but the fetch failed) or an engine failure, v2 task atoms
+# resolve as UNRESOLVED (REQ-B1.5): never satisfied from partial evidence,
+# surfaced and counted as a report error, the sweep still completes. Version 3
+# takes the v2 resolution, except that a bundle whose tasks name a repository
+# resolves every task atom UNRESOLVED (counted as an error) until per-task
+# derivation exists: the engine reads the work repository only.
 #
 # Confidence (REQ-H1.5): a bullet's `Confidence: <low|medium|high>` field
 # (matched as a whole token in the entry text before the gate marker)
@@ -410,14 +414,12 @@ report() {
     if [ "$fv_rc" -ne 0 ]; then
       fv=unparseable
     fi
-    case "$fv" in
-      1 | 2) ;;
-      *)
-        printf 'error: tasks.md has a missing or unparseable Format-version: line - gates not evaluated (fail closed)\n'
-        n_err=$((n_err + 1))
-        continue
-        ;;
-    esac
+    # Keyed on the rule arm (version 3 takes the v2 arm), never the raw value.
+    if ! fv_arm=$(spec_parse_format_arm "$fv"); then
+      printf 'error: tasks.md has a missing, unparseable, or undefined Format-version: line - gates not evaluated (fail closed)\n'
+      n_err=$((n_err + 1))
+      continue
+    fi
 
     # v2 completion evidence (REQ-C1.3, REQ-B1.4, REQ-B1.5): the completed set
     # comes from the derivation engine, minus every bullet-parked task (a live
@@ -426,7 +428,7 @@ report() {
     # instead of evaluating against partial evidence.
     v2comp=" "
     v2evfail=0
-    if [ "$fv" = 2 ]; then
+    if [ "$fv_arm" = 2 ]; then
       # The parked map (live reference bullets under the three human-payload
       # sections) comes from the shared lib (REQ-B1.4, REQ-C1.1) — the single
       # v2 posture all four v2 parsers now consume, so it cannot re-diverge:
@@ -479,13 +481,29 @@ report() {
       done <<EOF
 $v2pre
 EOF
+      # Task atoms derive from the work repository alone, so on a bundle
+      # whose tasks name another repository they would read the wrong
+      # evidence: they stay unresolved until per-task derivation replaces
+      # this check.
+      if [ "$fv" = 3 ] && [ "$v2ntasks" -gt 0 ] && [ "$v2hasgate" -eq 1 ]; then
+        if ! v3repo=$(spec_parse_repository_tasks "$tasks" 2>/dev/null); then
+          printf 'error: could not read the Repository: fields - gates not evaluated (fail closed)\n'
+          n_err=$((n_err + 1))
+          continue
+        fi
+        if [ -n "$v3repo" ]; then
+          printf 'error: tasks name a repository and per-task repository derivation is unavailable - task-completion atoms resolve as unresolved (fail closed)\n'
+          n_err=$((n_err + 1))
+          v2evfail=1
+        fi
+      fi
       # The engine is consulted only when its output can be consumed: a bundle
       # with no unfenced task blocks has nothing to derive (every task atom is
       # already an unknown-id MALFORMED), and a bundle with no unfenced gate
       # marker has no atoms to resolve — either way a needless derivation
       # (git subprocesses, potentially a gh network call) would only inflate
       # the error tally on unrelated failures.
-      if [ "$v2ntasks" -gt 0 ] && [ "$v2hasgate" -eq 1 ]; then
+      if [ "$v2evfail" -eq 0 ] && [ "$v2ntasks" -gt 0 ] && [ "$v2hasgate" -eq 1 ]; then
         if [ ! -x "$state_engine" ]; then
           printf 'error: derivation engine unavailable - task-completion atoms resolve as unresolved (fail closed)\n'
           n_err=$((n_err + 1))
@@ -535,7 +553,7 @@ EOF
     # applies to its taskless diagnostic; the statuses-whitelist comment
     # below documents the underlying -v hazard).
     if ! lines=$(DRAIN_GATES_TASKS_MD="$tasks" awk -v today="$today" -v statuses="$statuses" \
-      -v fv="$fv" -v comp="$v2comp" -v evfail="$v2evfail" '
+      -v fv="$fv_arm" -v comp="$v2comp" -v evfail="$v2evfail" '
       BEGIN {
         n = split(statuses, a, " ")
         for (i = 1; i <= n; i++) {

@@ -200,6 +200,24 @@ out=$(PLANWRIGHT_FLEET_STATE_DIR="$home" \
 case $out in *gremlin*) fail "the unknown kind was rendered: '$out'" ;; esac
 echo "ok: a kind outside the closed set degrades to the unreadable marker"
 
+# The two reviewable kinds are inside the closed set, so a queue topped by one
+# names it rather than degrading (tower-comms REQ-A1.10).
+for rk in settled-by-default decided-by-mission-control; do
+  cat >"$stub/tower-queue.sh" <<EOF
+#!/bin/sh
+printf 'presence\tlive\nquestion\t0\napproval\t0\nrequest\t0\n$rk\t1\nnews\t0\nstanding\t0\ntotal\t1\ntop\t$rk\nmalformed\t0\nstore\tpresent\n'
+EOF
+  out=$(PLANWRIGHT_FLEET_STATE_DIR="$home" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+    /bin/sh "$stub/fleet-stats.sh" line) || fail "fleet-stats line topped by $rk: exit"
+  [ "$(waiting_field "$out")" = "waiting $rk 1" ] \
+    || fail "a queue topped by $rk did not name it: '$(waiting_field "$out")'"
+done
+echo "ok: a queue topped by either reviewable kind names it in the field"
+
 # --- 8. The render completes inside its stated ceiling over a full store ------
 # Ceiling: 2 seconds for the whole line over a store at the retention cap. The
 # read is lock-free, so this measures the scan, not a contended lock.

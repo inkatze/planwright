@@ -1,0 +1,1 @@
+- 2026-10-29 [planwright] tower-queue.sh pass_logs re-executes the whole script once per log line (settled, merged, window), so N items settling in one pass cost about 0.4 s each before next hands anything over; a batched log append under one lock would remove it (measured 9 s for 20 ended windows)

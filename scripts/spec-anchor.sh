@@ -19,7 +19,8 @@
 #     this script parses no `Format-version:` at all.
 #   * tasks.md contributes its task-definition content only — task headings
 #     plus the Deliverables / Done when / Dependencies / Citations / Estimated
-#     effort field bullets (with their continuation lines), task records sorted
+#     effort field bullets and the version 3 Repository bullet, kept at every
+#     version (with their continuation lines), task records sorted
 #     by task id. Orchestration-state placement (which section a block sits in)
 #     and the Status / Last activity / Dispatch annotations are outside that
 #     extraction already, and so is its header block, so tasks.md needs no

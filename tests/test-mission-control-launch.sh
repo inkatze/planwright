@@ -75,6 +75,7 @@ mkdir -p "$tmp/bin"
 cat >"$tmp/bin/claude" <<'SHIM'
 #!/bin/sh
 printf '%s\n' "$*" >"$SHIM_RECORD_DIR/argv.tmp" && mv "$SHIM_RECORD_DIR/argv.tmp" "$SHIM_RECORD_DIR/argv"
+printf '%s\n' "${PLANWRIGHT_MC_TOKEN:-}" >"$SHIM_RECORD_DIR/mctoken"
 IFS= read -r line || line=''
 printf '%s\n' "$line" >"$SHIM_RECORD_DIR/stdin"
 exit 0
@@ -250,6 +251,17 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
     *" $want_tier "*) ok "[$kind] the session runs at its key's tier ($want_tier)" ;;
     *) fail "[$kind] the session's argv lacks its key's tier '$want_tier': $argv" ;;
   esac
+  # Only a mission-control session holds its row's token, which is what
+  # binds a decided-by-mission-control item to the row (tower-comms REQ-A1.14).
+  row_token=$(awk -F "$TAB" '$1 == "token" { print $2; exit }' "$row")
+  got_token=$(cat "$rec/mctoken" 2>/dev/null)
+  if [ "$kind" = mission-control ]; then
+    [ -n "$row_token" ] && [ "$got_token" = "$row_token" ] && ok "[$kind] the session holds its registry row's token" \
+      || fail "[$kind] the session's PLANWRIGHT_MC_TOKEN '$got_token' is not its row's '$row_token'"
+  else
+    [ -z "$got_token" ] && ok "[$kind] the session holds no mission-control token" \
+      || fail "[$kind] a $kind session was handed a mission-control token"
+  fi
   first=$(head -n 1 "$fleet/mission-control/launch/$name/brief.md")
   [ "$first" = '# Fixture brief' ] && ok "[$kind] the composed brief opens with the brief itself" \
     || fail "[$kind] the composed brief opens with '$first'"
@@ -275,6 +287,17 @@ case $OUT in
   *) ok "the launch report names no pane, window or attach hint" ;;
 esac
 pane_name=$(field name)
+pane_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$fleet/mission-control/sessions/$pane_name")
+grep -q 'PLANWRIGHT_MC_TOKEN=' "$tmp/tmux/argv-$pane_handle" && fail "a tmux ad-hoc session was handed a mission-control token" \
+  || ok "a tmux session of another kind holds no mission-control token"
+ml launch --program alpha --kind mission-control --scope tmux-token --brief "$tmp/brief.md" --backend tmux
+[ "$RC" = 0 ] || fail "the tmux mission-control launch exited $RC: $ERR"
+mt_name=$(field name)
+mt_row="$fleet/mission-control/sessions/$mt_name"
+mt_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$mt_row")
+mt_token=$(awk -F "$TAB" '$1 == "token" { print $2; exit }' "$mt_row")
+grep -qxF "PLANWRIGHT_MC_TOKEN=$mt_token" "$tmp/tmux/argv-$mt_handle" && ok "a tmux mission-control session is launched holding its row's token" \
+  || fail "the tmux mission-control window's argv does not carry its row's token: $(tr '\n' ' ' <"$tmp/tmux/argv-$mt_handle" 2>/dev/null)"
 
 # ---------------------------------------------------------------------------
 # REQ-M1.7: the same inputs yield the same name; a held name refuses.

@@ -688,6 +688,30 @@ cur3=$("$ANCHOR" "$repo2/specs/partial")
 [ "$rec3" = "$cur3" ] || fail "completed re-anchor $rec3 != recomputed $cur3"
 echo "ok: a re-run completes a missing re-anchor instead of no-oping past a v2 file (REQ-D1.2)"
 
+# The same interrupted-run shape re-declared version 3 (with a Repository:
+# field added since) is never repaired: the migration only writes 2, so the
+# missing entry is no interrupted run, and appending it would bless the field
+# edit as expression-only (invariant-tasks REQ-F1.7).
+cp -R "$repo2/specs/partial" "$repo2/specs/partial-three"
+awk '/self-re-anchor/ { exit } { print }' "$repo2/specs/partial/kickoff-brief.md" \
+  | sed 's|specs/partial|specs/partial-three|g' >"$repo2/specs/partial-three/kickoff-brief.md"
+for bf in requirements design tasks test-spec; do
+  sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** 3/' "$repo2/specs/partial-three/$bf.md" >"$tmp/p3" \
+    && mv "$tmp/p3" "$repo2/specs/partial-three/$bf.md"
+done
+awk '{ print } /^- \*\*Citations:\*\*/ && !d { print "- **Repository:** alpha"; d = 1 }' \
+  "$repo2/specs/partial-three/tasks.md" >"$tmp/p3" && mv "$tmp/p3" "$repo2/specs/partial-three/tasks.md"
+grep -q '^\*\*Format-version:\*\* 3$' "$repo2/specs/partial-three/requirements.md" || fail "partial-three fixture not re-declared"
+grep -q 'self-re-anchor' "$repo2/specs/partial-three/kickoff-brief.md" && fail "partial-three fixture still carries its re-anchor"
+p3_snap=$tmp/p3.snap
+snapshot "$repo2/specs/partial-three" "$p3_snap"
+(cd "$repo2" && "$MIGRATE" specs/partial-three >"$tmp/run4.out" 2>&1) \
+  || fail "version 3 interrupted-shape bundle was refused: $(cat "$tmp/run4.out")"
+assert_same_tree "$repo2/specs/partial-three" "$p3_snap" "version 3 bundle handed a re-anchor"
+grep -q 'unchanged (already format-version 3): partial-three' "$tmp/run4.out" \
+  || fail "version 3 interrupted-shape bundle not reported unchanged: $(cat "$tmp/run4.out")"
+echo "ok: a version 3 bundle is never handed the migration re-anchor repair (REQ-F1.7)"
+
 # --- The reserved identifier (tower-front-door D-11). ---------------------
 
 # A bundle directory named `flight` is refused like a grammar failure and left
@@ -737,10 +761,44 @@ fi
 assert_same_tree "$repo3/specs/missing-fv" "$mfv_snap" "missing-Format-version bundle written"
 echo "ok: a missing Format-version is refused fail-closed with no write (REQ-C1.8)"
 
-# A numeric-but-unsupported Format-version (e.g. 3) takes its own refusal
+# Version 3 is version 2 plus the per-task Repository: field, so it takes the
+# already-v2 arm (invariant-tasks REQ-F1.7): a born-v3 bundle is left
+# byte-identical, never re-migrated and never handed a forged re-anchor.
+bornv3=$repo3/specs/born-v-three
+cp -R "$bornv2" "$bornv3"
+for bf in requirements design tasks test-spec; do
+  sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** 3/; s/^- \*\*Citations:\*\* REQ-A1.1$/&\
+- **Repository:** alpha/' "$bornv3/$bf.md" >"$tmp/b3" && mv "$tmp/b3" "$bornv3/$bf.md"
+done
+grep -q '^- \*\*Repository:\*\* alpha$' "$bornv3/tasks.md" || fail "born-v3 fixture: Repository: line not written"
+bv3_snap=$tmp/bv3.snap
+snapshot "$bornv3" "$bv3_snap"
+(cd "$repo3" && "$MIGRATE" specs/born-v-three >"$tmp/bv3.out" 2>&1) \
+  || fail "REQ-F1.7: a born-v3 bundle was refused: $(cat "$tmp/bv3.out")"
+assert_same_tree "$bornv3" "$bv3_snap" "born-v3 bundle written"
+grep -q 'unchanged (already format-version 3): born-v-three' "$tmp/bv3.out" \
+  || fail "born-v3 bundle not reported unchanged: $(cat "$tmp/bv3.out")"
+echo "ok: a version 3 bundle takes the already-v2 arm, left untouched (REQ-F1.7)"
+
+# A Repository: field in a version 1 bundle is named as such: the field needs
+# version 3, and this migration writes 2.
+seeded_bundle "$repo3/specs/v1-field" Draft
+awk '{ print } /^- \*\*Citations:\*\*/ && !d { print "- **Repository:** alpha"; d = 1 }' \
+  "$repo3/specs/v1-field/tasks.md" >"$tmp/vf" && mv "$tmp/vf" "$repo3/specs/v1-field/tasks.md"
+v1f_snap=$tmp/v1f.snap
+snapshot "$repo3/specs/v1-field" "$v1f_snap"
+if (cd "$repo3" && "$MIGRATE" specs/v1-field >/dev/null 2>"$tmp/v1f.err"); then
+  fail "a version 1 bundle carrying a Repository: field was migrated"
+fi
+assert_same_tree "$repo3/specs/v1-field" "$v1f_snap" "v1 Repository-field bundle written"
+grep -q 'carries a Repository: field, which requires format-version 3' "$tmp/v1f.err" \
+  || fail "the v1 Repository: refusal does not name the field: $(cat "$tmp/v1f.err")"
+echo "ok: a version 1 Repository: field is refused by name (REQ-F1.1)"
+
+# A numeric-but-unsupported Format-version (e.g. 4) takes its own refusal
 # arm, distinct from unparseable: this migration implements exactly 1 → 2.
 seeded_bundle "$repo3/specs/future-fv" Ready
-sed 's/^\*\*Format-version:\*\* 1$/**Format-version:** 3/' \
+sed 's/^\*\*Format-version:\*\* 1$/**Format-version:** 4/' \
   "$repo3/specs/future-fv/requirements.md" >"$tmp/ff" \
   && mv "$tmp/ff" "$repo3/specs/future-fv/requirements.md"
 ffv_snap=$tmp/ffv.snap

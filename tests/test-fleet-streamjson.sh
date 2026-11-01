@@ -125,6 +125,7 @@ printf 'handle=%s\n' "${PLANWRIGHT_WORKER_HANDLE-<unset>}" >>"$SHIM_RECORD_DIR/e
 printf 'scope=%s\n' "${PLANWRIGHT_WORKER_SCOPE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'inbound=%s\n' "${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'launch_token=%s\n' "${PLANWRIGHT_WORKER_LAUNCH_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'mc_token=%s\n' "${PLANWRIGHT_MC_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
 n=${SHIM_READ_FIRST:-1}
 i=0
 while [ "$i" -lt "$n" ]; do
@@ -178,7 +179,7 @@ env_scrub=(
   -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS
   -u PLANWRIGHT_STREAMJSON_PENDING_AGE -u PLANWRIGHT_STREAMJSON_ALARM_TICK
   -u PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT
-  -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE
+  -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_MC_TOKEN
 )
 
 # senv <home> <record-dir> [SHIM_VAR=val...] -- <args...> — hermetic
@@ -813,7 +814,7 @@ senv "$home" "$rec" SHIM_READ_FIRST=0 -- \
 [ ! -s "$rec/argv" ] || fail "c9p: the refused relaunch must never spawn the worker"
 # Only a worker carries the worker identity.
 : >"$rec/env"
-senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_WORKER_HANDLE=stale PLANWRIGHT_WORKER_LAUNCH_TOKEN=aaaaaaaaaaaaaaaa -- \
+senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_WORKER_HANDLE=stale PLANWRIGHT_WORKER_LAUNCH_TOKEN=aaaaaaaaaaaaaaaa PLANWRIGHT_MC_TOKEN=callertoken-other -- \
   launch sjw9i mission-control:3 --prompt-file "$tmp/prompt9" --profile tower --foreground \
   || fail "c9p: the identity-case tower launch exited non-zero"
 if ! grep -qx 'handle=<unset>' "$rec/env" || ! grep -qx 'scope=<unset>' "$rec/env"; then
@@ -821,6 +822,7 @@ if ! grep -qx 'handle=<unset>' "$rec/env" || ! grep -qx 'scope=<unset>' "$rec/en
 fi
 grep -qx 'inbound=accept' "$rec/env" || fail "c9p: a tower-profile session must still accept inbound messages"
 grep -qx 'launch_token=<unset>' "$rec/env" || fail "c9p: a tower-profile session must carry no worker launch token"
+grep -qx 'mc_token=<unset>' "$rec/env" || fail "c9p: a tower-profile session must drop an inherited mission-control token"
 [ "$(cat "$home/streamjson/sjw9i/profile")" = tower ] && [ ! -e "$home/streamjson/sjw9i/profile.tmp" ] \
   || fail "c9p: the profile record must be written whole, with no temporary left"
 # A recover with no recorded profile: a worker's from before the record
@@ -839,6 +841,30 @@ printf 'mission-control:3\n' >"$home/streamjson/mc-alpha-tower-0123456789/scope"
 senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch mc-alpha-tower-0123456789 --resume-session "$sid" --foreground >/dev/null 2>&1
 [ $? -eq 7 ] || fail "c9p: a mission-control recover with no recorded profile must be refused (exit 7)"
 [ ! -s "$rec/argv" ] || fail "c9p: the refused mission-control recover must never spawn"
+# A mission-control recover holds its own row's token, never the caller's,
+# and none at all when the row carries none.
+mc='mc-beta-tower-0123456789'
+mkdir -p "$home/streamjson/$mc" "$home/mission-control/sessions"
+printf 'mission-control:3\n' >"$home/streamjson/$mc/scope"
+printf 'mission-control\n' >"$home/streamjson/$mc/profile"
+printf 'backend\tstream-json\ntoken\trowtoken-own\n' >"$home/mission-control/sessions/$mc"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 PLANWRIGHT_MC_TOKEN=callertoken-other -- \
+  launch "$mc" --resume-session "$sid" --foreground >/dev/null 2>&1
+grep -qx 'mc_token=rowtoken-own' "$rec/env" \
+  || fail "c9p: a mission-control recover must hold its own row's token, not the caller's: $(grep '^mc_token=' "$rec/env")"
+printf 'backend\tstream-json\n' >"$home/mission-control/sessions/$mc"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 PLANWRIGHT_MC_TOKEN=callertoken-other -- \
+  launch "$mc" --resume-session "$sid" --foreground >/dev/null 2>&1
+grep -qx 'mc_token=<unset>' "$rec/env" \
+  || fail "c9p: a mission-control recover whose row has no token must hold none: $(grep '^mc_token=' "$rec/env")"
+rm -f "$home/mission-control/sessions/$mc"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 PLANWRIGHT_MC_TOKEN=callertoken-other -- \
+  launch "$mc" --resume-session "$sid" --foreground >/dev/null 2>&1
+grep -qx 'mc_token=<unset>' "$rec/env" \
+  || fail "c9p: a mission-control recover with no registry row must hold no token: $(grep '^mc_token=' "$rec/env")"
 # The preflight proves the worker guard, so only a worker launch needs it.
 mkdir -p "$tmp/nowg"
 cp -R "$here/../scripts" "$tmp/nowg/scripts"
