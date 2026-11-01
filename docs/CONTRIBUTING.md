@@ -235,8 +235,10 @@ and in CI one for the slowest shard's wall-clock. A measured time at or over
 its budget trips. The mean does not grow with the file count, so adding tests
 is free; a suite that gets slower per file trips it. Each file's row records
 its execution time and, separately, how long it waited for a test-pool ticket
-(below); the budgets read the execution time only. On GitHub Actions, the reference runner the budgets
-are measured on, that fails CI's `check` job; on a dev box it only warns, loudly,
+(below); the per-file and mean-per-file budgets read the execution time only,
+while a shard's wall-clock includes the waiting. On GitHub Actions, the
+reference runner the budgets are measured on, an overrun fails CI's `check`
+job; on a dev box it only warns, loudly,
 because local timings measure your machine's contention rather than the file.
 
 A budget is raised only as a conscious, reviewed edit in the PR that needs it,
