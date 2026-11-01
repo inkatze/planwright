@@ -510,6 +510,10 @@ assert_contains "J1.1 /spec-draft reads that directory" '<root>/_pending/' "$(ca
 assert_eq "J1.1 the venture side names the other repository" 1 \
   "$(grep -c '— seed: `product-repo:specs/_pending/inception-probe.md` — spec: pending$' "$vroot/probe/brief.md")"
 assert_contains "J1.1 the seed tells the spec what to cite" "inception:probe" "$(cat "$proot/_pending/inception-probe.md")"
+probe=$("$REPO_ROOT/scripts/inception-seed-read.sh" "$proot" 2>&1)
+assert_contains "J1.1 the /spec-draft probe surfaces the graduated seed" "seed	inception-probe.md	inception:probe	" "$probe"
+assert_contains "J1.1 the probe carries the citation with its lineage key" "cite	inception-probe.md	- **Venture probe** — graduated inception seed (inception:probe," "$probe"
+assert_contains "J1.1 the probe preserves the venture's sources" "source	inception-probe.md	- **workflow audit** — " "$probe"
 
 cite=$(printf '%s\n' "$out" | sed -n 's/^cite	//p')
 assert_contains "J1.1 the printed cite line carries the lineage key" "(inception:probe," "$cite"
