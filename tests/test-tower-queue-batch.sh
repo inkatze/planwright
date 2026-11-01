@@ -260,7 +260,8 @@ echo "ok: a pair that fits joins the batch as its pair, counting two"
 reset_home pairrule
 seed_store pr
 prule=$(run capture --kind standing --text 'always prefer the smaller PR on pr 30' \
-  --covers 'anything about pr 30' --subject pr:30 --now 1000 | cut -f 2) || fail "capture the rule"
+  --covers 'anything about pr 30' --subject pr:30 --now 1000) || fail "capture the rule"
+prule=$(printf '%s\n' "$prule" | cut -f 2)
 pa=$(add_path pa approval normal 1001 --subject pr:30) || fail "add pa"
 pb=$(add_path pb approval normal 1002 --subject pr:30) || fail "add pb"
 out=$(hand $A 1010)
