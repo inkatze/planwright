@@ -26,8 +26,8 @@
 #                               meta step's dispatch gate
 #   spec_parse_format_arm       the declared Format-version to rule-arm map
 #                               every version-keyed script selects through
-#   spec_parse_repository_tasks the ids of the task blocks that carry a
-#                               version 3 `Repository:` field
+#   spec_parse_repository_map   each task block's version 3 `Repository:`
+#                               field, classed alias, malformed, or duplicate
 #   spec_parse_printable        the stderr path sanitizer the lib's own
 #                               diagnostics use, exported so a caller adding
 #                               context to a refusal reuses this byte range
@@ -148,27 +148,54 @@ spec_parse_format_arm() {
   esac
 }
 
-# spec_parse_repository_tasks <tasks.md|-> — print, one per line in document
-# order, the id of every unfenced task block carrying a `- **Repository:**`
-# field bullet (`?` for a task heading whose id fails the grammar), so a
-# reader that cannot yet derive per-task repositories can refuse such a bundle
-# rather than derive its tasks from the wrong repository. Prints nothing for a
-# bundle that names no repository. Fails closed (non-zero, message on stderr)
-# on a missing, unreadable, or NUL-bearing file, or end of file inside an open
+# spec_parse_repository_map <tasks.md|-> — print, one record per unfenced
+# task block carrying a `- **Repository:**` field bullet, in document order,
+# `<id><TAB><class><TAB><value>`: the id (`?` for a task heading whose id
+# fails the grammar), the class, and the first field's value with its
+# surrounding blanks trimmed and any tab folded to a space. The class is
+# `alias` for one field holding one alias in the identifier grammar on its own
+# line, `malformed` for a value off that grammar (empty, a path, a URL, a list)
+# or one continued past its line, and `duplicate` for a block carrying the
+# field more than once; the derivation reads anything but `alias` as an
+# unresolved repository, never as the work repository. The value is raw
+# content: a caller sanitizes it before echoing. Prints nothing for a bundle
+# that names no repository. Fails closed (non-zero, message on stderr) on a
+# missing, unreadable, or NUL-bearing file, or end of file inside an open
 # column-0 fence. `-` reads the caller's snapshot from stdin under consumer
 # contract (g).
-spec_parse_repository_tasks() {
+spec_parse_repository_map() {
   # shellcheck disable=SC2016 # awk source, not a shell expansion
   spec_parse__repo_awk='
+    function flush() {
+      if (id != "" && n > 0) {
+        cls = "alias"
+        if (n > 1) cls = "duplicate"
+        else if (wrapped || val !~ /^[a-z0-9][a-z0-9-]*$/ || length(val) > 64) cls = "malformed"
+        printf "%s\t%s\t%s\n", id, cls, val
+      }
+      id = ""; n = 0; wrapped = 0; infield = 0
+    }
     spec_parse_is_task_heading($0) {
+      flush()
       id = spec_parse_task_id($0)
       if (id == "") id = "?"
-      seen = 0
       next
     }
-    /^###? / { id = "" }
-    id != "" && !seen && /^- \*\*Repository:\*\*/ { print id; seen = 1 }
-    END { spec_parse__fence_eof() }
+    /^###? / { flush(); next }
+    id == "" { next }
+    !/^[ \t]+[^ \t]/ { infield = 0 }
+    infield && /^[ \t]+\r$/ { next }
+    infield { wrapped = 1; next }
+    /^- \*\*Repository:\*\*/ {
+      infield = 1
+      if (++n > 1) next
+      val = $0
+      sub(/^- \*\*Repository:\*\*/, "", val)
+      gsub(/\t/, " ", val)
+      sub(/^ +/, "", val)
+      sub(/[ \r]+$/, "", val)
+    }
+    END { flush(); spec_parse__fence_eof() }
   '
   if [ "$1" = - ]; then
     LC_ALL=C awk "$spec_parse_awk_fence$spec_parse_awk_grammar$spec_parse__repo_awk"
