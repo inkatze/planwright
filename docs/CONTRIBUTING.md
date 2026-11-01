@@ -152,10 +152,11 @@ The `check` task's `depends` list in `mise.toml`, with the `check:non-test`
 aggregate it names, is the authoritative inventory; the two registration
 guards are what keep it complete. GitHub Actions runs the same gate on every
 pull request, split across parallel jobs: a `lint` job runs `check:non-test`,
-three `test` jobs each run a shard of the suite (`scripts/run-tests.sh
---shard <i>/3`), and the `check` job, the status branch protection reads,
-passes only when they all do and the test-time budget gate passes over the
-three shards' timing reports together. Beside them, the `macos-suite` and
+a `plan` job picks the shard count (`scripts/run-tests.sh --plan-shards`,
+below), one `test` job runs each shard of the suite (`scripts/run-tests.sh
+--shard <i>/<N>`), and the `check` job, the status branch protection reads,
+passes only when they all do and the test-time budget gate passes over every
+shard's timing report together. Beside them, the `macos-suite` and
 `alpine-suite` jobs run the full suite on macOS (the system bash 3.2 and BSD
 userland) and in an Alpine container (musl, dash, busybox) on every pull
 request; they are statuses of their own, which `check` does not join. The
@@ -241,14 +242,15 @@ new head.
 `mise run test` also persists a per-file timing report (`tests/.timing-report.tsv`,
 gitignored) and `check:test-time` reads it against the committed budgets in
 [`config/test-time-budget.yml`](../config/test-time-budget.yml): one per-file
-ceiling for every test file, one for the suite's wall-clock (in CI, where the
-suite runs in shards, the shards' wall-clocks summed), and in CI one for the
-slowest shard's wall-clock. A measured time
-at or over its budget trips. Each file's row records its execution time and,
-separately, how long it waited for a test-pool ticket (below); the per-file
-budget reads the execution time only, while the suite wall-clock includes the
-waiting. On GitHub Actions, the reference runner the budgets
-are measured on, that fails CI's `check` job; on a dev box it only warns, loudly,
+ceiling for every test file, one for the mean file time over the whole suite,
+and in CI one for the slowest shard's wall-clock. A measured time at or over
+its budget trips. The mean does not grow with the file count, so adding tests
+is free; a suite that gets slower per file trips it. Each file's row records
+its execution time and, separately, how long it waited for a test-pool ticket
+(below); the per-file and mean-per-file budgets read the execution time only,
+while a shard's wall-clock includes the waiting. On GitHub Actions, the
+reference runner the budgets are measured on, an overrun fails CI's `check`
+job; on a dev box it only warns, loudly,
 because local timings measure your machine's contention rather than the file.
 
 A budget is raised only as a conscious, reviewed edit in the PR that needs it,
@@ -265,15 +267,24 @@ there (a new one, say) starts ahead of every timed file. The table only orders
 the queue: every file still runs exactly once, and nothing in it is a budget.
 The order is exact on CI; on a dev box where other suites hold test-pool
 tickets it is best effort, since waiting files take tickets as they free up.
-When it drifts, regenerate it from reference-runner CI logs rather than editing
-it by hand. CI splits the suite across shard jobs by this table, and one
-runner can run its whole shard slow, so give it the `check` job logs of
-several green runs; each file takes the median of their times:
+CI splits the suite across shard jobs by this table, and plans how many shards
+to run from it: the `plan` job runs `scripts/run-tests.sh --plan-shards`, which
+predicts the suite's time and divides it by the runner's cores times
+`shard_target_seconds` in the budget file, so the shard count grows with the
+suite and no shard's wall-clock creeps toward its budget. When the table
+drifts (the timing gate warns once more than `untimed_warn_percent` of the
+suite has no row), regenerate it from CI rather than editing it by hand:
 
 ```bash
-gh run view --job <check-job-id> --log > run1.log   # one per run
-scripts/refresh-test-durations.sh run1.log run2.log run3.log
+mise run test:refresh-durations
 ```
+
+That downloads the shard timing reports of the last five main runs whose shard
+jobs all passed (`gh` must be signed in; it warns when the last twenty
+completed runs hold fewer) and gives each file the median of its
+times, since one runner can run its whole shard slow.
+`scripts/refresh-test-durations.sh` also takes `check` job logs or a local
+timing report directly.
 
 ### The machine-wide test pool
 

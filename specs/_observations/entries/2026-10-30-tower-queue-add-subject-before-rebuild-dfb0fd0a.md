@@ -1,0 +1,1 @@
+- 2026-10-30 [planwright] tower-queue: when the queue store does not exist yet, `add --subject` for an item already in the attention store reports "already queued" and drops the subject, because the store rebuild registers the item first without it. Seen during tower-comms Task 12 review.

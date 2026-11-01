@@ -178,7 +178,7 @@ cannot reach yields "could not decide", never "fresh".
 ### Test-time budget
 
 `test-time-budget` (category `budget`, breadth) recommends per-file and
-suite-total wall-clock ceilings over the test runner's timing report,
+mean-per-file time ceilings over the test runner's timing report,
 hard-failing on the reference runner and warning elsewhere, failing closed
 on a missing report or an unlisted test file. planwright's instance is
 `check:test-time` over `config/test-time-budget.yml`.
