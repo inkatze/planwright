@@ -49,7 +49,8 @@
 #      containment units — entries/ a symlink escaping to an existing dir, and
 #      to a non-existent target (proving the escape target is never
 #      materialized as a side effect), and the observations root itself a
-#      symlink (the obs-dir guard, refused before canonicalization); plus a
+#      symlink (the obs-dir guard, refused before canonicalization), and
+#      archive/ a symlink (the duplicate scan reads it); plus a
 #      hyphen-leading --obs-dir refused before mkdir/cd (a bare '-' would make
 #      `cd "$obsdir"` a `cd -` that roots the store at $OLDPWD).
 #  11. Exit-code contract (REQ-A1.6, D-6): missing required flags, an unknown
@@ -582,6 +583,19 @@ _rc=0
 [ "$_rc" -eq 1 ] || fail "10: a symlinked obs-dir root expected exit 1, got $_rc"
 [ "$(frag_count "$escroot")" -eq 0 ] \
   || fail "10: a fragment escaped through the symlinked obs-dir root"
+
+# archive/ a symlink to an outside dir: the duplicate scan reads archive/, so
+# it is refused like entries/, and nothing is recorded.
+oa="$tmp/o10a"
+escarch="$tmp/escape10a"
+mkdir -p "$oa" "$escarch"
+ln -s "$escarch" "$oa/archive"
+_rc=0
+"$REC" --obs-dir "$oa" --slug ok --scope planwright --text 'x' \
+  --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
+[ "$_rc" -eq 1 ] || fail "10: a symlinked archive/ expected exit 1, got $_rc"
+[ "$(frag_count "$oa/entries")" -eq 0 ] \
+  || fail "10: a fragment was recorded beside a symlinked archive/"
 
 # Echo-discipline on the --obs-dir failure path: a mkdir that fails names the
 # caller-supplied path on its own stderr, so the helper suppresses it (only the
