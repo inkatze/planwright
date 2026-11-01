@@ -100,7 +100,47 @@ assert_eq "no usable run fails" 2 "$(cat "$tmp/rc")"
 assert_contains "the unsharded report is named" "not a version 2 shard report" "$(cat "$tmp/out")"
 assert_contains "the failure says no run was usable" "no run with a complete set of shard reports" "$(cat "$tmp/out")"
 
-# 4. Usage.
+# 4. Without --from, through a stub gh: a run whose shard jobs did not all
+#    pass, or that has none, is never downloaded, and the scan stops once it
+#    has --runs green runs.
+mkdir -p "$tmp/bin"
+cat >"$tmp/bin/gh" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$*" >>"$GH_LOG"
+case "$1 $2" in
+  'run list') printf '301\n302\n303\n304\n305\n' ;;
+  'run view')
+    case "$3" in
+      302) echo red ;;
+      303) echo none ;;
+      *) echo green ;;
+    esac
+    ;;
+  'run download')
+    id="$3"
+    d=""
+    while [ "$#" -gt 0 ]; do
+      [ "$1" = --dir ] && d="$2"
+      shift
+    done
+    mkdir -p "$d/timing-report-1"
+    printf 'planwright-test-timing\t2\tshard=1/1\nfile\ttest-a.sh\t7\t0\nfile\ttest-b.sh\t%s\t0\nfile\ttest-c.sh\t7\t0\nsuite\twall\t9\n' "${id#30}" \
+      >"$d/timing-report-1/timing-report.tsv"
+    ;;
+  *) exit 1 ;;
+esac
+STUB
+chmod +x "$tmp/bin/gh"
+: >"$tmp/gh.log"
+GH_LOG="$tmp/gh.log" PATH="$tmp/bin:$PATH" /bin/bash "$SCRIPT" --runs 2 --suite "$suite" --out "$tmp/table.tsv" >"$tmp/out" 2>&1
+assert_eq "the gh path refreshes the table" 0 "$?"
+assert_eq "the gh path asks for four times --runs" 1 "$(grep -c -- '--limit 8' "$tmp/gh.log")"
+assert_eq "only green runs are downloaded, up to --runs" "301 304" \
+  "$(awk '$1 == "run" && $2 == "download" { printf "%s%s", sep, $3; sep = " " }' "$tmp/gh.log")"
+assert_eq "the scan stops at --runs" 0 "$(grep -c '^run view 305' "$tmp/gh.log")"
+assert_eq "the table takes the downloaded times" 7 "$(row test-a.sh | awk '{ print $1 + 0 }')"
+
+# 5. Usage.
 /bin/bash "$SCRIPT" --runs 0 --from "$tmp/runs" >/dev/null 2>&1
 assert_eq "--runs 0 is a usage error" 2 "$?"
 /bin/bash "$SCRIPT" --from "$tmp/no-such-dir" >/dev/null 2>&1
