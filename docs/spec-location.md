@@ -59,7 +59,7 @@ git repository, the ignore rules for the root's local-only entries) into a
 directory that already exists. `/spec-draft` offers to run it when it meets a
 marker-less root. `resolve-root.sh marker <dir>` checks a directory by shape
 alone, reading no config, which is how a caller vets a root another checkout
-owns.
+owns; with `--project` it prints the marker's `project:` field instead.
 
 ## The holder layout
 
