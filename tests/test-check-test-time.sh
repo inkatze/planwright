@@ -146,6 +146,12 @@ write_report "$tmp/report.tsv" 25 test-alpha.sh=1 test-beta.sh=1 test-gamma.sh=1
 out="$(run_check --mode ci)"
 assert "one report over the shard ceiling passes" 0 $?
 assert_not_contains "an unsharded run states no shard ceiling" "$out" "per-shard"
+# A lone shard report (CI planning one shard) is still one runner's wait.
+write_report "$tmp/report.tsv" 25 test-alpha.sh=1 test-beta.sh=1 test-gamma.sh=1
+sed '1s/$/\tshard=1\/1/' "$tmp/report.tsv" >"$tmp/report.shard" && mv "$tmp/report.shard" "$tmp/report.tsv"
+out="$(run_check --mode ci)"
+assert "a lone shard report over the shard ceiling fails in CI" 1 $?
+assert_contains "the lone shard is judged on the per-shard budget" "$out" "per-shard budget"
 
 # ---------------------------------------------------------------------------
 # 4. Every offender is reported, not just the first.

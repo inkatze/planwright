@@ -40,8 +40,8 @@
 # its own wall-clock row. The mean is taken over every file row of every
 # report, so it reads the same whatever the shard count. The per-shard budget
 # is judged on the slowest report's wall-clock, the longest the aggregate
-# status waits on any one runner, and applies only when there are several
-# reports.
+# status waits on any one runner, and applies when there are several
+# reports or a lone one is a shard's (its header names the shard).
 #
 # A file the duration table has no row for is weighed at the mean by the
 # shard split and the planner, so a table missing more than
@@ -126,7 +126,8 @@ Usage:
 
 Budgets: per_file_seconds applies to every file; suite_mean_file_seconds to
 the mean of every file's time; shard_wall_seconds to the slowest report's
-wall-clock, and only when there are several reports. Measured >= budget trips.
+wall-clock, when there are several reports or a lone shard report. Measured >=
+budget trips.
 shard_target_seconds and shard_count_max are the shard planner's
 (scripts/run-tests.sh --plan-shards); the target must sit under
 shard_wall_seconds. More than untimed_warn_percent of the suite missing from
@@ -366,6 +367,7 @@ awk -F'\t' -v discovered="$work/discovered" -v nreports="${#operands[@]}" '
       print "E\t" (nreports > 1 ? "header of report " k : "report header") " is not a planwright-test-timing version 2 header (re-run `mise run test` to refresh it)"
       err = 1
     }
+    for (i = 3; i <= NF; i++) if ($i ~ /^shard=[0-9]+\/[0-9]+$/) shardrep = 1
     next
   }
   $1 == "file" {
@@ -426,6 +428,7 @@ awk -F'\t' -v discovered="$work/discovered" -v nreports="${#operands[@]}" '
     ftotal = 0
     for (n in seen) { print "R\t" n "\t" seen[n]; files++; ftotal += seen[n] }
     print "W\t" wall
+    print "S\t" (shardrep ? 1 : 0)
     mean = sprintf("%.3f", files ? ftotal / files : 0)
     sub(/\.?0+$/, "", mean)
     print "M\t" (mean == "" ? 0 : mean)
@@ -443,9 +446,11 @@ fi
 wall="$(awk -F'\t' '$1 == "W" { print $2 }' "$work/parsed")"
 total="$(awk -F'\t' '$1 == "T" { print $2 }' "$work/parsed")"
 mean="$(awk -F'\t' '$1 == "M" { print $2 }' "$work/parsed")"
-# One report is an unsharded run, which no shard ceiling applies to.
+# One report from an unsharded run gets no shard ceiling; a lone shard report
+# (CI planning one shard) is still one runner's wait, so it does.
 sharded=0
 [ "${#operands[@]}" -eq 1 ] || sharded=1
+[ "$(awk -F'\t' '$1 == "S" { print $2 }' "$work/parsed")" != 1 ] || sharded=1
 grep "^R$tab" "$work/parsed" | sort -t "$tab" -k3,3nr >"$work/ranked" \
   || fail_closed "could not rank the report"
 count="$(wc -l <"$work/ranked" | tr -d ' ')"
