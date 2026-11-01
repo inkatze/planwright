@@ -11,8 +11,8 @@
 #                            free and only a suite slower per file trips it
 #   shard_wall_seconds       the slowest shard's wall-clock in a sharded run,
 #                            the longest the `check` status waits on one
-#                            runner; an unsharded run is not judged on it,
-#                            a lone shard report (one planned shard) is
+#                            runner; a lone shard report (one planned
+#                            shard) is judged on it, an unsharded run is not
 #   shard_target_seconds     what scripts/run-tests.sh --plan-shards aims each
 #                            shard at: CI runs as many shards as the predicted
 #                            suite time needs to stay at or under it; the gate
