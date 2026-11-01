@@ -158,10 +158,19 @@ program '{deadlines: specs:record}'
 # ---------------------------------------------------------------------------
 # watch: one event per urgent unit per day.
 # ---------------------------------------------------------------------------
-OUT=$(mc_env env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-deadlines.sh" 2>"$tmp/stderr")
+# The runner gives no --now, so this pass reads the real clock; its own fleet
+# home keeps what it announces for today out of the pinned passes below,
+# which would otherwise find the fixture's day already announced whenever
+# the real day is that day.
+OUT=$(mc_env env PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet-clock" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-deadlines.sh" 2>"$tmp/stderr")
 RC=$?
 ERR=$(cat "$tmp/stderr")
 expect_rc "the watcher runs with no arguments under the runner" 0
+if [ -e "$fleet/mission-control/alpha" ]; then
+  fail "the real-clock pass wrote into the pinned passes' fleet home"
+else
+  ok "the real-clock pass leaves the pinned passes' fleet home alone"
+fi
 mc_run mc-deadlines.sh watch --program alpha --now "$NOW"
 expect_rc "watch" 0
 expect_out "an urgent unit is announced" "announced${tab}deadline-near${tab}billing:task-1"
