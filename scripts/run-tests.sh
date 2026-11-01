@@ -57,7 +57,14 @@
 # only, its header naming the shard; scripts/check-test-time.sh takes every
 # shard's report at once and requires the union to cover the suite.
 #
-# Usage: run-tests.sh [--shard <i>/<N>] [suite-dir]
+# Planning: --plan-shards runs nothing. It predicts the suite's time from the
+# same table (an untimed file again weighing the mean), divides it by this
+# machine's parallelism times shard_target_seconds from the budget file, and
+# prints the shard list CI's matrix takes, `[1,2,...,N]`, N rounded up and
+# capped at shard_count_max. Run it on the runner type the shards use, since
+# the parallelism is this machine's.
+#
+# Usage: run-tests.sh [--shard <i>/<N> | --plan-shards] [suite-dir]
 #        (default suite: <repo-root>/tests)
 # Exit:  0 all pass · 1 any test failed or lost · 2 usage or environment
 #        error (bad suite dir, mktemp or self-path resolution failure, a
@@ -76,6 +83,9 @@
 #   PLANWRIGHT_TEST_DURATIONS      the duration table the queue is ordered
 #                                  by (default: <repo-root>/config/
 #                                  test-durations.tsv; empty disables it)
+#   PLANWRIGHT_TEST_BUDGET         the budget file --plan-shards reads
+#                                  (default: <repo-root>/config/
+#                                  test-time-budget.yml)
 #   PLANWRIGHT_FLEET_STATE_DIR     replaced per file by a sentinel fleet home
 #   CLAUDE_PLUGIN_DATA, CLAUDE_DIR (the latter two only when set); a file that
 #                                  creates anything in that home fails
@@ -314,10 +324,11 @@ self_dir="${self%/*}"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
 usage_error() {
-  echo "run-tests: $1 (usage: run-tests.sh [--shard <i>/<N>] [suite-dir])" >&2
+  echo "run-tests: $1 (usage: run-tests.sh [--shard <i>/<N> | --plan-shards] [suite-dir])" >&2
   exit 2
 }
 shard=""
+plan=0
 suite_arg=""
 have_suite=0
 opts_done=0
@@ -344,6 +355,11 @@ while [ "$#" -gt 0 ]; do
         shift
         continue
         ;;
+      --plan-shards)
+        plan=1
+        shift
+        continue
+        ;;
       -*) usage_error "unknown option: $1" ;;
     esac
   fi
@@ -352,6 +368,7 @@ while [ "$#" -gt 0 ]; do
   have_suite=1
   shift
 done
+[ "$plan" -eq 0 ] || [ -z "$shard" ] || usage_error "--plan-shards and --shard do not combine"
 shard_i=""
 shard_n=""
 if [ -n "$shard" ]; then
@@ -435,7 +452,7 @@ esac
 # Resolve the pool, or say once why not. Only the directory's own path is
 # checked for a link: a home directory reached through one is ordinary.
 pool_dir=""
-if [ "${PLANWRIGHT_TEST_IN_POOLED_FILE:-}" != 1 ]; then
+if [ "${PLANWRIGHT_TEST_IN_POOLED_FILE:-}" != 1 ] && [ "$plan" -eq 0 ]; then
   if [ -n "${PLANWRIGHT_TEST_SLOT_DIR:-}" ]; then
     cand="$PLANWRIGHT_TEST_SLOT_DIR"
   elif [ -n "${XDG_STATE_HOME:-}" ]; then
@@ -630,6 +647,62 @@ elif [ -n "$durations" ]; then
   order_desc="name order (no readable duration table at $(sanitize_printable "$durations" "(unprintable path)"))"
 else
   order_desc="name order (duration table disabled)"
+fi
+
+if [ "$plan" -eq 1 ]; then
+  budget_file="${PLANWRIGHT_TEST_BUDGET:-$repo_root/config/test-time-budget.yml}"
+  [ -f "$budget_file" ] && [ -r "$budget_file" ] \
+    || {
+      echo "run-tests: --plan-shards: budget file not readable: $(sanitize_printable "$budget_file" "(unprintable path)")" >&2
+      exit 2
+    }
+  par=$jobs
+  [ "$slots" -ge "$par" ] || par=$slots
+  i=0
+  while [ "$i" -lt "${#files[@]}" ]; do
+    printf '%s\n' "${tdur[i]:-}"
+    i=$((i + 1))
+  done | RT_BUDGET="$budget_file" LC_ALL=C awk -v par="$par" '
+    BEGIN {
+      budget = ENVIRON["RT_BUDGET"]
+      while ((getline line < budget) > 0) {
+        if (line !~ /^(shard_target_seconds|shard_count_max):/) continue
+        k = line; sub(/:.*/, "", k)
+        v = line; sub(/^[^:]*:[ \t]*/, "", v); sub(/[ \t]*(#.*)?$/, "", v)
+        if (k in cfg) { print "run-tests: --plan-shards: " k " is set twice" > "/dev/stderr"; bad = 1 }
+        cfg[k] = v
+      }
+      close(budget)
+      if (cfg["shard_target_seconds"] !~ /^[0-9]+(\.[0-9]+)?$/ || cfg["shard_target_seconds"] + 0 <= 0) {
+        print "run-tests: --plan-shards: shard_target_seconds is missing or not a positive number" > "/dev/stderr"; bad = 1
+      }
+      if (cfg["shard_count_max"] !~ /^[1-9][0-9]?$/) {
+        print "run-tests: --plan-shards: shard_count_max is missing or not a whole number from 1 to 99" > "/dev/stderr"; bad = 1
+      }
+      if (bad) exit 2
+    }
+    { n++; if ($1 != "") { sum += $1; cnt++ } }
+    END {
+      if (bad) exit 2
+      mean = cnt ? sum / cnt : 1
+      predicted = sum + (n - cnt) * mean
+      target = cfg["shard_target_seconds"] + 0
+      max = cfg["shard_count_max"] + 0
+      want = predicted / (par * target)
+      shards = int(want)
+      if (shards < want) shards++
+      if (shards < 1) shards = 1
+      capped = (shards > max)
+      if (capped) shards = max
+      printf "run-tests: predicted %.0fs of file time over %d files (%d untimed, each weighed at the mean %.1fs) on %d parallel jobs; target %ss per shard -> %d shard(s)%s\n", \
+        predicted, n, n - cnt, mean, par, cfg["shard_target_seconds"], shards, \
+        (capped ? ", capped at shard_count_max: each shard will run past its target" : "") > "/dev/stderr"
+      out = "["
+      for (s = 1; s <= shards; s++) out = out (s > 1 ? "," : "") s
+      print out "]"
+    }
+  '
+  exit
 fi
 
 # The shard split (see the header): weights sorted longest first, ties by

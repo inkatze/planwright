@@ -1,0 +1,1 @@
+match ^usage: inception-seed-read\.sh <spec-root>$

@@ -580,11 +580,20 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 
 ## Awaiting input
 
+- **Task 15.1** — post-pr step `cubic-pr` halted
+  (`.claude/steps/000001/008-step-post-pr.rec`): the cubic workspace quota
+  is exhausted until 2026-11-05. Draft PR #777 carries the implementation,
+  the five-iteration convergence record and twelve pending sign-offs (PS-1
+  to PS-12). Operator: run the cubic round and the panel, then the ready
+  flip once CI is green and the PR is mergeable, and remove this bullet.
 - **Task 12** — post-pr step `cubic-pr` halted on draft PR #775: not triggered, by operator ruling, because the cubic workspace quota is exhausted until 2026-11-05; the operator runs the cubic round and the panel from another session, after which the ready flip can run. Record: `.claude/steps/000001/008-step-post-pr.rec`.
 - **Task 12.1** — post-pr step `cubic-pr` halted on draft PR #776: not
   triggered, because the cubic workspace quota is exhausted until
   2026-11-05 (operator ruling); the operator runs cubic and the panel from
   another session, after which the ready flip can be evaluated. Record:
+  `.claude/steps/000001/008-step-post-pr.rec`.
+- **Task 15** — post-pr: the post-PR bot-reviewer step halted (its
+  workspace quota is exhausted until 2026-11-05, operator ruling); record
   `.claude/steps/000001/008-step-post-pr.rec`.
 
 ## Deferred

@@ -5,7 +5,7 @@
 # The gate reads the timing report scripts/run-tests.sh persists after a suite
 # run and compares it against the committed budgets; it never re-runs the
 # suite. The cases below pin the comparison (at-or-over trips, under passes,
-# for the per-file and the suite-total budget alike), the CI-hard-fail versus
+# for the per-file and the mean-per-file budget alike), the CI-hard-fail versus
 # local-loud-warn split, and the fail-closed arm (REQ-H1.3): a report that is
 # missing, empty, malformed, stale, or short of an entry for a discovered test
 # file exits non-zero rather than passing vacuously, and so does a budget file
@@ -68,10 +68,11 @@ for n in alpha beta gamma; do
   printf '#!/bin/bash\nexit 0\n' >"$suite/test-$n.sh"
 done
 
-# write_budget <path> <per-file> <suite-total> [<shard-wall>] — the shard
-# ceiling defaults below the suite total, so a case shows which one tripped.
+# write_budget <path> <per-file> <mean-per-file> [<shard-wall>] — the
+# planner's keys are fixed, its target under the shard ceiling.
 write_budget() {
-  printf -- '---\n# fixture budget\nper_file_seconds: %s\nsuite_total_seconds: %s\nshard_wall_seconds: %s\n' "$2" "$3" "${4:-20}" >"$1"
+  printf -- '---\n# fixture budget\nper_file_seconds: %s\nsuite_mean_file_seconds: %s\nshard_wall_seconds: %s\n' "$2" "$3" "${4:-20}" >"$1"
+  printf -- 'shard_target_seconds: 1\nshard_count_max: 4\nuntimed_warn_percent: 5\n' >>"$1"
 }
 
 # write_report <path> <wall> <name>=<seconds>... — a well-formed report.
@@ -121,28 +122,36 @@ run_check --mode ci >/dev/null
 assert "a per-file time just under the budget passes" 0 $?
 
 # ---------------------------------------------------------------------------
-# 3. The suite-total budget is judged on the runner's wall-clock row, with
-#    the same boundary.
+# 3. The mean-per-file budget is judged on the mean of the file rows, with the
+#    same boundary, and a suite wall-clock of any size is not judged.
 # ---------------------------------------------------------------------------
-write_report "$tmp/report.tsv" 30 test-alpha.sh=1 test-beta.sh=1 test-gamma.sh=1
+write_budget "$tmp/budget.yml" 10 3
+write_report "$tmp/report.tsv" 9 test-alpha.sh=2 test-beta.sh=3 test-gamma.sh=4
 out="$(run_check --mode ci)"
-assert "a suite wall-clock at the total budget fails in CI" 1 $?
-assert_contains "the failure names the suite-total budget" "$out" "suite-total budget"
+assert "a mean file time at the mean-per-file budget fails in CI" 1 $?
+assert_contains "the failure names the mean and its budget" "$out" "mean file time 3s at or over the mean-per-file budget of 3s"
 
-write_report "$tmp/report.tsv" 29.999 test-alpha.sh=1 test-beta.sh=1 test-gamma.sh=1
+write_report "$tmp/report.tsv" 9 test-alpha.sh=2 test-beta.sh=3 test-gamma.sh=3.997
 run_check --mode ci >/dev/null
-assert "a suite wall-clock just under the total budget passes" 0 $?
+assert "a mean file time just under the mean-per-file budget passes" 0 $?
 
-write_report "$tmp/report.tsv" 45.5 test-alpha.sh=1 test-beta.sh=1 test-gamma.sh=1
+write_report "$tmp/report.tsv" 900 test-alpha.sh=1 test-beta.sh=1 test-gamma.sh=1
 out="$(run_check --mode ci)"
-assert "a suite wall-clock over the total budget fails in CI" 1 $?
+assert "a long suite wall-clock with a low mean passes" 0 $?
+assert_contains "the wall-clock is still reported" "$out" "suite wall-clock 900s"
+write_budget "$tmp/budget.yml" 10 30
 
-# One report is an unsharded run: the per-shard ceiling does not apply to it,
-# so a local `mise run check` is judged on the suite total alone.
+# One report is an unsharded run: the per-shard ceiling does not apply to it.
 write_report "$tmp/report.tsv" 25 test-alpha.sh=1 test-beta.sh=1 test-gamma.sh=1
 out="$(run_check --mode ci)"
-assert "one report over the shard ceiling but under the suite total passes" 0 $?
+assert "one report over the shard ceiling passes" 0 $?
 assert_not_contains "an unsharded run states no shard ceiling" "$out" "per-shard"
+# A lone shard report (CI planning one shard) is still one runner's wait.
+write_report "$tmp/report.tsv" 25 test-alpha.sh=1 test-beta.sh=1 test-gamma.sh=1
+sed '1s/$/\tshard=1\/1/' "$tmp/report.tsv" >"$tmp/report.shard" && mv "$tmp/report.shard" "$tmp/report.tsv"
+out="$(run_check --mode ci)"
+assert "a lone shard report over the shard ceiling fails in CI" 1 $?
+assert_contains "the lone shard is judged on the per-shard budget" "$out" "per-shard budget"
 
 # ---------------------------------------------------------------------------
 # 4. Every offender is reported, not just the first.
@@ -286,9 +295,9 @@ assert_contains "the non-numeric wait failure names the row" "$out" "test-alpha.
 # ---------------------------------------------------------------------------
 # 7b. Several reports, one per CI shard: judged as one suite. Their file rows
 #     together must name every discovered file exactly once, every report
-#     must be well formed with its own wall-clock row. The suite-total budget
-#     is judged on the wall-clocks summed over the reports, the runner time
-#     the whole suite took, and the per-shard budget on the slowest report's.
+#     must be well formed with its own wall-clock row. The mean is taken over
+#     every report's file rows, and the per-shard budget is judged on the
+#     slowest report's wall-clock.
 # ---------------------------------------------------------------------------
 run_multi() {
   /bin/bash "$CHECKER" --suite "$suite" --budget "$tmp/budget.yml" --mode ci "$@" 2>&1
@@ -308,16 +317,18 @@ write_report "$tmp/r2.tsv" 20 test-gamma.sh=3
 out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
 assert "one report's wall-clock at the per-shard budget fails in CI" 1 $?
 assert_contains "the shard failure names the per-shard budget" "$out" "at or over the per-shard budget of 20s"
-assert_not_contains "a sum under the suite total is not called over it" "$out" "at or over the suite-total budget"
+assert_not_contains "a mean under its budget is not called over it" "$out" "at or over the mean-per-file budget"
 run_multi --report "$tmp/r2.tsv" --report "$tmp/r1.tsv" >/dev/null
 assert "the report at the per-shard budget fails in CI when it comes first" 1 $?
 
-write_report "$tmp/r1.tsv" 12 test-alpha.sh=1 test-beta.sh=2
-write_report "$tmp/r2.tsv" 18 test-gamma.sh=3
+write_budget "$tmp/budget.yml" 100 30
+write_report "$tmp/r1.tsv" 12 test-alpha.sh=29 test-beta.sh=29
+write_report "$tmp/r2.tsv" 18 test-gamma.sh=32
 out="$(run_multi --report "$tmp/r1.tsv" --report "$tmp/r2.tsv")"
-assert "shards each under their ceiling but summing to the total fail in CI" 1 $?
-assert_contains "the summed failure names the suite-total budget" "$out" "suite wall-clock 30s at or over the suite-total budget of 30s"
+assert "a mean over every report's files at the budget fails in CI" 1 $?
+assert_contains "the pooled mean is judged, not one report's" "$out" "mean file time 30s at or over the mean-per-file budget of 30s"
 assert_not_contains "a shard under its ceiling is not called over it" "$out" "at or over the per-shard budget"
+write_budget "$tmp/budget.yml" 10 30
 write_report "$tmp/r1.tsv" 5 test-alpha.sh=1 test-beta.sh=2
 
 # Just under the per-shard ceiling passes, and fractional wall-clocks sum
@@ -419,21 +430,45 @@ assert_contains "the missing-budget failure names the path" "$out" "budget.yml"
 printf -- '---\nper_file_seconds: 10\n' >"$tmp/budget.yml"
 out="$(run_check --mode ci)"
 assert "a budget file missing a key fails closed" 2 $?
-assert_contains "the missing-key failure names the key" "$out" "suite_total_seconds"
+assert_contains "the missing-key failure names the key" "$out" "suite_mean_file_seconds"
 
-printf -- '---\nper_file_seconds: 10\nsuite_total_seconds: 30\n' >"$tmp/budget.yml"
+printf -- '---\nper_file_seconds: 10\nsuite_mean_file_seconds: 30\n' >"$tmp/budget.yml"
 out="$(run_check --mode ci)"
 assert "a budget file without the per-shard key fails closed" 2 $?
 assert_contains "the missing per-shard key is named" "$out" "shard_wall_seconds"
+
+printf -- '---\nper_file_seconds: 10\nsuite_mean_file_seconds: 30\nshard_wall_seconds: 20\n' >"$tmp/budget.yml"
+out="$(run_check --mode ci)"
+assert "a budget file without the planner's keys fails closed" 2 $?
+assert_contains "the missing planner key is named" "$out" "shard_target_seconds"
+
+write_budget "$tmp/budget.yml" 10 30 20
+sed 's/^shard_target_seconds: .*/shard_target_seconds: 20/' "$tmp/budget.yml" >"$tmp/budget.tmp" && mv "$tmp/budget.tmp" "$tmp/budget.yml"
+out="$(run_check --mode ci)"
+assert "a shard target at the per-shard budget fails closed" 2 $?
+assert_contains "the target failure names both keys" "$out" "shard_target_seconds (20) is not under shard_wall_seconds (20)"
+
+write_budget "$tmp/budget.yml" 10 30
+sed 's/^shard_count_max: .*/shard_count_max: 0/' "$tmp/budget.yml" >"$tmp/budget.tmp" && mv "$tmp/budget.tmp" "$tmp/budget.yml"
+out="$(run_check --mode ci)"
+assert "a zero shard cap fails closed" 2 $?
+assert_contains "the cap failure names the key" "$out" "shard_count_max"
 
 write_budget "$tmp/budget.yml" 10 30 0
 out="$(run_check --mode ci)"
 assert "a zero per-shard budget fails closed" 2 $?
 assert_contains "the zero per-shard budget failure names the key" "$out" "shard_wall_seconds"
 
-printf -- '---\nper_file_seconds: 10\nsuite_total_seconds: 30\nshard_wall_seconds: 20\nshard_wall_seconds: 25\n' >"$tmp/budget.yml"
+write_budget "$tmp/budget.yml" 10 30
+printf -- 'shard_wall_seconds: 25\n' >>"$tmp/budget.yml"
 out="$(run_check --mode ci)"
 assert "a duplicated per-shard key fails closed" 2 $?
+
+write_budget "$tmp/budget.yml" 10 30
+sed 's/^untimed_warn_percent: .*/untimed_warn_percent: 150/' "$tmp/budget.yml" >"$tmp/budget.pct" && mv "$tmp/budget.pct" "$tmp/budget.yml"
+out="$(run_check --mode ci)"
+assert "an untimed share over 100 percent fails closed" 2 $?
+assert_contains "the percent failure names the key" "$out" "untimed_warn_percent"
 
 write_budget "$tmp/budget.yml" ten 30
 out="$(run_check --mode ci)"
@@ -444,7 +479,8 @@ write_budget "$tmp/budget.yml" 10 0
 out="$(run_check --mode ci)"
 assert "a zero budget fails closed" 2 $?
 
-printf -- '---\nper_file_seconds: 10\nsuite_total_seconds: 30\nper_file_seconds: 20\n' >"$tmp/budget.yml"
+write_budget "$tmp/budget.yml" 10 30
+printf -- 'per_file_seconds: 20\n' >>"$tmp/budget.yml"
 out="$(run_check --mode ci)"
 assert "a duplicated budget key fails closed" 2 $?
 
@@ -457,6 +493,27 @@ write_report "$tmp/report.tsv" 3 test-alpha.sh=1.499 test-beta.sh=1 test-gamma.s
 run_check --mode ci >/dev/null
 assert "a time under a decimal budget passes" 0 $?
 write_budget "$tmp/budget.yml" 10 30
+
+# ---------------------------------------------------------------------------
+# 8b. The duration table: more than untimed_warn_percent of the suite missing
+#     from it warns in both modes and never changes the verdict. It is read
+#     for the default suite or with --durations only.
+# ---------------------------------------------------------------------------
+write_report "$tmp/report.tsv" 3 test-alpha.sh=1 test-beta.sh=1 test-gamma.sh=1
+printf '# fixture table\ntest-alpha.sh\t1.0\ntest-beta.sh\tslow\n' >"$tmp/durations.tsv"
+out="$(run_check --mode ci --durations "$tmp/durations.tsv")"
+assert "a table missing most files still passes in CI" 0 $?
+assert_contains "the untimed share warns with its count" "$out" "WARNING: 2 of 3 files have no row in"
+assert_contains "the warning names the refresh task" "$out" "mise run test:refresh-durations"
+printf 'test-alpha.sh\t1\ntest-beta.sh\t2\ntest-gamma.sh\t3\n' >"$tmp/durations.tsv"
+out="$(run_check --mode ci --durations "$tmp/durations.tsv")"
+assert "a full table passes" 0 $?
+assert_not_contains "a full table does not warn" "$out" "WARNING"
+out="$(run_check --mode ci --durations "$tmp/no-such-table.tsv")"
+assert "a missing table still passes" 0 $?
+assert_contains "a missing table warns" "$out" "no readable duration table"
+out="$(run_check --mode ci)"
+assert_not_contains "a fixture suite reads no table unless given one" "$out" "WARNING"
 
 # ---------------------------------------------------------------------------
 # 9. A suite that discovers zero test files, or does not exist, fails closed:
@@ -487,7 +544,7 @@ else
   failures=$((failures + 1))
 fi
 assert_contains "the ranking states the per-file budget" "$out" "per-file budget 10"
-assert_contains "the ranking states the suite-total budget" "$out" "suite-total budget 30"
+assert_contains "the ranking states the mean-per-file budget" "$out" "mean-per-file budget 30s"
 
 # Argument handling.
 out="$(run_check --mode ci --bogus)"
@@ -559,7 +616,8 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 13. CI wiring: the suite runs in shard jobs, and the gate runs in the
+# 13. CI wiring: a plan job sets the shard count, the suite runs in that many
+#     shard jobs, and the gate runs in the
 #     aggregate job whose id `check` is the status branch protection and the
 #     ready-flip tooling read. That job must run whatever the jobs it needs
 #     did, fail unless they all passed, and judge every shard's report at once.
@@ -574,14 +632,21 @@ job_block() {
 }
 check_block="$(job_block check)"
 test_block="$(job_block test)"
+plan_block="$(job_block plan)"
 lint_block="$(job_block lint)"
 # The expected strings are workflow text, so `$` and `${{` in them are literal.
 # shellcheck disable=SC2016
 {
-  assert_contains "ci.yml has an aggregate check job needing lint and test" "$check_block" "needs: [lint, test]"
+  assert_contains "ci.yml has an aggregate check job needing lint, plan, and test" "$check_block" "needs: [lint, plan, test]"
   assert_contains "the check job runs whatever its needs did" "$check_block" 'if: ${{ always() }}'
-  assert_contains "the check job fails unless lint and test both passed" "$check_block" \
-    '[ "$LINT_RESULT" = success ] && [ "$TEST_RESULT" = success ]'
+  assert_contains "the check job fails unless lint and the plan passed" "$check_block" \
+    '[ "$LINT_RESULT" = success ] && [ "$PLAN_RESULT" = success ]'
+  assert_contains "the check job fails unless every shard passed" "$check_block" \
+    '&& [ "$TEST_RESULT" = success ]'
+  assert_contains "the plan job runs the planner" "$plan_block" 'shards=$(/bin/bash scripts/run-tests.sh --plan-shards)'
+  assert_contains "the plan job hands the list on" "$plan_block" 'shards: ${{ steps.plan.outputs.shards }}'
+  assert_contains "the test job waits for the plan" "$test_block" "needs: plan"
+  assert_contains "the matrix is the planned list" "$test_block" 'shard: ${{ fromJSON(needs.plan.outputs.shards) }}'
   assert_contains "the check job reads every shard's report" "$check_block" "pattern: timing-report-*"
   assert_contains "the check job runs the gate over the reports" "$check_block" \
     '/bin/bash scripts/check-test-time.sh "$@"'

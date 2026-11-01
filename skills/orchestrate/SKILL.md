@@ -123,8 +123,10 @@ Selector exits:
   cleanly.
 - Exit 2 → a fail-closed halt (missing/taskless `tasks.md`, or the derivation
   failed closed).
-- Exit 3 (format-version 2 transient evidence hold) → **report the hold and
-  end the step cleanly** (REQ-B1.5), the lock-contention shape; a later step
+- Exit 3 (transient evidence hold: format-version 2 bundle-wide, or format-version
+  3 with nothing ready while work is withheld behind a failed repository) →
+  **report the hold and end the step cleanly** (REQ-B1.5, REQ-B1.7), the
+  lock-contention shape; a later step
   re-selects (the `--watch` loop continues, unlike exit 1). v1 keeps its
   degraded-but-proceed behavior.
 
@@ -403,7 +405,7 @@ definition.
 | No / partial kickoff brief | Pre-flight step 6. |
 | Freshness-gate halt | The locked-window gate. |
 | Taskless / unreadable tasks.md | Selection exit 2. |
-| Selection transient-evidence hold | Selection exit 3 (v2): report and end cleanly, not a halt. |
+| Selection transient-evidence hold | Selection exit 3 (v2, or v3 per-repository): report and end cleanly, not a halt. |
 | Lock contention | `acquire` exit 1: a clean no-op, skip the step. |
 | Cohesion ambiguity | Cohesion-first bundling: multiple valid groupings; ask. |
 | Worker halt relayed | A worker halted to Awaiting input; recorded, never re-dispatched. |

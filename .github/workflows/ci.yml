@@ -3,9 +3,10 @@
 # prescribes runs on every PR. `mise run check`, the aggregate gate
 # contributors run locally, runs here split across parallel jobs, with tool
 # versions pinned in mise.toml (contributor/CI parity by construction): the
-# lint job runs `check:non-test` (every gate but the suite), three test jobs
-# each run a third of the suite, and the `check` job joins them and judges the
-# suite's timing over all three reports. The status branch protection and the
+# lint job runs `check:non-test` (every gate but the suite), the plan job
+# picks how many shards the suite needs, one test job runs each shard, and the
+# `check` job joins them and judges the suite's timing over every shard's
+# report. The status branch protection and the
 # ready-flip tooling read is `check`, so that job id must not change. The bash
 # 3.2 parse step needs Docker, so it runs here only. Actions are pinned to
 # full commit SHAs (supply-chain discipline per the security posture).
@@ -183,20 +184,39 @@ jobs:
             echo "not a comments-scoped PR; the code-invariance check does not apply"
           fi
 
-  # The suite in three shards (scripts/run-tests.sh --shard), split by the
-  # committed duration table so each runs about a third of the suite's time.
+  # The shard count, from the suite time the committed duration table
+  # predicts over shard_target_seconds in config/test-time-budget.yml
+  # (scripts/run-tests.sh --plan-shards), so the count grows with the suite
+  # and a shard's wall-clock stays near the target. It runs on the shards'
+  # runner type, since the prediction divides by this machine's cores, and
+  # needs no toolchain: the planner reads two files and runs nothing.
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - id: plan
+        run: |
+          shards=$(/bin/bash scripts/run-tests.sh --plan-shards)
+          echo "shards=$shards" >>"$GITHUB_OUTPUT"
+
+  # The suite in the planned shards (scripts/run-tests.sh --shard), split by
+  # the same table so each runs about an equal share of the suite's time.
   # Each shard prepares the runner exactly as the lint job does, so a
   # tool-gated case runs rather than skipping, and uploads its timing report
-  # for the `check` job. The matrix list is the shard count's one home: each
-  # job reads it as strategy.job-total.
+  # for the `check` job. Each job reads the count as strategy.job-total.
   test:
     name: test (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     steps:
       # Full history, for the tests that check fixture provenance.
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -234,21 +254,24 @@ jobs:
   # The aggregate status. It always runs, so a failed, skipped, or cancelled
   # job above fails it rather than leaving it skipped, which branch protection
   # reads as passing; under `!cancelled()` a run cancelled while this job
-  # waited would skip it. Then it runs the timing gate
+  # waited would skip it. A failed plan skips every shard, which fails it
+  # too. Then it runs the timing gate
   # (`check:test-time` in `mise run check`) over every shard's report at once:
   # the gate needs one row per test file, which only the union holds.
   check:
-    needs: [lint, test]
+    needs: [lint, plan, test]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - env:
           LINT_RESULT: ${{ needs.lint.result }}
+          PLAN_RESULT: ${{ needs.plan.result }}
           TEST_RESULT: ${{ needs.test.result }}
         run: |
-          echo "lint: $LINT_RESULT; test: $TEST_RESULT"
-          [ "$LINT_RESULT" = success ] && [ "$TEST_RESULT" = success ]
+          echo "lint: $LINT_RESULT; plan: $PLAN_RESULT; test: $TEST_RESULT"
+          [ "$LINT_RESULT" = success ] && [ "$PLAN_RESULT" = success ] \
+            && [ "$TEST_RESULT" = success ]
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 

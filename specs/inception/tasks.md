@@ -240,7 +240,11 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-(none yet)
+- **Task 15** — the post-PR cubic review round (step `cubic-pr`) is halted:
+  the cubic workspace quota is exhausted until 2026-11-05. Draft PR #764
+  carries the implementation and its convergence round. Operator: run the
+  cubic round and the panel from another session, then the ready flip once
+  CI is green and the PR is mergeable, and remove this bullet.
 
 ## Deferred
 
