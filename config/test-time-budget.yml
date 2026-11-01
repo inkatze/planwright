@@ -1,17 +1,24 @@
 ---
 # Test wall-clock budgets for `check:test-time` (scripts/check-test-time.sh).
 #
-# Three ceilings over the shell suite's measured wall-clock, in seconds. A
-# measured time GREATER THAN OR EQUAL TO its budget trips the gate.
+# Three ceilings over the shell suite's measured times, in seconds, and the
+# shard planner's settings. A measured time GREATER THAN OR EQUAL TO its
+# budget trips the gate.
 #
-#   per_file_seconds     one ceiling for every tests/*.sh file alike
-#   suite_total_seconds  the runner time the whole suite took: the wall-clock
-#                        of an unsharded `mise run test`, or in CI, where the
-#                        suite runs in shards, the shards' wall-clocks summed,
-#                        so it tracks growth whatever the shard count
-#   shard_wall_seconds   the slowest shard's wall-clock in a sharded run, the
-#                        longest the `check` status waits on one runner;
-#                        an unsharded run is judged on the suite total alone
+#   per_file_seconds         one ceiling for every tests/*.sh file alike
+#   suite_mean_file_seconds  the mean file time over the whole suite; it does
+#                            not grow with the file count, so adding files is
+#                            free and only a suite slower per file trips it
+#   shard_wall_seconds       the slowest shard's wall-clock in a sharded run,
+#                            the longest the `check` status waits on one
+#                            runner; an unsharded run is not judged on it
+#   shard_target_seconds     what scripts/run-tests.sh --plan-shards aims each
+#                            shard at: CI runs as many shards as the predicted
+#                            suite time needs to stay at or under it; the gate
+#                            requires it under shard_wall_seconds
+#   shard_count_max          the planner's cap on the shard count
+#   untimed_warn_percent     warn (never fail) when more than this share of
+#                            the suite has no row in config/test-durations.tsv
 #
 # CI hard-fails, local warns. The budgets are measured on the reference runner
 # (GitHub Actions, under the parallel runner), so an overrun there fails the
@@ -25,7 +32,9 @@
 # or slim the offending file first; if the cost is real, raise the budget and
 # record the new measured baseline and the headroom below, so the next reader
 # sees why the number is what it is. The 30–50% headroom covers runner noise
-# only, not growth: growth is exactly what this file exists to make visible.
+# only, not growth: a file, or the suite per file, getting slower is exactly
+# what this file exists to make visible. More files is not that growth; the
+# planner absorbs it in the shard count.
 #
 # Derivation (2026-09-03, PROVISIONAL): set generously for the calibration
 # run of the PR that introduces this gate. The pre-gate baseline is the
@@ -67,6 +76,27 @@
 # every test; two pull-request runs the same day measured 1001s and 1002s.
 # 1400s is the slowest, 1075s, plus 30%. The slowest shard measured 262s to
 # 383s over the same runs, still under its 400s budget, which stays.
+# Suite total replaced 2026-10-31 by the mean per file, with the shard count
+# now planned from the predicted suite time. A summed wall-clock grows with
+# the file count by construction, so it tripped on growth alone (raised
+# 2026-10-02, 2026-10-13 and 2026-10-31). Across the fifteen main runs from
+# 2026-10-20 to 2026-10-31 whose shard jobs all passed (382 to 412 files),
+# the mean file time measured 6.88s to 10.40s. 13.5s is the slowest plus 30%.
+#
+# Shard target set 2026-10-31. The planner predicts the suite from the
+# duration table (refreshed the same day as the median of five such runs) and
+# splits it so each shard's predicted wall-clock is at most the target. Over
+# those fifteen runs a run's total file time came to as much as 1.11x the
+# table's prediction, and the slowest shard ran up to 1.44x the mean shard
+# (1.21x or less in all but one run), so a 200s target puts the slowest shard
+# near 200s x 1.11 x 1.44 = 320s in the worst case seen, under the 400s
+# per-shard budget, which stays. At the day's prediction (3878s on four
+# cores) that is five shards. Ten shards caps the cost: each adds a runner's
+# setup, about a minute, and the cap is about twice the day's suite, past
+# which the per-shard budget makes the growth visible again.
 per_file_seconds: 120
-suite_total_seconds: 1400
+suite_mean_file_seconds: 13.5
 shard_wall_seconds: 400
+shard_target_seconds: 200
+shard_count_max: 10
+untimed_warn_percent: 5

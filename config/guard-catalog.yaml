@@ -215,8 +215,9 @@ breadth:
     tool: pinned-action-freshness-check
     detect: "manual"
     core: false
-  # Test-time budget: per-file and suite-total wall-clock ceilings over the
-  # runner's timing report, hard-fail on the reference runner, warn elsewhere.
+  # Test-time budget: per-file and mean-per-file time ceilings, plus a
+  # per-shard wall-clock ceiling, over the runner's timing report, hard-fail
+  # on the reference runner, warn elsewhere.
   # The ceilings are repo-local config (planwright: config/test-time-budget.yml).
   - id: test-time-budget
     category: budget
