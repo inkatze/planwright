@@ -140,10 +140,11 @@ The `check` task's `depends` list in `mise.toml`, with the `check:non-test`
 aggregate it names, is the authoritative inventory; the two registration
 guards are what keep it complete. GitHub Actions runs the same gate on every
 pull request, split across parallel jobs: a `lint` job runs `check:non-test`,
-three `test` jobs each run a shard of the suite (`scripts/run-tests.sh
---shard <i>/3`), and the `check` job, the status branch protection reads,
-passes only when they all do and the test-time budget gate passes over the
-three shards' timing reports together. Beside them, the `macos-suite` and
+a `plan` job picks the shard count (`scripts/run-tests.sh --plan-shards`,
+below), one `test` job runs each shard of the suite (`scripts/run-tests.sh
+--shard <i>/<N>`), and the `check` job, the status branch protection reads,
+passes only when they all do and the test-time budget gate passes over every
+shard's timing report together. Beside them, the `macos-suite` and
 `alpine-suite` jobs run the full suite on macOS (the system bash 3.2 and BSD
 userland) and in an Alpine container (musl, dash, busybox) on every pull
 request; they are statuses of their own, which `check` does not join. The
