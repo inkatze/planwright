@@ -166,7 +166,7 @@ OUT=$(mc_env env PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet-clock" PLANWRIGHT_MC_PRO
 RC=$?
 ERR=$(cat "$tmp/stderr")
 expect_rc "the watcher runs with no arguments under the runner" 0
-if [ -e "$fleet/mission-control/alpha/deadlines-announced" ]; then
+if [ -e "$fleet/mission-control/alpha" ]; then
   fail "the real-clock pass wrote into the pinned passes' fleet home"
 else
   ok "the real-clock pass leaves the pinned passes' fleet home alone"
