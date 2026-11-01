@@ -190,6 +190,23 @@ tok_push() {
   TOK_N=$((TOK_N + 1))
 }
 
+# dollar_count <text>: sets DOLLAR_N to the number of `$` in <text>, by
+# splitting on them, which stays linear. `${text//[!\$]/}` is quadratic in
+# bash 3.2, macOS's /bin/bash, and costs seconds on a command near
+# MAX_CMD_LEN, so the budget charge would outrun the work it bounds.
+dollar_count() {
+  local IFS='$' noglob=0
+  local -a dc_parts
+  DOLLAR_N=0
+  case $1 in *'$'*) ;; *) return 0 ;; esac
+  case $- in *f*) noglob=1 ;; esac
+  set -f
+  # shellcheck disable=SC2206 # split on `$` alone; the `.` keeps a trailing one
+  dc_parts=($1.)
+  [ "$noglob" = 1 ] || set +f
+  DOLLAR_N=$((${#dc_parts[@]} - 1))
+}
+
 # dollar_expands <next-char>: 0 when a `$` followed by <next-char> starts an
 # expansion. A `$` before anything else (end of word, `/`, a space) is literal.
 # zsh, the Bash tool's shell on macOS, also expands `$~NAME`, `$=NAME`,
@@ -4130,13 +4147,13 @@ guard_printf() {
 # known part says nothing about the rest. Every `$` spelling is read, a
 # literal one too, which can only narrow a verdict.
 word_tainted() {
-  local w=${cw[$1]} name v found weak=0 known=0 dollars
+  local w=${cw[$1]} name v found weak=0 known=0
   TAINT_WEAK=0
   [ -z "${csub[$1]-}" ] || known=1
   # Each `$` below copies the rest of the word, so a word holding more than
   # a handful is taken as inferred rather than read name by name.
-  dollars=${w//[!\$]/}
-  if [ "${#dollars}" -gt 64 ]; then
+  dollar_count "$w"
+  if [ "$DOLLAR_N" -gt 64 ]; then
     TAINT_WEAK=1
     return 0
   fi
@@ -4357,7 +4374,7 @@ loop_header() {
 # do/done pairs nested inside it; a `done` that is only an argument ends it
 # early, which can only under-charge, and the per-pass charge still holds.
 loop_fits() {
-  local j=$LH_NEXT nest=1 cost=0 d
+  local j=$LH_NEXT nest=1 cost=0
   while [ "$j" -lt "$TOK_N" ]; do
     if [ "${TOK_TYPE[j]}" = W ] && [ "${TOK_QUOTED[j]}" = 0 ]; then
       case ${TOK_VAL[j]} in
@@ -4368,8 +4385,8 @@ loop_fits() {
           ;;
       esac
     fi
-    d=${TOK_VAL[j]//[!\$]/}
-    cost=$((cost + ${#TOK_VAL[j]} + ${#d} * DOLLAR_COST))
+    dollar_count "${TOK_VAL[j]}"
+    cost=$((cost + ${#TOK_VAL[j]} + DOLLAR_N * DOLLAR_COST))
     j=$((j + 1))
   done
   [ $((SCANNED + cost * LH_COUNT)) -le "$MAX_SCANNED" ]
@@ -4824,14 +4841,14 @@ declared_line_ok() {
 # / count `cwn` and the redirect arrays `ro` (ops) / `rt` (targets) / `rn`
 # from the caller via dynamic scope. Returns 0 (safe) or non-zero (DEFER).
 verify_simple() {
-  local i swn=$cwn dollars
+  local i swn=$cwn
   SIMPLE_N=$((SIMPLE_N + 1))
   [ "$SIMPLE_N" -le "$MAX_SIMPLE_CMDS" ] || return 1
   # Each `$` costs a pass over the rest of its word (expand_word,
   # word_tainted), so it is charged DOLLAR_COST on top of the word's length.
   for ((i = 0; i < cwn; i++)); do
-    dollars=${cw[i]//[!\$]/}
-    SCANNED=$((SCANNED + ${#cw[i]} + ${#dollars} * DOLLAR_COST))
+    dollar_count "${cw[i]}"
+    SCANNED=$((SCANNED + ${#cw[i]} + DOLLAR_N * DOLLAR_COST))
   done
   [ "$SCANNED" -le "$MAX_SCANNED" ] || return 1
   local -a sw=() swq=()
@@ -5397,13 +5414,13 @@ verify_tokens() {
 # (guard_fish or subst_inner_ok -> analyze_command) gets a fresh, shadowing
 # token stream and never corrupts an outer walk.
 analyze_command() {
-  local cmd=$1 depth=$2 t seg lead dollars
+  local cmd=$1 depth=$2 t seg lead
   [ "$depth" -le "$MAX_DEPTH" ] || return 1
   [ "${#cmd}" -le "$MAX_CMD_LEN" ] || return 1
   # The tokenizer screens each `$` against the rest of the command, so the
   # `$` are charged before it runs, not only when the words are walked.
-  dollars=${cmd//[!\$]/}
-  SCANNED=$((SCANNED + ${#cmd} + ${#dollars} * DOLLAR_COST))
+  dollar_count "$cmd"
+  SCANNED=$((SCANNED + ${#cmd} + DOLLAR_N * DOLLAR_COST))
   [ "$SCANNED" -le "$MAX_SCANNED" ] || return 1
   local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=() TOK_QMIX=() TOK_SUBS=()
   local TOK_N=0

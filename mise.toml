@@ -275,6 +275,13 @@ run = "/bin/bash scripts/check-shell-config-pin.sh"
 [tasks."check:emitter-lint"]
 description = "emitter output linting guard: every script under scripts/ declaring an `# Emits:` format (markdown, yaml, shell) must be linted in that format by a test calling tests/lib/emitter-lint.sh's lint_emitted with the script's name, and every such call must name a declared emitter (config/guard-catalog.yaml, emitter-output-lint); fails closed on no declared emitter"
 run = "/bin/sh scripts/check-emitter-lint.sh"
+[tasks."check:counts"]
+description = "count-versus-list guard: a count stated in the sentence introducing a Markdown list or table must equal the list's length, over the tracked doctrine, skill, docs, Draft-bundle and specs/_pending prose; a bundle at any other status is skipped; exemptions in scripts/check-counts-exempt.tsv with a reason each, and a stale one fails"
+run = "/bin/sh scripts/check-counts.sh"
+
+[tasks."check:test-vacuity"]
+description = "test-vacuity guard over tests/: fails a test file asserting only absences, a status read from a filter stage of a pipeline, a status masked by an always-true alternative, an operand compared to itself, and a corpus-fed while-read harness with no row floor above zero; an exclusion is a `# vacuity-ok: <reason>` annotation on the reported line"
+run = "/bin/bash scripts/check-test-vacuity.sh"
 
 [tasks."check:script-modes"]
 description = "executable-bit guard: every scripts/*.sh in the git index carries the mode its first line declares, a shebang file 100755 (called by path it otherwise fails with Permission denied) and a shebang-less sourced library 100644; reads modes and first lines from the index, not the working tree, and fails closed on no repository, an unreadable index or blob, or zero scripts"
@@ -420,6 +427,8 @@ depends = [
   "check:shell-dash-operand",
   "check:shell-config-pin",
   "check:emitter-lint",
+  "check:counts",
+  "check:test-vacuity",
   "check:script-modes",
   "check:script-invocation",
   "check:spec-literals",

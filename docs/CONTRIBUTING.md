@@ -120,6 +120,15 @@ mise run check      # the full local equivalent of the CI gate
   `shell` must be linted in that format by some `tests/*.sh` suite through
   `tests/lib/emitter-lint.sh`'s `lint_emitted <format> <script-name> <file>`,
   and every such call must name a declared script and format;
+- the count-versus-list check (`check:counts`): a count stated in the
+  sentence introducing a Markdown list or table equals its length, over the
+  tracked doctrine, skill, docs, Draft-bundle and `specs/_pending/` prose,
+  with exemptions in `scripts/check-counts-exempt.tsv`;
+- the test-vacuity check (`check:test-vacuity`): no `tests/test-*.sh` file
+  asserts only absences, and no test under `tests/` reads a status from a
+  pipeline's filter stage or past an always-true alternative, compares an
+  operand to itself, or runs a corpus loop with no row floor; an exclusion
+  is a `# vacuity-ok: <reason>` annotation on the reported line;
 - the shebang-honoring invocation check (`check:script-invocation`): no line in
   a skill or doctrine doc runs a script whose shebang names bash through `sh`;
 - the bash 3.2 construct lint (`check:bash32`): macOS ships bash 3.2 as
