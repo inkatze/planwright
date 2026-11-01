@@ -160,6 +160,8 @@ want_entry() {
 want_entry pinned-action-freshness security breadth false
 want_entry test-time-budget budget breadth false
 want_entry cdpath-house-pattern house-pattern breadth false
+want_entry count-versus-list linter breadth false
+want_entry test-vacuity linter breadth false
 for c in budget house-pattern; do
   if in_enum "$c"; then
     pass "doctrine enum names the amended category: $c"
@@ -196,6 +198,7 @@ if [ -z "${GUARD_CATALOG_SCHEMA_YAML:-}${GUARD_CATALOG_SCHEMA_DOC:-}" ]; then
       [ -n "$2" ] && printf '    category: %s\n' "$2"
       printf '    tool: shfmt\n    detect: "*.sh"\n    core: true\n\nbreadth:\n'
       printf '%s\n' "pinned-action-freshness security" "test-time-budget budget" "cdpath-house-pattern house-pattern" \
+        "count-versus-list linter" "test-vacuity linter" \
         | while read -r bid bcat; do
           printf '  - id: %s\n    category: %s\n    tool: advisory\n    detect: manual\n    core: false\n' "$bid" "$bcat"
         done
