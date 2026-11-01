@@ -83,11 +83,16 @@ shard 104 3/3 test-c.sh=99 test-b.sh=99
 shard 105 1/2 test-a.sh=99
 shard 105 2/3 test-b.sh=99 test-c.sh=99
 mkdir -p "$tmp/runs/106"
+shard 107 1/2 test-a.sh=99
+shard 107 2/2 test-b.sh=99 test-c.sh=99
+mkdir -p "$tmp/runs/107/timing-report-1b"
+cp "$tmp/runs/107/timing-report-1/timing-report.tsv" "$tmp/runs/107/timing-report-1b/"
 run
 assert_eq "bad runs do not stop the refresh" 0 "$(cat "$tmp/rc")"
 assert_contains "a missing shard is named" "run 104: shard 2 of 3 is missing, skipped" "$(cat "$tmp/out")"
 assert_contains "mixed shard counts are named" "run 105: its reports disagree on the shard count, skipped" "$(cat "$tmp/out")"
 assert_contains "a run without reports is named" "run 106: no timing reports, skipped" "$(cat "$tmp/out")"
+assert_contains "a repeated shard is named" "run 107: shard 1 appears twice, skipped" "$(cat "$tmp/out")"
 assert_eq "a skipped run moves no median" 12 "$(row test-a.sh)"
 
 # 3. A report without a shard header is not one shard of a run.
