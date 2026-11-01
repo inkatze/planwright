@@ -68,6 +68,8 @@
 #      Format-version: fails closed per spec; mixed v1+v2 roots key per spec;
 #      the engine is consulted only when unfenced task atoms could need it;
 #      prose bullets stay silent, near-misses warn; fences are illustration.
+#      38b: format-version 3 takes the v2 evaluation; an undefined version
+#      fails closed per spec.
 #  46.-47. v2 error-path rows: an engine-present-but-failing derivation
 #      resolves atoms as unresolved with its own counted error row; one
 #      PENDING row can carry both `- unmet:` and the unresolved clause.
@@ -1025,6 +1027,47 @@ printf '%s\n' "$out31" | grep -F 'Fv bogus' >/dev/null \
 printf '%s\n' "$out31" | grep -F 'errors: 2' >/dev/null \
   || fail "Format-version fail-closed errors not counted (expected errors: 2)"
 echo "ok: a missing/unparseable Format-version fails closed per spec (REQ-C1.8)"
+
+# 38b. invariant-tasks REQ-F1.7 — version 3 takes the version 2 gate
+#      evaluation (engine-derived completion, bullet authority), and a version
+#      the sweep does not define (4) fails closed per spec like a bad one.
+v3r="$tmp/v3repo"
+mkdir -p "$v3r/specs/omega3" "$v3r/specs/four"
+git -C "$v3r" -c init.defaultBranch=main init -q
+printf '%s\n' '# Omega3' '' '**Status:** Ready' >"$v3r/specs/omega3/requirements.md"
+sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** 3/' "$v2r/specs/omega/tasks.md" >"$v3r/specs/omega3/tasks.md"
+grep -q '^\*\*Format-version:\*\* 3$' "$v3r/specs/omega3/tasks.md" || fail "v3 fixture not re-declared"
+printf '%s\n' '# Four' '' '**Status:** Ready' >"$v3r/specs/four/requirements.md"
+sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** 4/; s/Landed dep/Four dep/; s/Waiting dep/Four wait/' \
+  "$v2r/specs/omega/tasks.md" >"$v3r/specs/four/tasks.md"
+gitc "$v3r" add -A
+gitc "$v3r" commit -q -m "base: v3 and v4 bundles"
+gitc "$v3r" commit -q --allow-empty -m "task 1 done" -m "Planwright-Task: omega3/1" -m "Planwright-Task: four/1"
+outv3=$("$drain" --today 2026-07-15 "$v3r/specs") || fail "v3 fixture broke the sweep"
+printf '%s\n' "$outv3" | grep '^SATISFIED' | grep -F 'Landed dep' >/dev/null \
+  || fail "v3 task-completion atom not resolved via the derivation engine: $(printf '%s\n' "$outv3" | grep -F 'Landed dep')"
+printf '%s\n' "$outv3" | grep '^PENDING' | grep -F 'Waiting dep' >/dev/null \
+  || fail "v3 evidence-less task atom must stay PENDING"
+printf '%s\n' "$outv3" | grep -F 'Four ' >/dev/null \
+  && fail "a gate was evaluated under an undefined Format-version (4)"
+printf '%s\n' "$outv3" | grep -F 'Format-version' >/dev/null \
+  || fail "an undefined Format-version (4) was not surfaced"
+printf '%s\n' "$outv3" | grep -F 'errors: 1' >/dev/null \
+  || fail "the undefined version must be the sweep's only error (errors: 1): $(printf '%s\n' "$outv3" | grep -F 'errors:')"
+# A task naming a repository cannot be derived yet: its gate atoms stay
+# unresolved rather than read the work repository's evidence.
+sed 's/^- \*\*Done when:\*\* done\.$/&\
+- **Repository:** alpha/' "$v3r/specs/omega3/tasks.md" >"$v3r/specs/omega3/tasks.md.new" \
+  && mv "$v3r/specs/omega3/tasks.md.new" "$v3r/specs/omega3/tasks.md"
+grep -q '^- \*\*Repository:\*\* alpha$' "$v3r/specs/omega3/tasks.md" || fail "v3 Repository: fixture not written"
+outv3r=$("$drain" --today 2026-07-15 "$v3r/specs") || fail "v3 Repository: fixture broke the sweep"
+printf '%s\n' "$outv3r" | grep '^SATISFIED' | grep -F 'Landed dep' >/dev/null \
+  && fail "a task atom on a bundle naming a repository resolved from the work repository"
+printf '%s\n' "$outv3r" | grep '^PENDING' | grep -F 'Landed dep' | grep -F 'unresolved' >/dev/null \
+  || fail "the task atom must stay PENDING unresolved: $(printf '%s\n' "$outv3r" | grep -F 'Landed dep')"
+printf '%s\n' "$outv3r" | grep -F 'per-task repository derivation is unavailable' >/dev/null \
+  || fail "the unavailable per-task derivation was not surfaced"
+echo "ok: version 3 gates evaluate as version 2, stay unresolved when a task names a repository; an undefined version fails closed (REQ-F1.7)"
 
 # 39. Unresolved atoms are marked at ROW level (REQ-B1.5): under a failing
 #     remote, a bullet-parked task's gate stays un-satisfied and every affected

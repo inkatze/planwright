@@ -213,10 +213,17 @@ grep -qx -- '--identity' "$tmp/tmux-argv" && fail "dispatch tmux --profile missi
 for v in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN; do
   grep -qx -- "$v" "$tmp/tmux-argv" || fail "dispatch tmux --profile mission-control: an inherited $v is not dropped"
 done
+# A window starts from the tmux server's environment, which may carry some
+# mission-control session's row token; a window handed none drops it.
+grep -A1 -x -- '-u' "$tmp/tmux-argv" | grep -qx PLANWRIGHT_MC_TOKEN \
+  || fail "dispatch tmux --profile mission-control with no token: an inherited PLANWRIGHT_MC_TOKEN is not dropped"
 : >"$tmp/tmux-argv"
-PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT /bin/sh "$script" \
+PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_MC_TOKEN=tok-1 /bin/sh "$script" \
   dispatch tmux "$promptfile" --profile worker --name mc-alpha-worker-1 --scope spec:alpha-3 >/dev/null \
   || fail "dispatch tmux --profile worker exited nonzero"
+grep -q 'PLANWRIGHT_MC_TOKEN=' "$tmp/tmux-argv" && fail "dispatch tmux --profile worker: a worker window was handed a mission-control token"
+grep -A1 -x -- '-u' "$tmp/tmux-argv" | grep -qx PLANWRIGHT_MC_TOKEN \
+  || fail "dispatch tmux --profile worker: an inherited PLANWRIGHT_MC_TOKEN is not dropped"
 if ! grep -A2 -x -- '--identity' "$tmp/tmux-argv" | tr '\n' ' ' | grep -q 'mc-alpha-worker-1 spec:alpha-3'; then
   fail "dispatch tmux --profile worker: the worker identity is not name and scope"
 fi

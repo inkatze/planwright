@@ -193,8 +193,8 @@ description = "standing CI-exclusion guard, so evals never run in CI. Three pass
 run = "/bin/sh scripts/check-no-ci-evals.sh"
 
 [tasks."check:workflow-posture"]
-description = "fork-PR posture guard: no pull_request_target; read-only EFFECTIVE per-job permissions and zero stored secrets (secrets.GITHUB_TOKEN exempt) on everything reachable from pull_request, followed through local reusable-workflow uses:; privileged workflow_run keeps its base-branch filter, pins the originating repository (head_repository.full_name == github.repository), and consumes no PR artifact; fails closed on a workflow it cannot parse (guard-coverage Task 4, REQ-C1.2, REQ-H1.3, D-6)"
-run = "/bin/bash scripts/check-workflow-posture.sh"
+description = "fork-PR posture guard: no pull_request_target; read-only EFFECTIVE per-job permissions and zero stored secrets (secrets.GITHUB_TOKEN exempt) on everything reachable from pull_request, followed through local reusable-workflow uses:; privileged workflow_run keeps its base-branch filter, pins the originating repository (head_repository.full_name == github.repository), and consumes no PR artifact; and ci.yml carries the Ubuntu, macOS, and Alpine jobs, none gated on a platform, every step blocking (no continue-on-error, no soft `||`), an install smoke step on each, and the Alpine job held to its named scope; fails closed on a workflow it cannot parse (guard-coverage Task 4, REQ-C1.2, REQ-H1.3, D-6); universal-binary REQ-B1.4"
+run = "/bin/bash scripts/check-workflow-posture.sh --matrix ci.yml"
 
 [tasks."check:githooks"]
 description = "hook-backstop wiring detection: fail on an unwired or half-wired clone (core.hooksPath not 'githooks', or a hook file missing/non-executable); detects only, never wires — remedy is scripts/wire-githooks.sh (guard-coverage Task 2, REQ-A1.3, D-2, D-3)"
@@ -247,6 +247,14 @@ run = "/bin/bash scripts/check-cdpath.sh"
 [tasks."check:echo-discipline"]
 description = "printf-not-echo guard: fail on a shell file under scripts/, tests/, or githooks/ whose `echo` carries any expansion (a variable, a positional, a command substitution) without a `# trusted: <reason>` annotation on that line, or that puts `sanitize_printable` output into the printf FORMAT operand or a printf `%b` (dash re-expands backslash escape TEXT into live control bytes); and fail on any shell file, bash included, that sources scripts/echo-safety.sh without first testing it readable; enumerates by shebang or .sh suffix, exempts bash-shebang files from the echo rule only, and fails closed on anything that would narrow the scan"
 run = "/bin/bash scripts/check-echo-discipline.sh"
+
+[tasks."check:counts"]
+description = "count-versus-list guard: a count stated in the sentence introducing a Markdown list or table must equal the list's length, over the tracked doctrine, skill, docs, Draft-bundle and specs/_pending prose; a bundle at any other status is skipped; exemptions in scripts/check-counts-exempt.tsv with a reason each, and a stale one fails"
+run = "/bin/sh scripts/check-counts.sh"
+
+[tasks."check:test-vacuity"]
+description = "test-vacuity guard over tests/: fails a test file asserting only absences, a status read from a filter stage of a pipeline, a status masked by an always-true alternative, an operand compared to itself, and a corpus-fed while-read harness with no row floor above zero; an exclusion is a `# vacuity-ok: <reason>` annotation on the reported line"
+run = "/bin/bash scripts/check-test-vacuity.sh"
 
 [tasks."check:script-modes"]
 description = "executable-bit guard: every scripts/*.sh in the git index carries the mode its first line declares, a shebang file 100755 (called by path it otherwise fails with Permission denied) and a shebang-less sourced library 100644; reads modes and first lines from the index, not the working tree, and fails closed on no repository, an unreadable index or blob, or zero scripts"
@@ -385,6 +393,8 @@ depends = [
   "check:doctrine-manifest",
   "check:cdpath",
   "check:echo-discipline",
+  "check:counts",
+  "check:test-vacuity",
   "check:script-modes",
   "check:script-invocation",
   "check:spec-literals",

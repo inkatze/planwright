@@ -135,6 +135,7 @@ run ack "$x1" --tower $A --now 1605 >/dev/null || fail "ack: exit"
 [ "$(rec "$x1" | cut -f 15)" = 1605 ] || fail "ack did not stamp the record"
 [ "$(lease_of "$x1")" = - ] || fail "ack did not release the lease"
 grep -q "\"kind\":\"acknowledged\",\"tower\":\"$A\".*\"item\":\"$x1\"" "$log_file" || fail "no acknowledged event"
+grep -q "\"kind\":\"acknowledged\",\"tower\":\"$A\".*\"item\":\"$x1\".*\"reason\":\"acknowledged by the operator\"" "$log_file" || fail "the acknowledged line carries no settling reason"
 out=$(run next --tower $A --now 1606) || fail "next after ack: exit"
 [ -z "$out" ] || fail "ack released the next item: '$out'"
 marker $A 1607

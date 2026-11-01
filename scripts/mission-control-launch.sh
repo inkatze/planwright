@@ -1,9 +1,10 @@
 #!/bin/sh
 # mission-control-launch.sh — the one launcher for every session kind mission
 # control starts, and the verb that retires them. A launch delivers the brief,
-# the rules in scope, the kind's settings profile, its model tier and its name,
-# then registers owner, kind and scope. `--help` prints the usage, the output
-# shapes and the exit codes.
+# the rules in scope, the kind's settings profile, its model tier and its name
+# (and to a mission-control session its registry row's token, as
+# PLANWRIGHT_MC_TOKEN), then registers owner, kind and scope. `--help` prints
+# the usage, the output shapes and the exit codes.
 #
 # POSIX sh; no eval; every input is data. Pathname expansion is disabled.
 set -uf
@@ -67,7 +68,8 @@ Output, tab separated:
 
 A launch reserves the name with a complete row (backend, launcher pid and a
 token) before it starts anything, and a session that started but could not
-be recorded is stopped. A retire refuses a launch still in flight, closes the
+be recorded is stopped. A mission-control session starts holding that token
+as PLANWRIGHT_MC_TOKEN, which no other kind is handed. A retire refuses a launch still in flight, closes the
 process or window first, and releases the fleet record, the attention row
 and the row only once it is gone; a window counts as closed only when tmux
 lists the windows and that one is not among them.
@@ -456,6 +458,12 @@ cmd_launch() {
   # its own at the kind's key, and --strict-tier stops it from launching at
   # the ambient tier when the allocation store is unreachable.
   unit="mission-control:$name"
+  # The row's token goes into the session, so a decided-by-mission-control
+  # item it adds is bound to this row rather than to a name any caller can
+  # type (tower-comms REQ-A1.14). The rungs pass it to a mission-control
+  # session only.
+  PLANWRIGHT_MC_TOKEN=$token
+  export PLANWRIGHT_MC_TOKEN
   case $backend in
     stream-json)
       plan=$(/bin/sh "$script_dir/allocation-apply.sh" plan --key "$K_KEY" --backend stream-json-persistent --unit "$unit" </dev/null)

@@ -1648,4 +1648,41 @@ spec_parse_latest_anchor_entry "$tmp/b-two.md" --bogus >/dev/null 2>&1 || rc=$?
 eq "an unknown flag is a usage refusal" 2 "$rc"
 echo "ok: the anchor-entry parse reads the newest entry, its own labels, and refuses the undecidable"
 
+# --- The declared Format-version to rule-arm map (invariant-tasks REQ-F1.7,
+# REQ-C1.8): version 3 takes the version 2 arm; anything undefined fails
+# closed with nothing printed.
+eq "version 1 keys the v1 arm" 1 "$(spec_parse_format_arm 1)"
+eq "version 2 keys the v2 arm" 2 "$(spec_parse_format_arm 2)"
+eq "version 3 keys the v2 arm" 2 "$(spec_parse_format_arm 3)"
+for bad in '' 0 4 10 02 ' 2' 2.0 3beta banana; do
+  rc=0
+  got=$(spec_parse_format_arm "$bad") || rc=$?
+  eq "undefined version '$bad' fails closed" 1 "$rc"
+  eq "undefined version '$bad' prints nothing" '' "$got"
+done
+echo "ok: the format-version arm map gives version 3 the v2 arm and refuses undefined versions"
+
+# --- The task-repository probe: unfenced task blocks carrying the field, in
+# document order, once each; fenced illustration and non-task H3s never count.
+# shellcheck disable=SC2016 # literal backticks: the fence is the fixture
+printf '%s\n' '# T' '' '## Tasks' '' '### Task 2 — b' '- **Repository:** beta' '- **Repository:** again' '' \
+  '### Task 1 — a' '- **Dependencies:** none' '' '### Notes' '- **Repository:** stray' '' \
+  '```markdown' '### Task 9 — example' '- **Repository:** fenced' '```' '' \
+  '### Task 3.5 — c' '- **Repository:** gamma' '' '### Task  4 — d' '- **Repository:** delta' '' \
+  '### Task x — e' '- **Repository:** eps' >"$tmp/repo-tasks.md"
+eq "the probe lists each field-bearing task once, in order, any task heading counted" "$(printf '2\n3.5\n4\n?')" \
+  "$(spec_parse_repository_tasks "$tmp/repo-tasks.md")"
+eq "the probe reads a caller snapshot on stdin" "$(printf '2\n3.5\n4\n?')" \
+  "$(spec_parse_repository_tasks - <"$tmp/repo-tasks.md")"
+printf '%s\n' '# T' '' '### Task 1 — a' '- **Dependencies:** none' >"$tmp/repo-none.md"
+eq "a bundle naming no repository prints nothing" '' "$(spec_parse_repository_tasks "$tmp/repo-none.md")"
+printf '%s\n' '# T' '' '```' '### Task 1 — a' >"$tmp/repo-open.md"
+rc=0
+spec_parse_repository_tasks "$tmp/repo-open.md" >/dev/null 2>&1 || rc=$?
+eq "an unclosed fence fails closed" 3 "$rc"
+rc=0
+spec_parse_repository_tasks "$tmp/does-not-exist.md" >/dev/null 2>&1 || rc=$?
+eq "a missing file fails closed" 1 "$rc"
+echo "ok: the task-repository probe lists field-bearing tasks and fails closed on bad input"
+
 echo "PASS: test-spec-parse.sh"

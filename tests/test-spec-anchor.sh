@@ -25,6 +25,10 @@
 #      `**Status:**` line in body prose or inside a fence stays anchored, and a
 #      malformed, unterminated, or duplicate-Status header block fails closed
 #      (anchor-integrity REQ-A1.2).
+#  10. The format-version 3 `Repository:` line is anchored content at every
+#      version: a field-less version 3 bundle extracts byte-identically to
+#      its version 2 copy, and adding, changing, wrapping, or removing a field
+#      moves the anchor (invariant-tasks REQ-F1.3).
 #
 # Runs standalone: ./tests/test-spec-anchor.sh
 # (Joins the Task 2 shell test runner's suite when that lands.)
@@ -634,5 +638,69 @@ printf '%s\n' 'Prose before anything else.' '' \
 expect_fail_closed "no leading header block" "$broken" "no leading header block" "design.md" 4
 
 echo "ok: malformed, unterminated, and duplicate-Status header blocks fail closed, naming the file and its exit code (REQ-A1.2)"
+
+# --- 10. The format-version 3 Repository: field is definition content at
+# every version (invariant-tasks REQ-F1.3) ---
+# shellcheck source=scripts/spec-parse.sh
+. "$here/../scripts/spec-parse.sh"
+# set_repository <tasks.md> <value|-> — the Task 1 Repository: line set to
+# <value> after Citations, or removed with `-`.
+set_repository() {
+  REPO_VALUE=$2 awk '
+    /^- \*\*Repository:\*\*/ { next }
+    { print }
+    /^- \*\*Citations:\*\*/ && ENVIRON["REPO_VALUE"] != "-" { print "- **Repository:** " ENVIRON["REPO_VALUE"] }
+  ' "$1" >"$1.new"
+  mv "$1.new" "$1"
+}
+v2b="$tmp/v2b"
+v3b="$tmp/v3b"
+write_bundle "$v2b" 2 Ready
+cp -R "$v2b" "$v3b"
+for bf in requirements design tasks test-spec; do
+  sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** 3/' "$v3b/$bf.md" >"$v3b/$bf.md.new"
+  mv "$v3b/$bf.md.new" "$v3b/$bf.md"
+done
+spec_parse_extract_tasks "$v2b/tasks.md" >"$tmp/x2" || fail "extraction failed on the v2 copy"
+spec_parse_extract_tasks "$v3b/tasks.md" >"$tmp/x3" || fail "extraction failed on the v3 copy"
+cmp -s "$tmp/x2" "$tmp/x3" \
+  || fail "a version 3 bundle with no Repository: field did not extract byte-identically to its version 2 copy (REQ-F1.3)"
+a_v3=$("$anchor" "$v3b") || fail "anchor failed on the field-less v3 bundle"
+
+set_repository "$v3b/tasks.md" alpha
+grep -qx -- '- \*\*Repository:\*\* alpha' "$v3b/tasks.md" || fail "fixture: the Repository: line was not written"
+spec_parse_extract_tasks "$v3b/tasks.md" | grep -qx -- '- \*\*Repository:\*\* alpha' \
+  || fail "the extraction dropped the Repository: line (REQ-F1.3)"
+a_alpha=$("$anchor" "$v3b") || fail "anchor failed with a Repository: field"
+[ "$a_alpha" != "$a_v3" ] || fail "adding a Repository: field did not change the anchor (REQ-F1.3)"
+set_repository "$v3b/tasks.md" beta
+a_beta=$("$anchor" "$v3b") || fail "anchor failed after changing the alias"
+[ "$a_beta" != "$a_alpha" ] || fail "changing a task's alias did not change the anchor (REQ-F1.3)"
+# A continuation line on the field is part of it, as on every definition field.
+printf '%s\n' '  wrapped' >"$tmp/cont"
+awk 'FNR == NR { c = $0; next } { print } /^- \*\*Repository:\*\*/ { print c }' "$tmp/cont" "$v3b/tasks.md" >"$v3b/tasks.md.new"
+mv "$v3b/tasks.md.new" "$v3b/tasks.md"
+a_cont=$("$anchor" "$v3b") || fail "anchor failed with a wrapped Repository: field"
+[ "$a_cont" != "$a_beta" ] || fail "a Repository: continuation line was not anchored (REQ-F1.3)"
+set_repository "$v3b/tasks.md" -
+sed '/^  wrapped$/d' "$v3b/tasks.md" >"$v3b/tasks.md.new"
+mv "$v3b/tasks.md.new" "$v3b/tasks.md"
+a_back=$("$anchor" "$v3b") || fail "anchor failed after removing the field"
+[ "$a_back" = "$a_v3" ] || fail "removing the Repository: field did not restore the field-less anchor (REQ-F1.3)"
+
+# No version keying in the anchor: the same field in a version 1 bundle (a
+# validator error there, not an extraction carve-out) is kept and moves it too.
+v1b="$tmp/v1b"
+write_bundle "$v1b" 1 Ready
+a_v1=$("$anchor" "$v1b") || fail "anchor failed on the v1 bundle"
+set_repository "$v1b/tasks.md" alpha
+a_v1f=$("$anchor" "$v1b") || fail "anchor failed on the v1 bundle with a field"
+[ "$a_v1f" != "$a_v1" ] || fail "a Repository: line in a version 1 bundle was dropped from the anchor (no version keying, REQ-F1.3)"
+# The anchor script reads no Format-version: (its header names it only as an
+# excluded-scope literal).
+if grep -v '^[[:space:]]*#' "$anchor" | grep -q 'Format-version'; then
+  fail "scripts/spec-anchor.sh reads Format-version: (the anchor gains no version keying, REQ-F1.3)"
+fi
+echo "ok: the Repository: field is anchored at every version; a field-less v3 bundle extracts as its v2 copy (REQ-F1.3)"
 
 echo "PASS: test-spec-anchor"

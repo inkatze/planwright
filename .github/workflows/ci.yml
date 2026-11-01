@@ -79,6 +79,12 @@ jobs:
           npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
           claude --version
 
+      # The Ubuntu leg of the install smoke the macOS and Alpine jobs below
+      # also run; here because this job already carries the Claude CLI its
+      # marketplace mode installs through.
+      - name: install smoke
+        run: /bin/sh scripts/install-smoke.sh
+
       # Wire the tracked hook backstop before the aggregate gate verifies it:
       # the pinned wire-then-verify contract (guard-coverage REQ-A1.3, D-3).
       # check:githooks inside `check:non-test` then proves the wiring
@@ -258,39 +264,27 @@ jobs:
           done
           /bin/bash scripts/check-test-time.sh "$@"
 
-  # The macOS userland the scripts actually run on for most operators: its
-  # /usr/bin/awk is one-true-awk, which rejects a newline inside a -v value
-  # where the ubuntu runner's awk accepts it, so that class of bug passes the
-  # test shard jobs and breaks every Mac. Deliberately narrow (the awk-sensitive
-  # suites, no mise, no tool installs) until the full suite is green under the
-  # macOS /bin/bash; REQUIRE_BSD_AWK makes a runner image without that awk fail
-  # instead of skipping green.
-  macos-awk:
-    runs-on: macos-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-      - env:
-          PLANWRIGHT_TEST_REQUIRE_BSD_AWK: "1"
-        run: |
-          /usr/bin/awk --version
-          /bin/sh tests/test-bsd-awk-multiline.sh
-          /bin/sh tests/test-spec-validate.sh
-          /bin/bash tests/test-spec-parse-corpus.sh
-
-  # The full shell suite on the two platforms the matrix adds beside Ubuntu,
-  # held to this branch until the suite is green on both: a platform joins
-  # the pull-request workflow only once it passes there, and the filter's
-  # removal is that join. Both run it as `mise run test` with the pinned dev
-  # toolchain, as the test shard jobs do, so a tool-gated case runs rather than
-  # skipping. Full history, for the tests that check fixture provenance.
+  # The two platforms the matrix adds beside the Ubuntu jobs above, each
+  # blocking on every pull request: the full shell suite and the install smoke
+  # on macOS (the system bash 3.2 and the BSD awk and sed) and on Alpine (musl,
+  # dash as /bin/sh, busybox). Both run the suite as `mise run test` with the
+  # pinned dev toolchain, as the test shard jobs do, so a tool-gated case runs
+  # rather than skipping. Full history, for the tests that check fixture
+  # provenance. The install smoke (scripts/install-smoke.sh) installs planwright
+  # through the writer and the Claude CLI's marketplace flow and runs
+  # scripts/step-record.sh, the adopter-tier script with the largest coupling
+  # profile in the partition, with PATH narrowed to an allowlist of a POSIX
+  # shell's utilities, git, and gh; it runs on Ubuntu in the lint job.
+  # check:workflow-posture holds these jobs to the matrix: present, never
+  # gated on a platform, every step blocking, and the Alpine steps to its scope.
   #
-  # The macOS run narrows PATH to the system directories, so the suite meets
-  # the system bash 3.2 and the BSD awk and sed rather than the GNU tools the
-  # runner image layers on top; gh, mise, and node (for markdownlint-cli2)
-  # are linked into a directory of their own instead of exposing Homebrew's.
+  # The macOS suite narrows PATH to the system directories, so it meets the
+  # system bash 3.2 and the BSD awk and sed rather than the GNU tools the
+  # runner image layers on top; gh, mise, node (for markdownlint-cli2), and the
+  # Claude CLI are linked into a directory of their own instead of exposing
+  # Homebrew's. REQUIRE_BSD_AWK makes a runner image without that awk fail
+  # instead of skipping green.
   macos-suite:
-    if: github.head_ref == 'planwright/universal-binary/task-4'
     runs-on: macos-latest
     timeout-minutes: 150
     steps:
@@ -301,16 +295,27 @@ jobs:
         with:
           version: 2026.6.1
       - run: |
+          npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+          claude --version
+      - run: |
           allow="$RUNNER_TEMP/allow-bin"
           mkdir -p "$allow"
-          ln -s "$(command -v gh)" "$(command -v node)" "$(command -v mise)" "$allow/"
-      - run: |
+          ln -s "$(command -v gh)" "$(command -v node)" "$(command -v mise)" \
+            "$(command -v claude)" "$allow/"
+      - name: shell suite
+        env:
+          PLANWRIGHT_TEST_REQUIRE_BSD_AWK: "1"
+        run: |
           allow="$RUNNER_TEMP/allow-bin"
           mise_bin=$(command -v mise)
           PATH="$allow:/usr/bin:/bin:/usr/sbin:/sbin"
           /bin/bash --version
           /usr/bin/awk --version
           "$mise_bin" run test
+      - name: install smoke
+        run: |
+          PATH="$RUNNER_TEMP/allow-bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          /bin/sh scripts/install-smoke.sh
 
   # musl, dash as /bin/sh, and busybox for every other tool, in a stock
   # Alpine container pinned by digest, with an init so orphaned fixtures are
@@ -320,8 +325,18 @@ jobs:
   # tools it installs; no GNU userland, so awk, sed and the rest stay busybox.
   # The suite runs as an unprivileged user, since root passes the permission
   # checks several tests rely on failing.
+  #
+  # The job's scope is the shell suite, the install smoke, and (once it
+  # exists) the bake-off harness, each a step of that name; every other step
+  # is named `setup: <what>`. These need a tool without a musl build, Docker,
+  # or the Claude CLI's plugin schema check, and run on Ubuntu only, in the
+  # lint job: `mise run check:non-test` (shellcheck, shfmt, markdownlint,
+  # yamllint, the plugin-schema check, gitleaks, and the repo's own guards),
+  # the bash 3.2 parse step, the PR-range commit lint, and the purged-identifier
+  # screen; the suite timing gate runs in the check job. The install smoke's
+  # marketplace mode needs the Claude CLI to install through, so the CLI is
+  # added for it after the suite has run.
   alpine-suite:
-    if: github.head_ref == 'planwright/universal-binary/task-4'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     container:
@@ -331,11 +346,14 @@ jobs:
       MISE_VERSION: v2026.6.1
       MISE_SHA256: f37f4be1f22e5f81d2bbdcdbf239a48f002acd345e001b07dddd3431fd808b60
     steps:
-      - run: apk add --no-cache bash git jq dash-binsh perl nodejs npm pipx
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: "setup: packages"
+        run: apk add --no-cache bash git jq dash-binsh perl nodejs npm pipx
+      - name: "setup: checkout"
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
-      - run: |
+      - name: "setup: platform, mise, and the suite user"
+        run: |
           test "$(readlink -f /bin/sh)" = /usr/bin/dash
           test "$(readlink -f "$(command -v awk)")" = /bin/busybox
           test "$(readlink -f "$(command -v sed)")" = /bin/busybox
@@ -345,4 +363,13 @@ jobs:
           chmod 755 /usr/local/bin/mise
           adduser -D suite
           chown -R suite "$GITHUB_WORKSPACE"
-          su suite -c 'mise trust -q . && mise install && mise run test'
+          su suite -c 'mise trust -q . && mise install'
+      - name: shell suite
+        run: su suite -c 'mise run test'
+      - name: "setup: the Claude CLI"
+        run: |
+          apk add --no-cache libgcc libstdc++
+          npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+          claude --version
+      - name: install smoke
+        run: su suite -c '/bin/sh scripts/install-smoke.sh'

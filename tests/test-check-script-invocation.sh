@@ -268,11 +268,23 @@ done
 cp -R "$FIXTURES/sh-runs-bash" "$tmp/ctl" || exit 1
 esc="$(printf '\033')"
 csi="$(printf '\233')"
-mv "$tmp/ctl/skills/demo" "$tmp/ctl/skills/de${esc}[2Jmo${csi}2J" || exit 1
+# A UTF-8-normalizing file system (macOS/APFS) refuses the lone 8-bit CSI byte
+# in a name, so there the name carries ESC only and the CSI case is skipped;
+# the Linux runs are where it has teeth.
+if mv "$tmp/ctl/skills/demo" "$tmp/ctl/skills/de${esc}[2Jmo${csi}2J" 2>/dev/null; then
+  c1_name=1
+else
+  mv "$tmp/ctl/skills/demo" "$tmp/ctl/skills/de${esc}[2Jmo" || exit 1
+  c1_name=0
+fi
 out="$("$CHECKER" --repo-root "$tmp/ctl" 2>&1)"
 assert "the control-byte fixture still fails" 1 $?
 assert_not_contains "no ESC reaches the output" "$out" "$esc"
-assert_not_contains "no 8-bit CSI reaches the output" "$out" "$csi"
+if [ "$c1_name" -eq 1 ]; then
+  assert_not_contains "no 8-bit CSI reaches the output" "$out" "$csi"
+else
+  echo "ok: no 8-bit CSI reaches the output (skipped: this file system refuses the byte in a name)"
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
   cp -R "$FIXTURES/clean" "$tmp/unreadable" || exit 1

@@ -231,3 +231,19 @@ breadth:
     tool: cdpath-check
     detect: "manual"
     core: false
+  # Count versus list: a count stated in the sentence introducing a Markdown
+  # list or table equals its length, over the prose a repo authors (planwright:
+  # scripts/check-counts.sh, signed spec bundles skipped).
+  - id: count-versus-list
+    category: linter
+    tool: count-list-check
+    detect: "manual"
+    core: false
+  # Test vacuity: an assertion that cannot fail (no positive control, a filter
+  # stage's status, an always-true alternative, a self-comparison) and a
+  # corpus harness with no row floor (planwright: scripts/check-test-vacuity.sh).
+  - id: test-vacuity
+    category: linter
+    tool: test-vacuity-check
+    detect: "manual"
+    core: false
