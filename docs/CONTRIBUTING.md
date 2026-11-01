@@ -268,7 +268,8 @@ mise run test:refresh-durations
 ```
 
 That downloads the shard timing reports of the last five main runs whose shard
-jobs all passed (`gh` must be signed in) and gives each file the median of its
+jobs all passed (`gh` must be signed in; it warns when the last twenty
+completed runs hold fewer) and gives each file the median of its
 times, since one runner can run its whole shard slow.
 `scripts/refresh-test-durations.sh` also takes `check` job logs or a local
 timing report directly.

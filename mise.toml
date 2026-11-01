@@ -50,7 +50,7 @@ description = "Run the shell test suites under /bin/bash (the bash 3.2 floor), u
 run = '/bin/bash scripts/run-tests.sh'
 
 [tasks."test:refresh-durations"]
-description = "Refresh config/test-durations.tsv, the table the suite's queue order, CI shard split, and shard planner read, from the timing reports of the last five main CI runs whose shard jobs all passed, each file taking its median time; needs a signed-in gh. On demand only, never in check or CI"
+description = "Refresh config/test-durations.tsv, the table the suite's queue order, CI shard split, and shard planner read, from the timing reports of the last five main CI runs whose shard jobs all passed (warning when the last twenty completed runs hold fewer), each file taking its median time; needs a signed-in gh. On demand only, never in check or CI"
 run = "/bin/bash scripts/refresh-test-durations-ci.sh"
 
 [tasks.status]

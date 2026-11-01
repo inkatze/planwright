@@ -4,7 +4,7 @@
 # required: a run the timing gate failed still timed a green suite). Each
 # run's reports merge into one whole-suite source, skipped unless they are
 # shards 1..N of one N, each once; refresh-test-durations.sh then takes each
-# file's median over the runs.
+# file's median over the runs (fewer than K within 4K completed runs warns).
 #
 # Usage: refresh-test-durations-ci.sh [--runs <K>] [--from <dir>]
 #          [--suite <dir>] [--out <path>]
@@ -52,7 +52,9 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/refresh-test-durations-ci.XXXXXX")" \
   || die "could not create a temporary directory"
 trap 'rm -rf "$work"' EXIT
 
+scanned=0
 if [ -z "$from" ]; then
+  scanned=1
   command -v gh >/dev/null 2>&1 || die "gh is required (or pass --from)"
   from="$work/runs"
   mkdir -p "$from"
@@ -117,5 +119,8 @@ for run in "$from"/*/; do
   fi
 done
 [ "${#srcs[@]}" -gt 0 ] || die "no run with a complete set of shard reports"
+if [ "$scanned" -eq 1 ] && [ "${#srcs[@]}" -lt "$runs" ]; then
+  echo "refresh-test-durations-ci: WARNING: only ${#srcs[@]} of the $runs requested runs were usable within the last $((runs * 4)) completed main runs; the medians rest on fewer runs" >&2
+fi
 
 /bin/bash "$self_dir/refresh-test-durations.sh" ${pass[@]+"${pass[@]}"} "${srcs[@]}"

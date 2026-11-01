@@ -139,6 +139,11 @@ assert_eq "only green runs are downloaded, up to --runs" "301 304" \
   "$(awk '$1 == "run" && $2 == "download" { printf "%s%s", sep, $3; sep = " " }' "$tmp/gh.log")"
 assert_eq "the scan stops at --runs" 0 "$(grep -c '^run view 305' "$tmp/gh.log")"
 assert_eq "the table takes the downloaded times" 7 "$(row test-a.sh | awk '{ print $1 + 0 }')"
+assert_eq "a full sample does not warn" 0 "$(grep -c 'requested runs' "$tmp/out")"
+# Asking for more green runs than the scan finds still refreshes, and says so.
+GH_LOG="$tmp/gh.log" PATH="$tmp/bin:$PATH" /bin/bash "$SCRIPT" --runs 5 --suite "$suite" --out "$tmp/table.tsv" >"$tmp/out" 2>&1
+assert_eq "a short sample still refreshes the table" 0 "$?"
+assert_contains "a short sample warns with its count" "3 of the 5 requested runs" "$(cat "$tmp/out")"
 
 # 5. Usage.
 /bin/bash "$SCRIPT" --runs 0 --from "$tmp/runs" >/dev/null 2>&1
