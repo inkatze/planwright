@@ -1,21 +1,15 @@
 #!/bin/bash
-# Refresh config/test-durations.tsv from the timing reports the ci workflow's
-# shard jobs upload, over the last K main runs whose shard jobs all passed.
-# The check job's own verdict is not required: a run the timing gate failed
-# still timed a green suite.
-#
-# One run's shard reports are merged into one whole-suite report before
-# scripts/refresh-test-durations.sh sees it, which refuses a lone shard's. A
-# run is skipped, and says why, unless its reports are shards 1..N of one N,
-# each exactly once. The refresh then takes each file's median over the runs.
+# Refresh config/test-durations.tsv from the shard timing reports of the last
+# K main ci runs whose shard jobs all passed (the check verdict is not
+# required: a run the timing gate failed still timed a green suite). Each
+# run's reports merge into one whole-suite source, skipped unless they are
+# shards 1..N of one N, each once; refresh-test-durations.sh then takes each
+# file's median over the runs.
 #
 # Usage: refresh-test-durations-ci.sh [--runs <K>] [--from <dir>]
-#                                     [--suite <dir>] [--out <path>]
-#   --runs   main runs to use (default 5)
-#   --from   read runs already downloaded instead of calling gh: one
-#            subdirectory per run, laid out as `gh run download` leaves it
-#            (timing-report-<i>/timing-report.tsv)
-#   --suite, --out   passed through to refresh-test-durations.sh
+#          [--suite <dir>] [--out <path>]
+#   --runs K (default 5); --from reads runs already downloaded, one directory
+#   per run as `gh run download` leaves it; --suite and --out pass through.
 # Exit: 0 written · 2 usage, gh failure, no usable run, or a refused refresh
 set -u
 unset CDPATH
