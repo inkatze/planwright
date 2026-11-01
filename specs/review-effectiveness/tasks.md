@@ -583,11 +583,9 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 - **Task 15.1** — post-pr step `cubic-pr` halted
   (`.claude/steps/000001/008-step-post-pr.rec`): the cubic workspace quota
   is exhausted until 2026-11-05. Draft PR #777 carries the implementation,
-  the five-iteration convergence record, twelve pending sign-offs (PS-1 to
-  PS-12) and one queued fork (a symlinked `archive/` read by the duplicate
-  scan). Operator: decide the fork, run the cubic round and the panel, then
-  the ready flip once CI is green and the PR is mergeable, and remove this
-  bullet.
+  the five-iteration convergence record and twelve pending sign-offs (PS-1
+  to PS-12). Operator: run the cubic round and the panel, then the ready
+  flip once CI is green and the PR is mergeable, and remove this bullet.
 
 ## Deferred
 

@@ -33,7 +33,7 @@
 # absolute path, an uppercase byte in the lowercase slug, a control byte) is a
 # clean non-zero refusal with no path touched and no raw input echoed to the
 # terminal. The --obs-dir is contained rather than grammar-checked: a leading
-# '-' is refused, a symlinked root or entries/ is rejected, and the composed
+# '-' is refused, a symlinked root, entries/ or archive/ is rejected, and the composed
 # path is canonicalized and confinement-checked. Entry text carrying a newline
 # or control character is refused at write time.
 #
@@ -639,6 +639,9 @@ archive="$canon_obs/archive"
 # dangling escape target is never materialized as a side effect on a platform
 # whose mkdir -p would follow it.
 [ ! -L "$entries" ] || refuse 1 "entries path must not be a symlink"
+# The duplicate scan and the UID collision check both read archive/, so a
+# symlinked archive/ would let an outside tree decide what counts as a duplicate.
+[ ! -L "$archive" ] || refuse 1 "archive path must not be a symlink"
 
 mkdir -p "$entries" 2>/dev/null || refuse 1 "cannot create the entries directory"
 
