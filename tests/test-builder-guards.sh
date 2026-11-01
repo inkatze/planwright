@@ -92,7 +92,7 @@ fi
 # breadth:) follow the same contract: surfaced by a full run under that
 # category, never promoted into --core.
 for spec in "pinned-action-freshness security" "test-time-budget budget" "cdpath-house-pattern house-pattern" \
-  "script-invocation-house-pattern house-pattern"; do
+  "script-invocation-house-pattern house-pattern" "count-versus-list linter" "test-vacuity linter"; do
   bid=${spec% *}
   bcat=${spec#* }
   if printf '%s\n' "$full_out" | awk -F'\t' -v id="$bid" '$1==id{print $2}' | grep -qx "$bcat"; then
