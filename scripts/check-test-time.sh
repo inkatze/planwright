@@ -269,7 +269,9 @@ while IFS= read -r line || [ -n "$line" ]; do
       ;;
     untimed_warn_percent)
       [ -z "$untimed_warn" ] || fail_closed "budget file sets untimed_warn_percent twice"
-      is_positive_number "$val" || fail_closed "untimed_warn_percent is not a positive number: $(sanitize_printable "$val" "(unprintable)")"
+      if ! is_positive_number "$val" || ! awk -v p="$val" 'BEGIN { exit !(p + 0 <= 100) }'; then
+        fail_closed "untimed_warn_percent is not a positive number up to 100: $(sanitize_printable "$val" "(unprintable)")"
+      fi
       untimed_warn="$val"
       ;;
     shard_wall_seconds)

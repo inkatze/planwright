@@ -464,6 +464,12 @@ printf -- 'shard_wall_seconds: 25\n' >>"$tmp/budget.yml"
 out="$(run_check --mode ci)"
 assert "a duplicated per-shard key fails closed" 2 $?
 
+write_budget "$tmp/budget.yml" 10 30
+sed 's/^untimed_warn_percent: .*/untimed_warn_percent: 150/' "$tmp/budget.yml" >"$tmp/budget.pct" && mv "$tmp/budget.pct" "$tmp/budget.yml"
+out="$(run_check --mode ci)"
+assert "an untimed share over 100 percent fails closed" 2 $?
+assert_contains "the percent failure names the key" "$out" "untimed_warn_percent"
+
 write_budget "$tmp/budget.yml" ten 30
 out="$(run_check --mode ci)"
 assert "a non-numeric budget fails closed" 2 $?
