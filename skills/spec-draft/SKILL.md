@@ -211,7 +211,8 @@ Extend mode follows the target bundle's declared `Format-version:`
 new task blocks join `## Forward plan`, the v1 state sections stay — while
 a v2 target takes the v2 shape (new blocks join `## Tasks` in dependency
 order; no placement sections or state annotations are ever written to it),
-and a v3 target takes that shape plus the optional `Repository:` field;
+and a v3 target takes that shape plus the optional `Repository:` field (a
+v2 target whose extension adds one bumps its declaration to 3);
 an unparseable target `Format-version:` is refused — fail closed, never
 the v1 conventions (D-7).
 Operates on the existing bundle per the meta-spec's stable-ID discipline:
