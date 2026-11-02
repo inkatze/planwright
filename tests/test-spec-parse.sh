@@ -1662,27 +1662,43 @@ for bad in '' 0 4 10 02 ' 2' 2.0 3beta banana; do
 done
 echo "ok: the format-version arm map gives version 3 the v2 arm and refuses undefined versions"
 
-# --- The task-repository probe: unfenced task blocks carrying the field, in
-# document order, once each; fenced illustration and non-task H3s never count.
+# --- The task-repository map (invariant-tasks REQ-F1.2, REQ-F1.5): one record
+# per unfenced task block carrying the field, in document order, classed
+# alias, malformed (off the grammar, empty, or continued past its line), or
+# duplicate; fenced illustration and non-task H3s never count.
 # shellcheck disable=SC2016 # literal backticks: the fence is the fixture
 printf '%s\n' '# T' '' '## Tasks' '' '### Task 2 — b' '- **Repository:** beta' '- **Repository:** again' '' \
   '### Task 1 — a' '- **Dependencies:** none' '' '### Notes' '- **Repository:** stray' '' \
   '```markdown' '### Task 9 — example' '- **Repository:** fenced' '```' '' \
   '### Task 3.5 — c' '- **Repository:** gamma' '' '### Task  4 — d' '- **Repository:** delta' '' \
-  '### Task x — e' '- **Repository:** eps' >"$tmp/repo-tasks.md"
-eq "the probe lists each field-bearing task once, in order, any task heading counted" "$(printf '2\n3.5\n4\n?')" \
-  "$(spec_parse_repository_tasks "$tmp/repo-tasks.md")"
-eq "the probe reads a caller snapshot on stdin" "$(printf '2\n3.5\n4\n?')" \
-  "$(spec_parse_repository_tasks - <"$tmp/repo-tasks.md")"
+  '### Task 5 — e' '- **Repository:** acme/five' '' '### Task 6 — f' '- **Repository:** six' '  continued' '' \
+  '### Task 7 — g' '- **Repository:** seven  ' '### Task 8 — h' '- **Repository:**' '' \
+  '### Task x — i' '- **Repository:** eps' >"$tmp/repo-tasks.md"
+printf '### Task 10 — j\r\n- **Repository:** ten\r\n  \r\n' >>"$tmp/repo-tasks.md"
+repo_map_want=$(printf '2\tduplicate\tbeta\n3.5\talias\tgamma\n4\talias\tdelta\n5\tmalformed\tacme/five\n6\tmalformed\tsix\n7\talias\tseven\n8\tmalformed\t\n?\talias\teps\n10\talias\tten')
+eq "the map classes each field-bearing task once, in order, any task heading counted" "$repo_map_want" \
+  "$(spec_parse_repository_map "$tmp/repo-tasks.md")"
+eq "the map reads a caller snapshot on stdin" "$repo_map_want" \
+  "$(spec_parse_repository_map - <"$tmp/repo-tasks.md")"
+printf '%s\n' '# T' '' '### Task 1 — a' '- **Repository:** a-b' 'x' '- **Dependencies:** none' >"$tmp/repo-col0.md"
+eq "a column-0 line after the field is no continuation" "$(printf '1\talias\ta-b')" \
+  "$(spec_parse_repository_map "$tmp/repo-col0.md")"
+long=$(printf '%065d' 0 | tr 0 a)
+printf '%s\n' '# T' '' '### Task 1 — a' "- **Repository:** $long" >"$tmp/repo-long.md"
+eq "an alias past 64 characters is malformed" "$(printf '1\tmalformed\t%s' "$long")" \
+  "$(spec_parse_repository_map "$tmp/repo-long.md")"
+printf '### Task 1 — a\n- **Repository:** a\tb\n' >"$tmp/repo-tab.md"
+eq "a tab inside the value is folded so it cannot split the record" "$(printf '1\tmalformed\ta b')" \
+  "$(spec_parse_repository_map "$tmp/repo-tab.md")"
 printf '%s\n' '# T' '' '### Task 1 — a' '- **Dependencies:** none' >"$tmp/repo-none.md"
-eq "a bundle naming no repository prints nothing" '' "$(spec_parse_repository_tasks "$tmp/repo-none.md")"
+eq "a bundle naming no repository prints nothing" '' "$(spec_parse_repository_map "$tmp/repo-none.md")"
 printf '%s\n' '# T' '' '```' '### Task 1 — a' >"$tmp/repo-open.md"
 rc=0
-spec_parse_repository_tasks "$tmp/repo-open.md" >/dev/null 2>&1 || rc=$?
+spec_parse_repository_map "$tmp/repo-open.md" >/dev/null 2>&1 || rc=$?
 eq "an unclosed fence fails closed" 3 "$rc"
 rc=0
-spec_parse_repository_tasks "$tmp/does-not-exist.md" >/dev/null 2>&1 || rc=$?
+spec_parse_repository_map "$tmp/does-not-exist.md" >/dev/null 2>&1 || rc=$?
 eq "a missing file fails closed" 1 "$rc"
-echo "ok: the task-repository probe lists field-bearing tasks and fails closed on bad input"
+echo "ok: the task-repository map classes field-bearing tasks and fails closed on bad input"
 
 echo "PASS: test-spec-parse.sh"

@@ -23,37 +23,16 @@ opens a PR, and never flips a status to Ready — sign-off is a human gate
 
 ## Doctrine
 
-Resolve and read the run-start rule docs via the rule-doc
-resolution convention (`scripts/resolve-rule-doc.sh <doc-name>` or the
-documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain):
-`interaction-style` (governs every exchange in the flow),
-`research-rigor` (REQ-D1.5 wires its triggers into drafting),
-`security-posture` (artifact data-hygiene for everything committed), and
-`proportionality`. Four more are read point-of-use, at the step that applies
-them: the elicitation reads `spec-format` at its start (the meta-spec the
-bundle must conform to; the gists that earlier steps need are stated at
-those steps, so only the full law defers, and no bundle write happens before
-the load); the design phase reads
-`engineering-decisions` (governs design-phase
-recommendations) and `customization-boundary` (the capability-vs-style
-scoping call the design phase applies when a candidate feature looks like a
-packaged preference — see Design step 3); the altitude gate reads
-`autopilot-reflex` (D-11 wires it into drafting: the seed-claim and mid-flow
-trigger classes, the phase re-anchor, and the trigger-scoped altitude record;
-Seed gathering and Elicitation carry the trigger summaries they need, so
-only the full law defers). Their
-definitions govern wherever this skill names a concept. If one of those does not
-resolve — at run start or at its point of use — halt with a clear message naming
-the missing doc and the chain consulted (REQ-K1.7: a clear message is the
-graceful arm). Also
-resolve `decision-domains` (the design phase walks its catalog) — this one
-degrades instead of halting: if absent, the design phase notes the missing
-catalog in one line and proceeds (the builder/catalog wiring is a hook
-point, not a dependency).
-
-Doctrine manifest (the reading model above in machine-parseable form, per
-`doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
-`point-of-use` loads at the named step or branch):
+Resolve and read the manifest's rule docs below via the rule-doc resolution
+convention (`scripts/resolve-rule-doc.sh <doc-name>` or the documented
+`PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain), per
+`doctrine/instruction-hygiene.md`: `run-start` entries before work begins,
+`point-of-use` entries at the step each names, so no bundle write happens
+before `spec-format` loads. Their definitions govern wherever this skill names
+a concept. A doc that does not resolve, at run start or its point of use,
+halts with a clear message naming it and the chain consulted (REQ-K1.7: a
+clear message is the graceful arm); `decision-domains` alone degrades
+instead, as Design step 3 says.
 
 Doctrine: run-start interaction-style
 Doctrine: run-start research-rigor
@@ -90,18 +69,23 @@ Doctrine: point-of-use decision-domains (the design-phase catalog walk)
    listing the specs that do exist; a Retired or Superseded target is
    refused per the extend-mode terminal rule, up front rather than after
    elicitation starts.
-2. **Detect the git state.** Not a git repository: degrade
+2. **Altitude routing (inception REQ-J1.2, D-16).** Pitch-shaped input
+   (independently ownable tracks, no candidate home repository, three or
+   more discipline domains, or a pitch-form document) sits above a spec:
+   recommend `/inception` with a one-line reason, drafting here the other
+   option. Recommend only, never route; a decline drafts normally.
+3. **Detect the git state.** Not a git repository: degrade
    per REQ-K1.7 — say so up front, elicit and write the bundle in place, and
    skip every branch/worktree/commit step below, surfacing at the end what
    was skipped and why. No remote configured: irrelevant here; note it only
    so the human knows `/spec-kickoff`'s push step will degrade.
-3. **Read the config.** `commit_on_draft` from `config/defaults.yml`
+4. **Read the config.** `commit_on_draft` from `config/defaults.yml`
    overridden by `<repo>/.claude/planwright.local.yml` (local wins). Default
    `true`; an absent, unreadable, or malformed config file falls back to the
    default with a one-line warning surfaced immediately at this step — before
    any fallback-driven action (such as the auto-commit) can fire — and
    repeated in the handoff (REQ-K1.7).
-4. **Resolve the working location** (D-44, graceful in every starting state).
+5. **Resolve the working location** (D-44, graceful in every starting state).
    The spec branch is `planwright/<spec>/spec` (the reserved namespace the
    `tasks-pr-sync` hook no-ops on); the spec worktree is
    `<repo>/.claude/worktrees/<spec>-spec` (D-37 placement; the directory name
@@ -130,7 +114,9 @@ question; seeds answer questions the human would otherwise repeat.
 1. **The invocation itself** — whatever idea, links, or files came with the
    prompt.
 2. **Pending notes** — files under `<root>/_pending/`. Read them; ask which
-   apply if more than one plausibly does.
+   apply if more than one plausibly does. Graduated venture seeds among them
+   come through `<planwright-root>/scripts/inception-seed-read.sh <root>`
+   (inception REQ-J1.1); follow its `note` line.
 3. **The observations accumulator** — the live fragments under
    `<root>/_observations/entries/` plus the frozen legacy
    `opportunities.md`'s unconsumed lines, read as **one candidate set** and

@@ -249,29 +249,28 @@ steps below run first, so their chore commits land before the push.
 
 ## Observations
 
-When the repository has adopted planwright (a `specs/` directory with at
-least one spec bundle exists), record anything noticed during the pass that
-is outside the branch's scope (complexity growth, outdated patterns, tooling
-gaps, doctrine gaps) as one fragment per observation through the shared
-helper: `scripts/obs-record.sh --slug <topic> --scope <repo> --text
-'<observation>'` (resolved under the planwright root; it writes one fragment
-file under the spec root's `_observations/entries/`). Commit the
-fragment within the pass (the action commit, or its own chore commit when
-nothing else landed); never leave the tree dirty at a pass boundary, and
-surface a non-zero helper exit rather than silently dropping the
-observation. Do not act on observations during the pass; they are seed
-material for `/spec-draft` (REQ-E2.1, REQ-H1.6).
+In a repository with a spec bundle under `specs/`, record anything noticed
+outside the branch's scope (complexity growth, outdated patterns, tooling or
+doctrine gaps) as one fragment per observation through
+`scripts/obs-record.sh --slug <topic> --scope <repo> --text '<observation>'`
+(resolved under the planwright root). Before committing fragments, review
+them with the spec lens set plus a duplication check against the store, each
+quoted message, named test, figure and attribution read against its source;
+record every disposition, and a refused record's recurrence or withdrawal, in
+the audit record, correcting or withdrawing a falsified fragment. Commit them
+within the pass (the action commit, or a chore commit); never leave the tree
+dirty at a pass boundary, and surface a non-zero helper exit. Do not act on
+observations during the pass; they seed `/spec-draft` (REQ-E2.1, REQ-H1.6).
 
 ## Maintenance
 
 After the pass completes (or halts), compare these instructions against the
 resolved doctrine docs listed above (REQ-B3.2, D-42). If a concept this skill
 names has changed meaning, gained or lost a step, or moved between docs,
-record a drift observation through the shared helper (`scripts/obs-record.sh
---slug skill-drift --scope <repo> --text 'skill-drift(self-review): <what>'`
-— the entry text keeps the `skill-drift(...)` prefix; in repositories
-without `specs/`, surface the drift to the user instead of recording it),
-commit the fragment as its own chore commit, tell the user what drifted, and
-surface a non-zero helper exit rather than silently dropping the observation.
+record a drift observation (`scripts/obs-record.sh --slug skill-drift
+--scope <repo> --text 'skill-drift(self-review): <what>'`, the text keeping
+that prefix; without `specs/`, surface the drift to the user instead),
+review the fragment as the Observations step does, commit it as its own chore
+commit, tell the user what drifted, and surface a non-zero helper exit.
 Do not edit this skill or the doctrine docs to resolve the drift; `/spec-draft`
 owns folding drift into spec amendments.
