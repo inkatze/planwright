@@ -527,7 +527,18 @@ deny|load-bearing|function f { git reset --hard origin/main; }; f|a function bod
 deny|load-bearing|(git push origin main) 2>/dev/null|a subshell followed by a redirect (M9)
 deny|load-bearing|git commit -m "fix (scope"; git push origin main|a lone parenthesis in a quoted argument cannot hold later separators inside a group (MB-3)
 deny|load-bearing|git add "x`y" && git reset --hard origin/main|a lone backtick in a quoted argument, the same (MB-3)
-allow|legit|ls $((1 + 2))|arithmetic expansion is not a command substitution (M9)
+deny|load-bearing|echo $((git push origin main); ls)|a substitution opening with a subshell is not arithmetic (M9)
+deny|load-bearing|while true; do ls; done < <(git push origin main)|a process substitution after a closing word (M9)
+deny|load-bearing|(ls) $(git push origin main)|a substitution after a subshell's close (M9)
+deny|load-bearing|echo "(" ; git push origin main ; echo ")"|quoted parentheses that balance hold no separator (MB-3)
+deny|load-bearing|git commit -m "(" ; git status $(git log; git push origin main)|a quoted lone parenthesis hides neither the separator after it nor a later substitution (MB-3)
+deny|load-bearing|f () { git push origin main; }; f|a function body, POSIX spacing (M9)
+deny|load-bearing|f(){ git push origin main; }; f|a function body, no spacing (M9)
+allow|legit|git commit -m "chore: a; b && c"|separators inside quotes do not split (MB-3)
+deny|load-bearing|case x in a) git push origin main;; esac|a case arm, reached by the atom sweep (MB-7)
+prompt|residual|git status; case x in a) rm -rf build;; esac|a case statement's arms are not read for allow, so nothing in one is reported allowed (MB-7)
+allow|legit|git status "$(git rev-parse --show-toplevel)"|a substitution whose every command is allowed (M9)
+prompt|residual|ls $((1 + 2))|arithmetic reads as a substitution holding a group, so the model asks for an allow rule it cannot find; conservative (M9)
 prompt|residual|ls $(ls $(ls $(ls $(ls $(ls $(ls $(ls $(ls $(ls x))))))))))|nesting past the model's depth bound reports no allow for the uninspected command (M9)
 deny|load-bearing|if git status; then git push origin main; fi|an if-then body (M9)
 deny|load-bearing|if false; then true; else git reset --hard origin/main; fi|an else body (M9)
@@ -685,8 +696,8 @@ EOF
 # tripping pass D. So the floor is `>=` the exact current count: adding rows is
 # always fine, deleting any row fails and has to be argued for. Raise these two
 # numbers in the same commit that adds rows (REQ-H1.3).
-ROW_FLOOR=195
-DENY_ROW_FLOOR=116
+ROW_FLOOR=206
+DENY_ROW_FLOOR=124
 if [ "$row_total" -ge "$ROW_FLOOR" ] && [ "$row_deny_total" -ge "$DENY_ROW_FLOOR" ]; then
   ok "the fixture table is non-vacuous: $row_total rows, $row_deny_total load-bearing (REQ-H1.3)"
 else
@@ -1027,6 +1038,7 @@ deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.mise/tasks/check|a mise
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/lefthook.yml|lefthook config runs commands (REQ-F1.6)
 deny|load-bearing|Write|/work/repo/mise.local.toml|the primary checkout's mise config, which mise reads from a worktree beneath it (REQ-F1.6)
 deny|load-bearing|Edit|/work/repo/githooks/pre-commit|the primary checkout's hooks directory (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/mise.toml|the primary checkout's mise config (REQ-F1.6)
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.envrc|direnv config runs commands (REQ-F1.6, as the guard names it)
 deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.tool-versions|tool-version config selects what mise runs (REQ-F1.6, as the guard names it)
 deny|load-bearing|Edit|/home/u/.config/direnv/direnvrc|a .config directory, which holds mise and direnv user config (REQ-F1.6, as the guard names it)
@@ -1060,8 +1072,6 @@ ROWS
 PATH_FIXTURES=$(path_fixture_rows)
 # Compiled here, in this shell, so the per-row command substitutions inherit it.
 pm_path_compile
-PATH_SETS=()
-path_n=0
 path_rows=0
 ALLOW_TOOLS_SEEN=' '
 while IFS='|' read -r expected class tool path note; do
@@ -1077,17 +1087,12 @@ while IFS='|' read -r expected class tool path note; do
   else
     fail "[$class] expected $expected, got $got: $tool $path  ($note)"
   fi
-  if [ "$expected" = deny ]; then
-    PATH_SETS[path_n]="$(pm_path_deny_match_indices "$tool" "$path")"
-    path_n=$((path_n + 1))
-  else
-    ALLOW_TOOLS_SEEN="$ALLOW_TOOLS_SEEN$tool "
-  fi
+  [ "$expected" = deny ] || ALLOW_TOOLS_SEEN="$ALLOW_TOOLS_SEEN$tool "
 done <<EOF
 $PATH_FIXTURES
 EOF
 
-PATH_ROW_FLOOR=43
+PATH_ROW_FLOOR=44
 if [ "$path_rows" -ge "$PATH_ROW_FLOOR" ]; then
   ok "the path fixture table is non-vacuous: $path_rows rows"
 else
@@ -1098,30 +1103,66 @@ fi
 # no row exercises cannot match (a Write(...) rule, a wrong anchor), and one
 # that never stands alone can be deleted with a green suite (the path-rule
 # counterpart of passes D and E).
-path_rule_fail=0
-i=0
-while [ "$i" -lt "$PM_PATH_DENY_N" ]; do
-  exercised=0
-  sole=0
-  j=0
-  while [ "$j" -lt "$path_n" ]; do
-    case " ${PATH_SETS[$j]} " in
-      *" $i "*) exercised=1 ;;
-    esac
-    [ "${PATH_SETS[$j]}" != "$i" ] || sole=1
-    j=$((j + 1))
+# path_rules_uncovered — print `dead <rule>` or `shadowed <rule>` for each
+# loaded path deny rule failing that, over the path fixture table's deny rows.
+path_rules_uncovered() {
+  local expected class tool path note i j exercised sole n=0
+  local -a sets=()
+  while IFS='|' read -r expected class tool path note; do
+    [ "${expected:-}" = deny ] || continue
+    sets[n]="$(pm_path_deny_match_indices "$tool" "$path")"
+    n=$((n + 1))
+  done <<EOF
+$PATH_FIXTURES
+EOF
+  i=0
+  while [ "$i" -lt "$PM_PATH_DENY_N" ]; do
+    exercised=0
+    sole=0
+    j=0
+    while [ "$j" -lt "$n" ]; do
+      case " ${sets[$j]} " in
+        *" $i "*) exercised=1 ;;
+      esac
+      [ "${sets[$j]}" != "$i" ] || sole=1
+      j=$((j + 1))
+    done
+    if [ "$exercised" -eq 0 ]; then
+      printf 'dead %s\n' "$(pm_path_deny_rule_at "$i")"
+    elif [ "$sole" -eq 0 ]; then
+      printf 'shadowed %s\n' "$(pm_path_deny_rule_at "$i")"
+    fi
+    i=$((i + 1))
   done
-  if [ "$exercised" -eq 0 ]; then
-    fail "path deny rule is never exercised by any path fixture row (dead rule or missing row): $(pm_path_deny_rule_at "$i")"
-    path_rule_fail=1
-  elif [ "$sole" -eq 0 ]; then
-    fail "path deny rule is the sole cover for no path fixture row, so it can be deleted with a green suite: $(pm_path_deny_rule_at "$i")"
-    path_rule_fail=1
-  fi
-  i=$((i + 1))
-done
-[ "$path_rule_fail" -eq 1 ] \
-  || ok "every path deny rule is the sole cover for at least one path fixture row"
+}
+uncovered="$(path_rules_uncovered)"
+if [ -z "$uncovered" ]; then
+  ok "every path deny rule is the sole cover for at least one path fixture row"
+else
+  while IFS=' ' read -r why rule; do
+    case "$why" in
+      dead) fail "path deny rule is never exercised by any path fixture row (dead rule or missing row): $rule" ;;
+      *) fail "path deny rule is the sole cover for no path fixture row, so it can be deleted with a green suite: $rule" ;;
+    esac
+  done <<EOF
+$uncovered
+EOF
+fi
+# The pass must be able to fail: a duplicated rule shadows itself, and a rule
+# no row reaches is dead.
+injected="$(
+  pm_load_rules "$DENY_RULES
+Edit(//**/.envrc)
+Edit(//nowhere/x)" "$ASK_RULES" "$ALLOW_RULES" >/dev/null 2>&1
+  pm_path_compile
+  path_rules_uncovered | tr '\n' ' '
+)"
+case "$injected" in
+  *'shadowed Edit(//**/.envrc)'*'dead Edit(//nowhere/x)'*)
+    ok "the path coverage pass names a shadowed and a dead path rule"
+    ;;
+  *) fail "the path coverage pass missed an injected shadowed or dead rule: $injected" ;;
+esac
 if [ "$PM_PATH_DENY_N" -gt 0 ]; then
   ok "the shipped deny block carries $PM_PATH_DENY_N path rule(s)"
 else
@@ -1155,6 +1196,25 @@ path_probe prompt 'a Read allow rule does not admit the edit tools' '' '' 'Read(
 path_probe deny 'a bare Edit deny removes the tool whatever the allow list says' 'Edit' '' 'Edit' Edit /tmp/x
 path_probe ask 'a bare Read ask covers the edit tools too' '' 'Read' 'Edit' Edit /tmp/x
 path_probe deny 'a single-slash pattern anchors at the settings directory' 'Edit(/mise.toml)' '' 'Edit' Edit "$PM_SETTINGS_DIR/mise.toml"
+
+# Anchors are read when a decision is made: moving the working directory in
+# the same shell moves a relative rule with it, and an unset settings
+# directory follows the working directory.
+anchored="$(
+  pm_load_rules 'Bash(never-run *)
+Edit(mise.toml)
+Edit(/s.toml)' '' 'Edit' >/dev/null 2>&1
+  PM_CWD=/a
+  unset PM_SETTINGS_DIR
+  printf '%s ' "$(pm_decide_path Edit /a/mise.toml)" "$(pm_decide_path Edit /a/s.toml)"
+  PM_CWD=/b
+  printf '%s ' "$(pm_decide_path Edit /a/mise.toml)" "$(pm_decide_path Edit /b/mise.toml)" "$(pm_decide_path Edit /b/s.toml)"
+)"
+if [ "$anchored" = 'deny deny allow deny deny ' ]; then
+  ok "path model: anchors are read at decision time, the settings directory defaulting to the working directory"
+else
+  fail "path model: anchors must be read at decision time (got: $anchored)"
+fi
 
 # Non-Bash allow entries: a bare file-tool name is exercised by an allow path
 # row for that tool; the remaining tool names sit outside the model (MB-6).

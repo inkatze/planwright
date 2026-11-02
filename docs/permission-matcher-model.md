@@ -102,15 +102,26 @@ subshell, a command substitution, or a control-flow body such as a `for`
 loop". The model therefore reaches, recursively: a subshell `( … )`, a brace
 group `{ …; }`, a command substitution `$( … )` or backticks, a process
 substitution `<( … )` or `>( … )`, a function body, and the bodies and
-conditions of `for`, `while`, `until`, and `if`/`elif`/`else`. A `for` head
-runs no command of its own, but a substitution in its words does; `$(( … ))`
-is arithmetic, not a command. Separators inside parentheses or backticks do
-not split the outer command; the nested text is split on its own. A
-subcommand that carries a substitution is matched with it in place, then
-each nested command is matched as well, so allow still needs every one of
-them. Past a fixed nesting depth the model stops reading and reports a
-subcommand no allow rule matches, so a command it never inspected cannot
-come out allowed.
+conditions of `for`, `while`, `until`, and `if`/`elif`/`else`. A `for` or
+`case` head, or a closing word followed by a redirect (`done < <(…)`), runs
+no command of its own, but a substitution in its words does. Grouping is
+read with quoting: nothing groups inside single quotes, and inside double
+quotes only `$(` and backticks open a nested command. Separators inside
+quotes, parentheses, or backticks do not split the outer command; the nested
+text is split on its own. A subcommand that carries a substitution is
+matched with it in place, then each nested command is matched as well, so
+allow still needs every one of them. `$(( … ))` reads as a substitution
+holding a group, which can only add a subcommand to check. Past a fixed
+nesting depth, or when a quote, parenthesis, or backtick never closes, the
+model stops reading structure and reports a subcommand no allow rule
+matches, so a command it never inspected cannot come out allowed.
+
+Deny and ask rules are also swept over the command's *atoms*: the text split
+on every separator and every parenthesis and backtick, quotes ignored, each
+with its control-flow words dropped. A nested command the structured reading
+misses still surfaces as an atom, so it is denied however it is quoted or
+grouped. The cost is the `overblock` kind: a deny-matching command written
+inside a quoted argument is denied too.
 
 **M10 — path rules.** `Read(<pattern>)` and `Edit(<pattern>)` rules use
 gitignore syntax. `//p` is absolute, `~/p` is under the home directory, `/p`
@@ -120,8 +131,10 @@ or `./p` is relative to the working directory. A bare name with no slash
 matches at any depth under its anchor; so does a single directory segment
 followed by `/**`, in deny and ask rules only. `*` stays inside one path
 segment and `**` spans directories. A Read deny also blocks the edit tools on
-the same path. A bare `Read`, `Edit`, or `Write` entry governs that tool on
-every path: in deny it removes the tool, in allow it admits every call.
+the same path. A bare `Read`, `Edit`, `Write`, or `NotebookEdit` entry
+governs that tool on every path: in deny it removes the tool, in allow it
+admits every call; a bare `Edit` deny or ask covers the other edit tools as
+an `Edit(...)` rule does.
 
 **M11 — `Write(path)` rules never match.** Claude Code checks file
 permissions against `Edit(path)` and `Read(path)` rules only; a `Write(...)`
@@ -156,18 +169,15 @@ deny and ask only. Allow matching runs against the unstripped command, so a
 command with any leading assignment reports `prompt` rather than `allow`.
 Direction: under-predicts allow.
 
-**MB-3 — quoting.** Both the compound split (M6) and the pattern match (M2) are
-quoting-unaware, as the real matcher's *patterns* are — the documentation's own
-warning is that Bash patterns constraining arguments are fragile. A separator
-inside a quoted argument (`git commit -m "a; b"`) splits in the model where the
-real, shell-aware matcher would not. No fixture row uses that shape. The
-grouping M9 tracks is quoting-unaware too, so a lone `(` or backtick inside a
-quoted argument would leave a group open and hold every later separator
-inside it; a command whose parentheses or backticks do not balance is split
-on every separator instead, which only ever splits more. The
-converse — a *flag name* appearing inside a quoted commit message and being
-matched as if it were a flag — is real behavior in both, and the fixture table
-records it as the `overblock` class.
+**MB-3 — quoting.** The compound split (M6) reads quotes and backslash
+escapes, so a separator inside a quoted argument (`git commit -m "a; b"`)
+does not split, as in the shell-aware real matcher. The pattern match (M2) is
+quoting-unaware, as the real matcher's *patterns* are — the documentation's
+own warning is that Bash patterns constraining arguments are fragile. So a
+*flag name* inside a quoted commit message is matched as if it were a flag,
+which is real behavior in both, and the fixture table records it as the
+`overblock` class; M9's atom sweep adds the same cost for a command written
+inside a quoted argument. Direction: over-predicts deny only.
 
 **MB-4 — built-in read-only commands.** Claude Code runs an unconfigurable set
 of read-only commands (`ls`, `cat`, `git status`, ...) without a prompt
@@ -192,9 +202,20 @@ them against a shell-glob stand-in instead. Bare tool-name allow entries other
 than the file tools (`Grep`, `Glob`) are declared outside the model by name in
 the test.
 
-**MB-7 — `case` bodies.** M9 reaches the nesting forms the documentation
-names and the other control-flow keywords, but not a `case` arm. Direction:
-under-predicts deny. No fixture row uses a `case` statement.
+**MB-7 — `case` statements.** The structured reading does not parse a
+`case` statement's arms; it reports a subcommand no allow rule matches in
+their place. Deny and ask still reach a command in an arm through the atom
+sweep (M9). Direction: under-predicts allow.
+
+**MB-8 — protected paths and symlinks.** Claude Code never auto-approves a
+write to a protected path (`.git`, `.claude`, `.envrc`, the lefthook config
+files, the `--settings` file, and others the permission-modes page lists) in
+the default mode, whatever the allow list says, and it checks a deny rule
+against both the requested path and the file a symlink resolves to. The
+model sees neither: it reports `allow` where the real tool prompts, and
+judges only the path as given. Direction: under-claims protection. "What the
+path rules close" below says why the worker profile denies protected paths
+anyway.
 
 **MB-9 — redirect targets and recognized file commands.** Claude Code checks
 an output redirect's target against the Edit rules, an input redirect's
@@ -203,15 +224,6 @@ commands it recognizes (`cat`, `head`, `tail`, `sed`, `tee`). The model
 matches Bash rules against the command text only. Direction: under-predicts
 deny (`ls > mise.toml` and `cat /proc/1/environ` report `allow` or `prompt`
 where the real matcher denies).
-
-**MB-8 — protected paths and symlinks.** Claude Code never auto-approves a
-write to a protected path (`.git`, `.claude`, `lefthook.yml`, the `--settings`
-file, and others the permission-modes page lists) in the default mode, whatever
-the allow list says, and it checks a deny rule against both the requested path
-and the file a symlink resolves to. The model sees neither: it reports `allow`
-where the real tool prompts, and judges only the path as given. Direction:
-under-claims protection. "What the path rules close" below says why the worker
-profile denies protected paths anyway.
 
 ## Unsettled assumptions
 
@@ -255,7 +267,9 @@ form: `git config Core.HooksPath /dev/null` starts with `git config`, so no
 global-option rule sees it, and the case-sensitive config globs miss the casing.
 No glob and no hook reaches that one; it is an accepted residual, carried as a
 `residual` fixture row. If Bash matching turns out to be case-insensitive, the
-residual closes on its own and the lowercase rules become redundant.
+residual closes on its own and the lowercase rules become redundant. The
+documentation is as silent on path rules, and the model matches those
+case-sensitively too.
 
 **MA-3 — a bare name does not cover what lies below it.** In gitignore a
 pattern that matches a directory also excludes its contents; the permission
@@ -399,15 +413,20 @@ deny:
   `/proc/<pid>/task/<tid>/environ`. The Read tool cannot read the worker's own
   `/proc/self/environ` either; `env` and `printenv` still print it.
 
-Every rule but one is anchored at the filesystem root (`//**/`), never at the
+Every rule but one is anchored at the filesystem root (`//`), never at the
 settings file, whose directory is the plugin's `config/` (M10). Root-anchoring
-matters because mise reads the config of every directory above the one it
-runs in: a worktree under its primary checkout picks up the primary's
-`mise.toml` and `mise.local.toml`, and a rule relative to the worktree would
-leave those open. The worktree's own `.claude/` is the exception, matched
-relative to the working directory on purpose: a worktree usually sits under
-its primary checkout's `.claude/worktrees/`, and a root-anchored `.claude`
-rule would refuse every file the worker edits.
+matters because mise and direnv read the config of every directory above the
+one they run in: a worktree under its primary checkout picks up the
+primary's `mise.toml` and `mise.local.toml`, and a rule relative to the
+worktree would leave those open. The worktree's own `.claude/` is the
+exception, matched relative to the working directory on purpose: a worktree
+usually sits under its primary checkout's `.claude/worktrees/`, and a
+root-anchored `.claude` rule would refuse every file the worker edits. The
+same holds for the root-anchored directory rules: a worktree checked out
+beneath a directory named `.config`, `mise`, `.mise`, a hooks directory, or a
+lefthook directory (a dotfiles checkout under `~/.config`, say) is refused
+every file-tool write, so such a repository is checked out elsewhere for
+workers.
 
 The guard matches these names case-insensitively; the globs are
 case-sensitive (MA-2), so on a case-insensitive filesystem a recased
@@ -415,8 +434,8 @@ spelling reaches the file tools. Writes the guard refuses elsewhere outside
 the worktree are not mirrored here: the file tools still reach them, which
 includes an installed planwright root when it is not under `~/.claude`.
 
-Claude Code already protects `.git`, `.claude`, `.envrc`, and some lefthook
-config names (MB-8), and the overlays under `~/.claude` with them, but
+Claude Code already protects `.git`, `.claude`, `.envrc`, and the lefthook
+config files (MB-8), and the overlays under `~/.claude` with them, but
 protection means a prompt, which stalls a headless worker, and its list is
 version-specific. A deny refuses outright and holds across versions, so
 those paths keep their rules. The mise config, the hooks directories, the
