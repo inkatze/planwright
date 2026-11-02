@@ -43,7 +43,11 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 errf="$tmp/stderr"
 
-home="$tmp/fleet-home"
+# The fleet home sits under a symlinked parent, as every macOS temp directory
+# does (/var is a link): a home the queue itself wrote is never a redirect.
+mkdir "$tmp/real"
+ln -s real "$tmp/via"
+home="$tmp/via/fleet-home"
 mkdir -p "$home"
 chmod 0700 "$home"
 adopter="$tmp/adopter"

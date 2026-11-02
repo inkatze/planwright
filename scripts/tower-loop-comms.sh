@@ -692,15 +692,20 @@ emit_content() {
     ledger:*)
       # A settled-by-default item's review content, which the queue wrote to
       # the pre-ship fallback ledger under the fleet home. An installed ledger
-      # helper keeps it at a home this step has no path to.
+      # helper keeps it at a home this step has no path to. The root is
+      # canonicalized because the path screen compares against `pwd -P`, and a
+      # home under a symlinked prefix is not a redirect.
       _ec_home="ledger"
-      _ec_root=$("$script_dir/fleet-state.sh" root 2>/dev/null) || _ec_root=""
       if [ -n "${PLANWRIGHT_ACTION_LEDGER:-}" ]; then
         content_why=ledger-helper
-      elif [ -z "$_ec_root" ]; then
-        content_why=no-fleet-home
       else
-        read_path_content "$_ec_root/tower-comms/ledger" "${_ec_ptr#ledger:}" || :
+        _ec_root=$("$script_dir/fleet-state.sh" root 2>/dev/null) || _ec_root=""
+        [ -z "$_ec_root" ] || _ec_root=$(cd "$_ec_root" 2>/dev/null && pwd -P) || _ec_root=""
+        if [ -z "$_ec_root" ]; then
+          content_why=no-fleet-home
+        else
+          read_path_content "$_ec_root/tower-comms/ledger" "${_ec_ptr#ledger:}" || :
+        fi
       fi
       ;;
     *)
