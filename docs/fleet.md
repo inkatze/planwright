@@ -866,6 +866,21 @@ orphaning the first supervisor. The same refusal covers a worker whose state
 still records a live process, which includes a live worker under a dead
 supervisor — that case wants `recover`, not a second `launch`.
 
+A worker reads its permission profile (the `--settings` fragment) and its
+session record, which carries the self-approval policy and the other
+launch-time inputs, once, at session start. Editing either takes effect for
+the next session only: the changes reach a running worker only by relaunch.
+`relaunch <worker> [--grace <secs>]` is that relaunch for a live stream-json
+worker. It runs a plain `stop`, which keeps the scratch root, then `recover`
+in the worktree the worker's session record names, so the resumed session
+gets `--resume <session id>`, the installed profile's path, and a session
+record rewritten from current config, whichever directory the verb is run
+from. It refuses before stopping anything, leaving the worker running, when
+the worker is not running (exit `3`; that is `recover`'s case), when a lock
+the stop would release has a live holder (exit `3`), when no usable session
+id was persisted (exit `4`), or when the worktree cannot be found (exit `3`).
+A failed stop or recover passes its own exit code through.
+
 The headless rung closes the same way: `fleet-dispatch-headless.sh stop
 <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]` takes the handle `launch`
 printed (`headless-<spec>-task-<id>`) and gives the same results, the same exit
@@ -894,6 +909,7 @@ The two session-grade rungs, verb by verb:
 | Liveness and completion | `status <worker>` | `status <spec> <id>` |
 | Close | `stop <worker> [--grace <secs>] [--observe]` | `stop <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]` |
 | Resume a crashed worker | `recover <worker>` | none: a one-shot is re-dispatched, not resumed |
+| Relaunch a live worker under the current profile | `relaunch <worker> [--grace <secs>]` | none: a one-shot is re-dispatched, not resumed |
 | Read a pending prompt | `pending [<worker>...]` | none: a one-shot has no pend path |
 | Answer a pending prompt | `answer <worker> <request-id>` | none: a one-shot has no pend path |
 | Steer in flight | `steer <worker>` | none: the rung advertises no steer |

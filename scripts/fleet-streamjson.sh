@@ -221,6 +221,17 @@
 #       with exit 4, a failed resume with exit 5 — both surfaced as
 #       attention items (the Awaiting-input halt of the affected unit; the
 #       tower and other workers continue).
+#   fleet-streamjson.sh relaunch <worker> [--grace <secs>]
+#       Move a LIVE worker onto the profile and config installed now: `stop`
+#       (plain, so the scratch root stays), then `recover` run in the
+#       worktree the worker's session record names, which rewrites that
+#       record from current config. Refused, with the worker left running,
+#       when it is not running (exit 3: that is `recover`'s case), when a
+#       lock of its release set has a live holder (exit 3), when it has no
+#       usable persisted session (exit 4), or when its worktree cannot be
+#       found (exit 3). A stop or recover failure passes its exit code
+#       through. Prints `relaunched <worker> session <id>` after the two
+#       verbs' own lines.
 #   fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]
 #       Scan every worker journal for pending items older than the
 #       threshold (default 900s; PLANWRIGHT_STREAMJSON_PENDING_AGE
@@ -451,6 +462,7 @@ usage() {
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
     echo "       fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]"
+    echo "       fleet-streamjson.sh relaunch <worker> [--grace <secs>]"
     echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]"
     echo "       fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe] [--final]"
     echo "       fleet-streamjson.sh status <worker>"
@@ -2693,6 +2705,91 @@ cmd_recover() {
   fi
 }
 
+# relaunch_worktree <dir> <fleet-home> — print the worktree a worker was
+# launched in, read from the session record its scratch root is keyed with
+# (scripts/worker-session-record.sh names both by the hash of the worktree
+# root), and only when that hash still matches the path the record names.
+relaunch_worktree() {
+  rw_root=$(cat "$1/scratch-root" 2>/dev/null) || return 1
+  rw_key=${rw_root##*/}
+  case $rw_key in
+    '' | *[!0-9a-f]*) return 1 ;;
+  esac
+  rw_wt=$(sed -n 's/^worktree_root=//p' "$2/session-records/$rw_key.record" 2>/dev/null) || return 1
+  case $rw_wt in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  [ -d "$rw_wt" ] || return 1
+  [ "$(printf '%s' "$rw_wt" | git -C "$rw_wt" hash-object --stdin 2>/dev/null)" = "$rw_key" ] || return 1
+  printf '%s\n' "$rw_wt"
+}
+
+# A worker reads its settings profile and session record only at session start,
+# so a profile or policy change reaches a running one only through this verb.
+# Every refusal comes before the stop: a worker this cannot resume is left
+# running rather than closed. The resume runs in the worker's own worktree
+# because both `--resume` and the session record are keyed on it.
+cmd_relaunch() {
+  [ $# -ge 1 ] || usage
+  worker=$1
+  shift
+  valid_field "$worker" || {
+    printf '%s\n' "$me: invalid worker handle" >&2
+    exit 2
+  }
+  rl_grace=''
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --grace)
+        [ $# -ge 2 ] || usage
+        rl_grace=$2
+        shift 2
+        ;;
+      *)
+        usage
+        ;;
+    esac
+  done
+  dir=$(worker_dir "$worker") || exit 2
+  [ -d "$dir" ] || {
+    printf '%s\n' "$me: unknown worker $worker" >&2
+    exit 2
+  }
+  [ ! -L "$dir" ] || {
+    printf '%s\n' "$me: refusing to relaunch $worker: its state directory is a symlink" >&2
+    exit 2
+  }
+  worker_alive "$dir" || {
+    printf '%s\n' "$me: worker $worker is not running; relaunch refused (a stopped worker is resumed with recover)" >&2
+    exit 3
+  }
+  # Only a lock whose holder still runs is refused: that is an operation in
+  # flight the stop would cut short. A stale one is the stop's to clear.
+  for rl_l in $lock_classes; do
+    [ -L "$dir/$rl_l" ] || continue
+    rl_tok=$(pw_lock_owner "$dir/$rl_l")
+    if [ -n "$rl_tok" ] && pw_lock_owner_alive "$rl_tok"; then
+      printf '%s\n' "$me: worker $worker holds $rl_l, which a stop would release; relaunch refused" >&2
+      exit 3
+    fi
+  done
+  sid=$(cat "$dir/session" 2>/dev/null) || sid=''
+  valid_reqid "${sid:-}" || {
+    printf '%s\n' "$me: worker $worker has no usable persisted session_id; relaunch refused" >&2
+    exit 4
+  }
+  rl_home=$(/bin/sh "$FS" root 2>/dev/null </dev/null) || exit 2
+  rl_wt=$(relaunch_worktree "$dir" "$rl_home") || {
+    printf '%s\n' "$me: cannot find the worktree $worker was launched in; relaunch refused (stop it, then run recover from that worktree)" >&2
+    exit 3
+  }
+  /bin/sh "$self" stop "$worker" ${rl_grace:+--grace "$rl_grace"} || exit $?
+  cd "$rl_wt" || exit 2
+  /bin/sh "$self" recover "$worker" || exit $?
+  printf 'relaunched %s session %s\n' "$worker" "$sid"
+}
+
 cmd_stop() {
   [ $# -ge 1 ] || usage
   # The close this rung shares with the headless one, loaded here so a missing
@@ -3431,6 +3528,7 @@ case $cmd in
   answer) cmd_answer "$@" ;;
   steer) cmd_steer "$@" ;;
   recover) cmd_recover "$@" ;;
+  relaunch) cmd_relaunch "$@" ;;
   alarm-scan) cmd_alarm_scan "$@" ;;
   _tick) cmd__tick "$@" ;;
   stop) cmd_stop "$@" ;;
