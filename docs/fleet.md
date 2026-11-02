@@ -912,15 +912,23 @@ stream-json worker: a plain `stop`, which keeps the scratch root, then
 `recover --cwd` with the directory the worker's launch recorded, so the resumed
 session gets `--resume <session id>`, the installed profile's path, and a
 session record rewritten from current config, whichever directory the verb is
-run from. (`recover --cwd <dir>` is available on its own; without it a recover
+run from. The model tier is re-resolved too: `allocation-apply.sh plan` runs
+in that directory at the allocation key and unit the launch recorded
+(mission control's launcher records its kind's key), or at
+`orchestrate_dispatch` under the worker's handle for a launch that recorded
+none, and the resumed session gets `--model` and `--effort` for each dimension
+that does not resolve to `inherit`. Any other extra argument the original
+launch passed after `--` is not carried over. (`recover --cwd <dir>` is
+available on its own; without it a recover
 resumes in the caller's directory, and a session resumes only from the one it
 started in.) One relaunch runs per worker at a time. Everything the resume
 depends on is checked before the stop, and a refusal leaves the worker
 running: exit `3` for a relaunch already in flight, a worker that is not
 running (that is `recover`'s case), a lock of the release set held by a live
-process other than the worker's own, or no recorded launch directory (a worker
+process other than the worker's own, no recorded launch directory (a worker
 launched before the directory was recorded; stop it and run `recover --cwd`
-from its worktree); exit `4` for no usable session id; exit `7`, `8` or `9`
+from its worktree), or a tier that does not resolve; exit `4` for no usable
+session id; exit `7`, `8` or `9`
 for the profile, wrapper, and preflight checks `launch` makes; exit `2` for an
 unknown handle, as for `stop`. After the stop, a partial close is exit `6` and
 a failed resume exit `5`, each naming the `recover` to run.

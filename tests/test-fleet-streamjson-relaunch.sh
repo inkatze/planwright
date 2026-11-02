@@ -5,7 +5,8 @@
 #   r1 (REQ-G1.3): refusals leave the worker running and spawn nothing: an
 #       unknown handle, a symlinked state directory, a relaunch in flight, a
 #       live lock of each release-set class, no persisted session, no or a
-#       vanished launch directory, an unknown recorded profile, a bad grace.
+#       vanished launch directory, one the tier cannot be resolved in, an
+#       unknown recorded profile, a bad grace.
 #   r2 (REQ-G1.3, REQ-G1.2): the relaunch stops the worker and resumes it with
 #       `--resume <persisted id>` and the installed worker profile's path, in
 #       its launch directory wherever it is run from, past a stale lock and a
@@ -14,13 +15,14 @@
 #   r3 (REQ-G1.3): a resume that fails after the stop is exit 5 naming the
 #       recover to run; a worker that is not running is refused and pointed
 #       at `recover`.
+#   r5 (REQ-G1.3): the tier is re-resolved from current allocation config at
+#       the recorded or default key; an inherit dimension passes nothing.
 #   r4 (REQ-G1.3): the fleet guide states that permissions and the session
 #       record load at session start and reach a running worker only by
 #       relaunch.
 #
-# Hermetic: the fleet home, the work repository and the CLI seam are
-# case-local; the CLI is a shim that records its argv and environment. Runs
-# standalone under /bin/bash (bash 3.2).
+# Hermetic: the fleet home, work repository and CLI seam are case-local; the
+# CLI is a shim recording its argv and environment. Runs under bash 3.2.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -168,6 +170,10 @@ printf '%s\n' "$tmp/gone" >"$wdir/cwd"
 refused 'a vanished launch directory' 3 'launch directory'
 mv "$tmp/aside" "$wdir/cwd"
 
+chmod 000 "$wt"
+refused 'a launch directory the tier cannot be resolved in' 3 'no launch tier resolves'
+chmod 755 "$wt"
+
 cp "$wdir/profile" "$tmp/aside"
 printf 'bogus\n' >"$wdir/profile"
 refused 'an unknown recorded profile' 7
@@ -215,17 +221,20 @@ grep -qx 'policy=own-branch scratch' "$record" \
 [ "$(sed -n 's/^tmpdir=//p' "$rec/env" | tail -n 1)" = "$root" ] && [ -f "$root/kept" ] \
   || fail "r2: the resumed worker lost its scratch root or its contents"
 [ ! -L "$wdir/relaunch.lock" ] || fail "r2: the relaunch left its election behind"
+case " $last " in
+  *" --model "* | *" --effort "*) fail "r2: an unconfigured tier must pass no --model or --effort: $last" ;;
+esac
 echo "ok: r2 a relaunch resumes the persisted session under the installed profile in its launch directory, rewriting the record and keeping the scratch root (REQ-G1.3, REQ-G1.2)"
 
 # ---------------------------------------------------------------------------
 # r3: a resume that fails after the stop, then a worker that is not running.
-# A launch directory the stop's caller can see but not enter passes every
-# check before the stop and fails the resumed launch's cd.
+# A worker with no recorded scope passes every check before the stop and
+# fails the resumed launch, which has no scope to export.
 # ---------------------------------------------------------------------------
-chmod 000 "$wt"
+mv "$wdir/scope" "$tmp/scope-aside"
 err=$(senv -- relaunch sjr1 --grace 2 2>&1 >/dev/null)
 rc=$?
-chmod 755 "$wt"
+mv "$tmp/scope-aside" "$wdir/scope"
 [ "$rc" -eq 5 ] || fail "r3: a resume failing after the stop must be exit 5, got $rc: $err"
 case $err in
   *"recover sjr1 --cwd $wt"*) ;;
@@ -248,6 +257,44 @@ for bad in '' "$tmp/gone"; do
 done
 [ "$(argv_lines)" = "$n" ] || fail "r3: a recover with an unusable --cwd spawned a session"
 echo "ok: r3 a failed resume after the stop is exit 5 naming the recover, and a stopped worker is refused toward recover (REQ-G1.3)"
+
+# ---------------------------------------------------------------------------
+# r5: the tier re-resolved from current allocation config reaches the resume.
+# ---------------------------------------------------------------------------
+(cd "$tmp" && senv -- recover sjr1 --cwd "$wt") >/dev/null 2>&1 || fail "r5: setup: the recover exited non-zero"
+poll_until --what 'the recovered worker' -- test -s "$wdir/worker.pid" \
+  || fail "r5: setup: the recovered worker never started"
+[ ! -e "$wdir/tier_key" ] || fail "r5: a launch that named no tier key recorded one"
+cat >"$wt/.claude/planwright.yml" <<'YML'
+worker_self_approval: own-branch scratch
+allocation_model_orchestrate_dispatch: sonnet
+allocation_effort_orchestrate_dispatch: low
+allocation_model_execute_step: haiku
+YML
+out=$(cd "$tmp" && senv -- relaunch sjr1 --grace 2 2>"$tmp/err") || fail "r5: the relaunch exited non-zero: $(cat "$tmp/err")"
+last=$(tail -n 1 "$rec/argv")
+case " $last " in
+  *" --resume $sid "*) ;;
+  *) fail "r5: the relaunch did not resume the persisted session: $last" ;;
+esac
+case " $last " in
+  *" --model sonnet --effort low "*) ;;
+  *) fail "r5: the resume does not carry the tier at the default key (--model sonnet --effort low): $last" ;;
+esac
+printf 'execute_step\n' >"$wdir/tier_key"
+printf 'mission-control:sjr1\n' >"$wdir/tier_unit"
+out=$(cd "$tmp" && senv -- relaunch sjr1 --grace 2 2>"$tmp/err") || fail "r5: the relaunch exited non-zero: $(cat "$tmp/err")"
+last=$(tail -n 1 "$rec/argv")
+case " $last " in
+  *" --model haiku "*) ;;
+  *) fail "r5: the resume does not carry the tier at the recorded key (--model haiku): $last" ;;
+esac
+case " $last " in
+  *" --effort "*) fail "r5: an effort resolving to inherit must pass no --effort: $last" ;;
+esac
+unit_rows=$(find "$home/allocation" -name 'mission-control*' 2>/dev/null)
+[ -n "$unit_rows" ] || fail "r5: the plan was not resolved under the recorded unit"
+echo "ok: r5 a relaunch re-resolves the tier from current allocation config at the recorded or default key and passes it to the resume (REQ-G1.3)"
 
 # ---------------------------------------------------------------------------
 # r4: the fleet guide carries the load-at-session-start statement.

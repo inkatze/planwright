@@ -481,7 +481,8 @@ cmd_launch() {
       if [ -z "$model" ] || [ -z "$effort" ]; then
         refuse "refusing to launch $name: the tier plan carries no model or effort row (broken install)" 4
       fi
-      set -- launch "$name" "$scope" --prompt-file "$composed" --profile "$K_PROFILE" --cwd "$cwd"
+      set -- launch "$name" "$scope" --prompt-file "$composed" --profile "$K_PROFILE" --cwd "$cwd" \
+        --tier-key "$K_KEY" --tier-unit "$unit"
       [ "$K_PROFILE" != mission-control ] || set -- "$@" --mc-token "$token"
       set -- "$@" --
       [ "$model" = inherit ] || set -- "$@" --model "$model"

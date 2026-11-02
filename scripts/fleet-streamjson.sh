@@ -74,6 +74,8 @@
 #   scope            the dispatch scope, when the launch supplied one
 #   cwd              the directory a fresh launch started the worker in,
 #                    where `relaunch` resumes it
+#   tier_key / tier_unit  the allocation key and unit a launch's --tier-key
+#                    and --tier-unit named, which `relaunch` resolves at
 #   relaunch.lock    a relaunch's election, outside the release set
 #   scratch-root     the worktree scratch root the launch handed the worker
 #                    as its TMPDIR, which only a final close removes
@@ -176,9 +178,12 @@
 # Usage:
 #   fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>
 #       [--profile worker|tower|mission-control] [--mc-token <token>]
+#       [--tier-key <key>] [--tier-unit <unit>]
 #       [--cwd <dir>] [--foreground] [-- <extra claude args>...]
 #       Launch a worker under a supervisor, under the settings fragment of
-#       --profile (default worker). --mc-token is the mission-control
+#       --profile (default worker). --tier-key and --tier-unit record the
+#       allocation key and unit the caller resolved the tier in the extra
+#       args at, for `relaunch` to re-resolve it. --mc-token is the mission-control
 #       launcher's row token, exported into a mission-control session only;
 #       none is taken from the environment. Detached by default (prints
 #       `launched <worker> dir <dir>`); --foreground runs the supervisor
@@ -231,7 +236,12 @@
 #       `stop` (the scratch root stays), then `recover --cwd` with the
 #       directory the launch recorded in <dir>/cwd, which passes the
 #       installed profile and rewrites the session record from current
-#       config. Single-initiator on <dir>/relaunch.lock, which no stop
+#       config. The tier is re-resolved from current allocation config
+#       (allocation-apply.sh plan, in that directory, at the recorded
+#       --tier-key/--tier-unit, else orchestrate_dispatch under the handle)
+#       and passed as `-- --model <m> --effort <e>`, a dimension resolving
+#       to inherit passing nothing; no other launch-time extra arg is
+#       carried over, and a tier that does not resolve is refused (exit 3). Single-initiator on <dir>/relaunch.lock, which no stop
 #       breaks. Refused before the stop, with the worker left running: a
 #       relaunch already in flight, a worker that is not running (that is
 #       `recover`'s case), a lock of the release set held by a live process
@@ -469,7 +479,7 @@ valid_posnum() {
 
 usage() {
   {
-    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--cwd <dir>] [--foreground] [-- <extra args>...]"
+    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
@@ -1923,6 +1933,16 @@ stop_release() {
   esac
 }
 
+# record_tier_field <dir> <name> <value> — write <dir>/<name> whole by rename,
+# or remove it when <value> is empty.
+record_tier_field() {
+  if [ -n "$3" ]; then
+    printf '%s\n' "$3" >"$1/$2.tmp" && mv -f "$1/$2.tmp" "$1/$2"
+  else
+    rm -f "$1/$2"
+  fi
+}
+
 # --- subcommands ------------------------------------------------------------
 
 cmd_launch() {
@@ -1934,8 +1954,24 @@ cmd_launch() {
   resume_sid=''
   profile=''
   mc_token_arg=''
+  tier_key=''
+  tier_unit=''
   while [ $# -gt 0 ]; do
     case $1 in
+      --tier-key)
+        [ $# -ge 2 ] || usage
+        case $2 in
+          '' | *[!a-z0-9_]*) usage ;;
+        esac
+        tier_key=$2
+        shift 2
+        ;;
+      --tier-unit)
+        [ $# -ge 2 ] || usage
+        valid_field "$2" || usage
+        tier_unit=$2
+        shift 2
+        ;;
       --mc-token)
         [ $# -ge 2 ] || usage
         case $2 in
@@ -2118,6 +2154,11 @@ cmd_launch() {
   # Written whole by rename, so a recover never reads a truncated record.
   if [ -z "$resume_sid" ]; then
     printf '%s\n' "$profile" >"$dir/profile.tmp" && mv -f "$dir/profile.tmp" "$dir/profile" || exit 2
+    # The allocation key and unit the caller resolved this launch's tier at,
+    # so a relaunch re-resolves at the same ones; a launch that names none
+    # clears what a previous launch of this handle left.
+    record_tier_field "$dir" tier_key "$tier_key" || exit 2
+    record_tier_field "$dir" tier_unit "$tier_unit" || exit 2
   fi
   # The worker identity its hooks key on (attention rows, liveness, and its
   # self-registration), and the inbound layer the messaging probe reads beside
@@ -2860,6 +2901,31 @@ cmd_relaunch() {
   rx_gp=0
   [ "$rx_profile" != worker ] || guard_preflight "$rx_env" "$rx_cwd" || rx_gp=$?
   [ "$rx_gp" -eq 0 ] || exit "$rx_gp"
+  # The tier is re-resolved from current allocation config at the key and unit
+  # the launch recorded, else at the single-spec dispatch surface's key under
+  # the worker's handle, and resolved in the launch directory, whose config the
+  # worker runs under. Nothing else the launch carried after `--` survives.
+  rx_key=$(cat "$dir/tier_key" 2>/dev/null) || rx_key=''
+  rx_unit=$(cat "$dir/tier_unit" 2>/dev/null) || rx_unit=''
+  [ -n "$rx_key" ] || rx_key=orchestrate_dispatch
+  [ -n "$rx_unit" ] || rx_unit=$worker
+  rx_pr=0
+  rx_plan=$(cd "$rx_cwd" && /bin/sh "$script_dir/allocation-apply.sh" plan --key "$rx_key" \
+    --backend stream-json-persistent --unit "$rx_unit" </dev/null) || rx_pr=$?
+  [ "$rx_pr" -eq 0 ] || {
+    printf '%s\n' "$me: no launch tier resolves for $worker at the $rx_key key (allocation-apply exit $rx_pr); relaunch refused" >&2
+    exit 3
+  }
+  rx_model=$(printf '%s\n' "$rx_plan" | awk -F '\t' '$1 == "model" { print $2 }')
+  rx_effort=$(printf '%s\n' "$rx_plan" | awk -F '\t' '$1 == "effort" { print $2 }')
+  [ -n "$rx_model" ] && [ -n "$rx_effort" ] || {
+    printf '%s\n' "$me: the tier plan for $worker carries no model or effort row (broken install); relaunch refused" >&2
+    exit 3
+  }
+  set --
+  [ "$rx_model" = inherit ] || set -- "$@" --model "$rx_model"
+  [ "$rx_effort" = inherit ] || set -- "$@" --effort "$rx_effort"
+  [ $# -eq 0 ] || set -- -- "$@"
 
   rx_rc=0
   if [ "$rx_has_grace" = 1 ]; then
@@ -2875,7 +2941,7 @@ cmd_relaunch() {
       ;;
     *) exit "$rx_rc" ;;
   esac
-  /bin/sh "$self" recover "$worker" --cwd "$rx_cwd" || {
+  /bin/sh "$self" recover "$worker" --cwd "$rx_cwd" "$@" || {
     printf '%s\n' "$me: $worker is stopped but its resume failed (recover exit $?); run recover $worker --cwd $rx_cwd" >&2
     exit 5
   }
