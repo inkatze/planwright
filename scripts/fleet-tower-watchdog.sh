@@ -171,6 +171,7 @@ if [ "$wr_rc" -eq 5 ]; then
   [ -n "$checkout" ] && wr_rc=0
 fi
 [ "$wr_rc" -eq 0 ] || {
+  /bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" >/dev/null || true
   echo "fleet-tower-watchdog: refusing spec dir with no work repository" >&2
   exit 2
 }

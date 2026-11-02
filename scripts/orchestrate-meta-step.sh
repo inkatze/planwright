@@ -67,7 +67,7 @@
 #   4  the unit parked (route to `## Awaiting input`): its task has no work
 #      repository to dispatch into, the freshness gate stopped it, or its
 #      Repository: field differs from the gated ref's; nothing
-#      created, lock released
+#      created, and a lock the gate held released
 #   5  the dispatch record could not be written; lock released, and a marker
 #      the primitive stamped is cleared
 #   6  the worker launch failed after the record. The marker is cleared so the
