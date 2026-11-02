@@ -113,9 +113,9 @@ echo "ok: a positive span never arrives at the consumer as zero"
 
 # --- the committed fixtures reproduce their hand-computed numbers ----------------
 
-for name in baseline two-tower gap; do
+for name in baseline two-tower gap reviewable; do
   case "$name" in
-    baseline) now=908000 ;;
+    baseline | reviewable) now=908000 ;;
     two-tower) now=906000 ;;
     gap) now=905000 ;;
   esac
@@ -129,6 +129,37 @@ for name in baseline two-tower gap; do
   fi
   echo "ok: $name fixture reproduces its hand-computed scorecard"
 done
+
+# --- the reviewable kinds and batches (REQ-G1.9) --------------------------------
+
+# A revocation counts against a kind only when the item it revokes settled
+# inside the window: one whose default fell before it would push the rate
+# past one.
+{
+  printf '{"v":1,"seq":1,"ts":100,"kind":"window","item":"old","end":"default","option":"a","at":100}\n'
+  printf '{"v":1,"seq":2,"ts":5000,"kind":"revoked","tower":"T1","item":"old","item_kind":"settled-by-default","outcome":"reopened"}\n'
+  printf '{"v":1,"seq":3,"ts":5100,"kind":"window","item":"new","end":"default","option":"a","at":5100}\n'
+} >"$tmp/revoke-window.log"
+got=$(run report --log "$tmp/revoke-window.log" --now 6000 --window 1h) || fail "revoke-window report: exit"
+[ "$(value_of settled_by_default "$got")" = 1 ] || fail "settled_by_default over the window: $(value_of settled_by_default "$got"), expected 1"
+[ "$(value_of settled_by_default_revocation_rate "$got")" = 0.00 ] \
+  || fail "a revocation of an item defaulted before the window counted: rate $(value_of settled_by_default_revocation_rate "$got")"
+echo "ok: a revocation counts only against an item settled inside the window"
+
+# A batch is one multi-ask turn whether the loop logged its asks or not, and a
+# loop line for a turn that was not a batch still counts on its own.
+{
+  printf '{"v":1,"seq":1,"ts":100,"kind":"delivered","tower":"T1","item":"a","pair":"-","batch":"a,b","size":2}\n'
+  printf '{"v":1,"seq":2,"ts":200,"kind":"delivered","tower":"T2","item":"c","pair":"d"}\n'
+  printf '{"v":1,"seq":3,"ts":200,"kind":"delivered","tower":"T2","item":"c","text":"Two things","asks":2}\n'
+} >"$tmp/batch.log"
+got=$(run report --log "$tmp/batch.log" --now 300) || fail "batch report: exit"
+[ "$(value_of multi_ask_turns "$got")" = 2 ] || fail "multi_ask_turns: $(value_of multi_ask_turns "$got"), expected 2"
+[ "$(value_of multi_ask_batches "$got")" = 1 ] || fail "multi_ask_batches: $(value_of multi_ask_batches "$got"), expected 1"
+[ "$(value_of multi_ask_batch_items "$got")" = 2 ] || fail "multi_ask_batch_items: $(value_of multi_ask_batch_items "$got"), expected 2"
+[ "$(value_of delivered_items "$got")" = 4 ] \
+  || fail "delivered_items: $(value_of delivered_items "$got"), expected 4 (batch members and the pair partner reached the operator)"
+echo "ok: a batch counts once in the multi-ask measure, its size beside it, and every member counts as delivered"
 
 # --- the window ---------------------------------------------------------------
 

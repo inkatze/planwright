@@ -47,6 +47,24 @@ them, longer than the ten-minute bound: the stretch is one reported gap of
 3600 s and the denominator is 1200 s, 0.33 hours; one delivered item is
 3.00 per fleet hour.
 
+## reviewable (`--now 908000`)
+
+One tower with one live span, `900000..903600`, 1.00 hour; the idle tick
+at `903600` adds nothing. Settled without the operator: `n1` by evidence,
+`p1` and `p2` by their windows' defaults (the `window` lines ending on
+`default`; `p3`'s ends on a park and settles nothing), and `m1`, `m2` and
+`m3` born decided by mission control, so six in all, 6.00 per fleet hour.
+One of the two defaults is revoked (`p1`), a rate of 0.50, and one of the
+three mission-control decisions (`m2`), 0.33; `m1` and `p2` are reviewed,
+which revokes nothing. Delivered: the batch `p1,m1,m2`, then `p2`, then
+`m3`, five items, 5.00 per fleet hour. The batch's own line and the loop's
+line for the same turn (asks 3) share a tower and a top item and count as
+one multi-ask turn; `m3`'s turn with two asks is the second. One batch of
+three items. The questions `p1`, `p2` and `p3` are never acknowledged, so
+each waits until `--now`: 7900, 7800 and 5900 s, 21600 s in all, 7900 s
+at most, three open. No delivered text carries a listed term, an
+identifier or an internal name, and neither reply is friction.
+
 ## Launcher registry rows
 
 `registry-mission-control.row` and `registry-tower.row` stand in for two rows
