@@ -447,7 +447,14 @@ first, its `Done when:` names that precondition (D-7).
 
 ## Awaiting input
 
-(none yet)
+- **Task 12** — halted before implementation: D-8's `nohup` makes every
+  test in the detached suite inherit SIGHUP as ignored, which no shell can
+  undo, so this repository's HUP-asserting suites fail under it
+  (obs:5d41e92b). The recommended fix is replacing `nohup` with a
+  background job whose runner catches HUP. That changes an accepted
+  decision, so it needs a `/spec-kickoff` delta re-walkthrough of D-8 and
+  Task 12. Research is in the kickoff brief, section 7, *Execution research:
+  Task 12*.
 
 ## Deferred
 

@@ -288,6 +288,35 @@ llm-output-quality.
 
 Signed off: 2026-09-28
 
+### Execution research: Task 12 (2026-11-01)
+
+Not a signed row; recorded by `/execute-task` as research that halted the
+unit.
+
+- **Finding.** `nohup` leaves SIGHUP ignored, and an ignored signal is
+  inherited by every child. A non-interactive POSIX shell cannot un-ignore a
+  signal it was started with ignored: probed on Linux with `sh`, `bash` and
+  `dash`, where `trap - HUP` under `nohup` still leaves a child surviving
+  `kill -HUP`, and `/proc/self/status` reads `SigIgn` bit 1 set. A runner
+  that instead *catches* HUP (`trap ':' HUP`) leaves its children at the
+  default disposition: the same child exits 129.
+- **Consequence for D-8.** A suite detached with `nohup` runs every test with
+  HUP ignored. This repository's HUP-asserting suites then hang or fail
+  (obs:5d41e92b, recorded 2026-10-18, after this brief's sign-off:
+  `test-fleet-sweep-temps.sh`, `test-lock-lib.sh`, `test-run-tests-pool.sh`,
+  `test-full-suite-run.sh`). Task 12 routes *every* full local suite through
+  the helper, so a literal `nohup` recipe turns those into standing local
+  failures.
+- **Tradeoff.** Keeping `nohup` as D-8 states keeps the recipe literal but
+  breaks the suite it runs. Replacing it with a background job whose runner
+  catches HUP (portable: no `setsid`, no `nohup`; optionally `set -m` for its
+  own process group) keeps every other D-8 property (fresh per-run paths,
+  verified start, status verb, no log deletion) but changes D-8's stated
+  mechanism, which is a meaning-class amendment.
+- **Sources.** POSIX `trap` ("signals that were ignored on entry to a
+  non-interactive shell cannot be trapped or reset"); bash manual, *Signals*;
+  the probe above; obs:5d41e92b; obs:67861aa6.
+
 ## 8. Sign-off
 
 ### Lens review (first activation, full bundle)
