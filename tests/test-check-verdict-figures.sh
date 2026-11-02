@@ -225,6 +225,13 @@ bundle decade <<EOF
 EOF
 check "a decade is a reference, not a figure" decade 0
 
+bundle seconds <<EOF
+**Report:** \`$REPORT\`
+
+**Chosen because:** startup took 1234s.
+EOF
+check "a four-digit figure in seconds is still a figure" seconds 1 "figure 1234 in D-2's rationale"
+
 bundle open <<EOF
 **Report:** \`$REPORT\`
 

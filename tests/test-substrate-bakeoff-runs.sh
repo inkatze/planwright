@@ -203,12 +203,18 @@ if [ -e "$tmp/fakehome/delivery-mark" ]; then bad "a delivery script never write
 variant signal
 cat >"$tmp/signal/candidates/stub-full/bin/echo-line" <<EOF
 #!/bin/sh
+: >"$tmp/signal-started"
 sleep 3
 : >"$tmp/signal-survived"
 EOF
 "$SB" run --bakeoff "$tmp/signal" --out-dir "$tmp" --run-id sig --platform test >/dev/null 2>&1 &
 harness=$!
-sleep 1
+i=0
+until [ -e "$tmp/signal-started" ] || [ "$i" -ge 100 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+if [ -e "$tmp/signal-started" ]; then ok "the candidate started before the signal"; else bad "the candidate started before the signal"; fi
 kill -s TERM "$harness"
 wait "$harness"
 check_eq "a terminated harness exits 143" 143 "$?"

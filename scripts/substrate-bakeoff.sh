@@ -250,7 +250,7 @@ plain_path() {
 # The timed runner. Env: BK_TIMEOUT, BK_STDIN, BK_STDOUT, BK_WORK, BK_FILES,
 # BK_REPEAT, BK_PATH, BK_SPAWN_LOG, BK_OFFLINE, BK_CLEAN_ENV; argv the command.
 # Each repetition runs in a fresh directory under BK_WORK holding a copy of
-# BK_FILES (and, with BK_CLEAN_ENV, a fresh home and nothing inherited but
+# BK_FILES, with a fresh home (and, with BK_CLEAN_ENV, nothing inherited but
 # PATH and the C locale), in its own process group, which is swept after the
 # reap so nothing it backgrounded outlives it. Prints `<status><TAB><ms>` per
 # repetition, the status being the exit code, 128 plus the signal, or
@@ -269,7 +269,7 @@ if ($bk{BK_OFFLINE}) {
 my $pid = 0;
 my %signum = (HUP => 1, INT => 2, TERM => 15);
 for my $s (keys %signum) {
-  $SIG{$s} = sub { if ($pid) { kill "KILL", -$pid; waitpid($pid, 0); } POSIX::_exit(128 + $signum{$s}); };
+  $SIG{$s} = sub { if ($pid) { kill "KILL", -$pid; kill "KILL", $pid; waitpid($pid, 0); } POSIX::_exit(128 + $signum{$s}); };
 }
 for (1 .. ($bk{BK_REPEAT} || 1)) {
   my $cwd = tempdir("rep.XXXXXX", DIR => $bk{BK_WORK});
@@ -303,7 +303,7 @@ for (1 .. ($bk{BK_REPEAT} || 1)) {
 
 # run_case <argv-file> <fixture-dir|""> <extra-arg|""> <stdout> <repeat> <path>
 # <spawn-log> <offline 0|1> <timings-out>: run the argv once per repetition,
-# with, when clean_env is 1, a fresh home and no inherited environment
+# each with a fresh home and, when clean_env is 1, no inherited environment
 # beyond PATH and the C locale.
 run_case() {
   files=""
