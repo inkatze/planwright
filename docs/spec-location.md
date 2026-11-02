@@ -190,9 +190,11 @@ Which repository a task goes to:
 The registry is filled at session start in each work repository (see
 `repository_alias` in the [options reference](options-reference.md)); run
 `scripts/work-repo-registry.sh scan <dir>` to rebuild it. From the holder,
-derivation reads each named task from its own repository; a task naming no
-repository while the holder has no single registered work repository
-derives `repository-unresolved` and is never selected.
+derivation reads each named task from its own repository. While the holder
+has no single registered work repository, a task naming none derives
+`repository-unresolved` and is never selected, and a bundle in which no task
+names one does not derive at all: the status render and the selector stop,
+naming the candidates.
 
 ## Named observation targets
 

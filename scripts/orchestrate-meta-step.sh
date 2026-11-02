@@ -64,8 +64,9 @@
 #      is already in flight
 #   2  usage, a refused input or rung, or a lock or fetch refusal; nothing
 #      created
-#   4  the freshness gate parked the unit (route to `## Awaiting input`);
-#      nothing created, lock released
+#   4  the unit parked (route to `## Awaiting input`): its task has no work
+#      repository to dispatch into, or the freshness gate stopped it; nothing
+#      created, lock released
 #   5  the dispatch record could not be written; lock released, and a marker
 #      the primitive stamped is cleared
 #   6  the worker launch failed after the record. The marker is cleared so the
@@ -204,12 +205,21 @@ primary_phys=$(cd "$primary_phys" && pwd -P) || die "the primary checkout cannot
   || die "the repo root (--repo-root, else PLANWRIGHT_REPO_ROOT) is not the primary checkout; pass the primary checkout"
 spec_phys=$(cd "$spec_dir" && pwd -P) || die "the spec directory cannot be entered"
 wr_err=$(mktemp "${TMPDIR:-/tmp}/orchestrate-meta-step.XXXXXX") || exit 2
-work_root=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-work-repo.sh" "$spec_phys" --task "$task_id" 2>"$wr_err") || {
-  relay "$wr_err"
-  rm -f "$wr_err"
-  die "task $task_id has no work repository to dispatch into; nothing was created"
-}
+wr_rc=0
+work_root=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-work-repo.sh" "$spec_phys" --task "$task_id" 2>"$wr_err") || wr_rc=$?
+relay "$wr_err"
 rm -f "$wr_err"
+# Exit 5 is a task whose repository resolves to nothing, an operator's fix;
+# anything else is a spec dir no repository owns, a refused input.
+case $wr_rc in
+  0) ;;
+  5)
+    printf 'halt\twork-repo\ttask %s has no work repository to dispatch into; nothing was created\n' "$task_id"
+    printf 'remedy\t%s\n' "register the task's work repository (work-repo-registry.sh register in its checkout), or name one in the task's Repository: field"
+    exit 4
+    ;;
+  *) die "the spec directory has no work repository to dispatch into (resolve-work-repo exit $wr_rc)" ;;
+esac
 work_root=$(cd "$work_root" 2>/dev/null && pwd -P) || die "the work repository cannot be entered"
 
 # The lock lives in the spec directory, and the gate and the record address
@@ -239,15 +249,15 @@ case $spec_posture in
   plain) ;;
   *) die "the work repository's spec root has no known posture" ;;
 esac
+# An empty top level would match any absolute root below.
+[ "$spec_posture" = plain ] || [ -n "$store_top" ] || die "the spec root's repository did not resolve"
 spec_rel=""
 case $spec_posture:$spec_root in
   plain:*) ;;
-  *:) die "the spec root's repository did not resolve" ;;
   *:"$store_top") spec_rel=$spec_name ;;
   *:"$store_top"/*) spec_rel=${spec_root#"$store_top"/}/$spec_name ;;
   *) die "the spec root is not inside the repository that should hold it, so no ref holds the bundle" ;;
 esac
-[ "$spec_posture" = plain ] || [ -n "$store_top" ] || die "the spec root's repository did not resolve"
 
 wtmp=$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-meta-step.XXXXXX") || exit 2
 lock_held=0

@@ -67,10 +67,14 @@ block() {
   printf '### Task %s — %s\n\n- **Deliverables:** work.\n- **Done when:** done.\n- **Dependencies:** %s\n- **Citations:** REQ-X\n- **Estimated effort:** 1 day\n%s\n' \
     "$1" "$2" "$3" "$4"
 }
-# write_bundle <task 1 field> <task 2 field> — Task 2 depends on Task 1.
+# write_bundle <task 1 field> <task 2 field> [<task 3>] — Task 2 depends on
+# Task 1; a third argument adds an independent Task 3 naming no repository.
 write_bundle() {
+  wb_three=""
+  [ "$#" -lt 3 ] || wb_three=$(block 3 'Anywhere third' none '')
   trf_bundle "$(block 1 'Alpha first' none "$1")
-$(block 2 'Beta second' 1 "$2")"
+$(block 2 'Beta second' 1 "$2")
+$wb_three"
   printf '\nThe demo bundle.\n' >>"$B/requirements.md"
   for f in design test-spec; do
     printf '# Demo %s\n\n**Status:** Ready\n\nBody.\n' "$f" >"$B/$f.md"
@@ -127,6 +131,13 @@ trf_unregister alpha
 rwr "$HOLDER" "$B" --task 1
 assert_eq "I1.5 none registered: resolves to nothing (exit)" 5 "$rw_rc"
 assert_has "I1.5 none registered: says so" "no work repository is registered" "$rw_err"
+mv "$TRF/pdata/work-repos/registry.tsv" "$TRF/registry.away"
+mkdir "$TRF/pdata/work-repos/registry.tsv"
+rwr "$HOLDER" "$B" --task 1
+assert_eq "I1.5 an unreadable registry resolves to nothing (exit)" 5 "$rw_rc"
+assert_has "I1.5 an unreadable registry is named as such" "registry could not be read" "$rw_err"
+rmdir "$TRF/pdata/work-repos/registry.tsv"
+mv "$TRF/registry.away" "$TRF/pdata/work-repos/registry.tsv"
 trf_register alpha
 trf_register beta
 
@@ -135,6 +146,11 @@ rwr "$HOLDER" "$B" --task 1
 assert_eq "I1.5 an unregistered alias resolves to nothing (exit)" 5 "$rw_rc"
 assert_eq "I1.5 an unregistered alias never prints the holder" "" "$rw_out"
 assert_has "I1.5 an unregistered alias names the candidates" "alpha ($ALPHA), beta ($BETA)" "$rw_err"
+write_bundle '- **Repository:** holder' "$NAMED_2"
+rwr "$HOLDER" "$B" --task 1
+assert_eq "I1.5 an alias naming the holder resolves to nothing (exit)" 5 "$rw_rc"
+assert_eq "I1.5 an alias naming the holder never prints it" "" "$rw_out"
+assert_has "I1.5 an alias naming the holder says so" "names a holder checkout" "$rw_err"
 write_bundle '- **Repository:** acme/beta' "$NAMED_2"
 rwr "$HOLDER" "$B" --task 1
 assert_eq "I1.5 a malformed field resolves to nothing (exit)" 5 "$rw_rc"
@@ -178,7 +194,7 @@ assert_eq "I1.6 a bundle naming no repository with two registered refuses (exit)
 assert_has "I1.6 that refusal names the candidates" "alpha ($ALPHA), beta ($BETA)" "$st_err"
 
 # --- REQ-I1.6: the meta-step dispatches into the task's repository ------------
-write_bundle "$NAMED_1" "$NAMED_2"
+write_bundle "$NAMED_1" "$NAMED_2" three
 anchor=$(trf_env /bin/sh "$SCRIPTS/spec-anchor.sh" "$B") || fail "spec-anchor.sh failed on the fixture"
 # shellcheck disable=SC2016 # literal backticks: the record format
 printf '# Kickoff brief\n\nClass: meaning\nLens-pass: §8\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/demo`\n' \
@@ -223,18 +239,44 @@ nothing_created() {
   assert_eq "$1: no dispatch marker" 0 "$(markers)"
 }
 
-# Refusals come before the lock: nothing is created, in the holder or anywhere.
-write_bundle "$NAMED_1" ''
-meta "$HOLDER" 2
-assert_eq "I1.6 no field, two registered: the dispatch refuses (exit)" 2 "$m_rc"
+# The meta-tower's selector supervises the holder's bundle from the holder.
+ms_out=$(cd "$HOLDER" && trf_env /bin/sh "$SCRIPTS/orchestrate-meta-select.sh" "$B" 2>&1)
+assert_eq "I1.6 the meta selector picks Task 1 from the holder" "$B${TAB}1" "$ms_out"
+
+# The per-spec lock takes the holder's bundle, never a linked worktree's copy.
+trf_git -C "$HOLDER" worktree add -q --detach "$HOLDER/.claude/worktrees/copy" main
+lk() { (cd "$HOLDER" && trf_env /bin/sh "$SCRIPTS/orchestrate-lock.sh" "$@" >/dev/null 2>&1); }
+if lk acquire "$HOLDER/.claude/worktrees/copy/hub/demo"; then
+  fail "I1.6 the lock took a linked worktree's copy of the holder's bundle"
+  lk release "$HOLDER/.claude/worktrees/copy/hub/demo"
+else
+  pass "I1.6 the lock refuses a linked worktree's copy of the holder's bundle"
+fi
+if lk acquire "$B"; then
+  pass "I1.6 the lock takes the holder's bundle"
+  lk release "$B"
+else
+  fail "I1.6 the lock refused the holder's bundle"
+fi
+# The copy still resolves through the registry the primary's root is keyed by.
+rwr "$HOLDER" "$HOLDER/.claude/worktrees/copy/hub/demo" --task 1
+assert_eq "I1.5 a linked worktree's copy resolves through the primary's root" "0 $ALPHA" "$rw_rc $rw_out"
+trf_git -C "$HOLDER" worktree remove --force "$HOLDER/.claude/worktrees/copy"
+rmdir "$HOLDER/.claude/worktrees" "$HOLDER/.claude"
+
+# Refusals come before the lock and park the unit: nothing is created, in the
+# holder or anywhere.
+meta "$HOLDER" 3
+assert_eq "I1.6 no field, two registered: the dispatch parks (exit)" 4 "$m_rc"
+assert_has "I1.6 the park names its stage" "halt${TAB}work-repo" "$m_out"
 assert_has "I1.6 the refusal names the candidates" "alpha ($ALPHA), beta ($BETA)" "$m_err"
-nothing_created "I1.6 no field, two registered" 2
-write_bundle '- **Repository:** gamma' "$NAMED_2"
+nothing_created "I1.6 no field, two registered" 3
+write_bundle '- **Repository:** gamma' "$NAMED_2" three
 meta "$HOLDER" 1
-assert_eq "I1.6 an unregistered alias: the dispatch refuses (exit)" 2 "$m_rc"
+assert_eq "I1.6 an unregistered alias: the dispatch parks (exit)" 4 "$m_rc"
 assert_has "I1.6 the refusal names the candidates" "alpha ($ALPHA), beta ($BETA)" "$m_err"
 nothing_created "I1.6 an unregistered alias" 1
-write_bundle "$NAMED_1" "$NAMED_2"
+write_bundle "$NAMED_1" "$NAMED_2" three
 
 meta "$HOLDER" 1
 assert_eq "I1.6 from the holder, Task 1 dispatches (exit)" 0 "$m_rc"
@@ -271,6 +313,18 @@ if poll_until --what "the worker's working directory" cwd_is "$BETA/.claude/work
 else
   fail "I1.6 the worker ran in '$(head -1 "$TRF/cwd" 2>/dev/null)'"
 fi
+
+# A task naming no repository, with one work repository registered, dispatches
+# there from the holder.
+trf_unregister beta
+: >"$TRF/cwd"
+printf '/planwright:execute-task demo 3\n' >"$TRF/prompt"
+meta "$HOLDER" 3
+assert_eq "I1.6 no field, one registered: the dispatch succeeds (exit)" 0 "$m_rc"
+[ "$m_rc" -eq 0 ] || echo "$m_out $m_err" >&2
+assert_eq "I1.6 no field, one registered: the worktree is alpha's" "$ALPHA/.claude/worktrees/demo-task-3" "$(mfield worktree)"
+if has_branch "$HOLDER" 3; then fail "I1.6 a Task 3 branch was created in the holder"; else pass "I1.6 no Task 3 branch in the holder"; fi
+trf_register beta
 
 echo
 if [ "$failures" -eq 0 ]; then

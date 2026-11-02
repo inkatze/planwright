@@ -114,7 +114,7 @@ assert_out "holder root from a worktree: the work repository's primary" "$tmp/wo
 run "$tmp/holder" "$SH" "$HELPER" "$tmp/holder/work-specs/demo"
 assert_eq "holder bundle from the holder with nothing registered (exit)" 5 "$rc"
 assert_eq "holder bundle from the holder never prints the holder" "" "$out"
-assert_contains "holder bundle from the holder names the root" "no work repository is registered" "$err"
+assert_contains "holder bundle from the holder says the registry is unread" "registry could not be read" "$err"
 
 # A plain directory: the work repository owns it through spec_root.
 mkdir -p "$tmp/plain-specs"

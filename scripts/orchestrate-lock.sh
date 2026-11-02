@@ -187,13 +187,17 @@ is_spec_root() {
   isr_root=$(cd "$isr_root" 2>/dev/null && pwd -P) || return 1
   [ "$isr_root" = "$spec_parent" ]
 }
-# in_holder: the spec dir's parent is a marked root inside the current
-# repository's primary checkout, a holder's root whose bundles dispatch into
-# their registered work repositories (resolve-work-repo.sh).
+# in_holder: the spec dir's parent is a marked root in the current
+# repository's primary checkout itself (not a linked worktree's copy or a
+# nested repository), a holder's root whose bundles dispatch into their
+# registered work repositories (resolve-work-repo.sh).
 in_holder() {
   /bin/sh "$script_dir/resolve-root.sh" marker "$spec_parent" >/dev/null 2>&1 || return 1
   ih_top=$(/bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) || return 1
   ih_top=$(cd "$ih_top" 2>/dev/null && pwd -P) || return 1
+  ih_co=$(cd "$spec_parent" 2>/dev/null && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) || return 1
+  ih_co=$(cd "$ih_co" 2>/dev/null && pwd -P) || return 1
+  [ "$ih_co" = "$ih_top" ] || return 1
   case $spec_parent in
     "$ih_top"/*) return 0 ;;
   esac

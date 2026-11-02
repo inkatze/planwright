@@ -162,7 +162,15 @@ fi
 # The tower runs in the bundle's work repository, which a relocated spec root
 # does not hold. A bundle inside one of that repository's linked worktrees
 # keeps its tower there, so the relaunch works on the copy this watchdog locks.
-checkout=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir") || {
+# A holder's bundle with no single registered work repository keeps its
+# tower in the holder, whose units each dispatch into their own repository.
+wr_rc=0
+checkout=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" 2>/dev/null) || wr_rc=$?
+if [ "$wr_rc" -eq 5 ]; then
+  checkout=$(cd "$spec_dir" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) || checkout=""
+  [ -n "$checkout" ] && wr_rc=0
+fi
+[ "$wr_rc" -eq 0 ] || {
   echo "fleet-tower-watchdog: refusing spec dir with no work repository" >&2
   exit 2
 }

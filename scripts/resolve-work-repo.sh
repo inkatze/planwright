@@ -97,28 +97,54 @@ root_helper=$script_dir/resolve-root.sh
 registry=$script_dir/work-repo-registry.sh
 TAB=$(printf '\t')
 
-# work_entries: the live work repositories registered against the bundle's
-# root, `<alias><TAB><checkout>` per line; holder entries never dispatch.
-work_entries() {
-  /bin/sh "$registry" lookup --root "$parent" 2>/dev/null \
-    | awk -F"$TAB" '$1 == "entry" && $3 == "work" { print $2 "\t" $4 }'
+own=$(cd -- "$bundle" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$root_helper" repo --primary 2>/dev/null) || own=""
+# The registry keys a root by its primary checkout's path: a copy in a linked
+# worktree of the bundle's repository maps onto it.
+reg_root=$parent
+btop=$(cd -- "$bundle" && /bin/sh "$root_helper" repo --checkout 2>/dev/null) || btop=""
+if [ -n "$own" ] && [ -n "$btop" ] && [ "$btop" != "$own" ]; then
+  case $parent in
+    "$btop") reg_root=$own ;;
+    "$btop"/*) reg_root=$(cd -- "$own/${parent#"$btop"/}" 2>/dev/null && pwd -P) || reg_root=$parent ;;
+  esac
+fi
+
+# registry_entries: set entries to the live work repositories registered
+# against the root, `<alias><TAB><checkout>` per line (holder entries never
+# dispatch); fails when the registry cannot answer at all.
+entries=""
+registry_entries() {
+  re_out=$(/bin/sh "$registry" lookup --root "$reg_root" 2>/dev/null) || {
+    entries=""
+    return 1
+  }
+  entries=$(printf '%s\n' "$re_out" | awk -F"$TAB" '$1 == "entry" && $3 == "work" { print $2 "\t" $4 }')
 }
-# candidates: the work_entries as `alias (checkout)`, comma-separated, or none.
+# candidates: the entries as `alias (checkout)`, comma-separated, or none.
 candidates() {
-  cd_list=$(work_entries | awk -F"$TAB" '{ printf "%s%s (%s)", sep, $1, $2; sep = ", " }')
+  cd_list=$(printf '%s\n' "$entries" | awk -F"$TAB" 'NF { printf "%s%s (%s)", sep, $1, $2; sep = ", " }')
   printf '%s' "${cd_list:-none}"
 }
 
 by_alias() {
-  /bin/sh "$root_helper" marker "$parent" >/dev/null || {
+  /bin/sh "$root_helper" marker "$reg_root" >/dev/null || {
     say "the alias '$1' resolves to nothing: the spec root $parent has no valid planwright-spec-root.yml marker, and only a marked root has registered repositories"
     exit 5
   }
   # The registry names its own reason on stderr; any failure to answer is
   # the alias resolving to nothing, never a fallback to the current repository.
-  /bin/sh "$registry" lookup --root "$parent" "$1" && exit 0
-  say "the work repositories registered against $parent: $(candidates)"
-  exit 5
+  if ! ba_out=$(/bin/sh "$registry" lookup --root "$reg_root" "$1"); then
+    registry_entries || :
+    say "the work repositories registered against $reg_root: $(candidates)"
+    exit 5
+  fi
+  registry_entries || :
+  if ! printf '%s\n' "$entries" | BA_OUT=$ba_out awk -F"$TAB" '$2 == ENVIRON["BA_OUT"] { f = 1 } END { exit !f }'; then
+    say "the alias '$1' resolves to nothing: it names a holder checkout, which never receives a dispatch; the work repositories registered against $reg_root: $(candidates)"
+    exit 5
+  fi
+  printf '%s\n' "$ba_out"
+  exit 0
 }
 
 if [ "$have_alias" -eq 1 ]; then
@@ -175,8 +201,6 @@ if [ "$cur_rc" -eq 4 ]; then
 fi
 [ "$cur_rc" -eq 0 ] || cur=""
 
-own=$(cd -- "$bundle" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$root_helper" repo --primary 2>/dev/null) || own=""
-
 # names_parent: the current repository's resolved spec root, in either view,
 # is the bundle's parent. A refused or unreadable spec_root cannot vouch for
 # the bundle.
@@ -192,15 +216,18 @@ names_parent() {
 
 if [ -n "$cur" ]; then
   if [ "$own" = "$cur" ]; then
-    if ! names_parent && /bin/sh "$root_helper" marker "$parent" >/dev/null 2>&1; then
-      entries=$(work_entries)
+    if ! names_parent && /bin/sh "$root_helper" marker "$reg_root" >/dev/null 2>&1; then
+      if ! registry_entries; then
+        say "no work repository for $bundle: it sits in the holder $cur, and the work-repository registry could not be read for $reg_root (work-repo-registry.sh lookup --explain says why)"
+        exit 5
+      fi
       case $(printf '%s' "$entries" | awk 'END { print NR }') in
         1)
           printf '%s\n' "${entries#*"$TAB"}"
           exit 0
           ;;
-        0) say "no work repository for $bundle: it sits in the holder $cur, and no work repository is registered against $parent (run work-repo-registry.sh register in one)" ;;
-        *) say "no work repository for $bundle: several are registered against $parent ($(candidates)); name one in the task's Repository: field" ;;
+        0) say "no work repository for $bundle: it sits in the holder $cur, and no work repository is registered against $reg_root (run work-repo-registry.sh register in one)" ;;
+        *) say "no work repository for $bundle: several are registered against $reg_root ($(candidates)), so a task naming none has no single home; give each such task a Repository: field" ;;
       esac
       exit 5
     fi

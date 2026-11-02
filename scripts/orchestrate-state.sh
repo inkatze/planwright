@@ -60,7 +60,8 @@
 # absent. A same-named task branch, PR, or trailer in another repository is no
 # evidence for the task. The dispatch markers keep their one per-bundle home.
 # Such a bundle adds these records (a bundle naming no repository emits none
-# and derives exactly as before):
+# and derives from its work repository, or, in a holder with not exactly one
+# registered work repository, fails with exit 2):
 #
 #   repository<TAB><id><TAB><alias>        the task names <alias> (resolved or
 #                                          not).
@@ -113,7 +114,8 @@
 #
 # Usage: orchestrate-state.sh <spec-dir>
 # Exit: 0 records emitted; 2 the spec dir / tasks.md is missing, unreadable, or
-#   holds no task records, the spec id fails its grammar, the base ref does
+#   holds no task records, the spec id fails its grammar, the bundle has no
+#   work repository (unless its tasks name theirs), the base ref does
 #   not resolve in the work repository, the Repository: fields cannot
 #   be read, or a bundle whose version is not plainly 1, 2, or 3 carries one
 #   (fail closed — a malformed input must not silently report "nothing", and a
@@ -177,7 +179,10 @@ fi
 # one holding the bundle: a relocated spec root may sit in a holder or in no
 # repository at all.
 wr_rc=0
-repo_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" 2>/dev/null) || wr_rc=$?
+wr_err=$(mktemp "${TMPDIR:-/tmp}/orchestrate-state.XXXXXX") || exit 2
+repo_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" 2>"$wr_err") || wr_rc=$?
+wr_msg=$(cat "$wr_err")
+rm -f "$wr_err"
 
 # A version 3 bundle's Repository: fields. Versions 1 and 2 define no field
 # (the validator rejects one there), so they derive as they always have. A
@@ -214,7 +219,6 @@ per_task=0
 # the holder.
 work_reason=""
 if [ "$wr_rc" -ne 0 ]; then
-  wr_msg=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" 2>&1 >/dev/null)
   if [ "$wr_rc" -eq 5 ] && [ "$per_task" -eq 1 ]; then
     work_reason=$(printf '%s' "$wr_msg" | tr '\n' ' ' | tr -d '\000-\037\177')
     work_reason=${work_reason#resolve-work-repo: }
