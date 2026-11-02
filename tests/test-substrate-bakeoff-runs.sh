@@ -246,6 +246,13 @@ run_into blankarg "$tmp/blankarg"
 check_eq "an args file with an empty line fails closed" 5 "$rc"
 check_has "the failure names the empty argument" "$out" "args has an empty line"
 
+rm -rf "$tmp/out-dirview"
+mkdir -p "$tmp/out-dirview/view.md"
+out=$("$SB" run --bakeoff "$STUB" --out-dir "$tmp/out-dirview" --run-id run-dirview --platform test 2>&1)
+check_eq "an output path that is not a regular file fails closed" 5 "$?"
+check_has "the failure names the output path" "$out" "view.md is not a regular file"
+check_eq "nothing lands beside it" "" "$(find "$tmp/out-dirview" -type f)"
+
 "$SB" bogus >/dev/null 2>&1
 check_eq "an unknown subcommand is a usage error" 2 "$?"
 

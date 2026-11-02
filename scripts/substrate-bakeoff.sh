@@ -804,7 +804,14 @@ cmd_run() {
   fill_baseline "$work/rows"
   validate_report "$work/rows" >&2 || exit 1
   render_report "$work/rows" >"$work/view.md" || fail_closed "could not render the view"
-  # Both files are staged before either lands, so a failure leaves the old pair.
+  for f in report.tsv view.md; do
+    if [ -e "$out_dir/$f" ] || [ -L "$out_dir/$f" ]; then
+      [ -f "$out_dir/$f" ] && [ ! -L "$out_dir/$f" ] || fail_closed "$out_dir/$f is not a regular file"
+    fi
+  done
+  # Both files are staged before either lands, so a failure in staging leaves
+  # the old pair; only a failed second move can leave a new report beside an
+  # old view.
   rt=$(mktemp "$out_dir/.report.XXXXXX") || fail_closed "could not stage the output in $out_dir"
   vt=$(mktemp "$out_dir/.view.XXXXXX") || fail_closed "could not stage the output in $out_dir"
   if ! cp "$work/rows" "$rt" || ! cp "$work/view.md" "$vt" || ! chmod 644 "$rt" "$vt" \
