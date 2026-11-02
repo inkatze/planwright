@@ -4,8 +4,9 @@
 # REQ-C1.6, REQ-G1.3).
 #
 # Runs the committed stub bake-off (one full candidate, one comparison
-# point), then copies it into variants that the run must refuse, and tampers
-# with the produced report in the ways the validator must reject.
+# point) and a hook-tier copy of it, then tampers with the produced reports in
+# the ways the validator must reject. Run-time refusals, failure values and
+# isolation are in tests/test-substrate-bakeoff-runs.sh.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-substrate-bakeoff.sh
@@ -183,82 +184,40 @@ set_field "$R" stub-full tier hook "$tmp/h4"
 set_field "$tmp/h4" stub-comparison tier hook "$tmp/h5"
 reject "a hook report with no shell row" "$tmp/h5" "needs the shell candidate"
 
-# --- refusals at run time ---------------------------------------------------
+# --- more validator rejections ---------------------------------------------
 
-variant omit
-mkdir -p "$tmp/omit/fixtures/other/one"
-printf '0\n' >"$tmp/omit/fixtures/other/one/expected-status"
-: >"$tmp/omit/fixtures/other/one/expected-stdout"
-run_into omit "$tmp/omit"
-check_eq "a candidate that cannot run a fixture is refused" 1 "$rc"
-check_has "the refusal names the missing invocation" "$out" "invoke.other is not set"
-if [ -e "$tmp/out-omit/report.tsv" ]; then bad "no report after a refusal"; else ok "no report after a refusal"; fi
-
-variant failing
-mkdir -p "$tmp/failing/fixtures/echo-line/wrong"
-printf 'in\n' >"$tmp/failing/fixtures/echo-line/wrong/stdin"
-printf 'out\n' >"$tmp/failing/fixtures/echo-line/wrong/expected-stdout"
-printf '0\n' >"$tmp/failing/fixtures/echo-line/wrong/expected-status"
-run_into failing "$tmp/failing"
-check_eq "a failing fixture does not refuse the run" 0 "$rc"
-check_eq "the failing fixture is recorded per fixture" "echo-line/basic:pass,echo-line/empty:pass,echo-line/wrong:fail" "$(get "$tmp/out-failing/report.tsv" stub-full fixture_results)"
-check_eq "the failure counts" "2 1" "$(get "$tmp/out-failing/report.tsv" stub-full tests_passed) $(get "$tmp/out-failing/report.tsv" stub-full tests_failed)"
-
-variant slow
-sed 's/^timeout_s=10$/timeout_s=1/' "$STUB/bakeoff.conf" >"$tmp/slow/bakeoff.conf"
-mkdir -p "$tmp/slow/fixtures/echo-line/slow"
-printf 'sleep\n' >"$tmp/slow/fixtures/echo-line/slow/stdin"
-: >"$tmp/slow/fixtures/echo-line/slow/expected-stdout"
-printf '0\n' >"$tmp/slow/fixtures/echo-line/slow/expected-status"
-cat >"$tmp/slow/candidates/stub-full/bin/echo-line" <<'EOF'
-#!/bin/sh
-IFS= read -r l || l=
-[ "$l" = sleep ] && exec sleep 30
-printf '%s\n' "$l"
-EOF
-start=$(date +%s)
-run_into slow "$tmp/slow"
-elapsed=$(($(date +%s) - start))
-check_eq "a fixture past its timeout does not refuse the run" 0 "$rc"
-check_has "the timed-out fixture fails" "$(get "$tmp/out-slow/report.tsv" stub-full fixture_results)" "echo-line/slow:fail"
-if [ "$elapsed" -lt 20 ]; then ok "the timeout stops the execution"; else bad "the timeout stops the execution (took ${elapsed}s)"; fi
-
-variant nolog
-: >"$tmp/nolog/implementation-time.tsv"
-run_into nolog "$tmp/nolog"
-check_eq "a full candidate without an implementation-time entry is refused" 1 "$rc"
-check_has "the refusal names the log" "$out" "implementation-time.tsv has no row"
-
-variant norev
-printf 'stub-full\t1\t3\nstub-full\t2\t1\n' >"$tmp/norev/review-findings.tsv"
-run_into norev "$tmp/norev"
-check_eq "review rows beyond the stated run count are refused" 1 "$rc"
-check_has "the refusal names the review log" "$out" "review-findings.tsv needs exactly one row per convergence run"
-
-variant cmpprim
-printf 'invoke.echo-line=bin/hello\n' >>"$tmp/cmpprim/candidates/stub-comparison/candidate.conf"
-run_into cmpprim "$tmp/cmpprim"
-check_eq "a comparison point implementing a primitive is refused" 1 "$rc"
-check_has "the refusal says so" "$out" "never implements a primitive"
-
-variant interp
-sed 's|^invoke.echo-line=.*|invoke.echo-line=sh bin/echo-line|' "$STUB/candidates/stub-full/candidate.conf" >"$tmp/interp/candidates/stub-full/candidate.conf"
-run_into interp "$tmp/interp"
-check_eq "an interpreter-prefixed invocation still runs" 0 "$rc"
-check_eq "an interpreter-prefixed invocation is not a literal path" no "$(get "$tmp/out-interp/report.tsv" stub-full literal_path)"
-
-variant escape
-sed 's|^sources=.*|sources=../stub-comparison/bin/hello|' "$STUB/candidates/stub-full/candidate.conf" >"$tmp/escape/candidates/stub-full/candidate.conf"
-run_into escape "$tmp/escape"
-check_eq "a path climbing out of the candidate is refused" 1 "$rc"
-
-variant dup
-printf 'tier=hook\n' >>"$tmp/dup/bakeoff.conf"
-run_into dup "$tmp/dup"
-check_eq "a repeated configuration key fails closed" 5 "$rc"
-
-"$SB" bogus >/dev/null 2>&1
-check_eq "an unknown subcommand is a usage error" 2 "$?"
+awk -F '\t' -v OFS='\t' 'NR == 2 { $0 = $0 "\textra" } { print }' "$R" >"$tmp/v1"
+reject "a row with a different field count" "$tmp/v1" "fields, the header"
+set_field "$R" stub-full schema other "$tmp/v2"
+reject "a foreign schema name" "$tmp/v2" "schema is not substrate-bakeoff"
+awk 'NR == 3 { print; sub(/stub-full/, "stub-full") } { print }' "$R" >"$tmp/v3"
+reject "a candidate appearing twice" "$tmp/v3" "candidate appears twice"
+set_field "$R" stub-full source_bytes many "$tmp/v4"
+reject "a non-numeric numeric field" "$tmp/v4" "source_bytes is not a number"
+set_field "$R" stub-full fixture_results "echo-line/basic:ok,echo-line/empty:pass" "$tmp/v5"
+reject "a malformed per-fixture entry" "$tmp/v5" "is not <primitive>/<case>:pass|fail"
+set_field "$R" stub-full tests_failed 1 "$tmp/v6"
+reject "pass and fail counts that do not add up" "$tmp/v6" "tests_passed plus tests_failed"
+set_field "$R" stub-full literal_path maybe "$tmp/v7"
+reject "a literal-path value other than yes or no" "$tmp/v7" "literal_path and offline_replay are yes or no"
+set_field "$R" stub-full class partial "$tmp/v8"
+reject "an unknown class" "$tmp/v8" "not full or comparison"
+set_field "$R" stub-full delivery_writer maybe "$tmp/v9"
+reject "a delivery value other than pass or fail" "$tmp/v9" "delivery_writer is pass or fail"
+set_field "$R" stub-full tier weekly "$tmp/v10a"
+set_field "$tmp/v10a" stub-comparison tier weekly "$tmp/v10"
+reject "an unknown tier" "$tmp/v10" "tier is not hook"
+set_field "$R" stub-comparison trivial_result maybe "$tmp/v11"
+reject "a trivial result other than pass or fail" "$tmp/v11" "trivial_result is pass or fail"
+set_field "$H" stub-full hook_budget fast "$tmp/v12"
+reject "a hook budget other than within or over" "$tmp/v12" "hook_budget is within or over"
+set_field "$H" stub-full baseline_latency_median_ms 999.999 "$tmp/v13"
+reject "shell latency columns that differ from the shell row" "$tmp/v13" "differ from the shell row"
+set_field "$H" stub-full latency_median_ms - "$tmp/v14"
+reject "a hook report missing the candidate latency" "$tmp/v14" "the full class requires latency_median_ms"
+drop_column "$R" tier "$tmp/v15"
+out=$("$SB" validate "$tmp/v15" 2>&1)
+case $out in *"no candidate row"*) bad "a header failure reports only the header" ;; *) ok "a header failure reports only the header" ;; esac
 
 if [ "$failures" -gt 0 ]; then
   echo "test-substrate-bakeoff: $failures failure(s)" >&2

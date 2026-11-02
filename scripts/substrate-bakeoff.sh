@@ -36,13 +36,19 @@ usage() {
   exit 2
 }
 
+# Messages quote configuration values and file names, so control bytes are
+# stripped before they reach the terminal.
+say() {
+  printf '%s\n' "$1" | tr -cd '[:print:]\n' >&2
+}
+
 fail_closed() {
-  printf '%s\n' "$me: $1; failing closed" >&2
+  say "$me: $1; failing closed"
   exit 5
 }
 
 refuse() {
-  printf '%s\n' "$me: refused: $1" >&2
+  say "$me: refused: $1"
   exit 1
 }
 
@@ -51,8 +57,8 @@ TAB=$(printf '\t')
 # The schema, in column order. New fields are appended, never inserted.
 run_fields="schema run_id platform tier runs timeout_s fixture_set_count"
 shared_fields="candidate class platform_result delivery_marketplace delivery_writer dependency_count dependency_listing"
-primitive_fields="literal_path offline_replay tests_passed tests_failed fixtures_executed fixture_results latency_median_ms latency_spread_ms spawns_per_invocation distinct_commands source_bytes implementation_minutes review_runs review_findings review_findings_per_kib review_qualification porting_rate_min_per_kib baseline_run_id baseline_latency_median_ms baseline_latency_spread_ms hook_budget"
-comparison_fields="trivial_result cold_start_median_ms cold_start_spread_ms binary_size_bytes"
+primitive_fields="literal_path offline_replay tests_passed tests_failed fixtures_executed fixture_results latency_median_ms latency_spread_ms spawns_per_invocation distinct_commands source_bytes implementation_minutes review_runs review_findings review_findings_per_kib review_qualification porting_rate_min_per_kib baseline_run_id baseline_latency_median_ms baseline_latency_spread_ms hook_budget latency_status_mismatches"
+comparison_fields="trivial_result cold_start_median_ms cold_start_spread_ms binary_size_bytes cold_start_status_mismatches"
 all_fields="$run_fields $shared_fields $primitive_fields $comparison_fields"
 baseline_fields="baseline_run_id baseline_latency_median_ms baseline_latency_spread_ms hook_budget"
 
@@ -73,14 +79,14 @@ BEGIN {
   split(ENVIRON["BK_PRIM"], t, " "); for (i in t) prim[t[i]] = 1
   split(ENVIRON["BK_CMP"], t, " "); for (i in t) cmp[t[i]] = 1
   split(ENVIRON["BK_BASE"], t, " "); for (i in t) base[t[i]] = 1
-  split("runs timeout_s fixture_set_count dependency_count tests_passed tests_failed fixtures_executed latency_median_ms latency_spread_ms spawns_per_invocation distinct_commands source_bytes implementation_minutes review_runs review_findings review_findings_per_kib porting_rate_min_per_kib baseline_latency_median_ms baseline_latency_spread_ms cold_start_median_ms cold_start_spread_ms binary_size_bytes", t, " ")
+  split("runs timeout_s fixture_set_count dependency_count tests_passed tests_failed fixtures_executed latency_median_ms latency_spread_ms spawns_per_invocation distinct_commands source_bytes implementation_minutes review_runs review_findings review_findings_per_kib porting_rate_min_per_kib baseline_latency_median_ms baseline_latency_spread_ms cold_start_median_ms cold_start_spread_ms binary_size_bytes latency_status_mismatches cold_start_status_mismatches", t, " ")
   for (i in t) numeric[t[i]] = 1
 }
 NR == 1 {
   nh = NF
   for (i = 1; i <= NF; i++) col[$i] = i
   for (i = 1; i <= na; i++) {
-    if ($i != all[i]) { bad("header field " i " is \"" $i "\", the schema needs \"" all[i] "\" (the schema is add-only: a field is never renamed, removed or moved)"); exit }
+    if ($i != all[i]) { bad("header field " i " is \"" $i "\", the schema needs \"" all[i] "\" (the schema is add-only: a field is never renamed, removed or moved)"); hdrbad = 1; exit }
   }
   next
 }
@@ -90,6 +96,7 @@ NR == 1 {
   for (i = 1; i <= na; i++) v[all[i]] = $i
   c = v["candidate"]
   if (v["schema"] != "substrate-bakeoff") bad(c ": schema is not substrate-bakeoff")
+  if (v["tier"] !~ /^(hook|skill-called|library|dev-check)$/) bad(c ": tier is not hook, skill-called, library or dev-check")
   for (f in isrun) {
     if (v[f] == "-" || v[f] == "") bad(c ": run field " f " is empty")
     if (rows == 1) first[f] = v[f]
@@ -112,19 +119,23 @@ NR == 1 {
     if (v["literal_path"] !~ /^(yes|no)$/ || v["offline_replay"] !~ /^(yes|no)$/) bad(c ": literal_path and offline_replay are yes or no")
     fullrow[c] = NR; brun[c] = v["baseline_run_id"]; bmed[c] = v["baseline_latency_median_ms"]; bspr[c] = v["baseline_latency_spread_ms"]
     if (c == "shell") { hasshell = 1; smed = v["latency_median_ms"]; sspr = v["latency_spread_ms"] }
+    if (v["hook_budget"] != "-" && v["hook_budget"] !~ /^(within|over)$/) bad(c ": hook_budget is within or over")
+    budget[c] = v["hook_budget"]
   } else if (v["class"] == "comparison") {
     for (f in prim) if (v[f] != "-") bad(c ": a comparison point carries the primitive field " f)
     for (f in cmp) if (v[f] == "-" || v[f] == "") bad(c ": the comparison class requires " f)
+    if (v["trivial_result"] !~ /^(pass|fail)$/) bad(c ": trivial_result is pass or fail")
   } else bad(c ": class is \"" v["class"] "\", not full or comparison")
   for (f in shared) if (f ~ /^(platform_result|delivery_)/ && v[f] !~ /^(pass|fail)$/) bad(c ": " f " is pass or fail")
 }
 END {
   if (NR == 0) { bad("no header"); exit 1 }
+  if (hdrbad) exit 1
   if (rows == 0) bad("no candidate row")
   if (first["tier"] == "hook") {
     if (!hasshell) bad("a hook-tier report needs the shell candidate (id shell) as the latency baseline")
     for (c in fullrow) {
-      if (brun[c] == "-" || bmed[c] == "-" || bspr[c] == "-") bad(c ": a hook-tier report needs the shell latency columns on every full candidate")
+      if (brun[c] == "-" || bmed[c] == "-" || bspr[c] == "-" || budget[c] == "-") bad(c ": a hook-tier report needs the shell latency columns on every full candidate")
       else if (brun[c] != first["run_id"]) bad(c ": the shell latency columns carry run " brun[c] ", the candidate run " first["run_id"] "; both must come from one harness run")
       else if (hasshell && (bmed[c] != smed || bspr[c] != sspr)) bad(c ": the shell latency columns differ from the shell row")
     }
@@ -137,7 +148,22 @@ END {
 
 render_report() {
   BK_ME=$me awk -F '\t' '
-function cell(s) { gsub(/[^[:print:]]/, "", s); gsub(/\|/, "\\|", s); return s }
+# Code spans take the value raw: run ids and platforms are charset-checked.
+function raw(s) { gsub(/[^A-Za-z0-9._:-]/, "", s); return s }
+# A character loop, since awks disagree on backslashes in gsub replacements.
+function cell(s,   o, i, ch) {
+  gsub(/[^[:print:]]/, "", s)
+  o = ""
+  for (i = 1; i <= length(s); i++) {
+    ch = substr(s, i, 1)
+    if (ch == "&") ch = "&amp;"
+    else if (ch == "<") ch = "&lt;"
+    else if (ch == ">") ch = "&gt;"
+    else if (index("\\`*_|[]", ch)) ch = "\\" ch
+    o = o ch
+  }
+  return o
+}
 NR == 1 { for (i = 1; i <= NF; i++) h[i] = $i; nh = NF; next }
 {
   n++
@@ -146,7 +172,7 @@ NR == 1 { for (i = 1; i <= NF; i++) h[i] = $i; nh = NF; next }
 }
 END {
   printf "# Bake-off report: %s tier\n\n", cell(v[1, "tier"])
-  printf "Run `%s` on `%s`: %s runs per latency measurement, a %s s timeout per execution, %s production differential fixtures.\n", cell(v[1, "run_id"]), cell(v[1, "platform"]), cell(v[1, "runs"]), cell(v[1, "timeout_s"]), cell(v[1, "fixture_set_count"])
+  printf "Run `%s` on `%s`: %s runs per latency measurement, a %s s timeout per execution, %s production differential fixtures.\n", raw(v[1, "run_id"]), raw(v[1, "platform"]), cell(v[1, "runs"]), cell(v[1, "timeout_s"]), cell(v[1, "fixture_set_count"])
   if (nf) {
     print "\n## Full candidates\n"
     print "| Candidate | Platform | Fixtures passed | Latency median ms | Spread ms | Hook budget | Spawns | Dependencies | Source bytes | Porting rate min/KiB | Review findings/KiB | Review runs |"
@@ -216,28 +242,40 @@ plain_path() {
   esac
 }
 
-# The timed runner. Env: BK_TIMEOUT, BK_STDIN, BK_STDOUT, BK_CWD, BK_REPEAT,
-# BK_PATH, BK_HOME, BK_SPAWN_LOG, BK_OFFLINE; argv the command. Prints
-# `<status><TAB><ms>` per repetition, the status being the exit code, 128
-# plus the signal, or `timeout`. The clock spans fork to reap.
+# The timed runner. Env: BK_TIMEOUT, BK_STDIN, BK_STDOUT, BK_WORK, BK_FILES,
+# BK_REPEAT, BK_PATH, BK_SPAWN_LOG, BK_OFFLINE, BK_CLEAN_ENV; argv the command.
+# Each repetition runs in a fresh directory under BK_WORK holding a copy of
+# BK_FILES (and, with BK_CLEAN_ENV, a fresh home and nothing inherited but
+# PATH and the C locale), in its own process group, which is swept after the
+# reap so nothing it backgrounded outlives it. Prints `<status><TAB><ms>` per
+# repetition, the status being the exit code, 128 plus the signal, or
+# `timeout`. The clock spans fork to reap; staging is outside it.
 # shellcheck disable=SC2016 # the $-sigils are perl variables
-runner_pl='use strict; use warnings; use Time::HiRes qw(time);
+runner_pl='use strict; use warnings; use Time::HiRes qw(time); use File::Temp qw(tempdir);
 my %bk = map { $_ => $ENV{$_} } grep { /^BK_/ } keys %ENV;
 delete @ENV{ keys %bk };
+%ENV = (LC_ALL => "C") if $bk{BK_CLEAN_ENV};
 $ENV{PATH} = $bk{BK_PATH};
-$ENV{HOME} = $bk{BK_HOME};
 $ENV{PLANWRIGHT_BAKEOFF_SPAWN_LOG} = $bk{BK_SPAWN_LOG};
 if ($bk{BK_OFFLINE}) {
   $ENV{$_} = "http://127.0.0.1:9" for qw(http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy);
   $ENV{GOPROXY} = "off"; $ENV{GOFLAGS} = "-mod=vendor"; $ENV{CARGO_NET_OFFLINE} = "true";
 }
+my $pid = 0;
+my %signum = (HUP => 1, INT => 2, TERM => 15);
+for my $s (keys %signum) {
+  $SIG{$s} = sub { if ($pid) { kill "KILL", -$pid; waitpid($pid, 0); } POSIX::_exit(128 + $signum{$s}); };
+}
 for (1 .. ($bk{BK_REPEAT} || 1)) {
+  my $cwd = tempdir("rep.XXXXXX", DIR => $bk{BK_WORK});
+  if ($bk{BK_CLEAN_ENV}) { $ENV{HOME} = $ENV{TMPDIR} = tempdir("home.XXXXXX", DIR => $bk{BK_WORK}); }
+  if ($bk{BK_FILES} ne "") { system("cp", "-R", "--", "$bk{BK_FILES}/.", "$cwd/") == 0 or die "could not stage $bk{BK_FILES}\n"; }
   my $t0 = time;
-  my $pid = fork;
+  $pid = fork;
   die "fork: $!\n" unless defined $pid;
   if ($pid == 0) {
     setpgrp(0, 0);
-    chdir $bk{BK_CWD} or POSIX::_exit(127);
+    chdir $cwd or POSIX::_exit(127);
     open(STDIN, "<", $bk{BK_STDIN}) or POSIX::_exit(127);
     open(STDOUT, ">", $bk{BK_STDOUT}) or POSIX::_exit(127);
     open(STDERR, ">", "/dev/null") or POSIX::_exit(127);
@@ -252,18 +290,19 @@ for (1 .. ($bk{BK_REPEAT} || 1)) {
   unless ($ok) { $timed_out = 1; kill "KILL", -$pid; kill "KILL", $pid; waitpid($pid, 0); }
   my $st = $?;
   my $ms = (time - $t0) * 1000;
+  kill "KILL", -$pid;
+  $pid = 0;
   my $code = $timed_out ? "timeout" : ($st & 127) ? 128 + ($st & 127) : $st >> 8;
   printf "%s\t%.3f\n", $code, $ms;
 }'
 
 # run_case <argv-file> <fixture-dir|""> <extra-arg|""> <stdout> <repeat> <path>
-# <spawn-log> <offline 0|1> <timings-out>: run the argv once per repetition in
-# a fresh working directory holding the fixture's files.
+# <spawn-log> <offline 0|1> <timings-out>: run the argv once per repetition,
+# with, when clean_env is 1, a fresh home and no inherited environment
+# beyond PATH and the C locale.
 run_case() {
-  case_dir=$(mktemp -d "$work/cwd.XXXXXX") || fail_closed "could not create a working directory"
-  if [ -n "$2" ] && [ -d "$2/files" ]; then
-    cp -R -- "$2/files/." "$case_dir/" || fail_closed "could not stage the fixture files of $2"
-  fi
+  files=""
+  [ -n "$2" ] && [ -d "$2/files" ] && files=$2/files
   stdin=/dev/null
   [ -n "$2" ] && [ -f "$2/stdin" ] && stdin=$2/stdin
   : >"$7"
@@ -275,8 +314,8 @@ run_case() {
   # shellcheck disable=SC2046 # split on newlines only, globbing off
   set -- $(cat "$1") $([ -n "$2" ] && [ -f "$2/args" ] && cat "$2/args") $([ -n "$3" ] && printf '%s\n' "$3")
   IFS=$old_ifs
-  BK_REPEAT=$rep BK_CWD=$case_dir BK_STDIN=$stdin BK_STDOUT=$rc_out BK_TIMEOUT=$timeout_s \
-    BK_PATH=$path BK_HOME=$run_home BK_SPAWN_LOG=$slog BK_OFFLINE=$offl \
+  BK_REPEAT=$rep BK_WORK=$work BK_FILES=$files BK_STDIN=$stdin BK_STDOUT=$rc_out BK_TIMEOUT=$timeout_s \
+    BK_PATH=$path BK_SPAWN_LOG=$slog BK_OFFLINE=$offl BK_CLEAN_ENV=$clean_env \
     "$perl_bin" -MPOSIX -e "$runner_pl" "$@" >"$timings" || fail_closed "the timed runner failed"
 }
 
@@ -285,6 +324,11 @@ first_status() {
 }
 
 # stats <timings>: median and interquartile range (nearest rank) of the times.
+# mismatches <timings> <expected-status>: repetitions whose status differed.
+mismatches() {
+  BK_W=$2 awk -F '\t' '$1 != ENVIRON["BK_W"] { n++ } END { print n + 0 }' "$1" || fail_closed "could not read the timings"
+}
+
 stats() {
   cut -f2 "$1" >"$work/times" || fail_closed "could not read the timings"
   sort -n "$work/times" >"$work/times.sorted" || fail_closed "sort failed"
@@ -394,6 +438,7 @@ delivery() {
   plain_path "$val" "delivery.$2"
   [ -f "$cdir/$val" ] || refuse "$cand: delivery.$2 names a missing file"
   printf '%s\n' "$cdir/$val" >"$work/dargv"
+  clean_env=0
   run_case "$work/dargv" "" "" "$work/dout" 1 "$orig_path" "$work/dlog" 0 "$work/dt"
   dres=fail
   [ "$(first_status "$work/dt")" = 0 ] && dres=pass
@@ -407,8 +452,10 @@ build_step() {
     0) ;;
     *) fail_closed "$1 is malformed" ;;
   esac
+  [ -n "$bscript" ] || refuse "$cand: build is empty"
   plain_path "$bscript" build
   printf '%s\n' "$cdir/$bscript" >"$work/bargv"
+  clean_env=0
   run_case "$work/bargv" "" "" "$work/bout" 1 "$orig_path" "$work/blog" 0 "$work/bt"
   [ "$(first_status "$work/bt")" = 0 ]
 }
@@ -442,8 +489,9 @@ measure_full() {
   launch_ok=yes
   build_step "$conf" || launch_ok=no
   for k in $(conf_keys "$conf"); do
-    case $k in invoke.*) grep -qx "${k#invoke.}" "$work/primitives" || refuse "$cand: $k names no primitive of the fixture set" ;; esac
+    case $k in invoke.*) grep -Fqx -- "${k#invoke.}" "$work/primitives" || refuse "$cand: $k names no primitive of the fixture set" ;; esac
   done
+  clean_env=1
   : >"$work/results"
   : >"$work/commands.raw"
   passed=0 failed=0 executed=0 spawns=""
@@ -478,12 +526,9 @@ measure_full() {
   build_argv "$call_inv"
   run_case "$argv_file" "$bakeoff/fixtures/$call_site" "" "$work/out" "$runs" "$orig_path" "$work/slog" 0 "$work/t"
   lat=$(stats "$work/t") || fail_closed "the latency measurement failed"
+  lat_mismatch=$(mismatches "$work/t" "$(cat "$bakeoff/fixtures/$call_site/expected-status")")
 
-  run_home_saved=$run_home
-  run_home=$work/offline-home
-  mkdir -p "$run_home" || fail_closed "could not create the offline home"
   run_case "$argv_file" "$bakeoff/fixtures/$call_site" "" "$work/replay" 1 "$block_dir:$orig_path" "$work/slog" 1 "$work/t"
-  run_home=$run_home_saved
   offline=no
   [ "$(first_status "$work/t")" = "$call_status" ] && cmp -s "$work/replay" "$work/call-out" && offline=yes
 
@@ -552,6 +597,7 @@ END { if (bad || n != ENVIRON["BK_N"] + 0) exit 1; print t }' "$bakeoff/review-f
   field review_findings_per_kib "$2"
   field review_qualification "$qual"
   field porting_rate_min_per_kib "$3"
+  field latency_status_mismatches "$lat_mismatch"
   emit_row
 }
 
@@ -563,6 +609,7 @@ measure_comparison() {
   launch_ok=yes
   literal=yes
   build_step "$conf" || launch_ok=no
+  clean_env=1
   need "$conf" invoke.trivial "$cand"
   build_argv "$val"
   run_case "$argv_file" "" world "$work/out" 1 "$shim_dir:$orig_path" "$work/slog" 0 "$work/t"
@@ -575,6 +622,7 @@ measure_comparison() {
   [ "$st" = 0 ] && cmp -s "$work/out" "$work/trivial-expected" && trivial=pass
   run_case "$argv_file" "" world "$work/out" "$runs" "$orig_path" "$work/slog" 0 "$work/t"
   cold=$(stats "$work/t") || fail_closed "the cold-start measurement failed"
+  cold_mismatch=$(mismatches "$work/t" 0)
   need "$conf" artifact "$cand"
   plain_path "$val" artifact
   [ -f "$cdir/$val" ] || refuse "$cand: artifact $val is missing"
@@ -596,6 +644,7 @@ measure_comparison() {
   field trivial_result "$trivial"
   field cold_start_median_ms "${cold%"$TAB"*}"
   field cold_start_spread_ms "${cold#*"$TAB"}"
+  field cold_start_status_mismatches "$cold_mismatch"
   field binary_size_bytes "$((size + 0))"
   emit_row
 }
@@ -670,12 +719,11 @@ cmd_run() {
 
   work=$(mktemp -d "${TMPDIR:-/tmp}/substrate-bakeoff.XXXXXX") || fail_closed "mktemp -d failed"
   [ -n "$work" ] && [ -d "$work" ] || fail_closed "mktemp -d produced no directory"
-  trap 'rm -rf "$work"' EXIT
+  rt="" vt=""
+  trap 'rm -rf "$work"; [ -z "$rt" ] || rm -f -- "$rt" "$vt"' EXIT
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  run_home=$work/home
-  mkdir -p -- "$run_home" || fail_closed "could not create the run home"
   : >"$work/fields"
 
   [ -d "$bakeoff/fixtures" ] || fail_closed "the bake-off has no fixtures directory"
@@ -690,7 +738,7 @@ cmd_run() {
     p=${p##*/}
     case $p/$c in *[!A-Za-z0-9._/-]*) fail_closed "fixture $p/$c has a name outside [A-Za-z0-9._-]" ;; esac
     [ -f "$d/expected-stdout" ] && [ -f "$d/expected-status" ] || fail_closed "fixture $p/$c lacks expected-stdout or expected-status"
-    is_count "$(cat "$d/expected-status")" || fail_closed "fixture $p/$c: expected-status is not a whole number"
+    case $(cat "$d/expected-status") in 0 | [1-9] | [1-9][0-9] | 1[0-9][0-9] | 2[0-4][0-9] | 25[0-5]) ;; *) fail_closed "fixture $p/$c: expected-status is not an exit status (0 to 255, no leading zero)" ;; esac
     printf '%s\n' "$p/$c" >>"$work/fixtures"
     set +f
   done
@@ -698,7 +746,8 @@ cmd_run() {
   sort -o "$work/fixtures" "$work/fixtures" || fail_closed "sort failed"
   fixture_count=$(awk 'END { print NR }' "$work/fixtures")
   [ "$fixture_count" -gt 0 ] || fail_closed "the production differential fixture set is empty"
-  grep -qx "$call_site" "$work/fixtures" || refuse "bakeoff.conf: call_site $call_site names no fixture"
+  case $call_site in */*/* | /* | */ | *[!A-Za-z0-9._/-]*) refuse "bakeoff.conf: call_site is not <primitive>/<case>" ;; esac
+  grep -Fqx -- "$call_site" "$work/fixtures" || refuse "bakeoff.conf: call_site $call_site names no fixture"
   cut -d/ -f1 "$work/fixtures" | sort -u >"$work/primitives" || fail_closed "could not list the primitives"
 
   [ -n "$run_id" ] || run_id=$(date -u +%Y%m%dT%H%M%SZ)-$$
@@ -733,11 +782,13 @@ cmd_run() {
   fill_baseline "$work/rows"
   validate_report "$work/rows" >&2 || exit 1
   render_report "$work/rows" >"$work/view.md" || fail_closed "could not render the view"
-  for f in report.tsv:rows view.md:view.md; do
-    if ! cp "$work/${f#*:}" "$out_dir/${f%%:*}.tmp" || ! mv "$out_dir/${f%%:*}.tmp" "$out_dir/${f%%:*}"; then
-      fail_closed "could not write ${f%%:*} into $out_dir"
-    fi
-  done
+  # Both files are staged before either lands, so a failure leaves the old pair.
+  rt=$(mktemp "$out_dir/.report.XXXXXX") || fail_closed "could not stage the output in $out_dir"
+  vt=$(mktemp "$out_dir/.view.XXXXXX") || fail_closed "could not stage the output in $out_dir"
+  if ! cp "$work/rows" "$rt" || ! cp "$work/view.md" "$vt" || ! chmod 644 "$rt" "$vt" \
+    || ! mv -- "$rt" "$out_dir/report.tsv" || ! mv -- "$vt" "$out_dir/view.md"; then
+    fail_closed "could not write the report into $out_dir"
+  fi
   printf '%s\n' "$me: run $run_id on $platform: report $out_dir/report.tsv, view $out_dir/view.md"
 }
 

@@ -122,7 +122,8 @@ Shared fields, required for both classes:
 | `dependency_count` | transitive runtime dependencies; for shell, the distinct external commands invoked |
 | `dependency_listing` | `name,licence,last_release,alternative` entries joined by `;`, or `none` |
 
-Primitive fields, required for a full candidate and `-` on a comparison point:
+Primitive fields, required for a full candidate (the baseline columns and
+`hook_budget` excepted, below) and `-` on a comparison point:
 
 | Field | Meaning |
 | --- | --- |
@@ -140,8 +141,9 @@ Primitive fields, required for a full candidate and `-` on a comparison point:
 | `review_findings_per_kib` | findings per run per KiB of source |
 | `review_qualification` | `unqualified` for a single convergence run, `qualified` otherwise |
 | `porting_rate_min_per_kib` | `implementation_minutes` per KiB of source: the porting rate a verdict's migration effort extrapolates from |
-| `baseline_run_id`, `baseline_latency_median_ms`, `baseline_latency_spread_ms` | the shell candidate's latency from this same run, when the bake-off has a full candidate named `shell` |
-| `hook_budget` | `within` when the candidate's median is at most the shell median plus the shell spread, else `over` |
+| `baseline_run_id`, `baseline_latency_median_ms`, `baseline_latency_spread_ms` | the shell candidate's latency from this same run; `-` unless the bake-off has a full candidate named `shell`, and required on every full row of a hook-tier report |
+| `hook_budget` | `within` when the candidate's median is at most the shell median plus the shell spread, else `over`; present exactly when the baseline columns are |
+| `latency_status_mismatches` | timed executions of the call site whose exit status differed from the fixture's expected one; a latency is only as good as this field is low |
 
 Comparison fields, required for a comparison point:
 
@@ -150,32 +152,60 @@ Comparison fields, required for a comparison point:
 | `trivial_result` | `pass` when the trivial program, given the argument `world`, prints `hello world` and a newline and exits zero |
 | `cold_start_median_ms`, `cold_start_spread_ms` | the trivial program over `runs` executions |
 | `binary_size_bytes` | the artifact's size |
+| `cold_start_status_mismatches` | timed executions of the trivial program that did not exit zero |
+
+### How a candidate runs
+
+Every fixture execution, timed repetition and offline replay runs in a fresh
+working directory holding a copy of the fixture's `files/`, with a fresh home
+(also its `TMPDIR`) and no environment from the caller beyond `PATH` and the C
+locale, in its own process group. The group is killed once the execution is
+reaped, and on a timeout or an interrupt of the harness, so nothing a
+candidate leaves running outlives it. The `build` and delivery scripts run
+with the caller's environment, since installing may need it.
 
 Spawns are counted by a logging shim for every command on `PATH`, so a command
 started by absolute path, the candidate's own executable included, is not
 counted. The interpreter a `#!/usr/bin/env` line looks up through `PATH` is.
 
+`run` refuses (exit status one) a candidate whose configuration or logs break
+the rules above, and fails closed (exit status five) on an input it cannot
+read or parse, including a repeated key and an `expected-status` that is not
+an exit status written without leading zeros.
+
 ### Validation
 
 `validate`, and `run` before it writes anything, reject a report when:
 
-- a field this page lists is missing, renamed or out of order;
+- a field this page lists is missing, renamed or out of order, or a row's
+  field count differs from the header's;
+- the schema name is not `substrate-bakeoff`, or the tier is not one of the
+  four;
 - a row lacks a field its class requires, the implementation-time and
   review-findings fields included;
+- a numeric field holds anything but a number, or a `pass`/`fail`,
+  `yes`/`no` or `within`/`over` field holds anything else;
 - a comparison point carries a primitive field;
 - a full candidate's run did not execute every production differential fixture
-  (`fixtures_executed` or `fixture_results` short of `fixture_set_count`);
+  (`fixtures_executed` or `fixture_results` short of `fixture_set_count`), a
+  `fixture_results` entry is malformed, or `tests_passed` and `tests_failed`
+  do not add up to `fixture_set_count`;
+- `review_qualification` does not match `review_runs`;
 - the rows do not share one run's fields, or a candidate appears twice;
 - the tier is `hook` and the shell row is absent, or a full row's shell latency
-  columns are empty, carry another run's id, or differ from the shell row.
+  columns or `hook_budget` are empty, carry another run's id, or differ from
+  the shell row.
 
-Exit status `1` with each reason printed; `0` when the report is valid.
+It exits one with each reason printed, zero when the report is valid, and five
+when the report cannot be read. `render` validates first and prints no view of
+an invalid report.
 
 ### Rendered view
 
 `view.md` leads with the decision-relevant fields, one table row per candidate
 (full candidates, then comparison points), followed by every field of every
-row under its candidate's heading.
+row under its candidate's heading. Values are escaped for Markdown, so a
+listing cannot inject markup into the view.
 
 ## Citing a report in a verdict
 
@@ -193,19 +223,23 @@ inherited bake-off's after it.
 Its **rationale** is the `**Chosen because:**` span and every
 `**Measurement:**` or `**Measurements:**` span. A span runs from its label
 through the list or paragraph under it, ending at a heading, a new paragraph
-at the left margin, or another bold label no deeper than its own. Every figure
-in the rationale cites its field right after it, with an optional unit word
-between:
+at the left margin, or another bold label no deeper than its own. Nothing
+inside a column-zero code fence counts. Every figure in the rationale cites
+its field right after it, with an optional unit between, spaced or glued on
+(`<n>` stands for the figure here, since this page holds no figures of its
+own):
 
 ```markdown
-**Chosen because:** a median of 4.2 ms (`go.latency_median_ms`) against …
+**Chosen because:** a median of <n> ms (`go.latency_median_ms`) against …
 ```
 
 `check:verdict-figures` fails on a figure with no citation, a citation naming
 no candidate row or field of the reports the verdict names, a field without a
-value, or a figure that differs from the value (compared as numbers, so `4.20`
-equals `4.2`). Identifiers, dates, paths and task, section, step or wave
-numerals are references, not figures, as in `check:number-copy`. The
+value, or a figure that differs from the value (compared as numbers, so a
+trailing zero after the decimal point does not matter). Identifiers, dates,
+paths and task, section, step or wave numerals are references, not figures, as
+in `check:number-copy`; a figure with a unit glued on (`ms`, `s`, `min`, `h`,
+`x`, or a byte unit) is still a figure. The
 `**Cost-benefit:**` line's figures come from the cost baseline and the effort
 extrapolation, not a bake-off report, so this guard leaves them to
 `check:number-copy` and `check:verdict-effort`.
@@ -217,7 +251,7 @@ token of a verdict the screen settled, `` `porting-rate: absent` `` with its
 backticks:
 
 ```markdown
-- **Migration effort:** the tier's shell source at 0.8 min/KiB
+- **Migration effort:** the tier's shell source at <n> min/KiB
   (`go.porting_rate_min_per_kib`), extrapolated to …
 ```
 
