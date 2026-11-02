@@ -2836,6 +2836,10 @@ cmd_relaunch() {
   rx_profile=worker
   if [ -e "$dir/profile" ] || [ -L "$dir/profile" ]; then
     rx_profile=$(cat "$dir/profile" 2>/dev/null) || rx_profile=''
+  else
+    case $worker in
+      mc-*) rx_profile='' ;;
+    esac
   fi
   case $rx_profile in
     worker | tower | mission-control) ;;
@@ -2859,7 +2863,7 @@ cmd_relaunch() {
   case $rx_rc in
     0) ;;
     6)
-      printf '%s\n' "$me: the stop of $worker was partial, so it was not resumed; check status, then run recover --cwd $rx_cwd" >&2
+      printf '%s\n' "$me: the stop of $worker was partial, so it was not resumed; check status, then run recover $worker --cwd $rx_cwd" >&2
       exit 6
       ;;
     *) exit "$rx_rc" ;;
