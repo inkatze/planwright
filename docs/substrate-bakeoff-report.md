@@ -189,8 +189,11 @@ an exit status written without leading zeros.
 - a comparison point carries a primitive field;
 - a full candidate's run did not execute every production differential fixture
   (`fixtures_executed` or `fixture_results` short of `fixture_set_count`), a
-  `fixture_results` entry is malformed, or `tests_passed` and `tests_failed`
+  `fixture_results` entry is malformed or repeats a fixture, its passing
+  entries differ from `tests_passed`, or `tests_passed` and `tests_failed`
   do not add up to `fixture_set_count`;
+- `runs`, `timeout_s`, `fixture_set_count` or a full row's `review_runs` is
+  not a whole number of at least one;
 - `review_qualification` does not match `review_runs`;
 - the rows do not share one run's fields, or a candidate appears twice;
 - the tier is `hook` and the shell row is absent, or a full row's shell latency

@@ -99,6 +99,7 @@ NR == 1 {
   if (v["tier"] !~ /^(hook|skill-called|library|dev-check)$/) bad(c ": tier is not hook, skill-called, library or dev-check")
   for (f in isrun) {
     if (v[f] == "-" || v[f] == "") bad(c ": run field " f " is empty")
+    else if (f ~ /^(runs|timeout_s|fixture_set_count)$/ && v[f] !~ /^[1-9][0-9]*$/) bad(c ": run field " f " is not a whole number of at least one")
     if (rows == 1) first[f] = v[f]
     else if (v[f] != first[f]) bad(c ": run field " f " differs from the first row (one report is one run)")
   }
@@ -113,8 +114,17 @@ NR == 1 {
     nr = split(v["fixture_results"], fr, ",")
     if (v["fixture_results"] == "-") nr = 0
     if (nr != v["fixture_set_count"]) bad(c ": fixture_results records " nr " of the " v["fixture_set_count"] " production differential fixtures")
-    for (k = 1; k <= nr; k++) if (fr[k] !~ /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+:(pass|fail)$/) bad(c ": fixture_results entry \"" fr[k] "\" is not <primitive>/<case>:pass|fail")
+    split("", frseen); npass = 0
+    for (k = 1; k <= nr; k++) {
+      if (fr[k] !~ /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+:(pass|fail)$/) { bad(c ": fixture_results entry \"" fr[k] "\" is not <primitive>/<case>:pass|fail"); continue }
+      fx = fr[k]; sub(/:[a-z]+$/, "", fx)
+      if (fx in frseen) bad(c ": fixture_results repeats " fx)
+      frseen[fx] = 1
+      if (fr[k] ~ /:pass$/) npass++
+    }
+    if (nr && npass != v["tests_passed"]) bad(c ": fixture_results records " npass " passing fixtures, tests_passed " v["tests_passed"])
     if (v["tests_passed"] + v["tests_failed"] != v["fixture_set_count"]) bad(c ": tests_passed plus tests_failed is not the production fixture count")
+    if (v["review_runs"] !~ /^[1-9][0-9]*$/) bad(c ": review_runs is not a whole number of at least one")
     if (v["review_qualification"] != (v["review_runs"] == 1 ? "unqualified" : "qualified")) bad(c ": review_qualification must be unqualified for a single convergence run and qualified otherwise")
     if (v["literal_path"] !~ /^(yes|no)$/ || v["offline_replay"] !~ /^(yes|no)$/) bad(c ": literal_path and offline_replay are yes or no")
     fullrow[c] = NR; brun[c] = v["baseline_run_id"]; bmed[c] = v["baseline_latency_median_ms"]; bspr[c] = v["baseline_latency_spread_ms"]
