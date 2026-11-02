@@ -34,7 +34,7 @@ platform.
 <bakeoff>/
   bakeoff.conf                 tier, runs, timeout_s, review_runs, call_site
   fixtures/<primitive>/<case>/ the production differential set
-    args                       optional, one argument per line
+    args                       optional, one argument per line, no empty line
     stdin                      optional
     files/                     optional, copied into the working directory
     expected-stdout            required

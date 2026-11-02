@@ -757,6 +757,9 @@ cmd_run() {
     p=${p##*/}
     case $p/$c in *[!A-Za-z0-9._/-]*) fail_closed "fixture $p/$c has a name outside [A-Za-z0-9._-]" ;; esac
     [ -f "$d/expected-stdout" ] && [ -f "$d/expected-status" ] || fail_closed "fixture $p/$c lacks expected-stdout or expected-status"
+    if [ -f "$d/args" ] && grep -q '^$' "$d/args"; then
+      fail_closed "fixture $p/$c: args has an empty line (one argument per line, and an empty argument cannot be passed)"
+    fi
     case $(cat "$d/expected-status") in 0 | [1-9] | [1-9][0-9] | 1[0-9][0-9] | 2[0-4][0-9] | 25[0-5]) ;; *) fail_closed "fixture $p/$c: expected-status is not an exit status (0 to 255, no leading zero)" ;; esac
     printf '%s\n' "$p/$c" >>"$work/fixtures"
     set +f

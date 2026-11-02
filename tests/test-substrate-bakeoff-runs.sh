@@ -240,6 +240,12 @@ run_into emptybuild "$tmp/emptybuild"
 check_eq "an empty build is refused" 1 "$rc"
 check_has "the refusal names the build key" "$out" "build is empty"
 
+variant blankarg
+printf 'a\n\nb\n' >"$tmp/blankarg/fixtures/echo-line/basic/args"
+run_into blankarg "$tmp/blankarg"
+check_eq "an args file with an empty line fails closed" 5 "$rc"
+check_has "the failure names the empty argument" "$out" "args has an empty line"
+
 "$SB" bogus >/dev/null 2>&1
 check_eq "an unknown subcommand is a usage error" 2 "$?"
 
