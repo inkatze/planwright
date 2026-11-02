@@ -833,15 +833,17 @@ resources, and worktree reclamation stays with `fleet-cleanup.sh worktree` and
 its positive-evidence checks.
 
 Every approval the worker command guard grants also leaves a trace: one line
-in the worker's audit log under `<fleet home>/allow-audit/`, which its session
-record names, carrying the time, the session id, the arm that approved the
-command, and the command's SHA-256, never its text. To check whether a
-suspected command was auto-approved, hash it as the transcript shows it and
-look for the hash. A stop, a reap, and a worktree reclaim all leave the log in
-place; the next worker launch prunes logs older than
-`worker_audit_log_retention_days`. A record that names no usable log home
-leaves the worker without the `own-branch` and `scratch` arms, so a write
-approval is never untraced.
+in `<fleet home>/allow-audit/<record-name>.log`, the directory its session
+record names, carrying the time, the session id, the approving arm, and the
+command's SHA-256, never its text. This is not the fleet audit trail under
+`<fleet home>/audit/`. To check whether a suspected command was auto-approved,
+hash the command string from the transcript with its trailing newlines
+removed (`printf %s`) and look for the hash. A stop, a reap, and a worktree
+reclaim all leave the log in place; a later worker launch prunes it once it
+is older than `worker_audit_log_retention_days`. A record that names no usable
+log home leaves the worker without the `own-branch` and `scratch` arms, so
+those arms never approve a write with no log to trace it in; the options
+reference lists what the line records and when a write goes unlogged.
 
 Processes are matched on the worker's state directory and on the pids that
 directory records, never on a process name or command pattern — the guarantee

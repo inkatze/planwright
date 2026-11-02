@@ -148,16 +148,16 @@ emit_allow() {
   printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"'"$ALLOW_REASON"'"}}'
 }
 
-# The policy arms whose checks passed for the command being approved: set by
-# ob_path, ob_git_ready, and expand_word's `$TMPDIR`, reset per hook call.
-# Read-only is whatever approval set neither.
+# The policy arms whose checks admitted part of the command being approved:
+# set by ob_path, ob_git_ready, guard_mktemp, and expand_word's `$TMPDIR`,
+# reset per hook call. Read-only is whatever approval set neither.
 AUDIT_OB=0
 AUDIT_SC=0
 
 # audit_append <command> <session-id>: append the approval's line to the
-# session's audit log, before the decision is written. The command is
-# recorded only as its SHA-256, never as text, since commands carry what
-# workers type. One append write, so concurrent hook calls interleave whole
+# session's audit log, before the decision is written. The command, its
+# trailing newlines already removed, is recorded only as its SHA-256, never
+# as text, since commands carry what workers type. One append write, so concurrent hook calls interleave whole
 # lines; a write that fails is dropped and the approval stands. The log is
 # checked again here because a FIFO in its place would hang the hook.
 audit_append() {
@@ -1018,7 +1018,7 @@ guard_mkdir() {
 # The audit-log home must be this user's own writable canonical directory,
 # apart from the worktree and the scratch root in both directions, and the
 # session's log there (audit_append) a regular file or absent. Without one,
-# the policy drops both write arms, so no write approval goes unlogged.
+# the policy drops both write arms, so neither approves a write with no log.
 REC_POLICY=''
 REC_UNIT=''
 REC_WT=''

@@ -38,9 +38,9 @@
 #                      appends a line per approval to <record-name>.log. Every
 #                      write first prunes the logs there older than
 #                      worker_audit_log_retention_days days (read like the
-#                      policy; 30 when it cannot be read). An unusable home is
-#                      omitted with a warning, which leaves the worker without
-#                      either write arm
+#                      policy; its default when it cannot be read). An
+#                      unusable home is omitted with a warning, which leaves
+#                      the worker without either write arm
 # and writes them as `key=value` lines to
 # <fleet-home>/session-records/<sha1-of-worktree-root>.record, owner-only, by
 # an atomic rename, printing the path. A <launch-id> (16 to 64 lowercase hex
