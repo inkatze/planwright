@@ -239,6 +239,10 @@ drop_column "$R" tier "$tmp/v15"
 out=$("$SB" validate "$tmp/v15" 2>&1)
 case $out in *"no candidate row"*) bad "a header failure reports only the header" ;; *) ok "a header failure reports only the header" ;; esac
 
+
+view=$("$SB" render "$tmp/r1" 2>/dev/null)
+check_eq "render refuses an invalid report" 1 "$?"
+check_eq "render prints no view of an invalid report" "" "$view"
 if [ "$failures" -gt 0 ]; then
   echo "test-substrate-bakeoff: $failures failure(s)" >&2
   exit 1
