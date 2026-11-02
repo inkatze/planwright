@@ -6,6 +6,7 @@
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-substrate-bakeoff-runs.sh
+# shellcheck disable=SC2016 # fixture scripts carry literal expansions
 set -u
 LC_ALL=C
 export LC_ALL
@@ -187,11 +188,32 @@ printf 'stub-second\t2026-10-01T09:00:00Z\t2026-10-01T09:30:00Z\n' >>"$tmp/isola
 printf 'stub-second\t1\t0\n' >>"$tmp/isolate/review-findings.tsv"
 rm -rf "$tmp/out-isolate"
 mkdir "$tmp/out-isolate"
-BAKEOFF_TEST_SECRET=leak "$SB" run --bakeoff "$tmp/isolate" --out-dir "$tmp/out-isolate" --run-id iso --platform test >/dev/null 2>&1
+mkdir -p "$tmp/fakehome"
+printf '#!/bin/sh\n: >"$HOME/delivery-mark"\n' >"$tmp/isolate/candidates/stub-second/delivery/marketplace"
+chmod 755 "$tmp/isolate/candidates/stub-second/delivery/marketplace"
+HOME="$tmp/fakehome" BAKEOFF_TEST_SECRET=leak "$SB" run --bakeoff "$tmp/isolate" --out-dir "$tmp/out-isolate" --run-id iso --platform test >/dev/null 2>&1
 check_eq "the isolation run succeeds" 0 "$?"
 check_eq "each fixture sees a fresh directory, a fresh home and no caller environment" "echo-line/basic:pass,echo-line/empty:pass" "$(get "$tmp/out-isolate/report.tsv" stub-second fixture_results)"
 check_eq "the offline replay starts from an empty home" yes "$(get "$tmp/out-isolate/report.tsv" stub-second offline_replay)"
 check_eq "every timed repetition starts clean" 0 "$(get "$tmp/out-isolate/report.tsv" stub-second latency_status_mismatches)"
+if [ -e "$tmp/fakehome/delivery-mark" ]; then bad "a delivery script never writes the caller's home"; else ok "a delivery script never writes the caller's home"; fi
+
+# --- a signal to the harness stops the candidate ----------------------------
+
+variant signal
+cat >"$tmp/signal/candidates/stub-full/bin/echo-line" <<EOF
+#!/bin/sh
+sleep 3
+: >"$tmp/signal-survived"
+EOF
+"$SB" run --bakeoff "$tmp/signal" --out-dir "$tmp" --run-id sig --platform test >/dev/null 2>&1 &
+harness=$!
+sleep 1
+kill -s TERM "$harness"
+wait "$harness"
+check_eq "a terminated harness exits 143" 143 "$?"
+sleep 3
+if [ -e "$tmp/signal-survived" ]; then bad "a terminated harness takes its candidate with it"; else ok "a terminated harness takes its candidate with it"; fi
 
 # --- refusals for malformed configuration ----------------------------------
 

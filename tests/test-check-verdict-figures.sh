@@ -218,6 +218,13 @@ Revisit in 30 days.
 EOF
 check "a new paragraph ends the rationale" paragraph 0
 
+bundle decade <<EOF
+**Report:** \`$REPORT\`
+
+**Chosen because:** shell scripts of the 1990s, and 2 (\`stub-full.tests_passed\`) passed.
+EOF
+check "a decade is a reference, not a figure" decade 0
+
 bundle open <<EOF
 **Report:** \`$REPORT\`
 

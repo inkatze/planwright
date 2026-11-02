@@ -121,6 +121,7 @@ NR == 1 {
     if (c == "shell") { hasshell = 1; smed = v["latency_median_ms"]; sspr = v["latency_spread_ms"] }
     if (v["hook_budget"] != "-" && v["hook_budget"] !~ /^(within|over)$/) bad(c ": hook_budget is within or over")
     budget[c] = v["hook_budget"]
+    lat[c] = v["latency_median_ms"]
   } else if (v["class"] == "comparison") {
     for (f in prim) if (v[f] != "-") bad(c ": a comparison point carries the primitive field " f)
     for (f in cmp) if (v[f] == "-" || v[f] == "") bad(c ": the comparison class requires " f)
@@ -132,6 +133,10 @@ END {
   if (NR == 0) { bad("no header"); exit 1 }
   if (hdrbad) exit 1
   if (rows == 0) bad("no candidate row")
+  for (c in fullrow) {
+    if ((brun[c] == "-") != (budget[c] == "-")) bad(c ": hook_budget is set exactly when the shell latency columns are")
+    else if (brun[c] != "-" && bmed[c] != "-" && bspr[c] != "-" && budget[c] != ((lat[c] + 0 <= bmed[c] + bspr[c]) ? "within" : "over")) bad(c ": hook_budget does not follow from its median and the shell baseline")
+  }
   if (first["tier"] == "hook") {
     if (!hasshell) bad("a hook-tier report needs the shell candidate (id shell) as the latency baseline")
     for (c in fullrow) {
@@ -268,7 +273,7 @@ for my $s (keys %signum) {
 }
 for (1 .. ($bk{BK_REPEAT} || 1)) {
   my $cwd = tempdir("rep.XXXXXX", DIR => $bk{BK_WORK});
-  if ($bk{BK_CLEAN_ENV}) { $ENV{HOME} = $ENV{TMPDIR} = tempdir("home.XXXXXX", DIR => $bk{BK_WORK}); }
+  $ENV{HOME} = $ENV{TMPDIR} = tempdir("home.XXXXXX", DIR => $bk{BK_WORK});
   if ($bk{BK_FILES} ne "") { system("cp", "-R", "--", "$bk{BK_FILES}/.", "$cwd/") == 0 or die "could not stage $bk{BK_FILES}\n"; }
   my $t0 = time;
   $pid = fork;
@@ -316,7 +321,21 @@ run_case() {
   IFS=$old_ifs
   BK_REPEAT=$rep BK_WORK=$work BK_FILES=$files BK_STDIN=$stdin BK_STDOUT=$rc_out BK_TIMEOUT=$timeout_s \
     BK_PATH=$path BK_SPAWN_LOG=$slog BK_OFFLINE=$offl BK_CLEAN_ENV=$clean_env \
-    "$perl_bin" -MPOSIX -e "$runner_pl" "$@" >"$timings" || fail_closed "the timed runner failed"
+    "$perl_bin" -MPOSIX -e "$runner_pl" "$@" >"$timings" &
+  # Waited on rather than run in the foreground, so a signal to this shell
+  # reaches its trap at once and the trap can stop the runner.
+  runner_pid=$!
+  wait "$runner_pid"
+  runner_rc=$?
+  runner_pid=""
+  [ "$runner_rc" -eq 0 ] || fail_closed "the timed runner failed"
+}
+
+# The runner kills its execution's process group on TERM before it exits.
+stop_runner() {
+  [ -z "${runner_pid:-}" ] && return 0
+  kill -s TERM "$runner_pid" 2>/dev/null
+  wait "$runner_pid"
 }
 
 first_status() {
@@ -719,11 +738,11 @@ cmd_run() {
 
   work=$(mktemp -d "${TMPDIR:-/tmp}/substrate-bakeoff.XXXXXX") || fail_closed "mktemp -d failed"
   [ -n "$work" ] && [ -d "$work" ] || fail_closed "mktemp -d produced no directory"
-  rt="" vt=""
+  rt="" vt="" runner_pid=""
   trap 'rm -rf "$work"; [ -z "$rt" ] || rm -f -- "$rt" "$vt"' EXIT
-  trap 'exit 129' HUP
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
+  trap 'stop_runner; exit 129' HUP
+  trap 'stop_runner; exit 130' INT
+  trap 'stop_runner; exit 143' TERM
   : >"$work/fields"
 
   [ -d "$bakeoff/fixtures" ] || fail_closed "the bake-off has no fixtures directory"
