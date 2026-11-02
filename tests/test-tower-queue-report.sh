@@ -174,6 +174,17 @@ got=$(run report --log "$tmp/batch-later.log" --now 300) || fail "batch-later re
   || fail "a later turn on a batch's top item was netted against the batch: multi_ask_turns $(value_of multi_ask_turns "$got"), expected 2"
 echo "ok: a later multi-ask turn on a batch's top item counts on its own"
 
+# A loop line whose text the log refused as JSON-shaped still closes its batch.
+{
+  printf '{"v":1,"seq":1,"ts":100,"kind":"delivered","tower":"T1","item":"a","pair":"-","batch":"a,b","size":2}\n'
+  printf '{"v":1,"seq":2,"ts":100,"kind":"delivered","tower":"T1","item":"a","text_omitted":"json-shaped","asks":2}\n'
+  printf '{"v":1,"seq":3,"ts":200,"kind":"delivered","tower":"T1","item":"a","text":"That one again, and a choice","asks":2}\n'
+} >"$tmp/batch-omitted.log"
+got=$(run report --log "$tmp/batch-omitted.log" --now 300) || fail "batch-omitted report: exit"
+[ "$(value_of multi_ask_turns "$got")" = 2 ] \
+  || fail "a text-omitted loop line did not close its batch: multi_ask_turns $(value_of multi_ask_turns "$got"), expected 2"
+echo "ok: a loop line logged without its text still pairs with its batch"
+
 # An item a revoke reopened and evidence then settled counts once, on the
 # reviewable side, so the settled total never counts one item twice.
 {
