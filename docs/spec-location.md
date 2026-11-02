@@ -232,8 +232,9 @@ after `Citations:`, holding one alias:
 ```
 
 The field is format-version 3's one addition, so a bundle that uses it
-declares `**Format-version:** 3`, and only a bundle under a marked root can
-use it. A task names exactly one repository; work spanning two splits into
+declares `**Format-version:** 3`. The field resolves only under a marked
+root: elsewhere the validator warns and the task derives
+`repository-unresolved`. A task names exactly one repository; work spanning two splits into
 tasks joined by `Dependencies:` edges, which may cross repositories. Adding
 or changing the field is a definition edit that moves the content anchor.
 The field's full rules are in the
@@ -281,9 +282,10 @@ A refusal says why and what to do, and creates nothing:
 - **A root without a marker**: only a marked root has registered
   repositories, so the refusal names the marker file.
 
-A script caller tells these apart by exit status: `resolve-work-repo.sh`
-exits 5 for any alias, task, or holder bundle that resolves to nothing,
-distinct from its usage exit 2; the full table is in its header.
+A script caller recognises all of these by one exit status, not one each:
+`resolve-work-repo.sh` exits 5 for any alias, task, or holder bundle that
+resolves to nothing, distinct from its usage exit 2, and the message on
+stderr says which case it was; the full table is in its header.
 
 ## Named observation targets
 
