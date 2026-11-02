@@ -30,7 +30,8 @@
 #       or array (which the log verb refuses as nesting) lands without its
 #       text, marked `text_omitted`. Prints nothing on success.
 #
-#       `--item` names the queue item the turn carried, and it is what keeps
+#       `--item` names the queue item the turn carried (a pair's or a batch's
+#       first `item` line), and it is what keeps
 #       the scorecard honest about a queue-backed turn: the `next` that handed
 #       the item over already logged its own `delivered` line with that item,
 #       and the report counts a line with no item as a PROSE delivery. Logging

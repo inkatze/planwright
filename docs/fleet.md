@@ -156,8 +156,10 @@ the tower is telling you something it needs from you, it came off this queue.
   request arrive together as a pair, and you answer both. A **batch** goes
   further: when the top item names a worker, PR, branch, or topic, the other
   waiting items about that same subject, of any kind, come with it, up to
-  `tower_batch_max` items, and you answer each one on its own; the rest wait
-  for a later reply. The knock says how many items the hand-over will carry.
+  `tower_batch_max` items (the top item's pair always arrives whole), and you
+  answer each one on its own; the rest wait for a later reply. The knock says
+  how many items the hand-over would carry as things stand then, which can
+  change before you reply.
   Blocked workers come first, then things
   waiting for your go-ahead, then your own requests, then decisions taken
   without you that wait for your review, then news; within a kind,
@@ -210,9 +212,11 @@ already done is not worth waking you for. When you are back, each is handed
 over after your own requests and before news, with what it settled on and
 what undoes it. Say it looks fine and it closes as reviewed. Say "undo
 that" and the tower records a revocation: a defaulted question reopens as
-the open question it was, with no window, so it can never default again; a
-mission-control decision closes as revoked, and the log carries its undo
-step for mission control to run. The queue itself never runs an undo.
+the open question it was, with no window, so it can never default again
+(unless a newer question about the same worker is already open, when it
+closes as revoked and that newer one stands); a mission-control decision
+closes as revoked, and the log carries its undo step for mission control to
+run. The queue itself never runs an undo.
 
 ### Whether you are here
 
@@ -223,13 +227,15 @@ it on a timer. While that marker is fresh (written within
 within `tower_quiet_interval`, and away otherwise. With no marker, or a
 stale or unreadable one, the queue falls back to the quiet-interval rule
 above, and it logs each switch between the two. A reply in this
-conversation always counts as present, whatever the panel last said.
+conversation newer than the panel's last write counts as present for
+`tower_quiet_interval`, whatever that write said.
 Presence decides whether anything is handed over and when the away push
 fires; it never replaces the knock, which is still the only thing that
 confirms this conversation has your attention.
 
 Each presence write also runs the settling pass, and a wake from mission
-control makes the tower take its next hand-over at once, so a window that
+control makes the tower run its next step at once (which still knocks
+first when your attention is not confirmed), so a window that
 has ended or a decision that has just been taken reaches the queue without
 waiting for the tower loop's next pass; that pass stays the fallback.
 
@@ -247,7 +253,7 @@ There is no command syntax; say it the way you would to a colleague.
 | "tell me more" | one more layer of context, then the tower waits |
 | "drop the rule about …" | the tower closes that standing decision, recording that you revoked it |
 | "looks fine", on a decision taken without you | it closes as reviewed |
-| "undo that", on a decision taken without you | it is revoked: a defaulted question reopens with no window, a mission-control decision closes with its undo step logged |
+| "undo that", on a decision taken without you | it is revoked: a defaulted question reopens with no window (or closes, when a newer question about that worker is open), a mission-control decision closes with its undo step logged |
 
 Items also close without you when the evidence says they are done: a PR
 opened or merged, commits landed on the branch, a request's ledger item

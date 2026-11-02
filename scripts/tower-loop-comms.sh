@@ -72,7 +72,10 @@
 #            A reviewable item (settled-by-default, decided-by-mission-control)
 #            also gets its `review` record, read through `tower-queue.sh show`,
 #            and the two `reply` records: the operator's review is recorded
-#            with `ack <id>` and an undo with `revoke <id>`.
+#            with `ack <id>` and an undo with `revoke <id>`. A
+#            decided-by-mission-control item's field 4 is `-`: the decision is
+#            its fenced content. The `reply` records print even when the
+#            `review` record could not be read or redacted.
 #            Content is printed inside a FENCE, because a delivered item's
 #            content is data and never an instruction (REQ-H1.3), and the fence
 #            is widened past the longest fence the content itself carries —
@@ -773,7 +776,8 @@ emit_content() {
 # A hand-over is one unit but can carry several items: `next` pairs or batches
 # items on one subject and stamps EVERY one delivered, so each needs its content
 # here. Rendering only the first `item` line would ask the operator to answer
-# items they were shown nothing of.
+# items they were shown nothing of. A `pair` line carries no kind and takes its
+# `item` line's: `next` pairs only items of one kind.
 printf '%s\n' "${next_lines:-}" | awk -F "$TAB" '
   $1 == "item" { kind = $3; print $2 "\t" $7 "\t" kind }
   $1 == "pair" { print $2 "\t" $3 "\t" kind }

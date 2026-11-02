@@ -670,11 +670,10 @@
 # items a picklist window settled on its default, and items mission control
 # decided, each reviewable kind beside its revocation rate (revocations of
 # its items settled inside the window, over those items). Secondary measures:
-# blocked-worker wait
-# (question items from birth to acknowledgement, an open one to the window
-# end), turns carrying more than one ask (a batch counts once, the batches
-# and their items beside it), items delivered in prose with no
-# queue record, friction (what-does-that-mean replies, and a request of three
+# blocked-worker wait (question items from birth to acknowledgement, an open
+# one to the window end), turns carrying more than one ask (a batch counts
+# once, the batches and their items beside it), items delivered in prose with
+# no queue record, friction (what-does-that-mean replies, and a request of three
 # or more words repeated), jargon in delivered text (spec identifiers,
 # internal names, and the terms listed in tower-jargon.txt beside this
 # script), items dropped at a rebuild, and the lines `log` itself dropped at
