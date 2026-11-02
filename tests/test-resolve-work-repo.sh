@@ -108,8 +108,13 @@ assert_eq "holder root: the work repository (exit)" 0 "$rc"
 assert_out "holder root: the work repository, not the holder" "$tmp/work"
 run "$tmp/work/.claude/worktrees/wt" "$SH" "$HELPER" "$tmp/holder/work-specs/demo"
 assert_out "holder root from a worktree: the work repository's primary" "$tmp/work"
+# From the holder, a marked root that is not its own spec root belongs to
+# the registered work repositories; with no registry here none answers, and
+# the holder never answers for itself.
 run "$tmp/holder" "$SH" "$HELPER" "$tmp/holder/work-specs/demo"
-assert_out "holder bundle from the holder: the holder is all it can name" "$tmp/holder"
+assert_eq "holder bundle from the holder with nothing registered (exit)" 5 "$rc"
+assert_eq "holder bundle from the holder never prints the holder" "" "$out"
+assert_contains "holder bundle from the holder says the registry is unread" "registry could not be read" "$err"
 
 # A plain directory: the work repository owns it through spec_root.
 mkdir -p "$tmp/plain-specs"
