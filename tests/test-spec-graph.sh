@@ -60,7 +60,7 @@ fail() {
 tmp="$(mktemp -d)" || exit 1
 trap 'chmod -R u+rwx "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
-# A stand-in for a host's real Graphviz 15 sits first on PATH for the whole
+# A stand-in for a host's real Graphviz `dot` sits first on PATH for the whole
 # run: it shadows any real `dot`, so the stubs below are the only Graphviz a
 # case can reach, and CI (which has no `dot`) still runs with one installed.
 # A layout from it is a valid one, so reaching it changes a result, and it
