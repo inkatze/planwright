@@ -186,6 +186,9 @@ Which repository a task goes to:
   registered against the bundle's root. With none registered, or several,
   the dispatch refuses and names the candidates; it never falls back to the
   holder, and nothing is created.
+- The meta-step routes by the field in the working tree but gates the
+  committed bundle, so a `Repository:` field that differs between the two
+  parks the task, with nothing created; commit or revert the edit.
 
 The registry is filled at session start in each work repository (see
 `repository_alias` in the [options reference](options-reference.md)); run

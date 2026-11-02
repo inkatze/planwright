@@ -65,7 +65,8 @@
 #   2  usage, a refused input or rung, or a lock or fetch refusal; nothing
 #      created
 #   4  the unit parked (route to `## Awaiting input`): its task has no work
-#      repository to dispatch into, or the freshness gate stopped it; nothing
+#      repository to dispatch into, the freshness gate stopped it, or its
+#      Repository: field differs from the gated ref's; nothing
 #      created, lock released
 #   5  the dispatch record could not be written; lock released, and a marker
 #      the primitive stamped is cleared
@@ -209,6 +210,21 @@ wr_rc=0
 work_root=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-work-repo.sh" "$spec_phys" --task "$task_id" 2>"$wr_err") || wr_rc=$?
 relay "$wr_err"
 rm -f "$wr_err"
+
+# task_repository_field <tasks.md> — the task's Repository: field as
+# resolve-work-repo.sh --task reads it (class TAB value, empty for none);
+# exit 1 when the fields cannot be read.
+task_repository_field() {
+  trf_fv=$(spec_parse_header_value "$1" Format-version 2>/dev/null) || trf_fv=""
+  case $trf_fv in
+    1 | 2) return 0 ;;
+  esac
+  trf_map=$(spec_parse_repository_map "$1") || return 1
+  printf '%s\n' "$trf_map" | awk -F"$TAB" -v i="$task_id" '$1 == i { print $2 "\t" $3; exit }'
+}
+routed_field=""
+routed_ok=1
+[ "$wr_rc" -ne 0 ] || routed_field=$(task_repository_field "$spec_phys/tasks.md") || routed_ok=0
 # Exit 5 is a task whose repository resolves to nothing, an operator's fix;
 # anything else (no repository owns the spec dir, unreadable Repository:
 # fields) is a refused input, the resolver's line above saying which.
@@ -424,6 +440,21 @@ case $class in
 esac
 if [ "$recorded" != "$fetched_anchor" ]; then
   park gate mismatch "anchored content changed since sign-off (recorded $recorded, $ref_label has $fetched_anchor); run a /spec-kickoff delta re-walkthrough"
+fi
+# The routing read the task's Repository: field from the working tree, the
+# gate the committed bundle: an uncommitted edit must not steer a dispatch
+# the gate passed.
+if [ "$view" != files ]; then
+  gated_ok=1
+  git -C "$store_top" show "$ref:$spec_rel/tasks.md" >"$wtmp/tasks" 2>/dev/null || gated_ok=0
+  gated_field=""
+  [ "$gated_ok" -eq 0 ] || gated_field=$(task_repository_field "$wtmp/tasks") || gated_ok=0
+  if [ "$routed_ok" -eq 0 ] || [ "$gated_ok" -eq 0 ]; then
+    park gate repository-unreadable "task $task_id's Repository: field could not be read at $ref_label or in the working tree; inspect tasks.md"
+  fi
+  if [ "$routed_field" != "$gated_field" ]; then
+    park gate repository-uncommitted "task $task_id's Repository: field differs between the working tree, which routed the dispatch, and $ref_label, which the gate checked; commit or revert the Repository: edit"
+  fi
 fi
 say gate match
 say anchor "$fetched_anchor"

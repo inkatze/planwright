@@ -330,6 +330,23 @@ else
   fail "I1.6 the worker ran in '$(head -1 "$TRF/cwd" 2>/dev/null)'"
 fi
 
+# An uncommitted Repository: edit in the holder routes elsewhere than the
+# committed bundle the gate checked: the dispatch parks, nothing created.
+cp "$B/tasks.md" "$TRF/tasks.committed"
+: >"$TRF/cwd"
+printf '%s\n' "$NAMED_2" >>"$B/tasks.md"
+printf '/planwright:execute-task demo 3\n' >"$TRF/prompt"
+meta "$HOLDER" 3
+assert_eq "I1.6 an uncommitted Repository: edit parks the dispatch (exit)" 4 "$m_rc"
+assert_has "I1.6 the park names the uncommitted field" "halt${TAB}gate${TAB}repository-uncommitted" "$m_out"
+assert_has "I1.6 the remedy says to commit or revert the edit" "commit or revert the Repository: edit" "$m_out"
+for r in "$HOLDER" "$ALPHA" "$BETA"; do
+  if has_branch "$r" 3; then fail "I1.6 an uncommitted edit created a Task 3 branch in ${r##*/}"; fi
+  if [ -e "$r/.claude/worktrees/demo-task-3" ]; then fail "I1.6 an uncommitted edit created a Task 3 worktree in ${r##*/}"; fi
+done
+assert_eq "I1.6 an uncommitted edit launched no worker" "" "$(cat "$TRF/cwd")"
+mv "$TRF/tasks.committed" "$B/tasks.md"
+
 # A task naming no repository, with one work repository registered, dispatches
 # there from the holder.
 trf_unregister beta

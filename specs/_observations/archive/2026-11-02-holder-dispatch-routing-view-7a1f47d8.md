@@ -1,1 +1,2 @@
 - 2026-11-02 [planwright] custom-spec-location Task 12 review: the meta-step routes a task by the Repository: field in the holder primary checkout working tree, while the freshness gate anchors the committed view; an uncommitted field edit can steer a dispatch the gate passes. Routing could read the field at the gated ref.
+Consumed-by: specs/custom-spec-location (2026-11-02)
