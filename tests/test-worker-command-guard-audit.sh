@@ -21,6 +21,7 @@ WT=$CORPUS_WORKTREE
 SC=$CORPUS_SCRATCH
 STATE=$CORPUS_BOX/state
 GIT_ISO=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1")
+NL=$'\n'
 HOME_DIR=$(cd -P "$STATE" && pwd -P)/audit.test
 mkdir -p "$HOME_DIR"
 
@@ -46,7 +47,7 @@ record_with() {
     printf 'policy=%s\n' "$1"
     printf 'audit_log_home=%s\n' "$HOME_DIR"
     shift
-    grep -v '^policy=\|^audit_log_home=' "$STATE/record.4"
+    grep -Ev '^(policy|audit_log_home)=' "$STATE/record.4"
   } >"$f.tmp"
   for kv in "$@"; do
     k=${kv%%=*}
@@ -143,14 +144,40 @@ case $(tail -n 1 "$LOG" 2>/dev/null) in
   *) fail "H1.4: a session id outside its grammar is logged as -" ;;
 esac
 
+run_session 'git commit -m x' sess-a1
+case $(tail -n 1 "$LOG" 2>/dev/null) in
+  *" arm=own-branch cmd_sha256="*) pass "H1.4: a git act the own-branch arm approves is logged as own-branch" ;;
+  *) fail "H1.4: a git act the own-branch arm approves is logged as own-branch" ;;
+esac
+
+run_session "ls \$TMPDIR" sess-a1
+case $(tail -n 1 "$LOG" 2>/dev/null) in
+  *" arm=scratch cmd_sha256="*) pass "H1.4: a command whose \$TMPDIR the scratch arm resolved is logged as scratch" ;;
+  *) fail "H1.4: a command whose \$TMPDIR the scratch arm resolved is logged as scratch" ;;
+esac
+
+OUT=$(jq -n --arg w "$WT" '{tool_name:"Bash", tool_input:{command:"git status"}, cwd:$w}' \
+  | env -u CLAUDE_DIR HOME="$SANDBOX/no-home" ${HOOK_ENV[@]+"${HOOK_ENV[@]}"} /bin/bash "$HOOK" 2>/dev/null)
+case $(tail -n 1 "$LOG" 2>/dev/null) in
+  *" session=- arm=read-only "*) pass "H1.4: a payload with no session id is logged as -" ;;
+  *) fail "H1.4: a payload with no session id is logged as -" ;;
+esac
+
+run_session "git status$NL" sess-a1
+case $(tail -n 1 "$LOG" 2>/dev/null) in
+  *" cmd_sha256=$(sha256_of 'git status')") pass "H1.4: the hash is of the command with its trailing newlines removed" ;;
+  *) fail "H1.4: the hash is of the command with its trailing newlines removed" ;;
+esac
+
 echo "### REQ-H1.4 — an unwritable log leaves the allow intact"
 if [ "$(id -u)" = 0 ]; then
-  pass "H1.4: unwritable-log rows skipped (running as root, permissions do not bind)"
+  echo "skip: H1.4: unwritable-log rows (running as root, permissions do not bind)"
 else
   chmod 400 "$LOG"
+  n=$(lines_of "$LOG")
   run_session 'touch build/after-ro' sess-a1
   if [ "$CODE" = 0 ] && is_allow && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision == "allow"' >/dev/null 2>&1 \
-    && [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 1 ]; then
+    && [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 1 ] && [ "$(lines_of "$LOG")" = "$n" ]; then
     pass "H1.4: an own-branch allow survives an unwritable log, well-formed"
   else
     fail "H1.4: an own-branch allow survives an unwritable log, well-formed"

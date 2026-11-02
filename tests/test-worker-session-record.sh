@@ -390,42 +390,48 @@ if printf '%s' "$out" | grep -q '"allow"' && [ "$(wc -l <"$log" | tr -d ' ')" = 
 else
   fail "H1.4: no log line for the launched worker's approval (out='$out')"
 fi
-: >"$AH/old.log"
-touch -t 200001010000 "$AH/old.log"
+# aged <file> <days>: create <file> last written <days> days ago.
+aged() {
+  local e s
+  e=$(($(date +%s) - $2 * 86400))
+  s=$(date -u -d "@$e" +%Y%m%d%H%M 2>/dev/null || date -u -r "$e" +%Y%m%d%H%M)
+  : >"$1"
+  TZ=UTC0 touch -t "$s" "$1"
+}
+aged "$AH/old.log" 40
+aged "$AH/recent.log" 20
 : >"$AH/fresh.log"
-: >"$AH/old.keep"
-touch -t 200001010000 "$AH/old.keep"
+aged "$AH/old.keep" 40
 write "$WT"
-if [ "$RC" -eq 0 ] && [ ! -e "$AH/old.log" ] && [ -e "$AH/fresh.log" ] && [ -e "$AH/old.keep" ] && [ -e "$log" ]; then
-  pass "H1.4: a launch prunes logs past the default bound and keeps the rest"
+if [ "$RC" -eq 0 ] && [ ! -e "$AH/old.log" ] && [ -e "$AH/recent.log" ] && [ -e "$AH/fresh.log" ] \
+  && [ -e "$AH/old.keep" ] && [ -e "$log" ]; then
+  pass "H1.4: at the default bound a launch prunes a 40-day log and keeps a 20-day one"
 else
-  fail "H1.4: pruning at the default bound (old.log $([ -e "$AH/old.log" ] && echo kept || echo gone))"
+  fail "H1.4: pruning at the default bound (old.log $([ -e "$AH/old.log" ] && echo kept || echo gone), recent.log $([ -e "$AH/recent.log" ] && echo kept || echo gone))"
 fi
-: >"$AH/old.log"
-touch -t 200001010000 "$AH/old.log"
-set_layer machine-local 'worker_audit_log_retention_days: 36500'
+aged "$AH/old.log" 40
+set_layer machine-local 'worker_audit_log_retention_days: 60'
 write "$WT"
 if [ "$RC" -eq 0 ] && [ -e "$AH/old.log" ]; then
   pass "H1.4: the bound is the worker_audit_log_retention_days knob"
 else
-  fail "H1.4: a 36500-day bound still pruned a log from 2000"
+  fail "H1.4: a 60-day bound still pruned a 40-day log"
 fi
-: >"$AH/day.log"
-touch -t "$(date -u +%Y%m%d0000)" "$AH/day.log"
-set_layer machine-local 'worker_audit_log_retention_days: 1'
-TZ=UTC0 touch -t 200001010000 "$AH/old.log"
+set_layer machine-local 'worker_audit_log_retention_days: 2'
+aged "$AH/old.log" 5
+aged "$AH/day.log" 1
 write "$WT"
 if [ "$RC" -eq 0 ] && [ ! -e "$AH/old.log" ] && [ -e "$AH/day.log" ]; then
-  pass "H1.4: a one-day bound prunes the old log and keeps today's"
+  pass "H1.4: a two-day bound prunes a 5-day log and keeps a 1-day one"
 else
-  fail "H1.4: a one-day bound"
+  fail "H1.4: a two-day bound"
 fi
 set_layer machine-local 'worker_audit_log_retention_days: soon'
-: >"$AH/old.log"
-touch -t 200001010000 "$AH/old.log"
+aged "$AH/old.log" 40
+aged "$AH/recent.log" 20
 write "$WT"
-if [ "$RC" -eq 0 ] && [ ! -e "$AH/old.log" ] && [ -n "$(field audit_log_home)" ]; then
-  pass "H1.4: a malformed bound falls back to the default and still prunes"
+if [ "$RC" -eq 0 ] && [ ! -e "$AH/old.log" ] && [ -e "$AH/recent.log" ] && [ -n "$(field audit_log_home)" ]; then
+  pass "H1.4: a malformed bound falls back to the default"
 else
   fail "H1.4: a malformed bound (rc=$RC)"
 fi
