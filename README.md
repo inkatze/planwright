@@ -230,7 +230,9 @@ controls hold at fleet scale. See [Fleet operation](docs/fleet.md).
   persona layer and its boundaries, and the settings it adds.
 - [Spec location](docs/spec-location.md) — where bundles live: the
   `spec_root` option and its marker, the three postures and how authoring
-  works in each, holder layout and guards, and named observation targets.
+  works in each, holder layout and guards, running from a holder (the
+  work-repository registry and per-task repositories), and named
+  observation targets.
 - [Orchestration state](docs/orchestration-state.md) — how progress is derived
   from git/GitHub evidence rather than kept in a mutable ledger.
 - [Fleet operation](docs/fleet.md) — the approachable path: the one entry
