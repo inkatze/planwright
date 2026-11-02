@@ -644,7 +644,7 @@ while IFS="$TAB" read -r id deps; do
   order=$((order + 1))
   key=0
   if [ "$per_task" -eq 1 ]; then
-    frec=$(printf '%s\n' "$repo_map" | awk -F"$TAB" -v i="$id" '$1 == i { print $2 "\t" $3; exit }')
+    frec=$(spec_parse_repository_field "$repo_map" "$id")
     if [ -n "$frec" ]; then
       fclass=${frec%%"$TAB"*}
       fval=${frec#*"$TAB"}

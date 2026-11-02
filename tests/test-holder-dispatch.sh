@@ -188,6 +188,12 @@ assert_eq "I1.6 a named task still derives" "ready${TAB}deps-met" "$(rec task 1)
 assert_eq "I1.6 a task naming none is unresolved, never the holder's" \
   "repository-unresolved${TAB}work-repository-unresolved" "$(rec task 2)"
 assert_has "I1.6 its reason names the candidates" "alpha ($ALPHA), beta ($BETA)" "$(rec repository-unresolved 2)"
+# The gate sweep names why such a task's atoms stay unresolved.
+printf '\n## Deferred\n\n- **Waits on two.** Later.\n  **Gate:** GATE(when: task 2 completed). Citations: REQ-X.\n' >>"$B/tasks.md"
+dr_out=$(cd "$HOLDER" && trf_env /bin/sh "$SCRIPTS/drain-gates.sh" --today 2026-11-02 "$TRF_ROOT" 2>&1)
+assert_has "I1.6 the sweep says a task naming none has no work repository here" \
+  "task 2 names no repository, and the bundle's work repository does not resolve here" "$dr_out"
+assert_has "I1.6 that task's gate stays unresolved" "unresolved (completion evidence unavailable): task 2 completed" "$dr_out"
 write_bundle '' ''
 derive "$HOLDER"
 assert_eq "I1.6 a bundle naming no repository with two registered refuses (exit)" 2 "$st_rc"
@@ -273,6 +279,28 @@ rwr "$HOLDER" "$HOLDER/.claude/worktrees/copy/hub/demo" --task 1
 assert_eq "I1.5 a linked worktree's copy resolves through the primary's root" "0 $ALPHA" "$rw_rc $rw_out"
 trf_git -C "$HOLDER" worktree remove --force "$HOLDER/.claude/worktrees/copy"
 rmdir "$HOLDER/.claude/worktrees" "$HOLDER/.claude"
+
+# A dead unattended tower on the holder's bundle, which has no single work
+# repository, relaunches in the holder.
+W=$TRF/watchdog
+mkdir -p "$W/home"
+printf 'fleet_daemon_pause: false\ntower_relaunch_backoff_base: 60\ntower_relaunch_disable_threshold: 3\n' >"$W/core.yml"
+/bin/sh -c 'exit 0' &
+w_dead=$!
+wait "$w_dead" 2>/dev/null
+printf '#!/bin/sh\necho 1\n' >"$W/ready"
+printf '#!/bin/sh\necho %s\n' "$w_dead" >"$W/launch"
+chmod +x "$W/ready" "$W/launch"
+wd() {
+  trf_env PLANWRIGHT_CONFIG_DEFAULTS="$W/core.yml" PLANWRIGHT_FLEET_STATE_DIR="$W/home" \
+    PLANWRIGHT_TOWER_READY_CHECK="$W/ready" PLANWRIGHT_TOWER_LAUNCHER="$W/launch" "$@"
+}
+wd /bin/sh "$SCRIPTS/fleet-tower-marker.sh" record demo --mode unattended --pid "$w_dead" \
+  --checkout "$ALPHA" --tmux-session planwright-tower-demo >/dev/null 2>&1 \
+  || fail "I1.6 the tower marker could not be recorded"
+wd_out=$(cd "$HOLDER" && wd /bin/bash "$SCRIPTS/fleet-tower-watchdog.sh" "$B" 2>"$TRF/wd.err") || wd_out="exit $?: $(cat "$TRF/wd.err")"
+assert_eq "I1.6 the watchdog relaunches the holder's tower" relaunched "$wd_out"
+assert_eq "I1.6 the relaunched tower runs in the holder" "$HOLDER" "$(cut -f6 "$W/home/towers/demo" 2>/dev/null)"
 
 # Refusals come before the lock and park the unit: nothing is created, in the
 # holder or anywhere.

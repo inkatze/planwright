@@ -180,7 +180,7 @@ if [ "$have_task" -eq 1 ]; then
       fi
       ;;
   esac
-  field=$(printf '%s\n' "$map" | awk -F"$TAB" -v i="$task" '$1 == i { print $2 "\t" $3; exit }')
+  field=$(spec_parse_repository_field "$map" "$task")
   case ${field%%"$TAB"*} in
     "") ;;
     alias) by_alias "${field#*"$TAB"}" ;;

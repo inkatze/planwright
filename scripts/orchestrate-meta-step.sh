@@ -220,7 +220,7 @@ task_repository_field() {
     1 | 2) return 0 ;;
   esac
   trf_map=$(spec_parse_repository_map "$1") || return 1
-  printf '%s\n' "$trf_map" | awk -F"$TAB" -v i="$task_id" '$1 == i { print $2 "\t" $3; exit }'
+  spec_parse_repository_field "$trf_map" "$task_id"
 }
 routed_field=""
 routed_ok=1
