@@ -3,14 +3,17 @@
 # a live worker is stopped and resumed under the profile installed now.
 #
 #   r1 (REQ-G1.3): refusals leave the worker running and spawn nothing: an
-#       unknown handle, a lock a live holder has, no persisted session, and no
-#       resolvable worktree.
+#       unknown handle, a symlinked state directory, a relaunch in flight, a
+#       live lock of each release-set class, no persisted session, no or a
+#       vanished launch directory, an unknown recorded profile, a bad grace.
 #   r2 (REQ-G1.3, REQ-G1.2): the relaunch stops the worker and resumes it with
 #       `--resume <persisted id>` and the installed worker profile's path, in
-#       the worker's own worktree wherever it is run from; the session record
-#       is rewritten from current config and the scratch root kept.
-#   r3 (REQ-G1.3): a worker that is not running is refused and pointed at
-#       `recover`.
+#       its launch directory wherever it is run from, past a stale lock and a
+#       lock the worker's own supervisor holds; the session record is
+#       rewritten from current config and the scratch root kept.
+#   r3 (REQ-G1.3): a resume that fails after the stop is exit 5 naming the
+#       recover to run; a worker that is not running is refused and pointed
+#       at `recover`.
 #   r4 (REQ-G1.3): the fleet guide states that permissions and the session
 #       record load at session start and reach a running worker only by
 #       relaunch.
@@ -129,40 +132,66 @@ root=$(sed -n 's/^scratch_root=//p' "$record")
 n=$(argv_lines)
 senv -- relaunch sjr-nobody >/dev/null 2>&1
 [ $? -eq 2 ] || fail "r1: an unknown handle must be a usage error (exit 2)"
+mkdir -p "$tmp/elsewhere"
+ln -s "$tmp/elsewhere" "$home/streamjson/sjr-link"
+senv -- relaunch sjr-link >/dev/null 2>&1
+[ $? -eq 2 ] || fail "r1: a symlinked state directory must be refused (exit 2)"
 
-ln -s "$$-$(date +%s)-1" "$wdir/journal.lock" || fail "r1: cannot plant a lock"
-err=$(senv -- relaunch sjr1 2>&1 >/dev/null)
-rc=$?
-rm -f "$wdir/journal.lock"
-[ "$rc" -eq 3 ] || fail "r1: a lock a live holder has must refuse the relaunch (exit 3), got $rc: $err"
-case $err in
-  *journal.lock*) ;;
-  *) fail "r1: the lock refusal must name the lock: $err" ;;
-esac
+# refused <what> <expected-exit> [<stderr-needle>] — relaunch sjr1 and require
+# the exit and, when given, the needle in its stderr.
+refused() {
+  rf_err=$(senv -- relaunch sjr1 2>&1 >/dev/null)
+  rf_rc=$?
+  [ "$rf_rc" -eq "$2" ] || fail "r1: $1 must refuse the relaunch (exit $2), got $rf_rc: $rf_err"
+  [ -z "${3:-}" ] || case $rf_err in
+    *"$3"*) ;;
+    *) fail "r1: the refusal for $1 must name '$3': $rf_err" ;;
+  esac
+}
 
-mv "$wdir/session" "$tmp/session.aside"
-senv -- relaunch sjr1 >/dev/null 2>&1
-rc=$?
-mv "$tmp/session.aside" "$wdir/session"
-[ "$rc" -eq 4 ] || fail "r1: a worker with no persisted session must be refused (exit 4), got $rc"
+ln -s "$$-$(date +%s)-1" "$wdir/relaunch.lock" || fail "r1: cannot plant the relaunch election"
+refused 'a relaunch in flight' 3 'already in flight'
+rm -f "$wdir/relaunch.lock"
+for l in journal.lock recover.lock launch.lock; do
+  ln -s "$$-$(date +%s)-1" "$wdir/$l" || fail "r1: cannot plant $l"
+  refused "a live $l" 3 "$l"
+  rm -f "$wdir/$l"
+done
 
-mv "$wdir/scratch-root" "$tmp/scratch-root.aside"
-senv -- relaunch sjr1 >/dev/null 2>&1
-rc=$?
-mv "$tmp/scratch-root.aside" "$wdir/scratch-root"
-[ "$rc" -eq 3 ] || fail "r1: a worker whose worktree cannot be found must be refused (exit 3), got $rc"
+mv "$wdir/session" "$tmp/aside"
+refused 'no persisted session' 4
+mv "$tmp/aside" "$wdir/session"
+
+mv "$wdir/cwd" "$tmp/aside"
+refused 'no recorded launch directory' 3 'launch directory'
+printf '%s\n' "$tmp/gone" >"$wdir/cwd"
+refused 'a vanished launch directory' 3 'launch directory'
+mv "$tmp/aside" "$wdir/cwd"
+
+cp "$wdir/profile" "$tmp/aside"
+printf 'bogus\n' >"$wdir/profile"
+refused 'an unknown recorded profile' 7
+mv "$tmp/aside" "$wdir/profile"
+
+senv -- relaunch sjr1 --grace abc >/dev/null 2>&1
+[ $? -eq 2 ] || fail "r1: a bad grace must be refused (exit 2)"
+senv -- relaunch sjr1 --grace '' >/dev/null 2>&1
+[ $? -eq 2 ] || fail "r1: an empty grace must be refused, not dropped (exit 2)"
 
 alive "$wpid" || fail "r1: a refused relaunch stopped the worker"
 [ "$(argv_lines)" = "$n" ] || fail "r1: a refused relaunch spawned a session"
-echo "ok: r1 a relaunch refuses an unknown handle, a live lock, no session, and no worktree, leaving the worker running (REQ-G1.3)"
+echo "ok: r1 every refusal comes before the stop and leaves the worker running (REQ-G1.3)"
 
 # ---------------------------------------------------------------------------
-# r2: the relaunch, run from outside the worktree, after a config change.
+# r2: the relaunch, run from outside the worktree, after a config change, past
+# a stale lock and one the worker's own supervisor holds.
 # ---------------------------------------------------------------------------
 printf 'worker_self_approval: own-branch scratch\n' >"$wt/.claude/planwright.yml"
 profile=$(env "${env_scrub[@]}" /bin/sh "$here/../scripts/fleet-launch-profile.sh" worker) \
   || fail "r2: cannot resolve the installed worker profile"
-out=$(cd "$tmp" && senv -- relaunch sjr1 2>"$tmp/err") || fail "r2: the relaunch exited non-zero: $(cat "$tmp/err")"
+ln -s "999999999-$(date +%s)-1" "$wdir/recover.lock" || fail "r2: cannot plant a stale lock"
+ln -s "$(pid_of supervisor.pid)-$(date +%s)-1" "$wdir/journal.lock" || fail "r2: cannot plant the supervisor's lock"
+out=$(cd "$tmp" && senv -- relaunch sjr1 --grace 2 2>"$tmp/err") || fail "r2: the relaunch exited non-zero: $(cat "$tmp/err")"
 printf '%s\n' "$out" | grep -qx "relaunched sjr1 session $sid" || fail "r2: no relaunched line in: $out"
 alive "$wpid" && fail "r2: the original worker is still running"
 npid=$(pid_of worker.pid)
@@ -178,19 +207,31 @@ case " $last " in
   *) fail "r2: the resume argv does not pass the installed profile $profile: $last" ;;
 esac
 [ "$(sed -n 's/^cwd=//p' "$rec/env" | tail -n 1)" = "$wt" ] \
-  || fail "r2: the resumed worker did not run in its worktree"
+  || fail "r2: the resumed worker did not run in its launch directory"
 [ "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)" = "$record" ] \
   || fail "r2: the resumed worker got a different session record"
 grep -qx 'policy=own-branch scratch' "$record" \
   || fail "r2: the session record was not rewritten from current config: $(cat "$record")"
 [ "$(sed -n 's/^tmpdir=//p' "$rec/env" | tail -n 1)" = "$root" ] && [ -f "$root/kept" ] \
   || fail "r2: the resumed worker lost its scratch root or its contents"
-echo "ok: r2 a relaunch resumes the persisted session under the installed profile in its worktree, rewriting the record and keeping the scratch root (REQ-G1.3, REQ-G1.2)"
+[ ! -L "$wdir/relaunch.lock" ] || fail "r2: the relaunch left its election behind"
+echo "ok: r2 a relaunch resumes the persisted session under the installed profile in its launch directory, rewriting the record and keeping the scratch root (REQ-G1.3, REQ-G1.2)"
 
 # ---------------------------------------------------------------------------
-# r3: a stopped worker is recover's, not relaunch's.
+# r3: a resume that fails after the stop, then a worker that is not running.
+# A launch directory the stop's caller can see but not enter passes every
+# check before the stop and fails the resumed launch's cd.
 # ---------------------------------------------------------------------------
-senv -- stop sjr1 --grace 2 >/dev/null 2>&1 || fail "r3: the stop exited non-zero"
+chmod 000 "$wt"
+err=$(senv -- relaunch sjr1 --grace 2 2>&1 >/dev/null)
+rc=$?
+chmod 755 "$wt"
+[ "$rc" -eq 5 ] || fail "r3: a resume failing after the stop must be exit 5, got $rc: $err"
+case $err in
+  *"recover sjr1 --cwd $wt"*) ;;
+  *) fail "r3: the failure must name the recover to run: $err" ;;
+esac
+alive "$npid" && fail "r3: the worker is still running after the stop"
 n=$(argv_lines)
 err=$(senv -- relaunch sjr1 2>&1 >/dev/null)
 rc=$?
@@ -200,13 +241,22 @@ case $err in
   *) fail "r3: the refusal must point at recover: $err" ;;
 esac
 [ "$(argv_lines)" = "$n" ] || fail "r3: the refused relaunch spawned a session"
-echo "ok: r3 a relaunch of a worker that is not running is refused and points at recover (REQ-G1.3)"
+echo "ok: r3 a failed resume after the stop is exit 5 naming the recover, and a stopped worker is refused toward recover (REQ-G1.3)"
 
 # ---------------------------------------------------------------------------
 # r4: the fleet guide carries the load-at-session-start statement.
 # ---------------------------------------------------------------------------
-grep -q 'reach a running worker only by relaunch' "$here/../docs/fleet.md" \
-  || fail "r4: docs/fleet.md does not state that permissions reach a running worker only by relaunch"
-grep -q 'relaunch <worker>' "$here/../docs/fleet.md" \
-  || fail "r4: docs/fleet.md does not document the relaunch verb"
+guide=$(tr '\n' ' ' <"$here/../docs/fleet.md")
+case $guide in
+  *'once, at session start'*) ;;
+  *) fail "r4: docs/fleet.md does not state that the profile is read at session start" ;;
+esac
+case $guide in
+  *'reaches a running worker only by relaunch'*) ;;
+  *) fail "r4: docs/fleet.md does not state that a change reaches a running worker only by relaunch" ;;
+esac
+case $guide in
+  *'relaunch <worker> [--grace <secs>]'*) ;;
+  *) fail "r4: docs/fleet.md does not document the relaunch verb" ;;
+esac
 echo "ok: r4 the fleet guide states that permissions load at session start and documents relaunch (REQ-G1.3)"

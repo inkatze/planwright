@@ -72,6 +72,9 @@
 #                    without one is a write in flight, never a completion.
 #   supervisor.pid / worker.pid / recover.lock / journal.lock / launch.lock
 #   scope            the dispatch scope, when the launch supplied one
+#   cwd              the directory a fresh launch started the worker in,
+#                    where `relaunch` resumes it
+#   relaunch.lock    a relaunch's election, outside the release set
 #   scratch-root     the worktree scratch root the launch handed the worker
 #                    as its TMPDIR, which only a final close removes
 #   supervisor.log   the detached supervisor's own stderr
@@ -214,24 +217,30 @@
 #       Like every frame written to the fifo (see frame_check), the composed
 #       frame is checked before the write; a refused one is exit 2 with
 #       nothing written.
-#   fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]
+#   fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]
 #       Single-initiator crash recovery: refuse when a recovery is already
 #       in flight (exit 3) or the worker/supervisor is still alive (exit 3),
-#       then relaunch with `--resume <session_id>`. A missing session halts
+#       then relaunch with `--resume <session_id>`, in --cwd when given and
+#       otherwise in the caller's directory (a session resumes only from the
+#       directory it started in). A missing session halts
 #       with exit 4, a failed resume with exit 5 — both surfaced as
 #       attention items (the Awaiting-input halt of the affected unit; the
 #       tower and other workers continue).
 #   fleet-streamjson.sh relaunch <worker> [--grace <secs>]
-#       Move a LIVE worker onto the profile and config installed now: `stop`
-#       (plain, so the scratch root stays), then `recover` run in the
-#       worktree the worker's session record names, which rewrites that
-#       record from current config. Refused, with the worker left running,
-#       when it is not running (exit 3: that is `recover`'s case), when a
-#       lock of its release set has a live holder (exit 3), when it has no
-#       usable persisted session (exit 4), or when its worktree cannot be
-#       found (exit 3). A stop or recover failure passes its exit code
-#       through. Prints `relaunched <worker> session <id>` after the two
-#       verbs' own lines.
+#       Move a LIVE worker onto the profile and config installed now: a plain
+#       `stop` (the scratch root stays), then `recover --cwd` with the
+#       directory the launch recorded in <dir>/cwd, which passes the
+#       installed profile and rewrites the session record from current
+#       config. Single-initiator on <dir>/relaunch.lock, which no stop
+#       breaks. Refused before the stop, with the worker left running: a
+#       relaunch already in flight, a worker that is not running (that is
+#       `recover`'s case), a lock of the release set held by a live process
+#       other than the worker's own, or no recorded launch directory (exit
+#       3); no usable persisted session (exit 4); and every check the
+#       resumed launch makes (exit 7, 8 or 9). A partial stop is exit 6 and
+#       a failed resume after the stop exit 5, each naming the recover to
+#       run; any other stop failure passes its exit code through. Prints
+#       `relaunched <worker> session <id>` after the two verbs' own lines.
 #   fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]
 #       Scan every worker journal for pending items older than the
 #       threshold (default 900s; PLANWRIGHT_STREAMJSON_PENDING_AGE
@@ -302,8 +311,10 @@
 #   already in flight / a launch already in flight or over a live supervisor /
 #   not orphaned / a close asked for from inside the worker's own process tree /
 #   the answer does not apply — the undeliverable-answer arms
-#   exit 3 AFTER surfacing the attention item); 4 recovery halt: no usable
-#   session to resume; 5 recovery halt: the `--resume` relaunch failed; 6 a
+#   exit 3 AFTER surfacing the attention item / a relaunch refused before its
+#   stop); 4 recovery halt: no usable session to resume (for a relaunch, a
+#   refusal before the stop with the worker left running); 5 recovery halt:
+#   the `--resume` relaunch failed (for a relaunch, after the stop); 6 a
 #   partial close: some class of the release set is still held; 7 the
 #   settings fragment of the launch's profile is missing or unreadable, or a
 #   recover finds its recorded profile unreadable, unknown, or (for a
@@ -461,7 +472,7 @@ usage() {
     echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
-    echo "       fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]"
+    echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh relaunch <worker> [--grace <secs>]"
     echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]"
     echo "       fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe] [--final]"
@@ -2195,6 +2206,12 @@ cmd_launch() {
       exit 2
     }
   fi
+  # The directory `relaunch` resumes in, since `--resume` finds a session only
+  # from the directory it was started in.
+  if [ -z "$resume_sid" ]; then
+    { pwd -P >"$dir/cwd.tmp" && mv -f "$dir/cwd.tmp" "$dir/cwd"; } \
+      || printf '%s\n' "$me: cannot record the launch directory for $dir; relaunch will refuse this worker" >&2
+  fi
 
   # The spec root outside the work repository, which the worker's command
   # guard admits as its write zone (custom-spec-location D-15), computed once
@@ -2602,11 +2619,17 @@ cmd_recover() {
     exit 2
   }
   foreground=''
+  rc_cwd=''
   while [ $# -gt 0 ]; do
     case $1 in
       --foreground)
         foreground=--foreground
         shift
+        ;;
+      --cwd)
+        [ $# -ge 2 ] || usage
+        rc_cwd=$2
+        shift 2
         ;;
       --)
         shift
@@ -2686,7 +2709,7 @@ cmd_recover() {
   # second recover cannot slip into the old release-before-startup window and
   # fork the session, and a silently-failed detached resume now returns
   # non-zero here instead of a false `recovered`.
-  if /bin/sh "$self" launch "$worker" --resume-session "$sid" ${foreground:+"$foreground"} "$@"; then
+  if /bin/sh "$self" launch "$worker" --resume-session "$sid" ${rc_cwd:+--cwd "$rc_cwd"} ${foreground:+"$foreground"} "$@"; then
     printf 'recovered %s session %s\n' "$worker" "$sid"
   else
     ec=$?
@@ -2705,31 +2728,23 @@ cmd_recover() {
   fi
 }
 
-# relaunch_worktree <dir> <fleet-home> — print the worktree a worker was
-# launched in, read from the session record its scratch root is keyed with
-# (scripts/worker-session-record.sh names both by the hash of the worktree
-# root), and only when that hash still matches the path the record names.
-relaunch_worktree() {
-  rw_root=$(cat "$1/scratch-root" 2>/dev/null) || return 1
-  rw_key=${rw_root##*/}
-  case $rw_key in
-    '' | *[!0-9a-f]*) return 1 ;;
-  esac
-  rw_wt=$(sed -n 's/^worktree_root=//p' "$2/session-records/$rw_key.record" 2>/dev/null) || return 1
-  case $rw_wt in
-    /*) ;;
-    *) return 1 ;;
-  esac
-  [ -d "$rw_wt" ] || return 1
-  [ "$(printf '%s' "$rw_wt" | git -C "$rw_wt" hash-object --stdin 2>/dev/null)" = "$rw_key" ] || return 1
-  printf '%s\n' "$rw_wt"
+# own_lock_holder <pid> <dir> — 0 when <pid> is one of the worker's own
+# processes: its supervisor, the supervisor's tick child, or the process a
+# `--foreground` launch or recover runs the supervisor under. Their locks are
+# the worker itself rather than an operation in flight, and the stop ends them.
+own_lock_holder() {
+  oh_sup=$(cat "$2/supervisor.pid" 2>/dev/null) || return 1
+  valid_posnum "${oh_sup:-}" || return 1
+  [ "$1" != "$oh_sup" ] || return 0
+  [ "$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" != "$oh_sup" ] || return 0
+  [ "$(ps -o ppid= -p "$oh_sup" 2>/dev/null | tr -d ' ')" != "$1" ] || return 0
+  return 1
 }
 
-# A worker reads its settings profile and session record only at session start,
-# so a profile or policy change reaches a running one only through this verb.
-# Every refusal comes before the stop: a worker this cannot resume is left
-# running rather than closed. The resume runs in the worker's own worktree
-# because both `--resume` and the session record are keyed on it.
+# A worker's settings profile is read at session start and its session record
+# is resolved from config at launch, so a change reaches a running worker only
+# through this verb. Everything the resume depends on is checked before the
+# stop, so a worker this cannot resume is left running rather than closed.
 cmd_relaunch() {
   [ $# -ge 1 ] || usage
   worker=$1
@@ -2738,12 +2753,14 @@ cmd_relaunch() {
     printf '%s\n' "$me: invalid worker handle" >&2
     exit 2
   }
-  rl_grace=''
+  rx_grace=''
+  rx_has_grace=0
   while [ $# -gt 0 ]; do
     case $1 in
       --grace)
         [ $# -ge 2 ] || usage
-        rl_grace=$2
+        rx_grace=$2
+        rx_has_grace=1
         shift 2
         ;;
       *)
@@ -2760,33 +2777,97 @@ cmd_relaunch() {
     printf '%s\n' "$me: refusing to relaunch $worker: its state directory is a symlink" >&2
     exit 2
   }
+  # Outside `lock_classes`, so neither the stop below nor any other stop
+  # breaks it: a second relaunch cannot land its stop inside this one's recover.
+  pw_lock_trap_install
+  lock_take "$dir/relaunch.lock"
+  case $? in
+    0) ;;
+    1)
+      printf '%s\n' "$me: a relaunch is already in flight for $worker (refused: single initiator)" >&2
+      exit 3
+      ;;
+    *)
+      printf '%s\n' "$me: cannot take the relaunch election for $worker (lock error)" >&2
+      exit 2
+      ;;
+  esac
   worker_alive "$dir" || {
     printf '%s\n' "$me: worker $worker is not running; relaunch refused (a stopped worker is resumed with recover)" >&2
     exit 3
   }
-  # Only a lock whose holder still runs is refused: that is an operation in
-  # flight the stop would cut short. A stale one is the stop's to clear.
-  for rl_l in $lock_classes; do
-    [ -L "$dir/$rl_l" ] || continue
-    rl_tok=$(pw_lock_owner "$dir/$rl_l")
-    if [ -n "$rl_tok" ] && pw_lock_owner_alive "$rl_tok"; then
-      printf '%s\n' "$me: worker $worker holds $rl_l, which a stop would release; relaunch refused" >&2
+  clear_legacy_lock_dirs "$dir"
+  case $? in
+    0) ;;
+    1)
+      printf '%s\n' "$me: relaunch refused for $worker: a lock from before the upgrade may still be held" >&2
       exit 3
-    fi
+      ;;
+    *) exit 2 ;;
+  esac
+  # A lock held by another live process is an operation in flight (an answer,
+  # a steer, a recover) that the stop would cut short. Best effort: one taken
+  # between this check and the stop is broken by it, as by any stop.
+  for rx_l in $lock_classes; do
+    [ -L "$dir/$rx_l" ] || continue
+    rx_tok=$(pw_lock_owner "$dir/$rx_l")
+    [ -n "$rx_tok" ] || continue
+    pw_lock_owner_alive "$rx_tok" || continue
+    own_lock_holder "${rx_tok%%-*}" "$dir" && continue
+    printf '%s\n' "$me: $rx_l for $worker has a live holder (an operation in flight) that a stop would cut short; relaunch refused" >&2
+    exit 3
   done
   sid=$(cat "$dir/session" 2>/dev/null) || sid=''
   valid_reqid "${sid:-}" || {
     printf '%s\n' "$me: worker $worker has no usable persisted session_id; relaunch refused" >&2
     exit 4
   }
-  rl_home=$(/bin/sh "$FS" root 2>/dev/null </dev/null) || exit 2
-  rl_wt=$(relaunch_worktree "$dir" "$rl_home") || {
-    printf '%s\n' "$me: cannot find the worktree $worker was launched in; relaunch refused (stop it, then run recover from that worktree)" >&2
+  rx_cwd=$(cat "$dir/cwd" 2>/dev/null) || rx_cwd=''
+  case $rx_cwd in
+    /*) ;;
+    *) rx_cwd='' ;;
+  esac
+  [ -n "$rx_cwd" ] && [ -d "$rx_cwd" ] || {
+    printf '%s\n' "$me: $worker has no recorded launch directory that still exists; relaunch refused (stop it, then run recover --cwd <its worktree>)" >&2
     exit 3
   }
-  /bin/sh "$self" stop "$worker" ${rl_grace:+--grace "$rl_grace"} || exit $?
-  cd "$rl_wt" || exit 2
-  /bin/sh "$self" recover "$worker" || exit $?
+  # The checks the resumed launch makes, run now so a profile or wrapper the
+  # new config broke refuses here with the worker still up.
+  rx_profile=worker
+  if [ -e "$dir/profile" ] || [ -L "$dir/profile" ]; then
+    rx_profile=$(cat "$dir/profile" 2>/dev/null) || rx_profile=''
+  fi
+  case $rx_profile in
+    worker | tower | mission-control) ;;
+    *)
+      printf '%s\n' "$me: refusing to relaunch $worker: its recorded settings profile is unreadable or unknown" >&2
+      exit 7
+      ;;
+  esac
+  profile_settings_path "$rx_profile" >/dev/null || exit 7
+  rx_env=$(dispatch_env_path) || exit 8
+  rx_gp=0
+  [ "$rx_profile" != worker ] || guard_preflight "$rx_env" "$rx_cwd" || rx_gp=$?
+  [ "$rx_gp" -eq 0 ] || exit "$rx_gp"
+
+  rx_rc=0
+  if [ "$rx_has_grace" = 1 ]; then
+    /bin/sh "$self" stop "$worker" --grace "$rx_grace" || rx_rc=$?
+  else
+    /bin/sh "$self" stop "$worker" || rx_rc=$?
+  fi
+  case $rx_rc in
+    0) ;;
+    6)
+      printf '%s\n' "$me: the stop of $worker was partial, so it was not resumed; check status, then run recover --cwd $rx_cwd" >&2
+      exit 6
+      ;;
+    *) exit "$rx_rc" ;;
+  esac
+  /bin/sh "$self" recover "$worker" --cwd "$rx_cwd" || {
+    printf '%s\n' "$me: $worker is stopped but its resume failed (recover exit $?); run recover $worker --cwd $rx_cwd" >&2
+    exit 5
+  }
   printf 'relaunched %s session %s\n' "$worker" "$sid"
 }
 
