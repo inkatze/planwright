@@ -51,14 +51,14 @@
 # Homebrew's coreutils provides it, so one file that never returns cannot hold
 # its ticket, or the whole-suite lock its run sits under, indefinitely. The
 # bound counts from the moment the file holds its ticket. A file still running
-# at the deadline gets TERM, KILL ten seconds later if it ignores that, and is
-# recorded as failed with a message naming it and the deadline; its ticket is
-# returned as for any other file. GNU timeout puts its file in a process group
-# of its own, so an interrupt at the terminal stops the run but not the files
-# already running, which end on their own or at the deadline. A host with
-# neither tool (or only one that cannot take -k) costs one warning and
-# unbounded files. A nested runner inherits the variable and bounds its own
-# files the same way.
+# at the deadline gets TERM, then KILL ten seconds later if the file itself is
+# still running, and is recorded as failed with a message naming it and the
+# deadline; its ticket is returned as for any other file. GNU timeout signals
+# the file's whole process group; busybox's signals the file alone, leaving
+# anything it started to run on. That group is not the terminal's, so a
+# worker passes INT, TERM and HUP on to it. A host with no usable tool (neither
+# installed, or none taking -k) costs one warning and unbounded files. A
+# nested runner inherits the variable and bounds its own files the same way.
 #
 # Sharding: --shard <i>/<N> runs only shard i of N, so CI can split the suite
 # across parallel jobs. The split is longest-first onto the least-loaded
@@ -90,10 +90,9 @@
 #   PLANWRIGHT_TEST_SLOT_DIR       the pool directory, for the runner's own
 #                                  tests (default: ${XDG_STATE_HOME:-$HOME/
 #                                  .local/state}/planwright/test-slots)
-#   PLANWRIGHT_TEST_FILE_DEADLINE  seconds a file may run (default 900); a
-#                                  value that is not a positive whole number
-#                                  of at most nine digits, 0 included, warns
-#                                  once and uses the default
+#   PLANWRIGHT_TEST_FILE_DEADLINE  seconds a file may run (default 900); an
+#                                  empty or non-numeric value, 0, or one past
+#                                  nine digits warns once and uses the default
 #   PLANWRIGHT_TEST_FORCE_SERIAL   1 forces the serial fallback path
 #   PLANWRIGHT_TEST_TIMING_REPORT  where to persist the timing report
 #                                  (default: <suite-dir>/.timing-report.tsv)
@@ -115,8 +114,8 @@
 #   PLANWRIGHT_TEST_POOL_SLOTS     (both empty for an unpooled run)
 #   PLANWRIGHT_TEST_LOG_DIR        internal: parent-to-worker log dir handoff
 #   PLANWRIGHT_TEST_CLOCK          internal: parent-to-worker clock handoff
-#   PLANWRIGHT_TEST_DEADLINE       internal: parent-to-worker deadline and
-#   PLANWRIGHT_TEST_DEADLINE_TOOL  bounding tool handoff (tool empty:
+#   PLANWRIGHT_TEST_BOUND_SECONDS  internal: parent-to-worker deadline and
+#   PLANWRIGHT_TEST_BOUND_TOOL     bounding tool handoff (tool empty:
 #                                  unbounded)
 set -u
 unset CDPATH
@@ -242,9 +241,14 @@ take_slot() {
   done
 }
 
-# worker_signal <SIG> — release every ticket, then die by <SIG> itself.
+# worker_signal <SIG> — pass <SIG> to the bounded file's process group (the
+# file alone where its timeout made none), release every ticket, then die by
+# <SIG> itself.
 worker_signal() {
-  pw_lock_release_all
+  if [ -n "$child_pid" ]; then
+    kill -s "$1" -- "-$child_pid" 2>/dev/null || kill -s "$1" "$child_pid" 2>/dev/null
+  fi
+  [ "$lock_loaded" -eq 0 ] || pw_lock_release_all
   trap - "$1"
   kill -s "$1" "$$"
 }
@@ -263,22 +267,28 @@ if [ "${1:-}" = "--run-one" ]; then
   [ -n "$clock" ] || clock="$(probe_clock)"
   wait_started="$(now_ms)"
   slot_path=""
-  deadline="${PLANWRIGHT_TEST_DEADLINE:-}"
-  deadline_tool="${PLANWRIGHT_TEST_DEADLINE_TOOL:-}"
+  child_pid=""
+  lock_loaded=0
+  # The parent hands over a normalized value; anything else runs unbounded.
+  deadline="${PLANWRIGHT_TEST_BOUND_SECONDS:-}"
+  deadline_tool="${PLANWRIGHT_TEST_BOUND_TOOL:-}"
   case "$deadline" in
     '' | *[!0-9]* | 0*) deadline_tool="" ;;
   esac
+  # The traps pass an interrupt on to a bounded file and release the ticket; a
+  # SIGKILL leaves the ticket to the next run's dead-holder reclaim. They
+  # re-raise rather than exit (pw_lock_trap_install's form): a serial parent
+  # that sees a plain exit assumes the file handled the interrupt and runs on.
+  if [ -n "${PLANWRIGHT_TEST_POOL_DIR:-}" ] || [ -n "$deadline_tool" ]; then
+    trap 'worker_signal INT' INT
+    trap 'worker_signal TERM' TERM
+    trap 'worker_signal HUP' HUP
+  fi
   if [ -n "${PLANWRIGHT_TEST_POOL_DIR:-}" ]; then
     # shellcheck source=scripts/lock-lib.sh
     if . "${0%/*}/lock-lib.sh"; then
-      # The traps release the ticket if this worker is interrupted mid-file; a
-      # SIGKILL leaves it to the next run's dead-holder reclaim. They re-raise
-      # rather than exit (pw_lock_trap_install's form): a serial parent that
-      # sees a plain exit assumes the file handled the interrupt and runs on.
+      lock_loaded=1
       trap 'pw_lock_release_all' EXIT
-      trap 'worker_signal INT' INT
-      trap 'worker_signal TERM' TERM
-      trap 'worker_signal HUP' HUP
       take_slot "$PLANWRIGHT_TEST_POOL_DIR" "$PLANWRIGHT_TEST_POOL_SLOTS" \
         "$PLANWRIGHT_TEST_LOG_DIR/$name.lockerr"
     else
@@ -309,26 +319,37 @@ if [ "${1:-}" = "--run-one" ]; then
   started="$(now_ms)"
   past_deadline=0
   if [ -n "$deadline_tool" ]; then
-    # In the foreground: started with `&`, the file would begin with INT and
-    # QUIT ignored, which not every bash lets it undo.
-    "$deadline_tool" -k 10 "$deadline" /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1
+    # In the background, so a trapped signal ends the wait at once and the trap
+    # can pass it on: timeout's process group is not the terminal's, and the
+    # worker's trap would otherwise wait for the file. An asynchronous command
+    # starts with INT and QUIT ignored; the reset hands the file the defaults
+    # (GNU timeout restores them itself where an old bash refuses the reset).
+    # Its stdin is /dev/null, as xargs gives it, so a read cannot stop the
+    # background group, timeout and its alarm included, on a terminal.
+    (
+      trap - INT QUIT
+      exec "$deadline_tool" -k 10 "$deadline" /bin/bash "$t"
+    ) >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1 </dev/null &
+    child_pid=$!
+    wait "$child_pid"
     file_rc=$?
-    # 124 is timeout's own TERM, 137 the KILL after the grace, 143 busybox's
-    # TERM (it bounds the file from within its own process); a file that exits
-    # with one of them on its own inside the deadline is a plain failure.
-    case "$file_rc" in
-      124 | 137 | 143)
-        ended="$(now_ms)"
-        if [ -z "$started" ] || [ -z "$ended" ] || [ $((ended - started)) -ge $((deadline * 1000)) ]; then
-          past_deadline=1
-        fi
-        ;;
-    esac
+    child_pid=""
+    # Judged by the clock, not the exit status alone: busybox's timeout passes
+    # on the file's own status, which a TERM trap can make 0. Without a clock
+    # reading, the statuses timeout and busybox give an ended file stand in.
+    ended="$(now_ms)"
+    if [ -n "$started" ] && [ -n "$ended" ]; then
+      [ $((ended - started)) -lt $((deadline * 1000)) ] || past_deadline=1
+    else
+      case "$file_rc" in
+        124 | 137 | 143) past_deadline=1 ;;
+      esac
+    fi
   else
     /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1
     file_rc=$?
   fi
-  if [ "$file_rc" -eq 0 ]; then
+  if [ "$file_rc" -eq 0 ] && [ "$past_deadline" -eq 0 ]; then
     verdict="done"
   else
     verdict="fail"
@@ -857,20 +878,22 @@ fi
 # Probed by running it: a timeout that refuses -k (an old busybox) is no
 # bound the workers can use.
 deadline_tool=""
-for cand in timeout gtimeout; do
-  cand="$(command -v "$cand" 2>/dev/null)" || continue
-  if "$cand" -k 1 5 true >/dev/null 2>&1; then
-    deadline_tool=$cand
+for tool_name in timeout gtimeout; do
+  tool_path="$(command -v "$tool_name" 2>/dev/null)" || continue
+  if "$tool_path" -k 1 5 true >/dev/null 2>&1; then
+    deadline_tool=$tool_path
     break
   fi
 done
 if [ -n "$deadline_tool" ]; then
   deadline_desc="deadline ${deadline}s per file"
 else
-  echo "run-tests: WARNING neither timeout nor gtimeout is available; test files run with no per-file deadline" >&2
+  # Worded so scripts/classify-ci-failure.sh does not read a bare "timeout"
+  # in it as a network failure.
+  echo "run-tests: WARNING no usable timeout(1) or gtimeout (none installed, or none taking -k); test files run with no per-file deadline" >&2
   deadline_desc="no per-file deadline"
 fi
-export PLANWRIGHT_TEST_DEADLINE="$deadline" PLANWRIGHT_TEST_DEADLINE_TOOL="$deadline_tool"
+export PLANWRIGHT_TEST_BOUND_SECONDS="$deadline" PLANWRIGHT_TEST_BOUND_TOOL="$deadline_tool"
 
 # Probe for a working `xargs -P` before relying on it; degrade to the
 # serial loop when it is absent or explicitly disabled.
