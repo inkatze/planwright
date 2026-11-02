@@ -39,7 +39,7 @@ usage() {
 # Messages quote configuration values and file names, so control bytes are
 # stripped before they reach the terminal.
 say() {
-  printf '%s\n' "$1" | tr -cd '[:print:]\n' >&2
+  printf '%s\n' "$1" | awk '{ gsub(/[[:cntrl:]]/, ""); print }' >&2
 }
 
 fail_closed() {
