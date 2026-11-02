@@ -238,6 +238,29 @@ for nested in \
     fail "doc example: Bash(git clean *) in ask must reach '$nested' (M9)"
   fi
 done
+# Lexing the scanner does not reproduce (comments, here-documents, line
+# continuations) never reaches allow, and a continuation is joined for deny
+# (MB-10).
+pm_load_rules 'Bash(never-run *)' '' 'Bash(echo *)' || {
+  echo "FAIL: pm_load_rules rejected the unlexed-construct probe set" >&2
+  exit 1
+}
+for unlexed in \
+  "echo a # '${PM_NL}other x${PM_NL}echo b # '" \
+  "echo \$(cat <<EOF${PM_NL}it's${PM_NL}EOF${PM_NL}other x${PM_NL}echo ')" \
+  "echo a \\${PM_NL}b"; do
+  if [ "$(pm_decide "$unlexed")" = "prompt" ]; then
+    ok "an unlexed construct is never reported allowed (MB-10)"
+  else
+    fail "an unlexed construct must never be reported allowed (MB-10): $unlexed"
+  fi
+done
+if [ "$(pm_decide "echo a; never-\\${PM_NL}run x")" = "deny" ]; then
+  ok "a line continuation is joined before the deny sweep (MB-10)"
+else
+  fail "a deny-matching command split by a line continuation must be denied (MB-10)"
+fi
+
 # Allow still needs every subcommand, nested ones included.
 # shellcheck disable=SC2016 # matched as text, never run
 if [ "$(pm_decide 'echo "$(never-allowed)"')" = "prompt" ]; then
@@ -536,6 +559,8 @@ deny|load-bearing|f () { git push origin main; }; f|a function body, POSIX spaci
 deny|load-bearing|f(){ git push origin main; }; f|a function body, no spacing (M9)
 allow|legit|git commit -m "chore: a; b && c"|separators inside quotes do not split (MB-3)
 deny|load-bearing|case x in a) git push origin main;; esac|a case arm, reached by the atom sweep (MB-7)
+prompt|residual|git status $'\'' ; cat x ; git status \'|ANSI-C quoting is not lexed, so the command is never reported allowed (MB-10)
+prompt|residual|git status `git status \`cat x\``|an escaped backtick that a backtick substitution unescapes is not lexed (MB-10)
 prompt|residual|git status; case x in a) rm -rf build;; esac|a case statement's arms are not read for allow, so nothing in one is reported allowed (MB-7)
 allow|legit|git status "$(git rev-parse --show-toplevel)"|a substitution whose every command is allowed (M9)
 prompt|residual|ls $((1 + 2))|arithmetic reads as a substitution holding a group, so the model asks for an allow rule it cannot find; conservative (M9)
@@ -696,7 +721,7 @@ EOF
 # tripping pass D. So the floor is `>=` the exact current count: adding rows is
 # always fine, deleting any row fails and has to be argued for. Raise these two
 # numbers in the same commit that adds rows (REQ-H1.3).
-ROW_FLOOR=206
+ROW_FLOOR=208
 DENY_ROW_FLOOR=124
 if [ "$row_total" -ge "$ROW_FLOOR" ] && [ "$row_deny_total" -ge "$DENY_ROW_FLOOR" ]; then
   ok "the fixture table is non-vacuous: $row_total rows, $row_deny_total load-bearing (REQ-H1.3)"

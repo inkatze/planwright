@@ -427,7 +427,29 @@ pm_strip_keywords() {
 # never be reported allowed.
 PM_NEST_MAX=8
 PM_NEST_SENTINEL='#nested-beyond-the-model-depth'
-pm_subcommands() { pm_subcommands_at "$1" 0; }
+pm_subcommands() {
+  pm_unlexed "$1" && printf '%s\n' "$PM_NEST_SENTINEL"
+  pm_subcommands_at "$1" 0
+}
+
+# pm_unlexed <command> — exit 0 when the command uses shell lexing the
+# scanner does not reproduce, any of which can hide a command from it:
+# ANSI-C quoting (`$'…'`), a here-document (`<<`, not the `<<<` here-string),
+# a line continuation, an escaped backtick or dollar (which a backtick
+# substitution unescapes before running), or a comment. Such a command is
+# never reported allowed (doc MB-10).
+# shellcheck disable=SC2016 # the constructs are matched literally
+pm_unlexed() {
+  local s="$1" t
+  case "$s" in
+    *"\$'"* | *"\\$PM_NL"* | *'\`'* | *'\$'* | '#'* | *' #'* | *"$PM_TAB#"* | *"$PM_NL#"* | *';#'* | *'&#'* | *'|#'* | *'(#'*) return 0 ;;
+  esac
+  t="${s//<<</}"
+  case "$t" in
+    *'<<'*) return 0 ;;
+  esac
+  return 1
+}
 pm_subcommands_at() {
   local s="$1" d="$2" sub inner head rc rest
   if [ "$d" -gt "$PM_NEST_MAX" ]; then
@@ -487,10 +509,13 @@ EOF
 
 # pm_deny_subjects <command> — what the deny and ask sweeps match: every
 # subcommand, plus every atom (pm_atoms) with its control-flow words dropped,
-# so a command the structured reading missed is still swept.
+# so a command the structured reading missed is still swept. Atoms come from
+# the command as written and with its line continuations joined, as the
+# shell joins them.
 pm_deny_subjects() {
-  local a rc
+  local a rc joined
   pm_subcommands "$1"
+  joined="${1//\\$PM_NL/}"
   while IFS= read -r a; do
     a="$(pm_trim "$a")"
     [ -n "$a" ] || continue
@@ -500,6 +525,7 @@ pm_deny_subjects() {
     printf '%s\n' "$PM_KW"
   done <<EOF
 $(pm_atoms "$1")
+$(pm_atoms "$joined")
 EOF
 }
 

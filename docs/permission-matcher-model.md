@@ -225,6 +225,13 @@ matches Bash rules against the command text only. Direction: under-predicts
 deny (`ls > mise.toml` and `cat /proc/1/environ` report `allow` or `prompt`
 where the real matcher denies).
 
+**MB-10 — shell lexing the model does not reproduce.** ANSI-C quoting
+(`$'…'`), here-documents, comments, line continuations, and the escapes a
+backtick substitution undoes (`` \` ``, `\$`) can each move where a quote or
+a command begins. The model does not lex them: a command using any of them is
+never reported allowed, and its deny sweep also reads the text with line
+continuations joined. Direction: under-predicts allow.
+
 ## Unsettled assumptions
 
 Unlike the boundaries above, these are places where the documentation does not
