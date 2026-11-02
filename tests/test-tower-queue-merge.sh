@@ -16,7 +16,9 @@
 #                    kind naming the same subject key and hands them over as
 #                    one unit: the `item` line naming both sources at the
 #                    higher urgency and the older age, then a `pair` line. The
-#                    partner is the oldest candidate on the subject.
+#                    partner is the oldest candidate on the subject; a third
+#                    item on that subject rides the same hand-over unpaired,
+#                    as a member of the subject batch.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -191,7 +193,7 @@ run settle --evidence "$ev" --now 1100 >/dev/null || fail "the dash-scope pass e
 [ "$(state_of "$d2")" = open ] || fail "a question was merged away over a scope of '-'"
 echo "ok: a scope of '-' reads as absent, so two questions differing only in a hyphen stay two questions"
 
-# --- pairing: one hand-over, both sources, a third waits --------------------------
+# --- pairing: one unit, both sources, a third rides the batch unpaired ----------
 
 reset_home pair
 add_req() { # add_req <name> <origin> <subject> <urgency> <now> [<kind>]
@@ -199,8 +201,8 @@ add_req() { # add_req <name> <origin> <subject> <urgency> <now> [<kind>]
   run add --kind "${6:-request}" --root "$content" --pointer "$1" --origin "$2" \
     --subject "$3" --urgency "$4" --closes 'the operator decides' --now "$5"
 }
-# The top item and the oldest on its subject go over together; the third
-# waits. p2 leads on urgency and p3 is the oldest of the three.
+# The top item and the oldest on its subject go over as the pair; the third
+# joins the subject batch unpaired. p2 leads on urgency and p3 is the oldest.
 p1=$(add_req p1 w-one pr:500 low 1020) || fail "add p1"
 p2=$(add_req p2 w-two pr:500 high 1010) || fail "add p2"
 p3=$(add_req p3 w-three pr:500 normal 1000) || fail "add p3"
@@ -217,16 +219,15 @@ pair=$(line_of "$out" pair)
 [ "$(field "$item" 4)" = high ] || fail "the pair does not carry the higher urgency of its sources"
 sources_are "$(field "$item" 5)" w-two w-three || fail "the pair does not name both sources: '$(field "$item" 5)'"
 [ "$(field "$item" 6)" = "$((1103 - 1000))" ] || fail "the pair does not carry the older age of its sources: '$(field "$item" 6)'"
-[ "$(printf '%s\n' "$out" | grep -c "^item${TAB}" || true)" = 1 ] || fail "the pair was handed over as two items"
+[ "$(printf '%s\n' "$out" | grep -c "^pair${TAB}" || true)" = 1 ] || fail "the batch carries more than one pair"
+third=$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "item"' | sed -n 2p)
+[ "$(field "$third" 2)" = "$p1" ] || fail "the third item on the subject did not ride the batch: '$out'"
+sources_are "$(field "$third" 5)" w-one || fail "the third item was paired: '$(field "$third" 5)'"
 
 run ack "$p2" --tower tower-a --now 1104 >/dev/null || fail "ack the pair's item"
 run ack "$p3" --tower tower-a --now 1105 >/dev/null || fail "ack the pair's partner"
-marker tower-a 1106
-out=$(run next --tower tower-a --evidence "$ev" --now 1107) || fail "the third on the subject"
-[ "$(field "$(line_of "$out" item)" 2)" = "$p1" ] || fail "the third item on the subject did not wait its turn: '$out'"
-[ -z "$(line_of "$out" pair)" ] || fail "a third item on one subject was paired"
-run ack "$p1" --tower tower-a --now 1108 >/dev/null || fail "ack the third"
-echo "ok: a shared-subject pair is handed over as one item naming both sources, and a third on that subject waits"
+run ack "$p1" --tower tower-a --now 1106 >/dev/null || fail "ack the third"
+echo "ok: a shared-subject pair is handed over as one unit naming both sources, and a third on that subject rides the batch unpaired"
 
 # --- two kinds on one subject, and two subjects, do not pair ----------------------
 
@@ -237,12 +238,13 @@ out=$(run next --tower tower-a --evidence "$ev" --now 1301) || fail "the mixed-k
 [ "$(field "$(line_of "$out" item)" 2)" = "$a1" ] || fail "the approval did not rank ahead of the request"
 [ -z "$(line_of "$out" pair)" ] || fail "two items of different kinds on one subject were paired"
 run ack "$a1" --tower tower-a --now 1302 >/dev/null || fail "ack a1"
+run ack "$q1" --tower tower-a --now 1303 >/dev/null || fail "ack q1, which rode the batch"
 
-add_req d1 w-six pr:701 normal 1400 >/dev/null || fail "add d1"
+d1=$(add_req d1 w-six pr:701 normal 1400) || fail "add d1"
 add_req d2 w-seven pr:702 normal 1410 >/dev/null || fail "add d2"
 marker tower-a 1500
 out=$(run next --tower tower-a --evidence "$ev" --now 1501) || fail "the distinct-subject hand-over"
-[ "$(field "$(line_of "$out" item)" 2)" = "$q1" ] || fail "the oldest open request was not handed over"
+[ "$(field "$(line_of "$out" item)" 2)" = "$d1" ] || fail "the oldest open request was not handed over"
 [ -z "$(line_of "$out" pair)" ] || fail "two items with different subjects were paired"
 marker tower-a 1502
 out=$(run next --tower tower-a --evidence "$ev" --now 1503) || fail "the hand-over after the distinct subjects"
@@ -268,7 +270,7 @@ echo "ok: different kinds on one subject, different subjects, and a leased or de
 # --- the partner is the oldest candidate, not the best-ranked one -----------------
 
 # t-young outranks t-old on urgency but is younger; the partner rule is age,
-# so t-old goes over with the top item and t-young waits.
+# so t-old is the top item's pair and t-young rides the batch unpaired.
 reset_home tiebreak
 t_top=$(add_req t-top w-top pr:800 high 2000) || fail "add t-top"
 t_young=$(add_req t-young w-young pr:800 high 2100) || fail "add t-young"
@@ -282,12 +284,11 @@ pair=$(line_of "$out" pair)
 [ "$(field "$item" 2)" = "$t_top" ] || fail "the top item changed: '$item'"
 [ "$(field "$pair" 2)" = "$t_old" ] || fail "the partner is not the oldest candidate on the subject: '$pair'"
 [ "$(field "$item" 6)" = "$((2203 - 1900))" ] || fail "the pair does not carry the oldest age: '$(field "$item" 6)'"
+young=$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "item"' | sed -n 2p)
+[ "$(field "$young" 2)" = "$t_young" ] || fail "the younger candidate did not ride the batch unpaired: '$out'"
 run ack "$t_top" --tower tower-a --now 2204 >/dev/null || fail "ack t-top"
 run ack "$t_old" --tower tower-a --now 2205 >/dev/null || fail "ack t-old"
-marker tower-a 2206
-out=$(run next --tower tower-a --evidence "$ev" --now 2207) || fail "the younger candidate's turn"
-[ "$(field "$(line_of "$out" item)" 2)" = "$t_young" ] || fail "the younger candidate did not follow: '$out'"
-run ack "$t_young" --tower tower-a --now 2208 >/dev/null || fail "ack t-young"
+run ack "$t_young" --tower tower-a --now 2206 >/dev/null || fail "ack t-young"
 echo "ok: the partner on a subject is the oldest candidate, so neither inherited field goes stale and nothing starves"
 
 # --- a partner another tower holds is left where it is ----------------------------
