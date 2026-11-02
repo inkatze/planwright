@@ -250,6 +250,13 @@ bundle seconds <<EOF
 EOF
 check "a four-digit figure in seconds is still a figure" seconds 1 "figure 1234 in D-2's rationale"
 
+bundle citedround <<EOF
+**Report:** \`$REPORT\`
+
+**Chosen because:** startup took 2000s (\`stub-full.tests_passed\`).
+EOF
+check "a cited round four-digit figure in seconds is checked, not taken for a decade" citedround 1 "figure 2000 cites stub-full.tests_passed"
+
 bundle open <<EOF
 **Report:** \`$REPORT\`
 

@@ -111,6 +111,37 @@ run_into nolog "$tmp/nolog"
 check_eq "a full candidate without an implementation-time entry is refused" 1 "$rc"
 check_has "the refusal names the log" "$out" "implementation-time.tsv has no row"
 
+variant duplog
+printf 'stub-full\t2026-10-01T10:00:00Z\t2026-10-01T11:30:00Z\n' >>"$tmp/duplog/implementation-time.tsv"
+run_into duplog "$tmp/duplog"
+check_eq "a duplicate implementation-time row is refused" 1 "$rc"
+check_has "the duplicate refusal says why" "$out" "more than one row"
+
+variant badstamp
+printf 'stub-full\t2026-10-01 10:00\t2026-10-01T11:30:00Z\n' >"$tmp/badstamp/implementation-time.tsv"
+run_into badstamp "$tmp/badstamp"
+check_eq "an implementation-time stamp that is not a calendar time is refused" 1 "$rc"
+check_has "the stamp refusal names the form" "$out" "YYYY-MM-DDTHH:MM:SSZ calendar times"
+
+variant backwards
+printf 'stub-full\t2026-10-01T11:30:00Z\t2026-10-01T10:00:00Z\n' >"$tmp/backwards/implementation-time.tsv"
+run_into backwards "$tmp/backwards"
+check_eq "a first green run before its dispatch is refused" 1 "$rc"
+check_has "the order refusal says why" "$out" "precedes its dispatch"
+
+variant nosource
+sed 's|^sources=.*|sources=bin/echo-line bin/absent|' "$STUB/candidates/stub-full/candidate.conf" >"$tmp/nosource/candidates/stub-full/candidate.conf"
+run_into nosource "$tmp/nosource"
+check_eq "a missing source is refused" 1 "$rc"
+check_has "the refusal names the source" "$out" "source bin/absent is missing"
+
+variant emptysource
+: >"$tmp/emptysource/candidates/stub-full/empty.sh"
+sed 's|^sources=.*|sources=empty.sh|' "$STUB/candidates/stub-full/candidate.conf" >"$tmp/emptysource/candidates/stub-full/candidate.conf"
+run_into emptysource "$tmp/emptysource"
+check_eq "empty sources are refused" 1 "$rc"
+check_has "the refusal says the sources are empty" "$out" "its sources are empty"
+
 variant norev
 printf 'stub-full\t1\t3\nstub-full\t2\t1\n' >"$tmp/norev/review-findings.tsv"
 run_into norev "$tmp/norev"

@@ -76,9 +76,11 @@ function cites(s, fig, ref, cref,   n, k, t, rest, pos, tok, pre, post, prefix, 
     pos += RSTART + RLENGTH - 1
     t = substr(t, RSTART + RLENGTH)
     if (pre ~ /[A-Za-z0-9_\/#@:.,`-]/) continue
-    # A unit glued to a figure (`14ms`, `3x`) keeps it a figure; a decade
-    # (`1990s`) stays a reference.
-    if ((substr(post, 1, 1) ~ /[A-Za-z0-9_\/`-]/ && after !~ /^(ms|s|min|h|x|B|KiB|MiB|GiB|kB|KB|MB|GB)([^A-Za-z0-9_]|$)/) || (tok ~ /^[0-9][0-9][0-9]0$/ && after ~ /^s([^A-Za-z0-9_]|$)/)) continue
+    # A unit glued to a figure (`14ms`, `3x`) keeps it a figure.
+    if (substr(post, 1, 1) ~ /[A-Za-z0-9_\/`-]/ && after !~ /^(ms|s|min|h|x|B|KiB|MiB|GiB|kB|KB|MB|GB)([^A-Za-z0-9_]|$)/) continue
+    # A decade (`1990s`) is a reference, unless a citation follows it, which
+    # makes it a round figure in seconds.
+    if (tok ~ /^[0-9][0-9][0-9]0$/ && after ~ /^s([^A-Za-z0-9_]|$)/ && after !~ /^s \(@[0-9]+@\)/) continue
     if (post ~ /^[.:,][0-9]/) continue
     if (prefix ~ /(^|[^A-Za-z])([Tt]ask|[Ss]ection|[Ss]tep|[Ww]ave)[ ]+$/) continue
     if (prefix ~ /(^|[^A-Za-z])([Tt]asks|[Ss]ections|[Ss]teps|[Ww]aves)[ ]+([0-9.]+(, | and | or | to | through |, and |, or |–|-))*$/) continue
