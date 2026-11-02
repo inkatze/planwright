@@ -150,10 +150,17 @@ the tower is telling you something it needs from you, it came off this queue.
   you reply. The knock is not repeated on a timer; it comes again only after a
   hand-over has gone unanswered for `tower_quiet_interval`, or when the item it
   named is no longer at the top of the queue.
-- **One item per reply.** Your reply opens the conversation, and each reply
-  after it brings the next item. The one exception is a pair: two waiting
-  items of the same kind about the same worker, PR, branch, or request arrive together
-  as one hand-over, and you answer both. Blocked workers come first, then things
+- **One hand-over per reply.** Your reply opens the conversation, and each
+  reply after it brings the next hand-over. Usually that is one item. Two
+  waiting items of the same kind about the same worker, PR, branch, or
+  request arrive together as a pair, and you answer both. A **batch** goes
+  further: when the top item names a worker, PR, branch, or topic, the other
+  waiting items about that same subject, of any kind, come with it, up to
+  `tower_batch_max` items (the top item's pair always arrives whole), and you
+  answer each one on its own; the rest wait for a later reply. The knock says
+  how many items the hand-over would carry as things stand then, which can
+  change before you reply.
+  Blocked workers come first, then things
   waiting for your go-ahead, then your own requests, then decisions taken
   without you that wait for your review, then news; within a kind,
   the more urgent and then the older first. Each item is written so you can
@@ -178,6 +185,60 @@ Worker content inside an item is shown fenced, as quoted data. If a worker's
 text contains what reads like an instruction to the tower, the tower does not
 act on it, and neither should you without reading it as a quote.
 
+### Short-list questions and decisions taken without you
+
+A question can come with a **picklist**: a short list of options, a window,
+and what happens when the window ends, which is one of the options (the
+declared default) or a park. All three are fixed when the question is
+asked, and the window runs from then, `tower_picklist_window` unless the
+asker set one. Answer inside the window and your answer is the answer. If
+the window ends first, the default is applied and work goes on, or, for a
+park, the question stays open and the work it blocks is parked. A default
+is never declared on a worker's permission prompt, on anything that would
+merge, mark ready, force-push or rewrite history, or behind a human gate or
+a hard-disqualifier zone; those only ever park.
+
+Two kinds of item record a decision already taken without you, and both
+wait for your review:
+
+- **Settled by default**: a picklist window ended and its default was
+  applied.
+- **Decided by mission control**: a mission-control session took the
+  decision under its own rules, with its grounds recorded and the one step
+  that undoes it (or none).
+
+Neither is ever pushed at you while you are away; a review of something
+already done is not worth waking you for. When you are back, each is handed
+over after your own requests and before news, with what it settled on and
+what undoes it. Say it looks fine and it closes as reviewed. Say "undo
+that" and the tower records a revocation: a defaulted question reopens as
+the open question it was, with no window, so it can never default again
+(unless a newer question about the same worker is already open, when it
+closes as revoked and that newer one stands); a mission-control decision
+closes as revoked, and the log carries its undo step for mission control to
+run. The queue itself never runs an undo.
+
+### Whether you are here
+
+Mission control's panel, when it runs, tells the queue whether you are
+present: it writes a presence marker each time you prompt it and refreshes
+it on a timer. While that marker is fresh (written within
+`tower_presence_ttl`), you are present when your last prompt there falls
+within `tower_quiet_interval`, and away otherwise. With no marker, or a
+stale or unreadable one, the queue falls back to the quiet-interval rule
+above, and it logs each switch between the two. A reply in this
+conversation newer than the panel's last write counts as present for
+`tower_quiet_interval`, whatever that write said.
+Presence decides whether anything is handed over and when the away push
+fires; it never replaces the knock, which is still the only thing that
+confirms this conversation has your attention.
+
+Each presence write also runs the settling pass, and a wake from mission
+control makes the tower run its next step at once (which still knocks
+first when your attention is not confirmed), so a window that
+has ended or a decision that has just been taken reaches the queue without
+waiting for the tower loop's next pass; that pass stays the fallback.
+
 ### Replies the tower understands
 
 There is no command syntax; say it the way you would to a colleague.
@@ -191,6 +252,8 @@ There is no command syntax; say it the way you would to a colleague.
 | "what did I miss?" | the catch-up list: what settled while you were away, and why |
 | "tell me more" | one more layer of context, then the tower waits |
 | "drop the rule about …" | the tower closes that standing decision, recording that you revoked it |
+| "looks fine", on a decision taken without you | it closes as reviewed |
+| "undo that", on a decision taken without you | it is revoked: a defaulted question reopens with no window (or closes, when a newer question about that worker is open), a mission-control decision closes with its undo step logged |
 
 Items also close without you when the evidence says they are done: a PR
 opened or merged, commits landed on the branch, a request's ledger item
@@ -248,9 +311,12 @@ scripts/tower-queue.sh report    # the scorecard over tower_report_window
 ```
 
 Its headline is your load: items that reached you per hour of fleet work,
-against items settled without you. Beside it: how long blocked workers
-waited, turns that asked you more than one thing, items delivered in prose
-with no queue record, friction moments, jargon counted in what the tower
+against items settled without you. The settled side is broken out into
+items evidence settled, items a picklist default settled, and items mission
+control decided, with how often you revoked each of the last two. Beside
+it: how long blocked workers waited, turns that asked you more than one
+thing (a batch counts once, with the batches and their items beside it),
+items delivered in prose with no queue record, friction moments, jargon counted in what the tower
 said to you, and items lost across restarts. It also counts log lines any
 writer dropped on a busy lock and lines that would not parse, the only signs a
 write was lost or torn. Stretches between a tower's
@@ -261,8 +327,9 @@ reported as gaps. It runs on demand, never in CI.
 
 These settings tune the queue: `tower_quiet_interval`, `tower_lease_interval`,
 `tower_reknock_age`, `tower_shelve_return`, `tower_catchup_limit`,
-`tower_tick_gap_max`, `tower_log_rotate_age`, `tower_report_window`, and
-`tower_hook_lock_wait`. Each has its row, with what it controls and its
+`tower_tick_gap_max`, `tower_log_rotate_age`, `tower_report_window`,
+`tower_hook_lock_wait`, `tower_picklist_window`, `tower_presence_ttl`, and
+`tower_batch_max`. Each has its row, with what it controls and its
 default, in [the knobs table](#the-knobs-capability-in-core-value-in-overlay)
 at the end of this guide. Every interval accepts the `ms`/`s`/`m`/`h`/`d`
 suffixes; full rules are in the [options reference](options-reference.md).
@@ -2478,6 +2545,9 @@ are in the [options reference](options-reference.md).
 | `tower_log_rotate_age` | Event-log rotation, floored at the report window | How long the log keeps its lines | `30d` — well past the report window, so the scorecard never reads a rotated-out stretch |
 | `tower_report_window` | The window the scorecard reads | How far back the scorecard looks | `7d` — a week of sessions |
 | `tower_hook_lock_wait` | The fleet-lock wait for every queue write and the reply hook's log line (the reads take no lock); at expiry the hook drops its log line rather than delay your prompt | How much a busy lock may cost your prompt | `2s` — bounded; the attention stamp is written without the lock, so a dropped log line never loses the attention stamp |
+| `tower_picklist_window` | A question's picklist window, run from the item's birth when the asker set none; at its end the declared default is applied for your review, or the question parks | How long a short-list question waits for you before its default applies | `30m` — work moves on while you are away, and the default is shown to you for review when you are back |
+| `tower_presence_ttl` | Presence from mission control's panel: a marker written within this long decides whether you are here; an older one falls back to `tower_quiet_interval` | How long a panel reading is trusted | `2m` — a panel that stops writing stops deciding, and the quiet-interval rule takes over |
+| `tower_batch_max` | Batching by subject: the most items one hand-over carries when the top item names a worker, PR, branch, or topic | How many things about one subject arrive together | `3` — one conversation per subject without a wall of items |
 | `messaging_discipline` | Cross-session messaging as the signal transport, with a fallback on every path ([messaging-transport doctrine](../doctrine/messaging-transport.md)) | Which model-composed messages your sessions send: `off`, `script`, `tiered`, or `open` | `tiered` — model-composed messages only on the doctrine's named paths, one value stricter toward workers; `off` sits outside the ladder as the per-fleet kill switch, every consumer then taking today's path |
 | `messaging_cross_machine` | The harness's approval prompt on every cross-machine message (`isolatePeerMachines: true`, which both shipped profiles must carry) | Whether you have decided to relax that setting for a fleet | `false` — a cue, not a gate: with that setting in place, nothing leaves the machine without the harness asking |
 | `messaging_heal_cadence_seconds` | The healing sweep, kept at every setting because messages are lossy | How often the tower-facing sweep runs where push is live | `300` — slow enough to cut store reads, and never past the watcher's liveness window |

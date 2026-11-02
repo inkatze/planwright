@@ -697,6 +697,14 @@ baseline exists, so the experiment has an honest before.
   budget on main, and the new batch test adds to it; the PR body lists the
   three options.
 
+- **Task 14** — parked at post-pr, step `cubic-pr` halted
+  (`.claude/steps/000001/008-step-post-pr.rec`): the cubic quota is
+  exhausted until 2026-11-05, and the operator's secondary review stands in
+  for it (operator ruling 2026-11-01). Draft PR #789 carries the
+  implementation and the convergence round. Operator: run the secondary
+  review on the current head from another session, then the ready flip once
+  CI is green and the PR is mergeable, and remove this bullet.
+
 ## Deferred
 
 - **Extend the conversation rules to `/spec-kickoff`, `/spec-draft`,

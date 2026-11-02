@@ -1,0 +1,29 @@
+{"v":1,"seq":1,"ts":900000,"kind":"session","tower":"T1","event":"start"}
+{"v":1,"seq":2,"ts":900000,"kind":"tick","tower":"T1","live":1,"until":903600}
+{"v":1,"seq":3,"ts":900100,"kind":"born","item":"p1","item_kind":"question","urgency":"normal","subject":"pr:12"}
+{"v":1,"seq":4,"ts":900100,"kind":"picklist","item":"p1","options":"keep,drop","end":"keep","window_end":901900,"gate":"none"}
+{"v":1,"seq":5,"ts":900200,"kind":"born","item":"p2","item_kind":"question","urgency":"normal","subject":"pr:14"}
+{"v":1,"seq":6,"ts":900200,"kind":"picklist","item":"p2","options":"yes,no","end":"yes","window_end":902000,"gate":"none"}
+{"v":1,"seq":7,"ts":900300,"kind":"born","item":"m1","item_kind":"decided-by-mission-control","urgency":"normal","subject":"pr:12","reversal":"undo:7"}
+{"v":1,"seq":8,"ts":900400,"kind":"born","item":"m2","item_kind":"decided-by-mission-control","urgency":"normal","subject":"pr:12","reversal":"undo:8"}
+{"v":1,"seq":9,"ts":900500,"kind":"born","item":"m3","item_kind":"decided-by-mission-control","urgency":"normal","subject":"pr:20","reversal":"none"}
+{"v":1,"seq":10,"ts":901000,"kind":"born","item":"n1","item_kind":"news"}
+{"v":1,"seq":11,"ts":901100,"kind":"settled","item":"n1","item_kind":"news","reason":"pr-merged"}
+{"v":1,"seq":12,"ts":901900,"kind":"window","item":"p1","end":"default","option":"keep","at":901900,"away":1}
+{"v":1,"seq":13,"ts":902000,"kind":"window","item":"p2","end":"default","option":"yes","at":902000,"away":1}
+{"v":1,"seq":14,"ts":902100,"kind":"born","item":"p3","item_kind":"question","urgency":"normal","subject":"pr:30"}
+{"v":1,"seq":15,"ts":902100,"kind":"picklist","item":"p3","options":"merge,wait","end":"park","window_end":902200,"gate":"human-gate"}
+{"v":1,"seq":16,"ts":902200,"kind":"window","item":"p3","end":"park","option":"-","at":902200,"away":"-"}
+{"v":1,"seq":17,"ts":902500,"kind":"reply","tower":"T1","text":"back"}
+{"v":1,"seq":18,"ts":902600,"kind":"delivered","tower":"T1","item":"p1","item_kind":"settled-by-default","urgency":"normal","pair":"-","batch":"p1,m1,m2","size":3}
+{"v":1,"seq":19,"ts":902600,"kind":"delivered","tower":"T1","item":"p1","text":"Three things on PR 12 while you were away: one answer was applied for you and two choices were made for you","asks":3}
+{"v":1,"seq":20,"ts":902700,"kind":"reply","tower":"T1","text":"undo the first one"}
+{"v":1,"seq":21,"ts":902710,"kind":"revoked","tower":"T1","item":"p1","item_kind":"settled-by-default","reversal":"reopen","outcome":"reopened"}
+{"v":1,"seq":22,"ts":902720,"kind":"reviewed","tower":"T1","item":"m1","item_kind":"decided-by-mission-control","reversal":"undo:7"}
+{"v":1,"seq":23,"ts":902730,"kind":"revoked","tower":"T1","item":"m2","item_kind":"decided-by-mission-control","reversal":"undo:8","outcome":"revoked"}
+{"v":1,"seq":24,"ts":902800,"kind":"delivered","tower":"T1","item":"p2","item_kind":"settled-by-default","urgency":"normal","pair":"-"}
+{"v":1,"seq":25,"ts":902800,"kind":"delivered","tower":"T1","item":"p2","text":"On PR 14 the answer yes was applied for you","asks":1}
+{"v":1,"seq":26,"ts":902900,"kind":"reviewed","tower":"T1","item":"p2","item_kind":"settled-by-default","reversal":"reopen"}
+{"v":1,"seq":27,"ts":903000,"kind":"delivered","tower":"T1","item":"m3","text":"On PR 20 a choice was made for you, and the tests pass","asks":2}
+{"v":1,"seq":28,"ts":903100,"kind":"presence","tower":"T1","from":"quiet","to":"marker"}
+{"v":1,"seq":29,"ts":903600,"kind":"tick","tower":"T1","live":0,"until":905400}
