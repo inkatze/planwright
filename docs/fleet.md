@@ -973,7 +973,8 @@ The two session-grade rungs, verb by verb:
 | Open | `launch <worker> <scope> --prompt-file <file>` | `launch <spec> <id> --worktree <dir>` |
 | Liveness and completion | `status <worker>` | `status <spec> <id>` |
 | Close | `stop <worker> [--grace <secs>] [--observe]` | `stop <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]` |
-| Resume a crashed worker | `recover <worker>` | none: a one-shot is re-dispatched, not resumed |
+| Resume a crashed worker | `recover <worker> [--cwd <dir>]` | none: a one-shot is re-dispatched, not resumed |
+| Relaunch a live worker under the current profile | `relaunch <worker> [--grace <secs>]` | none: a one-shot is re-dispatched, not resumed |
 | Read a pending prompt | `pending [<worker>...]` | none: a one-shot has no pend path |
 | Answer a pending prompt | `answer <worker> <request-id>` | none: a one-shot has no pend path |
 | Steer in flight | `steer <worker>` | none: the rung advertises no steer |
@@ -981,6 +982,36 @@ The two session-grade rungs, verb by verb:
 The first three rows are the lifecycle, and both rungs expose all three. The
 rest follow from what each rung advertises in the capability contract, not from
 a missing close.
+
+A worker reads its permission profile (the `--settings` fragment) once, at
+session start, and the launcher resolves the self-approval policy and the
+other launch-time inputs from config into the worker's session record once, at
+launch. A change to either therefore reaches a running worker only by
+relaunch. `relaunch <worker> [--grace <secs>]` is that relaunch for a live
+stream-json worker: a plain `stop`, which keeps the scratch root, then
+`recover --cwd` with the directory the worker's launch recorded, so the resumed
+session gets `--resume <session id>`, the installed profile's path, and a
+session record rewritten from current config, whichever directory the verb is
+run from. The model tier is re-resolved too: `allocation-apply.sh plan` runs
+in that directory at the allocation key and unit the launch recorded
+(mission control's launcher records its kind's key), or at
+`orchestrate_dispatch` under the worker's handle for a launch that recorded
+none, and the resumed session gets `--model` and `--effort` for each dimension
+that does not resolve to `inherit`. Any other extra argument the original
+launch passed after `--` is not carried over. (`recover --cwd <dir>` is
+available on its own; without it a recover
+resumes in the caller's directory, and a session resumes only from the one it
+started in.) One relaunch runs per worker at a time. Everything the resume
+depends on is checked before the stop, and a refusal leaves the worker
+running: exit `3` for a relaunch already in flight, a worker that is not
+running (that is `recover`'s case), a lock of the release set held by a live
+process other than the worker's own, no recorded launch directory (a worker
+launched before the directory was recorded; stop it and run `recover --cwd`
+from its worktree), or a tier that does not resolve; exit `4` for no usable
+session id; exit `7`, `8` or `9`
+for the profile, wrapper, and preflight checks `launch` makes; exit `2` for an
+unknown handle, as for `stop`. After the stop, a partial close is exit `6` and
+a failed resume exit `5`, each naming the `recover` to run.
 
 `steer` is the primary steer on the stream-json rung: a tower message becomes a
 user turn on the worker's own stdin, under the same `[planwright tower relay ->
