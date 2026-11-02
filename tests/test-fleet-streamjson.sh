@@ -825,6 +825,26 @@ grep -qx 'launch_token=<unset>' "$rec/env" || fail "c9p: a tower-profile session
 grep -qx 'mc_token=<unset>' "$rec/env" || fail "c9p: a tower-profile session must drop an inherited mission-control token"
 [ "$(cat "$home/streamjson/sjw9i/profile")" = tower ] && [ ! -e "$home/streamjson/sjw9i/profile.tmp" ] \
   || fail "c9p: the profile record must be written whole, with no temporary left"
+# A fresh mission-control launch holds a token only as the launcher's
+# explicit argument: one inherited from the caller is dropped.
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_MC_TOKEN=callertoken-other -- \
+  launch sjw9m mission-control:3 --prompt-file "$tmp/prompt9" --profile mission-control --foreground \
+  || fail "c9p: the inherited-token mission-control launch exited non-zero"
+grep -qx 'mc_token=<unset>' "$rec/env" \
+  || fail "c9p: a mission-control launch must drop an inherited token: $(grep '^mc_token=' "$rec/env")"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_MC_TOKEN=callertoken-other -- \
+  launch sjw9n mission-control:3 --prompt-file "$tmp/prompt9" --profile mission-control --mc-token argtoken-own --foreground \
+  || fail "c9p: the --mc-token mission-control launch exited non-zero"
+grep -qx 'mc_token=argtoken-own' "$rec/env" \
+  || fail "c9p: a mission-control launch must hold the --mc-token it was given: $(grep '^mc_token=' "$rec/env")"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9o mission-control:3 --prompt-file "$tmp/prompt9" --profile tower --mc-token argtoken-own --foreground \
+  || fail "c9p: the --mc-token tower launch exited non-zero"
+grep -qx 'mc_token=<unset>' "$rec/env" \
+  || fail "c9p: a tower-profile launch must not take a --mc-token: $(grep '^mc_token=' "$rec/env")"
 # A recover with no recorded profile: a worker's from before the record
 # existed keeps the worker fragment, a mission-control launch's is refused.
 mkdir -p "$home/streamjson/sjw9old"

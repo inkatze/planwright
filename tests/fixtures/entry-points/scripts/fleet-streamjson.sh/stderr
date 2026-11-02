@@ -1,1 +1,1 @@
-match ^usage: fleet-streamjson\.sh launch <worker> <scope> --prompt-file <file> \[--profile worker\|tower\|mission-control\] \[--cwd <dir>\] \[--foreground\] \[-- <extra args>\.\.\.\]$
+match ^usage: fleet-streamjson\.sh launch <worker> <scope> --prompt-file <file> \[--profile worker\|tower\|mission-control\] \[--mc-token <token>\] \[--cwd <dir>\] \[--foreground\] \[-- <extra args>\.\.\.\]$
