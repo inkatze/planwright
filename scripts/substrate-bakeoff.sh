@@ -262,7 +262,7 @@ plain_path() {
 # Each repetition runs in a fresh directory under BK_WORK holding a copy of
 # BK_FILES, with a fresh home (and, with BK_CLEAN_ENV, nothing inherited but
 # PATH and the C locale), in its own process group, which is swept after the
-# reap so nothing it backgrounded outlives it. Prints `<status><TAB><ms>` per
+# reap so nothing it backgrounded in that group outlives it. Prints `<status><TAB><ms>` per
 # repetition, the status being the exit code, 128 plus the signal, or
 # `timeout`. The clock spans fork to reap; staging is outside it.
 # shellcheck disable=SC2016 # the $-sigils are perl variables

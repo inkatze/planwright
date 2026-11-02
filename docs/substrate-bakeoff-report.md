@@ -163,9 +163,11 @@ working directory holding a copy of the fixture's `files/`, with a fresh home
 (also its `TMPDIR`) and no environment from the caller beyond `PATH` and the C
 locale, in its own process group. The group is killed once the execution is
 reaped, and on a timeout or a signal to the harness, so nothing a candidate
-leaves running outlives it. The `build` and delivery scripts keep the caller's
-environment, since building and installing may need it, but get a fresh home
-too, so an install never lands in the operator's own.
+leaves running in that group outlives it; a process that moves to a session
+or group of its own (`setsid`) is out of the harness's reach. The `build` and
+delivery scripts keep the caller's environment, since building and installing
+may need it, but get a fresh home too, so an install never lands in the
+operator's own.
 
 Spawns are counted by a logging shim for every command on `PATH`, so a command
 started by absolute path, the candidate's own executable included, is not
