@@ -240,6 +240,12 @@ run_into emptybuild "$tmp/emptybuild"
 check_eq "an empty build is refused" 1 "$rc"
 check_has "the refusal names the build key" "$out" "build is empty"
 
+variant typokey
+printf 'buid=bin/echo-line\n' >>"$tmp/typokey/candidates/stub-full/candidate.conf"
+run_into typokey "$tmp/typokey"
+check_eq "an unknown candidate key is refused" 1 "$rc"
+check_has "the refusal names the key" "$out" "buid is not a candidate.conf key"
+
 variant blankarg
 printf 'a\n\nb\n' >"$tmp/blankarg/fixtures/echo-line/basic/args"
 run_into blankarg "$tmp/blankarg"

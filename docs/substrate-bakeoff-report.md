@@ -78,6 +78,8 @@ parsed, never sourced, and a repeated key fails the run closed.
   platform result `fail`.
 
 Every path is relative to the candidate directory and may not climb out of it.
+Any other key is refused, so a misspelt optional key cannot pass for an
+absent one.
 
 ### Log formats
 

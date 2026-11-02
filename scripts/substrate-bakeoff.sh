@@ -801,6 +801,9 @@ cmd_run() {
     case $cand in [a-z0-9]*) ;; *) fail_closed "candidate directory $cand does not start with [a-z0-9]" ;; esac
     case $cand in *[!a-z0-9-]*) fail_closed "candidate directory $cand has a name outside [a-z0-9-]" ;; esac
     [ -f "$cdir/candidate.conf" ] || fail_closed "candidate $cand has no candidate.conf"
+    for k in $(conf_keys "$cdir/candidate.conf"); do
+      case $k in class | invoke.* | sources | artifact | dependencies | delivery.marketplace | delivery.writer | build) ;; *) refuse "$cand: $k is not a candidate.conf key" ;; esac
+    done
     need "$cdir/candidate.conf" class "$cand"
     case $val in
       full) measure_full ;;
