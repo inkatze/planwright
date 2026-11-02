@@ -1680,6 +1680,12 @@ eq "the map classes each field-bearing task once, in order, any task heading cou
   "$(spec_parse_repository_map "$tmp/repo-tasks.md")"
 eq "the map reads a caller snapshot on stdin" "$repo_map_want" \
   "$(spec_parse_repository_map - <"$tmp/repo-tasks.md")"
+eq "one task's record reads from the map" "$(printf 'alias\tgamma')" \
+  "$(spec_parse_repository_field "$repo_map_want" 3.5)"
+eq "an empty value keeps its class" "$(printf 'malformed\t')" \
+  "$(spec_parse_repository_field "$repo_map_want" 8)"
+eq "a task the map does not name prints nothing" '' \
+  "$(spec_parse_repository_field "$repo_map_want" 1)"
 printf '%s\n' '# T' '' '### Task 1 — a' '- **Repository:** a-b' 'x' '- **Dependencies:** none' >"$tmp/repo-col0.md"
 eq "a column-0 line after the field is no continuation" "$(printf '1\talias\ta-b')" \
   "$(spec_parse_repository_map "$tmp/repo-col0.md")"
