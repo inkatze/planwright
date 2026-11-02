@@ -333,7 +333,7 @@ echo "ok: r5 a relaunch re-resolves the tier from current allocation config at t
 # launch of the handle left, so the relaunch refuses rather than resume there.
 # ---------------------------------------------------------------------------
 senv -- stop sjr1 --grace 2 >/dev/null 2>&1 || fail "r6: setup: the stop exited non-zero"
-mkdir "$wdir/cwd.tmp" || fail "r6: setup: cannot block the directory record"
+mkdir -p "$wdir/cwd.tmp" || fail "r6: setup: cannot block the directory record"
 printf '%s\n' "$tmp" >"$wdir/cwd"
 senv -- launch sjr1 worker-permission-ergonomics:task-13 --prompt-file "$tmp/prompt" --cwd "$wt" >/dev/null 2>&1 \
   || fail "r6: setup: the launch exited non-zero"

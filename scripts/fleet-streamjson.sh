@@ -1937,9 +1937,9 @@ stop_release() {
 # or remove it when <value> is empty.
 record_tier_field() {
   if [ -n "$3" ]; then
-    printf '%s\n' "$3" >"$1/$2.tmp" && mv -f "$1/$2.tmp" "$1/$2"
+    printf '%s\n' "$3" >"$1/$2.tmp" && mv -f -- "$1/$2.tmp" "$1/$2"
   else
-    rm -f "$1/$2"
+    rm -f -- "$1/$2"
   fi
 }
 
