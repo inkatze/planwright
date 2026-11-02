@@ -3,7 +3,7 @@
 # branch, and the preparation of a secret purge it never runs
 # (doctrine/human-gates.md, the force-push and secret-purge rows).
 #
-# Usage, run in a checkout of the repository:
+# Usage (run in a checkout of the repository):
 #   tower-force-push.sh reword  --branch <b> --commit <c> --message-file <f>
 #                               [--remote <r>]
 #   tower-force-push.sh confirm --branch <b> --to <c> [--remote <r>]
@@ -417,7 +417,7 @@ reword() {
     1) ;;
     *) broken "commit.gpgSign could not be read; whether to sign the replay is unknown" ;;
   esac
-  work=$(mktemp -d) || broken "mktemp failed"
+  work=$(mktemp -d "${TMPDIR:-/tmp}/tower-force-push.XXXXXX") || broken "mktemp failed"
   # shellcheck disable=SC2064 # the path is fixed now, and shell-quoted
   trap "rm -rf $(shq "$work")" EXIT
   map="$work/map"

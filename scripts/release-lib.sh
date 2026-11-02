@@ -203,6 +203,7 @@ rl_version_gt() {
 # (YAML), so a `#` after a space in the value would be truncated.
 rl_resolve_version_file() {
   local script_dir="$1" raw path selector
+  # shell-config-pin: releases run from the clean primary checkout they release
   raw=$("$script_dir/config-get.sh" version_file 2>/dev/null) || raw=""
   [[ -n "$raw" ]] || raw='.claude-plugin/plugin.json::$.version'
   if [[ "$raw" == *"::"* ]]; then

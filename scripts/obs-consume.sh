@@ -3,6 +3,7 @@
 # (observation-recording Task 4, REQ-A1.5, REQ-B1.2, REQ-C1.2, REQ-D1.1,
 # REQ-D1.3; D-3, D-7). `/spec-draft` mining consumes an observation through this
 # helper; no skill hand-composes a fragment path or an annotation.
+# Emits: markdown
 #
 # What it does (D-3): consuming a fragment resolves it by UID across entries/
 # *and* archive/, appends a `Consumed-by: specs/<spec> (<date>)` line inside the

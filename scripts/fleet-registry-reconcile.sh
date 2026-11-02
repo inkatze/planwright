@@ -161,7 +161,7 @@ quarantine() {
   mkdir -p "$q_dir" 2>/dev/null
   umask "$q_umask"
   q_stamp=$(date +%s 2>/dev/null) || q_stamp=0
-  if mv -f "$1" "$q_dir/marker.$q_stamp.$$.$refused" 2>/dev/null; then
+  if mv -f -- "$1" "$q_dir/marker.$q_stamp.$$.$refused" 2>/dev/null; then
     refused=$((refused + 1))
     printf 'refuse\t%s\t%s\n' "$2" "$3"
     audit refuse-marker "marker $2 refused and moved aside: $3"

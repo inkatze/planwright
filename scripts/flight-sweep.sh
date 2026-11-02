@@ -34,20 +34,20 @@
 # timestamp), so a re-sweep over unchanged evidence reproduces it byte for
 # byte; its mtime is when it was last swept.
 #
-# Subcommands:
-#   sweep [--repo-root <dir>] [--no-forge] [--no-write]
+# Usage:
+#   flight-sweep.sh sweep [--repo-root <dir>] [--no-forge] [--no-write]
 #       Derive, write the index, and print it. --no-forge skips the PR reads
 #       (landings then rest on record files, and the rest read unknown).
 #       --no-write prints the same render and writes nothing, for a surface
 #       whose contract forbids writes.
-#   path [--repo-root <dir>]
+#   flight-sweep.sh path [--repo-root <dir>]
 #       Print the checkout's index path, whether or not it exists yet.
-#   prune
+#   flight-sweep.sh prune
 #       Remove the index of every checkout that no longer exists, one
 #       `pruned<TAB><checkout>` line each, and collect the temp files an
 #       interrupted sweep or prune left over an hour ago. The fleet cleanup
 #       sweep runs it.
-#   hook session-start
+#   flight-sweep.sh hook session-start
 #       The SessionStart arm: sweep the session's checkout so a fresh tower
 #       reads a current index. Silent and exit 0 always. It stays out of a
 #       worker's session (a worker identity in the environment, or a flight,

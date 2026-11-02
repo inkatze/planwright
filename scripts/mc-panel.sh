@@ -168,6 +168,7 @@ parse_positive() {
 }
 
 # mtime <file>: its modification epoch, GNU stat first, then BSD.
+# shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
 mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
 
 # age_of <epoch>: seconds since it, a stamp after now (a stepped clock)

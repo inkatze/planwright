@@ -203,7 +203,7 @@ printable_line() {
 # consume, so it degrades to "no channel" rather than to an audited ignore that
 # would repeat at every boundary.
 resolve_container() {
-  rc_wt=$(cd "$1" 2>/dev/null && pwd -P) || return 1
+  rc_wt=$(cd -- "$1" 2>/dev/null && pwd -P) || return 1
   if [ -L "$rc_wt/$PET_SUBDIR" ]; then
     return 3
   fi
@@ -220,7 +220,7 @@ cmd_path() {
     usage
     exit 2
   }
-  cp_wt=$(cd "$1" 2>/dev/null && pwd -P) || {
+  cp_wt=$(cd -- "$1" 2>/dev/null && pwd -P) || {
     printf '%s\n' "allocation-petition: worktree '$(sanitize_printable "$1" "(unprintable path)")' is not a directory" >&2
     exit 2
   }

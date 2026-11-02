@@ -45,7 +45,7 @@ fi
 
 # Default cwd for containment: a scratch repo with a .git marker and a
 # scripts/ + tests/ dir so in-repo script/bats paths resolve inside it.
-SANDBOX="$(mktemp -d)" || exit 1
+SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/worker-command-guard-harness.XXXXXX")" || exit 1
 trap 'rm -rf "$SANDBOX"' EXIT
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/.git" # worktree-style .git file marker
@@ -85,11 +85,14 @@ ln -sf "$SANDBOX/install/outside/evil.sh" "$PLUGIN_ROOT/scripts/evillink.sh"
 HOOK_ENV=()
 
 # write_record <file> <worktree-root> [policy] [unit-branch]: a session record
-# as the launcher writes it (scripts/worker-session-record.sh), for a fixture
-# to hand the hook through HOOK_ENV as PLANWRIGHT_WORKER_SESSION_RECORD.
+# as the launcher writes it (scripts/worker-session-record.sh), with an audit
+# home of its own at <file>.audit, for a fixture to hand the hook through
+# HOOK_ENV as PLANWRIGHT_WORKER_SESSION_RECORD.
 write_record() {
+  mkdir -p -- "$1.audit" || return 1
   printf '%s\n' "policy=${3-}" "unit_branch=${4:-planwright/demo/task-1}" \
-    "worktree_root=$2" "pr_base=origin/main" "worker_base_merge=allow" >"$1"
+    "worktree_root=$2" "pr_base=origin/main" "worker_base_merge=allow" \
+    "audit_log_home=$(cd -P -- "$1.audit" && pwd -P)" >"$1"
 }
 
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE

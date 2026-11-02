@@ -59,7 +59,7 @@ git repository, the ignore rules for the root's local-only entries) into a
 directory that already exists. `/spec-draft` offers to run it when it meets a
 marker-less root. `resolve-root.sh marker <dir>` checks a directory by shape
 alone, reading no config, which is how a caller vets a root another checkout
-owns.
+owns; with `--project` it prints the marker's `project:` field instead.
 
 ## The holder layout
 
@@ -164,6 +164,40 @@ handoff names. No execution skill commits, branches, or pushes in the holder.
 **Committing the note is the operator's**: in a holder, commit it (or open a
 PR for it) when you act on the halt; in `plain` there is nothing to commit,
 and the edited file is the record.
+
+## Dispatching from a holder
+
+`/orchestrate` (its meta-step included) can run in a holder checkout as well
+as in a work repository. Each task dispatches into its own work repository,
+which `scripts/resolve-work-repo.sh <root>/<spec> --task <id>` names: the
+worktree, the task branch, the worker, and the pull request all go there,
+and the spec root is handed to the worker's write zone. The dispatch markers
+and the per-spec lock stay with the bundle, so a holder session and a work
+repository session see the same units in flight, and the freshness gate
+reads the bundle from the holder's default branch.
+
+Which repository a task goes to:
+
+- A task carrying a `Repository: <alias>` field (format-version 3) goes to
+  the checkout registered under that alias, from any session.
+- A task without one, in a work repository session, goes to that repository,
+  as it always has.
+- A task without one, in a holder session, goes to the one work repository
+  registered against the bundle's root. With none registered, or several,
+  the dispatch refuses and names the candidates; it never falls back to the
+  holder, and nothing is created.
+- The meta-step routes by the field in the working tree but gates the
+  committed bundle, so a `Repository:` field that differs between the two
+  parks the task, with nothing created; commit or revert the edit.
+
+The registry is filled at session start in each work repository (see
+`repository_alias` in the [options reference](options-reference.md)); run
+`scripts/work-repo-registry.sh scan <dir>` to rebuild it. From the holder,
+derivation reads each named task from its own repository. While the holder
+has no single registered work repository, a task naming none derives
+`repository-unresolved` and is never selected, and a bundle in which no task
+names one does not derive at all: the status render and the selector stop,
+naming the candidates.
 
 ## Named observation targets
 

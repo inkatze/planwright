@@ -143,7 +143,7 @@ if spec_abs=$("$script_dir/resolve-root.sh" spec 2>/dev/null); then
   esac
 fi
 if [ "$root_given" -eq 0 ]; then
-  list=$(mktemp) || exit 2
+  list=$(mktemp "${TMPDIR:-/tmp}/check-launch-shape.XXXXXX") || exit 2
   trap 'rm -f "$list"' EXIT
   set -- docs doctrine skills scripts config ':(glob)**/README*' \
     ':(exclude)tests' ':(exclude,glob)**/.*/**' ':(exclude,glob)**/CHANGELOG.md'

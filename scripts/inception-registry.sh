@@ -5,23 +5,31 @@
 # them (inception REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-H1.6, REQ-J1.4, REQ-J1.7,
 # REQ-J1.8 · D-8).
 #
-#   add <id> <venture-dir>  register a venture (or refresh its path and status)
-#   set <id> [--status <s>] [--flags <f,g>|none]
-#                           update a registered venture
-#   get <id>                one registry row
-#   list                    every registry row
-#   rebuild [--root <dir>]  re-derive the registry by scanning ventures_root
-#   overlap                 each registered venture's framing, for the skill's
-#                           extend-vs-new judgment
-#   status <id>             the per-venture status view
-#   portfolio [--cards <dir>]
-#                           every venture with attention flags, then the
-#                           catalog-health notes; writes changed flags back
-#   telemetry <id> frame-discipline|unstaffed <discipline>
-#                           record one catalog-telemetry occurrence
-#   drop <id> <text>        record a planwright-about observation
-#   drop-read               the drop, neutralized, for planwright-side seed
-#                           gathering
+# Usage:
+#   inception-registry.sh add <id> <venture-dir>
+#       register a venture (or refresh its path and status)
+#   inception-registry.sh set <id> [--status <s>] [--flags <f,g>|none]
+#       update a registered venture
+#   inception-registry.sh get <id>
+#       one registry row
+#   inception-registry.sh list
+#       every registry row
+#   inception-registry.sh rebuild [--root <dir>]
+#       re-derive the registry by scanning ventures_root
+#   inception-registry.sh overlap
+#       each registered venture's framing, for the skill's extend-vs-new
+#       judgment
+#   inception-registry.sh status <id>
+#       the per-venture status view
+#   inception-registry.sh portfolio [--cards <dir>]
+#       every venture with attention flags, then the catalog-health notes;
+#       writes changed flags back
+#   inception-registry.sh telemetry <id> frame-discipline|unstaffed <discipline>
+#       record one catalog-telemetry occurrence
+#   inception-registry.sh drop <id> <text>
+#       record a planwright-about observation
+#   inception-registry.sh drop-read
+#       the drop, neutralized, for planwright-side seed gathering
 #
 # Output lines (key<TAB>fields):
 #   registered <id>                                     add
@@ -191,7 +199,7 @@ valid_flags() {
 # canonical <dir> — the directory's physical absolute path, or nothing.
 canonical() {
   [ -n "$1" ] && [ -d "$1" ] || return 1
-  (cd "$1" 2>/dev/null && pwd -P)
+  (cd -- "$1" 2>/dev/null && pwd -P)
 }
 
 # --- the data home -----------------------------------------------------------
@@ -228,10 +236,10 @@ begin_write() {
 }
 commit_write() {
   if [ -h "$1" ] || { [ -e "$1" ] && [ ! -f "$1" ]; }; then
-    rm -f "$1" 2>/dev/null
+    rm -f -- "$1" 2>/dev/null
     { [ -h "$1" ] || [ -e "$1" ]; } && unavailable "something other than a file sits at the registry path"
   fi
-  mv -f "$tmp_path" "$1" || unavailable "cannot write under the plugin data directory"
+  mv -f -- "$tmp_path" "$1" || unavailable "cannot write under the plugin data directory"
   tmp_path=
 }
 
@@ -496,7 +504,7 @@ cmd_status() {
   spath=$(printf '%s\n' "$r" | cut -f2)
   is_bundle "$spath" || die 2 "the bundle registered for $1 is no longer readable"
   printf 'venture\t%s\n' "$1"
-  serr=$(mktemp) || die 2 "cannot create a temporary file"
+  serr=$(mktemp "${TMPDIR:-/tmp}/inception-registry.XXXXXX") || die 2 "cannot create a temporary file"
   src=0
   render_status "$spath" 2>"$serr" || src=$?
   if [ "$src" -ne 0 ]; then
@@ -513,7 +521,7 @@ cmd_status() {
 append_private() {
   [ ! -h "$1" ] || unavailable "$(basename "$1") is a symbolic link; refusing to write through it"
   printf '%s\n' "$2" >>"$1" || unavailable "cannot write $(basename "$1")"
-  chmod 600 "$1" 2>/dev/null || unavailable "cannot secure $(basename "$1")"
+  chmod -- 600 "$1" 2>/dev/null || unavailable "cannot secure $(basename "$1")"
 }
 
 cmd_telemetry() {

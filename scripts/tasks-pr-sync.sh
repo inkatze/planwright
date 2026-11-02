@@ -8,6 +8,12 @@
 # the Task 1 derivation engine (scripts/orchestrate-state.sh) and rewrites tasks.md
 # to match, then reconciles the bundle Status header (Ready/Active/Done) from the
 # same derivation across the four spec files (see do_status / STATUS_AWK below).
+# Emits: markdown
+#
+# Usage:
+#   tasks-pr-sync.sh                     the PostToolUse hook (the tool call on stdin)
+#   tasks-pr-sync.sh reconcile <spec-dir>
+#   tasks-pr-sync.sh reconcile-status <spec-dir>
 #
 # Two entry points share one reconcile:
 #   * PostToolUse(Bash) hook — invoked with NO arguments, reads the tool call

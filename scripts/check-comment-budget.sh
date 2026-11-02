@@ -172,7 +172,7 @@ fi
 [ -d "$root" ] || die "root is not a directory; failing closed"
 root=$(cd "$root" && pwd -P) || exit 2
 
-work=$(mktemp -d) || exit 2
+work=$(mktemp -d "${TMPDIR:-/tmp}/check-comment-budget.XXXXXX") || exit 2
 trap 'rm -rf "$work"' EXIT
 trap 'exit 2' HUP INT TERM
 

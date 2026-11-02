@@ -9,10 +9,14 @@
 # and a bump is a conscious edit in the PR that needs it.
 #
 # Three budgets, read from config/test-time-budget.yml: a per-file ceiling that
-# applies to every test file alike, a suite-total ceiling on the runner time
-# the whole suite took, and a per-shard ceiling on the slowest shard of a
-# sharded run. A measured time GREATER THAN OR EQUAL TO its budget trips, the
-# same boundary convention check-instructions uses.
+# applies to every test file alike, a ceiling on the mean file time over the
+# whole suite, and a per-shard ceiling on the slowest shard of a sharded run.
+# A measured time GREATER THAN OR EQUAL TO its budget trips, the same boundary
+# convention check-instructions uses. The mean, unlike a suite total, does not
+# grow with the file count: adding files is free, and only a suite that got
+# slower per file trips it. The same file holds the shard planner's target
+# (scripts/run-tests.sh --plan-shards), which this gate holds under the
+# per-shard ceiling so the planner never aims at a failing shard.
 #
 # The gate never runs the suite. It reads the timing report scripts/run-tests.sh
 # persists after each run (tests/.timing-report.tsv by default), so wiring it
@@ -33,12 +37,16 @@
 # Several reports, one per CI shard (scripts/run-tests.sh --shard), are judged
 # as one suite: --report repeats, the reports' file rows together must name
 # every discovered file exactly once, and each report must be well formed with
-# its own wall-clock row. The suite-total budget is judged on the wall-clocks
-# summed over the reports, so it measures the suite's growth whatever the
-# shard count, and one unsharded report (a local `mise run check`) is judged
-# on the same scale. The per-shard budget is judged on the slowest report's
-# wall-clock, the longest the aggregate status waits on any one runner, and
-# applies only when there are several reports.
+# its own wall-clock row. The mean is taken over every file row of every
+# report, so it reads the same whatever the shard count. The per-shard budget
+# is judged on the slowest report's wall-clock, the longest the aggregate
+# status waits on any one runner, and applies when there are several
+# reports or a lone one is a shard's (its header names the shard).
+#
+# A file the duration table has no row for is weighed at the mean by the
+# shard split and the planner, so a table missing more than
+# untimed_warn_percent of the suite warns (never fails) that it needs a
+# refresh. The table is read only for the default suite or with --durations.
 #
 # CI hard-fails, local warns. The budgets are measured on the reference runner
 # (GitHub Actions), and a dev box differs from it in core count, contention,
@@ -53,7 +61,7 @@
 #
 # Usage:
 #   check-test-time.sh [--mode ci|local] [--suite <dir>] [--report <path>]...
-#                      [--budget <path>] [--all]
+#                      [--budget <path>] [--durations <path>] [--all]
 #   check-test-time.sh --help | -h
 #
 # Exit codes: 0 within budget (or local mode), 1 a budget tripped in CI mode,
@@ -98,7 +106,7 @@ measured wall-clock reaches a committed budget.
 
 Usage:
   check-test-time.sh [--mode ci|local] [--suite <dir>] [--report <path>]...
-                     [--budget <path>] [--all]
+                     [--budget <path>] [--durations <path>] [--all]
   check-test-time.sh --help | -h
 
   --mode    ci: an overrun fails (exit 1). local: it warns loudly and exits 0.
@@ -109,13 +117,21 @@ Usage:
             (default: <suite>/.timing-report.tsv); repeat it for the
             reports of a sharded run, which are judged as one suite
   --budget  the committed budgets (default: <repo>/config/test-time-budget.yml)
+  --durations
+            the duration table the shard split reads, checked for files it
+            has no row for (default: <repo>/config/test-durations.tsv when
+            --suite is not given; none otherwise)
   --all     print every file in the ranked table, not only the slowest few
             (CI mode always prints every file so the log carries the baseline)
 
-Budgets: per_file_seconds applies to every file; suite_total_seconds applies to
-the runner's wall-clock for the whole run (with several reports, their sum);
-shard_wall_seconds applies to the slowest report's wall-clock, and only when
-there are several reports. Measured >= budget trips.
+Budgets: per_file_seconds applies to every file; suite_mean_file_seconds to
+the mean of every file's time; shard_wall_seconds to the slowest report's
+wall-clock, when there are several reports or a lone shard report. Measured >=
+budget trips.
+shard_target_seconds and shard_count_max are the shard planner's
+(scripts/run-tests.sh --plan-shards); the target must sit under
+shard_wall_seconds. More than untimed_warn_percent of the suite missing from
+the duration table warns, in both modes, and never fails.
 
 Never re-runs the suite: run `mise run test` (or `mise run check`, which orders
 this after it) to refresh the report.
@@ -136,16 +152,18 @@ mode=""
 suite=""
 reports=()
 budget=""
+durations=""
 show_all=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --mode | --suite | --report | --budget)
+    --mode | --suite | --report | --budget | --durations)
       [ "$#" -ge 2 ] || fail_closed "$1 needs a value (see --help)"
       case "$1" in
         --mode) mode="$2" ;;
         --suite) suite="$2" ;;
         --report) reports+=("$2") ;;
         --budget) budget="$2" ;;
+        --durations) durations="$2" ;;
       esac
       shift 2
       ;;
@@ -177,7 +195,10 @@ case "$mode" in
 esac
 [ "$mode" = ci ] && show_all=1
 
-[ -n "$suite" ] || suite="$repo_root/tests"
+if [ -z "$suite" ]; then
+  suite="$repo_root/tests"
+  [ -n "$durations" ] || durations="$repo_root/config/test-durations.tsv"
+fi
 [ "${#reports[@]}" -gt 0 ] || reports=("$suite/.timing-report.tsv")
 [ -n "$budget" ] || budget="$repo_root/config/test-time-budget.yml"
 safe_suite="$(sanitize_printable "$suite" "(unprintable path)")"
@@ -197,8 +218,11 @@ safe_budget="$(sanitize_printable "$budget" "(unprintable path)")"
 [ -r "$budget" ] || fail_closed "budget file not readable: $safe_budget"
 
 per_file=""
-suite_total=""
+suite_mean=""
 shard_wall=""
+shard_target=""
+shard_max=""
+untimed_warn=""
 is_positive_number() {
   case "$1" in
     '' | *[!0-9.]* | .* | *. | *.*.*) return 1 ;;
@@ -225,10 +249,30 @@ while IFS= read -r line || [ -n "$line" ]; do
       is_positive_number "$val" || fail_closed "per_file_seconds is not a positive number: $(sanitize_printable "$val" "(unprintable)")"
       per_file="$val"
       ;;
-    suite_total_seconds)
-      [ -z "$suite_total" ] || fail_closed "budget file sets suite_total_seconds twice"
-      is_positive_number "$val" || fail_closed "suite_total_seconds is not a positive number: $(sanitize_printable "$val" "(unprintable)")"
-      suite_total="$val"
+    suite_mean_file_seconds)
+      [ -z "$suite_mean" ] || fail_closed "budget file sets suite_mean_file_seconds twice"
+      is_positive_number "$val" || fail_closed "suite_mean_file_seconds is not a positive number: $(sanitize_printable "$val" "(unprintable)")"
+      suite_mean="$val"
+      ;;
+    shard_target_seconds)
+      [ -z "$shard_target" ] || fail_closed "budget file sets shard_target_seconds twice"
+      is_positive_number "$val" || fail_closed "shard_target_seconds is not a positive number: $(sanitize_printable "$val" "(unprintable)")"
+      shard_target="$val"
+      ;;
+    shard_count_max)
+      [ -z "$shard_max" ] || fail_closed "budget file sets shard_count_max twice"
+      case "$val" in
+        [1-9] | [1-9][0-9]) ;;
+        *) fail_closed "shard_count_max is not a whole number from 1 to 99: $(sanitize_printable "$val" "(unprintable)")" ;;
+      esac
+      shard_max="$val"
+      ;;
+    untimed_warn_percent)
+      [ -z "$untimed_warn" ] || fail_closed "budget file sets untimed_warn_percent twice"
+      if ! is_positive_number "$val" || ! awk -v p="$val" 'BEGIN { exit !(p + 0 <= 100) }'; then
+        fail_closed "untimed_warn_percent is not a positive number up to 100: $(sanitize_printable "$val" "(unprintable)")"
+      fi
+      untimed_warn="$val"
       ;;
     shard_wall_seconds)
       [ -z "$shard_wall" ] || fail_closed "budget file sets shard_wall_seconds twice"
@@ -241,8 +285,13 @@ while IFS= read -r line || [ -n "$line" ]; do
   esac
 done <"$budget"
 [ -n "$per_file" ] || fail_closed "budget file sets no per_file_seconds: $safe_budget"
-[ -n "$suite_total" ] || fail_closed "budget file sets no suite_total_seconds: $safe_budget"
+[ -n "$suite_mean" ] || fail_closed "budget file sets no suite_mean_file_seconds: $safe_budget"
 [ -n "$shard_wall" ] || fail_closed "budget file sets no shard_wall_seconds: $safe_budget"
+[ -n "$shard_target" ] || fail_closed "budget file sets no shard_target_seconds: $safe_budget"
+[ -n "$shard_max" ] || fail_closed "budget file sets no shard_count_max: $safe_budget"
+[ -n "$untimed_warn" ] || fail_closed "budget file sets no untimed_warn_percent: $safe_budget"
+awk -v t="$shard_target" -v w="$shard_wall" 'BEGIN { exit !(t + 0 < w + 0) }' \
+  || fail_closed "shard_target_seconds ($shard_target) is not under shard_wall_seconds ($shard_wall): the planner would aim every shard at a failing wall-clock"
 
 # --- Discovery -------------------------------------------------------------
 # The same glob scripts/run-tests.sh dispatches, so "every discovered file"
@@ -296,8 +345,8 @@ done
 
 # One awk pass validates the reports against the discovered set and emits
 # either `E<TAB>message` (the gate fails closed on the first) or the rows
-# (`R<TAB>name<TAB>seconds`), the slowest wall-clock (`W<TAB>seconds`), and
-# the wall-clocks' sum (`T<TAB>seconds`).
+# (`R<TAB>name<TAB>seconds`), the slowest wall-clock (`W<TAB>seconds`), the
+# wall-clocks' sum (`T<TAB>seconds`), and the mean file time (`M<TAB>seconds`).
 # With several reports a message names the report by its position.
 awk -F'\t' -v discovered="$work/discovered" -v nreports="${#operands[@]}" '
   BEGIN {
@@ -320,6 +369,7 @@ awk -F'\t' -v discovered="$work/discovered" -v nreports="${#operands[@]}" '
       print "E\t" (nreports > 1 ? "header of report " k : "report header") " is not a planwright-test-timing version 2 header (re-run `mise run test` to refresh it)"
       err = 1
     }
+    for (i = 3; i <= NF; i++) if ($i ~ /^shard=[0-9]+\/[0-9]+$/) shardrep = 1
     next
   }
   $1 == "file" {
@@ -376,8 +426,14 @@ awk -F'\t' -v discovered="$work/discovered" -v nreports="${#operands[@]}" '
     stale = ""
     for (n in extra) stale = stale " " n
     if (stale != "") { print "E\treport is stale: it names file(s) the suite no longer has:" stale; exit 0 }
-    for (n in seen) print "R\t" n "\t" seen[n]
+    files = 0
+    ftotal = 0
+    for (n in seen) { print "R\t" n "\t" seen[n]; files++; ftotal += seen[n] }
     print "W\t" wall
+    print "S\t" (shardrep ? 1 : 0)
+    mean = sprintf("%.3f", files ? ftotal / files : 0)
+    sub(/\.?0+$/, "", mean)
+    print "M\t" (mean == "" ? 0 : mean)
     total = sprintf("%.3f", total)
     sub(/\.?0+$/, "", total)
     print "T\t" total
@@ -391,9 +447,12 @@ fi
 
 wall="$(awk -F'\t' '$1 == "W" { print $2 }' "$work/parsed")"
 total="$(awk -F'\t' '$1 == "T" { print $2 }' "$work/parsed")"
-# One report is an unsharded run, which no shard ceiling applies to.
+mean="$(awk -F'\t' '$1 == "M" { print $2 }' "$work/parsed")"
+# One report from an unsharded run gets no shard ceiling; a lone shard report
+# (CI planning one shard) is still one runner's wait, so it does.
 sharded=0
 [ "${#operands[@]}" -eq 1 ] || sharded=1
+[ "$(awk -F'\t' '$1 == "S" { print $2 }' "$work/parsed")" != 1 ] || sharded=1
 grep "^R$tab" "$work/parsed" | sort -t "$tab" -k3,3nr >"$work/ranked" \
   || fail_closed "could not rank the report"
 count="$(wc -l <"$work/ranked" | tr -d ' ')"
@@ -406,7 +465,7 @@ limit=10
 [ "$show_all" -eq 1 ] && limit="$count"
 shard_desc=""
 [ "$sharded" -eq 0 ] || shard_desc=", per-shard budget ${shard_wall}s"
-echo "check-test-time: $count files ranked slowest-first (per-file budget ${per_file}s, suite-total budget ${suite_total}s$shard_desc, mode $mode)"
+echo "check-test-time: $count files ranked slowest-first (per-file budget ${per_file}s, mean-per-file budget ${suite_mean}s$shard_desc, mode $mode)"
 awk -F'\t' -v per_file="$per_file" -v limit="$limit" '
   {
     n++
@@ -415,34 +474,59 @@ awk -F'\t' -v per_file="$per_file" -v limit="$limit" '
   }
   END { if (n > limit) printf "  (%d more under budget; --all lists them)\n", n - limit }
 ' "$work/ranked" | tr -d '\000-\010\013\014\016-\037\177'
+echo "  mean file time ${mean}s over $count files (mean-per-file budget ${suite_mean}s)"
 if [ "$sharded" -eq 0 ]; then
-  echo "  suite wall-clock ${total}s (suite-total budget ${suite_total}s)"
+  echo "  suite wall-clock ${total}s"
 else
-  echo "  suite wall-clock ${total}s, summed over ${#operands[@]} reports (suite-total budget ${suite_total}s)"
+  echo "  suite wall-clock ${total}s, summed over ${#operands[@]} reports"
   echo "  slowest shard wall-clock ${wall}s (per-shard budget ${shard_wall}s)"
 fi
 
+# Advisory only: the table orders and splits, it never decides a verdict.
+if [ -n "$durations" ]; then
+  safe_durations="$(sanitize_printable "$durations" "(unprintable path)")"
+  if [ -f "$durations" ] && [ -r "$durations" ]; then
+    untimed="$(RT_DURATIONS="$durations" awk -F'\t' '
+      BEGIN {
+        table = ENVIRON["RT_DURATIONS"]
+        while ((getline line < table) > 0) {
+          if (line ~ /^#/ || split(line, f, "\t") != 2) continue
+          if (f[2] ~ /^[0-9]+(\.[0-9]+)?$/) timed[f[1]] = 1
+        }
+        close(table)
+      }
+      !($0 in timed) { n++ }
+      END { print n + 0 }
+    ' "$work/discovered")"
+    if awk -v u="$untimed" -v c="$count" -v p="$untimed_warn" 'BEGIN { exit !(u * 100 > c * p) }'; then
+      echo "check-test-time: WARNING: $untimed of $count files have no row in $safe_durations (over untimed_warn_percent ${untimed_warn}%); the shard split and planner weigh each at the mean, so refresh it: mise run test:refresh-durations" >&2
+    fi
+  else
+    echo "check-test-time: WARNING: no readable duration table at $safe_durations; the shard split and planner weigh every file alike" >&2
+  fi
+fi
+
 offenders="$(awk -F'\t' -v per_file="$per_file" '$3 + 0 >= per_file + 0 { printf " %s (%ss)", $2, $3 }' "$work/ranked" | tr -d '\000-\010\013\014\016-\037\177')"
-total_over=0
-awk -v w="$total" -v t="$suite_total" 'BEGIN { exit !(w + 0 >= t + 0) }' && total_over=1
+mean_over=0
+awk -v m="$mean" -v t="$suite_mean" 'BEGIN { exit !(m + 0 >= t + 0) }' && mean_over=1
 shard_over=0
 if [ "$sharded" -eq 1 ]; then
   awk -v w="$wall" -v t="$shard_wall" 'BEGIN { exit !(w + 0 >= t + 0) }' && shard_over=1
 fi
 
-if [ -z "$offenders" ] && [ "$total_over" -eq 0 ] && [ "$shard_over" -eq 0 ]; then
+if [ -z "$offenders" ] && [ "$mean_over" -eq 0 ] && [ "$shard_over" -eq 0 ]; then
   slowest="$(head -n 1 "$work/ranked" | cut -f3)"
   shard_clean=""
   [ "$sharded" -eq 0 ] || shard_clean="; slowest shard ${wall}s of per-shard budget ${shard_wall}s"
-  echo "check-test-time: clean ($count files; slowest ${slowest}s of per-file budget ${per_file}s; wall ${total}s of suite-total budget ${suite_total}s$shard_clean)"
+  echo "check-test-time: clean ($count files; slowest ${slowest}s of per-file budget ${per_file}s; mean ${mean}s of mean-per-file budget ${suite_mean}s$shard_clean)"
   exit 0
 fi
 
 reason=""
 [ -n "$offenders" ] && reason="file(s) at or over the per-file budget of ${per_file}s:$offenders"
-if [ "$total_over" -eq 1 ]; then
+if [ "$mean_over" -eq 1 ]; then
   [ -z "$reason" ] || reason="$reason; "
-  reason="${reason}suite wall-clock ${total}s at or over the suite-total budget of ${suite_total}s"
+  reason="${reason}mean file time ${mean}s at or over the mean-per-file budget of ${suite_mean}s"
 fi
 if [ "$shard_over" -eq 1 ]; then
   [ -z "$reason" ] || reason="$reason; "

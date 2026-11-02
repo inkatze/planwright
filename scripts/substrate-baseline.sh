@@ -1,6 +1,7 @@
 #!/bin/sh
 # substrate-baseline.sh — the script layer's maintenance-cost baseline, as a
 # dated snapshot regenerable from the tree.
+# Emits: markdown
 #
 # FIELDS, each counted on or before the --as-of date (UTC):
 #   commits     per calendar month, the non-merge commits reachable from HEAD

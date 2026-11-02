@@ -187,6 +187,7 @@ case $verb in
     # repo-tracked file the config reader refuses whole still fails the read,
     # its reason passed through, sanitized: it can carry a path.
     cg_err=$(mktemp "${TMPDIR:-/tmp}/mc-inbox.XXXXXX") || mc_fail "cannot create a scratch file"
+    # shell-config-pin: mission control's knobs live in the overlay layers of the checkout it runs from
     if ! layers=$(/bin/sh "$script_dir/config-get.sh" --layers mission_control_clipboard 2>"$cg_err"); then
       cg_why=$(head -c 400 "$cg_err" | tr '\n' ' ')
       rm -f "$cg_err"

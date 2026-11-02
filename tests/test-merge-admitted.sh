@@ -37,6 +37,12 @@ SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/merge-admitted.XXXXXX") || exit 1
 trap 'rm -rf "$SANDBOX"' EXIT
 # shellcheck source=tests/lib/merge-policy-fixture.sh
 . "$REPO_ROOT/tests/lib/merge-policy-fixture.sh"
+[ -r "$REPO_ROOT/tests/lib/emitter-lint.sh" ] || {
+  echo "FAIL: tests/lib/emitter-lint.sh missing" >&2
+  exit 1
+}
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 
 if [ ! -f "$HELPER" ]; then
   fail "the helper exists at scripts/merge-admitted.sh"
@@ -88,6 +94,7 @@ check "the record names the head" grep -q "$(mp_origin_head)" "$GHS/comment.$las
 for p in branch sign-off core-zone excluded-paths max-lines strategy awaiting-input review-converged ci-rollup ready-guard; do
   check "the record carries a passing row with evidence for $p" grep -Eq "^\| $p \| pass \| [^ |][^|]* \|$" "$GHS/comment.$last_comment"
 done
+check "the merge record passes the markdown lint" lint_emitted markdown merge-admitted.sh "$GHS/comment.$last_comment"
 check "the merge uses the resolved strategy" grep -q -- '--squash' <<<"$(merge_line)"
 check "the merge is pinned to the evaluated head" grep -q -- "--match-head-commit $(mp_origin_head)" <<<"$(merge_line)"
 check "the merge never deletes the branch" not grep -q -- '--delete-branch\|-d ' <<<"$(merge_line)"
@@ -131,6 +138,7 @@ check "one fall-through comment" [ "$(mp_calls 'pr comment')" = 1 ]
 check "the comment names the failed predicate" grep -q 'strategy' "$GHS/comment.1"
 check "the comment names on-approval" grep -q 'on-approval' "$GHS/comment.1"
 check "the comment names the approval act" grep -qi 'auto-merge' "$GHS/comment.1"
+check "the fall-through comment passes the markdown lint" lint_emitted markdown merge-admitted.sh "$GHS/comment.1"
 admit
 printf 'release-please--branches--main\n' >"$GHS/head_name"
 run

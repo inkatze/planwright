@@ -13,8 +13,10 @@
 # a failed dispatch produces a visible failure report and a nonzero exit,
 # never a silent drop (REQ-C1.5).
 #
-# Subcommands:
-#   dispatch <backend> <prompt-file>
+# Usage:
+#   offload-dispatch.sh dispatch <backend> <prompt-file> [--unit <id>]
+#       [--key <selection-key>] [--strict-tier] [--profile <kind>]
+#       [--name <name>] [--scope <scope>]
 #       Dispatch the petition in <prompt-file> to <backend> and emit the
 #       report. Drivable rungs:
 #         tmux   — `tmux new-window -d` running an interactive `claude` worker
@@ -43,6 +45,11 @@
 #                    fleet-dispatch-env.sh with that shipped settings profile,
 #                    resolved by scripts/fleet-launch-profile.sh; an
 #                    unreadable profile refuses the dispatch (exit 2)
+#         --mc-token <token>  (tmux only) the mission-control launcher's
+#                    row token, letters, digits and . _ -; handed to a
+#                    mission-control-profile window alone, and the only
+#                    source of one (an inherited PLANWRIGHT_MC_TOKEN is
+#                    dropped)
 #         --name <name>  (tmux only) the session and window name, in the
 #                    stream-json-persistent handle grammar
 #         --scope <scope>  (tmux only) the worker scope a worker-profile
@@ -51,7 +58,7 @@
 #                    and accepts inbound messages, and only a worker-profile
 #                    session carries the worker identity
 #
-#   report <backend> <handle>
+#   offload-dispatch.sh report <backend> <handle>
 #       Emit the standardized report for an already-dispatched worker (the
 #       harness-native rungs, or a re-report of a known handle). Backends:
 #       tmux, subagent.
@@ -153,7 +160,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 usage() {
-  printf '%s\n' "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] [--key <selection-key>] [--strict-tier] [--profile <kind>] [--name <name>] [--scope <scope>] | report <backend> <handle>>" >&2
+  printf '%s\n' "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] [--key <selection-key>] [--strict-tier] [--profile <kind>] [--mc-token <token>] [--name <name>] [--scope <scope>] | report <backend> <handle>>" >&2
 }
 
 # --------------------------------------------------------------------------
@@ -172,6 +179,7 @@ TIER_EFFORT=inherit
 D_KEY=offload
 D_STRICT=0
 D_PROFILE=''
+D_MC_TOKEN=''
 D_NAME=''
 D_SCOPE=offload
 D_SCOPE_SET=0
@@ -518,12 +526,12 @@ cmd_dispatch() {
     set -- "$@" "$launch_env" --root "$launch_root" --inbound accept
     # Only a worker carries the worker identity its hooks key on.
     [ "$D_PROFILE" != worker ] || [ -z "$D_NAME" ] || set -- "$@" --identity "$D_NAME" "$D_SCOPE"
-    # A tmux window starts from the server's environment, not this one, so
-    # the mission-control launcher's row token rides the argv, and only into
-    # a mission-control session. Any other window drops one the server's
-    # environment carries.
-    if [ "$D_PROFILE" = mission-control ] && [ -n "${PLANWRIGHT_MC_TOKEN:-}" ]; then
-      set -- "$@" env "PLANWRIGHT_MC_TOKEN=$PLANWRIGHT_MC_TOKEN"
+    # The mission-control launcher's row token is taken only as its explicit
+    # --mc-token, never from this environment, and rides the argv into a
+    # mission-control session alone: a tmux window starts from the server's
+    # environment, so every other window drops one that carries it.
+    if [ "$D_PROFILE" = mission-control ] && [ -n "$D_MC_TOKEN" ]; then
+      set -- "$@" env "PLANWRIGHT_MC_TOKEN=$D_MC_TOKEN"
     else
       set -- "$@" env -u PLANWRIGHT_MC_TOKEN
     fi
@@ -634,6 +642,20 @@ case "$sub" in
         --strict-tier)
           D_STRICT=1
           shift
+          ;;
+        --mc-token)
+          [ "$#" -ge 2 ] || {
+            usage
+            exit 2
+          }
+          case $2 in
+            '' | *[!A-Za-z0-9._-]*)
+              printf '%s\n' "$me: dispatch: --mc-token is one token of letters, digits and . _ -" >&2
+              exit 2
+              ;;
+          esac
+          D_MC_TOKEN=$2
+          shift 2
           ;;
         --profile)
           [ "$#" -ge 2 ] || {

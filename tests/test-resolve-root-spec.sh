@@ -670,7 +670,20 @@ mkdir -p "$tmp/mknl" "$tmp/mknl$nl"
 mark "$tmp/mknl"
 run base "$SH" "$RESOLVER" marker "$tmp/mknl$nl"
 assert_eq "marker kind: a path ending in a newline is not read as its marked sibling" "5|" "$rc|$out"
-for args in "marker" "marker $mk --primary" "marker $mk --posture" "marker $mk $mk"; do
+printf 'project:  spaced-id  \nlayout: 1\nproject: second\n' >"$mk/planwright-spec-root.yml"
+run base "$SH" "$RESOLVER" marker --project "$mk"
+assert_eq "marker kind: --project prints the first project field, trimmed" "0|spaced-id" "$rc|$out"
+run base "$SH" "$RESOLVER" marker "$mk" --project
+assert_eq "marker kind: --project may follow the directory" "0|spaced-id" "$rc|$out"
+run base "$SH" "$RESOLVER" marker --project "$tmp/mknl"
+assert_eq "marker kind: --project prints the plain project field" "0|fixture" "$rc|$out"
+run base "$SH" "$RESOLVER" marker --project "$tmp/absent"
+assert_eq "marker kind: --project on an unmarked directory prints nothing" "5|" "$rc|$out"
+printf 'project: Bad\nlayout: 1\n' >"$tmp/mknl/planwright-spec-root.yml"
+run base "$SH" "$RESOLVER" marker --project "$tmp/mknl"
+assert_eq "marker kind: --project on an invalid marker prints nothing" "5|" "$rc|$out"
+for args in "marker" "marker $mk --primary" "marker $mk --posture" "marker $mk $mk" \
+  "--explain marker --project $mk" "spec --project" "repo --primary --project" "install --project"; do
   # shellcheck disable=SC2086 # one argument per word
   run base "$SH" "$RESOLVER" $args
   assert_eq "marker kind: usage error for '$args'" 2 "$rc"

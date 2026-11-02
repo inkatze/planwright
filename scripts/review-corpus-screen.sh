@@ -24,12 +24,21 @@
 # needs the original comment, which only the refresh holds, so the refresh
 # checks it at write time (review-backtest-refresh.sh).
 #
+# --text runs only the product-name check, over prose rather than a corpus:
+# every regular file under each path given (directories walked recursively,
+# a symlink anywhere or a file holding a NUL byte refused), its name and
+# each line. It is the operator-local screen over committed prose such as the
+# observation fragments, so it requires the list; a refusal names the file and
+# line, never the matched text, though a file-name refusal's path carries it.
+#
 # Usage:
 #   review-corpus-screen.sh [--names <file>] [--require-names] <corpus.tsv>
+#   review-corpus-screen.sh --text --names <file> <path>...
 #
-# Exit codes: 0 every row passes; 1 one or more rows refused (each named on
-# stderr); 2 usage error, an unreadable corpus or list, a wrong header, or a
-# corpus with zero rows.
+# Exit codes: 0 every row (or file) passes; 1 one or more refused (each named
+# on stderr); 2 usage error, an unreadable corpus, list or path, a wrong
+# header, or a corpus with zero rows (or, in --text, paths holding no files,
+# a symlink or other non-regular file, or a file holding a NUL byte).
 set -eu
 LC_ALL=C
 export LC_ALL
@@ -41,12 +50,14 @@ here=$(cd "$(dirname "$0")" && pwd)
 . "$here/review-backtest-lib.sh"
 
 usage() {
-  printf '%s\n' "usage: $prog [--names <file>] [--require-names] <corpus.tsv>" >&2
+  printf '%s\n' "usage: $prog [--names <file>] [--require-names] <corpus.tsv>" \
+    "       $prog --text --names <file> <path>..." >&2
   exit 2
 }
 
 names=
 require_names=0
+text=0
 corpus=
 while [ $# -gt 0 ]; do
   case $1 in
@@ -59,29 +70,172 @@ while [ $# -gt 0 ]; do
       require_names=1
       shift
       ;;
-    -h | --help) usage ;;
-    -*) usage ;;
-    *)
-      [ -z "$corpus" ] || usage
-      corpus=$1
+    --text)
+      text=1
       shift
       ;;
+    --)
+      shift
+      break
+      ;;
+    -h | --help) usage ;;
+    -*) usage ;;
+    *) break ;;
   esac
 done
-[ -n "$corpus" ] || usage
-
-if [ ! -f "$corpus" ] || [ ! -r "$corpus" ]; then
-  printf '%s\n' "$prog: corpus file not readable" >&2
-  exit 2
+[ $# -ge 1 ] || usage
+if [ "$text" -eq 0 ]; then
+  [ $# -eq 1 ] || usage
+  corpus=$1
+  if [ ! -f "$corpus" ] || [ ! -r "$corpus" ]; then
+    printf '%s\n' "$prog: corpus file not readable" >&2
+    exit 2
+  fi
 fi
 if [ -n "$names" ]; then
   if [ ! -f "$names" ] || [ ! -r "$names" ]; then
     printf '%s\n' "$prog: product-name list not readable" >&2
     exit 2
   fi
+elif [ "$text" -eq 1 ]; then
+  printf '%s\n' "$prog: --text needs a product-name list (--names)" >&2
+  exit 2
 elif [ "$require_names" -eq 1 ]; then
   printf '%s\n' "$prog: --require-names given but no product-name list (--names)" >&2
   exit 2
+fi
+if [ -n "$names" ]; then
+  usable=$(awk '{ sub(/^[ \t]+/, ""); sub(/[ \t\r]+$/, "") } $0 != "" && substr($0, 1, 1) != "#" { n++ } END { print n + 0 }' "$names")
+  # An empty list would pass every row while claiming the product check ran.
+  [ "$usable" -gt 0 ] || {
+    printf '%s\n' "$prog: the product-name list holds no names" >&2
+    exit 2
+  }
+fi
+
+# The list loader and the case-insensitive whole-word matcher both modes share.
+# A name matches only where the bytes either side are not [a-z0-9], so a name
+# inside a longer word passes.
+names_awk='
+function loadnames(   line) {
+  if (namesf == "") return
+  while ((getline line < namesf) > 0) {
+    sub(/^[ \t]+/, "", line); sub(/[ \t\r]+$/, "", line)
+    if (line != "" && substr(line, 1, 1) != "#") name[++nnames] = tolower(line)
+  }
+  close(namesf)
+}
+function named(text,    t, i, n, nm, pre, post, s, off, at) {
+  t = tolower(text)
+  for (i = 1; i <= nnames; i++) {
+    nm = name[i]
+    s = t
+    off = 0
+    while ((n = index(s, nm)) > 0) {
+      at = off + n
+      pre = (at == 1) ? "" : substr(t, at - 1, 1)
+      post = substr(t, at + length(nm), 1)
+      if (pre !~ /[a-z0-9]/ && post !~ /[a-z0-9]/) return 1
+      off = at
+      s = substr(t, off + 1)
+    }
+  }
+  return 0
+}
+'
+
+if [ "$text" -eq 1 ]; then
+  T=$(mktemp -d "${TMPDIR:-/tmp}/rcs.XXXXXX") || exit 2
+  trap 'rm -rf "$T"' EXIT
+  : >"$T/files"
+  for p in "$@"; do
+    # A leading ./ keeps a path named - from reading as stdin in awk's getline.
+    case $p in /*) ;; *) p=./$p ;; esac
+    # find -type f skips a symlink, so one would pass unscreened; refuse it
+    # rather than read through it, as check-obs.sh does. A trailing slash
+    # would make -L test the link's target, so it is tested without one.
+    q=$p
+    while :; do case $q in ?*/) q=${q%/} ;; *) break ;; esac done
+    if [ -L "$q" ]; then
+      printf '%s\n' "$prog: a path is a symlink" >&2
+      exit 2
+    fi
+    if [ -d "$p" ]; then
+      # A subdirectory find cannot read would otherwise drop out unscreened.
+      find "$p" ! -type d ! -type f -print >"$T/found" || {
+        printf '%s\n' "$prog: path not readable" >&2
+        exit 2
+      }
+      if [ -s "$T/found" ]; then
+        printf '%s\n' "$prog: a path holds a symlink or other non-regular file" >&2
+        exit 2
+      fi
+      find "$p" -type f -print >"$T/found" || {
+        printf '%s\n' "$prog: path not readable" >&2
+        exit 2
+      }
+      sort "$T/found" >>"$T/files"
+    elif [ -f "$p" ] && [ -r "$p" ]; then
+      printf '%s\n' "$p" >>"$T/files"
+    else
+      printf '%s\n' "$prog: path not readable" >&2
+      exit 2
+    fi
+  done
+  nfiles=$(awk 'END { print NR + 0 }' "$T/files")
+  if [ "$nfiles" -eq 0 ]; then
+    printf '%s\n' "$prog: the paths hold no files" >&2
+    exit 2
+  fi
+  # awk ends a line at a NUL on some implementations, so a name after one
+  # would pass unseen; a file holding one is refused rather than screened.
+  # One pass over every file finds whether any holds a NUL (a per-file screen
+  # costs seconds over the fragment tree); only then does the shared per-file
+  # screen run, to name the file. An unreadable file drops out of both counts
+  # alike and is refused by the read below.
+  total=$(tr '\n' '\000' <"$T/files" | xargs -0 cat 2>/dev/null | wc -c) || total=
+  kept=$(tr '\n' '\000' <"$T/files" | xargs -0 cat 2>/dev/null | tr -d '\000' | wc -c) || kept=
+  if [ -z "$total" ] || [ -z "$kept" ]; then
+    printf '%s\n' "$prog: the NUL screen could not read the files" >&2
+    exit 2
+  fi
+  if [ "$total" -ne "$kept" ]; then
+    # shellcheck source=scripts/spec-parse.sh
+    . "$here/spec-parse.sh" || exit 2
+    while IFS= read -r f; do
+      spec_parse__nul_screen "$f" || exit 2
+    done <"$T/files"
+    printf '%s\n' "$prog: a file holds a NUL byte" >&2
+    exit 2
+  fi
+  # Each file is read as data: its name screened in BEGIN (an empty file has
+  # no first record), then every line. Every non-printable byte in the path,
+  # C1 included, is masked before it reaches stderr.
+  set +e
+  awk -v prog="$prog" -v namesf="$names" -v list="$T/files" "$names_awk"'
+function show(p) { gsub(/[^[:print:]]/, "?", p); return p }
+function base(p) { sub(/.*\//, "", p); return p }
+BEGIN {
+  loadnames()
+  while ((getline f < list) > 0) {
+    if (named(base(f))) { printf "%s: %s: file name names a listed product\n", prog, show(f) > "/dev/stderr"; bad++ }
+    while ((r = (getline line < f)) > 0) {
+      n++
+      if (named(line)) { printf "%s: %s:%d: names a listed product\n", prog, show(f), n > "/dev/stderr"; bad++ }
+    }
+    if (r < 0) { printf "%s: %s: not readable\n", prog, show(f) > "/dev/stderr"; err = 1 }
+    close(f)
+    n = 0
+  }
+  close(list)
+  if (err) exit 2
+  if (bad > 0) { printf "%s: %d refusal(s)\n", prog, bad > "/dev/stderr"; exit 1 }
+}'
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || exit "$rc"
+  printf '%s\n' "$prog: $nfiles file(s) pass"
+  exit 0
 fi
 
 first=$(sed -n 1p "$corpus")
@@ -95,14 +249,6 @@ if [ "$rows" -eq 0 ]; then
   exit 2
 fi
 
-if [ -n "$names" ]; then
-  usable=$(awk '{ sub(/^[ \t]+/, ""); sub(/[ \t\r]+$/, "") } $0 != "" && substr($0, 1, 1) != "#" { n++ } END { print n + 0 }' "$names")
-  # An empty list would pass every row while claiming the product check ran.
-  [ "$usable" -gt 0 ] || {
-    printf '%s\n' "$prog: the product-name list holds no names" >&2
-    exit 2
-  }
-fi
 if [ -z "$names" ]; then
   printf '%s\n' "$prog: product-name screen skipped (no name list; the refresh requires one)" >&2
 fi
@@ -119,40 +265,17 @@ function refuse(rule) {
   printf "%s: %s: %s\n", prog, where, rule > "/dev/stderr"
   bad++
 }
-function hygiene(field, text,    t, i, n, nm, pre, post, s, off, at) {
+function hygiene(field, text) {
   if (text ~ /(^|[^A-Za-z0-9_.-])@[A-Za-z0-9][A-Za-z0-9-]*/ || text ~ /\[bot\]/)
     refuse(field " carries a reviewer login or bot marker")
   if (text ~ /[A-Za-z][A-Za-z0-9+.-]*:\/\//)
     refuse(field " carries a url")
   if (text ~ /(^|[^A-Za-z0-9_.-])(\/home\/|\/Users\/|\/root\/|~\/)/)
     refuse(field " carries a home path")
-  t = tolower(text)
-  for (i = 1; i <= nnames; i++) {
-    nm = name[i]
-    s = t
-    off = 0
-    while ((n = index(s, nm)) > 0) {
-      at = off + n
-      pre = (at == 1) ? "" : substr(t, at - 1, 1)
-      post = substr(t, at + length(nm), 1)
-      if (pre !~ /[a-z0-9]/ && post !~ /[a-z0-9]/) {
-        refuse(field " names a listed product")
-        return
-      }
-      off = at
-      s = substr(t, off + 1)
-    }
-  }
+  if (named(text)) refuse(field " names a listed product")
 }
-BEGIN {
-  if (namesf != "") {
-    while ((getline line < namesf) > 0) {
-      sub(/^[ \t]+/, "", line); sub(/[ \t\r]+$/, "", line)
-      if (line != "" && substr(line, 1, 1) != "#") name[++nnames] = tolower(line)
-    }
-    close(namesf)
-  }
-}
+'"$names_awk"'
+BEGIN { loadnames() }
 FNR == 1 { next }
 $0 == "" { next }
 {

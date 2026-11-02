@@ -8,6 +8,7 @@
 # holds and where it folds; doctrine/gate-wiring.md owns the checklist format.
 # This header pins what those docs delegate here: the verbs, the storage
 # layout, the excerpt bound, the screen action, and the rendered shapes.
+# Emits: markdown
 #
 # Usage:
 #   step-record.sh [--worktree <dir>] new-run
@@ -593,14 +594,14 @@ clean() {
   # iconv's status differs across platforms when it drops input, so it is
   # not read; its presence is checked once, at startup.
   iconv -c -f UTF-8 -t UTF-8 <"$2.t" >"$2.1" 2>/dev/null
-  rm -f "$2.0" "$2.t"
+  rm -f -- "$2.0" "$2.t"
   while :; do
     sed "$INVIS_SED" <"$2.1" >"$2.2" || die 1 "cannot clean text"
     cmp -s "$2.1" "$2.2" && break
-    mv "$2.2" "$2.1" || die 1 "cannot clean text"
+    mv -- "$2.2" "$2.1" || die 1 "cannot clean text"
   done
-  mv "$2.1" "$2" || die 1 "cannot clean text"
-  rm -f "$2.2"
+  mv -- "$2.1" "$2" || die 1 "cannot clean text"
+  rm -f -- "$2.2"
 }
 
 # clean_value <value>: sets CLEANED to the cleaned value.

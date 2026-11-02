@@ -4,6 +4,7 @@
 # D-14, D-15). usage() below lists each subcommand, its output lines and the
 # gap kinds; doctrine/inception-format.md owns gate records, scopes, lineage
 # keys and the location forms written to the bundle.
+# Emits: markdown
 #
 # The outcome is always the caller's: nothing here picks one, a tripped kill
 # criterion only prints a `prompt` line, and Graduate is refused while the
@@ -1217,7 +1218,7 @@ spec_dir() {
   check_dir_arg "$1" "the spec directory"
   [ ! -L "$1" ] || die 1 "the spec directory is a symbolic link; name the directory itself"
   [ -d "$1" ] || die 1 "no spec directory at $(sanitize_printable "$1" '?')"
-  (cd -P "$1" && pwd -P) || die 2 "cannot enter the spec directory"
+  (cd -P -- "$1" && pwd -P) || die 2 "cannot enter the spec directory"
 }
 
 cmd_link() {

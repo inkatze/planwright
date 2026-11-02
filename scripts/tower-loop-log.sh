@@ -4,7 +4,8 @@
 # `tower-queue.sh log`, which owns the lock, the sequence, the bounded wait,
 # the redaction and the tick coalescing.
 #
-#   tick [--tower <id>] [--now <epoch>]
+# Usage:
+#   tower-loop-log.sh tick [--tower <id>] [--now <epoch>]
 #       One pass of the loop: count the live workers and append a `tick`
 #       carrying that count. A worker is live when its row in the fleet's
 #       attention store (`<fleet-home>/attention/state`, the surface every
@@ -20,7 +21,7 @@
 #       so a steady fleet costs one line per count change and the scorecard's
 #       fleet hours come from these spans. Prints `tick<TAB>live=<n>` on
 #       success.
-#   delivered [--tower <id>] [--asks <n>] [--item <id>] [--now <epoch>]
+#   tower-loop-log.sh delivered [--tower <id>] [--asks <n>] [--item <id>] [--now <epoch>]
 #             (text on stdin)
 #       A turn the tower delivered to the operator: the text is flattened to
 #       one line of printable bytes, bounded to the log's value cap, and
@@ -29,7 +30,8 @@
 #       or array (which the log verb refuses as nesting) lands without its
 #       text, marked `text_omitted`. Prints nothing on success.
 #
-#       `--item` names the queue item the turn carried, and it is what keeps
+#       `--item` names the queue item the turn carried (a pair's or a batch's
+#       first `item` line), and it is what keeps
 #       the scorecard honest about a queue-backed turn: the `next` that handed
 #       the item over already logged its own `delivered` line with that item,
 #       and the report counts a line with no item as a PROSE delivery. Logging

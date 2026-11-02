@@ -1,0 +1,9 @@
+# expect-line: none
+# Guarded, non-positional and masked forms.
+set -u
+mkdir -p -- "$1/out" || exit 2
+cd -- "$1" || exit 2
+rm -f "$tmp/x"
+printf '%s\n' "cd $1 failed" >&2
+cp -- "$1" "$2"
+cd "$1" # shell-dash-operand: the caller validated an absolute path above

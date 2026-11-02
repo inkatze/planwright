@@ -52,6 +52,8 @@ trap cleanup EXIT
 
 # shellcheck source=tests/lib/mission-control-fixture.sh
 . "$here/lib/mission-control-fixture.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$here/lib/emitter-lint.sh"
 reset_mc_fixture
 cp "$repo_root/config/defaults.yml" "$core/config/defaults.yml"
 for p in worker tower mission-control; do
@@ -154,7 +156,7 @@ ml() {
     -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
     -u XDG_CONFIG_HOME -u TMUX -u TMUX_PANE -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
     -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID -u PLANWRIGHT_TOWER_PID \
-    PATH="$tmp/bin:$PATH" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" \
+    PATH="$tmp/bin:$PATH" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="${ML_REPO_ROOT-$repo}" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \
     CLAUDE_DIR="$tmp/claude" HOME="$fixhome" PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
@@ -251,6 +253,19 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
     *" $want_tier "*) ok "[$kind] the session runs at its key's tier ($want_tier)" ;;
     *) fail "[$kind] the session's argv lacks its key's tier '$want_tier': $argv" ;;
   esac
+  case $kind in
+    tower | mission-control) want_key=orchestrate_dispatch ;;
+    orchestrator) want_key=bookkeeping ;;
+    worker) want_key=execution ;;
+    reviewer) want_key=execute_step ;;
+    ad-hoc) want_key=offload ;;
+  esac
+  if [ "$(cat "$fleet/streamjson/$name/tier_key" 2>/dev/null)" = "$want_key" ] \
+    && [ "$(cat "$fleet/streamjson/$name/tier_unit" 2>/dev/null)" = "mission-control:$name" ]; then
+    ok "[$kind] the launch records its tier key and unit for a relaunch"
+  else
+    fail "[$kind] the launch did not record tier key $want_key and unit mission-control:$name"
+  fi
   # Only a mission-control session holds its row's token, which is what
   # binds a decided-by-mission-control item to the row (tower-comms REQ-A1.14).
   row_token=$(awk -F "$TAB" '$1 == "token" { print $2; exit }' "$row")
@@ -278,6 +293,12 @@ SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope rules-cas
 [ "$RC" = 0 ] || fail "the --rules launch exited $RC: $ERR"
 wait_for "$rec/stdin" && grep -qF 'Docs need review' "$rec/stdin" \
   && ok "a --rules scope adds its rules to the brief" || fail "the --rules scope's rule did not reach the session"
+rules_brief="$fleet/mission-control/launch/$(field name)/brief.md"
+if lint_emitted markdown mission-control-launch.sh "$rules_brief"; then
+  ok "the composed brief with program and scope rules lints clean as markdown"
+else
+  fail "the composed brief fails the markdown lint: $rules_brief"
+fi
 wait_done "$(field name)"
 
 # No item handed back names a pane, window or attach hint.
@@ -298,6 +319,27 @@ mt_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$mt_row")
 mt_token=$(awk -F "$TAB" '$1 == "token" { print $2; exit }' "$mt_row")
 grep -qxF "PLANWRIGHT_MC_TOKEN=$mt_token" "$tmp/tmux/argv-$mt_handle" && ok "a tmux mission-control session is launched holding its row's token" \
   || fail "the tmux mission-control window's argv does not carry its row's token: $(tr '\n' ' ' <"$tmp/tmux/argv-$mt_handle" 2>/dev/null)"
+
+# A stream-json launch resolves its tier in the directory the session runs in,
+# as the tmux rung and a relaunch do, not in the launcher's own directory.
+other="$tmp/other-repo"
+mkdir -p "$other/.claude"
+git -C "$other" init -q
+printf '%s\n' 'allocation_model_orchestrate_dispatch: opus' 'allocation_effort_orchestrate_dispatch: high' >"$other/.claude/planwright.yml"
+rec="$tmp/rec-cwd-tier"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ML_REPO_ROOT='' ml launch --program alpha --kind tower --scope cwd-tier --brief "$tmp/brief.md" --cwd "$other"
+if [ "$RC" != 0 ]; then
+  fail "the launch into another repository exited $RC: $ERR"
+elif ! wait_for "$rec/stdin"; then
+  fail "the launch into another repository never reached its session"
+else
+  case " $(cat "$rec/argv") " in
+    *" --model opus --effort high "*) ok "a stream-json launch resolves its tier in the session's directory" ;;
+    *) fail "the launch tier was not resolved in --cwd: $(cat "$rec/argv")" ;;
+  esac
+fi
+wait_done "$(field name)"
 
 # ---------------------------------------------------------------------------
 # REQ-M1.7: the same inputs yield the same name; a held name refuses.

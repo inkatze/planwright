@@ -683,12 +683,27 @@ baseline exists, so the experiment has an honest before.
   workspace is at its monthly review limit (reviews resume 2026-11-05), so no
   cubic round has run on the PR, and the ready flip needs one on the current
   head; the operator runs the cubic and panel rounds from another session.
-  Three review forks also wait in the PR body for direction: NHJ-1 (the
-  rebuild judging a default against a re-forked row), NHJ-2 (`revoke`
-  reopening a default beside a newer question), and NHJ-3, a security-design
-  finding (the mission-control token following the caller's environment on
-  `recover` and direct launches). Record:
-  `.claude/steps/000002/005-step-post-pr.rec`.
+  Record: `.claude/steps/000002/005-step-post-pr.rec`.
+- **Task 12** — the post-PR cubic review round (step `cubic-pr`) is halted:
+  the cubic workspace quota is exhausted until 2026-11-05. Draft PR #763
+  carries the implementation and both convergence rounds. Operator: run the
+  cubic round and the panel from another session, then the ready flip once
+  CI is green and the PR is mergeable, and remove this bullet.
+
+- **Task 13** — parked at post-pr, step `cubic-pr` halted
+  (`.claude/steps/000001/008-step-post-pr.rec`): the cubic quota is
+  exhausted until 2026-11-05, so PR #771 waits for the operator's cubic and
+  panel rounds. Also queued there: CI's suite-time gate is already over
+  budget on main, and the new batch test adds to it; the PR body lists the
+  three options.
+
+- **Task 14** — parked at post-pr, step `cubic-pr` halted
+  (`.claude/steps/000001/008-step-post-pr.rec`): the cubic quota is
+  exhausted until 2026-11-05, and the operator's secondary review stands in
+  for it (operator ruling 2026-11-01). Draft PR #789 carries the
+  implementation and the convergence round. Operator: run the secondary
+  review on the current head from another session, then the ready flip once
+  CI is green and the PR is mergeable, and remove this bullet.
 
 ## Deferred
 

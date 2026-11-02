@@ -3,6 +3,8 @@
 # store (observation-recording Task 3, REQ-C1.4, REQ-B1.3, REQ-D1.3; D-1, D-4,
 # D-7). Exposed as the mise task `obs:log`.
 #
+# Emits: markdown
+#
 # The observations "log" is not a committed file — it is this render, produced
 # on demand as a pure, byte-deterministic function of the live fragments under
 # entries/ (plus the frozen legacy file's unconsumed lines while it drains, and

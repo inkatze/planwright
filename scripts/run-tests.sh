@@ -7,10 +7,10 @@
 # one-line ok/FAIL markers share the parent's streams and stay whole
 # under PIPE_BUF). The gate semantics match the old serial loop: any failing
 # file fails the run; every failing file is named and its captured log is
-# printed at the end. All files always run to completion (no mid-run
-# abort), so one failure never hides another. Completion accounting is
-# positive: a file that never produced a verdict marker (worker killed,
-# never dispatched) is a failure, never a silent green.
+# printed at the end. The run never aborts midway: every file runs, to its
+# end or its deadline, so one failure never hides another. Completion
+# accounting is positive: a file that never produced a verdict marker
+# (worker killed, never dispatched) is a failure, never a silent green.
 #
 # Parallelism comes from `xargs -P` (POSIX-optional but present on macOS
 # and GNU userlands alike); when the probe finds no working -P — or
@@ -47,6 +47,22 @@
 # too: a file with a verdict but no timing record fails the run, so the
 # report never carries a silent hole.
 #
+# Per-file deadline: each file runs under timeout(1), or gtimeout where only
+# Homebrew's coreutils provides it, so one file that never returns cannot hold
+# its ticket, or the whole-suite lock its run sits under, indefinitely. The
+# bound counts from the moment the file holds its ticket. A file still running
+# at the deadline gets TERM, then KILL ten seconds later if the file itself is
+# still running, and is recorded as failed with a message naming it and the
+# deadline; its ticket is returned as for any other file. GNU timeout signals
+# the file's whole process group; busybox's signals the file alone, leaving
+# anything it started to run on, and passes on its status, so a file that
+# traps that TERM and exits 0 counts as passed. GNU's group is not the
+# terminal's, so a worker that gets INT, TERM or HUP passes TERM on to its
+# file, and KILL ten seconds later, before it releases the ticket and dies of
+# the signal itself. A host with no usable tool (neither installed, or none
+# taking -k) costs one warning and unbounded files. A nested runner inherits
+# PLANWRIGHT_TEST_FILE_DEADLINE and bounds its own files the same way.
+#
 # Sharding: --shard <i>/<N> runs only shard i of N, so CI can split the suite
 # across parallel jobs. The split is longest-first onto the least-loaded
 # shard (ties to the lower shard) by the same duration table the queue order
@@ -57,7 +73,14 @@
 # only, its header naming the shard; scripts/check-test-time.sh takes every
 # shard's report at once and requires the union to cover the suite.
 #
-# Usage: run-tests.sh [--shard <i>/<N>] [suite-dir]
+# Planning: --plan-shards runs nothing. It predicts the suite's time from the
+# same table (an untimed file again weighing the mean), divides it by this
+# machine's parallelism times shard_target_seconds from the budget file, and
+# prints the shard list CI's matrix takes, `[1,2,...,N]`, N rounded up and
+# capped at shard_count_max. Run it on the runner type the shards use, since
+# the parallelism is this machine's.
+#
+# Usage: run-tests.sh [--shard <i>/<N> | --plan-shards] [suite-dir]
 #        (default suite: <repo-root>/tests)
 # Exit:  0 all pass · 1 any test failed or lost · 2 usage or environment
 #        error (bad suite dir, mktemp or self-path resolution failure, a
@@ -70,12 +93,18 @@
 #   PLANWRIGHT_TEST_SLOT_DIR       the pool directory, for the runner's own
 #                                  tests (default: ${XDG_STATE_HOME:-$HOME/
 #                                  .local/state}/planwright/test-slots)
+#   PLANWRIGHT_TEST_FILE_DEADLINE  seconds a file may run (default 900); an
+#                                  empty or non-numeric value, 0, or one past
+#                                  nine digits warns once and uses the default
 #   PLANWRIGHT_TEST_FORCE_SERIAL   1 forces the serial fallback path
 #   PLANWRIGHT_TEST_TIMING_REPORT  where to persist the timing report
 #                                  (default: <suite-dir>/.timing-report.tsv)
 #   PLANWRIGHT_TEST_DURATIONS      the duration table the queue is ordered
 #                                  by (default: <repo-root>/config/
 #                                  test-durations.tsv; empty disables it)
+#   PLANWRIGHT_TEST_BUDGET         the budget file --plan-shards reads
+#                                  (default: <repo-root>/config/
+#                                  test-time-budget.yml)
 #   PLANWRIGHT_FLEET_STATE_DIR     replaced per file by a sentinel fleet home
 #   CLAUDE_PLUGIN_DATA, CLAUDE_DIR (the latter two only when set); a file that
 #                                  creates anything in that home fails
@@ -88,6 +117,11 @@
 #   PLANWRIGHT_TEST_POOL_SLOTS     (both empty for an unpooled run)
 #   PLANWRIGHT_TEST_LOG_DIR        internal: parent-to-worker log dir handoff
 #   PLANWRIGHT_TEST_CLOCK          internal: parent-to-worker clock handoff
+#   PLANWRIGHT_TEST_BOUND_SECONDS  internal: parent-to-worker deadline and
+#   PLANWRIGHT_TEST_BOUND_TOOL     bounding tool handoff (tool empty:
+#                                  unbounded)
+#   PLANWRIGHT_TEST_BOUND_ENV      internal: an env taking --default-signal,
+#                                  or empty
 set -u
 unset CDPATH
 
@@ -212,9 +246,43 @@ take_slot() {
   done
 }
 
-# worker_signal <SIG> — release every ticket, then die by <SIG> itself.
+# worker_signal <SIG> — end the bounded file (see the header), wait for it so
+# its ticket is not handed on while it still runs, release every ticket, then
+# die by <SIG> itself.
 worker_signal() {
-  pw_lock_release_all
+  # $! covers a signal landing between the launch and child_pid's assignment;
+  # a repeated signal reuses what the first one resolved, since $! may by
+  # then name that handler's killer.
+  ws_pid=${child_pid:-$ws_target}
+  [ -n "$ws_pid" ] || [ "$bounding" -eq 0 ] || ws_pid=$!
+  ws_target=$ws_pid
+  if [ -n "$ws_pid" ]; then
+    # TERM whatever arrived: uutils' timeout answers a HUP by killing the file
+    # outright, with no chance to clean up. The group is timeout's own; the
+    # pid alone is the file under busybox, which makes no group.
+    kill -s TERM -- "-$ws_pid" 2>/dev/null || kill -s TERM "$ws_pid" 2>/dev/null
+    # busybox's timeout grants no grace for a TERM it did not send. One killer
+    # at a time: a repeated signal re-enters here and the first handler never
+    # resumes to cancel its own. It is cancelled by USR1, which the worker does
+    # not trap (for an instant after the fork the subshell still runs the
+    # worker's TERM trap), takes its sleep with it, and stays off the run's
+    # output, which the sleep would otherwise hold open.
+    [ -z "$ws_killer" ] || kill -s USR1 "$ws_killer" 2>/dev/null
+    (
+      trap 'kill "$wk_sleep" 2>/dev/null; exit 0' USR1
+      sleep 10 &
+      wk_sleep=$!
+      wait "$wk_sleep" || {
+        kill "$wk_sleep" 2>/dev/null
+        exit 0
+      }
+      kill -s KILL -- "-$ws_pid" 2>/dev/null || kill -s KILL "$ws_pid" 2>/dev/null
+    ) >/dev/null 2>&1 </dev/null &
+    ws_killer=$!
+    wait "$ws_pid" 2>/dev/null
+    kill -s USR1 "$ws_killer" 2>/dev/null
+  fi
+  [ "$lock_loaded" -eq 0 ] || pw_lock_release_all
   trap - "$1"
   kill -s "$1" "$$"
 }
@@ -233,17 +301,32 @@ if [ "${1:-}" = "--run-one" ]; then
   [ -n "$clock" ] || clock="$(probe_clock)"
   wait_started="$(now_ms)"
   slot_path=""
+  child_pid=""
+  bounding=0
+  ws_target=""
+  ws_killer=""
+  lock_loaded=0
+  # The parent hands over a normalized value; anything else runs unbounded.
+  deadline="${PLANWRIGHT_TEST_BOUND_SECONDS:-}"
+  deadline_tool="${PLANWRIGHT_TEST_BOUND_TOOL:-}"
+  deadline_env="${PLANWRIGHT_TEST_BOUND_ENV:-}"
+  case "$deadline" in
+    '' | *[!0-9]* | 0*) deadline_tool="" ;;
+  esac
+  # The traps pass an interrupt on to a bounded file and release the ticket; a
+  # SIGKILL leaves the ticket to the next run's dead-holder reclaim. They
+  # re-raise rather than exit (pw_lock_trap_install's form): a serial parent
+  # that sees a plain exit assumes the file handled the interrupt and runs on.
+  if [ -n "${PLANWRIGHT_TEST_POOL_DIR:-}" ] || [ -n "$deadline_tool" ]; then
+    trap 'worker_signal INT' INT
+    trap 'worker_signal TERM' TERM
+    trap 'worker_signal HUP' HUP
+  fi
   if [ -n "${PLANWRIGHT_TEST_POOL_DIR:-}" ]; then
     # shellcheck source=scripts/lock-lib.sh
     if . "${0%/*}/lock-lib.sh"; then
-      # The traps release the ticket if this worker is interrupted mid-file; a
-      # SIGKILL leaves it to the next run's dead-holder reclaim. They re-raise
-      # rather than exit (pw_lock_trap_install's form): a serial parent that
-      # sees a plain exit assumes the file handled the interrupt and runs on.
+      lock_loaded=1
       trap 'pw_lock_release_all' EXIT
-      trap 'worker_signal INT' INT
-      trap 'worker_signal TERM' TERM
-      trap 'worker_signal HUP' HUP
       take_slot "$PLANWRIGHT_TEST_POOL_DIR" "$PLANWRIGHT_TEST_POOL_SLOTS" \
         "$PLANWRIGHT_TEST_LOG_DIR/$name.lockerr"
     else
@@ -272,10 +355,54 @@ if [ "${1:-}" = "--run-one" ]; then
   [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$fleet_sentinel/plugin-data"
   [ -z "${CLAUDE_DIR+set}" ] || export CLAUDE_DIR="$fleet_sentinel/claude"
   started="$(now_ms)"
-  if /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; then
+  past_deadline=0
+  if [ -n "$deadline_tool" ]; then
+    # In the background, so a trapped signal ends the wait at once and the trap
+    # can pass it on: timeout's process group is not the terminal's, and the
+    # worker's trap would otherwise wait for the file. An asynchronous command
+    # starts with INT and QUIT ignored; the reset hands the file the defaults,
+    # and an env taking --default-signal restores them where an old bash (macOS
+    # /bin/bash) refuses the reset, since GNU timeout keeps an inherited ignore.
+    # Its stdin is /dev/null, as xargs gives it, so a read cannot stop the
+    # background group, timeout and its alarm included, on a terminal.
+    bounding=1
+    (
+      trap - INT QUIT
+      exec ${deadline_env:+"$deadline_env" --default-signal=INT,QUIT} \
+        "$deadline_tool" -k 10 "$deadline" /bin/bash "$t"
+    ) >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1 </dev/null &
+    child_pid=$!
+    wait "$child_pid"
+    file_rc=$?
+    child_pid=""
+    bounding=0
+    # A failed file that ran the whole deadline was ended: busybox's timeout
+    # passes on the file's own status, so 124 alone would miss it there. A
+    # passing file stays passed whatever the wall clock did (timeout's alarm
+    # does not follow a clock step). Without a clock reading, the statuses
+    # timeout and busybox give an ended file stand in.
+    ended="$(now_ms)"
+    if [ "$file_rc" -ne 0 ]; then
+      if [ -n "$started" ] && [ -n "$ended" ]; then
+        [ $((ended - started)) -lt $((deadline * 1000)) ] || past_deadline=1
+      else
+        case "$file_rc" in
+          124 | 137 | 143) past_deadline=1 ;;
+        esac
+      fi
+    fi
+  else
+    /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1
+    file_rc=$?
+  fi
+  if [ "$file_rc" -eq 0 ]; then
     verdict="done"
   else
     verdict="fail"
+  fi
+  if [ "$past_deadline" -eq 1 ]; then
+    printf '%s\n' "run-tests: $name ran past its ${deadline}s deadline (PLANWRIGHT_TEST_FILE_DEADLINE) and was ended" \
+      >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
   fi
   for fh in "$fleet_sentinel/fleet" "$fleet_sentinel/plugin-data" "$fleet_sentinel/claude"; do
     if [ -e "$fh" ] || [ -L "$fh" ]; then
@@ -298,6 +425,8 @@ if [ "${1:-}" = "--run-one" ]; then
   : >"$PLANWRIGHT_TEST_LOG_DIR/$name.$verdict"
   if [ "$verdict" = "done" ]; then
     echo "ok: $name (${elapsed:-?}s)"
+  elif [ "$past_deadline" -eq 1 ]; then
+    echo "FAIL: $name (ran past its ${deadline}s deadline; log printed at end)" >&2
   else
     echo "FAIL: $name (log printed at end)" >&2
   fi
@@ -314,10 +443,11 @@ self_dir="${self%/*}"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
 usage_error() {
-  echo "run-tests: $1 (usage: run-tests.sh [--shard <i>/<N>] [suite-dir])" >&2
+  echo "run-tests: $1 (usage: run-tests.sh [--shard <i>/<N> | --plan-shards] [suite-dir])" >&2
   exit 2
 }
 shard=""
+plan=0
 suite_arg=""
 have_suite=0
 opts_done=0
@@ -344,6 +474,11 @@ while [ "$#" -gt 0 ]; do
         shift
         continue
         ;;
+      --plan-shards)
+        plan=1
+        shift
+        continue
+        ;;
       -*) usage_error "unknown option: $1" ;;
     esac
   fi
@@ -352,6 +487,7 @@ while [ "$#" -gt 0 ]; do
   have_suite=1
   shift
 done
+[ "$plan" -eq 0 ] || [ -z "$shard" ] || usage_error "--plan-shards and --shard do not combine"
 shard_i=""
 shard_n=""
 if [ -n "$shard" ]; then
@@ -435,7 +571,7 @@ esac
 # Resolve the pool, or say once why not. Only the directory's own path is
 # checked for a link: a home directory reached through one is ordinary.
 pool_dir=""
-if [ "${PLANWRIGHT_TEST_IN_POOLED_FILE:-}" != 1 ]; then
+if [ "${PLANWRIGHT_TEST_IN_POOLED_FILE:-}" != 1 ] && [ "$plan" -eq 0 ]; then
   if [ -n "${PLANWRIGHT_TEST_SLOT_DIR:-}" ]; then
     cand="$PLANWRIGHT_TEST_SLOT_DIR"
   elif [ -n "${XDG_STATE_HOME:-}" ]; then
@@ -632,6 +768,62 @@ else
   order_desc="name order (duration table disabled)"
 fi
 
+if [ "$plan" -eq 1 ]; then
+  budget_file="${PLANWRIGHT_TEST_BUDGET:-$repo_root/config/test-time-budget.yml}"
+  [ -f "$budget_file" ] && [ -r "$budget_file" ] \
+    || {
+      echo "run-tests: --plan-shards: budget file not readable: $(sanitize_printable "$budget_file" "(unprintable path)")" >&2
+      exit 2
+    }
+  par=$jobs
+  [ "$slots" -ge "$par" ] || par=$slots
+  i=0
+  while [ "$i" -lt "${#files[@]}" ]; do
+    printf '%s\n' "${tdur[i]:-}"
+    i=$((i + 1))
+  done | RT_BUDGET="$budget_file" LC_ALL=C awk -v par="$par" '
+    BEGIN {
+      budget = ENVIRON["RT_BUDGET"]
+      while ((getline line < budget) > 0) {
+        if (line !~ /^(shard_target_seconds|shard_count_max):/) continue
+        k = line; sub(/:.*/, "", k)
+        v = line; sub(/^[^:]*:[ \t]*/, "", v); sub(/[ \t]*(#.*)?$/, "", v)
+        if (k in cfg) { print "run-tests: --plan-shards: " k " is set twice" > "/dev/stderr"; bad = 1 }
+        cfg[k] = v
+      }
+      close(budget)
+      if (cfg["shard_target_seconds"] !~ /^[0-9]+(\.[0-9]+)?$/ || cfg["shard_target_seconds"] + 0 <= 0) {
+        print "run-tests: --plan-shards: shard_target_seconds is missing or not a positive number" > "/dev/stderr"; bad = 1
+      }
+      if (cfg["shard_count_max"] !~ /^[1-9][0-9]?$/) {
+        print "run-tests: --plan-shards: shard_count_max is missing or not a whole number from 1 to 99" > "/dev/stderr"; bad = 1
+      }
+      if (bad) exit 2
+    }
+    { n++; if ($1 != "") { sum += $1; cnt++ } }
+    END {
+      if (bad) exit 2
+      mean = cnt ? sum / cnt : 1
+      predicted = sum + (n - cnt) * mean
+      target = cfg["shard_target_seconds"] + 0
+      max = cfg["shard_count_max"] + 0
+      want = predicted / (par * target)
+      shards = int(want)
+      if (shards < want) shards++
+      if (shards < 1) shards = 1
+      capped = (shards > max)
+      if (capped) shards = max
+      printf "run-tests: predicted %.0fs of file time over %d files (%d untimed, each weighed at the mean %.1fs) on %d parallel jobs; target %ss per shard -> %d shard(s)%s\n", \
+        predicted, n, n - cnt, mean, par, cfg["shard_target_seconds"], shards, \
+        (capped ? ", capped at shard_count_max: each shard will run past its target" : "") > "/dev/stderr"
+      out = "["
+      for (s = 1; s <= shards; s++) out = out (s > 1 ? "," : "") s
+      print out "]"
+    }
+  '
+  exit
+fi
+
 # The shard split (see the header): weights sorted longest first, ties by
 # name in the C locale (glob order follows the runner's collation, which two
 # jobs need not share), each placed on the least-loaded shard, ties to the
@@ -715,6 +907,51 @@ for i in ${qidx[@]+"${qidx[@]}"}; do
   queue+=("${all_files[$i]}")
 done
 
+# Per-file deadline (see the header). Nine digits keeps the worker's
+# millisecond arithmetic far from overflow, and is already decades.
+deadline_default=900
+deadline=$deadline_default
+if [ -n "${PLANWRIGHT_TEST_FILE_DEADLINE+set}" ]; then
+  case "$PLANWRIGHT_TEST_FILE_DEADLINE" in
+    '' | *[!0-9]* | ??????????*) deadline=0 ;;
+    *) deadline=$((10#$PLANWRIGHT_TEST_FILE_DEADLINE)) ;;
+  esac
+  if [ "$deadline" -lt 1 ]; then
+    echo "run-tests: WARNING PLANWRIGHT_TEST_FILE_DEADLINE is not a positive whole number of seconds ($(sanitize_printable "$PLANWRIGHT_TEST_FILE_DEADLINE" "(empty or unprintable)")); using the default of $deadline_default" >&2
+    deadline=$deadline_default
+  fi
+fi
+# Probed by running it: a timeout that refuses -k (an old busybox) is no
+# bound the workers can use.
+deadline_tool=""
+for tool_name in timeout gtimeout; do
+  tool_path="$(command -v "$tool_name" 2>/dev/null)" || continue
+  if "$tool_path" -k 1 5 true >/dev/null 2>&1; then
+    deadline_tool=$tool_path
+    break
+  fi
+done
+if [ -n "$deadline_tool" ]; then
+  deadline_desc="deadline ${deadline}s per file"
+else
+  # Worded so scripts/classify-ci-failure.sh does not read a bare "timeout"
+  # in it as a network failure.
+  echo "run-tests: WARNING no usable timeout(1) or gtimeout (none installed, or none taking -k); test files run with no per-file deadline" >&2
+  deadline_desc="no per-file deadline"
+fi
+# GNU env (env, or genv beside Homebrew's gtimeout), for a bounded file's
+# default INT and QUIT where the worker's bash cannot reset them.
+deadline_env=""
+for env_name in env genv; do
+  env_path="$(command -v "$env_name" 2>/dev/null)" || continue
+  if "$env_path" --default-signal=INT,QUIT true >/dev/null 2>&1; then
+    deadline_env=$env_path
+    break
+  fi
+done
+export PLANWRIGHT_TEST_BOUND_SECONDS="$deadline" PLANWRIGHT_TEST_BOUND_TOOL="$deadline_tool" \
+  PLANWRIGHT_TEST_BOUND_ENV="$deadline_env"
+
 # Probe for a working `xargs -P` before relying on it; degrade to the
 # serial loop when it is absent or explicitly disabled.
 parallel=1
@@ -731,7 +968,7 @@ dispatch_failed=0
 suite_started="$(now_ms)"
 if [ "$parallel" -eq 1 ]; then
   mode=parallel
-  echo "run-tests: $scope_desc, $jobs jobs, $pool_desc"
+  echo "run-tests: $scope_desc, $jobs jobs, $pool_desc, $deadline_desc"
   echo "run-tests: queue $order_desc"
   # A shard can be empty when it outnumbers the files, and xargs would still
   # run its command once on no input.
@@ -742,7 +979,7 @@ if [ "$parallel" -eq 1 ]; then
   fi
 else
   mode=serial
-  echo "run-tests: $scope_desc, serial (no parallel primitive), $pool_desc"
+  echo "run-tests: $scope_desc, serial (no parallel primitive), $pool_desc, $deadline_desc"
   echo "run-tests: queue $order_desc"
   for t in ${queue[@]+"${queue[@]}"}; do
     /bin/bash "$self" --run-one "$t" || dispatch_failed=1

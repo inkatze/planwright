@@ -217,8 +217,8 @@ run_dir() {
 put_state() {
   local tmp
   [ ! -L "$1" ] || die 4 "runner state ${1##*/} is a symbolic link; refusing it"
-  tmp=$(mktemp "$(dirname "$1")/.runner-XXXXXX") || die 4 "cannot write runner state"
-  if ! { cat >"$tmp" && mv -f "$tmp" "$1"; }; then
+  tmp=$(mktemp -- "$(dirname "$1")/.runner-XXXXXX") || die 4 "cannot write runner state"
+  if ! { cat >"$tmp" && mv -f -- "$tmp" "$1"; }; then
     rm -f "$tmp"
     die 4 "cannot write runner state"
   fi

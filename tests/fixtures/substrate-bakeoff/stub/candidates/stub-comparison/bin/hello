@@ -1,0 +1,2 @@
+#!/bin/sh
+printf 'hello %s\n' "$1"

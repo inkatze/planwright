@@ -24,7 +24,7 @@
 #   notion_fake_install <bin-dir> <fixture-dir> <routes-file> <log-dir>
 
 notion_fake_install() {
-  mkdir -p "$1" "$4" || return 1
+  mkdir -p -- "$1" "$4" || return 1
   : >"$4/argv"
   : >"$4/config"
   : >"$4/used"
@@ -80,5 +80,5 @@ if [ -n "$hdr" ]; then
 fi
 printf '%s' "$status"
 EOF
-  chmod +x "$1/curl"
+  chmod -- +x "$1/curl"
 }

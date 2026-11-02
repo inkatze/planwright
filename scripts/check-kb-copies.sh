@@ -68,7 +68,7 @@ fi
 [ -d "$kb" ] || die "no knowledge base at $kb"
 [ -d "$specs" ] || die "no spec root at $specs"
 
-scratch=$(mktemp -d) || die "cannot create a scratch directory"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/check-kb-copies.XXXXXX") || die "cannot create a scratch directory"
 trap 'rm -rf "$scratch"' EXIT
 
 # collect <dir> <prune-reserved> <out>: every *.md under <dir>, sorted, one

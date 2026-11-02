@@ -386,3 +386,19 @@ chmod 0600 "$surface/ledger"
 grep -q 'owner-only' "$errf" || fail "the widened ledger was not reported"
 [ "$(fld "$lo" 2)" = question ] && [ "$(fld "$lo" 28)" = - ] || fail "a default came back from a ledger that fails the owner-only check: $(rec "$lo")"
 echo "ok: a ledger that fails the owner-only check is not read at the rebuild, and its defaults come back plain"
+
+# --- the rebuild judges a default by the row instance it applied to ------------------
+
+attention_row w-ri spec/t10 awaiting-input 9600 normal 'Which one?' a 'a|b' fork iid-ri-a
+ri=$(run add --kind question --worker w-ri --origin w-ri --closes 'the operator answers' --options 'a|b' --end b --gate none --window 1s --now 9600) || fail "add ri"
+run settle --now 9605 >/dev/null || fail "the pass defaulting ri"
+[ "$(fld "$ri" 2)" = settled-by-default ] || fail "ri did not default"
+grep -q "\"kind\":\"window\".*\"item\":\"$ri\".*\"instance\":\"iid-ri-a\"" "$log_file" || fail "the window line does not record the instance the default applied to"
+# The worker asks again on the row, and the new question names a reserved
+# control: that says nothing about the default, which answered instance a.
+awk -F "$TAB" -v OFS="$TAB" '$1 == "w-ri" { $6 = "Force-push the branch now?"; $10 = "iid-ri-b" } { print }' "$attn_store" >"$tmp/attn" && cat "$tmp/attn" >"$attn_store"
+rm -f "$store"
+run settle --now 9700 >/dev/null || fail "the rebuild after the re-ask"
+[ "$(fld "$ri" 2)" = settled-by-default ] && [ "$(fld "$ri" 12)" = open ] || fail "the rebuild judged the default by the row as it reads now: $(rec "$ri")"
+[ "$(awk -F "$TAB" '$7 == "w-ri" && $2 == "question" && $12 == "open"' "$store" | grep -c .)" = 1 ] || fail "the rebuild did not keep exactly one open question on the re-asked row: $(awk -F "$TAB" '$7 == "w-ri"' "$store")"
+echo "ok: the rebuild judges and de-duplicates a default by the row instance it applied to"

@@ -29,6 +29,8 @@ VALIDATE="$REPO_ROOT/scripts/inception-validate.sh"
 
 # shellcheck source=tests/lib/inception-fixture.sh
 . "$REPO_ROOT/tests/lib/inception-fixture.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 
 failures=0
 assert_eq() {
@@ -91,6 +93,18 @@ fi
 tmp="$(cd "$(mktemp -d)" && pwd -P)" || exit 1
 trap 'chmod -R u+w "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
 export TMPDIR="$tmp"
+
+# The prompts (brief, synthesis-brief, challenge-brief, amend-brief) are not
+# linted: each carries untrusted documents in <data> blocks with their headings
+# demoted, an injection boundary no markdown lint accepts.
+assert_lint_md() {
+  if lint_emitted markdown inception-fanout.sh "$2"; then
+    echo "ok: $1: lint-clean markdown"
+  else
+    echo "FAIL: $1: fails the markdown lint" >&2
+    failures=$((failures + 1))
+  fi
+}
 
 fresh() {
   d="$(mktemp -d "$tmp/vXXXXXX")" || exit 1
@@ -179,6 +193,7 @@ out="$("$FANOUT" frame "$v" 2>&1)"
 rc=$?
 assert_eq "frame: exit 0" "0" "$rc"
 assert_file "frame: writes exports/frame.md" "$v/exports/frame.md"
+assert_lint_md "frame: exports/frame.md" "$v/exports/frame.md"
 assert_contains "frame: reports the path" "exports/frame.md" "$out"
 frame="$(cat "$v/exports/frame.md" 2>/dev/null)"
 assert_before "frame: problem statement before evidence" "## Problem statement" "## Evidence pointers" "$frame"
@@ -971,6 +986,7 @@ sed_i "$run/amended.md" 's/The inputs agree on the segment/The amended inputs ag
 out="$("$FANOUT" attribute --run "$run" 2>&1)"
 assert_eq "attribute: exit 0" "0" "$?"
 assert_file "attribute: writes the final table" "$run/table.md"
+assert_lint_md "attribute: the final table" "$run/table.md"
 tbl="$(cat "$run/table.md")"
 attr_of() {
   case $(awk -F '\t' -v l="$1" '$1 == l { print $2 }' "$run/labels.tsv") in

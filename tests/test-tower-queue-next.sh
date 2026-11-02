@@ -7,11 +7,12 @@
 #
 # Contract under test:
 #   next [--tower <id>] [--now <epoch>]
-#       At most one line: `knock<TAB>...` when a knock is due, `item<TAB>...`
-#       when the calling tower's attention is confirmed by its marker
-#       (a reply at or after its last knock and later than its last
+#       At most one hand-over: `knock<TAB>...` when a knock is due, an
+#       `item<TAB>...` line when the calling tower's attention is confirmed by
+#       its marker (a reply at or after its last knock and later than its last
 #       hand-over, within tower_quiet_interval), else nothing. Leases the
-#       item it names.
+#       item it names. These items name no subject, so each goes alone; the
+#       subject batch is test-tower-queue-batch.sh's.
 #   ack <id> [--tower <id>] [--now <epoch>]
 #       Closes the item; refused (exit 1, logged) without a lease; a logged
 #       no-op on a closed item; never releases the next.

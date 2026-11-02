@@ -25,6 +25,8 @@ VALIDATE="$REPO_ROOT/scripts/inception-validate.sh"
 
 # shellcheck source=tests/lib/inception-fixture.sh
 . "$REPO_ROOT/tests/lib/inception-fixture.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 
 failures=0
 assert_eq() {
@@ -448,6 +450,12 @@ venture bundle-init --title "Resume Probe" "$rp"
 assert_eq "B1.7 bundle-init writes the skeleton (exit)" 0 "$rc"
 for f in brief.md disciplines.md assumptions.md decisions.md plan.md; do
   assert_exists "B1.7 skeleton has $f" "$rp/$f"
+  if lint_emitted markdown inception-venture.sh "$rp/$f"; then
+    echo "ok: B1.7 skeleton $f is lint-clean markdown"
+  else
+    echo "FAIL: B1.7 skeleton $f fails the markdown lint" >&2
+    failures=$((failures + 1))
+  fi
 done
 /bin/sh "$VALIDATE" --version-check "$rp" >/dev/null 2>&1
 assert_eq "C1.7 skeleton passes the version gate" 0 "$?"
@@ -1124,9 +1132,17 @@ PATH="$stubs/gh-ok:$PATH" venture create --home remote --root "$vroot" xi-missin
 xm="$vroot/xi-missing"
 venture bundle-init --title "Xi Missing" "$xm"
 for p in seed opportunity disciplines reframe core; do venture mark-phase "$xm" "$p"; done
+# The lost blob belongs to a file already deleted from disk: one still on disk
+# is written back by the next save's `git add -A` whenever its index entry is
+# racily clean, which heals the fixture and lets the push through.
+printf 'kept only in history\n' >"$xm/gone.md"
+venture save "$xm" "Record a passing note"
+rm -f "$xm/gone.md"
 venture save "$xm" "Record the core"
-lost=$(git -C "$xm" rev-parse HEAD:plan.md)
-rm -f "$xm/.git/objects/$(printf '%s' "$lost" | cut -c1-2)/$(printf '%s' "$lost" | cut -c3-)"
+lost=$(git -C "$xm" rev-parse HEAD~1:gone.md)
+lost_path="$xm/.git/objects/$(printf '%s' "$lost" | cut -c1-2)/$(printf '%s' "$lost" | cut -c3-)"
+assert_exists "Z25 the blob to lose is a loose object" "$lost_path"
+rm -f "$lost_path"
 PATH="$stubs/gh-ok:$PATH" venture save --push "$xm" "Share with an object missing"
 assert_eq "Z25 a missing object stops the push before it starts (exit 2)" 2 "$rc"
 assert_contains "Z25 the refusal says the outgoing files could not be read" "cannot read the files a push would send" "$out"
