@@ -15,11 +15,11 @@
 #   r3 (REQ-G1.3): a resume that fails after the stop is exit 5 naming the
 #       recover to run; a worker that is not running is refused and pointed
 #       at `recover`.
+#   r7 (REQ-G1.3): a partial stop is exit 6 naming the recover, nothing resumed.
 #   r5 (REQ-G1.3): the tier is re-resolved from current allocation config at
 #       the recorded or default key; an inherit dimension passes nothing.
 #   r4 (REQ-G1.3): the fleet guide states that permissions and the session
-#       record load at session start and reach a running worker only by
-#       relaunch.
+#       record load at session start and reach a running worker by relaunch.
 #
 # Hermetic: the fleet home, work repository and CLI seam are case-local; the
 # CLI is a shim recording its argv and environment. Runs under bash 3.2.
@@ -263,6 +263,32 @@ for bad in '' "$tmp/gone"; do
 done
 [ "$(argv_lines)" = "$n" ] || fail "r3: a recover with an unusable --cwd spawned a session"
 echo "ok: r3 a failed resume after the stop is exit 5 naming the recover, and a stopped worker is refused toward recover (REQ-G1.3)"
+
+# ---------------------------------------------------------------------------
+# r7: a stop that closes only part of the release set is exit 6, naming the
+# recover to run, and nothing is resumed. An unreadable journal holds the
+# attention class, as the close's own partial case does.
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: r7 the unreadable-journal injection needs a non-root user (running as root)"
+else
+  (cd "$tmp" && senv -- recover sjr1 --cwd "$wt") >/dev/null 2>&1 || fail "r7: setup: the recover exited non-zero"
+  poll_until --what 'the recovered worker' -- test -s "$wdir/worker.pid" || fail "r7: setup: no recovered worker"
+  [ -f "$wdir/journal" ] || : >"$wdir/journal"
+  chmod 000 "$wdir/journal" || fail "r7: setup: cannot make the journal unreadable"
+  n=$(argv_lines)
+  err=$(senv -- relaunch sjr1 --grace 2 2>&1 >/dev/null)
+  rc=$?
+  chmod 644 "$wdir/journal"
+  [ "$rc" -eq 6 ] || fail "r7: a partial stop must be exit 6, got $rc: $err"
+  case $err in
+    *"recover sjr1 --cwd $wt"*) ;;
+    *) fail "r7: the partial stop must name the recover to run: $err" ;;
+  esac
+  [ "$(argv_lines)" = "$n" ] || fail "r7: a relaunch whose stop was partial resumed a session"
+  senv -- stop sjr1 --grace 2 >/dev/null 2>&1 || fail "r7: the follow-up stop with a readable journal did not close the worker"
+  echo "ok: r7 a partial stop during a relaunch is exit 6 naming the recover, and nothing is resumed (REQ-G1.3)"
+fi
 
 # ---------------------------------------------------------------------------
 # r5: the tier re-resolved from current allocation config reaches the resume.
