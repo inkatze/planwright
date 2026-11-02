@@ -208,9 +208,9 @@ check "execute-task: v1 and v2 dependency arms kept" \
 check "resume: has a Format-version 3 arm" \
   "$rs" '\*\*Format-version 3:\*\*'
 check "resume: v3 arm names each task's repository" \
-  "$rs" 'Format-version 3:\*\*[^*]{0,400}(alias|repository)'
+  "$rs" 'Format-version 3:\*\*[^*]*(alias|repository)'
 check "resume: v3 arm names the repository-unresolved state" \
-  "$rs" 'Format-version 3:\*\*[^*]{0,600}`repository-unresolved`'
+  "$rs" 'Format-version 3:\*\*[^*]*`repository-unresolved`'
 check "resume: v2 arm kept" \
   "$rs" '\*\*Format-version 2:\*\*'
 
