@@ -118,9 +118,9 @@ protocol's dispatched arm); attended, present and wait.
 8. **Read the brief slice and task block(s).** From the brief: the signed-off
    goal restatement, the task graph, and the unit's risk entries; from
    `tasks.md`, each block's definition fields. Confirm every dependency is
-   completed: in `## Completed` (v1), or it derives Completed via the
-   derivation engine (`scripts/orchestrate-state.sh`; on a version 3 bundle,
-   from the repository its block names); else halt naming it, a
+   completed: in `## Completed` (v1), or derived Completed by
+   `scripts/orchestrate-state.sh` (version 3: from the repository its block
+   names, by default the work repository); else halt naming it, a
    `repository-unresolved` one by alias.
 9. **Derive the full-CI command** (D-19). Pick the most comprehensive guard the
    repo ships, checking in order: a `mise.toml` aggregate task (planwright's own

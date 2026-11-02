@@ -182,11 +182,11 @@ fi
 # --- /execute-task: dependency check per repository (REQ-F1.4, D-15) ---
 
 check "execute-task: v3 dependency check reads each dependency's own repository" \
-  "$et" 'version 3 bundle[^.]{0,200}repository (its|that) (block|dependency|field) names'
+  "$et" 'version 3: from the repository (its|that) (block|dependency|field) names, by default the work repository'
 check "execute-task: a repository-unresolved dependency halts naming the alias" \
   "$et" '`repository-unresolved`[^.]{0,120}alias'
 check "execute-task: v1 and v2 dependency arms kept" \
-  "$et" 'derives Completed via the derivation engine'
+  "$et" 'derived Completed by `scripts/orchestrate-state\.sh`'
 
 # --- /resume: status read names the repository (REQ-F1.4, D-15) ---
 
