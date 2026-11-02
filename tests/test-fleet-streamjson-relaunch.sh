@@ -184,6 +184,12 @@ senv -- relaunch sjr1 --grace abc >/dev/null 2>&1
 senv -- relaunch sjr1 --grace '' >/dev/null 2>&1
 [ $? -eq 2 ] || fail "r1: an empty grace must be refused, not dropped (exit 2)"
 
+for bad in 9key "k$(printf '%064d' 0)"; do
+  senv -- launch sjr-badkey worker-permission-ergonomics:task-13 --prompt-file "$tmp/prompt" --cwd "$wt" \
+    --tier-key "$bad" >/dev/null 2>&1
+  [ $? -eq 2 ] || fail "r1: a launch must refuse a tier key the allocator would refuse ($bad)"
+done
+
 alive "$wpid" || fail "r1: a refused relaunch stopped the worker"
 [ "$(argv_lines)" = "$n" ] || fail "r1: a refused relaunch spawned a session"
 echo "ok: r1 every refusal comes before the stop and leaves the worker running (REQ-G1.3)"
