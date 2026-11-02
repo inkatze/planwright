@@ -297,6 +297,24 @@ unit_rows=$(find "$home/allocation" -name 'mission-control*' 2>/dev/null)
 echo "ok: r5 a relaunch re-resolves the tier from current allocation config at the recorded or default key and passes it to the resume (REQ-G1.3)"
 
 # ---------------------------------------------------------------------------
+# r6: a fresh launch that cannot record its directory drops the one a previous
+# launch of the handle left, so the relaunch refuses rather than resume there.
+# ---------------------------------------------------------------------------
+senv -- stop sjr1 --grace 2 >/dev/null 2>&1 || fail "r6: setup: the stop exited non-zero"
+mkdir "$wdir/cwd.tmp" || fail "r6: setup: cannot block the directory record"
+printf '%s\n' "$tmp" >"$wdir/cwd"
+senv -- launch sjr1 worker-permission-ergonomics:task-13 --prompt-file "$tmp/prompt" --cwd "$wt" >/dev/null 2>&1 \
+  || fail "r6: setup: the launch exited non-zero"
+poll_until --what 'the relaunched worker' -- test -s "$wdir/worker.pid" \
+  || fail "r6: setup: the worker never started"
+rmdir "$wdir/cwd.tmp"
+[ ! -e "$wdir/cwd" ] || fail "r6: a launch that could not record its directory kept a previous launch's: $(cat "$wdir/cwd")"
+err=$(senv -- relaunch sjr1 --grace 2 2>&1 >/dev/null)
+rc=$?
+[ "$rc" -eq 3 ] || fail "r6: a relaunch with no recorded directory must be refused (exit 3), got $rc: $err"
+echo "ok: r6 a launch that cannot record its directory leaves none, so the relaunch refuses (REQ-G1.3)"
+
+# ---------------------------------------------------------------------------
 # r4: the fleet guide carries the load-at-session-start statement.
 # ---------------------------------------------------------------------------
 guide=$(tr '\n' ' ' <"$here/../docs/fleet.md")

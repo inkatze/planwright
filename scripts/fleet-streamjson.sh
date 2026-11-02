@@ -2250,8 +2250,10 @@ cmd_launch() {
   # The directory `relaunch` resumes in, since `--resume` finds a session only
   # from the directory it was started in.
   if [ -z "$resume_sid" ]; then
-    { pwd -P >"$dir/cwd.tmp" && mv -f "$dir/cwd.tmp" "$dir/cwd"; } \
-      || printf '%s\n' "$me: cannot record the launch directory for $dir; relaunch will refuse this worker" >&2
+    { pwd -P >"$dir/cwd.tmp" && mv -f "$dir/cwd.tmp" "$dir/cwd"; } || {
+      rm -f "$dir/cwd"
+      printf '%s\n' "$me: cannot record the launch directory for $dir; relaunch will refuse this worker" >&2
+    }
   fi
 
   # The spec root outside the work repository, which the worker's command
