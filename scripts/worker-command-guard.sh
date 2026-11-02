@@ -157,8 +157,8 @@ AUDIT_SC=0
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
 # trailing newlines already removed, is recorded only as its SHA-256, never
-# as text, since commands carry what workers type. One append write, so concurrent hook calls interleave whole
-# lines; a write that fails is dropped and the approval stands. The log is
+# as text, since commands carry what workers type. One append write, so
+# concurrent hook calls interleave whole lines; a write that fails is dropped and the approval stands. The log is
 # checked again here because a FIFO in its place would hang the hook.
 audit_append() {
   local f=$REC_AUDIT_LOG arm='' t h sid=$2
