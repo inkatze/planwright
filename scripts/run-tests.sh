@@ -56,11 +56,12 @@
 # deadline; its ticket is returned as for any other file. GNU timeout signals
 # the file's whole process group; busybox's signals the file alone, leaving
 # anything it started to run on, and passes on its status, so a file that
-# traps that TERM and exits 0 counts as passed. That group is not the terminal's, so a
-# worker passes INT, TERM and HUP on to it. A host with no usable tool (neither
-# installed, or none taking -k) costs one warning and unbounded files. A
-# nested runner inherits PLANWRIGHT_TEST_FILE_DEADLINE and bounds its own
-# files the same way.
+# traps that TERM and exits 0 counts as passed. GNU's group is not the
+# terminal's, so a worker that gets INT, TERM or HUP passes TERM on to its
+# file, and KILL ten seconds later, before it releases the ticket and dies of
+# the signal itself. A host with no usable tool (neither installed, or none
+# taking -k) costs one warning and unbounded files. A nested runner inherits
+# PLANWRIGHT_TEST_FILE_DEADLINE and bounds its own files the same way.
 #
 # Sharding: --shard <i>/<N> runs only shard i of N, so CI can split the suite
 # across parallel jobs. The split is longest-first onto the least-loaded
@@ -243,17 +244,27 @@ take_slot() {
   done
 }
 
-# worker_signal <SIG> — pass <SIG> to the bounded file's process group (the
-# file alone under a timeout that makes no group), wait for it so its ticket
-# is not handed on while it still runs, release every ticket, then die by
-# <SIG> itself.
+# worker_signal <SIG> — end the bounded file (see the header), wait for it so
+# its ticket is not handed on while it still runs, release every ticket, then
+# die by <SIG> itself.
 worker_signal() {
   # $! covers a signal landing between the launch and child_pid's assignment.
   ws_pid=$child_pid
   [ -n "$ws_pid" ] || [ "$bounding" -eq 0 ] || ws_pid=$!
   if [ -n "$ws_pid" ]; then
-    kill -s "$1" -- "-$ws_pid" 2>/dev/null || kill -s "$1" "$ws_pid" 2>/dev/null
+    # TERM whatever arrived: uutils' timeout answers a HUP by killing the file
+    # outright, with no chance to clean up. The group is timeout's own; the
+    # pid alone is the file under busybox, which makes no group.
+    kill -s TERM -- "-$ws_pid" 2>/dev/null || kill -s TERM "$ws_pid" 2>/dev/null
+    # busybox's timeout grants no grace for a TERM it did not send.
+    # Off the run's output, which its sleep would otherwise hold open.
+    (
+      sleep 10
+      kill -s KILL -- "-$ws_pid" 2>/dev/null || kill -s KILL "$ws_pid" 2>/dev/null
+    ) >/dev/null 2>&1 </dev/null &
+    ws_killer=$!
     wait "$ws_pid" 2>/dev/null
+    kill "$ws_killer" 2>/dev/null
   fi
   [ "$lock_loaded" -eq 0 ] || pw_lock_release_all
   trap - "$1"

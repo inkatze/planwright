@@ -113,6 +113,18 @@ echo \$! >"$2/child"
 wait
 EOF
 }
+# stubborn_file <path> <dir> — a hung file that notes a TERM in <dir>/termed
+# and runs on.
+stubborn_file() {
+  cat >"$1" <<EOF
+#!/bin/bash
+echo \$\$ >"$2/pid"
+trap ': >"$2/termed"' TERM
+sleep 60 &
+echo \$! >"$2/child"
+while :; do wait; done
+EOF
+}
 quick_file() {
   printf '#!/bin/bash\nexit 0\n' >"$1"
 }
@@ -196,7 +208,13 @@ assert_exit "files inside their deadline pass, INT at its default" 0 "$?"
 assert_not_contains "a file inside its deadline draws no deadline message" "ran past its" "$out"
 # A wall clock that jumps past the deadline while a passing file runs (a
 # suspend, an NTP step) leaves timeout's alarm unfired and the file passed.
-if [ -n "$real_timeout" ]; then
+# The shim steps only the nanosecond reading, the runner's clock where date
+# has one.
+if [ -z "$real_timeout" ]; then
+  pass "a clock jump keeps a file passed (skipped: no timeout or gtimeout on this host)"
+elif ! date +%N | grep -q '^[0-9]\{9\}$'; then
+  pass "a clock jump keeps a file passed (skipped: date has no nanoseconds here)"
+else
   jump="$tmp/jump"
   mkdir -p "$jump/bin" "$jump/suite"
   cat >"$jump/bin/date" <<EOF
@@ -212,7 +230,7 @@ EOF
   out=$(PATH="$jump/bin:$PATH" PLANWRIGHT_TEST_FILE_DEADLINE=5 \
     PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r2j.tsv" "$RUNNER" "$jump/suite" 2>&1)
   assert_exit "a clock jump does not fail a passing file" 0 "$?"
-  assert_not_contains "a clock jump does not call a passing file ended" "ran past its" "$out"
+  assert_contains "a clock jump leaves the file passed" "ok: test-jumped.sh" "$out"
 fi
 printf '#!/bin/bash\nexit 124\n' >"$s2/test-own-124.sh"
 out=$(PLANWRIGHT_TEST_FILE_DEADLINE=5 PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r2b.tsv" "$RUNNER" "$s2" 2>&1)
@@ -312,19 +330,28 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5. A signal to a worker reaches its bounded file, pooled and parallel, and
-#    serial and unpooled, where the run must not then go on to pass.
+# 5. A signal to a worker reaches its bounded file as TERM, pooled and
+#    parallel, and serial and unpooled, where the run must not then go on to
+#    pass; a file that outlives that TERM is killed ten seconds later.
 if [ -z "$real_timeout" ]; then
   pass "a worker passes a signal on (skipped: neither timeout nor gtimeout on this host)"
 else
-  # signal_case <label> <dir> [VAR=value...] — start a run on one hung file,
-  # TERM the worker holding it, and check the file and the run both end.
+  # signal_case <label> <dir> <signal> <file-kind> [VAR=value...] — start a
+  # run on one hung file (hang, or stubborn: it notes a TERM and runs on),
+  # send <signal> to the worker holding it, and check the file and the run
+  # both end.
   signal_case() {
     sc_label=$1
     sc_dir=$2
-    shift 2
+    sc_sig=$3
+    sc_kind=$4
+    shift 4
     mkdir -p "$sc_dir/suite"
-    hang_file "$sc_dir/suite/test-hang.sh" "$sc_dir"
+    if [ "$sc_kind" = stubborn ]; then
+      stubborn_file "$sc_dir/suite/test-hang.sh" "$sc_dir"
+    else
+      hang_file "$sc_dir/suite/test-hang.sh" "$sc_dir"
+    fi
     quick_file "$sc_dir/suite/test-later.sh"
     env "$@" PLANWRIGHT_TEST_FILE_DEADLINE=60 PLANWRIGHT_TEST_JOBS=1 \
       PLANWRIGHT_TEST_TIMING_REPORT="$sc_dir/r.tsv" "$RUNNER" "$sc_dir/suite" >"$sc_dir/out" 2>&1 &
@@ -352,11 +379,24 @@ else
       esac
     done
     if [ -n "$sc_worker" ]; then
-      kill -TERM "$sc_worker"
+      kill -s "$sc_sig" "$sc_worker"
     else
       fail "$sc_label: the worker was found"
     fi
-    check_hang_gone "$sc_label" "$sc_dir"
+    if [ "$sc_kind" = stubborn ]; then
+      if gone_within "$(cat "$sc_dir/pid")" 200; then
+        pass "$sc_label: the file is killed after the grace"
+      else
+        fail "$sc_label: the file is killed after the grace"
+      fi
+      if [ -e "$sc_dir/termed" ]; then
+        pass "$sc_label: the file got TERM first"
+      else
+        fail "$sc_label: the file got TERM first"
+      fi
+    else
+      check_hang_gone "$sc_label" "$sc_dir"
+    fi
     if gone_within "$sc_run" 100; then
       pass "$sc_label: the run ends"
     else
@@ -364,7 +404,7 @@ else
       kill "$sc_run" 2>/dev/null
     fi
     # Whatever the outcome, nothing of the case outlives it.
-    kill "$(cat "$sc_dir/pid")" "$(cat "$sc_dir/child")" 2>/dev/null
+    kill -s KILL "$(cat "$sc_dir/pid")" "$(cat "$sc_dir/child")" 2>/dev/null
     wait "$sc_run"
     sc_rc=$?
     if [ "$sc_rc" -ne 0 ]; then
@@ -373,8 +413,9 @@ else
       fail "$sc_label: the run does not pass ($(cat "$sc_dir/out"))"
     fi
   }
-  signal_case "pooled worker" "$tmp/sig1"
-  signal_case "serial unpooled worker" "$tmp/sig2" PLANWRIGHT_TEST_FORCE_SERIAL=1 \
+  signal_case "pooled worker" "$tmp/sig1" TERM hang
+  signal_case "a HUP to a worker" "$tmp/sig3" HUP stubborn
+  signal_case "serial unpooled worker" "$tmp/sig2" TERM hang PLANWRIGHT_TEST_FORCE_SERIAL=1 \
     PLANWRIGHT_TEST_IN_POOLED_FILE=1
 fi
 
