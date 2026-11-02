@@ -1,25 +1,10 @@
 #!/bin/bash
 # Tests for the format-version 3 skill and doc reconciliation
 # (specs/invariant-tasks Task 12; REQ-F1.8, REQ-F1.4, D-13, D-14, D-15).
-# Skills are procedure the agent reads, so the verification path is a
-# structural guard over the SKILL.md prose, the shape of
-# tests/test-skill-v2-reconciliation.sh, which keeps pinning the v1 and v2
-# arms unchanged.
-#
-# Asserted properties:
-#   - /spec-draft offers the `Repository:` field only when the elicitation
-#     surfaces a second repository, declares version 3 only for a bundle in
-#     which some task names one, and extend mode gives a version 3 target
-#     the version 3 shape; a bundle materialized from that skeleton with one
-#     field validates cleanly under a marker-bearing spec root;
-#   - /execute-task's dependency check reads each dependency's state from
-#     the repository its block names and halts on `repository-unresolved`,
-#     naming the alias;
-#   - /resume's tasks.md read has a version 3 arm naming each task's
-#     repository and the `repository-unresolved` state;
-#   - docs/orchestration-state.md describes per-task repositories, names the
-#     work-repository registry as the alias's only resolution source, and
-#     says where the checkout comes from.
+# Skills are procedure the agent reads, so this is a structural guard over
+# the SKILL.md and docs prose, shaped like test-skill-v2-reconciliation.sh,
+# which keeps pinning the v1 and v2 arms. It also validates one bundle
+# materialized from /spec-draft's version 3 skeleton.
 #
 # Runs standalone: ./tests/test-skill-v3-reconciliation.sh
 # shellcheck disable=SC2016 # the backticks are markdown in the prose patterns, not substitutions
