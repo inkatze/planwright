@@ -15,8 +15,8 @@
 # The one mid-run stop is the runner's own breakage. Every worker checks the
 # run's scratch directory (the per-file logs and verdict markers) before and
 # after its file; once that directory is gone or unwritable no verdict can be
-# recorded, so the remaining files are not started, and the run ends with
-# exit 2 naming the cause rather than blaming test files for the loss.
+# recorded, so files not yet started are skipped, and the run ends with exit 2
+# naming the cause rather than blaming test files for the loss.
 #
 # Parallelism comes from `xargs -P` (POSIX-optional but present on macOS
 # and GNU userlands alike); when the probe finds no working -P — or
@@ -853,7 +853,7 @@ suite_finished="$(now_ms)"
 # Checked before any verdict is read: with the scratch directory broken, the
 # missing markers say nothing about the test files.
 if scratch_fault "$log_dir"; then
-  echo "run-tests: the runner's scratch directory $(sanitize_printable "$log_dir" "(unprintable path)") $scratch_cause mid-run; the remaining files were not started and no verdict is recorded (an environment error, not a test failure)" >&2
+  echo "run-tests: the runner's scratch directory $(sanitize_printable "$log_dir" "(unprintable path)") $scratch_cause mid-run; files not yet started were skipped and no verdict is recorded (an environment error, not a test failure)" >&2
   exit 2
 fi
 
