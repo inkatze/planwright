@@ -42,11 +42,15 @@ The selector's shipped exit codes (cross-read: `scripts/orchestrate-select.sh`):
 - **Exit 2** (missing/taskless `tasks.md`, or the derivation failed closed) → fail
   closed; halt with the message. Selecting against absent live truth would risk the
   double-dispatch the derivation exists to prevent.
-- **Exit 3** (format-version 2 transient evidence hold) → a configured remote's
-  evidence fetch failed (the engine's `degraded` record), so the derivation is
-  partial. A format-version 2 bundle has no committed placement to cross-check, so
-  selecting here could re-dispatch work whose completion evidence sits behind the
-  failed fetch (REQ-B1.5). **Report the hold and end the step cleanly** — the same
+- **Exit 3** (transient evidence hold, format-version 2 and 3) → a configured
+  remote's evidence fetch failed (the engine's `degraded` record), so the
+  derivation is partial. A format-version 2 bundle has no committed placement to
+  cross-check, so selecting here could re-dispatch work whose completion evidence
+  sits behind the failed fetch (REQ-B1.5). On a format-version 3 bundle whose
+  tasks name repositories the hold is per task (REQ-B1.7): a task withheld behind
+  its own or a direct dependency's failed repository is never selected, every
+  other task selects normally, and exit 3 fires only when no unit is ready while
+  withheld work remains. **Report the hold and end the step cleanly** — the same
   shape as lock contention, not a halt: the hold is transient by design (evidence
   settling), so a later step re-selects once it lands (in `--watch` the loop
   continues to that later step — unlike exit 1, which stops it), and

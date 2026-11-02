@@ -193,9 +193,9 @@ echo "ok: v2 reference bullets park their tasks in all three sections (REQ-C1.2)
 
 # V1b. invariant-tasks REQ-F1.7 — version 3 takes the version 2 candidacy: the
 #      V1 fixture re-declared version 3 selects the same task. A task naming a
-#      repository cannot be derived from it yet, so selection refuses that
-#      bundle (exit 2) while the structural --critical-path matches version 2;
-#      an undefined version (4) fails closed in both modes.
+#      repository that does not resolve (no registry here) is never selected
+#      (REQ-F1.5), while the structural --critical-path matches version 2; an
+#      undefined version (4) fails closed in both modes.
 dv1b="$tmp/v3park"
 dv1bspec=$(new_spec "$dv1b" vthree)
 v2_tasks_md "$dv1bspec/tasks.md"
@@ -215,18 +215,14 @@ awk '
 grep -q '^- \*\*Repository:\*\* alpha$' "$dv1bspec/tasks.md" || fail "v3 fixture: Repository: line not written"
 rc=0
 /bin/bash "$SEL" "$dv1bspec" >/dev/null 2>"$tmp/v3repo.err" || rc=$?
-[ "$rc" = 2 ] || fail "v3 Repository: select: exit $rc, expected 2 (no per-task derivation, fail closed)"
-grep -q 'name a repository (Task 5)' "$tmp/v3repo.err" \
-  || fail "v3 Repository: refusal does not name the task: $(cat "$tmp/v3repo.err")"
+[ "$rc" = 1 ] || fail "v3 unresolved Repository: select: exit $rc, expected 1 (Task 5 never selected): $(cat "$tmp/v3repo.err")"
 # A heading the grammar accepts off its canonical form still counts.
 sed 's/^### Task 5 /### Task  5 /' "$dv1bspec/tasks.md" >"$tmp/v3ds.md"
 cp "$dv1bspec/tasks.md" "$tmp/v3canon.md"
 cp "$tmp/v3ds.md" "$dv1bspec/tasks.md"
 rc=0
 /bin/bash "$SEL" "$dv1bspec" >/dev/null 2>"$tmp/v3repo.err" || rc=$?
-[ "$rc" = 2 ] || fail "v3 Repository: under a double-space heading: exit $rc, expected 2"
-grep -q 'name a repository (Task 5)' "$tmp/v3repo.err" \
-  || fail "v3 Repository: under a double-space heading: refusal does not name Task 5: $(cat "$tmp/v3repo.err")"
+[ "$rc" = 1 ] || fail "v3 Repository: under a double-space heading: exit $rc, expected 1 (Task 5 never selected)"
 # An unclosed fence is named as such, not as an unreadable field.
 cp "$tmp/v3canon.md" "$dv1bspec/tasks.md"
 printf '\n```\n' >>"$dv1bspec/tasks.md"
@@ -247,7 +243,7 @@ for mode in "" --critical-path; do
   [ "$rc" = 2 ] || fail "fv-4 ${mode:-select}: exit $rc, expected 2 (an undefined version fails closed)"
   grep -q 'undefined Format-version' "$tmp/v4.err" || fail "fv-4 ${mode:-select}: refusal does not name the version: $(cat "$tmp/v4.err")"
 done
-echo "ok: version 3 selects as version 2, refuses tasks naming a repository; an undefined version fails closed (REQ-F1.7)"
+echo "ok: version 3 selects as version 2, never selects a task whose repository does not resolve; an undefined version fails closed (REQ-F1.7, REQ-F1.5)"
 
 # V2. REQ-C1.2 — equivalence with the v1 section model: the same states
 #     expressed as v1 section placement (task 2 in ## Awaiting input, 3 in
