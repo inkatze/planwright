@@ -1124,9 +1124,17 @@ PATH="$stubs/gh-ok:$PATH" venture create --home remote --root "$vroot" xi-missin
 xm="$vroot/xi-missing"
 venture bundle-init --title "Xi Missing" "$xm"
 for p in seed opportunity disciplines reframe core; do venture mark-phase "$xm" "$p"; done
+# The lost blob belongs to a file already deleted from disk: one still on disk
+# is written back by the next save's `git add -A` whenever its index entry is
+# racily clean, which heals the fixture and lets the push through.
+printf 'kept only in history\n' >"$xm/gone.md"
+venture save "$xm" "Record a passing note"
+rm -f "$xm/gone.md"
 venture save "$xm" "Record the core"
-lost=$(git -C "$xm" rev-parse HEAD:plan.md)
-rm -f "$xm/.git/objects/$(printf '%s' "$lost" | cut -c1-2)/$(printf '%s' "$lost" | cut -c3-)"
+lost=$(git -C "$xm" rev-parse HEAD~1:gone.md)
+lost_path="$xm/.git/objects/$(printf '%s' "$lost" | cut -c1-2)/$(printf '%s' "$lost" | cut -c3-)"
+assert_exists "Z25 the blob to lose is a loose object" "$lost_path"
+rm -f "$lost_path"
 PATH="$stubs/gh-ok:$PATH" venture save --push "$xm" "Share with an object missing"
 assert_eq "Z25 a missing object stops the push before it starts (exit 2)" 2 "$rc"
 assert_contains "Z25 the refusal says the outgoing files could not be read" "cannot read the files a push would send" "$out"
