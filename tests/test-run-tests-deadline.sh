@@ -13,6 +13,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNNER="$REPO_ROOT/scripts/run-tests.sh"
 # shellcheck source=tests/lib/no-timeout-path.sh
 . "$REPO_ROOT/tests/lib/no-timeout-path.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 
 # This file runs under the suite's own runner, whose mark and knobs would
 # otherwise reach every run below.
@@ -45,28 +47,6 @@ assert_not_contains() {
 count_lines() {
   printf '%s\n' "$2" | grep -c -- "$1"
 }
-# gone_within <pid> <tenths> — 0 once <pid> has exited, 1 if still alive after
-# <tenths> tenths of a second.
-gone_within() {
-  gw_n=0
-  while kill -0 "$1" 2>/dev/null; do
-    [ "$gw_n" -lt "$2" ] || return 1
-    sleep 0.1
-    gw_n=$((gw_n + 1))
-  done
-  return 0
-}
-# wait_for_file <path> <tenths> — 0 once <path> is non-empty.
-wait_for_file() {
-  wf_n=0
-  until [ -s "$1" ]; do
-    [ "$wf_n" -lt "$2" ] || return 1
-    sleep 0.1
-    wf_n=$((wf_n + 1))
-  done
-  return 0
-}
-
 # ppid_of <pid> / args_of <pid> — from /proc where it exists, since busybox's
 # ps (the Alpine leg) takes no -p; else from ps (macOS has no /proc).
 ppid_of() {
@@ -134,13 +114,13 @@ quick_file() {
 # check_hang_gone <label> <dir> — the hung file and, under a process-group
 # timeout, its child are gone.
 check_hang_gone() {
-  if gone_within "$(cat "$2/pid")" 30; then
+  if poll_until -- pid_gone "$(cat "$2/pid")"; then
     pass "$1: the hung file's shell is gone"
   else
     fail "$1: the hung file's shell is gone"
   fi
   if [ "$group_bound" -eq 1 ]; then
-    if gone_within "$(cat "$2/child")" 30; then
+    if poll_until -- pid_gone "$(cat "$2/child")"; then
       pass "$1: the hung file's child is gone"
     else
       fail "$1: the hung file's child is gone"
@@ -166,7 +146,7 @@ else
   PLANWRIGHT_TEST_FILE_DEADLINE=6 PLANWRIGHT_TEST_SLOTS=1 \
     PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r1.tsv" "$RUNNER" "$s1" >"$tmp/o1" 2>&1 &
   run_a=$!
-  if wait_for_file "$h1/child" 100; then
+  if poll_until -- test -s "$h1/child"; then
     start=$(date +%s)
     PLANWRIGHT_TEST_FILE_DEADLINE=6 PLANWRIGHT_TEST_SLOTS=1 \
       PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r1b.tsv" "$RUNNER" "$tmp/s1q" >"$tmp/o1b" 2>&1
@@ -362,7 +342,7 @@ else
     env "$@" PLANWRIGHT_TEST_FILE_DEADLINE=60 PLANWRIGHT_TEST_JOBS=1 \
       PLANWRIGHT_TEST_TIMING_REPORT="$sc_dir/r.tsv" "$RUNNER" "$sc_dir/suite" >"$sc_dir/out" 2>&1 &
     sc_run=$!
-    if ! wait_for_file "$sc_dir/child" 100; then
+    if ! poll_until -- test -s "$sc_dir/child"; then
       fail "$sc_label: the hung file started"
       kill "$sc_run" 2>/dev/null
       wait "$sc_run"
@@ -390,7 +370,7 @@ else
       fail "$sc_label: the worker was found"
     fi
     if [ "$sc_kind" = stubborn ]; then
-      if gone_within "$(cat "$sc_dir/pid")" 200; then
+      if poll_until -- pid_gone "$(cat "$sc_dir/pid")"; then
         pass "$sc_label: the file is killed after the grace"
       else
         fail "$sc_label: the file is killed after the grace"
@@ -403,7 +383,7 @@ else
     else
       check_hang_gone "$sc_label" "$sc_dir"
     fi
-    if gone_within "$sc_run" 100; then
+    if poll_until -- pid_gone "$sc_run"; then
       pass "$sc_label: the run ends"
     else
       fail "$sc_label: the run ends"

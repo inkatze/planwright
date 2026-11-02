@@ -120,6 +120,8 @@
 #   PLANWRIGHT_TEST_BOUND_SECONDS  internal: parent-to-worker deadline and
 #   PLANWRIGHT_TEST_BOUND_TOOL     bounding tool handoff (tool empty:
 #                                  unbounded)
+#   PLANWRIGHT_TEST_BOUND_ENV      internal: an env taking --default-signal,
+#                                  or empty
 set -u
 unset CDPATH
 
@@ -307,6 +309,7 @@ if [ "${1:-}" = "--run-one" ]; then
   # The parent hands over a normalized value; anything else runs unbounded.
   deadline="${PLANWRIGHT_TEST_BOUND_SECONDS:-}"
   deadline_tool="${PLANWRIGHT_TEST_BOUND_TOOL:-}"
+  deadline_env="${PLANWRIGHT_TEST_BOUND_ENV:-}"
   case "$deadline" in
     '' | *[!0-9]* | 0*) deadline_tool="" ;;
   esac
@@ -357,14 +360,16 @@ if [ "${1:-}" = "--run-one" ]; then
     # In the background, so a trapped signal ends the wait at once and the trap
     # can pass it on: timeout's process group is not the terminal's, and the
     # worker's trap would otherwise wait for the file. An asynchronous command
-    # starts with INT and QUIT ignored; the reset hands the file the defaults
-    # (GNU timeout restores them itself where an old bash refuses the reset).
+    # starts with INT and QUIT ignored; the reset hands the file the defaults,
+    # and an env taking --default-signal restores them where an old bash (macOS
+    # /bin/bash) refuses the reset, since GNU timeout keeps an inherited ignore.
     # Its stdin is /dev/null, as xargs gives it, so a read cannot stop the
     # background group, timeout and its alarm included, on a terminal.
     bounding=1
     (
       trap - INT QUIT
-      exec "$deadline_tool" -k 10 "$deadline" /bin/bash "$t"
+      exec ${deadline_env:+"$deadline_env" --default-signal=INT,QUIT} \
+        "$deadline_tool" -k 10 "$deadline" /bin/bash "$t"
     ) >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1 </dev/null &
     child_pid=$!
     wait "$child_pid"
@@ -934,7 +939,18 @@ else
   echo "run-tests: WARNING no usable timeout(1) or gtimeout (none installed, or none taking -k); test files run with no per-file deadline" >&2
   deadline_desc="no per-file deadline"
 fi
-export PLANWRIGHT_TEST_BOUND_SECONDS="$deadline" PLANWRIGHT_TEST_BOUND_TOOL="$deadline_tool"
+# GNU env (env, or genv beside Homebrew's gtimeout), for a bounded file's
+# default INT and QUIT where the worker's bash cannot reset them.
+deadline_env=""
+for env_name in env genv; do
+  env_path="$(command -v "$env_name" 2>/dev/null)" || continue
+  if "$env_path" --default-signal=INT,QUIT true >/dev/null 2>&1; then
+    deadline_env=$env_path
+    break
+  fi
+done
+export PLANWRIGHT_TEST_BOUND_SECONDS="$deadline" PLANWRIGHT_TEST_BOUND_TOOL="$deadline_tool" \
+  PLANWRIGHT_TEST_BOUND_ENV="$deadline_env"
 
 # Probe for a working `xargs -P` before relying on it; degrade to the
 # serial loop when it is absent or explicitly disabled.
