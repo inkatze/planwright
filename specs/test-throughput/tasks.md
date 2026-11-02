@@ -447,7 +447,7 @@ first, its `Done when:` names that precondition (D-7).
 
 ## Awaiting input
 
-(none yet)
+- **Task 2** — point `post-pr`, step `cubic-pr`, outcome `halted` (`.claude/steps/000001/008-step-post-pr.rec`)
 
 ## Deferred
 
