@@ -185,6 +185,18 @@ got=$(run report --log "$tmp/batch-omitted.log" --now 300) || fail "batch-omitte
   || fail "a text-omitted loop line did not close its batch: multi_ask_turns $(value_of multi_ask_turns "$got"), expected 2"
 echo "ok: a loop line logged without its text still pairs with its batch"
 
+# A batch whose loop line never landed is closed by the next hand-over on that
+# top item, so the later turn's loop line is that turn's, not the batch's.
+{
+  printf '{"v":1,"seq":1,"ts":100,"kind":"delivered","tower":"T1","item":"a","pair":"-","batch":"a,b","size":2}\n'
+  printf '{"v":1,"seq":2,"ts":200,"kind":"delivered","tower":"T1","item":"a","pair":"-"}\n'
+  printf '{"v":1,"seq":3,"ts":200,"kind":"delivered","tower":"T1","item":"a","text":"That one again, and a choice","asks":2}\n'
+} >"$tmp/batch-unlogged.log"
+got=$(run report --log "$tmp/batch-unlogged.log" --now 300) || fail "batch-unlogged report: exit"
+[ "$(value_of multi_ask_turns "$got")" = 2 ] \
+  || fail "a later turn was netted against a batch whose loop line never landed: multi_ask_turns $(value_of multi_ask_turns "$got"), expected 2"
+echo "ok: a batch whose turn was never logged does not absorb a later turn"
+
 # An item a revoke reopened and evidence then settled counts once, on the
 # reviewable side, so the settled total never counts one item twice.
 {

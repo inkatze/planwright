@@ -1935,14 +1935,15 @@ cmd_report() {
       # `next` writes the batch line and the loop then writes its own line,
       # the one carrying text (or `text_omitted`) and asks, for that same
       # turn: the first loop line after a batch with the same tower and top
-      # item is the batch turn.
+      # item is the batch turn. Any later `next` line on that key closes it,
+      # so a batch whose loop line never landed absorbs no later turn.
       dk = (("tower" in F) ? F["tower"] : "") SUBSEP (("item" in F) ? F["item"] : "")
       if ("batch" in F) {
         nbm = split(F["batch"], bm, ",")
         for (b = 1; b <= nbm; b++) if (bm[b] != "") delivered_items[bm[b]] = 1
         batch_open[dk] = 1; batches++
         batch_items += ("size" in F) ? F["size"] + 0 : nbm
-      }
+      } else if (!("text" in F) && !("text_omitted" in F)) delete batch_open[dk]
       if (("text" in F) || ("text_omitted" in F)) {
         if (dk in batch_open) delete batch_open[dk]
         else if (("asks" in F) && (F["asks"] + 0) > 1) ask_turns++
