@@ -447,7 +447,7 @@ first, its `Done when:` names that precondition (D-7).
 
 ## Awaiting input
 
-(none yet)
+- **Task 14** — parked at post-pr, step `cubic-pr` halted (record `.claude/steps/000001/008-step-post-pr.rec`): cubic quota exhausted until 2026-11-05; the operator's secondary review on PR #790 stands in for it, and the ready flip waits until that review has run on the current head.
 
 ## Deferred
 
