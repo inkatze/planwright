@@ -1962,7 +1962,7 @@ cmd_launch() {
         [ $# -ge 2 ] || usage
         # allocation-apply.sh's valid_key, so relaunch never meets a key it refuses.
         case $2 in
-          [!a-z]* | *[!a-z0-9_]*) usage ;;
+          '' | [!a-z]* | *[!a-z0-9_]*) usage ;;
         esac
         [ "${#2}" -le 64 ] || usage
         tier_key=$2
