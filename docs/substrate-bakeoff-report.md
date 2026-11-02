@@ -228,6 +228,11 @@ A **verdict** is a `### D-` decision in `design.md` carrying a `**Report:**`,
 repository-relative path, its own bake-off's dated snapshot first and an
 inherited bake-off's after it.
 
+Both guards run `substrate-bakeoff.sh validate` over every report a
+`**Report:**` line names and refuse a citation to one it rejects, naming the
+report and each validation error, so a hand-made or edited TSV cannot stand
+in for the harness's output.
+
 Its **rationale** is the `**Chosen because:**` span and every
 `**Measurement:**` or `**Measurements:**` span. A span runs from its label
 through the list or paragraph under it, ending at a heading, a new paragraph

@@ -54,7 +54,7 @@ fail_closed() {
   exit 5
 }
 
-for lib in spec-parse.sh verdict-scan.sh; do
+for lib in spec-parse.sh verdict-scan.sh substrate-bakeoff.sh; do
   [ -f "$script_dir/$lib" ] && [ -r "$script_dir/$lib" ] || fail_closed "broken install: $lib is missing or not readable"
 done
 # shellcheck source=scripts/spec-parse.sh
@@ -83,8 +83,8 @@ printf '%s\n' "$verdict_cite_awk" >"$work/cite.awk" || fail_closed "the citation
 awk -f "$work/fence.awk" -f "$work/grammar.awk" -f "$work/scan.awk" "$bundle/design.md" >"$work/records" \
   || fail_closed "design.md could not be scanned"
 
-VS_ROOT=$root VS_ME=$me
-export VS_ROOT VS_ME
+VS_ROOT=$root VS_ME=$me VS_BAKEOFF=$script_dir/substrate-bakeoff.sh
+export VS_ROOT VS_ME VS_BAKEOFF
 cat >"$work/effort.awk" <<'EOF' || fail_closed "the effort check could not be staged"
 { vs_record() }
 END {

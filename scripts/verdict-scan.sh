@@ -15,8 +15,9 @@
 #
 # verdict_cite_awk holds the functions both guards evaluate spans with:
 # cites() splits a span into figures and their citations, report_load()
-# reads a committed report, and report_find() picks the report a verdict
-# names that carries a candidate.
+# reads a committed report once substrate-bakeoff.sh validate accepts it,
+# and report_find() picks the report a verdict names that carries a
+# candidate.
 
 # shellcheck disable=SC2034,SC2016 # consumed by the sourcing guard; awk, not shell, expands it
 verdict_scan_awk='
@@ -90,8 +91,26 @@ function cites(s, fig, ref, cref,   n, k, t, rest, pos, tok, pre, post, prefix, 
   }
   return n
 }
+# report_validate(p, f): run VS_BAKEOFF validate over f; returns 1, or 0
+# with vc_lerr[p] naming p and every reason the validator gave.
+function report_validate(p, f,   cmd, line, msg, rc) {
+  # The shell expands the quoted variables without splitting them; p has
+  # already passed the plain-path check.
+  cmd = "/bin/sh \"$VS_BAKEOFF\" validate \"$VS_ROOT\"/" p " 2>&1; echo \"vs-rc:$?\""
+  msg = ""; rc = ""
+  while ((cmd | getline line) > 0) {
+    if (line ~ /^vs-rc:/) { rc = substr(line, 7); continue }
+    sub(/^substrate-bakeoff: (invalid report: )?/, "", line)
+    msg = msg (msg == "" ? "" : "; ") line
+  }
+  close(cmd)
+  if (rc == "0") return 1
+  vc_lerr[p] = "report " p " is not a valid bake-off report (substrate-bakeoff.sh validate: " (msg == "" ? "exit " rc : msg) ")"
+  return 0
+}
 # report_load(p): read the report at repository-relative path p under
-# VS_ROOT; returns 1, or 0 with vc_err set.
+# VS_ROOT, refusing one substrate-bakeoff.sh validate rejects; returns 1, or
+# 0 with vc_err set.
 function report_load(p,   f, line, r, nf, a, i, c, ncol) {
   if (p in vc_loaded) { vc_err = vc_lerr[p]; return vc_loaded[p] }
   vc_loaded[p] = 0
@@ -99,6 +118,9 @@ function report_load(p,   f, line, r, nf, a, i, c, ncol) {
   f = ENVIRON["VS_ROOT"] "/" p
   r = (getline line < f)
   if (r <= 0) { vc_lerr[p] = "report " p " is missing or empty"; vc_err = vc_lerr[p]; return 0 }
+  close(f)
+  if (!report_validate(p, f)) { vc_err = vc_lerr[p]; return 0 }
+  getline line < f
   ncol = split(line, a, "\t"); c = 0
   for (i = 1; i <= ncol; i++) { vc_col[p, i] = a[i]; vc_hasf[p, a[i]] = 1; if (a[i] == "candidate") c = i }
   if (!c) { close(f); vc_lerr[p] = "report " p " has no candidate column"; vc_err = vc_lerr[p]; return 0 }

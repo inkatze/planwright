@@ -155,6 +155,24 @@ bundle missing <<'EOF'
 EOF
 check "a report path that does not exist" missing 1 "report docs/substrate/none.tsv is missing"
 
+printf 'schema\tcandidate\tclass\ttests_passed\nsubstrate-bakeoff\tstub-full\tfull\t2\n' >"$tmp/root/docs/substrate/forged.tsv"
+bundle forged <<'EOF'
+**Report:** `docs/substrate/forged.tsv`
+
+**Chosen because:** 2 (`stub-full.tests_passed`) passed.
+EOF
+check "a hand-made report is refused" forged 1 "report docs/substrate/forged.tsv is not a valid bake-off report"
+check_has "a hand-made report: names the validation error" "$out" "header field 2 is \"candidate\", the schema needs \"run_id\""
+
+awk -F '\t' -v OFS='\t' 'NR == 1 { for (i = 1; i <= NF; i++) k[$i] = i } NR > 1 && $k["class"] == "full" { $k["tests_failed"] = 5 } { print }' \
+  "$tmp/root/$REPORT" >"$tmp/root/docs/substrate/tampered.tsv"
+bundle tampered <<'EOF'
+**Report:** `docs/substrate/tampered.tsv`
+
+**Chosen because:** 2 (`stub-full.tests_passed`) passed.
+EOF
+check "a full-schema report failing validation is refused" tampered 1 "tests_passed plus tests_failed is not the production fixture count"
+
 bundle outside <<'EOF'
 **Report:** `../escape.tsv`
 

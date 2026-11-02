@@ -14,6 +14,7 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$here/.." && pwd)
 CE="$REPO_ROOT/scripts/check-verdict-effort.sh"
+SB="$REPO_ROOT/scripts/substrate-bakeoff.sh"
 
 failures=0
 ok() { echo "ok: $1"; }
@@ -40,13 +41,32 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-check-verdict-effort.XXXXXX") || exit 1
 [ -n "$tmp" ] && [ -d "$tmp" ] || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
-# A minimal report: the guard reads the candidate and class columns and the
-# porting-rate field by name.
-mkdir -p "$tmp/root/docs/substrate"
+# The cited reports are the harness's own output over the committed stub
+# bake-off, recast with synthetic candidate names and porting rates; every
+# one must still pass substrate-bakeoff.sh validate, as the guard requires.
+mkdir -p "$tmp/root/docs/substrate" "$tmp/out"
+"$SB" run --bakeoff "$REPO_ROOT/tests/fixtures/substrate-bakeoff/stub" --out-dir "$tmp/out" --run-id eff --platform test >/dev/null 2>&1 \
+  || {
+    echo "FAIL: the stub bake-off did not run" >&2
+    exit 1
+  }
+# recast <full id> <rate> <comparison id or -> <report>: the stub report
+# with its full candidate renamed and given the rate, and its comparison
+# point renamed or (with -) dropped.
+recast() {
+  awk -F '\t' -v OFS='\t' -v full="$1" -v rate="$2" -v cmp="$3" '
+NR == 1 { for (i = 1; i <= NF; i++) k[$i] = i; print; next }
+$k["class"] == "full" { $k["candidate"] = full; $k["porting_rate_min_per_kib"] = rate; print; next }
+cmp != "-" { $k["candidate"] = cmp; print }' "$tmp/out/report.tsv" >"$tmp/root/$4"
+  "$SB" validate "$tmp/root/$4" >/dev/null 2>&1 || {
+    echo "FAIL: the recast report $4 does not validate" >&2
+    exit 1
+  }
+}
 REPORT=docs/substrate/bakeoff-a-2026-11-01.tsv
 INHERITED=docs/substrate/bakeoff-b-2026-11-02.tsv
-printf 'schema\tcandidate\tclass\tporting_rate_min_per_kib\nsubstrate-bakeoff\tgo\tfull\t0.800\nsubstrate-bakeoff\tzig\tcomparison\t-\n' >"$tmp/root/$REPORT"
-printf 'schema\tcandidate\tclass\tporting_rate_min_per_kib\nsubstrate-bakeoff\trust\tfull\t1.250\n' >"$tmp/root/$INHERITED"
+recast go 0.800 zig "$REPORT"
+recast rust 1.250 - "$INHERITED"
 
 bundle() {
   b=$tmp/$1
@@ -140,13 +160,22 @@ bundle unreported <<'EOF'
 EOF
 check "a cited rate with no report line" unreported 1 "carries no **Report:** line"
 
-printf 'schema\tcandidate\tclass\tporting_rate_min_per_kib\nsubstrate-bakeoff\tzig\tcomparison\t0.500\n' >"$tmp/root/docs/substrate/bakeoff-c.tsv"
+awk -F '\t' -v OFS='\t' 'NR == 1 { for (i = 1; i <= NF; i++) k[$i] = i } $k["class"] == "comparison" { $k["porting_rate_min_per_kib"] = "0.500" } { print }' \
+  "$tmp/root/$REPORT" >"$tmp/root/docs/substrate/bakeoff-c.tsv"
 bundle cmprate <<'EOF'
 **Report:** `docs/substrate/bakeoff-c.tsv`
 
 **Cost-benefit:** - **Migration effort:** 0.5 (`zig.porting_rate_min_per_kib`).
 EOF
-check "a comparison point's rate is not a logged one, whatever the cell holds" cmprate 1 "only a full candidate logs one"
+check "a comparison point carrying a rate is an invalid report" cmprate 1 "a comparison point carries the primitive field porting_rate_min_per_kib"
+
+printf 'schema\tcandidate\tclass\tporting_rate_min_per_kib\nsubstrate-bakeoff\tgo\tfull\t0.800\n' >"$tmp/root/docs/substrate/forged.tsv"
+bundle forged <<'EOF'
+**Report:** `docs/substrate/forged.tsv`
+
+**Cost-benefit:** - **Migration effort:** 0.8 (`go.porting_rate_min_per_kib`).
+EOF
+check "a hand-made report is refused" forged 1 "report docs/substrate/forged.tsv is not a valid bake-off report"
 
 bundle fencedreport <<'EOF'
 **Decision:** an ordinary decision that shows a verdict as an example:
