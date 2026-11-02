@@ -47,6 +47,19 @@
 # too: a file with a verdict but no timing record fails the run, so the
 # report never carries a silent hole.
 #
+# Per-file deadline: each file runs under timeout(1), or gtimeout where only
+# Homebrew's coreutils provides it, so one file that never returns cannot hold
+# its ticket, or the whole-suite lock its run sits under, indefinitely. The
+# bound counts from the moment the file holds its ticket. A file still running
+# at the deadline gets TERM, KILL ten seconds later if it ignores that, and is
+# recorded as failed with a message naming it and the deadline; its ticket is
+# returned as for any other file. GNU timeout puts its file in a process group
+# of its own, so an interrupt at the terminal stops the run but not the files
+# already running, which end on their own or at the deadline. A host with
+# neither tool (or only one that cannot take -k) costs one warning and
+# unbounded files. A nested runner inherits the variable and bounds its own
+# files the same way.
+#
 # Sharding: --shard <i>/<N> runs only shard i of N, so CI can split the suite
 # across parallel jobs. The split is longest-first onto the least-loaded
 # shard (ties to the lower shard) by the same duration table the queue order
@@ -77,6 +90,10 @@
 #   PLANWRIGHT_TEST_SLOT_DIR       the pool directory, for the runner's own
 #                                  tests (default: ${XDG_STATE_HOME:-$HOME/
 #                                  .local/state}/planwright/test-slots)
+#   PLANWRIGHT_TEST_FILE_DEADLINE  seconds a file may run (default 900); a
+#                                  value that is not a positive whole number
+#                                  of at most nine digits, 0 included, warns
+#                                  once and uses the default
 #   PLANWRIGHT_TEST_FORCE_SERIAL   1 forces the serial fallback path
 #   PLANWRIGHT_TEST_TIMING_REPORT  where to persist the timing report
 #                                  (default: <suite-dir>/.timing-report.tsv)
@@ -98,6 +115,9 @@
 #   PLANWRIGHT_TEST_POOL_SLOTS     (both empty for an unpooled run)
 #   PLANWRIGHT_TEST_LOG_DIR        internal: parent-to-worker log dir handoff
 #   PLANWRIGHT_TEST_CLOCK          internal: parent-to-worker clock handoff
+#   PLANWRIGHT_TEST_DEADLINE       internal: parent-to-worker deadline and
+#   PLANWRIGHT_TEST_DEADLINE_TOOL  bounding tool handoff (tool empty:
+#                                  unbounded)
 set -u
 unset CDPATH
 
@@ -243,6 +263,11 @@ if [ "${1:-}" = "--run-one" ]; then
   [ -n "$clock" ] || clock="$(probe_clock)"
   wait_started="$(now_ms)"
   slot_path=""
+  deadline="${PLANWRIGHT_TEST_DEADLINE:-}"
+  deadline_tool="${PLANWRIGHT_TEST_DEADLINE_TOOL:-}"
+  case "$deadline" in
+    '' | *[!0-9]* | 0*) deadline_tool="" ;;
+  esac
   if [ -n "${PLANWRIGHT_TEST_POOL_DIR:-}" ]; then
     # shellcheck source=scripts/lock-lib.sh
     if . "${0%/*}/lock-lib.sh"; then
@@ -282,10 +307,35 @@ if [ "${1:-}" = "--run-one" ]; then
   [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$fleet_sentinel/plugin-data"
   [ -z "${CLAUDE_DIR+set}" ] || export CLAUDE_DIR="$fleet_sentinel/claude"
   started="$(now_ms)"
-  if /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; then
+  past_deadline=0
+  if [ -n "$deadline_tool" ]; then
+    # In the foreground: started with `&`, the file would begin with INT and
+    # QUIT ignored, which not every bash lets it undo.
+    "$deadline_tool" -k 10 "$deadline" /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1
+    file_rc=$?
+    # 124 is timeout's own TERM, 137 the KILL after the grace, 143 busybox's
+    # TERM (it bounds the file from within its own process); a file that exits
+    # with one of them on its own inside the deadline is a plain failure.
+    case "$file_rc" in
+      124 | 137 | 143)
+        ended="$(now_ms)"
+        if [ -z "$started" ] || [ -z "$ended" ] || [ $((ended - started)) -ge $((deadline * 1000)) ]; then
+          past_deadline=1
+        fi
+        ;;
+    esac
+  else
+    /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1
+    file_rc=$?
+  fi
+  if [ "$file_rc" -eq 0 ]; then
     verdict="done"
   else
     verdict="fail"
+  fi
+  if [ "$past_deadline" -eq 1 ]; then
+    printf '%s\n' "run-tests: $name ran past its ${deadline}s deadline (PLANWRIGHT_TEST_FILE_DEADLINE) and was ended" \
+      >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
   fi
   for fh in "$fleet_sentinel/fleet" "$fleet_sentinel/plugin-data" "$fleet_sentinel/claude"; do
     if [ -e "$fh" ] || [ -L "$fh" ]; then
@@ -308,6 +358,8 @@ if [ "${1:-}" = "--run-one" ]; then
   : >"$PLANWRIGHT_TEST_LOG_DIR/$name.$verdict"
   if [ "$verdict" = "done" ]; then
     echo "ok: $name (${elapsed:-?}s)"
+  elif [ "$past_deadline" -eq 1 ]; then
+    echo "FAIL: $name (ran past its ${deadline}s deadline; log printed at end)" >&2
   else
     echo "FAIL: $name (log printed at end)" >&2
   fi
@@ -788,6 +840,38 @@ for i in ${qidx[@]+"${qidx[@]}"}; do
   queue+=("${all_files[$i]}")
 done
 
+# Per-file deadline (see the header). Nine digits keeps the worker's
+# millisecond arithmetic far from overflow, and is already decades.
+deadline_default=900
+deadline=$deadline_default
+if [ -n "${PLANWRIGHT_TEST_FILE_DEADLINE+set}" ]; then
+  case "$PLANWRIGHT_TEST_FILE_DEADLINE" in
+    '' | *[!0-9]* | ??????????*) deadline=0 ;;
+    *) deadline=$((10#$PLANWRIGHT_TEST_FILE_DEADLINE)) ;;
+  esac
+  if [ "$deadline" -lt 1 ]; then
+    echo "run-tests: WARNING PLANWRIGHT_TEST_FILE_DEADLINE is not a positive whole number of seconds ($(sanitize_printable "$PLANWRIGHT_TEST_FILE_DEADLINE" "(empty or unprintable)")); using the default of $deadline_default" >&2
+    deadline=$deadline_default
+  fi
+fi
+# Probed by running it: a timeout that refuses -k (an old busybox) is no
+# bound the workers can use.
+deadline_tool=""
+for cand in timeout gtimeout; do
+  cand="$(command -v "$cand" 2>/dev/null)" || continue
+  if "$cand" -k 1 5 true >/dev/null 2>&1; then
+    deadline_tool=$cand
+    break
+  fi
+done
+if [ -n "$deadline_tool" ]; then
+  deadline_desc="deadline ${deadline}s per file"
+else
+  echo "run-tests: WARNING neither timeout nor gtimeout is available; test files run with no per-file deadline" >&2
+  deadline_desc="no per-file deadline"
+fi
+export PLANWRIGHT_TEST_DEADLINE="$deadline" PLANWRIGHT_TEST_DEADLINE_TOOL="$deadline_tool"
+
 # Probe for a working `xargs -P` before relying on it; degrade to the
 # serial loop when it is absent or explicitly disabled.
 parallel=1
@@ -804,7 +888,7 @@ dispatch_failed=0
 suite_started="$(now_ms)"
 if [ "$parallel" -eq 1 ]; then
   mode=parallel
-  echo "run-tests: $scope_desc, $jobs jobs, $pool_desc"
+  echo "run-tests: $scope_desc, $jobs jobs, $pool_desc, $deadline_desc"
   echo "run-tests: queue $order_desc"
   # A shard can be empty when it outnumbers the files, and xargs would still
   # run its command once on no input.
@@ -815,7 +899,7 @@ if [ "$parallel" -eq 1 ]; then
   fi
 else
   mode=serial
-  echo "run-tests: $scope_desc, serial (no parallel primitive), $pool_desc"
+  echo "run-tests: $scope_desc, serial (no parallel primitive), $pool_desc, $deadline_desc"
   echo "run-tests: queue $order_desc"
   for t in ${queue[@]+"${queue[@]}"}; do
     /bin/bash "$self" --run-one "$t" || dispatch_failed=1
