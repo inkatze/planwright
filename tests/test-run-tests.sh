@@ -486,7 +486,7 @@ unset PLANWRIGHT_FLEET_STATE_DIR CLAUDE_PLUGIN_DATA
 #     test file. The fixture breaks the runner's own log dir from inside a
 #     test file. The pooled runs hold one ticket between two jobs, so a
 #     worker is still waiting for it when the directory breaks.
-mkdir -p "$tmp/scratch-gone" "$tmp/scratch-ro"
+mkdir -p "$tmp/scratch-gone" "$tmp/scratch-ro" "$tmp/scratch-nx"
 cat >"$tmp/scratch-gone/test-a-break.sh" <<'EOF'
 #!/bin/bash
 rm -rf "${PLANWRIGHT_TEST_LOG_DIR:?}"
@@ -495,7 +495,11 @@ cat >"$tmp/scratch-ro/test-a-break.sh" <<'EOF'
 #!/bin/bash
 chmod a-w "${PLANWRIGHT_TEST_LOG_DIR:?}"
 EOF
-for d in scratch-gone scratch-ro; do
+cat >"$tmp/scratch-nx/test-a-break.sh" <<'EOF'
+#!/bin/bash
+chmod a-x "${PLANWRIGHT_TEST_LOG_DIR:?}"
+EOF
+for d in scratch-gone scratch-ro scratch-nx; do
   printf '#!/bin/bash\n' >"$tmp/$d/test-b-other.sh"
 done
 scratch_case() { # <label> <suite> <cause> [env assignment...]
@@ -527,11 +531,12 @@ scratch_cases() { # <label> <suite> <cause>
   scratch_case "serial: $1" "$2" "$3" PLANWRIGHT_TEST_IN_POOLED_FILE=1 PLANWRIGHT_TEST_FORCE_SERIAL=1
 }
 scratch_cases "scratch removed mid-run" scratch-gone "is gone"
-# Root writes through any mode bits, so the unwritable case cannot be staged.
+# Root writes through any mode bits, so neither permission case can be staged.
 if [ "$(id -u)" -ne 0 ]; then
   scratch_cases "scratch unwritable mid-run" scratch-ro "is not writable"
+  scratch_cases "scratch unsearchable mid-run" scratch-nx "is not searchable"
 else
-  echo "ok: scratch unwritable mid-run (skipped under root)"
+  echo "ok: scratch unwritable and unsearchable mid-run (skipped under root)"
 fi
 
 if [ "$failures" -gt 0 ]; then

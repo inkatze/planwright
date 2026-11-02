@@ -14,9 +14,10 @@
 #
 # The one mid-run stop is the runner's own breakage. Every worker checks the
 # run's scratch directory (the per-file logs and verdict markers) before and
-# after its file; once that directory is gone or unwritable no verdict can be
-# recorded, so files not yet started are skipped, and the run ends with exit 2
-# naming the cause rather than blaming test files for the loss.
+# after its file; once that directory is gone, unwritable or unsearchable no
+# verdict can be recorded, so files not yet started are skipped, and the run
+# ends with exit 2 naming the cause rather than blaming test files for the
+# loss.
 #
 # Parallelism comes from `xargs -P` (POSIX-optional but present on macOS
 # and GNU userlands alike); when the probe finds no working -P — or
@@ -74,8 +75,8 @@
 #        (default suite: <repo-root>/tests)
 # Exit:  0 all pass · 1 any test failed or lost · 2 usage or environment
 #        error (bad suite dir, mktemp or self-path resolution failure, a
-#        timing report that cannot be persisted, the scratch directory gone
-#        or unwritable mid-run).
+#        timing report that cannot be persisted, the scratch directory gone,
+#        unwritable or unsearchable mid-run).
 #
 # Environment:
 #   PLANWRIGHT_TEST_JOBS           override the job count (default: core count)
@@ -169,6 +170,9 @@ scratch_fault() {
     scratch_cause="is gone"
   elif [ ! -w "$1" ]; then
     scratch_cause="is not writable"
+  elif [ ! -x "$1" ]; then
+    # Writable but unsearchable still refuses every file created in it.
+    scratch_cause="is not searchable"
   else
     return 1
   fi
