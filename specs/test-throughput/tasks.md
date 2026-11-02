@@ -448,6 +448,7 @@ first, its `Done when:` names that precondition (D-7).
 ## Awaiting input
 
 - **Task 7** — post-pr step `cubic-pr` halted (record `.claude/steps/000001/008-step-post-pr.rec`); the operator's secondary review on PR #783 stands in for it, then the operator's real Graphviz 15 run of `tests/test-spec-graph.sh` is recorded in the PR body.
+- **Task 14** — parked at post-pr, step `cubic-pr` halted (record `.claude/steps/000001/008-step-post-pr.rec`): cubic quota exhausted until 2026-11-05; the operator's secondary review on PR #790 stands in for it, and the ready flip waits until that review has run on the current head.
 
 ## Deferred
 
