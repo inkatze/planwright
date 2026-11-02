@@ -122,7 +122,10 @@ echo \$\$ >"$2/pid"
 trap ': >"$2/termed"' TERM
 sleep 60 &
 echo \$! >"$2/child"
-while :; do wait; done
+while :; do
+  sleep 1 &
+  wait \$!
+done
 EOF
 }
 quick_file() {
@@ -142,6 +145,9 @@ check_hang_gone() {
     else
       fail "$1: the hung file's child is gone"
     fi
+  else
+    # busybox leaves it running; it is the test's to end.
+    kill -s KILL "$(cat "$2/child")" 2>/dev/null
   fi
 }
 

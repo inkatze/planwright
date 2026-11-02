@@ -248,18 +248,27 @@ take_slot() {
 # its ticket is not handed on while it still runs, release every ticket, then
 # die by <SIG> itself.
 worker_signal() {
-  # $! covers a signal landing between the launch and child_pid's assignment.
-  ws_pid=$child_pid
+  # $! covers a signal landing between the launch and child_pid's assignment;
+  # a repeated signal reuses what the first one resolved, since $! may by
+  # then name that handler's killer.
+  ws_pid=${child_pid:-$ws_target}
   [ -n "$ws_pid" ] || [ "$bounding" -eq 0 ] || ws_pid=$!
+  ws_target=$ws_pid
   if [ -n "$ws_pid" ]; then
     # TERM whatever arrived: uutils' timeout answers a HUP by killing the file
     # outright, with no chance to clean up. The group is timeout's own; the
     # pid alone is the file under busybox, which makes no group.
     kill -s TERM -- "-$ws_pid" 2>/dev/null || kill -s TERM "$ws_pid" 2>/dev/null
-    # busybox's timeout grants no grace for a TERM it did not send.
-    # Off the run's output, which its sleep would otherwise hold open.
+    # busybox's timeout grants no grace for a TERM it did not send. One killer
+    # at a time: a repeated signal re-enters here and the first handler never
+    # resumes to cancel its own. The killer takes its sleep with it, and stays
+    # off the run's output, which the sleep would otherwise hold open.
+    [ -z "$ws_killer" ] || kill "$ws_killer" 2>/dev/null
     (
-      sleep 10
+      trap 'kill "$wk_sleep" 2>/dev/null; exit 0' TERM
+      sleep 10 &
+      wk_sleep=$!
+      wait "$wk_sleep"
       kill -s KILL -- "-$ws_pid" 2>/dev/null || kill -s KILL "$ws_pid" 2>/dev/null
     ) >/dev/null 2>&1 </dev/null &
     ws_killer=$!
@@ -287,6 +296,8 @@ if [ "${1:-}" = "--run-one" ]; then
   slot_path=""
   child_pid=""
   bounding=0
+  ws_target=""
+  ws_killer=""
   lock_loaded=0
   # The parent hands over a normalized value; anything else runs unbounded.
   deadline="${PLANWRIGHT_TEST_BOUND_SECONDS:-}"
