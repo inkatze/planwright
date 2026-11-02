@@ -232,8 +232,10 @@ inherited bake-off's after it.
 
 Both guards run `substrate-bakeoff.sh validate` over every report a
 `**Report:**` line names and refuse a citation to one it rejects, naming the
-report and each validation error, so a hand-made or edited TSV cannot stand
-in for the harness's output.
+report and each validation error, so a hand-made or edited TSV that breaks
+the schema cannot stand in for the harness's output. Validation checks a
+report's content, not its provenance: one that meets the schema passes
+however it was written.
 
 Its **rationale** is the `**Chosen because:**` span and every
 `**Measurement:**` or `**Measurements:**` span. A span runs from its label
