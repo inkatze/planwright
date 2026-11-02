@@ -247,7 +247,7 @@ infrastructure leads: the format doctrine and validator gate everything that wri
   CI is green and the PR is mergeable, and remove this bullet.
 - **Task 17** — the dogfood needs a real venture and an operator at its
   gates, which a dispatched worker cannot supply. Every layer it exercises
-  has landed (Tasks 7–12), and no venture exists under `ventures_root` yet.
+  has landed (Tasks 7–16), and no venture exists under `ventures_root` yet.
   Operator: run `/inception` on a real idea through bundle, validation
   tasks and a gate outcome, sweeping the `[manual]` entries in
   `test-spec.md` and the dogfood items the brief's execution findings hand
