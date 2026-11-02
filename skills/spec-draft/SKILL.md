@@ -210,7 +210,8 @@ Extend mode follows the target bundle's declared `Format-version:`
 (invariant-tasks D-7): a v1 target keeps every v1 convention unchanged —
 new task blocks join `## Forward plan`, the v1 state sections stay — while
 a v2 target takes the v2 shape (new blocks join `## Tasks` in dependency
-order; no placement sections or state annotations are ever written to it);
+order; no placement sections or state annotations are ever written to it),
+and a v3 target takes that shape plus the optional `Repository:` field;
 an unparseable target `Format-version:` is refused — fail closed, never
 the v1 conventions (D-7).
 Operates on the existing bundle per the meta-spec's stable-ID discipline:
@@ -317,15 +318,22 @@ validator the first time.
    (orchestration selection reads them): ask about ordering the human knows
    and the text doesn't show — in particular, tasks whose deliverables gate
    other tasks' verification (CI, guards, validators) should carry explicit
-   edges from the tasks they protect, or they dispatch too late.
+   edges from the tasks they protect, or they dispatch too late. When the
+   elicitation surfaces a second repository (a task whose code lives outside
+   the bundle's work repository), offer that task the optional `Repository:`
+   field: one alias per block, resolved only through the machine-local
+   work-repository registry, never a path or URL (`spec-format`
+   *Format-version 3*); work spanning repositories splits into tasks joined
+   by dependency edges.
 5. **Test-spec.** Every REQ pinned to at least one verification path, tagged
    `[test]` / `[manual]` / `[design-level]` / `[Gherkin]` (mixed:
    `[test + manual]`). Prefer `[test]` where automation is honest; say which
    CI runs it.
 6. **Review & validate.** Assemble all four files (shared header block,
-   `**Status:** Draft`, `**Last reviewed:** <date>`, `**Format-version:** 2`,
-   and — fixed vocabulary, on all four files (D-5) — the canonical pointer
-   line `**Execution:** derived — see the status render`).
+   `**Status:** Draft`, `**Last reviewed:** <date>`, `**Format-version:** 2`
+   (`**Format-version:** 3` only when some task names a repository), and —
+   fixed vocabulary, on all four files (D-5) — the canonical pointer line
+   `**Execution:** derived — see the status render`).
 
    **Self-critique pass (REQ-C1.1, D-7).** Before the validator runs and
    before commit, run one scoped self-critique lens pass over the freshly

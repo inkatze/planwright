@@ -116,12 +116,12 @@ protocol's dispatched arm); attended, present and wait.
      classify-then-self-re-anchor. Halts go to
      Awaiting input.
 8. **Read the brief slice and task block(s).** From the brief: the signed-off
-   goal restatement, the task graph, and the unit's risk entries. From
-   `tasks.md`: each
-   block's `Deliverables`, `Done when`, `Dependencies`, and `Citations`. Confirm
-   every dependency is completed — on a v1 bundle it sits in `## Completed`; on a
-   v2 bundle it derives Completed via the derivation engine
-   (`scripts/orchestrate-state.sh`); if one is not, halt naming it.
+   goal restatement, the task graph, and the unit's risk entries; from
+   `tasks.md`, each block's definition fields. Confirm every dependency is
+   completed: in `## Completed` (v1), or it derives Completed via the
+   derivation engine (`scripts/orchestrate-state.sh`; on a version 3 bundle,
+   from the repository its block names); else halt naming it, a
+   `repository-unresolved` one by alias.
 9. **Derive the full-CI command** (D-19). Pick the most comprehensive guard the
    repo ships, checking in order: a `mise.toml` aggregate task (planwright's own
    is `mise run check`); a `package.json` `ci`/`test` script; a `Makefile`
