@@ -208,4 +208,12 @@ out=$(step 3005) || fail "the step on the wake: exit"
 grep '"kind":"delivered"' "$log_file" | grep -q "\"item\":\"$wq\"" || fail "the wake's hand-over was not logged against its item"
 echo "ok: a step run on a wake hands over the new item with no tick in between"
 
+# The tower knows a wake by the marker mission control's wake composes; the two
+# must not drift apart, or no wake would run the step early.
+grep -q "printf 'mission control (%s): " "$here/../scripts/mc-wake.sh" \
+  || fail "scripts/mc-wake.sh no longer composes a wake opening 'mission control (<program>): '"
+grep -qF '`mission control (`, runs the step at once' "$here/../skills/orchestrate/SKILL.md" \
+  || fail "skills/orchestrate/SKILL.md does not key the wake on the marker mc-wake.sh composes"
+echo "ok: the orchestrate loop keys the wake on the marker mission control composes"
+
 echo "PASS: tower-loop review"
