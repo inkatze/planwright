@@ -111,6 +111,10 @@ iso_env() {
   export PLANWRIGHT_ORCH_STATE_DIR="$_t/markers"
   export PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$_t/fstate"
   export PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX=1
+  # A fleet worker session exports these pointing at the primary checkout,
+  # which would make the primitive resolve that checkout's worker settings
+  # instead of the ones beside the script under test.
+  unset PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
 }
 
 # Seed a bare origin + a primary clone carrying a minimal spec bundle, with main
