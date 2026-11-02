@@ -252,6 +252,16 @@ if lk acquire "$HOLDER/.claude/worktrees/copy/hub/demo"; then
 else
   pass "I1.6 the lock refuses a linked worktree's copy of the holder's bundle"
 fi
+trf_repo "$HOLDER/nested"
+mkdir -p "$HOLDER/nested/hub/demo"
+printf 'project: hub\nlayout: 1\n' >"$HOLDER/nested/hub/planwright-spec-root.yml"
+if lk acquire "$HOLDER/nested/hub/demo"; then
+  fail "I1.6 the lock took a bundle in a repository nested in the holder"
+  lk release "$HOLDER/nested/hub/demo"
+else
+  pass "I1.6 the lock refuses a bundle in a repository nested in the holder"
+fi
+rm -rf "$HOLDER/nested"
 if lk acquire "$B"; then
   pass "I1.6 the lock takes the holder's bundle"
   lk release "$B"
@@ -271,6 +281,12 @@ assert_eq "I1.6 no field, two registered: the dispatch parks (exit)" 4 "$m_rc"
 assert_has "I1.6 the park names its stage" "halt${TAB}work-repo" "$m_out"
 assert_has "I1.6 the refusal names the candidates" "alpha ($ALPHA), beta ($BETA)" "$m_err"
 nothing_created "I1.6 no field, two registered" 3
+write_bundle "$NAMED_1" "$NAMED_2" three
+sed 's/^\*\*Format-version:\*\* 3$/**Format-version:** three/' "$B/tasks.md" >"$TRF/tasks.tmp"
+mv "$TRF/tasks.tmp" "$B/tasks.md"
+meta "$HOLDER" 1
+assert_eq "I1.6 unreadable Repository: fields: the dispatch is refused (exit)" 2 "$m_rc"
+nothing_created "I1.6 unreadable Repository: fields" 1
 write_bundle '- **Repository:** gamma' "$NAMED_2" three
 meta "$HOLDER" 1
 assert_eq "I1.6 an unregistered alias: the dispatch parks (exit)" 4 "$m_rc"

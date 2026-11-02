@@ -210,7 +210,8 @@ work_root=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/
 relay "$wr_err"
 rm -f "$wr_err"
 # Exit 5 is a task whose repository resolves to nothing, an operator's fix;
-# anything else is a spec dir no repository owns, a refused input.
+# anything else (no repository owns the spec dir, unreadable Repository:
+# fields) is a refused input, the resolver's line above saying which.
 case $wr_rc in
   0) ;;
   5)
@@ -218,7 +219,7 @@ case $wr_rc in
     printf 'remedy\t%s\n' "register the task's work repository (work-repo-registry.sh register in its checkout), or name one in the task's Repository: field"
     exit 4
     ;;
-  *) die "the spec directory has no work repository to dispatch into (resolve-work-repo exit $wr_rc)" ;;
+  *) die "task $task_id's work repository could not be resolved (resolve-work-repo exit $wr_rc); nothing was created" ;;
 esac
 work_root=$(cd "$work_root" 2>/dev/null && pwd -P) || die "the work repository cannot be entered"
 

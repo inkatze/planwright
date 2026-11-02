@@ -155,7 +155,8 @@ law is `orchestration-concurrency` (read here). **The unit's repository**
 (D-25): `scripts/resolve-work-repo.sh <root>/<spec> --task <id>` prints the
 `<work-repo>` receiving the worktree, branch, worker, and PR, whichever
 repository this session started in (a holder resolves through the registry);
-a refusal parks the unit, creating nothing. Lock and markers stay with the
+exit 5 (no such repository) parks the unit, other refusals halt, creating
+nothing. Lock and markers stay with the
 bundle. Ordered steps:
 
 1. **Acquire the lock.** `scripts/orchestrate-lock.sh acquire <root>/<spec>`. Exit

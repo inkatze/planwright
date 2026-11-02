@@ -128,7 +128,7 @@ candidates() {
 
 by_alias() {
   /bin/sh "$root_helper" marker "$reg_root" >/dev/null || {
-    say "the alias '$1' resolves to nothing: the spec root $parent has no valid planwright-spec-root.yml marker, and only a marked root has registered repositories"
+    say "the alias '$1' resolves to nothing: the spec root $reg_root has no valid planwright-spec-root.yml marker, and only a marked root has registered repositories"
     exit 5
   }
   # The registry names its own reason on stderr; any failure to answer is
@@ -138,7 +138,10 @@ by_alias() {
     say "the work repositories registered against $reg_root: $(candidates)"
     exit 5
   fi
-  registry_entries || :
+  if ! registry_entries; then
+    say "the alias '$1' resolves to nothing: the work-repository registry could not be read for $reg_root to confirm it names a work repository"
+    exit 5
+  fi
   if ! printf '%s\n' "$entries" | BA_OUT=$ba_out awk -F"$TAB" '$2 == ENVIRON["BA_OUT"] { f = 1 } END { exit !f }'; then
     say "the alias '$1' resolves to nothing: it names a holder checkout, which never receives a dispatch; the work repositories registered against $reg_root: $(candidates)"
     exit 5

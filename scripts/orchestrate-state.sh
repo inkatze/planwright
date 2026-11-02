@@ -179,7 +179,10 @@ fi
 # one holding the bundle: a relocated spec root may sit in a holder or in no
 # repository at all.
 wr_rc=0
-wr_err=$(mktemp "${TMPDIR:-/tmp}/orchestrate-state.XXXXXX") || exit 2
+wr_err=$(mktemp "${TMPDIR:-/tmp}/orchestrate-state.XXXXXX") || {
+  printf '%s\n' "orchestrate-state: cannot create a temporary file" >&2
+  exit 2
+}
 repo_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" 2>"$wr_err") || wr_rc=$?
 wr_msg=$(cat "$wr_err")
 rm -f "$wr_err"
