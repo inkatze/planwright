@@ -185,8 +185,9 @@ under an alias. It is **runtime state**, not configuration: it lives in the
 plugin data home (`$CLAUDE_PLUGIN_DATA/work-repos/`), is never committed, and
 is a cache rather than a source of truth. Every read rechecks each entry
 against the repository's own `spec_root` and the root's marker, and drops one
-whose checkout is gone, whose `spec_root` no longer names the root, or whose
-root's marker now names another project. Nothing is registered, and no
+whose checkout is gone or is no longer a primary checkout, whose `spec_root`
+no longer names the root, or whose root has lost its marker or now names
+another project in it. Nothing is registered, and no
 registry file is created, while a repository's spec root is the default.
 
 **Registration.** Opening a session in a work repository whose `spec_root`
