@@ -212,6 +212,7 @@ echo "ok: a step run on a wake hands over the new item with no tick in between"
 # must not drift apart, or no wake would run the step early.
 grep -q "printf 'mission control (%s): " "$here/../scripts/mc-wake.sh" \
   || fail "scripts/mc-wake.sh no longer composes a wake opening 'mission control (<program>): '"
+# shellcheck disable=SC2016 # the backticks are the skill's literal markdown
 grep -qF '`mission control (`, runs the step at once' "$here/../skills/orchestrate/SKILL.md" \
   || fail "skills/orchestrate/SKILL.md does not key the wake on the marker mc-wake.sh composes"
 echo "ok: the orchestrate loop keys the wake on the marker mission control composes"
