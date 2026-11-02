@@ -13,7 +13,7 @@
 # doc before changing anything here. When Claude Code's matcher changes, the doc
 # is where the divergence surfaces (D-4).
 #
-#   Modeled behavior version: Claude Code CLI 2.1.220 / docs as of 2026-07-29.
+#   Modeled behavior version: Claude Code CLI 2.1.314 / docs as of 2026-11-01.
 #
 # Sourced, not executed:  . tests/lib/permission-matcher.sh
 # Portable bash 3.2 (no associative arrays, no mapfile); no forks in the hot
@@ -23,11 +23,21 @@
 #   pm_load_rules <deny-lines> <ask-lines> <allow-lines>
 #         Compile three newline-separated rule lists (as they appear in a
 #         settings.json permissions array: `Bash(<pattern>)`, `Read(...)`, a
-#         bare tool name, ...). Non-Bash rules are ignored for command
-#         matching. Returns 2 if the deny list contains no usable Bash rule.
+#         bare tool name, ...). Read/Edit path rules and bare file-tool
+#         allow entries are filed for pm_decide_path; other non-Bash rules
+#         are ignored. Returns 2 if the deny list contains no usable Bash
+#         rule.
 #   pm_decide <command>
 #         Print one of: deny | ask | allow | prompt   (prompt = no rule
 #         matched, so the call falls through to the permission prompt).
+#   pm_subcommands <command>
+#         Print every subcommand the rules see, nested ones included (M9).
+#   pm_decide_path <Read|Edit|Write> <absolute-path>
+#         The same four outcomes for a file-tool call (M10, M11), anchored at
+#         PM_CWD, PM_HOME, and PM_SETTINGS_DIR.
+#   pm_allow_rule_count / pm_allow_rule_at <i>, pm_path_deny_rule_at <i>,
+#   pm_path_deny_match_indices <tool> <path>, pm_path_matches <kind> <pat> <path>
+#         Enumeration and predicates for the coverage passes.
 #   pm_matching_deny_rule <command>
 #         Print the first deny rule (as written) that matches, or nothing.
 #   pm_matches <pattern> <command>
@@ -111,46 +121,176 @@ pm_rule_pattern() {
 
 # --- command decomposition ---------------------------------------------------
 
-# pm_split_command <command> — print each subcommand on its own line.
+# pm_split_command <command> — print each top-level subcommand on its own line.
 #
 # Claude Code is shell-operator aware: a rule must match each subcommand
 # independently. The recognized separators are `&&`, `||`, `;`, `|`, `|&`, `&`,
-# and newlines (doc rule M5). Two-character operators are consumed before the
-# one-character ones so `&&` is never read as two `&`s.
+# and newlines (doc rule M6). Two-character operators are consumed before the
+# one-character ones so `&&` is never read as two `&`s. A separator inside
+# parentheses (a subshell, `$(...)`, `<(...)`) or backticks does not split at
+# this level: pm_subcommands reaches those nested commands (M9). A newline
+# inside one is printed as `;`, so every printed subcommand is one line.
 #
 # BOUNDARY (doc §"Modeling boundaries", MB-3): this split is quoting-unaware. A
 # separator inside a quoted argument (`git commit -m "a; b"`) splits here where
 # the real matcher would not. No fixture row relies on that shape.
 pm_split_command() {
-  local s="$1" cur="" i n two c
+  local s="$1" cur="" i n two c depth=0 bt=0
+  n=${#s}
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    c="${s:$i:1}"
+    if [ "$depth" -eq 0 ] && [ "$bt" -eq 0 ]; then
+      two="${s:$i:2}"
+      case "$two" in
+        '&&' | '||' | '|&')
+          printf '%s\n' "$cur"
+          cur=""
+          i=$((i + 2))
+          continue
+          ;;
+      esac
+      case "$c" in
+        ';' | '|' | '&' | '
+')
+          printf '%s\n' "$cur"
+          cur=""
+          i=$((i + 1))
+          continue
+          ;;
+      esac
+    fi
+    case "$c" in
+      '(') depth=$((depth + 1)) ;;
+      ')') [ "$depth" -eq 0 ] || depth=$((depth - 1)) ;;
+      '`') bt=$((1 - bt)) ;;
+      '
+') c=';' ;;
+    esac
+    cur="$cur$c"
+    i=$((i + 1))
+  done
+  printf '%s\n' "$cur"
+}
+
+# pm_substitutions <subcommand> — print the inner text of each outermost
+# `$(...)`, `<(...)`, `>(...)`, and backtick substitution, one per line.
+# Quoting-unaware like the split (MB-3): a `$(` inside single quotes is read
+# as a substitution too, which can only add subcommands to check.
+pm_substitutions() {
+  local s="$1" i n c two depth j inner
   n=${#s}
   i=0
   while [ "$i" -lt "$n" ]; do
     two="${s:$i:2}"
+    c="${s:$i:1}"
+    # shellcheck disable=SC2016 # the substitution openers are matched literally
     case "$two" in
-      '&&' | '||' | '|&')
-        printf '%s\n' "$cur"
-        cur=""
-        i=$((i + 2))
+      '$(' | '<(' | '>(')
+        depth=1
+        j=$((i + 2))
+        while [ "$j" -lt "$n" ] && [ "$depth" -gt 0 ]; do
+          case "${s:$j:1}" in
+            '(') depth=$((depth + 1)) ;;
+            ')') depth=$((depth - 1)) ;;
+          esac
+          j=$((j + 1))
+        done
+        if [ "$depth" -eq 0 ]; then
+          inner="${s:$((i + 2)):$((j - i - 3))}"
+        else
+          inner="${s:$((i + 2))}"
+        fi
+        printf '%s\n' "$inner"
+        i=$j
         continue
         ;;
     esac
-    c="${s:$i:1}"
-    case "$c" in
-      ';' | '|' | '&' | '
-')
-        printf '%s\n' "$cur"
-        cur=""
-        i=$((i + 1))
-        continue
+    if [ "$c" = '`' ]; then
+      j=$((i + 1))
+      while [ "$j" -lt "$n" ] && [ "${s:$j:1}" != '`' ]; do
+        j=$((j + 1))
+      done
+      printf '%s\n' "${s:$((i + 1)):$((j - i - 1))}"
+      i=$((j + 1))
+      continue
+    fi
+    i=$((i + 1))
+  done
+}
+
+# pm_strip_keywords <subcommand> — drop the control-flow words that open a
+# body or condition (`do`, `then`, `else`, `elif`, `if`, `while`, `until`,
+# `!`, `{`), so the command inside is what the rules see (M9). A bare closing
+# word (`done`, `fi`, `}`, ...) prints nothing. A `for`/`select` head prints
+# `#head <words>`: it runs no command, but a substitution in its words does.
+pm_strip_keywords() {
+  local s="$1"
+  while :; do
+    case "$s" in
+      'do '* | 'then '* | 'else '* | 'elif '* | 'if '* | 'while '* | 'until '* | '! '* | '{ '*)
+        s="$(pm_trim "${s#* }")"
         ;;
-      *)
-        cur="$cur$c"
-        i=$((i + 1))
+      'do' | 'then' | 'else' | 'done' | 'fi' | 'esac' | '{' | '}')
+        return 0
         ;;
+      'for '* | 'select '*)
+        printf '#head %s' "$s"
+        return 0
+        ;;
+      *) break ;;
     esac
   done
-  printf '%s\n' "$cur"
+  case "$s" in
+    *' }') s="$(pm_trim "${s% \}}")" ;;
+  esac
+  printf '%s' "$s"
+}
+
+# pm_subcommands <command> — print every simple subcommand the rules are
+# matched against, one per line: the top-level ones, and those nested in a
+# subshell, a brace group, a command or process substitution, or a
+# control-flow body, recursively (doc rule M9). A subcommand carrying a
+# substitution is printed with it in place, then its inner commands follow.
+PM_NEST_MAX=8
+pm_subcommands() { pm_subcommands_at "$1" 0; }
+pm_subcommands_at() {
+  local s="$1" d="$2" sub inner head
+  [ "$d" -le "$PM_NEST_MAX" ] || return 0
+  while IFS= read -r sub; do
+    sub="$(pm_trim "$sub")"
+    case "$sub" in
+      'do'* | 'then'* | 'else'* | 'elif '* | 'if '* | 'while '* | 'until '* | '!'* | '{'* | '}' | 'fi' | 'esac' | 'for '* | 'select '* | *' }')
+        sub="$(pm_strip_keywords "$sub")"
+        ;;
+    esac
+    [ -n "$sub" ] || continue
+    head=0
+    case "$sub" in
+      '#head '*)
+        head=1
+        sub="${sub#\#head }"
+        ;;
+      '('*')')
+        pm_subcommands_at "${sub:1:$((${#sub} - 2))}" $((d + 1))
+        continue
+        ;;
+    esac
+    [ "$head" -eq 1 ] || printf '%s\n' "$sub"
+    # shellcheck disable=SC2016 # the substitution openers are matched literally
+    case "$sub" in
+      *'$('* | *'<('* | *'>('* | *'`'*) ;;
+      *) continue ;;
+    esac
+    while IFS= read -r inner; do
+      [ -n "$inner" ] || continue
+      pm_subcommands_at "$inner" $((d + 1))
+    done <<EOF
+$(pm_substitutions "$sub")
+EOF
+  done <<EOF
+$(pm_split_command "$s")
+EOF
 }
 
 # pm_trim <string> — strip leading and trailing spaces and tabs.
@@ -250,7 +390,12 @@ PM_ALLOW_N=0
 PM_DENY_RULE=()
 PM_DENY_RE=()
 PM_ASK_RE=()
+PM_ALLOW_RULE=()
 PM_ALLOW_RE=()
+PM_PATH_DENY_N=0
+PM_PATH_ASK_N=0
+PM_PATH_ALLOW_N=0
+PM_TOOL_ALLOW=' '
 
 # pm_load_rules <deny-lines> <ask-lines> <allow-lines> — compile three
 # newline-separated rule lists.
@@ -270,7 +415,20 @@ pm_load_rules() {
   PM_DENY_RULE=()
   PM_DENY_RE=()
   PM_ASK_RE=()
+  PM_ALLOW_RULE=()
   PM_ALLOW_RE=()
+  PM_PATH_DENY_N=0
+  PM_PATH_ASK_N=0
+  PM_PATH_ALLOW_N=0
+  PM_PATH_DENY_RULE=()
+  PM_PATH_DENY_TOOL=()
+  PM_PATH_DENY_PAT=()
+  PM_PATH_ASK_TOOL=()
+  PM_PATH_ASK_PAT=()
+  PM_PATH_ALLOW_TOOL=()
+  PM_PATH_ALLOW_PAT=()
+  PM_TOOL_ALLOW=' '
+  PM_PATH_KEY=''
 
   while IFS= read -r rule; do
     [ -n "$rule" ] || continue
@@ -280,7 +438,10 @@ pm_load_rules() {
       malformed=1
       continue
     }
-    [ "$rc" -eq 0 ] || continue
+    if [ "$rc" -ne 0 ]; then
+      pm_path_record deny "$rule" || malformed=1
+      continue
+    fi
     PM_DENY_RULE[PM_DENY_N]="$rule"
     PM_DENY_RE[PM_DENY_N]="$(pm_compile_pattern "$pat")"
     PM_DENY_N=$((PM_DENY_N + 1))
@@ -296,7 +457,10 @@ EOF
       malformed=1
       continue
     }
-    [ "$rc" -eq 0 ] || continue
+    if [ "$rc" -ne 0 ]; then
+      pm_path_record ask "$rule" || malformed=1
+      continue
+    fi
     PM_ASK_RE[PM_ASK_N]="$(pm_compile_pattern "$pat")"
     PM_ASK_N=$((PM_ASK_N + 1))
   done <<EOF
@@ -311,7 +475,11 @@ EOF
       malformed=1
       continue
     }
-    [ "$rc" -eq 0 ] || continue
+    if [ "$rc" -ne 0 ]; then
+      pm_path_record allow "$rule" || malformed=1
+      continue
+    fi
+    PM_ALLOW_RULE[PM_ALLOW_N]="$rule"
     PM_ALLOW_RE[PM_ALLOW_N]="$(pm_compile_pattern "$pat")"
     PM_ALLOW_N=$((PM_ALLOW_N + 1))
   done <<EOF
@@ -325,6 +493,258 @@ EOF
 
 pm_deny_rule_count() { printf '%s' "$PM_DENY_N"; }
 pm_deny_rule_at() { printf '%s' "${PM_DENY_RULE[$1]}"; }
+pm_allow_rule_count() { printf '%s' "$PM_ALLOW_N"; }
+pm_allow_rule_at() { printf '%s' "${PM_ALLOW_RULE[$1]}"; }
+
+# --- path rules (doc rules M10, M11) -----------------------------------------
+#
+# `Read(<pattern>)` and `Edit(<pattern>)` rules guard file paths with gitignore
+# patterns. Edit rules apply to every built-in tool that edits files, the
+# Write tool included; a `Write(...)` or `NotebookEdit(...)` path rule is
+# accepted but never matches (M11). A Read deny also blocks the edit tools on
+# the same path. A bare `Read`, `Edit`, or `Write` allow entry admits that
+# tool on every path. The anchors a pattern resolves against are PM_CWD (the
+# session's working directory), PM_HOME, and PM_SETTINGS_DIR (the directory
+# of the file passed with --settings, which anchors a single-slash pattern).
+PM_CWD="${PM_CWD:-$PWD}"
+PM_HOME="${PM_HOME:-${HOME:-/}}"
+PM_SETTINGS_DIR="${PM_SETTINGS_DIR:-$PM_CWD}"
+
+# pm_path_record <deny|ask|allow> <rule> — file a non-Bash rule. Returns 1 for
+# a path rule missing its closing paren (fail closed, as for Bash rules);
+# any other non-Bash rule (an MCP name, Grep, Glob) is ignored.
+pm_path_record() {
+  local kind="$1" rule="$2" tool pat
+  case "$rule" in
+    Read | Edit | Write)
+      [ "$kind" != allow ] || PM_TOOL_ALLOW="$PM_TOOL_ALLOW$rule "
+      return 0
+      ;;
+    'Read('*')' | 'Edit('*')' | 'Write('*')' | 'NotebookEdit('*')')
+      tool="${rule%%(*}"
+      pat="${rule#*(}"
+      pat="${pat%)}"
+      ;;
+    'Read('* | 'Edit('* | 'Write('* | 'NotebookEdit('*) return 1 ;;
+    *) return 0 ;;
+  esac
+  case "$kind" in
+    deny)
+      PM_PATH_DENY_RULE[PM_PATH_DENY_N]="$rule"
+      PM_PATH_DENY_TOOL[PM_PATH_DENY_N]="$tool"
+      PM_PATH_DENY_PAT[PM_PATH_DENY_N]="$pat"
+      PM_PATH_DENY_N=$((PM_PATH_DENY_N + 1))
+      ;;
+    ask)
+      PM_PATH_ASK_TOOL[PM_PATH_ASK_N]="$tool"
+      PM_PATH_ASK_PAT[PM_PATH_ASK_N]="$pat"
+      PM_PATH_ASK_N=$((PM_PATH_ASK_N + 1))
+      ;;
+    allow)
+      PM_PATH_ALLOW_TOOL[PM_PATH_ALLOW_N]="$tool"
+      PM_PATH_ALLOW_PAT[PM_PATH_ALLOW_N]="$pat"
+      PM_PATH_ALLOW_N=$((PM_PATH_ALLOW_N + 1))
+      ;;
+  esac
+}
+
+pm_path_deny_rule_at() { printf '%s' "${PM_PATH_DENY_RULE[$1]}"; }
+
+# pm_ere_escape <text> — escape ERE metacharacters, globs included.
+pm_ere_escape() {
+  local s="$1" out="" i c
+  i=0
+  while [ "$i" -lt "${#s}" ]; do
+    c="${s:$i:1}"
+    case "$c" in
+      '.' | \\ | '+' | '?' | '*' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|')
+        out="$out\\$c"
+        ;;
+      *) out="$out$c" ;;
+    esac
+    i=$((i + 1))
+  done
+  printf '%s' "$out"
+}
+
+# pm_path_glob_ere <glob> — gitignore glob to ERE: `**/` spans zero or more
+# directories, a trailing `/**` everything below, `*` and `?` stay inside one
+# segment.
+pm_path_glob_ere() {
+  local g="$1" out="" i n c
+  n=${#g}
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    c="${g:$i:1}"
+    if [ "${g:$i:3}" = '**/' ]; then
+      out="$out(.*/)?"
+      i=$((i + 3))
+      continue
+    fi
+    if [ "${g:$i:2}" = '**' ]; then
+      out="$out.*"
+      i=$((i + 2))
+      continue
+    fi
+    case "$c" in
+      '*') out="${out}[^/]*" ;;
+      '?') out="${out}[^/]" ;;
+      '.' | \\ | '+' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|') out="$out\\$c" ;;
+      *) out="$out$c" ;;
+    esac
+    i=$((i + 1))
+  done
+  printf '%s' "$out"
+}
+
+# pm_path_pattern_ere <deny|ask|allow> <pattern> — the anchored ERE a path
+# rule's pattern compiles to (M10). `//p` is absolute, `~/p` home-relative,
+# `/p` settings-relative, and `p` or `./p` relative to PM_CWD. A relative
+# pattern with no slash (a bare name) matches at any depth under its anchor,
+# and so, in deny and ask rules only, does a single directory segment
+# followed by `/**`.
+pm_path_pattern_ere() {
+  local kind="$1" p="$2" base rel any=0 seg
+  # shellcheck disable=SC2088 # a literal ~ is the rule's home anchor
+  case "$p" in
+    '//'*)
+      base=''
+      rel="${p#//}"
+      ;;
+    '~/'*)
+      base="$PM_HOME"
+      rel="${p#\~/}"
+      ;;
+    '/'*)
+      base="$PM_SETTINGS_DIR"
+      rel="${p#/}"
+      ;;
+    *)
+      base="$PM_CWD"
+      rel="${p#./}"
+      case "$rel" in
+        */*)
+          seg="${rel%/\*\*}"
+          if [ "$kind" != allow ] && [ "$seg" != "$rel" ]; then
+            case "$seg" in
+              */* | *'*'*) ;;
+              *) any=1 ;;
+            esac
+          fi
+          ;;
+        *) any=1 ;;
+      esac
+      ;;
+  esac
+  base="${base%/}"
+  if [ "$any" -eq 1 ]; then
+    printf '^%s/(.*/)?%s$' "$(pm_ere_escape "$base")" "$(pm_path_glob_ere "$rel")"
+  else
+    printf '^%s/%s$' "$(pm_ere_escape "$base")" "$(pm_path_glob_ere "$rel")"
+  fi
+}
+
+# pm_path_matches <deny|ask|allow> <pattern> <absolute-path> — exit 0 on match.
+pm_path_matches() {
+  local re
+  re="$(pm_path_pattern_ere "$1" "$2")"
+  [[ $3 =~ $re ]]
+}
+
+# pm_path_rule_applies <rule-tool> <tool> — whether a path rule of
+# <rule-tool> governs a call of <tool>: Edit rules govern the edit tools,
+# Read rules govern Read and, as deny or ask, the edit tools too.
+pm_path_rule_applies() {
+  case "$1:$2" in
+    Edit:Edit | Edit:Write | Edit:NotebookEdit | Read:Read) return 0 ;;
+    Read:Edit | Read:Write | Read:NotebookEdit) [ "${3:-deny}" != allow ] ;;
+    *) return 1 ;;
+  esac
+}
+
+# pm_path_deny_match_indices <tool> <path> — the indices of every path deny
+# rule that blocks the call, space separated.
+pm_path_deny_match_indices() {
+  local i out=""
+  pm_path_compile
+  i=0
+  while [ "$i" -lt "$PM_PATH_DENY_N" ]; do
+    if pm_path_rule_applies "${PM_PATH_DENY_TOOL[$i]}" "$1" deny \
+      && [[ $2 =~ ${PM_PATH_DENY_RE[$i]} ]]; then
+      out="$out $i"
+    fi
+    i=$((i + 1))
+  done
+  printf '%s' "${out# }"
+}
+
+# pm_path_compile — compile every path rule's ERE against the current anchors,
+# once per rule set and anchor triple, so the decision loops never fork.
+PM_PATH_KEY=''
+pm_path_compile() {
+  local key="$PM_PATH_DENY_N|$PM_PATH_ASK_N|$PM_PATH_ALLOW_N|$PM_CWD|$PM_HOME|$PM_SETTINGS_DIR|${PM_PATH_DENY_PAT[*]:-}|${PM_PATH_ALLOW_PAT[*]:-}" i
+  [ "$key" != "$PM_PATH_KEY" ] || return 0
+  PM_PATH_DENY_RE=()
+  PM_PATH_ASK_RE=()
+  PM_PATH_ALLOW_RE=()
+  i=0
+  while [ "$i" -lt "$PM_PATH_DENY_N" ]; do
+    PM_PATH_DENY_RE[i]="$(pm_path_pattern_ere deny "${PM_PATH_DENY_PAT[$i]}")"
+    i=$((i + 1))
+  done
+  i=0
+  while [ "$i" -lt "$PM_PATH_ASK_N" ]; do
+    PM_PATH_ASK_RE[i]="$(pm_path_pattern_ere ask "${PM_PATH_ASK_PAT[$i]}")"
+    i=$((i + 1))
+  done
+  i=0
+  while [ "$i" -lt "$PM_PATH_ALLOW_N" ]; do
+    PM_PATH_ALLOW_RE[i]="$(pm_path_pattern_ere allow "${PM_PATH_ALLOW_PAT[$i]}")"
+    i=$((i + 1))
+  done
+  PM_PATH_KEY="$key"
+}
+
+# pm_decide_path <tool> <absolute-path> — print deny | ask | allow | prompt
+# for a Read, Edit, or Write tool call (M8 order).
+pm_decide_path() {
+  local tool="$1" path="$2" i
+  pm_path_compile
+  i=0
+  while [ "$i" -lt "$PM_PATH_DENY_N" ]; do
+    if pm_path_rule_applies "${PM_PATH_DENY_TOOL[$i]}" "$tool" deny \
+      && [[ $path =~ ${PM_PATH_DENY_RE[$i]} ]]; then
+      printf 'deny'
+      return 0
+    fi
+    i=$((i + 1))
+  done
+  i=0
+  while [ "$i" -lt "$PM_PATH_ASK_N" ]; do
+    if pm_path_rule_applies "${PM_PATH_ASK_TOOL[$i]}" "$tool" ask \
+      && [[ $path =~ ${PM_PATH_ASK_RE[$i]} ]]; then
+      printf 'ask'
+      return 0
+    fi
+    i=$((i + 1))
+  done
+  case "$PM_TOOL_ALLOW" in
+    *" $tool "*)
+      printf 'allow'
+      return 0
+      ;;
+  esac
+  i=0
+  while [ "$i" -lt "$PM_PATH_ALLOW_N" ]; do
+    if pm_path_rule_applies "${PM_PATH_ALLOW_TOOL[$i]}" "$tool" allow \
+      && [[ $path =~ ${PM_PATH_ALLOW_RE[$i]} ]]; then
+      printf 'allow'
+      return 0
+    fi
+    i=$((i + 1))
+  done
+  printf 'prompt'
+}
 
 # --- decision ----------------------------------------------------------------
 #
@@ -350,7 +770,7 @@ pm_matching_deny_rule() {
       i=$((i + 1))
     done
   done <<EOF
-$(pm_split_command "$1")
+$(pm_subcommands "$1")
 EOF
   return 1
 }
@@ -362,7 +782,7 @@ EOF
 # outrank a later subcommand's deny match, which inverts M8's global ordering.
 pm_decide() {
   local sub stripped i subs matched any
-  subs="$(pm_split_command "$1")"
+  subs="$(pm_subcommands "$1")"
 
   while IFS= read -r sub; do
     sub="$(pm_trim "$sub")"

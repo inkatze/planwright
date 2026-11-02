@@ -21,9 +21,9 @@
 # behavior version, sources consulted, modeling boundaries, and the unsettled
 # assumption MA-1 are all in docs/permission-matcher-model.md.
 #
-#   Modeled behavior version: Claude Code CLI 2.1.220 / docs as of 2026-07-29.
+#   Modeled behavior version: Claude Code CLI 2.1.314 / docs as of 2026-11-01.
 #
-# The five passes:
+# The passes:
 #   A. Model self-validation — every worked example in Claude Code's own
 #      permission docs is replayed against the model. This is the ground-truth
 #      differential check: the model must reproduce the documentation's stated
@@ -44,6 +44,11 @@
 #      expected-deny row, removing it flips that row. Rules that are covered
 #      redundantly are declared in REDUNDANT_BY_DESIGN with a reason, so
 #      redundancy is a reviewed decision rather than silent dead weight.
+#   F. No unexercised allow rules — every Bash allow rule is matched by an
+#      expected-allow row, so a widening ships with the row showing it.
+#   G. The static allow set names no verb REQ-G1.1 excludes.
+#   H. Path rules — the Read/Edit deny rules against a path fixture table,
+#      every path deny rule exercised, every non-Bash allow entry accounted for.
 #
 # Runs standalone: ./tests/test-permission-matcher.sh
 set -u
@@ -212,6 +217,33 @@ if [ "$(pm_decide 'safe-cmd x && safe-cmd y')" = "ask" ]; then
   ok "ask still wins when no subcommand matches a deny rule"
 else
   fail "an ask match with no deny match must report ask"
+fi
+
+# Deny and ask rules reach a command nested in a subshell, a command
+# substitution, or a control-flow body (doc rule M9; the documentation's own
+# example is an ask rule for `git clean`).
+pm_load_rules 'Bash(never-run *)' 'Bash(git clean *)' 'Bash(echo *)' || {
+  echo "FAIL: pm_load_rules rejected the nested-command probe set" >&2
+  exit 1
+}
+# shellcheck disable=SC2016 # the nested commands are matched as text, never run
+for nested in \
+  'cd /tmp && git clean -f' \
+  'echo "$(git clean -f)"' \
+  '(git clean -f)' \
+  'for d in a b; do git clean -f; done'; do
+  if [ "$(pm_decide "$nested")" = "ask" ]; then
+    ok "doc example: Bash(git clean *) in ask reaches '$nested' (M9)"
+  else
+    fail "doc example: Bash(git clean *) in ask must reach '$nested' (M9)"
+  fi
+done
+# Allow still needs every subcommand, nested ones included.
+# shellcheck disable=SC2016 # matched as text, never run
+if [ "$(pm_decide 'echo "$(never-allowed)"')" = "prompt" ]; then
+  ok "an allowed outer command does not carry an unallowed nested one (M9)"
+else
+  fail "an allowed outer command must not carry an unallowed nested one (M9)"
 fi
 
 # A rule that LOOKS like a Bash rule but does not parse must fail closed rather
@@ -448,7 +480,9 @@ deny|load-bearing|git status && git push origin main|a denied subcommand denies 
 deny|load-bearing|cd /tmp && git push origin main|deny survives a leading cd subcommand
 deny|load-bearing|FOO=bar git push origin main|deny matches past a leading environment assignment
 allow|legit|git push origin planwright/guard-coverage/task-1|the ordinary task-branch push
-prompt|residual|git push -u origin planwright/guard-coverage/task-1|the first push of a task branch is NOT covered by Bash(git push origin:*): -u sits before the remote, so it falls through to the prompt. Recorded, not widened — an allow-list change is a permissions widening that needs sign-off
+allow|legit|git push -u origin planwright/guard-coverage/task-1|the first push of a task branch, under the same deny floor as git push origin (REQ-G1.6)
+deny|load-bearing|git push -u origin main|the first-push spelling still cannot reach main (REQ-G1.6)
+deny|load-bearing|git push -u origin --force planwright/guard-coverage/task-1|the first-push spelling still cannot force (REQ-G1.6)
 allow|legit|git push origin HEAD:refs/heads/planwright/guard-coverage/task-1|explicit refspec to a task branch
 allow|legit|git push origin main-fix|a branch whose name merely starts with main stays pushable
 allow|legit|git push origin HEAD:main-fix|refspec to a branch whose name starts with main
@@ -473,7 +507,42 @@ allow|residual|git push origin HEAD|destination depends on the checked-out branc
 deny|load-bearing|git -c Core.HooksPath=/dev/null commit -m "wip"|mixed-case config key (git config keys are case-insensitive) evades the case-sensitive hooksPath globs, but the global-option-prefix rule catches it regardless of casing
 prompt|residual|git config Core.HooksPath /dev/null|the mixed-case residual that genuinely remains: a PERSISTENT hook disable, missed by the case-sensitive git-config globs and outside the global-option-prefix rules since the command does not start with git -. No glob and no hook reaches it — accepted residual (model doc MA-2)
 prompt|residual|GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m "wip"|config injection through environment variables rather than argv; deny rules match past leading assignments so the hooksPath text is never in the matched string — accepted residual
-allow|residual|git status "$(git push origin main)"|COMMAND SUBSTITUTION: the model splits only on the documented shell operators, so the nested push is invisible to it and the outer read-only command is allowed. Whether the real matcher extracts $() is undocumented and unverified (model doc MB-7) — githooks/pre-push is the layer that actually stops this one
+deny|load-bearing|git status "$(git push origin main)"|command substitution: a deny rule reaches the command nested in $() (model doc M9, REQ-H1.2)
+deny|load-bearing|echo "$(git fetch origin && git push origin main)"|a compound inside a command substitution is split like a top-level one (M9)
+deny|load-bearing|echo `git push origin main`|backtick command substitution (M9)
+deny|load-bearing|echo "$(echo "$(git push --force origin x)")"|a substitution nested inside another substitution (M9)
+deny|load-bearing|diff <(git push origin main) x|process substitution (M9)
+deny|load-bearing|(git push origin main)|a subshell (M9, REQ-H1.2)
+deny|load-bearing|git status && (cd /tmp; git push --force origin x)|a subshell after a top-level separator, separators inside it (M9)
+deny|load-bearing|{ git push origin main; }|a brace group (M9)
+deny|load-bearing|for b in a c; do git push origin main; done|a for-loop body (M9, REQ-H1.2)
+deny|load-bearing|for b in $(git push --force origin x); do echo $b; done|a substitution in a for-loop head (M9)
+deny|load-bearing|while true; do git push --force origin x; done|a while-loop body (M9)
+deny|load-bearing|until false; do git push origin HEAD:main; done|an until-loop body (M9)
+deny|load-bearing|if git status; then git push origin main; fi|an if-then body (M9)
+deny|load-bearing|if false; then true; else git reset --hard origin/main; fi|an else body (M9)
+deny|load-bearing|if false; then true; elif git push origin main; then true; fi|an elif condition (M9)
+allow|legit|for f in a b; do git add $f; done|a for loop whose body every allow rule covers is allowed (M9)
+allow|legit|git rev-parse --abbrev-ref HEAD|read-only rev-parse
+allow|legit|git branch --show-current|read-only branch listing
+allow|legit|git diff --stat origin/main|diff stat
+allow|legit|git show --stat HEAD|show stat
+allow|legit|git checkout planwright/guard-coverage/task-1|checkout of a task branch
+allow|legit|git switch planwright/guard-coverage/task-1|switch to a task branch
+allow|legit|git add scripts/x.sh|staging a file
+allow|legit|gh pr view 123 --json state|PR inspection
+allow|legit|gh pr list --head planwright/guard-coverage/task-1|PR listing
+allow|legit|mise tasks|task listing
+allow|legit|wc -l README.md|static read-only set: wc (REQ-G1.1)
+allow|legit|ls -la scripts|static read-only set: ls (REQ-G1.1)
+allow|legit|stat README.md|static read-only set: stat (REQ-G1.1)
+allow|legit|git ls-files scripts|static read-only set: git ls-files (REQ-G1.1)
+allow|legit|git merge-base HEAD origin/main|static read-only set: git merge-base (REQ-G1.1)
+allow|legit|git ls-tree HEAD scripts|static read-only set: git ls-tree (REQ-G1.1)
+allow|legit|git show-ref --heads|static read-only set: git show-ref (REQ-G1.1)
+allow|legit|git for-each-ref refs/heads|static read-only set: git for-each-ref (REQ-G1.1)
+prompt|residual|cat /proc/1234/environ|no static rule names a content-printing verb (REQ-G1.1, REQ-E1.6); the worker guard decides cat, and defers this one
+prompt|residual|git rev-list --output=/tmp/x HEAD|git rev-list takes --output, so no static rule names it (REQ-G1.1)
 allow|legit|git push origin feature/c++|a branch name containing + stays pushable: the +refspec deny requires a space before the plus (narrowed 2026-07-29 on operator decision). git check-ref-format confirms the ref is valid
 allow|residual|git commit -a --amen|git takes any unique prefix of a long option, so --amen is --amend; the policy guard reads the prefixes and decides
 allow|residual|git commit --am --no-edit|--am is the shortest prefix git reads as --amend; the policy guard decides
@@ -526,10 +595,34 @@ deny_match_indices() {
       i=$((i + 1))
     done
   done <<EOF
-$(pm_split_command "$1")
+$(pm_subcommands "$1")
 EOF
   printf '%s' "${out# }"
 }
+
+# allow_match_indices <command> — the same over the Bash allow rules, which
+# match the unstripped subcommand (doc rule M7).
+allow_match_indices() {
+  local sub i out=""
+  while IFS= read -r sub; do
+    [ -n "$sub" ] || continue
+    i=0
+    while [ "$i" -lt "$PM_ALLOW_N" ]; do
+      if [[ $sub =~ ${PM_ALLOW_RE[$i]} ]]; then
+        case " $out " in
+          *" $i "*) ;;
+          *) out="$out $i" ;;
+        esac
+      fi
+      i=$((i + 1))
+    done
+  done <<EOF
+$(pm_subcommands "$1")
+EOF
+  printf '%s' "${out# }"
+}
+ALLOW_SETS=()
+allow_n=0
 
 while IFS='|' read -r expected class command note; do
   [ -n "${expected:-}" ] || continue
@@ -569,6 +662,9 @@ while IFS='|' read -r expected class command note; do
     row_deny_total=$((row_deny_total + 1))
     MATCH_SETS[match_n]="$(deny_match_indices "$command")"
     match_n=$((match_n + 1))
+  elif [ "$expected" = "allow" ]; then
+    ALLOW_SETS[allow_n]="$(allow_match_indices "$command")"
+    allow_n=$((allow_n + 1))
   fi
 done <<EOF
 $FIXTURES
@@ -580,8 +676,8 @@ EOF
 # tripping pass D. So the floor is `>=` the exact current count: adding rows is
 # always fine, deleting any row fails and has to be argued for. Raise these two
 # numbers in the same commit that adds rows (REQ-H1.3).
-ROW_FLOOR=148
-DENY_ROW_FLOOR=91
+ROW_FLOOR=185
+DENY_ROW_FLOOR=108
 if [ "$row_total" -ge "$ROW_FLOOR" ] && [ "$row_deny_total" -ge "$DENY_ROW_FLOOR" ]; then
   ok "the fixture table is non-vacuous: $row_total rows, $row_deny_total load-bearing (REQ-H1.3)"
 else
@@ -719,6 +815,291 @@ done <<EOF
 $REDUNDANT_BY_DESIGN
 EOF
 ok "every REDUNDANT_BY_DESIGN entry names a live, genuinely redundant deny rule and carries a reason"
+
+# ---------------------------------------------------------------------------
+# Pass F — no unexercised allow rules (REQ-G1.1), mirroring pass D: every
+# Bash allow rule must be matched by at least one expected-allow row, so a
+# permissions widening cannot ship without a row showing what it admits.
+# ---------------------------------------------------------------------------
+# allow_rules_uncovered — print each Bash allow rule no expected-allow row
+# matches. A function so the pass can be shown failing on an injected rule.
+allow_rules_uncovered() {
+  local i j covered
+  i=0
+  while [ "$i" -lt "$PM_ALLOW_N" ]; do
+    covered=0
+    j=0
+    while [ "$j" -lt "$allow_n" ]; do
+      case " ${ALLOW_SETS[$j]} " in
+        *" $i "*)
+          covered=1
+          break
+          ;;
+      esac
+      j=$((j + 1))
+    done
+    [ "$covered" -eq 1 ] || printf '%s\n' "$(pm_allow_rule_at "$i")"
+    i=$((i + 1))
+  done
+}
+uncovered="$(allow_rules_uncovered)"
+if [ -z "$uncovered" ]; then
+  ok "every Bash allow rule is exercised by an expected-allow fixture row (pass F, REQ-G1.1)"
+else
+  while IFS= read -r rule; do
+    fail "allow rule has no fixture row showing what it admits (pass F, REQ-G1.1): $rule"
+  done <<EOF
+$uncovered
+EOF
+fi
+# The pass must be able to fail: the same check over the shipped allow list
+# plus one rule no row exercises names exactly that rule.
+pm_load_rules "$DENY_RULES" "$ASK_RULES" "$ALLOW_RULES
+Bash(zz-no-row-names-this:*)" >/dev/null 2>&1
+if [ "$(allow_rules_uncovered)" = 'Bash(zz-no-row-names-this:*)' ]; then
+  ok "pass F names an allow rule that no fixture row exercises"
+else
+  fail "pass F did not flag an injected allow rule with no fixture row"
+fi
+pm_load_rules "$DENY_RULES" "$ASK_RULES" "$ALLOW_RULES" >/dev/null 2>&1
+
+# ---------------------------------------------------------------------------
+# Pass G — REQ-G1.1: the static allow set names no verb that prints an
+# arbitrary path's content and no verb or git subcommand with a file-writing
+# or program-running form. A static rule never reaches the worker guard's
+# argument screens, so these stay with the guard.
+# ---------------------------------------------------------------------------
+FORBIDDEN_VERBS='awk find xargs sed sort uniq cat grep head tail cut diff jq'
+# The diff family takes --output, rev-list and the log family write the same
+# way, grep takes -O, cat-file takes --textconv.
+FORBIDDEN_GIT='diff diff-tree diff-index diff-files log show whatchanged shortlog reflog format-patch range-diff rev-list stash grep cat-file'
+# Pre-existing rules the delta leaves in place (kickoff risk R13, observation
+# worker-profile-static-git-write-forms); no new rule may join them.
+GRANDFATHERED='Bash(git diff:*) Bash(git log:*) Bash(git show:*)'
+
+# forbidden_allow_rules <rule-lines> — print each Bash allow rule that names a
+# forbidden verb or git subcommand and is not grandfathered.
+forbidden_allow_rules() {
+  local rule pat verb rest sub
+  while IFS= read -r rule; do
+    case "$rule" in
+      'Bash('*')') ;;
+      *) continue ;;
+    esac
+    case " $GRANDFATHERED " in
+      *" $rule "*) continue ;;
+    esac
+    pat="${rule#Bash(}"
+    pat="${pat%)}"
+    pat="${pat%:\*}"
+    verb="${pat%% *}"
+    case " $FORBIDDEN_VERBS " in
+      *" $verb "*)
+        printf '%s\n' "$rule"
+        continue
+        ;;
+    esac
+    [ "$verb" = git ] || continue
+    rest="${pat#git}"
+    rest="${rest# }"
+    sub="${rest%% *}"
+    case " $FORBIDDEN_GIT " in
+      *" $sub "*) printf '%s\n' "$rule" ;;
+    esac
+  done <<EOF
+$1
+EOF
+}
+bad="$(forbidden_allow_rules "$ALLOW_RULES")"
+if [ -z "$bad" ]; then
+  ok "no static allow rule names a content-printing verb or a writing or executing form (pass G, REQ-G1.1, REQ-E1.6)"
+else
+  while IFS= read -r rule; do
+    fail "static allow rule names a verb or git subcommand REQ-G1.1 excludes: $rule"
+  done <<EOF
+$bad
+EOF
+fi
+probe='Bash(cat:*)
+Bash(sed -n:*)
+Bash(git grep:*)
+Bash(git cat-file:*)
+Bash(git diff-tree:*)
+Bash(git rev-list:*)
+Bash(git ls-files:*)'
+if [ "$(forbidden_allow_rules "$probe" | tr '\n' ' ')" = 'Bash(cat:*) Bash(sed -n:*) Bash(git grep:*) Bash(git cat-file:*) Bash(git diff-tree:*) Bash(git rev-list:*) ' ]; then
+  ok "pass G flags each excluded verb and git subcommand and passes a read-only one"
+else
+  fail "pass G misclassified its probe rules"
+fi
+
+# ---------------------------------------------------------------------------
+# Pass H — path rules (REQ-F1.6, REQ-G1.8, REQ-E1.6). The Read and Edit rules
+# use gitignore patterns (doc rule M10); Write and NotebookEdit path rules
+# never match (M11), so Edit rules are what close the Write tool too.
+# ---------------------------------------------------------------------------
+PM_CWD=/work/repo/.claude/worktrees/w1
+PM_HOME=/home/u
+PM_SETTINGS_DIR=/opt/planwright/config
+
+expect_path() {
+  # expect_path <match|no-match> <deny|allow> <pattern> <path>
+  if pm_path_matches "$2" "$3" "$4"; then got=match; else got=no-match; fi
+  if [ "$got" = "$1" ]; then
+    ok "doc example: $2 path rule ($3) $1 $4"
+  else
+    fail "doc example: $2 path rule ($3) should $1 $4"
+  fi
+}
+# The permission documentation's worked examples, cwd /work/repo/.claude/worktrees/w1.
+expect_path match deny '.env' "$PM_CWD/.env"
+expect_path match deny '.env' "$PM_CWD/a/b/.env"
+expect_path no-match deny '.env' /work/repo/.env
+expect_path match deny '**/.env' "$PM_CWD/a/.env"
+expect_path match deny '//**/.env' /etc/x/.env
+expect_path match allow 'src/**' "$PM_CWD/src/app.ts"
+expect_path no-match allow 'src/**' "$PM_CWD/vendor/pkg/src/lib.js"
+expect_path match deny 'src/**' "$PM_CWD/vendor/pkg/src/lib.js"
+expect_path match allow '**/src/**' "$PM_CWD/vendor/pkg/src/lib.js"
+expect_path no-match deny '/src/**' "$PM_CWD/src/app.ts"
+expect_path match deny '/src/**' "$PM_SETTINGS_DIR/src/app.ts"
+expect_path match deny '//tmp/scratch.txt' /tmp/scratch.txt
+# shellcheck disable=SC2088 # a literal ~ is the rule's home anchor
+expect_path match deny '~/.zshrc' /home/u/.zshrc
+expect_path no-match deny '*.ts' "$PM_CWD/src/app.js"
+expect_path match deny 'src/*.ts' "$PM_CWD/src/app.ts"
+expect_path no-match deny 'src/*.ts' "$PM_CWD/src/x/app.ts"
+
+# path_fixture_rows: expected|class|tool|path|note, under the cwd above (a
+# worker's worktree beneath its primary checkout's .claude/worktrees/).
+path_fixture_rows() {
+  cat <<'ROWS'
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.git|the worktree's .git entry (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.git|Edit rules close the Write tool too (M11)
+deny|load-bearing|Edit|/work/repo/.git/hooks/pre-push|the default hooks directory, in the common git dir outside the worktree (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.git/config|git's own config, which names the hooks directory (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/githooks/pre-push|a repo-tracked hooks directory (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.githooks/pre-commit|the dotted hooks-directory convention (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.claude/settings.json|the worktree's .claude/ (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.claude/settings.local.json|the worktree's .claude/ through the Write tool (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/mise.toml|mise config runs commands (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/sub/mise.toml|a nested mise config (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/mise.local.toml|machine-local mise config (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.mise/tasks/check|a mise task directory (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/lefthook.yml|lefthook config runs commands (REQ-F1.6)
+deny|load-bearing|Edit|/home/u/.claude/plugins/data/planwright-planwright/fleet/session-records/0123abcd.record|the guard's session record (REQ-G1.8)
+deny|load-bearing|Write|/srv/fleet/session-records/0123abcd-89ef0123456789ab.record|a session record under an overridden fleet home (REQ-G1.8)
+deny|load-bearing|Edit|/work/repo/.claude/planwright.yml|the repo-tracked overlay (REQ-G1.8)
+deny|load-bearing|Write|/work/repo/.claude/planwright.local.yml|the machine-local overlay (REQ-G1.8)
+deny|load-bearing|Edit|/home/u/.claude/plugins/data/planwright-planwright/overlay/planwright.yml|the adopter overlay (REQ-G1.8)
+deny|load-bearing|Read|/proc/1234/environ|another process's environment (REQ-E1.6)
+deny|load-bearing|Read|/proc/1234/task/1235/environ|a thread's environment (REQ-E1.6)
+deny|load-bearing|Edit|/proc/1234/environ|a Read deny blocks the edit tools on the same path too
+deny|overblock|Edit|/work/repo/.claude/worktrees/w1/tests/fixtures/entry-points/githooks/pre-push/args|a single-segment directory deny matches at any depth (M10), so a nested githooks/ fixture is refused to the file tools too; fail-safe
+deny|overblock|Read|/proc/self/environ|the worker's own environment is denied to the Read tool too; env and printenv still print it
+allow|legit|Edit|/work/repo/.claude/worktrees/w1/scripts/x.sh|editing a repo script stays allowed (REQ-F1.6 trusted-checkout residual)
+allow|legit|Write|/work/repo/.claude/worktrees/w1/tests/test-x.sh|writing a repo test stays allowed
+allow|legit|Edit|/work/repo/.claude/worktrees/w1/docs/githooks.md|a file merely named after the hooks directory stays editable
+allow|legit|Edit|/work/repo/.claude/worktrees/w1/config/defaults.yml|the repo's own config defaults stay editable
+allow|legit|Read|/work/repo/.claude/worktrees/w1/README.md|ordinary reads
+allow|legit|Read|/proc/1234/status|a /proc read that is not an environment
+ROWS
+}
+PATH_FIXTURES=$(path_fixture_rows)
+# Compiled here, in this shell, so the per-row command substitutions inherit it.
+pm_path_compile
+PATH_SETS=()
+path_n=0
+path_rows=0
+ALLOW_TOOLS_SEEN=' '
+while IFS='|' read -r expected class tool path note; do
+  [ -n "${expected:-}" ] || continue
+  path_rows=$((path_rows + 1))
+  case "$class:$expected" in
+    load-bearing:deny | overblock:deny | legit:allow) ;;
+    *) fail "path row class '$class' does not fit expected=$expected: $tool $path" ;;
+  esac
+  got="$(pm_decide_path "$tool" "$path")"
+  if [ "$got" = "$expected" ]; then
+    ok "[$class] $expected: $tool $path"
+  else
+    fail "[$class] expected $expected, got $got: $tool $path  ($note)"
+  fi
+  if [ "$expected" = deny ]; then
+    PATH_SETS[path_n]="$(pm_path_deny_match_indices "$tool" "$path")"
+    path_n=$((path_n + 1))
+  else
+    ALLOW_TOOLS_SEEN="$ALLOW_TOOLS_SEEN$tool "
+  fi
+done <<EOF
+$PATH_FIXTURES
+EOF
+
+PATH_ROW_FLOOR=29
+if [ "$path_rows" -ge "$PATH_ROW_FLOOR" ]; then
+  ok "the path fixture table is non-vacuous: $path_rows rows"
+else
+  fail "the path fixture table shrank below its floor: $path_rows/$PATH_ROW_FLOOR"
+fi
+
+# Every path deny rule is exercised by a row, so a rule that cannot match (a
+# Write(...) rule, a wrong anchor) fails here rather than shipping.
+i=0
+while [ "$i" -lt "$PM_PATH_DENY_N" ]; do
+  exercised=0
+  j=0
+  while [ "$j" -lt "$path_n" ]; do
+    case " ${PATH_SETS[$j]} " in
+      *" $i "*)
+        exercised=1
+        break
+        ;;
+    esac
+    j=$((j + 1))
+  done
+  [ "$exercised" -eq 1 ] \
+    || fail "path deny rule is never exercised by any path fixture row (dead rule or missing row): $(pm_path_deny_rule_at "$i")"
+  i=$((i + 1))
+done
+ok "every path deny rule is exercised by a path fixture row"
+if [ "$PM_PATH_DENY_N" -gt 0 ]; then
+  ok "the shipped deny block carries $PM_PATH_DENY_N path rule(s)"
+else
+  fail "the shipped deny block carries no path rules (REQ-F1.6, REQ-G1.8, REQ-E1.6)"
+fi
+
+# A Write(...) path rule never matches (M11): shown dead, not silently trusted.
+pm_load_rules 'Bash(never-run *)
+Write(//tmp/x)' '' '' >/dev/null 2>&1
+if [ "$(pm_decide_path Write /tmp/x)" = prompt ]; then
+  ok "a Write(path) deny rule never matches (M11)"
+else
+  fail "a Write(path) deny rule must never match (M11)"
+fi
+pm_load_rules "$DENY_RULES" "$ASK_RULES" "$ALLOW_RULES" >/dev/null 2>&1
+
+# Non-Bash allow entries: a bare file-tool name is exercised by an allow path
+# row for that tool; the remaining tool names sit outside the model (MB-6).
+OUT_OF_MODEL_ALLOW='Grep Glob'
+while IFS= read -r entry; do
+  case "$entry" in
+    'Bash('*) continue ;;
+    Read | Edit | Write)
+      case "$ALLOW_TOOLS_SEEN" in
+        *" $entry "*) ok "bare allow entry $entry is exercised by a path row" ;;
+        *) fail "bare allow entry $entry has no allow path row" ;;
+      esac
+      ;;
+    *)
+      case " $OUT_OF_MODEL_ALLOW " in
+        *" $entry "*) ok "allow entry $entry is a tool name outside the model (MB-6)" ;;
+        *) fail "allow entry has no fixture row and is not declared outside the model: $entry" ;;
+      esac
+      ;;
+  esac
+done <<EOF
+$ALLOW_RULES
+EOF
 
 if [ "$failures" -eq 0 ]; then
   echo "all permission-matcher fixture assertions passed"

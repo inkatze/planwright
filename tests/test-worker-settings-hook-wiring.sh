@@ -156,13 +156,27 @@ fi
 # baseline without a matching fixture row is what that test's dead-rule pass
 # catches.
 expected_deny='["Bash(gh pr merge:*)","Bash(gh pr ready --undo:*)","Bash(gh pr ready * --undo*)","Bash(git reset --hard:*)","Bash(git filter-branch:*)","Bash(git filter-repo:*)","Bash(git push --force:*)","Bash(git push --force*)","Bash(git push --force-with-lease:*)","Bash(git push -f:*)","Bash(git push * --force*)","Bash(git push * -f*)","Bash(git push * +*)","Bash(git push *:main)","Bash(git push *:main *)","Bash(git push * main)","Bash(git push * main *)","Bash(git push *refs/heads/main)","Bash(git push *refs/heads/main *)","Bash(git push *heads/main)","Bash(git push *heads/main *)","Bash(git push *:master)","Bash(git push *:master *)","Bash(git push * master)","Bash(git push * master *)","Bash(git push *heads/master)","Bash(git push *heads/master *)","Bash(git push *:planwright/*/spec)","Bash(git push *:planwright/*/spec *)","Bash(git push * planwright/*/spec)","Bash(git push * planwright/*/spec *)","Bash(git push *heads/planwright/*/spec)","Bash(git push *heads/planwright/*/spec *)","Bash(git push --mirror:*)","Bash(git push * --mirror*)","Bash(git push --all:*)","Bash(git push * --all*)","Bash(git push --mi*)","Bash(git push * --mi*)","Bash(git push --al*)","Bash(git push * --al*)","Bash(git push --b*)","Bash(git push * --b*)","Bash(git push * : *)","Bash(git * --no-verify*)","Bash(git * --no-veri*)","Bash(git commit -n*)","Bash(git commit * -n*)","Bash(git -c core.hooksPath*)","Bash(git -c core.hookspath*)","Bash(git * -c core.hooksPath*)","Bash(git * -c core.hookspath*)","Bash(git config core.hooksPath*)","Bash(git config core.hookspath*)","Bash(git config * core.hooksPath*)","Bash(git config * core.hookspath*)","Bash(git --config-env*)","Bash(git * --config-env*)","Bash(git * --hooks-path*)","Bash(git -* push*)","Bash(git -* commit*)","Bash(git -* reset*)","Bash(git -* filter-branch*)","Bash(git -* filter-repo*)","mcp__github__merge_pull_request","mcp__github__push_files","mcp__github__create_or_update_file","mcp__github__delete_file"]'
-actual_deny="$(jq -cS '.permissions.deny' "$worker_settings")"
+# The only entries the deny block gained since that baseline are the Read and
+# Edit path rules for execution-bearing paths, the guard's session record and
+# overlays, and other processes' environments (REQ-F1.6, REQ-G1.8, REQ-E1.6).
+expected_path_deny='["Edit(//**/.git)","Edit(//**/.git/**)","Edit(githooks/**)","Edit(.githooks/**)","Edit(.claude/**)","Edit(mise.toml)","Edit(mise.local.toml)","Edit(.mise/**)","Edit(lefthook.yml)","Edit(//**/session-records/*.record)","Edit(//**/planwright.yml)","Edit(//**/planwright.local.yml)","Read(//proc/*/environ)","Read(//proc/*/task/*/environ)"]'
+path_rule_filter='[.permissions.deny[] | select(test("^(Read|Edit|Write|NotebookEdit)\\("))]'
+other_rule_filter='[.permissions.deny[] | select(test("^(Read|Edit|Write|NotebookEdit)\\(") | not)]'
+actual_deny="$(jq -cS "$other_rule_filter" "$worker_settings")"
 if [ "$actual_deny" = "$(printf '%s' "$expected_deny" | jq -cS .)" ]; then
-  ok "the deny block matches its pinned list (REQ-C1.1, REQ-A1.3)"
+  ok "the deny block's command and tool rules match their pinned list (REQ-C1.1, REQ-A1.3)"
 else
-  fail "the deny block differs from its pinned list (REQ-C1.1, REQ-A1.3)"
+  fail "the deny block's command and tool rules differ from their pinned list (REQ-C1.1, REQ-A1.3)"
   echo "  expected: $(printf '%s' "$expected_deny" | jq -cS .)" >&2
   echo "  actual:   $actual_deny" >&2
+fi
+actual_path_deny="$(jq -cS "$path_rule_filter" "$worker_settings")"
+if [ "$actual_path_deny" = "$(printf '%s' "$expected_path_deny" | jq -cS .)" ]; then
+  ok "the deny block's path rules are exactly the pinned additions (REQ-F1.6, REQ-G1.8, REQ-E1.6)"
+else
+  fail "the deny block's path rules differ from the pinned additions (REQ-F1.6, REQ-G1.8, REQ-E1.6)"
+  echo "  expected: $(printf '%s' "$expected_path_deny" | jq -cS .)" >&2
+  echo "  actual:   $actual_path_deny" >&2
 fi
 
 # --- human-gates REQ-G1.2, REQ-G1.3: the floor stays, the grantable acts go --

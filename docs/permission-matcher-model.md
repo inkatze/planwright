@@ -1,16 +1,18 @@
 # The permission-matcher model
 
-planwright's worker deny list (`config/worker-settings.json`) is a set of Claude
-Code `Bash(...)` glob rules. Glob rules are easy to write and easy to break
+planwright's worker profile (`config/worker-settings.json`) is a set of Claude
+Code `Bash(...)` glob rules plus `Read(...)` and `Edit(...)` path rules. Glob
+rules are easy to write and easy to break
 silently: a `:*` that lands mid-pattern never fires, a rule anchored at
 end-of-string is evaded by one trailing flag, and a rule nobody asserts can be
 deleted with a green suite. To make those failures mechanical rather than a
 matter of careful reading, `tests/test-permission-matcher.sh` (and, for the
 worker profile's `gh pr ready` entries, `tests/test-merge-currency-matrix.sh`)
 asserts a fixture
-table of real `git push` / `git commit` invocations against a **documented
-re-implementation** of Claude Code's matcher, kept in
-`tests/lib/permission-matcher.sh`.
+table of real commands, and a second table of file-tool calls, against a
+**documented re-implementation** of Claude Code's matcher, kept in
+`tests/lib/permission-matcher.sh`. Every deny rule and every allow rule needs a
+row that exercises it.
 
 This document is that re-implementation's contract: what it models, the version
 it models, the sources it was built from, and — the part that matters most when
@@ -25,8 +27,8 @@ Real-matcher fidelity is a manual re-verify, carried as risk row 1 of
 
 | | |
 | --- | --- |
-| Claude Code CLI | **2.1.220** (`claude --version`, 2026-07-29) |
-| Documentation snapshot | **2026-07-29** |
+| Claude Code CLI | **2.1.314** (`claude --version`, 2026-11-01) |
+| Documentation snapshot | **2026-11-01** |
 | Reference git | **2.55.0** (the differential checks in "Verified against real git") |
 
 Re-verify on a Claude Code upgrade. The matcher is an undocumented-in-detail
@@ -36,9 +38,13 @@ implementation of a documented contract; treat every rule below as a snapshot.
 
 - <https://code.claude.com/docs/en/permissions> — "Configure permissions": rule
   evaluation order, Bash rule wildcard semantics, the word-boundary form, the
-  `:*` suffix equivalence, compound-command separators, wrapper stripping,
-  leading-environment-assignment handling, and the standing warning that Bash
-  patterns constraining arguments are fragile.
+  `:*` suffix equivalence, compound-command separators, deny and ask rules
+  reaching nested commands, wrapper stripping,
+  leading-environment-assignment handling, the `Read`/`Edit` path pattern
+  syntax, `Write(path)` rules never matching, and the standing warning that
+  Bash patterns constraining arguments are fragile.
+- <https://code.claude.com/docs/en/permission-modes> — "Protected paths": the
+  paths whose writes no allow rule pre-approves.
 - <https://code.claude.com/docs/en/settings> — settings precedence, and the
   contrast that permission rules *merge* across scopes rather than override.
 - `git commit -h`, `git push -h`, `git --help`, `git config` behavior on git
@@ -77,6 +83,7 @@ literal character, so `Bash(git:* push)` does not match `git push`.
 `||`, `;`, `|`, `|&`, `&`, and newlines, and a rule must match each subcommand
 independently. A compound command is **denied** when any subcommand matches a
 deny rule, and **allowed** only when every subcommand matches an allow rule.
+"Subcommand" includes the nested ones M9 reaches.
 
 **M7 — leading environment assignments.** A deny or ask rule matches *past* any
 leading `VAR=value` assignment: `Bash(rm *)` in deny still matches
@@ -89,6 +96,36 @@ deny cannot carry allowlist exceptions. When no rule matches, the call falls
 through to the permission prompt; the model reports that outcome as `prompt`,
 which in a headless worker means a stall, not a pass.
 
+**M9 — nested commands.** The documentation states that deny and ask rules
+"apply when any subcommand matches them, including a command nested inside a
+subshell, a command substitution, or a control-flow body such as a `for`
+loop". The model therefore reaches, recursively: a subshell `( … )`, a brace
+group `{ …; }`, a command substitution `$( … )` or backticks, a process
+substitution `<( … )` or `>( … )`, and the bodies and conditions of `for`,
+`while`, `until`, and `if`/`elif`/`else`. A `for` head runs no command of
+its own, but a substitution in its words does. Separators inside parentheses
+or backticks do not split the outer command; the nested text is split on its
+own. A subcommand that carries a substitution is matched with it in place,
+then each nested command is matched as well, so allow still needs every one
+of them.
+
+**M10 — path rules.** `Read(<pattern>)` and `Edit(<pattern>)` rules use
+gitignore syntax. `//p` is absolute, `~/p` is under the home directory, `/p`
+is relative to the settings source (for a `--settings` file, the file's own
+directory, which is why the worker profile never uses that anchor), and `p`
+or `./p` is relative to the working directory. A bare name with no slash
+matches at any depth under its anchor; so does a single directory segment
+followed by `/**`, in deny and ask rules only. `*` stays inside one path
+segment and `**` spans directories. A Read deny also blocks the edit tools on
+the same path. A bare `Read`, `Edit`, or `Write` allow entry admits that
+tool on every path.
+
+**M11 — `Write(path)` rules never match.** Claude Code checks file
+permissions against `Edit(path)` and `Read(path)` rules only; a `Write(...)`
+or `NotebookEdit(...)` path rule is accepted and never matches. `Edit` rules
+apply to every built-in tool that edits files, the Write tool included, so a
+path the Write tool must not reach takes an `Edit(...)` deny.
+
 ## Modeling boundaries
 
 These are behaviors the real matcher has that the model deliberately does not
@@ -97,15 +134,15 @@ directions matter, and they are not symmetric:
 
 - *Under-predicting deny on a command the real matcher denies* is conservatism:
   the model under-claims protection, an expected-deny fixture row fails loudly,
-  and no reader is told they are covered when they are not. MB-1 through MB-6 are
-  all this kind.
+  and no reader is told they are covered when they are not. Every entry below
+  is this kind.
 - *Reporting allow for a command that really executes something dangerous* is a
-  hole, not conservatism. **MB-7 is the only entry of this kind**, and it is
-  flagged as such rather than filed alongside the others.
+  hole, not conservatism. No entry is this kind now: MB-7 was, until M9
+  modeled the documented nested-command behaviour.
 
 **MB-1 — wrapper stripping.** Claude Code strips a fixed set of leading
 wrappers (`timeout`, `time`, `nice`, `nohup`, `stdbuf`, the `command` and
-`builtin` builtins, zsh's `noglob`, and bare flagless `xargs`) before matching,
+`builtin` builtins, and zsh's `noglob`) before matching,
 so `Bash(npm test *)` also matches `timeout 30 npm test`. The model does not
 strip them. Direction: the model may report `prompt`/`allow` where the real
 matcher, after stripping, reports `deny`. No fixture row uses a wrapped
@@ -139,29 +176,27 @@ worker stalls". The hook can never turn a `deny` into anything else (M8, and the
 hook is allow-only by construction), so this boundary cannot mask a missing
 deny.
 
-**MB-6 — tool-name globs, non-Bash tools, and settings precedence.** Out of
-scope. The fixture table asserts one settings fragment in isolation. The tower
+**MB-6 — tool-name globs, other tools, and settings precedence.** Out of
+scope. The fixture tables assert one settings fragment in isolation, and the
+file-tool path rules (M10) are the only non-Bash rules modeled. The tower
 profile's `mcp__*__` deny entries rely on deny-rule tool-name globs, which
 this model does not cover; `tests/test-tower-settings-hook-wiring.sh` checks
-them against a shell-glob stand-in instead.
+them against a shell-glob stand-in instead. Bare tool-name allow entries other
+than the file tools (`Grep`, `Glob`) are declared outside the model by name in
+the test.
 
-**MB-7 — command and process substitution.** M6 splits on the operators the
-documentation enumerates. It does **not** reach into `$(...)`, backticks, or
-`<(...)`, so a command nested inside one is invisible to the model:
-`git status "$(git push origin main)"` reports `allow`, because the outer
-read-only command matches an allow rule and the nested push matches nothing.
-Direction: this is the one boundary that errs toward **allow on a command that
-really executes**, so it is the boundary to treat as a hole rather than as
-conservatism. Two things are unknown and neither can be settled from the
-documentation: whether the real matcher extracts substitutions (its separator
-list does not mention them, but it is shell-aware and may), and whether it
-instead classifies such a command as unparseable and prompts. The fixture table
-carries the case as a `residual` row recording the model's outcome and this
-uncertainty. What does stop it today is the enforcement layer, not the glob
-layer: `githooks/pre-push` rejects a `refs/heads/main` update however the push
-was spelled. Re-check against the real matcher on a Claude Code upgrade; the
-worker-settings `_about` prose formerly asserted subshell coverage flatly, which
-this entry corrects.
+**MB-7 — `case` bodies.** M9 reaches the nesting forms the documentation
+names and the other control-flow keywords, but not a `case` arm. Direction:
+under-predicts deny. No fixture row uses a `case` statement.
+
+**MB-8 — protected paths and symlinks.** Claude Code never auto-approves a
+write to a protected path (`.git`, `.claude`, `lefthook.yml`, the `--settings`
+file, and others the permission-modes page lists) in the default mode, whatever
+the allow list says, and it checks a deny rule against both the requested path
+and the file a symlink resolves to. The model sees neither: it reports `allow`
+where the real tool prompts, and judges only the path as given. Direction:
+under-claims protection. "What the path rules close" below says why the worker
+profile denies protected paths anyway.
 
 ## Unsettled assumptions
 
@@ -206,6 +241,14 @@ global-option rule sees it, and the case-sensitive config globs miss the casing.
 No glob and no hook reaches that one; it is an accepted residual, carried as a
 `residual` fixture row. If Bash matching turns out to be case-insensitive, the
 residual closes on its own and the lowercase rules become redundant.
+
+**MA-3 — a bare name does not cover what lies below it.** In gitignore a
+pattern that matches a directory also excludes its contents; the permission
+documentation shows bare names only on files (`Read(.env)`). The model
+matches a bare name against the path itself, never its descendants, so the
+profile spells every directory it closes with an explicit `/**` rule beside
+or instead of the bare name. If Claude Code does extend a bare name to a
+directory's contents, those `/**` rules become redundant, not wrong.
 
 ## Verified against real git
 
@@ -318,15 +361,56 @@ its merge, pull, rebase, and amend-family denies, since no value grants the
 tower a merge or a rewrite; the global-option spellings it never carried are
 refused there by the policy guard, which is wired into the tower profile too.
 
+## What the path rules close
+
+The worker profile allows the `Read`, `Edit`, and `Write` tools everywhere, and
+those calls never reach the worker command guard. So every path the guard
+refuses a Bash write to, the profile refuses to the file tools with an
+`Edit(...)` deny, and the one read the guard refuses gets a `Read(...)` deny:
+
+- **Execution-bearing paths** (worker-permission-ergonomics REQ-F1.6): `.git`
+  wherever it sits (the worktree's `.git` entry and the common git directory,
+  default hooks included), the repo-tracked hooks directories `githooks/` and
+  `.githooks/`, the worktree's `.claude/`, `mise.toml`, `mise.local.toml`,
+  `.mise/`, and `lefthook.yml`. An adopter whose `core.hooksPath` names
+  another directory adds an `Edit(<dir>/**)` deny of its own.
+- **The guard's trust inputs** (REQ-G1.8): the launcher's session records
+  (`session-records/*.record` under any fleet home) and the overlay config
+  files the policy resolves through (`planwright.yml` and
+  `planwright.local.yml`, wherever they sit).
+- **Other processes' environments** (REQ-E1.6): `/proc/<pid>/environ` and
+  `/proc/<pid>/task/<tid>/environ`. The Read tool cannot read the worker's own
+  `/proc/self/environ` either; `env` and `printenv` still print it.
+
+Each rule is anchored at the filesystem root (`//`) or the working directory,
+never at the settings file, whose directory is the plugin's `config/` (M10).
+The worktree's own `.claude/` is matched relative to the working directory on
+purpose: a worker's worktree usually sits under its primary checkout's
+`.claude/worktrees/`, and a root-anchored `.claude` rule would refuse every
+file the worker edits.
+
+Claude Code already protects `.git`, `.claude`, and `lefthook.yml` (MB-8),
+and the overlays under `~/.claude` with them, but protection means a prompt,
+which stalls a headless worker, and its list is version-specific. A deny
+refuses outright and holds across versions, so those paths keep their rules.
+`mise.toml`, `mise.local.toml`, `.mise/`, the `githooks/` directories, the
+session records, and repo-side overlays are not protected at all.
+
 ## Changing any of this
 
 1. Change the deny list and the fixture table in the same commit. The test's
    dead-rule pass fails on a rule no row exercises, and its mutation pass fails
    on a rule that no row depends on, so neither an untested rule nor a
-   deletable one can ship.
+   deletable one can ship. Path rules have their own dead-rule pass over the
+   path fixture table.
 2. If a change is driven by new Claude Code behavior, update the **modeled
    behavior version** and the affected M/MB/MA entry here first. The library and
    the test both cite this doc; a model change with no doc change is the drift
    D-4 exists to prevent.
 3. Widening the **allow** list is a permissions widening, not a guard change.
-   It needs human sign-off and does not belong in a deny-glob commit.
+   It needs human sign-off and does not belong in a deny-glob commit. Each
+   new allow rule needs a fixture row showing what it admits (the allow
+   coverage pass fails otherwise), and the static set names no verb that
+   prints an arbitrary path's content and no verb or `git` subcommand with a
+   file-writing or program-running form (worker-permission-ergonomics
+   REQ-G1.1, asserted by the test).
