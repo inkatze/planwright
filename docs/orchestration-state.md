@@ -23,7 +23,9 @@ commit trailer). Read this for the *why* and the model; read conventions for the
 > [`doctrine/spec-format.md`](../doctrine/spec-format.md) for the v2 shape and
 > the [Format-version 2](#format-version-2-no-committed-snapshot) section
 > below); the machinery version-keys off the bundle's `Format-version:` line, so
-> v1 bundles keep the behavior described here unchanged.
+> v1 bundles keep the behavior described here unchanged. A **format-version 3**
+> bundle is version 2 with per-task repositories (see
+> [Format-version 3](#format-version-3-per-task-repositories)).
 
 ## The problem it solves
 
@@ -305,6 +307,48 @@ hold live v1 and v2 bundles at once; a missing or unparseable version fails
 closed (no write). The normative definition of the v2 `tasks.md` shape, the
 pointer line, and the derivation-as-read-surface rule lives in
 [`doctrine/spec-format.md`](../doctrine/spec-format.md).
+
+## Format-version 3: per-task repositories
+
+A **format-version 3** bundle is a version 2 bundle whose task blocks may carry
+one optional `Repository:` field, naming the repository whose branches, pull
+requests, and commit trailers carry that task's execution state. Everything in
+the version 2 section holds; what changes is where the derivation looks for each
+task's evidence.
+
+- **The alias.** The field's value is a single alias in the spec identifier
+  grammar, never a path, URL, or host name. A block without the field belongs to
+  the bundle's work repository (`scripts/resolve-work-repo.sh`, its holder arm
+  included). A task names one repository; work that spans repositories splits
+  into tasks joined by `Dependencies:` edges, which may cross repositories.
+- **Where the checkout comes from.** The alias resolves to a local checkout only
+  through the machine-local work-repository registry `custom-spec-location`
+  defines (`scripts/resolve-work-repo.sh <spec-dir> --repository <alias>`). That
+  registry is the alias's only resolution source: nothing in the bundle names a
+  checkout, so the same bundle derives on any machine whose registry maps the
+  alias to its own clone. The registry serves only bundles under a
+  marker-bearing spec root.
+- **Per-task derivation.** `scripts/orchestrate-state.sh` derives each task from
+  its own repository's branches, pull requests, and trailers, and reads each
+  dependency's state from the repository that dependency names, so a same-named
+  task branch in another repository is not evidence. Selection, gate
+  evaluation, and the render all consume this per-task derivation, and the
+  render shows the alias of every task that names one. The runtime dispatch
+  markers stay in their per-bundle home.
+- **The unresolved state.** A task whose alias does not resolve on the machine
+  running the derivation (no live registry entry, a missing checkout, a spec
+  root without a marker, a value outside the grammar, a second field in the
+  block) derives `repository-unresolved`, naming the alias, and never falls back
+  to the work repository. It is never selected, a dependency on it is unmet, a
+  gate atom on it resolves unresolved, and the bundle never derives Done while
+  one remains.
+- **Transient failures are per repository.** When one repository's query fails,
+  the tasks it hosts and their direct dependents are withheld and the render
+  names the failing repository; tasks wholly in healthy repositories keep
+  selecting.
+
+The normative definition of the field, the alias grammar, and the extraction
+rule lives in [`doctrine/spec-format.md`](../doctrine/spec-format.md).
 
 ## Configuration
 
