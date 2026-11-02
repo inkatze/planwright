@@ -10,7 +10,8 @@
 # re-implements either — this is the wiring, which is why it lives in a script
 # rather than in a skill body (REQ-I1.2: what a script can enforce is not prose).
 #
-#   identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
+# Usage:
+#   tower-loop-comms.sh identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
 #       Print the tower identity every queue call in the iteration carries,
 #       resolved through scripts/fleet-presence.sh with the SAME flags the
 #       loop's own presence publish used (D-18: the identity is the lease's
@@ -23,7 +24,7 @@
 #       its own ladder mints one. Stable for as long as the process is, which is
 #       what the lease needs.
 #
-#   step --checkout <dir> (--tower <id> | --session-id <uuid> | --pid <pid>)
+#   tower-loop-comms.sh step --checkout <dir> (--tower <id> | --session-id <uuid> | --pid <pid>)
 #        --evidence <file> [--catchup] [--now <epoch>]
 #       One iteration's operator comms, in this order:
 #

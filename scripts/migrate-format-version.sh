@@ -1,5 +1,5 @@
 #!/bin/sh
-# migrate-format-version.sh [specs-root | spec-dir]
+# Usage: migrate-format-version.sh [<specs-root> | <spec-dir>]
 # Emits: markdown
 #
 # The one-shot v1→v2 spec-bundle migration (invariant-tasks Task 6;

@@ -3,7 +3,7 @@
 # branch, and the preparation of a secret purge it never runs
 # (doctrine/human-gates.md, the force-push and secret-purge rows).
 #
-# Usage, run in a checkout of the repository:
+# Usage (run in a checkout of the repository):
 #   tower-force-push.sh reword  --branch <b> --commit <c> --message-file <f>
 #                               [--remote <r>]
 #   tower-force-push.sh confirm --branch <b> --to <c> [--remote <r>]

@@ -4,7 +4,8 @@
 # `tower-queue.sh log`, which owns the lock, the sequence, the bounded wait,
 # the redaction and the tick coalescing.
 #
-#   tick [--tower <id>] [--now <epoch>]
+# Usage:
+#   tower-loop-log.sh tick [--tower <id>] [--now <epoch>]
 #       One pass of the loop: count the live workers and append a `tick`
 #       carrying that count. A worker is live when its row in the fleet's
 #       attention store (`<fleet-home>/attention/state`, the surface every
@@ -20,7 +21,7 @@
 #       so a steady fleet costs one line per count change and the scorecard's
 #       fleet hours come from these spans. Prints `tick<TAB>live=<n>` on
 #       success.
-#   delivered [--tower <id>] [--asks <n>] [--item <id>] [--now <epoch>]
+#   tower-loop-log.sh delivered [--tower <id>] [--asks <n>] [--item <id>] [--now <epoch>]
 #             (text on stdin)
 #       A turn the tower delivered to the operator: the text is flattened to
 #       one line of printable bytes, bounded to the log's value cap, and
