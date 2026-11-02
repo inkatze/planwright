@@ -783,22 +783,26 @@ printf '%s\n' "${next_lines:-}" | awk -F "$TAB" '
 # undoes it, from the queue's own `show`, then the two replies that close it:
 # a review is `ack`, an undo is `revoke`. The tower records the operator's
 # reply through the verb named here rather than deciding which one it was.
+# The replies print even when the record does not: `next` has already stamped
+# the item delivered, and the operator's answer still needs its verb.
 emit_review() {
-  _er_show=$(q_noev show "$1") || {
+  _er_rc=0
+  _er_show=$(q_noev show "$1") || _er_rc=$?
+  if [ "$_er_rc" -ne 0 ]; then
     err "the review record for $1 did not read; it is handed over without it"
-    note_rc 6 "review record"
-    return 0
-  }
-  _er_reason=$(printf '%s\n' "$_er_show" | awk -F "$TAB" '$1 == "reason" && $2 != "" { print $2; exit }')
-  _er_rev=$(printf '%s\n' "$_er_show" | awk -F "$TAB" '$1 == "review" && $3 != "" { print $3; exit }')
-  # Field by field: the helper escapes the tabs that delimit the record.
-  if ! _er_reason=$(printf '%s\n' "${_er_reason:--}" | "$TQ" redact) \
-    || ! _er_rev=$(printf '%s\n' "${_er_rev:--}" | "$TQ" redact); then
-    err "the review record for $1 could not be redacted; it is NOT rendered"
-    note_rc 6 "review redaction"
-    return 0
+    note_rc "$_er_rc" "review record"
+  else
+    _er_reason=$(printf '%s\n' "$_er_show" | awk -F "$TAB" '$1 == "reason" && $2 != "" { print $2; exit }')
+    _er_rev=$(printf '%s\n' "$_er_show" | awk -F "$TAB" '$1 == "review" && $3 != "" { print $3; exit }')
+    # Field by field: the helper escapes the tabs that delimit the record.
+    if ! _er_reason=$(printf '%s\n' "${_er_reason:--}" | "$TQ" redact) \
+      || ! _er_rev=$(printf '%s\n' "${_er_rev:--}" | "$TQ" redact); then
+      err "the review record for $1 could not be redacted; it is NOT rendered"
+      note_rc 6 "review redaction"
+    else
+      printf 'review\t%s\t%s\t%s\t%s\n' "$1" "$2" "$_er_reason" "$_er_rev"
+    fi
   fi
-  printf 'review\t%s\t%s\t%s\t%s\n' "$1" "$2" "$_er_reason" "$_er_rev"
   printf 'reply\t%s\treview\tack\n' "$1"
   printf 'reply\t%s\trevoke\trevoke\n' "$1"
 }
