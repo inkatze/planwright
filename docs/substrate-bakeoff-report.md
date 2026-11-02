@@ -188,7 +188,9 @@ an exit status written without leading zeros.
   four;
 - a row lacks a field its class requires, the implementation-time and
   review-findings fields included;
-- a numeric field holds anything but a number, or a `pass`/`fail`,
+- a numeric field holds anything but a number, a count (a dependency,
+  fixture, spawn, command, byte, finding or mismatch count) holds anything
+  but a whole number, or a `pass`/`fail`,
   `yes`/`no` or `within`/`over` field holds anything else;
 - a comparison point carries a primitive field;
 - a full candidate's run did not execute every production differential fixture

@@ -81,6 +81,8 @@ BEGIN {
   split(ENVIRON["BK_BASE"], t, " "); for (i in t) base[t[i]] = 1
   split("runs timeout_s fixture_set_count dependency_count tests_passed tests_failed fixtures_executed latency_median_ms latency_spread_ms spawns_per_invocation distinct_commands source_bytes implementation_minutes review_runs review_findings review_findings_per_kib porting_rate_min_per_kib baseline_latency_median_ms baseline_latency_spread_ms cold_start_median_ms cold_start_spread_ms binary_size_bytes latency_status_mismatches cold_start_status_mismatches", t, " ")
   for (i in t) numeric[t[i]] = 1
+  split("dependency_count tests_passed tests_failed fixtures_executed spawns_per_invocation distinct_commands source_bytes review_findings binary_size_bytes latency_status_mismatches cold_start_status_mismatches", t, " ")
+  for (i in t) whole[t[i]] = 1
 }
 NR == 1 {
   nh = NF
@@ -107,6 +109,7 @@ NR == 1 {
   seen[c] = 1
   for (f in shared) if (v[f] == "-" || v[f] == "") bad(c ": the " v["class"] " class requires " f)
   for (f in numeric) if (v[f] != "-" && !num(v[f])) bad(c ": " f " is not a number: " v[f])
+    else if (f in whole && v[f] != "-" && v[f] !~ /^[0-9]+$/) bad(c ": " f " is not a whole number: " v[f])
   if (v["class"] == "full") {
     nfull++
     for (f in prim) if (!(f in base) && (v[f] == "-" || v[f] == "")) bad(c ": the full class requires " f)
