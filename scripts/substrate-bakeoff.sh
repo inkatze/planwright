@@ -134,7 +134,7 @@ END {
   if (hdrbad) exit 1
   if (rows == 0) bad("no candidate row")
   for (c in fullrow) {
-    if ((brun[c] == "-") != (budget[c] == "-")) bad(c ": hook_budget is set exactly when the shell latency columns are")
+    if ((brun[c] == "-") != (budget[c] == "-") || (brun[c] == "-") != (bmed[c] == "-") || (brun[c] == "-") != (bspr[c] == "-")) bad(c ": hook_budget is set exactly when the shell latency columns are")
     else if (brun[c] != "-" && bmed[c] != "-" && bspr[c] != "-" && budget[c] != ((lat[c] + 0 <= bmed[c] + bspr[c]) ? "within" : "over")) bad(c ": hook_budget does not follow from its median and the shell baseline")
   }
   if (first["tier"] == "hook") {
