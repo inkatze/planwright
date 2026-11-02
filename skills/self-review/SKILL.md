@@ -174,7 +174,7 @@ produced, whose Notes cells quote tooling output.
 - Attended or unattended, a Needs-sign-off fix is committed on the branch,
   never asked about first, per that same discipline (its
   `Planwright-Sign-Off` trailer via
-  `scripts/planwright-commit-trailers.sh --sign-off`), and entered in the
+  `scripts/planwright-commit-trailers.sh --base <base> --sign-off`), and entered in the
   checklist.
 - Needs-human-judgment candidates climb the resolution ladder; every
   consulted rung is recorded. Only irreducible forks queue, with bespoke

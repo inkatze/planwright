@@ -118,7 +118,9 @@ mise run check      # the full local equivalent of the CI gate
   operand to itself, or runs a corpus loop with no row floor; an exclusion
   is a `# vacuity-ok: <reason>` annotation on the reported line;
 - the shebang-honoring invocation check (`check:script-invocation`): no line in
-  a skill or doctrine doc runs a script whose shebang names bash through `sh`;
+  a skill or doctrine doc runs a script whose shebang names bash through `sh`,
+  and every script a code span or fenced line there runs is run as its `#
+  Usage` header says (the header grammar is in `config/guard-catalog.yaml`);
 - the bash 3.2 construct lint (`check:bash32`): macOS ships bash 3.2 as
   `/bin/bash` and `/bin/sh`, and it misparses constructs inside a `$( )`
   such as a heredoc whose body it lexes unbalanced and a `case` pattern

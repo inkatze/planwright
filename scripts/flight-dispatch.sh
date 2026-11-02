@@ -31,8 +31,8 @@
 #   - the concurrency bound is the existing `max_parallel_units` (REQ-C1.5),
 #     serialized by scripts/fleet-state.sh's lock under a per-checkout home.
 #
-# Subcommands:
-#   home [--repo-root <dir>]
+# Usage:
+#   flight-dispatch.sh home [--repo-root <dir>]
 #       Declare the record's home (REQ-E1.2): `pr` when every effective push
 #       destination of origin is one `flight_pr_hosts` approves (an entry
 #       `<host>` or `<host>/<owner>`, read from every layer but the
@@ -42,7 +42,7 @@
 #       `reason`. The tower states the home and the destination at routing
 #       time, before any dispatch and so before any push; the brief has the
 #       worker re-run `home` before its push and park on a mismatch.
-#   retire [--repo-root <dir>]
+#   flight-dispatch.sh retire [--repo-root <dir>]
 #       Remove the brief directory of each of this checkout's retired flights
 #       (its worktree removed, or gone and prunable), one `retired<TAB><id>`
 #       line each, under the checkout's flight lock. Other checkouts' briefs,
@@ -59,7 +59,7 @@
 #       removed. Every dispatch runs the same sweep under its
 #       lock: there a failed removal is only named on stderr, while a refused
 #       sweep stops the dispatch with exit 4 before anything is placed.
-#   dispatch <slug> --backend <tmux|print> --ask-file <file>
+#   flight-dispatch.sh dispatch <slug> --backend <tmux|print> --ask-file <file>
 #       --grounds-file <file> [--public-summary-file <file>] [--home pr|file]
 #       [--repo-root <dir>] [--attach-dry-run]
 #       Count the checkout's live flights against `max_parallel_units` under

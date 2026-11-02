@@ -775,6 +775,13 @@ REF_EXEMPT=" migrate-format-version.sh "
 #   drain-gates.sh           its GATE-entry parse. Its reference-bullet parse
 #                            already comes from the lib (Task 2); the gate
 #                            grammar is not a lib family yet.
+#   check-script-invocation.sh  reads skill and doctrine prose, not bundles:
+#                            the fenced command lines are what it checks, and
+#                            prose fences open indented inside list items and
+#                            with tildes, both of which the lib lexer reads
+#                            as content by design. A permanent exemption on
+#                            card-lint.sh's grounds, with CommonMark fence
+#                            semantics instead of the lib's.
 #
 # (orchestrate-select.sh was the third name here until Task 8 put its task and
 # dependency grammar on the lib; its fence guard is now the lib lexer.)
@@ -782,7 +789,7 @@ REF_EXEMPT=" migrate-format-version.sh "
 # The remaining spec-bundle exemption is sequenced, not permanent, and the
 # stale-exemption guard below turns it into a prompt to drop the name once the
 # parse it guards is re-pointed.
-FENCE_EXEMPT=" card-lint.sh check-instructions.sh drain-gates.sh flight-record.sh inception-fanout.sh "
+FENCE_EXEMPT=" card-lint.sh check-instructions.sh check-script-invocation.sh drain-gates.sh flight-record.sh inception-fanout.sh "
 
 # The line-80 families became lib families in Task 8 ($spec_parse_awk_grammar),
 # so the sweep grows four more arms: the requirement bullet, the D-ID heading,
@@ -939,7 +946,7 @@ done
 if ! grep -q "$REF_SIG" "$scripts_dir/migrate-format-version.sh"; then
   fail "stale REF exemption: migrate-format-version.sh no longer carries the bullet-shape probe it is exempted for"
 fi
-for fx in card-lint.sh check-instructions.sh drain-gates.sh inception-fanout.sh; do
+for fx in card-lint.sh check-instructions.sh check-script-invocation.sh drain-gates.sh inception-fanout.sh; do
   if ! grep -q "$FENCE_SIG" "$scripts_dir/$fx"; then
     fail "stale FENCE exemption: $fx no longer carries the private fence lexer it is exempted for (drop the name from FENCE_EXEMPT)"
   fi

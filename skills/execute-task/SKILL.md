@@ -164,13 +164,13 @@ protocol's dispatched arm); attended, present and wait.
 
 This skill is the runner at its five in-run points; `custom-steps` owns the
 contract. Issue one run id (`scripts/step-record.sh new-run`) per invocation.
-A `--resume <run>:<point>` run starts there, after
-`scripts/step-run.sh resume`, skipping the steps it prints. **Run a point**
+`--resume <run>:<point>` runs start there, skipping what
+`scripts/step-run.sh resume --run <this-run> --from <run>:<point>` prints. **Run a point**
 in the worktree, the `PLANWRIGHT_STEP_*` context exported (a PR number
 whenever one exists):
 
-1. **Resolve** it whole first: `scripts/step-run.sh resolve --run <run> <point>`,
-   `--unattended` exactly when the backend seam's launch record says headless,
+1. **Resolve** it whole first: `scripts/step-run.sh resolve --run <run> <point>
+   --unattended` exactly when the backend seam's launch record says headless,
    else `--attended`. Exit 1: `ask`, or attended all-`refuse` rows, presents
    and waits for a repair and re-resolve; otherwise park. Exit 2, 4, or 5: a stop condition.
 2. **Host** each step in order by its printed hosting, per the doc's

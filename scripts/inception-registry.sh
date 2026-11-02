@@ -5,23 +5,31 @@
 # them (inception REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-H1.6, REQ-J1.4, REQ-J1.7,
 # REQ-J1.8 · D-8).
 #
-#   add <id> <venture-dir>  register a venture (or refresh its path and status)
-#   set <id> [--status <s>] [--flags <f,g>|none]
-#                           update a registered venture
-#   get <id>                one registry row
-#   list                    every registry row
-#   rebuild [--root <dir>]  re-derive the registry by scanning ventures_root
-#   overlap                 each registered venture's framing, for the skill's
-#                           extend-vs-new judgment
-#   status <id>             the per-venture status view
-#   portfolio [--cards <dir>]
-#                           every venture with attention flags, then the
-#                           catalog-health notes; writes changed flags back
-#   telemetry <id> frame-discipline|unstaffed <discipline>
-#                           record one catalog-telemetry occurrence
-#   drop <id> <text>        record a planwright-about observation
-#   drop-read               the drop, neutralized, for planwright-side seed
-#                           gathering
+# Usage:
+#   inception-registry.sh add <id> <venture-dir>
+#       register a venture (or refresh its path and status)
+#   inception-registry.sh set <id> [--status <s>] [--flags <f,g>|none]
+#       update a registered venture
+#   inception-registry.sh get <id>
+#       one registry row
+#   inception-registry.sh list
+#       every registry row
+#   inception-registry.sh rebuild [--root <dir>]
+#       re-derive the registry by scanning ventures_root
+#   inception-registry.sh overlap
+#       each registered venture's framing, for the skill's extend-vs-new
+#       judgment
+#   inception-registry.sh status <id>
+#       the per-venture status view
+#   inception-registry.sh portfolio [--cards <dir>]
+#       every venture with attention flags, then the catalog-health notes;
+#       writes changed flags back
+#   inception-registry.sh telemetry <id> frame-discipline|unstaffed <discipline>
+#       record one catalog-telemetry occurrence
+#   inception-registry.sh drop <id> <text>
+#       record a planwright-about observation
+#   inception-registry.sh drop-read
+#       the drop, neutralized, for planwright-side seed gathering
 #
 # Output lines (key<TAB>fields):
 #   registered <id>                                     add

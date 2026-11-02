@@ -1,6 +1,9 @@
 #!/bin/sh
 # spec-anchor.sh — compute the planwright content anchor for a spec bundle.
 #
+# Usage:
+#   spec-anchor.sh <spec-dir>
+#
 # Canonical form, as defined in doctrine/spec-format.md (REQ-F1.9;
 # anchor-integrity REQ-A1.1, REQ-A1.2, REQ-A1.3): the anchor is the git hash
 # of the per-file digest list, in canonical order (requirements, design,
