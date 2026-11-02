@@ -2629,6 +2629,13 @@ cmd_recover() {
       --cwd)
         [ $# -ge 2 ] || usage
         rc_cwd=$2
+        # Checked here, not left to the launch: an empty one would be dropped
+        # and resume in the caller's directory, and a missing one would read
+        # as a failed resume and halt the unit.
+        [ -n "$rc_cwd" ] && [ -d "$rc_cwd" ] || {
+          printf '%s\n' "$me: recover --cwd must name an existing directory" >&2
+          exit 2
+        }
         shift 2
         ;;
       --)

@@ -241,6 +241,12 @@ case $err in
   *) fail "r3: the refusal must point at recover: $err" ;;
 esac
 [ "$(argv_lines)" = "$n" ] || fail "r3: the refused relaunch spawned a session"
+for bad in '' "$tmp/gone"; do
+  (cd "$tmp" && senv -- recover sjr1 --cwd "$bad") >/dev/null 2>&1
+  rc=$?
+  [ "$rc" -eq 2 ] || fail "r3: recover --cwd '$bad' must be refused as a usage error (exit 2), got $rc"
+done
+[ "$(argv_lines)" = "$n" ] || fail "r3: a recover with an unusable --cwd spawned a session"
 echo "ok: r3 a failed resume after the stop is exit 5 naming the recover, and a stopped worker is refused toward recover (REQ-G1.3)"
 
 # ---------------------------------------------------------------------------
