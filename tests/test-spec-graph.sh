@@ -60,6 +60,29 @@ fail() {
 tmp="$(mktemp -d)" || exit 1
 trap 'chmod -R u+rwx "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
+# A stand-in for a host's real Graphviz 15 sits first on PATH for the whole
+# run: it shadows any real `dot`, so the stubs below are the only Graphviz a
+# case can reach, and CI (which has no `dot`) still runs with one installed.
+# A layout from it is a valid one, so reaching it changes a result, and it
+# leaves a marker the end of the run checks.
+host_dot="$tmp/host-dot"
+mkdir -p "$host_dot"
+cat >"$host_dot/dot" <<'STUB'
+#!/bin/sh
+: >"$(dirname "$0")/invoked"
+cat <<'PLAIN'
+graph 1.0 6.0 2.0
+node 1 0.5 1.0 1.2 0.5 t1 solid box black lightgrey
+node 2 2.5 1.5 1.2 0.5 t2 solid box black lightgrey
+node 3 2.5 0.5 1.2 0.5 t3 solid box black lightgrey
+node 4 4.5 1.0 1.2 0.5 t4 solid box black lightgrey
+stop
+PLAIN
+STUB
+chmod +x "$host_dot/dot"
+PATH="$host_dot:$PATH"
+export PATH
+
 out=
 run_dir() {
   rexp=$1
@@ -611,5 +634,8 @@ awk -v v="$gw" -v px="$s_nodew" -v s="$s_scale" 'BEGIN { exit !(v * s >= px) }' 
 awk -v v="$gh" -v px="$s_nodeh" -v s="$s_scale" 'BEGIN { exit !(v * s >= px) }' \
   || fail "DOT reserves height=${gh}in (< NODEH=${s_nodeh}px at SCALE=${s_scale}); rows will overlap"
 echo "ok: DOT source reserves >= NODEW x NODEH per node (fixedsize=true, geometry read from script)"
+
+[ ! -e "$host_dot/invoked" ] \
+  || fail "a case reached the dot first on PATH instead of its own stub or the built-in layout"
 
 echo "PASS: test-spec-graph.sh"
