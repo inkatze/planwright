@@ -262,6 +262,7 @@ else
   fail "execute-task: Awaiting-input bullet form missing ('committed reference bullet', D-3)"
 fi
 
+# shellcheck disable=SC2016 # the backticks are the doc's markdown, not a substitution
 if printf '%s' "$et" | grep -qE 'derived Completed by `scripts/orchestrate-state\.sh`'; then
   ok "execute-task: v2 dependency completion reads the derivation engine"
 else
