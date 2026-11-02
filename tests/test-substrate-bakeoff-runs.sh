@@ -246,6 +246,29 @@ run_into typokey "$tmp/typokey"
 check_eq "an unknown candidate key is refused" 1 "$rc"
 check_has "the refusal names the key" "$out" "buid is not a candidate.conf key"
 
+DEPS=candidates/stub-comparison/dependencies.tsv
+variant depsmissing
+rm "$tmp/depsmissing/$DEPS"
+run_into depsmissing "$tmp/depsmissing"
+check_eq "a missing dependency listing is refused" 1 "$rc"
+check_has "the refusal names the listing" "$out" "dependency listing dependencies.tsv is missing"
+
+variant depsshort
+printf 'stub-runtime\tMIT\t2026-01-01\n' >"$tmp/depsshort/$DEPS"
+run_into depsshort "$tmp/depsshort"
+check_eq "a dependency row short of four fields is refused" 1 "$rc"
+check_has "the refusal names the row shape" "$out" "four non-empty tab-separated fields"
+
+variant depsempty
+printf 'stub-runtime\t\t2026-01-01\tnone\n' >"$tmp/depsempty/$DEPS"
+run_into depsempty "$tmp/depsempty"
+check_eq "a dependency row with an empty field is refused" 1 "$rc"
+
+variant depscomma
+printf 'stub-runtime\tMIT, Apache\t2026-01-01\tnone\n' >"$tmp/depscomma/$DEPS"
+run_into depscomma "$tmp/depscomma"
+check_eq "a dependency field holding a list separator is refused" 1 "$rc"
+
 variant blankarg
 printf 'a\n\nb\n' >"$tmp/blankarg/fixtures/echo-line/basic/args"
 run_into blankarg "$tmp/blankarg"

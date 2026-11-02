@@ -104,7 +104,7 @@ END {
       rate++
       cand = cref[k]; sub(/\..*/, "", cand)
       if (!vs_np[d]) { printf "%s%s cites a porting rate but carries no **Report:** line\n", where, d; bad = 1; continue }
-      found = report_find(d, cand)
+      found = report_find(d, cand, "full")
       if (found == "!") { printf "%s%s\n", where, vc_err; bad = 1; continue }
       if (found == "") { printf "%s%s names no full candidate of the reports %s cites\n", where, cref[k], d; bad = 1; continue }
       v = vc_val[found, cand, "porting_rate_min_per_kib"]

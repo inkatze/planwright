@@ -315,16 +315,16 @@ for (1 .. ($bk{BK_REPEAT} || 1)) {
 }'
 
 # run_case <argv-file> <fixture-dir|""> <extra-arg|""> <stdout> <repeat> <path>
-# <spawn-log> <offline 0|1> <timings-out>: run the argv once per repetition,
-# each with a fresh home and, when clean_env is 1, no inherited environment
-# beyond PATH and the C locale.
+# <spawn-log> <offline 0|1> <timings-out> <clean-env 0|1>: run the argv once
+# per repetition, each with a fresh home and, when clean-env is 1, no
+# inherited environment beyond PATH and the C locale.
 run_case() {
   files=""
   [ -n "$2" ] && [ -d "$2/files" ] && files=$2/files
   stdin=/dev/null
   [ -n "$2" ] && [ -f "$2/stdin" ] && stdin=$2/stdin
   : >"$7"
-  rc_out=$4 rep=$5 path=$6 slog=$7 offl=$8 timings=$9
+  rc_out=$4 rep=$5 path=$6 slog=$7 offl=$8 timings=$9 clean=${10}
   # One argv word per line, so no word is re-split on blanks.
   old_ifs=$IFS
   IFS='
@@ -333,7 +333,7 @@ run_case() {
   set -- $(cat "$1") $([ -n "$2" ] && [ -f "$2/args" ] && cat "$2/args") $([ -n "$3" ] && printf '%s\n' "$3")
   IFS=$old_ifs
   BK_REPEAT=$rep BK_WORK=$work BK_FILES=$files BK_STDIN=$stdin BK_STDOUT=$rc_out BK_TIMEOUT=$timeout_s \
-    BK_PATH=$path BK_SPAWN_LOG=$slog BK_OFFLINE=$offl BK_CLEAN_ENV=$clean_env \
+    BK_PATH=$path BK_SPAWN_LOG=$slog BK_OFFLINE=$offl BK_CLEAN_ENV=$clean \
     "$perl_bin" -MPOSIX -e "$runner_pl" "$@" >"$timings" &
   # Waited on rather than run in the foreground, so a signal to this shell
   # reaches its trap at once and the trap can stop the runner.
@@ -470,8 +470,7 @@ delivery() {
   plain_path "$val" "delivery.$2"
   [ -f "$cdir/$val" ] || refuse "$cand: delivery.$2 names a missing file"
   printf '%s\n' "$cdir/$val" >"$work/dargv"
-  clean_env=0
-  run_case "$work/dargv" "" "" "$work/dout" 1 "$orig_path" "$work/dlog" 0 "$work/dt"
+  run_case "$work/dargv" "" "" "$work/dout" 1 "$orig_path" "$work/dlog" 0 "$work/dt" 0
   dres=fail
   [ "$(first_status "$work/dt")" = 0 ] && dres=pass
 }
@@ -487,8 +486,7 @@ build_step() {
   [ -n "$bscript" ] || refuse "$cand: build is empty"
   plain_path "$bscript" build
   printf '%s\n' "$cdir/$bscript" >"$work/bargv"
-  clean_env=0
-  run_case "$work/bargv" "" "" "$work/bout" 1 "$orig_path" "$work/blog" 0 "$work/bt"
+  run_case "$work/bargv" "" "" "$work/bout" 1 "$orig_path" "$work/blog" 0 "$work/bt" 0
   [ "$(first_status "$work/bt")" = 0 ]
 }
 
@@ -523,7 +521,6 @@ measure_full() {
   for k in $(conf_keys "$conf"); do
     case $k in invoke.*) grep -Fqx -- "${k#invoke.}" "$work/primitives" || refuse "$cand: $k names no primitive of the fixture set" ;; esac
   done
-  clean_env=1
   : >"$work/results"
   : >"$work/commands.raw"
   passed=0 failed=0 executed=0 spawns=""
@@ -531,7 +528,7 @@ measure_full() {
     need "$conf" "invoke.${fx%%/*}" "$cand (a full candidate implements every primitive the fixture set holds, so its run executes every production differential fixture)"
     inv=$val
     build_argv "$inv"
-    run_case "$argv_file" "$bakeoff/fixtures/$fx" "" "$work/out" 1 "$shim_dir:$orig_path" "$work/slog" 0 "$work/t"
+    run_case "$argv_file" "$bakeoff/fixtures/$fx" "" "$work/out" 1 "$shim_dir:$orig_path" "$work/slog" 0 "$work/t" 1
     executed=$((executed + 1))
     st=$(first_status "$work/t")
     want=$(cat "$bakeoff/fixtures/$fx/expected-status")
@@ -556,11 +553,11 @@ measure_full() {
   results=$(awk '{ s = s (NR > 1 ? "," : "") $0 } END { print s }' "$work/results")
 
   build_argv "$call_inv"
-  run_case "$argv_file" "$bakeoff/fixtures/$call_site" "" "$work/out" "$runs" "$orig_path" "$work/slog" 0 "$work/t"
+  run_case "$argv_file" "$bakeoff/fixtures/$call_site" "" "$work/out" "$runs" "$orig_path" "$work/slog" 0 "$work/t" 1
   lat=$(stats "$work/t") || fail_closed "the latency measurement failed"
   lat_mismatch=$(mismatches "$work/t" "$(cat "$bakeoff/fixtures/$call_site/expected-status")")
 
-  run_case "$argv_file" "$bakeoff/fixtures/$call_site" "" "$work/replay" 1 "$block_dir:$orig_path" "$work/slog" 1 "$work/t"
+  run_case "$argv_file" "$bakeoff/fixtures/$call_site" "" "$work/replay" 1 "$block_dir:$orig_path" "$work/slog" 1 "$work/t" 1
   offline=no
   [ "$(first_status "$work/t")" = "$call_status" ] && cmp -s "$work/replay" "$work/call-out" && offline=yes
 
@@ -641,10 +638,9 @@ measure_comparison() {
   launch_ok=yes
   literal=yes
   build_step "$conf" || launch_ok=no
-  clean_env=1
   need "$conf" invoke.trivial "$cand"
   build_argv "$val"
-  run_case "$argv_file" "" world "$work/out" 1 "$shim_dir:$orig_path" "$work/slog" 0 "$work/t"
+  run_case "$argv_file" "" world "$work/out" 1 "$shim_dir:$orig_path" "$work/slog" 0 "$work/t" 1
   st=$(first_status "$work/t")
   case $st in 126 | 127) launch_ok=no ;; esac
   sort -u "$work/slog" >"$work/commands" || fail_closed "sort failed"
@@ -652,7 +648,7 @@ measure_comparison() {
   trivial=fail
   printf 'hello world\n' >"$work/trivial-expected"
   [ "$st" = 0 ] && cmp -s "$work/out" "$work/trivial-expected" && trivial=pass
-  run_case "$argv_file" "" world "$work/out" "$runs" "$orig_path" "$work/slog" 0 "$work/t"
+  run_case "$argv_file" "" world "$work/out" "$runs" "$orig_path" "$work/slog" 0 "$work/t" 1
   cold=$(stats "$work/t") || fail_closed "the cold-start measurement failed"
   cold_mismatch=$(mismatches "$work/t" 0)
   need "$conf" artifact "$cand"

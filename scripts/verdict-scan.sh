@@ -141,14 +141,18 @@ function vs_record() {
   if ($1 == "P") { vs_np[$2]++; vs_path[$2, vs_np[$2]] = $4; return }
   if ($1 == "S") { vs_ns++; vs_s_dec[vs_ns] = $2; vs_s_kind[vs_ns] = $3; vs_s_line[vs_ns] = $4; vs_s_text[vs_ns] = $5 }
 }
-# report_find(dec, cand): the first report dec names that carries a row for
-# cand; "" when none does, "!" when one could not be read (vc_err says why).
-function report_find(dec, cand,   k, p) {
+# report_find(dec, cand[, cls]): the first report dec names that carries a
+# row for cand, preferring one whose row is of class cls when cls is given;
+# "" when none does, "!" when one could not be read (vc_err says why).
+function report_find(dec, cand, cls,   k, p, first) {
+  first = ""
   for (k = 1; k <= vs_np[dec]; k++) {
     p = vs_path[dec, k]
     if (!report_load(p)) return "!"
-    if ((p, cand) in vc_row) return p
+    if (!((p, cand) in vc_row)) continue
+    if (cls == "" || vc_val[p, cand, "class"] == cls) return p
+    if (first == "") first = p
   }
-  return ""
+  return first
 }
 '

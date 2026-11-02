@@ -67,6 +67,8 @@ REPORT=docs/substrate/bakeoff-a-2026-11-01.tsv
 INHERITED=docs/substrate/bakeoff-b-2026-11-02.tsv
 recast go 0.800 zig "$REPORT"
 recast rust 1.250 - "$INHERITED"
+FULLZIG=docs/substrate/bakeoff-d-2026-11-03.tsv
+recast zig 1.500 - "$FULLZIG"
 
 bundle() {
   b=$tmp/$1
@@ -102,6 +104,13 @@ bundle inherited <<EOF
 **Cost-benefit:** - **Migration effort:** 1.25 min/KiB (\`rust.porting_rate_min_per_kib\`).
 EOF
 check "an effort citing an inherited bake-off's rate" inherited 0
+
+bundle laterfull <<EOF
+**Report:** \`$REPORT\` \`$FULLZIG\`
+
+**Cost-benefit:** - **Migration effort:** 1.5 min/KiB (\`zig.porting_rate_min_per_kib\`).
+EOF
+check "a rate logged by a later report where an earlier one holds the candidate as a comparison point" laterfull 0
 
 bundle screen <<'EOF'
 **Cost-benefit:**
