@@ -113,9 +113,9 @@ echo "ok: a positive span never arrives at the consumer as zero"
 
 # --- the committed fixtures reproduce their hand-computed numbers ----------------
 
-for name in baseline two-tower gap; do
+for name in baseline two-tower gap reviewable; do
   case "$name" in
-    baseline) now=908000 ;;
+    baseline | reviewable) now=908000 ;;
     two-tower) now=906000 ;;
     gap) now=905000 ;;
   esac
@@ -129,6 +129,86 @@ for name in baseline two-tower gap; do
   fi
   echo "ok: $name fixture reproduces its hand-computed scorecard"
 done
+
+# --- the reviewable kinds and batches (REQ-G1.9) --------------------------------
+
+# A revocation counts against a kind only when the item it revokes settled
+# inside the window: one whose default fell before it would push the rate
+# past one.
+{
+  printf '{"v":1,"seq":1,"ts":100,"kind":"window","item":"old","end":"default","option":"a","at":100}\n'
+  printf '{"v":1,"seq":2,"ts":5000,"kind":"revoked","tower":"T1","item":"old","item_kind":"settled-by-default","outcome":"reopened"}\n'
+  printf '{"v":1,"seq":3,"ts":5100,"kind":"window","item":"new","end":"default","option":"a","at":5100}\n'
+} >"$tmp/revoke-window.log"
+got=$(run report --log "$tmp/revoke-window.log" --now 6000 --window 1h) || fail "revoke-window report: exit"
+[ "$(value_of settled_by_default "$got")" = 1 ] || fail "settled_by_default over the window: $(value_of settled_by_default "$got"), expected 1"
+[ "$(value_of settled_by_default_revocation_rate "$got")" = 0.00 ] \
+  || fail "a revocation of an item defaulted before the window counted: rate $(value_of settled_by_default_revocation_rate "$got")"
+echo "ok: a revocation counts only against an item settled inside the window"
+
+# A batch is one multi-ask turn whether the loop logged its asks or not, and a
+# loop line for a turn that was not a batch still counts on its own.
+{
+  printf '{"v":1,"seq":1,"ts":100,"kind":"delivered","tower":"T1","item":"a","pair":"-","batch":"a,b","size":2}\n'
+  printf '{"v":1,"seq":2,"ts":200,"kind":"delivered","tower":"T2","item":"c","pair":"d"}\n'
+  printf '{"v":1,"seq":3,"ts":200,"kind":"delivered","tower":"T2","item":"c","text":"Two things","asks":2}\n'
+} >"$tmp/batch.log"
+got=$(run report --log "$tmp/batch.log" --now 300) || fail "batch report: exit"
+[ "$(value_of multi_ask_turns "$got")" = 2 ] || fail "multi_ask_turns: $(value_of multi_ask_turns "$got"), expected 2"
+[ "$(value_of multi_ask_batches "$got")" = 1 ] || fail "multi_ask_batches: $(value_of multi_ask_batches "$got"), expected 1"
+[ "$(value_of multi_ask_batch_items "$got")" = 2 ] || fail "multi_ask_batch_items: $(value_of multi_ask_batch_items "$got"), expected 2"
+[ "$(value_of delivered_items "$got")" = 4 ] \
+  || fail "delivered_items: $(value_of delivered_items "$got"), expected 4 (batch members and the pair partner reached the operator)"
+echo "ok: a batch counts once in the multi-ask measure, its size beside it, and every member counts as delivered"
+
+# The loop's line pairs with the batch line just before it, not with every turn
+# that tower later gives the same top item: here a revoke reopened `a`, and its
+# second, two-ask turn is a turn of its own.
+{
+  printf '{"v":1,"seq":1,"ts":100,"kind":"delivered","tower":"T1","item":"a","pair":"-","batch":"a,b","size":2}\n'
+  printf '{"v":1,"seq":2,"ts":100,"kind":"delivered","tower":"T1","item":"a","text":"Two things on one PR","asks":1}\n'
+  printf '{"v":1,"seq":3,"ts":200,"kind":"delivered","tower":"T1","item":"a","text":"That one again, and a choice","asks":2}\n'
+} >"$tmp/batch-later.log"
+got=$(run report --log "$tmp/batch-later.log" --now 300) || fail "batch-later report: exit"
+[ "$(value_of multi_ask_turns "$got")" = 2 ] \
+  || fail "a later turn on a batch's top item was netted against the batch: multi_ask_turns $(value_of multi_ask_turns "$got"), expected 2"
+echo "ok: a later multi-ask turn on a batch's top item counts on its own"
+
+# A loop line whose text the log refused as JSON-shaped still closes its batch.
+{
+  printf '{"v":1,"seq":1,"ts":100,"kind":"delivered","tower":"T1","item":"a","pair":"-","batch":"a,b","size":2}\n'
+  printf '{"v":1,"seq":2,"ts":100,"kind":"delivered","tower":"T1","item":"a","text_omitted":"json-shaped","asks":2}\n'
+  printf '{"v":1,"seq":3,"ts":200,"kind":"delivered","tower":"T1","item":"a","text":"That one again, and a choice","asks":2}\n'
+} >"$tmp/batch-omitted.log"
+got=$(run report --log "$tmp/batch-omitted.log" --now 300) || fail "batch-omitted report: exit"
+[ "$(value_of multi_ask_turns "$got")" = 2 ] \
+  || fail "a text-omitted loop line did not close its batch: multi_ask_turns $(value_of multi_ask_turns "$got"), expected 2"
+echo "ok: a loop line logged without its text still pairs with its batch"
+
+# A batch whose loop line never landed is closed by the next hand-over on that
+# top item, so the later turn's loop line is that turn's, not the batch's.
+{
+  printf '{"v":1,"seq":1,"ts":100,"kind":"delivered","tower":"T1","item":"a","pair":"-","batch":"a,b","size":2}\n'
+  printf '{"v":1,"seq":2,"ts":200,"kind":"delivered","tower":"T1","item":"a","pair":"-"}\n'
+  printf '{"v":1,"seq":3,"ts":200,"kind":"delivered","tower":"T1","item":"a","text":"That one again, and a choice","asks":2}\n'
+} >"$tmp/batch-unlogged.log"
+got=$(run report --log "$tmp/batch-unlogged.log" --now 300) || fail "batch-unlogged report: exit"
+[ "$(value_of multi_ask_turns "$got")" = 2 ] \
+  || fail "a later turn was netted against a batch whose loop line never landed: multi_ask_turns $(value_of multi_ask_turns "$got"), expected 2"
+echo "ok: a batch whose turn was never logged does not absorb a later turn"
+
+# An item a revoke reopened and evidence then settled counts once, on the
+# reviewable side, so the settled total never counts one item twice.
+{
+  printf '{"v":1,"seq":1,"ts":100,"kind":"window","item":"q","end":"default","option":"a","at":100}\n'
+  printf '{"v":1,"seq":2,"ts":150,"kind":"revoked","tower":"T1","item":"q","item_kind":"settled-by-default","outcome":"reopened"}\n'
+  printf '{"v":1,"seq":3,"ts":200,"kind":"settled","item":"q","item_kind":"question","reason":"pr-merged"}\n'
+} >"$tmp/revoke-settle.log"
+got=$(run report --log "$tmp/revoke-settle.log" --now 300) || fail "revoke-settle report: exit"
+[ "$(value_of settled_items "$got")" = 1 ] || fail "settled_items: $(value_of settled_items "$got"), expected 1"
+[ "$(value_of settled_by_evidence "$got")" = 0 ] || fail "settled_by_evidence: $(value_of settled_by_evidence "$got"), expected 0"
+[ "$(value_of settled_by_default "$got")" = 1 ] || fail "settled_by_default: $(value_of settled_by_default "$got"), expected 1"
+echo "ok: a defaulted item later settled by evidence counts once, as a default"
 
 # --- the window ---------------------------------------------------------------
 

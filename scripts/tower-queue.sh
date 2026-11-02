@@ -665,10 +665,15 @@
 # while its count is above zero, and so does the stretch to the next tick
 # when it is within `tower_tick_gap_max`; a longer stretch is excluded and
 # reported as a gap), the per-tower intervals unioned so an hour two towers
-# both tick through counts once. Secondary measures: blocked-worker wait
-# (question items from birth to acknowledgement, an open one to the window
-# end), turns carrying more than one ask, items delivered in prose with no
-# queue record, friction (what-does-that-mean replies, and a request of three
+# both tick through counts once. A pair partner and every member of a batch
+# count as reached. The settled side breaks out into items evidence settled,
+# items a picklist window settled on its default, and items mission control
+# decided, each reviewable kind beside its revocation rate (revocations of
+# its items settled inside the window, over those items). Secondary measures:
+# blocked-worker wait (question items from birth to acknowledgement, an open
+# one to the window end), turns carrying more than one ask (a batch counts
+# once, the batches and their items beside it), items delivered in prose with
+# no queue record, friction (what-does-that-mean replies, and a request of three
 # or more words repeated), jargon in delivered text (spec identifiers,
 # internal names, and the terms listed in tower-jargon.txt beside this
 # script), items dropped at a rebuild, and the lines `log` itself dropped at
@@ -1900,7 +1905,7 @@ cmd_report() {
       close(dropped_file)
     }
     lines = 0; malformed = 0; nticks = 0; nint = 0
-    delivered_prose = 0; multi_ask = 0; friction_meaning = 0; friction_repeat = 0
+    delivered_prose = 0; batches = 0; batch_items = 0; ask_turns = 0; friction_meaning = 0; friction_repeat = 0
     terms_hit = 0; ident_hit = 0; internal_hit = 0; lost = 0
   }
   {
@@ -1924,12 +1929,36 @@ cmd_report() {
     } else if (kind == "delivered") {
       if ("item" in F) delivered_items[F["item"]] = 1
       else delivered_prose++
-      if (("asks" in F) && (F["asks"] + 0) > 1) multi_ask++
+      # A pair partner and every batch member reached the operator in that
+      # same hand-over, though the line names only the top item as `item`.
+      if (("pair" in F) && F["pair"] != "-") delivered_items[F["pair"]] = 1
+      # `next` writes the batch line and the loop then writes its own line,
+      # the one carrying text (or `text_omitted`) and asks, for that same
+      # turn: the first loop line after a batch with the same tower and top
+      # item is the batch turn. Any later `next` line on that key closes it,
+      # so a batch whose loop line never landed absorbs no later turn.
+      dk = (("tower" in F) ? F["tower"] : "") SUBSEP (("item" in F) ? F["item"] : "")
+      if ("batch" in F) {
+        nbm = split(F["batch"], bm, ",")
+        for (b = 1; b <= nbm; b++) if (bm[b] != "") delivered_items[bm[b]] = 1
+        batch_open[dk] = 1; batches++
+        batch_items += ("size" in F) ? F["size"] + 0 : nbm
+      } else if (!("text" in F) && !("text_omitted" in F)) delete batch_open[dk]
+      if (("text" in F) || ("text_omitted" in F)) {
+        if (dk in batch_open) delete batch_open[dk]
+        else if (("asks" in F) && (F["asks"] + 0) > 1) ask_turns++
+      }
       if ("text" in F) jargon(F["text"])
     } else if (kind == "settled") {
       if ("item" in F) settled_items[F["item"]] = 1
+    } else if (kind == "window") {
+      if (("item" in F) && ("end" in F) && F["end"] == "default") by_default[F["item"]] = 1
     } else if (kind == "born") {
       if (("item" in F) && ("item_kind" in F) && F["item_kind"] == "question" && !(F["item"] in born_ts)) born_ts[F["item"]] = ts
+      if (("item" in F) && ("item_kind" in F) && F["item_kind"] == "decided-by-mission-control") by_mc[F["item"]] = 1
+    } else if (kind == "revoked") {
+      if (("item" in F) && ("item_kind" in F) && F["item_kind"] == "settled-by-default") revoked_default[F["item"]] = 1
+      if (("item" in F) && ("item_kind" in F) && F["item_kind"] == "decided-by-mission-control") revoked_mc[F["item"]] = 1
     } else if (kind == "acknowledged") {
       if (("item" in F) && !(F["item"] in ack_ts)) ack_ts[F["item"]] = ts
     } else if (kind == "reply") {
@@ -1986,7 +2015,17 @@ cmd_report() {
     if (have) total += cur_b - cur_a
     hours = total / 3600
     ndel = delivered_prose; for (x in delivered_items) ndel++
-    nset = 0; for (x in settled_items) nset++
+    # Both reviewable kinds are settled without the operator, beside the items
+    # evidence settled; a revocation counts against the kind only when the
+    # item it revokes was settled inside this window.
+    n_default = 0; for (x in by_default) n_default++
+    n_mc = 0; for (x in by_mc) n_mc++
+    n_evidence = 0; for (x in settled_items) if (!(x in by_default) && !(x in by_mc)) n_evidence++
+    nset = n_evidence + n_default + n_mc
+    r_default = 0; for (x in revoked_default) if (x in by_default) r_default++
+    r_mc = 0; for (x in revoked_mc) if (x in by_mc) r_mc++
+    # A batch is one multi-ask turn however many asks the loop logged for it.
+    multi_ask = batches + ask_turns
     wait_total = 0; wait_max = 0; wait_open = 0
     for (x in born_ts) {
       if ((x in ack_ts) && ack_ts[x] >= born_ts[x]) w = ack_ts[x] - born_ts[x]
@@ -2008,10 +2047,19 @@ cmd_report() {
     if (hours > 0) printf "delivered_per_fleet_hour\t%.2f\n", ndel / hours; else print "delivered_per_fleet_hour\tn/a"
     printf "settled_items\t%d\n", nset
     if (hours > 0) printf "settled_per_fleet_hour\t%.2f\n", nset / hours; else print "settled_per_fleet_hour\tn/a"
+    printf "settled_by_evidence\t%d\n", n_evidence
+    printf "settled_by_default\t%d\n", n_default
+    printf "settled_by_default_revoked\t%d\n", r_default
+    if (n_default > 0) printf "settled_by_default_revocation_rate\t%.2f\n", r_default / n_default; else print "settled_by_default_revocation_rate\tn/a"
+    printf "decided_by_mission_control\t%d\n", n_mc
+    printf "decided_by_mission_control_revoked\t%d\n", r_mc
+    if (n_mc > 0) printf "decided_by_mission_control_revocation_rate\t%.2f\n", r_mc / n_mc; else print "decided_by_mission_control_revocation_rate\tn/a"
     printf "blocked_wait_seconds\t%d\n", wait_total
     printf "blocked_wait_max_seconds\t%d\n", wait_max
     printf "blocked_open\t%d\n", wait_open
     printf "multi_ask_turns\t%d\n", multi_ask
+    printf "multi_ask_batches\t%d\n", batches
+    printf "multi_ask_batch_items\t%d\n", batch_items
     printf "prose_deliveries\t%d\n", delivered_prose
     printf "friction_meaning\t%d\n", friction_meaning
     printf "friction_repeat\t%d\n", friction_repeat
