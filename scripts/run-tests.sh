@@ -291,8 +291,8 @@ if [ "${1:-}" = "--run-one" ]; then
       printf '%s\n' "$slot_err" >"$PLANWRIGHT_TEST_LOG_DIR/$name.poolerr"
     fi
   fi
-  # Checked once the ticket is held, so a waiter never starts its file on a
-  # broken scratch directory. It exits with no marker; the parent names it.
+  # Checked once the ticket is held, so a waiter does not start its file on a
+  # directory already broken. It exits with no marker; the parent names it.
   ! scratch_fault "$PLANWRIGHT_TEST_LOG_DIR" || exit 0
   [ -z "$slot_path" ] || export PLANWRIGHT_TEST_IN_POOLED_FILE=1
   # A run started from a fleet worker inherits the operator's real fleet home,
@@ -311,12 +311,17 @@ if [ "${1:-}" = "--run-one" ]; then
   [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$fleet_sentinel/plugin-data"
   [ -z "${CLAUDE_DIR+set}" ] || export CLAUDE_DIR="$fleet_sentinel/claude"
   started="$(now_ms)"
-  if /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; then
+  # A sibling can break the directory between the check above and this
+  # redirect, so the shell's own complaint about the redirect is held back
+  # until the directory is known to be healthy.
+  if { /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; } 2>/dev/null; then
     verdict="done"
   else
     verdict="fail"
   fi
   ! scratch_fault "$PLANWRIGHT_TEST_LOG_DIR" || exit 0
+  [ -e "$PLANWRIGHT_TEST_LOG_DIR/$name.log" ] \
+    || echo "run-tests: could not open the log for $name" >&2
   for fh in "$fleet_sentinel/fleet" "$fleet_sentinel/plugin-data" "$fleet_sentinel/claude"; do
     if [ -e "$fh" ] || [ -L "$fh" ]; then
       verdict="fail"
@@ -573,7 +578,8 @@ export SPEC_WALKTHROUGH_DOT_TIMEOUT="${SPEC_WALKTHROUGH_DOT_TIMEOUT:-60}"
 # Explicit template: a bare `mktemp` default template is not portable to
 # BSD mktemp (the house pattern, see scripts/spec-graph.sh).
 log_dir="$(mktemp -d "${TMPDIR:-/tmp}/run-tests.XXXXXX")" || exit 2
-# A file that made the directory unwritable would otherwise leave it behind.
+# A file that made the directory unwritable or unsearchable would otherwise
+# leave it behind.
 trap '[ -L "$log_dir" ] || [ ! -d "$log_dir" ] || chmod u+rwx "$log_dir" 2>/dev/null; rm -rf "$log_dir"' EXIT
 export PLANWRIGHT_TEST_LOG_DIR="$log_dir"
 

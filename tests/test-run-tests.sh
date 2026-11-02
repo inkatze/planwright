@@ -489,7 +489,9 @@ unset PLANWRIGHT_FLEET_STATE_DIR CLAUDE_PLUGIN_DATA
 mkdir -p "$tmp/scratch-gone" "$tmp/scratch-ro" "$tmp/scratch-nx"
 cat >"$tmp/scratch-gone/test-a-break.sh" <<'EOF'
 #!/bin/bash
-rm -rf "${PLANWRIGHT_TEST_LOG_DIR:?}"
+# Renamed first: a plain rm -rf races the siblings still writing there.
+mv "${PLANWRIGHT_TEST_LOG_DIR:?}" "$PLANWRIGHT_TEST_LOG_DIR.gone"
+rm -rf "$PLANWRIGHT_TEST_LOG_DIR.gone"
 EOF
 cat >"$tmp/scratch-ro/test-a-break.sh" <<'EOF'
 #!/bin/bash
@@ -499,8 +501,12 @@ cat >"$tmp/scratch-nx/test-a-break.sh" <<'EOF'
 #!/bin/bash
 chmod a-x "${PLANWRIGHT_TEST_LOG_DIR:?}"
 EOF
+# Several siblings, so the concurrent runs reliably have one between its
+# directory check and its log redirect when the break lands.
 for d in scratch-gone scratch-ro scratch-nx; do
-  printf '#!/bin/bash\n' >"$tmp/$d/test-b-other.sh"
+  for s in b c d e f g; do
+    printf '#!/bin/bash\n' >"$tmp/$d/test-$s-other.sh"
+  done
 done
 scratch_case() { # <label> <suite> <cause> [env assignment...]
   sc_label="$1" sc_suite="$2" sc_cause="$3"
