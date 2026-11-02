@@ -261,19 +261,24 @@ worker_signal() {
     kill -s TERM -- "-$ws_pid" 2>/dev/null || kill -s TERM "$ws_pid" 2>/dev/null
     # busybox's timeout grants no grace for a TERM it did not send. One killer
     # at a time: a repeated signal re-enters here and the first handler never
-    # resumes to cancel its own. The killer takes its sleep with it, and stays
-    # off the run's output, which the sleep would otherwise hold open.
-    [ -z "$ws_killer" ] || kill "$ws_killer" 2>/dev/null
+    # resumes to cancel its own. It is cancelled by USR1, which the worker does
+    # not trap (for an instant after the fork the subshell still runs the
+    # worker's TERM trap), takes its sleep with it, and stays off the run's
+    # output, which the sleep would otherwise hold open.
+    [ -z "$ws_killer" ] || kill -s USR1 "$ws_killer" 2>/dev/null
     (
-      trap 'kill "$wk_sleep" 2>/dev/null; exit 0' TERM
+      trap 'kill "$wk_sleep" 2>/dev/null; exit 0' USR1
       sleep 10 &
       wk_sleep=$!
-      wait "$wk_sleep"
+      wait "$wk_sleep" || {
+        kill "$wk_sleep" 2>/dev/null
+        exit 0
+      }
       kill -s KILL -- "-$ws_pid" 2>/dev/null || kill -s KILL "$ws_pid" 2>/dev/null
     ) >/dev/null 2>&1 </dev/null &
     ws_killer=$!
     wait "$ws_pid" 2>/dev/null
-    kill "$ws_killer" 2>/dev/null
+    kill -s USR1 "$ws_killer" 2>/dev/null
   fi
   [ "$lock_loaded" -eq 0 ] || pw_lock_release_all
   trap - "$1"
