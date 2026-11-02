@@ -456,7 +456,8 @@ cmd_launch() {
   fi
 
   # Each rung is an existing primitive. The stream-json supervisor resolves
-  # no tier itself, so the plan is resolved here; offload-dispatch resolves
+  # no tier itself, so the plan is resolved here, in the directory the session
+  # runs in, where a relaunch re-resolves it; offload-dispatch resolves
   # its own at the kind's key, and --strict-tier stops it from launching at
   # the ambient tier when the allocation store is unreachable.
   unit="mission-control:$name"
@@ -468,7 +469,7 @@ cmd_launch() {
   [ "$K_PROFILE" != mission-control ] || mc_tok_flag=1
   case $backend in
     stream-json)
-      plan=$(/bin/sh "$script_dir/allocation-apply.sh" plan --key "$K_KEY" --backend stream-json-persistent --unit "$unit" </dev/null)
+      plan=$(cd "$cwd" && /bin/sh "$script_dir/allocation-apply.sh" plan --key "$K_KEY" --backend stream-json-persistent --unit "$unit" </dev/null)
       pr=$?
       case $pr in
         0) ;;

@@ -1943,6 +1943,34 @@ record_tier_field() {
   fi
 }
 
+# recorded_profile <dir> <worker> <verb> — print the settings profile a
+# launch recorded in <dir>/profile, for a recover or relaunch to resume under.
+# A launch from before the record existed was a worker's, except a
+# mission-control launch (its sessions are named mc-*), which always records
+# one, so a missing record there is never read as the worker posture. An
+# unusable record is refused, naming <verb>, with status 7.
+recorded_profile() {
+  if [ -e "$1/profile" ] || [ -L "$1/profile" ]; then
+    rp_p=$(cat "$1/profile" 2>/dev/null) || rp_p=''
+    case $rp_p in
+      worker | tower | mission-control) ;;
+      *)
+        printf '%s\n' "$me: refusing to $3 $2: its recorded settings profile is unreadable or unknown" >&2
+        return 7
+        ;;
+    esac
+    printf '%s\n' "$rp_p"
+    return 0
+  fi
+  case $2 in
+    mc-*)
+      printf '%s\n' "$me: refusing to $3 $2: a mission-control launch records its settings profile, and this one has none" >&2
+      return 7
+      ;;
+  esac
+  printf '%s\n' worker
+}
+
 # --- subcommands ------------------------------------------------------------
 
 cmd_launch() {
@@ -2059,29 +2087,10 @@ cmd_launch() {
     printf '%s\n' "$me: refusing to launch: the worker handle is outside the relay's stream-json-persistent grammar (orchestrate-relay.sh validate-handle), which names the session" >&2
     exit 2
   fi
-  # A recover relaunches under the fragment its launch recorded; a launch from
-  # before the record existed was a worker's. The mission-control launcher
-  # (its sessions are named mc-*) always records one, so a missing record
-  # there is never read as the worker posture.
+  # A recover relaunches under the fragment its launch recorded.
   if [ -n "$resume_sid" ] && [ -z "$profile" ]; then
     pf_dir=$(worker_dir "$worker") || exit 2
-    if [ -e "$pf_dir/profile" ] || [ -L "$pf_dir/profile" ]; then
-      profile=$(cat "$pf_dir/profile" 2>/dev/null) || profile=''
-      case $profile in
-        worker | tower | mission-control) ;;
-        *)
-          printf '%s\n' "$me: refusing to recover $worker: its recorded settings profile is unreadable or unknown" >&2
-          exit 7
-          ;;
-      esac
-    else
-      case $worker in
-        mc-*)
-          printf '%s\n' "$me: refusing to recover $worker: a mission-control launch records its settings profile, and this one has none" >&2
-          exit 7
-          ;;
-      esac
-    fi
+    profile=$(recorded_profile "$pf_dir" "$worker" recover) || exit 7
   fi
   [ -n "$profile" ] || profile=worker
   launch_settings=$(profile_settings_path "$profile") || exit 7
@@ -2885,21 +2894,7 @@ cmd_relaunch() {
   }
   # The checks the resumed launch makes, run now so a profile or wrapper the
   # new config broke refuses here with the worker still up.
-  rx_profile=worker
-  if [ -e "$dir/profile" ] || [ -L "$dir/profile" ]; then
-    rx_profile=$(cat "$dir/profile" 2>/dev/null) || rx_profile=''
-  else
-    case $worker in
-      mc-*) rx_profile='' ;;
-    esac
-  fi
-  case $rx_profile in
-    worker | tower | mission-control) ;;
-    *)
-      printf '%s\n' "$me: refusing to relaunch $worker: its recorded settings profile is unreadable or unknown" >&2
-      exit 7
-      ;;
-  esac
+  rx_profile=$(recorded_profile "$dir" "$worker" relaunch) || exit 7
   profile_settings_path "$rx_profile" >/dev/null || exit 7
   rx_env=$(dispatch_env_path) || exit 8
   rx_gp=0
