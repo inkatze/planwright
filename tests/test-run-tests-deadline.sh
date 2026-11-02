@@ -67,6 +67,23 @@ wait_for_file() {
   return 0
 }
 
+# ppid_of <pid> / args_of <pid> — from /proc where it exists, since busybox's
+# ps (the Alpine leg) takes no -p; else from ps (macOS has no /proc).
+ppid_of() {
+  if [ -r "/proc/$1/stat" ]; then
+    sed 's/.*) //' "/proc/$1/stat" | awk '{ print $2 }'
+  else
+    ps -o ppid= -p "$1" | tr -d ' '
+  fi
+}
+args_of() {
+  if [ -r "/proc/$1/cmdline" ]; then
+    tr '\000' ' ' <"/proc/$1/cmdline"
+  else
+    ps -o args= -p "$1"
+  fi
+}
+
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/test-run-tests-deadline.XXXXXX")" || exit 1
 tmp="$(cd "$tmp" && pwd -P)"
 trap 'rm -rf "$tmp"' EXIT
@@ -128,13 +145,13 @@ else
   mkdir -p "$s1" "$h1" "$tmp/s1q"
   hang_file "$s1/test-a-hang.sh" "$h1"
   quick_file "$tmp/s1q/test-b-quick.sh"
-  PLANWRIGHT_TEST_FILE_DEADLINE=2 PLANWRIGHT_TEST_SLOTS=1 \
+  PLANWRIGHT_TEST_FILE_DEADLINE=6 PLANWRIGHT_TEST_SLOTS=1 \
     PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r1.tsv" "$RUNNER" "$s1" >"$tmp/o1" 2>&1 &
   run_a=$!
   if wait_for_file "$h1/child" 100; then
     start=$(date +%s)
-    out=$(PLANWRIGHT_TEST_FILE_DEADLINE=2 PLANWRIGHT_TEST_SLOTS=1 \
-      PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r1b.tsv" "$RUNNER" "$tmp/s1q" 2>&1)
+    PLANWRIGHT_TEST_FILE_DEADLINE=6 PLANWRIGHT_TEST_SLOTS=1 \
+      PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r1b.tsv" "$RUNNER" "$tmp/s1q" >"$tmp/o1b" 2>&1
     rc=$?
     took=$(($(date +%s) - start))
     assert_exit "the next file takes the freed ticket and passes" 0 "$rc"
@@ -156,7 +173,7 @@ else
   out=$(cat "$tmp/o1")
   assert_contains "the hung file is reported failed" "=== FAIL: test-a-hang.sh" "$out"
   assert_contains "the failure names the file and the deadline" \
-    "run-tests: test-a-hang.sh ran past its 2s deadline (PLANWRIGHT_TEST_FILE_DEADLINE) and was ended" "$out"
+    "run-tests: test-a-hang.sh ran past its 6s deadline (PLANWRIGHT_TEST_FILE_DEADLINE) and was ended" "$out"
   check_hang_gone "deadline" "$h1"
 fi
 
@@ -177,6 +194,26 @@ out=$(PLANWRIGHT_TEST_FILE_DEADLINE=5 PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r2.tsv
 assert_exit "files inside their deadline pass, INT at its default" 0 "$?"
 [ -z "$real_timeout" ] || assert_contains "the files ran bounded" "deadline 5s per file" "$out"
 assert_not_contains "a file inside its deadline draws no deadline message" "ran past its" "$out"
+# A wall clock that jumps past the deadline while a passing file runs (a
+# suspend, an NTP step) leaves timeout's alarm unfired and the file passed.
+if [ -n "$real_timeout" ]; then
+  jump="$tmp/jump"
+  mkdir -p "$jump/bin" "$jump/suite"
+  cat >"$jump/bin/date" <<EOF
+#!/bin/sh
+out=\$($(command -v date) "\$@") || exit
+if [ -e "$jump/stepped" ] && [ "\$1" = '+%s %N' ]; then
+  out="\$((\${out%% *} + 2000)) \${out#* }"
+fi
+printf '%s\n' "\$out"
+EOF
+  chmod +x "$jump/bin/date"
+  printf '#!/bin/bash\n: >"%s"\n' "$jump/stepped" >"$jump/suite/test-jumped.sh"
+  out=$(PATH="$jump/bin:$PATH" PLANWRIGHT_TEST_FILE_DEADLINE=5 \
+    PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r2j.tsv" "$RUNNER" "$jump/suite" 2>&1)
+  assert_exit "a clock jump does not fail a passing file" 0 "$?"
+  assert_not_contains "a clock jump does not call a passing file ended" "ran past its" "$out"
+fi
 printf '#!/bin/bash\nexit 124\n' >"$s2/test-own-124.sh"
 out=$(PLANWRIGHT_TEST_FILE_DEADLINE=5 PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r2b.tsv" "$RUNNER" "$s2" 2>&1)
 assert_exit "a file exiting 124 itself fails" 1 "$?"
@@ -298,14 +335,27 @@ else
       wait "$sc_run"
       return
     fi
-    sc_bound=$(ps -o ppid= -p "$(cat "$sc_dir/pid")" | tr -d ' ')
-    sc_worker=$(ps -o ppid= -p "$sc_bound" | tr -d ' ')
-    # Under busybox the file is its own bound; the worker is its parent.
-    case "$(ps -o args= -p "$sc_worker")" in
-      *--run-one*) ;;
-      *) sc_worker=$sc_bound ;;
-    esac
-    kill -TERM "$sc_worker"
+    # The worker is the nearest ancestor of the file running --run-one: its
+    # parent under GNU timeout, the file's own parent under busybox's, which
+    # becomes the file.
+    sc_worker=""
+    sc_p=$(cat "$sc_dir/pid")
+    for _ in 1 2 3; do
+      sc_p=$(ppid_of "$sc_p")
+      [ -n "$sc_p" ] && [ "$sc_p" -gt 1 ] || break
+      case "$(args_of "$sc_p")" in
+        *xargs*) ;;
+        *--run-one*)
+          sc_worker=$sc_p
+          break
+          ;;
+      esac
+    done
+    if [ -n "$sc_worker" ]; then
+      kill -TERM "$sc_worker"
+    else
+      fail "$sc_label: the worker was found"
+    fi
     check_hang_gone "$sc_label" "$sc_dir"
     if gone_within "$sc_run" 100; then
       pass "$sc_label: the run ends"
@@ -313,6 +363,8 @@ else
       fail "$sc_label: the run ends"
       kill "$sc_run" 2>/dev/null
     fi
+    # Whatever the outcome, nothing of the case outlives it.
+    kill "$(cat "$sc_dir/pid")" "$(cat "$sc_dir/child")" 2>/dev/null
     wait "$sc_run"
     sc_rc=$?
     if [ "$sc_rc" -ne 0 ]; then

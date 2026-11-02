@@ -7,10 +7,10 @@
 # one-line ok/FAIL markers share the parent's streams and stay whole
 # under PIPE_BUF). The gate semantics match the old serial loop: any failing
 # file fails the run; every failing file is named and its captured log is
-# printed at the end. All files always run to completion (no mid-run
-# abort), so one failure never hides another. Completion accounting is
-# positive: a file that never produced a verdict marker (worker killed,
-# never dispatched) is a failure, never a silent green.
+# printed at the end. The run never aborts midway: every file runs, to its
+# end or its deadline, so one failure never hides another. Completion
+# accounting is positive: a file that never produced a verdict marker
+# (worker killed, never dispatched) is a failure, never a silent green.
 #
 # Parallelism comes from `xargs -P` (POSIX-optional but present on macOS
 # and GNU userlands alike); when the probe finds no working -P — or
@@ -55,10 +55,12 @@
 # still running, and is recorded as failed with a message naming it and the
 # deadline; its ticket is returned as for any other file. GNU timeout signals
 # the file's whole process group; busybox's signals the file alone, leaving
-# anything it started to run on. That group is not the terminal's, so a
+# anything it started to run on, and passes on its status, so a file that
+# traps that TERM and exits 0 counts as passed. That group is not the terminal's, so a
 # worker passes INT, TERM and HUP on to it. A host with no usable tool (neither
 # installed, or none taking -k) costs one warning and unbounded files. A
-# nested runner inherits the variable and bounds its own files the same way.
+# nested runner inherits PLANWRIGHT_TEST_FILE_DEADLINE and bounds its own
+# files the same way.
 #
 # Sharding: --shard <i>/<N> runs only shard i of N, so CI can split the suite
 # across parallel jobs. The split is longest-first onto the least-loaded
@@ -242,11 +244,16 @@ take_slot() {
 }
 
 # worker_signal <SIG> — pass <SIG> to the bounded file's process group (the
-# file alone where its timeout made none), release every ticket, then die by
+# file alone under a timeout that makes no group), wait for it so its ticket
+# is not handed on while it still runs, release every ticket, then die by
 # <SIG> itself.
 worker_signal() {
-  if [ -n "$child_pid" ]; then
-    kill -s "$1" -- "-$child_pid" 2>/dev/null || kill -s "$1" "$child_pid" 2>/dev/null
+  # $! covers a signal landing between the launch and child_pid's assignment.
+  ws_pid=$child_pid
+  [ -n "$ws_pid" ] || [ "$bounding" -eq 0 ] || ws_pid=$!
+  if [ -n "$ws_pid" ]; then
+    kill -s "$1" -- "-$ws_pid" 2>/dev/null || kill -s "$1" "$ws_pid" 2>/dev/null
+    wait "$ws_pid" 2>/dev/null
   fi
   [ "$lock_loaded" -eq 0 ] || pw_lock_release_all
   trap - "$1"
@@ -268,6 +275,7 @@ if [ "${1:-}" = "--run-one" ]; then
   wait_started="$(now_ms)"
   slot_path=""
   child_pid=""
+  bounding=0
   lock_loaded=0
   # The parent hands over a normalized value; anything else runs unbounded.
   deadline="${PLANWRIGHT_TEST_BOUND_SECONDS:-}"
@@ -326,6 +334,7 @@ if [ "${1:-}" = "--run-one" ]; then
     # (GNU timeout restores them itself where an old bash refuses the reset).
     # Its stdin is /dev/null, as xargs gives it, so a read cannot stop the
     # background group, timeout and its alarm included, on a terminal.
+    bounding=1
     (
       trap - INT QUIT
       exec "$deadline_tool" -k 10 "$deadline" /bin/bash "$t"
@@ -334,22 +343,27 @@ if [ "${1:-}" = "--run-one" ]; then
     wait "$child_pid"
     file_rc=$?
     child_pid=""
-    # Judged by the clock, not the exit status alone: busybox's timeout passes
-    # on the file's own status, which a TERM trap can make 0. Without a clock
-    # reading, the statuses timeout and busybox give an ended file stand in.
+    bounding=0
+    # A failed file that ran the whole deadline was ended: busybox's timeout
+    # passes on the file's own status, so 124 alone would miss it there. A
+    # passing file stays passed whatever the wall clock did (timeout's alarm
+    # does not follow a clock step). Without a clock reading, the statuses
+    # timeout and busybox give an ended file stand in.
     ended="$(now_ms)"
-    if [ -n "$started" ] && [ -n "$ended" ]; then
-      [ $((ended - started)) -lt $((deadline * 1000)) ] || past_deadline=1
-    else
-      case "$file_rc" in
-        124 | 137 | 143) past_deadline=1 ;;
-      esac
+    if [ "$file_rc" -ne 0 ]; then
+      if [ -n "$started" ] && [ -n "$ended" ]; then
+        [ $((ended - started)) -lt $((deadline * 1000)) ] || past_deadline=1
+      else
+        case "$file_rc" in
+          124 | 137 | 143) past_deadline=1 ;;
+        esac
+      fi
     fi
   else
     /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1
     file_rc=$?
   fi
-  if [ "$file_rc" -eq 0 ] && [ "$past_deadline" -eq 0 ]; then
+  if [ "$file_rc" -eq 0 ]; then
     verdict="done"
   else
     verdict="fail"
