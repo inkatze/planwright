@@ -140,6 +140,23 @@ bundle unreported <<'EOF'
 EOF
 check "a cited rate with no report line" unreported 1 "carries no **Report:** line"
 
+printf 'schema\tcandidate\tclass\tporting_rate_min_per_kib\nsubstrate-bakeoff\tzig\tcomparison\t0.500\n' >"$tmp/root/docs/substrate/bakeoff-c.tsv"
+bundle cmprate <<'EOF'
+**Report:** `docs/substrate/bakeoff-c.tsv`
+
+**Cost-benefit:** - **Migration effort:** 0.5 (`zig.porting_rate_min_per_kib`).
+EOF
+check "a comparison point's rate is not a logged one, whatever the cell holds" cmprate 1 "only a full candidate logs one"
+
+bundle fencedreport <<'EOF'
+**Decision:** an ordinary decision that shows a verdict as an example:
+
+```markdown
+**Report:** `docs/substrate/x.tsv`
+```
+EOF
+check "a fenced example report line does not make a verdict" fencedreport 0
+
 out=$("$CE" 2>&1)
 check_eq "the shipped bundle passes vacuously" 0 "$?"
 

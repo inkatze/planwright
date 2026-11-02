@@ -76,10 +76,11 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+printf '%s\n' "$spec_parse_awk_fence" >"$work/fence.awk" || fail_closed "the fence lexer could not be staged"
 printf '%s\n' "$spec_parse_awk_grammar" >"$work/grammar.awk" || fail_closed "the spec grammar could not be staged"
 printf '%s\n' "$verdict_scan_awk" >"$work/scan.awk" || fail_closed "the verdict scanner could not be staged"
 printf '%s\n' "$verdict_cite_awk" >"$work/cite.awk" || fail_closed "the citation reader could not be staged"
-awk -f "$work/grammar.awk" -f "$work/scan.awk" "$bundle/design.md" >"$work/records" \
+awk -f "$work/fence.awk" -f "$work/grammar.awk" -f "$work/scan.awk" "$bundle/design.md" >"$work/records" \
   || fail_closed "design.md could not be scanned"
 
 VS_ROOT=$root VS_ME=$me

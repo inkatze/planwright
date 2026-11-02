@@ -5,16 +5,18 @@
 # documented in docs/substrate-bakeoff-report.md under "Citing a report in a
 # verdict".
 #
-# verdict_scan_awk, run after spec-parse.sh's grammar over a design.md,
-# prints one record per line, tab-separated:
+# verdict_scan_awk, run after spec-parse.sh's fence lexer and grammar over a
+# design.md (so nothing inside a column-0 fence counts), prints one record
+# per line, tab-separated:
 #   V <dec> <line>          the decision is a verdict
 #   P <dec> <line> <path>   a report path its **Report:** line names
 #   S <dec> <kind> <line> <text>
 #                           a rationale or effort span, its lines joined
 #
 # verdict_cite_awk holds the functions both guards evaluate spans with:
-# cites() splits a span into figures and their citations, and report_get()
-# reads a field of a committed report.
+# cites() splits a span into figures and their citations, report_load()
+# reads a committed report, and report_find() picks the report a verdict
+# names that carries a candidate.
 
 # shellcheck disable=SC2034,SC2016 # consumed by the sourcing guard; awk, not shell, expands it
 verdict_scan_awk='
@@ -40,7 +42,7 @@ span != "" {
 }
 span == "" && /^[ \t]*(- )?\*\*(Chosen because|Measurements?):\*\*/ { kind = "rationale"; span = $0; sline = FNR; sindent = vs_indent($0); blank = 0; next }
 index($0, "**Migration effort:**") { vs_flush(); kind = "effort"; span = substr($0, index($0, "**Migration effort:**")); sline = FNR; sindent = vs_indent($0); blank = 0 }
-END { vs_flush() }
+END { spec_parse__fence_eof(); vs_flush() }
 '
 
 # shellcheck disable=SC2034,SC2016 # consumed by the sourcing guard; awk, not shell, expands it
@@ -73,13 +75,14 @@ function cites(s, fig, ref, cref,   n, k, t, rest, pos, tok, pre, post, prefix, 
     pos += RSTART + RLENGTH - 1
     t = substr(t, RSTART + RLENGTH)
     if (pre ~ /[A-Za-z0-9_\/#@:.,`-]/) continue
-    if (substr(post, 1, 1) ~ /[A-Za-z0-9_\/`-]/) continue
+    # A unit glued to a figure (`14ms`, `3x`) keeps it a figure.
+    if (substr(post, 1, 1) ~ /[A-Za-z0-9_\/`-]/ && after !~ /^(ms|s|min|h|x|B|KiB|MiB|GiB|kB|KB|MB|GB)([^A-Za-z0-9_]|$)/) continue
     if (post ~ /^[.:,][0-9]/) continue
     if (prefix ~ /(^|[^A-Za-z])([Tt]ask|[Ss]ection|[Ss]tep|[Ww]ave)[ ]+$/) continue
     if (prefix ~ /(^|[^A-Za-z])([Tt]asks|[Ss]ections|[Ss]teps|[Ww]aves)[ ]+([0-9.]+(, | and | or | to | through |, and |, or |–|-))*$/) continue
     if (prefix ~ /(^|[^A-Za-z])([Tt]ask|[Ss]ection|[Ss]tep|[Ww]ave)[ ]+[0-9.]+(–|-| to | through )$/) continue
     fig[++n] = tok; ref[n] = ""
-    if (match(after, /^%?( [A-Za-z\/%]+)? \(@[0-9]+@\)/)) {
+    if (match(after, /^[A-Za-z\/%]*( [A-Za-z\/%]+)? \(@[0-9]+@\)/)) {
       tok = substr(after, 1, RLENGTH); sub(/^.*\(@/, "", tok); sub(/@\)$/, "", tok)
       ref[n] = cref[tok + 0]
     }

@@ -184,6 +184,48 @@ bundle refs <<EOF
 EOF
 check "references are not figures" refs 0
 
+bundle fenced <<EOF
+\`\`\`sh
+# a shell comment inside a fence is not a heading
+\`\`\`
+
+**Report:** \`$REPORT\`
+
+**Chosen because:** it passed 2 fixtures.
+EOF
+check "a fenced comment does not end the decision" fenced 1 "figure 2 in D-2's rationale names no report field"
+
+bundle glued <<EOF
+**Report:** \`$REPORT\`
+
+**Chosen because:** a median of 14ms against 90ms for shell, 3x faster.
+EOF
+check "a figure with its unit glued on" glued 1 "figure 14 in D-2's rationale names no report field"
+
+bundle gluedcited <<EOF
+**Report:** \`$REPORT\`
+
+**Chosen because:** a median of ${LAT}ms (\`stub-full.latency_median_ms\`).
+EOF
+check "a glued-unit figure that cites its field" gluedcited 0
+
+bundle paragraph <<EOF
+**Report:** \`$REPORT\`
+
+**Chosen because:** 2 (\`stub-full.tests_passed\`) passed.
+
+Revisit in 30 days.
+EOF
+check "a new paragraph ends the rationale" paragraph 0
+
+bundle open <<EOF
+**Report:** \`$REPORT\`
+
+\`\`\`text
+an unclosed fence
+EOF
+check "an unclosed fence fails closed" open 5
+
 out=$("$CV" 2>&1)
 check_eq "the default run over the real bundle passes" 0 "$?"
 
