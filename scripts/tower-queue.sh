@@ -1906,7 +1906,7 @@ cmd_report() {
       close(dropped_file)
     }
     lines = 0; malformed = 0; nticks = 0; nint = 0
-    delivered_prose = 0; batches = 0; batch_items = 0; friction_meaning = 0; friction_repeat = 0
+    delivered_prose = 0; batches = 0; batch_items = 0; ask_turns = 0; friction_meaning = 0; friction_repeat = 0
     terms_hit = 0; ident_hit = 0; internal_hit = 0; lost = 0
   }
   {
@@ -1933,16 +1933,20 @@ cmd_report() {
       # A pair partner and every batch member reached the operator in that
       # same hand-over, though the line names only the top item as `item`.
       if (("pair" in F) && F["pair"] != "-") delivered_items[F["pair"]] = 1
-      # Keyed by tower and top item: `next` writes the batch line and the
-      # loop writes its own line for the same turn, which carries the asks.
+      # `next` writes the batch line and the loop then writes its own line,
+      # the one carrying text and asks, for that same turn: the first loop line
+      # after a batch with the same tower and top item is the batch turn.
       dk = (("tower" in F) ? F["tower"] : "") SUBSEP (("item" in F) ? F["item"] : "")
       if ("batch" in F) {
         nbm = split(F["batch"], bm, ",")
         for (b = 1; b <= nbm; b++) if (bm[b] != "") delivered_items[bm[b]] = 1
-        batch_turns[dk]++; batches++
+        batch_open[dk] = 1; batches++
         batch_items += ("size" in F) ? F["size"] + 0 : nbm
       }
-      if (("asks" in F) && (F["asks"] + 0) > 1) ask_turns[dk]++
+      if ("text" in F) {
+        if (dk in batch_open) delete batch_open[dk]
+        else if (("asks" in F) && (F["asks"] + 0) > 1) ask_turns++
+      }
       if ("text" in F) jargon(F["text"])
     } else if (kind == "settled") {
       if ("item" in F) settled_items[F["item"]] = 1
@@ -2020,8 +2024,7 @@ cmd_report() {
     r_default = 0; for (x in revoked_default) if (x in by_default) r_default++
     r_mc = 0; for (x in revoked_mc) if (x in by_mc) r_mc++
     # A batch is one multi-ask turn however many asks the loop logged for it.
-    multi_ask = batches
-    for (k in ask_turns) { e = ask_turns[k] - ((k in batch_turns) ? batch_turns[k] : 0); if (e > 0) multi_ask += e }
+    multi_ask = batches + ask_turns
     wait_total = 0; wait_max = 0; wait_open = 0
     for (x in born_ts) {
       if ((x in ack_ts) && ack_ts[x] >= born_ts[x]) w = ack_ts[x] - born_ts[x]

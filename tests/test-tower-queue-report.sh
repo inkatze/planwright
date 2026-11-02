@@ -161,6 +161,32 @@ got=$(run report --log "$tmp/batch.log" --now 300) || fail "batch report: exit"
   || fail "delivered_items: $(value_of delivered_items "$got"), expected 4 (batch members and the pair partner reached the operator)"
 echo "ok: a batch counts once in the multi-ask measure, its size beside it, and every member counts as delivered"
 
+# The loop's line pairs with the batch line just before it, not with every turn
+# that tower later gives the same top item: here a revoke reopened `a`, and its
+# second, two-ask turn is a turn of its own.
+{
+  printf '{"v":1,"seq":1,"ts":100,"kind":"delivered","tower":"T1","item":"a","pair":"-","batch":"a,b","size":2}\n'
+  printf '{"v":1,"seq":2,"ts":100,"kind":"delivered","tower":"T1","item":"a","text":"Two things on one PR","asks":1}\n'
+  printf '{"v":1,"seq":3,"ts":200,"kind":"delivered","tower":"T1","item":"a","text":"That one again, and a choice","asks":2}\n'
+} >"$tmp/batch-later.log"
+got=$(run report --log "$tmp/batch-later.log" --now 300) || fail "batch-later report: exit"
+[ "$(value_of multi_ask_turns "$got")" = 2 ] \
+  || fail "a later turn on a batch's top item was netted against the batch: multi_ask_turns $(value_of multi_ask_turns "$got"), expected 2"
+echo "ok: a later multi-ask turn on a batch's top item counts on its own"
+
+# An item a revoke reopened and evidence then settled counts once, on the
+# reviewable side, so the settled total never counts one item twice.
+{
+  printf '{"v":1,"seq":1,"ts":100,"kind":"window","item":"q","end":"default","option":"a","at":100}\n'
+  printf '{"v":1,"seq":2,"ts":150,"kind":"revoked","tower":"T1","item":"q","item_kind":"settled-by-default","outcome":"reopened"}\n'
+  printf '{"v":1,"seq":3,"ts":200,"kind":"settled","item":"q","item_kind":"question","reason":"pr-merged"}\n'
+} >"$tmp/revoke-settle.log"
+got=$(run report --log "$tmp/revoke-settle.log" --now 300) || fail "revoke-settle report: exit"
+[ "$(value_of settled_items "$got")" = 1 ] || fail "settled_items: $(value_of settled_items "$got"), expected 1"
+[ "$(value_of settled_by_evidence "$got")" = 0 ] || fail "settled_by_evidence: $(value_of settled_by_evidence "$got"), expected 0"
+[ "$(value_of settled_by_default "$got")" = 1 ] || fail "settled_by_default: $(value_of settled_by_default "$got"), expected 1"
+echo "ok: a defaulted item later settled by evidence counts once, as a default"
+
 # --- the window ---------------------------------------------------------------
 
 got=$(run report --log "$fixtures/baseline.log" --now 908000 --window 2h) || fail "windowed report: exit"
