@@ -34,6 +34,13 @@
 #                      --fresh-scratch empties a root left from an earlier
 #                      worktree at the same path first, for a launcher that
 #                      has just created the worktree
+#   audit_log_home     <fleet-home>/allow-audit, owner-only, where the guard
+#                      appends a line per approval to <record-name>.log. Every
+#                      write first prunes the logs there older than
+#                      worker_audit_log_retention_days days (read like the
+#                      policy; 30 when it cannot be read). An unusable home is
+#                      omitted with a warning, which leaves the worker without
+#                      either write arm
 # and writes them as `key=value` lines to
 # <fleet-home>/session-records/<sha1-of-worktree-root>.record, owner-only, by
 # an atomic rename, printing the path. A <launch-id> (16 to 64 lowercase hex
@@ -183,6 +190,14 @@ case $home in
   /*) ;;
   *) die "the fleet home is not an absolute path" ;;
 esac
+days=''
+if [ -n "$primary" ]; then
+  days=$(cd -- "$primary" && PLANWRIGHT_REPO_ROOT=$primary /bin/sh "$script_dir/resolve-config-knob.sh" \
+    --key worker_audit_log_retention_days --type posint --fallback 30 2>/dev/null </dev/null) || days=''
+fi
+case $days in
+  '' | *[!0-9]*) days=30 ;;
+esac
 dir=$home/session-records
 umask 077
 mkdir -p -- "$dir" 2>/dev/null || die "cannot create the record directory"
@@ -235,6 +250,31 @@ if { [ "$want_scratch" = 1 ] || [ "$want_scratch" = 2 ]; } && mkdir -p -- "$home
 fi
 [ "$want_scratch" = 0 ] || [ -n "$scratch" ] \
   || printf '%s: the scratch root is unusable; the worker gets no scratch arm\n' "$me" >&2
+
+# audit_make <dir>: create the audit-log home when absent, prune its logs
+# past the retention bound, then print its canonical path when the guard can
+# trust it. The guard only appends, so pruning is the launch's job.
+audit_make() {
+  am=$1
+  mkdir -- "$am" 2>/dev/null || : # not-a-lock: creating the audit-log home, whose checks follow
+  [ -d "$am" ] && [ ! -L "$am" ] || return 1
+  [ "$(find "$am" -maxdepth 0 -user "$(id -u)" 2>/dev/null)" = "$am" ] || return 1
+  chmod 700 "$am" 2>/dev/null || return 1
+  am=$(cd -P -- "$am" 2>/dev/null && pwd -P) || return 1
+  case $am/ in
+    "$wt"/*) return 1 ;;
+  esac
+  if [ -n "$scratch" ]; then
+    case $am/ in
+      "$scratch"/*) return 1 ;;
+    esac
+  fi
+  find "$am" -maxdepth 1 -type f -name '*.log' -mtime +"$days" -exec rm -f -- {} + 2>/dev/null || :
+  printf '%s\n' "$am"
+}
+audit=$(audit_make "$home/allow-audit") || audit=''
+[ -n "$audit" ] \
+  || printf '%s: the audit-log home is unusable; the worker gets no write arm\n' "$me" >&2
 tmp=$(mktemp "$dir/.$key.XXXXXX") || die "cannot write the record"
 if ! {
   printf 'policy=%s\n' "$policy"
@@ -243,6 +283,7 @@ if ! {
   [ -z "$pr_base" ] || printf 'pr_base=%s\n' "$pr_base"
   [ -z "$base_merge" ] || printf 'worker_base_merge=%s\n' "$base_merge"
   [ -z "$scratch" ] || printf 'scratch_root=%s\n' "$scratch"
+  [ -z "$audit" ] || printf 'audit_log_home=%s\n' "$audit"
 } >"$tmp" || ! mv -f -- "$tmp" "$rec"; then
   rm -f -- "$tmp"
   die "cannot write the record"

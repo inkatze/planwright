@@ -27,8 +27,11 @@
 #     the unit branch and its worktree, and the scratch arm, which approves
 #     writes confined to the worker's scratch root, each only when the session
 #     record names it. The record is the launcher's (see session_record_load):
-#     the policy, the unit branch, the worktree, and the scratch root are never
-#     read from live config, the checkout, or the environment.
+#     the policy, the unit branch, the worktree, the scratch root, and the
+#     audit-log home are never read from live config, the checkout, or the
+#     environment. Each allow first appends a hashed line to the session's
+#     audit log (audit_append); a record naming no usable log home turns both
+#     write arms off.
 #   * The extracted command is treated strictly as INERT DATA — never eval-ed,
 #     re-expanded, glob-expanded, or used as a pattern/format/unquoted arg — so
 #     analyzing a hostile command can never execute it (REQ-B1.1).
@@ -143,6 +146,42 @@ readonly ALLOW_REASON='planwright worker-command-guard: enumerated known-safe co
 # is never a partially-written allow (REQ-B1.7).
 emit_allow() {
   printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"'"$ALLOW_REASON"'"}}'
+}
+
+# The policy arms whose checks passed for the command being approved: set by
+# ob_path, ob_git_ready, and expand_word's `$TMPDIR`, reset per hook call.
+# Read-only is whatever approval set neither.
+AUDIT_OB=0
+AUDIT_SC=0
+
+# audit_append <command> <session-id>: append the approval's line to the
+# session's audit log, before the decision is written. The command is
+# recorded only as its SHA-256, never as text, since commands carry what
+# workers type. One append write, so concurrent hook calls interleave whole
+# lines; a write that fails is dropped and the approval stands. The log is
+# checked again here because a FIFO in its place would hang the hook.
+audit_append() {
+  local f=$REC_AUDIT_LOG arm='' t h sid=$2
+  [ -n "$f" ] || return 0
+  [ "$AUDIT_OB" = 0 ] || arm=own-branch
+  [ "$AUDIT_SC" = 0 ] || arm=${arm:+$arm,}scratch
+  [ -n "$arm" ] || arm=read-only
+  [[ $sid =~ ^[A-Za-z0-9_-]{1,128}$ ]] || sid=-
+  t=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || t=-
+  if command -v sha256sum >/dev/null 2>&1; then
+    h=$(printf '%s' "$1" | sha256sum 2>/dev/null) || h=-
+  else
+    h=$(printf '%s' "$1" | shasum -a 256 2>/dev/null) || h=-
+  fi
+  h=${h%% *}
+  [[ $h =~ ^[0-9a-f]{64}$ ]] || h=-
+  if [ -e "$f" ] || [ -L "$f" ]; then
+    [ -f "$f" ] && [ ! -L "$f" ] || return 0
+  fi
+  (
+    umask 077
+    printf '%s\n' "time=$t session=$sid arm=$arm cmd_sha256=$h" >>"$f"
+  ) 2>/dev/null || :
 }
 
 # --------------------------------------------------------------------------
@@ -975,12 +1014,18 @@ guard_mkdir() {
 # this user's own canonical directory, apart from the worktree in both
 # directions. A record that is unreadable, not this user's own regular file,
 # or inside the worktree or the scratch root it describes is no record.
+#
+# The audit-log home must be this user's own writable canonical directory,
+# apart from the worktree and the scratch root in both directions, and the
+# session's log there (audit_append) a regular file or absent. Without one,
+# the policy drops both write arms, so no write approval goes unlogged.
 REC_POLICY=''
 REC_UNIT=''
 REC_WT=''
 REC_BASE=''
 REC_BASE_MERGE=''
 REC_SCRATCH=''
+REC_AUDIT_LOG=''
 
 # rec_unit_branch_ok <name>: a task or flight branch, in policy-guard.sh's
 # grammar (is_unit_branch); a protected branch never matches it.
@@ -1010,7 +1055,7 @@ rec_policy_norm() {
 
 session_record_load() {
   local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line k v seen=' ' dup=' ' size dir
-  local policy='' unit='' wt='' base='' bm='' sr=''
+  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log=''
   case $p in
     /?*) ;;
     *) return 0 ;;
@@ -1036,6 +1081,7 @@ session_record_load() {
       pr_base) base=$v ;;
       worker_base_merge) bm=$v ;;
       scratch_root) sr=$v ;;
+      audit_log_home) ah=$v ;;
     esac
   done <"$p"
   case $dup in *" policy "*) policy='' ;; esac
@@ -1044,6 +1090,7 @@ session_record_load() {
   case $dup in *" pr_base "*) base='' ;; esac
   case $dup in *" worker_base_merge "*) bm='' ;; esac
   case $dup in *" scratch_root "*) sr='' ;; esac
+  case $dup in *" audit_log_home "*) ah='' ;; esac
   rec_unit_branch_ok "$unit" || unit=''
   case $wt in
     /?*) ;;
@@ -1100,7 +1147,40 @@ session_record_load() {
       "$sr"/*) return 0 ;;
     esac
   fi
-  REC_POLICY=$(rec_policy_norm "$policy")
+  case $ah in
+    /?*) ;;
+    *) ah='' ;;
+  esac
+  case $ah in
+    *[[:cntrl:]]*) ah='' ;;
+  esac
+  if [ -n "$ah" ]; then
+    [ -d "$ah" ] && [ -O "$ah" ] && [ -w "$ah" ] && [ "$(cd "$ah" 2>/dev/null && pwd -P)" = "$ah" ] || ah=''
+  fi
+  for k in "$wt" "$sr"; do
+    [ -n "$ah" ] && [ -n "$k" ] || continue
+    case $ah/ in
+      "$k"/*) ah='' ;;
+    esac
+    case $k/ in
+      "$ah"/*) ah='' ;;
+    esac
+  done
+  # One log per record: the launch's own name for it.
+  k=${p##*/}
+  k=${k%.record}
+  case $k in
+    '' | .* | *[!A-Za-z0-9._-]*) ah='' ;;
+  esac
+  if [ -n "$ah" ]; then
+    log=$ah/$k.log
+    if [ -e "$log" ] || [ -L "$log" ]; then
+      [ -f "$log" ] && [ ! -L "$log" ] && [ -O "$log" ] || log=''
+    fi
+  fi
+  REC_AUDIT_LOG=$log
+  REC_POLICY=''
+  [ -z "$log" ] || REC_POLICY=$(rec_policy_norm "$policy")
   REC_UNIT=$unit
   REC_WT=$wt
   REC_BASE=$base
@@ -1491,6 +1571,10 @@ ob_path() {
     fi
   fi
   OB_PATH=$acc
+  case $OB_ZONE in
+    wt) ! ob_live || AUDIT_OB=1 ;;
+    sc) AUDIT_SC=1 ;;
+  esac
 }
 
 # ob_target <word> <mode> <recursive> [<zones>]: ob_path, and for a recursive
@@ -1729,6 +1813,7 @@ guard_mktemp() {
     [ "$n" -eq 1 ] || return 1
     ob_path "$a" leaf sc || return 1
   done
+  AUDIT_SC=1
   ob_mark write
 }
 
@@ -1740,7 +1825,8 @@ ob_git_ready() {
   top=$(git -C "$HOOK_CWD" rev-parse --show-toplevel 2>/dev/null) || return 1
   [ "$(cd "$top" 2>/dev/null && pwd -P)" = "$REC_WT" ] || return 1
   head=$(git -C "$REC_WT" symbolic-ref -q HEAD 2>/dev/null) || return 1
-  [ "$head" = "refs/heads/$REC_UNIT" ]
+  [ "$head" = "refs/heads/$REC_UNIT" ] || return 1
+  AUDIT_OB=1
 }
 
 # ob_pathspec <word> <recursive>: a git pathspec naming a write target: no
@@ -3740,6 +3826,7 @@ expand_word() {
       esac
     fi
     if [ "$hit" = 1 ]; then
+      [ "$name" != TMPDIR ] || [ "$SC_ON" = 0 ] || AUDIT_SC=1
       out="$out$found"
       i=$k
     else
@@ -5482,7 +5569,7 @@ analyze_command() {
 # jq is absent), and auto-approve only a known-safe Bash command. Every exit is
 # 0 with either the single allow object or empty stdout.
 main() {
-  local input tool cmd cwd
+  local input tool cmd cwd sid
 
   # Bounded, defensive stdin read: cap the payload so a giant blob can never
   # make the hook spin (REQ-B1.7). Command substitution strips trailing
@@ -5519,7 +5606,8 @@ main() {
   {
     IFS= read -r -d '' tool && IFS= read -r -d '' cmd \
       && IFS= read -r -d '' cwdkind && IFS= read -r -d '' cwd \
-      && IFS= read -r -d '' DENY_SRC && IFS= read -r -d '' DENY_RULES
+      && IFS= read -r -d '' DENY_SRC && IFS= read -r -d '' DENY_RULES \
+      && IFS= read -r -d '' sid
   } < <(printf '%s' "$input" | jq -j -s ${denyarg[@]+"${denyarg[@]}"} '
     if length == 1 then .[0] else empty end
     | (.tool_name // "" | if type == "string" then explode | map(select(. != 0)) | implode else "" end) as $t
@@ -5531,7 +5619,8 @@ main() {
           | join("\n") | explode | map(select(. != 0)) | implode)]
         catch ["err", ""] end) as $r
     | $t, "\u0000", .tool_input.command, "\u0000", $k, "\u0000", (if $k == "string" then .cwd else "" end), "\u0000",
-      $r[0], "\u0000", $r[1], "\u0000"
+      $r[0], "\u0000", $r[1], "\u0000",
+      (.session_id | if type == "string" and (explode | any(. == 0) | not) then . else "" end), "\u0000"
   ' 2>/dev/null) || return 0
   tool=${tool%"${tool##*[!$'\n']}"}
   [ "$tool" = Bash ] || return 0
@@ -5571,9 +5660,12 @@ main() {
   SIMPLE_N=0
   # 1 while subst_inner_ok analyses a substitution's inner text.
   IN_SUBST=0
+  AUDIT_OB=0
+  AUDIT_SC=0
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
+  audit_append "$cmd" "$sid"
   emit_allow
   return 0
 }

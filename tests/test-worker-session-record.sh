@@ -368,6 +368,85 @@ else
   fail "G1.2: a missing --tmpdir directory was accepted"
 fi
 
+echo "### REQ-H1.4 — the audit-log home and its retention bound"
+set_layer repo-tracked 'worker_self_approval: own-branch'
+set_layer machine-local ''
+AH=$T/fleet/allow-audit
+rm -rf "$AH"
+write "$WT"
+if [ "$RC" -eq 0 ] && [ "$(field audit_log_home)" = "$AH" ] && [ -d "$AH" ] \
+  && [ "$(find "$AH" -maxdepth 0 -perm 700)" = "$AH" ]; then
+  pass "H1.4: the record names an owner-only audit-log home under the fleet home"
+else
+  fail "H1.4: audit_log_home='$(field audit_log_home)' rc=$RC"
+fi
+log=$AH/${REC##*/}
+log=${log%.record}.log
+out=$(jq -cn --arg c 'touch audit-new' --arg w "$WT" '{session_id:"s1", tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
+  | (cd "$WT" && PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/bash "$GUARD" 2>/dev/null))
+if printf '%s' "$out" | grep -q '"allow"' && [ "$(wc -l <"$log" | tr -d ' ')" = 1 ] \
+  && grep -q ' session=s1 arm=own-branch cmd_sha256=' "$log"; then
+  pass "H1.4: a launched worker's approval lands in its own log there"
+else
+  fail "H1.4: no log line for the launched worker's approval (out='$out')"
+fi
+: >"$AH/old.log"
+touch -t 200001010000 "$AH/old.log"
+: >"$AH/fresh.log"
+: >"$AH/old.keep"
+touch -t 200001010000 "$AH/old.keep"
+write "$WT"
+if [ "$RC" -eq 0 ] && [ ! -e "$AH/old.log" ] && [ -e "$AH/fresh.log" ] && [ -e "$AH/old.keep" ] && [ -e "$log" ]; then
+  pass "H1.4: a launch prunes logs past the default bound and keeps the rest"
+else
+  fail "H1.4: pruning at the default bound (old.log $([ -e "$AH/old.log" ] && echo kept || echo gone))"
+fi
+: >"$AH/old.log"
+touch -t 200001010000 "$AH/old.log"
+set_layer machine-local 'worker_audit_log_retention_days: 36500'
+write "$WT"
+if [ "$RC" -eq 0 ] && [ -e "$AH/old.log" ]; then
+  pass "H1.4: the bound is the worker_audit_log_retention_days knob"
+else
+  fail "H1.4: a 36500-day bound still pruned a log from 2000"
+fi
+: >"$AH/day.log"
+touch -t "$(date -u +%Y%m%d0000)" "$AH/day.log"
+set_layer machine-local 'worker_audit_log_retention_days: 1'
+TZ=UTC0 touch -t 200001010000 "$AH/old.log"
+write "$WT"
+if [ "$RC" -eq 0 ] && [ ! -e "$AH/old.log" ] && [ -e "$AH/day.log" ]; then
+  pass "H1.4: a one-day bound prunes the old log and keeps today's"
+else
+  fail "H1.4: a one-day bound"
+fi
+set_layer machine-local 'worker_audit_log_retention_days: soon'
+: >"$AH/old.log"
+touch -t 200001010000 "$AH/old.log"
+write "$WT"
+if [ "$RC" -eq 0 ] && [ ! -e "$AH/old.log" ] && [ -n "$(field audit_log_home)" ]; then
+  pass "H1.4: a malformed bound falls back to the default and still prunes"
+else
+  fail "H1.4: a malformed bound (rc=$RC)"
+fi
+set_layer machine-local ''
+rm -rf "$AH"
+ln -s "$T/home" "$AH"
+write "$WT"
+if [ "$RC" -eq 0 ] && [ -z "$(field audit_log_home)" ] && grep -q 'no write arm' "$T/err"; then
+  pass "H1.4: an audit-log home reached through a symlink is omitted with a warning"
+else
+  fail "H1.4: a symlinked audit-log home was recorded"
+fi
+out=$(jq -cn --arg c 'touch audit-new' --arg w "$WT" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
+  | (cd "$WT" && PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/bash "$GUARD" 2>/dev/null))
+if [ -z "$out" ]; then
+  pass "H1.4: and the worker gets no own-branch approval"
+else
+  fail "H1.4: an own-branch approval without an audit-log home"
+fi
+rm -f "$AH"
+
 echo
 echo "worker-session-record: $passes passed, $failures failed"
 [ "$failures" -eq 0 ]
