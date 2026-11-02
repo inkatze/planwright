@@ -253,6 +253,19 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
     *" $want_tier "*) ok "[$kind] the session runs at its key's tier ($want_tier)" ;;
     *) fail "[$kind] the session's argv lacks its key's tier '$want_tier': $argv" ;;
   esac
+  case $kind in
+    tower | mission-control) want_key=orchestrate_dispatch ;;
+    orchestrator) want_key=bookkeeping ;;
+    worker) want_key=execution ;;
+    reviewer) want_key=execute_step ;;
+    ad-hoc) want_key=offload ;;
+  esac
+  if [ "$(cat "$fleet/streamjson/$name/tier_key" 2>/dev/null)" = "$want_key" ] \
+    && [ "$(cat "$fleet/streamjson/$name/tier_unit" 2>/dev/null)" = "mission-control:$name" ]; then
+    ok "[$kind] the launch records its tier key and unit for a relaunch"
+  else
+    fail "[$kind] the launch did not record tier key $want_key and unit mission-control:$name"
+  fi
   # Only a mission-control session holds its row's token, which is what
   # binds a decided-by-mission-control item to the row (tower-comms REQ-A1.14).
   row_token=$(awk -F "$TAB" '$1 == "token" { print $2; exit }' "$row")
