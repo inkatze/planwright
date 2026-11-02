@@ -1,26 +1,25 @@
 #!/bin/sh
 # resolve-work-repo.sh — print the work repository for a spec bundle: the
-# primary checkout of the repository whose task branches, pull requests, and
-# commit trailers carry the bundle's execution state.
+# primary checkout whose task branches, pull requests, and commit trailers
+# carry the bundle's execution state.
 #
-# Usage: resolve-work-repo.sh <spec-dir> [--repository <alias>]
+# Usage: resolve-work-repo.sh <spec-dir> [--repository <alias> | --task <id>]
 # --repository: the registry's (work-repo-registry.sh) checkout for <alias>.
+# --task: where task <id> dispatches: its version 3 Repository: alias as
+#   --repository resolves it, else the bundle's work repository.
 #
-# The current repository (resolve-root.sh repo --primary, so a worktree
-# answers with its primary checkout and PLANWRIGHT_REPO_ROOT, when set, names
-# it) is the work repository when the bundle sits in it, or when its resolved
-# spec root, in either view, is the bundle's parent: that root may lie in a
-# holder repository or in no repository at all, and the bundle's execution
-# state still lives here. Otherwise the bundle is taken to sit in its own work
-# repository, the default layout, and that repository's primary checkout
-# answers, so a bundle addressed from outside its repository still derives
-# from its own branches. The bundle's own repository is never asked about
-# PLANWRIGHT_REPO_ROOT, which names the current repository only.
+# The current repository (resolve-root.sh repo --primary, so
+# PLANWRIGHT_REPO_ROOT applies) answers when the bundle sits in it or its
+# spec root, in either view, is the bundle's parent; otherwise the bundle's
+# own repository does. A holder is the exception: a bundle in the current
+# repository under a marked root other than its own spec root resolves to the
+# one work repository registered against that root, never to the holder.
 #
-# Exit: 0 printed · 2 usage, or no such directory · 3 no work repository (the
-#   bundle is in no repository and the current repository, if any, does not
-#   own it) · 4 PLANWRIGHT_REPO_ROOT refused · 5 the alias resolves to
-#   nothing (unregistered, stale, ambiguous, unmarked root, or no registry)
+# Exit: 0 printed · 2 usage, no such directory, or unreadable Repository:
+#   fields · 3 the bundle is in no repository and nothing here owns it ·
+#   4 PLANWRIGHT_REPO_ROOT refused · 5 the alias, the task, or a holder's
+#   bundle resolves to nothing (unregistered, stale, ambiguous, unmarked
+#   root, a malformed field, or not exactly one registered work repository)
 #
 # POSIX sh; dash-safe.
 set -u
@@ -33,18 +32,26 @@ say() {
 }
 
 usage() {
-  say "usage: resolve-work-repo.sh <spec-dir> [--repository <alias>]"
+  say "usage: resolve-work-repo.sh <spec-dir> [--repository <alias> | --task <id>]"
   exit 2
 }
 spec_arg=""
 alias=""
 have_alias=0
+task=""
+have_task=0
 while [ "$#" -gt 0 ]; do
   case $1 in
     --repository)
-      [ "$#" -ge 2 ] && [ "$have_alias" -eq 0 ] || usage
+      [ "$#" -ge 2 ] && [ "$have_alias" -eq 0 ] && [ "$have_task" -eq 0 ] || usage
       alias=$2
       have_alias=1
+      shift 2
+      ;;
+    --task)
+      [ "$#" -ge 2 ] && [ "$have_task" -eq 0 ] && [ "$have_alias" -eq 0 ] || usage
+      task=$2
+      have_task=1
       shift 2
       ;;
     "") usage ;;
@@ -66,6 +73,18 @@ if [ "$have_alias" -eq 1 ] && ! valid_alias "$alias"; then
   say "refusing the alias '$alias': it must match ^[a-z0-9][a-z0-9-]*\$, at most 64 characters"
   exit 2
 fi
+# The byte screen first: grep matches line by line, so an id carrying a
+# newline would otherwise pass on its first line alone.
+if [ "$have_task" -eq 1 ]; then
+  case $task in
+    "" | *[!0-9.]*) task_ok=0 ;;
+    *) task_ok=1 ;;
+  esac
+  if [ "$task_ok" -eq 0 ] || ! printf '%s' "$task" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
+    say "refusing the task id '$task': it must match ^[0-9]+(\\.[0-9]+)?\$"
+    exit 2
+  fi
+fi
 bundle=$(cd -- "$spec_arg" 2>/dev/null && pwd -P) || {
   say "no such spec directory: $spec_arg"
   exit 2
@@ -75,16 +94,76 @@ parent=${bundle%/*}
 
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P) || exit 2
 root_helper=$script_dir/resolve-root.sh
+registry=$script_dir/work-repo-registry.sh
+TAB=$(printf '\t')
 
-if [ "$have_alias" -eq 1 ]; then
+# work_entries: the live work repositories registered against the bundle's
+# root, `<alias><TAB><checkout>` per line; holder entries never dispatch.
+work_entries() {
+  /bin/sh "$registry" lookup --root "$parent" 2>/dev/null \
+    | awk -F"$TAB" '$1 == "entry" && $3 == "work" { print $2 "\t" $4 }'
+}
+# candidates: the work_entries as `alias (checkout)`, comma-separated, or none.
+candidates() {
+  cd_list=$(work_entries | awk -F"$TAB" '{ printf "%s%s (%s)", sep, $1, $2; sep = ", " }')
+  printf '%s' "${cd_list:-none}"
+}
+
+by_alias() {
   /bin/sh "$root_helper" marker "$parent" >/dev/null || {
-    say "the alias '$alias' resolves to nothing: the spec root $parent has no valid planwright-spec-root.yml marker, and only a marked root has registered repositories"
+    say "the alias '$1' resolves to nothing: the spec root $parent has no valid planwright-spec-root.yml marker, and only a marked root has registered repositories"
     exit 5
   }
   # The registry names its own reason on stderr; any failure to answer is
   # the alias resolving to nothing, never a fallback to the current repository.
-  /bin/sh "$script_dir/work-repo-registry.sh" lookup --root "$parent" "$alias" || exit 5
-  exit 0
+  /bin/sh "$registry" lookup --root "$parent" "$1" && exit 0
+  say "the work repositories registered against $parent: $(candidates)"
+  exit 5
+}
+
+if [ "$have_alias" -eq 1 ]; then
+  by_alias "$alias"
+fi
+
+if [ "$have_task" -eq 1 ]; then
+  spec_parse_sh="$script_dir/spec-parse.sh"
+  [ -r "$spec_parse_sh" ] || {
+    say "spec-parse.sh missing or unreadable: $spec_parse_sh"
+    exit 2
+  }
+  # shellcheck source=scripts/spec-parse.sh
+  . "$spec_parse_sh" || exit 2
+  tasks_md=$bundle/tasks.md
+  # Only version 3 defines the field; a field under a declaration that cannot
+  # say whether one is meant fails closed, as the derivation does.
+  fv=$(spec_parse_header_value "$tasks_md" Format-version 2>/dev/null) || fv=""
+  map=""
+  case $fv in
+    1 | 2) ;;
+    *)
+      map=$(spec_parse_repository_map "$tasks_md") || {
+        say "could not read the Repository: fields of $tasks_md"
+        exit 2
+      }
+      if [ "$fv" != 3 ] && [ -n "$map" ]; then
+        say "$tasks_md carries Repository: fields under a missing, unparseable, or undefined Format-version: (fail closed)"
+        exit 2
+      fi
+      ;;
+  esac
+  field=$(printf '%s\n' "$map" | awk -F"$TAB" -v i="$task" '$1 == i { print $2 "\t" $3; exit }')
+  case ${field%%"$TAB"*} in
+    "") ;;
+    alias) by_alias "${field#*"$TAB"}" ;;
+    duplicate)
+      say "task $task resolves to nothing: it carries more than one Repository: field"
+      exit 5
+      ;;
+    *)
+      say "task $task resolves to nothing: its Repository: value is not a single alias in the identifier grammar"
+      exit 5
+      ;;
+  esac
 fi
 
 cur=""
@@ -98,22 +177,40 @@ fi
 
 own=$(cd -- "$bundle" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$root_helper" repo --primary 2>/dev/null) || own=""
 
-if [ -n "$cur" ]; then
-  if [ "$own" = "$cur" ]; then
-    printf '%s\n' "$cur"
-    exit 0
-  fi
-  # The spec root is resolved as the current repository sees it; a refused
-  # or unreadable spec_root cannot vouch for the bundle, so it falls through.
+# names_parent: the current repository's resolved spec root, in either view,
+# is the bundle's parent. A refused or unreadable spec_root cannot vouch for
+# the bundle.
+names_parent() {
   for view in "" --primary; do
     # shellcheck disable=SC2086 # an empty view is no argument
     root=$(/bin/sh "$root_helper" spec $view 2>/dev/null) || continue
     root=$(cd -- "$root" 2>/dev/null && pwd -P) || continue
-    if [ "$root" = "$parent" ]; then
-      printf '%s\n' "$cur"
-      exit 0
-    fi
+    [ "$root" != "$parent" ] || return 0
   done
+  return 1
+}
+
+if [ -n "$cur" ]; then
+  if [ "$own" = "$cur" ]; then
+    if ! names_parent && /bin/sh "$root_helper" marker "$parent" >/dev/null 2>&1; then
+      entries=$(work_entries)
+      case $(printf '%s' "$entries" | awk 'END { print NR }') in
+        1)
+          printf '%s\n' "${entries#*"$TAB"}"
+          exit 0
+          ;;
+        0) say "no work repository for $bundle: it sits in the holder $cur, and no work repository is registered against $parent (run work-repo-registry.sh register in one)" ;;
+        *) say "no work repository for $bundle: several are registered against $parent ($(candidates)); name one in the task's Repository: field" ;;
+      esac
+      exit 5
+    fi
+    printf '%s\n' "$cur"
+    exit 0
+  fi
+  if names_parent; then
+    printf '%s\n' "$cur"
+    exit 0
+  fi
 fi
 
 if [ -n "$own" ]; then

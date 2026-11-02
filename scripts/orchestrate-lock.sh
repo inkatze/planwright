@@ -187,9 +187,21 @@ is_spec_root() {
   isr_root=$(cd "$isr_root" 2>/dev/null && pwd -P) || return 1
   [ "$isr_root" = "$spec_parent" ]
 }
+# in_holder: the spec dir's parent is a marked root inside the current
+# repository's primary checkout, a holder's root whose bundles dispatch into
+# their registered work repositories (resolve-work-repo.sh).
+in_holder() {
+  /bin/sh "$script_dir/resolve-root.sh" marker "$spec_parent" >/dev/null 2>&1 || return 1
+  ih_top=$(/bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) || return 1
+  ih_top=$(cd "$ih_top" 2>/dev/null && pwd -P) || return 1
+  case $spec_parent in
+    "$ih_top"/*) return 0 ;;
+  esac
+  return 1
+}
 # The primary view first: callers address the primary's copy, and from a
 # linked worktree the checkout view of it never matches.
-if ! is_spec_root . --primary && ! is_spec_root . && ! is_spec_root "$canon_dir"; then
+if ! is_spec_root . --primary && ! is_spec_root . && ! is_spec_root "$canon_dir" && ! in_holder; then
   printf '%s\n' "orchestrate-lock: spec dir '$canon_dir' is not contained under a resolved spec root; refusing (REQ-F1.1)" >&2
   exit 2
 fi

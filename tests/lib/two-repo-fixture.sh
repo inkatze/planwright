@@ -1,13 +1,14 @@
 # shellcheck shell=bash
 # two-repo-fixture.sh — a sourced harness: work repositories `alpha` and
 # `beta` registered in a fixture work-repository registry against a marked
-# spec root (project `hub`) at $TRF/holder/specs, held by a third repository,
-# plus a gh stub on PATH reading $TRF/gh/<repo>.tsv (headRefName, state,
-# number, mergedAt) and failing for a repository with $TRF/gh/<repo>.fail.
+# spec root (project `hub`) at $TRF/holder/specs, or at another directory of
+# the holder that is then not the holder's own spec root, plus a gh stub on
+# PATH reading $TRF/gh/<repo>.tsv (headRefName, state, number, mergedAt) and
+# failing for a repository with $TRF/gh/<repo>.fail.
 #
-# Usage: trf_setup <scripts-dir> [<spec>], then run every command through
-# trf_env, which pins HOME, the plugin data home, the config layers, and git's
-# config to the fixture.
+# Usage: trf_setup <scripts-dir> [<spec>] [<root>], then run every command
+# through trf_env, which pins HOME, the plugin data home, the config layers,
+# and git's config to the fixture.
 unset CDPATH
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
@@ -33,8 +34,9 @@ trf_repo() {
   [ -z "${2:-}" ] || trf_git -C "$1" remote add origin "$2"
 }
 
-# trf_setup <script-dir> [<spec>] — build the layout with an empty bundle
-# directory for <spec> (default demo) and register both work repositories.
+# trf_setup <script-dir> [<spec>] [<root>] — build the layout with an empty
+# bundle directory for <spec> (default demo) under the holder's <root>
+# directory (default specs) and register both work repositories.
 trf_setup() {
   TRF_SCRIPTS=$1
   TRF_SPEC=${2:-demo}
@@ -48,7 +50,7 @@ trf_setup() {
     '[ ! -f "$TRF_GH/$r.tsv" ] || cat "$TRF_GH/$r.tsv"' >"$TRF/ghstub/gh"
   chmod +x "$TRF/ghstub/gh"
   trf_repo "$TRF/holder"
-  TRF_ROOT=$TRF/holder/specs
+  TRF_ROOT=$TRF/holder/${3:-specs}
   mkdir -p "$TRF_ROOT/$TRF_SPEC"
   printf 'project: hub\nlayout: 1\n' >"$TRF_ROOT/planwright-spec-root.yml"
   for r in alpha beta; do
