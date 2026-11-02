@@ -159,10 +159,9 @@ expected_deny='["Bash(gh pr merge:*)","Bash(gh pr ready --undo:*)","Bash(gh pr r
 # The only entries the deny block gained since that baseline are the Read and
 # Edit path rules for execution-bearing paths, the guard's session record and
 # overlays, and other processes' environments (REQ-F1.6, REQ-G1.8, REQ-E1.6).
-expected_path_deny='["Edit(//**/.git)","Edit(//**/.git/**)","Edit(githooks/**)","Edit(.githooks/**)","Edit(.claude/**)","Edit(mise.toml)","Edit(mise.local.toml)","Edit(.mise/**)","Edit(lefthook.yml)","Edit(//**/session-records/*.record)","Edit(//**/planwright.yml)","Edit(//**/planwright.local.yml)","Read(//proc/*/environ)","Read(//proc/*/task/*/environ)"]'
-path_rule_filter='[.permissions.deny[] | select(test("^(Read|Edit|Write|NotebookEdit)\\("))]'
-other_rule_filter='[.permissions.deny[] | select(test("^(Read|Edit|Write|NotebookEdit)\\(") | not)]'
-actual_deny="$(jq -cS "$other_rule_filter" "$worker_settings")"
+expected_path_deny='["Edit(//**/.git)","Edit(//**/.git/**)","Edit(//**/githooks/**)","Edit(//**/.githooks/**)","Edit(.claude/**)","Edit(//**/.envrc)","Edit(//**/.tool-versions)","Edit(//**/.config/**)","Edit(//**/.mise/**)","Edit(//**/mise/**)","Edit(//**/mise.toml)","Edit(//**/.mise.toml)","Edit(//**/mise.*.toml)","Edit(//**/.mise.*.toml)","Edit(//**/lefthook/**)","Edit(//**/lefthook.*)","Edit(//**/lefthook-local.*)","Edit(//**/.lefthook/**)","Edit(//**/.lefthook.*)","Edit(//**/.lefthook-local/**)","Edit(//**/.lefthook-local.*)","Edit(//**/session-records/*.record)","Edit(//**/planwright.yml)","Edit(//**/planwright.local.yml)","Read(//proc/*/environ)","Read(//proc/*/task/*/environ)"]'
+path_rule_re='^(Read|Edit|Write|NotebookEdit)\('
+actual_deny="$(jq -cS --arg re "$path_rule_re" '[.permissions.deny[] | select(test($re) | not)]' "$worker_settings")"
 if [ "$actual_deny" = "$(printf '%s' "$expected_deny" | jq -cS .)" ]; then
   ok "the deny block's command and tool rules match their pinned list (REQ-C1.1, REQ-A1.3)"
 else
@@ -170,7 +169,7 @@ else
   echo "  expected: $(printf '%s' "$expected_deny" | jq -cS .)" >&2
   echo "  actual:   $actual_deny" >&2
 fi
-actual_path_deny="$(jq -cS "$path_rule_filter" "$worker_settings")"
+actual_path_deny="$(jq -cS --arg re "$path_rule_re" '[.permissions.deny[] | select(test($re))]' "$worker_settings")"
 if [ "$actual_path_deny" = "$(printf '%s' "$expected_path_deny" | jq -cS .)" ]; then
   ok "the deny block's path rules are exactly the pinned additions (REQ-F1.6, REQ-G1.8, REQ-E1.6)"
 else

@@ -46,6 +46,9 @@
 #   pm_deny_rule_count / pm_deny_rule_at <i>
 #         Enumerate the compiled deny rules (for the mutation pass).
 set -u
+PM_TAB="$(printf '\t')"
+PM_NL='
+'
 
 # --- pattern compilation -----------------------------------------------------
 
@@ -59,14 +62,23 @@ pm_glob_to_ere() {
     c="${glob:$i:1}"
     case "$c" in
       '*') out="$out.*" ;;
-      '.' | \\ | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|')
-        out="$out\\$c"
+      *)
+        pm_ere_char "$c"
+        out="$out$PM_CHAR"
         ;;
-      *) out="$out$c" ;;
     esac
     i=$((i + 1))
   done
   printf '%s' "$out"
+}
+
+# pm_ere_char <char> — set PM_CHAR to the character, backslash-escaped when it
+# is an ERE metacharacter (no fork).
+pm_ere_char() {
+  case "$1" in
+    '.' | \\ | '+' | '?' | '*' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|') PM_CHAR="\\$1" ;;
+    *) PM_CHAR="$1" ;;
+  esac
 }
 
 # pm_compile_pattern <pattern> — print the anchored ERE for a Bash rule pattern.
@@ -133,9 +145,14 @@ pm_rule_pattern() {
 #
 # BOUNDARY (doc §"Modeling boundaries", MB-3): this split is quoting-unaware. A
 # separator inside a quoted argument (`git commit -m "a; b"`) splits here where
-# the real matcher would not. No fixture row relies on that shape.
+# the real matcher would not. No fixture row relies on that shape. Because it
+# is quoting-unaware, a lone `(` or backtick in a quoted argument would hold
+# every later separator inside a group that never closes, and one allow
+# prefix would then carry the whole command; so a command whose parentheses
+# or backticks do not balance falls back to the flat split, which only ever
+# splits more.
 pm_split_command() {
-  local s="$1" cur="" i n two c depth=0 bt=0
+  local s="$1" out="" cur="" i n two c depth=0 bt=0
   n=${#s}
   i=0
   while [ "$i" -lt "$n" ]; do
@@ -144,16 +161,15 @@ pm_split_command() {
       two="${s:$i:2}"
       case "$two" in
         '&&' | '||' | '|&')
-          printf '%s\n' "$cur"
+          out="$out$cur$PM_NL"
           cur=""
           i=$((i + 2))
           continue
           ;;
       esac
       case "$c" in
-        ';' | '|' | '&' | '
-')
-          printf '%s\n' "$cur"
+        ';' | '|' | '&' | "$PM_NL")
+          out="$out$cur$PM_NL"
           cur=""
           i=$((i + 1))
           continue
@@ -164,10 +180,41 @@ pm_split_command() {
       '(') depth=$((depth + 1)) ;;
       ')') [ "$depth" -eq 0 ] || depth=$((depth - 1)) ;;
       '`') bt=$((1 - bt)) ;;
-      '
-') c=';' ;;
+      "$PM_NL") c=';' ;;
     esac
     cur="$cur$c"
+    i=$((i + 1))
+  done
+  if [ "$depth" -eq 0 ] && [ "$bt" -eq 0 ]; then
+    printf '%s%s\n' "$out" "$cur"
+  else
+    pm_split_flat "$s"
+  fi
+}
+
+# pm_split_flat <command> — the split on every separator, ignoring grouping.
+pm_split_flat() {
+  local s="$1" cur="" i n two c
+  n=${#s}
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    two="${s:$i:2}"
+    case "$two" in
+      '&&' | '||' | '|&')
+        printf '%s\n' "$cur"
+        cur=""
+        i=$((i + 2))
+        continue
+        ;;
+    esac
+    c="${s:$i:1}"
+    case "$c" in
+      ';' | '|' | '&' | "$PM_NL")
+        printf '%s\n' "$cur"
+        cur=""
+        ;;
+      *) cur="$cur$c" ;;
+    esac
     i=$((i + 1))
   done
   printf '%s\n' "$cur"
@@ -176,12 +223,19 @@ pm_split_command() {
 # pm_substitutions <subcommand> — print the inner text of each outermost
 # `$(...)`, `<(...)`, `>(...)`, and backtick substitution, one per line.
 # Quoting-unaware like the split (MB-3): a `$(` inside single quotes is read
-# as a substitution too, which can only add subcommands to check.
+# as a substitution too, which can only add subcommands to check. `$((` opens
+# arithmetic, not a command, so it is stepped over; a substitution inside it
+# is still found.
 pm_substitutions() {
   local s="$1" i n c two depth j inner
   n=${#s}
   i=0
   while [ "$i" -lt "$n" ]; do
+    # shellcheck disable=SC2016 # the arithmetic opener is matched literally
+    if [ "${s:$i:3}" = '$((' ]; then
+      i=$((i + 3))
+      continue
+    fi
     two="${s:$i:2}"
     c="${s:$i:1}"
     # shellcheck disable=SC2016 # the substitution openers are matched literally
@@ -219,24 +273,39 @@ pm_substitutions() {
   done
 }
 
-# pm_strip_keywords <subcommand> — drop the control-flow words that open a
-# body or condition (`do`, `then`, `else`, `elif`, `if`, `while`, `until`,
-# `!`, `{`), so the command inside is what the rules see (M9). A bare closing
-# word (`done`, `fi`, `}`, ...) prints nothing. A `for`/`select` head prints
-# `#head <words>`: it runs no command, but a substitution in its words does.
+# pm_first_word <string> — set PM_WORD to the text before the first space or
+# tab (no fork).
+pm_first_word() {
+  PM_WORD="${1%% *}"
+  PM_WORD="${PM_WORD%%"$PM_TAB"*}"
+}
+
+# pm_strip_keywords <subcommand> — set PM_KW to the command left once the
+# control-flow words that open a body or condition (`do`, `then`, `else`,
+# `elif`, `if`, `while`, `until`, `!`, `{`) and a function header (`name()`,
+# `function name`) are dropped, so the command inside is what the rules see
+# (M9). Returns 1 when nothing runs (a bare closing word such as `done`,
+# `fi`, or `}`), and 2 for a `for`/`select` head, which runs no command but
+# whose words may hold a substitution (PM_KW keeps the head).
 pm_strip_keywords() {
   local s="$1"
   while :; do
-    case "$s" in
-      'do '* | 'then '* | 'else '* | 'elif '* | 'if '* | 'while '* | 'until '* | '! '* | '{ '*)
-        s="$(pm_trim "${s#* }")"
+    pm_first_word "$s"
+    case "$PM_WORD" in
+      'do' | 'then' | 'else' | 'elif' | 'if' | 'while' | 'until' | '!' | '{' | *'()')
+        [ "$PM_WORD" != "$s" ] || return 1
+        s="$(pm_trim "${s#"$PM_WORD"}")"
         ;;
-      'do' | 'then' | 'else' | 'done' | 'fi' | 'esac' | '{' | '}')
-        return 0
+      'function')
+        s="$(pm_trim "${s#function}")"
+        pm_first_word "$s"
+        [ "$PM_WORD" != "$s" ] || return 1
+        s="$(pm_trim "${s#"$PM_WORD"}")"
         ;;
-      'for '* | 'select '*)
-        printf '#head %s' "$s"
-        return 0
+      'done' | 'fi' | 'esac' | '}') return 1 ;;
+      'for' | 'select')
+        PM_KW="$s"
+        return 2
         ;;
       *) break ;;
     esac
@@ -244,35 +313,69 @@ pm_strip_keywords() {
   case "$s" in
     *' }') s="$(pm_trim "${s% \}}")" ;;
   esac
-  printf '%s' "$s"
+  PM_KW="$s"
+  [ -n "$s" ] || return 1
+  return 0
+}
+
+# pm_group_inner <subcommand> — print the text inside a leading `( … )`
+# group, whatever follows its close (a redirect, say); the rest of the text
+# when the group never closes.
+pm_group_inner() {
+  local s="$1" n j depth=1
+  n=${#s}
+  j=1
+  while [ "$j" -lt "$n" ] && [ "$depth" -gt 0 ]; do
+    case "${s:$j:1}" in
+      '(') depth=$((depth + 1)) ;;
+      ')') depth=$((depth - 1)) ;;
+    esac
+    j=$((j + 1))
+  done
+  if [ "$depth" -eq 0 ]; then
+    printf '%s' "${s:1:$((j - 2))}"
+  else
+    printf '%s' "${s:1}"
+  fi
 }
 
 # pm_subcommands <command> — print every simple subcommand the rules are
-# matched against, one per line: the top-level ones, and those nested in a
-# subshell, a brace group, a command or process substitution, or a
-# control-flow body, recursively (doc rule M9). A subcommand carrying a
-# substitution is printed with it in place, then its inner commands follow.
+# matched against, one trimmed line each: the top-level ones, and those
+# nested in a subshell, a brace group, a function body, a command or process
+# substitution, or a control-flow body, recursively (doc rule M9). A
+# subcommand carrying a substitution is printed with it in place, then its
+# inner commands follow. Past PM_NEST_MAX levels the unread text is printed as
+# PM_NEST_SENTINEL, which no allow rule matches, so an uninspected command can
+# never be reported allowed.
 PM_NEST_MAX=8
+PM_NEST_SENTINEL='#nested-beyond-the-model-depth'
 pm_subcommands() { pm_subcommands_at "$1" 0; }
 pm_subcommands_at() {
-  local s="$1" d="$2" sub inner head
-  [ "$d" -le "$PM_NEST_MAX" ] || return 0
+  local s="$1" d="$2" sub inner head rc
+  if [ "$d" -gt "$PM_NEST_MAX" ]; then
+    printf '%s\n' "$PM_NEST_SENTINEL"
+    return 0
+  fi
   while IFS= read -r sub; do
     sub="$(pm_trim "$sub")"
-    case "$sub" in
-      'do'* | 'then'* | 'else'* | 'elif '* | 'if '* | 'while '* | 'until '* | '!'* | '{'* | '}' | 'fi' | 'esac' | 'for '* | 'select '* | *' }')
-        sub="$(pm_strip_keywords "$sub")"
-        ;;
-    esac
     [ -n "$sub" ] || continue
     head=0
-    case "$sub" in
-      '#head '*)
-        head=1
-        sub="${sub#\#head }"
+    # The cheap test for a keyword-led or brace-closed subcommand, so the
+    # common plain command skips pm_strip_keywords; it must name every word
+    # that function acts on.
+    pm_first_word "$sub"
+    case "$PM_WORD:$sub" in
+      'do:'* | 'then:'* | 'else:'* | 'elif:'* | 'if:'* | 'while:'* | 'until:'* | '!:'* | '{:'* | *'():'* | 'function:'* | 'done:'* | 'fi:'* | 'esac:'* | '}:'* | 'for:'* | 'select:'* | *' }')
+        rc=0
+        pm_strip_keywords "$sub" || rc=$?
+        [ "$rc" -ne 1 ] || continue
+        [ "$rc" -ne 2 ] || head=1
+        sub="$PM_KW"
         ;;
-      '('*')')
-        pm_subcommands_at "${sub:1:$((${#sub} - 2))}" $((d + 1))
+    esac
+    case "$sub" in
+      '('*)
+        pm_subcommands_at "$(pm_group_inner "$sub")" $((d + 1))
         continue
         ;;
     esac
@@ -296,7 +399,7 @@ EOF
 # pm_trim <string> — strip leading and trailing spaces and tabs.
 pm_trim() {
   local s="$1" tab
-  tab="$(printf '\t')"
+  tab="$PM_TAB"
   while :; do
     case "$s" in
       ' '* | "$tab"*) s="${s#?}" ;;
@@ -327,7 +430,7 @@ pm_trim() {
 # the prompt, which is what the real matcher does with input it cannot parse.
 pm_strip_leading_assignments() {
   local s="$1" name value rest i n c q tab
-  tab="$(printf '\t')"
+  tab="$PM_TAB"
   while :; do
     # A leading assignment is a bare shell NAME, then `=`, then a value.
     name="${s%%=*}"
@@ -395,7 +498,21 @@ PM_ALLOW_RE=()
 PM_PATH_DENY_N=0
 PM_PATH_ASK_N=0
 PM_PATH_ALLOW_N=0
+PM_PATH_DENY_RULE=()
+PM_PATH_DENY_TOOL=()
+PM_PATH_DENY_PAT=()
+PM_PATH_DENY_RE=()
+PM_PATH_ASK_TOOL=()
+PM_PATH_ASK_PAT=()
+PM_PATH_ASK_RE=()
+PM_PATH_ALLOW_TOOL=()
+PM_PATH_ALLOW_PAT=()
+PM_PATH_ALLOW_RE=()
+PM_TOOL_DENY=' '
+PM_TOOL_ASK=' '
 PM_TOOL_ALLOW=' '
+PM_LOAD_GEN=0
+PM_PATH_KEY=''
 
 # pm_load_rules <deny-lines> <ask-lines> <allow-lines> — compile three
 # newline-separated rule lists.
@@ -427,8 +544,10 @@ pm_load_rules() {
   PM_PATH_ASK_PAT=()
   PM_PATH_ALLOW_TOOL=()
   PM_PATH_ALLOW_PAT=()
+  PM_TOOL_DENY=' '
+  PM_TOOL_ASK=' '
   PM_TOOL_ALLOW=' '
-  PM_PATH_KEY=''
+  PM_LOAD_GEN=$((PM_LOAD_GEN + 1))
 
   while IFS= read -r rule; do
     [ -n "$rule" ] || continue
@@ -502,13 +621,21 @@ pm_allow_rule_at() { printf '%s' "${PM_ALLOW_RULE[$1]}"; }
 # patterns. Edit rules apply to every built-in tool that edits files, the
 # Write tool included; a `Write(...)` or `NotebookEdit(...)` path rule is
 # accepted but never matches (M11). A Read deny also blocks the edit tools on
-# the same path. A bare `Read`, `Edit`, or `Write` allow entry admits that
-# tool on every path. The anchors a pattern resolves against are PM_CWD (the
-# session's working directory), PM_HOME, and PM_SETTINGS_DIR (the directory
-# of the file passed with --settings, which anchors a single-slash pattern).
-PM_CWD="${PM_CWD:-$PWD}"
-PM_HOME="${PM_HOME:-${HOME:-/}}"
-PM_SETTINGS_DIR="${PM_SETTINGS_DIR:-$PM_CWD}"
+# the same path. A bare `Read`, `Edit`, or `Write` entry governs that tool on
+# every path: in deny it removes the tool, in allow it admits every call. The
+# anchors a pattern resolves against are PM_CWD (the session's working
+# directory, default $PWD), PM_HOME (default $HOME), and PM_SETTINGS_DIR (the
+# directory of the file passed with --settings, which anchors a single-slash
+# pattern; default PM_CWD), each read when a decision is made.
+
+# pm_anchor <cwd|home|settings> — print one anchor's current value.
+pm_anchor() {
+  case "$1" in
+    cwd) printf '%s' "${PM_CWD:-$PWD}" ;;
+    home) printf '%s' "${PM_HOME:-${HOME:-}}" ;;
+    settings) printf '%s' "${PM_SETTINGS_DIR:-${PM_CWD:-$PWD}}" ;;
+  esac
+}
 
 # pm_path_record <deny|ask|allow> <rule> — file a non-Bash rule. Returns 1 for
 # a path rule missing its closing paren (fail closed, as for Bash rules);
@@ -516,8 +643,12 @@ PM_SETTINGS_DIR="${PM_SETTINGS_DIR:-$PM_CWD}"
 pm_path_record() {
   local kind="$1" rule="$2" tool pat
   case "$rule" in
-    Read | Edit | Write)
-      [ "$kind" != allow ] || PM_TOOL_ALLOW="$PM_TOOL_ALLOW$rule "
+    Read | Edit | Write | NotebookEdit)
+      case "$kind" in
+        deny) PM_TOOL_DENY="$PM_TOOL_DENY$rule " ;;
+        ask) PM_TOOL_ASK="$PM_TOOL_ASK$rule " ;;
+        allow) PM_TOOL_ALLOW="$PM_TOOL_ALLOW$rule " ;;
+      esac
       return 0
       ;;
     'Read('*')' | 'Edit('*')' | 'Write('*')' | 'NotebookEdit('*')')
@@ -552,16 +683,11 @@ pm_path_deny_rule_at() { printf '%s' "${PM_PATH_DENY_RULE[$1]}"; }
 
 # pm_ere_escape <text> — escape ERE metacharacters, globs included.
 pm_ere_escape() {
-  local s="$1" out="" i c
+  local s="$1" out="" i
   i=0
   while [ "$i" -lt "${#s}" ]; do
-    c="${s:$i:1}"
-    case "$c" in
-      '.' | \\ | '+' | '?' | '*' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|')
-        out="$out\\$c"
-        ;;
-      *) out="$out$c" ;;
-    esac
+    pm_ere_char "${s:$i:1}"
+    out="$out$PM_CHAR"
     i=$((i + 1))
   done
   printf '%s' "$out"
@@ -589,8 +715,10 @@ pm_path_glob_ere() {
     case "$c" in
       '*') out="${out}[^/]*" ;;
       '?') out="${out}[^/]" ;;
-      '.' | \\ | '+' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|') out="$out\\$c" ;;
-      *) out="$out$c" ;;
+      *)
+        pm_ere_char "$c"
+        out="$out$PM_CHAR"
+        ;;
     esac
     i=$((i + 1))
   done
@@ -612,15 +740,15 @@ pm_path_pattern_ere() {
       rel="${p#//}"
       ;;
     '~/'*)
-      base="$PM_HOME"
+      base="$(pm_anchor home)"
       rel="${p#\~/}"
       ;;
     '/'*)
-      base="$PM_SETTINGS_DIR"
+      base="$(pm_anchor settings)"
       rel="${p#/}"
       ;;
     *)
-      base="$PM_CWD"
+      base="$(pm_anchor cwd)"
       rel="${p#./}"
       case "$rel" in
         */*)
@@ -645,21 +773,39 @@ pm_path_pattern_ere() {
 }
 
 # pm_path_matches <deny|ask|allow> <pattern> <absolute-path> — exit 0 on match.
+# Compiles on every call; used by the model's self-validation tests, never by
+# the decision loops (those use pm_path_compile's arrays).
 pm_path_matches() {
   local re
   re="$(pm_path_pattern_ere "$1" "$2")"
   [[ $3 =~ $re ]]
 }
 
-# pm_path_rule_applies <rule-tool> <tool> — whether a path rule of
-# <rule-tool> governs a call of <tool>: Edit rules govern the edit tools,
-# Read rules govern Read and, as deny or ask, the edit tools too.
+# pm_path_rule_applies <rule-tool> <tool> <deny|ask|allow> — whether a path
+# rule of <rule-tool> governs a call of <tool>: Edit rules govern the edit
+# tools, Read rules govern Read and, as deny or ask, the edit tools too.
 pm_path_rule_applies() {
   case "$1:$2" in
     Edit:Edit | Edit:Write | Edit:NotebookEdit | Read:Read) return 0 ;;
-    Read:Edit | Read:Write | Read:NotebookEdit) [ "${3:-deny}" != allow ] ;;
+    Read:Edit | Read:Write | Read:NotebookEdit) [ "$3" != allow ] ;;
     *) return 1 ;;
   esac
+}
+
+# pm_tool_in <list> <tool> — whether a bare tool-name entry covers <tool>. A
+# Read entry in deny or ask also covers the edit tools, as a Read path rule does.
+pm_tool_in() {
+  case "$1" in
+    *" $2 "*) return 0 ;;
+  esac
+  case "$2" in
+    Edit | Write | NotebookEdit)
+      case "$1" in
+        *' Read '*) return 0 ;;
+      esac
+      ;;
+  esac
+  return 1
 }
 
 # pm_path_deny_match_indices <tool> <path> — the indices of every path deny
@@ -679,10 +825,14 @@ pm_path_deny_match_indices() {
 }
 
 # pm_path_compile — compile every path rule's ERE against the current anchors,
-# once per rule set and anchor triple, so the decision loops never fork.
-PM_PATH_KEY=''
+# once per pm_load_rules call and anchor triple, so the decision loops never
+# fork. A caller deciding inside command substitutions runs it once in its own
+# shell first, after setting the anchors, so each substitution inherits the
+# compiled set rather than rebuilding it. Editing the rule arrays in place,
+# rather than through pm_load_rules, is unsupported.
 pm_path_compile() {
-  local key="$PM_PATH_DENY_N|$PM_PATH_ASK_N|$PM_PATH_ALLOW_N|$PM_CWD|$PM_HOME|$PM_SETTINGS_DIR|${PM_PATH_DENY_PAT[*]:-}|${PM_PATH_ALLOW_PAT[*]:-}" i
+  local key i
+  key="$PM_LOAD_GEN$PM_NL$(pm_anchor cwd)$PM_NL$(pm_anchor home)$PM_NL$(pm_anchor settings)"
   [ "$key" != "$PM_PATH_KEY" ] || return 0
   PM_PATH_DENY_RE=()
   PM_PATH_ASK_RE=()
@@ -710,6 +860,10 @@ pm_path_compile() {
 pm_decide_path() {
   local tool="$1" path="$2" i
   pm_path_compile
+  if pm_tool_in "$PM_TOOL_DENY" "$tool"; then
+    printf 'deny'
+    return 0
+  fi
   i=0
   while [ "$i" -lt "$PM_PATH_DENY_N" ]; do
     if pm_path_rule_applies "${PM_PATH_DENY_TOOL[$i]}" "$tool" deny \
@@ -728,6 +882,10 @@ pm_decide_path() {
     fi
     i=$((i + 1))
   done
+  if pm_tool_in "$PM_TOOL_ASK" "$tool"; then
+    printf 'ask'
+    return 0
+  fi
   case "$PM_TOOL_ALLOW" in
     *" $tool "*)
       printf 'allow'
@@ -758,7 +916,6 @@ pm_decide_path() {
 pm_matching_deny_rule() {
   local sub stripped i
   while IFS= read -r sub; do
-    sub="$(pm_trim "$sub")"
     [ -n "$sub" ] || continue
     stripped="$(pm_strip_leading_assignments "$sub")"
     i=0
@@ -785,7 +942,6 @@ pm_decide() {
   subs="$(pm_subcommands "$1")"
 
   while IFS= read -r sub; do
-    sub="$(pm_trim "$sub")"
     [ -n "$sub" ] || continue
     stripped="$(pm_strip_leading_assignments "$sub")"
     i=0
@@ -801,7 +957,6 @@ $subs
 EOF
 
   while IFS= read -r sub; do
-    sub="$(pm_trim "$sub")"
     [ -n "$sub" ] || continue
     stripped="$(pm_strip_leading_assignments "$sub")"
     i=0
@@ -818,7 +973,6 @@ EOF
 
   any=0
   while IFS= read -r sub; do
-    sub="$(pm_trim "$sub")"
     [ -n "$sub" ] || continue
     any=1
     matched=0

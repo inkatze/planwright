@@ -1,19 +1,19 @@
 #!/bin/bash
-# Fixture-driven permission-matcher test for the worker deny list
-# (guard-coverage Task 1; REQ-A1.1, REQ-A1.2, REQ-H1.3; D-4).
+# Fixture-driven permission-matcher test for the worker profile's deny, allow,
+# and path rules (guard-coverage Task 1; REQ-A1.1, REQ-A1.2, REQ-H1.3; D-4).
 #
 # WHAT THIS PINS. config/worker-settings.json's deny block is planwright's
 # best-effort glob layer against a worker force-pushing, pushing to main, or
-# bypassing the githooks/ backstop. A base merge and a never-pushed rewrite
-# are policy acts the policy guard decides, so their rows expect the glob
-# layer to leave them alone.
+# bypassing the githooks/ backstop, and its path rules keep the file tools
+# off the paths the worker guard refuses. A base merge and a never-pushed
+# rewrite are policy acts the policy guard decides, so their rows expect the
+# glob layer to leave them alone.
 # Glob rules are easy to write and easy to silently break: a rule whose `:*`
 # lands mid-pattern never fires, a rule anchored at end-of-string is evaded by
 # one trailing flag, and a rule can be deleted with a green suite if nothing
-# asserts it. This test closes all three by asserting a fixture table of real
-# `git push` / `git commit` invocations against a DOCUMENTED MODEL of Claude
-# Code's matcher (tests/lib/permission-matcher.sh, D-4) plus the real shipped
-# config.
+# asserts it. This test closes all three by asserting a table of real commands
+# and a table of file-tool calls against a DOCUMENTED MODEL of Claude Code's
+# matcher (tests/lib/permission-matcher.sh, D-4) plus the real shipped config.
 #
 # WHAT IT DOES NOT PIN. The model is a re-implementation, not the matcher: this
 # test verifies config-vs-model equivalence only. Real-matcher fidelity is the
@@ -519,6 +519,16 @@ deny|load-bearing|for b in a c; do git push origin main; done|a for-loop body (M
 deny|load-bearing|for b in $(git push --force origin x); do echo $b; done|a substitution in a for-loop head (M9)
 deny|load-bearing|while true; do git push --force origin x; done|a while-loop body (M9)
 deny|load-bearing|until false; do git push origin HEAD:main; done|an until-loop body (M9)
+deny|load-bearing|while git push --force origin x; do true; done|a while-loop condition (M9)
+deny|load-bearing|until git push origin main; do true; done|an until-loop condition (M9)
+deny|load-bearing|if true; then	git push origin main; fi|a body opened by a keyword and a tab (M9)
+deny|load-bearing|f() { git push origin main; }; f|a function body (M9)
+deny|load-bearing|function f { git reset --hard origin/main; }; f|a function body, function-keyword form (M9)
+deny|load-bearing|(git push origin main) 2>/dev/null|a subshell followed by a redirect (M9)
+deny|load-bearing|git commit -m "fix (scope"; git push origin main|a lone parenthesis in a quoted argument cannot hold later separators inside a group (MB-3)
+deny|load-bearing|git add "x`y" && git reset --hard origin/main|a lone backtick in a quoted argument, the same (MB-3)
+allow|legit|ls $((1 + 2))|arithmetic expansion is not a command substitution (M9)
+prompt|residual|ls $(ls $(ls $(ls $(ls $(ls $(ls $(ls $(ls $(ls x))))))))))|nesting past the model's depth bound reports no allow for the uninspected command (M9)
 deny|load-bearing|if git status; then git push origin main; fi|an if-then body (M9)
 deny|load-bearing|if false; then true; else git reset --hard origin/main; fi|an else body (M9)
 deny|load-bearing|if false; then true; elif git push origin main; then true; fi|an elif condition (M9)
@@ -533,7 +543,7 @@ allow|legit|git add scripts/x.sh|staging a file
 allow|legit|gh pr view 123 --json state|PR inspection
 allow|legit|gh pr list --head planwright/guard-coverage/task-1|PR listing
 allow|legit|mise tasks|task listing
-allow|legit|wc -l README.md|static read-only set: wc (REQ-G1.1)
+prompt|residual|wc --files0-from=/proc/1234/environ README.md|no static rule names wc: --files0-from echoes a file's content in its error output (REQ-G1.1, REQ-E1.6)
 allow|legit|ls -la scripts|static read-only set: ls (REQ-G1.1)
 allow|legit|stat README.md|static read-only set: stat (REQ-G1.1)
 allow|legit|git ls-files scripts|static read-only set: git ls-files (REQ-G1.1)
@@ -541,7 +551,7 @@ allow|legit|git merge-base HEAD origin/main|static read-only set: git merge-base
 allow|legit|git ls-tree HEAD scripts|static read-only set: git ls-tree (REQ-G1.1)
 allow|legit|git show-ref --heads|static read-only set: git show-ref (REQ-G1.1)
 allow|legit|git for-each-ref refs/heads|static read-only set: git for-each-ref (REQ-G1.1)
-prompt|residual|cat /proc/1234/environ|no static rule names a content-printing verb (REQ-G1.1, REQ-E1.6); the worker guard decides cat, and defers this one
+prompt|residual|cat /proc/1234/environ|no static rule names a content-printing verb (REQ-G1.1, REQ-E1.6); Claude Code also applies the Read deny to the file commands it recognizes, which the model does not (MB-9)
 prompt|residual|git rev-list --output=/tmp/x HEAD|git rev-list takes --output, so no static rule names it (REQ-G1.1)
 allow|legit|git push origin feature/c++|a branch name containing + stays pushable: the +refspec deny requires a space before the plus (narrowed 2026-07-29 on operator decision). git check-ref-format confirms the ref is valid
 allow|residual|git commit -a --amen|git takes any unique prefix of a long option, so --amen is --amend; the policy guard reads the prefixes and decides
@@ -581,7 +591,6 @@ match_n=0
 deny_match_indices() {
   local sub stripped i out=""
   while IFS= read -r sub; do
-    sub="$(pm_trim "$sub")"
     [ -n "$sub" ] || continue
     stripped="$(pm_strip_leading_assignments "$sub")"
     i=0
@@ -676,8 +685,8 @@ EOF
 # tripping pass D. So the floor is `>=` the exact current count: adding rows is
 # always fine, deleting any row fails and has to be argued for. Raise these two
 # numbers in the same commit that adds rows (REQ-H1.3).
-ROW_FLOOR=185
-DENY_ROW_FLOOR=108
+ROW_FLOOR=195
+DENY_ROW_FLOOR=116
 if [ "$row_total" -ge "$ROW_FLOOR" ] && [ "$row_deny_total" -ge "$DENY_ROW_FLOOR" ]; then
   ok "the fixture table is non-vacuous: $row_total rows, $row_deny_total load-bearing (REQ-H1.3)"
 else
@@ -854,14 +863,16 @@ EOF
 fi
 # The pass must be able to fail: the same check over the shipped allow list
 # plus one rule no row exercises names exactly that rule.
-pm_load_rules "$DENY_RULES" "$ASK_RULES" "$ALLOW_RULES
+injected="$(
+  pm_load_rules "$DENY_RULES" "$ASK_RULES" "$ALLOW_RULES
 Bash(zz-no-row-names-this:*)" >/dev/null 2>&1
-if [ "$(allow_rules_uncovered)" = 'Bash(zz-no-row-names-this:*)' ]; then
+  allow_rules_uncovered
+)"
+if [ "$injected" = 'Bash(zz-no-row-names-this:*)' ]; then
   ok "pass F names an allow rule that no fixture row exercises"
 else
   fail "pass F did not flag an injected allow rule with no fixture row"
 fi
-pm_load_rules "$DENY_RULES" "$ASK_RULES" "$ALLOW_RULES" >/dev/null 2>&1
 
 # ---------------------------------------------------------------------------
 # Pass G — REQ-G1.1: the static allow set names no verb that prints an
@@ -869,31 +880,40 @@ pm_load_rules "$DENY_RULES" "$ASK_RULES" "$ALLOW_RULES" >/dev/null 2>&1
 # or program-running form. A static rule never reaches the worker guard's
 # argument screens, so these stay with the guard.
 # ---------------------------------------------------------------------------
-FORBIDDEN_VERBS='awk find xargs sed sort uniq cat grep head tail cut diff jq'
+FORBIDDEN_VERBS='awk find xargs sed sort uniq cat grep head tail cut diff jq wc'
+# Verbs that run their argument as the command, so a rule naming one admits
+# whatever follows it.
+WRAPPER_VERBS='command builtin env sudo time timeout nice nohup stdbuf noglob exec eval sh bash zsh fish'
 # The diff family takes --output, rev-list and the log family write the same
 # way, grep takes -O, cat-file takes --textconv.
 FORBIDDEN_GIT='diff diff-tree diff-index diff-files log show whatchanged shortlog reflog format-patch range-diff rev-list stash grep cat-file'
-# Pre-existing rules the delta leaves in place (kickoff risk R13, observation
-# worker-profile-static-git-write-forms); no new rule may join them.
+# The git subcommands a static rule has been reviewed for; any other needs its
+# write and execution forms checked here before it joins the profile.
+REVIEWED_GIT='status diff log show rev-parse branch checkout switch add commit push ls-files ls-tree merge-base show-ref for-each-ref'
+# Rules that predate the no-write-forms rule and keep their write forms: kept,
+# never widened, and no new rule may join them.
 GRANDFATHERED='Bash(git diff:*) Bash(git log:*) Bash(git show:*)'
 
 # forbidden_allow_rules <rule-lines> — print each Bash allow rule that names a
-# forbidden verb or git subcommand and is not grandfathered.
+# forbidden or wrapper verb, a verb that is not a plain word (a glob, a path,
+# an assignment), or a git subcommand that is forbidden, unreviewed, or hidden
+# behind a global option, unless the rule is grandfathered.
 forbidden_allow_rules() {
   local rule pat verb rest sub
   while IFS= read -r rule; do
-    case "$rule" in
-      'Bash('*')') ;;
-      *) continue ;;
-    esac
+    pat="$(pm_rule_pattern "$rule")" || continue
     case " $GRANDFATHERED " in
       *" $rule "*) continue ;;
     esac
-    pat="${rule#Bash(}"
-    pat="${pat%)}"
     pat="${pat%:\*}"
     verb="${pat%% *}"
-    case " $FORBIDDEN_VERBS " in
+    case "$verb" in
+      '' | *[!A-Za-z0-9._-]*)
+        printf '%s\n' "$rule"
+        continue
+        ;;
+    esac
+    case " $FORBIDDEN_VERBS $WRAPPER_VERBS " in
       *" $verb "*)
         printf '%s\n' "$rule"
         continue
@@ -904,7 +924,14 @@ forbidden_allow_rules() {
     rest="${rest# }"
     sub="${rest%% *}"
     case " $FORBIDDEN_GIT " in
-      *" $sub "*) printf '%s\n' "$rule" ;;
+      *" $sub "*)
+        printf '%s\n' "$rule"
+        continue
+        ;;
+    esac
+    case " $REVIEWED_GIT " in
+      *" $sub "*) ;;
+      *) printf '%s\n' "$rule" ;;
     esac
   done <<EOF
 $1
@@ -915,22 +942,33 @@ if [ -z "$bad" ]; then
   ok "no static allow rule names a content-printing verb or a writing or executing form (pass G, REQ-G1.1, REQ-E1.6)"
 else
   while IFS= read -r rule; do
-    fail "static allow rule names a verb or git subcommand REQ-G1.1 excludes: $rule"
+    fail "static allow rule names a verb or git subcommand REQ-G1.1 excludes or nobody reviewed: $rule"
   done <<EOF
 $bad
 EOF
 fi
 probe='Bash(cat:*)
 Bash(sed -n:*)
+Bash(wc:*)
 Bash(git grep:*)
 Bash(git cat-file:*)
 Bash(git diff-tree:*)
 Bash(git rev-list:*)
-Bash(git ls-files:*)'
-if [ "$(forbidden_allow_rules "$probe" | tr '\n' ' ')" = 'Bash(cat:*) Bash(sed -n:*) Bash(git grep:*) Bash(git cat-file:*) Bash(git diff-tree:*) Bash(git rev-list:*) ' ]; then
-  ok "pass G flags each excluded verb and git subcommand and passes a read-only one"
+Bash(git archive:*)
+Bash(git --no-pager grep:*)
+Bash(git*)
+Bash(*)
+Bash(/bin/cat:*)
+Bash(LC_ALL=C sort:*)
+Bash(command cat:*)
+Bash(git diff:*)
+Bash(git ls-files:*)
+Bash(stat:*)'
+expected_probe='Bash(cat:*) Bash(sed -n:*) Bash(wc:*) Bash(git grep:*) Bash(git cat-file:*) Bash(git diff-tree:*) Bash(git rev-list:*) Bash(git archive:*) Bash(git --no-pager grep:*) Bash(git*) Bash(*) Bash(/bin/cat:*) Bash(LC_ALL=C sort:*) Bash(command cat:*) '
+if [ "$(forbidden_allow_rules "$probe" | tr '\n' ' ')" = "$expected_probe" ]; then
+  ok "pass G flags each excluded, unreviewed, or disguised spelling and passes the reviewed ones"
 else
-  fail "pass G misclassified its probe rules"
+  fail "pass G misclassified its probe rules: $(forbidden_allow_rules "$probe" | tr '\n' ' ')"
 fi
 
 # ---------------------------------------------------------------------------
@@ -987,6 +1025,20 @@ deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/sub/mise.toml|a nested m
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/mise.local.toml|machine-local mise config (REQ-F1.6)
 deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.mise/tasks/check|a mise task directory (REQ-F1.6)
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/lefthook.yml|lefthook config runs commands (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/mise.local.toml|the primary checkout's mise config, which mise reads from a worktree beneath it (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/githooks/pre-commit|the primary checkout's hooks directory (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.envrc|direnv config runs commands (REQ-F1.6, as the guard names it)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.tool-versions|tool-version config selects what mise runs (REQ-F1.6, as the guard names it)
+deny|load-bearing|Edit|/home/u/.config/direnv/direnvrc|a .config directory, which holds mise and direnv user config (REQ-F1.6, as the guard names it)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/mise/config.toml|mise's directory-config form (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.mise.toml|mise's dotted config name (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.mise.local.toml|mise's dotted environment config (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/lefthook/pre-commit/check.sh|a lefthook script directory (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/lefthook-local.yml|lefthook's local override, merged on every hook run (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.lefthook/pre-commit/check.sh|lefthook's dotted script directory (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.lefthook.yml|lefthook's dotted config name (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.lefthook-local/pre-commit/x.sh|lefthook's dotted local script directory (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.lefthook-local.yml|lefthook's dotted local override (REQ-F1.6)
 deny|load-bearing|Edit|/home/u/.claude/plugins/data/planwright-planwright/fleet/session-records/0123abcd.record|the guard's session record (REQ-G1.8)
 deny|load-bearing|Write|/srv/fleet/session-records/0123abcd-89ef0123456789ab.record|a session record under an overridden fleet home (REQ-G1.8)
 deny|load-bearing|Edit|/work/repo/.claude/planwright.yml|the repo-tracked overlay (REQ-G1.8)
@@ -1035,48 +1087,74 @@ done <<EOF
 $PATH_FIXTURES
 EOF
 
-PATH_ROW_FLOOR=29
+PATH_ROW_FLOOR=43
 if [ "$path_rows" -ge "$PATH_ROW_FLOOR" ]; then
   ok "the path fixture table is non-vacuous: $path_rows rows"
 else
   fail "the path fixture table shrank below its floor: $path_rows/$PATH_ROW_FLOOR"
 fi
 
-# Every path deny rule is exercised by a row, so a rule that cannot match (a
-# Write(...) rule, a wrong anchor) fails here rather than shipping.
+# Every path deny rule must be the only rule blocking at least one row: one
+# no row exercises cannot match (a Write(...) rule, a wrong anchor), and one
+# that never stands alone can be deleted with a green suite (the path-rule
+# counterpart of passes D and E).
+path_rule_fail=0
 i=0
 while [ "$i" -lt "$PM_PATH_DENY_N" ]; do
   exercised=0
+  sole=0
   j=0
   while [ "$j" -lt "$path_n" ]; do
     case " ${PATH_SETS[$j]} " in
-      *" $i "*)
-        exercised=1
-        break
-        ;;
+      *" $i "*) exercised=1 ;;
     esac
+    [ "${PATH_SETS[$j]}" != "$i" ] || sole=1
     j=$((j + 1))
   done
-  [ "$exercised" -eq 1 ] \
-    || fail "path deny rule is never exercised by any path fixture row (dead rule or missing row): $(pm_path_deny_rule_at "$i")"
+  if [ "$exercised" -eq 0 ]; then
+    fail "path deny rule is never exercised by any path fixture row (dead rule or missing row): $(pm_path_deny_rule_at "$i")"
+    path_rule_fail=1
+  elif [ "$sole" -eq 0 ]; then
+    fail "path deny rule is the sole cover for no path fixture row, so it can be deleted with a green suite: $(pm_path_deny_rule_at "$i")"
+    path_rule_fail=1
+  fi
   i=$((i + 1))
 done
-ok "every path deny rule is exercised by a path fixture row"
+[ "$path_rule_fail" -eq 1 ] \
+  || ok "every path deny rule is the sole cover for at least one path fixture row"
 if [ "$PM_PATH_DENY_N" -gt 0 ]; then
   ok "the shipped deny block carries $PM_PATH_DENY_N path rule(s)"
 else
   fail "the shipped deny block carries no path rules (REQ-F1.6, REQ-G1.8, REQ-E1.6)"
 fi
 
-# A Write(...) path rule never matches (M11): shown dead, not silently trusted.
-pm_load_rules 'Bash(never-run *)
-Write(//tmp/x)' '' '' >/dev/null 2>&1
-if [ "$(pm_decide_path Write /tmp/x)" = prompt ]; then
-  ok "a Write(path) deny rule never matches (M11)"
-else
-  fail "a Write(path) deny rule must never match (M11)"
-fi
-pm_load_rules "$DENY_RULES" "$ASK_RULES" "$ALLOW_RULES" >/dev/null 2>&1
+# The model's path branches the shipped profile does not use, each against a
+# synthetic rule set (M10, M11). Each probe loads inside its own substitution,
+# so the shipped rules stay loaded here.
+path_probe() {
+  # path_probe <expected> <label> <deny> <ask> <allow> <tool> <path>
+  local got
+  got="$(
+    pm_load_rules "Bash(never-run *)
+$3" "$4" "$5" >/dev/null 2>&1
+    pm_decide_path "$6" "$7"
+  )"
+  if [ "$got" = "$1" ]; then
+    ok "path model: $2"
+  else
+    fail "path model: $2 (expected $1, got $got)"
+  fi
+}
+path_probe prompt 'a Write(path) deny rule never matches (M11)' 'Write(//tmp/x)' '' '' Write /tmp/x
+path_probe prompt 'a NotebookEdit(path) deny rule never matches (M11)' 'NotebookEdit(//tmp/x)' '' '' NotebookEdit /tmp/x
+path_probe deny 'an Edit deny governs the NotebookEdit tool' 'Edit(//tmp/x)' '' 'NotebookEdit' NotebookEdit /tmp/x
+path_probe ask 'an Edit ask rule asks' '' 'Edit(//tmp/x)' 'Edit' Edit /tmp/x
+path_probe allow 'an Edit allow rule allows inside its directory' '' '' 'Edit(src/**)' Edit "$PM_CWD/src/a.ts"
+path_probe prompt 'an Edit allow rule leaves the rest to the prompt' '' '' 'Edit(src/**)' Edit "$PM_CWD/vendor/src/a.ts"
+path_probe prompt 'a Read allow rule does not admit the edit tools' '' '' 'Read(//tmp/**)' Edit /tmp/x
+path_probe deny 'a bare Edit deny removes the tool whatever the allow list says' 'Edit' '' 'Edit' Edit /tmp/x
+path_probe ask 'a bare Read ask covers the edit tools too' '' 'Read' 'Edit' Edit /tmp/x
+path_probe deny 'a single-slash pattern anchors at the settings directory' 'Edit(/mise.toml)' '' 'Edit' Edit "$PM_SETTINGS_DIR/mise.toml"
 
 # Non-Bash allow entries: a bare file-tool name is exercised by an allow path
 # row for that tool; the remaining tool names sit outside the model (MB-6).
