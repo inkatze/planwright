@@ -52,6 +52,8 @@ trap cleanup EXIT
 
 # shellcheck source=tests/lib/mission-control-fixture.sh
 . "$here/lib/mission-control-fixture.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$here/lib/emitter-lint.sh"
 reset_mc_fixture
 cp "$repo_root/config/defaults.yml" "$core/config/defaults.yml"
 for p in worker tower mission-control; do
@@ -278,6 +280,12 @@ SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope rules-cas
 [ "$RC" = 0 ] || fail "the --rules launch exited $RC: $ERR"
 wait_for "$rec/stdin" && grep -qF 'Docs need review' "$rec/stdin" \
   && ok "a --rules scope adds its rules to the brief" || fail "the --rules scope's rule did not reach the session"
+rules_brief="$fleet/mission-control/launch/$(field name)/brief.md"
+if lint_emitted markdown mission-control-launch.sh "$rules_brief"; then
+  ok "the composed brief with program and scope rules lints clean as markdown"
+else
+  fail "the composed brief fails the markdown lint: $rules_brief"
+fi
 wait_done "$(field name)"
 
 # No item handed back names a pane, window or attach hint.

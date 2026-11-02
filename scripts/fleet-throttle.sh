@@ -275,6 +275,7 @@ read_key() {
 # utc_iso <epoch>: best-effort UTC rendering for audit reasoning text; falls
 # back to the bare epoch when the platform date cannot format it.
 utc_iso() {
+  # shell-gnu-only-flag: GNU date -d is the fallback after BSD date -r
   ui_v=$(TZ=UTC date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) \
     || ui_v=$(TZ=UTC date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) \
     || ui_v="epoch $1"

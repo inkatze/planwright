@@ -2,6 +2,8 @@
 # fleet-dispatch-env.sh — the dispatch-time environment-hardening wrapper
 # (fleet-autonomy Task 6; D-10, REQ-D1.1).
 #
+# Emits: shell
+#
 # Every fleet-launched Claude Code session that another session reads via pane
 # capture (a dispatched worker, and a tower the watchdog relaunches) is
 # launched THROUGH this wrapper. The wrapper pins

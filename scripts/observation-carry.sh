@@ -1,6 +1,7 @@
 #!/bin/sh
 # observation-carry.sh — the sanctioned tower-observation-to-`main` carry path
 # (fleet-hardening Task 9; D-9; REQ-D1.3, REQ-E1.3).
+# Emits: markdown
 #
 # A disposable tower records observations (scripts/obs-record.sh) as fragment
 # files committed onto its disposable tower branch. Those commits are never

@@ -69,7 +69,7 @@ for f in "$defaults" "$inventory" "$reference"; do
   [ -f "$f" ] && [ -r "$f" ] || die "missing or unreadable: $(sanitize_printable "$f")"
 done
 
-scratch=$(mktemp -d) || die "mktemp -d failed"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/check-mc-knobs.XXXXXX") || die "mktemp -d failed"
 [ -n "$scratch" ] && [ -d "$scratch" ] || die "mktemp -d produced no directory"
 trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$scratch/adopter" "$scratch/claude" || die "cannot populate the scratch directory"

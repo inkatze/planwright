@@ -38,5 +38,5 @@ clean_text() {
   sed -e ':a' -e "$INVIS_SED" -e 't a' <"$2.base" >"$2" || return 1
   CLEAN_STRIPPED=0
   cmp -s "$2.base" "$2" || CLEAN_STRIPPED=1
-  rm -f "$2.base"
+  rm -f -- "$2.base"
 }

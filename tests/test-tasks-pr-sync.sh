@@ -46,6 +46,8 @@ fail() {
 [ -x "$ANCHOR" ] || fail "scripts/spec-anchor.sh missing (anchor invariance check needs it)"
 [ -x "$STATE" ] || fail "scripts/orchestrate-state.sh missing (the derivation backbone)"
 command -v jq >/dev/null 2>&1 || fail "jq required to run this suite"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$here/lib/emitter-lint.sh"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -255,6 +257,11 @@ anchor_after=$("$ANCHOR" "$repo/specs/demo")
 # Atomic write leaves no temp behind.
 ls "$repo/specs/demo"/.tasks-pr-sync.* >/dev/null 2>&1 && fail "atomic write: temp file left behind"
 echo "ok: reconcile places blocks by derived state; anchor + definition + human sections invariant"
+if lint_emitted markdown tasks-pr-sync.sh "$tasks" spec; then
+  echo "ok: the reconciled tasks.md lints clean as a spec-bundle file"
+else
+  fail "the reconciled tasks.md has markdownlint findings"
+fi
 
 # Capture the canonical reconciled form for the convergence assertions below.
 canonical=$tmp/canonical.md

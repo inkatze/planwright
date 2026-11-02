@@ -939,7 +939,7 @@ check_duration() {
 # the same contract as `knob`. A duration lands in its variable as seconds,
 # a posint as itself; the name-to-variable mapping is the case below.
 resolve_knobs() {
-  _kd=$(mktemp -d 2>/dev/null) || {
+  _kd=$(mktemp -d "${TMPDIR:-/tmp}/tower-queue.XXXXXX" 2>/dev/null) || {
     err "cannot create a scratch dir for the knob reads"
     exit 6
   }
@@ -2859,7 +2859,7 @@ ensure_sub_surface() {
     err "security: $(sanitize_printable "$1" "(unprintable path)") is a symlink — refusing to write through a redirect"
     exit 4
   fi
-  [ -d "$1" ] || mkdir "$1" 2>/dev/null || true # not-a-lock: best-effort creation
+  [ -d "$1" ] || mkdir -- "$1" 2>/dev/null || true # not-a-lock: best-effort creation
   [ -d "$1" ] || {
     err "cannot create the $2 sub-surface $(sanitize_printable "$1" "(unprintable path)")"
     exit 6
@@ -4347,7 +4347,7 @@ put_file() {
     err "cannot write $(sanitize_printable "$1" "(unprintable path)")"
     return 1
   }
-  mv -f "$PENDING_TMP" "$1" 2>/dev/null || {
+  mv -f -- "$PENDING_TMP" "$1" 2>/dev/null || {
     err "cannot replace $(sanitize_printable "$1" "(unprintable path)")"
     return 1
   }
@@ -6687,7 +6687,7 @@ cmd_list() {
     [ ! -d "$surface" ] || err "no queue store yet (absent; the next locked verb rebuilds it)"
     exit 0
   }
-  SCRATCH=$(mktemp -d 2>/dev/null) || {
+  SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/tower-queue.XXXXXX" 2>/dev/null) || {
     err "cannot create a scratch dir"
     exit 6
   }
@@ -6928,7 +6928,7 @@ cmd_catchup() {
     printf 'remainder\t0\tfloor\tno-store\nopen\tquestion\t0\nopen\tapproval\t0\nopen\trequest\t0\nopen\tsettled-by-default\t0\nopen\tdecided-by-mission-control\t0\nopen\tnews\t0\nopen\tstanding\t0\n'
     exit 0
   fi
-  SCRATCH=$(mktemp -d 2>/dev/null) || {
+  SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/tower-queue.XXXXXX" 2>/dev/null) || {
     err "cannot create a scratch dir"
     exit 6
   }

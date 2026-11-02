@@ -92,8 +92,8 @@ parse_tracked() {
 tracked=$(mc_knob mission_control_forge_tracked parse_tracked) || exit 1
 repos=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories) || exit 1
 
-errf=$(mktemp) || mc_fail "mktemp failed"
-body=$(mktemp) || mc_fail "mktemp failed"
+errf=$(mktemp "${TMPDIR:-/tmp}/mc-adapter-forge.XXXXXX") || mc_fail "mktemp failed"
+body=$(mktemp "${TMPDIR:-/tmp}/mc-adapter-forge.XXXXXX") || mc_fail "mktemp failed"
 trap 'rm -f "$errf" "$body"' EXIT
 
 # gh_read <args...>: run gh, stdout to the caller; exit 75 on a rate-limit

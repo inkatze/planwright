@@ -3,6 +3,8 @@
 # D-7, D-11, D-16–D-18, D-20, D-21; REQ-B1.5, REQ-C1.1–C1.9, REQ-C1.11,
 # REQ-C1.12, REQ-E1.2, REQ-E1.7, REQ-E1.9, REQ-G1.5).
 #
+# Emits: markdown
+#
 # The tower routes an ask onto visual flight; this primitive places it. It
 # composes existing seams and mints nothing beside them:
 #   - the flight id comes from scripts/flight-id.sh (the flight-id grammar and

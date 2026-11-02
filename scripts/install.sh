@@ -83,8 +83,8 @@ fi
 copy_tree() {
   # copy_tree <src-dir> <dest-dir> — refresh dest from src (BSD/GNU-portable).
   # -p preserves the shipped file modes (notably script executable bits).
-  mkdir -p "$2"
-  cp -Rp "$1/." "$2/"
+  mkdir -p -- "$2"
+  cp -Rp -- "$1/." "$2/"
 }
 
 echo "planwright writer: installing into $claude_dir"

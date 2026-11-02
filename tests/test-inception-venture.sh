@@ -25,6 +25,8 @@ VALIDATE="$REPO_ROOT/scripts/inception-validate.sh"
 
 # shellcheck source=tests/lib/inception-fixture.sh
 . "$REPO_ROOT/tests/lib/inception-fixture.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 
 failures=0
 assert_eq() {
@@ -448,6 +450,12 @@ venture bundle-init --title "Resume Probe" "$rp"
 assert_eq "B1.7 bundle-init writes the skeleton (exit)" 0 "$rc"
 for f in brief.md disciplines.md assumptions.md decisions.md plan.md; do
   assert_exists "B1.7 skeleton has $f" "$rp/$f"
+  if lint_emitted markdown inception-venture.sh "$rp/$f"; then
+    echo "ok: B1.7 skeleton $f is lint-clean markdown"
+  else
+    echo "FAIL: B1.7 skeleton $f fails the markdown lint" >&2
+    failures=$((failures + 1))
+  fi
 done
 /bin/sh "$VALIDATE" --version-check "$rp" >/dev/null 2>&1
 assert_eq "C1.7 skeleton passes the version gate" 0 "$?"

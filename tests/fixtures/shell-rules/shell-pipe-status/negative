@@ -1,0 +1,30 @@
+# expect-line: none
+# Status read from a single command, from PIPESTATUS, and masked forms.
+set -u
+out=$(git log --oneline) || exit 2
+rc=$?
+printf '%s\n' "$out" | tail -n 1
+printf '%s\n' 'a | b; rc=$?'
+grep -q x "$0" || rc=$?
+case "$rc" in
+  0 | 1) printf '%s\n' "$?" ;;
+esac
+out=$(printf '%s\n' "$rc" | grep -c x)
+code=$?
+y=$(printf '%s' "${out}" | tr a b); rc=$?
+git log | tail -n 1; true
+rc=$?
+git log | tail -n 1; rc=${PIPESTATUS[0]}
+hout=$(cd "$0" && echo 'text' | tr a b)
+rc=$?
+if git log | grep -q x; then true; fi
+rc=$?
+for f in $(ls | sort); do true; done
+rc=$?
+case $(git log | head -n 1) in x) true ;; esac
+rc=$?
+{ git log | tail -n 1; true; }
+rc=$?
+set -o pipefail
+git log | tail -n 1
+rc=$?

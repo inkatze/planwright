@@ -448,6 +448,7 @@ TAB=$(printf '\t')
 resolve_path() {
   rp_lines=""
   rp_rc=0
+  # shell-config-pin: a resolver, pinned by its caller (PLANWRIGHT_REPO_ROOT or the checkout it runs in)
   rp_lines=$("$config_get" --layers "$key") || rp_rc=$?
   [ "$rp_rc" -ne 4 ] || exit 4
   if [ "$rp_rc" -eq 3 ]; then
@@ -517,10 +518,12 @@ rc=0
 # rather than the winner alone.
 read_flag=--explain
 [ "$union" -eq 0 ] || read_flag=--layers
+# shell-config-pin: a resolver, pinned by its caller (PLANWRIGHT_REPO_ROOT or the checkout it runs in)
 explain_out=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS="$strict_overlays" "$config_get" "$read_flag" "$key") || rc=$?
 if [ "$rc" -eq 6 ]; then
   # The malformed file must not hide a malformed repo-tracked value beneath it:
   # read once more with the file skipped, and let that breakage fail the read.
+  # shell-config-pin: a resolver, pinned by its caller (PLANWRIGHT_REPO_ROOT or the checkout it runs in)
   lower=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS="" "$config_get" "$read_flag" "$key" 2>/dev/null) || lower=""
   while IFS= read -r lower_line; do
     case "$lower_line" in
@@ -662,7 +665,7 @@ case "$layer" in
     # core default. PLANWRIGHT_REPO_ROOT=none leaves repo-tracked and derived
     # machine-local both absent; a guaranteed-absent adopter path under a
     # scratch dir blanks the adopter layer.
-    scratch=$(mktemp -d) || {
+    scratch=$(mktemp -d "${TMPDIR:-/tmp}/resolve-config-knob.XXXXXX") || {
       echo "resolve-config-knob: could not create a scratch dir to read the core default" >&2
       exit 5
     }

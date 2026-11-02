@@ -134,6 +134,7 @@ run_suite() {
   suite_rc=$?
 }
 
+# shell-config-pin: runs in the worktree whose suite it runs
 pool=$("$script_dir/config-get.sh" full_suite_pool 2>/dev/null)
 case $? in
   0) ;;

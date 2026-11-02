@@ -182,7 +182,7 @@ is_spec_root() {
   isr_env=""
   [ "$1" = . ] || isr_env="-u PLANWRIGHT_REPO_ROOT"
   # shellcheck disable=SC2086 # an empty isr_env is no argument
-  isr_root=$(cd "$1" 2>/dev/null && env $isr_env /bin/sh "$script_dir/resolve-root.sh" spec ${2:+"$2"} 2>/dev/null) \
+  isr_root=$(cd -- "$1" 2>/dev/null && env $isr_env /bin/sh "$script_dir/resolve-root.sh" spec ${2:+"$2"} 2>/dev/null) \
     || return 1
   isr_root=$(cd "$isr_root" 2>/dev/null && pwd -P) || return 1
   [ "$isr_root" = "$spec_parent" ]

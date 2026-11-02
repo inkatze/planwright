@@ -5,6 +5,8 @@
 # transfer of the program name and the retirement of the predecessor, and
 # the operator-asked resume by name.
 #
+# Emits: markdown
+#
 # `mc-handover.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
 set -f

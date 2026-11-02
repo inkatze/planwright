@@ -233,7 +233,7 @@ if [ "$nfiles" -eq 0 ]; then
   exit 1
 fi
 
-work="$(mktemp -d)" || exit 2
+work="$(mktemp -d "${TMPDIR:-/tmp}/check-workflow-posture.XXXXXX")" || exit 2
 trap 'rm -rf "$work"' EXIT
 
 # --- the parser ------------------------------------------------------------

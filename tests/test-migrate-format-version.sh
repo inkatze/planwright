@@ -55,6 +55,8 @@ trap 'rm -rf "$tmp"' EXIT
   || fail "scripts/spec-parse.sh missing or unreadable (the extraction oracle)"
 # shellcheck source=scripts/spec-parse.sh
 . "$here/../scripts/spec-parse.sh" || fail "sourcing scripts/spec-parse.sh failed"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$here/lib/emitter-lint.sh"
 
 # section_content <file> <section> — the lines of one H2 section's body.
 section_content() {
@@ -166,6 +168,8 @@ EOF
 **Format-version:** 1
 
 Coverage mix: all [test].
+
+## REQ-A — fixtures
 
 ### REQ-A1.1 — existence [test]
 
@@ -580,6 +584,14 @@ awk 'blank && /^[ \t]*$/ { exit 1 } { blank = ($0 ~ /^[ \t]*$/) }' \
   "$repo/specs/seeded/requirements.md" \
   || fail "ascending changelog: migration introduced consecutive blank lines (MD012)"
 echo "ok: a signed bundle gains the dated Changelog entry and a valid expression-only re-anchor (REQ-D1.2)"
+
+for md in requirements design tasks test-spec kickoff-brief; do
+  if lint_emitted markdown migrate-format-version.sh "$repo/specs/seeded/$md.md" spec; then
+    echo "ok: the migrated $md.md lints clean as a spec-bundle file"
+  else
+    fail "the migrated $md.md has markdownlint findings"
+  fi
+done
 
 # Ready→Ready: a stored-Ready signed bundle migrates in place, stays Ready,
 # and its newest-first changelog gets the entry prepended (direction-aware).

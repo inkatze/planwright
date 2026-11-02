@@ -587,7 +587,7 @@ read_marker() {
 drop_marker() {
   mm_aside="${1%/*}/.retiring.$$.${1##*/}"
   mm_restore=$1
-  if ! mv -f "$1" "$mm_aside" 2>/dev/null; then
+  if ! mv -f -- "$1" "$mm_aside" 2>/dev/null; then
     mm_aside=""
     [ -e "$1" ] || [ -L "$1" ] || return 0
     return 1
@@ -595,7 +595,7 @@ drop_marker() {
   if [ "$(cat "$mm_aside" 2>/dev/null)" != "$2" ]; then
     # A newer marker already at the name supersedes this one; any other
     # failure to link back leaves it aside rather than losing it.
-    if ! ln "$mm_aside" "$1" 2>/dev/null && [ ! -e "$1" ] && [ ! -L "$1" ]; then
+    if ! ln -- "$mm_aside" "$1" 2>/dev/null && [ ! -e "$1" ] && [ ! -L "$1" ]; then
       warn "could not link the marker back to $1; it is kept as $mm_aside, and the next reconcile pass adopts it"
       mm_aside=""
       return 1

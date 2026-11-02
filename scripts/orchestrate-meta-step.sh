@@ -222,7 +222,7 @@ primary_spec=$(cd "$spec_root" 2>/dev/null && cd "$spec_name" 2>/dev/null && pwd
 [ "$spec_phys" = "$primary_spec" ] \
   || die "the spec directory is not the primary checkout's bundle; run from the primary checkout"
 
-wtmp=$(mktemp -d) || exit 2
+wtmp=$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-meta-step.XXXXXX") || exit 2
 lock_held=0
 record_written=0
 launch_started=0

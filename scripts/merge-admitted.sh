@@ -2,6 +2,7 @@
 # merge-admitted.sh — merge a unit PR its policy class admits, under
 # `merge_policy: policy-class`: the one sanctioned agent merge path
 # (doctrine/human-gates.md; the human-gates spec's REQ-D1.4, REQ-D1.5).
+# Emits: markdown
 #
 # Usage:
 #   merge-admitted.sh --spec <dir> --task <id>... [--pr <n>] [--worktree <dir>]

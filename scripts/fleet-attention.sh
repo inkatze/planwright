@@ -703,10 +703,10 @@ seen_write() {
   if [ -L "$1" ] || [ -d "$1" ]; then
     sw_tmp=""
   else
-    sw_tmp=$(mktemp "${1%/*}/.seen.XXXXXX" 2>/dev/null) || sw_tmp=""
+    sw_tmp=$(mktemp -- "${1%/*}/.seen.XXXXXX" 2>/dev/null) || sw_tmp=""
   fi
   if [ -n "$sw_tmp" ]; then
-    if printf '%s\t%s\t%s\n' "$2" "$3" "$4" >"$sw_tmp" && mv -f "$sw_tmp" "$1"; then
+    if printf '%s\t%s\t%s\n' "$2" "$3" "$4" >"$sw_tmp" && mv -f -- "$sw_tmp" "$1"; then
       return 0
     fi
     rm -f "$sw_tmp"

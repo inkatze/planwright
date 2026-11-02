@@ -27,7 +27,7 @@ trf_git() {
 }
 
 trf_repo() {
-  mkdir -p "$1"
+  mkdir -p -- "$1"
   trf_git -C "$1" init -q
   trf_git -C "$1" commit -q --allow-empty -m init
   [ -z "${2:-}" ] || trf_git -C "$1" remote add origin "$2"
@@ -38,7 +38,7 @@ trf_repo() {
 trf_setup() {
   TRF_SCRIPTS=$1
   TRF_SPEC=${2:-demo}
-  TRF=$(cd "$(mktemp -d)" && pwd -P) || return 1
+  TRF=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/two-repo-fixture.XXXXXX")" && pwd -P) || return 1
   mkdir -p "$TRF/home" "$TRF/adopter" "$TRF/pdata" "$TRF/ghstub" "$TRF/gh"
   printf 'unrelated_key: 1\n' >"$TRF/core.yml"
   # shellcheck disable=SC2016 # the stub's own expansions

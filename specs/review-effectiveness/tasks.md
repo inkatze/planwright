@@ -580,6 +580,7 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 
 ## Awaiting input
 
+- **Task 11** — post-pr: step cubic-pr halted; record `.claude/steps/000001/009-step-post-pr.rec`
 - **Task 15.1** — post-pr step `cubic-pr` halted
   (`.claude/steps/000001/008-step-post-pr.rec`): the cubic workspace quota
   is exhausted until 2026-11-05. Draft PR #777 carries the implementation,
