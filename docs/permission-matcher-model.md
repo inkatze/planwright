@@ -153,8 +153,7 @@ directions matter, and they are not symmetric:
   an expected row fails loudly, and no reader is told they are covered when
   they are not.
 - *Reporting allow for a command that really executes something dangerous* is a
-  hole, not conservatism. No entry below is this kind: MB-7 was, until M9
-  modeled the documented nested-command behaviour.
+  hole, not conservatism. No entry below is this kind.
 
 **MB-1 — wrapper stripping.** Claude Code strips a fixed set of leading
 wrappers (`timeout`, `time`, `nice`, `nohup`, `stdbuf`, the `command` and
@@ -182,8 +181,9 @@ inside a quoted argument. Direction: over-predicts deny only.
 **MB-4 — built-in read-only commands.** Claude Code runs an unconfigurable set
 of read-only commands (`ls`, `cat`, `git status`, ...) without a prompt
 regardless of the allow list. The model knows nothing about that set. Direction:
-under-predicts allow. Irrelevant to this guard: no `git push` or `git commit`
-form is read-only.
+under-predicts allow: a `prompt` row for a verb in that set (`cat`) may
+run unprompted for real, so such a row records that no profile rule names the
+verb, not that the call stalls.
 
 **MB-5 — the PreToolUse auto-approve hook.** `config/worker-settings.json` also
 wires `scripts/worker-command-guard.sh`, which can auto-approve additional
@@ -208,12 +208,14 @@ their place. Deny and ask still reach a command in an arm through the atom
 sweep (M9). Direction: under-predicts allow.
 
 **MB-8 — protected paths and symlinks.** Claude Code never auto-approves a
-write to a protected path (`.git`, `.claude`, `.envrc`, the lefthook config
-files, the `--settings` file, and others the permission-modes page lists) in
-the default mode, whatever the allow list says, and it checks a deny rule
-against both the requested path and the file a symlink resolves to. The
-model sees neither: it reports `allow` where the real tool prompts, and
-judges only the path as given. Direction: under-claims protection. "What the
+write to a protected path (`.git`, `.claude`, `.envrc`, `lefthook.yml`,
+`lefthook.yaml`, `.lefthook.yml`, `.lefthook.yaml`, the `--settings` file,
+and others the permission-modes page lists) in the default mode, whatever the
+allow list says, and it checks a deny rule against both the requested path
+and the file a symlink resolves to. The model sees neither: it reports
+`allow` where the real tool prompts, and judges only the path as given,
+without collapsing `//`, `/./`, or `/../` segments. Direction: under-claims
+protection. "What the
 path rules close" below says why the worker profile denies protected paths
 anyway.
 
@@ -285,6 +287,14 @@ matches a bare name against the path itself, never its descendants, so the
 profile spells every directory it closes with an explicit `/**` rule beside
 or instead of the bare name. If Claude Code does extend a bare name to a
 directory's contents, those `/**` rules become redundant, not wrong.
+
+**MA-4 — word spacing is matched as written.** The documentation does not say
+whether a pattern's single space matches a tab or a run of spaces, or whether
+a redirect glued to a word (`main>/dev/null`) is read apart from it. The model
+matches the subject text literally, so each of those spellings slips past a
+deny glob whose words are space-separated. The fixture table carries them as
+`residual` rows naming the layer that still refuses them. If the real matcher
+reads parsed words, those rows flip to `deny` and close on their own.
 
 ## Verified against real git
 
@@ -441,12 +451,13 @@ spelling reaches the file tools. Writes the guard refuses elsewhere outside
 the worktree are not mirrored here: the file tools still reach them, which
 includes an installed planwright root when it is not under `~/.claude`.
 
-Claude Code already protects `.git`, `.claude`, `.envrc`, and the lefthook
-config files (MB-8), and the overlays under `~/.claude` with them, but
+Claude Code already protects `.git`, `.claude`, `.envrc`, and the YAML
+lefthook config files (MB-8), and the overlays under `~/.claude` with them, but
 protection means a prompt, which stalls a headless worker, and its list is
 version-specific. A deny refuses outright and holds across versions, so
 those paths keep their rules. The mise config, the hooks directories, the
-session records, and repo-side overlays are not protected at all.
+local and non-YAML lefthook config, the session records, and repo-side
+overlays are not protected at all.
 
 ## Changing any of this
 
