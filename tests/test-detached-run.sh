@@ -5,7 +5,7 @@
 #
 # Every run lands under a temporary parent directory. The detached command is
 # a fixture shell snippet: it exits with a chosen code, holds until the test
-# lets it go, or sends SIGHUP to a child and logs the child's status.
+# lets it go, or signals a child and logs the child's status.
 #
 # Runs standalone under /bin/sh (the bash 3.2 / dash floor):
 #   ./tests/test-detached-run.sh
@@ -36,23 +36,41 @@ ok() { printf 'ok: %s\n' "$1"; }
 tmp="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/test-detached-run.XXXXXX")" && pwd -P)" || exit 1
 pids="$tmp/pids"
 : >"$pids"
+# Each run leads its own process group, out of reach of a signal to this
+# file's group, so cleanup signals every recorded group.
 cleanup() {
-  while read -r _p; do kill "$_p" 2>/dev/null; done <"$pids"
+  while read -r _p; do
+    kill -TERM -- "-$_p" 2>/dev/null || kill -TERM "$_p" 2>/dev/null
+  done <"$pids"
   rm -rf "$tmp"
 }
 trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # field <name> <file> — the value of a `<name><TAB><value>` line.
 field() { sed -n "s/^$1$TAB//p" "$2" | head -n 1; }
 
-# launch <label> <parent> <command...> — run `start`, leaving its stdout in
-# $tmp/<label>.out, its stderr in $tmp/<label>.err and its status in
-# launch_rc; a launched runner's pid is recorded for cleanup.
+# launch [--env <VAR=value>] <label> <parent> <command...> — run `start`,
+# leaving its stdout in $tmp/<label>.out, its stderr in $tmp/<label>.err and
+# its status in launch_rc; a launched runner's pid is recorded for cleanup.
+# The environment goes through env(1): bash 3.2 in POSIX mode keeps a prefix
+# assignment to a function call after the call returns.
 launch() {
+  _env=''
+  if [ "$1" = --env ]; then
+    _env=$2
+    shift 2
+  fi
   _l=$1
   _parent=$2
   shift 2
-  "$DR" start --dir "$_parent" -- "$@" >"$tmp/$_l.out" 2>"$tmp/$_l.err"
+  if [ -n "$_env" ]; then
+    env "$_env" "$DR" start --dir "$_parent" -- "$@" >"$tmp/$_l.out" 2>"$tmp/$_l.err"
+  else
+    "$DR" start --dir "$_parent" -- "$@" >"$tmp/$_l.out" 2>"$tmp/$_l.err"
+  fi
   launch_rc=$?
   _pid=$(field pid "$tmp/$_l.out")
   [ -z "$_pid" ] || printf '%s\n' "$_pid" >>"$pids"
@@ -61,9 +79,10 @@ launch() {
 # status_is <run> <expected> — succeeds when the status verb prints <expected>.
 status_is() { [ "$("$DR" status "$1" 2>/dev/null)" = "$2" ]; }
 
-# A command that holds until the file named by its first argument exists.
+# A command that holds until the file named by its first argument exists, or
+# its directory is gone (cleanup).
 # shellcheck disable=SC2016 # $1 belongs to the detached shell
-hold='while [ ! -e "$1" ]; do sleep 0.1; done'
+hold='while [ ! -e "$1" ] && [ -d "${1%/*}" ]; do sleep 0.1; done'
 
 # --- 1. a finished run reports its code, its log holds the output ----------
 p1="$tmp/p1"
@@ -86,7 +105,7 @@ else
   fail "the log carries the command's output"
 fi
 
-# --- 2. a held run reports running, then finished 0 ------------------------
+# --- 2. a held run reports running, however its dir is spelled -------------
 gate="$tmp/release"
 launch held "$p1" sh -c "$hold" held "$gate"
 held_run=$(field run "$tmp/held.out")
@@ -94,6 +113,16 @@ if [ "$launch_rc" -eq 0 ] && status_is "$held_run" running; then
   ok "status reports running while the command runs"
 else
   fail "status reports running while the command runs (rc=$launch_rc, got '$("$DR" status "$held_run")')"
+fi
+if status_is "$held_run/" running && (cd "$p1" && status_is "./${held_run##*/}" running); then
+  ok "status reports running for a trailing-slash or relative run dir"
+else
+  fail "status reports running for a trailing-slash or relative run dir"
+fi
+if [ "$(COLUMNS=40 "$DR" status "$held_run" 2>/dev/null)" = running ]; then
+  ok "status reports running when ps would truncate to a narrow width"
+else
+  fail "status reports running when ps would truncate to a narrow width"
 fi
 : >"$gate"
 if poll_until --what 'finished 0' status_is "$held_run" 'finished 0'; then
@@ -115,8 +144,8 @@ fi
 # --- 4. a runner that cannot start is a failed launch, never a success -----
 p4="$tmp/p4"
 mkdir "$p4"
-PLANWRIGHT_DETACHED_RUN_SH="$tmp/no-such-shell" launch dead "$p4" sh -c 'exit 0'
-if [ "$launch_rc" -ne 0 ] && grep -q 'never started' "$tmp/dead.err"; then
+launch --env PLANWRIGHT_DETACHED_RUN_SH="$tmp/no-such-shell" dead "$p4" sh -c 'exit 0'
+if [ "$launch_rc" -eq 4 ] && grep -q 'never started' "$tmp/dead.err"; then
   ok "a launch whose runner cannot start reports failure"
 else
   fail "a launch whose runner cannot start reports failure (rc=$launch_rc): $(cat "$tmp/dead.out" "$tmp/dead.err")"
@@ -128,7 +157,37 @@ else
   fail "status reports never-started for that run (dir '$dead_run', got '$("$DR" status "$dead_run" 2>&1)')"
 fi
 
-# --- 5. the suite sees SIGHUP at its default disposition -------------------
+# A runner alive but silent past the start wait is stopped, and fails too.
+slow="$tmp/slow-shell"
+printf '#!/bin/sh\nexec sleep 60\n' >"$slow"
+chmod +x "$slow"
+p4b="$tmp/p4b"
+mkdir "$p4b"
+env PLANWRIGHT_DETACHED_RUN_SH="$slow" PLANWRIGHT_DETACHED_RUN_START_WAIT=1 \
+  "$DR" start --dir "$p4b" -- true >"$tmp/slow.out" 2>"$tmp/slow.err"
+slow_rc=$?
+slow_run=$(sed -n 's/.*; run \(.*\)$/\1/p' "$tmp/slow.err" | head -n 1)
+slow_pid=$(cat "$slow_run/pid" 2>/dev/null)
+[ -z "$slow_pid" ] || printf '%s\n' "$slow_pid" >>"$pids"
+if [ "$slow_rc" -eq 4 ] && grep -q 'no signal in 1s' "$tmp/slow.err" \
+  && poll_until --what 'silent runner stopped' pid_gone "$slow_pid"; then
+  ok "a runner silent past the start wait is stopped and the launch fails"
+else
+  fail "a runner silent past the start wait is stopped and the launch fails (rc=$slow_rc): $(cat "$tmp/slow.err")"
+fi
+
+# A BASH_ENV that prints never corrupts the recorded pid.
+benv="$tmp/bash-env"
+echo 'echo junk' >"$benv"
+launch --env BASH_ENV="$benv" benv "$p1" sh -c 'exit 0'
+benv_run=$(field run "$tmp/benv.out")
+if [ "$launch_rc" -eq 0 ] && poll_until --what 'BASH_ENV run finished' status_is "$benv_run" 'finished 0'; then
+  ok "a printing BASH_ENV does not break the launch"
+else
+  fail "a printing BASH_ENV does not break the launch (rc=$launch_rc): $(cat "$tmp/benv.err")"
+fi
+
+# --- 5. the suite sees default signal dispositions and the caller's locale -
 # shellcheck disable=SC2016 # $$ and $? belong to the detached shells
 launch hup "$p1" sh -c 'sh -c "kill -HUP \$\$; exit 0"; echo "child=$?"'
 hup_run=$(field run "$tmp/hup.out")
@@ -153,6 +212,16 @@ if command -v bash >/dev/null 2>&1; then
   fi
 fi
 
+# shellcheck disable=SC2016 # $LC_ALL belongs to the detached shell
+launch --env LC_ALL=POSIX locale "$p1" sh -c 'echo "lc=$LC_ALL"'
+locale_run=$(field run "$tmp/locale.out")
+poll_until --what 'locale run finished' status_is "$locale_run" 'finished 0' || :
+if grep -qx 'lc=POSIX' "$locale_run/log" 2>/dev/null; then
+  ok "the command runs in the caller's locale"
+else
+  fail "the command runs in the caller's locale (log: $(cat "$locale_run/log" 2>/dev/null))"
+fi
+
 # The runner itself catches SIGHUP, so a hangup never ends the run.
 gate2="$tmp/release2"
 launch survive "$p1" sh -c "$hold; echo after-hup" held "$gate2"
@@ -170,54 +239,43 @@ fi
 gate3="$tmp/release3"
 launch killed "$p1" sh -c "$hold" held "$gate3"
 killed_run=$(field run "$tmp/killed.out")
-killed_pid=$(field pid "$tmp/killed.out")
-kill -KILL "$killed_pid" 2>/dev/null
-poll_until --what 'killed runner gone' pid_gone "$killed_pid" || :
-: >"$gate3"
-if status_is "$killed_run" died; then
+kill -KILL "$(field pid "$tmp/killed.out")" 2>/dev/null
+if poll_until --what 'killed runner reads died' status_is "$killed_run" died; then
   ok "status reports died for a runner killed outright"
 else
   fail "status reports died for a runner killed outright (got '$("$DR" status "$killed_run")')"
 fi
+: >"$gate3"
 
 # --- 6. PATH without setsid and nohup, and without bash ------------------
-# path_without <dir> <name...> — fill <dir> with links to every command on
-# PATH except the named ones, the first of each name winning as a lookup
-# would.
-path_without() {
-  _pw_dir=$1
+# path_of <dir> <name...> — a PATH directory holding only the named commands.
+path_of() {
+  _po_dir=$1
   shift
-  mkdir -p "$_pw_dir" || return 1
-  _pw_ifs=$IFS
-  IFS=:
-  for _pw_d in $PATH; do
-    IFS=$_pw_ifs
-    [ -d "$_pw_d" ] || continue
-    for _pw_f in "$_pw_d"/*; do
-      _pw_n=${_pw_f##*/}
-      _pw_skip=''
-      for _pw_x in "$@"; do
-        [ "$_pw_n" = "$_pw_x" ] && _pw_skip=1
-      done
-      [ -z "$_pw_skip" ] && [ -x "$_pw_f" ] && [ ! -e "$_pw_dir/$_pw_n" ] \
-        && ln -s "$_pw_f" "$_pw_dir/$_pw_n"
-    done
+  mkdir -p "$_po_dir" || return 1
+  for _po_n in "$@"; do
+    _po_f=$(command -v "$_po_n") || continue
+    case $_po_f in
+      /*) ln -s "$_po_f" "$_po_dir/$_po_n" ;;
+    esac
   done
-  IFS=$_pw_ifs
 }
-
-path_without "$tmp/bin" setsid nohup
-PATH="$tmp/bin" launch bare "$p1" sh -c 'exit 0'
+needed='sh mktemp date cat sed head dirname basename ps sleep mv env'
+# shellcheck disable=SC2086 # word-split on purpose
+path_of "$tmp/bin" $needed bash
+launch --env PATH="$tmp/bin" bare "$p1" sh -c 'exit 0'
 bare_run=$(field run "$tmp/bare.out")
-if [ "$launch_rc" -eq 0 ] && poll_until --what 'bare-PATH run finished' status_is "$bare_run" 'finished 0'; then
+if [ "$launch_rc" -eq 0 ] && [ ! -e "$tmp/bin/setsid" ] && [ ! -e "$tmp/bin/nohup" ] \
+  && poll_until --what 'bare-PATH run finished' status_is "$bare_run" 'finished 0'; then
   ok "the helper launches with neither setsid nor nohup on PATH"
 else
   fail "the helper launches with neither setsid nor nohup on PATH (rc=$launch_rc): $(cat "$tmp/bare.err")"
 fi
 
 # With no bash the launch still works, warning that SIGINT starts ignored.
-path_without "$tmp/nobash" setsid nohup bash
-PATH="$tmp/nobash" launch nobash "$p1" sh -c 'exit 0'
+# shellcheck disable=SC2086 # word-split on purpose
+path_of "$tmp/nobash" $needed
+launch --env PATH="$tmp/nobash" nobash "$p1" sh -c 'exit 0'
 nobash_run=$(field run "$tmp/nobash.out")
 if [ "$launch_rc" -eq 0 ] && grep -q 'no bash on PATH' "$tmp/nobash.err" \
   && poll_until --what 'no-bash run finished' status_is "$nobash_run" 'finished 0'; then
@@ -235,6 +293,8 @@ usage_rc() {
 usage_rc $? "no verb is a usage error"
 "$DR" start --dir "$p1" >/dev/null 2>&1
 usage_rc $? "start without a command is a usage error"
+"$DR" start --dir '' -- true >/dev/null 2>&1
+usage_rc $? "start with an empty --dir is a usage error"
 "$DR" status "$tmp/not-a-run" >/dev/null 2>&1
 usage_rc $? "status on a non-run dir is a usage error"
 
