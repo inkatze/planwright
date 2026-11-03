@@ -1108,3 +1108,11 @@ mission_control_deadline_horizon: 3d
 # that reads the text on stdin. Never a sender; never read from the
 # repo-tracked layer.
 mission_control_clipboard: auto
+# How much the mission-control skill teaches as it goes: guided, standard
+# or expert (scripts/mc-config.sh mode guidance). A level the operator picks
+# is remembered in the adopter layer.
+mission_control_guidance: guided
+# How a kickoff or amendment the operator asks for runs: relay (mission
+# control launches the session and relays every question to the operator)
+# or manual (the operator runs the kickoff command themselves).
+mission_control_kickoff_mode: relay
