@@ -314,9 +314,13 @@ printf '%s\n' 'x=0' \
   '# name in the query, checked against the protected set.' 'x=6' \
   '# Sanitize every field before it reaches the terminal (echo discipline):' \
   '# a hand-corrupted store line cannot drive the terminal or corrupt a log.' 'x=7' \
-  '# also a sonnet and a wouldbe' '# mustard canned' 'x=8' \
+  '# also a sonnet and a wouldbe' '# mustard cannotes' 'x=8' \
   '# the probe failed open' '# here' 'x=9' \
-  '# the probe is failing closed' '# here' 'x=10' >"$TMP/widened/scripts/e.sh"
+  '# the probe is failing closed' '# here' 'x=10' \
+  '# 5. A settings fragment that itself pins defaultMode to auto is refused; a' \
+  '#    fragment pinning a non-auto mode passes; a missing fragment path fails' \
+  '#    closed; a fragment with no defaultMode at all is not a mode source.' 'x=11' \
+  '  # flush the pending row' '  # and reset the buffer' '  flush()' >"$TMP/widened/scripts/e.sh"
 run "$r" --audit "$TMP/widened"
 assert_exit "--audit over the widened fixture runs" 0 $?
 class_is "a block directly above a name() definition is contract" contract scripts/e.sh:2
@@ -332,6 +336,8 @@ class_is "'cannot' is rationale (scripts/fleet-attention.sh)" rationale scripts/
 class_is "the added words match whole words only" none scripts/e.sh:35
 class_is "'failed open' is the same phrasing" rationale scripts/e.sh:38
 class_is "'failing closed' is the same phrasing" rationale scripts/e.sh:41
+class_is "a phrasing wrapped across comment lines still matches" rationale scripts/e.sh:44
+class_is "a block above a bare no-argument call is not contract" none scripts/e.sh:48
 assert_out "contract totals are emitted" "$(printf 'total\tcontract_blocks\t2')"
 if "$GUARD" --help | tr '\n' ' ' | tr -s ' ' | grep -qF 'lest, would, so, must, cannot (as whole words)' \
   && "$GUARD" --help | grep -qF 'contract' \

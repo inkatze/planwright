@@ -88,8 +88,11 @@ blank lines and lines starting `#` are skipped; one entry per path):
                prevents, on purpose, the reason, must not, do not, don't,
                never
     contract   the block's last line sits directly above a function
-               definition (`name()` or `function name`), so it describes
-               what the function takes, does, or returns
+               definition (`name()` then `{` or `(` on that line, or
+               `function name`), so it describes what the function takes,
+               does, or returns
+  Phrasings match with whitespace runs collapsed, so one wrapped across
+  comment lines still counts.
     none       none of these: evidence-free
   The phrasings are what this inventory recognizes, never wording a comment
   is asked to use.
@@ -432,11 +435,12 @@ function classify(text, after,   lt) {
   if (text ~ /REQ-[A-Z]+[0-9]/ || text ~ /(^|[^A-Za-z0-9_-])D-[0-9]/ || text ~ /[Tt]ask [0-9]/ ||
       text ~ /obs:[0-9a-f][0-9a-f][0-9a-f][0-9a-f]/) return "cites"
   lt = tolower(text)
+  gsub(/[ \t]+/, " ", lt)
   if (lt ~ /(^|[^a-z])(because|otherwise|why|deliberate|deliberately|intentional|intentionally|workaround|careful|caution|warning|unless|since|lest|would|so|must|cannot)([^a-z]|$)/ ||
       lt ~ /(^|[^a-z])fail(s|ed|ing)?[- ](open|closed)([^a-z]|$)/ ||
       lt ~ /so that|rather than|instead of|in order to|to avoid|to keep|to prevent|prevents|on purpose|the reason|must not|do not|don.t|never/) return "rationale"
   if (after ~ /^[ \t]*function[ \t]+[A-Za-z_][A-Za-z0-9_]*/ ||
-      after ~ /^[ \t]*[A-Za-z_][A-Za-z0-9_.:-]*[ \t]*\([ \t]*\)/) return "contract"
+      after ~ /^[ \t]*[A-Za-z_][A-Za-z0-9_.:-]*[ \t]*\([ \t]*\)[ \t]*[{(]/) return "contract"
   return "none"
 }
 # end_run: close the current run of comment lines in file i; after is the line that ended it.
