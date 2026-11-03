@@ -154,11 +154,13 @@ gh_read() {
 failed() { unavailable "$(head -n 1 "$reasonf")"; }
 
 command -v gh >/dev/null 2>&1 || unavailable "gh is not installed"
-repos=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories 2>/dev/null) || repos=""
+repos=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories 2>/dev/null) \
+  || unavailable "the program's repositories cannot be read"
 
 scope=""
 while IFS= read -r repo; do
   [ -n "$repo" ] || continue
+  [ -d "$repo" ] && [ -x "$repo" ] || unavailable "a program repository is not reachable"
   slug=$(cd "$repo" && gh_read repo view --json nameWithOwner --jq .nameWithOwner) || failed
   case $slug in
     */*/* | *[!A-Za-z0-9._/-]*) unavailable "the forge answered with an unexpected repository name" ;;

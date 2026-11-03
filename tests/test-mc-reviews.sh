@@ -301,11 +301,33 @@ if awk -F '\t' '$1 == "mine"' "$snap" | grep -q .; then fail "a junk row reached
 setup
 cat >"$tracked" <<EOF
 mission_control_programs: [alpha]
+program_alpha_repositories: []
 program_alpha_spec_root: $repo
 EOF
 reviews refresh --program alpha --now 1000
-expect_rc "a program with no repository" 0
-line_in "a program with no repository degrades" "$snap" state unavailable "the program names no repository"
+expect_rc "a program with an empty repository list" 0
+line_in "an empty repository list is refused by the program read, and degrades" "$snap" state unavailable "the program's repositories cannot be read"
+
+setup
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$tmp/gone]
+program_alpha_spec_root: $repo
+EOF
+reviews refresh --program alpha --now 1000
+expect_rc "a program repository that is gone" 0
+line_in "a repository path that is gone degrades with a reason" "$snap" state unavailable "a program repository is not reachable"
+if [ "$(gh_calls)" = 0 ]; then ok "an unreachable repository costs no read"; else fail "gh called for an unreachable repository"; fi
+
+setup
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: relative/path
+program_alpha_spec_root: $repo
+EOF
+reviews refresh --program alpha --now 1000
+expect_rc "a program whose repositories cannot be read" 0
+line_in "an unreadable repository list degrades with its own reason" "$snap" state unavailable "the program's repositories cannot be read"
 
 setup
 reviews refresh --program nosuch --now 1000
