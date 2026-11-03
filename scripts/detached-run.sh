@@ -108,7 +108,9 @@ do_start() {
   runner_sh=${PLANWRIGHT_DETACHED_RUN_SH:-/bin/sh}
   # Every descriptor past stderr is closed, so no caller pipe waits on the
   # run. The caller's BASH_ENV reaches the run but never runs here, where it
-  # could print into the pid or hold the capture open.
+  # could print into the pid or hold the capture open. Inner arguments: $1
+  # marks BASH_ENV set, $2 its value, $3 the runner's stderr file, then the
+  # runner command.
   # shellcheck disable=SC2016,SC2097,SC2098 # expanded by the inner bash; the caller's BASH_ENV goes in as arguments on purpose
   pid=$(BASH_ENV='' bash -c '
     set -m
