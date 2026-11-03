@@ -4,6 +4,24 @@ export type PanelHeadroom = { dimension: string; used: number; limit: number; pe
 export type PanelWatcher = { duty: string; script: string; state: string; next: number | null }
 export type PanelSource = { cls: string; source: string; mode: string; age: number | null }
 export type PanelMeasure = { name: string; value: string; age: number | null }
+export type PanelMyPr = {
+  repo: string
+  number: number
+  isDraft: boolean
+  ci: string
+  unresolved: number
+  isHeadReviewed: boolean
+  reviewers: string[]
+  title: string
+}
+export type PanelAskedPr = { repo: string; number: number; isDraft: boolean; requester: string; age: number; title: string }
+export type PanelReviews = {
+  isAvailable: boolean
+  reason: string
+  age: number | null
+  mine: PanelMyPr[]
+  waiting: PanelAskedPr[]
+}
 
 export type PanelDigest = {
   taken: number
@@ -18,6 +36,8 @@ export type PanelDigest = {
   sources: PanelSource[]
   kbAge: number | null
   measures: PanelMeasure[]
+  // Null where the digest carried no reviews record.
+  reviews: PanelReviews | null
   isHandoverInstalled: boolean
   unreadable: string[]
   line: string

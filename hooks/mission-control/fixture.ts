@@ -40,6 +40,15 @@ export function digestText(o: { pending?: number; extra?: string[]; refresh?: nu
   ].join('\n')
 }
 
+// A reviews snapshot as the digest carries it: two of my PRs, one waiting
+// on my review.
+export const REVIEWS = [
+  tab('reviews', 'ok', 120),
+  tab('review-mine', 'acme/widgets', 7, 'ready', 'red', 2, 'yes', 'carol, core-team', 'Add the widget'),
+  tab('review-mine', 'acme/widgets', 8, 'draft', 'none', 0, 'no', '-', 'Fix the gadget'),
+  tab('review-waiting', 'acme/widgets', 12, 'draft', 'dave', 5400, 'Rework the docs'),
+]
+
 export const WAKE = ['wake\t1\te1000.ab12', 'mission control (alpha): 1 event(s) pending.', '- pr-ready pr-7'].join(
   '\n',
 )
@@ -105,6 +114,7 @@ export type Fixture = {
   emitExit: number
   rules: string
   rulesExit: number
+  reviewsExit: number
   isPlaced: boolean
   isDropped: boolean
   isEnvDenied: boolean
@@ -123,6 +133,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     emitExit: 0,
     rules: '<!-- rules begin -->\n- R1 never merge\n<!-- rules end -->',
     rulesExit: 0,
+    reviewsExit: 0,
     isPlaced: true,
     isDropped: false,
     isEnvDenied: false,
@@ -197,6 +208,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     if (script === 'mc-wake.sh' && verb === 'target') return answer('', argv.includes('--mod') ? fx.claimExit : 0)
     if (script === 'mc-event.sh' && verb === 'mark') return answer('', fx.markExit)
     if (script === 'mc-event.sh' && verb === 'emit') return answer('e1.ff', fx.emitExit)
+    if (script === 'mc-reviews.sh' && verb === 'refresh') return answer('written', fx.reviewsExit)
     if (script === 'mc-rules.sh') return answer(fx.rulesExit === 0 ? fx.rules : '', fx.rulesExit)
     return answer('')
   })

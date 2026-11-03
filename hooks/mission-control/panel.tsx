@@ -1,6 +1,6 @@
 import type { Elements, RenderSurface } from 'claude-code'
 
-import type { PanelView } from '../../types'
+import type { PanelReviews, PanelView } from '../../types'
 import { age } from './digest'
 
 type Table = Elements[RenderSurface]
@@ -10,6 +10,7 @@ const SWEEP = ['◜', '◝', '◞', '◟']
 
 const DECISIONS_SHOWN = 3
 const WATCHERS_SHOWN = 4
+const REVIEWS_SHOWN = 5
 
 function headroomTight(view: PanelView): string | null {
   const rows = view.digest?.headroom ?? []
@@ -74,6 +75,44 @@ function Section(t: Table, title: string, rows: string[], empty = '') {
   )
 }
 
+function capped(rows: string[]): string[] {
+  return rows.length > REVIEWS_SHOWN ? [...rows.slice(0, REVIEWS_SHOWN), `+${rows.length - REVIEWS_SHOWN} more`] : rows
+}
+
+// The repository is named only when the lists span more than one.
+function reviewSections(t: Table, r: PanelReviews) {
+  if (!r.isAvailable) return [Section(t, 'Reviews', [`Unavailable: ${r.reason || 'no reason given'}`])]
+  const isMulti = new Set([...r.mine, ...r.waiting].map(p => p.repo)).size > 1
+  const ref = (p: { repo: string; number: number; isDraft: boolean }) =>
+    `${isMulti ? p.repo : ''}#${p.number} ${p.isDraft ? 'draft' : 'ready'}`
+  const read = r.age === null ? '' : ` · read ${age(r.age)} ago`
+  return [
+    Section(
+      t,
+      `My open PRs (${r.mine.length})${read}`,
+      capped(
+        r.mine.map(p =>
+          [
+            ref(p),
+            p.ci === 'none' ? 'no CI' : `CI ${p.ci}`,
+            `${p.unresolved} unresolved`,
+            p.isHeadReviewed ? 'head reviewed' : 'head not reviewed',
+            p.reviewers.length > 0 ? `asks ${p.reviewers.join(', ')}` : 'no reviewer requested',
+            p.title,
+          ].join(' · '),
+        ),
+      ),
+      'No open pull requests.',
+    ),
+    Section(
+      t,
+      `Waiting on my review (${r.waiting.length})`,
+      capped(r.waiting.map(p => [ref(p), `from ${p.requester}`, age(p.age), p.title].join(' · '))),
+      'Nothing waiting on your review.',
+    ),
+  ]
+}
+
 export function Pane(t: Table, view: PanelView, isHeld: boolean) {
   const { Box, Text } = t
   const d = view.digest
@@ -127,6 +166,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
           ...(d.pending !== null ? [`${d.pending} event(s) inbound`] : []),
         ],
       )}
+      {d.reviews && reviewSections(t, d.reviews)}
       {Section(
         t,
         'Tower log',

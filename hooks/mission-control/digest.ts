@@ -25,6 +25,7 @@ export function parseDigest(text: string): PanelDigest | null {
     sources: [],
     kbAge: null,
     measures: [],
+    reviews: null,
     isHandoverInstalled: false,
     unreadable: [],
     line: '',
@@ -79,6 +80,45 @@ export function parseDigest(text: string): PanelDigest | null {
       case 'measure':
         d.measures.push({ name: f[1] ?? '-', value: f[2] ?? '', age: int(f[3]) })
         break
+      case 'reviews':
+        d.reviews = {
+          isAvailable: f[1] === 'ok',
+          reason: f[1] === 'ok' ? '' : (f[2] ?? ''),
+          age: f[1] === 'ok' ? int(f[2]) : null,
+          mine: [],
+          waiting: [],
+        }
+        break
+      case 'review-mine': {
+        const n = int(f[2])
+        if (d.reviews?.isAvailable && n !== null) {
+          d.reviews.mine.push({
+            repo: f[1] ?? '',
+            number: n,
+            isDraft: f[3] === 'draft',
+            ci: f[4] ?? 'none',
+            unresolved: int(f[5]) ?? 0,
+            isHeadReviewed: f[6] === 'yes',
+            reviewers: !f[7] || f[7] === '-' ? [] : f[7].split(', '),
+            title: f.slice(8).join(' '),
+          })
+        }
+        break
+      }
+      case 'review-waiting': {
+        const n = int(f[2])
+        if (d.reviews?.isAvailable && n !== null) {
+          d.reviews.waiting.push({
+            repo: f[1] ?? '',
+            number: n,
+            isDraft: f[3] === 'draft',
+            requester: f[4] ?? '-',
+            age: int(f[5]) ?? 0,
+            title: f.slice(6).join(' '),
+          })
+        }
+        break
+      }
       case 'handover':
         d.isHandoverInstalled = f[1] === 'available'
         break

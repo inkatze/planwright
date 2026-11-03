@@ -79,6 +79,14 @@ Usage:
                                              the interruption and
                                              settled-share measures, or
                                              measure - none|unreadable -
+        reviews<TAB>ok<TAB><age>             the reviews snapshot
+                                             (scripts/mc-reviews.sh) and
+                                             its age, or
+        reviews<TAB>unavailable<TAB><reason> with no rows following
+        review-mine<TAB><repo><TAB><number><TAB>draft|ready<TAB><ci>
+            <TAB><unresolved><TAB>yes|no<TAB><reviewers><TAB><title>
+        review-waiting<TAB><repo><TAB><number><TAB>draft|ready
+            <TAB><requester><TAB><seconds since requested><TAB><title>
         handover<TAB>available|absent        whether a handover verb is
                                              installed to defer a
                                              compaction for
@@ -408,6 +416,38 @@ measures() {
   fi
 }
 
+# The reviews snapshot scripts/mc-reviews.sh writes, its ages taken from
+# now; anything but a well-formed snapshot is unavailable, with the reason.
+reviews() {
+  rv=$runtime/reviews
+  if [ ! -e "$rv" ] && [ ! -L "$rv" ]; then
+    printf 'reviews\tunavailable\tno snapshot yet\n'
+    return 0
+  fi
+  if [ -L "$rv" ] || ! mc_format_ok "$rv"; then
+    printf 'reviews\tunavailable\tthe snapshot is unreadable\n'
+    return 0
+  fi
+  N=$NOW awk -F '\t' '
+    $1 == "taken" && $2 ~ /^[0-9]+$/ { taken = $2 + 0; has_taken = 1 }
+    $1 == "state" && !has_state { state = $2; reason = $3; has_state = 1 }
+    $1 == "mine" && NF >= 9 { mine[++m] = "review-mine\t" $2 "\t" $3 "\t" $4 "\t" $5 "\t" $6 "\t" $7 "\t" $8 "\t" $9 }
+    $1 == "waiting" && NF >= 7 && $6 ~ /^[0-9]+$/ {
+      age = ENVIRON["N"] - $6; if (age < 0) age = 0
+      waiting[++w] = "review-waiting\t" $2 "\t" $3 "\t" $4 "\t" $5 "\t" age "\t" $7
+    }
+    END {
+      if (!has_taken || (state != "ok" && state != "unavailable")) {
+        print "reviews\tunavailable\tthe snapshot is unreadable"; exit
+      }
+      if (state == "unavailable") { print "reviews\tunavailable\t" (reason == "" ? "no reason given" : reason); exit }
+      age = ENVIRON["N"] - taken; if (age < 0) age = 0
+      print "reviews\tok\t" age
+      for (i = 1; i <= m; i++) print mine[i]
+      for (i = 1; i <= w; i++) print waiting[i]
+    }' "$rv" | mc_clean_text
+}
+
 handover() {
   if [ -f "$script_dir/mc-handover.sh" ]; then
     printf 'handover\tavailable\n'
@@ -437,6 +477,7 @@ digest() {
   sources
   kb
   measures
+  reviews
   handover
   printf 'line\t%s\n' "$(the_line)"
 }

@@ -18,7 +18,7 @@ const DEFER_CEILING_PCT = 95
 const FAULT_MAX = 200
 
 // Change the tag when PanelView's fields change: a reload keeps $.state.
-const panel = atom({ plugin: 'planwright', key: 'panel' } as const, null, { shape: 'panel-2' })
+const panel = atom({ plugin: 'planwright', key: 'panel' } as const, null, { shape: 'panel-3' })
 const isBusy = atom({ plugin: 'planwright', key: 'isBusy' } as const, false)
 
 type Ctx = { program: string; target: string; root: string }
@@ -34,6 +34,7 @@ let isSubmitting = false
 let isRefreshing = false
 let isRaising = false
 let isClaimed = false
+let isFetchingReviews = false
 let hasKnobs = false
 // Faults the next good digest must not clear (an unclaimed target, events
 // that could not be marked, an activation that leaked), one per kind.
@@ -166,10 +167,25 @@ async function wake($: EngineInterface, isTick: boolean) {
   }
 }
 
+// Not awaited by the redraw: the script reads the forge at most once per
+// its TTL, and a slow read must not hold the digest.
+async function refreshReviews($: EngineInterface) {
+  if (!ctx || isFetchingReviews) return
+  isFetchingReviews = true
+  try {
+    const r = await run($, 'mc-reviews.sh', ['refresh', '--program', ctx.program])
+    if (r.ok && lasting.reviews) await lastingFault($, 'reviews', null)
+    if (!r.ok) await lastingFault($, 'reviews', `the reviews snapshot could not be refreshed: ${r.err}`)
+  } finally {
+    isFetchingReviews = false
+  }
+}
+
 async function refresh($: EngineInterface) {
   if (!ctx || isRefreshing) return
   isRefreshing = true
   try {
+    void refreshReviews($)
     // Knobs are read until a reading names all of them, then carried on.
     const withKnobs = !hasKnobs
     const args = ['digest', '--program', ctx.program, '--target', ctx.target]
