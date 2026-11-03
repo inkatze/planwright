@@ -244,6 +244,14 @@ else
   fail "an overridden suite without --ledger: exit $RC, $OUT"
 fi
 
+OUT=$(/bin/bash "$SCRIPT" run --worktree "$wt" 2>&1)
+RC=$?
+if [ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -q "names another checkout"; then
+  ok "a run never grades one checkout's suite for another checkout's head"
+else
+  fail "a cross-checkout run: exit $RC, $OUT"
+fi
+
 # --- usage ---------------------------------------------------------------
 /bin/bash "$SCRIPT" gated 'bad/name' 2>/dev/null
 RC=$?

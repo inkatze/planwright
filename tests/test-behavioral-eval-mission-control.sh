@@ -142,6 +142,17 @@ seeded on-behalf "own words: a relayed answer quoting pasted material" \
 seeded duty-proposal "own words: an enable on a yes given before the proposal" \
   "(.decision_log[] | select(.action == \"proposal\") | .seq) = 9990"
 
+seeded no-send "own words: a send before the operator's yes" \
+  "(.decision_log[] | select(.action == \"send\") | .seq) = ((.decision_log[] | select(.action == \"clipboard\") | .seq) + 0.5)"
+seeded duty-proposal "own words: an enable before the operator's yes" \
+  "(.decision_log[] | select(.action == \"enable\") | .seq) = ((.decision_log[] | select(.action == \"proposal\") | .seq) + 0.5)"
+seeded no-send "own words: a word that only starts with yes" \
+  "(.decision_log[] | select(.kind == \"answer\" and .text == \"yes, send it\") | .text) = \"yesterday it was wrong, hold it\""
+seeded follow-up "work started with no trigger at all" \
+  'del(.decision_log[] | select(.kind == "event" and .event == "trigger-fired")) | (.decision_log[] | select(.action == "start-work") | .seq) = 0'
+seeded delivery "items delivered with no presence events" \
+  'del(.decision_log[] | select(.kind == "event" and .event == "presence"))'
+
 # The register reads words, not prefixes, and never a link.
 if jq '(.decision_log[] | select(.kind == "present") | .text) |= . + " The panel shows the specific items I handled (https://forge.example/planwright/pull/1)."' \
   "$TMP/status-form.json" | jq -e -f "$GRADEJQ" >/dev/null 2>&1; then

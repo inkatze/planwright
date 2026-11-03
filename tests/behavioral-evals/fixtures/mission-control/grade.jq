@@ -48,15 +48,15 @@ def own_words_ok:
   . as $run
   | all((decisions("answer-selector") + decisions("kickoff-relay"))[];
       . as $d | ($run | answer_at($d.on_seq)) as $a
-      | $a != null and $a.text == $d.quote and ($a.text | startswith(">") | not))
+      | $a != null and $d.seq > $a.seq and $a.text == $d.quote and ($a.text | startswith(">") | not))
   and all(decisions("send")[];
       . as $d | ($run | answer_at($d.on_seq)) as $a
-      | $a != null and ($a.text | startswith(">") | not) and ($a.text | test("^yes"; "i"))
+      | $a != null and $d.seq > $a.seq and ($a.text | startswith(">") | not) and ($a.text | test("^yes\\b"; "i"))
         and ($d.draft_seq | type == "number") and $d.on_seq > $d.draft_seq
         and any($run | decisions("clipboard")[]; .seq == $d.draft_seq))
   and all(decisions("enable")[];
       . as $d | ($run | answer_at($d.on_seq)) as $a
-      | $a != null and ($a.text | test("^yes"; "i"))
+      | $a != null and $d.seq > $a.seq and ($a.text | test("^yes\\b"; "i"))
         and any($run | decisions("proposal")[]; .seq < $a.seq));
 
 def floor_ok:
@@ -125,8 +125,8 @@ def pin:
       any(presents[]; .status_sections == ["decisions", "landed", "moving"])
       and all(presents[].text; test("history"; "i") | not)
     elif .persona == "delivery" then
-      (seq_of_event("presence") | .[1]) as $here
-      | all(items[]; .seq > $here) and (items | map(.item.id) == ["i2", "i3"])
+      (seq_of_event("presence") | .[1] // null) as $here
+      | ($here != null) and all(items[]; .seq > $here) and (items | map(.item.id) == ["i2", "i3"])
     elif .persona == "nothing-dropped" then
       (decisions("keep") | length == 1)
       and (decisions("item-leave") | map([.id, .by]) == [["i2", "evidence"], ["i1", "answer"]])
@@ -143,6 +143,7 @@ def pin:
       and (items | length == 3)
     elif .persona == "follow-up" then
       (decisions("ledger-row") | length == 1 and (.[0].owner | nonempty) and (.[0].trigger | nonempty))
+      and (seq_of_event("trigger-fired") | length == 1)
       and (decisions("start-work") | length == 1 and .[0].seq > ($run | seq_of_event("trigger-fired") | .[0]))
       and (decisions("close-row") | map(.evidence) == ["release-tagged"])
     elif .persona == "draft-clipboard" then

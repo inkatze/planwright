@@ -224,6 +224,11 @@ do_run() {
   if [ "$suite_override" -eq 1 ] && [ "$ledger_given" -eq 0 ]; then
     mc_usage_fail "--fixture or --test-spec needs an explicit --ledger: an overridden suite never records for the head"
   fi
+  _wt_real=$(cd "$worktree" && pwd -P) || mc_usage_fail "cannot resolve $(sanitize_printable "$worktree")"
+  _root_real=$(cd "$root" && pwd -P) || mc_usage_fail "cannot resolve the script's checkout"
+  if [ "$_wt_real" != "$_root_real" ] && [ "$ledger_given" -eq 0 ]; then
+    mc_usage_fail "--worktree names another checkout than this script's: run that checkout's own script, so its own suite grades its head"
+  fi
   if [ "$suite_override" -eq 0 ]; then
     _dirty=$(git -C "$root" status --porcelain -- tests/behavioral-evals/fixtures/mission-control \
       specs/mission-control/test-spec.md scripts/behavioral-eval.sh 2>/dev/null) \
