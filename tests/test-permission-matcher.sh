@@ -384,14 +384,17 @@ else
   echo "FAIL: the shipped deny set parsed to zero Bash rules (REQ-A1.1)" >&2
   exit 1
 fi
-# A comment opening right after a subshell's close hides the quote the scanner
-# would otherwise pair across lines, and bash runs the line between (MB-10).
-hidden="(ls)#'${PM_NL}rm -rf build${PM_NL}ls \\'"
-if [ "$(pm_decide "$hidden")" = "prompt" ]; then
-  ok "a comment after a subshell's close is never reported allowed (MB-10)"
-else
-  fail "a comment after a subshell's close must not hide a command from the allow check"
-fi
+# A comment opening right after a subshell's close or a redirect operator hides
+# the quote the scanner would otherwise pair across lines, and the line between
+# is a command (MB-10).
+for opener in '(ls)' 'ls >' 'ls <'; do
+  hidden="$opener#'${PM_NL}rm -rf build${PM_NL}ls \\'"
+  if [ "$(pm_decide "$hidden")" = "prompt" ]; then
+    ok "a comment after '$opener' is never reported allowed (MB-10)"
+  else
+    fail "a comment after '$opener' must not hide a command from the allow check"
+  fi
+done
 
 # ---------------------------------------------------------------------------
 # Pass B — the fixture table.
@@ -581,6 +584,8 @@ prompt|residual|git status <(rm -rf build)|an unallowed command in a process sub
 prompt|residual|git status >(rm -rf build)|an unallowed command in a process substitution, output form (M9)
 prompt|residual|for f in a; do rm -rf build; done|an unallowed command in a loop body (M9)
 deny|load-bearing|FOO=${x:-a b} git push origin main|an assignment whose ${…} value holds a space is stripped whole (M7)
+deny|load-bearing|FOO=${x:-{} git push origin main|a bare { inside ${…} does not nest, so the value still ends at its } (M7)
+deny|load-bearing|FOO=${x:-) a} git push origin main|a ) inside ${…} closes nothing (M7)
 allow|residual|git push origin main>/dev/null|a redirect glued to the destination; the glob layer is literal (MA-4) — githooks/pre-push rejects the refspec
 prompt|residual|git push	origin main|a tab between words; the glob layer is literal (MA-4) — githooks/pre-push rejects the refspec
 allow|residual|git push origin x	--force|a tab before the force flag; the glob layer is literal (MA-4) and the policy guard decides

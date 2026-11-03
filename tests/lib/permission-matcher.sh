@@ -443,7 +443,7 @@ pm_subcommands() {
 pm_unlexed() {
   local s="$1" t
   case "$s" in
-    *"\$'"* | *"\\$PM_NL"* | *'\`'* | *'\$'* | '#'* | *' #'* | *"$PM_TAB#"* | *"$PM_NL#"* | *';#'* | *'&#'* | *'|#'* | *'(#'* | *')#'*) return 0 ;;
+    *"\$'"* | *"\\$PM_NL"* | *'\`'* | *'\$'* | '#'* | *' #'* | *"$PM_TAB#"* | *"$PM_NL#"* | *';#'* | *'&#'* | *'|#'* | *'(#'* | *')#'* | *'>#'* | *'<#'*) return 0 ;;
   esac
   t="${s//<<</}"
   case "$t" in
@@ -570,7 +570,7 @@ pm_trim() {
 # quote never closes is left unstripped: an unparseable command falls through to
 # the prompt, which is what the real matcher does with input it cannot parse.
 pm_strip_leading_assignments() {
-  local s="$1" name value rest i n c q tab depth
+  local s="$1" name value rest i n c q tab closers
   tab="$PM_TAB"
   while :; do
     # A leading assignment is a bare shell NAME, then `=`, then a value.
@@ -582,12 +582,14 @@ pm_strip_leading_assignments() {
     value="${s#"$name"=}"
 
     # Consume the value: quoted runs to their closing quote, a backslash escapes
-    # the next character, a `${…}` or `$(…)` runs to its close, and an unquoted
-    # space or tab outside them ends it.
+    # the next character, a `${…}` or `$(…)` runs to its own closer, and an
+    # unquoted space or tab outside them ends it. `closers` stacks the closer
+    # each open construct expects: inside `${…}` only `}` closes and a bare `{`
+    # never nests; inside `$(…)` a bare `(` nests and `}` closes nothing.
     i=0
     n=${#value}
     q=''
-    depth=0
+    closers=''
     while [ "$i" -lt "$n" ]; do
       c="${value:$i:1}"
       if [ -n "$q" ]; then
@@ -602,23 +604,27 @@ pm_strip_leading_assignments() {
           ;;
         '$')
           case "${value:$((i + 1)):1}" in
-            '{' | '(')
-              depth=$((depth + 1))
+            '{')
+              closers="}$closers"
+              i=$((i + 2))
+              ;;
+            '(')
+              closers=")$closers"
               i=$((i + 2))
               ;;
             *) i=$((i + 1)) ;;
           esac
           ;;
-        '{' | '(')
-          [ "$depth" -eq 0 ] || depth=$((depth + 1))
+        '(')
+          [ "${closers:0:1}" != ')' ] || closers=")$closers"
           i=$((i + 1))
           ;;
         '}' | ')')
-          [ "$depth" -eq 0 ] || depth=$((depth - 1))
+          [ "${closers:0:1}" != "$c" ] || closers="${closers:1}"
           i=$((i + 1))
           ;;
         ' ' | "$tab")
-          [ "$depth" -gt 0 ] || break
+          [ -n "$closers" ] || break
           i=$((i + 1))
           ;;
         \\) i=$((i + 2)) ;;
