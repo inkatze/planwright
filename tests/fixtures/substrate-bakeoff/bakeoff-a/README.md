@@ -56,19 +56,23 @@ these two entry points and by nothing else in the tree.
 
 `fixtures/lock/` and `fixtures/deps/` are the production differential set.
 The `deps` expectations were checked against `scripts/spec-model.sh`, the
-production reader, before any candidate ran; `real-bundle` is this bundle's
-own `tasks.md` at the time of recording. Lock state is seeded through each
-fixture's `links` file, so the repository tracks no symlink. A live owner is
-pid 1 with a mint time far in
-the future, and a dead one a pid wider than any the matrix assigns.
+production reader, before any candidate ran (stdout; the exit statuses
+follow `scripts/spec-parse.sh`'s fail-closed fence rule, which `spec-model.sh`
+does not apply, so `unclosed-fence` expects 3 where it exits 0);
+`real-bundle` is universal-binary's own `tasks.md` at the time of recording.
+Lock state is seeded through each fixture's `links` file, so the repository
+tracks no symlink. A live owner is pid 1 with a mint time far in the future,
+and a dead one a pid larger than any the matrix assigns.
 
 Only stdout and the exit status are compared; stderr is not.
 
 ## The logs
 
 - `implementation-time.tsv`: per full candidate, the moment its
-  implementation started and the moment it first passed every fixture under
-  a differential run, both read from the clock as they happened. The
+  implementation started (standing in for the schema's dispatch time, since
+  one worker wrote all three in turn) and the moment it first passed every
+  fixture under a differential run, both read from the clock as they
+  happened. The
   fixtures were written before any of them and are not in any candidate's
   time. One automated worker wrote the candidates in turn (shell, Go, Rust),
   so the later two inherit the contract the first settled; the times measure
@@ -79,12 +83,14 @@ Only stdout and the exit status are compared; stderr is not.
 
 ## Known limits of the prototypes
 
-- Outside Linux, the compiled lock prototypes skip the recycled-pid check
-  (they read process start times from procfs only) and fall back to the pid
-  alone, which `lock-lib.sh` also does wherever it cannot read a start time.
-  The shell candidate asks `ps` on macOS. No fixture distinguishes the two.
-- The compiled prototypes mint tokens with an empty uptime field outside
-  Linux, where the shell candidate reads pid 1's elapsed time instead.
+- Outside Linux, or on a Linux host whose procfs is unreadable, the
+  compiled lock prototypes skip the recycled-pid check (they read process
+  start times from procfs only) and fall back to the pid alone, which
+  `lock-lib.sh` also does wherever it cannot read a start time. The shell
+  candidate asks `ps` instead. No fixture distinguishes the two.
+- The compiled prototypes mint tokens with an empty uptime field wherever
+  `/proc/uptime` is unreadable, where the shell candidate reads pid 1's
+  elapsed time instead.
 - Latencies are fork-to-reap times on whatever host ran the report, under
   that host's load at the time; compare candidates within one report, not
   across reports.

@@ -436,13 +436,16 @@ Signed off: 2026-09-09
 ### Research findings — Task 6 (bake-off A, 2026-11-02)
 
 Appended by the executing worker (research triggers: new toolchains, a
-licence screen). Depth: proportionate to a prototype; sources are the
-toolchains' own release metadata and documentation, read at build time.
+licence screen). Depth: proportionate to a prototype. Sources, read at
+build time: each installed toolchain's own licence files (Go's `LICENSE` in
+its root, Zig's `LICENSE`, Rust's `share/doc/rust/licenses`), the build
+host's glibc copyright file, and Bun's licence documentation for the
+JavaScriptCore it embeds.
 
 - **Toolchains.** The bake-off names its own toolchain versions in
   `tests/fixtures/substrate-bakeoff/bakeoff-a/README.md` rather than adding
   them to the project's pinned development tools, so contributors and CI do
-  not pull four compilers for an on-demand measurement. Rust runs as `rustc` alone:
+  not pull the bake-off's compilers for an on-demand measurement. Rust runs as `rustc` alone:
   no candidate uses a crate, so no manifest or lockfile enters the tree.
 - **Licences (R10 early signal).** Go's runtime is BSD-3-Clause, Rust's
   standard library MIT or Apache-2.0, Zig's MIT: all compatible with
@@ -453,7 +456,7 @@ toolchains' own release metadata and documentation, read at build time.
   relinking obligation. Bun is a comparison point and ships nothing, so the
   screen admits it and records the obligation as a precondition of any
   promotion (`docs/substrate-screen.md`).
-- **Zig's moving API.** The trivial program needed Zig 0.17's new entry
+- **Zig's moving API.** The trivial program needed the pinned Zig's new entry
   point and writer types; the screen record carries it as evidence for the
   pre-1.0 caveat D-6 already names.
 - **Static linking.** Go links statically by default. Rust needs the C
