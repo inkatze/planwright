@@ -122,9 +122,9 @@ op_sections="first-run state-sources duties proposals preferences resume handove
 check_walk() {
   have=$(slugs "$1")
   for s in $op_sections; do
-    printf '%s\n' "$have" | grep -q "^$s" || printf 'section: %s\n' "$s"
+    printf '%s\n' "$have" | grep -qx "$s" || printf 'section: %s\n' "$s"
   done
-  flat=$(tr '\n' ' ' <"$1" | norm)
+  flat=$(awk '/^## First run$/ { f = 1; next } /^## / { f = 0 } f' "$1" | tr '\n' ' ' | norm)
   for step in "repositories" "where your specs live" "signed in" "where the state" "duties" "quiet hours"; do
     n=$(printf '%s\n' "$step" | norm)
     case $flat in *"$n"*) ;; *) printf 'first-run step: %s\n' "$step" ;; esac
@@ -171,6 +171,10 @@ printf 'Type `/mission-control`; see [the reference](options-reference.md).\n' >
 if [ -z "$(check_register "$probe/op.md")" ]; then ok "probe: the operator's own command and a link target pass"; else fail "probe: a clean line was refused"; fi
 printf '## First run\n' >"$probe/op.md"
 if [ -n "$(check_walk "$probe/op.md")" ]; then ok "probe: a short walk is caught"; else fail "probe: a short walk passed"; fi
+printf '## First run notes\n\n## State sources\n\nrepositories, where your specs live, signed in, where the state, duties, quiet hours.\n\n## Duties\n## Proposals\n## Preferences\n## Resume\n## Handover\n' >"$probe/op.md"
+out=$(check_walk "$probe/op.md")
+case $out in *"section: first-run"*) ok "probe: a near-miss section heading is caught" ;; *) fail "probe: a near-miss section heading passed" ;; esac
+case $out in *"first-run step: repositories"*) ok "probe: a first-run step outside First run is caught" ;; *) fail "probe: a first-run step outside First run passed" ;; esac
 
 if [ "$failures" -ne 0 ]; then
   printf '%d check(s) failed\n' "$failures" >&2
