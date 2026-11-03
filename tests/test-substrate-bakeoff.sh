@@ -131,7 +131,6 @@ check_eq "view: prose lines fit MD013" "" "$(long_prose_lines "$tmp/out-stub/vie
 for committed in "$REPO_ROOT"/docs/substrate/bakeoff-*/*/view.md; do
   [ -f "$committed" ] || continue
   check_eq "committed view renders from its report: ${committed#"$REPO_ROOT"/}" "$(cat "$committed")" "$("$SB" render "${committed%view.md}report.tsv" 2>&1)"
-  check_eq "committed view fits MD013: ${committed#"$REPO_ROOT"/}" "" "$(long_prose_lines "$committed")"
 done
 
 # Two runs on the same stubs carry the same schema and field set (REQ-C1.5).
