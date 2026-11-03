@@ -32,33 +32,51 @@ trap 'rm -rf "$tmp"' EXIT
 
 # --- the shell candidate on the production differential set ----------------
 
-n=0
+# Staged the way the harness stages a fixture: files/, then links (parents
+# made), the fixture's stdin, and a fresh home that is also TMPDIR. A last
+# line without its newline still counts.
+nlock=0
+ndeps=0
 for fx in "$BAKEOFF"/fixtures/*/*/; do
+  [ -d "$fx" ] || continue
   fx=${fx%/}
   prim=${fx%/*}
   prim=${prim##*/}
   name="$prim/${fx##*/}"
-  work="$tmp/fx.$n"
-  n=$((n + 1))
+  case $prim in
+    lock) nlock=$((nlock + 1)) ;;
+    deps) ndeps=$((ndeps + 1)) ;;
+  esac
+  work="$tmp/fx.$((nlock + ndeps))"
   mkdir "$work" "$work.home"
-  [ -d "$fx/files" ] && cp -R "$fx/files/." "$work/"
+  if [ -d "$fx/files" ] && ! cp -R "$fx/files/." "$work/"; then
+    bad "shell candidate: $name (could not stage files/)"
+    continue
+  fi
   if [ -f "$fx/links" ]; then
-    while IFS="$(printf '\t')" read -r lname ltarget; do ln -s "$ltarget" "$work/$lname"; done <"$fx/links"
+    while IFS="$(printf '\t')" read -r lname ltarget || [ -n "$lname" ]; do
+      if ! { mkdir -p "$(dirname "$work/$lname")" && ln -s "$ltarget" "$work/$lname"; }; then
+        bad "shell candidate: $name (could not link $lname)"
+      fi
+    done <"$fx/links"
   fi
   set --
   if [ -f "$fx/args" ]; then
-    while IFS= read -r a; do set -- "$@" "$a"; done <"$fx/args"
+    while IFS= read -r a || [ -n "$a" ]; do set -- "$@" "$a"; done <"$fx/args"
   fi
-  (cd "$work" && env -i PATH="$PATH" LC_ALL=C HOME="$work.home" "$SHELL_CAND/bin/$prim" "$@" </dev/null >"$work.out" 2>/dev/null)
+  stdin=/dev/null
+  [ -f "$fx/stdin" ] && stdin=$fx/stdin
+  (cd "$work" && env -i PATH="$PATH" LC_ALL=C HOME="$work.home" TMPDIR="$work.home" "$SHELL_CAND/bin/$prim" "$@" <"$stdin" >"$work.out" 2>"$work.err")
   st=$?
   want=$(cat "$fx/expected-status")
   if [ "$st" = "$want" ] && cmp -s "$work.out" "$fx/expected-stdout"; then
     ok "shell candidate: $name"
   else
-    bad "shell candidate: $name (status $st, expected $want; stdout differs: $(cmp -s "$work.out" "$fx/expected-stdout" && echo no || echo yes))"
+    bad "shell candidate: $name (status $st, expected $want; stdout differs: $(cmp -s "$work.out" "$fx/expected-stdout" && echo no || echo yes); stderr: $(cat "$work.err"))"
   fi
 done
-if [ "$n" -gt 0 ]; then ok "the fixture set is not empty"; else bad "the fixture set is not empty"; fi
+if [ "$nlock" -gt 0 ]; then ok "the lock fixture set is not empty"; else bad "the lock fixture set is not empty"; fi
+if [ "$ndeps" -gt 0 ]; then ok "the deps fixture set is not empty"; else bad "the deps fixture set is not empty"; fi
 
 # --- delivery writes nothing that outlives it --------------------------------
 
