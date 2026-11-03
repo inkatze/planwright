@@ -6,11 +6,11 @@
 #   writer        the ~/.claude/ writer copies files with their modes, so the
 #                 installed copy is run directly.
 #   marketplace   the plugin marketplace copy is reported to strip execute
-#                 bits (risk R2), so every installed file is made
+#                 bits, so every installed file is made
 #                 non-executable first. Shell then runs through `sh`, as a hook
 #                 or skill must call it. A compiled artifact cannot run from
-#                 that copy at all; it runs only by the fetch path design D-9
-#                 names, which places it in the plugin data directory and marks
+#                 that copy at all; it runs only by the planned fetch path,
+#                 which places it in the plugin data directory and marks
 #                 it executable, and that step is what this mode simulates. No
 #                 release exists to fetch from at prototype scope, so the
 #                 download and checksum steps are not exercised.
@@ -20,6 +20,13 @@
 set -eu
 unset CDPATH
 mode=$1
+case $mode in
+  marketplace | writer) ;;
+  *)
+    printf '%s\n' "deliver.sh: unknown delivery mode: $mode" >&2
+    exit 2
+    ;;
+esac
 cand=$(cd "$2" && pwd)
 root=$(cd "$cand/../../../../../.." && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/deliver.XXXXXX")
