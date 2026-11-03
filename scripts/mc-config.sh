@@ -444,7 +444,7 @@ v_add() {
   shift
   mc_valid_program "$ad_p" || mc_usage_fail "invalid program name '$(sanitize_printable "$ad_p")'"
   ad_keys=()
-  ad_repos='' ad_root=''
+  ad_repos='' ad_root='' ad_seen=' '
   while [ $# -gt 0 ]; do
     [ $# -ge 2 ] || usage
     case $1 in
@@ -456,6 +456,8 @@ v_add() {
       --budget) ad_f=budget ;;
       *) usage ;;
     esac
+    case $ad_seen in *" $ad_f "*) mc_usage_fail "$1 is given more than once" ;; esac
+    ad_seen="$ad_seen$ad_f "
     check_value "$2"
     ad_keys+=("$(pkey "$ad_p" "$ad_f")" "$2")
     shift 2

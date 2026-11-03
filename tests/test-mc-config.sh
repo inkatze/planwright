@@ -201,6 +201,11 @@ expect_rc "a program block that does not validate is refused" 1
 if [ "$(sum "$layer")" = "$before" ]; then ok "the refused block left the layer as it was"; else fail "the refused block was written"; fi
 cfg add alpha --repositories "[$repo]"
 expect_rc "a program block without its spec root is a usage error" 2
+before=$(sum "$layer")
+cfg add alpha --repositories "[$repo]" --spec-root "$repo/specs" --spec-root "$tmp/other"
+expect_rc "a field given twice is a usage error" 2
+expect_err "the refusal names the repeated flag" "--spec-root"
+if [ "$(sum "$layer")" = "$before" ]; then ok "the repeated field left the layer as it was"; else fail "the repeated field was written"; fi
 
 cfg add alpha --repositories "[$repo]" --spec-root "$repo/specs" --home "$tmp/mc-home/alpha" --duties "[alpha-duty]"
 expect_rc "REQ-F1.12: the program block is written" 0
