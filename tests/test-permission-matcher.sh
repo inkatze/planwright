@@ -384,6 +384,14 @@ else
   echo "FAIL: the shipped deny set parsed to zero Bash rules (REQ-A1.1)" >&2
   exit 1
 fi
+# A comment opening right after a subshell's close hides the quote the scanner
+# would otherwise pair across lines, and bash runs the line between (MB-10).
+hidden="(ls)#'${PM_NL}rm -rf build${PM_NL}ls \\'"
+if [ "$(pm_decide "$hidden")" = "prompt" ]; then
+  ok "a comment after a subshell's close is never reported allowed (MB-10)"
+else
+  fail "a comment after a subshell's close must not hide a command from the allow check"
+fi
 
 # ---------------------------------------------------------------------------
 # Pass B — the fixture table.
@@ -565,6 +573,20 @@ prompt|residual|git status; case x in a) rm -rf build;; esac|a case statement's 
 allow|legit|git status "$(git rev-parse --show-toplevel)"|a substitution whose every command is allowed (M9)
 prompt|residual|ls $((1 + 2))|arithmetic reads as a substitution holding a group, so the model asks for an allow rule it cannot find; conservative (M9)
 prompt|residual|ls $(ls $(ls $(ls $(ls $(ls $(ls $(ls $(ls $(ls x))))))))))|nesting past the model's depth bound reports no allow for the uninspected command (M9)
+prompt|residual|( (ls) ) >$(rm -rf build)|a substitution after a nested group's close is still read (M9)
+prompt|residual|(rm -rf build) && git status|an unallowed command in a subshell beside an allowed one is never reported allowed (M9)
+prompt|residual|{ rm -rf build; } && ls|an unallowed command in a brace group, the same (M9)
+prompt|residual|git status $(rm -rf build)|an unallowed command in a command substitution, the same (M9)
+prompt|residual|git status <(rm -rf build)|an unallowed command in a process substitution, input form (M9)
+prompt|residual|git status >(rm -rf build)|an unallowed command in a process substitution, output form (M9)
+prompt|residual|for f in a; do rm -rf build; done|an unallowed command in a loop body (M9)
+deny|load-bearing|FOO=${x:-a b} git push origin main|an assignment whose ${…} value holds a space is stripped whole (M7)
+allow|residual|git push origin main>/dev/null|a redirect glued to the destination; the glob layer is literal (MA-4) — githooks/pre-push rejects the refspec
+prompt|residual|git push	origin main|a tab between words; the glob layer is literal (MA-4) — githooks/pre-push rejects the refspec
+allow|residual|git push origin x	--force|a tab before the force flag; the glob layer is literal (MA-4) and the policy guard decides
+allow|residual|git push -u origin -vf topic|a short force flag bundled with another; the deny globs name -f on its own, and the policy guard reads bundled flags
+allow|residual|git push -u origin refs/heads/*:refs/heads/*|a wildcard refspec can reach main; the policy guard refuses it
+allow|residual|git push -u origin --prune refs/heads/*:refs/heads/*|--prune with a wildcard refspec deletes remote branches; the policy guard counts it as a bulk push
 deny|load-bearing|if git status; then git push origin main; fi|an if-then body (M9)
 deny|load-bearing|if false; then true; else git reset --hard origin/main; fi|an else body (M9)
 deny|load-bearing|if false; then true; elif git push origin main; then true; fi|an elif condition (M9)
@@ -623,7 +645,7 @@ MATCH_SETS=()
 match_n=0
 
 # deny_match_indices <command> — print the indices of every deny rule matching
-# any subcommand of the command, space separated.
+# any deny subject of the command (the set pm_decide sweeps), space separated.
 deny_match_indices() {
   local sub stripped i out=""
   while IFS= read -r sub; do
@@ -640,7 +662,7 @@ deny_match_indices() {
       i=$((i + 1))
     done
   done <<EOF
-$(pm_subcommands "$1")
+$(pm_deny_subjects "$1")
 EOF
   printf '%s' "${out# }"
 }
@@ -925,10 +947,10 @@ WRAPPER_VERBS='command builtin env sudo time timeout nice nohup stdbuf noglob ex
 FORBIDDEN_GIT='diff diff-tree diff-index diff-files log show whatchanged shortlog reflog format-patch range-diff rev-list stash grep cat-file'
 # The git subcommands a static rule has been reviewed for; any other needs its
 # write and execution forms checked here before it joins the profile.
-REVIEWED_GIT='status diff log show rev-parse branch checkout switch add commit push ls-files ls-tree merge-base show-ref for-each-ref'
+REVIEWED_GIT='status rev-parse checkout switch add commit push ls-files ls-tree merge-base show-ref for-each-ref'
 # Rules that predate the no-write-forms rule and keep their write forms: kept,
 # never widened, and no new rule may join them.
-GRANDFATHERED='Bash(git diff:*) Bash(git log:*) Bash(git show:*)'
+GRANDFATHERED='Bash(git diff:*) Bash(git log:*) Bash(git show:*) Bash(git branch:*)'
 
 # forbidden_allow_rules <rule-lines> — print each Bash allow rule that names a
 # forbidden or wrapper verb, a verb that is not a plain word (a glob, a path,
@@ -1084,7 +1106,7 @@ deny|load-bearing|Edit|/home/u/.claude/plugins/data/planwright-planwright/overla
 deny|load-bearing|Read|/proc/1234/environ|another process's environment (REQ-E1.6)
 deny|load-bearing|Read|/proc/1234/task/1235/environ|a thread's environment (REQ-E1.6)
 deny|load-bearing|Edit|/proc/1234/environ|a Read deny blocks the edit tools on the same path too
-deny|overblock|Edit|/work/repo/.claude/worktrees/w1/tests/fixtures/entry-points/githooks/pre-push/args|a single-segment directory deny matches at any depth (M10), so a nested githooks/ fixture is refused to the file tools too; fail-safe
+deny|overblock|Edit|/work/repo/.claude/worktrees/w1/tests/fixtures/entry-points/githooks/pre-push/args|the root-anchored //**/ prefix matches the directory at any depth (M10), so a nested githooks/ fixture is refused to the file tools too; fail-safe
 deny|overblock|Read|/proc/self/environ|the worker's own environment is denied to the Read tool too; env and printenv still print it
 allow|legit|Edit|/work/repo/.claude/worktrees/w1/scripts/x.sh|editing a repo script stays allowed (REQ-F1.6 trusted-checkout residual)
 allow|legit|Write|/work/repo/.claude/worktrees/w1/tests/test-x.sh|writing a repo test stays allowed

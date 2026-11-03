@@ -16,8 +16,9 @@
 #   Modeled behavior version: Claude Code CLI 2.1.314 / docs as of 2026-11-01.
 #
 # Sourced, not executed:  . tests/lib/permission-matcher.sh
-# Portable bash 3.2 (no associative arrays, no mapfile); no forks in the hot
-# path — patterns are compiled to EREs once and matched with [[ =~ ]].
+# Portable bash 3.2 (no associative arrays, no mapfile). Patterns are compiled
+# to EREs once and matched with [[ =~ ]], so rule matching never forks; reading
+# a command's structure forks per decision.
 #
 # Public interface
 #   pm_load_rules <deny-lines> <ask-lines> <allow-lines>
@@ -59,7 +60,7 @@ PM_NL='
 
 # pm_glob_to_ere <glob> — escape ERE metacharacters, then map `*` to `.*`.
 # Pure bash: this runs once per rule, and the fixture/mutation passes reuse the
-# compiled result, so no subprocess ever enters the matching loop.
+# compiled result, so no subprocess enters the rule-matching loop.
 pm_glob_to_ere() {
   local glob="$1" out="" i c
   i=0
@@ -235,7 +236,7 @@ pm_scan_step() {
 #
 # A command whose quotes, parentheses, or backticks never close is not read
 # for structure at all: its atoms (pm_atoms) are printed, then
-# PM_NEST_SENTINEL, which no allow rule matches (doc MB-3).
+# PM_NEST_SENTINEL, which no allow rule matches (doc M9).
 pm_split_command() {
   local s="$1" out="" cur="" i n two c
   n=${#s}
@@ -442,7 +443,7 @@ pm_subcommands() {
 pm_unlexed() {
   local s="$1" t
   case "$s" in
-    *"\$'"* | *"\\$PM_NL"* | *'\`'* | *'\$'* | '#'* | *' #'* | *"$PM_TAB#"* | *"$PM_NL#"* | *';#'* | *'&#'* | *'|#'* | *'(#'*) return 0 ;;
+    *"\$'"* | *"\\$PM_NL"* | *'\`'* | *'\$'* | '#'* | *' #'* | *"$PM_TAB#"* | *"$PM_NL#"* | *';#'* | *'&#'* | *'|#'* | *'(#'* | *')#'*) return 0 ;;
   esac
   t="${s//<<</}"
   case "$t" in
@@ -484,9 +485,10 @@ pm_subcommands_at() {
     rest="$sub"
     case "$sub" in
       '('*)
+        # Read both globals before recursing: a nested group overwrites them.
         pm_group_split "$sub"
-        pm_subcommands_at "$PM_G_IN" $((d + 1))
         rest="$PM_G_REST"
+        pm_subcommands_at "$PM_G_IN" $((d + 1))
         head=1
         ;;
     esac
@@ -513,8 +515,14 @@ EOF
 # the command as written and with its line continuations joined, as the
 # shell joins them.
 pm_deny_subjects() {
-  local a rc joined
   pm_subcommands "$1"
+  pm_atom_subjects "$1"
+}
+
+# pm_atom_subjects <command> — the atom half of pm_deny_subjects, for a caller
+# that already holds the subcommands.
+pm_atom_subjects() {
+  local a rc joined
   joined="${1//\\$PM_NL/}"
   while IFS= read -r a; do
     a="$(pm_trim "$a")"
@@ -562,7 +570,7 @@ pm_trim() {
 # quote never closes is left unstripped: an unparseable command falls through to
 # the prompt, which is what the real matcher does with input it cannot parse.
 pm_strip_leading_assignments() {
-  local s="$1" name value rest i n c q tab
+  local s="$1" name value rest i n c q tab depth
   tab="$PM_TAB"
   while :; do
     # A leading assignment is a bare shell NAME, then `=`, then a value.
@@ -574,10 +582,12 @@ pm_strip_leading_assignments() {
     value="${s#"$name"=}"
 
     # Consume the value: quoted runs to their closing quote, a backslash escapes
-    # the next character, and an unquoted space or tab ends it.
+    # the next character, a `${…}` or `$(…)` runs to its close, and an unquoted
+    # space or tab outside them ends it.
     i=0
     n=${#value}
     q=''
+    depth=0
     while [ "$i" -lt "$n" ]; do
       c="${value:$i:1}"
       if [ -n "$q" ]; then
@@ -590,7 +600,27 @@ pm_strip_leading_assignments() {
           q="$c"
           i=$((i + 1))
           ;;
-        ' ' | "$tab") break ;;
+        '$')
+          case "${value:$((i + 1)):1}" in
+            '{' | '(')
+              depth=$((depth + 1))
+              i=$((i + 2))
+              ;;
+            *) i=$((i + 1)) ;;
+          esac
+          ;;
+        '{' | '(')
+          [ "$depth" -eq 0 ] || depth=$((depth + 1))
+          i=$((i + 1))
+          ;;
+        '}' | ')')
+          [ "$depth" -eq 0 ] || depth=$((depth - 1))
+          i=$((i + 1))
+          ;;
+        ' ' | "$tab")
+          [ "$depth" -gt 0 ] || break
+          i=$((i + 1))
+          ;;
         \\) i=$((i + 2)) ;;
         *) i=$((i + 1)) ;;
       esac
@@ -1080,7 +1110,8 @@ EOF
 # ordering. The deny and ask sweeps read pm_deny_subjects; allow reads the
 # structured subcommands, every one of which must match.
 pm_decide() {
-  local sub stripped i matched any stripped_all=""
+  local sub stripped i matched any stripped_all="" subs
+  subs="$(pm_subcommands "$1")"
 
   while IFS= read -r sub; do
     [ -n "$sub" ] || continue
@@ -1095,7 +1126,8 @@ pm_decide() {
       i=$((i + 1))
     done
   done <<EOF
-$(pm_deny_subjects "$1")
+$subs
+$(pm_atom_subjects "$1")
 EOF
 
   if [ "$PM_ASK_N" -gt 0 ]; then
@@ -1132,7 +1164,7 @@ EOF
       return 0
     fi
   done <<EOF
-$(pm_subcommands "$1")
+$subs
 EOF
 
   if [ "$any" -eq 1 ]; then printf 'allow'; else printf 'prompt'; fi
