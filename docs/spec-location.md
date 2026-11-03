@@ -165,7 +165,7 @@ handoff names. No execution skill commits, branches, or pushes in the holder.
 PR for it) when you act on the halt; in `plain` there is nothing to commit,
 and the edited file is the record.
 
-## Dispatching from a holder
+## Running from a holder
 
 `/orchestrate` (its meta-step included) can run in a holder checkout as well
 as in a work repository. Each task dispatches into its own work repository,
@@ -176,7 +176,71 @@ and the per-spec lock stay with the bundle, so a holder session and a work
 repository session see the same units in flight, and the freshness gate
 reads the bundle from the holder's default branch.
 
-Which repository a task goes to:
+### The work-repository registry
+
+A holder knows nothing about where its projects' checkouts sit on this
+machine. The **work-repository registry** answers that: a machine-local map
+from a marked root to the work repositories whose `spec_root` names it, each
+under an alias. It is **runtime state**, not configuration: it lives in the
+plugin data home (`$CLAUDE_PLUGIN_DATA/work-repos/`), is never committed, and
+is a cache rather than a source of truth. Every read rechecks each entry
+against the repository's own `spec_root` and the root's marker, and drops one
+whose checkout is gone or is no longer a primary checkout, whose `spec_root`
+no longer names the root, or whose root has lost its marker or now names
+another project in it. Nothing is registered, and no
+registry file is created, while a repository's spec root is the default.
+
+**Registration.** Opening a session in a work repository whose `spec_root`
+names a marked root registers it, under the marker's `project:` and the
+repository's alias. The hook is silent on success; when it cannot register,
+it prints one line into the session context, `planwright: this repository is
+not registered for holder dispatch: <reason>`. To register by hand, run
+`scripts/work-repo-registry.sh register` in the work repository. A holder
+records itself with `register --root <dir>`, naming a marked root it
+contains; a holder entry lets a lookup recognise the holder's alias, but a
+holder never receives a dispatch.
+
+**The alias.** A repository registers under the `repository_alias` option
+when its repo-tracked config (`.claude/planwright.yml`) sets it, and
+otherwise under its `origin` remote's repository name, lowercased with `.git`
+stripped. The alias is written into committed task blocks, so every clone
+must agree on it: a value in a machine-local or adopter layer is ignored with
+a warning. Either form must be a spec identifier. A repository with no
+`origin` remote, or one whose name falls outside the grammar, is refused,
+and the refusal names `repository_alias` as the fix. The option's full rules
+are in its row of the [options reference](options-reference.md).
+
+**After a move or on a new machine.** Entries for moved or missing checkouts
+fail the recheck and drop out on their own. Rebuild the registry with
+`scripts/work-repo-registry.sh scan <dir>...`, naming the directories that
+hold your checkouts: it registers every git checkout at most three levels
+below each as a work repository, so re-run `register --root` in each holder.
+A deleted registry file is rebuilt the same way, and opening a session in
+each work repository re-registers it too.
+`scripts/work-repo-registry.sh lookup --explain --root <root>` prints every
+entry with its verdict, which is the first thing to read when a dispatch
+refuses.
+
+### Which repository a task goes to
+
+A task names its repository with an optional `Repository:` bullet, placed
+after `Citations:`, holding one alias:
+
+```markdown
+- **Citations:** D-3 · REQ-B1.2
+- **Repository:** alpha
+- **Estimated effort:** 1 day
+```
+
+The field is format-version 3's one addition, so a bundle that uses it
+declares `**Format-version:** 3`. The field resolves only under a marked
+root: elsewhere the validator warns and the task derives
+`repository-unresolved`. A task names exactly one repository; work spanning two splits into
+tasks joined by `Dependencies:` edges, which may cross repositories. Adding
+or changing the field is a definition edit that moves the content anchor.
+The field's full rules are in the
+[`spec-format`](../doctrine/spec-format.md) meta-spec (*Format-version 3 —
+per-task repositories*).
 
 - A task carrying a `Repository: <alias>` field (format-version 3) goes to
   the checkout registered under that alias, from any session.
@@ -190,14 +254,39 @@ Which repository a task goes to:
   committed bundle, so a `Repository:` field that differs between the two
   parks the task, with nothing created; commit or revert the edit.
 
-The registry is filled at session start in each work repository (see
-`repository_alias` in the [options reference](options-reference.md)); run
-`scripts/work-repo-registry.sh scan <dir>` to rebuild it. From the holder,
-derivation reads each named task from its own repository. While the holder
-has no single registered work repository, a task naming none derives
-`repository-unresolved` and is never selected, and a bundle in which no task
-names one does not derive at all: the status render and the selector stop,
-naming the candidates.
+From the holder, derivation reads each named task from its own repository.
+A task whose alias does not resolve on this machine derives
+`repository-unresolved` and is never selected; it never falls back to
+another repository. While the holder has no single registered work
+repository, a task naming none derives the same way, and a bundle in which
+no task names one does not derive at all: the status render and the
+selector stop, naming the candidates.
+
+### What a refusal names
+
+A refusal says why and what to do, and creates nothing:
+
+- **An alias no live entry answers to**: either no repository is registered
+  under it (register in its checkout, or `scan`), or every entry for it
+  failed the recheck (`lookup --explain` says which check, then register
+  again). The message lists the work repositories that are registered
+  against the root, as `alias (checkout)`.
+- **An ambiguous alias**: two live checkouts registered under one alias. The
+  refusal names both; remove one, or give one a distinct
+  `repository_alias`.
+- **A holder's alias**: a holder never receives a dispatch, so naming one is
+  refused with the registered work repositories listed.
+- **No single home for an unnamed task**: in a holder session, none or
+  several work repositories registered against the root. The refusal lists
+  the candidates; give each such task a `Repository:` field, or register the
+  one repository.
+- **A root without a marker**: only a marked root has registered
+  repositories, so the refusal names the marker file.
+
+A script caller recognises all of these by one exit status, not one each:
+`resolve-work-repo.sh` exits 5 for any alias, task, or holder bundle that
+resolves to nothing, distinct from its usage exit 2, and the message on
+stderr says which case it was; the full table is in its header.
 
 ## Named observation targets
 
