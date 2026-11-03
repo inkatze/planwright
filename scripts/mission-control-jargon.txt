@@ -7,8 +7,10 @@
 # identifiers, file names, configuration keys and commands are refused by
 # shape, not listed. A skill name is said only when the operator must run
 # that skill themselves, which a reader of this list cannot tell, so every
-# skill name but mission control's own is listed.
+# skill name but mission control's own is listed here or in the tower's
+# list, save one that is an ordinary word (resume).
 bot-review
+builder
 cohesion bundle
 dispatch
 execute-task

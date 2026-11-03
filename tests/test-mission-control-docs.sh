@@ -2,16 +2,13 @@
 # Structural guard over mission control's doctrine and operator docs
 # (mission-control D-1, D-19; REQ-A1.6).
 #
-# Three properties, each probed against a violating sample at the end:
+# Each property is probed against a violating sample at the end:
 #   - doctrine/mission-control.md holds a section per concept it owns;
 #   - every mission-control glossary term in doctrine/spec-format.md links
 #     to a section of that doc that exists;
 #   - docs/mission-control.md walks a fresh installation end to end with no
-#     word the register forbids: the tower list, the mission-control
-#     extension beside it, identifier and file shapes, configuration keys,
-#     and any command but the one the operator types.
-#
-# Runs standalone: ./tests/test-mission-control-docs.sh
+#     word the register forbids: both jargon lists, identifier and file
+#     shapes, configuration keys, and any command but the operator's own.
 set -u
 LC_ALL=C
 export LC_ALL
