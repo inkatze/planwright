@@ -42,7 +42,8 @@ proto_lock_usage() {
 #   alive <token>            0 the token's owner is running, 1 it is not
 #   release <path> <token>   the ownership-verified cross-process release
 # Exit codes are lock-lib's: 0 success, 1 the lock stayed with a holder, 2 a
-# real error (usage included).
+# real error (usage included, and a result line that could not be written,
+# whatever the verb did on disk).
 proto_lock() {
   proto_load lock-lib.sh || return 2
   case ${1:-} in
@@ -65,11 +66,11 @@ proto_lock() {
             proto_rest=''
             ;;
         esac
-        printf 'broken %s\n' "$proto_line"
+        printf 'broken %s\n' "$proto_line" || return 2
       done
       [ "$proto_rc" -eq 0 ] || return "$proto_rc"
       proto_owner=$(pw_lock_owner "$2")
-      printf 'held %s\n' "${proto_owner%%-*}"
+      printf 'held %s\n' "${proto_owner%%-*}" || return 2
       ;;
     owner)
       [ "$#" -eq 2 ] || {
@@ -78,7 +79,7 @@ proto_lock() {
       }
       proto_owner=$(pw_lock_owner "$2")
       [ -n "$proto_owner" ] || return 1
-      printf '%s\n' "$proto_owner"
+      printf '%s\n' "$proto_owner" || return 2
       ;;
     alive)
       [ "$#" -eq 2 ] || {
