@@ -320,7 +320,8 @@ printf '%s\n' 'x=0' \
   '# 5. A settings fragment that itself pins defaultMode to auto is refused; a' \
   '#    fragment pinning a non-auto mode passes; a missing fragment path fails' \
   '#    closed; a fragment with no defaultMode at all is not a mode source.' 'x=11' \
-  '  # flush the pending row' '  # and reset the buffer' '  flush()' >"$TMP/widened/scripts/e.sh"
+  '  # flush the pending row' '  # and reset the buffer' '  flush()' \
+  '# the follow-up lands in Task' '# 4 with the rest.' 'x=12' >"$TMP/widened/scripts/e.sh"
 run "$r" --audit "$TMP/widened"
 assert_exit "--audit over the widened fixture runs" 0 $?
 class_is "a block directly above a name() definition is contract" contract scripts/e.sh:2
@@ -338,6 +339,7 @@ class_is "'failed open' is the same phrasing" rationale scripts/e.sh:38
 class_is "'failing closed' is the same phrasing" rationale scripts/e.sh:41
 class_is "a phrasing wrapped across comment lines still matches" rationale scripts/e.sh:44
 class_is "a block above a bare no-argument call is not contract" none scripts/e.sh:48
+class_is "a citation wrapped across comment lines still matches" cites scripts/e.sh:51
 assert_out "contract totals are emitted" "$(printf 'total\tcontract_blocks\t2')"
 if "$GUARD" --help | tr '\n' ' ' | tr -s ' ' | grep -qF 'lest, would, so, must, cannot (as whole words)' \
   && "$GUARD" --help | grep -qF 'contract' \

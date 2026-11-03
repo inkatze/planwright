@@ -91,9 +91,9 @@ blank lines and lines starting `#` are skipped; one entry per path):
                definition (`name()` then `{` or `(` on that line, or
                `function name`), so it describes what the function takes,
                does, or returns
-  Phrasings match with whitespace runs collapsed, so one wrapped across
-  comment lines still counts.
     none       none of these: evidence-free
+  Ids and phrasings match with whitespace runs collapsed, so one wrapped
+  across comment lines still counts.
   The phrasings are what this inventory recognizes, never wording a comment
   is asked to use.
   Words per block counts the text after each line's leading `#` marks.
@@ -432,10 +432,10 @@ function read_exemptions(path,   line, f, n, kind, p, reason, task, rc) {
 }
 function words(s,   w) { s = trim(s); return s == "" ? 0 : split(s, w, /[ \t]+/) }
 function classify(text, after,   lt) {
+  gsub(/[ \t]+/, " ", text)
   if (text ~ /REQ-[A-Z]+[0-9]/ || text ~ /(^|[^A-Za-z0-9_-])D-[0-9]/ || text ~ /[Tt]ask [0-9]/ ||
       text ~ /obs:[0-9a-f][0-9a-f][0-9a-f][0-9a-f]/) return "cites"
   lt = tolower(text)
-  gsub(/[ \t]+/, " ", lt)
   if (lt ~ /(^|[^a-z])(because|otherwise|why|deliberate|deliberately|intentional|intentionally|workaround|careful|caution|warning|unless|since|lest|would|so|must|cannot)([^a-z]|$)/ ||
       lt ~ /(^|[^a-z])fail(s|ed|ing)?[- ](open|closed)([^a-z]|$)/ ||
       lt ~ /so that|rather than|instead of|in order to|to avoid|to keep|to prevent|prevents|on purpose|the reason|must not|do not|don.t|never/) return "rationale"
