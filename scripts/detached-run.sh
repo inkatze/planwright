@@ -8,10 +8,9 @@
 #
 # start prints `run`, `pid` and `log` lines once the runner signals its start
 # in a fresh dir under <parent> (default ${TMPDIR:-/tmp}); exit 4 if it never
-# does. status prints running, finished <code>, never-started, or died; stop
-# a run with `kill -s TERM -- -<pid>`, or `kill -s TERM <pid>` after the no-bash
-# warning (its run has no group of its own). Exit 2: usage error. run-inner is
-# internal.
+# does. status prints running, finished <code>, never-started, or died. Stop a
+# run with `kill -s TERM -- -<pid>` (`kill -s TERM <pid>` after the no-bash
+# warning). Exit 2: usage error. run-inner is internal.
 set -u
 unset CDPATH
 
