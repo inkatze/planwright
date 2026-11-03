@@ -1,0 +1,1 @@
+match ^mc-panel: usage: mc-panel\.sh digest\|line --program <p> \[--target <t>\] \[--knobs\] \[--now <epoch>\] \| presence --program <p> --prompt\|--refresh \[--target <t>\] \[--now <epoch>\]$

@@ -1,0 +1,1 @@
+match ^mc-stall: usage: mc-stall\.sh classify --program <p> \[--now <epoch>\] \[--pane <file>\] <name> \| scan --program <p> \[--now <epoch>\]$
