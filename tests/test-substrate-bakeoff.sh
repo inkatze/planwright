@@ -121,6 +121,18 @@ check_has "view: the run named" "$V" 'Run `run-stub` on `test`'
 rendered=$("$SB" render "$R" 2>&1)
 check_eq "render reproduces the view" "$V" "$rendered"
 
+# The view is linted as committed prose, so it must meet markdownlint MD013 as
+# .markdownlint.jsonc configures it: tables and code blocks exempt, every other
+# line at most 100 characters.
+long_prose_lines() {
+  awk '/^```/ { code = !code; next } code || /^\|/ { next } length($0) > 100 { print FILENAME ":" FNR }' "$@"
+}
+check_eq "view: prose lines fit MD013" "" "$(long_prose_lines "$tmp/out-stub/view.md")"
+for committed in "$REPO_ROOT"/docs/substrate/bakeoff-*/*/view.md; do
+  [ -f "$committed" ] || continue
+  check_eq "committed view renders from its report: ${committed#"$REPO_ROOT"/}" "$(cat "$committed")" "$("$SB" render "${committed%view.md}report.tsv" 2>&1)"
+done
+
 # Two runs on the same stubs carry the same schema and field set (REQ-C1.5).
 run_into again "$STUB"
 check_eq "a second run succeeds" 0 "$rc"

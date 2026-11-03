@@ -1,0 +1,14 @@
+#!/bin/sh
+# lock — bake-off A's lock primitive, hardened-shell candidate. The contract
+# is proto_lock's in ../lib/proto.sh.
+case $0 in
+  */*) proto_lib=${0%/*}/../lib ;;
+  *) proto_lib=../lib ;;
+esac
+if [ ! -f "$proto_lib/proto.sh" ] || [ ! -r "$proto_lib/proto.sh" ]; then
+  printf '%s\n' "lock: proto.sh missing or unreadable under $proto_lib" >&2
+  exit 2
+fi
+# shellcheck source=../lib/proto.sh
+. "$proto_lib/proto.sh" || exit 2
+proto_lock "$@"

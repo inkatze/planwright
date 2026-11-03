@@ -552,6 +552,15 @@ Task 4: no floor-forbidden failures.
   only the purged-identifier screen as its reason; recommended: reword it to
   say the harness runs within the shell suite and needs perl), listed in the
   Task 5 pull request body.
+- **Task 6** — post-pr step `cubic-pr` halted (record
+  `.claude/steps/000001/008-step-post-pr.rec`): the operator's secondary
+  review stands in for cubic until its quota returns, then the ready flip.
+  Also awaiting direction: the macOS and musl bake-off reports need a CI job
+  that builds and runs the bake-off on those runners, a CI-configuration
+  zone, so recorded rather than applied (recommended: an on-demand workflow
+  job that installs the pinned toolchains, runs the harness with
+  `--platform`, and uploads the report and view for committing), listed in
+  the Task 6 pull request body.
 
 ## Deferred
 

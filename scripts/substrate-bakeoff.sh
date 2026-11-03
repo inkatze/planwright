@@ -190,7 +190,7 @@ NR == 1 { for (i = 1; i <= NF; i++) h[i] = $i; nh = NF; next }
 }
 END {
   printf "# Bake-off report: %s tier\n\n", cell(v[1, "tier"])
-  printf "Run `%s` on `%s`: %s runs per latency measurement, a %s s timeout per execution, %s production differential fixtures.\n", raw(v[1, "run_id"]), raw(v[1, "platform"]), cell(v[1, "runs"]), cell(v[1, "timeout_s"]), cell(v[1, "fixture_set_count"])
+  printf "Run `%s` on `%s`:\n%s runs per latency measurement,\na %s s timeout per execution,\n%s production differential fixtures.\n", raw(v[1, "run_id"]), raw(v[1, "platform"]), cell(v[1, "runs"]), cell(v[1, "timeout_s"]), cell(v[1, "fixture_set_count"])
   if (nf) {
     print "\n## Full candidates\n"
     print "| Candidate | Platform | Fixtures passed | Latency median ms | Spread ms | Hook budget | Spawns | Dependencies | Source bytes | Porting rate min/KiB | Review findings/KiB | Review runs |"
@@ -261,13 +261,14 @@ plain_path() {
 }
 
 # The timed runner. Env: BK_TIMEOUT, BK_STDIN, BK_STDOUT, BK_WORK, BK_FILES,
-# BK_REPEAT, BK_PATH, BK_SPAWN_LOG, BK_OFFLINE, BK_CLEAN_ENV; argv the command.
-# Each repetition runs in a fresh directory under BK_WORK holding a copy of
-# BK_FILES, with a fresh home (and, with BK_CLEAN_ENV, nothing inherited but
-# PATH and the C locale), in its own process group, which is swept after the
-# reap so nothing it backgrounded in that group outlives it. Prints `<status><TAB><ms>` per
-# repetition, the status being the exit code, 128 plus the signal, or
-# `timeout`. The clock spans fork to reap; staging is outside it.
+# BK_LINKS, BK_REPEAT, BK_PATH, BK_SPAWN_LOG, BK_OFFLINE, BK_CLEAN_ENV; argv
+# the command. Each repetition runs in a fresh directory under BK_WORK holding
+# a copy of BK_FILES and the symlinks BK_LINKS names, with a fresh home (and,
+# with BK_CLEAN_ENV, nothing inherited but PATH and the C locale), in its own
+# process group, which is swept after the reap so nothing it backgrounded in
+# that group outlives it. Prints `<status><TAB><ms>` per repetition, the
+# status being the exit code, 128 plus the signal, or `timeout`. The clock
+# spans fork to reap; staging is outside it.
 # shellcheck disable=SC2016 # the $-sigils are perl variables
 runner_pl='use strict; use warnings; use Time::HiRes qw(time); use File::Temp qw(tempdir);
 my %bk = map { $_ => $ENV{$_} } grep { /^BK_/ } keys %ENV;
@@ -287,7 +288,34 @@ for my $s (keys %signum) {
 for (1 .. ($bk{BK_REPEAT} || 1)) {
   my $cwd = tempdir("rep.XXXXXX", DIR => $bk{BK_WORK});
   $ENV{HOME} = $ENV{TMPDIR} = tempdir("home.XXXXXX", DIR => $bk{BK_WORK});
-  if ($bk{BK_FILES} ne "") { system("cp", "-R", "--", "$bk{BK_FILES}/.", "$cwd/") == 0 or die "could not stage $bk{BK_FILES}\n"; }
+  # A tool honours these ahead of HOME, so an inherited one would send a build
+  # or an install outside the fresh home; unset, each falls back inside it
+  # (XDG_RUNTIME_DIR has no fallback and is simply gone).
+  delete @ENV{qw(XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_RUNTIME_DIR)};
+  # Staging is a copy the harness makes, not a spawn of the candidate: PATH
+  # goes through the logging shims, so the log is pointed away for it.
+  if ($bk{BK_FILES} ne "") {
+    local $ENV{PLANWRIGHT_BAKEOFF_SPAWN_LOG} = "/dev/null";
+    system("cp", "-R", "--", "$bk{BK_FILES}/.", "$cwd/") == 0 or die "could not stage $bk{BK_FILES}\n";
+  }
+  if ($bk{BK_LINKS} ne "") {
+    open(my $lf, "<", $bk{BK_LINKS}) or die "could not read $bk{BK_LINKS}\n";
+    while (my $l = <$lf>) {
+      chomp $l;
+      my ($name, $target) = split /\t/, $l, 2;
+      # A parent that is a symlink (a staged one) would carry the link, and
+      # whatever the candidate writes through it, outside the directory.
+      my @up = split m{/}, $name; pop @up;
+      my $at = $cwd;
+      for my $c (@up) {
+        $at .= "/$c";
+        die "could not link $name: $at is a symlink\n" if -l $at;
+        -d $at or mkdir $at or die "could not link $name\n";
+      }
+      symlink($target, "$cwd/$name") or die "could not link $name\n";
+    }
+    close $lf;
+  }
   my $t0 = time;
   $pid = fork;
   die "fork: $!\n" unless defined $pid;
@@ -321,6 +349,8 @@ for (1 .. ($bk{BK_REPEAT} || 1)) {
 run_case() {
   files=""
   [ -n "$2" ] && [ -d "$2/files" ] && files=$2/files
+  links=""
+  [ -n "$2" ] && [ -f "$2/links" ] && links=$2/links
   stdin=/dev/null
   [ -n "$2" ] && [ -f "$2/stdin" ] && stdin=$2/stdin
   : >"$7"
@@ -332,7 +362,7 @@ run_case() {
   # shellcheck disable=SC2046 # split on newlines only, globbing off
   set -- $(cat "$1") $([ -n "$2" ] && [ -f "$2/args" ] && cat "$2/args") $([ -n "$3" ] && printf '%s\n' "$3")
   IFS=$old_ifs
-  BK_REPEAT=$rep BK_WORK=$work BK_FILES=$files BK_STDIN=$stdin BK_STDOUT=$rc_out BK_TIMEOUT=$timeout_s \
+  BK_REPEAT=$rep BK_WORK=$work BK_FILES=$files BK_LINKS=$links BK_STDIN=$stdin BK_STDOUT=$rc_out BK_TIMEOUT=$timeout_s \
     BK_PATH=$path BK_SPAWN_LOG=$slog BK_OFFLINE=$offl BK_CLEAN_ENV=$clean \
     "$perl_bin" -MPOSIX -e "$runner_pl" "$@" >"$timings" &
   # Waited on rather than run in the foreground, so a signal to this shell
@@ -768,6 +798,14 @@ cmd_run() {
     [ -f "$d/expected-stdout" ] && [ -f "$d/expected-status" ] || fail_closed "fixture $p/$c lacks expected-stdout or expected-status"
     if [ -f "$d/args" ] && grep -q '^$' "$d/args"; then
       fail_closed "fixture $p/$c: args has an empty line (one argument per line, and an empty argument cannot be passed)"
+    fi
+    if [ -f "$d/links" ]; then
+      # A name under (or holding) another name would link through a link.
+      awk -F '\t' '
+        NF != 2 || $1 == "" || $2 == "" || /\r/ || $1 ~ /^\// || ("/" $1 "/") ~ /\/(\.\.?)?\// { bad = 1 }
+        { for (i = 1; i < NR; i++) if (index($1 "/", seen[i] "/") == 1 || index(seen[i] "/", $1 "/") == 1) bad = 1; seen[NR] = $1 }
+        END { exit bad }' "$d/links" \
+        || fail_closed "fixture $p/$c: links needs one <name><TAB><target> line per link (no carriage return), each name a relative path with no empty, . or .. component, neither under nor holding another name"
     fi
     case $(cat "$d/expected-status") in 0 | [1-9] | [1-9][0-9] | 1[0-9][0-9] | 2[0-4][0-9] | 25[0-5]) ;; *) fail_closed "fixture $p/$c: expected-status is not an exit status (0 to 255, no leading zero)" ;; esac
     printf '%s\n' "$p/$c" >>"$work/fixtures"
