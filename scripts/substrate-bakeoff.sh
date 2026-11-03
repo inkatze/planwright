@@ -264,13 +264,13 @@ plain_path() {
 # BK_LINKS, BK_REPEAT, BK_PATH, BK_SPAWN_LOG, BK_OFFLINE, BK_CLEAN_ENV; argv
 # the command. Each repetition runs in a fresh directory under BK_WORK holding
 # a copy of BK_FILES and the symlinks BK_LINKS names, with a fresh home (and,
-# with BK_CLEAN_ENV, nothing inherited but
-# PATH and the C locale), in its own process group, which is swept after the
-# reap so nothing it backgrounded in that group outlives it. Prints `<status><TAB><ms>` per
-# repetition, the status being the exit code, 128 plus the signal, or
-# `timeout`. The clock spans fork to reap; staging is outside it.
+# with BK_CLEAN_ENV, nothing inherited but PATH and the C locale), in its own
+# process group, which is swept after the reap so nothing it backgrounded in
+# that group outlives it. Prints `<status><TAB><ms>` per repetition, the
+# status being the exit code, 128 plus the signal, or `timeout`. The clock
+# spans fork to reap; staging is outside it.
 # shellcheck disable=SC2016 # the $-sigils are perl variables
-runner_pl='use strict; use warnings; use Time::HiRes qw(time); use File::Temp qw(tempdir); use File::Path ();
+runner_pl='use strict; use warnings; use Time::HiRes qw(time); use File::Temp qw(tempdir);
 my %bk = map { $_ => $ENV{$_} } grep { /^BK_/ } keys %ENV;
 delete @ENV{ keys %bk };
 %ENV = (LC_ALL => "C") if $bk{BK_CLEAN_ENV};
@@ -289,18 +289,29 @@ for (1 .. ($bk{BK_REPEAT} || 1)) {
   my $cwd = tempdir("rep.XXXXXX", DIR => $bk{BK_WORK});
   $ENV{HOME} = $ENV{TMPDIR} = tempdir("home.XXXXXX", DIR => $bk{BK_WORK});
   # A tool honours these ahead of HOME, so an inherited one would send a build
-  # or an install outside the fresh home; unset, each falls back inside it.
+  # or an install outside the fresh home; unset, each falls back inside it
+  # (XDG_RUNTIME_DIR has no fallback and is simply gone).
   delete @ENV{qw(XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_RUNTIME_DIR)};
   # Staging is a copy the harness makes, not a spawn of the candidate: PATH
   # goes through the logging shims, so the log is pointed away for it.
-  if ($bk{BK_FILES} ne "") { local $ENV{PLANWRIGHT_BAKEOFF_SPAWN_LOG} = "/dev/null"; system("cp", "-R", "--", "$bk{BK_FILES}/.", "$cwd/") == 0 or die "could not stage $bk{BK_FILES}\n"; }
+  if ($bk{BK_FILES} ne "") {
+    local $ENV{PLANWRIGHT_BAKEOFF_SPAWN_LOG} = "/dev/null";
+    system("cp", "-R", "--", "$bk{BK_FILES}/.", "$cwd/") == 0 or die "could not stage $bk{BK_FILES}\n";
+  }
   if ($bk{BK_LINKS} ne "") {
     open(my $lf, "<", $bk{BK_LINKS}) or die "could not read $bk{BK_LINKS}\n";
     while (my $l = <$lf>) {
       chomp $l;
       my ($name, $target) = split /\t/, $l, 2;
-      my $dir = "$cwd/$name"; $dir =~ s{/[^/]*$}{};
-      File::Path::make_path($dir);
+      # A parent that is a symlink (a staged one) would carry the link, and
+      # whatever the candidate writes through it, outside the directory.
+      my @up = split m{/}, $name; pop @up;
+      my $at = $cwd;
+      for my $c (@up) {
+        $at .= "/$c";
+        die "could not link $name: $at is a symlink\n" if -l $at;
+        -d $at or mkdir $at or die "could not link $name\n";
+      }
       symlink($target, "$cwd/$name") or die "could not link $name\n";
     }
     close $lf;
@@ -789,8 +800,12 @@ cmd_run() {
       fail_closed "fixture $p/$c: args has an empty line (one argument per line, and an empty argument cannot be passed)"
     fi
     if [ -f "$d/links" ]; then
-      awk -F '\t' 'NF != 2 || $1 == "" || $2 == "" || $1 ~ /^\// || ("/" $1 "/") ~ /\/\.\.?\// { bad = 1 } END { exit bad }' "$d/links" \
-        || fail_closed "fixture $p/$c: links needs one <name><TAB><target> line per link, each name a relative path that stays inside the working directory"
+      # A name under (or holding) another name would link through a link.
+      awk -F '\t' '
+        NF != 2 || $1 == "" || $2 == "" || /\r/ || $1 ~ /^\// || ("/" $1 "/") ~ /\/(\.\.?)?\// { bad = 1 }
+        { for (i = 1; i < NR; i++) if (index($1 "/", seen[i] "/") == 1 || index(seen[i] "/", $1 "/") == 1) bad = 1; seen[NR] = $1 }
+        END { exit bad }' "$d/links" \
+        || fail_closed "fixture $p/$c: links needs one <name><TAB><target> line per link (no carriage return), each name a relative path with no empty, . or .. component, neither under nor holding another name"
     fi
     case $(cat "$d/expected-status") in 0 | [1-9] | [1-9][0-9] | 1[0-9][0-9] | 2[0-4][0-9] | 25[0-5]) ;; *) fail_closed "fixture $p/$c: expected-status is not an exit status (0 to 255, no leading zero)" ;; esac
     printf '%s\n' "$p/$c" >>"$work/fixtures"

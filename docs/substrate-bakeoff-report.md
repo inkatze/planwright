@@ -48,8 +48,10 @@ platform.
 A fixture's `links` file holds one `<name><TAB><target>` line per symlink the
 harness creates in the working directory after copying `files/`, so a
 fixture can seed state (a lock, a dangling link) without the repository
-tracking a symlink. A name is a relative path that never climbs out of the
-working directory; a malformed line fails the run closed.
+tracking a symlink. A name is a relative path with no empty, `.` or `..`
+component, and never lies under another name or holds one, so no link is
+made through a link; a malformed line fails the run closed. A name whose
+parent a staged file makes a symlink fails the run when it is staged.
 
 Configuration files are `key=value` lines (`#` starts a comment). They are
 parsed, never sourced, and a repeated key fails the run closed.
@@ -166,7 +168,8 @@ Comparison fields, required for a comparison point:
 ### How a candidate runs
 
 Every fixture execution, timed repetition and offline replay runs in a fresh
-working directory holding a copy of the fixture's `files/`, with a fresh home
+working directory holding a copy of the fixture's `files/` and the symlinks
+its `links` file names, with a fresh home
 (also its `TMPDIR`) and no environment from the caller beyond `PATH` and the C
 locale, in its own process group. The group is killed once the execution is
 reaped, and on a timeout or a signal to the harness, so nothing a candidate
@@ -175,8 +178,9 @@ or group of its own (`setsid`) is out of the harness's reach. The `build` and
 delivery scripts keep the caller's environment, since building and installing
 may need it, but get a fresh home too, so an install never lands in the
 operator's own. The XDG base-directory variables are unset for every
-execution, since a tool honours them ahead of the home; each falls back
-inside the fresh one.
+execution, since a tool honours them ahead of the home; each base directory
+falls back inside the fresh one, and `XDG_RUNTIME_DIR`, which has no
+fallback, is simply absent.
 
 Spawns are counted by a logging shim for every command on `PATH`, so a command
 started by absolute path, the candidate's own executable included, is not

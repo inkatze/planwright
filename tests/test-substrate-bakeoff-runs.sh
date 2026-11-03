@@ -114,12 +114,36 @@ EOF
 run_into linked "$tmp/linked"
 check_eq "a fixture's links are created in its working directory" "echo-line/basic:pass,echo-line/empty:pass,echo-line/linked:pass" "$(get "$tmp/out-linked/report.tsv" stub-full fixture_results)"
 
-variant badlink
-mkdir -p "$tmp/badlink/fixtures/echo-line/basic"
-printf '../escape\tx\n' >"$tmp/badlink/fixtures/echo-line/basic/links"
-run_into badlink "$tmp/badlink"
-check_eq "a link that climbs out of the working directory fails closed" 5 "$rc"
-check_has "the failure names the links file" "$out" "links"
+# badlink <label> <links-content>: a malformed links file fails the run closed.
+badlink() {
+  variant badlink
+  printf '%b' "$2" >"$tmp/badlink/fixtures/echo-line/basic/links"
+  run_into badlink "$tmp/badlink"
+  check_eq "a links file with $1 fails closed" 5 "$rc"
+  check_has "the failure names the links file ($1)" "$out" "links"
+}
+badlink "a name climbing out of the working directory" '../escape\tx\n'
+badlink "a .. component inside a name" 'a/../b\tx\n'
+badlink "a . component inside a name" 'a/./b\tx\n'
+badlink "an absolute name" '/abs\tx\n'
+badlink "a line with no tab" 'held\n'
+badlink "an empty name" '\tx\n'
+badlink "an empty target" 'held\t\n'
+badlink "a third field" 'held\tx\ty\n'
+badlink "a carriage return" 'held\tx\r\n'
+badlink "a name ending in a slash" 'held/\tx\n'
+badlink "an empty component" 'a//b\tx\n'
+badlink "a repeated name" 'held\tx\nheld\ty\n'
+badlink "a name under an earlier link" 'd\t/tmp\nd/x\ty\n'
+badlink "a name holding an earlier one" 'd/x\ty\nd\tz\n'
+
+variant linkescape
+mkdir -p "$tmp/outside" "$tmp/linkescape/fixtures/echo-line/basic/files"
+ln -s "$tmp/outside" "$tmp/linkescape/fixtures/echo-line/basic/files/d"
+printf 'd/x\ty\n' >"$tmp/linkescape/fixtures/echo-line/basic/links"
+run_into linkescape "$tmp/linkescape"
+check_eq "a link under a staged symlink fails the run" 5 "$rc"
+check_eq "nothing is linked through a staged symlink" "" "$(find "$tmp/outside" -mindepth 1)"
 
 variant slow
 sed 's/^timeout_s=10$/timeout_s=1/' "$STUB/bakeoff.conf" >"$tmp/slow/bakeoff.conf"
