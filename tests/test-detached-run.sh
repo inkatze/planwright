@@ -324,8 +324,8 @@ else
   fail "a child sent SIGHUP under the helper exits 129 (log: $(cat "$hup_run/log" 2>/dev/null))"
 fi
 
-# SIGINT too: a background job started without job control would have it
-# ignored.
+# SIGINT and SIGQUIT too: a background job started without job control would
+# have them ignored.
 if command -v bash >/dev/null 2>&1; then
   # shellcheck disable=SC2016 # $$ and $? belong to the detached shells
   launch int "$p1" sh -c 'sh -c "kill -INT \$\$; exit 0"; echo "child=$?"'
@@ -335,6 +335,15 @@ if command -v bash >/dev/null 2>&1; then
     ok "a child sent SIGINT under the helper exits 130"
   else
     fail "a child sent SIGINT under the helper exits 130 (log: $(cat "$int_run/log" 2>/dev/null))"
+  fi
+  # shellcheck disable=SC2016 # $$ and $? belong to the detached shells
+  launch quit "$p1" sh -c 'sh -c "kill -QUIT \$\$; exit 0"; echo "child=$?"'
+  quit_run=$(field run "$tmp/quit.out")
+  poll_until --what 'SIGQUIT run finished' status_is "$quit_run" 'finished 0' || :
+  if grep -qx 'child=131' "$quit_run/log" 2>/dev/null; then
+    ok "a child sent SIGQUIT under the helper exits 131"
+  else
+    fail "a child sent SIGQUIT under the helper exits 131 (log: $(cat "$quit_run/log" 2>/dev/null))"
   fi
 fi
 
