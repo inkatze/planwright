@@ -36,12 +36,11 @@ ok() { printf 'ok: %s\n' "$1"; }
 tmp="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/test-detached-run.XXXXXX")" && pwd -P)" || exit 1
 pids="$tmp/pids"
 : >"$pids"
-# A run started through bash leads its own process group, out of reach of a
-# signal to this file's group, so cleanup signals every recorded group; the
-# no-bash fallback's run has none, so its runner is signalled alone.
+# Each run leads its own process group, out of reach of a signal to this
+# file's group, so cleanup signals every recorded group.
 cleanup() {
   while read -r _p; do
-    kill -s TERM -- "-$_p" 2>/dev/null || kill -s TERM "$_p" 2>/dev/null
+    kill -s TERM -- "-$_p" 2>/dev/null
   done <"$pids"
   rm -rf "$tmp"
 }
@@ -400,16 +399,17 @@ else
   fail "the helper launches with neither setsid nor nohup on PATH (rc=$launch_rc): $(cat "$tmp/bare.err")"
 fi
 
-# With no bash the launch still works, warning that SIGINT starts ignored.
+# With no bash the launch refuses with exit 4 and makes no run directory.
 # shellcheck disable=SC2086 # word-split on purpose
 path_of "$tmp/nobash" $needed
-launch --env PATH="$tmp/nobash" nobash "$p1" sh -c 'exit 0'
-nobash_run=$(field run "$tmp/nobash.out")
-if [ "$launch_rc" -eq 0 ] && grep -q 'no bash on PATH' "$tmp/nobash.err" \
-  && poll_until --what 'no-bash run finished' status_is "$nobash_run" 'finished 0'; then
-  ok "with no bash on PATH the helper still launches and warns"
+nobash_parent="$tmp/nobash-parent"
+mkdir -p "$nobash_parent"
+launch --env PATH="$tmp/nobash" nobash "$nobash_parent" sh -c 'exit 0'
+if [ "$launch_rc" -eq 4 ] && grep -q 'no bash on PATH' "$tmp/nobash.err" \
+  && [ ! -s "$tmp/nobash.out" ] && [ -z "$(ls -A "$nobash_parent")" ]; then
+  ok "with no bash on PATH start refuses with exit 4 and makes no run"
 else
-  fail "with no bash on PATH the helper still launches and warns (rc=$launch_rc): $(cat "$tmp/nobash.err")"
+  fail "with no bash on PATH start refuses with exit 4 and makes no run (rc=$launch_rc): $(cat "$tmp/nobash.err")"
 fi
 
 # --- 7. usage errors --------------------------------------------------------

@@ -304,9 +304,9 @@ Not a signed row; recorded by `/execute-task` while implementing D-22.
   and in its own process group. Re-measured: `SigIgn` 0, a child sent SIGINT
   exits 130, and the four signal-asserting suites (`test-full-suite-run.sh`,
   `test-lock-lib.sh`, `test-run-tests-pool.sh`, `test-fleet-sweep-temps.sh`)
-  pass under the helper. With no bash on PATH it falls back to a plain
-  background job and warns. `dash` cannot do the same (`set -m` refuses
-  without a terminal).
+  pass under the helper. With no bash on PATH `start` refuses with exit 4
+  (the suite command needs bash anyway). `dash` cannot do the same (`set -m`
+  refuses without a terminal).
 - **Sources.** POSIX Shell Command Language, *Asynchronous Lists* and `set
   -m`; bash manual, *Job Control Basics*; the measurements above.
 

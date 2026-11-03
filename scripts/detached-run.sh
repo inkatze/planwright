@@ -8,8 +8,9 @@
 #
 # start prints `run`, `pid` and `log` lines once the runner signals its start
 # in a fresh dir under <parent> (default ${TMPDIR:-/tmp}); exit 4 if it never
-# does. status prints running, finished <code>, never-started, or died; stop
-# a run with `kill -s TERM -- -<pid>`. Exit 2: usage error. run-inner is internal.
+# does or bash is missing. status prints running, finished <code>,
+# never-started, or died; the runner leads its own process group, so stop a
+# run with `kill -s TERM -- -<pid>`. Exit 2: usage error. run-inner is internal.
 set -u
 unset CDPATH
 
@@ -47,10 +48,9 @@ runner_alive() {
   return 1
 }
 
-# stop <pid> — the runner leads its own process group on the bash path; the
-# fallback's runner shares the caller's group, so only the runner is signalled.
+# stop <pid> — signal the run's process group, which the runner leads.
 stop() {
-  kill -s TERM -- "-$1" 2>/dev/null || kill -s TERM "$1" 2>/dev/null
+  kill -s TERM -- "-$1" 2>/dev/null
 }
 
 # failed <message> — report a start that did not start, naming the run and
@@ -85,6 +85,15 @@ do_start() {
     printf 'detached-run: cannot resolve its own path\n' >&2
     exit 4
   }
+  # The suite must start with a foreground run's signal dispositions: an
+  # ignored signal is inherited and no shell can reset it. A shell without
+  # job control starts a background job with SIGINT and SIGQUIT ignored;
+  # bash's `set -m` avoids that without a terminal, and `nohup` and `setsid`
+  # (absent on macOS) stay out for the same reason.
+  command -v bash >/dev/null 2>&1 || {
+    printf 'detached-run: no bash on PATH; the run needs bash to start with no ignored signals\n' >&2
+    exit 4
+  }
 
   made=$(mktemp -d "$parent/detached-run.XXXXXX") || {
     printf 'detached-run: cannot make a run directory under %s\n' "$parent" >&2
@@ -98,36 +107,24 @@ do_start() {
 
   # Overridable so the tests can name a shell that cannot start.
   runner_sh=${PLANWRIGHT_DETACHED_RUN_SH:-/bin/sh}
-  # The suite must start with a foreground run's signal dispositions: an
-  # ignored signal is inherited and no shell can reset it. A shell without
-  # job control starts a background job with SIGINT and SIGQUIT ignored;
-  # bash's `set -m` avoids that without a terminal, and `nohup` and `setsid`
-  # (absent on macOS) stay out for the same reason.
-  if command -v bash >/dev/null 2>&1; then
-    # Every descriptor past stderr is closed, so no caller pipe waits on the
-    # run. The caller's BASH_ENV reaches the run but never runs here, where it
-    # could print into the pid or hold the capture open.
-    # shellcheck disable=SC2016,SC2097,SC2098 # expanded by the inner bash; the caller's BASH_ENV goes in as arguments on purpose
-    pid=$(BASH_ENV='' bash -c '
-      set -m
-      exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-
-      for f in /dev/fd/*; do
-        n=${f##*/}
-        case $n in "" | *[!0-9]*) continue ;; esac
-        [ "$n" -gt 2 ] && eval "exec $n>&-" 2>/dev/null
-      done
-      if [ -n "$1" ]; then export BASH_ENV="$2"; else unset BASH_ENV; fi
-      e=$3
-      shift 3
-      "$@" </dev/null >/dev/null 2>"$e" &
-      echo $!' detached-run "${BASH_ENV+set}" "${BASH_ENV-}" "$run/runner.err" \
-      "$runner_sh" "$SELF" run-inner "$run" -- "$@")
-  else
-    printf 'detached-run: warning: no bash on PATH; the run starts with SIGINT and SIGQUIT ignored, in the caller'"'"'s process group\n' >&2
-    "$runner_sh" "$SELF" run-inner "$run" -- "$@" </dev/null >/dev/null 2>"$run/runner.err" \
-      3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&- &
-    pid=$!
-  fi
+  # Every descriptor past stderr is closed, so no caller pipe waits on the
+  # run. The caller's BASH_ENV reaches the run but never runs here, where it
+  # could print into the pid or hold the capture open.
+  # shellcheck disable=SC2016,SC2097,SC2098 # expanded by the inner bash; the caller's BASH_ENV goes in as arguments on purpose
+  pid=$(BASH_ENV='' bash -c '
+    set -m
+    exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-
+    for f in /dev/fd/*; do
+      n=${f##*/}
+      case $n in "" | *[!0-9]*) continue ;; esac
+      [ "$n" -gt 2 ] && eval "exec $n>&-" 2>/dev/null
+    done
+    if [ -n "$1" ]; then export BASH_ENV="$2"; else unset BASH_ENV; fi
+    e=$3
+    shift 3
+    "$@" </dev/null >/dev/null 2>"$e" &
+    echo $!' detached-run "${BASH_ENV+set}" "${BASH_ENV-}" "$run/runner.err" \
+    "$runner_sh" "$SELF" run-inner "$run" -- "$@")
   is_count "$pid" || failed 'could not read the runner pid'
   # From here a stopped start stops the run too, rather than leaving one no
   # caller knows about.
