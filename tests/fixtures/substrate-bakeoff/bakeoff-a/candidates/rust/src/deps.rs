@@ -116,8 +116,13 @@ fn run() -> i32 {
             }
         }
     }
-    let _ = io::stdout().write_all(&out);
-    let _ = io::stdout().flush();
+    // A record that never reached stdout is not a parse: exit 2, as the shell
+    // candidate's awk does, never a 0 a caller reads as "no dependencies".
+    let mut stdout = io::stdout();
+    if let Err(e) = stdout.write_all(&out).and_then(|()| stdout.flush()) {
+        let _ = writeln!(io::stderr(), "deps: writing the records failed: {e}");
+        return 2;
+    }
     if fence {
         let _ = writeln!(io::stderr(), "deps: end of file inside an open column-0 code fence");
         return 3;
