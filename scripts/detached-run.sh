@@ -14,8 +14,6 @@ set -u
 unset CDPATH
 
 TAB=$(printf '\t')
-NL='
-'
 
 self_path() {
   _sp_dir=$(cd "$(dirname "$0")" && pwd) || return 1
@@ -77,7 +75,9 @@ do_start() {
   # does. Overridable so the tests can reach the timeout.
   wait_s=${PLANWRIGHT_DETACHED_RUN_START_WAIT:-30}
   case $wait_s in
-    0 | [1-9] | [1-9]*[0-9]) is_count "$wait_s" || usage ;;
+    [1-9] | [1-9][0-9] | [1-9][0-9][0-9] | [1-9][0-9][0-9][0-9] | [1-9][0-9][0-9][0-9][0-9])
+      is_count "$wait_s" || usage
+      ;;
     *) usage ;;
   esac
   self_path || {
@@ -104,20 +104,23 @@ do_start() {
   # (absent on macOS) stay out for the same reason.
   if command -v bash >/dev/null 2>&1; then
     # Every descriptor past stderr is closed, so no caller pipe waits on the
-    # run. The pid is the last line: a BASH_ENV may print first.
-    # shellcheck disable=SC2016 # expanded by the inner bash
-    out=$(bash -c '
+    # run. The caller's BASH_ENV reaches the run but never runs here, where it
+    # could print into the pid or hold the capture open.
+    # shellcheck disable=SC2016,SC2097,SC2098 # expanded by the inner bash; the caller's BASH_ENV goes in as arguments on purpose
+    pid=$(BASH_ENV='' bash -c '
       set -m
+      exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-
       for f in /dev/fd/*; do
         n=${f##*/}
         case $n in "" | *[!0-9]*) continue ;; esac
         [ "$n" -gt 2 ] && eval "exec $n>&-" 2>/dev/null
       done
-      e=$1
-      shift
+      if [ -n "$1" ]; then export BASH_ENV="$2"; else unset BASH_ENV; fi
+      e=$3
+      shift 3
       "$@" </dev/null >/dev/null 2>"$e" &
-      echo $!' detached-run "$run/runner.err" "$runner_sh" "$SELF" run-inner "$run" -- "$@")
-    pid=${out##*"$NL"}
+      echo $!' detached-run "${BASH_ENV+set}" "${BASH_ENV-}" "$run/runner.err" \
+      "$runner_sh" "$SELF" run-inner "$run" -- "$@")
   else
     printf 'detached-run: warning: no bash on PATH; the run starts with SIGINT and SIGQUIT ignored, in the caller'"'"'s process group\n' >&2
     "$runner_sh" "$SELF" run-inner "$run" -- "$@" </dev/null >/dev/null 2>"$run/runner.err" \
@@ -208,7 +211,10 @@ case ${1:-} in
     ;;
   run-inner)
     shift
-    [ "$#" -ge 3 ] && [ "$2" = -- ] || exit 2
+    [ "$#" -ge 3 ] && [ "$2" = -- ] || {
+      printf 'detached-run: run-inner: expected <run-dir> -- <command>\n' >&2
+      exit 2
+    }
     do_run_inner "$@"
     ;;
   *) usage ;;

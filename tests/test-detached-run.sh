@@ -171,14 +171,14 @@ slow="$tmp/slow-shell"
 slow_shell "$slow" "$tmp/slow-child"
 p4b="$tmp/p4b"
 mkdir "$p4b"
-env PLANWRIGHT_DETACHED_RUN_SH="$slow" PLANWRIGHT_DETACHED_RUN_START_WAIT=1 \
+env PLANWRIGHT_DETACHED_RUN_SH="$slow" PLANWRIGHT_DETACHED_RUN_START_WAIT=3 \
   "$DR" start --dir "$p4b" -- true >"$tmp/slow.out" 2>"$tmp/slow.err"
 slow_rc=$?
 slow_run=$(sed -n 's/.*; run \(.*\)$/\1/p' "$tmp/slow.err" | head -n 1)
 slow_pid=$(cat "$slow_run/pid" 2>/dev/null)
 [ -z "$slow_pid" ] || printf '%s\n' "$slow_pid" >>"$pids"
 slow_child=$(cat "$tmp/slow-child" 2>/dev/null)
-if [ "$slow_rc" -eq 4 ] && grep -q 'no signal in 1s' "$tmp/slow.err" && [ -n "$slow_child" ] \
+if [ "$slow_rc" -eq 4 ] && grep -q 'no signal in 3s' "$tmp/slow.err" && [ -n "$slow_child" ] \
   && poll_until --what 'silent runner and its child stopped' pid_gone "$slow_pid" "$slow_child"; then
   ok "a runner silent past the start wait is stopped with its child and the launch fails"
 else
@@ -213,35 +213,72 @@ else
   fail "a start stopped while it waits stops the run and fails (rc=$intr_rc): $(cat "$tmp/intr.err")"
 fi
 
-# A start wait that is not a plain count is a usage error that launches nothing.
+# A start wait that is not a plain count of seconds in range is a usage error
+# that launches nothing.
 p4d="$tmp/p4d"
 mkdir "$p4d"
-env PLANWRIGHT_DETACHED_RUN_START_WAIT=08 "$DR" start --dir "$p4d" -- true >/dev/null 2>&1
-wait_rc=$?
-if [ "$wait_rc" -eq 2 ] && [ -z "$(find "$p4d" -mindepth 1)" ]; then
-  ok "a malformed start wait is a usage error that launches nothing"
+for w in 08 0 abc 999999 99999999999999999999; do
+  env PLANWRIGHT_DETACHED_RUN_START_WAIT="$w" "$DR" start --dir "$p4d" -- true >/dev/null 2>&1
+  wait_rc=$?
+  if [ "$wait_rc" -eq 2 ] && [ -z "$(find "$p4d" -mindepth 1)" ]; then
+    ok "a start wait of '$w' is a usage error that launches nothing"
+  else
+    fail "a start wait of '$w' is a usage error that launches nothing (rc=$wait_rc)"
+  fi
+done
+
+# A runner that signals its start without opening its log is stopped, with
+# its child, and the launch fails.
+nolog="$tmp/nolog-shell"
+# shellcheck disable=SC2016 # $3 and $! belong to the fixture runner
+printf '#!/bin/sh\n: >"$3/started"\nsleep 600 &\necho $! >"%s"\nexec sleep 600\n' "$tmp/nolog-child" >"$nolog"
+chmod +x "$nolog"
+p4e="$tmp/p4e"
+mkdir "$p4e"
+env PLANWRIGHT_DETACHED_RUN_SH="$nolog" "$DR" start --dir "$p4e" -- true >"$tmp/nolog.out" 2>"$tmp/nolog.err"
+nolog_rc=$?
+nolog_pid=$(cat "$(find "$p4e" -mindepth 2 -maxdepth 2 -name pid | head -n 1)" 2>/dev/null)
+[ -z "$nolog_pid" ] || printf '%s\n' "$nolog_pid" >>"$pids"
+# nolog_child_gone — the child, once its pid is on record, is gone.
+nolog_child_gone() {
+  [ -s "$tmp/nolog-child" ] && pid_gone "$(cat "$tmp/nolog-child")"
+}
+if [ "$nolog_rc" -eq 4 ] && grep -q 'log is missing; stopped it' "$tmp/nolog.err" \
+  && poll_until --what 'log-less runner stopped' pid_gone "$nolog_pid" \
+  && poll_until --what 'log-less runner child stopped' nolog_child_gone; then
+  ok "a runner that starts without its log is stopped and the launch fails"
 else
-  fail "a malformed start wait is a usage error that launches nothing (rc=$wait_rc)"
+  fail "a runner that starts without its log is stopped and the launch fails (rc=$nolog_rc): $(cat "$tmp/nolog.err")"
 fi
 
-# run-inner never writes into a dir that is not a fresh run.
-"$DR" run-inner "$p4d" -- true >/dev/null 2>"$tmp/inner.err"
-inner_rc=$?
-if [ "$inner_rc" -eq 2 ] && grep -q 'not a fresh run directory' "$tmp/inner.err" && [ ! -e "$p4d/log" ]; then
-  ok "run-inner refuses a dir that is not a fresh run"
-else
-  fail "run-inner refuses a dir that is not a fresh run (rc=$inner_rc)"
-fi
+# run-inner never writes into a dir that is not a fresh run: one never
+# launched, or one whose runner already started.
+used="$tmp/used-run"
+mkdir "$used"
+: >"$used/launched"
+: >"$used/started"
+for d in "$p4d" "$used"; do
+  "$DR" run-inner "$d" -- true >/dev/null 2>"$tmp/inner.err"
+  inner_rc=$?
+  if [ "$inner_rc" -eq 2 ] && grep -q 'not a fresh run directory' "$tmp/inner.err" && [ ! -e "$d/log" ]; then
+    ok "run-inner refuses ${d##*/}, not a fresh run"
+  else
+    fail "run-inner refuses ${d##*/}, not a fresh run (rc=$inner_rc)"
+  fi
+done
 
-# A BASH_ENV that prints never corrupts the recorded pid.
+# A BASH_ENV that prints, even with no newline, never corrupts the recorded
+# pid, and still reaches the run.
 benv="$tmp/bash-env"
-echo 'echo junk' >"$benv"
-launch --env BASH_ENV="$benv" benv "$p1" sh -c 'exit 0'
+echo 'printf junk' >"$benv"
+# shellcheck disable=SC2016 # $BASH_ENV belongs to the detached shell
+launch --env BASH_ENV="$benv" benv "$p1" sh -c 'echo "be=$BASH_ENV"'
 benv_run=$(field run "$tmp/benv.out")
-if [ "$launch_rc" -eq 0 ] && poll_until --what 'BASH_ENV run finished' status_is "$benv_run" 'finished 0'; then
-  ok "a printing BASH_ENV does not break the launch"
+if [ "$launch_rc" -eq 0 ] && poll_until --what 'BASH_ENV run finished' status_is "$benv_run" 'finished 0' \
+  && grep -qx "be=$benv" "$benv_run/log"; then
+  ok "a printing BASH_ENV does not break the launch and reaches the run"
 else
-  fail "a printing BASH_ENV does not break the launch (rc=$launch_rc): $(cat "$tmp/benv.err")"
+  fail "a printing BASH_ENV does not break the launch and reaches the run (rc=$launch_rc): $(cat "$tmp/benv.err")"
 fi
 
 # --- 5. the suite sees default signal dispositions and the caller's locale -
