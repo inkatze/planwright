@@ -1,7 +1,7 @@
 # Mission control — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-10-24
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -495,7 +495,7 @@ to enable, voice and quiet hours), visible progress on the panel,
 immediate feedback, hints only when stuck, scaffolds that fade per concept.
 It ends by writing the program block, the knowledge-base skeleton and the
 enabled duties. A guidance knob (guided, standard, expert; guided on a
-fresh installation, remembered in the machine-local configuration layer)
+fresh installation, remembered in the adopter configuration layer)
 sets the depth everywhere.
 The didactics shape the turn and the panel and never soften a normative
 token, pre-select an option or pad a turn past the density rules.
@@ -510,6 +510,11 @@ planwright; a guided first run is how they get a working configuration.
 *(Amended at kickoff 2026-10-23: the state-source objective added to the
 first run's list, so a program's source map is written before any duty
 reads from it.)*
+*(Amended at the 2026-11-02 delta kickoff: the guidance level is remembered
+in the adopter layer, not the machine-local one. The machine-local file
+sits inside a repository checkout, where mission control writes no file
+(REQ-A1.3), and the adopter layer is the per-operator home REQ-F1.13's
+test entry describes.)*
 
 ### D-19: The register, stricter than tower-comms  (N)
 

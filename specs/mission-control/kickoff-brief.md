@@ -866,3 +866,45 @@ bundle, eight lenses by fan-out plus one inline, 45 findings, all
 dispositioned)
 Anchor: `fba783ef835789583c61f3d09a13932de1108a69` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+## 9. Amendment log
+
+### Amendment 1 — 2026-11-02 (delta kickoff: D-18 names the adopter layer)
+
+**Trigger.** Task 11 (PR #796) found that D-18 remembers the guidance level
+in the machine-local configuration layer, but that file sits inside a
+repository checkout, where mission control writes no file (REQ-A1.3). The
+branch writes the adopter layer instead, the per-operator home REQ-F1.13's
+test entry already describes. Operator ruling, 2026-11-02: amend D-18.
+
+**Delta walked.** D-18's decision text names the adopter layer, with a dated
+amendment note; the changelog records it. No requirement, task or test
+entry changes.
+
+**Lens review (delta-scoped).** Spec lens set, walked inline over the
+one-sentence delta; no fan-out, scoped by size.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 0 | D-18 now agrees with REQ-A1.3 and REQ-F1.13's test entry |
+| Ambiguity and interpretation forks | 0 | None |
+| Citation and coverage integrity | 0 | None |
+| Dead verification paths | 0 | REQ-F1.13's test already checks per-operator memory |
+| Decision-domain gaps | 0 | None |
+| Testability | 0 | None |
+| Cross-file consistency | 0 | The 2026-10-24 changelog line naming the machine-local layer is history and stays |
+| Documentation and glossary drift | 0 | None |
+| Rendered-content safety and data hygiene | 0 | None |
+
+#### Sign-off record (Amendment 1)
+
+Signed off 2026-11-02 by the operator after the approval summary, relayed
+through the fleet tower, as a delta re-walkthrough of an Active (derived)
+bundle: no status flip; `Last reviewed:` bumped on design.md and
+requirements.md; `scripts/spec-validate.sh` re-run after the edits with 0
+errors and 0 warnings.
+
+Class: meaning
+Lens-pass: Amendment 1, delta-scoped lens review above (spec lens set, inline; no findings)
+Anchor: `e6d636fd93c1e03830386d789bc8265230e25dd4` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
