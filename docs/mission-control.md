@@ -87,7 +87,8 @@ on you into decide-ready items and drafts, checking that a pull request is
 really ready before it is offered, predicting overlapping changes and merge
 order, letting known dates set priorities, preparing what you need before a
 decision, recording how to undo each act, checking what was done against
-your rules, and noticing what you keep doing by hand.
+your rules, and noticing what you keep doing by hand. The last three of
+those start turned off; the rest start on.
 
 Ask for the list at any time ("what duties are there?"), and turn any duty
 on or off by saying so. A duty that is off watches nothing and costs
