@@ -51,7 +51,8 @@ head7=7777777777777777777777777777777777777777
 # page run through the caller's --jq program. GH_AUTH_FAIL answers as gh
 # does with no login; GH_EXIT4 exits as gh does unauthenticated, saying
 # nothing; GH_FAIL fails any other way; GH_LIMITED refuses for the
-# rate limit; GH_SLUG answers the repository name; GH_JUNK serves a page with an unexpected field.
+# rate limit; GH_GRAPHQL_FAIL fails the GraphQL read alone, as an expired
+# token does; GH_SLUG answers the repository name; GH_JUNK serves a page with an unexpected field.
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/gh" <<'EOF'
 #!/bin/sh
@@ -80,6 +81,10 @@ fi
 case "$1 $2" in
   "repo view") echo "${GH_SLUG:-acme/widgets}" ;;
   "api graphql")
+    if [ -n "${GH_GRAPHQL_FAIL:-}" ]; then
+      echo "HTTP 401: Bad credentials (https://api.github.com/graphql)" >&2
+      exit 1
+    fi
     expr=""
     while [ $# -gt 0 ]; do
       [ "$1" = --jq ] && expr=$2
@@ -117,6 +122,15 @@ cat >"$tmp/page.json" <<EOF
    "reviewThreads": {"nodes": []},
    "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "PENDING"}}}]},
    "reviews": {"nodes": [{"author": {"login": "bob"}, "commit": {"oid": "0000000000000000000000000000000000000000"}}, {"author": {"login": "me"}, "commit": {"oid": "8888888888888888888888888888888888888888"}}]}},
+  {"number": 9, "title": "Green one", "isDraft": false, "headRefOid": "9999999999999999999999999999999999999999",
+   "repository": {"nameWithOwner": "acme/widgets"}, "reviewRequests": {"nodes": []}, "reviewThreads": {"nodes": []},
+   "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}, "reviews": {"nodes": []}},
+  {"number": 10, "title": "Errored", "isDraft": false, "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "repository": {"nameWithOwner": "acme/widgets"}, "reviewRequests": {"nodes": []}, "reviewThreads": {"nodes": []},
+   "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "ERROR"}}}]}, "reviews": {"nodes": []}},
+  {"number": 11, "title": "No checks", "isDraft": false, "headRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "repository": {"nameWithOwner": "acme/widgets"}, "reviewRequests": {"nodes": []}, "reviewThreads": {"nodes": []},
+   "commits": {"nodes": []}, "reviews": {"nodes": []}},
   {}]},
  "waiting": {"issueCount": 2, "nodes": [
   {"number": 12, "title": "Rework the docs", "isDraft": false, "createdAt": "1970-01-01T00:00:00Z",
@@ -139,7 +153,7 @@ runtime=$fleet/mission-control/alpha
 snap=$runtime/reviews
 
 setup() {
-  unset GH_AUTH_FAIL GH_EXIT4 GH_LIMITED GH_FAIL GH_JUNK GH_SLUG
+  unset GH_AUTH_FAIL GH_EXIT4 GH_LIMITED GH_FAIL GH_JUNK GH_SLUG GH_GRAPHQL_FAIL
   reset_mc_fixture
   rm -rf "$fleet" "$GH_LOG"
   cat >"$tracked" <<EOF
@@ -204,12 +218,15 @@ line_in "with no request event of mine, the author and creation stand in" "$snap
   waiting acme/widgets 13 draft frank 100 'Spike C:\tmp'
 if grep -q "$(printf '\033')" "$snap"; then fail "a control byte reached the snapshot"; else ok "control bytes never reach the snapshot"; fi
 n=$(awk -F '\t' '$1 == "mine"' "$snap" | wc -l | tr -d ' ')
-if [ "$n" = 2 ]; then ok "a search node that is not a pull request is skipped"; else fail "mine rows: $n, want 2"; fi
+if [ "$n" = 5 ]; then ok "a search node that is not a pull request is skipped"; else fail "mine rows: $n, want 5"; fi
+line_in "a successful rollup reads green" "$snap" mine acme/widgets 9 ready green 0 no - "Green one"
+line_in "an errored rollup reads red" "$snap" mine acme/widgets 10 ready red 0 no - Errored
+line_in "a head with no checks reads none" "$snap" mine acme/widgets 11 ready none 0 no - "No checks"
 
 # Read-only: every gh call is a repository lookup or a GraphQL query.
 writes=$(grep "^call " "$GH_LOG" | grep -Evc "^call (repo view|api graphql)$")
 if [ "$writes" = 0 ]; then ok "every gh call is a read"; else fail "gh calls outside the read set: $(cat "$GH_LOG")"; fi
-if grep -q 'mutation' "$GH_LOG"; then fail "a GraphQL mutation was sent"; else ok "no GraphQL mutation is sent"; fi
+if grep -qx 'MUTATION' "$GH_LOG"; then fail "a GraphQL mutation was sent"; else ok "no GraphQL mutation is sent"; fi
 if grep -q 'repo:acme/widgets is:pr is:open author:@me' "$GH_LOG"; then
   ok "my PRs are searched in the program's repository"
 else
@@ -238,6 +255,7 @@ printf 'mission_control_reviews_ttl: 1m\n' >>"$tracked"
 calls=$(gh_calls)
 reviews refresh --program alpha --now 1359
 expect_eq "the TTL knob shortens the window" "fresh"
+if [ "$(gh_calls)" = "$calls" ]; then ok "inside the knob's TTL gh is not called"; else fail "gh called inside the knob's TTL"; fi
 reviews refresh --program alpha --now 1360
 expect_eq "past the knob's TTL the snapshot is read again" "written"
 sed -i.bak "s/^mission_control_reviews_ttl: .*/mission_control_reviews_ttl: soon/" "$tracked"
@@ -248,9 +266,8 @@ expect_err "the invalid TTL is named" "mission_control_reviews_ttl"
 # An attempt that never finished still holds the TTL: a gh that hangs past
 # the panel's timeout is not called again on every redraw.
 setup
-printf '5000\n' >"$tmp/attempt"
 mkdir -p "$runtime"
-cp "$tmp/attempt" "$runtime/reviews.attempt"
+printf '5000\n' >"$runtime/reviews.attempt"
 reviews refresh --program alpha --now 5100
 expect_eq "an unfinished attempt inside the TTL is fresh" "fresh"
 if [ "$(gh_calls)" = 0 ]; then ok "an unfinished attempt costs no read"; else fail "gh called after an unfinished attempt"; fi
@@ -272,7 +289,6 @@ ERR=$(cat "$tmp/stderr")
 expect_rc "a refresh with no gh" 0
 expect_eq "with no gh the refresh says so" "unavailable${tab}gh is not installed"
 line_in "the snapshot records the reason" "$snap" state unavailable "gh is not installed"
-calls=$(gh_calls)
 OUT=$(PATH="$nogh" mc_env /bin/bash "$repo_root/scripts/mc-reviews.sh" refresh --program alpha --now 1100 2>"$tmp/stderr")
 if [ "$OUT" = fresh ]; then ok "an unavailable snapshot is rate-limited too"; else fail "an unavailable snapshot re-read: '$OUT'"; fi
 
@@ -294,6 +310,11 @@ setup
 GH_FAIL=1 reviews refresh --program alpha --now 1000
 expect_rc "a refresh whose gh read fails" 0
 line_in "any other gh failure degrades, its first line cleaned to printable ASCII" "$snap" state unavailable "the gh read failed: HTTP 502: bad gateway"
+
+setup
+GH_GRAPHQL_FAIL=1 reviews refresh --program alpha --now 1000
+expect_rc "a refresh whose GraphQL read fails after the name lookup" 0
+line_in "a failed GraphQL read degrades, never an empty ok snapshot" "$snap" state unavailable "gh is not authenticated"
 
 setup
 GH_SLUG=acme/-widgets reviews refresh --program alpha --now 1000
