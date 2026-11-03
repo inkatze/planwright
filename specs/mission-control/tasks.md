@@ -476,7 +476,9 @@ the list lacked; the annotation moved below the task's fields.)*
 
 ## Awaiting input
 
-(none yet)
+- **Task 11** — post-pr step `cubic-pr` halted (record
+  `.claude/steps/000001/008-step-post-pr.rec`): awaits the operator's
+  secondary review on PR #796 in its place, then the ready flip.
 
 ## Deferred
 
