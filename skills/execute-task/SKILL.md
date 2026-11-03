@@ -301,9 +301,10 @@ judgment.
 ### Run the full project CI (REQ-E1.2)
 
 Run the `pre-ci` point, then pre-flight step 9's command, saved to a `mktemp`
-file, as `scripts/full-suite-run.sh --run <run> -- bash <file>` (each attempt
-backgrounded, waited in-turn); exit 75 parks naming the holders, unretried. The full suite must pass
-before convergence; capture its output.
+file, as `scripts/detached-run.sh start -- scripts/full-suite-run.sh --run <run>
+-- bash <file>`, its `status` polled in-turn; a failed start fails it, `finished
+75` parks naming holders, unretried. The suite must pass before
+convergence.
 
 ### Adaptive CI-failure handling (REQ-E1.2, D-25)
 
