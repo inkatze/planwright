@@ -129,7 +129,9 @@ expect_eq "the restored level reads back" "expert"
 
 # REQ-G1.4: nothing outside mission control's own knobs is written.
 before=$(sum "$layer")
-for key in ready_flip_policy merge_policy mission_control_clipboard mission_control_home_root mission_control_programs mission_control_no_such_knob 'mission_control_.*'; do
+for key in ready_flip_policy merge_policy mission_control_clipboard mission_control_home_root mission_control_programs \
+  mission_control_calibration_restore mission_control_default_duties mission_control_reclaim_files \
+  mission_control_budget_ladder mission_control_launch_backend mission_control_no_such_knob 'mission_control_.*'; do
   cfg knob "$key" x
   if [ "$RC" -ne 0 ] && [ "$(sum "$layer")" = "$before" ]; then
     ok "REQ-G1.4: $key is never written as a knob (exit $RC)"
@@ -139,8 +141,12 @@ for key in ready_flip_policy merge_policy mission_control_clipboard mission_cont
 done
 cfg restore ready_flip_policy unit-owner
 expect_rc "a restore of a posture key is refused" 2
-cfg knob mission_control_tick_cadence "5m # hidden"
-expect_rc "a value the reader would cut at a comment is refused" 1
+cfg knob mission_control_tick_cadence soon
+expect_rc "a knob value its kind does not parse is refused" 2
+cfg knob mission_control_repeat_threshold 0
+expect_rc "a count knob takes at least one" 2
+cfg restore mission_control_programs '[Bad;Name, alpha]'
+expect_rc "a program list restore holds only program names" 2
 cfg knob mission_control_tick_cadence "$(printf '5m\nready_flip_policy: unit-owner')"
 expect_rc "a value carrying a newline is refused" 2
 if [ "$(sum "$layer")" = "$before" ]; then ok "refused values leave the layer as it was"; else fail "a refused value changed the layer"; fi
@@ -162,6 +168,28 @@ expect_rc "a malformed adopter layer refuses the write" 1
 expect_err "the malformed layer is named" "malformed"
 if [ "$(sum "$layer")" = "$before" ]; then ok "the malformed layer is untouched"; else fail "the malformed layer was rewritten"; fi
 cp "$tmp/layer.keep" "$layer"
+
+# A key set oddly, a link in the layer's place, or a layer inside a
+# repository is never written.
+printf 'mission_control_stall_window : 40m\n' >>"$layer"
+before=$(sum "$layer")
+cfg knob mission_control_stall_window 30m
+expect_rc "a key set with a space before its colon refuses the write" 1
+if [ "$(sum "$layer")" = "$before" ]; then ok "the odd key line is kept"; else fail "the odd key line was rewritten"; fi
+cp "$tmp/layer.keep" "$layer"
+mv "$layer" "$tmp/layer.real"
+ln -s "$tmp/no-such-target" "$layer"
+cfg knob mission_control_tick_cadence 9m
+expect_rc "a dangling link in the layer's place is refused" 1
+if [ -L "$layer" ]; then ok "the link is left in place"; else fail "the link was replaced"; fi
+rm -f "$layer"
+mv "$tmp/layer.real" "$layer"
+OUT=$(mc_env env PLANWRIGHT_ADOPTER_OVERLAY="$repo/.claude" /bin/bash "$repo_root/scripts/mc-config.sh" knob mission_control_tick_cadence 9m 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "a layer that resolves into a repository is refused" 1
+expect_err "the refusal says it is a work tree" "git work tree"
+if grep -q mission_control_tick_cadence "$repo/.claude/planwright.yml" 2>/dev/null; then fail "the repository's layer was written"; else ok "the repository's layer is untouched"; fi
 
 # ---------------------------------------------------------------------------
 # REQ-F1.12: the first run ends with a program block, a knowledge-base
@@ -215,6 +243,21 @@ cfg set --program alpha spec_root "$tmp/no-such-root"
 expect_rc "a field that does not validate is refused" 1
 cfg set --program alpha nickname x
 expect_rc "an unknown field is a usage error" 2
+cfg set --program alpha "home duties" x
+expect_rc "a field name carrying a space is a usage error" 2
+cfg set --program alpha spec_root "$repo/specs # x"
+expect_rc "a value the reader would cut at a comment is refused" 1
+git -C "$tmp" init -q unlisted
+cfg set --program alpha home "$tmp/unlisted/mc-home"
+expect_rc "a home inside a git work tree is refused" 1
+expect_err "the refusal names the work tree" "git work tree"
+
+# A leftover block of a program no longer listed is never inherited.
+printf 'program_beta_home: %s/stale-home\n' "$tmp" >>"$layer"
+cfg add beta --repositories "[$repo]" --spec-root "$repo/specs"
+expect_rc "a leftover block refuses the add" 1
+expect_err "the leftover key is named" "program_beta_home"
+grep -v '^program_beta_home:' "$layer" >"$tmp/layer.clean" && cat "$tmp/layer.clean" >"$layer"
 cfg set --program gamma budget "{sessions: 2}"
 expect_rc "a program that is not configured is refused" 3
 
@@ -258,6 +301,8 @@ expect_out "a second apply reports it was already applied" "already${tab}p-1"
 mc_run mc-kb.sh query undo --program alpha --subject "tick cadence"
 if [ "$(printf '%s\n' "$OUT" | grep -c 'proposal p-1')" -eq 1 ]; then ok "one undo entry per proposal"; else fail "the undo entry was logged twice"; fi
 mc_run mc-audit.sh run --program alpha
+expect_rc "the self-audit runs" 0
+expect_out "the self-audit reports its count" "audit${tab}"
 expect_no_out "the self-audit finds no act against the rule" "against-rule"
 
 cfg apply --program alpha p-2
@@ -295,6 +340,40 @@ mc_run mc-kb.sh revert --program alpha "$undo_id"
 expect_rc "the reversal runs" 0
 mc_run config-get.sh --explain mission_control_tick_cadence
 expect_eq "the reversal removed the applied knob" "core${tab}5m"
+
+# Applied again after a revert, the change gets an undo entry of its own.
+cfg apply --program alpha p-1 --value 10m
+expect_rc "a reverted proposal applies again" 0
+second=$(printf '%s\n' "$OUT" | cut -f 5)
+if [ -n "$second" ] && [ "$second" != "$undo_id" ]; then ok "the re-apply logs a new undo entry"; else fail "the re-apply reused the reverted entry ($second)"; fi
+mc_run mc-kb.sh revert --program alpha "$second"
+expect_rc "the new entry reverts" 0
+
+# A duty's reversal disables that duty alone.
+cfg duty --program alpha disable alpha-duty
+cfg apply --program alpha p-2
+duty_undo=$(printf '%s\n' "$OUT" | cut -f 5)
+cfg duty --program alpha enable beta-duty
+mc_run mc-kb.sh revert --program alpha "$duty_undo"
+expect_rc "the duty reversal runs" 0
+mc_run mc-program.sh get alpha duties
+expect_eq "reverting one duty keeps a duty enabled after it" "beta-duty"
+
+# A write refused after its checks leaves no undo entry behind.
+{
+  cat "$kb/proposals.tsv"
+  row p-8 knob mission_control_stall_window "the config layers" accepted "stall window"
+  row p-10 duty no-such-duty "the core duties catalog" accepted "ghost duty"
+} >"$tmp/proposals.next" && cat "$tmp/proposals.next" >"$kb/proposals.tsv"
+printf 'mission_control_stall_window: 20m\n' >"$tracked"
+cfg apply --program alpha p-8 --value 15m
+expect_rc "a shadowed apply is refused" 1
+cfg apply --program alpha p-10
+expect_rc "an apply naming a duty the catalog lacks is refused" 1
+: >"$tracked"
+mc_run mc-kb.sh entries undo --program alpha
+expect_no_out "no undo entry names the refused knob apply" "proposal p-8"
+expect_no_out "no undo entry names the refused duty apply" "proposal p-10"
 
 [ "$failures" -eq 0 ] || {
   printf '%s\n' "$failures failure(s)" >&2

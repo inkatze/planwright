@@ -33,20 +33,33 @@ writes.
 
 WHERE IT WRITES. Every write goes to the adopter layer's planwright.yml
 (scripts/resolve-overlay-root.sh adopter): per operator, outside every
-repository, the layer a program spanning repositories lives in. A write is
-staged, read back through scripts/config-get.sh, and refused, the file
-left as it was, when a higher layer shadows the key, the file is not flat
-key: value YAML, or the value would not read back as written. A program
-key is validated whole by scripts/mc-program.sh before it lands.
+repository, the layer a program spanning repositories lives in; a layer
+that resolves into a git work tree, or is a symbolic link, is refused. A
+write is staged, read back through scripts/config-get.sh, and refused, the
+file left as it was, when a higher layer shadows the key, the file is not
+flat key: value YAML or sets the key oddly (`key : v`, or twice), the value
+would not read back as written, or the file changed while it was staged. A
+program key is validated whole by scripts/mc-program.sh before it lands,
+and a home written explicitly must lie outside every git work tree.
 
-WHAT IT WRITES, and nothing else: mission_control_programs (by add), a
-program_<name>_<field> key of a program block (repositories, spec_root,
-home, duties, budget, sources), and a mission_control_* knob the core
-defaults ship, except mission_control_programs, mission_control_clipboard
-(it names a command to run) and mission_control_home_root (it moves every
-program's home), which stay the operator's. No other key is writable: a
-policy knob such as ready_flip_policy is posture, handed over, never
-written. Each write prints
+WHAT IT WRITES, and nothing else: mission_control_programs (by add, or a
+restore naming valid program names), a program_<name>_<field> key of a
+program block (repositories, spec_root, home, duties, budget, sources), and
+these knobs, each value checked by its kind:
+  mission_control_guidance          guided, standard or expert
+  mission_control_kickoff_mode      relay or manual
+  a cadence (<n>s|m|h|d)            mission_control_tick_cadence,
+      mission_control_panel_refresh, mission_control_runner_interval,
+      mission_control_stall_window, mission_control_handover_window,
+      mission_control_event_retention, mission_control_measure_window,
+      mission_control_repeat_window, mission_control_audit_idle_after,
+      mission_control_deadline_horizon
+  a count of at least one           mission_control_repeat_threshold,
+      mission_control_shadow_promote_after, mission_control_handover_wakes,
+      mission_control_handover_compactions
+Every other key is the operator's: a knob that moves autonomy, consent,
+budget, what is copied or run, or a policy knob such as ready_flip_policy
+is handed over, never written. Each write prints
   wrote<TAB><key><TAB><value><TAB><the adopter layer's previous value or ->
 and `restore` with that previous value (or none for -) reverses it.
 
@@ -56,14 +69,17 @@ Usage:
       or the only one configured, ask<TAB><p> per program when several are
       and none is named, first-run when none is configured
   mc-config.sh mode guidance|kickoff
-      mission_control_guidance (guided, standard or expert) or
-      mission_control_kickoff_mode (relay or manual), resolved through the
-      layers; an invalid adopter or machine-local value degrades, warned
+      mission_control_guidance or mission_control_kickoff_mode, resolved
+      through the layers; an invalid adopter or machine-local value
+      degrades, warned
   mc-config.sh layer
       the file every write goes to
   mc-config.sh add <program> --repositories <list> --spec-root <path>
       [--home <path>] [--duties <list>] [--sources <map>] [--budget <map>]
-      configure a new program: its block and its place in the program list
+      configure a new program: its block and its place in the program
+      list; refused when any layer already sets a key of its block. With
+      no --duties the program enables mission_control_default_duties, so
+      pass [] for none
   mc-config.sh set --program <p> <field> <value>
   mc-config.sh duty --program <p> enable|disable <duty id>
       rewrite the enabled list; unchanged<TAB><key><TAB><list> when the
@@ -74,28 +90,31 @@ Usage:
   mc-config.sh apply --program <p> <proposal id> [--value <v>]
       apply an accepted mechanization proposal (scripts/mc-proposals.sh)
       where mission control may write: a duty proposal enables its duty, a
-      knob proposal on a writable key writes --value. Its undo entry is
-      logged first (act config-set, its grounds citing the active rules on
-      the proposal's subject, its reversal a restore), then the write:
+      knob proposal on a writable key writes --value, the value the
+      operator accepted. The write is staged and checked first, then its
+      undo entry logged (act config-set, its grounds citing the active
+      rules on the proposal's subject, its reversal a disable of the duty
+      or a restore of the previous value), then the write lands:
       applied<TAB><kind><TAB><key><TAB><value><TAB><undo id>, or
-      applied<TAB>already<TAB><id> once done. Anything else is not
-      written: handover-operator<TAB><where><TAB><change> for a posture
-      knob, a settings-kind or any other kind, dispatch<TAB><where><TAB>
-      <change> for a catalog step, a repository change a session makes
+      applied<TAB>already<TAB><id> when the change is in place and no
+      revert has undone it. Anything else is not written:
+      handover-operator<TAB><where><TAB><change> for a knob mission control
+      does not write, a settings-kind or any other kind, and
+      dispatch<TAB><where><TAB><change> for a catalog step, a repository
+      change a session makes
 
 Exit codes: 0 done; 1 refused (a write that would not land as written, a
-malformed layer, a program already configured, a duty the catalog lacks,
-a proposal not accepted or of the rule kind, a held lock, an unwritable
-log); 2 usage, an invalid value or a key that is not writable; 3 the
-program is not configured.
+malformed or redirected layer, a program already configured or with a
+leftover block, a duty the catalog lacks, a proposal not accepted or of
+the rule kind, a held lock, an unwritable log); 2 usage, an invalid value
+or a key that is not writable; 3 the program is not configured.
 HELP
 }
 usage() {
   mc_usage_fail "usage: mc-config.sh entry|mode|layer|add|set|duty|knob|restore|apply ... (mc-config.sh --help)"
 }
 
-FIELDS=' repositories spec_root home duties budget sources '
-RESERVED=' mission_control_programs mission_control_clipboard mission_control_home_root '
+FIELDS='repositories spec_root home duties budget sources'
 
 scratch=''
 # shellcheck disable=SC2329 # invoked from the EXIT trap
@@ -109,8 +128,25 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+tab=$(printf '\t')
+nl='
+'
+
 # shell-config-pin: mission control's knobs live in the overlay layers of the checkout it runs from
 cfg_get() { /bin/sh "$script_dir/config-get.sh" "$@"; }
+
+# in_work_tree <path>: the path, or its nearest existing ancestor, lies in a
+# git work tree or git directory.
+in_work_tree() {
+  iw=$1
+  while [ ! -d "$iw" ]; do
+    case $iw in */*) iw=${iw%/*} ;; *) return 1 ;; esac
+    [ -n "$iw" ] || iw=/
+  done
+  iw_out=$(mc_untrusted_git -C "$iw" rev-parse --is-inside-work-tree --is-inside-git-dir 2>/dev/null) || return 1
+  case $iw_out in *true*) return 0 ;; esac
+  return 1
+}
 
 LAYER_DIR=''
 LAYER=''
@@ -119,20 +155,49 @@ layer_path() {
   [ -n "$LAYER_DIR" ] || mc_fail "no adopter layer can be derived here, so there is no file to write"
   LAYER=$LAYER_DIR/planwright.yml
 }
+# layer_writable: the layer file is a regular file or absent, never a link,
+# and lies outside every git work tree.
+layer_writable() {
+  if in_work_tree "$LAYER_DIR"; then
+    mc_fail "the adopter layer $(sanitize_printable "$LAYER") resolves into a git work tree; mission control writes no repository"
+  fi
+  if [ -L "$LAYER" ] || { [ -e "$LAYER" ] && [ ! -f "$LAYER" ]; }; then
+    mc_fail "the adopter layer $(sanitize_printable "$LAYER") is not a regular file"
+  fi
+}
 
 pkey() { printf 'program_%s_%s\n' "$(printf '%s' "$1" | tr - _)" "$2"; }
 
-# knob_writable <key>: a mission_control_* key the core defaults ship and
-# the operator does not keep.
-knob_writable() {
+is_field() {
+  for if_f in $FIELDS; do
+    [ "$if_f" != "$1" ] || return 0
+  done
+  return 1
+}
+
+# knob_parser <key>: the parser that checks a writable knob's value.
+knob_parser() {
   case $1 in
-    *[!a-z0-9_]*) return 1 ;;
-    mission_control_?*) ;;
+    mission_control_guidance) printf 'parse_guidance\n' ;;
+    mission_control_kickoff_mode) printf 'parse_kickoff\n' ;;
+    mission_control_tick_cadence | mission_control_panel_refresh | mission_control_runner_interval | \
+      mission_control_stall_window | mission_control_handover_window | mission_control_event_retention | \
+      mission_control_measure_window | mission_control_repeat_window | mission_control_audit_idle_after | \
+      mission_control_deadline_horizon)
+      printf 'mc_parse_cadence\n'
+      ;;
+    mission_control_repeat_threshold | mission_control_shadow_promote_after | mission_control_handover_wakes | \
+      mission_control_handover_compactions)
+      printf 'mc_parse_count\n'
+      ;;
     *) return 1 ;;
   esac
-  case $RESERVED in *" $1 "*) return 1 ;; esac
-  kw_core=$(/bin/bash "$script_dir/resolve-overlay-root.sh" core 2>/dev/null) || return 1
-  K=$1 awk 'index($0, ENVIRON["K"] ":") == 1 { f = 1; exit } END { exit !f }' "$kw_core/config/defaults.yml" 2>/dev/null
+}
+knob_writable() { knob_parser "$1" >/dev/null; }
+# value_ok <key> <value>: a writable knob's value passes its parser.
+value_ok() {
+  vo_p=$(knob_parser "$1") || return 0
+  "$vo_p" "$2" >/dev/null
 }
 
 # program_key <key>: set PK_PROGRAM for a program_<name>_<field> key of a
@@ -157,27 +222,70 @@ check_value() {
   [ -n "$1" ] || mc_usage_fail "a value is required"
 }
 
+# list_items <inline list>: the members, one per line.
+list_items() {
+  printf '%s\n' "$1" | sed 's/^[[:space:]]*\[//; s/\][[:space:]]*$//' | tr ',' '\n' \
+    | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | awk 'NF'
+}
+# inline_list: stdin lines as [a, b].
+inline_list() { awk 'NF { s = s (s == "" ? "" : ", ") $0 } END { print "[" s "]" }'; }
+# valid_program_list <inline list>: a [..] list of program names.
+valid_program_list() {
+  case $1 in \[*\]) ;; *) return 1 ;; esac
+  for vl_p in $(list_items "$1"); do
+    mc_valid_program "$vl_p" || return 1
+  done
+}
+
 # previous <key>: the adopter layer's own value of the key, or `-`.
 previous() {
   pv=$(cfg_get --layers "$1" 2>/dev/null | awk -F '\t' '$1 == "adopter" { v = substr($0, 9) } END { if (v != "") print v; else print "-" }')
   printf '%s\n' "${pv:--}"
 }
 
-# stage <key> <value|''>...: the layer with each key replaced (or removed
-# for an empty value) into $scratch/stage/planwright.yml. The live file must
-# read as flat key: value YAML first.
-stage() {
+# check_live <key>...: the live layer is flat key: value YAML (the test
+# scripts/config-get.sh applies) and sets none of the keys oddly.
+check_live() {
+  [ -f "$LAYER" ] || return 0
+  if grep -Eq '^[[:space:]]*-([[:space:]]|$)' "$LAYER" \
+    || grep -Eqv '^[[:space:]]*(#.*)?$|^(---|\.\.\.)[[:space:]]*(#.*)?$|^[^[:space:]].*:' "$LAYER"; then
+    mc_fail "the adopter layer $(sanitize_printable "$LAYER") is malformed (not flat key: value YAML); it is left as it is"
+  fi
+  for cl_k in "$@"; do
+    if K=$cl_k awk 'BEGIN { k = ENVIRON["K"] } index($0, k) == 1 { r = substr($0, length(k) + 1); if (r ~ /^[ \t]+:/) bad = 1; else if (r ~ /^:/) n++ } END { exit !(bad || n > 1) }' "$LAYER"; then
+      mc_fail "the adopter layer sets $cl_k with a space before the colon or more than once; fix it by hand first"
+    fi
+  done
+}
+
+# prepare <key> <value|''>...: stage the layer with each key replaced (or
+# removed for an empty value), read each back, validate $VALIDATE's block,
+# and keep the previous values for land. The caller holds the lock.
+PREV=''
+SUM=''
+STAGED_ARGS=()
+prepare() {
+  layer_writable
+  STAGED_ARGS=("$@")
+  PREV=''
+  pr_keys=()
+  while [ $# -ge 2 ]; do
+    PREV="$PREV$1$tab$(previous "$1")$nl"
+    pr_keys+=("$1")
+    shift 2
+  done
+  check_live "${pr_keys[@]}"
   [ -n "$scratch" ] || scratch=$(mktemp -d "${TMPDIR:-/tmp}/mc-config.XXXXXX") || mc_fail "cannot make a staging directory"
   mkdir -p "$scratch/stage" || mc_fail "cannot make a staging directory"
   st=$scratch/stage/planwright.yml
-  if [ -e "$LAYER" ]; then
-    [ -f "$LAYER" ] && [ ! -L "$LAYER" ] || mc_fail "the adopter layer $(sanitize_printable "$LAYER") is not a regular file"
-    PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 cfg_get --layers mission_control_programs >/dev/null 2>&1
-    [ $? -ne 6 ] || mc_fail "the adopter layer $(sanitize_printable "$LAYER") is malformed (not flat key: value YAML); it is left as it is"
+  if [ -f "$LAYER" ]; then
+    SUM=$(cksum <"$LAYER") || mc_fail "cannot read the adopter layer"
     cp -- "$LAYER" "$st" || mc_fail "cannot read the adopter layer"
   else
+    SUM=absent
     : >"$st" || mc_fail "cannot stage the adopter layer"
   fi
+  set -- "${STAGED_ARGS[@]}"
   while [ $# -ge 2 ]; do
     sk_out=$(K=$1 awk 'BEGIN { k = ENVIRON["K"] } { p = $0; sub(/[ \t]*:.*/, "", p) } p != k || $0 !~ /^[^ \t]/ { print }' "$st") || mc_fail "cannot stage the adopter layer"
     {
@@ -186,6 +294,22 @@ stage() {
     } >"$st" || mc_fail "cannot stage the adopter layer"
     shift 2
   done
+  set -- "${STAGED_ARGS[@]}"
+  while [ $# -ge 2 ]; do
+    verify "$1" "$2"
+    case $1 in
+      program_*_home)
+        if [ -n "$2" ] && [ -n "${VALIDATE:-}" ]; then
+          pr_home=$(PLANWRIGHT_ADOPTER_OVERLAY=$scratch/stage PLANWRIGHT_MC_CHECKED='' /bin/bash "$script_dir/mc-program.sh" get "$VALIDATE" home 2>/dev/null) || pr_home=''
+          if [ -n "$pr_home" ] && in_work_tree "$pr_home"; then
+            mc_fail "the home $(sanitize_printable "$pr_home") lies in a git work tree; a program home is never committed"
+          fi
+        fi
+        ;;
+    esac
+    shift 2
+  done
+  [ -z "${VALIDATE:-}" ] || validate_program "$VALIDATE"
 }
 
 # verify <key> <value|''>: the staged layer reads the key back as written
@@ -207,46 +331,6 @@ verify() {
   esac
 }
 
-# commit_layer: the staged layer over the live one, by rename.
-commit_layer() {
-  mkdir -p -- "$LAYER_DIR" || mc_fail "cannot create the adopter layer's directory"
-  mc_write "$LAYER" <"$scratch/stage/planwright.yml" || mc_fail "cannot write the adopter layer"
-}
-
-lock_layer() {
-  mkdir -p -- "$LAYER_DIR" || mc_fail "cannot create the adopter layer's directory"
-  pw_lock_acquire "$LAYER.lock" 100 || mc_fail "cannot take the lock on the adopter layer"
-}
-
-# write_keys <key> <value|''>...: stage, verify and land several keys at
-# once, printing a wrote line per key; the caller holds the lock and has
-# checked each key is writable.
-write_keys() {
-  wk_prev=''
-  wk_args=("$@")
-  while [ $# -ge 2 ]; do
-    wk_prev="$wk_prev$1$tab$(previous "$1")$nl"
-    shift 2
-  done
-  stage "${wk_args[@]}"
-  set -- "${wk_args[@]}"
-  while [ $# -ge 2 ]; do
-    verify "$1" "$2"
-    shift 2
-  done
-  [ -z "${VALIDATE:-}" ] || validate_program "$VALIDATE"
-  commit_layer
-  set -- "${wk_args[@]}"
-  while [ $# -ge 2 ]; do
-    wk_p=$(printf '%s' "$wk_prev" | K=$1 awk -F '\t' '$1 == ENVIRON["K"] { print substr($0, length($1) + 2); exit }')
-    printf 'wrote\t%s\t%s\t%s\n' "$1" "${2:--}" "$wk_p" | mc_clean_text
-    shift 2
-  done
-}
-tab=$(printf '\t')
-nl='
-'
-
 # validate_program <p>: the staged block validates and its spec root's
 # posture resolves (a root that does not exist has none).
 validate_program() {
@@ -257,28 +341,71 @@ validate_program() {
   done
 }
 
+# land: the staged layer over the live one, by rename, once the live one is
+# as it was staged; prints a wrote line per key.
+land() {
+  if [ -f "$LAYER" ]; then ld_sum=$(cksum <"$LAYER") || ld_sum=''; else ld_sum=absent; fi
+  [ "$ld_sum" = "$SUM" ] || mc_fail "the adopter layer changed while the write was staged; nothing was written, so try again"
+  mkdir -p -- "$LAYER_DIR" || mc_fail "cannot create the adopter layer's directory"
+  mc_write "$LAYER" <"$scratch/stage/planwright.yml" || mc_fail "cannot write the adopter layer"
+  set -- "${STAGED_ARGS[@]}"
+  while [ $# -ge 2 ]; do
+    ld_p=$(printf '%s' "$PREV" | K=$1 awk -F '\t' '$1 == ENVIRON["K"] { print substr($0, length($1) + 2); exit }')
+    printf 'wrote\t%s\t%s\t%s\n' "$1" "${2:--}" "$ld_p" | mc_clean_text
+    shift 2
+  done
+}
+
+lock_layer() {
+  layer_writable
+  mkdir -p -- "$LAYER_DIR" || mc_fail "cannot create the adopter layer's directory"
+  pw_lock_acquire "$LAYER.lock" 100 || mc_fail "cannot take the lock on the adopter layer"
+}
+
+write_keys() {
+  prepare "$@"
+  land
+}
+
 parse_guidance() {
   case $1 in guided | standard | expert) printf '%s\n' "$1" ;; *) return 1 ;; esac
 }
 parse_kickoff() {
   case $1 in relay | manual) printf '%s\n' "$1" ;; *) return 1 ;; esac
 }
-# value_ok <key> <value>: the enumerated knobs take only their values.
-value_ok() {
-  case $1 in
-    mission_control_guidance) parse_guidance "$2" >/dev/null ;;
-    mission_control_kickoff_mode) parse_kickoff "$2" >/dev/null ;;
-    *) return 0 ;;
-  esac
-}
 
-# list_items <inline list>: the members, one per line.
-list_items() {
-  printf '%s\n' "$1" | sed 's/^[[:space:]]*\[//; s/\][[:space:]]*$//' | tr ',' '\n' \
-    | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | awk 'NF'
+# duty_list <p> <enable|disable> <id>: DUTY_LIST, the enabled list after the
+# change, and DUTY_CHANGED, empty when the duty is already in (or out).
+DUTY_LIST=''
+DUTY_CHANGED=''
+duty_list() {
+  dl_cur=$(/bin/bash "$script_dir/mc-program.sh" get "$1" duties) || mc_fail "the duties of program $1 do not resolve"
+  DUTY_CHANGED=1
+  if [ "$2" = enable ]; then
+    /bin/bash "$script_dir/mc-duties.sh" get "$3" summary >/dev/null 2>&1
+    case $? in
+      0) ;;
+      3) mc_fail "the duty catalog has no duty $3" ;;
+      *) mc_fail "the duty catalog cannot be read" ;;
+    esac
+    if printf '%s\n' "$dl_cur" | grep -qx -- "$3"; then
+      DUTY_CHANGED=''
+      DUTY_LIST=$(printf '%s\n' "$dl_cur" | inline_list)
+      return 0
+    fi
+    DUTY_LIST=$({
+      [ -z "$dl_cur" ] || printf '%s\n' "$dl_cur"
+      printf '%s\n' "$3"
+    } | inline_list)
+  else
+    if ! printf '%s\n' "$dl_cur" | grep -qx -- "$3"; then
+      DUTY_CHANGED=''
+      DUTY_LIST=$(printf '%s\n' "$dl_cur" | inline_list)
+      return 0
+    fi
+    DUTY_LIST=$(printf '%s\n' "$dl_cur" | grep -vx -- "$3" | inline_list)
+  fi
 }
-# inline_list: stdin lines as [a, b].
-inline_list() { awk 'NF { s = s (s == "" ? "" : ", ") $0 } END { print "[" s "]" }'; }
 
 # --- verbs -------------------------------------------------------------------
 
@@ -338,6 +465,14 @@ v_add() {
   lock_layer
   ad_list=$(/bin/bash "$script_dir/mc-program.sh" list) || mc_fail "cannot list the configured programs"
   ! printf '%s\n' "$ad_list" | grep -qx -- "$ad_p" || mc_fail "program $ad_p is already configured"
+  for ad_f in $FIELDS; do
+    ad_k=$(pkey "$ad_p" "$ad_f")
+    ad_l=$(cfg_get --explain "$ad_k" 2>/dev/null) || continue
+    mc_fail "the ${ad_l%%	*} layer already sets $ad_k, a leftover of an earlier block; restore it away first"
+  done
+  ad_prev=$(previous mission_control_programs)
+  [ "$ad_prev" = - ] || valid_program_list "$ad_prev" \
+    || mc_fail "the adopter layer's mission_control_programs is not a list of program names; fix it by hand first"
   ad_new=$({
     [ -z "$ad_list" ] || printf '%s\n' "$ad_list"
     printf '%s\n' "$ad_p"
@@ -348,7 +483,7 @@ v_add() {
 v_set() {
   [ $# -eq 4 ] && [ "$1" = --program ] || usage
   se_p=$2
-  case $FIELDS in *" $3 "*) ;; *) mc_usage_fail "a program field is one of:$FIELDS" ;; esac
+  is_field "$3" || mc_usage_fail "a program field is one of: $FIELDS"
   check_value "$4"
   mc_require_program "$se_p"
   layer_path
@@ -364,38 +499,12 @@ v_duty() {
   mc_require_program "$du_p"
   layer_path
   lock_layer
-  duty_write "$du_p" "$du_verb" "$du_id"
-}
-# duty_write <p> <enable|disable> <id>: the caller holds the lock.
-DUTY_LIST=''
-duty_write() {
-  dw_key=$(pkey "$1" duties)
-  dw_cur=$(/bin/bash "$script_dir/mc-program.sh" get "$1" duties) || mc_fail "the duties of program $1 do not resolve"
-  if [ "$2" = enable ]; then
-    /bin/bash "$script_dir/mc-duties.sh" get "$3" summary >/dev/null 2>&1
-    case $? in
-      0) ;;
-      3) mc_fail "the duty catalog has no duty $3" ;;
-      *) mc_fail "the duty catalog cannot be read" ;;
-    esac
-    if printf '%s\n' "$dw_cur" | grep -qx -- "$3"; then
-      DUTY_LIST=$(printf '%s\n' "$dw_cur" | inline_list)
-      printf 'unchanged\t%s\t%s\n' "$dw_key" "$DUTY_LIST"
-      return 0
-    fi
-    DUTY_LIST=$({
-      [ -z "$dw_cur" ] || printf '%s\n' "$dw_cur"
-      printf '%s\n' "$3"
-    } | inline_list)
-  else
-    if ! printf '%s\n' "$dw_cur" | grep -qx -- "$3"; then
-      DUTY_LIST=$(printf '%s\n' "$dw_cur" | inline_list)
-      printf 'unchanged\t%s\t%s\n' "$dw_key" "$DUTY_LIST"
-      return 0
-    fi
-    DUTY_LIST=$(printf '%s\n' "$dw_cur" | grep -vx -- "$3" | inline_list)
+  duty_list "$du_p" "$du_verb" "$du_id"
+  if [ -z "$DUTY_CHANGED" ]; then
+    printf 'unchanged\t%s\t%s\n' "$(pkey "$du_p" duties)" "$DUTY_LIST"
+    return 0
   fi
-  VALIDATE=$1 write_keys "$dw_key" "$DUTY_LIST"
+  VALIDATE=$du_p write_keys "$(pkey "$du_p" duties)" "$DUTY_LIST"
 }
 
 v_knob() {
@@ -414,7 +523,7 @@ v_restore() {
   [ -z "$rs_v" ] || check_value "$rs_v"
   VALIDATE=''
   if [ "$1" = mission_control_programs ]; then
-    :
+    [ -z "$rs_v" ] || valid_program_list "$rs_v" || mc_usage_fail "mission_control_programs is a [..] list of program names"
   elif program_key "$1"; then
     VALIDATE=$PK_PROGRAM
   elif knob_writable "$1"; then
@@ -486,39 +595,47 @@ v_apply() {
   layer_path
   lock_layer
   mc_kb_lock "$ap_p" config-apply
+  # The live undo entry: this proposal's config-set entry that no revert
+  # (reverting, reverted or revert failed) has since named.
   ap_undo=$(mc_kb query undo --program "$ap_p" --subject "$ap_subject") || mc_fail "the undo log cannot be read"
-  ap_logged=$(printf '%s\n' "$ap_undo" | I=$ap_id awk -F '\t' '$4 == "config-set" && index($6, ": applied accepted mechanization proposal " ENVIRON["I"]) && substr($6, length($6) - length(ENVIRON["I"]) + 1) == ENVIRON["I"] { print $1; exit }')
+  ap_logged=$(printf '%s\n' "$ap_undo" | I=$ap_id awk -F '\t' '
+    $4 == "config-set" && index($6, ": applied accepted mechanization proposal " ENVIRON["I"]) && substr($6, length($6) - length(ENVIRON["I"]) + 1) == ENVIRON["I"] { live[$1] = 1; order[++n] = $1 }
+    $4 == "reverting" || $4 == "reverted" || $4 == "revert failed" { delete live[$5] }
+    END { for (i = n; i > 0; i--) if (order[i] in live) { print order[i]; exit } }')
   if [ "$ap_write" = duty ]; then
-    ap_cur=$(/bin/bash "$script_dir/mc-program.sh" get "$ap_p" duties) || mc_fail "the duties of program $ap_p do not resolve"
-    if printf '%s\n' "$ap_cur" | grep -qx -- "$ap_mech"; then ap_done=1; else ap_done=''; fi
+    duty_list "$ap_p" enable "$ap_mech"
+    ap_value=$DUTY_LIST
+    ap_done=''
+    [ -n "$DUTY_CHANGED" ] || ap_done=1
   else
-    if [ "$(cfg_get "$ap_key" 2>/dev/null)" = "$ap_value" ]; then ap_done=1; else ap_done=''; fi
+    ap_done=''
+    [ "$(cfg_get "$ap_key" 2>/dev/null)" != "$ap_value" ] || ap_done=1
   fi
-  if [ -n "$ap_logged" ] && [ -n "$ap_done" ]; then
+  if [ -n "$ap_done" ]; then
     printf 'applied\talready\t%s\n' "$ap_id"
     return 0
   fi
+  VALIDATE=''
+  [ "$ap_write" = knob ] || VALIDATE=$ap_p
+  prepare "$ap_key" "$ap_value"
   if [ -z "$ap_logged" ]; then
     ap_rules=$(/bin/bash "$script_dir/mc-rules.sh" active "$ap_p") || mc_fail "the rule store cannot be read"
     # shellcheck disable=SC2016 # an awk program, expanded by awk
     ap_cite=$(printf '%s\n' "$ap_rules" | S=$ap_subject awk -F '\t' "$MC_SUBJECT_KEY_AWK"'
       $1 ~ /^r-[1-9][0-9]*$/ && key($5) == key(ENVIRON["S"]) { c = c (c == "" ? "" : ",") $1 }
       END { print (c == "" ? "-" : c) }')
-    ap_prev=$(previous "$ap_key")
-    if [ "$ap_prev" = - ]; then set -- mc-config.sh restore "$ap_key"; else set -- mc-config.sh restore "$ap_key" "$ap_prev"; fi
+    if [ "$ap_write" = duty ]; then
+      set -- mc-config.sh duty --program "$ap_p" disable "$ap_mech"
+    else
+      ap_prev=$(previous "$ap_key")
+      if [ "$ap_prev" = - ]; then set -- mc-config.sh restore "$ap_key"; else set -- mc-config.sh restore "$ap_key" "$ap_prev"; fi
+    fi
     ap_out=$(mc_kb append undo --program "$ap_p" --subject "$ap_subject" --act config-set --target "$ap_key" \
       --grounds "settled - $ap_cite: applied accepted mechanization proposal $ap_id" -- "$@") \
       || mc_fail "the undo entry was not logged, so proposal $ap_id was not applied"
     ap_logged=$(printf '%s\n' "$ap_out" | head -n 1)
   fi
-  if [ "$ap_write" = duty ]; then
-    duty_write "$ap_p" enable "$ap_mech" >/dev/null
-    ap_value=$DUTY_LIST
-  else
-    VALIDATE=''
-    [ "$ap_write" != program ] || VALIDATE=$ap_p
-    write_keys "$ap_key" "$ap_value" >/dev/null
-  fi
+  land >/dev/null
   printf 'applied\t%s\t%s\t%s\t%s\n' "$ap_kind" "$ap_key" "$ap_value" "$ap_logged" | mc_clean_text
 }
 
