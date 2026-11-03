@@ -167,11 +167,14 @@ leaves running in that group outlives it; a process that moves to a session
 or group of its own (`setsid`) is out of the harness's reach. The `build` and
 delivery scripts keep the caller's environment, since building and installing
 may need it, but get a fresh home too, so an install never lands in the
-operator's own.
+operator's own. The XDG base-directory variables are unset for every
+execution, since a tool honours them ahead of the home; each falls back
+inside the fresh one.
 
 Spawns are counted by a logging shim for every command on `PATH`, so a command
 started by absolute path, the candidate's own executable included, is not
 counted. The interpreter a `#!/usr/bin/env` line looks up through `PATH` is.
+The copy that stages a fixture's `files/` is the harness's own and is not.
 
 `run` refuses (exit status one) a candidate whose configuration or logs break
 the rules above, and fails closed (exit status five) on an input it cannot

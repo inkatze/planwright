@@ -86,6 +86,17 @@ check_eq "a failing fixture does not refuse the run" 0 "$rc"
 check_eq "the failing fixture is recorded per fixture" "echo-line/basic:pass,echo-line/empty:pass,echo-line/wrong:fail" "$(get "$tmp/out-failing/report.tsv" stub-full fixture_results)"
 check_eq "the failure counts" "2 1" "$(get "$tmp/out-failing/report.tsv" stub-full tests_passed) $(get "$tmp/out-failing/report.tsv" stub-full tests_failed)"
 
+variant staged
+mkdir -p "$tmp/staged/fixtures/echo-line/staged/files"
+printf 'staged\n' >"$tmp/staged/fixtures/echo-line/staged/files/input"
+printf 'in\n' >"$tmp/staged/fixtures/echo-line/staged/stdin"
+printf 'in\n' >"$tmp/staged/fixtures/echo-line/staged/expected-stdout"
+printf '0\n' >"$tmp/staged/fixtures/echo-line/staged/expected-status"
+run_into staged "$tmp/staged"
+check_eq "a fixture with files runs" 0 "$rc"
+check_eq "staging a fixture's files is not counted as the candidate's spawn" "cat,system,-,-" "$(get "$tmp/out-staged/report.tsv" stub-full dependency_listing)"
+check_eq "the distinct-command count leaves the staging copy out" 1 "$(get "$tmp/out-staged/report.tsv" stub-full distinct_commands)"
+
 variant slow
 sed 's/^timeout_s=10$/timeout_s=1/' "$STUB/bakeoff.conf" >"$tmp/slow/bakeoff.conf"
 mkdir -p "$tmp/slow/fixtures/echo-line/slow"
@@ -219,11 +230,26 @@ printf 'stub-second\t2026-10-01T09:00:00Z\t2026-10-01T09:30:00Z\n' >>"$tmp/isola
 printf 'stub-second\t1\t0\n' >>"$tmp/isolate/review-findings.tsv"
 rm -rf "$tmp/out-isolate"
 mkdir "$tmp/out-isolate"
-mkdir -p "$tmp/fakehome"
-printf '#!/bin/sh\n: >"$HOME/delivery-mark"\n' >"$tmp/isolate/candidates/stub-second/delivery/marketplace"
-chmod 755 "$tmp/isolate/candidates/stub-second/delivery/marketplace"
-HOME="$tmp/fakehome" BAKEOFF_TEST_SECRET=leak "$SB" run --bakeoff "$tmp/isolate" --out-dir "$tmp/out-isolate" --run-id iso --platform test >/dev/null 2>&1
+mkdir -p "$tmp/fakehome" "$tmp/fakexdg/cache" "$tmp/fakexdg/config" "$tmp/fakexdg/data" "$tmp/fakexdg/state"
+# A build or delivery script writes where its tools would: the home and every
+# XDG base directory, each falling back to the home the way the tools do.
+cat >"$tmp/isolate/write-everywhere" <<'EOF'
+#!/bin/sh
+: >"$HOME/delivery-mark"
+for d in "${XDG_CACHE_HOME:-$HOME/.cache}" "${XDG_CONFIG_HOME:-$HOME/.config}" \
+  "${XDG_DATA_HOME:-$HOME/.local/share}" "${XDG_STATE_HOME:-$HOME/.local/state}"; do
+  mkdir -p "$d" && : >"$d/mark"
+done
+EOF
+cp "$tmp/isolate/write-everywhere" "$tmp/isolate/candidates/stub-second/delivery/marketplace"
+cp "$tmp/isolate/write-everywhere" "$tmp/isolate/candidates/stub-second/build"
+chmod 755 "$tmp/isolate/candidates/stub-second/delivery/marketplace" "$tmp/isolate/candidates/stub-second/build"
+printf 'build=build\n' >>"$tmp/isolate/candidates/stub-second/candidate.conf"
+HOME="$tmp/fakehome" XDG_CACHE_HOME="$tmp/fakexdg/cache" XDG_CONFIG_HOME="$tmp/fakexdg/config" \
+  XDG_DATA_HOME="$tmp/fakexdg/data" XDG_STATE_HOME="$tmp/fakexdg/state" BAKEOFF_TEST_SECRET=leak \
+  "$SB" run --bakeoff "$tmp/isolate" --out-dir "$tmp/out-isolate" --run-id iso --platform test >/dev/null 2>&1
 check_eq "the isolation run succeeds" 0 "$?"
+check_eq "a build or delivery script writes nothing outside its fresh home" "" "$(find "$tmp/fakehome" "$tmp/fakexdg" -type f)"
 check_eq "each fixture sees a fresh directory, a fresh home and no caller environment" "echo-line/basic:pass,echo-line/empty:pass" "$(get "$tmp/out-isolate/report.tsv" stub-second fixture_results)"
 check_eq "the offline replay starts from an empty home" yes "$(get "$tmp/out-isolate/report.tsv" stub-second offline_replay)"
 check_eq "every timed repetition starts clean" 0 "$(get "$tmp/out-isolate/report.tsv" stub-second latency_status_mismatches)"

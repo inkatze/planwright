@@ -287,7 +287,12 @@ for my $s (keys %signum) {
 for (1 .. ($bk{BK_REPEAT} || 1)) {
   my $cwd = tempdir("rep.XXXXXX", DIR => $bk{BK_WORK});
   $ENV{HOME} = $ENV{TMPDIR} = tempdir("home.XXXXXX", DIR => $bk{BK_WORK});
-  if ($bk{BK_FILES} ne "") { system("cp", "-R", "--", "$bk{BK_FILES}/.", "$cwd/") == 0 or die "could not stage $bk{BK_FILES}\n"; }
+  # A tool honours these ahead of HOME, so an inherited one would send a build
+  # or an install outside the fresh home; unset, each falls back inside it.
+  delete @ENV{qw(XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_RUNTIME_DIR)};
+  # Staging is a copy the harness makes, not a spawn of the candidate: PATH
+  # goes through the logging shims, so the log is pointed away for it.
+  if ($bk{BK_FILES} ne "") { local $ENV{PLANWRIGHT_BAKEOFF_SPAWN_LOG} = "/dev/null"; system("cp", "-R", "--", "$bk{BK_FILES}/.", "$cwd/") == 0 or die "could not stage $bk{BK_FILES}\n"; }
   my $t0 = time;
   $pid = fork;
   die "fork: $!\n" unless defined $pid;
