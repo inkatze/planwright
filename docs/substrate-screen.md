@@ -32,7 +32,7 @@ page admits.
 | --- | --- | --- | --- | --- |
 | Hardened shell | full | adopter tiers | none ships beyond the scripts (MIT) | The Task 1 lock, the Task 1.1 printf discipline, and a prototype shared-library seam with batched reads (D-6). |
 | Go | full | adopter tiers | Go runtime and standard library, BSD-3-Clause: compatible | Static executables for every matrix platform; the linker signs Apple-silicon binaries from a Linux runner. |
-| Rust | full | adopter tiers | Rust standard library, MIT or Apache-2.0: compatible | Static on Linux with the C runtime linked in; cross-compiling to macOS needs an Apple SDK that community images do not carry (risk R7). |
+| Rust | full | adopter tiers | Rust standard library, MIT or Apache-2.0; on glibc Linux the statically linked glibc, LGPL-2.1-or-later: compatible, with an obligation there | Static on Linux with the C runtime linked in; cross-compiling to macOS needs an Apple SDK that community images do not carry (risk R7). |
 | Zig | comparison point | adopter tiers | Zig standard library, MIT: compatible | Pre-1.0, no regular-expression library in its standard library, and its I/O surface keeps moving: the trivial program needed the new `std.process.Init` entry point and `std.Io.File` writer, neither of which the previous API spelled that way. |
 | Bun-compiled TypeScript | comparison point | adopter tiers | Bun runtime (MIT) and JavaScriptCore (LGPL-2.1-or-later), both embedded: compatible, with an obligation | Covers the whole matrix from one Linux runner; the executable embeds the runtime, so its size sits against the marketplace archive ceiling. |
 | Python | full | dev-check only | not shipped to adopters | A pinned toolchain already exists on the dev-check tier (REQ-C1.1); excluded from adopter tiers below. Its dev-check screen belongs to Task 8. |
@@ -50,6 +50,13 @@ means for a recipient to relink against a modified engine). The obligation
 does not bind a comparison point, which ships nothing. Promoting Bun to a
 full candidate would have to settle how a release meets it, before any
 verdict could select it.
+
+**The Rust glibc obligation.** On glibc Linux the Rust build links the C
+runtime in statically, so the executable embeds glibc, LGPL-2.1-or-later,
+and carries the same kind of obligation as Bun's engine. It binds a release
+of Rust executables for glibc Linux; building those against musl instead,
+whose licence is MIT, would remove it. A verdict selecting Rust would have
+to settle which, and Go, which needs no C runtime on Linux, carries none.
 
 ## Excluded
 

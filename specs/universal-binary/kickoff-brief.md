@@ -446,7 +446,9 @@ toolchains' own release metadata and documentation, read at build time.
   no candidate uses a crate, so no manifest or lockfile enters the tree.
 - **Licences (R10 early signal).** Go's runtime is BSD-3-Clause, Rust's
   standard library MIT or Apache-2.0, Zig's MIT: all compatible with
-  planwright's MIT. A Bun-compiled executable statically embeds
+  planwright's MIT. A Rust executable for glibc Linux statically links
+  glibc, LGPL-2.1-or-later: compatible, with a relinking obligation that a
+  musl build would avoid; the screen records it. A Bun-compiled executable statically embeds
   JavaScriptCore, LGPL-2.1-or-later: compatible, but distribution carries a
   relinking obligation. Bun is a comparison point and ships nothing, so the
   screen admits it and records the obligation as a precondition of any
