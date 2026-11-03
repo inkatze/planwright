@@ -224,6 +224,26 @@ else
   fail "the default ledger: before '$OUT', after '$OUT2'"
 fi
 
+# --- fail closed ---------------------------------------------------------
+nolist="$tmp/nolist"
+cp -R "$mini" "$nolist"
+rm -f "$nolist/gated-specs"
+OUT=$(PLANWRIGHT_STEP_SPEC=mission-control PLANWRIGHT_STEP_WORKTREE="$wt" /bin/bash "$SCRIPT" step \
+  --ledger "$ledger" --fixture "$nolist" --test-spec "$tmp/mini-test-spec.md" 2>&1)
+RC=$?
+if [ "$RC" -eq 2 ] && ! printf '%s\n' "$OUT" | grep -q "not gated"; then
+  ok "a missing gated-specs list refuses the step rather than reading as ungated"
+else
+  fail "a missing gated-specs list: exit $RC, $OUT"
+fi
+OUT=$(/bin/bash "$SCRIPT" run --worktree "$wt" --fixture "$mini" --test-spec "$tmp/mini-test-spec.md" 2>&1)
+RC=$?
+if [ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -q "needs an explicit --ledger"; then
+  ok "an overridden suite never writes the default ledger"
+else
+  fail "an overridden suite without --ledger: exit $RC, $OUT"
+fi
+
 # --- usage ---------------------------------------------------------------
 /bin/bash "$SCRIPT" gated 'bad/name' 2>/dev/null
 RC=$?

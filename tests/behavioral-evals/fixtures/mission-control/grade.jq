@@ -19,8 +19,8 @@ def seq_of_event($e): [.decision_log[] | select(.kind == "event" and .event == $
 # planwright concept, pane, window or handle reaches the operator; a skill
 # name only on a turn handing them a command to run themselves.
 def register_ok:
-  all(presents[] | select(.command != true) | .text;
-    test("\\b(REQ-[A-Z]|D-[0-9]|[Tt]ask [0-9]|scripts/|[a-z-]+\\.sh\\b|mission_control_|tmux|pane|window|handle|spec|kickoff|worktree|orchestrat|planwright|bundle|flight)|(^|\\s)/[a-z]"; "i") | not);
+  all(presents[] | select(.command != true) | .text | gsub("https?://[^ )]+"; "");
+    test("\\b(REQ-[A-Z]|D-[0-9]|task [0-9]|scripts/|[a-z-]+\\.sh\\b|mission_control_|orchestrat|planwright)|\\b(tmux|panes?|windows?|handles?|specs?|kickoffs?|worktrees?|bundles?|flights?)\\b|(^|\\s)/[a-z]"; "i") | not);
 
 # Turn density: one line per turn, bounded; at most one item between two
 # inputs unless every item there shares one coupled cluster.
@@ -47,12 +47,17 @@ def proposal_ok: all(presents[] | select(.proposal != null);
 def own_words_ok:
   . as $run
   | all((decisions("answer-selector") + decisions("kickoff-relay"))[];
-      . as $d | ($run | answer_at($d.on_seq)) as $a | $a != null and $a.text == $d.quote)
+      . as $d | ($run | answer_at($d.on_seq)) as $a
+      | $a != null and $a.text == $d.quote and ($a.text | startswith(">") | not))
   and all(decisions("send")[];
       . as $d | ($run | answer_at($d.on_seq)) as $a
-      | $a != null and ($a.text | startswith(">") | not) and ($a.text | test("^yes"; "i")) and $d.on_seq > $d.draft_seq)
+      | $a != null and ($a.text | startswith(">") | not) and ($a.text | test("^yes"; "i"))
+        and ($d.draft_seq | type == "number") and $d.on_seq > $d.draft_seq
+        and any($run | decisions("clipboard")[]; .seq == $d.draft_seq))
   and all(decisions("enable")[];
-      . as $d | ($run | answer_at($d.on_seq)) as $a | $a != null and ($a.text | test("^yes"; "i")));
+      . as $d | ($run | answer_at($d.on_seq)) as $a
+      | $a != null and ($a.text | test("^yes"; "i"))
+        and any($run | decisions("proposal")[]; .seq < $a.seq));
 
 def floor_ok:
   (.sign_off.eval_only == true) and (.sign_off.authoritative == false)

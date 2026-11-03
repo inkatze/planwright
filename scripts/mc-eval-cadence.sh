@@ -59,9 +59,12 @@ VERBS
                                         an arm that is not a [Gherkin] entry
   run [--worktree <dir>] [--spec <name>] [--ledger <file>]
       The completeness check, then the suite on the worktree's head (default
-      the current directory); appends the ledger line and prints it. A run
-      the harness could not carry out (no tmux or jq, a broken fixture)
-      appends nothing.
+      the current directory); appends the ledger line and prints it. The
+      skill dying, never finishing, or hitting the turn ceiling is a red
+      run; a run the harness itself could not carry out (no tmux or jq, a
+      broken fixture) appends nothing. Refuses uncommitted edits to the
+      suite, and a --fixture or --test-spec override without an explicit
+      --ledger, so a record always speaks for what its head holds.
   step [--ledger <file>]
       The pre-ready-flip cadence step. Reads PLANWRIGHT_STEP_SPEC and
       PLANWRIGHT_STEP_WORKTREE (default the current directory). An ungated
@@ -91,6 +94,8 @@ test_spec="$default_test_spec"
 fixture="$default_fixture"
 live=""
 live_set=0
+suite_override=0
+ledger_given=0
 
 valid_spec() {
   [ "${#1}" -le 64 ] || return 1
@@ -117,18 +122,20 @@ resolve_ledger() {
   ledger="$_common/planwright/mc-eval-cadence.tsv"
 }
 
+# No awk interval expressions: older BSD awk and mawk read `{40}` literally.
 head_of() {
-  git -C "$worktree" rev-parse --verify -q HEAD 2>/dev/null | awk '/^[0-9a-f]{40}([0-9a-f]{24})?$/ { print; ok = 1 } END { exit !ok }'
+  git -C "$worktree" rev-parse --verify -q HEAD 2>/dev/null \
+    | awk '(length($0) == 40 || length($0) == 64) && $0 !~ /[^0-9a-f]/ { print; ok = 1 } END { exit !ok }'
 }
 
-gated_list() {
+# is_gated <spec> — read in this shell, so a missing list exits 2 here rather
+# than inside a pipeline subshell, where it would read as "not gated".
+is_gated() {
   _gf="$fixture/gated-specs"
   [ -r "$_gf" ] || mc_usage_fail "the gated-specs list is missing or unreadable: $(sanitize_printable "$_gf")"
-  sed -e 's/#.*//' -e 's/[[:space:]]//g' "$_gf" | awk 'NF'
-}
-
-is_gated() {
-  gated_list | grep -qxF -- "$1"
+  _list=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$_gf") \
+    || mc_usage_fail "the gated-specs list cannot be read: $(sanitize_printable "$_gf")"
+  printf '%s\n' "$_list" | grep -qxF -- "$1"
 }
 
 # latest_record <head> — the ledger's latest well-formed line for the head.
@@ -211,6 +218,28 @@ do_run() {
   [ -n "$spec" ] || spec=mission-control
   valid_spec "$spec" || mc_usage_fail "invalid spec name"
   _head=$(head_of) || mc_usage_fail "cannot read the head of $(sanitize_printable "$worktree")"
+  # A record speaks for a head, so it must grade what that head holds: an
+  # overridden suite never writes the shared ledger, and the shipped suite
+  # never runs over uncommitted edits to itself.
+  if [ "$suite_override" -eq 1 ] && [ "$ledger_given" -eq 0 ]; then
+    mc_usage_fail "--fixture or --test-spec needs an explicit --ledger: an overridden suite never records for the head"
+  fi
+  if [ "$suite_override" -eq 0 ]; then
+    _dirty=$(git -C "$root" status --porcelain -- tests/behavioral-evals/fixtures/mission-control \
+      specs/mission-control/test-spec.md scripts/behavioral-eval.sh 2>/dev/null) \
+      || mc_usage_fail "cannot read the suite's state in $(sanitize_printable "$root")"
+    [ -z "$_dirty" ] || mc_usage_fail "the suite has uncommitted changes; commit them so the record speaks for the head"
+  fi
+  # The harness exits 3 alike for a session that never started and a skill
+  # that died, so the tools are checked here: past this point, 3 is the
+  # skill's.
+  _tmux="${BEHAVIORAL_EVAL_TMUX:-tmux}"
+  for _tool in "$_tmux" jq; do
+    if ! command -v "$_tool" >/dev/null 2>&1; then
+      printf '%s\n' "$prog: the suite could not run: $(sanitize_printable "$_tool") is not available; no record written" >&2
+      return 3
+    fi
+  done
   if ! _gaps=$(do_complete); then
     printf '%s\n' "$_gaps" | while IFS= read -r _g; do
       [ -n "$_g" ] && printf '%s\n' "$prog: incomplete: $(sanitize_printable "$_g")" >&2
@@ -222,6 +251,9 @@ do_run() {
   /bin/sh "$script_dir/behavioral-eval.sh" --record "$_rec" "$fixture" >"$_rec/harness.log" 2>&1
   _rc=$?
   _want=$(awk -F '=' '$1 == "personas" { sub(/^[^=]*=/, ""); print; exit }' "$fixture/fixture.conf" | wc -w | tr -d ' ')
+  _runs=$(awk -F '=' '$1 == "runs" { print $2; exit }' "$fixture/fixture.conf")
+  mc_valid_uint "${_runs:-1}" || mc_usage_fail "the fixture's runs= is not a whole number"
+  _want=$((_want * ${_runs:-1}))
   _passed=0
   set +f
   for _r in "$_rec"/*.json; do
@@ -229,8 +261,10 @@ do_run() {
     [ "$(jq -r '.structural_pass' "$_r" 2>/dev/null)" = true ] && _passed=$((_passed + 1))
   done
   set -f
+  # 3 (the skill died or never finished) and 6 (the turn ceiling) are the
+  # evaluated skill's failures, recorded red; the rest are the harness's own.
   case $_rc in
-    0 | 1) ;;
+    0 | 1 | 3 | 6) ;;
     *)
       printf '%s\n' "$prog: the suite could not run (harness exit $_rc); no record written" >&2
       tail -n 20 "$_rec/harness.log" | while IFS= read -r _l; do printf '%s\n' "  $(sanitize_printable "$_l")" >&2; done
@@ -333,11 +367,20 @@ while [ $# -gt 0 ]; do
     --ledger | --worktree | --spec | --test-spec | --fixture | --live)
       [ $# -ge 2 ] || mc_usage_fail "$1 needs a value"
       case $1 in
-        --ledger) ledger=$2 ;;
+        --ledger)
+          ledger=$2
+          ledger_given=1
+          ;;
         --worktree) worktree=$2 ;;
         --spec) spec=$2 ;;
-        --test-spec) test_spec=$2 ;;
-        --fixture) fixture=$2 ;;
+        --test-spec)
+          test_spec=$2
+          suite_override=1
+          ;;
+        --fixture)
+          fixture=$2
+          suite_override=1
+          ;;
         --live)
           live=$2
           live_set=1

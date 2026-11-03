@@ -135,6 +135,21 @@ seeded status-form "the run record: an approval" '.sign_off.approved = true'
 seeded nothing-dropped "an item leaving with no reason" \
   "(.decision_log[] | select(.action == \"item-leave\") | .reason) = \"\""
 
+seeded no-send "own words: a send with no shown draft" \
+  "(.decision_log[] | select(.action == \"send\")) |= del(.draft_seq)"
+seeded on-behalf "own words: a relayed answer quoting pasted material" \
+  "(.decision_log[] | select(.kind == \"answer\" and .text == \"ship the docs change first\") | .text) = \"> ship it\" | (.decision_log[] | select(.action == \"answer-selector\") | .quote) = \"> ship it\""
+seeded duty-proposal "own words: an enable on a yes given before the proposal" \
+  "(.decision_log[] | select(.action == \"proposal\") | .seq) = 9990"
+
+# The register reads words, not prefixes, and never a link.
+if jq '(.decision_log[] | select(.kind == "present") | .text) |= . + " The panel shows the specific items I handled (https://forge.example/planwright/pull/1)."' \
+  "$TMP/status-form.json" | jq -e -f "$GRADEJQ" >/dev/null 2>&1; then
+  ok "the register passes panel, specific, handled and a link's path"
+else
+  fail "the register fails ordinary words or a link"
+fi
+
 # Each arm's own pin.
 seeded bring-up "the stale state file read" \
   "(.decision_log[] | select(.action == \"bringup\") | .state_file_read) = true"
