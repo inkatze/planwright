@@ -10,6 +10,10 @@ const TITLE = 'Mission control'
 // Used only when the first digest cannot read the knobs.
 const DEFAULT_REFRESH_S = 10
 const DEFAULT_TICK_S = 300
+const DEFAULT_REVIEWS_TTL_S = 300
+// The reviews snapshot is checked this often at most, so a read lands
+// within a fifth of its TTL of falling due.
+const REVIEWS_CHECK_MAX_MS = 60_000
 const PRESENCE_EVERY_MS = 60_000
 const ANIMATE_MS = 500
 const SCRIPT_TIMEOUT_MS = 20_000
@@ -167,17 +171,55 @@ async function wake($: EngineInterface, isTick: boolean) {
   }
 }
 
-// Not awaited by the redraw: the script reads the forge at most once per
-// its TTL, and a slow read must not hold the digest.
+// On its own timer, never awaited by a redraw: the script reads the forge
+// at most once per its TTL, and a slow read must not hold the digest. A
+// `fresh` answer read nothing, so it never clears a fault.
 async function refreshReviews($: EngineInterface) {
   if (!ctx || isFetchingReviews) return
   isFetchingReviews = true
+  let isNew = false
   try {
     const r = await run($, 'mc-reviews.sh', ['refresh', '--program', ctx.program])
-    if (r.ok && lasting.reviews) await lastingFault($, 'reviews', null)
+    isNew = r.ok && /^(written|unavailable)/.test(r.out)
+    if (isNew && lasting.reviews) await lastingFault($, 'reviews', null)
     if (!r.ok) await lastingFault($, 'reviews', `the reviews snapshot could not be refreshed: ${r.err}`)
   } finally {
     isFetchingReviews = false
+  }
+  if (isNew) void redraw($)
+}
+
+// One digest read laid into the view; the caller holds isRefreshing.
+async function readDigest($: EngineInterface) {
+  if (!ctx) return
+  // Knobs are read until a reading names all of them, then carried on.
+  const withKnobs = !hasKnobs
+  const args = ['digest', '--program', ctx.program, '--target', ctx.target]
+  const got = await run($, 'mc-panel.sh', withKnobs ? [...args, '--knobs'] : args)
+  const digest = got.ok ? parseDigest(got.out) : null
+  // Done once a reading names every knob; until then each reading's
+  // knobs are laid over the last.
+  if (digest && withKnobs && !digest.unreadable.some(u => u.startsWith('knob '))) hasKnobs = true
+  readFault = digest ? null : got.err || 'the digest could not be read'
+  await patch($, x => ({
+    ...x,
+    digest: digest
+      ? { ...digest, knobs: withKnobs ? { ...(x.digest?.knobs ?? {}), ...digest.knobs } : (x.digest?.knobs ?? {}) }
+      : x.digest,
+    fault: standingFault(),
+  }))
+}
+
+// Draws a new reviews snapshot now, without the redraw's other duties.
+async function redraw($: EngineInterface) {
+  if (!ctx || isRefreshing) return
+  isRefreshing = true
+  try {
+    await readDigest($)
+  } catch (err) {
+    await fault($, oneLine(String(err)))
+  } finally {
+    isRefreshing = false
   }
 }
 
@@ -185,23 +227,7 @@ async function refresh($: EngineInterface) {
   if (!ctx || isRefreshing) return
   isRefreshing = true
   try {
-    void refreshReviews($)
-    // Knobs are read until a reading names all of them, then carried on.
-    const withKnobs = !hasKnobs
-    const args = ['digest', '--program', ctx.program, '--target', ctx.target]
-    const got = await run($, 'mc-panel.sh', withKnobs ? [...args, '--knobs'] : args)
-    const digest = got.ok ? parseDigest(got.out) : null
-    // Done once a reading names every knob; until then each reading's
-    // knobs are laid over the last.
-    if (digest && withKnobs && !digest.unreadable.some(u => u.startsWith('knob '))) hasKnobs = true
-    readFault = digest ? null : got.err || 'the digest could not be read'
-    await patch($, x => ({
-      ...x,
-      digest: digest
-        ? { ...digest, knobs: withKnobs ? { ...(x.digest?.knobs ?? {}), ...digest.knobs } : (x.digest?.knobs ?? {}) }
-        : x.digest,
-      fault: standingFault(),
-    }))
+    await readDigest($)
     const usage = await $.session.usage()
     const pct = usage.context.percent
     await patch($, x => ({
@@ -277,7 +303,11 @@ async function armTimers($: EngineInterface) {
   const knobs = (await view($))?.digest?.knobs
   const refreshMs = (knobs?.refresh ?? DEFAULT_REFRESH_S) * 1000
   const nextTickMs = (knobs?.tick ?? DEFAULT_TICK_S) * 1000
-  const key = `${refreshMs}/${nextTickMs}`
+  const reviewsMs = Math.min(
+    REVIEWS_CHECK_MAX_MS,
+    Math.max(refreshMs, ((knobs?.['reviews-ttl'] ?? DEFAULT_REVIEWS_TTL_S) * 1000) / 5),
+  )
+  const key = `${refreshMs}/${nextTickMs}/${reviewsMs}`
   if (key === armedWith) return
   armedWith = key
   for (const t of timers) t.cancel()
@@ -286,12 +316,13 @@ async function armTimers($: EngineInterface) {
     $.clock.every(refreshMs, () => void refresh($)),
     $.clock.every(tickMs, () => void tick($)),
     $.clock.every(PRESENCE_EVERY_MS, () => void restampPresence($)),
+    $.clock.every(reviewsMs, () => void refreshReviews($)),
   ]
 }
 
 // Out of the start hook, which the first prompt waits on: the presence
 // marker, then the first reading, which claims the target and arms the
-// timers.
+// timers, then the first reviews check.
 async function bringUp($: EngineInterface) {
   if (!ctx) return
   try {
@@ -300,6 +331,7 @@ async function bringUp($: EngineInterface) {
   } finally {
     await armTimers($)
   }
+  void refreshReviews($)
 }
 
 async function recordPresence($: EngineInterface) {

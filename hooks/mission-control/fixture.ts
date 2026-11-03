@@ -9,13 +9,16 @@ export const START = 1_000_000_000
 
 const tab = (...f: (string | number)[]) => f.join('\t')
 
-export function digestText(o: { pending?: number; extra?: string[]; refresh?: number; tick?: number } = {}): string {
+export function digestText(
+  o: { pending?: number; extra?: string[]; refresh?: number; tick?: number; reviewsTtl?: number } = {},
+): string {
   return [
     tab('format', 1),
     tab('program', 'alpha'),
     tab('taken', 1000),
     tab('knob', 'refresh', o.refresh ?? 10),
     tab('knob', 'tick', o.tick ?? 300),
+    ...(o.reviewsTtl === undefined ? [] : [tab('knob', 'reviews-ttl', o.reviewsTtl)]),
     tab('knob', 'handover-context', 70),
     tab('knob', 'handover-wakes', 3),
     tab('knob', 'handover-compactions', 2),
@@ -117,6 +120,7 @@ export type Fixture = {
   rules: string
   rulesExit: number
   reviewsExit: number
+  reviewsOut: string
   isPlaced: boolean
   isDropped: boolean
   isEnvDenied: boolean
@@ -136,6 +140,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     rules: '<!-- rules begin -->\n- R1 never merge\n<!-- rules end -->',
     rulesExit: 0,
     reviewsExit: 0,
+    reviewsOut: 'written',
     isPlaced: true,
     isDropped: false,
     isEnvDenied: false,
@@ -210,7 +215,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     if (script === 'mc-wake.sh' && verb === 'target') return answer('', argv.includes('--mod') ? fx.claimExit : 0)
     if (script === 'mc-event.sh' && verb === 'mark') return answer('', fx.markExit)
     if (script === 'mc-event.sh' && verb === 'emit') return answer('e1.ff', fx.emitExit)
-    if (script === 'mc-reviews.sh' && verb === 'refresh') return answer('written', fx.reviewsExit)
+    if (script === 'mc-reviews.sh' && verb === 'refresh') return answer(fx.reviewsOut, fx.reviewsExit)
     if (script === 'mc-rules.sh') return answer(fx.rulesExit === 0 ? fx.rules : '', fx.rulesExit)
     return answer('')
   })

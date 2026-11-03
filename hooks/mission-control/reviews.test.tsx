@@ -91,32 +91,71 @@ test('a digest with no reviews record draws no reviews section', async ($, on) =
   await ui.unmount()
 })
 
-test('each redraw asks the snapshot script to refresh, read-only, for the program', async ($, on) => {
+test('the snapshot is checked at bring-up and on its own cadence, read-only, for the program', async ($, on) => {
   const w = world(on)
   await boot($, w)
   const first = ran(w, 'mc-reviews.sh', 'refresh')
   expect(first).toHaveLength(1)
   expect(first[0]?.slice(2)).toEqual(['refresh', '--program', 'alpha'])
+  // The default 5m TTL is checked once a minute, not on every 10s redraw.
+  await w.clock.advance(50_000)
+  expect(ran(w, 'mc-reviews.sh', 'refresh')).toHaveLength(1)
   await w.clock.advance(10_000)
   expect(ran(w, 'mc-reviews.sh', 'refresh')).toHaveLength(2)
   expect(w.runs.filter(r => (r[1] ?? '').endsWith('/mc-reviews.sh') && r[2] !== 'refresh')).toEqual([])
   expect(w.submitted).toEqual([])
 })
 
-test('a refresh that fails is a fault on the pane, cleared once one succeeds', async ($, on) => {
+test('a short TTL is checked every fifth of it, never faster than the redraw', async ($, on) => {
+  const w = world(on, { digest: digestText({ reviewsTtl: 60 }) })
+  await boot($, w)
+  await w.clock.advance(11_000)
+  expect(ran(w, 'mc-reviews.sh', 'refresh')).toHaveLength(1)
+  await w.clock.advance(1_000)
+  expect(ran(w, 'mc-reviews.sh', 'refresh')).toHaveLength(2)
+})
+
+test('a TTL shorter than five redraws is checked once per redraw', async ($, on) => {
+  const w = world(on, { digest: digestText({ reviewsTtl: 5 }) })
+  await boot($, w)
+  await w.clock.advance(9_000)
+  expect(ran(w, 'mc-reviews.sh', 'refresh')).toHaveLength(1)
+  await w.clock.advance(1_000)
+  expect(ran(w, 'mc-reviews.sh', 'refresh')).toHaveLength(2)
+})
+
+test('a new snapshot is drawn at once; a fresh answer redraws nothing', async ($, on) => {
+  const w = world(on, { digest: digestText({ refresh: 11 }) })
+  await boot($, w)
+  const digests = () => ran(w, 'mc-panel.sh', 'digest').length
+  await w.clock.advance(56_000)
+  const before = digests()
+  await w.clock.advance(4_000)
+  expect(ran(w, 'mc-reviews.sh', 'refresh')).toHaveLength(2)
+  expect(digests()).toBe(before + 1)
+  w.set({ reviewsOut: 'fresh' })
+  await w.clock.advance(56_000)
+  const again = digests()
+  await w.clock.advance(4_000)
+  expect(ran(w, 'mc-reviews.sh', 'refresh')).toHaveLength(3)
+  expect(digests()).toBe(again)
+})
+
+test('a failed refresh stays a fault until a refresh reads the forge again', async ($, on) => {
   const w = world(on, { reviewsExit: 1 })
   await boot($, w)
+  const fault = async () => {
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    const text = (await ui.find({ type: 'Text', text: /^Fault:/ }))?.text
+    await ui.unmount()
+    return text
+  }
   await w.clock.advance(10_000)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /^Fault:/ }))?.text).toBe(
-    'Fault: the reviews snapshot could not be refreshed: store unreadable',
-  )
-  await ui.unmount()
-  w.set({ reviewsExit: 0 })
-  await w.clock.advance(10_000)
-  await w.clock.advance(10_000)
-  const again = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await again.find({ type: 'Text', text: /^Fault:/ })).toBeUndefined()
-  expect(await again.find({ type: 'Text', text: /In flight \(2\)/ })).toBeDefined()
-  await again.unmount()
+  expect(await fault()).toBe('Fault: the reviews snapshot could not be refreshed: store unreadable')
+  w.set({ reviewsExit: 0, reviewsOut: 'fresh' })
+  await w.clock.advance(60_000)
+  expect(await fault()).toBe('Fault: the reviews snapshot could not be refreshed: store unreadable')
+  w.set({ reviewsOut: 'unavailable\tgh is not installed' })
+  await w.clock.advance(60_000)
+  expect(await fault()).toBeUndefined()
 })

@@ -49,8 +49,11 @@ Usage:
         format<TAB>1
         program<TAB><p>
         taken<TAB><epoch>
-        knob<TAB>refresh|tick<TAB><seconds>   with --knobs: the mod's redraw
-                                             and tick cadences
+        knob<TAB>refresh|tick|reviews-ttl<TAB><seconds>
+                                             with --knobs: the mod's redraw
+                                             and tick cadences, and the
+                                             reviews snapshot's TTL its check
+                                             cadence follows
         knob<TAB>handover-context|handover-wakes|handover-compactions<TAB><n>
                                              with --knobs: the handover
                                              trigger's thresholds
@@ -227,13 +230,14 @@ HOME_DIR=""
 knobs() {
   for kn in refresh:mission_control_panel_refresh:mc_parse_cadence \
     tick:mission_control_tick_cadence:mc_parse_cadence \
+    reviews-ttl:mission_control_reviews_ttl:mc_parse_cadence \
     handover-context:mission_control_handover_context:parse_pct \
     handover-wakes:mission_control_handover_wakes:parse_positive \
     handover-compactions:mission_control_handover_compactions:parse_positive; do
     kn_name=${kn%%:*}
     kn_rest=${kn#*:}
     if kn_v=$(mc_knob "${kn_rest%%:*}" "${kn_rest#*:}"); then
-      case $kn_name in refresh | tick) kn_v=$(mc_seconds "$kn_v") ;; esac
+      case $kn_name in refresh | tick | reviews-ttl) kn_v=$(mc_seconds "$kn_v") ;; esac
       printf 'knob\t%s\t%s\n' "$kn_name" "$kn_v"
     else
       printf 'unreadable\tknob %s\n' "${kn_rest%%:*}"
