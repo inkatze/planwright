@@ -131,8 +131,10 @@ differently is a setting with a sensible default: how often it checks the
 code host, how long a session may sit still before it is treated as
 stuck, when it hands over to a fresh session, how much it explains, how a
 spec review you ask for runs, where drafts go, and more. The simplest way
-to change one is to say what you want ("check pull requests every two
-minutes", "explain less"). Each setting, its default and why that default
+to change one is to say what you want ("explain less", "treat a session as
+stuck after twenty minutes"). A setting that changes how much it may do
+on its own, what it spends or what it copies is handed to you ready to
+apply rather than changed for you. Each setting, its default and why that default
 was chosen is listed in the
 [options reference](options-reference.md).
 
