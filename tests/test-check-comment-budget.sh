@@ -289,7 +289,8 @@ class_is() {
   if [ "$got" = "$2" ]; then ok "$1"; else fail "$1 (expected $2 at $3, got '$got')"; fi
 }
 mkdir -p "$TMP/widened/scripts"
-# Each phrasing fixture is the repository comment that motivated it (see the guard's usage).
+# Each phrasing fixture is drawn verbatim from a repository comment the shipped list classed
+# evidence-free; every one carrying "fail open" also says "would", so that fixture is an excerpt.
 printf '%s\n' 'x=0' \
   '# end_group <pgid>: TERM the group, then KILL what is left after ten seconds,' \
   '# returning once the group is gone.' \
@@ -313,7 +314,9 @@ printf '%s\n' 'x=0' \
   '# name in the query, checked against the protected set.' 'x=6' \
   '# Sanitize every field before it reaches the terminal (echo discipline):' \
   '# a hand-corrupted store line cannot drive the terminal or corrupt a log.' 'x=7' \
-  '# also a sonnet and a wouldbe' '# mustard canned' 'x=8' >"$TMP/widened/scripts/e.sh"
+  '# also a sonnet and a wouldbe' '# mustard canned' 'x=8' \
+  '# the probe failed open' '# here' 'x=9' \
+  '# the probe is failing closed' '# here' 'x=10' >"$TMP/widened/scripts/e.sh"
 run "$r" --audit "$TMP/widened"
 assert_exit "--audit over the widened fixture runs" 0 $?
 class_is "a block directly above a name() definition is contract" contract scripts/e.sh:2
@@ -327,6 +330,8 @@ class_is "'fail open' is rationale (tests/test-spec-validate.sh)" rationale scri
 class_is "'must' is rationale (scripts/policy-guard.sh)" rationale scripts/e.sh:29
 class_is "'cannot' is rationale (scripts/fleet-attention.sh)" rationale scripts/e.sh:32
 class_is "the added words match whole words only" none scripts/e.sh:35
+class_is "'failed open' is the same phrasing" rationale scripts/e.sh:38
+class_is "'failing closed' is the same phrasing" rationale scripts/e.sh:41
 assert_out "contract totals are emitted" "$(printf 'total\tcontract_blocks\t2')"
 if "$GUARD" --help | tr '\n' ' ' | tr -s ' ' | grep -qF 'lest, would, so, must, cannot (as whole words)' \
   && "$GUARD" --help | grep -qF 'contract' \
