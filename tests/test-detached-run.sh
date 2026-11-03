@@ -40,7 +40,7 @@ pids="$tmp/pids"
 # file's group, so cleanup signals every recorded group.
 cleanup() {
   while read -r _p; do
-    kill -TERM -- "-$_p" 2>/dev/null || kill -TERM "$_p" 2>/dev/null
+    kill -s TERM -- "-$_p" 2>/dev/null || kill -s TERM "$_p" 2>/dev/null
   done <"$pids"
   rm -rf "$tmp"
 }
@@ -145,8 +145,9 @@ fi
 p4="$tmp/p4"
 mkdir "$p4"
 launch --env PLANWRIGHT_DETACHED_RUN_SH="$tmp/no-such-shell" dead "$p4" sh -c 'exit 0'
-if [ "$launch_rc" -eq 4 ] && grep -q 'never started' "$tmp/dead.err"; then
-  ok "a launch whose runner cannot start reports failure"
+if [ "$launch_rc" -eq 4 ] && grep -q 'never started' "$tmp/dead.err" \
+  && grep -q '^detached-run: runner: ' "$tmp/dead.err"; then
+  ok "a launch whose runner cannot start reports failure, with the runner's reason"
 else
   fail "a launch whose runner cannot start reports failure (rc=$launch_rc): $(cat "$tmp/dead.out" "$tmp/dead.err")"
 fi
@@ -157,10 +158,17 @@ else
   fail "status reports never-started for that run (dir '$dead_run', got '$("$DR" status "$dead_run" 2>&1)')"
 fi
 
-# A runner alive but silent past the start wait is stopped, and fails too.
+# slow_shell <path> <child-pid-file> — a runner shell that never signals its
+# start: it leaves a child behind, records the child's pid, and sleeps.
+slow_shell() {
+  printf '#!/bin/sh\nsleep 600 &\necho $! >"%s"\nexec sleep 600\n' "$2" >"$1"
+  chmod +x "$1"
+}
+
+# A runner alive but silent past the start wait is stopped with its whole
+# process group, and the launch fails.
 slow="$tmp/slow-shell"
-printf '#!/bin/sh\nexec sleep 60\n' >"$slow"
-chmod +x "$slow"
+slow_shell "$slow" "$tmp/slow-child"
 p4b="$tmp/p4b"
 mkdir "$p4b"
 env PLANWRIGHT_DETACHED_RUN_SH="$slow" PLANWRIGHT_DETACHED_RUN_START_WAIT=1 \
@@ -169,11 +177,60 @@ slow_rc=$?
 slow_run=$(sed -n 's/.*; run \(.*\)$/\1/p' "$tmp/slow.err" | head -n 1)
 slow_pid=$(cat "$slow_run/pid" 2>/dev/null)
 [ -z "$slow_pid" ] || printf '%s\n' "$slow_pid" >>"$pids"
-if [ "$slow_rc" -eq 4 ] && grep -q 'no signal in 1s' "$tmp/slow.err" \
-  && poll_until --what 'silent runner stopped' pid_gone "$slow_pid"; then
-  ok "a runner silent past the start wait is stopped and the launch fails"
+slow_child=$(cat "$tmp/slow-child" 2>/dev/null)
+if [ "$slow_rc" -eq 4 ] && grep -q 'no signal in 1s' "$tmp/slow.err" && [ -n "$slow_child" ] \
+  && poll_until --what 'silent runner and its child stopped' pid_gone "$slow_pid" "$slow_child"; then
+  ok "a runner silent past the start wait is stopped with its child and the launch fails"
 else
   fail "a runner silent past the start wait is stopped and the launch fails (rc=$slow_rc): $(cat "$tmp/slow.err")"
+fi
+
+# A start stopped while it waits stops the run, and fails.
+slow2="$tmp/slow-shell2"
+slow_shell "$slow2" "$tmp/slow2-child"
+p4c="$tmp/p4c"
+mkdir "$p4c"
+env PLANWRIGHT_DETACHED_RUN_SH="$slow2" PLANWRIGHT_DETACHED_RUN_START_WAIT=60 \
+  "$DR" start --dir "$p4c" -- true >"$tmp/intr.out" 2>"$tmp/intr.err" &
+intr_launcher=$!
+# pid_recorded — the waiting start has recorded its runner's pid and the
+# runner its child's.
+pid_recorded() {
+  _pr=$(find "$p4c" -mindepth 2 -maxdepth 2 -name pid | head -n 1)
+  [ -s "$_pr" ] && [ -s "$tmp/slow2-child" ]
+}
+poll_until --what 'interrupted start recorded its runner' pid_recorded || :
+intr_pid=$(cat "$(find "$p4c" -mindepth 2 -maxdepth 2 -name pid | head -n 1)" 2>/dev/null)
+intr_child=$(cat "$tmp/slow2-child" 2>/dev/null)
+[ -z "$intr_pid" ] || printf '%s\n' "$intr_pid" >>"$pids"
+kill -s TERM "$intr_launcher" 2>/dev/null
+wait "$intr_launcher"
+intr_rc=$?
+if [ "$intr_rc" -eq 4 ] && grep -q 'start interrupted' "$tmp/intr.err" && [ -n "$intr_child" ] \
+  && poll_until --what 'interrupted run stopped' pid_gone "$intr_pid" "$intr_child"; then
+  ok "a start stopped while it waits stops the run and fails"
+else
+  fail "a start stopped while it waits stops the run and fails (rc=$intr_rc): $(cat "$tmp/intr.err")"
+fi
+
+# A start wait that is not a plain count is a usage error that launches nothing.
+p4d="$tmp/p4d"
+mkdir "$p4d"
+env PLANWRIGHT_DETACHED_RUN_START_WAIT=08 "$DR" start --dir "$p4d" -- true >/dev/null 2>&1
+wait_rc=$?
+if [ "$wait_rc" -eq 2 ] && [ -z "$(find "$p4d" -mindepth 1)" ]; then
+  ok "a malformed start wait is a usage error that launches nothing"
+else
+  fail "a malformed start wait is a usage error that launches nothing (rc=$wait_rc)"
+fi
+
+# run-inner never writes into a dir that is not a fresh run.
+"$DR" run-inner "$p4d" -- true >/dev/null 2>"$tmp/inner.err"
+inner_rc=$?
+if [ "$inner_rc" -eq 2 ] && grep -q 'not a fresh run directory' "$tmp/inner.err" && [ ! -e "$p4d/log" ]; then
+  ok "run-inner refuses a dir that is not a fresh run"
+else
+  fail "run-inner refuses a dir that is not a fresh run (rc=$inner_rc)"
 fi
 
 # A BASH_ENV that prints never corrupts the recorded pid.
@@ -188,6 +245,22 @@ else
 fi
 
 # --- 5. the suite sees default signal dispositions and the caller's locale -
+# The caller's descriptors past stderr never reach the run, so no pipe the
+# caller waits on stays open; dash cannot open one past 9, so bash does.
+if command -v bash >/dev/null 2>&1; then
+  # shellcheck disable=SC2016 # expanded by the inner bash
+  bash -c 'exec 5>"$1/fd5" 12>"$1/fd12"; exec "$2" start --dir "$3" -- sh -c "ls /dev/fd"' \
+    fds "$tmp" "$DR" "$p1" >"$tmp/fds.out" 2>"$tmp/fds.err"
+  fds_run=$(field run "$tmp/fds.out")
+  [ -z "$(field pid "$tmp/fds.out")" ] || field pid "$tmp/fds.out" >>"$pids"
+  poll_until --what 'fd run finished' status_is "$fds_run" 'finished 0' || :
+  if [ -s "$fds_run/log" ] && ! grep -qx -e 5 -e 12 "$fds_run/log"; then
+    ok "the caller's descriptors past stderr are closed in the run"
+  else
+    fail "the caller's descriptors past stderr are closed in the run (log: $(tr '\n' ' ' <"$fds_run/log" 2>/dev/null))"
+  fi
+fi
+
 # shellcheck disable=SC2016 # $$ and $? belong to the detached shells
 launch hup "$p1" sh -c 'sh -c "kill -HUP \$\$; exit 0"; echo "child=$?"'
 hup_run=$(field run "$tmp/hup.out")
@@ -254,9 +327,10 @@ path_of() {
   shift
   mkdir -p "$_po_dir" || return 1
   for _po_n in "$@"; do
-    _po_f=$(command -v "$_po_n") || continue
+    _po_f=$(command -v "$_po_n") || _po_f=''
     case $_po_f in
       /*) ln -s "$_po_f" "$_po_dir/$_po_n" ;;
+      *) fail "path_of: no '$_po_n' command on PATH" ;;
     esac
   done
 }
@@ -265,7 +339,7 @@ needed='sh mktemp date cat sed head dirname basename ps sleep mv env'
 path_of "$tmp/bin" $needed bash
 launch --env PATH="$tmp/bin" bare "$p1" sh -c 'exit 0'
 bare_run=$(field run "$tmp/bare.out")
-if [ "$launch_rc" -eq 0 ] && [ ! -e "$tmp/bin/setsid" ] && [ ! -e "$tmp/bin/nohup" ] \
+if [ "$launch_rc" -eq 0 ] && ! env PATH="$tmp/bin" sh -c 'command -v setsid || command -v nohup' >/dev/null \
   && poll_until --what 'bare-PATH run finished' status_is "$bare_run" 'finished 0'; then
   ok "the helper launches with neither setsid nor nohup on PATH"
 else

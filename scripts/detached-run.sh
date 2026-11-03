@@ -9,19 +9,21 @@
 # start prints `run`, `pid` and `log` lines once the runner signals its start
 # in a fresh dir under <parent> (default ${TMPDIR:-/tmp}); exit 4 if it never
 # does. status prints running, finished <code>, never-started, or died; stop
-# a run with `kill -- -<pid>`. Exit 2: usage error. run-inner is internal.
+# a run with `kill -s TERM -- -<pid>`. Exit 2: usage error. run-inner is internal.
 set -u
 unset CDPATH
 
 TAB=$(printf '\t')
+NL='
+'
 
 self_path() {
-  _sp_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+  _sp_dir=$(cd "$(dirname "$0")" && pwd) || return 1
   SELF=$_sp_dir/$(basename "$0")
 }
 
 usage() {
-  self_path
+  self_path || exit 2
   LC_ALL=C sed -n 's/^#   \(detached-run\.sh .*\)$/usage: \1/p' "$SELF" >&2
   exit 2
 }
@@ -50,7 +52,7 @@ runner_alive() {
 # stop <pid> — the runner leads its own process group on the bash path; the
 # fallback's runner shares the caller's group, so only the runner is signalled.
 stop() {
-  kill -TERM -- "-$1" 2>/dev/null || kill -TERM "$1" 2>/dev/null
+  kill -s TERM -- "-$1" 2>/dev/null || kill -s TERM "$1" 2>/dev/null
 }
 
 # failed <message> — report a start that did not start, naming the run and
@@ -71,13 +73,26 @@ do_start() {
   [ "${1:-}" = -- ] || usage
   shift
   [ "$#" -ge 1 ] || usage
-  self_path
+  # A busy machine stretches how long a runner takes to start, not whether it
+  # does. Overridable so the tests can reach the timeout.
+  wait_s=${PLANWRIGHT_DETACHED_RUN_START_WAIT:-30}
+  case $wait_s in
+    0 | [1-9] | [1-9]*[0-9]) is_count "$wait_s" || usage ;;
+    *) usage ;;
+  esac
+  self_path || {
+    printf 'detached-run: cannot resolve its own path\n' >&2
+    exit 4
+  }
 
-  run=$(mktemp -d "$parent/detached-run.XXXXXX") || {
+  made=$(mktemp -d "$parent/detached-run.XXXXXX") || {
     printf 'detached-run: cannot make a run directory under %s\n' "$parent" >&2
     exit 4
   }
-  run=$(cd "$run" && pwd -P) || failed 'cannot resolve the run directory'
+  run=$(cd "$made" && pwd -P) || {
+    printf 'detached-run: cannot resolve the run directory %s\n' "$made" >&2
+    exit 4
+  }
   date +%s >"$run/launched" || failed 'cannot write the launch marker'
 
   # Overridable so the tests can name a shell that cannot start.
@@ -88,10 +103,21 @@ do_start() {
   # bash's `set -m` avoids that without a terminal, and `nohup` and `setsid`
   # (absent on macOS) stay out for the same reason.
   if command -v bash >/dev/null 2>&1; then
+    # Every descriptor past stderr is closed, so no caller pipe waits on the
+    # run. The pid is the last line: a BASH_ENV may print first.
     # shellcheck disable=SC2016 # expanded by the inner bash
-    pid=$(BASH_ENV='' ENV='' bash -c \
-      'set -m; e=$1; shift; "$@" </dev/null >/dev/null 2>"$e" 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&- & echo $!' \
-      detached-run "$run/runner.err" "$runner_sh" "$SELF" run-inner "$run" -- "$@")
+    out=$(bash -c '
+      set -m
+      for f in /dev/fd/*; do
+        n=${f##*/}
+        case $n in "" | *[!0-9]*) continue ;; esac
+        [ "$n" -gt 2 ] && eval "exec $n>&-" 2>/dev/null
+      done
+      e=$1
+      shift
+      "$@" </dev/null >/dev/null 2>"$e" &
+      echo $!' detached-run "$run/runner.err" "$runner_sh" "$SELF" run-inner "$run" -- "$@")
+    pid=${out##*"$NL"}
   else
     printf 'detached-run: warning: no bash on PATH; the run starts with SIGINT and SIGQUIT ignored, in the caller'"'"'s process group\n' >&2
     "$runner_sh" "$SELF" run-inner "$run" -- "$@" </dev/null >/dev/null 2>"$run/runner.err" \
@@ -107,10 +133,6 @@ do_start() {
     failed 'cannot record the runner pid; stopped the run'
   }
 
-  # A busy machine stretches how long a runner takes to start, not whether it
-  # does. Overridable so the tests can reach the timeout.
-  wait_s=${PLANWRIGHT_DETACHED_RUN_START_WAIT:-30}
-  is_count "$wait_s" || usage
   waited=0
   while [ ! -e "$run/started" ]; do
     if ! kill -0 "$pid" 2>/dev/null; then
@@ -124,15 +146,21 @@ do_start() {
     sleep 0.1
     waited=$((waited + 1))
   done
+  [ -f "$run/log" ] || {
+    stop "$pid"
+    failed 'the runner started but its log is missing; stopped it'
+  }
   trap - HUP INT TERM
-  [ -f "$run/log" ] || failed 'the runner started but its log is missing'
   printf 'run%s%s\npid%s%s\nlog%s%s\n' "$TAB" "$run" "$TAB" "$pid" "$TAB" "$run/log"
 }
 
 do_run_inner() {
   run=$1
   shift 2
-  [ -f "$run/launched" ] && [ ! -e "$run/started" ] || exit 2
+  [ -f "$run/launched" ] && [ ! -e "$run/started" ] || {
+    printf 'detached-run: run-inner: %s is not a fresh run directory\n' "$run" >&2
+    exit 2
+  }
   # Caught, not ignored, so a hangup cannot end the run yet the suite's
   # children start with SIGHUP at its default.
   trap ':' HUP
@@ -151,7 +179,7 @@ exit_code() {
 
 do_status() {
   [ "$#" -eq 1 ] || usage
-  run=$(cd "$1" 2>/dev/null && pwd -P) && [ -f "$run/launched" ] || {
+  run=$(cd -- "$1" 2>/dev/null && pwd -P) && [ -f "$run/launched" ] || {
     printf 'detached-run: not a run directory: %s\n' "$1" >&2
     exit 2
   }
