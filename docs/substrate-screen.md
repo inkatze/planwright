@@ -102,8 +102,9 @@ report can be read without the task open.
   fifth of the production differential fixtures is marked screened-out
   in this record rather than measured. "More than a fifth" is exact: five times the
   failures exceeds the fixture count, with no rounding.
-- **Outcome.** Every full candidate passed every fixture on the platforms
-  measured, so none is screened out. The bake-off's inputs and how to run
+- **Outcome.** Every full candidate passed every fixture on each platform
+  with a committed report, so none is screened out there; a platform with
+  no committed report is not measured yet. The bake-off's inputs and how to run
   it are in
   [its README](../tests/fixtures/substrate-bakeoff/bakeoff-a/README.md);
   each committed report and its view sit under `docs/substrate/bakeoff-a/`.

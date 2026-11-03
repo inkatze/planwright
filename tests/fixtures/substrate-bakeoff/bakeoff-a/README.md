@@ -94,3 +94,12 @@ Only stdout and the exit status are compared; stderr is not.
 - Latencies are fork-to-reap times on whatever host ran the report, under
   that host's load at the time; compare candidates within one report, not
   across reports.
+- The fixture set is frozen as it was before any candidate was written, so
+  the implementation-time log stays honest, and it leaves behaviours
+  uncovered: the lock files left on disk after a run (the harness compares
+  stdout and status only, so a release that never unlinks still passes), the
+  working-path slug, the ten-digit pid boundary, release's path refusals,
+  verb arity beyond the cases listed, dependency tokens after a
+  parenthetical, `####` and H1 headings as scope breaks, indented bullets,
+  and headings with no dash. A migration's parity fixtures (REQ-E1.3) are
+  the place to close them.
