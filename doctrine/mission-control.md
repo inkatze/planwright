@@ -287,7 +287,7 @@ Every floor below carries into mission control unchanged, stated where it
 lives and not restated here:
 
 - the human gates, the merge floor and the ready-flip policy:
-  `human-gates`;
+  [`human-gates`](human-gates.md);
 - non-authoring, no model-run daemon mechanics, assume multiplicity,
   deterministic attention and lifecycle closure: `fleet-coordination-floor`;
 - every hand-off's data hygiene: `security-posture`;
