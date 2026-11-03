@@ -217,6 +217,19 @@ if [ "$OUT" = "eval cadence: no runs recorded" ]; then
 else
   fail "an empty ledger: $OUT"
 fi
+cp "$ledger" "$tmp/locked.tsv" && chmod 000 "$tmp/locked.tsv"
+if [ -r "$tmp/locked.tsv" ]; then
+  ok "skipped: an unreadable ledger cannot be staged as this user"
+else
+  OUT=$(/bin/bash "$SCRIPT" inventory --ledger "$tmp/locked.tsv" --live "mission-control" 2>&1)
+  RC=$?
+  if [ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -q "the ledger is unreadable"; then
+    ok "an unreadable ledger fails the inventory rather than reading as empty"
+  else
+    fail "an unreadable ledger: exit $RC, $OUT"
+  fi
+fi
+chmod 600 "$tmp/locked.tsv"
 
 # --- the default ledger is shared by the repository's worktrees ----------
 gitx -C "$wt" worktree add -q "$tmp/wt2" -b other >/dev/null 2>&1 || fail "cannot add a worktree"

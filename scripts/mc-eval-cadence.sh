@@ -355,6 +355,7 @@ do_inventory() {
     printf '%s\n' "eval cadence: no runs recorded"
     return 0
   fi
+  [ -r "$ledger" ] || mc_usage_fail "the ledger is unreadable: $(sanitize_printable "$ledger")"
   awk -F '\t' '
     NF >= 4 && $2 ~ /^[0-9a-f]+$/ && ($4 == "pass" || $4 == "fail") {
       n++
