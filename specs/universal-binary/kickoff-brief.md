@@ -433,6 +433,40 @@ rows above were updated in place.
 
 Signed off: 2026-09-09
 
+### Research findings — Task 6 (bake-off A, 2026-11-02)
+
+Appended by the executing worker (research triggers: new toolchains, a
+licence screen). Depth: proportionate to a prototype; sources are the
+toolchains' own release metadata and documentation, read at build time.
+
+- **Toolchains.** The bake-off names its own toolchain versions in
+  `tests/fixtures/substrate-bakeoff/bakeoff-a/README.md` rather than adding
+  them to the project's pinned development tools, so contributors and CI do
+  not pull four compilers for an on-demand measurement. Rust runs as `rustc` alone:
+  no candidate uses a crate, so no manifest or lockfile enters the tree.
+- **Licences (R10 early signal).** Go's runtime is BSD-3-Clause, Rust's
+  standard library MIT or Apache-2.0, Zig's MIT: all compatible with
+  planwright's MIT. A Bun-compiled executable statically embeds
+  JavaScriptCore, LGPL-2.1-or-later: compatible, but distribution carries a
+  relinking obligation. Bun is a comparison point and ships nothing, so the
+  screen admits it and records the obligation as a precondition of any
+  promotion (`docs/substrate-screen.md`).
+- **Zig's moving API.** The trivial program needed Zig 0.17's new entry
+  point and writer types; the screen record carries it as evidence for the
+  pre-1.0 caveat D-6 already names.
+- **Static linking.** Go links statically by default. Rust needs the C
+  runtime linked in explicitly on glibc Linux; the build does so. macOS has
+  no static system library for either, as expected.
+- **Two harness defects found and fixed**, each in
+  `scripts/substrate-bakeoff.sh` with a regression test. The harness
+  counted its own staging copy of a fixture's files as a spawn of the
+  candidate, inflating `distinct_commands` and the shell dependency count by
+  one wherever a fixture carries files (the committed stub bake-off's
+  fixtures carry none). And build and delivery scripts, which keep the
+  caller's environment, inherited the XDG base-directory variables, so a
+  tool honouring them could write outside the fresh home the harness
+  promises; they are now unset for every execution.
+
 ## 8. Sign-off
 
 ### Lens review pass (first activation, full bundle)

@@ -1,0 +1,2 @@
+# name	licence	last release	standard-library alternative
+rust-std	MIT OR Apache-2.0	2026-07-16	none (the standard library is the alternative to every crate)
