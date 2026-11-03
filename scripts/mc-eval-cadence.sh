@@ -251,7 +251,12 @@ do_run() {
       return 3
     fi
   done
-  if ! _gaps=$(do_complete); then
+  _gaps=$(do_complete)
+  _crc=$?
+  # do_complete's own usage failure exits only its subshell; carry it out
+  # rather than record an unreadable suite as an incomplete one.
+  [ "$_crc" -le 1 ] || exit "$_crc"
+  if [ "$_crc" -eq 1 ]; then
     printf '%s\n' "$_gaps" | while IFS= read -r _g; do
       [ -n "$_g" ] && printf '%s\n' "$prog: incomplete: $(sanitize_printable "$_g")" >&2
     done

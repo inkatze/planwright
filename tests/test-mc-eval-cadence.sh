@@ -189,6 +189,14 @@ if [ "$RC" -eq 1 ] && awk -F '\t' 'END { exit !($4 == "fail" && $5 ~ /^incomplet
 else
   fail "an incomplete suite: exit $RC, $OUT"
 fi
+OUT=$(/bin/bash "$SCRIPT" run --worktree "$wt" --ledger "$tmp/unreadable.ledger" --fixture "$mini" \
+  --test-spec "$tmp/no-such-test-spec.md" 2>&1)
+RC=$?
+if [ "$RC" -eq 2 ] && [ ! -e "$tmp/unreadable.ledger" ] && printf '%s\n' "$OUT" | grep -q "the test spec is missing or unreadable"; then
+  ok "an unreadable test spec is refused and records nothing"
+else
+  fail "an unreadable test spec: exit $RC, ledger $(cat "$tmp/unreadable.ledger" 2>/dev/null), $OUT"
+fi
 
 # --- the inventory -------------------------------------------------------
 OUT=$(/bin/bash "$SCRIPT" inventory --ledger "$ledger")
