@@ -42,9 +42,14 @@ fn main() {
     let args: Vec<Vec<u8>> = std::env::args_os().skip(1).map(OsString::into_vec).collect();
     let mut st = State { seq: 0, epoch: String::new(), uptime: String::new(), broken: Vec::new() };
     let mut out: Vec<u8> = Vec::new();
-    let rc = run(&args, &mut st, &mut out);
-    let _ = io::stdout().write_all(&out);
-    let _ = io::stdout().flush();
+    let mut rc = run(&args, &mut st, &mut out);
+    // A result that never reached stdout is a real error, whatever the verb
+    // did on disk: a caller must not read a lost `held` line as success.
+    let mut stdout = io::stdout();
+    if let Err(e) = stdout.write_all(&out).and_then(|()| stdout.flush()) {
+        warn(&format!("writing the result failed: {e}"));
+        rc = 2;
+    }
     process::exit(rc);
 }
 
