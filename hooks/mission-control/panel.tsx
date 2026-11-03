@@ -75,8 +75,10 @@ function Section(t: Table, title: string, rows: string[], empty = '') {
   )
 }
 
-function capped(rows: string[]): string[] {
-  return rows.length > REVIEWS_SHOWN ? [...rows.slice(0, REVIEWS_SHOWN), `+${rows.length - REVIEWS_SHOWN} more`] : rows
+// The total is the search's own count, which can exceed the rows read.
+function capped(rows: string[], total: number): string[] {
+  const shown = rows.slice(0, REVIEWS_SHOWN)
+  return total > shown.length ? [...shown, `+${total - shown.length} more`] : shown
 }
 
 // The repository is named only when the lists span more than one.
@@ -86,10 +88,12 @@ function reviewSections(t: Table, r: PanelReviews) {
   const ref = (p: { repo: string; number: number; isDraft: boolean }) =>
     `${isMulti ? p.repo : ''}#${p.number} ${p.isDraft ? 'draft' : 'ready'}`
   const read = r.age === null ? '' : ` · read ${age(r.age)} ago`
+  const mineTotal = Math.max(r.mineTotal ?? 0, r.mine.length)
+  const waitingTotal = Math.max(r.waitingTotal ?? 0, r.waiting.length)
   return [
     Section(
       t,
-      `My open PRs (${r.mine.length})${read}`,
+      `My open PRs (${mineTotal})${read}`,
       capped(
         r.mine.map(p =>
           [
@@ -101,13 +105,17 @@ function reviewSections(t: Table, r: PanelReviews) {
             p.title,
           ].join(' · '),
         ),
+        mineTotal,
       ),
       'No open pull requests.',
     ),
     Section(
       t,
-      `Waiting on my review (${r.waiting.length})`,
-      capped(r.waiting.map(p => [ref(p), `from ${p.requester}`, age(p.age), p.title].join(' · '))),
+      `Waiting on my review (${waitingTotal})`,
+      capped(
+        r.waiting.map(p => [ref(p), `from ${p.requester}`, age(p.age), p.title].join(' · ')),
+        waitingTotal,
+      ),
       'Nothing waiting on your review.',
     ),
   ]

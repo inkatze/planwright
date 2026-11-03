@@ -83,6 +83,7 @@ Usage:
                                              (scripts/mc-reviews.sh) and
                                              its age, or
         reviews<TAB>unavailable<TAB><reason> with no rows following
+        review-count<TAB>mine|waiting<TAB><n>  the search's full count
         review-mine<TAB><repo><TAB><number><TAB>draft|ready<TAB><ci>
             <TAB><unresolved><TAB>yes|no<TAB><reviewers><TAB><title>
         review-waiting<TAB><repo><TAB><number><TAB>draft|ready
@@ -431,6 +432,7 @@ reviews() {
   N=$NOW awk -F '\t' '
     $1 == "taken" && $2 ~ /^[0-9]+$/ { taken = $2 + 0; has_taken = 1 }
     $1 == "state" && !has_state { state = $2; reason = $3; has_state = 1 }
+    $1 == "count" && ($2 == "mine" || $2 == "waiting") && $3 ~ /^[0-9]+$/ { count[++c] = "review-count\t" $2 "\t" $3 }
     $1 == "mine" && NF >= 9 { mine[++m] = "review-mine\t" $2 "\t" $3 "\t" $4 "\t" $5 "\t" $6 "\t" $7 "\t" $8 "\t" $9 }
     $1 == "waiting" && NF >= 7 && $6 ~ /^[0-9]+$/ {
       age = ENVIRON["N"] - $6; if (age < 0) age = 0
@@ -443,6 +445,7 @@ reviews() {
       if (state == "unavailable") { print "reviews\tunavailable\t" (reason == "" ? "no reason given" : reason); exit }
       age = ENVIRON["N"] - taken; if (age < 0) age = 0
       print "reviews\tok\t" age
+      for (i = 1; i <= c; i++) print count[i]
       for (i = 1; i <= m; i++) print mine[i]
       for (i = 1; i <= w; i++) print waiting[i]
     }' "$rv" | mc_clean_text

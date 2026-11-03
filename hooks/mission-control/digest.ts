@@ -85,10 +85,20 @@ export function parseDigest(text: string): PanelDigest | null {
           isAvailable: f[1] === 'ok',
           reason: f[1] === 'ok' ? '' : (f[2] ?? ''),
           age: f[1] === 'ok' ? int(f[2]) : null,
+          mineTotal: null,
+          waitingTotal: null,
           mine: [],
           waiting: [],
         }
         break
+      case 'review-count': {
+        const n = int(f[2])
+        if (d.reviews?.isAvailable && n !== null) {
+          if (f[1] === 'mine') d.reviews.mineTotal = n
+          if (f[1] === 'waiting') d.reviews.waitingTotal = n
+        }
+        break
+      }
       case 'review-mine': {
         const n = int(f[2])
         if (d.reviews?.isAvailable && n !== null) {

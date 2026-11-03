@@ -104,7 +104,7 @@ chmod +x "$tmp/bin/gh"
 # its title carries a backslash, kept single, and a direction override, dropped.
 cat >"$tmp/page.json" <<EOF
 {"data": {"viewer": {"login": "me"},
- "mine": {"nodes": [
+ "mine": {"issueCount": 45, "nodes": [
   {"number": 7, "title": "Add the widget", "isDraft": false, "headRefOid": "$head7",
    "repository": {"nameWithOwner": "acme/widgets"},
    "reviewRequests": {"nodes": [{"requestedReviewer": {"login": "carol"}}, {"requestedReviewer": {"slug": "core-team"}}]},
@@ -118,7 +118,7 @@ cat >"$tmp/page.json" <<EOF
    "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "PENDING"}}}]},
    "reviews": {"nodes": [{"author": {"login": "bob"}, "commit": {"oid": "0000000000000000000000000000000000000000"}}, {"author": {"login": "me"}, "commit": {"oid": "8888888888888888888888888888888888888888"}}]}},
   {}]},
- "asked": {"nodes": [
+ "asked": {"issueCount": 2, "nodes": [
   {"number": 12, "title": "Rework the docs", "isDraft": false, "createdAt": "1970-01-01T00:00:00Z",
    "repository": {"nameWithOwner": "acme/widgets"}, "author": {"login": "erin"},
    "timelineItems": {"nodes": [{"createdAt": "1970-01-01T00:05:00Z", "actor": {"login": "erin"}, "requestedReviewer": {"login": "zed"}},
@@ -127,7 +127,7 @@ cat >"$tmp/page.json" <<EOF
    "repository": {"nameWithOwner": "acme/widgets"}, "author": {"login": "frank"},
    "timelineItems": {"nodes": [{"createdAt": "1970-01-01T00:02:00Z", "actor": {"login": "frank"}, "requestedReviewer": {}}]}}]}}}
 EOF
-printf '{"data": {"viewer": {"login": "me"}, "mine": {"nodes": [{"number": "seven", "title": "x", "isDraft": false, "headRefOid": "aa", "repository": {"nameWithOwner": "acme/widgets"}, "reviewRequests": {"nodes": []}, "reviewThreads": {"nodes": []}, "commits": {"nodes": []}, "reviews": {"nodes": []}}]}, "asked": {"nodes": []}}}\n' >"$tmp/junk.json"
+printf '{"data": {"viewer": {"login": "me"}, "mine": {"nodes": [{"number": "seven", "title": "x", "isDraft": false, "headRefOid": "aa", "repository": {"nameWithOwner": "acme/widgets"}, "reviewRequests": {"nodes": []}, "reviewThreads": {"nodes": []}, "commits": {"nodes": []}, "reviews": {"nodes": []}}]}, "asked": {"issueCount": 0, "nodes": []}}}\n' >"$tmp/junk.json"
 
 GH_LOG="$tmp/gh.log"
 GH_PAGE="$tmp/page.json"
@@ -192,6 +192,8 @@ expect_eq "the refresh says it wrote the snapshot" "written"
 line_in "the snapshot opens with its format" "$snap" format 1
 line_in "the snapshot is stamped" "$snap" taken 1000
 line_in "the snapshot's state is ok" "$snap" state ok -
+line_in "the snapshot carries my search's full count, past the rows it lists" "$snap" count mine 45
+line_in "the snapshot carries the requests' full count" "$snap" count waiting 2
 line_in "my ready PR: CI red, two open threads, reviewed on its head, its reviewers" "$snap" \
   mine acme/widgets 7 ready red 2 yes "carol, core-team" "Add the widget"
 line_in "my draft PR: CI running, an older head's review and my own do not count, no reviewers" "$snap" \
@@ -357,6 +359,7 @@ reviews refresh --program alpha --now 1000
 mc_run mc-panel.sh digest --program alpha --now 1090
 expect_rc "the digest with a snapshot" 0
 record "the digest carries the snapshot's state and age" reviews ok 90
+record "the digest carries the full counts" review-count mine 45
 record "the digest carries my PRs" review-mine acme/widgets 7 ready red 2 yes "carol, core-team" "Add the widget"
 record "the digest carries the requests, aged from now" review-waiting acme/widgets 12 ready dave 490 "Rework the docs"
 setup

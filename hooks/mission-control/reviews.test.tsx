@@ -10,11 +10,12 @@ test('the pane draws my open PRs and the PRs waiting on my review, on every surf
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE, surface })
     const text = async (re: RegExp) => (await ui.find({ type: 'Text', text: re }))?.text
-    expect(await text(/^My open PRs/)).toBe('My open PRs (2) · read 2m ago')
+    expect(await text(/^My open PRs/)).toBe('My open PRs (9) · read 2m ago')
     expect(await text(/^#7 /)).toBe(
       '#7 ready · CI red · 2 unresolved · head reviewed · asks carol, core-team · Add the widget',
     )
     expect(await text(/^#8 /)).toBe('#8 draft · no CI · 0 unresolved · head not reviewed · no reviewer requested · Fix the gadget')
+    expect(await text(/^\+7 more$/)).toBe('+7 more')
     expect(await text(/^Waiting on my review/)).toBe('Waiting on my review (1)')
     expect(await text(/^#12 /)).toBe('#12 draft · from dave · 90m · Rework the docs')
     await ui.unmount()

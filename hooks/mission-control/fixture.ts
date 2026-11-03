@@ -40,10 +40,12 @@ export function digestText(o: { pending?: number; extra?: string[]; refresh?: nu
   ].join('\n')
 }
 
-// A reviews snapshot as the digest carries it: two of my PRs, one waiting
-// on my review.
+// A reviews snapshot as the digest carries it: nine of my PRs, two of them
+// listed, and one waiting on my review.
 export const REVIEWS = [
   tab('reviews', 'ok', 120),
+  tab('review-count', 'mine', 9),
+  tab('review-count', 'waiting', 1),
   tab('review-mine', 'acme/widgets', 7, 'ready', 'red', 2, 'yes', 'carol, core-team', 'Add the widget'),
   tab('review-mine', 'acme/widgets', 8, 'draft', 'none', 0, 'no', '-', 'Fix the gadget'),
   tab('review-waiting', 'acme/widgets', 12, 'draft', 'dave', 5400, 'Rework the docs'),

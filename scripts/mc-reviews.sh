@@ -49,6 +49,11 @@ Usage:
         state<TAB>unavailable<TAB><reason>   gh missing, unauthenticated,
                                              refused or answering oddly; no
                                              rows follow
+        count<TAB>mine|waiting<TAB><n>       every match of that search,
+                                             though at most the newest 30
+                                             mine (by update) and the oldest
+                                             30 waiting (by creation) are
+                                             listed
         mine<TAB><owner/name><TAB><number><TAB>draft|ready
             <TAB>green|red|running|none<TAB><unresolved threads>
             <TAB>yes|no (another account reviewed the current head)
@@ -56,8 +61,11 @@ Usage:
         waiting<TAB><owner/name><TAB><number><TAB>draft|ready
             <TAB><requester><TAB><requested epoch><TAB><title>
       The requester and epoch are the newest review request naming the
-      account, else the pull request's author and creation. Titles have
-      their control bytes dropped. The attempt is stamped in
+      account, else the pull request's author and creation. A pull
+      request's first 100 review threads, last 50 reviews, first 20
+      requested reviewers and last 20 review requests are read. Titles have
+      their control bytes dropped. A rate-limit refusal waits out the TTL
+      like any other failure. The attempt is stamped in
       <runtime>/reviews.attempt before gh is called, so a read that never
       returns is not retried before the TTL either.
 
@@ -174,7 +182,7 @@ EOF
 [ -n "$scope" ] || unavailable "the program names no repository"
 
 # shellcheck disable=SC2016 # GraphQL variables, not shell ones
-QUERY='query($mine:String!,$asked:String!){ viewer{ login } mine: search(query:$mine,type:ISSUE,first:'"$SEARCH_FIRST"'){ nodes{ ... on PullRequest{ number title isDraft headRefOid repository{ nameWithOwner } reviewRequests(first:20){ nodes{ requestedReviewer{ ... on User{ login } ... on Team{ slug } ... on Bot{ login } ... on Mannequin{ login } } } } reviewThreads(first:100){ nodes{ isResolved } } commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } reviews(last:50){ nodes{ author{ login } commit{ oid } } } } } } asked: search(query:$asked,type:ISSUE,first:'"$SEARCH_FIRST"'){ nodes{ ... on PullRequest{ number title isDraft createdAt repository{ nameWithOwner } author{ login } timelineItems(itemTypes:[REVIEW_REQUESTED_EVENT],last:20){ nodes{ ... on ReviewRequestedEvent{ createdAt actor{ login } requestedReviewer{ ... on User{ login } } } } } } } } }'
+QUERY='query($mine:String!,$asked:String!){ viewer{ login } mine: search(query:$mine,type:ISSUE,first:'"$SEARCH_FIRST"'){ issueCount nodes{ ... on PullRequest{ number title isDraft headRefOid repository{ nameWithOwner } reviewRequests(first:20){ nodes{ requestedReviewer{ ... on User{ login } ... on Team{ slug } ... on Bot{ login } ... on Mannequin{ login } } } } reviewThreads(first:100){ nodes{ isResolved } } commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } reviews(last:50){ nodes{ author{ login } commit{ oid } } } } } } asked: search(query:$asked,type:ISSUE,first:'"$SEARCH_FIRST"'){ issueCount nodes{ ... on PullRequest{ number title isDraft createdAt repository{ nameWithOwner } author{ login } timelineItems(itemTypes:[REVIEW_REQUESTED_EVENT],last:20){ nodes{ ... on ReviewRequestedEvent{ createdAt actor{ login } requestedReviewer{ ... on User{ login } } } } } } } } }'
 # A search node that is not a pull request carries no number and is skipped.
 # shellcheck disable=SC2016 # jq, not shell
 JQ='def clean: gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]+"; " ") | gsub("  +"; " ") | sub("^ "; "") | sub(" $"; "");
@@ -182,7 +190,8 @@ JQ='def clean: gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-
     elif . == "FAILURE" or . == "ERROR" then "red" else "running" end;
   def state: if .isDraft then "draft" else "ready" end;
   .data.viewer.login as $me
-  | (.data.mine.nodes[] | select(.number != null) | .headRefOid as $h
+  | "count\tmine\t\(.data.mine.issueCount)", "count\twaiting\t\(.data.asked.issueCount)",
+    (.data.mine.nodes[] | select(.number != null) | .headRefOid as $h
      | ["mine", .repository.nameWithOwner, .number, state,
         (.commits.nodes[0].commit.statusCheckRollup.state | ci),
         ([.reviewThreads.nodes[] | select(.isResolved | not)] | length),
@@ -202,6 +211,12 @@ rows=$(gh_read api graphql -f mine="${scope# } is:pr is:open author:@me sort:upd
 odd() { unavailable "the forge answered with an unexpected field"; }
 while IFS='	' read -r kind slug number draft a b c d title; do
   [ -n "$kind" ] || continue
+  if [ "$kind" = count ]; then
+    case $slug in mine | waiting) ;; *) odd ;; esac
+    mc_valid_uint "$number" || odd
+    printf 'count\t%s\t%s\n' "$slug" "$number" >>"$body"
+    continue
+  fi
   case $slug in */*/* | *[!A-Za-z0-9._/-]* | "") odd ;; esac
   mc_valid_uint "$number" || odd
   case $draft in draft | ready) ;; *) odd ;; esac

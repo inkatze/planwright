@@ -19,6 +19,9 @@ export type PanelReviews = {
   isAvailable: boolean
   reason: string
   age: number | null
+  // Every match of each search; the lists hold at most the first page.
+  mineTotal: number | null
+  waitingTotal: number | null
   mine: PanelMyPr[]
   waiting: PanelAskedPr[]
 }
