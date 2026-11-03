@@ -421,7 +421,8 @@ func releaseToken(lock, tok string) int {
 		restoreOrKeep(taken, lock)
 		return 1
 	}
-	if err := os.Remove(taken); err != nil {
+	// Gone already counts as removed, as lock-lib's `rm -f` has it.
+	if err := os.Remove(taken); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return 2
 	}
 	return 0
