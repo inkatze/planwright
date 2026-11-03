@@ -1,0 +1,1 @@
+- 2026-11-02 [planwright] mission-control: a mechanization proposal records its change as free text only, so mc-config.sh apply cannot refuse a --value other than the one the operator accepted; a structured accepted value in proposals.tsv would let apply bind to it
