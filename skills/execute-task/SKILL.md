@@ -303,8 +303,8 @@ judgment.
 Run the `pre-ci` point, then pre-flight step 9's command, saved to a `mktemp`
 file; each attempt is `scripts/detached-run.sh start -- scripts/full-suite-run.sh
 --run <run> -- bash <file>`, polling `status <run-dir>` in-turn. A failed start,
-`died` or `never-started` fails it; `finished 75` parks naming the holders in its
-`log`, unretried. The suite must pass before convergence.
+`died` or `never-started` fails it as `logic`; `finished 75` parks naming holders
+in its `log`, unretried. The suite must pass before convergence.
 
 ### Adaptive CI-failure handling (REQ-E1.2, D-25)
 
