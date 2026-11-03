@@ -37,12 +37,19 @@ platform.
     args                       optional, one argument per line, no empty line
     stdin                      optional
     files/                     optional, copied into the working directory
+    links                      optional, symlinks to create there
     expected-stdout            required
     expected-status            required, a whole number
   candidates/<id>/candidate.conf
   implementation-time.tsv
   review-findings.tsv
 ```
+
+A fixture's `links` file holds one `<name><TAB><target>` line per symlink the
+harness creates in the working directory after copying `files/`, so a
+fixture can seed state (a lock, a dangling link) without the repository
+tracking a symlink. A name is a relative path that never climbs out of the
+working directory; a malformed line fails the run closed.
 
 Configuration files are `key=value` lines (`#` starts a comment). They are
 parsed, never sourced, and a repeated key fails the run closed.

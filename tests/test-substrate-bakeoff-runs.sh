@@ -97,6 +97,30 @@ check_eq "a fixture with files runs" 0 "$rc"
 check_eq "staging a fixture's files is not counted as the candidate's spawn" "cat,system,-,-" "$(get "$tmp/out-staged/report.tsv" stub-full dependency_listing)"
 check_eq "the distinct-command count leaves the staging copy out" 1 "$(get "$tmp/out-staged/report.tsv" stub-full distinct_commands)"
 
+variant linked
+mkdir -p "$tmp/linked/fixtures/echo-line/linked"
+printf 'held\tsome-token\nsub/dangling\t../nowhere\n' >"$tmp/linked/fixtures/echo-line/linked/links"
+printf 'some-token ../nowhere\n' >"$tmp/linked/fixtures/echo-line/linked/expected-stdout"
+printf '0\n' >"$tmp/linked/fixtures/echo-line/linked/expected-status"
+printf 'in\n' >"$tmp/linked/fixtures/echo-line/linked/stdin"
+cat >"$tmp/linked/candidates/stub-full/bin/echo-line" <<'EOF'
+#!/bin/sh
+if [ -L held ]; then
+  printf '%s %s\n' "$(readlink held)" "$(readlink sub/dangling)"
+else
+  exec cat
+fi
+EOF
+run_into linked "$tmp/linked"
+check_eq "a fixture's links are created in its working directory" "echo-line/basic:pass,echo-line/empty:pass,echo-line/linked:pass" "$(get "$tmp/out-linked/report.tsv" stub-full fixture_results)"
+
+variant badlink
+mkdir -p "$tmp/badlink/fixtures/echo-line/basic"
+printf '../escape\tx\n' >"$tmp/badlink/fixtures/echo-line/basic/links"
+run_into badlink "$tmp/badlink"
+check_eq "a link that climbs out of the working directory fails closed" 5 "$rc"
+check_has "the failure names the links file" "$out" "links"
+
 variant slow
 sed 's/^timeout_s=10$/timeout_s=1/' "$STUB/bakeoff.conf" >"$tmp/slow/bakeoff.conf"
 mkdir -p "$tmp/slow/fixtures/echo-line/slow"
