@@ -1,6 +1,9 @@
 # Bake-off report: library tier
 
-Run `20261103T025308Z-2230262` on `linux-x86_64`: 50 runs per latency measurement, a 300 s timeout per execution, 51 production differential fixtures.
+Run `20261103T025308Z-2230262` on `linux-x86_64`:
+50 runs per latency measurement,
+a 300 s timeout per execution,
+51 production differential fixtures.
 
 ## Full candidates
 

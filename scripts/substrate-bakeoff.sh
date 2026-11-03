@@ -190,7 +190,7 @@ NR == 1 { for (i = 1; i <= NF; i++) h[i] = $i; nh = NF; next }
 }
 END {
   printf "# Bake-off report: %s tier\n\n", cell(v[1, "tier"])
-  printf "Run `%s` on `%s`: %s runs per latency measurement, a %s s timeout per execution, %s production differential fixtures.\n", raw(v[1, "run_id"]), raw(v[1, "platform"]), cell(v[1, "runs"]), cell(v[1, "timeout_s"]), cell(v[1, "fixture_set_count"])
+  printf "Run `%s` on `%s`:\n%s runs per latency measurement,\na %s s timeout per execution,\n%s production differential fixtures.\n", raw(v[1, "run_id"]), raw(v[1, "platform"]), cell(v[1, "runs"]), cell(v[1, "timeout_s"]), cell(v[1, "fixture_set_count"])
   if (nf) {
     print "\n## Full candidates\n"
     print "| Candidate | Platform | Fixtures passed | Latency median ms | Spread ms | Hook budget | Spawns | Dependencies | Source bytes | Porting rate min/KiB | Review findings/KiB | Review runs |"
