@@ -39,3 +39,5 @@ stall-window	mission_control_stall_window	scripts/mc-stall.sh
 reclaim-audit-files	mission_control_reclaim_files	scripts/mc-reclaim.sh
 deadline-horizon	mission_control_deadline_horizon	scripts/mc-deadlines.sh
 draft-clipboard	mission_control_clipboard	scripts/mc-inbox.sh
+guidance-level	mission_control_guidance	scripts/mc-config.sh
+kickoff-mode	mission_control_kickoff_mode	scripts/mc-config.sh

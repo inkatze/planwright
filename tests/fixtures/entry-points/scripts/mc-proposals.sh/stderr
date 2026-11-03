@@ -1,0 +1,1 @@
+match ^mc-proposals: --program <name> follows the verb$

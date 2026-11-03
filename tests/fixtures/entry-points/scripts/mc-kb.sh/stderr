@@ -1,0 +1,1 @@
+match ^usage: mc-kb\.sh <verb> --program <name> \[args\]; verbs: init, index, index-add, read, append, query, entries, revert, lock, unlock, followup, source, inventory-refresh, freshness; mc-kb\.sh --help for the layout and each verb$
