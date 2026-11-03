@@ -60,7 +60,7 @@ cat >"$tmp/bin/gh" <<'EOF'
 printf 'call %s %s\n' "$1" "$2" >>"$GH_LOG"
 for a in "$@"; do
   case $a in
-    mine=* | asked=*) printf '%s\n' "$a" >>"$GH_LOG" ;;
+    mine=* | waiting=*) printf '%s\n' "$a" >>"$GH_LOG" ;;
   esac
   case $a in *mutation*) echo MUTATION >>"$GH_LOG" ;; esac
 done
@@ -118,7 +118,7 @@ cat >"$tmp/page.json" <<EOF
    "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "PENDING"}}}]},
    "reviews": {"nodes": [{"author": {"login": "bob"}, "commit": {"oid": "0000000000000000000000000000000000000000"}}, {"author": {"login": "me"}, "commit": {"oid": "8888888888888888888888888888888888888888"}}]}},
   {}]},
- "asked": {"issueCount": 2, "nodes": [
+ "waiting": {"issueCount": 2, "nodes": [
   {"number": 12, "title": "Rework the docs", "isDraft": false, "createdAt": "1970-01-01T00:00:00Z",
    "repository": {"nameWithOwner": "acme/widgets"}, "author": {"login": "erin"},
    "timelineItems": {"nodes": [{"createdAt": "1970-01-01T00:05:00Z", "actor": {"login": "erin"}, "requestedReviewer": {"login": "zed"}},
@@ -127,7 +127,7 @@ cat >"$tmp/page.json" <<EOF
    "repository": {"nameWithOwner": "acme/widgets"}, "author": {"login": "frank"},
    "timelineItems": {"nodes": [{"createdAt": "1970-01-01T00:02:00Z", "actor": {"login": "frank"}, "requestedReviewer": {}}]}}]}}}
 EOF
-printf '{"data": {"viewer": {"login": "me"}, "mine": {"nodes": [{"number": "seven", "title": "x", "isDraft": false, "headRefOid": "aa", "repository": {"nameWithOwner": "acme/widgets"}, "reviewRequests": {"nodes": []}, "reviewThreads": {"nodes": []}, "commits": {"nodes": []}, "reviews": {"nodes": []}}]}, "asked": {"issueCount": 0, "nodes": []}}}\n' >"$tmp/junk.json"
+printf '{"data": {"viewer": {"login": "me"}, "mine": {"nodes": [{"number": "seven", "title": "x", "isDraft": false, "headRefOid": "aa", "repository": {"nameWithOwner": "acme/widgets"}, "reviewRequests": {"nodes": []}, "reviewThreads": {"nodes": []}, "commits": {"nodes": []}, "reviews": {"nodes": []}}]}, "waiting": {"issueCount": 0, "nodes": []}}}\n' >"$tmp/junk.json"
 
 GH_LOG="$tmp/gh.log"
 GH_PAGE="$tmp/page.json"

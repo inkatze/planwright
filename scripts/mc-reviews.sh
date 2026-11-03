@@ -179,7 +179,7 @@ EOF
 [ -n "$scope" ] || unavailable "the program names no repository"
 
 # shellcheck disable=SC2016 # GraphQL variables, not shell ones
-QUERY='query($mine:String!,$asked:String!){ viewer{ login } mine: search(query:$mine,type:ISSUE,first:'"$SEARCH_FIRST"'){ issueCount nodes{ ... on PullRequest{ number title isDraft headRefOid repository{ nameWithOwner } reviewRequests(first:20){ nodes{ requestedReviewer{ ... on User{ login } ... on Team{ slug } ... on Bot{ login } ... on Mannequin{ login } } } } reviewThreads(first:100){ nodes{ isResolved } } commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } reviews(last:50){ nodes{ author{ login } commit{ oid } } } } } } asked: search(query:$asked,type:ISSUE,first:'"$SEARCH_FIRST"'){ issueCount nodes{ ... on PullRequest{ number title isDraft createdAt repository{ nameWithOwner } author{ login } timelineItems(itemTypes:[REVIEW_REQUESTED_EVENT],last:20){ nodes{ ... on ReviewRequestedEvent{ createdAt actor{ login } requestedReviewer{ ... on User{ login } } } } } } } } }'
+QUERY='query($mine:String!,$waiting:String!){ viewer{ login } mine: search(query:$mine,type:ISSUE,first:'"$SEARCH_FIRST"'){ issueCount nodes{ ... on PullRequest{ number title isDraft headRefOid repository{ nameWithOwner } reviewRequests(first:20){ nodes{ requestedReviewer{ ... on User{ login } ... on Team{ slug } ... on Bot{ login } ... on Mannequin{ login } } } } reviewThreads(first:100){ nodes{ isResolved } } commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } reviews(last:50){ nodes{ author{ login } commit{ oid } } } } } } waiting: search(query:$waiting,type:ISSUE,first:'"$SEARCH_FIRST"'){ issueCount nodes{ ... on PullRequest{ number title isDraft createdAt repository{ nameWithOwner } author{ login } timelineItems(itemTypes:[REVIEW_REQUESTED_EVENT],last:20){ nodes{ ... on ReviewRequestedEvent{ createdAt actor{ login } requestedReviewer{ ... on User{ login } } } } } } } } }'
 # A search node that is not a pull request carries no number and is skipped.
 # shellcheck disable=SC2016 # jq, not shell
 JQ='def clean: gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]+"; " ") | gsub("  +"; " ") | sub("^ "; "") | sub(" $"; "");
@@ -187,7 +187,7 @@ JQ='def clean: gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-
     elif . == "FAILURE" or . == "ERROR" then "red" else "running" end;
   def state: if .isDraft then "draft" else "ready" end;
   .data.viewer.login as $me
-  | "count\tmine\t\(.data.mine.issueCount)", "count\twaiting\t\(.data.asked.issueCount)",
+  | "count\tmine\t\(.data.mine.issueCount)", "count\twaiting\t\(.data.waiting.issueCount)",
     (.data.mine.nodes[] | select(.number != null) | .headRefOid as $h
      | ["mine", .repository.nameWithOwner, .number, state,
         (.commits.nodes[0].commit.statusCheckRollup.state | ci),
@@ -196,14 +196,14 @@ JQ='def clean: gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-
         ([.reviewRequests.nodes[].requestedReviewer | (.login // .slug // empty)]
           | if length == 0 then "-" else join(", ") end),
         .title] | map(tostring | clean) | join("\t")),
-    (.data.asked.nodes[] | select(.number != null)
+    (.data.waiting.nodes[] | select(.number != null)
      | ([.timelineItems.nodes[] | select(.requestedReviewer.login == $me)] | last) as $ev
      | ["waiting", .repository.nameWithOwner, .number, state,
         ($ev.actor.login // .author.login // "-"),
         (($ev.createdAt // .createdAt) | fromdateiso8601), .title] | map(tostring | clean) | join("\t"))'
 
 rows=$(gh_read api graphql -f mine="${scope# } is:pr is:open author:@me sort:updated-desc" \
-  -f asked="${scope# } is:pr is:open review-requested:@me sort:created-asc" -f query="$QUERY" --jq "$JQ") || failed
+  -f waiting="${scope# } is:pr is:open review-requested:@me sort:created-asc" -f query="$QUERY" --jq "$JQ") || failed
 
 odd() { unavailable "the forge answered with an unexpected field"; }
 while IFS='	' read -r kind slug number draft a b c d title; do

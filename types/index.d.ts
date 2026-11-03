@@ -14,7 +14,7 @@ export type PanelMyPr = {
   reviewers: string[]
   title: string
 }
-export type PanelAskedPr = { repo: string; number: number; isDraft: boolean; requester: string; age: number; title: string }
+export type PanelWaitingPr = { repo: string; number: number; isDraft: boolean; requester: string; age: number; title: string }
 export type PanelReviews = {
   isAvailable: boolean
   reason: string
@@ -23,7 +23,7 @@ export type PanelReviews = {
   mineTotal: number | null
   waitingTotal: number | null
   mine: PanelMyPr[]
-  waiting: PanelAskedPr[]
+  waiting: PanelWaitingPr[]
 }
 
 export type PanelDigest = {
