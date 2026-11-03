@@ -1,7 +1,7 @@
 # Test throughput — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-10-09
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -177,7 +177,8 @@ removal candidate.
 The helper reports failure for a launch whose runner cannot start; the
 status verb reports running, finished with its code, and never started for
 the matching fixtures; a previous run's log survives a new launch; the
-helper passes on the Linux CI runner without `setsid`; `/execute-task`'s
+helper passes on the Linux CI runner without `setsid`; a test run under the
+helper receives SIGHUP at its default disposition; `/execute-task`'s
 CI step routes every full local suite run through it (checked in Task 12's
 diff).
 

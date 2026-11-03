@@ -12,6 +12,13 @@
 # accounting is positive: a file that never produced a verdict marker
 # (worker killed, never dispatched) is a failure, never a silent green.
 #
+# The one mid-run stop is the runner's own breakage. Every worker checks the
+# run's scratch directory (the per-file logs and verdict markers) before and
+# after its file; once that directory is gone, unwritable or unsearchable no
+# verdict can be recorded, so files not yet started are skipped, and the run
+# ends with exit 2 naming the cause rather than blaming test files for the
+# loss.
+#
 # Parallelism comes from `xargs -P` (POSIX-optional but present on macOS
 # and GNU userlands alike); when the probe finds no working -P — or
 # PLANWRIGHT_TEST_FORCE_SERIAL=1 — the runner degrades to a serial loop
@@ -84,7 +91,8 @@
 #        (default suite: <repo-root>/tests)
 # Exit:  0 all pass · 1 any test failed or lost · 2 usage or environment
 #        error (bad suite dir, mktemp or self-path resolution failure, a
-#        timing report that cannot be persisted).
+#        timing report that cannot be persisted, the scratch directory gone,
+#        unwritable or unsearchable mid-run).
 #
 # Environment:
 #   PLANWRIGHT_TEST_JOBS           override the job count (default: core count)
@@ -178,6 +186,23 @@ ms_to_seconds() {
   printf '%d.%03d' "$((_ms / 1000))" "$((_ms % 1000))"
 }
 
+# scratch_fault <dir> — 0 with scratch_cause set when the run's scratch
+# directory can no longer hold logs and markers, else 1. Test builtins only:
+# it runs before and after every file.
+scratch_fault() {
+  if [ ! -d "$1" ]; then
+    scratch_cause="is gone"
+  elif [ ! -w "$1" ]; then
+    scratch_cause="is not writable"
+  elif [ ! -x "$1" ]; then
+    # Writable but unsearchable still refuses every file created in it.
+    scratch_cause="is not searchable"
+  else
+    return 1
+  fi
+  return 0
+}
+
 # _slot_attempt <path> — one pw_lock_try on one ticket. 0 held (slot_path
 # set), 1 busy, 2 give up (slot_err set): anything but a held or busy answer,
 # 127 from a library that failed to load included, is not going to clear.
@@ -212,8 +237,9 @@ take_slot() {
   slot_err=""
   while :; do
     # The log directory is the parent's: gone means the run is over, and a
-    # waiter left behind would otherwise spin on a redirect that now fails.
-    [ -d "$PLANWRIGHT_TEST_LOG_DIR" ] || exit 0
+    # waiter left behind would otherwise spin on a redirect that now fails
+    # (an unwritable one too: the failed redirect reads as a busy ticket).
+    ! scratch_fault "$PLANWRIGHT_TEST_LOG_DIR" || exit 0
     # Free tickets first, looked at without a fork. A taken one is only worth
     # a liveness probe when none is free, and the probe forks several times,
     # so one holder is examined per stride, rotating through the pool; a dead
@@ -338,6 +364,9 @@ if [ "${1:-}" = "--run-one" ]; then
       printf '%s\n' "$slot_err" >"$PLANWRIGHT_TEST_LOG_DIR/$name.poolerr"
     fi
   fi
+  # Checked once the ticket is held, so a waiter does not start its file on a
+  # directory already broken. It exits with no marker; the parent names it.
+  ! scratch_fault "$PLANWRIGHT_TEST_LOG_DIR" || exit 0
   [ -z "$slot_path" ] || export PLANWRIGHT_TEST_IN_POOLED_FILE=1
   # A run started from a fleet worker inherits the operator's real fleet home,
   # so each file gets a home of its own that nothing should ever touch: a file
@@ -355,6 +384,9 @@ if [ "${1:-}" = "--run-one" ]; then
   [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$fleet_sentinel/plugin-data"
   [ -z "${CLAUDE_DIR+set}" ] || export CLAUDE_DIR="$fleet_sentinel/claude"
   started="$(now_ms)"
+  # A sibling can break the directory between the check above and these
+  # redirects, so the shell's own complaint about a redirect is held back
+  # until the directory is known to be healthy.
   past_deadline=0
   if [ -n "$deadline_tool" ]; then
     # In the background, so a trapped signal ends the wait at once and the trap
@@ -366,11 +398,13 @@ if [ "${1:-}" = "--run-one" ]; then
     # Its stdin is /dev/null, as xargs gives it, so a read cannot stop the
     # background group, timeout and its alarm included, on a terminal.
     bounding=1
-    (
-      trap - INT QUIT
-      exec ${deadline_env:+"$deadline_env" --default-signal=INT,QUIT} \
-        "$deadline_tool" -k 10 "$deadline" /bin/bash "$t"
-    ) >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1 </dev/null &
+    {
+      (
+        trap - INT QUIT
+        exec ${deadline_env:+"$deadline_env" --default-signal=INT,QUIT} \
+          "$deadline_tool" -k 10 "$deadline" /bin/bash "$t"
+      ) >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1 </dev/null &
+    } 2>/dev/null
     child_pid=$!
     wait "$child_pid"
     file_rc=$?
@@ -392,7 +426,7 @@ if [ "${1:-}" = "--run-one" ]; then
       fi
     fi
   else
-    /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1
+    { /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; } 2>/dev/null
     file_rc=$?
   fi
   if [ "$file_rc" -eq 0 ]; then
@@ -400,6 +434,9 @@ if [ "${1:-}" = "--run-one" ]; then
   else
     verdict="fail"
   fi
+  ! scratch_fault "$PLANWRIGHT_TEST_LOG_DIR" || exit 0
+  [ -e "$PLANWRIGHT_TEST_LOG_DIR/$name.log" ] \
+    || echo "run-tests: could not open the log for $name" >&2
   if [ "$past_deadline" -eq 1 ]; then
     printf '%s\n' "run-tests: $name ran past its ${deadline}s deadline (PLANWRIGHT_TEST_FILE_DEADLINE) and was ended" \
       >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
@@ -662,7 +699,9 @@ export SPEC_WALKTHROUGH_DOT_TIMEOUT="${SPEC_WALKTHROUGH_DOT_TIMEOUT:-60}"
 # Explicit template: a bare `mktemp` default template is not portable to
 # BSD mktemp (the house pattern, see scripts/spec-graph.sh).
 log_dir="$(mktemp -d "${TMPDIR:-/tmp}/run-tests.XXXXXX")" || exit 2
-trap 'rm -rf "$log_dir"' EXIT
+# A file that made the directory unwritable or unsearchable would otherwise
+# leave it behind.
+trap '[ -L "$log_dir" ] || [ ! -d "$log_dir" ] || chmod u+rwx "$log_dir" 2>/dev/null; rm -rf "$log_dir"' EXIT
 export PLANWRIGHT_TEST_LOG_DIR="$log_dir"
 
 clock="$(probe_clock)"
@@ -986,6 +1025,13 @@ else
   done
 fi
 suite_finished="$(now_ms)"
+
+# Checked before any verdict is read: with the scratch directory broken, the
+# missing markers say nothing about the test files.
+if scratch_fault "$log_dir"; then
+  echo "run-tests: the runner's scratch directory $(sanitize_printable "$log_dir" "(unprintable path)") $scratch_cause mid-run; files not yet started were skipped and no verdict is recorded (an environment error, not a test failure)" >&2
+  exit 2
+fi
 
 # A worker whose ticket the lock library refused ran its file unpooled and
 # left the cause behind; one warning covers them all.
