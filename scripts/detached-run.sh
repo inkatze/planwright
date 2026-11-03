@@ -123,7 +123,7 @@ do_start() {
       echo $!' detached-run "${BASH_ENV+set}" "${BASH_ENV-}" "$run/runner.err" \
       "$runner_sh" "$SELF" run-inner "$run" -- "$@")
   else
-    printf 'detached-run: warning: no bash on PATH; the run starts with SIGINT and SIGQUIT ignored, in the caller'"'"'s process group (stop it with kill -s TERM <pid>)\n' >&2
+    printf 'detached-run: warning: no bash on PATH; the run starts with SIGINT and SIGQUIT ignored, in the caller'"'"'s process group\n' >&2
     "$runner_sh" "$SELF" run-inner "$run" -- "$@" </dev/null >/dev/null 2>"$run/runner.err" \
       3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&- &
     pid=$!
