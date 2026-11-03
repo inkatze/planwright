@@ -28,6 +28,7 @@
 #                               every version-keyed script selects through
 #   spec_parse_repository_map   each task block's version 3 `Repository:`
 #                               field, classed alias, malformed, or duplicate
+#   spec_parse_repository_field one task's record from that map
 #   spec_parse_printable        the stderr path sanitizer the lib's own
 #                               diagnostics use, exported so a caller adding
 #                               context to a refusal reuses this byte range
@@ -204,6 +205,13 @@ spec_parse_repository_map() {
   spec_parse__readable "$1" || return 1
   spec_parse__nul_screen "$1" || return 1
   LC_ALL=C awk "$spec_parse_awk_fence$spec_parse_awk_grammar$spec_parse__repo_awk" <"$1"
+}
+
+# spec_parse_repository_field <map> <id> — print one task's record from a
+# spec_parse_repository_map output as `<class><TAB><value>`, nothing for a
+# task the map does not name.
+spec_parse_repository_field() {
+  printf '%s\n' "$1" | LC_ALL=C awk -F'\t' -v i="$2" '$1 == i { print $2 "\t" $3; exit }'
 }
 
 # spec_parse__readable <path> — internal: refuse a missing, unreadable, or

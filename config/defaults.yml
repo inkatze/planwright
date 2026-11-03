@@ -966,6 +966,12 @@ protected_branches:
 # change reaches a worker only by relaunch.
 worker_self_approval:
 
+# How many days a worker's audit log of allow decisions is kept under the
+# fleet home's allow-audit directory. The guard only appends; each worker
+# launch (scripts/worker-session-record.sh) prunes the logs older than this.
+# A positive integer; a value that cannot be read leaves the default.
+worker_audit_log_retention_days: 30
+
 # Where /inception creates venture repositories (inception REQ-A1.3, D-5):
 # an absolute path or a ~/ path. A relative or ~user adopter or machine-local
 # value warns and falls back to ~/ventures (a control byte passes to the next

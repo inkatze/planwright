@@ -520,6 +520,7 @@ EOF
               $1 == "repository-unresolved" {
                 if (code[$2] == "alias-malformed") why = "has a Repository: value that is not a single alias"
                 else if (code[$2] == "alias-duplicate") why = "carries more than one Repository: field"
+                else if (code[$2] == "work-repository-unresolved") why = "names no repository, and the bundle'"'"'s work repository does not resolve here"
                 else why = "names repository " ($3 == "" ? "(empty)" : $3) ", which does not resolve here"
                 printf "error: task %s %s - its task-completion atoms resolve as unresolved (REQ-F1.5)\n", $2, why
               }

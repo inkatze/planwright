@@ -89,7 +89,7 @@ reserved underscore-prefixed directories `_pending/`, `_observations/`
 and `_flights/` are not bundles and are skipped), or a single bundle whose
 `requirements.md` carries the literal `**Status:** Active` marker and that
 has a kickoff brief
-(a format-version 2 bundle never stores `Active` — its header rests at
+(a format-version 2 or 3 bundle never stores `Active` — its header rests at
 `Ready` while work is in flight — so a stored `**Status:** Ready` with a
 kickoff brief counts the same way there, but only when the render reports
 work in flight: a freshly signed-off, undispatched v2 bundle is not an
@@ -141,6 +141,11 @@ off the bundle's declared `Format-version:` (invariant-tasks D-7). In
   is uncommitted in the holder: a halt note awaiting the operator's commit
   (custom-spec-location REQ-E1.9). A render failure
   degrades to reporting the definition and bullet state with a clear note.
+- **Format-version 3:** the version 2 read, plus each task's repository:
+  the render names the alias of every task whose block names one (a block
+  without `Repository:` belongs to the bundle's work repository) and any
+  `repository-unresolved` task with its alias and reason. Report that state
+  as this machine's registry or field gap, never as progress or a stall.
 - **Missing or unparseable `Format-version:`:** neither arm applies —
   surface it and report definitions and bullets as found, assuming
   neither version's semantics (D-7's fail-closed direction; this loader

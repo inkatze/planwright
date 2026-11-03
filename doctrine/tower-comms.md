@@ -40,7 +40,7 @@ record stays in the log and is available on request. Compose the picture from
 the catch-up list (what settled while the operator was away, with the reason
 for each), and show the list itself only when the operator asks for it.
 
-## One item, answerable alone
+## One hand-over, answerable alone
 
 Write a delivered item so the operator can answer it from that message alone,
 with the shortest context that makes it answerable. Deeper context is given

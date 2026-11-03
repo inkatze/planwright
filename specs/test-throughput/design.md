@@ -1,7 +1,7 @@
 # Test throughput — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-10-09
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -351,6 +351,10 @@ records in its PR why it misfits.
 **Chosen because:** an unverified launch is indistinguishable from no
 launch, so the verification is the requirement, and `nohup` plus a
 background job is portable to every platform in the support bar.
+
+**Superseded-by: D-22** (2026-11-02), in part — the helper detaches with a
+background job whose runner catches SIGHUP, not with `nohup`; every other
+property above stands.
 
 ### D-9: Profile first; fix test-side causes; route production causes; enforce speed through CI later  (N)
 
@@ -759,6 +763,30 @@ runner exempted by REQ-A1.8 inherits the variable like any other.
 
 **Chosen because:** the observed stall is one file that never returns,
 and a per-file bound ends exactly that while naming it.
+
+### D-22: The detached runner catches SIGHUP instead of ignoring it through `nohup`  (N, supersedes D-8 in part)
+
+**Decision:** The Task 12 helper detaches the suite as a background job
+whose runner installs a SIGHUP handler (`trap ':' HUP`) before starting the
+suite, so closing the launching terminal does not end the run while every
+test still starts with SIGHUP at its default disposition. It uses neither
+`nohup` nor `setsid`. Every other D-8 property stands: fresh per-run log and
+exit-code paths, the started-and-alive check before returning, the status
+verb, never removing an earlier run's log, and reuse of
+`scripts/fleet-dispatch-headless.sh`'s handshake where it fits.
+
+**Alternatives considered:**
+- Keep `nohup` as D-8 states. Rejected because: an ignored signal is
+  inherited and a non-interactive shell cannot reset it, so every test in a
+  `nohup` run sees SIGHUP ignored, and the suites that assert on SIGHUP hang
+  or fail on every local run (obs:5d41e92b).
+- `setsid`. Rejected because: D-8's reason stands, it does not exist on
+  macOS.
+
+**Chosen because:** a caught signal resets to its default in each child,
+unlike an ignored one, so the run survives its terminal without changing
+what the tests observe; probed on Linux under `sh`, `bash` and `dash`
+(kickoff brief, Amendment 2).
 
 ## Cross-cutting concerns
 

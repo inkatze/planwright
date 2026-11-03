@@ -288,35 +288,6 @@ llm-output-quality.
 
 Signed off: 2026-09-28
 
-### Execution research: Task 12 (2026-11-01)
-
-Not a signed row; recorded by `/execute-task` as research that halted the
-unit.
-
-- **Finding.** `nohup` leaves SIGHUP ignored, and an ignored signal is
-  inherited by every child. A non-interactive POSIX shell cannot un-ignore a
-  signal it was started with ignored: probed on Linux with `sh`, `bash` and
-  `dash`, where `trap - HUP` under `nohup` still leaves a child surviving
-  `kill -HUP`, and `/proc/self/status` reads `SigIgn` bit 1 set. A runner
-  that instead *catches* HUP (`trap ':' HUP`) leaves its children at the
-  default disposition: the same child exits 129.
-- **Consequence for D-8.** A suite detached with `nohup` runs every test with
-  HUP ignored. This repository's HUP-asserting suites then hang or fail
-  (obs:5d41e92b, recorded 2026-10-18, after this brief's sign-off:
-  `test-fleet-sweep-temps.sh`, `test-lock-lib.sh`, `test-run-tests-pool.sh`,
-  `test-full-suite-run.sh`). Task 12 routes *every* full local suite through
-  the helper, so a literal `nohup` recipe turns those into standing local
-  failures.
-- **Tradeoff.** Keeping `nohup` as D-8 states keeps the recipe literal but
-  breaks the suite it runs. Replacing it with a background job whose runner
-  catches HUP (portable: no `setsid`, no `nohup`; optionally `set -m` for its
-  own process group) keeps every other D-8 property (fresh per-run paths,
-  verified start, status verb, no log deletion) but changes D-8's stated
-  mechanism, which is a meaning-class amendment.
-- **Sources.** POSIX `trap` ("signals that were ignored on entry to a
-  non-interactive shell cannot be trapped or reset"); bash manual, *Signals*;
-  the probe above; obs:5d41e92b; obs:67861aa6.
-
 ## 8. Sign-off
 
 ### Lens review (first activation, full bundle)
@@ -655,4 +626,54 @@ no status flip; `Last reviewed:` bumped on all four spec files;
 Class: meaning
 Lens-pass: Amendment 1, section 8 (delta-scoped, spec lens set, fanned out; every finding dispositioned)
 Anchor: `0e3e8e7ec9e73c573e040807b24c7c684b5285fd` — computed as
+`scripts/spec-anchor.sh specs/test-throughput`
+
+### Amendment 2 — delta re-walkthrough: Task 12 detaches without `nohup` (2026-11-02)
+
+**Trigger.** Task 12's execution halted on research recorded on its task
+branch: `nohup` leaves SIGHUP ignored, an ignored signal is inherited by
+every child, and a non-interactive shell cannot reset it, so every test in a
+`nohup` run sees SIGHUP ignored and the suites that assert on it hang or fail
+(obs:5d41e92b). A runner that catches SIGHUP (`trap ':' HUP`) leaves its
+children at the default disposition: probed on Linux under `sh`, `bash` and
+`dash`, a child of such a runner sent SIGHUP exits 129, while under `nohup`
+it survives. The operator ruled for the caught-signal runner (2026-11-02).
+
+**Delta walked.** D-22 supersedes D-8 in part (the detach mechanism only;
+D-8's other properties stand, and D-8 carries the pointer). Task 12's
+deliverables, Done-when and citations follow D-22; REQ-B1.10 gains the D-22
+citation, its text unchanged; the changelog and Sources gain obs:5d41e92b.
+Section 4's ledger row "D-8 Confirmed" now reads as confirmed in part,
+superseded in part by D-22.
+
+**Lens review (delta-scoped).** Spec lens set, walked inline over the delta
+(one decision, one task, one test entry); no fan-out, scoped by size.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 0 | D-22 keeps every D-8 property but the mechanism; REQ-B1.10 names no mechanism |
+| Ambiguity and interpretation forks | 0 | "Catches SIGHUP" is pinned to a handler installed before the suite starts |
+| Citation and coverage integrity | 0 | obs:5d41e92b added to Sources; D-22 cited from REQ-B1.10 and Task 12 |
+| Dead verification paths | 0 | The SIGHUP check runs on the Linux CI runner |
+| Decision-domain gaps | 0 | No new domain touched |
+| Testability | 1 | The REQ-B1.10 test-spec entry lacked the SIGHUP check Task 12's Done-when carries |
+| Cross-file consistency | 0 | Folded into the testability row |
+| Documentation and glossary drift | 0 | No glossary term changes |
+| Rendered-content safety and data hygiene | 0 | No machine paths or names recorded |
+
+**Dispositions.** Testability finding: applied, the test-spec entry gains
+"a test run under the helper receives SIGHUP at its default disposition"
+(operator, 2026-11-02).
+
+#### Sign-off record (Amendment 2)
+
+Signed off 2026-11-02 by the operator after the approval summary, relayed
+through the fleet tower, as a delta re-walkthrough of a Ready (stored)
+bundle: no status flip; `Last reviewed:` bumped on all four spec files;
+`scripts/spec-validate.sh` re-run after the edits with 0 errors and 0
+warnings.
+
+Class: meaning
+Lens-pass: Amendment 2, delta-scoped lens review above (spec lens set, inline; every finding dispositioned)
+Anchor: `0eca2b05e5ce9ea59941496d768ae67a946053fb` — computed as
 `scripts/spec-anchor.sh specs/test-throughput`

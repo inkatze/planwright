@@ -451,4 +451,16 @@ grep -q '^tower_presence_ttl: 2m$' "$here/../config/defaults.yml" || fail "confi
 grep -qF "| \`tower_presence_ttl\` | \`2m\` |" "$here/../docs/options-reference.md" || fail "docs/options-reference.md has no tower_presence_ttl row"
 echo "ok: tower_presence_ttl ships with its default and its reference row"
 
+# A picklist window that ended before the write is settled by that same write,
+# not by the next tick: the default is applied and the item waits for review.
+printf 'wwin\tspec\tawaiting-input\t90000\tnormal\tkeep the test?\t-\tA|B\t-\t-\n' >>"$attn_store"
+qw=$(run add --kind question --worker wwin --origin wwin --closes 'the operator answers' \
+  --options 'A|B' --end A --gate none --window 30s --now 90000) || fail "add the picklist question"
+out=$(pres $A --last-prompt 90035 --now 90040) || fail "the presence write past the window end: exit"
+printf '%s\n' "$out" | grep -q "^window${TAB}$qw${TAB}default${TAB}A${TAB}" \
+  || fail "the presence write did not settle the ended window: '$out'"
+[ "$(rec "$qw" | cut -f 2)" = settled-by-default ] || fail "the ended window's item was not re-kinded settled-by-default"
+grep -q "\"kind\":\"window\".*\"item\":\"$qw\"" "$log_file" || fail "the window's end did not reach the event log"
+echo "ok: a presence write after a picklist window has ended settles that window in the same call"
+
 echo "PASS: tower-queue presence"
