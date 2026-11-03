@@ -14,6 +14,7 @@
 #
 # POSIX sh; no external command runs at load time.
 
+# shellcheck disable=SC2154 # the sourcing entry point sets proto_lib
 proto_scripts=$proto_lib/../../../../../../../scripts
 proto_nl='
 '
