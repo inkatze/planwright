@@ -1,7 +1,7 @@
 # Prose disposition — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-04
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -389,6 +389,28 @@ rule.)*
 **Chosen because:** the measured redundancy is four in five, and the gap is a
 bundle defect with a sanctioned expression-only fix, not a reason to keep
 citations in code.
+
+### D-15: The guard learns function descriptions and more reason phrasings before Phase A  (N)
+
+**Decision:** Before Phase A, the `--audit` classifier gains a `contract`
+evidence class for a block that ends directly above a function definition,
+and its rationale patterns grow by phrasings taken from real comments it
+misclassified (the Task 5 sample named "would", a bare "so" and "fail
+open"), each addition carried with its example in the PR. The task then
+reruns `--audit` on main and records the new evidence-free count, against
+which Phase A's scope is reconsidered.
+
+**Alternatives considered:**
+- Keep Phase A's full scope and move the kept-block list into a committed
+  file. Rejected because: most of the roughly 6,000 kept blocks are the
+  guard's misreads, and a list of them is noise.
+- Narrow Phase A to deletable blocks and `scripts/` only. Rejected because:
+  it leaves the misclassification in place for Phase B and the closeout.
+
+**Chosen because:** the halt's reading sample showed the count is mostly
+the classifier missing function contracts and reasons, so fixing the
+classifier first is what makes Phase A's list honest and its size known.
+Operator ruling, 2026-11-02.
 
 ## Cross-cutting concerns
 

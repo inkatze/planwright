@@ -687,3 +687,54 @@ shared write surface is coordinated by a new kickoff-brief risk row 12").
 Class: expression-only
 Anchor: `920c444ede944bfde33b7dbbdde7e04233edaa9d` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`
+
+### 2026-11-02 — Extension: the guard learns function descriptions and more reason phrasings before Phase A
+
+**Trigger.** Task 5 halted (Sources: the Task 5 halt): the guard counted
+6,792 evidence-free blocks where a reading sample showed nearly all should
+stay, so REQ-G1.2's kept-block list would have run to about 6,000 entries,
+past GitHub's PR body limit. Operator ruling, 2026-11-02: teach the
+classifier first, as its own task, then recount.
+
+**Delta walked.** REQ-F1.11 (the `contract` class and widened reason
+phrasings, each from a misclassified repository comment), D-15, Task 4.1
+(depends on Task 4) and its test entry; Task 5 depends on Task 4.1 and
+cites D-15; the changelog and Sources record the halt. Operator choices:
+any block ending directly above a function counts as `contract`; reason
+phrasings grow from a sample with one real example each. The operator
+asked whether the phrasings push comments toward a style; REQ-F1.11 now
+says they are what the guard recognizes, never wording a comment is asked
+to use.
+
+**Lens review (delta-scoped).** Spec lens set, walked inline over the delta
+(one requirement, one decision, one task, one test entry); no fan-out,
+scoped by size.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 0 | REQ-F1.5's three evidence classes gain a fourth in REQ-F1.11; F1.5's v0.36.0 baseline figures are pattern-independent and unaffected |
+| Ambiguity and interpretation forks | 1 | Whether the phrasings steer comment wording; resolved in REQ-F1.11's last sentence |
+| Citation and coverage integrity | 0 | The halt added to Sources; D-15 cited from REQ-F1.11, Task 4.1 and Task 5 |
+| Dead verification paths | 0 | Fixtures run in CI |
+| Decision-domain gaps | 0 | None |
+| Testability | 0 | Task 4.1's Done-when and the test entry match |
+| Cross-file consistency | 0 | None |
+| Documentation and glossary drift | 0 | `contract` defined in REQ-F1.11 |
+| Rendered-content safety and data hygiene | 0 | None |
+
+**Accepted risk.** If Task 4.1's recount still yields a kept-block list too
+long for one PR body, Task 5's scope returns to the operator as a further
+delta (D-15). Signal: Task 4.1's recorded after-figure.
+
+#### Sign-off record (2026-11-02 extension)
+
+Signed off 2026-11-02 by the operator after the approval summary, relayed
+through the fleet tower, as the scoped kickoff of an extension to a Ready
+(stored) bundle: no status flip; `Last reviewed:` bumped on all four spec
+files; `scripts/spec-validate.sh` re-run after the edits with 0 errors and
+0 warnings.
+
+Class: meaning
+Lens-pass: 2026-11-02 extension entry, delta-scoped lens review above (spec lens set, inline; every finding dispositioned)
+Anchor: `ce477a1516e19fe97d7628c4d5da57890490028c` — computed as
+`scripts/spec-anchor.sh specs/prose-disposition`
