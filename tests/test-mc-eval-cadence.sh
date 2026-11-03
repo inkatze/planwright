@@ -159,8 +159,9 @@ OUT=$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$tmp/state" BEHAV
   BEHAVIORAL_EVAL_POLL_SLEEP=0 /bin/bash "$SCRIPT" run --worktree "$wt" --ledger "$ledger" \
   --fixture "$broken" --test-spec "$tmp/mini-test-spec.md" 2>&1)
 RC=$?
-if [ "$RC" -eq 1 ] && [ "$(awk -F '\t' 'END { print $4 }' "$ledger")" = fail ]; then
-  ok "a seeded failing arm records a red run"
+if [ "$RC" -eq 1 ] && [ "$(awk -F '\t' 'END { print $4 }' "$ledger")" = fail ] \
+  && printf '%s\n' "$OUT" | grep -q '^  behavioral-eval: '; then
+  ok "a seeded failing arm records a red run and shows the harness's account"
 else
   fail "a failing suite: exit $RC, $OUT"
 fi
@@ -280,6 +281,42 @@ else
   fail "a usage error after the harness: exit $RC, left $(ls -A "$tmp/scratch-tmp"), $OUT"
 fi
 
+# A tmux that is present but will not start a session is the host's failure:
+# the run writes no record and shows the harness's own reason.
+cat >"$tmp/nostart-tmux" <<EOF
+#!/bin/sh
+[ "\$1" = new-session ] && exit 1
+exec /bin/sh "$STUB" "\$@"
+EOF
+chmod +x "$tmp/nostart-tmux"
+OUT=$(BEHAVIORAL_EVAL_TMUX="$tmp/nostart-tmux" BEHAVIORAL_EVAL_TMUX_STATE="$tmp/state" BEHAVIORAL_EVAL_WORKBASE="$tmp/wb" \
+  BEHAVIORAL_EVAL_POLL_SLEEP=0 /bin/bash "$SCRIPT" run --worktree "$wt" --ledger "$tmp/nostart.ledger" \
+  --fixture "$mini" --test-spec "$tmp/mini-test-spec.md" 2>&1)
+RC=$?
+if [ "$RC" -eq 3 ] && [ ! -s "$tmp/nostart.ledger" ] && printf '%s\n' "$OUT" | grep -q "could not start the tmux session"; then
+  ok "a session that never starts writes no record and says why"
+else
+  fail "a tmux that cannot start a session: exit $RC, ledger $(cat "$tmp/nostart.ledger" 2>/dev/null), $OUT"
+fi
+
+# The shipped suite never grades over uncommitted edits to itself.
+dirty="$tmp/dirty"
+mkdir -p "$dirty/scripts" "$dirty/tests/behavioral-evals/fixtures" "$dirty/specs/mission-control"
+cp "$repo_root/scripts/mc-eval-cadence.sh" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/mc-lib.sh" \
+  "$repo_root/scripts/behavioral-eval.sh" "$dirty/scripts/"
+cp -R "$FIXTURE" "$dirty/tests/behavioral-evals/fixtures/"
+cp "$repo_root/specs/mission-control/test-spec.md" "$dirty/specs/mission-control/"
+gitx -c init.defaultBranch=main init -q "$dirty" && gitx -C "$dirty" add -A && gitx -C "$dirty" commit -q -m suite || exit 1
+printf '# edited\n' >>"$dirty/tests/behavioral-evals/fixtures/mission-control/personas/status-form.persona"
+OUT=$(env HOME="$tmp/home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CEILING_DIRECTORIES="$tmp" \
+  /bin/bash "$dirty/scripts/mc-eval-cadence.sh" run --worktree "$dirty" --ledger "$tmp/dirty.ledger" 2>&1)
+RC=$?
+if [ "$RC" -eq 2 ] && [ ! -e "$tmp/dirty.ledger" ] && printf '%s\n' "$OUT" | grep -q "the suite has uncommitted changes"; then
+  ok "uncommitted edits to the shipped suite refuse the run and write nothing"
+else
+  fail "a dirty suite: exit $RC, ledger $(cat "$tmp/dirty.ledger" 2>/dev/null), $OUT"
+fi
+
 # --- usage ---------------------------------------------------------------
 /bin/bash "$SCRIPT" gated 'bad/name' 2>/dev/null
 RC=$?
@@ -294,6 +331,13 @@ if [ "$RC" -eq 2 ]; then
   ok "an invalid step spec is refused before use"
 else
   fail "an invalid step spec exited $RC: $OUT"
+fi
+OUT=$(PLANWRIGHT_STEP_SPEC='' PLANWRIGHT_STEP_WORKTREE="$wt" /bin/bash "$SCRIPT" step --ledger "$tmp/nospec.ledger" 2>&1)
+RC=$?
+if [ "$RC" -eq 0 ] && [ ! -e "$tmp/nospec.ledger" ] && [ "$OUT" = "not gated: the unit names no spec" ]; then
+  ok "a unit that names no spec passes the step and records nothing"
+else
+  fail "a unit with no spec: exit $RC, $OUT"
 fi
 
 # --- the wiring ----------------------------------------------------------

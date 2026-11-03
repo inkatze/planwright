@@ -205,13 +205,17 @@ do_complete() {
   return 0
 }
 
+short_head() { printf '%s' "$1" | cut -c1-12; }
+show_log() { tail -n 20 "$1" | while IFS= read -r _l; do printf '%s\n' "  $(sanitize_printable "$_l")" >&2; done; }
+show_line() { sanitize_printable "$(printf '%s' "$1" | tr '\t' ' ')"; }
+
 append_record() {
   # append_record <head> <outcome> <detail>
   _dir=$(dirname "$ledger")
   mkdir -p "$_dir" 2>/dev/null || mc_usage_fail "cannot create the ledger directory: $(sanitize_printable "$_dir")"
   _line=$(printf '%s\t%s\t%s\t%s\t%s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$spec" "$2" "$3")
   printf '%s\n' "$_line" >>"$ledger" || mc_usage_fail "cannot append to the ledger: $(sanitize_printable "$ledger")"
-  printf '%s\n' "$(sanitize_printable "$(printf "%s" "$_line" | tr "\t" " ")")"
+  printf '%s\n' "$(show_line "$_line")"
 }
 
 do_run() {
@@ -238,8 +242,8 @@ do_run() {
     [ -z "$_dirty" ] || mc_usage_fail "the suite has uncommitted changes; commit them so the record speaks for the head"
   fi
   # The harness exits 3 alike for a session that never started and a skill
-  # that died, so the tools are checked here: past this point, 3 is the
-  # skill's.
+  # that died, so the tools are checked here and a session that would not
+  # start is told apart by the harness's own line below.
   _tmux="${BEHAVIORAL_EVAL_TMUX:-tmux}"
   for _tool in "$_tmux" jq; do
     if ! command -v "$_tool" >/dev/null 2>&1; then
@@ -272,20 +276,28 @@ do_run() {
   set -f
   # 3 (the skill died or never finished) and 6 (the turn ceiling) are the
   # evaluated skill's failures, recorded red; the rest are the harness's own.
-  case $_rc in
+  # A tmux that is present but cannot start a session is the host's failure,
+  # not the skill's, so it writes no record.
+  _recordable=$_rc
+  if [ "$_rc" -eq 3 ] && grep -q 'could not start the tmux session' "$_rec/harness.log"; then
+    _recordable=host
+  fi
+  case $_recordable in
     0 | 1 | 3 | 6) ;;
     *)
       printf '%s\n' "$prog: the suite could not run (harness exit $_rc); no record written" >&2
-      tail -n 20 "$_rec/harness.log" | while IFS= read -r _l; do printf '%s\n' "  $(sanitize_printable "$_l")" >&2; done
+      show_log "$_rec/harness.log"
       rm -rf -- "$_rec"
       return 3
       ;;
   esac
-  rm -rf -- "$_rec"
   if [ "$_rc" -eq 0 ] && [ "$_passed" -eq "$_want" ]; then
+    rm -rf -- "$_rec"
     append_record "$_head" pass "$_passed of $_want arms green"
     return 0
   fi
+  show_log "$_rec/harness.log"
+  rm -rf -- "$_rec"
   append_record "$_head" fail "$_passed of $_want arms green (harness exit $_rc)"
   return 1
 }
@@ -307,20 +319,20 @@ do_step() {
   _head=$(head_of) || mc_usage_fail "cannot read the head of $(sanitize_printable "$worktree")"
   _last=$(latest_record "$_head")
   if [ -z "$_last" ]; then
-    printf '%s\n' "no eval record on ${_head%"${_head#????????????}"}; running the suite"
+    printf '%s\n' "no eval record on $(short_head "$_head"); running the suite"
     do_run
     _rc=$?
-    [ "$_rc" -eq 3 ] && printf '%s\n' "missing eval record on ${_head%"${_head#????????????}"}: the ready flip waits for a green run (mc-eval-cadence.sh run)" >&2
+    [ "$_rc" -eq 3 ] && printf '%s\n' "missing eval record on $(short_head "$_head"): the ready flip waits for a green run (mc-eval-cadence.sh run)" >&2
     [ "$_rc" -eq 0 ] && return 0
     return 1
   fi
   case $(printf '%s' "$_last" | cut -f4) in
     pass)
-      printf '%s\n' "green eval record on ${_head%"${_head#????????????}"}: $(sanitize_printable "$(printf "%s" "$_last" | tr "\t" " ")")"
+      printf '%s\n' "green eval record on $(short_head "$_head"): $(show_line "$_last")"
       return 0
       ;;
   esac
-  printf '%s\n' "red eval record on ${_head%"${_head#????????????}"}: $(sanitize_printable "$(printf "%s" "$_last" | tr "\t" " ")")" >&2
+  printf '%s\n' "red eval record on $(short_head "$_head"): $(show_line "$_last")" >&2
   printf '%s\n' "read the failing arms, fix, and re-run on demand (mc-eval-cadence.sh run)" >&2
   return 1
 }
