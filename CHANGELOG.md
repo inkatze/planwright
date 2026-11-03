@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.64.0](https://github.com/inkatze/planwright/compare/v0.63.0...v0.64.0) (2026-11-03)
+
+
+### Features
+
+* **execute-task:** run every full local suite through a detached, start-verified helper ([#803](https://github.com/inkatze/planwright/issues/803)) ([eab10c1](https://github.com/inkatze/planwright/commit/eab10c1284d75d49a152b4c25004e4f58c31f239))
+* **skills:** add the mission-control skill ([#796](https://github.com/inkatze/planwright/issues/796)) ([a2d0ba0](https://github.com/inkatze/planwright/commit/a2d0ba03cfdec1ba6c7dbca53eaac8d0c5c8dd0e))
+* **substrate:** run bake-off A for the adopter-runtime tiers ([#800](https://github.com/inkatze/planwright/issues/800)) ([d783b56](https://github.com/inkatze/planwright/commit/d783b568a1f4356bf6f44113f84cd919bfc55985))
+
 ## [0.63.0](https://github.com/inkatze/planwright/compare/v0.62.0...v0.63.0) (2026-11-03)
 
 
