@@ -49,7 +49,8 @@ head7=7777777777777777777777777777777777777777
 
 # The gh shim: logs every call; serves the repository name and a GraphQL
 # page run through the caller's --jq program. GH_AUTH_FAIL answers as gh
-# does with no login; GH_FAIL fails any other way; GH_LIMITED refuses for the
+# does with no login; GH_EXIT4 exits as gh does unauthenticated, saying
+# nothing; GH_FAIL fails any other way; GH_LIMITED refuses for the
 # rate limit; GH_JUNK serves a page with an unexpected field.
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/gh" <<'EOF'
@@ -67,6 +68,7 @@ if [ -n "${GH_AUTH_FAIL:-}" ]; then
   printf 'To get started with GitHub CLI, please run:  gh auth login\n' >&2
   exit 4
 fi
+[ -z "${GH_EXIT4:-}" ] || exit 4
 if [ -n "${GH_LIMITED:-}" ]; then
   echo "API rate limit exceeded for user" >&2
   exit 1
@@ -136,7 +138,7 @@ runtime=$fleet/mission-control/alpha
 snap=$runtime/reviews
 
 setup() {
-  unset GH_AUTH_FAIL GH_LIMITED GH_FAIL GH_JUNK
+  unset GH_AUTH_FAIL GH_EXIT4 GH_LIMITED GH_FAIL GH_JUNK
   reset_mc_fixture
   rm -rf "$fleet" "$GH_LOG"
   cat >"$tracked" <<EOF
@@ -275,6 +277,10 @@ setup
 GH_AUTH_FAIL=1 reviews refresh --program alpha --now 1000
 expect_rc "a refresh with gh unauthenticated" 0
 line_in "unauthenticated gh degrades with its reason" "$snap" state unavailable "gh is not authenticated"
+
+setup
+GH_EXIT4=1 reviews refresh --program alpha --now 1000
+line_in "gh's unauthenticated exit status alone degrades as unauthenticated" "$snap" state unavailable "gh is not authenticated"
 
 setup
 GH_LIMITED=1 reviews refresh --program alpha --now 1000

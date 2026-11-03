@@ -140,9 +140,7 @@ unavailable() {
 # command substitution cannot degrade the snapshot itself.
 esc=$(printf '\033')
 gh_read() {
-  if gh "$@" 2>"$errf"; then
-    return 0
-  fi
+  gh "$@" 2>"$errf" && return 0
   gr_rc=$?
   if [ "$gr_rc" -eq 4 ] || grep -Eqi 'gh auth login|not logged in|bad credentials|HTTP 401' "$errf"; then
     printf 'gh is not authenticated\n' >"$reasonf"
