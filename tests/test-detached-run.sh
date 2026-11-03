@@ -36,8 +36,9 @@ ok() { printf 'ok: %s\n' "$1"; }
 tmp="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/test-detached-run.XXXXXX")" && pwd -P)" || exit 1
 pids="$tmp/pids"
 : >"$pids"
-# Each run leads its own process group, out of reach of a signal to this
-# file's group, so cleanup signals every recorded group.
+# A run started through bash leads its own process group, out of reach of a
+# signal to this file's group, so cleanup signals every recorded group; the
+# no-bash fallback's run has none, so its runner is signalled alone.
 cleanup() {
   while read -r _p; do
     kill -s TERM -- "-$_p" 2>/dev/null || kill -s TERM "$_p" 2>/dev/null
