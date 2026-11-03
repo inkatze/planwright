@@ -100,7 +100,8 @@ chmod +x "$tmp/bin/gh"
 # reply-review, which never counts), nobody requested, a title carrying a
 # tab and a control byte. #12
 # waits on my review, requested by dave at 1970-01-01T00:10:00Z; #13 is a
-# draft whose request event is not mine, so its author and creation stand in.
+# draft whose request event is not mine, so its author and creation stand in;
+# its title carries a backslash, kept single, and a direction override, dropped.
 cat >"$tmp/page.json" <<EOF
 {"data": {"viewer": {"login": "me"},
  "mine": {"nodes": [
@@ -122,7 +123,7 @@ cat >"$tmp/page.json" <<EOF
    "repository": {"nameWithOwner": "acme/widgets"}, "author": {"login": "erin"},
    "timelineItems": {"nodes": [{"createdAt": "1970-01-01T00:05:00Z", "actor": {"login": "erin"}, "requestedReviewer": {"login": "zed"}},
                                {"createdAt": "1970-01-01T00:10:00Z", "actor": {"login": "dave"}, "requestedReviewer": {"login": "me"}}]}},
-  {"number": 13, "title": "Spike", "isDraft": true, "createdAt": "1970-01-01T00:01:40Z",
+  {"number": 13, "title": "Spike C:\\\\tmp\u202e", "isDraft": true, "createdAt": "1970-01-01T00:01:40Z",
    "repository": {"nameWithOwner": "acme/widgets"}, "author": {"login": "frank"},
    "timelineItems": {"nodes": [{"createdAt": "1970-01-01T00:02:00Z", "actor": {"login": "frank"}, "requestedReviewer": {}}]}}]}}}
 EOF
@@ -198,7 +199,7 @@ line_in "my draft PR: CI running, an older head's review and my own do not count
 line_in "a PR waiting on me names who requested me and when" "$snap" \
   waiting acme/widgets 12 ready dave 600 "Rework the docs"
 line_in "with no request event of mine, the author and creation stand in" "$snap" \
-  waiting acme/widgets 13 draft frank 100 Spike
+  waiting acme/widgets 13 draft frank 100 'Spike C:\tmp'
 if grep -q "$(printf '\033')" "$snap"; then fail "a control byte reached the snapshot"; else ok "control bytes never reach the snapshot"; fi
 n=$(awk -F '\t' '$1 == "mine"' "$snap" | wc -l | tr -d ' ')
 if [ "$n" = 2 ]; then ok "a search node that is not a pull request is skipped"; else fail "mine rows: $n, want 2"; fi
