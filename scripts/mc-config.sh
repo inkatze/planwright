@@ -140,7 +140,7 @@ cfg_get() { /bin/sh "$script_dir/config-get.sh" "$@"; }
 in_work_tree() {
   iw=$1
   while [ ! -d "$iw" ]; do
-    case $iw in */*) iw=${iw%/*} ;; *) return 1 ;; esac
+    case $iw in */*) iw=${iw%/*} ;; *) iw=. ;; esac
     [ -n "$iw" ] || iw=/
   done
   iw_out=$(mc_untrusted_git -C "$iw" rev-parse --is-inside-work-tree --is-inside-git-dir 2>/dev/null) || return 1
@@ -595,11 +595,30 @@ v_apply() {
   layer_path
   lock_layer
   mc_kb_lock "$ap_p" config-apply
-  # The live undo entry: this proposal's config-set entry that no revert
-  # (reverting, reverted or revert failed) has since named.
+  # The reversal this apply would log, then the live undo entry: this
+  # proposal's config-set entry with that same reversal that no revert
+  # (reverting, reverted or revert failed) has since named. An entry whose
+  # reversal differs restores a value since replaced, so it is not reused.
+  if [ "$ap_write" = duty ]; then
+    ap_rev_args=(mc-config.sh duty --program "$ap_p" disable "$ap_mech")
+  else
+    ap_prev=$(previous "$ap_key")
+    if [ "$ap_prev" = - ]; then
+      ap_rev_args=(mc-config.sh restore "$ap_key")
+    else
+      ap_rev_args=(mc-config.sh restore "$ap_key" "$ap_prev")
+    fi
+  fi
+  ap_rev=argv:
+  ap_sep=''
+  for ap_w in "${ap_rev_args[@]}"; do
+    ap_w=${ap_w//%/%25}
+    ap_rev=$ap_rev$ap_sep${ap_w// /%20}
+    ap_sep=' '
+  done
   ap_undo=$(mc_kb query undo --program "$ap_p" --subject "$ap_subject") || mc_fail "the undo log cannot be read"
-  ap_logged=$(printf '%s\n' "$ap_undo" | I=$ap_id awk -F '\t' '
-    $4 == "config-set" && index($6, ": applied accepted mechanization proposal " ENVIRON["I"]) && substr($6, length($6) - length(ENVIRON["I"]) + 1) == ENVIRON["I"] { live[$1] = 1; order[++n] = $1 }
+  ap_logged=$(printf '%s\n' "$ap_undo" | I=$ap_id R=$ap_rev awk -F '\t' '
+    $4 == "config-set" && $7 == ENVIRON["R"] && index($6, ": applied accepted mechanization proposal " ENVIRON["I"]) && substr($6, length($6) - length(ENVIRON["I"]) + 1) == ENVIRON["I"] { live[$1] = 1; order[++n] = $1 }
     $4 == "reverting" || $4 == "reverted" || $4 == "revert failed" { delete live[$5] }
     END { for (i = n; i > 0; i--) if (order[i] in live) { print order[i]; exit } }')
   if [ "$ap_write" = duty ]; then
@@ -624,14 +643,8 @@ v_apply() {
     ap_cite=$(printf '%s\n' "$ap_rules" | S=$ap_subject awk -F '\t' "$MC_SUBJECT_KEY_AWK"'
       $1 ~ /^r-[1-9][0-9]*$/ && key($5) == key(ENVIRON["S"]) { c = c (c == "" ? "" : ",") $1 }
       END { print (c == "" ? "-" : c) }')
-    if [ "$ap_write" = duty ]; then
-      set -- mc-config.sh duty --program "$ap_p" disable "$ap_mech"
-    else
-      ap_prev=$(previous "$ap_key")
-      if [ "$ap_prev" = - ]; then set -- mc-config.sh restore "$ap_key"; else set -- mc-config.sh restore "$ap_key" "$ap_prev"; fi
-    fi
     ap_out=$(mc_kb append undo --program "$ap_p" --subject "$ap_subject" --act config-set --target "$ap_key" \
-      --grounds "settled - $ap_cite: applied accepted mechanization proposal $ap_id" -- "$@") \
+      --grounds "settled - $ap_cite: applied accepted mechanization proposal $ap_id" -- "${ap_rev_args[@]}") \
       || mc_fail "the undo entry was not logged, so proposal $ap_id was not applied"
     ap_logged=$(printf '%s\n' "$ap_out" | head -n 1)
   fi

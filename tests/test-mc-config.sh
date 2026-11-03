@@ -349,6 +349,26 @@ if [ -n "$second" ] && [ "$second" != "$undo_id" ]; then ok "the re-apply logs a
 mc_run mc-kb.sh revert --program alpha "$second"
 expect_rc "the new entry reverts" 0
 
+# A value the operator set after an apply is what a later apply's undo
+# entry restores, never the value from before the first apply.
+cfg apply --program alpha p-1 --value 10m
+first=$(printf '%s\n' "$OUT" | cut -f 5)
+cfg knob mission_control_tick_cadence 20m
+cfg apply --program alpha p-1 --value 10m
+third=$(printf '%s\n' "$OUT" | cut -f 5)
+if [ -n "$third" ] && [ "$third" != "$first" ]; then ok "an apply over a since-replaced value logs a new undo entry"; else fail "the apply reused an entry restoring a replaced value ($third)"; fi
+mc_run mc-kb.sh revert --program alpha "$third"
+mc_run config-get.sh mission_control_tick_cadence
+expect_eq "reverting it restores the operator's value" "20m"
+cfg restore mission_control_tick_cadence
+
+# A relative layer path is judged from the working directory.
+OUT=$(mc_env env PLANWRIGHT_ADOPTER_OVERLAY=rel/overlay /bin/bash "$repo_root/scripts/mc-config.sh" knob mission_control_tick_cadence 9m 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "a relative layer inside the repository is refused" 1
+if [ -e "$repo/rel" ]; then fail "the refused write left a directory in the repository"; else ok "nothing was created in the repository"; fi
+
 # A duty's reversal disables that duty alone.
 cfg duty --program alpha disable alpha-duty
 cfg apply --program alpha p-2
