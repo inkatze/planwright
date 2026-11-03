@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
