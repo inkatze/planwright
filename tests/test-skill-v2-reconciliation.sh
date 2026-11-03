@@ -262,10 +262,11 @@ else
   fail "execute-task: Awaiting-input bullet form missing ('committed reference bullet', D-3)"
 fi
 
-if printf '%s' "$et" | grep -qE 'derives Completed via the derivation engine'; then
+# shellcheck disable=SC2016 # the backticks are the doc's markdown, not a substitution
+if printf '%s' "$et" | grep -qE 'derived Completed by `scripts/orchestrate-state\.sh`'; then
   ok "execute-task: v2 dependency completion reads the derivation engine"
 else
-  fail "execute-task: v2 dependency check does not read the derivation engine ('derives Completed via the derivation engine' missing, D-6)"
+  fail "execute-task: v2 dependency check does not read the derivation engine ('derived Completed by scripts/orchestrate-state.sh' missing, D-6)"
 fi
 
 if printf '%s' "$et" | grep -qE 'no annotation exists to write'; then

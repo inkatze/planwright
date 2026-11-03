@@ -7,10 +7,17 @@
 # one-line ok/FAIL markers share the parent's streams and stay whole
 # under PIPE_BUF). The gate semantics match the old serial loop: any failing
 # file fails the run; every failing file is named and its captured log is
-# printed at the end. All files always run to completion (no mid-run
-# abort), so one failure never hides another. Completion accounting is
-# positive: a file that never produced a verdict marker (worker killed,
-# never dispatched) is a failure, never a silent green.
+# printed at the end. The run never aborts midway: every file runs, to its
+# end or its deadline, so one failure never hides another. Completion
+# accounting is positive: a file that never produced a verdict marker
+# (worker killed, never dispatched) is a failure, never a silent green.
+#
+# The one mid-run stop is the runner's own breakage. Every worker checks the
+# run's scratch directory (the per-file logs and verdict markers) before and
+# after its file; once that directory is gone, unwritable or unsearchable no
+# verdict can be recorded, so files not yet started are skipped, and the run
+# ends with exit 2 naming the cause rather than blaming test files for the
+# loss.
 #
 # Parallelism comes from `xargs -P` (POSIX-optional but present on macOS
 # and GNU userlands alike); when the probe finds no working -P — or
@@ -47,6 +54,22 @@
 # too: a file with a verdict but no timing record fails the run, so the
 # report never carries a silent hole.
 #
+# Per-file deadline: each file runs under timeout(1), or gtimeout where only
+# Homebrew's coreutils provides it, so one file that never returns cannot hold
+# its ticket, or the whole-suite lock its run sits under, indefinitely. The
+# bound counts from the moment the file holds its ticket. A file still running
+# at the deadline gets TERM, then KILL ten seconds later if the file itself is
+# still running, and is recorded as failed with a message naming it and the
+# deadline; its ticket is returned as for any other file. GNU timeout signals
+# the file's whole process group; busybox's signals the file alone, leaving
+# anything it started to run on, and passes on its status, so a file that
+# traps that TERM and exits 0 counts as passed. GNU's group is not the
+# terminal's, so a worker that gets INT, TERM or HUP passes TERM on to its
+# file, and KILL ten seconds later, before it releases the ticket and dies of
+# the signal itself. A host with no usable tool (neither installed, or none
+# taking -k) costs one warning and unbounded files. A nested runner inherits
+# PLANWRIGHT_TEST_FILE_DEADLINE and bounds its own files the same way.
+#
 # Sharding: --shard <i>/<N> runs only shard i of N, so CI can split the suite
 # across parallel jobs. The split is longest-first onto the least-loaded
 # shard (ties to the lower shard) by the same duration table the queue order
@@ -68,7 +91,8 @@
 #        (default suite: <repo-root>/tests)
 # Exit:  0 all pass · 1 any test failed or lost · 2 usage or environment
 #        error (bad suite dir, mktemp or self-path resolution failure, a
-#        timing report that cannot be persisted).
+#        timing report that cannot be persisted, the scratch directory gone,
+#        unwritable or unsearchable mid-run).
 #
 # Environment:
 #   PLANWRIGHT_TEST_JOBS           override the job count (default: core count)
@@ -77,6 +101,9 @@
 #   PLANWRIGHT_TEST_SLOT_DIR       the pool directory, for the runner's own
 #                                  tests (default: ${XDG_STATE_HOME:-$HOME/
 #                                  .local/state}/planwright/test-slots)
+#   PLANWRIGHT_TEST_FILE_DEADLINE  seconds a file may run (default 900); an
+#                                  empty or non-numeric value, 0, or one past
+#                                  nine digits warns once and uses the default
 #   PLANWRIGHT_TEST_FORCE_SERIAL   1 forces the serial fallback path
 #   PLANWRIGHT_TEST_TIMING_REPORT  where to persist the timing report
 #                                  (default: <suite-dir>/.timing-report.tsv)
@@ -98,6 +125,11 @@
 #   PLANWRIGHT_TEST_POOL_SLOTS     (both empty for an unpooled run)
 #   PLANWRIGHT_TEST_LOG_DIR        internal: parent-to-worker log dir handoff
 #   PLANWRIGHT_TEST_CLOCK          internal: parent-to-worker clock handoff
+#   PLANWRIGHT_TEST_BOUND_SECONDS  internal: parent-to-worker deadline and
+#   PLANWRIGHT_TEST_BOUND_TOOL     bounding tool handoff (tool empty:
+#                                  unbounded)
+#   PLANWRIGHT_TEST_BOUND_ENV      internal: an env taking --default-signal,
+#                                  or empty
 set -u
 unset CDPATH
 
@@ -154,6 +186,23 @@ ms_to_seconds() {
   printf '%d.%03d' "$((_ms / 1000))" "$((_ms % 1000))"
 }
 
+# scratch_fault <dir> — 0 with scratch_cause set when the run's scratch
+# directory can no longer hold logs and markers, else 1. Test builtins only:
+# it runs before and after every file.
+scratch_fault() {
+  if [ ! -d "$1" ]; then
+    scratch_cause="is gone"
+  elif [ ! -w "$1" ]; then
+    scratch_cause="is not writable"
+  elif [ ! -x "$1" ]; then
+    # Writable but unsearchable still refuses every file created in it.
+    scratch_cause="is not searchable"
+  else
+    return 1
+  fi
+  return 0
+}
+
 # _slot_attempt <path> — one pw_lock_try on one ticket. 0 held (slot_path
 # set), 1 busy, 2 give up (slot_err set): anything but a held or busy answer,
 # 127 from a library that failed to load included, is not going to clear.
@@ -188,8 +237,9 @@ take_slot() {
   slot_err=""
   while :; do
     # The log directory is the parent's: gone means the run is over, and a
-    # waiter left behind would otherwise spin on a redirect that now fails.
-    [ -d "$PLANWRIGHT_TEST_LOG_DIR" ] || exit 0
+    # waiter left behind would otherwise spin on a redirect that now fails
+    # (an unwritable one too: the failed redirect reads as a busy ticket).
+    ! scratch_fault "$PLANWRIGHT_TEST_LOG_DIR" || exit 0
     # Free tickets first, looked at without a fork. A taken one is only worth
     # a liveness probe when none is free, and the probe forks several times,
     # so one holder is examined per stride, rotating through the pool; a dead
@@ -222,9 +272,43 @@ take_slot() {
   done
 }
 
-# worker_signal <SIG> — release every ticket, then die by <SIG> itself.
+# worker_signal <SIG> — end the bounded file (see the header), wait for it so
+# its ticket is not handed on while it still runs, release every ticket, then
+# die by <SIG> itself.
 worker_signal() {
-  pw_lock_release_all
+  # $! covers a signal landing between the launch and child_pid's assignment;
+  # a repeated signal reuses what the first one resolved, since $! may by
+  # then name that handler's killer.
+  ws_pid=${child_pid:-$ws_target}
+  [ -n "$ws_pid" ] || [ "$bounding" -eq 0 ] || ws_pid=$!
+  ws_target=$ws_pid
+  if [ -n "$ws_pid" ]; then
+    # TERM whatever arrived: uutils' timeout answers a HUP by killing the file
+    # outright, with no chance to clean up. The group is timeout's own; the
+    # pid alone is the file under busybox, which makes no group.
+    kill -s TERM -- "-$ws_pid" 2>/dev/null || kill -s TERM "$ws_pid" 2>/dev/null
+    # busybox's timeout grants no grace for a TERM it did not send. One killer
+    # at a time: a repeated signal re-enters here and the first handler never
+    # resumes to cancel its own. It is cancelled by USR1, which the worker does
+    # not trap (for an instant after the fork the subshell still runs the
+    # worker's TERM trap), takes its sleep with it, and stays off the run's
+    # output, which the sleep would otherwise hold open.
+    [ -z "$ws_killer" ] || kill -s USR1 "$ws_killer" 2>/dev/null
+    (
+      trap 'kill "$wk_sleep" 2>/dev/null; exit 0' USR1
+      sleep 10 &
+      wk_sleep=$!
+      wait "$wk_sleep" || {
+        kill "$wk_sleep" 2>/dev/null
+        exit 0
+      }
+      kill -s KILL -- "-$ws_pid" 2>/dev/null || kill -s KILL "$ws_pid" 2>/dev/null
+    ) >/dev/null 2>&1 </dev/null &
+    ws_killer=$!
+    wait "$ws_pid" 2>/dev/null
+    kill -s USR1 "$ws_killer" 2>/dev/null
+  fi
+  [ "$lock_loaded" -eq 0 ] || pw_lock_release_all
   trap - "$1"
   kill -s "$1" "$$"
 }
@@ -243,17 +327,32 @@ if [ "${1:-}" = "--run-one" ]; then
   [ -n "$clock" ] || clock="$(probe_clock)"
   wait_started="$(now_ms)"
   slot_path=""
+  child_pid=""
+  bounding=0
+  ws_target=""
+  ws_killer=""
+  lock_loaded=0
+  # The parent hands over a normalized value; anything else runs unbounded.
+  deadline="${PLANWRIGHT_TEST_BOUND_SECONDS:-}"
+  deadline_tool="${PLANWRIGHT_TEST_BOUND_TOOL:-}"
+  deadline_env="${PLANWRIGHT_TEST_BOUND_ENV:-}"
+  case "$deadline" in
+    '' | *[!0-9]* | 0*) deadline_tool="" ;;
+  esac
+  # The traps pass an interrupt on to a bounded file and release the ticket; a
+  # SIGKILL leaves the ticket to the next run's dead-holder reclaim. They
+  # re-raise rather than exit (pw_lock_trap_install's form): a serial parent
+  # that sees a plain exit assumes the file handled the interrupt and runs on.
+  if [ -n "${PLANWRIGHT_TEST_POOL_DIR:-}" ] || [ -n "$deadline_tool" ]; then
+    trap 'worker_signal INT' INT
+    trap 'worker_signal TERM' TERM
+    trap 'worker_signal HUP' HUP
+  fi
   if [ -n "${PLANWRIGHT_TEST_POOL_DIR:-}" ]; then
     # shellcheck source=scripts/lock-lib.sh
     if . "${0%/*}/lock-lib.sh"; then
-      # The traps release the ticket if this worker is interrupted mid-file; a
-      # SIGKILL leaves it to the next run's dead-holder reclaim. They re-raise
-      # rather than exit (pw_lock_trap_install's form): a serial parent that
-      # sees a plain exit assumes the file handled the interrupt and runs on.
+      lock_loaded=1
       trap 'pw_lock_release_all' EXIT
-      trap 'worker_signal INT' INT
-      trap 'worker_signal TERM' TERM
-      trap 'worker_signal HUP' HUP
       take_slot "$PLANWRIGHT_TEST_POOL_DIR" "$PLANWRIGHT_TEST_POOL_SLOTS" \
         "$PLANWRIGHT_TEST_LOG_DIR/$name.lockerr"
     else
@@ -265,6 +364,9 @@ if [ "${1:-}" = "--run-one" ]; then
       printf '%s\n' "$slot_err" >"$PLANWRIGHT_TEST_LOG_DIR/$name.poolerr"
     fi
   fi
+  # Checked once the ticket is held, so a waiter does not start its file on a
+  # directory already broken. It exits with no marker; the parent names it.
+  ! scratch_fault "$PLANWRIGHT_TEST_LOG_DIR" || exit 0
   [ -z "$slot_path" ] || export PLANWRIGHT_TEST_IN_POOLED_FILE=1
   # A run started from a fleet worker inherits the operator's real fleet home,
   # so each file gets a home of its own that nothing should ever touch: a file
@@ -282,10 +384,62 @@ if [ "${1:-}" = "--run-one" ]; then
   [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$fleet_sentinel/plugin-data"
   [ -z "${CLAUDE_DIR+set}" ] || export CLAUDE_DIR="$fleet_sentinel/claude"
   started="$(now_ms)"
-  if /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; then
+  # A sibling can break the directory between the check above and these
+  # redirects, so the shell's own complaint about a redirect is held back
+  # until the directory is known to be healthy.
+  past_deadline=0
+  if [ -n "$deadline_tool" ]; then
+    # In the background, so a trapped signal ends the wait at once and the trap
+    # can pass it on: timeout's process group is not the terminal's, and the
+    # worker's trap would otherwise wait for the file. An asynchronous command
+    # starts with INT and QUIT ignored; the reset hands the file the defaults,
+    # and an env taking --default-signal restores them where an old bash (macOS
+    # /bin/bash) refuses the reset, since GNU timeout keeps an inherited ignore.
+    # Its stdin is /dev/null, as xargs gives it, so a read cannot stop the
+    # background group, timeout and its alarm included, on a terminal.
+    bounding=1
+    {
+      (
+        trap - INT QUIT
+        exec ${deadline_env:+"$deadline_env" --default-signal=INT,QUIT} \
+          "$deadline_tool" -k 10 "$deadline" /bin/bash "$t"
+      ) >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1 </dev/null &
+    } 2>/dev/null
+    child_pid=$!
+    wait "$child_pid"
+    file_rc=$?
+    child_pid=""
+    bounding=0
+    # A failed file that ran the whole deadline was ended: busybox's timeout
+    # passes on the file's own status, so 124 alone would miss it there. A
+    # passing file stays passed whatever the wall clock did (timeout's alarm
+    # does not follow a clock step). Without a clock reading, the statuses
+    # timeout and busybox give an ended file stand in.
+    ended="$(now_ms)"
+    if [ "$file_rc" -ne 0 ]; then
+      if [ -n "$started" ] && [ -n "$ended" ]; then
+        [ $((ended - started)) -lt $((deadline * 1000)) ] || past_deadline=1
+      else
+        case "$file_rc" in
+          124 | 137 | 143) past_deadline=1 ;;
+        esac
+      fi
+    fi
+  else
+    { /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; } 2>/dev/null
+    file_rc=$?
+  fi
+  if [ "$file_rc" -eq 0 ]; then
     verdict="done"
   else
     verdict="fail"
+  fi
+  ! scratch_fault "$PLANWRIGHT_TEST_LOG_DIR" || exit 0
+  [ -e "$PLANWRIGHT_TEST_LOG_DIR/$name.log" ] \
+    || echo "run-tests: could not open the log for $name" >&2
+  if [ "$past_deadline" -eq 1 ]; then
+    printf '%s\n' "run-tests: $name ran past its ${deadline}s deadline (PLANWRIGHT_TEST_FILE_DEADLINE) and was ended" \
+      >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
   fi
   for fh in "$fleet_sentinel/fleet" "$fleet_sentinel/plugin-data" "$fleet_sentinel/claude"; do
     if [ -e "$fh" ] || [ -L "$fh" ]; then
@@ -308,6 +462,8 @@ if [ "${1:-}" = "--run-one" ]; then
   : >"$PLANWRIGHT_TEST_LOG_DIR/$name.$verdict"
   if [ "$verdict" = "done" ]; then
     echo "ok: $name (${elapsed:-?}s)"
+  elif [ "$past_deadline" -eq 1 ]; then
+    echo "FAIL: $name (ran past its ${deadline}s deadline; log printed at end)" >&2
   else
     echo "FAIL: $name (log printed at end)" >&2
   fi
@@ -543,7 +699,9 @@ export SPEC_WALKTHROUGH_DOT_TIMEOUT="${SPEC_WALKTHROUGH_DOT_TIMEOUT:-60}"
 # Explicit template: a bare `mktemp` default template is not portable to
 # BSD mktemp (the house pattern, see scripts/spec-graph.sh).
 log_dir="$(mktemp -d "${TMPDIR:-/tmp}/run-tests.XXXXXX")" || exit 2
-trap 'rm -rf "$log_dir"' EXIT
+# A file that made the directory unwritable or unsearchable would otherwise
+# leave it behind.
+trap '[ -L "$log_dir" ] || [ ! -d "$log_dir" ] || chmod u+rwx "$log_dir" 2>/dev/null; rm -rf "$log_dir"' EXIT
 export PLANWRIGHT_TEST_LOG_DIR="$log_dir"
 
 clock="$(probe_clock)"
@@ -788,6 +946,51 @@ for i in ${qidx[@]+"${qidx[@]}"}; do
   queue+=("${all_files[$i]}")
 done
 
+# Per-file deadline (see the header). Nine digits keeps the worker's
+# millisecond arithmetic far from overflow, and is already decades.
+deadline_default=900
+deadline=$deadline_default
+if [ -n "${PLANWRIGHT_TEST_FILE_DEADLINE+set}" ]; then
+  case "$PLANWRIGHT_TEST_FILE_DEADLINE" in
+    '' | *[!0-9]* | ??????????*) deadline=0 ;;
+    *) deadline=$((10#$PLANWRIGHT_TEST_FILE_DEADLINE)) ;;
+  esac
+  if [ "$deadline" -lt 1 ]; then
+    echo "run-tests: WARNING PLANWRIGHT_TEST_FILE_DEADLINE is not a positive whole number of seconds ($(sanitize_printable "$PLANWRIGHT_TEST_FILE_DEADLINE" "(empty or unprintable)")); using the default of $deadline_default" >&2
+    deadline=$deadline_default
+  fi
+fi
+# Probed by running it: a timeout that refuses -k (an old busybox) is no
+# bound the workers can use.
+deadline_tool=""
+for tool_name in timeout gtimeout; do
+  tool_path="$(command -v "$tool_name" 2>/dev/null)" || continue
+  if "$tool_path" -k 1 5 true >/dev/null 2>&1; then
+    deadline_tool=$tool_path
+    break
+  fi
+done
+if [ -n "$deadline_tool" ]; then
+  deadline_desc="deadline ${deadline}s per file"
+else
+  # Worded so scripts/classify-ci-failure.sh does not read a bare "timeout"
+  # in it as a network failure.
+  echo "run-tests: WARNING no usable timeout(1) or gtimeout (none installed, or none taking -k); test files run with no per-file deadline" >&2
+  deadline_desc="no per-file deadline"
+fi
+# GNU env (env, or genv beside Homebrew's gtimeout), for a bounded file's
+# default INT and QUIT where the worker's bash cannot reset them.
+deadline_env=""
+for env_name in env genv; do
+  env_path="$(command -v "$env_name" 2>/dev/null)" || continue
+  if "$env_path" --default-signal=INT,QUIT true >/dev/null 2>&1; then
+    deadline_env=$env_path
+    break
+  fi
+done
+export PLANWRIGHT_TEST_BOUND_SECONDS="$deadline" PLANWRIGHT_TEST_BOUND_TOOL="$deadline_tool" \
+  PLANWRIGHT_TEST_BOUND_ENV="$deadline_env"
+
 # Probe for a working `xargs -P` before relying on it; degrade to the
 # serial loop when it is absent or explicitly disabled.
 parallel=1
@@ -804,7 +1007,7 @@ dispatch_failed=0
 suite_started="$(now_ms)"
 if [ "$parallel" -eq 1 ]; then
   mode=parallel
-  echo "run-tests: $scope_desc, $jobs jobs, $pool_desc"
+  echo "run-tests: $scope_desc, $jobs jobs, $pool_desc, $deadline_desc"
   echo "run-tests: queue $order_desc"
   # A shard can be empty when it outnumbers the files, and xargs would still
   # run its command once on no input.
@@ -815,13 +1018,20 @@ if [ "$parallel" -eq 1 ]; then
   fi
 else
   mode=serial
-  echo "run-tests: $scope_desc, serial (no parallel primitive), $pool_desc"
+  echo "run-tests: $scope_desc, serial (no parallel primitive), $pool_desc, $deadline_desc"
   echo "run-tests: queue $order_desc"
   for t in ${queue[@]+"${queue[@]}"}; do
     /bin/bash "$self" --run-one "$t" || dispatch_failed=1
   done
 fi
 suite_finished="$(now_ms)"
+
+# Checked before any verdict is read: with the scratch directory broken, the
+# missing markers say nothing about the test files.
+if scratch_fault "$log_dir"; then
+  echo "run-tests: the runner's scratch directory $(sanitize_printable "$log_dir" "(unprintable path)") $scratch_cause mid-run; files not yet started were skipped and no verdict is recorded (an environment error, not a test failure)" >&2
+  exit 2
+fi
 
 # A worker whose ticket the lock library refused ran its file unpooled and
 # left the cause behind; one warning covers them all.

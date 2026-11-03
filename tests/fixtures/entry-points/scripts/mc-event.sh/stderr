@@ -1,0 +1,1 @@
+match ^mc-event: usage: mc-event\.sh emit --program <p> \[--now <epoch>\] \[--\] <kind> <subject> \[<text>\] \| list --program <p> \[--target <t> \[--pending\]\] \[<id>\.\.\.\] \| mark --program <p> --target <t> submitted\|staged <id>\.\.\. \| prune --program <p> \[--now <epoch>\]$

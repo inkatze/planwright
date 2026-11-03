@@ -966,6 +966,12 @@ protected_branches:
 # change reaches a worker only by relaunch.
 worker_self_approval:
 
+# How many days a worker's audit log of allow decisions is kept under the
+# fleet home's allow-audit directory. The guard only appends; each worker
+# launch (scripts/worker-session-record.sh) prunes the logs older than this.
+# A positive integer; a value that cannot be read leaves the default.
+worker_audit_log_retention_days: 30
+
 # Where /inception creates venture repositories (inception REQ-A1.3, D-5):
 # an absolute path or a ~/ path. A relative or ~user adopter or machine-local
 # value warns and falls back to ~/ventures (a control byte passes to the next
@@ -1102,3 +1108,11 @@ mission_control_deadline_horizon: 3d
 # that reads the text on stdin. Never a sender; never read from the
 # repo-tracked layer.
 mission_control_clipboard: auto
+# How much the mission-control skill teaches as it goes: guided, standard
+# or expert (scripts/mc-config.sh mode guidance). A level the operator picks
+# is remembered in the adopter layer.
+mission_control_guidance: guided
+# How a kickoff or amendment the operator asks for runs: relay (mission
+# control launches the session and relays every question to the operator)
+# or manual (the operator runs the kickoff command themselves).
+mission_control_kickoff_mode: relay

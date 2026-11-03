@@ -143,6 +143,17 @@ for spec_dir in "$@"; do
   fi
   wr_rc=0
   spec_top=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" 2>/dev/null) || wr_rc=$?
+  # A holder's bundle has no single work repository when its tasks name
+  # theirs; a fleet run in the holder supervises it from there, each unit
+  # dispatching into its own (orchestrate-meta-step.sh).
+  if [ "$wr_rc" -eq 5 ]; then
+    hd_cur=$(/bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) || hd_cur=""
+    hd_own=$(cd "$spec_dir" 2>/dev/null && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) || hd_own=""
+    if [ -n "$hd_cur" ] && [ "$hd_cur" = "$hd_own" ]; then
+      spec_top=$hd_cur
+      wr_rc=0
+    fi
+  fi
   if [ "$wr_rc" -ne 0 ]; then
     # A refused override says why itself; "no work repository" alone would
     # send the operator looking at the bundle instead.

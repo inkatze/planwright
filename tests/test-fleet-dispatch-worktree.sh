@@ -71,6 +71,15 @@ TOWER_HOOK="$here/../scripts/tower-command-guard.sh"
 SCRIPTS_DIR="$here/../scripts"
 TAB=$(printf '\t')
 
+# Every case runs under a TMPDIR reached through a symbolic link, as macOS's
+# default one is, so a case comparing a path it built against the physical
+# path the primitive reports fails on every host, not only there.
+_tmp_base=$(mktemp -d "${TMPDIR:-/tmp}/dw.base.XXXXXX") || exit 1
+trap 'rm -rf "$_tmp_base"' EXIT
+mkdir -p "$_tmp_base/real" && ln -s "$_tmp_base/real" "$_tmp_base/link" || exit 1
+TMPDIR="$_tmp_base/link"
+export TMPDIR
+
 fails=0
 fail() {
   echo "FAIL: $1" >&2
@@ -102,6 +111,10 @@ iso_env() {
   export PLANWRIGHT_ORCH_STATE_DIR="$_t/markers"
   export PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$_t/fstate"
   export PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX=1
+  # A fleet worker session exports these pointing at the primary checkout,
+  # which would make the primitive resolve that checkout's worker settings
+  # instead of the ones beside the script under test.
+  unset PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
 }
 
 # Seed a bare origin + a primary clone carrying a minimal spec bundle, with main

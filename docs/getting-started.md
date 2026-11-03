@@ -226,7 +226,9 @@ Run it inside your repository; `<planwright>` is planwright's install root
 then land in `~/spec-holder/acme/<feature>/`, while task branches and task
 pull requests stay in your repository (the spec's own branch and PR live in
 the holder). The options, the three postures, and what each changes are in
-[Spec location](spec-location.md).
+[Spec location](spec-location.md). To drive a spec's tasks from the holder
+itself, sending each task to the repository it names, see
+[Running from a holder](spec-location.md#running-from-a-holder).
 
 ## 4. The controls you keep
 

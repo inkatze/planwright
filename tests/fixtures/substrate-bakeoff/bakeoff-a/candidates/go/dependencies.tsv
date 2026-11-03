@@ -1,0 +1,2 @@
+# name	licence	last release	standard-library alternative
+go-runtime-and-stdlib	BSD-3-Clause	2026-10-19	none (the standard library is the alternative to every third-party package)

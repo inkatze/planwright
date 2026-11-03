@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -445,10 +445,11 @@ Under `own-branch`: writes (Bash writers and redirects) to the worktree's
 
 The permission-matcher fixture table carries a row for every new allow rule
 and the test fails on an allow rule with no row; assertions that no new rule
-names `awk`, `find`, `xargs`, `sed` (any form), `sort`, `uniq`, a
+names `awk`, `find`, `xargs`, `sed` (any form), `sort`, `uniq`, `wc`, a
 content-printing verb (`cat`, `grep`, `head`, `tail`, `cut`, `diff`, `jq`), a
 diff-family `git` subcommand, `git grep`, or `git cat-file`.
 *(Amended at the 2026-10-10 extension kickoff: the content-printing verbs.)*
+*(Amended at the 2026-11-02 delta kickoff: `wc` (D-28).)*
 
 ### REQ-G1.2 — Launcher-created scratch root [test]
 

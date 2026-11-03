@@ -1,0 +1,7 @@
+#!/bin/sh
+# Build the Zig comparison point's trivial program into out/. Needs `zig` on
+# PATH (the bake-off README names the pinned toolchain).
+set -eu
+cd "${0%/*}"
+mkdir -p out
+zig build-exe -O ReleaseSmall -fstrip -femit-bin=out/hello src/hello.zig

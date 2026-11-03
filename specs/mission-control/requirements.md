@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-10-24
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -667,6 +667,10 @@ later planwright bundles implement, D-12).
   inventory and copied-section checks, the tier and its fixtures, one
   fixture per Gherkin arm, edges 2→9 and 8→16, Done-when clauses made
   evaluable); test-spec entries paired with each.
+- 2026-11-02 — Delta kickoff (meaning-class, brief Amendment 1): D-18
+  remembers the guidance level in the adopter layer rather than the
+  machine-local one, since the machine-local file sits inside a checkout
+  where mission control writes nothing (REQ-A1.3). Raised by Task 11.
 
 ## Sources
 

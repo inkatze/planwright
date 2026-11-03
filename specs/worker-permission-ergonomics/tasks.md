@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -364,8 +364,8 @@ below; `scripts/spec-graph.sh` renders it on demand.
 
 ## Awaiting input
 
-- **Task 12** — convergence point, step `polish`, outcome `halted`; record
-  `.claude/steps/000001/003-step-convergence.rec`.
+- **Task 11** — post-pr step `cubic-pr` halted (`.claude/steps/000001/008-step-post-pr.rec`)
+- **Task 13** — post-pr step `cubic-pr` halted (`.claude/steps/000001/007-step-post-pr.rec`); PR #786 awaits the operator's secondary review on its current head before the ready flip.
 
 ## Deferred
 

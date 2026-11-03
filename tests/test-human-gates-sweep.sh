@@ -27,7 +27,7 @@ fail() {
 # --- skill invariant sections cite the doctrine source (REQ-H1.1, REQ-A1.3) ---
 # The skills that carry an invariant section are pinned, so renaming a heading
 # cannot drop a skill from the check; a new section must be added here.
-expected="execute-task inception orchestrate polish resume spec-walkthrough tower"
+expected="execute-task inception mission-control orchestrate polish resume spec-walkthrough tower"
 found=""
 for f in "$REPO_ROOT"/skills/*/SKILL.md; do
   sec=$(awk '/^## .*[Ii]nvariants/ { on = 1; print; next } on && /^## / { exit } on' "$f")

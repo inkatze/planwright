@@ -1,0 +1,3 @@
+# name	licence	last release	standard-library alternative
+bun-runtime	MIT	2026-10-22	none (embedded in every compiled executable)
+javascriptcore	LGPL-2.1-or-later	2026-10-22	none (Bun's engine and statically embedded)
