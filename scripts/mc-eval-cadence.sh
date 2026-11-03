@@ -35,7 +35,8 @@ gated unit whose head has a red record or none.
 
 The suite is the mission-control fixture under tests/behavioral-evals/fixtures,
 one persona per [Gherkin] arm of specs/mission-control/test-spec.md, run by
-scripts/behavioral-eval.sh. It runs on demand only, never in CI.
+scripts/behavioral-eval.sh. It runs on demand, or from the pre-ready-flip
+step for a gated head with no record; never in CI.
 
 THE GATED SPECS are listed one per line in the fixture's `gated-specs` file:
 mission control itself and each of its follow-on bundles. A unit of any other
@@ -63,8 +64,9 @@ VERBS
       skill dying, never finishing, or hitting the turn ceiling is a red
       run; a run the harness itself could not carry out (no tmux or jq, a
       broken fixture) appends nothing. Refuses uncommitted edits to the
-      suite, and a --fixture or --test-spec override without an explicit
-      --ledger, so a record always speaks for what its head holds.
+      suite, a --fixture or --test-spec override without an explicit
+      --ledger, and a --worktree naming another checkout unless the suite is
+      overridden, so a record always speaks for what its head holds.
   step [--ledger <file>]
       The pre-ready-flip cadence step. Reads PLANWRIGHT_STEP_SPEC and
       PLANWRIGHT_STEP_WORKTREE (default the current directory). An ungated
@@ -226,7 +228,7 @@ do_run() {
   fi
   _wt_real=$(cd "$worktree" && pwd -P) || mc_usage_fail "cannot resolve $(sanitize_printable "$worktree")"
   _root_real=$(cd "$root" && pwd -P) || mc_usage_fail "cannot resolve the script's checkout"
-  if [ "$_wt_real" != "$_root_real" ] && [ "$ledger_given" -eq 0 ]; then
+  if [ "$_wt_real" != "$_root_real" ] && [ "$suite_override" -eq 0 ]; then
     mc_usage_fail "--worktree names another checkout than this script's: run that checkout's own script, so its own suite grades its head"
   fi
   if [ "$suite_override" -eq 0 ]; then
@@ -253,6 +255,8 @@ do_run() {
     return 1
   fi
   _rec=$(mktemp -d "${TMPDIR:-/tmp}/mc-eval-cadence.XXXXXX") || mc_usage_fail "cannot create a scratch directory"
+  trap 'rm -rf -- "$_rec"' EXIT
+  trap 'exit 130' INT TERM HUP
   /bin/sh "$script_dir/behavioral-eval.sh" --record "$_rec" "$fixture" >"$_rec/harness.log" 2>&1
   _rc=$?
   _want=$(awk -F '=' '$1 == "personas" { sub(/^[^=]*=/, ""); print; exit }' "$fixture/fixture.conf" | wc -w | tr -d ' ')

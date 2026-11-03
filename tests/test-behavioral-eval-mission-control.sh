@@ -118,6 +118,8 @@ seeded status-form "density: a multi-line turn" \
 seeded delivery "density: two uncoupled items in one turn" \
   "(.decision_log[] | select(.kind == \"present\" and .item != null) | .item.cluster) = \"\""
 seeded answerable "item shape: no link" ".decision_log[$first_item].item.link = \"\""
+seeded answerable "item shape: no id" ".decision_log[$first_item].item.id = \"\""
+seeded answerable "item shape: no subject" "del(.decision_log[$first_item].item.subject)"
 seeded answerable "item shape: no check stated" ".decision_log[$first_item].item.checked = \"\""
 seeded answerable "item shape: an option without its effect" ".decision_log[$first_item].item.options[0].effect = \"\""
 seeded picklist "picklist shape: a default no option carries" \

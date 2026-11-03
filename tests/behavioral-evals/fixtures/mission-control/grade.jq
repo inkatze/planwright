@@ -34,7 +34,8 @@ def density_ok:
 
 def options_ok: (type == "array") and length >= 2 and all(.[]; (.label | nonempty) and (.effect | nonempty));
 def item_ok: all(items[].item;
-  (.link | nonempty) and (.does | nonempty) and (.asks | nonempty) and (.right | nonempty)
+  (.id | nonempty) and (.subject | nonempty)
+  and (.link | nonempty) and (.does | nonempty) and (.asks | nonempty) and (.right | nonempty)
   and (.checked | nonempty) and (.options | options_ok));
 def picklist_ok: all(presents[] | select(.picklist != null) | .picklist;
   (.options | options_ok) and (.default as $d | [.options[].label] | index($d) != null));

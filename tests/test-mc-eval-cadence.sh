@@ -251,6 +251,27 @@ if [ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -q "names another checkout"; t
 else
   fail "a cross-checkout run: exit $RC, $OUT"
 fi
+OUT=$(/bin/bash "$SCRIPT" run --worktree "$wt" --ledger "$tmp/cross.tsv" 2>&1)
+RC=$?
+if [ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -q "names another checkout" && [ ! -e "$tmp/cross.tsv" ]; then
+  ok "an explicit ledger does not let the shipped suite grade another checkout's head"
+else
+  fail "a cross-checkout run with an explicit ledger: exit $RC, $OUT"
+fi
+
+badruns="$tmp/badruns"
+cp -R "$mini" "$badruns"
+printf 'runs=x\n' >>"$badruns/fixture.conf"
+mkdir -p "$tmp/scratch-tmp"
+OUT=$(TMPDIR="$tmp/scratch-tmp" BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$tmp/state" \
+  BEHAVIORAL_EVAL_WORKBASE="$tmp/wb" BEHAVIORAL_EVAL_POLL_SLEEP=0 /bin/bash "$SCRIPT" run --worktree "$wt" \
+  --ledger "$tmp/badruns.tsv" --fixture "$badruns" --test-spec "$tmp/mini-test-spec.md" 2>&1)
+RC=$?
+if [ "$RC" -eq 2 ] && [ -z "$(ls -A "$tmp/scratch-tmp")" ]; then
+  ok "a run stopped by a usage error removes its scratch directory"
+else
+  fail "a usage error after the harness: exit $RC, left $(ls -A "$tmp/scratch-tmp"), $OUT"
+fi
 
 # --- usage ---------------------------------------------------------------
 /bin/bash "$SCRIPT" gated 'bad/name' 2>/dev/null
