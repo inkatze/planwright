@@ -1,7 +1,7 @@
 # Test throughput — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-09
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -346,7 +346,8 @@ first, its `Done when:` names that precondition (D-7).
 ### Task 12 — Portable detached long-run recipe
 
 - **Deliverables:** a helper, with a usage header, running the suite
-  detached with `nohup` and a background job to fresh per-run log and
+  detached as a background job whose runner catches SIGHUP (no `nohup`, no
+  `setsid`) to fresh per-run log and
   exit-code paths, confirming the log exists and the runner is alive before
   returning, with a status verb (running, finished with its code, never
   started), reusing `scripts/fleet-dispatch-headless.sh`'s
@@ -355,10 +356,12 @@ first, its `Done when:` names that precondition (D-7).
   every full local suite through it.
 - **Done when:** tests show a launch whose runner cannot start reports
   failure rather than success, the status verb reports each state, an
-  earlier run's log survives a new launch, and the helper passes on the
-  Linux CI runner without `setsid`; `mise run check` passes.
+  earlier run's log survives a new launch, a test run under the helper
+  receives SIGHUP at its default disposition (a child sent SIGHUP exits
+  129), and the helper passes on the Linux CI runner without `setsid`;
+  `mise run check` passes.
 - **Dependencies:** 1, 4
-- **Citations:** D-8 · REQ-B1.10
+- **Citations:** D-8, D-22 · REQ-B1.10
 - **Estimated effort:** 1 day
 
 ### Task 13 — Review-loop wiring under `remote-ci`
