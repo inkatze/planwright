@@ -26,7 +26,12 @@ var (
 
 func main() {
 	rc := run(os.Args[1:])
-	out.Flush()
+	// A result that never reached stdout is a real error, whatever the verb
+	// did on disk: a caller must not read a lost `held` line as success.
+	if err := out.Flush(); err != nil {
+		warn("writing the result failed: %v", err)
+		rc = 2
+	}
 	os.Exit(rc)
 }
 
