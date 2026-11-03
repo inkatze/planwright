@@ -77,7 +77,7 @@ need "the run-start halt is stated" "A run-start doc that does not resolve halts
 # Plugin scripts by literal path, never variable-rooted.
 need "the literal-path pointer is present" "resolved literal absolute path"
 # shellcheck disable=SC2016 # the patterns name a literal $VAR, never expanded
-if grep -nE '\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/scripts/' "$skill" | grep -v 'never `\$VAR/scripts' >/dev/null; then
+if grep -nE '\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/scripts/' "$skill" | grep -vF 'never `$VAR/scripts/<name>.sh`' >/dev/null; then
   fail "a variable-rooted scripts/ invocation remains"
 else
   ok "no variable-rooted scripts/ invocation"
@@ -104,7 +104,7 @@ if grep -q '/mission-control' "$tower"; then ok "the tower carries the one-line 
 need "REQ-A1.7: the entry decision is the script's" "scripts/mc-config.sh\`'s \`entry"
 for n in "resume" "ask" "first-run"; do need "REQ-A1.7: the entry outcome $n is handled" "\`$n\`"; done
 need "REQ-A1.1: the operator's ask is the resume" "scripts/mc-handover.sh\`'s \`resume"
-need "REQ-A1.1: any other launch over a live holder is refused" "neither the operator's ask nor a handover successor"
+need "REQ-A1.1: any other launch over a live holder is refused" "neither the operator's ask nor a live handover"
 need "REQ-A1.2: bring-up from durable evidence only" "Never read a stored live-state file as truth"
 need "REQ-A1.7: the first turn says what changed" "what changed since the operator last looked"
 need "REQ-F1.12: one objective at a time" "one objective at a time"
@@ -113,6 +113,9 @@ need "REQ-F1.13: a chosen level is remembered" "knob mission_control_guidance"
 need "REQ-F1.12: the run ends with the program block written" "scripts/mc-config.sh\`'s \`add"
 need "REQ-F1.12: and the knowledge-base skeleton" "scripts/mc-kb.sh\`'s \`init"
 need "D-18: the state-source objective" "Where the program's state lives"
+need "D-14: no duty enables itself through an omitted list" "always with \`--duties\`"
+need "the runner starts detached, never in a turn's foreground" "under \`setsid\`"
+need "REQ-I1.2: the readiness check runs before a flip" "scripts/mc-readiness.sh\`'s \`check"
 need "D-18: guidance never pre-selects" "pre-selects an option"
 
 # The register and the source-naming rule.

@@ -80,36 +80,45 @@ configured ones.
 
 ## Bring-up (resume)
 
-Resuming is one operator act; the rest is this skill's (REQ-A1.7).
+Resuming is one operator act; the rest is this skill's (REQ-A1.7). Read
+the guidance level (`scripts/mc-config.sh`'s `mode guidance`, below) once
+here; it sets the depth of every turn, not only the first run's.
 
-1. **One live session per program (REQ-A1.1).** The operator's own ask is
-   the resume: run `scripts/mc-handover.sh`'s `resume --program <p>` with this
-   session's handle, its held picture, the rule digest and the durable file
-   its help names. It asks a live holder to release, retires one that does
-   not within the window, and announces this session to every live session.
-   A launch that is neither the operator's ask nor a handover successor is
-   refused by the launcher; say so and stop. A launched successor runs the
-   handover file's self-check (`verify`, then `take`) instead.
-2. **Rebuild from durable evidence only (REQ-A1.2).** The rules
-   (`scripts/mc-rules.sh`'s `load <p>`, loaded whole), the knowledge-base index
-   (`scripts/mc-kb.sh`'s `index`), the panel's one-line form
-   (`scripts/mc-panel.sh`'s `line`), the source snapshots
-   (`scripts/mc-snapshot.sh`'s `list`), the events
+1. **Rebuild from durable evidence only (REQ-A1.2).** The rules
+   (`scripts/mc-rules.sh`'s `load <p>`, loaded whole: the rule digest the
+   resume checks), the knowledge-base index (`scripts/mc-kb.sh`'s `index`),
+   the panel's one-line form (`scripts/mc-panel.sh`'s `line`), the source
+   snapshots (`scripts/mc-snapshot.sh`'s `list`), the events
    (`scripts/mc-event.sh`'s `list`), the registered sessions
    (`scripts/mission-control-launch.sh`'s `list`) and their states
-   (`scripts/mc-stall.sh`'s `scan`), and the runner's status
-   (`scripts/mc-watch.sh`'s `status`), started if it is not running.
-   Never read a stored live-state file as truth. A read that fails is named
-   unknown, never shown as empty. Bodies in the knowledge base are read on
-   demand, never whole.
-3. **The first turn** says what changed since the operator last looked (the
+   (`scripts/mc-stall.sh`'s `scan`). Never read a stored live-state file as
+   truth. A read that fails is named unknown, never shown as empty. Bodies
+   in the knowledge base are read on demand, never whole. Write what you now
+   hold as the picture file and what the stores say as the durable file,
+   both in `scripts/mc-rules.sh`'s `selfcheck` grammar.
+2. **One live session per program (REQ-A1.1).** The operator's own ask is
+   the resume: run `scripts/mc-handover.sh`'s `resume --program <p>` with
+   this session's handle and the picture, digest and durable file from
+   step 1. It asks a live holder to release, retires one that does not
+   within the window, and announces this session to every live session. A
+   launched successor runs the handover file's self-check (`verify`, then
+   `take`) instead. A successor launch that is neither the operator's ask
+   nor a live handover is refused by `scripts/mc-handover.sh`'s `launch`;
+   the session that asked for it reports the refusal and starts nothing.
+3. **The runner.** `scripts/mc-watch.sh`'s `pass` prints `busy` while a
+   runner holds the program; otherwise start `run --program <p>` detached
+   (under `setsid`, never in the foreground of a turn).
+4. **The first turn** says what changed since the operator last looked (the
    resume's `changed` lines), what waits on them, and what moves, in the
    status form `scripts/mc-inbox.sh`'s `status` prints.
 
 **After a compaction**, before the next act: re-load the rules and run the
-self-check (`scripts/mc-rules.sh`'s `selfcheck`) against the durable stores; a
-failure is an operator item. Prefer the handover the panel or
-`scripts/mc-handover.sh`'s `due` calls for to a compaction (D-29, D-30).
+self-check (`scripts/mc-rules.sh`'s `selfcheck`) against the durable
+stores; a failure is an operator item. Prefer a handover to a compaction
+(D-29, D-30): when the panel or `scripts/mc-handover.sh`'s `due` calls for
+one, `write` the handover file, then follow `path`: `unattended` launches
+the successor (`launch --handover`); `operator-act` raises the one act the
+operator takes (`offer`), since their own terminal cannot be moved.
 
 ## Guided first run (REQ-F1.12, D-18)
 
@@ -117,11 +126,10 @@ With no program configured, set one up with the operator: one objective at
 a time, progress shown (the objective's place in the list), immediate
 feedback on each answer. The depth follows `scripts/mc-config.sh`'s
 `mode guidance`: `guided` explains each concept at first use and offers a
-hint,
-`standard` hints only when the operator is stuck, `expert` asks and moves
-on; a scaffold fades once the operator has used its concept. Guidance never
-softens a normative token, pre-selects an option or pads a turn. A level
-the operator asks for is written with `scripts/mc-config.sh`'s
+hint, `standard` hints only when the operator is stuck, `expert` asks and
+moves on; a scaffold fades once the operator has used its concept. Guidance
+never softens a normative token, pre-selects an option or pads a turn. A
+level the operator asks for is written with `scripts/mc-config.sh`'s
 `knob mission_control_guidance <level>`.
 
 The objectives, in order:
@@ -133,8 +141,8 @@ The objectives, in order:
 4. **Where the program's state lives**, per fact class (work items, code
    state, decisions, deadlines, designs) and its mode, `record`, `snapshot`
    or `cited` (REQ-H1.4). Offer the default map
-   (`scripts/mc-program.sh`'s `default sources`); a tracker, document store or
-   design tool is `cited` until an adapter exists. The map is the
+   (`scripts/mc-program.sh`'s `default sources`); a tracker, document store
+   or design tool is `cited` until an adapter exists. The map is the
    operator's; never infer a mode.
 5. **Duties to enable:** the catalog (below), each by its summary; none is
    enabled without the operator's yes.
@@ -142,10 +150,11 @@ The objectives, in order:
 
 It ends by writing, in this order: the program block with
 `scripts/mc-config.sh`'s
-`add <p> --repositories <list> --spec-root <path> --duties <list> --sources <map>`,
-the knowledge-base skeleton with
-`scripts/mc-kb.sh`'s `init` then `inventory-refresh`, the standing decisions,
-and the runner (`scripts/mc-watch.sh`'s `run`). Echo what was written in one
+`add <p> --repositories <list> --spec-root <path> --duties <list> --sources <map>`
+(always with `--duties`, `[]` when the operator enabled none, since a block
+without it enables the default set), the knowledge-base skeleton with
+`scripts/mc-kb.sh`'s `init` then `inventory-refresh`, the standing
+decisions, and the runner (as at bring-up). Echo what was written in one
 line per write, then bring the program up as a resume. A write
 `mc-config.sh` refuses is said with its text, and the objective it belongs
 to is asked again.
@@ -194,11 +203,12 @@ or an override.
 ## Standing decisions and proposals
 
 A standing decision the operator states is added at once with
-`scripts/mc-rules.sh`'s `add`, echoed in one line, its undo entry logged; it is
-undone on request (REQ-B1.1). Repeats the operator would rather not repeat
-become **mechanization proposals** (`autopilot-reflex`, D-14): run
-`scripts/mc-proposals.sh`'s `scan`, propose the smallest covering mechanism,
-and put `show`'s confirmation to the operator with its explicit decline.
+`scripts/mc-rules.sh`'s `add`, echoed in one line; log the `undo` line it
+prints with `scripts/mc-kb.sh`'s `append undo`, so it is undone on request
+(REQ-B1.1). Repeats the operator would rather not repeat become
+**mechanization proposals** (`autopilot-reflex`, D-14): run
+`scripts/mc-proposals.sh`'s `scan`, record the smallest covering mechanism
+with `propose`, and put `show`'s confirmation to the operator with its explicit decline.
 On their yes, `accept`; then, for any kind but a rule (which `accept`
 applies), run `scripts/mc-config.sh`'s `apply --program <p> <id>` with the
 `--value` they accepted for a knob, and act on what it prints:
@@ -210,7 +220,8 @@ applies), run `scripts/mc-config.sh`'s `apply --program <p> <id>` with the
   operator ready to apply, never written (REQ-G1.4).
 - `dispatch` — a repository change: route it as a flight.
 
-"Not now" parks with `park`; a no declines. Nothing enables itself.
+"Not now" parks with `park`, its trigger (a date or an event) asked of the
+operator; a no declines. Nothing enables itself.
 
 **The duty catalog**, on request and in the first run:
 `scripts/mc-duties.sh`'s `list`, each duty by its summary
@@ -223,14 +234,16 @@ operator's yes, with `scripts/mc-config.sh`'s
 Never open a kickoff or an amendment unasked, and never sign off a spec. One
 the operator asks for runs by `scripts/mc-config.sh`'s `mode kickoff`:
 
-- `relay` — launch the kickoff session through the launcher with the
-  kickoff command for the spec as its brief, and relay each question it
+- `relay` — launch the kickoff session through the launcher (kind
+  `ad-hoc`, scope `kickoff-<spec>`, `--cwd` the spec root's repository)
+  with the kickoff command for the spec as its brief, and relay each question it
   raises to the operator as an item. Every kickoff question is
   operator-only: answer it with the operator's own words, quoted, and never
   settle it from the record, a rule or the knowledge base, however sure the
   answer looks.
 - `manual` — hand the operator the command to run themselves
-  (`/spec-kickoff specs/<spec>`); this is their configured exception to
+  (`/spec-kickoff <spec root>/<spec>`, the root from
+  `scripts/mc-program.sh`'s `get <p> spec_root`); this is their configured exception to
   acting on their behalf.
 
 ## Denials and relays (REQ-G1.3, D-23)
@@ -251,7 +264,7 @@ On every path (`doctrine/human-gates.md`):
 - **Policy:** flip a PR ready only inside the configured
   `ready_flip_policy`, and in a repository the operator does not own only on
   their request (REQ-I1.2), with the readiness check walked first
-  (`scripts/mc-readiness.sh`).
+  (`scripts/mc-readiness.sh`'s `check`).
 - **Never** send to a person without the yes on the exact text and
   recipient; standing exceptions exist only as named configuration
   (REQ-I1.3).
