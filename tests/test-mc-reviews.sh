@@ -51,7 +51,7 @@ head7=7777777777777777777777777777777777777777
 # page run through the caller's --jq program. GH_AUTH_FAIL answers as gh
 # does with no login; GH_EXIT4 exits as gh does unauthenticated, saying
 # nothing; GH_FAIL fails any other way; GH_LIMITED refuses for the
-# rate limit; GH_JUNK serves a page with an unexpected field.
+# rate limit; GH_SLUG answers the repository name; GH_JUNK serves a page with an unexpected field.
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/gh" <<'EOF'
 #!/bin/sh
@@ -78,7 +78,7 @@ if [ -n "${GH_FAIL:-}" ]; then
   exit 1
 fi
 case "$1 $2" in
-  "repo view") echo "acme/widgets" ;;
+  "repo view") echo "${GH_SLUG:-acme/widgets}" ;;
   "api graphql")
     expr=""
     while [ $# -gt 0 ]; do
@@ -139,7 +139,7 @@ runtime=$fleet/mission-control/alpha
 snap=$runtime/reviews
 
 setup() {
-  unset GH_AUTH_FAIL GH_EXIT4 GH_LIMITED GH_FAIL GH_JUNK
+  unset GH_AUTH_FAIL GH_EXIT4 GH_LIMITED GH_FAIL GH_JUNK GH_SLUG
   reset_mc_fixture
   rm -rf "$fleet" "$GH_LOG"
   cat >"$tracked" <<EOF
@@ -294,6 +294,11 @@ setup
 GH_FAIL=1 reviews refresh --program alpha --now 1000
 expect_rc "a refresh whose gh read fails" 0
 line_in "any other gh failure degrades, its first line cleaned to printable ASCII" "$snap" state unavailable "the gh read failed: HTTP 502: bad gateway"
+
+setup
+GH_SLUG=acme/-widgets reviews refresh --program alpha --now 1000
+line_in "a repository name outside the slug grammar degrades" "$snap" state unavailable "the forge answered with an unexpected repository name"
+if grep -q 'repo:acme/-widgets' "$GH_LOG"; then fail "a bad repository name reached the search"; else ok "a bad repository name never reaches the search"; fi
 
 setup
 GH_JUNK=1 reviews refresh --program alpha --now 1000

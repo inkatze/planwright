@@ -171,11 +171,7 @@ while IFS= read -r repo; do
   [ -n "$repo" ] || continue
   [ -d "$repo" ] && [ -x "$repo" ] || unavailable "a program repository is not reachable"
   slug=$(cd "$repo" && gh_read repo view --json nameWithOwner --jq .nameWithOwner) || failed
-  case $slug in
-    */*/* | *[!A-Za-z0-9._/-]*) unavailable "the forge answered with an unexpected repository name" ;;
-    ?*/?*) ;;
-    *) unavailable "the forge answered with an unexpected repository name" ;;
-  esac
+  mc_valid_slug "$slug" || unavailable "the forge answered with an unexpected repository name"
   scope="$scope repo:$slug"
 done <<EOF
 $repos
@@ -218,7 +214,7 @@ while IFS='	' read -r kind slug number draft a b c d title; do
     printf 'count\t%s\t%s\n' "$slug" "$number" >>"$body"
     continue
   fi
-  case $slug in */*/* | *[!A-Za-z0-9._/-]* | "") odd ;; esac
+  mc_valid_slug "$slug" || odd
   mc_valid_uint "$number" || odd
   case $draft in draft | ready) ;; *) odd ;; esac
   case $kind in
