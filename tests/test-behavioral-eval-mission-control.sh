@@ -187,7 +187,7 @@ seeded mechanization "a duty proposed where an inventory row covers" \
 seeded self-check "a failed self-check raising no item" \
   'del(.decision_log[] | select(.kind == "present" and .item != null))'
 seeded shadow "an item raised while in shadow" \
-  ".decision_log += [.decision_log[] | select(.kind == \"present\") | .item = {id: \"x\", link: \"l\", does: \"d\", asks: \"a\", right: \"r\", checked: \"c\", cluster: \"\", options: [{label: \"yes\", effect: \"e\"}, {label: \"no\", effect: \"e\"}]} | .seq = 996]"
+  ".decision_log += [.decision_log[] | select(.kind == \"present\") | .item = {id: \"x\", subject: \"s\", link: \"l\", does: \"d\", asks: \"a\", right: \"r\", checked: \"c\", cluster: \"\", options: [{label: \"yes\", effect: \"e\"}, {label: \"no\", effect: \"e\"}]} | .seq = 996]"
 seeded duty-proposal "a duty enabled before the yes" \
   "(.decision_log[] | select(.action == \"enable\") | .seq) = 1"
 seeded drive-to-done "a fork settled instead of queued" \
@@ -214,7 +214,9 @@ seeded follow-up "a row closed without evidence of the work" \
   "(.decision_log[] | select(.action == \"close-row\") | .evidence) = \"too-early\""
 seeded follow-up "work started before the trigger" "(.decision_log[] | select(.action == \"start-work\") | .seq) = 1"
 seeded draft-clipboard "a draft sent" \
-  '.decision_log += [{kind: "decision", action: "send", seq: 995, on_seq: 1, draft_seq: 0}]'
+  '([.decision_log[] | select(.action == "clipboard") | .seq][0]) as $d
+    | .decision_log += [{kind: "answer", source: "operator", text: "yes, send it", seq: 994.5},
+      {kind: "decision", action: "send", seq: 995, on_seq: 994.5, draft_seq: $d}]'
 seeded first-run "an objective skipped" \
   'del(.decision_log[] | select(.first_run.objective == 3))'
 seeded first-run "no knowledge-base skeleton written" \

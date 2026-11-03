@@ -375,6 +375,7 @@ while [ $# -gt 0 ]; do
   case $1 in
     --ledger | --worktree | --spec | --test-spec | --fixture | --live)
       [ $# -ge 2 ] || mc_usage_fail "$1 needs a value"
+      [ -n "$2" ] || [ "$1" = --live ] || mc_usage_fail "$1 needs a non-empty value"
       case $1 in
         --ledger)
           ledger=$2

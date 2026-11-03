@@ -243,6 +243,13 @@ if [ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -q "needs an explicit --ledger
 else
   fail "an overridden suite without --ledger: exit $RC, $OUT"
 fi
+OUT=$(/bin/bash "$SCRIPT" run --worktree "$wt" --ledger '' --fixture "$mini" --test-spec "$tmp/mini-test-spec.md" 2>&1)
+RC=$?
+if [ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -q -- "--ledger needs a non-empty value"; then
+  ok "an empty --ledger is refused, never read as the default ledger"
+else
+  fail "an empty --ledger: exit $RC, $OUT"
+fi
 
 OUT=$(/bin/bash "$SCRIPT" run --worktree "$wt" 2>&1)
 RC=$?
