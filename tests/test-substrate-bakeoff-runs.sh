@@ -278,14 +278,17 @@ printf 'stub-second\t2026-10-01T09:00:00Z\t2026-10-01T09:30:00Z\n' >>"$tmp/isola
 printf 'stub-second\t1\t0\n' >>"$tmp/isolate/review-findings.tsv"
 rm -rf "$tmp/out-isolate"
 mkdir "$tmp/out-isolate"
-mkdir -p "$tmp/fakehome" "$tmp/fakexdg/cache" "$tmp/fakexdg/config" "$tmp/fakexdg/data" "$tmp/fakexdg/state"
+mkdir -p "$tmp/fakehome" "$tmp/fakexdg/cache" "$tmp/fakexdg/config" "$tmp/fakexdg/data" "$tmp/fakexdg/state" "$tmp/fakexdg/runtime" "$tmp/ran"
 # A build or delivery script writes where its tools would: the home and every
-# XDG base directory, each falling back to the home the way the tools do.
+# XDG base directory, each falling back to the home the way the tools do. It
+# also leaves a mark the test can see, so a script that never ran cannot pass.
 cat >"$tmp/isolate/write-everywhere" <<'EOF'
 #!/bin/sh
+: >"$BAKEOFF_TEST_RAN/${0##*/}"
 : >"$HOME/delivery-mark"
 for d in "${XDG_CACHE_HOME:-$HOME/.cache}" "${XDG_CONFIG_HOME:-$HOME/.config}" \
-  "${XDG_DATA_HOME:-$HOME/.local/share}" "${XDG_STATE_HOME:-$HOME/.local/state}"; do
+  "${XDG_DATA_HOME:-$HOME/.local/share}" "${XDG_STATE_HOME:-$HOME/.local/state}" \
+  "${XDG_RUNTIME_DIR:-$HOME/.run}"; do
   mkdir -p "$d" && : >"$d/mark"
 done
 EOF
@@ -294,9 +297,11 @@ cp "$tmp/isolate/write-everywhere" "$tmp/isolate/candidates/stub-second/build"
 chmod 755 "$tmp/isolate/candidates/stub-second/delivery/marketplace" "$tmp/isolate/candidates/stub-second/build"
 printf 'build=build\n' >>"$tmp/isolate/candidates/stub-second/candidate.conf"
 HOME="$tmp/fakehome" XDG_CACHE_HOME="$tmp/fakexdg/cache" XDG_CONFIG_HOME="$tmp/fakexdg/config" \
-  XDG_DATA_HOME="$tmp/fakexdg/data" XDG_STATE_HOME="$tmp/fakexdg/state" BAKEOFF_TEST_SECRET=leak \
+  XDG_DATA_HOME="$tmp/fakexdg/data" XDG_STATE_HOME="$tmp/fakexdg/state" XDG_RUNTIME_DIR="$tmp/fakexdg/runtime" \
+  BAKEOFF_TEST_RAN="$tmp/ran" BAKEOFF_TEST_SECRET=leak \
   "$SB" run --bakeoff "$tmp/isolate" --out-dir "$tmp/out-isolate" --run-id iso --platform test >/dev/null 2>&1
 check_eq "the isolation run succeeds" 0 "$?"
+check_eq "the build and the marketplace delivery both ran" "build marketplace" "$(cd "$tmp/ran" && echo *)"
 check_eq "a build or delivery script writes nothing outside its fresh home" "" "$(find "$tmp/fakehome" "$tmp/fakexdg" -type f)"
 check_eq "each fixture sees a fresh directory, a fresh home and no caller environment" "echo-line/basic:pass,echo-line/empty:pass" "$(get "$tmp/out-isolate/report.tsv" stub-second fixture_results)"
 check_eq "the offline replay starts from an empty home" yes "$(get "$tmp/out-isolate/report.tsv" stub-second offline_replay)"
