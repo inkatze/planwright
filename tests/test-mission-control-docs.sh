@@ -8,7 +8,7 @@
 #     to a section of that doc that exists;
 #   - docs/mission-control.md walks a fresh installation end to end with no
 #     word the register forbids: both jargon lists, identifier and file
-#     shapes, configuration keys, and any command but the operator's own.
+#     shapes, configuration keys, and any slash command but the operator's own.
 set -u
 LC_ALL=C
 export LC_ALL
