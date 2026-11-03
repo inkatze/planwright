@@ -36,8 +36,8 @@ done
 
 # slugs <file>: the GitHub heading slug of every heading, one per line.
 slugs() {
-  awk '/^#+ / { sub(/^#+ +/, ""); print }' "$1" \
-    | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9 _-]//g; s/ /-/g; s/^-*//; s/-*$//'
+  awk '/^```/ { fence = !fence; next } !fence && /^#+ / { sub(/^#+ +/, ""); sub(/[ \t]+$/, ""); print }' "$1" \
+    | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9 _-]//g; s/ /-/g'
 }
 
 # The concepts the doctrine doc owns, each a section of its own.
@@ -110,9 +110,9 @@ check_register() {
     case $flat in *"$n"*) printf 'word: %s\n' "$w" ;; esac
   done
   printf '%s\n' "$text" | grep -oE 'REQ-[A-Z][0-9.]*|(^|[^A-Za-z0-9-])D-[0-9]+|Task [0-9]+' | sed 's/^[^RDT]//' | sort -u | sed 's/^/identifier: /'
-  printf '%s\n' "$text" | grep -oE '[A-Za-z0-9_./-]*\.(sh|yml|yaml|json|tsv)([^A-Za-z0-9]|$)|scripts/[A-Za-z0-9_.-]*' | sort -u | sed 's/^/file: /'
+  printf '%s\n' "$text" | grep -oE '[A-Za-z0-9_./-]*\.(sh|yml|yaml|json|tsv|md|txt|toml)([^A-Za-z0-9]|$)|scripts/[A-Za-z0-9_.-]*' | sort -u | sed 's/^/file: /'
   printf '%s\n' "$text" | grep -oE '[a-z]+_[a-z_]+' | sort -u | sed 's/^/configuration key: /'
-  printf '%s\n' "$text" | grep -oE '(^|[ (`*])/[a-z][a-z0-9:-]*' | sed 's/^[ (`*]//' \
+  printf '%s\n' "$text" | grep -oE '(^|[^A-Za-z0-9_./-])/[a-z][a-z0-9:-]*' | sed 's/^[^/]//' \
     | grep -vx '/mission-control' | sort -u | sed 's/^/command: /'
 }
 
@@ -162,7 +162,7 @@ out=$(check_glossary "$probe/glossary.md" "$doctrine")
 case $out in *"duty: links missing section"*) ok "probe: a dangling glossary anchor is caught" ;; *) fail "probe: a dangling glossary anchor passed" ;; esac
 case $out in *"program: links no section"*) ok "probe: an unlinked glossary term is caught" ;; *) fail "probe: an unlinked glossary term passed" ;; esac
 case $out in *"rule store: no glossary bullet"*) ok "probe: a missing glossary term is caught" ;; *) fail "probe: a missing glossary term passed" ;; esac
-for bad in "The orchestrator starts." "A visual flight lands." "See Task 4." "Per D-19." "Run mc-config.sh." "Set mission_control_guidance." "Type /spec-kickoff." "The kickoff brief."; do
+for bad in "The orchestrator starts." "A visual flight lands." "See Task 4." "Per D-19." "Run mc-config.sh." "Set mission_control_guidance." "Type /spec-kickoff." "Say \"/resume\"." "The kickoff brief." "Open handover.md."; do
   printf '%s\n' "$bad" >"$probe/op.md"
   if [ -n "$(check_register "$probe/op.md")" ]; then ok "probe: '$bad' is caught"; else fail "probe: '$bad' passed the register"; fi
 done
