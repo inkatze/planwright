@@ -41,7 +41,6 @@ func run(args []string) int {
 		return 2
 	}
 	out := bufio.NewWriter(os.Stdout)
-	defer out.Flush()
 	lines := bytes.Split(data, []byte("\n"))
 	if len(data) > 0 && data[len(data)-1] == '\n' {
 		lines = lines[:len(lines)-1]
@@ -76,8 +75,13 @@ func run(args []string) int {
 			}
 		}
 	}
+	// A record that never reached stdout is not a parse: exit 2, as the shell
+	// candidate's awk does, never a 0 a caller reads as "no dependencies".
+	if err := out.Flush(); err != nil {
+		fmt.Fprintf(os.Stderr, "deps: writing the records failed: %v\n", err)
+		return 2
+	}
 	if fence {
-		out.Flush()
 		fmt.Fprintln(os.Stderr, "deps: end of file inside an open column-0 code fence")
 		return 3
 	}
