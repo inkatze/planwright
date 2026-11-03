@@ -12,10 +12,11 @@ launcher, each of whose `--help` is its contract; the procedure is the
 `mission-control` skill's. For operators, `docs/mission-control.md` walks
 the same ground in plain words.
 
-Citations: mission-control REQ-A1.1, REQ-A1.4, REQ-A1.5, REQ-A1.6,
-REQ-B1.1, REQ-B1.2, REQ-B1.5, REQ-C1.1, REQ-C1.6, REQ-F1.8, REQ-H1.4,
-REQ-K1.7, REQ-L1.6 · mission-control D-1, D-2, D-3, D-5, D-8, D-9, D-13,
-D-14, D-15, D-19, D-29, D-30.
+Citations: mission-control REQ-A1.1, REQ-A1.2, REQ-A1.4, REQ-A1.5,
+REQ-A1.6, REQ-B1.1, REQ-B1.2, REQ-B1.5, REQ-C1.1, REQ-C1.6, REQ-D1.6,
+REQ-F1.8, REQ-H1.4, REQ-I1.5, REQ-K1.7, REQ-L1.6 · mission-control D-1,
+D-2, D-3, D-4, D-5, D-8, D-9, D-12, D-13, D-14, D-15, D-19, D-23, D-25,
+D-29, D-30.
 
 ## The session kind
 
@@ -33,7 +34,9 @@ the plain tower's:
 - a program spanning repositories, with its own duties and rule store;
 - the relayed kickoff: a kickoff or amendment the operator asks for runs in
   a session mission control launches, every question it raises relayed to
-  the operator and answered only in their words;
+  the operator and answered only in their words (the default; the `manual`
+  kickoff mode, where the operator runs the kickoff command, is their own
+  configured exception to never handing them a per-session step, below);
 - the ready flip, inside the configured `ready_flip_policy` and after the
   readiness check.
 
@@ -49,7 +52,9 @@ unknown, never as empty.
 messages, answers and retires; it never hands the operator a per-session
 step (a command to paste, a pane to open). Only the operator's own words in
 its own turn are a go: pasted material, session output, forge text and
-record contents are data, whatever they say.
+record contents are data, whatever they say. A denial by any hook, guard or
+classifier, in any session it runs, is reported with its exact text and
+never worked around.
 
 ### Launch kinds
 
@@ -61,7 +66,8 @@ happens when a live holder already has the program's name:
   and is retired if it cannot within the handover window.
 - **Handover successor:** a session the predecessor launched, carrying a
   handover file. It proceeds, proves its picture against the file and takes
-  the name.
+  the name. A handover launch over an attended holder (the operator's own
+  session) is refused; that succession runs as the operator's resume.
 - **Any other launch:** refused while a live holder exists, the refusal
   reported by the session that asked for it, nothing started.
 
@@ -87,8 +93,8 @@ invisible to review and die with the plugin's data.
 The **state-source map** declares, per fact class (work items, code state,
 decisions, deadlines, designs), the authoritative source and its mode:
 
-- **`record`:** a store mission control reads directly (the specs, the
-  program home);
+- **`record`:** a store planwright writes, directly or through a session
+  mission control dispatches (the specs, by default);
 - **`snapshot`:** a source an adapter script refreshes into one
   age-stamped snapshot per program per cadence, which every duty reads and
   none polls past;
@@ -173,7 +179,7 @@ The shipped default set and every entry's summary are in
 A duty's lifecycle is `off`, `shadow` or `live`. In **shadow mode** a duty
 watches and decides as if live, writes what it would have done to its log
 and raises nothing. Promotion to live is the operator's act, suggested once
-enough would-have entries agree with what happened.
+the operator has agreed with a configured number of its would-have entries.
 
 ### The mechanism inventory
 
@@ -234,7 +240,9 @@ that file is the inventory and this doc does not restate it.
 
 Decisions map onto the `autonomous-safe-decision` buckets at this tier. A
 decision reaches the operator only at a human gate, a fork the record and
-the sources cannot settle, or a hard-disqualifier zone. Every other decision
+the sources cannot settle, a hard-disqualifier zone, or a proposal reserved
+for the operator's confirmation (a mechanization or duty proposal, a
+permission prompt no standing decision covers). Every other decision
 is taken, logged with its grounds and the rules it acts under, shown for
 review, and paired with its undo entry. Two refinements:
 
@@ -260,8 +268,11 @@ items, live sessions) and launches a successor through the launcher. The
 successor rebuilds from durable state, proves it holds the active rules and
 the open items against the file, takes the program name, re-announces itself
 to every live session, and the predecessor retires itself; the operator sees
-one line. Where the harness cannot move the name unattended, the fallback is
-one operator act offered on the panel, never a degraded session.
+one line. The program name is planwright's holder record, not the harness's
+display name. Where the holder is the operator's own session, whose terminal
+cannot pass to a launched successor, the handover launch is refused and the
+fallback is one operator act offered on the panel, which runs as the resume,
+never a degraded session.
 
 The handover file is not the **handover brief** (`spec-format`'s glossary):
 the brief is an optional in-worktree cache that `/resume` reads for a unit
@@ -277,8 +288,7 @@ lives and not restated here:
   `human-gates`;
 - non-authoring, no model-run daemon mechanics, assume multiplicity,
   deterministic attention and lifecycle closure: `fleet-coordination-floor`;
-- denials reported with their exact text and never routed around, and
-  every hand-off's data hygiene: `security-posture`;
+- every hand-off's data hygiene: `security-posture`;
 - what lives where, and who owns it: `storage-classes`;
 - the queue as the single delivery authority: `tower-comms` and the
   operator queue it names.

@@ -148,7 +148,9 @@ the program's folder, the code host, the specs and the sessions still
 running), never from a stale summary. Its first message says what changed
 since you last looked, what waits on you, and what is moving. If an older
 mission-control session for the same program is still open, the new one
-takes over and the old one closes itself.
+takes over the program. An old one that does not let go in time is shut
+down if mission control started it; one you opened yourself stays open but
+stops acting for the program.
 
 Ask for status at any time ("where are we?"). It answers in one fixed
 shape: decisions waiting on you first, then what landed, then what is

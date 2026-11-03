@@ -1199,7 +1199,8 @@ its section there (mission-control D-1, REQ-A1.6).
   of its limits lifted
   ([the session kind](mission-control.md#the-session-kind)).
 - **Launch kinds** — operator-asked, handover successor, and any other
-  launch; only the last refuses on a live holder
+  launch; the last, and a handover over the operator's own session, are
+  refused while a live holder exists
   ([launch kinds](mission-control.md#launch-kinds)).
 - **Program** — mission control's launch unit: the configuration block
   naming its repositories, spec root, home, duties, budget, and state-source
