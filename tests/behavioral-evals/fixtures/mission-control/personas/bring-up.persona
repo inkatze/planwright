@@ -1,0 +1,5 @@
+# bring-up.persona — bring-up reports the stores and snapshots, never the stale state file; a contradiction goes the fixtures' way; a cited source adds links only.
+arm=REQ-A1.2
+expertise=expert
+answer.1=@event:bringup state_file=17 registry=2 git=5 forge=4 second=3 cited=tracker contradiction=forge
+answer.2=that's all

@@ -1,0 +1,10 @@
+# entry-args.persona — the argument rules: one program resumes with no argument, two ask which, a named unknown one is said with the configured names; the first turn after silence says what changed.
+arm=REQ-A1.7
+expertise=expert
+answer.1=@event:entry names=alpha
+answer.2=open mission control
+answer.3=@event:changed landed=two-changes waiting=one-question moving=three-sessions
+answer.4=@event:entry names=alpha,beta
+answer.5=open mission control
+answer.6=open mission control gamma
+answer.7=that's all

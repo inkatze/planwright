@@ -48,6 +48,10 @@ or worktree, and, for the plain store, that no spec branch exists and the
 handoff names every skipped step and the absence of spec guards.
 `tests/test-behavioral-eval-authoring-posture.sh` drives it hermetically.
 
+The **`mission-control` fixture** is the eval suite for `/mission-control`:
+one persona per `[Gherkin]` arm of the mission-control test spec, each
+naming its arm in an `arm=` line. See "Mission control" below.
+
 ## Layout
 
 ```text
@@ -87,7 +91,8 @@ The real-tmux path needs `tmux` and `jq` on `PATH`. The hermetic branch coverage
 for the kickoff acceptance layer, `tests/test-behavioral-eval-tower.sh` for the
 tower routing fixture, `tests/test-behavioral-eval-holder-halt.sh` for the
 holder halt fixture, `tests/test-behavioral-eval-authoring-posture.sh` for the
-authoring posture fixture, and `tests/test-rubric-instrument.sh` for the rubric
+authoring posture fixture, `tests/test-behavioral-eval-mission-control.sh` for
+the mission control fixture, and `tests/test-rubric-instrument.sh` for the rubric
 grader/self-audit — all run by `mise run test`) uses the shared **stub
 tmux** (`lib/tmux-stub.sh`) that replays the driver's answers through the real
 fixture skill, so CI needs no tmux, model, or API key.
@@ -254,6 +259,55 @@ run record as `sign_off`. Only the harness and its fixtures read
 a flight still pushes and opens a draft pull request. The fallback changes who runs the scenarios, never
 whether that pass must precede the claim.
 
+## Mission control
+
+The `mission-control` fixture is a deterministic stand-in for the
+`/mission-control` session's turn rules, with the same operability caveat as
+the tower fixture: a pass shows the rules, the artifact contract, and the
+grade hold together, not that the model-backed session keeps them on input
+it has never seen. A live session graded against this floor (the operator
+runs each persona's lines against it with `PLANWRIGHT_EVAL_ONLY=1` and
+grades its artifacts with `grade.jq`) is that evidence.
+
+Input lines are the operator's own words, except `@event:` lines, which
+stand for what the stores, sessions and watchers report, and lines starting
+`>`, which are pasted material. Neither is ever a yes, a go, or an answer.
+`that's all` ends the session. The records follow the v2 form above; the
+fields the grade reads:
+
+| Record | Fields |
+| --- | --- |
+| `answer` | `source: operator`, `text` |
+| `event` | `source: evidence`, `event` (the `@event:` name), `raw` |
+| `present` | `text`; an item adds `item` (`id`, `subject`, `link`, `does`, `asks`, `right`, `checked`, `cluster`, `options` of `label` and `effect`); a picklist `picklist` (`id`, `default`, `options`); a proposal `proposal` and `options`; a status `status_sections`; a source report `source_modes` (`source`, `mode`, `age`); the first turn after silence `first_turn: true`; a first-run objective `first_run.objective` or `first_run.feedback`; a command handed to the operator `command: true` |
+| `decision` | `action`, and per action the fields `grade.jq` names (`quote` and `on_seq` on a relayed answer, `on_seq` and `draft_seq` on a send, `by` and `reason` on an item leaving, `names`, `row`, `ready_change` and `settings_written` on a proposal) |
+| run record | `record: eval-run`, `eval_only`, `authoritative`, `publishing_disabled`, `completed`, `merged`, `signed_off`, and no `approved` |
+
+`grade.jq` holds every run to a floor: the register (no requirement, design
+or task identifier, script, knob, planwright concept, pane, window or handle
+reaches the operator; a skill name only on a turn handing them a command),
+turn density (one bounded line per turn, at most one item between two
+inputs unless the items share a coupled cluster), the item, picklist and
+proposal shapes, the operator's-own-words rule (a relayed answer quotes an
+operator turn verbatim, a send follows their own unpasted yes on a shown
+draft, an enable follows their yes), no merge, sign-off or ready flip, and
+an eval-only run record. On top of the floor it pins each persona's own
+arm, and fails a persona it has no pin for.
+`tests/test-behavioral-eval-mission-control.sh` drives it hermetically, with a
+seeded violation of each floor rule and each arm.
+
+**The cadence.** `scripts/mc-eval-cadence.sh` owns the suite's cadence
+(`--help` holds the contract): `mise run eval:mission-control` runs the
+completeness check (an arm with no fixture fails it) and then this fixture
+through the harness, appending the outcome for the head to a ledger in the
+repository's git common directory. The `mc-eval-cadence` step at
+`pre-ready-flip` (`.claude/catalogs/steps.yaml`) refuses the ready flip of a
+unit of mission control or one of its follow-on bundles (the fixture's
+`gated-specs`) whose head has a red record, and runs the suite once for a
+head with none; a run the harness cannot carry out records nothing, and the
+flip stays refused. The `/drain` manual sweep inventories the runs. A red
+record is a finding to read, never a reason to skip the step.
+
 ## Grading and the independence firewall
 
 Grading is two-layer:
@@ -304,8 +358,8 @@ ids, structural pass, cost — nothing more, re-verified before write).
 
 Behavioral evals are on-demand by design (D-8): they cost time, need tmux (and,
 for the real Task-6 surface, a model + credentials), and gate nondeterministically.
-The harness is registered under the `eval:` mise namespace (`eval:behavioral`
-and `eval:turn-shape`) so
+The harness is registered under the `eval:` mise namespace (`eval:behavioral`,
+`eval:turn-shape` and `eval:mission-control`) so
 `scripts/check-no-ci-evals.sh` — the standing CI-exclusion guard — covers it: the
 guard fails loud if any `eval:` task (or a direct `behavioral-eval.sh` call) is
 ever wired into a workflow file, and equally if any task CI does invoke reaches

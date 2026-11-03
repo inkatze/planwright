@@ -372,6 +372,10 @@ run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
 description = "on-demand behavioral eval harness (never in CI or `check`): drives a skill through a real interactive tmux TTY session, answered by simulated-operator personas, grading the durable artifacts a run writes; needs tmux + jq (operator-dialogue Task 5, REQ-G, D-8)"
 run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/fixtures"
 
+[tasks."eval:mission-control"]
+description = "on-demand mission control eval cadence (never in CI or `check`): the suite's completeness check (one fixture per [Gherkin] arm of the mission-control test spec), then the behavioral harness over the mission-control fixture on the current head, its outcome appended to the per-head ledger the pre-ready-flip cadence step reads; needs tmux + jq. Run `scripts/mc-eval-cadence.sh --help` for the contract"
+run = "/bin/bash scripts/mc-eval-cadence.sh run"
+
 [tasks."eval:turn-shape"]
 description = "on-demand turn-shape eval (never in CI or `check`): the behavioral harness over the turn-shape fixtures, grading each run's turn records against the invariants its fixture names (tests/behavioral-evals/README.md lists them); needs tmux + jq (operator-dialogue REQ-M1.1, REQ-M1.4, D-19)"
 run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/turn-shape"

@@ -1,0 +1,18 @@
+# mechanization.persona — two corrections of one shape raise one rule proposal; a repeat an inventory row covers names that row, a settings row carries the change ready and writes nothing; a decline holds; an uncovered repeat raises nothing.
+arm=REQ-B1.5
+expertise=expert
+answer.1=@event:correction shape=reword-title
+answer.2=@event:correction shape=reword-title
+answer.3=no
+answer.4=@event:correction shape=reword-title
+answer.5=@event:inventory step=rerun-checks row=retry-knob kind=knob
+answer.6=@event:manual-step step=rerun-checks after=flaky-run
+answer.7=@event:manual-step step=rerun-checks after=flaky-run
+answer.8=not now
+answer.9=@event:inventory step=allow-forge row=forge-permission kind=settings
+answer.10=@event:manual-step step=allow-forge after=new-session
+answer.11=@event:manual-step step=allow-forge after=new-session
+answer.12=not now
+answer.13=@event:manual-step step=tidy-notes after=landing
+answer.14=@event:manual-step step=tidy-notes after=landing
+answer.15=that's all

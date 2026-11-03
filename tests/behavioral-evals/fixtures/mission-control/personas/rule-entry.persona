@@ -1,0 +1,6 @@
+# rule-entry.persona — a standing decision stated in a turn is written at once, echoed in one line, undoable, and raises no proposal.
+arm=REQ-B1.1
+expertise=expert
+answer.1=from now on, squash docs-only changes
+answer.2=undo that
+answer.3=that's all

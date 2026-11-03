@@ -1,0 +1,5 @@
+# draft-clipboard.persona — a draft lands on the clipboard and nothing is sent without the yes.
+arm=REQ-F1.11
+expertise=expert
+answer.1=@event:needs-reply person=reviewer-a
+answer.2=that's all
