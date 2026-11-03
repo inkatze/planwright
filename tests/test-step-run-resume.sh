@@ -297,10 +297,10 @@ verdict $? "end records from begin's state when the resolved row is gone since" 
 skill=$(tr '\n' ' ' <"$repo_root/skills/execute-task/SKILL.md")
 # shellcheck disable=SC2016 # literal backticks of the skill text
 for call in 'step-run.sh resolve --run <run>' 'step-run.sh resume' '`command`' 'begin --owner $PPID' \
-  'step-run.sh refire' 'full-suite-run.sh --run <run>' '--resume <run>:<point>'; do
+  'step-run.sh refire' 'detached-run.sh start -- scripts/full-suite-run.sh --run <run>' '--resume <run>:<point>'; do
   printf '%s' "$skill" | grep -Fq -- "$call" || fail "/execute-task does not name '$call'"
 done
-ok "/execute-task names the runner's resolve, resume, command, begin, refire, and full-suite calls"
+ok "/execute-task names the runner's resolve, resume, command, begin, refire, and detached full-suite calls"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2

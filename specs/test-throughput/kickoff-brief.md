@@ -288,6 +288,28 @@ llm-output-quality.
 
 Signed off: 2026-09-28
 
+### Execution research: Task 12 background job (2026-11-02)
+
+Not a signed row; recorded by `/execute-task` while implementing D-22.
+
+- **Finding.** A shell without job control starts every background job with
+  SIGINT and SIGQUIT ignored (POSIX, *Asynchronous Lists*), and that ignore is
+  inherited and unresettable like `nohup`'s SIGHUP. Measured under the helper
+  as first written: `/proc/self/status` read `SigIgn` 0x6, a child sent
+  SIGINT survived, and `tests/test-fleet-sweep-temps.sh` hung in its INT case
+  (killed after 20 minutes).
+- **Resolution, within D-22.** `scripts/detached-run.sh` creates the
+  background job from bash with job control on (`set -m`, which needs no
+  terminal and exists in bash 3.2): the run starts with no ignored signals
+  and in its own process group. Re-measured: `SigIgn` 0, a child sent SIGINT
+  exits 130, and the four signal-asserting suites (`test-full-suite-run.sh`,
+  `test-lock-lib.sh`, `test-run-tests-pool.sh`, `test-fleet-sweep-temps.sh`)
+  pass under the helper. With no bash on PATH `start` refuses with exit 4
+  (the suite command needs bash anyway). `dash` cannot do the same (`set -m`
+  refuses without a terminal).
+- **Sources.** POSIX Shell Command Language, *Asynchronous Lists* and `set
+  -m`; bash manual, *Job Control Basics*; the measurements above.
+
 ## 8. Sign-off
 
 ### Lens review (first activation, full bundle)
