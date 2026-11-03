@@ -1190,6 +1190,57 @@ the declared format-version:
   derives Done while it persists, and it never falls back to the work
   repository (invariant-tasks D-15, REQ-F1.5).
 
+The mission-control terms below are defined in the
+[mission-control doctrine](mission-control.md); each entry is a pointer to
+its section there (mission-control D-1, REQ-A1.6).
+
+- **Mission control** — the standing conversational session kind that runs
+  one program on the operator's behalf, built on the tower with a named set
+  of its limits lifted
+  ([the session kind](mission-control.md#the-session-kind)).
+- **Launch kinds** — operator-asked, handover successor, and any other
+  launch; only the last refuses on a live holder
+  ([launch kinds](mission-control.md#launch-kinds)).
+- **Program** — mission control's launch unit: the configuration block
+  naming its repositories, spec root, home, duties, budget, and state-source
+  map ([the program](mission-control.md#the-program-and-its-home)).
+- **Program home** — the program's private, never-committed folder of
+  class-3 work product holding the rule store, the knowledge base, and the
+  handover file ([the program home](mission-control.md#the-program-and-its-home)).
+- **State-source map** — the program's table of fact class to
+  authoritative source and its mode, `record`, `snapshot`, or `cited`
+  ([the state-source map](mission-control.md#the-state-source-map)).
+- **Format field** — the version every program-home store carries, under
+  the additive-only rule: a reader refuses a format it does not know, and a
+  shape change is a migration task
+  ([the format field](mission-control.md#the-format-field)).
+- **Reclaim folder** — the program home's per-repository, per-branch
+  backup of a reclaimed worktree's audit files
+  ([the reclaim folder](mission-control.md#the-reclaim-folder)).
+- **Rule store** — the program's versioned store of ground rules and
+  standing decisions, with explicit supersession and a subject per entry
+  ([the rule store](mission-control.md#the-rule-store)).
+- **Duty** — a declared duties-catalog entry, mission control's one
+  operator-facing extension point: script mechanics, on-demand judgment,
+  enabled only by the operator
+  ([the duty contract](mission-control.md#the-duty-contract)).
+- **Shadow mode** — the duty lifecycle state that decides and logs what it
+  would have done and raises nothing
+  ([shadow mode](mission-control.md#shadow-mode)).
+- **Mechanism inventory** — the knowledge base's living list, by kind, of
+  what the host and planwright can make deterministic
+  ([the mechanism inventory](mission-control.md#the-mechanism-inventory)).
+- **Mechanization proposal** — mission control's confirmation that a
+  noticed repeat could be covered by the smallest mechanism in the
+  inventory, with an explicit decline
+  ([mechanization proposals](mission-control.md#mechanization-proposals)).
+- **Cadence step** — a steps-catalog entry whose recorded run per head
+  gates a later unit's ready flip
+  ([cadence steps](mission-control.md#cadence-steps)).
+- **Handover file** — the program home's succession record between two
+  mission-control sessions; not the handover brief (*Brief* above)
+  ([the handover file](mission-control.md#the-handover-file)).
+
 ## Versioning of this meta-spec
 
 This document is format-version 3 and defines versions 1, 2, and 3. Changes to
@@ -1449,3 +1500,11 @@ bundle would have to migrate to:
   with the earlier doctrine-half entries, the rule is stated before the
   tooling catches up.
   *(custom-spec-location D-1, D-5, D-11, D-14, D-20 · REQ-E1.5, REQ-G1.4.)*
+- 2026-11-03 — The glossary gains mission control's terms (mission
+  control, launch kinds, program, program home, state-source map, format
+  field, reclaim folder, rule store, duty, shadow mode, mechanism
+  inventory, mechanization proposal, cadence step, handover file), each a
+  pointer to its section of the mission-control doctrine, which owns the
+  definitions (*Glossary*). **No version bump:** no authoring rule changes,
+  and the terms name a session kind's concepts, not a bundle's content.
+  *(mission-control D-1 · REQ-A1.6.)*

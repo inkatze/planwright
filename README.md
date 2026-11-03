@@ -154,6 +154,7 @@ rest are there when you want to drive a stage yourself.
 | Stage | Command | What it does |
 | --- | --- | --- |
 | **Start** | `/tower` | The front door: ask in plain language; it answers, routes changes, and reports status. |
+| | `/mission-control` | One standing conversation for a program spanning repositories: it runs every session for you and brings you only what needs your judgment ([guide](docs/mission-control.md)). |
 | **Orient** | `/inception` | Turn a product-level idea with no repo yet into a venture repo and its inception bundle ([guide](docs/inception.md)). |
 | **Author** | `/spec-draft` | Interactively elicit a four-file spec bundle (Status Draft). |
 | | `/spec-kickoff` | Walk a spec to sign-off and flip it Ready. *(your sign-off)* |
@@ -239,6 +240,9 @@ controls hold at fleet scale. See [Fleet operation](docs/fleet.md).
   command, the decision queue, the persona-to-seams mapping, and the
   execution-backend seam (autodetect, the degradation ladder, plugging in
   your own backend) — no multiplexer knowledge required.
+- [Mission control](docs/mission-control.md) — running a whole program from
+  one conversation: the first run, where the program's state lives, duties,
+  proposals, preferences, resuming and handover.
 - [Per-tower checkouts](docs/per-tower-checkouts.md) — running several towers
   on one repository without them racing over a shared local `main`.
 - [Model allocation](docs/allocation.md) — which model and effort a unit runs
