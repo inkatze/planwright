@@ -1,7 +1,7 @@
 # Prose disposition — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-21
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -278,6 +278,13 @@ at Task 4 review.
 The shipped defaults are 12 and 25; the baseline file lists a
 `pending-cleanup` entry naming a cleanup task for every file the error
 threshold catches at landing, and `mise run check` is green with it.
+
+### REQ-F1.11 — The classifier counts function descriptions and widened reasons [test]
+
+A fixture block ending directly above a function definition classifies as
+`contract`; each added reason phrasing has a fixture drawn from the
+repository comment that motivated it and classifies as `rationale`; the
+usage text names the widened patterns.
 
 ## REQ-G — Cleanup and verification
 
