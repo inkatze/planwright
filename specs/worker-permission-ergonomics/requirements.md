@@ -715,6 +715,10 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
 
 ## Changelog
 
+- 2026-11-03 — Expression-only fix from Task 12's convergence review: the
+  REQ-A1.11 and REQ-C1.1 test-spec entries name the `Read` rule REQ-E1.6
+  adds beside the `Write`/`Edit` path rules, as Task 12's deliverables and
+  REQ-E1.6 already require.
 - 2026-11-02 — Delta kickoff via `/spec-kickoff` (brief Amendment 4),
   meaning-class. D-28 drops `wc` from the static allow set: its
   `--files0-from` form echoes a file's NUL-separated content as path names
