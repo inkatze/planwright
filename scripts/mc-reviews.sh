@@ -134,9 +134,10 @@ body=$(mktemp "${TMPDIR:-/tmp}/mc-reviews.XXXXXX") || mc_fail "mktemp failed"
 reasonf=$(mktemp "${TMPDIR:-/tmp}/mc-reviews.XXXXXX") || mc_fail "mktemp failed"
 trap 'rm -f "$errf" "$body" "$reasonf"' EXIT
 
-# unavailable <reason>: write the degraded snapshot and stop.
+# unavailable <reason>: write the degraded snapshot and stop. The reason
+# keeps printable ASCII only, so the byte cut never splits a character.
 unavailable() {
-  un_reason=$(printf '%s' "$1" | tr '\t' ' ' | mc_clean_text | cut -c "1-$REASON_MAX")
+  un_reason=$(printf '%s' "$1" | tr '\t' ' ' | mc_clean | cut -c "1-$REASON_MAX")
   printf 'format\t%s\ntaken\t%s\nstate\tunavailable\t%s\n' "$MC_FORMAT" "$NOW" "$un_reason" \
     | mc_write "$snap" || mc_fail "cannot write the snapshot"
   printf 'unavailable\t%s\n' "$un_reason"
@@ -155,7 +156,7 @@ gh_read() {
   elif grep -qi 'rate limit' "$errf"; then
     printf 'the forge refused the read for its rate limit\n' >"$reasonf"
   else
-    printf 'the gh read failed: %s\n' "$(head -n 1 "$errf" | sed "s/$esc\[[0-9;?]*[A-Za-z]//g" | mc_clean_text)" >"$reasonf"
+    printf 'the gh read failed: %s\n' "$(head -n 1 "$errf" | sed "s/$esc\[[0-9;?]*[A-Za-z]//g")" >"$reasonf"
   fi
   return 1
 }

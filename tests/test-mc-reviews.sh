@@ -74,7 +74,7 @@ if [ -n "${GH_LIMITED:-}" ]; then
   exit 1
 fi
 if [ -n "${GH_FAIL:-}" ]; then
-  printf 'HTTP 502: \033[2Jbad gateway\nsecond line\n' >&2
+  printf 'HTTP 502: \033[2Jbad\303\251 gateway\nsecond line\n' >&2
   exit 1
 fi
 case "$1 $2" in
@@ -293,7 +293,7 @@ line_in "a rate-limit refusal degrades with its reason" "$snap" state unavailabl
 setup
 GH_FAIL=1 reviews refresh --program alpha --now 1000
 expect_rc "a refresh whose gh read fails" 0
-line_in "any other gh failure degrades, its first line cleaned" "$snap" state unavailable "the gh read failed: HTTP 502: bad gateway"
+line_in "any other gh failure degrades, its first line cleaned to printable ASCII" "$snap" state unavailable "the gh read failed: HTTP 502: bad gateway"
 
 setup
 GH_JUNK=1 reviews refresh --program alpha --now 1000
