@@ -68,13 +68,17 @@ fn run() -> i32 {
         return 2;
     }
     let path = &args[0];
-    let regular = fs::metadata(path).map(|m| m.is_file()).unwrap_or(false);
+    let unreadable = || {
+        let _ = writeln!(io::stderr(), "deps: {} is not a readable file", String::from_utf8_lossy(&path.clone().into_vec()));
+        2
+    };
+    // Checked before the read: a FIFO or a device would block or never end.
+    if !fs::metadata(path).map(|m| m.is_file()).unwrap_or(false) {
+        return unreadable();
+    }
     let data = match fs::read(path) {
-        Ok(d) if regular => d,
-        _ => {
-            let _ = writeln!(io::stderr(), "deps: {} is not a readable file", String::from_utf8_lossy(&path.clone().into_vec()));
-            return 2;
-        }
+        Ok(d) => d,
+        Err(_) => return unreadable(),
     };
     let mut out: Vec<u8> = Vec::new();
     let body = data.strip_suffix(b"\n").unwrap_or(&data);
