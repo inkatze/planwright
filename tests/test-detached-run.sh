@@ -217,21 +217,29 @@ fi
 # that launches nothing.
 p4d="$tmp/p4d"
 mkdir "$p4d"
-for w in 08 0 abc 999999 99999999999999999999; do
-  env PLANWRIGHT_DETACHED_RUN_START_WAIT="$w" "$DR" start --dir "$p4d" -- true >/dev/null 2>&1
+for w in 08 0 abc 100000 99999999999999999999; do
+  env PLANWRIGHT_DETACHED_RUN_START_WAIT="$w" "$DR" start --dir "$p4d" -- true >/dev/null 2>"$tmp/wait.err"
   wait_rc=$?
-  if [ "$wait_rc" -eq 2 ] && [ -z "$(find "$p4d" -mindepth 1)" ]; then
+  if [ "$wait_rc" -eq 2 ] && [ -z "$(find "$p4d" -mindepth 1)" ] \
+    && grep -q 'START_WAIT must be 1 to 99999' "$tmp/wait.err"; then
     ok "a start wait of '$w' is a usage error that launches nothing"
   else
     fail "a start wait of '$w' is a usage error that launches nothing (rc=$wait_rc)"
   fi
 done
 
+launch --env PLANWRIGHT_DETACHED_RUN_START_WAIT=99999 maxwait "$p1" true
+if [ "$launch_rc" -eq 0 ]; then
+  ok "a start wait of 99999 is accepted"
+else
+  fail "a start wait of 99999 is accepted (rc=$launch_rc): $(cat "$tmp/maxwait.err")"
+fi
+
 # A runner that signals its start without opening its log is stopped, with
 # its child, and the launch fails.
 nolog="$tmp/nolog-shell"
 # shellcheck disable=SC2016 # $3 and $! belong to the fixture runner
-printf '#!/bin/sh\n: >"$3/started"\nsleep 600 &\necho $! >"%s"\nexec sleep 600\n' "$tmp/nolog-child" >"$nolog"
+printf '#!/bin/sh\nsleep 600 &\necho $! >"%s"\n: >"$3/started"\nexec sleep 600\n' "$tmp/nolog-child" >"$nolog"
 chmod +x "$nolog"
 p4e="$tmp/p4e"
 mkdir "$p4e"
@@ -279,6 +287,14 @@ if [ "$launch_rc" -eq 0 ] && poll_until --what 'BASH_ENV run finished' status_is
   ok "a printing BASH_ENV does not break the launch and reaches the run"
 else
   fail "a printing BASH_ENV does not break the launch and reaches the run (rc=$launch_rc): $(cat "$tmp/benv.err")"
+fi
+
+"$DR" run-inner "$used" >/dev/null 2>"$tmp/inner.err"
+inner_rc=$?
+if [ "$inner_rc" -eq 2 ] && grep -q 'expected <run-dir> -- <command>' "$tmp/inner.err"; then
+  ok "run-inner without -- and a command is refused"
+else
+  fail "run-inner without -- and a command is refused (rc=$inner_rc)"
 fi
 
 # --- 5. the suite sees default signal dispositions and the caller's locale -

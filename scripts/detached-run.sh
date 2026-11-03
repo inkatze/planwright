@@ -72,13 +72,14 @@ do_start() {
   shift
   [ "$#" -ge 1 ] || usage
   # A busy machine stretches how long a runner takes to start, not whether it
-  # does. Overridable so the tests can reach the timeout.
+  # does. Overridable (1 to 99999 seconds) so the tests can reach the timeout.
   wait_s=${PLANWRIGHT_DETACHED_RUN_START_WAIT:-30}
   case $wait_s in
-    [1-9] | [1-9][0-9] | [1-9][0-9][0-9] | [1-9][0-9][0-9][0-9] | [1-9][0-9][0-9][0-9][0-9])
-      is_count "$wait_s" || usage
+    [1-9] | [1-9][0-9] | [1-9][0-9][0-9] | [1-9][0-9][0-9][0-9] | [1-9][0-9][0-9][0-9][0-9]) ;;
+    *)
+      printf 'detached-run: PLANWRIGHT_DETACHED_RUN_START_WAIT must be 1 to 99999 seconds\n' >&2
+      exit 2
       ;;
-    *) usage ;;
   esac
   self_path || {
     printf 'detached-run: cannot resolve its own path\n' >&2
