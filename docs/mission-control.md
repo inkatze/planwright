@@ -65,7 +65,8 @@ specs or a document, deadlines wherever you keep them. For each kind of
 fact, you tell mission control where the truth lives and how it can know
 it:
 
-- **Read directly:** a place it reads itself, such as the specs.
+- **Read directly:** a place it keeps up itself, through the sessions it
+  starts, and so can always read, such as the specs.
 - **Kept fresh:** a place it copies on a schedule, such as your pull
   requests on the code host. Every report built from it says how old the
   copy is.
