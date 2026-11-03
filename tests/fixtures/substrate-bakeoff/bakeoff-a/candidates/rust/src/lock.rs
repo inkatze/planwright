@@ -400,8 +400,11 @@ fn release_token(st: &mut State, lock: &[u8], tok: &[u8]) -> i32 {
         restore_or_keep(&taken, lock);
         return 1;
     }
-    if fs::remove_file(p(&taken)).is_err() {
-        return 2;
+    // Gone already counts as removed, as lock-lib's `rm -f` has it.
+    if let Err(e) = fs::remove_file(p(&taken)) {
+        if e.kind() != io::ErrorKind::NotFound {
+            return 2;
+        }
     }
     0
 }
