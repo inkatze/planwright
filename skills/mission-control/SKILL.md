@@ -128,6 +128,10 @@ can decide from their own work: an objective the repository, a check or a
 shipped default settles is settled, and said in one plain line the operator
 can overrule, never asked. Show progress as what is left, in plain words
 ("one question left, then I write it all"), never a step number or count.
+Under the behavioral-eval harness (`PLANWRIGHT_EVAL_ONLY=1`), each
+question's `present` record also carries `first_run.left`, the questions
+still to ask after it, reaching 0 on the last
+([eval seam](../../tests/behavioral-evals/README.md#mission-control)).
 The depth follows `scripts/mc-config.sh`'s `mode guidance`: `guided`
 explains a concept in plain language where it first matters, `standard`
 only when the operator is stuck, `expert` moves on; a scaffold fades once

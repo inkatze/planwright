@@ -128,7 +128,9 @@ first_run_next() {
     fr_step=$((fr_step + 1))
     _ln=$(printf '%s\n' "$FIRST_RUN" | sed -n "${fr_step}p")
     if [ "${_ln%%:*}" = ask ]; then
-      say "${_ln#*:}" '{first_run: {objective: $n, asked: true}}' --argjson n "$fr_step"
+      _left=$(printf '%s\n' "$FIRST_RUN" | sed -n "$((fr_step + 1)),\$p" | grep -c '^ask:')
+      say "${_ln#*:}" '{first_run: {objective: $n, asked: true, left: $l}}' \
+        --argjson n "$fr_step" --argjson l "$_left"
       return
     fi
     say "${_ln#*:}" '{first_run: {objective: $n, settled: true}}' --argjson n "$fr_step"

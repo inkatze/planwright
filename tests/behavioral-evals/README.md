@@ -279,7 +279,7 @@ fields the grade reads:
 | --- | --- |
 | `answer` | `source: operator`, `text` |
 | `event` | `source: evidence`, `event` (the `@event:` name), `raw` |
-| `present` | `text`; an item adds `item` (`id`, `subject`, `link`, `does`, `asks`, `right`, `checked`, `cluster`, `options` of `label` and `effect`); a picklist `picklist` (`id`, `default`, `options`); a proposal `proposal` and `options`; a status `status_sections`; a source report `source_modes` (`source`, `mode`, `age`); the first turn after silence `first_turn: true`; a first-run objective `first_run.objective` with `asked` or `settled`, or its answer's `first_run.feedback`; a command handed to the operator `command: true` |
+| `present` | `text`; an item adds `item` (`id`, `subject`, `link`, `does`, `asks`, `right`, `checked`, `cluster`, `options` of `label` and `effect`); a picklist `picklist` (`id`, `default`, `options`); a proposal `proposal` and `options`; a status `status_sections`; a source report `source_modes` (`source`, `mode`, `age`); the first turn after silence `first_turn: true`; a first-run objective `first_run.objective` with `asked` or `settled`, an asked one also `first_run.left` (the questions still to ask after it, an integer that falls to 0 on the last), or its answer's `first_run.feedback`; a command handed to the operator `command: true` |
 | `decision` | `action`, and per action the fields `grade.jq` names (`quote` and `on_seq` on a relayed answer, `on_seq` and `draft_seq` on a send, `by` and `reason` on an item leaving, `names`, `row`, `ready_change` and `settings_written` on a proposal) |
 | run record | `record: eval-run`, `eval_only`, `authoritative`, `publishing_disabled`, `completed`, `merged`, `signed_off`, and no `approved` |
 

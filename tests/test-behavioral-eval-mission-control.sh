@@ -223,8 +223,10 @@ seeded first-run "no knowledge-base skeleton written" \
   'del(.decision_log[] | select(.action == "write" and .what == "knowledge-base-skeleton"))'
 seeded first-run "a step counter shown" \
   '(.decision_log[] | select(.first_run.objective == 2) | .text) |= "(2 of 6) " + .'
-seeded first-run "no progress shown on a question" \
-  '(.decision_log[] | select(.first_run.objective == 1) | .text) |= sub(" One more question.*$"; "")'
+seeded first-run "no questions-left count on a question" \
+  'del(.decision_log[] | select(.first_run.objective == 1) | .first_run.left)'
+seeded first-run "the questions-left count not reaching zero" \
+  '(.decision_log[] | select(.first_run.objective == 5) | .first_run.left) = 1'
 seeded first-run "a settled objective asked" \
   '(.decision_log[] | select(.first_run.objective == 4) | .first_run) = {objective: 4, asked: true}'
 seeded denial "the denial text paraphrased" \
