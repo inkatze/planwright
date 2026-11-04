@@ -42,6 +42,12 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       an automated reviewer's thread
   step<TAB><id><TAB><outcome><TAB><end head>
                                       a recorded cadence step
+  cadence<TAB>audited<TAB><head>      the configured cadence was audited
+                                      at the head (scripts/step-run.sh
+                                      audit --through post-pr)
+  cadence<TAB>gap<TAB><point><TAB><kind><TAB><detail>
+                                      one per gap that audit printed
+  cadence<TAB>unaudited<TAB><why>     the audit could not run
   evidence<TAB><kind><TAB><ref><TAB><head><TAB><judgment>
                                       smoke, walk or screenshot evidence;
                                       judgment ok, error or missing
@@ -66,6 +72,8 @@ THE WALK refuses, each failure one line:
   - any screenshot whose judgment is not ok, or recorded at another head;
   - each required step (ready steps) with no passed or applied record
     ending on the head;
+  - a cadence not audited at the head, and each gap the audit named: the
+    configured cadence binds whatever the gate data names;
   - each required evidence kind (ready evidence) with no ok record at the
     head;
   - each required body text (ready body) absent from the body.
@@ -83,7 +91,10 @@ Usage:
       read for the first 100 review threads (a thread opened by a bot is a
       finding, answered once resolved or replied to by a person other than
       the pull request's author, with a login), the step
-      records of --worktree (scripts/step-record.sh list), the recorded
+      records of --worktree (scripts/step-record.sh list) and the cadence
+      audit there, --worktree defaulting to the one worktree of the
+      program's repositories that has the pull request's branch checked
+      out, the recorded
       evidence for that head, and the ready-flip guard
       (scripts/ready-guard.sh, given the flip it would refuse) run from the
       program's first repository, then the head read once more, a head that
@@ -220,12 +231,16 @@ $1 == "finding" && $4 != "answered" { fail("finding", $2 " " $3 " is unanswered"
 $1 == "guard" && $3 != "pass" { fail("guard", $2 ": " $4) }
 $1 == "truncated" { fail("truncated", "the " $2 " read hit its cap; what lies past it is unread") }
 $1 == "step" { steps[++ns] = $2 "\t" $3 "\t" $4 }
+$1 == "cadence" && $2 == "audited" { audited = $3 }
+$1 == "cadence" && $2 == "gap" { fail("cadence", $3 ": " ($4 == "incomplete" ? "no completion record" : $4 == "stale" ? "completed only at " substr($5, 1, 12) : $5 " is " $4)) }
+$1 == "cadence" && $2 == "unaudited" { fail("cadence", "not audited: " $3); unaud = 1 }
 $1 == "evidence" { ev[++ne] = $2 "\t" $3 "\t" $4 "\t" $5 }
 $1 == "bodyline" { body = body substr($0, 10) "\n" }
 END {
   if (badfmt) { print "not-ready\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
   if (head == "") { print "not-ready\t-"; print "fail\thead\tno evidence at a head was collected; a session report alone never passes"; exit 4 }
   if (!nc) fail("check", "no individual check context at the head")
+  if (!unaud && audited != head) fail("cadence", "the configured cadence was not audited at " substr(head, 1, 12))
   for (i = 1; i <= ne; i++) {
     split(ev[i], e, "\t")
     if (e[1] == "screenshot" && e[4] != "ok") fail("screenshot", e[2] " judged " (e[4] == "" ? "missing" : e[4]))
@@ -269,6 +284,20 @@ EOF
   /bin/bash "$script_dir/mc-gates.sh" resolve --program "$1" ${cf_args[@]+"${cf_args[@]}"} >"$3"
 }
 
+# branch_worktree <program> <branch>: the one worktree of the program's
+# repositories with <branch> checked out, or nothing when none or several do.
+branch_worktree() {
+  [ -n "$2" ] || return 0
+  bw_repos=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories) || return 0
+  while IFS= read -r bw_r; do
+    [ -n "$bw_r" ] && [ -d "$bw_r" ] || continue
+    mc_untrusted_git -C "$bw_r" worktree list --porcelain 2>/dev/null
+  done <<<"$bw_repos" | B="refs/heads/$2" awk '
+    $1 == "worktree" { w = substr($0, 10) }
+    $1 == "branch" && $2 == ENVIRON["B"] && !(w in s) { s[w] = 1; n++; hit = w }
+    END { if (n == 1) print hit }'
+}
+
 # The forge reads cap a list at 100; a list that comes back full may have
 # been cut, and the walk refuses on a `truncated` line rather than pass.
 CAP=100
@@ -280,9 +309,10 @@ collect() {
   cl_owner=${2%%/*}
   cl_name=${2#*/}
   # shellcheck disable=SC2016 # a jq program
-  gh pr view "$3" --repo "$2" --json headRefOid,labels,files,body,statusCheckRollup --jq '
+  gh pr view "$3" --repo "$2" --json headRefOid,headRefName,labels,files,body,statusCheckRollup --jq '
     def clean: tostring | gsub("[\t\r\n]"; " ");
     "head\t" + .headRefOid,
+    "branch\t" + ((.headRefName // "") | clean),
     "count\tfiles\t" + ((.files // []) | length | tostring),
     "count\tchecks\t" + ((.statusCheckRollup // []) | length | tostring),
     "count\tlabels\t" + ((.labels // []) | length | tostring),
@@ -316,10 +346,27 @@ collect() {
          else empty end))' >"$cl_tmp/threads" 2>"$cl_tmp/err" \
     || mc_fail "the review thread read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
   : >"$cl_tmp/steps"
-  if [ -n "$4" ]; then
+  cl_wt=$4
+  cl_branch=$(awk -F '\t' '$1 == "branch" { print $2; exit }' "$cl_tmp/pr")
+  [ -n "$cl_wt" ] || cl_wt=$(branch_worktree "$1" "$cl_branch")
+  if [ -n "$cl_wt" ]; then
+    # The audit resolves the cadence as the worktree's own session would.
+    (mc_untrusted_git_env && unset PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED \
+      && /bin/bash "$script_dir/step-run.sh" --worktree "$cl_wt" audit --through post-pr --head "$cl_head") \
+      >"$cl_tmp/audit" 2>"$cl_tmp/err"
+    case $? in
+      0 | 1) awk -F '\t' -v H="$cl_head" '
+          $1 == "gap" { print "cadence\tgap\t" $2 "\t" $3 "\t" $4 }
+          $1 == "audit" && $3 == H { print "cadence\taudited\t" H }' "$cl_tmp/audit" >"$cl_tmp/cadence" ;;
+      *) printf 'cadence\tunaudited\tthe audit in %s failed: %s\n' "$cl_wt" "$(head -n 1 "$cl_tmp/err" | head -c 200)" >"$cl_tmp/cadence" ;;
+    esac
+  else
+    printf 'cadence\tunaudited\tno worktree of the program has branch %s checked out; pass --worktree\n' "${cl_branch:--}" >"$cl_tmp/cadence"
+  fi
+  if [ -n "$cl_wt" ]; then
     # The worktree is a worker's, so its git configuration runs nothing here.
-    (mc_untrusted_git_env && /bin/bash "$script_dir/step-record.sh" --worktree "$4" list) >"$cl_tmp/records" 2>"$cl_tmp/err" \
-      || mc_fail "the step records of $(sanitize_printable "$4") cannot be read"
+    (mc_untrusted_git_env && /bin/bash "$script_dir/step-record.sh" --worktree "$cl_wt" list) >"$cl_tmp/records" 2>"$cl_tmp/err" \
+      || mc_fail "the step records of $(sanitize_printable "$cl_wt") cannot be read"
     awk -F '\t' '
       $1 == "record" { t = s = o = h = "" }
       $1 == "type" { t = $2 } $1 == "step" { s = $2 } $1 == "outcome" { o = $2 } $1 == "end-head" { h = $2 }
@@ -365,8 +412,8 @@ collect() {
   fi
   {
     printf '# format: 1\nrepo\t%s\n' "$2"
-    awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } { print }' "$cl_tmp/pr"
-    cat "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/evidence"
+    awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } $1 == "branch" { next } { print }' "$cl_tmp/pr"
+    cat "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/evidence"
     printf '%s\n' "$cl_guard"
   } | mc_clean_text | mc_write "$5" || mc_fail "cannot write $(sanitize_printable "$5")"
 }
