@@ -561,6 +561,13 @@ Task 4: no floor-forbidden failures.
   job that installs the pinned toolchains, runs the harness with
   `--platform`, and uploads the report and view for committing), listed in
   the Task 6 pull request body.
+- **Task 9** — mints no dev-check verdict until the operator answers the
+  case for a dev-check bake-off recorded by Task 8 under the dev-check
+  section of `docs/substrate-screen.md`: no candidate is screened out, and
+  the tier differs from the decided library and skill-called pair on
+  audience and auditability, so neither inheritance nor screen settlement
+  applies (recommended: add the bake-off on the instruction guard's
+  manifest parse and charged closure through the amendment ritual).
 
 ## Deferred
 
