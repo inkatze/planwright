@@ -70,59 +70,125 @@ func emitDeny(reason string) {
 	fmt.Printf("{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":%s}}\n", jsonString(r))
 }
 
-// invalidLen is the length of the invalid sequence at the start of s that
-// one U+FFFD replaces: its maximal subpart, as jq counts it, where
-// utf8.DecodeRuneInString would count one per byte.
-func invalidLen(s string) int {
-	need := 1
-	switch c := s[0]; {
-	case c >= 0xc2 && c <= 0xdf:
-		need = 2
-	case c >= 0xe0 && c <= 0xef:
-		need = 3
-	case c >= 0xf0 && c <= 0xf4:
-		need = 4
-	}
-	k := 1
-	for ; k < need && k < len(s); k++ {
-		lo, hi := byte(0x80), byte(0xbf)
-		if k == 1 {
-			switch s[0] {
-			case 0xe0:
-				lo = 0xa0
-			case 0xed:
-				hi = 0x9f
-			case 0xf0:
-				lo = 0x90
-			case 0xf4:
-				hi = 0x8f
-			}
-		}
-		if s[k] < lo || s[k] > hi {
-			break
-		}
-	}
-	return k
-}
-
-// toValid replaces each invalid UTF-8 sequence with U+FFFD as jq does,
-// both when it parses an answer and when --arg reads the decision text.
+// toValid replaces invalid UTF-8 with U+FFFD by jq's own decoding rule,
+// both when jq parses an answer and when --arg reads the decision text:
+// the lead byte alone sets the sequence length, any 80-BF byte continues
+// it, and one U+FFFD covers a bad lead, a sequence cut short by a
+// non-continuation byte (up to that byte), one cut short by the end of the
+// text (to the end), and an overlong, surrogate or out-of-range code point.
 func toValid(s string) string {
 	if utf8.ValidString(s) {
 		return s
 	}
 	var b strings.Builder
 	for i := 0; i < len(s); {
-		r, n := utf8.DecodeRuneInString(s[i:])
-		if r == utf8.RuneError && n == 1 {
-			b.WriteRune(utf8.RuneError)
-			i += invalidLen(s[i:])
+		c := s[i]
+		if c < 0x80 {
+			b.WriteByte(c)
+			i++
 			continue
 		}
-		b.WriteString(s[i : i+n])
+		need := 0
+		switch {
+		case c >= 0xc2 && c <= 0xdf:
+			need = 2
+		case c >= 0xe0 && c <= 0xef:
+			need = 3
+		case c >= 0xf0 && c <= 0xf4:
+			need = 4
+		}
+		if need == 0 {
+			b.WriteRune(utf8.RuneError)
+			i++
+			continue
+		}
+		if i+need > len(s) {
+			b.WriteRune(utf8.RuneError)
+			break
+		}
+		cp := rune(c) & (0x7f >> need)
+		n, ok := need, true
+		for k := 1; k < need; k++ {
+			if s[i+k] < 0x80 || s[i+k] > 0xbf {
+				n, ok = k, false
+				break
+			}
+			cp = cp<<6 | rune(s[i+k]&0x3f)
+		}
+		first := [...]rune{0, 0, 0x80, 0x800, 0x10000}[need]
+		if ok && (cp < first || (cp >= 0xd800 && cp <= 0xdfff) || cp > 0x10ffff) {
+			ok = false
+		}
+		if ok {
+			b.WriteString(s[i : i+n])
+		} else {
+			b.WriteRune(utf8.RuneError)
+		}
 		i += n
 	}
 	return b.String()
+}
+
+// maxDepth caps nesting well below every jq release's parsing-depth limit,
+// so no answer jq refuses for its depth reads here; encoding/json alone
+// allows far deeper.
+const maxDepth = 100
+
+// validStrings applies toValid to each string token's raw text on its own,
+// as jq decodes a token, so a sequence cut short at a token's end swallows
+// only the rest of that token.
+func validStrings(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '"' {
+			b.WriteByte(s[i])
+			continue
+		}
+		j := i + 1
+		for j < len(s) && s[j] != '"' {
+			if s[j] == '\\' {
+				j++
+			}
+			j++
+		}
+		if j > len(s) {
+			j = len(s)
+		}
+		b.WriteByte('"')
+		b.WriteString(toValid(s[i+1 : j]))
+		if j < len(s) {
+			b.WriteByte('"')
+		}
+		i = j
+	}
+	return b.String()
+}
+
+// tooDeep reports nesting of arrays and objects, outside strings, past
+// maxDepth.
+func tooDeep(s string) bool {
+	depth, inStr := 0, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case inStr && c == '\\':
+			i++
+		case c == '"':
+			inStr = !inStr
+		case inStr:
+		case c == '[' || c == '{':
+			depth++
+			if depth > maxDepth {
+				return true
+			}
+		case c == ']' || c == '}':
+			depth--
+		}
+	}
+	return false
 }
 
 // jsonString escapes as jq does for a string sanitize has already stripped
@@ -192,10 +258,10 @@ func answer(name string) (string, int) {
 // parseObject decodes one JSON value; anything that is not exactly one value
 // reads as unparseable, as a failed jq does.
 func parseObject(s string) (map[string]any, bool) {
-	if loneHighSurrogate(s) {
+	if loneHighSurrogate(s) || tooDeep(s) {
 		return nil, false
 	}
-	dec := json.NewDecoder(strings.NewReader(toValid(s)))
+	dec := json.NewDecoder(strings.NewReader(validStrings(s)))
 	dec.UseNumber()
 	var v any
 	if err := dec.Decode(&v); err != nil {

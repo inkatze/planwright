@@ -126,8 +126,9 @@ proto_tokenize() {
 # re-query after an UNKNOWN, `requery` (the `gh pr view --json` output),
 # `compare` (the compare call's `.behind_by`), each absent meaning empty
 # output, and `view.rc`, `requery.rc`, `compare.rc` holding the call's exit
-# status as digits and an optional newline (absent: 0; anything else: 1). A deny prints the hook's decision object, exit 0; a
-# flip that may proceed prints nothing, exit 0. A usage error exits 2.
+# status as digits and trailing newlines (absent: 0; anything else: 1). A
+# deny prints the hook's decision object, exit 0; a flip that may proceed
+# prints nothing, exit 0. A usage error exits 2.
 #
 # Replaced seams, every one an input the fixtures supply: gh reads those
 # files, the timeout wrapper runs its command directly, the re-query does not

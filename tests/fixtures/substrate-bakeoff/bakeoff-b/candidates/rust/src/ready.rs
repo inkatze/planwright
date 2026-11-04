@@ -12,8 +12,67 @@ const REASON_PREFIX: &str = "planwright ready-guard: ";
 /// gh_timeout's default; the harness passes no override.
 const GH_TIMEOUT: &str = "10";
 
-/// Nesting past this reads as unparseable rather than risking the stack.
-const MAX_DEPTH: usize = 512;
+/// Nesting past this reads as unparseable. It sits well below every jq
+/// release's parsing-depth limit, so no answer jq refuses for its depth
+/// reads here.
+const MAX_DEPTH: usize = 100;
+
+/// Invalid UTF-8 replaced with U+FFFD by jq's own decoding rule: the lead
+/// byte alone sets the sequence length, any 80-BF byte continues it, and
+/// one U+FFFD covers a bad lead, a sequence cut short by a non-continuation
+/// byte (up to that byte), one cut short by the end of the text (to the
+/// end), and an overlong, surrogate or out-of-range code point.
+fn jq_utf8(s: &[u8]) -> Vec<u8> {
+    const FFFD: &[u8] = "\u{fffd}".as_bytes();
+    let mut out = Vec::with_capacity(s.len());
+    let mut i = 0;
+    while i < s.len() {
+        let c = s[i];
+        if c < 0x80 {
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        let need = match c {
+            0xc2..=0xdf => 2,
+            0xe0..=0xef => 3,
+            0xf0..=0xf4 => 4,
+            _ => 0,
+        };
+        if need == 0 {
+            out.extend_from_slice(FFFD);
+            i += 1;
+            continue;
+        }
+        if i + need > s.len() {
+            out.extend_from_slice(FFFD);
+            break;
+        }
+        let mut cp = (c as u32) & (0x7f >> need);
+        let mut len = need;
+        let mut ok = true;
+        for k in 1..need {
+            let b = s[i + k];
+            if !(0x80..=0xbf).contains(&b) {
+                ok = false;
+                len = k;
+                break;
+            }
+            cp = (cp << 6) | (b as u32 & 0x3f);
+        }
+        let first = [0, 0, 0x80, 0x800, 0x10000][need];
+        if ok && (cp < first || (0xd800..=0xdfff).contains(&cp) || cp > 0x10ffff) {
+            ok = false;
+        }
+        if ok {
+            out.extend_from_slice(&s[i..i + len]);
+        } else {
+            out.extend_from_slice(FFFD);
+        }
+        i += len;
+    }
+    out
+}
 
 enum Json {
     Null,
@@ -45,12 +104,14 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// One value; depth counts the arrays and objects around it.
     fn value(&mut self, depth: usize) -> Option<Json> {
-        if depth > MAX_DEPTH {
+        self.ws();
+        let c = *self.s.get(self.p)?;
+        if (c == b'{' || c == b'[') && depth >= MAX_DEPTH {
             return None;
         }
-        self.ws();
-        match *self.s.get(self.p)? {
+        match c {
             b'{' => {
                 self.p += 1;
                 let mut members = Vec::new();
@@ -150,6 +211,10 @@ impl<'a> Parser<'a> {
 
     fn hex4(&mut self) -> Option<u32> {
         let h = self.s.get(self.p..self.p + 4)?;
+        // from_str_radix alone would take a sign: `\u+041`.
+        if !h.iter().all(u8::is_ascii_hexdigit) {
+            return None;
+        }
         let v = u32::from_str_radix(std::str::from_utf8(h).ok()?, 16).ok()?;
         self.p += 4;
         Some(v)
@@ -165,7 +230,7 @@ impl<'a> Parser<'a> {
             let c = *self.s.get(self.p)?;
             self.p += 1;
             match c {
-                b'"' => return Some(String::from_utf8_lossy(&out).into_owned().into_bytes()),
+                b'"' => return Some(jq_utf8(&out)),
                 0x00..=0x1f => return None,
                 b'\\' => {
                     let e = *self.s.get(self.p)?;
@@ -274,12 +339,10 @@ fn sanitize(s: &[u8], fallback: &str) -> Vec<u8> {
 /// which is replaced as jq --arg replaces it, keeping the decision valid
 /// JSON.
 fn deny(parts: &[&[u8]]) -> ! {
-    let reason = String::from_utf8_lossy(&sanitize(
+    let reason = jq_utf8(&sanitize(
         &parts.concat(),
         "refusing an unconfirmable draft->ready flip",
-    ))
-    .into_owned()
-    .into_bytes();
+    ));
     let mut out = b"{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"".to_vec();
     for c in REASON_PREFIX.as_bytes().iter().chain(reason.iter()) {
         match *c {

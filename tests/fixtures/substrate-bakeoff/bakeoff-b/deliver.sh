@@ -8,12 +8,13 @@
 #   marketplace   the plugin marketplace copy is reported to strip execute
 #                 bits, so every installed file is made non-executable first.
 #                 Shell then runs through `bash`, as a hook registration
-#                 would have to call it once the execute bits are gone. A compiled artifact cannot run from that copy at
-#                 all; it runs only by the planned fetch path, which places it
-#                 in the plugin data directory and marks it executable, and
-#                 that step is what this mode simulates. No release exists to
-#                 fetch from at prototype scope, so the download and checksum
-#                 steps are not exercised.
+#                 would have to call it once the execute bits are gone. A
+#                 compiled artifact cannot run from that copy at all; it
+#                 runs only by the planned fetch path, which places it in the
+#                 plugin data directory and marks it executable, and that
+#                 step is what this mode simulates. No release exists to
+#                 fetch from at prototype scope, so the download and
+#                 checksum steps are not exercised.
 #
 # Everything lands in a temporary directory of its own, removed on exit, so a
 # run outside the harness's fresh home writes nothing that outlives it.

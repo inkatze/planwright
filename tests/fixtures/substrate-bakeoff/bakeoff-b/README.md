@@ -109,8 +109,9 @@ command it cannot parse.
   upper-case exponent marker, and never read a numeric `headRefOid` as an
   object id. A high surrogate with no low one after it refuses the answer,
   as jq 1.8 does. Invalid UTF-8, in an answer and in the decision text, is
-  replaced as jq replaces it. The Rust JSON reader refuses nesting deeper
-  than its `MAX_DEPTH`.
+  replaced by jq's own decoding rule. Both ports refuse nesting deeper than
+  their depth cap (`maxDepth` in Go, `MAX_DEPTH` in Rust), set well below
+  any jq release's own limit, so they refuse some answers jq would read.
 - Latencies are fork-to-reap times on whatever host ran the report, under
   that host's load at the time; compare candidates within one report, not
   across reports.
