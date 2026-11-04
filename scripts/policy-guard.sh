@@ -2774,8 +2774,8 @@ classify_tower_fetch() {
     deny_now 'a git fetch reading refspecs from --stdin is denied to the tower under every policy value: the guard cannot see whether one writes a local branch.'
     return 0
   fi
-  long_prefix_seen multiple 2 && return 0
-  [[ $GP_SHORT != *m* ]] || return 0
+  # --multiple reads every positional as a remote, but a later --no-multiple
+  # turns refspecs back on, so the words holding a colon are read either way.
   i=1
   while [ "$i" -lt "${#GP_POS[@]}" ]; do
     r=${GP_POS[$i]}

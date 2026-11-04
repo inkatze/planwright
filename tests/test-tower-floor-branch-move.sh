@@ -54,6 +54,7 @@ for cmd in \
   'git push origin docs/main' \
   'git fetch origin' \
   'git fetch --prune origin' \
+  'git fetch --multiple origin upstream' \
   'git fetch origin main' \
   'git fetch origin main:refs/remotes/origin/main' \
   'git fetch git@example.invalid:o/r.git main' \

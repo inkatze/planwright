@@ -274,3 +274,5 @@ spelling	branch-move	negation	git branch -d --no-delete -m topic other
 spelling	ref-surgery	negation	git branch -d --no-delete -f main HEAD
 spelling	ref-surgery	expansion	git branch -d "$X" -f main HEAD
 spelling	branch-move	long-prefix	git fetch --st origin
+spelling	branch-move	negation	git fetch --multiple --no-multiple origin main:main
+spelling	branch-move	negation	git fetch -m --no-multiple origin main:main
