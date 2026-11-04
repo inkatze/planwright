@@ -143,10 +143,11 @@ but which the profile permits.
 | Hardened shell | full | passes | The tier's current substrate; nothing in the profile excludes it. |
 | Go | full | passes | A toolchain is permitted; it builds natively on every maintainer host and CI platform, so the Rust cross-compilation risk has no analogue here. |
 | Rust | full | passes | As Go: built natively where it runs, so the Apple SDK risk (R7) does not bind, and nothing ships, so the glibc obligation does not bind. |
-| Python | full | passes | The interpreter is already present for `yamllint`; the hard constraint does not bind a dev-only tier (D-6). |
+| Python | full | passes | The interpreter is already present for `yamllint`; the hard constraint binds adopter tiers only (REQ-B1.1), and D-6 opens interpreted runtimes to dev-only tiers. |
 | Node | full | passes | The runtime is already present for `markdownlint-cli2`; as Python. |
 | Zig | comparison point | passes, as a comparison point only | Nothing in the profile excludes it, but a comparison point cannot be selected without a further bake-off promoting it (REQ-C1.1). |
 | Bun-compiled TypeScript | comparison point | passes, as a comparison point only | Its executable size and embedded-engine obligation bind only a shipped artifact; as Zig, it is not selectable. |
+| Every candidate in the Excluded table | not classed | not screened out, not admitted | Each was excluded from adopter tiers only, on cross-compilation, on-target build, or delivery grounds, none of which binds a tool built where it runs and shipped nowhere; Python's packaging routes and Node's single executables are moot beside the Python and Node rows. None enters this tier's set unclassed (REQ-C1.1), and classing one would be the dev-check bake-off's own screen: admitting any only adds survivors, so the outcome below holds either way. |
 
 No candidate is screened out of the dev-check tier, so five full candidates
 survive it and the tier cannot be settled by the screen record, which
@@ -160,18 +161,24 @@ profiles record them:
 | Axis | Dev-check | Library and skill-called | Hook |
 | --- | --- | --- | --- |
 | Audience | dev-only | adopter runtime | adopter runtime |
-| Per-call latency budget | none | none | no regression against shell |
+| Per-call latency budget | none | none of its own (a library inherits its caller's) | no regression against shell |
 | Auditability weight | low | medium | high |
 
-- **Decided tiers.** In task order, the library and skill-called pair is
-  decided: its bake-off report is complete. The hook tier's bake-off comes
-  before this screen in task order but its report was not complete when
-  this record was written, so it is not yet decided; the comparison does
-  not depend on it, since the hook profile differs from dev-check on all
-  three axes.
-- **Profile comparison.** Dev-check matches the decided pair on the latency
-  axis only and differs on audience and auditability weight. It therefore
-  differs on a hard axis from every decided tier, and REQ-C1.3's
+- **Decided tiers.** The library and skill-called pair's bake-off has a
+  committed report for glibc Linux only; its macOS and musl reports are
+  outstanding (the bake-off's entry under `## Awaiting input`), and this
+  page counts a platform with no committed report as not measured yet. The
+  hook tier's bake-off comes before this screen in task order but its
+  report was not complete when this record was written. Neither tier is
+  therefore fully decided, and the comparison below does not depend on
+  it: against the pair dev-check differs on two hard axes, against hook
+  on all three, and with no tier decided at all the rule's "differs from
+  every tier already decided" holds trivially, leaving no nearest tier to
+  inherit from.
+- **Profile comparison.** Dev-check is closest to the pair on the latency
+  axis, where neither carries a per-call budget of its own, and differs
+  on audience and auditability weight. It therefore differs on a hard axis
+  from every tier that is or will be decided before it, and REQ-C1.3's
   inheritance branch, which needs no such difference, does not apply.
 - **Defect classes.** The decided pair's bake-off exercised the lock
   primitive and the `Dependencies:` line parse: lock-concurrency,
@@ -194,10 +201,11 @@ primitive is the instruction guard's manifest parse and charged closure in
 `scripts/check-instructions.sh`: reading a skill's doctrine manifest,
 resolving each named document, and charging the start load and the
 reachable closure against their budgets. That script is the dev-check
-script the matrix names most often, and the primitive sits on the tier's
-leading class, instruction-headroom, while also carrying parser-fragility
-(the manifest grammar) and perf-spawn-cost (the guard's share of the check
-aggregate's wall-clock). The bake-off would measure the five surviving full
+script the matrix names most often, and its items there fall mostly on the
+tier's leading class, instruction-headroom, and on perf-spawn-cost (the
+guard's share of the check aggregate's wall-clock). The manifest grammar
+also makes it a parser, though the matrix attributes the tier's
+parser-fragility items to other scripts. The bake-off would measure the five surviving full
 candidates on it under the existing harness; Zig and Bun stay comparison
 points.
 
