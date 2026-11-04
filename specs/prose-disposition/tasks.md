@@ -333,26 +333,6 @@ can be measured by it.
 
 ## Awaiting input
 
-- **Task 5** — halted before any cleanup edit: the deliverable cannot be met
-  as written at the measured scale, and choosing a shape is the operator's
-  call. The guard's `--audit` on `main` at `345b4487` finds 6,792
-  evidence-free blocks (21,051 lines) in 717 files, against the 1,422 the
-  Sources inventory measured over `v0.36.0`'s `scripts/*.sh` alone that the
-  two-day estimate assumed (`scripts/` alone is now 2,873; `tests/` holds
-  3,676). A read sample shows nearly all of them are keepers the classifier
-  misses: function contracts (`name <args>: …`), fixture and test-case
-  explanations, and whys phrased with "would", "so", or "fail open", which
-  are not in its word list. Rough partition: about 780 hold a separator
-  banner, 174 a shellcheck directive, and the rest are mostly prose that
-  stays. So the kept list REQ-G1.2 puts in the PR body would run to roughly
-  6,000 entries, past GitHub's 65,536-character body limit. Pick one: (a)
-  carry the kept list as a committed file the PR body links, with the
-  reading done in batches across several `comments` PRs; (b) narrow Phase A
-  to the deletable classes (restatement, banners) plus `scripts/`, leaving
-  `tests/` to Phase B's families; (c) widen the guard's rationale word list
-  and add a contract class first (a guard change, so its own task), then
-  re-measure. Each touches REQ-G1.2's wording or the task's Deliverables, so
-  it routes through a `/spec-kickoff` delta re-walkthrough.
 - **Task 4.1** — post-pr step `cubic-pr` halted; record `.claude/steps/000001/008-step-post-pr.rec`
 
 ## Deferred
