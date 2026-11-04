@@ -250,13 +250,16 @@ RE_GIT_ACT="${RE_GIT_HEAD}(merge|pull|rebase|push)([^[:alnum:]_-]|\$)"
 RE_GIT_REWRITE="${RE_GIT_HEAD}commit([[:space:]].*)?[[:space:]]--(am|sq|fix)"
 # A substitution after `git commit` could produce --amend at run time.
 RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
-# The tower-only acts, as crudely: any short-option cluster carrying the
-# letter counts, and any long option starting with it.
-RE_TOWER_SURGERY="${RE_GIT_HEAD}(update-ref|filter-branch|filter-repo|reset|checkout|switch|symbolic-ref)([^[:alnum:]_-]|\$)"
-RE_TOWER_BRANCH="${RE_GIT_HEAD}branch([[:space:]].*)?[[:space:]](-[[:alnum:]]*[fMCmc]|--(f(o(r(ce?)?)?)?|m(o(ve?)?)?|c(o(py?)?)?)([^[:alnum:]_-]|\$))"
-RE_TOWER_WORKTREE="${RE_GIT_HEAD}worktree[[:space:]]+(add|remove|move)([^[:alnum:]_-]|\$)"
-RE_TOWER_FETCH="${RE_GIT_HEAD}fetch([[:space:]].*)?(:|[[:space:]]--(st|refm))"
-RE_TOWER_STASH="${RE_GIT_HEAD}stash([^[:alnum:]_-]|\$)"
+# The tower-only acts, as crudely: any words may stand between git and the
+# act (a quoted option value holding a space defeats RE_GIT_HEAD's
+# one-value-per-option reading), any short-option cluster carrying the letter
+# counts, and any long option starting with it.
+RE_TOWER_GIT_HEAD='(^|[^[:alnum:]_.-])git([[:space:]].*)?[[:space:]]'
+RE_TOWER_SURGERY="${RE_TOWER_GIT_HEAD}(update-ref|filter-branch|filter-repo|reset|checkout|switch|symbolic-ref)([^[:alnum:]_-]|\$)"
+RE_TOWER_BRANCH="${RE_TOWER_GIT_HEAD}branch([[:space:]].*)?[[:space:]](-[[:alnum:]]*[fMCmc]|--(f(o(r(ce?)?)?)?|m(o(ve?)?)?|c(o(py?)?)?)([^[:alnum:]_-]|\$))"
+RE_TOWER_WORKTREE="${RE_TOWER_GIT_HEAD}worktree[[:space:]]+(add|remove|move)([^[:alnum:]_-]|\$)"
+RE_TOWER_FETCH="${RE_TOWER_GIT_HEAD}fetch([[:space:]].*)?(:|[[:space:]]--(st|refm))"
+RE_TOWER_STASH="${RE_TOWER_GIT_HEAD}stash([^[:alnum:]_-]|\$)"
 RE_TOWER_STASH_READ='[[:space:]]stash[[:space:]]+(list|show)([^[:alnum:]_-]|$)'
 RE_TOWER_GH='(^|[^[:alnum:]_.-])gh[^[:alnum:]_.-](.*[^[:alnum:]_-])?(pr[^[:alnum:]_-]+(checkout|co)|repo[^[:alnum:]_-]+sync)([^[:alnum:]_-]|$)'
 
