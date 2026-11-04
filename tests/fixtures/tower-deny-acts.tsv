@@ -102,6 +102,41 @@ entry	Bash(git push --b*)	push	git push --branches origin
 entry	Bash(git push * --b*)	push	git push origin --bra
 entry	Bash(git push * : *)	push	git push origin : --quiet
 entry	Bash(git -c * push:*)	push	git -c push.default=matching push origin topic
+entry	Bash(git checkout:*)	branch-move	git checkout topic
+entry	Bash(git switch:*)	branch-move	git switch -C topic main
+entry	Bash(git reset:*)	branch-move	git reset --soft HEAD~1
+entry	Bash(git branch -m:*)	branch-move	git branch -m topic other
+entry	Bash(git branch -M:*)	branch-move	git branch -M topic other
+entry	Bash(git branch -c:*)	branch-move	git branch -c topic other
+entry	Bash(git branch -C:*)	branch-move	git branch -C topic other
+entry	Bash(git branch --move:*)	branch-move	git branch --move topic other
+entry	Bash(git branch --copy:*)	branch-move	git branch --copy topic other
+entry	Bash(git branch * -m *)	branch-move	git branch --quiet -m topic other
+entry	Bash(git branch * -M *)	branch-move	git branch --quiet -M topic other
+entry	Bash(git branch * -c *)	branch-move	git branch --quiet -c topic other
+entry	Bash(git branch * -C *)	branch-move	git branch --quiet -C topic other
+entry	Bash(git worktree add -B:*)	worktree	git worktree add -B topic ../w
+entry	Bash(git worktree add * -B *)	worktree	git worktree add ../w -B topic HEAD
+entry	Bash(git symbolic-ref -d:*)	branch-move	git symbolic-ref -d HEAD
+entry	Bash(git symbolic-ref --delete:*)	branch-move	git symbolic-ref --delete HEAD
+entry	Bash(git symbolic-ref -m:*)	branch-move	git symbolic-ref -m why HEAD refs/heads/topic
+entry	Bash(git symbolic-ref HEAD refs/*)	branch-move	git symbolic-ref HEAD refs/heads/topic
+entry	Bash(git fetch * *:refs/heads/*)	branch-move	git fetch origin main:refs/heads/main
+entry	Bash(git fetch * *:heads/*)	branch-move	git fetch origin main:heads/topic
+entry	Bash(gh pr checkout:*)	branch-move	gh pr checkout 42
+entry	Bash(gh pr co:*)	branch-move	gh pr co 42
+entry	Bash(gh repo sync:*)	branch-move	gh repo sync
+entry	Bash(git stash)	stash-write	git stash
+entry	Bash(git stash -*)	stash-write	git stash -u
+entry	Bash(git stash push:*)	stash-write	git stash push -m wip
+entry	Bash(git stash save:*)	stash-write	git stash save wip
+entry	Bash(git stash pop:*)	stash-write	git stash pop
+entry	Bash(git stash apply:*)	stash-write	git stash apply stash@{0}
+entry	Bash(git stash drop:*)	stash-write	git stash drop
+entry	Bash(git stash clear:*)	stash-write	git stash clear
+entry	Bash(git stash branch:*)	stash-write	git stash branch topic
+entry	Bash(git stash create:*)	stash-write	git stash create
+entry	Bash(git stash store:*)	stash-write	git stash store -m wip HEAD
 entry	mcp__github__merge_pull_request	mcp-write	mcp__github__merge_pull_request
 entry	mcp__github__update_pull_request	mcp-write	mcp__github__update_pull_request
 entry	mcp__github__push_files	mcp-write	mcp__github__push_files
@@ -164,3 +199,46 @@ spelling	rewrite	global-C	git -C . rebase origin/main
 spelling	rewrite	work-tree	git --work-tree=. commit --amen
 spelling	rewrite	long-prefix	git commit --fixu=HEAD
 spelling	rewrite	alias	git rb origin/main
+spelling	branch-move	global-C	git -C . checkout topic
+spelling	branch-move	global-c	git -c core.abbrev=12 switch topic
+spelling	branch-move	git-dir	git --git-dir=.git symbolic-ref HEAD refs/heads/topic
+spelling	branch-move	work-tree	git --work-tree=. reset --soft HEAD
+spelling	branch-move	global-C	git -C . fetch origin main:main
+spelling	branch-move	long-prefix	git branch --mov topic other
+spelling	branch-move	long-prefix	git branch --cop topic other
+spelling	branch-move	long-prefix	git symbolic-ref --del HEAD
+spelling	branch-move	long-prefix	git fetch --std origin
+spelling	branch-move	long-prefix	git fetch --refm +refs/heads/*:refs/heads/* origin main
+spelling	branch-move	short-cluster	git branch -qm topic other
+spelling	branch-move	ref-form	git fetch origin main:refs/heads/main
+spelling	branch-move	ref-form	git fetch origin +refs/heads/main:heads/topic
+spelling	branch-move	ref-form	git fetch . remotes/origin/main:topic
+spelling	branch-move	ref-form	git fetch . refs/remotes/origin/main:refs/heads/topic
+spelling	branch-move	ref-form	git checkout refs/heads/topic
+spelling	branch-move	expansion	git fetch origin "$R"
+spelling	branch-move	expansion	git symbolic-ref HEAD "$R"
+spelling	branch-move	path-form	git checkout -- README.md
+spelling	branch-move	path-form	git reset -- README.md
+spelling	branch-move	repo-flag	gh -R o/r pr checkout 42
+spelling	branch-move	repo-flag	gh pr -R o/r co 42
+spelling	branch-move	repo-flag	gh repo -R o/r sync
+spelling	branch-move	case	git CHECKOUT topic
+spelling	branch-move	case	git Switch topic
+spelling	branch-move	case	git fetch origin main:refs/HEADS/topic
+spelling	branch-move	alias	git co topic
+spelling	branch-move	alias	git sw topic
+spelling	branch-move	alias	git rs --soft HEAD
+spelling	branch-move	alias	git sr HEAD refs/heads/topic
+spelling	branch-move	alias	git ft origin main:main
+spelling	branch-move	alias	git bm topic other
+spelling	worktree	short-cluster	git worktree add -qB topic ../w
+spelling	worktree	ref-form	git worktree add -B refs/heads/topic ../w
+spelling	stash-write	global-C	git -C . stash pop
+spelling	stash-write	global-c	git -c core.abbrev=12 stash
+spelling	stash-write	git-dir	git --git-dir=.git stash drop
+spelling	stash-write	work-tree	git --work-tree=. stash push -m wip
+spelling	stash-write	long-prefix	git stash --keep-in
+spelling	stash-write	case	git STASH clear
+spelling	stash-write	case	git stash LIST
+spelling	stash-write	expansion	git stash "$S"
+spelling	stash-write	alias	git sp

@@ -125,8 +125,21 @@
 #               `git filter-repo`, a forced `git branch` (-f, --force, and the
 #               -M and -C force shorthands) outside delete mode, and
 #               `git update-ref` deny with no read.
+#   branch-move tower only, in every checkout including the tower's own:
+#               `git checkout`, `git switch`, and `git reset` in every form
+#               (path restores and --soft included); a `git branch` rename or
+#               copy (-m, -M, -c, -C, --move, --copy) outside delete mode; a
+#               `git symbolic-ref` write (two names, or -d/--delete); a
+#               `git fetch` refspec whose destination is a local branch (a
+#               bare name, heads/, or refs/heads/), a non-literal refspec,
+#               --stdin, and --refmap with a value; `gh pr checkout` (and its
+#               `co` alias) and `gh repo sync`. All deny with no read.
+#   stash-write tower only: every `git stash` form except `stash list` and
+#               `stash show`, the stack being shared by every worktree of a
+#               clone; deny with no read.
 #   worktree    tower only: `git worktree add`, `remove`, or `move` with
-#               --force, and `add` with --detach, deny with no read; an `add`
+#               --force, `add` with --detach, and `add -B` on any branch,
+#               deny with no read; an `add`
 #               whose new branch, or with none its commit-ish or (with
 #               neither) its path's last component, names a branch reads the
 #               protected set and denies a hit, a ref or remote-tracking form
@@ -235,10 +248,26 @@ RE_GIT_REWRITE="${RE_GIT_HEAD}commit([[:space:]].*)?[[:space:]]--(am|sq|fix)"
 RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
 # The tower-only acts, as crudely: any short-option cluster carrying the
 # letter counts, and any long option starting with it.
-RE_TOWER_SURGERY="${RE_GIT_HEAD}(update-ref|filter-branch|filter-repo)([^[:alnum:]_-]|\$)"
-RE_TOWER_RESET="${RE_GIT_HEAD}reset([[:space:]].*)?[[:space:]]--h"
-RE_TOWER_BRANCH="${RE_GIT_HEAD}branch([[:space:]].*)?[[:space:]](-[[:alnum:]]*[fMC]|--f(o(r(ce?)?)?)?([^[:alnum:]_-]|\$))"
+RE_TOWER_SURGERY="${RE_GIT_HEAD}(update-ref|filter-branch|filter-repo|reset|checkout|switch|symbolic-ref)([^[:alnum:]_-]|\$)"
+RE_TOWER_BRANCH="${RE_GIT_HEAD}branch([[:space:]].*)?[[:space:]](-[[:alnum:]]*[fMCmc]|--(f(o(r(ce?)?)?)?|m(o(ve?)?)?|c(o(py?)?)?)([^[:alnum:]_-]|\$))"
 RE_TOWER_WORKTREE="${RE_GIT_HEAD}worktree[[:space:]]+(add|remove|move)([^[:alnum:]_-]|\$)"
+RE_TOWER_FETCH="${RE_GIT_HEAD}fetch([[:space:]].*)?(:|[[:space:]]--(st|refm))"
+RE_TOWER_STASH="${RE_GIT_HEAD}stash([^[:alnum:]_-]|\$)"
+RE_TOWER_STASH_READ='[[:space:]]stash[[:space:]]+(list|show)([^[:alnum:]_-]|$)'
+RE_TOWER_GH='(^|[^[:alnum:]_.-])gh[^[:alnum:]_.-](.*[^[:alnum:]_-])?(pr[^[:alnum:]_-]+(checkout|co)|repo[^[:alnum:]_-]+sync)([^[:alnum:]_-]|$)'
+
+# raw_tower_stash <text> — 0 when the text runs a git stash form other than
+# `stash list` or `stash show`: each read form is removed first, so a write
+# beside a read still counts.
+raw_tower_stash() {
+  local t=$1 n=0
+  while [[ $t =~ $RE_TOWER_STASH_READ ]] && [ "$n" -lt 64 ]; do
+    t=${t/"${BASH_REMATCH[0]}"/ }
+    n=$((n + 1))
+  done
+  [ "$n" -lt 64 ] || return 0
+  [[ $t =~ $RE_TOWER_STASH ]]
+}
 # The subcommand is capture group 4: RE_GIT_HEAD holds three groups, and a
 # group added there moves it.
 RE_GIT_SUB="${RE_GIT_HEAD}([A-Za-z][A-Za-z0-9_-]*)"
@@ -357,8 +386,9 @@ raw_evidence_one() {
     || [[ $t =~ $RE_GIT_REWRITE ]] || [[ $t =~ $RE_GIT_COMMIT_SUBST ]] || [[ $t =~ $RE_MERGE_HELPER ]] \
     || [[ $t =~ $RE_FOR_MERGE ]]; then
     rc=0
-  elif tower_floor && { [[ $t =~ $RE_TOWER_SURGERY ]] || [[ $t =~ $RE_TOWER_RESET ]] \
-    || [[ $t =~ $RE_TOWER_BRANCH ]] || [[ $t =~ $RE_TOWER_WORKTREE ]]; }; then
+  elif tower_floor && { [[ $t =~ $RE_TOWER_SURGERY ]] || [[ $t =~ $RE_TOWER_BRANCH ]] \
+    || [[ $t =~ $RE_TOWER_WORKTREE ]] || [[ $t =~ $RE_TOWER_FETCH ]] || [[ $t =~ $RE_TOWER_GH ]] \
+    || raw_tower_stash "$t"; }; then
     rc=0
   elif [ "${TIER:-}" = mission-control ] && mc_raw_git_mutation "$t"; then
     rc=0
@@ -1423,6 +1453,7 @@ classify_gh() {
       -*)
         case " ${SW[*]} " in
           *" api "* | *" pr "*) deny_now "this gh call carries a leading option the guard does not read, so it cannot tell which command runs - refusing (fail closed). Put the subcommand first." ;;
+          *" repo "*) [ "$TIER" != tower ] || deny_now "this gh call carries a leading option the guard does not read, so it cannot tell which command runs - refusing (fail closed). Put the subcommand first." ;;
         esac
         return 0
         ;;
@@ -1445,6 +1476,26 @@ classify_gh() {
         'repo fork' | 'repo rename' | 'repo edit' | 'repo archive' | 'release create' | 'release delete' | \
         'release edit' | 'release upload' | 'release delete-asset')
         deny_now "mission control writes no branch on the host and edits no repository, and gh $(sanitize_printable "${SW[$k]} ${SW[$j]:-}" 'this command') does one or the other - refusing. Dispatch the change to a session."
+        return 0
+        ;;
+    esac
+  fi
+  if [ "$TIER" = tower ]; then
+    local j=$((k + 1))
+    while [ "$j" -lt "$n" ]; do
+      case ${SW[$j]} in
+        -R | --repo) j=$((j + 2)) ;;
+        --repo=* | -R?*) j=$((j + 1)) ;;
+        *) break ;;
+      esac
+    done
+    if [ "${SW[$k]}" = repo ] && [ "${SWL[$j]:-1}" != 1 ]; then
+      deny_now 'this gh repo subcommand is an expansion the guard cannot read, and it could be repo sync - refusing (fail closed). Write the subcommand literally.'
+      return 0
+    fi
+    case "${SW[$k]} ${SW[$j]:-}" in
+      'pr checkout' | 'pr co' | 'repo sync')
+        deny_now "gh $(sanitize_printable "${SW[$k]} ${SW[$j]:-}" 'this command') is denied to the tower in every checkout, its own included, under every policy value: it moves a local branch or a checkout's HEAD, and the tower never moves a branch. Read the PR with gh pr view, and leave checkouts to a dispatched session."
         return 0
         ;;
     esac
@@ -2443,7 +2494,8 @@ git_alias_check() {
                   merge | pull | rebase | commit | push)
                     deny_now "the git alias $(sanitize_printable "$sub" 'used here') expands to git $(sanitize_printable "$first" 'a reserved subcommand'), which the guard reads only by its own name - refusing. Run git $(sanitize_printable "$first" 'that subcommand') directly."
                     ;;
-                  reset | branch | worktree | update-ref | filter-branch)
+                  reset | branch | worktree | update-ref | filter-branch | checkout | switch | symbolic-ref | \
+                    fetch | stash)
                     [ "$TIER" != tower ] \
                       || deny_now "the git alias $(sanitize_printable "$sub" 'used here') expands to git $(sanitize_printable "$first" 'a subcommand the tower floor covers'), which the guard reads only by its own name - refusing. Run git $(sanitize_printable "$first" 'that subcommand') directly."
                     ;;
@@ -2627,8 +2679,9 @@ tower_opts_literal() {
 }
 
 # classify_tower_git <lower-case sub> <sub-index> <dir> <dir_ok> — the acts
-# the tower deny list blocks that no other act covers: moving a ref or
-# rewriting history by hand, and the dangerous git worktree forms.
+# the tower deny list blocks that no other act covers: moving a branch, a
+# checkout's HEAD, or a ref, rewriting history by hand, writing the stash,
+# and the dangerous git worktree forms.
 classify_tower_git() {
   local sub=$1 k=$(($2 + 1)) dir=$3 dir_ok=$4
   case $sub in
@@ -2636,15 +2689,28 @@ classify_tower_git() {
       deny_now "git $sub moves refs or rewrites history by hand; it is denied to the tower under every policy value, since the tower never moves a branch."
       return 0
       ;;
-    reset)
-      tower_opts_literal "$k" 'this git reset' || return 0
-      parse_git_opts "$k" 'pathspec-from-file' '' '' \
+    reset | checkout | switch)
+      # Every form, a path restore included, so the guard never has to tell
+      # the forms apart.
+      deny_now "git $sub is denied to the tower in every form and every checkout, its own included, under every policy value: it can move a branch or a checkout's HEAD, and the tower never moves a branch. Leave the change to a dispatched session in its own worktree."
+      ;;
+    symbolic-ref)
+      tower_opts_literal "$k" 'this git symbolic-ref' || return 0
+      parse_git_opts "$k" '' 'm' '' \
         || {
-          deny_now "this git reset carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
+          deny_now "this git symbolic-ref carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
           return 0
         }
-      long_prefix_seen hard 1 \
-        && deny_now 'git reset --hard is denied to the tower under every policy value: it discards work and moves a branch, and the tower never moves a branch.'
+      if long_prefix_seen delete 1 || [[ $GP_SHORT == *d* ]] || [ "${#GP_POS[@]}" -ge 2 ]; then
+        deny_now 'a git symbolic-ref write (a second name, or -d) is denied to the tower under every policy value: it repoints HEAD or another symbolic ref, and the tower never moves a branch. Read it with one name.'
+      fi
+      ;;
+    fetch) classify_tower_fetch "$k" ;;
+    stash)
+      if [ "$k" -lt "${#SW[@]}" ] && [ "${SWL[$k]}" = 1 ]; then
+        case ${SW[$k]} in list | show) return 0 ;; esac
+      fi
+      deny_now 'this git stash form is denied to the tower under every policy value: the stash stack is shared by every worktree of the clone, so only git stash list and git stash show are the tower'"'"'s.'
       ;;
     branch)
       parse_git_opts "$k" 'set-upstream-to sort format points-at' 'u' '' \
@@ -2662,11 +2728,67 @@ classify_tower_git() {
       # -M and -C are git's --move --force and --copy --force.
       if long_prefix_seen force 1 || [[ $GP_SHORT == *[fMC]* ]]; then
         deny_now 'a forced git branch (-f, --force, -M, -C) is denied to the tower under every policy value: it repoints an existing branch, and the tower never moves a branch.'
+      elif long_prefix_seen move 1 || long_prefix_seen copy 1 || [[ $GP_SHORT == *[mc]* ]]; then
+        deny_now 'a git branch rename or copy (-m, -c, --move, --copy) is denied to the tower under every policy value: it moves or repoints a branch, and the tower never moves a branch. Create a new branch instead.'
       fi
       ;;
     worktree) classify_tower_worktree "$k" "$dir" "$dir_ok" ;;
   esac
   return 0
+}
+
+# classify_tower_fetch <first-arg-index> — a fetch that writes a local branch:
+# a refspec destination outside refs/ or under refs/heads/ (git reads a bare
+# or heads/ destination as a local branch), or a refspec the guard cannot see:
+# any expansion, since an unquoted one can split into a refspec. The first
+# positional is the repository, which may be a URL holding a colon.
+classify_tower_fetch() {
+  local k=$1 j i r dst w
+  j=$k
+  while [ "$j" -lt "${#SW[@]}" ]; do
+    [ "${SWL[$j]}" = 1 ] || {
+      deny_now 'this git fetch carries an expansion the guard cannot read, which could spell a refspec writing a local branch - refusing (fail closed). Write the fetch literally.'
+      return 0
+    }
+    j=$((j + 1))
+  done
+  for w in "${SW[@]:$k}"; do
+    [ "$w" != -- ] || break
+    case $w in
+      --refmap= | --refma= | --refm=) ;;
+      --refm*)
+        deny_now 'a git fetch with --refmap is denied to the tower under every policy value: the map can write a local branch. Fetch into the remote-tracking refs instead.'
+        return 0
+        ;;
+    esac
+  done
+  parse_git_opts "$k" 'depth deepen shallow-since shallow-exclude jobs upload-pack refmap server-option negotiation-tip filter' 'jo' '' \
+    || {
+      deny_now "this git fetch carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
+      return 0
+    }
+  if long_prefix_seen stdin 3; then
+    deny_now 'a git fetch reading refspecs from --stdin is denied to the tower under every policy value: the guard cannot see whether one writes a local branch.'
+    return 0
+  fi
+  long_prefix_seen multiple 2 && return 0
+  [[ $GP_SHORT != *m* ]] || return 0
+  i=1
+  while [ "$i" -lt "${#GP_POS[@]}" ]; do
+    r=${GP_POS[$i]}
+    i=$((i + 1))
+    case $r in *:*) ;; *) continue ;; esac
+    # A case-insensitive filesystem stores refs/HEADS/x as refs/heads/x.
+    lc "${r#*:}"
+    dst=$LC
+    case $dst in
+      '') continue ;;
+      refs/heads/*) ;;
+      refs/*) continue ;;
+    esac
+    deny_now "a git fetch into a local branch ($(sanitize_printable "$dst" 'its destination')) is denied to the tower under every policy value: it moves that branch, and the tower never moves a branch. Fetch into the remote-tracking refs (git fetch <remote>) instead."
+    return 0
+  done
 }
 
 # classify_tower_worktree <verb-index> <dir> <dir_ok>
@@ -2696,7 +2818,13 @@ classify_tower_worktree() {
     return 0
   fi
   for v in ${GP_VALS[@]+"${GP_VALS[@]}"}; do
-    case $v in [bB]=*) names[${#names[@]}]=${v#?=} ;; esac
+    case $v in
+      B=*)
+        deny_now 'a git worktree add -B is denied to the tower under every policy value: it force-resets the branch it names when that branch exists, and the tower never moves a branch. Create a new branch with -b instead.'
+        return 0
+        ;;
+      b=*) names[${#names[@]}]=${v#?=} ;;
+    esac
   done
   if [ "${#names[@]}" = 0 ]; then
     # A name taken from a positional after `--` may be an expansion.

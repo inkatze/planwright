@@ -31,7 +31,8 @@ chmod 700 "$FLEET" "$FLEET/tower-sessions"
 printf 'tower\t%s\tprompt\n' "$(date +%s)" >"$FLEET/tower-sessions/$MARKED"
 chmod 600 "$FLEET/tower-sessions/$MARKED"
 
-for a in 'hr=reset --hard' 'bf=branch -f' 'ur=update-ref' 'wa=worktree add' 'pf=push --force' 'mg=merge' 'rb=rebase'; do
+for a in 'hr=reset --hard' 'bf=branch -f' 'ur=update-ref' 'wa=worktree add' 'pf=push --force' 'mg=merge' 'rb=rebase' \
+  'co=checkout' 'sw=switch' 'rs=reset' 'sr=symbolic-ref' 'ft=fetch' 'bm=branch -m' 'sp=stash pop'; do
   git -C "$UNIT" config "alias.${a%%=*}" "${a#*=}"
 done
 
@@ -87,7 +88,7 @@ map_check() {
 
 # act_check <map> — 0 when every row names one of the acts the suites run
 # (TOWER_ACTS) and every act has an entry row; prints each mismatch.
-TOWER_ACTS='pr-merge flip base-merge rewrite ref-surgery mcp-write worktree push'
+TOWER_ACTS='pr-merge flip base-merge rewrite ref-surgery mcp-write worktree push branch-move stash-write'
 act_check() {
   local rc=0 kind a b act
   while IFS="$TAB" read -r kind a b _; do

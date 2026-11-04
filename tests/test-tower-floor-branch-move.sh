@@ -1,0 +1,69 @@
+#!/bin/bash
+# The tower deny floor's branch-moving and stash-writing acts
+# (tower-placement REQ-D1.1, REQ-D1.2, REQ-D1.4): each entry row of
+# tests/fixtures/tower-deny-acts.tsv for those acts is matched by its entry
+# and refused in a marked session with no profile; every sample and
+# spelling row of those acts is refused under the profile launch too (the
+# policy guard at the tower tier); and the forms REQ-D1.1 keeps (stash list
+# and show, a plain commit, plain branch creation and deletion, a new
+# docs/main branch, a fetch into the remote-tracking refs) stay deferred and
+# unmatched by the profile's deny globs. Every command runs against the
+# session's own checkout, the tower's own tree.
+#
+# Runs standalone under /bin/bash (the bash 3.2 floor).
+# shellcheck disable=SC2016 # the unexpanded $ forms are the inputs under test
+unset CDPATH
+# shellcheck source=tests/lib/tower-floor-harness.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/tower-floor-harness.sh"
+
+echo "# each branch-move and stash-write entry's sample: matched by its entry, refused in a marked session"
+entry_rows '^(branch-move|stash-write)$'
+
+echo "# every branch-move and stash-write row: refused under the profile launch, in the tower's own checkout"
+while IFS="$TAB" read -r kind a b c; do
+  case $kind:$a:$b in
+    entry:*:branch-move | entry:*:stash-write) cmd=$c ;;
+    spelling:branch-move:* | spelling:stash-write:*) cmd=$c ;;
+    *) continue ;;
+  esac
+  pg tower "$cmd" "$UNIT" "$UNIT"
+  expect deny "profile launch: $cmd"
+done <"$MAP"
+
+echo "# what REQ-D1.1 keeps: deferred in a marked session and under the profile launch, matched by no deny glob"
+pm_load_rules "$(jq -r '.permissions.deny[]' "$PROFILE")" '' ''
+for cmd in \
+  'git stash list' \
+  'git stash list --date=relative' \
+  'git stash show' \
+  'git stash show -p stash@{1}' \
+  'git commit -m wip' \
+  'git branch topic2' \
+  'git branch docs/main' \
+  'git branch -D planwright/flight/done-0123abcd' \
+  'git branch -d topic' \
+  'git branch --list' \
+  'git worktree add ../w -b docs/main' \
+  'git push origin docs/main' \
+  'git fetch origin' \
+  'git fetch --prune origin' \
+  'git fetch origin main' \
+  'git fetch origin main:refs/remotes/origin/main' \
+  'git fetch git@example.invalid:o/r.git main' \
+  'git symbolic-ref HEAD' \
+  'git symbolic-ref --short refs/remotes/origin/HEAD' \
+  'git restore README.md' \
+  'gh pr view 42'; do
+  ts_bash "$cmd"
+  expect defer "marked session keeps: $cmd"
+  pg tower "$cmd" "$UNIT" "$UNIT"
+  expect defer "profile launch keeps: $cmd"
+  if [ "$(pm_decide "$cmd")" != deny ]; then
+    pass "no deny glob matches: $cmd"
+  else
+    fail "a deny glob matches what REQ-D1.1 keeps: $cmd ($(pm_matching_deny_rule "$cmd"))"
+  fi
+done
+
+no_gh_calls
+finish

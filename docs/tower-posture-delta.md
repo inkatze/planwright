@@ -124,8 +124,8 @@ before defer, in code the two guards share:
 
 ## The deny delta
 
-Eight entries are appended after the existing floor, which stays byte-identical
-and in order:
+The front-door entries are appended after the existing floor, which stays
+byte-identical and in order:
 
 - `mcp__*__merge_pull_request`, `mcp__*__update_pull_request`,
   `mcp__*__push_files`, `mcp__*__create_or_update_file`, and
@@ -150,6 +150,36 @@ and in order:
 
 The `gh api` spellings of the merge and the ready flip are the policy guard's
 (`scripts/policy-guard.sh`, wired with the `tower` tier), not this profile's.
+
+### Branch-moving and stash-writing denies
+
+The tower placement floor (`doctrine/fleet-coordination-floor.md`) appends a
+further block after those entries, so a tower moves no branch, no checkout's
+HEAD, and no shared stash, in any checkout, its own included:
+
+- `git checkout`, `git switch`, and `git reset` in every form, path restores
+  and `reset --soft` included.
+- A branch rename or copy: `git branch` with `-m`, `-M`, `-c`, `-C`, `--move`,
+  or `--copy`, at the start or as a later word.
+- `git worktree add -B` on any branch, which force-resets a branch that
+  exists.
+- A `git symbolic-ref` write: `-d`, `--delete`, `-m`, or `HEAD refs/…`. A
+  one-name read is not denied.
+- A `git fetch` refspec whose destination is `refs/heads/…` or `heads/…`. A
+  fetch into the remote-tracking refs is not denied.
+- `gh pr checkout` (and its `co` alias) and `gh repo sync`.
+- Every `git stash` form except `stash list` and `stash show`: bare `git
+  stash`, an option-led push, and the `push`, `save`, `pop`, `apply`, `drop`,
+  `clear`, `branch`, `create`, and `store` subcommands.
+
+The globs cover the plain spellings only. The policy guard's `branch-move` and
+`stash-write` acts refuse each act in every spelling its option parser reads
+(git's global options, long-option prefixes, short clusters, ref forms, case,
+and repository aliases), a bare-name fetch destination (`main:main`) and an
+expansion among a fetch's words included, and
+`tests/fixtures/tower-deny-acts.tsv` maps each entry to its act. Plain branch
+creation and deletion, the commit family, `git restore`, and `git clean` stay
+outside the floor.
 
 ## Residuals
 

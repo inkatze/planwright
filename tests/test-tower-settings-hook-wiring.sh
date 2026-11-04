@@ -194,9 +194,10 @@ fi
 # every MCP server by a tool-name glob, plus the PR branch update, which merges
 # the base into the PR branch on the host, and PR creation, which can open a PR
 # that is not a draft, then the PR branch update's literal mcp__github__ name,
-# which the plugin-wired tower floor's MCP hook matches by name. A change to
-# the extension updates this list in the same commit.
-expected_extension='["mcp__*__merge_pull_request","mcp__*__update_pull_request","mcp__*__push_files","mcp__*__create_or_update_file","mcp__*__delete_file","mcp__*__update_pull_request_branch","mcp__*__create_pull_request","mcp__github__update_pull_request_branch"]'
+# which the plugin-wired tower floor's MCP hook matches by name, then the
+# branch-moving and stash-writing denies (tower-placement REQ-D1.1). A change
+# to the extension updates this list in the same commit.
+expected_extension='["mcp__*__merge_pull_request","mcp__*__update_pull_request","mcp__*__push_files","mcp__*__create_or_update_file","mcp__*__delete_file","mcp__*__update_pull_request_branch","mcp__*__create_pull_request","mcp__github__update_pull_request_branch","Bash(git checkout:*)","Bash(git switch:*)","Bash(git reset:*)","Bash(git branch -m:*)","Bash(git branch -M:*)","Bash(git branch -c:*)","Bash(git branch -C:*)","Bash(git branch --move:*)","Bash(git branch --copy:*)","Bash(git branch * -m *)","Bash(git branch * -M *)","Bash(git branch * -c *)","Bash(git branch * -C *)","Bash(git worktree add -B:*)","Bash(git worktree add * -B *)","Bash(git symbolic-ref -d:*)","Bash(git symbolic-ref --delete:*)","Bash(git symbolic-ref -m:*)","Bash(git symbolic-ref HEAD refs/*)","Bash(git fetch * *:refs/heads/*)","Bash(git fetch * *:heads/*)","Bash(gh pr checkout:*)","Bash(gh pr co:*)","Bash(gh repo sync:*)","Bash(git stash)","Bash(git stash -*)","Bash(git stash push:*)","Bash(git stash save:*)","Bash(git stash pop:*)","Bash(git stash apply:*)","Bash(git stash drop:*)","Bash(git stash clear:*)","Bash(git stash branch:*)","Bash(git stash create:*)","Bash(git stash store:*)"]'
 actual_extension="$(jq -cS --argjson n "$baseline_len" '.permissions.deny[$n:]' "$tower_settings")"
 if [ "$actual_extension" = "$(printf '%s' "$expected_extension" | jq -cS .)" ]; then
   ok "the deny block past the floor is exactly the front-door extension (tower-front-door REQ-A1.3)"
@@ -375,7 +376,7 @@ else
     "mcp__*__"
   # The tower-scoped mis-merge warning.
   require_phrase "_about warns against mis-merging the hook into a non-tower settings file (REQ-C1.2)" \
-    "tower-scoping is enforced only by where"
+    "tower-scoped by where its hook is wired"
   # The guard reads the command as written: its shapes defer an unexpanded
   # variable operand, so a claim that variables arrive expanded misstates it.
   require_phrase "_about states the hook receives \$VAR references unexpanded" \
