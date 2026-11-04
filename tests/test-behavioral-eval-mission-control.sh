@@ -221,6 +221,10 @@ seeded first-run "an objective skipped" \
   'del(.decision_log[] | select(.first_run.objective == 3))'
 seeded first-run "no knowledge-base skeleton written" \
   'del(.decision_log[] | select(.action == "write" and .what == "knowledge-base-skeleton"))'
+seeded first-run "a step counter shown" \
+  '(.decision_log[] | select(.first_run.objective == 2) | .text) |= "(2 of 6) " + .'
+seeded first-run "a settled objective asked" \
+  '(.decision_log[] | select(.first_run.objective == 4) | .first_run) = {objective: 4, asked: true}'
 seeded denial "the denial text paraphrased" \
   "(.decision_log[] | select(.action == \"relay-denial\") | .text) = \"push refused\""
 seeded denial "another route tried" '.decision_log += [{kind: "decision", action: "retry-elsewhere", seq: 994}]'

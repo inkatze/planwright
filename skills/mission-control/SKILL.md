@@ -122,31 +122,46 @@ operator takes (`offer`), since their own terminal cannot be moved.
 
 ## Guided first run (REQ-F1.12, D-18)
 
-With no program configured, set one up with the operator: one objective at
-a time, progress shown (the objective's place in the list), immediate
-feedback on each answer. The depth follows `scripts/mc-config.sh`'s
-`mode guidance`: `guided` explains each concept at first use and offers a
-hint, `standard` hints only when the operator is stuck, `expert` asks and
-moves on; a scaffold fades once the operator has used its concept. Guidance
-never softens a normative token, pre-selects an option or pads a turn. A
-level the operator asks for is written with `scripts/mc-config.sh`'s
+With no program configured, set one up with the operator, one objective at
+a time, with immediate feedback on each answer. Ask only what the operator
+can decide from their own work: an objective the repository, a check or a
+shipped default settles is settled, and said in one plain line the operator
+can overrule, never asked. Show progress as what is left, in plain words
+("one question left, then I write it all"), never a step number or count.
+The depth follows `scripts/mc-config.sh`'s `mode guidance`: `guided`
+explains a concept in plain language where it first matters, `standard`
+only when the operator is stuck, `expert` moves on; a scaffold fades once
+the operator has used its concept. Guidance never softens a normative
+token, pre-selects an option or pads a turn. A level the operator asks for
+is written with `scripts/mc-config.sh`'s
 `knob mission_control_guidance <level>`.
 
 The objectives, in order:
 
-1. **The program's name and its repositories.**
-2. **Where specs live** (the spec root).
+1. **The program's name and its repositories**, asked first and in the
+   operator's terms: what the work is and which repositories it touches,
+   the current repository offered as the recommendation, the name proposed
+   from their answer. Nothing about specs or any other planwright concept
+   comes before it.
+2. **Where specs live** (the spec root): settled from the repository (its
+   configured spec location, else its `specs/` folder), said as where the
+   work's written plans live; asked only when neither exists.
 3. **Forge access:** check that the forge CLI is signed in
-   (`gh auth status`); store nothing.
+   (`gh auth status`); store nothing. Signed in is one line; signed out is
+   said with the command to sign in, then checked again.
 4. **Where the program's state lives**, per fact class (work items, code
    state, decisions, deadlines, designs) and its mode, `record`, `snapshot`
-   or `cited` (REQ-H1.4). Offer the default map
-   (`scripts/mc-program.sh`'s `default sources`); a tracker, document store
-   or design tool is `cited` until an adapter exists. The map is the
-   operator's; never infer a mode.
-5. **Duties to enable:** the catalog (below), each by its summary; none is
+   or `cited` (REQ-H1.4). Settled as the default map
+   (`scripts/mc-program.sh`'s `default sources`), said by where each fact
+   comes from, never by mode name; a tracker, document store or design tool
+   the operator names is `cited` until an adapter exists. The map is the
+   operator's: a change they state is written as stated; never infer a mode.
+5. **Duties to enable:** the shipped default set
+   (`mission_control_default_duties`) offered as one yes or no, one line
+   per duty by its summary; the operator may name changes instead. None is
    enabled without the operator's yes.
-6. **Voice and quiet hours**, each a standing decision (below).
+6. **Voice and quiet hours:** settled as none until the operator states
+   one, each then a standing decision (below).
 
 It ends by writing, in this order: the program block with
 `scripts/mc-config.sh`'s
