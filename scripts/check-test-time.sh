@@ -40,8 +40,9 @@
 # its own wall-clock row. The mean is taken over every file row of every
 # report, so it reads the same whatever the shard count. The per-shard budget
 # is judged on the slowest report's wall-clock, the longest the aggregate
-# status waits on any one runner, and applies when there are several
-# reports or a lone one is a shard's (its header names the shard).
+# status waits on any one Linux runner (it also waits on the macOS and Alpine
+# shards, which feed no report), and applies when there are several reports
+# or a lone one is a shard's (its header names the shard).
 #
 # A file the duration table has no row for is weighed at the mean by the
 # shard split and the planner, so a table missing more than
