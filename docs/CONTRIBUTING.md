@@ -11,10 +11,10 @@ By contributing you agree your contributions are licensed under the project's
 [MIT license](../LICENSE) (inbound = outbound). Keep changes free of secrets,
 credentials, internal hostnames, or sensitive operational detail — committed
 artifacts (specs, briefs, the observations log, PR bodies) are held to the same
-data-hygiene bar, and CI runs a secret scan. Archives and office documents
-are ignored repo-wide, so a stray one in a checkout stays out of `git add -A`;
-keep such files under `.claude/<name>.local/`, and add a genuine fixture with
-`git add -f`.
+data-hygiene bar, and CI runs a secret scan. The common archive and
+office-document types `.gitignore` lists are ignored repo-wide, so a stray one
+in a checkout stays out of `git add -A`; keep such files under
+`.claude/<name>.local/`, and add a genuine fixture with `git add -f`.
 
 ## Two sizes of change
 

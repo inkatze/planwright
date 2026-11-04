@@ -24,7 +24,7 @@ git init -q "$repo"
 cp "$REPO_ROOT/.gitignore" "$repo/.gitignore"
 mkdir -p "$repo/docs/nested"
 
-drops="export.zip backup.tar backup.tar.gz bundle.tgz dump.gz notes.7z data.rar
+drops="export.zip backup.tar backup.tar.gz backup.tar.xz bundle.tgz dump.gz notes.7z data.rar
 report.pdf memo.docx memo.doc sheet.xlsx sheet.xls deck.pptx deck.ppt
 docs/nested/export.zip docs/report.pdf"
 for f in $drops; do
