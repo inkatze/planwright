@@ -156,16 +156,17 @@ guards are what keep it complete. GitHub Actions runs the same gate on every
 pull request, split across parallel jobs: a `lint` job runs `check:non-test`,
 a `plan` job picks the shard count (`scripts/run-tests.sh --plan-shards`,
 below), one `test` job runs each shard of the suite (`scripts/run-tests.sh
---shard <i>/<N>`), and the `check` job, the status branch protection reads,
-passes only when they all do and the test-time budget gate passes over every
-shard's timing report together. Beside them, the `macos-suite` and
-`alpine-suite` jobs run the full suite on macOS (the system bash 3.2 and BSD
-userland) and in an Alpine container (musl, dash, busybox) on every pull
-request; they are statuses of their own, which `check` does not join. The
-install smoke (`scripts/install-smoke.sh`, installing through both delivery
-modes and running an adopter entry point with PATH narrowed to the allowlist
-the script defines: sh and bash with the POSIX utilities, `mktemp`, git, and
-gh) runs in the `lint` job and in both platform jobs. CI also runs a parse
+--shard <i>/<N>`), the `macos-suite` and `alpine-suite` jobs run the suite
+in shards of their own on macOS (the system bash 3.2 and BSD userland; a
+small fixed count, since macOS runners are scarce) and in an Alpine container
+(musl, dash, busybox; the planned count), and the `check` job, the status
+branch protection reads, passes only when every one of those jobs and shards
+does and the test-time budget gate passes over every Linux shard's timing
+report together. The install smoke (`scripts/install-smoke.sh`, installing
+through both delivery modes and running an adopter entry point with PATH
+narrowed to the allowlist the script defines: sh and bash with the POSIX
+utilities, `mktemp`, git, and gh) runs in the `lint` job, once on macOS in
+the `macos-smoke` job, and in every Alpine shard. CI also runs a parse
 of every tracked shell file (outside `tests/fixtures/bash32/`) under the real
 bash 3.2, a step of the `lint` job in Docker's official `bash:3.2` image pinned by
 digest in `.github/workflows/ci.yml`. To reproduce the parse, set
