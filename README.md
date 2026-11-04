@@ -50,7 +50,7 @@ from a clean machine to your first draft PR.
   of requests are routed to a spec.
 - **Review that stops.** Its review loops have iteration caps and stop when no
   progress is made, and they hand you the questions that need your judgment
-  instead of fixing every finding.
+  rather than deciding them on their own.
 - **Your project's own checks.** Supply your linters, test commands, and review
   rigor through layered overlays, without editing planwright's core.
 - **Built on Claude Code itself.** Skills, hooks, subagents, and plain files;
