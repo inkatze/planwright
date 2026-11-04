@@ -1501,8 +1501,9 @@ classify_gh() {
       deny_now 'this gh repo subcommand is an expansion the guard cannot read, and it could be repo sync - refusing (fail closed). Write the subcommand literally.'
       return 0
     fi
+    # gh ships `co` as a built-in alias of pr checkout.
     case "${SW[$k]} ${SW[$j]:-}" in
-      'pr checkout' | 'pr co' | 'repo sync')
+      'pr checkout' | 'pr co' | 'repo sync' | 'co '*)
         deny_now "gh $(sanitize_printable "${SW[$k]} ${SW[$j]:-}" 'this command') is denied to the tower in every checkout, its own included, under every policy value: it moves a local branch or a checkout's HEAD, and the tower never moves a branch. Read the PR with gh pr view, and leave checkouts to a dispatched session."
         return 0
         ;;
