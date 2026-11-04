@@ -332,24 +332,24 @@ echo "ok: NUL-bearing input fails closed (REQ-B1.6d)"
 
 # ---------------------------------------------------------------------------
 # Property 4b2: the NUL screen fails CLOSED when its own tooling fails
-# (REQ-B1.6d). A failing `wc` must not silently skip the screen and let awk
-# parse a NUL-truncated stream with exit 0 — verified by stubbing wc as a
-# shell function (function lookup precedes PATH in the lib's command
-# substitutions, same shell).
+# (REQ-B1.6d). A failing `cmp` must not silently pass the screen — verified by
+# stubbing cmp as a shell function (function lookup precedes PATH, same
+# shell) over a NUL-free file the parse otherwise accepts, so only the
+# screen's own failure handling can refuse it.
 # ---------------------------------------------------------------------------
 if out=$(
-  wc() { return 1; }
-  spec_parse_extract_tasks "$tmp/nul.md" 2>/dev/null
+  cmp() { return 2; }
+  spec_parse_extract_tasks "$tmp/tasks.md" 2>/dev/null
 ); then
-  fail "NUL screen fell open when wc failed (REQ-B1.6d fail-closed)"
+  fail "NUL screen fell open when cmp failed (REQ-B1.6d fail-closed)"
 fi
 [ -z "$out" ] || fail "NUL-screen tool failure emitted a stream: $out"
 echo "ok: NUL screen fails closed when its tooling fails (REQ-B1.6d)"
 
-# Same property for the tr side. A failing tr is NOT caught by its `||`
-# (the pipeline's exit status is wc's): it shortens the kept count instead,
-# so the screen must refuse via the count mismatch — still fail-closed,
-# with no stream on stdout.
+# Same property for the tr side. A failing tr is NOT caught by its status
+# (the pipeline's exit status is cmp's): it shortens the stream instead, so
+# the screen must refuse via the NUL refusal — still fail-closed, with no
+# stream on stdout.
 if out=$(
   tr() { return 1; }
   spec_parse_extract_tasks "$tmp/nul.md" 2>/dev/null
