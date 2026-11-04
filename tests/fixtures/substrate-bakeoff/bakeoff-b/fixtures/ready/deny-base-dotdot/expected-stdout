@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"planwright ready-guard: this pull request's base branch name is not a shape the guard will put in a compare query (a..b) - refusing (fail closed)."}}

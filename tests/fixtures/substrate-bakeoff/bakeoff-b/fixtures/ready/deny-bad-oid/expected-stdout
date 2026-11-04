@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"planwright ready-guard: this pull request's head commit id could not be read as a plain hex object id - refusing (fail closed)."}}

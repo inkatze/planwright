@@ -108,3 +108,29 @@ report can be read without the task open.
   it are in
   [its README](../tests/fixtures/substrate-bakeoff/bakeoff-a/README.md);
   each committed report and its view sit under `docs/substrate/bakeoff-a/`.
+
+## Bake-off B decisions
+
+The hook tier's bake-off, under the same rules.
+
+- **Candidates.** The full candidates this page admits for adopter tiers:
+  hardened shell, Go and Rust. The comparison points are not re-measured,
+  since the trivial program does not depend on the tier.
+- **The primitives.** The command guard's tokenizer, and the ready guard's
+  predicate from the GitHub answers to the decision, its network calls
+  replaced by recorded answers. The ready guard's own Bash-surface parse is
+  left out: it is a second, smaller tokenizer of the same kind.
+- **The call site.** The tokenizer on a typical worker command, because the
+  command guard tokenizes every Bash call while the predicate runs only on a
+  flip.
+- **The vector enumeration.** One row per false-allow vector an observation
+  in the bundle's parser-fragility Sources names, in
+  [vectors.tsv](../tests/fixtures/substrate-bakeoff/bakeoff-b/vectors.tsv):
+  vector id, observation UID, tokenizer case, and the vector. Observations
+  in that list that name no command-guard vector (a fail-open screen
+  elsewhere, an unchecked exit status) have no row.
+- **Outcome.** Every full candidate passed every fixture on each platform
+  with a committed report, so none is screened out there. The inputs and how
+  to run it are in
+  [its README](../tests/fixtures/substrate-bakeoff/bakeoff-b/README.md); each
+  committed report and its view sit under `docs/substrate/bakeoff-b/`.

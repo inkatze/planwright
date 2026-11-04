@@ -94,5 +94,6 @@ specs/_pending/notes.md
 # migration source). It is transient and SCHEDULED FOR HISTORY PURGE before any
 # public release — it may contain personal/work data. See tasks.md "Deferred".
 
-# Bake-off A build output: compiled candidates are built per run, never committed.
+# Bake-off build output: compiled candidates are built per run, never committed.
 tests/fixtures/substrate-bakeoff/bakeoff-a/candidates/*/out/
+tests/fixtures/substrate-bakeoff/bakeoff-b/candidates/*/out/

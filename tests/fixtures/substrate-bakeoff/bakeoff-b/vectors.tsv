@@ -1,0 +1,17 @@
+# The false-allow vectors the parser-fragility observations name, one
+# tokenizer fixture each under fixtures/tokenize/. Columns, tab-separated:
+# vector id, observation UID, fixture case, and the vector.
+# tests/test-substrate-bakeoff-b.sh fails when a row's fixture is missing or
+# its UID is not in the bundle's parser-fragility Sources list.
+unknown-flag-writer	aaf2fd57	vec-unknown-flag-writer	an output flag glued to its value (sort -o<file>) must stay one word a flag screen can read
+git-config-injection	aaf2fd57	vec-git-config-injection	a git -c value before the subcommand, quoted mid-word, must keep its quote position
+git-alias-injection	aaf2fd57	vec-git-alias-injection	a git -c alias whose value runs a shell (!sh) must stay one quoted word
+env-prefix	aaf2fd57	vec-env-prefix	an inline VAR= prefix with a quoted value must show its = unquoted and its value quoted
+fish-paren	aaf2fd57	vec-fish-paren	a bare parenthesis, which fish reads as a command substitution, must surface as an operator
+dup-redirect-file	aaf2fd57	vec-dup-redirect-file	a >& redirect to a file name, not a descriptor, must surface as a redirect with its target
+path-prefixed-verb	aaf2fd57	vec-path-prefixed-verb	a verb named by path (/x/cat, ./rm) must keep its path in the word
+path-escape	aaf2fd57	vec-path-escape	a .. path and a leading tilde must reach the containment check, the tilde flagged as an expansion
+fail-closed-emission	aaf2fd57	vec-fail-closed-emission	an unparseable command must emit nothing at all, not the tokens before the failure
+awk-print-redirect	026930ca	vec-awk-print-redirect	an awk program redirecting print stays one quoted word, never a shell redirect
+case-folded-key	b6c6fedb	vec-case-folded-key	a case-insensitive config key must reach the screen with its case unchanged
+quoted-substitution	f7a90c3d	vec-quoted-substitution	a command substitution inside double quotes still runs, so it must be recorded on the quoted word

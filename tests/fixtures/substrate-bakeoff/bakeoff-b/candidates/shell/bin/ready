@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# ready — bake-off B's ready-guard decision path, hardened-shell candidate.
+# The contract is proto_ready's in ../lib/proto.sh.
+set -u
+unset CDPATH
+LC_ALL=C
+export LC_ALL
+case $0 in
+  */*) proto_lib=${0%/*}/../lib ;;
+  *) proto_lib=../lib ;;
+esac
+if [ ! -f "$proto_lib/proto.sh" ] || [ ! -r "$proto_lib/proto.sh" ]; then
+  printf '%s\n' "ready: proto.sh missing or unreadable under $proto_lib" >&2
+  exit 2
+fi
+# shellcheck source=../lib/proto.sh
+. "$proto_lib/proto.sh" || exit 2
+proto_ready "$@"
