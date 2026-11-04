@@ -2719,12 +2719,15 @@ classify_tower_git() {
           return 0
         }
       # Deletion stays the tower's, and in delete mode a force only deletes an
-      # unmerged branch, so a literal, parsed delete flag settles the call: the
-      # parse keeps an option's value from reading as one, and an expansion
-      # never counts, since it could spell -f instead.
-      case $GP_LITSHORT in *[dD]*) return 0 ;; esac
-      long_prefix_seen delete 1 "$GP_LITLONG" && return 0
+      # unmerged branch, so a parsed delete flag settles the call: the parse
+      # keeps an option's value from reading as one. An expansion could spell
+      # --no-delete, which cancels delete mode, so the words must be literal
+      # first, and a --no-delete sends the call on to the checks below.
       tower_opts_literal "$k" 'this git branch' || return 0
+      if ! long_prefix_seen no-delete 4; then
+        case $GP_SHORT in *[dD]*) return 0 ;; esac
+        long_prefix_seen delete 1 && return 0
+      fi
       # -M and -C are git's --move --force and --copy --force.
       if long_prefix_seen force 1 || [[ $GP_SHORT == *[fMC]* ]]; then
         deny_now 'a forced git branch (-f, --force, -M, -C) is denied to the tower under every policy value: it repoints an existing branch, and the tower never moves a branch.'
