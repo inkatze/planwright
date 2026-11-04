@@ -53,7 +53,9 @@ usage:
 <kind> is one of `kinds`; <scope> holds letters, digits and . _ = @ : - only,
 at most 128. --rules adds a rule-store scope (duty:<id> or repo:<name>);
 program rules ride every launch. The rung is --backend, else the
-mission_control_launch_backend knob.
+mission_control_launch_backend knob. A worker or ad-hoc brief that is not a
+skill command (its first byte `/`) also carries the verification cadence:
+the in-run points and the `step-run.sh audit` that readiness repeats.
 
 The name is derived from program, kind and scope alone, so the same inputs
 always name the same session, and a name with a registry row is held until
@@ -316,6 +318,29 @@ release_fleet_entry() {
   /bin/sh "$script_dir/fleet-attention.sh" clear "$1" >/dev/null 2>&1 </dev/null
 }
 
+# cadence_section — the configured cadence a repository-changing session
+# runs, by reference to the one procedure that fires it, and the audit that
+# readiness repeats.
+cadence_section() {
+  cs_root=$(cd "$script_dir/.." && pwd -P) || return 1
+  cat <<EOF
+
+## Verification cadence
+
+This session changes a repository, so it runs the configured cadence. Fire
+every in-run point (\`pre-implementation\`, \`pre-ci\`, \`convergence\`,
+\`pre-pr\`, \`post-pr\`) at its moment by \`/execute-task\`'s *Points*
+procedure, read from \`$cs_root/skills/execute-task/SKILL.md\`, resolving
+each \`--unattended\` with unit kind \`flight\` and no spec or task ids.
+
+Before the push, run \`$cs_root/scripts/step-run.sh audit --through pre-pr\`;
+before reporting the PR done, \`$cs_root/scripts/step-run.sh audit --through post-pr\`.
+Close every gap it names first. Mission control's readiness check runs the
+same audit and refuses a PR with a gap. The PR body carries the rendered
+records (\`$cs_root/scripts/step-record.sh render\`) in a \`<details>\` block.
+EOF
+}
+
 # --------------------------------------------------------------------------
 
 cmd_launch() {
@@ -446,6 +471,15 @@ cmd_launch() {
   if ! (umask 077 && cat "$brief" >"$composed"); then
     refuse "cannot read the brief into the launch for $name" 2
   fi
+  # A kind that changes a repository runs the configured cadence whatever its
+  # brief says; a brief that is a skill command leaves it to that skill.
+  case $kind in
+    worker | ad-hoc)
+      if [ "$(head -c 1 "$brief")" != / ] && ! cadence_section >>"$composed"; then
+        refuse "cannot write the cadence into the brief for $name" 2
+      fi
+      ;;
+  esac
   # The provenance line follows the brief, so a brief that is a slash command
   # still opens with it.
   if ! {

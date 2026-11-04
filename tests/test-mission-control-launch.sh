@@ -280,11 +280,40 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
   first=$(head -n 1 "$fleet/mission-control/launch/$name/brief.md")
   [ "$first" = '# Fixture brief' ] && ok "[$kind] the composed brief opens with the brief itself" \
     || fail "[$kind] the composed brief opens with '$first'"
+  # A kind that changes a repository carries the configured cadence and its
+  # audit whatever its hand-written brief says; the others do not.
+  composed_brief="$fleet/mission-control/launch/$name/brief.md"
+  case $kind in
+    worker | ad-hoc)
+      grep -qx '## Verification cadence' "$composed_brief" && grep -qF 'step-run.sh audit --through post-pr' "$composed_brief" \
+        && grep -qF 'execute-task/SKILL.md' "$composed_brief" \
+        && ok "[$kind] the composed brief carries the cadence and its audit" \
+        || fail "[$kind] the composed brief lacks the cadence section: $(cat "$composed_brief")"
+      ;;
+    *)
+      grep -q 'Verification cadence' "$composed_brief" && fail "[$kind] a session that changes no repository was handed the cadence" \
+        || ok "[$kind] no cadence section for a kind that changes no repository"
+      ;;
+  esac
   wait_done "$name"
 done
 ml list
 [ "$(printf '%s\n' "$OUT" | grep -c .)" = 6 ] && ok "list shows the six launched sessions" \
   || fail "list does not show six sessions: $OUT"
+
+# A brief that runs a skill command leaves the cadence to that skill.
+printf '%s\n' '/planwright:execute-task specs/alpha 3' >"$tmp/skill-brief.md"
+rec="$tmp/rec-skill"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind worker --scope skill-brief --brief "$tmp/skill-brief.md"
+[ "$RC" = 0 ] || fail "the skill-command launch exited $RC: $ERR"
+skill_brief="$fleet/mission-control/launch/$(field name)/brief.md"
+if [ "$(head -n 1 "$skill_brief")" = '/planwright:execute-task specs/alpha 3' ] && ! grep -q 'Verification cadence' "$skill_brief"; then
+  ok "a skill-command brief opens with its command and gets no second cadence"
+else
+  fail "the skill-command brief was changed: $(cat "$skill_brief")"
+fi
+wait_done "$(field name)"
 
 # --rules adds an in-scope rule to the brief.
 rec="$tmp/rec-rules"

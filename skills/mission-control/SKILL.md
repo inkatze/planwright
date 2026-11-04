@@ -183,6 +183,9 @@ Launch, message, answer, retire; never hand the operator a per-session step.
 - **Launch** every session through
   `scripts/mission-control-launch.sh`'s `launch`, which delivers the brief,
   the rules in scope, the profile, the model tier and a deterministic name; **retire** through its `retire`.
+- **Report** a PR as up, or its unit as done, only with
+  `scripts/mc-readiness.sh`'s `check` run on its head: a configured step
+  with no record there is named as missing, never reported as done.
 - **Message** a session by `SendMessage` when `ListAgents` lists it; only an
   unreachable one takes the pane relay, as the tower's messaging says
   (D-23).
