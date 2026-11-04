@@ -39,6 +39,7 @@ let isRefreshing = false
 let isRaising = false
 let isClaimed = false
 let isFetchingReviews = false
+let isRedrawing = false
 let hasKnobs = false
 // Faults the next good digest must not clear (an unclaimed target, events
 // that could not be marked, an activation that leaked), one per kind.
@@ -189,7 +190,7 @@ async function refreshReviews($: EngineInterface) {
   if (isNew) void redraw($)
 }
 
-// One digest read laid into the view; the caller holds isRefreshing.
+// One digest read laid into the view.
 async function readDigest($: EngineInterface) {
   if (!ctx) return
   // Knobs are read until a reading names all of them, then carried on.
@@ -211,15 +212,17 @@ async function readDigest($: EngineInterface) {
 }
 
 // Draws a new reviews snapshot now, without the redraw's other duties.
+// Its own flag, not isRefreshing: a redraw falling due meanwhile must still
+// run its duties, and two digest reads may overlap harmlessly.
 async function redraw($: EngineInterface) {
-  if (!ctx || isRefreshing) return
-  isRefreshing = true
+  if (!ctx || isRedrawing) return
+  isRedrawing = true
   try {
     await readDigest($)
   } catch (err) {
     await fault($, oneLine(String(err)))
   } finally {
-    isRefreshing = false
+    isRedrawing = false
   }
 }
 
