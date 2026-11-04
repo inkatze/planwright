@@ -479,7 +479,7 @@ Signed off: 2026-10-08
 
 #### Lens review (delta-scoped)
 
-Class: meaning (the delta adds REQs and D-IDs, which count as
+**Class:** meaning (the delta adds REQs and D-IDs, which count as
 meaning-class by rule). Fan-out: four read-only sub-agents over the delta
 and this walk's edit, lenses paired (contract and ambiguity; citation,
 dead paths, and testability; decision-domain gaps and cross-file; glossary
