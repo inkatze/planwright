@@ -22,6 +22,7 @@
 #   step-run.sh [--worktree <dir>] end --run <id> --point <point>
 #       --step <id> --exit <code> [--timed-out <seconds>] [--output <file>]
 #       [--session <id>]
+#   step-run.sh [--worktree <dir>] audit --through <point> [--head <sha>]
 #
 #   --worktree  the unit's worktree; default the enclosing git top level.
 #               Every command runs there.
@@ -91,6 +92,22 @@
 #           nothing again. The re-fire, backend, owner, pool, target, and
 #           hosting come from begin, never the resolved row; end refuses the
 #           flags.
+# audit     read-only: compare the configured cadence with the records, so a
+#           hand-on boundary catches a skipped point or step whoever skipped
+#           it. Resolves the in-run points from pre-implementation through
+#           <point> (--explain --unattended; a park or ask still names its
+#           steps). Every row but `skip` is required. Per point with a
+#           required step: `gap<TAB><point><TAB>incomplete<TAB>-` with no
+#           completion record; `...stale<TAB><head>` naming the latest
+#           completion when none counts (a completion counts on an ancestor
+#           of the head, and for the last such point only on the head itself
+#           or with nothing but merge commits on the first-parent path after
+#           it); `...missing<TAB><step>` with no record of the step there;
+#           `...failed<TAB><step>:<outcome>` with only records outside
+#           passed, applied, and skipped (any run counts); else
+#           `covered<TAB><point>`. Then `audit<TAB>complete|gaps<TAB><head>`,
+#           the head --head or the worktree's. Exit 0 complete, 1 gaps, 4 the
+#           records or the cadence could not be read.
 #
 # The context: SPEC, TASK_IDS, UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE, and
 # PR_NUMBER of the PLANWRIGHT_STEP_* fields come from the caller's
@@ -835,7 +852,125 @@ cmd_end() {
   if [ "$EXIT_CODE" -eq 0 ]; then finish passed "$o"; else finish failed "$o"; fi
 }
 
+# --- audit ------------------------------------------------------------------
+# The audit may read another session's worktree, so its reads keep the
+# caller's git configuration (a reader's fsmonitor and hooks overrides),
+# clearing only the repository selectors.
+aread() (
+  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+  exec "$@"
+)
+cmd_audit() {
+  local through='' head='' points=() p rc kind pt rest last='' h fresh latest gaps=0 any
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --through | --head) [ $# -ge 2 ] || usage ;;
+      *) usage ;;
+    esac
+    case $1 in
+      --through) through=$2 ;;
+      --head) head=$2 ;;
+    esac
+    shift 2
+  done
+  is_in_run_point "$through" || die 2 "--through: not an in-run point"
+  if [ -n "$head" ]; then
+    [[ $head =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || die 2 "--head: not a full commit id"
+  else
+    head=$(aread git rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
+  fi
+  for p in pre-implementation pre-ci convergence pre-pr post-pr; do
+    points+=("$p")
+    [ "$p" != "$through" ] || break
+  done
+  "$RS" "${points[@]}" --explain --unattended >"$work/rows" 2>"$work/resolve.err"
+  rc=$?
+  if [ "$rc" -gt 1 ]; then
+    cat "$work/resolve.err" >&2
+    die 4 "the configured cadence did not resolve (resolve-steps exit $rc)"
+  fi
+  aread /bin/sh "$SR" --worktree "$worktree" list >"$work/records" || die 4 "cannot read the step records"
+  # One `point` line per point with a required step (its completion heads,
+  # oldest first), then that point's step gaps.
+  awk -F '\t' -v PTS="${points[*]}" '
+    function flush() {
+      if (!inrec) return
+      inrec = 0
+      if (t == "completion" && pt != "") done[pt] = done[pt] " " h
+      else if (t == "step" && pt != "" && s != "") {
+        last[pt, s] = o
+        if (o == "passed" || o == "applied" || o == "skipped") good[pt, s] = 1
+      }
+    }
+    FILENAME == ARGV[1] {
+      if ($1 != "skip" && $2 != "" && !(($3, $2) in seen)) { seen[$3, $2] = 1; req[$3, ++nr[$3]] = $2 }
+      next
+    }
+    $1 == "record" { flush(); inrec = 1; t = pt = s = o = h = ""; next }
+    $0 == "" { flush(); next }
+    $1 == "type" { t = $2 } $1 == "point" { pt = $2 } $1 == "step" { s = $2 }
+    $1 == "outcome" { o = $2 } $1 == "head" { h = $2 }
+    END {
+      flush()
+      n = split(PTS, P, " ")
+      for (i = 1; i <= n; i++) {
+        p = P[i]
+        if (!nr[p]) continue
+        print "point\t" p "\t" substr(done[p], 2)
+        for (j = 1; j <= nr[p]; j++) {
+          id = req[p, j]
+          if ((p, id) in good) continue
+          if ((p, id) in last) print "gap\t" p "\tfailed\t" id ":" last[p, id]
+          else print "gap\t" p "\tmissing\t" id
+        }
+      }
+    }' "$work/rows" "$work/records" >"$work/plan" || die 4 "cannot read the step records"
+  while IFS=$TAB read -r kind pt rest; do
+    [ "$kind" = point ] && last=$pt
+  done <"$work/plan"
+  any=''
+  emit_point() {
+    [ -z "$1" ] || [ -n "$any" ] || printf 'covered\t%s\n' "$1"
+  }
+  local cur=''
+  while IFS= read -r line; do
+    kind=$(field "$line" 1) pt=$(field "$line" 2) rest=$(field "$line" 3)
+    if [ "$kind" = point ]; then
+      emit_point "$cur"
+      cur=$pt any=''
+      fresh=0 latest=''
+      for h in $rest; do
+        latest=$h
+        aread git merge-base --is-ancestor "$h" "$head" 2>/dev/null || continue
+        if [ "$pt" != "$last" ] || [ "$h" = "$head" ] \
+          || [ -z "$(aread git rev-list --first-parent --no-merges "$h..$head" 2>/dev/null)" ]; then
+          fresh=1
+        fi
+      done
+      if [ -z "$latest" ]; then
+        printf 'gap\t%s\tincomplete\t-\n' "$pt"
+        any=1
+      elif [ "$fresh" -eq 0 ]; then
+        printf 'gap\t%s\tstale\t%s\n' "$pt" "$latest"
+        any=1
+      fi
+    else
+      printf '%s\n' "$line"
+      any=1
+    fi
+    [ -z "$any" ] || gaps=1
+  done <"$work/plan"
+  emit_point "$cur"
+  if [ "$gaps" -eq 0 ]; then
+    printf 'audit\tcomplete\t%s\n' "$head"
+    return 0
+  fi
+  printf 'audit\tgaps\t%s\n' "$head"
+  return 1
+}
+
 case $verb in
+  audit) cmd_audit "$@" ;;
   resolve) cmd_resolve "$@" ;;
   resume) cmd_resume "$@" ;;
   refire) cmd_refire "$@" ;;
