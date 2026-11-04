@@ -773,7 +773,14 @@ cat >"$slow/inception-secret-screen.sh" <<'STUB'
 #!/bin/sh
 if grep -q slowstep "$2"; then
   : >"${0%/*}/slow-started"
-  sleep 6
+  # Hold the screen until the test has written the completion, so the step
+  # is still screening when its point completes; the cap only stops a broken
+  # run from hanging.
+  i=0
+  while [ ! -e "${0%/*}/slow-release" ] && [ "$i" -lt 600 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
   exit 0
 fi
 printf 'call\n' >>"${0%/*}/calls"
@@ -792,6 +799,7 @@ verdict "the slow step reached its screen before the completion" "the slow step 
   --head "$HEAD_SHA" >/dev/null
 [ ! -s "$slow/calls" ]
 verdict "a completion with no warning runs no screen" "the screen ran for a warning-free completion"
+: >"$slow/slow-release"
 wait "$slowpid"
 rc=$?
 left=$(find "$w9/.claude/steps/$r9" -mindepth 1 -exec basename {} \; | sort | tr '\n' ' ')
