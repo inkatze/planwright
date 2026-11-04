@@ -208,7 +208,11 @@ guard's share of the check aggregate's wall-clock). The manifest grammar
 also makes it a parser, though the matrix attributes the tier's
 parser-fragility items to other scripts. The bake-off would measure the
 five surviving full candidates on it under the existing harness; Zig and Bun stay comparison
-points.
+points. The harness already accepts `dev-check` as a tier, but it requires
+a `delivery.marketplace` and a `delivery.writer` script from every
+candidate, and REQ-C1.4 measures delivery through both modes, while a
+dev-check script ships through neither; the bake-off's task would have to
+settle what that measurement means for this tier before it runs.
 
 **What the operator decides.** Whether the dev-check tier takes that
 bake-off, a new task added to the bundle through the amendment ritual, or
