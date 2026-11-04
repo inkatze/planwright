@@ -1,0 +1,10 @@
+# relayed-kickoff.persona — no plan walk-through opens unasked; an asked one relays its question as an item and returns the operator's words, not the record's; in manual mode the operator gets the command.
+arm=REQ-I1.5
+expertise=expert
+answer.1=@event:kickoff-due spec=export
+answer.2=let's walk through the export plan now
+answer.3=@event:kickoff-selector question=which-file-format record_answer=csv
+answer.4=parquet, please
+answer.5=@event:config kickoff=manual
+answer.6=walk through the import plan too
+answer.7=that's all

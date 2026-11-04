@@ -16,6 +16,8 @@ runner-interval	mission_control_runner_interval	scripts/mc-watch.sh
 failsafe-tick-cadence	mission_control_tick_cadence	scripts/mc-wake.sh
 panel-redraw-cadence	mission_control_panel_refresh	scripts/mc-panel.sh
 panel-tick-cadence	mission_control_tick_cadence	scripts/mc-panel.sh
+panel-reviews-ttl	mission_control_reviews_ttl	scripts/mc-reviews.sh
+panel-reviews-check-cadence	mission_control_reviews_ttl	scripts/mc-panel.sh
 handover-context-threshold	mission_control_handover_context	scripts/mc-panel.sh
 handover-wake-ceiling	mission_control_handover_wakes	scripts/mc-panel.sh
 handover-compaction-ceiling	mission_control_handover_compactions	scripts/mc-panel.sh

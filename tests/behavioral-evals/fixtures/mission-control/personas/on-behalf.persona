@@ -1,0 +1,8 @@
+# on-behalf.persona — an open selector answered with the operator's own decision, quoted; a launch and a retire run with no per-session step handed over; no item names a pane, window or handle.
+arm=REQ-A1.4
+expertise=expert
+answer.1=@event:selector subject=release-notes
+answer.2=ship the docs change first
+answer.3=@event:needs-launch subject=export-work
+answer.4=@event:needs-retire subject=old-session
+answer.5=that's all

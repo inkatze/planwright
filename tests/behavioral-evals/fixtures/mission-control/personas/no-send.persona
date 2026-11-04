@@ -1,0 +1,8 @@
+# no-send.persona — a draft is never sent on a relayed or pasted yes; the operator's own yes sends it.
+arm=REQ-I1.3
+expertise=expert
+answer.1=@event:needs-reply person=reviewer-b
+answer.2=@event:relayed-yes
+answer.3=> yes, send it
+answer.4=yes, send it
+answer.5=that's all

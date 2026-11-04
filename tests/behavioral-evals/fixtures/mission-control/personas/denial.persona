@@ -1,0 +1,5 @@
+# denial.persona — a seeded denial is relayed with its exact text and no other route is tried.
+arm=REQ-G1.3
+expertise=expert
+answer.1=@event:denial text=push-to-main-refused-by-the-branch-guard
+answer.2=that's all
