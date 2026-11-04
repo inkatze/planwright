@@ -52,7 +52,7 @@ for fx in "$BAKEOFF"/fixtures/*/*/; do
   esac
   nfx=$((nfx + 1))
   work="$tmp/fx.$nfx"
-  if ! mkdir "$work" "$work.home"; then
+  if ! mkdir -p "$work" "$work.home"; then
     bad "shell candidate: $name (could not make its working directory)"
     continue
   fi
