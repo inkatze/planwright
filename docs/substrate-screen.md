@@ -147,9 +147,10 @@ but which the profile permits.
 | Node | full | passes | The runtime is already present for `markdownlint-cli2`; as Python. |
 | Zig | comparison point | passes, as a comparison point only | Nothing in the profile excludes it, but a comparison point cannot be selected without a further bake-off promoting it (REQ-C1.1). |
 | Bun-compiled TypeScript | comparison point | passes, as a comparison point only | Its executable size and embedded-engine obligation bind only a shipped artifact; as Zig, it is not selectable. |
-| Every candidate in the Excluded table | not classed | not screened out, not admitted | Each was excluded from adopter tiers only, on cross-compilation, on-target build, or delivery grounds, none of which binds a tool built where it runs and shipped nowhere; Python's packaging routes and Node's single executables are moot beside the Python and Node rows. None enters this tier's set unclassed (REQ-C1.1), and classing one would be the dev-check bake-off's own screen: admitting any only adds survivors, so the outcome below holds either way. |
+| Deno compile | not classed | screened out | Its exclusion, no musl target, still binds: the dev-check profile reaches the CI matrix's platforms, Alpine included. |
+| Every other candidate in the Excluded table | not classed | not screened out, not admitted | Each was excluded from adopter tiers on hard-constraint, matrix, or delivery grounds that a tool built where it runs and shipped nowhere does not face, or (Haskell) for want of any share among the surveyed tools, which is no dev-check constraint either; Python's packaging routes and Node's single executables are moot beside the Python and Node rows. None enters this tier's set unclassed (REQ-C1.1), and classing one would be the dev-check bake-off's own screen: admitting any only adds survivors, so the outcome below holds either way. |
 
-No candidate is screened out of the dev-check tier, so five full candidates
+No admitted candidate is screened out of the dev-check tier, so five full candidates
 survive it and the tier cannot be settled by the screen record, which
 REQ-C1.3 allows only when exactly one survives.
 
@@ -180,7 +181,7 @@ profiles record them:
   on audience and auditability weight. It therefore differs on a hard axis
   from every tier that is or will be decided before it, and REQ-C1.3's
   inheritance branch, which needs no such difference, does not apply.
-- **Defect classes.** The decided pair's bake-off exercised the lock
+- **Defect classes.** The pair's bake-off exercised the lock
   primitive and the `Dependencies:` line parse: lock-concurrency,
   parser-fragility and duplicated-primitive. The dev-check row of
   [the pain matrix](substrate/pain-matrix-2026-10-18.md) is led instead by
@@ -205,13 +206,13 @@ script the matrix names most often, and its items there fall mostly on the
 tier's leading class, instruction-headroom, and on perf-spawn-cost (the
 guard's share of the check aggregate's wall-clock). The manifest grammar
 also makes it a parser, though the matrix attributes the tier's
-parser-fragility items to other scripts. The bake-off would measure the five surviving full
-candidates on it under the existing harness; Zig and Bun stay comparison
+parser-fragility items to other scripts. The bake-off would measure the
+five surviving full candidates on it under the existing harness; Zig and Bun stay comparison
 points.
 
 **What the operator decides.** Whether the dev-check tier takes that
 bake-off, a new task added to the bundle through the amendment ritual, or
-is settled another way, such as inheriting the decided pair's verdict
-despite the audience and auditability differences. The breadth rule as
+is settled another way, such as inheriting the pair's verdict, once it is
+decided, despite the audience and auditability differences. The breadth rule as
 written does not provide that second route, so it too would need a
 meaning-class amendment.
