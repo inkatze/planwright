@@ -104,7 +104,8 @@ chmod +x "$tmp/bin/gh"
 # reviewed by bob only on an older head and by me on its head (a
 # reply-review, which never counts), nobody requested, a title carrying a
 # tab and a control byte. #12
-# waits on my review, requested by dave at 1970-01-01T00:10:00Z; #13 is a
+# waits on my review, requested by dave at 1970-01-01T00:10:00Z, its title
+# carrying a line separator and invisible marks, each a space; #13 is a
 # draft whose request event is not mine, so its author and creation stand in;
 # its title carries a backslash, kept single, and a direction override, dropped.
 cat >"$tmp/page.json" <<EOF
@@ -133,7 +134,7 @@ cat >"$tmp/page.json" <<EOF
    "commits": {"nodes": []}, "reviews": {"nodes": []}},
   {}]},
  "waiting": {"issueCount": 2, "nodes": [
-  {"number": 12, "title": "Rework the docs", "isDraft": false, "createdAt": "1970-01-01T00:00:00Z",
+  {"number": 12, "title": "Rework\u2028the\u061c docs\u200b\ufeff", "isDraft": false, "createdAt": "1970-01-01T00:00:00Z",
    "repository": {"nameWithOwner": "acme/widgets"}, "author": {"login": "erin"},
    "timelineItems": {"nodes": [{"createdAt": "1970-01-01T00:05:00Z", "actor": {"login": "erin"}, "requestedReviewer": {"login": "zed"}},
                                {"createdAt": "1970-01-01T00:10:00Z", "actor": {"login": "dave"}, "requestedReviewer": {"login": "me"}}]}},

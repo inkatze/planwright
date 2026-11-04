@@ -183,7 +183,7 @@ EOF
 QUERY='query($mine:String!,$waiting:String!){ viewer{ login } mine: search(query:$mine,type:ISSUE,first:'"$SEARCH_FIRST"'){ issueCount nodes{ ... on PullRequest{ number title isDraft headRefOid repository{ nameWithOwner } reviewRequests(first:20){ nodes{ requestedReviewer{ ... on User{ login } ... on Team{ slug } ... on Bot{ login } ... on Mannequin{ login } } } } reviewThreads(first:100){ nodes{ isResolved } } commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } reviews(last:50){ nodes{ author{ login } commit{ oid } } } } } } waiting: search(query:$waiting,type:ISSUE,first:'"$SEARCH_FIRST"'){ issueCount nodes{ ... on PullRequest{ number title isDraft createdAt repository{ nameWithOwner } author{ login } timelineItems(itemTypes:[REVIEW_REQUESTED_EVENT],last:20){ nodes{ ... on ReviewRequestedEvent{ createdAt actor{ login } requestedReviewer{ ... on User{ login } } } } } } } } }'
 # A search node that is not a pull request carries no number and is skipped.
 # shellcheck disable=SC2016 # jq, not shell
-JQ='def clean: gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]+"; " ") | gsub("  +"; " ") | sub("^ "; "") | sub(" $"; "");
+JQ='def clean: gsub("[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]+"; " ") | gsub("  +"; " ") | sub("^ "; "") | sub(" $"; "");
   def ci: if . == null then "none" elif . == "SUCCESS" then "green"
     elif . == "FAILURE" or . == "ERROR" then "red" else "running" end;
   def state: if .isDraft then "draft" else "ready" end;
