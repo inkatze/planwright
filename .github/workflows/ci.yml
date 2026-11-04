@@ -4,8 +4,9 @@
 # contributors run locally, runs here split across parallel jobs, with tool
 # versions pinned in mise.toml (contributor/CI parity by construction): the
 # lint job runs `check:non-test` (every gate but the suite), the plan job
-# picks how many shards the suite needs, one test job runs each shard, and the
-# `check` job joins them and judges the suite's timing over every shard's
+# picks how many shards the suite needs, one test job runs each shard, the
+# macOS and Alpine jobs run the suite in shards of their own, and the `check`
+# job joins them all and judges the suite's timing over every Linux shard's
 # report. The status branch protection and the
 # ready-flip tooling read is `check`, so that job id must not change. The bash
 # 3.2 parse step needs Docker, so it runs here only. Actions are pinned to
@@ -251,15 +252,17 @@ jobs:
           path: ${{ runner.temp }}/timing-report.tsv
           overwrite: true
 
-  # The aggregate status. It always runs, so a failed, skipped, or cancelled
-  # job above fails it rather than leaving it skipped, which branch protection
-  # reads as passing; under `!cancelled()` a run cancelled while this job
-  # waited would skip it. A failed plan skips every shard, which fails it
-  # too. Then it runs the timing gate
-  # (`check:test-time` in `mise run check`) over every shard's report at once:
-  # the gate needs one row per test file, which only the union holds.
+  # The aggregate status, joining every job on every platform. It always runs,
+  # so a failed, skipped, or cancelled job above fails it rather than leaving
+  # it skipped, which branch protection reads as passing; under `!cancelled()`
+  # a run cancelled while this job waited would skip it. A matrix job's result
+  # is success only when every one of its shards succeeded, and a failed plan
+  # skips every planned shard, which fails it too. Then it runs the timing
+  # gate (`check:test-time` in `mise run check`) over every Linux shard's
+  # report at once: the gate needs one row per test file, which only the union
+  # holds, and its budgets are the Ubuntu runner's.
   check:
-    needs: [lint, plan, test]
+    needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -268,10 +271,16 @@ jobs:
           LINT_RESULT: ${{ needs.lint.result }}
           PLAN_RESULT: ${{ needs.plan.result }}
           TEST_RESULT: ${{ needs.test.result }}
+          MACOS_RESULT: ${{ needs.macos-suite.result }}
+          MACOS_SMOKE_RESULT: ${{ needs.macos-smoke.result }}
+          ALPINE_RESULT: ${{ needs.alpine-suite.result }}
         run: |
           echo "lint: $LINT_RESULT; plan: $PLAN_RESULT; test: $TEST_RESULT"
+          echo "macos-suite: $MACOS_RESULT; macos-smoke: $MACOS_SMOKE_RESULT"
+          echo "alpine-suite: $ALPINE_RESULT"
           [ "$LINT_RESULT" = success ] && [ "$PLAN_RESULT" = success ] \
-            && [ "$TEST_RESULT" = success ]
+            && [ "$TEST_RESULT" = success ] && [ "$MACOS_RESULT" = success ] \
+            && [ "$MACOS_SMOKE_RESULT" = success ] && [ "$ALPINE_RESULT" = success ]
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
@@ -288,28 +297,35 @@ jobs:
           /bin/bash scripts/check-test-time.sh "$@"
 
   # The two platforms the matrix adds beside the Ubuntu jobs above, each
-  # blocking on every pull request: the full shell suite and the install smoke
-  # on macOS (the system bash 3.2 and the BSD awk and sed) and on Alpine (musl,
-  # dash as /bin/sh, busybox). Both run the suite as `mise run test` with the
-  # pinned dev toolchain, as the test shard jobs do, so a tool-gated case runs
-  # rather than skipping. Full history, for the tests that check fixture
-  # provenance. The install smoke (scripts/install-smoke.sh) installs planwright
-  # through the writer and the Claude CLI's marketplace flow and runs
-  # scripts/step-record.sh, the adopter-tier script with the largest coupling
-  # profile in the partition, with PATH narrowed to an allowlist of a POSIX
-  # shell's utilities, git, and gh; it runs on Ubuntu in the lint job.
-  # check:workflow-posture holds these jobs to the matrix: present, never
-  # gated on a platform, every step blocking, and the Alpine steps to its scope.
+  # joined by `check`: the full shell suite and the install smoke on macOS
+  # (the system bash 3.2 and the BSD awk and sed) and on Alpine (musl, dash
+  # as /bin/sh, busybox). Both run the suite in shards (scripts/run-tests.sh
+  # --shard) as `mise run test` with the pinned dev toolchain, as the test
+  # shard jobs do, so a tool-gated case runs rather than skipping. Full
+  # history, for the tests that check fixture provenance. The install smoke
+  # (scripts/install-smoke.sh) installs planwright through the writer and the
+  # Claude CLI's marketplace flow and runs scripts/step-record.sh, the
+  # adopter-tier script with the largest coupling profile in the partition,
+  # with PATH narrowed to an allowlist of a POSIX shell's utilities, git, and
+  # gh; it runs on Ubuntu in the lint job. check:workflow-posture holds these
+  # jobs to the matrix: present, never gated on a platform, every step
+  # blocking, and the Alpine steps to its scope.
   #
-  # The macOS suite narrows PATH to the system directories, so it meets the
+  # The macOS jobs narrow PATH to the system directories, so they meet the
   # system bash 3.2 and the BSD awk and sed rather than the GNU tools the
   # runner image layers on top; gh, mise, node (for markdownlint-cli2), and the
   # Claude CLI are linked into a directory of their own instead of exposing
   # Homebrew's. REQUIRE_BSD_AWK makes a runner image without that awk fail
-  # instead of skipping green.
+  # instead of skipping green. The macOS shard count is fixed and small, not
+  # the planned list: macOS runners are scarce and queue across pull requests.
   macos-suite:
+    name: macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: macos-latest
-    timeout-minutes: 150
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
@@ -328,13 +344,34 @@ jobs:
       - name: shell suite
         env:
           PLANWRIGHT_TEST_REQUIRE_BSD_AWK: "1"
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
         run: |
           allow="$RUNNER_TEMP/allow-bin"
           mise_bin=$(command -v mise)
           PATH="$allow:/usr/bin:/bin:/usr/sbin:/sbin"
           /bin/bash --version
           /usr/bin/awk --version
-          "$mise_bin" run test
+          "$mise_bin" run test -- --shard "$SHARD/$SHARDS"
+
+  macos-smoke:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          fetch-depth: 0
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4.1.0
+        with:
+          version: 2026.6.1
+      - run: |
+          npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+          claude --version
+      - run: |
+          allow="$RUNNER_TEMP/allow-bin"
+          mkdir -p "$allow"
+          ln -s "$(command -v gh)" "$(command -v node)" "$(command -v mise)" \
+            "$(command -v claude)" "$allow/"
       - name: install smoke
         run: |
           PATH="$RUNNER_TEMP/allow-bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -359,9 +396,20 @@ jobs:
   # screen; the suite timing gate runs in the check job. The install smoke's
   # marketplace mode needs the Claude CLI to install through, so the CLI is
   # added for it after the suite has run.
+  #
+  # The suite runs in the planned shards, since this runner type is the one
+  # the plan job measures. Every shard also runs the install smoke: the
+  # posture guard holds the Alpine scope to a single job (universal-binary
+  # REQ-B1.4), so the smoke cannot move to a job of its own as on macOS.
   alpine-suite:
+    name: alpine-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     container:
       image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
       options: --init
@@ -388,7 +436,10 @@ jobs:
           chown -R suite "$GITHUB_WORKSPACE"
           su suite -c 'mise trust -q . && mise install'
       - name: shell suite
-        run: su suite -c 'mise run test'
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
+        run: su suite -c "mise run test -- --shard $SHARD/$SHARDS"
       - name: "setup: the Claude CLI"
         run: |
           apk add --no-cache libgcc libstdc++

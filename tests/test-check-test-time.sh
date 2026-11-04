@@ -637,7 +637,8 @@ lint_block="$(job_block lint)"
 # The expected strings are workflow text, so `$` and `${{` in them are literal.
 # shellcheck disable=SC2016
 {
-  assert_contains "ci.yml has an aggregate check job needing lint, plan, and test" "$check_block" "needs: [lint, plan, test]"
+  assert_contains "ci.yml has an aggregate check job needing lint, plan, test, and every platform job" "$check_block" \
+    "needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite]"
   assert_contains "the check job runs whatever its needs did" "$check_block" 'if: ${{ always() }}'
   assert_contains "the check job fails unless lint and the plan passed" "$check_block" \
     '[ "$LINT_RESULT" = success ] && [ "$PLAN_RESULT" = success ]'
@@ -656,6 +657,47 @@ lint_block="$(job_block lint)"
   assert_contains "each shard uploads its timing report" "$test_block" 'name: timing-report-${{ matrix.shard }}'
   assert_contains "the lint job runs every other gate" "$lint_block" "mise run check:non-test"
 }
+
+# ---------------------------------------------------------------------------
+# 14. The macOS and Alpine suites run sharded like the test job, and `check`
+#     joins them: a failed, cancelled, or skipped shard on either platform,
+#     or the macOS install smoke, fails it. macOS takes a fixed small count,
+#     since its runners are scarce; Alpine takes the planned list.
+# ---------------------------------------------------------------------------
+macos_block="$(job_block macos-suite)"
+smoke_block="$(job_block macos-smoke)"
+alpine_block="$(job_block alpine-suite)"
+# shellcheck disable=SC2016
+{
+  assert_contains "the check job reads the macOS suite's result" "$check_block" 'MACOS_RESULT: ${{ needs.macos-suite.result }}'
+  assert_contains "the check job reads the macOS smoke's result" "$check_block" 'MACOS_SMOKE_RESULT: ${{ needs.macos-smoke.result }}'
+  assert_contains "the check job reads the Alpine suite's result" "$check_block" 'ALPINE_RESULT: ${{ needs.alpine-suite.result }}'
+  assert_contains "the check job fails unless the macOS suite passed" "$check_block" \
+    '&& [ "$MACOS_RESULT" = success ]'
+  assert_contains "the check job fails unless the macOS smoke and the Alpine suite passed" "$check_block" \
+    '&& [ "$MACOS_SMOKE_RESULT" = success ] && [ "$ALPINE_RESULT" = success ]'
+  assert_contains "the macOS suite runs a fixed shard list" "$macos_block" 'shard: [1, 2, 3, 4]'
+  assert_contains "the macOS shard count comes from the matrix" "$macos_block" 'SHARDS: ${{ strategy.job-total }}'
+  assert_contains "each macOS job runs one shard" "$macos_block" '"$mise_bin" run test -- --shard "$SHARD/$SHARDS"'
+  assert_contains "every macOS shard requires the BSD awk" "$macos_block" 'PLANWRIGHT_TEST_REQUIRE_BSD_AWK: "1"'
+  assert_contains "every macOS shard narrows PATH to the system tools" "$macos_block" 'PATH="$allow:/usr/bin:/bin:/usr/sbin:/sbin"'
+  assert_not_contains "no macOS shard runs the install smoke" "$macos_block" "install-smoke.sh"
+  assert_contains "the macOS install smoke runs once, in its own job" "$smoke_block" "/bin/sh scripts/install-smoke.sh"
+  assert_not_contains "the macOS smoke job runs no suite" "$smoke_block" "run test"
+  assert_contains "the Alpine suite waits for the plan" "$alpine_block" "needs: plan"
+  assert_contains "the Alpine matrix is the planned list" "$alpine_block" 'shard: ${{ fromJSON(needs.plan.outputs.shards) }}'
+  assert_contains "the Alpine shard count comes from the matrix" "$alpine_block" 'SHARDS: ${{ strategy.job-total }}'
+  assert_contains "each Alpine job runs one shard as the suite user" "$alpine_block" \
+    "su suite -c \"mise run test -- --shard \$SHARD/\$SHARDS\""
+}
+
+# scripts/refresh-test-durations-ci.sh picks the Linux shard jobs by the
+# `test (shard ` name prefix, so the platform shards are named by their job id.
+for job in macos-suite alpine-suite; do
+  # shellcheck disable=SC2016
+  assert_contains "$job's shards are named by the job id" "$(job_block "$job")" \
+    "    name: $job (shard \${{ matrix.shard }}/\${{ strategy.job-total }})"
+done
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
