@@ -45,10 +45,16 @@ mission control itself and each of its follow-on bundles. A unit of any other
 spec is not gated.
 
 THE LEDGER, one tab-separated line per run, appended:
-  <utc time><TAB><head><TAB><spec><TAB>pass|fail<TAB><detail>
+  <utc time><TAB><head><TAB><spec><TAB>pass|fail<TAB><detail><TAB>fp=<hash>
 It defaults to planwright/mc-eval-cadence.tsv under the repository's git
 common directory, so every worktree of the repository shares it and it is
 never tracked. The latest line for a head is that head's record.
+
+THE FINGERPRINT is one content hash over the files the fixture's
+`fingerprint-paths` names (the skill and the doctrine the stand-in mirrors),
+read under the skill root (default this script's checkout; --skill-root
+overrides it, an override that needs an explicit --ledger). A missing path
+fails rather than hash less than the list claims.
 
 VERBS
   complete [--test-spec <file>] [--fixture <dir>]
@@ -74,7 +80,8 @@ VERBS
       PLANWRIGHT_STEP_WORKTREE (default the current directory). An ungated
       spec passes. A gated one passes on a green record for the head, fails
       on a red one (a finding to read; re-run on demand), and with no record
-      runs the suite once and follows its result.
+      runs the suite once and follows its result. A record whose fingerprint
+      is absent or differs from the current files counts as no record.
   inventory [--ledger <file>] [--worktree <dir>] [--live <names>]
       The manual sweep's row: the run count, the heads covered, the latest
       record, and every head run more than once (a flaky suite's signal).
@@ -100,6 +107,8 @@ live=""
 live_set=0
 suite_override=0
 ledger_given=0
+skill_root="$root"
+run_fp=""
 
 valid_spec() {
   [ "${#1}" -le 64 ] || return 1
@@ -149,6 +158,40 @@ is_gated() {
   _list=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$_gf") \
     || mc_usage_fail "the gated-specs list cannot be read: $(sanitize_printable "$_gf")"
   printf '%s\n' "$_list" | grep -qxF -- "$1"
+}
+
+# fingerprint — one content hash over the files the fixture's
+# `fingerprint-paths` names (a directory: every file under it), resolved
+# under the skill root. A path that is missing, or a list naming nothing,
+# fails: a record must never carry a fingerprint of less than it claims.
+fingerprint() {
+  _fpf="$fixture/fingerprint-paths"
+  [ -r "$_fpf" ] || mc_usage_fail "the fingerprint-paths list is missing or unreadable: $(sanitize_printable "$_fpf")"
+  _fpl=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$_fpf" | awk 'NF') \
+    || mc_usage_fail "the fingerprint-paths list cannot be read"
+  [ -n "$_fpl" ] || mc_usage_fail "the fingerprint-paths list names nothing"
+  _fpo=""
+  for _p in $_fpl; do
+    case $_p in
+      /* | -* | *..*) mc_usage_fail "fingerprint path not repository-relative: $(sanitize_printable "$_p")" ;;
+    esac
+    _abs="$skill_root/$_p"
+    if [ -d "$_abs" ]; then
+      _files=$(cd "$skill_root" && find "$_p" -type f | LC_ALL=C sort) \
+        || mc_usage_fail "cannot list $(sanitize_printable "$_p")"
+      [ -n "$_files" ] || mc_usage_fail "fingerprint directory is empty: $(sanitize_printable "$_p")"
+    elif [ -f "$_abs" ]; then
+      _files=$_p
+    else
+      mc_usage_fail "fingerprint path is missing: $(sanitize_printable "$_p")"
+    fi
+    for _f in $_files; do
+      _h=$(git hash-object -- "$skill_root/$_f") || mc_usage_fail "cannot hash $(sanitize_printable "$_f")"
+      _fpo="$_fpo$_f $_h
+"
+    done
+  done
+  printf '%s' "$_fpo" | git hash-object --stdin
 }
 
 # latest_record <head> — the ledger's latest well-formed line for the head.
@@ -220,10 +263,10 @@ show_log() { tail -n 20 "$1" | while IFS= read -r _l; do printf '%s\n' "  $(sani
 show_line() { sanitize_printable "$(printf '%s' "$1" | tr '\t' ' ')"; }
 
 append_record() {
-  # append_record <head> <outcome> <detail>
+  # append_record <head> <outcome> <detail>; $run_fp is the run's fingerprint
   _dir=$(dirname "$ledger")
   mkdir -p "$_dir" 2>/dev/null || mc_usage_fail "cannot create the ledger directory: $(sanitize_printable "$_dir")"
-  _line=$(printf '%s\t%s\t%s\t%s\t%s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$spec" "$2" "$3")
+  _line=$(printf '%s\t%s\t%s\t%s\t%s\tfp=%s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$spec" "$2" "$3" "$run_fp")
   printf '%s\n' "$_line" >>"$ledger" || mc_usage_fail "cannot append to the ledger: $(sanitize_printable "$ledger")"
   printf '%s\n' "$(show_line "$_line")"
 }
@@ -256,6 +299,8 @@ do_run() {
     _dirty="$_dirty$_ts_dirty"
     [ -z "$_dirty" ] || mc_usage_fail "the suite has uncommitted changes; commit them so the record speaks for the head"
   fi
+  # Taken before the suite runs, so the record names what was graded.
+  run_fp=$(fingerprint) || exit 2
   _gaps=$(do_complete)
   _crc=$?
   # do_complete's own usage failure exits only its subshell; carry it out
@@ -338,6 +383,20 @@ do_step() {
   resolve_ledger
   _head=$(head_of) || mc_usage_fail "cannot read the head of $(sanitize_printable "$worktree")"
   _last=$(latest_record "$_head")
+  # A record graded other skill content than the files hold now, or one with
+  # no fingerprint at all, speaks for nothing current: it counts as none.
+  if [ -n "$_last" ]; then
+    _now_fp=$(fingerprint) || exit 2
+    _rec_fp=$(printf '%s' "$_last" | cut -f6)
+    if [ "$_rec_fp" != "fp=$_now_fp" ]; then
+      if [ -z "$_rec_fp" ]; then
+        printf '%s\n' "the eval record on $(short_head "$_head") carries no fingerprint; it counts as none"
+      else
+        printf '%s\n' "the eval record on $(short_head "$_head") graded other skill content than the files hold now; it counts as none"
+      fi
+      _last=""
+    fi
+  fi
   if [ -z "$_last" ]; then
     printf '%s\n' "no eval record on $(short_head "$_head"); running the suite"
     do_run
@@ -406,7 +465,7 @@ fi
 
 while [ $# -gt 0 ]; do
   case $1 in
-    --ledger | --worktree | --spec | --test-spec | --fixture | --live)
+    --ledger | --worktree | --spec | --test-spec | --fixture | --skill-root | --live)
       [ $# -ge 2 ] || mc_usage_fail "$1 needs a value"
       [ -n "$2" ] || [ "$1" = --live ] || mc_usage_fail "$1 needs a non-empty value"
       case $1 in
@@ -422,6 +481,10 @@ while [ $# -gt 0 ]; do
           ;;
         --fixture)
           fixture=$2
+          suite_override=1
+          ;;
+        --skill-root)
+          skill_root=$2
           suite_override=1
           ;;
         --live)

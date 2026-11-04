@@ -1,0 +1,20 @@
+# The files the stand-in mirrors, relative to the repository root, one per
+# line (a directory stands for every file under it). Each eval record carries
+# their content fingerprint, and scripts/mc-eval-cadence.sh's step treats a
+# record whose fingerprint no longer matches as no record: editing any of them
+# needs a fresh run before a gated flip.
+#
+# The skill itself.
+skills/mission-control
+# The tower contract the skill runs by reference: router, refusals, the
+# operator's-own-words rule.
+skills/tower/SKILL.md
+# Its run-start doctrine: turn density and the picklist and item shapes, the
+# conversation register, and the human gates (no merge, sign-off or flip).
+doctrine/interaction-style.md
+doctrine/tower-comms.md
+doctrine/human-gates.md
+# The point-of-use doctrine two arms mirror: decide-or-queue and the
+# mechanization proposals.
+doctrine/autonomous-safe-decision.md
+doctrine/autopilot-reflex.md

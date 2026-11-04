@@ -305,7 +305,11 @@ repository's git common directory. The `mc-eval-cadence` step at
 unit of mission control or one of its follow-on bundles (the fixture's
 `gated-specs`) whose head has a red record, and runs the suite once for a
 head with none; a run the harness cannot carry out records nothing, and the
-flip stays refused. The `/drain` manual sweep inventories the runs. A red
+flip stays refused. Each record also carries a content fingerprint of the
+files the stand-in mirrors (the fixture's `fingerprint-paths`: the skill,
+the tower contract it runs by reference, and the doctrine its arms mirror),
+and a record whose fingerprint is absent or no longer matches those files
+counts as none, so an edit to any of them needs a fresh run. The `/drain` manual sweep inventories the runs. A red
 record is a finding to read, never a reason to skip the step.
 
 ## Grading and the independence firewall

@@ -48,7 +48,7 @@ head1=$(gitx -C "$wt" rev-parse HEAD)
 # one [Gherkin] entry, so a suite run through the stub harness stays cheap.
 mini="$tmp/mini"
 mkdir -p "$mini/personas"
-cp "$FIXTURE/skill.sh" "$FIXTURE/grade.jq" "$FIXTURE/gated-specs" "$mini/"
+cp "$FIXTURE/skill.sh" "$FIXTURE/grade.jq" "$FIXTURE/gated-specs" "$FIXTURE/fingerprint-paths" "$mini/"
 cp "$FIXTURE/personas/status-form.persona" "$mini/personas/"
 sed 's/^personas=.*/personas=status-form/' "$FIXTURE/fixture.conf" >"$mini/fixture.conf"
 cat >"$tmp/mini-test-spec.md" <<'EOF'
@@ -148,6 +148,69 @@ if [ "$RC" -eq 0 ] && [ "$(awk 'END { print NR }' "$ledger")" = 1 ] && printf '%
   ok "a green record on the head passes a follow-on unit without a re-run"
 else
   fail "a recorded green head: exit $RC, $OUT"
+fi
+if awk -F '\t' 'END { exit !($6 ~ /^fp=[0-9a-f]+$/) }' "$ledger"; then
+  ok "a record carries the fingerprint of the skill files it graded"
+else
+  fail "the record carries no fingerprint: $(cat "$ledger")"
+fi
+
+# The fingerprint: a disposable skill root holding every listed path.
+sr="$tmp/skill-root"
+fpl=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$FIXTURE/fingerprint-paths" | awk 'NF')
+for p in $fpl; do
+  mkdir -p "$sr/$(dirname "$p")"
+  cp -R "$repo_root/$p" "$sr/$p"
+done
+fpledger="$tmp/fp-ledger.tsv"
+stepfp() {
+  OUT=$(PLANWRIGHT_STEP_SPEC=mission-control PLANWRIGHT_STEP_WORKTREE="$wt" BEHAVIORAL_EVAL_TMUX="${1:-$STUB}" \
+    BEHAVIORAL_EVAL_TMUX_STATE="$tmp/state" BEHAVIORAL_EVAL_WORKBASE="$tmp/wb" BEHAVIORAL_EVAL_POLL_SLEEP=0 \
+    /bin/bash "$SCRIPT" step --ledger "$fpledger" --fixture "$mini" --test-spec "$tmp/mini-test-spec.md" \
+    --skill-root "$sr" 2>&1)
+  RC=$?
+}
+stepfp
+stepfp
+if [ "$RC" -eq 0 ] && [ "$(awk 'END { print NR }' "$fpledger")" = 1 ] && printf '%s\n' "$OUT" | grep -q "^green eval record"; then
+  ok "an unchanged skill keeps a green record valid"
+else
+  fail "an unchanged skill: exit $RC, rows $(awk 'END { print NR }' "$fpledger"), $OUT"
+fi
+printf '\nA new rule.\n' >>"$sr/skills/mission-control/SKILL.md"
+stepfp "$tmp/no-such-tmux"
+if [ "$RC" -ne 0 ] && printf '%s\n' "$OUT" | grep -q "graded other skill content" \
+  && printf '%s\n' "$OUT" | grep -q "missing eval record" && [ "$(awk 'END { print NR }' "$fpledger")" = 1 ]; then
+  ok "a skill edit invalidates a green record, and a re-run that cannot happen refuses the flip"
+else
+  fail "a skill edit: exit $RC, $OUT"
+fi
+stepfp
+if [ "$RC" -eq 0 ] && [ "$(awk 'END { print NR }' "$fpledger")" = 2 ]; then
+  ok "after a skill edit the step re-runs the suite once and records the new fingerprint"
+else
+  fail "the re-run after a skill edit: exit $RC, $OUT"
+fi
+printf 'x\n' >>"$sr/doctrine/tower-comms.md"
+stepfp "$tmp/no-such-tmux"
+if [ "$RC" -ne 0 ] && printf '%s\n' "$OUT" | grep -q "graded other skill content"; then
+  ok "an edit to mirrored doctrine invalidates a green record too"
+else
+  fail "a doctrine edit: exit $RC, $OUT"
+fi
+cut -f1-5 "$fpledger" >"$fpledger.cut" && mv "$fpledger.cut" "$fpledger"
+stepfp "$tmp/no-such-tmux"
+if [ "$RC" -ne 0 ] && printf '%s\n' "$OUT" | grep -q "carries no fingerprint" && printf '%s\n' "$OUT" | grep -q "missing eval record"; then
+  ok "a record with no fingerprint fails closed"
+else
+  fail "a fingerprint-less record: exit $RC, $OUT"
+fi
+rm -f "$sr/doctrine/autopilot-reflex.md"
+stepfp
+if [ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -q "fingerprint path is missing"; then
+  ok "a missing fingerprinted file refuses the step"
+else
+  fail "a missing fingerprinted file: exit $RC, $OUT"
 fi
 
 printf 'x2\n' >"$wt/f"
