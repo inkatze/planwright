@@ -247,21 +247,6 @@ flight's branch is prior art for Tasks 3 and 4 (D-12).
 
 ## Awaiting input
 
-- **Task 4** — convergence point, step `polish`, outcome `halted`
-  (`.claude/steps/000001/004-step-convergence.rec`): the zone screen fired
-  on 14 permission-boundary findings in `scripts/policy-guard.sh` and
-  `config/tower-settings.json`, each with a recommended fix, unapplied
-  pending operator direction. Fetch: `--st` (Z2), `--no-multiple` (Z3),
-  quoted `refs/*` glob destinations (Z4), a refspec from `-c` or
-  `GIT_CONFIG_*` or an earlier `git config`, and `remote add -f
-  --mirror=fetch` (Z5). Branch: `-d --no-delete -m` (Z1). Aliases read from
-  the wrong repository under `--git-dir` (Z6). gh: a non-literal top-level
-  word (Z7), the built-in `gh co` (Z8). Raw fallback: quoted option values
-  with spaces (Z9), words between `pr` and `checkout` (Z10), a newline after
-  `stash` (Z11), aliases (Z12). Prose: two `_about` sentences (Z13), the
-  guard header's act split (Z14). Non-zone fixes are committed on the
-  branch; no PR is open yet.
-
 ## Deferred
 
 - **Shell-feed and wrapper spellings at both guard tiers.** Commands fed
