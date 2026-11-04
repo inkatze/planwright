@@ -116,11 +116,11 @@ repeats=""
 
 # One objective per line, "ask:" or "state:" first: only what the operator can
 # answer from their own work is asked; the rest is settled and said.
-FIRST_RUN="ask:What is this work, and which repositories does it touch? I'd suggest this repository.
+FIRST_RUN="ask:What is this work, and which repositories does it touch? I'd suggest this repository. One more question after this, then I write it all.
 state:The written plans for this work are in this repository; say if they live elsewhere.
 state:GitHub sign-in checked: you are signed in, and nothing is stored.
 state:Work items, decisions and deadlines come from your written plans, code state from GitHub with its age, designs from what you tell me.
-ask:I'd turn on these watches, each with what it saves you. Turn them all on, yes or no?
+ask:I'd turn on these watches, each with what it saves you. Turn them all on, yes or no? That's the last question.
 state:No voice note and no quiet hours yet; tell me either any time."
 
 first_run_next() {
