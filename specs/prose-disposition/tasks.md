@@ -333,7 +333,7 @@ can be measured by it.
 
 ## Awaiting input
 
-- **Task 4.1** — post-pr step `cubic-pr` halted; record `.claude/steps/000001/008-step-post-pr.rec`
+(none yet)
 
 ## Deferred
 

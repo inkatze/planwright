@@ -364,9 +364,7 @@ below; `scripts/spec-graph.sh` renders it on demand.
 
 ## Awaiting input
 
-- **Task 11** — post-pr step `cubic-pr` halted (`.claude/steps/000001/008-step-post-pr.rec`)
-- **Task 13** — post-pr step `cubic-pr` halted (`.claude/steps/000001/007-step-post-pr.rec`); PR #786 awaits the operator's secondary review on its current head before the ready flip.
-- **Task 12** — post-pr step `cubic-pr` halted (`.claude/steps/000002/005-step-post-pr.rec`); PR #808 awaits the operator's secondary review on its current head before the ready flip.
+(none yet)
 
 ## Deferred
 
