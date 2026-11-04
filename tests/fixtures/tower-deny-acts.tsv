@@ -285,3 +285,5 @@ spelling	branch-move	mirror	git remote add -f --mirror=fetch m ../x
 spelling	branch-move	mirror	git remote add --mirror --fetch m ../x
 spelling	branch-move	git-dir	git --git-dir=../other/.git zz main
 spelling	branch-move	expansion	git -C "$D" zz main
+spelling	branch-move	expansion	gh "$X" checkout 1
+spelling	branch-move	expansion	gh "$X" sync

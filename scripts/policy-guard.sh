@@ -1485,6 +1485,10 @@ classify_gh() {
     esac
   fi
   if [ "$TIER" = tower ]; then
+    [ "${SWL[$k]}" = 1 ] || {
+      deny_now 'this gh command names its top-level command through an expansion the guard cannot read, and it could be pr checkout or repo sync - refusing (fail closed). Write the command literally.'
+      return 0
+    }
     local j=$((k + 1))
     while [ "$j" -lt "$n" ]; do
       case ${SW[$j]} in
