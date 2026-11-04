@@ -1,14 +1,10 @@
 #!/bin/bash
-# The tower deny floor's branch-moving and stash-writing acts
-# (tower-placement REQ-D1.1, REQ-D1.2, REQ-D1.4): each entry row of
-# tests/fixtures/tower-deny-acts.tsv for those acts is matched by its entry
-# and refused in a marked session with no profile; every sample and
-# spelling row of those acts is refused under the profile launch too (the
-# policy guard at the tower tier); and the forms REQ-D1.1 keeps (stash list
-# and show, a plain commit, plain branch creation and deletion, a new
-# docs/main branch, a fetch into the remote-tracking refs) stay deferred and
-# unmatched by the profile's deny globs. Every command runs against the
-# session's own checkout, the tower's own tree.
+# The tower floor's branch-move and stash-write acts (tower-placement
+# REQ-D1.1, REQ-D1.2, REQ-D1.4): each entry row of those acts in
+# tests/fixtures/tower-deny-acts.tsv is matched by its entry and refused in
+# a marked session with no profile; every row of those acts is refused under
+# the profile launch too, in the tower's own checkout and in another one;
+# and what REQ-D1.1 keeps stays deferred and matched by no deny glob.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 # shellcheck disable=SC2016 # the unexpanded $ forms are the inputs under test
@@ -29,6 +25,17 @@ while IFS="$TAB" read -r kind a b c; do
   pg tower "$cmd" "$UNIT" "$UNIT"
   expect deny "profile launch: $cmd"
 done <"$MAP"
+
+echo "# the acts are refused in a checkout the tower does not own too"
+OTHER="$SANDBOX/other"
+clone_on "$OTHER" planwright/demo/task-2 0
+for cmd in 'git checkout main' 'git switch main' 'git reset --soft HEAD' 'git stash' 'git stash pop' \
+  'git branch -m planwright/demo/task-2 x' 'git symbolic-ref HEAD refs/heads/main' 'git fetch origin main:main'; do
+  pg tower "$cmd" "$OTHER" "$UNIT"
+  expect deny "profile launch, run in another checkout: $cmd"
+  pg tower "git -C $OTHER ${cmd#git }" "$UNIT" "$UNIT"
+  expect deny "profile launch, aimed at another checkout with -C: $cmd"
+done
 
 echo "# what REQ-D1.1 keeps: deferred in a marked session and under the profile launch, matched by no deny glob"
 pm_load_rules "$(jq -r '.permissions.deny[]' "$PROFILE")" '' ''

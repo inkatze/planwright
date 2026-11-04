@@ -20,7 +20,10 @@ done <"$MAP"
 
 echo "# the tower acts are tower-only: the worker tier is unchanged (REQ-G1.2)"
 for cmd in 'git reset --hard HEAD' 'git branch -f topic HEAD' 'git update-ref refs/heads/topic HEAD' \
-  'git worktree add --force ../w topic' 'git hr HEAD'; do
+  'git worktree add --force ../w topic' 'git hr HEAD' \
+  'git checkout topic' 'git switch topic' 'git reset --soft HEAD' 'git branch -m topic other' \
+  'git symbolic-ref HEAD refs/heads/topic' 'git fetch origin main:main' 'git stash pop' 'git stash' \
+  'git worktree add -B topic ../w' 'gh pr checkout 42' 'gh pr co 42' 'gh -R o/r repo sync' 'git co topic' 'git sp'; do
   pg worker "$cmd"
   expect defer "worker tier defers: $cmd"
 done

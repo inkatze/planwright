@@ -231,6 +231,34 @@ spelling	branch-move	alias	git rs --soft HEAD
 spelling	branch-move	alias	git sr HEAD refs/heads/topic
 spelling	branch-move	alias	git ft origin main:main
 spelling	branch-move	alias	git bm topic other
+spelling	branch-move	global-c	git -c core.abbrev=12 checkout topic
+spelling	branch-move	git-dir	git --git-dir=.git checkout topic
+spelling	branch-move	work-tree	git --work-tree=. checkout topic
+spelling	branch-move	global-C	git -C . switch -C topic
+spelling	branch-move	git-dir	git --git-dir=.git switch topic
+spelling	branch-move	work-tree	git --work-tree=. switch topic
+spelling	branch-move	global-C	git -C . reset --soft HEAD
+spelling	branch-move	global-c	git -c core.abbrev=12 reset --mixed HEAD
+spelling	branch-move	git-dir	git --git-dir=.git reset HEAD
+spelling	branch-move	global-C	git -C . branch -m topic other
+spelling	branch-move	global-c	git -c core.abbrev=12 branch -c topic other
+spelling	branch-move	git-dir	git --git-dir=.git branch --move topic other
+spelling	branch-move	work-tree	git --work-tree=. branch --copy topic other
+spelling	branch-move	short-cluster	git branch -qc topic other
+spelling	branch-move	global-C	git -C . symbolic-ref HEAD refs/heads/topic
+spelling	branch-move	global-c	git -c core.abbrev=12 symbolic-ref -d HEAD
+spelling	branch-move	work-tree	git --work-tree=. symbolic-ref HEAD refs/heads/topic
+spelling	branch-move	global-c	git -c core.abbrev=12 fetch origin main:main
+spelling	branch-move	git-dir	git --git-dir=.git fetch origin main:refs/heads/main
+spelling	branch-move	work-tree	git --work-tree=. fetch origin main:heads/main
+spelling	branch-move	long-prefix	git fetch --refmap=+refs/heads/*:refs/heads/* origin main
+spelling	branch-move	repo-flag	gh pr --repo o/r checkout 42
+spelling	branch-move	repo-flag	gh --repo=o/r repo sync
+spelling	worktree	global-C	git -C . worktree add -B topic ../w
+spelling	worktree	global-c	git -c core.abbrev=12 worktree add -B topic ../w
+spelling	worktree	git-dir	git --git-dir=.git worktree add -B topic ../w
+spelling	worktree	work-tree	git --work-tree=. worktree add -B topic ../w
+spelling	worktree	alias	git wa -B topic ../w
 spelling	worktree	short-cluster	git worktree add -qB topic ../w
 spelling	worktree	ref-form	git worktree add -B refs/heads/topic ../w
 spelling	stash-write	global-C	git -C . stash pop
