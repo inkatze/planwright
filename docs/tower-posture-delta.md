@@ -2,7 +2,8 @@
 
 The `/tower` front door runs under the same permission profile as an
 orchestrating tower, `config/tower-settings.json`. This document is the delta
-that extends that profile for the front door's own routine commands, written
+that extends that profile for the front door's own routine commands, and it
+records the deny entries the tower placement floor appends after them, written
 for the human sign-off a permission change needs. The extension adds guard
 shapes and deny entries only: the profile's `allow` list, its hooks,
 `defaultMode`, and every deny entry it carried before are unchanged.
@@ -173,7 +174,7 @@ HEAD, and no shared stash, in any checkout, its own included:
   `clear`, `branch`, `create`, and `store` subcommands.
 
 The globs cover the plain spellings only. The policy guard's `branch-move` and
-`stash-write` acts refuse each act in every spelling its option parser reads
+`stash-write` acts (and its `worktree` act, for `worktree add -B`) refuse each act in every spelling its option parser reads
 (git's global options, long-option prefixes, short clusters, ref forms, case,
 and repository aliases), a bare-name fetch destination (`main:main`) and an
 expansion among a fetch's words included, and

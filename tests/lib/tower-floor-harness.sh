@@ -1,8 +1,9 @@
 # shellcheck shell=bash
 # tower-floor-harness.sh — the shared harness for the tower deny-floor suites
 # (sourced, never executed): tests/test-tower-floor-map.sh,
-# tests/test-tower-floor-worktree.sh, tests/test-tower-floor-push.sh, and
-# tests/test-tower-floor-spellings.sh, split so each stays inside the
+# tests/test-tower-floor-worktree.sh, tests/test-tower-floor-push.sh,
+# tests/test-tower-floor-spellings.sh, and
+# tests/test-tower-floor-branch-move.sh, split so each stays inside the
 # per-file time ceiling. On top of tests/lib/policy-guard-harness.sh it adds
 # a marked session in a sandbox fleet home, the git aliases the spelling rows
 # use, and scripts/tower-session.sh run as the plugin hook runs it, with no
