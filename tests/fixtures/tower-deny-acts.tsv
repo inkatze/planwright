@@ -283,3 +283,5 @@ spelling	branch-move	env	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.fetch
 spelling	branch-move	same-command-config	git config remote.origin.fetch +refs/heads/*:refs/heads/* && git fetch origin
 spelling	branch-move	mirror	git remote add -f --mirror=fetch m ../x
 spelling	branch-move	mirror	git remote add --mirror --fetch m ../x
+spelling	branch-move	git-dir	git --git-dir=../other/.git zz main
+spelling	branch-move	expansion	git -C "$D" zz main

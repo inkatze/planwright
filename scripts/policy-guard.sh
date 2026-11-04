@@ -2367,6 +2367,12 @@ classify_git() {
         deny_now "this git $(sanitize_printable "$sub" 'subcommand') runs where git configuration is set in the same command or its environment (a GIT_* variable, git config, or git remote), so the guard cannot tell what it runs - refusing (fail closed). Run the configuration change and the command separately."
         return 0
       fi
+      # The alias lookup falls back to the payload's directory, which is not
+      # the repository git reads its aliases from here.
+      if [ "$TIER" = tower ] && { [ "$foreign" = 1 ] || [ "$dir_ok" = 0 ]; }; then
+        deny_now "this git $(sanitize_printable "$sub" 'subcommand') may be an alias of the repository named by --git-dir, --work-tree, or a git -C target the guard cannot follow, so the guard cannot read what it expands to - refusing (fail closed). Run the git subcommand directly, or use git -C <literal path>."
+        return 0
+      fi
       git_alias_check "$sub" "$dir" "$dir_ok"
       return 0
       ;;
