@@ -18,6 +18,10 @@ while IFS="$TAB" read -r kind act form cmd; do
   expect deny "[$act/$form] $cmd"
 done <"$MAP"
 
+echo "# a stash write is not read as a list when a newline splits it from the word list"
+ts_bash $'git stash\nlist $(true)'
+expect deny "[stash-write/raw-fallback] git stash, a newline, then list \$(true)"
+
 echo "# the tower acts are tower-only: the worker tier is unchanged (REQ-G1.2)"
 for cmd in 'git reset --hard HEAD' 'git branch -f topic HEAD' 'git update-ref refs/heads/topic HEAD' \
   'git worktree add --force ../w topic' 'git hr HEAD' \

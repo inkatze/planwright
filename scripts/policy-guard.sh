@@ -260,7 +260,7 @@ RE_TOWER_BRANCH="${RE_TOWER_GIT_HEAD}branch([[:space:]].*)?[[:space:]](-[[:alnum
 RE_TOWER_WORKTREE="${RE_TOWER_GIT_HEAD}worktree[[:space:]]+(add|remove|move)([^[:alnum:]_-]|\$)"
 RE_TOWER_FETCH="${RE_TOWER_GIT_HEAD}fetch([[:space:]].*)?(:|[[:space:]]--(st|refm))"
 RE_TOWER_STASH="${RE_TOWER_GIT_HEAD}stash([^[:alnum:]_-]|\$)"
-RE_TOWER_STASH_READ='[[:space:]]stash[[:space:]]+(list|show)([^[:alnum:]_-]|$)'
+RE_TOWER_STASH_READ='[[:space:]]stash[[:blank:]]+(list|show)([^[:alnum:]_-]|$)'
 RE_TOWER_GH='(^|[^[:alnum:]_.-])gh[^[:alnum:]_.-](.*[^[:alnum:]_-])?(pr[^[:alnum:]_-](.*[^[:alnum:]_-])?(checkout|co)|repo[^[:alnum:]_-](.*[^[:alnum:]_-])?sync|co)([^[:alnum:]_-]|$)'
 
 # raw_tower_stash <text> — 0 when the text runs a git stash form other than
