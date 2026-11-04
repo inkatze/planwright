@@ -156,9 +156,7 @@ def pin:
       and all($o[]; (.first_run.asked == true) != (.first_run.settled == true))
       and all($o[]; .text | test("[0-9]+ of [0-9]+|\\bstep [0-9]"; "i") | not)
       and ($o | map(select(.first_run.asked == true) | .first_run.left) as $l
-        | all($l[]; type == "number" and . >= 0 and . == floor)
-          and $l[-1] == 0
-          and ([range(1; $l | length) | select($l[.] >= $l[. - 1])] | length == 0))
+        | $l == ([range($l | length)] | reverse))
       and ([presents[] | select(.first_run.feedback != null)] | length == 2))
       and (decisions("write") | map(.what) | .[0:3] == ["program-block", "knowledge-base-skeleton", "enabled-watches"])
     elif .persona == "denial" then

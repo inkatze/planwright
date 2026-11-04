@@ -225,6 +225,8 @@ seeded first-run "a step counter shown" \
   '(.decision_log[] | select(.first_run.objective == 2) | .text) |= "(2 of 6) " + .'
 seeded first-run "no questions-left count on a question" \
   'del(.decision_log[] | select(.first_run.objective == 1) | .first_run.left)'
+seeded first-run "the questions-left count overstated" \
+  '(.decision_log[] | select(.first_run.objective == 1) | .first_run.left) = 99'
 seeded first-run "the questions-left count not reaching zero" \
   '(.decision_log[] | select(.first_run.objective == 5) | .first_run.left) = 1'
 seeded first-run "a settled objective asked" \
