@@ -12,7 +12,7 @@ unset CDPATH
 
 prog=mc-eval-cadence
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-for lib in echo-safety.sh mc-lib.sh; do
+for lib in echo-safety.sh mc-lib.sh spec-parse.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
     printf '%s\n' "$prog: $lib is missing or unreadable (broken install)" >&2
     exit 2
@@ -22,10 +22,11 @@ done
 . "$script_dir/echo-safety.sh" || exit 2
 # shellcheck source=scripts/mc-lib.sh
 . "$script_dir/mc-lib.sh" || exit 2
+# shellcheck source=scripts/spec-parse.sh
+. "$script_dir/spec-parse.sh" || exit 2
 
 root=$(cd "$script_dir/.." && pwd) || exit 2
 default_fixture="$root/tests/behavioral-evals/fixtures/mission-control"
-default_test_spec="$root/specs/mission-control/test-spec.md"
 
 help_text() {
   cat <<'HELP'
@@ -34,7 +35,8 @@ suite on demand, record its outcome per head, and refuse a ready flip of a
 gated unit whose head has a red record or none.
 
 The suite is the mission-control fixture under tests/behavioral-evals/fixtures,
-one persona per [Gherkin] arm of specs/mission-control/test-spec.md, run by
+one persona per [Gherkin] arm of the mission-control spec's test-spec.md
+(under the spec root scripts/resolve-root.sh resolves), run by
 scripts/behavioral-eval.sh. It runs on demand, or from the pre-ready-flip
 step for a gated head with no record; never in CI.
 
@@ -92,7 +94,7 @@ HELP
 ledger=""
 worktree=""
 spec=""
-test_spec="$default_test_spec"
+test_spec=""
 fixture="$default_fixture"
 live=""
 live_set=0
@@ -110,6 +112,15 @@ valid_spec() {
 resolve_worktree() {
   [ -n "$worktree" ] || worktree=$(pwd -P)
   [ -d "$worktree" ] || mc_usage_fail "no such worktree: $(sanitize_printable "$worktree")"
+}
+
+# The default test spec lives under the spec root, asked from this script's own
+# checkout so it grades the suite this checkout ships.
+resolve_test_spec() {
+  [ -n "$test_spec" ] && return 0
+  _home=$(cd "$root" && /bin/sh "$script_dir/resolve-root.sh" spec) \
+    || mc_usage_fail "cannot resolve the spec root (scripts/resolve-root.sh spec)"
+  test_spec="$_home/mission-control/test-spec.md"
 }
 
 resolve_ledger() {
@@ -147,12 +158,11 @@ latest_record() {
 }
 
 do_complete() {
+  resolve_test_spec
   [ -r "$test_spec" ] || mc_usage_fail "the test spec is missing or unreadable: $(sanitize_printable "$test_spec")"
   [ -r "$fixture/fixture.conf" ] || mc_usage_fail "the fixture is missing or unreadable: $(sanitize_printable "$fixture")"
-  _arms=$(awk '
+  _arms=$(awk "$spec_parse_awk_fence"'
     { sub(/\r$/, "") }
-    /^```/ { fence = !fence; next }
-    fence { next }
     /^### REQ-[A-Z][0-9]+\.[0-9]+ / && /\[[^][]*Gherkin[^][]*\]$/ { print $2 }
   ' "$test_spec")
   _personas=$(awk -F '=' '$1 == "personas" { sub(/^[^=]*=/, ""); print; exit }' "$fixture/fixture.conf")
@@ -236,21 +246,16 @@ do_run() {
     mc_usage_fail "--worktree names another checkout than this script's: run that checkout's own script, so its own suite grades its head"
   fi
   if [ "$suite_override" -eq 0 ]; then
+    resolve_test_spec
     _dirty=$(git -C "$root" status --porcelain -- tests/behavioral-evals/fixtures/mission-control \
-      specs/mission-control/test-spec.md scripts/behavioral-eval.sh 2>/dev/null) \
+      scripts/behavioral-eval.sh 2>/dev/null) \
       || mc_usage_fail "cannot read the suite's state in $(sanitize_printable "$root")"
+    _ts_dir=$(dirname "$test_spec")
+    _ts_dirty=$(git -C "$_ts_dir" status --porcelain -- "$test_spec" 2>/dev/null) \
+      || mc_usage_fail "cannot read the test spec's state in $(sanitize_printable "$_ts_dir")"
+    _dirty="$_dirty$_ts_dirty"
     [ -z "$_dirty" ] || mc_usage_fail "the suite has uncommitted changes; commit them so the record speaks for the head"
   fi
-  # The harness exits 3 alike for a session that never started and a skill
-  # that died, so the tools are checked here and a session that would not
-  # start is told apart by the harness's own line below.
-  _tmux="${BEHAVIORAL_EVAL_TMUX:-tmux}"
-  for _tool in "$_tmux" jq; do
-    if ! command -v "$_tool" >/dev/null 2>&1; then
-      printf '%s\n' "$prog: the suite could not run: $(sanitize_printable "$_tool") is not available; no record written" >&2
-      return 3
-    fi
-  done
   _gaps=$(do_complete)
   _crc=$?
   # do_complete's own usage failure exits only its subshell; carry it out
@@ -263,6 +268,16 @@ do_run() {
     append_record "$_head" fail "incomplete: a [Gherkin] arm has no fixture"
     return 1
   fi
+  # The harness exits 3 alike for a session that never started and a skill
+  # that died, so the tools are checked here and a session that would not
+  # start is told apart by the harness's own line below.
+  _tmux="${BEHAVIORAL_EVAL_TMUX:-tmux}"
+  for _tool in "$_tmux" jq; do
+    if ! command -v "$_tool" >/dev/null 2>&1; then
+      printf '%s\n' "$prog: the suite could not run: $(sanitize_printable "$_tool") is not available; no record written" >&2
+      return 3
+    fi
+  done
   _rec=$(mktemp -d "${TMPDIR:-/tmp}/mc-eval-cadence.XXXXXX") || mc_usage_fail "cannot create a scratch directory"
   trap 'rm -rf -- "$_rec"' EXIT
   trap 'exit 130' INT TERM HUP

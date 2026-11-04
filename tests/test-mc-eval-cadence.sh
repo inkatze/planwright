@@ -322,9 +322,8 @@ fi
 
 # The shipped suite never grades over uncommitted edits to itself.
 dirty="$tmp/dirty"
-mkdir -p "$dirty/scripts" "$dirty/tests/behavioral-evals/fixtures" "$dirty/specs/mission-control"
-cp "$repo_root/scripts/mc-eval-cadence.sh" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/mc-lib.sh" \
-  "$repo_root/scripts/behavioral-eval.sh" "$dirty/scripts/"
+mkdir -p "$dirty/tests/behavioral-evals/fixtures" "$dirty/specs/mission-control"
+cp -R "$repo_root/scripts" "$dirty/scripts"
 cp -R "$FIXTURE" "$dirty/tests/behavioral-evals/fixtures/"
 cp "$repo_root/specs/mission-control/test-spec.md" "$dirty/specs/mission-control/"
 gitx -c init.defaultBranch=main init -q "$dirty" && gitx -C "$dirty" add -A && gitx -C "$dirty" commit -q -m suite || exit 1
