@@ -476,8 +476,6 @@ the list lacked; the annotation moved below the task's fields.)*
 
 ## Awaiting input
 
-- **Task 13** — post-pr step `cubic-pr` halted on draft PR #804: the cubic quota is exhausted until 2026-11-05, and the operator's secondary review stands in for it (operator ruling 2026-11-01). The ready flip waits until that review has run on the current head. Record: `.claude/steps/000001/008-step-post-pr.rec`.
-
 - **Task 15** — post-pr step `cubic-pr` halted on draft PR #806: the cubic quota is exhausted until 2026-11-05, and the operator's secondary review stands in for it (operator ruling 2026-11-01). The ready flip waits until that review has run on the current head. Record: `.claude/steps/000001/008-step-post-pr.rec`.
 
 ## Deferred
