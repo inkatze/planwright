@@ -196,6 +196,26 @@ case $eq_out in
 esac
 echo "ok: an =-bearing filename is read as a file, not an awk assignment"
 
+# A relative path starting with `-` must be screened and read as a file, not
+# taken for an option by any command that receives it as an operand.
+mkdir "$tmp/dash"
+printf '### Task 1 — Dash-led name\n\n- **Done when:** parsed as a file.\n' >"$tmp/dash/-t.md"
+dash_out=$(cd "$tmp/dash" && spec_parse_extract_tasks "-t.md" </dev/null) \
+  || fail "extraction failed on a dash-led filename"
+case $dash_out in
+  *"Dash-led name"*) ;;
+  *) fail "dash-led filename extraction lost the task content: $dash_out" ;;
+esac
+printf '### Task 1 — x\n\n- **Done when:** a \000 b\n' >"$tmp/dash/-nul.md"
+if dash_err=$(cd "$tmp/dash" && spec_parse_extract_tasks "-nul.md" 2>&1 >/dev/null); then
+  fail "a NUL-bearing dash-led filename passed the screen"
+fi
+case $dash_err in
+  *"NUL byte"*) ;;
+  *) fail "a NUL-bearing dash-led filename was not refused as a NUL: $dash_err" ;;
+esac
+echo "ok: a dash-led filename is screened and read as a file, not an option"
+
 # ---------------------------------------------------------------------------
 # Property 2b: the lib's working variables stay in the spec_parse__
 # namespace. POSIX sh has no locals, so a sourced lib's assignments land in
