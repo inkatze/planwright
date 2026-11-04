@@ -238,7 +238,7 @@ applies), run `scripts/mc-config.sh`'s `apply --program <p> <id>` with the
 "Not now" parks with `park`, its trigger (a date or an event) asked of the
 operator; a no declines. Nothing enables itself.
 
-**The duty catalog**, on request and in the first run:
+**The duty catalog**, on request (the first run offers the default set):
 `scripts/mc-duties.sh`'s `list`, each duty by its summary
 (`scripts/mc-duties.sh`'s `get <id> summary`). Enable or disable one only on the
 operator's yes, with `scripts/mc-config.sh`'s
