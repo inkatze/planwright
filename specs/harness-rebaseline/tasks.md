@@ -308,13 +308,7 @@ worker briefs (D-10).
 
 ## Awaiting input
 
-- 2026-11-04 — Kickoff publish pending (`/spec-kickoff` sign-off steps 7
-  and 8). The sign-off is committed on `planwright/harness-rebaseline/spec`,
-  but the push was refused by the policy guard (spec branches are protected
-  from agent sessions). Pending: the operator pushes the branch
-  (`git push -u origin planwright/harness-rebaseline/spec`), the draft spec
-  PR is opened, the `pre-spec-ready-flip` point runs on its head, and the PR
-  is marked ready once CI is green on that head.
+(none yet)
 
 ## Deferred
 
