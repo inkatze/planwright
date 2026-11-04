@@ -38,6 +38,10 @@ flag instead:
 claude --plugin-dir /path/to/planwright
 ```
 
+An installed planwright still loads beside it. To try a branch as a newcomer
+would, isolated from your own configuration and fleet, follow
+[Trying a branch in a fresh session](CONTRIBUTING.md#trying-a-branch-in-a-fresh-session).
+
 Validate a manifest you are hacking on with `claude plugin validate
 /path/to/planwright` (add `--strict` to treat unknown fields as errors).
 

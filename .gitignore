@@ -27,6 +27,25 @@
 mise.local.toml
 .mise.local.toml
 
+# Binary drops: archives and office documents. Nothing of this kind is source
+# here, and one left untracked in a checkout is a single `git add -A` from
+# being published in this public repo. Keep such files under .claude/*.local/;
+# a genuine fixture is added with `git add -f`.
+*.zip
+*.tar
+*.tar.*
+*.tgz
+*.gz
+*.7z
+*.rar
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+
 # Linked git worktrees created by /orchestrate (design.md D-37). Working copies,
 # not source.
 .claude/worktrees/
