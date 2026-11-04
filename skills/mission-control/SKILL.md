@@ -127,7 +127,7 @@ a time, with immediate feedback on each answer. Ask only what the operator
 can decide from their own work: an objective the repository, a check or a
 shipped default settles is settled, and said in one plain line the operator
 can overrule, never asked. Show progress as what is left, in plain words
-("one question left, then I write it all"), never a step number or count.
+("one question left, then I write it all"), never a step number or an "n of m" count.
 Under the behavioral-eval harness (`PLANWRIGHT_EVAL_ONLY=1`), each
 question's `present` record also carries `first_run.left`, the questions
 still to ask after it, reaching 0 on the last
