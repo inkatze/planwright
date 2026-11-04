@@ -1,0 +1,1 @@
+- 2026-11-04 [planwright] polish/self-review write their handoff record to <worktree>/.claude/polish-audit.md, but a fleet worker session is denied writes under the worktree .claude/ directory by its permission settings, so the record had to go to the fleet scratch directory (tower-placement Task 4, 2026-11-04).
