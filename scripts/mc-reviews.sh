@@ -65,7 +65,8 @@ Usage:
       request's first 100 review threads, last 50 reviews, first 20
       requested reviewers and last 20 review requests are read. In every
       field, each run of control or text-direction characters becomes one
-      space. A rate-limit refusal waits out the TTL
+      space, runs of spaces then collapse to one, and the ends are trimmed.
+      A rate-limit refusal waits out the TTL
       like any other failure. The attempt is stamped in
       <runtime>/reviews.attempt before gh is called, so a read that never
       returns is not retried before the TTL either.

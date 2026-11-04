@@ -11,8 +11,8 @@ const TITLE = 'Mission control'
 const DEFAULT_REFRESH_S = 10
 const DEFAULT_TICK_S = 300
 const DEFAULT_REVIEWS_TTL_S = 300
-// The reviews snapshot is checked this often at most, so a read lands
-// within a fifth of its TTL of falling due.
+// The longest wait between reviews checks, whatever the TTL; otherwise a
+// check comes every fifth of it, so a read lands soon after falling due.
 const REVIEWS_CHECK_MAX_MS = 60_000
 const PRESENCE_EVERY_MS = 60_000
 const ANIMATE_MS = 500
