@@ -244,6 +244,7 @@ spec_parse__readable() {
 # callers close it by screening then parsing the snapshot (contract clause g).
 spec_parse__nul_screen() {
   spec_parse__rc=0
+  # shellcheck disable=SC2094 # both ends only read the file
   LC_ALL=C tr -d '\000' <"$1" | cmp -s - "$1" 2>/dev/null || spec_parse__rc=$?
   case $spec_parse__rc in
     0) return 0 ;;
