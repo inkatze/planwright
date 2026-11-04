@@ -246,7 +246,7 @@ new head.
 gitignored) and `check:test-time` reads it against the committed budgets in
 [`config/test-time-budget.yml`](../config/test-time-budget.yml): one per-file
 ceiling for every test file, one for the mean file time over the whole suite,
-and in CI one for the slowest shard's wall-clock. A measured time at or over
+and in CI one for the slowest Linux shard's wall-clock. A measured time at or over
 its budget trips. The mean does not grow with the file count, so adding tests
 is free; a suite that gets slower per file trips it. Each file's row records
 its execution time and, separately, how long it waited for a test-pool ticket
