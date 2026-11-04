@@ -21,12 +21,14 @@ trap 'rm -rf "$scratch"' EXIT
 
 repo="$scratch/repo"
 git init -q "$repo"
+# Case-sensitive matching, as on Linux, so an upper-case drop is really tested.
+git -C "$repo" config core.ignoreCase false
 cp "$REPO_ROOT/.gitignore" "$repo/.gitignore"
 mkdir -p "$repo/docs/nested"
 
 drops="export.zip backup.tar backup.tar.gz backup.tar.xz bundle.tgz dump.gz notes.7z data.rar
 report.pdf memo.docx memo.doc sheet.xlsx sheet.xls deck.pptx deck.ppt
-docs/nested/export.zip docs/report.pdf"
+docs/nested/export.zip docs/report.pdf REPORT.PDF Backup.Tar.Gz Deck.PPTX"
 for f in $drops; do
   : >"$repo/$f"
 done
