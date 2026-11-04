@@ -1,0 +1,8 @@
+# shadow.persona — a duty in shadow writes a would-have entry per fire and raises no item; promotion is suggested at the configured count.
+arm=REQ-C1.6
+expertise=expert
+answer.1=@event:config shadow_promote_after=3
+answer.2=@event:watcher duty=stale-review shadow=yes
+answer.3=@event:watcher duty=stale-review shadow=yes
+answer.4=@event:watcher duty=stale-review shadow=yes
+answer.5=that's all

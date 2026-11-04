@@ -1,0 +1,7 @@
+# picklist.persona — a picklist with no answer in its window settles to its default, stays visible as settled by default, and a unit continues meanwhile.
+arm=REQ-F1.6
+expertise=expert
+answer.1=@event:picklist id=p1 default=keep
+answer.2=@event:unit-progress subject=export-work
+answer.3=@event:window-expired id=p1
+answer.4=that's all

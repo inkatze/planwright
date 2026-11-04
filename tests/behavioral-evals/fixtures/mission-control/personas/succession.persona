@@ -1,0 +1,7 @@
+# succession.persona — a matching handover hands the name to the successor and retires the predecessor; a failed self-check keeps the predecessor and raises an item; where takeover is unsupported the one-act fallback is offered.
+arm=REQ-L1.6
+expertise=expert
+answer.1=@event:handover selfcheck=match takeover=supported
+answer.2=@event:handover selfcheck=mismatch takeover=supported
+answer.3=@event:handover selfcheck=match takeover=unsupported
+answer.4=that's all

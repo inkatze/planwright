@@ -1,0 +1,10 @@
+# nothing-dropped.persona — an item leaves only by an answer or by evidence with its reason; a dead source keeps it.
+arm=REQ-F1.5
+expertise=expert
+answer.1=@event:queued id=i1 consequence=2 age=3 cluster= subject=api-change
+answer.2=@event:queued id=i2 consequence=1 age=4 cluster= subject=docs-change
+answer.3=@event:source-dead source=forge
+answer.4=@event:settled id=i2 reason=merged-upstream
+answer.5=@event:deliver
+answer.6=go ahead with it
+answer.7=that's all
