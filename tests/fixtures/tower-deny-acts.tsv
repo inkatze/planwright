@@ -276,3 +276,5 @@ spelling	ref-surgery	expansion	git branch -d "$X" -f main HEAD
 spelling	branch-move	long-prefix	git fetch --st origin
 spelling	branch-move	negation	git fetch --multiple --no-multiple origin main:main
 spelling	branch-move	negation	git fetch -m --no-multiple origin main:main
+spelling	branch-move	ref-form	git fetch . 'refs/*:refs/*'
+spelling	branch-move	ref-form	git fetch origin 'refs/heads/*:refs/he*'

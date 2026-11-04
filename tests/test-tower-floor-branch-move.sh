@@ -57,6 +57,7 @@ for cmd in \
   'git fetch --multiple origin upstream' \
   'git fetch origin main' \
   'git fetch origin main:refs/remotes/origin/main' \
+  "git fetch origin '+refs/heads/*:refs/remotes/origin/*'" \
   'git fetch git@example.invalid:o/r.git main' \
   'git symbolic-ref HEAD' \
   'git symbolic-ref --short refs/remotes/origin/HEAD' \

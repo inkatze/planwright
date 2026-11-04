@@ -2784,7 +2784,15 @@ classify_tower_fetch() {
     # A case-insensitive filesystem stores refs/HEADS/x as refs/heads/x.
     lc "${r#*:}"
     dst=$LC
+    # A glob destination writes wherever its pattern reaches: only one whose
+    # literal part fixes a namespace other than heads stays clear of them.
     case $dst in
+      *'*'*)
+        case ${dst%%'*'*} in
+          refs/heads/*) ;;
+          refs/?*/*) continue ;;
+        esac
+        ;;
       '') continue ;;
       refs/heads/*) ;;
       refs/*) continue ;;
