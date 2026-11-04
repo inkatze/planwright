@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 const reasonPrefix = "planwright ready-guard: "
@@ -69,12 +70,71 @@ func emitDeny(reason string) {
 	fmt.Printf("{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":%s}}\n", jsonString(r))
 }
 
+// invalidLen is the length of the invalid sequence at the start of s that
+// one U+FFFD replaces: its maximal subpart, as jq counts it, where
+// utf8.DecodeRuneInString would count one per byte.
+func invalidLen(s string) int {
+	need := 1
+	switch c := s[0]; {
+	case c >= 0xc2 && c <= 0xdf:
+		need = 2
+	case c >= 0xe0 && c <= 0xef:
+		need = 3
+	case c >= 0xf0 && c <= 0xf4:
+		need = 4
+	}
+	k := 1
+	for ; k < need && k < len(s); k++ {
+		lo, hi := byte(0x80), byte(0xbf)
+		if k == 1 {
+			switch s[0] {
+			case 0xe0:
+				lo = 0xa0
+			case 0xed:
+				hi = 0x9f
+			case 0xf0:
+				lo = 0x90
+			case 0xf4:
+				hi = 0x8f
+			}
+		}
+		if s[k] < lo || s[k] > hi {
+			break
+		}
+	}
+	return k
+}
+
+// toValid replaces each invalid UTF-8 sequence with U+FFFD as jq does,
+// both when it parses an answer and when --arg reads the decision text.
+func toValid(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && n == 1 {
+			b.WriteRune(utf8.RuneError)
+			i += invalidLen(s[i:])
+			continue
+		}
+		b.WriteString(s[i : i+n])
+		i += n
+	}
+	return b.String()
+}
+
 // jsonString escapes as jq does for a string sanitize has already stripped
-// of control bytes.
+// of control bytes. sanitize drops bytes, not characters, so it can leave a
+// broken sequence, which toValid repairs as jq --arg does, keeping the
+// decision valid JSON.
 func jsonString(s string) string {
+	s = toValid(s)
 	var b strings.Builder
 	b.WriteByte('"')
-	for i := 0; i < len(s); i++ {
+	for i := 0; i < len(s); {
+		_, n := utf8.DecodeRuneInString(s[i:])
 		c := s[i]
 		switch {
 		case c == '"' || c == '\\':
@@ -83,8 +143,9 @@ func jsonString(s string) string {
 		case c < 0x20 || c == 0x7f:
 			fmt.Fprintf(&b, "\\u%04x", c)
 		default:
-			b.WriteByte(c)
+			b.WriteString(s[i : i+n])
 		}
+		i += n
 	}
 	b.WriteByte('"')
 	return b.String()
@@ -108,7 +169,8 @@ func sanitize(s, fallback string) string {
 }
 
 // answer is one gh call as $(...) captures it: trailing newlines stripped,
-// NUL bytes dropped, and the recorded exit status.
+// NUL bytes dropped, and the recorded exit status, which is digits or else
+// a failure (1).
 func answer(name string) (string, int) {
 	out, err := os.ReadFile(name)
 	if err != nil {
@@ -117,11 +179,12 @@ func answer(name string) (string, int) {
 	out = bytes.ReplaceAll(out, []byte{0}, nil)
 	rc := 0
 	if b, err := os.ReadFile(name + ".rc"); err == nil {
-		v, err := strconv.Atoi(strings.TrimRight(string(b), "\n"))
-		if err != nil {
-			v = 1
+		t := strings.TrimRight(string(b), "\n")
+		rc = 1
+		if t != "" && only(t, digits) && len(t) <= 9 {
+			v, _ := strconv.Atoi(t)
+			rc = v & 0xff
 		}
-		rc = v & 0xff
 	}
 	return strings.TrimRight(string(out), "\n"), rc
 }
@@ -129,7 +192,10 @@ func answer(name string) (string, int) {
 // parseObject decodes one JSON value; anything that is not exactly one value
 // reads as unparseable, as a failed jq does.
 func parseObject(s string) (map[string]any, bool) {
-	dec := json.NewDecoder(strings.NewReader(s))
+	if loneHighSurrogate(s) {
+		return nil, false
+	}
+	dec := json.NewDecoder(strings.NewReader(toValid(s)))
 	dec.UseNumber()
 	var v any
 	if err := dec.Decode(&v); err != nil {
@@ -143,14 +209,51 @@ func parseObject(s string) (map[string]any, bool) {
 	return m, ok
 }
 
-// field is json_field: a present, non-null scalar as jq -r prints it.
+// loneHighSurrogate reports a \u escape of a high surrogate not followed by
+// one of a low surrogate. jq refuses such an answer outright, where
+// encoding/json would read U+FFFD and let the predicate go on.
+func loneHighSurrogate(s string) bool {
+	hex4 := func(i int) (uint64, bool) {
+		if i+4 > len(s) {
+			return 0, false
+		}
+		v, err := strconv.ParseUint(s[i:i+4], 16, 32)
+		return v, err == nil
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 >= len(s) {
+			continue
+		}
+		if s[i+1] != 'u' {
+			i++
+			continue
+		}
+		hi, ok := hex4(i + 2)
+		if ok && hi >= 0xd800 && hi < 0xdc00 {
+			if i+8 > len(s) || s[i+6] != '\\' || s[i+7] != 'u' {
+				return true
+			}
+			lo, ok := hex4(i + 8)
+			if !ok || lo < 0xdc00 || lo >= 0xe000 {
+				return true
+			}
+		}
+		i++
+	}
+	return false
+}
+
+// field is json_field: a present, non-null scalar as jq -r prints it. A
+// number keeps its literal text, its exponent marker upper-cased as jq
+// prints it; jq's other reformatting differs by version and is not
+// reproduced.
 func field(m map[string]any, k string) string {
 	var s string
 	switch v := m[k].(type) {
 	case string:
 		s = v
 	case json.Number:
-		s = v.String()
+		s = strings.ReplaceAll(v.String(), "e", "E")
 	case bool:
 		s = strconv.FormatBool(v)
 	default:
@@ -159,7 +262,13 @@ func field(m map[string]any, k string) string {
 	return strings.TrimRight(strings.ReplaceAll(s, "\x00", ""), "\n")
 }
 
-type view struct{ base, headOID, mergeable, url string }
+// oidNumber marks a headRefOid answered as a JSON number. However jq prints
+// it, a number is never an object id GitHub reports, so it never reads as
+// one, whatever its digits.
+type view struct {
+	base, headOID, mergeable, url string
+	oidNumber                     bool
+}
 
 // readView is check_view_rc then read_view_fields; false means the PR is
 // already ready.
@@ -181,7 +290,8 @@ func readView(out string, rc int) (view, bool) {
 	if !draft {
 		return view{}, false
 	}
-	v := view{field(m, "baseRefName"), field(m, "headRefOid"), field(m, "mergeable"), field(m, "url")}
+	_, oidNumber := m["headRefOid"].(json.Number)
+	v := view{field(m, "baseRefName"), field(m, "headRefOid"), field(m, "mergeable"), field(m, "url"), oidNumber}
 	if v.base == "" || v.headOID == "" || v.mergeable == "" || v.url == "" {
 		deny("the GitHub query for this pull request returned an incomplete answer, so its currency with its base branch and its mergeability could not be confirmed - refusing (fail closed).")
 	}
@@ -212,7 +322,7 @@ func evaluate(pr, repo, policy string) {
 	if !validRefName(v.base) {
 		deny("this pull request's base branch name is not a shape the guard will put in a compare query (" + sanitize(v.base, "unprintable") + ") - refusing (fail closed).")
 	}
-	if !validOID(v.headOID) {
+	if v.oidNumber || !validOID(v.headOID) {
 		deny("this pull request's head commit id could not be read as a plain hex object id - refusing (fail closed).")
 	}
 	owner, name := ownerRepoFromURL(v.url, pr)

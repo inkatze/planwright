@@ -7,7 +7,8 @@
 # scripts/worker-command-guard.sh and the predicate of scripts/ready-guard.sh.
 # Neither hook can be sourced (each runs its main on load), so proto_take
 # lifts the named functions and constants out of the file in one awk pass and
-# evaluates them; only the network and clock seams are replaced (proto_ready).
+# evaluates them; only the seams the fixtures stand in for are replaced (see
+# proto_ready).
 #
 # The caller sets proto_lib to this file's directory before sourcing it. The
 # production scripts are found from there, seven levels up, so a delivery
@@ -71,7 +72,10 @@ proto_esc() {
 # tab-separated, <subs> the comma-joined substitution indexes or `-`, values
 # escaped by proto_esc. A command the tokenizer refuses, one longer than the
 # hook's length cap, or one holding a NUL byte prints nothing and exits 3,
-# so no partial token stream is ever emitted. A usage error exits 2.
+# so no partial token stream is ever emitted. A usage error exits 2, and a
+# read error reads as the end of the input. The contract is the tokenize
+# function alone: the hook's other gates before it (the trailing-newline
+# strip, the empty-command defer, the scan budget) are not applied.
 proto_tokenize() {
   if [ $# -ne 0 ]; then
     printf '%s\n' 'usage: tokenize <command-on-stdin>' >&2
@@ -79,7 +83,7 @@ proto_tokenize() {
   fi
   proto_take worker-command-guard.sh tok_push dollar_expands dollar_form_ok \
     subst_scan tokenize MAX_CMD_LEN || return 2
-  local s out='' i subs
+  local s='' out='' i subs
   # A NUL ends the read with status 0; end of input without one returns 1.
   if IFS= read -r -d '' s; then
     return 3
@@ -122,7 +126,7 @@ proto_tokenize() {
 # re-query after an UNKNOWN, `requery` (the `gh pr view --json` output),
 # `compare` (the compare call's `.behind_by`), each absent meaning empty
 # output, and `view.rc`, `requery.rc`, `compare.rc` holding the call's exit
-# status (absent: 0). A deny prints the hook's decision object, exit 0; a
+# status as digits and an optional newline (absent: 0; anything else: 1). A deny prints the hook's decision object, exit 0; a
 # flip that may proceed prints nothing, exit 0. A usage error exits 2.
 #
 # Replaced seams, every one an input the fixtures supply: gh reads those
@@ -186,12 +190,16 @@ behind_base_policy() { printf '%s' "$PROTO_POLICY"; }
 # first answer has not been stored yet when the first call runs.
 # shellcheck disable=SC2329
 gh() {
-  local f=view
+  local f=view rc
   case $1 in
     api) f=compare ;;
     *) [ -z "$GH_VIEW_OUT" ] || f=requery ;;
   esac
   [ ! -f "$f" ] || printf '%s' "$(<"$f")"
-  [ ! -f "$f.rc" ] || return "$(<"$f.rc")"
-  return 0
+  [ -f "$f.rc" ] || return 0
+  rc=$(<"$f.rc")
+  case $rc in
+    '' | *[!0-9]* | ??????????*) return 1 ;;
+  esac
+  return $((10#$rc & 255))
 }

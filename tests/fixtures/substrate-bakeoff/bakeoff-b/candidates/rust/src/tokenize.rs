@@ -1,4 +1,4 @@
-//! tokenize — bake-off B's command-guard tokenizer, Rust candidate: the
+//! tokenize: bake-off B's command-guard tokenizer, Rust candidate: the
 //! contract of the shell candidate's proto_tokenize, reimplementing the
 //! tokenize function of scripts/worker-command-guard.sh byte for byte, with
 //! the standard library only.

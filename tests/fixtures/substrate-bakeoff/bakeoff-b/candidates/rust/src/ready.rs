@@ -1,4 +1,4 @@
-//! ready — bake-off B's ready-guard decision path, Rust candidate: the
+//! ready: bake-off B's ready-guard decision path, Rust candidate: the
 //! contract of the shell candidate's proto_ready, reimplementing the
 //! evaluate_predicate path of scripts/ready-guard.sh with the standard
 //! library only, so it carries its own JSON reader. The GitHub answers are
@@ -155,7 +155,9 @@ impl<'a> Parser<'a> {
         Some(v)
     }
 
-    /// A string's bytes, escapes decoded; a lone surrogate becomes U+FFFD.
+    /// A string's bytes, escapes decoded and invalid UTF-8 replaced as jq
+    /// replaces it. A lone low surrogate becomes U+FFFD; a high surrogate
+    /// with no low one after it refuses the whole answer, as jq does.
     fn string(&mut self) -> Option<Vec<u8>> {
         self.p += 1;
         let mut out = Vec::new();
@@ -163,7 +165,7 @@ impl<'a> Parser<'a> {
             let c = *self.s.get(self.p)?;
             self.p += 1;
             match c {
-                b'"' => return Some(out),
+                b'"' => return Some(String::from_utf8_lossy(&out).into_owned().into_bytes()),
                 0x00..=0x1f => return None,
                 b'\\' => {
                     let e = *self.s.get(self.p)?;
@@ -179,18 +181,16 @@ impl<'a> Parser<'a> {
                         b't' => '\t',
                         b'u' => {
                             let hi = self.hex4()?;
-                            let cp = if (0xd800..0xdc00).contains(&hi)
-                                && self.s.get(self.p..self.p + 2) == Some(b"\\u")
-                            {
-                                let save = self.p;
+                            let cp = if (0xd800..0xdc00).contains(&hi) {
+                                if self.s.get(self.p..self.p + 2) != Some(b"\\u") {
+                                    return None;
+                                }
                                 self.p += 2;
                                 let lo = self.hex4()?;
-                                if (0xdc00..0xe000).contains(&lo) {
-                                    0x10000 + ((hi - 0xd800) << 10) + (lo - 0xdc00)
-                                } else {
-                                    self.p = save;
-                                    0xfffd
+                                if !(0xdc00..0xe000).contains(&lo) {
+                                    return None;
                                 }
+                                0x10000 + ((hi - 0xd800) << 10) + (lo - 0xdc00)
                             } else {
                                 hi
                             };
@@ -231,11 +231,13 @@ fn member<'j>(obj: &'j Json, k: &str) -> Option<&'j Json> {
 }
 
 /// json_field: a present, non-null scalar as jq -r prints it, captured by
-/// $(...).
+/// $(...). A number keeps its literal text, its exponent marker upper-cased
+/// as jq prints it; jq's other reformatting differs by version and is not
+/// reproduced.
 fn field(obj: &Json, k: &str) -> Vec<u8> {
     let v = match member(obj, k) {
         Some(Json::Str(s)) => s.clone(),
-        Some(Json::Num(n)) => n.clone().into_bytes(),
+        Some(Json::Num(n)) => n.replace('e', "E").into_bytes(),
         Some(Json::Bool(b)) => b.to_string().into_bytes(),
         _ => return Vec::new(),
     };
@@ -268,11 +270,16 @@ fn sanitize(s: &[u8], fallback: &str) -> Vec<u8> {
 }
 
 /// emit_deny: the decision object as jq -nc builds it, then exit 0.
+/// sanitize drops bytes, not characters, so it can leave a broken sequence,
+/// which is replaced as jq --arg replaces it, keeping the decision valid
+/// JSON.
 fn deny(parts: &[&[u8]]) -> ! {
-    let reason = sanitize(
+    let reason = String::from_utf8_lossy(&sanitize(
         &parts.concat(),
         "refusing an unconfirmable draft->ready flip",
-    );
+    ))
+    .into_owned()
+    .into_bytes();
     let mut out = b"{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"".to_vec();
     for c in REASON_PREFIX.as_bytes().iter().chain(reason.iter()) {
         match *c {
@@ -290,24 +297,34 @@ fn deny(parts: &[&[u8]]) -> ! {
     exit(0);
 }
 
+/// One gh call as $(...) captures it, and its recorded exit status, which
+/// is digits or else a failure (1).
 fn answer(name: &str) -> (Vec<u8>, i32) {
     let out = capture(fs::read(name).unwrap_or_default());
     let rc = match fs::read(format!("{}.rc", name)) {
         Ok(b) => {
-            std::str::from_utf8(&capture(b))
-                .ok()
-                .and_then(|s| s.parse::<i32>().ok())
-                .unwrap_or(1)
-                & 0xff
+            let mut t = b;
+            while t.last() == Some(&b'\n') {
+                t.pop();
+            }
+            if !t.is_empty() && t.len() <= 9 && t.iter().all(|c| c.is_ascii_digit()) {
+                std::str::from_utf8(&t).unwrap().parse::<i32>().unwrap() & 0xff
+            } else {
+                1
+            }
         }
         Err(_) => 0,
     };
     (out, rc)
 }
 
+/// oid_number marks a headRefOid answered as a JSON number. However jq
+/// prints it, a number is never an object id GitHub reports, so it never
+/// reads as one, whatever its digits.
 struct View {
     base: Vec<u8>,
     oid: Vec<u8>,
+    oid_number: bool,
     mergeable: Vec<u8>,
     url: Vec<u8>,
 }
@@ -335,6 +352,7 @@ fn read_view((out, rc): (Vec<u8>, i32)) -> Option<View> {
     let v = View {
         base: field(&d, "baseRefName"),
         oid: field(&d, "headRefOid"),
+        oid_number: matches!(member(&d, "headRefOid"), Some(Json::Num(_))),
         mergeable: field(&d, "mergeable"),
         url: field(&d, "url"),
     };
@@ -463,7 +481,7 @@ fn evaluate(pr: &[u8], repo: &[u8], policy: &[u8]) {
     if !valid_ref_name(&v.base) {
         deny(&[b"this pull request's base branch name is not a shape the guard will put in a compare query (", &sanitize(&v.base, "unprintable"), b") - refusing (fail closed)."]);
     }
-    if !valid_oid(&v.oid) {
+    if v.oid_number || !valid_oid(&v.oid) {
         deny(&[b"this pull request's head commit id could not be read as a plain hex object id - refusing (fail closed)."]);
     }
     let (owner, name) = owner_repo_from_url(&v.url, pr);

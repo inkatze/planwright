@@ -127,8 +127,9 @@ The hook tier's bake-off, under the same rules.
   in the bundle's parser-fragility Sources names, in
   [vectors.tsv](../tests/fixtures/substrate-bakeoff/bakeoff-b/vectors.tsv):
   vector id, observation UID, tokenizer case, and the vector. Observations
-  in that list that name no command-guard vector (a fail-open screen
-  elsewhere, an unchecked exit status) have no row.
+  in that list that name no command-guard false-allow (a fail-open screen
+  elsewhere, an unchecked exit status, a guard that over-defers, a lint
+  check's quoting blind spot) have no row.
 - **Outcome.** Every full candidate passed every fixture on each platform
   with a committed report, so none is screened out there. The inputs and how
   to run it are in

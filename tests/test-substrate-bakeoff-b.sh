@@ -39,6 +39,7 @@ trap 'rm -rf "$tmp"' EXIT
 # and a fresh home that is also TMPDIR.
 ntok=0
 nready=0
+nfx=0
 for fx in "$BAKEOFF"/fixtures/*/*/; do
   [ -d "$fx" ] || continue
   fx=${fx%/}
@@ -49,8 +50,12 @@ for fx in "$BAKEOFF"/fixtures/*/*/; do
     tokenize) ntok=$((ntok + 1)) ;;
     ready) nready=$((nready + 1)) ;;
   esac
-  work="$tmp/fx.$((ntok + nready))"
-  mkdir "$work" "$work.home"
+  nfx=$((nfx + 1))
+  work="$tmp/fx.$nfx"
+  if ! mkdir "$work" "$work.home"; then
+    bad "shell candidate: $name (could not make its working directory)"
+    continue
+  fi
   if [ -d "$fx/files" ] && ! cp -R "$fx/files/." "$work/"; then
     bad "shell candidate: $name (could not stage files/)"
     continue
@@ -94,8 +99,9 @@ while IFS="$TAB" read -r vid uid fcase desc || [ -n "$vid" ]; do
     bad "vector $vid has four columns"
     continue
   fi
+  # A whole UID: each is followed by a comma, or a period after the last.
   case $sources in
-    *"obs:$uid"*) ok "vector $vid cites a parser-fragility observation" ;;
+    *"obs:$uid,"* | *"obs:$uid."*) ok "vector $vid cites a parser-fragility observation" ;;
     *) bad "vector $vid cites a parser-fragility observation (obs:$uid is not in the Sources line)" ;;
   esac
   d="$BAKEOFF/fixtures/tokenize/$fcase"
@@ -107,7 +113,7 @@ while IFS="$TAB" read -r vid uid fcase desc || [ -n "$vid" ]; do
 done <"$BAKEOFF/vectors.tsv"
 if [ "$nvec" -gt 0 ]; then ok "the vector list is not empty"; else bad "the vector list is not empty"; fi
 
-# A vec- fixture no row names is a vector the PR's enumeration lost.
+# A vec- fixture no row names is a vector vectors.tsv does not list.
 for d in "$BAKEOFF"/fixtures/tokenize/vec-*/; do
   [ -d "$d" ] || continue
   d=${d%/}

@@ -58,24 +58,31 @@ wrapper runs its command directly, the re-query does not sleep, and the
 `fixtures/tokenize/` and `fixtures/ready/` are the production differential
 set. Their inputs were written before any candidate; their expectations were
 then recorded from the shell candidate, which is the production code, and
-each was read by hand against the contract before Go or Rust ran. Only stdout
-and the exit status are compared.
+each was read by hand against the contract before Go or Rust ran. The
+convergence review added cases for branches the first set missed, after the
+logged times. Only stdout and the exit status are compared, and the `ready`
+answers avoid the forms jq versions render differently (numbers beyond
+plain integers, lone surrogates).
 
 The `vec-` tokenizer cases are the false-allow vectors the bundle's
-parser-fragility observations name. [vectors.tsv](vectors.tsv) maps each to
+parser-fragility observations name; an observation naming only an
+over-deferral, or a check other than the command guard, has none.
+[vectors.tsv](vectors.tsv) maps each to
 its observation UID; `tests/test-substrate-bakeoff-b.sh` fails when a listed
 case is missing, when a `vec-` case is not listed, or when a UID is not in
 the bundle's parser-fragility Sources. A tokenizer cannot itself allow
 anything, so each case pins the token stream that lets the guard's screens
 see the vector: the glued output flag, the quote position of a `git -c` or
 `VAR=` value, the bare parenthesis fish substitutes, the `>&` target, the
-path and tilde, the unchanged case of a config key, the substitution inside
-double quotes, and nothing at all for a command it cannot parse.
+path and tilde, the unchanged case of a config key, and nothing at all for a
+command it cannot parse.
 
 ## The logs
 
 - `implementation-time.tsv`: per full candidate, the moment its
-  implementation started and the moment it first passed every fixture under
+  implementation started (standing in for the schema's dispatch time, since
+  one worker wrote all three in turn) and the moment it first passed every
+  fixture under
   a differential run, both read from the clock as they happened. One
   automated worker wrote the candidates in turn (shell, Go, Rust). The
   shell candidate's time and source size cover only its seam, since the
@@ -91,12 +98,19 @@ double quotes, and nothing at all for a command it cannot parse.
   the extracted functions running. The production hook instead parses its
   whole file and reads the payload through jq first; neither cost is in any
   candidate's figure.
+- The `tokenize` contract is the tokenize function alone; the hook's gates
+  before it (the trailing-newline strip, the empty-command defer, the scan
+  budget) are not applied, by any candidate.
 - jq behaviours the compiled `ready` ports do not reproduce, none of them in
-  the fixtures: a `view` answer holding more than one JSON value (jq answers
-  per value; the ports refuse the answer as unreadable), a non-integer
-  number's printed form, and the replacement of invalid UTF-8 in the
-  decision text. The Rust JSON reader refuses nesting deeper than its
-  `MAX_DEPTH`.
+  the fixtures, every one refusing where jq would read on: a `view` answer
+  holding more than one JSON value (jq answers per value), a byte-order
+  mark, a number with leading zeros, and `nan`. A number's printed form
+  differs between jq versions; the ports keep its literal text with an
+  upper-case exponent marker, and never read a numeric `headRefOid` as an
+  object id. A high surrogate with no low one after it refuses the answer,
+  as jq 1.8 does. Invalid UTF-8, in an answer and in the decision text, is
+  replaced as jq replaces it. The Rust JSON reader refuses nesting deeper
+  than its `MAX_DEPTH`.
 - Latencies are fork-to-reap times on whatever host ran the report, under
   that host's load at the time; compare candidates within one report, not
   across reports.

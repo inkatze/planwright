@@ -8,7 +8,7 @@
 #   marketplace   the plugin marketplace copy is reported to strip execute
 #                 bits, so every installed file is made non-executable first.
 #                 Shell then runs through `bash`, as a hook registration
-#                 calls it. A compiled artifact cannot run from that copy at
+#                 would have to call it once the execute bits are gone. A compiled artifact cannot run from that copy at
 #                 all; it runs only by the planned fetch path, which places it
 #                 in the plugin data directory and marks it executable, and
 #                 that step is what this mode simulates. No release exists to
@@ -30,14 +30,20 @@ esac
 cand=$(cd "$2" && pwd)
 root=$(cd "$cand/../../../../../.." && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/deliver.XXXXXX")
+# dash runs no EXIT trap when a signal kills it, so each signal exits.
 trap 'rm -rf "$scratch"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 dest=$scratch/install
 
 check() { # check <program-runner...>: run the installed primitives
-  [ "$(printf 'ls -l' | "$@" "$bindir/tokenize")" = "$(printf 'W\t0\t0\t-1\t0\t0\t0\t0\t-\tls\nW\t0\t0\t-1\t0\t0\t0\t0\t-\t-l')" ]
+  out=$(printf 'ls -l' | "$@" "$bindir/tokenize") || return 1
+  [ "$out" = "$(printf 'W\t0\t0\t-1\t0\t0\t0\t0\t-\tls\nW\t0\t0\t-1\t0\t0\t0\t0\t-\t-l')" ] || return 1
   mkdir "$scratch/pr"
   printf '%s' '{"baseRefName":"main","headRefOid":"0123456789abcdef0123456789abcdef01234567","isDraft":true,"mergeable":"CONFLICTING","url":"https://github.com/acme/widget/pull/1"}' >"$scratch/pr/view"
-  case $(cd "$scratch/pr" && "$@" "$bindir/ready" - - refuse) in
+  out=$(cd "$scratch/pr" && "$@" "$bindir/ready" - - refuse) || return 1
+  case $out in
     *'"permissionDecision":"deny"'*'mergeable is CONFLICTING'*) ;;
     *) return 1 ;;
   esac

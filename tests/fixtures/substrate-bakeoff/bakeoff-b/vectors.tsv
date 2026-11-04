@@ -12,6 +12,4 @@ dup-redirect-file	aaf2fd57	vec-dup-redirect-file	a >& redirect to a file name, n
 path-prefixed-verb	aaf2fd57	vec-path-prefixed-verb	a verb named by path (/x/cat, ./rm) must keep its path in the word
 path-escape	aaf2fd57	vec-path-escape	a .. path and a leading tilde must reach the containment check, the tilde flagged as an expansion
 fail-closed-emission	aaf2fd57	vec-fail-closed-emission	an unparseable command must emit nothing at all, not the tokens before the failure
-awk-print-redirect	026930ca	vec-awk-print-redirect	an awk program redirecting print stays one quoted word, never a shell redirect
 case-folded-key	b6c6fedb	vec-case-folded-key	a case-insensitive config key must reach the screen with its case unchanged
-quoted-substitution	f7a90c3d	vec-quoted-substitution	a command substitution inside double quotes still runs, so it must be recorded on the quoted word
