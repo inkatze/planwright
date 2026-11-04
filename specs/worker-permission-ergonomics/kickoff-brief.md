@@ -1030,3 +1030,22 @@ Class: meaning
 Lens-pass: Amendment 4, delta-scoped lens review above (spec lens set, inline; every finding dispositioned)
 Anchor: `c80256e3043b9fd1dc8a3229372a0ecae2edd4c3` — computed as
 `scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Re-anchor — Task 12 convergence fix (2026-11-03)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by `/execute-task`'s
+convergence for Task 12.
+
+**Why the anchor moved:** the REQ-A1.11 and REQ-C1.1 test-spec entries said
+the `deny` block differs from its pre-change content only by the
+`Write`/`Edit` path rules, while REQ-E1.6 and Task 12's deliverables also add
+the `Read` rule for `/proc/*/environ`. Both entries now name that rule; no
+decision changes.
+
+**Cites the changelog line:** the 2026-11-03 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `fecd04fcd6f75d263c89aadbaac35781da021c0a` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`

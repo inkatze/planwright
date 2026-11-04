@@ -55,7 +55,8 @@ deny entry is covered without editing the fixture list; a curated collision
 row (a command the known-safe set or an arm would otherwise approve) is added
 for every rule whose verb is otherwise approvable, and the suite fails when
 such a rule lacks one. The `deny` block differs from its pre-change content
-only by the `Write`/`Edit` path rules REQ-F1.6 and REQ-G1.8 add.
+only by the `Write`/`Edit` path rules REQ-F1.6 and REQ-G1.8 add and the
+`Read` rule REQ-E1.6 adds.
 
 ### REQ-A1.4 — Every-segment-safe compound analysis [test]
 
@@ -259,7 +260,8 @@ script).
 a `PreToolUse` (Bash) hook referencing the script via `${CLAUDE_PLUGIN_ROOT}`,
 `defaultMode` is `default`, and the `deny` block is unchanged from baseline.
 *(Amended at the 2026-10-05 extension kickoff: Task 12 moves the baseline to
-include exactly the `Write`/`Edit` path rules REQ-F1.6 and REQ-G1.8 add; the
+include exactly the `Write`/`Edit` path rules REQ-F1.6 and REQ-G1.8 add and
+the `Read` rule REQ-E1.6 adds; the
 `Bash(…)` deny rules stay unchanged.)*
 `[manual]`: a dispatched worker under the wired profile runs a full task without
 a prompt-flood. This confirmation MUST be re-run against the shipped pure-shell
