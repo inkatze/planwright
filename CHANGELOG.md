@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.65.0](https://github.com/inkatze/planwright/compare/v0.64.0...v0.65.0) (2026-11-04)
+
+
+### Features
+
+* **comment-budget:** the audit counts function descriptions and more reason phrasings ([#807](https://github.com/inkatze/planwright/issues/807)) ([183f3ce](https://github.com/inkatze/planwright/commit/183f3ce844c24f016bc058b7887c0f23a7fce08d))
+* **mission-control:** add the behavioral eval suite and its ready-flip cadence ([#806](https://github.com/inkatze/planwright/issues/806)) ([b5045d4](https://github.com/inkatze/planwright/commit/b5045d42733bdf7301b7ddd37e56c56ddc570a3a))
+* **mission-control:** show reviews at a glance in the panel ([#809](https://github.com/inkatze/planwright/issues/809)) ([6862c17](https://github.com/inkatze/planwright/commit/6862c17f93f443cd39204440e9250b9e20fc625f))
+* **worker-profile:** static read-only allow set, first-push rule, and file-tool path denies ([#808](https://github.com/inkatze/planwright/issues/808)) ([4387acb](https://github.com/inkatze/planwright/commit/4387acb3ea7a13961c05c3204f313def7de0f0c6))
+
 ## [0.64.0](https://github.com/inkatze/planwright/compare/v0.63.0...v0.64.0) (2026-11-03)
 
 
