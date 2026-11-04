@@ -1,7 +1,7 @@
 # Universal Binary — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-09
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -88,7 +88,7 @@ through the writer on each matrix platform and runs the named entry point
 through each; a verdict that records a mode as unsupported is verified at
 re-sign-off to name the fallback.
 
-### REQ-B1.4 — Platform matrix [test]
+### REQ-B1.4 — Platform matrix [test] (superseded by REQ-B1.6)
 
 The workflow-posture guard, extended by Task 4.1, asserts the workflow
 carries the Ubuntu, macOS, and Alpine jobs with every step blocking on
@@ -98,6 +98,25 @@ list matches the scope REQ-B1.4 names; the Alpine job asserts `/bin/sh`
 is `dash` and awk is busybox; the repair-before-join ordering is carried
 by the Task 4 → Task 4.1 dependency edge, and the suite's own green run
 on both platforms is the evidence Task 4 records.
+
+Verification now pins to REQ-B1.6, below, since the Alpine scope may span
+several jobs.
+
+### REQ-B1.6 — Platform matrix, Alpine scope across jobs [test]
+
+The workflow-posture guard, as Task 4.2 changes it, asserts the workflow
+carries the Ubuntu, macOS, and Alpine jobs with every step blocking on
+each (no `continue-on-error`, no `|| true` in a `run:` block, no
+job-level `if:` gating on a platform name); that every step of every
+Alpine job is named either `setup: <what>` or one of the scope REQ-B1.6
+names; that across the Alpine jobs exactly one carries the shell suite,
+exactly one carries the install smoke, and at most one carries the
+bake-off harness; and that no Alpine job carrying the install smoke or
+the harness has a `strategy.matrix`. Its test suite carries a passing
+fixture with the smoke in its own Alpine job and failing fixtures with
+the smoke in two Alpine jobs, the smoke in a sharded job, and an Alpine
+step under an unscoped name. The Alpine setup asserts `/bin/sh` is `dash`
+and awk is busybox in every Alpine job.
 
 ### REQ-B1.5 — Relative hook budget [test]
 
