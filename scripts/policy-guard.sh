@@ -132,8 +132,12 @@
 #               `git symbolic-ref` write (two names, or -d/--delete); a
 #               `git fetch` refspec whose destination is a local branch (a
 #               bare name, heads/, or refs/heads/), a non-literal refspec,
-#               --stdin, and --refmap with a value; `gh pr checkout` (and its
-#               `co` alias) and `gh repo sync`. All deny with no read.
+#               --stdin, --refmap with a value, and a fetch beside -c, a GIT_*
+#               variable, or a config or remote change in the same command; a
+#               `git remote add` fetching into a fetch mirror; `gh pr checkout`
+#               (and its `co` alias) and `gh repo sync`. All deny with no read.
+#               Residual: a refspec already stored in remote.<r>.fetch is not
+#               read, so a plain `git fetch <r>` follows whatever it maps.
 #   stash-write tower only: every `git stash` form except `stash list` and
 #               `stash show`, the stack being shared by every worktree of a
 #               clone; deny with no read.
@@ -2350,6 +2354,10 @@ classify_git() {
     esac
     return 0
   fi
+  if [ "$TIER" = tower ] && [ "$LC" = fetch ] && { [ "$cflag" = 1 ] || [ "$GIT_ENV" = 1 ] || [ "$ST_CFG" = 1 ]; }; then
+    deny_now 'this git fetch runs with -c configuration, a GIT_* variable, or a git config or remote change in the same command, any of which can set a refspec writing a local branch where the guard cannot read it - refusing (fail closed). Run the fetch on its own, without them.'
+    return 0
+  fi
   [ "$TIER" != tower ] || classify_tower_git "$LC" "$k" "$dir" "$dir_ok"
 
   case " $GIT_BUILTINS " in
@@ -2706,6 +2714,7 @@ classify_tower_git() {
       fi
       ;;
     fetch) classify_tower_fetch "$k" ;;
+    remote) classify_tower_remote "$k" ;;
     stash)
       if [ "$k" -lt "${#SW[@]}" ] && [ "${SWL[$k]}" = 1 ]; then
         case ${SW[$k]} in list | show) return 0 ;; esac
@@ -2800,6 +2809,45 @@ classify_tower_fetch() {
     deny_now "a git fetch into a local branch ($(sanitize_printable "$dst" 'its destination')) is denied to the tower under every policy value: it moves that branch, and the tower never moves a branch. Fetch into the remote-tracking refs (git fetch <remote>) instead."
     return 0
   done
+}
+
+# classify_tower_remote <first-arg-index> — a git remote add that fetches
+# into a fetch mirror, whose refspec maps the remote's refs/ onto the local
+# refs/, its branches included. A bare --mirror sets up both directions.
+classify_tower_remote() {
+  local k=$1 n=${#SW[@]} w name mirror=0
+  while [ "$k" -lt "$n" ]; do
+    case ${SW[$k]} in
+      -v | --verbose) k=$((k + 1)) ;;
+      *) break ;;
+    esac
+  done
+  [ "$k" -lt "$n" ] || return 0
+  [ "${SWL[$k]}" = 1 ] || {
+    deny_now 'this git remote subcommand is an expansion the guard cannot read, and it could add a fetch mirror writing the local branches - refusing (fail closed). Write the subcommand literally.'
+    return 0
+  }
+  [ "${SW[$k]}" = add ] || return 0
+  k=$((k + 1))
+  tower_opts_literal "$k" 'this git remote add' || return 0
+  parse_git_opts "$k" 'track master' 'tm' '' \
+    || {
+      deny_now "this git remote add carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
+      return 0
+    }
+  for w in "${SW[@]:$k}"; do
+    [ "$w" != -- ] || break
+    name=${w%%=*}
+    [ "${#name}" -ge 4 ] || continue
+    case --mirror in "$name"*) ;; *) continue ;; esac
+    case $w in
+      *=push) ;;
+      *) mirror=1 ;;
+    esac
+  done
+  if [ "$mirror" = 1 ] && { long_prefix_seen fetch 1 || [[ $GP_SHORT == *f* ]]; }; then
+    deny_now 'a git remote add that fetches into a fetch mirror (-f with --mirror or --mirror=fetch) is denied to the tower under every policy value: the mirror writes the local branches, and the tower never moves a branch. Add the remote without --mirror.'
+  fi
 }
 
 # classify_tower_worktree <verb-index> <dir> <dir_ok>

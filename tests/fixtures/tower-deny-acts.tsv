@@ -278,3 +278,8 @@ spelling	branch-move	negation	git fetch --multiple --no-multiple origin main:mai
 spelling	branch-move	negation	git fetch -m --no-multiple origin main:main
 spelling	branch-move	ref-form	git fetch . 'refs/*:refs/*'
 spelling	branch-move	ref-form	git fetch origin 'refs/heads/*:refs/he*'
+spelling	branch-move	global-c	git -c remote.origin.fetch=+refs/heads/*:refs/heads/* fetch origin
+spelling	branch-move	env	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.fetch GIT_CONFIG_VALUE_0=+refs/heads/*:refs/heads/* git fetch origin
+spelling	branch-move	same-command-config	git config remote.origin.fetch +refs/heads/*:refs/heads/* && git fetch origin
+spelling	branch-move	mirror	git remote add -f --mirror=fetch m ../x
+spelling	branch-move	mirror	git remote add --mirror --fetch m ../x
