@@ -276,7 +276,7 @@ fi
 valid_owner() {
   vo_v=$1
   case $vo_v in
-    "" | . | .. | unknown-owner | *[!A-Za-z0-9._-]*) return 1 ;;
+    "" | . | .. | unknown-owner | *[!A-Za-z0-9._:-]*) return 1 ;;
     -*) return 1 ;;
   esac
   [ "${#vo_v}" -le 128 ]

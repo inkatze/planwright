@@ -461,6 +461,10 @@ cmd_launch() {
   # its own at the kind's key, and --strict-tier stops it from launching at
   # the ambient tier when the allocation store is unreachable.
   unit="mission-control:$name"
+  # Each rung registers its session in the fleet registry, taking the owner
+  # from PLANWRIGHT_TOWER_ID (fleet-register.sh), so it is set for the rung's
+  # call alone: without it the record reads unknown-owner. The dispatch-env
+  # wrapper drops it before the session starts.
   # The row's token goes into the session, so a decided-by-mission-control
   # item it adds is bound to this row rather than to a name any caller can
   # type (tower-comms REQ-A1.14). It is handed to the rung as an explicit
@@ -490,7 +494,7 @@ cmd_launch() {
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"
       tier="$model/$effort"
       sr=0
-      /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
+      PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
       case $sr in
         0) ;;
         3)
@@ -511,7 +515,7 @@ cmd_launch() {
       esac
       ;;
     tmux)
-      out=$(cd "$cwd" && /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
+      out=$(cd "$cwd" && PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
         --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" --scope "$scope" </dev/null)
       dr=$?
       case $dr in

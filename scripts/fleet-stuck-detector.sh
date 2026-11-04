@@ -332,7 +332,7 @@ valid_tower_id() {
 # is comparable for equality even when the surface would not recognize it.
 valid_owner() {
   case $1 in
-    "" | . | .. | unknown-owner | -* | *[!A-Za-z0-9._-]*) return 1 ;;
+    "" | . | .. | unknown-owner | -* | *[!A-Za-z0-9._:-]*) return 1 ;;
   esac
   [ "${#1}" -le 128 ]
 }

@@ -41,6 +41,9 @@
 #      above and it never deadlocks on a stale `pending` label (issue #173).
 #      Best-effort: a failure here degrades to a stderr warning, never a
 #      refusal — the tag and Release are already the ceremony's real output.
+#   6. Re-run the window lock on each open pull request whose latest run of it
+#      failed, so none stays red from the window once the tag lands. Best-effort
+#      like step 5.
 #
 # Security posture (doctrine/security-posture.md, framework-script rules):
 # version strings are validated against the SemVer grammar before any use in a
@@ -582,6 +585,47 @@ relabel_release_pr() {
   fi
 }
 relabel_release_pr
+
+# --- Re-run the window lock on open pull requests ----------------------------
+
+# The lock judges main, but a pull request keeps the result of the run that
+# checked it, so one checked during the window stays red after the tag lands
+# though a re-run would pass. The tag push is no pull_request event and
+# re-triggers nothing, so this re-runs each open pull request's latest lock run
+# that failed. Best-effort like the relabel: the tag and Release are done.
+rerun_window_lock() {
+  local prs runs ids id n=0
+  local hint="re-run window-lock on each open pull request still red from the window"
+  prs=$(gh pr list --base "$MAIN_REF" --state open --limit 200 --json headRefOid 2>/dev/null) || {
+    echo "release-publish: could not list the open pull requests (gh pr list failed); $hint" >&2
+    return
+  }
+  runs=$(gh run list --workflow "$RL_CI_WINDOW_LOCK_WORKFLOW" --event pull_request --limit 200 \
+    --json databaseId,headSha,conclusion 2>/dev/null) || {
+    echo "release-publish: could not list the $RL_CI_WINDOW_LOCK_WORKFLOW runs (gh run list failed); $hint" >&2
+    return
+  }
+  # gh lists runs newest first, so the first run seen per head is its latest.
+  ids=$(jq -rn --argjson prs "$prs" --argjson runs "$runs" '
+    ($prs | map(.headRefOid)) as $heads
+    | reduce $runs[] as $r ({}; if has($r.headSha) then . else .[$r.headSha] = $r end)
+    | to_entries[] | .value
+    | select(.conclusion == "failure" and (.headSha as $h | $heads | index($h)))
+    | .databaseId' 2>/dev/null) || {
+    echo "release-publish: could not read the open pull requests' lock runs; $hint" >&2
+    return
+  }
+  for id in $ids; do
+    case $id in '' | *[!0-9]*) continue ;; esac
+    if gh run rerun "$id" --failed >/dev/null 2>&1; then
+      n=$((n + 1))
+    else
+      echo "release-publish: could not re-run $RL_CI_WINDOW_LOCK_WORKFLOW run $id; re-run it manually" >&2
+    fi
+  done
+  [ "$n" -eq 0 ] || echo "release-publish: re-ran the window lock on $n open pull request(s) checked during the window"
+}
+rerun_window_lock
 
 if [ "$release_present" -eq 1 ]; then
   echo "release-publish: $tag and its GitHub Release already exist; re-ran the idempotent relabel step for the merged release PR (REQ-B1.4; any relabel warning above names the manual follow-up)"

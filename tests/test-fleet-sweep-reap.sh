@@ -718,3 +718,10 @@ case $(summary)/$err in
 esac
 unset IHOME
 echo "ok: the reap knob is read from the swept checkout wherever the sweep starts, and terminate from a committed (in any letter case), symlinked or nested local file, or the core layer, is refused"
+
+# The mission-control launcher's owner token, `mission-control:<program>`, is an
+# identity the sweep acts for.
+rc=0
+ienv -- fleet-sweep.sh --repo "$repo" --tower-id mission-control:alpha >"$tmp/out" 2>"$tmp/err" || rc=$?
+[ "$rc" = 0 ] || fail "a sweep as mission-control:alpha: exit $rc ($(cat "$tmp/err"))"
+echo "ok: a sweep run as mission-control:<program> is taken"

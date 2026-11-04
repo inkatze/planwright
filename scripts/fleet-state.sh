@@ -286,7 +286,9 @@ valid_field() {
 # identity looks like — that is fleet-presence.sh's call — while still refusing
 # whitespace, separators, control bytes, and a leading dash, none of which any
 # identity shape produces and each of which would tear a record or misdirect a
-# path built from it. Bounded to 128 chars, like every other field.
+# path built from it. Bounded to 128 chars, like every other field. A colon is
+# admitted for the mission-control launcher's `mission-control:<program>`: it
+# tears no tab-separated record and names no path component.
 # `unknown-owner` is refused as a VALUE because it is the reader's classification
 # for an absent one (fleet-status.sh). Sentinel and value namespaces have to be
 # disjoint: if a caller could store the literal string, a forged record would be
@@ -295,7 +297,7 @@ valid_field() {
 valid_owner() {
   vo_v=$1
   case $vo_v in
-    "" | . | .. | unknown-owner | *[!A-Za-z0-9._-]*) return 1 ;;
+    "" | . | .. | unknown-owner | *[!A-Za-z0-9._:-]*) return 1 ;;
     -*) return 1 ;;
   esac
   [ "${#vo_v}" -le 128 ]
@@ -830,7 +832,7 @@ case $cmd in
       exit 2
     fi
     if [ "$owner" != "-" ] && ! valid_owner "$owner"; then
-      printf '%s\n' "fleet-state: refusing malformed owner token '$(sanitize_printable "$owner" "(unprintable owner)")' (must match ^[A-Za-z0-9._-]{1,128}\$, no leading dash)" >&2
+      printf '%s\n' "fleet-state: refusing malformed owner token '$(sanitize_printable "$owner" "(unprintable owner)")' (must match ^[A-Za-z0-9._:-]{1,128}\$, no leading dash)" >&2
       exit 2
     fi
     if [ "$backend" != "-" ] && ! valid_backend "$backend"; then
