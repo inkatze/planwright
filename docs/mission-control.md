@@ -42,8 +42,8 @@ can change it:
   [State sources](#state-sources)) and says where each kind of fact comes
   from; tell it if your work items live in a tracker instead.
 - **Duties to turn on.** One yes or no for the recommended set, each duty
-  in one line by what it saves you; none is on until you say yes (see
-  [Duties](#duties)).
+  in one line by what it saves you, or name the changes you want; none is
+  on until you say yes (see [Duties](#duties)).
 - **Your voice and quiet hours.** None until you state them, any time.
 
 It then writes the program's configuration, sets up the program's private
