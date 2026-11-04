@@ -9,13 +9,16 @@ export const START = 1_000_000_000
 
 const tab = (...f: (string | number)[]) => f.join('\t')
 
-export function digestText(o: { pending?: number; extra?: string[]; refresh?: number; tick?: number } = {}): string {
+export function digestText(
+  o: { pending?: number; extra?: string[]; refresh?: number; tick?: number; reviewsTtl?: number } = {},
+): string {
   return [
     tab('format', 1),
     tab('program', 'alpha'),
     tab('taken', 1000),
     tab('knob', 'refresh', o.refresh ?? 10),
     tab('knob', 'tick', o.tick ?? 300),
+    ...(o.reviewsTtl === undefined ? [] : [tab('knob', 'reviews-ttl', o.reviewsTtl)]),
     tab('knob', 'handover-context', 70),
     tab('knob', 'handover-wakes', 3),
     tab('knob', 'handover-compactions', 2),
@@ -39,6 +42,17 @@ export function digestText(o: { pending?: number; extra?: string[]; refresh?: nu
     tab('line', 'mission control alpha: 2 in flight, 2 waiting, 0 pending, rung throttle'),
   ].join('\n')
 }
+
+// A reviews snapshot as the digest carries it: nine of my PRs, two of them
+// listed, and one waiting on my review.
+export const REVIEWS = [
+  tab('reviews', 'ok', 120),
+  tab('review-count', 'mine', 9),
+  tab('review-count', 'waiting', 1),
+  tab('review-mine', 'acme/widgets', 7, 'ready', 'red', 2, 'yes', 'carol, core-team', 'Add the widget'),
+  tab('review-mine', 'acme/widgets', 8, 'draft', 'none', 0, 'no', '-', 'Fix the gadget'),
+  tab('review-waiting', 'acme/widgets', 12, 'draft', 'dave', 5400, 'Rework the docs'),
+]
 
 export const WAKE = ['wake\t1\te1000.ab12', 'mission control (alpha): 1 event(s) pending.', '- pr-ready pr-7'].join(
   '\n',
@@ -105,6 +119,8 @@ export type Fixture = {
   emitExit: number
   rules: string
   rulesExit: number
+  reviewsExit: number
+  reviewsOut: string
   isPlaced: boolean
   isDropped: boolean
   isEnvDenied: boolean
@@ -123,6 +139,8 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     emitExit: 0,
     rules: '<!-- rules begin -->\n- R1 never merge\n<!-- rules end -->',
     rulesExit: 0,
+    reviewsExit: 0,
+    reviewsOut: 'written',
     isPlaced: true,
     isDropped: false,
     isEnvDenied: false,
@@ -197,6 +215,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     if (script === 'mc-wake.sh' && verb === 'target') return answer('', argv.includes('--mod') ? fx.claimExit : 0)
     if (script === 'mc-event.sh' && verb === 'mark') return answer('', fx.markExit)
     if (script === 'mc-event.sh' && verb === 'emit') return answer('e1.ff', fx.emitExit)
+    if (script === 'mc-reviews.sh' && verb === 'refresh') return answer(fx.reviewsOut, fx.reviewsExit)
     if (script === 'mc-rules.sh') return answer(fx.rulesExit === 0 ? fx.rules : '', fx.rulesExit)
     return answer('')
   })

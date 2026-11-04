@@ -16,6 +16,8 @@ runner-interval	mission_control_runner_interval	scripts/mc-watch.sh
 failsafe-tick-cadence	mission_control_tick_cadence	scripts/mc-wake.sh
 panel-redraw-cadence	mission_control_panel_refresh	scripts/mc-panel.sh
 panel-tick-cadence	mission_control_tick_cadence	scripts/mc-panel.sh
+panel-reviews-ttl	mission_control_reviews_ttl	scripts/mc-reviews.sh
+panel-reviews-check-cadence	mission_control_reviews_ttl	scripts/mc-panel.sh
 handover-context-threshold	mission_control_handover_context	scripts/mc-panel.sh
 handover-wake-ceiling	mission_control_handover_wakes	scripts/mc-panel.sh
 handover-compaction-ceiling	mission_control_handover_compactions	scripts/mc-panel.sh
@@ -39,3 +41,5 @@ stall-window	mission_control_stall_window	scripts/mc-stall.sh
 reclaim-audit-files	mission_control_reclaim_files	scripts/mc-reclaim.sh
 deadline-horizon	mission_control_deadline_horizon	scripts/mc-deadlines.sh
 draft-clipboard	mission_control_clipboard	scripts/mc-inbox.sh
+guidance-level	mission_control_guidance	scripts/mc-config.sh
+kickoff-mode	mission_control_kickoff_mode	scripts/mc-config.sh

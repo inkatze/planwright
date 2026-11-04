@@ -520,6 +520,7 @@ EOF
               $1 == "repository-unresolved" {
                 if (code[$2] == "alias-malformed") why = "has a Repository: value that is not a single alias"
                 else if (code[$2] == "alias-duplicate") why = "carries more than one Repository: field"
+                else if (code[$2] == "work-repository-unresolved") why = "names no repository, and the bundle'"'"'s work repository does not resolve here"
                 else why = "names repository " ($3 == "" ? "(empty)" : $3) ", which does not resolve here"
                 printf "error: task %s %s - its task-completion atoms resolve as unresolved (REQ-F1.5)\n", $2, why
               }
@@ -911,9 +912,10 @@ EOF
   printf '\n== manual verification ==\n'
   man_any=0
   man_skipped=0
+  man_live=""
   for name in $specs; do
     case " $statuses " in
-      *" $name=draft "* | *" $name=ready "* | *" $name=active "*) ;;
+      *" $name=draft "* | *" $name=ready "* | *" $name=active "*) man_live="$man_live $name" ;;
       *" $name=done "* | *" $name=retired "* | *" $name=superseded "*) continue ;;
       *)
         if [ -f "$root/$name/test-spec.md" ]; then
@@ -979,6 +981,21 @@ EOF
       "$name" "$(printf '%s\n' "$man_rows" | grep -c .)"
     printf '%s\n' "$man_rows"
   done
+  # The eval cadence's runs: mission control's behavioral eval suite runs on
+  # demand and gates ready flips through a per-head ledger, so the sweep shows
+  # what was run (a head run again and again is a flaky suite's signal). The
+  # helper prints nothing unless a live bundle is one it gates.
+  if [ -n "$man_live" ] && [ -f "$script_dir/mc-eval-cadence.sh" ]; then
+    if man_evals=$(/bin/bash "$script_dir/mc-eval-cadence.sh" inventory --worktree "$root" --live "${man_live# }" 2>/dev/null); then
+      if [ -n "$man_evals" ]; then
+        man_any=1
+        printf '%s\n' "$man_evals"
+      fi
+    else
+      printf 'note: the eval cadence ledger for %s is unreadable; its runs are not inventoried\n' "$root"
+      man_skipped=1
+    fi
+  fi
   if [ "$man_any" -eq 0 ] && [ "$man_skipped" -eq 0 ]; then
     printf '(none pending)\n'
   fi

@@ -36,6 +36,9 @@ fail() {
 
 tmp=$(cd "$(mktemp -d)" && pwd -P)
 cleanup() {
+  # A subshell signalled before its exec runs this trap too; only the main
+  # shell may kill the run's processes and remove its directory.
+  [ "$(exec /bin/sh -c 'echo "$PPID"')" = "$$" ] || return 0
   set +e
   cl_snap=$(ps -A -ww -o pid=,args= 2>/dev/null) || cl_snap=''
   [ -n "$cl_snap" ] || cl_snap=$(ps -A -o pid=,args= 2>/dev/null) || cl_snap=''
@@ -125,7 +128,9 @@ lock_free() {
 # entry starting with <prefix>.
 parked_sweep() {
   ps_sig=$1
-  reached="$tmp/reached.$$.$RANDOM"
+  # One marker per run: a marker left by an earlier site would send the signal
+  # before this sweep has even started.
+  reached="$tmp/run$n/reached"
   sweep_env
   # exec'd, so the job's pid is the sweep itself: waiting on a wrapper shell
   # that died of the signal would return before the sweep's traps had run.

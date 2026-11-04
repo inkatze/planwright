@@ -1,0 +1,10 @@
+# delivery.persona — nothing is delivered while the operator is away; on presence one item or one coupled cluster, ranked by consequence then age.
+arm=REQ-F1.4
+expertise=expert
+answer.1=@event:presence state=away
+answer.2=@event:queued id=i1 consequence=1 age=9 cluster= subject=typo-fix
+answer.3=@event:queued id=i2 consequence=3 age=2 cluster=c1 subject=release-date
+answer.4=@event:queued id=i3 consequence=2 age=5 cluster=c1 subject=release-notes
+answer.5=@event:queued id=i4 consequence=3 age=1 cluster= subject=billing-change
+answer.6=@event:presence state=here
+answer.7=that's all

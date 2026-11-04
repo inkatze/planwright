@@ -65,3 +65,8 @@ step_pool_capacity_gate: 1
 # step: a prompt step there refuses every flight dispatch (flights run skill
 # steps only).
 steps_post_pr: [fix-round-cadence]
+
+# Mission control's eval cadence before any agent-issued unit ready flip; the
+# step passes every spec but mission control and its follow-on bundles (its
+# catalog entry in .claude/catalogs/steps.yaml says why it has no `requires`).
+steps_pre_ready_flip: [mc-eval-cadence]

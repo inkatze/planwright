@@ -1,7 +1,7 @@
 # Prose disposition — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-21
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -375,6 +375,17 @@ work, is recorded in D-1 and cited here from the goal.
   catches at landing, each naming the Phase B task whose family owns the
   file, so the aggregate check stays green from the day the guard lands.
   *(Cites: D-9, D-11, obs:a81cee76.)*
+- **REQ-F1.11** The `--audit` classification SHALL count two more kinds of
+  block as carrying evidence: a block whose last line sits directly above a
+  function definition (a `contract` class, describing what the function
+  takes, does or returns), and a block using a reason phrasing beyond the
+  shipped list, where each added phrasing comes from a comment in this
+  repository that the shipped list misclassified, recorded with that
+  example in the task's PR. The usage text SHALL state the widened
+  patterns. The phrasings are what the guard recognizes, never wording any
+  comment is asked to use.
+  *(Cites: D-15; the Task 5 halt (2026-11-01), drafting-session decision
+  (2026-11-02).)*
 
 ## REQ-G — Cleanup and verification
 
@@ -439,6 +450,12 @@ work, is recorded in D-1 and cited here from the goal.
 
 ## Changelog
 
+- 2026-11-02 — Extended (`/spec-draft --extend`): Task 5 halted because the
+  guard counted 6,792 evidence-free blocks where a reading sample showed
+  nearly all should stay, mostly function descriptions and reasons phrased
+  outside the guard's word list. REQ-F1.11, D-15 and Task 4.1 teach the
+  guard both before Phase A runs; Task 5 now depends on Task 4.1, and
+  Phase A's scope is reconsidered against Task 4.1's recount.
 - 2026-09-21 — Task 2 execution, review round: Tasks 10, 11 and 12 write the
   same three skill files (`skills/polish/SKILL.md`,
   `skills/self-review/SKILL.md` and `/execute-task`'s convergence prose), and
@@ -648,3 +665,8 @@ work, is recorded in D-1 and cited here from the goal.
   amendment axis and the writer obligations), `instruction-hygiene`,
   `security-posture`, `customization-boundary`, `autopilot-reflex`,
   `engineering-decisions`, `refactor-instinct`, `proportionality`.
+- **The Task 5 halt** (2026-11-01, execution record): Phase A stopped on
+  the guard's `--audit` count of 6,792 evidence-free blocks across the
+  surface; a reading sample showed nearly all should stay, being function
+  descriptions, fixture explanations, or reasons phrased outside the
+  guard's word list.

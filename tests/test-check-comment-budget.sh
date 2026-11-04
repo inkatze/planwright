@@ -281,6 +281,74 @@ assert_out "a one-word block counts one word" "$(printf 'block\t2\t1\tnone\tscri
 assert_out "a phrase alone is rationale language" "$(printf 'block\t2\t7\trationale\tscripts/c.sh:17')"
 assert_out "a lone comment line is no file's largest block" "$(printf 'file\t0\t0\t0\t0\t1\t2\tscripts/d.sh')"
 
+echo "## REQ-F1.11: function descriptions and widened reason phrasings"
+# class_is <label> <class> <path:start>: the audit's class for the block starting there.
+class_is() {
+  local got
+  got=$(awk -F '\t' -v at="$3" '$1 == "block" && $5 == at { print $4 }' "$TMP/out")
+  if [ "$got" = "$2" ]; then ok "$1"; else fail "$1 (expected $2 at $3, got '$got')"; fi
+}
+mkdir -p "$TMP/widened/scripts"
+# Each phrasing fixture is drawn verbatim from a repository comment the shipped list classed
+# evidence-free; every one carrying "fail open" also says "would", so that fixture is an excerpt.
+printf '%s\n' 'x=0' \
+  '# end_group <pgid>: TERM the group, then KILL what is left after ten seconds,' \
+  '# returning once the group is gone.' \
+  'end_group() {' '}' \
+  '  # trim_both: strip the leading and trailing blanks' \
+  '  # of the given string.' \
+  '  function trim_both(s) { return s }' \
+  '# a describing block that a blank' \
+  '# line parts from the function below.' \
+  '' 'parted() {' '}' \
+  '# The row has moved on to a newer question, which stays the one' \
+  '# open question there: reopening this one would put two on it.' 'x=1' \
+  '# A peer creating the same sub-surface concurrently is a success here, so' \
+  '# the status is discarded and the -d test below is what decides.' 'x=2' \
+  '# Hoisted once: the ownership discriminant every check_private call compares' \
+  '# against. An unresolvable uid fails closed (the trust gate needs it).' 'x=3' \
+  '# A syntax-erroring lib aborts the sourcing shell outright — also fail-closed,' \
+  '# and not catchable here.' 'x=4' \
+  '# fail open on sloppy' '# hand edits).' 'x=5' \
+  '# GraphQL writes that name a branch: the target must be a literal branch' \
+  '# name in the query, checked against the protected set.' 'x=6' \
+  '# Sanitize every field before it reaches the terminal (echo discipline):' \
+  '# a hand-corrupted store line cannot drive the terminal or corrupt a log.' 'x=7' \
+  '# also a sonnet and a wouldbe' '# mustard cannotes' 'x=8' \
+  '# the probe failed open' '# here' 'x=9' \
+  '# the probe is failing closed' '# here' 'x=10' \
+  '# 5. A settings fragment that itself pins defaultMode to auto is refused; a' \
+  '#    fragment pinning a non-auto mode passes; a missing fragment path fails' \
+  '#    closed; a fragment with no defaultMode at all is not a mode source.' 'x=11' \
+  '  # flush the pending row' '  # and reset the buffer' '  flush()' \
+  '# the follow-up lands in Task' '# 4 with the rest.' 'x=12' >"$TMP/widened/scripts/e.sh"
+run "$r" --audit "$TMP/widened"
+assert_exit "--audit over the widened fixture runs" 0 $?
+class_is "a block directly above a name() definition is contract" contract scripts/e.sh:2
+class_is "a block directly above a function-keyword definition is contract" contract scripts/e.sh:6
+class_is "a blank line between block and function is not contract" none scripts/e.sh:9
+class_is "'would' is rationale (scripts/tower-queue.sh)" rationale scripts/e.sh:14
+class_is "a bare 'so' is rationale (scripts/tower-queue.sh)" rationale scripts/e.sh:17
+class_is "'fails closed' is rationale (scripts/fleet-presence.sh)" rationale scripts/e.sh:20
+class_is "'fail-closed' is rationale (scripts/tasks-pr-sync.sh)" rationale scripts/e.sh:23
+class_is "'fail open' is rationale (tests/test-spec-validate.sh)" rationale scripts/e.sh:26
+class_is "'must' is rationale (scripts/policy-guard.sh)" rationale scripts/e.sh:29
+class_is "'cannot' is rationale (scripts/fleet-attention.sh)" rationale scripts/e.sh:32
+class_is "the added words match whole words only" none scripts/e.sh:35
+class_is "'failed open' is the same phrasing" rationale scripts/e.sh:38
+class_is "'failing closed' is the same phrasing" rationale scripts/e.sh:41
+class_is "a phrasing wrapped across comment lines still matches" rationale scripts/e.sh:44
+class_is "a block above a bare no-argument call is not contract" none scripts/e.sh:48
+class_is "a citation wrapped across comment lines still matches" cites scripts/e.sh:51
+assert_out "contract totals are emitted" "$(printf 'total\tcontract_blocks\t2')"
+if "$GUARD" --help | tr '\n' ' ' | tr -s ' ' | grep -qF 'lest, would, so, must, cannot (as whole words)' \
+  && "$GUARD" --help | grep -qF 'contract' \
+  && "$GUARD" --help | tr '\n' ' ' | tr -s ' ' | grep -qF 'fail open or fail closed'; then
+  ok "the usage text states the widened patterns"
+else
+  fail "the usage text does not state the widened patterns"
+fi
+
 echo "## code invariance"
 r="$TMP/inv"
 mkrepo "$r"

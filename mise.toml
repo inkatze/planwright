@@ -84,6 +84,10 @@ trap 'exit 143' TERM
 description = "Print the script layer's maintenance-cost baseline as of --as-of <date>: fix-typed commits per month, observation inflow by class per month, the check aggregate's CI wall-clock from a committed capture (--capture-wallclock writes one through gh), and load-flake hand-backs. On demand only; scripts/substrate-baseline.sh's header documents each field"
 run = "/bin/sh scripts/substrate-baseline.sh"
 
+[tasks."substrate:bakeoff"]
+description = "Run the substrate bake-off harness: `run --bakeoff <dir> --out-dir <dir>` measures every candidate in a bake-off directory against the same differential fixtures and writes report.tsv and the rendered view.md; `validate <report.tsv>` and `render <report.tsv>` check and render a committed report. On demand only (the shell suite runs it over the committed stub bake-off); docs/substrate-bakeoff-report.md documents the input layout and the add-only report schema"
+run = "/bin/sh scripts/substrate-bakeoff.sh"
+
 [tasks."lint:shell"]
 description = "shellcheck on scripts, tests, sourced test libraries under tests/lib/, and the extensionless githooks/ hooks (whole-directory glob: everything in githooks/ must be shell; the tools read the shebang)"
 run = "shellcheck scripts/*.sh tests/*.sh tests/lib/*.sh githooks/*"
@@ -97,7 +101,7 @@ description = "markdownlint on prose, the dated substrate snapshots under docs/s
 run = '''
 root=$(/bin/sh scripts/resolve-root.sh spec) || exit 1
 case $root in "$(pwd -P)"/*) root=${root#"$(pwd -P)"/} ;; esac
-markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'docs/substrate/*.md' 'cards/*.md' 'skills/**/*.md' "$root/**/*.md" 'templates/**/*.md' "!$root/_observations/**"
+markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'docs/substrate/**/*.md' 'cards/*.md' 'skills/**/*.md' "$root/**/*.md" 'templates/**/*.md' "!$root/_observations/**"
 '''
 
 [tasks."lint:yaml"]
@@ -323,6 +327,14 @@ run = "/bin/sh scripts/check-task-registration.sh"
 description = "cite-don't-copy guard: fail when the universal-binary bundle's prose (outside its Sources and Changelog sections and a verdict decision's measurement and cost-benefit lines) carries a figure that a dated snapshot (docs/substrate/*.md or docs/substrate-*.md) also carries, so the bundle cites the snapshot instead of freezing its numbers; task, section, step and wave numerals and the id-valued metadata fields are references, not figures; exemptions live in scripts/check-number-copy-exempt.tsv with a reason each, and a stale one fails (universal-binary Task 3, REQ-A1.4, D-4)"
 run = "/bin/sh scripts/check-number-copy.sh"
 
+[tasks."check:verdict-figures"]
+description = "verdict-figure guard: fail when a figure in a universal-binary verdict decision's rationale (its Chosen because and Measurement spans) does not cite a field of the committed bake-off report its Report line names, as <figure> (`<candidate>.<field>`), or differs from that field's value; passes when the bundle holds no verdict (universal-binary Task 5, REQ-C1.5, D-7; docs/substrate-bakeoff-report.md holds the citation form)"
+run = "/bin/sh scripts/check-verdict-figures.sh"
+
+[tasks."check:verdict-effort"]
+description = "verdict-effort guard: fail when a universal-binary verdict decision lacks a Migration effort statement, or its statement neither cites the porting rate a full candidate logged in a report its Report line names (`<candidate>.porting_rate_min_per_kib`, any figure on it equal to the logged value) nor carries the absence token `porting-rate: absent` of a verdict the screen settled; passes when the bundle holds no verdict (universal-binary Task 5, REQ-G1.3, D-7)"
+run = "/bin/sh scripts/check-verdict-effort.sh"
+
 [tasks."check:entry-points"]
 description = "frozen entry-point guard: every script a skill body, a hook registration, or a tracked git hook names (the partition's entry points) must have a recorded fixture under tests/fixtures/entry-points/ and, run from a read-only copy of the tree in a clean environment, still exit, print to stdout, and write stderr as recorded; fails on an entry point without a fixture, a fixture whose entry point is gone or no longer one, a run exiting with the reserved shim fetch-failure code, and a shim (`# planwright-shim-target:`) of a script the partition flags. Computes the partition and passes it in. Record a fixture with `scripts/check-entry-points.sh --partition <file> --record <path> -- <args>` (universal-binary Task 2.1, REQ-E1.2, REQ-A1.3, D-10)"
 run = '''
@@ -359,6 +371,10 @@ run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
 [tasks."eval:behavioral"]
 description = "on-demand behavioral eval harness (never in CI or `check`): drives a skill through a real interactive tmux TTY session, answered by simulated-operator personas, grading the durable artifacts a run writes; needs tmux + jq (operator-dialogue Task 5, REQ-G, D-8)"
 run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/fixtures"
+
+[tasks."eval:mission-control"]
+description = "on-demand mission control eval cadence (never in CI or `check`): the suite's completeness check (one fixture per [Gherkin] arm of the mission-control test spec), then the behavioral harness over the mission-control fixture on the current head, its outcome appended to the per-head ledger the pre-ready-flip cadence step reads; needs tmux + jq. Run `scripts/mc-eval-cadence.sh --help` for the contract"
+run = "/bin/bash scripts/mc-eval-cadence.sh run"
 
 [tasks."eval:turn-shape"]
 description = "on-demand turn-shape eval (never in CI or `check`): the behavioral harness over the turn-shape fixtures, grading each run's turn records against the invariants its fixture names (tests/behavioral-evals/README.md lists them); needs tmux + jq (operator-dialogue REQ-M1.1, REQ-M1.4, D-19)"
@@ -444,6 +460,8 @@ depends = [
   "check:task-registration",
   "check:lock-primitive",
   "check:number-copy",
+  "check:verdict-figures",
+  "check:verdict-effort",
   "check:entry-points",
   "check:bash32",
   "check:guard-wiring",

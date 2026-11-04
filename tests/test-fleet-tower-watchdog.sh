@@ -182,6 +182,17 @@ run "$tmp/not-under-specs" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "dir outside specs/: exit $rc, expected 2"
 echo "ok: a spec dir outside specs/ is refused"
 
+# A refusal for want of a work repository carries the resolver's own reason.
+mkdir -p "$tmp/loose/specs/loose-spec"
+rc=0
+err=$(GIT_CEILING_DIRECTORIES="$tmp" run "$tmp/loose/specs/loose-spec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "spec dir in no repository: exit $rc, expected 2"
+case $err in
+  *"it is in no repository"*) ;;
+  *) fail "spec dir in no repository: the refusal hides the resolver's reason (got: $err)" ;;
+esac
+echo "ok: a spec dir with no work repository is refused with the reason"
+
 # `flight` is the reserved flight branch segment (tower-front-door D-11): a
 # spec dir so named is refused before it reaches a lock, marker, or session name.
 mkdir -p "$repo/specs/flight"

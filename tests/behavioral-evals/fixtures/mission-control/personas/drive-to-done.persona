@@ -1,0 +1,6 @@
+# drive-to-done.persona — a worker question the record settles is answered and logged; a fork is queued for the operator.
+arm=REQ-D1.4
+expertise=expert
+answer.1=@event:worker-question subject=retry-limit settled_by=rules
+answer.2=@event:worker-question subject=date-format settled_by=none
+answer.3=that's all

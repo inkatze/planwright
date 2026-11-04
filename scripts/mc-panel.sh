@@ -49,8 +49,11 @@ Usage:
         format<TAB>1
         program<TAB><p>
         taken<TAB><epoch>
-        knob<TAB>refresh|tick<TAB><seconds>   with --knobs: the mod's redraw
-                                             and tick cadences
+        knob<TAB>refresh|tick|reviews-ttl<TAB><seconds>
+                                             with --knobs: the mod's redraw
+                                             and tick cadences, and the
+                                             reviews snapshot's TTL its check
+                                             cadence follows
         knob<TAB>handover-context|handover-wakes|handover-compactions<TAB><n>
                                              with --knobs: the handover
                                              trigger's thresholds
@@ -79,6 +82,15 @@ Usage:
                                              the interruption and
                                              settled-share measures, or
                                              measure - none|unreadable -
+        reviews<TAB>ok<TAB><age>             the reviews snapshot
+                                             (scripts/mc-reviews.sh) and
+                                             its age, or
+        reviews<TAB>unavailable<TAB><reason> with no rows following
+        review-count<TAB>mine|waiting<TAB><n>  the search's full count
+        review-mine<TAB><repo><TAB><number><TAB>draft|ready<TAB><ci>
+            <TAB><unresolved><TAB>yes|no<TAB><reviewers><TAB><title>
+        review-waiting<TAB><repo><TAB><number><TAB>draft|ready
+            <TAB><requester><TAB><seconds since requested><TAB><title>
         handover<TAB>available|absent        whether a handover verb is
                                              installed to defer a
                                              compaction for
@@ -218,13 +230,14 @@ HOME_DIR=""
 knobs() {
   for kn in refresh:mission_control_panel_refresh:mc_parse_cadence \
     tick:mission_control_tick_cadence:mc_parse_cadence \
+    reviews-ttl:mission_control_reviews_ttl:mc_parse_cadence \
     handover-context:mission_control_handover_context:parse_pct \
     handover-wakes:mission_control_handover_wakes:parse_positive \
     handover-compactions:mission_control_handover_compactions:parse_positive; do
     kn_name=${kn%%:*}
     kn_rest=${kn#*:}
     if kn_v=$(mc_knob "${kn_rest%%:*}" "${kn_rest#*:}"); then
-      case $kn_name in refresh | tick) kn_v=$(mc_seconds "$kn_v") ;; esac
+      case $kn_name in refresh | tick | reviews-ttl) kn_v=$(mc_seconds "$kn_v") ;; esac
       printf 'knob\t%s\t%s\n' "$kn_name" "$kn_v"
     else
       printf 'unreadable\tknob %s\n' "${kn_rest%%:*}"
@@ -408,6 +421,40 @@ measures() {
   fi
 }
 
+# The reviews snapshot scripts/mc-reviews.sh writes, its ages taken from
+# now; anything but a well-formed snapshot is unavailable, with the reason.
+reviews() {
+  rv=$runtime/reviews
+  if [ ! -e "$rv" ] && [ ! -L "$rv" ]; then
+    printf 'reviews\tunavailable\tno snapshot yet\n'
+    return 0
+  fi
+  if [ -L "$rv" ] || ! mc_format_ok "$rv"; then
+    printf 'reviews\tunavailable\tthe snapshot is unreadable\n'
+    return 0
+  fi
+  N=$NOW awk -F '\t' '
+    $1 == "taken" && $2 ~ /^[0-9]+$/ { taken = $2 + 0; has_taken = 1 }
+    $1 == "state" && !has_state { state = $2; reason = $3; has_state = 1 }
+    $1 == "count" && ($2 == "mine" || $2 == "waiting") && $3 ~ /^[0-9]+$/ { count[++c] = "review-count\t" $2 "\t" $3 }
+    $1 == "mine" && NF >= 9 { mine[++m] = "review-mine\t" $2 "\t" $3 "\t" $4 "\t" $5 "\t" $6 "\t" $7 "\t" $8 "\t" $9 }
+    $1 == "waiting" && NF >= 7 && $6 ~ /^[0-9]+$/ {
+      age = ENVIRON["N"] - $6; if (age < 0) age = 0
+      waiting[++w] = "review-waiting\t" $2 "\t" $3 "\t" $4 "\t" $5 "\t" age "\t" $7
+    }
+    END {
+      if (!has_taken || (state != "ok" && state != "unavailable")) {
+        print "reviews\tunavailable\tthe snapshot is unreadable"; exit
+      }
+      if (state == "unavailable") { print "reviews\tunavailable\t" (reason == "" ? "no reason given" : reason); exit }
+      age = ENVIRON["N"] - taken; if (age < 0) age = 0
+      print "reviews\tok\t" age
+      for (i = 1; i <= c; i++) print count[i]
+      for (i = 1; i <= m; i++) print mine[i]
+      for (i = 1; i <= w; i++) print waiting[i]
+    }' "$rv" | mc_clean_text
+}
+
 handover() {
   if [ -f "$script_dir/mc-handover.sh" ]; then
     printf 'handover\tavailable\n'
@@ -437,6 +484,7 @@ digest() {
   sources
   kb
   measures
+  reviews
   handover
   printf 'line\t%s\n' "$(the_line)"
 }

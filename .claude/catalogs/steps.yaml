@@ -19,3 +19,13 @@ steps:
     kind: prompt
     target: "For every fix round after the PR exists, run only the targeted tests and lint for what changed; CI on the PR head is the gate of record; do not run the full local gate."
     hosting: in-session
+  # Mission control's behavioral eval cadence: refuses the ready flip of a unit
+  # of mission control or a follow-on bundle whose head has a red eval record,
+  # running the suite once when the head has none; other specs pass. No
+  # `requires`: a step skipped for a missing tool would count as a pass at the
+  # flip, so the script itself refuses when the suite cannot run.
+  - id: mc-eval-cadence
+    kind: command
+    target: scripts/mc-eval-cadence.sh
+    args: step
+    timeout: 1800

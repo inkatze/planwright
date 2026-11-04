@@ -81,11 +81,21 @@ blank lines and lines starting `#` are skipped; one entry per path):
                Task <digits> (either case), obs:<four hex or more>
     rationale  rationale language, matched lowercased: because, otherwise,
                why, deliberate(ly), intentional(ly), workaround, careful,
-               caution, warning, unless, since, lest (as whole words); so
-               that, rather than, instead of, in order to, to avoid, to
-               keep, to prevent, prevents, on purpose, the reason, must not,
-               do not, don't, never
-    none       neither: evidence-free
+               caution, warning, unless, since, lest, would, so, must,
+               cannot (as whole words); fail open or fail closed (fails,
+               failed, failing; a space or a hyphen); so that, rather than,
+               instead of, in order to, to avoid, to keep, to prevent,
+               prevents, on purpose, the reason, must not, do not, don't,
+               never
+    contract   the block's last line sits directly above a function
+               definition (`name()` then `{` or `(` on that line, or
+               `function name`), so it describes what the function takes,
+               does, or returns
+    none       none of these: evidence-free
+  Ids and phrasings match with whitespace runs collapsed, so one wrapped
+  across comment lines still counts.
+  The phrasings are what this inventory recognizes, never wording a comment
+  is asked to use.
   Words per block counts the text after each line's leading `#` marks.
 
 --code-invariant <ref>  For every surface file that differs between the
@@ -421,22 +431,26 @@ function read_exemptions(path,   line, f, n, kind, p, reason, task, rc) {
   close(path)
 }
 function words(s,   w) { s = trim(s); return s == "" ? 0 : split(s, w, /[ \t]+/) }
-function classify(text,   lt) {
+function classify(text, after,   lt) {
+  gsub(/[ \t]+/, " ", text)
   if (text ~ /REQ-[A-Z]+[0-9]/ || text ~ /(^|[^A-Za-z0-9_-])D-[0-9]/ || text ~ /[Tt]ask [0-9]/ ||
       text ~ /obs:[0-9a-f][0-9a-f][0-9a-f][0-9a-f]/) return "cites"
   lt = tolower(text)
-  if (lt ~ /(^|[^a-z])(because|otherwise|why|deliberate|deliberately|intentional|intentionally|workaround|careful|caution|warning|unless|since|lest)([^a-z]|$)/ ||
+  if (lt ~ /(^|[^a-z])(because|otherwise|why|deliberate|deliberately|intentional|intentionally|workaround|careful|caution|warning|unless|since|lest|would|so|must|cannot)([^a-z]|$)/ ||
+      lt ~ /(^|[^a-z])fail(s|ed|ing)?[- ](open|closed)([^a-z]|$)/ ||
       lt ~ /so that|rather than|instead of|in order to|to avoid|to keep|to prevent|prevents|on purpose|the reason|must not|do not|don.t|never/) return "rationale"
+  if (after ~ /^[ \t]*function[ \t]+[A-Za-z_][A-Za-z0-9_]*/ ||
+      after ~ /^[ \t]*[A-Za-z_][A-Za-z0-9_.:-]*[ \t]*\([ \t]*\)[ \t]*[{(]/) return "contract"
   return "none"
 }
-# end_run: close the current run of comment lines in file i.
-function end_run(i,   c) {
+# end_run: close the current run of comment lines in file i; after is the line that ended it.
+function end_run(i, after,   c) {
   if (run == 0) return
   if (run > largest[i] && (run >= 2 || !audit_mode)) { largest[i] = run; lstart[i] = rstart }
   if (run >= 2) {
     nblk[i]++; blines[i] += run
     if (audit_mode) {
-      c = classify(rtext)
+      c = classify(rtext, after)
       nb++; fblock[i, nblk[i]] = nb; bstart[nb] = rstart; blen[nb] = run; bwords[nb] = words(rtext); bclass[nb] = c
       cls_blocks[c]++; cls_lines[c] += run
       if (run >= errth) { at_err++; at_err_lines += run }
@@ -456,7 +470,7 @@ function measure(i, path,   line, ln, rc, t) {
       if (audit_mode) { t = line; sub(/^[ \t]*#+/, "", t); rtext = rtext " " t }
       continue
     }
-    end_run(i)
+    end_run(i, line)
     if (line !~ /^[ \t]*$/) code[i]++
   }
   if (rc < 0) closed(clean(rel[i]) " could not be read")
@@ -510,6 +524,7 @@ function audit(   i, j, k, t, b, f, tot_blocks, tot_lines, tot_com, tot_code, bi
   printf "total\tlargest\t%d\t%s\n", big, (bigat == "" ? "-" : bigat)
   printf "total\tcites_blocks\t%d\ntotal\tcites_lines\t%d\n", cls_blocks["cites"], cls_lines["cites"]
   printf "total\trationale_blocks\t%d\ntotal\trationale_lines\t%d\n", cls_blocks["rationale"], cls_lines["rationale"]
+  printf "total\tcontract_blocks\t%d\ntotal\tcontract_lines\t%d\n", cls_blocks["contract"], cls_lines["contract"]
   printf "total\tnone_blocks\t%d\ntotal\tnone_lines\t%d\n", cls_blocks["none"], cls_lines["none"]
 }
 function check(   i, p, kind, suppressed, warns, stale, e) {

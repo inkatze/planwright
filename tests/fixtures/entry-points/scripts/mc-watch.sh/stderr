@@ -1,0 +1,1 @@
+match ^mc-watch: usage: mc-watch\.sh pass\|status --program <p> \[--now <epoch>\] \| run --program <p> \[--once\] \| stop --program <p>$

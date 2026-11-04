@@ -288,6 +288,28 @@ llm-output-quality.
 
 Signed off: 2026-09-28
 
+### Execution research: Task 12 background job (2026-11-02)
+
+Not a signed row; recorded by `/execute-task` while implementing D-22.
+
+- **Finding.** A shell without job control starts every background job with
+  SIGINT and SIGQUIT ignored (POSIX, *Asynchronous Lists*), and that ignore is
+  inherited and unresettable like `nohup`'s SIGHUP. Measured under the helper
+  as first written: `/proc/self/status` read `SigIgn` 0x6, a child sent
+  SIGINT survived, and `tests/test-fleet-sweep-temps.sh` hung in its INT case
+  (killed after 20 minutes).
+- **Resolution, within D-22.** `scripts/detached-run.sh` creates the
+  background job from bash with job control on (`set -m`, which needs no
+  terminal and exists in bash 3.2): the run starts with no ignored signals
+  and in its own process group. Re-measured: `SigIgn` 0, a child sent SIGINT
+  exits 130, and the four signal-asserting suites (`test-full-suite-run.sh`,
+  `test-lock-lib.sh`, `test-run-tests-pool.sh`, `test-fleet-sweep-temps.sh`)
+  pass under the helper. With no bash on PATH `start` refuses with exit 4
+  (the suite command needs bash anyway). `dash` cannot do the same (`set -m`
+  refuses without a terminal).
+- **Sources.** POSIX Shell Command Language, *Asynchronous Lists* and `set
+  -m`; bash manual, *Job Control Basics*; the measurements above.
+
 ## 8. Sign-off
 
 ### Lens review (first activation, full bundle)
@@ -626,4 +648,54 @@ no status flip; `Last reviewed:` bumped on all four spec files;
 Class: meaning
 Lens-pass: Amendment 1, section 8 (delta-scoped, spec lens set, fanned out; every finding dispositioned)
 Anchor: `0e3e8e7ec9e73c573e040807b24c7c684b5285fd` — computed as
+`scripts/spec-anchor.sh specs/test-throughput`
+
+### Amendment 2 — delta re-walkthrough: Task 12 detaches without `nohup` (2026-11-02)
+
+**Trigger.** Task 12's execution halted on research recorded on its task
+branch: `nohup` leaves SIGHUP ignored, an ignored signal is inherited by
+every child, and a non-interactive shell cannot reset it, so every test in a
+`nohup` run sees SIGHUP ignored and the suites that assert on it hang or fail
+(obs:5d41e92b). A runner that catches SIGHUP (`trap ':' HUP`) leaves its
+children at the default disposition: probed on Linux under `sh`, `bash` and
+`dash`, a child of such a runner sent SIGHUP exits 129, while under `nohup`
+it survives. The operator ruled for the caught-signal runner (2026-11-02).
+
+**Delta walked.** D-22 supersedes D-8 in part (the detach mechanism only;
+D-8's other properties stand, and D-8 carries the pointer). Task 12's
+deliverables, Done-when and citations follow D-22; REQ-B1.10 gains the D-22
+citation, its text unchanged; the changelog and Sources gain obs:5d41e92b.
+Section 4's ledger row "D-8 Confirmed" now reads as confirmed in part,
+superseded in part by D-22.
+
+**Lens review (delta-scoped).** Spec lens set, walked inline over the delta
+(one decision, one task, one test entry); no fan-out, scoped by size.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 0 | D-22 keeps every D-8 property but the mechanism; REQ-B1.10 names no mechanism |
+| Ambiguity and interpretation forks | 0 | "Catches SIGHUP" is pinned to a handler installed before the suite starts |
+| Citation and coverage integrity | 0 | obs:5d41e92b added to Sources; D-22 cited from REQ-B1.10 and Task 12 |
+| Dead verification paths | 0 | The SIGHUP check runs on the Linux CI runner |
+| Decision-domain gaps | 0 | No new domain touched |
+| Testability | 1 | The REQ-B1.10 test-spec entry lacked the SIGHUP check Task 12's Done-when carries |
+| Cross-file consistency | 0 | Folded into the testability row |
+| Documentation and glossary drift | 0 | No glossary term changes |
+| Rendered-content safety and data hygiene | 0 | No machine paths or names recorded |
+
+**Dispositions.** Testability finding: applied, the test-spec entry gains
+"a test run under the helper receives SIGHUP at its default disposition"
+(operator, 2026-11-02).
+
+#### Sign-off record (Amendment 2)
+
+Signed off 2026-11-02 by the operator after the approval summary, relayed
+through the fleet tower, as a delta re-walkthrough of a Ready (stored)
+bundle: no status flip; `Last reviewed:` bumped on all four spec files;
+`scripts/spec-validate.sh` re-run after the edits with 0 errors and 0
+warnings.
+
+Class: meaning
+Lens-pass: Amendment 2, delta-scoped lens review above (spec lens set, inline; every finding dispositioned)
+Anchor: `0eca2b05e5ce9ea59941496d768ae67a946053fb` — computed as
 `scripts/spec-anchor.sh specs/test-throughput`

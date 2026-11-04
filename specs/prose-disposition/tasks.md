@@ -1,7 +1,7 @@
 # Prose disposition — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-21
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -102,6 +102,24 @@ can be measured by it.
   REQ-E1.4
 - **Estimated effort:** 2 days
 
+### Task 4.1 — The guard learns function descriptions and more reason phrasings
+
+- **Deliverables:** `scripts/check-comment-budget.sh`'s `--audit`
+  classifier gains the `contract` class (a block whose last line sits
+  directly above a function definition) and widened rationale patterns,
+  each added phrasing taken from a misclassified comment in this
+  repository; the usage text states the widened patterns; tests with a
+  fixture per new class and per added phrasing; the PR body listing each
+  added phrasing with its source comment and the `--audit` evidence-free
+  figures on main before and after.
+- **Done when:** the tests pass, including a fixture showing a block above a
+  function counts as `contract` and one per added phrasing; the PR body
+  carries both audit figures and every added phrasing's example;
+  `mise run check` is green.
+- **Dependencies:** 4
+- **Citations:** D-15 · REQ-F1.11
+- **Estimated effort:** 1 day
+
 ### Task 5 — Cleanup Phase A: evidence-free blocks
 
 - **Deliverables:** every evidence-free block (two or more lines) across
@@ -121,8 +139,8 @@ can be measured by it.
   count equals the length of the kept-block list; the independent pass's
   record covers a sample of at least ten kept blocks across at least three
   files (or all if fewer) and every disagreement is resolved before merge.
-- **Dependencies:** 2, 4
-- **Citations:** D-8, D-12, D-13 · REQ-G1.1, REQ-G1.2, REQ-G1.4
+- **Dependencies:** 2, 4, 4.1
+- **Citations:** D-8, D-12, D-13, D-15 · REQ-G1.1, REQ-G1.2, REQ-G1.4
 - **Estimated effort:** 2 days
 
 ### Task 6 — Cleanup Phase B: the fleet family
@@ -335,6 +353,7 @@ can be measured by it.
   and add a contract class first (a guard change, so its own task), then
   re-measure. Each touches REQ-G1.2's wording or the task's Deliverables, so
   it routes through a `/spec-kickoff` delta re-walkthrough.
+- **Task 4.1** — post-pr step `cubic-pr` halted; record `.claude/steps/000001/008-step-post-pr.rec`
 
 ## Deferred
 

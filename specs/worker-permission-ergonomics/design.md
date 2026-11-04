@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -426,6 +426,9 @@ verbs dropped and the `Read` deny rule added (D-27).)*
 **Chosen because:** it moves the stopgap to the profile it belongs to. Cites
 the dotfiles stopgap (Sources), obs:33812f90.
 
+**Superseded-by: D-28** (2026-11-02), in part — `wc` leaves the static set;
+the rest of the decision stands.
+
 ### D-16: Profile changes reach a worker only by relaunch; the supervisor offers one (N)
 
 **Decision:** The fleet guide states that permissions and the policy's
@@ -746,6 +749,29 @@ otherwise approve it. The cost is that the seven content-printing verbs
 prompt when the hook cannot run. Operator decisions at the 2026-10-10 delta
 kickoff. Cites research: the `proc(5)` manual page (Sources); brief
 Amendment 3 (2026-10-10).
+
+**Superseded-by: D-28** (2026-11-02), in part — the rejected alternative's
+premise that `wc` prints no file content is false; `stat` and `ls` keep it.
+
+### D-28: `wc` leaves the static allow set (N, supersedes D-15 and D-27 in part)
+
+**Decision:** The profile's static read-only allow set drops `wc`, keeping
+`ls`, `stat`, and the read-only `git` subcommands. `wc` reaches workers
+only through the guard, whose operand screens already refuse a word naming
+another process's environment.
+
+**Alternatives considered:**
+- Keep a static `wc` rule that excludes `--files0-from`. Rejected because:
+  a static rule matches a command prefix and cannot refuse an option placed
+  anywhere in the words, the reason D-15 keeps every verb with a dangerous
+  form out of the set.
+
+**Chosen because:** `wc --files0-from=<file>` reads `<file>` as
+NUL-separated path names and prints each one in its output or its error,
+so a static `wc` rule prints any file's content, including another
+process's environment, without passing the guard (D-27). The cost is that
+`wc` prompts when the hook cannot run. Found by Task 12's convergence
+review; operator ruling at the 2026-11-02 delta kickoff.
 
 ## Cross-cutting concerns
 

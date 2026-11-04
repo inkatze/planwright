@@ -1,0 +1,1 @@
+- 2026-11-02 [planwright] mission-control: the mechanism inventory (mc-kb.sh inventory-refresh) lists knobs from the options reference only, so no program_<name>_<field> row exists and a program-block proposal cannot be raised, though mc-config.sh apply can land one

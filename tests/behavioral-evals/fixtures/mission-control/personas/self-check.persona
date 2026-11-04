@@ -1,0 +1,6 @@
+# self-check.persona — after a compaction the self-check passes with rules, open items and live sessions present, and fails raising an item when one is missing.
+arm=REQ-B1.7
+expertise=expert
+answer.1=@event:compaction rules=yes open_items=yes sessions=yes
+answer.2=@event:compaction rules=yes open_items=no sessions=yes
+answer.3=that's all

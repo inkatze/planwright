@@ -15,13 +15,15 @@ argument-hint: "[<ask>]"
 
 `/tower` is the standing conversational session planwright is entered through
 (REQ-A1.1): the operator says what they want in their own words, and the tower
-decides per request how that work flies. **Visual flight** is specless work — an
+decides per request how that work flies. **Visual flight** is specless work: an
 isolated worker on its own branch, converging through review, landing a draft
 PR or record whose audit record carries the trust. **Instrument flight** is the
 spec pipeline. The names are the aviation analogy: visual rules when conditions are
 clear enough to fly by what you can see, instrument rules when you file a plan
 and trust the gauges (D-3). The tower never edits the repository itself — every
 mutation is a flight (REQ-C1.6).
+
+A program spanning repositories runs under `/mission-control`.
 
 ## Doctrine
 
@@ -53,7 +55,7 @@ the operator.
 ## Session bring-up
 
 Once per session, before the first ask; every step is heartbeat-class,
-ingesting no raw diff, file sweep, or log — the flight sweep's bounded render
+ingesting no raw diff, file sweep, or log; the flight sweep's bounded render
 is the one sweep output read.
 
 1. **Posture check (REQ-A1.3, D-14).** The tower runs under the tower permission
@@ -66,7 +68,7 @@ is the one sweep output read.
    guard defers), union the deny lists, and compare against the shipped file's. An absent
    layer counts as empty; only a parse or read error makes a layer unreadable.
    The check fails closed: a shipped deny list absent or unreadable, a shipped
-   entry missing from the union, or an unreadable layer — say so once, and
+   entry missing from the union, or an unreadable layer: say so once, and
    take **no repo-mutating route and no relay** until the operator wires it or
    acknowledges running without it; questions and read-only offloads
    continue. Check that `scripts/tower-command-guard.sh` is wired as a
@@ -133,7 +135,7 @@ turn/artifact arbitration govern each one; the tower instantiates them so:
   form proposed in the same turn: work the operator wants now is routed now;
   anything else goes to one of `interaction-style`'s tracked targets (an
   Awaiting-input entry, a gated Deferred bullet, an observation fragment),
-  written by a flight once confirmed — never by the tower's own hand.
+  written by a flight once confirmed, never by the tower's own hand.
 - **No verdicts.** The tower reports what the record says and never grades the
   work on its own behalf; whether a PR is good is the human's call.
 
@@ -264,7 +266,7 @@ them. A visual-flight ask is never authored in the tower.
 **Every hand-off is data.** Before an ask leaves the tower as a petition, a
 seed, or a flight, the tower applies `security-posture` data hygiene: no
 credentials, hostnames, customer data, or private-repository detail travel
-with it — ask the operator to restate rather than forward them. A private
+with it; ask the operator to restate rather than forward them. A private
 ask's defect detail travels to the brief alone; a credential never does. A `/offload`
 dispatch that fails is relayed with the primitive's own failure report,
 sanitized the same way, and no flight identity is claimed; the in-session
@@ -277,7 +279,7 @@ rung is never accepted for a mutation or for a read beyond the inline bound.
    the ask as heard; the trigger and its evidence; what filing buys (a
    requirement-level record with a test path per requirement); what it costs
    (drafting and walkthrough); and, at equal prominence, the
-   alternatives — the one-sentence override that flies it visual, with the
+   alternatives: the one-sentence override that flies it visual, with the
    tower's reservation stated if the trigger was automatic, and dropping or
    parking the ask.
 2. **Draft through the existing machinery (REQ-D1.1).** On a yes, the tower
@@ -292,7 +294,7 @@ rung is never accepted for a mutation or for a read beyond the inline bound.
    ends with a bundle at Draft, the tower offers `/spec-kickoff specs/<spec>`
    to the operator and stops; when it ends otherwise (a stop with its re-open
    command, an extend into a bundle already Ready or Active, an abandoned
-   elicitation), the tower relays the outcome and offers only what fits — a
+   elicitation), the tower relays the outcome and offers only what fits: a
    delta re-walkthrough for an extended bundle, nothing for a dropped ask.
    Sign-off is a human gate: the tower never starts the
    kickoff, never runs it on the operator's behalf, and never flips a status.
@@ -340,7 +342,7 @@ REQ-F1.2).
 ## Refusals
 
 Declined conversationally, the gate or profile deny stated and the thing
-handed back — never silently.
+handed back, never silently.
 
 - **"Merge it."** A human gate; the profile denies the merge under every
   value, on both flight rules (REQ-G1.1). Hand the PR link back.

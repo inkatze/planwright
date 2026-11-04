@@ -1,0 +1,9 @@
+# The specs whose units scripts/mc-eval-cadence.sh's pre-ready-flip step gates:
+# mission control and its follow-on bundles (each seeded by a pending note
+# under specs/_pending), one spec name per line.
+mission-control
+review-desk
+spec-currency
+environment-broker
+night-shift
+state-source-adapters

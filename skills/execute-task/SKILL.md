@@ -116,12 +116,12 @@ protocol's dispatched arm); attended, present and wait.
      classify-then-self-re-anchor. Halts go to
      Awaiting input.
 8. **Read the brief slice and task block(s).** From the brief: the signed-off
-   goal restatement, the task graph, and the unit's risk entries. From
-   `tasks.md`: each
-   block's `Deliverables`, `Done when`, `Dependencies`, and `Citations`. Confirm
-   every dependency is completed — on a v1 bundle it sits in `## Completed`; on a
-   v2 bundle it derives Completed via the derivation engine
-   (`scripts/orchestrate-state.sh`); if one is not, halt naming it.
+   goal restatement, the task graph, and the unit's risk entries; from
+   `tasks.md`, each block's definition fields. Confirm every dependency is
+   completed: in `## Completed` (v1), or derived Completed by
+   `scripts/orchestrate-state.sh` (version 3: from the repository its block
+   names, by default the work repository); else halt naming it, a
+   `repository-unresolved` one by alias.
 9. **Derive the full-CI command** (D-19). Pick the most comprehensive guard the
    repo ships, checking in order: a `mise.toml` aggregate task (planwright's own
    is `mise run check`); a `package.json` `ci`/`test` script; a `Makefile`
@@ -301,15 +301,15 @@ judgment.
 ### Run the full project CI (REQ-E1.2)
 
 Run the `pre-ci` point, then pre-flight step 9's command, saved to a `mktemp`
-file, as `scripts/full-suite-run.sh --run <run> -- bash <file>` (each attempt
-backgrounded, waited in-turn); exit 75 parks naming the holders, unretried. The full suite must pass
-before convergence; capture its output.
+file; each attempt is `scripts/detached-run.sh start -- scripts/full-suite-run.sh
+--run <run> -- bash <file>`, polling `status <run-dir>` in-turn. A failed start,
+`died` or `never-started` fails it as `logic`; `finished 75` parks naming holders
+in its `log`, unretried. The suite must pass before convergence.
 
 ### Adaptive CI-failure handling (REQ-E1.2, D-25)
 
 On a CI failure, classify it with `scripts/classify-ci-failure.sh` over the
-captured output (it prints `transient` or `logic`; unknown patterns default to
-`logic`):
+attempt's `log`:
 
 - **`transient`** (network/DNS errors, registry failures, rate limits,
   timeouts): retry up to twice, waiting 30s before the first retry and 90s

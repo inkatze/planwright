@@ -60,14 +60,20 @@
 # absent. A same-named task branch, PR, or trailer in another repository is no
 # evidence for the task. The dispatch markers keep their one per-bundle home.
 # Such a bundle adds these records (a bundle naming no repository emits none
-# and derives exactly as before):
+# and derives from its work repository, or, in a holder with not exactly one
+# registered work repository, fails with exit 2):
 #
 #   repository<TAB><id><TAB><alias>        the task names <alias> (resolved or
 #                                          not).
 #   task<TAB><id><TAB>repository-unresolved<TAB><code>
 #                                          the field does not resolve here
 #                                          (code alias-unresolved, -malformed,
-#                                          or -duplicate); never selected,
+#                                          or -duplicate), or the task names
+#                                          none and the bundle's work
+#                                          repository resolves to nothing, as
+#                                          a holder's may (code
+#                                          work-repository-unresolved, value
+#                                          empty); never selected,
 #                                          never satisfies a dependency or a
 #                                          gate atom, and never derived from
 #                                          the work repository instead.
@@ -108,7 +114,8 @@
 #
 # Usage: orchestrate-state.sh <spec-dir>
 # Exit: 0 records emitted; 2 the spec dir / tasks.md is missing, unreadable, or
-#   holds no task records, the spec id fails its grammar, the base ref does
+#   holds no task records, the spec id fails its grammar, the bundle has no
+#   work repository (unless its tasks name theirs), the base ref does
 #   not resolve in the work repository, the Repository: fields cannot
 #   be read, or a bundle whose version is not plainly 1, 2, or 3 carries one
 #   (fail closed — a malformed input must not silently report "nothing", and a
@@ -171,11 +178,14 @@ fi
 # Task state derives from the work repository, which is not necessarily the
 # one holding the bundle: a relocated spec root may sit in a holder or in no
 # repository at all.
-repo_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir") || {
-  printf '%s\n' "orchestrate-state: no work repository for $spec_dir" >&2
+wr_rc=0
+wr_err=$(mktemp "${TMPDIR:-/tmp}/orchestrate-state.XXXXXX") || {
+  printf '%s\n' "orchestrate-state: cannot create a temporary file" >&2
   exit 2
 }
-work_root=$repo_root
+repo_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" 2>"$wr_err") || wr_rc=$?
+wr_msg=$(cat "$wr_err")
+rm -f "$wr_err"
 
 # A version 3 bundle's Repository: fields. Versions 1 and 2 define no field
 # (the validator rejects one there), so they derive as they always have. A
@@ -206,6 +216,26 @@ fi
 per_task=0
 [ -z "$repo_map" ] || per_task=1
 
+# A holder's bundle resolves to nothing (exit 5) unless exactly one work
+# repository is registered against its root. Its tasks that name their
+# repository still derive; one naming none is unresolved, never derived from
+# the holder.
+work_reason=""
+if [ "$wr_rc" -ne 0 ]; then
+  if [ "$wr_rc" -eq 5 ] && [ "$per_task" -eq 1 ]; then
+    work_reason=$(printf '%s' "$wr_msg" | tr '\n' ' ' | tr -d '\000-\037\177')
+    work_reason=${work_reason#resolve-work-repo: }
+    work_reason=${work_reason% }
+    [ -n "$work_reason" ] || work_reason="the bundle's work repository resolves to nothing"
+    repo_root=""
+  else
+    [ -z "$wr_msg" ] || printf '%s\n' "$wr_msg" >&2
+    printf '%s\n' "orchestrate-state: no work repository for $spec_dir" >&2
+    exit 2
+  fi
+fi
+work_root=$repo_root
+
 base_override="${PLANWRIGHT_BASE_REF:-}"
 # The base reaches git as a ref argument (log / rev-list / rev-parse). It is
 # operator-set via PLANWRIGHT_BASE_REF, but a value beginning with '-' would be
@@ -224,9 +254,18 @@ esac
 # documented safe default; a malformed value warns and falls back, mirroring
 # the advisory lock.
 threshold_min=15
-repo_local_cfg="$repo_root/.claude/planwright.local.yml"
-tv=$(PLANWRIGHT_REPO_ROOT="$repo_root" PLANWRIGHT_REPO_ROOT_CHECKED="$repo_root" PLANWRIGHT_LOCAL_CONFIG="$repo_local_cfg" \
-  "$script_dir/config-get.sh" stale_marker_threshold 2>/dev/null) || tv=""
+if [ -n "$repo_root" ]; then
+  repo_local_cfg="$repo_root/.claude/planwright.local.yml"
+  tv=$(PLANWRIGHT_REPO_ROOT="$repo_root" PLANWRIGHT_REPO_ROOT_CHECKED="$repo_root" PLANWRIGHT_LOCAL_CONFIG="$repo_local_cfg" \
+    "$script_dir/config-get.sh" stale_marker_threshold 2>/dev/null) || tv=""
+elif cfg_root=$(/bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null); then
+  # No work repository: the session's own repository, as a holder sees it.
+  tv=$(PLANWRIGHT_REPO_ROOT="$cfg_root" PLANWRIGHT_REPO_ROOT_CHECKED="$cfg_root" \
+    PLANWRIGHT_LOCAL_CONFIG="$cfg_root/.claude/planwright.local.yml" \
+    "$script_dir/config-get.sh" stale_marker_threshold 2>/dev/null) || tv=""
+else
+  tv=""
+fi
 tv=${tv%m}
 case "$tv" in
   '') ;; # key absent everywhere: the tracked default (15) stands
@@ -550,7 +589,11 @@ aliases="$scratch/aliases"
 printf '0\t%s\n' "$work_root" >"$repos"
 : >"$aliases"
 canon() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
-work_canon=$(canon "$work_root") || work_canon=$work_root
+if [ -n "$work_root" ]; then
+  work_canon=$(canon "$work_root") || work_canon=$work_root
+else
+  work_canon=""
+fi
 next_index=1
 resolve_alias() {
   ra_hit=$(awk -F"$TAB" -v a="$1" '$1 == a { print $2 "\t" $3; exit }' "$aliases")
@@ -601,7 +644,7 @@ while IFS="$TAB" read -r id deps; do
   order=$((order + 1))
   key=0
   if [ "$per_task" -eq 1 ]; then
-    frec=$(printf '%s\n' "$repo_map" | awk -F"$TAB" -v i="$id" '$1 == i { print $2 "\t" $3; exit }')
+    frec=$(spec_parse_repository_field "$repo_map" "$id")
     if [ -n "$frec" ]; then
       fclass=${frec%%"$TAB"*}
       fval=${frec#*"$TAB"}
@@ -621,6 +664,9 @@ while IFS="$TAB" read -r id deps; do
       esac
       [ "$key" != u ] && ra_reason=-
       printf '%s\t%s\t%s\t%s\n' "$id" "$fclass" "$fval" "$ra_reason" >>"$fields"
+    elif [ -z "$work_root" ]; then
+      key=u
+      printf '%s\tnone\t\t%s\n' "$id" "$work_reason" >>"$fields"
     fi
   fi
   printf '%s\t%s\t%s\t%s\n' "$order" "$id" "$key" "$deps" >>"$list"
@@ -915,6 +961,7 @@ while IFS="$TAB" read -r t_order t_id t_key t_deps; do
   case $(awk -F"$TAB" -v i="$t_id" '$1 == i { print $2; exit }' "$fields") in
     duplicate) ev=alias-duplicate ;;
     malformed) ev=alias-malformed ;;
+    none) ev="work-repository-unresolved" ;;
     *) ev=alias-unresolved ;;
   esac
   printf '%s\t%s\trepository-unresolved\t%s\t0\t-\t-\tu\t%s\n' "$t_order" "$t_id" "$ev" "$deps" >>"$work"

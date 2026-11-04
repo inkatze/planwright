@@ -1,0 +1,1 @@
+match ^usage: mc-duties\.sh list \| get <id> <field> \| watchers --program <p> \| files --program <p> \| validate$

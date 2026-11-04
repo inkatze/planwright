@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -605,7 +605,7 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
 ## REQ-G — Profiles, delivery, and the unattended contract
 
 - **REQ-G1.1** `config/worker-settings.json` SHALL ship a static read-only
-  allow set scoped to the worker profile, covering `wc`, `ls`, `stat`, and
+  allow set scoped to the worker profile, covering `ls`, `stat`, and
   the read-only `git` subcommands Task 12 enumerates, so an adopter needs no
   user-scope allow rule. Because a static rule bypasses the guard's argument
   screens, no new rule SHALL name a verb that prints the content of an
@@ -625,7 +625,10 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   *(Amended at kickoff 2026-10-05: `sed -n`, `sort`, and `uniq` dropped.)*
   *(Amended at the 2026-10-10 extension kickoff: the seven content-printing
   verbs dropped (D-27).)*
-  *(Cites: D-15, D-27; the dotfiles stopgap (Sources); obs:65c35236.)*
+  *(Amended at the 2026-11-02 delta kickoff: `wc` dropped, since
+  `wc --files0-from` reads a file of path names and echoes them, which
+  prints that file's content (D-28).)*
+  *(Cites: D-15, D-27, D-28; the dotfiles stopgap (Sources); obs:65c35236.)*
 - **REQ-G1.2** The worker launcher SHALL create a per-worker scratch root
   owned by the worker, export it as the worker's `TMPDIR`, and record it in
   the session record (REQ-G1.8); the guard SHALL treat no other directory as
@@ -712,6 +715,16 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
 
 ## Changelog
 
+- 2026-11-03 — Expression-only fix from Task 12's convergence review: the
+  REQ-A1.11 and REQ-C1.1 test-spec entries name the `Read` rule REQ-E1.6
+  adds beside the `Write`/`Edit` path rules, as Task 12's deliverables and
+  REQ-E1.6 already require.
+- 2026-11-02 — Delta kickoff via `/spec-kickoff` (brief Amendment 4),
+  meaning-class. D-28 drops `wc` from the static allow set: its
+  `--files0-from` form echoes a file's NUL-separated content as path names
+  in its output and errors, so it prints an arbitrary file's content, which
+  REQ-G1.1 forbids. REQ-G1.1's covered list and citations follow; D-15 and
+  D-27 point to D-28. Found by Task 12's convergence review.
 - 2026-10-10 — Delta kickoff via `/spec-kickoff` (brief Amendment 3),
   meaning-class. The walk names the newline beside `;` and `||` in
   REQ-A1.12 and D-24 (the merged guard and its suite already carry it).

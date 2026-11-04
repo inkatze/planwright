@@ -1,0 +1,6 @@
+# cited-source.persona — a status answer names a cited tracker with no age and says the work-item picture is the operator's statements and links.
+arm=REQ-H1.4
+expertise=expert
+answer.1=@event:sources work_items=cited:tracker code=snapshot:forge
+answer.2=status
+answer.3=that's all

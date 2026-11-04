@@ -1,7 +1,7 @@
 # Test throughput — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-10-09
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -249,7 +249,7 @@ changed in D-15, which supersedes it in part.
   one documented, portable detached-run recipe, so no run depends on
   finishing inside a single tool call's time limit; the recipe that verifies the run started before anything relies on it and
   that never deletes a previous run's log before the new run starts.
-  *(Cites: D-8, obs:67861aa6.)*
+  *(Cites: D-8, D-22, obs:67861aa6.)*
 - **REQ-B1.11** The review loop's use of PR CI as its per-iteration full
   suite SHALL NOT be enabled before review-effectiveness's full-suite
   requirement has been amended, through that bundle's own delta sign-off,
@@ -470,6 +470,12 @@ changed in D-15, which supersedes it in part.
   review-effectiveness REQ-D1.3; Task 16 gains a classification helper; plus
   wording, citation and testability fixes recorded in the brief's
   Amendment 1.
+- 2026-11-02 — Delta re-walkthrough (meaning-class). D-22 supersedes D-8 in
+  part: Task 12's helper detaches with a runner that catches SIGHUP instead
+  of `nohup`, since `nohup` leaves SIGHUP ignored in every test and the
+  suites that assert on it fail. Task 12's deliverables, Done-when and
+  citations and REQ-B1.10's citation follow. Recorded in the brief's
+  Amendment 2.
 
 ## Sources
 
@@ -492,6 +498,8 @@ changed in D-15, which supersedes it in part.
   directory vanishing under load.
 - **obs:67861aa6** — full CI exceeding a single tool call's limit, and the
   detached-launch trap where `setsid` is absent on macOS.
+- **obs:5d41e92b** — a full gate run under `nohup` hanging or failing the
+  suites that assert on SIGHUP.
 - **obs:76435039** — a machine-only `test-spec-graph.sh` failure with
   Graphviz 15 installed.
 - **obs:68e0e504**, **obs:1ee82cd7**, **obs:2f2cb594**, **obs:b951f234**,

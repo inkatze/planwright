@@ -1,0 +1,1 @@
+match ^usage: mc-program\.sh list \| get <name> <field> \| default <field> \| posture <name> \| validate <name>$

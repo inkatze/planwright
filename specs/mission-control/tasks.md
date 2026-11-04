@@ -476,8 +476,7 @@ the list lacked; the annotation moved below the task's fields.)*
 
 ## Awaiting input
 
-- **Task 5** — pending ready-flip: review-converged failed on f8c964f89099
-- **Task 7** — pending ready-flip: ci-rollup failed on 72eefc8197df
+(none yet)
 
 ## Deferred
 

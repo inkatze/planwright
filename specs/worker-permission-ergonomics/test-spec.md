@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-11-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -55,7 +55,8 @@ deny entry is covered without editing the fixture list; a curated collision
 row (a command the known-safe set or an arm would otherwise approve) is added
 for every rule whose verb is otherwise approvable, and the suite fails when
 such a rule lacks one. The `deny` block differs from its pre-change content
-only by the `Write`/`Edit` path rules REQ-F1.6 and REQ-G1.8 add.
+only by the `Write`/`Edit` path rules REQ-F1.6 and REQ-G1.8 add and the
+`Read` rule REQ-E1.6 adds.
 
 ### REQ-A1.4 — Every-segment-safe compound analysis [test]
 
@@ -259,7 +260,8 @@ script).
 a `PreToolUse` (Bash) hook referencing the script via `${CLAUDE_PLUGIN_ROOT}`,
 `defaultMode` is `default`, and the `deny` block is unchanged from baseline.
 *(Amended at the 2026-10-05 extension kickoff: Task 12 moves the baseline to
-include exactly the `Write`/`Edit` path rules REQ-F1.6 and REQ-G1.8 add; the
+include exactly the `Write`/`Edit` path rules REQ-F1.6 and REQ-G1.8 add and
+the `Read` rule REQ-E1.6 adds; the
 `Bash(…)` deny rules stay unchanged.)*
 `[manual]`: a dispatched worker under the wired profile runs a full task without
 a prompt-flood. This confirmation MUST be re-run against the shipped pure-shell
@@ -445,10 +447,11 @@ Under `own-branch`: writes (Bash writers and redirects) to the worktree's
 
 The permission-matcher fixture table carries a row for every new allow rule
 and the test fails on an allow rule with no row; assertions that no new rule
-names `awk`, `find`, `xargs`, `sed` (any form), `sort`, `uniq`, a
+names `awk`, `find`, `xargs`, `sed` (any form), `sort`, `uniq`, `wc`, a
 content-printing verb (`cat`, `grep`, `head`, `tail`, `cut`, `diff`, `jq`), a
 diff-family `git` subcommand, `git grep`, or `git cat-file`.
 *(Amended at the 2026-10-10 extension kickoff: the content-printing verbs.)*
+*(Amended at the 2026-11-02 delta kickoff: `wc` (D-28).)*
 
 ### REQ-G1.2 — Launcher-created scratch root [test]
 

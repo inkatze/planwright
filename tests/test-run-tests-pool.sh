@@ -17,7 +17,7 @@ MARK=PLANWRIGHT_TEST_IN_POOLED_FILE
 # environment; the mark would make every run below unpooled.
 unset "$MARK"
 unset PLANWRIGHT_TEST_SLOTS PLANWRIGHT_TEST_JOBS PLANWRIGHT_TEST_FORCE_SERIAL \
-  PLANWRIGHT_TEST_TIMING_REPORT PLANWRIGHT_TEST_DURATIONS
+  PLANWRIGHT_TEST_TIMING_REPORT PLANWRIGHT_TEST_DURATIONS PLANWRIGHT_TEST_FILE_DEADLINE
 
 failures=0
 pass() { echo "ok: $1"; }
@@ -214,7 +214,7 @@ out="$(env -u PLANWRIGHT_TEST_SLOT_DIR -u XDG_STATE_HOME -u CLAUDE_PLUGIN_DATA \
   /bin/bash "$RUNNER" "$tmp/one" 2>&1)"
 assert_exit "a run with nothing installed or configured passes" 0 $?
 home_pool="$tmp/home/.local/state/planwright/test-slots"
-assert_not_contains "the home pool is used without a warning" "WARNING" "$out"
+assert_not_contains "the home pool is used without a warning" "WARNING test pool" "$out"
 if [ -d "$home_pool" ] && [ ! -L "$home_pool" ]; then pass "the pool is created under the home state directory"; else fail "no pool directory at $home_pool"; fi
 # shellcheck disable=SC2012 # one known path; the mode string is the point
 perms="$(ls -ld "$home_pool" 2>/dev/null | cut -c1-10)"
@@ -232,7 +232,7 @@ mkdir -p "$tmp/real-pool"
 ln -s "$tmp/real-pool" "$tmp/link-pool"
 out="$(PLANWRIGHT_TEST_SLOT_DIR="$tmp/link-pool" /bin/bash "$RUNNER" "$tmp/one" 2>&1)"
 assert_exit "a symbolic-link pool path still passes" 0 $?
-n="$(count_lines 'WARNING' "$out")"
+n="$(count_lines 'WARNING test pool' "$out")"
 if [ "$n" -eq 1 ]; then pass "a symbolic-link pool path warns once"; else fail "a symbolic-link pool path warned $n times: $out"; fi
 assert_contains "the symbolic-link warning names the cause" "symbolic link" "$out"
 assert_contains "the symbolic-link run is unpooled" "pool=off" "$(head -n 1 "$tmp/one/.timing-report.tsv")"
@@ -264,7 +264,7 @@ EOF2
 chmod +x "$tmp/idshim/id"
 out="$(PATH="$tmp/idshim:$PATH" PLANWRIGHT_TEST_SLOT_DIR="$tmp/foreign-pool" /bin/bash "$RUNNER" "$tmp/one" 2>&1)"
 assert_exit "a foreign-owned pool still passes" 0 $?
-n="$(count_lines 'WARNING' "$out")"
+n="$(count_lines 'WARNING test pool' "$out")"
 if [ "$n" -eq 1 ]; then pass "a foreign-owned pool warns once"; else fail "a foreign-owned pool warned $n times: $out"; fi
 assert_contains "the foreign-owner warning names the cause" "not owned by" "$out"
 assert_contains "the foreign-owned run is unpooled" "pool=off" "$(head -n 1 "$tmp/one/.timing-report.tsv")"
@@ -288,7 +288,7 @@ chmod 700 "$tmp/squat-pool"
 for n in 1 2 3; do printf '#!/bin/bash\nexit 0\n' >"$tmp/three/test-t$n.sh"; done
 out="$(PLANWRIGHT_TEST_SLOT_DIR="$tmp/squat-pool" PLANWRIGHT_TEST_SLOTS=1 /bin/bash "$RUNNER" "$tmp/three" 2>&1)"
 assert_exit "a lock-library error still passes" 0 $?
-n="$(count_lines 'WARNING' "$out")"
+n="$(count_lines 'WARNING test pool' "$out")"
 if [ "$n" -eq 1 ]; then pass "a lock-library error warns once"; else fail "a lock-library error warned $n times: $out"; fi
 assert_contains "the lock-library warning names the cause" "not a lock symlink" "$out"
 assert_contains "the lock-library warning counts the unpooled files" "3 file(s) ran unpooled" "$out"
@@ -300,7 +300,7 @@ else
   chmod 500 "$tmp/ro-pool"
   out="$(PLANWRIGHT_TEST_SLOT_DIR="$tmp/ro-pool" /bin/bash "$RUNNER" "$tmp/one" 2>&1)"
   assert_exit "an unwritable pool still passes" 0 $?
-  n="$(count_lines 'WARNING' "$out")"
+  n="$(count_lines 'WARNING test pool' "$out")"
   if [ "$n" -eq 1 ]; then pass "an unwritable pool warns once"; else fail "an unwritable pool warned $n times: $out"; fi
   assert_contains "the unwritable warning names the cause" "not writable" "$out"
   assert_contains "the unwritable run is unpooled" "pool=off" "$(head -n 1 "$tmp/one/.timing-report.tsv")"
@@ -357,7 +357,7 @@ else
 fi
 inner_out="$(cat "$tmp/inner-out" 2>/dev/null)"
 assert_contains "the nested run completes" "all 1 test files passed" "$inner_out"
-assert_not_contains "the nested run prints no pool warning" "WARNING" "$inner_out"
+assert_not_contains "the nested run prints no pool warning" "WARNING test pool" "$inner_out"
 assert_contains "the nested run is unpooled" "pool=off" "$(head -n 1 "$tmp/inner-report.tsv" 2>/dev/null)"
 
 # ---------------------------------------------------------------------------

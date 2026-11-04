@@ -983,3 +983,69 @@ Class: meaning
 Lens-pass: §9 Amendment 3, 3.8 (delta-scoped fan-out, one reviewer per lens plus the declared security lens; canonical lens-coverage table above; all findings dispositioned — applied)
 Anchor: `88f9ec559aff449b9a2809b2e3874a2b509e8eba` — computed as
 `scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Amendment 4 — 2026-11-02 (delta kickoff: `wc` leaves the static allow set)
+
+**Trigger.** Task 12's convergence review found that `wc --files0-from=<file>`
+reads `<file>` as NUL-separated path names and prints each in its output or
+its error, so REQ-G1.1's static `wc` rule printed any file's content,
+another process's environment included, without passing the guard. The
+worker dropped the rule on its branch (sign-off item PS-1) and parked for
+this delta. Operator ruling, 2026-11-02: drop `wc`.
+
+**Delta walked.** REQ-G1.1 drops `wc` from its covered list, with an
+amendment note and the D-28 citation; D-28 records the decision; D-15 and
+D-27 carry in-part supersede pointers (D-27's rejected alternative rested
+on `wc` printing no content). The guard path is unchanged: `wc` is in its
+operand-opening set, whose screens refuse a word naming another process's
+environment.
+
+**Lens review (delta-scoped).** Spec lens set, walked inline over the delta
+(one requirement, one decision, one test entry); no fan-out, scoped by size.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 0 | D-28 matches REQ-G1.1's existing ban on content-printing verbs |
+| Ambiguity and interpretation forks | 0 | None |
+| Citation and coverage integrity | 0 | D-28 cited from REQ-G1.1 |
+| Dead verification paths | 0 | The matcher test runs in CI |
+| Decision-domain gaps | 0 | Security posture already decided by D-27 |
+| Testability | 1 | The REQ-G1.1 test-spec entry's never-named list lacked `wc` |
+| Cross-file consistency | 0 | Folded into the testability row |
+| Documentation and glossary drift | 0 | None |
+| Rendered-content safety and data hygiene | 0 | None |
+
+**Dispositions.** Testability finding: applied, `wc` added to the test
+entry's never-named list (operator, 2026-11-02).
+
+#### Sign-off record (Amendment 4)
+
+Signed off 2026-11-02 by the operator after the approval summary, relayed
+through the fleet tower, as a delta re-walkthrough of a Ready (stored)
+bundle: no status flip; `Last reviewed:` bumped on all four spec files;
+`scripts/spec-validate.sh` re-run after the edits with 0 errors and 0
+warnings.
+
+Class: meaning
+Lens-pass: Amendment 4, delta-scoped lens review above (spec lens set, inline; every finding dispositioned)
+Anchor: `c80256e3043b9fd1dc8a3229372a0ecae2edd4c3` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Re-anchor — Task 12 convergence fix (2026-11-03)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by `/execute-task`'s
+convergence for Task 12.
+
+**Why the anchor moved:** the REQ-A1.11 and REQ-C1.1 test-spec entries said
+the `deny` block differs from its pre-change content only by the
+`Write`/`Edit` path rules, while REQ-E1.6 and Task 12's deliverables also add
+the `Read` rule for `/proc/*/environ`. Both entries now name that rule; no
+decision changes.
+
+**Cites the changelog line:** the 2026-11-03 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `fecd04fcd6f75d263c89aadbaac35781da021c0a` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`
