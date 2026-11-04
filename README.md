@@ -11,8 +11,10 @@ planwright is a Claude Code plugin. Type **`/tower`** in your repository and
 say what you want in your own words. Questions get an answer in the
 conversation. A change goes to an isolated agent that builds it, tests it,
 reviews its own work until the review stops finding problems it can fix, and
-opens a **draft pull request**. The pull request is marked ready for you only
-once CI is green on it, and by default nothing merges until you do.
+opens a **draft pull request** (once you let it push to your GitHub account;
+until then the work stays on your machine). Work built from a spec is marked
+ready for you only once CI is green on it, and by default nothing merges until
+you do.
 
 **Placeholder, not yet measured:** on a public demo repository and a fixed
 set of tasks, *[N]%* of planwright's draft pull requests merged with no
@@ -30,10 +32,10 @@ from a clean machine to your first draft PR.
 ## Why planwright
 
 - **Rules the agent cannot argue with.** Claude Code's auto mode asks a model
-  to judge each action. planwright adds hooks, plain scripts that run before
-  that judgment, which refuse a push to `main` or any other protected branch,
-  a pull-request merge, and a rewrite of history someone already pushed. The
-  few exceptions are yours to grant, and
+  to judge each action. Every agent session planwright starts runs under hooks,
+  plain scripts that run before that judgment, which refuse a push to `main` or
+  any other protected branch, a pull-request merge, and a rewrite of history
+  someone already pushed. The few exceptions are yours to grant, and
   [Human Gates](doctrine/human-gates.md) lists them all.
   **Placeholder, not yet measured:** on a published replay of risky git and
   file commands, the hooks block *[N]%* against *[M]%* for auto mode alone,
