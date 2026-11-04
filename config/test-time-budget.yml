@@ -9,10 +9,11 @@
 #   suite_mean_file_seconds  the mean file time over the whole suite; it does
 #                            not grow with the file count, so adding files is
 #                            free and only a suite slower per file trips it
-#   shard_wall_seconds       the slowest shard's wall-clock in a sharded run,
-#                            the longest the `check` status waits on one
-#                            runner; a lone shard report (one planned
-#                            shard) is judged on it, an unsharded run is not
+#   shard_wall_seconds       the slowest Linux shard's wall-clock in a sharded
+#                            run (`check` also waits on the macOS and Alpine
+#                            shards, but they feed the gate no report); a
+#                            lone shard report (one planned shard) is judged
+#                            on it, an unsharded run is not
 #   shard_target_seconds     what scripts/run-tests.sh --plan-shards aims each
 #                            shard at: CI runs as many shards as the predicted
 #                            suite time needs to stay at or under it; the gate
