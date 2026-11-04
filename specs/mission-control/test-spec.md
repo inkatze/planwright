@@ -1,7 +1,7 @@
 # Mission control — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-10-24
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -75,6 +75,15 @@ predecessor retires itself, a fixture predecessor that cannot release
 within the window being retired by the successor (Task 16). With one configured program the command without
 an argument resumes it; with two it asks which; with none it enters the
 guided first run (Task 11, Task 15 fixture).
+
+### REQ-A1.8 — Takeover from a tower [test]
+
+`tests/test-mc-handover.sh` (Task 22): a fixture tower supervising two live
+workers with one open operator item hands over; both workers are adopted
+under the program, the item sits in mission control's queue with its
+origin, the sweep's relaunch runs for a crashed fixture worker, and the
+tower stays live until a yes. A relayed wake into a tower session leaves
+the tower's attention marker unwritten.
 
 ## REQ-B — The rule source
 
@@ -161,6 +170,14 @@ Given a repeat at the threshold covered by a catalog duty, one proposal in
 the confirmation shape is raised with an explicit decline; nothing is
 enabled without the yes.
 
+### REQ-C1.8 — Presented duties are armed [test]
+
+`tests/test-mc-duties.sh` (Task 26): enabling the undo-ledger, self-audit
+and proposals duties arms each watcher in a fixture installation; an
+invalid superseding overlay entry leaves the shipped entry armed. A check
+that the operator guide presents no unarmed duty as available runs in
+`check:non-test`.
+
 ## REQ-D — Session lifecycle across kinds
 
 ### REQ-D1.1 — One launcher [test]
@@ -207,6 +224,34 @@ check under a green rollup, an open thread, an unanswered finding or an
 error-state screenshot, and passes a complete one; a session report alone
 never passes.
 
+### REQ-D1.9 — The configured cadence audited at readiness [test]
+
+`tests/test-step-run-audit.sh` and `tests/test-mc-readiness.sh` (Task 17):
+a configured step with no record, a failed step, a stale completion and a
+missing completion each report their gap; the readiness walk refuses a
+gap whatever the gate-condition data names, refuses an audit at another
+head and refuses an unaudited cadence with its reason; a fully recorded
+fixture passes; an unresolvable cadence exits 4.
+
+### REQ-D1.10 — Launch worktrees [test]
+
+`tests/test-mission-control-launch.sh` (Task 18): a repository-changing
+launch with no directory starts in a new worktree and leaves the primary
+checkout untouched; a launch naming the primary checkout is refused; a
+read-only kind starts in the caller's directory.
+
+### REQ-D1.11 — The cadence in launch briefs [test]
+
+`tests/test-mission-control-launch.sh` (Task 18): the brief of a
+repository-changing launch lists the steps the configuration resolves for
+its points, and an empty cadence is stated as empty.
+
+### REQ-D1.12 — Adoption and liveness on every backend [test]
+
+`tests/test-mc-stall.sh` (Task 21): an adopted hand-launched stream-json
+worker is reported dead when its process exits and stalled on a pending
+prompt; a registry row with no live process is never read as live.
+
 ## REQ-E — Durable watchers
 
 ### REQ-E1.1 — Scripts under a runner that re-arms [test]
@@ -235,6 +280,12 @@ the mod is absent.
 ### REQ-E1.5 — A stopped watcher is an event [test]
 
 Killing a watcher produces the watcher-stopped event before the re-arm.
+
+### REQ-E1.6 — Step deadlines [test]
+
+`tests/test-mc-watch.sh` (Task 27): a fixture watcher that hangs is stopped
+at the deadline knob's value, the pass completes, and the expiry lands as
+an event.
 
 ## REQ-F — The operator surface
 
@@ -312,6 +363,30 @@ installation and is remembered per operator.
 A packet assembles from fixtures with the readiness result first, what
 changed since the last operator look, risks and order.
 
+### REQ-F1.15 — Review evidence at consequential moments [test + Gherkin]
+
+`tests/test-mc-packet.sh` (Task 24): for a fixture pull request with
+convergence missing, the packet at each guidance level names the missing
+step; the lesson appears only at `guided`, the recommendation at `guided`
+and `standard`; the gate result is identical at every level; an overlay
+lesson replaces the shipped text. Behavioral fixture (Task 29, on demand
+under Task 15's cadence step):
+
+- Given a `guided` operator and a pull request no review step ran on,
+  when the operator asks to merge it, then mission control says plainly
+  that it has not been reviewed, why that matters, and recommends the
+  review first, with no option pre-selected.
+- Given an `expert` operator and the same pull request, when they ask to
+  merge, then mission control states the one-line fact and nothing more.
+
+### REQ-F1.16 — The panel with no setup [test]
+
+`claude plugin test` and `tests/test-mc-panel.sh` (Task 23): a fixture
+session with no mission-control environment activates after the
+activation record is written; a session launched from it does not; a
+handover successor activates through its own bring-up; with mods
+unavailable the skill's notice appears once and the text panel renders.
+
 ## REQ-G — Permissions at scale
 
 ### REQ-G1.1 — Profile delivered at launch [test]
@@ -336,6 +411,23 @@ denial and expects the exact text relayed and no alternate command.
 Carried from tower-front-door D-14; the guard fixture refuses settings
 writes from a session under the `mission-control` tier (Task 3); a settings-kind proposal (REQ-B1.5) leaves
 every settings file untouched.
+
+### REQ-G1.5 — The posture check and guard-enforced invariants [test]
+
+`tests/test-policy-guard-mission-control.sh` and
+`tests/test-tower-command-guard.sh` (Task 20): the mission-control tier denies a repository edit and a git
+mutation; every routine script named in the shared list runs without a
+prompt, and a routine script missing from it fails the test. A fixture
+bring-up without the shipped deny floor reports the posture failure and
+refuses a launch.
+
+### REQ-G1.6 — Prompts wake mission control and are answered through a vetted channel [test]
+
+`tests/test-mc-stall.sh` and the answer wrapper's test (Task 21): a pending
+prompt in an adopted session raises an attention event; a covered prompt
+is answered, an uncovered one surfaced once and left pending; the raw
+answer verb prompts in the mission-control tier; a tmux prompt is surfaced
+once with its command.
 
 ## REQ-H — Programs across repositories
 
@@ -365,6 +457,13 @@ source's mode and age (Task 7). Given a program whose work items are only
 a `cited` tracker, a status answer names the tracker as cited with no
 age and says the work-item picture is the operator's statements and
 links, never a polled state (Task 15 fixture).
+
+### REQ-H1.5 — The state-source map with the platform class [test]
+
+`tests/test-mc-program.sh` (Task 25): a program block mapping `platform` to
+a snapshot source validates; mapping it to `record` is refused naming the
+class; a map that leaves it out resolves it `cited`; the other classes
+behave as REQ-H1.4's entry describes.
 
 ## REQ-I — Invariants
 
@@ -408,6 +507,16 @@ scan over the committed seeds and docs is clean.
 
 A gate-condition fixture that would authorize a merge or a flip below the
 policy is refused at load; a per-repository condition evaluates as data.
+
+### REQ-I1.8 — A relayed kickoff publishes its own spec branch [test + Gherkin]
+
+`tests/test-policy-guard.sh` (Task 19): a fixture kickoff session pushes
+its own spec branch without a prompt; a push of another spec branch, a
+force push of its own and a push to `main` are each denied with the
+guard's text; mission control's own profile denies every push. Behavioral
+fixture (Task 29): given a kickoff mission control relays, when the
+operator signs off, then the kickoff session pushes its spec branch and
+opens the draft pull request with no manual step for the operator.
 
 ## REQ-J — Knobs
 
@@ -492,6 +601,14 @@ handover file, the name resolving to it alone, the predecessor row gone; a
 failed self-check keeps the predecessor live and raises an item; the
 one-act fallback is offered where the takeover path is unsupported.
 
+### REQ-L1.7 — Dynamic, host-shared launch admission [test]
+
+`tests/test-mc-budget.sh` (Task 28): with account headroom and a host
+loaded past its limit the launch holds naming the host axis, and the
+reverse names the account axis; two fixture programs on one host never
+admit more than the shared capacity together; the ceiling caps a host with
+room to spare.
+
 ## REQ-M — Throughput
 
 ### REQ-M1.1 — One snapshot per source per program [test]
@@ -532,3 +649,8 @@ no tier is refused; the same inputs yield the same session name.
 
 Interruptions per hour and the settled share compute from log fixtures and
 draw on the panel.
+
+### REQ-M1.9 — Suggestions from the orchestrator's selection [test]
+
+`tests/test-mc-keeper.sh` (Task 27): a task whose own or dependency's
+repository is withheld is never suggested; a ready task is.

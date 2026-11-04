@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
-**Status:** Ready
-**Last reviewed:** 2026-11-02
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -23,6 +23,12 @@ the human gates. Its ground rules and cadence are shipped configuration that
 overlays extend and the launcher delivers to every session it starts, so
 they survive compaction and are never repeated by hand. Work across several
 repositories is one shape it supports.
+
+Mission control works smoothly for every operator, from one new to
+planwright to an expert: what it presents as working runs, what it starts is
+supervised, verified and finished without a manual step, and the guidance
+level decides how much it teaches at the moments that carry consequence (a
+merge, a ready flip), never whether a gate holds (D-31).
 
 The bundle is the **core**: the session kind and the **duty** seam. A duty
 is a named unit of mission control's work (its triggers, watchers, wake,
@@ -73,6 +79,12 @@ later planwright bundles implement, D-12).
 - Handover over compaction: automatic, lossless succession by a fresh
   session.
 - Every preference as a documented, default-preserving knob.
+- Smooth operation at every guidance level: duties that run when shown,
+  launches that are supervised, verified and finished without a manual
+  step, a panel with no setup, and teaching at consequential moments.
+- Taking over a running tower's fleet and adopting sessions mission
+  control did not launch.
+- Launch admission shared across programs on one host.
 
 ### Out of scope
 
@@ -153,6 +165,14 @@ later planwright bundles implement, D-12).
   command with the program-name argument and its omission rules.)*
   *(Amended at sign-off lens pass 2026-10-24: who retires the predecessor aligned
   with REQ-L1.6, with the arm for a predecessor that cannot release.)*
+- **REQ-A1.8** Mission control SHALL be able to take over the fleet of a
+  running tower: it adopts the tower's live sessions (REQ-D1.12), carries
+  the tower's open operator items into its own queue with nothing dropped
+  (REQ-F1.5), runs the fleet sweep's relaunch and reap work as part of its
+  supervision, and retires the tower only on the operator's yes. A wake
+  mission control relays into a tower session SHALL never count as the
+  operator's reply there.
+  *(Cites: D-38; audit gap 7 (Sources); obs:a89108b6.)*
 
 ## REQ-B — The rule source
 
@@ -242,6 +262,12 @@ later planwright bundles implement, D-12).
   (Sources).)*
   *(Amended at kickoff 2026-10-23: the duty named as one kind of REQ-B1.5's
   mechanization proposals.)*
+- **REQ-C1.8** Every duty the operator guide or the first run presents as
+  working SHALL be armed when enabled (a catalog entry with its watchers
+  and schedule); a duty whose work has not landed SHALL be presented as not
+  yet available. An overlay entry the catalog skips as invalid SHALL leave
+  the entry it would have replaced in force.
+  *(Cites: D-40; obs:380ade20, obs:3b7be7a7, obs:a6112066.)*
 
 ## REQ-D — Session lifecycle across kinds
 
@@ -287,6 +313,32 @@ later planwright bundles implement, D-12).
   report alone.
   *(Cites: D-25; the invocation seed (Sources), failure mode 8;
   obs:921b93c9, obs:3739da3e, obs:3d66ac61, obs:f63d8644, obs:f2c2c3ae.)*
+- **REQ-D1.9** The readiness check SHALL audit the configured cadence
+  itself: it resolves the steps the configuration requires through the
+  unit's in-run points and compares them with the step records, refusing a
+  flip when a required step is missing, failed or recorded only at an older
+  head, when a point's completion is absent or stale, or when the audit
+  cannot run. The gate-condition data (REQ-I1.7) adds conditions and never
+  narrows the configured cadence.
+  *(Cites: D-33; audit gap 2 (Sources).)*
+- **REQ-D1.10** A session mission control launches to change a repository
+  SHALL run in its own worktree, which the launcher creates off the default
+  branch or the unit's branch, never in a primary checkout; a read-only
+  session may run where it is launched.
+  *(Cites: D-34; audit gap 5 (Sources).)*
+- **REQ-D1.11** A launch that changes a repository SHALL carry the
+  configured review cadence in its brief (the steps the unit's points
+  resolve to), so the session runs them without being told; REQ-D1.9 is the
+  backstop when it does not.
+  *(Cites: D-33; audit gap 2 (Sources).)*
+- **REQ-D1.12** Mission control SHALL be able to adopt a session it did not
+  launch (a tower's worker, a hand-launched session, on any backend),
+  registering it under the program with its owner, kind and scope; from
+  then on stall detection, prompt handling (REQ-G1.6) and retirement cover
+  it as they cover a launched one. The stall detector SHALL read every
+  backend's liveness from positive evidence (REQ-D1.2), a stream-json
+  session included, never from the presence of a registry row.
+  *(Cites: D-35; audit gap 3 (Sources).)*
 
 ## REQ-E — Durable watchers
 
@@ -308,6 +360,10 @@ later planwright bundles implement, D-12).
   Code mods API (Sources).)*
 - **REQ-E1.5** A watcher that stops SHALL itself be an event.
   *(Cites: D-4; the invocation seed (Sources), failure mode 2.)*
+- **REQ-E1.6** Every watcher run and snapshot refresh SHALL run under a
+  deadline (a knob) and be stopped when it expires, the expiry itself an
+  event (REQ-E1.5), so one hung step never stalls the runner pass.
+  *(Cites: D-40; obs:b8d064cc.)*
 
 ## REQ-F — The operator surface
 
@@ -379,6 +435,23 @@ later planwright bundles implement, D-12).
   and the order.
   *(Cites: D-25; drafting-session decision (2026-10-22); the hub record
   (Sources).)*
+- **REQ-F1.15** At a consequential moment (the operator about to merge, or
+  a ready flip mission control requests or offers), mission control SHALL state, at every guidance level, which configured review
+  steps ran at the current head and which did not. At `guided` it SHALL
+  also say in plain words why a missing review matters and recommend
+  running it first; at `standard` it SHALL add the recommendation; at
+  `expert` the one-line fact stands alone. The guidance level SHALL never
+  soften or skip a gate, pre-select an option, or withhold the fact.
+  *(Cites: D-31; the operator priority (2026-11-04) (Sources).)*
+- **REQ-F1.16** The panel SHALL activate in every mission-control session,
+  however it started (the skill command typed in a plain session, the
+  launcher's mission-control kind, a handover successor), with no
+  environment variable, restart or launch flag on the operator's side; a
+  session mission control launches SHALL NOT inherit the activation. Where
+  the host cannot load mods, mission control SHALL say so once in plain
+  words and use the text panel (REQ-F1.2).
+  *(Cites: D-37; audit gap 6 (Sources); the operator priority (2026-11-04)
+  (Sources); obs:cf5bce54, obs:855b725a.)*
 
 ## REQ-G — Permissions at scale
 
@@ -406,6 +479,23 @@ later planwright bundles implement, D-12).
   operator ready to apply.
   *(Cites: D-2; tower-front-door D-14 (Sources); kickoff §3 (2026-10-23).)*
   *(Amended at kickoff 2026-10-23: the settings-handover clause added.)*
+- **REQ-G1.5** At bring-up mission control SHALL check that it runs under
+  the mission-control permission posture (the shipped deny floor in force,
+  the guard hooks wired), as the tower checks its own, and SHALL say so and
+  act read-only when it does not. Non-authoring (REQ-A1.3) and the
+  ready-flip policy (REQ-I1.2) SHALL be enforced by the guard tier, not by
+  skill prose alone, and every planwright script mission control runs
+  routinely SHALL be pre-approved by that tier.
+  *(Cites: D-32; audit gap 1 (Sources); obs:bb22668a.)*
+- **REQ-G1.6** A permission prompt pending in any session mission control
+  supervises SHALL wake it by push (REQ-E1.3). Mission control SHALL answer
+  a prompt only through a channel that applies REQ-G1.2's coverage check
+  before it answers, and the guard tier SHALL NOT pre-approve the raw
+  answer verb. A prompt in a session whose backend has no answer channel
+  SHALL be surfaced once with its command, and mission control SHALL
+  relaunch that session on a backend that has one rather than hand the
+  operator its pane (REQ-A1.4).
+  *(Cites: D-35; audit gap 3 (Sources); obs:3845960c.)*
 
 ## REQ-H — Programs across repositories
 
@@ -439,6 +529,23 @@ later planwright bundles implement, D-12).
   *(Amended at sign-off lens pass 2026-10-24: `record` reworded so it does not
   read as mission control editing a repository (REQ-A1.3); the default map
   completed for deadlines, designs and unlisted classes.)*
+  **Superseded-by: REQ-H1.5** (2026-11-04).
+- **REQ-H1.5** (supersedes REQ-H1.4) A program SHALL declare its state
+  sources: for each fact class (work items, code state, decisions,
+  deadlines, designs, platform) the authoritative source and its access
+  mode, `record` (a store planwright writes, directly or through a session
+  mission control dispatches), `snapshot` (an adapter refreshes an
+  age-stamped copy, D-12) or `cited` (links and the operator's statements
+  only; never polled, never claimed as known). The `platform` class (the
+  releases of the host tools and platforms the program builds on) admits
+  only `snapshot` and `cited`. The default map is the specs as `record` for
+  work items, decisions and deadlines (the dates the specs and the operator
+  state), the forge as `snapshot` for code state, and `cited` for designs,
+  platform and any class the map leaves out; a tracker, document store or
+  design tool is `cited` until an adapter exists. Mission control SHALL
+  name a source's mode and age wherever it reports from it, and SHALL say
+  so when a fact class has only a `cited` source.
+  *(Cites: D-39; platform-currency D-14 (Sources).)*
 
 ## REQ-I — Invariants
 
@@ -481,6 +588,14 @@ later planwright bundles implement, D-12).
   never place a flip or a merge below the floors `human-gates` states.
   *(Cites: D-26; drafting-session decision (2026-10-22); the hub record
   (Sources).)*
+- **REQ-I1.8** A kickoff or amendment mission control relays (REQ-I1.5)
+  SHALL be able to publish its own result: a plain push of the one spec
+  branch its launch names, the draft pull request for it and that pull
+  request's configured ready flip, under a
+  kickoff permission profile the launcher delivers. That profile SHALL
+  admit no force push, no other spec branch and no protected branch, and
+  mission control itself gains no push.
+  *(Cites: D-36; audit gap 4 (Sources).)*
 
 ## REQ-J — Knobs
 
@@ -549,6 +664,11 @@ later planwright bundles implement, D-12).
   one line. A handover that cannot complete unattended SHALL fall to one
   operator act, never to a degraded session.
   *(Cites: D-30; drafting-session decision (2026-10-22).)*
+- **REQ-L1.7** Launch admission SHALL be dynamic on two axes, the
+  account's usage headroom and the host's capacity (load against cores,
+  available memory), and shared by every program's mission control on the
+  host; `fleet_max_parallel_units` is the ceiling only, never the target.
+  *(Cites: D-41; the operator priority (2026-11-04) (Sources).)*
 
 ## REQ-M — Throughput
 
@@ -581,6 +701,10 @@ later planwright bundles implement, D-12).
 - **REQ-M1.8** Interruptions per hour and the share of decisions settled
   without the operator SHALL be measured and visible.
   *(Cites: D-13, D-6; drafting-session decision (2026-10-22).)*
+- **REQ-M1.9** Every dispatch suggestion mission control makes SHALL come
+  from the orchestrator's own selection, so a task whose repository is
+  withheld or degraded, or whose dependency's is, is never suggested.
+  *(Cites: D-40; obs:5d662727.)*
 
 ## Changelog
 
@@ -672,6 +796,21 @@ later planwright bundles implement, D-12).
   machine-local one, since the machine-local file sits inside a checkout
   where mission control writes nothing (REQ-A1.3). Raised by Task 11.
 
+- 2026-11-04 — Extended (`/spec-draft --extend`, reopen cycle: stored
+  Ready to Draft over a derived Done): works smoothly for every operator
+  level, a Goal paragraph; REQ-A1.8 (tower takeover), REQ-C1.8 (presented
+  duties are armed), REQ-D1.9 to REQ-D1.12 (cadence audit at readiness,
+  launch worktrees, cadence in launch briefs, adoption and every-backend
+  liveness), REQ-E1.6 (step deadlines), REQ-F1.15 (review evidence at
+  consequential moments, shaped by the guidance level), REQ-F1.16 (the
+  panel with no setup), REQ-G1.5 (posture check and guard-enforced
+  invariants), REQ-G1.6 (prompts wake mission control and are answered
+  through a vetted channel), REQ-H1.5 superseding REQ-H1.4 (the `platform`
+  fact class), REQ-I1.8 (a relayed kickoff publishes its own spec branch),
+  REQ-L1.7 (dynamic, host-shared launch admission), REQ-M1.9 (suggestions
+  from the orchestrator's selection); D-31 to D-41; Tasks 17 to 29.
+  Mission-control observations mined and consumed as cited.
+
 ## Sources
 
 - **The invocation seed (2026-10-21)** — the operator's framing of a hub
@@ -740,3 +879,41 @@ later planwright bundles implement, D-12).
   custom-steps, human-gates, model-allocation, quota-handling,
   custom-spec-location, interaction-style, autopilot-reflex, bootstrap
   (REQ-K1.8 options reference; D-21 fold rule), security-posture.
+- **The mission-control audit (2026-11-04)** — a read-only audit of the
+  shipped mission control at release 0.65.0 listing eleven gaps between the
+  bundle and what an operator meets; gaps 1 to 7 are this extension's
+  (cited as `audit gap <n>`), and gaps 8 to 11 (launcher owner rows, the
+  release-window check, stray files in a primary checkout, testing a pull
+  request's plugin version) are routed to separate flights. Evidence for
+  gap 3 from another program's mission control: three stream-json workers
+  sat on unanswered permission prompts for eight days with nothing
+  surfacing them.
+- **The operator priority (2026-11-04)** — "our priority for now is to make
+  mission-control work smoothly for any kind of operator, extra newby or
+  expert", with the example that a newcomer would have wanted to be told
+  not to push a pull request without reviewing it even once. Rulings in the
+  same session: the worker limit is driven by account and computer limits
+  dynamically; most people want the panel without setting it up; a relayed
+  kickoff gets its own narrow push permission; the four smoothness fixes
+  from the observations are in scope.
+- **The in-flight cadence fix (2026-11-04)** — the uncommitted work on the
+  `mc-launch-cadence` flight: a read-only `audit` verb in
+  `scripts/step-run.sh` resolving the configured cadence through the in-run
+  points against the step records, and a `cadence` evidence row in
+  `scripts/mc-readiness.sh` that refuses a walk with a gap or no audit.
+  D-33 and Task 17 describe what that fix needs.
+- **platform-currency D-14 (draft bundle, 2026-11-04)** — the
+  platform-currency bundle needs a `platform` fact class in the state-source
+  map, admitting only `snapshot` and `cited`, before its duty can read
+  platform snapshots.
+- **Observations consumed (2026-11-04)** — the mission-control fragments
+  this extension covers, archived in the same commit: obs:cf5bce54,
+  obs:855b725a, obs:3845960c, obs:bb22668a, obs:a89108b6, obs:380ade20,
+  obs:3b7be7a7, obs:a6112066, obs:06c6841d (the measures file the panel
+  reads and nothing writes, Task 27), obs:b8d064cc, obs:5d662727. Fragments
+  left live: internal speed and refactor notes (obs:fe8f2648,
+  obs:ea11bd32), a load-reading fallback current hosts never reach (obs:f8cb8d43),
+  items other bundles own (obs:14399ba2, obs:edfc0ca9, obs:6d91e632),
+  a prose dependency already landed plus a format-lint idea (obs:f3bc9c7a),
+  proposal refinements (obs:190f117b, obs:8e998e2c) and the narrower flip
+  scope the operator left to a follow-on (obs:279d8ddd).

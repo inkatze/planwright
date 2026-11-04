@@ -1,7 +1,7 @@
 # Mission control — Tasks
 
-**Status:** Ready
-**Last reviewed:** 2026-10-24
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -473,6 +473,227 @@ the list lacked; the annotation moved below the task's fields.)*
 - **Citations:** D-29, D-30 · REQ-A1.1, REQ-A1.7, REQ-B1.3, REQ-B1.7,
   REQ-L1.3, REQ-L1.5, REQ-L1.6
 - **Estimated effort:** 3 days
+
+### Task 17 — The cadence audit at readiness
+
+- **Deliverables:** A read-only `audit --through <point> [--head <sha>]`
+  verb in `scripts/step-run.sh` that resolves the configured cadence
+  through the in-run points and reports per point `covered` or a `gap`
+  (incomplete, stale, missing, failed) and a final `audit complete|gaps`
+  line, exit 0, 1 or 4; `scripts/mc-readiness.sh` collecting a `cadence`
+  evidence row (audited at a head, a gap, or unaudited with its reason)
+  from the worktree holding the pull request's branch, and its walk
+  refusing any gap, an audit at another head, or no audit; tests for both.
+- **Done when:** A fixture whose configured convergence step has no record
+  is refused by the walk naming the point and step, whatever the
+  gate-condition data names; a fixture with every step recorded and each
+  point completed at the head passes; a completion on an older head with a
+  non-merge commit after it reports stale; with no worktree holding the
+  branch the row reads unaudited and the walk refuses; an unresolvable
+  cadence exits 4.
+- **Dependencies:** none
+- **Citations:** D-33, D-25 · REQ-D1.9, REQ-D1.8
+- **Estimated effort:** 1 day
+
+### Task 18 — Launch worktrees and cadence briefs
+
+- **Deliverables:** `scripts/mission-control-launch.sh` creating a worktree
+  for every kind that changes a repository (off the default branch, or the
+  unit's branch when it exists), starting the session there, refusing an
+  explicit directory that is a primary checkout, and keeping the caller's
+  directory for read-only kinds; the resolved cadence written into the
+  brief of each repository-changing launch; the skill's kickoff relay
+  pointed at the launcher's worktree; tests.
+- **Done when:** A fixture worker launch with no directory starts in a new
+  worktree off the default branch and the primary checkout is untouched; a
+  launch naming the primary checkout is refused; a read-only kind starts
+  in the caller's directory; the brief of a repository-changing launch
+  lists the steps the configuration resolves for its points, and an empty
+  cadence says so.
+- **Dependencies:** none
+- **Citations:** D-33, D-34 · REQ-D1.10, REQ-D1.11
+- **Estimated effort:** 1 day
+
+### Task 19 — The kickoff permission profile
+
+- **Deliverables:** A kickoff launch kind and settings profile: the worker
+  profile plus a plain push of the spec branch its scope names and the
+  draft pull request for it; `scripts/policy-guard.sh` reading the
+  permitted branch from the launch record and keeping the protected floor
+  for every other spec branch; the skill's relay using the kind; tests.
+- **Done when:** A fixture kickoff session pushes its own spec branch
+  without a prompt; a push of another spec branch, a force push of its own,
+  and a push to `main` are each denied with the guard's text; a worker
+  launch keeps the floor for every spec branch; mission control's own
+  profile still denies every push.
+- **Dependencies:** 18
+- **Citations:** D-36 · REQ-I1.8, REQ-I1.5, REQ-I1.4
+- **Estimated effort:** 1 day
+
+### Task 20 — The posture check and the guard-enforced invariants
+
+- **Deliverables:** The skill's bring-up opening with the tower's posture
+  check by reference, a failed check reported in one plain line with
+  mission control continuing read-only; the `mission-control` guard tier
+  denying repository edits and git mutations and holding the ready-flip
+  policy; its allow list read from one shared list covering every
+  planwright script mission control runs routinely, with a test that fails
+  when a routine script is missing from it.
+- **Done when:** A fixture session without the shipped deny floor reports
+  the posture failure and refuses a launch; a fixture edit or git mutation
+  from mission control is denied by the tier; every script the skill and
+  its duties name as routine runs without a prompt; adding a routine script
+  without listing it fails the test.
+- **Dependencies:** none
+- **Citations:** D-32 · REQ-G1.5, REQ-A1.3, REQ-I1.2
+- **Estimated effort:** 1 day
+
+### Task 21 — Adoption, liveness on every backend, and prompt answers
+
+- **Deliverables:** An `adopt` verb registering a live session mission
+  control did not launch; `scripts/mc-stall.sh` reading every registered
+  session and a stream-json session's liveness from its process and event
+  stream; a pending prompt raising an attention event that wakes mission
+  control; an answer wrapper that checks the tower-comms standing-decision
+  coverage before calling the backend's answer verb, pre-approved by the
+  guard tier while the raw answer verb is not; the tmux arm surfacing the
+  prompt once and recommending a relaunch; tests.
+- **Done when:** A fixture hand-launched stream-json worker, once adopted,
+  is reported dead when its process exits and stalled on a pending prompt;
+  the prompt wakes mission control through the attention store; a prompt a
+  standing decision covers is answered, one it does not cover is surfaced
+  once and left pending; the raw answer verb prompts in the mission-control
+  tier; a tmux prompt is surfaced once with its command.
+- **Dependencies:** 20
+- **Citations:** D-35 · REQ-D1.12, REQ-G1.6, REQ-G1.2, REQ-D1.3
+- **Estimated effort:** 2 days
+
+### Task 22 — Takeover from a tower
+
+- **Deliverables:** A tower takeover path in `scripts/mc-handover.sh`:
+  adopt each live session the tower supervises, import its open operator
+  items with their origin, start the fleet sweep's relaunch and reap work
+  under mission control's supervision, and ask before retiring the tower;
+  the wake marker mission control's relayed wakes carry and the tower reply
+  hook ignoring a turn that bears it; tests.
+- **Done when:** A fixture tower with two live workers and an open item
+  hands over: both workers are adopted, the item is in mission control's
+  queue with its origin, the sweep's relaunch runs for a crashed fixture
+  worker, and the tower is untouched until a yes; a relayed wake into a
+  tower session leaves the tower's attention marker unwritten.
+- **Dependencies:** 21
+- **Citations:** D-38 · REQ-A1.8, REQ-F1.5
+- **Estimated effort:** 2 days
+
+### Task 23 — The panel with no setup
+
+- **Deliverables:** An activation record written by mission control's entry
+  and bring-up for the current session; the panel mod activating from a
+  record naming its own session on its timer and session events, the
+  environment variable kept as an optional fast path; the skill's one-line
+  notice and text-panel fallback where mods cannot load; tests through
+  `claude plugin test` and the panel script.
+- **Done when:** A fixture session with no mission-control environment
+  activates the panel after the record is written; a session launched from
+  it does not activate; a handover successor activates through its own
+  bring-up; with mods unavailable the notice appears once and the text
+  panel renders.
+- **Dependencies:** none
+- **Citations:** D-37 · REQ-F1.16, REQ-F1.2
+- **Estimated effort:** 1 day
+
+### Task 24 — Review evidence at consequential moments
+
+- **Deliverables:** The prepared packet opening with the review-evidence
+  line from the cadence audit at the merge and ready-flip moments; a lesson catalog keyed by moment and guidance level merged
+  through the overlay layers, with shipped `guided` and `standard` texts;
+  the skill naming the rule once; tests.
+- **Done when:** For a fixture pull request with convergence missing, the
+  packet at every level names the missing step; at `guided` it adds the
+  lesson and the recommendation, at `standard` the recommendation alone,
+  at `expert` neither; no level changes the gate result or pre-selects an
+  option; an overlay lesson replaces the shipped text.
+- **Dependencies:** 17
+- **Citations:** D-31, D-18, D-25 · REQ-F1.15, REQ-F1.13, REQ-F1.14
+- **Estimated effort:** 1 day
+
+### Task 25 — The platform fact class
+
+- **Deliverables:** `platform` added to the fact classes in
+  `scripts/mc-program.sh`, admitting only `snapshot` and `cited` and
+  defaulting to `cited`; the first run's state-source objective and the
+  operator guide naming it; tests.
+- **Done when:** A program block mapping `platform` to a snapshot source
+  validates; one mapping it to `record` is refused naming the class; a map
+  leaving it out resolves it `cited`; the class list stays the one the
+  validator and the reader share.
+- **Dependencies:** none
+- **Citations:** D-39 · REQ-H1.5
+- **Estimated effort:** half day
+
+### Task 26 — Armed duties
+
+- **Deliverables:** Catalog entries with watchers and schedules for the
+  duties whose scripts exist (the undo ledger, self-audit, proposals),
+  `config/duties.yaml` and the operator guide agreeing on which are
+  available; `scripts/mc-duties.sh` restoring the shadowed entry when an
+  invalid overlay entry that supersedes it is skipped; tests.
+- **Done when:** Enabling each of those duties arms its watcher in a
+  fixture installation; the guide presents no duty that ships unarmed
+  without saying it is not yet available; an invalid superseding overlay
+  entry leaves the shipped entry armed.
+- **Dependencies:** none
+- **Citations:** D-40 · REQ-C1.8, REQ-C1.4
+- **Estimated effort:** 1 day
+
+### Task 27 — Step deadlines, measures and dispatch suggestions
+
+- **Deliverables:** A deadline knob for watcher runs and snapshot refreshes
+  with the runner stopping an expired step and emitting the expiry as an
+  event; the calibration work writing the measures file in the shape the
+  panel reads; `scripts/mc-keeper.sh next` taking its suggestions from the
+  orchestrator's selection; tests and the options-reference row.
+- **Done when:** A fixture watcher that hangs is stopped at the deadline,
+  the pass completes and the expiry is an event; the panel shows
+  interruptions per hour and the settled share from a fixture measures
+  file the calibration work wrote; a task whose dependency's repository is
+  withheld is not suggested.
+- **Dependencies:** none
+- **Citations:** D-40 · REQ-E1.6, REQ-M1.8, REQ-M1.9
+- **Estimated effort:** 1 day
+
+### Task 28 — Dynamic, host-shared launch admission
+
+- **Deliverables:** Admission before every launch reading the account's
+  usage headroom and the host's capacity (load against cores, available
+  memory), capped by `fleet_max_parallel_units`; the admission state in a
+  host-level store under a lock that every program's mission control reads
+  and writes; the panel and the budget showing which axis holds a launch;
+  tests and the options-reference rows.
+- **Done when:** A fixture with account headroom and a host loaded past its
+  limit holds the launch naming the host axis, and the reverse names the
+  account axis; two fixture programs on one host never admit more than the
+  shared capacity together; the ceiling caps a host with room to spare.
+- **Dependencies:** none
+- **Citations:** D-41, D-17 · REQ-L1.7, REQ-L1.2, REQ-M1.6
+- **Estimated effort:** 2 days
+
+### Task 29 — Skill, guide and eval fixtures for the extension
+
+- **Deliverables:** The skill's prose for the posture check, adoption and
+  takeover, the kickoff kind, the activation record and the
+  consequential-moment rule, inside the instruction budget (D-21); the
+  operator guide's sections for each; behavioral eval fixtures for the
+  review-evidence line at each guidance level, a takeover and a relayed
+  kickoff that publishes, under Task 15's cadence step.
+- **Done when:** The instruction-budget check passes; the guide describes
+  each new behaviour and names no duty or knob the catalog or options
+  reference lacks; each new fixture passes under the eval harness and is
+  recorded by the cadence step.
+- **Dependencies:** 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28
+- **Citations:** D-21, D-31, D-32, D-35, D-36, D-37, D-38 · REQ-A1.6,
+  REQ-A1.8, REQ-F1.15, REQ-F1.16, REQ-G1.5, REQ-I1.8
+- **Estimated effort:** 2 days
 
 ## Awaiting input
 
