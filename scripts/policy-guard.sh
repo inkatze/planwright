@@ -2770,7 +2770,7 @@ classify_tower_fetch() {
       deny_now "this git fetch carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
       return 0
     }
-  if long_prefix_seen stdin 3; then
+  if long_prefix_seen stdin 2; then
     deny_now 'a git fetch reading refspecs from --stdin is denied to the tower under every policy value: the guard cannot see whether one writes a local branch.'
     return 0
   fi

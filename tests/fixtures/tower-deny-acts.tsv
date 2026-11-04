@@ -273,3 +273,4 @@ spelling	stash-write	alias	git sp
 spelling	branch-move	negation	git branch -d --no-delete -m topic other
 spelling	ref-surgery	negation	git branch -d --no-delete -f main HEAD
 spelling	ref-surgery	expansion	git branch -d "$X" -f main HEAD
+spelling	branch-move	long-prefix	git fetch --st origin
