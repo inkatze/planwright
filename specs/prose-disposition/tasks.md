@@ -333,6 +333,27 @@ can be measured by it.
 
 ## Awaiting input
 
+- **Task 5** — halted again before any cleanup edit, re-measured after the
+  classifier fix (Task 4.1) landed: the deliverable still cannot be met as
+  written, and choosing a shape is the operator's call. The guard's
+  `--audit` on this branch merged with `main` at `cbb15897` finds 2,823
+  evidence-free blocks (7,807 lines) in 616 files, down from 6,792 (21,051
+  lines) in 717 files at `345b4487`; the new contract class takes 1,013
+  blocks and the widened phrasings most of the rest. That is still about
+  twice the 1,422 the two-day estimate assumed (`scripts/` 905, `tests/`
+  1,879, the rest 39). About 650 hold a separator banner and 100 a
+  shellcheck directive; a read sample of the others is mostly keepers
+  (test-case and fixture explanations, function notes not directly above
+  their definition). The kept list's bare `path:line` entries alone come to
+  about 105,000 characters, past GitHub's 65,536-character PR body limit
+  before any reasons, and still past it with every banner block deleted.
+  Pick one: (a) carry the kept list as a committed file the PR body links,
+  with the reading done in batches across several `comments` PRs; (b)
+  narrow Phase A to the deletable classes (restatement, banners) plus
+  `scripts/`, leaving `tests/` to Phase B's families; (c) widen the
+  classifier again (a guard change, so its own task) and re-measure. Each
+  touches REQ-G1.2's wording or the task's Deliverables, so it routes
+  through a `/spec-kickoff` delta re-walkthrough.
 - **Task 4.1** — post-pr step `cubic-pr` halted; record `.claude/steps/000001/008-step-post-pr.rec`
 
 ## Deferred
