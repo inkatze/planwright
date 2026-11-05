@@ -131,6 +131,7 @@ need "REQ-A1.4: never a per-session step" "never hand the operator a per-session
 need "REQ-A1.5: only the operator's own words count" "Only the operator's own words count"
 need "REQ-F1.6: a question to the operator never blocks the turn" "never blocks its turn on a question to the operator"
 need "REQ-F1.6: a question goes out as an item, not a blocking selector" "goes out as an item in the turn's text, never through a blocking question selector"
+need "REQ-F1.4: the operator queue still decides when a question's item shows" "The operator queue still decides when the item shows"
 need "REQ-F1.6: work continues while a question waits" "keeps vetting prompts and moving every other session"
 need "REQ-A1.5: the reply is relayed in the operator's words" "relayed to that session in their words"
 need "REQ-F1.6: a selector only for a present operator with nothing waiting" "only when the operator's own message is the turn being answered and nothing else waits on mission control"

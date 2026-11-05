@@ -224,7 +224,8 @@ turn on a question to the operator, whether a kickoff's, an amendment's, a
 parked session's or its own. It goes out as an item in the turn's text,
 never through a blocking question selector: the asking session parks on its
 own question, and mission control keeps vetting prompts and moving every
-other session. The operator's reply, whenever it comes, is relayed to that
+other session. The operator queue still decides when the item shows
+(REQ-F1.4). The operator's reply, whenever it comes, is relayed to that
 session in their words. A blocking selector is used only when the
 operator's own message is the turn being answered and nothing else waits on
 mission control.
