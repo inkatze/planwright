@@ -154,6 +154,9 @@ name after it if you run more than one. With exactly one program set up,
 the name can be left off; with several, it asks which; with none, it starts
 the first run.
 
+If you close the mission-control panel beside the conversation, type
+`/mc-panel` in that session to bring it back.
+
 The fresh session rebuilds its picture from what is recorded (your rules,
 the program's folder, the code host, the specs and the sessions still
 running), never from a stale summary. Its first message says what changed

@@ -385,7 +385,8 @@ export const register: Register = on => {
     if (!cleared) {
       await lastingFault($, 'activation', 'the activation could not be cleared: sessions started from here inherit it')
     }
-    await $.command.register({ name: 'mission-control', description: 'Open the mission-control panel' })
+    // Not 'mission-control': a typed command a skill shares opens the skill.
+    await $.command.register({ name: 'mc-panel', description: 'Reopen the mission-control panel' })
     await open($)
     $.clock.after(0, () => void bringUp($))
     return started
@@ -401,7 +402,7 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'mission-control' }, async $ => {
+  on('command.run', { command: 'mc-panel' }, async $ => {
     if (!ctx) return { text: 'Mission control is not running in this session.' }
     await open($)
     return { text: 'Mission control panel opened.' }

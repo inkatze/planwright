@@ -168,7 +168,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
-  on('command.register', () => ({ value: { command: 'mission-control' } }))
+  on('command.register', () => ({ value: { command: 'mc-panel' } }))
   on('ui.open', () => {
     w.opened += 1
     return { value: fx.isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'no-surface' } }

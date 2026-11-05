@@ -55,6 +55,9 @@ cp "$repo_root/.claude-plugin/plugin.json" "$plug/.claude-plugin/"
 cp "$repo_root/hooks/mods.json" "$plug/hooks/"
 cp -R "$repo_root/hooks/mission-control" "$plug/hooks/"
 cp -R "$repo_root/types" "$plug/"
+for d in "$repo_root"/skills/*/; do
+  mkdir -p "$plug/skills/$(basename "$d")"
+done
 
 # The fake CLI. FAKE_VERSION sets the version; FAKE_HOOKS, FAKE_CALLS,
 # FAKE_ENV_READS and FAKE_ENV_WRITES what the report lists, FAKE_NO_NOTES an
@@ -68,11 +71,14 @@ case "$1 ${2:-}" in
   "--version ") echo "${FAKE_VERSION:-2.1.310} (Claude Code)" ;;
   "plugin validate")
     m="./mission-control/register.tsx"
+    # Not ${FAKE_HOOKS:-...}: the default's own `}` would end the expansion.
+    hooks=${FAKE_HOOKS-}
+    [ -n "$hooks" ] || hooks='session.start, ui.render{component=Pane, requestId=mission-control}'
     if [ -n "${FAKE_NO_NOTES:-}" ]; then
       printf '{"success": true, "contents": [{"type": "hooks", "notes": []}]}\n'
     else
       printf '{"success": true, "contents": [{"type": "hooks", "notes": [%s, %s, %s, %s]}]}\n' \
-        "\"$m hooks: ${FAKE_HOOKS:-session.start, ui.render{component=Pane, requestId=mission-control}}\"" \
+        "\"$m hooks: $hooks\"" \
         "\"$m calls: ${FAKE_CALLS:-\$.process.run (via run), \$.ui.resolve}\"" \
         "\"$m env reads: ${FAKE_ENV_READS:-PLANWRIGHT_MC_PROGRAM}\"" \
         "\"$m env writes: ${FAKE_ENV_WRITES:-nothing}\""
@@ -148,6 +154,13 @@ has "the extra read is named" "$ERR" 'uses env HOME'
 run 'FAKE_ENV_WRITES=PATH'
 rc_is "an environment write the design does not name fails" 1
 has "the extra write is named" "$ERR" 'uses envwrite PATH'
+
+run 'FAKE_HOOKS=session.start, command.run{command=mission-control}'
+rc_is "a slash command named like a planwright skill fails" 1
+has "the colliding command is named" "$ERR" "registers /mission-control, which is also a planwright skill"
+
+run 'FAKE_HOOKS=session.start, command.run{command=mc-panel}'
+rc_is "a slash command no skill shares passes" 0
 
 run FAKE_NO_NOTES=1
 rc_is "a report naming nothing for the module fails" 1
