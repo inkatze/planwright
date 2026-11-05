@@ -25,10 +25,12 @@ in the copy the skill was loaded from, prints it.
 A root from an earlier invocation is never reused: after an upgrade or a
 plugin reload the plugin cache keeps older copies beside the installed one,
 and a remembered path still runs. A session that outlives an invocation (a
-standing one, or one resumed after a compaction) takes the root from the
-installed record (`scripts/resolve-installed-roots.sh --current`, from any
-copy). The root resolvers and mission control's scripts warn when they run
-from a cached copy that record no longer names.
+standing one, or one resumed after a compaction) resolves again by running
+`scripts/resolve-root.sh install` from the installed copy: the first root
+`scripts/resolve-installed-roots.sh --current` prints, from any copy, or
+any copy when it prints none. The root resolver warns when it runs from a
+cached copy the record no longer names, and so does every script that
+resolves its root or sources mission control's shared library.
 
 Take the resolved value once, then substitute it literally at each call site:
 
