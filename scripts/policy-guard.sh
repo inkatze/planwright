@@ -262,6 +262,7 @@ RE_TOWER_BRANCH='[[:space:]]branch([[:space:]].*)?[[:space:]](-[[:alnum:]]*[fMCm
 RE_TOWER_WORKTREE='[[:space:]]worktree[[:space:]]+(add|remove|move)([^[:alnum:]_-]|$)'
 RE_TOWER_FETCH='[[:space:]]fetch([[:space:]].*)?(:|[[:space:]]--(st|refm))'
 RE_TOWER_STASH='[[:space:]]stash([^[:alnum:]_-]|$)'
+RE_TOWER_FETCHES='[[:space:]](fetch|remote)([^[:alnum:]_-]|$)'
 RE_TOWER_STASH_READ='[[:space:]]stash[[:blank:]]+(list|show)([^[:alnum:]_-]|$)'
 RE_TOWER_GH='(^|[^[:alnum:]_.-])gh[^[:alnum:]_.-](.*[^[:alnum:]_-])?(pr[^[:alnum:]_-](.*[^[:alnum:]_-])?(checkout|co)|repo[^[:alnum:]_-](.*[^[:alnum:]_-])?sync|co)([^[:alnum:]_-]|$)'
 
@@ -283,8 +284,25 @@ raw_tower_acts() {
       || [[ $RT =~ $RE_TOWER_FETCH ]] || raw_tower_stash "$RT"; then
       return 0
     fi
+    if [[ $RT =~ $RE_TOWER_FETCHES ]] && raw_git_config_beside "$1"; then
+      return 0
+    fi
   fi
   [[ $1 =~ $RE_TOWER_GH ]]
+}
+
+# raw_git_config_beside <text> — 0 when the text carries -c configuration or
+# a GIT_* assignment, either of which can set a fetch refspec. -c and -C
+# differ, so this reads case-sensitively whatever the caller's nocasematch.
+raw_git_config_beside() {
+  local nc=0 rc=1
+  shopt -q nocasematch && nc=1
+  shopt -u nocasematch
+  if [[ $1 =~ $RE_MC_GIT_CONFIG ]] || [[ $1 =~ $RE_MC_GIT_ENV ]]; then
+    rc=0
+  fi
+  [ "$nc" = 0 ] || shopt -s nocasematch
+  return "$rc"
 }
 
 # raw_tower_stash <text> — 0 when the text runs a git stash form other than
@@ -2453,8 +2471,11 @@ classify_git() {
     esac
     return 0
   fi
-  if [ "$TIER" = tower ] && [ "$LC" = fetch ] && { [ "$cflag" = 1 ] || [ "$GIT_ENV" = 1 ] || [ "$ST_CFG" = 1 ]; }; then
-    deny_now 'this git fetch runs with -c configuration, a GIT_* variable, or a git config or remote change in the same command, any of which can set a refspec writing a local branch where the guard cannot read it - refusing (fail closed). Run the fetch on its own, without them.'
+  # git remote fetches too (remote update, remote add -f), from the same
+  # configuration.
+  if [ "$TIER" = tower ] && { [ "$LC" = fetch ] || [ "$LC" = remote ]; } \
+    && { [ "$cflag" = 1 ] || [ "$GIT_ENV" = 1 ] || [ "$ST_CFG" = 1 ]; }; then
+    deny_now "this git $LC runs with -c configuration, a GIT_* variable, or a git config or remote change in the same command, any of which can set a refspec writing a local branch where the guard cannot read it - refusing (fail closed). Run it on its own, without them."
     return 0
   fi
   [ "$TIER" != tower ] || classify_tower_git "$LC" "$k" "$dir" "$dir_ok"
@@ -2519,8 +2540,9 @@ act_gate() {
 # git_state_after <sub> <first-arg-index> — record what this git segment
 # changes for the segments after it.
 git_state_after() {
-  local a pos=0 ro=0
+  local a pos=0 ro=0 rsub=''
   for a in "${SW[@]:$2}"; do
+    case $a in -*) ;; *) [ -n "$rsub" ] || rsub=$a ;; esac
     case $a in
       --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --show-current | -v | -vv | show | get-url | list) ro=1 ;;
       -*) ;;
@@ -2529,7 +2551,11 @@ git_state_after() {
   done
   case $1 in
     config) [ "$ro" = 1 ] || [ "$pos" -lt 2 ] || ST_CFG=1 ;;
-    remote) [ "$ro" = 1 ] || [ "$pos" = 0 ] || ST_CFG=1 ;;
+    # A remote's own name or URL may be a read word, so only the subcommand
+    # decides.
+    remote)
+      case $rsub in '' | show | get-url) ;; *) ST_CFG=1 ;; esac
+      ;;
     branch | tag) [ "$ro" = 1 ] || [ "$pos" = 0 ] || ST_REF=1 ;;
     switch | checkout | update-ref | symbolic-ref | reset | worktree | stash | replace | notes) ST_REF=1 ;;
     merge | pull | commit | cherry-pick | am | revert | rebase) ST_HEAD=1 ;;
@@ -2608,7 +2634,7 @@ git_alias_check() {
                     deny_now "the git alias $(sanitize_printable "$sub" 'used here') expands to git $(sanitize_printable "$first" 'a reserved subcommand'), which the guard reads only by its own name - refusing. Run git $(sanitize_printable "$first" 'that subcommand') directly."
                     ;;
                   reset | branch | worktree | update-ref | filter-branch | checkout | switch | symbolic-ref | \
-                    fetch | stash)
+                    fetch | stash | remote)
                     [ "$TIER" != tower ] \
                       || deny_now "the git alias $(sanitize_printable "$sub" 'used here') expands to git $(sanitize_printable "$first" 'a subcommand the tower floor covers'), which the guard reads only by its own name - refusing. Run git $(sanitize_printable "$first" 'that subcommand') directly."
                     ;;
@@ -2918,16 +2944,30 @@ classify_tower_fetch() {
 
 # classify_tower_remote <first-arg-index> — a git remote add that fetches
 # into a fetch mirror, whose refspec maps the remote's refs/ onto the local
-# refs/, its branches included. A bare --mirror sets up both directions.
+# refs/, its branches included. A bare --mirror sets up both directions. The
+# subcommand must be literal and follow only git remote's own verbosity
+# options, so the add is never missed.
 classify_tower_remote() {
-  local k=$1 n=${#SW[@]} w name mirror=0 long=--mirror
+  local k=$1 n=${#SW[@]} w name mirror=0 mirror_opt=--mirror v1=--verbose v0=--no-verbose
   while [ "$k" -lt "$n" ]; do
-    case ${SW[$k]} in
-      -v | --verbose) k=$((k + 1)) ;;
+    w=${SW[$k]}
+    case $w in
+      -v | -vv*) [[ $w =~ ^-v+$ ]] || break ;;
+      --*)
+        { [ "${#w}" -ge 3 ] && [ "$w" = "${v1:0:${#w}}" ]; } \
+          || { [ "${#w}" -ge 6 ] && [ "$w" = "${v0:0:${#w}}" ]; } || break
+        ;;
       *) break ;;
     esac
+    k=$((k + 1))
   done
   [ "$k" -lt "$n" ] || return 0
+  case ${SW[$k]} in
+    -*)
+      deny_now "this git remote carries an option the guard does not read before its subcommand ($(sanitize_printable "${SW[$k]}" 'unprintable')) - refusing (fail closed). Put the subcommand first."
+      return 0
+      ;;
+  esac
   [ "${SWL[$k]}" = 1 ] || {
     deny_now 'this git remote subcommand is an expansion the guard cannot read, and it could add a fetch mirror writing the local branches - refusing (fail closed). Write the subcommand literally.'
     return 0
@@ -2943,8 +2983,9 @@ classify_tower_remote() {
   for w in "${SW[@]:$k}"; do
     [ "$w" != -- ] || break
     name=${w%%=*}
+    # --m is ambiguous with --master, so --mi is the shortest --mirror.
     [ "${#name}" -ge 4 ] || continue
-    [ "$name" = "${long:0:${#name}}" ] || continue
+    [ "$name" = "${mirror_opt:0:${#name}}" ] || continue
     case $w in
       *=push) ;;
       *) mirror=1 ;;

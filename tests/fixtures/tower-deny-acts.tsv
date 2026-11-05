@@ -300,3 +300,17 @@ spelling	branch-move	raw-fallback	env git -c 'a.b= status' co topic
 spelling	branch-move	raw-fallback	x=$(git -c 'a.b= status' co topic)
 spelling	branch-move	raw-fallback	bash -c 'git Log'
 spelling	branch-move	raw-fallback	env git "$X" topic
+spelling	branch-move	long-prefix	git remote --verb add -f --mirror=fetch m ../x
+spelling	branch-move	short-cluster	git remote -vv add -f --mirror=fetch m ../x
+spelling	branch-move	long-prefix	git remote add --fe --mirr m ../x
+spelling	branch-move	expansion	git remote "$S" -f --mirror=fetch m ../x
+spelling	branch-move	expansion	git remote add -f "$O" m ../x
+spelling	branch-move	same-command-config	git remote -v add --mirror=fetch m ../x && git fetch m
+spelling	branch-move	same-command-config	git remote add --mirror=fetch show ../x && git fetch show
+spelling	branch-move	global-c	git -c remote.origin.fetch=+refs/heads/*:refs/heads/* remote update origin
+spelling	branch-move	env	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.fetch GIT_CONFIG_VALUE_0=+refs/heads/*:refs/heads/* git remote update origin
+spelling	branch-move	same-command-config	git config remote.origin.fetch +refs/heads/*:refs/heads/* && git remote update
+spelling	branch-move	raw-fallback	env git -c remote.origin.fetch=+refs/heads/*:refs/heads/* fetch origin
+spelling	branch-move	raw-fallback	env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.fetch GIT_CONFIG_VALUE_0=+refs/heads/*:refs/heads/* git fetch origin
+spelling	branch-move	negation	git branch -d --no-d -m topic other
+spelling	branch-move	alias	git ra m ../x

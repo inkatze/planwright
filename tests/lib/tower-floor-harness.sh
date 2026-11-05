@@ -30,7 +30,8 @@ printf 'tower\t%s\tprompt\n' "$(date +%s)" >"$FLEET/tower-sessions/$MARKED"
 chmod 600 "$FLEET/tower-sessions/$MARKED"
 
 for a in 'hr=reset --hard' 'bf=branch -f' 'ur=update-ref' 'wa=worktree add' 'pf=push --force' 'mg=merge' 'rb=rebase' \
-  'co=checkout' 'sw=switch' 'rs=reset' 'sr=symbolic-ref' 'ft=fetch' 'bm=branch -m' 'sp=stash pop'; do
+  'co=checkout' 'sw=switch' 'rs=reset' 'sr=symbolic-ref' 'ft=fetch' 'bm=branch -m' 'sp=stash pop' \
+  'ra=remote add -f --mirror=fetch'; do
   git -C "$UNIT" config "alias.${a%%=*}" "${a#*=}"
 done
 

@@ -56,6 +56,9 @@ for cmd in \
   'git fetch --prune origin' \
   'git fetch --multiple origin upstream' \
   'git remote add upstream ../x' \
+  'git remote -v' \
+  'git remote show origin' \
+  'nice git -C . fetch origin' \
   'git remote add -f upstream ../x' \
   'git remote add --mirror=push backup ../x' \
   'git fetch origin main' \
