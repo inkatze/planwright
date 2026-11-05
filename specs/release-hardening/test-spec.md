@@ -1,7 +1,7 @@
 # Release Hardening — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -190,6 +190,42 @@ strict default and the non-NONE refusals assert it is absent. Confirms the
 relaxation is narrow (never a failing/pending/overflow/infra-outage verdict) and
 audibly signalled. A non-boolean `require_ci` value asserts a clean fail-closed
 configuration error (symmetric with `require_signed_tags`).
+REQ-G1.3 is superseded by REQ-G1.5; these cases stay as the `true`/`false` rows
+of REQ-G1.5's matrix.
+
+### REQ-G1.5 — the `not-red` mode passes pending, never failing [test]
+
+`tests/test-release-publish.sh`, a mode-by-verdict matrix over `require_ci`
+values `true`, `false`, `not-red` and verdicts `green`, `pending`, `none`,
+`failing`, `too-many`, query failure: under `not-red`, `green`, `pending`, and
+`none` publish while `failing`, `too-many`, and query failure refuse; the
+`true` and `false` rows match REQ-G1.3 exactly; `too-many` and query failure
+refuse in every row. A value outside the three-value set is a clean fail-closed
+configuration error, asserted on both the normal and the resume path (the
+latter skips the CI gate, so this proves validation happens at read time).
+Each refusal case asserts no tag was created or pushed.
+
+### REQ-G1.6 — one audit line on every non-green publish [test]
+
+`tests/test-release-publish.sh`: each publishing non-green cell of the REQ-G1.5
+matrix asserts exactly one stderr line naming the `require_ci` value, the
+verdict, and the release commit, and the `pending` cell asserts the line also
+carries a follow-the-checks command; every `green` publish asserts the line is
+absent.
+
+### REQ-G1.7 — the armed path still waits for green [test]
+
+`tests/test-release-arm.sh`: with `require_ci: not-red` and a merged commit
+whose verdict stays `pending`, arm keeps polling and times out without calling
+the publish; when the verdict turns `green` it publishes.
+
+### REQ-G1.8 — `not-red` documented with its residual risk [manual + design-level]
+
+A `[manual]` review confirms `docs/options-reference.md` and
+`templates/release-please/README.md` say what `not-red` lets through, what it
+still refuses, and that a check still running at publish time can fail after
+the release is out with no automatic retraction. The README is linted in CI
+through the `lint:md` glob Task 8 wired.
 
 ### REQ-G1.4 — verified required-check finding + caveat [manual + design-level]
 

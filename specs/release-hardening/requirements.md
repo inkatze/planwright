@@ -1,7 +1,7 @@
 # Release Hardening — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-03
+**Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -22,6 +22,15 @@ race (obs:fd6c2f4f) is the same fail-closed defect at the pipeline's proposal
 end, so it lands here rather than as a bundle of its own.
 *(Amended at the 2026-08-25 bootstrap-race amendment: REQ-H's surface recorded
 in the framing.)*
+
+The 2026-11-05 rushed-release amendment adds the operator's lever for a release
+that cannot wait for CI to finish. Today a single still-running check blocks the
+publish even when every other check is green, and a slow or queued runner can
+hold a release for a long time (REQ-G1.5 through REQ-G1.8, D-15). The strict
+default stays; the relaxation is opt-in, never turns a failing check green, and
+leaves an audit trail. Its open choices are the operator's at kickoff (tasks.md
+`## Awaiting input`, Task 11).
+*(Amended at the 2026-11-05 rushed-release amendment: paragraph added.)*
 
 The theme is **fail closed and stay honest**: a control that cannot determine
 its state must refuse rather than pass; a gate must scope its carve-outs so a
@@ -61,6 +70,10 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   reaches past the five scripts, onto the proposal end of the same pipeline.
   *(Amended at the 2026-08-25 bootstrap-race amendment: bullet added with
   REQ-H.)*
+- Rushed release: a `require_ci` mode that publishes while checks are still
+  running, as long as none has failed, with an audit signal and adopter docs
+  (REQ-G1.5 through REQ-G1.8).
+  *(Amended at the 2026-11-05 rushed-release amendment: bullet added.)*
 
 ### Out of scope
 
@@ -86,6 +99,15 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   citation in REQ-C1.4 (D-1, D-8).
 - Never-auto-merge and the local + human-invoked publish invariant: unchanged,
   not touched by any REQ here.
+- Making CI faster, or stopping a later merge from cancelling the release
+  commit's CI run (obs:33b7c53d). Both are real causes of a slow publish, but
+  they are CI-workflow fixes with their own owner; the rushed-release mode is
+  the operator's lever when CI is slow for any reason (drafting-session decision
+  2026-11-05).
+- Retracting a release automatically when a check that was still running at
+  publish time later fails. The operator retracts by hand; the audit signal
+  (REQ-G1.6) and the docs (REQ-G1.8) are what tell them to look (D-15).
+- Any change to the resume path: it already skips the CI gate (REQ-B1.3).
 
 ## REQ-A — Fail-closed comparator signaling
 
@@ -286,7 +308,27 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   deliberate relaxation leaves an audit signal (the "stay honest" half of the
   bundle's theme). The capability lands in core as an opt-in with the default
   unchanged; the specific value is the adopter's overlay choice.
+  **Superseded-by: REQ-G1.5** (2026-11-05) — the knob gains a third value that
+  lets a still-pending check through, so "PENDING stays fail-closed regardless
+  of `require_ci`" and the boolean-only validation no longer hold; `true` and
+  `false` keep this requirement's behavior exactly.
   *(Cites: D-7; customization-boundary.md; legacy line 181 (Sources).)*
+- **REQ-G1.5** (supersedes REQ-G1.3) The core `require_ci` knob SHALL accept
+  exactly three values, defaulting to `true`. `true` and `false` SHALL behave
+  exactly as REQ-G1.3 specified: `true` publishes only on `green`; `false`
+  additionally publishes on `none`. The new value `not-red` SHALL let the
+  publish CI gate pass on `green`, `pending`, or `none`, and SHALL refuse on
+  `failing`. In every mode the `too-many` overflow verdict and the CI-query
+  failure SHALL refuse: neither tells the gate whether a check has failed. The
+  value SHALL be validated against the three-value set when the knob is read
+  (unconditional of code path, as REQ-G1.3 required); any other value is a
+  clean fail-closed configuration error. The value is read through the
+  existing config overlay, so any layer may set it. The capability lands in
+  core as an opt-in with the default unchanged; whether and when to use it is
+  the operator's choice.
+  *Proposed form: the mode set, the per-release override, and how a cancelled
+  check is judged are kickoff decisions (tasks.md `## Awaiting input`).*
+  *(Cites: D-15; D-7; operator request 2026-11-05 (Sources); customization-boundary.md.)*
 - **REQ-G1.4** The bundle SHALL record the verified finding that this
   repository has no branch-protection required status check on the release PR,
   and `templates/release-please/README.md` SHALL carry an adopter caveat that
@@ -297,6 +339,27 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   `pull_request`/`push` workflows) instead of the default `GITHUB_TOKEN`, per
   release-please's own `token:` input.
   *(Cites: D-11; legacy line 194 (Sources).)*
+- **REQ-G1.6** When the publish CI gate passes on any verdict other than
+  `green`, `release-publish.sh` SHALL emit one stderr line naming the
+  `require_ci` value in force, the verdict, and the release commit, and, for a
+  `pending` verdict, a command the operator can run to follow that commit's
+  checks to completion. The `require_ci=false` line REQ-G1.3 required is this
+  line's `none` case under `false`, and still names `require_ci=false`.
+  *Proposed form: whether the GitHub Release notes also say the release was
+  published before CI finished is a kickoff decision.*
+  *(Cites: D-15; operator request 2026-11-05 (Sources).)*
+- **REQ-G1.7** `release-arm.sh` SHALL keep waiting for a `green` release-gating
+  verdict before it calls the publish, whatever the `require_ci` value: the
+  armed path stays the patient path, and a rushed release is published by
+  running the publish directly.
+  *Proposed form: whether the armed path follows the relaxed mode instead is a
+  kickoff decision.*
+  *(Cites: D-15.)*
+- **REQ-G1.8** `docs/options-reference.md` and
+  `templates/release-please/README.md` SHALL document the `not-red` value: what
+  it lets through, what it still refuses, and that a check still running at
+  publish time can fail after the release is out, with no automatic retraction.
+  *(Cites: D-15; REQ-G1.2.)*
 
 ## REQ-H — release-proposal integrity
 
@@ -333,6 +396,16 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
 
 ## Changelog
 
+- 2026-11-05 — Post-merge amendment, meaning-class (drafted by `/spec-draft
+  --extend`, awaiting a scoped kickoff): the rushed-release mode. New
+  **REQ-G1.5** supersedes REQ-G1.3 (a `not-red` value of `require_ci` that
+  publishes while checks are still running, as long as none has failed);
+  new **REQ-G1.6** (one audit line on every non-green publish), **REQ-G1.7**
+  (the armed path keeps waiting for green), **REQ-G1.8** (adopter docs). New
+  **D-15** supersedes D-7 in part; new **Task 11**. Goal, Scope, Sources,
+  `design.md`'s cross-cutting notes, and `test-spec.md` updated to match. The
+  REQ text is the smallest proposed form; five choices are left to the operator
+  at kickoff and recorded in `tasks.md` `## Awaiting input`.
 - 2026-09-03 — Expression-only: the `### In scope` item and the `## Sources` note
   that cite the gate-semantics requirement now read `autopilot-reflex REQ-D1.3`
   instead of a bare `REQ-D1.3` (an id this bundle does not define; its D-8 already
@@ -527,6 +600,21 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
 - **Legacy opportunity line 202** — the window-lock carve-out excludes by
   bare check-run name with no workflow/app scoping, a fail-open surface on a
   safety-critical gate. Consumed into REQ-C1.3 / D-4.
+- **Operator request 2026-11-05** — relayed through mission control, in the
+  operator's words: "do a temp change so it releases without waiting for CI
+  this one time and then make it configurable since we need to rush releases
+  some times and CI still takes way too long". The one-time release was handled
+  separately by hand; this amendment is the configurable part. The triggering
+  incident: the 0.66.0 release commit's macOS jobs were cancelled when two PRs
+  merged a minute later, and on re-run sat queued for a hosted macOS runner for
+  a long time, so the publish refused on a `pending` verdict while every other
+  check was green. Consumed into REQ-G1.5 through REQ-G1.8 / D-15.
+- **obs:33b7c53d** — a merge right after the release PR cancels the release
+  commit's CI run through the workflow concurrency group, leaving the publish
+  blocked until a manual re-run. Related cause, not consumed: its candidate
+  fixes (exempting release commits from cancellation, naming the re-run
+  remedy) are CI-workflow work recorded Out of scope here, so the fragment
+  stays open for its owner.
 - **2026-07-16 accumulator triage** — the 10-agent verification run (against
   v0.14.1) that confirmed every item above valid; verdict ledger held in the
   drafting session's scratch reference. Grounding for the "confirmed backlog"

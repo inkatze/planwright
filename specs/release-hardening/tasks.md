@@ -1,7 +1,7 @@
 # Release Hardening — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -12,7 +12,9 @@ establishes the comparator test home (`tests/test-release-lib.sh`) that Task 2
 extends, so the test surface for the fail-closed comparator exists before its
 fix lands. The three tasks that touch `release-publish.sh` (Task 3, Task 4,
 Task 6) carry edges so the shared `rl_ci_state` helper lands before the resume
-and knob changes that share the file.
+and knob changes that share the file; Task 11, which extends the knob, carries
+an edge to Task 6.
+*(Amended at the 2026-11-05 rushed-release amendment: Task 11 edge noted.)*
 
 ## Tasks
 
@@ -281,7 +283,68 @@ and knob changes that share the file.
 - **Citations:** D-14 · REQ-H1.2, REQ-H1.3 · obs:fd6c2f4f
 - **Estimated effort:** 1 day
 
+### Task 11 — Rushed-release `require_ci` mode
+
+- **Deliverables:** In `scripts/release-publish.sh`: the `require_ci` read
+  accepts `true`, `false`, and `not-red`, validated when the knob is read, any
+  other value a clean fail-closed configuration error; the CI gate passes on
+  `green`, `pending`, or `none` under `not-red` and refuses on `failing`, while
+  `too-many` and the query failure refuse in every mode; one stderr audit line
+  on every non-green publish naming the value, the verdict, and the release
+  commit, plus a follow-the-checks command for `pending`. `scripts/release-arm.sh`
+  unchanged. `config/defaults.yml`'s `require_ci` comment,
+  `docs/options-reference.md`, and `templates/release-please/README.md` document
+  `not-red` and the residual risk. Tests in `tests/test-release-publish.sh`
+  covering every mode against every verdict, the audit line's presence and
+  absence, the validation error, and arm still waiting for `green` under
+  `not-red`. The deliverables follow whatever the kickoff decides for the open
+  choices in `## Awaiting input`.
+- **Done when:** under `not-red` a `pending` and a `none` verdict publish and a
+  `failing`, `too-many`, or query-failure verdict refuses; `true` and `false`
+  behave exactly as before (the existing REQ-G1.3 cases still pass, apart from
+  the wording of the validation error, which now names three values); a
+  value outside the three is a clean configuration error, including on the
+  resume path; the audit line is asserted present on every non-green publish
+  and absent on a `green` one; arm under `not-red` still waits for `green`; the
+  docs name what `not-red` lets through, what it refuses, and that nothing
+  retracts a release whose pending check later fails; new tests fail before the
+  change and pass after; `mise run check` is green.
+- **Dependencies:** Task 6
+- **Citations:** D-15 · REQ-G1.5, REQ-G1.6, REQ-G1.7, REQ-G1.8 · operator request 2026-11-05 (Sources)
+- **Estimated effort:** half day
+
 ## Awaiting input
+
+- **Task 11**: five choices for the operator at the kickoff of this amendment,
+  asked one at a time in plain language. The bundle's REQ text is the smallest
+  proposed form and is amended in place to match the answers before sign-off.
+  1. **Which relaxed mode.** Publish while checks are still running as long as
+     none has failed (the proposed `not-red`); or skip the CI check entirely,
+     failed checks included, with a loud warning; or offer both; or add
+     neither and keep publishing by hand when rushed.
+  2. **Where it is set.** As a standing setting only (any config layer:
+     planwright's defaults, the team-shared repo file, or this machine's
+     gitignored file); or only for a single release (an environment variable
+     or a flag on the publish command), so the strict check comes back on its
+     own; or both. And whether the team-shared repo file may set it, or only a
+     machine's own file.
+  3. **Cancelled checks.** GitHub reports a job cancelled by a later merge as
+     cancelled, which the release check counts as failed today, so the relaxed
+     mode would still refuse until it is re-run. Keep that, or let the relaxed
+     mode treat a cancelled check like a still-running one.
+  4. **Release notes.** Whether the published GitHub Release notes say the
+     release went out before CI finished, in addition to the warning printed
+     in the terminal.
+  5. **The armed path.** Whether the watch-and-publish command
+     (`mise run release-arm`) keeps waiting for every check to pass, as
+     proposed, or follows the relaxed mode too.
+- **anchor re-review pending** — the 2026-11-05 rushed-release amendment (named
+  in `requirements.md` `## Changelog`) adds REQ-G1.5 through REQ-G1.8, D-15 and
+  Task 11, and supersedes REQ-G1.3 and part of D-7, a meaning-class change to
+  the signed-off content. No re-anchor entry was written, so the freshness gate
+  stays failed closed for this bundle until the scoped kickoff of the delta
+  (`/spec-kickoff specs/release-hardening`) re-records the anchor at sign-off
+  and removes this entry.
 
 - **Task 10**: Halted on contract drift (meaning-class) in REQ-H1.2; needs a
   `/spec-kickoff` delta re-walkthrough. REQ-H1.3 is delivered (see the

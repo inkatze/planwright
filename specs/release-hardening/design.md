@@ -1,7 +1,7 @@
 # Release Hardening — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -236,6 +236,9 @@ it off) stays the adopter's overlay choice. The relaxation is deliberately
 narrow: it never turns a red or pending check green, only removes the
 "no CI at all" refusal.
 
+**Superseded-by: D-15** (2026-11-05), in part — a third value, `not-red`,
+lets a pending check through; `true` and `false` are unchanged.
+
 ### D-8: REQ-D1.3 carve-out semantics restated by citation  (N)
 
 **Decision:** Express the publish CI gate's window-lock carve-out semantics
@@ -418,6 +421,58 @@ it was produced. This mirrors the fixture-count floors in
 `tests/test-permission-matcher.sh`: an assertion on the shape of the output
 catches regressions that the generating logic can otherwise hide.
 
+### D-15: A `not-red` value for `require_ci`  (N)
+
+**Decision:** Extend the existing `require_ci` knob with a third value,
+`not-red`, under which the publish CI gate passes on `green`, `pending`, or
+`none` and refuses on `failing`. `too-many` and the CI-query failure refuse in
+every mode, because neither tells the gate whether a check has failed. The
+default stays `true`. The value is read through the existing config overlay,
+so it can be a standing setting in any layer. `release-arm.sh` is unchanged and
+keeps waiting for `green`. Every non-green publish emits one stderr audit line.
+This is the smallest proposed form; the operator decides its open choices at
+kickoff (tasks.md `## Awaiting input`), and the REQ text is amended in place to
+match before sign-off.
+
+**Alternatives considered:**
+- A mode that skips the CI gate entirely (no query, publish whatever the
+  checks say), with a loud audit line. Not proposed as the smallest form
+  because: it also lets a failing check through, which the operator's ask (CI
+  is slow) does not need; kept as a kickoff option because a known-broken
+  runner is a case only the operator can weigh.
+- A per-release override (an environment variable or a flag on
+  `release-publish.sh`, which takes no arguments today) instead of, or on top
+  of, the standing value. Not proposed as the smallest form because: the config
+  overlay already gives a standing value and a machine-local one with no new
+  surface; kept as a kickoff option because "sometimes" may mean the operator
+  wants the strict gate back automatically after one release.
+- A separate knob (for example `allow_pending_ci`) beside `require_ci`.
+  Rejected because: two knobs governing one gate can contradict each other
+  (`require_ci: false` plus a strict pending knob), and the three values form
+  one ordered strictness scale.
+- Do nothing: when a release is urgent, the operator tags and publishes by
+  hand. Not proposed because: the operator asked for it to be configurable, and
+  the hand path skips every other gate (clean tree, sync, monotonicity,
+  signing) along with CI.
+
+**Chosen because:** the verdict fold in `rl_ci_state` already ranks `failing`
+above `pending` (any failed check makes the whole verdict `failing`), so
+"no check has failed" is exactly "the verdict is not `failing`", and the mode
+is one more accepted verdict at the existing gate, not new CI logic. Keeping
+`too-many` and the query failure closed in every mode preserves the bundle's
+fail-closed theme: the relaxation trusts a known state, never an unknown one.
+`customization-boundary`: the capability lands in core as an opt-in with the
+default unchanged; when to use it is the operator's choice.
+
+Known consequence, for the kickoff to weigh: GitHub reports a cancelled check
+with a `CANCELLED` conclusion, which the fold judges `failing` (research: GitHub
+GraphQL `CheckConclusionState`). So a release commit whose jobs were cancelled
+by a later merge (the 0.66.0 and obs:33b7c53d shape) still refuses under
+`not-red` until those jobs are re-run; once re-run and queued they read
+`pending` and pass. Residual risk: a check still running at publish time can
+fail after the release is out, and nothing retracts it automatically; the audit
+line and the docs (REQ-G1.6, REQ-G1.8) are the mitigation.
+
 ## Cross-cutting concerns
 
 - **Shared-file coordination.** REQ-C (rl_ci_state → publish + arm), REQ-B
@@ -446,6 +501,15 @@ catches regressions that the generating logic can otherwise hide.
   diagnostic and no side effects, consistent with the pipeline's existing
   gates. The `require_ci=false` relaxation is the one deliberate narrowing, and
   it never turns a failing or pending check green.
+  *(Amended at the 2026-11-05 rushed-release amendment: `require_ci: not-red`
+  (D-15) is a second deliberate narrowing. It lets a pending check through but
+  never a failing one, and the overflow and query-failure cases stay closed in
+  every mode.)*
+- **Rushed-release shared files.** Task 11 edits `release-publish.sh`'s config
+  read and CI gate, `config/defaults.yml`, `docs/options-reference.md`, and
+  `templates/release-please/README.md`, all regions earlier tasks wrote. Every
+  earlier task touching them has landed, so its only edge is Task 6, the knob it
+  extends.
 - **Portability floor.** All new shell stays bash 3.2 / BSD-tooling portable
   under `LC_ALL=C`, no new runtime dependency (git, gh, jq only), per
   `autopilot-reflex` REQ-D1.9.
