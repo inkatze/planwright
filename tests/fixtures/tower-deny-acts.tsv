@@ -295,3 +295,8 @@ spelling	branch-move	raw-fallback	env gh co 1
 spelling	branch-move	raw-fallback	env git co topic
 spelling	branch-move	raw-fallback	env git zz topic
 spelling	ref-surgery	expansion	git branch -D "$b" -M topic main
+spelling	branch-move	raw-fallback	git -C '/tmp/w 1' checkout topic $(true)
+spelling	branch-move	raw-fallback	env git -c 'a.b= status' co topic
+spelling	branch-move	raw-fallback	x=$(git -c 'a.b= status' co topic)
+spelling	branch-move	raw-fallback	bash -c 'git Log'
+spelling	branch-move	raw-fallback	env git "$X" topic

@@ -253,15 +253,39 @@ RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
 # The tower-only acts, as crudely: any words may stand between git and the
 # act (a quoted option value holding a space defeats RE_GIT_HEAD's
 # one-value-per-option reading), any short-option cluster carrying the letter
-# counts, and any long option starting with it.
-RE_TOWER_GIT_HEAD='(^|[^[:alnum:]_.-])git([[:space:]].*)?[[:space:]]'
-RE_TOWER_SURGERY="${RE_TOWER_GIT_HEAD}(update-ref|filter-branch|filter-repo|reset|checkout|switch|symbolic-ref)([^[:alnum:]_-]|\$)"
-RE_TOWER_BRANCH="${RE_TOWER_GIT_HEAD}branch([[:space:]].*)?[[:space:]](-[[:alnum:]]*[fMCmc]|--(f(o(r(ce?)?)?)?|m(o(ve?)?)?|c(o(py?)?)?)([^[:alnum:]_-]|\$))"
-RE_TOWER_WORKTREE="${RE_TOWER_GIT_HEAD}worktree[[:space:]]+(add|remove|move)([^[:alnum:]_-]|\$)"
-RE_TOWER_FETCH="${RE_TOWER_GIT_HEAD}fetch([[:space:]].*)?(:|[[:space:]]--(st|refm))"
-RE_TOWER_STASH="${RE_TOWER_GIT_HEAD}stash([^[:alnum:]_-]|\$)"
+# counts, and any long option starting with it. Each act pattern runs over
+# the text after the first git word (raw_git_tail), never with a leading
+# `git.*` of its own, whose backtracking grows with the square of the text.
+RE_TOWER_GIT_AT='(^|[^[:alnum:]_.-])git[[:space:]]'
+RE_TOWER_SURGERY='[[:space:]](update-ref|filter-branch|filter-repo|reset|checkout|switch|symbolic-ref)([^[:alnum:]_-]|$)'
+RE_TOWER_BRANCH='[[:space:]]branch([[:space:]].*)?[[:space:]](-[[:alnum:]]*[fMCmc]|--(f(o(r(ce?)?)?)?|m(o(ve?)?)?|c(o(py?)?)?)([^[:alnum:]_-]|$))'
+RE_TOWER_WORKTREE='[[:space:]]worktree[[:space:]]+(add|remove|move)([^[:alnum:]_-]|$)'
+RE_TOWER_FETCH='[[:space:]]fetch([[:space:]].*)?(:|[[:space:]]--(st|refm))'
+RE_TOWER_STASH='[[:space:]]stash([^[:alnum:]_-]|$)'
 RE_TOWER_STASH_READ='[[:space:]]stash[[:blank:]]+(list|show)([^[:alnum:]_-]|$)'
 RE_TOWER_GH='(^|[^[:alnum:]_.-])gh[^[:alnum:]_.-](.*[^[:alnum:]_-])?(pr[^[:alnum:]_-](.*[^[:alnum:]_-])?(checkout|co)|repo[^[:alnum:]_-](.*[^[:alnum:]_-])?sync|co)([^[:alnum:]_-]|$)'
+
+# raw_git_tail <text> — set RT to the text from the blank after its first git
+# word on; 1 when no git word is followed by a blank.
+raw_git_tail() {
+  local m pre
+  [[ $1 =~ $RE_TOWER_GIT_AT ]] || return 1
+  m=${BASH_REMATCH[0]}
+  pre=${1%%"$m"*}
+  RT=${1:$((${#pre} + ${#m} - 1))}
+}
+
+# raw_tower_acts <text> — 0 when the text names a tower-only act.
+raw_tower_acts() {
+  local RT
+  if raw_git_tail "$1"; then
+    if [[ $RT =~ $RE_TOWER_SURGERY ]] || [[ $RT =~ $RE_TOWER_BRANCH ]] || [[ $RT =~ $RE_TOWER_WORKTREE ]] \
+      || [[ $RT =~ $RE_TOWER_FETCH ]] || raw_tower_stash "$RT"; then
+      return 0
+    fi
+  fi
+  [[ $1 =~ $RE_TOWER_GH ]]
+}
 
 # raw_tower_stash <text> — 0 when the text runs a git stash form other than
 # `stash list` or `stash show`: each read form is removed first, so a write
@@ -278,17 +302,30 @@ raw_tower_stash() {
 # The subcommand is capture group 4: RE_GIT_HEAD holds three groups, and a
 # group added there moves it.
 RE_GIT_SUB="${RE_GIT_HEAD}([A-Za-z][A-Za-z0-9_-]*)"
+RE_GIT_SUB_EXP="${RE_GIT_HEAD}[\"'\$\`]"
 
 # raw_tower_alias <text> — 0 when the text runs git with a subcommand that is
-# not a builtin: an alias, which the raw fallback cannot expand, could reach
-# any tower act. Bounded, so a long text cannot hold the hook.
+# not a builtin (an alias, which the raw fallback cannot expand, could reach
+# any tower act), one given through a quote or an expansion, or one whose
+# global options carry a quote, which RE_GIT_HEAD cannot split reliably.
+# Builtins compare case-sensitively, as git compares them, whatever the
+# caller's nocasematch. Bounded, so a long text cannot hold the hook.
 raw_tower_alias() {
-  local t=$1 n=0
+  local t=$1 n=0 m pre sub nc=0 rc=1
+  [[ $t =~ $RE_GIT_SUB_EXP ]] && return 0
+  shopt -q nocasematch && nc=1
   while [[ $t =~ $RE_GIT_SUB ]]; do
+    m=${BASH_REMATCH[0]}
+    sub=${BASH_REMATCH[4]}
     n=$((n + 1))
-    [ "$n" -le 64 ] || return 0
-    case " $GIT_BUILTINS " in *" ${BASH_REMATCH[4]} "*) ;; *) return 0 ;; esac
-    t=${t#*"${BASH_REMATCH[0]}"}
+    case $m in *[\"\']*) rc=0 ;; esac
+    [ "$n" -le 64 ] || rc=0
+    shopt -u nocasematch
+    case " $GIT_BUILTINS " in *" $sub "*) ;; *) rc=0 ;; esac
+    [ "$nc" = 0 ] || shopt -s nocasematch
+    [ "$rc" = 1 ] || return 0
+    pre=${t%%"$m"*}
+    t=${t:$((${#pre} + ${#m}))}
   done
   return 1
 }
@@ -407,9 +444,7 @@ raw_evidence_one() {
     || [[ $t =~ $RE_GIT_REWRITE ]] || [[ $t =~ $RE_GIT_COMMIT_SUBST ]] || [[ $t =~ $RE_MERGE_HELPER ]] \
     || [[ $t =~ $RE_FOR_MERGE ]]; then
     rc=0
-  elif tower_floor && { [[ $t =~ $RE_TOWER_SURGERY ]] || [[ $t =~ $RE_TOWER_BRANCH ]] \
-    || [[ $t =~ $RE_TOWER_WORKTREE ]] || [[ $t =~ $RE_TOWER_FETCH ]] || [[ $t =~ $RE_TOWER_GH ]] \
-    || raw_tower_stash "$t"; }; then
+  elif tower_floor && raw_tower_acts "$t"; then
     rc=0
   elif [ "${TIER:-}" = tower ] && raw_tower_alias "$t"; then
     rc=0
@@ -1270,6 +1305,44 @@ runs_force_push_helper() {
   return 1
 }
 
+# tower_wrapped_git_alias — 0 when a wrapped segment's words run git with a
+# subcommand that is not a literal builtin. The joined text the raw fallback
+# reads has lost the word boundaries, so a quoted global-option value holding
+# a space could hide the alias there; the words still carry them.
+tower_wrapped_git_alias() {
+  local i=1 n=${#SW[@]} k
+  while [ "$i" -lt "$n" ]; do
+    if [ "${SW[$i]##*/}" = git ]; then
+      k=$((i + 1))
+      while [ "$k" -lt "$n" ]; do
+        case ${SW[$k]} in
+          -C | -c | --config-env | --git-dir | --work-tree | --namespace | --super-prefix | --attr-source | --list-cmds)
+            k=$((k + 2))
+            ;;
+          -p | -P | --paginate | --no-pager | --no-replace-objects | --no-lazy-fetch | --no-optional-locks | \
+            --no-advice | --literal-pathspecs | --glob-pathspecs | --noglob-pathspecs | --icase-pathspecs | --bare | \
+            -C?* | -c?* | --*=*)
+            k=$((k + 1))
+            ;;
+          -*) return 0 ;;
+          *) break ;;
+        esac
+      done
+      if [ "$k" -lt "$n" ]; then
+        [ "${SWL[$k]}" = 1 ] || return 0
+        case " $GIT_BUILTINS " in *" ${SW[$k]} "*) ;; *) return 0 ;; esac
+      fi
+    fi
+    i=$((i + 1))
+  done
+  return 1
+}
+
+tower_wrapped_git_check() {
+  [ "$TIER" != tower ] || ! tower_wrapped_git_alias \
+    || deny_now "this command runs git through a wrapper with a subcommand that is not a literal git builtin, an alias the guard cannot follow there - refusing (fail closed). Issue the git command directly."
+}
+
 classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
   [ -d "$eff" ] || eff_ok=0
@@ -1317,6 +1390,7 @@ classify_segments() {
     elif [ "$SW_WRAPPED" = 1 ]; then
       raw_evidence "$cur_text" \
         && deny_now "this command runs through a wrapper whose options the guard does not read, and its text names a reserved act - refusing (fail closed). Issue the command directly."
+      tower_wrapped_git_check
     else
       local helper=0 a1 script_at=0 k opt_c=0 opt_s=0
       ! names_helper "$verb" || helper=1
@@ -1456,6 +1530,7 @@ classify_segments() {
           complete | bind)
           raw_evidence "$cur_text" \
             && deny_now "this command hands its work to $(sanitize_printable "$verb" 'a wrapper'), whose argument the guard cannot read as a command, and its text names a reserved act - refusing (fail closed). Issue the command directly."
+          tower_wrapped_git_check
           ;;
       esac
     fi

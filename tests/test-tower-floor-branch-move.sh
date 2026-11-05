@@ -66,6 +66,8 @@ for cmd in \
   'git symbolic-ref --short refs/remotes/origin/HEAD' \
   'git restore README.md' \
   'env git status --short' \
+  'nice git -C . log -1' \
+  'env git -c core.pager=cat status' \
   'x=$(git rev-parse HEAD)' \
   'gh pr view 42'; do
   ts_bash "$cmd"
