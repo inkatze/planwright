@@ -1,7 +1,7 @@
 # Human gates — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-10-01
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -50,6 +50,14 @@ test shows each pointed record's body unchanged (Task 1).
 
 The doc's rule table carries a kind column with no empty cell; the kickoff
 lens pass checks it (Task 1).
+
+### REQ-A1.6 — The spec-branch push row [test]
+
+`tests/test-human-gates-doctrine.sh`, run by `mise run check`, passes its
+kind check with the new composition-contract row and finds `/spec-kickoff`,
+the relayed kickoff session, and the launch-record-named branch in it; a
+fixture copy of the doc without the row fails; the spec-branch rewrite row
+is unchanged against the merge-base (Task 13).
 
 ## REQ-B — Sign-off at the approval act
 
@@ -161,13 +169,22 @@ a re-run replaces its own segment rather than appending a second; a park
 that cannot be written leaves the tree clean; the next passing run removes
 only its own segment and pushes before evaluating the head (Task 7).
 
-### REQ-C1.5 — Worker-only [test]
+### REQ-C1.5 — Worker-only [test] (superseded by REQ-C1.9)
 
 The policy-guard suite denies the flip spelling under the tower profile at
 every value, defers it under the worker profile at `unit-owner` and for the
 merge helper's own flip call under `policy-class`, and defers it in a
 session with no tier profile; a standalone review-skill fixture never calls
 the helper (Task 6, Task 7).
+
+### REQ-C1.9 — Worker-only, plus the relayed kickoff's spec-PR flip [test]
+
+Every REQ-C1.5 case holds unchanged (Task 6, Task 7). The kickoff-tier
+cases ship with mission-control's kickoff-kind task: in
+`tests/test-policy-guard-mission-control.sh`, run by `mise run check`, the
+flip of the spec PR whose head is the launch record's branch passes the
+policy guard, and the flip of any other PR is denied under the kickoff
+profile.
 
 ### REQ-C1.6 — The spec-PR knob [design-level]
 
@@ -399,6 +416,23 @@ segment) and defer on an inline thread-resolution mutation and a literal
 REST reviewer request; both profiles expect prompt. The policy-guard suite
 shows zero resolver calls for each unreadable form, defer on every `gh api`
 line with no tier profile, and a deny message naming its remedy (Task 6).
+
+### REQ-G1.9 — The relayed kickoff's one-branch admission [test]
+
+The cases ship with mission-control's kickoff-kind task (its D-36), in
+`tests/test-policy-guard-mission-control.sh` and
+`tests/test-permission-matcher.sh`, run by `mise run check`, plus kickoff
+profile lines in the REQ-G1.1 cross-copy fixture. A fixture kickoff session
+plain-pushes its record's spec branch and opens its draft PR with no
+prompt. A force push (`--force`, `--force-with-lease`, a `+` refspec), a
+deletion (`--delete`, `:<branch>`), a rewrite, a non-draft PR, and a push
+of another spec branch, a task branch, or `main` are each denied with the
+guard's reason line. A session with no launch record, or one naming no
+conforming branch, is denied every push, as is a push under a posture
+providing none. A worker-tier and a mission-control-tier push to the same
+spec branch keep their pre-amendment verdict. A grep of the kickoff
+profile finds every REQ-G1.3 floor entry other than the spec-branch
+plain-push denies.
 
 ## REQ-H — Prose surfaces
 

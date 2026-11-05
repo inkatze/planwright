@@ -1,7 +1,7 @@
 # Human gates — Design
 
-**Status:** Ready
-**Last reviewed:** 2026-10-01
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -657,6 +657,45 @@ there would park the sweep itself.
 **Chosen because:** the record converges without any surprise dispatch
 block; a worker never performs a kickoff, which is a human gate.
 
+### D-18: A relayed kickoff session publishes only its own spec branch  (C, mission-control D-36)
+
+**Decision:** Under the gate test, a plain push of a spec branch is not a
+human gate: it appends to history, ships nothing, and approves nothing,
+which is why pushing an owned unit branch is already a composition
+contract. It becomes one here too, owned by `/spec-kickoff`. The kickoff's
+sign-off before the push stays a human gate, as does rewriting a spec branch
+(REQ-F1.5). The protected set is not shrunk: `planwright/*/spec` stays in
+the core floor, and the policy guard admits one exception for one tier.
+A session running under the kickoff profile may plain-push the single spec
+branch its launch record names, open that branch's PR as a draft, and flip
+it under `mark_spec_pr_ready_on_kickoff`. Everything else stays denied: a
+force push, a deletion, a rewrite, any other branch, a non-draft PR, and
+every push when the record is missing or unreadable or names no conforming
+branch. The record is trusted only because the session cannot write it.
+Since a profile deny cannot be narrowed by an allow, the kickoff profile
+drops its plain-push denies of spec branches. For that tier only, that push
+moves from the profile floor to the guard, as the floor entries a profile
+cannot express already have (REQ-G1.3). Every other tier keeps the profile
+deny. The launcher kind, the profile, the record, and the guard code belong
+to mission-control D-36. This bundle states only the floor they must meet.
+
+**Alternatives considered:**
+- Remove `planwright/*/spec` from the core floor. Rejected because: it
+  would widen the push for every tier, and REQ-F1.5's rewrite floor names
+  the same pattern.
+- Let a `protected_branches` value subtract the pattern. Rejected because:
+  the knob only adds, by design, so no layer can shrink the floor.
+- Launch the relayed kickoff with no tier profile, as an attended kickoff
+  runs. Rejected because: a launched session outside the guard's
+  jurisdiction would have no floor at all, which is wider than one branch.
+- Mission control or the operator pushes the result. Rejected because:
+  mission control runs no git mutation, and the operator would take a manual
+  step for every kickoff (mission-control D-36).
+
+**Chosen because:** the operator chose the kickoff profile on 2026-11-04.
+It widens one session by the one branch it was launched to publish, and
+leaves every human gate where the gate test puts it.
+
 ## Cross-cutting concerns
 
 - **Security posture.** Every guard this bundle adds is deny-emitting, so
@@ -664,7 +703,8 @@ block; a worker never performs a kickoff, which is a human gate.
   false deny blocks work. Each gets the adversarial fixture treatment the
   ready-guard has, no model in the decision path, bounded runtime, and
   fail-closed on any doubt. Policy reads are data, never evaluated.
-- **Decision-domains walk.** Touched and decided: auth (D-9, D-14),
+- **Decision-domains walk.** Touched and decided: auth (D-9, D-14, and the
+  relayed kickoff's one-branch admission, D-18),
   api-surface and secrets-configuration (the knobs, D-4, D-6, D-7),
   observability (the PR records, D-5, D-6), versioning (the one-release
   `--marker title` deprecation, D-3), LLM output gates (no model in any

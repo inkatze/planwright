@@ -1,7 +1,7 @@
 # Human gates — Tasks
 
-**Status:** Ready
-**Last reviewed:** 2026-10-01
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -380,6 +380,26 @@ every surface it restates exists.
 - **Citations:** D-10, D-17 · REQ-A1.3, REQ-A1.5, REQ-D1.6, REQ-H1.1,
   REQ-H1.2, REQ-H1.3, REQ-H1.4
 - **Estimated effort:** 1 day
+
+### Task 13 — The relayed kickoff's spec-branch row in the doctrine
+
+- **Deliverables:** `doctrine/human-gates.md` gaining the
+  composition-contract row REQ-A1.6 states (pushing a spec branch and
+  opening its draft PR, owned by `/spec-kickoff`, attended or as a relayed
+  kickoff session writing only the spec branch its launch record names),
+  and its Citations line naming REQ-A1.6, REQ-C1.9, REQ-G1.9, and D-18;
+  `tests/test-human-gates-doctrine.sh` asserting the row with a
+  fixed-string check.
+- **Done when:** the doctrine test's kind check passes with the new row,
+  and its fixed-string check finds the row naming `/spec-kickoff`, the
+  relayed kickoff session, and the one spec branch its launch record names,
+  failing on a fixture copy of the doc without the row; the "Rewriting
+  main, a protected branch, or a spec branch" row is byte-identical to the
+  merge-base; `check-instructions.sh` reports no surface over budget;
+  `mise run check` passes.
+- **Dependencies:** none
+- **Citations:** D-18 · REQ-A1.6, REQ-C1.9, REQ-G1.9
+- **Estimated effort:** 2 hours
 
 ## Awaiting input
 
