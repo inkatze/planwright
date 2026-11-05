@@ -33,7 +33,15 @@ trap 'rm -rf "$tmp"' EXIT
 
 tab=$(printf '\t')
 reset_mc_fixture
-printf 'ready_flip_policy: unit-owner\n' | write_core_defaults
+{
+  printf 'ready_flip_policy: unit-owner\n'
+  grep '^steps_' "$repo_root/config/defaults.yml"
+} | write_core_defaults
+# The configured cadence the audit resolves: the core steps catalog, with a
+# stand-in for the polish skill its default convergence names.
+cp "$repo_root/config/steps.yaml" "$core/config/steps.yaml"
+mkdir -p "$core/skills/polish"
+printf -- '---\nname: polish\ndescription: fixture stand-in\n---\n' >"$core/skills/polish/SKILL.md"
 mchome="$tmp/mchome"
 cat >"$tracked" <<EOF
 mission_control_programs: [alpha]
@@ -58,6 +66,7 @@ check	lint	NEUTRAL
 thread	t1	resolved
 finding	cubic-dev-ai[bot]	t2	answered
 step	polish	applied	$H
+cadence	audited	$H
 evidence	screenshot	shots/home.png	$H	ok
 guard	ready-guard	pass	-
 bodyline	## Summary
@@ -85,6 +94,33 @@ walk_with "step at another head" "s/^step\tpolish\tapplied\t$H/step\tpolish\tapp
 expect_rc "a step recorded at another head is refused" 4
 walk_with "failed step" 's/^step\tpolish\tapplied/step\tpolish\tfailed/'
 expect_rc "a failed step is refused" 4
+
+walk_with "unaudited cadence" '/^cadence/d'
+expect_rc "a walk whose cadence was never audited is refused" 4
+expect_out "named" "fail${tab}cadence${tab}the configured cadence was not audited at 111111111111"
+walk_with "cadence gap" '-' "cadence${tab}gap${tab}convergence${tab}missing${tab}polish"
+expect_rc "a configured step with no record is refused, whatever the gate data names" 4
+expect_out "named with its point" "fail${tab}cadence${tab}convergence: polish is missing"
+# The cadence gap binds whatever the gate-condition data names: none, or
+# another step.
+: >"$tmp/no-conditions"
+mc_run mc-readiness.sh walk --evidence "$tmp/ev" --conditions "$tmp/no-conditions"
+expect_rc "with no gate-condition data the cadence gap is still refused" 4
+expect_out "and named" "fail${tab}cadence${tab}convergence: polish is missing"
+printf 'ready\tsteps\tother-step\n' >"$tmp/other-conditions"
+mc_run mc-readiness.sh walk --evidence "$tmp/ev" --conditions "$tmp/other-conditions"
+expect_out "with gate data naming another step the cadence gap is still named" "fail${tab}cadence${tab}convergence: polish is missing"
+walk_with "cadence unauditable" '/^cadence/d' "cadence${tab}unaudited${tab}no worktree holds the branch"
+expect_rc "a cadence that could not be audited is refused" 4
+expect_out "with the reason" "fail${tab}cadence${tab}not audited: no worktree holds the branch"
+walk_with "cadence failed step" '-' "cadence${tab}gap${tab}convergence${tab}failed${tab}polish:halted"
+expect_out "a failed step reads with its outcome" "fail${tab}cadence${tab}convergence: polish recorded halted"
+walk_with "cadence stale" '-' "cadence${tab}gap${tab}post-pr${tab}stale${tab}2222222222222222222222222222222222222222"
+expect_out "a stale point names where it completed" "fail${tab}cadence${tab}post-pr: completed only at 222222222222"
+walk_with "cadence incomplete" '-' "cadence${tab}gap${tab}pre-ci${tab}incomplete${tab}-"
+expect_out "an incomplete point says so" "fail${tab}cadence${tab}pre-ci: no completion record"
+walk_with "cadence audited elsewhere" "s/^cadence\taudited\t$H/cadence\taudited\t2222222222222222222222222222222222222222/"
+expect_rc "a cadence audited at another head is refused" 4
 
 walk_with "red check" '-' "check${tab}e2e${tab}FAILURE"
 printf 'rollup\tSUCCESS\n' >>"$tmp/ev"
@@ -165,7 +201,9 @@ rec acme/web 8 "$head" shots/other-pr.png ok
 (cd "$repo" && PLANWRIGHT_ROOT="$core" /bin/bash "$repo_root/scripts/step-record.sh" new-run >/dev/null \
   && /bin/bash "$repo_root/scripts/step-record.sh" write --run 000001 --point convergence --step polish --kind skill \
     --target polish --hosting isolated --backend none --head "$head" --end-head "$head" \
-    --start 2026-10-28T00:00:00Z --end 2026-10-28T00:01:00Z --outcome applied >/dev/null) || fail "the fixture step record"
+    --start 2026-10-28T00:00:00Z --end 2026-10-28T00:01:00Z --outcome applied >/dev/null \
+  && /bin/bash "$repo_root/scripts/step-record.sh" write --completion --run 000001 --point convergence --head "$head" >/dev/null) \
+  || fail "the fixture step record"
 mkdir -p "$tmp/bin"
 cat >"$tmp/pr.json" <<EOF
 {"headRefOid": "$head", "labels": [{"name": "ui"}], "files": [{"path": "src/app.c"}],
@@ -235,6 +273,8 @@ has "a person's open thread is collected" "thread${tab}t4${tab}open"
 has "a reply with no author is no answer" "finding${tab}cubic-dev-ai${tab}t5${tab}unanswered"
 hasnt "the head stood still, so no head guard fails" "guard${tab}head"
 has "REQ-D1.8: the recorded cadence step is collected" "step${tab}polish${tab}applied${tab}$head"
+has "the configured cadence is audited at the head" "cadence${tab}audited${tab}$head"
+hasnt "and the recorded cadence leaves no gap" "cadence${tab}gap"
 has "a corrected judgment at the head stands" "evidence${tab}screenshot${tab}shots/home.png${tab}$head${tab}ok"
 hasnt "the judgment it replaced does not" "shots/home.png${tab}$head${tab}error"
 hasnt "evidence at another head is left out" "shots/stale.png"
@@ -259,6 +299,63 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme
 c=$(cat "$tmp/collected" 2>/dev/null)
 has "a head that cannot be re-read fails as such" "guard${tab}head${tab}fail${tab}the head could not be re-read after the guard"
 printf '%s\n' "$head" >"$tmp/headnow"
+
+# With no --worktree the cadence is audited in the program repository's
+# worktree holding the pull request's branch; one that ran no point is caught.
+has "no worktree holds a branch the read did not name, so the cadence is unaudited" "cadence${tab}unaudited${tab}"
+git -C "$repo" remote add origin https://github.com/Acme/web.git
+git -C "$repo" worktree add -q -b feature "$tmp/feature-wt" 2>/dev/null || fail "fixture: the feature worktree"
+sed 's/"headRefOid"/"headRefName": "feature", "headRefOid"/' "$tmp/pr.json" >"$tmp/p.json" && mv "$tmp/p.json" "$tmp/pr.json"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "the branch's worktree is found and audited" "cadence${tab}audited${tab}$head"
+has "its skipped convergence is named" "cadence${tab}gap${tab}convergence${tab}missing${tab}polish"
+# A named base the worktree does not hold leaves the cadence unaudited.
+cp "$tmp/pr.json" "$tmp/pr.nobase.json"
+sed 's/"headRefOid"/"baseRefName": "main", "headRefOid"/' "$tmp/pr.json" >"$tmp/p.json" && mv "$tmp/p.json" "$tmp/pr.json"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a base the worktree lacks is unaudited, naming it" "cadence${tab}unaudited${tab}the worktree $tmp/feature-wt does not hold the base origin/main"
+git -C "$repo" update-ref refs/remotes/origin/main "$head"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "and once held, the cadence is audited against it" "cadence${tab}audited${tab}$head"
+git -C "$repo" update-ref -d refs/remotes/origin/main
+mv "$tmp/pr.nobase.json" "$tmp/pr.json"
+# The same repository listed twice still names one worktree.
+sed -i.bak "s|^program_alpha_repositories: .*|program_alpha_repositories: [$repo, $repo]|" "$tracked"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+sed -i.bak "s|^program_alpha_repositories: .*|program_alpha_repositories: [$repo]|" "$tracked"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a repository listed twice still finds its one worktree" "cadence${tab}audited${tab}$head"
+has "and its missing completion" "cadence${tab}gap${tab}convergence${tab}incomplete"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/web --pr 7
+expect_out "check refuses the skipped cadence" "fail${tab}cadence${tab}convergence: polish is missing"
+# A worktree that moved past the forge's head speaks for another head.
+git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m unpushed
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a worktree head that differs from the forge's is unaudited, naming both" "cadence${tab}unaudited${tab}the worktree $tmp/feature-wt is at"
+git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt" checkout -q -B feature
+# The audit itself failing is unaudited, with the resolver's reason.
+chmod 000 "$core/config/steps.yaml"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+chmod 644 "$core/config/steps.yaml"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "an audit that cannot resolve the cadence is unaudited, naming why" "cadence${tab}unaudited${tab}the audit in $tmp/feature-wt failed: step-run: the configured cadence did not resolve"
+# Another repository's worktree on the same branch name is never audited.
+git -C "$repo" remote set-url origin https://github.com/acme/api.git
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a worktree of a repository whose origin is not the PR's is passed over" "cadence${tab}unaudited${tab}no worktree of acme/web has branch feature"
+git -C "$repo" remote set-url origin git@github.com:acme/web.git
+# A worktree deleted without a prune is listed prunable: unaudited, no crash.
+rm -rf "$tmp/feature-wt"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+expect_rc "a prunable worktree does not fail the collect" 0
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "and the named branch with no live worktree is unaudited" "cadence${tab}unaudited${tab}no worktree of acme/web has branch feature checked out"
+git -C "$repo" worktree prune
 
 # A list that comes back at its cap may have been cut, and is refused.
 sed 's/"hasNextPage": false/"hasNextPage": true/' "$tmp/threads.json" >"$tmp/t.json" && mv "$tmp/t.json" "$tmp/threads.json"

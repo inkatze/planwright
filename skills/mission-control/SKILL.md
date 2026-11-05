@@ -204,8 +204,12 @@ operator's statements and links, never a polled state.
 Launch, message, answer, retire; never hand the operator a per-session step.
 
 - **Launch** every session through
-  `scripts/mission-control-launch.sh`'s `launch`, which delivers the brief,
+  `scripts/mission-control-launch.sh`'s `launch`, which delivers the brief
+  (a repository-changing one with the verification cadence),
   the rules in scope, the profile, the model tier and a deterministic name; **retire** through its `retire`.
+- **Report** a PR as done, or its unit as finished, only once
+  `scripts/mc-readiness.sh`'s `check` passes on its head; until then report
+  what it names (a cadence gap or an unaudited cadence among them), never done.
 - **Message** a session by `SendMessage` when `ListAgents` lists it; only an
   unreachable one takes the pane relay, as the tower's messaging says
   (D-23).

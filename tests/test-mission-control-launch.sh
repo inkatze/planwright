@@ -299,11 +299,70 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
   first=$(head -n 1 "$fleet/mission-control/launch/$name/brief.md")
   [ "$first" = '# Fixture brief' ] && ok "[$kind] the composed brief opens with the brief itself" \
     || fail "[$kind] the composed brief opens with '$first'"
+  # A kind that changes a repository carries the configured cadence and its
+  # audit whatever its hand-written brief says; the others do not.
+  composed_brief="$fleet/mission-control/launch/$name/brief.md"
+  case $kind in
+    worker | ad-hoc)
+      grep -qx '## Verification cadence' "$composed_brief" && grep -qF 'step-run.sh audit --through post-pr' "$composed_brief" \
+        && grep -qF 'step-run.sh audit --through pre-pr' "$composed_brief" \
+        && grep -qF "mission-control:$name" "$composed_brief" \
+        && ok "[$kind] the composed brief carries the cadence, its audit and its tier unit" \
+        || fail "[$kind] the composed brief lacks the cadence section: $(cat "$composed_brief")"
+      # Every path the section names is a file of this install.
+      missing_paths=''
+      # shellcheck disable=SC2016 # literal backticks delimit the paths
+      for cp in $(grep -o '`/[^` ]*/[^` ]*' "$composed_brief" | tr -d '`'); do
+        [ -e "$cp" ] || missing_paths="$missing_paths $cp"
+      done
+      [ -z "$missing_paths" ] && ok "[$kind] every path the cadence names exists" \
+        || fail "[$kind] the cadence names paths that do not exist:$missing_paths"
+      if lint_emitted markdown mission-control-launch.sh "$composed_brief"; then
+        ok "[$kind] the brief with its cadence lints clean as markdown"
+      else
+        fail "[$kind] the brief with its cadence fails the markdown lint: $composed_brief"
+      fi
+      ;;
+    *)
+      grep -q 'Verification cadence' "$composed_brief" && fail "[$kind] a session that changes no repository was handed the cadence" \
+        || ok "[$kind] no cadence section for a kind that changes no repository"
+      ;;
+  esac
   wait_done "$name"
 done
 ml list
 [ "$(printf '%s\n' "$OUT" | grep -c .)" = 6 ] && ok "list shows the six launched sessions" \
   || fail "list does not show six sessions: $OUT"
+
+# A brief that runs a skill command leaves the cadence to that skill.
+printf '%s\n' '/planwright:execute-task specs/alpha 3' >"$tmp/skill-brief.md"
+rec="$tmp/rec-skill"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind worker --scope skill-brief --brief "$tmp/skill-brief.md"
+[ "$RC" = 0 ] || fail "the skill-command launch exited $RC: $ERR"
+skill_brief="$fleet/mission-control/launch/$(field name)/brief.md"
+if [ "$(head -n 1 "$skill_brief")" = '/planwright:execute-task specs/alpha 3' ] && ! grep -q 'Verification cadence' "$skill_brief"; then
+  ok "a skill-command brief opens with its command and gets no second cadence"
+else
+  fail "the skill-command brief was changed: $(cat "$skill_brief")"
+fi
+wait_done "$(field name)"
+# The section sends the session to /execute-task's *Points* heading, which
+# must still exist there.
+# shellcheck disable=SC2016 # the heading's literal backticks
+grep -qx '## Points (`custom-steps`, D-3)' "$repo_root/skills/execute-task/SKILL.md" \
+  && ok "the Points heading the cadence names exists in /execute-task" \
+  || fail "/execute-task no longer carries the Points heading the launcher's cadence names"
+# A brief that opens with a path, not a command, still gets the cadence.
+printf '%s\n' '/tmp/notes.md: apply the notes' >"$tmp/path-brief.md"
+rec="$tmp/rec-path"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind ad-hoc --scope path-brief --brief "$tmp/path-brief.md"
+[ "$RC" = 0 ] || fail "the path-brief launch exited $RC: $ERR"
+grep -qx '## Verification cadence' "$fleet/mission-control/launch/$(field name)/brief.md" \
+  && ok "a brief opening with a path is no skill command, so it gets the cadence" \
+  || fail "a path-led brief was taken for a skill command"
+wait_done "$(field name)"
 
 # --rules adds an in-scope rule to the brief.
 rec="$tmp/rec-rules"
