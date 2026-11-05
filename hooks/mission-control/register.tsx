@@ -142,6 +142,9 @@ async function checkHandover($: EngineInterface) {
 // a busy session holds them for the next redraw or the turn's end.
 async function wake($: EngineInterface, isTick: boolean) {
   if (!ctx || isSubmitting) return
+  // The events are composed and marked in this program's store, even if
+  // the panel switches program while the wake is in flight.
+  const c = ctx
   // Taken before any await, so two callers never compose the same events.
   isSubmitting = true
   try {
@@ -150,13 +153,13 @@ async function wake($: EngineInterface, isTick: boolean) {
     if (v?.digest?.rung.name === 'paused') return
     const now = await $.clock.now()
     if (now < wakeHeldUntil) return
-    const composed = await run($, 'mc-wake.sh', ['compose', '--program', ctx.program, ctx.target])
+    const composed = await run($, 'mc-wake.sh', ['compose', '--program', c.program, c.target])
     if (!composed.ok) {
       await fault($, `the wake could not be composed: ${composed.err}`)
       return
     }
     const w = parseWake(composed.out)
-    if (!w) return
+    if (!w || ctx !== c) return
     const entered = await $.prompt.submit({ text: isTick ? `Failsafe tick. ${w.text}` : w.text })
     if ('drop' in entered && entered.drop !== undefined) {
       await fault($, `the wake was dropped: ${oneLine(entered.drop)}`)
@@ -165,9 +168,9 @@ async function wake($: EngineInterface, isTick: boolean) {
     const marked = await run($, 'mc-event.sh', [
       'mark',
       '--program',
-      ctx.program,
+      c.program,
       '--target',
-      ctx.target,
+      c.target,
       'submitted',
       ...w.ids,
     ])
@@ -207,10 +210,13 @@ async function refreshReviews($: EngineInterface) {
 // One digest read laid into the view.
 async function readDigest($: EngineInterface) {
   if (!ctx) return
+  const c = ctx
   // Knobs are read until a reading names all of them, then carried on.
   const withKnobs = !hasKnobs
-  const args = ['digest', '--program', ctx.program, '--target', ctx.target]
+  const args = ['digest', '--program', c.program, '--target', c.target]
   const got = await run($, 'mc-panel.sh', withKnobs ? [...args, '--knobs'] : args)
+  // A reading of the program the panel has since left is not drawn.
+  if (ctx !== c) return
   const digest = got.ok ? parseDigest(got.out) : null
   // Done once a reading names every knob; until then each reading's
   // knobs are laid over the last.
@@ -277,7 +283,7 @@ async function claim($: EngineInterface) {
   const claimed = await run($, 'mc-wake.sh', ['target', 'add', '--program', claiming.program, claiming.target, '--mod'])
   if (ctx?.program !== claiming.program || ctx.target !== claiming.target) {
     // Stood down or switched while the claim ran: hand it straight back.
-    await runScript($, 'mc-wake.sh', ['target', 'add', '--program', claiming.program, claiming.target])
+    await release($, claiming)
     return
   }
   isClaimed = claimed.ok
@@ -412,7 +418,10 @@ async function checkRecord($: EngineInterface) {
       }
       return
     }
-    if (ctx && (await $.fs.exists(`${dir}/${sessionId}.ack`))) return
+    // Only a regular, non-empty acknowledgment counts: anything else is
+    // written again.
+    const ack = await $.fs.stat(`${dir}/${sessionId}.ack`).catch(() => undefined)
+    if (ctx && ack && !ack.isLink && ack.kind === 'file' && ack.size > 0) return
     const found = await runScript($, 'mc-panel.sh', ['lookup', '--session', sessionId])
     const rec = found.ok ? parseRecord(found.out) : null
     if (!rec) return
@@ -421,13 +430,21 @@ async function checkRecord($: EngineInterface) {
       return
     }
     // The old program's target goes back to the relay before the switch.
-    if (ctx) await runScript($, 'mc-wake.sh', ['target', 'add', '--program', ctx.program, ctx.target])
+    if (ctx) await release($, ctx)
     await activate($, rec.program, rec.target, await view($), 'record')
   } catch {
     // The next check tries again.
   } finally {
     isChecking = false
   }
+}
+
+// Hands a wake target back to the relay, once more on a failure; one still
+// held is said, since the relay takes it only once its lease lapses.
+async function release($: EngineInterface, c: Ctx) {
+  const args = ['target', 'add', '--program', c.program, c.target]
+  if ((await runScript($, 'mc-wake.sh', args)).ok || (await runScript($, 'mc-wake.sh', args)).ok) return
+  $.ui.toast(`Mission control: the ${c.program} wake target could not be handed back; the relay takes it once its lease lapses`)
 }
 
 function cancelTimers() {
@@ -448,7 +465,7 @@ async function standDown($: EngineInterface) {
   ackedFor = null
   await update($, panel, () => null)
   $.ui.status(undefined)
-  await runScript($, 'mc-wake.sh', ['target', 'add', '--program', was.program, was.target])
+  await release($, was)
 }
 
 async function activate(

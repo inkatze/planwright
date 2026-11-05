@@ -484,6 +484,12 @@ chmod 0777 "$act"
 mc_run mc-panel.sh lookup --session "$sid_a"
 expect_rc "a world-writable activation directory is refused" 1
 chmod 0700 "$act"
+mv "$fleet/mission-control" "$tmp/mc-real"
+ln -s "$tmp/mc-real" "$fleet/mission-control"
+mc_run mc-panel.sh lookup --session "$sid_a"
+expect_rc "a symlinked mission-control directory is refused" 1
+rm -f "$fleet/mission-control"
+mv "$tmp/mc-real" "$fleet/mission-control"
 if [ "$(jq -r '[.hooks.SessionStart[] | select(has("matcher") | not) | .hooks[].command | select(endswith("scripts/mc-panel.sh session-hook"))] | length' "$repo_root/hooks/hooks.json")" = 1 ]; then
   ok "REQ-F1.16: hooks.json runs the session-start capture on every session start"
 else

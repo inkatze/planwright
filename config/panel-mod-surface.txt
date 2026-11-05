@@ -37,6 +37,7 @@ call $.process.run
 # Whether this session's own activation record and its acknowledgment
 # exist, by its own session id, checked on a timer without running a script.
 call $.fs.exists
+call $.fs.stat
 call $.session.id
 # The wake and the tick prompt.
 call $.prompt.submit

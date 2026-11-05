@@ -95,6 +95,15 @@ test('a rewritten record with no acknowledgment is acknowledged again', async ($
   expect(ran(w, 'mc-panel.sh', 'digest').at(-1)).toEqual(expect.arrayContaining(['--program', 'alpha']))
 })
 
+test('an empty acknowledgment is written again', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const acks = ran(w, 'mc-panel.sh', 'ack').length
+  w.set({ records: { [SESSION]: recordFor('alpha'), [`${SESSION}.ack`]: '' } })
+  await w.clock.advance(10_000)
+  expect(ran(w, 'mc-panel.sh', 'ack')).toHaveLength(acks + 1)
+})
+
 test('a record naming another program switches the panel to it', async ($, on) => {
   const w = world(on)
   await boot($, w)

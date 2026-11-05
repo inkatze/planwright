@@ -186,6 +186,12 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: fx.sessionId }))
+  on('fs.stat', (_, e) => {
+    const name = e.path.startsWith(`${ACTIVE_DIR}/`) ? e.path.slice(ACTIVE_DIR.length + 1) : ''
+    const body = fx.records[name]
+    if (body === undefined) throw new Error('ENOENT')
+    return { value: { kind: 'file', size: body.length, mtimeMs: 0, isLink: false } }
+  })
   on('fs.exists', (_, e) => ({
     value: e.path.startsWith(`${ACTIVE_DIR}/`) && e.path.slice(ACTIVE_DIR.length + 1) in fx.records,
   }))
@@ -251,8 +257,10 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
       return answer(`activation\t${sid}\n`)
     }
     if (script === 'mc-panel.sh' && verb === 'ack') {
-      if (fx.ackExit === 0) fx.records[`${flag('--session')}.ack`] = 'ack'
-      return answer('', fx.ackExit)
+      const sid = flag('--session')
+      const isOk = fx.ackExit === 0 && fx.records[sid] !== undefined
+      if (isOk) fx.records[`${sid}.ack`] = 'ack'
+      return answer('', isOk ? 0 : 1)
     }
     if (script === 'mc-panel.sh' && verb === 'retire') {
       delete fx.records[flag('--session')]

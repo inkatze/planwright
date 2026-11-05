@@ -229,11 +229,13 @@ valid_session() {
 # program namespace beside it.
 panel_dir() {
   pd_home=$(mc_fleet_home) || return 1
-  pd_dir=$pd_home/mission-control
-  for pd_part in _panel "$1"; do
+  pd_dir=$pd_home
+  for pd_part in mission-control _panel "$1"; do
     pd_dir=$pd_dir/$pd_part
     [ ! -L "$pd_dir" ] || return 1
     [ -d "$pd_dir" ] || (umask 077 && mkdir -p "$pd_dir") 2>/dev/null || return 1
+    # The shared parent keeps whatever mode the runtime scripts gave it.
+    [ "$pd_part" != mission-control ] || continue
     [ -O "$pd_dir" ] || return 1
     [ -z "$(find "$pd_dir" -prune \( -perm -0020 -o -perm -0002 \) 2>/dev/null)" ] || return 1
   done
@@ -778,6 +780,7 @@ text_panel() {
     $1 == "flight" { f[++n] = "  " $2 "  " $3 "  (" $4 ")" }
     $1 == "waiting" { w = ($2 == "-" ? "shown by the host" : $2) }
     $1 == "pending" { p = $2 }
+    $1 == "unreadable" && $2 == "events" { p = "unknown (the events cannot be read)" }
     $1 == "rung" { r = $2 (($3 == "" || $3 == "-") ? "" : " (" $3 ")") }
     $1 == "unreadable" && $2 == "fleet registry" { fu = 1 }
     $1 == "unreadable" && $2 == "operator queue" { w = "unknown (the queue cannot be read)" }
