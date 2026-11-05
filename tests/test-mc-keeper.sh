@@ -208,6 +208,58 @@ expect_rc "next under a full budget" 0
 expect_out "REQ-M1.4: a ready unit is held while the budget admits no session" "held${tab}demo:task-2${tab}the budget holds dispatch: hold-dispatch (sessions at 100%)"
 expect_no_out "and is not dispatched" "dispatch${tab}"
 
+# A stream-json worker the launcher never registered (an older planwright's,
+# or /orchestrate's) waiting past the bound on a permission prompt reaches the
+# operator: a high queue item and one event, announced once. One the launcher
+# records for another program is that program's to announce.
+pp_req() { # pp_req <worker>: an overdue pending request under live pids
+  mkdir -p "$fleet/streamjson/$1"
+  printf 'aaaa1111-bbbb-cccc-dddd-eeee00000001\tpermission\t1000\tpending\n' >"$fleet/streamjson/$1/journal"
+  printf '%s\n' "$$" >"$fleet/streamjson/$1/supervisor.pid"
+  printf '%s\n' "$$" >"$fleet/streamjson/$1/worker.pid"
+  printf 'demo:task-9\n' >"$fleet/streamjson/$1/scope"
+}
+pp_req cp-old
+pp_req mc-beta-worker-0123456789
+mkdir -p "$fleet/mission-control/sessions"
+printf 'format\t1\nname\tmc-beta-worker-0123456789\nprogram\tbeta\nkind\tworker\nscope\tx\nbackend\tstream-json\nlaunched\t1\n' \
+  >"$fleet/mission-control/sessions/mc-beta-worker-0123456789"
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 5000 2>"$tmp/pp.err")
+expect_out "an unregistered worker's overdue prompt is announced" "announced${tab}pending-prompt-overdue${tab}cp-old"
+expect_no_out "another program's worker is left to it" "mc-beta-worker-0123456789"
+mc_run mc-event.sh list --program alpha
+expect_out "the overdue prompt lands in the event store" "pending-prompt-overdue${tab}cp-old${tab}stream-json worker cp-old has waited 4000s"
+mc_run fleet-attention.sh queue
+expect_out "and in the decision queue, high" "- [high] demo:task-9  (cp-old"
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 5120 2>/dev/null)
+expect_no_out "and not announced again while it stays overdue" "pending-prompt-overdue"
+# A dead one's request leaves the queue, so its death is what is announced.
+pp_req cp-gone
+printf '999999999\n' >"$fleet/streamjson/cp-gone/supervisor.pid"
+printf '999999999\n' >"$fleet/streamjson/cp-gone/worker.pid"
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 5180 2>/dev/null)
+expect_out "a dead worker's settle is announced" "announced${tab}stream-json-worker-dead${tab}cp-gone"
+expect_no_out "and its prompt is not" "pending-prompt-overdue${tab}cp-gone"
+rm -rf "$fleet/streamjson/cp-old" "$fleet/streamjson/cp-gone" "$fleet/streamjson/mc-beta-worker-0123456789" "$fleet/mission-control/sessions/mc-beta-worker-0123456789"
+
+# A landed session the launcher never registered, whose stream-json worker
+# has a recover in flight, is held rather than retired: retire refuses it as
+# in flight, and the sweep keeps the line for the next pass.
+mkdir -p "$fleet/streamjson/mc-alpha-worker-inflight"
+ln -s "$$-$(date +%s)-1" "$fleet/streamjson/mc-alpha-worker-inflight/recover.lock"
+mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-inflight --repo acme/web --pr 7
+echo MERGED >"$tmp/state7"
+PATH="$tmp/bin:$PATH" mc_run mc-keeper.sh sweep --program alpha
+expect_out "a session with an operation in flight is held" "held${tab}mc-alpha-worker-inflight${tab}session ("
+expect_no_out "and not retired" "retired${tab}mc-alpha-worker-inflight"
+if grep -q "^mc-alpha-worker-inflight${tab}acme/web${tab}7${tab}" "$ledger" && ! grep -q "^mc-alpha-worker-inflight${tab}.*${tab}retired$" "$ledger"; then
+  ok "its line stays tracked, not marked retired"
+else
+  fail "the in-flight session's ledger row: $(cat "$ledger")"
+fi
+[ -L "$fleet/streamjson/mc-alpha-worker-inflight/recover.lock" ] || fail "the in-flight election must be left alone"
+rm -rf "$fleet/streamjson/mc-alpha-worker-inflight"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-keeper: $failures failure(s)" >&2
   exit 1

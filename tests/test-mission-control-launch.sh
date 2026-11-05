@@ -533,7 +533,44 @@ else
   ok "the retired session has no attention row"
 fi
 ml retire "$worker_name"
-[ "$RC" = 3 ] && ok "retiring a name with no row exits 3" || fail "a second retire exited $RC"
+[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q "^retire	$worker_name	released	released=process,registry,attention	held=-$" \
+  && ok "a second retire closes the row-less worker idempotently" || fail "a second retire: exit $RC, $OUT $ERR"
+
+# A worker an older planwright or /orchestrate launched straight on the
+# stream-json rung has no row: retire closes it by its handle all the same,
+# a dead one included, and its stale attention row goes with it.
+old="$fleet/streamjson/cp-task-1"
+mkdir -p "$old"
+printf '999999999\n' >"$old/supervisor.pid"
+printf '999999999\n' >"$old/worker.pid"
+printf 'aaaa1111-bbbb-cccc-dddd-eeee00000001\tpermission\t1000\tpending\n' >"$old/journal"
+env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-attention.sh" decide cp-task-1 cp:task-1 \
+  "OVERDUE permission request tool Bash req aaaa1111 - answer via fleet-streamjson.sh answer" deny "allow|deny" high \
+  || fail "fixture: the stale attention row was not seeded"
+ml retire cp-task-1
+[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q "^retire	cp-task-1	released	released=process,registry,attention	held=-$" \
+  && ok "retire closes a worker launched without the launcher" || fail "retire of a row-less worker: exit $RC, $OUT $ERR"
+if env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-attention.sh" queue 2>/dev/null | grep -q cp-task-1; then
+  fail "the row-less worker's attention row survived its retire"
+else
+  ok "and its stale attention row is gone"
+fi
+grep -q "	undeliverable	" "$old/journal" && ok "and its pending receipt is closed" || fail "the receipt stayed: $(cat "$old/journal")"
+busy="$fleet/streamjson/orch-busy"
+mkdir -p "$busy"
+ln -s "$$-$(date +%s)-1" "$busy/recover.lock"
+ml retire orch-busy
+[ "$RC" = 3 ] && case $ERR in *"recover.lock is held"*) true ;; *) false ;; esac \
+  && ok "retire refuses a row-less worker whose recover is in flight, naming the lock" || fail "retire over a held recover lock: exit $RC, $OUT $ERR"
+[ -L "$busy/recover.lock" ] && ok "and leaves the recover's lock alone" || fail "the in-flight recover's lock was broken"
+rm -rf "$busy"
+ml retire nosuch-worker
+[ "$RC" = 3 ] && ok "a name with neither a row nor a stream-json worker exits 3" || fail "retire of an unknown name exited $RC"
+case $ERR in *"fleet-dispatch-headless.sh stop nosuch-worker"*"tmux kill-window"*) ok "and names the stops that apply" ;; *) fail "the refusal names no stop: $ERR" ;; esac
+ml retire mc-alpha-worker-9999999999
+[ "$RC" = 3 ] && ok "a launcher name with no row and no worker exits 3" || fail "retire of an unknown launcher name exited $RC"
+ml retire "../x"
+[ "$RC" = 2 ] && ok "a name outside the handle grammar is refused (exit 2)" || fail "a traversal name exited $RC"
 
 win=$(awk -F '\t' '$1 == "handle" { print $2 }' "$fleet/mission-control/sessions/$pane_name")
 [ -e "$tmp/tmux/$win" ] && ok "the tmux session has a live window ($win) before retire" || fail "the tmux launch left no window"
