@@ -2,8 +2,8 @@
 # Tests for what `fleet-streamjson.sh` does for workers no current supervisor
 # watches: the bare invocation (w1), `pending` on a dead worker (w2), the
 # `alarm-scan` sweep and its once-per-request push (w3), dead workers settled
-# rather than escalated (w4), and per-session TMPDIRs a final close never
-# crosses (w5). Each case's own comment says what it pins. Hermetic: every
+# rather than escalated (w4), per-session TMPDIRs a final close never crosses
+# (w5), and workers that ended normally settled like dead ones (w6). Each case's own comment says what it pins. Hermetic: every
 # fleet home is case-local and built by hand. Runs under /bin/bash (3.2).
 set -u
 LC_ALL=C
@@ -308,3 +308,45 @@ ln -s "$outside" "$hreal/scratch/$(printf 'e%.0s' $(seq 40))"
   || fail "w5: a session pointer under a linked worktree root must be refused"
 [ -d "$outside/$(printf 'f%.0s' $(seq 40))/keep" ] || fail "w5: the refused pointer removed something outside the fleet home"
 echo "ok: w5 sessions sharing a checkout get distinct TMPDIRs, and retiring one leaves the other's intact"
+
+# ---------------------------------------------------------------------------
+# w6: a worker whose supervisor exited normally (both pid files removed, a
+#     result written) is as gone as a dead one: what it left pending is
+#     settled, never escalated, and `pending` marks it dead. A missing result,
+#     or a pid file still standing, is not that evidence.
+# ---------------------------------------------------------------------------
+home="$tmp/h6"
+ended="$home/streamjson/sjended"
+mkreq "$ended" "$id1" 1000
+printf 'result\tsuccess\t1100\tfalse\n' >"$ended/result"
+fenv "$home" "$FA" decide sjended demo:task-1 \
+  "OVERDUE permission request tool Bash req aaaa1111 - answer via fleet-streamjson.sh answer" deny "allow|deny" high \
+  || fail "w6: cannot seed the stale row"
+out=$(fenv "$home" "$SJ" pending sjended) || fail "w6: pending exited non-zero"
+printf '%s\n' "$out" | awk -v h="== sjended $id1 Bash" '$0 == h { getline; print; exit }' \
+  | grep -q '^-- worker dead: ' || fail "w6: the ended worker's request must be marked dead, got: $out"
+# Not ended: no result yet (a launch before its pid files land), a result
+# still being written, and a result beside live pids (a persistent worker
+# between turns).
+bare="$home/streamjson/sjbare"
+mkreq "$bare" "$id1" 1000
+torn="$home/streamjson/sjtorn"
+mkreq "$torn" "$id1" 1000
+printf 'result\tsuccess' >"$torn/result"
+turn="$home/streamjson/sjturn"
+mkreq "$turn" "$id1" 1000
+printf 'result\tsuccess\t1100\tfalse\n' >"$turn/result"
+printf '%s\n' "$$" >"$turn/supervisor.pid"
+printf '%s\n' "$$" >"$turn/worker.pid"
+out=$(fenv "$home" "$SJ" alarm-scan --once --now 5000 --threshold 900) || fail "w6: alarm-scan exited non-zero"
+printf '%s\n' "$out" | grep -qx 'dead sjended 1' || fail "w6: the ended worker must be settled, got: $out"
+case $out in *"alarm sjended"*) fail "w6: an ended worker must never be escalated, got: $out" ;; esac
+case $(fenv "$home" "$FA" queue) in *sjended*) fail "w6: the ended worker's request row must leave the queue" ;; esac
+grep -q "^$id1${tab}permission${tab}1000${tab}undeliverable${tab}" "$ended/journal" \
+  || fail "w6: the ended worker's receipt must be closed undeliverable, got: $(cat "$ended/journal")"
+case $out in *"dead sjbare"* | *"dead sjtorn"* | *"dead sjturn"*) fail "w6: settled what it must not, got: $out" ;; esac
+for w in sjbare sjtorn sjturn; do
+  printf '%s\n' "$out" | grep -q "^alarm $w $id1 " || fail "w6: $w must still be escalated, got: $out"
+done
+[ "$(pushes "$home")" = 3 ] || fail "w6: only the workers not known to be gone are pushed, pushed $(pushes "$home")"
+echo "ok: w6 an ended worker's pending request is settled like a dead one's, never escalated"

@@ -267,7 +267,8 @@
 #       pushes each overdue request once (the periodic form; the supervisor
 #       tick shares its mark) where a plain scan pushes on every call. A
 #       worker positively dead (every recorded pid dead through
-#       fleet-death-evidence.sh) is never escalated: nobody can answer what
+#       fleet-death-evidence.sh, or no pidfile left beside a complete result
+#       record, the run's recorded end) is never escalated: nobody can answer what
 #       it left, so its pending receipts are closed undeliverable, as a stop
 #       closes them, its request row is cleared from the queue, and the scan
 #       prints `dead <worker> <settled>`.
@@ -3369,11 +3370,33 @@ alarm_claim() {
   [ ! -e "$1/alarmed-$2" ] && [ ! -L "$1/alarmed-$2" ]
 }
 
+# result_snapshot <dir> — one read of the result record into rs_raw; 0 when
+# that snapshot is a complete record (the terminator rule cmd_status explains).
+result_snapshot() {
+  rs_raw=$(
+    head -c 4096 "$1/result" 2>/dev/null
+    printf x
+  )
+  rs_raw=${rs_raw%x}
+  case $rs_raw in
+    result"$TAB"*"$NL"* | exit"$TAB"*"$NL"*) return 0 ;;
+  esac
+  return 1
+}
+
 # worker_dead <dir> — 0 only on positive evidence that the worker is gone:
 # every pid it records (supervisor and worker) yields a dead verdict from
-# fleet-death-evidence.sh. No readable pidfile, or any verdict short of dead,
-# is not death: silence is never evidence.
+# fleet-death-evidence.sh, or its supervisor recorded the run's end (what
+# `status` reports as completed, ended or limited): neither pidfile is left
+# and a complete result record is. The supervisor removes its pidfiles only once its worker has
+# exited, so that pair is a record, not silence. No readable pidfile without
+# one, or any verdict short of dead, is not death: silence is never evidence.
 worker_dead() {
+  if [ ! -e "$1/supervisor.pid" ] && [ ! -L "$1/supervisor.pid" ] \
+    && [ ! -e "$1/worker.pid" ] && [ ! -L "$1/worker.pid" ] \
+    && [ ! -L "$1/result" ] && result_snapshot "$1"; then
+    return 0
+  fi
   wd_checked=0
   for wd_f in supervisor.pid worker.pid; do
     wd_pid=$(cat "$1/$wd_f" 2>/dev/null) || wd_pid=''
@@ -3467,15 +3490,9 @@ cmd_status() {
   # parses as subtype success, so stopping at the kind word calls a dead run
   # clean. Not the field count: a terminated two-field record is a shape
   # fleet-status.sh already renders completed.
-  st_raw=$(
-    head -c 4096 "$dir/result" 2>/dev/null
-    printf x
-  )
-  st_raw=${st_raw%x}
   st_seen=0
-  case $st_raw in
-    result"$TAB"*"$NL"* | exit"$TAB"*"$NL"*) st_seen=1 ;;
-  esac
+  ! result_snapshot "$dir" || st_seen=1
+  st_raw=$rs_raw
   st_line=${st_raw%%"$NL"*}
   if [ "$st_seen" = 1 ]; then
     # A persistent worker writes `result` at the end of every turn and stays

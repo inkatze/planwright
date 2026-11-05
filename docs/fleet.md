@@ -815,9 +815,10 @@ watcher runs it as `alarm-scan --once` on every pass: an overdue request
 becomes a high-priority queue item, is pushed once (the tick and `--once` share
 one mark per request; a plain scan pushes on every call), and wakes the
 mission-control session as a `pending-prompt-overdue` event. A worker that is
-positively dead is never escalated: what it left pending can no longer be
-answered, so the scan closes those receipts undeliverable, as a stop does,
-clears the request row it raised (a failure item stays), and prints
+positively dead, or whose run ended (no pid file left beside a complete result
+record), is never escalated: what it left pending can no longer be answered,
+so the scan closes those receipts undeliverable, as a stop does, clears the
+request row it raised (a failure item stays), and prints
 `dead <worker> <settled>`, which the session-keeper announces as a
 `stream-json-worker-dead` event. `answer` delivers the
 operator's recorded answer as the control_response; `recover` resumes a
@@ -2062,7 +2063,8 @@ keeps its new row; each clear is audited under the `attention-reconcile`
 mechanism. `fleet_daemon_pause` pauses the pass.
 The pass clears display rows only: a dead worker's pending stream-json
 receipts are the rung's to settle, which its `stop` does and so does the next
-`alarm-scan` once every pid the worker recorded is positively dead.
+`alarm-scan` once every pid the worker recorded is positively dead or its run
+has recorded its end.
 
 ## Resource governance: models, throttling, and the auto-mode line
 
