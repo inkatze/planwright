@@ -1,4 +1,4 @@
-import type { PanelDigest, PanelView } from '../../types'
+import type { PanelDigest, PanelFlight, PanelView } from '../../types'
 
 const PROGRAM = /^[a-z](?:[a-z0-9]|-(?=[a-z0-9])){0,63}$/
 const HANDLE = /^[A-Za-z0-9._=@:-]{1,128}$/
@@ -159,6 +159,45 @@ export function parseWake(text: string): { ids: string[]; text: string } | null 
   if (f[0] !== 'wake' || !f[2]) return null
   const ids = f[2].split(' ').filter(id => /^e[0-9]+\.[0-9a-f]+$/.test(id))
   return ids.length > 0 ? { ids, text: rest.join('\n') } : null
+}
+
+const KINDS = {
+  task: ['spec task', 'spec tasks'],
+  kickoff: ['spec kickoff', 'spec kickoffs'],
+  draft: ['spec draft', 'spec drafts'],
+  change: ['one-off change', 'one-off changes'],
+  review: ['review', 'reviews'],
+  mc: ['mission-control session', 'mission-control sessions'],
+  other: ['other session', 'other sessions'],
+} as const
+
+// What a session is doing, read from the shapes its launcher gives the
+// scope and handle; the operator sees this, never the scope or handle.
+export function flightKind(f: PanelFlight): keyof typeof KINDS {
+  const s = f.scope
+  if (/kickoff/.test(s)) return 'kickoff'
+  if (/^spec-draft/.test(s)) return 'draft'
+  if (/^flight[:-]/.test(s)) return 'change'
+  if (/(^|[:-])task-?[0-9]+$|:[0-9]+$/.test(s)) return 'task'
+  if (/review|cubic|copilot/.test(s)) return 'review'
+  if (/-mission-control-/.test(f.worker) || /^gen-[0-9]/.test(s)) return 'mc'
+  return 'other'
+}
+
+// The sessions in flight as counted plain lines, those waiting on an
+// answer first, then the largest groups.
+export function flightLines(flights: PanelFlight[]): string[] {
+  const groups = new Map<string, { kind: keyof typeof KINDS; isWaiting: boolean; n: number }>()
+  for (const f of flights) {
+    const kind = flightKind(f)
+    const key = `${f.isWaiting ? 0 : 1}/${kind}`
+    const g = groups.get(key)
+    if (g) g.n += 1
+    else groups.set(key, { kind, isWaiting: f.isWaiting, n: 1 })
+  }
+  return [...groups.values()]
+    .sort((a, b) => Number(a.isWaiting === false) - Number(b.isWaiting === false) || b.n - a.n)
+    .map(g => `${g.n} ${KINDS[g.kind][g.n === 1 ? 0 : 1]} ${g.isWaiting ? 'waiting for an answer' : 'working'}`)
 }
 
 export function age(seconds: number | null): string {

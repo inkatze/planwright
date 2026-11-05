@@ -13,12 +13,13 @@ test('the pane draws every store from the fixture digest, on every surface', asy
     const has = async (text: RegExp) => expect((await ui.find({ type: 'Text', text }))?.text).toMatch(text)
     await has(/Mission control · alpha/)
     await has(/In flight \(2\)/)
-    await has(/w-one {2}mission-control:alpha {2}stream-json/)
+    await has(/^1 spec task working$/)
+    await has(/^1 one-off change working$/)
     await has(/2 waiting on you/)
     await has(/relaunch w-one: relaunch/)
     await has(/Fuel · rung throttle/)
     await has(/tightest: polls_per_hour 72%/)
-    await has(/inbox\/inbox-watch\.sh stopped, next 40s overdue/)
+    await has(/^inbox stopped, next 40s overdue$/)
     await has(/code-state: forge snapshot, 90s old/)
     await has(/designs: none cited/)
     await has(/context 42% · five_hour 31%/)
@@ -31,6 +32,37 @@ test('the pane draws every store from the fixture digest, on every surface', asy
 })
 
 // REQ-F1.1: the stores change and the timer redraws with no turn.
+// The register: the operator's view carries no session handle, spec, task,
+// script or hash identifier, and repeats collapse into counts.
+test('sessions in flight are said in plain words, grouped into counts', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({
+      extra: [
+        'flight\tmc-alpha-worker-92e2ac1dd8\tflight-panel-fix\tstream-json-persistent\tworking',
+        'flight\tprose-task-5\tprose:task-5\tstream-json-persistent\twaiting',
+        'flight\tub-task-7\tuniversal-binary:task-7\tstream-json-persistent\tworking',
+        'flight\tkickoff-ub\tuniversal-binary:kickoff\tstream-json-persistent\tworking',
+        'flight\tmc-alpha-ad-hoc-3d062aa6a5\tspec-draft-mc-panel\tstream-json-persistent\twaiting',
+        'flight\t@7\toffload\ttmux\tworking',
+        'flight\tcop486\ttower-comms-task-8\tstream-json-persistent\tworking',
+      ],
+    }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '')
+  expect(texts).toContain('In flight (9)')
+  expect(texts).toContain('1 spec task waiting for an answer')
+  expect(texts).toContain('1 spec draft waiting for an answer')
+  expect(texts).toContain('3 spec tasks working')
+  expect(texts).toContain('2 one-off changes working')
+  expect(texts).toContain('1 spec kickoff working')
+  expect(texts).toContain('1 other session working')
+  const ids = /92e2ac1dd8|3d062aa6a5|@7|cop486|task-\d|:kickoff|stream-json|\.sh\b/
+  expect(texts.filter(t => ids.test(t))).toEqual([])
+  await ui.unmount()
+})
+
 test('the pane redraws from the stores on the timer, without a turn', async ($, on) => {
   const w = world(on)
   await boot($, w)

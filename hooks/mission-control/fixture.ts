@@ -30,7 +30,7 @@ export function digestText(
     tab('knob', 'handover-context', 70),
     tab('knob', 'handover-wakes', 3),
     tab('knob', 'handover-compactions', 2),
-    tab('flight', 'w-one', 'mission-control:alpha', 'stream-json', 'working'),
+    tab('flight', 'w-one', 'alpha:task-3', 'stream-json', 'working'),
     tab('flight', 'w-two', 'flight:docs', 'tmux', 'working'),
     tab('finished', o.finished ?? 0),
     tab('waiting', 2),

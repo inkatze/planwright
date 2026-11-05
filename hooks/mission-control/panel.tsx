@@ -1,7 +1,7 @@
 import type { Elements, RenderSurface } from 'claude-code'
 
 import type { PanelReviews, PanelView } from '../../types'
-import { age } from './digest'
+import { age, flightLines } from './digest'
 
 type Table = Elements[RenderSurface]
 
@@ -164,7 +164,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
         t,
         `In flight (${flightCount(view)})`,
         [
-          ...d.flights.map(f => `${f.worker}  ${f.scope}  ${f.backend}`),
+          ...flightLines(d.flights),
           ...(d.finished ? [`${d.finished} finished, not cleaned up`] : []),
         ],
         'Nothing in flight.',
@@ -192,7 +192,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
           ...(tight ? [`tightest: ${tight}`] : []),
           ...d.watchers
             .slice(0, WATCHERS_SHOWN)
-            .map(w => `${w.duty}/${w.script} ${w.state}, next ${w.next === null ? 'unknown' : age(w.next)}`),
+            .map(w => `${w.duty.replace(/-/g, ' ')} ${w.state}, next ${w.next === null ? 'unknown' : age(w.next)}`),
         ],
         'No budget computed yet.',
       )}
