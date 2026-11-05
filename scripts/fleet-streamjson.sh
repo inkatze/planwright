@@ -3372,7 +3372,10 @@ alarm_claim() {
 
 # result_snapshot <dir> — one read of the result record into rs_raw; 0 when
 # that snapshot is a complete record (the terminator rule cmd_status explains).
+# Only a regular file is read: opening a fifo would block the caller.
 result_snapshot() {
+  rs_raw=''
+  [ -f "$1/result" ] || return 1
   rs_raw=$(
     head -c 4096 "$1/result" 2>/dev/null
     printf x

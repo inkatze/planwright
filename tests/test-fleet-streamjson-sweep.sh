@@ -3,8 +3,10 @@
 # watches: the bare invocation (w1), `pending` on a dead worker (w2), the
 # `alarm-scan` sweep and its once-per-request push (w3), dead workers settled
 # rather than escalated (w4), per-session TMPDIRs a final close never crosses
-# (w5), and workers that ended normally settled like dead ones (w6). Each case's own comment says what it pins. Hermetic: every
-# fleet home is case-local and built by hand. Runs under /bin/bash (3.2).
+# (w5), workers that ended normally settled like dead ones (w6), and what is
+# not evidence of an end never read as one (w7). Each case's own comment says
+# what it pins. Hermetic: every fleet home is case-local and built by hand.
+# Runs under /bin/bash (3.2).
 set -u
 LC_ALL=C
 export LC_ALL
@@ -360,3 +362,33 @@ for w in sjbare sjtorn sjturn; do
 done
 [ "$(pushes "$home")" = 3 ] || fail "w6: only the workers not known to be gone are pushed, pushed $(pushes "$home")"
 echo "ok: w6 an ended worker's pending request is settled like a dead one's, never escalated"
+
+# ---------------------------------------------------------------------------
+# w7: what is not positive evidence of an end is never read as one: a
+#     `result` that is not a regular file is not a result record, and reading
+#     one (a fifo) must not hang the machine-wide sweep either.
+# ---------------------------------------------------------------------------
+home="$tmp/h7"
+piped="$home/streamjson/sjpiped"
+mkreq "$piped" "$id1" 1000
+mkfifo "$piped/result"
+(fenv "$home" "$SJ" alarm-scan --once --now 5000 --threshold 900 >"$tmp/w7.out" 2>&1) &
+w7_pid=$!
+n=0
+while kill -0 "$w7_pid" 2>/dev/null && [ "$n" -lt 100 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+if kill -0 "$w7_pid" 2>/dev/null; then
+  kill "$w7_pid" 2>/dev/null
+  : >"$piped/result" &
+  fail "w7: alarm-scan hung reading a result that is a fifo"
+fi
+wait "$w7_pid" || fail "w7: alarm-scan exited non-zero, got: $(cat "$tmp/w7.out")"
+out=$(cat "$tmp/w7.out")
+case $out in *"dead sjpiped"*) fail "w7: settled what it must not, got: $out" ;; esac
+for w in sjpiped; do
+  grep -q "${tab}pending\$" "$home/streamjson/$w/journal" || fail "w7: $w must stay pending"
+  printf '%s\n' "$out" | grep -q "^alarm $w $id1 " || fail "w7: $w must still be escalated, got: $out"
+done
+echo "ok: w7 a non-regular result is never read as the worker's end"
