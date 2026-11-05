@@ -385,7 +385,13 @@ export const register: Register = on => {
     if (!cleared) {
       await lastingFault($, 'activation', 'the activation could not be cleared: sessions started from here inherit it')
     }
-    await $.command.register({ name: 'mission-control', description: 'Open the mission-control panel' })
+    // A refused registration (a name the plugin already ships) must not
+    // skip the rest of this hook: the bring-up below starts every reading.
+    try {
+      await $.command.register({ name: 'mission-control', description: 'Open the mission-control panel' })
+    } catch (err) {
+      await lastingFault($, 'command', `the panel command could not be registered: ${oneLine(String(err))}`)
+    }
     await open($)
     $.clock.after(0, () => void bringUp($))
     return started

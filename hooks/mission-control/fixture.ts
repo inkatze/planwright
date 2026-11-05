@@ -124,6 +124,7 @@ export type Fixture = {
   isPlaced: boolean
   isDropped: boolean
   isEnvDenied: boolean
+  isCommandRefused: boolean
   contextPercent: number | undefined
   env: Record<string, string>
 }
@@ -144,6 +145,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     isPlaced: true,
     isDropped: false,
     isEnvDenied: false,
+    isCommandRefused: false,
     contextPercent: 42,
     env: { PLANWRIGHT_MC_PROGRAM: 'alpha' },
     ...given,
@@ -168,7 +170,10 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
-  on('command.register', () => ({ value: { command: 'mission-control' } }))
+  on('command.register', () => {
+    if (fx.isCommandRefused) throw new Error('refused')
+    return { value: { command: 'mission-control' } }
+  })
   on('ui.open', () => {
     w.opened += 1
     return { value: fx.isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'no-surface' } }
