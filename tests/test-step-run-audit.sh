@@ -26,16 +26,22 @@ SHOW="show|kind: command|target: $bin/show.sh"
 # rec <run> <point> <step> <outcome> [<head>]: one step record ending on the
 # head (default the worktree's).
 rec() {
-  _h=${5:-$(head_of)}
+  _h=${5:-$(head_of)} _skip=''
+  [ "$4" != skipped ] || _skip=1
   sr write --run "$1" --point "$2" --step "$3" --kind command --target "$bin/show.sh" \
     --hosting isolated --backend runner --head "$_h" --end-head "$_h" \
-    --start 2026-11-04T00:00:00Z --end 2026-11-04T00:01:00Z --outcome "$4" >/dev/null \
+    --start 2026-11-04T00:00:00Z --end 2026-11-04T00:01:00Z --outcome "$4" \
+    ${_skip:+--skip-code missing --skip-reason fixture} >/dev/null \
     || fail "fixture: the $3 record at $2"
 }
 done_at() { sr write --completion --run "$1" --point "$2" --head "${3:-$(head_of)}" >/dev/null || fail "fixture: the $2 completion"; }
 audit() {
   srun audit "$@" >"$tmp/audit" 2>"$tmp/audit.err"
   RC=$?
+}
+# forge <record> <head>: rewrite a record's head as a hand-edited cache would.
+forge() {
+  awk -F '\t' -v H="$2" 'BEGIN { OFS = FS } $1 == "head" { $2 = H } { print }' "$1" >"$1.new" && mv "$1.new" "$1"
 }
 commit() {
   printf '%s\n' "$1" >>"$wt/src/a.txt"
@@ -82,21 +88,34 @@ audit --through post-pr
 verdict $? "a commit after the last point's completion is stale there; an earlier point on an ancestor stands" \
   "rc $RC: $(cat "$tmp/audit")"
 
-# --- a merge from the base alone keeps the record fresh -------------------------
+# --- a merge of the base alone keeps the record fresh; any other merge does not --
 fresh
 catalog "$SHOW"
 config 'steps_convergence: [show]'
-git -C "$wt" checkout -q -b side
+git -C "$wt" checkout -q -b base-tip
 printf 'b\n' >"$wt/docs/b.txt"
-git -C "$wt" add -A && git -C "$wt" commit -q -m "docs: side"
+git -C "$wt" add -A && git -C "$wt" commit -q -m "docs: base moved"
+git -C "$wt" checkout -q -b other planwright/demo/task-1
+printf 'o\n' >"$wt/docs/o.txt"
+git -C "$wt" add -A && git -C "$wt" commit -q -m "docs: other feature"
 git -C "$wt" checkout -q planwright/demo/task-1
 r=$(sr new-run)
 rec "$r" convergence show applied
 done_at "$r" convergence
-git -C "$wt" merge -q --no-ff -m "merge: base" side
-audit --through post-pr
+git -C "$wt" merge -q --no-ff -m "merge: base" base-tip
+audit --through post-pr --base base-tip
 [ "$RC" -eq 0 ] && grep -qx "covered${TAB}convergence" "$tmp/audit"
-verdict $? "a merge commit alone after the last point keeps it fresh" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+verdict $? "a merge of the base alone after the last point keeps it fresh" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+audit --through post-pr
+[ "$RC" -eq 1 ] && grep -q "^gap${TAB}convergence${TAB}stale" "$tmp/audit"
+verdict $? "without --base no commit after the last point is trusted" "rc $RC: $(cat "$tmp/audit")"
+git -C "$wt" merge -q --no-ff -m "merge: other" other
+audit --through post-pr --base base-tip
+[ "$RC" -eq 1 ] && grep -q "^gap${TAB}convergence${TAB}stale" "$tmp/audit"
+verdict $? "a merge bringing in work the base lacks makes the last point stale" "rc $RC: $(cat "$tmp/audit")"
+audit --through post-pr --base no-such-ref
+[ "$RC" -eq 2 ]
+verdict $? "an unknown --base is a usage error" "rc $RC"
 
 # --- a failed step, and a later pass that supersedes it ---------------------------
 fresh
@@ -114,11 +133,47 @@ done_at "$r2" convergence
 audit --through post-pr
 [ "$RC" -eq 0 ]
 verdict $? "a later run that passes the step closes the gap" "rc $RC: $(cat "$tmp/audit")"
+r3=$(sr new-run)
+rec "$r3" convergence show failed
+done_at "$r3" convergence
+audit --through post-pr
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}failed${TAB}show:failed" "$tmp/audit"
+verdict $? "the newest attempt at a fresh head decides: a later failure outranks an earlier pass" \
+  "rc $RC: $(cat "$tmp/audit")"
+r4=$(sr new-run)
+rec "$r4" convergence show skipped
+done_at "$r4" convergence
+audit --through post-pr
+[ "$RC" -eq 0 ]
+verdict $? "a skipped record (a reuse or resume) covers its step" "rc $RC: $(cat "$tmp/audit")"
+r5=$(sr new-run)
+done_at "$r5" convergence
+audit --through post-pr
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}missing${TAB}show" "$tmp/audit"
+verdict $? "a completion whose run recorded no step does not borrow an earlier run's record" \
+  "rc $RC: $(cat "$tmp/audit")"
+
+# --- records are untrusted ----------------------------------------------------------
+fresh
+catalog "$SHOW"
+config 'steps_convergence: [show]'
+r=$(sr new-run)
+rec "$r" convergence show applied
+done_at "$r" convergence
+forge "$wt/.claude/steps/$r/002-done-convergence.rec" HEAD
+commit after-forgery
+audit --through post-pr
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}incomplete${TAB}-" "$tmp/audit"
+verdict $? "a completion naming a head outside commit-id form counts for nothing" "rc $RC: $(cat "$tmp/audit")"
+forge "$wt/.claude/steps/$r/002-done-convergence.rec" '/e*'
+audit --through post-pr
+! grep -q '/etc' "$tmp/audit"
+verdict $? "a head carrying a glob is never expanded" "$(cat "$tmp/audit")"
 
 # --- a completion on rewritten history does not count ----------------------------
 fresh
 catalog "$SHOW"
-config 'steps_convergence: [show]'
+config 'steps_convergence: [show]' 'steps_post_pr: [show]'
 commit before-rewrite
 gone=$(head_of)
 r=$(sr new-run)
@@ -126,9 +181,26 @@ rec "$r" convergence show applied "$gone"
 done_at "$r" convergence "$gone"
 git -C "$wt" reset -q --hard HEAD~1
 commit rewritten
+rec "$r" post-pr show passed
+done_at "$r" post-pr
 audit --through post-pr
-[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}stale${TAB}$gone" "$tmp/audit"
-verdict $? "a completion on a head the branch no longer contains is stale" "rc $RC: $(cat "$tmp/audit")"
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}stale${TAB}$gone" "$tmp/audit" \
+  && grep -qx "covered${TAB}post-pr" "$tmp/audit"
+verdict $? "an earlier point completed on a head the branch no longer contains is stale" "rc $RC: $(cat "$tmp/audit")"
+
+# --- --head names the head the audit judges ---------------------------------------
+fresh
+catalog "$SHOW"
+config 'steps_convergence: [show]'
+older=$(head_of)
+commit newer
+r=$(sr new-run)
+rec "$r" convergence show applied
+done_at "$r" convergence
+audit --through post-pr --head "$older"
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}stale${TAB}$(head_of)" "$tmp/audit" \
+  && grep -qx "audit${TAB}gaps${TAB}$older" "$tmp/audit"
+verdict $? "--head judges the named head, not the worktree's" "rc $RC: $(cat "$tmp/audit")"
 
 # --- an empty cadence, and a step the host cannot resolve --------------------------
 fresh
@@ -141,6 +213,13 @@ audit --through post-pr
 [ "$RC" -eq 0 ] && ! grep -q '^gap' "$tmp/audit"
 verdict $? "a step the adopter layer names that does not resolve here is skipped, not required" \
   "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+config
+mkdir -p "$wt/.claude"
+printf 'steps_convergence: [no-such-step]\n' >"$wt/.claude/planwright.yml"
+audit --through post-pr
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}missing${TAB}no-such-step" "$tmp/audit"
+verdict $? "a step that parks its point is still required" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+rm -f "$wt/.claude/planwright.yml"
 
 # --- usage ------------------------------------------------------------------------
 audit --through merge
