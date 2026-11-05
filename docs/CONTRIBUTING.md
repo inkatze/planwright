@@ -11,7 +11,10 @@ By contributing you agree your contributions are licensed under the project's
 [MIT license](../LICENSE) (inbound = outbound). Keep changes free of secrets,
 credentials, internal hostnames, or sensitive operational detail — committed
 artifacts (specs, briefs, the observations log, PR bodies) are held to the same
-data-hygiene bar, and CI runs a secret scan.
+data-hygiene bar, and CI runs a secret scan. The common archive and
+office-document types `.gitignore` lists are ignored repo-wide, so a stray one
+in a checkout stays out of `git add -A`; keep such files under
+`.claude/<name>.local/`, and add a genuine fixture with `git add -f`.
 
 ## Two sizes of change
 
@@ -54,6 +57,37 @@ the comprehension pass usually pays for itself.
 is what the customization-overlay seam is for (see
 [getting-started.md §4](getting-started.md)); baking local preferences into core
 makes it less general for everyone and pollutes the upstream observation stream.
+
+## Trying a branch in a fresh session
+
+To see what a newcomer sees with a branch's planwright (first-run setup
+included), start a session from a plain terminal, not from inside a planwright
+session, whose shell carries fleet and worker variables:
+
+```bash
+wt=/path/to/planwright-checkout   # the branch under test
+ov=$(mktemp -d) data=$(mktemp -d) mch=$(mktemp -d) repo=$(mktemp -d)
+printf 'mission_control_home_root: %s\n' "$mch" >"$ov/planwright.yml"
+git -C "$repo" init -q && cd "$repo"
+export PLANWRIGHT_ROOT="$wt" PLANWRIGHT_ADOPTER_OVERLAY="$ov" \
+  CLAUDE_PLUGIN_DATA="$data" PLANWRIGHT_FLEET_STATE_DIR="$data/fleet"
+"$wt/scripts/mc-config.sh" entry   # prints first-run
+claude --plugin-dir "$wt" \
+  --settings '{"enabledPlugins":{"planwright@planwright":false}}'
+```
+
+- **`--plugin-dir` does not replace an installed planwright.** Both load, the
+  checkout as `planwright@inline`, so two copies of every skill and hook would
+  run. The `--settings` override disables the installed one for this session
+  only; `claude plugin list --json`, given the same flags, shows which is
+  enabled.
+- **Each variable isolates one piece of state.** `PLANWRIGHT_ROOT` makes the
+  scripts resolve the checkout rather than an install; the empty adopter
+  overlay and plugin-data directory hide your own configuration, programs and
+  fleet; `mission_control_home_root` keeps the program's knowledge base out of
+  `~/.config/planwright/`. The fresh repository has no repo-side overlay.
+  `HOME` stays put, so the session keeps your sign-in.
+- **Clean up** with `rm -rf "$ov" "$data" "$mch" "$repo"`.
 
 ## The quality gate
 

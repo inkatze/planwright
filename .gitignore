@@ -27,6 +27,27 @@
 mise.local.toml
 .mise.local.toml
 
+# Binary drops: archives and office documents. Nothing of this kind is source
+# here, and one left untracked in a checkout is a single `git add -A` from
+# being published in this public repo. Keep such files under .claude/*.local/;
+# a genuine fixture is added with `git add -f`. The bracketed letters match
+# either case, since a case-sensitive checkout (core.ignoreCase=false) would
+# otherwise publish REPORT.PDF.
+*.[zZ][iI][pP]
+*.[tT][aA][rR]
+*.[tT][aA][rR].*
+*.[tT][gG][zZ]
+*.[gG][zZ]
+*.7[zZ]
+*.[rR][aA][rR]
+*.[pP][dD][fF]
+*.[dD][oO][cC]
+*.[dD][oO][cC][xX]
+*.[xX][lL][sS]
+*.[xX][lL][sS][xX]
+*.[pP][pP][tT]
+*.[pP][pP][tT][xX]
+
 # Linked git worktrees created by /orchestrate (design.md D-37). Working copies,
 # not source.
 .claude/worktrees/
