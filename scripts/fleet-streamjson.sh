@@ -3393,8 +3393,8 @@ result_snapshot() {
 # `status` reports as completed, ended or limited): neither pidfile is left
 # and a complete result record is. The supervisor removes its pidfiles only
 # once its worker has exited, so that pair is a record, not silence. No
-# readable pidfile without one, or any verdict short of dead, is not death:
-# silence is never evidence.
+# readable pidfile without one, a pidfile that records no pid, or any verdict
+# short of dead, is not death: silence is never evidence.
 worker_dead() {
   if [ ! -e "$1/supervisor.pid" ] && [ ! -L "$1/supervisor.pid" ] \
     && [ ! -e "$1/worker.pid" ] && [ ! -L "$1/worker.pid" ] \
@@ -3403,8 +3403,9 @@ worker_dead() {
   fi
   wd_checked=0
   for wd_f in supervisor.pid worker.pid; do
+    [ -e "$1/$wd_f" ] || [ -L "$1/$wd_f" ] || continue
     wd_pid=$(cat "$1/$wd_f" 2>/dev/null) || wd_pid=''
-    valid_posnum "${wd_pid:-}" || continue
+    valid_posnum "${wd_pid:-}" || return 1
     wd_checked=$((wd_checked + 1))
     /bin/sh "$FDE" process "$wd_pid" >/dev/null 2>&1 || return 1
   done

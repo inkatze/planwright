@@ -364,11 +364,16 @@ done
 echo "ok: w6 an ended worker's pending request is settled like a dead one's, never escalated"
 
 # ---------------------------------------------------------------------------
-# w7: what is not positive evidence of an end is never read as one: a
-#     `result` that is not a regular file is not a result record, and reading
-#     one (a fifo) must not hang the machine-wide sweep either.
+# w7: what is not positive evidence of an end is never read as one. A pid
+#     file that records no pid is not a dead pid, whatever the other file
+#     says, and a `result` that is not a regular file is not a result record;
+#     reading one (a fifo) must not hang the machine-wide sweep either.
 # ---------------------------------------------------------------------------
 home="$tmp/h7"
+garbled="$home/streamjson/sjgarbled"
+mkreq "$garbled" "$id1" 1000
+printf '%s\n' "$dead_pid" >"$garbled/supervisor.pid"
+printf 'not-a-pid\n' >"$garbled/worker.pid"
 piped="$home/streamjson/sjpiped"
 mkreq "$piped" "$id1" 1000
 mkfifo "$piped/result"
@@ -386,9 +391,9 @@ if kill -0 "$w7_pid" 2>/dev/null; then
 fi
 wait "$w7_pid" || fail "w7: alarm-scan exited non-zero, got: $(cat "$tmp/w7.out")"
 out=$(cat "$tmp/w7.out")
-case $out in *"dead sjpiped"*) fail "w7: settled what it must not, got: $out" ;; esac
-for w in sjpiped; do
+case $out in *"dead sjgarbled"* | *"dead sjpiped"*) fail "w7: settled what it must not, got: $out" ;; esac
+for w in sjgarbled sjpiped; do
   grep -q "${tab}pending\$" "$home/streamjson/$w/journal" || fail "w7: $w must stay pending"
   printf '%s\n' "$out" | grep -q "^alarm $w $id1 " || fail "w7: $w must still be escalated, got: $out"
 done
-echo "ok: w7 a non-regular result is never read as the worker's end"
+echo "ok: w7 a garbled pid file or a non-regular result is never read as the worker's end"
