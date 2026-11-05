@@ -40,6 +40,7 @@ trap cleanup EXIT
 # shellcheck source=tests/lib/mission-control-fixture.sh
 . "$here/lib/mission-control-fixture.sh"
 reset_mc_fixture
+write_mc_posture_pass
 cp "$repo_root/config/defaults.yml" "$core/config/defaults.yml"
 for p in worker tower mission-control; do
   cp "$repo_root/config/$p-settings.json" "$core/config/"

@@ -112,9 +112,17 @@ for s in converge-sync-main.sh release-publish.sh wire-githooks.sh fleet-dispatc
   [ "$(guard_says mission-control "bash $REPO_ROOT/scripts/$s")" = defer ] \
     && ok "mission-control mode leaves bash $s to the prompt" || fail "mission-control mode approves bash $s"
 done
-for s in mission-control-launch.sh mc-rules.sh fleet-streamjson.sh offload-dispatch.sh spec-status.sh; do
-  [ "$(guard_says mission-control "$REPO_ROOT/scripts/$s")" = allow ] \
-    && ok "mission-control mode approves $s" || fail "mission-control mode does not approve $s"
+# The approved verbs come from config/mission-control-verbs.txt, whose own
+# cases are tests/test-tower-command-guard.sh's; a script approved whole
+# before that list is now held to its listed verbs.
+for c in 'mission-control-launch.sh list' 'mc-rules.sh load alpha' 'mc-program.sh get alpha spec_root' \
+  'mc-duties.sh list' 'resolve-rule-doc.sh spec-format'; do
+  [ "$(guard_says mission-control "$REPO_ROOT/scripts/$c")" = allow ] \
+    && ok "mission-control mode approves $c" || fail "mission-control mode does not approve $c"
+done
+for c in 'fleet-streamjson.sh answer mc-alpha 1 yes' 'offload-dispatch.sh dispatch tmux b.md' 'spec-status.sh specs'; do
+  [ "$(guard_says mission-control "$REPO_ROOT/scripts/$c")" = defer ] \
+    && ok "mission-control mode leaves $c to the prompt" || fail "mission-control mode approves $c unprompted"
 done
 for c in 'mise run release' 'mise tasks run check' 'mise run check' 'git help status' 'git help --web status'; do
   [ "$(guard_says mission-control "$c")" = defer ] && ok "mission-control mode leaves '$c' to the prompt" \
@@ -124,10 +132,6 @@ done
   || fail "tower mode stopped approving mise run"
 [ "$(guard_says mission-control 'mise tasks ls')" = allow ] && ok "mission-control mode still approves a task listing" \
   || fail "mission-control mode stopped approving mise tasks ls"
-for s in mc-program.sh mc-duties.sh spec-validate.sh spec-graph.sh orchestrate-state.sh fleet-status.sh resolve-rule-doc.sh; do
-  [ "$(guard_says mission-control "$REPO_ROOT/scripts/$s")" = allow ] \
-    && ok "mission-control mode approves $s" || fail "mission-control mode does not approve $s"
-done
 [ "$(guard_says bogus "git status")" = defer ] && ok "an unknown guard mode approves nothing" \
   || fail "an unknown guard mode still approves"
 case $bash_cmds in

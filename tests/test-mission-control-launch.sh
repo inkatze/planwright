@@ -155,7 +155,7 @@ ml() {
   OUT=$(cd "$repo" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
     -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
     -u XDG_CONFIG_HOME -u TMUX -u TMUX_PANE -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
-    -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID -u PLANWRIGHT_TOWER_PID \
+    -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID -u PLANWRIGHT_TOWER_PID -u PLANWRIGHT_MC_TOKEN \
     PATH="$tmp/bin:$PATH" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="${ML_REPO_ROOT-$repo}" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \
     CLAUDE_DIR="$tmp/claude" HOME="$fixhome" PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
@@ -187,6 +187,11 @@ wait_done() {
 }
 
 printf '%s\n' "# Fixture brief" "" "Review the open pull requests." >"$tmp/brief.md"
+
+# The posture the launcher checks before every launch (REQ-G1.5).
+write_mc_posture_pass
+posture_layer="$fixhome/.claude/settings.json"
+cp "$posture_layer" "$tmp/posture-pass.json"
 
 # ---------------------------------------------------------------------------
 # REQ-D1.1, REQ-G1.1, REQ-M1.7, REQ-B1.4: every kind launches with its brief,
@@ -360,6 +365,24 @@ ml launch --program alpha --kind worker --scope spec:alpha-worker --brief "$tmp/
 # ---------------------------------------------------------------------------
 # Refusals: no profile, no tier, no program, a bad input.
 # ---------------------------------------------------------------------------
+# REQ-G1.5: a failing posture check refuses the launch before anything starts.
+jq '.permissions.deny |= .[1:]' "$tmp/posture-pass.json" >"$posture_layer"
+ml launch --program alpha --kind worker --scope posture-floor --brief "$tmp/brief.md"
+[ "$RC" = 4 ] && ok "a launch without the shipped deny floor is refused (exit 4)" || fail "a floor-less launch exited $RC: $ERR"
+case $ERR in *"posture check failed: the shipped deny floor is not in force"*) ok "the refusal gives the posture reason" ;; *) fail "the floor refusal does not say why: $ERR" ;; esac
+ml name --program alpha --kind worker --scope posture-floor
+[ ! -e "$fleet/mission-control/sessions/$OUT" ] && ok "the posture refusal left no registry row" || fail "the posture refusal left a row"
+jq 'del(.hooks)' "$tmp/posture-pass.json" >"$posture_layer"
+ml launch --program alpha --kind worker --scope posture-hooks --brief "$tmp/brief.md"
+[ "$RC" = 4 ] && ok "a launch whose guard hooks are not wired is refused (exit 4)" || fail "a hook-less launch exited $RC: $ERR"
+case $ERR in *"posture check failed: the guard hook"*"is not wired"*) ok "the refusal names the unwired hook" ;; *) fail "the hook refusal does not say why: $ERR" ;; esac
+cp "$tmp/posture-pass.json" "$posture_layer"
+rec="$tmp/rec-posture"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind worker --scope posture-floor --brief "$tmp/brief.md"
+[ "$RC" = 0 ] && ok "once the posture passes, the same launch goes through" || fail "the launch after a passing posture exited $RC: $ERR"
+wait_done "$(field name)"
+
 mv "$core/config/tower-settings.json" "$tmp/tower-settings.json"
 ml launch --program alpha --kind orchestrator --scope no-profile --brief "$tmp/brief.md"
 [ "$RC" = 4 ] && ok "a launch without its profile is refused (exit 4)" || fail "a profile-less launch exited $RC"
@@ -386,6 +409,7 @@ cp "$tmp/tracked.bak" "$tracked"
 # The allocation seam's own refusals keep their reasons.
 mkdir -p "$tmp/s3"
 cp -R "$repo_root/scripts" "$tmp/s3/scripts"
+mkdir -p "$tmp/s3/config" && cp "$repo_root/config/mission-control-settings.json" "$tmp/s3/config/"
 for code in 3 5; do
   printf '#!/bin/sh\nexit %s\n' "$code" >"$tmp/s3/scripts/allocation-apply.sh"
   LAUNCH="$tmp/s3/scripts/mission-control-launch.sh" ml launch --program alpha --kind worker --scope "seam-$code" --brief "$tmp/brief.md"
@@ -571,6 +595,7 @@ rm -rf "${fleet:?}/streamjson/$rf_name"
 # missing, exit 8) has nothing running, so the name is released.
 mkdir -p "$tmp/s8"
 cp -R "$repo_root/scripts" "$tmp/s8/scripts"
+mkdir -p "$tmp/s8/config" && cp "$repo_root/config/mission-control-settings.json" "$tmp/s8/config/"
 rm -f "$tmp/s8/scripts/fleet-dispatch-env.sh"
 LAUNCH="$tmp/s8/scripts/mission-control-launch.sh" ml launch --program alpha --kind reviewer --scope rung-fails-2 --brief "$tmp/brief.md"
 rf2_rc=$RC

@@ -83,7 +83,8 @@ of it; 2 usage, an invalid value, or a registry row or launch directory the
 launcher cannot read or write; 3 the name is held, or a launch or retire of
 it is in flight (launch), or there is no row, a launch or another retire of
 it is in flight, or the caller runs inside its window (retire); 4 a launch refused
-before it started: no readable profile, an unresolvable rung knob, no
+before it started: a failing posture check (scripts/mc-posture.sh), no
+readable profile, an unresolvable rung knob, no
 resolvable tier (an unreachable allocation store or a malformed tier knob),
 the admission gate withholding it, a broken allocation install, a program
 that is not configured, rules that would not render, or any other refusal by
@@ -362,6 +363,16 @@ cmd_launch() {
     *) die "--cwd must be an absolute path" ;;
   esac
   cwd=$(cd "$cwd" 2>/dev/null && pwd -P) || die "--cwd is not an existing directory"
+
+  # The posture the caller runs under, read the way the skill reads it at
+  # bring-up and on its failsafe tick; a failure refuses before anything is
+  # reserved or started.
+  posture=$(/bin/bash "$script_dir/mc-posture.sh" check </dev/null 2>&1)
+  case $? in
+    0) ;;
+    1) die "refusing to launch: the posture check failed: $(sanitize_printable "$(printf '%s\n' "$posture" | awk -F '\t' '$2 == "fail" { print $3; exit }')")" 4 ;;
+    *) die "refusing to launch: the posture check did not run: $(sanitize_printable "$posture")" 4 ;;
+  esac
 
   name=$(session_name "$program" "$kind" "$scope") || exit 2
   valid_name "$name" || die "the derived session name is outside the launcher's grammar"
