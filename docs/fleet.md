@@ -905,10 +905,13 @@ inside the worktree's (`worker-session-record.sh write --session`), because
 every session mission control launches from one checkout shares that
 worktree. A final close (`stop --final`, which a reap through
 `fleet-cleanup.sh process` and a mission-control retire make) removes it,
-taking that session's files alone; a worktree-wide root another stream-json
-worker still records (one launched before roots were per session) is left,
-and `fleet-cleanup.sh worktree` removes the whole root when it reclaims the
-worktree. The
+taking that session's files alone. A worker launched before roots were per
+session records the worktree-wide root, and its final close, on any rung,
+leaves that root while another stream-json worker records it or a root
+inside it, or a session's root sits in it; its first launch or `recover`
+under this version moves it to a fresh root of its own, its old files left in
+the worktree-wide one. `fleet-cleanup.sh worktree` removes the whole root
+when it reclaims the worktree. The
 journal survives as a file but not untouched — the close
 marks its still-`pending` receipts `undeliverable` and discards any spooled
 receipt, because a close
@@ -2055,9 +2058,9 @@ checkout is not judged on this checkout's specs. Each clear goes through
 `fleet-attention.sh clear --if-row`, so a worker that wrote since it was judged
 keeps its new row; each clear is audited under the `attention-reconcile`
 mechanism. `fleet_daemon_pause` pauses the pass.
-The pass clears display rows only: a dead headless worker's pending
-stream-json receipts stay for the rung's `stop` to settle, and until then
-`alarm-scan` can still re-queue a decision from them.
+The pass clears display rows only: a dead worker's pending stream-json
+receipts are the rung's to settle, which its `stop` does and so does the next
+`alarm-scan` once every pid the worker recorded is positively dead.
 
 ## Resource governance: models, throttling, and the auto-mode line
 
