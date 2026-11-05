@@ -98,6 +98,8 @@ mc_run fleet-state.sh register w-one mission-control:alpha --backend stream-json
 mc_run fleet-state.sh register w-dead flight:fix --backend stream-json --death-handle "process $dead_pid"
 mc_run fleet-state.sh register w-idle flight:done --backend stream-json --death-handle "process $$"
 mc_run fleet-state.sh register w-stuck flight:hung --backend stream-json --death-handle "process $$"
+mc_run fleet-state.sh register w-done flight:landed --backend stream-json --death-handle "process $$"
+mc_run fleet-state.sh register w-win flight:named-window --backend tmux --death-handle "tmux-window other w7"
 mc_run fleet-state.sh register w-print flight:once --backend print --death-handle none
 mc_run fleet-state.sh register w-tmux flight:tmux --backend tmux --death-handle "tmux-window mc @5"
 mc_run fleet-state.sh register w-tmux-gone flight:tmux-old --backend tmux --death-handle "tmux-window mc @9"
@@ -107,6 +109,8 @@ mc_run mc-event.sh emit --program alpha --now 1000 pr-ready pr-7
 # A live session whose observed name is `closed` (nine fields), and one
 # known only by a legacy three-field record.
 printf '900\tw-named\tflight:docs\t-\tstream-json\t-\tprocess %s\tclosed\t-\n900\tw-legacy\tflight:old\n' "$$" >>"$fleet/registry"
+# Hand-appended rows: an empty scope, and pid 1, which is never a worker.
+printf '900\tw-empty\t\t-\tstream-json\t-\tprocess %s\n900\tw-init\tflight:init\t-\tstream-json\t-\tprocess 1\n' "$$" >>"$fleet/registry"
 # w-one is parked on a question, w-idle went idle with its process still
 # up, w-stuck stopped responding. The dead w-dead's stale awaiting row
 # still counts in the operator queue, its own reader, but never puts w-dead
@@ -117,6 +121,7 @@ mkdir -p "$fleet/attention"
   printf 'w-dead\tflight:fix\tawaiting-input\t900\n'
   printf 'w-idle\tflight:done\tidle\t900\n'
   printf 'w-stuck\tflight:hung\thung\t900\n'
+  printf 'w-done\tflight:landed\tdone\t900\n'
 } >"$fleet/attention/state"
 # The tmux server lists window @5, its session since renamed, and not @9.
 # The other two stand for a server that does not answer and one not running.
@@ -159,11 +164,15 @@ record "a live session named closed stays in flight" flight w-named flight:docs 
 record "a live tmux window is in flight, found by its id in a renamed session" flight w-tmux flight:tmux tmux working
 record "a live session that stopped responding is in flight, stuck" flight w-stuck flight:hung stream-json stuck
 expect_no_out "a session gone idle is not in flight" "w-idle"
+expect_no_out "a session whose work is done is not in flight" "w-done"
+record "a tmux window named in its session is in flight" flight w-win flight:named-window tmux working
+record "an empty field keeps the columns" flight w-empty - stream-json working
+expect_no_out "pid 1 is never a live worker" "w-init"
 expect_no_out "a session whose process is gone is not in flight" "w-dead"
 expect_no_out "a tmux window the server does not list is not in flight" "w-tmux-gone"
 expect_no_out "a record with no process to watch is not in flight" "w-print"
 expect_no_out "a legacy three-field record is not in flight" "w-legacy"
-record "the rest are finished, not cleaned up" finished 5
+record "the rest are finished, not cleaned up" finished 7
 expect_no_out "a tmux server that answers is readable" "tmux windows"
 record "REQ-F1.1: what waits on the operator" waiting 2
 record "REQ-E1.3: the target's pending events" pending 1
@@ -190,23 +199,24 @@ record "the redraw cadence knob, in seconds" knob refresh 10
 record "the tick cadence knob, in seconds" knob tick 300
 record "the reviews TTL knob, in seconds" knob reviews-ttl 300
 record "D-29: the handover verb is installed" handover available
-record "REQ-F1.2: the text line" line "mission control alpha: 4 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
+record "REQ-F1.2: the text line" line "mission control alpha: 6 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "knobs only with --knobs" "knob${tab}"
 
 # The text form alone, as a session without the mod reads it.
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
 expect_rc "the line" 0
-expect_eq "REQ-F1.2: the line form, one line" "mission control alpha: 4 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
+expect_eq "REQ-F1.2: the line form, one line" "mission control alpha: 6 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
 PATH="$tmp/bin-down:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
 record "a tmux server that does not answer is unreadable" unreadable "tmux windows"
 expect_no_out "and none of its windows is in flight" "w-tmux"
-record "nor counted finished" finished 4
+record "nor counted finished" finished 6
+expect_out "and the count says it may be more" "4+ in flight"
 PATH="$tmp/bin-none:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "a tmux server not running is no fault" "tmux windows"
-record "and its windows are finished" finished 6
+record "and its windows are finished" finished 9
 PATH="$tmp/bin:$host_path"
 mv "$fleet/attention/state" "$fleet/attention/state.real"
 ln -s "$fleet/attention/state.real" "$fleet/attention/state"
@@ -272,6 +282,12 @@ record "a holder record naming an unknown kind is unreadable" unreadable "holder
 printf 'format\t1\nsession\tmc-alpha-gen-1\nkind\tregistry\nsince\tsoon\ngeneration\t2\n' >"$runtime/holder"
 mc_run mc-panel.sh digest --program alpha --now 1030
 record "a holder record outside its grammar is unreadable, never launched" holder -
+printf 'format\t1\nsession\tmc-alpha-gen-1\nkind\tattended\nkind\tregistry\nsince\t900\ngeneration\t2\n' >"$runtime/holder"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "the first kind line is the one read, as the handover script reads it" holder attended
+printf 'format\t1\nsession\tmc-alpha-gen-1\textra\nkind\tregistry\nsince\t900\ngeneration\t2\n' >"$runtime/holder"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "a field with a trailing column is outside the grammar" holder -
 printf 'format\t9\nkind\tregistry\n' >"$runtime/holder"
 mc_run mc-panel.sh digest --program alpha --now 1030
 record "a holder record of an unknown format is unreadable" unreadable "holder record"

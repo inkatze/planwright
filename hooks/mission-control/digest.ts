@@ -177,8 +177,8 @@ export function flightKind(f: Pick<PanelFlight, 'worker' | 'scope'>): keyof type
   const s = f.scope
   if (/^flight[:-]/.test(s)) return 'change'
   if (/(^|[:-])task-?[0-9]+(\.[0-9]+)*$|:[0-9]+(\.[0-9]+)*$/.test(s)) return 'task'
-  if (/(^|[:-])kickoff([:-]|$)/.test(s)) return 'kickoff'
   if (/^spec-draft/.test(s)) return 'draft'
+  if (/(^|[:-])kickoff([:-]|$)/.test(s)) return 'kickoff'
   if (/review|cubic|copilot/.test(s)) return 'review'
   if (/-mission-control-/.test(f.worker) || /^gen-[0-9]/.test(s)) return 'mc'
   return 'other'

@@ -69,9 +69,9 @@ Usage:
                                              responding; `-` for a field its
                                              record lacks
         finished<TAB><n>                     registry sessions not retired
-                                             and not seen live: gone, idle
-                                             or ended, or with nothing to
-                                             watch (rows of a tmux server
+                                             and not seen live: gone, idle,
+                                             ended or done, or with nothing
+                                             to watch (rows of a tmux server
                                              that does not answer are in
                                              neither count)
         waiting<TAB><n|->                    the operator queue's items, `-`
@@ -332,13 +332,13 @@ flights() {
     }
     NF == 4 {
       s = ($1 in st) ? st[$1] : ""
-      if (s == "idle" || s == "ended") { print "done"; next }
+      if (s == "idle" || s == "ended" || s == "done" || s == "merged" || s == "pr-ready") { print "done"; next }
       word = s == "awaiting-input" ? "waiting" : (s == "hung" ? "stuck" : "working")
       row = $1 "\t" $2 "\t" $3 "\t" word
-      if ($4 ~ /^process [1-9][0-9]*$/) { print "pid\t" substr($4, 9) "\t" row; next }
+      if ($4 ~ /^process [1-9][0-9]*$/) { print "pid\t" row "\t" substr($4, 9); next }
       if (split($4, h, " ") == 3 && h[1] == "tmux-window") {
         if (ENVIRON["T"] != "1") { print "unknown"; next }
-        seen = (h[3] ~ /^@/) ? (h[3] in id) : ((h[2] SUBSEP h[3]) in nm)
+        seen = (h[3] ~ /^@[0-9]+$/) ? (h[3] in id) : ((h[2] SUBSEP h[3]) in nm)
         print (seen ? "live\t" row : "done")
         next
       }
@@ -346,21 +346,23 @@ flights() {
     }')
   fl_live=''
   fl_done=0
-  while IFS="$TAB" read -r fl_k fl_a fl_b fl_c fl_d fl_e; do
-    case $fl_k in
+  fl_unknown=0
+  while IFS="$TAB" read -r fl_class_of fl_w fl_s fl_b fl_word fl_pid; do
+    case $fl_class_of in
       live)
-        fl_live="$fl_live$fl_a$TAB$fl_b$TAB$fl_c$TAB$fl_d
+        fl_live="$fl_live$fl_w$TAB$fl_s$TAB$fl_b$TAB$fl_word
 "
         ;;
       pid)
-        if [ "$fl_a" -gt 1 ] 2>/dev/null && kill -0 "$fl_a" 2>/dev/null; then
-          fl_live="$fl_live$fl_b$TAB$fl_c$TAB$fl_d$TAB$fl_e
+        if [ "$fl_pid" -gt 1 ] 2>/dev/null && kill -0 "$fl_pid" 2>/dev/null; then
+          fl_live="$fl_live$fl_w$TAB$fl_s$TAB$fl_b$TAB$fl_word
 "
         else
           fl_done=$((fl_done + 1))
         fi
         ;;
       done) fl_done=$((fl_done + 1)) ;;
+      unknown) fl_unknown=$((fl_unknown + 1)) ;;
     esac
   done <<EOF_ROWS
 $fl_class
@@ -369,6 +371,8 @@ EOF_ROWS
   [ -z "$fl_rows" ] || printf '%s\n' "$fl_rows"
   printf 'finished\t%s\n' "$fl_done"
   D_FLIGHT=$(printf '%s' "$fl_rows" | awk 'NF { n++ } END { print n + 0 }')
+  # Rows of a server that did not answer may be live: at least, never exactly.
+  [ "$fl_unknown" -eq 0 ] || D_FLIGHT="$D_FLIGHT+"
 }
 
 waiting() {
@@ -579,11 +583,11 @@ holder() {
   fi
   hd_kind=''
   if [ ! -L "$hd_f" ] && mc_format_ok "$hd_f"; then
-    hd_session=$(awk -F '\t' '$1 == "session" { print $2; exit }' "$hd_f")
-    hd_since=$(awk -F '\t' '$1 == "since" { print $2; exit }' "$hd_f")
-    hd_gen=$(awk -F '\t' '$1 == "generation" { print $2; exit }' "$hd_f")
+    hd_session=$(awk -F '\t' '$1 == "session" { print substr($0, length($1) + 2); exit }' "$hd_f")
+    hd_since=$(awk -F '\t' '$1 == "since" { print substr($0, length($1) + 2); exit }' "$hd_f")
+    hd_gen=$(awk -F '\t' '$1 == "generation" { print substr($0, length($1) + 2); exit }' "$hd_f")
     if mc_valid_handle "$hd_session" && mc_valid_uint "$hd_since" && mc_valid_uint "$hd_gen"; then
-      hd_kind=$(awk -F '\t' '$1 == "kind" { print $2; exit }' "$hd_f")
+      hd_kind=$(awk -F '\t' '$1 == "kind" { print substr($0, length($1) + 2); exit }' "$hd_f")
     fi
   fi
   case $hd_kind in

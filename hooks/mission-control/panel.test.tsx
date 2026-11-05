@@ -41,6 +41,7 @@ test('sessions in flight are said in plain words, grouped into counts', async ($
         'flight\tre-11-1\treview-effectiveness:task-11.1\tstream-json-persistent\tstuck',
         'flight\tkl-3\tkickoff-lifecycle:3\tstream-json-persistent\tworking',
         'flight\tfl-k\tflight:spec-kickoff-lens-fix\tstream-json-persistent\tworking',
+        'flight\tsd-k\tspec-draft-amend-kickoff-lifecycle\tstream-json-persistent\twaiting',
         'flight\tprose-task-5\tprose:task-5\tstream-json-persistent\twaiting',
         'flight\tub-task-7\tuniversal-binary:task-7\tstream-json-persistent\tworking',
         'flight\tkickoff-ub\tuniversal-binary:kickoff\tstream-json-persistent\tworking',
@@ -53,12 +54,12 @@ test('sessions in flight are said in plain words, grouped into counts', async ($
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '')
-  const at = texts.indexOf('In flight (12)')
+  const at = texts.indexOf('In flight (13)')
   expect(at).toBeGreaterThan(-1)
   // Waiting on an answer first, then not responding, each by group size.
   expect(texts.slice(at + 1, at + 9)).toEqual([
+    '2 spec drafts waiting for an answer',
     '1 spec task waiting for an answer',
-    '1 spec draft waiting for an answer',
     '1 spec task not responding',
     '4 spec tasks working',
     '3 one-off changes working',
@@ -72,6 +73,34 @@ test('sessions in flight are said in plain words, grouped into counts', async ($
 })
 
 // REQ-F1.1: the stores change and the timer redraws with no turn.
+test('with tmux unreadable the in-flight count is a floor, never exact', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({ extra: ['unreadable\ttmux windows'] }).replace(/^flight\t.*\n/gm, ''),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^In flight \(0\+\)$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Nothing in flight/ })).toBeUndefined()
+  await ui.unmount()
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toMatch(/^✈ alpha · 0\+ in flight · /)
+  await band.unmount()
+})
+
+test('repeated background checks collapse before the list is cut', async ($, on) => {
+  const watch = (script: string, duty: string) => `watcher\t${duty}\t${script}\trunning\t30`
+  const w = world(on, {
+    digest: digestText({
+      extra: ['a.sh', 'b.sh', 'c.sh', 'd.sh'].map(s => watch(s, 'reviews')).concat(watch('e.sh', 'deadline-watch')),
+    }).replace(/^watcher\tinbox.*\n/gm, ''),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^reviews running, next 30s \(×4\)$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^deadline watch running, next 30s$/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('the pane redraws from the stores on the timer, without a turn', async ($, on) => {
   const w = world(on)
   await boot($, w)

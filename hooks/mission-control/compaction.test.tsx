@@ -175,6 +175,17 @@ test('a handover shown in an attended session clears at the next reading', async
   await pane.unmount()
 })
 
+test('a holder record that cannot be read leaves a shown handover in place', async ($, on) => {
+  const w = world(on, { contextPercent: 90, digest: LAUNCHED })
+  await boot($, w)
+  w.set({ digest: digestText({ holder: '-', extra: ['unreadable\tholder record'] }) })
+  await w.clock.advance(10_000)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await pane.find({ type: 'Text', text: /^Handover due: context at 90%$/ })).toBeDefined()
+  await pane.unmount()
+  expect(ran(w, 'mc-event.sh', 'emit')).toHaveLength(1)
+})
+
 // D-29: an automatic compaction waits while a handover can run instead.
 test('a due handover defers an automatic compaction where the verb is installed', async ($, on) => {
   const w = world(on, { contextPercent: 80, digest: digestText({ holder: 'registry', extra: ['handover\tavailable'] }) })

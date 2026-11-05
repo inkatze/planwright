@@ -23,7 +23,9 @@ function headroomTight(view: PanelView): string | null {
 function flightCount(view: PanelView): string {
   const d = view.digest
   if (!d) return '?'
-  return d.unreadable.includes('fleet registry') ? '?' : String(d.flights.length)
+  if (d.unreadable.includes('fleet registry')) return '?'
+  // Windows of a tmux server that did not answer may hold more.
+  return d.unreadable.includes('tmux windows') ? `${d.flights.length}+` : String(d.flights.length)
 }
 
 function kbLine(view: PanelView): string {
@@ -167,7 +169,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
           ...flightLines(d.flights),
           ...(d.finished ? [`${d.finished} finished, not cleaned up`] : []),
         ],
-        'Nothing in flight.',
+        d.unreadable.includes('tmux windows') ? '' : 'Nothing in flight.',
       )}
       {Section(
         t,
@@ -191,10 +193,8 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
           ...(d.rung.reason ? [d.rung.reason] : []),
           ...(tight ? [`tightest: ${tight}`] : []),
           ...counted(
-            d.watchers
-              .slice(0, WATCHERS_SHOWN)
-              .map(w => `${w.duty.replace(/-/g, ' ')} ${w.state}, next ${w.next === null ? 'unknown' : age(w.next)}`),
-          ),
+            d.watchers.map(w => `${w.duty.replace(/-/g, ' ')} ${w.state}, next ${w.next === null ? 'unknown' : age(w.next)}`),
+          ).slice(0, WATCHERS_SHOWN),
         ],
         'No budget computed yet.',
       )}
