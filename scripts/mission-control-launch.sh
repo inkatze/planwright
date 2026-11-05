@@ -46,7 +46,7 @@ usage:
       --brief <file> [--rules <rule-scope>]... [--backend stream-json|tmux]
       [--cwd <abs-dir>]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
-  mission-control-launch.sh retire <name>
+  mission-control-launch.sh retire <name>|<worker>
   mission-control-launch.sh list
   mission-control-launch.sh kinds
 
@@ -74,14 +74,20 @@ be recorded is stopped. A mission-control session starts holding that token
 as PLANWRIGHT_MC_TOKEN, which no other kind is handed. A retire refuses a launch still in flight, closes the
 process or window first, and releases the fleet record, the attention row
 and the row only once it is gone; a window counts as closed only when tmux
-lists the windows and that one is not among them.
+lists the windows and that one is not among them. A session with no row
+(one an older planwright or /orchestrate launched, named by its worker
+handle) is retired through its stream-json runtime directory: the rung's
+final close, then its fleet record and attention row, over the classes
+process, registry and attention; with no such directory either, the
+refusal names the headless and tmux stops.
 
 Exit codes: 0 done; 1 the rung failed to start the session (or it started,
 could not be recorded, and was stopped), or it started or may have and could
 not be closed, so its row stays for a retire, or a retire released only part
 of it; 2 usage, an invalid value, or a registry row or launch directory the
 launcher cannot read or write; 3 the name is held, or a launch or retire of
-it is in flight (launch), or there is no row, a launch or another retire of
+it is in flight (launch), or there is neither a row nor a stream-json
+worker of that name, a launch or another retire of
 it is in flight, or the caller runs inside its window (retire); 4 a launch refused
 before it started: no readable profile, an unresolvable rung knob, no
 resolvable tier (an unreachable allocation store or a malformed tier knob),
@@ -632,14 +638,60 @@ release_pane() {
   return 0
 }
 
+# retire_unregistered <name> — retire a session this launcher holds no row
+# for: one an older planwright, /orchestrate or a hand launch started straight
+# on the stream-json rung. Its runtime directory is all there is to go on, so
+# the rung's own final close takes it, then the fleet registry marker under
+# the same handle and the attention row, as for a launched one. Without that
+# directory the refusal names the stop that applies.
+retire_unregistered() {
+  if [ -L "$FH/streamjson/$1" ] || [ ! -d "$FH/streamjson/$1" ]; then
+    die "no registered session and no stream-json worker is named $1; a headless worker closes with scripts/fleet-dispatch-headless.sh stop $1, a tmux window with tmux kill-window -t <window id>" 3
+  fi
+  name_lock "$1"
+  # A launch reserves its row under this same lock, so a row that appeared
+  # since the caller looked is a launch to leave alone.
+  if [ -e "$REG/$1" ] || [ -L "$REG/$1" ]; then
+    die "a launch of $1 is in flight" 3
+  fi
+  released='' held=''
+  st=$(/bin/sh "$script_dir/fleet-streamjson.sh" stop "$1" --final </dev/null 2>/dev/null)
+  case $st in
+    "stop $1 stopped "* | "stop $1 already-closed")
+      released=process
+      if release_fleet_entry "$1" "$1"; then
+        released="$released,registry,attention"
+      else
+        held=registry,attention
+      fi
+      ;;
+    *) held=process,registry,attention ;;
+  esac
+  name_unlock
+  if [ -z "$held" ]; then
+    printf 'retire\t%s\treleased\treleased=%s\theld=-\n' "$1" "$released"
+    return 0
+  fi
+  printf 'retire\t%s\tpartial\treleased=%s\theld=%s\n' "$1" "${released:--}" "$held"
+  return 1
+}
+
 cmd_retire() {
   [ "$#" -eq 1 ] || usage
   name=$1
-  valid_name "$name" || die "refusing the session name '$(sanitize_printable "$name")'"
+  if ! valid_name "$name"; then
+    valid_scope "$name" || die "refusing the session name '$(sanitize_printable "$name")'"
+    fleet_home
+    retire_unregistered "$name"
+    return
+  fi
   fleet_home
   row="$REG/$name"
   [ ! -L "$row" ] || die "refusing the registry row for $name: a symbolic link"
-  [ -f "$row" ] || die "no registered session is named $name" 3
+  [ -f "$row" ] || {
+    retire_unregistered "$name"
+    return
+  }
   name_lock "$name"
   [ -f "$row" ] || die "no registered session is named $name" 3
   row_check "$row"
