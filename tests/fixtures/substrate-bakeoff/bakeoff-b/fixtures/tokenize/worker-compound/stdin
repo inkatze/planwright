@@ -1,0 +1,1 @@
+cd "$wt" && ls -la scripts | head -3 && rg -n "tok_push" scripts/worker-command-guard.sh >/dev/null 2>&1; echo "done: $x"

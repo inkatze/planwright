@@ -1,0 +1,1 @@
+cat <<EOF && cat <<-X && cat <<<word

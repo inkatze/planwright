@@ -1,0 +1,3 @@
+W	0	0	-1	0	0	0	0	-	echo
+W	1	0	0	1	0	0	0	0	see $(cd .. && pwd)
+S	0	cd .. && pwd

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Build the Rust candidate's two binaries into out/ with rustc alone: no
+# crate is used, so no Cargo manifest or lockfile exists. Needs `rustc` on
+# PATH (the bake-off README names the pinned toolchain). On Linux the C
+# runtime is linked statically, matching Go's static output; a musl host
+# links statically by default, and macOS has no static libSystem to link.
+set -eu
+cd "${0%/*}"
+mkdir -p out
+static=''
+[ "$(uname -s)" = Linux ] && static='-C target-feature=+crt-static'
+for p in tokenize ready; do
+  # shellcheck disable=SC2086 # $static is zero or two words on purpose
+  rustc --edition 2021 -C opt-level=3 -C strip=symbols -C panic=abort $static -o "out/$p" "src/$p.rs"
+done
