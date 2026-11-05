@@ -1,7 +1,7 @@
 # Human gates — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-11-04
+**Status:** Ready
+**Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -265,16 +265,19 @@ profile, skill, and doc restates one list instead of carrying its own.
 - **REQ-C1.9** (supersedes REQ-C1.5) The flip under `unit-owner` SHALL be
   performed by `/execute-task`'s convergence run, or by a review skill only
   when `/execute-task` delegates its terminal step to it, directly or
-  through the REQ-D1.4 merge helper it calls; a standalone review-skill run
-  SHALL NOT flip. The tower profile, which the orchestrator tier runs under,
-  SHALL keep its flip deny regardless of the policy value. An attended
-  session with no tier profile is outside the policy guard's jurisdiction
+  through the REQ-D1.4 merge helper it calls, or by a mission-control
+  session for any PR of the repository whose checkout it runs in, under
+  mission-control REQ-I1.2; a standalone review-skill run SHALL NOT flip.
+  The tower profile, which the orchestrator tier runs under, SHALL keep its
+  flip deny regardless of the policy value. An attended session with no
+  tier profile is outside the policy guard's jurisdiction
   for the flip, where the ready-guard stays the floor. `/spec-kickoff`'s
   spec-PR flip SHALL run either there or in a relayed kickoff session under
   the kickoff profile, where the policy guard admits only the flip of the
   PR for the spec branch its launch record names (REQ-G1.9) and the
   ready-guard stays the floor too.
-  *(Cites: D-4, D-9, D-18; mission-control D-36 (Sources).)*
+  *(Cites: D-4, D-9, D-18; mission-control D-36 and REQ-I1.2 (Sources);
+  kickoff amendment lens pass (2026-11-04).)*
 - **REQ-C1.6** `mark_spec_pr_ready_on_kickoff` SHALL be documented as the
   spec-PR instance of the same policy kind and SHALL keep its own knob; this
   bundle SHALL NOT change its default.
@@ -480,6 +483,8 @@ profile, skill, and doc restates one list instead of carrying its own.
   acts, each expecting `prompt` from both profiles.
   *(Cites: D-9; obs:518be7dd; kickoff §3 REQ-G (2026-09-22); kickoff sign-off
   lens pass (2026-09-22).)* *(Amended at kickoff amendment 2026-10-01: the `gh api` spellings.)*
+  **Superseded-by: REQ-G1.10** (2026-11-04) — a third profile, and the
+  kickoff tier's exception for a plain push of its own spec branch.
 - **REQ-G1.2** Enforcement SHALL follow the resolved policy for the tier: a
   profile SHALL NOT deny an act the resolved policy permits for that tier, a
   deny-emitting guard SHALL refuse an act the policy forbids, and a policy
@@ -549,23 +554,57 @@ profile, skill, and doc restates one list instead of carrying its own.
   *(Cites: D-9; the operator's `gh api` request (Sources).)*
 - **REQ-G1.9** A relayed kickoff session, launched under the kickoff
   profile with a launch record naming one spec branch, SHALL be admitted by
-  the policy guard to exactly three acts: a plain push of that branch to the
-  repository its spec root's posture names, opening that branch's PR as a
-  draft, and that PR's ready flip when `mark_spec_pr_ready_on_kickoff`
-  resolves true. The guard SHALL deny that session a force push in every
-  spelling, a branch deletion, a rewrite of that branch, a non-draft PR
-  creation, and a push of any other branch, and SHALL deny it every push
-  when the launch record is absent, unreadable, or names no branch matching
-  `planwright/<spec>/spec`, or when the posture provides no push. The launch
-  record SHALL be written before the session starts, outside every path
-  that session can write. The kickoff profile SHALL keep every REQ-G1.3
-  floor entry except the plain-push denies of a spec branch, which become
-  guard-only for that tier, and SHALL be a profile the REQ-G1.1 cross-copy
-  test drives. The core protected floor (REQ-F1.5) SHALL stay unchanged for
-  every other tier, mission control's included, and the admission SHALL
-  grant no sign-off: the kickoff's sign-off stays a human gate.
+  the policy guard, among pushes and PR writes, to exactly three acts: a
+  plain push of that branch to the repository its spec root's posture
+  names, opening that branch's PR in that repository as a draft, and the
+  ready flip of that PR when `mark_spec_pr_ready_on_kickoff` resolves true.
+  "That repository" SHALL mean a configured remote whose push URL is the
+  posture's repository; a URL or path given in place of a remote name, a
+  fork, and the program-running push options (`--receive-pack`, `--exec`)
+  SHALL be denied. "That PR" SHALL mean the PR whose head is that branch
+  in that repository, never a fork's same-named branch. The guard SHALL
+  deny that session a force push in every spelling, a branch deletion, a
+  rewrite of that branch, a non-draft PR creation, the flip when the knob
+  resolves false, the flip of any other PR, a push of a tag or other
+  non-branch ref, and a push of any other branch in any refspec position,
+  and SHALL deny it every push when the launch record is absent,
+  unreadable, names no branch matching `planwright/<spec>/spec`, or is not
+  bound to the running session, or when the posture provides no push. The
+  launch record SHALL be written before the session starts, outside every
+  path that session can write by any tool, SHALL be bound to that one
+  session, and SHALL be removed when the session retires, so a leftover
+  record admits nothing. The kickoff profile SHALL keep every deny the
+  worker profile carries except the profile's denies of a plain push whose
+  destination is a spec branch, which become guard-only for that tier; it
+  SHALL keep a deny for every spec-branch deletion spelling a profile can
+  express; and it SHALL be a profile the REQ-G1.10 cross-copy test drives.
+  The core protected floor (REQ-F1.5) SHALL stay unchanged for every other
+  tier, mission control's included, and the admission SHALL grant no
+  sign-off: the kickoff's sign-off stays a human gate.
   *(Cites: D-18; mission-control D-36 and REQ-I1.8 (Sources); the
-  operator's relayed-kickoff decision (Sources).)*
+  operator's relayed-kickoff decision (Sources); kickoff amendment lens
+  pass (2026-11-04).)*
+- **REQ-G1.10** (supersedes REQ-G1.1) One shared fixture list of
+  reserved-control spellings — merge in every form including `git pull`,
+  the draft→ready flip and its undo, every force-push and refspec form
+  reaching a protected ref, amend, squash, fixup, rebase, and the MCP
+  equivalents — SHALL be tested against every guard copy and deny profile
+  the repository ships; the cross-copy test is the enumeration, and a copy
+  the test does not drive is a defect. Each fixture line SHALL carry the
+  spelling, its act, the tier, the policy value, and the expected verdict
+  per copy (deny, defer, or outside that copy's jurisdiction, since an
+  allow-only copy defers what it does not recognise): floor lines expect
+  deny from every copy in jurisdiction and from every profile, including
+  the `master` and spec-branch forms, with one exception: a plain push of a
+  spec branch is a floor line for every tier but the kickoff tier, whose
+  profile defers it and whose policy-guard lines expect the REQ-G1.9
+  verdicts (admitted for the launch record's branch, denied for any other).
+  Policy lines expect the verdict the resolved value yields. The list SHALL
+  also carry the `gh api` spellings of REQ-G1.7 and REQ-G1.8: the
+  classified acts, the forms the policy guard cannot read, and readable
+  requests outside those acts, each expecting `prompt` from every profile.
+  *(Cites: D-9, D-18; obs:518be7dd; kickoff §3 REQ-G (2026-09-22); kickoff
+  amendment lens pass (2026-11-04).)*
 
 ## REQ-H — Prose surfaces
 
@@ -635,7 +674,17 @@ profile, skill, and doc restates one list instead of carrying its own.
   mission-control Task 31: REQ-A1.6 minted for the spec-branch push row,
   REQ-C1.9 superseding REQ-C1.5 so the spec-PR flip may run in a relayed
   kickoff session, REQ-G1.9 for that session's narrow admission; D-18 and
-  Task 13 added. The bundle reopens Ready→Draft for a scoped kickoff.
+  Task 13 added, with the in-scope and out-of-scope bullets, two Sources
+  entries, and the decision-domains walk extended. The bundle reopens
+  Ready→Draft for a scoped kickoff.
+- 2026-11-04 — Scoped kickoff of that extension: its lens pass tightened
+  REQ-G1.9 (the remote, the PR, refspec positions, tags, the knob-false
+  flip, the record's session binding and removal, the profile's deletion
+  denies), minted REQ-G1.10 superseding REQ-G1.1 for the kickoff profile's
+  fixture exception, added the mission-control flip clause to REQ-C1.9,
+  repointed the pending supersede pointers to REQ-C1.9, and routed the
+  missing kickoff-tier cases to mission-control Task 19 as a Deferred item;
+  the details are in `kickoff-brief.md`'s amendment log.
 
 ## Sources
 
@@ -731,11 +780,13 @@ profile, skill, and doc restates one list instead of carrying its own.
   policy and deny any `gh api` request it cannot read, walked in this
   bundle's 2026-10-01 kickoff amendment; the fixture lines pinning those
   spellings landed in <https://github.com/inkatze/planwright/pull/529>.
-- **mission-control D-36, REQ-I1.8, and Task 31**
+- **mission-control D-36, REQ-I1.8, and Tasks 19 and 31**
   (`specs/mission-control/`, signed off in
   <https://github.com/inkatze/planwright/pull/827>): the kickoff permission
-  profile for relayed kickoffs, and the routed amendment of this bundle it
-  waits on.
+  profile for relayed kickoffs, the task that builds it, and the routed
+  amendment of this bundle it waits on. Its REQ-I1.2 is the
+  mission-control tier's flip policy the doctrine's `unit-owner` row
+  names.
 - **the operator's relayed-kickoff decision** — no external locator: the
   operator chose on 2026-11-04, in the mission-control extension's kickoff,
   that a relayed kickoff publishes its own result under a kickoff profile

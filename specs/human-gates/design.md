@@ -1,7 +1,7 @@
 # Human gates — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-11-04
+**Status:** Ready
+**Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -362,7 +362,9 @@ verdict per copy (deny, defer, or outside that copy's jurisdiction; floor
 lines deny from every copy in jurisdiction and from both profiles; policy
 lines deny or defer as the resolved value dictates), and one test drives it
 through the tower queue's reserved-control check, the ready-guard, both
-command guards, both profiles, and the policy guard. Every script this
+command guards, both profiles, and the policy guard. The kickoff profile
+joins them as a third profile with one tier-scoped floor exception (D-18,
+REQ-G1.10). Every script this
 bundle adds sources `scripts/echo-safety.sh` and validates identifiers
 before use.
 
@@ -662,21 +664,29 @@ block; a worker never performs a kickoff, which is a human gate.
 **Decision:** Under the gate test, a plain push of a spec branch is not a
 human gate: it appends to history, ships nothing, and approves nothing,
 which is why pushing an owned unit branch is already a composition
-contract. It becomes one here too, owned by `/spec-kickoff`. The kickoff's
+contract. The spec-branch push becomes a composition contract too, owned
+by `/spec-kickoff`. The kickoff's
 sign-off before the push stays a human gate, as does rewriting a spec branch
 (REQ-F1.5). The protected set is not shrunk: `planwright/*/spec` stays in
 the core floor, and the policy guard admits one exception for one tier.
 A session running under the kickoff profile may plain-push the single spec
 branch its launch record names, open that branch's PR as a draft, and flip
-it under `mark_spec_pr_ready_on_kickoff`. Everything else stays denied: a
-force push, a deletion, a rewrite, any other branch, a non-draft PR, and
-every push when the record is missing or unreadable or names no conforming
-branch. The record is trusted only because the session cannot write it.
+it under `mark_spec_pr_ready_on_kickoff`, all in the repository its spec
+root's posture names, reached through a configured remote, never a URL or
+a fork. Everything else stays denied: a force push, a deletion, a rewrite,
+any other branch in any refspec position, a tag, a non-draft PR, the flip
+of another PR or with the knob off, and every push when the record is
+missing, unreadable, names no conforming branch, or belongs to another
+session. The record is trusted only because the session cannot write it by
+any tool, and it is bound to one session and removed at its retirement, so
+a relaunch or a concurrent kickoff never inherits another's admission.
 Since a profile deny cannot be narrowed by an allow, the kickoff profile
-drops its plain-push denies of spec branches. For that tier only, that push
+drops the worker profile's denies of a plain push to a spec branch, keeping
+the deletion spellings it can still express. For that tier only, that push
 moves from the profile floor to the guard, as the floor entries a profile
-cannot express already have (REQ-G1.3). Every other tier keeps the profile
-deny. The launcher kind, the profile, the record, and the guard code belong
+cannot express already have (REQ-G1.3), and the cross-copy fixture's floor
+lines gain the one tier-scoped exception (REQ-G1.10). Every other tier
+keeps the profile deny. The launcher kind, the profile, the record, and the guard code belong
 to mission-control D-36. This bundle states only the floor they must meet.
 
 **Alternatives considered:**
@@ -713,6 +723,9 @@ leaves every human gate where the gate test puts it.
   markers (D-16), cross-bundle record hygiene (D-17).
   Touched, not decided here: concurrency between a policy change and a guard
   read mid-session is accepted as last-write-wins at PreToolUse time.
+  Touched and decided: concurrency between relayed kickoff sessions, one
+  launch record per session, bound to it and removed at its retirement
+  (D-18).
 - **Instruction budget.** Every skill prose change is measured by
   `check-instructions.sh`; a change that grows a saturated surface is
   reworked as a citation, never landed over budget.

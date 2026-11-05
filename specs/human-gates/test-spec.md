@@ -1,7 +1,7 @@
 # Human gates — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-11-04
+**Status:** Ready
+**Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -179,12 +179,16 @@ the helper (Task 6, Task 7).
 
 ### REQ-C1.9 — Worker-only, plus the relayed kickoff's spec-PR flip [test]
 
-Every REQ-C1.5 case holds unchanged (Task 6, Task 7). The kickoff-tier
-cases ship with mission-control's kickoff-kind task: in
+Every REQ-C1.5 case holds unchanged (Task 6, Task 7), and the mission-control
+tier's flip cases stay mission-control's. The kickoff-tier cases ship with
+mission-control Task 19, routed there by this bundle's Deferred item "The
+kickoff-tier cases in mission-control Task 19": in
 `tests/test-policy-guard-mission-control.sh`, run by `mise run check`, the
-flip of the spec PR whose head is the launch record's branch passes the
-policy guard, and the flip of any other PR is denied under the kickoff
-profile.
+flip of the spec PR whose head is the launch record's branch in the
+posture's repository passes the policy guard when
+`mark_spec_pr_ready_on_kickoff` resolves true and is denied when it
+resolves false, and the flip of any other PR, a fork's same-named branch
+included, is denied under the kickoff profile.
 
 ### REQ-C1.6 — The spec-PR knob [design-level]
 
@@ -347,7 +351,7 @@ host call in the guard's stubbed call log (Task 4, Task 5, Task 6).
 
 ## REQ-G — Guards and profiles
 
-### REQ-G1.1 — One spelling list, every copy [test]
+### REQ-G1.1 — One spelling list, every copy [test] (superseded by REQ-G1.10)
 
 The cross-copy test drives the fixture file through every guard copy and
 both profiles and fails on any line whose verdict for that copy differs
@@ -419,20 +423,37 @@ line with no tier profile, and a deny message naming its remedy (Task 6).
 
 ### REQ-G1.9 — The relayed kickoff's one-branch admission [test]
 
-The cases ship with mission-control's kickoff-kind task (its D-36), in
-`tests/test-policy-guard-mission-control.sh` and
+The cases ship with mission-control Task 19 (its D-36), routed there by
+this bundle's Deferred item "The kickoff-tier cases in mission-control
+Task 19", in `tests/test-policy-guard-mission-control.sh` and
 `tests/test-permission-matcher.sh`, run by `mise run check`, plus kickoff
-profile lines in the REQ-G1.1 cross-copy fixture. A fixture kickoff session
-plain-pushes its record's spec branch and opens its draft PR with no
-prompt. A force push (`--force`, `--force-with-lease`, a `+` refspec), a
-deletion (`--delete`, `:<branch>`), a rewrite, a non-draft PR, and a push
-of another spec branch, a task branch, or `main` are each denied with the
-guard's reason line. A session with no launch record, or one naming no
-conforming branch, is denied every push, as is a push under a posture
-providing none. A worker-tier and a mission-control-tier push to the same
-spec branch keep their pre-amendment verdict. A grep of the kickoff
-profile finds every REQ-G1.3 floor entry other than the spec-branch
-plain-push denies.
+profile lines in the REQ-G1.10 cross-copy fixture. A fixture kickoff
+session plain-pushes its record's spec branch to the posture's remote and
+opens its draft PR with no prompt. Each of these is denied with the
+guard's reason line: a force push (`--force`, `--force-with-lease`, a `+`
+refspec); a deletion (`--delete`, `:<branch>`); a rewrite; a non-draft PR;
+a push of another spec branch, a task branch, or `main`, as a plain name
+or a destination (`HEAD:planwright/<other>/spec`,
+`planwright/<spec>/spec:main`); a two-refspec push pairing the record's
+branch with a task branch; a tag push; a push to a URL, a path, or a
+remote whose push URL is not the posture's repository; and a push carrying
+`--receive-pack` or `--exec`. A session with no launch record, one naming
+no conforming branch, or one whose record is bound to another session is
+denied every push, as is a push under a posture providing none. A
+worker-tier and a mission-control-tier push to the same spec branch keep
+their pre-amendment verdict. A grep of the kickoff profile finds every
+worker-profile deny other than the spec-branch plain-push denies, and a
+deny for the spec-branch deletion spellings.
+
+### REQ-G1.10 — One spelling list, every profile [test]
+
+Every REQ-G1.1 case holds unchanged for the worker and tower profiles
+(Task 5, Task 6). With mission-control Task 19, the cross-copy test drives
+the kickoff profile too: its spec-branch plain-push lines expect defer from
+that profile and the REQ-G1.9 verdicts from the policy guard's kickoff
+tier, every other floor line expects deny from it, and a floor line
+expecting anything but deny from the worker or tower profile still fails
+the test.
 
 ## REQ-H — Prose surfaces
 

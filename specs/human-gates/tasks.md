@@ -1,7 +1,7 @@
 # Human gates — Tasks
 
-**Status:** Draft
-**Last reviewed:** 2026-11-04
+**Status:** Ready
+**Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -387,18 +387,21 @@ every surface it restates exists.
   composition-contract row REQ-A1.6 states (pushing a spec branch and
   opening its draft PR, owned by `/spec-kickoff`, attended or as a relayed
   kickoff session writing only the spec branch its launch record names),
-  and its Citations line naming REQ-A1.6, REQ-C1.9, REQ-G1.9, and D-18;
+  and its Citations line naming REQ-A1.6, REQ-C1.9 in place of REQ-C1.5,
+  REQ-G1.9, REQ-G1.10 in place of REQ-G1.1, and D-18;
   `tests/test-human-gates-doctrine.sh` asserting the row with a
-  fixed-string check.
+  fixed-string check, its doc path made overridable so a fixture copy can
+  be checked.
 - **Done when:** the doctrine test's kind check passes with the new row,
   and its fixed-string check finds the row naming `/spec-kickoff`, the
   relayed kickoff session, and the one spec branch its launch record names,
-  failing on a fixture copy of the doc without the row; the "Rewriting
-  main, a protected branch, or a spec branch" row is byte-identical to the
-  merge-base; `check-instructions.sh` reports no surface over budget;
+  failing on a fixture copy of the doc without the row; a fixed-string
+  check finds the "Rewriting main, a protected branch, or a spec branch"
+  row with its Human gate kind and its "no tier under any value" scope
+  unchanged; `check-instructions.sh` reports no surface over budget;
   `mise run check` passes.
 - **Dependencies:** none
-- **Citations:** D-18 · REQ-A1.6, REQ-C1.9, REQ-G1.9
+- **Citations:** D-18 · REQ-A1.6, REQ-C1.9, REQ-G1.9, REQ-G1.10
 - **Estimated effort:** 2 hours
 
 ## Awaiting input
@@ -419,6 +422,18 @@ every surface it restates exists.
   workflow argument, and its tests go. Confidence: high.
   **Gate:** GATE(when: task 3 completed and after 2026-11-15).
   Citations: D-3 · REQ-B1.4.
+- **The kickoff-tier cases in mission-control Task 19.** Task 19 builds the
+  kickoff profile, launch record, and guard admission this bundle's
+  REQ-G1.9 and REQ-G1.10 bound, but its Done-when omits several of their
+  cases: the non-draft PR, the rewrite, the remote and fork binding, the
+  refspec-position and tag pushes, the record's session binding and
+  removal, the posture with no push, the knob-false flip, the flip of
+  another PR, the profile's deletion denies, and the cross-copy fixture's
+  kickoff column. A routed mission-control amendment SHALL add them to
+  Task 19's Done-when and cite REQ-C1.9, REQ-G1.9, and REQ-G1.10 before
+  Task 19 is dispatched; an observation routes it. Confidence: high.
+  **Gate:** GATE(when: task 13 completed).
+  Citations: D-18 · REQ-C1.9, REQ-G1.9, REQ-G1.10.
 
 - **Supersede pointers into tower-front-door.** The Task 12 survey
   (2026-10-18) found records there still stating a rule this bundle changed,
@@ -471,7 +486,7 @@ every surface it restates exists.
 - **Supersede pointers into tower-placement.** The Task 12 survey
   (2026-10-18) found records there still stating a rule this bundle changed,
   and the bundle derived Active, so the pointers wait for its own amendment
-  rather than change its anchor: `**Superseded-by: REQ-C1.5 (human-gates)**
+  rather than change its anchor: `**Superseded-by: REQ-C1.9 (human-gates)**
   (<date>)` on REQ-G1.1, scoped to the flip as a reserved control, and
   `**Superseded-by: REQ-F1.1, REQ-F1.2 (human-gates)** (<date>)` on
   REQ-G1.3, with a dated `## Changelog` entry naming it, landed by a
@@ -482,7 +497,7 @@ every surface it restates exists.
 - **Supersede pointers into merge-currency-guard.** The Task 12 survey
   (2026-10-18) found records there still stating a rule this bundle changed,
   and the bundle derived Active, so the pointers wait for its own amendment
-  rather than change its anchor: `**Superseded-by: REQ-C1.1, REQ-C1.5
+  rather than change its anchor: `**Superseded-by: REQ-C1.1, REQ-C1.9
   (human-gates)** (<date>)` on REQ-B1.4 and `**Superseded-by: human-gates
   D-4** (<date>)` on D-9, scoped to the flip as a human-only control in
   core, each with a dated `## Changelog` entry naming it, landed by a
