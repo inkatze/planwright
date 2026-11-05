@@ -236,7 +236,10 @@ applies), run `scripts/mc-config.sh`'s `apply --program <p> <id>` with the
   mission control's knobs), its undo entry logged citing the rules on its
   subject; echo it in one line.
 - `handover-operator` — a settings or posture change: hand it to the
-  operator ready to apply, never written (REQ-G1.4).
+  operator ready to apply, never written (REQ-G1.4). Every write verb
+  also prints these lines and exits 4 when another tool renders the layer
+  ([docs/overlays.md](../../docs/overlays.md#an-adopter-layer-another-tool-renders)):
+  hand over each line to make at that tool's source, never retried as a write.
 - `dispatch` — a repository change: route it as a flight.
 
 "Not now" parks with `park`, its trigger (a date or an event) asked of the
