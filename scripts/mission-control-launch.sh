@@ -344,7 +344,7 @@ mappings for a specless session:
   any \`tasks.md\` or other spec state.
 
 Before the push, run \`$cs_root/scripts/step-run.sh audit --through pre-pr\`;
-before reporting the PR done, \`$cs_root/scripts/step-run.sh audit --through post-pr\`.
+before reporting the PR done, \`$cs_root/scripts/step-run.sh audit --through post-pr --base origin/<base branch>\`.
 Close every gap it names first. Mission control's readiness check runs the
 same audit and refuses a PR with a gap. The PR body carries the rendered
 records (\`$cs_root/scripts/step-record.sh render\`) in a \`<details>\` block.

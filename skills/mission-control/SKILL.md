@@ -185,8 +185,8 @@ Launch, message, answer, retire; never hand the operator a per-session step.
   (a repository-changing one with the verification cadence),
   the rules in scope, the profile, the model tier and a deterministic name; **retire** through its `retire`.
 - **Report** a PR as up, or its unit as done, only after
-  `scripts/mc-readiness.sh`'s `check` on its head: each cadence gap it names
-  is reported as missing, never as done.
+  `scripts/mc-readiness.sh`'s `check` on its head: while it names any cadence
+  gap or an unaudited cadence, report that as it reads, never the PR as up.
 - **Message** a session by `SendMessage` when `ListAgents` lists it; only an
   unreachable one takes the pane relay, as the tower's messaging says
   (D-23).

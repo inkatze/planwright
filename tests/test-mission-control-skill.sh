@@ -116,7 +116,7 @@ need "D-18: the state-source objective" "Where the program's state lives"
 need "D-14: no duty enables itself through an omitted list" "always with \`--duties\`"
 need "the runner starts detached, never in a turn's foreground" "under \`setsid\`"
 need "REQ-I1.2: the readiness check runs before a flip" "scripts/mc-readiness.sh\`'s \`check"
-need "REQ-D1.8: a PR is reported up only after the readiness check" "each cadence gap it names"
+need "REQ-D1.8: a PR is reported up only after the readiness check" "gap or an unaudited cadence"
 need "D-18: guidance never pre-selects" "pre-selects an option"
 
 # The register and the source-naming rule.

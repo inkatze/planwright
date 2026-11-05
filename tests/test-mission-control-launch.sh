@@ -293,7 +293,7 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
       # Every path the section names is a file of this install.
       missing_paths=''
       # shellcheck disable=SC2016 # literal backticks delimit the paths
-      for cp in $(grep -o '`/[^` ]*/[^` ]*`' "$composed_brief" | tr -d '`'); do
+      for cp in $(grep -o '`/[^` ]*/[^` ]*' "$composed_brief" | tr -d '`'); do
         [ -e "$cp" ] || missing_paths="$missing_paths $cp"
       done
       [ -z "$missing_paths" ] && ok "[$kind] every path the cadence names exists" \
