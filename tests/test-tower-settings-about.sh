@@ -42,14 +42,15 @@ else
 fi
 for claim in 'already expanded' 'arrives expanded' 'arrive expanded' 'expanded command' 'command expanded' \
   'tower-scoping is enforced only by where' 'enforced only by where the hook is wired' \
-  'commits via git'; do
+  'commits via git' 'trailing mcp__*__ entries' 'Unlike the command guard it is'; do
   if has "$claim"; then
     fail "_about still says '$claim' (REQ-D1.5)"
   else
     pass "_about does not say '$claim' (REQ-D1.5)"
   fi
 done
-for phrase in 'marked as a tower' 'BRANCH-MOVING AND STASH-WRITING' 'stash list' 'gh repo sync'; do
+for phrase in 'marked as a tower' 'BRANCH-MOVING AND STASH-WRITING' 'stash list' 'gh repo sync' \
+  'Unlike the command guard, the policy guard is DENY-EMITTING' 'front-door mcp__*__ entries'; do
   if has "$phrase"; then
     pass "_about names '$phrase'"
   else
