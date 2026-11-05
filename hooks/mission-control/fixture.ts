@@ -135,6 +135,7 @@ export type Fixture = {
   records: Record<string, string>
   lookupExit: number
   ackExit: number
+  activateExit: number
   whereExit: number
 }
 
@@ -161,6 +162,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     records: {},
     lookupExit: 0,
     ackExit: 0,
+    activateExit: 0,
     whereExit: 0,
     ...given,
   }
@@ -242,6 +244,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     const flag = (name: string) => argv[argv.indexOf(name) + 1] ?? ''
     if (script === 'mc-panel.sh' && verb === 'activate') {
       const sid = flag('--session')
+      if (fx.activateExit !== 0) return answer('', fx.activateExit)
       const rec = recordFor(flag('--program'), flag('--target'))
       if (fx.records[sid] !== rec) delete fx.records[`${sid}.ack`]
       fx.records[sid] = rec

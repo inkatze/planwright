@@ -515,7 +515,9 @@ async function acknowledge($: EngineInterface, how: 'variable' | 'record' | 'rel
   if (!ctx) return
   const sessionId = await $.session.id()
   if (how !== 'record') {
-    await run($, 'mc-panel.sh', [
+    // An ack here would answer for whatever record stood before, which may
+    // name another program.
+    const recorded = await run($, 'mc-panel.sh', [
       'activate',
       '--program',
       ctx.program,
@@ -524,6 +526,10 @@ async function acknowledge($: EngineInterface, how: 'variable' | 'record' | 'rel
       '--session',
       sessionId,
     ])
+    if (!recorded.ok) {
+      await lastingFault($, 'ack', `the activation could not be recorded: ${recorded.err}`)
+      return
+    }
   }
   const acked = await run($, 'mc-panel.sh', ['ack', '--session', sessionId])
   if (acked.ok) {

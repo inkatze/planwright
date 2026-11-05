@@ -70,6 +70,19 @@ test('an acknowledgment that cannot be written stays on the pane', async ($, on)
   await ui.unmount()
 })
 
+// An ack beside a record this session could not write would answer for
+// whatever record stood there before, naming another program.
+test('an activation that cannot be recorded is never acknowledged', async ($, on) => {
+  const w = world(on, { activateExit: 1, records: { [SESSION]: recordFor('beta') } })
+  await boot($, w)
+  await w.clock.settle()
+  expect(ran(w, 'mc-panel.sh', 'activate').length).toBeGreaterThan(0)
+  expect(ran(w, 'mc-panel.sh', 'ack')).toEqual([])
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^Fault:/ }))?.text).toContain('could not be recorded')
+  await ui.unmount()
+})
+
 // The skill's bring-up rewrites the record after the variable activated the
 // panel; the live mod must answer it, or the skill falls back to text.
 test('a rewritten record with no acknowledgment is acknowledged again', async ($, on) => {
