@@ -908,3 +908,180 @@ Class: meaning
 Lens-pass: Amendment 1, delta-scoped lens review above (spec lens set, inline; no findings)
 Anchor: `e6d636fd93c1e03830386d789bc8265230e25dd4` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 2 — 2026-11-04 (reopened delta kickoff: works smoothly for every operator)
+
+Spec path `specs/mission-control`; walk started at `ada9ebd9` (the
+extension commit on `planwright/mission-control/spec`, off `cbb15897`);
+walkthrough date 2026-11-04; validator at walk start: 0 errors, 0
+warnings. Mode: reopened-bundle delta kickoff. Every task had merged, so the
+bundle derived Done; the operator's amendment request (relayed by mission
+control) was routed through `/spec-draft --extend`, which reopened the
+stored Ready to Draft, and this walk covers that extension delta only.
+Every question was the operator's, asked through mission control's relay
+and answered in their own words.
+
+#### Goal and glossary (delta)
+
+Restatement: mission control should work for any operator. What it shows
+runs; what it starts is supervised, verified and finished up to the human
+gates with no manual step; the guidance level decides how much it explains
+when the operator is about to merge or a pull request is about to flip
+ready, never whether a gate holds. Rules out: new gates, mission control
+merging or pushing itself, audit items 8 to 11 (routed to separate
+flights). Assumes the cadence fix already in flight lands as Task 17.
+
+Terms: *consequential moment* (a merge recommendation, a ready flip mission
+control requests or offers, a stated intent to merge); *configured
+cadence* (every step the configuration requires at the in-run points),
+distinct from a *cadence step* (a steps-catalog entry gating later units);
+*adopt* (register a live session mission control did not launch); *tower
+handover* (taking over a tower's fleet), distinct from Task 16's name
+takeover; *attended session* (the operator typed the skill command in their
+own terminal) versus a *launched holder*; *activation record* (the
+per-session file that turns the panel on).
+
+Signed off: 2026-11-04
+
+#### Requirements walkthrough (delta)
+
+The new and superseding requirements are the ones the 2026-11-04 Changelog
+entry in `requirements.md` lists, in seven themes: tower handover with
+adoption and prompt waking; launches that finish on their own (worktrees,
+cadence in briefs, the kickoff push); verification (the cadence audit at
+readiness and its result at consequential moments); the posture check; the
+panel with no setup; what is shown works (armed duties, timeouts,
+suggestions); the platform class and dynamic host-shared admission. The
+operator's attended-compaction decision (folded in before sign-off) added
+REQ-L1.8 superseding REQ-L1.3. A program the launch environment names now
+counts as the skill's argument (REQ-A1.7 note). Spec edits: the
+extension commit plus the lens-pass revision, both in this branch's diff.
+
+Signed off: 2026-11-04
+
+#### Design walkthrough (delta)
+
+D-31 to D-42 are new; D-8, D-10, D-11, D-17, D-18, D-22, D-25, D-28, D-29
+and D-30 carry dated amendment notes pointing at them, bodies unchanged;
+every other decision is confirmed as signed. Defaults the operator
+accepted: lesson texts are core data, not an overlay catalog (D-1's single
+extension point stands); `expert` gets the one-line result alone; a tower
+is retired only on the operator's yes and stops supervising adopted
+sessions at adoption; a tmux prompt is surfaced once and takes only the
+operator's own answer, typed by the pane relay; the kickoff push waits on a
+routed human-gates amendment (Task 31); `fleet_max_parallel_units` becomes
+the host-wide ceiling; new stores carry a `format` field. Re-signed after
+the lens pass with those changes, and D-42 (attended sessions compact,
+launched holders hand over; the nuance-loss trade-off named) signed on its
+own.
+
+Signed off: 2026-11-04 (re-signed after the lens pass)
+
+#### Verification approach (delta)
+
+Every new requirement has a `[test]` entry run by planwright's CI
+(`scripts/run-tests.sh` discovers `tests/*.sh`; the panel through
+`check:panel-mod`). No `[Gherkin]` or `[manual]` entry was added: a
+Gherkin arm without its eval persona fails `tests/test-mc-eval-cadence.sh`
+in CI, so the behaviours that live in skill prose were moved into scripts
+(the posture script, the activation-record verb, the packet's lesson data)
+where a shell test reaches them. Test files a task creates are named in
+its deliverables (`tests/test-mc-packet.sh`, the posture script's test);
+`tests/test-step-run-audit.sh` exists on the in-flight branch.
+
+Signed off: 2026-11-04
+
+#### Task graph (delta)
+
+Reconstructed from the `Dependencies:` lines (`scripts/spec-graph.sh
+specs/mission-control`). Tasks 17, 18, 20, 23, 25, 26, 27, 28, 30, 31 and
+32 have no unmet edge and can start at once. Chains: 18 and 31 before 19;
+20 then 21, and 21 and 32 before 22; 17 before 24; Task 29 last. The
+effort-weighted critical path runs 20, 21, 22, 29. Deliberate non-edges:
+28 does not wait on 18 (admission is independent of worktrees); 24 does not
+wait on 23 (the cadence line does not need the panel); 30 does not wait on
+16's successor work, which already landed.
+
+Signed off: 2026-11-04
+
+#### Risk register (delta)
+
+1. Task 17 is delivered by the in-flight flight; unless its pull request
+   carries Task 17's trailer, the derivation will not count it.
+   Mitigation: mission control routes that flight as Task 17.
+2. The skill's instruction budget is saturated; Task 29's prose may not
+   fit. Mitigation: behaviour lives in scripts and core data with pointers;
+   the budget check blocks the merge otherwise.
+3. The kickoff profile widens one session's push. Mitigation: the guard
+   reads the branch from a launch record the session cannot write; every
+   other push form is tested denied; Task 31 must land first.
+4. The host-level admission store could jam or go stale. Mitigation: one
+   lock, recounts from the registries, dead-holder and timeout reclaim.
+5. Adoption could contend with a live tower. Mitigation: supervision moves
+   at adoption, the tower's paths skip supervised sessions, retirement
+   waits for a yes.
+6. The platform-currency draft's Task 4 waits on this merge, and its text
+   still cites REQ-H1.4; it should move to REQ-H1.5 when next touched.
+7. Accepted at the lens pass: D-18, D-25, D-29 and D-30 change by dated
+   notes, not supersession; only mission control's launcher reserves
+   admission slots (others are seen through registries and load); a merge
+   done directly on the forge cannot trigger the cadence notice.
+8. Attended compaction can lose conversational nuance a successor would
+   keep (D-42); the self-check covers rules and state only. Accepted by the
+   operator.
+
+Decision-domain gap check (catalog via `scripts/resolve-catalog.sh
+decision-domains`): one gap at the walk (store versioning), closed in D-37
+and D-41; the lens pass's domain findings were applied (D-28's note lists
+where each is decided).
+
+Signed off: 2026-11-04
+
+#### Lens review (delta-scoped)
+
+Spec lens set (`doctrine/artifact-lenses.md`), fanned out: one read-only
+reviewer per lens over the extension diff, then validated and merged here.
+Findings were heavily duplicated across lenses; counts are as each reviewer
+reported them.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 19 | Applied (prompt-answer arm, per-verb allow list, worktree creation as launching, the floor wording, step staleness, budget ceilings, tower handover suspension, liveness, packet order, extension point) |
+| Ambiguity and interpretation forks | 40 | Applied (audit point and head, kinds listed, branch reuse, admission thresholds and units, tower handover outcomes); the direct-forge merge limit accepted |
+| Citation and coverage integrity | 15 | Applied (audit items spelled out, citations added, obs:855b725a re-cited in D-37, changelog completed); D-25/D-18 by note accepted |
+| Dead verification paths | 13 | Applied (Gherkin tags removed, posture and activation as scripts, guide check owned by Task 26, memory override, timeout scale) |
+| Decision-domain gaps | 26 | Applied (store homes and classes, reclaim, burst counting, adopt and answer contracts, wake marker, session id, mod detection, kickoff record tamper, posture targets, D-28 note); every-launcher admission accepted as a limit |
+| Testability | 66 | Applied (every Done-when rewritten with observables and refusal cases) |
+| Cross-file consistency | 19 | Applied (human-gates and tower-comms routed as Tasks 31 and 32, D-35 composes the claim channel, knob meaning rewritten, doctrine updates in Tasks 25 and 29, sweep identity) |
+| Documentation and glossary drift | 17 | Applied (timeout, tower handover, audit item, H1.4 pointers, D-10/D-11/D-17/D-22 notes, overlays row made moot by core lesson data) |
+| Rendered-content safety and data hygiene | 0 | Not a rendered context; committed text checked for names, hosts and paths, none found |
+
+Altitude check: no altitude trigger in the delta (no new pinned claim; D-31
+keeps D-1's extension point): not applicable. Ship-gate check: the
+out-of-band fixes named are the cadence flight (gated as Task 17) and audit
+items 8 to 11 (each on its own flight branch); no fix is named in prose
+only. Every finding is dispositioned with the operator (2026-11-04).
+
+#### Pre-flip verification (Amendment 2)
+
+`mise run lint:md`'s markdownlint over the four spec files and this brief:
+clean. `scripts/check-memory-links.sh`: clean. `scripts/spec-validate.sh
+specs/mission-control`: 0 errors, 0 warnings. The post-lens stale-reference
+sweep found only historical mentions of REQ-H1.4 (completed task citations,
+dated changelog lines, the D-8 text under its note). Enumerations in the
+delta are explicit lists, not counts of an outside surface; the source
+figures this brief cites are named by file.
+
+#### Sign-off record (Amendment 2)
+
+Signed off 2026-11-04 by the operator after the approval summary, relayed
+through mission control, as a reopened-bundle delta kickoff: stored status
+flipped Draft to Ready on all four spec files, `Last reviewed:` 2026-11-04
+on all four; `scripts/spec-validate.sh` re-run after the flip with 0
+errors and 0 warnings. The delta adds requirements and decisions, so it is
+meaning-class.
+
+Class: meaning
+Lens-pass: Amendment 2, delta-scoped lens review above (spec lens set, fanned out; every finding dispositioned)
+Anchor: `f7a8780cef5cf4ce13a5299a78a7e4a81ac927c1` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
