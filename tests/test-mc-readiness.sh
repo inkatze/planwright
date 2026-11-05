@@ -33,7 +33,10 @@ trap 'rm -rf "$tmp"' EXIT
 
 tab=$(printf '\t')
 reset_mc_fixture
-{ printf 'ready_flip_policy: unit-owner\n'; grep '^steps_' "$repo_root/config/defaults.yml"; } | write_core_defaults
+{
+  printf 'ready_flip_policy: unit-owner\n'
+  grep '^steps_' "$repo_root/config/defaults.yml"
+} | write_core_defaults
 # The configured cadence the audit resolves: the core steps catalog, with a
 # stand-in for the polish skill its default convergence names.
 cp "$repo_root/config/steps.yaml" "$core/config/steps.yaml"
@@ -98,6 +101,15 @@ expect_out "named" "fail${tab}cadence${tab}the configured cadence was not audite
 walk_with "cadence gap" '-' "cadence${tab}gap${tab}convergence${tab}missing${tab}polish"
 expect_rc "a configured step with no record is refused, whatever the gate data names" 4
 expect_out "named with its point" "fail${tab}cadence${tab}convergence: polish is missing"
+# The cadence gap binds whatever the gate-condition data names: none, or
+# another step.
+: >"$tmp/no-conditions"
+mc_run mc-readiness.sh walk --evidence "$tmp/ev" --conditions "$tmp/no-conditions"
+expect_rc "with no gate-condition data the cadence gap is still refused" 4
+expect_out "and named" "fail${tab}cadence${tab}convergence: polish is missing"
+printf 'ready\tsteps\tother-step\n' >"$tmp/other-conditions"
+mc_run mc-readiness.sh walk --evidence "$tmp/ev" --conditions "$tmp/other-conditions"
+expect_out "with gate data naming another step the cadence gap is still named" "fail${tab}cadence${tab}convergence: polish is missing"
 walk_with "cadence unauditable" '/^cadence/d' "cadence${tab}unaudited${tab}no worktree holds the branch"
 expect_rc "a cadence that could not be audited is refused" 4
 expect_out "with the reason" "fail${tab}cadence${tab}not audited: no worktree holds the branch"
@@ -298,9 +310,21 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme
 c=$(cat "$tmp/collected" 2>/dev/null)
 has "the branch's worktree is found and audited" "cadence${tab}audited${tab}$head"
 has "its skipped convergence is named" "cadence${tab}gap${tab}convergence${tab}missing${tab}polish"
+# The same repository listed twice still names one worktree.
+sed -i.bak "s|^program_alpha_repositories: .*|program_alpha_repositories: [$repo, $repo]|" "$tracked"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+sed -i.bak "s|^program_alpha_repositories: .*|program_alpha_repositories: [$repo]|" "$tracked"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a repository listed twice still finds its one worktree" "cadence${tab}audited${tab}$head"
 has "and its missing completion" "cadence${tab}gap${tab}convergence${tab}incomplete"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/web --pr 7
 expect_out "check refuses the skipped cadence" "fail${tab}cadence${tab}convergence: polish is missing"
+# A worktree that moved past the forge's head speaks for another head.
+git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m unpushed
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a worktree head that differs from the forge's is unaudited, naming both" "cadence${tab}unaudited${tab}the worktree $tmp/feature-wt is at"
+git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt" checkout -q -B feature
 # The audit itself failing is unaudited, with the resolver's reason.
 chmod 000 "$core/config/steps.yaml"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"

@@ -296,9 +296,15 @@ EOF
 # or `unreadable`. Paths are read NUL-separated, since a path may carry a
 # newline.
 branch_worktree() {
-  local repos r url w br pr f n=0 hit='' sl
-  [ -n "$3" ] || { printf 'none\n'; return 0; }
-  repos=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories) || { printf 'unreadable\n'; return 0; }
+  local repos r url w br pr f n=0 hit='' sl seen=$'\n'
+  [ -n "$3" ] || {
+    printf 'none\n'
+    return 0
+  }
+  repos=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories) || {
+    printf 'unreadable\n'
+    return 0
+  }
   sl=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
   while IFS= read -r r; do
     [ -n "$r" ] && [ -d "$r" ] || continue
@@ -316,7 +322,8 @@ branch_worktree() {
             && [ "$(mc_untrusted_git -C "$w" symbolic-ref -q HEAD 2>/dev/null)" = "refs/heads/$3" ] \
             && [ "$(mc_untrusted_git -C "$w" rev-parse --show-toplevel 2>/dev/null)" = "$w" ] \
             && mc_untrusted_git -C "$w" cat-file -e "$4^{commit}" 2>/dev/null; then
-            n=$((n + 1)) hit=$w
+            # A repository listed twice, or with a listed worktree, names the same path again.
+            case $seen in *$'\n'"$w"$'\n'*) ;; *) n=$((n + 1)) hit=$w seen="$seen$w"$'\n' ;; esac
           fi
           w=''
           ;;
@@ -389,8 +396,16 @@ collect() {
       one"	"*) cl_wt=${cl_found#*	} ;;
       several) cl_unaud="several worktrees of $2 have branch ${cl_branch:--} checked out; pass --worktree" ;;
       unreadable) cl_unaud="the repositories of program $1 do not resolve" ;;
-      *) cl_unaud="no worktree of $2 has branch ${cl_branch:--} checked out at the head; pass --worktree" ;;
+      *) cl_unaud="no worktree of $2 has branch ${cl_branch:--} checked out in a repository holding the head; pass --worktree" ;;
     esac
+  fi
+  if [ -n "$cl_wt" ]; then
+    # Records speak for the worktree's own head, so it must be the forge's.
+    cl_wthead=$(mc_untrusted_git -C "$cl_wt" rev-parse --verify -q 'HEAD^{commit}' 2>/dev/null) || cl_wthead=''
+    if [ "$cl_wthead" != "$cl_head" ]; then
+      cl_unaud="the worktree $(sanitize_printable "$cl_wt") is at ${cl_wthead:-no commit}, not the pull request's head $cl_head"
+      cl_wt=''
+    fi
   fi
   if [ -n "$cl_wt" ]; then
     # The audit resolves the cadence as the worktree's own session would; a
@@ -409,7 +424,7 @@ collect() {
       *)
         cl_err=$(grep '^step-run: ' "$cl_tmp/err" | tail -n 1)
         [ -n "$cl_err" ] || cl_err=$(tail -n 1 "$cl_tmp/err")
-        cl_unaud="the audit in $cl_wt failed: $(printf '%s' "$cl_err" | head -c 200)"
+        cl_unaud="the audit in $(sanitize_printable "$cl_wt") failed: $(sanitize_printable "$(printf '%s' "$cl_err" | head -c 200)")"
         ;;
     esac
   fi
@@ -420,7 +435,7 @@ collect() {
       [ -z "$4" ] || mc_fail "the step records of $(sanitize_printable "$cl_wt") cannot be read"
       # A discovered worktree that cannot be read is a gap, never a crash.
       : >"$cl_tmp/records"
-      printf 'cadence\tunaudited\tthe step records of %s cannot be read\n' "$cl_wt" >"$cl_tmp/cadence"
+      printf 'cadence\tunaudited\tthe step records of %s cannot be read\n' "$(sanitize_printable "$cl_wt")" >"$cl_tmp/cadence"
     fi
     awk -F '\t' '
       $1 == "record" { t = s = o = h = "" }
