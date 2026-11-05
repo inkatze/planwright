@@ -85,7 +85,7 @@ MC_GROUNDS_AWK='function grounds(g,   p, n, w) {
   p = index(g, ": ")
   if (!p) return 0
   n = split(substr(g, 1, p - 1), w, " ")
-  if (n != 3 || w[1] !~ /^(settled|ask-first|human-gate|fork|hard-disqualifier|reserved-proposal|revoke|confirm|correction|manual|answer)$/) return 0
+  if (n != 3 || w[1] !~ /^(settled|ask-first|human-gate|fork|hard-disqualifier|reserved-proposal|revoke|confirm|correction|manual|answer|denial)$/) return 0
   if (w[2] !~ /^(-|auto-applicable|agent-resolvable|needs-sign-off|hygiene)$/) return 0
   if (w[3] != "-" && w[3] !~ /^r-[1-9][0-9]*(,r-[1-9][0-9]*)*$/) return 0
   G_REASON = w[1]; G_CLASS = w[2]; G_RULES = w[3]

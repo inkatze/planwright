@@ -276,8 +276,14 @@ the operator asks for runs by `scripts/mc-config.sh`'s `mode kickoff`:
 
 A hook, guard or classifier denial, in this session or any it runs, is
 reported with its exact text and never routed around: no other spelling,
-no other session, no other tool. A settings change it would take is handed
-to the operator ready to apply. Every hand-off follows `security-posture`
+no other session, no other tool; a settings change it would take is handed
+over as `handover-operator` is. Note each at once with
+`scripts/mc-decide.sh`'s `note --shape denial` (subject: the guard's name
+as `config/denial-knobs.tsv` spells it, such as `ready-guard`; text: the
+exact text) and run the `scan`: once the denials a knob there governs reach
+the repeat threshold, they come back as a repeat, proposed as above with
+no `--candidate` or `--change`, so `show` names the knob, its effect and
+its layer's file. Every hand-off follows `security-posture`
 data hygiene; company data stays local and in company systems, and the
 program home is never committed (REQ-I1.6).
 
