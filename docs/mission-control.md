@@ -184,14 +184,13 @@ you each one settled that way, and you can reverse it.
 
 ## Handover
 
-A long conversation eventually fills up. Rather than letting it compress
-its memory and lose detail, mission control hands over to a fresh session
-of itself: it writes a note of everything open, starts its successor, the
-successor checks that it holds every rule and open item against that note,
-and the old session closes. You see one line saying it happened. Where
-your setup cannot move the conversation on its own, you are offered the one
-step that does it.
+A long conversation eventually fills up. In the session you started
+yourself, mission control lets it compress: it then reloads your rules and
+checks its picture against the records before doing anything else, and
+tells you only if that check fails. You never have to do anything about it.
 
-If a compression happens anyway, it reloads your rules and checks its
-picture against the records before doing anything else, and tells you if
-that check fails.
+A session mission control launched on its own hands over instead, since no
+terminal has to move: it writes a note of everything open, starts its
+successor, the successor checks that it holds every rule and open item
+against that note, and the old session closes. You see one line saying it
+happened.
