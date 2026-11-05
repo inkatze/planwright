@@ -170,7 +170,7 @@ mkdir -p "$tmp/tmux"
 
 # ml <args...> — run the launcher against the fixture. Sets RC, OUT, ERR.
 ml() {
-  OUT=$(cd "$repo" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
+  OUT=$(cd "${ML_CD:-$repo}" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
     -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
     -u XDG_CONFIG_HOME -u TMUX -u TMUX_PANE -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
     -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID -u PLANWRIGHT_TOWER_PID \
@@ -861,7 +861,7 @@ work=$(gitc commit-tree -p main -m 'unit work' "$(git -C "$repo" rev-parse 'main
 gitc branch planwright/demo/task-1 "$work"
 rec="$tmp/rec-task-a"
 mkdir -p "$rec"
-SHIM_RECORD_DIR=$rec ml launch --program alpha --kind worker --scope task-a --task demo/1 --brief "$tmp/brief.md"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind worker --scope demo:task-1 --brief "$tmp/brief.md"
 task_wt=''
 if [ "$RC" != 0 ]; then
   fail "a launch for a unit with an existing branch exited $RC: $ERR"
@@ -891,8 +891,8 @@ marker_present 1 && ok "a task placement records the unit's dispatch marker" \
 # retired): a second launch for the unit is refused, naming it.
 rec="$tmp/rec-task-b"
 mkdir -p "$rec"
-SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope task-b --task demo/1 --brief "$tmp/brief.md"
-if [ "$RC" = 3 ] && case $ERR in *"${task_name:-unset}"*) true ;; *) false ;; esac && no_session task-b reviewer; then
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope demo:task-1 --brief "$tmp/brief.md"
+if [ "$RC" = 3 ] && case $ERR in *"${task_name:-unset}"*) true ;; *) false ;; esac && no_session demo:task-1 reviewer; then
   ok "a worktree holding the branch with a live session refuses the launch, naming the session"
 else
   fail "a launch into a worktree with a live session: exit $RC, $ERR"
@@ -910,8 +910,8 @@ if [ -n "$task_wt" ] && [ -d /proc/self ]; then
     sleep 0.1
     n=$((n + 1))
   done
-  SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope task-b --task demo/1 --brief "$tmp/brief.md"
-  [ "$RC" = 3 ] && case $ERR in *"process $sleeper"*) true ;; *) false ;; esac && no_session task-b reviewer \
+  SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope demo:task-1 --brief "$tmp/brief.md"
+  [ "$RC" = 3 ] && case $ERR in *"process $sleeper"*) true ;; *) false ;; esac && no_session demo:task-1 reviewer \
     && ok "a process running in the worktree holds it as a live session" \
     || fail "a launch beside a live process in the worktree: exit $RC, $ERR"
   kill "$sleeper" 2>/dev/null
@@ -919,7 +919,7 @@ if [ -n "$task_wt" ] && [ -d /proc/self ]; then
 else
   ok "skip: no /proc to place a live process in the worktree"
 fi
-SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope task-b --task demo/1 --brief "$tmp/brief.md"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope demo:task-1 --brief "$tmp/brief.md"
 [ "$RC" = 0 ] && [ "$(launched_in "$rec")" = "$task_wt" ] \
   && ok "a worktree holding the branch with no live session is reused" \
   || fail "the reuse launch exited $RC in '$(cat "$rec/cwd" 2>/dev/null)': $ERR"
@@ -931,8 +931,8 @@ ml launch --program alpha --kind worker --scope primary --brief "$tmp/brief.md" 
 [ "$RC" = 4 ] && case $ERR in *"other than a primary checkout"*) true ;; *) false ;; esac && no_session primary worker \
   && ok "a launch naming the primary checkout is refused (exit $RC) with no session or row" \
   || fail "a launch into the primary checkout: exit $RC"
-ml launch --program alpha --kind worker --scope no-bundle --task nosuch/1 --brief "$tmp/brief.md"
-[ "$RC" = 4 ] && case $ERR in *"could not be created"*) true ;; *) false ;; esac && no_session no-bundle worker \
+ml launch --program alpha --kind worker --scope nosuch:task-1 --brief "$tmp/brief.md"
+[ "$RC" = 4 ] && case $ERR in *"could not be created"*) true ;; *) false ;; esac && no_session nosuch:task-1 worker \
   && ok "a launch whose worktree cannot be created is refused (exit $RC) with no session or row" \
   || fail "a launch with no creatable worktree: exit $RC"
 mkdir -p "$tmp/plain-dir/sub"
@@ -944,11 +944,11 @@ else
     && ok "a launch whose repository is not a git checkout is refused (exit 4)" \
     || fail "a launch outside a repository: exit $RC, $ERR"
   ml launch --program alpha --kind worker --scope plain-cwd --cwd "$tmp/plain-dir" --brief "$tmp/brief.md"
-  [ "$RC" = 4 ] && no_session plain-cwd worker && ok "a named directory that is no worktree is refused (exit 4)" \
+  [ "$RC" = 4 ] && case $ERR in *"other than a primary checkout"*) true ;; *) false ;; esac && no_session plain-cwd worker && ok "a named directory that is no worktree is refused (exit 4)" \
     || fail "a launch naming a plain directory: exit $RC"
 fi
 ml launch --program alpha --kind worker --scope primary-sub --cwd "$repo/specs" --brief "$tmp/brief.md"
-[ "$RC" = 4 ] && no_session primary-sub worker && ok "a directory inside the primary checkout is refused (exit 4)" \
+[ "$RC" = 4 ] && case $ERR in *"other than a primary checkout"*) true ;; *) false ;; esac && no_session primary-sub worker && ok "a directory inside the primary checkout is refused (exit 4)" \
   || fail "a launch naming a primary subdirectory: exit $RC"
 
 # Another worktree no live session uses is accepted as named.
@@ -974,11 +974,11 @@ SHIM_RECORD_DIR=$rec ml launch --program alpha --kind tower --scope tower-here -
   || fail "the tower launch exited $RC in '$(cat "$rec/cwd" 2>/dev/null)': $ERR"
 tower_brief=$(field brief)
 wait_done "$(field name)"
-ml launch --program alpha --kind tower --scope tower-task --task demo/1 --brief "$tmp/brief.md"
-[ "$RC" = 2 ] && ok "a kind that starts where it is launched refuses --task" || fail "a tower with --task: exit $RC"
+ml launch --program alpha --kind tower --scope tower-repo --repo "$repo" --brief "$tmp/brief.md"
+[ "$RC" = 2 ] && ok "a kind that starts where it is launched refuses --repo" || fail "a tower with --repo: exit $RC"
 
 # A unit with no branch yet gets one off the default branch, and a worker
-# scoped <spec>:task-<id> runs on that unit's branch without --task.
+# scoped <spec>:task-<id> runs on that unit's branch.
 rec="$tmp/rec-task-new"
 mkdir -p "$rec"
 SHIM_RECORD_DIR=$rec ml launch --program alpha --kind worker --scope demo:task-2 --brief "$tmp/brief.md"
@@ -988,7 +988,8 @@ if [ "$RC" = 0 ]; then
     && [ "$(git -C "$tn_wt" rev-parse HEAD)" = "$(git -C "$repo" rev-parse main)" ] \
     && ok "a unit's scope with no branch yet starts a new unit branch off the default branch" \
     || fail "the demo:task-2 launch in '$tn_wt' is not a fresh planwright/demo/task-2"
-  grep -qF 'PLANWRIGHT_STEP_UNIT_KIND=task' "$(field brief)" \
+  # shellcheck disable=SC2016 # literal backticks around the ids
+  grep -qF 'PLANWRIGHT_STEP_UNIT_KIND=task' "$(field brief)" && grep -qF 'spec id `demo`, task id `2`' "$(field brief)" \
     && ok "a unit launch's cadence names its task unit" || fail "a unit launch's cadence is not the task unit's"
   wait_done "$(field name)"
 else
@@ -1002,7 +1003,7 @@ if [ "$RC" = 0 ]; then
   tw_handle=$(awk -F '\t' '$1 == "handle" { print $2 }' "$fleet/mission-control/sessions/$(field name)")
   case $tw_dir in
     "$repo/.claude/worktrees/"?*)
-      grep -qxF -- "$tw_dir" "$tmp/tmux/argv-$tw_handle" \
+      [ "$(awk 'p { print; exit } $0 == "-c" { p = 1 }' "$tmp/tmux/argv-$tw_handle")" = "$tw_dir" ] \
         && ok "a tmux launch of a repository-changing kind starts in its worktree" \
         || fail "the tmux window was not started in $tw_dir: $(tr '\n' ' ' <"$tmp/tmux/argv-$tw_handle" 2>/dev/null)"
       ;;
@@ -1026,17 +1027,40 @@ SHIM_RECORD_DIR=$rec ml launch --program alpha --kind ad-hoc --scope off-side --
 wait_done "$(field name)"
 gitc checkout -q main
 
-# Usage refusals, each with no row.
-for bad in "--kind worker --repo relative/dir" "--kind tower --repo $repo" "--kind worker --repo $repo --cwd $tmp/spare" \
-  "--kind worker --task demo/1 --cwd $tmp/spare" "--kind worker --task flight/1" "--kind worker --task demo/1.2.3" \
-  "--kind worker --task Demo/1" "--kind worker --task demo" "--kind worker --scope demo:task-3 --task demo/4"; do
-  # shellcheck disable=SC2086 # each case is a word list
-  set -- $bad
-  case " $* " in *" --scope "*) ;; *) set -- "$@" --scope usage-case ;; esac
-  ml launch --program alpha "$@" --brief "$tmp/brief.md"
-  [ "$RC" = 2 ] && [ ! -e "$fleet/mission-control/sessions/$(cd "$repo" && /bin/sh "$LAUNCH" name --program alpha --kind "$2" --scope usage-case)" ] \
-    && ok "usage refusal: $bad (exit 2)" || fail "usage case '$bad' exited $RC: $ERR"
+# Usage refusals, each with no row: "<kind>|<scope>|<extra args>|<message>".
+for case_ in "worker|usage-a|--repo relative/dir|absolute path" "tower|usage-b|--repo $repo|no --repo" \
+  "worker|usage-c|--repo $repo --cwd $tmp/spare|neither --repo" "worker|demo:task-7|--cwd $tmp/spare|neither --repo nor a task scope" \
+  "worker|demo:task-1.2.3||a task scope is" "worker|Demo:task-1||a task scope is" "ad-hoc|demo:task-x||a task scope is"; do
+  IFS='|' read -r u_kind u_scope u_extra u_msg <<EOF
+$case_
+EOF
+  # shellcheck disable=SC2086 # the extra arguments are a word list
+  ml launch --program alpha --kind "$u_kind" --scope "$u_scope" $u_extra --brief "$tmp/brief.md"
+  if [ "$RC" = 2 ] && case $ERR in *"$u_msg"*) true ;; *) false ;; esac && no_session "$u_scope" "$u_kind"; then
+    ok "usage refusal: $u_kind $u_scope $u_extra (exit 2)"
+  else
+    fail "usage case '$case_' exited $RC: $ERR"
+  fi
 done
+
+# A refusal after a task placement clears the marker the placement wrote.
+cp "$tracked" "$tmp/tracked-marker.bak"
+printf 'allocation_model_execution: nonsense\n' >>"$tracked"
+ml launch --program alpha --kind worker --scope demo:task-5 --brief "$tmp/brief.md"
+[ "$RC" = 4 ] && ! marker_present 5 && no_session demo:task-5 worker \
+  && ok "a launch refused after its task placement leaves no dispatch marker" \
+  || fail "the post-placement refusal: exit $RC, marker $(marker_present 5 && echo present || echo absent)"
+cp "$tmp/tracked-marker.bak" "$tracked"
+
+# The launcher's caller may work inside the worktree it names.
+gitc worktree add -q -b inside "$tmp/inside" main
+rec="$tmp/rec-inside"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ML_CD="$tmp/inside" ml launch --program alpha --kind ad-hoc --scope inside --cwd "$tmp/inside" --brief "$tmp/brief.md"
+[ "$RC" = 0 ] && [ "$(launched_in "$rec")" = "$tmp/inside" ] \
+  && ok "a caller working inside the named worktree is not a live session there" \
+  || fail "a launch from inside its worktree exited $RC: $ERR"
+wait_done "$(field name)"
 
 # ---------------------------------------------------------------------------
 # REQ-D1.11: a repository-changing brief carries the cadence; a skill command
@@ -1053,10 +1077,10 @@ fi
 [ -f "$tower_brief" ] && grep -qx '## Verification cadence' "$tower_brief" && fail "a tower brief carries the cadence section" \
   || ok "a kind that changes no repository gets no cadence section"
 printf '%s\n' '/planwright:execute-task 1 demo' >"$tmp/unit-skill-brief.md"
-ml retire "$(cd "$repo" && /bin/sh "$LAUNCH" name --program alpha --kind reviewer --scope task-b)"
+ml retire "$(cd "$repo" && /bin/sh "$LAUNCH" name --program alpha --kind reviewer --scope demo:task-1)"
 rec="$tmp/rec-unit-skill"
 mkdir -p "$rec"
-SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope task-b --task demo/1 --brief "$tmp/unit-skill-brief.md"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope demo:task-1 --brief "$tmp/unit-skill-brief.md"
 if [ "$RC" = 0 ]; then
   grep -qx '## Verification cadence' "$(field brief)" && fail "a brief that is a skill command carries the cadence section" \
     || ok "a brief that is a skill command carries no cadence section"
@@ -1068,7 +1092,7 @@ fi
 # The skill's kickoff relay leaves the directory to the launcher.
 relay=$(awk '/^- `relay` —/ { on = 1 } on && /^- `manual`/ { exit } on { print }' "$repo_root/skills/mission-control/SKILL.md")
 if [ -n "$relay" ] && printf '%s\n' "$relay" | grep -qF -- '--repo' && ! printf '%s\n' "$relay" | grep -qw -- 'cwd'; then
-  ok "the skill's kickoff relay passes no directory"
+  ok "the skill's kickoff relay passes the repository, not a start directory"
 else
   fail "the kickoff relay names a directory: $relay"
 fi
