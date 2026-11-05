@@ -462,8 +462,9 @@ file_mtime() {
 # resets_at still ahead and within its span of now: a reset that has passed
 # means the reading describes a window that is over. A fractional percentage
 # floors, which is exact for the ladder's `>=` against integer thresholds.
-# Machine-written JSON carrying a control byte is corrupt, and the whole file
-# then reads unavailable. Never fails: anything it cannot read is unavailable,
+# Machine-written JSON carrying a control byte, or one the parse fails on, is
+# corrupt: the whole file then reads unavailable with a warning, so a broken
+# status-line writer is told apart from a merely stale mirror. Never fails: anything it cannot read is unavailable,
 # so the capture still gets its turn.
 source_mirror() {
   sm_none='unavailable unavailable'
@@ -500,9 +501,13 @@ source_mirror() {
       return pct + 0
     }
     END {
-      if (doc ~ /[\001-\037\177]/) { printf "unavailable unavailable"; exit }
+      if (doc ~ /[\001-\037\177]/) { printf "corrupt"; exit }
       printf "%s %s", window("five_hour", span5), window("seven_day", span7)
-    }') || sm_v=$sm_none
+    }') || sm_v=corrupt
+  if [ "$sm_v" = corrupt ]; then
+    printf '%s\n' "fleet-usage-gate: status-line mirror '$sm_path' is corrupt — treating as unavailable" >&2
+    sm_v=$sm_none
+  fi
   printf '%s' "$sm_v"
 }
 

@@ -732,7 +732,10 @@ echo "ok: a window absent from the mirror is unavailable from it and falls back 
 reset_state
 write_mirror "{\"seven_day\":{\"used_percentage\":72,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":40,\"resets_at\":$in_hour}}"
 touch -t 202001010000 "$mirror_file" # far past the fixture's TTL
-sig=$(run signal) || fail "signal (stale mirror) failed"
+sig=$(run signal 2>&1) || fail "signal (stale mirror) failed"
+case $sig in
+  *corrupt*) fail "a merely stale mirror must not warn as corrupt (got: $sig)" ;;
+esac
 [ "$(sig_of weekly "$sig")" = unavailable ] || fail "a mirror older than the TTL must not be read (got: $sig)"
 usage_render 52 38 | run capture >/dev/null || fail "capture (stale mirror) failed"
 sig=$(run signal) || fail "signal (stale mirror, capture present) failed"
@@ -770,6 +773,10 @@ case $sig in
   *$'\033'*) fail "an escape byte from the mirror reached the output (got: $sig)" ;;
 esac
 [ "$(sig_of weekly "$sig")" = unavailable ] || fail "a control byte in the machine-written mirror marks it corrupt (got: $sig)"
+case $sig in
+  *"mirror"*"is corrupt"*) ;;
+  *) fail "a corrupt mirror must warn, unlike a stale one (got: $sig)" ;;
+esac
 write_mirror "not json at all"
 sig=$(run signal) || fail "signal (garbage mirror) failed"
 [ "$(sig_of weekly "$sig")" = unavailable ] || fail "a garbage mirror must read unavailable (got: $sig)"

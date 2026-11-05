@@ -588,11 +588,12 @@ quota_ledger_retention_days: 90
 # `downshift`/`reduce-concurrency` rung CONSEQUENCE values (which
 # model/effort/concurrency) are fleet-autonomy Task 10's, not here.
 
-# The read cadence and cache TTL, in seconds. `/usage` capture is expensive, so
-# the signal is cached off the dispatch hot path and refreshed on the cadence,
-# never scraped synchronously per dispatch. A cached signal, or a status-line
-# mirror, staler than the TTL is treated as unavailable; the TTL MUST exceed
-# the cadence (validated) so a fresh read always lands inside the TTL.
+# The read cadence and cache TTL, in seconds. The signal is read off the
+# dispatch hot path on the cadence (the status-line mirror, else a `/usage`
+# capture, which is expensive), never scraped synchronously per dispatch. A
+# cached signal, or a status-line mirror, staler than the TTL is treated as
+# unavailable; the TTL MUST exceed the cadence (validated) so a fresh read
+# always lands inside the TTL.
 fleet_usage_read_cadence_seconds: 300
 fleet_usage_signal_ttl_seconds: 900
 
