@@ -813,7 +813,18 @@ worker on a cadence (`PLANWRIGHT_STREAMJSON_ALARM_TICK`, default 60s), so a
 receipt pending past `PLANWRIGHT_STREAMJSON_PENDING_AGE` (default 900s)
 becomes a high-priority queue item plus one notify push within a tick of
 crossing the threshold, with nothing else having to run `alarm-scan` (the
-on-demand sweep over every worker, which remains). `answer` delivers the
+sweep over every worker, which remains). The tick lives in the supervisor, so a
+worker an older planwright launched has none. `alarm-scan` reads every runtime
+directory whatever version wrote it, and mission control's session-keeper
+watcher runs it as `alarm-scan --once` on every pass: an overdue request
+becomes a high-priority queue item, is pushed once (the tick and `--once` share
+one mark per request; a plain scan pushes on every call), and wakes the
+mission-control session as a `pending-prompt-overdue` event. A worker that is
+positively dead is never escalated: what it left pending can no longer be
+answered, so the scan closes those receipts undeliverable, as a stop does,
+clears the request row it raised (a failure item stays), and prints
+`dead <worker> <settled>`, which the session-keeper announces as a
+`stream-json-worker-dead` event. `answer` delivers the
 operator's recorded answer as the control_response; `recover` resumes a
 crashed worker's session via `--resume`; `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
@@ -842,7 +853,10 @@ script's read bound, or still being written) gets a
 a sandbox bypass included, are not shown, yet an `answer --allow` would apply
 them. Every `--` notice prints before the request's content, so reading the
 view through `head` never drops one. A missing, symlinked, or malformed envelope
-prints `-- request envelope unreadable` instead. The request text is the worker's, so
+prints `-- request envelope unreadable` instead. A worker that is positively
+dead (every pid it recorded is gone, by `fleet-death-evidence.sh`) gets a
+`-- worker dead` line under each header: nobody can answer those requests, and
+the next `alarm-scan` settles them. The request text is the worker's, so
 it is treated as untrusted: control bytes are stripped (C1 bytes too, which
 mangles some non-ASCII punctuation, the same trade the script's echo
 sanitizer makes), a tool name that had to be altered carries a `:sanitized`
@@ -891,10 +905,20 @@ reading, and the receipt journal survive a stop: they are the durable record,
 not runtime. So does the worker's scratch root, the directory its launch
 exported as its `TMPDIR` and named in its session record: it belongs to the
 worktree, under `<fleet home>/scratch/`, so every plain stop, `recover`, and
-relaunch of the worker finds it again, contents and all, on every rung. A
-final close (`stop --final`, which a reap through `fleet-cleanup.sh process`
-makes) removes it, and so does `fleet-cleanup.sh worktree` when it reclaims
-the worktree. The
+relaunch of the worker finds it again, contents and all, on every rung. On
+the stream-json rung it is the worker's own, a directory keyed by its handle
+inside the worktree's (`worker-session-record.sh write --session`), because
+every session mission control launches from one checkout shares that
+worktree. A final close (`stop --final`, which a reap through
+`fleet-cleanup.sh process` and a mission-control retire make) removes it,
+taking that session's files alone. The other rungs, and a stream-json worker
+launched before roots were per session, record the worktree-wide root; their
+final close leaves it, dropping only the pointer, while another stream-json
+worker records it or a root inside it, or a session's root sits in it. Such a
+stream-json worker's first launch or `recover` under this version moves it to
+a fresh root of its own, its old files left in the worktree-wide one.
+`fleet-cleanup.sh worktree` removes the whole root when it reclaims the
+worktree. The
 journal survives as a file but not untouched — the close
 marks its still-`pending` receipts `undeliverable` and discards any spooled
 receipt, because a close
@@ -2041,9 +2065,9 @@ checkout is not judged on this checkout's specs. Each clear goes through
 `fleet-attention.sh clear --if-row`, so a worker that wrote since it was judged
 keeps its new row; each clear is audited under the `attention-reconcile`
 mechanism. `fleet_daemon_pause` pauses the pass.
-The pass clears display rows only: a dead headless worker's pending
-stream-json receipts stay for the rung's `stop` to settle, and until then
-`alarm-scan` can still re-queue a decision from them.
+The pass clears display rows only: a dead worker's pending stream-json
+receipts are the rung's to settle, which its `stop` does and so does the next
+`alarm-scan` once every pid the worker recorded is positively dead.
 
 ## Resource governance: models, throttling, and the auto-mode line
 
@@ -2506,6 +2530,15 @@ profile that cannot be read refuses the launch, naming the file, rather than
 starting a session under the operator's own settings. On Claude Code 2.1.303,
 two `-p` launches given the same `--name` both start and both carry that name: the CLI neither renames
 nor refuses, so a duplicate shows up only in the session listing.
+
+The launcher's `retire <name>` closes what it launched from its registry row.
+A stream-json worker launched without it (by an older planwright, by
+`/orchestrate`, or by hand) has no row, so `retire <worker>` takes it by its
+handle instead: `fleet-streamjson.sh stop <worker> --final`, then its fleet
+record and attention row, printing the same `retire` line over the classes
+`process`, `registry` and `attention`. A name with neither a row nor a
+stream-json runtime directory is exit 3, and the refusal names the headless
+rung's `stop` and `tmux kill-window` as the closes that apply.
 
 The `/tower` front door runs under the same profile. The shapes its sessions
 run routinely (the posture check's `jq` projections, and a flight petition's
