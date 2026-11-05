@@ -111,9 +111,11 @@ if [ -n "${PLANWRIGHT_MC_TOKEN:-}" ]; then
   launched=''
   for row in "$fh"/mission-control/sessions/*; do
     [ -f "$row" ] && [ ! -L "$row" ] || continue
-    launched=$(awk -F '\t' -v t="$PLANWRIGHT_MC_TOKEN" '
+    # The token is read from the environment, never argv, which other
+    # local users can list.
+    launched=$(awk -F '\t' '
       $1 == "token" { tok = $2 } $1 == "kind" { kind = $2 } $1 == "profile" { prof = $2 }
-      END { if (tok == t && kind == "mission-control") print prof }' "$row")
+      END { if (tok == ENVIRON["PLANWRIGHT_MC_TOKEN"] && kind == "mission-control") print prof }' "$row")
     [ -z "$launched" ] || break
   done
   [ -n "$launched" ] || fail "this session holds a mission-control token that no launcher registry row carries"
