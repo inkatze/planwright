@@ -78,6 +78,7 @@ cat >"$tmp/bin/claude" <<'SHIM'
 #!/bin/sh
 printf '%s\n' "$*" >"$SHIM_RECORD_DIR/argv.tmp" && mv "$SHIM_RECORD_DIR/argv.tmp" "$SHIM_RECORD_DIR/argv"
 printf '%s\n' "${PLANWRIGHT_MC_TOKEN:-}" >"$SHIM_RECORD_DIR/mctoken"
+printf '%s\n' "${PLANWRIGHT_TOWER_ID-<unset>}" >"$SHIM_RECORD_DIR/towerid"
 IFS= read -r line || line=''
 printf '%s\n' "$line" >"$SHIM_RECORD_DIR/stdin"
 exit 0
@@ -265,6 +266,8 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
   ro=$(reg_owner "$name")
   [ "$ro" = mission-control:alpha ] && ok "[$kind] the fleet registry attributes the session to mission-control:alpha" \
     || fail "[$kind] the fleet registry record's owner is '$ro', not mission-control:alpha"
+  [ "$(cat "$rec/towerid" 2>/dev/null)" = '<unset>' ] && ok "[$kind] the session does not inherit the owner as its own tower identity" \
+    || fail "[$kind] the session inherited PLANWRIGHT_TOWER_ID '$(cat "$rec/towerid" 2>/dev/null)'"
   case " $argv " in
     *" $want_tier "*) ok "[$kind] the session runs at its key's tier ($want_tier)" ;;
     *) fail "[$kind] the session's argv lacks its key's tier '$want_tier': $argv" ;;
