@@ -242,6 +242,24 @@ expect_out "a dead worker's settle is announced" "announced${tab}stream-json-wor
 expect_no_out "and its prompt is not" "pending-prompt-overdue${tab}cp-gone"
 rm -rf "$fleet/streamjson/cp-old" "$fleet/streamjson/cp-gone" "$fleet/streamjson/mc-beta-worker-0123456789" "$fleet/mission-control/sessions/mc-beta-worker-0123456789"
 
+# A landed session the launcher never registered, whose stream-json worker
+# has a recover in flight, is held rather than retired: retire refuses it as
+# in flight, and the sweep keeps the line for the next pass.
+mkdir -p "$fleet/streamjson/mc-alpha-worker-inflight"
+ln -s "$$-$(date +%s)-1" "$fleet/streamjson/mc-alpha-worker-inflight/recover.lock"
+mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-inflight --repo acme/web --pr 7
+echo MERGED >"$tmp/state7"
+PATH="$tmp/bin:$PATH" mc_run mc-keeper.sh sweep --program alpha
+expect_out "a session with an operation in flight is held" "held${tab}mc-alpha-worker-inflight${tab}session ("
+expect_no_out "and not retired" "retired${tab}mc-alpha-worker-inflight"
+if grep -q "^mc-alpha-worker-inflight${tab}acme/web${tab}7${tab}" "$ledger" && ! grep -q "^mc-alpha-worker-inflight${tab}.*${tab}retired$" "$ledger"; then
+  ok "its line stays tracked, not marked retired"
+else
+  fail "the in-flight session's ledger row: $(cat "$ledger")"
+fi
+[ -L "$fleet/streamjson/mc-alpha-worker-inflight/recover.lock" ] || fail "the in-flight election must be left alone"
+rm -rf "$fleet/streamjson/mc-alpha-worker-inflight"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-keeper: $failures failure(s)" >&2
   exit 1

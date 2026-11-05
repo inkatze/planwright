@@ -258,14 +258,14 @@ EOF
           case $sw_out in
             *"in flight"*) sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))" ;;
           esac
-          if [ -n "$sw_held" ]; then
-            :
-          elif sw_list=$(launcher list 2>/dev/null); then
-            if printf '%s\n' "$sw_list" | S=$sw_s awk -F '\t' '$1 == ENVIRON["S"] { f = 1 } END { exit !f }'; then
-              sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))"
+          if [ -z "$sw_held" ]; then
+            if sw_list=$(launcher list 2>/dev/null); then
+              if printf '%s\n' "$sw_list" | S=$sw_s awk -F '\t' '$1 == ENVIRON["S"] { f = 1 } END { exit !f }'; then
+                sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))"
+              fi
+            else
+              sw_held="session (the launcher's list cannot be read)"
             fi
-          else
-            sw_held="session (the launcher's list cannot be read)"
           fi
           ;;
         *) sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))" ;;

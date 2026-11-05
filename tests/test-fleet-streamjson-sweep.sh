@@ -80,6 +80,14 @@ for args in "" "no-such-verb"; do
   grep -q '^usage: fleet-streamjson.sh launch ' "$tmp/w1.err" || fail "w1: '$args' must print the usage, got: $(cat "$tmp/w1.err")"
   [ ! -s "$tmp/w1.out" ] || fail "w1: the usage goes to stderr only"
 done
+# The early guard and the dispatch name the same verbs, so a verb added to one
+# alone is never refused as unknown before the dispatch can reach it.
+guard_verbs=$(awk '/^case \$\{1:-\} in$/ { getline; sub(/\) ;;$/, ""); gsub(/[ |]+/, "\n"); print; exit }' "$SJ" | grep . | sort)
+dispatch_verbs=$(awk '/^case \$cmd in$/ { f = 1; next } f && /^esac$/ { exit } f && /^  [a-z_-]+\)/ { sub(/^  /, ""); sub(/\).*/, ""); print }' "$SJ" | sort)
+[ -n "$guard_verbs" ] && [ -n "$dispatch_verbs" ] || fail "w1: cannot read the verb lists"
+# shellcheck disable=SC2086 # word-split on purpose, one verb per line to one line
+[ "$guard_verbs" = "$dispatch_verbs" ] \
+  || fail "w1: the early guard and the dispatch must name the same verbs, guard: $(printf '%s ' $guard_verbs)dispatch: $(printf '%s ' $dispatch_verbs)"
 echo "ok: w1 no arguments or an unknown verb prints the usage and exits 2 at once"
 
 # ---------------------------------------------------------------------------
