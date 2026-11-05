@@ -85,9 +85,10 @@ Usage:
       whatever version or verb launched it, so an overdue request is a high
       queue item pushed once and a dead worker's is settled), each request
       still overdue one pending-prompt-overdue event, subject the worker,
-      announced once per request, and a dead worker the scan settled one
-      stream-json-worker-dead event, a worker the launcher records for
-      another program left to that program, printing
+      announced once per request (a worker the launcher records for
+      another program left to that program), and a dead worker this scan
+      settled one stream-json-worker-dead event, whatever its program,
+      printing
         announced<TAB>pending-prompt-overdue|stream-json-worker-dead<TAB><worker>
       then sweep, each landing one session-landed event in the
       program's event store, subject the session, text
@@ -252,9 +253,14 @@ EOF
         0) ;;
         3)
           # Neither a row nor a stream-json worker means already gone, or
-          # never launched on a rung retire can close; a row still listed
-          # means a launch or retire in flight.
-          if sw_list=$(launcher list 2>/dev/null); then
+          # never launched on a rung retire can close; a row still listed,
+          # or a refusal naming an operation in flight, is one to wait out.
+          case $sw_out in
+            *"in flight"*) sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))" ;;
+          esac
+          if [ -n "$sw_held" ]; then
+            :
+          elif sw_list=$(launcher list 2>/dev/null); then
             if printf '%s\n' "$sw_list" | S=$sw_s awk -F '\t' '$1 == ENVIRON["S"] { f = 1 } END { exit !f }'; then
               sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))"
             fi
@@ -335,9 +341,9 @@ EOF
 # pushes it once and settles a dead worker's; each request still overdue is
 # then one event, announced once, and a dead worker the scan settled is one
 # stream-json-worker-dead event, since its request row has just left the
-# queue. A worker the launcher records for another program is that program's
-# to announce; with the launcher's list unreadable every worker is announced
-# here, as heard twice beats never.
+# queue. An overdue prompt of a worker the launcher records for another
+# program is that program's to announce; with the launcher's list unreadable
+# every one is announced here, as heard twice beats never.
 pending_prompts() {
   NL='
 '
@@ -353,13 +359,15 @@ pending_prompts() {
       *) continue ;;
     esac
     mc_valid_handle "$pp_w" || continue
-    case "$NL$pp_theirs$NL" in *"$NL$pp_w$NL"*) continue ;; esac
+    # A settle prints its line once, to whichever scan made it, so a death is
+    # announced here whatever program the worker belongs to.
     if [ "$pp_tag" = dead ]; then
       mc_announce "$program" "$pp_seen" "dead	$pp_w" stream-json-worker-dead "$pp_w" \
         "stream-json worker $pp_w is dead with $pp_id request(s) it left pending, now closed since nothing can answer them; mission-control-launch.sh retire $pp_w closes what is left" \
         || pp_rc=1
       continue
     fi
+    case "$NL$pp_theirs$NL" in *"$NL$pp_w$NL"*) continue ;; esac
     pp_key="$pp_w	$pp_id"
     pp_live="$pp_live$pp_key$NL"
     mc_announce "$program" "$pp_seen" "$pp_key" pending-prompt-overdue "$pp_w" \

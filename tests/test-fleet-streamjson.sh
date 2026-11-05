@@ -991,8 +991,8 @@ senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 --final >/dev/null 2>&1 || f
   || fail "c39: the final stop left the scratch root or its pointer behind"
 [ -d "$wtroot39" ] || fail "c39: the final stop removed the worktree's root, which other sessions share"
 echo "ok: c39 the worker's TMPDIR is its own scratch root, kept across a recover and a stop, removed by the final stop (REQ-G1.2)"
-# The final close removes only a pointer of the writer's own shape,
-# <fleet-home>/scratch/<sha1>, and never through a symlink; a read-only
+# The final close removes only a pointer of the writer's own shapes,
+# <fleet-home>/scratch/<sha1> or <sha1>/<sha1>, and never through a symlink; a read-only
 # directory the worker left does not stop the removal.
 h39r=$(cd "$tmp/h39" && pwd -P)
 mkdir -p "$tmp/u39" "$tmp/out39/keep" "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro/deep"

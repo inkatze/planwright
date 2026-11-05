@@ -154,10 +154,11 @@ stop_scratch_release() {
 # root inside it, <sha1>/<sha1>, which takes that session's files alone and
 # leaves the worktree's root to the worktree reclaim. A worktree's root that
 # is still in use beside this worker is left there too, and only the pointer
-# goes: one another stream-json worker records, or one holding a session's
-# root (a session's directory exists before its pointer is written).
-# Directories the worker left without write permission are opened first,
-# without following a link. Zero when nothing is left.
+# goes: one another stream-json worker records, or a root inside it, or one
+# holding a session's root (a session's directory exists before its pointer
+# is written). Directories the worker left without write permission are
+# opened first, without following a link. Zero when the pointer is gone and
+# its root removed or left in use.
 stop_scratch_root_release() {
   [ -f "$1/scratch-root" ] && [ ! -L "$1/scratch-root" ] || return 0
   sr_path=$(head -n 1 "$1/scratch-root" 2>/dev/null) || return 1
@@ -180,9 +181,10 @@ stop_scratch_root_release() {
     esac
     [ "${#sr_k}" -eq 40 ] || return 1
   done
-  # Every component, not just the last: a linked worktree root would take
-  # the removal out of the fleet home.
-  if [ -d "$sr_path" ] && [ "$(cd -P -- "$sr_path" 2>/dev/null && pwd -P)" != "$sr_path" ]; then
+  # Every component, not just the last (which the removal below checks): a
+  # linked worktree root would take the removal out of the fleet home. The
+  # parent is canonicalized, since the root itself may not be enterable.
+  if [ -e "$sr_path" ] && [ "$(cd -P -- "${sr_path%/*}" 2>/dev/null && pwd -P)" != "${sr_path%/*}" ]; then
     return 1
   fi
   if [ -z "$sr_sess" ] && stop_scratch_in_use "$1" "$2" "$sr_path"; then

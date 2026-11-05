@@ -29,8 +29,10 @@
 #                      warning, which leaves the worker without the scratch
 #                      arm. The launcher exports the recorded root as the
 #                      worker's TMPDIR; the rung's final close (`stop
-#                      --final`, which a reap makes) or `fleet-cleanup.sh
-#                      worktree` removes it.
+#                      --final`, which a reap makes) removes it unless it is
+#                      still in use beside the worker (scripts/
+#                      fleet-stop-lib.sh), and `fleet-cleanup.sh worktree`
+#                      removes it whatever its use.
 #                      --fresh-scratch empties a root left from an earlier
 #                      worktree at the same path first, for a launcher that
 #                      has just created the worktree.
@@ -94,7 +96,7 @@ while [ "$#" -gt 0 ]; do
     --session)
       [ "$#" -ge 2 ] && [ -z "$session" ] && [ "$have_id" = 0 ] || die "$usage" 2
       case $2 in
-        '' | -* | . | .. | *[!A-Za-z0-9._=@:-]*) die "the session handle holds a character outside the handle grammar" 2 ;;
+        '' | -* | . | .. | *[!A-Za-z0-9._=@:-]*) die "the session handle is outside the handle grammar (no leading dash, letters, digits and . _ = @ : - only)" 2 ;;
       esac
       session=$2
       shift 2
@@ -265,8 +267,10 @@ sparent=$home/scratch
 if [ -n "$sess_key" ]; then
   sparent=$sroot
   sroot=$sroot/$sess_key
-  # Before anything below removes or creates inside it.
-  [ ! -L "$sparent" ] || want_scratch=3
+fi
+# Before anything below removes or creates inside them.
+if [ "$want_scratch" != 0 ] && { [ -L "$home/scratch" ] || [ -L "$sparent" ]; }; then
+  want_scratch=3
 fi
 if [ "$want_scratch" = 2 ] && [ -d "$sroot" ] && [ ! -L "$sroot" ]; then
   find "$sroot" -type d ! -perm -700 -exec chmod u+rwx {} \; 2>/dev/null || :

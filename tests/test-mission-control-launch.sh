@@ -465,7 +465,8 @@ busy="$fleet/streamjson/orch-busy"
 mkdir -p "$busy"
 ln -s "$$-$(date +%s)-1" "$busy/recover.lock"
 ml retire orch-busy
-[ "$RC" = 3 ] && ok "retire refuses a row-less worker whose recover is in flight" || fail "retire over a held recover lock: exit $RC, $OUT"
+[ "$RC" = 3 ] && case $ERR in *"recover.lock is held"*) true ;; *) false ;; esac \
+  && ok "retire refuses a row-less worker whose recover is in flight, naming the lock" || fail "retire over a held recover lock: exit $RC, $OUT $ERR"
 [ -L "$busy/recover.lock" ] && ok "and leaves the recover's lock alone" || fail "the in-flight recover's lock was broken"
 rm -rf "$busy"
 ml retire nosuch-worker

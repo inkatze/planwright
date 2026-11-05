@@ -77,9 +77,11 @@
 #   tier_key / tier_unit  the allocation key and unit a launch's --tier-key
 #                    and --tier-unit named, which `relaunch` resolves at
 #   relaunch.lock    a relaunch's election, outside the release set
-#   scratch-root     the worker's own scratch root, inside its worktree's, the
-#                    launch handed it as its TMPDIR, which only a final close
-#                    removes
+#   scratch-root     the scratch root the launch handed the worker as its
+#                    TMPDIR: its own, inside its worktree's, or for a worker
+#                    launched before roots were per session the worktree's
+#                    own; only a final close removes it (scripts/
+#                    fleet-stop-lib.sh, stop_scratch_root_release)
 #   alarmed-<id>     the mark of a request whose overdue push has been made,
 #                    until the journal no longer reads it pending
 #   supervisor.log   the detached supervisor's own stderr
@@ -3155,7 +3157,9 @@ cmd_alarm_scan() {
   for as_dir in "$as_root/streamjson"/*; do
     # This verb rewrites journals and deletes marks inside what it is handed.
     [ -d "$as_dir" ] && [ ! -L "$as_dir" ] || continue
-    [ -f "$as_dir/journal" ] || continue
+    # Readable, not merely present: an awk that cannot read it reads as
+    # nothing pending, which would prune every mark.
+    [ -f "$as_dir/journal" ] && [ -r "$as_dir/journal" ] || continue
     as_worker=${as_dir##*/}
     valid_field "$as_worker" || continue
     # The scan reads every runtime directory, whatever planwright version
@@ -3354,11 +3358,13 @@ alarm_marks_prune() {
 
 # alarm_claim <dir> <id> — 0 when this call is the first to push the
 # request's overdue alarm: the tick and `alarm-scan --once` share one mark per
-# request, so a worker both watch is pushed once. The mark is created
-# exclusively (noclobber), so two callers never both claim, and never through
-# a link. A mark that cannot be written at all still claims: a second push
-# beats none.
+# request, so a worker both watch is pushed once. Anything already at the
+# mark's path, a link included, claims nothing: noclobber refuses only an
+# existing regular file and would open a link to a fifo or a device. The
+# create is exclusive, so two callers never both claim. A mark that cannot be
+# written at all still claims: a second push beats none.
 alarm_claim() {
+  [ ! -e "$1/alarmed-$2" ] && [ ! -L "$1/alarmed-$2" ] || return 1
   (set -C && : >"$1/alarmed-$2") 2>/dev/null && return 0
   [ ! -e "$1/alarmed-$2" ] && [ ! -L "$1/alarmed-$2" ]
 }

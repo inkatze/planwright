@@ -137,6 +137,16 @@ rm -f "$live/alarmed-$id1"
 ln -s "$tmp/w3-target" "$live/alarmed-$id1"
 fenv "$home" "$SJ" alarm-scan --once --now 5480 --threshold 900 >/dev/null || fail "w3: scan over a linked mark exited non-zero"
 [ ! -e "$tmp/w3-target" ] || fail "w3: the mark was written through a symlink"
+[ "$(pushes "$home")" = 3 ] || fail "w3: a linked mark must claim nothing, pushed $(pushes "$home")"
+# A link to a fifo would block an open; the scan must neither block nor push.
+rm -f "$live/alarmed-$id1"
+mkfifo "$tmp/w3-fifo"
+ln -s "$tmp/w3-fifo" "$live/alarmed-$id1"
+/bin/sh "$S/bounded-run.sh" 10 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u HOME PLANWRIGHT_FLEET_STATE_DIR="$home" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="$pin_cfg" \
+  /bin/sh "$SJ" alarm-scan --once --now 5540 --threshold 900 >/dev/null 2>&1 \
+  || fail "w3: a mark linked to a fifo must not block the scan"
+[ "$(pushes "$home")" = 3 ] || fail "w3: a mark linked to a fifo must claim nothing, pushed $(pushes "$home")"
 rm -f "$live/alarmed-$id1"
 echo "ok: w3 an overdue request no tick watches reaches the queue high and --once pushes it once"
 
@@ -257,8 +267,31 @@ release() { # release <unit-dir> <pointer>
 }
 unit="$tmp/w5-unit"
 mkdir -p "$unit"
+# The session's own pointer is set aside so only its directory keeps the root.
+mv "$home/streamjson/mc-alpha-worker-bbbb/scratch-root" "$tmp/w5-bbbb-pointer"
 release "$unit" "$wroot" || fail "w5: a root in use must release its pointer cleanly"
 [ -f "$rb/b-file" ] && [ ! -e "$unit/scratch-root" ] || fail "w5: a root holding a session's root must stay, its pointer gone"
+mv "$tmp/w5-bbbb-pointer" "$home/streamjson/mc-alpha-worker-bbbb/scratch-root"
+# With no session inside, another runtime directory recording the same root
+# keeps it; once nobody else records it, the last close removes it.
+shared=$(cd "$home" && pwd -P)/scratch/$(printf 'c%.0s' $(seq 40))
+mkdir -p "$shared/old-file" "$home/streamjson/old-two"
+printf '%s\n' "$shared" >"$home/streamjson/old-two/scratch-root"
+release "$unit" "$shared" && [ -d "$shared/old-file" ] || fail "w5: a root another worker records must stay"
+rm -f "$home/streamjson/old-two/scratch-root"
+release "$unit" "$shared" && [ ! -e "$shared" ] || fail "w5: a root nobody else uses must be removed by the last close"
+# A linked worktree root disables a session's scratch arm before anything
+# is created or removed inside it.
+lwt="$tmp/wt5l"
+mkdir -p "$lwt" "$tmp/w5-elsewhere"
+git -C "$lwt" init -q
+lkey=$(printf '%s' "$(cd "$lwt" && pwd -P)" | git hash-object --stdin)
+ln -s "$tmp/w5-elsewhere" "$(cd "$home" && pwd -P)/scratch/$lkey"
+(cd "$lwt" && fenv "$home" "$S/worker-session-record.sh" write "$lwt" --session s1 --fresh-scratch) >"$tmp/w5l.rec" 2>"$tmp/w5l.err" \
+  || fail "w5: the record must still be written without a scratch arm"
+! grep -q '^scratch_root=' "$(cat "$tmp/w5l.rec")" && grep -q 'scratch root is unusable' "$tmp/w5l.err" \
+  && [ -z "$(ls -A "$tmp/w5-elsewhere")" ] \
+  || fail "w5: a linked worktree root must leave the session without a scratch root, nothing created through it"
 outside="$tmp/w5-outside"
 mkdir -p "$outside/$(printf 'f%.0s' $(seq 40))/keep"
 hreal=$(cd "$home" && pwd -P)
