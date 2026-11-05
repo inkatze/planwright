@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # check-panel-mod.sh — the panel mod's gate: the CLI at or above the mods
 # floor, the engine surface `claude plugin validate` reports held to
-# config/panel-mod-surface.txt, the plugin tests run and green, and the
+# config/panel-mod-surface.txt, no slash command it registers sharing a
+# planwright skill's name, the plugin tests run and green, and the
 # suite shown to fail on a seeded drawing defect. Without the claude CLI it
 # skips with a note (CI's lint job installs one); a CLI below the floor fails.
 #
