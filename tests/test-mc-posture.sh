@@ -106,6 +106,28 @@ reset
 posture CLAUDE_PLUGIN_ROOT="$repo_root" PLANWRIGHT_MC_TOKEN=fixture-token --
 expect_pass "a launched mission-control session reads the profile it was launched with"
 
+reset
+absolute_profile >"$tmp/managed.json"
+posture -- --managed "$tmp/managed.json"
+expect_pass "the profile in the managed settings file passes"
+
+reset
+mkdir -p "$tmp/config-dir"
+absolute_profile >"$tmp/config-dir/settings.json"
+posture CLAUDE_CONFIG_DIR="$tmp/config-dir" --
+expect_pass "the user layer is read from CLAUDE_CONFIG_DIR when it is set"
+rm -rf "$tmp/config-dir"
+
+reset
+absolute_profile >"$proj/.claude/settings.json"
+(cd "$proj" && git init -q . 2>/dev/null)
+mkdir -p "$proj/sub"
+OUT=$(cd "$proj/sub" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_CONFIG_DIR -u PLANWRIGHT_MC_TOKEN -u PLANWRIGHT_ROOT \
+  HOME="$home" /bin/bash "$POSTURE" check --managed "$absent" 2>"$tmp/err")
+RC=$?
+ERR=$(cat "$tmp/err")
+expect_pass "with no --project, the project layers are read from the git top level"
+
 echo "# the deny floor"
 reset
 absolute_profile | jq '.permissions.deny |= map(select(. != "Bash(gh pr merge:*)"))' >"$home/.claude/settings.json"
@@ -151,6 +173,14 @@ reset
 posture CLAUDE_PLUGIN_ROOT="$tmp/nowhere" -- --settings "$PROFILE"
 expect_fail "hooks wired through a root without the guards fail" "does not resolve"
 
+reset
+mkdir -p "$tmp/noexec/scripts"
+cp "$repo_root/scripts/tower-command-guard.sh" "$repo_root/scripts/policy-guard.sh" "$tmp/noexec/scripts/"
+chmod 644 "$tmp/noexec/scripts/"*.sh
+posture CLAUDE_PLUGIN_ROOT="$tmp/noexec" -- --settings "$PROFILE"
+expect_fail "hooks wired to guards that are not executable fail" "does not resolve"
+rm -rf "$tmp/noexec"
+
 echo "# unreadable layers"
 reset
 absolute_profile >"$home/.claude/settings.json"
@@ -162,7 +192,7 @@ reset
 absolute_profile >"$home/.claude/settings.json"
 printf '{"permissions":{"deny":"Bash(x)"}}\n' >"$proj/.claude/settings.json"
 posture --
-expect_fail "a layer whose deny is not a list fails" "settings.json cannot be parsed"
+expect_fail "a layer whose deny is not a list fails" "proj/.claude/settings.json cannot be parsed"
 
 reset
 absolute_profile >"$home/.claude/settings.json"
@@ -170,6 +200,11 @@ posture -- --settings "$tmp/missing.json"
 expect_pass "an absent layer counts as empty"
 
 echo "# usage"
+if OUT=$(/bin/bash "$POSTURE" --help 2>&1) && case $OUT in usage:*) true ;; *) false ;; esac then
+  ok "--help prints the usage and exits 0"
+else
+  fail "--help did not print the usage with exit 0"
+fi
 OUT=$(/bin/bash "$POSTURE" 2>&1)
 [ "$?" = 2 ] && ok "no verb is a usage error" || fail "no verb did not exit 2"
 OUT=$(/bin/bash "$POSTURE" check --bogus 2>&1)
