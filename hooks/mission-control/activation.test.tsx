@@ -170,3 +170,12 @@ test('the end of the session retires its record', async ($, on) => {
   await $.session.end({ reason: 'prompt_input_exit', sessionId: SESSION } as never)
   expect(ran(w, 'mc-panel.sh', 'retire')[0]).toEqual(expect.arrayContaining(['--session', SESSION]))
 })
+
+test('the end of a session retires the record it was acknowledged under, too', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  w.set({ sessionId: OTHER })
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: OTHER } as never)
+  const retired = ran(w, 'mc-panel.sh', 'retire').map(r => r[r.indexOf('--session') + 1])
+  expect(retired).toEqual(expect.arrayContaining([OTHER, SESSION]))
+})

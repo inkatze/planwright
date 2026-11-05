@@ -399,6 +399,12 @@ mc_run mc-panel.sh text --program alpha
 expect_rc "the text verb" 0
 expect_out "REQ-F1.2: the text output carries the in-flight line" "in flight: 1"
 expect_out "REQ-F1.2: the text output carries the waiting line" "waiting:"
+[ ! -e "$runtime/budget" ] || mv "$runtime/budget" "$runtime/budget.saved"
+ln -s "$tmp/nowhere" "$runtime/budget"
+mc_run mc-panel.sh text --program alpha
+expect_out "an unreadable budget is said as unknown, with why" "rung: unknown (the budget cannot be read)"
+rm -f "$runtime/budget"
+[ ! -e "$runtime/budget.saved" ] || mv "$runtime/budget.saved" "$runtime/budget"
 mkdir -p "$tmp/oldclaude"
 printf '#!/bin/sh\necho "2.0.0 (Claude Code)"\n' >"$tmp/oldclaude/claude"
 chmod +x "$tmp/oldclaude/claude"

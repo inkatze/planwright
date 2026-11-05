@@ -540,6 +540,14 @@ async function acknowledge($: EngineInterface, how: 'variable' | 'record' | 'rel
   }
 }
 
+// The ending id's record, and the one this activation was acknowledged
+// under when a /clear left the two apart before a check could follow it.
+async function retireRecords($: EngineInterface, endingId: string) {
+  const ids = ackedFor !== null && ackedFor !== endingId ? [endingId, ackedFor] : [endingId]
+  ackedFor = null
+  for (const id of ids) await run($, 'mc-panel.sh', ['retire', '--session', id])
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -565,15 +573,14 @@ export const register: Register = on => {
     if (ctx && e.reason === 'clear') {
       // A /clear keeps the session and the mod, and starts the counts over;
       // the record moves to the id the session goes on under.
-      ackedFor = null
       await patch($, x => ({ ...emptyView(x.program, x.target), digest: x.digest, isFallback: x.isFallback }))
-      await run($, 'mc-panel.sh', ['retire', '--session', e.sessionId])
+      await retireRecords($, e.sessionId)
       const ended = await next(e)
       $.clock.after(0, () => void acknowledge($, 'clear'))
       return ended
     } else if (ctx) {
       await run($, 'mc-wake.sh', ['target', 'add', '--program', ctx.program, ctx.target])
-      await run($, 'mc-panel.sh', ['retire', '--session', e.sessionId])
+      await retireRecords($, e.sessionId)
     }
     return next(e)
   })

@@ -248,6 +248,13 @@ no_session() {
 # field_of <file> <key>: the first value of <key> in a key<TAB>value store.
 field_of() { K=$2 awk -F '\t' '$1 == ENVIRON["K"] { print $2; exit }' "$1" 2>/dev/null; }
 
+# names_session <file> <id>: <file> is a regular file of this format, not a
+# symlink, whose session field is <id>. Every read of an activation, an
+# acknowledgment or a session-start record goes through it.
+names_session() {
+  [ ! -L "$1" ] && mc_format_ok "$1" && [ "$(field_of "$1" session)" = "$2" ]
+}
+
 # self_session: this session's id. The session-start hook's record for the
 # host process (CLAUDE_PID) first, since it follows a /clear; the host's
 # CLAUDE_CODE_SESSION_ID second.
@@ -390,7 +397,7 @@ esac
 case $verb in
   lookup)
     lk=$act_dir/$session
-    [ ! -L "$lk" ] && mc_format_ok "$lk" && [ "$(field_of "$lk" session)" = "$session" ] || exit 1
+    names_session "$lk" "$session" || exit 1
     lk_p=$(field_of "$lk" program)
     lk_t=$(field_of "$lk" target)
     mc_valid_program "$lk_p" || exit 1
@@ -400,8 +407,7 @@ case $verb in
     ;;
   ack)
     mc_now_arg "$now"
-    { [ ! -L "$act_dir/$session" ] && mc_format_ok "$act_dir/$session" \
-      && [ "$(field_of "$act_dir/$session" session)" = "$session" ]; } || mc_fail "no activation record for this session"
+    names_session "$act_dir/$session" "$session" || mc_fail "no activation record for this session"
     [ ! -L "$act_dir/$session.ack" ] || mc_fail "the acknowledgment is a symlink"
     printf 'format\t%s\nsession\t%s\nwritten\t%s\n' "$MC_FORMAT" "$session" "$NOW" \
       | mc_write "$act_dir/$session.ack" || mc_fail "cannot write the acknowledgment"
@@ -799,7 +805,7 @@ below_floor() {
 
 # acked <dir> <session>: the mod acknowledged this session's record.
 acked() {
-  [ ! -L "$1/$2.ack" ] && mc_format_ok "$1/$2.ack" && [ "$(field_of "$1/$2.ack" session)" = "$2" ]
+  names_session "$1/$2.ack" "$2"
 }
 
 activate() {
@@ -810,17 +816,14 @@ activate() {
   # CLAUDE_PID counts only when the session-start record for it names this
   # session; otherwise the live process that record names, else `-`.
   if [ -z "$pid" ] && mc_valid_uint "${CLAUDE_PID:-}" && [ -n "$ac_sd" ] \
-    && [ ! -L "$ac_sd/$CLAUDE_PID" ] && mc_format_ok "$ac_sd/$CLAUDE_PID" \
-    && [ "$(field_of "$ac_sd/$CLAUDE_PID" session)" = "$session" ]; then
+    && names_session "$ac_sd/$CLAUDE_PID" "$session"; then
     pid=$CLAUDE_PID
   fi
   if [ -z "$pid" ] && [ -n "$ac_sd" ]; then
     set +f
     for ac_f in "$ac_sd"/*; do
       ac_k=${ac_f##*/}
-      mc_valid_uint "$ac_k" && [ ! -L "$ac_f" ] || continue
-      mc_format_ok "$ac_f" || continue
-      { [ "$(field_of "$ac_f" session)" = "$session" ] && pid_alive "$ac_k"; } || continue
+      mc_valid_uint "$ac_k" && names_session "$ac_f" "$session" && pid_alive "$ac_k" || continue
       pid=$ac_k
       break
     done
