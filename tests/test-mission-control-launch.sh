@@ -463,6 +463,16 @@ mkdir -p "$rec"
 SHIM_RECORD_DIR=$rec ml launch --program alpha --kind worker --scope posture-floor --brief "$tmp/brief.md"
 [ "$RC" = 0 ] && ok "once the posture passes, the same launch goes through" || fail "the launch after a passing posture exited $RC: $ERR"
 wait_done "$(field name)"
+# A posture check that could not run (any exit but pass or fail) refuses too.
+mkdir -p "$tmp/sp"
+cp -R "$repo_root/scripts" "$tmp/sp/scripts"
+printf '#!/bin/bash\necho "mc-posture: jq is required" >&2\nexit 2\n' >"$tmp/sp/scripts/mc-posture.sh"
+LAUNCH="$tmp/sp/scripts/mission-control-launch.sh" ml launch --program alpha --kind worker --scope posture-norun --brief "$tmp/brief.md"
+[ "$RC" = 4 ] && ok "a launch whose posture check did not run is refused (exit 4)" || fail "a launch whose posture check did not run exited $RC: $ERR"
+case $ERR in *"posture check did not run: mc-posture: jq is required"*) ok "the refusal says the check did not run, with its message" ;; *) fail "the did-not-run refusal does not say why: $ERR" ;; esac
+LAUNCH="$tmp/sp/scripts/mission-control-launch.sh" ml name --program alpha --kind worker --scope posture-norun
+[ ! -e "$fleet/mission-control/sessions/$OUT" ] && ok "the did-not-run refusal left no registry row" || fail "the did-not-run refusal left a row"
+rm -rf "$tmp/sp"
 
 mv "$core/config/tower-settings.json" "$tmp/tower-settings.json"
 ml launch --program alpha --kind orchestrator --scope no-profile --brief "$tmp/brief.md"
