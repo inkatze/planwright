@@ -818,7 +818,8 @@ mission-control session as a `pending-prompt-overdue` event. A worker that is
 positively dead is never escalated: what it left pending can no longer be
 answered, so the scan closes those receipts undeliverable, as a stop does,
 clears the request row it raised (a failure item stays), and prints
-`dead <worker> <settled>`. `answer` delivers the
+`dead <worker> <settled>`, which the session-keeper announces as a
+`stream-json-worker-dead` event. `answer` delivers the
 operator's recorded answer as the control_response; `recover` resumes a
 crashed worker's session via `--resume`; `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
@@ -905,13 +906,14 @@ inside the worktree's (`worker-session-record.sh write --session`), because
 every session mission control launches from one checkout shares that
 worktree. A final close (`stop --final`, which a reap through
 `fleet-cleanup.sh process` and a mission-control retire make) removes it,
-taking that session's files alone. A worker launched before roots were per
-session records the worktree-wide root, and its final close, on any rung,
-leaves that root while another stream-json worker records it or a root
-inside it, or a session's root sits in it; its first launch or `recover`
-under this version moves it to a fresh root of its own, its old files left in
-the worktree-wide one. `fleet-cleanup.sh worktree` removes the whole root
-when it reclaims the worktree. The
+taking that session's files alone. The other rungs, and a stream-json worker
+launched before roots were per session, record the worktree-wide root; their
+final close leaves it, dropping only the pointer, while another stream-json
+worker records it or a root inside it, or a session's root sits in it. Such a
+stream-json worker's first launch or `recover` under this version moves it to
+a fresh root of its own, its old files left in the worktree-wide one.
+`fleet-cleanup.sh worktree` removes the whole root when it reclaims the
+worktree. The
 journal survives as a file but not untouched — the close
 marks its still-`pending` receipts `undeliverable` and discards any spooled
 receipt, because a close

@@ -79,8 +79,8 @@
 #           detector leaves those unclassified for the operator.
 #
 #       The close itself is the rung's own `stop --final`, the last close,
-#       which also removes the worker's scratch root
-#       (scripts/fleet-streamjson.sh, scripts/fleet-dispatch-headless.sh), so
+#       which also removes the worker's scratch root when no other session
+#       still uses it (scripts/fleet-streamjson.sh, scripts/fleet-dispatch-headless.sh), so
 #       the fleet has one kill path: this arm matches no process, sends no
 #       signal, and releases nothing of its own. It runs under the worker's
 #       reap lock (scripts/fleet-reap-lock.sh), so towers sweeping one fleet

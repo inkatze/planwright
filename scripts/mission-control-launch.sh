@@ -78,7 +78,8 @@ lists the windows and that one is not among them. A session with no row
 (one an older planwright or /orchestrate launched, named by its worker
 handle) is retired through its stream-json runtime directory: the rung's
 final close, then its fleet record and attention row, over the classes
-process, registry and attention; with no such directory either, the
+process, registry and attention, refused while the rung's own launch,
+recover or relaunch of it is in flight; with no such directory either, the
 refusal names the headless and tmux stops.
 
 Exit codes: 0 done; 1 the rung failed to start the session (or it started,
@@ -87,7 +88,7 @@ not be closed, so its row stays for a retire, or a retire released only part
 of it; 2 usage, an invalid value, or a registry row or launch directory the
 launcher cannot read or write; 3 the name is held, or a launch or retire of
 it is in flight (launch), or there is neither a row nor a stream-json
-worker of that name, a launch or another retire of
+worker of that name, a launch, recover, relaunch or another retire of
 it is in flight, or the caller runs inside its window (retire); 4 a launch refused
 before it started: no readable profile, an unresolvable rung knob, no
 resolvable tier (an unreachable allocation store or a malformed tier knob),
