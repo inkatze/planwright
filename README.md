@@ -16,11 +16,6 @@ until then the work stays on your machine). Work built from a spec is marked
 ready for you only once CI is green on it, and by default nothing merges until
 you do.
 
-**Placeholder, not yet measured:** on a public demo repository and a fixed
-set of tasks, *[N]%* of planwright's draft pull requests merged with no
-further change, at *[M]* reviewer minutes per merged pull request, against
-plain Claude Code on the same tasks.
-
 > **Status: young and solo-maintained.** One person maintains planwright, it
 > runs on Claude Code only, and it builds itself with its own commands. Expect
 > rough edges, and please
@@ -37,18 +32,12 @@ from a clean machine to your first draft PR.
   any other protected branch, a pull-request merge, and a rewrite of history
   someone already pushed. The few exceptions are yours to grant, and
   [Human Gates](doctrine/human-gates.md) lists them all.
-  **Placeholder, not yet measured:** on a published replay of risky git and
-  file commands, the hooks block *[N]%* against *[M]%* for auto mode alone,
-  and wrongly block *[K]%* of a normal session's commands.
 - **Right-sized for each request.** A small, reversible fix becomes one draft
   pull request with a record of what was asked, what was done, and how it was
   checked. A risky feature, or one without a clear finish line, gets a written
   spec first, which you read and sign before any code is written; size alone
   never decides it. planwright tells you which it chose and why
   in one line, and one sentence from you overrides it.
-  **Placeholder, not yet measured:** on a public sample of requests, a small
-  fix reaches a draft pull request in a median of *[T]* minutes, and *[P]%*
-  of requests are routed to a spec.
 - **Review that stops.** Its review loops have iteration caps and stop when no
   progress is made, and they hand you the questions that need your judgment
   rather than deciding them on their own.
