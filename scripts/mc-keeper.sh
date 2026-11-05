@@ -81,8 +81,9 @@ Usage:
       the duty's watcher (also what a run with no arguments does under the
       runner): the stall scan (scripts/mc-stall.sh scan, which emits its own
       events), the removal of every panel activation record whose session
-      has no live process (scripts/mc-panel.sh prune), then sweep, each landing one session-landed event in the
-      program's event store, subject the session, text
+      has no live process (scripts/mc-panel.sh prune), then sweep, each
+      landing one session-landed event in the program's event store,
+      subject the session, text
       `<owner/name>#<pr> <state>, retired|held[: <what stayed>]`, printing
         announced<TAB>session-landed<TAB><session>
       once per pull request, state and outcome while it stays tracked,

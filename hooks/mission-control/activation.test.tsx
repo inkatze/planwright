@@ -70,6 +70,65 @@ test('an acknowledgment that cannot be written stays on the pane', async ($, on)
   await ui.unmount()
 })
 
+// The skill's bring-up rewrites the record after the variable activated the
+// panel; the live mod must answer it, or the skill falls back to text.
+test('a rewritten record with no acknowledgment is acknowledged again', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const acks = ran(w, 'mc-panel.sh', 'ack').length
+  w.set({ records: { [SESSION]: recordFor('alpha') } })
+  await w.clock.advance(10_000)
+  expect(ran(w, 'mc-panel.sh', 'ack')).toHaveLength(acks + 1)
+  expect(ran(w, 'mc-panel.sh', 'digest').at(-1)).toEqual(expect.arrayContaining(['--program', 'alpha']))
+})
+
+test('a record naming another program switches the panel to it', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  w.set({ records: { [SESSION]: recordFor('beta') } })
+  await w.clock.advance(10_000)
+  await w.clock.settle()
+  expect(ran(w, 'mc-panel.sh', 'digest').at(-1)).toEqual(expect.arrayContaining(['--program', 'beta']))
+  expect(ran(w, 'mc-wake.sh', 'target').at(-1)).toEqual(expect.arrayContaining(['beta', '--mod']))
+})
+
+// REQ-F1.16: a retired record (a handover released this session) stands the
+// panel down, so two sessions never claim one wake target.
+test('a retired record stands the panel down', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  w.set({ records: {} })
+  await w.clock.advance(10_000)
+  await w.clock.settle()
+  expect(ran(w, 'mc-wake.sh', 'target').at(-1)).not.toContain('--mod')
+  const digests = ran(w, 'mc-panel.sh', 'digest').length
+  await w.clock.advance(60_000)
+  expect(ran(w, 'mc-panel.sh', 'digest')).toHaveLength(digests)
+})
+
+test('a failed read of the record directory is tried again', async ($, on) => {
+  const w = world(on, { env: {}, whereExit: 1 })
+  await boot($, w)
+  w.set({ whereExit: 0, records: { [SESSION]: recordFor('alpha') } })
+  await w.clock.advance(10_000)
+  await w.clock.settle()
+  expect(ran(w, 'mc-panel.sh', 'ack')).toHaveLength(1)
+})
+
+test('a /clear moves the record to the id the session goes on under', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  w.set({ sessionId: OTHER })
+  await $.session.end({ reason: 'clear', sessionId: SESSION } as never)
+  await w.clock.settle()
+  expect(ran(w, 'mc-panel.sh', 'retire').at(-1)).toEqual(expect.arrayContaining(['--session', SESSION]))
+  expect(ran(w, 'mc-panel.sh', 'activate').at(-1)).toEqual(expect.arrayContaining(['--session', OTHER]))
+  expect(ran(w, 'mc-panel.sh', 'ack').at(-1)).toEqual(expect.arrayContaining(['--session', OTHER]))
+  await w.clock.advance(10_000)
+  expect(ran(w, 'mc-panel.sh', 'digest').length).toBeGreaterThan(0)
+  expect(ran(w, 'mc-wake.sh', 'target').at(-1)).toContain('--mod')
+})
+
 // REQ-F1.16: retirement removes the record.
 test('the end of the session retires its record', async ($, on) => {
   const w = world(on)

@@ -27,7 +27,7 @@ const FAULT_MAX = 200
 const panel = atom({ plugin: 'planwright', key: 'panel' } as const, null, { shape: 'panel-3' })
 const isBusy = atom({ plugin: 'planwright', key: 'isBusy' } as const, false)
 
-type Ctx = { program: string; target: string; root: string }
+type Ctx = { program: string; target: string }
 type Ran = { ok: boolean; code: number; out: string; err: string }
 
 const REINJECT_HEAD =
@@ -58,6 +58,9 @@ let radar: Timer | null = null
 let activationDir: string | null = null
 let recordWatch: Timer | null = null
 let isChecking = false
+// The session id whose record this activation was acknowledged against; a
+// record gone under that same id is a retirement.
+let ackedFor: string | null = null
 
 // Stderr reaches the pane, the status line and the event store: control
 // bytes dropped, one short line.
@@ -70,7 +73,7 @@ async function run($: EngineInterface, script: string, args: string[]): Promise<
   return runScript($, script, args)
 }
 
-// A script run before any program is known: the record lookup alone.
+// Every script run; this one also serves a session no program is known in yet.
 async function runScript($: EngineInterface, script: string, args: string[]): Promise<Ran> {
   try {
     const r = await $.process.run(['/bin/bash', `${$.plugin.root}/scripts/${script}`, ...args], {
@@ -365,36 +368,68 @@ function parseRecord(text: string): { program: string; target: string } | null {
   return { program, target: target !== undefined && isHandle(target) ? target : program }
 }
 
-// A session no launcher marked: look for the record the skill's bring-up
-// writes under this session's own id, on a timer and at turn boundaries.
-async function watchForRecord($: EngineInterface) {
-  if (ctx) return
-  if (activationDir === null) {
-    const where = await runScript($, 'mc-panel.sh', ['where'])
-    const dir = where.out.trim()
-    if (!where.ok || !dir.startsWith('/')) return
-    activationDir = dir
-  }
+// The record the skill's bring-up writes under this session's own id is
+// looked for on a timer and at turn boundaries, active or not: inactive it
+// activates, active it re-acknowledges a rewritten record, follows a new
+// program, and stands down when the record is retired.
+function watchForRecord($: EngineInterface) {
   if (!recordWatch) recordWatch = $.clock.every(RECORD_CHECK_MS, () => void checkRecord($))
 }
 
+async function resolveDir($: EngineInterface): Promise<string | null> {
+  if (activationDir !== null) return activationDir
+  const where = await runScript($, 'mc-panel.sh', ['where'])
+  const dir = where.out.trim()
+  // A failed read is tried again at the next check.
+  if (where.ok && dir.startsWith('/')) activationDir = dir
+  return activationDir
+}
+
 async function checkRecord($: EngineInterface) {
-  if (ctx || isChecking || activationDir === null) return
+  if (isChecking) return
   isChecking = true
   try {
+    const dir = await resolveDir($)
+    if (dir === null) return
     // Read each time: a /clear goes on under another id with no start event.
     const sessionId = await $.session.id()
-    if (!(await $.fs.exists(`${activationDir}/${sessionId}`))) return
+    const has = await $.fs.exists(`${dir}/${sessionId}`)
+    if (!has) {
+      if (ctx && ackedFor === sessionId) await standDown($)
+      return
+    }
+    if (ctx && (await $.fs.exists(`${dir}/${sessionId}.ack`))) return
     const found = await runScript($, 'mc-panel.sh', ['lookup', '--session', sessionId])
     const rec = found.ok ? parseRecord(found.out) : null
-    if (!rec || ctx) return
-    stopWatch()
-    await activate($, rec.program, rec.target, await view($), 'record')
+    if (!rec) return
+    if (ctx && rec.program === ctx.program && rec.target === ctx.target) await acknowledge($, 'record')
+    else await activate($, rec.program, rec.target, await view($), 'record')
   } catch {
     // The next check tries again.
   } finally {
     isChecking = false
   }
+}
+
+function cancelTimers() {
+  for (const t of timers) t.cancel()
+  timers = []
+  armedWith = ''
+  radar?.cancel()
+  radar = null
+}
+
+// The record was retired (a handover released this session): the wake
+// target goes back to the relay and the panel stops drawing.
+async function standDown($: EngineInterface) {
+  const was = ctx
+  if (!was) return
+  cancelTimers()
+  ctx = null
+  ackedFor = null
+  await update($, panel, () => null)
+  $.ui.status(undefined)
+  await runScript($, 'mc-wake.sh', ['target', 'add', '--program', was.program, was.target])
 }
 
 async function activate(
@@ -404,55 +439,60 @@ async function activate(
   prior: PanelView | null,
   how: 'variable' | 'record' | 'reload',
 ) {
-  ctx = { program, target, root: $.plugin.root }
+  cancelTimers()
+  ctx = { program, target }
+  ackedFor = null
   isClaimed = false
   hasKnobs = false
   lasting = {}
   readFault = null
-  timers = []
-  armedWith = ''
-  // A session this one starts must not take its wakes: the variables are
-  // read once and cleared, and a reload finds the program in the view.
-  let cleared = true
-  if (how === 'variable') {
-    try {
-      const a = await $.env.set('PLANWRIGHT_MC_PROGRAM', undefined)
-      cleared = !('deny' in a && a.deny)
-    } catch {
-      cleared = false
-    }
-    try {
-      const b = await $.env.set('PLANWRIGHT_MC_TARGET', undefined)
-      cleared = cleared && !('deny' in b && b.deny)
-    } catch {
-      cleared = false
-    }
-  }
-  if (!prior || prior.program !== program || prior.target !== target) {
-    await update($, panel, () => emptyView(program, target))
-  }
-  // A turn that ran across a reload ended unheard.
-  await update($, isBusy, () => false)
-  if (!cleared) {
-    await lastingFault($, 'activation', 'the activation could not be cleared: sessions started from here inherit it')
-  }
-  // Not 'mission-control': a typed command a skill shares opens the skill.
-  // A refused registration must not skip the rest of this activation: the
-  // bring-up below starts every reading.
   try {
-    await $.command.register({ name: 'mc-panel', description: 'Reopen the mission-control panel' })
-  } catch (err) {
-    await lastingFault($, 'command', `the panel command could not be registered: ${oneLine(String(err))}`)
+    // A session this one starts must not take its wakes: the variables are
+    // read once and cleared, and a reload finds the program in the view.
+    let cleared = true
+    if (how === 'variable') {
+      try {
+        const a = await $.env.set('PLANWRIGHT_MC_PROGRAM', undefined)
+        cleared = !('deny' in a && a.deny)
+      } catch {
+        cleared = false
+      }
+      try {
+        const b = await $.env.set('PLANWRIGHT_MC_TARGET', undefined)
+        cleared = cleared && !('deny' in b && b.deny)
+      } catch {
+        cleared = false
+      }
+    }
+    if (!prior || prior.program !== program || prior.target !== target) {
+      await update($, panel, () => emptyView(program, target))
+    }
+    // A turn that ran across a reload ended unheard.
+    await update($, isBusy, () => false)
+    if (!cleared) {
+      await lastingFault($, 'activation', 'the activation could not be cleared: sessions started from here inherit it')
+    }
+    // Not 'mission-control': a typed command a skill shares opens the skill.
+    // A refused registration must not skip the rest of this activation: the
+    // bring-up below starts every reading.
+    try {
+      await $.command.register({ name: 'mc-panel', description: 'Reopen the mission-control panel' })
+    } catch (err) {
+      await lastingFault($, 'command', `the panel command could not be registered: ${oneLine(String(err))}`)
+    }
+    await open($)
+  } finally {
+    // A step above that failed must not leave the session active with no
+    // readings and no acknowledgment.
+    $.clock.after(0, () => void acknowledge($, how))
+    $.clock.after(0, () => void bringUp($))
   }
-  await open($)
-  $.clock.after(0, () => void acknowledge($, how))
-  $.clock.after(0, () => void bringUp($))
 }
 
 // The skill waits on the acknowledgment before falling back to the text
 // form. A session the variable marked (or a reload of one) records its
 // activation first, so the skill's entry and the keeper see it as any other.
-async function acknowledge($: EngineInterface, how: 'variable' | 'record' | 'reload') {
+async function acknowledge($: EngineInterface, how: 'variable' | 'record' | 'reload' | 'clear') {
   if (!ctx) return
   const sessionId = await $.session.id()
   if (how !== 'record') {
@@ -467,7 +507,12 @@ async function acknowledge($: EngineInterface, how: 'variable' | 'record' | 'rel
     ])
   }
   const acked = await run($, 'mc-panel.sh', ['ack', '--session', sessionId])
-  if (!acked.ok) await lastingFault($, 'ack', `the activation could not be acknowledged: ${acked.err}`)
+  if (acked.ok) {
+    ackedFor = sessionId
+    if (lasting.ack) await lastingFault($, 'ack', null)
+  } else {
+    await lastingFault($, 'ack', `the activation could not be acknowledged: ${acked.err}`)
+  }
 }
 
 export const register: Register = on => {
@@ -478,11 +523,8 @@ export const register: Register = on => {
     const isNamed = named !== undefined && isProgram(named)
     const program = isNamed ? named : prior?.program
     stopWatch()
-    if (program === undefined) {
-      // Out of the start hook, which the first prompt waits on.
-      $.clock.after(0, () => void watchForRecord($))
-      return started
-    }
+    watchForRecord($)
+    if (program === undefined) return started
     const namedTarget = await $.env.get('PLANWRIGHT_MC_TARGET')
     const target =
       namedTarget !== undefined && isHandle(namedTarget)
@@ -496,8 +538,14 @@ export const register: Register = on => {
 
   on('session.end', async ($, e, next) => {
     if (ctx && e.reason === 'clear') {
-      // A /clear keeps the session and the mod, and starts the counts over.
+      // A /clear keeps the session and the mod, and starts the counts over;
+      // the record moves to the id the session goes on under.
+      ackedFor = null
       await patch($, x => ({ ...emptyView(x.program, x.target), digest: x.digest, isFallback: x.isFallback }))
+      await run($, 'mc-panel.sh', ['retire', '--session', e.sessionId])
+      const ended = await next(e)
+      $.clock.after(0, () => void acknowledge($, 'clear'))
+      return ended
     } else if (ctx) {
       await run($, 'mc-wake.sh', ['target', 'add', '--program', ctx.program, ctx.target])
       await run($, 'mc-panel.sh', ['retire', '--session', e.sessionId])
@@ -521,7 +569,7 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
-    if (!ctx && e.agentId === undefined) $.clock.after(0, () => void checkRecord($))
+    if (e.agentId === undefined) $.clock.after(0, () => void checkRecord($))
     if (ctx && e.agentId === undefined) {
       await update($, isBusy, () => false)
       await patch($, x => ({ ...x, wakes: x.wakes + 1 }))
@@ -534,7 +582,7 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    if (!ctx) $.clock.after(0, () => void checkRecord($))
+    $.clock.after(0, () => void checkRecord($))
     if (ctx && (e.origin.kind === 'composer' || e.origin.kind === 'bridge')) {
       // Never holds the operator's prompt on the fleet lock.
       $.clock.after(0, () => void recordPresence($))

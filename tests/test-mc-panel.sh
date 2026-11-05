@@ -347,17 +347,32 @@ if [ "$(field "$act/$sid_a.ack" session)" = "$sid_a" ]; then
 else
   fail "no acknowledgment beside the record"
 fi
-run_with CLAUDE_PID="$live_pid" -- mc-panel.sh await --program alpha --wait 0
+# A claude CLI at or above the floor, so the host's own never decides.
+mkdir -p "$tmp/newclaude"
+printf '#!/bin/sh\necho "99.0.0 (Claude Code)"\n' >"$tmp/newclaude/claude"
+chmod +x "$tmp/newclaude/claude"
+run_with CLAUDE_PID="$live_pid" PATH="$tmp/newclaude:$PATH" -- mc-panel.sh await --program alpha --wait 0
 expect_rc "await with an acknowledgment" 0
 expect_eq "REQ-F1.16: an acknowledged panel is the mod's" "panel${tab}mod"
 run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --now 5002
-if [ ! -e "$act/$sid_a.ack" ]; then ok "a new record clears the old acknowledgment"; else fail "the old acknowledgment survived a new record"; fi
+if [ -f "$act/$sid_a.ack" ]; then
+  ok "rewriting the same program keeps the live mod's acknowledgment"
+else
+  fail "a record rewritten unchanged dropped the acknowledgment"
+fi
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --target mc-other --now 5003
+if [ ! -e "$act/$sid_a.ack" ]; then ok "a record naming another target waits for a new acknowledgment"; else fail "the old acknowledgment survived a changed record"; fi
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --now 5004
+cp "$act/$sid_a" "$act/$sid_b"
+mc_run mc-panel.sh ack --session "$sid_b"
+expect_rc "an acknowledgment beside a record naming another session is refused" 1
+rm -f "$act/$sid_b"
 
 # No acknowledgment: the text form, with its in-flight and waiting lines.
 mc_run fleet-state.sh register w-one mission-control:alpha --backend stream-json --death-handle none
-run_with CLAUDE_PID="$live_pid" -- mc-panel.sh await --program alpha --wait 1
+run_with CLAUDE_PID="$live_pid" PATH="$tmp/newclaude:$PATH" -- mc-panel.sh await --program alpha --wait 1
 expect_rc "await with no acknowledgment" 0
-expect_out "REQ-F1.16: no acknowledgment within the wait reports the text form" "panel${tab}text${tab}"
+expect_out "REQ-F1.16: no acknowledgment within the wait reports the text form" "panel${tab}text${tab}no acknowledgment within 1s"
 expect_out "REQ-F1.2: the text panel carries the in-flight line" "in flight: 1"
 expect_out "the text panel names each flight" "w-one"
 expect_out "REQ-F1.2: the text panel carries the waiting line" "waiting:"
@@ -390,6 +405,17 @@ else
   fail "retirement left '$(ls "$act")'"
 fi
 
+# The pid a record carries is a live process whose session-start record
+# names the session, never an inherited CLAUDE_PID naming another.
+printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_d" >"$fleet/mission-control/_panel/sessions/$dead_pid"
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --session "$sid_d" --now 5150
+if [ "$(field "$act/$sid_d" pid)" = - ]; then
+  ok "an inherited CLAUDE_PID and a dead process both stay out of the record"
+else
+  fail "the record carries pid '$(field "$act/$sid_d" pid)'"
+fi
+rm -f "$fleet/mission-control/_panel/sessions/$dead_pid" "$act/$sid_d"
+
 # The keeper removes a record whose session has no live process.
 mc_run mc-panel.sh activate --program alpha --session "$sid_d" --pid "$dead_pid" --now 5200
 mc_run mc-panel.sh ack --session "$sid_d"
@@ -400,6 +426,25 @@ else
   fail "the keeper left the dead session's record"
 fi
 if [ -f "$act/$sid_a" ]; then ok "and keeps a live session's"; else fail "the keeper removed a live session's record"; fi
+mc_run mc-panel.sh activate --program alpha --session "$sid_d" --pid 1 --now 5300
+sed 's/^pid\t.*/pid\t-/' "$act/$sid_d" >"$act/$sid_d.new" && mv "$act/$sid_d.new" "$act/$sid_d"
+mc_run mc-panel.sh prune --now 6000
+if [ -f "$act/$sid_d" ]; then ok "a record with no pid is kept while young"; else fail "a young pid-less record was pruned"; fi
+mc_run mc-panel.sh prune --now 999999
+if [ ! -e "$act/$sid_d" ]; then ok "a record with no pid is pruned once old"; else fail "an old pid-less record was kept"; fi
+mkfifo "$act/$sid_b"
+mc_run mc-panel.sh prune
+expect_rc "prune passes over a FIFO named like a record without reading it" 0
+rm -f "$act/$sid_b"
+chmod 0777 "$act"
+mc_run mc-panel.sh lookup --session "$sid_a"
+expect_rc "a world-writable activation directory is refused" 1
+chmod 0700 "$act"
+if [ "$(jq -r '[.hooks.SessionStart[] | select(has("matcher") | not) | .hooks[].command | select(endswith("scripts/mc-panel.sh session-hook"))] | length' "$repo_root/hooks/hooks.json")" = 1 ]; then
+  ok "REQ-F1.16: hooks.json runs the session-start capture on every session start"
+else
+  fail "hooks.json does not register mc-panel.sh session-hook on every SessionStart"
+fi
 
 # The entry reads a program the launch environment names (REQ-A1.7).
 cat >>"$tracked" <<EOF

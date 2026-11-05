@@ -130,7 +130,8 @@ export type Fixture = {
   contextPercent: number | undefined
   env: Record<string, string>
   sessionId: string
-  // Activation records by session id, as the lookup verb prints them.
+  // The activation directory by file name: `<id>` holds the record as the
+  // lookup verb prints it, `<id>.ack` the acknowledgment.
   records: Record<string, string>
   lookupExit: number
   ackExit: number
@@ -238,7 +239,23 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
       const rec = fx.records[argv[argv.indexOf('--session') + 1] ?? '']
       return rec === undefined ? answer('', 1) : answer(rec, fx.lookupExit)
     }
-    if (script === 'mc-panel.sh' && verb === 'ack') return answer('', fx.ackExit)
+    const flag = (name: string) => argv[argv.indexOf(name) + 1] ?? ''
+    if (script === 'mc-panel.sh' && verb === 'activate') {
+      const sid = flag('--session')
+      const rec = recordFor(flag('--program'), flag('--target'))
+      if (fx.records[sid] !== rec) delete fx.records[`${sid}.ack`]
+      fx.records[sid] = rec
+      return answer(`activation\t${sid}\n`)
+    }
+    if (script === 'mc-panel.sh' && verb === 'ack') {
+      if (fx.ackExit === 0) fx.records[`${flag('--session')}.ack`] = 'ack'
+      return answer('', fx.ackExit)
+    }
+    if (script === 'mc-panel.sh' && verb === 'retire') {
+      delete fx.records[flag('--session')]
+      delete fx.records[`${flag('--session')}.ack`]
+      return answer('')
+    }
     if (script === 'mc-wake.sh' && verb === 'compose') return answer(fx.wake, fx.composeExit)
     if (script === 'mc-wake.sh' && verb === 'target') return answer('', argv.includes('--mod') ? fx.claimExit : 0)
     if (script === 'mc-event.sh' && verb === 'mark') return answer('', fx.markExit)
