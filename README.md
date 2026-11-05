@@ -4,8 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757.svg)](https://claude.com/plugins)
 
-**Come back to a few draft pull requests that already passed CI and review.
-You still merge.**
+**Come back to a few draft pull requests that were already tested and
+reviewed. You still merge.**
 
 planwright is a Claude Code plugin. Type **`/tower`** in your repository and
 say what you want in your own words. Questions get an answer in the
