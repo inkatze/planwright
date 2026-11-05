@@ -10,7 +10,7 @@
 # wake target at the end.
 hook session.start
 hook session.end
-hook command.run{command=mission-control}
+hook command.run{command=mc-panel}
 # Idle tracking and the completed-wake count.
 hook turn.start
 hook turn.complete
