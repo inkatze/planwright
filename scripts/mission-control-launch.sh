@@ -1139,7 +1139,8 @@ cmd_retire() {
     r_task=$(row_get "$row" task)
     r_primary=$(row_get "$row" primary)
     if [ "$(row_get "$row" marker)" = 1 ] && valid_task "$r_task" && [ -d "$r_primary" ]; then
-      marker_cmd clear "$r_primary" "$r_task" || :
+      marker_cmd clear "$r_primary" "$r_task" \
+        || printf '%s\n' "$me: the dispatch marker for $r_task was not cleared; the unit may read as in flight" >&2
     fi
     rm -rf "${LAUNCHES:?}/$name"
     if [ -e "$LAUNCHES/$name" ]; then
