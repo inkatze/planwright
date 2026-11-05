@@ -441,7 +441,7 @@ got=$(PLANWRIGHT_CONFIG_DEFAULTS="$nonneg_core" PLANWRIGHT_ADOPTER_OVERLAY="$ado
 [ "$got" = 0 ] || fail "nonnegint: a zero --fallback should be emitted verbatim, got '$got'"
 echo "ok: the nonnegint type honors the by-layer policy and accepts a zero fallback"
 
-# 10e. The threshold type: posint, or `off` for a rung switched off, so
+# 10d2. The threshold type: posint, or `off` for a rung switched off, so
 #      disabling a rung needs no magic out-of-range number (the range is the
 #      caller's to refuse).
 thr_core="$tmp/core-threshold.yml"

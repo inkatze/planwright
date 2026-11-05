@@ -576,15 +576,17 @@ quota_ledger_retention_days: 90
 
 # The proactive, shared-aware `/usage` budget gate and its restriction ladder
 # (fleet-autonomy Task 9, D-23/D-28; REQ-E1.5, REQ-E1.6). scripts/fleet-usage-gate.sh
-# reads Claude Code's own `/usage` render, parses BOTH windows (session ~5-hour,
-# weekly), and maps each window's percentage to a rung on the monotone ladder
-# normal -> downshift -> reduce-concurrency -> defer-heavy -> defer-all. The more
-# restrictive window governs; the session window is capped at defer-heavy while
+# reads BOTH windows (session ~5-hour, weekly) from the status-line mirror, else
+# from a capture of Claude Code's own `/usage` render, and maps each window's
+# percentage to a rung on the monotone ladder normal -> downshift ->
+# reduce-concurrency -> defer-heavy -> defer-all. The more restrictive window
+# governs; the session window is capped at defer-heavy while
 # only weekly can reach defer-all. All knobs resolve through the shared resolver
 # (scripts/resolve-config-knob.sh -> config-get, D-22/REQ-G1.5) under the
 # customization-overlay REQ-E1.4 by-layer malformed policy; every value is a
-# positive integer. The `downshift`/`reduce-concurrency` rung CONSEQUENCE values
-# (which model/effort/concurrency) are fleet-autonomy Task 10's, not here.
+# positive integer, and a ladder threshold may also be `off`. The
+# `downshift`/`reduce-concurrency` rung CONSEQUENCE values (which
+# model/effort/concurrency) are fleet-autonomy Task 10's, not here.
 
 # The read cadence and cache TTL, in seconds. `/usage` capture is expensive, so
 # the signal is cached off the dispatch hot path and refreshed on the cadence,
@@ -596,8 +598,8 @@ fleet_usage_signal_ttl_seconds: 900
 
 # How many consecutive read cadences the signal may be unavailable before the
 # REQUIRED operator surface fires (a warning escalating to an Awaiting-input
-# hold via scripts/fleet-attention.sh), so a permanently broken `/usage` parse
-# (the D-23 version-drift fragility) is never silent.
+# hold via scripts/fleet-attention.sh), so losing both windows in every source
+# (a broken `/usage` parse with no fresh mirror) is never silent.
 fleet_usage_sustained_loss_count: 3
 
 # Per-window percentage thresholds mapping usage to a rung (>= at the threshold

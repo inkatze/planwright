@@ -731,7 +731,7 @@ echo "ok: a window absent from the mirror is unavailable from it and falls back 
 # --- 32. A mirror older than the signal TTL is not used. ---
 reset_state
 write_mirror "{\"seven_day\":{\"used_percentage\":72,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":40,\"resets_at\":$in_hour}}"
-touch -t 202001010000 "$mirror_file" # far past the fixture's 300s TTL
+touch -t 202001010000 "$mirror_file" # far past the fixture's TTL
 sig=$(run signal) || fail "signal (stale mirror) failed"
 [ "$(sig_of weekly "$sig")" = unavailable ] || fail "a mirror older than the TTL must not be read (got: $sig)"
 usage_render 52 38 | run capture >/dev/null || fail "capture (stale mirror) failed"
@@ -805,6 +805,8 @@ echo "ok: the mirror path honors PLANWRIGHT_USAGE_MIRROR, XDG_CACHE_HOME, then H
 #         capped below defer-all. ---
 reset_state
 write_mirror "{\"seven_day\":{\"used_percentage\":96,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":99,\"resets_at\":$in_hour}}"
+mkdir -p "$fleet_home/usage"
+printf '2\n' >"$fleet_home/usage/unavail-count"
 ev=$(run evaluate) || fail "evaluate (mirror) failed"
 [ "$(run rung)" = defer-all ] || fail "a weekly mirror reading past defer-all must reach defer-all (got: $ev)"
 [ ! -e "$fleet_home/usage/unavail-count" ] || fail "an available mirror signal must not count as a lost read"
@@ -812,7 +814,13 @@ reset_state
 write_mirror "{\"five_hour\":{\"used_percentage\":99,\"resets_at\":$in_hour}}"
 run evaluate >/dev/null || fail "evaluate (mirror session only) failed"
 [ "$(run rung)" = defer-heavy ] || fail "the session window must stay capped at defer-heavy (got $(run rung))"
-echo "ok: the mirror alone drives the ladder, and the session cap holds"
+# Mixed sources: each window from wherever it is fresh, then the stricter wins.
+reset_state
+usage_render 10 10 | run capture >/dev/null || fail "capture (mixed sources) failed"
+write_mirror "{\"seven_day\":{\"used_percentage\":96,\"resets_at\":$in_day}}"
+run evaluate >/dev/null || fail "evaluate (mixed sources) failed"
+[ "$(run rung)" = defer-all ] || fail "the mirror's weekly must govern beside the capture's session (got $(run rung))"
+echo "ok: the mirror alone drives the ladder, mixes with the capture by window, and the session cap holds"
 
 # --- 37. `off` disables a rung. The operator's posture (no soft rungs, a hard
 #         stop at 90% weekly) is expressible: below 90 everything is normal,
@@ -861,5 +869,85 @@ case $err in
 esac
 rm -f "$mlocal_cfg"
 echo "ok: enabled thresholds ascend around off, and a non-threshold value is malformed"
+
+# --- 39. Mirror edge cases: a future mtime, the per-window reset span, CRLF
+#         line ends, a control byte outside any window, non-ASCII text, a
+#         symlinked mirror judged by its target, relative locations, and a
+#         mirror parse that fails outright falling back to the capture. ---
+reset_state
+write_mirror "{\"seven_day\":{\"used_percentage\":72,\"resets_at\":$in_day}}"
+touch -t 203001010000 "$mirror_file"
+sig=$(run signal) || fail "signal (future mtime) failed"
+[ "$(sig_of weekly "$sig")" = unavailable ] || fail "a future-dated mirror must not be read (got: $sig)"
+write_mirror "{\"five_hour\":{\"used_percentage\":40,\"resets_at\":$in_day},\"seven_day\":{\"used_percentage\":72,\"resets_at\":$in_day}}"
+sig=$(run signal) || fail "signal (span) failed"
+[ "$(sig_of session "$sig")" = unavailable ] || fail "a five_hour reset a day out is beyond its span (got: $sig)"
+[ "$(sig_of weekly "$sig")" = 72 ] || fail "a seven_day reset a day out is within its span (got: $sig)"
+write_mirror "$(printf '{\r\n"seven_day":{"used_percentage":61,\r\n"resets_at":%s}}\r' "$in_day")"
+sig=$(run signal) || fail "signal (CRLF) failed"
+[ "$(sig_of weekly "$sig")" = 61 ] || fail "a CRLF mirror must still read (got: $sig)"
+write_mirror "$(printf '{"note":"a\033b","seven_day":{"used_percentage":61,"resets_at":%s}}' "$in_day")"
+sig=$(run signal) || fail "signal (control byte elsewhere) failed"
+[ "$(sig_of weekly "$sig")" = unavailable ] || fail "a control byte anywhere marks the mirror corrupt (got: $sig)"
+write_mirror "$(printf '{"note":"caf\303\251","seven_day":{"used_percentage":61,"resets_at":%s}}' "$in_day")"
+sig=$(run signal) || fail "signal (non-ASCII) failed"
+[ "$(sig_of weekly "$sig")" = 61 ] || fail "non-ASCII text is not a control byte (got: $sig)"
+real="$tmp/real-mirror.json"
+printf '{"seven_day":{"used_percentage":57,"resets_at":%s}}\n' "$in_day" >"$real"
+rm -f "$mirror_file"
+ln -s "$real" "$mirror_file"
+touch -h -t 202001010000 "$mirror_file" 2>/dev/null || true
+sig=$(run signal) || fail "signal (symlinked mirror) failed"
+[ "$(sig_of weekly "$sig")" = 57 ] || fail "a symlinked mirror is judged by the file it names (got: $sig)"
+rm -f "$mirror_file" "$real"
+(
+  cd "$tmp"
+  mkdir -p rel/claude-usage
+  printf '{"seven_day":{"used_percentage":5,"resets_at":%s}}\n' "$in_day" >rel/claude-usage/rate-limits.json
+  sig=$(PLANWRIGHT_USAGE_MIRROR=rel/claude-usage/rate-limits.json run signal) || fail "signal (relative override) failed"
+  [ "$(sig_of weekly "$sig")" = unavailable ] || fail "a relative PLANWRIGHT_USAGE_MIRROR must disable the source (got: $sig)"
+  sig=$(PATH="$stub_bin:$PATH" XDG_CACHE_HOME=rel HOME="$tmp/no-such-home" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" /bin/bash "$FUG" signal) \
+    || fail "signal (relative XDG) failed"
+  [ "$(sig_of weekly "$sig")" = unavailable ] || fail "a relative XDG_CACHE_HOME must not be read (got: $sig)"
+  rm -rf rel
+)
+usage_render 10 38 | run capture >/dev/null || fail "capture (mirror awk fails) failed"
+write_mirror "{\"seven_day\":{\"used_percentage\":72,\"resets_at\":$in_day}}"
+real_awk=$(command -v awk)
+awk_bin="$tmp/awk-bin"
+mkdir -p "$awk_bin"
+cat >"$awk_bin/awk" <<EOF
+#!/bin/sh
+case "\$*" in
+  *span5*) exit 1 ;;
+esac
+exec "$real_awk" "\$@"
+EOF
+chmod +x "$awk_bin/awk"
+rc=0
+sig=$(PATH="$awk_bin:$stub_bin:$PATH" XDG_CACHE_HOME="$xdg_cache" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" /bin/bash "$FUG" signal) || rc=$?
+[ "$rc" = 0 ] || fail "a failing mirror parse must not fail the read (exit $rc)"
+[ "$(sig_of weekly "$sig")" = 38 ] || fail "a failing mirror parse must fall back to the capture (got: $sig)"
+rm -rf "$awk_bin"
+echo "ok: mirror edge cases read as specified"
+
+# --- 40. The gate refuses what the resolver passes through: a threshold above
+#         100, and enabled session thresholds out of order around an off. ---
+reset_state
+write_mirror "{\"seven_day\":{\"used_percentage\":50,\"resets_at\":$in_day}}"
+for bad in 'fleet_usage_weekly_defer_all: 101' \
+  "$(printf 'fleet_usage_session_downshift: 80\nfleet_usage_session_reduce_concurrency: off\nfleet_usage_session_defer_heavy: 70')" \
+  "$(printf 'fleet_usage_weekly_downshift: 80\nfleet_usage_weekly_reduce_concurrency: off\nfleet_usage_weekly_defer_heavy: 80')"; do
+  printf '%s\n' "$bad" >"$mlocal_cfg"
+  rc=0
+  run evaluate >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 4 ] || fail "the gate must refuse '$bad' with exit 4 (got $rc)"
+done
+rm -f "$mlocal_cfg"
+echo "ok: the gate refuses a threshold above 100 and out-of-order enabled thresholds"
 
 echo "ALL fleet-usage-gate tests passed"

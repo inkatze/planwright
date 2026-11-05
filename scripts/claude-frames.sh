@@ -8,7 +8,7 @@
 # The readings are account-wide: every session on the account counts toward
 # them, so they are a ceiling to respect and never the fleet's own spend. Every
 # rendering says so. They feed no usage-gate producer: the gate's signal is
-# its own `/usage` read, which nothing here writes.
+# the status-line mirror or its own `/usage` read, neither written here.
 #
 # THE STORED FRAME. The stream-json supervisor (scripts/fleet-streamjson.sh)
 # hands each rate_limit_event line to `persist`, which keeps the worker's
@@ -227,17 +227,17 @@ threshold() {
 # refuses as malformed must not clear a hold either. Prints the lowest enabled
 # rung, the window's descend threshold, or 100 (the wall) when every rung is off.
 lowest() {
-  as_w=$1
+  lw_w=$1
   shift
-  as_prev=0
-  as_low=""
-  for as_v in "$@"; do
-    [ "$as_v" = off ] && continue
-    [ "$as_v" -gt "$as_prev" ] || die 4 "the $as_w thresholds are not strictly ascending ($*)"
-    as_prev=$as_v
-    [ -n "$as_low" ] || as_low=$as_v
+  lw_prev=0
+  lw_low=""
+  for lw_v in "$@"; do
+    [ "$lw_v" = off ] && continue
+    [ "$lw_v" -gt "$lw_prev" ] || die 4 "the $lw_w thresholds are not strictly ascending ($*)"
+    lw_prev=$lw_v
+    [ -n "$lw_low" ] || lw_low=$lw_v
   done
-  printf '%s' "${as_low:-100}"
+  printf '%s' "${lw_low:-100}"
 }
 s_ds=$(threshold fleet_usage_session_downshift 50) || exit $?
 s_rc=$(threshold fleet_usage_session_reduce_concurrency 70) || exit $?

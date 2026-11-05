@@ -12,6 +12,9 @@
 
 # shellcheck disable=SC2015 # ok only prints, so a fail arm never follows a passing check
 set -u
+# The usage gate reads the status-line mirror when present; a fixture never
+# reads the host's real one.
+export PLANWRIGHT_USAGE_MIRROR=""
 LC_ALL=C
 export LC_ALL
 unset CDPATH
