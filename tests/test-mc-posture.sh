@@ -149,6 +149,13 @@ RC=$?
 ERR=$(cat "$tmp/err")
 expect_pass "with no --project, the project layers are read from the git top level"
 
+# A --project that names no directory would read every project layer as
+# absent, a disableAllHooks there included, so it fails rather than passes.
+reset
+absolute_profile >"$home/.claude/settings.json"
+posture -- --project "$tmp/no-such-project"
+expect_fail "a --project naming no directory fails" "the project root $tmp/no-such-project is not a directory"
+
 echo "# the deny floor"
 reset
 absolute_profile | jq '.permissions.deny |= map(select(. != "Bash(gh pr merge:*)"))' >"$home/.claude/settings.json"

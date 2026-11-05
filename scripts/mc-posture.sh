@@ -91,6 +91,7 @@ done
 if [ -z "$project" ]; then
   project=$(git rev-parse --show-toplevel 2>/dev/null) || project=$(pwd -P) || fail "the current directory cannot be resolved"
 fi
+[ -d "$project" ] || fail "the project root $project is not a directory"
 if [ -z "$managed" ]; then
   case $(uname -s 2>/dev/null) in
     Darwin) managed='/Library/Application Support/ClaudeCode/managed-settings.json' ;;
