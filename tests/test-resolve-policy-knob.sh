@@ -175,7 +175,7 @@ echo "ok: each gate knob resolves through all four layers and degrades to its st
 # the two outside every checkout, so a session cannot relax its own guard by
 # editing a repo-side file: those values are ignored, never degraded.
 printf 'ready_guard_behind_base: refuse\n' >"$core_cfg"
-for v in refuse conflict-only; do
+for v in refuse conflict-only checks; do
   reset_layers
   printf 'ready_guard_behind_base: %s\n' "$v" >"$core_cfg"
   got=$(rpk ready_guard_behind_base) || fail "ready_guard_behind_base: core '$v' did not resolve"
@@ -297,7 +297,7 @@ merge_class_strategy|sole-allowed
 worker_base_merge|allow
 worker_merge_conflict_policy|halt
 unpushed_rewrite|allow
-ready_guard_behind_base|refuse
+ready_guard_behind_base|checks
 protected_branches|main master planwright/*/spec'
 reset_layers
 printf '%s\n' "$SHIPPED" | while IFS='|' read -r knob expected; do

@@ -68,8 +68,10 @@ done
 # The expected-cell manifest. One line per cell: <key> <expect>.
 #
 # Guard cells are <state>/<surface>: the D-3 predicate outcomes (conforming,
-# behind, conflicting), the REQ-C1.12 knob's behind-base cells under an
-# adopter value of each kind (knob-conflict-only-behind, knob-refuse-behind),
+# behind with a red check, conflicting), the shipped `checks` default's
+# behind-base cells (behind-green, behind-conflicting), the REQ-C1.12 knob's
+# behind-base cells under an adopter value of each kind
+# (knob-conflict-only-behind, knob-refuse-behind),
 # the REQ-C1.3 fail-closed causes (unknown, query-error,
 # query-timeout, malformed-answer, compare-failure, unreadable-count,
 # no-timeout-binary, missing-gh, missing-jq, malformed-payload), the REQ-C1.9
@@ -91,6 +93,10 @@ conforming/bash defer
 conforming/mcp defer
 behind/bash deny
 behind/mcp deny
+behind-green/bash defer
+behind-green/mcp defer
+behind-conflicting/bash deny
+behind-conflicting/mcp deny
 knob-conflict-only-behind/bash defer
 knob-conflict-only-behind/mcp defer
 knob-refuse-behind/bash deny
@@ -260,31 +266,56 @@ assert_gh_calls "mcp: the conforming defer came after view + compare" 2
 assert_no_mergestatestatus "mcp: the conforming query never asks for mergeStateStatus"
 assert_no_sentinels "mcp: the conforming path invoked no git/curl/wget/claude"
 
-echo "# behind: behind_by > 0 on a base WITHOUT require-up-to-date (mergeStateStatus CLEAN)"
+echo "# behind: behind_by > 0 on a base WITHOUT require-up-to-date (mergeStateStatus CLEAN), its latest check run red"
 reset_stub_env
-STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_RED
 run_hook "$(bash_payload "$BASH_FLIP")"
 assert_cell behind/bash "bash: a worker-shaped flip on a behind PR denies"
 assert_reason_matches "bash: the behind denial names the staleness" 'commit\(s\) behind'
 assert_no_mergestatestatus "bash: currency is not keyed on mergeStateStatus (the CLEAN-but-behind pin)"
 assert_no_sentinels "bash: the behind decision path invoked no git/curl/wget/claude"
-assert_gh_calls "bash: positive control — the stubbed gh call site was traversed (view + compare)" 2
+assert_gh_calls "bash: positive control — the stubbed gh call site was traversed (view + compare + checks)" 3
 # REQ-A1.3: the gauntlet's distinct shape on the same behind payload, with the
 # distinct part (--repo) pinned to have reached the query.
 reset_stub_env
-STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_RED
 run_hook "$(bash_payload "$GAUNTLET_FLIP")"
 assert_cell behind/bash "bash: a gauntlet-shaped flip (--repo) on the same behind PR denies"
 assert_reason_matches "bash: the gauntlet denial names the same staleness" 'commit\(s\) behind'
 assert_argv_has "bash: the gauntlet's --repo selector reached gh as argv" "${TAB}--repo${TAB}acme/widgets${TAB}"
 reset_stub_env
-STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_RED
 run_mcp "$MCP_FLIP"
 assert_cell behind/mcp "mcp: a draft->ready transition on a behind PR denies"
 assert_reason_matches "mcp: the behind denial names the staleness" 'commit\(s\) behind'
 assert_no_mergestatestatus "mcp: currency is not keyed on mergeStateStatus"
 assert_no_sentinels "mcp: the behind decision path invoked no git/curl/wget/claude"
-assert_gh_calls "mcp: positive control — the stubbed gh call site was traversed (view + compare)" 2
+assert_gh_calls "mcp: positive control — the stubbed gh call site was traversed (view + compare + checks)" 3
+
+echo "# behind-green: behind_by > 0, MERGEABLE, every latest check run passed (the shipped checks default)"
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_GREEN
+run_hook "$(bash_payload "$BASH_FLIP")"
+assert_cell behind-green/bash "bash: a behind-but-clean PR whose checks passed defers"
+assert_gh_calls "bash: the behind-green defer came after view + compare + checks" 3
+assert_no_sentinels "bash: the behind-green path invoked no git/curl/wget/claude"
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_GREEN
+run_mcp "$MCP_FLIP"
+assert_cell behind-green/mcp "mcp: a behind-but-clean PR whose checks passed defers"
+assert_gh_calls "mcp: the behind-green defer came after view + compare + checks" 3
+
+echo "# behind-conflicting: behind_by > 0 and CONFLICTING, checks green"
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFLICTING STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_GREEN
+run_hook "$(bash_payload "$BASH_FLIP")"
+assert_cell behind-conflicting/bash "bash: a behind-and-conflicting PR denies"
+assert_reason_matches "bash: the behind-and-conflicting denial names the conflict" 'CONFLICTING'
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFLICTING STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_GREEN
+run_mcp "$MCP_FLIP"
+assert_cell behind-conflicting/mcp "mcp: a behind-and-conflicting PR denies"
+assert_reason_matches "mcp: the behind-and-conflicting denial names the conflict" 'CONFLICTING'
 
 echo "# knob: a conflict-free PR behind its base under an adopter ready_guard_behind_base"
 KNOB_ADOPTER="$SANDBOX/adopter-overlay"

@@ -937,6 +937,86 @@ RG_SURFACE=mcp run_hook "$(mcp_payload acme widgets 42 false)"
 assert_deny_because "refuse: the MCP surface denies a conflict-free behind PR" '7 commit'
 assert_no_sentinels "refuse: the MCP surface denies a conflict-free behind PR: no git/curl/wget/claude ran"
 
+# checks, the shipped default: being behind is not a condition by itself. A
+# behind PR passes when GitHub reports it MERGEABLE and the latest run of
+# every check on its head passed; a conflict, an unconfirmed mergeability, or
+# a check that failed, is pending or cannot be read still refuses.
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "checks (default): a behind-but-clean PR whose checks passed defers"
+assert_no_sentinels "checks (default): a behind-but-clean PR defers: no git/curl/wget/claude ran"
+if grep -q $'\tpr\tview\t42\t--json\theadRefOid,statusCheckRollup' "$STATE/argv.log"; then
+  pass "checks (default): the head's check rollup is read for the same PR"
+else
+  fail "checks (default): no check rollup read for PR 42: $(cat "$STATE/argv.log")"
+fi
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN
+RG_SURFACE=mcp run_hook "$(mcp_payload acme widgets 42 false)"
+assert_defer "checks (default): the MCP surface defers a behind-but-clean green PR too"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFLICTING STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (default): a behind-and-conflicting PR still denies, green or not" 'CONFLICTING'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_UNKNOWN STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (default): mergeable UNKNOWN after the re-query still denies a behind PR" 'still UNKNOWN'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_RED
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (default): a behind PR whose latest check run failed denies" 'test is FAILURE'
+assert_reason_matches "checks (default): the denial still names how far behind" '7 commit\(s\) behind'
+assert_reason_lacks "checks (default): the red-check denial does not name the knob" 'ready_guard_behind_base|conflict-only'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_PENDING
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (default): a behind PR with a pending check denies" 'test is PENDING'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON='{"headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","statusCheckRollup":[]}'
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (default): a behind PR with no check at all denies" 'no check'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN STUB_CHECKS_RC=1
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (default): a failed check read denies" 'could not be read'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+STUB_CHECKS_JSON=$(printf '%s' "$CHECKS_GREEN" | sed 's/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/ffffffffffffffffffffffffffffffffffffffff/')
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (default): checks read for another head deny" 'head moved'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "checks (default): a current PR defers as before"
+if grep -q 'statusCheckRollup' "$STATE/argv.log"; then
+  fail "checks (default): a current PR paid for a check read"
+else
+  pass "checks (default): a current PR makes no check read"
+fi
+
+reset_stub_env
+knob_adopter checks
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "checks named in the adopter layer behaves as the default"
+
+reset_stub_env
+knob_adopter refuse
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "refuse still denies a behind PR whose checks passed" '7 commit'
+
 # conflict-only relaxes the behind-base check and nothing else.
 reset_stub_env
 knob_adopter conflict-only
