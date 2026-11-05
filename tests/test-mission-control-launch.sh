@@ -59,7 +59,15 @@ cp "$repo_root/config/defaults.yml" "$core/config/defaults.yml"
 for p in worker tower mission-control; do
   cp "$repo_root/config/$p-settings.json" "$core/config/"
 done
-mkdir -p "$repo/specs" "$fleet"
+mkdir -p "$repo/specs/demo" "$fleet"
+printf '%s\n' '# demo' >"$repo/specs/demo/requirements.md"
+# A repository-changing kind gets a worktree off the default branch, so the
+# fixture repository has one, with the launch worktrees ignored.
+printf '%s\n' '.claude/worktrees/' >"$repo/.gitignore"
+git -C "$repo" symbolic-ref HEAD refs/heads/main
+git -C "$repo" add .gitignore specs
+git -C "$repo" -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+  commit -q -m init || fail "fixture: the initial commit failed"
 home="$tmp/mc-home/alpha"
 cat >"$tracked" <<EOF
 mission_control_programs: [alpha]
@@ -76,6 +84,7 @@ mc_run mc-rules.sh add alpha --text "Docs need review" --subject docs --source "
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/claude" <<'SHIM'
 #!/bin/sh
+pwd -P >"$SHIM_RECORD_DIR/cwd"
 printf '%s\n' "$*" >"$SHIM_RECORD_DIR/argv.tmp" && mv "$SHIM_RECORD_DIR/argv.tmp" "$SHIM_RECORD_DIR/argv"
 printf '%s\n' "${PLANWRIGHT_MC_TOKEN:-}" >"$SHIM_RECORD_DIR/mctoken"
 printf '%s\n' "${PLANWRIGHT_TOWER_ID-<unset>}" >"$SHIM_RECORD_DIR/towerid"
@@ -144,6 +153,11 @@ case $1 in
   kill-window)
     [ "${TMUX_KILL_FAIL:-0}" = 1 ] && exit 1
     rm -f "$TMUX_STUB/$3"
+    ;;
+  has-session)
+    # The worktree primitive's liveness probe: the stub runs no sessions.
+    echo "can't find session: $3" >&2
+    exit 1
     ;;
   *) exit 1 ;;
 esac
@@ -722,6 +736,186 @@ if empty_out=$(env PLANWRIGHT_FLEET_STATE_DIR="$tmp/empty-fleet" /bin/sh "$LAUNC
   ok "list with no registry prints nothing"
 else
   fail "list with no registry: $empty_out"
+fi
+
+# ---------------------------------------------------------------------------
+# REQ-D1.10: a repository-changing kind starts in its own worktree, never in
+# a primary checkout; the other kinds start where they are launched.
+# ---------------------------------------------------------------------------
+gitc() { git -C "$repo" -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false "$@"; }
+# no_session <scope> <kind> — no row and no supervisor exist for the launch.
+no_session() {
+  ns_name=$(cd "$repo" && /bin/sh "$LAUNCH" name --program alpha --kind "$2" --scope "$1")
+  [ ! -e "$fleet/mission-control/sessions/$ns_name" ] && [ ! -d "$fleet/streamjson/$ns_name" ]
+}
+# launched_in <rec> — the directory the launched session ran in.
+launched_in() {
+  wait_for "$1/cwd" && cat "$1/cwd"
+}
+
+before_head=$(git -C "$repo" rev-parse HEAD)
+before_branch=$(git -C "$repo" symbolic-ref HEAD)
+before_status=$(git -C "$repo" status --porcelain)
+rec="$tmp/rec-wt-new"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind worker --scope wt-new --brief "$tmp/brief.md"
+if [ "$RC" != 0 ]; then
+  fail "a worker launch with no directory exited $RC: $ERR"
+else
+  wt=$(launched_in "$rec")
+  case $wt in
+    "$repo/.claude/worktrees/"?*)
+      if [ "$(git -C "$wt" rev-parse HEAD 2>/dev/null)" = "$before_head" ] \
+        && case $(git -C "$wt" symbolic-ref HEAD 2>/dev/null) in refs/heads/planwright/flight/*) true ;; *) false ;; esac; then
+        ok "a worker launch with no directory starts in a new worktree off the default branch"
+      else
+        fail "the new worktree $wt is not a fresh branch off main: $(git -C "$wt" log --oneline -1 2>&1)"
+      fi
+      ;;
+    *) fail "a worker launch with no directory started in '$wt', not a new worktree" ;;
+  esac
+  wait_done "$(field name)"
+fi
+[ "$(git -C "$repo" rev-parse HEAD)" = "$before_head" ] && [ "$(git -C "$repo" symbolic-ref HEAD)" = "$before_branch" ] \
+  && [ "$(git -C "$repo" status --porcelain)" = "$before_status" ] \
+  && ok "the primary checkout's HEAD, branch and status are unchanged" \
+  || fail "the launch changed the primary checkout: $(git -C "$repo" status --porcelain)"
+
+# The same inputs relaunched after a retire find the worktree on the branch
+# they started, with no live session there, and reuse it.
+first_wt=$(cat "$rec/cwd" 2>/dev/null)
+ml retire "$(field name)"
+rec="$tmp/rec-wt-again"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind worker --scope wt-new --brief "$tmp/brief.md"
+[ "$RC" = 0 ] && [ "$(launched_in "$rec")" = "$first_wt" ] \
+  && ok "a relaunch reuses the worktree holding its branch when no live session runs there" \
+  || fail "the relaunch exited $RC in '$(cat "$rec/cwd" 2>/dev/null)', not $first_wt: $ERR"
+wait_done "$(field name)"
+
+# A unit whose branch exists starts on that branch, with its work.
+work=$(gitc commit-tree -p main -m 'unit work' "$(git -C "$repo" rev-parse 'main^{tree}')")
+gitc branch planwright/demo/task-1 "$work"
+rec="$tmp/rec-task-a"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind worker --scope task-a --task demo/1 --brief "$tmp/brief.md"
+task_wt=''
+if [ "$RC" != 0 ]; then
+  fail "a launch for a unit with an existing branch exited $RC: $ERR"
+else
+  task_wt=$(launched_in "$rec")
+  task_name=$(field name)
+  [ "$(git -C "$task_wt" rev-parse HEAD 2>/dev/null)" = "$work" ] \
+    && [ "$(git -C "$task_wt" symbolic-ref HEAD 2>/dev/null)" = refs/heads/planwright/demo/task-1 ] \
+    && ok "a launch for a unit whose branch exists starts on that branch" \
+    || fail "the unit launch in '$task_wt' is not on planwright/demo/task-1 at its work"
+  wait_done "$task_name"
+fi
+
+# The worktree holding the branch has a live session (its row is not
+# retired): a second launch for the unit is refused, naming it.
+rec="$tmp/rec-task-b"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope task-b --task demo/1 --brief "$tmp/brief.md"
+if [ "$RC" = 3 ] && case $ERR in *"${task_name:-unset}"*) true ;; *) false ;; esac && no_session task-b reviewer; then
+  ok "a worktree holding the branch with a live session refuses the launch, naming the session"
+else
+  fail "a launch into a worktree with a live session: exit $RC, $ERR"
+fi
+
+# A live process in the worktree counts as a live session too.
+ml retire "${task_name:-unset}"
+if [ -n "$task_wt" ] && [ -d /proc/self ]; then
+  (cd "$task_wt" && exec sleep 60) &
+  sleeper=$!
+  sleep 0.3
+  SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope task-b --task demo/1 --brief "$tmp/brief.md"
+  [ "$RC" = 3 ] && case $ERR in *"process $sleeper"*) true ;; *) false ;; esac && no_session task-b reviewer \
+    && ok "a process running in the worktree holds it as a live session" \
+    || fail "a launch beside a live process in the worktree: exit $RC, $ERR"
+  kill "$sleeper" 2>/dev/null
+  wait "$sleeper" 2>/dev/null
+else
+  ok "skip: no /proc to place a live process in the worktree"
+fi
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope task-b --task demo/1 --brief "$tmp/brief.md"
+[ "$RC" = 0 ] && [ "$(launched_in "$rec")" = "$task_wt" ] \
+  && ok "a worktree holding the branch with no live session is reused" \
+  || fail "the reuse launch exited $RC in '$(cat "$rec/cwd" 2>/dev/null)': $ERR"
+wait_done "$(field name)"
+
+# Naming the primary checkout, and a worktree that cannot be created, are
+# refused with no session started and no row.
+ml launch --program alpha --kind worker --scope primary --brief "$tmp/brief.md" --cwd "$repo"
+[ "$RC" != 0 ] && no_session primary worker \
+  && ok "a launch naming the primary checkout is refused (exit $RC) with no session or row" \
+  || fail "a launch into the primary checkout: exit $RC"
+ml launch --program alpha --kind worker --scope no-bundle --task nosuch/1 --brief "$tmp/brief.md"
+[ "$RC" != 0 ] && no_session no-bundle worker \
+  && ok "a launch whose worktree cannot be created is refused (exit $RC) with no session or row" \
+  || fail "a launch with no creatable worktree: exit $RC"
+ml launch --program alpha --kind worker --scope not-a-repo --repo "$tmp/mc-home" --brief "$tmp/brief.md"
+[ "$RC" != 0 ] && no_session not-a-repo worker \
+  && ok "a launch whose repository is not a git checkout is refused (exit $RC)" \
+  || fail "a launch outside a repository: exit $RC"
+
+# Another worktree no live session uses is accepted as named.
+gitc worktree add -q -b spare "$tmp/spare" main
+rec="$tmp/rec-spare"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind ad-hoc --scope spare --brief "$tmp/brief.md" --cwd "$tmp/spare"
+[ "$RC" = 0 ] && [ "$(launched_in "$rec")" = "$tmp/spare" ] \
+  && ok "a launch naming another unused worktree starts there" \
+  || fail "a launch naming an unused worktree exited $RC in '$(cat "$rec/cwd" 2>/dev/null)': $ERR"
+wait_done "$(field name)"
+ml launch --program alpha --kind reviewer --scope spare-2 --brief "$tmp/brief.md" --cwd "$tmp/spare"
+[ "$RC" = 3 ] && no_session spare-2 reviewer && ok "a named worktree a live session uses is refused" \
+  || fail "a named worktree in use: exit $RC, $ERR"
+
+# A tower starts in the caller's directory, with no worktree.
+rec="$tmp/rec-tower-here"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind tower --scope tower-here --brief "$tmp/brief.md"
+[ "$RC" = 0 ] && [ "$(launched_in "$rec")" = "$repo" ] && ok "a tower kind starts in the caller's directory" \
+  || fail "the tower launch exited $RC in '$(cat "$rec/cwd" 2>/dev/null)': $ERR"
+tower_brief=$(field brief)
+wait_done "$(field name)"
+ml launch --program alpha --kind tower --scope tower-task --task demo/1 --brief "$tmp/brief.md"
+[ "$RC" = 2 ] && ok "a kind that starts where it is launched refuses --task" || fail "a tower with --task: exit $RC"
+
+# ---------------------------------------------------------------------------
+# REQ-D1.11: a repository-changing brief carries the cadence; a skill command
+# carries its own.
+# ---------------------------------------------------------------------------
+ml name --program alpha --kind worker --scope wt-new
+wt_brief="$fleet/mission-control/launch/$OUT/brief.md"
+if grep -qx '## Cadence' "$wt_brief" && grep -qF 'scripts/step-run.sh audit --through post-pr' "$wt_brief" \
+  && grep -qF 'scripts/step-record.sh write' "$wt_brief"; then
+  ok "a repository-changing brief carries the cadence section with the audit command"
+else
+  fail "the worker brief lacks the cadence section: $(cat "$wt_brief" 2>/dev/null)"
+fi
+grep -qx '## Cadence' "$tower_brief" && fail "a tower brief carries the cadence section" \
+  || ok "a kind that changes no repository gets no cadence section"
+printf '%s\n' '/planwright:execute-task 1 demo' >"$tmp/skill-brief.md"
+ml retire "$(cd "$repo" && /bin/sh "$LAUNCH" name --program alpha --kind reviewer --scope task-b)"
+rec="$tmp/rec-skill"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope task-b --task demo/1 --brief "$tmp/skill-brief.md"
+if [ "$RC" = 0 ]; then
+  grep -qx '## Cadence' "$(field brief)" && fail "a brief that is a skill command carries the cadence section" \
+    || ok "a brief that is a skill command carries no cadence section"
+  wait_done "$(field name)"
+else
+  fail "the skill-command launch exited $RC: $ERR"
+fi
+
+# The skill's kickoff relay leaves the directory to the launcher.
+relay=$(awk '/^- `relay` —/ { on = 1 } on && /^- `manual`/ { exit } on { print }' "$repo_root/skills/mission-control/SKILL.md")
+if [ -n "$relay" ] && ! printf '%s\n' "$relay" | grep -qF -- '--cwd'; then
+  ok "the skill's kickoff relay passes no directory"
+else
+  fail "the kickoff relay names a directory: $relay"
 fi
 
 if [ "$failures" -gt 0 ]; then
