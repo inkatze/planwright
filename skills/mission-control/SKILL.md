@@ -176,7 +176,7 @@ without it enables the default set), the knowledge-base skeleton with
 decisions, and the runner (as at bring-up). Echo what was written in one
 line per write, then bring the program up as a resume. A write
 `mc-config.sh` refuses is said with its text, and the objective it belongs
-to is asked again.
+to is asked again; one it hands over (exit 4, below) is handed over instead.
 
 ## The register (D-19)
 
