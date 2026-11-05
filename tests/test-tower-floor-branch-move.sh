@@ -58,6 +58,9 @@ for cmd in \
   'git remote add upstream ../x' \
   'git remote -v' \
   'git remote show origin' \
+  'git remote -vv' \
+  'git remote --verb show origin' \
+  'GIT_TRACE=1 git remote -v' \
   'nice git -C . fetch origin' \
   'git remote add -f upstream ../x' \
   'git remote add --mirror=push backup ../x' \

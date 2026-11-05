@@ -316,3 +316,15 @@ spelling	branch-move	raw-fallback	env git -c remote.origin.fetch=+refs/heads/*:r
 spelling	branch-move	raw-fallback	env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.fetch GIT_CONFIG_VALUE_0=+refs/heads/*:refs/heads/* git fetch origin
 spelling	branch-move	negation	git branch -d --no-d -m topic other
 spelling	branch-move	alias	git ra m ../x
+spelling	branch-move	raw-fallback	git -c a.b=\ status co topic $(true)
+spelling	branch-move	raw-fallback	git -c a.b='x status' co topic $(true)
+spelling	branch-move	raw-fallback	git "$X" topic $(true)
+spelling	branch-move	raw-fallback	echo $(date); git -P co -b tag
+spelling	branch-move	raw-fallback	bash -c "git --no-pager co log"
+spelling	branch-move	raw-fallback	git config remote.origin.fetch +refs/heads/*:refs/heads/* && git fetch origin $(true)
+spelling	branch-move	raw-fallback	git remote add up ../x; git fetch up $(true)
+spelling	branch-move	raw-fallback	git remote add -f --mirror=fetch m ../x $(true)
+spelling	branch-move	raw-fallback	env git remote add -f --mirror=fetch x /tmp/x
+spelling	branch-move	raw-fallback	echo $(date); git -cremote.origin.fetch=+refs/heads/*:refs/heads/* fetch
+spelling	branch-move	long-prefix	git remote -x add -f --mirror=fetch m ../x
+spelling	branch-move	raw-fallback	command -p git -c a.b=\ status co topic

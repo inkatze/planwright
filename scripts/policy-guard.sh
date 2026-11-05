@@ -159,7 +159,11 @@
 # subcommands denies too, and so does any subcommand that is not a builtin
 # where the guard cannot read the alias: in a command it cannot parse, or in
 # a repository or directory it cannot follow. An expansion among a tower
-# act's options denies, since it could spell the refused option. These acts
+# act's options denies, since it could spell the refused option. In a command
+# it cannot parse, the guard also refuses git whose subcommand is quoted,
+# escaped, or expanded, or whose global options carry a quote or an escape,
+# and a fetch or `git remote` beside -c, a GIT_* assignment, or a config or
+# remote change. These acts
 # cover every
 # entry of config/tower-settings.json's deny list, which
 # tests/fixtures/tower-deny-acts.tsv maps entry by entry, so the plugin-wired
@@ -259,52 +263,66 @@ RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
 # The tower-only acts, as crudely: any words may stand between git and the
 # act (a quoted option value holding a space defeats RE_GIT_HEAD's
 # one-value-per-option reading), any short-option cluster carrying the letter
-# counts, and any long option starting with it. Each act pattern runs over
-# the text after the first git word (raw_git_tail), never with a leading
-# `git.*` of its own, whose backtracking grows with the square of the text.
+# counts, and any long option starting with it. No pattern carries a `.*`
+# between two anchors: each check slices the text after the first match of
+# its anchor (raw_after) and looks for the rest there, since a `.*` retried
+# from every occurrence grows with the square of the text.
 RE_TOWER_GIT_AT='(^|[^[:alnum:]_.-])git[[:space:]]'
 RE_TOWER_SURGERY='[[:space:]](update-ref|filter-branch|filter-repo|reset|checkout|switch|symbolic-ref)([^[:alnum:]_-]|$)'
-RE_TOWER_BRANCH='[[:space:]]branch([[:space:]].*)?[[:space:]](-[[:alnum:]]*[fMCmc]|--(f(o(r(ce?)?)?)?|m(o(ve?)?)?|c(o(py?)?)?)([^[:alnum:]_-]|$))'
+RE_TOWER_BRANCH_AT='[[:space:]]branch[[:space:]]'
+RE_TOWER_BRANCH_OPT='[[:space:]](-[[:alnum:]]*[fMCmc]|--(f(o(r(ce?)?)?)?|m(o(ve?)?)?|c(o(py?)?)?)([^[:alnum:]_-]|$))'
 RE_TOWER_WORKTREE='[[:space:]]worktree[[:space:]]+(add|remove|move)([^[:alnum:]_-]|$)'
-RE_TOWER_FETCH='[[:space:]]fetch([[:space:]].*)?(:|[[:space:]]--(st|refm))'
+RE_TOWER_FETCH_AT='[[:space:]]fetch([[:space:]]|:)'
+RE_TOWER_FETCH_OPT='(:|[[:space:]]--(st|refm))'
+RE_TOWER_REMOTE_AT='[[:space:]]remote[[:space:]]'
+RE_TOWER_MIRROR='[[:space:]]--mi'
 RE_TOWER_STASH='[[:space:]]stash([^[:alnum:]_-]|$)'
 RE_TOWER_FETCHES='[[:space:]](fetch|remote)([^[:alnum:]_-]|$)'
+RE_TOWER_CFG_CHANGE='[[:space:]](config[[:space:]]|remote[[:space:]]+(add|set-url|set-branches|rename|remove|rm)([^[:alnum:]_-]|$))'
+RE_TOWER_GIT_CONFIG='[[:space:]](-c|--config-env)'
 RE_TOWER_STASH_READ='[[:space:]]stash[[:blank:]]+(list|show)([^[:alnum:]_-]|$)'
 RE_TOWER_GH='(^|[^[:alnum:]_.-])gh[^[:alnum:]_.-](.*[^[:alnum:]_-])?(pr[^[:alnum:]_-](.*[^[:alnum:]_-])?(checkout|co)|repo[^[:alnum:]_-](.*[^[:alnum:]_-])?sync|co)([^[:alnum:]_-]|$)'
 
-# raw_git_tail <text> — set RT to the text from the blank after its first git
-# word on; 1 when no git word is followed by a blank.
-raw_git_tail() {
+# raw_after <text> <ERE> — set RS to the text from the last character of the
+# ERE's first match on; 1 when it does not match.
+raw_after() {
   local m pre
-  [[ $1 =~ $RE_TOWER_GIT_AT ]] || return 1
+  [[ $1 =~ $2 ]] || return 1
   m=${BASH_REMATCH[0]}
   pre=${1%%"$m"*}
-  RT=${1:$((${#pre} + ${#m} - 1))}
+  RS=${1:$((${#pre} + ${#m} - 1))}
 }
 
-# raw_tower_acts <text> — 0 when the text names a tower-only act.
+# raw_tower_acts <text> — 0 when the text names a tower-only act, or runs a
+# fetch or git remote beside configuration that can set its refspec.
 raw_tower_acts() {
-  local RT
-  if raw_git_tail "$1"; then
-    if [[ $RT =~ $RE_TOWER_SURGERY ]] || [[ $RT =~ $RE_TOWER_BRANCH ]] || [[ $RT =~ $RE_TOWER_WORKTREE ]] \
-      || [[ $RT =~ $RE_TOWER_FETCH ]] || raw_tower_stash "$RT"; then
+  local RS RT
+  if raw_after "$1" "$RE_TOWER_GIT_AT"; then
+    RT=$RS
+    if [[ $RT =~ $RE_TOWER_SURGERY ]] || [[ $RT =~ $RE_TOWER_WORKTREE ]] || raw_tower_stash "$RT"; then
       return 0
     fi
-    if [[ $RT =~ $RE_TOWER_FETCHES ]] && raw_git_config_beside "$1"; then
+    if { raw_after "$RT" "$RE_TOWER_BRANCH_AT" && [[ $RS =~ $RE_TOWER_BRANCH_OPT ]]; } \
+      || { raw_after "$RT" "$RE_TOWER_FETCH_AT" && [[ $RS =~ $RE_TOWER_FETCH_OPT ]]; } \
+      || { raw_after "$RT" "$RE_TOWER_REMOTE_AT" && [[ $RS =~ $RE_TOWER_MIRROR ]]; }; then
+      return 0
+    fi
+    if [[ $RT =~ $RE_TOWER_FETCHES ]] && { [[ $RT =~ $RE_TOWER_CFG_CHANGE ]] || raw_git_config_beside "$1"; }; then
       return 0
     fi
   fi
   [[ $1 =~ $RE_TOWER_GH ]]
 }
 
-# raw_git_config_beside <text> — 0 when the text carries -c configuration or
-# a GIT_* assignment, either of which can set a fetch refspec. -c and -C
-# differ, so this reads case-sensitively whatever the caller's nocasematch.
+# raw_git_config_beside <text> — 0 when the text carries -c configuration
+# (its value attached or not) or a GIT_* assignment, either of which can set
+# a fetch refspec. -c and -C differ, so this reads case-sensitively whatever
+# the caller's nocasematch.
 raw_git_config_beside() {
   local nc=0 rc=1
   shopt -q nocasematch && nc=1
   shopt -u nocasematch
-  if [[ $1 =~ $RE_MC_GIT_CONFIG ]] || [[ $1 =~ $RE_MC_GIT_ENV ]]; then
+  if [[ $1 =~ $RE_TOWER_GIT_CONFIG ]] || [[ $1 =~ $RE_MC_GIT_ENV ]]; then
     rc=0
   fi
   [ "$nc" = 0 ] || shopt -s nocasematch
@@ -326,23 +344,29 @@ raw_tower_stash() {
 # The subcommand is capture group 4: RE_GIT_HEAD holds three groups, and a
 # group added there moves it.
 RE_GIT_SUB="${RE_GIT_HEAD}([A-Za-z][A-Za-z0-9_-]*)"
-RE_GIT_SUB_EXP="${RE_GIT_HEAD}[\"'\$\`]"
+# git and its global options as git reads them: only the options that take a
+# separate value consume the next word, so a value-less -P cannot swallow an
+# alias as its value. The subcommand is capture group 5.
+RE_GIT_ALIAS_HEAD='(^|[^[:alnum:]_.-])git([[:space:]]+(-[Cc]|--(git-dir|work-tree|namespace|super-prefix|attr-source|config-env|list-cmds))[[:space:]]+[^[:space:]]+|[[:space:]]+-[^[:space:]]*)*[[:space:]]+'
+RE_GIT_ALIAS_SUB="${RE_GIT_ALIAS_HEAD}([A-Za-z][A-Za-z0-9_-]*)"
+RE_GIT_ALIAS_EXP="${RE_GIT_ALIAS_HEAD}[\"'\$\`\\]"
 
 # raw_tower_alias <text> — 0 when the text runs git with a subcommand that is
 # not a builtin (an alias, which the raw fallback cannot expand, could reach
-# any tower act), one given through a quote or an expansion, or one whose
-# global options carry a quote, which RE_GIT_HEAD cannot split reliably.
-# Builtins compare case-sensitively, as git compares them, whatever the
-# caller's nocasematch. Bounded, so a long text cannot hold the hook.
+# any tower act), one given through a quote, an escape, or an expansion, or
+# one whose global options carry a quote or an escape, which the head cannot
+# split reliably. Builtins compare case-sensitively, as git compares them,
+# whatever the caller's nocasematch. Bounded, so a long text cannot hold the
+# hook.
 raw_tower_alias() {
   local t=$1 n=0 m pre sub nc=0 rc=1
-  [[ $t =~ $RE_GIT_SUB_EXP ]] && return 0
+  [[ $t =~ $RE_GIT_ALIAS_EXP ]] && return 0
   shopt -q nocasematch && nc=1
-  while [[ $t =~ $RE_GIT_SUB ]]; do
+  while [[ $t =~ $RE_GIT_ALIAS_SUB ]]; do
     m=${BASH_REMATCH[0]}
-    sub=${BASH_REMATCH[4]}
+    sub=${BASH_REMATCH[5]}
     n=$((n + 1))
-    case $m in *[\"\']*) rc=0 ;; esac
+    case $m in *[\"\'\\]*) rc=0 ;; esac
     [ "$n" -le 64 ] || rc=0
     shopt -u nocasematch
     case " $GIT_BUILTINS " in *" $sub "*) ;; *) rc=0 ;; esac
@@ -1364,7 +1388,7 @@ tower_wrapped_git_alias() {
 
 tower_wrapped_git_check() {
   [ "$TIER" != tower ] || ! tower_wrapped_git_alias \
-    || deny_now "this command runs git through a wrapper with a subcommand that is not a literal git builtin, an alias the guard cannot follow there - refusing (fail closed). Issue the git command directly."
+    || deny_now "this command runs git through a wrapper where the guard cannot read its subcommand as a literal git builtin (an alias, an expansion, or one behind a global option the guard does not know) - refusing (fail closed). Issue the git command directly."
 }
 
 classify_segments() {
@@ -2482,8 +2506,18 @@ classify_git() {
     return 0
   fi
   # git remote fetches too (remote update, remote add -f), from the same
-  # configuration.
-  if [ "$TIER" = tower ] && { [ "$LC" = fetch ] || [ "$LC" = remote ]; } \
+  # configuration; its read forms (none, show, get-url) fetch nothing.
+  local rsub=''
+  if [ "$LC" = remote ]; then
+    for a in "${SW[@]:$((k + 1))}"; do
+      case $a in -*) ;; *)
+        rsub=$a
+        break
+        ;;
+      esac
+    done
+  fi
+  if [ "$TIER" = tower ] && { [ "$LC" = fetch ] || { [ "$LC" = remote ] && [ -n "$rsub" ] && [ "$rsub" != show ] && [ "$rsub" != get-url ]; }; } \
     && { [ "$cflag" = 1 ] || [ "$GIT_ENV" = 1 ] || [ "$ST_CFG" = 1 ]; }; then
     deny_now "this git $LC runs with -c configuration, a GIT_* variable, or a git config or remote change in the same command, any of which can set a refspec writing a local branch where the guard cannot read it - refusing (fail closed). Run it on its own, without them."
     return 0
