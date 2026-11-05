@@ -1498,10 +1498,43 @@ expect_mc defer "a git mutation is never pre-approved" "git commit -m wip"
 expect_mc defer "a ready flip is never pre-approved" "gh pr ready 42"
 # A guard whose root carries no list approves no planwright script.
 NOLIST="$SANDBOX/nolist"
-mkdir -p "$NOLIST/scripts"
-cp "$HOOK" "$NOLIST/scripts/tower-command-guard.sh"
+WILD="$SANDBOX/wild"
+mkdir -p "$WILD/config"
+cp -R "$REPO_ROOT/scripts" "$WILD/scripts"
+{
+  cat "$VERBS"
+  printf '%s\n' 'fleet-streamjson.sh *'
+} >"$WILD/config/mission-control-verbs.txt"
+WILD_GUARD="$WILD/scripts/tower-command-guard.sh"
+mkdir -p "$NOLIST"
+cp -R "$REPO_ROOT/scripts" "$NOLIST/scripts"
+expect_mc allow "control: the copied guard resolves the plugin root and reads a list" \
+  "$REPO_ROOT/scripts/mc-rules.sh load alpha" "$WILD_GUARD"
 expect_mc defer "with no list beside the guard, a listed verb prompts" \
   "$REPO_ROOT/scripts/mc-rules.sh load alpha" "$NOLIST/scripts/tower-command-guard.sh"
+expect_mc defer "a no-argument entry does not cover a literal - argument" "$REPO_ROOT/scripts/mc-keeper.sh - x"
+expect_mc defer "a flag in the verb position prompts" "$REPO_ROOT/scripts/mc-rules.sh --load alpha"
+# The guard refuses the raw prompt-answer verb itself, even under a list
+# whose wildcard would cover it.
+expect_mc allow "a wildcard entry covers its script's verbs" \
+  "$REPO_ROOT/scripts/fleet-streamjson.sh status mc-alpha" "$WILD_GUARD"
+expect_mc defer "the raw prompt-answer verb prompts under a wildcard entry" \
+  "$REPO_ROOT/scripts/fleet-streamjson.sh answer mc-alpha 1 yes" "$WILD_GUARD"
+# A repository mission control sits in is not planwright: its scripts/
+# directory is never trusted at this tier, whatever the names.
+OTHER="$SANDBOX/other-repo"
+mkdir -p "$OTHER/scripts"
+: >"$OTHER/.git"
+: >"$OTHER/scripts/mc-rules.sh"
+other_says=$(jq -nc --arg c "$OTHER/scripts/mc-rules.sh load alpha" --arg w "$OTHER" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
+  | env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" HOME="$SANDBOX/no-home" /bin/bash "$HOOK" mission-control 2>/dev/null \
+  | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)
+if [ -z "$other_says" ]; then
+  pass "a listed name under the session's own repository prompts"
+else
+  fail "a listed name under the session's own repository was approved: $other_says"
+  false_allows=$((false_allows + 1))
+fi
 
 # The list is derived: the check passes on the shipped sources and fails on
 # a reference the list does not carry.

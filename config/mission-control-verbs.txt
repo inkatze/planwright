@@ -1,7 +1,7 @@
 # The mission-control guard tier's pre-approval list: the planwright script
 # verbs scripts/tower-command-guard.sh approves without a prompt in its
 # mission-control mode. One `<script> <verb>` per line: `-` is the script
-# run with no argument, `*` any argument.
+# run with no argument, `*` any arguments or none.
 #
 # Derived, never hand-kept: scripts/check-mc-verbs.sh fails on any line the
 # mission-control skill and config/duties.yaml do not invoke, and on any

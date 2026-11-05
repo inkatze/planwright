@@ -604,18 +604,17 @@ is_force_push_file() {
 # only the script verbs config/mission-control-verbs.txt lists are approved,
 # read from this guard's own root and never from an overlay; every other
 # script or verb defers to the permission prompt, and so does everything
-# when the list cannot be read. The caller sets SCRIPT_NEXT to the word after
-# the script path and SCRIPT_HAS_NEXT to 1 when there is one.
+# when the list cannot be read. Only the plugin root's scripts count there.
+# Every caller of is_planwright_script sets SCRIPT_NEXT to the word after the
+# script path and SCRIPT_HAS_NEXT to 1 when there is one, else 0 and empty.
 MC_VERBS_DONE=0
 MC_VERBS=''
 cache_mc_verbs() {
   [ "$MC_VERBS_DONE" = 1 ] && return 0
   MC_VERBS_DONE=1
   local f s v rest
-  case ${BASH_SOURCE[0]} in
-    */*) f=${BASH_SOURCE[0]%/*}/../config/mission-control-verbs.txt ;;
-    *) return 0 ;;
-  esac
+  [ -n "$HOOK_SCRIPTS" ] || return 0
+  f=$HOOK_SCRIPTS/../config/mission-control-verbs.txt
   [ -f "$f" ] && [ -r "$f" ] || return 0
   while read -r s v rest; do
     case $s in '' | '#'*) continue ;; esac
@@ -629,10 +628,12 @@ script_in_mode() { # <path relative to its root>
   [ "$GUARD_MODE" = mission-control ] || return 0
   case $1 in scripts/*/*) return 1 ;; esac
   local s=${1#scripts/}
+  # The raw prompt-answer verb prompts whatever the list says.
+  [ "$s $SCRIPT_HAS_NEXT $SCRIPT_NEXT" != "fleet-streamjson.sh 1 answer" ] || return 1
   cache_mc_verbs
   case $MC_VERBS in *" $s:* "*) return 0 ;; esac
   if [ "$SCRIPT_HAS_NEXT" = 1 ]; then
-    case $SCRIPT_NEXT in '' | *[!a-z0-9-]*) return 1 ;; esac
+    case $SCRIPT_NEXT in '' | [!a-z0-9]* | *[!a-z0-9-]*) return 1 ;; esac
     case $MC_VERBS in *" $s:$SCRIPT_NEXT "*) return 0 ;; esac
   else
     case $MC_VERBS in *" $s:- "*) return 0 ;; esac
@@ -669,8 +670,9 @@ is_planwright_script() {
     *.sh) ;;
     *) return 1 ;;
   esac
-  # (a) under the repo checkout's scripts/ dir.
-  if [ -n "$root" ]; then
+  # (a) under the repo checkout's scripts/ dir; never in mission-control
+  # mode, whose session sits in repositories that are not planwright.
+  if [ -n "$root" ] && [ "$GUARD_MODE" != mission-control ]; then
     if full=$(canon_under "$p" "$cwd" "$root"); then
       rel=${full#"$root"/}
       case $rel in
