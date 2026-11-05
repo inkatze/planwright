@@ -8,18 +8,25 @@
 MC_FORMAT=1
 
 # mc_warn_if_stale: a script run from an older cached copy, by a session
-# that kept its root across an upgrade, warns on stderr; once per process
-# tree, so the scripts it starts stay quiet and its own errors stay first.
+# that kept its root across an upgrade, warns on stderr. Checked once per
+# process tree and state of the installed record (the marker carries the
+# record's stamp, so a session that inherits it still hears of a later
+# upgrade), and not at all where stderr is discarded.
 mc_warn_if_stale() {
   case $script_dir in
     */plugins/cache/*) ;;
     *) return 0 ;;
   esac
-  [ "${PLANWRIGHT_COPY_CHECKED:-}" != "$script_dir" ] || return 0
-  PLANWRIGHT_COPY_CHECKED=$script_dir
-  export PLANWRIGHT_COPY_CHECKED
+  [ ! /dev/stderr -ef /dev/null ] || return 0
   [ -f "$script_dir/resolve-installed-roots.sh" ] || return 0
-  /bin/sh "$script_dir/resolve-installed-roots.sh" --check "$script_dir/.." >/dev/null || :
+  mws_copy=${script_dir%/scripts}
+  mws_rec=${CLAUDE_DIR:-${HOME:-}/.claude}/plugins/installed_plugins.json
+  # shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
+  mws_stamp=$(stat -c %Y "$mws_rec" 2>/dev/null || stat -f %m "$mws_rec" 2>/dev/null)
+  [ "${PLANWRIGHT_COPY_CHECKED:-}" != "$mws_copy|$mws_stamp" ] || return 0
+  PLANWRIGHT_COPY_CHECKED="$mws_copy|$mws_stamp"
+  export PLANWRIGHT_COPY_CHECKED
+  /bin/sh "$script_dir/resolve-installed-roots.sh" --check "$mws_copy" >/dev/null || :
 }
 mc_warn_if_stale
 

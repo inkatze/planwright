@@ -12,10 +12,11 @@
 #           root chain (PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT, writer-mode,
 #           self-location), defined in doctrine/spec-format.md under "The core
 #           root chain", which also states which arms are skipped. This script
-#           is that definition's only implementation. Run from a plugin-cache
-#           copy the installed record no longer names, it still answers, and
-#           warns on stderr (resolve-installed-roots.sh --check, which reads
-#           the record through jq).
+#           is that definition's only implementation. Run from, or answering
+#           with, a plugin-cache copy the installed record no longer names, it
+#           still answers, and warns on stderr unless stderr is discarded
+#           (resolve-installed-roots.sh --check, which reads the record
+#           through jq).
 #   --all       print every content-bearing arm, one per line in chain order,
 #               instead of the first: for a consumer that looks a file up arm
 #               by arm, and for a command guard composing its trust set. An
@@ -109,10 +110,11 @@
 #   Callers treat 3 as "no repository" and degrade; they never compose a
 #   path from an empty root.
 #
-# POSIX sh with no dependency beyond git and tr, plus, for the spec kind,
-# (sed and head also for marker) sed, cut, grep, head, tail, mktemp, ln, rm, and the config resolvers,
-# and, for install from a plugin-cache copy, the stale-copy check: guards
-# and hooks exec it through /bin/sh, which is dash on Linux.
+# POSIX sh with no dependency beyond git and tr; the spec kind also needs
+# sed, cut, grep, head, tail, mktemp, ln, rm and the config resolvers, the
+# marker kind sed and head, and install from a plugin-cache copy stat and
+# the stale-copy check. Guards and hooks exec it through /bin/sh, which is
+# dash on Linux.
 set -u
 # Pin the C locale so tr's byte ranges below mean bytes.
 LC_ALL=C
@@ -222,6 +224,7 @@ try_arm() {
     skip_warn "$1" "$2" "not a directory holding doctrine/ or scripts/"
     return 0
   fi
+  [ "$found" -eq 1 ] || [ "$ta_canon" = "$ri_copy" ] || stale_check "$ta_canon"
   if [ "$all" -eq 1 ]; then
     found=1
     if [ "$explain" -eq 1 ]; then
@@ -234,25 +237,32 @@ try_arm() {
   emit "$1" "$ta_canon"
 }
 
+# stale_check <copy>: warn when <copy> is a plugin-cache copy the installed
+# record no longer names: an older version a session kept using, or a pin it
+# inherited. Skipped where stderr is discarded, and for a copy a calling
+# script already checked against this state of the record.
+stale_check() {
+  case $1 in
+    */plugins/cache/*) ;;
+    *) return 0 ;;
+  esac
+  [ ! /dev/stderr -ef /dev/null ] || return 0
+  [ -f "$script_dir/resolve-installed-roots.sh" ] || return 0
+  sc_rec=${CLAUDE_DIR:-${HOME:-}/.claude}/plugins/installed_plugins.json
+  # shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
+  sc_stamp=$(stat -c %Y "$sc_rec" 2>/dev/null || stat -f %m "$sc_rec" 2>/dev/null)
+  [ "${PLANWRIGHT_COPY_CHECKED:-}" != "$1|$sc_stamp" ] || return 0
+  /bin/sh "$script_dir/resolve-installed-roots.sh" --check "$1" >/dev/null || :
+}
+
 resolve_install() {
   found=0
-  # A copy in the plugin cache that the installed record no longer names is
-  # an older version a session kept using: still answered, never silently.
-  # Skipped for the copy Claude Code loaded (a hook's) and for one a calling
-  # script already checked.
+  # Still answered from a stale copy, never silently.
+  ri_copy=""
   case $script_dir in
-    /*) ri_self=$script_dir ;;
-    *) ri_self=$(pwd)/$script_dir ;;
+    */plugins/cache/* | [!/]*) ri_copy=$(canon "$script_dir/..") || ri_copy="" ;;
   esac
-  case $ri_self in
-    */plugins/cache/*)
-      if [ "${PLANWRIGHT_COPY_CHECKED:-}" != "$ri_self" ] \
-        && [ "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts}" != "$ri_self" ] \
-        && [ -f "$ri_self/resolve-installed-roots.sh" ]; then
-        /bin/sh "$ri_self/resolve-installed-roots.sh" --check "$ri_self/.." >/dev/null || :
-      fi
-      ;;
-  esac
+  [ -z "$ri_copy" ] || stale_check "$ri_copy"
   writer_root=""
   if [ -n "${CLAUDE_DIR:-}" ]; then
     writer_root="$CLAUDE_DIR/planwright"

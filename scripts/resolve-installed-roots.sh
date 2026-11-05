@@ -37,9 +37,10 @@
 #     The listing's dropped candidates, one per line.
 #   resolve-installed-roots.sh --current
 #     The record's roots that apply here, no cached copy: an entry of a
-#     project or local scope whose projectPath holds the working directory,
-#     then the user-scope ones. A long-running session runs the root
-#     resolver from the first, rather than from a path it remembers.
+#     project or local scope whose projectPath holds the project
+#     ($CLAUDE_PROJECT_DIR, else the working directory), then the user-scope
+#     ones. A long-running session runs the root resolver from the first,
+#     rather than from a path it remembers.
 #   resolve-installed-roots.sh --check <path>
 #     Warns on stderr, and exits 1, when <path> is a copy under the plugin
 #     cache that no --current root names: an older version a session kept
@@ -158,7 +159,7 @@ emit() {
 recorded_roots() {
   f="$claude_dir/plugins/installed_plugins.json"
   if [ -r "$f" ] && command -v jq >/dev/null 2>&1; then
-    rr_cwd=$(pwd -P 2>/dev/null) || rr_cwd=""
+    rr_cwd=${CLAUDE_PROJECT_DIR:-$(pwd -P 2>/dev/null)}
     jq -r --arg which "$1" --arg cwd "$rr_cwd" '[(.plugins // {}) | to_entries[]
       | select((.key | type) == "string" and (.key | startswith("planwright@")))
       | (.value | if type == "array" then .[] else . end)
@@ -198,7 +199,7 @@ if [ -n "$check" ]; then
   done <<EOF
 $ck_current
 EOF
-  printf 'planwright: WARNING running from %s, which is not the installed planwright (%s); resolve the root again with resolve-installed-roots.sh --current and run every script and doc from there\n' \
+  printf 'planwright: WARNING running from %s, which is not the installed planwright (%s); run every script and doc from the installed copy instead\n' \
     "$(printf '%s' "$ck_path" | tr -d '\000-\037\177')" "$(printf '%s' "$ck_first" | tr -d '\000-\037\177')" >&2
   exit 1
 fi

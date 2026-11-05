@@ -385,35 +385,46 @@ if [ "$(id -u)" -ne 0 ]; then
   mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5070
   chmod 700 "$store/events"
   expect_rc "a refused event fails the check" 1
+  expect_err "naming the event" "event could not be stored"
+  set +f
+  # shellcheck disable=SC2086 # the glob is the point
+  set -- $runtime/install.*
+  set -f
+  if [ -e "$1" ]; then fail "a refused event left a temporary record: $1"; else ok "and leaves no temporary record"; fi
   before=$(events_of planwright-updated | wc -l | tr -d ' ')
   chmod 500 "$runtime"
   mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5075
   chmod 700 "$runtime"
   expect_rc "a record that cannot be written fails the check" 1
+  expect_err "naming the record" "cannot write the install record"
   if [ "$(events_of planwright-updated | wc -l | tr -d ' ')" = "$before" ]; then
     ok "and stores no event, so a retry cannot flood the store"
   else
     fail "an unwritable record still stored an event"
   fi
+else
+  echo "skip: the refused-write cases (root writes through any mode)"
 fi
 mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5080
 expect_eq "and the change is raised on the next one" "install${tab}changed${tab}0.66.0${tab}$new_root${tab}0.65.0"
 
 # A record this script did not write is replaced as if absent, never trusted
 # and never a lasting failure.
-for shape in bad-format no-version bad-root symlink control; do
+mkdir -p "$tmp/outside"
+for shape in bad-format no-version bad-root symlink dirlink control; do
   rm -f "$runtime/install"
   case $shape in
     bad-format) printf 'format\t9\nroot\t%s\nversion\t0.65.0\n' "$old_root" >"$runtime/install" ;;
     no-version) printf 'format\t1\nroot\t%s\n' "$old_root" >"$runtime/install" ;;
     bad-root) printf 'format\t1\nroot\trelative\nversion\t0.65.0\n' >"$runtime/install" ;;
     symlink) ln -s "$tmp/nowhere" "$runtime/install" ;;
+    dirlink) ln -s "$tmp/outside" "$runtime/install" ;;
     control) printf 'format\t1\nroot\t%s\nversion\t0.65.0\033]0;x\007\n' "$old_root" >"$runtime/install" ;;
   esac
   mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5085
   expect_eq "a $shape record is replaced as a first record" "install${tab}first${tab}0.66.0${tab}$new_root"
   expect_err "with a warning naming it" "unreadable and is replaced"
-  if [ "$shape" = symlink ]; then
+  if [ "$shape" = symlink ] || [ "$shape" = dirlink ]; then
     if [ -L "$runtime/install" ]; then
       fail "the record is still a symlink"
     else
@@ -423,6 +434,14 @@ for shape in bad-format no-version bad-root symlink control; do
 done
 mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5086
 expect_eq "and the replaced record reads back" "install${tab}same${tab}0.66.0${tab}$new_root"
+if [ -z "$(ls -A "$tmp/outside")" ]; then ok "nothing was written through a linked record"; else fail "a record was written through the link"; fi
+rm -f "$runtime/install"
+mkdir "$runtime/install"
+mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5087
+expect_rc "a directory where the record goes fails" 1
+expect_err "naming it" "the install record is a directory"
+rmdir "$runtime/install"
+mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5088
 
 mkdir -p "$tmp/noversion"
 mc_run mc-panel.sh install --program alpha --root "$tmp/noversion" --now 5090

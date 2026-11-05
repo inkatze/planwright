@@ -196,8 +196,9 @@ done
 # the user-scope one; another project's install never applies here.
 scoped="$SANDBOX/scoped"
 proj="$SANDBOX/proj"
-mkdir -p "$scoped/plugins" "$proj/sub" "$SANDBOX/elsewhere"
+mkdir -p "$scoped/plugins" "$proj/sub" "$SANDBOX/proj-2" "$SANDBOX/elsewhere"
 proj=$(cd "$proj" && pwd -P)
+ln -s "$cur/plugins/cache" "$scoped/plugins/cache"
 jq -n --arg u "$new_copy" --arg p "$old_copy" --arg o "$SANDBOX/other-proj-copy" --arg pp "$proj" --arg op "$SANDBOX/other-proj" \
   '{plugins: {"planwright@planwright": [
       {scope: "project", projectPath: $op, installPath: $o},
@@ -206,12 +207,30 @@ jq -n --arg u "$new_copy" --arg p "$old_copy" --arg o "$SANDBOX/other-proj-copy"
 OUT=$(cd "$proj/sub" && env -u HOME CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" --current 2>/dev/null)
 assert_eq "--current inside a project: its own install first, then the user one" "$old_copy
 $new_copy" "$OUT"
-OUT=$(cd "$SANDBOX/elsewhere" && env -u HOME CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" --current 2>/dev/null)
-assert_eq "--current elsewhere: the user install alone" "$new_copy" "$OUT"
-OUT=$(cd "$SANDBOX/elsewhere" && env -u HOME CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" 2>/dev/null | head -n 3)
-assert_eq "the default listing still names every recorded root" "$SANDBOX/other-proj-copy
+OUT=$(cd "$proj" && env -u HOME -u CLAUDE_PROJECT_DIR CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" --current 2>/dev/null)
+assert_eq "--current at the project's own root: its install first" "$old_copy
+$new_copy" "$OUT"
+OUT=$(cd "$SANDBOX/elsewhere" && env -u HOME CLAUDE_PROJECT_DIR="$proj" CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" --current 2>/dev/null)
+assert_eq "--current follows the session's project over the working directory" "$old_copy
+$new_copy" "$OUT"
+for here in elsewhere proj-2; do
+  OUT=$(cd "$SANDBOX/$here" && env -u HOME -u CLAUDE_PROJECT_DIR CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" --current 2>/dev/null)
+  assert_eq "--current from $here: the user install alone" "$new_copy" "$OUT"
+done
+OUT=$(cd "$SANDBOX/elsewhere" && env -u HOME -u CLAUDE_PROJECT_DIR CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" 2>/dev/null)
+assert_eq "the default listing still names every recorded root, once" "$SANDBOX/other-proj-copy
 $new_copy
 $old_copy" "$OUT"
+ERR=$(cd "$proj" && env -u HOME -u CLAUDE_PROJECT_DIR CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" --check "$old_copy" 2>&1 >/dev/null)
+assert_eq "--check inside the project: its local install is current" "" "$ERR"
+ERR=$(cd "$SANDBOX/elsewhere" && env -u HOME -u CLAUDE_PROJECT_DIR CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" --check "$old_copy" 2>&1 >/dev/null)
+case $ERR in
+  *WARNING*) echo "ok: --check elsewhere: another project's install is stale here" ;;
+  *)
+    echo "FAIL: --check elsewhere said '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
 
 # --- --check: a copy under the cache that is not the installed one warns ------
 check() { # check <path> [ENV=val...]: stderr in ERR, exit status in CODE
@@ -223,7 +242,7 @@ check() { # check <path> [ENV=val...]: stderr in ERR, exit status in CODE
 check "$old_copy"
 assert_eq "an older cached copy is stale (exit 1)" 1 "$CODE"
 case $ERR in
-  *"WARNING"*"$old_copy"*"$new_copy"*) echo "ok: the warning names the stale copy and the installed one" ;;
+  "planwright: WARNING running from $old_copy, "*"$new_copy"*) echo "ok: the warning keeps the prefix the panel filters on, naming both copies" ;;
   *)
     echo "FAIL: the stale warning reads '$ERR'" >&2
     failures=$((failures + 1))
@@ -284,12 +303,32 @@ case $ERR in
     failures=$((failures + 1))
     ;;
 esac
-ERR=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT="$old_copy" CLAUDE_DIR="$cur" \
-  "$old_copy/scripts/resolve-root.sh" install 2>&1 >/dev/null)
-assert_eq "the copy Claude Code loaded (a hook's) is not warned about" "" "$ERR"
-ERR=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_COPY_CHECKED="$old_copy/scripts" \
+# A launched session inherits its launcher's pin: a pin naming a stale copy
+# warns even from the installed copy's resolver.
+OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT="$old_copy" CLAUDE_DIR="$cur" \
+  "$new_copy/scripts/resolve-root.sh" install 2>"$SANDBOX/pin.err")
+assert_eq "an inherited stale pin still wins the chain" "$old_copy" "$OUT"
+case $(cat "$SANDBOX/pin.err") in
+  *"WARNING running from $old_copy"*) echo "ok: and the resolver warns about it" ;;
+  *)
+    echo "FAIL: an inherited stale pin said '$(cat "$SANDBOX/pin.err")'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+# shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
+stamp=$(stat -c %Y "$cur/plugins/installed_plugins.json" 2>/dev/null || stat -f %m "$cur/plugins/installed_plugins.json")
+ERR=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_COPY_CHECKED="$old_copy|$stamp" \
   CLAUDE_DIR="$cur" "$old_copy/scripts/resolve-root.sh" install 2>&1 >/dev/null)
-assert_eq "a copy a calling script already checked is not warned about again" "" "$ERR"
+assert_eq "a copy a calling script checked against this record is not warned about again" "" "$ERR"
+ERR=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_COPY_CHECKED="$old_copy|1" \
+  CLAUDE_DIR="$cur" "$old_copy/scripts/resolve-root.sh" install 2>&1 >/dev/null)
+case $ERR in
+  *WARNING*) echo "ok: a mark from an earlier state of the record (an inherited one) still warns" ;;
+  *)
+    echo "FAIL: an old mark silenced the warning" >&2
+    failures=$((failures + 1))
+    ;;
+esac
 stale_run "$old_copy" resolve-rule-doc.sh plugin-script-invocation
 assert_eq "resolve-rule-doc.sh from a stale copy still resolves" "$old_copy/doctrine/plugin-script-invocation.md" "$OUT"
 case $ERR in
@@ -307,8 +346,13 @@ case $ERR in
     failures=$((failures + 1))
     ;;
 esac
-stale_run "$old_copy" mc-event.sh list --program 'Bad Name'
-assert_eq "a failing mission-control script from a stale copy warns once" 1 "$(printf '%s\n' "$ERR" | grep -c WARNING)"
+# Sourcing the shared library marks the tree, so a resolver it starts stays
+# quiet: one warning per process tree.
+# shellcheck disable=SC2016 # the inner script expands its own arguments
+ERR=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u PLANWRIGHT_COPY_CHECKED CLAUDE_DIR="$cur" \
+  /bin/bash -c 'prog=t; script_dir=$1; . "$1/echo-safety.sh"; . "$1/mc-lib.sh"; /bin/sh "$1/resolve-root.sh" install >/dev/null' \
+  _ "$old_copy/scripts" 2>&1 >/dev/null)
+assert_eq "a mission-control script and the resolver it starts warn once between them" 1 "$(printf '%s\n' "$ERR" | grep -c WARNING)"
 rm "$old_copy/scripts/resolve-installed-roots.sh"
 stale_run "$old_copy" mc-event.sh --help
 assert_eq "a copy missing the checker stays quiet" "" "$ERR"

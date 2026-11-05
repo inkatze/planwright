@@ -40,8 +40,8 @@ planwright copy the program's session runs.
 The mod (hooks/mission-control/) runs `digest` on its redraw timer and
 draws only what it prints; nothing here calls a model or writes a store
 but the presence marker, with --target the target's lease, and the
-install record with its event. The mod
-is active only in a session started with PLANWRIGHT_MC_PROGRAM=<program>
+install record with its event. The mod is active only in a session
+started with PLANWRIGHT_MC_PROGRAM=<program>
 in its environment (and optionally PLANWRIGHT_MC_TARGET=<its wake
 target>, the program's name by default), which it reads once and clears. A store that cannot be read is said as such,
 never drawn as empty.
@@ -302,6 +302,7 @@ if [ "$verb" = install ]; then
   rec_tmp=""
   trap 'mc_unlock; [ -z "$rec_tmp" ] || rm -f "$rec_tmp"' EXIT
   mc_now_arg "$now"
+  [ -L "$rec" ] || [ ! -d "$rec" ] || mc_fail "the install record is a directory: $rec"
   was_root=""
   was_version=""
   if [ -e "$rec" ] || [ -L "$rec" ]; then
@@ -350,9 +351,17 @@ if [ "$verb" = install ]; then
   fi
   mc_event emit --program "$program" --now "$NOW" -- "$kind" "$program" "$text" >/dev/null \
     || mc_fail "the $kind event could not be stored"
+  # mv onto a link to a directory would land inside it, so the link goes.
+  if [ -L "$rec" ]; then
+    rm -f -- "$rec" || mc_fail "the $kind event is stored but the install record could not be written"
+  fi
   mv -f -- "$rec_tmp" "$rec" || mc_fail "the $kind event is stored but the install record could not be written"
   rec_tmp=""
-  printf 'install\t%s\t%s\t%s%s\n' "$state" "$version" "$root" "${was_version:+$(printf '\t')$was_version}"
+  if [ "$state" = first ]; then
+    printf 'install\tfirst\t%s\t%s\n' "$version" "$root"
+  else
+    printf 'install\tchanged\t%s\t%s\t%s\n' "$version" "$root" "$was_version"
+  fi
   exit 0
 fi
 
