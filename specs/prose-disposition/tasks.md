@@ -1,7 +1,7 @@
 # Prose disposition — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-02
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -122,13 +122,15 @@ can be measured by it.
 
 ### Task 5 — Cleanup Phase A: evidence-free blocks
 
-- **Deliverables:** every evidence-free block (two or more lines) across
-  the guard's surface dispositioned under the taxonomy (deleted where the
-  code carries the information, kept beside the code where it names a why
-  or a warning); `pending-cleanup` entries removed for every file that no
-  longer trips the error threshold; the PR body carrying the `--audit`
-  figures before and after, the list of kept evidence-free blocks each with
-  its reason, the `--code-invariant` result, and the independent reading
+- **Deliverables:** every evidence-free block (two or more lines) in the
+  guard's surface outside `tests/` dispositioned under the taxonomy
+  (deleted where the code carries the information, kept beside the code
+  where it names a why or a warning); `tests/` is Task 8.1's;
+  `pending-cleanup` entries removed for every file that no longer trips
+  the error threshold; the PR body carrying the `--audit` figures before
+  and after, the kept evidence-free blocks outside `tests/` each with its
+  reason (grouped by file in the body, or in the overflow file REQ-G1.2
+  names), the `--code-invariant` result, and the independent reading
   pass's record over the named sample (REQ-G1.2).
 - **Done when:** the PR title carries the `comments` scope and the PR-only
   CI step's `--code-invariant` run against the base passes for every
@@ -136,11 +138,12 @@ can be measured by it.
   `lint:fmt` pass; `mise run check` is green with the reduced transitional
   baseline; the
   PR body carries both audit figures and the after-audit's evidence-free
-  count equals the length of the kept-block list; the independent pass's
+  count outside `tests/` equals the length of the kept-block list; no
+  `tests/` file is touched; the independent pass's
   record covers a sample of at least ten kept blocks across at least three
   files (or all if fewer) and every disagreement is resolved before merge.
 - **Dependencies:** 2, 4, 4.1
-- **Citations:** D-8, D-12, D-13, D-15 · REQ-G1.1, REQ-G1.2, REQ-G1.4
+- **Citations:** D-8, D-12, D-13, D-15, D-16 · REQ-G1.1, REQ-G1.2, REQ-G1.4
 - **Estimated effort:** 2 days
 
 ### Task 6 — Cleanup Phase B: the fleet family
@@ -195,7 +198,8 @@ can be measured by it.
   remaining script, `tests/`, `githooks/`, `hooks/`, the `config/` YAML
   files (the `defaults.yml` per-knob paragraphs collapse to what the options
   reference does not already carry), and the root-level `lefthook.yml`,
-  `mise.toml`, and workflow YAML.
+  `mise.toml`, and workflow YAML; the evidence-free blocks under `tests/`
+  are Task 8.1's.
 - **Done when:** the Task 6 Done-when conditions hold for the path groups
   listed in Deliverables, taken together as this task's family; the
   verification record lists each collapsed `defaults.yml` paragraph beside
@@ -206,6 +210,30 @@ can be measured by it.
 - **Citations:** D-8, D-10, D-12, D-13, D-14 · REQ-G1.3, REQ-G1.4, REQ-G1.5,
   REQ-G1.6
 - **Estimated effort:** 2 days
+
+### Task 8.1 — Cleanup Phase B: evidence-free blocks under `tests/`
+
+- **Deliverables:** every evidence-free block (two or more lines) under
+  `tests/` dispositioned under the taxonomy by Task 5's method (deleted
+  where the code carries the information, kept beside the code where it
+  names a why or a warning); the PR body carrying the `--audit` figures
+  before and after, the kept evidence-free blocks under `tests/` each with
+  its reason (grouped by file in the body, or in the overflow file
+  REQ-G1.2 names), the `--code-invariant` result, and the independent
+  reading pass's record over the named sample (REQ-G1.2). Blocks at or
+  above the error threshold stay Task 8's.
+- **Done when:** the PR title carries the `comments` scope and the PR-only
+  CI step's `--code-invariant` run against the base passes for every
+  touched file, with the result recorded in the PR body; `lint:shell` and
+  `lint:fmt` pass; `mise run check` is green; the PR body carries both
+  audit figures and the after-audit's evidence-free count under `tests/`
+  equals the length of the kept-block list; only `tests/` files and the
+  overflow file, if used, are touched; the independent pass's record
+  covers a sample of at least ten kept blocks across at least three files
+  (or all if fewer) and every disagreement is resolved before merge.
+- **Dependencies:** 5
+- **Citations:** D-8, D-12, D-13, D-16 · REQ-G1.1, REQ-G1.2, REQ-G1.4
+- **Estimated effort:** 3 days
 
 ### Task 9 — Closeout
 
@@ -219,8 +247,8 @@ can be measured by it.
   are both in the PR body; the `exempt` list is in the PR body; the
   unlinked-set command and its empty output are in the PR body. This PR is
   not a cleanup PR and carries no `comments` scope.
-- **Dependencies:** 6, 7, 8
-- **Citations:** D-11, D-12, D-13 · REQ-G1.7, REQ-F1.7
+- **Dependencies:** 6, 7, 8, 8.1
+- **Citations:** D-11, D-12, D-13, D-16 · REQ-G1.7, REQ-F1.7
 - **Estimated effort:** half day
 
 ### Task 10 — The Auto-applicable lane for expression-only prose

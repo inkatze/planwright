@@ -437,7 +437,13 @@ async function activate(
     await lastingFault($, 'activation', 'the activation could not be cleared: sessions started from here inherit it')
   }
   // Not 'mission-control': a typed command a skill shares opens the skill.
-  await $.command.register({ name: 'mc-panel', description: 'Reopen the mission-control panel' })
+  // A refused registration must not skip the rest of this activation: the
+  // bring-up below starts every reading.
+  try {
+    await $.command.register({ name: 'mc-panel', description: 'Reopen the mission-control panel' })
+  } catch (err) {
+    await lastingFault($, 'command', `the panel command could not be registered: ${oneLine(String(err))}`)
+  }
   await open($)
   $.clock.after(0, () => void acknowledge($, how))
   $.clock.after(0, () => void bringUp($))

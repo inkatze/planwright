@@ -117,6 +117,37 @@ test('a failed digest keeps the last reading and names the fault', async ($, on)
   await ui.unmount()
 })
 
+// The engine refuses a command whose name collides with one the plugin
+// already ships; the start hook must still bring the readings up.
+test('a refused command registration still brings the readings up', async ($, on) => {
+  const w = world(on, { isCommandRefused: true })
+  await boot($, w)
+  const first = ran(w, 'mc-panel.sh', 'digest').length
+  expect(first).toBeGreaterThan(0)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toBe(
+    '✈ alpha · 2 in flight · 2 holding · rung throttle · ctx 42% · five_hour 31%',
+  )
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await pane.find({ type: 'Text', text: /^Fault:/ }))?.text).toMatch(
+    /^Fault: the panel command could not be registered: /,
+  )
+  await pane.unmount()
+  await w.clock.advance(10_000)
+  expect(ran(w, 'mc-panel.sh', 'digest').length).toBeGreaterThan(first)
+})
+
+test('with no reading the band says why', async ($, on) => {
+  const w = world(on, { digestExit: 1 })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /✈ alpha/ }))?.text).toBe(
+    '✈ alpha · no reading: store unreadable · ctx 42% · five_hour 31%',
+  )
+  await ui.unmount()
+})
+
 // REQ-F1.2: where no surface places the pane, the text line carries it.
 test('the fallback line shows where nothing draws the pane', async ($, on) => {
   const w = world(on, { isPlaced: false })

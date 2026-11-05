@@ -78,6 +78,7 @@ cat >"$tmp/bin/claude" <<'SHIM'
 #!/bin/sh
 printf '%s\n' "$*" >"$SHIM_RECORD_DIR/argv.tmp" && mv "$SHIM_RECORD_DIR/argv.tmp" "$SHIM_RECORD_DIR/argv"
 printf '%s\n' "${PLANWRIGHT_MC_TOKEN:-}" >"$SHIM_RECORD_DIR/mctoken"
+printf '%s\n' "${PLANWRIGHT_TOWER_ID-<unset>}" >"$SHIM_RECORD_DIR/towerid"
 IFS= read -r line || line=''
 printf '%s\n' "$line" >"$SHIM_RECORD_DIR/stdin"
 exit 0
@@ -177,6 +178,19 @@ wait_for() {
   done
   [ -s "$1" ]
 }
+# reg_owner <handle> — the owner column of the handle's last fleet record,
+# once one is written (bounded).
+reg_owner() {
+  n=0
+  while [ "$n" -lt 100 ]; do
+    ro=$(env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-state.sh" registry 2>/dev/null \
+      | awk -F '\t' -v w="$1" '$2 == w { o = $4 } END { print o }')
+    [ -z "$ro" ] || break
+    sleep 0.1
+    n=$((n + 1))
+  done
+  printf '%s\n' "$ro"
+}
 # wait_done <name> — until the stream-json supervisor recorded the run's end.
 wait_done() {
   n=0
@@ -249,6 +263,11 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
   else
     fail "[$kind] the registry row is missing or incomplete: $(cat "$row" 2>/dev/null)"
   fi
+  ro=$(reg_owner "$name")
+  [ "$ro" = mission-control:alpha ] && ok "[$kind] the fleet registry attributes the session to mission-control:alpha" \
+    || fail "[$kind] the fleet registry record's owner is '$ro', not mission-control:alpha"
+  [ "$(cat "$rec/towerid" 2>/dev/null)" = '<unset>' ] && ok "[$kind] the session does not inherit the owner as its own tower identity" \
+    || fail "[$kind] the session inherited PLANWRIGHT_TOWER_ID '$(cat "$rec/towerid" 2>/dev/null)'"
   case " $argv " in
     *" $want_tier "*) ok "[$kind] the session runs at its key's tier ($want_tier)" ;;
     *) fail "[$kind] the session's argv lacks its key's tier '$want_tier': $argv" ;;
@@ -442,6 +461,9 @@ ml retire "$worker_name"
 
 win=$(awk -F '\t' '$1 == "handle" { print $2 }' "$fleet/mission-control/sessions/$pane_name")
 [ -e "$tmp/tmux/$win" ] && ok "the tmux session has a live window ($win) before retire" || fail "the tmux launch left no window"
+ro=$(reg_owner "$win")
+[ "$ro" = mission-control:alpha ] && ok "the fleet registry attributes the tmux session to mission-control:alpha" \
+  || fail "the tmux session's fleet record owner is '$ro', not mission-control:alpha"
 argv_t=$(cat "$tmp/tmux/argv-$win" 2>/dev/null)
 case $argv_t in
   *fleet-dispatch-env.sh*--root*--inbound*--identity*"$pane_name"*--settings*"$repo_root/config/worker-settings.json"*--name*"$pane_name"*) ok "the tmux window runs the session under its profile and name" ;;

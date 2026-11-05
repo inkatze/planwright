@@ -126,6 +126,7 @@ export type Fixture = {
   isPlaced: boolean
   isDropped: boolean
   isEnvDenied: boolean
+  isCommandRefused: boolean
   contextPercent: number | undefined
   env: Record<string, string>
   sessionId: string
@@ -152,6 +153,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     isPlaced: true,
     isDropped: false,
     isEnvDenied: false,
+    isCommandRefused: false,
     contextPercent: 42,
     env: { PLANWRIGHT_MC_PROGRAM: 'alpha' },
     sessionId: SESSION,
@@ -185,7 +187,10 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     value: e.path.startsWith(`${ACTIVE_DIR}/`) && e.path.slice(ACTIVE_DIR.length + 1) in fx.records,
   }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
-  on('command.register', () => ({ value: { command: 'mc-panel' } }))
+  on('command.register', () => {
+    if (fx.isCommandRefused) throw new Error('refused')
+    return { value: { command: 'mc-panel' } }
+  })
   on('ui.open', () => {
     w.opened += 1
     return { value: fx.isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'no-surface' } }

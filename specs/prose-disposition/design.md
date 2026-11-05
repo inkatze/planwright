@@ -1,7 +1,7 @@
 # Prose disposition — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-02
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -322,7 +322,8 @@ file against the merge-base and fails on any difference. Independent
 reading: a second pass from a fresh session or a non-Anthropic review
 backend confirms every removed line is recoverable from the code, the
 history, or its named destination, and every surviving block names its
-taxonomy reason (in full for Phase B; over a named sample for Phase A);
+taxonomy reason (in full for the Phase B family PRs; over a named sample
+for the evidence-free PRs, Phase A and the `tests/` task, D-16);
 disagreements are resolved by the author in the PR, and the operator's
 merge is the binding approval.
 
@@ -342,6 +343,8 @@ enforced by a PR-only CI step on PRs declaring a `comments` title scope,
 using the base-ref plumbing and title lint the workflow already has, so a
 cheap exact leg is a gate rather than an author attestation; the worker
 still records the result in the PR body for the second reader.)*
+*(Amended at the 2026-11-04 amendment: the sampled reading leg covers the
+`tests/` evidence-free task too, D-16.)*
 
 ### D-13: Ordering — doctrine, skills, guard, Phase A, Phase B, closeout  (N)
 
@@ -363,6 +366,8 @@ explicit dependency edges on the doctrine tasks.
 **Chosen because:** every later step is verified by an earlier one: the
 skills apply the doctrine, the guard measures the cleanup, the closeout
 proves the guard.
+*(Amended at the 2026-11-04 amendment: Phase B also carries the `tests/`
+evidence-free task, after Phase A like the families, D-16.)*
 
 ### D-14: Provenance leaves source; the deliverables gap closes at its source  (N)
 
@@ -406,11 +411,44 @@ which Phase A's scope is reconsidered.
   guard's misreads, and a list of them is noise.
 - Narrow Phase A to deletable blocks and `scripts/` only. Rejected because:
   it leaves the misclassification in place for Phase B and the closeout.
+  *(Amended at the 2026-11-04 amendment: taken after the recount in the
+  form D-16 records, with the misclassification now fixed.)*
 
 **Chosen because:** the halt's reading sample showed the count is mostly
 the classifier missing function contracts and reasons, so fixing the
 classifier first is what makes Phase A's list honest and its size known.
 Operator ruling, 2026-11-02.
+
+### D-16: The evidence-free disposition splits at `tests/`  (N)
+
+**Decision:** Phase A (Task 5) dispositions the evidence-free blocks of
+every surface path outside `tests/`; a Phase B task (Task 8.1) takes those
+under `tests/`, by the same method: taxonomy disposition, a kept list with
+a reason each whose length equals the scope's after-count, and a sampled
+independent read. The kept list goes in the PR body grouped by file, or in
+a committed bundle file the body links when the body would pass GitHub's
+PR-body limit. Phase B's family tasks read only blocks at or above the
+error threshold and no `tests/` evidence-free block reached it at the
+2026-11-04 recount, so without
+Task 8.1 nothing would read them.
+
+**Alternatives considered:**
+- Keep Phase A whole and carry its kept list as a committed file, reading in
+  batches across several PRs. Rejected because: one task would still hold
+  the whole surface, `tests/` being most of it.
+- Widen the classifier again and re-measure. Rejected because: the reading
+  sample after Task 4.1 was mostly genuine keepers, so another widening
+  buys little and costs another guard task.
+- Fold `tests/` into Task 8. Rejected because: it roughly doubles a task
+  that already spans every remaining surface.
+- Give Task 8.1 Phase B's full second read (REQ-G1.5). Rejected because:
+  the blocks are short and per-block confirmation at that count is the
+  reading burden this bundle exists to remove; the sampled pass is the
+  method Phase A already uses for the same class.
+
+**Chosen because:** splitting at `tests/` keeps each PR's kept list inside
+one body, sizes each task near its estimate, and leaves no evidence-free
+block without an owner. Operator ruling, 2026-11-04.
 
 ## Cross-cutting concerns
 
@@ -435,8 +473,9 @@ Operator ruling, 2026-11-02.
   verification records, and audit rows are written in; the taxonomy decided
   with the operator, D-8, the list grown by the ordinary doctrine-edit
   route, REQ-B1.1); `concurrency` (the parallel Phase B PRs share the
-  exemptions file and may share an owning bundle; the merge-ordering rule
-  is in the kickoff brief's risk register); `org-design` (when the second
+  exemptions file and may share an owning bundle, and Tasks 8 and 8.1 may
+  edit the same `tests/` files; the merge-ordering rule is in the kickoff
+  brief's risk register); `org-design` (when the second
   reader and the author disagree, the author resolves in the PR and the
   operator's merge is the binding approval, REQ-G1.5). Not applicable:
   `auth`, `data-storage`, `caching`, `queues-async`, `deploy-migration`

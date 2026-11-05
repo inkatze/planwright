@@ -44,7 +44,7 @@ export function bandText(view: PanelView): string {
     if (d.pending !== null && d.pending > 0) parts.push(`${d.pending} inbound`)
     parts.push(`rung ${d.rung.name}`)
   } else {
-    parts.push('no reading yet')
+    parts.push(view.fault ? `no reading: ${view.fault}` : 'no reading yet')
   }
   if (view.contextPercent !== null) parts.push(`ctx ${view.contextPercent}%`)
   const rl = limits(view)
