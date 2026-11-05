@@ -294,3 +294,4 @@ spelling	branch-move	raw-fallback	env gh repo -R o/r sync
 spelling	branch-move	raw-fallback	env gh co 1
 spelling	branch-move	raw-fallback	env git co topic
 spelling	branch-move	raw-fallback	env git zz topic
+spelling	ref-surgery	expansion	git branch -D "$b" -M topic main

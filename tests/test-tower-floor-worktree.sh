@@ -22,7 +22,7 @@ for cmd in \
   'git push origin docs/main' \
   'git branch -D planwright/flight/done-0123abcd' \
   'git branch -d -f planwright/flight/done-0123abcd' \
-  'git branch -D "$b"' \
+  'git branch -D -- "$b"' \
   'git branch --sort -committerdate -D planwright/flight/done-0123abcd' \
   "git branch --format='%(refname)' --list" \
   'git branch docs/main' \
