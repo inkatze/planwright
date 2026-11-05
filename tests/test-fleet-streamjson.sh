@@ -952,11 +952,12 @@ grep -qx "worktree_root=$(cd "$tmp/wt39" && pwd -P)" "$rec39" 2>/dev/null \
   || fail "c39: the worker's session record does not name its worktree"
 echo "ok: c39 the worker gets a fresh session record, never an inherited one (REQ-G1.8)"
 # The worker's scratch root (worker-permission-ergonomics REQ-G1.2): its
-# TMPDIR, and only the worker's, is the worktree's root under the fleet home,
-# which its session record names; a recover keeps it, contents and all, and
-# so does a stop, which a recover may follow.
+# TMPDIR, and only the worker's, is its own root inside the worktree's under
+# the fleet home, which its session record names; a recover keeps it, contents
+# and all, and so does a stop, which a recover may follow.
 wt39=$(cd "$tmp/wt39" && pwd -P)
-root39="$(cd "$tmp/h39" 2>/dev/null && pwd -P)/scratch/$(printf '%s' "$wt39" | git hash-object --stdin)"
+wtroot39="$(cd "$tmp/h39" 2>/dev/null && pwd -P)/scratch/$(printf '%s' "$wt39" | git hash-object --stdin)"
+root39="$wtroot39/$(printf '%s' sjw39b | git hash-object --stdin)"
 tmp39=$(grep '^tmpdir=' "$tmp/r39/env" | tail -n 1)
 [ "${tmp39#tmpdir=}" = "$root39" ] && [ -d "$root39" ] \
   || fail "c39: the worker's TMPDIR was '${tmp39#tmpdir=}', expected the worktree's scratch root $root39"
@@ -988,7 +989,8 @@ recover39 || fail "c39: the recover after the stop exited non-zero"
 senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 --final >/dev/null 2>&1 || fail "c39: the final stop exited non-zero"
 [ ! -e "$root39" ] && [ ! -e "$tmp/h39/streamjson/sjw39b/scratch-root" ] \
   || fail "c39: the final stop left the scratch root or its pointer behind"
-echo "ok: c39 the worker's TMPDIR is its worktree's scratch root, kept across a recover and a stop, removed by the final stop (REQ-G1.2)"
+[ -d "$wtroot39" ] || fail "c39: the final stop removed the worktree's root, which other sessions share"
+echo "ok: c39 the worker's TMPDIR is its own scratch root, kept across a recover and a stop, removed by the final stop (REQ-G1.2)"
 # The final close removes only a pointer of the writer's own shape,
 # <fleet-home>/scratch/<sha1>, and never through a symlink; a read-only
 # directory the worker left does not stop the removal.
@@ -1016,6 +1018,15 @@ release39 "$h39r/scratch/$(printf 'b%.0s' $(seq 40))" >/dev/null 2>&1
 release39 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" && [ ! -e "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" ] \
   && [ ! -e "$tmp/u39/scratch-root" ] \
   || fail "c39: the final close did not remove a root holding a read-only directory"
+sess39="$h39r/scratch/$(printf 'c%.0s' $(seq 40))"
+mkdir -p "$sess39/$(printf 'd%.0s' $(seq 40))/f" "$sess39/$(printf 'e%.0s' $(seq 40))/f"
+release39 "$sess39/$(printf 'd%.0s' $(seq 40))" && [ ! -e "$sess39/$(printf 'd%.0s' $(seq 40))" ] \
+  && [ -d "$sess39/$(printf 'e%.0s' $(seq 40))/f" ] \
+  || fail "c39: a session's final close must remove its own root and leave its sibling's"
+for bad39 in "$sess39/" "$sess39/$(printf 'e%.0s' $(seq 40))/f"; do
+  ! release39 "$bad39" || fail "c39: the final close accepted the pointer '$bad39'"
+done
+[ -d "$sess39/$(printf 'e%.0s' $(seq 40))/f" ] || fail "c39: a refused session pointer removed something"
 echo "ok: c39 the final close removes only a scratch root of the writer's shape, through no symlink (REQ-G1.2)"
 
 # ---------------------------------------------------------------------------

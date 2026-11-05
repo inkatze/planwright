@@ -2,7 +2,7 @@
 # worker-session-record.sh — write a dispatched worker's session record: the
 # launch-time inputs its command guard trusts.
 #
-# Usage: worker-session-record.sh write <worktree> [<launch-id>]
+# Usage: worker-session-record.sh write <worktree> [<launch-id> | --session <handle>]
 #          [--scratch | --fresh-scratch]
 #
 # Resolves, once, from the worktree the worker will run in:
@@ -33,7 +33,13 @@
 #                      worktree` removes it.
 #                      --fresh-scratch empties a root left from an earlier
 #                      worktree at the same path first, for a launcher that
-#                      has just created the worktree
+#                      has just created the worktree.
+#                      --session <handle> gives one session of several
+#                      sharing a worktree a root of its own,
+#                      <worktree's root>/<sha1-of-handle>, so a session's
+#                      final close removes its files alone, never another
+#                      session's; its record is
+#                      <sha1-of-worktree-root>-<sha1-of-handle>.record
 #   audit_log_home     <fleet-home>/allow-audit, owner-only, where the guard
 #                      appends a line per approval to <record-name>.log. Every
 #                      write first prunes the logs there older than
@@ -67,12 +73,13 @@ die() {
   exit "${2:-1}"
 }
 
-usage="usage: $me write <worktree> [<launch-id>] [--scratch | --fresh-scratch]"
+usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--scratch | --fresh-scratch]"
 [ "$#" -ge 2 ] && [ "$1" = write ] || die "$usage" 2
 wt_arg=$2
 shift 2
 launch_id=''
 have_id=0
+session=''
 want_scratch=0
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -82,9 +89,17 @@ while [ "$#" -gt 0 ]; do
       [ "$1" = --scratch ] || want_scratch=2
       shift
       ;;
+    --session)
+      [ "$#" -ge 2 ] && [ -z "$session" ] && [ "$have_id" = 0 ] || die "$usage" 2
+      case $2 in
+        '' | -* | . | .. | *[!A-Za-z0-9._=@:-]*) die "the session handle holds a character outside the handle grammar" 2 ;;
+      esac
+      session=$2
+      shift 2
+      ;;
     -*) die "$usage" 2 ;;
     *)
-      [ "$have_id" = 0 ] || die "$usage" 2
+      [ "$have_id" = 0 ] && [ -z "$session" ] || die "$usage" 2
       have_id=1
       launch_id=$1
       shift
@@ -209,6 +224,11 @@ esac
 wt_key=$(printf '%s' "$wt" | git hash-object --stdin 2>/dev/null) || die "cannot name the record"
 key=$wt_key
 [ -z "$launch_id" ] || key=$key-$launch_id
+sess_key=''
+if [ -n "$session" ]; then
+  sess_key=$(printf '%s' "$session" | git hash-object --stdin 2>/dev/null) || die "cannot name the session's record"
+  key=$key-$sess_key
+fi
 rec=$dir/$key.record
 
 # scratch_make <dir>: create the scratch root when absent, then print its
@@ -239,13 +259,19 @@ scratch_make() {
 
 scratch=''
 sroot=$home/scratch/$wt_key
+sparent=$home/scratch
+if [ -n "$sess_key" ]; then
+  sparent=$sroot
+  sroot=$sroot/$sess_key
+fi
 if [ "$want_scratch" = 2 ] && [ -d "$sroot" ] && [ ! -L "$sroot" ]; then
   find "$sroot" -type d ! -perm -700 -exec chmod u+rwx {} \; 2>/dev/null || :
   rm -rf -- "$sroot" 2>/dev/null || :
   # A root that would not empty keeps an earlier worker's files: no root.
   [ ! -e "$sroot" ] || want_scratch=3
 fi
-if { [ "$want_scratch" = 1 ] || [ "$want_scratch" = 2 ]; } && mkdir -p -- "$home/scratch" 2>/dev/null; then
+if { [ "$want_scratch" = 1 ] || [ "$want_scratch" = 2 ]; } && mkdir -p -- "$sparent" 2>/dev/null \
+  && [ ! -L "$sparent" ]; then
   scratch=$(scratch_make "$sroot") || scratch=''
 fi
 [ "$want_scratch" = 0 ] || [ -n "$scratch" ] \

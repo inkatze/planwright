@@ -251,13 +251,21 @@
 #       a failed resume after the stop exit 5, each naming the recover to
 #       run; any other stop failure passes its exit code through. Prints
 #       `relaunched <worker> session <id>` after the two verbs' own lines.
-#   fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]
+#   fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>] [--once]
 #       Scan every worker journal for pending items older than the
 #       threshold (default 900s; PLANWRIGHT_STREAMJSON_PENDING_AGE
 #       overrides, the flag wins) and escalate each to a high-priority
 #       attention item + notify push. The outcome is operator escalation on
 #       the attention surface — never an auto-answer, never a worker kill.
-#       Prints `alarm <worker> <id> <age>` per firing.
+#       Prints `alarm <worker> <id> <age>` per firing. Every runtime directory
+#       is scanned, whatever planwright version launched its worker. --once
+#       pushes each overdue request once (the periodic form; the supervisor
+#       tick shares its mark) where a plain scan pushes on every call. A
+#       worker positively dead (every recorded pid dead through
+#       fleet-death-evidence.sh) is never escalated: nobody can answer what
+#       it left, so its pending receipts are closed undeliverable, as a stop
+#       closes them, its request row is cleared from the queue, and the scan
+#       prints `dead <worker> <settled>`.
 #   fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe] [--final]
 #       Close the worker: terminate its process tree and release the locks,
 #       scratch temp, and attention record it holds. Prints one of
@@ -274,10 +282,12 @@
 #       An unknown handle is exit 2, not `already-closed`, so a typo never
 #       reads as a successful close, and a close asked for from inside the
 #       worker's own process tree is refused with exit 3 rather than attempted.
-#       --final also removes, once the close completes, the worktree scratch
-#       root the launch recorded in <dir>/scratch-root: the close no recover
-#       follows, and the one a reap makes (scripts/fleet-cleanup.sh process).
-#       A plain close keeps it for the recover.
+#       --final also removes, once the close completes, the worker's own
+#       scratch root the launch recorded in <dir>/scratch-root: the close no
+#       recover follows, and the one a reap makes (scripts/fleet-cleanup.sh
+#       process). A root another worker's runtime directory also records, or
+#       holds one inside, is left to the worktree reclaim. A plain close
+#       keeps it for the recover.
 #       --observe runs the same checks and probes and releases nothing, printing
 #       `stop <worker> would-release=<classes>` for what a close would take now,
 #       or `stop <worker> already-closed`; the periodic sweep's observing mode
@@ -310,7 +320,9 @@
 #       `-- request envelope ends early ...` line; every such notice comes
 #       before the content, so a piped `head` cannot drop it; a
 #       missing, symlinked or malformed envelope prints
-#       `-- request envelope unreadable` in place of the input. Request
+#       `-- request envelope unreadable` in place of the input. A worker
+#       positively dead (as `alarm-scan` judges it) gets a `-- worker dead`
+#       line under each header, since nobody can answer its requests. Request
 #       content is untrusted: control bytes are stripped and the prefixes
 #       keep it from forging a header. A named worker with no runtime dir, or
 #       a journal or worker dir that cannot be read, is exit 2. Never writes,
@@ -365,7 +377,8 @@
 # own worker, every PLANWRIGHT_STREAMJSON_ALARM_TICK seconds (default 60): a
 # receipt pending longer than PLANWRIGHT_STREAMJSON_PENDING_AGE (default 900)
 # is escalated to a high-priority queue item and pushed through the notify
-# seam once, on the tick that crosses the threshold. Scan-based over the
+# seam once, on the tick that crosses the threshold, unless `alarm-scan --once`
+# pushed it first (they share one mark per request). Scan-based over the
 # durable journal, so it holds the same crash-window properties `alarm-scan`
 # has, and still never auto-answers and never kills the worker.
 #
@@ -390,42 +403,6 @@ TAB=$(printf '\t')
 NL=$(printf '\nx')
 NL=${NL%x}
 me=fleet-streamjson
-
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-# Absolute path to this script, so the detached-supervisor re-exec survives a
-# relative invocation followed by a `--cwd` chdir (a bare `$0` would resolve
-# against the new cwd and silently fail to launch).
-self="$script_dir/$(basename "$0")"
-
-# The canonical echo-discipline sanitizer (doctrine/security-posture.md),
-# required readable and fail-closed when absent: worker-authored strings
-# (tool names, result subtypes) are sanitized before any operator-facing
-# echo or attention write.
-echo_safety="$script_dir/echo-safety.sh"
-if [ ! -f "$echo_safety" ] || [ ! -r "$echo_safety" ]; then
-  printf '%s\n' "$me: required helper echo-safety.sh missing or not readable" >&2
-  exit 2
-fi
-# shellcheck source=scripts/echo-safety.sh
-. "$echo_safety"
-
-# The one advisory-lock primitive (universal-binary D-11), required readable
-# and fail-closed when absent for the same reason the sanitizer is: every
-# election and every journal mutation below runs under it, so a missing
-# library is no mutual exclusion at all rather than a degraded kind.
-lock_lib="$script_dir/lock-lib.sh"
-if [ ! -r "$lock_lib" ]; then
-  printf '%s\n' "$me: required helper $lock_lib missing or not readable" >&2
-  exit 2
-fi
-# shellcheck source=scripts/lock-lib.sh
-. "$lock_lib"
-
-FS="$script_dir/fleet-state.sh"
-FA="$script_dir/fleet-attention.sh"
-FDE="$script_dir/fleet-death-evidence.sh"
-FRAMES="$script_dir/claude-frames.sh"
-WDEATH="$script_dir/worker-death.sh"
 
 # The worker binary. Tests point this at a shim; the default is the
 # installed CLI (D-4: the installed `claude` CLI is the only driver, never
@@ -484,7 +461,7 @@ usage() {
     echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh relaunch <worker> [--grace <secs>]"
-    echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]"
+    echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>] [--once]"
     echo "       fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe] [--final]"
     echo "       fleet-streamjson.sh status <worker>"
     echo "       fleet-streamjson.sh pending [<worker>...]"
@@ -492,6 +469,50 @@ usage() {
   } >&2
   exit 2
 }
+
+# A bare or misspelled invocation is answered from argv alone, before any
+# helper is located or sourced, so nothing the install or the host is doing
+# can keep it from printing the usage at once.
+case ${1:-} in
+  launch | answer | steer | recover | relaunch | alarm-scan | _tick | stop | status | pending | _supervise | _frame-check) ;;
+  *) usage ;;
+esac
+
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# Absolute path to this script, so the detached-supervisor re-exec survives a
+# relative invocation followed by a `--cwd` chdir (a bare `$0` would resolve
+# against the new cwd and silently fail to launch).
+self="$script_dir/$(basename "$0")"
+
+# The canonical echo-discipline sanitizer (doctrine/security-posture.md),
+# required readable and fail-closed when absent: worker-authored strings
+# (tool names, result subtypes) are sanitized before any operator-facing
+# echo or attention write.
+echo_safety="$script_dir/echo-safety.sh"
+if [ ! -f "$echo_safety" ] || [ ! -r "$echo_safety" ]; then
+  printf '%s\n' "$me: required helper echo-safety.sh missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/echo-safety.sh
+. "$echo_safety"
+
+# The one advisory-lock primitive (universal-binary D-11), required readable
+# and fail-closed when absent for the same reason the sanitizer is: every
+# election and every journal mutation below runs under it, so a missing
+# library is no mutual exclusion at all rather than a degraded kind.
+lock_lib="$script_dir/lock-lib.sh"
+if [ ! -r "$lock_lib" ]; then
+  printf '%s\n' "$me: required helper $lock_lib missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/lock-lib.sh
+. "$lock_lib"
+
+FS="$script_dir/fleet-state.sh"
+FA="$script_dir/fleet-attention.sh"
+FDE="$script_dir/fleet-death-evidence.sh"
+FRAMES="$script_dir/claude-frames.sh"
+WDEATH="$script_dir/worker-death.sh"
 
 now_epoch() {
   ne_v=$(date +%s)
@@ -1841,9 +1862,10 @@ release_attention() {
 journal_close() {
   # Spooled receipts were never journaled, and a close makes every receipt
   # undeliverable; left behind, a later supervisor would drain them into a
-  # session that never asked. A resumed worker that still wants one asks again.
+  # session that never asked. A resumed worker that still wants one asks again,
+  # and is alarmed afresh, so the alarm marks go too.
   set +f
-  for jc_f in "$1"/deferred-* "$1"/undrained-*; do
+  for jc_f in "$1"/deferred-* "$1"/undrained-* "$1"/alarmed-*; do
     if [ -L "$jc_f" ] || [ -f "$jc_f" ]; then rm -f "$jc_f" 2>/dev/null; fi
   done
   set -f
@@ -2284,9 +2306,12 @@ cmd_launch() {
   # The record also names the worktree's scratch root, which every launch
   # and recover of the worker finds again; it becomes the worker's TMPDIR,
   # and only the worker's, so the supervisor keeps its temp files out of a
-  # directory the worker may write to.
+  # directory the worker may write to. The root is this worker's own, keyed by
+  # its handle under the worktree's: every session mission control launches
+  # from one checkout shares that worktree, and a final close removes the root
+  # it recorded.
   unset PLANWRIGHT_WORKER_SESSION_RECORD
-  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --scratch 2>/dev/null </dev/null) || session_record=''
+  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch 2>/dev/null </dev/null) || session_record=''
   if [ -n "$session_record" ]; then
     PLANWRIGHT_WORKER_SESSION_RECORD=$session_record
     export PLANWRIGHT_WORKER_SESSION_RECORD
@@ -3014,10 +3039,37 @@ cmd_stop() {
   fi
   sw_rc=0
   stop_walk "$dir" "$worker" "$st_root/attention/state" "$grace" || sw_rc=$?
-  if [ "$final" = 1 ] && [ "$sw_rc" = 0 ] && ! stop_scratch_root_release "$dir" "$st_root"; then
-    printf '%s\n' "$me: closed $worker but could not remove its worktree scratch root" >&2
+  if [ "$final" = 1 ] && [ "$sw_rc" = 0 ]; then
+    if scratch_shared "$dir"; then
+      # A root from before roots were per session, still another worker's
+      # TMPDIR: removing it would take that worker's files. The worktree
+      # reclaim removes it.
+      rm -f -- "$dir/scratch-root"
+    elif ! stop_scratch_root_release "$dir" "$st_root"; then
+      printf '%s\n' "$me: closed $worker but could not remove its worktree scratch root" >&2
+    fi
   fi
   return "$sw_rc"
+}
+
+# scratch_shared <dir> — 0 when another stream-json worker records the
+# scratch root this one does, or one inside it.
+scratch_shared() {
+  ss_path=$(head -n 1 "$1/scratch-root" 2>/dev/null) || return 1
+  [ -n "$ss_path" ] || return 1
+  set +f
+  for ss_f in "${1%/*}"/*/scratch-root; do
+    [ "${ss_f%/scratch-root}" != "$1" ] && [ -f "$ss_f" ] && [ ! -L "$ss_f" ] || continue
+    ss_o=$(head -n 1 "$ss_f" 2>/dev/null) || continue
+    case $ss_o/ in
+      "$ss_path"/*)
+        set -f
+        return 0
+        ;;
+    esac
+  done
+  set -f
+  return 1
 }
 
 # cmd__tick <worker> <dir> <supervisor-pid> <worker-pid> — the escalation
@@ -3079,8 +3131,13 @@ cmd__tick() {
 cmd_alarm_scan() {
   now=''
   threshold=${PLANWRIGHT_STREAMJSON_PENDING_AGE:-900}
+  once=''
   while [ $# -gt 0 ]; do
     case $1 in
+      --once)
+        once=1
+        shift
+        ;;
       --now)
         [ $# -ge 2 ] || usage
         now=$2
@@ -3117,9 +3174,56 @@ cmd_alarm_scan() {
     [ -f "$as_dir/journal" ] || continue
     as_worker=${as_dir##*/}
     valid_field "$as_worker" || continue
-    alarm_scan_worker "$as_worker" "$as_dir" "$now" "$threshold" ''
+    # The scan reads every runtime directory, whatever planwright version
+    # launched it, and a worker whose supervisor died with it has no tick of
+    # its own: what it left pending is settled here, not escalated.
+    if awk -F'\t' '$4 == "pending" { f = 1; exit } END { exit !f }' "$as_dir/journal" 2>/dev/null \
+      && worker_dead "$as_dir"; then
+      dead_settle "$as_worker" "$as_dir"
+      continue
+    fi
+    alarm_scan_worker "$as_worker" "$as_dir" "$now" "$threshold" '' "$once"
   done
   set -f
+}
+
+# dead_settle <worker> <dir> — settle what a positively dead worker left
+# pending. Nobody can answer it now (the fifo's reader is gone), so its
+# receipts are closed undeliverable as a stop closes them, and the queue row
+# they raised is cleared rather than re-posted as an overdue live prompt.
+# Under the launch and recover elections, so a launch or recover in flight is
+# never raced, with the death proved again under them. Prints
+# `dead <worker> <settled>`.
+dead_settle() {
+  lock_take "$2/launch.lock" || return 0
+  if ! lock_take "$2/recover.lock"; then
+    lock_drop "$2/launch.lock"
+    return 0
+  fi
+  if worker_dead "$2"; then
+    ds_n=$(awk -F'\t' '$4 == "pending" { n++ } END { print n + 0 }' "$2/journal" 2>/dev/null) || ds_n=0
+    if journal_close "$2"; then
+      dead_row_clear "$1"
+      printf 'dead %s %s\n' "$1" "${ds_n:-0}"
+    fi
+  fi
+  lock_drop "$2/recover.lock"
+  lock_drop "$2/launch.lock"
+}
+
+# dead_row_clear <worker> — clear the worker's queue row when it is a request
+# row this rung wrote, judged then cleared through `clear --if-row` so a row
+# written since is kept. Any other row (a failure item, another rung's row
+# under the same handle) is the operator's and stays.
+dead_row_clear() {
+  dc_root=$(/bin/sh "$FS" root) || return 0
+  [ -f "$dc_root/attention/state" ] || return 0
+  dc_row=$(awk -F'\t' -v w="$1" '($1 "") == (w "") && $3 == "awaiting-input" && index($6, "answer via fleet-streamjson.sh answer") { print $2 "\t" $3 "\t" $4; exit }' \
+    "$dc_root/attention/state" 2>/dev/null) || dc_row=''
+  [ -n "$dc_row" ] || return 0
+  dc_scope=${dc_row%%"$TAB"*}
+  dc_rest=${dc_row#*"$TAB"}
+  /bin/sh "$FA" clear "$1" --if-row "$dc_scope" "${dc_rest%%"$TAB"*}" "${dc_rest#*"$TAB"}" >/dev/null 2>&1 || :
 }
 
 # alarm_scan_worker <worker> <dir> <now> <threshold> <tick> — one worker's
@@ -3218,7 +3322,13 @@ alarm_scan_worker() {
         continue
       fi
     fi
-    if [ -z "$aw_tick" ] || [ "$aw_age" -le $((aw_thr + aw_tick)) ]; then
+    aw_push=1
+    if [ -n "$aw_tick" ]; then
+      [ "$aw_age" -le $((aw_thr + aw_tick)) ] && alarm_claim "$aw_dir" "$a_id" || aw_push=0
+    elif [ -n "${6:-}" ]; then
+      alarm_claim "$aw_dir" "$a_id" || aw_push=0
+    fi
+    if [ "$aw_push" = 1 ]; then
       /bin/sh "$FA" notify \
         "stream-json worker $aw_worker: request $(printf '%s' "$a_id" | cut -c1-8) pending ${aw_age}s past threshold" \
         >/dev/null 2>&1 || :
@@ -3227,6 +3337,41 @@ alarm_scan_worker() {
   done <<AWIDS
 $aw_ids
 AWIDS
+  # A mark outlives its request only until the request stops being overdue,
+  # so one answered and asked again is pushed again.
+  set +f
+  for aw_m in "$aw_dir"/alarmed-*; do
+    [ -f "$aw_m" ] && [ ! -L "$aw_m" ] || continue
+    case "$NL$aw_ids$NL" in
+      *"$NL${aw_m##*/alarmed-}$NL"*) ;;
+      *) rm -f "$aw_m" 2>/dev/null || : ;;
+    esac
+  done
+  set -f
+}
+
+# alarm_claim <dir> <id> — 0 when this call is the first to push the
+# request's overdue alarm: the tick and `alarm-scan --once` share one mark per
+# request, so a worker both watch is pushed once. A mark that cannot be
+# written still claims: a second push beats none.
+alarm_claim() {
+  [ ! -e "$1/alarmed-$2" ] || return 1
+  : >"$1/alarmed-$2" 2>/dev/null || :
+}
+
+# worker_dead <dir> — 0 only on positive evidence that the worker is gone:
+# every pid it records (supervisor and worker) yields a dead verdict from
+# fleet-death-evidence.sh. No readable pidfile, or any verdict short of dead,
+# is not death: silence is never evidence.
+worker_dead() {
+  wd_checked=0
+  for wd_f in supervisor.pid worker.pid; do
+    wd_pid=$(cat "$1/$wd_f" 2>/dev/null) || wd_pid=''
+    valid_posnum "${wd_pid:-}" || continue
+    wd_checked=$((wd_checked + 1))
+    /bin/sh "$FDE" process "$wd_pid" >/dev/null 2>&1 || return 1
+  done
+  [ "$wd_checked" -gt 0 ]
 }
 
 # status_awaiting <worker> <dir> <sup-pid> <wrk-pid> — print the awaiting-input
@@ -3364,19 +3509,7 @@ cmd_status() {
     printf 'status %s running supervisor=%s worker=%s\n' "$worker" "$sup_pid" "$wrk_pid"
     return 0
   fi
-  # Death is POSITIVE evidence only (the fleet discipline): every recorded
-  # handle must yield a dead verdict from fleet-death-evidence.sh; anything
-  # less is unknown, never dead-by-silence.
-  dead=0
-  checked=0
-  for pid in "$sup_pid" "$wrk_pid"; do
-    valid_posnum "${pid:-}" || continue
-    checked=$((checked + 1))
-    if /bin/sh "$FDE" process "$pid" >/dev/null 2>&1; then
-      dead=$((dead + 1))
-    fi
-  done
-  if [ "$checked" -gt 0 ] && [ "$dead" -eq "$checked" ]; then
+  if worker_dead "$dir"; then
     printf 'status %s dead supervisor+worker\n' "$worker"
   else
     printf 'status %s unknown insufficient-evidence\n' "$worker"
@@ -3582,6 +3715,9 @@ pending_show() {
   ps_extra=${ps_out%%"$NL"*}
   ps_out=${ps_out#*"$NL"}
   printf '== %s %s %s\n' "$1" "$3" "${ps_tool:-unknown}"
+  if [ "${4:-0}" = 1 ]; then
+    printf -- '-- worker dead: its processes are gone, so nobody can answer this request; alarm-scan settles it\n'
+  fi
   if [ "$ps_flag" = bad ] || [ -z "$ps_flag" ]; then
     echo '-- request envelope unreadable'
     return 0
@@ -3630,9 +3766,11 @@ pending_worker() {
     return 2
   }
   [ -n "$pw_ids" ] || return 0
+  pw_dead=0
+  ! worker_dead "$2" || pw_dead=1
   printf '%s\n' "$pw_ids" | while IFS= read -r pw_id; do
     valid_reqid "$pw_id" || continue
-    pending_show "$1" "$2" "$pw_id"
+    pending_show "$1" "$2" "$pw_id" "$pw_dead"
   done
 }
 

@@ -149,10 +149,12 @@ stop_scratch_release() {
 # stop_scratch_root_release <dir> <fleet-home> — a final close's last act:
 # remove the worktree scratch root the launch recorded in <dir>/scratch-root
 # (scripts/worker-session-record.sh), then the pointer. A plain close keeps
-# both, for the recover that may follow. Only a path of the writer's own shape,
-# <fleet-home>/scratch/<sha1>, is removed; directories the worker left
-# without write permission are opened first, without following a link. Zero
-# when nothing is left.
+# both, for the recover that may follow. Only a path of the writer's own shape
+# is removed: a worktree's root, <fleet-home>/scratch/<sha1>, or one session's
+# root inside it, <sha1>/<sha1>, which takes that session's files alone and
+# leaves the worktree's root to the worktree reclaim. Directories the worker
+# left without write permission are opened first, without following a link.
+# Zero when nothing is left.
 stop_scratch_root_release() {
   [ -f "$1/scratch-root" ] && [ ! -L "$1/scratch-root" ] || return 0
   sr_path=$(head -n 1 "$1/scratch-root" 2>/dev/null) || return 1
@@ -160,10 +162,21 @@ stop_scratch_root_release() {
   # through a link does not spell.
   sr_home=$(cd -P -- "$2" 2>/dev/null && pwd -P) || return 1
   sr_key=${sr_path#"$sr_home/scratch/"}
+  [ "$sr_key" != "$sr_path" ] || return 1
+  sr_sess=''
   case $sr_key in
-    "$sr_path" | '' | *[!0-9a-f]*) return 1 ;;
+    */*)
+      sr_sess=${sr_key#*/}
+      sr_key=${sr_key%%/*}
+      [ -n "$sr_sess" ] || return 1
+      ;;
   esac
-  [ "${#sr_key}" -eq 40 ] || return 1
+  for sr_k in "$sr_key" ${sr_sess:+"$sr_sess"}; do
+    case $sr_k in
+      '' | *[!0-9a-f]*) return 1 ;;
+    esac
+    [ "${#sr_k}" -eq 40 ] || return 1
+  done
   if [ -d "$sr_path" ] && [ ! -L "$sr_path" ]; then
     find "$sr_path" -type d ! -perm -700 -exec chmod u+rwx {} \; 2>/dev/null || :
     rm -rf -- "$sr_path" 2>/dev/null || :
