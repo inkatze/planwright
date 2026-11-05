@@ -259,10 +259,34 @@ case "$1" in
     exit 0
     ;;
   pr)
+    # `pr list`: the open pull requests the window-lock re-run reads,
+    # GH_OPEN_PRS_JSON (default none); GH_PR_LIST_FAIL=1 models the query
+    # failing.
+    if [ "$2" = list ]; then
+      [ "${GH_PR_LIST_FAIL:-0}" = 1 ] && exit 1
+      printf '%s\n' "${GH_OPEN_PRS_JSON:-[]}"
+      exit 0
+    fi
     # `pr edit <number> --add-label ... --remove-label ...`: the relabel
     # step's actual mutation. GH_PR_EDIT_FAIL=1 models a failed relabel (e.g.
     # permissions/network) so the caller's non-fatal degrade path is testable.
     [ "${GH_PR_EDIT_FAIL:-0}" = 1 ] && exit 1
+    exit 0
+    ;;
+  run)
+    # `run list`: the release-window runs, newest first, GH_RUNS_JSON (default
+    # none); GH_RUN_LIST_FAIL=1 models the query failing. `run rerun` fails
+    # under GH_RERUN_FAIL=1, or for the one run GH_RERUN_FAIL_ID names.
+    case "$2" in
+      list)
+        [ "${GH_RUN_LIST_FAIL:-0}" = 1 ] && exit 1
+        printf '%s\n' "${GH_RUNS_JSON:-[]}"
+        ;;
+      rerun)
+        [ "${GH_RERUN_FAIL:-0}" = 1 ] && exit 1
+        [ -n "${GH_RERUN_FAIL_ID:-}" ] && [ "$3" = "$GH_RERUN_FAIL_ID" ] && exit 1
+        ;;
+    esac
     exit 0
     ;;
 esac
@@ -1459,6 +1483,142 @@ run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
 assert_ne "reqci/bad-value-resume: exits non-zero on the resume path too" "$RC" "0"
 assert_contains "reqci/bad-value-resume: names require_ci (validated at read time, not in the skipped CI gate)" "$ERR" "require_ci"
 deny "reqci/bad-value-resume: no Release create attempted (config error precedes resume)" gh_called "$LOG" "release create"
+
+# ===========================================================================
+# 13. Once the tag lands, the window lock is re-run on each open pull request
+#     whose latest release-window run failed, so a PR checked during the
+#     window does not stay red. Best-effort: a failure warns, never refuses.
+# ===========================================================================
+# add_lock <dir> — the opt-in window-lock workflow, committed by seed_version.
+add_lock() {
+  mkdir -p "$1/.github/workflows"
+  printf 'name: release-window\n' >"$1/.github/workflows/release-window.yml"
+}
+lock_prs='[{"headRefOid":"aaa"},{"headRefOid":"bbb"}]'
+# Newest first: aaa's latest failed; bbb's latest passed over an older
+# failure; ccc belongs to no open PR; a run with no head is skipped.
+lock_runs='[{"databaseId":1,"headSha":"aaa","conclusion":"failure"},{"databaseId":7,"headSha":null,"conclusion":"failure"},{"databaseId":3,"headSha":"bbb","conclusion":"success"},{"databaseId":2,"headSha":"bbb","conclusion":"failure"},{"databaseId":5,"headSha":"aaa","conclusion":"success"},{"databaseId":4,"headSha":"ccc","conclusion":"failure"}]'
+
+# 13a. The open PR whose latest lock run failed is re-run, and only it.
+r="$tmp/lock-rerun"
+new_repo "$r"
+add_lock "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_OPEN_PRS_JSON="$lock_prs" GH_RUNS_JSON="$lock_runs"
+assert_eq "lock-rerun: exit 0" "$RC" "0"
+want "lock-rerun: the open PR whose latest lock run failed is re-run" gh_called "$LOG" "run rerun 1 --failed"
+deny "lock-rerun: an open PR whose latest lock run passed is left alone" gh_called "$LOG" "run rerun 2"
+deny "lock-rerun: a passed run is never re-run" gh_called "$LOG" "run rerun 3"
+deny "lock-rerun: a run for no open PR is left alone" gh_called "$LOG" "run rerun 4"
+deny "lock-rerun: a run with no head is left alone" gh_called "$LOG" "run rerun 7"
+want "lock-rerun: the open PRs against main are listed with their heads" \
+  gh_called "$LOG" "pr list --base main --state open --limit 200 --json headRefOid"
+want "lock-rerun: the run list is scoped to the release-window workflow's PR runs" \
+  gh_called "$LOG" "run list --workflow release-window --event pull_request --limit 200 --json databaseId,headSha,conclusion"
+want "lock-rerun: the re-run follows the Release" \
+  awk '/^release create/ { c = NR } /^run rerun/ { if (!c) exit 1; ok = 1 } END { exit !ok }' "$LOG"
+assert_contains "lock-rerun: reports how many it re-ran" "$OUT" "re-ran the check on 1 open pull request"
+
+# 13b. A re-invocation over an existing Release re-runs it too.
+r="$tmp/lock-rerun-resume"
+new_repo "$r"
+add_lock "$r"
+seed_version "$r" 0.1.0
+gc "$r" tag v0.1.0
+gc "$r" push -q origin v0.1.0 2>/dev/null
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=1 GH_OPEN_PRS_JSON="$lock_prs" GH_RUNS_JSON="$lock_runs"
+assert_eq "lock-rerun/already-published: exit 0" "$RC" "0"
+want "lock-rerun/already-published: a re-invocation still re-runs the stale lock" gh_called "$LOG" "run rerun 1 --failed"
+
+# 13c. A failed query warns and re-runs nothing; the publish still completes.
+for f in GH_PR_LIST_FAIL GH_RUN_LIST_FAIL; do
+  r="$tmp/lock-rerun-$f"
+  new_repo "$r"
+  add_lock "$r"
+  seed_version "$r" 0.1.0
+  run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_OPEN_PRS_JSON="$lock_prs" GH_RUNS_JSON="$lock_runs" "$f=1"
+  assert_eq "lock-rerun/$f: exit 0 (best-effort)" "$RC" "0"
+  assert_contains "lock-rerun/$f: warns, naming the manual follow-up" "$ERR" "re-run the window-lock check"
+  deny "lock-rerun/$f: nothing is re-run on a failed query" gh_called "$LOG" "run rerun"
+  want "lock-rerun/$f: the Release was still created" gh_called "$LOG" "release create"
+  [ "$f" != GH_PR_LIST_FAIL ] || deny "lock-rerun/$f: no run list follows a failed PR list" gh_called "$LOG" "run list"
+done
+
+# 13d. A re-run that fails is named, and the others still run.
+r="$tmp/lock-rerun-fail"
+new_repo "$r"
+add_lock "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_RERUN_FAIL_ID=1 \
+  GH_OPEN_PRS_JSON='[{"headRefOid":"aaa"},{"headRefOid":"ddd"}]' \
+  GH_RUNS_JSON='[{"databaseId":1,"headSha":"aaa","conclusion":"failure"},{"databaseId":6,"headSha":"ddd","conclusion":"failure"}]'
+assert_eq "lock-rerun/rerun-fail: exit 0 (best-effort)" "$RC" "0"
+assert_contains "lock-rerun/rerun-fail: names the run it could not re-run" "$ERR" "run 1;"
+want "lock-rerun/rerun-fail: the next run is still re-run" gh_called "$LOG" "run rerun 6 --failed"
+assert_contains "lock-rerun/rerun-fail: counts only the re-run that happened" "$OUT" "re-ran the check on 1 open pull request"
+
+# A run list that is not JSON is a failed read: warned, nothing re-run.
+r="$tmp/lock-rerun-badjson"
+new_repo "$r"
+add_lock "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_OPEN_PRS_JSON="$lock_prs" GH_RUNS_JSON='not json'
+assert_eq "lock-rerun/bad-json: exit 0 (best-effort)" "$RC" "0"
+assert_contains "lock-rerun/bad-json: warns the runs could not be read" "$ERR" "could not read the open pull requests' runs"
+deny "lock-rerun/bad-json: nothing is re-run" gh_called "$LOG" "run rerun"
+
+# A full page of either list may hide more: warned, and what it holds still re-run.
+full_prs=$(jq -nc '[{headRefOid:"aaa"}] + [range(199) | {headRefOid: "p\(.)"}]')
+full_runs=$(jq -nc '[{databaseId:1,headSha:"aaa",conclusion:"failure"}] + [range(199) | {databaseId: (100 + .), headSha: "r\(.)", conclusion: "success"}]')
+for page in prs runs; do
+  r="$tmp/lock-rerun-full-$page"
+  new_repo "$r"
+  add_lock "$r"
+  seed_version "$r" 0.1.0
+  if [ "$page" = prs ]; then
+    run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_OPEN_PRS_JSON="$full_prs" GH_RUNS_JSON="$lock_runs"
+  else
+    run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_OPEN_PRS_JSON="$lock_prs" GH_RUNS_JSON="$full_runs"
+  fi
+  assert_eq "lock-rerun/full-$page: exit 0 (best-effort)" "$RC" "0"
+  assert_contains "lock-rerun/full-$page: warns that the list may be cut short" "$ERR" "only the newest 200"
+  want "lock-rerun/full-$page: what the page holds is still re-run" gh_called "$LOG" "run rerun 1 --failed"
+done
+r="$tmp/lock-rerun-short"
+new_repo "$r"
+add_lock "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_OPEN_PRS_JSON="$lock_prs" GH_RUNS_JSON="$lock_runs"
+case $ERR in
+  *"only the newest"*) bad "lock-rerun/short: a list under the limit is warned about" ;;
+  *) pass "lock-rerun/short: no cut-short warning under the limit" ;;
+esac
+
+# 13e. No open PR, no lock on main, or a refused publish: nothing is re-run.
+r="$tmp/lock-rerun-noprs"
+new_repo "$r"
+add_lock "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_RUNS_JSON="$lock_runs"
+assert_eq "lock-rerun/no-prs: exit 0" "$RC" "0"
+deny "lock-rerun/no-prs: no run list without an open PR" gh_called "$LOG" "run list"
+r="$tmp/lock-rerun-nolock"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_OPEN_PRS_JSON="$lock_prs" GH_RUNS_JSON="$lock_runs"
+assert_eq "lock-rerun/no-lock: exit 0" "$RC" "0"
+deny "lock-rerun/no-lock: a repository without the lock is not queried" gh_called "$LOG" "pr list"
+case $ERR in
+  *window-lock*) bad "lock-rerun/no-lock: a repository without the lock is warned about it" ;;
+  *) pass "lock-rerun/no-lock: no window-lock warning" ;;
+esac
+r="$tmp/lock-rerun-refused"
+new_repo "$r"
+add_lock "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=red GH_RELEASE_EXISTS=0 GH_OPEN_PRS_JSON="$lock_prs" GH_RUNS_JSON="$lock_runs"
+assert_ne "lock-rerun/refused: a red CI still refuses" "$RC" "0"
+deny "lock-rerun/refused: a refused publish re-runs nothing" gh_called "$LOG" "run rerun"
 
 # A missing sanitizer is a broken install, an operational failure (exit 1),
 # never the usage error exit 2 reports.

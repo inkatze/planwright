@@ -240,7 +240,7 @@ while [ "$#" -gt 0 ]; do
       # The registry's owner-token grammar (fleet-state.sh valid_owner): the
       # value becomes an argv word of the detector and the actuator.
       case $tower_id in
-        "" | . | .. | unknown-owner | -* | *[!A-Za-z0-9._-]*)
+        "" | . | .. | unknown-owner | -* | *[!A-Za-z0-9._:-]*)
           warn "refusing a malformed --tower-id"
           exit 2
           ;;

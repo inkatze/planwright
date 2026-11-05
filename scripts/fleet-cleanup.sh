@@ -208,7 +208,7 @@ valid_worker() {
 # The registry's owner-token grammar (fleet-state.sh valid_owner).
 valid_owner() {
   case $1 in
-    "" | . | .. | unknown-owner | -* | *[!A-Za-z0-9._-]*) return 1 ;;
+    "" | . | .. | unknown-owner | -* | *[!A-Za-z0-9._:-]*) return 1 ;;
   esac
   [ "${#1}" -le 128 ]
 }
