@@ -765,8 +765,9 @@ else
   wt=$(launched_in "$rec")
   case $wt in
     "$repo/.claude/worktrees/"?*)
+      wt_ref=$(git -C "$wt" symbolic-ref HEAD 2>/dev/null)
       if [ "$(git -C "$wt" rev-parse HEAD 2>/dev/null)" = "$before_head" ] \
-        && case $(git -C "$wt" symbolic-ref HEAD 2>/dev/null) in refs/heads/planwright/flight/*) true ;; *) false ;; esac; then
+        && [ "${wt_ref#refs/heads/planwright/flight/}" != "$wt_ref" ]; then
         ok "a worker launch with no directory starts in a new worktree off the default branch"
       else
         fail "the new worktree $wt is not a fresh branch off main: $(git -C "$wt" log --oneline -1 2>&1)"
