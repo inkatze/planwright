@@ -90,6 +90,26 @@ test('a record naming another program switches the panel to it', async ($, on) =
   await w.clock.settle()
   expect(ran(w, 'mc-panel.sh', 'digest').at(-1)).toEqual(expect.arrayContaining(['--program', 'beta']))
   expect(ran(w, 'mc-wake.sh', 'target').at(-1)).toEqual(expect.arrayContaining(['beta', '--mod']))
+  const released = ran(w, 'mc-wake.sh', 'target').filter(r => r.includes('alpha') && !r.includes('--mod'))
+  expect(released.length).toBeGreaterThan(0)
+})
+
+test('a failed acknowledgment never stands the panel down', async ($, on) => {
+  const w = world(on, { ackExit: 1 })
+  await boot($, w)
+  w.set({ records: {} })
+  await w.clock.advance(30_000)
+  expect(ran(w, 'mc-wake.sh', 'target').at(-1)).toContain('--mod')
+})
+
+test('an acknowledgment under an id the session no longer carries is recorded again', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  w.set({ sessionId: OTHER })
+  await w.clock.advance(10_000)
+  await w.clock.settle()
+  expect(ran(w, 'mc-panel.sh', 'activate').at(-1)).toEqual(expect.arrayContaining(['--session', OTHER]))
+  expect(ran(w, 'mc-panel.sh', 'ack').at(-1)).toEqual(expect.arrayContaining(['--session', OTHER]))
 })
 
 // REQ-F1.16: a retired record (a handover released this session) stands the

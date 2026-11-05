@@ -273,7 +273,13 @@ async function refresh($: EngineInterface) {
 // lands, since a target the relay also wakes gets every wake twice.
 async function claim($: EngineInterface) {
   if (!ctx) return
-  const claimed = await run($, 'mc-wake.sh', ['target', 'add', '--program', ctx.program, ctx.target, '--mod'])
+  const claiming = ctx
+  const claimed = await run($, 'mc-wake.sh', ['target', 'add', '--program', claiming.program, claiming.target, '--mod'])
+  if (ctx !== claiming) {
+    // Stood down or switched while the claim ran: hand it straight back.
+    await runScript($, 'mc-wake.sh', ['target', 'add', '--program', claiming.program, claiming.target])
+    return
+  }
   isClaimed = claimed.ok
   if (claimed.ok && lasting.claim) await lastingFault($, 'claim', null)
   if (!claimed.ok) await lastingFault($, 'claim', `the wake target could not be claimed: ${claimed.err}`)
@@ -317,6 +323,8 @@ async function open($: EngineInterface) {
 // The cadences from the knobs, or the defaults until a reading carries
 // them; armed again once, when the knobs first arrive.
 async function armTimers($: EngineInterface) {
+  // A reading that finished after a stand-down arms nothing.
+  if (!ctx) return
   const knobs = (await view($))?.digest?.knobs
   const refreshMs = (knobs?.refresh ?? DEFAULT_REFRESH_S) * 1000
   const nextTickMs = (knobs?.tick ?? DEFAULT_TICK_S) * 1000
@@ -396,14 +404,22 @@ async function checkRecord($: EngineInterface) {
     const has = await $.fs.exists(`${dir}/${sessionId}`)
     if (!has) {
       if (ctx && ackedFor === sessionId) await standDown($)
+      // Acknowledged under an id the session no longer carries (a /clear the
+      // end hook could not follow): record it under this one.
+      else if (ctx && ackedFor !== null) await acknowledge($, 'clear')
       return
     }
     if (ctx && (await $.fs.exists(`${dir}/${sessionId}.ack`))) return
     const found = await runScript($, 'mc-panel.sh', ['lookup', '--session', sessionId])
     const rec = found.ok ? parseRecord(found.out) : null
     if (!rec) return
-    if (ctx && rec.program === ctx.program && rec.target === ctx.target) await acknowledge($, 'record')
-    else await activate($, rec.program, rec.target, await view($), 'record')
+    if (ctx && rec.program === ctx.program && rec.target === ctx.target) {
+      await acknowledge($, 'record')
+      return
+    }
+    // The old program's target goes back to the relay before the switch.
+    if (ctx) await runScript($, 'mc-wake.sh', ['target', 'add', '--program', ctx.program, ctx.target])
+    await activate($, rec.program, rec.target, await view($), 'record')
   } catch {
     // The next check tries again.
   } finally {

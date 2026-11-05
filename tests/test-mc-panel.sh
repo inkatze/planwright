@@ -360,6 +360,15 @@ if [ -f "$act/$sid_a.ack" ]; then
 else
   fail "a record rewritten unchanged dropped the acknowledgment"
 fi
+mc_run mc-panel.sh ack --session "$sid_a"
+mc_run mc-panel.sh activate --program alpha --session "$sid_a" --pid 1 --now 5002
+if [ ! -e "$act/$sid_a.ack" ]; then
+  ok "a record from another process drops an acknowledgment a crashed one left"
+else
+  fail "an acknowledgment survived a change of process"
+fi
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --now 5002
+mc_run mc-panel.sh ack --session "$sid_a"
 run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --target mc-other --now 5003
 if [ ! -e "$act/$sid_a.ack" ]; then ok "a record naming another target waits for a new acknowledgment"; else fail "the old acknowledgment survived a changed record"; fi
 run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --now 5004
@@ -426,12 +435,14 @@ else
   fail "the keeper left the dead session's record"
 fi
 if [ -f "$act/$sid_a" ]; then ok "and keeps a live session's"; else fail "the keeper removed a live session's record"; fi
-mc_run mc-panel.sh activate --program alpha --session "$sid_d" --pid 1 --now 5300
-sed 's/^pid\t.*/pid\t-/' "$act/$sid_d" >"$act/$sid_d.new" && mv "$act/$sid_d.new" "$act/$sid_d"
-mc_run mc-panel.sh prune --now 6000
-if [ -f "$act/$sid_d" ]; then ok "a record with no pid is kept while young"; else fail "a young pid-less record was pruned"; fi
-mc_run mc-panel.sh prune --now 999999
-if [ ! -e "$act/$sid_d" ]; then ok "a record with no pid is pruned once old"; else fail "an old pid-less record was kept"; fi
+mc_run mc-panel.sh activate --program alpha --session "$sid_d" --now 5300
+mc_run mc-panel.sh prune
+if [ "$(field "$act/$sid_d" pid)" = - ] && [ -f "$act/$sid_d" ]; then
+  ok "a record with no process to test is kept"
+else
+  fail "a pid-less record was pruned or carries a pid"
+fi
+rm -f "$act/$sid_d"
 mkfifo "$act/$sid_b"
 mc_run mc-panel.sh prune
 expect_rc "prune passes over a FIFO named like a record without reading it" 0

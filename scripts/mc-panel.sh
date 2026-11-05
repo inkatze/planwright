@@ -146,7 +146,8 @@ Usage:
   mc-panel.sh activate --program <p> [--target <t>] [--session <id>]
                        [--pid <pid>] [--now <epoch>]
       write this session's activation record, dropping an earlier
-      acknowledgment unless the record names the same program and target;
+      acknowledgment unless the record names the same program, target and
+      live process;
       prints activation<TAB><session id>. The session defaults to this one
       (the session-start record for CLAUDE_PID, then
       CLAUDE_CODE_SESSION_ID), the pid to CLAUDE_PID when its session-start
@@ -171,9 +172,9 @@ Usage:
   mc-panel.sh retire [--session <id>]
       remove the session's record and acknowledgment; prints
       retired<TAB><session id>
-  mc-panel.sh prune [--now <epoch>]
+  mc-panel.sh prune
       remove every record whose pid is no live process (one with no pid
-      once it is a week old), every acknowledgment with no record, and
+      is kept), every acknowledgment with no record, and
       every session-start record whose process is gone; prints
       pruned<TAB><session id> per record
   mc-panel.sh where
@@ -212,8 +213,6 @@ MODS_FLOOR=2.1.287
 # one turn, so only that timer finds a new record.
 AWAIT_DEFAULT=30
 AWAIT_MAX=60
-# A record with no process to test is kept this long, then pruned.
-PIDLESS_TTL=604800
 HOOK_INPUT_MAX=65536
 
 # A session id as the host spells it, checked before it names a file.
@@ -366,7 +365,7 @@ case $verb in
   await) only "program session wait" ;;
   lookup | retire) only "session" ;;
   ack) only "session now" ;;
-  prune) only "now" ;;
+  prune) only "" ;;
   *) usage ;;
 esac
 [ -z "$target" ] || mc_valid_handle "$target" || mc_usage_fail "invalid target '$(sanitize_printable "$target")'"
@@ -414,7 +413,6 @@ case $verb in
     exit 0
     ;;
   prune)
-    mc_now_arg "$now"
     pr_rc=0
     set +f
     for pr_f in "$act_dir"/*; do
@@ -433,13 +431,10 @@ case $verb in
       # record would send the read elsewhere, or hang the keeper.
       [ ! -L "$pr_f" ] && [ -f "$pr_f" ] || continue
       pr_pid=$(field_of "$pr_f" pid)
-      if mc_valid_uint "$pr_pid"; then
-        pid_alive "$pr_pid" && continue
-      else
-        # No process to test: kept until the TTL, then taken as dead.
-        pr_w=$(field_of "$pr_f" written)
-        mc_valid_uint "$pr_w" && [ $((NOW - pr_w)) -lt "$PIDLESS_TTL" ] && continue
-      fi
+      # A record with no process to test is left: its session cannot be
+      # told dead, and a standing session's record is never written again.
+      mc_valid_uint "$pr_pid" || continue
+      pid_alive "$pr_pid" && continue
       if rm -f -- "$pr_f" "$pr_f.ack"; then
         printf 'pruned\t%s\n' "$pr_id"
       else
@@ -832,11 +827,12 @@ activate() {
   [ -n "$pid" ] || pid=-
   ac_rec=$ac_dir/$session
   [ ! -L "$ac_rec" ] && [ ! -L "$ac_rec.ack" ] || mc_fail "the activation record is a symlink"
-  # A record naming another program or target waits for a new
-  # acknowledgment; the same one keeps the live mod's, which acknowledges
-  # only when it activates.
+  # The same record from the same live process keeps the mod's
+  # acknowledgment; anything else waits for a new one, so an acknowledgment
+  # left by a crashed process never answers for a mod that is not loaded.
   if ! { mc_format_ok "$ac_rec" && [ "$(field_of "$ac_rec" program)" = "$program" ] \
-    && [ "$(field_of "$ac_rec" target)" = "$target" ] && [ "$(field_of "$ac_rec" session)" = "$session" ]; }; then
+    && [ "$(field_of "$ac_rec" target)" = "$target" ] && [ "$(field_of "$ac_rec" session)" = "$session" ] \
+    && [ "$pid" != - ] && [ "$(field_of "$ac_rec" pid)" = "$pid" ]; }; then
     rm -f -- "$ac_rec.ack" || mc_fail "cannot clear the old acknowledgment"
   fi
   printf 'format\t%s\nprogram\t%s\ntarget\t%s\nsession\t%s\npid\t%s\nwritten\t%s\n' \
