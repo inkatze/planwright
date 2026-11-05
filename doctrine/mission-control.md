@@ -219,9 +219,10 @@ gates a later unit's ready flip: a missing or red record for the current
 head refuses the flip. The readiness check walks it with the rest of the
 program's gate-condition data, from primary evidence at the current head,
 never from a session's report. It also audits the configured cadence
-itself (`scripts/step-run.sh audit --through post-pr`): a configured step
-with no record at the head is a gap, whatever launched the session and
-whatever its brief said.
+itself (`scripts/step-run.sh audit --through post-pr`): a configured point
+with no completion that counts at the head, or a configured step its run
+did not record, is a gap, whatever launched the session and whatever its
+brief said.
 
 ## The register delta
 
