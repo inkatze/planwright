@@ -80,7 +80,15 @@ Usage:
   mc-keeper.sh watch [--program <p>] [--now <epoch>]
       the duty's watcher (also what a run with no arguments does under the
       runner): the stall scan (scripts/mc-stall.sh scan, which emits its own
-      events), then sweep, each landing one session-landed event in the
+      events); the pending-prompt sweep (scripts/fleet-streamjson.sh
+      alarm-scan --once over every stream-json worker on the machine,
+      whatever version or verb launched it, so an overdue request is a high
+      queue item pushed once and a dead worker's is settled), each request
+      still overdue one pending-prompt-overdue event, subject the worker,
+      announced once per request, a worker the launcher records for another
+      program left to that program, printing
+        announced<TAB>pending-prompt-overdue<TAB><worker>
+      then sweep, each landing one session-landed event in the
       program's event store, subject the session, text
       `<owner/name>#<pr> <state>, retired|held[: <what stayed>]`, printing
         announced<TAB>session-landed<TAB><session>
@@ -318,6 +326,37 @@ EOF
   return "$sw_rc"
 }
 
+# pending_prompts: the stream-json pending-age sweep over every worker on
+# this machine, whatever planwright version or verb launched it, since one
+# the launcher never registered has no other watcher once its own supervisor
+# is older than the tick. The scan itself queues each overdue request high,
+# pushes it once and settles a dead worker's; each request still overdue is
+# then one event, announced once. A worker the launcher records for another
+# program is that program's to announce.
+pending_prompts() {
+  NL='
+'
+  pp_seen="$runtime/keeper-prompts"
+  pp_out=$(/bin/sh "$script_dir/fleet-streamjson.sh" alarm-scan --once ${now:+--now "$now"} 2>/dev/null) || return 1
+  pp_theirs=$(launcher list 2>/dev/null | P=$program awk -F '\t' '$2 != ENVIRON["P"] { print $1 }') || pp_theirs=""
+  pp_live=""
+  pp_rc=0
+  while read -r pp_tag pp_w pp_id pp_age; do
+    [ "$pp_tag" = alarm ] || continue
+    mc_valid_handle "$pp_w" || continue
+    case "$NL$pp_theirs$NL" in *"$NL$pp_w$NL"*) continue ;; esac
+    pp_key="$pp_w	$pp_id"
+    pp_live="$pp_live$pp_key$NL"
+    mc_announce "$program" "$pp_seen" "$pp_key" pending-prompt-overdue "$pp_w" \
+      "stream-json worker $pp_w has waited ${pp_age}s on request $(printf '%s' "$pp_id" | cut -c1-8); fleet-streamjson.sh pending $pp_w shows it, fleet-streamjson.sh answer $pp_w $pp_id --allow or --deny settles it" \
+      || pp_rc=1
+  done <<EOF
+$pp_out
+EOF
+  mc_announce_prune "$pp_seen" "$pp_live" || pp_rc=1
+  return "$pp_rc"
+}
+
 case $verb in
   track)
     mc_valid_handle "$session" || mc_usage_fail "--session takes a launched session's name"
@@ -345,6 +384,7 @@ case $verb in
       events=1
       # The stall scan needs no forge, so a missing gh never stops it.
       /bin/bash "$script_dir/mc-stall.sh" scan --program "$program" ${now:+--now "$now"} >/dev/null || rc=1
+      pending_prompts || rc=1
     fi
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
     trap pw_lock_release_all EXIT
