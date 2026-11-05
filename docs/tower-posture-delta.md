@@ -156,7 +156,8 @@ The `gh api` spellings of the merge and the ready flip are the policy guard's
 
 The tower placement floor (`doctrine/fleet-coordination-floor.md`) appends a
 further block after those entries, so a tower moves no branch, no checkout's
-HEAD, and no shared stash, in any checkout, its own included:
+HEAD, and no shared stash, in any checkout, its own included, short of the
+stored-refspec residual below:
 
 - `git checkout`, `git switch`, and `git reset` in every form, path restores
   and `reset --soft` included.
@@ -189,6 +190,12 @@ the commit family, `git restore`, and `git clean` stay outside the floor.
 
 ## Residuals
 
+- **A fetch refspec already stored.** The guard does not read
+  `remote.<r>.fetch`, so a plain `git fetch <r>` or `git remote update`
+  follows whatever mapping is already configured there; one written to map
+  into `refs/heads/` before the tower ran would advance local branches. The
+  guard refuses every way the tower could set such a mapping in the same
+  command, not one set earlier.
 - **Same-named tools elsewhere.** A glob also denies a tool that shares one of
   these names on a server that is not GitHub (a drive's `delete_file`, for
   one). The tower needs none of them; the worker profile is not changed.
