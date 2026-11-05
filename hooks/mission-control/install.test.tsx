@@ -59,6 +59,9 @@ test('a malformed answer is a fault, never a reading', async ($, on) => {
     tab('install', 'same', '0.66', ROOT_66),
     tab('install', 'changed', '0.66.0', ROOT_66, 'x'),
     tab('install', 'odd', '0.66.0', ROOT_66),
+    tab('install', 'same', '0.66.0', `${ROOT_66}\u001b[2J`),
+    tab('install', 'same', '0.66.0', ROOT_66, '0.65.0'),
+    tab('install', 'changed', '0.66.0', ROOT_66, '0.65.0', 'extra'),
   ]) {
     w.set({ install: bad })
     await boot($, w)

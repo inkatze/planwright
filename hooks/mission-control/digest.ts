@@ -159,11 +159,16 @@ export type Install = { state: 'first' | 'same' | 'changed'; version: string; ro
 // the program's record.
 const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+$/
 
+// The root reaches a toast and the re-injected rules, so control bytes void it.
+const CONTROL = /[\u0000-\u001f\u007f]/
+
 export function parseInstall(text: string): Install | null {
-  const [head, state, version, root, was] = text.split('\n')[0]?.split('\t') ?? []
-  if (head !== 'install' || !version || !VERSION.test(version) || !root?.startsWith('/')) return null
-  if (state === 'changed' && was && VERSION.test(was)) return { state, version, root, was }
-  if (state === 'first' || state === 'same') return { state, version, root, was: null }
+  const fields = text.split('\n')[0]?.split('\t') ?? []
+  const [head, state, version, root, was] = fields
+  if (head !== 'install' || !version || !VERSION.test(version) || !root?.startsWith('/') || CONTROL.test(root))
+    return null
+  if (state === 'changed' && fields.length === 5 && was && VERSION.test(was)) return { state, version, root, was }
+  if ((state === 'first' || state === 'same') && fields.length === 4) return { state, version, root, was: null }
   return null
 }
 
