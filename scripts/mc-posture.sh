@@ -18,8 +18,9 @@ root (never an overlay). Every entry of its .permissions.deny must be in the
 union of the loaded layers' deny lists, and every guard hook its
 .hooks.PreToolUse wires (each `scripts/<guard>.sh <args>` under its matcher)
 must be wired under the same matcher in some layer, its path resolving to an
-executable file: an absolute directory, or $CLAUDE_PLUGIN_ROOT taken from
-this process's environment, which a hook inherits from the same session.
+executable file: an absolute directory, or the CLAUDE_PLUGIN_ROOT token
+expanded from this process's environment, which a hook inherits from the
+same session.
 
 Layers, read by jq projection only (.permissions.deny, .hooks): the user
 layer (${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json), the project's
