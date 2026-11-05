@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Requirements
 
-**Status:** Ready
-**Last reviewed:** 2026-11-02
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -58,6 +58,24 @@ expanded command, and removes the meta-tower's subordinate session layer whose
 own bookkeeping prompted under the worker profile. Its altitude is policy plus
 mechanism with one doctrine clarification of what "unattended" means (D-9).
 
+**The 2026-11-04 extension.** Running the fleet in a repository other than
+planwright showed the remaining friction is not in command shapes but in
+what the profile and the guard know about that repository and about
+planwright itself. Workers there prompted on the stack's own test, format, and
+lint commands, on ordinary commits to their own branch (the `own-branch` arm
+is off unless an operator knows to turn it on), and on calls whose profile
+the launch never proved live. Mission control's answer and pending verbs
+prompt because the only way to allow them names a versioned plugin path that
+breaks on every update. planwright's own profile blocks planwright's own
+artifacts: the polish handoff record sits under the denied `.claude/`, and a
+task whose signed-off job is to edit hook wiring can never land it. And
+workers on rungs that never resume a turn keep asking to run work in the
+background, which would stall them if approved. This extension closes each
+of those at its cause, keeps every reserved control and the floor where they
+are, and leaves two neighbouring problems (a test database shared across
+worktrees, a push blocked by an unrelated failing pre-push stage) with the
+specs that own them. Altitude is unchanged: policy plus mechanism (D-9).
+
 ## Scope
 
 ### In scope
@@ -88,6 +106,16 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   values workers fetched by substitution; and the bundle's carried corrections
   (the deny-outcome assertion, the matcher's command-substitution behaviour
   pinned, the `git push -u` spelling, the profile's `_about` categories).
+
+- **The 2026-11-04 extension:** an operator-declared list of trusted stack
+  commands the guard approves, proposed by the builder; a one-time setup offer
+  of the `own-branch` arm; an adopter-repository slice of the real-prompt
+  corpus and a guard probe at every worker launch; a version-independent
+  entry point for the fleet-supervisor verbs operator-facing sessions run;
+  run-local handoff records moved out of the denied paths, with a test that a
+  skill never instructs a write its own profile denies; a sign-off-time grant
+  letting one task edit the execution-bearing config its definition names;
+  and a refusal of background tool calls on rungs that never resume a turn.
 
 ### Out of scope
 
@@ -125,6 +153,18 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   or test stays approvable under the trusted-checkout residual (kickoff R1,
   R9); the own-branch arm's excluded paths (REQ-F1.6) keep a worker from
   planting code that git, Claude Code, or the toolchain run implicitly.
+- *(2026-11-04 extension)* A separate test database or test partition per
+  worktree: a shared-environment lease, routed to the environment-broker
+  seed (`specs/_pending/environment-broker.md`), which already lists test
+  databases among the resources it brokers.
+- *(2026-11-04 extension)* An operator-approvable push when a pre-push stage
+  fails repository-wide for reasons unrelated to the diff: a hook-skip
+  reserved control, routed to its own seed
+  (`specs/_pending/unrelated-pre-push-failure.md`) for fold-detection against
+  guard-coverage and human-gates. The profile's hook-skip denies stay as they
+  are here.
+- *(2026-11-04 extension)* Turning the `own-branch` arm on by default: the
+  default stays off and setup offers it (D-30).
 
 ## REQ-A — The auto-approve hook
 
@@ -601,6 +641,25 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   tools cannot reach what the guard refuses. Running an edited repo
   `scripts/`/`tests/` file stays approvable (the trusted-checkout residual).
   *(Cites: D-22; kickoff Amendment 2 decision (2026-10-05).)*
+  **Superseded-by: REQ-F1.7** (2026-11-04) — a task whose signed-off job is
+  to edit one of these paths could never land it; the replacement keeps the
+  exclusion and admits exactly the paths a signed-off task grants.
+- **REQ-F1.7** (supersedes REQ-F1.6) The `own-branch` arm SHALL exclude, and
+  the floor SHALL refuse, writes to paths a tool runs or reads as trust input
+  without a further prompt: the worktree's `.git` entry, the configured git
+  hooks directory, `.claude/`, and tool configuration that executes commands
+  (`mise.toml`, `mise.local.toml`, `.mise/`, `lefthook.yml`), and the worker
+  profile SHALL carry `Write`/`Edit` deny rules for the same paths, with one
+  exception: a path the session's unit task grants under REQ-K1.3, as the
+  session record names it (REQ-G1.8), is writable by the `own-branch` arm
+  and by the file tools for that session only. A grant SHALL NOT reach the
+  `.git` entry, `.claude/`, the session record, or the overlay files the
+  policy resolves through, and SHALL NOT reach any session other than the
+  unit's own worker and the review runs on that unit's branch. Running an
+  edited repo `scripts/`/`tests/` file stays approvable (the
+  trusted-checkout residual).
+  *(Cites: D-22, D-34; the 2026-11-04 seed (Sources); drafting-session
+  decision (2026-11-04).)*
 
 ## REQ-G — Profiles, delivery, and the unattended contract
 
@@ -713,8 +772,142 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   goes untraced.
   *(Cites: D-21; obs:9255e1d1; drafting-session decision (2026-10-05).)*
 
+## REQ-I — Routine work in an adopter repository
+
+- **REQ-I1.1** The guard SHALL approve, as a trusted-repo-task shape, a
+  segment whose leading words equal an entry of the knob
+  `worker_trusted_commands`, resolved through the overlay layers
+  last-value-wins (no union across layers). Each entry is a sequence of plain
+  words naming one command prefix; the core default SHALL be the empty list.
+  Approval SHALL come after the floor, and the segment's remaining words
+  SHALL still pass the guard's redirect, substitution, and expansion screens.
+  An entry whose first word is a shell, an interpreter, `env`, `xargs`,
+  `sudo`, a verb the floor names, or a path outside the repository, or any
+  entry word that begins with `-` or carries a shell metacharacter, SHALL
+  make the whole value resolve to the empty list, as an unknown member does
+  for `worker_self_approval` (REQ-F1.1).
+  *(Cites: D-29; customization-boundary (Sources); the 2026-11-04 seed
+  (Sources).)*
+- **REQ-I1.2** When the builder detects a repository's stack, it SHALL
+  propose that stack's test, format, and lint invocations as
+  `worker_trusted_commands` values for the repository's own overlay, written
+  only on the operator's confirmation and never into core.
+  *(Cites: D-29; customization-boundary (Sources).)*
+- **REQ-I1.3** Mission control's guided first run, when it registers a
+  repository, SHALL offer once, in one plain sentence saying what it permits,
+  to turn on the `own-branch` arm in that repository's machine-local
+  overlay, the write made by a launched session as mission control makes
+  every repository write, never by mission control's own session. The core
+  default SHALL stay the empty list (REQ-F1.1); the answer, yes or no, SHALL
+  be recorded so the offer is not repeated for that repository.
+  *(Cites: D-30; drafting-session decision (2026-11-04).)*
+- **REQ-I1.4** The real-prompt corpus (REQ-H1.3) SHALL gain sanitized rows
+  drawn from a worker run in a repository other than planwright, covering
+  each routine class that run reported (reads, writes inside the worktree,
+  the stack's test and format commands, git on the unit branch, and
+  planwright plugin-script calls), each row naming the approval category or
+  arm expected to cover it.
+  *(Cites: D-31; the 2026-11-04 seed (Sources).)*
+- **REQ-I1.5** Every worker launcher SHALL, before starting a worker, prove
+  that the worker's guard approves the opening plugin-script call the worker
+  will make, and SHALL refuse the launch, naming the root and the cause, when
+  it cannot; the check the stream-json launch already runs is the model, and
+  no launcher SHALL skip it.
+  *(Cites: D-31; obs:eea622de (Sources).)*
+
+## REQ-J — A version-independent entry point for operator-facing verbs
+
+- **REQ-J1.1** planwright SHALL provide one entry point at a fixed path under
+  its plugin data directory, a path no plugin update changes, that runs a
+  fixed table of fleet-supervisor verbs against the installed root Claude
+  Code currently runs the plugin from. The table SHALL hold every verb the
+  mission-control and tower skills instruct their session to run against a
+  worker. The entry point SHALL NOT live in a top-level plugin `bin/`
+  directory.
+  *(Cites: D-32; universal-binary REQ-F1.1 (Sources); the 2026-11-04 seed
+  (Sources).)*
+- **REQ-J1.2** The entry point SHALL refuse a verb outside its table, pass
+  every argument as data (no `eval`, no re-parsing), and resolve its target
+  only to a root the installed-roots resolver names, after canonicalization
+  and containment, refusing a root reached through a symbolic link. It SHALL
+  be (re)written by a plugin `SessionStart` hook, so a plugin update takes
+  effect at the next session start with no operator action.
+  *(Cites: D-32; security-posture (Sources).)*
+- **REQ-J1.3** The mission-control and tower skills SHALL invoke those verbs
+  only through the entry point. The mission-control and tower profiles SHALL
+  allow it by its literal path, written in at launch, and the fleet guide
+  SHALL give the exact one-time allow rule an operator adds for a session
+  they start themselves.
+  *(Cites: D-32; the 2026-11-04 seed (Sources).)*
+- **REQ-J1.4** Mission control's start-up SHALL warn, naming each rule, when
+  the operator's settings carry a permission rule that names a versioned
+  plugin-cache path other than the current one, and SHALL point at the entry
+  point's rule as the replacement; it SHALL only read the settings, never
+  edit them.
+  *(Cites: D-32; bootstrap REQ-I1.2 (Sources).)*
+
+## REQ-K — planwright's own artifacts under its own profile
+
+- **REQ-K1.1** A run-local record a skill hands to a later step (the polish
+  audit record and every record of its kind) SHALL be written to one
+  per-checkout location outside the worktree, resolved by one shared helper
+  that both the writer and every reader call, and never under `.claude/`,
+  `.git`, or any other path the worker profile denies. A run SHALL overwrite
+  its own record rather than leave numbered siblings behind.
+  *(Cites: D-33; obs:74395a99; the 2026-11-04 seed (Sources).)*
+- **REQ-K1.2** A test SHALL fail when a shipped skill or script instructs a
+  worker to write a path that a `Write`/`Edit` deny rule of the worker profile
+  matches, judged by the permission-matcher model, so the profile and
+  planwright's own instructions cannot contradict each other again.
+  *(Cites: D-33.)*
+- **REQ-K1.3** A task definition SHALL be able to name, in an optional field
+  the meta-spec defines, the execution-bearing config paths its deliverables
+  edit; the field is definition content (it moves the content anchor), so a
+  grant exists only once the operator has signed it off. The validator SHALL
+  refuse a granted path outside the REQ-F1.7 grantable set, a path with a
+  glob, or a path that leaves the repository. A bundle using the field SHALL
+  declare a format version that an install predating the field refuses at
+  its declaration rather than ignores.
+  *(Cites: D-34; spec-format *Format-version 3* (Sources).)*
+- **REQ-K1.4** The worker launcher SHALL add to the session record (REQ-G1.8)
+  the unit task's granted paths, and SHALL deliver,
+  for a session with grants, a per-session profile that differs from the
+  shipped worker profile only by dropping the deny rules those paths match;
+  the derived profile SHALL be a regular file outside the worktree, beside
+  the session record.
+  *(Cites: D-34.)*
+
+## REQ-L — Background work on rungs that never resume a turn
+
+- **REQ-L1.1** Every worker launcher SHALL record the dispatch backend in the
+  session record (REQ-G1.8). On a session whose record names a backend whose turn a
+  background completion never resumes (the stream-json and headless one-shot
+  rungs), the worker profile SHALL refuse any Bash or Agent tool call that
+  asks to run in the background, with a refusal message that names the
+  foreground form (an explicit timeout up to the tool's limit) and, for longer
+  work, the documented in-turn wait recipe. The refusal SHALL come from a
+  deterministic hook, never from a person or a tower.
+  *(Cites: D-35; the 2026-11-04 mission-control relay (Sources).)*
+- **REQ-L1.2** A session whose record names no backend, or a backend that does
+  resume a turn on a background completion, SHALL see no change.
+  *(Cites: D-35.)*
+
 ## Changelog
 
+- 2026-11-04 — Bundle extended via `/spec-draft` (reopen cycle: stored
+  Ready→Draft on all four headers; the scoped kickoff of the delta flips it
+  back). Adds REQ groups I (routine work in an adopter repository), J (a
+  version-independent entry point for operator-facing verbs), K
+  (planwright's own artifacts under its own profile), and L (background work
+  on rungs that never resume a turn); supersedes REQ-F1.6 (by REQ-F1.7);
+  mints D-29 to D-35, with D-22 carrying an amendment note; goal and scope
+  amended in place; adds Tasks 16 to 22. Drafting-session decisions: extend
+  this bundle for the permission-surface fixes and route the per-worktree
+  test database and the unrelated-pre-push-failure push to their owners'
+  seeds; setup offers the `own-branch` arm, which stays off by default; a
+  task whose signed-off definition names execution-bearing config may edit
+  exactly those paths; the background-call refusal joins at mission
+  control's request. Consumes obs:74395a99.
 - 2026-11-03 — Expression-only fix from Task 12's convergence review: the
   REQ-A1.11 and REQ-C1.1 test-spec entries name the `Read` rule REQ-E1.6
   adds beside the `Write`/`Edit` path rules, as Task 12's deliverables and
@@ -947,6 +1140,36 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
 - **obs:9255e1d1** — the unexpanded-operand false-allow, still live at
   drafting (consumed; closed by Task 4).
 - **obs:9c1cf997** — the raw-command premise behind D-10 (consumed).
+- **The 2026-11-04 seed** — the operator's request, relayed by another
+  program's mission control, for permanent fixes to worker usability after a
+  fleet run in a repository other than planwright: about sixty permission
+  prompts in three hours across four workers, on reads, writes inside the
+  worktree, the stack's test and format commands, git on the unit branch, and
+  planwright's own scripts; mission control's answer and pending verbs
+  blocked unless allowed by a rule naming a versioned plugin path, which
+  breaks silently on every update (a wildcard over the version is unsafe);
+  concurrent workers sharing one test database; a pre-push stage failing
+  repository-wide blocking even documentation-only pushes; and the polish
+  handoff record and hook-wiring edits refused by path guards. The
+  repository and its stack are not named here; the bundle records only the
+  shape.
+- **The 2026-11-04 mission-control relay** — added during drafting:
+  stream-json workers repeatedly asked to run Bash in the background despite
+  briefs forbidding it, mission control denied each by hand (about six times
+  in one night), and a background completion never resumes those workers'
+  turns, so an approval would have stalled them.
+- **universal-binary REQ-F1.1** — the plugin never carries a top-level
+  `bin/` (a plugin distributed through organization settings is rejected for
+  one), so J's entry point lives under the plugin data directory, which
+  survives updates.
+- **obs:eea622de** — the worker profile was once not delivered to dispatched
+  workers at all (consumed by mission-control); the launch probe REQ-I1.5
+  extends to every launcher is the guard against that class returning.
+- **obs:74395a99** — numbered polish records left untracked under `.claude/`
+  (consumed by this bundle; REQ-K1.1).
+- **spec-format *Format-version 3*** — the precedent for an optional task
+  definition field that an older install must refuse at the declaration
+  rather than ignore; REQ-K1.3's grant field follows it.
 - **obs:62411beb** — `_about` misses the declared-step category (consumed).
 - **obs:4dda9fe1** — hook allow versus deny precedence undocumented
   (consumed).

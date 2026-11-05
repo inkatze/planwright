@@ -1,1 +1,2 @@
 - 2026-10-11 [planwright] polish runs dispatched as later convergence runs write numbered records (.claude/polish-audit-2.md, -3.md, -4.md) that .gitignore does not cover (it names only .claude/polish-audit.md), so they show as untracked and trip the dirty-tree pre-flight literally read; either the skill names one overwritten file or the ignore pattern covers .claude/polish-audit*.md
+Consumed-by: specs/worker-permission-ergonomics (2026-11-04)

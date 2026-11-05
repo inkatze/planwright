@@ -65,3 +65,19 @@ REQ-M1.6); they stay live and are this bundle's evidence too.
    script (a test that leaks is a bug, not a lease).
 3. How a program declares an external environment, and whether the broker ever holds that
    environment's credentials (the program home never does, mission-control D-8).
+
+## Added 2026-11-04: a test database per worktree (live evidence)
+
+Routed here from the worker-permission-ergonomics extension drafted 2026-11-04 (its Out of scope
+names this seed). In a repository other than planwright, concurrent workers ran their tests
+against one shared test database and interfered with each other. The operator asked that each
+worktree get an isolated database or test partition automatically, through the stack's own
+mechanism (a per-worktree database name or test-partition number), never through a line in the
+worker's brief. Questions this adds:
+
+4. Is a per-worktree test database a lease the broker grants, or a value the launcher derives
+   from the worktree with no broker involved (the smaller rung, when the stack can create the
+   database on demand)?
+5. Where the value is delivered: the stack's native machine-local environment layer for that
+   worktree (the gitignored local env file), so the worker's own test command picks it up.
+6. Who creates and drops the database, and when (first test run, worktree reclaim).

@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Design
 
-**Status:** Ready
-**Last reviewed:** 2026-11-02
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -612,6 +612,9 @@ repo `scripts/` and `tests/` stays approvable.
 **Chosen because:** both layers refuse the same paths, so neither tool route
 reaches them, and the residual left open is the one already accepted.
 Operator decision at the 2026-10-05 kickoff.
+*(Amended at the 2026-11-04 extension: D-34 admits exactly the paths a
+signed-off task grants, for that unit's sessions only; everything else here
+stands.)*
 
 ### D-23: The guard's trust inputs come from a launcher-written session record (N)
 
@@ -772,6 +775,201 @@ so a static `wc` rule prints any file's content, including another
 process's environment, without passing the guard (D-27). The cost is that
 `wc` prompts when the hook cannot run. Found by Task 12's convergence
 review; operator ruling at the 2026-11-02 delta kickoff.
+
+### D-29: Trusted stack commands are an operator-declared list the builder proposes (N)
+
+**Decision:** A new knob, `worker_trusted_commands`, lists command prefixes
+(plain words) the guard treats like `mise run <task>`: trusted repository
+code that may write files, approved after the floor and with the rest of the
+segment still screened. Core ships the empty list; the builder proposes a
+repository's values from the stack it detects, and the operator confirms them
+into that repository's overlay. A value carrying a shell, interpreter,
+`env`, `xargs`, `sudo`, a floor verb, a path outside the repository, a flag
+word, or a metacharacter resolves the whole list empty.
+
+**Alternatives considered:**
+- Ship a built-in table of common test runners and formatters. Rejected
+  because: which commands are trusted is a fact about one repository (its
+  stack, its wrappers), which customization-boundary places in an overlay;
+  a core table would approve, say, a test runner in a repository where that
+  runner is not what the project uses.
+- Route stack commands through `mise run` wrappers only. Rejected because:
+  it asks every adopter to restructure their task runner to suit
+  planwright, and many stacks have no mise tasks at all.
+- Let an entry match anywhere in a segment, or skip the operand screens.
+  Rejected because: a prefix match after the floor keeps the shape the guard
+  already reasons about, and an unscreened tail would let a redirect or a
+  substitution ride a trusted prefix.
+
+**Chosen because:** the capability is general (every repository has test and
+format commands) while the values are per-repository, so the capability goes
+in core as an opt-in knob with a behaviour-preserving default and the values
+stay in an overlay. The builder already detects stacks for its guard
+catalog, so proposing the values costs the operator one confirmation. The
+refusal list makes a careless entry fail closed (prompts return) rather than
+fail open.
+
+### D-30: The `own-branch` arm stays opt-in; setup offers it once (N)
+
+**Decision:** The core default of `worker_self_approval` stays the empty
+list. Mission control's guided first run, when it registers a repository,
+offers once to turn on `own-branch` for that repository, in one sentence
+saying it lets workers edit and commit on their own task branch without
+asking, and records the answer so the offer is not repeated.
+
+**Alternatives considered:**
+- Turn `own-branch` on by default. Rejected because: workers in a
+  repository the operator never reviewed would commit without asking, a
+  silent widening that customization-boundary rules out for a core default.
+- Leave it to the operator to discover the knob. Rejected because: that is
+  the status quo the 2026-11-04 seed reports, where workers prompted on
+  ordinary commits in a repository whose overlay never set it.
+
+**Chosen because:** an explicit yes per repository keeps the posture
+decision with the operator and removes the discovery cost. Operator choice at
+this drafting session (2026-11-04).
+
+### D-31: An adopter-repository corpus slice and a probe at every launch (N)
+
+**Decision:** The real-prompt corpus gains sanitized rows from a run in a
+repository other than planwright, one per routine class that run reported,
+each naming the category or arm expected to approve it. Every worker launcher
+proves, before starting a worker, that the guard approves the worker's
+opening plugin-script call, the check the stream-json launch already makes.
+
+**Alternatives considered:**
+- Fix the reported classes without new corpus rows. Rejected because: the
+  2026-10-05 replay showed that a guard tested only against planwright's own
+  prompts misses what other repositories send; rows are how a regression
+  shows up in CI.
+- Probe only on the stream-json launch, as today. Rejected because: a
+  worker started by another launcher whose profile or guard is not live
+  prompts on everything, and that failure is silent until the operator sees
+  the flood.
+
+**Chosen because:** the corpus turns the seed's report into tests, and the
+probe turns "profile not live" from a silent flood into a refused launch
+that names its cause.
+
+### D-32: One stable entry point under the plugin data directory, refreshed at session start (N)
+
+**Decision:** A small dispatcher at a fixed path under the plugin data
+directory runs a fixed table of fleet-supervisor verbs (every verb the
+mission-control and tower skills run against a worker, `answer` and
+`pending` among them) against the root Claude Code currently runs the plugin
+from. A plugin `SessionStart` hook rewrites it, so an update needs no
+operator action. The skills call it, the shipped mission-control and tower
+profiles allow it by literal path written in at launch, the fleet guide
+gives the one rule an operator adds for a session they start themselves, and
+mission control warns about leftover version-pinned rules.
+
+**Alternatives considered:**
+- A wildcard over the version segment in the operator's allow rule.
+  Rejected because: a `*` in a Bash rule matches any characters, spaces and
+  separators included, so the rule admits commands that merely start with
+  the cache prefix.
+- A top-level plugin `bin/` on the Bash tool's path. Rejected because:
+  universal-binary REQ-F1.1 forbids it (organization-distributed plugins
+  carrying one are rejected).
+- A symbolic link to the current version's script. Rejected because: the
+  launch-profile and containment checks refuse paths reached through links,
+  and a link's target changes without any check running.
+- Have the guard approve these verbs in mission control's session.
+  Rejected because: the worker guard is worker-scoped by where it is wired
+  (D-5), and mission control's prompts come from the auto-mode classifier,
+  which honours an allow rule but not a worker hook.
+
+**Chosen because:** a fixed path is what an allow rule can name safely, and
+the plugin data directory is the place the platform keeps across updates.
+The verb table and the containment check keep the stable path from becoming
+a general launcher. Whether an allow rule takes precedence over the
+auto-mode classifier rests on the operator's report that the hand-added
+rules worked until each update; kickoff confirms it against the current
+permissions documentation for the risk register.
+
+### D-33: Run-local handoff records live outside the worktree (N)
+
+**Decision:** The polish audit record, and every record a skill hands to a
+later step in the same run, is written to one per-checkout location outside
+the worktree, resolved by a shared helper that writer and readers both call;
+a run overwrites its own record. A test checks every write path a shipped
+skill or script instructs against the worker profile's deny rules.
+
+**Alternatives considered:**
+- Carve an allow rule for `.claude/polish-audit.md`. Rejected because: a
+  deny always wins over an allow, so no carve-out can open a path under a
+  denied directory, and a repository's own path guard may deny `.claude/`
+  too.
+- Drop the `.claude/` deny. Rejected because: D-22 closed it because
+  Claude Code reads settings and hooks from there.
+- Keep the record in the worktree under a different, undenied name.
+  Rejected because: it reappears as untracked files that trip the
+  dirty-tree pre-flight (obs:74395a99), and any repository guard can deny
+  it again.
+
+**Chosen because:** outside the worktree no profile rule, repository guard,
+or ignore pattern is involved, and one helper ends the drift between the
+writer's and readers' paths. The test closes the class: planwright's
+instructions and its own profile cannot contradict each other silently.
+
+### D-34: A signed-off task can be granted the execution-bearing config it edits (N, amends D-22)
+
+**Decision:** A task definition may carry an optional field naming the
+execution-bearing config paths its deliverables edit (hook wiring, tool
+config), restricted to the grantable set: the configured hooks directory and
+the command-running tool config D-22 names, never `.git`, `.claude/`, the
+session record, or the policy's overlay files. Because the field is
+definition content, the operator's sign-off is the grant. The launcher
+copies the grant into the session record and delivers a per-session profile
+that drops only the deny rules those paths match; the `own-branch` arm admits
+writes to exactly those paths for that unit's worker and the review runs on
+its branch, and nowhere else. The field needs a meta-spec amendment and a
+format version an older install refuses.
+
+**Alternatives considered:**
+- Flag such tasks and run them only in an attended session. Rejected
+  because: the operator chose the grant (2026-11-04); flagging keeps them
+  safe but means they never run unattended.
+- Infer the grant from paths mentioned in a task's deliverables prose.
+  Rejected because: prose parsing is fragile and an inferred grant is not
+  one the operator knowingly signed.
+- Grant per spec rather than per task. Rejected because: it widens every
+  unit of the spec for the sake of one.
+
+**Chosen because:** the sign-off is already the operator's deliberate
+review of what each task will change, so a grant recorded there is a
+decision, not a side effect. Scoping to one task's sessions and to named
+paths keeps the D-22 residual exactly where it was for everything else. The
+cost is accepted: a granted worker can write hook code it then runs on its
+next commit, which the PR review backstops. Operator choice at this drafting
+session (2026-11-04).
+
+### D-35: Background tool calls are refused on rungs that never resume a turn (N)
+
+**Decision:** A deterministic hook in the worker profile refuses a Bash or
+Agent tool call that asks to run in the background, when the session record
+names a backend whose turn a background completion never resumes
+(stream-json and headless one-shot). The refusal message names the
+foreground form with an explicit timeout and, for work longer than the
+tool's limit, the in-turn wait recipe the fleet guide documents. The
+launcher records the backend in the session record so the hook reads it from
+there, never from the environment.
+
+**Alternatives considered:**
+- Keep forbidding it in briefs. Rejected because: workers asked anyway
+  about six times in one night, and each ask reached a person.
+- Put the refusal in the worker command guard. Rejected because: that
+  guard is allow-only by design (D-3), and a deny-emitting check belongs
+  beside it, as the policy guard already sits.
+- Approve and let the worker poll. Rejected because: a completion never
+  resumes the turn, so a worker that ends its turn after a background launch
+  stalls with the job unread.
+
+**Chosen because:** the refusal reaches the worker at the moment it asks,
+with the alternative in hand, so no person is involved and no worker stalls.
+The one trade-off (work longer than the foreground limit) is covered by the
+documented wait recipe rather than by allowing the background flag.
+Requested by mission control during drafting (2026-11-04).
 
 ## Cross-cutting concerns
 

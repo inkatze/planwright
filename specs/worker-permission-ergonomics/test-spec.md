@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-11-02
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -441,6 +441,16 @@ Under `own-branch`: writes (Bash writers and redirects) to the worktree's
 `Write`/`Edit` on each of those paths denied by the profile; editing
 `scripts/x.sh` then running `bash scripts/x.sh` still allows.
 
+### REQ-F1.7 — Execution-bearing paths closed, except a signed-off grant [test]
+
+Every REQ-F1.6 row still holds for a session with no grant. With a session
+record granting the hooks directory's `pre-push` file: a Bash write and a
+`Write`/`Edit` on that file allow in the unit's own session, under its
+derived profile; the same writes in another session (no grant, shipped
+profile) defer or are denied; a grant naming `.git`, `.claude/`, the session
+record, or an overlay file never takes effect, even if a record were edited
+to carry it.
+
 ## REQ-G — Profiles, delivery, and the unattended contract
 
 ### REQ-G1.1 — Static read-only allow set [test]
@@ -534,3 +544,120 @@ session, arm, and command hash and no command text; an unwritable log leaves
 the `allow` well-formed; a record with no log home yields no `own-branch` or
 `scratch` approval while read-only approvals proceed; the launcher or stop
 pruning step enforces the retention bound.
+
+## REQ-I — Routine work in an adopter repository
+
+### REQ-I1.1 — Trusted stack commands [test]
+
+Guard fixtures with `worker_trusted_commands` set: an entry's command with
+ordinary arguments allows; the same command with a write-redirect, a command
+substitution, or a floor verb in another segment defers; a command that only
+shares a first word with an entry defers. Each refused entry form (a shell,
+an interpreter, `env`, `xargs`, `sudo`, a floor verb, a path outside the
+repository, a flag word, a metacharacter) empties the whole list, so every
+entry's command then defers. The empty default changes no existing row.
+
+### REQ-I1.2 — Builder proposes stack commands [test]
+
+With a fixture repository of a detected stack, the builder's proposal names
+that stack's test, format, and lint invocations; no overlay file changes
+without a confirmation, and the confirmed value is written to the
+repository's overlay, never to core config.
+
+### REQ-I1.3 — Setup offers `own-branch` once [test + manual]
+
+`[test]`: registering a repository through the guided first run makes the
+offer; a yes writes `own-branch` to the machine-local overlay; either
+answer is recorded and a second registration makes no offer; the core
+default is unchanged. `[manual]`: an operator reads the offer and confirms
+it says, in one sentence, what the arm permits.
+
+### REQ-I1.4 — Adopter-repository corpus rows [test]
+
+The corpus harness carries rows tagged as coming from a repository other
+than planwright, at least one per reported class, each with its expected
+category or arm; they report pending until their covering task ships and
+then fail on a missed verdict; the secret scan and purged-identifier guard
+pass over them.
+
+### REQ-I1.5 — Guard probe at every launch [test]
+
+For each worker launcher (each caller of the `worker` launch profile): a
+fixture whose guard does not approve the probe refuses the launch with the
+root and cause named and starts nothing; a fixture whose guard approves it
+launches.
+
+## REQ-J — A version-independent entry point for operator-facing verbs
+
+### REQ-J1.1 — Stable entry point under the plugin data directory [test]
+
+The dispatcher sits at a fixed path under the plugin data directory and
+runs each table verb against the current installed root; a test compares
+the table with the verbs the mission-control and tower skills instruct and
+fails on a verb missing from it; the plugin tree carries no top-level
+`bin/`.
+
+### REQ-J1.2 — Entry point refusals and refresh [test]
+
+An unknown verb, a target root outside the installed set, and a root reached
+through a symbolic link are each refused; an argument carrying shell syntax
+reaches the script as one literal argument; after a simulated plugin update
+the `SessionStart` hook rewrites the dispatcher to the new root.
+
+### REQ-J1.3 — Skills and profiles use the entry point [test + design-level]
+
+`[test]`: the mission-control and tower profiles delivered at launch carry
+an allow rule naming the dispatcher's literal path, and the glob-allow-rule
+check passes on it; no skill instructs a direct call to the supervisor
+script for a table verb. `[design-level]`: the fleet guide gives the exact
+one-time rule for a self-started session.
+
+### REQ-J1.4 — Warning on version-pinned rules [test]
+
+With a settings fixture holding a rule that names an older versioned
+plugin-cache path, mission control's start-up warning names the rule and the
+replacement; the fixture file is byte-identical afterwards.
+
+## REQ-K — planwright's own artifacts under its own profile
+
+### REQ-K1.1 — Handoff records outside the worktree [test]
+
+A polish run writes its record at the helper's location outside the
+worktree, a second run overwrites it, and readers find it through the same
+helper; the worktree shows no untracked record afterwards.
+
+### REQ-K1.2 — No skill instructs a denied write [test]
+
+The test walks the write paths shipped skills and scripts instruct and
+fails on any a worker-profile `Write`/`Edit` deny rule matches under the
+matcher model; a seeded instruction to write under `.claude/` makes it fail.
+
+### REQ-K1.3 — The grant field [test]
+
+Validator fixtures: a grant of the hooks directory's file or a
+command-running tool config passes; a grant naming `.git`, `.claude/`, the
+session record, an overlay file, a glob, or a path outside the repository
+errors; changing a grant moves the content anchor; a bundle using the field
+is refused at its declaration by a parser of the previous format version.
+
+### REQ-K1.4 — Grants reach only the unit's sessions [test]
+
+With a granted unit, the launcher's session record names the grant and the
+derived profile differs from the shipped one only by the matching deny
+rules, as a regular file outside the worktree; a session for another unit
+gets the shipped profile and no grant.
+
+## REQ-L — Background work on rungs that never resume a turn
+
+### REQ-L1.1 — Background calls refused on non-resuming rungs [test]
+
+With records naming the stream-json and the headless one-shot backends, a
+Bash call and an Agent call asking to run in the background are refused
+with a message naming the foreground form and the long-run recipe; every
+launcher's record names its backend.
+
+### REQ-L1.2 — No change elsewhere [test]
+
+With a record naming a backend that resumes on a background completion, or
+naming none, the same calls are not refused; foreground calls are never
+refused.

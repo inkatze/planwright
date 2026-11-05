@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Tasks
 
-**Status:** Ready
-**Last reviewed:** 2026-11-02
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -11,7 +11,9 @@ and sits on the critical path; the real-prompt corpus (Task 5) lands before
 the guard tasks it verifies, so each of them turns its own corpus rows from
 pending to enforced. The tasks that edit the worker guard (6, 7, 9, 10, 11)
 form one deliberate chain so no two of them change that script at once; do
-not parallelize them. The dependency graph is the `Dependencies:` fields
+not parallelize them. Tasks 16 onward are the 2026-11-04 extension: its
+corpus rows (Task 16) land first for the same reason, and its guard-editing
+tasks (17, 21) form a chain of their own. The dependency graph is the `Dependencies:` fields
 below; `scripts/spec-graph.sh` renders it on demand.
 
 ## Tasks
@@ -362,6 +364,126 @@ below; `scripts/spec-graph.sh` renders it on demand.
 - **Citations:** D-17 · REQ-G1.5
 - **Estimated effort:** 2–3 days
 
+### Task 16 — Adopter-repository corpus rows and a guard probe at every launch
+
+- **Deliverables:** sanitized corpus rows from a worker run in a repository
+  other than planwright, one or more per routine class the run reported,
+  each naming the category or arm expected to approve it and marked pending
+  until the task that ships that coverage lands; the guard-approval probe
+  the stream-json launch runs, factored so every other worker launcher (each
+  caller of the `worker` launch profile) runs it too and refuse a launch it fails, naming the root and the
+  cause; tests over each launcher's refusal.
+- **Done when:** the corpus harness passes with the new rows (pending rows
+  reported, not failed); a test per launcher shows a launch refused when
+  the guard does not approve the probe and started when it does; the secret
+  scan and purged-identifier guard pass over the corpus file; `mise run
+  check` passes.
+- **Dependencies:** none
+- **Citations:** D-31 · REQ-I1.4, REQ-I1.5
+- **Estimated effort:** 1–2 days
+
+### Task 17 — The trusted stack commands knob
+
+- **Deliverables:** `worker_trusted_commands` in `config/defaults.yml`
+  (empty) and the options reference; its resolution in the launcher into the
+  session record; the guard's trusted-repo-task category matching an entry
+  as a word prefix after the floor, with the rest of the segment screened;
+  the refusal list resolving a bad value to empty; the profile's `_about`
+  naming the category; adversarial fixtures.
+- **Done when:** fixtures show an entry approving its command with ordinary
+  arguments, a redirect, substitution, or floor verb on the same segment
+  deferring, and each refused entry form emptying the whole list; the Task
+  16 rows for stack commands pass as enforced; `mise run check` passes.
+- **Dependencies:** Task 16
+- **Citations:** D-29 · REQ-I1.1
+- **Estimated effort:** 2 days
+
+### Task 18 — Builder proposals and the setup offer of `own-branch`
+
+- **Deliverables:** the builder skill proposing a detected stack's test,
+  format, and lint invocations as `worker_trusted_commands` values, written
+  to the repository's overlay only on the operator's confirmation; mission
+  control's guided first run offering `own-branch` once per registered
+  repository in one plain sentence, having a launched session write the
+  machine-local overlay on yes, and recording either answer; tests over both writes.
+- **Done when:** a test shows no overlay write without a confirmation and
+  the expected value after one; a test shows the setup offer made once and
+  not repeated after either answer; the instruction-budget check passes;
+  `mise run check` passes.
+- **Dependencies:** Task 17
+- **Citations:** D-29, D-30 · REQ-I1.2, REQ-I1.3
+- **Estimated effort:** 1–2 days
+
+### Task 19 — The stable entry point for operator-facing verbs
+
+- **Deliverables:** the dispatcher under the plugin data directory and its
+  verb table; the plugin `SessionStart` hook that rewrites it; the
+  mission-control and tower skills calling the verbs through it; the
+  mission-control and tower profiles allowing it by literal path, written in
+  at launch by a launch-time profile derivation the worker launcher can
+  reuse; the fleet guide's one-time allow rule; mission control's
+  start-up warning on version-pinned plugin-cache rules; the permissions
+  documentation check on allow-rule precedence under auto mode, recorded for
+  the kickoff risk register; tests.
+- **Done when:** tests show an unknown verb refused, arguments passed
+  unparsed, a root outside the installed set or reached through a link
+  refused, the dispatcher rewritten to a new root after a simulated update,
+  and the warning naming a stale versioned rule without editing the
+  settings file; the glob-allow-rule check passes on the documented rule;
+  `mise run check` passes.
+- **Dependencies:** none
+- **Citations:** D-32 · REQ-J1.1, REQ-J1.2, REQ-J1.3, REQ-J1.4
+- **Estimated effort:** 2–3 days
+
+### Task 20 — Handoff records outside the worktree, and the profile-versus-skill test
+
+- **Deliverables:** the shared helper resolving the per-checkout record
+  location; `/polish` and its readers (`/execute-task`, `/resume`, and any
+  other reader of the record) moved onto it, one overwritten record per run;
+  the stale `.gitignore` entry removed; a test that walks every write path a
+  shipped skill or script instructs and fails on one a worker-profile deny
+  rule matches.
+- **Done when:** a polish run under the worker profile writes its record
+  with no prompt and no untracked file in the worktree; the new test fails
+  on a seeded instruction to write under `.claude/` and passes on the
+  shipped tree; the instruction-budget check passes; `mise run check`
+  passes.
+- **Dependencies:** none
+- **Citations:** D-33 · REQ-K1.1, REQ-K1.2
+- **Estimated effort:** 1–2 days
+
+### Task 21 — Signed-off grants for execution-bearing config
+
+- **Deliverables:** the meta-spec amendment defining the optional grant
+  field, its grantable set, and its format-version keying; the parser,
+  extraction, and validator changes; the launcher writing grants into the
+  session record and delivering the per-session derived
+  profile through Task 19's launch-time profile derivation; the guard's `own-branch` arm admitting exactly the granted paths;
+  adversarial fixtures and matcher rows.
+- **Done when:** fixtures show a granted path writable by the guard and the
+  file tools in the unit's session and refused in any other session; a
+  grant naming `.git`, `.claude/`, the session record, an overlay file, a
+  glob, or a path outside the repository refused by the validator; the
+  anchor moving when a grant changes; an older-version install refusing a
+  bundle that uses the field; `mise run check` passes.
+- **Dependencies:** Task 17, Task 19, Task 20
+- **Citations:** D-22, D-34 · REQ-F1.7, REQ-K1.3, REQ-K1.4
+- **Estimated effort:** 3 days
+
+### Task 22 — Refuse background calls on rungs that never resume a turn
+
+- **Deliverables:** a deterministic, deny-emitting hook wired in the worker
+  profile for the Bash and Agent tools; every worker launcher recording the
+  dispatch backend in the session record, which the hook reads; the refusal message naming the foreground form and the fleet
+  guide's long-run recipe; the fleet guide stating the rule; tests.
+- **Done when:** tests show a background Bash call and a background Agent
+  call refused on the stream-json and headless one-shot records with the
+  message, the same calls untouched on a record naming another backend or
+  none, and foreground calls untouched everywhere; `mise run check` passes.
+- **Dependencies:** none
+- **Citations:** D-35 · REQ-L1.1, REQ-L1.2
+- **Estimated effort:** 1 day
+
 ## Awaiting input
 
 (none yet)
@@ -399,3 +521,10 @@ below; `scripts/spec-graph.sh` renders it on demand.
   REQ-F1.6.
 - **Claude Code's own safety gates.** The `cd`-before-`git` gate and the
   sensitive-path prompt are outside any hook's reach. Citations: D-19.
+- **A test database or partition per worktree.** A shared-environment lease,
+  routed to the environment-broker seed (`specs/_pending/environment-broker.md`).
+  Citations: the 2026-11-04 seed (Sources).
+- **Pushing past an unrelated failing pre-push stage.** A hook-skip reserved
+  control, routed to `specs/_pending/unrelated-pre-push-failure.md` for
+  fold-detection against guard-coverage and human-gates; the profile's
+  hook-skip denies stay. Citations: the 2026-11-04 seed (Sources).
