@@ -1567,6 +1567,33 @@ assert_eq "lock-rerun/bad-json: exit 0 (best-effort)" "$RC" "0"
 assert_contains "lock-rerun/bad-json: warns the runs could not be read" "$ERR" "could not read the open pull requests' runs"
 deny "lock-rerun/bad-json: nothing is re-run" gh_called "$LOG" "run rerun"
 
+# A full page of either list may hide more: warned, and what it holds still re-run.
+full_prs=$(jq -nc '[{headRefOid:"aaa"}] + [range(199) | {headRefOid: "p\(.)"}]')
+full_runs=$(jq -nc '[{databaseId:1,headSha:"aaa",conclusion:"failure"}] + [range(199) | {databaseId: (100 + .), headSha: "r\(.)", conclusion: "success"}]')
+for page in prs runs; do
+  r="$tmp/lock-rerun-full-$page"
+  new_repo "$r"
+  add_lock "$r"
+  seed_version "$r" 0.1.0
+  if [ "$page" = prs ]; then
+    run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_OPEN_PRS_JSON="$full_prs" GH_RUNS_JSON="$lock_runs"
+  else
+    run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_OPEN_PRS_JSON="$lock_prs" GH_RUNS_JSON="$full_runs"
+  fi
+  assert_eq "lock-rerun/full-$page: exit 0 (best-effort)" "$RC" "0"
+  assert_contains "lock-rerun/full-$page: warns that the list may be cut short" "$ERR" "only the newest 200"
+  want "lock-rerun/full-$page: what the page holds is still re-run" gh_called "$LOG" "run rerun 1 --failed"
+done
+r="$tmp/lock-rerun-short"
+new_repo "$r"
+add_lock "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_OPEN_PRS_JSON="$lock_prs" GH_RUNS_JSON="$lock_runs"
+case $ERR in
+  *"only the newest"*) bad "lock-rerun/short: a list under the limit is warned about" ;;
+  *) pass "lock-rerun/short: no cut-short warning under the limit" ;;
+esac
+
 # 13e. No open PR, no lock on main, or a refused publish: nothing is re-run.
 r="$tmp/lock-rerun-noprs"
 new_repo "$r"

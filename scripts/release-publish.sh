@@ -594,23 +594,28 @@ relabel_release_pr
 # re-triggers nothing, so this re-runs each open pull request's latest lock run
 # that failed. Best-effort like the relabel: the tag and Release are done.
 rerun_window_lock() {
-  local prs runs ids id n=0
+  local prs runs ids id n=0 lim=200
   local hint="re-run the window-lock check on each open pull request still red from the window"
   # The lock is opt-in (templates/release-window): a repository without it on
   # main has nothing to re-run.
   git cat-file -e "$MAIN_REF:.github/workflows/$RL_CI_WINDOW_LOCK_WORKFLOW.yml" 2>/dev/null \
     || git cat-file -e "$MAIN_REF:.github/workflows/$RL_CI_WINDOW_LOCK_WORKFLOW.yaml" 2>/dev/null \
     || return 0
-  prs=$(gh pr list --base "$MAIN_REF" --state open --limit 200 --json headRefOid 2>/dev/null) || {
+  prs=$(gh pr list --base "$MAIN_REF" --state open --limit "$lim" --json headRefOid 2>/dev/null) || {
     echo "release-publish: window-lock: could not list the open pull requests (gh pr list failed); $hint" >&2
     return
   }
   [ "$prs" != "[]" ] || return 0
-  runs=$(gh run list --workflow "$RL_CI_WINDOW_LOCK_WORKFLOW" --event pull_request --limit 200 \
+  runs=$(gh run list --workflow "$RL_CI_WINDOW_LOCK_WORKFLOW" --event pull_request --limit "$lim" \
     --json databaseId,headSha,conclusion 2>/dev/null) || {
     echo "release-publish: window-lock: could not list the $RL_CI_WINDOW_LOCK_WORKFLOW runs (gh run list failed); $hint" >&2
     return
   }
+  # A full page may hide more: say so rather than pass a partial scan as whole.
+  [ "$(printf '%s' "$prs" | jq 'length' 2>/dev/null)" != "$lim" ] \
+    || echo "release-publish: window-lock: listed only the newest $lim open pull requests; $hint beyond them" >&2
+  [ "$(printf '%s' "$runs" | jq 'length' 2>/dev/null)" != "$lim" ] \
+    || echo "release-publish: window-lock: listed only the newest $lim $RL_CI_WINDOW_LOCK_WORKFLOW runs; $hint whose latest run is older" >&2
   # gh lists runs newest first, so the first run seen per head is its latest.
   ids=$(jq -rn --argjson prs "$prs" --argjson runs "$runs" '
     ($prs | map(.headRefOid)) as $heads
