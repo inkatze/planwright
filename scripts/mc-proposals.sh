@@ -161,6 +161,23 @@ denial_map() {
     printf '/dev/null\n'
   fi
 }
+# map_patterns_compile: fail unless every map pattern compiles as an ERE.
+# Checked with grep -E before any scan, not by awk at a matching denial:
+# busybox awk reads a pattern that does not compile as an ERE as a basic
+# regex and matches on, so a broken row would silently hide its repeats
+# there. busybox grep compiles only once it reads a line, hence the one fed.
+map_patterns_compile() {
+  mp_map=$(denial_map)
+  while IFS= read -r mp_l || [ -n "$mp_l" ]; do
+    case $mp_l in '#'* | '') continue ;; esac
+    mp_p=$(printf '%s\n' "$mp_l" | cut -f 2)
+    [ -n "$mp_p" ] || continue
+    printf '\n' | grep -E -e "$mp_p" >/dev/null 2>&1
+    [ $? -eq 2 ] || continue
+    printf 'config/denial-knobs.tsv: a row whose match pattern does not compile: %s\n' "$mp_l" >&2
+    return 1
+  done <"$mp_map"
+}
 # map_row <guard> <knob>: the denial map's first row for the guard and knob.
 map_row() {
   # shellcheck disable=SC2016 # an awk program, expanded by awk
@@ -195,6 +212,7 @@ repeats() {
   rp_w=$(mc_knob mission_control_repeat_window mc_parse_cadence) || exit 1
   rp_now=$(mc_now)
   rp_all=$(mc_kb_entries "$PROGRAM" decisions) || exit $?
+  map_patterns_compile || mc_fail "the repeat scan failed over config/denial-knobs.tsv"
   # shellcheck disable=SC2016 # an awk program, expanded by awk
   rp_rows=$(printf '%s\n' "$rp_all" | N=$rp_n FROM=$(mc_iso $((rp_now - $(mc_seconds "$rp_w")))) TO=$(mc_iso "$rp_now") \
   MAP=$(denial_map) awk -F '\t' "$MC_GROUNDS_AWK$MC_SUBJECT_KEY_AWK"'
@@ -204,9 +222,6 @@ repeats() {
           if (split(l, f, "\t") != 6) { why = "a row without six tab-separated columns: " l; exit }
           # An empty pattern would match every denial from its guard.
           if (f[2] == "") { why = "a row with an empty match pattern: " l; exit }
-          # Compiled here, not first at a matching denial, so a broken
-          # pattern fails every scan rather than only one that reaches it.
-          if ("" ~ f[2]) {}
           nm++; mg[nm] = key(f[1]); mm[nm] = f[2]; mk[nm] = f[3]
         }
       }

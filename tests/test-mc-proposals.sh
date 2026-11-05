@@ -239,7 +239,14 @@ map_bad=$(awk -F '\t' '!/^#/ && NF {
     if (NF != 6 || $2 == "" || $5 !~ /^(adopter|repo-tracked|machine-local)$/ || seen[g "\t" $3]++) print NR
   }' "$map")
 if [ -z "$map_bad" ]; then ok "every denial-map row is well formed"; else fail "malformed denial-map rows: $map_bad"; fi
-if awk -F '\t' '!/^#/ && NF { if ("" ~ $2) n++ }' "$map" 2>/dev/null; then
+# grep -E, not awk: busybox awk reads a broken ERE as a basic regex.
+map_uncompiled=$(grep -v '^#' "$map" | cut -f 2 | while IFS= read -r p; do
+  [ -z "$p" ] || {
+    printf '\n' | grep -E -e "$p" >/dev/null 2>&1
+    [ $? -ne 2 ]
+  } || printf '%s\n' "$p"
+done)
+if [ -z "$map_uncompiled" ]; then
   ok "every denial-map pattern compiles"
 else
   fail "a denial-map pattern does not compile, which would fail every scan"
