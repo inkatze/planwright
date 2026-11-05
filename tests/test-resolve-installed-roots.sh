@@ -169,9 +169,14 @@ cur="$SANDBOX/cur"
 old_copy="$cur/plugins/cache/planwright/planwright/0.65.0"
 new_copy="$cur/plugins/cache/planwright/planwright/0.66.0"
 mkdir -p "$cur/plugins"
+# Only what the stale-copy cases below run.
 for copy in "$old_copy" "$new_copy"; do
-  mkdir -p "$copy"
-  cp -R "$REPO_ROOT/scripts" "$REPO_ROOT/doctrine" "$REPO_ROOT/config" "$copy/"
+  mkdir -p "$copy/scripts" "$copy/doctrine"
+  for f in resolve-root.sh resolve-installed-roots.sh resolve-rule-doc.sh resolve-overlay-root.sh \
+    mc-event.sh mc-lib.sh echo-safety.sh; do
+    cp "$REPO_ROOT/scripts/$f" "$copy/scripts/"
+  done
+  cp "$REPO_ROOT/doctrine/plugin-script-invocation.md" "$copy/doctrine/"
 done
 jq -n --arg a "$new_copy" '{plugins: {"planwright@planwright": [{scope: "user", installPath: $a, version: "0.66.0"}]}}' \
   >"$cur/plugins/installed_plugins.json"
@@ -179,6 +184,34 @@ OUT=$(env -u HOME CLAUDE_DIR="$cur" /bin/sh "$RESOLVER" --current 2>/dev/null)
 assert_eq "--current prints the installed root alone, no older cached copy" "$new_copy" "$OUT"
 OUT=$(env -u HOME CLAUDE_DIR="$cur" PATH="$SANDBOX/no-bin" /bin/sh "$RESOLVER" --current 2>/dev/null)
 assert_eq "--current without jq prints nothing" "" "$OUT"
+OUT=$(env -u HOME CLAUDE_DIR="$SANDBOX/no-such-dir" /bin/sh "$RESOLVER" --current 2>/dev/null)
+assert_eq "--current with no record prints nothing" "" "$OUT"
+for bad in "--current x" "--check" "--check ''" "--check a b"; do
+  # shellcheck disable=SC2086 # each case is a word list on purpose
+  eval "env -u HOME CLAUDE_DIR=\"\$cur\" /bin/sh \"\$RESOLVER\" $bad" >/dev/null 2>&1
+  assert_eq "usage refused: $bad" 2 "$?"
+done
+
+# Scopes: a project or local install applies only under its project, before
+# the user-scope one; another project's install never applies here.
+scoped="$SANDBOX/scoped"
+proj="$SANDBOX/proj"
+mkdir -p "$scoped/plugins" "$proj/sub" "$SANDBOX/elsewhere"
+proj=$(cd "$proj" && pwd -P)
+jq -n --arg u "$new_copy" --arg p "$old_copy" --arg o "$SANDBOX/other-proj-copy" --arg pp "$proj" --arg op "$SANDBOX/other-proj" \
+  '{plugins: {"planwright@planwright": [
+      {scope: "project", projectPath: $op, installPath: $o},
+      {scope: "user", installPath: $u},
+      {scope: "local", projectPath: $pp, installPath: $p}]}}' >"$scoped/plugins/installed_plugins.json"
+OUT=$(cd "$proj/sub" && env -u HOME CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" --current 2>/dev/null)
+assert_eq "--current inside a project: its own install first, then the user one" "$old_copy
+$new_copy" "$OUT"
+OUT=$(cd "$SANDBOX/elsewhere" && env -u HOME CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" --current 2>/dev/null)
+assert_eq "--current elsewhere: the user install alone" "$new_copy" "$OUT"
+OUT=$(cd "$SANDBOX/elsewhere" && env -u HOME CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" 2>/dev/null | head -n 3)
+assert_eq "the default listing still names every recorded root" "$SANDBOX/other-proj-copy
+$new_copy
+$old_copy" "$OUT"
 
 # --- --check: a copy under the cache that is not the installed one warns ------
 check() { # check <path> [ENV=val...]: stderr in ERR, exit status in CODE
@@ -207,6 +240,17 @@ assert_eq "and says nothing about it" "" "$ERR"
 check "$old_copy" "PATH=$SANDBOX/no-bin"
 assert_eq "without jq nothing can be compared, so nothing warns" 0 "$CODE"
 assert_eq "and says nothing" "" "$ERR"
+check "$cur/plugins/cache/planwright/planwright/0.10.0"
+assert_eq "a path that does not exist is never stale" 0 "$CODE"
+# A copy any applicable record entry names is current, first entry or not.
+two="$SANDBOX/two"
+mkdir -p "$two/plugins"
+ln -s "$cur/plugins/cache" "$two/plugins/cache"
+jq -n --arg a "$new_copy" --arg b "$old_copy" \
+  '{plugins: {"planwright@planwright": [{installPath: $a}], "planwright@other": [{installPath: $b}]}}' \
+  >"$two/plugins/installed_plugins.json"
+ERR=$(env -u HOME CLAUDE_DIR="$two" /bin/sh "$RESOLVER" --check "$old_copy" 2>&1 >/dev/null)
+assert_eq "a copy the second record entry names is current" "" "$ERR"
 
 # --- the resolvers and mission control's scripts warn from a stale copy -------
 stale_run() { # stale_run <copy> <script> <args...>: stdout in OUT, stderr in ERR
@@ -231,6 +275,21 @@ case $ERR in
 esac
 stale_run "$new_copy" resolve-root.sh install
 assert_eq "resolve-root.sh from the installed copy says nothing on stderr" "" "$ERR"
+ERR=$(cd "$old_copy" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$cur" \
+  scripts/resolve-root.sh install 2>&1 >/dev/null)
+case $ERR in
+  *"WARNING"*) echo "ok: resolve-root.sh run by a relative path from a stale copy warns" ;;
+  *)
+    echo "FAIL: the relative run said '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+ERR=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT="$old_copy" CLAUDE_DIR="$cur" \
+  "$old_copy/scripts/resolve-root.sh" install 2>&1 >/dev/null)
+assert_eq "the copy Claude Code loaded (a hook's) is not warned about" "" "$ERR"
+ERR=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_COPY_CHECKED="$old_copy/scripts" \
+  CLAUDE_DIR="$cur" "$old_copy/scripts/resolve-root.sh" install 2>&1 >/dev/null)
+assert_eq "a copy a calling script already checked is not warned about again" "" "$ERR"
 stale_run "$old_copy" resolve-rule-doc.sh plugin-script-invocation
 assert_eq "resolve-rule-doc.sh from a stale copy still resolves" "$old_copy/doctrine/plugin-script-invocation.md" "$OUT"
 case $ERR in
@@ -248,6 +307,12 @@ case $ERR in
     failures=$((failures + 1))
     ;;
 esac
+stale_run "$old_copy" mc-event.sh list --program 'Bad Name'
+assert_eq "a failing mission-control script from a stale copy warns once" 1 "$(printf '%s\n' "$ERR" | grep -c WARNING)"
+rm "$old_copy/scripts/resolve-installed-roots.sh"
+stale_run "$old_copy" mc-event.sh --help
+assert_eq "a copy missing the checker stays quiet" "" "$ERR"
+cp "$REPO_ROOT/scripts/resolve-installed-roots.sh" "$old_copy/scripts/"
 stale_run "$new_copy" mc-event.sh --help
 assert_eq "a mission-control script from the installed copy says nothing on stderr" "" "$ERR"
 

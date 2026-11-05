@@ -123,6 +123,8 @@ export type Fixture = {
   reviewsOut: string
   install: string
   installExit: number
+  // Lines a stale copy's scripts print on stderr ahead of their own.
+  stderrLead: string
   isPlaced: boolean
   isDropped: boolean
   isEnvDenied: boolean
@@ -146,6 +148,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     reviewsOut: 'written',
     install: 'install\tsame\t0.66.0\t/plugins/cache/planwright/planwright/0.66.0',
     installExit: 0,
+    stderrLead: '',
     isPlaced: true,
     isDropped: false,
     isEnvDenied: false,
@@ -214,7 +217,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
       value: {
         exitCode,
         stdout,
-        stderr: exitCode === 0 ? '' : 'store unreadable',
+        stderr: fx.stderrLead + (exitCode === 0 ? '' : 'store unreadable'),
         isStdoutTruncated: false,
         isStderrTruncated: false,
       },

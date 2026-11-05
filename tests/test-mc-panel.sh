@@ -361,6 +361,10 @@ case $(events_of planwright-updated | tail -n 1) in
   *"planwright changed to 0.65.0 from 0.66.0 (an older version), now at $old_root"*) ok "a downgrade says it is older" ;;
   *) fail "the downgrade event reads '$(events_of planwright-updated | tail -n 1)'" ;;
 esac
+case $(events_of planwright-updated | tail -n 1) in
+  *"Changes:"*) fail "a downgrade lists the newer version's entries" ;;
+  *) ok "a downgrade lists no entries of the version it left" ;;
+esac
 
 moved=$tmp/elsewhere/0.65.0
 fake_root "$moved" 0.65.0
@@ -371,15 +375,54 @@ case $(events_of planwright-updated | tail -n 1) in
   *) fail "the move event reads '$(events_of planwright-updated | tail -n 1)'" ;;
 esac
 
-# A refused emit records nothing, so the change is raised on the next check.
+# A refused emit records nothing, so the change is raised on the next check;
+# a record that cannot be written stores no event. Root writes through any
+# mode, so these run unprivileged only.
 mc_run mc-panel.sh install --program alpha --root "$moved" --now 5060
 store=$fleet/attention/mission-control/alpha
-chmod 500 "$store/events"
-mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5070
-chmod 700 "$store/events"
-expect_rc "a refused event fails the check" 1
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 500 "$store/events"
+  mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5070
+  chmod 700 "$store/events"
+  expect_rc "a refused event fails the check" 1
+  before=$(events_of planwright-updated | wc -l | tr -d ' ')
+  chmod 500 "$runtime"
+  mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5075
+  chmod 700 "$runtime"
+  expect_rc "a record that cannot be written fails the check" 1
+  if [ "$(events_of planwright-updated | wc -l | tr -d ' ')" = "$before" ]; then
+    ok "and stores no event, so a retry cannot flood the store"
+  else
+    fail "an unwritable record still stored an event"
+  fi
+fi
 mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5080
 expect_eq "and the change is raised on the next one" "install${tab}changed${tab}0.66.0${tab}$new_root${tab}0.65.0"
+
+# A record this script did not write is replaced as if absent, never trusted
+# and never a lasting failure.
+for shape in bad-format no-version bad-root symlink control; do
+  rm -f "$runtime/install"
+  case $shape in
+    bad-format) printf 'format\t9\nroot\t%s\nversion\t0.65.0\n' "$old_root" >"$runtime/install" ;;
+    no-version) printf 'format\t1\nroot\t%s\n' "$old_root" >"$runtime/install" ;;
+    bad-root) printf 'format\t1\nroot\trelative\nversion\t0.65.0\n' >"$runtime/install" ;;
+    symlink) ln -s "$tmp/nowhere" "$runtime/install" ;;
+    control) printf 'format\t1\nroot\t%s\nversion\t0.65.0\033]0;x\007\n' "$old_root" >"$runtime/install" ;;
+  esac
+  mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5085
+  expect_eq "a $shape record is replaced as a first record" "install${tab}first${tab}0.66.0${tab}$new_root"
+  expect_err "with a warning naming it" "unreadable and is replaced"
+  if [ "$shape" = symlink ]; then
+    if [ -L "$runtime/install" ]; then
+      fail "the record is still a symlink"
+    else
+      ok "the replaced symlink is now a record of its own"
+    fi
+  fi
+done
+mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5086
+expect_eq "and the replaced record reads back" "install${tab}same${tab}0.66.0${tab}$new_root"
 
 mkdir -p "$tmp/noversion"
 mc_run mc-panel.sh install --program alpha --root "$tmp/noversion" --now 5090
@@ -408,6 +451,23 @@ if [ "${#got}" -le 512 ] && [ "${#got}" -gt 400 ]; then
 else
   fail "the long event is ${#got} bytes"
 fi
+case $got in
+  *...) ok "a cut text says it was cut" ;;
+  *) fail "the cut text does not end in ...: '$got'" ;;
+esac
+
+# A copy without a changelog still announces the update, with no entries.
+bare_root=$tmp/cache/planwright/0.71.0
+fake_root "$bare_root" 0.71.0
+rm -f "$bare_root/CHANGELOG.md"
+mc_run mc-panel.sh install --program alpha --root "$bare_root" --now 5110
+expect_rc "an update to a copy with no changelog" 0
+case $(events_of planwright-updated | tail -n 1) in
+  *"planwright updated to 0.71.0 from 0.70.0, now at $bare_root") ok "names the update without entries" ;;
+  *) fail "the changelog-less event reads '$(events_of planwright-updated | tail -n 1)'" ;;
+esac
+mc_run mc-panel.sh changes --from 0.70.0 --root "$bare_root"
+expect_rc "changes with no changelog fails, never reads as no change" 1
 
 # changes: the full list the event's text was cut from.
 mc_run mc-panel.sh changes --from 0.64.0 --root "$new_root"
@@ -415,8 +475,19 @@ expect_rc "changes since an older version" 0
 expect_eq "every entry after the version, newest first, one per line" "$(printf 'change\t0.66.0\tFeatures\tfleet: read usage from the status-line mirror (#836)\nchange\t0.66.0\tBug Fixes\tmission-control: make the panel reopenable with /mc-panel (#828)\nchange\t0.66.0\tBug Fixes\tplain entry without a scope (#900)\nchange\t0.65.0\tFeatures\tmission-control: show reviews at a glance in the panel (#809)')"
 mc_run mc-panel.sh changes --from 0.66.0 --root "$new_root"
 expect_eq "nothing after the current version" ""
+mc_run mc-panel.sh changes --from 0.64.0 --root "$old_root"
+expect_eq "entries newer than the copy itself are never listed" "$(printf 'change\t0.65.0\tFeatures\tmission-control: show reviews at a glance in the panel (#809)')"
 mc_run mc-panel.sh changes --from 'x;y' --root "$new_root"
 expect_rc "a version outside the grammar" 2
+for bad in "changes --root $new_root" "changes --from 0.64.0 --program alpha" "install --program alpha --from 0.64.0" \
+  "install --program alpha --knobs" "install --program alpha --root relative/dir" "digest --program alpha --root $new_root" \
+  "changes --from 1.2.3.4 --root $new_root"; do
+  # shellcheck disable=SC2086 # each case is a word list on purpose
+  mc_run mc-panel.sh $bad
+  expect_rc "usage refused: $bad" 2
+done
+mc_run mc-panel.sh install --program nosuch --root "$tmp/nowhere"
+expect_rc "an unconfigured program is named before the root is read" 3
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-panel: $failures failure(s)" >&2

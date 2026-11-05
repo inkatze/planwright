@@ -2,15 +2,26 @@
 # shellcheck disable=SC2034,SC2154 # prog and script_dir are the sourcing script's; MC_FORMAT is read there
 # mc-lib.sh — helpers mission control's runtime scripts share (sourced, never
 # executed). The sourcing script sets `prog` and `script_dir` and has sourced
-# echo-safety.sh first. Portable bash 3.2 / BSD tooling.
+# echo-safety.sh first. Sourcing it runs one check: mc_warn_if_stale, below.
+# Portable bash 3.2 / BSD tooling.
 
 MC_FORMAT=1
 
-# A mission-control script run from an older cached copy, by a session that
-# kept its root across an upgrade, warns on every call.
-case $script_dir in
-  */plugins/cache/*) /bin/sh "$script_dir/resolve-installed-roots.sh" --check "$script_dir/.." >/dev/null || : ;;
-esac
+# mc_warn_if_stale: a script run from an older cached copy, by a session
+# that kept its root across an upgrade, warns on stderr; once per process
+# tree, so the scripts it starts stay quiet and its own errors stay first.
+mc_warn_if_stale() {
+  case $script_dir in
+    */plugins/cache/*) ;;
+    *) return 0 ;;
+  esac
+  [ "${PLANWRIGHT_COPY_CHECKED:-}" != "$script_dir" ] || return 0
+  PLANWRIGHT_COPY_CHECKED=$script_dir
+  export PLANWRIGHT_COPY_CHECKED
+  [ -f "$script_dir/resolve-installed-roots.sh" ] || return 0
+  /bin/sh "$script_dir/resolve-installed-roots.sh" --check "$script_dir/.." >/dev/null || :
+}
+mc_warn_if_stale
 
 mc_fail() {
   printf '%s\n' "$prog: $1" >&2

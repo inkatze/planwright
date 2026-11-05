@@ -36,12 +36,13 @@
 #   resolve-installed-roots.sh --refused
 #     The listing's dropped candidates, one per line.
 #   resolve-installed-roots.sh --current
-#     The record's roots alone, no cached copy: the copy Claude Code loads
-#     now, which a long-running session resolves its root from rather than
-#     a path it remembers.
+#     The record's roots that apply here, no cached copy: an entry of a
+#     project or local scope whose projectPath holds the working directory,
+#     then the user-scope ones. A long-running session runs the root
+#     resolver from the first, rather than from a path it remembers.
 #   resolve-installed-roots.sh --check <path>
 #     Warns on stderr, and exits 1, when <path> is a copy under the plugin
-#     cache that the record does not name: an older version a session kept
+#     cache that no --current root names: an older version a session kept
 #     using after an upgrade or reload. Silent, and 0, for a current copy,
 #     a path outside the cache (a checkout), or a record it cannot read.
 #
@@ -50,7 +51,9 @@
 #   output, never a failure: callers read empty as "no installed roots" and
 #   the arm it feeds does not fire; the same holds for --refused. With
 #   --unlinked: 0 when the path passes the rule, 1 when it does not (or is
-#   empty). With --check: 1 for a stale copy, else 0. 2 on a usage error.
+#   empty). --current prints nothing, exit 0, where the listing would print
+#   no record entry. With --check: 1 for a stale copy, else 0. 2 on a usage
+#   error.
 #
 # POSIX sh; pathname expansion is used for the cache walk only.
 set -u
@@ -149,14 +152,25 @@ emit() {
   return 0
 }
 
-record() {
+# recorded_roots all|here: the record's planwright roots, every entry or
+# only those that apply in the working directory (most specific first),
+# each through emit.
+recorded_roots() {
   f="$claude_dir/plugins/installed_plugins.json"
   if [ -r "$f" ] && command -v jq >/dev/null 2>&1; then
-    jq -r '(.plugins // {}) | to_entries[]
+    rr_cwd=$(pwd -P 2>/dev/null) || rr_cwd=""
+    jq -r --arg which "$1" --arg cwd "$rr_cwd" '[(.plugins // {}) | to_entries[]
       | select((.key | type) == "string" and (.key | startswith("planwright@")))
       | (.value | if type == "array" then .[] else . end)
-      | (.installPath? // empty)
-      | select(type == "string" and startswith("/"))' "$f" 2>/dev/null \
+      | select(type == "object" and (.installPath | type) == "string" and (.installPath | startswith("/")))
+      | . as $e
+      | if $which == "all" then [0, $e.installPath]
+        elif (($e.scope // "user") == "user") then [1, $e.installPath]
+        elif (($e.projectPath | type) == "string" and ($e.projectPath | startswith("/")) and $cwd != ""
+          and ($cwd == $e.projectPath or ($cwd | startswith(($e.projectPath | rtrimstr("/")) + "/"))))
+          then [0, $e.installPath]
+        else empty end]
+      | sort_by(.[0]) | .[] | .[1]' "$f" 2>/dev/null \
       | while IFS= read -r p; do
         emit "$p"
       done
@@ -174,7 +188,7 @@ if [ -n "$check" ]; then
     *) exit 0 ;;
   esac
   want=current
-  ck_current=$(record)
+  ck_current=$(recorded_roots here)
   [ -n "$ck_current" ] || exit 0
   ck_first=''
   while IFS= read -r ck_root; do
@@ -189,8 +203,11 @@ EOF
   exit 1
 fi
 
-record
-[ "$want" != current ] || exit 0
+if [ "$want" = current ]; then
+  recorded_roots here
+  exit 0
+fi
+recorded_roots all
 
 for d in "$claude_dir"/plugins/cache/*/planwright/*/; do
   [ -d "$d" ] || continue

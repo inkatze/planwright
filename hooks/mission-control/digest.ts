@@ -157,11 +157,12 @@ export type Install = { state: 'first' | 'same' | 'changed'; version: string; ro
 
 // The answer of `mc-panel.sh install`: the copy the session runs, against
 // the program's record.
+const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+$/
+
 export function parseInstall(text: string): Install | null {
-  const f = text.replace(/\n+$/, '').split('\n')[0]?.split('\t') ?? []
-  const [head, state, version, root, was] = f
-  if (head !== 'install' || !version || !root?.startsWith('/')) return null
-  if (state === 'changed' && was) return { state, version, root, was }
+  const [head, state, version, root, was] = text.split('\n')[0]?.split('\t') ?? []
+  if (head !== 'install' || !version || !VERSION.test(version) || !root?.startsWith('/')) return null
+  if (state === 'changed' && was && VERSION.test(was)) return { state, version, root, was }
   if (state === 'first' || state === 'same') return { state, version, root, was: null }
   return null
 }

@@ -12,7 +12,10 @@
 #           root chain (PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT, writer-mode,
 #           self-location), defined in doctrine/spec-format.md under "The core
 #           root chain", which also states which arms are skipped. This script
-#           is that definition's only implementation.
+#           is that definition's only implementation. Run from a plugin-cache
+#           copy the installed record no longer names, it still answers, and
+#           warns on stderr (resolve-installed-roots.sh --check, which reads
+#           the record through jq).
 #   --all       print every content-bearing arm, one per line in chain order,
 #               instead of the first: for a consumer that looks a file up arm
 #               by arm, and for a command guard composing its trust set. An
@@ -107,7 +110,8 @@
 #   path from an empty root.
 #
 # POSIX sh with no dependency beyond git and tr, plus, for the spec kind,
-# (sed and head also for marker) sed, cut, grep, head, tail, mktemp, ln, rm, and the config resolvers: guards
+# (sed and head also for marker) sed, cut, grep, head, tail, mktemp, ln, rm, and the config resolvers,
+# and, for install from a plugin-cache copy, the stale-copy check: guards
 # and hooks exec it through /bin/sh, which is dash on Linux.
 set -u
 # Pin the C locale so tr's byte ranges below mean bytes.
@@ -234,14 +238,19 @@ resolve_install() {
   found=0
   # A copy in the plugin cache that the installed record no longer names is
   # an older version a session kept using: still answered, never silently.
+  # Skipped for the copy Claude Code loaded (a hook's) and for one a calling
+  # script already checked.
   case $script_dir in
     /*) ri_self=$script_dir ;;
     *) ri_self=$(pwd)/$script_dir ;;
   esac
   case $ri_self in
     */plugins/cache/*)
-      [ ! -f "$ri_self/resolve-installed-roots.sh" ] \
-        || /bin/sh "$ri_self/resolve-installed-roots.sh" --check "$ri_self/.." >/dev/null || :
+      if [ "${PLANWRIGHT_COPY_CHECKED:-}" != "$ri_self" ] \
+        && [ "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts}" != "$ri_self" ] \
+        && [ -f "$ri_self/resolve-installed-roots.sh" ]; then
+        /bin/sh "$ri_self/resolve-installed-roots.sh" --check "$ri_self/.." >/dev/null || :
+      fi
       ;;
   esac
   writer_root=""
