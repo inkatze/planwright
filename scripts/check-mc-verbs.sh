@@ -39,6 +39,9 @@ its own root and no overlay adds to it.
   --root    the core root (default: the checkout holding this script); the
             other paths default under it, scripts read from <root>/scripts
 
+A list line other than one `<script> <verb>` pair, and a list whose last
+line has no newline, fail too: the guard would read them differently.
+
 Exit codes: 0 the list matches; 1 a difference, each named on stderr;
 2 usage, or an input the check cannot read.
 HELP
@@ -181,7 +184,17 @@ fi
 [ -f "$list" ] && [ -r "$list" ] || die "cannot read $list"
 awk 'NF && $1 !~ /^#/ { print $1, $2 }' "$list" | sort -u >"$tmp/listed"
 
+# The guard reads the list with `read`: a line with a third word is skipped
+# there and a last line with no newline is dropped, so both fail here.
 status=0
+while IFS= read -r l; do
+  printf '%s\n' "$me: ${list#"$root"/}: '$l' is not one <script> <verb> pair" >&2
+  status=1
+done < <(awk 'NF && $1 !~ /^#/ && NF != 2' "$list")
+if [ -s "$list" ] && [ -n "$(tail -c 1 "$list")" ]; then
+  printf '%s\n' "$me: ${list#"$root"/} does not end in a newline" >&2
+  status=1
+fi
 while read -r s v; do
   printf '%s\n' "$me: $s $v is invoked by mission control but not in ${list#"$root"/}" >&2
   status=1

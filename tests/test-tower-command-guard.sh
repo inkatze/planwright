@@ -1545,6 +1545,30 @@ else
     *) fail "the check refused the answer verb for another reason: $out" ;;
   esac
 fi
+# check_list_fails <label> <expected stderr fragment>: the check over
+# $FIXLIST must fail, naming the fragment.
+check_list_fails() {
+  if out=$(/bin/bash "$CHECK_VERBS" --list "$FIXLIST" 2>&1); then
+    fail "$1 passes the check"
+  else
+    case $out in
+      *"$2"*) pass "$1 fails the check" ;;
+      *) fail "$1 fails the check for another reason: $out" ;;
+    esac
+  fi
+}
+{
+  cat "$VERBS"
+  printf '%s\n' 'mc-keeper.sh stale'
+} >"$FIXLIST"
+check_list_fails "a list line nothing invokes" "mc-keeper.sh stale is in"
+# The guard reads `<script> <verb>` lines with `read`, which skips a line
+# carrying a third word and drops a last line with no newline; the check
+# refuses both, so it never passes a list the guard reads differently.
+sed 's|^mc-rules.sh load$|mc-rules.sh load # the digest|' "$VERBS" >"$FIXLIST"
+check_list_fails "a list line with a third word" "not one <script> <verb> pair"
+printf '%s' "$(cat "$VERBS")" >"$FIXLIST"
+check_list_fails "a list with no final newline" "does not end in a newline"
 
 echo
 echo "=================================================="
