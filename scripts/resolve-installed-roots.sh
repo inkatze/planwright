@@ -165,13 +165,13 @@ recorded_roots() {
       | (.value | if type == "array" then .[] else . end)
       | select(type == "object" and (.installPath | type) == "string" and (.installPath | startswith("/")))
       | . as $e
-      | if $which == "all" then [0, $e.installPath]
-        elif (($e.scope // "user") == "user") then [1, $e.installPath]
+      | if $which == "all" then [0, 0, $e.installPath]
+        elif (($e.scope // "user") == "user") then [1, 0, $e.installPath]
         elif (($e.projectPath | type) == "string" and ($e.projectPath | startswith("/")) and $cwd != ""
           and ($cwd == $e.projectPath or ($cwd | startswith(($e.projectPath | rtrimstr("/")) + "/"))))
-          then [0, $e.installPath]
+          then [0, -($e.projectPath | rtrimstr("/") | length), $e.installPath]
         else empty end]
-      | sort_by(.[0]) | .[] | .[1]' "$f" 2>/dev/null \
+      | sort_by(.[0], .[1]) | .[] | .[2]' "$f" 2>/dev/null \
       | while IFS= read -r p; do
         emit "$p"
       done

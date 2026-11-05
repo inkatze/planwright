@@ -213,6 +213,17 @@ $new_copy" "$OUT"
 OUT=$(cd "$SANDBOX/elsewhere" && env -u HOME CLAUDE_PROJECT_DIR="$proj" CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" --current 2>/dev/null)
 assert_eq "--current follows the session's project over the working directory" "$old_copy
 $new_copy" "$OUT"
+nested="$SANDBOX/nested"
+mkdir -p "$nested/plugins"
+jq -n --arg u "$new_copy" --arg p "$old_copy" --arg s "$SANDBOX/sub-copy" --arg pp "$proj" --arg sp "$proj/sub" \
+  '{plugins: {"planwright@planwright": [
+      {scope: "user", installPath: $u},
+      {scope: "project", projectPath: $pp, installPath: $p},
+      {scope: "local", projectPath: $sp, installPath: $s}]}}' >"$nested/plugins/installed_plugins.json"
+OUT=$(cd "$proj/sub" && env -u HOME -u CLAUDE_PROJECT_DIR CLAUDE_DIR="$nested" /bin/sh "$RESOLVER" --current 2>/dev/null)
+assert_eq "--current in a nested project: the innermost install first, record order aside" "$SANDBOX/sub-copy
+$old_copy
+$new_copy" "$OUT"
 for here in elsewhere proj-2; do
   OUT=$(cd "$SANDBOX/$here" && env -u HOME -u CLAUDE_PROJECT_DIR CLAUDE_DIR="$scoped" /bin/sh "$RESOLVER" --current 2>/dev/null)
   assert_eq "--current from $here: the user install alone" "$new_copy" "$OUT"
