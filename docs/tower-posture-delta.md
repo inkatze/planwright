@@ -174,13 +174,17 @@ HEAD, and no shared stash, in any checkout, its own included:
   `clear`, `branch`, `create`, and `store` subcommands.
 
 The globs cover the plain spellings only. The policy guard's `branch-move` and
-`stash-write` acts (and its `worktree` act, for `worktree add -B`) refuse each act in every spelling its option parser reads
-(git's global options, long-option prefixes, short clusters, ref forms, case,
-and repository aliases), a bare-name fetch destination (`main:main`) and an
-expansion among a fetch's words included, and
-`tests/fixtures/tower-deny-acts.tsv` maps each entry to its act. Plain branch
-creation and deletion, the commit family, `git restore`, and `git clean` stay
-outside the floor.
+`stash-write` acts (and its `worktree` act, for `worktree add -B`) refuse each
+act in every spelling its option parser reads (git's global options,
+long-option prefixes, short clusters, ref forms, case, and repository
+aliases), a bare-name fetch destination (`main:main`) and an expansion among a
+fetch's words included. The guard also refuses forms no glob names: a fetch
+beside `-c`, a `GIT_*` variable, or a config change in the same command, a
+glob destination that can reach `refs/heads/`, `git remote add -f` into a
+fetch mirror, `gh co` (gh's alias of `pr checkout`), and an alias it cannot
+read. `tests/fixtures/tower-deny-acts.tsv` maps each entry to its act. Plain
+branch creation and deletion (an expanded branch name after `--`), the commit
+family, `git restore`, and `git clean` stay outside the floor.
 
 ## Residuals
 
