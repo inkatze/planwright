@@ -95,13 +95,16 @@ run only on backends that emit no readings (headless or subagent workers), or
 whose readings are all ignored, reads **unmeasured**, never as headroom.
 
 A Claude hold counts as cleared only when each window has a reading received
-after the hold began that is below the window's lowest restriction threshold,
-its usage-gate `downshift` knob (`fleet_usage_session_downshift`,
-`fleet_usage_weekly_downshift`; [Options reference](options-reference.md)). A
+after the hold began that is below the window's lowest enabled restriction
+threshold: its usage-gate `downshift` knob (`fleet_usage_session_downshift`,
+`fleet_usage_weekly_downshift`; [Options reference](options-reference.md)), the
+next enabled rung up when that one is `off`, or 100 when every rung of the
+window is `off`. A
 threshold set the usage gate refuses as malformed clears nothing either.
 `scripts/claude-frames.sh clearance --since <epoch>` answers that for a hold
 that began at `<epoch>`. A stated reset time passing is not evidence. The usage
-gate's own signal is its `/usage` read; these readings never change it.
+gate's own signal is the status-line mirror or its `/usage` read; these
+readings never change it.
 
 ## Classifying a refusal
 

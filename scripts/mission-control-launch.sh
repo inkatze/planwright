@@ -1,7 +1,8 @@
 #!/bin/sh
 # mission-control-launch.sh — the one launcher for every session kind mission
-# control starts, and the verb that retires them. A launch delivers the brief,
-# the rules in scope, the kind's settings profile, its model tier and its name
+# control starts, and the verb that retires them. A launch delivers the brief
+# (to a repository-changing kind, with the verification cadence), the rules
+# in scope, the kind's settings profile, its model tier and its name
 # (and to a mission-control session its registry row's token, as
 # PLANWRIGHT_MC_TOKEN), then registers owner, kind and scope. `--help` prints
 # the usage, the output shapes and the exit codes.
@@ -63,8 +64,10 @@ current directory), on the unit's branch (planwright/<spec>/task-<id> for
 default branch otherwise; a worktree already holding that branch is reused
 only when no live session (a registered launch or a process) runs there.
 --cwd names a worktree instead, accepted only when it is not a primary
-checkout and no live session uses it. Such a launch's brief gains a cadence
-section unless the brief is a skill command. Every other kind starts in
+checkout and no live session uses it. Such a launch's brief, unless its
+first line is a skill command (`/<name>`, alone or before a space), also
+carries the verification cadence: the in-run points and the
+`step-run.sh audit` that readiness repeats. Every other kind starts in
 --cwd, else the current directory, and takes neither --repo nor --task.
 
 The name is derived from program, kind and scope alone, so the same inputs
@@ -456,29 +459,34 @@ place_worktree() {
   fi
 }
 
-# is_skill_command <brief> — 0 when the brief's first line with text opens
-# with a slash command, which carries its own cadence.
-is_skill_command() {
-  sc_word=$(awk 'NF { print $1; exit }' "$1")
-  case $sc_word in
-    /*/* | /) return 1 ;;
-    /[a-z]*) return 0 ;;
-  esac
-  return 1
-}
-
+# cadence_section <name> — the configured cadence a repository-changing
+# session runs, by reference to the one procedure that fires it, with the
+# mappings a specless session needs, and the audit readiness repeats.
 cadence_section() {
-  cat <<'EOF'
-## Cadence
+  cs_root=$(cd "$script_dir/.." && pwd -P) || return 1
+  cat <<EOF
 
-This session changes a repository, so it runs the configured cadence
-without being asked: at each in-run point, resolve its steps with
-`scripts/step-run.sh resolve`, host them in order, and record each outcome
-and the point's completion with `scripts/step-record.sh write`, as
-`doctrine/custom-steps.md` describes (both scripts and the doctrine live
-under the planwright root). Before handing off, run
-`scripts/step-run.sh audit --through post-pr --head <pull request head SHA>`
-and treat every gap it prints as unfinished work.
+## Verification cadence
+
+This session changes a repository, so it runs the configured cadence. Fire
+every in-run point (\`pre-implementation\`, \`pre-ci\`, \`convergence\`,
+\`pre-pr\`, \`post-pr\`) at its moment by \`/execute-task\`'s *Points*
+procedure, read from \`$cs_root/skills/execute-task/SKILL.md\`, with these
+mappings for a specless session:
+
+- Resolve every point \`--unattended\`, under \`$cs_root/scripts/\`.
+- Export the step context with \`PLANWRIGHT_STEP_UNIT_KIND=flight\`, empty
+  spec and task ids, this branch, its base branch and this worktree; an
+  isolated step's launch tier takes the unit \`mission-control:$1\`.
+- Wherever the procedure parks or stops the unit, stop and report the point,
+  the step and what it printed to mission control instead; write nothing to
+  any \`tasks.md\` or other spec state.
+
+Before the push, run \`$cs_root/scripts/step-run.sh audit --through pre-pr\`;
+before reporting the PR done, \`$cs_root/scripts/step-run.sh audit --through post-pr --base origin/<base branch>\`.
+Close every gap it names first. Mission control's readiness check runs the
+same audit and refuses a PR with a gap. The PR body carries the rendered
+records (\`$cs_root/scripts/step-record.sh render\`) in a \`<details>\` block.
 EOF
 }
 
@@ -644,14 +652,17 @@ cmd_launch() {
   if ! (umask 077 && cat "$brief" >"$composed"); then
     refuse "cannot read the brief into the launch for $name" 2
   fi
+  # A kind that changes a repository runs the configured cadence whatever its
+  # brief says; a brief whose first line is a skill command leaves it to that
+  # skill.
+  if changes_repo "$kind" && ! head -n 1 "$composed" | grep -Eq '^/[A-Za-z0-9:_-]+( |$)' \
+    && ! cadence_section "$name" >>"$composed"; then
+    refuse "cannot write the cadence into the brief for $name" 2
+  fi
   # The provenance line follows the brief, so a brief that is a slash command
   # still opens with it.
   if ! {
     printf '\n%s\n\n' "$rendered"
-    if changes_repo "$kind" && ! is_skill_command "$brief"; then
-      cadence_section
-      printf '\n'
-    fi
     printf '<!-- mission-control launch: %s (kind %s, scope %s, program %s) -->\n' "$name" "$kind" "$scope" "$program"
   } >>"$composed"; then
     refuse "cannot write the composed brief for $name" 2

@@ -27,7 +27,7 @@ done
 
 CLASSES="auto-applicable agent-resolvable needs-sign-off hygiene"
 ROUTES="human-gate fork hard-disqualifier reserved-proposal"
-SHAPES="correction manual answer"
+SHAPES="correction manual answer denial"
 
 help_text() {
   cat <<'HELP'
@@ -45,8 +45,8 @@ is taken, logged as decided by mission control, and shown for review.
 The reasons grammar: each entry this script writes carries grounds
   <reason> <class> <rules>: <text>
 reason   settled (taken), ask-first or a route (asked), revoke or confirm
-         (the operator's verdict on an entry), or correction, manual or
-         answer (a repeat noted for the proposal detector)
+         (the operator's verdict on an entry), or correction, manual,
+         answer or denial (a repeat noted for the proposal detector)
 class    a decision class, or `-`
 rules    the comma-separated rule-store ids the decision acts under, or
          `-`; the self-audit (scripts/mc-audit.sh) flags an act on an
@@ -73,11 +73,13 @@ Usage:
       the operator's verdict: a revoke names a settled decision not yet
       revoked; a confirmation names a settled or ask-first decision
       neither revoked nor confirmed
-  mc-decide.sh note --program <p> --shape <correction|manual|answer>
+  mc-decide.sh note --program <p> --shape <correction|manual|answer|denial>
       --subject <s> --text <t> [--target <t>]
       note an operator correction (the quote), a manual step (the act;
-      --target the kebab event it followed) or an answer (--target the
-      answer, --subject the question); prints noted<TAB><entry id>
+      --target the kebab event it followed), an answer (--target the
+      answer, --subject the question) or a hook, guard or classifier
+      denial (--subject the guard, --text its exact text); prints
+      noted<TAB><entry id>
   mc-decide.sh ledger --program <p>
       class<TAB><class><TAB><autonomous|ask-first><TAB><decided>
       <TAB><revoked><TAB><confirmations since the latest revoke>

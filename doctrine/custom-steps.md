@@ -439,6 +439,15 @@ paths worktree-relative; layers by name). A point whose list was empty still
 emits its table with a single `none` row and its warnings; the turn reports
 counts.
 
+**The cadence audit.** At a hand-on boundary (before a push, before a PR is
+reported done, at mission control's readiness check) the records are read
+back against the configured lists, read-only, by `scripts/step-run.sh audit
+--through <point>`: a point is covered by its newest run whose completion
+counts at the head, that run recording every required step passed, applied,
+or skipped (a recorded skip counts), so a point or step left with no record
+is caught whoever omitted it. The
+script's usage header states the freshness rule and the output.
+
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.6, REQ-J1.2, D-20, D-32)
 
 Any **agent-issued** draft-to-ready flip of a unit PR runs
