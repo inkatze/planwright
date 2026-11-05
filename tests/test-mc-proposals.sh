@@ -226,6 +226,65 @@ expect_out "a knob wins over a duty" "${tab}knob${tab}mission_control_tick_caden
 prop show --program alpha "$(field "$OUT" 2)"
 expect_out "the ask's confirmation names the reason it reached the operator" "noticed${tab}ask repeated 2 times: which base, by fork"
 
+# ---------------------------------------------------------------------------
+# A guard denial a knob governs (config/denial-knobs.tsv): the first raises
+# nothing, the second identical refusal proposes the knob, its effect and
+# the adopter layer it lives in, handed to the operator and never written.
+# ---------------------------------------------------------------------------
+cp "$repo_root/config/denial-knobs.tsv" "$core/config/denial-knobs.tsv"
+printf 'knob\tready_guard_behind_base\tthe config layers\tdocs/options-reference.md\n' >>"$kb/mechanisms.tsv"
+if grep -Fq 'commit(s) behind its base branch' "$repo_root/scripts/ready-guard.sh"; then
+  ok "the ready-guard still words its behind-base refusal as the map expects"
+else
+  fail "the ready-guard's behind-base wording changed; update config/denial-knobs.tsv"
+fi
+behind() {
+  printf 'planwright ready-guard: this pull request is %s commit(s) behind its base branch main, so it has NOT been verified on a current head - refusing the draft->ready flip.' "$1"
+}
+note --shape denial --subject ready-guard --text "$(behind 3)"
+expect_rc "a denial is noted" 0
+prop scan --program alpha
+expect_no_out "the first behind-base refusal raises nothing" "ready_guard_behind_base"
+note --shape denial --subject "Ready-Guard" --text "planwright ready-guard: this pull request conflicts with its base branch main"
+note --shape denial --subject ready-guard --text "planwright ready-guard: this pull request conflicts with its base branch main"
+prop scan --program alpha
+expect_no_out "a repeated denial no knob governs raises nothing" "${tab}denial${tab}"
+note --shape denial --subject ready-guard --text "$(behind 7)"
+prop scan --program alpha
+expect_out "the second behind-base refusal is a repeat naming its knob" \
+  "${tab}denial${tab}ready-guard${tab}ready_guard_behind_base${tab}2${tab}"
+p_deny=$(pattern_of ready-guard)
+prop propose --program alpha --pattern "$p_deny" --cadence "at every ready flip of a pull request behind its base" \
+  --intervene "a conflicting pull request is still refused" --cost "none" --off "remove the line"
+expect_rc "the denial repeat is proposed with its knob and change derived" 0
+expect_out "the proposal names the knob in the adopter layer" \
+  "${tab}knob${tab}ready_guard_behind_base${tab}$adopter/planwright.yml"
+p_dk=$(field "$OUT" 2)
+prop show --program alpha "$p_dk"
+for line in "noticed${tab}denial repeated 2 times: ready-guard, governed by ready_guard_behind_base" \
+  "commit(s) behind its base branch" "change${tab}ready_guard_behind_base: conflict-only" \
+  "effect${tab}a pull request behind its base branch" "settings${tab}ready to apply, never written: $adopter/planwright.yml"; do
+  expect_out "the denial confirmation carries: $line" "$line"
+done
+prop accept --program alpha "$p_dk"
+expect_out "the guard knob is handed to the operator" \
+  "handover-operator${tab}$adopter/planwright.yml${tab}ready_guard_behind_base: conflict-only"
+mc_run mc-config.sh apply --program alpha "$p_dk" --value conflict-only
+expect_out "applying the guard knob hands it over too" "handover-operator${tab}"
+if [ -e "$adopter/planwright.yml" ]; then fail "the adopter layer was written"; else ok "the adopter layer is untouched"; fi
+
+printf 'policy-guard\tseeded refusal\tmission_control_tick_cadence\t1m\trepo-tracked\ta seeded effect\n' >>"$core/config/denial-knobs.tsv"
+note --shape denial --subject policy-guard --text "planwright policy-guard: a seeded refusal"
+note --shape denial --subject policy-guard --text "planwright policy-guard: a seeded refusal, again"
+prop scan --program alpha
+expect_out "a map row added as data governs its denial" "${tab}denial${tab}policy-guard${tab}mission_control_tick_cadence${tab}2${tab}"
+prop propose --program alpha --pattern "$(pattern_of policy-guard)" --cadence c --intervene c --cost c --off c
+p_dw=$(field "$OUT" 2)
+prop accept --program alpha "$p_dw"
+mc_run mc-config.sh apply --program alpha "$p_dw" --value 1m
+expect_out "a guard knob mission control could write is still handed over" "handover-operator${tab}"
+expect_no_out "nothing is applied" "applied${tab}"
+
 printf '%s\n' "mission_control_repeat_threshold: 3" >>"$tracked"
 note --shape correction --subject "Three times" --text "one"
 note --shape correction --subject "Three times" --text "two"
