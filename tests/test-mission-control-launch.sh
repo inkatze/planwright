@@ -1066,6 +1066,16 @@ SHIM_RECORD_DIR=$rec ml launch --program alpha --kind ad-hoc --scope off-side --
 wait_done "$(field name)"
 gitc checkout -q main
 
+# A unit whose branch the primary checkout itself has checked out is refused
+# rather than started in the primary, with no session and no marker.
+gitc checkout -q -b planwright/demo/task-3 main
+ml launch --program alpha --kind worker --scope demo:task-3 --brief "$tmp/brief.md"
+[ "$RC" = 4 ] && case $ERR in *"checked out in the primary checkout"*) true ;; *) false ;; esac \
+  && no_session demo:task-3 worker && ! marker_present 3 \
+  && ok "a unit whose branch the primary checkout holds is refused (exit 4) with no session or marker" \
+  || fail "a launch for a unit checked out in the primary: exit $RC, $ERR"
+gitc checkout -q main
+
 # Usage refusals, each with no row: "<kind>|<scope>|<extra args>|<message>".
 for case_ in "worker|usage-a|--repo relative/dir|absolute path" "tower|usage-b|--repo $repo|no --repo" \
   "worker|usage-c|--repo $repo --cwd $tmp/spare|neither --repo" "worker|demo:task-7|--cwd $tmp/spare|neither --repo nor a task scope" \
