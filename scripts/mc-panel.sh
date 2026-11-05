@@ -94,6 +94,10 @@ Usage:
         handover<TAB>available|absent        whether a handover verb is
                                              installed to defer a
                                              compaction for
+        holder<TAB>registry|attended|-       the holder record's kind: only
+                                             a registry holder (a session
+                                             mission control launched) hands
+                                             over; `-` with no readable record
         unreadable<TAB><store>               a store that could not be read
         line<TAB><text>                      the line form, last
       Stored text has every control byte dropped.
@@ -463,6 +467,25 @@ handover() {
   fi
 }
 
+# The holder record's kind (scripts/mc-handover.sh writes it): a registry
+# holder hands over, an attended one compacts.
+holder() {
+  hd_f=$runtime/holder
+  if [ ! -e "$hd_f" ] && [ ! -L "$hd_f" ]; then
+    printf 'holder\t-\n'
+    return 0
+  fi
+  if [ -L "$hd_f" ] || ! mc_format_ok "$hd_f"; then
+    printf 'unreadable\tholder record\nholder\t-\n'
+    return 0
+  fi
+  hd_kind=$(awk -F '\t' '$1 == "kind" { k = $2 } END { print k }' "$hd_f")
+  case $hd_kind in
+    registry | attended) printf 'holder\t%s\n' "$hd_kind" ;;
+    *) printf 'unreadable\tholder record\nholder\t-\n' ;;
+  esac
+}
+
 the_line() {
   ln_text="mission control $program: $D_FLIGHT in flight, $D_WAITING waiting"
   [ -z "$target" ] || ln_text="$ln_text, $D_PENDING pending"
@@ -486,6 +509,7 @@ digest() {
   measures
   reviews
   handover
+  holder
   printf 'line\t%s\n' "$(the_line)"
 }
 

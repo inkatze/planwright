@@ -22,7 +22,7 @@ const DEFER_CEILING_PCT = 95
 const FAULT_MAX = 200
 
 // Change the tag when PanelView's fields change: a reload keeps $.state.
-const panel = atom({ plugin: 'planwright', key: 'panel' } as const, null, { shape: 'panel-3' })
+const panel = atom({ plugin: 'planwright', key: 'panel' } as const, null, { shape: 'panel-4' })
 const isBusy = atom({ plugin: 'planwright', key: 'isBusy' } as const, false)
 
 type Ctx = { program: string; target: string; root: string }
@@ -111,7 +111,14 @@ async function isHeld($: EngineInterface, v: PanelView): Promise<boolean> {
 // a failed emit is tried again at the next check.
 async function checkHandover($: EngineInterface) {
   const v = await view($)
-  if (!v || v.handover || isRaising) return
+  if (!v || isRaising) return
+  // Shown before the reading said whose session this is; it would only
+  // hold the compaction an attended session needs.
+  if (v.handover && v.digest && v.digest.holder !== 'registry') {
+    await patch($, x => ({ ...x, handover: null }))
+    return
+  }
+  if (v.handover) return
   const reason = handoverReason(v)
   if (!reason) return
   isRaising = true

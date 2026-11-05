@@ -10,7 +10,14 @@ export const START = 1_000_000_000
 const tab = (...f: (string | number)[]) => f.join('\t')
 
 export function digestText(
-  o: { pending?: number; extra?: string[]; refresh?: number; tick?: number; reviewsTtl?: number } = {},
+  o: {
+    pending?: number
+    extra?: string[]
+    refresh?: number
+    tick?: number
+    reviewsTtl?: number
+    holder?: 'registry' | 'attended' | '-'
+  } = {},
 ): string {
   return [
     tab('format', 1),
@@ -38,6 +45,7 @@ export function digestText(
     tab('measure', 'interruptions_per_hour', '2.5', 130),
     tab('measure', 'settled_share', '80', 130),
     tab('handover', 'absent'),
+    tab('holder', o.holder ?? 'attended'),
     ...(o.extra ?? []),
     tab('line', 'mission control alpha: 2 in flight, 2 waiting, 0 pending, rung throttle'),
   ].join('\n')

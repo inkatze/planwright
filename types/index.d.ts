@@ -42,6 +42,9 @@ export type PanelDigest = {
   // Null where the digest carried no reviews record.
   reviews: PanelReviews | null
   isHandoverInstalled: boolean
+  // The holder record's kind: only a registry holder (a session mission
+  // control launched) hands over; null with no record or an unreadable one.
+  holder: 'registry' | 'attended' | null
   unreadable: string[]
   line: string
 }

@@ -27,6 +27,7 @@ export function parseDigest(text: string): PanelDigest | null {
     measures: [],
     reviews: null,
     isHandoverInstalled: false,
+    holder: null,
     unreadable: [],
     line: '',
   }
@@ -132,6 +133,9 @@ export function parseDigest(text: string): PanelDigest | null {
       case 'handover':
         d.isHandoverInstalled = f[1] === 'available'
         break
+      case 'holder':
+        d.holder = f[1] === 'registry' || f[1] === 'attended' ? f[1] : null
+        break
       case 'unreadable':
         if (f[1]) d.unreadable.push(f[1])
         break
@@ -175,10 +179,11 @@ export function fallbackLine(view: PanelView): string {
 
 // The handover trigger: measured context where the harness gives
 // it, the completed-wake count otherwise, and the compaction ceiling either
-// way. Null while no threshold is reached or the knobs are unread.
+// way. Null while no threshold is reached or the knobs are unread, and
+// always outside a launched holder: the operator's own session compacts.
 export function handoverReason(view: PanelView): string | null {
   const k = view.digest?.knobs
-  if (!k) return null
+  if (!k || view.digest?.holder !== 'registry') return null
   const compactions = k['handover-compactions']
   if (compactions !== undefined && view.compactions >= compactions) {
     return `${view.compactions} compactions`

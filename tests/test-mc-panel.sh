@@ -204,6 +204,22 @@ record "a zero compaction ceiling is refused" unreadable "knob mission_control_h
 setup_tracked=$(grep -v '^mission_control_handover_compactions' "$tracked")
 printf '%s\n' "$setup_tracked" >"$tracked"
 
+# REQ-L1.8: the holder record's kind tells a launched holder, which hands
+# over, from the operator's own session, which compacts.
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "REQ-L1.8: no holder record reads as none" holder -
+printf 'format\t1\nsession\tmc-alpha-attended-1\nkind\tattended\nsince\t900\ngeneration\t1\n' >"$runtime/holder"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "REQ-L1.8: the operator's own session is an attended holder" holder attended
+printf 'format\t1\nsession\tmc-alpha-gen-1\nkind\tregistry\nsince\t900\ngeneration\t2\n' >"$runtime/holder"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "REQ-L1.8: a launched session is a registry holder" holder registry
+printf 'format\t9\nkind\tregistry\n' >"$runtime/holder"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "a holder record of an unknown format is unreadable" unreadable "holder record"
+record "and its kind is unknown, never launched" holder -
+rm -f "$runtime/holder"
+
 mc_run mc-panel.sh digest --program beta
 expect_rc "an unconfigured program" 3
 mc_run mc-panel.sh digest --program alpha --target 'bad;t'

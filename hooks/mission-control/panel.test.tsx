@@ -241,12 +241,12 @@ test('a lasting fault clearing leaves a failing reading on the pane', async ($, 
 })
 
 test('a knob unread at bring-up is read again until every knob arrives', async ($, on) => {
-  const partial = digestText().replace(/^knob\thandover-context.*$/m, 'unreadable\tknob mission_control_handover_context')
+  const partial = digestText({ holder: 'registry' }).replace(/^knob\thandover-context.*$/m, 'unreadable\tknob mission_control_handover_context')
   const w = world(on, { digest: partial })
   await boot($, w)
   await w.clock.advance(10_000)
   expect(ran(w, 'mc-panel.sh', 'digest').at(-1)).toContain('--knobs')
-  w.set({ digest: digestText(), contextPercent: 75 })
+  w.set({ digest: digestText({ holder: 'registry' }), contextPercent: 75 })
   await w.clock.advance(10_000)
   expect(ran(w, 'mc-event.sh', 'emit').at(-1)?.slice(-3)).toEqual(['handover-due', 'alpha', 'context at 75%'])
   await w.clock.advance(10_000)
