@@ -353,6 +353,7 @@ move again.)*
 | 10 | Independent reader availability and cost per Phase B PR (fresh session or non-Anthropic backend). | The panel-review backends already configured on this machine serve as the non-Anthropic pass. Signal: a Phase B PR opened without its verification record. |
 | 11 | A cleanup PR reverted after closeout leaves the guard red, since closeout admits no transitional entry (raised by the sign-off lens pass under the deploy-migration domain; the domain stays not applicable because nothing is irreversible). | Rollback story: the revert lands together with a re-added `pending-cleanup` entry naming a follow-up task, and closeout is re-run once the re-clean lands. Signal: `check:comment-budget` red on a revert PR. |
 | 12 | The instantiation tasks (10, 11, 12) write the same skill files with no edge ordering them: Task 10 edits `skills/polish/SKILL.md`, `skills/self-review/SKILL.md` and `/execute-task`'s convergence prose, Task 11 edits the first and Task 12 the other two, so a selector may dispatch Task 10 beside either and two worktrees write one file at once (decision domain: concurrency). | Each task writes only its own rules' citations, and they do not overlap: Tasks 11 and 12 land lens scoping, prose classification and the batched commit discipline, Task 10 lands the PR-introduced-surface rule. Ordering rule: a dispatcher runs at most one of the three against any one file at a time, so Task 10 never runs beside Task 11 nor beside Task 12; Tasks 11 and 12 share no file and may run together. The second of a pair to be dispatched re-reads the file after the first has merged and adds its citation as new commits, never a rebase. Signal: a merge conflict in a skill file between two instantiation PRs, or a `check:instructions` measurement on one that does not match what its PR body recorded. *(Added at the 2026-09-21 amendment: the operator chose this coordination over a dependency edge on Tasks 11 and 12, the shape row 3 already uses for the Phase B families.)* |
+| 13 | Tasks 8 and 8.1 both depend only on Task 5, may run together, and may edit the same `tests/` files; a Task 8 split of a large block can also leave a new evidence-free block in `tests/`, so Task 8.1's after-count would no longer match its kept list (decision domain: concurrency). | Task 8 touches only blocks at or above the error threshold, Task 8.1 only evidence-free ones below it. Ordering rule, row 3's shape: the second of the two to merge forward-merges `main`, re-runs its after-audit, and updates its list or record as new commits, never a rebase; when Task 8 merges second, any evidence-free `tests/` block it leaves goes into its own record with a reason. Signal: a merge conflict in a `tests/` file, or Task 8.1's kept-list length differing from a fresh after-audit. *(Added at the 2026-11-04 amendment, D-16.)* |
 
 Signed off: 2026-09-04
 
@@ -737,4 +738,74 @@ files; `scripts/spec-validate.sh` re-run after the edits with 0 errors and
 Class: meaning
 Lens-pass: 2026-11-02 extension entry, delta-scoped lens review above (spec lens set, inline; every finding dispositioned)
 Anchor: `ce477a1516e19fe97d7628c4d5da57890490028c` — computed as
+`scripts/spec-anchor.sh specs/prose-disposition`
+
+### 2026-11-04 — Amendment: the evidence-free disposition splits at `tests/`
+
+**Trigger.** Task 5 parked again after Task 4.1 (Sources: the Task 5
+re-park): the guard's `--audit` on `main` still counted 2,823
+evidence-free blocks, most under `tests/`, and the kept list REQ-G1.2 puts
+in the PR body would pass GitHub's PR-body limit. Operator ruling,
+2026-11-04: narrow Phase A to `scripts/` and the deletable classes, leaving
+`tests/` to Phase B. Declared as an amendment to an Active bundle.
+
+**Delta walked.** Three operator choices, each from a recommended option:
+Phase A covers every surface path outside `tests/` (`scripts/` and the
+small remainder under `config/`, workflows, `githooks/` and
+`lefthook.yml`), touching no `tests/` file; `tests/` goes to a new Task
+8.1 rather than into Task 8, since Phase B's family tasks read only blocks
+at or above the error threshold and no `tests/` evidence-free block reaches
+it, so without an explicit owner nothing would read them; Task 8.1 uses
+Phase A's method (kept list with reasons, count completeness, sampled
+independent read), the kept list in the PR body grouped by file or in a
+committed bundle file the body links when it would pass the limit. Edits:
+D-16 (new), D-15's narrowing alternative annotated, D-12 and D-13
+annotated and the concurrency note extended; REQ-G1.2 rewritten for the two
+scopes with the overflow file; REQ-G1.3 and REQ-G1.5 scoped to the family
+tasks; the scope bullet, Changelog and Sources updated; Task 5 narrowed,
+Task 8.1 added (depends on Task 5), Task 8 points at it, Task 9 depends on
+it; test-spec REQ-G1.1, G1.2, G1.3 and G1.5 updated; risk row 13 added. The
+section 6 task graph above predates Task 8.1: it is a fourth Phase B
+branch off Task 5 feeding Task 9. The critical path keeps its shape (Task
+5, the longest Phase B task, Task 9) with a worker per Phase B task; with
+three workers the four tasks no longer get a slot each, so the shortest
+family and Task 8.1 share one and the Phase B stretch grows by about the
+shorter of the two; a single worker adds Task 8.1's estimate whole.
+
+**Lens review (delta-scoped).** Spec lens set, walked inline over the delta
+(one new decision, one rewritten and two scoped requirements, one new task,
+four test entries); no fan-out, scoped by size and by the 2026-11-02
+precedent. Altitude and ship-gate items: unaffected by the delta.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 1 | REQ-G1.3 read as binding every Phase B task, so Task 8.1 would also owe the error-threshold read Task 8 owns; applied: REQ-G1.3 scoped to the family tasks |
+| Ambiguity and interpretation forks | 0 | The overflow file's name is left to the worker; Task 8.1 runs after Task 5, so no collision |
+| Citation and coverage integrity | 0 | D-16 cited from REQ-G1.2, G1.3, G1.5, Tasks 5, 8.1 and 9; the re-park added to Sources |
+| Dead verification paths | 0 | Task 8.1's PR carries the `comments` scope, so the CI `--code-invariant` step runs on it |
+| Decision-domain gaps | 1 | Concurrency between Tasks 8 and 8.1 on shared `tests/` files; applied: risk row 13 and the design's concurrency note |
+| Testability | 0 | "Touches no `tests/` file" and its Task 8.1 mirror are checkable from the diff |
+| Cross-file consistency | 2 | Test-spec REQ-G1.3 said "each Phase B PR"; applied: family PRs. Task 8 still listed `tests/` without naming Task 8.1's share; applied |
+| Documentation and glossary drift | 1 | D-16's "no `tests/` block reaches the threshold" was a bare corpus claim; applied: dated to the 2026-11-04 recount |
+| Rendered-content safety and data hygiene | 0 | None |
+
+**Pre-flip verification.** No status flip (Active bundle). Stale-reference
+sweep over the four files for Phase A and Phase B PR wording: only
+Changelog and Sources history remain. Lint: `markdownlint-cli2` over the
+four spec files and this brief, 0 errors. Recorded figures re-derived from
+the guard's `--audit` on this branch (`cbb15897`): 2,823 evidence-free
+blocks, 1,879 under `tests/`, the longest `tests/` one 18 lines against an
+error threshold of 25.
+
+#### Sign-off record (2026-11-04 amendment)
+
+Signed off 2026-11-04 by the operator after the approval summary, relayed
+through the fleet tower, as an amendment to an Active bundle: no status
+flip; `Last reviewed:` bumped on all four spec files;
+`scripts/spec-validate.sh` re-run after the edits with 0 errors and 0
+warnings.
+
+Class: meaning
+Lens-pass: 2026-11-04 amendment entry, delta-scoped lens review above (spec lens set, inline; every finding dispositioned)
+Anchor: `371b04f1e0dfe809dcdd65d43a9f0586351e1804` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`
