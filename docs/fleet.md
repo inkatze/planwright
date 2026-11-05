@@ -2112,12 +2112,23 @@ a captured `/usage` render on stdin (a throwaway-pane scrape, off the hot
 path), strips control bytes, parses **both** windows Claude Code renders — the
 session (~5-hour) and the weekly — **by label**, plausibility-checks each
 (0–100 and the expected shape), and caches the extracted signal per-tower with
-a read timestamp. `fleet-usage-gate.sh evaluate` maps each window's percentage
+a read timestamp. A scrape needs a TUI, which a background (stream-json)
+session lacks, so the gate first reads the **status-line mirror**: the copy of
+Claude Code's own rate-limit windows a status line writes to
+`${XDG_CACHE_HOME:-$HOME/.cache}/claude-usage/rate-limits.json` as
+`{"five_hour":{"used_percentage":N,"resets_at":EPOCH},"seven_day":{...}}`
+(`$PLANWRIGHT_USAGE_MIRROR` names another file; set empty, it is skipped).
+Each window comes from the first source holding it fresh, the mirror (within
+`fleet_usage_signal_ttl_seconds` by file age, its reset still ahead) and then
+the capture cache, so a window the mirror lacks falls back instead of reading
+0%. `fleet-usage-gate.sh evaluate` maps each window's percentage
 to a rung on one monotone restriction ladder —
 `normal → downshift → reduce-concurrency → defer-heavy → defer-all` — by
 deterministic `≥` comparison against the overlay-resolved per-window thresholds
 (`fleet_usage_session_*`, `fleet_usage_weekly_*`; strictly ascending and in
-1–100, validated). The **more restrictive** window governs; the session window
+1–100, validated; `off` disables a rung, so every soft rung `off` beside a
+`fleet_usage_weekly_defer_all` leaves one hard stop). The **more restrictive**
+window governs; the session window
 is **capped at `defer-heavy`** (a session spike never proactively halts the
 fleet), while only the weekly window can reach `defer-all` (the weekly wall can
 halt work for days). `fleet-usage-gate.sh admit <model>` answers the
@@ -2147,12 +2158,15 @@ render is an undocumented, version-fragile surface (D-23), the parser carries a
 ladder) is in CI; confirming the parser still matches a live `/usage` format is
 the operator's periodic manual check.
 
-Schedule the read + evaluation on the `fleet_usage_read_cadence_seconds`
-cadence, off the dispatch hot path — the gate never scrapes `/usage`
-synchronously per dispatch. The scrape mechanism (a throwaway-pane capture of
-the live `/usage` TUI) is environment-specific; wire it as, e.g.:
+Schedule the evaluation on the `fleet_usage_read_cadence_seconds` cadence,
+off the dispatch hot path: the rung moves only when `evaluate` runs, and the
+gate never scrapes `/usage` synchronously per dispatch. With the status-line
+mirror in place the evaluation alone is enough; without it, feed a scrape (a
+throwaway-pane capture of the live `/usage` TUI, environment-specific) to
+`capture` first:
 
 ```cron
+*/5 * * * * cd /path/to/repo && scripts/fleet-usage-gate.sh evaluate
 */5 * * * * cd /path/to/repo && <scrape-/usage> | scripts/fleet-usage-gate.sh capture && scripts/fleet-usage-gate.sh evaluate
 ```
 

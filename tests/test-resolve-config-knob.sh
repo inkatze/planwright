@@ -23,6 +23,7 @@
 #   - the nonnegint type (model-allocation REQ-A1.4's pinned numeric-knob
 #     grammar: zero is legal, leading zero / negative / non-integer / oversize
 #     are not);
+#   - the threshold type (posint, or `off` for a rung switched off);
 #   - usage validation (key charset, type set, missing/invalid fallback);
 #   - the output contract (single newline-terminated value);
 #   - the REQ-G1.5 bundle-knob sweep: every knob the fleet-autonomy bundle
@@ -439,6 +440,39 @@ got=$(PLANWRIGHT_CONFIG_DEFAULTS="$nonneg_core" PLANWRIGHT_ADOPTER_OVERLAY="$ado
   || fail "nonnegint: a zero --fallback should be accepted"
 [ "$got" = 0 ] || fail "nonnegint: a zero --fallback should be emitted verbatim, got '$got'"
 echo "ok: the nonnegint type honors the by-layer policy and accepts a zero fallback"
+
+# 10e. The threshold type: posint, or `off` for a rung switched off, so
+#      disabling a rung needs no magic out-of-range number (the range is the
+#      caller's to refuse).
+thr_core="$tmp/core-threshold.yml"
+run_thr() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$thr_core" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$RCK" --key fleet_usage_weekly_downshift --type threshold --fallback "$1"
+}
+reset_layers
+for good in 1 60 100 101 off; do
+  printf 'fleet_usage_weekly_downshift: %s\n' "$good" >"$thr_core"
+  got=$(run_thr 60) || fail "threshold: valid value '$good' did not resolve"
+  [ "$got" = "$good" ] || fail "threshold: '$good' resolved to '$got'"
+done
+for bad in 0 060 -5 7.5 OFF of ""; do
+  printf 'fleet_usage_weekly_downshift: %s\n' "$bad" >"$thr_core"
+  rc=0
+  run_thr 60 >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 5 ] || fail "threshold: '$bad' in core was not treated as malformed (exit $rc, expected 5)"
+done
+printf 'fleet_usage_weekly_downshift: 60\n' >"$thr_core"
+printf 'fleet_usage_weekly_downshift: nope\n' >"$adopter_cfg"
+out=$(run_thr 60 2>/dev/null) || fail "threshold: a malformed adopter value must degrade"
+[ "$out" = 60 ] || fail "threshold: a malformed adopter value did not degrade to the core 60 (got '$out')"
+reset_layers
+: >"$thr_core"
+got=$(run_thr off 2>/dev/null) || fail "threshold: an off --fallback should be accepted"
+[ "$got" = off ] || fail "threshold: an off --fallback should be emitted verbatim, got '$got'"
+echo "ok: the threshold type admits a positive integer or off and honors the by-layer policy"
 
 # 10e. --degrade <value>: a malformed adopter or machine-local value degrades
 #      to the caller's strict target instead of the core default, whose value

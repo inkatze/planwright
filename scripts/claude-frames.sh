@@ -39,9 +39,11 @@
 #     later receipt on a tie, then the higher reading), whichever worker sent
 #     it, a dead one's included. A frame line out of grammar, or received
 #     after --now, is skipped. The threshold is the window's lowest-rung
-#     descend threshold, its usage-gate downshift knob
-#     (`fleet_usage_session_downshift`, `fleet_usage_weekly_downshift`), and a
-#     reading is below it when its percentage is strictly less. A state is
+#     descend threshold: its usage-gate downshift knob
+#     (`fleet_usage_session_downshift`, `fleet_usage_weekly_downshift`), the
+#     next enabled rung up when that one is `off`, or 100 (the wall) when every
+#     rung of the window is off. A reading is below it when its percentage is
+#     strictly less. A state is
 #     `unmeasured` (no reading), `above`, `pre-hold` (clearance only: received
 #     no later than --since), or `below`. The read verdict is `measured` or `unmeasured`; the
 #     clearance verdict is `cleared` only when both windows are `below`,
@@ -212,32 +214,40 @@ fi
 # read / clearance
 threshold() {
   [ -x "$RESOLVER" ] || die 5 "the knob resolver is missing or not executable (broken install)"
-  th_v=$("$RESOLVER" --key "$1" --type posint --fallback "$2") || exit $?
-  case $th_v in "" | *[!0-9]*) die 5 "$1 did not resolve to a number" ;; esac
-  { [ "${#th_v}" -le 3 ] && [ "$th_v" -ge 1 ] && [ "$th_v" -le 100 ]; } || die 4 "$1 is outside 1-100"
+  th_v=$("$RESOLVER" --key "$1" --type threshold --fallback "$2") || exit $?
+  case $th_v in
+    off) ;;
+    "" | *[!0-9]*) die 5 "$1 did not resolve to a number or off" ;;
+    *) { [ "${#th_v}" -le 3 ] && [ "$th_v" -ge 1 ] && [ "$th_v" -le 100 ]; } || die 4 "$1 is outside 1-100" ;;
+  esac
   printf '%s' "$th_v"
 }
-# ascending <window> <threshold>... — the usage gate's own validation of a
+# lowest <window> <threshold>... — the usage gate's own validation of a
 # window's ladder (scripts/fleet-usage-gate.sh resolve_thresholds): a set it
-# refuses as malformed must not clear a hold either.
-ascending() {
+# refuses as malformed must not clear a hold either. Prints the lowest enabled
+# rung, the window's descend threshold, or 100 (the wall) when every rung is off.
+lowest() {
   as_w=$1
   shift
   as_prev=0
+  as_low=""
   for as_v in "$@"; do
+    [ "$as_v" = off ] && continue
     [ "$as_v" -gt "$as_prev" ] || die 4 "the $as_w thresholds are not strictly ascending ($*)"
     as_prev=$as_v
+    [ -n "$as_low" ] || as_low=$as_v
   done
+  printf '%s' "${as_low:-100}"
 }
-s_thr=$(threshold fleet_usage_session_downshift 50) || exit $?
+s_ds=$(threshold fleet_usage_session_downshift 50) || exit $?
 s_rc=$(threshold fleet_usage_session_reduce_concurrency 70) || exit $?
 s_dh=$(threshold fleet_usage_session_defer_heavy 85) || exit $?
-ascending session "$s_thr" "$s_rc" "$s_dh"
-w_thr=$(threshold fleet_usage_weekly_downshift 60) || exit $?
+s_thr=$(lowest session "$s_ds" "$s_rc" "$s_dh") || exit $?
+w_ds=$(threshold fleet_usage_weekly_downshift 60) || exit $?
 w_rc=$(threshold fleet_usage_weekly_reduce_concurrency 75) || exit $?
 w_dh=$(threshold fleet_usage_weekly_defer_heavy 85) || exit $?
 w_da=$(threshold fleet_usage_weekly_defer_all 95) || exit $?
-ascending weekly "$w_thr" "$w_rc" "$w_dh" "$w_da"
+w_thr=$(lowest weekly "$w_ds" "$w_rc" "$w_dh" "$w_da") || exit $?
 ceiling=$(/bin/sh "$script_dir/fleet-throttle.sh" ceiling) || die 5 "cannot read the throttle's hold ceiling (broken install)"
 case $ceiling in "" | *[!0-9]*) die 5 "the throttle's hold ceiling is not a number (broken install)" ;; esac
 

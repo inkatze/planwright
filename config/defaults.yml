@@ -588,9 +588,9 @@ quota_ledger_retention_days: 90
 
 # The read cadence and cache TTL, in seconds. `/usage` capture is expensive, so
 # the signal is cached off the dispatch hot path and refreshed on the cadence,
-# never scraped synchronously per dispatch. A cached signal staler than the TTL
-# is treated as unavailable; the TTL MUST exceed the cadence (validated) so a
-# fresh read always lands inside the TTL.
+# never scraped synchronously per dispatch. A cached signal, or a status-line
+# mirror, staler than the TTL is treated as unavailable; the TTL MUST exceed
+# the cadence (validated) so a fresh read always lands inside the TTL.
 fleet_usage_read_cadence_seconds: 300
 fleet_usage_signal_ttl_seconds: 900
 
@@ -601,8 +601,9 @@ fleet_usage_signal_ttl_seconds: 900
 fleet_usage_sustained_loss_count: 3
 
 # Per-window percentage thresholds mapping usage to a rung (>= at the threshold
-# trips it). Each window's thresholds MUST be strictly ascending and within
-# 1-100 (validated; a non-monotonic or out-of-range set is refused). The session
+# trips it). `off` disables a rung. Each window's enabled thresholds MUST be
+# strictly ascending and within 1-100 (validated; a non-monotonic or
+# out-of-range set is refused). The session
 # window has no defer-all threshold — it is capped at defer-heavy by design (a
 # session spike never proactively halts the fleet; the reactive backstop catches
 # a genuine session wall). The weekly window escalates harder and earlier and

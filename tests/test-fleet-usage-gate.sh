@@ -42,7 +42,12 @@
 #     kill-switch, are edge-triggered (no row on an unchanged rung), and the
 #     current rung is recovered by a fresh process from the trail alone;
 #   - concurrent evaluations serialize under the advisory lock with no duplicate
-#     rows.
+#     rows;
+#   - the status-line mirror is preferred when fresh, window by window, with
+#     the capture as fallback, and a missing, stale, reset or implausible
+#     window never reads as 0%;
+#   - a threshold of `off` disables its rung, so a single hard stop with no
+#     soft rungs is expressible.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-usage-gate.sh
@@ -103,8 +108,15 @@ fleet_usage_weekly_defer_all: 95
 EOF
 mlocal_cfg="$repo/.claude/planwright.local.yml"
 
+# The status-line mirror is read from XDG_CACHE_HOME, pinned here to a scratch
+# dir so a real mirror on the host never leaks into a fixture.
+unset PLANWRIGHT_USAGE_MIRROR
+xdg_cache="$tmp/xdg-cache"
+mirror_file="$xdg_cache/claude-usage/rate-limits.json"
+
 run() {
   PATH="$stub_bin:$PATH" \
+    XDG_CACHE_HOME="$xdg_cache" \
     PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
@@ -122,7 +134,7 @@ attn_queue() {
 }
 
 reset_state() {
-  rm -rf "$fleet_home"
+  rm -rf "$fleet_home" "$xdg_cache"
   rm -f "$mlocal_cfg"
   rm -f "$tmp/llm-invoked"
 }
@@ -678,5 +690,176 @@ sigu=$(run signal) || fail "signal (no cache) failed"
 sessu=$(printf '%s\n' "$sigu" | awk -F'\t' '$1=="session"{print $2}')
 [ "$sessu" = unavailable ] || fail "an absent cache must report session unavailable (got: $sigu)"
 echo "ok: the signal subcommand is a read-only per-window view"
+
+# --- The status-line mirror source ------------------------------------------
+
+# write_mirror <json>: the mirror file as the status line writes it.
+write_mirror() {
+  mkdir -p "$(dirname "$mirror_file")"
+  printf '%s\n' "$1" >"$mirror_file"
+}
+sig_of() {
+  printf '%s\n' "$2" | awk -F'\t' -v w="$1" '$1==w{print $2; exit}'
+}
+now_s=$(date +%s)
+in_hour=$((now_s + 3600))
+in_day=$((now_s + 86400))
+
+# --- 30. A fresh mirror is preferred over the /usage capture. ---
+reset_state
+usage_render 10 10 | run capture >/dev/null || fail "capture (mirror preferred) failed"
+write_mirror "{\"seven_day\":{\"used_percentage\":72,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":40,\"resets_at\":$in_hour}}"
+sig=$(run signal) || fail "signal (mirror preferred) failed"
+[ "$(sig_of session "$sig")" = 40 ] || fail "a fresh mirror's five_hour must win over the capture (got: $sig)"
+[ "$(sig_of weekly "$sig")" = 72 ] || fail "a fresh mirror's seven_day must win over the capture (got: $sig)"
+no_llm "mirror"
+echo "ok: a fresh status-line mirror is preferred over the /usage capture"
+
+# --- 31. A window absent from the mirror is unavailable from it, never 0%: it
+#         falls back to the capture, else reports unavailable. ---
+reset_state
+write_mirror "{\"seven_day\":{\"used_percentage\":29,\"resets_at\":$in_day}}"
+sig=$(run signal) || fail "signal (mirror missing window) failed"
+[ "$(sig_of session "$sig")" = unavailable ] || fail "a window the mirror lacks must be unavailable, never 0 (got: $sig)"
+[ "$(sig_of weekly "$sig")" = 29 ] || fail "the mirror's present window must still read (got: $sig)"
+usage_render 61 10 | run capture >/dev/null || fail "capture (mirror missing window) failed"
+sig=$(run signal) || fail "signal (mirror missing window, capture present) failed"
+[ "$(sig_of session "$sig")" = 61 ] || fail "a window the mirror lacks must fall back to the capture (got: $sig)"
+[ "$(sig_of weekly "$sig")" = 29 ] || fail "the mirror must still govern the window it carries (got: $sig)"
+echo "ok: a window absent from the mirror is unavailable from it and falls back to the capture"
+
+# --- 32. A mirror older than the signal TTL is not used. ---
+reset_state
+write_mirror "{\"seven_day\":{\"used_percentage\":72,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":40,\"resets_at\":$in_hour}}"
+touch -t 202001010000 "$mirror_file" # far past the fixture's 300s TTL
+sig=$(run signal) || fail "signal (stale mirror) failed"
+[ "$(sig_of weekly "$sig")" = unavailable ] || fail "a mirror older than the TTL must not be read (got: $sig)"
+usage_render 52 38 | run capture >/dev/null || fail "capture (stale mirror) failed"
+sig=$(run signal) || fail "signal (stale mirror, capture present) failed"
+[ "$(sig_of weekly "$sig")" = 38 ] || fail "a stale mirror must fall back to the capture (got: $sig)"
+echo "ok: a mirror older than the signal TTL falls back to the capture"
+
+# --- 33. A window whose resets_at has passed (or is implausibly far off) is
+#         unavailable: the reading describes a window that is no longer current. ---
+reset_state
+past=$((now_s - 60))
+write_mirror "{\"seven_day\":{\"used_percentage\":72,\"resets_at\":$past},\"five_hour\":{\"used_percentage\":40,\"resets_at\":$((now_s + 999999999))}}"
+sig=$(run signal) || fail "signal (reset passed) failed"
+[ "$(sig_of weekly "$sig")" = unavailable ] || fail "a window whose reset has passed must be unavailable (got: $sig)"
+[ "$(sig_of session "$sig")" = unavailable ] || fail "an implausibly distant reset must be unavailable (got: $sig)"
+write_mirror "{\"seven_day\":{\"used_percentage\":72}}"
+sig=$(run signal) || fail "signal (no reset) failed"
+[ "$(sig_of weekly "$sig")" = unavailable ] || fail "a window with no resets_at cannot be judged fresh (got: $sig)"
+echo "ok: a window whose reset has passed, is missing, or is implausible reads unavailable"
+
+# --- 34. Implausible or malformed mirror values read unavailable, a fractional
+#         percentage floors (exact for a >= integer threshold), and control
+#         bytes never reach the output. ---
+reset_state
+write_mirror "{\"seven_day\":{\"used_percentage\":150,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":\"lots\",\"resets_at\":$in_hour}}"
+sig=$(run signal) || fail "signal (implausible mirror) failed"
+[ "$(sig_of weekly "$sig")" = unavailable ] || fail "an out-of-range mirror percentage must be unavailable (got: $sig)"
+[ "$(sig_of session "$sig")" = unavailable ] || fail "a non-numeric mirror percentage must be unavailable (got: $sig)"
+write_mirror "{\"seven_day\":{\"used_percentage\":89.7,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":90.0,\"resets_at\":$in_hour}}"
+sig=$(run signal) || fail "signal (fractional mirror) failed"
+[ "$(sig_of weekly "$sig")" = 89 ] || fail "89.7% must floor to 89 (got: $sig)"
+[ "$(sig_of session "$sig")" = 90 ] || fail "90.0% must read 90 (got: $sig)"
+write_mirror "$(printf '{"seven_day":{"used_percentage":\033[31m55,"resets_at":%s}}' "$in_day")"
+sig=$(run signal 2>&1) || fail "signal (escape-laced mirror) failed"
+case $sig in
+  *$'\033'*) fail "an escape byte from the mirror reached the output (got: $sig)" ;;
+esac
+[ "$(sig_of weekly "$sig")" = unavailable ] || fail "a control byte in the machine-written mirror marks it corrupt (got: $sig)"
+write_mirror "not json at all"
+sig=$(run signal) || fail "signal (garbage mirror) failed"
+[ "$(sig_of weekly "$sig")" = unavailable ] || fail "a garbage mirror must read unavailable (got: $sig)"
+rm -f "$mirror_file"
+mkdir -p "$mirror_file"
+sig=$(run signal) || fail "signal (mirror is a directory) failed"
+[ "$(sig_of weekly "$sig")" = unavailable ] || fail "a mirror path that is not a file must read unavailable (got: $sig)"
+echo "ok: implausible or malformed mirror values read unavailable and fractions floor"
+
+# --- 35. PLANWRIGHT_USAGE_MIRROR names the file; set empty it disables the
+#         mirror. Without XDG_CACHE_HOME the default is under HOME/.cache. ---
+reset_state
+write_mirror "{\"seven_day\":{\"used_percentage\":72,\"resets_at\":$in_day}}"
+alt="$tmp/alt-mirror.json"
+printf '{"seven_day":{"used_percentage":33,"resets_at":%s}}\n' "$in_day" >"$alt"
+sig=$(PLANWRIGHT_USAGE_MIRROR="$alt" run signal) || fail "signal (mirror override) failed"
+[ "$(sig_of weekly "$sig")" = 33 ] || fail "PLANWRIGHT_USAGE_MIRROR must name the mirror file (got: $sig)"
+sig=$(PLANWRIGHT_USAGE_MIRROR="" run signal) || fail "signal (mirror disabled) failed"
+[ "$(sig_of weekly "$sig")" = unavailable ] || fail "an empty PLANWRIGHT_USAGE_MIRROR must disable the mirror (got: $sig)"
+fake_home="$tmp/fake-home"
+mkdir -p "$fake_home/.cache/claude-usage"
+printf '{"seven_day":{"used_percentage":44,"resets_at":%s}}\n' "$in_day" >"$fake_home/.cache/claude-usage/rate-limits.json"
+sig=$(PATH="$stub_bin:$PATH" HOME="$fake_home" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  env -u XDG_CACHE_HOME /bin/bash "$FUG" signal) || fail "signal (HOME default) failed"
+[ "$(sig_of weekly "$sig")" = 44 ] || fail "without XDG_CACHE_HOME the mirror must default under HOME/.cache (got: $sig)"
+rm -rf "$fake_home" "$alt"
+echo "ok: the mirror path honors PLANWRIGHT_USAGE_MIRROR, XDG_CACHE_HOME, then HOME"
+
+# --- 36. The mirror drives the ladder: evaluate moves the rung off it alone,
+#         clears the sustained-loss counter, and the session window stays
+#         capped below defer-all. ---
+reset_state
+write_mirror "{\"seven_day\":{\"used_percentage\":96,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":99,\"resets_at\":$in_hour}}"
+ev=$(run evaluate) || fail "evaluate (mirror) failed"
+[ "$(run rung)" = defer-all ] || fail "a weekly mirror reading past defer-all must reach defer-all (got: $ev)"
+[ ! -e "$fleet_home/usage/unavail-count" ] || fail "an available mirror signal must not count as a lost read"
+reset_state
+write_mirror "{\"five_hour\":{\"used_percentage\":99,\"resets_at\":$in_hour}}"
+run evaluate >/dev/null || fail "evaluate (mirror session only) failed"
+[ "$(run rung)" = defer-heavy ] || fail "the session window must stay capped at defer-heavy (got $(run rung))"
+echo "ok: the mirror alone drives the ladder, and the session cap holds"
+
+# --- 37. `off` disables a rung. The operator's posture (no soft rungs, a hard
+#         stop at 90% weekly) is expressible: below 90 everything is normal,
+#         however high the session window; at 90 every tier is withheld. ---
+reset_state
+cat >"$mlocal_cfg" <<'EOF'
+fleet_usage_session_downshift: off
+fleet_usage_session_reduce_concurrency: off
+fleet_usage_session_defer_heavy: off
+fleet_usage_weekly_downshift: off
+fleet_usage_weekly_reduce_concurrency: off
+fleet_usage_weekly_defer_heavy: off
+fleet_usage_weekly_defer_all: 90
+EOF
+write_mirror "{\"seven_day\":{\"used_percentage\":89,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":99,\"resets_at\":$in_hour}}"
+run evaluate >/dev/null || fail "evaluate (off, below the hard stop) failed"
+[ "$(run rung)" = normal ] || fail "with every soft rung off, 89% weekly and 99% session must stay normal (got $(run rung))"
+run admit opus || fail "below the hard stop every tier must be admitted"
+write_mirror "{\"seven_day\":{\"used_percentage\":90,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":10,\"resets_at\":$in_hour}}"
+run evaluate >/dev/null || fail "evaluate (off, at the hard stop) failed"
+[ "$(run rung)" = defer-all ] || fail "at 90% weekly the hard stop must reach defer-all (got $(run rung))"
+rc=0
+run admit haiku || rc=$?
+[ "$rc" = 1 ] || fail "at defer-all even the cheapest tier must be withheld (exit $rc)"
+echo "ok: off disables a rung, and no-soft plus a 90% hard stop is expressible"
+
+# --- 38. Enabled thresholds must still ascend around an `off`, and a value that
+#         is neither 1-100 nor off is malformed. ---
+reset_state
+write_mirror "{\"seven_day\":{\"used_percentage\":50,\"resets_at\":$in_day}}"
+cat >"$mlocal_cfg" <<'EOF'
+fleet_usage_weekly_downshift: 80
+fleet_usage_weekly_reduce_concurrency: off
+fleet_usage_weekly_defer_heavy: 70
+EOF
+rc=0
+run evaluate >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "enabled thresholds that descend around an off rung must be refused (exit $rc, expected 4)"
+cat >"$mlocal_cfg" <<'EOF'
+fleet_usage_weekly_downshift: 0
+EOF
+err=$(run evaluate 2>&1 >/dev/null) || true
+case $err in
+  *malformed*) ;;
+  *) fail "a threshold of 0 must be reported malformed (got: $err)" ;;
+esac
+rm -f "$mlocal_cfg"
+echo "ok: enabled thresholds ascend around off, and a non-threshold value is malformed"
 
 echo "ALL fleet-usage-gate tests passed"

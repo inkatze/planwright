@@ -70,6 +70,16 @@
 # fleet-coherent state that DOES need serialization is the audit-derived rung.
 # The gate NEVER invokes an LLM/API (REQ-G1.2): the whole path is sh/sed/awk.
 #
+# THE STATUS-LINE MIRROR. A `/usage` render needs a TUI to scrape, which a
+# background (stream-json) session has none of, so the gate first reads the
+# copy of Claude Code's own rate-limit windows that the operator's status line
+# writes on each refresh (`${XDG_CACHE_HOME:-$HOME/.cache}/claude-usage/
+# rate-limits.json`, or $PLANWRIGHT_USAGE_MIRROR; set empty, the source is off).
+# Each window is taken from the first source that has it fresh (the mirror,
+# then the capture cache), so a window the mirror lacks falls back rather than
+# reading 0%. The mirror is read-only here and judged by the same TTL, a
+# window's reset still ahead, and the same plausibility rule (source_mirror).
+#
 # DEGRADATION (REQ-E1.5). When NO window signal is available, governance falls
 # back to the reactive backstop: `evaluate` reports unavailable and takes NO
 # proactive rung transition (no block, no guessed number). Sustained
@@ -99,9 +109,10 @@
 #       reset timing). Exit 0 (a per-window unavailable is a normal state, not an
 #       error); exit 2 on a usage or I/O error.
 #   fleet-usage-gate.sh evaluate
-#       The proactive gate. Read the cached signal (absent or stale-beyond-TTL
-#       => unavailable), compute the target rung (per-window thresholds via the
-#       overlay, more-restrictive-wins, session capped at defer-heavy), derive
+#       The proactive gate. Read the signal (absent or stale-beyond-TTL in
+#       every source => unavailable), compute the target rung (per-window
+#       thresholds via the overlay, a threshold of `off` disabling its rung,
+#       more-restrictive-wins, session capped at defer-heavy), derive
 #       the current rung from the audit trail, and — on a change — record an
 #       edge-triggered transition under the advisory lock. Prints
 #       `rung<TAB><name><TAB>since<TAB><last-transition-epoch><TAB>session<TAB><s><TAB>weekly<TAB><w>`
@@ -112,7 +123,7 @@
 #       Print the current rung derived from the audit trail (a pure read: no
 #       gate, no lock, no transition). `normal` when the trail has no rows.
 #   fleet-usage-gate.sh signal
-#       Read-only view of the cached signal (Task 10): print
+#       Read-only view of the signal (Task 10): print
 #       `session<TAB><pct|unavailable>` / `weekly<TAB><pct|unavailable>` after
 #       the same TTL/staleness handling `evaluate` applies, with no side effect.
 #       For fleet-allocate.sh's per-tier caps (which need the raw percentage).
@@ -389,22 +400,86 @@ validate_value() {
   [ "$1" -ge 0 ] && [ "$1" -le 100 ]
 }
 
-# --- Cache read (evaluate) -------------------------------------------------
+# --- Signal sources (evaluate / signal) ------------------------------------
 #
-# read_signal: print `<session> <weekly>` from the cache, each a 0-100 int or
-# `unavailable`. A cache absent, unreadable, corrupt, or staler than the TTL is
-# reported as both-unavailable (never a guessed or fabricated number). The TTL
-# is validated to exceed the read cadence (a stale-forever cadence is a config
-# bug). A cache absent, unreadable, or corrupt reports both windows unavailable,
-# which evaluate's both-unavailable arm treats as one lost read of the
-# sustained-loss cadence.
-read_signal() {
-  rs_cadence=$(resolve_posint fleet_usage_read_cadence_seconds 300) || exit $?
-  rs_ttl=$(resolve_posint fleet_usage_signal_ttl_seconds 900) || exit $?
-  if [ "$rs_ttl" -le "$rs_cadence" ]; then
-    printf '%s\n' "fleet-usage-gate: the signal TTL ($rs_ttl s) must exceed the read cadence ($rs_cadence s) — a stale-forever cadence is a config bug" >&2
-    exit 4
+# Each source prints `<session> <weekly>`, each a 0-100 int or `unavailable`,
+# and read_signal takes every window from the first source in SIGNAL_SOURCES
+# that has it. A source therefore only has to say what it can measure; a
+# future source in another unit converts to a window percentage here, before
+# the ladder sees it.
+SIGNAL_SOURCES="mirror capture"
+
+# mirror_path: the status-line mirror. $PLANWRIGHT_USAGE_MIRROR names it, and
+# set empty disables the source; unset, the XDG cache location. Prints nothing
+# when no location can be formed.
+mirror_path() {
+  if [ "${PLANWRIGHT_USAGE_MIRROR+set}" = set ]; then
+    printf '%s' "$PLANWRIGHT_USAGE_MIRROR"
+    return 0
   fi
+  if [ -n "${XDG_CACHE_HOME:-}" ]; then
+    printf '%s/claude-usage/rate-limits.json' "$XDG_CACHE_HOME"
+  elif [ -n "${HOME:-}" ]; then
+    printf '%s/.cache/claude-usage/rate-limits.json' "$HOME"
+  fi
+}
+
+file_mtime() {
+  # shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null
+}
+
+# source_mirror <ttl> <now>: the status line's copy of Claude Code's own
+# rate-limit windows, `{"five_hour":{"used_percentage":N,"resets_at":EPOCH},
+# "seven_day":{...}}`, written on each status-line refresh, so it reaches
+# sessions with no TUI to scrape. The file is fresh only within the TTL (by
+# mtime, a future mtime refused like a future cache epoch). A window is
+# available only with a 0-100 percentage and a resets_at still ahead and within
+# one window span (plus slack) of now: a reset that has passed means the reading
+# describes a window that is over. A fractional percentage floors, which is
+# exact for the ladder's `>=` against integer thresholds. Machine-written JSON
+# carrying a control byte is corrupt, and the whole file then reads unavailable.
+source_mirror() {
+  sm_path=$(mirror_path)
+  if [ -z "$sm_path" ] || [ ! -f "$sm_path" ] || [ ! -r "$sm_path" ]; then
+    printf 'unavailable unavailable'
+    return 0
+  fi
+  sm_mtime=$(file_mtime "$sm_path")
+  case $sm_mtime in
+    "" | *[!0-9]*)
+      printf 'unavailable unavailable'
+      return 0
+      ;;
+  esac
+  sm_age=$(($2 - sm_mtime))
+  if [ "$sm_age" -lt 0 ] || [ "$sm_age" -gt "$1" ]; then
+    printf 'unavailable unavailable'
+    return 0
+  fi
+  head -c 4096 "$sm_path" 2>/dev/null | awk -v now="$2" '
+    { line = $0; gsub(/[\t\r]/, " ", line); doc = doc line " " }
+    function window(key, span,   obj, pct, rst) {
+      if (!match(doc, "\"" key "\"[ ]*:[ ]*[{][^{}]*[}]")) return "unavailable"
+      obj = substr(doc, RSTART, RLENGTH)
+      if (!match(obj, /"used_percentage"[ ]*:[ ]*[0-9]+([.][0-9]+)?[ ]*[,}]/)) return "unavailable"
+      pct = substr(obj, RSTART, RLENGTH); sub(/^[^:]*:[ ]*/, "", pct); sub(/[ ]*[,}]$/, "", pct)
+      if (!match(obj, /"resets_at"[ ]*:[ ]*[0-9]+[ ]*[,}]/)) return "unavailable"
+      rst = substr(obj, RSTART, RLENGTH); sub(/^[^:]*:[ ]*/, "", rst); sub(/[ ]*[,}]$/, "", rst)
+      if (length(rst) > 12 || rst + 0 <= now + 0 || rst + 0 > now + span) return "unavailable"
+      sub(/[.].*/, "", pct)
+      if (length(pct) > 3 || pct + 0 > 100) return "unavailable"
+      return pct + 0
+    }
+    END {
+      if (doc ~ /[^[:print:]]/) { printf "unavailable unavailable"; exit }
+      printf "%s %s", window("five_hour", 21600), window("seven_day", 691200)
+    }'
+}
+
+# source_capture <ttl> <now>: the `/usage` capture cache `capture` writes.
+source_capture() {
+  rs_ttl=$1
   rs_dir=$(signal_dir) || exit 2
   rs_file="$rs_dir/signal"
   if [ ! -f "$rs_file" ]; then
@@ -425,10 +500,7 @@ read_signal() {
   esac
   if ! validate_value "$rs_session"; then rs_session=unavailable; fi
   if ! validate_value "$rs_weekly"; then rs_weekly=unavailable; fi
-  rs_now=$(now_epoch) || {
-    echo "fleet-usage-gate: cannot read the clock" >&2
-    exit 2
-  }
+  rs_now=$2
   # Reject BOTH a reading older than the TTL and a future-dated one (a backward
   # clock step or a corrupt future epoch yields a negative age that an
   # upper-bound-only test would accept as fresh forever). Either way the whole
@@ -441,54 +513,117 @@ read_signal() {
   printf '%s %s' "$rs_session" "$rs_weekly"
 }
 
+# read_signal: print `<session> <weekly>`, each window from the first source
+# that has it, `unavailable` where none does (never a guessed or fabricated
+# number). The TTL is validated to exceed the read cadence (a stale-forever
+# cadence is a config bug). Both windows unavailable is what evaluate's
+# both-unavailable arm counts as one lost read of the sustained-loss cadence.
+read_signal() {
+  rs_cadence=$(resolve_posint fleet_usage_read_cadence_seconds 300) || exit $?
+  rs_ttl=$(resolve_posint fleet_usage_signal_ttl_seconds 900) || exit $?
+  if [ "$rs_ttl" -le "$rs_cadence" ]; then
+    printf '%s\n' "fleet-usage-gate: the signal TTL ($rs_ttl s) must exceed the read cadence ($rs_cadence s) — a stale-forever cadence is a config bug" >&2
+    exit 4
+  fi
+  rs_clock=$(now_epoch) || {
+    echo "fleet-usage-gate: cannot read the clock" >&2
+    exit 2
+  }
+  rd_s=unavailable
+  rd_w=unavailable
+  for rd_src in $SIGNAL_SOURCES; do
+    case $rd_src in
+      mirror) rd_v=$(source_mirror "$rs_ttl" "$rs_clock") || exit $? ;;
+      capture) rd_v=$(source_capture "$rs_ttl" "$rs_clock") || exit $? ;;
+    esac
+    case $rd_v in
+      *" "*) ;;
+      *) rd_v="unavailable unavailable" ;;
+    esac
+    rd_vs=${rd_v% *}
+    rd_vw=${rd_v#* }
+    validate_value "$rd_vs" || rd_vs=unavailable
+    validate_value "$rd_vw" || rd_vw=unavailable
+    [ "$rd_s" != unavailable ] || rd_s=$rd_vs
+    [ "$rd_w" != unavailable ] || rd_w=$rd_vw
+  done
+  printf '%s %s' "$rd_s" "$rd_w"
+}
+
 # --- Threshold resolution & the window->rung mapping (evaluate) ------------
 #
-# window_rung <percent> <t1> <t2> <t3> <t4|-> : map a percentage to a rung
-# index by deterministic `>=` comparison against the ascending thresholds. A
-# `-` fourth threshold means the window is capped below defer-all (the session
-# window). An `unavailable` percentage contributes nothing (rung 0).
+# window_rung <percent> <t1> <t2> <t3> <t4> : map a percentage to the heaviest
+# rung index whose threshold it meets, by deterministic `>=` comparison. A
+# threshold of `off` (an operator-disabled rung) or `-` (the session window's
+# absent defer-all, its cap) never trips. An `unavailable` percentage
+# contributes nothing (rung 0).
 window_rung() {
   wr_pct=$1
+  shift
+  wr_idx=0
   [ "$wr_pct" = unavailable ] && {
     printf 0
     return 0
   }
-  wr_idx=0
-  [ "$wr_pct" -ge "$2" ] && wr_idx=1
-  [ "$wr_pct" -ge "$3" ] && wr_idx=2
-  [ "$wr_pct" -ge "$4" ] && wr_idx=3
-  if [ "$5" != "-" ] && [ "$wr_pct" -ge "$5" ]; then wr_idx=4; fi
+  wr_i=0
+  for wr_t in "$@"; do
+    wr_i=$((wr_i + 1))
+    case $wr_t in
+      off | -) continue ;;
+    esac
+    [ "$wr_pct" -ge "$wr_t" ] && wr_idx=$wr_i
+  done
   printf '%s' "$wr_idx"
 }
 
-# resolve_thresholds: resolve every per-window threshold through the overlay,
-# validate 1-100 and strict monotone ordering per window (REQ-E1.6). Thresholds
-# are positive integers (the shared resolver's `posint` type rejects 0), so the
-# valid range is 1-100 — distinct from a usage PERCENTAGE, which may legitimately
-# be 0. A malformed set is a fail-closed config error (exit 4) — the ladder must
-# never run on out-of-range or non-monotonic thresholds. Sets the S_*/W_* globals.
+# resolve_threshold <key> <fallback>: one rung threshold, 1-100 or `off`.
+resolve_threshold() {
+  if [ ! -x "$RESOLVER" ]; then
+    printf '%s\n' "fleet-usage-gate: shared knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
+    exit 5
+  fi
+  rth_out=$("$RESOLVER" --key "$1" --type threshold --fallback "$2") || exit $?
+  printf '%s' "$rth_out"
+}
+
+# ascending_thresholds <window> <t>...: exit 4 unless the enabled thresholds
+# are strictly ascending, so a rung switched `off` leaves the rest ordered.
+ascending_thresholds() {
+  at_w=$1
+  shift
+  at_prev=0
+  for at_v in "$@"; do
+    [ "$at_v" = off ] && continue
+    if [ "$at_v" -le "$at_prev" ]; then
+      printf '%s\n' "fleet-usage-gate: the $at_w thresholds are not strictly ascending ($*; off rungs skipped) — refusing non-monotonic thresholds" >&2
+      exit 4
+    fi
+    at_prev=$at_v
+  done
+}
+
+# resolve_thresholds: resolve every per-window threshold through the overlay
+# (REQ-E1.6) and validate each enabled one within 1-100 and strictly ascending
+# per window. A threshold is never 0 (the resolver refuses it), unlike a usage
+# PERCENTAGE, which may legitimately be 0. A malformed set is a fail-closed
+# config error (exit 4). Sets the S_*/W_* globals.
 resolve_thresholds() {
-  S_DS=$(resolve_posint fleet_usage_session_downshift 50) || exit $?
-  S_RC=$(resolve_posint fleet_usage_session_reduce_concurrency 70) || exit $?
-  S_DH=$(resolve_posint fleet_usage_session_defer_heavy 85) || exit $?
-  W_DS=$(resolve_posint fleet_usage_weekly_downshift 60) || exit $?
-  W_RC=$(resolve_posint fleet_usage_weekly_reduce_concurrency 75) || exit $?
-  W_DH=$(resolve_posint fleet_usage_weekly_defer_heavy 85) || exit $?
-  W_DA=$(resolve_posint fleet_usage_weekly_defer_all 95) || exit $?
+  S_DS=$(resolve_threshold fleet_usage_session_downshift 50) || exit $?
+  S_RC=$(resolve_threshold fleet_usage_session_reduce_concurrency 70) || exit $?
+  S_DH=$(resolve_threshold fleet_usage_session_defer_heavy 85) || exit $?
+  W_DS=$(resolve_threshold fleet_usage_weekly_downshift 60) || exit $?
+  W_RC=$(resolve_threshold fleet_usage_weekly_reduce_concurrency 75) || exit $?
+  W_DH=$(resolve_threshold fleet_usage_weekly_defer_heavy 85) || exit $?
+  W_DA=$(resolve_threshold fleet_usage_weekly_defer_all 95) || exit $?
   for rt_v in "$S_DS" "$S_RC" "$S_DH" "$W_DS" "$W_RC" "$W_DH" "$W_DA"; do
+    [ "$rt_v" = off ] && continue
     if [ "$rt_v" -lt 1 ] || [ "$rt_v" -gt 100 ]; then
       printf '%s\n' "fleet-usage-gate: a rung threshold ($rt_v) is outside 1-100 — refusing to run the ladder on an out-of-range threshold" >&2
       exit 4
     fi
   done
-  if [ "$S_DS" -ge "$S_RC" ] || [ "$S_RC" -ge "$S_DH" ]; then
-    printf '%s\n' "fleet-usage-gate: the session thresholds are not strictly ascending (downshift $S_DS < reduce-concurrency $S_RC < defer-heavy $S_DH) — refusing non-monotonic thresholds" >&2
-    exit 4
-  fi
-  if [ "$W_DS" -ge "$W_RC" ] || [ "$W_RC" -ge "$W_DH" ] || [ "$W_DH" -ge "$W_DA" ]; then
-    printf '%s\n' "fleet-usage-gate: the weekly thresholds are not strictly ascending (downshift $W_DS < reduce-concurrency $W_RC < defer-heavy $W_DH < defer-all $W_DA) — refusing non-monotonic thresholds" >&2
-    exit 4
-  fi
+  ascending_thresholds session "$S_DS" "$S_RC" "$S_DH"
+  ascending_thresholds weekly "$W_DS" "$W_RC" "$W_DH" "$W_DA"
 }
 
 # --- Rung derivation from the audit trail (rung / evaluate) ----------------
