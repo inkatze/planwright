@@ -307,6 +307,12 @@ async function open($: EngineInterface) {
   if (v) $.ui.status(v.isFallback ? fallbackLine(v) : undefined)
 }
 
+async function close($: EngineInterface) {
+  await $.ui.close({ id: PANE })
+  await patch($, x => ({ ...x, isFallback: false }))
+  $.ui.status(undefined)
+}
+
 // The cadences from the knobs, or the defaults until a reading carries
 // them; armed again once, when the knobs first arrive.
 async function armTimers($: EngineInterface) {
@@ -396,7 +402,10 @@ export const register: Register = on => {
     // A refused registration must not skip the rest of this hook: the
     // bring-up below starts every reading.
     try {
-      await $.command.register({ name: 'mc-panel', description: 'Reopen the mission-control panel' })
+      await $.command.register({
+        name: 'mc-panel',
+        description: 'Open or close the mission-control panel (add open or close to choose)',
+      })
     } catch (err) {
       await lastingFault($, 'command', `the panel command could not be registered: ${oneLine(String(err))}`)
     }
@@ -415,8 +424,17 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'mc-panel' }, async $ => {
+  on('command.run', { command: 'mc-panel' }, async ($, e) => {
     if (!ctx) return { text: 'Mission control is not running in this session.' }
+    const asked = e.args.trim().toLowerCase()
+    if (asked !== '' && asked !== 'open' && asked !== 'close') {
+      return { text: 'Type /mc-panel to open or close the panel, or /mc-panel open or /mc-panel close to choose.' }
+    }
+    const isOpen = (await $.ui.panes()).some(p => p.id === PANE)
+    if (asked === 'close' || (asked === '' && isOpen)) {
+      if (isOpen) await close($)
+      return { text: 'Mission control panel closed.' }
+    }
     await open($)
     return { text: 'Mission control panel opened.' }
   })

@@ -217,13 +217,39 @@ test('a placed pane clears the fallback line', async ($, on) => {
   expect(w.statuses).toEqual([undefined])
 })
 
-test('the slash command reopens the pane', async ($, on) => {
+const mcPanel = ($: Parameters<Parameters<typeof test>[1]>[0], args: string) =>
+  $.command.run({ command: 'mc-panel', args, origin: { kind: 'composer' } } as never).then(o => JSON.stringify(o))
+
+test('the slash command toggles the pane: closes it when open, opens it when closed', async ($, on) => {
   const w = world(on)
   await boot($, w)
-  const before = w.opened
-  const out = await $.command.run({ command: 'mc-panel', args: '', origin: { kind: 'composer' } } as never)
-  expect(w.opened).toBe(before + 1)
-  expect(JSON.stringify(out)).toContain('Mission control panel opened.')
+  const opened = w.opened
+  expect(await mcPanel($, '')).toContain('Mission control panel closed.')
+  expect(w.closed).toBe(1)
+  expect(w.opened).toBe(opened)
+  expect(await mcPanel($, '')).toContain('Mission control panel opened.')
+  expect(w.opened).toBe(opened + 1)
+  expect(w.closed).toBe(1)
+})
+
+test('the slash command takes open or close to choose', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const opened = w.opened
+  expect(await mcPanel($, 'open')).toContain('Mission control panel opened.')
+  expect(w.closed).toBe(0)
+  expect(await mcPanel($, ' close ')).toContain('Mission control panel closed.')
+  expect(await mcPanel($, 'close')).toContain('Mission control panel closed.')
+  expect(w.closed).toBe(1)
+  expect(w.opened).toBe(opened + 1)
+  expect(await mcPanel($, 'sideways')).toContain('/mc-panel open')
+  expect(w.opened).toBe(opened + 1)
+})
+
+test("the command's description says it opens and closes the panel", async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  expect(w.commands).toEqual([{ name: 'mc-panel', description: expect.stringMatching(/open or close/i) }])
 })
 
 test('the mod stays inert in a session that is not mission control', async ($, on) => {

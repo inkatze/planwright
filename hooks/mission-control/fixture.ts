@@ -115,6 +115,8 @@ export type World = {
   statuses: (string | undefined)[]
   toasts: string[]
   opened: number
+  closed: number
+  commands: { name: string; description: string }[]
   envWrites: [string, string | undefined][]
   set: (o: Partial<Fixture>) => void
 }
@@ -132,6 +134,7 @@ export type Fixture = {
   reviewsExit: number
   reviewsOut: string
   isPlaced: boolean
+  isPaneOpen: boolean
   isDropped: boolean
   isEnvDenied: boolean
   isCommandRefused: boolean
@@ -153,6 +156,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     reviewsExit: 0,
     reviewsOut: 'written',
     isPlaced: true,
+    isPaneOpen: false,
     isDropped: false,
     isEnvDenied: false,
     isCommandRefused: false,
@@ -167,6 +171,8 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     statuses: [],
     toasts: [],
     opened: 0,
+    closed: 0,
+    commands: [],
     envWrites: [],
     set: o => Object.assign(fx, o),
   }
@@ -180,14 +186,28 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
-  on('command.register', () => {
+  on('command.register', (_, e) => {
     if (fx.isCommandRefused) throw new Error('refused')
+    w.commands.push({ name: e.name, description: e.description })
     return { value: { command: 'mc-panel' } }
   })
   on('ui.open', () => {
     w.opened += 1
+    fx.isPaneOpen = true
     return { value: fx.isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'no-surface' } }
   })
+  on('ui.close', (_, e) => {
+    if (fx.isPaneOpen && e.id === 'mission-control') {
+      w.closed += 1
+      fx.isPaneOpen = false
+    }
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({
+    value: fx.isPaneOpen
+      ? [{ id: 'mission-control', title: 'Mission control', isShown: true, isFocused: false, isPlaced: fx.isPlaced }]
+      : [],
+  }))
   on('ui.status', (_, e) => {
     w.statuses.push(e.text)
     return { value: undefined }
