@@ -1,9 +1,8 @@
 #!/bin/bash
 # Tests for scripts/check-panel-mod.sh, the panel mod's gate (mission-control
 # Task 7; REQ-F1.1, REQ-F1.2; D-6): the mods floor, the engine surface held
-# to config/panel-mod-surface.txt, a slash command sharing a skill's name,
-# an empty or red plugin-test run, and the
-# seeded drawing defect the suite must fail on.
+# to config/panel-mod-surface.txt, a slash command sharing a skill's name, an
+# empty or red plugin-test run, and the seeded drawing defect it must fail on.
 #
 # A fake claude on PATH answers --version, `plugin validate --json` and
 # `plugin test` from fixtures, so this runs where the real CLI is absent;
