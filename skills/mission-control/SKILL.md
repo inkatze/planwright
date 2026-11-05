@@ -22,8 +22,10 @@ packaged to decide. The operator needs no planwright vocabulary.
 ## Doctrine
 
 This skill is procedure, not doctrine; the rule docs below govern wherever
-it names a concept. Resolve each via `scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright
-root. A run-start doc that does
+it names a concept. Resolve each via `scripts/resolve-rule-doc.sh <doc-name>` under the planwright
+root, which is the installed record's (`scripts/resolve-installed-roots.sh
+--current`, from any copy), never a path remembered from before a reload or
+a compaction. A run-start doc that does
 not resolve halts the session naming the doc and the chain consulted; a
 point-of-use doc that does not resolve halts that step alone.
 
@@ -112,13 +114,22 @@ here; it sets the depth of every turn, not only the first run's.
    resume's `changed` lines), what waits on them, and what moves, in the
    status form `scripts/mc-inbox.sh`'s `status` prints.
 
-**After a compaction**, before the next act: re-load the rules and run the
+**After a compaction**, before the next act: re-resolve the root, re-load the rules and run the
 self-check (`scripts/mc-rules.sh`'s `selfcheck`) against the durable
 stores; a failure is an operator item. Prefer a handover to a compaction
 (D-29, D-30): when the panel or `scripts/mc-handover.sh`'s `due` calls for
 one, `write` the handover file, then follow `path`: `unattended` launches
 the successor (`launch --handover`); `operator-act` raises the one act the
 operator takes (`offer`), since their own terminal cannot be moved.
+
+**When planwright changes**, a `planwright-recorded` or `planwright-updated`
+event names the copy now running and what changed (every entry:
+`scripts/mc-panel.sh`'s `changes --from <old version>`). Re-resolve the
+root; re-read the run-start docs and every skill or doc the changes touch;
+then write the knowledge-base entry `planwright.md` (the installed version
+and the commands the operator types for this program), indexed with
+`scripts/mc-kb.sh`'s `index-add`, adding it if absent. Answer from that
+entry, never from memory.
 
 ## Guided first run (REQ-F1.12, D-18)
 
