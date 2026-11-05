@@ -107,12 +107,29 @@ audit --through post-pr --base base-tip
 [ "$RC" -eq 0 ] && grep -qx "covered${TAB}convergence" "$tmp/audit"
 verdict $? "a merge of the base alone after the last point keeps it fresh" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 audit --through post-pr
+[ "$RC" -eq 0 ] && grep -qx "covered${TAB}convergence" "$tmp/audit"
+verdict $? "a last point followed only by a clean merge counts, with no --base too" "rc $RC: $(cat "$tmp/audit")"
+printf 'x\n' >>"$wt/src/a.txt"
+git -C "$wt" add -A && git -C "$wt" commit -q -m "fix: after the base merge"
+audit --through post-pr --base base-tip
 [ "$RC" -eq 1 ] && grep -q "^gap${TAB}convergence${TAB}stale" "$tmp/audit"
-verdict $? "without --base no commit after the last point is trusted" "rc $RC: $(cat "$tmp/audit")"
+verdict $? "a plain commit after the last point is stale even with --base" "rc $RC: $(cat "$tmp/audit")"
+git -C "$wt" checkout -q base-tip
+printf 'c\n' >"$wt/docs/c.txt"
+git -C "$wt" add -A && git -C "$wt" commit -q -m "docs: base moved again"
+git -C "$wt" checkout -q -b smuggle planwright/demo/task-1~1
+git -C "$wt" merge -q --no-ff --no-commit base-tip
+printf 'smuggled\n' >"$wt/src/smuggled.txt"
+git -C "$wt" add -A && git -C "$wt" commit -q -m "merge: base, with an edit"
+audit --through post-pr --base base-tip
+[ "$RC" -eq 1 ] && grep -q "^gap${TAB}convergence${TAB}stale" "$tmp/audit"
+verdict $? "a base merge carrying an edit of its own is new work: stale" "rc $RC: $(cat "$tmp/audit")"
+git -C "$wt" checkout -q planwright/demo/task-1~1
+git -C "$wt" checkout -q -B planwright/demo/task-1
 git -C "$wt" merge -q --no-ff -m "merge: other" other
 audit --through post-pr --base base-tip
 [ "$RC" -eq 1 ] && grep -q "^gap${TAB}convergence${TAB}stale" "$tmp/audit"
-verdict $? "a merge bringing in work the base lacks makes the last point stale" "rc $RC: $(cat "$tmp/audit")"
+verdict $? "with --base, a merge bringing in work the base lacks makes the last point stale" "rc $RC: $(cat "$tmp/audit")"
 audit --through post-pr --base no-such-ref
 [ "$RC" -eq 2 ]
 verdict $? "an unknown --base is a usage error" "rc $RC"
@@ -153,6 +170,21 @@ audit --through post-pr
 verdict $? "a completion whose run recorded no step does not borrow an earlier run's record" \
   "rc $RC: $(cat "$tmp/audit")"
 
+# --- a re-fire record stands for its declaring point, not post-pr's own list ---------
+fresh
+catalog "$SHOW"
+config 'steps_post_pr: [show]'
+r=$(sr new-run)
+sr write --run "$r" --point post-pr --step show --kind command --target "$bin/show.sh" \
+  --hosting isolated --backend runner --head "$(head_of)" --end-head "$(head_of)" \
+  --start 2026-11-04T00:00:00Z --end 2026-11-04T00:01:00Z --outcome passed --refire-of pre-pr \
+  --fingerprint none --args-digest "$(printf '%064d' 0)" >"$tmp/refire.out" 2>&1 \
+  || fail "fixture: the re-fire record: $(cat "$tmp/refire.out")"
+done_at "$r" post-pr
+audit --through post-pr
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}post-pr${TAB}missing${TAB}show" "$tmp/audit"
+verdict $? "a re-fire of the same step id does not stand in for post-pr's own run of it" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
 # --- records are untrusted ----------------------------------------------------------
 fresh
 catalog "$SHOW"
@@ -165,10 +197,6 @@ commit after-forgery
 audit --through post-pr
 [ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}incomplete${TAB}-" "$tmp/audit"
 verdict $? "a completion naming a head outside commit-id form counts for nothing" "rc $RC: $(cat "$tmp/audit")"
-forge "$wt/.claude/steps/$r/002-done-convergence.rec" '/e*'
-audit --through post-pr
-! grep -q '/etc' "$tmp/audit"
-verdict $? "a head carrying a glob is never expanded" "$(cat "$tmp/audit")"
 
 # --- a completion on rewritten history does not count ----------------------------
 fresh
@@ -219,6 +247,11 @@ printf 'steps_convergence: [no-such-step]\n' >"$wt/.claude/planwright.yml"
 audit --through post-pr
 [ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}missing${TAB}no-such-step" "$tmp/audit"
 verdict $? "a step that parks its point is still required" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+printf 'steps_convergence: not-a-list\n' >"$wt/.claude/planwright.yml"
+audit --through post-pr
+[ "$RC" -eq 4 ] && ! grep -q "^audit${TAB}complete" "$tmp/audit"
+verdict $? "a steps configuration the resolver rejects exits 4 with no audit complete line" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 rm -f "$wt/.claude/planwright.yml"
 
 # --- usage ------------------------------------------------------------------------

@@ -101,9 +101,11 @@
 #           steps); every row but `skip` is required. A point is judged by
 #           its newest run whose completion counts at the head: on an
 #           ancestor of it, and for the last point with a required step only
-#           on the head itself or behind merge commits whose other parents
-#           --base holds (with no --base, nothing after it). That run must
-#           record each required step passed, applied, or skipped. Records
+#           on the head itself or behind clean two-parent merges, each tree
+#           exactly what the merge yields, and with --base only merges of
+#           commits it holds. That run must
+#           record each required step passed, applied, or skipped (a
+#           re-fire record counts for no point). Records
 #           are read as untrusted (run, kind, and point from the path, heads
 #           in commit-id form only). Per point with a required step:
 #           `gap<TAB><point><TAB>incomplete<TAB>-` with no counted
@@ -870,18 +872,19 @@ git_keep_config() (
 
 # audit_fresh <completion head> <head> <last: 1|0> <base or empty>: whether a
 # completion counts at the head. The last point stands past its completion
-# only behind merge commits whose other parents the base already holds.
+# only behind clean two-parent merges, each tree exactly what the merge
+# yields (a conflict resolution or an edit made in the merge is new work),
+# and given a base, only of commits it already holds.
 audit_fresh() {
-  local f i
+  local f tree
   git_keep_config merge-base --is-ancestor "$1" "$2" 2>/dev/null || return 1
   [ "$3" = 1 ] && [ "$1" != "$2" ] || return 0
-  [ -n "$4" ] || return 1
   git_keep_config rev-list --first-parent --parents "$1..$2" >"$work/after" 2>/dev/null || return 1
   while read -r -a f; do
-    [ "${#f[@]}" -ge 3 ] || return 1
-    for ((i = 2; i < ${#f[@]}; i++)); do
-      git_keep_config merge-base --is-ancestor "${f[$i]}" "$4" 2>/dev/null || return 1
-    done
+    [ "${#f[@]}" -eq 3 ] || return 1
+    [ -z "$4" ] || git_keep_config merge-base --is-ancestor "${f[2]}" "$4" 2>/dev/null || return 1
+    tree=$(git_keep_config merge-tree --write-tree --no-messages "${f[1]}" "${f[2]}" 2>/dev/null) || return 1
+    [ "$tree" = "$(git_keep_config rev-parse --verify -q "${f[0]}^{tree}")" ] || return 1
   done <"$work/after"
 }
 
@@ -934,7 +937,8 @@ cmd_audit() {
         if (hex(F["head"])) { done[R, K] = F["head"]; if (!(R in hasrun)) { hasrun[R] = 1; runs[++nruns] = R } }
         return
       }
-      if (T != "step" || F["type"] != "step" || F["step"] !~ /^[a-z][a-z0-9-]*$/) return
+      # A re-fire record belongs to the declaring point, never to the point in its path.
+      if (T != "step" || F["type"] != "step" || F["step"] !~ /^[a-z][a-z0-9-]*$/ || F["refire-of"] != "") return
       o = F["outcome"]
       if (o !~ /^[a-z]+$/) o = "malformed"
       ok = (o == "passed" || o == "applied" || o == "skipped") && hex(F["end-head"])
