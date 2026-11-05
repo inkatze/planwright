@@ -445,6 +445,10 @@ case $err in
   *"this tower's own worker"*stop*) ;;
   *) fail "this tower's own worker: the refusal does not point at the rung's stop: $err" ;;
 esac
+# The mission-control launcher's owner token is a tower id the actuator takes.
+det finished-but-unreaped this-tower completion:result=success stream-json-persistent self mission-control:alpha
+gate w1 trig why --tower-id mission-control:alpha
+expect 5 "a mission-control launch's own worker"
 echo "ok: the evidence matrix ($cells cells) reaps only a dead owner's worker whose session died or finished cleanly; a failed or unlanded one is refused (exit 9); this tower's own is refused"
 
 # --- a detector that errors, or answers nothing usable, refuses (exit 5) ----

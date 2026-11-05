@@ -1,7 +1,8 @@
 #!/bin/sh
 # mission-control-launch.sh — the one launcher for every session kind mission
-# control starts, and the verb that retires them. A launch delivers the brief,
-# the rules in scope, the kind's settings profile, its model tier and its name
+# control starts, and the verb that retires them. A launch delivers the brief
+# (to a repository-changing kind, with the verification cadence), the rules
+# in scope, the kind's settings profile, its model tier and its name
 # (and to a mission-control session its registry row's token, as
 # PLANWRIGHT_MC_TOKEN), then registers owner, kind and scope. `--help` prints
 # the usage, the output shapes and the exit codes.
@@ -53,7 +54,10 @@ usage:
 <kind> is one of `kinds`; <scope> holds letters, digits and . _ = @ : - only,
 at most 128. --rules adds a rule-store scope (duty:<id> or repo:<name>);
 program rules ride every launch. The rung is --backend, else the
-mission_control_launch_backend knob.
+mission_control_launch_backend knob. A worker or ad-hoc brief whose first
+line is not a skill command (`/<name>`, alone or before a space) also
+carries the verification cadence: the in-run points and the
+`step-run.sh audit` that readiness repeats.
 
 The name is derived from program, kind and scope alone, so the same inputs
 always name the same session, and a name with a registry row is held until
@@ -317,6 +321,37 @@ release_fleet_entry() {
   /bin/sh "$script_dir/fleet-attention.sh" clear "$1" >/dev/null 2>&1 </dev/null
 }
 
+# cadence_section <name> — the configured cadence a repository-changing
+# session runs, by reference to the one procedure that fires it, with the
+# mappings a specless session needs, and the audit readiness repeats.
+cadence_section() {
+  cs_root=$(cd "$script_dir/.." && pwd -P) || return 1
+  cat <<EOF
+
+## Verification cadence
+
+This session changes a repository, so it runs the configured cadence. Fire
+every in-run point (\`pre-implementation\`, \`pre-ci\`, \`convergence\`,
+\`pre-pr\`, \`post-pr\`) at its moment by \`/execute-task\`'s *Points*
+procedure, read from \`$cs_root/skills/execute-task/SKILL.md\`, with these
+mappings for a specless session:
+
+- Resolve every point \`--unattended\`, under \`$cs_root/scripts/\`.
+- Export the step context with \`PLANWRIGHT_STEP_UNIT_KIND=flight\`, empty
+  spec and task ids, this branch, its base branch and this worktree; an
+  isolated step's launch tier takes the unit \`mission-control:$1\`.
+- Wherever the procedure parks or stops the unit, stop and report the point,
+  the step and what it printed to mission control instead; write nothing to
+  any \`tasks.md\` or other spec state.
+
+Before the push, run \`$cs_root/scripts/step-run.sh audit --through pre-pr\`;
+before reporting the PR done, \`$cs_root/scripts/step-run.sh audit --through post-pr --base origin/<base branch>\`.
+Close every gap it names first. Mission control's readiness check runs the
+same audit and refuses a PR with a gap. The PR body carries the rendered
+records (\`$cs_root/scripts/step-record.sh render\`) in a \`<details>\` block.
+EOF
+}
+
 # --------------------------------------------------------------------------
 
 cmd_launch() {
@@ -457,6 +492,16 @@ cmd_launch() {
   if ! (umask 077 && cat "$brief" >"$composed"); then
     refuse "cannot read the brief into the launch for $name" 2
   fi
+  # A kind that changes a repository runs the configured cadence whatever its
+  # brief says; a brief whose first line is a skill command leaves it to that
+  # skill.
+  case $kind in
+    worker | ad-hoc)
+      if ! head -n 1 "$composed" | grep -Eq '^/[A-Za-z0-9:_-]+( |$)' && ! cadence_section "$name" >>"$composed"; then
+        refuse "cannot write the cadence into the brief for $name" 2
+      fi
+      ;;
+  esac
   # The provenance line follows the brief, so a brief that is a slash command
   # still opens with it.
   if ! {
@@ -478,6 +523,8 @@ cmd_launch() {
   # argument, which passes it to a mission-control session only.
   mc_tok_flag=''
   [ "$K_PROFILE" != mission-control ] || mc_tok_flag=1
+  # Each rung registers the session under the owner fleet-register.sh reads
+  # from PLANWRIGHT_TOWER_ID, and keeps it out of the session's environment.
   case $backend in
     stream-json)
       plan=$(cd "$cwd" && /bin/sh "$script_dir/allocation-apply.sh" plan --key "$K_KEY" --backend stream-json-persistent --unit "$unit" </dev/null)
@@ -501,7 +548,7 @@ cmd_launch() {
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"
       tier="$model/$effort"
       sr=0
-      /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
+      PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
       case $sr in
         0) ;;
         3)
@@ -522,7 +569,7 @@ cmd_launch() {
       esac
       ;;
     tmux)
-      out=$(cd "$cwd" && /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
+      out=$(cd "$cwd" && PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
         --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" --scope "$scope" </dev/null)
       dr=$?
       case $dr in

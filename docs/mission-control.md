@@ -112,14 +112,16 @@ loop, so a quiet program costs very little.
 
 When mission control notices a repeat (you give the same answer to the
 same question, or take the same manual step after the same kind of event),
-it may propose making it automatic. A proposal says what it noticed, what
+it may propose making it automatic. When a safety guard keeps refusing for
+a reason a setting controls, it proposes that setting, saying what it would
+change and which file it goes in. A proposal says what it noticed, what
 it would change, how often that would run, where you would still step in,
 what it costs, and how to turn it off, and you can always say no:
 
 - **Yes:** it applies the change where it is allowed to (your rules, the
   program's configuration, which duties are on), and logs how to undo it.
-  A change to your Claude Code settings is handed to you ready to apply,
-  never made for you; a change to a repository is made by a session it
+  A change to your Claude Code settings or to a guard's setting is handed
+  to you ready to apply, never made for you; a change to a repository is made by a session it
   starts, landing as a draft pull request you review.
 - **Not now:** it holds the proposal until a date or an event you name.
 - **No:** it records that and does not ask again unless the pattern

@@ -126,6 +126,8 @@ printf 'scope=%s\n' "${PLANWRIGHT_WORKER_SCOPE-<unset>}" >>"$SHIM_RECORD_DIR/env
 printf 'inbound=%s\n' "${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'launch_token=%s\n' "${PLANWRIGHT_WORKER_LAUNCH_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'mc_token=%s\n' "${PLANWRIGHT_MC_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'tower=%s/%s/%s/%s\n' "${PLANWRIGHT_TOWER_ID-<unset>}" "${PLANWRIGHT_TOWER_SESSION_ID-<unset>}" \
+  "${PLANWRIGHT_TOWER_PID-<unset>}" "${PLANWRIGHT_TOWER_CHECKOUT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 n=${SHIM_READ_FIRST:-1}
 i=0
 while [ "$i" -lt "$n" ]; do
@@ -631,9 +633,12 @@ cat >"$tmp/prompt9" <<'EOF'
 run this: $(touch PWNED-marker) `touch PWNED-marker` "quoted" 'single'
 second line	with a tab
 EOF
-senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_MESSAGING_INBOUND=refuse PLANWRIGHT_WORKER_HANDLE=stale -- \
+senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_MESSAGING_INBOUND=refuse PLANWRIGHT_WORKER_HANDLE=stale \
+  PLANWRIGHT_TOWER_ID=stale-tower PLANWRIGHT_TOWER_PID=1 PLANWRIGHT_TOWER_CHECKOUT=/nonexistent -- \
   launch sjw9 execution-backends:4 --prompt-file "$tmp/prompt9" --foreground \
   || fail "c9: launch exited non-zero"
+grep -qx 'tower=<unset>/<unset>/<unset>/<unset>' "$rec/env" \
+  || fail "c9: the dispatcher's tower identity reached the worker: $(grep '^tower=' "$rec/env")"
 argv_line=$(cat "$rec/argv")
 case $argv_line in
   *"-p "*"--input-format stream-json"*"--output-format stream-json"*"--verbose"*"--permission-prompt-tool stdio"*) : ;;
@@ -1253,6 +1258,21 @@ esac
 wdir15="$home/streamjson/sjw15"
 poll_until --what 'the result' -- test -f "$wdir15/result" \
   || fail "c15: the detached supervisor never ran to a result"
+# The detached launch drops the tower identity too, and under bash (macOS
+# /bin/sh) still returns while the session runs: no process it leaves behind
+# holds the caller's output open.
+rec15t="$tmp/r15t"
+mkdir -p "$rec15t"
+t15=$(date +%s)
+out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$tmp/h15t" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+  SHIM_RECORD_DIR="$rec15t" SHIM_EVENTS="$ev" SHIM_SLEEP=15 PLANWRIGHT_TOWER_ID=stale-tower \
+  bash "$SJ" launch sjw15t execution-backends:4 --prompt-file "$tmp/prompt15" 2>&1) \
+  || fail "c15: a detached launch under bash exited non-zero: $out"
+[ $(($(date +%s) - t15)) -lt 12 ] || fail "c15: a detached launch under bash held the caller until the session ended"
+poll_until --what 'the worker environment' -- grep -q '^tower=' "$rec15t/env" \
+  || fail "c15: the detached worker never recorded its environment"
+grep -qx 'tower=<unset>/<unset>/<unset>/<unset>' "$rec15t/env" \
+  || fail "c15: the dispatcher's tower identity reached the detached worker: $(grep '^tower=' "$rec15t/env")"
 # A failed detached launch surfaces non-zero. Force the supervisor's mkfifo to
 # fail by pre-planting `in.fifo` as a NON-EMPTY directory: supervise's `rm -f`
 # cannot clear a non-empty dir, so `mkfifo` fails and supervise returns 2

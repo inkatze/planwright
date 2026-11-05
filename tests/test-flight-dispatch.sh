@@ -58,6 +58,9 @@
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 unset CDPATH
+# The usage gate reads the status-line mirror when present; a fixture never
+# reads the host's real one.
+export PLANWRIGHT_USAGE_MIRROR=""
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=tests/lib/flight-dispatch-fixture.sh
 . "$here/lib/flight-dispatch-fixture.sh"

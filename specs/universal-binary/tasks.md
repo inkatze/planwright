@@ -1,7 +1,7 @@
 # Universal Binary — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-09
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -259,6 +259,31 @@
 - **Dependencies:** 4
 - **Citations:** D-13 · REQ-B1.1, REQ-B1.4
 - **Estimated effort:** half day
+
+### Task 4.2 — Alpine install smoke in its own job
+
+- **Deliverables:** the Alpine install smoke moved out of the sharded
+  `alpine-suite` job into an `alpine-smoke` job that runs once per
+  workflow run, on the same pinned Alpine image with the same platform
+  assertions (`/bin/sh` is `dash`, awk and sed are busybox), carrying only
+  the setup the smoke needs; `alpine-smoke` added to the `check` job's
+  `needs:` and result report; the `alpine-suite` scope comment in
+  `.github/workflows/ci.yml` reworded so it no longer says the smoke cannot
+  move; the workflow-posture guard's `--matrix` assertion and its header
+  comment changed from exactly one Alpine job to the REQ-B1.6 rule (every
+  Alpine step named `setup: <what>` or a scope name, each scope step in
+  exactly one Alpine job, no `strategy.matrix` on a job carrying the smoke
+  or the harness), with the cases test-spec REQ-B1.6 names in its test
+  suite; the guard's and its test's REQ-B1.4 citations relabelled to
+  REQ-B1.6.
+- **Done when:** the workflow runs `alpine-smoke` once and `alpine-suite`
+  in its shards on every pull request, both green; the changed guard
+  passes on the workflow and fails on each failing fixture test-spec
+  REQ-B1.6 names; the operator has marked `alpine-smoke` a required status
+  check.
+- **Dependencies:** 4.1
+- **Citations:** D-13 · REQ-B1.6
+- **Estimated effort:** 2 hours
 
 ### Task 5 — Bake-off harness
 
@@ -567,6 +592,16 @@ Task 4: no floor-forbidden failures.
   Also awaiting direction: the macOS and musl bake-off B reports need the
   same on-demand CI job Task 6 asks for, a CI-configuration zone, so
   recorded rather than applied, listed in the Task 7 pull request body.
+- **Task 8** — post-pr step `cubic-pr` halted (record
+  `.claude/steps/000001/008-done-post-pr.rec`): the operator's secondary
+  review stands in for cubic until its quota returns, then the ready flip.
+- **Task 9** — mints no dev-check verdict until the operator answers the
+  case for a dev-check bake-off recorded by Task 8 under the dev-check
+  section of `docs/substrate-screen.md`: no admitted candidate is screened
+  out, and the tier differs from the library and skill-called pair on
+  audience and auditability, so neither inheritance nor screen settlement
+  applies (recommended: add the bake-off on the instruction guard's
+  manifest parse and charged closure through the amendment ritual).
 
 ## Deferred
 

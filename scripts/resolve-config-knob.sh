@@ -50,6 +50,7 @@
 #   resolve-config-knob.sh --key <key> --type enum --values '<v1> <v2> ...' --fallback <value>
 #   resolve-config-knob.sh --key <key> --type posint --fallback <value>
 #   resolve-config-knob.sh --key <key> --type nonnegint --fallback <value>
+#   resolve-config-knob.sh --key <key> --type threshold --fallback <value>
 #   resolve-config-knob.sh --key <key> --type duration --fallback <value>
 #   resolve-config-knob.sh --key <key> --type globlist --fallback <value>
 #   resolve-config-knob.sh --key <key> --type path --fallback ''
@@ -70,6 +71,9 @@
 #              — so refusing it would force a magic sentinel in its place. The
 #              grammar is validated HERE, before the value reaches any caller's
 #              arithmetic, which is the property REQ-A1.4 asks for.
+#   threshold  posint, or the literal `off` for a rung switched off, so
+#              disabling one needs no magic out-of-range number. The range a
+#              threshold must fall in is the caller's to refuse.
 #   duration   a positive time span: ^(0|[1-9][0-9]*)(\.[0-9]{1,6})?(ms|s|m|h|d)?$
 #              with a bare number read as seconds, at most 15 digits before
 #              the point, no leading zero (`007s` is a typo's shape, not a
@@ -155,7 +159,7 @@ fi
 . "$script_dir/echo-safety.sh"
 
 usage() {
-  echo "usage: resolve-config-knob.sh [--explain | --union] --key <key> --type <enum|posint|nonnegint|duration|globlist|path> [--values '<v1> <v2> ...'] (--fallback <value> [--degrade <value>] | --no-degrade)" >&2
+  echo "usage: resolve-config-knob.sh [--explain | --union] --key <key> --type <enum|posint|nonnegint|threshold|duration|globlist|path> [--values '<v1> <v2> ...'] (--fallback <value> [--degrade <value>] | --no-degrade)" >&2
 }
 
 key=""
@@ -272,7 +276,7 @@ case "$ktype" in
       }
     done
     ;;
-  posint | nonnegint | duration | globlist | path)
+  posint | nonnegint | threshold | duration | globlist | path)
     if [ -n "$kvalues" ]; then
       echo "resolve-config-knob: --values only applies to --type enum" >&2
       exit 2
@@ -283,7 +287,7 @@ case "$ktype" in
     exit 2
     ;;
   *)
-    printf '%s\n' "resolve-config-knob: unknown type '$(sanitize_printable "$ktype" "(unprintable type)")' (enum | posint | nonnegint | duration | globlist | path)" >&2
+    printf '%s\n' "resolve-config-knob: unknown type '$(sanitize_printable "$ktype" "(unprintable type)")' (enum | posint | nonnegint | threshold | duration | globlist | path)" >&2
     exit 2
     ;;
 esac
@@ -351,6 +355,13 @@ valid_value() {
         "" | *[!0-9]*) return 1 ;;
         0) return 0 ;;
         0*) return 1 ;;
+      esac
+      [ "${#_vv}" -le 15 ]
+      ;;
+    threshold)
+      case "$_vv" in
+        off) return 0 ;;
+        "" | *[!0-9]* | 0*) return 1 ;;
       esac
       [ "${#_vv}" -le 15 ]
       ;;

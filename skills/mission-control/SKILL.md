@@ -182,7 +182,7 @@ without it enables the default set), the knowledge-base skeleton with
 decisions, and the runner (as at bring-up). Echo what was written in one
 line per write, then bring the program up as a resume. A write
 `mc-config.sh` refuses is said with its text, and the objective it belongs
-to is asked again.
+to is asked again; one it hands over (exit 4, below) is handed over instead.
 
 ## The register (D-19)
 
@@ -206,8 +206,12 @@ operator's statements and links, never a polled state.
 Launch, message, answer, retire; never hand the operator a per-session step.
 
 - **Launch** every session through
-  `scripts/mission-control-launch.sh`'s `launch`, which delivers the brief,
+  `scripts/mission-control-launch.sh`'s `launch`, which delivers the brief
+  (a repository-changing one with the verification cadence),
   the rules in scope, the profile, the model tier and a deterministic name; **retire** through its `retire`.
+- **Report** a PR as done, or its unit as finished, only once
+  `scripts/mc-readiness.sh`'s `check` passes on its head; until then report
+  what it names (a cadence gap or an unaudited cadence among them), never done.
 - **Message** a session by `SendMessage` when `ListAgents` lists it; a
   stream-json one by `scripts/fleet-streamjson.sh`'s `steer` (its state by
   `status`); only an unreachable one takes the pane relay, as the tower's
@@ -243,7 +247,10 @@ applies), run `scripts/mc-config.sh`'s `apply --program <p> <id>` with the
   mission control's knobs), its undo entry logged citing the rules on its
   subject; echo it in one line.
 - `handover-operator` — a settings or posture change: hand it to the
-  operator ready to apply, never written (REQ-G1.4).
+  operator ready to apply, never written (REQ-G1.4). Every write verb
+  also prints these lines and exits 4 when another tool renders the layer
+  ([docs/overlays.md](../../docs/overlays.md#an-adopter-layer-another-tool-renders)):
+  hand over each line to make at that tool's source, never retried as a write.
 - `dispatch` — a repository change: route it as a flight.
 
 "Not now" parks with `park`, its trigger (a date or an event) asked of the
@@ -276,8 +283,14 @@ the operator asks for runs by `scripts/mc-config.sh`'s `mode kickoff`:
 
 A hook, guard or classifier denial, in this session or any it runs, is
 reported with its exact text and never routed around: no other spelling,
-no other session, no other tool. A settings change it would take is handed
-to the operator ready to apply. Every hand-off follows `security-posture`
+no other session, no other tool; a settings change it would take is handed
+over as `handover-operator` is. Note each at once with
+`scripts/mc-decide.sh`'s `note --shape denial` (subject: the guard's name
+as `config/denial-knobs.tsv` spells it, such as `ready-guard`; text: the
+exact text) and run the `scan`: once the denials a knob there governs reach
+the repeat threshold, they come back as a repeat, proposed as above with
+no `--candidate` or `--change`, so `show` names the knob, its effect and
+its layer's file. Every hand-off follows `security-posture`
 data hygiene; company data stays local and in company systems, and the
 program home is never committed (REQ-I1.6).
 

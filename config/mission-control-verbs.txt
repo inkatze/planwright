@@ -18,6 +18,7 @@ mc-config.sh knob
 mc-config.sh mode
 mc-deadlines.sh -
 mc-decide.sh decide
+mc-decide.sh note
 mc-duties.sh get
 mc-duties.sh list
 mc-event.sh list

@@ -1,7 +1,7 @@
 # Universal Binary — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-09
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -177,6 +177,26 @@ discipline.
   without a musl build SHALL run on Linux with glibc only and be named in
   the workflow; the bake-off harness SHALL run on every platform in the
   matrix.
+  *(Cites: D-13.)*
+  **Superseded-by: REQ-B1.6** (2026-11-04) — the Alpine scope may span
+  several Alpine jobs, so the install smoke can run once rather than in
+  every suite shard.
+- **REQ-B1.6** (supersedes REQ-B1.4) The CI platform matrix SHALL cover
+  Linux with glibc, macOS with the system `bash` and BSD userland, and
+  Linux with musl running `dash` as `/bin/sh` and busybox tools, the last
+  as a stock Alpine container on the Linux runner; the shell suite as it
+  stands at the head of the branch adding a platform's job SHALL pass on
+  that platform before the platform joins the pull-request workflow, and
+  every step of every job on every platform SHALL fail the run on failure
+  and every job SHALL be a required status check from the day it joins —
+  no informational mode and no promotion step; the Alpine jobs SHALL
+  together run the shell suite, the bake-off harness (which may run within
+  the shell suite's step), and the install smoke check, each in exactly
+  one Alpine job, with every other Alpine step a named setup step, and
+  only the shell suite's job SHALL run more than once per workflow run
+  (its shards); a step needing a tool without a musl build SHALL run on
+  Linux with glibc only and be named in the workflow; the bake-off harness
+  SHALL run on every platform in the matrix.
   *(Cites: D-13.)*
 - **REQ-B1.5** The hook tier's latency budget SHALL be stated as no
   regression against the shell implementation measured on the same runner
@@ -412,6 +432,16 @@ discipline.
   *(Cites: D-15.)*
 
 ## Changelog
+
+- 2026-11-04 — Meaning-class: REQ-B1.6 supersedes REQ-B1.4. REQ-B1.4 held
+  the Alpine scope to a single job carrying the shell suite, the bake-off
+  harness, and the install smoke, so once the suite was sharded the smoke
+  ran in every shard. REQ-B1.6 keeps the platforms, the blocking rule, and
+  the scope, and lets the scope span several Alpine jobs: each named check
+  in exactly one job, every other step a named setup step, and only the
+  suite's job sharded. Operator decision, matching the macOS split into
+  `macos-suite` and `macos-smoke`; Task 4.2 carries the workflow and guard
+  change.
 
 - 2026-10-19 — Expression-only: the Sources bullet on the drafting-session
   cost baseline said the REQ-G1.1 script regenerates its figures. Task 3's
