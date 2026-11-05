@@ -25,7 +25,9 @@
 # The state-source map names, per fact class (work-items, code-state,
 # decisions, deadlines, designs), the authoritative source and its mode:
 # record, snapshot or cited. A program's own map replaces the default whole,
-# and a class the map in force leaves out resolves to cited with no source.
+# and a class the map in force leaves out resolves to cited with no source,
+# as does one written `-:cited`, so the rows `default sources` prints can be
+# written back as a map; `-` with any other mode is refused.
 #
 # Usage:
 #   mc-program.sh list                  configured program names, one per line
@@ -406,6 +408,13 @@ parse_sources() {
     esac
     source=${value%:*}
     mode=${value##*:}
+    if [ "$source" = - ]; then
+      [ "$mode" = cited ] || {
+        problem "$1" sources "'$class' has no source, so its mode is cited, not '$mode'"
+        rc=1
+      }
+      continue
+    fi
     if ! valid_kebab "$source"; then
       problem "$1" sources "source '$source' for '$class' is not a kebab name"
       rc=1
