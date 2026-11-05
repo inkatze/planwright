@@ -102,9 +102,30 @@ absolute_profile | jq '.permissions.deny |= .[40:]' >"$proj/.claude/settings.loc
 posture --
 expect_pass "the floor split across the user and local layers passes on their union"
 
+# A launched session's token binds it to the launcher's registry row, which
+# records the profile it was launched with.
 reset
-posture CLAUDE_PLUGIN_ROOT="$repo_root" PLANWRIGHT_MC_TOKEN=fixture-token --
-expect_pass "a launched mission-control session reads the profile it was launched with"
+mkdir -p "$tmp/fleet/mission-control/sessions"
+printf 'token\t%s\nkind\tmission-control\nprofile\t%s\n' fixture-token-0123456789 "$PROFILE" \
+  >"$tmp/fleet/mission-control/sessions/mc-alpha-mission-control-0123456789"
+posture CLAUDE_PLUGIN_ROOT="$repo_root" PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_MC_TOKEN=fixture-token-0123456789 --
+expect_pass "a launched mission-control session reads the profile its registry row records"
+posture CLAUDE_PLUGIN_ROOT="$repo_root" PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_MC_TOKEN=forged-token-0123456789 --
+expect_fail "a token no registry row carries fails" "no launcher registry row carries"
+printf 'token\t%s\nkind\tworker\nprofile\t%s\n' worker-token-0123456789 "$PROFILE" \
+  >"$tmp/fleet/mission-control/sessions/mc-alpha-worker-0123456789"
+posture CLAUDE_PLUGIN_ROOT="$repo_root" PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_MC_TOKEN=worker-token-0123456789 --
+expect_fail "another kind's row does not vouch for a mission-control session" "no launcher registry row carries"
+rm -rf "$tmp/fleet"
+
+reset
+mkdir -p "$tmp/scripts"
+ln -s "$repo_root" "$tmp/scripts/pw"
+jq --arg r "$tmp/scripts/pw" '(.. | objects | select(has("command")) | .command) |= gsub("\"\\$CLAUDE_PLUGIN_ROOT\""; $r)' \
+  "$PROFILE" >"$home/.claude/settings.json"
+posture --
+expect_pass "a planwright root under a path holding a scripts directory passes"
+rm -rf "$tmp/scripts"
 
 reset
 absolute_profile >"$tmp/managed.json"
@@ -181,6 +202,37 @@ posture CLAUDE_PLUGIN_ROOT="$tmp/noexec" -- --settings "$PROFILE"
 expect_fail "hooks wired to guards that are not executable fail" "does not resolve"
 rm -rf "$tmp/noexec"
 
+reset
+absolute_profile | jq '(.. | objects | select(has("command")) | .command) |= (if test("tower-command-guard") then . + " >/dev/null" else . end)' >"$home/.claude/settings.json"
+posture --
+expect_fail "a guard hook whose verdict is discarded is not wired" "tower-command-guard.sh mission-control is not wired for Bash"
+
+reset
+absolute_profile | jq '(.. | objects | select(has("command")) | .command) |= sub(" \\|\\| \\{.*$"; "")' >"$home/.claude/settings.json"
+posture --
+expect_fail "a policy hook without its fail-closed suffix is not wired" "policy-guard.sh mission-control bash is not wired for Bash"
+
+reset
+mkdir -p "$tmp/lookalike/scripts"
+cp "$repo_root/scripts/tower-command-guard.sh" "$repo_root/scripts/policy-guard.sh" "$tmp/lookalike/scripts/"
+posture CLAUDE_PLUGIN_ROOT="$tmp/lookalike" -- --settings "$PROFILE"
+expect_fail "executable guards outside a planwright root do not resolve" "does not resolve to a planwright guard"
+rm -rf "$tmp/lookalike"
+
+reset
+absolute_profile | jq '.disableAllHooks = true' >"$home/.claude/settings.json"
+posture --
+expect_fail "a layer turning every hook off fails" "disableAllHooks"
+
+reset
+absolute_profile >"$home/.claude/settings.json"
+printf '{"allowManagedHooksOnly": true}\n' >"$tmp/managed.json"
+posture -- --managed "$tmp/managed.json"
+expect_fail "under allowManagedHooksOnly, guards wired outside the managed layer do not count" "is not wired for"
+absolute_profile | jq '.allowManagedHooksOnly = true' >"$tmp/managed.json"
+posture -- --managed "$tmp/managed.json"
+expect_pass "under allowManagedHooksOnly, guards wired in the managed layer count"
+
 echo "# unreadable layers"
 reset
 absolute_profile >"$home/.claude/settings.json"
@@ -197,7 +249,7 @@ expect_fail "a layer whose deny is not a list fails" "proj/.claude/settings.json
 reset
 absolute_profile >"$home/.claude/settings.json"
 posture -- --settings "$tmp/missing.json"
-expect_pass "an absent layer counts as empty"
+expect_fail "a --settings file that does not exist fails" "missing.json does not exist"
 
 echo "# usage"
 if OUT=$(/bin/bash "$POSTURE" --help 2>&1) && case $OUT in usage:*) true ;; *) false ;; esac then
