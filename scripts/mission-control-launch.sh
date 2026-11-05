@@ -797,7 +797,8 @@ cmd_launch() {
   refuse() { # <message> <exit>
     # The dispatch marker a task placement wrote would hold the unit as in
     # flight with no session in it.
-    [ -z "$PLACED_MARKER" ] || marker_cmd clear "$placed_primary" "$task" || :
+    [ -z "$PLACED_MARKER" ] || marker_cmd clear "$placed_primary" "$task" \
+      || printf '%s\n' "$me: the dispatch marker for $task was not cleared; the unit may read as in flight" >&2
     release_reservation || :
     die "$1" "$2"
   }
