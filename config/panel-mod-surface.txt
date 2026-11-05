@@ -6,8 +6,8 @@
 #
 # <kind> <entry>, kind hook, call, env (a read) or envwrite.
 
-# Bring-up, the slash command that opens or closes the pane, and the hand-back of the
-# wake target at the end.
+# Bring-up, the slash command that opens or closes the pane, and the
+# hand-back of the wake target at the end.
 hook session.start
 hook session.end
 hook command.run{command=mc-panel}

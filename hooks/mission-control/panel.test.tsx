@@ -19,7 +19,7 @@ test('the pane draws every store from the fixture digest, on every surface', asy
     await has(/relaunch w-one: relaunch/)
     await has(/Fuel · rung throttle/)
     await has(/tightest: polls_per_hour 72%/)
-    await has(/^inbox stopped, next 40s overdue$/)
+    await has(/^inbox stopped, next 40s overdue \(×2\)$/)
     await has(/code-state: forge snapshot, 90s old/)
     await has(/designs: none cited/)
     await has(/context 42% · five_hour 31%/)
@@ -31,14 +31,16 @@ test('the pane draws every store from the fixture digest, on every surface', asy
   }
 })
 
-// REQ-F1.1: the stores change and the timer redraws with no turn.
-// The register: the operator's view carries no session handle, spec, task,
-// script or hash identifier, and repeats collapse into counts.
+// REQ-L1.8 register: the in-flight section carries no session handle,
+// spec, task, script or hash identifier, and repeats collapse into counts.
 test('sessions in flight are said in plain words, grouped into counts', async ($, on) => {
   const w = world(on, {
     digest: digestText({
       extra: [
         'flight\tmc-alpha-worker-92e2ac1dd8\tflight-panel-fix\tstream-json-persistent\tworking',
+        'flight\tre-11-1\treview-effectiveness:task-11.1\tstream-json-persistent\tstuck',
+        'flight\tkl-3\tkickoff-lifecycle:3\tstream-json-persistent\tworking',
+        'flight\tfl-k\tflight:spec-kickoff-lens-fix\tstream-json-persistent\tworking',
         'flight\tprose-task-5\tprose:task-5\tstream-json-persistent\twaiting',
         'flight\tub-task-7\tuniversal-binary:task-7\tstream-json-persistent\tworking',
         'flight\tkickoff-ub\tuniversal-binary:kickoff\tstream-json-persistent\tworking',
@@ -51,18 +53,25 @@ test('sessions in flight are said in plain words, grouped into counts', async ($
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '')
-  expect(texts).toContain('In flight (9)')
-  expect(texts).toContain('1 spec task waiting for an answer')
-  expect(texts).toContain('1 spec draft waiting for an answer')
-  expect(texts).toContain('3 spec tasks working')
-  expect(texts).toContain('2 one-off changes working')
-  expect(texts).toContain('1 spec kickoff working')
-  expect(texts).toContain('1 other session working')
+  const at = texts.indexOf('In flight (12)')
+  expect(at).toBeGreaterThan(-1)
+  // Waiting on an answer first, then not responding, each by group size.
+  expect(texts.slice(at + 1, at + 9)).toEqual([
+    '1 spec task waiting for an answer',
+    '1 spec draft waiting for an answer',
+    '1 spec task not responding',
+    '4 spec tasks working',
+    '3 one-off changes working',
+    '1 spec kickoff working',
+    '1 other session working',
+    'Holding for you',
+  ])
   const ids = /92e2ac1dd8|3d062aa6a5|@7|cop486|task-\d|:kickoff|stream-json|\.sh\b/
-  expect(texts.filter(t => ids.test(t))).toEqual([])
+  expect(texts.slice(at, at + 8).filter(t => ids.test(t))).toEqual([])
   await ui.unmount()
 })
 
+// REQ-F1.1: the stores change and the timer redraws with no turn.
 test('the pane redraws from the stores on the timer, without a turn', async ($, on) => {
   const w = world(on)
   await boot($, w)
@@ -244,6 +253,25 @@ test('the slash command takes open or close to choose', async ($, on) => {
   expect(w.opened).toBe(opened + 1)
   expect(await mcPanel($, 'sideways')).toContain('/mc-panel open')
   expect(w.opened).toBe(opened + 1)
+})
+
+// A pane opened unasked on a narrow terminal is listed but not drawn.
+test('the slash command opens a pane that is listed but not drawn', async ($, on) => {
+  const w = world(on, { isPlaced: false })
+  await boot($, w)
+  const opened = w.opened
+  expect(await mcPanel($, '')).toContain('Mission control panel opened.')
+  expect(w.closed).toBe(0)
+  expect(w.opened).toBe(opened + 1)
+})
+
+test('closing the pane drops its text-line fallback', async ($, on) => {
+  const w = world(on, { isPlaced: false })
+  await boot($, w)
+  expect(await mcPanel($, 'close')).toContain('Mission control panel closed.')
+  expect(w.statuses.at(-1)).toBeUndefined()
+  await w.clock.advance(10_000)
+  expect(w.statuses.at(-1)).toBeUndefined()
 })
 
 test("the command's description says it opens and closes the panel", async ($, on) => {

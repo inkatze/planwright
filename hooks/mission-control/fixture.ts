@@ -40,6 +40,7 @@ export function digestText(
     tab('headroom', 'sessions', 2, 4, 50),
     tab('headroom', 'polls_per_hour', 72, 100, 72),
     tab('watcher', 'inbox', 'inbox-watch.sh', 'stopped', -40),
+    tab('watcher', 'inbox', 'inbox-sweep.sh', 'stopped', -40),
     tab('source', 'work-items', 'specs', 'record', '-'),
     tab('source', 'code-state', 'forge', 'snapshot', 90),
     tab('source', 'designs', '-', 'cited', '-'),

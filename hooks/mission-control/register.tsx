@@ -21,8 +21,10 @@ const SCRIPT_TIMEOUT_MS = 20_000
 const DEFER_CEILING_PCT = 95
 const FAULT_MAX = 200
 
-// Change the tag when PanelView's fields change: a reload keeps $.state.
-const panel = atom({ plugin: 'planwright', key: 'panel' } as const, null, { shape: 'panel-4' })
+// A reload keeps $.state. Change the tag only for a field a reader cannot
+// do without until the next reading replaces the digest: a new tag also
+// drops the program a reload reads back, which turns the mod off.
+const panel = atom({ plugin: 'planwright', key: 'panel' } as const, null, { shape: 'panel-3' })
 const isBusy = atom({ plugin: 'planwright', key: 'isBusy' } as const, false)
 
 type Ctx = { program: string; target: string; root: string }
@@ -112,9 +114,10 @@ async function isHeld($: EngineInterface, v: PanelView): Promise<boolean> {
 async function checkHandover($: EngineInterface) {
   const v = await view($)
   if (!v || isRaising) return
-  // Shown before the reading said whose session this is; it would only
-  // hold the compaction an attended session needs.
-  if (v.handover && v.digest && v.digest.holder !== 'registry') {
+  // Carried over from an older panel, or raised before the holder record
+  // moved to the operator's own session: it would only hold the compaction
+  // that session needs.
+  if (v.handover && v.digest?.holder === 'attended') {
     await patch($, x => ({ ...x, handover: null }))
     return
   }
@@ -430,9 +433,11 @@ export const register: Register = on => {
     if (asked !== '' && asked !== 'open' && asked !== 'close') {
       return { text: 'Type /mc-panel to open or close the panel, or /mc-panel open or /mc-panel close to choose.' }
     }
-    const isOpen = (await $.ui.panes()).some(p => p.id === PANE)
-    if (asked === 'close' || (asked === '' && isOpen)) {
-      if (isOpen) await close($)
+    // A pane opened unasked on a narrow terminal is listed but not drawn;
+    // the command then opens it, as an asked open places it.
+    const isShown = (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)
+    if (asked === 'close' || (asked === '' && isShown)) {
+      await close($)
       return { text: 'Mission control panel closed.' }
     }
     await open($)

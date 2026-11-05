@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { BAND, boot, digestText, done, PANE, ran, turn, world } from './fixture'
 
-// A session mission control launched itself: only it hands over (D-42).
+// A session mission control launched itself: only it hands over.
 const LAUNCHED = digestText({ holder: 'registry' })
 
 const compact = (trigger: 'auto' | 'manual' | 'precompute', agentId?: string) => ({
@@ -162,7 +162,8 @@ test('with no holder record the session is not asked to hand over', async ($, on
   expect(ran(w, 'mc-event.sh', 'emit')).toEqual([])
 })
 
-// A handover raised before the session was known to be attended is withdrawn.
+// A handover raised while the holder record named a launched session is
+// withdrawn once it names the operator's own session.
 test('a handover shown in an attended session clears at the next reading', async ($, on) => {
   const w = world(on, { contextPercent: 90, digest: LAUNCHED })
   await boot($, w)

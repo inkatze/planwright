@@ -92,12 +92,12 @@ expect_rc "compose refuses a target outside the grammar" 2
 setup
 mc_run mc-snapshot.sh refresh --program alpha --now 1000
 mc_run mc-budget.sh report --program alpha --now 1000 --load 10
-# A pid that is certainly gone: a child already reaped.
-/bin/sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid"
+# Above any pid_max, so no process can hold it.
+dead_pid=2147483646
 mc_run fleet-state.sh register w-one mission-control:alpha --backend stream-json --death-handle "process $$"
 mc_run fleet-state.sh register w-dead flight:fix --backend stream-json --death-handle "process $dead_pid"
+mc_run fleet-state.sh register w-idle flight:done --backend stream-json --death-handle "process $$"
+mc_run fleet-state.sh register w-stuck flight:hung --backend stream-json --death-handle "process $$"
 mc_run fleet-state.sh register w-print flight:once --backend print --death-handle none
 mc_run fleet-state.sh register w-tmux flight:tmux --backend tmux --death-handle "tmux-window mc @5"
 mc_run fleet-state.sh register w-tmux-gone flight:tmux-old --backend tmux --death-handle "tmux-window mc @9"
@@ -107,15 +107,24 @@ mc_run mc-event.sh emit --program alpha --now 1000 pr-ready pr-7
 # A live session whose observed name is `closed` (nine fields), and one
 # known only by a legacy three-field record.
 printf '900\tw-named\tflight:docs\t-\tstream-json\t-\tprocess %s\tclosed\t-\n900\tw-legacy\tflight:old\n' "$$" >>"$fleet/registry"
-# w-one is parked on a question; a stale awaiting row of a dead session
-# changes nothing.
+# w-one is parked on a question, w-idle went idle with its process still
+# up, w-stuck stopped responding. The dead w-dead's stale awaiting row
+# still counts in the operator queue, its own reader, but never puts w-dead
+# in flight.
 mkdir -p "$fleet/attention"
-printf 'w-one\tmission-control:alpha\tawaiting-input\t1000\nw-dead\tflight:fix\tawaiting-input\t900\n' >"$fleet/attention/state"
-# The tmux server lists window @5 of session mc, and not @9.
-mkdir -p "$tmp/bin" "$tmp/bin-down"
-printf '#!/bin/sh\ncase "$*" in *list-windows*) printf "mc\\t@5\\t5\\nother\\t@9\\t9\\n" ;; *) exit 1 ;; esac\n' >"$tmp/bin/tmux"
-printf '#!/bin/sh\nexit 1\n' >"$tmp/bin-down/tmux"
-chmod +x "$tmp/bin/tmux" "$tmp/bin-down/tmux"
+{
+  printf 'w-one\tmission-control:alpha\tawaiting-input\t1000\n'
+  printf 'w-dead\tflight:fix\tawaiting-input\t900\n'
+  printf 'w-idle\tflight:done\tidle\t900\n'
+  printf 'w-stuck\tflight:hung\thung\t900\n'
+} >"$fleet/attention/state"
+# The tmux server lists window @5, its session since renamed, and not @9.
+# The other two stand for a server that does not answer and one not running.
+mkdir -p "$tmp/bin" "$tmp/bin-down" "$tmp/bin-none"
+printf '#!/bin/sh\ncase "$*" in *list-windows*) printf "renamed\\t@5\\tw5\\nother\\t@7\\tw7\\n" ;; *) exit 1 ;; esac\n' >"$tmp/bin/tmux"
+printf '#!/bin/sh\necho "server exited unexpectedly" >&2\nexit 1\n' >"$tmp/bin-down/tmux"
+printf '#!/bin/sh\necho "no server running on /tmp/tmux-0/default" >&2\nexit 1\n' >"$tmp/bin-none/tmux"
+chmod +x "$tmp/bin/tmux" "$tmp/bin-down/tmux" "$tmp/bin-none/tmux"
 host_path=$PATH
 PATH="$tmp/bin:$host_path"
 home=$fixhome/.config/planwright/mission-control/alpha
@@ -147,13 +156,16 @@ record "the digest is stamped" taken 1030
 record "REQ-F1.1: a live session parked on a question is in flight, waiting" flight w-one mission-control:alpha stream-json waiting
 expect_no_out "a retired session is not in flight" "w-gone"
 record "a live session named closed stays in flight" flight w-named flight:docs stream-json working
-record "a live tmux window is in flight" flight w-tmux flight:tmux tmux working
+record "a live tmux window is in flight, found by its id in a renamed session" flight w-tmux flight:tmux tmux working
+record "a live session that stopped responding is in flight, stuck" flight w-stuck flight:hung stream-json stuck
+expect_no_out "a session gone idle is not in flight" "w-idle"
 expect_no_out "a session whose process is gone is not in flight" "w-dead"
 expect_no_out "a tmux window the server does not list is not in flight" "w-tmux-gone"
 expect_no_out "a record with no process to watch is not in flight" "w-print"
 expect_no_out "a legacy three-field record is not in flight" "w-legacy"
-record "the rest are finished, not cleaned up" finished 4
-record "REQ-F1.1: what waits on the operator, both parked rows" waiting 2
+record "the rest are finished, not cleaned up" finished 5
+expect_no_out "a tmux server that answers is readable" "tmux windows"
+record "REQ-F1.1: what waits on the operator" waiting 2
 record "REQ-E1.3: the target's pending events" pending 1
 got=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "decision" { printf "%s|", $2 }')
 if [ "$got" = "1970-02-01T00:15:00Z|1970-02-01T00:10:00Z|1970-01-01T00:11:00Z|" ]; then
@@ -178,19 +190,30 @@ record "the redraw cadence knob, in seconds" knob refresh 10
 record "the tick cadence knob, in seconds" knob tick 300
 record "the reviews TTL knob, in seconds" knob reviews-ttl 300
 record "D-29: the handover verb is installed" handover available
-record "REQ-F1.2: the text line" line "mission control alpha: 3 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
+record "REQ-F1.2: the text line" line "mission control alpha: 4 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "knobs only with --knobs" "knob${tab}"
 
 # The text form alone, as a session without the mod reads it.
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
 expect_rc "the line" 0
-expect_eq "REQ-F1.2: the line form, one line" "mission control alpha: 3 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
+expect_eq "REQ-F1.2: the line form, one line" "mission control alpha: 4 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
 PATH="$tmp/bin-down:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
-expect_no_out "a tmux server that cannot be read puts none of its windows in flight" "w-tmux"
-record "and they count as not live" finished 5
-PATH=$host_path
+record "a tmux server that does not answer is unreadable" unreadable "tmux windows"
+expect_no_out "and none of its windows is in flight" "w-tmux"
+record "nor counted finished" finished 4
+PATH="$tmp/bin-none:$host_path"
+mc_run mc-panel.sh digest --program alpha --now 1030
+expect_no_out "a tmux server not running is no fault" "tmux windows"
+record "and its windows are finished" finished 6
+PATH="$tmp/bin:$host_path"
+mv "$fleet/attention/state" "$fleet/attention/state.real"
+ln -s "$fleet/attention/state.real" "$fleet/attention/state"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "a symlinked attention store is unreadable" unreadable "attention store"
+rm -f "$fleet/attention/state"
+mv "$fleet/attention/state.real" "$fleet/attention/state"
 
 # A store that cannot be read is said, never drawn as empty.
 printf 'format\t9\n' >"$runtime/measures"
@@ -243,6 +266,12 @@ record "REQ-L1.8: the operator's own session is an attended holder" holder atten
 printf 'format\t1\nsession\tmc-alpha-gen-1\nkind\tregistry\nsince\t900\ngeneration\t2\n' >"$runtime/holder"
 mc_run mc-panel.sh digest --program alpha --now 1030
 record "REQ-L1.8: a launched session is a registry holder" holder registry
+printf 'format\t1\nsession\tmc-alpha-gen-1\nkind\tbogus\nsince\t900\ngeneration\t2\n' >"$runtime/holder"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "a holder record naming an unknown kind is unreadable" unreadable "holder record"
+printf 'format\t1\nsession\tmc-alpha-gen-1\nkind\tregistry\nsince\tsoon\ngeneration\t2\n' >"$runtime/holder"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "a holder record outside its grammar is unreadable, never launched" holder -
 printf 'format\t9\nkind\tregistry\n' >"$runtime/holder"
 mc_run mc-panel.sh digest --program alpha --now 1030
 record "a holder record of an unknown format is unreadable" unreadable "holder record"

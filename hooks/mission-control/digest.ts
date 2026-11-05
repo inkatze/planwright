@@ -48,7 +48,7 @@ export function parseDigest(text: string): PanelDigest | null {
         break
       }
       case 'flight':
-        d.flights.push({ worker: f[1] ?? '', scope: f[2] ?? '', backend: f[3] ?? '', isWaiting: f[4] === 'waiting' })
+        d.flights.push({ worker: f[1] ?? '', scope: f[2] ?? '', backend: f[3] ?? '', state: f[4] === 'waiting' || f[4] === 'stuck' ? f[4] : 'working' })
         break
       case 'finished':
         d.finished = int(f[1])
@@ -173,31 +173,42 @@ const KINDS = {
 
 // What a session is doing, read from the shapes its launcher gives the
 // scope and handle; the operator sees this, never the scope or handle.
-export function flightKind(f: PanelFlight): keyof typeof KINDS {
+export function flightKind(f: Pick<PanelFlight, 'worker' | 'scope'>): keyof typeof KINDS {
   const s = f.scope
-  if (/kickoff/.test(s)) return 'kickoff'
-  if (/^spec-draft/.test(s)) return 'draft'
   if (/^flight[:-]/.test(s)) return 'change'
-  if (/(^|[:-])task-?[0-9]+$|:[0-9]+$/.test(s)) return 'task'
+  if (/(^|[:-])task-?[0-9]+(\.[0-9]+)*$|:[0-9]+(\.[0-9]+)*$/.test(s)) return 'task'
+  if (/(^|[:-])kickoff([:-]|$)/.test(s)) return 'kickoff'
+  if (/^spec-draft/.test(s)) return 'draft'
   if (/review|cubic|copilot/.test(s)) return 'review'
   if (/-mission-control-/.test(f.worker) || /^gen-[0-9]/.test(s)) return 'mc'
   return 'other'
 }
 
-// The sessions in flight as counted plain lines, those waiting on an
-// answer first, then the largest groups.
-export function flightLines(flights: PanelFlight[]): string[] {
-  const groups = new Map<string, { kind: keyof typeof KINDS; isWaiting: boolean; n: number }>()
+const STATES = { waiting: 'waiting for an answer', stuck: 'not responding', working: 'working' } as const
+const STATE_ORDER = ['waiting', 'stuck', 'working'] as const
+
+// The sessions in flight as counted plain lines: those waiting on an answer
+// first, then those not responding, each by group size.
+export function flightLines(flights: Pick<PanelFlight, 'worker' | 'scope' | 'state'>[]): string[] {
+  const groups = new Map<string, { kind: keyof typeof KINDS; state: PanelFlight['state']; n: number }>()
   for (const f of flights) {
+    const state = STATES[f.state] ? f.state : 'working'
     const kind = flightKind(f)
-    const key = `${f.isWaiting ? 0 : 1}/${kind}`
+    const key = `${state}/${kind}`
     const g = groups.get(key)
     if (g) g.n += 1
-    else groups.set(key, { kind, isWaiting: f.isWaiting, n: 1 })
+    else groups.set(key, { kind, state, n: 1 })
   }
   return [...groups.values()]
-    .sort((a, b) => Number(a.isWaiting === false) - Number(b.isWaiting === false) || b.n - a.n)
-    .map(g => `${g.n} ${KINDS[g.kind][g.n === 1 ? 0 : 1]} ${g.isWaiting ? 'waiting for an answer' : 'working'}`)
+    .sort((a, b) => STATE_ORDER.indexOf(a.state) - STATE_ORDER.indexOf(b.state) || b.n - a.n)
+    .map(g => `${g.n} ${KINDS[g.kind][g.n === 1 ? 0 : 1]} ${STATES[g.state]}`)
+}
+
+// Repeated lines as one, with their count.
+export function counted(lines: string[]): string[] {
+  const n = new Map<string, number>()
+  for (const l of lines) n.set(l, (n.get(l) ?? 0) + 1)
+  return [...n].map(([l, c]) => (c > 1 ? `${l} (×${c})` : l))
 }
 
 export function age(seconds: number | null): string {

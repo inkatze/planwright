@@ -60,14 +60,20 @@ Usage:
         knob<TAB>handover-context|handover-wakes|handover-compactions<TAB><n>
                                              with --knobs: the handover
                                              trigger's thresholds
-        flight<TAB><worker><TAB><scope><TAB><backend><TAB>working|waiting
-                                             a fleet registry session whose
-                                             process or tmux window is still
-                                             there, `waiting` when it is
-                                             parked on a question; `-` for a
-                                             field its record lacks
+        flight<TAB><worker><TAB><scope><TAB><backend><TAB>working|waiting|stuck
+                                             a fleet registry session seen
+                                             live (its process or tmux
+                                             window still there), `waiting`
+                                             when parked on a question,
+                                             `stuck` when it stopped
+                                             responding; `-` for a field its
+                                             record lacks
         finished<TAB><n>                     registry sessions not retired
-                                             whose process or window is gone
+                                             and not seen live: gone, idle
+                                             or ended, or with nothing to
+                                             watch (rows of a tmux server
+                                             that does not answer are in
+                                             neither count)
         waiting<TAB><n|->                    the operator queue's items, `-`
                                              where the backend surfaces the
                                              queue itself
@@ -258,71 +264,108 @@ knobs() {
 }
 
 # A registry row outlives its session until something retires it, so only
-# a row whose process or tmux window is still there is in flight; the rest
-# are counted as finished. Display only: nothing may act on a row this
-# calls finished. A pid is probed with the kill builtin, no fork per row
-# (the registry runs to hundreds); a pid this user cannot signal is a
-# recycled one, so it reads as gone.
+# a session seen live is in flight: its process or tmux window still there,
+# and the attention store not saying it went idle or ended. The rest are
+# counted as finished. Display only: nothing may act on a row this calls
+# finished. A pid is probed with the kill builtin, no fork per row (the
+# registry runs to hundreds); a pid this user cannot signal is a recycled
+# one, since every worker runs as this user, so it reads as gone.
 flights() {
   fl_reg=$(/bin/sh "$script_dir/fleet-state.sh" registry 2>/dev/null) || {
     printf 'unreadable\tfleet registry\n'
     return 0
   }
-  fl_windows=''
-  case $fl_reg in
-    *"	tmux-window "*)
-      fl_windows=$(/bin/sh "$script_dir/bounded-run.sh" "$TMUX_BOUND" \
-        tmux list-windows -a -F '#{session_name}	#{window_id}	#{window_index}' 2>/dev/null) || fl_windows=''
-      ;;
-  esac
   # The last record per worker wins; only an eight-field record whose last
   # field is `closed` is retired, the rule every registry reader applies.
-  # Each open row comes out as worker, scope, backend and its evidence:
-  # `live`, a pid to probe, or `-`.
-  fl_open=$(printf '%s\n' "$fl_reg" | W=$fl_windows awk -F '\t' '
-    BEGIN {
-      m = split(ENVIRON["W"], wl, "\n")
-      for (i = 1; i <= m; i++) if (split(wl[i], x, "\t") == 3) { win[x[1] SUBSEP x[2]] = 1; win[x[1] SUBSEP x[3]] = 1 }
-    }
+  # Each open row comes out as worker, scope, backend and death handle,
+  # an empty or missing field as `-` so the tab-split read below keeps its
+  # columns.
+  fl_open=$(printf '%s\n' "$fl_reg" | awk -F '\t' '
     NF >= 2 { last[$2] = $0; if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2 } }
     END {
       for (i = 1; i <= n; i++) {
         nf = split(last[order[i]], f, "\t")
         if (nf == 8 && f[8] == "closed") continue
-        h = nf >= 7 ? f[7] : ""
-        ev = "-"
-        if (h ~ /^process [0-9]+$/) ev = substr(h, 9)
-        else if (split(h, t, " ") == 3 && t[1] == "tmux-window" && ((t[2] SUBSEP t[3]) in win)) ev = "live"
-        print f[2] "\t" (nf >= 3 ? f[3] : "-") "\t" (nf >= 5 ? f[5] : "-") "\t" ev
+        for (j = 1; j <= 7; j++) if (j > nf || f[j] == "") f[j] = "-"
+        print f[2] "\t" f[3] "\t" f[5] "\t" f[7]
       }
+    }')
+  # A server that is not running has no windows; one that does not answer
+  # is unknown, and its rows count neither way.
+  fl_windows=''
+  fl_tmux=1
+  case $fl_open in
+    *"	tmux-window "*)
+      if fl_out=$(/bin/sh "$script_dir/bounded-run.sh" "$TMUX_BOUND" \
+        tmux list-windows -a -F '#{session_name}	#{window_id}	#{window_name}' 2>&1); then
+        fl_windows=$fl_out
+      else
+        case $?:$fl_out in
+          127:* | *"no server running"* | *"error connecting to"*"No such file or directory"*) ;;
+          *)
+            fl_tmux=0
+            printf 'unreadable\ttmux windows\n'
+            ;;
+        esac
+      fi
+      ;;
+  esac
+  fl_attn=''
+  if fl_root=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null); then
+    fl_as=$fl_root/attention/state
+    if [ -e "$fl_as" ] || [ -L "$fl_as" ]; then
+      if [ -L "$fl_as" ] || [ ! -f "$fl_as" ] \
+        || ! fl_attn=$(awk -F '\t' 'NF >= 3 { print $1 "\t" $3 }' "$fl_as" 2>/dev/null); then
+        fl_attn=''
+        printf 'unreadable\tattention store\n'
+      fi
+    fi
+  fi
+  # Each row classed as live, a pid to probe, done or unknown. A window id
+  # is looked up across the server, as a renamed session keeps its windows.
+  fl_class=$(printf '%s\n' "$fl_open" | W=$fl_windows A=$fl_attn T=$fl_tmux awk -F '\t' '
+    BEGIN {
+      m = split(ENVIRON["W"], wl, "\n")
+      for (i = 1; i <= m; i++) if (split(wl[i], x, "\t") == 3) { id[x[2]] = 1; nm[x[1] SUBSEP x[3]] = 1 }
+      m = split(ENVIRON["A"], al, "\n")
+      for (i = 1; i <= m; i++) if (split(al[i], x, "\t") == 2) st[x[1]] = x[2]
+    }
+    NF == 4 {
+      s = ($1 in st) ? st[$1] : ""
+      if (s == "idle" || s == "ended") { print "done"; next }
+      word = s == "awaiting-input" ? "waiting" : (s == "hung" ? "stuck" : "working")
+      row = $1 "\t" $2 "\t" $3 "\t" word
+      if ($4 ~ /^process [1-9][0-9]*$/) { print "pid\t" substr($4, 9) "\t" row; next }
+      if (split($4, h, " ") == 3 && h[1] == "tmux-window") {
+        if (ENVIRON["T"] != "1") { print "unknown"; next }
+        seen = (h[3] ~ /^@/) ? (h[3] in id) : ((h[2] SUBSEP h[3]) in nm)
+        print (seen ? "live\t" row : "done")
+        next
+      }
+      print "done"
     }')
   fl_live=''
   fl_done=0
-  while IFS="$TAB" read -r fl_w fl_scope fl_backend fl_ev; do
-    [ -n "$fl_w" ] || continue
-    case $fl_ev in
-      live) ;;
-      - | 0 | 1 | 0*) fl_ev='' ;;
-      *) kill -0 "$fl_ev" 2>/dev/null || fl_ev='' ;;
-    esac
-    if [ -n "$fl_ev" ]; then
-      fl_live="$fl_live$fl_w$TAB$fl_scope$TAB$fl_backend
+  while IFS="$TAB" read -r fl_k fl_a fl_b fl_c fl_d fl_e; do
+    case $fl_k in
+      live)
+        fl_live="$fl_live$fl_a$TAB$fl_b$TAB$fl_c$TAB$fl_d
 "
-    else
-      fl_done=$((fl_done + 1))
-    fi
+        ;;
+      pid)
+        if [ "$fl_a" -gt 1 ] 2>/dev/null && kill -0 "$fl_a" 2>/dev/null; then
+          fl_live="$fl_live$fl_b$TAB$fl_c$TAB$fl_d$TAB$fl_e
+"
+        else
+          fl_done=$((fl_done + 1))
+        fi
+        ;;
+      done) fl_done=$((fl_done + 1)) ;;
+    esac
   done <<EOF_ROWS
-$fl_open
+$fl_class
 EOF_ROWS
-  # What a live session waits on: the attention store's awaiting-input rows.
-  fl_attn=''
-  if fl_root=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null) \
-    && [ -f "$fl_root/attention/state" ] && [ ! -L "$fl_root/attention/state" ]; then
-    fl_attn=$(awk -F '\t' '$3 == "awaiting-input" { print $1 }' "$fl_root/attention/state" 2>/dev/null) || fl_attn=''
-  fi
-  fl_rows=$(printf '%s' "$fl_live" | A=$fl_attn awk -F '\t' '
-    BEGIN { n = split(ENVIRON["A"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") waits[a[i]] = 1 }
-    NF { print "flight\t" $1 "\t" $2 "\t" $3 "\t" ($1 in waits ? "waiting" : "working") }' | mc_clean)
+  fl_rows=$(printf '%s' "$fl_live" | awk 'NF { print "flight\t" $0 }' | mc_clean)
   [ -z "$fl_rows" ] || printf '%s\n' "$fl_rows"
   printf 'finished\t%s\n' "$fl_done"
   D_FLIGHT=$(printf '%s' "$fl_rows" | awk 'NF { n++ } END { print n + 0 }')
@@ -534,11 +577,15 @@ holder() {
     printf 'holder\t-\n'
     return 0
   fi
-  if [ -L "$hd_f" ] || ! mc_format_ok "$hd_f"; then
-    printf 'unreadable\tholder record\nholder\t-\n'
-    return 0
+  hd_kind=''
+  if [ ! -L "$hd_f" ] && mc_format_ok "$hd_f"; then
+    hd_session=$(awk -F '\t' '$1 == "session" { print $2; exit }' "$hd_f")
+    hd_since=$(awk -F '\t' '$1 == "since" { print $2; exit }' "$hd_f")
+    hd_gen=$(awk -F '\t' '$1 == "generation" { print $2; exit }' "$hd_f")
+    if mc_valid_handle "$hd_session" && mc_valid_uint "$hd_since" && mc_valid_uint "$hd_gen"; then
+      hd_kind=$(awk -F '\t' '$1 == "kind" { print $2; exit }' "$hd_f")
+    fi
   fi
-  hd_kind=$(awk -F '\t' '$1 == "kind" { k = $2 } END { print k }' "$hd_f")
   case $hd_kind in
     registry | attended) printf 'holder\t%s\n' "$hd_kind" ;;
     *) printf 'unreadable\tholder record\nholder\t-\n' ;;
