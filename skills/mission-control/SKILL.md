@@ -123,7 +123,8 @@ the successor (`launch --handover`); `operator-act` raises the one act the
 operator takes (`offer`), since their own terminal cannot be moved.
 
 **When planwright changes**, a `planwright-recorded` or `planwright-updated`
-event names the copy now running. Re-resolve the root first; under it,
+event names the copy now running. Re-resolve the root first; under it, on
+a `planwright-updated` event naming an earlier version,
 `scripts/mc-panel.sh`'s `changes --from <old version>` lists every change.
 Re-read the run-start docs and every skill or doc the changes touch, then
 write the knowledge-base entry `planwright.md` (the installed version and
