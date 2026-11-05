@@ -151,6 +151,17 @@ test('a retired record stands the panel down', async ($, on) => {
   expect(ran(w, 'mc-panel.sh', 'digest')).toHaveLength(digests)
 })
 
+test('a wake target that cannot be handed back is tried once more, then said', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  w.set({ records: {}, releaseExit: 1 })
+  await w.clock.advance(10_000)
+  await w.clock.settle()
+  const released = ran(w, 'mc-wake.sh', 'target').filter(r => r.includes('alpha') && !r.includes('--mod'))
+  expect(released).toHaveLength(2)
+  expect(w.toasts.at(-1)).toMatch(/alpha wake target could not be handed back/)
+})
+
 test('a failed read of the record directory is tried again', async ($, on) => {
   const w = world(on, { env: {}, whereExit: 1 })
   await boot($, w)

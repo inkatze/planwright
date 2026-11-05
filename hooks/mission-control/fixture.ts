@@ -117,6 +117,7 @@ export type Fixture = {
   wake: string
   composeExit: number
   claimExit: number
+  releaseExit: number
   markExit: number
   emitExit: number
   rules: string
@@ -146,6 +147,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     wake: 'idle',
     composeExit: 0,
     claimExit: 0,
+    releaseExit: 0,
     markExit: 0,
     emitExit: 0,
     rules: '<!-- rules begin -->\n- R1 never merge\n<!-- rules end -->',
@@ -268,7 +270,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
       return answer('')
     }
     if (script === 'mc-wake.sh' && verb === 'compose') return answer(fx.wake, fx.composeExit)
-    if (script === 'mc-wake.sh' && verb === 'target') return answer('', argv.includes('--mod') ? fx.claimExit : 0)
+    if (script === 'mc-wake.sh' && verb === 'target') return answer('', argv.includes('--mod') ? fx.claimExit : fx.releaseExit)
     if (script === 'mc-event.sh' && verb === 'mark') return answer('', fx.markExit)
     if (script === 'mc-event.sh' && verb === 'emit') return answer('e1.ff', fx.emitExit)
     if (script === 'mc-reviews.sh' && verb === 'refresh') return answer(fx.reviewsOut, fx.reviewsExit)

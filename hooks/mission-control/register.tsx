@@ -333,9 +333,12 @@ async function open($: EngineInterface) {
 // The cadences from the knobs, or the defaults until a reading carries
 // them; armed again once, when the knobs first arrive.
 async function armTimers($: EngineInterface) {
-  // A reading that finished after a stand-down arms nothing.
-  if (!ctx) return
+  // A reading that finished after a stand-down or a switch arms nothing,
+  // checked again after the read, since the timers were cancelled meanwhile.
+  const c = ctx
+  if (!c) return
   const knobs = (await view($))?.digest?.knobs
+  if (ctx !== c) return
   const refreshMs = (knobs?.refresh ?? DEFAULT_REFRESH_S) * 1000
   const nextTickMs = (knobs?.tick ?? DEFAULT_TICK_S) * 1000
   const reviewsMs = Math.min(
