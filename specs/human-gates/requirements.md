@@ -1,6 +1,6 @@
 # Human gates — Requirements
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -71,13 +71,18 @@ list above puts it.
   branch (a plain push, its draft PR, the configured flip), and the
   doctrine row that names it.
 - The class test an automatic merge class must pass, the core-defined
-  classes (release, dependency update, test-only, performance, observation
-  carry, bookkeeping, documentation-only, deterministic regeneration), the
+  classes (release, dependency update, test-only, observation carry,
+  bookkeeping, documentation-only, deterministic regeneration), the
+  refusal of a performance class, the
   knobs that enable and narrow them (all off by default), the conditions
   each must meet on the current head, the merge helper's class mode, the
   audit record, the undo, and the kill switch.
 - A release merged by its class being followed by the existing armed
   publish flow.
+- The floor a relayed drafting session must meet to push its own spec
+  branch, and the doctrine row that names it.
+- The floor a relayed release session must meet to publish an authorized
+  release from the primary checkout, and the doctrine rows that name it.
 
 ### Out of scope
 
@@ -113,6 +118,11 @@ list above puts it.
   separate dotfiles PR.
 - A class an adopter defines in configuration: a new class is a spec
   amendment that passes the class test, never a config value.
+- The drafting launch kind, its launch record, and the policy-guard code
+  that admits a relayed drafting session's push: routed to mission-control
+  as a follow-on against REQ-G1.11, as its kickoff kind was against
+  REQ-G1.9; likewise the release launch kind, its profile, and the guard
+  code against REQ-G1.12.
 
 ## REQ-A — The human-gate list
 
@@ -162,7 +172,11 @@ list above puts it.
   harms no one outside the repository's maintainers (no published
   artifact, no secret, no enforcement surface, no sign-off item). A class
   whose merge has an outward effect SHALL name that effect, and SHALL be
-  enabled only after the operator accepted the effect at a kickoff. The
+  enabled only after the operator accepted the effect at a kickoff; that
+  acceptance excuses the class from the undo and no-outward-harm arms for
+  the named effect alone, every other arm still applying. A review step a
+  class's cadence requires MAY add a refusal and SHALL never decide
+  membership or admit a PR on its own. The
   test SHALL be stated in the human-gates doctrine as the bar every future
   class meets, and SHALL NOT be read as a permission for any act it does
   not name.
@@ -174,6 +188,22 @@ list above puts it.
   every sign-off, a push to a protected branch, every force push, the
   deletion of a remote branch, and every message to a person.
   *(Cites: D-19; the operator's unattended-work request (Sources).)*
+- **REQ-A1.9** The list SHALL carry a composition-contract row for pushing
+  a spec branch from a relayed drafting session, owned by
+  `/spec-draft`, which writes only the one spec branch its launch record
+  names and opens no PR (REQ-G1.11). An attended `/spec-draft` run SHALL
+  stay as it is, committing and never pushing.
+  *(Cites: D-25; the operator's drafting-push request (Sources).)*
+- **REQ-A1.10** The list SHALL keep publishing a release a human gate as an
+  authorization: a release is authorized by the operator's merge of its
+  release PR or by an enabled release class admitting it (REQ-I1.9). It
+  SHALL carry a composition-contract row for running an authorized
+  release's publish from a relayed release session, owned by the release
+  tooling (`scripts/release-arm.sh` and `scripts/release-publish.sh`),
+  whose acts REQ-G1.12 bounds. No
+  session SHALL start a publish whose release no such authorization
+  covers.
+  *(Cites: D-26; the operator's release-session request (Sources).)*
 
 ## REQ-B — Sign-off at the approval act
 
@@ -408,6 +438,20 @@ list above puts it.
   value; the helper is the sole sanctioned path. A worker's base merge
   (REQ-E1.1) is a different act and is governed by its own knob.
   *(Cites: D-6, D-9; kickoff sign-off lens pass (2026-09-22).)*
+  **Superseded-by: REQ-D1.11** (2026-11-05) — the helper's class mode is
+  allowed under every value while a class is enabled.
+- **REQ-D1.11** (supersedes REQ-D1.5) Under `human` and `on-approval`, no
+  agent session at any tier SHALL hold a PR-merge allowance except the
+  class mode of the REQ-D1.4 helper, for a PR an enabled automatic merge
+  class admits (REQ-I1.3) while the kill switch is off; under
+  `policy-class`, only the helper SHALL be allowed, for a PR its
+  predicates or an enabled class admit. The class mode SHALL run in the
+  worker tier and, once mission control's routed follow-on lands, the
+  mission-control tier (REQ-I1.5); the tower profile SHALL stay denied.
+  The direct PR-merge spellings SHALL stay denied to agent sessions under
+  every value; the helper is the sole sanctioned path. A worker's base
+  merge (REQ-E1.1) is a different act and is governed by its own knob.
+  *(Cites: D-6, D-9, D-20; kickoff amendment lens pass (2026-11-05).)*
 - **REQ-D1.6** The never-auto-merge floor SHALL be restated as: no agent
   merges outside a policy the human configured, and no value exists under
   which an agent merges a PR carrying a sign-off item. Every doc and doctrine
@@ -675,6 +719,78 @@ list above puts it.
   requests outside those acts, each expecting `prompt` from every profile.
   *(Cites: D-9, D-18; obs:518be7dd; kickoff §3 REQ-G (2026-09-22); kickoff
   amendment lens pass (2026-11-04).)*
+  **Superseded-by: REQ-G1.13** (2026-11-05) — a second tier-scoped floor
+  exception, the release tier's fast-forward of the primary checkout.
+- **REQ-G1.11** A relayed drafting session, a `/spec-draft` run launched
+  under the kickoff profile with a launch record naming one spec branch,
+  SHALL be admitted by the policy guard, among pushes and PR writes, to
+  exactly one act: a plain push of that branch to the repository its spec
+  root's posture names. "That repository", the launch record's writing,
+  binding, and removal, and every push and ref denial SHALL be as REQ-G1.9
+  states them for a relayed kickoff session; the guard SHALL also deny that
+  session every PR creation and every ready flip, and the launch record
+  SHALL name the kind `draft`, a record of that kind admitting no PR write
+  under any reading. The admission SHALL grant no sign-off and make
+  nothing executable: the pushed bundle stays Draft until a kickoff signs
+  it off. The skill SHALL push only after its own commit of the completed
+  bundle, and SHALL NOT push when that branch has any open PR, surfacing
+  the open PR instead, so a spec PR carrying a sign-off never gains
+  unsigned content.
+  *(Cites: D-25; the operator's drafting-push request (Sources).)*
+- **REQ-G1.12** A relayed release session, launched by mission control
+  under the release profile (a profile the REQ-G1.13 cross-copy test
+  drives) with a launch record naming the kind `release`, the primary
+  checkout's path (the repository's main working tree, never a linked
+  worktree), and the release PR it publishes, SHALL be admitted by the
+  policy guard to exactly one of two paths in that checkout and nothing
+  else. While the PR is open: arming the release watcher
+  (`scripts/release-arm.sh <pr>`), which pre-validates, waits for the
+  merge, and on it fast-forwards and publishes. Once the PR is merged and
+  no watcher is armed for it: a fast-forward-only update of `main` from
+  the configured remote named as REQ-G1.9 resolves it (`git -C <primary>
+  pull --ff-only <remote> main`), only while that checkout has `main`
+  checked out and a clean tree, then running the release tool
+  (`scripts/release-publish.sh`) from that checkout, whose own gates stand
+  in for the watcher's pre-validation. A release is published by exactly
+  one of the two paths. The guard SHALL deny
+  that session every other pull, merge, rebase, reset, checkout, or
+  switch, every push it issues itself (the release tooling's own pushes
+  being the tooling's), every edit inside the primary checkout, every PR
+  write, and every act when the launch record is absent, unreadable, not
+  bound to the running session, or names a PR other than a release PR in
+  the state its path requires. The
+  launch record SHALL follow REQ-G1.9's rules for writing, binding, and
+  removal. The release tool's own gates (clean tree, synced `main`, tag
+  absent, monotonic version, green CI on the release commit, signing)
+  SHALL stay unchanged, and a refusal by any of them SHALL end the session
+  reported to the operator as a failure, never retried around.
+  *(Cites: D-26; the operator's release-session request (Sources);
+  kickoff amendment lens pass (2026-11-05).)*
+- **REQ-G1.13** (supersedes REQ-G1.10) One shared fixture list of
+  reserved-control spellings — merge in every form including `git pull`,
+  the draft→ready flip and its undo, every force-push and refspec form
+  reaching a protected ref, amend, squash, fixup, rebase, and the MCP
+  equivalents — SHALL be tested against every guard copy and deny profile
+  the repository ships; the cross-copy test is the enumeration, and a copy
+  the test does not drive is a defect. Each fixture line SHALL carry the
+  spelling, its act, the tier, the policy value, and the expected verdict
+  per copy (deny, defer, or outside that copy's jurisdiction, since an
+  allow-only copy defers what it does not recognise): floor lines expect
+  deny from every copy in jurisdiction and from every profile, including
+  the `master` and spec-branch forms, with two tier-scoped exceptions: a plain
+  push of a spec branch is a floor line for every tier but the kickoff
+  tier, whose profile defers it and whose policy-guard lines expect the
+  REQ-G1.9 and REQ-G1.11 verdicts (admitted for the launch record's
+  branch, denied for any other); and a fast-forward-only update of the
+  primary checkout's `main` is a floor line for every tier but the release
+  tier, whose profile defers it and whose policy-guard lines expect the
+  REQ-G1.12 verdicts.
+  Policy lines expect the verdict the resolved value yields. The list SHALL
+  also carry the `gh api` spellings of REQ-G1.7 and REQ-G1.8: the
+  classified acts, the forms the policy guard cannot read, and readable
+  requests outside those acts, each expecting `prompt` from every profile.
+  *(Cites: D-9, D-18, D-25, D-26; kickoff amendment lens pass
+  (2026-11-05).)*
 
 ## REQ-H — Prose surfaces
 
@@ -737,13 +853,27 @@ list above puts it.
 - **REQ-I1.3** A PR SHALL be merged by its class only when every condition
   below holds, each evaluated against the PR's current head immediately
   before the merge, with any condition unmet or unreadable meaning no
-  merge: every required check on that head completed successfully, a
-  queued, pending, or missing required check counting as unmet; the host
-  reports the PR `MERGEABLE`, an `UNKNOWN` that persists after one
-  re-query counting as unmet; every changed path lies inside the class's
-  allow-list and outside the REQ-D1.3 hard-disqualifier zone, the class's
-  own named exception excepted; the PR's author is the one the class
-  expects, and its head repository is the base repository; the class's
+  merge: every check in that head's status rollup, required or not,
+  completed successfully, as the ready-flip helper reads it, a queued,
+  pending, or missing required check counting as unmet; the host reports
+  the PR `MERGEABLE` and its merge state `CLEAN`, an `UNKNOWN` that
+  persists after one re-query counting as unmet; every approval or similar
+  gate the repository requires is met as the host reports it on that head
+  (no required approval, code-owner review, or approval of the last push
+  outstanding, no required conversation unresolved, the resolved merge
+  method among those the base allows), a gate the host does not report
+  counting as unmet, and no planwright act approving, dismissing, or
+  bypassing a review to meet it (REQ-I1.18); the base requires no merge
+  queue; every changed path lies inside the class's allow-list and outside
+  the REQ-D1.3 hard-disqualifier zone and the release tooling (the release
+  scripts and every file they source), the class's own named exception
+  excepted, a renamed path counting at both ends and a symlink, submodule,
+  or file-mode change counting as outside every list; the PR's author is
+  the one the class expects (the bot logins of an identity-bound class,
+  otherwise the account the calling session runs as), read as the host's
+  resolved login, every commit in `base..head` is signature-verified by
+  the host and, for an identity-bound class, signed by the host itself,
+  and its head repository is the base repository; the class's
   review cadence (REQ-I1.8) ran on that head; no commit in `base..head`
   carries a `Planwright-Sign-Off` trailer or a legacy suffix; no change
   touches a file that configures planwright's merge behaviour (the
@@ -752,25 +882,31 @@ list above puts it.
   unresolved review thread; a PR on a task branch has no live
   Awaiting-input segment other than a parking lead, read from the fetched
   base ref; and the kill switch is off. The helper SHALL re-confirm the
-  head SHA, the base ref OID, and the kill switch immediately before the
-  merge call and refuse on any of them having moved.
+  head SHA, the base ref OID, the kill switch, and the PR's base branch
+  name immediately before the merge call, and refuse on any of them
+  having moved. The host's branch protection and rulesets SHALL never be
+  read as a backstop for these conditions, since the merging identity may
+  be one the host lets bypass them; the conditions above are the gate.
   *(Cites: D-20, D-21; REQ-D1.4; the operator's unattended-work request
-  (Sources).)*
+  (Sources); kickoff amendment lens pass (2026-11-05).)*
 - **REQ-I1.4** A class merge SHALL run only through
   `scripts/merge-admitted.sh` in a class mode that re-resolves
   `auto_merge_classes` and the kill switch itself and fails closed, as a
   normal merge through the host's merge call with the method
   `merge_class_strategy` resolves, never with an administrator override,
   a force, or a bypass of the host's branch protection. A class PR still
-  in draft SHALL be flipped ready through the REQ-C1.2 helper first. The
-  direct PR-merge spellings SHALL stay denied to every agent session.
-  *(Cites: D-20; REQ-D1.4, REQ-D1.5.)*
+  in draft SHALL be flipped ready by the helper itself through the REQ-C1.2
+  path whatever `ready_flip_policy` resolves to, as REQ-D1.4's admitted
+  flip is, REQ-I1.3's conditions standing in for the unit preconditions.
+  The direct PR-merge spellings SHALL stay denied to every agent session.
+  *(Cites: D-20; REQ-D1.4, REQ-D1.11.)*
 - **REQ-I1.5** The session that calls the helper in class mode SHALL be a
   mission-control session, or the skill that owns a task branch at its
   terminal step, under a tier whose policy guard admits the helper only
   while `auto_merge_classes` is non-empty and the kill switch is off. This
-  bundle SHALL state that floor; mission control's own allowance, its
-  profile, and the amendment of its never-merge requirement SHALL be a
+  bundle SHALL state that floor and ship the worker tier's admission;
+  mission control's own allowance, its profile, its policy-guard
+  admission, and the amendment of its never-merge requirement SHALL be a
   routed mission-control follow-on, and no class merge SHALL run from
   mission control before that follow-on lands.
   *(Cites: D-20; mission-control REQ-I1.1 (Sources).)*
@@ -778,8 +914,10 @@ list above puts it.
   record comment on the PR naming the class, each condition with its
   evidence, the head SHA, the base ref OID, and the undo command, and SHALL
   append one line to a machine-local automatic-merge ledger naming the
-  repository, the PR, the class, the head SHA, the merge commit once it
-  exists, and the time. A record or ledger write that fails SHALL abort the
+  repository, the PR, the class, the head SHA, and the time, and a second
+  line naming the merge commit or the failure once the call returns; the
+  ledger is append-only, written under a lock, and kept until the operator
+  removes it. A record or ledger write that fails SHALL abort the
   merge; a merge call that fails after the record SHALL append a follow-up
   comment naming the failure. The ledger SHALL live outside every
   repository and carry no secret.
@@ -798,8 +936,7 @@ list above puts it.
   the PR's current head: none beyond the class predicates for release,
   dependency, observation-carry, bookkeeping, and regeneration PRs; the
   repository's convergence review for test-only and documentation-only
-  PRs; and that review plus the post-PR automated reviewer, where one is
-  configured, with no open finding, for performance PRs. A layer MAY add
+  PRs. A layer MAY add
   steps to a class's cadence and SHALL NOT remove one.
   *(Cites: D-21; the operator's unattended-work request (Sources).)*
 - **REQ-I1.9** The `release` class SHALL admit a PR only when: its head
@@ -815,11 +952,16 @@ list above puts it.
   SHALL be named, and the merge SHALL be followed by the existing armed
   publish flow; a publish that fails SHALL be reported to the operator as a
   failure, with the untagged-window lock holding other merges as it does
-  today. Whether a release whose changes themselves merged with no human
-  act may still merge by this class SHALL be decided at the extension's
-  kickoff.
+  today. A release SHALL be admitted whether or not its changes merged
+  with a human act, provided it is meaningful and not broken: the
+  changelog section for the proposed version lists at least one entry
+  under a user-facing heading the release tool writes (features, fixes, or
+  performance); every check is green on the base branch's head commit the
+  release PR merges onto; and no open PR reverts a change the release
+  carries.
   *(Cites: D-23; autopilot-reflex D-12 (Sources); the operator's
-  unattended-work request (Sources).)*
+  unattended-work request (Sources); the operator's release-mix ruling
+  (Sources).)*
 - **REQ-I1.10** The `dependency` class SHALL admit a PR only when its
   author and every commit's author is a login in
   `auto_merge_dependency_authors` (bot accounts only, default empty); it
@@ -838,16 +980,20 @@ list above puts it.
   those globs, the reserved-control fixture and every other zone path are
   untouched, and the full required check suite is green on the head.
   *(Cites: D-21; the operator's test and performance addition (Sources).)*
-- **REQ-I1.12** The `performance` class SHALL admit a PR only when no path
-  matching the test globs changes, the required check suite is green on
-  the head, and the PR body carries a measurement block naming the
-  command, the before and after figures, and an after figure better than
-  the before; a missing or unparseable block counts as unmet.
-  *(Cites: D-21; the operator's test and performance addition (Sources).)*
+- **REQ-I1.12** Core SHALL define no performance class: a PR claiming a
+  speedup changes behaviour on paths no allow-list bounds, and its gain is
+  a figure the PR reports about itself, so membership fails the REQ-A1.7
+  class test. Such a PR SHALL merge only under `merge_policy` or by the
+  human, as every PR outside an enabled class does, and
+  `auto_merge_classes` SHALL reject the name `performance` as it rejects
+  any name core does not define. Readmitting it SHALL be a spec amendment
+  whose predicates re-measure the gain mechanically.
+  *(Cites: D-24; the operator's speedups ruling (Sources).)*
 - **REQ-I1.13** The `observation-carry` class SHALL admit a PR only when
   every change adds an observation fragment or moves one between the
-  accumulator's live and archive directories, no fragment's content
-  changes in the move, and nothing outside the accumulator changes.
+  accumulator's live and archive directories, a move changing nothing in
+  the fragment but the consumption lines the archive step appends, and
+  nothing outside the accumulator changes.
   *(Cites: D-24; observation-PRs-skip-review practice (Sources).)*
 - **REQ-I1.14** The `bookkeeping` class SHALL admit a PR only when its
   whole diff removes reference bullets from the `## Awaiting input`
@@ -856,14 +1002,17 @@ list above puts it.
   *(Cites: D-24; the merged-PR survey (Sources).)*
 - **REQ-I1.15** The `docs-only` class SHALL admit a PR only when every
   changed path matches the documentation globs (a core list plus
-  `auto_merge_docs_paths`) and none is doctrine, a skill, an agent
-  instruction file, or another file the framework reads as behaviour.
+  `auto_merge_docs_paths`) and none is doctrine, a skill, a spec bundle
+  (`specs/**`), an agent instruction file (`CLAUDE.md`, `AGENTS.md`, and
+  their kin), or another file the framework reads as behaviour; the core
+  list SHALL name its globs explicitly.
   *(Cites: D-24; the merged-PR survey (Sources).)*
 - **REQ-I1.16** The `regeneration` class SHALL admit a PR only when the
   command `auto_merge_regen_command` names, read from the base and never
   from the head, run in a clean scratch checkout of the base, reproduces
-  the head's tree exactly. An empty or unreadable command SHALL admit
-  nothing.
+  the head's tree exactly. The scratch checkout SHALL sit outside every
+  worktree and be removed after the run. An empty or unreadable command
+  SHALL admit nothing.
   *(Cites: D-24; the merged-PR survey (Sources).)*
 - **REQ-I1.17** Every knob this extension adds SHALL have an options
   reference row and a commented default; the human-gates doctrine SHALL
@@ -872,6 +1021,14 @@ list above puts it.
   (mission control's caller and its never-merge requirement, the operator's
   dotfiles line) SHALL each carry a gated record in this bundle.
   *(Cites: D-19, D-20; REQ-A1.3, REQ-H1.3.)*
+- **REQ-I1.18** A class PR held only by a human approval or similar gate
+  the repository requires SHALL wait, re-evaluated on each later sweep,
+  and SHALL be reported to the operator once per head as waiting on that
+  gate, naming it in plain words. Enabling a class SHALL NOT count as any
+  review the repository requires, and no planwright session SHALL approve
+  a PR, dismiss a review, request a review from a person, or merge past
+  the gate with an administrator override to meet it.
+  *(Cites: D-21; the operator's approvals remark (Sources).)*
 
 ## Changelog
 
@@ -919,10 +1076,25 @@ list above puts it.
   minted; REQ-D1.10 supersedes REQ-D1.9 so non-task PRs may merge through
   an enabled class; REQ-I group minted for the automatic merge classes,
   their knobs, conditions, helper mode, record, undo, kill switch, and the
-  eight core classes; D-19 to D-24 added, D-2 gains a scoped pointer to
+  core classes; D-19 to D-24 added, D-2 gains a scoped pointer to
   D-19 and D-15 is superseded by D-20; Tasks 14 to 18 and three Deferred
-  bullets added. The bundle reopens Ready→Draft for a scoped kickoff, as
+  bullets added (mission control's caller, the dotfiles line, and the
+  repository's class enablement). The bundle reopens Ready→Draft for a scoped kickoff, as
   the 2026-11-04 extension did.
+- 2026-11-05 — At the extension's kickoff, two operator additions drafted
+  and walked: REQ-A1.9, REQ-G1.11, D-25, and Task 19 (a relayed drafting
+  session pushes its own spec branch), and REQ-I1.3's approval-gate
+  condition with REQ-I1.18 (a class merge waits for every review the
+  repository requires), and the operator's later release-session
+  addition: REQ-A1.10, REQ-G1.12, D-26, and Task 20 (a relayed release
+  session publishes an authorized release from the primary checkout). The
+  kickoff lens pass minted REQ-D1.11 (superseding REQ-D1.5) and REQ-G1.13
+  (superseding REQ-G1.10), tightened REQ-A1.7 and REQ-I1.3 to I1.16,
+  turned REQ-I1.12 into the refusal of a performance class,
+  reworked REQ-G1.12 into the armed and post-merge paths, and added the
+  drafting-kind, release-kind, and Renovate Deferred bullets and the
+  first-release-session `[manual]` act; the details are in
+  `kickoff-brief.md`'s amendment log.
 
 ## Sources
 
@@ -1038,6 +1210,29 @@ list above puts it.
   releases". Pinned altitude claim: a rule for which acts run unattended
   (verified and reversible runs, possible harm stops), so doctrine before
   mechanism (D-19).
+- **the operator's drafting-push request** — no external locator: the
+  operator's choice of 2026-11-05, relayed by mission control, to fold into
+  this kickoff a rule that a launched spec-drafting session may plainly
+  push its own spec branch, on the grounds that drafting carries no
+  sign-off, so the push publishes only an unsigned Draft.
+- **the operator's release-session request** — no external locator: the
+  operator's words of 2026-11-05, relayed by mission control: "help me
+  with mise run release when the conditions are met", "You should be able
+  to do that for me", and "what would we need to change if I wanted you to
+  take care of releases automatically", after a launched release session
+  was refused its fast-forward of the primary checkout's `main` by the
+  policy guard's own-unit-branch rule for `git pull`.
+- **the operator's release-mix ruling** — no external locator: asked at
+  the 2026-11-05 kickoff whether a release may go out automatically when
+  some of its changes merged automatically, the operator answered: "as
+  long as the release is meaningful and not broken that's fine".
+- **the operator's approvals remark** — no external locator, the same day,
+  about merging: "People might have to wait for approvals before merging
+  and similar".
+- **the operator's speedups ruling** — no external locator: at the
+  2026-11-05 kickoff, shown the lens finding that a performance class
+  admits any non-test code on a self-reported figure, the operator chose
+  to keep speedups manual.
 - **the operator's test and performance addition** — no external locator,
   the same day: "Performance improvements, test improvements/broadening
   could be fine too", and "I might be missing other good candidates now

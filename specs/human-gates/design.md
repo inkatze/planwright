@@ -1,6 +1,6 @@
 # Human gates — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -757,8 +757,8 @@ whether a human gives it.
 
 **Decision:** `auto_merge_classes` is a space-separated single-line list
 (the flat config model, as `protected_branches` is) of names core defines:
-`release`, `dependency`, `test-only`, `performance`, `observation-carry`,
-`bookkeeping`, `docs-only`, `regeneration`. Default empty. It is read
+`release`, `dependency`, `test-only`, `observation-carry`, `bookkeeping`,
+`docs-only`, `regeneration`. Default empty. It is read
 independently of `merge_policy`, so an operator can enable releases while
 task PRs keep `human`. The capability (the classes and their predicates)
 is core; the value (which ones a repository turns on, and the narrowing
@@ -771,7 +771,8 @@ re-resolves the knobs and the kill switch and fails closed. The caller is
 the gap D-15 named: nothing called the helper for a PR no planwright skill
 owns. Mission control, which already sweeps every open PR of its program,
 is that caller; a unit-owning skill may also call it at its terminal step
-for its own task PR. Mission control's allowance, profile wiring, and the
+for its own task PR. This bundle ships the worker tier's guard admission; mission control's
+allowance, profile wiring, its tier's guard admission, and the
 amendment of its "never merge" requirement are mission-control's to ship,
 routed as a follow-on exactly as D-18 routed the kickoff profile; this
 bundle states the floor (only the helper, only while a class is enabled
@@ -780,8 +781,10 @@ before the follow-on lands. D-15 is superseded: its rejected allowlist
 failed for want of a caller and of predicates for specless PRs, and this
 decision supplies both. The REQ-D1.3 zone applies to every class in full,
 save one named exception (lockfiles, for the dependency class); the zone
-gains the files that configure planwright's merge behaviour for the
-classes, so no class PR can widen the classes.
+gains, for the classes only, the release tooling, and REQ-I1.3 refuses any
+change to the files that configure planwright's merge behaviour as its own
+condition, so no class PR can widen the classes or alter what publishes
+them.
 
 **Alternatives considered:**
 - Adopter-defined classes as config (a glob list plus an author). Rejected
@@ -803,15 +806,24 @@ adopter; one helper keeps one guarded path; the caller exists already.
 ### D-21: Conditions on the current head, a record before the act, a one-step undo, a kill switch any layer can pull  (N, the operator's unattended-work request)
 
 **Decision:** Every class shares REQ-I1.3's conditions, each evaluated on
-the head immediately before the merge and each failing closed: required
-checks all completed green (queued, pending, or absent is unmet, so a
-release PR whose checks never ran is not admitted), the host's
-`MERGEABLE`, the allow-list and zone, the author and the head repository,
+the head immediately before the merge and each failing closed: every check
+in the rollup completed green (queued, pending, or absent is unmet, so a
+release PR whose checks never ran is not admitted, and the untagged-window
+check holds class merges as it holds every other), the host's `MERGEABLE`
+and `CLEAN`, no required merge queue (an enqueue would void the
+kill-switch and base re-reads), the allow-list and zone, the author and the head repository,
 the class cadence on that head, the raw sign-off scan, no hold label,
 change request, or unresolved thread, no revert PR, the Awaiting-input read
 for task branches, and the kill switch; head SHA, base OID, and the kill
 switch are re-read right before the call, as REQ-D1.4 already does. Being
-behind the base is not a condition. The record comment is written before
+behind the base is not a condition. Every approval or similar gate the
+repository requires (required approvals, code-owner review, approval of the
+last push, required conversation resolution, the allowed merge methods) is
+read from the host on the head and must be met; a PR held only by one
+waits and is reported to the operator once per head, and nothing planwright
+runs approves, dismisses, requests a review from a person, or overrides,
+since enabling a class is the operator's authorization of the class, not a
+review the repository asks of a person. The record comment is written before
 the merge and a machine-local ledger line beside it (the PR comment is the
 durable remote record; the ledger is what mission control's panel and a
 morning report read without a host query). The undo is `gh pr revert`
@@ -823,13 +835,9 @@ the only knob where a stricter lower layer cannot be overridden, as
 `protected_branches` already adds rather than replaces. Cadence per class
 is a core minimum, evidenced by the existing step records naming the
 head: the mechanical classes need none beyond their predicates, test-only
-and docs-only need the convergence review, performance needs that plus the
-post-PR automated reviewer with no open finding. The test-only class
-forbids deleting or renaming away a test file, the one way a test PR
-lowers coverage while staying green; the performance class forbids any
-test-path change, so "the suite passes unchanged" is mechanical, and
-requires a measurement block in the PR body whose presence and direction
-are checked, its truth being the reviewers'.
+and docs-only need the convergence review, which may only refuse. The
+test-only class forbids deleting or renaming away a test file, the one way
+a test PR lowers coverage while staying green.
 
 **Alternatives considered:**
 - Trust GitHub auto-merge with required checks alone. Rejected because:
@@ -840,9 +848,15 @@ are checked, its truth being the reviewers'.
   layer currently wins, and an empty value is easy to misread as unset; a
   switch any layer can pull is unambiguous at 3 a.m.
 - Check only the PR author. Rejected because: anyone with push access can
-  add a commit to a bot's branch; every commit's author must match for the
-  identity-bound classes (GitHub's own guidance checks the PR author, and
-  the extra check closes the pushed-commit gap).
+  add a commit to a bot's branch, and a commit's git author field is
+  free text; every commit must be host-verified, and for the
+  identity-bound classes signed by the host itself, which a pushed commit
+  cannot fake (GitHub's own guidance checks the PR author; the extra check
+  closes the pushed-commit gap).
+- Rely on the host's rulesets as a backstop. Rejected because: the
+  identity that merges may be one the ruleset lets bypass, as this
+  repository's administrator role can, so planwright's own conditions are
+  the gate and the host's merge state is one input to them.
 
 **Chosen because:** each condition is a shipped read (the ready-flip
 preconditions, the class predicates, the step records); the record and
@@ -895,11 +909,14 @@ cannot sign would merge the release, fail to tag, and hold the
 untagged-window lock over every other merge until the operator returns, so
 a release that cannot sign unattended is not merged. On the merge the
 watcher runs the unchanged `release-publish.sh`, which re-enforces every
-gate. Who runs the watcher unattended is mission-control's follow-on (its
-launch of a release session); this bundle requires only that it be armed
-and pre-validated for the head being merged. Whether a release may go out
-unattended when some change in it merged with no human act (through
-another class) is the operator's call at kickoff, recorded in REQ-I1.9.
+gate. Who runs the publish unattended is a relayed release session
+(D-26), launched by mission control's follow-on; this bundle requires only
+that the watcher be armed and pre-validated for the head being merged. At
+the kickoff the operator ruled that a release may go out unattended even
+when some of its changes merged with no human act, as long as it is
+meaningful and not broken; REQ-I1.9 makes both mechanical (a user-facing
+changelog entry; green required checks on the commit to tag and no open
+revert of a change it carries).
 
 **Alternatives considered:**
 - Merge and let the operator publish later. Rejected because: the
@@ -927,19 +944,108 @@ checkout, reproduces the head exactly, covering formatting, lint fixes,
 and generated files; the command is read from the base so a PR cannot
 choose what verifies it. Refused: secret-scan allowlist changes (a secret
 can hide behind one), guard, hook, profile, and workflow changes (the
-enforcement surface every class leans on), and spec PRs (sign-off). Which
+enforcement surface every class leans on), spec PRs (sign-off), and
+performance PRs: the drafted class bounded no paths and checked only the
+presence and direction of a figure the PR reports about itself, its truth
+left to model reviewers, so membership was not mechanical; the operator
+chose at the kickoff to keep speedups manual (REQ-I1.12). Which
 classes this repository enables is the operator's multi-select at the
 kickoff; core ships all of them off.
 
 **Alternatives considered:**
 - Ship only the classes the operator named. Rejected because: the operator
-  asked for the survey, and the four pass the same test with simpler
-  predicates than performance does.
+  asked for the survey, and the four pass the same test with mechanical
+  predicates.
 - A formatting class separate from regeneration. Rejected because: a
   formatter is a regeneration command; one predicate covers both.
 
 **Chosen because:** each recurs in the history, each passes the test with
 mechanical predicates, and each stays off until chosen.
+
+### D-25: A relayed drafting session pushes only its own spec branch, and opens nothing  (N, the operator's drafting-push request)
+
+**Decision:** Under the gate test, a drafting session's plain push of its
+spec branch is not a human gate for the same reasons D-18 gave for the
+kickoff's push, and one more: drafting carries no sign-off, so the push
+publishes only an unsigned Draft, which no planwright skill executes until
+a kickoff signs it off. It becomes a composition contract owned by
+`/spec-draft`, run as a relayed drafting session under the kickoff profile
+with a launch record that names the session's kind and one spec branch.
+The admission is D-18's narrowed to the push alone: the same remote,
+record, binding, and ref rules, and no PR creation or flip, because the
+draft PR and its ready flip are the kickoff's publication and a drafting
+record must never admit them. The one new hazard is a ready spec PR
+already open for the branch, as when an extension follows a signed
+kickoff whose PR the operator has not merged yet: a drafting push would
+put unsigned content under a PR the operator may merge as signed, so the
+skill does not push then and surfaces the PR instead, a check the skill
+makes because the guard cannot read PR state. An attended `/spec-draft`
+run keeps its contract of committing and never pushing. The drafting kind
+and its guard code are mission-control's, routed as D-18's were.
+
+**Alternatives considered:**
+- Let the drafting session also open the draft PR. Rejected because: the
+  operator asked for a plain push, and a PR before the kickoff invites a
+  review of unsigned content and a second PR shape for the kickoff to
+  reconcile.
+- Keep the push with the operator or mission control. Rejected because:
+  it is a manual step after every launched draft, and mission control runs
+  no git mutation.
+- A separate drafting profile. Rejected because: the kickoff profile
+  already carries exactly the floor needed, and the record's kind narrows
+  it; a second profile is a second copy for the cross-copy test to drive
+  with nothing gained.
+
+**Chosen because:** it widens one session by the one branch it was
+launched to write, publishes nothing executable, and reuses D-18's floor.
+
+### D-26: A relayed release session runs an authorized publish, and the authorization stays human  (N, the operator's release-session request)
+
+**Decision:** D-2 keeps the release publish a human gate because a
+published tag cannot be retracted. The gate is the authorization, not the
+keystrokes: `release-publish.sh` already states that the human approved by
+merging the release PR and that the script only carries the work to the
+gate's edge. So the row splits the way the merge rows already do
+(authorizing a merge is a human gate, executing an authorized merge is a
+policy): publishing a release stays a human gate as an authorization, given
+by the operator's merge of the release PR or, in advance, by an enabled
+release class (D-19, D-23), and running the authorized publish becomes a
+composition contract the release tool owns. A relayed release session is
+the session that runs it, launched by mission control with a launch record
+naming its kind, the primary checkout, and the release PR. It takes one of
+two paths, so a release has exactly one publisher: while the PR is open it
+arms `release-arm.sh`, which pre-validates (the signing probe included),
+waits for the merge by the operator or by the release class, and then
+fast-forwards and publishes; once the PR has merged with no watcher armed,
+it fast-forwards the checkout's `main` when the tree is clean and `main`
+is checked out and runs `release-publish.sh`, whose own gates stand in
+for the pre-validation. Nothing else is admitted.
+The fast-forward is today refused by the guard's own-unit-branch rule for
+`git pull`, which is right for every other session; this is a narrow
+tier-scoped exception, the same shape as D-18's, and the cross-copy
+fixture's floor lines gain it as their second exception (REQ-G1.13).
+The release tooling joins the class zone, so no class-merged change can
+alter the code this session runs with the operator's signing key. The
+release tool keeps
+every gate it enforces, so the session adds no trust beyond starting the
+tool; a refusal ends the session as a reported failure. The launch kind,
+its profile, the record, and the guard code are mission-control's,
+routed as D-18's and D-25's are.
+
+**Alternatives considered:**
+- Leave the publish to the operator after every release merge. Rejected
+  because: the operator asked for it to be done for them, and while the
+  publish is pending the untagged-window lock holds every other merge.
+- Admit a worktree-local publish instead of the primary checkout.
+  Rejected because: the release tool requires the checkout whose `main`
+  is synced with the remote, and the primary checkout is the one the
+  operator's own release runs from.
+- Let mission control run the publish in its own shell. Rejected because:
+  mission control runs no git mutation.
+
+**Chosen because:** it keeps the human authorization exactly where the
+gate test puts it and hands only the mechanics to a session whose acts the
+guard bounds to two.
 
 ## Cross-cutting concerns
 
@@ -972,6 +1078,24 @@ mechanical predicates, and each stays off until chosen.
   (the class evaluator, merge helper, step records, and armed watcher).
   Touched, not decided here: mission control's caller wiring, routed to
   mission-control (D-20).
+  The kickoff additions, touched and decided: auth (the drafting and
+  release launch records bound to one session and naming their kind,
+  D-25, D-26; the signing key used only by the release tooling, whose
+  probe fails closed when it would prompt, D-23), secrets-configuration
+  (no new secret; the ledger carries none, D-21), concurrency (a class
+  merge landing during the release session is harmless because the
+  release tool tags the release merge commit, not `HEAD`; a drafting push
+  never runs onto a branch with an open PR, D-25), data-storage (the
+  ledger is machine-local, append-only, locked, kept until removed, D-21),
+  LLM output gates (a cadence review may only refuse, never admit,
+  REQ-A1.7), deploy and migration (the irreversible publish stays
+  human-authorized, by the operator's merge or the class they enabled,
+  D-26), api-surface (the class names and knobs are an adopter contract
+  documented in the options reference, D-20), org-design (the operator
+  who enabled a class is accountable for its merges, and the
+  waiting-on-approval report goes to the operator running mission
+  control, REQ-I1.18). Touched, not decided here: the sweep cadence that
+  re-evaluates a waiting class PR, mission control's (REQ-I1.18).
 - **Instruction budget.** Every skill prose change is measured by
   `check-instructions.sh`; a change that grows a saturated surface is
   reworked as a citation, never landed over budget.

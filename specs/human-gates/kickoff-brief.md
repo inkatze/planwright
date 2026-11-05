@@ -905,3 +905,178 @@ Lens-pass: the delta-scoped lens review recorded in this entry (three-agent
 fan-out over the spec artifact class, dispositions above)
 Anchor: `4433671c3dc1cd8859bbf924abd5d2a975091879` — computed as
 `scripts/spec-anchor.sh specs/human-gates`
+
+### 2026-11-05 — Automatic merge classes, the drafting push, and the release session
+
+**Scope.** A reopened-bundle delta kickoff of the 2026-11-05
+`/spec-draft --extend` extension (automatic merge classes: REQ-A1.7,
+REQ-A1.8, REQ-D1.10, the REQ-I group, D-19 to D-24, Tasks 14 to 18),
+walked against spec commit `6b7afae`, plus three operator additions
+drafted and walked in this session: a relayed drafting session's push of
+its own spec branch (REQ-A1.9, REQ-G1.11, D-25, Task 19); every automatic
+merge waiting for the approvals the repository requires (REQ-I1.3's
+approval-gate condition, REQ-I1.18); and a relayed release session that
+finishes an authorized release's publish (REQ-A1.10, REQ-G1.12, D-26, Task
+20). The bundle was Draft with a complete signed brief, so this is the
+scoped kickoff of the delta. The validator was clean at pre-flight (0
+errors, 0 warnings). Config: defaults (`commit_on_kickoff`,
+`mark_spec_pr_ready_on_kickoff` true, `kickoff_ready_ci_wait` 10m). The
+session ran as a relayed kickoff (mission-control launch), its questions
+relayed to the operator; no harness log path was provided, so the
+structured turn log was skipped. Sections 2 to 7 were walked as one delta.
+
+**Goal (section 2), confirmed by the operator.** Mission control may merge
+a few named kinds of PR on its own, each kind off until the operator turns
+it on, every merge leaving a record with a one-step undo, and one switch
+stopping all of them; every other merge, sign-off, force push, and message
+to a person stays the operator's. Glossary: an **automatic merge class** is
+a core-defined kind of PR, admitted by mechanical predicates on its current
+head; the **class test** is the bar a kind must pass to become a class; the
+**kill switch** is `auto_merge_halt`; a **relayed drafting session** and a
+**relayed release session** are launched sessions whose launch record names
+their kind and the one branch or release PR they may act on; the **primary
+checkout** is the repository's main working tree, never a linked worktree.
+
+**Operator decisions at the walk (sections 3 to 7).**
+
+- Approvals: a class PR held only by a required approval or similar gate
+  waits and is reported to the operator once per head; nothing planwright
+  runs approves, dismisses, requests a review from a person, or overrides
+  (REQ-I1.18). This repository requires no approving review today.
+- The drafting push: allowed as drafted, a plain push only, no PR
+  (REQ-G1.11). The lens pass tightened "a ready PR" to "any open PR".
+- The release session: allowed (REQ-G1.12). The operator first asked
+  whether mission control was meant to merge the release PR; answered
+  that the class merges it and this session is the publishing half.
+- The release mix (REQ-I1.9's open question): "as long as the release is
+  meaningful and not broken that's fine", made mechanical as a user-facing
+  changelog entry, green checks on the base head, and no open revert of a
+  carried change.
+- Classes for this repository: `release`, `observation-carry`,
+  `bookkeeping`, `test-only`, `docs-only`, `regeneration`; the operator
+  asked what else might fit, chose to set up Renovate as a separate task
+  so `dependency` can follow, and no further safe kind was found.
+- Speedups (a lens-pass fork): kept manual; REQ-I1.12 now refuses a
+  performance class.
+
+**Lens review pass (delta-scoped, meaning class).** The artifact class is
+**spec**. The delta mints requirements, so it is meaning-class; the
+operator's sign-off covered it. Three read-only Opus sub-agents fanned out
+over the delta, each carrying a lens group; each finding was checked
+against the files, the scripts it builds on (`merge-admitted.sh`,
+`merge-class.sh`, `ready-flip.sh`, `release-arm.sh`, `release-publish.sh`),
+the observation archive's history, and this repository's ruleset.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency; ambiguity and interpretation forks | 9 | The class test excluding the release class it admits; REQ-D1.5 forbidding the class mode under `human`; the draft class PR's flip under `ready_flip_policy: human`; two release publishers and `release-arm.sh` refusing a merged PR; the release fast-forward a floor act under REQ-G1.10; the mission-control guard admission owned twice; "the base commit the release would tag"; the ledger's merge commit written before it exists; the drafting record's kind and the zone-versus-condition placement |
+| Cross-file consistency; documentation and glossary drift | 3 | REQ-I1.18 uncited by any task; the changelog's Deferred count; "release profile" and "primary checkout" undefined, `origin` spelled literally |
+| Security and bypass completeness | 10 | The admin role bypassing the ruleset, so the host is no backstop; the release tooling outside the zone while it runs with the signing key; the performance class bounding no paths; commit author fields spoofable; no expected author for six classes; a base retarget after evaluation; non-required checks (the untagged-window check) ignored; merge queues; the armed watcher unadmitted; cadence reviews as a model in the decision path |
+| Decision-domain gaps | 3 | D-25 and D-26 undecided on auth, secrets, and concurrency; data-storage, LLM output, deploy-migration, api-surface, and queues touched; org-design (who is accountable, who is told) |
+| Citation and coverage integrity; dead verification paths and testability | 10 | Missing task citations (REQ-I1.18, REQ-I1.9, REQ-D1.10, REQ-A1.8, REQ-I1.7); the once-per-head report assigned to a stateless evaluator; Deferred bullets lacking the cross-copy cases the test-spec says they name; Tasks 14 and 19 needing Task 13's overridable doc path; the release row written twice; Task 16's Done-when narrower than its test-spec; three routing observations that did not exist; early gates; unowned `[manual]` acts |
+| Lower-severity, verified | 4 | Archive moves edit the fragment (Consumed-by lines); `specs/**` and agent instruction files absent from the docs exclusions; the drafting push's open-PR check; where the regeneration command runs |
+| Performance | n/a | Spec artifact class: no execution path |
+| Error handling and failure modes | n/a | Spec artifact class; the fail-closed conditions are the contract under review |
+
+Counts are the sub-agents' report totals before deduplication. One fork
+went to the operator (the performance class: kept manual). The rest were
+applied as the recommended fixes:
+
+- REQ-A1.7: the accepted outward effect excuses only the undo and
+  no-outward-harm arms for that effect; a cadence review may only refuse.
+- REQ-I1.3: every rollup check green; `MERGEABLE` and `CLEAN`; no required
+  merge queue; the release tooling in the class zone; renames counted at
+  both ends, symlink, submodule, and mode changes outside every list; the
+  expected author for every class, read as the host's resolved login;
+  every commit host-verified, and host-signed for the identity-bound
+  classes; the base branch name re-read; the host's protection never a
+  backstop.
+- REQ-I1.4: the draft class PR flipped by the helper itself, as REQ-D1.4's
+  admitted flip is. REQ-D1.11 minted, superseding REQ-D1.5. REQ-I1.5 and
+  Task 17: the worker tier's admission here, the mission-control tier's in
+  the follow-on.
+- REQ-I1.6: a pre-merge and a completion ledger line, append-only, locked.
+- REQ-I1.9: the base branch's head commit. REQ-I1.13: a move may add the
+  consumption lines. REQ-I1.15: `specs/**` and agent instruction files
+  excluded, the globs explicit. REQ-I1.16: the scratch checkout outside
+  every worktree.
+- REQ-G1.11: the record names the kind `draft`; no push onto a branch with
+  any open PR. REQ-G1.12: two paths, one publisher (arm the watcher on an
+  open PR, or after a merge with no watcher, fast-forward and publish), the
+  remote named as REQ-G1.9 resolves it, the primary checkout defined.
+  REQ-G1.13 minted, superseding REQ-G1.10 with the release tier's floor
+  exception. REQ-A1.10 names both release scripts.
+- D-20, D-21, D-23, D-24, D-26, and the cross-cutting decision-domain walk
+  updated to match; Tasks 14, 16, 17, 18, 19, and 20 citations,
+  deliverables, Done-when lines, and dependencies fixed; the Deferred
+  bullets list their cross-copy cases, own the `[manual]` acts, and cite
+  observations obs:416f7a6a (drafting kind), obs:5ab3b6b5 (release kind),
+  obs:a845aa5b (waiting reports), and obs:f291c49d (Renovate, with its own
+  gated bullet); the caller bullet's gate is Tasks 17 and 18.
+
+No finding was declined and none deferred.
+
+The **altitude check**: the unattended-work request pins an altitude
+claim; D-19 is its record, cited from the goal, and the decomposition is
+doctrine-first (Task 14 before the knob, evaluator, and helper tasks).
+The **ship-gate check**: every out-of-band fix (mission control's caller,
+drafting kind, and release kind; the dotfiles line; Renovate; this
+repository's class enablement) carries a gated Deferred bullet.
+
+**Brief content this amendment makes stale** (the body above is
+append-only; these notes supersede it where they conflict):
+
+- Section 3: REQ-A1.7 to REQ-A1.10, REQ-D1.10, REQ-D1.11, REQ-G1.11 to
+  REQ-G1.13, and REQ-I1.1 to REQ-I1.18 minted; REQ-D1.9 superseded by
+  REQ-D1.10, REQ-D1.5 by REQ-D1.11, REQ-G1.10 by REQ-G1.13.
+- Section 4 ledger: D-19 to D-26 added, confirmed; D-2 scoped by D-19;
+  D-15 superseded by D-20.
+- Section 5: `[test]`, `[Gherkin]`, `[design-level]`, and `[manual]`
+  entries for every new REQ; the guard cases of REQ-G1.11 to REQ-G1.13 are
+  mission-control's to test, by the routed bullets; the two live release
+  acts are the operator's.
+- Section 6: Task 13 → 14 → 15 → 16 → 17 → 18 is the critical path (about
+  seven days); Task 19 follows 13 and 14; Task 20 follows 14 and 19,
+  serialized because Tasks 14, 19, and 20 edit the same doctrine file and
+  test. The mission-control follow-ons hang off Tasks 17 to 20.
+- Section 7, new rows:
+  - (17) A class admits a harmful PR. The signal is a record comment on a
+    merge the operator would not have made; the mitigations are the
+    mechanical conditions, the record, the one-step undo, and the kill
+    switch.
+  - (18) A release publishes unattended and is wrong. The signal is the
+    failure report or the first-release `[manual]` read; the mitigation is
+    the release tool's unchanged gates, the zone holding the tooling, and
+    the roll-forward undo.
+  - (19) The host's admin bypass hides a missing condition. The mitigation
+    is that planwright's conditions are the gate, never the ruleset.
+  - (20) The follow-ons lag, so classes ship unused. The signal is the
+    Deferred bullets surfacing at drain; the mitigation is that the gap
+    fails safe (nothing merges).
+
+**Pre-sign-off verification.**
+
+- **Post-lens stale-reference sweep.** Run after REQ-D1.11 and REQ-G1.13
+  were minted and REQ-G1.12 and REQ-I1.12 re-scoped: the delta's remaining
+  REQ-D1.5 and REQ-G1.10 mentions are the supersede pointers, the
+  test-spec headings marked superseded, and the unchanged-cases line; no
+  "two acts", "merged release PR", or eight-class wording remains.
+- **Lint.** `markdownlint-cli2` over the brief and the four spec files: 0
+  issues.
+- **Recorded claims re-derived.** Requirement bullets and test-spec
+  entries pair one to one (the sorted ID lists compared equal).
+- **Enumeration cross-check.** The lens table's counts are the report
+  totals before deduplication; the class list is the decided rule of
+  REQ-I1.1 and D-20, the enabled set the operator's decision recorded in
+  the Deferred bullet.
+- **Validator.** 0 errors, 0 warnings after the flip.
+
+**Sign-off.** Signed off 2026-11-05 by the operator after the approval
+summary. `**Status:**` flipped Draft→Ready on all four spec files;
+`**Last reviewed:**` already read 2026-11-05.
+
+Class: meaning
+Lens-pass: the delta-scoped lens review recorded in this entry (three-agent
+fan-out over the spec artifact class, dispositions above)
+Anchor: `a39ae8aa5f50caf5ba2a2b0bad7820d6ab263e35` — computed as
+`scripts/spec-anchor.sh specs/human-gates`

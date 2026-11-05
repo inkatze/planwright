@@ -1,6 +1,6 @@
 # Human gates — Test Spec
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -74,6 +74,21 @@ The doctrine test finds the standing-authorization rule and a Human gate
 row for each act REQ-A1.8 lists, unchanged against the merge-base for the
 rows that already existed (Task 14). The cross-copy fixture keeps every
 floor line's deny for those acts at every tier (Task 17).
+
+### REQ-A1.9 — The drafting-push row [test]
+
+`tests/test-human-gates-doctrine.sh` finds the composition-contract row
+naming `/spec-draft`, the relayed drafting session, and the one spec branch
+its launch record names, and fails on a fixture copy without it; the
+REQ-A1.6 row is unchanged (Task 19).
+
+### REQ-A1.10 — The release authorization and the publish row [test]
+
+The doctrine test finds the "Publishing a release" row stated as an
+authorization (the operator's merge of the release PR, or an enabled release
+class) with its Human gate kind, and the composition-contract row naming the
+release tool and the relayed release session, failing on a fixture copy
+without them (Task 20).
 
 ## REQ-B — Sign-off at the approval act
 
@@ -260,7 +275,7 @@ Awaiting-input segment that moves between the predicate pass and the merge
 call yields no merge call and a PR comment; the helper denies under the
 tower profile and refuses when its own policy re-read fails (Task 9).
 
-### REQ-D1.5 — No allowance outside the class [test]
+### REQ-D1.5 — No allowance outside the class [test] (superseded by REQ-D1.11)
 
 The guard suite denies every PR-merge spelling under `human` and
 `on-approval`, and under `policy-class` admits only `merge-admitted.sh` for
@@ -299,6 +314,13 @@ the PR under every layer's configuration. Given a trailered or legacy
 suffixed commit in the range that a later commit reverts, then the PR is
 still refused (Task 9). Each release-approval passage Task 9 names states
 the rule [design-level] (Task 9).
+
+### REQ-D1.11 — The class mode under every merge policy [test]
+
+The policy-guard suite admits the helper's class mode in the worker tier
+under `human`, `on-approval`, and `policy-class` while a class is enabled
+and the kill switch is off, denies it with no class enabled, and denies it
+to the tower profile under every value (Task 17).
 
 ### REQ-D1.10 — Task branches under the policy, other PRs only through a class [test + Gherkin + design-level]
 
@@ -471,7 +493,7 @@ their pre-amendment verdict. A grep of the kickoff profile finds every
 worker-profile deny other than the spec-branch plain-push denies, and a
 deny for the spec-branch deletion spellings.
 
-### REQ-G1.10 — One spelling list, every profile [test]
+### REQ-G1.10 — One spelling list, every profile [test] (superseded by REQ-G1.13)
 
 Every REQ-G1.1 case holds unchanged for the worker and tower profiles
 (Task 5, Task 6). With mission-control Task 19, the cross-copy test drives
@@ -480,6 +502,38 @@ that profile and the REQ-G1.9 verdicts from the policy guard's kickoff
 tier, every other floor line expects deny from it, and a floor line
 expecting anything but deny from the worker or tower profile still fails
 the test.
+
+### REQ-G1.11 — The relayed drafting session's one push [design-level + manual]
+
+The Deferred bullet routing mission control's drafting launch kind exists
+with its gate, and names the cross-copy cases its guard code must carry: the
+launch record's branch admitted for a plain push; every PR creation, every
+ready flip, another branch, a tag, a force push, a deletion, and a record of
+another kind or session denied [design-level]. The `/spec-draft` eval run
+shows the push after the commit, skipped and surfaced with an open non-draft
+PR on the branch, and no push in an attended run [manual] (Task 19).
+
+### REQ-G1.12 — The relayed release session's two paths [design-level + manual]
+
+The Deferred bullet routing mission control's release launch kind exists
+with its gate, and names the cross-copy cases its guard code must carry: the
+watcher armed only on an open release PR; the fast-forward of the primary
+checkout's `main` admitted only with `main` checked out, a clean tree, a
+merged PR, and no watcher armed, and the release tool only after it; any
+other pull, merge, rebase, reset, checkout, push,
+edit, or PR write denied, and every act denied with a record that is absent,
+of another session, or naming an unmerged PR [design-level]. The first
+release published by such a session is watched by the operator and read
+against the published tag, owned by the operator through the routing
+bullet [manual].
+
+### REQ-G1.13 — One spelling list, two tier-scoped exceptions [design-level]
+
+The Deferred bullets routing mission control's drafting and release kinds
+name the cross-copy floor-line cases for the kickoff tier's spec-branch
+push and the release tier's fast-forward [design-level]; the unchanged
+REQ-G1.10 cases keep passing in `mise run check` [test] (the existing
+cross-copy suite).
 
 ## REQ-H — Prose surfaces
 
@@ -536,8 +590,14 @@ an unexpected author or a fork head; no step record on the head; a
 sign-off trailer or legacy suffix, reverted or not; a change to a
 merge-configuration file; a revert PR; a hold label, a changes-requested
 review, or an unresolved thread; a live Awaiting-input segment on a task
-branch; the kill switch on; then the PR is refused with that condition
-named. Given the head, base OID, or kill switch moving between evaluation
+branch; the kill switch on; a required approval, code-owner review, or
+last-push approval outstanding, a required conversation unresolved, a merge
+method the base disallows, a merge state other than `CLEAN`, or a required
+merge queue; a failing non-required check; a change to the release
+tooling; a symlink, submodule, or mode change; a commit not verified by
+the host, or on an identity-bound class not signed by the host; a base
+branch retargeted after evaluation; then the PR is refused
+with that condition named. Given the head, base OID, or kill switch moving between evaluation
 and the merge call, then no merge call is made (Tasks 16, 17).
 
 ### REQ-I1.4 — One helper, a normal merge [test]
@@ -583,8 +643,10 @@ pre-validated on its head, then it is admitted and the publish runs on the
 observed merge; given a changed path beyond the three files, a version-file
 diff touching more than the version, a version not above the latest tag, a
 human commit, no armed watcher, or a signer that prompts, then it is refused
-(Tasks 16, 18). The rule the kickoff settles on releases carrying changes
-merged with no human act has its own scenario (Task 18). The first
+(Tasks 16, 18). Given a release carrying a class-merged change and every
+condition met, then it is admitted; given a changelog section with no
+user-facing entry, a required check red on the commit to tag, or an open
+revert of a carried change, then it is refused (Task 18). The first
 unattended release in this repository is watched by the operator and its
 record read against the published tag [manual].
 
@@ -602,12 +664,11 @@ Given a PR changing only test-glob paths, adding or editing tests, then it
 is admitted; given a deleted or renamed-away test file, or a change to the
 reserved-control fixture, then it is refused (Task 16).
 
-### REQ-I1.12 — The performance class [test + Gherkin]
+### REQ-I1.12 — No performance class [test]
 
-Given a PR with no test-path change and a measurement block whose after
-figure beats its before, then it is admitted; given any test-path change, a
-missing or unparseable block, or an after figure no better, then it is
-refused (Task 16).
+`auto_merge_classes: performance` fails a repo-tracked value and degrades
+an adopter or machine-local one to empty, as any undefined name does (Task
+15); a fixture speedup PR is admitted by no class (Task 16).
 
 ### REQ-I1.13 — The observation-carry class [test + Gherkin]
 
@@ -640,3 +701,13 @@ The options check finds a row and a commented default for every knob Task 15
 adds; the doctrine test finds the class rows and the kill switch row (Task
 14); the bundle's `## Deferred` carries the mission-control and dotfiles
 bullets with their gates [design-level].
+
+### REQ-I1.18 — Waiting on a required approval [test + Gherkin + design-level]
+
+Given a class PR meeting every condition but an outstanding required
+approval, then the evaluator's verdict is a wait naming that gate, distinct
+from a refusal, and no approval, review dismissal, review request, or
+override is issued; given the approval arriving, then the same PR is
+admitted on a later evaluation (Task 16). The once-per-head report and the
+sweep re-evaluation are cases the mission-control caller's Deferred bullet
+names [design-level].
