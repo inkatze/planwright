@@ -103,8 +103,9 @@ Usage (every verb takes --program <p> right after it):
 
 Exit codes: 0 done; 1 refused (a pattern below the threshold or already
 proposed, no covering row, a proposal not in the state the verb needs, a
-store with a missing or unknown format, a held lock, a denial-map match
-pattern that does not compile); 2 usage or an
+store with a missing or unknown format, a held lock, a denial map that is
+missing while a denial is noted or holds an empty or non-compiling match
+pattern); 2 usage or an
 invalid value; 3 the program is not configured.
 HELP
 }
@@ -199,12 +200,19 @@ repeats() {
   MAP=$(denial_map) awk -F '\t' "$MC_GROUNDS_AWK$MC_SUBJECT_KEY_AWK"'
       BEGIN {
         while ((getline l < ENVIRON["MAP"]) > 0)
-          if (l !~ /^#/ && split(l, f, "\t") == 6) { nm++; mg[nm] = key(f[1]); mm[nm] = f[2]; mk[nm] = f[3] }
+          if (l !~ /^#/ && split(l, f, "\t") == 6) {
+            # An empty pattern would match every denial from its guard.
+            if (f[2] == "") { bad = 1; exit }
+            nm++; mg[nm] = key(f[1]); mm[nm] = f[2]; mk[nm] = f[3]
+          }
       }
       !/^#/ && $2 >= ENVIRON["FROM"] && $2 <= ENVIRON["TO"] && grounds($6) {
         if (G_REASON ~ /^(correction|manual|answer)$/)
           p = G_REASON "\037" key($3) "\037" (G_REASON == "correction" ? "-" : key($5))
         else if (G_REASON == "denial") {
+          # With no map a noted denial could never repeat, which would hide
+          # the loss of the map behind an empty scan.
+          if (ENVIRON["MAP"] == "/dev/null") { bad = 1; exit }
           t = ""
           for (i = 1; i <= nm && t == ""; i++) if (mg[i] == key($3) && $4 ~ mm[i]) t = mk[i]
           if (t == "") next
@@ -216,8 +224,11 @@ repeats() {
         if (!(p in c)) order[++n] = p
         c[p]++; ids[p] = ids[p] (ids[p] == "" ? "" : ",") $1
       }
-      END { for (i = 1; i <= n; i++) if (c[order[i]] >= ENVIRON["N"] + 0) print order[i] "\037" c[order[i]] "\037" ids[order[i]] }') \
-    || mc_fail "the repeat scan failed; a match pattern in config/denial-knobs.tsv may be malformed"
+      END {
+        if (bad) exit 1
+        for (i = 1; i <= n; i++) if (c[order[i]] >= ENVIRON["N"] + 0) print order[i] "\037" c[order[i]] "\037" ids[order[i]]
+      }') \
+    || mc_fail "the repeat scan failed; config/denial-knobs.tsv is missing or unreadable, or a match pattern in it is empty or malformed"
   [ -n "$rp_rows" ] || return 0
   printf '%s\n' "$rp_rows" | while IFS="$us" read -r r_shape r_key r_target r_count r_ids; do
     r_sum=$(printf '%s\t%s\t%s' "$r_shape" "$r_key" "$r_target" | mc_sha256) || mc_fail "no SHA-256 tool (sha256sum, shasum or openssl) is on PATH"

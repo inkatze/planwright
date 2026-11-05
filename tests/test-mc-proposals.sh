@@ -340,6 +340,15 @@ prop scan --program alpha
 expect_rc "a malformed map pattern fails the scan instead of hiding every repeat" 1
 expect_err "the refusal points at the map" "denial-knobs.tsv"
 cp "$tmp/denial-knobs.keep" "$core/config/denial-knobs.tsv"
+printf 'broken-guard\t\tmission_control_tick_cadence\t1m\tadopter\tbroken\n' >>"$core/config/denial-knobs.tsv"
+prop scan --program alpha
+expect_rc "an empty map pattern fails the scan instead of matching every denial" 1
+expect_err "the empty-pattern refusal points at the map" "denial-knobs.tsv"
+rm "$core/config/denial-knobs.tsv"
+prop scan --program alpha
+expect_rc "a missing map with denials noted fails the scan instead of hiding them" 1
+expect_err "the missing-map refusal points at the map" "denial-knobs.tsv"
+cp "$tmp/denial-knobs.keep" "$core/config/denial-knobs.tsv"
 
 printf '%s\n' "mission_control_repeat_threshold: 3" >>"$tracked"
 note --shape correction --subject "Three times" --text "one"
