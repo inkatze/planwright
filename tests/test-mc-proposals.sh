@@ -231,12 +231,29 @@ expect_out "the ask's confirmation names the reason it reached the operator" "no
 # nothing, the second identical refusal proposes the knob, its effect and
 # the adopter layer it lives in, handed to the operator and never written.
 # ---------------------------------------------------------------------------
-cp "$repo_root/config/denial-knobs.tsv" "$core/config/denial-knobs.tsv"
+map="$repo_root/config/denial-knobs.tsv"
+cp "$map" "$core/config/denial-knobs.tsv"
 printf 'knob\tready_guard_behind_base\tthe config layers\tdocs/options-reference.md\n' >>"$kb/mechanisms.tsv"
-if grep -Fq 'commit(s) behind its base branch' "$repo_root/scripts/ready-guard.sh"; then
-  ok "the ready-guard still words its behind-base refusal as the map expects"
+map_bad=$(awk -F '\t' '!/^#/ && NF {
+    if (NF != 6 || $2 == "" || $5 !~ /^(adopter|repo-tracked|machine-local)$/ || seen[$1 "\t" $3]++) print NR
+  }' "$map")
+if [ -z "$map_bad" ]; then ok "every denial-map row is well formed"; else fail "malformed denial-map rows: $map_bad"; fi
+while IFS= read -r knob; do
+  if grep -Fq "| \`$knob\` |" "$repo_root/docs/options-reference.md"; then
+    ok "denial-map knob $knob has an options-reference row"
+  else
+    fail "denial-map knob $knob has no options-reference row, so no inventory row covers it"
+  fi
+done <<EOF
+$(awk -F '\t' '!/^#/ && NF { print $3 }' "$map")
+EOF
+# shellcheck disable=SC2016 # the guard source's literal $behind
+behind_src=$(grep -F 'commit(s) behind its base branch' "$repo_root/scripts/ready-guard.sh" | sed 's/\$behind/3/')
+behind_re=$(awk -F '\t' '$1 == "ready-guard" && $3 == "ready_guard_behind_base" { print $2 }' "$map")
+if [ -n "$behind_src" ] && T=$behind_src R=$behind_re awk 'BEGIN { exit !(ENVIRON["T"] ~ ENVIRON["R"]) }'; then
+  ok "the map's behind-base pattern matches the ready-guard's own refusal"
 else
-  fail "the ready-guard's behind-base wording changed; update config/denial-knobs.tsv"
+  fail "the ready-guard's behind-base refusal no longer matches config/denial-knobs.tsv"
 fi
 behind() {
   printf 'planwright ready-guard: this pull request is %s commit(s) behind its base branch main, so it has NOT been verified on a current head - refusing the draft->ready flip.' "$1"
@@ -244,16 +261,25 @@ behind() {
 note --shape denial --subject ready-guard --text "$(behind 3)"
 expect_rc "a denial is noted" 0
 prop scan --program alpha
+expect_rc "scan runs over one denial" 0
 expect_no_out "the first behind-base refusal raises nothing" "ready_guard_behind_base"
+note --shape denial --subject policy-guard --text "$(behind 4)"
+prop scan --program alpha
+expect_rc "scan runs over another guard's denial" 0
+expect_no_out "another guard's denial does not count toward the ready-guard's" "ready_guard_behind_base"
 note --shape denial --subject "Ready-Guard" --text "planwright ready-guard: this pull request conflicts with its base branch main"
 note --shape denial --subject ready-guard --text "planwright ready-guard: this pull request conflicts with its base branch main"
 prop scan --program alpha
+expect_rc "scan runs over unmatched denials" 0
 expect_no_out "a repeated denial no knob governs raises nothing" "${tab}denial${tab}"
 note --shape denial --subject ready-guard --text "$(behind 7)"
 prop scan --program alpha
 expect_out "the second behind-base refusal is a repeat naming its knob" \
   "${tab}denial${tab}ready-guard${tab}ready_guard_behind_base${tab}2${tab}"
 p_deny=$(pattern_of ready-guard)
+prop propose --program alpha --pattern "$p_deny" --candidate rule --cadence c --intervene c --cost c --off c
+expect_rc "another candidate gets no knob line as its change" 2
+expect_err "the refusal asks for the change" "--change is required"
 prop propose --program alpha --pattern "$p_deny" --cadence "at every ready flip of a pull request behind its base" \
   --intervene "a conflicting pull request is still refused" --cost "none" --off "remove the line"
 expect_rc "the denial repeat is proposed with its knob and change derived" 0
@@ -281,9 +307,19 @@ expect_out "a map row added as data governs its denial" "${tab}denial${tab}polic
 prop propose --program alpha --pattern "$(pattern_of policy-guard)" --cadence c --intervene c --cost c --off c
 p_dw=$(field "$OUT" 2)
 prop accept --program alpha "$p_dw"
+tracked_sum=$(cksum <"$tracked")
 mc_run mc-config.sh apply --program alpha "$p_dw" --value 1m
 expect_out "a guard knob mission control could write is still handed over" "handover-operator${tab}"
 expect_no_out "nothing is applied" "applied${tab}"
+if [ "$(cksum <"$tracked")" = "$tracked_sum" ]; then ok "the tracked layer is untouched"; else fail "apply wrote the tracked layer"; fi
+
+cp "$core/config/denial-knobs.tsv" "$tmp/denial-knobs.keep"
+printf 'broken-guard\tcommit(s\tmission_control_tick_cadence\t1m\tadopter\tbroken\n' >>"$core/config/denial-knobs.tsv"
+note --shape denial --subject broken-guard --text "a refusal"
+prop scan --program alpha
+expect_rc "a malformed map pattern fails the scan instead of hiding every repeat" 1
+expect_err "the refusal points at the map" "denial-knobs.tsv"
+cp "$tmp/denial-knobs.keep" "$core/config/denial-knobs.tsv"
 
 printf '%s\n' "mission_control_repeat_threshold: 3" >>"$tracked"
 note --shape correction --subject "Three times" --text "one"

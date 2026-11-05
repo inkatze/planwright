@@ -4,9 +4,11 @@
 # and scripts/mc-proposals.sh proposes the knob to the operator, handed
 # over ready to apply and never written. A row matches when the guard is
 # the noted subject's key and the match ERE matches the denial's text; the
-# first matching row wins. layer is the overlay layer the value belongs in
-# (adopter, repo-tracked or machine-local, docs/overlays.md); effect says
-# what the value changes, in plain words, as the confirmation shows it.
+# first matching row wins, and a guard names a knob in one row only, since a
+# proposal finds its value by guard and knob. layer is the overlay layer the
+# value belongs in (adopter, repo-tracked or machine-local, docs/overlays.md),
+# one the guard reads that knob from; effect says what the value changes, in
+# plain words, as the confirmation shows it.
 #
 # guard<TAB>match<TAB>knob<TAB>value<TAB>layer<TAB>effect
 ready-guard	[0-9]+ commit[(]s[)] behind its base branch	ready_guard_behind_base	conflict-only	adopter	a pull request behind its base branch can be marked ready once GitHub reports it mergeable (no conflicts); a conflicting or unconfirmed one is still refused

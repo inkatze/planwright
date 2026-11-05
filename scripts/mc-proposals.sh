@@ -75,7 +75,7 @@ Usage (every verb takes --program <p> right after it):
       repeat<TAB><pattern><TAB><shape><TAB><subject key><TAB><target>
       <TAB><count><TAB><entry ids> per repeat no proposal covers yet
   propose --pattern <pattern> [--candidate <kind>[:<mechanism>]]...
-      --change <t> (a denial's may be left out) --cadence <t>
+      --change <t> (left out on a denial's own knob) --cadence <t>
       --intervene <t> --cost <t> --off <t>
       record a proposal in the confirmation shape; prints
       proposal<TAB><id><TAB><kind><TAB><mechanism><TAB><where>
@@ -170,6 +170,11 @@ layer_where() {
   case $1 in
     adopter)
       lw_root=$(/bin/bash "$script_dir/resolve-overlay-root.sh" adopter 2>/dev/null) || lw_root=''
+      # The root comes from the environment verbatim and lands in a TSV column.
+      case $lw_root in
+        /*) mc_valid_text "$lw_root" || lw_root='' ;;
+        *) lw_root='' ;;
+      esac
       if [ -n "$lw_root" ]; then
         printf '%s/planwright.yml\n' "$lw_root"
       else
@@ -189,7 +194,7 @@ repeats() {
   rp_now=$(mc_now)
   rp_all=$(mc_kb_entries "$PROGRAM" decisions) || exit $?
   # shellcheck disable=SC2016 # an awk program, expanded by awk
-  printf '%s\n' "$rp_all" | N=$rp_n FROM=$(mc_iso $((rp_now - $(mc_seconds "$rp_w")))) TO=$(mc_iso "$rp_now") \
+  rp_rows=$(printf '%s\n' "$rp_all" | N=$rp_n FROM=$(mc_iso $((rp_now - $(mc_seconds "$rp_w")))) TO=$(mc_iso "$rp_now") \
     MAP=$(denial_map) awk -F '\t' "$MC_GROUNDS_AWK$MC_SUBJECT_KEY_AWK"'
       BEGIN {
         while ((getline l < ENVIRON["MAP"]) > 0)
@@ -210,8 +215,10 @@ repeats() {
         if (!(p in c)) order[++n] = p
         c[p]++; ids[p] = ids[p] (ids[p] == "" ? "" : ",") $1
       }
-      END { for (i = 1; i <= n; i++) if (c[order[i]] >= ENVIRON["N"] + 0) print order[i] "\037" c[order[i]] "\037" ids[order[i]] }' \
-    | while IFS="$us" read -r r_shape r_key r_target r_count r_ids; do
+      END { for (i = 1; i <= n; i++) if (c[order[i]] >= ENVIRON["N"] + 0) print order[i] "\037" c[order[i]] "\037" ids[order[i]] }') \
+    || mc_fail "the repeat scan failed; a match pattern in config/denial-knobs.tsv may be malformed"
+  [ -n "$rp_rows" ] || return 0
+  printf '%s\n' "$rp_rows" | while IFS="$us" read -r r_shape r_key r_target r_count r_ids; do
       r_sum=$(printf '%s\t%s\t%s' "$r_shape" "$r_key" "$r_target" | mc_sha256) || mc_fail "no SHA-256 tool (sha256sum, shasum or openssl) is on PATH"
       r_sum=$(printf '%s' "$r_sum" | cut -c 1-32)
       printf 'pat-%s\t%s\t%s\t%s\t%s\t%s\n' "$r_sum" "$r_shape" "$r_key" "$r_target" "$r_count" "$r_ids"
@@ -229,7 +236,9 @@ settings_kind() { # settings_kind <kind> <where> <shape>
   case $1 in
     hook | permission) return 0 ;;
   esac
-  [ "$1" != knob ] || [ "$3" != denial ] || return 0
+  if [ "$1" = knob ] && [ "$3" = denial ]; then
+    return 0
+  fi
   case $2 in
     */settings.json | */settings.local.json) return 0 ;;
   esac
@@ -353,12 +362,7 @@ v_propose() {
 $(printf '%s' "$line" | tr '\t' '\037')
 EOF
   dk_row=''
-  if [ "$shape" = denial ]; then
-    dk_row=$(map_row "$subject" "$target")
-    [ -n "$dk_row" ] || mc_fail "the denial map no longer names $target for $subject; no proposal is raised"
-    [ -n "$change" ] || change="$target: $(printf '%s\n' "$dk_row" | cut -f 4)"
-  fi
-  text_arg --change "$change"
+  [ "$shape" != denial ] || dk_row=$(map_row "$subject" "$target")
   if [ "${#cands[@]}" -eq 0 ]; then
     case $shape in
       correction) cands=(rule) ;;
@@ -393,7 +397,9 @@ $(printf '%s' "$pick" | tr '\t' '\037')
 EOF
   if [ -n "$dk_row" ] && [ "$kind" = knob ] && [ "$mech" = "$target" ]; then
     where=$(layer_where "$(printf '%s\n' "$dk_row" | cut -f 5)")
+    [ -n "$change" ] || change="$target: $(printf '%s\n' "$dk_row" | cut -f 4)"
   fi
+  text_arg --change "$change"
   n=$(awk -F '\t' '!/^#/ && NF { n++ } END { print n + 0 }' "$STORE")
   id=p-$((n + 1))
   old=$(cat "$STORE") || mc_fail "cannot read kb/proposals.tsv"
@@ -423,9 +429,13 @@ v_show() {
     esac
     printf '%s\n' "$all" | E=,$ev, awk -F '\t' 'index(ENVIRON["E"], "," $1 ",") { printf "evidence\t%s\t%s\n", $1, $4 }'
     printf 'mechanism\t%s\t%s\t%s\t%s\n' "$(col 8)" "$(col 9)" "$(col 10)" "$(col 11)"
+    # The effect is read live, so it is shown only while the map still
+    # proposes the value the stored change sets.
     if [ "$(col 4)" = denial ] && [ "$(col 8)" = knob ]; then
-      sh_effect=$(map_row "$(col 5)" "$(col 9)" | cut -f 6)
-      [ -z "$sh_effect" ] || printf 'effect\t%s\n' "$sh_effect"
+      sh_row=$(map_row "$(col 5)" "$(col 9)")
+      if [ -n "$sh_row" ] && [ "$(col 12)" = "$(col 9): $(printf '%s\n' "$sh_row" | cut -f 4)" ]; then
+        printf 'effect\t%s\n' "$(printf '%s\n' "$sh_row" | cut -f 6)"
+      fi
     fi
     printf 'change\t%s\ncadence\t%s\nintervene\t%s\ncost\t%s\noff\t%s\n' "$(col 12)" "$(col 13)" "$(col 14)" "$(col 15)" "$(col 16)"
     if settings_kind "$(col 8)" "$(col 10)" "$(col 4)"; then
