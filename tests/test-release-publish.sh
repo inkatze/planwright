@@ -1557,7 +1557,17 @@ assert_contains "lock-rerun/rerun-fail: names the run it could not re-run" "$ERR
 want "lock-rerun/rerun-fail: the next run is still re-run" gh_called "$LOG" "run rerun 6 --failed"
 assert_contains "lock-rerun/rerun-fail: counts only the re-run that happened" "$OUT" "re-ran the check on 1 open pull request"
 
-# 13e. No open PR, no lock workflow, or a refused publish: no run is listed.
+# A run list that is not JSON is a failed read: warned, nothing re-run.
+r="$tmp/lock-rerun-badjson"
+new_repo "$r"
+add_lock "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_OPEN_PRS_JSON="$lock_prs" GH_RUNS_JSON='not json'
+assert_eq "lock-rerun/bad-json: exit 0 (best-effort)" "$RC" "0"
+assert_contains "lock-rerun/bad-json: warns the runs could not be read" "$ERR" "could not read the open pull requests' runs"
+deny "lock-rerun/bad-json: nothing is re-run" gh_called "$LOG" "run rerun"
+
+# 13e. No open PR, no lock on main, or a refused publish: nothing is re-run.
 r="$tmp/lock-rerun-noprs"
 new_repo "$r"
 add_lock "$r"
