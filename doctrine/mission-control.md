@@ -226,7 +226,10 @@ which every unit runs, not one catalog entry gating later units. The
 readiness check audits it too (`scripts/step-run.sh audit --through
 post-pr`): a configured point with no completion that counts at the head,
 or a configured step its run did not record passed, applied, or skipped, is
-a gap, whatever launched the session and whatever its brief said.
+a gap, whatever launched the session and whatever its brief said. A
+spec-only pull request (every changed path under the spec root) is held for
+each touched bundle's kickoff sign-off instead of the cadence and the gate
+data's steps.
 
 ## The register delta
 

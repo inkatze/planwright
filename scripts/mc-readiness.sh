@@ -12,7 +12,7 @@ unset CDPATH
 
 prog=mc-readiness
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-for lib in echo-safety.sh mc-lib.sh; do
+for lib in echo-safety.sh mc-lib.sh spec-parse.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
     printf '%s\n' "$prog: $lib is missing or unreadable (broken install)" >&2
     exit 2
@@ -22,6 +22,8 @@ done
 . "$script_dir/echo-safety.sh" || exit 2
 # shellcheck source=scripts/mc-lib.sh
 . "$script_dir/mc-lib.sh" || exit 2
+# shellcheck source=scripts/spec-parse.sh
+. "$script_dir/spec-parse.sh" || exit 2
 
 help_text() {
   cat <<'HELP'
@@ -35,7 +37,9 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   repo<TAB><owner/name>
   label<TAB><name>                    one per label
   path<TAB><file>                     one per changed path
-  check<TAB><name><TAB><state>        one per individual check context;
+  check<TAB><name><TAB><state>        one per individual check context,
+                                      its latest run only (a re-run
+                                      supersedes the runs before it);
                                       SUCCESS, NEUTRAL and SKIPPED pass
   thread<TAB><id><TAB>open|resolved   one per review thread
   finding<TAB><reviewer><TAB><id><TAB>answered|unanswered
@@ -48,6 +52,11 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   cadence<TAB>gap<TAB><point><TAB><kind><TAB><detail>
                                       one per gap that audit printed
   cadence<TAB>unaudited<TAB><why>     the audit could not run
+  scope<TAB>spec-only<TAB><head>      every changed path lies under the
+                                      program's spec root
+  signoff<TAB><bundle><TAB>signed|unsigned<TAB><detail>
+                                      a touched spec bundle's kickoff
+                                      sign-off at the head
   evidence<TAB><kind><TAB><ref><TAB><head><TAB><judgment>
                                       smoke, walk or screenshot evidence;
                                       judgment ok, error or missing
@@ -73,7 +82,10 @@ THE WALK refuses, each failure one line:
   - each required step (ready steps) with no passed or applied record
     ending on the head;
   - a cadence not audited at the head, and each gap the audit named: the
-    configured cadence binds whatever the gate data names;
+    configured cadence binds whatever the gate data names, except on a
+    spec-only pull request (a spec-only scope at the head), which is held
+    for its sign-off instead of the cadence and the required steps;
+  - each touched spec bundle not signed off;
   - each required evidence kind (ready evidence) with no ok record at the
     head;
   - each required body text (ready body) absent from the body.
@@ -90,11 +102,16 @@ Usage:
       for the head, labels, paths, check contexts and body, one GraphQL
       read for the first 100 review threads (a thread opened by a bot is a
       finding, answered once resolved or replied to by a person other than
-      the pull request's author, with a login), the step
+      the pull request's author, with a login), the spec-only scope (every
+      path under the program's spec root inside the repository whose origin
+      is --repo; then each touched bundle, a directory under the root not
+      opening with `_`, is signed off when its requirements.md status at
+      the head is Ready, Active or Done and its kickoff-brief.md exists
+      there, read from that repository's objects, no fetch), the step
       records of --worktree (scripts/step-record.sh list) and the cadence
       audit there, --worktree defaulting to the one worktree of the
       program's repositories that has the pull request's branch checked
-      out, the recorded
+      out (neither read for a spec-only pull request), the recorded
       evidence for that head, and the ready-flip guard
       (scripts/ready-guard.sh, given the flip it would refuse) run from the
       program's first repository, then the head read once more, a head that
@@ -237,22 +254,30 @@ $1 == "cadence" && $2 == "gap" {
   if ($4 == "incomplete") d = "no completion record"
   else if ($4 == "stale") d = "completed only at " substr($5, 1, 12)
   else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
-  fail("cadence", $3 ": " d)
+  cad[++ncad] = $3 ": " d
 }
-$1 == "cadence" && $2 == "unaudited" { fail("cadence", "not audited: " $3); unaud = 1 }
+$1 == "cadence" && $2 == "unaudited" { cad[++ncad] = "not audited: " $3; unaud = 1 }
+$1 == "scope" && $2 == "spec-only" { scope = $3 }
+$1 == "signoff" && $3 != "signed" { fail("signoff", $2 ": " ($4 == "" ? "not signed off" : $4)) }
 $1 == "evidence" { ev[++ne] = $2 "\t" $3 "\t" $4 "\t" $5 }
 $1 == "bodyline" { body = body substr($0, 10) "\n" }
 END {
   if (badfmt) { print "not-ready\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
   if (head == "") { print "not-ready\t-"; print "fail\thead\tno evidence at a head was collected; a session report alone never passes"; exit 4 }
   if (!nc) fail("check", "no individual check context at the head")
-  if (!unaud && audited != head) fail("cadence", "the configured cadence was not audited at " substr(head, 1, 12))
+  # A spec-only pull request is held for the sign-off of its bundles, never for
+  # the code cadence or the gate-data steps.
+  speconly = (scope == head)
+  if (!speconly) {
+    for (i = 1; i <= ncad; i++) fail("cadence", cad[i])
+    if (!unaud && audited != head) fail("cadence", "the configured cadence was not audited at " substr(head, 1, 12))
+  }
   for (i = 1; i <= ne; i++) {
     split(ev[i], e, "\t")
     if (e[1] == "screenshot" && e[4] != "ok") fail("screenshot", e[2] " judged " (e[4] == "" ? "missing" : e[4]))
     else if (e[1] == "screenshot" && e[3] != head) fail("screenshot", e[2] " was judged at another head")
   }
-  for (i = 1; i <= nn["steps"]; i++) {
+  for (i = 1; i <= (speconly ? 0 : nn["steps"]); i++) {
     s = need["steps", i]; got = 0
     for (j = 1; j <= ns; j++) { split(steps[j], t, "\t"); if (t[1] == s && (t[2] == "passed" || t[2] == "applied") && t[3] == head) got = 1 }
     if (!got) fail("step", s " is not recorded passed or applied at " substr(head, 1, 12))
@@ -290,27 +315,37 @@ EOF
   /bin/bash "$script_dir/mc-gates.sh" resolve --program "$1" ${cf_args[@]+"${cf_args[@]}"} >"$3"
 }
 
+# slug_repos <program> <slug>: the program's repositories whose origin remote
+# is <slug>, one per line; returns 1 when the repositories do not resolve.
+slug_repos() {
+  local repos r url sl
+  repos=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories) || return 1
+  sl=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r r; do
+    [ -n "$r" ] && [ -d "$r" ] || continue
+    url=$(mc_untrusted_git -C "$r" remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]') || continue
+    url=${url%.git}
+    case $url in */"$sl" | *:"$sl") printf '%s\n' "$r" ;; esac
+  done <<<"$repos"
+}
+
 # branch_worktree <program> <slug> <branch> <head>: find the worktree of the
 # program's repository for <slug> (its origin remote) that has <branch>
 # checked out and holds <head>, printing `one<TAB><path>`, `none`, `several`
 # or `unreadable`. Paths are read NUL-separated, since a path may carry a
 # newline.
 branch_worktree() {
-  local repos r url w br pr f n=0 hit='' sl seen=$'\n'
+  local repos r w br pr f n=0 hit='' seen=$'\n'
   [ -n "$3" ] || {
     printf 'none\n'
     return 0
   }
-  repos=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories) || {
+  repos=$(slug_repos "$1" "$2") || {
     printf 'unreadable\n'
     return 0
   }
-  sl=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
   while IFS= read -r r; do
-    [ -n "$r" ] && [ -d "$r" ] || continue
-    url=$(mc_untrusted_git -C "$r" remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]') || continue
-    url=${url%.git}
-    case $url in */"$sl" | *:"$sl") ;; *) continue ;; esac
+    [ -n "$r" ] || continue
     w='' br='' pr=0
     while IFS= read -r -d '' f; do
       case $f in
@@ -341,6 +376,65 @@ branch_worktree() {
 # been cut, and the walk refuses on a `truncated` line rather than pass.
 CAP=100
 
+# spec_scope <program> <slug> <head> <pr read>: when every changed path lies
+# under the program's spec root inside the repository for <slug>, print
+# `scope<TAB>spec-only<TAB><head>` and one `signoff` line per bundle touched;
+# otherwise nothing. The sign-off is read from the repository's own objects
+# at the head, since collect writes nothing (no fetch) to any repository.
+spec_scope() {
+  local root r phys rel='' repo='' files b why st
+  root=$(/bin/bash "$script_dir/mc-program.sh" get "$1" spec_root 2>/dev/null) || return 0
+  root=$(cd "$root" 2>/dev/null && pwd -P) || return 0
+  while IFS= read -r r; do
+    phys=$(cd "$r" 2>/dev/null && pwd -P) || continue
+    case $root in
+      "$phys"/?*)
+        rel=${root#"$phys"/} repo=$r
+        break
+        ;;
+    esac
+  done < <(slug_repos "$1" "$2" 2>/dev/null)
+  [ -n "$rel" ] || return 0
+  files=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3 + 0; exit }' "$4")
+  [ "${files:-0}" -gt 0 ] && [ "$files" -lt "$CAP" ] || return 0
+  # Each path must sit strictly under the root, with no `.`, `..` or empty
+  # component; the bundles are the directories directly under it, those
+  # opening with `_` (the reserved accumulators) aside.
+  R=$rel awk -F '\t' '
+    $1 != "path" { next }
+    {
+      p = $2; n = length(ENVIRON["R"])
+      if (substr(p, 1, n + 1) != ENVIRON["R"] "/") { out = 1; exit }
+      p = substr(p, n + 2)
+      if (p == "" || ("/" p "/") ~ /\/(\.|\.\.)?\//) { out = 1; exit }
+      if (index(p, "/") && substr(p, 1, 1) != "_") { b = substr(p, 1, index(p, "/") - 1); if (!(b in seen)) { seen[b] = 1; bs[++nb] = b } }
+    }
+    END { if (out) exit 1; for (i = 1; i <= nb; i++) print bs[i] }' "$4" >"$cl_tmp/bundles" || return 0
+  printf 'scope\tspec-only\t%s\n' "$3"
+  while IFS= read -r b; do
+    why=''
+    if ! printf '%s\n' "$b" | grep -Eq '^[a-z0-9][a-z0-9-]*$'; then
+      why='not a spec identifier'
+    elif ! mc_untrusted_git -C "$repo" cat-file -e "$3^{commit}" 2>/dev/null; then
+      why="the head is not in $(sanitize_printable "$repo"); fetch it"
+    elif ! st=$(mc_untrusted_git -C "$repo" show "$3:$rel/$b/requirements.md" 2>/dev/null | spec_parse_header_value - Status 2>/dev/null) || [ -z "$st" ]; then
+      why='its requirements.md status cannot be read at the head'
+    else
+      case $st in
+        Ready | Active | Done)
+          mc_untrusted_git -C "$repo" cat-file -e "$3:$rel/$b/kickoff-brief.md" 2>/dev/null || why='it has no kickoff brief at the head'
+          ;;
+        *) why="its status at the head is $(sanitize_printable "$st")" ;;
+      esac
+    fi
+    if [ -n "$why" ]; then
+      printf 'signoff\t%s\tunsigned\t%s\n' "$b" "$why"
+    else
+      printf 'signoff\t%s\tsigned\t-\n' "$b"
+    fi
+  done <"$cl_tmp/bundles"
+}
+
 # collect <program> <slug> <pr> <worktree> <out>
 collect() {
   cl_tmp=$(mktemp -d "${TMPDIR:-/tmp}/mc-readiness.XXXXXX") || mc_fail "cannot create a scratch directory"
@@ -350,6 +444,8 @@ collect() {
   # shellcheck disable=SC2016 # a jq program
   gh pr view "$3" --repo "$2" --json headRefOid,headRefName,baseRefName,labels,files,body,statusCheckRollup --jq '
     def clean: tostring | gsub("[\t\r\n]"; " ");
+    def context: if .context != null then ["status", .context] else ["run", .workflowName // "", .name // "-"] end;
+    def started: (.startedAt // .createdAt // "~") | tostring;
     "head\t" + .headRefOid,
     "branch\t" + ((.headRefName // "") | clean),
     "base\t" + ((.baseRefName // "") | clean),
@@ -358,7 +454,9 @@ collect() {
     "count\tlabels\t" + ((.labels // []) | length | tostring),
     (.labels[]? | "label\t" + (.name | clean)),
     (.files[]? | "path\t" + (.path | clean)),
-    (.statusCheckRollup[]? | "check\t" + ((.name // .context // "-") | clean) + "\t"
+    ((.statusCheckRollup // []) | to_entries | group_by(.value | context)
+      | map(max_by([(.value | started), .key])) | sort_by(.key) | .[].value
+      | "check\t" + ((.name // .context // "-") | clean) + "\t"
       + (if (.conclusion // "") != "" then .conclusion else (.state // "PENDING") end | clean)),
     ((.body // "") | split("\n")[] | "bodyline\t" + (gsub("[\t\r]"; " ")))' >"$cl_tmp/pr" 2>"$cl_tmp/err" \
     || mc_fail "the pull request read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
@@ -390,7 +488,13 @@ collect() {
   cl_branch=$(awk -F '\t' '$1 == "branch" { print $2; exit }' "$cl_tmp/pr")
   cl_baseref=$(awk -F '\t' '$1 == "base" { print $2; exit }' "$cl_tmp/pr")
   cl_unaud=''
-  if [ -z "$cl_wt" ]; then
+  : >"$cl_tmp/cadence"
+  spec_scope "$1" "$2" "$cl_head" "$cl_tmp/pr" >"$cl_tmp/scope"
+  if [ -s "$cl_tmp/scope" ]; then
+    # A spec-only pull request is held for its sign-off, not the cadence, so
+    # no worktree is needed and none is audited.
+    cl_wt=''
+  elif [ -z "$cl_wt" ]; then
     cl_found=$(branch_worktree "$1" "$2" "$cl_branch" "$cl_head")
     case $cl_found in
       one"	"*) cl_wt=${cl_found#*	} ;;
@@ -491,7 +595,7 @@ collect() {
   {
     printf '# format: 1\nrepo\t%s\n' "$2"
     awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } $1 == "branch" || $1 == "base" { next } { print }' "$cl_tmp/pr"
-    cat "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/evidence"
+    cat "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/evidence"
     printf '%s\n' "$cl_guard"
   } | mc_clean_text | mc_write "$5" || mc_fail "cannot write $(sanitize_printable "$5")"
 }
