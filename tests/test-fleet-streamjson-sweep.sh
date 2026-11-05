@@ -347,10 +347,19 @@ launching="$home/streamjson/sjlaunching"
 mkreq "$launching" "$id1" 1000
 printf 'result\tsuccess\t1100\tfalse\n' >"$launching/result"
 ln -s "$$-$(date +%s)-1" "$launching/launch.lock"
+# A relaunch's own stop leaves the same shape before its recover runs; the
+# settle taking the recover election there would refuse that recover.
+relaunching="$home/streamjson/sjrelaunching"
+mkreq "$relaunching" "$id1" 1000
+printf 'result\tsuccess\t1100\tfalse\n' >"$relaunching/result"
+ln -s "$$-$(date +%s)-1" "$relaunching/relaunch.lock"
 out=$(fenv "$home" "$SJ" alarm-scan --once --now 5000 --threshold 900) || fail "w6: alarm-scan exited non-zero"
 case $out in *sjlaunching*) fail "w6: a worker with a launch in flight was settled or escalated, got: $out" ;; esac
 grep -q "${tab}pending\$" "$launching/journal" || fail "w6: a launch in flight must leave the request pending"
 [ -L "$launching/launch.lock" ] || fail "w6: the settle must leave a live launch's election alone"
+case $out in *sjrelaunching*) fail "w6: a worker with a relaunch in flight was settled or escalated, got: $out" ;; esac
+grep -q "${tab}pending\$" "$relaunching/journal" || fail "w6: a relaunch in flight must leave the request pending"
+[ ! -e "$relaunching/recover.lock" ] && [ ! -L "$relaunching/recover.lock" ] || fail "w6: the settle must not take the recover election under a live relaunch"
 printf '%s\n' "$out" | grep -qx 'dead sjended 1' || fail "w6: the ended worker must be settled, got: $out"
 case $out in *"alarm sjended"*) fail "w6: an ended worker must never be escalated, got: $out" ;; esac
 case $(fenv "$home" "$FA" queue) in *sjended*) fail "w6: the ended worker's request row must leave the queue" ;; esac

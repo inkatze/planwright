@@ -3185,14 +3185,21 @@ cmd_alarm_scan() {
 # pending. Nobody can answer it now (the fifo's reader is gone), so its
 # receipts are closed undeliverable as a stop closes them, and the queue row
 # they raised is cleared rather than re-posted as an overdue live prompt.
-# Under the recover and launch elections, taken in the order `recover` takes
-# them, so a recover or launch in flight is never raced, with the death
-# proved again under them. Prints `dead <worker> <settled>`; a settle that
-# could not complete says so on stderr.
+# Under the relaunch, recover and launch elections, taken in the order a
+# relaunch reaches them, so a relaunch, recover or launch in flight is never
+# raced, with the death proved again under them. A relaunch's own stop leaves
+# the dead shape before its recover runs, and a settle holding the recover
+# election then would refuse that recover. Prints `dead <worker> <settled>`; a
+# settle that could not complete says so on stderr.
 dead_settle() {
-  lock_take "$2/recover.lock" || return 0
+  lock_take "$2/relaunch.lock" || return 0
+  if ! lock_take "$2/recover.lock"; then
+    lock_drop "$2/relaunch.lock"
+    return 0
+  fi
   if ! lock_take "$2/launch.lock"; then
     lock_drop "$2/recover.lock"
+    lock_drop "$2/relaunch.lock"
     return 0
   fi
   if worker_dead "$2"; then
@@ -3206,6 +3213,7 @@ dead_settle() {
   fi
   lock_drop "$2/launch.lock"
   lock_drop "$2/recover.lock"
+  lock_drop "$2/relaunch.lock"
 }
 
 # dead_row_clear <worker> — clear the worker's queue row when it is a request
