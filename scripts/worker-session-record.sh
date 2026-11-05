@@ -38,8 +38,7 @@
 #                      sharing a worktree a root of its own,
 #                      <worktree's root>/<sha1-of-handle>, so a session's
 #                      final close removes its files alone, never another
-#                      session's; its record is
-#                      <sha1-of-worktree-root>-<sha1-of-handle>.record
+#                      session's
 #   audit_log_home     <fleet-home>/allow-audit, owner-only, where the guard
 #                      appends a line per approval to <record-name>.log. Every
 #                      write first prunes the logs there older than
@@ -53,7 +52,10 @@
 # digits) names a record for that launch alone, <sha1>-<launch-id>.record, so
 # a launch that loses a race to another never rewrites the winner's. The
 # launcher exports that path to the worker as
-# PLANWRIGHT_WORKER_SESSION_RECORD. The record lies outside the worktree (a
+# PLANWRIGHT_WORKER_SESSION_RECORD. With --session <handle> (the field
+# grammar, never with a <launch-id>) the record is
+# <sha1-of-worktree-root>-<sha1-of-handle>.record, that session's alone, and
+# names that session's own scratch root. The record lies outside the worktree (a
 # fleet home inside it is refused), so nothing the worker writes there reaches
 # it. A relaunch writes a fresh record from current config: the same file
 # without a launch id, a new one with. `fleet-cleanup.sh worktree` removes
@@ -263,6 +265,8 @@ sparent=$home/scratch
 if [ -n "$sess_key" ]; then
   sparent=$sroot
   sroot=$sroot/$sess_key
+  # Before anything below removes or creates inside it.
+  [ ! -L "$sparent" ] || want_scratch=3
 fi
 if [ "$want_scratch" = 2 ] && [ -d "$sroot" ] && [ ! -L "$sroot" ]; then
   find "$sroot" -type d ! -perm -700 -exec chmod u+rwx {} \; 2>/dev/null || :

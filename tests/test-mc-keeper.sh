@@ -233,7 +233,14 @@ mc_run fleet-attention.sh queue
 expect_out "and in the decision queue, high" "- [high] demo:task-9  (cp-old"
 OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 5120 2>/dev/null)
 expect_no_out "and not announced again while it stays overdue" "pending-prompt-overdue"
-rm -rf "$fleet/streamjson/cp-old" "$fleet/streamjson/mc-beta-worker-0123456789" "$fleet/mission-control/sessions/mc-beta-worker-0123456789"
+# A dead one's request leaves the queue, so its death is what is announced.
+pp_req cp-gone
+printf '999999999\n' >"$fleet/streamjson/cp-gone/supervisor.pid"
+printf '999999999\n' >"$fleet/streamjson/cp-gone/worker.pid"
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 5180 2>/dev/null)
+expect_out "a dead worker's settle is announced" "announced${tab}stream-json-worker-dead${tab}cp-gone"
+expect_no_out "and its prompt is not" "pending-prompt-overdue${tab}cp-gone"
+rm -rf "$fleet/streamjson/cp-old" "$fleet/streamjson/cp-gone" "$fleet/streamjson/mc-beta-worker-0123456789" "$fleet/mission-control/sessions/mc-beta-worker-0123456789"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-keeper: $failures failure(s)" >&2

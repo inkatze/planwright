@@ -152,9 +152,12 @@ stop_scratch_release() {
 # both, for the recover that may follow. Only a path of the writer's own shape
 # is removed: a worktree's root, <fleet-home>/scratch/<sha1>, or one session's
 # root inside it, <sha1>/<sha1>, which takes that session's files alone and
-# leaves the worktree's root to the worktree reclaim. Directories the worker
-# left without write permission are opened first, without following a link.
-# Zero when nothing is left.
+# leaves the worktree's root to the worktree reclaim. A worktree's root that
+# is still in use beside this worker is left there too, and only the pointer
+# goes: one another stream-json worker records, or one holding a session's
+# root (a session's directory exists before its pointer is written).
+# Directories the worker left without write permission are opened first,
+# without following a link. Zero when nothing is left.
 stop_scratch_root_release() {
   [ -f "$1/scratch-root" ] && [ ! -L "$1/scratch-root" ] || return 0
   sr_path=$(head -n 1 "$1/scratch-root" 2>/dev/null) || return 1
@@ -177,12 +180,58 @@ stop_scratch_root_release() {
     esac
     [ "${#sr_k}" -eq 40 ] || return 1
   done
+  # Every component, not just the last: a linked worktree root would take
+  # the removal out of the fleet home.
+  if [ -d "$sr_path" ] && [ "$(cd -P -- "$sr_path" 2>/dev/null && pwd -P)" != "$sr_path" ]; then
+    return 1
+  fi
+  if [ -z "$sr_sess" ] && stop_scratch_in_use "$1" "$2" "$sr_path"; then
+    rm -f -- "$1/scratch-root"
+    return
+  fi
   if [ -d "$sr_path" ] && [ ! -L "$sr_path" ]; then
     find "$sr_path" -type d ! -perm -700 -exec chmod u+rwx {} \; 2>/dev/null || :
     rm -rf -- "$sr_path" 2>/dev/null || :
   fi
   [ ! -e "$sr_path" ] || return 1
   rm -f -- "$1/scratch-root"
+}
+
+# stop_scratch_in_use <dir> <fleet-home> <root> — 0 when a worktree's <root>
+# is in use beside the worker at <dir>: another stream-json runtime directory
+# records it or a root inside it, or it holds a session's root.
+stop_scratch_in_use() {
+  case $- in
+    *f*) su_restore='set -f' ;;
+    *) su_restore='set +f' ;;
+  esac
+  su_rc=1
+  set +f
+  for su_d in "$3"/*; do
+    su_n=${su_d##*/}
+    case $su_n in
+      '' | *[!0-9a-f]*) continue ;;
+    esac
+    if [ "${#su_n}" -eq 40 ] && [ -d "$su_d" ] && [ ! -L "$su_d" ]; then
+      su_rc=0
+      break
+    fi
+  done
+  if [ "$su_rc" = 1 ]; then
+    for su_f in "$2"/streamjson/*/scratch-root; do
+      [ "${su_f%/scratch-root}" != "$1" ] && [ -f "$su_f" ] && [ ! -L "$su_f" ] || continue
+      su_o=''
+      IFS= read -r su_o <"$su_f" 2>/dev/null || [ -n "$su_o" ] || continue
+      case $su_o/ in
+        "$3"/*)
+          su_rc=0
+          break
+          ;;
+      esac
+    done
+  fi
+  $su_restore
+  return "$su_rc"
 }
 
 # stop_ps_rows_shaped <snapshot> — zero when a `ps -o pid=,ppid=,args=`

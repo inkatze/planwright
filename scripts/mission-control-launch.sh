@@ -654,6 +654,14 @@ retire_unregistered() {
   if [ -e "$REG/$1" ] || [ -L "$REG/$1" ]; then
     die "a launch of $1 is in flight" 3
   fi
+  # The name lock covers only this launcher's launches: one by /orchestrate
+  # or by hand holds the rung's own elections, which a close would break.
+  for ru_l in launch.lock recover.lock relaunch.lock; do
+    ru_t=$(pw_lock_owner "$FH/streamjson/$1/$ru_l") || ru_t=''
+    if [ -n "$ru_t" ] && pw_lock_owner_alive "$ru_t"; then
+      die "a launch, recover or relaunch of $1 is in flight ($ru_l is held)" 3
+    fi
+  done
   released='' held=''
   st=$(/bin/sh "$script_dir/fleet-streamjson.sh" stop "$1" --final </dev/null 2>/dev/null)
   case $st in

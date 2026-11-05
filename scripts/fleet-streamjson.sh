@@ -77,8 +77,11 @@
 #   tier_key / tier_unit  the allocation key and unit a launch's --tier-key
 #                    and --tier-unit named, which `relaunch` resolves at
 #   relaunch.lock    a relaunch's election, outside the release set
-#   scratch-root     the worktree scratch root the launch handed the worker
-#                    as its TMPDIR, which only a final close removes
+#   scratch-root     the worker's own scratch root, inside its worktree's, the
+#                    launch handed it as its TMPDIR, which only a final close
+#                    removes
+#   alarmed-<id>     the mark of a request whose overdue push has been made,
+#                    until the journal no longer reads it pending
 #   supervisor.log   the detached supervisor's own stderr
 #   .init.* / .frame.* / .journal.* / .session.* / .pid.* / .ratelimit.*
 #                    mktemp-beside-target staging
@@ -472,7 +475,8 @@ usage() {
 
 # A bare or misspelled invocation is answered from argv alone, before any
 # helper is located or sourced, so nothing the install or the host is doing
-# can keep it from printing the usage at once.
+# can keep it from printing the usage at once. A verb added to the dispatch at
+# the end of this file must be added here too, or it is refused as unknown.
 case ${1:-} in
   launch | answer | steer | recover | relaunch | alarm-scan | _tick | stop | status | pending | _supervise | _frame-check) ;;
   *) usage ;;
@@ -897,6 +901,11 @@ read_scope() {
   fi
 }
 
+# The tail of every request row's question, and what dead_row_clear tells a
+# request row by, so rewording it here keeps the two in step. Rows written
+# by earlier versions carry the same text.
+ANSWER_HINT='answer via fleet-streamjson.sh answer'
+
 # attention_upsert <worker> <dir> <id> <kind> [priority] — upsert the
 # worker's decision-queue item for a pending request. Question text is
 # built from fixed prose plus sanitized, length-bounded fragments only.
@@ -914,9 +923,9 @@ attention_upsert() {
   au_tool=$(sanitize_printable "$au_tool" tool | cut -c1-64)
   au_short=$(printf '%s' "$au_id" | cut -c1-8)
   if [ "$au_kind" = question ]; then
-    au_q="worker question (AskUserQuestion) req $au_short - answer via fleet-streamjson.sh answer"
+    au_q="worker question (AskUserQuestion) req $au_short - $ANSWER_HINT"
   else
-    au_q="permission request tool $au_tool req $au_short - answer via fleet-streamjson.sh answer"
+    au_q="permission request tool $au_tool req $au_short - $ANSWER_HINT"
   fi
   if [ "$au_prio" = high ]; then
     au_q="OVERDUE $au_q"
@@ -3039,37 +3048,10 @@ cmd_stop() {
   fi
   sw_rc=0
   stop_walk "$dir" "$worker" "$st_root/attention/state" "$grace" || sw_rc=$?
-  if [ "$final" = 1 ] && [ "$sw_rc" = 0 ]; then
-    if scratch_shared "$dir"; then
-      # A root from before roots were per session, still another worker's
-      # TMPDIR: removing it would take that worker's files. The worktree
-      # reclaim removes it.
-      rm -f -- "$dir/scratch-root"
-    elif ! stop_scratch_root_release "$dir" "$st_root"; then
-      printf '%s\n' "$me: closed $worker but could not remove its worktree scratch root" >&2
-    fi
+  if [ "$final" = 1 ] && [ "$sw_rc" = 0 ] && ! stop_scratch_root_release "$dir" "$st_root"; then
+    printf '%s\n' "$me: closed $worker but could not remove its scratch root" >&2
   fi
   return "$sw_rc"
-}
-
-# scratch_shared <dir> — 0 when another stream-json worker records the
-# scratch root this one does, or one inside it.
-scratch_shared() {
-  ss_path=$(head -n 1 "$1/scratch-root" 2>/dev/null) || return 1
-  [ -n "$ss_path" ] || return 1
-  set +f
-  for ss_f in "${1%/*}"/*/scratch-root; do
-    [ "${ss_f%/scratch-root}" != "$1" ] && [ -f "$ss_f" ] && [ ! -L "$ss_f" ] || continue
-    ss_o=$(head -n 1 "$ss_f" 2>/dev/null) || continue
-    case $ss_o/ in
-      "$ss_path"/*)
-        set -f
-        return 0
-        ;;
-    esac
-  done
-  set -f
-  return 1
 }
 
 # cmd__tick <worker> <dir> <supervisor-pid> <worker-pid> — the escalation
@@ -3166,19 +3148,26 @@ cmd_alarm_scan() {
   }
   as_root=$(/bin/sh "$FS" root) || exit 2
   [ -d "$as_root/streamjson" ] || return 0
+  pw_lock_trap_install
   # An intentional glob, like cmd_pending's: enumerate worker dirs (pathname
   # expansion is otherwise disabled by set -f).
   set +f
   for as_dir in "$as_root/streamjson"/*; do
-    [ -d "$as_dir" ] || continue
+    # This verb rewrites journals and deletes marks inside what it is handed.
+    [ -d "$as_dir" ] && [ ! -L "$as_dir" ] || continue
     [ -f "$as_dir/journal" ] || continue
     as_worker=${as_dir##*/}
     valid_field "$as_worker" || continue
     # The scan reads every runtime directory, whatever planwright version
-    # launched it, and a worker whose supervisor died with it has no tick of
-    # its own: what it left pending is settled here, not escalated.
-    if awk -F'\t' '$4 == "pending" { f = 1; exit } END { exit !f }' "$as_dir/journal" 2>/dev/null \
-      && worker_dead "$as_dir"; then
+    # launched it. Most hold only settled rows, so one read decides whether
+    # there is anything to scan at all.
+    if ! awk -F'\t' '$4 == "pending" { f = 1; exit } END { exit !f }' "$as_dir/journal" 2>/dev/null; then
+      alarm_marks_prune "$as_dir" ''
+      continue
+    fi
+    # A worker whose supervisor died with it has no tick of its own: what it
+    # left pending is settled here, not escalated.
+    if worker_dead "$as_dir"; then
       dead_settle "$as_worker" "$as_dir"
       continue
     fi
@@ -3191,13 +3180,14 @@ cmd_alarm_scan() {
 # pending. Nobody can answer it now (the fifo's reader is gone), so its
 # receipts are closed undeliverable as a stop closes them, and the queue row
 # they raised is cleared rather than re-posted as an overdue live prompt.
-# Under the launch and recover elections, so a launch or recover in flight is
-# never raced, with the death proved again under them. Prints
-# `dead <worker> <settled>`.
+# Under the recover and launch elections, taken in the order `recover` takes
+# them, so a recover or launch in flight is never raced, with the death
+# proved again under them. Prints `dead <worker> <settled>`; a settle that
+# could not complete says so on stderr.
 dead_settle() {
-  lock_take "$2/launch.lock" || return 0
-  if ! lock_take "$2/recover.lock"; then
-    lock_drop "$2/launch.lock"
+  lock_take "$2/recover.lock" || return 0
+  if ! lock_take "$2/launch.lock"; then
+    lock_drop "$2/recover.lock"
     return 0
   fi
   if worker_dead "$2"; then
@@ -3205,10 +3195,12 @@ dead_settle() {
     if journal_close "$2"; then
       dead_row_clear "$1"
       printf 'dead %s %s\n' "$1" "${ds_n:-0}"
+    else
+      printf '%s\n' "$me: worker $1 is dead but its receipts could not be closed; its requests stay pending" >&2
     fi
   fi
-  lock_drop "$2/recover.lock"
   lock_drop "$2/launch.lock"
+  lock_drop "$2/recover.lock"
 }
 
 # dead_row_clear <worker> — clear the worker's queue row when it is a request
@@ -3218,7 +3210,7 @@ dead_settle() {
 dead_row_clear() {
   dc_root=$(/bin/sh "$FS" root) || return 0
   [ -f "$dc_root/attention/state" ] || return 0
-  dc_row=$(awk -F'\t' -v w="$1" '($1 "") == (w "") && $3 == "awaiting-input" && index($6, "answer via fleet-streamjson.sh answer") { print $2 "\t" $3 "\t" $4; exit }' \
+  dc_row=$(awk -F'\t' -v w="$1" -v hint="$ANSWER_HINT" '($1 "") == (w "") && $3 == "awaiting-input" && index($6, hint) { print $2 "\t" $3 "\t" $4; exit }' \
     "$dc_root/attention/state" 2>/dev/null) || dc_row=''
   [ -n "$dc_row" ] || return 0
   dc_scope=${dc_row%%"$TAB"*}
@@ -3226,21 +3218,23 @@ dead_row_clear() {
   /bin/sh "$FA" clear "$1" --if-row "$dc_scope" "${dc_rest%%"$TAB"*}" "${dc_rest#*"$TAB"}" >/dev/null 2>&1 || :
 }
 
-# alarm_scan_worker <worker> <dir> <now> <threshold> <tick> — one worker's
-# pending-age scan, shared by `alarm-scan` (every worker, on demand) and the
+# alarm_scan_worker <worker> <dir> <now> <threshold> <tick> [<once>] — one
+# worker's pending-age scan, shared by `alarm-scan` (every worker) and the
 # supervisor's escalation tick (its own worker, on a cadence). <now> empty
-# means the clock. <tick> empty means every overdue receipt is pushed through
-# the notify seam on every call, the on-demand contract; a tick width means
-# the push happens once, on the call whose window contains the crossing, while
-# the high-priority queue row is re-upserted on every call (idempotent, and the
-# row is what an attention watch reacts to). Prints `alarm <worker> <id> <age>`
-# per firing.
+# means the clock. With <tick> and <once> both empty every overdue receipt is
+# pushed through the notify seam on every call, the plain contract; a tick
+# width pushes on the call whose window contains the crossing, and <once>
+# (any non-empty value) on the first call to see it overdue, each only when
+# it claims the request's mark (alarm_claim). The high-priority queue row is
+# re-upserted on every call (idempotent, and the row is what an attention
+# watch reacts to). Prints `alarm <worker> <id> <age>` per firing.
 alarm_scan_worker() {
   aw_worker=$1
   aw_dir=$2
   aw_now=$3
   aw_thr=$4
   aw_tick=$5
+  aw_once=${6:-}
   if [ -z "$aw_now" ]; then
     aw_now=$(now_epoch) || return 2
   fi
@@ -3325,7 +3319,7 @@ alarm_scan_worker() {
     aw_push=1
     if [ -n "$aw_tick" ]; then
       [ "$aw_age" -le $((aw_thr + aw_tick)) ] && alarm_claim "$aw_dir" "$a_id" || aw_push=0
-    elif [ -n "${6:-}" ]; then
+    elif [ -n "$aw_once" ]; then
       alarm_claim "$aw_dir" "$a_id" || aw_push=0
     fi
     if [ "$aw_push" = 1 ]; then
@@ -3337,14 +3331,22 @@ alarm_scan_worker() {
   done <<AWIDS
 $aw_ids
 AWIDS
-  # A mark outlives its request only until the request stops being overdue,
-  # so one answered and asked again is pushed again.
+  aw_pend=$(journal_pending_ids "$aw_dir") || return 0
+  alarm_marks_prune "$aw_dir" "$aw_pend"
+}
+
+# alarm_marks_prune <dir> <pending ids> — drop the marks of requests the
+# journal no longer reads pending, so one answered and asked again is pushed
+# again. Judged by journal state alone, never by a caller's threshold: the
+# tick and `--once` may run with different ones, and a prune by either's
+# overdue set would hand the other a fresh claim on every call.
+alarm_marks_prune() {
   set +f
-  for aw_m in "$aw_dir"/alarmed-*; do
-    [ -f "$aw_m" ] && [ ! -L "$aw_m" ] || continue
-    case "$NL$aw_ids$NL" in
-      *"$NL${aw_m##*/alarmed-}$NL"*) ;;
-      *) rm -f "$aw_m" 2>/dev/null || : ;;
+  for am_m in "$1"/alarmed-*; do
+    [ -f "$am_m" ] && [ ! -L "$am_m" ] || continue
+    case "$NL$2$NL" in
+      *"$NL${am_m##*/alarmed-}$NL"*) ;;
+      *) rm -f "$am_m" 2>/dev/null || : ;;
     esac
   done
   set -f
@@ -3352,11 +3354,13 @@ AWIDS
 
 # alarm_claim <dir> <id> — 0 when this call is the first to push the
 # request's overdue alarm: the tick and `alarm-scan --once` share one mark per
-# request, so a worker both watch is pushed once. A mark that cannot be
-# written still claims: a second push beats none.
+# request, so a worker both watch is pushed once. The mark is created
+# exclusively (noclobber), so two callers never both claim, and never through
+# a link. A mark that cannot be written at all still claims: a second push
+# beats none.
 alarm_claim() {
-  [ ! -e "$1/alarmed-$2" ] || return 1
-  : >"$1/alarmed-$2" 2>/dev/null || :
+  (set -C && : >"$1/alarmed-$2") 2>/dev/null && return 0
+  [ ! -e "$1/alarmed-$2" ] && [ ! -L "$1/alarmed-$2" ]
 }
 
 # worker_dead <dir> — 0 only on positive evidence that the worker is gone:

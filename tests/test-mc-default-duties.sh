@@ -62,7 +62,7 @@ for d in session-keeper inbox readiness-check conflict-radar deadline-watch prep
 done
 
 mc_run mc-duties.sh get session-keeper triggers
-expect_out "the shipped wrapped trigger list joins whole" "stall-dead, stall-open-selector, stall-unsubmitted-prompt, stall-turn-ended-background, stall-idle-question, stall-busy-unchanged, stall-unknown, session-landed, pending-prompt-overdue]"
+expect_out "the shipped wrapped trigger list joins whole" "stall-dead, stall-open-selector, stall-unsubmitted-prompt, stall-turn-ended-background, stall-idle-question, stall-busy-unchanged, stall-unknown, session-landed, pending-prompt-overdue, stream-json-worker-dead]"
 
 mc_run mc-duties.sh watchers --program alpha
 expect_rc "the watchers resolve" 0

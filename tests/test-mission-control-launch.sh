@@ -461,6 +461,13 @@ else
   ok "and its stale attention row is gone"
 fi
 grep -q "	undeliverable	" "$old/journal" && ok "and its pending receipt is closed" || fail "the receipt stayed: $(cat "$old/journal")"
+busy="$fleet/streamjson/orch-busy"
+mkdir -p "$busy"
+ln -s "$$-$(date +%s)-1" "$busy/recover.lock"
+ml retire orch-busy
+[ "$RC" = 3 ] && ok "retire refuses a row-less worker whose recover is in flight" || fail "retire over a held recover lock: exit $RC, $OUT"
+[ -L "$busy/recover.lock" ] && ok "and leaves the recover's lock alone" || fail "the in-flight recover's lock was broken"
+rm -rf "$busy"
 ml retire nosuch-worker
 [ "$RC" = 3 ] && ok "a name with neither a row nor a stream-json worker exits 3" || fail "retire of an unknown name exited $RC"
 case $ERR in *"fleet-dispatch-headless.sh stop nosuch-worker"*"tmux kill-window"*) ok "and names the stops that apply" ;; *) fail "the refusal names no stop: $ERR" ;; esac

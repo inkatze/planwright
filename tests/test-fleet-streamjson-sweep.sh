@@ -1,25 +1,10 @@
 #!/bin/bash
-# Tests for the stream-json fleet's version-independent sweep and its dead
-# workers: what `fleet-streamjson.sh alarm-scan`, `pending` and the bare
-# invocation do for a worker no current supervisor watches.
-#
-#   w1: no arguments, or an unknown verb, prints the usage and exits 2 at
-#       once, even when a helper the verbs need would block.
-#   w2: `pending` marks a positively dead worker's requests as dead, and a
-#       worker with no death evidence is listed exactly as before.
-#   w3: `alarm-scan` escalates an overdue request of a worker no tick
-#       watches (a runtime directory built the way an older launcher left
-#       it) and `--once` pushes it once across scans, while a plain scan
-#       pushes on every call.
-#   w4: `alarm-scan` never escalates a positively dead worker: its pending
-#       receipts are closed undeliverable and its request row leaves the
-#       decision queue, while a failure item under the same handle stays.
-#   w5: two sessions sharing a checkout get distinct TMPDIRs (scratch
-#       roots), and one's final close leaves the other's files intact, an
-#       old-shape worktree-wide root included.
-#
-# Hermetic: every fleet home is case-local and built by hand (no worker is
-# launched). Runs standalone under /bin/bash (bash 3.2).
+# Tests for what `fleet-streamjson.sh` does for workers no current supervisor
+# watches: the bare invocation (w1), `pending` on a dead worker (w2), the
+# `alarm-scan` sweep and its once-per-request push (w3), dead workers settled
+# rather than escalated (w4), and per-session TMPDIRs a final close never
+# crosses (w5). Each case's own comment says what it pins. Hermetic: every
+# fleet home is case-local and built by hand. Runs under /bin/bash (3.2).
 set -u
 LC_ALL=C
 export LC_ALL
@@ -134,6 +119,25 @@ fenv "$home" "$SJ" alarm-scan --once --now 5060 --threshold 900 >/dev/null || fa
 fenv "$home" "$SJ" alarm-scan --now 5120 --threshold 900 >/dev/null || fail "w3: plain scan exited non-zero"
 [ "$(pushes "$home")" = 2 ] || fail "w3: a plain scan pushes on every call, pushed $(pushes "$home")"
 grep -q "^$id1${tab}permission${tab}1000${tab}pending" "$live/journal" || fail "w3: escalation must never settle the request"
+# The mark is judged by journal state, never by a caller's threshold: a scan
+# to which the request is not yet overdue keeps it.
+fenv "$home" "$SJ" alarm-scan --now 5180 --threshold 9000 >/dev/null || fail "w3: high-threshold scan exited non-zero"
+[ -f "$live/alarmed-$id1" ] || fail "w3: a scan with a higher threshold must not drop the mark"
+fenv "$home" "$SJ" alarm-scan --once --now 5240 --threshold 900 >/dev/null || fail "w3: --once after it exited non-zero"
+[ "$(pushes "$home")" = 2 ] || fail "w3: --once must not push again after a higher-threshold scan, pushed $(pushes "$home")"
+# Answered, the mark goes; asked again, the request is pushed again.
+sed "s/${tab}pending\$/${tab}answered${tab}5300/" "$live/journal" >"$tmp/w3.j" && mv "$tmp/w3.j" "$live/journal"
+fenv "$home" "$SJ" alarm-scan --once --now 5360 --threshold 900 >/dev/null || fail "w3: scan after the answer exited non-zero"
+[ ! -e "$live/alarmed-$id1" ] || fail "w3: an answered request's mark must go"
+printf '%s\tpermission\t1000\tpending\n' "$id1" >"$live/journal"
+fenv "$home" "$SJ" alarm-scan --once --now 5420 --threshold 900 >/dev/null || fail "w3: scan after the re-ask exited non-zero"
+[ "$(pushes "$home")" = 3 ] || fail "w3: a request asked again must be pushed again, pushed $(pushes "$home")"
+# A planted link at the mark's path is never written through, and claims nothing.
+rm -f "$live/alarmed-$id1"
+ln -s "$tmp/w3-target" "$live/alarmed-$id1"
+fenv "$home" "$SJ" alarm-scan --once --now 5480 --threshold 900 >/dev/null || fail "w3: scan over a linked mark exited non-zero"
+[ ! -e "$tmp/w3-target" ] || fail "w3: the mark was written through a symlink"
+rm -f "$live/alarmed-$id1"
 echo "ok: w3 an overdue request no tick watches reaches the queue high and --once pushes it once"
 
 # ---------------------------------------------------------------------------
@@ -167,6 +171,30 @@ grep -q "^$id1${tab}permission${tab}1000${tab}undeliverable${tab}" "$dead/journa
 out=$(fenv "$home" "$SJ" pending sjgone) || fail "w4: pending exited non-zero"
 [ -z "$out" ] || fail "w4: nothing stays pending once settled, got: $out"
 [ ! -L "$dead/launch.lock" ] && [ ! -L "$dead/recover.lock" ] || fail "w4: the settle must drop the locks it took"
+# Not settled: a recover in flight (its election held by a live process), a
+# worker with one pid still alive, and a runtime directory reached through a
+# link.
+held="$home/streamjson/sjheld"
+mkreq "$held" "$id1" 1000
+printf '%s\n' "$dead_pid" >"$held/supervisor.pid"
+printf '%s\n' "$dead_pid" >"$held/worker.pid"
+ln -s "$$-$(date +%s)-1" "$held/recover.lock"
+half="$home/streamjson/sjhalf"
+mkreq "$half" "$id1" 1000
+printf '%s\n' "$$" >"$half/supervisor.pid"
+printf '%s\n' "$dead_pid" >"$half/worker.pid"
+victim="$tmp/w4-victim"
+mkreq "$victim" "$id1" 1000
+printf '%s\n' "$dead_pid" >"$victim/supervisor.pid"
+printf '%s\n' "$dead_pid" >"$victim/worker.pid"
+ln -s "$victim" "$home/streamjson/sjlinked"
+out=$(fenv "$home" "$SJ" alarm-scan --now 5000 --threshold 900) || fail "w4: second alarm-scan exited non-zero"
+case $out in *"dead sjheld"* | *"dead sjhalf"* | *"sjlinked"*) fail "w4: settled what it must not, got: $out" ;; esac
+for j in "$held/journal" "$half/journal" "$victim/journal"; do
+  grep -q "${tab}pending\$" "$j" || fail "w4: $j must stay pending, got: $(cat "$j")"
+done
+printf '%s\n' "$out" | grep -q "^alarm sjhalf $id1 " || fail "w4: a worker with a live pid is still escalated, got: $out"
+[ -L "$held/recover.lock" ] || fail "w4: the settle must leave a live holder's lock alone"
 echo "ok: w4 a dead worker's pending request is settled and leaves the queue, never escalated"
 
 # ---------------------------------------------------------------------------
@@ -206,4 +234,36 @@ printf '%s\n' "$wroot" >"$home/streamjson/old-shape/scratch-root"
 fenv "$home" "$SJ" stop old-shape --final >/dev/null || fail "w5: the old-shape final close exited non-zero"
 [ -f "$rb/b-file" ] || fail "w5: an old-shape final close must not take a root another session still uses"
 [ ! -e "$home/streamjson/old-shape/scratch-root" ] || fail "w5: the old-shape close still drops its own pointer"
+# Each session's record is its own, named by worktree and handle.
+(cd "$wt" && fenv "$home" "$S/worker-session-record.sh" write "$wt" --session mc-alpha-worker-bbbb --scratch) >"$tmp/w5.rec" 2>/dev/null
+wkey=$(printf '%s' "$(cd "$wt" && pwd -P)" | git hash-object --stdin)
+[ "$(basename "$(cat "$tmp/w5.rec")")" = "$wkey-$(printf '%s' mc-alpha-worker-bbbb | git hash-object --stdin).record" ] \
+  || fail "w5: the session record is not named by worktree and handle: $(cat "$tmp/w5.rec")"
+for bad in "--session -x" "--session a/b" "--session ok 0123456789abcdef0123" "0123456789abcdef0123 --session ok"; do
+  # shellcheck disable=SC2086 # the words are separate arguments on purpose
+  (cd "$wt" && fenv "$home" "$S/worker-session-record.sh" write "$wt" $bad --scratch) >/dev/null 2>&1
+  [ $? -eq 2 ] || fail "w5: worker-session-record must refuse '$bad' with exit 2"
+done
+# The close every rung shares: a worktree-wide root holding a session's root
+# stays even with no pointer naming it (the headless rung's case), and a
+# session pointer under a linked worktree root is refused, nothing removed.
+release() { # release <unit-dir> <pointer>
+  printf '%s\n' "$2" >"$1/scratch-root"
+  (
+    # shellcheck source=scripts/fleet-stop-lib.sh
+    . "$S/fleet-stop-lib.sh"
+    stop_scratch_root_release "$1" "$home"
+  )
+}
+unit="$tmp/w5-unit"
+mkdir -p "$unit"
+release "$unit" "$wroot" || fail "w5: a root in use must release its pointer cleanly"
+[ -f "$rb/b-file" ] && [ ! -e "$unit/scratch-root" ] || fail "w5: a root holding a session's root must stay, its pointer gone"
+outside="$tmp/w5-outside"
+mkdir -p "$outside/$(printf 'f%.0s' $(seq 40))/keep"
+hreal=$(cd "$home" && pwd -P)
+ln -s "$outside" "$hreal/scratch/$(printf 'e%.0s' $(seq 40))"
+! release "$unit" "$hreal/scratch/$(printf 'e%.0s' $(seq 40))/$(printf 'f%.0s' $(seq 40))" \
+  || fail "w5: a session pointer under a linked worktree root must be refused"
+[ -d "$outside/$(printf 'f%.0s' $(seq 40))/keep" ] || fail "w5: the refused pointer removed something outside the fleet home"
 echo "ok: w5 sessions sharing a checkout get distinct TMPDIRs, and retiring one leaves the other's intact"
