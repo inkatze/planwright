@@ -343,11 +343,21 @@ cp "$tmp/denial-knobs.keep" "$core/config/denial-knobs.tsv"
 printf 'broken-guard\t\tmission_control_tick_cadence\t1m\tadopter\tbroken\n' >>"$core/config/denial-knobs.tsv"
 prop scan --program alpha
 expect_rc "an empty map pattern fails the scan instead of matching every denial" 1
-expect_err "the empty-pattern refusal points at the map" "denial-knobs.tsv"
+expect_err "the empty-pattern refusal names its cause" "denial-knobs.tsv: a row with an empty match pattern"
+cp "$tmp/denial-knobs.keep" "$core/config/denial-knobs.tsv"
+printf 'broken-guard\tseeded\tmission_control_tick_cadence\t1m\tadopter\n' >>"$core/config/denial-knobs.tsv"
+prop scan --program alpha
+expect_rc "a map row of the wrong arity fails the scan instead of dropping its knob" 1
+expect_err "the arity refusal names its cause" "denial-knobs.tsv: a row without six tab-separated columns"
+cp "$tmp/denial-knobs.keep" "$core/config/denial-knobs.tsv"
+printf 'unnoted-guard\tcommit(s\tmission_control_tick_cadence\t1m\tadopter\tbroken\n' >>"$core/config/denial-knobs.tsv"
+prop scan --program alpha
+expect_rc "a broken pattern fails the scan even with no denial from its guard noted" 1
+expect_err "the compile refusal points at the map" "denial-knobs.tsv"
 rm "$core/config/denial-knobs.tsv"
 prop scan --program alpha
 expect_rc "a missing map with denials noted fails the scan instead of hiding them" 1
-expect_err "the missing-map refusal points at the map" "denial-knobs.tsv"
+expect_err "the missing-map refusal names its cause" "denial-knobs.tsv: missing or unreadable while a denial is noted"
 cp "$tmp/denial-knobs.keep" "$core/config/denial-knobs.tsv"
 
 printf '%s\n' "mission_control_repeat_threshold: 3" >>"$tracked"
