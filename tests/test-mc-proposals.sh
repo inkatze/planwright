@@ -235,9 +235,15 @@ map="$repo_root/config/denial-knobs.tsv"
 cp "$map" "$core/config/denial-knobs.tsv"
 printf 'knob\tready_guard_behind_base\tthe config layers\tdocs/options-reference.md\n' >>"$kb/mechanisms.tsv"
 map_bad=$(awk -F '\t' '!/^#/ && NF {
-    if (NF != 6 || $2 == "" || $5 !~ /^(adopter|repo-tracked|machine-local)$/ || seen[$1 "\t" $3]++) print NR
+    g = tolower($1); gsub(/[ ]+/, " ", g); sub(/^ /, "", g); sub(/ $/, "", g)
+    if (NF != 6 || $2 == "" || $5 !~ /^(adopter|repo-tracked|machine-local)$/ || seen[g "\t" $3]++) print NR
   }' "$map")
 if [ -z "$map_bad" ]; then ok "every denial-map row is well formed"; else fail "malformed denial-map rows: $map_bad"; fi
+if awk -F '\t' '!/^#/ && NF { if ("" ~ $2) n++ }' "$map" 2>/dev/null; then
+  ok "every denial-map pattern compiles"
+else
+  fail "a denial-map pattern does not compile, which would fail every scan"
+fi
 while IFS= read -r knob; do
   if grep -Fq "| \`$knob\` |" "$repo_root/docs/options-reference.md"; then
     ok "denial-map knob $knob has an options-reference row"
@@ -250,7 +256,7 @@ EOF
 # shellcheck disable=SC2016 # the guard source's literal $behind
 behind_src=$(grep -F 'commit(s) behind its base branch' "$repo_root/scripts/ready-guard.sh" | sed 's/\$behind/3/')
 behind_re=$(awk -F '\t' '$1 == "ready-guard" && $3 == "ready_guard_behind_base" { print $2 }' "$map")
-if [ -n "$behind_src" ] && T=$behind_src R=$behind_re awk 'BEGIN { exit !(ENVIRON["T"] ~ ENVIRON["R"]) }'; then
+if [ -n "$behind_src" ] && [ -n "$behind_re" ] && T=$behind_src R=$behind_re awk 'BEGIN { exit !(ENVIRON["T"] ~ ENVIRON["R"]) }'; then
   ok "the map's behind-base pattern matches the ready-guard's own refusal"
 else
   fail "the ready-guard's behind-base refusal no longer matches config/denial-knobs.tsv"
@@ -297,6 +303,10 @@ expect_out "the guard knob is handed to the operator" \
   "handover-operator${tab}$adopter/planwright.yml${tab}ready_guard_behind_base: conflict-only"
 mc_run mc-config.sh apply --program alpha "$p_dk" --value conflict-only
 expect_out "applying the guard knob hands it over too" "handover-operator${tab}"
+awk -F '\t' 'BEGIN { OFS = "\t" } !/^#/ && $4 == "conflict-only" { $4 = "refuse" } { print }' "$map" >"$core/config/denial-knobs.tsv"
+prop show --program alpha "$p_dk"
+expect_no_out "an effect the map no longer pairs with the stored change is not shown" "effect${tab}"
+cp "$map" "$core/config/denial-knobs.tsv"
 if [ -e "$adopter/planwright.yml" ]; then fail "the adopter layer was written"; else ok "the adopter layer is untouched"; fi
 
 printf 'policy-guard\tseeded refusal\tmission_control_tick_cadence\t1m\trepo-tracked\ta seeded effect\n' >>"$core/config/denial-knobs.tsv"
@@ -312,6 +322,16 @@ mc_run mc-config.sh apply --program alpha "$p_dw" --value 1m
 expect_out "a guard knob mission control could write is still handed over" "handover-operator${tab}"
 expect_no_out "nothing is applied" "applied${tab}"
 if [ "$(cksum <"$tracked")" = "$tracked_sum" ]; then ok "the tracked layer is untouched"; else fail "apply wrote the tracked layer"; fi
+
+printf 'rel-guard\tseeded refusal\tmission_control_tick_cadence\t1m\tadopter\ta seeded effect\n' >>"$core/config/denial-knobs.tsv"
+note --shape denial --subject rel-guard --text "a seeded refusal"
+note --shape denial --subject rel-guard --text "a seeded refusal, again"
+prop scan --program alpha
+adopter_keep=$adopter
+adopter=rel/overlay
+prop propose --program alpha --pattern "$(pattern_of rel-guard)" --cadence c --intervene c --cost c --off c
+adopter=$adopter_keep
+expect_out "a relative adopter root falls back to the layer's placeholder" "the adopter layer, <adopter-root>/planwright.yml"
 
 cp "$core/config/denial-knobs.tsv" "$tmp/denial-knobs.keep"
 printf 'broken-guard\tcommit(s\tmission_control_tick_cadence\t1m\tadopter\tbroken\n' >>"$core/config/denial-knobs.tsv"

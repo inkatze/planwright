@@ -103,7 +103,8 @@ Usage (every verb takes --program <p> right after it):
 
 Exit codes: 0 done; 1 refused (a pattern below the threshold or already
 proposed, no covering row, a proposal not in the state the verb needs, a
-store with a missing or unknown format, a held lock); 2 usage or an
+store with a missing or unknown format, a held lock, a denial-map match
+pattern that does not compile); 2 usage or an
 invalid value; 3 the program is not configured.
 HELP
 }
@@ -195,7 +196,7 @@ repeats() {
   rp_all=$(mc_kb_entries "$PROGRAM" decisions) || exit $?
   # shellcheck disable=SC2016 # an awk program, expanded by awk
   rp_rows=$(printf '%s\n' "$rp_all" | N=$rp_n FROM=$(mc_iso $((rp_now - $(mc_seconds "$rp_w")))) TO=$(mc_iso "$rp_now") \
-    MAP=$(denial_map) awk -F '\t' "$MC_GROUNDS_AWK$MC_SUBJECT_KEY_AWK"'
+  MAP=$(denial_map) awk -F '\t' "$MC_GROUNDS_AWK$MC_SUBJECT_KEY_AWK"'
       BEGIN {
         while ((getline l < ENVIRON["MAP"]) > 0)
           if (l !~ /^#/ && split(l, f, "\t") == 6) { nm++; mg[nm] = key(f[1]); mm[nm] = f[2]; mk[nm] = f[3] }
@@ -219,10 +220,10 @@ repeats() {
     || mc_fail "the repeat scan failed; a match pattern in config/denial-knobs.tsv may be malformed"
   [ -n "$rp_rows" ] || return 0
   printf '%s\n' "$rp_rows" | while IFS="$us" read -r r_shape r_key r_target r_count r_ids; do
-      r_sum=$(printf '%s\t%s\t%s' "$r_shape" "$r_key" "$r_target" | mc_sha256) || mc_fail "no SHA-256 tool (sha256sum, shasum or openssl) is on PATH"
-      r_sum=$(printf '%s' "$r_sum" | cut -c 1-32)
-      printf 'pat-%s\t%s\t%s\t%s\t%s\t%s\n' "$r_sum" "$r_shape" "$r_key" "$r_target" "$r_count" "$r_ids"
-    done
+    r_sum=$(printf '%s\t%s\t%s' "$r_shape" "$r_key" "$r_target" | mc_sha256) || mc_fail "no SHA-256 tool (sha256sum, shasum or openssl) is on PATH"
+    r_sum=$(printf '%s' "$r_sum" | cut -c 1-32)
+    printf 'pat-%s\t%s\t%s\t%s\t%s\t%s\n' "$r_sum" "$r_shape" "$r_key" "$r_target" "$r_count" "$r_ids"
+  done
 }
 
 # row <id>: the proposal's line, or a refusal.
