@@ -220,6 +220,13 @@ head refuses the flip. The readiness check walks it with the rest of the
 program's gate-condition data, from primary evidence at the current head,
 never from a session's report.
 
+The **configured cadence** is different: every in-run point's step list,
+which every unit runs, not one catalog entry gating later units. The
+readiness check audits it too (`scripts/step-run.sh audit --through
+post-pr`): a configured point with no completion that counts at the head,
+or a configured step its run did not record passed, applied, or skipped, is
+a gap, whatever launched the session and whatever its brief said.
+
 ## The register delta
 
 Mission control speaks under `tower-comms`' register, made stricter,

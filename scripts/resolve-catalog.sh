@@ -252,13 +252,14 @@ add_layer() {
     echo "resolve-catalog: $name: $al_label overlay '$al_file' is not confined under its overlay root (malformed); degrading to the next lower layer" >&2
     return 0
   fi
-  if [ -r "$al_canon" ] && [ ! -d "$al_canon" ]; then
+  # A regular file only: a FIFO would block the reader forever.
+  if [ -f "$al_canon" ] && [ -r "$al_canon" ]; then
     files+=("$al_canon")
     labels="${labels:+$labels,}$al_label"
     policies="${policies:+$policies,}$al_policy"
     return 0
   fi
-  # Present but unreadable (or a directory where a file is expected): malformed.
+  # Present but unreadable, or not a regular file: malformed.
   if [ "$al_policy" = "hardfail" ]; then
     echo "resolve-catalog: $name: $al_label catalog '$al_file' is unreadable (hard-fail)" >&2
     exit 1
