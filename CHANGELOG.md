@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.66.0](https://github.com/inkatze/planwright/compare/v0.65.0...v0.66.0) (2026-11-05)
+
+
+### Features
+
+* **fleet:** read usage from the status-line mirror and let a limit be off ([#836](https://github.com/inkatze/planwright/issues/836)) ([7d97218](https://github.com/inkatze/planwright/commit/7d972185bbfc06925f6b4b80a832b092f24fb456))
+* **mission-control:** ask only what the operator can answer in the first run ([#822](https://github.com/inkatze/planwright/issues/822)) ([d950cda](https://github.com/inkatze/planwright/commit/d950cda4d66aae3dc90ece1ddbbcffd8d7d0b379))
+* **mission-control:** catch a skipped verification cadence at readiness ([#834](https://github.com/inkatze/planwright/issues/834)) ([0485f4a](https://github.com/inkatze/planwright/commit/0485f4a8d441168a88078748b41e40c1c219ec18))
+* **mission-control:** propose the setting behind a repeated guard refusal ([#835](https://github.com/inkatze/planwright/issues/835)) ([a9084f7](https://github.com/inkatze/planwright/commit/a9084f74298389f3a4cbbe33e9ca72662d4bfa8d))
+* **substrate:** run bake-off B for the hook tier ([#815](https://github.com/inkatze/planwright/issues/815)) ([83a4713](https://github.com/inkatze/planwright/commit/83a4713788558b6aedc6be66087be96d2e5d1c71))
+
+
+### Bug Fixes
+
+* **fleet:** attribute mission-control launches and re-run a stale window lock after publish ([#830](https://github.com/inkatze/planwright/issues/830)) ([69ffe4b](https://github.com/inkatze/planwright/commit/69ffe4bea0f453c7a3fc5f274dda97c968ec196e))
+* **mission-control:** hand over config writes when another tool renders the overlay ([#832](https://github.com/inkatze/planwright/issues/832)) ([857d66d](https://github.com/inkatze/planwright/commit/857d66d16ebbda8a3a633f10d4e8ddc40a7ec16d))
+* **mission-control:** make the panel reopenable with /mc-panel ([#828](https://github.com/inkatze/planwright/issues/828)) ([db7e669](https://github.com/inkatze/planwright/commit/db7e6691ed6d49448222cf96f44e86b5d990a6d6))
+* **mission-control:** start the panel's readings when its command is refused ([#831](https://github.com/inkatze/planwright/issues/831)) ([02c68fe](https://github.com/inkatze/planwright/commit/02c68fefca7a4488740bc0d1206595f88cd07885))
+* **spec-draft:** use a comma, not an em dash, in the extend-mode commit template ([#838](https://github.com/inkatze/planwright/issues/838)) ([bb15017](https://github.com/inkatze/planwright/commit/bb15017e7aac7feb412433635c1ce8218664ab11))
+
 ## [0.65.0](https://github.com/inkatze/planwright/compare/v0.64.0...v0.65.0) (2026-11-04)
 
 
