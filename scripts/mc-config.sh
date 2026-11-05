@@ -67,7 +67,10 @@ Usage:
   mc-config.sh entry [<program>]
       the command's argument rules: resume<TAB><p> for the named program
       or the only one configured, ask<TAB><p> per program when several are
-      and none is named, first-run when none is configured
+      and none is named, first-run when none is configured; with no
+      argument, a configured program PLANWRIGHT_MC_PROGRAM names, or else
+      the one this session's panel activation record names
+      (scripts/mc-panel.sh lookup), stands for it
   mc-config.sh mode guidance|kickoff
       mission_control_guidance or mission_control_kickoff_mode, resolved
       through the layers; an invalid adopter or machine-local value
@@ -420,6 +423,17 @@ v_entry() {
     fi
     printf '%s\n' "$prog: program '$1' is not configured; configured: $(printf '%s\n' "$en_list" | inline_list | tr -d '[]')" >&2
     exit 3
+  fi
+  # A program the launch environment names, or the one this session's
+  # panel activation record names, stands for the argument; one no longer
+  # configured is passed over.
+  en_named=${PLANWRIGHT_MC_PROGRAM:-}
+  if ! { mc_valid_program "$en_named" && printf '%s\n' "$en_list" | grep -qx -- "$en_named"; }; then
+    en_named=$(/bin/bash "$script_dir/mc-panel.sh" lookup 2>/dev/null | awk -F '\t' '$1 == "program" { print $2; exit }')
+  fi
+  if mc_valid_program "$en_named" && printf '%s\n' "$en_list" | grep -qx -- "$en_named"; then
+    printf 'resume\t%s\n' "$en_named"
+    return 0
   fi
   en_n=$(printf '%s\n' "$en_list" | awk 'NF' | wc -l | tr -d ' ')
   case $en_n in

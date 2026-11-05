@@ -14,8 +14,6 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
-# The lowest Claude Code release whose mods API the panel mod runs on.
-FLOOR=2.1.287
 MOD=hooks/mission-control/register.tsx
 
 prog=check-panel-mod
@@ -55,7 +53,13 @@ finding() {
   findings=$((findings + 1))
 }
 
-# 1. The floor.
+# 1. The floor: the lowest Claude Code release whose mods API the panel mod
+# runs on, owned by the panel's script so the skill's text fallback reads the
+# same value.
+FLOOR=$(/bin/bash "${0%/*}/mc-panel.sh" floor) && [ -n "$FLOOR" ] || {
+  echo "$prog: cannot read the mods floor from scripts/mc-panel.sh" >&2
+  exit 2
+}
 version=$(claude --version 2>/dev/null | awk 'NR == 1 { print $1 }')
 if ! printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   finding "cannot read the claude CLI's version ('$version')"

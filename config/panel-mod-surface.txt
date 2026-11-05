@@ -34,6 +34,10 @@ call $.env.get
 call $.env.set
 # The stores, read and written only through planwright's own scripts.
 call $.process.run
+# A session with no variable: whether its own activation record exists,
+# looked up by its own session id, before any script runs for it.
+call $.fs.exists
+call $.session.id
 # The wake and the tick prompt.
 call $.prompt.submit
 # Context percent and rate limits.

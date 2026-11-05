@@ -80,7 +80,8 @@ Usage:
   mc-keeper.sh watch [--program <p>] [--now <epoch>]
       the duty's watcher (also what a run with no arguments does under the
       runner): the stall scan (scripts/mc-stall.sh scan, which emits its own
-      events), then sweep, each landing one session-landed event in the
+      events), the removal of every panel activation record whose session
+      has no live process (scripts/mc-panel.sh prune), then sweep, each landing one session-landed event in the
       program's event store, subject the session, text
       `<owner/name>#<pr> <state>, retired|held[: <what stayed>]`, printing
         announced<TAB>session-landed<TAB><session>
@@ -345,6 +346,7 @@ case $verb in
       events=1
       # The stall scan needs no forge, so a missing gh never stops it.
       /bin/bash "$script_dir/mc-stall.sh" scan --program "$program" ${now:+--now "$now"} >/dev/null || rc=1
+      /bin/bash "$script_dir/mc-panel.sh" prune >/dev/null || rc=1
     fi
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
     trap pw_lock_release_all EXIT

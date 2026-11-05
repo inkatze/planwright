@@ -6,6 +6,8 @@ import type { On } from 'claude-code'
 // answered from fixture stores, every script run recorded.
 
 export const START = 1_000_000_000
+export const SESSION = '11111111-2222-3333-4444-555555555555'
+export const ACTIVE_DIR = '/fleet/mission-control/_panel/active'
 
 const tab = (...f: (string | number)[]) => f.join('\t')
 
@@ -126,6 +128,12 @@ export type Fixture = {
   isEnvDenied: boolean
   contextPercent: number | undefined
   env: Record<string, string>
+  sessionId: string
+  // Activation records by session id, as the lookup verb prints them.
+  records: Record<string, string>
+  lookupExit: number
+  ackExit: number
+  whereExit: number
 }
 
 export function world(on: On, given: Partial<Fixture> = {}): World {
@@ -146,6 +154,11 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     isEnvDenied: false,
     contextPercent: 42,
     env: { PLANWRIGHT_MC_PROGRAM: 'alpha' },
+    sessionId: SESSION,
+    records: {},
+    lookupExit: 0,
+    ackExit: 0,
+    whereExit: 0,
     ...given,
   }
   const w: World = {
@@ -167,6 +180,10 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     return { value: {} }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.id', () => ({ value: fx.sessionId }))
+  on('fs.exists', (_, e) => ({
+    value: e.path.startsWith(`${ACTIVE_DIR}/`) && e.path.slice(ACTIVE_DIR.length + 1) in fx.records,
+  }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
   on('command.register', () => ({ value: { command: 'mc-panel' } }))
   on('ui.open', () => {
@@ -211,6 +228,12 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
       },
     })
     if (script === 'mc-panel.sh' && verb === 'digest') return answer(fx.digest, fx.digestExit)
+    if (script === 'mc-panel.sh' && verb === 'where') return answer(`${ACTIVE_DIR}\n`, fx.whereExit)
+    if (script === 'mc-panel.sh' && verb === 'lookup') {
+      const rec = fx.records[argv[argv.indexOf('--session') + 1] ?? '']
+      return rec === undefined ? answer('', 1) : answer(rec, fx.lookupExit)
+    }
+    if (script === 'mc-panel.sh' && verb === 'ack') return answer('', fx.ackExit)
     if (script === 'mc-wake.sh' && verb === 'compose') return answer(fx.wake, fx.composeExit)
     if (script === 'mc-wake.sh' && verb === 'target') return answer('', argv.includes('--mod') ? fx.claimExit : 0)
     if (script === 'mc-event.sh' && verb === 'mark') return answer('', fx.markExit)
@@ -221,6 +244,8 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
   })
   return w
 }
+
+export const recordFor = (program: string, target = program): string => `program\t${program}\ntarget\t${target}\n`
 
 export const ran = (w: World, script: string, verb: string): string[][] =>
   w.runs.filter(r => (r[1] ?? '').endsWith(`/scripts/${script}`) && r[2] === verb)
