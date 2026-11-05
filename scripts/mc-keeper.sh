@@ -80,7 +80,18 @@ Usage:
   mc-keeper.sh watch [--program <p>] [--now <epoch>]
       the duty's watcher (also what a run with no arguments does under the
       runner): the stall scan (scripts/mc-stall.sh scan, which emits its own
-      events), then sweep, each landing one session-landed event in the
+      events); the removal of every panel activation record whose session
+      has no live process (scripts/mc-panel.sh prune); the pending-prompt
+      sweep (scripts/fleet-streamjson.sh alarm-scan --once over every stream-json worker on the machine,
+      whatever version or verb launched it, so an overdue request is a high
+      queue item pushed once and a dead worker's is settled), each request
+      still overdue one pending-prompt-overdue event, subject the worker,
+      announced once per request (a worker the launcher records for
+      another program left to that program), and a dead worker this scan
+      settled one stream-json-worker-dead event, whatever its program,
+      printing
+        announced<TAB>pending-prompt-overdue|stream-json-worker-dead<TAB><worker>
+      then sweep, each landing one session-landed event in the
       program's event store, subject the session, text
       `<owner/name>#<pr> <state>, retired|held[: <what stayed>]`, printing
         announced<TAB>session-landed<TAB><session>
@@ -242,14 +253,20 @@ EOF
       case $sw_retire in
         0) ;;
         3)
-          # No row means already retired, or never launched through the
-          # launcher; a row still listed means a launch or retire in flight.
-          if sw_list=$(launcher list 2>/dev/null); then
-            if printf '%s\n' "$sw_list" | S=$sw_s awk -F '\t' '$1 == ENVIRON["S"] { f = 1 } END { exit !f }'; then
-              sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))"
+          # Neither a row nor a stream-json worker means already gone, or
+          # never launched on a rung retire can close; a row still listed,
+          # or a refusal naming an operation in flight, is one to wait out.
+          case $sw_out in
+            *"in flight"*) sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))" ;;
+          esac
+          if [ -z "$sw_held" ]; then
+            if sw_list=$(launcher list 2>/dev/null); then
+              if printf '%s\n' "$sw_list" | S=$sw_s awk -F '\t' '$1 == ENVIRON["S"] { f = 1 } END { exit !f }'; then
+                sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))"
+              fi
+            else
+              sw_held="session (the launcher's list cannot be read)"
             fi
-          else
-            sw_held="session (the launcher's list cannot be read)"
           fi
           ;;
         *) sw_held="session ($(printf '%s' "$sw_out" | head -n 1 | mc_clean))" ;;
@@ -318,6 +335,52 @@ EOF
   return "$sw_rc"
 }
 
+# pending_prompts: the stream-json pending-age sweep over every worker on
+# this machine, whatever planwright version or verb launched it, since one
+# the launcher never registered has no other watcher once its own supervisor
+# is older than the tick. The scan itself queues each overdue request high,
+# pushes it once and settles a dead worker's; each request still overdue is
+# then one event, announced once, and a dead worker the scan settled is one
+# stream-json-worker-dead event, since its request row has just left the
+# queue. An overdue prompt of a worker the launcher records for another
+# program is that program's to announce; with the launcher's list unreadable
+# every one is announced here, as heard twice beats never.
+pending_prompts() {
+  NL='
+'
+  pp_seen="$runtime/keeper-prompts"
+  pp_out=$(/bin/sh "$script_dir/fleet-streamjson.sh" alarm-scan --once ${now:+--now "$now"} 2>/dev/null) || return 1
+  pp_list=$(launcher list 2>/dev/null) || pp_list=""
+  pp_theirs=$(printf '%s\n' "$pp_list" | P=$program awk -F '\t' 'NF && $2 != ENVIRON["P"] { print $1 }')
+  pp_live=""
+  pp_rc=0
+  while read -r pp_tag pp_w pp_id pp_age; do
+    case $pp_tag in
+      alarm | dead) ;;
+      *) continue ;;
+    esac
+    mc_valid_handle "$pp_w" || continue
+    # A settle prints its line once, to whichever scan made it, so a death is
+    # announced here whatever program the worker belongs to.
+    if [ "$pp_tag" = dead ]; then
+      mc_announce "$program" "$pp_seen" "dead	$pp_w" stream-json-worker-dead "$pp_w" \
+        "stream-json worker $pp_w is dead with $pp_id request(s) it left pending, now closed since nothing can answer them; mission-control-launch.sh retire $pp_w closes what is left" \
+        || pp_rc=1
+      continue
+    fi
+    case "$NL$pp_theirs$NL" in *"$NL$pp_w$NL"*) continue ;; esac
+    pp_key="$pp_w	$pp_id"
+    pp_live="$pp_live$pp_key$NL"
+    mc_announce "$program" "$pp_seen" "$pp_key" pending-prompt-overdue "$pp_w" \
+      "stream-json worker $pp_w has waited ${pp_age}s on request $(printf '%s' "$pp_id" | cut -c1-8); fleet-streamjson.sh pending $pp_w shows it, fleet-streamjson.sh answer $pp_w $pp_id --allow or --deny settles it" \
+      || pp_rc=1
+  done <<EOF
+$pp_out
+EOF
+  mc_announce_prune "$pp_seen" "$pp_live" || pp_rc=1
+  return "$pp_rc"
+}
+
 case $verb in
   track)
     mc_valid_handle "$session" || mc_usage_fail "--session takes a launched session's name"
@@ -345,6 +408,8 @@ case $verb in
       events=1
       # The stall scan needs no forge, so a missing gh never stops it.
       /bin/bash "$script_dir/mc-stall.sh" scan --program "$program" ${now:+--now "$now"} >/dev/null || rc=1
+      /bin/bash "$script_dir/mc-panel.sh" prune >/dev/null || rc=1
+      pending_prompts || rc=1
     fi
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
     trap pw_lock_release_all EXIT

@@ -840,7 +840,7 @@ the list lacked; the annotation moved below the task's fields.)*
 
 ## Awaiting input
 
-(none yet)
+- **Task 23** — PR #839's automated review round is unfinished. GitHub rejected the reply to cubic's finding on the activation test twice (the fix landed in 0e4194d2), and cubic has not yet reviewed that head. Next step: post the drafted reply, then run `/bot-review --nested --reviewer cubic` again.
 
 ## Deferred
 
