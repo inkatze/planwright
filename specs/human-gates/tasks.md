@@ -1,6 +1,6 @@
 # Human gates — Tasks
 
-**Status:** Ready
+**Status:** Draft
 **Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -404,6 +404,143 @@ every surface it restates exists.
 - **Citations:** D-18 · REQ-A1.6, REQ-C1.9, REQ-G1.9, REQ-G1.10
 - **Estimated effort:** 2 hours
 
+### Task 14 — The class test and the automatic merge rows in the doctrine
+
+- **Deliverables:** `doctrine/human-gates.md` gaining the class test of
+  REQ-A1.7 as the bar for every class, the standing-authorization rule and
+  the unchanged human gates of REQ-A1.8, a row per core class naming it a
+  policy with `auto_merge_classes` and its empty default, the kill switch
+  row, and its "Executing an authorized merge" and "Publishing a release"
+  rows restated per REQ-D1.10 and D-19; every other passage describing the
+  release approval as always human (release-tagging, guard-catalog's
+  approval line, `docs/getting-started.md`'s release step,
+  `templates/release-please/README.md`, the release-please workflow header
+  comment; the Done-when grep is the enumeration) restated to name the
+  release class as the one exception; the doctrine README rows of the docs
+  edited; `tests/test-human-gates-doctrine.sh` asserting the class-test
+  section and the rows.
+- **Done when:** the doctrine test's kind check passes with every new row;
+  a fixed-string check finds the class test's four arms and fails on a
+  fixture copy without them; a grep of `doctrine/`, `docs/`, `templates/`,
+  and `.github/` for the release-is-always-human phrasings finds each
+  restated with the class exception; `check-instructions.sh` reports no
+  surface over budget; `mise run check` passes.
+- **Dependencies:** none
+- **Citations:** D-19, D-20, D-24 · REQ-A1.7, REQ-A1.8, REQ-D1.10,
+  REQ-I1.17
+- **Estimated effort:** half day
+
+### Task 15 — The automatic merge knobs
+
+- **Deliverables:** `auto_merge_classes`, `auto_merge_halt`,
+  `auto_merge_release_authors`, `auto_merge_dependency_authors`,
+  `auto_merge_dependency_paths`, `auto_merge_test_paths`,
+  `auto_merge_docs_paths`, and `auto_merge_regen_command` in
+  `config/defaults.yml` with commented defaults (classes empty, halt false,
+  release authors `github-actions[bot]`, dependency authors empty, the core
+  path lists named in the comments); their rows in
+  `docs/options-reference.md`; validation through
+  `scripts/resolve-config-knob.sh`: an unknown class name or unparseable
+  list fails a repo-tracked value and degrades an adopter or machine-local
+  one to empty with a warning; an author list naming a login that is not a
+  bot account is malformed; `auto_merge_halt` read as true when any layer
+  sets it true or any layer's value is unreadable; tests for each knob and
+  each malformed arm.
+- **Done when:** each knob resolves through all four layers in a test; a
+  machine-local `auto_merge_halt: true` under a repo-tracked `false` reads
+  true; an unknown class name in the repo-tracked layer exits non-zero; a
+  human login in an author list is refused; the options check and
+  `check:test-time` pass.
+- **Dependencies:** 14
+- **Citations:** D-20, D-21, D-22, D-23 · REQ-I1.1, REQ-I1.2, REQ-I1.8,
+  REQ-I1.9, REQ-I1.10, REQ-I1.17
+- **Estimated effort:** half day
+
+### Task 16 — The class evaluator
+
+- **Deliverables:** `scripts/merge-class.sh` gaining a class mode that, for
+  a named PR, finds the enabled classes it could match and evaluates each
+  one's predicates (REQ-I1.9 to REQ-I1.16) plus the shared conditions of
+  REQ-I1.3 on the current head, deterministically, emitting per condition
+  its verdict and evidence and failing closed on any unreadable input; the
+  core path lists (dependency manifests and lockfiles, test globs,
+  documentation globs) and the merge-configuration files added to the zone
+  for classes; every-commit author checks for the identity-bound classes;
+  the semver type read from changed manifest lines; the test-file deletion
+  and rename check; the measurement-block parse; the bookkeeping check
+  against the base's derived task state; the regeneration run in a scratch
+  checkout of the base with the command read from the base; the step-record
+  read for each class's cadence; one Gherkin scenario per class and per
+  shared condition in the fixtures; tests over stubbed `gh` and fixture
+  repositories.
+- **Done when:** for every class a fixture PR inside its allow-list with
+  every condition met is admitted and each single-condition violation
+  (queued check, `UNKNOWN` mergeability after a re-query, a path outside
+  the list, a zone path, a human commit on a bot branch, a fork head, a
+  sign-off trailer, a hold label, an unresolved thread, a revert PR, a
+  merge-configuration change, a missing step record on the head, the kill
+  switch on) is refused with the condition named; a major or undeterminable
+  dependency update is refused; a deleted test file is refused; a
+  regeneration command changed on the head is ignored in favour of the
+  base's; `check:test-time` passes.
+- **Dependencies:** 15
+- **Citations:** D-20, D-21, D-22, D-24 · REQ-I1.2, REQ-I1.3, REQ-I1.8,
+  REQ-I1.10, REQ-I1.11, REQ-I1.12, REQ-I1.13, REQ-I1.14, REQ-I1.15,
+  REQ-I1.16
+- **Estimated effort:** 3 days
+
+### Task 17 — The class merge, its record, undo, and guard admission
+
+- **Deliverables:** `scripts/merge-admitted.sh` gaining a class mode that
+  re-resolves `auto_merge_classes` and `auto_merge_halt`, runs the Task 16
+  evaluator, flips a draft class PR ready through `scripts/ready-flip.sh`,
+  writes the record comment and the machine-local ledger line before the
+  merge call (aborting when either write fails), re-reads head SHA, base
+  OID, and the kill switch immediately before the call, merges with the
+  `merge_class_strategy` method and no administrator override, and appends
+  a follow-up comment when the call fails after the record; an undo helper
+  opening a draft revert PR through `gh pr revert` naming the original
+  record; `scripts/merge-class.sh`'s `merge_policy` path admitting task
+  branches only, per REQ-D1.10; `scripts/policy-guard.sh` admitting the
+  helper's class mode only while a class is enabled and the kill switch is
+  off, for the mission-control and worker tiers, and refusing it otherwise;
+  fixture lines in `tests/fixtures/reserved-control-spellings` for the
+  class mode, the undo helper, and the unchanged direct-merge denies; tests
+  over stubbed `gh`.
+- **Done when:** an admitted fixture PR gets its record and ledger line
+  before the merge call, in that order; a failed record write yields no
+  merge call; a head, base, or kill switch moved after evaluation yields no
+  merge call; the undo helper opens a draft revert PR the evaluator then
+  refuses; the guard suite denies the class mode with no class enabled or
+  with the kill switch on, and denies every direct PR-merge spelling at
+  every tier; the cross-copy test and `check:test-time` pass.
+- **Dependencies:** 16
+- **Citations:** D-20, D-21 · REQ-D1.10, REQ-I1.3, REQ-I1.4, REQ-I1.5,
+  REQ-I1.6, REQ-I1.7, REQ-I1.8
+- **Estimated effort:** 2 days
+
+### Task 18 — The release class's armed publish and signing probe
+
+- **Deliverables:** `scripts/release-arm.sh` pre-validation gaining a
+  non-interactive signing probe that fails when the tag could not be
+  signed without a prompt under `require_signed_tags`, and a readable
+  armed-state record naming the PR and the head it pre-validated, which
+  the release class's predicate reads; the release class refusing a PR
+  whose head no live armed watcher has pre-validated; a publish failure
+  after a class merge reported as a failure naming the release, the merge
+  commit, and the untagged-window lock; the rule the kickoff settles for a
+  release carrying changes that merged with no human act, as a predicate;
+  tests over stubbed `gh` and a stub signer.
+- **Done when:** with a signer that prompts, the probe fails and the
+  release PR is not admitted; with no armed watcher, or one armed on
+  another head, the release PR is not admitted; with the watcher armed on
+  the head and every condition met, the PR is admitted and the watcher's
+  publish runs on the observed merge; a failing publish yields the failure
+  report; `check:test-time` passes.
+- **Dependencies:** 17
+- **Citations:** D-23 · REQ-I1.9
+- **Estimated effort:** 1 day
+
 ## Awaiting input
 
 (none yet)
@@ -434,6 +571,33 @@ every surface it restates exists.
   Task 19 is dispatched; an observation routes it. Confidence: high.
   **Gate:** GATE(when: task 13 completed).
   Citations: D-18 · REQ-C1.9, REQ-G1.9, REQ-G1.10.
+- **Mission control as the class merge caller.** Mission control is the
+  caller REQ-I1.5 names, but its REQ-I1.1 says it never merges. A routed
+  mission-control amendment SHALL supersede that requirement with one
+  allowing only the class mode of the merge helper while a class is
+  enabled and the kill switch is off, wire its tier profile and the policy
+  guard's admission, give the operator a plain-language way to pull the
+  kill switch, report each class merge and its undo, and launch the armed
+  release watcher REQ-I1.9 needs; no class merge runs from mission control
+  before it lands. obs:d0274d5c routes it. Confidence: high.
+  **Gate:** GATE(when: task 17 completed).
+  Citations: D-20, D-23 · REQ-I1.5, REQ-I1.9.
+- **The dotfiles "Never auto-merge" line.** The operator's own `CLAUDE.md`
+  states an unconditional never-auto-merge invariant; once the class test
+  lands in the doctrine, a separate dotfiles PR restates it as "never
+  outside an enabled class". Out of this repository, so no task here ships
+  it. Confidence: high.
+  **Gate:** GATE(when: task 14 completed).
+  Citations: D-19 · REQ-A1.8, REQ-I1.17.
+- **Enable the chosen classes in this repository.** The kickoff's
+  multi-select fixes which classes this repository turns on; the
+  repo-tracked config change naming them is itself never class-admitted
+  (REQ-I1.3) and lands as an ordinary human-merged PR once the evaluator,
+  the helper, and mission control's caller exist. The dependency class here
+  additionally waits on the operator's choice of a dependency bot (D-22).
+  Confidence: medium.
+  **Gate:** GATE(when: task 18 completed).
+  Citations: D-20, D-22, D-24 · REQ-I1.1.
 
 - **Supersede pointers into tower-front-door.** The Task 12 survey
   (2026-10-18) found records there still stating a rule this bundle changed,

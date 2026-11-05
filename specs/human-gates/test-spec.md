@@ -1,6 +1,6 @@
 # Human gates — Test Spec
 
-**Status:** Ready
+**Status:** Draft
 **Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -10,8 +10,9 @@ guards and their adversarial suites, the trailer parser, the helpers over a
 stubbed `gh`, and the repository's existing index, link, options, purge, and
 instruction-budget checks, all run by `mise run check` and the repository
 CI); `[Gherkin]` for the policy scenarios the helpers must reproduce as
-fixtures; `[manual]` for the two live acts (the reviewer-request probe and
-the tower's operator-requested force-push) and the on-demand `eval:skill`
+fixtures; `[manual]` for the live acts (the reviewer-request probe, the
+tower's operator-requested force-push, and the first unattended release)
+and the on-demand `eval:skill`
 runs behind the skill-prose entries, run and recorded by the executing
 worker; `[design-level]` where a rule's presence in the named doc is the
 verification. `check:test-time` is part of `mise run check`, so every
@@ -58,6 +59,21 @@ kind check with the new composition-contract row and finds `/spec-kickoff`,
 the relayed kickoff session, and the launch-record-named branch in it; a
 fixture copy of the doc without the row fails; the spec-branch rewrite row
 is unchanged against the merge-base (Task 13).
+
+### REQ-A1.7 — The class test [test + design-level]
+
+`tests/test-human-gates-doctrine.sh` finds the class test's four arms and
+the named-outward-effect clause in `doctrine/human-gates.md` and fails on a
+fixture copy without them (Task 14). The extension's kickoff lens pass
+applies the test to each core class and records the arm-by-arm reading,
+the release class's outward effect included [design-level].
+
+### REQ-A1.8 — Standing authorization and the unchanged gates [test + design-level]
+
+The doctrine test finds the standing-authorization rule and a Human gate
+row for each act REQ-A1.8 lists, unchanged against the merge-base for the
+rows that already existed (Task 14). The cross-copy fixture keeps every
+floor line's deny for those acts at every tier (Task 17).
 
 ## REQ-B — Sign-off at the approval act
 
@@ -284,6 +300,16 @@ suffixed commit in the range that a later commit reverts, then the PR is
 still refused (Task 9). Each release-approval passage Task 9 names states
 the rule [design-level] (Task 9).
 
+### REQ-D1.10 — Task branches under the policy, other PRs only through a class [test + Gherkin + design-level]
+
+Given no automatic merge class enabled, then REQ-D1.9's scenarios hold
+unchanged under every `merge_policy` value (Task 17). Given `merge_policy:
+policy-class` and a release PR, then the `merge_policy` path still falls to
+`on-approval` and only the release class's evaluation can admit it (Task
+17). Given a release PR carrying a trailered commit with the release class
+enabled, then it is refused (Task 16). Each release-approval passage Task 14
+names states the class exception [design-level] (Task 14).
+
 ## REQ-E — Worker base merge
 
 ### REQ-E1.1 — The act, every spelling [test]
@@ -485,3 +511,132 @@ record's body unchanged; `scripts/spec-validate.sh --baseline <merge-base>`
 passes on every bundle edited; `scripts/spec-anchor.sh` gives the same
 anchor at the merge-base and the head for every bundle deriving Ready or
 Active at the merge-base (Task 12).
+
+## REQ-I — Automatic merge classes
+
+### REQ-I1.1 — The opt-in class list [test]
+
+The knob tests resolve `auto_merge_classes` through all four layers, read
+empty by default, fail a repo-tracked unknown name with a non-zero exit, and
+degrade an adopter or machine-local unknown name to empty with a warning; a
+`merge_policy` value never changes the list's reading (Task 15).
+
+### REQ-I1.2 — Classes defined in core, narrowed by layers [test]
+
+A fixture layer naming an extra glob outside a class's core list does not
+widen it, and a narrowing knob value admits strictly fewer fixture PRs than
+the default (Task 16).
+
+### REQ-I1.3 — The shared conditions on the current head [test + Gherkin]
+
+One scenario per condition, each with every other condition met: given a
+queued, pending, or missing required check; an `UNKNOWN` mergeability that
+persists after one re-query; a path outside the allow-list or in the zone;
+an unexpected author or a fork head; no step record on the head; a
+sign-off trailer or legacy suffix, reverted or not; a change to a
+merge-configuration file; a revert PR; a hold label, a changes-requested
+review, or an unresolved thread; a live Awaiting-input segment on a task
+branch; the kill switch on; then the PR is refused with that condition
+named. Given the head, base OID, or kill switch moving between evaluation
+and the merge call, then no merge call is made (Tasks 16, 17).
+
+### REQ-I1.4 — One helper, a normal merge [test]
+
+The helper suite shows the class merge using the resolved method with no
+administrator or force flag, a draft class PR flipped through the ready-flip
+helper before merging, and every direct PR-merge spelling denied to every
+tier in the cross-copy test (Task 17).
+
+### REQ-I1.5 — The caller's floor [test + design-level]
+
+The policy-guard suite admits the helper's class mode for the
+mission-control and worker tiers only while a class is enabled and the kill
+switch is off, and denies it otherwise (Task 17). The Deferred bullet
+routing mission control's amendment exists with its gate [design-level].
+
+### REQ-I1.6 — The record and the ledger [test]
+
+Over stubbed `gh`, an admitted PR gets the record comment (class, each
+condition and its evidence, head SHA, base OID, undo command) and the ledger
+line before the merge call; a failing record or ledger write yields no merge
+call; a merge call failing after the record yields the follow-up comment
+(Task 17).
+
+### REQ-I1.7 — The undo [test]
+
+The undo helper opens a draft revert PR naming the original record, and the
+evaluator refuses that revert PR under every class (Task 17); for a release,
+the record's undo text names the revert-plus-next-release form (Task 18).
+
+### REQ-I1.8 — The kill switch and the class cadences [test]
+
+`auto_merge_halt: true` at the machine-local layer under a repo-tracked
+`false` stops every class, and an unreadable value stops it too (Task 15);
+the helper re-reads it before the merge call (Task 17). For each class, a
+fixture PR lacking the core cadence's step record on the head is refused,
+and a layer removing a step is ignored (Task 16).
+
+### REQ-I1.9 — The release class [test + Gherkin + manual]
+
+Given the release tool's PR with every condition met and an armed watcher
+pre-validated on its head, then it is admitted and the publish runs on the
+observed merge; given a changed path beyond the three files, a version-file
+diff touching more than the version, a version not above the latest tag, a
+human commit, no armed watcher, or a signer that prompts, then it is refused
+(Tasks 16, 18). The rule the kickoff settles on releases carrying changes
+merged with no human act has its own scenario (Task 18). The first
+unattended release in this repository is watched by the operator and its
+record read against the published tag [manual].
+
+### REQ-I1.10 — The dependency class [test + Gherkin]
+
+Given a bot-authored PR bumping a patch or minor version in a core-listed
+manifest and its lockfile, then it is admitted; given a major bump, an
+undeterminable type, a CI workflow change, a human commit on the bot branch,
+or an author outside the list (the default empty list included), then it is
+refused (Task 16).
+
+### REQ-I1.11 — The test-only class [test + Gherkin]
+
+Given a PR changing only test-glob paths, adding or editing tests, then it
+is admitted; given a deleted or renamed-away test file, or a change to the
+reserved-control fixture, then it is refused (Task 16).
+
+### REQ-I1.12 — The performance class [test + Gherkin]
+
+Given a PR with no test-path change and a measurement block whose after
+figure beats its before, then it is admitted; given any test-path change, a
+missing or unparseable block, or an after figure no better, then it is
+refused (Task 16).
+
+### REQ-I1.13 — The observation-carry class [test + Gherkin]
+
+Given a PR adding fragments or moving them unchanged between the live and
+archive directories, then it is admitted; given an edited fragment or a
+path outside the accumulator, then it is refused (Task 16).
+
+### REQ-I1.14 — The bookkeeping class [test + Gherkin]
+
+Given a PR removing only Awaiting-input reference bullets whose tasks derive
+Completed on the base, then it is admitted; given a removed bullet whose
+task does not, or any other line changed, then it is refused (Task 16).
+
+### REQ-I1.15 — The docs-only class [test + Gherkin]
+
+Given a PR changing only documentation-glob paths, then it is admitted;
+given a change to doctrine, a skill, or an agent instruction file, then it
+is refused (Task 16).
+
+### REQ-I1.16 — The regeneration class [test + Gherkin]
+
+Given a PR whose head tree the base's command reproduces on a clean base
+checkout, then it is admitted; given a tree that differs, an empty command,
+or a command changed only on the head, then it is refused, the head's
+command never run (Task 16).
+
+### REQ-I1.17 — Options, doctrine rows, and routed follow-ons [test + design-level]
+
+The options check finds a row and a commented default for every knob Task 15
+adds; the doctrine test finds the class rows and the kill switch row (Task
+14); the bundle's `## Deferred` carries the mission-control and dotfiles
+bullets with their gates [design-level].

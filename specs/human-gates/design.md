@@ -1,6 +1,6 @@
 # Human gates — Design
 
-**Status:** Ready
+**Status:** Draft
 **Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -63,6 +63,9 @@ D-2` pointer; its body is untouched.
 **Chosen because:** the test reproduces every decision the repo already
 made (kickoff-lifecycle D-6, merge-currency-guard D-9, the 2026-09-02
 sign-off decision) and explains each one, which a list by fiat did not.
+
+**Superseded-by: D-19** (2026-11-05) — scoped to the release publish as a
+per-release human gate: an enabled release class discharges it in advance.
 
 ### D-3: Sign-off is the approval act; the marker is a trailer  (C, obs:77e452b4; issue planwright#384)
 
@@ -588,6 +591,10 @@ without naming it, so an adopter's release tool is covered with nothing to
 configure or misconfigure; the fixed set is exactly the set the helper can
 reach.
 
+**Superseded-by: D-20** (2026-11-05) — non-task PRs may merge through an
+enabled automatic merge class, with mission control as the caller the
+rejected allowlist lacked.
+
 ### D-16: A legacy suffixed commit takes its id from its own hash  (N, planwright#506 review decisions)
 
 **Decision:** A commit whose subject ends with a space and
@@ -706,6 +713,234 @@ to mission-control D-36. This bundle states only the floor they must meet.
 It widens one session by the one branch it was launched to publish, and
 leaves every human gate where the gate test puts it.
 
+### D-19: Altitude — the unattended-work rule is a class test in doctrine, and enabling a class is the standing authorization  (N, the operator's unattended-work request)
+
+**Decision:** The operator's rule ("act automatically wherever the act is
+verified and reversible; stop only where it could cause harm") is a pinned
+altitude claim, so it lands first as doctrine: a class test in
+`doctrine/human-gates.md` that a class of PRs must pass before it may be
+enabled (REQ-A1.7), then as capability (opt-in knobs, D-20), then as
+mechanism (the evaluator and helper). The test has four arms: membership by
+mechanical predicates, every predicate verifiable on the current head at
+merge time, undo by one revert PR with nothing outside the repository
+changed, and no harm outside the maintainers if a wrong admission stands
+until noticed. D-2's test is not loosened: authorizing a merge stays a
+human gate, discharged once per class by the human enabling it rather than
+per PR, which is what the operator's "pre-approvals" names. The one class
+that fails the third and fourth arms by construction, the release (its
+publish ships to adopters and cannot be retracted, only rolled forward),
+is admitted only through the test's named-outward-effect clause: the
+operator accepts the publish at a kickoff, and the class still demands the
+release tool's own PR shape and the armed publish's pre-validation. D-2's
+release-publish clause gains a scoped pointer here. The test is the bar,
+never a permission: an act it does not name (a spec PR, a sign-off, a
+protected push, a force push, a branch deletion, a message to a person)
+stays where D-2 and REQ-A1.8 put it.
+
+**Alternatives considered:**
+- A blanket "auto-merge when green" policy. Rejected because: the operator
+  asked to stop wherever harm is possible, and green CI says nothing about
+  a change to the guards, a secret allowlist, or a sign-off item.
+- Treat the release as failing the test and leave it human. Rejected
+  because: the operator named releases as a first class; the honest form
+  is to name the outward effect and have the operator accept it, rather
+  than pretend a published tag is revertible.
+- Write the classes as mechanism only, with no doctrine row. Rejected
+  because: the next class would be argued from taste; the test is what lets
+  a later kickoff say no.
+
+**Chosen because:** it is D-1's altitude ladder applied again, and it keeps
+D-2's two arms intact by moving where the authorization happens, not
+whether a human gives it.
+
+### D-20: Core-defined classes behind one opt-in knob, merged by one helper; mission control is the caller  (N, `customization-boundary`)
+
+**Decision:** `auto_merge_classes` is a space-separated single-line list
+(the flat config model, as `protected_branches` is) of names core defines:
+`release`, `dependency`, `test-only`, `performance`, `observation-carry`,
+`bookkeeping`, `docs-only`, `regeneration`. Default empty. It is read
+independently of `merge_policy`, so an operator can enable releases while
+task PRs keep `human`. The capability (the classes and their predicates)
+is core; the value (which ones a repository turns on, and the narrowing
+knobs) is overlay. A layer may narrow a class (fewer authors, extra
+exclusions, extra cadence steps) and never widens or defines one, so a
+misconfiguration can only admit less. Evaluation extends
+`scripts/merge-class.sh` with a per-class mode; the merge runs through
+`scripts/merge-admitted.sh` in a class mode, the sole path, which
+re-resolves the knobs and the kill switch and fails closed. The caller is
+the gap D-15 named: nothing called the helper for a PR no planwright skill
+owns. Mission control, which already sweeps every open PR of its program,
+is that caller; a unit-owning skill may also call it at its terminal step
+for its own task PR. Mission control's allowance, profile wiring, and the
+amendment of its "never merge" requirement are mission-control's to ship,
+routed as a follow-on exactly as D-18 routed the kickoff profile; this
+bundle states the floor (only the helper, only while a class is enabled
+and the kill switch is off) and no class merge runs from mission control
+before the follow-on lands. D-15 is superseded: its rejected allowlist
+failed for want of a caller and of predicates for specless PRs, and this
+decision supplies both. The REQ-D1.3 zone applies to every class in full,
+save one named exception (lockfiles, for the dependency class); the zone
+gains the files that configure planwright's merge behaviour for the
+classes, so no class PR can widen the classes.
+
+**Alternatives considered:**
+- Adopter-defined classes as config (a glob list plus an author). Rejected
+  because: a class must pass a judgement test (REQ-A1.7) a config value
+  cannot carry; adopters narrow, a kickoff adds.
+- Fold the classes into `merge_policy: policy-class`. Rejected because:
+  turning on releases would also admit task PRs, and the two answer
+  different questions (task-branch risk versus PR shape).
+- Launch a worker per merge rather than mission control calling the
+  helper. Rejected because: the helper is deterministic and re-checks
+  everything at merge time; a worker adds a session, a worktree, and a
+  dispatch latency and no check.
+- Edit mission-control REQ-I1.1 in this bundle. Rejected because: it is a
+  signed requirement of another live bundle; its own kickoff amends it.
+
+**Chosen because:** opt-in with an empty default changes nothing for any
+adopter; one helper keeps one guarded path; the caller exists already.
+
+### D-21: Conditions on the current head, a record before the act, a one-step undo, a kill switch any layer can pull  (N, the operator's unattended-work request)
+
+**Decision:** Every class shares REQ-I1.3's conditions, each evaluated on
+the head immediately before the merge and each failing closed: required
+checks all completed green (queued, pending, or absent is unmet, so a
+release PR whose checks never ran is not admitted), the host's
+`MERGEABLE`, the allow-list and zone, the author and the head repository,
+the class cadence on that head, the raw sign-off scan, no hold label,
+change request, or unresolved thread, no revert PR, the Awaiting-input read
+for task branches, and the kill switch; head SHA, base OID, and the kill
+switch are re-read right before the call, as REQ-D1.4 already does. Being
+behind the base is not a condition. The record comment is written before
+the merge and a machine-local ledger line beside it (the PR comment is the
+durable remote record; the ledger is what mission control's panel and a
+morning report read without a host query). The undo is `gh pr revert`
+(present in the gh the repository pins) wrapped so it opens a draft and
+names the original record, and a revert PR is never itself admitted, so
+undoing stays a human-merged act. `auto_merge_halt` is the kill switch:
+true at any layer stops everything, an unreadable value counts as true,
+the only knob where a stricter lower layer cannot be overridden, as
+`protected_branches` already adds rather than replaces. Cadence per class
+is a core minimum, evidenced by the existing step records naming the
+head: the mechanical classes need none beyond their predicates, test-only
+and docs-only need the convergence review, performance needs that plus the
+post-PR automated reviewer with no open finding. The test-only class
+forbids deleting or renaming away a test file, the one way a test PR
+lowers coverage while staying green; the performance class forbids any
+test-path change, so "the suite passes unchanged" is mechanical, and
+requires a measurement block in the PR body whose presence and direction
+are checked, its truth being the reviewers'.
+
+**Alternatives considered:**
+- Trust GitHub auto-merge with required checks alone. Rejected because:
+  the host cannot evaluate the allow-list, the author of every commit, the
+  sign-off scan, or the cadence, and enabling it is a per-PR act anyway.
+- A kill switch that is just an empty `auto_merge_classes`. Rejected
+  because: under last-layer-wins the stop must be written in whichever
+  layer currently wins, and an empty value is easy to misread as unset; a
+  switch any layer can pull is unambiguous at 3 a.m.
+- Check only the PR author. Rejected because: anyone with push access can
+  add a commit to a bot's branch; every commit's author must match for the
+  identity-bound classes (GitHub's own guidance checks the PR author, and
+  the extra check closes the pushed-commit gap).
+
+**Chosen because:** each condition is a shipped read (the ready-flip
+preconditions, the class predicates, the step records); the record and
+undo make every merge legible and one step from undone.
+
+### D-22: The dependency class ships as capability; a bot here is a prerequisite decided apart  (N, research)
+
+**Decision:** The `dependency` class admits bot-authored PRs that change
+only manifests and lockfiles, every version change a patch or minor update
+read from the changed lines (an undeterminable type counts as major and is
+refused), with lockfiles as the class's one exception to the zone and CI
+workflows never admitted. `auto_merge_dependency_authors` defaults empty,
+so the class admits nothing until an operator names their bot. Enabling a
+bot in this repository is a prerequisite, not part of this extension:
+this repository's dependency surface is the tool pins in `mise.toml`, which
+Dependabot does not read and Renovate does, and the action pins in the CI
+workflows, which stay in the zone because a CI change rewrites the checks
+every class relies on. A bot here therefore means installing Renovate, a
+third-party app with write access to the repository, which is the
+operator's security decision and a separate flight once taken.
+
+**Alternatives considered:**
+- Add a Dependabot config as a task here. Rejected because: it would only
+  bump action pins, which the zone excludes, so the class would admit
+  nothing it opens.
+- Admit action-pin bumps when pinned to a full commit SHA. Rejected
+  because: a compromised upstream action at a new SHA runs inside every
+  later check; the supply-chain incidents this guards against arrive
+  exactly that way.
+- Let the bot's own update-type metadata decide. Rejected because: it is
+  carried by a third-party action or a title convention, and reading the
+  changed lines is deterministic and bot-independent.
+
+**Chosen because:** the class is useful to adopters on its own, and the
+repository-specific choice of a bot belongs with the operator.
+
+### D-23: The release class publishes through the armed watcher  (N, autopilot-reflex D-12)
+
+**Decision:** The `release` class admits only the release tool's own PR:
+head branch the tool's branch for the base, every commit by a login in
+`auto_merge_release_authors` (bots only; default `github-actions[bot]`,
+the identity release-please uses under the workflow token), changes
+confined to the version file `version_file` names, the changelog, and the
+tool's manifest, the version file's diff touching only the version value,
+the version valid SemVer, above the latest tag, and untagged. Before
+merging, an armed release watcher (`release-arm.sh`) for this PR's head
+must have passed its pre-validation, which gains a non-interactive signing
+probe: under `require_signed_tags: require` an unattended publish that
+cannot sign would merge the release, fail to tag, and hold the
+untagged-window lock over every other merge until the operator returns, so
+a release that cannot sign unattended is not merged. On the merge the
+watcher runs the unchanged `release-publish.sh`, which re-enforces every
+gate. Who runs the watcher unattended is mission-control's follow-on (its
+launch of a release session); this bundle requires only that it be armed
+and pre-validated for the head being merged. Whether a release may go out
+unattended when some change in it merged with no human act (through
+another class) is the operator's call at kickoff, recorded in REQ-I1.9.
+
+**Alternatives considered:**
+- Merge and let the operator publish later. Rejected because: the
+  untagged-window lock would hold every merge until then, the worst of
+  both.
+- Publish from mission control's own shell. Rejected because: mission
+  control runs no git mutation, and the publish fast-forwards local main
+  and pushes a tag.
+
+**Chosen because:** the armed watcher already pre-validates and publishes;
+the class only adds the merge it was waiting for and a signing probe.
+
+### D-24: Four further classes from the merged-PR survey; three candidates refused  (N, the merged-PR survey)
+
+**Decision:** The survey of recent merged PRs, read against REQ-A1.7,
+yields four more classes. `observation-carry`: adds or moves fragments in
+the observations accumulator, content unchanged; already merged with no
+review and `check:obs` as its gate. `bookkeeping`: removes Awaiting-input
+reference bullets whose task derives Completed on the base; the bullets
+sit outside the content anchor, so no signed bundle changes meaning.
+`docs-only`: adopter-facing documentation, never doctrine, skills, or
+agent instruction files, which are behaviour in this framework.
+`regeneration`: the base's own named command, run on a clean base
+checkout, reproduces the head exactly, covering formatting, lint fixes,
+and generated files; the command is read from the base so a PR cannot
+choose what verifies it. Refused: secret-scan allowlist changes (a secret
+can hide behind one), guard, hook, profile, and workflow changes (the
+enforcement surface every class leans on), and spec PRs (sign-off). Which
+classes this repository enables is the operator's multi-select at the
+kickoff; core ships all of them off.
+
+**Alternatives considered:**
+- Ship only the classes the operator named. Rejected because: the operator
+  asked for the survey, and the four pass the same test with simpler
+  predicates than performance does.
+- A formatting class separate from regeneration. Rejected because: a
+  formatter is a regeneration command; one predicate covers both.
+
+**Chosen because:** each recurs in the history, each passes the test with
+mechanical predicates, and each stays off until chosen.
+
 ## Cross-cutting concerns
 
 - **Security posture.** Every guard this bundle adds is deny-emitting, so
@@ -726,6 +961,17 @@ leaves every human gate where the gate test puts it.
   Touched and decided: concurrency between relayed kickoff sessions, one
   launch record per session, bound to it and removed at its retirement
   (D-18).
+  The 2026-11-05 extension, touched and decided: auth (the class caller's
+  floor and every-commit authorship, D-20, D-21), secrets-configuration
+  (the class knobs and the any-layer kill switch, D-20, D-21), concurrency
+  (head, base, and kill switch re-read before the call, D-21), observability
+  (record comment and ledger, D-21), deploy and versioning (the armed
+  publish, D-23), dependency adoption (the bot as a prerequisite, D-22),
+  LLM output gates (no model in any class predicate, D-20), human
+  comprehension (the record names the undo, D-21), existing-seam reuse
+  (the class evaluator, merge helper, step records, and armed watcher).
+  Touched, not decided here: mission control's caller wiring, routed to
+  mission-control (D-20).
 - **Instruction budget.** Every skill prose change is measured by
   `check-instructions.sh`; a change that grows a saturated surface is
   reworked as a citation, never landed over budget.
