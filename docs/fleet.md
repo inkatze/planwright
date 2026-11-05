@@ -2124,7 +2124,8 @@ does not either; write it atomically (temp file, then rename). Each window
 comes from the first source holding it fresh: the mirror, a regular file
 with no control byte, within `fleet_usage_signal_ttl_seconds` by file age,
 and per window a 0–100 percentage whose reset is still ahead and no further
-out than one window span; then the capture cache. A window the mirror lacks
+out than one window span plus slack (an hour for the session window, a day
+for the weekly); then the capture cache. A window the mirror lacks
 falls back instead of reading 0%. The mirror is only as fresh as the last
 status-line redraw, so it goes stale while no interactive session draws one.
 `fleet-usage-gate.sh evaluate` maps each window's percentage
