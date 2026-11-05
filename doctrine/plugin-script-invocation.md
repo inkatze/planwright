@@ -28,9 +28,10 @@ and a remembered path still runs. A session that outlives an invocation (a
 standing one, or one resumed after a compaction) resolves again by running
 `scripts/resolve-root.sh install` from the installed copy: the first root
 `scripts/resolve-installed-roots.sh --current` prints, from any copy, or
-any copy when it prints none. The root resolver warns when it runs from a
-cached copy the record no longer names, and so does every script that
-resolves its root or sources mission control's shared library.
+any copy when it prints none. The root resolver warns when it runs from, or
+answers with, a cached copy the record no longer names (a pin the session
+inherited included); the session then runs its scripts and docs from that
+first `--current` root instead. Mission control's scripts warn the same way.
 
 Take the resolved value once, then substitute it literally at each call site:
 
