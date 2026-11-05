@@ -810,7 +810,8 @@ activate() {
   # CLAUDE_PID counts only when the session-start record for it names this
   # session; otherwise the live process that record names, else `-`.
   if [ -z "$pid" ] && mc_valid_uint "${CLAUDE_PID:-}" && [ -n "$ac_sd" ] \
-    && [ ! -L "$ac_sd/$CLAUDE_PID" ] && [ "$(field_of "$ac_sd/$CLAUDE_PID" session)" = "$session" ]; then
+    && [ ! -L "$ac_sd/$CLAUDE_PID" ] && mc_format_ok "$ac_sd/$CLAUDE_PID" \
+    && [ "$(field_of "$ac_sd/$CLAUDE_PID" session)" = "$session" ]; then
     pid=$CLAUDE_PID
   fi
   if [ -z "$pid" ] && [ -n "$ac_sd" ]; then
@@ -818,6 +819,7 @@ activate() {
     for ac_f in "$ac_sd"/*; do
       ac_k=${ac_f##*/}
       mc_valid_uint "$ac_k" && [ ! -L "$ac_f" ] || continue
+      mc_format_ok "$ac_f" || continue
       { [ "$(field_of "$ac_f" session)" = "$session" ] && pid_alive "$ac_k"; } || continue
       pid=$ac_k
       break

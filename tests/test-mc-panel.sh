@@ -457,6 +457,23 @@ mkfifo "$act/$sid_b"
 mc_run mc-panel.sh prune
 expect_rc "prune passes over a FIFO named like a record without reading it" 0
 rm -f "$act/$sid_b"
+fifo="$fleet/mission-control/_panel/sessions/$dead_pid"
+mkfifo "$fifo"
+(mc_run mc-panel.sh activate --program alpha --session "$sid_d" --now 5400) &
+bg=$!
+n=0
+while kill -0 "$bg" 2>/dev/null && [ "$n" -lt 50 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+if kill -0 "$bg" 2>/dev/null; then
+  fail "activate blocked reading a FIFO named like a session-start record"
+  : >"$fifo"
+else
+  ok "activate passes over a FIFO named like a session-start record without reading it"
+fi
+wait "$bg"
+rm -f "$fifo" "$act/$sid_d" "$act/$sid_d.ack"
 chmod 0777 "$act"
 mc_run mc-panel.sh lookup --session "$sid_a"
 expect_rc "a world-writable activation directory is refused" 1
