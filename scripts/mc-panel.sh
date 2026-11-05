@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # mc-panel.sh — the panel mod's data seam: one digest of every store the
-# panel draws, the one-line text form a session without the mod reads, and
-# the presence marker the mod feeds from prompt events.
+# panel draws, the text forms a session without the mod reads, the presence
+# marker the mod feeds from prompt events, and the activation record that
+# turns the mod on in a mission-control session with no setup.
 #
 # `mc-panel.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
@@ -26,22 +27,42 @@ done
 DECISIONS_SHOWN=3
 
 usage() {
-  mc_usage_fail "usage: mc-panel.sh digest|line --program <p> [--target <t>] [--knobs] [--now <epoch>] | presence --program <p> --prompt|--refresh [--target <t>] [--now <epoch>]"
+  mc_usage_fail "usage: mc-panel.sh digest|line|text|presence|activate|await|lookup|ack|retire|prune|where|floor|session-hook ... (mc-panel.sh --help)"
 }
 
 help_text() {
   cat <<'HELP'
 mc-panel.sh — the panel mod's data seam: one digest of every store the
-panel draws, the one-line text form a session without the mod reads, and
-the presence marker the mod feeds from prompt events.
+panel draws, the text forms a session without the mod reads, the presence
+marker the mod feeds from prompt events, and the activation record that
+turns the mod on in a mission-control session with no setup.
 
 The mod (hooks/mission-control/) runs `digest` on its redraw timer and
 draws only what it prints; nothing here calls a model or writes a store
-but the presence marker and, with --target, the target's lease. The mod
-is active only in a session started with PLANWRIGHT_MC_PROGRAM=<program>
-in its environment (and optionally PLANWRIGHT_MC_TARGET=<its wake
-target>, the program's name by default), which it reads once and clears. A store that cannot be read is said as such,
+but the presence marker, with --target the target's lease, and the
+activation files below. A store that cannot be read is said as such,
 never drawn as empty.
+
+ACTIVATION. The mod turns on in a session whose own activation record
+exists: the skill's entry and bring-up write it (`activate`), keyed by the
+session id the session-start hook captured (`session-hook`), so a session
+mission control launches, under another id, never matches it. The mod
+looks for the file `where` names on its timer and at turn boundaries,
+reads it through `lookup`, and writes its acknowledgment (`ack`); `await`
+is the skill's side of that handshake. PLANWRIGHT_MC_PROGRAM=<program>
+(and optionally PLANWRIGHT_MC_TARGET=<its wake target>, the program's
+name by default) in a session's environment stays a fast path: the mod
+reads them once, clears them, and records the activation itself. Under
+<fleet-home>/mission-control/_panel/, owner-only, no symlink followed:
+  sessions/<host pid>        format, session, written: which session the
+                             host process carries, rewritten at every
+                             session start (a /clear included)
+  active/<session id>        format, program, target, session, pid,
+                             written: the activation record
+  active/<session id>.ack    format, session, written: the mod's
+                             acknowledgment
+Fields are key<TAB>value lines; the format line comes first, and a record
+of any other format never activates.
 
 Usage:
   mc-panel.sh digest --program <p> [--target <t>] [--knobs] [--now <epoch>]
@@ -114,9 +135,62 @@ Usage:
       too: what scripts/mc-wake.sh reads to tell a live `mod` target from
       one whose mod died
 
-Exit codes: 0 done; 1 the program list or the presence marker cannot be
-read or written, or a target's lease cannot be written (its directory a
-symlink included); 2 usage; 3 the program is not configured.
+  mc-panel.sh text --program <p> [--target <t>]
+      the text panel, for a session where nothing draws the pane:
+        mission control <p>
+        in flight: <n>               then one indented line per flight
+        waiting: <n>
+        pending wakes: <n>           with --target
+        rung: <rung> (<reason>)
+      a store that cannot be read is said as unknown, with why
+  mc-panel.sh activate --program <p> [--target <t>] [--session <id>]
+                       [--pid <pid>] [--now <epoch>]
+      write this session's activation record, dropping an earlier
+      acknowledgment unless the record names the same program, target and
+      process;
+      prints activation<TAB><session id>. The session defaults to this one
+      (the session-start record for CLAUDE_PID, then
+      CLAUDE_CODE_SESSION_ID), the pid to CLAUDE_PID when its session-start
+      record names this session, then to a live process whose record
+      does, else `-`
+  mc-panel.sh await --program <p> [--session <id>] [--wait <seconds>]
+      wait for the mod's acknowledgment of the record, up to the wait
+      (default 30, at most 60), and print
+        panel<TAB>mod                         acknowledged
+      or, followed by the text panel,
+        panel<TAB>text<TAB><why>              below the mods floor, no
+                                              acknowledgment within the
+                                              wait, no session to name, or
+                                              an unreadable activation
+                                              directory
+  mc-panel.sh lookup [--session <id>]
+      the record's program<TAB><p> and target<TAB><t> lines; exit 1 when
+      the session has none, or one of another format or session
+  mc-panel.sh ack [--session <id>] [--now <epoch>]
+      write the acknowledgment beside an existing record naming the
+      session
+  mc-panel.sh retire [--session <id>]
+      remove the session's record and acknowledgment; prints
+      retired<TAB><session id>
+  mc-panel.sh prune
+      remove every record whose pid is no live process (one with no pid
+      is kept), every acknowledgment with no record, and
+      every session-start record whose process is gone; prints
+      pruned<TAB><session id> per record
+  mc-panel.sh where
+      the directory activation records live in; drops session-start
+      records whose process is gone
+  mc-panel.sh floor
+      the lowest Claude Code release the panel mod runs on
+  mc-panel.sh session-hook
+      the SessionStart hook: reads the hook input on stdin and writes the
+      session-start record for CLAUDE_PID; prints nothing, exits 0
+
+Exit codes: 0 done; 1 the program list, the presence marker or an
+activation file cannot be read or written, a target's lease cannot be
+written (its directory a symlink included), or `lookup` finds no record
+for the session; 2 usage; 3 the program is not configured; 4 this
+session's id cannot be told.
 
 Portable bash 3.2 / BSD tooling.
 HELP
@@ -130,19 +204,137 @@ esac
 [ $# -ge 1 ] || usage
 verb=$1
 shift
+
+# The lowest Claude Code release whose mods API the panel mod runs on;
+# scripts/check-panel-mod.sh gates on the same value through `floor`.
+MODS_FLOOR=2.1.287
+# Comfortably above the mod's record check interval (RECORD_CHECK_MS in
+# hooks/mission-control/register.tsx): the skill's activate and await run in
+# one turn, so only that timer finds a new record.
+AWAIT_DEFAULT=30
+AWAIT_MAX=60
+HOOK_INPUT_MAX=65536
+
+# A session id as the host spells it, checked before it names a file.
+valid_session() {
+  [ "${#1}" -eq 36 ] || return 1
+  case $1 in
+    *[!0-9A-Fa-f-]*) return 1 ;;
+  esac
+}
+
+# panel_dir <leaf>: <fleet-home>/mission-control/_panel/<leaf>, created
+# owner-only; a symlink, another owner or group or world write anywhere on it
+# is refused, never narrowed. The leading underscore keeps it out of the
+# program namespace beside it.
+panel_dir() {
+  pd_home=$(mc_fleet_home) || return 1
+  pd_dir=$pd_home
+  for pd_part in mission-control _panel "$1"; do
+    pd_dir=$pd_dir/$pd_part
+    [ ! -L "$pd_dir" ] || return 1
+    [ -d "$pd_dir" ] || (umask 077 && mkdir -p "$pd_dir") 2>/dev/null || return 1
+    # The shared parent keeps whatever mode the runtime scripts gave it.
+    [ "$pd_part" != mission-control ] || continue
+    [ -O "$pd_dir" ] || return 1
+    [ -z "$(find "$pd_dir" -prune \( -perm -0020 -o -perm -0002 \) 2>/dev/null)" ] || return 1
+  done
+  printf '%s\n' "$pd_dir"
+}
+
+no_session() {
+  printf '%s\n' "$prog: this session's id cannot be told (no session-start record, no CLAUDE_CODE_SESSION_ID)" >&2
+  exit 4
+}
+
+# field_of <file> <key>: the first value of <key> in a key<TAB>value store.
+field_of() { K=$2 awk -F '\t' '$1 == ENVIRON["K"] { print $2; exit }' "$1" 2>/dev/null; }
+
+# names_session <file> <id>: <file> is a regular file of this format, not a
+# symlink, whose session field is <id>. Every read of an activation, an
+# acknowledgment or a session-start record goes through it.
+names_session() {
+  [ ! -L "$1" ] && mc_format_ok "$1" && [ "$(field_of "$1" session)" = "$2" ]
+}
+
+# self_session: this session's id. The session-start hook's record for the
+# host process (CLAUDE_PID) first, since it follows a /clear; the host's
+# CLAUDE_CODE_SESSION_ID second.
+self_session() {
+  ss_pid=${CLAUDE_PID:-}
+  if mc_valid_uint "$ss_pid" && ss_dir=$(panel_dir sessions) \
+    && [ ! -L "$ss_dir/$ss_pid" ] && mc_format_ok "$ss_dir/$ss_pid"; then
+    ss_id=$(field_of "$ss_dir/$ss_pid" session)
+    if valid_session "$ss_id"; then
+      printf '%s\n' "$ss_id"
+      return 0
+    fi
+  fi
+  ss_id=${CLAUDE_CODE_SESSION_ID:-}
+  valid_session "$ss_id" || return 1
+  printf '%s\n' "$ss_id"
+}
+
+# pid_alive <pid>: a process by that id exists, whoever owns it.
+pid_alive() { kill -0 "$1" 2>/dev/null || ps -p "$1" >/dev/null 2>&1; }
+
+case $verb in
+  floor)
+    [ $# -eq 0 ] || usage
+    printf '%s\n' "$MODS_FLOOR"
+    exit 0
+    ;;
+  where)
+    # Run once per mod load in every session, so it also drops session-start
+    # records whose process is gone on hosts no keeper sweeps.
+    [ $# -eq 0 ] || usage
+    panel_dir active || mc_fail "cannot open the activation directory"
+    if wh_sd=$(panel_dir sessions); then
+      set +f
+      for wh_f in "$wh_sd"/*; do
+        wh_k=${wh_f##*/}
+        mc_valid_uint "$wh_k" || continue
+        pid_alive "$wh_k" || rm -f -- "$wh_f"
+      done
+      set -f
+    fi
+    exit 0
+    ;;
+  session-hook)
+    # A SessionStart hook in every session: silent, and never a failure.
+    [ $# -eq 0 ] || exit 0
+    sh_input=$(head -c "$HOOK_INPUT_MAX" 2>/dev/null) || exit 0
+    sh_id=$(printf '%s' "$sh_input" | LC_ALL=C grep -Eo '"session_id"[[:space:]]*:[[:space:]]*"[0-9A-Fa-f-]{36}"' 2>/dev/null \
+      | head -n 1 | sed 's/.*"\([0-9A-Fa-f-]*\)"$/\1/')
+    sh_pid=${CLAUDE_PID:-}
+    valid_session "$sh_id" && mc_valid_uint "$sh_pid" || exit 0
+    sh_dir=$(panel_dir sessions) || exit 0
+    [ ! -L "$sh_dir/$sh_pid" ] || exit 0
+    printf 'format\t%s\nsession\t%s\nwritten\t%s\n' "$MC_FORMAT" "$sh_id" "$(mc_now)" \
+      | mc_write "$sh_dir/$sh_pid" 2>/dev/null
+    exit 0
+    ;;
+esac
+
 program=""
 target=""
 now=""
 presence_kind=""
 with_knobs=0
+session=""
+pid=""
+wait_s=""
 while [ $# -gt 0 ]; do
   case $1 in
-    --program | --target | --now)
+    --program | --target | --now | --session | --pid | --wait)
       [ $# -ge 2 ] || usage
       case $1 in
         --program) program=$2 ;;
         --target) target=$2 ;;
         --now) now=$2 ;;
+        --session) session=$2 ;;
+        --pid) pid=$2 ;;
+        --wait) wait_s=$2 ;;
       esac
       shift 2
       ;;
@@ -158,13 +350,118 @@ while [ $# -gt 0 ]; do
     *) usage ;;
   esac
 done
-[ -n "$program" ] || usage
+# Each verb takes only its own flags.
+only() {
+  [ -z "$presence_kind" ] && [ "$with_knobs" -eq 0 ] || usage
+  case " $1 " in *" program "*) [ -n "$program" ] || usage ;; *) [ -z "$program" ] || usage ;; esac
+  case " $1 " in *" target "*) ;; *) [ -z "$target" ] || usage ;; esac
+  case " $1 " in *" now "*) ;; *) [ -z "$now" ] || usage ;; esac
+  case " $1 " in *" session "*) ;; *) [ -z "$session" ] || usage ;; esac
+  case " $1 " in *" pid "*) ;; *) [ -z "$pid" ] || usage ;; esac
+  case " $1 " in *" wait "*) ;; *) [ -z "$wait_s" ] || usage ;; esac
+}
 case $verb in
-  digest | line) [ -z "$presence_kind" ] || usage ;;
-  presence) [ -n "$presence_kind" ] && [ "$with_knobs" -eq 0 ] || usage ;;
+  digest | line)
+    [ -z "$presence_kind" ] || usage
+    [ -n "$program" ] && [ -z "$session$pid$wait_s" ] || usage
+    ;;
+  presence)
+    [ -n "$presence_kind" ] && [ "$with_knobs" -eq 0 ] || usage
+    [ -n "$program" ] && [ -z "$session$pid$wait_s" ] || usage
+    ;;
+  activate) only "program target now session pid" ;;
+  text) only "program target" ;;
+  await) only "program session wait" ;;
+  lookup | retire) only "session" ;;
+  ack) only "session now" ;;
+  prune) only "" ;;
   *) usage ;;
 esac
 [ -z "$target" ] || mc_valid_handle "$target" || mc_usage_fail "invalid target '$(sanitize_printable "$target")'"
+[ -z "$session" ] || valid_session "$session" || mc_usage_fail "invalid session id '$(sanitize_printable "$session")'"
+[ -z "$pid" ] || mc_valid_uint "$pid" || mc_usage_fail "--pid takes a process id"
+if [ -n "$wait_s" ]; then
+  mc_valid_uint "$wait_s" && [ "$wait_s" -le "$AWAIT_MAX" ] \
+    || mc_usage_fail "--wait takes seconds, at most $AWAIT_MAX"
+fi
+
+# The activation record, its acknowledgment and their sweep: host-wide, one
+# record per session id, so a session the program launches (another id)
+# never matches one.
+case $verb in
+  lookup | retire | ack | prune)
+    act_dir=$(panel_dir active) || mc_fail "cannot open the activation directory"
+    if [ "$verb" != prune ] && [ -z "$session" ]; then
+      session=$(self_session) || no_session
+    fi
+    ;;
+esac
+case $verb in
+  lookup)
+    lk=$act_dir/$session
+    names_session "$lk" "$session" || exit 1
+    lk_p=$(field_of "$lk" program)
+    lk_t=$(field_of "$lk" target)
+    mc_valid_program "$lk_p" || exit 1
+    [ -n "$lk_t" ] && mc_valid_handle "$lk_t" || lk_t=$lk_p
+    printf 'program\t%s\ntarget\t%s\n' "$lk_p" "$lk_t"
+    exit 0
+    ;;
+  ack)
+    mc_now_arg "$now"
+    names_session "$act_dir/$session" "$session" || mc_fail "no activation record for this session"
+    [ ! -L "$act_dir/$session.ack" ] || mc_fail "the acknowledgment is a symlink"
+    printf 'format\t%s\nsession\t%s\nwritten\t%s\n' "$MC_FORMAT" "$session" "$NOW" \
+      | mc_write "$act_dir/$session.ack" || mc_fail "cannot write the acknowledgment"
+    exit 0
+    ;;
+  retire)
+    rm -f -- "$act_dir/$session" "$act_dir/$session.ack" || mc_fail "cannot remove the activation record"
+    printf 'retired\t%s\n' "$session"
+    exit 0
+    ;;
+  prune)
+    pr_rc=0
+    set +f
+    for pr_f in "$act_dir"/*; do
+      [ -e "$pr_f" ] || [ -L "$pr_f" ] || continue
+      pr_id=${pr_f##*/}
+      case $pr_id in
+        *.ack)
+          # An acknowledgment outlives its record only by a crash between
+          # the two removals.
+          [ -e "$act_dir/${pr_id%.ack}" ] || rm -f -- "$pr_f" || pr_rc=1
+          continue
+          ;;
+      esac
+      valid_session "$pr_id" || continue
+      # Only a regular file is read: a symlink or a FIFO named like a
+      # record would send the read elsewhere, or hang the keeper.
+      [ ! -L "$pr_f" ] && [ -f "$pr_f" ] || continue
+      pr_pid=$(field_of "$pr_f" pid)
+      # A record with no process to test is left: its session cannot be
+      # told dead, and a standing session's record is never written again.
+      mc_valid_uint "$pr_pid" || continue
+      pid_alive "$pr_pid" && continue
+      if rm -f -- "$pr_f" "$pr_f.ack"; then
+        printf 'pruned\t%s\n' "$pr_id"
+      else
+        pr_rc=1
+      fi
+    done
+    if pr_sd=$(panel_dir sessions); then
+      for pr_f in "$pr_sd"/*; do
+        pr_k=${pr_f##*/}
+        mc_valid_uint "$pr_k" || continue
+        pid_alive "$pr_k" || rm -f -- "$pr_f" || pr_rc=1
+      done
+    else
+      pr_rc=1
+    fi
+    set -f
+    exit "$pr_rc"
+    ;;
+esac
 mc_require_program "$program"
 export PLANWRIGHT_MC_CHECKED="$program"
 runtime=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory for '$program'"
@@ -471,6 +768,113 @@ the_line() {
   clean_field "$ln_text"
 }
 
+# The text panel: the pane's first rows as plain lines, for a session where
+# nothing draws the pane.
+text_panel() {
+  {
+    flights
+    waiting
+    pending
+    budget
+  } | P=$program awk -F '\t' '
+    $1 == "flight" { f[++n] = "  " $2 "  " $3 "  (" $4 ")" }
+    $1 == "waiting" { w = ($2 == "-" ? "shown by the host" : $2) }
+    $1 == "pending" { p = $2 }
+    $1 == "unreadable" && $2 == "events" { p = "unknown (the events cannot be read)" }
+    $1 == "rung" { r = $2 (($3 == "" || $3 == "-") ? "" : " (" $3 ")") }
+    $1 == "unreadable" && $2 == "fleet registry" { fu = 1 }
+    $1 == "unreadable" && $2 == "operator queue" { w = "unknown (the queue cannot be read)" }
+    $1 == "unreadable" && $2 == "budget" { r = "unknown (the budget cannot be read)" }
+    END {
+      print "mission control " ENVIRON["P"]
+      print "in flight: " (fu ? "unknown (the fleet registry cannot be read)" : n + 0)
+      for (i = 1; i <= n; i++) print f[i]
+      print "waiting: " (w == "" ? "unknown" : w)
+      if (p != "") print "pending wakes: " p
+      print "rung: " (r == "" ? "unknown" : r)
+    }' | mc_clean_text
+}
+
+# below_floor: the host's claude CLI reads, and is older than the mods
+# floor. A version that cannot be read is not taken as below it.
+below_floor() {
+  bf_v=$(claude --version 2>/dev/null | awk 'NR == 1 { print $1 }')
+  printf '%s\n' "$bf_v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || return 1
+  ! V=$bf_v F=$MODS_FLOOR awk 'BEGIN {
+    split(ENVIRON["V"], v, "."); split(ENVIRON["F"], f, ".")
+    for (i = 1; i <= 3; i++) { if (v[i] + 0 > f[i] + 0) exit 0; if (v[i] + 0 < f[i] + 0) exit 1 }
+    exit 0 }'
+}
+
+# acked <dir> <session>: the mod acknowledged this session's record.
+acked() {
+  names_session "$1/$2.ack" "$2"
+}
+
+activate() {
+  [ -n "$session" ] || session=$(self_session) || no_session
+  [ -n "$target" ] || target=$program
+  ac_dir=$(panel_dir active) || mc_fail "cannot open the activation directory"
+  ac_sd=$(panel_dir sessions) || ac_sd=""
+  # CLAUDE_PID counts only when the session-start record for it names this
+  # session; otherwise the live process that record names, else `-`.
+  if [ -z "$pid" ] && mc_valid_uint "${CLAUDE_PID:-}" && [ -n "$ac_sd" ] \
+    && names_session "$ac_sd/$CLAUDE_PID" "$session"; then
+    pid=$CLAUDE_PID
+  fi
+  if [ -z "$pid" ] && [ -n "$ac_sd" ]; then
+    set +f
+    for ac_f in "$ac_sd"/*; do
+      ac_k=${ac_f##*/}
+      if ! { mc_valid_uint "$ac_k" && names_session "$ac_f" "$session" && pid_alive "$ac_k"; }; then
+        continue
+      fi
+      pid=$ac_k
+      break
+    done
+    set -f
+  fi
+  [ -n "$pid" ] || pid=-
+  ac_rec=$ac_dir/$session
+  [ ! -L "$ac_rec" ] && [ ! -L "$ac_rec.ack" ] || mc_fail "the activation record is a symlink"
+  # The same record from the same live process keeps the mod's
+  # acknowledgment; anything else waits for a new one, so an acknowledgment
+  # left by a crashed process never answers for a mod that is not loaded.
+  if ! { mc_format_ok "$ac_rec" && [ "$(field_of "$ac_rec" program)" = "$program" ] \
+    && [ "$(field_of "$ac_rec" target)" = "$target" ] && [ "$(field_of "$ac_rec" session)" = "$session" ] \
+    && [ "$pid" != - ] && [ "$(field_of "$ac_rec" pid)" = "$pid" ]; }; then
+    rm -f -- "$ac_rec.ack" || mc_fail "cannot clear the old acknowledgment"
+  fi
+  printf 'format\t%s\nprogram\t%s\ntarget\t%s\nsession\t%s\npid\t%s\nwritten\t%s\n' \
+    "$MC_FORMAT" "$program" "$target" "$session" "$pid" "$NOW" \
+    | mc_write "$ac_rec" || mc_fail "cannot write the activation record"
+  printf 'activation\t%s\n' "$session"
+}
+
+await_panel() {
+  [ -n "$wait_s" ] || wait_s=$AWAIT_DEFAULT
+  if below_floor; then
+    printf 'panel\ttext\tbelow the mods floor %s\n' "$MODS_FLOOR"
+  elif ! { [ -n "$session" ] || session=$(self_session); }; then
+    printf 'panel\ttext\tthis session cannot be told\n'
+  elif ! aw_dir=$(panel_dir active); then
+    printf 'panel\ttext\tthe activation directory cannot be read\n'
+  else
+    aw_n=0
+    while :; do
+      if acked "$aw_dir" "$session"; then
+        printf 'panel\tmod\n'
+        return 0
+      fi
+      [ "$aw_n" -lt "$wait_s" ] || break
+      sleep 1
+      aw_n=$((aw_n + 1))
+    done
+    printf 'panel\ttext\tno acknowledgment within %ss\n' "$wait_s"
+  fi
+  text_panel
+}
+
 digest() {
   printf 'format\t%s\nprogram\t%s\ntaken\t%s\n' "$MC_FORMAT" "$program" "$NOW"
   [ "$with_knobs" -eq 0 ] || knobs
@@ -497,4 +901,7 @@ case $verb in
     the_line
     printf '\n'
     ;;
+  activate) activate ;;
+  await) await_panel ;;
+  text) text_panel ;;
 esac

@@ -69,6 +69,14 @@
         ]
       },
       {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/mc-panel.sh session-hook"
+          }
+        ]
+      },
+      {
         "matcher": "startup",
         "hooks": [
           {

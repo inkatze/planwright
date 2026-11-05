@@ -1,1 +1,1 @@
-match ^mc-panel: usage: mc-panel\.sh digest\|line --program <p> \[--target <t>\] \[--knobs\] \[--now <epoch>\] \| presence --program <p> --prompt\|--refresh \[--target <t>\] \[--now <epoch>\]$
+match ^mc-panel: usage: mc-panel\.sh digest\|line\|text\|presence\|activate\|await\|lookup\|ack\|retire\|prune\|where\|floor\|session-hook \.\.\. \(mc-panel\.sh --help\)$
