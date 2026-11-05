@@ -128,16 +128,19 @@
 #               `git checkout`, `git switch`, and `git reset` in every form
 #               (--hard, --soft, and path restores included); a `git branch`
 #               rename or copy (-m, -c, --move, --copy; -M and -C deny as a
-#               forced branch) outside delete mode; a
-#               `git symbolic-ref` write (two names, or -d/--delete); a
-#               `git fetch` refspec whose destination is a local branch (a
-#               bare name, heads/, or refs/heads/), a non-literal refspec,
-#               --stdin, --refmap with a value, and a fetch beside -c, a GIT_*
-#               variable, or a config or remote change in the same command; a
-#               `git remote add` fetching into a fetch mirror; `gh pr checkout`
-#               (and its `co` alias) and `gh repo sync`. All deny with no read.
-#               Residual: a refspec already stored in remote.<r>.fetch is not
-#               read, so a plain `git fetch <r>` follows whatever it maps.
+#               forced branch) outside delete mode; a `git symbolic-ref` write
+#               (two names, or -d/--delete); a `git fetch` refspec whose
+#               destination is a local branch (a bare name, heads/, or
+#               refs/heads/) or a glob that can reach one, a non-literal
+#               refspec, --stdin, and --refmap with a value; a `git fetch` or
+#               `git remote` beside -c, a GIT_* variable, or a config or
+#               remote change in the same command; a `git remote add` fetching
+#               into a fetch mirror; `gh pr checkout`, `gh pr co`, the
+#               top-level `gh co`, and `gh repo sync`; and a gh or `git
+#               remote` subcommand given through an expansion. All deny with
+#               no read. Residual: a refspec already stored in
+#               remote.<r>.fetch is not read, so a plain `git fetch <r>` or
+#               `git remote update` follows whatever it maps.
 #   stash-write tower only: every `git stash` form except `stash list` and
 #               `stash show`, the stack being shared by every worktree of a
 #               clone; deny with no read.
@@ -153,8 +156,11 @@
 #               create, push-files, create-or-update-file, and delete-file
 #               tools deny whatever their arguments.
 # At the tower tier a git alias expanding to one of the tower-only
-# subcommands denies too, and an expansion among a tower act's options
-# denies, since it could spell the refused option. These acts cover every
+# subcommands denies too, and so does any subcommand that is not a builtin
+# where the guard cannot read the alias: in a command it cannot parse, or in
+# a repository or directory it cannot follow. An expansion among a tower
+# act's options denies, since it could spell the refused option. These acts
+# cover every
 # entry of config/tower-settings.json's deny list, which
 # tests/fixtures/tower-deny-acts.tsv maps entry by entry, so the plugin-wired
 # floor (scripts/tower-session.sh) holds in a tower launched without that
@@ -1613,9 +1619,13 @@ classify_gh() {
       deny_now 'this gh repo subcommand is an expansion the guard cannot read, and it could be repo sync - refusing (fail closed). Write the subcommand literally.'
       return 0
     fi
-    # gh ships `co` as a built-in alias of pr checkout.
+    if [ "${SW[$k]}" = co ]; then
+      # gh's default configuration aliases co to pr checkout.
+      deny_now "gh co is denied to the tower in every checkout, its own included, under every policy value: gh runs it as gh pr checkout, which moves a local branch, and the tower never moves a branch. Read the PR with gh pr view, and leave checkouts to a dispatched session."
+      return 0
+    fi
     case "${SW[$k]} ${SW[$j]:-}" in
-      'pr checkout' | 'pr co' | 'repo sync' | 'co '*)
+      'pr checkout' | 'pr co' | 'repo sync')
         deny_now "gh $(sanitize_printable "${SW[$k]} ${SW[$j]:-}" 'this command') is denied to the tower in every checkout, its own included, under every policy value: it moves a local branch or a checkout's HEAD, and the tower never moves a branch. Read the PR with gh pr view, and leave checkouts to a dispatched session."
         return 0
         ;;
@@ -2490,7 +2500,7 @@ classify_git() {
       # The alias lookup falls back to the payload's directory, which is not
       # the repository git reads its aliases from here.
       if [ "$TIER" = tower ] && { [ "$foreign" = 1 ] || [ "$dir_ok" = 0 ]; }; then
-        deny_now "this git $(sanitize_printable "$sub" 'subcommand') may be an alias of the repository named by --git-dir, --work-tree, or a git -C target the guard cannot follow, so the guard cannot read what it expands to - refusing (fail closed). Run the git subcommand directly, or use git -C <literal path>."
+        deny_now "this git $(sanitize_printable "$sub" 'subcommand') may be an alias of a repository or directory the guard cannot follow (one named by a global option such as --git-dir, or a cd or -C target it cannot read), so the guard cannot read what it expands to - refusing (fail closed). Run the git subcommand directly, or use git -C <literal path>."
         return 0
       fi
       git_alias_check "$sub" "$dir" "$dir_ok"
@@ -2882,7 +2892,8 @@ classify_tower_git() {
 
 # classify_tower_fetch <first-arg-index> — a fetch that writes a local branch:
 # a refspec destination outside refs/ or under refs/heads/ (git reads a bare
-# or heads/ destination as a local branch), or a refspec the guard cannot see:
+# or heads/ destination as a local branch), a glob destination that can reach
+# refs/heads/, or a refspec the guard cannot see:
 # any expansion, since an unquoted one can split into a refspec. The first
 # positional is the repository, which may be a URL holding a colon.
 classify_tower_fetch() {
@@ -2932,6 +2943,8 @@ classify_tower_fetch() {
           refs/heads/*) ;;
           refs/?*/*) continue ;;
         esac
+        deny_now "a git fetch whose glob destination ($(sanitize_printable "$dst" 'its destination')) can reach the local branches is denied to the tower under every policy value, since the tower never moves a branch. Fetch into a namespace the glob fixes, such as refs/remotes/<remote>/*."
+        return 0
         ;;
       '') continue ;;
       refs/heads/*) ;;

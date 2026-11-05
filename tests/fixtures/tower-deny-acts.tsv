@@ -3,7 +3,9 @@
 # one command (or, for an MCP entry, one tool name) the entry blocks. The
 # spelling rows are the REQ-D1.2 spelling set that counts: each act refused
 # through git's global options, long-option prefixes, ref forms, and repo
-# aliases (tests/lib/tower-floor-harness.sh configures the aliases they use).
+# aliases (tests/lib/tower-floor-harness.sh configures the aliases they use),
+# plus the other forms a fix closed (negations, expansions, configuration
+# beside a fetch, the raw fallback), each labelled by its form.
 # The tests/test-tower-floor-*.sh suites fail on a deny entry with no row, a
 # row naming no entry, a sample its entry does not match, and a sample or
 # spelling the plugin-wired floor does not refuse in a marked session.
@@ -287,7 +289,7 @@ spelling	branch-move	git-dir	git --git-dir=../other/.git zz main
 spelling	branch-move	expansion	git -C "$D" zz main
 spelling	branch-move	expansion	gh "$X" checkout 1
 spelling	branch-move	expansion	gh "$X" sync
-spelling	branch-move	alias	gh co 1
+spelling	branch-move	gh-alias	gh co 1
 spelling	branch-move	raw-fallback	git -c 'core.abbrev= 12' checkout topic $(true)
 spelling	branch-move	raw-fallback	env gh pr -R o/r checkout 5
 spelling	branch-move	raw-fallback	env gh repo -R o/r sync
