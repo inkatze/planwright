@@ -278,6 +278,20 @@ raw_tower_stash() {
 # The subcommand is capture group 4: RE_GIT_HEAD holds three groups, and a
 # group added there moves it.
 RE_GIT_SUB="${RE_GIT_HEAD}([A-Za-z][A-Za-z0-9_-]*)"
+
+# raw_tower_alias <text> — 0 when the text runs git with a subcommand that is
+# not a builtin: an alias, which the raw fallback cannot expand, could reach
+# any tower act. Bounded, so a long text cannot hold the hook.
+raw_tower_alias() {
+  local t=$1 n=0
+  while [[ $t =~ $RE_GIT_SUB ]]; do
+    n=$((n + 1))
+    [ "$n" -le 64 ] || return 0
+    case " $GIT_BUILTINS " in *" ${BASH_REMATCH[4]} "*) ;; *) return 0 ;; esac
+    t=${t#*"${BASH_REMATCH[0]}"}
+  done
+  return 1
+}
 # Read-form flags that write a file or run a program, any abbreviation git
 # accepts included; a wrapped text is not parsed, so these refuse anywhere in
 # it beside a git invocation.
@@ -396,6 +410,8 @@ raw_evidence_one() {
   elif tower_floor && { [[ $t =~ $RE_TOWER_SURGERY ]] || [[ $t =~ $RE_TOWER_BRANCH ]] \
     || [[ $t =~ $RE_TOWER_WORKTREE ]] || [[ $t =~ $RE_TOWER_FETCH ]] || [[ $t =~ $RE_TOWER_GH ]] \
     || raw_tower_stash "$t"; }; then
+    rc=0
+  elif [ "${TIER:-}" = tower ] && raw_tower_alias "$t"; then
     rc=0
   elif [ "${TIER:-}" = mission-control ] && mc_raw_git_mutation "$t"; then
     rc=0

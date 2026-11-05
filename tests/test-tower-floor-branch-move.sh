@@ -65,6 +65,8 @@ for cmd in \
   'git symbolic-ref HEAD' \
   'git symbolic-ref --short refs/remotes/origin/HEAD' \
   'git restore README.md' \
+  'env git status --short' \
+  'x=$(git rev-parse HEAD)' \
   'gh pr view 42'; do
   ts_bash "$cmd"
   expect defer "marked session keeps: $cmd"

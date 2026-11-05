@@ -292,3 +292,5 @@ spelling	branch-move	raw-fallback	git -c 'core.abbrev= 12' checkout topic $(true
 spelling	branch-move	raw-fallback	env gh pr -R o/r checkout 5
 spelling	branch-move	raw-fallback	env gh repo -R o/r sync
 spelling	branch-move	raw-fallback	env gh co 1
+spelling	branch-move	raw-fallback	env git co topic
+spelling	branch-move	raw-fallback	env git zz topic
