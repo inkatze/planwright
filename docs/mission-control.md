@@ -58,12 +58,12 @@ Say which you want at any time; it is remembered.
 
 **Its guardrails are checked first.** Before any work, and again every few
 minutes, mission control checks that its safety settings are in force: the
-deny list and guard hooks its settings profile ships
-(`config/mission-control-settings.json`). If they are not, it tells you why
-in one plain line and only reads (no launch, no answer, no request) until a
-later check passes; its launcher refuses to start a session for the same
-reason. A session started under that profile passes; the profile's own
-description says how it is delivered.
+deny list and guard hooks its settings profile ships. If they are not, it
+tells you why in one plain line and holds back (no launch, no answer, no
+request; it still keeps its own records) until a later check passes; its
+launcher refuses to start a session for the same reason. A session started
+under that profile passes; the profile's own description says how it is
+delivered.
 
 **The program's private folder** sits under your planwright configuration
 folder, outside every repository, and is never committed. It holds the
