@@ -147,7 +147,7 @@ Usage:
                        [--pid <pid>] [--now <epoch>]
       write this session's activation record, dropping an earlier
       acknowledgment unless the record names the same program, target and
-      live process;
+      process;
       prints activation<TAB><session id>. The session defaults to this one
       (the session-start record for CLAUDE_PID, then
       CLAUDE_CODE_SESSION_ID), the pid to CLAUDE_PID when its session-start

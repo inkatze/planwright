@@ -275,7 +275,7 @@ async function claim($: EngineInterface) {
   if (!ctx) return
   const claiming = ctx
   const claimed = await run($, 'mc-wake.sh', ['target', 'add', '--program', claiming.program, claiming.target, '--mod'])
-  if (ctx !== claiming) {
+  if (ctx?.program !== claiming.program || ctx.target !== claiming.target) {
     // Stood down or switched while the claim ran: hand it straight back.
     await runScript($, 'mc-wake.sh', ['target', 'add', '--program', claiming.program, claiming.target])
     return
@@ -406,7 +406,10 @@ async function checkRecord($: EngineInterface) {
       if (ctx && ackedFor === sessionId) await standDown($)
       // Acknowledged under an id the session no longer carries (a /clear the
       // end hook could not follow): record it under this one.
-      else if (ctx && ackedFor !== null) await acknowledge($, 'clear')
+      else if (ctx && ackedFor !== null) {
+        await runScript($, 'mc-panel.sh', ['retire', '--session', ackedFor])
+        await acknowledge($, 'clear')
+      }
       return
     }
     if (ctx && (await $.fs.exists(`${dir}/${sessionId}.ack`))) return

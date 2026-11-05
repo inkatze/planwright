@@ -369,6 +369,16 @@ else
 fi
 run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --now 5002
 mc_run mc-panel.sh ack --session "$sid_a"
+# No session-start record names sid_c, so its process cannot be told.
+mc_run mc-panel.sh activate --program alpha --session "$sid_c" --now 5002
+mc_run mc-panel.sh ack --session "$sid_c"
+mc_run mc-panel.sh activate --program alpha --session "$sid_c" --now 5002
+if [ "$(field "$act/$sid_c" pid)" = - ] && [ ! -e "$act/$sid_c.ack" ]; then
+  ok "a record whose process cannot be told never keeps an acknowledgment"
+else
+  fail "an acknowledgment survived a pid-less rewrite"
+fi
+rm -f "$act/$sid_c"
 run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --target mc-other --now 5003
 if [ ! -e "$act/$sid_a.ack" ]; then ok "a record naming another target waits for a new acknowledgment"; else fail "the old acknowledgment survived a changed record"; fi
 run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --now 5004

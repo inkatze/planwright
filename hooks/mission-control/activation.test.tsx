@@ -108,6 +108,7 @@ test('an acknowledgment under an id the session no longer carries is recorded ag
   w.set({ sessionId: OTHER })
   await w.clock.advance(10_000)
   await w.clock.settle()
+  expect(ran(w, 'mc-panel.sh', 'retire').at(-1)).toEqual(expect.arrayContaining(['--session', SESSION]))
   expect(ran(w, 'mc-panel.sh', 'activate').at(-1)).toEqual(expect.arrayContaining(['--session', OTHER]))
   expect(ran(w, 'mc-panel.sh', 'ack').at(-1)).toEqual(expect.arrayContaining(['--session', OTHER]))
 })
