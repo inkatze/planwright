@@ -35,13 +35,22 @@
 #     Prints nothing; the exit status is the rule's verdict.
 #   resolve-installed-roots.sh --refused
 #     The listing's dropped candidates, one per line.
+#   resolve-installed-roots.sh --current
+#     The record's roots alone, no cached copy: the copy Claude Code loads
+#     now, which a long-running session resolves its root from rather than
+#     a path it remembers.
+#   resolve-installed-roots.sh --check <path>
+#     Warns on stderr, and exits 1, when <path> is a copy under the plugin
+#     cache that the record does not name: an older version a session kept
+#     using after an upgrade or reload. Silent, and 0, for a current copy,
+#     a path outside the cache (a checkout), or a record it cannot read.
 #
 # Exit codes: 0 always for the listing. An unset home, an absent or
 #   unreadable record, an absent jq, and an empty cache are each empty
 #   output, never a failure: callers read empty as "no installed roots" and
 #   the arm it feeds does not fire; the same holds for --refused. With
 #   --unlinked: 0 when the path passes the rule, 1 when it does not (or is
-#   empty). 2 on a usage error.
+#   empty). With --check: 1 for a stale copy, else 0. 2 on a usage error.
 #
 # POSIX sh; pathname expansion is used for the cache walk only.
 set -u
@@ -97,28 +106,29 @@ unlinked() {
   return 0
 }
 
+usage() {
+  echo "usage: resolve-installed-roots.sh [--unlinked <path> | --refused | --current | --check <path>]" >&2
+  exit 2
+}
+
 want=kept
+check=''
 case ${1-} in
-  --refused)
-    [ "$#" -eq 1 ] || {
-      echo "usage: resolve-installed-roots.sh [--unlinked <path> | --refused]" >&2
-      exit 2
-    }
-    want=refused
+  --refused | --current)
+    [ "$#" -eq 1 ] || usage
+    want=${1#--}
     ;;
   --unlinked)
-    [ "$#" -eq 2 ] || {
-      echo "usage: resolve-installed-roots.sh [--unlinked <path> | --refused]" >&2
-      exit 2
-    }
+    [ "$#" -eq 2 ] || usage
     unlinked "$2"
     exit
     ;;
-  '') ;;
-  *)
-    echo "usage: resolve-installed-roots.sh [--unlinked <path> | --refused]" >&2
-    exit 2
+  --check)
+    [ "$#" -eq 2 ] && [ -n "$2" ] || usage
+    check=$2
     ;;
+  '') ;;
+  *) usage ;;
 esac
 
 claude_dir=''
@@ -132,24 +142,55 @@ fi
 # emit <root>: print the root when it falls on the side of the rule asked for.
 emit() {
   if unlinked "$1"; then
-    [ "$want" = kept ] && printf '%s\n' "$1"
+    case $want in kept | current) printf '%s\n' "$1" ;; esac
   else
     [ "$want" = refused ] && printf '%s\n' "$1"
   fi
   return 0
 }
 
-f="$claude_dir/plugins/installed_plugins.json"
-if [ -r "$f" ] && command -v jq >/dev/null 2>&1; then
-  jq -r '(.plugins // {}) | to_entries[]
-    | select((.key | type) == "string" and (.key | startswith("planwright@")))
-    | (.value | if type == "array" then .[] else . end)
-    | (.installPath? // empty)
-    | select(type == "string" and startswith("/"))' "$f" 2>/dev/null \
-    | while IFS= read -r p; do
-      emit "$p"
-    done
+record() {
+  f="$claude_dir/plugins/installed_plugins.json"
+  if [ -r "$f" ] && command -v jq >/dev/null 2>&1; then
+    jq -r '(.plugins // {}) | to_entries[]
+      | select((.key | type) == "string" and (.key | startswith("planwright@")))
+      | (.value | if type == "array" then .[] else . end)
+      | (.installPath? // empty)
+      | select(type == "string" and startswith("/"))' "$f" 2>/dev/null \
+      | while IFS= read -r p; do
+        emit "$p"
+      done
+  fi
+}
+
+# physical <dir>: the directory's canonical path, or nothing.
+physical() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
+
+if [ -n "$check" ]; then
+  ck_cache=$(physical "$claude_dir/plugins/cache") || exit 0
+  ck_path=$(physical "$check") || exit 0
+  case $ck_path/ in
+    "$ck_cache"/*) ;;
+    *) exit 0 ;;
+  esac
+  want=current
+  ck_current=$(record)
+  [ -n "$ck_current" ] || exit 0
+  ck_first=''
+  while IFS= read -r ck_root; do
+    [ -n "$ck_root" ] || continue
+    [ "$(physical "$ck_root")" != "$ck_path" ] || exit 0
+    [ -n "$ck_first" ] || ck_first=$ck_root
+  done <<EOF
+$ck_current
+EOF
+  printf 'planwright: WARNING running from %s, which is not the installed planwright (%s); resolve the root again with resolve-installed-roots.sh --current and run every script and doc from there\n' \
+    "$(printf '%s' "$ck_path" | tr -d '\000-\037\177')" "$(printf '%s' "$ck_first" | tr -d '\000-\037\177')" >&2
+  exit 1
 fi
+
+record
+[ "$want" != current ] || exit 0
 
 for d in "$claude_dir"/plugins/cache/*/planwright/*/; do
   [ -d "$d" ] || continue

@@ -22,6 +22,14 @@ Resolve the root through the core root chain, defined in `spec-format`
 (*The core root chain*): `scripts/resolve-root.sh install`, invoked by its path
 in the copy the skill was loaded from, prints it.
 
+A root from an earlier invocation is never reused: after an upgrade or a
+plugin reload the plugin cache keeps older copies beside the installed one,
+and a remembered path still runs. A session that outlives an invocation (a
+standing one, or one resumed after a compaction) takes the root from the
+installed record (`scripts/resolve-installed-roots.sh --current`, from any
+copy). The root resolvers and mission control's scripts warn when they run
+from a cached copy that record no longer names.
+
 Take the resolved value once, then substitute it literally at each call site:
 
 ```sh

@@ -232,6 +232,18 @@ try_arm() {
 
 resolve_install() {
   found=0
+  # A copy in the plugin cache that the installed record no longer names is
+  # an older version a session kept using: still answered, never silently.
+  case $script_dir in
+    /*) ri_self=$script_dir ;;
+    *) ri_self=$(pwd)/$script_dir ;;
+  esac
+  case $ri_self in
+    */plugins/cache/*)
+      [ ! -f "$ri_self/resolve-installed-roots.sh" ] \
+        || /bin/sh "$ri_self/resolve-installed-roots.sh" --check "$ri_self/.." >/dev/null || :
+      ;;
+  esac
   writer_root=""
   if [ -n "${CLAUDE_DIR:-}" ]; then
     writer_root="$CLAUDE_DIR/planwright"

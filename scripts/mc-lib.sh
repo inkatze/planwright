@@ -6,6 +6,12 @@
 
 MC_FORMAT=1
 
+# A mission-control script run from an older cached copy, by a session that
+# kept its root across an upgrade, warns on every call.
+case $script_dir in
+  */plugins/cache/*) /bin/sh "$script_dir/resolve-installed-roots.sh" --check "$script_dir/.." >/dev/null || : ;;
+esac
+
 mc_fail() {
   printf '%s\n' "$prog: $1" >&2
   exit 1

@@ -164,6 +164,93 @@ assert_eq "--refused lists every dot-component shape" \
 $SANDBOX/link-root/./
 $SANDBOX/link-root/x/.." "$OUT"
 
+# --- --current: the installed record alone, never the cache walk --------------
+cur="$SANDBOX/cur"
+old_copy="$cur/plugins/cache/planwright/planwright/0.65.0"
+new_copy="$cur/plugins/cache/planwright/planwright/0.66.0"
+mkdir -p "$cur/plugins"
+for copy in "$old_copy" "$new_copy"; do
+  mkdir -p "$copy"
+  cp -R "$REPO_ROOT/scripts" "$REPO_ROOT/doctrine" "$REPO_ROOT/config" "$copy/"
+done
+jq -n --arg a "$new_copy" '{plugins: {"planwright@planwright": [{scope: "user", installPath: $a, version: "0.66.0"}]}}' \
+  >"$cur/plugins/installed_plugins.json"
+OUT=$(env -u HOME CLAUDE_DIR="$cur" /bin/sh "$RESOLVER" --current 2>/dev/null)
+assert_eq "--current prints the installed root alone, no older cached copy" "$new_copy" "$OUT"
+OUT=$(env -u HOME CLAUDE_DIR="$cur" PATH="$SANDBOX/no-bin" /bin/sh "$RESOLVER" --current 2>/dev/null)
+assert_eq "--current without jq prints nothing" "" "$OUT"
+
+# --- --check: a copy under the cache that is not the installed one warns ------
+check() { # check <path> [ENV=val...]: stderr in ERR, exit status in CODE
+  ck_path=$1
+  shift
+  ERR=$(env -u HOME CLAUDE_DIR="$cur" "$@" /bin/sh "$RESOLVER" --check "$ck_path" 2>&1 >/dev/null)
+  CODE=$?
+}
+check "$old_copy"
+assert_eq "an older cached copy is stale (exit 1)" 1 "$CODE"
+case $ERR in
+  *"WARNING"*"$old_copy"*"$new_copy"*) echo "ok: the warning names the stale copy and the installed one" ;;
+  *)
+    echo "FAIL: the stale warning reads '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+check "$old_copy/scripts/.."
+assert_eq "a stale copy named through its scripts directory is stale too" 1 "$CODE"
+check "$new_copy"
+assert_eq "the installed copy is current (exit 0)" 0 "$CODE"
+assert_eq "and says nothing" "" "$ERR"
+check "$REPO_ROOT"
+assert_eq "a copy outside the plugin cache (a checkout) is never checked" 0 "$CODE"
+assert_eq "and says nothing about it" "" "$ERR"
+check "$old_copy" "PATH=$SANDBOX/no-bin"
+assert_eq "without jq nothing can be compared, so nothing warns" 0 "$CODE"
+assert_eq "and says nothing" "" "$ERR"
+
+# --- the resolvers and mission control's scripts warn from a stale copy -------
+stale_run() { # stale_run <copy> <script> <args...>: stdout in OUT, stderr in ERR
+  sr_copy=$1
+  sr_script=$2
+  shift 2
+  sr_err=$(mktemp "$SANDBOX/err.XXXXXX") || exit 1
+  OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$cur" \
+    PLANWRIGHT_REPO_ROOT=none "$sr_copy/scripts/$sr_script" "$@" 2>"$sr_err")
+  CODE=$?
+  ERR=$(cat "$sr_err")
+  rm -f "$sr_err"
+}
+stale_run "$old_copy" resolve-root.sh install
+assert_eq "resolve-root.sh from a stale copy still answers" "$old_copy" "$OUT"
+case $ERR in
+  *"WARNING"*"$new_copy"*) echo "ok: resolve-root.sh from a stale copy warns, naming the installed copy" ;;
+  *)
+    echo "FAIL: resolve-root.sh from a stale copy said '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+stale_run "$new_copy" resolve-root.sh install
+assert_eq "resolve-root.sh from the installed copy says nothing on stderr" "" "$ERR"
+stale_run "$old_copy" resolve-rule-doc.sh plugin-script-invocation
+assert_eq "resolve-rule-doc.sh from a stale copy still resolves" "$old_copy/doctrine/plugin-script-invocation.md" "$OUT"
+case $ERR in
+  *"WARNING"*"$new_copy"*) echo "ok: resolve-rule-doc.sh from a stale copy warns" ;;
+  *)
+    echo "FAIL: resolve-rule-doc.sh from a stale copy said '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+stale_run "$old_copy" mc-event.sh --help
+case $ERR in
+  *"WARNING"*"$new_copy"*) echo "ok: a mission-control script from a stale copy warns" ;;
+  *)
+    echo "FAIL: mc-event.sh from a stale copy said '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+stale_run "$new_copy" mc-event.sh --help
+assert_eq "a mission-control script from the installed copy says nothing on stderr" "" "$ERR"
+
 if [ "$failures" -gt 0 ]; then
   echo "resolve-installed-roots suite: $failures failure(s)" >&2
   exit 1
