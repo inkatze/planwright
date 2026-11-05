@@ -26,7 +26,7 @@ done
 DECISIONS_SHOWN=3
 
 usage() {
-  mc_usage_fail "usage: mc-panel.sh digest|line --program <p> [--target <t>] [--knobs] [--now <epoch>] | presence --program <p> --prompt|--refresh [--target <t>] [--now <epoch>]"
+  mc_usage_fail "usage: mc-panel.sh digest|line --program <p> [--target <t>] [--knobs] [--now <epoch>] | presence --program <p> --prompt|--refresh [--target <t>] [--now <epoch>] | install --program <p> [--root <dir>] [--now <epoch>] | changes --from <version> [--root <dir>]"
 }
 
 help_text() {
@@ -113,10 +113,29 @@ Usage:
       own lease, <runtime>/leases/<t> (the epoch written), is restamped
       too: what scripts/mc-wake.sh reads to tell a live `mod` target from
       one whose mod died
+  mc-panel.sh install --program <p> [--root <dir>] [--now <epoch>]
+      compare the planwright copy at <dir> (this script's own copy by
+      default; the mod runs the copy it was loaded from) with the one
+      recorded for the program, <runtime>/install, and print
+        install<TAB>first|same|changed<TAB><version><TAB><root>[<TAB><was>]
+      <was> being the recorded version, on changed only. A first record or
+      a change (another version, or the same version at another root)
+      raises one event, planwright-recorded or planwright-updated, its
+      text naming the version, the root and, on a change, the changelog
+      entries between the two, cut to the event store's cap. The record
+      is written only once the event is stored, so a refused event is
+      raised again by the next check.
+  mc-panel.sh changes --from <version> [--root <dir>]
+      the CHANGELOG.md entries of the copy at <dir> newer than <version>
+      and no newer than the copy's own, newest first, one per line:
+        change<TAB><version><TAB><section><TAB><entry>
+      the entry as plain text, its links dropped
 
-Exit codes: 0 done; 1 the program list or the presence marker cannot be
-read or written, or a target's lease cannot be written (its directory a
-symlink included); 2 usage; 3 the program is not configured.
+Exit codes: 0 done; 1 the program list, the presence marker or the
+install record cannot be read or written, a target's lease cannot be
+written (its directory a symlink included), the install event is refused,
+or the copy's root or version cannot be read; 2 usage; 3 the program is
+not configured.
 
 Portable bash 3.2 / BSD tooling.
 HELP
@@ -135,14 +154,18 @@ target=""
 now=""
 presence_kind=""
 with_knobs=0
+root=""
+from=""
 while [ $# -gt 0 ]; do
   case $1 in
-    --program | --target | --now)
+    --program | --target | --now | --root | --from)
       [ $# -ge 2 ] || usage
       case $1 in
         --program) program=$2 ;;
         --target) target=$2 ;;
         --now) now=$2 ;;
+        --root) root=$2 ;;
+        --from) from=$2 ;;
       esac
       shift 2
       ;;
@@ -158,12 +181,66 @@ while [ $# -gt 0 ]; do
     *) usage ;;
   esac
 done
-[ -n "$program" ] || usage
 case $verb in
-  digest | line) [ -z "$presence_kind" ] || usage ;;
-  presence) [ -n "$presence_kind" ] && [ "$with_knobs" -eq 0 ] || usage ;;
+  digest | line) [ -z "$presence_kind" ] && [ -z "$root$from" ] || usage ;;
+  presence) [ -n "$presence_kind" ] && [ "$with_knobs" -eq 0 ] && [ -z "$root$from" ] || usage ;;
+  install) [ -z "$presence_kind$target$from" ] && [ "$with_knobs" -eq 0 ] || usage ;;
+  changes)
+    [ -n "$from" ] && [ -z "$program$presence_kind$target$now" ] && [ "$with_knobs" -eq 0 ] || usage
+    ;;
   *) usage ;;
 esac
+
+# The planwright copy at --root, else this script's own: its canonical
+# root, version and changelog. A version is three dot-separated numbers.
+valid_version() {
+  case $1 in
+    *[!0-9.]* | .* | *. | *..*) return 1 ;;
+  esac
+  [ "$(printf '%s' "$1" | tr -cd . | wc -c | tr -d ' ')" = 2 ]
+}
+[ -z "$from" ] || valid_version "$from" || mc_usage_fail "invalid version '$(sanitize_printable "$from")'"
+if [ "$verb" = install ] || [ "$verb" = changes ]; then
+  [ -n "$root" ] || root=$script_dir/..
+  case $root in /*) ;; *) mc_usage_fail "--root must be an absolute path" ;; esac
+  root=$(cd -P -- "$root" 2>/dev/null && pwd -P) || mc_fail "the planwright root is no directory: $(sanitize_printable "${root}")"
+  case $root in *[[:cntrl:]]*) mc_fail "the planwright root carries a control byte" ;; esac
+  version=$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$root/.claude-plugin/plugin.json" 2>/dev/null | head -n 1)
+  valid_version "$version" || mc_fail "no version can be read at $root/.claude-plugin/plugin.json"
+fi
+
+# changes_since <from>: the changelog entries newer than <from>, no newer
+# than the copy's own version, as `changes` prints them.
+changes_since() {
+  [ -r "$root/CHANGELOG.md" ] || return 0
+  FROM=$1 TO=$version awk '
+    function newer(a, b,   x, y, i) {
+      split(a, x, "."); split(b, y, ".")
+      for (i = 1; i <= 3; i++) if (x[i] + 0 != y[i] + 0) return x[i] + 0 > y[i] + 0
+      return 0
+    }
+    /^## \[[0-9]+\.[0-9]+\.[0-9]+\]/ {
+      v = $2; gsub(/[][]/, "", v); sub(/\(.*/, "", v)
+      keep = newer(v, ENVIRON["FROM"]) && !newer(v, ENVIRON["TO"]); section = ""; next
+    }
+    /^### / { section = substr($0, 5); next }
+    keep && /^\* / {
+      e = substr($0, 3)
+      gsub(/\*\*/, "", e)
+      gsub(/ \(\[[0-9a-f]+\]\([^)]*\)\)/, "", e)
+      while (match(e, /\[[^]]*\]\([^)]*\)/)) {
+        l = substr(e, RSTART, RLENGTH); sub(/\]\(.*/, "", l); sub(/^\[/, "", l)
+        e = substr(e, 1, RSTART - 1) l substr(e, RSTART + RLENGTH)
+      }
+      print "change\t" v "\t" section "\t" e
+    }' "$root/CHANGELOG.md" | mc_clean_text
+}
+
+if [ "$verb" = changes ]; then
+  changes_since "$from"
+  exit 0
+fi
+[ -n "$program" ] || usage
 [ -z "$target" ] || mc_valid_handle "$target" || mc_usage_fail "invalid target '$(sanitize_printable "$target")'"
 mc_require_program "$program"
 export PLANWRIGHT_MC_CHECKED="$program"
@@ -188,6 +265,63 @@ mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
 age_of() { printf '%s\n' $((NOW > $1 ? NOW - $1 : 0)); }
 
 clean_field() { printf '%s' "$1" | tr -d '\000-\037\177'; }
+
+if [ "$verb" = install ]; then
+  rec=$runtime/install
+  mc_lock || mc_fail "cannot take the fleet lock"
+  trap 'mc_unlock' EXIT
+  mc_now_arg "$now"
+  was_root=""
+  was_version=""
+  if [ -e "$rec" ] || [ -L "$rec" ]; then
+    { [ ! -L "$rec" ] && mc_format_ok "$rec"; } || mc_fail "the install record is unreadable: $rec"
+    was_root=$(awk -F '\t' '$1 == "root" { print $2; exit }' "$rec")
+    was_version=$(awk -F '\t' '$1 == "version" { print $2; exit }' "$rec")
+  fi
+  if [ "$was_root" = "$root" ] && [ "$was_version" = "$version" ]; then
+    printf 'install\tsame\t%s\t%s\n' "$version" "$root"
+    exit 0
+  fi
+  if [ -z "$was_version" ]; then
+    state=first
+    kind=planwright-recorded
+    text="planwright $version is at $root; no earlier version is on record for this program"
+  else
+    state=changed
+    kind=planwright-updated
+    if [ "$was_version" = "$version" ]; then
+      text="planwright $version moved to $root from $(sanitize_printable "$was_root")"
+    else
+      if FROM=$was_version TO=$version awk 'BEGIN {
+        split(ENVIRON["FROM"], x, "."); split(ENVIRON["TO"], y, ".")
+        for (i = 1; i <= 3; i++) if (x[i] + 0 != y[i] + 0) exit !(y[i] + 0 > x[i] + 0)
+        exit 1 }'; then
+        text="planwright updated to $version from $was_version, now at $root"
+      else
+        text="planwright changed to $version from $was_version (an older version), now at $root"
+      fi
+      entries=""
+      if valid_version "$was_version"; then
+        entries=$(changes_since "$was_version" | awk -F '\t' '{ printf "%s%s", (NR > 1 ? "; " : ""), $4 }')
+      fi
+      [ -z "$entries" ] || text="$text. Changes: $entries"
+    fi
+  fi
+  # The event store caps text at 512 bytes; a cut text says it was cut.
+  if [ "${#text}" -gt 500 ]; then
+    text="$(printf '%s' "$text" | cut -c1-497)..."
+  fi
+  mc_event emit --program "$program" --now "$NOW" -- "$kind" "$program" "$text" >/dev/null \
+    || mc_fail "the $kind event could not be stored"
+  printf 'format\t%s\nroot\t%s\nversion\t%s\nrecorded\t%s\n' "$MC_FORMAT" "$root" "$version" "$NOW" \
+    | mc_write "$rec" || mc_fail "cannot write the install record"
+  if [ "$state" = first ]; then
+    printf 'install\tfirst\t%s\t%s\n' "$version" "$root"
+  else
+    printf 'install\tchanged\t%s\t%s\t%s\n' "$version" "$root" "$was_version"
+  fi
+  exit 0
+fi
 
 if [ "$verb" = presence ]; then
   pres=$runtime/presence

@@ -153,6 +153,19 @@ export function parseWake(text: string): { ids: string[]; text: string } | null 
   return ids.length > 0 ? { ids, text: rest.join('\n') } : null
 }
 
+export type Install = { state: 'first' | 'same' | 'changed'; version: string; root: string; was: string | null }
+
+// The answer of `mc-panel.sh install`: the copy the session runs, against
+// the program's record.
+export function parseInstall(text: string): Install | null {
+  const f = text.replace(/\n+$/, '').split('\n')[0]?.split('\t') ?? []
+  const [head, state, version, root, was] = f
+  if (head !== 'install' || !version || !root?.startsWith('/')) return null
+  if (state === 'changed' && was) return { state, version, root, was }
+  if (state === 'first' || state === 'same') return { state, version, root, was: null }
+  return null
+}
+
 export function age(seconds: number | null): string {
   if (seconds === null) return 'no age'
   if (seconds < 0) return `${-seconds}s overdue`

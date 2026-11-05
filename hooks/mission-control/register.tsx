@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { PanelView } from '../../types'
-import { emptyView, fallbackLine, handoverReason, isHandle, isProgram, parseDigest, parseWake } from './digest'
+import { emptyView, fallbackLine, handoverReason, isHandle, isProgram, parseDigest, parseInstall, parseWake } from './digest'
+import type { Install } from './digest'
 import { Band, Pane } from './panel'
 
 const PANE = 'mission-control'
@@ -52,6 +53,9 @@ let tickMs = DEFAULT_TICK_S * 1000
 // A wake whose events could not be marked is not sent again before this.
 let wakeHeldUntil = 0
 let radar: Timer | null = null
+// The planwright copy this session runs, checked against the program's
+// record at each start; a failed check is tried again at each redraw.
+let installed: Install | null = null
 
 // Stderr reaches the pane, the status line and the event store: control
 // bytes dropped, one short line.
@@ -190,6 +194,27 @@ async function refreshReviews($: EngineInterface) {
   if (isNew) void redraw($)
 }
 
+// A changed copy raises its own event, which the reading after this counts
+// and wakes the session with.
+async function checkInstall($: EngineInterface) {
+  if (!ctx) return
+  const r = await run($, 'mc-panel.sh', ['install', '--program', ctx.program])
+  const got = r.ok ? parseInstall(r.out) : null
+  if (!got) {
+    await lastingFault($, 'install', `the planwright version could not be checked: ${r.err || 'unreadable answer'}`)
+    return
+  }
+  installed = got
+  if (lasting.install) await lastingFault($, 'install', null)
+  if (got.state === 'changed') {
+    $.ui.toast(
+      got.was === got.version
+        ? `Mission control: planwright ${got.version} moved to ${got.root}`
+        : `Mission control: planwright is now ${got.version} (was ${got.was})`,
+    )
+  }
+}
+
 // One digest read laid into the view.
 async function readDigest($: EngineInterface) {
   if (!ctx) return
@@ -230,6 +255,7 @@ async function refresh($: EngineInterface) {
   if (!ctx || isRefreshing) return
   isRefreshing = true
   try {
+    if (!installed) await checkInstall($)
     await readDigest($)
     const usage = await $.session.usage()
     const pct = usage.context.percent
@@ -356,6 +382,7 @@ export const register: Register = on => {
           ? prior.target
           : program
     ctx = { program, target, root: $.plugin.root }
+    installed = null
     isClaimed = false
     hasKnobs = false
     lasting = {}
@@ -473,7 +500,9 @@ export const register: Register = on => {
       return done
     }
     const kept = done.messages.filter(m => !(m.role === 'user' && m.text.startsWith(REINJECT_HEAD)))
-    return { ...done, messages: [...kept, { role: 'user', text: REINJECT_HEAD + rules.out, toolUses: [] }] }
+    const copy = installed ? `Planwright ${installed.version} runs from ${installed.root}` : `Planwright runs from ${ctx.root}`
+    const text = `${REINJECT_HEAD}${rules.out}\n\n${copy}: resolve every script and rule doc there.`
+    return { ...done, messages: [...kept, { role: 'user', text, toolUses: [] }] }
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {

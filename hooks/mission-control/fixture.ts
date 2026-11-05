@@ -121,6 +121,8 @@ export type Fixture = {
   rulesExit: number
   reviewsExit: number
   reviewsOut: string
+  install: string
+  installExit: number
   isPlaced: boolean
   isDropped: boolean
   isEnvDenied: boolean
@@ -142,6 +144,8 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     rulesExit: 0,
     reviewsExit: 0,
     reviewsOut: 'written',
+    install: 'install\tsame\t0.66.0\t/plugins/cache/planwright/planwright/0.66.0',
+    installExit: 0,
     isPlaced: true,
     isDropped: false,
     isEnvDenied: false,
@@ -216,6 +220,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
       },
     })
     if (script === 'mc-panel.sh' && verb === 'digest') return answer(fx.digest, fx.digestExit)
+    if (script === 'mc-panel.sh' && verb === 'install') return answer(fx.installExit === 0 ? fx.install : '', fx.installExit)
     if (script === 'mc-wake.sh' && verb === 'compose') return answer(fx.wake, fx.composeExit)
     if (script === 'mc-wake.sh' && verb === 'target') return answer('', argv.includes('--mod') ? fx.claimExit : 0)
     if (script === 'mc-event.sh' && verb === 'mark') return answer('', fx.markExit)

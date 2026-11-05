@@ -262,6 +262,162 @@ mc_run mc-panel.sh digest --program alpha --now 1030
 record "measures with no rows read as none" measure - none -
 rm -f "$runtime/measures"
 
+# ---------------------------------------------------------------------------
+# install: the planwright copy the program's session runs, compared with the
+# one recorded, raising one event per change with the changelog between.
+# ---------------------------------------------------------------------------
+fake_root() { # fake_root <dir> <version>: a planwright copy carrying the changelog below
+  mkdir -p "$1/.claude-plugin"
+  printf '{\n  "name": "planwright",\n  "version": "%s"\n}\n' "$2" >"$1/.claude-plugin/plugin.json"
+  cat >"$1/CHANGELOG.md" <<'EOF'
+# Changelog
+
+## [0.66.0](https://example.test/compare/v0.65.0...v0.66.0) (2026-11-05)
+
+
+### Features
+
+* **fleet:** read usage from the status-line mirror ([#836](https://example.test/issues/836)) ([7d97218](https://example.test/commit/7d97218))
+
+
+### Bug Fixes
+
+* **mission-control:** make the panel reopenable with /mc-panel ([#828](https://example.test/issues/828)) ([db7e669](https://example.test/commit/db7e669))
+* plain entry without a scope ([#900](https://example.test/issues/900)) ([abc1234](https://example.test/commit/abc1234))
+
+## [0.65.0](https://example.test/compare/v0.64.0...v0.65.0) (2026-11-04)
+
+
+### Features
+
+* **mission-control:** show reviews at a glance in the panel ([#809](https://example.test/issues/809)) ([6862c17](https://example.test/commit/6862c17))
+
+## [0.64.0](https://example.test/compare/v0.63.0...v0.64.0) (2026-11-03)
+
+
+### Features
+
+* **skills:** add the mission-control skill ([#796](https://example.test/issues/796)) ([a2d0ba0](https://example.test/commit/a2d0ba0))
+EOF
+}
+events_of() { # events_of <kind>: the program's events of that kind
+  mc_run mc-event.sh list --program alpha
+  printf '%s\n' "$OUT" | awk -F '\t' -v k="$1" '$3 == k'
+}
+old_root=$tmp/cache/planwright/0.65.0
+new_root=$tmp/cache/planwright/0.66.0
+fake_root "$old_root" 0.65.0
+fake_root "$new_root" 0.66.0
+rm -f "$runtime/install"
+
+mc_run mc-panel.sh install --program alpha --root "$old_root" --now 5000
+expect_rc "the first install check" 0
+expect_eq "the first check records the copy and says so" "install${tab}first${tab}0.65.0${tab}$old_root"
+got=$(events_of planwright-recorded)
+case $got in
+  *"planwright 0.65.0 is at $old_root"*) ok "the first check raises one recorded event naming the root" ;;
+  *) fail "the first check's event reads '$got'" ;;
+esac
+
+mc_run mc-panel.sh install --program alpha --root "$old_root" --now 5010
+expect_eq "the same copy again is the same" "install${tab}same${tab}0.65.0${tab}$old_root"
+if [ "$(events_of planwright-recorded | wc -l | tr -d ' ')" = 1 ] && [ -z "$(events_of planwright-updated)" ]; then
+  ok "the same copy raises nothing more"
+else
+  fail "the same copy raised an event"
+fi
+
+mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5020
+expect_rc "an updated copy" 0
+expect_eq "an update names both versions" "install${tab}changed${tab}0.66.0${tab}$new_root${tab}0.65.0"
+got=$(events_of planwright-updated)
+case $got in
+  *"planwright updated to 0.66.0 from 0.65.0, now at $new_root"*) ok "the update event names both versions and the new root" ;;
+  *) fail "the update event reads '$got'" ;;
+esac
+case $got in
+  *"mission-control: make the panel reopenable with /mc-panel (#828)"*"plain entry without a scope (#900)"*) ok "the update event carries the changelog entries between the two" ;;
+  *) fail "the update event lacks the entries: '$got'" ;;
+esac
+case $got in
+  *"(#809)"*) fail "the update event carries an entry of the version it came from" ;;
+  *) ok "the entries stop at the version it came from" ;;
+esac
+case $got in
+  *"https://"*) fail "the update event carries link targets" ;;
+  *) ok "the entries are plain text, no link targets" ;;
+esac
+mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5030
+expect_eq "a reload into the same copy is the same" "install${tab}same${tab}0.66.0${tab}$new_root"
+if [ "$(events_of planwright-updated | wc -l | tr -d ' ')" = 1 ]; then
+  ok "one change is announced once"
+else
+  fail "a change was announced more than once"
+fi
+
+mc_run mc-panel.sh install --program alpha --root "$old_root" --now 5040
+expect_eq "a downgrade is a change too" "install${tab}changed${tab}0.65.0${tab}$old_root${tab}0.66.0"
+case $(events_of planwright-updated | tail -n 1) in
+  *"planwright changed to 0.65.0 from 0.66.0 (an older version), now at $old_root"*) ok "a downgrade says it is older" ;;
+  *) fail "the downgrade event reads '$(events_of planwright-updated | tail -n 1)'" ;;
+esac
+
+moved=$tmp/elsewhere/0.65.0
+fake_root "$moved" 0.65.0
+mc_run mc-panel.sh install --program alpha --root "$moved" --now 5050
+expect_eq "a copy moved at one version is a change" "install${tab}changed${tab}0.65.0${tab}$moved${tab}0.65.0"
+case $(events_of planwright-updated | tail -n 1) in
+  *"planwright 0.65.0 moved to $moved from $old_root"*) ok "a move names both roots" ;;
+  *) fail "the move event reads '$(events_of planwright-updated | tail -n 1)'" ;;
+esac
+
+# A refused emit records nothing, so the change is raised on the next check.
+mc_run mc-panel.sh install --program alpha --root "$moved" --now 5060
+store=$fleet/attention/mission-control/alpha
+chmod 500 "$store/events"
+mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5070
+chmod 700 "$store/events"
+expect_rc "a refused event fails the check" 1
+mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5080
+expect_eq "and the change is raised on the next one" "install${tab}changed${tab}0.66.0${tab}$new_root${tab}0.65.0"
+
+mkdir -p "$tmp/noversion"
+mc_run mc-panel.sh install --program alpha --root "$tmp/noversion" --now 5090
+expect_rc "a copy with no readable version fails" 1
+expect_err "naming why" "no version"
+mc_run mc-panel.sh install --program alpha --root "$tmp/nowhere" --now 5090
+expect_rc "a root that is no directory fails" 1
+
+# A long changelog is cut to the event store's cap, never refused.
+long_root=$tmp/cache/planwright/0.70.0
+fake_root "$long_root" 0.70.0
+{
+  printf '# Changelog\n\n## [0.70.0](https://example.test) (2026-12-01)\n\n### Features\n\n'
+  i=0
+  while [ "$i" -lt 40 ]; do
+    printf '* **area-%s:** a long entry describing change number %s in detail ([#%s](https://example.test))\n' "$i" "$i" "$i"
+    i=$((i + 1))
+  done
+  sed -n '/^## \[0.66.0\]/,$p' "$new_root/CHANGELOG.md"
+} >"$long_root/CHANGELOG.md"
+mc_run mc-panel.sh install --program alpha --root "$long_root" --now 5100
+expect_rc "a long changelog" 0
+got=$(events_of planwright-updated | tail -n 1 | cut -f5)
+if [ "${#got}" -le 512 ] && [ "${#got}" -gt 400 ]; then
+  ok "a long changelog is cut to the store's cap"
+else
+  fail "the long event is ${#got} bytes"
+fi
+
+# changes: the full list the event's text was cut from.
+mc_run mc-panel.sh changes --from 0.64.0 --root "$new_root"
+expect_rc "changes since an older version" 0
+expect_eq "every entry after the version, newest first, one per line" "$(printf 'change\t0.66.0\tFeatures\tfleet: read usage from the status-line mirror (#836)\nchange\t0.66.0\tBug Fixes\tmission-control: make the panel reopenable with /mc-panel (#828)\nchange\t0.66.0\tBug Fixes\tplain entry without a scope (#900)\nchange\t0.65.0\tFeatures\tmission-control: show reviews at a glance in the panel (#809)')"
+mc_run mc-panel.sh changes --from 0.66.0 --root "$new_root"
+expect_eq "nothing after the current version" ""
+mc_run mc-panel.sh changes --from 'x;y' --root "$new_root"
+expect_rc "a version outside the grammar" 2
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-panel: $failures failure(s)" >&2
   exit 1
