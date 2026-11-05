@@ -633,7 +633,7 @@ set_policy unit-owner
 before=$(origin_head)
 nogh="$SANDBOX/nogh-$RANDOM"
 mkdir -p "$nogh"
-for t in git jq sh bash cat sed awk grep tr date mktemp head tail wc cut sort printf env dirname basename rm mv cp mkdir timeout sleep; do
+for t in git jq sh bash cat sed awk grep tr date mktemp head tail wc cut sort printf env dirname basename rm mv cp mkdir timeout sleep cmp; do
   p=$(command -v "$t" 2>/dev/null) && ln -sf "$p" "$nogh/$t"
 done
 OUT=$(cd "$F/wt" && env PATH="$nogh" PLANWRIGHT_REPO_ROOT="$F/wt" PLANWRIGHT_LOCAL_CONFIG= \
