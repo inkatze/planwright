@@ -373,7 +373,7 @@ MANAGED_RE='do not edit|generated (by|from)|rendered (by|from)|managed by|ansibl
 # remove) at that source and exit 4, nothing written.
 handover_if_managed() {
   [ -f "$LAYER" ] || return 0
-  hm_note=$(awk '/^[[:space:]]*$/ || /^---[[:space:]]*$/ { next } !/^[[:space:]]*#/ { exit } { sub(/^[[:space:]]*#+[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); s = s (s == "" ? "" : " ") $0 } END { print s }' "$LAYER" | tr '\t' ' ')
+  hm_note=$(awk '/^[[:space:]]*$/ || /^---[[:space:]]*$/ { next } !/^[[:space:]]*#/ { exit } { sub(/^[[:space:]]*#+[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); gsub(/[[:space:]]+/, " "); s = s (s == "" ? "" : " ") $0 } END { print s }' "$LAYER")
   printf '%s\n' "$hm_note" | grep -Eiq "$MANAGED_RE" || return 0
   hm_where="$LAYER, managed elsewhere: $hm_note"
   set -- "${STAGED_ARGS[@]}"

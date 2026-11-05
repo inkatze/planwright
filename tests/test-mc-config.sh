@@ -438,6 +438,9 @@ expect_rc "a do-not-edit header is a managed marker too" 4
 printf -- '---\n# Site configuration\n\n# Managed by the machine setup.\n%s\n' "$unmanaged" >"$layer"
 cfg knob mission_control_tick_cadence 7m
 expect_rc "a header paragraph past a blank line or document marker still counts" 4
+printf '#  Generated   by\tthe machine setup.\n%s\n' "$unmanaged" >"$layer"
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a marker phrase spaced out by runs of blanks still counts" 4
 {
   printf '# my own notes\n'
   printf '%s\n' "$unmanaged"
