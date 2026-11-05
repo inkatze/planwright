@@ -665,11 +665,19 @@ h7m="$tmp/h7m"
 attn "$h7m" heartbeat "$w" "$s" working >/dev/null
 reg "$h7m" "$w" "$s" --owner mission-control:alpha --backend headless-oneshot --death-handle "process 4242" >/dev/null \
   || fail "the store refused the owner mission-control:alpha"
-out=$(run "$h7m" classify "$w" --tower-id "$self_id") || fail "mission-control owner: exited non-zero"
+: >"$tmp/presence-calls"
+out=$(run "$h7m" classify "$w" --tower-id "$self_id" --session-id "$self_id" --checkout "$wt") || fail "mission-control owner: exited non-zero"
 [ "$(ev "$out" owner-token)" = mission-control:alpha ] || fail "mission-control owner: token '$(ev "$out" owner-token)'"
+[ "$(owner_of "$out")" = dead-or-unknown ] || fail "mission-control owner: owner '$(owner_of "$out")'"
 [ "$(ev "$out" owner-evidence)" = unrecognized ] || fail "mission-control owner: evidence '$(ev "$out" owner-evidence)'"
+[ ! -s "$tmp/presence-calls" ] || fail "a mission-control owner token was handed to the presence surface"
 out=$(run "$h7m" classify "$w" --tower-id mission-control:alpha) || fail "mission-control tower id: exited non-zero"
 [ "$(owner_of "$out")" = this-tower ] || fail "mission-control tower id: owner '$(owner_of "$out")'"
+out=$(PLANWRIGHT_TOWER_ID=mission-control:alpha env PLANWRIGHT_FLEET_STATE_DIR="$h7m" /bin/sh "$stubbin/fleet-stuck-detector.sh" classify "$w") \
+  || fail "mission-control env id: exited non-zero"
+[ "$(owner_of "$out")" = this-tower ] || fail "mission-control env id: owner '$(owner_of "$out")'"
+out=$(run "$h7m" classify "$w" --tower-id mission-control:beta) || fail "another program's id: exited non-zero"
+[ "$(owner_of "$out")" = dead-or-unknown ] || fail "another program's mission control read alpha's worker as its own: '$(owner_of "$out")'"
 # The env-carried identity inputs resolve through the surface like the flags.
 # PLANWRIGHT_TOWER_ID is dropped first: it outranks the session-id input, and a
 # dispatched worker inherits the tower's own from its launch environment.

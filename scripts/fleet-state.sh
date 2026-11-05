@@ -115,8 +115,9 @@
 # coordination floor's resource table.
 #
 # `owner` is the dispatching tower's identity token (the presence surface's
-# `identity`), so two towers are never confused for one another and a record's
-# owner is attributable without inference.
+# `identity`, or `mission-control:<program>` for a mission-control launch), so
+# two towers are never confused for one another and a record's owner is
+# attributable without inference.
 #
 # `death-handle` is the presence surface's own grammar — `process <pid>` or
 # `tmux-window <session> <window>` — plus the literal `none` for a rung that
@@ -288,7 +289,7 @@ valid_field() {
 # identity shape produces and each of which would tear a record or misdirect a
 # path built from it. Bounded to 128 chars, like every other field. A colon is
 # admitted for the mission-control launcher's `mission-control:<program>`: it
-# tears no tab-separated record and names no path component.
+# tears no tab-separated record, and no path is built from an owner token.
 # `unknown-owner` is refused as a VALUE because it is the reader's classification
 # for an absent one (fleet-status.sh). Sentinel and value namespaces have to be
 # disjoint: if a caller could store the literal string, a forged record would be

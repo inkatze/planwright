@@ -103,6 +103,11 @@ Publishing promptly after the release PR merges is the real mitigation either
 way — the shorter the untagged window, the less the lock can block unrelated
 work.
 
+A pull request keeps the result of the lock run that checked it, so one
+checked during the window stays red after the tag lands until the check is
+re-run. planwright's publish command re-runs it on each open pull request whose
+latest run of it failed; if you publish another way, re-run those yourself.
+
 ## Invariants this template preserves
 
 - **The lock never makes tagging correct** — it only closes the forget-window.

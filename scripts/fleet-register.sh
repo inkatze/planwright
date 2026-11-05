@@ -35,6 +35,8 @@
 #   2. $PLANWRIGHT_TOWER_ID                the tower's ALREADY-RESOLVED token,
 #      exported into a seam it invokes. This is the ordinary path: a tower
 #      knows its own identity, and a seam should not have to re-derive it.
+#      The mission-control launcher passes `mission-control:<program>` here,
+#      which no presence surface knows: every tower reads it unrecognized.
 #   3. $PLANWRIGHT_TOWER_SESSION_ID | $PLANWRIGHT_TOWER_PID   the identity
 #      INPUTS carried in the environment, resolved as in (1).
 #   4. Nothing resolvable -> the record's owner column is the absent sentinel,

@@ -25,8 +25,8 @@
 #      creation gates and the tag create+push stay skipped. And a resume that
 #      finds the Release already present but the merged release PR still
 #      `autorelease: pending` performs only the idempotent relabel (REQ-B1.4,
-#      D-12), rather than dying "already published" and leaving release-please
-#      deadlocked.
+#      D-12) and the step-6 re-run, rather than dying "already published" and
+#      leaving release-please deadlocked.
 #   3. Create the annotated tag on the release SHA, signing per the
 #      `require_signed_tags` knob (`auto`/`require`/`never`, D-4/REQ-D1.4).
 #      Signing is delegated ENTIRELY to the repo's git config (`gpg.format`,
@@ -41,9 +41,9 @@
 #      above and it never deadlocks on a stale `pending` label (issue #173).
 #      Best-effort: a failure here degrades to a stderr warning, never a
 #      refusal — the tag and Release are already the ceremony's real output.
-#   6. Re-run the window lock on each open pull request whose latest run of it
-#      failed, so none stays red from the window once the tag lands. Best-effort
-#      like step 5.
+#   6. Re-run the window-lock check on each open pull request whose latest run
+#      of it failed, so none stays red from the window once the tag lands.
+#      Best-effort like step 5, and skipped where the repository has no lock.
 #
 # Security posture (doctrine/security-posture.md, framework-script rules):
 # version strings are validated against the SemVer grammar before any use in a
@@ -510,7 +510,7 @@ changelog_notes() {
 }
 
 # Skipped when the Release already exists (release_present): on that path only the
-# idempotent relabel below runs, closing the release-please deadlock window
+# idempotent relabel and the window-lock re-run below run, closing the release-please deadlock window
 # (REQ-B1.4) without re-creating the Release.
 if [ "$release_present" -eq 0 ]; then
   notes_file=$(mktemp "${TMPDIR:-/tmp}/release-publish-notes.XXXXXX") || die "could not create a temp file for the release notes"
@@ -595,24 +595,29 @@ relabel_release_pr
 # that failed. Best-effort like the relabel: the tag and Release are done.
 rerun_window_lock() {
   local prs runs ids id n=0
-  local hint="re-run window-lock on each open pull request still red from the window"
+  local hint="re-run the window-lock check on each open pull request still red from the window"
+  # The lock is opt-in (templates/release-window): a repository without it has
+  # nothing to re-run.
+  [ -f "$(git rev-parse --show-toplevel 2>/dev/null)/.github/workflows/$RL_CI_WINDOW_LOCK_WORKFLOW.yml" ] || return
   prs=$(gh pr list --base "$MAIN_REF" --state open --limit 200 --json headRefOid 2>/dev/null) || {
-    echo "release-publish: could not list the open pull requests (gh pr list failed); $hint" >&2
+    echo "release-publish: window-lock: could not list the open pull requests (gh pr list failed); $hint" >&2
     return
   }
+  [ "$prs" != "[]" ] || return
   runs=$(gh run list --workflow "$RL_CI_WINDOW_LOCK_WORKFLOW" --event pull_request --limit 200 \
     --json databaseId,headSha,conclusion 2>/dev/null) || {
-    echo "release-publish: could not list the $RL_CI_WINDOW_LOCK_WORKFLOW runs (gh run list failed); $hint" >&2
+    echo "release-publish: window-lock: could not list the $RL_CI_WINDOW_LOCK_WORKFLOW runs (gh run list failed); $hint" >&2
     return
   }
   # gh lists runs newest first, so the first run seen per head is its latest.
   ids=$(jq -rn --argjson prs "$prs" --argjson runs "$runs" '
     ($prs | map(.headRefOid)) as $heads
-    | reduce $runs[] as $r ({}; if has($r.headSha) then . else .[$r.headSha] = $r end)
+    | reduce ($runs[] | select(.headSha | type == "string")) as $r
+        ({}; if has($r.headSha) then . else .[$r.headSha] = $r end)
     | to_entries[] | .value
     | select(.conclusion == "failure" and (.headSha as $h | $heads | index($h)))
     | .databaseId' 2>/dev/null) || {
-    echo "release-publish: could not read the open pull requests' lock runs; $hint" >&2
+    echo "release-publish: window-lock: could not read the open pull requests' runs; $hint" >&2
     return
   }
   for id in $ids; do
@@ -620,15 +625,15 @@ rerun_window_lock() {
     if gh run rerun "$id" --failed >/dev/null 2>&1; then
       n=$((n + 1))
     else
-      echo "release-publish: could not re-run $RL_CI_WINDOW_LOCK_WORKFLOW run $id; re-run it manually" >&2
+      echo "release-publish: window-lock: could not re-run $RL_CI_WINDOW_LOCK_WORKFLOW run $id; re-run its failed jobs in the Actions tab, or push to the pull request" >&2
     fi
   done
-  [ "$n" -eq 0 ] || echo "release-publish: re-ran the window lock on $n open pull request(s) checked during the window"
+  [ "$n" -eq 0 ] || echo "release-publish: window-lock: re-ran the check on $n open pull request(s) whose latest run of it failed"
 }
 rerun_window_lock
 
 if [ "$release_present" -eq 1 ]; then
-  echo "release-publish: $tag and its GitHub Release already exist; re-ran the idempotent relabel step for the merged release PR (REQ-B1.4; any relabel warning above names the manual follow-up)"
+  echo "release-publish: $tag and its GitHub Release already exist; re-ran the idempotent relabel and window-lock steps (REQ-B1.4; any warning above names the manual follow-up)"
 elif [ "$resume" -eq 1 ]; then
   echo "release-publish: resumed — created the GitHub Release for the already-pushed $tag"
 else

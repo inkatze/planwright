@@ -723,5 +723,14 @@ echo "ok: the reap knob is read from the swept checkout wherever the sweep start
 # identity the sweep acts for.
 rc=0
 ienv -- fleet-sweep.sh --repo "$repo" --tower-id mission-control:alpha >"$tmp/out" 2>"$tmp/err" || rc=$?
-[ "$rc" = 0 ] || fail "a sweep as mission-control:alpha: exit $rc ($(cat "$tmp/err"))"
+out=$(cat "$tmp/out")
+err=$(cat "$tmp/err")
+[ "$rc" = 0 ] || fail "a sweep as mission-control:alpha: exit $rc ($err)"
+case $(summary) in
+  *"status=ok"*) ;;
+  *) fail "a sweep as mission-control:alpha did not run its scan and reap cleanly: $(summary) ($err)" ;;
+esac
+case $err in
+  *malformed* | *"scan failed"*) fail "a sweep as mission-control:alpha refused its own identity: $err" ;;
+esac
 echo "ok: a sweep run as mission-control:<program> is taken"

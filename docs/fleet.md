@@ -469,7 +469,11 @@ inputs in `PLANWRIGHT_TOWER_SESSION_ID` / `PLANWRIGHT_TOWER_PID` /
 composite identity, so it has to be the checkout the tower published under, not
 the worker's worktree, or the record names a tower that exists nowhere. With no
 identity resolvable the dispatch is recorded as unknown-owner and says so on
-stderr.
+stderr. A session the mission-control launcher starts is recorded under
+`mission-control:<program>` instead; no presence surface knows that token, so
+every tower reads its owner as unrecognized and never reaps it, and the rung
+clears the token from the session's environment so the session never reads it
+as its own.
 
 Every render starts with a per-source availability line
 (`ok` / `absent` / `unavailable`): a source that is missing is **marked**, and

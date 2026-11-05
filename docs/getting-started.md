@@ -337,9 +337,10 @@ policy and the altitude split behind it live in the doctrine.
    `autorelease: pending` to `autorelease: tagged` (best-effort — a failure here
    only warns, it never blocks the publish) so release-please's own state
    tracking stays in sync and doesn't deadlock on the next run. The window
-   closes and the required check goes green; the command also re-runs the lock
-   on each open pull request still red from a run made during the window
-   (best-effort too), since a pull request's check never re-runs by itself.
+   closes and the required check goes green; where the repository has the
+   lock, the command also re-runs it on each open pull request whose latest run
+   of it failed (best-effort too), since a pull request's check never re-runs
+   by itself.
 
 Merge (step 2) and publish (step 4) are the two irreversible, externally-visible
 acts; both are always conscious human steps. planwright automates everything up
