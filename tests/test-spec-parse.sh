@@ -358,6 +358,7 @@ echo "ok: NUL-bearing input fails closed (REQ-B1.6d)"
 # screen's own failure handling can refuse it.
 # ---------------------------------------------------------------------------
 if out=$(
+  # shellcheck disable=SC2329 # called by the sourced lib, out of shellcheck's sight
   cmp() { return 2; }
   spec_parse_extract_tasks "$tmp/tasks.md" 2>/dev/null
 ); then
@@ -371,6 +372,7 @@ echo "ok: NUL screen fails closed when its tooling fails (REQ-B1.6d)"
 # the screen must refuse via the NUL refusal — still fail-closed, with no
 # stream on stdout.
 if out=$(
+  # shellcheck disable=SC2329 # called by the sourced lib, out of shellcheck's sight
   tr() { return 1; }
   spec_parse_extract_tasks "$tmp/nul.md" 2>/dev/null
 ); then
