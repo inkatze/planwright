@@ -17,6 +17,7 @@ export function digestText(
     tick?: number
     reviewsTtl?: number
     holder?: 'registry' | 'attended' | '-'
+    finished?: number
   } = {},
 ): string {
   return [
@@ -29,8 +30,9 @@ export function digestText(
     tab('knob', 'handover-context', 70),
     tab('knob', 'handover-wakes', 3),
     tab('knob', 'handover-compactions', 2),
-    tab('flight', 'w-one', 'mission-control:alpha', 'stream-json'),
-    tab('flight', 'w-two', 'flight:docs', 'tmux'),
+    tab('flight', 'w-one', 'mission-control:alpha', 'stream-json', 'working'),
+    tab('flight', 'w-two', 'flight:docs', 'tmux', 'working'),
+    tab('finished', o.finished ?? 0),
     tab('waiting', 2),
     tab('pending', o.pending ?? 0),
     tab('decision', '2026-10-26T10:15:00Z', 'relaunch w-one', 'relaunch'),

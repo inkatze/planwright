@@ -163,7 +163,10 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
       {Section(
         t,
         `In flight (${flightCount(view)})`,
-        d.flights.map(f => `${f.worker}  ${f.scope}  ${f.backend}`),
+        [
+          ...d.flights.map(f => `${f.worker}  ${f.scope}  ${f.backend}`),
+          ...(d.finished ? [`${d.finished} finished, not cleaned up`] : []),
+        ],
         'Nothing in flight.',
       )}
       {Section(

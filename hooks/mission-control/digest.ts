@@ -16,6 +16,7 @@ export function parseDigest(text: string): PanelDigest | null {
     taken: 0,
     knobs: {},
     flights: [],
+    finished: null,
     waiting: null,
     pending: null,
     decisions: [],
@@ -47,7 +48,10 @@ export function parseDigest(text: string): PanelDigest | null {
         break
       }
       case 'flight':
-        d.flights.push({ worker: f[1] ?? '', scope: f[2] ?? '', backend: f[3] ?? '' })
+        d.flights.push({ worker: f[1] ?? '', scope: f[2] ?? '', backend: f[3] ?? '', isWaiting: f[4] === 'waiting' })
+        break
+      case 'finished':
+        d.finished = int(f[1])
         break
       case 'waiting':
         d.waiting = int(f[1])

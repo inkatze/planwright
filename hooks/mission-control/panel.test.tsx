@@ -80,6 +80,27 @@ test('the band leaves a survey alone', async ($, on) => {
   await ui.unmount()
 })
 
+// Registry rows whose session is gone are not in flight.
+test('sessions that finished but were not cleaned up are a separate count', async ($, on) => {
+  const w = world(on, { digest: digestText({ finished: 352 }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /In flight \(2\)/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /finished/ }))?.text).toBe('352 finished, not cleaned up')
+  await ui.unmount()
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toMatch(/^✈ alpha · 2 in flight · /)
+  await band.unmount()
+})
+
+test('with none finished the count is not drawn', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /finished/ })).toBeUndefined()
+  await ui.unmount()
+})
+
 test('a store the digest could not read is said, its count unknown', async ($, on) => {
   const w = world(on, {
     digest: digestText({ extra: ['unreadable\toperator queue', 'unreadable\tfleet registry', 'unreadable\tknowledge base'] }),
