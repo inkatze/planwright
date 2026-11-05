@@ -3,7 +3,9 @@
 # one command (or, for an MCP entry, one tool name) the entry blocks. The
 # spelling rows are the REQ-D1.2 spelling set that counts: each act refused
 # through git's global options, long-option prefixes, ref forms, and repo
-# aliases (tests/lib/tower-floor-harness.sh configures the aliases they use).
+# aliases (tests/lib/tower-floor-harness.sh configures the aliases they use),
+# plus the other forms a fix closed (negations, expansions, configuration
+# beside a fetch, the raw fallback), each labelled by its form.
 # The tests/test-tower-floor-*.sh suites fail on a deny entry with no row, a
 # row naming no entry, a sample its entry does not match, and a sample or
 # spelling the plugin-wired floor does not refuse in a marked session.
@@ -30,7 +32,7 @@ entry	Bash(git commit --sq*)	rewrite	git commit --sq HEAD
 entry	Bash(git commit * --sq*)	rewrite	git commit -a --squa HEAD
 entry	Bash(git commit --fix*)	rewrite	git commit --fix HEAD
 entry	Bash(git commit * --fix*)	rewrite	git commit -a --fixu HEAD
-entry	Bash(git reset --hard:*)	ref-surgery	git reset --hard origin/main
+entry	Bash(git reset --hard:*)	branch-move	git reset --hard origin/main
 entry	Bash(git filter-branch:*)	ref-surgery	git filter-branch --tree-filter true HEAD
 entry	Bash(git filter-repo:*)	ref-surgery	git filter-repo --path x
 entry	Bash(git branch -f:*)	ref-surgery	git branch -f main HEAD
@@ -102,6 +104,41 @@ entry	Bash(git push --b*)	push	git push --branches origin
 entry	Bash(git push * --b*)	push	git push origin --bra
 entry	Bash(git push * : *)	push	git push origin : --quiet
 entry	Bash(git -c * push:*)	push	git -c push.default=matching push origin topic
+entry	Bash(git checkout:*)	branch-move	git checkout topic
+entry	Bash(git switch:*)	branch-move	git switch -C topic main
+entry	Bash(git reset:*)	branch-move	git reset --soft HEAD~1
+entry	Bash(git branch -m:*)	branch-move	git branch -m topic other
+entry	Bash(git branch -M:*)	branch-move	git branch -M topic other
+entry	Bash(git branch -c:*)	branch-move	git branch -c topic other
+entry	Bash(git branch -C:*)	branch-move	git branch -C topic other
+entry	Bash(git branch --move:*)	branch-move	git branch --move topic other
+entry	Bash(git branch --copy:*)	branch-move	git branch --copy topic other
+entry	Bash(git branch * -m *)	branch-move	git branch --quiet -m topic other
+entry	Bash(git branch * -M *)	branch-move	git branch --quiet -M topic other
+entry	Bash(git branch * -c *)	branch-move	git branch --quiet -c topic other
+entry	Bash(git branch * -C *)	branch-move	git branch --quiet -C topic other
+entry	Bash(git worktree add -B:*)	worktree	git worktree add -B topic ../w
+entry	Bash(git worktree add * -B *)	worktree	git worktree add ../w -B topic HEAD
+entry	Bash(git symbolic-ref -d:*)	branch-move	git symbolic-ref -d HEAD
+entry	Bash(git symbolic-ref --delete:*)	branch-move	git symbolic-ref --delete HEAD
+entry	Bash(git symbolic-ref -m:*)	branch-move	git symbolic-ref -m why HEAD refs/heads/topic
+entry	Bash(git symbolic-ref HEAD refs/*)	branch-move	git symbolic-ref HEAD refs/heads/topic
+entry	Bash(git fetch * *:refs/heads/*)	branch-move	git fetch origin main:refs/heads/main
+entry	Bash(git fetch * *:heads/*)	branch-move	git fetch origin main:heads/topic
+entry	Bash(gh pr checkout:*)	branch-move	gh pr checkout 42
+entry	Bash(gh pr co:*)	branch-move	gh pr co 42
+entry	Bash(gh repo sync:*)	branch-move	gh repo sync
+entry	Bash(git stash)	stash-write	git stash
+entry	Bash(git stash -*)	stash-write	git stash -u
+entry	Bash(git stash push:*)	stash-write	git stash push -m wip
+entry	Bash(git stash save:*)	stash-write	git stash save wip
+entry	Bash(git stash pop:*)	stash-write	git stash pop
+entry	Bash(git stash apply:*)	stash-write	git stash apply stash@{0}
+entry	Bash(git stash drop:*)	stash-write	git stash drop
+entry	Bash(git stash clear:*)	stash-write	git stash clear
+entry	Bash(git stash branch:*)	stash-write	git stash branch topic
+entry	Bash(git stash create:*)	stash-write	git stash create
+entry	Bash(git stash store:*)	stash-write	git stash store -m wip HEAD
 entry	mcp__github__merge_pull_request	mcp-write	mcp__github__merge_pull_request
 entry	mcp__github__update_pull_request	mcp-write	mcp__github__update_pull_request
 entry	mcp__github__push_files	mcp-write	mcp__github__push_files
@@ -115,11 +152,11 @@ entry	mcp__*__delete_file	mcp-write	mcp__github__delete_file
 entry	mcp__*__update_pull_request_branch	mcp-write	mcp__github__update_pull_request_branch
 entry	mcp__*__create_pull_request	mcp-write	mcp__github__create_pull_request
 entry	mcp__github__update_pull_request_branch	mcp-write	mcp__github__update_pull_request_branch
-spelling	ref-surgery	global-C	git -C . reset --hard HEAD
-spelling	ref-surgery	global-c	git -c core.abbrev=12 reset --hard HEAD
+spelling	branch-move	global-C	git -C . reset --hard HEAD
+spelling	branch-move	global-c	git -c core.abbrev=12 reset --hard HEAD
 spelling	ref-surgery	git-dir	git --git-dir=.git update-ref refs/heads/main HEAD
 spelling	ref-surgery	work-tree	git --work-tree=. branch -f main HEAD
-spelling	ref-surgery	long-prefix	git reset --ha HEAD
+spelling	branch-move	long-prefix	git reset --ha HEAD
 spelling	ref-surgery	long-prefix	git branch --forc main HEAD
 spelling	ref-surgery	short-cluster	git branch -qf main HEAD
 spelling	ref-surgery	ref-form	git branch -f refs/heads/main HEAD
@@ -131,8 +168,8 @@ spelling	ref-surgery	force-shorthand	git branch -M topic main
 spelling	ref-surgery	force-shorthand	git branch -C topic main
 spelling	ref-surgery	raw-fallback	git branch -M topic main $(true)
 spelling	ref-surgery	raw-fallback	x=$(git branch -M topic main)
-spelling	ref-surgery	case	git RESET --hard HEAD
-spelling	ref-surgery	alias	git hr HEAD
+spelling	branch-move	case	git RESET --hard HEAD
+spelling	branch-move	alias	git hr HEAD
 spelling	ref-surgery	alias	git bf main HEAD
 spelling	ref-surgery	alias	git ur refs/heads/main HEAD
 spelling	worktree	global-C	git -C . worktree add --force ../w topic
@@ -164,3 +201,130 @@ spelling	rewrite	global-C	git -C . rebase origin/main
 spelling	rewrite	work-tree	git --work-tree=. commit --amen
 spelling	rewrite	long-prefix	git commit --fixu=HEAD
 spelling	rewrite	alias	git rb origin/main
+spelling	branch-move	global-C	git -C . checkout topic
+spelling	branch-move	global-c	git -c core.abbrev=12 switch topic
+spelling	branch-move	git-dir	git --git-dir=.git symbolic-ref HEAD refs/heads/topic
+spelling	branch-move	work-tree	git --work-tree=. reset --soft HEAD
+spelling	branch-move	global-C	git -C . fetch origin main:main
+spelling	branch-move	long-prefix	git branch --mov topic other
+spelling	branch-move	long-prefix	git branch --cop topic other
+spelling	branch-move	long-prefix	git symbolic-ref --del HEAD
+spelling	branch-move	long-prefix	git fetch --std origin
+spelling	branch-move	long-prefix	git fetch --refm +refs/heads/*:refs/heads/* origin main
+spelling	branch-move	short-cluster	git branch -qm topic other
+spelling	branch-move	ref-form	git fetch origin main:refs/heads/main
+spelling	branch-move	ref-form	git fetch origin +refs/heads/main:heads/topic
+spelling	branch-move	ref-form	git fetch . remotes/origin/main:topic
+spelling	branch-move	ref-form	git fetch . refs/remotes/origin/main:refs/heads/topic
+spelling	branch-move	ref-form	git checkout refs/heads/topic
+spelling	branch-move	expansion	git fetch origin "$R"
+spelling	branch-move	expansion	git symbolic-ref HEAD "$R"
+spelling	branch-move	path-form	git checkout -- README.md
+spelling	branch-move	path-form	git reset -- README.md
+spelling	branch-move	repo-flag	gh -R o/r pr checkout 42
+spelling	branch-move	repo-flag	gh pr -R o/r co 42
+spelling	branch-move	repo-flag	gh repo -R o/r sync
+spelling	branch-move	case	git CHECKOUT topic
+spelling	branch-move	case	git Switch topic
+spelling	branch-move	case	git fetch origin main:refs/HEADS/topic
+spelling	branch-move	alias	git co topic
+spelling	branch-move	alias	git sw topic
+spelling	branch-move	alias	git rs --soft HEAD
+spelling	branch-move	alias	git sr HEAD refs/heads/topic
+spelling	branch-move	alias	git ft origin main:main
+spelling	branch-move	alias	git bm topic other
+spelling	branch-move	global-c	git -c core.abbrev=12 checkout topic
+spelling	branch-move	git-dir	git --git-dir=.git checkout topic
+spelling	branch-move	work-tree	git --work-tree=. checkout topic
+spelling	branch-move	global-C	git -C . switch -C topic
+spelling	branch-move	git-dir	git --git-dir=.git switch topic
+spelling	branch-move	work-tree	git --work-tree=. switch topic
+spelling	branch-move	global-C	git -C . reset --soft HEAD
+spelling	branch-move	global-c	git -c core.abbrev=12 reset --mixed HEAD
+spelling	branch-move	git-dir	git --git-dir=.git reset HEAD
+spelling	branch-move	global-C	git -C . branch -m topic other
+spelling	branch-move	global-c	git -c core.abbrev=12 branch -c topic other
+spelling	branch-move	git-dir	git --git-dir=.git branch --move topic other
+spelling	branch-move	work-tree	git --work-tree=. branch --copy topic other
+spelling	branch-move	short-cluster	git branch -qc topic other
+spelling	branch-move	global-C	git -C . symbolic-ref HEAD refs/heads/topic
+spelling	branch-move	global-c	git -c core.abbrev=12 symbolic-ref -d HEAD
+spelling	branch-move	work-tree	git --work-tree=. symbolic-ref HEAD refs/heads/topic
+spelling	branch-move	global-c	git -c core.abbrev=12 fetch origin main:main
+spelling	branch-move	git-dir	git --git-dir=.git fetch origin main:refs/heads/main
+spelling	branch-move	work-tree	git --work-tree=. fetch origin main:heads/main
+spelling	branch-move	long-prefix	git fetch --refmap=+refs/heads/*:refs/heads/* origin main
+spelling	branch-move	repo-flag	gh pr --repo o/r checkout 42
+spelling	branch-move	repo-flag	gh --repo=o/r repo sync
+spelling	worktree	global-C	git -C . worktree add -B topic ../w
+spelling	worktree	global-c	git -c core.abbrev=12 worktree add -B topic ../w
+spelling	worktree	git-dir	git --git-dir=.git worktree add -B topic ../w
+spelling	worktree	work-tree	git --work-tree=. worktree add -B topic ../w
+spelling	worktree	alias	git wa -B topic ../w
+spelling	worktree	short-cluster	git worktree add -qB topic ../w
+spelling	worktree	ref-form	git worktree add -B refs/heads/topic ../w
+spelling	stash-write	global-C	git -C . stash pop
+spelling	stash-write	global-c	git -c core.abbrev=12 stash
+spelling	stash-write	git-dir	git --git-dir=.git stash drop
+spelling	stash-write	work-tree	git --work-tree=. stash push -m wip
+spelling	stash-write	long-prefix	git stash --keep-in
+spelling	stash-write	case	git STASH clear
+spelling	stash-write	case	git stash LIST
+spelling	stash-write	expansion	git stash "$S"
+spelling	stash-write	alias	git sp
+spelling	branch-move	negation	git branch -d --no-delete -m topic other
+spelling	ref-surgery	negation	git branch -d --no-delete -f main HEAD
+spelling	ref-surgery	expansion	git branch -d "$X" -f main HEAD
+spelling	branch-move	long-prefix	git fetch --st origin
+spelling	branch-move	negation	git fetch --multiple --no-multiple origin main:main
+spelling	branch-move	negation	git fetch -m --no-multiple origin main:main
+spelling	branch-move	ref-form	git fetch . 'refs/*:refs/*'
+spelling	branch-move	ref-form	git fetch origin 'refs/heads/*:refs/he*'
+spelling	branch-move	global-c	git -c remote.origin.fetch=+refs/heads/*:refs/heads/* fetch origin
+spelling	branch-move	env	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.fetch GIT_CONFIG_VALUE_0=+refs/heads/*:refs/heads/* git fetch origin
+spelling	branch-move	same-command-config	git config remote.origin.fetch +refs/heads/*:refs/heads/* && git fetch origin
+spelling	branch-move	mirror	git remote add -f --mirror=fetch m ../x
+spelling	branch-move	mirror	git remote add --mirror --fetch m ../x
+spelling	branch-move	git-dir	git --git-dir=../other/.git zz main
+spelling	branch-move	expansion	git -C "$D" zz main
+spelling	branch-move	expansion	gh "$X" checkout 1
+spelling	branch-move	expansion	gh "$X" sync
+spelling	branch-move	gh-alias	gh co 1
+spelling	branch-move	raw-fallback	git -c 'core.abbrev= 12' checkout topic $(true)
+spelling	branch-move	raw-fallback	env gh pr -R o/r checkout 5
+spelling	branch-move	raw-fallback	env gh repo -R o/r sync
+spelling	branch-move	raw-fallback	env gh co 1
+spelling	branch-move	raw-fallback	env git co topic
+spelling	branch-move	raw-fallback	env git zz topic
+spelling	ref-surgery	expansion	git branch -D "$b" -M topic main
+spelling	branch-move	raw-fallback	git -C '/tmp/w 1' checkout topic $(true)
+spelling	branch-move	raw-fallback	env git -c 'a.b= status' co topic
+spelling	branch-move	raw-fallback	x=$(git -c 'a.b= status' co topic)
+spelling	branch-move	raw-fallback	bash -c 'git Log'
+spelling	branch-move	raw-fallback	env git "$X" topic
+spelling	branch-move	long-prefix	git remote --verb add -f --mirror=fetch m ../x
+spelling	branch-move	short-cluster	git remote -vv add -f --mirror=fetch m ../x
+spelling	branch-move	long-prefix	git remote add --fe --mirr m ../x
+spelling	branch-move	expansion	git remote "$S" -f --mirror=fetch m ../x
+spelling	branch-move	expansion	git remote add -f "$O" m ../x
+spelling	branch-move	same-command-config	git remote -v add --mirror=fetch m ../x && git fetch m
+spelling	branch-move	same-command-config	git remote add --mirror=fetch show ../x && git fetch show
+spelling	branch-move	global-c	git -c remote.origin.fetch=+refs/heads/*:refs/heads/* remote update origin
+spelling	branch-move	env	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.fetch GIT_CONFIG_VALUE_0=+refs/heads/*:refs/heads/* git remote update origin
+spelling	branch-move	same-command-config	git config remote.origin.fetch +refs/heads/*:refs/heads/* && git remote update
+spelling	branch-move	raw-fallback	env git -c remote.origin.fetch=+refs/heads/*:refs/heads/* fetch origin
+spelling	branch-move	raw-fallback	env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.fetch GIT_CONFIG_VALUE_0=+refs/heads/*:refs/heads/* git fetch origin
+spelling	branch-move	negation	git branch -d --no-d -m topic other
+spelling	branch-move	alias	git ra m ../x
+spelling	branch-move	raw-fallback	git -c a.b=\ status co topic $(true)
+spelling	branch-move	raw-fallback	git -c a.b='x status' co topic $(true)
+spelling	branch-move	raw-fallback	git "$X" topic $(true)
+spelling	branch-move	raw-fallback	echo $(date); git -P co -b tag
+spelling	branch-move	raw-fallback	bash -c "git --no-pager co log"
+spelling	branch-move	raw-fallback	git config remote.origin.fetch +refs/heads/*:refs/heads/* && git fetch origin $(true)
+spelling	branch-move	raw-fallback	git remote add up ../x; git fetch up $(true)
+spelling	branch-move	raw-fallback	git remote add -f --mirror=fetch m ../x $(true)
+spelling	branch-move	raw-fallback	env git remote add -f --mirror=fetch x /tmp/x
+spelling	branch-move	raw-fallback	echo $(date); git -cremote.origin.fetch=+refs/heads/*:refs/heads/* fetch
+spelling	branch-move	long-prefix	git remote -x add -f --mirror=fetch m ../x
+spelling	branch-move	raw-fallback	command -p git -c a.b=\ status co topic

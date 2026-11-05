@@ -342,7 +342,7 @@ else
   OUT=$(cat "$SANDBOX/sig.out")
   set_decision
   expect deny "an unsignalled pause ends in the guard's own verdict"
-  reason_has 'git reset --hard' "the verdict after the pause is the guard's, not the internal one"
+  reason_has 'git reset is denied to the tower' "the verdict after the pause is the guard's, not the internal one"
   [ -e "$SANDBOX/paused" ] || fail "the hook never reached the pause point"
 fi
 

@@ -2472,7 +2472,11 @@ silently widened. Because the guard is allow-only with no default-deny, the
 profile's **deny block is the security floor**, effective regardless of guard
 output: it denies the shell guardrails (merge, every force-push spelling, amend
 / squash / rebase, `gh pr merge`), default-branch and local-`main` mutation
-(`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), the equivalent
+(`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), every
+branch-moving and stash-writing act in any checkout (`checkout`, `switch`,
+every `reset`, a branch rename or copy, `worktree add -B`, a `symbolic-ref` write, a fetch into a
+local branch, `gh pr checkout`, `gh repo sync`, and every `stash` form but
+`list` and `show`; [the posture delta](tower-posture-delta.md) lists them), the equivalent
 GitHub MCP tools (`merge_pull_request`, `update_pull_request`, `push_files` /
 `create_or_update_file` / `delete_file` — denied wholesale by name because a
 Bash-string guard cannot intercept an MCP call, and on every MCP server by a
