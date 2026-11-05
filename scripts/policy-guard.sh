@@ -2845,7 +2845,7 @@ classify_tower_fetch() {
 # into a fetch mirror, whose refspec maps the remote's refs/ onto the local
 # refs/, its branches included. A bare --mirror sets up both directions.
 classify_tower_remote() {
-  local k=$1 n=${#SW[@]} w name mirror=0
+  local k=$1 n=${#SW[@]} w name mirror=0 long=--mirror
   while [ "$k" -lt "$n" ]; do
     case ${SW[$k]} in
       -v | --verbose) k=$((k + 1)) ;;
@@ -2869,7 +2869,7 @@ classify_tower_remote() {
     [ "$w" != -- ] || break
     name=${w%%=*}
     [ "${#name}" -ge 4 ] || continue
-    case --mirror in "$name"*) ;; *) continue ;; esac
+    [ "$name" = "${long:0:${#name}}" ] || continue
     case $w in
       *=push) ;;
       *) mirror=1 ;;
