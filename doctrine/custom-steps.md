@@ -444,7 +444,8 @@ reported done, at mission control's readiness check) the records are read
 back against the configured lists, read-only, by `scripts/step-run.sh audit
 --through <point>`: a point is covered by its newest run whose completion
 counts at the head, that run recording every required step passed, applied,
-or skipped, so a skipped point or step is caught whoever skipped it. The
+or skipped (a recorded skip counts), so a point or step left with no record
+is caught whoever omitted it. The
 script's usage header states the freshness rule and the output.
 
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.6, REQ-J1.2, D-20, D-32)
