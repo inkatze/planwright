@@ -26,20 +26,25 @@ Open Claude Code and type:
 /mission-control
 ```
 
-With no program set up yet, mission control walks you through one, one
-question at a time, showing how far along you are:
+With no program set up yet, mission control sets one up with you. It asks
+only what you can answer from your own work, one question at a time, and
+settles the rest itself, telling you in one plain line what it chose so you
+can change it:
 
-1. **The program's name and its repositories.** A short name you will use
-   to come back, and the repositories the work touches.
-2. **Where your specs live.** The folder holding the program's specs.
-3. **Your code host.** It checks that the GitHub CLI is signed in
-   (`gh auth status`) and stores nothing: no token, no password.
-4. **Where the state of the work lives**, one kind of fact at a time (see
-   [State sources](#state-sources)).
-5. **Duties to turn on.** Each is shown by what it saves you; none is on
-   until you say yes (see [Duties](#duties)).
-6. **Your voice and quiet hours.** How drafts written for you should sound,
-   and when it should not interrupt you.
+- **What the work is and which repositories it touches.** Asked first. It
+  suggests the repository you are in and a short name to come back with.
+- **Where your specs live.** Found in the repository; asked only when it
+  finds none.
+- **Your code host.** It checks that the GitHub CLI is signed in
+  (`gh auth status`) and stores nothing: no token, no password. Only if you
+  are signed out does it tell you how to sign in.
+- **Where the state of the work lives.** It uses the default (see
+  [State sources](#state-sources)) and says where each kind of fact comes
+  from; tell it if your work items live in a tracker instead.
+- **Duties to turn on.** One yes or no for the recommended set, each duty
+  in one line by what it saves you, or name the changes you want; none is
+  on until you say yes (see [Duties](#duties)).
+- **Your voice and quiet hours.** None until you state them, any time.
 
 It then writes the program's configuration, sets up the program's private
 folder, records your answers, starts its background watchers, and tells you

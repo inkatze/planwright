@@ -150,9 +150,14 @@ def pin:
     elif .persona == "draft-clipboard" then
       (decisions("clipboard") | length == 1) and (decisions("send") | length == 0)
     elif .persona == "first-run" then
-      ([presents[] | select(.first_run.objective != null) | .first_run.objective] == [1, 2, 3, 4, 5, 6])
-      and all(presents[] | select(.first_run.objective != null); .text | test("^\\([1-6] of 6\\) "))
-      and ([presents[] | select(.first_run.feedback != null)] | length == 6)
+      ([presents[] | select(.first_run.objective != null)] as $o
+      | ($o | map(.first_run.objective) == [1, 2, 3, 4, 5, 6])
+      and ($o | map(select(.first_run.asked == true) | .first_run.objective) == [1, 5])
+      and all($o[]; (.first_run.asked == true) != (.first_run.settled == true))
+      and all($o[]; .text | test("[0-9]+ of [0-9]+|\\bstep [0-9]"; "i") | not)
+      and ($o | map(select(.first_run.asked == true) | .first_run.left) as $l
+        | $l == ([range($l | length)] | reverse))
+      and ([presents[] | select(.first_run.feedback != null)] | length == 2))
       and (decisions("write") | map(.what) | .[0:3] == ["program-block", "knowledge-base-skeleton", "enabled-watches"])
     elif .persona == "denial" then
       (decisions("relay-denial") | length == 1 and .[0].text == "push-to-main-refused-by-the-branch-guard")

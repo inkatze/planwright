@@ -114,30 +114,37 @@ row_open=""
 row_fired=""
 repeats=""
 
-FIRST_RUN_QS="What is the program called, and which repositories does it span?
-Where do the written plans for its work live?
-I check that the forge sign-in works and store nothing. Shall I check it now?
-Where does each kind of state live: work items, code, decisions, deadlines, designs?
-Which watches shall I keep for you? Each is listed with what it does.
-How should drafts sound, and when are your quiet hours?"
+# One objective per line, "ask:" or "state:" first: only what the operator can
+# answer from their own work is asked; the rest is settled and said.
+FIRST_RUN="ask:What is this work, and which repositories does it touch? I'd suggest this repository. One more question after this, then I write it all.
+state:The written plans for this work are in this repository; say if they live elsewhere.
+state:GitHub sign-in checked: you are signed in, and nothing is stored.
+state:Work items, decisions and deadlines come from your written plans, code state from GitHub with its age, designs from what you tell me.
+ask:I'd turn on these watches, each with what it saves you. Turn them all on, yes or no? That's the last question.
+state:No voice note and no quiet hours yet; tell me either any time."
 
-first_run_ask() {
-  fr_step=$((fr_step + 1))
-  _q=$(printf '%s\n' "$FIRST_RUN_QS" | sed -n "${fr_step}p")
-  say "($fr_step of 6) $_q" '{first_run: {objective: $n}}' --argjson n "$fr_step"
-}
-first_run_answer() {
-  say "Got it: $1." '{first_run: {feedback: $n}}' --argjson n "$fr_step"
-  if [ "$fr_step" -lt 6 ]; then
-    first_run_ask
-    return
-  fi
+first_run_next() {
+  while [ "$fr_step" -lt 6 ]; do
+    fr_step=$((fr_step + 1))
+    _ln=$(printf '%s\n' "$FIRST_RUN" | sed -n "${fr_step}p")
+    if [ "${_ln%%:*}" = ask ]; then
+      _left=$(printf '%s\n' "$FIRST_RUN" | sed -n "$((fr_step + 1)),\$p" | grep -c '^ask:')
+      say "${_ln#*:}" '{first_run: {objective: $n, asked: true, left: $l}}' \
+        --argjson n "$fr_step" --argjson l "$_left"
+      return
+    fi
+    say "${_ln#*:}" '{first_run: {objective: $n, settled: true}}' --argjson n "$fr_step"
+  done
   for w in program-block knowledge-base-skeleton enabled-watches standing-decisions; do
     decide write '{what: $w}' --arg w "$w"
     say "Wrote the $(human "$w")."
   done
   fr_step=0
   programs=new
+}
+first_run_answer() {
+  say "Got it: $1." '{first_run: {feedback: $n}}' --argjson n "$fr_step"
+  first_run_next
 }
 
 # deliver — with the operator present, show the top queued item (consequence,
@@ -423,7 +430,7 @@ handle_operator() {
         fi
       elif [ "$n" -eq 0 ]; then
         decide entry '{route: "first-run"}'
-        first_run_ask
+        first_run_next
       elif [ "$n" -eq 1 ]; then
         decide entry '{route: "resume", program: $p}' --arg p "$programs"
       else

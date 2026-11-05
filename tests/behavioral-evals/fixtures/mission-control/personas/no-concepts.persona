@@ -4,10 +4,6 @@ expertise=novice
 answer.1=@event:entry names=
 answer.2=open mission control
 answer.3=alpha, two repositories: web and api
-answer.4=the docs folder in the api repository
-answer.5=yes
-answer.6=defaults are fine
-answer.7=the default watches
-answer.8=plain and short; quiet after six
-answer.9=we need a way to export reports
-answer.10=that's all
+answer.4=the default watches
+answer.5=we need a way to export reports
+answer.6=that's all
