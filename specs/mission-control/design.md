@@ -1,6 +1,6 @@
 # Mission control — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -267,6 +267,9 @@ location, since storage-classes keeps work product out of the plugin data
 home, with the minting rationale recorded; the no-credential rule D-28
 already claimed written here.)*
 
+*(Amended at the 2026-11-04 extension: the state-source map is now
+REQ-H1.5's, which adds the `platform` class, D-39.)*
+
 ### D-9: Knowledge-base layout and the three loading rules  (S)
 
 **Decision:** The knowledge base is a directory in the program home with an
@@ -328,6 +331,11 @@ nothing (no profile, no prompt, no model), and one path is testable.
 named, since the policy guard knew only worker and tower and the tower tier
 denies every flip.)*
 
+*(Amended at the 2026-11-04 extension: the kinds also include
+`mission-control` and `kickoff` (D-36); repository-changing kinds start in
+their own worktree (D-34); an `adopt` verb registers sessions the launcher
+did not start (D-35).)*
+
 ### D-11: Liveness and stall states for every session kind  (N)
 
 **Decision:** Liveness is the registry pid and process state. The stall
@@ -347,6 +355,10 @@ states, and the record's stall detector missed exactly the unnamed ones.
 
 *(Amended at sign-off lens pass 2026-10-24: `unknown` added, a state the
 test-spec already expected.)*
+
+*(Amended at the 2026-11-04 extension: a session's pid may come from the
+backend's own record as well as the registry, and a stream-json session's
+event stream informs its stall state, D-35.)*
 
 ### D-12: One age-stamped snapshot per source per program  (N)
 
@@ -486,6 +498,10 @@ on the panel.
 **Chosen because:** limits at this altitude are plural and have all bitten
 once; modelling them beats discovering them.
 
+*(Amended at the 2026-11-04 extension: launch admission across programs
+is host-shared and dynamic (D-41); this file's session and host-load
+bounds are per-program ceilings beneath it.)*
+
 ### D-18: The guided first run and the guidance knob  (S)
 
 **Decision:** With no program configured, mission control runs a guided
@@ -597,6 +613,12 @@ operator chose routed amendments over a self-contained bundle.
 *(Amended at kickoff 2026-10-23: the state-source adapters named as the
 fifth follow-on.)*
 
+*(Amended at the 2026-11-04 extension: further routed edges are the
+human-gates amendment for the kickoff push (Task 31), the tower-comms
+amendment for the reply hook (Task 32), the platform-currency bundle
+consuming D-39, and the widened meaning of `fleet_max_parallel_units`
+(D-41).)*
+
 ### D-23: Non-authoring and relay  (C, fleet-coordination-floor; fleet-autonomy D-17)
 
 **Decision:** Mission control edits no repository and runs no git mutation;
@@ -653,9 +675,10 @@ readiness result is its first section.
 **Chosen because:** every "unverified ready" in the record was caught only
 by a primary-evidence check.
 
-*(Amended at the 2026-11-04 extension: the recorded cadence steps are
-checked against the configured cadence, not the gate-condition data alone,
-D-33.)*
+*(Amended at the 2026-11-04 extension: the readiness check also audits
+the configured cadence, D-33, and the packet is prepared at the ready-flip
+and merge-recommendation moments D-31 names as well as before a human
+gate.)*
 
 ### D-26: Gate conditions as configurable data, inside the floors  (S)
 
@@ -743,6 +766,13 @@ persisted stores and the launcher rollout touched.)*
 *(Amended at sign-off lens pass 2026-10-24: the secrets claim now backed by
 D-8's text; the guard tier recorded under authentication.)*
 
+*(Amended at the 2026-11-04 extension: data storage D-37 and D-41;
+concurrency D-38 and D-41; API surface the `audit` and `adopt` verbs, the
+kickoff kind and the activation record (D-33 to D-37); authentication and
+authorization D-32, D-35 and D-36; deploy and migration D-33 (pull
+requests no launch registered) and D-38 (partial handover); human
+comprehension D-31; context handling D-42.)*
+
 ### D-29: Handover over compaction  (S)
 
 **Decision:** Mission control prefers a continue-as-new handover to a
@@ -764,6 +794,9 @@ Compactions since start sit on the panel.
 **Chosen because:** context-budget-autoheal already relies on the
 disposable session; measured context makes its trigger honest.
 
+*(Amended at the 2026-11-04 extension: superseded for attended sessions
+by D-42; it governs launched holders.)*
+
 ### D-30: Automatic, lossless succession  (S)
 
 **Decision:** At the trigger, the predecessor asks the launcher for a
@@ -783,45 +816,61 @@ panel, never a degraded session.
 **Chosen because:** the operator's ask is that compaction and resume happen
 automatically without degradation.
 
+*(Amended at the 2026-11-04 extension: succession applies to launched
+holders; an attended session compacts instead, D-42.)*
+
 ### D-31: Guidance shapes the teaching at consequential moments, never the gate  (S)
 
 **Decision:** The guidance level (D-18) reaches past the first run to the
-moments that carry consequence: the operator about to merge, or a ready
-flip mission control requests or offers. At each, the prepared packet
-(D-25) opens with one review-evidence line built from the cadence audit
-(D-33): which configured review steps ran at the current head and which did
-not. The level picks only what follows it: `guided` adds a plain-words
-lesson on why the missing review matters and a recommendation to run it
-first, `standard` the recommendation alone, `expert` nothing. The lesson
-texts are catalog data keyed by moment and level, merged through the overlay
-layers, so the skill prose names the rule once and stays inside the
-instruction budget (D-21). No level softens or skips a gate, pre-selects an
-option or withholds the evidence line.
+moments that carry consequence: mission control presenting a merge
+recommendation or a ready flip it requests or offers, and the operator
+stating an intent to merge. At each, the readiness section of the prepared
+packet (D-25) opens with one line built from the cadence audit (D-33):
+which configured steps are covered at the pull request's head and which
+are gaps, or that the audit could not run and why. The level picks only
+what follows that line: `guided` adds a plain-words lesson on why a gap
+matters and a recommendation to close it first, `standard` the
+recommendation alone, `expert` nothing; an unaudited result carries no
+lesson. The lesson texts are core data shipped beside the packet script,
+keyed by a closed set of moments and by level, so the skill names the rule
+once and stays inside the instruction budget (D-21); they are not an
+overlay catalog, so D-1's single operator-facing extension point stands.
+No level softens or skips a gate, pre-selects an option or withholds the
+line.
 
 **Alternatives considered:**
 - Teach only in the first run. Rejected because: the operator's own example
   (a newcomer pushing a pull request nobody had reviewed) happens long after
   setup, at the merge.
 - Write the lessons into the skill. Rejected because: the instruction budget
-  is saturated, and lesson wording is a value an overlay may want to change.
-- Block the merge or flip until a review runs. Rejected because: the gates
+  is saturated.
+- An overlay-extensible lesson catalog. Rejected because: it would be a
+  second operator-facing extension point beside the duty catalog (D-1) with
+  no evidence an adopter wants to change the wording.
+- Block the merge or flip until the gaps close. Rejected because: the gates
   already decide that; guidance that adds a gate would make the level a
   policy knob in disguise.
 
-**Chosen because:** the fact is cheap to state at every level and the lesson
-is where a newcomer needs it, while an expert loses one line at most.
+**Chosen because:** the result is cheap to state at every level and the
+lesson is where a newcomer needs it, while an expert loses one line at most.
 
-### D-32: The posture check at bring-up, and invariants the guard enforces  (N)
+### D-32: A posture check at bring-up, and one pre-approval list  (N)
 
-**Decision:** Mission control's bring-up opens with the posture check the
-tower runs (read each loaded settings layer by projection, confirm the
-shipped mission-control deny floor and the guard hooks are in force), by
-reference to the tower's step rather than a copy. A failed check is said in
-one plain line and mission control continues read-only until the posture is
-fixed. Non-authoring and the ready-flip policy move from prose into the
-`mission-control` guard tier, and its allow list covers every planwright
-script mission control runs routinely, read from one list the tier and its
-tests share rather than a hand-kept string.
+**Decision:** A posture script reads each loaded settings layer by
+projection, the way the tower's bring-up step does (tower-front-door D-14),
+with the shipped `config/mission-control-settings.json` as the floor and an
+unwired guard hook counted as a failure. The skill runs it at bring-up and
+on the failsafe tick, and the launcher reads the same result before a
+launch. A failure is said in one plain line and mission control continues
+read-only (no launch, no answer, no request; its own runtime stores stay
+writable) until a later check passes. The `mission-control` guard tier
+already refuses edits, git mutations and flips outside the policy (D-10);
+what changes is its pre-approval list, which today is a hand-kept string:
+it becomes one core-only list of script verbs, derived from the scripts
+the skill and the duty catalog invoke and shared by the tier and its
+tests, that excludes `fleet-streamjson.sh answer`. An overlay never adds to
+it; an overlay duty's scripts run under the daemon runner, not in mission
+control's session.
 
 **Alternatives considered:**
 - Trust the launch to have delivered the profile. Rejected because: the
@@ -830,24 +879,36 @@ tests share rather than a hand-kept string.
 - Refuse to run at all without the posture. Rejected because: a read-only
   mission control still answers questions and shows status, which a new
   operator needs while fixing the setup.
+- Keep the posture check as skill prose by reference. Rejected because: the
+  launcher cannot read prose, and a script is testable.
 
-**Chosen because:** the tower already proved the check; a guard that knows
-the invariants holds them when the prose is compacted away.
+**Chosen because:** the tower already proved the check, and a list derived
+from what the skill invokes cannot fall behind it the way the hand-kept one
+did.
 
 ### D-33: The configured cadence is audited at readiness and carried in briefs  (N)
 
-**Decision:** A read-only `audit` verb on the step runner resolves the
-configured cadence through the unit's in-run points (pre-implementation
-through the point named) and compares it with the step records: a point
-with a required step and no completion, a completion that does not count at
-the head (on an ancestor of it, and for the last point only at the head
-itself or with nothing but merge commits after it), a required step with no
-record, or one whose records are all outside passed, applied and skipped is
-a gap. The readiness check runs it in the worktree holding the pull
-request's branch and records a `cadence` evidence row (audited at a head,
-a gap, or unaudited with its reason); any gap, an audit at another head,
-or no audit refuses the walk. Separately, the launcher writes the resolved
-cadence into the brief of every launch that changes a repository.
+**Decision:** A read-only `audit --through <point> [--head <sha>]` verb on
+the step runner resolves the configured cadence through the in-run points
+from pre-implementation to the point named and compares it with the step
+records. A point with a required step and no completion record is a gap; so
+is a completion that does not count at the head (it counts on an ancestor
+of the head, and for the last point with a required step only at the head
+itself or with nothing but merge commits on the first-parent path after
+it); so is a required step with no record, or whose records are all outside
+passed, applied and skipped, in any run. The readiness check runs it
+`--through post-pr` with the forge's pull-request head as `--head`, in the
+worktree holding the branch, and records a `cadence` evidence row: audited
+at a head, a gap, or unaudited with its reason. Any gap, an audit at
+another head, a worktree head that differs from the forge's, or no audit
+refuses the walk. A pull request no planwright launch registered reads
+unaudited (not planwright-run): the packet says so, and only a flip
+mission control would request is refused. The launcher adds a cadence
+section to every repository-changing brief, naming the procedure that
+resolves and records the steps and the audit command; a brief that is a
+skill command is exempt, the skill carrying its own cadence. The
+configured cadence is distinct from a cadence step, the steps-catalog entry
+whose recorded run gates later units.
 
 **Alternatives considered:**
 - Require the steps in the gate-condition data. Rejected because: that data
@@ -858,60 +919,87 @@ cadence into the brief of every launch that changes a repository.
   live.
 
 **Chosen because:** it catches a skipped point or step whoever skipped it,
-reuses the resolver the cadence already uses, and matches the fix already in
-flight, so there is one fix rather than two.
+reuses the resolver the cadence already uses, and is what the fix in flight
+already delivers, so there is one fix rather than two.
 
-### D-34: The launcher creates the worktree for a repository-changing launch  (N)
+### D-34: A repository-changing launch gets its own worktree  (N)
 
-**Decision:** A launch whose kind or scope changes a repository gets a
-worktree the launcher creates under the repository's worktree directory, off
-the default branch, or off the unit's branch when it exists, and its session
-starts there; a read-only kind keeps the caller's directory. The skill's
-kickoff relay uses the same path. An explicit directory is still accepted
-when it is a worktree other than the primary checkout.
+**Decision:** The worker, reviewer, ad-hoc and kickoff kinds start in a
+worktree the launcher has the dispatch machinery create
+(`scripts/fleet-dispatch-worktree.sh`, as a tower's flights do), under the
+repository's worktree directory: on the unit's branch when it exists,
+otherwise off the default branch. When another worktree already holds the
+unit's branch, the launcher reuses it only if no live session runs there,
+and refuses naming that session otherwise. An explicit directory is
+accepted only when it is a worktree other than a primary checkout that no
+live session uses. A launch whose worktree cannot be created is refused
+with no session started and no fallback. The tower, orchestrator and
+mission-control kinds start where they are launched. Creating the worktree
+is part of launching, as it is for a tower's flights, not an authoring act
+(REQ-A1.3).
 
 **Alternatives considered:**
 - Leave the directory to the caller. Rejected because: the caller is a model
   that defaulted to the primary checkout, and the operator then had to
   write the worktree command into every brief by hand.
+- Let the launched session create its own worktree. Rejected because: the
+  session would start in the primary checkout first, which is the hazard.
 
 **Chosen because:** the primary checkout is shared by everything on the
 host, and a worktree is the isolation every other planwright launch already
 has.
 
-### D-35: Adoption, liveness on every backend, and vetted prompt answers  (N)
+### D-35: Adoption, liveness on every backend, and prompt answers  (N; C, tower-comms D-12)
 
-**Decision:** An `adopt` verb registers a session mission control did not
-launch under the program (owner, kind, scope, backend handle), after
-checking it is live. The stall detector reads every registered session, not
-launcher rows alone, and reads a stream-json session's liveness from its
-process and event stream rather than its row. A pending permission prompt
-in a supervised session raises an attention event, so mission control wakes
-on it. Answering goes through one wrapper that checks the tower-comms
-standing-decision record's coverage first and only then calls the backend's
-answer verb; the guard tier pre-approves the wrapper and not the raw answer
-verb. A tmux session, which has no answer channel, has its prompt surfaced
-once with its command, and the recommended remedy is a relaunch on
-stream-json.
+**Decision:** The launcher gains an `adopt` verb
+(`adopt --handle <backend:id> --kind <kind> --scope <scope> [--owner <o>]`)
+that registers a session mission control did not launch, with an adopted
+origin, after positive liveness evidence; it refuses a session with no
+resolvable pid and one whose row names another live supervisor. The stall
+detector reads every registered session rather than launcher rows alone,
+taking each backend's pid from the registry or the backend's own record,
+and a stream-json session's event stream for its stall state. Retiring an
+adopted session whose owner is the operator is a confirmation item, never
+a self-decision. A pending permission prompt raises an attention event
+keyed by session and prompt id; re-detection is a no-op and the event
+clears when the prompt is no longer pending, whatever answered it.
+Answers go through the tower-comms answer channel (`fleet-attention.sh
+claim`, which re-checks standing-decision coverage at its boundary,
+tower-comms D-12), or carry the operator's own answer to that prompt; each
+answer is an undo-ledger entry naming what authorized it (D-24). The guard
+tier pre-approves that channel and not the raw answer verb. A tmux session
+has no answer channel: its prompt is surfaced once with its command, and
+only the operator's own answer reaches it, by the pane relay (D-23).
 
 **Alternatives considered:**
-- Supervise launched sessions only. Rejected because: a takeover from a
-  tower (D-38) and the operator's own hand-launched sessions would go
-  unwatched, which is how prompts sat for days unseen.
-- Allow the answer verb outright. Rejected because: it settles a prompt
-  with no check that a standing decision covers it (REQ-G1.2).
+- Supervise launched sessions only. Rejected because: a tower handover
+  (D-38) and the operator's own hand-launched sessions would go unwatched,
+  which is how prompts sat for days unseen.
+- Allow the raw answer verb. Rejected because: it settles a prompt with no
+  check that a standing decision covers it (REQ-G1.2).
+- Relaunch a tmux session on stream-json to get an answer channel. Rejected
+  because: it discards the session's context, and flights refuse that
+  backend.
 
 **Chosen because:** supervision has to follow the sessions, not the launch
-path, and the coverage check belongs in front of the only verb that answers.
+path, and the coverage check already sits in front of the channel that
+answers.
 
 ### D-36: A kickoff permission profile for relayed kickoffs  (S)
 
-**Decision:** The launcher gets a kickoff kind whose profile is the worker
-profile plus a plain push of the one spec branch its scope names and the
-draft pull request for that branch (with the kickoff's configured ready
-flip). The protected floor stays: no force, no other spec branch, no
-protected branch; the policy guard reads the permitted branch from the
-launch, not from the command. Mission control's own profile is unchanged.
+**Decision:** The launcher gets a kickoff kind with its own settings
+profile: the worker profile's rules without its spec-branch push denies,
+since a deny cannot be narrowed by an allow. The policy guard is what
+admits the one push: it reads the permitted branch from the launch record,
+written before the session starts outside every path the worker profile
+may write, and admits a plain push of that branch, the draft pull request
+for it and the kickoff's configured ready flip; it denies a force push, a
+deletion and any other branch. The push targets the spec root's repository
+as its posture reports it, and under the `plain` posture the kind adds no
+push. The core protected floor names `planwright/*/spec`, so this kind
+waits on a routed human-gates amendment (Task 31) admitting the relayed
+kickoff session as a writer of its own spec branch. Mission control's own
+profile is unchanged.
 
 **Alternatives considered:**
 - Mission control pushes for the kickoff. Rejected because: mission control
@@ -925,15 +1013,24 @@ session by one branch it was launched to publish.
 ### D-37: The panel activates from a bring-up record, not the environment  (S)
 
 **Decision:** Mission control's entry and bring-up write an activation
-record for the current session (program, session id, written time) in the
-program runtime. The panel mod checks for a record naming its own session on
-its timer and on the session events it already handles, and activates when
-it finds one; the launcher's mission-control kind and the handover
-successor reach the same record through their bring-up, so the environment
-variable stays an optional fast path only. A record is keyed by session id,
-so a session mission control launches never matches it. Where the host's
-Claude Code cannot load mods, the skill says so once and uses the text
-panel.
+record for the current session through a panel-script verb: program,
+session id, written time and a `format` field, additive-only as D-8's
+stores are. The record lives host-wide under the fleet home, one file per
+session id, so the mod reads only the file its own session id names and
+never scans programs. The session id comes from the session-start hook's
+input. The mod checks for its record on its timer and on the session events
+it already handles, activates when it finds one, and writes an
+acknowledgment beside it. A launched session never matches another
+session's record, so the activation is never inherited. The launcher's
+mission-control kind (which already exists, obs:855b725a) and a handover
+successor reach the record through their own bring-up, and the
+`PLANWRIGHT_MC_PROGRAM` environment variable stays an optional fast path
+(obs:cf5bce54); the skill's entry reads the same variable as the program
+argument when none is typed, so such a session resumes without asking. Retirement and a predecessor's self-retirement remove the
+record, and the keeper removes any record whose session has no live
+process. No acknowledgment within a bounded wait, or a host below the mods
+floor (D-6), means the skill says once that the panel cannot load and uses
+the text form.
 
 **Alternatives considered:**
 - Have the launcher set the environment. Rejected because: the documented
@@ -943,15 +1040,26 @@ panel.
 **Chosen because:** it needs nothing from the operator and keeps the
 non-inheritance property by construction.
 
-### D-38: Takeover from a tower  (N)
+### D-38: Tower handover  (N; C, tower-comms D-6)
 
 **Decision:** Mission control takes over a running tower's fleet as a
-handover variant: it adopts each live session the tower supervises (D-35),
-imports the tower's open operator items into its queue with their origin,
-starts the fleet sweep's relaunch and reap work as part of its supervision
-duty, and asks the operator before retiring the tower. A wake mission
-control relays carries a marker the tower's reply hook recognizes, so the
-hook never records it as the operator's reply.
+handover variant. It adopts each live session the tower dispatched or its
+fleet sweep tracks (D-35), writing itself as the supervisor in each row, and
+from that moment the tower's sweep and answer paths skip a session another
+supervisor holds. It imports the open entries of the tower's attention
+store into its queue by origin id, settling the tower's copy with a
+carried-over reason; an item answered on either side clears on both. It
+runs the fleet sweep for the adopted flights under its own identity as the
+sweep's tower identity, one checkout per repository, with the reap
+observing-only as fleet-lifecycle-closure keeps it, and records each
+relaunch against the dead session's row so a second relaunch is a no-op.
+It asks before retiring the tower; on a no it releases the adopted sessions
+back. A re-run adopts what is not yet adopted and imports by origin id
+without duplicating; nothing is undone on a partial failure, and the tower
+stays authoritative for what was not adopted. A wake mission control relays
+carries a fixed leading marker, defined once in a constant both sides read,
+and the tower's reply hook (owned by tower-comms, D-6 there) ignores a turn
+bearing it, through a routed tower-comms amendment (Task 32).
 
 **Alternatives considered:**
 - Run beside the tower. Rejected because: two supervisors act on the same
@@ -968,7 +1076,7 @@ control; the move should lose nothing.
 `platform` (the releases of the host tools and platforms the program builds
 on), admitting only `snapshot` and `cited`, `cited` by default. REQ-H1.5
 supersedes REQ-H1.4 with the class added; the map's reader refuses `record`
-for it.
+for it, and the validator and the reader keep one class definition.
 
 **Alternatives considered:**
 - Reuse `decisions` or `designs`. Rejected because: a changelog is neither,
@@ -979,13 +1087,15 @@ platform-currency duty at the cost of one class.
 
 ### D-40: What is shown as working, works  (S)
 
-**Decision:** Four repairs the observations name, in one rule: a duty the
-guide or first run presents is armed when enabled, or presented as not yet
-available, and an invalid overlay entry leaves the entry it shadowed in
-force; every watcher run and snapshot refresh has a deadline knob and is
-stopped on expiry as an event; the measures the panel reads are written by
-the calibration work in the shape the panel reads; dispatch suggestions come
-from the orchestrator's selection, holds and withheld repositories included.
+**Decision:** Four repairs the observations name, under one rule. A duty
+the guide or first run presents is armed when enabled, or presented as not
+yet available, checked mechanically against the catalog; an invalid
+overlay entry leaves the next lower layer's valid entry in force. Every
+watcher run and snapshot refresh has a timeout (a seconds knob, overridable
+per watcher) and is stopped on expiry, re-armed on the next pass, the
+expiry an event. The calibration ledger's writer (D-13) writes the measures
+file in the shape the panel reads. The keeper's dispatch suggestions come
+from the orchestrator's selection, its withheld repositories included.
 
 **Alternatives considered:**
 - Caveat the guide instead of arming the duties. Rejected because: the
@@ -997,12 +1107,22 @@ that does not happen, which costs more trust than any missing feature.
 ### D-41: Launch admission is dynamic and shared across the host  (S)
 
 **Decision:** Before a launch, admission reads the account's usage headroom
-(the quota store the budget already reads) and the host's capacity (load
-against core count, available memory) and admits only while both have room;
-`fleet_max_parallel_units` caps it and is never the target. The admission
-state lives in a host-level store every program's mission control reads and
-writes under a lock, so two mission controls on one machine and account
-share one budget.
+(the rate-limit figures the session usage call exposes, D-6, cached with
+their age; a vendor quota hold is a hard stop) and the host's capacity
+(load against core count, available memory), and admits only while each is
+inside its `mission_control_admit_*` threshold knob;
+`fleet_max_parallel_units`, whose meaning widens to a host-wide ceiling
+shared by every program and the meta-orchestrator, caps the total. The
+state is class-2 runtime state under the fleet home: in-flight reservations
+(holder pid, program, time) under one lock, with D-8's `format` field.
+Each admission recounts live sessions from every program's registry under
+the lock, and counts each reservation and each session younger than a
+warm-up knob at its configured share, so a lagging load reading never
+admits a burst. A reservation is released when its session registers or
+its launch fails; one whose holder pid is dead, or older than a timeout,
+is reclaimed by the next admitter and logged. Sessions started outside the
+launcher are seen through the registry and measured load. REQ-L1.2's
+per-program bounds stay ceilings beneath this.
 
 **Alternatives considered:**
 - A fixed worker count per program. Rejected because: the operator's ruling
@@ -1011,6 +1131,33 @@ share one budget.
 
 **Chosen because:** both real limits are measurable, and only a host-level
 store sees every program at once.
+
+### D-42: An attended session compacts; a launched holder hands over  (S)
+
+**Decision:** D-29 and D-30 prefer a handover to a compaction. That holds
+for a mission-control session mission control launched itself (a registry
+holder), where no terminal has to move. In an attended session (the
+operator typed the skill command in their own terminal), a full context is
+left to the host's compaction, made safe by the post-compaction step D-29
+already defines: the rules re-injected and the self-check run against the
+durable stores, only a failed check raised as an operator item. Mission
+control raises no handover act, panel handover-due event or operator item
+for context in an attended session, and the operator never has to do
+anything about context. Running mission control as a launched session the
+operator attaches to stays available, never required. The trade-off is
+named: a compacted session can lose conversational nuance that a successor
+reading the handover file would keep; the self-check catches lost rules
+and state, not lost tone. The operator accepted that for out-of-the-box
+behaviour.
+
+**Alternatives considered:**
+- Hand over in attended sessions too. Rejected because: the successor runs
+  in a new session, so the operator would have to move to it, which is the
+  manual act this extension removes.
+
+**Chosen because:** the operator's decision (2026-11-04): zero context
+handling for the person at the terminal, with the durable stores and the
+self-check carrying what must survive.
 
 ## Cross-cutting concerns
 
