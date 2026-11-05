@@ -38,7 +38,11 @@ mc-kb.sh index
 mc-kb.sh init
 mc-kb.sh inventory-refresh
 mc-keeper.sh -
+mc-panel.sh activate
+mc-panel.sh await
 mc-panel.sh line
+mc-panel.sh retire
+mc-panel.sh text
 mc-posture.sh check
 mc-program.sh default
 mc-program.sh get
