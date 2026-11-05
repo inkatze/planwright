@@ -1,7 +1,7 @@
 # Fleet Autonomy — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-07-20
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -152,7 +152,7 @@ A fixture attempting to launch a worker with `--permission-mode auto` asserts th
 the launch; a fixture launching with the standard worker-settings-profile allowlist asserts it
 succeeds.
 
-### REQ-E1.5 — Proactive `/usage` read, shared-aware, graceful degradation [test + manual]
+### REQ-E1.5 — Proactive `/usage` read, shared-aware, graceful degradation [test + manual] (superseded by REQ-E1.12)
 
 `[test]`: A fixture feeding a representative captured `/usage` render asserts the parser extracts
 **both** window percentages (session and weekly) deterministically and by label (same input, same
@@ -174,7 +174,7 @@ carries, since a frozen CI fixture cannot catch a live format change. The accoun
 shared-aware and point-in-time no-reset-modeling properties are design-level; the two-window parser,
 plausibility, hygiene, and sustained-loss tests are the automatable core.
 
-### REQ-E1.6 — Configurable proactive dispatch gate [test]
+### REQ-E1.6 — Configurable proactive dispatch gate [test] (superseded by REQ-E1.13)
 
 Fixtures assert the window→rung mapping across the ladder (`normal` → `downshift` →
 `reduce-concurrency` → `defer-heavy` → `defer-all`): rising usage selects progressively heavier
@@ -212,9 +212,12 @@ asserting zero LLM calls, and asserting no per-model accounting state is written
 pinned unit still receives its reserved tier past a cap that withdrew it from routine units (the
 reservation is the REQ-E1.10 exemption, not a ledger). A fixture with the signal unavailable asserts
 caps are inactive (allocation follows the REQ-E1.10 unavailable-signal behavior). A config fixture
-asserts the caps resolve through the overlay (machine-local wins).
+asserts the caps resolve through the overlay (machine-local wins). Since the 2026-11-04 amendment,
+a fixture with only the spend window above a tier's cap asserts that tier is withdrawn, and a cap of
+`100` asserts the tier is never withdrawn before the wall; the unavailable-signal behavior is
+REQ-E1.14's.
 
-### REQ-E1.10 — Degrade ladder degrades capability, never safety [test]
+### REQ-E1.10 — Degrade ladder degrades capability, never safety [test] (superseded by REQ-E1.14)
 
 A fixture driving usage tight asserts allocation climbs one rung (`downshift`, then
 `reduce-concurrency`) and descends when budget recovers. A fixture driving the signal oscillating
@@ -240,6 +243,58 @@ credits are permitted, and that a machine-local override resolves via `config-ge
 adversarial/garbled wall variant asserts the recognizer does not match and the fleet falls through
 to the plain reactive backstop (no accidental spend). An audit assertion confirms the decision is
 logged and the kill-switch is honored.
+
+### REQ-E1.12 — Two read-only sources, mirror first, per-window fallback [test + manual]
+
+`[test]`: The REQ-E1.5 capture fixtures carry over unchanged for the capture source. Mirror
+fixtures assert: a fresh mirror's session and weekly values win over a stale capture, per window and
+by name; a mirror older than the TTL, a window whose reset has passed or sits more than one period
+ahead, an out-of-range session or weekly percentage, and a mirror carrying a control byte each fall
+back to the capture for that window; a spend value above 100 reads as 100; a window neither source
+supplies validly reads unavailable, never 0; a relative mirror location is refused and a symlink is
+judged by its target; the location resolves through the overlay, and an empty value turns the source
+off. A write-watch assertion confirms the gate never writes, creates, or modifies the mirror. An
+audit and log assertion confirms only percentages and the rung are recorded, never mirror content,
+dollar fields, or the `/usage` render, and an echoed location is sanitized. A fixture losing every
+governed window across the configured consecutive-read count asserts the required sustained-loss
+surface fires, and one where a window's thresholds are all `off` asserts that window's loss raises
+nothing. A stubbed client asserts zero LLM/API calls. `[manual]`: a check against a live Claude
+Code session confirms the mirror's `rate_limits` shape still matches the documented fields, the
+drift check REQ-E1.5 carries for the `/usage` render.
+
+### REQ-E1.13 — One ladder over three windows, `off` thresholds, operator-asked launches [test]
+
+The REQ-E1.6 ladder fixtures carry over (rising usage, most-restrictive governs, session capped at
+`defer-heavy`, `defer-heavy` withholding heavy units). New fixtures assert: the spend window reaches
+`defer-all` and joins the most-restrictive comparison; any threshold set `off` is never targeted;
+enabled thresholds that do not ascend are rejected; with no overlay, the session and weekly
+thresholds equal the values shipped before the amendment and the spend window ships the weekly
+values; the overlay "no soft, 90% hard" configuration stays `normal` to 89% and reaches `defer-all`
+at 90%; per-tier caps compare against all governed windows. A fixture with an unavailable signal
+asserts no climb. The operator-asked exemption is asserted at the consumer (REQ-E1.15), not in the
+gate.
+
+### REQ-E1.14 — A lost or stale read never moves the rung [test]
+
+The REQ-E1.10 capability-only, reservation, hysteresis, and kill-switch fixtures carry over. New
+fixtures assert: a `defer-all` held from a valid read stays held across a signal loss longer than
+any former grace; a descend is refused while any governed window is unavailable, even with another
+valid window far below its threshold; a descend happens once every window that was valid at the last
+transition is valid below its descend threshold past the dwell, and a spend window the account never
+carried does not block it; a climb follows one valid window while others are unavailable; a
+relaunched process recovers the held rung from the audit trail; transitions stay edge-triggered and
+lock-serialized.
+
+### REQ-E1.15 — Evaluate before every admission [test + design-level]
+
+`[test]`: A fixture with a fresh 95% weekly mirror, a `normal` audit rung, and no scheduler asserts
+the fleet dispatch path withholds the next autonomous dispatch at `defer-all`; a fixture asserts no
+synchronous `/usage` capture runs on the admission path; a failing evaluate leaves the decision on the
+current audit-derived rung; concurrent admissions serialize their evaluates under the lock with no
+duplicate transition row. `[design-level]`: mission control's launcher carries the same refresh and
+the operator-asked exemption through mission-control Task 28, whose own test file verifies it; this
+entry checks that mission-control REQ-L1.7 and Task 28 still name the gate refresh at each kickoff
+of either bundle.
 
 ## REQ-F — Operator control & observability
 
@@ -319,3 +374,8 @@ A parametrized test over every config knob this bundle introduces asserts each r
   reservation exemption, and kill-switch revert; added a REQ-E1.11 entry (credit-continuation
   decline-by-default). Extended the REQ-F1.3 (kill-switch) and REQ-G1.2 (no-LLM) enumerations from
   "Tasks 2–7" to include Tasks 9, 10, 11.
+- 2026-11-04 — Usage-signal amendment: marked the REQ-E1.5, REQ-E1.6, and REQ-E1.10 entries
+  superseded (bodies kept, their fixtures carried over by the successors); added entries for
+  REQ-E1.12 (mirror source, `[test + manual]` with a mirror-shape drift check), REQ-E1.13 (three
+  windows and `off` thresholds), REQ-E1.14 (a lost read never moves the rung), and REQ-E1.15
+  (evaluate before every admission, `[test + design-level]` for the mission-control consumer).

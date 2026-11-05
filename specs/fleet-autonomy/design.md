@@ -1,7 +1,7 @@
 # Fleet Autonomy — Design
 
-**Status:** Ready
-**Last reviewed:** 2026-07-20
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -509,6 +509,10 @@ unparseable `/usage` reports the signal unavailable and governance falls back to
 backstop (D-12/REQ-E1.7) rather than blocking dispatch or guessing a number — the reactive throttle
 is exactly the safety net that makes a best-effort proactive read safe to depend on.
 
+**Superseded-by: D-29** (2026-11-04) — the `/usage` capture stays, but it is no longer the only
+source: background sessions have no screen to capture, so in practice the signal was always
+unavailable and the gate never engaged.
+
 ### D-24: Configurable, budget-aware model/effort/command allocation (N, extends D-11)
 
 **Decision:** The D-11 rule table (per-task model/effort/command selection) becomes
@@ -582,6 +586,10 @@ authoritative full-stop to the reactive backstop. Capability-only degradation ke
 floor intact (the operator's "degrade capability, never safety"); the rungs, thresholds, and
 tier/concurrency values are overlay values (D-24) while the invariants — capability-only, session
 capped at `defer-heavy`, reservation-yields-at-`defer-all` — are normative in the REQs.
+*(Amended at the usage-signal amendment 2026-11-04: the "unavailable read can at worst
+mis-throttle, never halt" property is narrowed by D-30 to "a lost signal never causes a
+restriction but can prolong one a valid read set", and the windows governing the ladder are now
+three, per D-31.)*
 
 ### D-26: This extension lands as configurable mechanism, not new doctrine (altitude, N)
 
@@ -658,6 +666,150 @@ the `/usage` signal is account-global — yields one fleet-coherent rung rather 
 per-tower clocks. The advisory lock (REQ-G1.3) already serializes daemon actions, so transition
 writes inherit its ordering with no new concurrency machinery.
 
+### D-29: Two read-only usage sources, the status-line mirror first (N, supersedes D-23)
+
+**Decision:** The usage signal is read per window from two sources in a fixed order (REQ-E1.12).
+First is the status-line mirror: the file the operator's `statusLine` command writes with the
+`rate_limits` object Claude Code hands it. Second is the existing `/usage` capture, with D-23's
+cache, TTL, plausibility, and degradation rules unchanged. A mirror window counts only when the
+file is younger than the signal TTL, the window's reset time is still ahead and within one period,
+and its percentage is plausible. Anything less falls back to the capture for that window. planwright
+only reads the mirror, refuses a relative location, judges a symlink by its target, and records only
+the extracted percentages. Everything else D-23 decided stands: account-global ground truth, no
+reservation ledger, a point-in-time read that never models reset timing, and the reactive backstop
+beneath it.
+
+**Alternatives considered:**
+- Keep the `/usage` capture as the only source (D-23 as signed). Rejected because: background
+  (stream-json) sessions have no screen to capture, so both windows always read unavailable and
+  the gate never engaged on this host (PR #836).
+- Use the mirror only and drop the capture. Rejected because: the mirror goes stale whenever no
+  interactive session redraws a status line, and the capture is the existing, tested fallback for
+  exactly that gap.
+- Take whichever source is freshest per window. Rejected because: the two carry timestamps of
+  different kinds (a file's age against a capture's record time), and a fixed order is simpler to
+  test. The mirror is Claude Code's own structured output, where the capture is a text parse of a
+  human-facing screen.
+- Have planwright install its own status-line command to write the file. Rejected because: the
+  status line is the operator's own setting, and planwright writing into it would collide with
+  their command and cross the settings boundary. The operator's line already writes the file
+  atomically.
+- Feed worker rate-limit frames (quota-handling D-14) to the gate as well. Not taken here: the
+  operator scoped this amendment to the status-line file, and the frames exist only while a
+  stream-json worker runs. A further source plugs in the same way, by its own amendment.
+
+**Chosen because:** the mirror is documented, structured, account-global data that Claude Code
+already computes, so reading it needs no screen scrape. It reaches background fleets through a file
+the operator's status line already maintains. Keeping it read-only and host-shared adds no write
+hazard, which is why REQ-E1.5 forbade a shared cache in the first place. **Research-rigor note
+(version-sensitive interface):** the status-line documentation says `rate_limits` appears only for
+subscribers or behind a spend-limited gateway, only after a session's first API response, and with
+each window independently absent and dropped once its reset passes. So the mirror is best-effort by
+design, and the per-window fallback and the unavailable state are load-bearing.
+
+### D-30: A lost or stale read never moves the rung (N, supersedes REQ-E1.10's decay rule)
+
+**Decision:** When every governed window is unavailable, the ladder holds its current audit-derived
+rung for as long as the signal stays lost, with no time-based decay (REQ-E1.14). A descend needs a
+valid reading below its descend threshold for every governed window that was valid at the last rung
+transition (its audit row records the per-window percentages already), plus the dwell. A climb may
+follow any one valid window. Only a fresh valid descend or the kill-switch releases a held rung.
+The required sustained-loss surface (REQ-E1.12) tells the operator a rung is being held on a lost
+signal. `fleet_usage_unavailable_grace_seconds` loses its role and is retired.
+
+**Alternatives considered:**
+- Keep grace-then-decay as signed (D-25, D-28, REQ-E1.10). Rejected because: the grace counts from
+  the last rung change, so after a long-held `defer-all` a single lost read drops the fleet straight
+  to `normal`, and the mirror goes stale whenever the operator is idle.
+- Count the grace from the start of the unavailable streak instead (PR #836's first option).
+  Rejected because: it only delays the release. An idle weekend outlasts any reasonable grace, and
+  a lost signal is no evidence that usage fell.
+- Raise the signal TTL in the overlay (PR #836's second option). Rejected because: it trades the
+  freshness of every reading for stickiness and still releases eventually.
+- Let a partial reading descend (only the available windows decide). Rejected because: a session
+  window reading 10% would release a stop the then-unavailable weekly window set, the same failure
+  one window over.
+- Require every governed window, whether or not it was ever seen. Rejected because: a subscriber
+  account never carries a spend window, so its fleet could never descend at all.
+
+**Chosen because:** the operator's rule is that a missing or stale read keeps the current rung. A
+held stop errs restrictive, and the operator keeps three releases: a fresh read, the kill-switch,
+and launches they ask for themselves (D-33). This narrows D-25's safety property. A lost signal still
+never *causes* a restriction (it never climbs), but it can prolong one a valid read set.
+
+### D-31: Dollar-budget accounts are governed through a spend window (N)
+
+**Decision:** The gate governs a third named window, **spend**, read from the mirror's
+`spend_limit` object: the share of a spend limit that the account's gateway sets, with its reset
+time (REQ-E1.12, REQ-E1.13). It uses the same ladder and comparisons as the other windows. It may
+reach `defer-all`, it ships the weekly window's thresholds, and a value above 100 reads as 100. The
+gate compares only the percentage; the dollar fields are never read into a decision or a record.
+An account with no windows at all leaves every window unavailable. An operator who wants no gate
+there sets its thresholds `off`, which also silences the sustained-loss surface for it.
+
+**Alternatives considered:**
+- Leave dollar accounts out of scope (PR #836). Rejected because: the operator's rule requires the
+  limit to work in either unit, and those accounts would have no proactive gate at all.
+- Meter dollars in planwright by summing `cost.total_cost_usd`. Rejected because: that field is a
+  per-session, client-side estimate at list price, and summing it across sessions is exactly the
+  parked spend-accounting ceiling.
+- Read the organization's cost report through the Admin API. Rejected because: it needs an
+  organization admin key on the host, a secret the security posture keeps off fleet machines, and
+  it reports organization spend, not the operator's own limit.
+- Give spend its own unit and thresholds in dollars. Rejected because: the gateway already
+  expresses the limit as a percentage with a reset, the same shape as a usage window, so core needs
+  no unit conversion.
+
+**Chosen because:** it is one more named window in an existing source, so dollar-budget accounts
+get the same 90%-style stop with no new mechanism and no money handled by planwright. Shipping the
+weekly window's values matches the consequence. Hitting a spend limit stops work until its period
+resets, which can be a whole month.
+
+### D-32: Any threshold may be `off`; an operator's policy stays an overlay value (N)
+
+**Decision:** Every per-window threshold accepts `off`, meaning that window never targets that rung.
+The enabled thresholds must still ascend, and range errors stay errors (REQ-E1.13). Quota-hold
+clearance uses the lowest enabled rung, or 100 when a window has none. Shipped defaults are
+unchanged. "No soft limit, hard stop at 90%" is written in the operator's overlay as `off` for every
+rung below `defer-all`, `90` for `defer-all`, and per-tier caps at `100`, so the caps never withdraw
+a tier before the wall.
+
+**Alternatives considered:**
+- Make "no soft, 90% hard" the shipped default. Rejected because: it is one operator's policy.
+  Shipping it would change behavior for every adopter with no drain evidence that it generalizes,
+  against `customization-boundary`'s default tilt toward overlays.
+- Express "no soft" with out-of-range values (101) instead of `off`. Rejected because: range
+  validation rightly refuses them, and a sentinel number reads as a real threshold.
+
+**Chosen because:** the capability (a limit can be off) belongs in core as an opt-in that preserves
+defaults, and the value (which limits are off, where the stop sits) belongs in the operator's
+overlay, per `customization-boundary` and D-24.
+
+### D-33: Evaluate before every admission; the operator-asked exemption lives at the launcher (N)
+
+**Decision:** Every path that admits work against the gate's rung runs the gate's evaluate first,
+reading the mirror and the cached capture under the advisory lock (REQ-E1.15). This bundle's fleet
+dispatch does so itself. Mission control's launch admission is mission-control Task 28's to carry
+(mission-control REQ-L1.7), cited rather than duplicated here. An evaluate that fails leaves the
+decision on the current audit-derived rung, never on `normal`. A launch the operator explicitly
+asked for may pass `defer-all` at the launcher's discretion, with the rung stated to the operator.
+
+**Alternatives considered:**
+- Rely on an operator-installed cron line to run evaluate (the `docs/fleet.md` example). Rejected
+  as the only driver: nothing installs it, and on this host the cached capture dates from October,
+  so the rung never moved.
+- Make `admit` run evaluate itself. Rejected because: `admit` is a read-only query that tools such
+  as the stats render call freely; giving it the lock and an audit write would change every
+  reader. Callers compose evaluate then admit instead.
+- Specify mission control's admission here. Rejected because: mission control owns its launcher
+  (mission-control REQ-L1.7, D-41, Task 28), and two specs stating one behavior drift.
+- Put the operator-asked exemption in the gate. Rejected because: only the launcher knows who asked
+  for a launch; the gate sees a rung, not a requester.
+
+**Chosen because:** reading the mirror is cheap, so refreshing per decision costs a file read, not a
+screen scrape, and the lock already serializes concurrent evaluators. A gate that only moves when
+something remembers to run it is the failure PR #836 found.
+
 ## Changelog
 
 - 2026-07-14 — Initial draft.
@@ -682,6 +834,13 @@ writes inherit its ordering with no new concurrency machinery.
   defaults to decline-and-wait, never auto-spend) and D-28 (ladder state derived from the shared
   audit trail, not stored — fleet-coherent, survives the memoryless relaunch, transitions under the
   advisory lock and edge-triggered). Fixed D-26's unqualified `REQ-H` refs to `autopilot-reflex`.
+- 2026-11-04 — Usage-signal amendment (`/spec-draft` extend mode, Draft delta). Marked D-23
+  `Superseded-by D-29` (body unchanged). Added D-29 (the status-line mirror as the first,
+  read-only source, the `/usage` capture as per-window fallback), D-30 (a lost or stale read never
+  moves the rung; descend needs every governed window valid; the grace knob retired), D-31 (the
+  spend window for dollar-budget accounts), D-32 (`off` thresholds; operator policy stays in
+  overlays), and D-33 (evaluate before every admission, mission control's launcher carried by its
+  Task 28, the operator-asked exemption at the launcher). Annotated D-25's safety property in place.
 
 ## Sources
 

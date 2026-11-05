@@ -1,7 +1,7 @@
 # Fleet Autonomy — Requirements
 
-**Status:** Ready
-**Last reviewed:** 2026-07-20
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -47,6 +47,17 @@ opt-in, default-preserving configuration knobs and deterministic script logic wi
 mechanism-primary bundle — a capability in core, its policy values in overlays — not as new
 doctrine (the altitude call, D-26).
 
+**Usage-signal amendment (2026-11-04).** The proactive gate never engaged in practice. It read usage
+only by scraping the `/usage` screen, and background (stream-json) sessions have no screen, so both
+windows always read unavailable. The amendment lets the gate read a second, read-only source first:
+the copy of the account's rate-limit windows that Claude Code hands to the operator's status-line
+command, which the status line writes to a file (D-29). It closes three gaps the first real use
+exposed: a lost or stale read could release a long-held stop (D-30); nothing ran the gate before a
+launch, so its rung never moved (D-33); and accounts governed by a dollar budget rather than usage
+windows had no gate at all (D-31). The operator's policy ("no soft limit, hard stop at 90%") is
+written as overlay values, which needs every threshold to accept `off` (D-32). The altitude call is
+unchanged: configurable mechanism inside this bundle, not doctrine (D-26).
+
 ## Scope
 
 ### In scope
@@ -77,6 +88,9 @@ doctrine (the altitude call, D-26).
   `/usage` command output — both the session (~5-hour) and weekly windows — and gating heavy/opus
   dispatch on configurable per-window budget thresholds (a consequence-aware default: the weekly
   window is the more sensitive metric), warning earlier, ahead of the reactive wall.
+  *(Amended at the usage-signal amendment 2026-11-04: the signal is read first from the status-line
+  mirror and then from the `/usage` capture, a third **spend** window covers dollar-budget accounts,
+  and the gate is refreshed before every admission.)*
 - Credit-continuation recovery: when the wall offers to spend credits to continue, declining and
   waiting for reset by default (never auto-spending), with credit-spend gated behind explicit
   operator opt-in.
@@ -113,6 +127,9 @@ doctrine (the altitude call, D-26).
   percentage against its rate-limit window — it is not a currency-denominated budget. REQ-E1.11's
   default refusal to spend credits at the wall is spend-*avoidance*, not spend *accounting*: it
   neither meters nor caps dollars, so it does not reopen this parked ceiling.
+  *(Amended at the usage-signal amendment 2026-11-04: reading a spend limit that an account's
+  gateway sets, as the percentage of it used (REQ-E1.13), is not this ceiling. planwright still
+  meters, sums, and sets no dollar amount of its own.)*
 - Extending the `review_sequence` knob to chain post-PR autonomous-loop skills
   (`/panel-pairing`, `/copilot-pairing`) or introducing task-PR-ready-marking automation (parked
   as the `review-gauntlet` pending seed — a different decision domain, task-execution convergence
@@ -279,6 +296,52 @@ doctrine (the altitude call, D-26).
   outstanding operator hold SHALL be cleared when the kill-switch is engaged (the operator has
   assumed control; the hold no longer applies).
   *(Cites: D-23; obs:5d6d206c.)*
+  **Superseded-by: REQ-E1.12** (2026-11-04) — the `/usage` capture is no longer the only source:
+  background sessions have no screen to capture, so the signal was always unavailable (D-29).
+- **REQ-E1.12** (supersedes REQ-E1.5) The proactive account-usage signal SHALL be read per window
+  from two sources in a fixed order. The first is the **status-line mirror**: the file holding the
+  `rate_limits` object Claude Code passes to the operator's `statusLine` command, by default
+  `${XDG_CACHE_HOME:-~/.cache}/claude-usage/rate-limits.json`, its location resolved through the
+  overlay mechanism (REQ-G1.5) and the source turned off when the location resolves empty. The
+  second is the capture of Claude Code's own `/usage` output. planwright SHALL only read the mirror,
+  never write, create, or repair it; a mirror location that is not an absolute path SHALL be
+  refused, and a symlinked mirror SHALL be judged by its target. Windows are identified by name,
+  never by position: the **session** window (~5-hour, `five_hour` in the mirror), the **weekly**
+  window (`seven_day`), and the **spend** window (`spend_limit`, REQ-E1.13); the capture supplies
+  only the first two. A mirror window SHALL count only when the file's age is within the signal
+  TTL, its reset time is still ahead and no further ahead than one period of that window (for the
+  spend window, its reported period, or a month when none is reported), and its
+  percentage is plausible: 0 to 100 for the session and weekly windows, and for the spend window 0
+  or more, with a value above 100 read as 100 (the gateway reports overspend above 100, so it is
+  never implausible). A window the mirror does not supply validly SHALL fall back to the capture for
+  that window, and a window neither source supplies validly SHALL be reported unavailable, never 0
+  and never guessed. A reset time SHALL be used only to discard an expired reading, never to
+  predict or model reset timing: the read is point-in-time, and it relaxes as soon as a fresh valid
+  reading shows lower usage. Both sources carry the same account-global figure, so the read SHALL be
+  treated as inherently shared-aware (every concurrent tower, every worker, and unrelated work on the
+  same account), and the mechanism SHALL NOT keep any per-orchestrator usage reservation or
+  accounting: the account-global figure is ground truth. The mirror is a host-shared file that
+  planwright never writes, so it adds no cross-tower write hazard; the capture cache stays per-tower
+  and local. Because the capture is expensive, it SHALL be cached and refreshed on an
+  overlay-configurable cadence off the dispatch hot path (never a synchronous per-dispatch scrape),
+  with a conservative shipped default; the refresh cadence SHALL be shorter than the TTL
+  (validated), and a cached capture staler than its TTL SHALL be treated as unavailable. Both
+  sources are **untrusted input**: control and escape bytes SHALL void a mirror reading and SHALL be
+  stripped from the capture before parsing (security-posture echo discipline); any intermediate
+  capture artifact SHALL be access-restricted and removed after parse; any echoed mirror location
+  SHALL be sanitized; and only the extracted per-window percentages and the resulting rung decision
+  SHALL be recorded in logs, the audit trail, and any operator-facing surface, never the raw mirror
+  content or `/usage` render, which can carry account or plan identifiers and dollar amounts
+  (security-posture artifact hygiene). Where no governed window is available, governance SHALL fall
+  back to the reactive backstop (REQ-E1.7), the deterministic floor, so the fleet never hard-blocks
+  on a missing signal, and MAY additionally escalate to the operator per incidence. **Sustained**
+  unavailability (every governed window unavailable across an overlay-configurable number of
+  consecutive reads) SHALL raise a **required** operator-facing surface, a warning escalating to an
+  Awaiting-input hold, so a mirror that silently stopped updating and a broken `/usage` parse are
+  both never silent. A window whose every threshold is `off` (REQ-E1.13) is ungoverned, and its
+  unavailability SHALL raise nothing. An outstanding operator hold SHALL be cleared when the
+  kill-switch is engaged.
+  *(Cites: D-29, D-31, D-23; PR #836 (Sources); the status-line documentation (Sources).)*
 - **REQ-E1.6** Proactive governance SHALL express dispatch gating and allocation degrade as a
   single monotone **restriction ladder**, not two competing mechanisms. The rungs, lightest to
   heaviest, are: `normal` → `downshift` (cheaper model/effort tier, REQ-E1.10) → `reduce-concurrency`
@@ -299,6 +362,34 @@ doctrine (the altitude call, D-26).
   audited and kill-switchable on the same footing as the reactive throttle (REQ-F1.3, REQ-F1.4) — and
   introduces no new daemon-action type.
   *(Cites: D-23; obs:5d6d206c.)*
+  **Superseded-by: REQ-E1.13** (2026-11-04) — a third window, `off` thresholds, the operator-asked
+  launch at `defer-all`, and the narrowed safety property (D-30, D-31, D-32).
+- **REQ-E1.13** (supersedes REQ-E1.6) Proactive governance SHALL express dispatch gating and
+  allocation degrade as a single monotone **restriction ladder**, not two competing mechanisms. The
+  rungs, lightest to heaviest, are: `normal` → `downshift` (cheaper model/effort tier, REQ-E1.14) →
+  `reduce-concurrency` (fewer simultaneous workers) → `defer-heavy` (admit only cheaper units;
+  heavy/opus units wait) → `defer-all` (admit no new autonomous dispatch). Each governed window
+  (session, weekly, and spend, REQ-E1.12) SHALL carry overlay-resolved thresholds mapping its usage
+  percentage to a target rung; any threshold MAY be `off`, meaning that window never targets that
+  rung; the enabled thresholds of each window SHALL ascend (validated); and the **effective rung
+  SHALL be the most restrictive** of the windows' targets. The session window SHALL be **capped at
+  `defer-heavy`** (fast-burning, short to recover; the reactive backstop catches a genuine session
+  wall), while the weekly and spend windows MAY reach `defer-all` (hitting either can stop work until
+  its period resets). The shipped session and weekly thresholds SHALL stay the values signed before
+  this amendment, and the spend window SHALL ship the weekly window's values; an operator's own
+  policy (for example "no soft limit, hard stop at 90% weekly") SHALL be expressed only as overlay
+  values (`off` for every rung below `defer-all`, `90` for `defer-all`), never as a core default.
+  The per-tier caps (REQ-E1.9) SHALL compare against the same governed windows. A launch the operator
+  explicitly asks for is outside the ladder: `defer-all` withholds autonomous dispatch only, and the
+  launching consumer MAY admit an operator-asked launch, stating the current rung to the operator,
+  with the reactive wall still governing it (REQ-E1.15). An unavailable read SHALL never climb the
+  ladder and SHALL never release a rung a valid read set (REQ-E1.14), so a lost signal can at worst
+  prolong a restriction, never cause one. Comparisons SHALL be deterministic (≥ at the configured
+  percentage), never an LLM judgment (REQ-G1.2); thresholds SHALL resolve through the four-layer
+  overlay mechanism (REQ-G1.5). Each rung transition is a throttle-family daemon action, audited and
+  kill-switchable on the same footing as the reactive throttle (REQ-F1.3, REQ-F1.4), and introduces
+  no new daemon-action type.
+  *(Cites: D-25, D-30, D-31, D-32; the operator's usage-limit rule (Sources).)*
 - **REQ-E1.7** Reactive fleet-wide dispatch throttling (the REQ-E1.3 mechanism: detect Claude
   Code's native rate-limit signal, pause fleet-wide, resume at the signaled reset time) SHALL be
   retained as the hard backstop beneath the proactive gate (REQ-E1.6). The two SHALL compose: the
@@ -329,6 +420,8 @@ doctrine (the altitude call, D-26).
   comparison against the signal, never an LLM judgment (REQ-G1.2), and SHALL be inactive when the
   signal is unavailable (allocation then follows the REQ-E1.10 unavailable-signal behavior).
   *(Cites: D-24; obs:9af1f82f.)*
+  *(Amended at the usage-signal amendment 2026-11-04: the REQ-E1.10 references here now resolve to
+  REQ-E1.14, which superseded it, and the caps read the windows REQ-E1.13 governs.)*
 - **REQ-E1.10** The `downshift` and `reduce-concurrency` rungs of the restriction ladder (REQ-E1.6)
   SHALL degrade **capability only** and SHALL NEVER weaken a carried safety floor: they SHALL NOT
   downgrade a worker below a full session-grade Claude Code session (Out of scope:
@@ -355,6 +448,50 @@ doctrine (the altitude call, D-26).
   existing advisory lock (REQ-G1.3) and logged **edge-triggered** (only on an actual rung change,
   never per evaluation).
   *(Cites: D-25, D-28; obs:9af1f82f, obs:5d6d206c.)*
+  **Superseded-by: REQ-E1.14** (2026-11-04) — the grace-then-decay rule let one lost read release
+  a long-held stop, because the grace counts from the last rung change (D-30).
+- **REQ-E1.14** (supersedes REQ-E1.10) The `downshift` and `reduce-concurrency` rungs of the
+  restriction ladder (REQ-E1.13) SHALL degrade **capability only** and SHALL NEVER weaken a carried
+  safety floor: they SHALL NOT downgrade a worker below a full session-grade Claude Code session (Out
+  of scope: lighter-weight-script workers), SHALL NOT relax the autonomous-safe-decision determinism
+  floor (REQ-G1.2), and SHALL NOT engage Claude Code's `auto` permission mode (REQ-E1.4). The ladder
+  (its rungs, per-window thresholds, and tier/concurrency values) SHALL resolve through the overlay
+  mechanism (REQ-G1.5); each rung transition SHALL be an audited daemon action subject to the
+  kill-switch (REQ-F1.3, REQ-F1.4), and engaging the kill-switch returns allocation to the default
+  (un-degraded `normal`) policy. Rung transitions SHALL apply hysteresis (a descend threshold below
+  the climb threshold, and/or a minimum dwell at a rung before the next transition) resolved through
+  the overlay, so the ladder does not flap on a noisy read. A per-model reservation (REQ-E1.9) is
+  honored thus: the reserved unit SHALL be exempt from the `downshift` and `defer-heavy` rungs but
+  SHALL NOT be exempt from `defer-all` or the reactive wall; the shipped default reserves nothing.
+  **A missing, stale, or implausible read SHALL never move the rung.** When every governed window is
+  unavailable, the ladder SHALL hold its current rung, read from the audit trail (REQ-F1.4) so a
+  relaunched memoryless tower recovers it, for as long as the signal stays unavailable, with no
+  time-based decay. A descend below the current rung SHALL require a valid reading, below its
+  descend threshold, for **every** governed window that had a valid reading at the last rung
+  transition (read from that transition's audit row), plus the dwell, so a window lost since then
+  can never release the rung while a window the account never carries (a subscriber's spend window)
+  never blocks it; a climb MAY follow any one valid window. Only a fresh valid descend or the kill-switch SHALL release a held rung. The required
+  sustained-loss surface (REQ-E1.12) is how the operator learns a rung is held on a lost signal, and
+  the reactive backstop (REQ-E1.7) remains the floor throughout. Ladder state (current rung, last
+  transition) SHALL be derived from the shared audit trail rather than stored (D-28), so it is
+  fleet-coherent and survives a memoryless relaunch; each rung transition SHALL be taken under the
+  existing advisory lock (REQ-G1.3) and logged **edge-triggered** (only on an actual rung change,
+  never per evaluation).
+  *(Cites: D-25, D-28, D-30; PR #836 (Sources); the operator's usage-limit rule (Sources).)*
+- **REQ-E1.15** Every dispatch or launch path that consults the gate's rung to admit work SHALL first
+  run the gate's evaluate, so the rung it admits against reflects a read taken for that decision.
+  This bundle's fleet dispatch path SHALL do so; mission control's launch admission
+  (mission-control REQ-L1.7, carried by mission-control Task 28) is the other consumer and carries
+  this requirement for its launcher rather than this bundle duplicating it. Evaluate on the admission
+  path SHALL read the mirror and the cached capture only, never a synchronous `/usage` scrape
+  (REQ-E1.12's off-hot-path rule), and SHALL serialize under the existing advisory lock (REQ-G1.3).
+  The gate SHALL NOT depend on an external scheduler to move its rung, though an operator MAY still
+  schedule evaluate. An evaluate that fails SHALL leave the admission deciding on the current
+  audit-derived rung, never on `normal` by default; a consumer MAY hold the launch instead. The
+  exemption for a launch the operator explicitly asked for (REQ-E1.13) SHALL belong to the launching
+  consumer, never to the gate, and the consumer SHALL tell the operator the current rung when it
+  uses the exemption.
+  *(Cites: D-33; PR #836 (Sources); mission-control REQ-L1.7 (Sources).)*
 - **REQ-E1.11** When Claude Code's rate-limit wall presents a **credit-continuation prompt**
   (offering to spend credits or extra paid usage to continue past the limit), fleet governance
   SHALL by default **decline and wait** for the window to reset (the REQ-E1.7 reactive-backstop
@@ -534,6 +671,20 @@ doctrine (the altitude call, D-26).
   and coverage (F1.3 test + Task 10 cite) extended to Tasks 9–11; `[manual]` `/usage` drift check;
   "per wave" removed; D-26 foreign refs qualified.
 
+- 2026-11-04 — Usage-signal amendment (`/spec-draft` extend mode, meaning-class delta at Status
+  Draft; the bundle derived Done, so the reopen cycle REQ-A3.1 flips stored Ready → Draft on all four
+  headers). Asked for by the operator ("Amend the spec") to settle the signed-text clash draft
+  PR #836 raised. REQ-E1.5 superseded by REQ-E1.12 (the status-line mirror read first, the `/usage`
+  capture as per-window fallback, the spend window, the mirror's freshness and hygiene rules);
+  REQ-E1.6 superseded by REQ-E1.13 (three windows, `off` thresholds, the operator-asked launch at
+  `defer-all`, a lost signal can prolong but never cause a restriction); REQ-E1.10 superseded by
+  REQ-E1.14 (a lost or stale read never moves the rung, a descend needs every governed window valid);
+  REQ-E1.15 added (evaluate before every admission, mission control's launcher carried by its
+  own Task 28). Goal paragraph added; the In-scope proactive-gate bullet, the Out-of-scope dollar
+  ceiling bullet, and REQ-E1.9 annotated in place. Design adds D-29 to D-33, supersedes D-23 with
+  D-29, and annotates D-25's safety property; Tasks 12 to 15 appended; test-spec pins REQ-E1.12 to
+  REQ-E1.15.
+
 ## Sources
 
 - **The `fleet-autonomy` drafting session** (2026-07-14) — the full elicitation: the original
@@ -587,3 +738,26 @@ doctrine (the altitude call, D-26).
   layers, degrading capability never safety. Frames REQ-E1.8–E1.10 and D-24/D-25. Also recorded on
   PR #275 (not yet merged); consumption deferred identically, via `scripts/obs-consume.sh --uid
   9af1f82f --spec fleet-autonomy` once #275 lands.
+- **PR #836** (draft, "read usage from the status-line mirror and let a limit be off", 2026-11-04)
+  — the implementation that surfaced the clash with REQ-E1.5 and quota-handling D-14, and its three
+  open points: nothing schedules the gate's evaluate, a stale mirror can release a held stop through
+  the grace-then-decay rule, and dollar-budget accounts are not covered. Frames REQ-E1.12 to
+  REQ-E1.15 and D-29 to D-33.
+- **The operator's usage-limit rule** (mission control's standing rules, 2026-11-04) — no soft
+  limit, a hard stop at 90% of the weekly window above which only operator-asked work starts, usage
+  read from the status-line file, and a limit that works for accounts measured in dollars as well
+  as in usage windows. The operator chose "only the 90% stop" over the earlier 70/85 ladder. Frames
+  the policy values D-32 keeps in overlays and the requirements REQ-E1.13 and REQ-E1.14.
+- **The status-line documentation** (research: Claude Code's "Customize your status line" page,
+  `code.claude.com/docs/en/statusline`, read 2026-11-04) — the `rate_limits` object carries
+  `five_hour` and `seven_day` with `used_percentage` (0 to 100) and `resets_at` (epoch seconds) for
+  claude.ai Pro, Max, and Ultra subscribers, and `spend_limit` (`used_percentage`, which may exceed
+  100, and `resets_at`, plus optional dollar fields and a daily, weekly, or monthly period) behind a
+  Claude apps gateway that sets a spend limit; each window may be independently absent, appears only
+  after the session's first API response, and is dropped once its reset passes; `cost.total_cost_usd`
+  is a per-session client-side estimate. Grounds D-29 and D-31.
+- **mission-control REQ-L1.7 and Task 28** — mission control's dynamic, host-shared launch
+  admission, the consumer REQ-E1.15 names for mission-control launches.
+- **quota-handling D-14** — rejected feeding a second producer to the usage gate as this bundle's
+  amendment to sign; this amendment is that signature for the status-line mirror only (worker
+  rate-limit frames still feed no gate producer).

@@ -1,11 +1,11 @@
 # Fleet Autonomy — Tasks
 
-**Status:** Ready
-**Last reviewed:** 2026-07-20
+**Status:** Draft
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
-Eleven tasks. Task 1 is foundational and is dispatched first per the guard-infrastructure-first
+Task 1 is foundational and is dispatched first per the guard-infrastructure-first
 selection rule; every task except Task 6 depends on it (Task 6's ghost-text prevention is a static
 env-var set unconditionally at dispatch, never a runtime kill/cleanup/restart/throttle decision, so
 it needs none of Task 1's kill-switch or audit-trail infrastructure — a deliberate non-edge, not an
@@ -17,6 +17,15 @@ usage gate) depends on Task 1's daemon/audit infrastructure and Task 7's throttl
 9 — the degrade ladder cannot downshift without Task 9's usage signal; Task 11 (credit-continuation
 recovery) depends on Task 1 and Task 7 (it reacts to the wall prompt, not the proactive read, so it
 is independent of Task 9 and can run in parallel with it).
+
+Tasks 12 to 15 are the 2026-11-04 usage-signal amendment. Task 12 adds the status-line mirror as
+the gate's first source and lets any threshold be `off`; Task 13 adds the spend window on top of
+Task 12's mirror read; Task 14 makes a lost signal hold the rung, and depends on Task 12 because
+Task 12's per-window validity is what "lost" means; Task 15 runs the gate's evaluate before every
+fleet admission, and depends on Task 14 because refreshing before every launch under the old decay
+rule would release a held stop more often, not less. Mission control's own launch admission is
+mission-control's Task 28 (REQ-L1.7), which carries REQ-E1.15 for that launcher; it is a
+cross-bundle consumer, so no `Dependencies:` edge names it.
 
 ## Tasks
 
@@ -261,6 +270,95 @@ is independent of Task 9 and can run in parallel with it).
 - **Citations:** D-27 · REQ-E1.11, REQ-E1.7, REQ-F1.3, REQ-F1.4, REQ-G1.2, REQ-G1.5
 - **Estimated effort:** 1 day
 
+### Task 12 — Status-line mirror as the first usage source, and `off` thresholds
+
+- **Deliverables:** `scripts/fleet-usage-gate.sh` reads the status-line mirror per window before the
+  `/usage` capture, with the mirror's location resolved through the overlay (an absolute path;
+  empty turns the source off; a per-process environment override only as a test seam), the
+  freshness rules (file age within the signal TTL, a reset still ahead and within one window
+  period, a plausible percentage), control bytes voiding a reading, and a symlink judged by its
+  target; every `fleet_usage_session_*` and `fleet_usage_weekly_*` threshold accepting `off` through
+  the shared knob resolver, enabled thresholds still ascending; quota-hold clearance using the
+  lowest enabled rung, or 100 for a window with none; the test runner and every gate-reaching suite
+  pinning the mirror off so a live mirror never changes a fixture; `docs/quota.md`, `docs/fleet.md`,
+  `docs/options-reference.md`, and `config/defaults.yml` naming what writes the mirror, that it
+  goes stale with no redrawn status line, and that it must be written atomically. Draft PR #836
+  carries most of this.
+- **Done when:** a fixture with a fresh mirror and a stale capture asserts the mirror's value wins
+  per window; a fixture with a stale mirror, an expired reset, a reset more than one period ahead,
+  an out-of-range percentage, or a control byte asserts that window falls back to the capture; a
+  window neither source supplies reads unavailable, never 0; a relative mirror location is refused;
+  the mirror location resolves through the overlay (a machine-local override wins, verified via
+  `config-get.sh`); an echoed mirror location is sanitized; an audit-row assertion confirms rows
+  carry only percentages and the rung, never mirror content; a fixture sets every rung below
+  `defer-all` to `off` and `defer-all` to 90 and asserts the gate stays `normal` up to 89% weekly
+  and reaches `defer-all` at 90%; non-ascending enabled thresholds are rejected; with no overlay,
+  every existing ladder fixture passes unchanged; a planted 99% mirror in the cache directory
+  changes no other suite's result; tests/CI pass.
+- **Dependencies:** 9, 10
+- **Citations:** D-29, D-32, D-23 · REQ-E1.12, REQ-E1.13, REQ-G1.2, REQ-G1.5
+- **Estimated effort:** 1.5 days
+
+### Task 13 — Spend window for dollar-budget accounts
+
+- **Deliverables:** The gate reads the mirror's `spend_limit` window (`used_percentage` and
+  `resets_at` only) as the **spend** window, with its own overlay-resolved
+  `fleet_usage_spend_*` thresholds shipping the weekly window's values and accepting `off`; spend
+  may reach `defer-all`; a value above 100 reads as 100; its reset is bounded by its reported
+  period, or a month when none is reported; the spend window takes part in the effective rung, the
+  per-tier caps, and the sustained-loss count wherever the session and weekly windows do, and the
+  quota-hold clearance never waits on a window the account does not carry; options-reference and defaults rows for the new
+  knobs; docs naming which accounts carry which windows.
+- **Done when:** a fixture mirror carrying only `spend_limit` at 95% asserts the effective rung is
+  `defer-all`; a spend value of 130 reads as 100, never unavailable; a fixture with every spend
+  threshold `off` and no spend window asserts the sustained-loss surface does not fire for spend; a
+  spend window present alongside session and weekly asserts the most restrictive governs; an
+  assertion confirms no dollar field is read into a decision, a log, or the audit trail; the new
+  knobs resolve through the overlay; tests/CI pass.
+- **Dependencies:** 12
+- **Citations:** D-31, D-32 · REQ-E1.12, REQ-E1.13, REQ-E1.9, REQ-G1.5
+- **Estimated effort:** 1 day
+
+### Task 14 — A lost or stale read holds the rung
+
+- **Deliverables:** The gate's evaluate holds the audit-derived rung for as long as every governed
+  window is unavailable, with no time-based decay; a descend requires a valid reading below its
+  descend threshold for every governed window that was valid at the last rung transition (read
+  from that transition's audit row), plus the dwell, while a climb may follow any one valid window; `fleet_usage_unavailable_grace_seconds` retired from the gate, the defaults, and the
+  options reference, with a resolver warning naming it when an overlay still sets it; docs stating
+  that a held rung on a lost signal is released by a fresh valid descend or the kill-switch, and
+  that the sustained-loss surface is the operator's notice.
+- **Done when:** a fixture holding `defer-all` from a valid 92% weekly read, then losing every
+  window for longer than any former grace, asserts the rung stays `defer-all`; a fixture with
+  weekly unavailable and session valid at 10% asserts no descend; a fixture with every window that
+  was valid at the last transition now valid and below its descend threshold past the dwell asserts
+  the descend, with a spend window never seen not blocking it; a fixture with one window
+  valid above a climb threshold and the others unavailable asserts the climb; the kill-switch still
+  returns allocation to `normal`; a relaunched process recovers the held rung from the audit trail;
+  an overlay setting the retired grace knob gets the named warning; tests/CI pass.
+- **Dependencies:** 12
+- **Citations:** D-30, D-28, D-25 · REQ-E1.14, REQ-E1.12, REQ-F1.3, REQ-F1.4, REQ-G1.3
+- **Estimated effort:** 1 day
+
+### Task 15 — Evaluate before every fleet admission
+
+- **Deliverables:** Every fleet path that launches autonomous work runs the gate's evaluate and
+  then honors `admit` before the launch, and the allocation path that reads the rung
+  (`scripts/allocation-adapt.sh`, `scripts/fleet-allocate.sh`) reads it after that evaluate; the
+  evaluate reads the mirror and the cached capture only, under the advisory lock;
+  an evaluate failure leaves the decision on the current audit-derived rung; `docs/fleet.md`
+  states that admission refreshes the gate itself, that an operator-scheduled evaluate stays
+  optional, and that mission control's launch admission (mission-control Task 28) carries the
+  same refresh and the operator-asked exemption for its launcher.
+- **Done when:** a fixture with a fresh 95% weekly mirror and a `normal` audit rung asserts the
+  next dispatch is withheld at `defer-all` with no scheduler running; a fixture asserts no
+  synchronous `/usage` capture runs on the admission path; a fixture with evaluate failing asserts
+  the decision uses the current audit-derived rung, not `normal`; two concurrent admissions
+  serialize their evaluates under the lock with no duplicate transition row; tests/CI pass.
+- **Dependencies:** 14
+- **Citations:** D-33 · REQ-E1.15, REQ-E1.12, REQ-G1.3
+- **Estimated effort:** 1 day
+
 ## Awaiting input
 
 (none yet)
@@ -304,6 +402,6 @@ is independent of Task 9 and can run in parallel with it).
 - New AI/agent frameworks (Claude Code primitives only).
 - A confidence-calibrated model-routing cascade (D-11).
 - A self-imposed dollar-spend ceiling, distinct from rate-limit throttling (parked as a pending
-  seed).
+  seed). Reading a gateway-set spend limit as a percentage window (Task 13) is not this ceiling.
 - Extending `review_sequence` to chain post-PR autonomous-loop skills or introducing
   task-PR-ready-marking automation (parked as the `review-gauntlet` pending seed).
