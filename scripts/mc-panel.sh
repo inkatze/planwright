@@ -823,7 +823,9 @@ activate() {
     set +f
     for ac_f in "$ac_sd"/*; do
       ac_k=${ac_f##*/}
-      mc_valid_uint "$ac_k" && names_session "$ac_f" "$session" && pid_alive "$ac_k" || continue
+      if ! { mc_valid_uint "$ac_k" && names_session "$ac_f" "$session" && pid_alive "$ac_k"; }; then
+        continue
+      fi
       pid=$ac_k
       break
     done
