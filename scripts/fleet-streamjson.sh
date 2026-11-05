@@ -268,10 +268,10 @@
 #       tick shares its mark) where a plain scan pushes on every call. A
 #       worker positively dead (every recorded pid dead through
 #       fleet-death-evidence.sh, or no pidfile left beside a complete result
-#       record, the run's recorded end) is never escalated: nobody can answer what
-#       it left, so its pending receipts are closed undeliverable, as a stop
-#       closes them, its request row is cleared from the queue, and the scan
-#       prints `dead <worker> <settled>`.
+#       record, the run's recorded end) is never escalated: nobody can
+#       answer what it left, so its pending receipts are closed
+#       undeliverable, as a stop closes them, its request row is cleared
+#       from the queue, and the scan prints `dead <worker> <settled>`.
 #   fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe] [--final]
 #       Close the worker: terminate its process tree and release the locks,
 #       scratch temp, and attention record it holds. Prints one of
@@ -3388,9 +3388,10 @@ result_snapshot() {
 # every pid it records (supervisor and worker) yields a dead verdict from
 # fleet-death-evidence.sh, or its supervisor recorded the run's end (what
 # `status` reports as completed, ended or limited): neither pidfile is left
-# and a complete result record is. The supervisor removes its pidfiles only once its worker has
-# exited, so that pair is a record, not silence. No readable pidfile without
-# one, or any verdict short of dead, is not death: silence is never evidence.
+# and a complete result record is. The supervisor removes its pidfiles only
+# once its worker has exited, so that pair is a record, not silence. No
+# readable pidfile without one, or any verdict short of dead, is not death:
+# silence is never evidence.
 worker_dead() {
   if [ ! -e "$1/supervisor.pid" ] && [ ! -L "$1/supervisor.pid" ] \
     && [ ! -e "$1/worker.pid" ] && [ ! -L "$1/worker.pid" ] \
