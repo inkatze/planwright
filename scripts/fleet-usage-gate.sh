@@ -6,9 +6,9 @@
 # Task 7's fleet-throttle.sh is REACTIVE — it pauses only once Claude Code
 # renders its native rate-limit wall. This gate is PROACTIVE: it reads real
 # account-level usage (the status-line mirror below, else a capture of Claude
-# Code's own `/usage` render), takes BOTH windows — the session (~5-hour rolling) and the weekly — and
-# maps each window's consumed percentage to a rung on a single monotone
-# restriction ladder, gating dispatch ahead of the wall. Because `/usage` is
+# Code's own `/usage` render), takes BOTH windows — the session (~5-hour
+# rolling) and the weekly — and maps each window's consumed percentage to a
+# rung on a single monotone restriction ladder, gating dispatch ahead of the wall. Because `/usage` is
 # account-global it is inherently shared-aware (it already reflects every
 # concurrent tower, all workers, and unrelated same-account work), so no
 # per-orchestrator reservation is kept — the shared figure is ground truth
