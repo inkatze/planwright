@@ -264,14 +264,17 @@ victim=$!
 poll_until --what 'the push in flight' -- test -e "$tmp/late-pushes.started" \
   || fail "killed-push: the push never started"
 [ -s "$home/fleet/quota/sample-cli/pushed" ] || fail "killed-push: the push was never reserved"
-# TERM the whole tree, as a timeout wrapper's process-group signal would.
-term_tree() {
+# TERM the whole tree, as a timeout wrapper's process-group signal would, and
+# parents first: a child signalled before its parent lets the parent run on
+# (the stub's sleep dying first lets the stub finish its push).
+tree_pids() {
+  printf '%s\n' "$1"
   for tt_c in $(pgrep -P "$1" 2>/dev/null); do
-    term_tree "$tt_c"
+    tree_pids "$tt_c"
   done
-  kill -TERM "$1" 2>/dev/null || :
 }
-term_tree "$victim"
+# shellcheck disable=SC2046 # one pid per word
+kill -TERM $(tree_pids "$victim") 2>/dev/null || :
 wait "$victim" 2>/dev/null || :
 poll_until --what 'the killed holder releasing its reservation' -- test ! -s "$home/fleet/quota/sample-cli/pushed" \
   || fail "killed-push: the killed holder never released its reservation"
