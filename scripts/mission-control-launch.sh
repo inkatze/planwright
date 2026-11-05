@@ -398,7 +398,14 @@ own_pids() {
   op_n=0
   while [ -n "$op_pid" ] && [ "$op_pid" -gt 1 ] 2>/dev/null && [ "$op_n" -lt 64 ]; do
     printf '%s\n' "$op_pid"
-    op_pid=$(ps -o ppid= -p "$op_pid" 2>/dev/null | tr -d ' ')
+    # busybox ps has no -p; procfs gives the parent wherever it exists. The
+    # command name may hold spaces and parentheses, so fields count from the
+    # last one.
+    if [ -r "/proc/$op_pid/stat" ]; then
+      op_pid=$(sed 's/.*) //' "/proc/$op_pid/stat" 2>/dev/null | cut -d' ' -f2)
+    else
+      op_pid=$(ps -o ppid= -p "$op_pid" 2>/dev/null | tr -d ' ')
+    fi
     op_n=$((op_n + 1))
   done
 }
