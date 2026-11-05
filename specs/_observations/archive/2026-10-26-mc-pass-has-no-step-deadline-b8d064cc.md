@@ -1,0 +1,2 @@
+- 2026-10-26 [planwright] mission control: watcher and snapshot-adapter runs have no timeout, so one hung adapter or watcher stalls the runner pass that waits on it, and a TERM to the runner then waits on that pass; a per-step deadline seam (knob plus kill on expiry) belongs to the adapter follow-on or the runner
+Consumed-by: specs/mission-control (2026-11-04)

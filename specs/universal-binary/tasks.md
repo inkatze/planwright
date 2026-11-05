@@ -561,6 +561,12 @@ Task 4: no floor-forbidden failures.
   job that installs the pinned toolchains, runs the harness with
   `--platform`, and uploads the report and view for committing), listed in
   the Task 6 pull request body.
+- **Task 7** — post-pr step `cubic-pr` halted (record
+  `.claude/steps/000001/007-step-post-pr.rec`): the operator's secondary
+  review stands in for cubic until its quota returns, then the ready flip.
+  Also awaiting direction: the macOS and musl bake-off B reports need the
+  same on-demand CI job Task 6 asks for, a CI-configuration zone, so
+  recorded rather than applied, listed in the Task 7 pull request body.
 - **Task 8** — post-pr step `cubic-pr` halted (record
   `.claude/steps/000001/008-done-post-pr.rec`): the operator's secondary
   review stands in for cubic until its quota returns, then the ready flip.

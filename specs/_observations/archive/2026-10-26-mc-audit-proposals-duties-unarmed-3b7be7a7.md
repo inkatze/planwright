@@ -1,0 +1,2 @@
+- 2026-10-26 [planwright] mission-control Task 9 ships scripts/mc-audit.sh and scripts/mc-proposals.sh, but the self-audit and proposals entries in config/duties.yaml still ship off with no watchers, and while mission_control_default_duties enables both, Task 10's deliverables build neither duty's catalog entry or scripts; no task in the bundle names the catalog wiring that runs them on a schedule.
+Consumed-by: specs/mission-control (2026-11-04)

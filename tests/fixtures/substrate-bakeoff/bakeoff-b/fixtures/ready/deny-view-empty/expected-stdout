@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"planwright ready-guard: the GitHub query for this pull request returned nothing, so its currency and mergeability could not be confirmed - refusing (fail closed)."}}

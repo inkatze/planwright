@@ -1,0 +1,9 @@
+#!/bin/sh
+# Build the Go candidate's two binaries into out/. Needs `go` on PATH (the
+# bake-off README names the pinned toolchain). Static: no cgo.
+set -eu
+cd "${0%/*}"
+mkdir -p out
+for p in tokenize ready; do
+  CGO_ENABLED=0 go build -trimpath -ldflags=-s -o "out/$p" "./src/$p/main.go"
+done

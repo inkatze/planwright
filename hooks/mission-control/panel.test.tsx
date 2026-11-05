@@ -137,7 +137,7 @@ test('the slash command reopens the pane', async ($, on) => {
   const w = world(on)
   await boot($, w)
   const before = w.opened
-  const out = await $.command.run({ command: 'mission-control', args: '', origin: { kind: 'composer' } } as never)
+  const out = await $.command.run({ command: 'mc-panel', args: '', origin: { kind: 'composer' } } as never)
   expect(w.opened).toBe(before + 1)
   expect(JSON.stringify(out)).toContain('Mission control panel opened.')
 })

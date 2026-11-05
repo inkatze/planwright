@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"planwright ready-guard: this pull request's mergeability could not be confirmed (mergeable was BLOCKED, not MERGEABLE) - refusing (fail closed)."}}

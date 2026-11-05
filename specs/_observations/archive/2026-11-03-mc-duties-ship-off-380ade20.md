@@ -1,0 +1,2 @@
+- 2026-11-03 [planwright] config/duties.yaml ships the undo-ledger, self-audit and proposals duties with lifecycle off and no watchers, though mc-audit.sh, mc-proposals.sh and the skill steps behind them exist; the operator guide (docs/mission-control.md) presents them as working duties, so either the catalog entries need promoting once their work lands or the guide needs a caveat.
+Consumed-by: specs/mission-control (2026-11-04)

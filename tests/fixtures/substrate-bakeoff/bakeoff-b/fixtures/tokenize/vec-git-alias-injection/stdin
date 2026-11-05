@@ -1,0 +1,1 @@
+git -c alias.st='!sh' st

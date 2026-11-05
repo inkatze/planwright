@@ -109,6 +109,33 @@ report can be read without the task open.
   [its README](../tests/fixtures/substrate-bakeoff/bakeoff-a/README.md);
   each committed report and its view sit under `docs/substrate/bakeoff-a/`.
 
+## Bake-off B decisions
+
+The hook tier's bake-off, under the same rules.
+
+- **Candidates.** The full candidates this page admits for adopter tiers:
+  hardened shell, Go and Rust. The comparison points are not re-measured,
+  since the trivial program does not depend on the tier.
+- **The primitives.** The command guard's tokenizer, and the ready guard's
+  predicate from the GitHub answers to the decision, its network calls
+  replaced by recorded answers. The ready guard's own Bash-surface parse is
+  left out: it is a second, smaller tokenizer of the same kind.
+- **The call site.** The tokenizer on a typical worker command, because the
+  command guard tokenizes every Bash call while the predicate runs only on a
+  flip.
+- **The vector enumeration.** One row per false-allow vector an observation
+  in the bundle's parser-fragility Sources names, in
+  [vectors.tsv](../tests/fixtures/substrate-bakeoff/bakeoff-b/vectors.tsv):
+  vector id, observation UID, tokenizer case, and the vector. Observations
+  in that list that name no command-guard false-allow (a fail-open screen
+  elsewhere, an unchecked exit status, a guard that over-defers, a lint
+  check's quoting blind spot) have no row.
+- **Outcome.** Every full candidate passed every fixture on each platform
+  with a committed report, so none is screened out there. The inputs and how
+  to run it are in
+  [its README](../tests/fixtures/substrate-bakeoff/bakeoff-b/README.md); each
+  committed report and its view sit under `docs/substrate/bakeoff-b/`.
+
 ## Dev-check tier
 
 The dev-check screen (REQ-C1.2, REQ-C1.3, D-5): every candidate above,
@@ -169,8 +196,9 @@ profiles record them:
   committed report for glibc Linux only; its macOS and musl reports are
   outstanding (the bake-off's entry under `## Awaiting input`), and this
   page counts a platform with no committed report as not measured yet. The
-  hook tier's bake-off comes before this screen in task order but its
-  report was not complete when this record was written. Neither tier is
+  hook tier's bake-off, which comes before this screen in task order, is
+  in the same state: its glibc Linux report is committed and its macOS and
+  musl reports are outstanding. Neither tier is
   therefore fully decided, and the comparison below does not depend on
   it: against the pair dev-check differs on two hard axes, against hook
   on all three, and with no tier decided at all the rule's "differs from

@@ -11,7 +11,10 @@ By contributing you agree your contributions are licensed under the project's
 [MIT license](../LICENSE) (inbound = outbound). Keep changes free of secrets,
 credentials, internal hostnames, or sensitive operational detail — committed
 artifacts (specs, briefs, the observations log, PR bodies) are held to the same
-data-hygiene bar, and CI runs a secret scan.
+data-hygiene bar, and CI runs a secret scan. The common archive and
+office-document types `.gitignore` lists are ignored repo-wide, so a stray one
+in a checkout stays out of `git add -A`; keep such files under
+`.claude/<name>.local/`, and add a genuine fixture with `git add -f`.
 
 ## Two sizes of change
 
@@ -54,6 +57,37 @@ the comprehension pass usually pays for itself.
 is what the customization-overlay seam is for (see
 [getting-started.md §4](getting-started.md)); baking local preferences into core
 makes it less general for everyone and pollutes the upstream observation stream.
+
+## Trying a branch in a fresh session
+
+To see what a newcomer sees with a branch's planwright (first-run setup
+included), start a session from a plain terminal, not from inside a planwright
+session, whose shell carries fleet and worker variables:
+
+```bash
+wt=/path/to/planwright-checkout   # the branch under test
+ov=$(mktemp -d) data=$(mktemp -d) mch=$(mktemp -d) repo=$(mktemp -d)
+printf 'mission_control_home_root: %s\n' "$mch" >"$ov/planwright.yml"
+git -C "$repo" init -q && cd "$repo"
+export PLANWRIGHT_ROOT="$wt" PLANWRIGHT_ADOPTER_OVERLAY="$ov" \
+  CLAUDE_PLUGIN_DATA="$data" PLANWRIGHT_FLEET_STATE_DIR="$data/fleet"
+"$wt/scripts/mc-config.sh" entry   # prints first-run
+claude --plugin-dir "$wt" \
+  --settings '{"enabledPlugins":{"planwright@planwright":false}}'
+```
+
+- **`--plugin-dir` does not replace an installed planwright.** Both load, the
+  checkout as `planwright@inline`, so two copies of every skill and hook would
+  run. The `--settings` override disables the installed one for this session
+  only; `claude plugin list --json`, given the same flags, shows which is
+  enabled.
+- **Each variable isolates one piece of state.** `PLANWRIGHT_ROOT` makes the
+  scripts resolve the checkout rather than an install; the empty adopter
+  overlay and plugin-data directory hide your own configuration, programs and
+  fleet; `mission_control_home_root` keeps the program's knowledge base out of
+  `~/.config/planwright/`. The fresh repository has no repo-side overlay.
+  `HOME` stays put, so the session keeps your sign-in.
+- **Clean up** with `rm -rf "$ov" "$data" "$mch" "$repo"`.
 
 ## The quality gate
 
@@ -156,16 +190,17 @@ guards are what keep it complete. GitHub Actions runs the same gate on every
 pull request, split across parallel jobs: a `lint` job runs `check:non-test`,
 a `plan` job picks the shard count (`scripts/run-tests.sh --plan-shards`,
 below), one `test` job runs each shard of the suite (`scripts/run-tests.sh
---shard <i>/<N>`), and the `check` job, the status branch protection reads,
-passes only when they all do and the test-time budget gate passes over every
-shard's timing report together. Beside them, the `macos-suite` and
-`alpine-suite` jobs run the full suite on macOS (the system bash 3.2 and BSD
-userland) and in an Alpine container (musl, dash, busybox) on every pull
-request; they are statuses of their own, which `check` does not join. The
-install smoke (`scripts/install-smoke.sh`, installing through both delivery
-modes and running an adopter entry point with PATH narrowed to the allowlist
-the script defines: sh and bash with the POSIX utilities, `mktemp`, git, and
-gh) runs in the `lint` job and in both platform jobs. CI also runs a parse
+--shard <i>/<N>`), the `macos-suite` and `alpine-suite` jobs run the suite
+in shards of their own on macOS (the system bash 3.2 and BSD userland; a
+small fixed count, since macOS runners are scarce) and in an Alpine container
+(musl, dash, busybox; the planned count), and the `check` job, the status
+branch protection reads, passes only when every one of those jobs and shards
+does and the test-time budget gate passes over every Linux shard's timing
+report together. The install smoke (`scripts/install-smoke.sh`, installing
+through both delivery modes and running an adopter entry point with PATH
+narrowed to the allowlist the script defines: sh and bash with the POSIX
+utilities, `mktemp`, git, and gh) runs in the `lint` job, once on macOS in
+the `macos-smoke` job, and in every Alpine shard. CI also runs a parse
 of every tracked shell file (outside `tests/fixtures/bash32/`) under the real
 bash 3.2, a step of the `lint` job in Docker's official `bash:3.2` image pinned by
 digest in `.github/workflows/ci.yml`. To reproduce the parse, set
@@ -245,7 +280,7 @@ new head.
 gitignored) and `check:test-time` reads it against the committed budgets in
 [`config/test-time-budget.yml`](../config/test-time-budget.yml): one per-file
 ceiling for every test file, one for the mean file time over the whole suite,
-and in CI one for the slowest shard's wall-clock. A measured time at or over
+and in CI one for the slowest Linux shard's wall-clock. A measured time at or over
 its budget trips. The mean does not grow with the file count, so adding tests
 is free; a suite that gets slower per file trips it. Each file's row records
 its execution time and, separately, how long it waited for a test-pool ticket

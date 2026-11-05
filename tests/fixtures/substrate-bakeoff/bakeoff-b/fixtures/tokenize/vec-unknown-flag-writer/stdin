@@ -1,0 +1,1 @@
+sort -o/tmp/out in.txt

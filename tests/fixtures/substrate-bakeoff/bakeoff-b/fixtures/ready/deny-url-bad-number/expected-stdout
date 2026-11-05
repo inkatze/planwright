@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"planwright ready-guard: the pull-request URL GitHub returned does not end in a pull-request number - refusing (fail closed)."}}
