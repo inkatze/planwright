@@ -30,7 +30,7 @@ entry	Bash(git commit --sq*)	rewrite	git commit --sq HEAD
 entry	Bash(git commit * --sq*)	rewrite	git commit -a --squa HEAD
 entry	Bash(git commit --fix*)	rewrite	git commit --fix HEAD
 entry	Bash(git commit * --fix*)	rewrite	git commit -a --fixu HEAD
-entry	Bash(git reset --hard:*)	ref-surgery	git reset --hard origin/main
+entry	Bash(git reset --hard:*)	branch-move	git reset --hard origin/main
 entry	Bash(git filter-branch:*)	ref-surgery	git filter-branch --tree-filter true HEAD
 entry	Bash(git filter-repo:*)	ref-surgery	git filter-repo --path x
 entry	Bash(git branch -f:*)	ref-surgery	git branch -f main HEAD
@@ -150,11 +150,11 @@ entry	mcp__*__delete_file	mcp-write	mcp__github__delete_file
 entry	mcp__*__update_pull_request_branch	mcp-write	mcp__github__update_pull_request_branch
 entry	mcp__*__create_pull_request	mcp-write	mcp__github__create_pull_request
 entry	mcp__github__update_pull_request_branch	mcp-write	mcp__github__update_pull_request_branch
-spelling	ref-surgery	global-C	git -C . reset --hard HEAD
-spelling	ref-surgery	global-c	git -c core.abbrev=12 reset --hard HEAD
+spelling	branch-move	global-C	git -C . reset --hard HEAD
+spelling	branch-move	global-c	git -c core.abbrev=12 reset --hard HEAD
 spelling	ref-surgery	git-dir	git --git-dir=.git update-ref refs/heads/main HEAD
 spelling	ref-surgery	work-tree	git --work-tree=. branch -f main HEAD
-spelling	ref-surgery	long-prefix	git reset --ha HEAD
+spelling	branch-move	long-prefix	git reset --ha HEAD
 spelling	ref-surgery	long-prefix	git branch --forc main HEAD
 spelling	ref-surgery	short-cluster	git branch -qf main HEAD
 spelling	ref-surgery	ref-form	git branch -f refs/heads/main HEAD
@@ -166,8 +166,8 @@ spelling	ref-surgery	force-shorthand	git branch -M topic main
 spelling	ref-surgery	force-shorthand	git branch -C topic main
 spelling	ref-surgery	raw-fallback	git branch -M topic main $(true)
 spelling	ref-surgery	raw-fallback	x=$(git branch -M topic main)
-spelling	ref-surgery	case	git RESET --hard HEAD
-spelling	ref-surgery	alias	git hr HEAD
+spelling	branch-move	case	git RESET --hard HEAD
+spelling	branch-move	alias	git hr HEAD
 spelling	ref-surgery	alias	git bf main HEAD
 spelling	ref-surgery	alias	git ur refs/heads/main HEAD
 spelling	worktree	global-C	git -C . worktree add --force ../w topic

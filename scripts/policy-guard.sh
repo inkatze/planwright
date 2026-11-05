@@ -121,14 +121,14 @@
 #   force-push helper  running scripts/tower-force-push.sh. worker: deny,
 #               with no read. tower: defer, so it reaches the permission
 #               prompt (the tower's command guard never approves it).
-#   ref-surgery tower only: `git reset --hard`, `git filter-branch`,
-#               `git filter-repo`, a forced `git branch` (-f, --force, and the
-#               -M and -C force shorthands) outside delete mode, and
-#               `git update-ref` deny with no read.
+#   ref-surgery tower only: `git filter-branch`, `git filter-repo`, a forced
+#               `git branch` (-f, --force, and the -M and -C force shorthands)
+#               outside delete mode, and `git update-ref` deny with no read.
 #   branch-move tower only, in every checkout including the tower's own:
 #               `git checkout`, `git switch`, and `git reset` in every form
-#               (path restores and --soft included); a `git branch` rename or
-#               copy (-m, -M, -c, -C, --move, --copy) outside delete mode; a
+#               (--hard, --soft, and path restores included); a `git branch`
+#               rename or copy (-m, -c, --move, --copy; -M and -C deny as a
+#               forced branch) outside delete mode; a
 #               `git symbolic-ref` write (two names, or -d/--delete); a
 #               `git fetch` refspec whose destination is a local branch (a
 #               bare name, heads/, or refs/heads/), a non-literal refspec,
