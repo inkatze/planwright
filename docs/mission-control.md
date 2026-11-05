@@ -157,8 +157,8 @@ the name can be left off; with several, it asks which; with none, it starts
 the first run.
 
 Type `/mc-panel` in that session to close the mission-control panel beside
-the conversation, and again to bring it back (`/mc-panel open` or
-`/mc-panel close` to choose).
+the conversation when you can see it, or to show it when you cannot
+(`/mc-panel open` or `/mc-panel close` to choose).
 
 The fresh session rebuilds its picture from what is recorded (your rules,
 the program's folder, the code host, the specs and the sessions still

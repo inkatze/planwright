@@ -61,11 +61,12 @@ A reader refuses a file whose format it does not know, naming the field.
 Usage:
   mc-handover.sh due --program <p> --context <percent|-> --wakes <n>
       --compactions <n>
-      the trigger the mod applies in a launched holder, for a session
-      without the mod: the compaction ceiling first, then measured context
-      where there is a reading, the completed-wake count otherwise; a knob
-      that does not read skips its rule, warned. Prints due<TAB><reason>
-      or not-due
+      the trigger the mod applies, for a session without it, which a
+      caller applies only in a launched holder (it reads no holder
+      record): the compaction ceiling first, then measured context where
+      there is a reading, the completed-wake count otherwise; a knob that
+      does not read skips its rule, warned. Prints due<TAB><reason> or
+      not-due
   mc-handover.sh holder --program <p> [--now <epoch>]
       holder<TAB><handle><TAB><kind><TAB><since><TAB><generation>
       <TAB>live|stale, or holder<TAB>- with no holder
