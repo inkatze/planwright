@@ -567,6 +567,16 @@ Task 4: no floor-forbidden failures.
   Also awaiting direction: the macOS and musl bake-off B reports need the
   same on-demand CI job Task 6 asks for, a CI-configuration zone, so
   recorded rather than applied, listed in the Task 7 pull request body.
+- **Task 8** — post-pr step `cubic-pr` halted (record
+  `.claude/steps/000001/008-done-post-pr.rec`): the operator's secondary
+  review stands in for cubic until its quota returns, then the ready flip.
+- **Task 9** — mints no dev-check verdict until the operator answers the
+  case for a dev-check bake-off recorded by Task 8 under the dev-check
+  section of `docs/substrate-screen.md`: no admitted candidate is screened
+  out, and the tier differs from the library and skill-called pair on
+  audience and auditability, so neither inheritance nor screen settlement
+  applies (recommended: add the bake-off on the instruction guard's
+  manifest parse and charged closure through the amendment ritual).
 
 ## Deferred
 

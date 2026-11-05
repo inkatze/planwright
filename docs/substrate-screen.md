@@ -36,7 +36,7 @@ page admits.
 | Rust | full | adopter tiers | Rust standard library, MIT or Apache-2.0; on glibc Linux the statically linked glibc, LGPL-2.1-or-later: compatible, with an obligation there | Static on Linux with the C runtime linked in; cross-compiling to macOS needs an Apple SDK that community images do not carry (risk R7). |
 | Zig | comparison point | adopter tiers | Zig standard library, MIT: compatible | Pre-1.0, no regular-expression library in its standard library, and its I/O surface keeps moving: the trivial program needed the new `std.process.Init` entry point and `std.Io.File` writer, neither of which the previous API spelled that way. |
 | Bun-compiled TypeScript | comparison point | adopter tiers | Bun runtime (MIT) and JavaScriptCore (LGPL-2.1-or-later), both embedded: compatible, with an obligation | Covers the whole matrix from one Linux runner; the executable embeds the runtime, so its size sits against the marketplace archive ceiling. |
-| Python | full | dev-check only | not shipped to adopters | Listed per REQ-C1.1, since a pinned toolchain already exists on the dev-check tier; excluded from adopter tiers below. Its dev-check screen is the dev-check bake-off's, still to run. |
+| Python | full | dev-check only | not shipped to adopters | Listed per REQ-C1.1, since a pinned toolchain already exists on the dev-check tier; excluded from adopter tiers below. Its dev-check screen is under [Dev-check tier](#dev-check-tier). |
 | Node | full | dev-check only | not shipped to adopters | As Python. |
 
 A comparison point is measured on the harness's trivial program only, never
@@ -135,3 +135,116 @@ The hook tier's bake-off, under the same rules.
   to run it are in
   [its README](../tests/fixtures/substrate-bakeoff/bakeoff-b/README.md); each
   committed report and its view sit under `docs/substrate/bakeoff-b/`.
+
+## Dev-check tier
+
+The dev-check screen (REQ-C1.2, REQ-C1.3, D-5): every candidate above,
+Python and Node included, screened against the dev-check profile in
+[the constraint profiles](substrate/constraint-profiles-2026-10-18.md#dev-check),
+then the breadth rule applied to the result.
+
+### What the dev-check profile changes
+
+The hard constraint binds adopter tiers only, and a dev-check script ships
+in neither delivery mode: it runs from the repository checkout, on a
+maintainer's machine or a CI runner. Three of the adopter-tier screen's
+reasons therefore fall away here: an interpreter on the adopter's machine,
+an embedded runtime's size against the marketplace archive, and a licence
+obligation on a shipped executable. What remains is the profile itself: a
+toolchain permitted, no per-call latency budget, the check aggregate's
+wall-clock as the cost that matters, a guard that fails closed, and reach
+across the maintainer hosts and the CI matrix's platforms.
+
+Python and Node are already present wherever the tier runs, though neither
+is pinned in its own right: `mise.toml` pins `markdownlint-cli2` through
+mise's npm backend and `yamllint` through its pipx backend, so every host
+that runs the check aggregate carries both runtimes, and the CI workflow
+installs Node and pipx on the Alpine job for the same reason. Go and Rust
+would each add a pinned toolchain to `mise.toml`, a cost the screen notes
+but which the profile permits.
+
+### Screen outcome
+
+| Candidate | Class | Dev-check screen | Reason |
+| --- | --- | --- | --- |
+| Hardened shell | full | passes | The tier's current substrate; nothing in the profile excludes it. |
+| Go | full | passes | A toolchain is permitted; it builds natively on every maintainer host and CI platform, so the Rust cross-compilation risk has no analogue here. |
+| Rust | full | passes | As Go: built natively where it runs, so the Apple SDK risk (R7) does not bind, and nothing ships, so the glibc obligation does not bind. |
+| Python | full | passes | The interpreter is already present for `yamllint`; the hard constraint binds adopter tiers only (REQ-B1.1), and D-6 opens interpreted runtimes to dev-only tiers. |
+| Node | full | passes | The runtime is already present for `markdownlint-cli2`; as Python. |
+| Zig | comparison point | passes, as a comparison point only | Nothing in the profile excludes it, but a comparison point cannot be selected without a further bake-off promoting it (REQ-C1.1). |
+| Bun-compiled TypeScript | comparison point | passes, as a comparison point only | Its executable size and embedded-engine obligation bind only a shipped artifact; as Zig, it is not selectable. |
+| Deno compile | not classed | screened out | Its exclusion, no musl target, still binds: the dev-check profile reaches the CI matrix's platforms, Alpine included. |
+| Every other candidate in the Excluded table | not classed | not screened out, not admitted | Each was excluded from adopter tiers on hard-constraint, matrix, or delivery grounds that a tool built where it runs and shipped nowhere does not face, or (Haskell) for want of any share among the surveyed tools, which is no dev-check constraint either; Python's packaging routes and Node's single executables are moot beside the Python and Node rows. None enters this tier's set unclassed (REQ-C1.1), and classing one would be the dev-check bake-off's own screen: admitting any only adds survivors, so the outcome below holds either way. |
+
+No admitted candidate is screened out of the dev-check tier, so five full candidates
+survive it and the tier cannot be settled by the screen record, which
+REQ-C1.3 allows only when exactly one survives.
+
+### Breadth-rule decision
+
+The hard axes of REQ-C1.3, dev-check against each other tier as the
+profiles record them:
+
+| Axis | Dev-check | Library and skill-called | Hook |
+| --- | --- | --- | --- |
+| Audience | dev-only | adopter runtime | adopter runtime |
+| Per-call latency budget | none | none of its own (a library inherits its caller's) | no regression against shell |
+| Auditability weight | low | medium | high |
+
+- **Decided tiers.** The library and skill-called pair's bake-off has a
+  committed report for glibc Linux only; its macOS and musl reports are
+  outstanding (the bake-off's entry under `## Awaiting input`), and this
+  page counts a platform with no committed report as not measured yet. The
+  hook tier's bake-off, which comes before this screen in task order, is
+  in the same state: its glibc Linux report is committed and its macOS and
+  musl reports are outstanding. Neither tier is
+  therefore fully decided, and the comparison below does not depend on
+  it: against the pair dev-check differs on two hard axes, against hook
+  on all three, and with no tier decided at all the rule's "differs from
+  every tier already decided" holds trivially, leaving no nearest tier to
+  inherit from.
+- **Profile comparison.** Dev-check is closest to the pair on the latency
+  axis, where neither carries a per-call budget of its own, and differs
+  on audience and auditability weight. It therefore differs on a hard axis
+  from every tier that is or will be decided before it, and REQ-C1.3's
+  inheritance branch, which needs no such difference, does not apply.
+- **Defect classes.** The pair's bake-off exercised the lock
+  primitive and the `Dependencies:` line parse: lock-concurrency,
+  parser-fragility and duplicated-primitive. The dev-check row of
+  [the pain matrix](substrate/pain-matrix-2026-10-18.md) is led instead by
+  instruction-headroom and lint-gap, classes no bake-off has exercised, a
+  second and independent ground for a bake-off of its own.
+- **Outcome.** Neither inheritance nor screen settlement is available, so
+  the rule's remaining branch holds: a case for a dev-check bake-off.
+
+### Recommendation to the verdict amendment
+
+Mint no dev-check verdict in the verdict amendment until the operator has
+answered the case below, which is escalated under `## Awaiting input` in
+the bundle's `tasks.md`.
+
+**The case for a dev-check bake-off.** Both grounds above hold, so the
+breadth rule gives the tier a bake-off of its own. The representative
+primitive is the instruction guard's manifest parse and charged closure in
+`scripts/check-instructions.sh`: reading a skill's doctrine manifest,
+resolving each named document, and charging the start load and the
+reachable closure against their budgets. That script is the dev-check
+script the matrix names most often, and its items there fall mostly on the
+tier's leading class, instruction-headroom, and on perf-spawn-cost (the
+guard's share of the check aggregate's wall-clock). The manifest grammar
+also makes it a parser, though the matrix attributes the tier's
+parser-fragility items to other scripts. The bake-off would measure the
+five surviving full candidates on it under the existing harness; Zig and Bun stay comparison
+points. The harness already accepts `dev-check` as a tier, but it requires
+a `delivery.marketplace` and a `delivery.writer` script from every
+candidate, and REQ-C1.4 measures delivery through both modes, while a
+dev-check script ships through neither; the bake-off's task would have to
+settle what that measurement means for this tier before it runs.
+
+**What the operator decides.** Whether the dev-check tier takes that
+bake-off, a new task added to the bundle through the amendment ritual, or
+is settled another way, such as inheriting the pair's verdict, once it is
+decided, despite the audience and auditability differences. The breadth rule as
+written does not provide that second route, so it too would need a
+meaning-class amendment.
