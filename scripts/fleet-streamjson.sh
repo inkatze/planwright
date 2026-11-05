@@ -2335,8 +2335,11 @@ cmd_launch() {
   # The drop runs before the `&`, never in an AND-list with it: bash would
   # background the whole list in a subshell that holds the caller's output
   # open for as long as the supervisor runs.
-  (drop_tower_identity; /bin/sh "$self" _supervise "$worker" "$dir" "$init_msg" "$@" \
-    >/dev/null 2>>"$dir/supervisor.log" </dev/null &)
+  (
+    drop_tower_identity
+    /bin/sh "$self" _supervise "$worker" "$dir" "$init_msg" "$@" \
+      >/dev/null 2>>"$dir/supervisor.log" </dev/null &
+  )
   # Confirm startup by a signal that survives a fast run: supervisor.pid
   # appears while the supervisor is live, and it removes that pid plus writes a
   # `result` on exit — so a run that already finished shows `result` even
