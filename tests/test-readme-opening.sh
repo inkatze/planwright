@@ -39,9 +39,17 @@ opening() {
 # Link targets and the backticked command are not prose a reader decodes.
 VOCAB='(^|[^[:alnum:]])(towers?|flights?|fleets?|mission control|harness(es)?|autopilot|spec-driven|agentic|software factory)([^[:alnum:]]|$)'
 vocab_hits() {
+  local stripped
   # shellcheck disable=SC2016 # the backticks are literal Markdown
-  printf '%s\n' "$1" | sed -e 's/`\/tower`//g' -e 's/](\([^)]*\))/]()/g' | grep -n -i -E "$VOCAB"
+  stripped=$(printf '%s\n' "$1" | sed -e 's/`\/tower`//g' -e 's/](\([^)]*\))/]()/g')
+  printf '%s\n' "$stripped" | grep -n -i -E "$VOCAB"
+  # A reflow can split a two-word term across lines, which a per-line match
+  # never sees; join the lines on a marker byte and look for the split.
+  printf '%s\n' "$stripped" | tr '\n' "$SOH" | grep -o -i -E "$SPLIT_VOCAB" | tr "$SOH" ' ' | sed 's/^/split:/'
 }
+SOH=$(printf '\001')
+SEAM="[[:blank:]]*${SOH}[[:blank:]]*(>[[:blank:]]*)?"
+SPLIT_VOCAB="(^|[^[:alnum:]])(mission${SEAM}control|software${SEAM}factory)([^[:alnum:]]|$)"
 EMDASH=$(printf '\342\200\224')
 emdash_hits() { printf '%s\n' "$1" | grep -n -F "$EMDASH"; }
 MULTIPLIER='(^|[^[:alnum:]])[0-9]+(\.[0-9]+)?x([^[:alnum:]]|$)'
@@ -58,6 +66,9 @@ spec-driven development
 an agentic workflow
 a software factory" | grep -c '^[0-9]*:')
 if [ "$bad_vocab" -eq 9 ]; then ok "the vocabulary screen fires on known-bad lines and spares \`/tower\`"; else fail "the vocabulary screen fired on $bad_vocab of 9 known-bad lines"; fi
+if [ "$(vocab_hits "one mission
+control session, a software
+> factory" | grep -c '^split:')" -eq 2 ]; then ok "the vocabulary screen fires on a two-word term split across lines"; else fail "the vocabulary screen missed a two-word term split across lines"; fi
 if [ -z "$(vocab_hits "See [the guide](docs/mission-control.md) or type \`/tower\`.")" ]; then ok "the vocabulary screen spares link targets"; else fail "the vocabulary screen fired on a link target"; fi
 if [ -n "$(emdash_hits "a pause ${EMDASH} then more")" ]; then ok "the em dash screen fires on an em dash"; else fail "the em dash screen missed an em dash"; fi
 if [ -n "$(multiplier_hits "ship 10x faster")" ] && [ -z "$(multiplier_hits "a 0x1f flag, box size")" ]; then ok "the multiplier screen fires on a multiplier only"; else fail "the multiplier screen misjudged its fixtures"; fi

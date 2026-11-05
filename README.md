@@ -42,8 +42,9 @@ from a clean machine to your first draft PR.
   and wrongly block *[K]%* of a normal session's commands.
 - **Right-sized for each request.** A small, reversible fix becomes one draft
   pull request with a record of what was asked, what was done, and how it was
-  checked. A big or risky feature gets a written spec first, which you read and
-  sign before any code is written. planwright tells you which it chose and why
+  checked. A risky feature, or one without a clear finish line, gets a written
+  spec first, which you read and sign before any code is written; size alone
+  never decides it. planwright tells you which it chose and why
   in one line, and one sentence from you overrides it.
   **Placeholder, not yet measured:** on a public sample of requests, a small
   fix reaches a draft pull request in a median of *[T]* minutes, and *[P]%*
