@@ -111,7 +111,8 @@ Usage:
       applied<TAB>already<TAB><id> when the change is in place and no
       revert has undone it. Anything else is not written:
       handover-operator<TAB><where><TAB><change> for a knob mission control
-      does not write, a settings-kind or any other kind, and
+      does not write or a repeated denial names, a settings-kind or any
+      other kind, and
       dispatch<TAB><where><TAB><change> for a catalog step, a repository
       change a session makes
 
@@ -619,7 +620,11 @@ v_apply() {
       ap_key=$(pkey "$ap_p" duties) ap_write=duty
       ;;
     knob)
-      if program_key "$ap_mech" && [ "$PK_PROGRAM" = "$ap_p" ]; then
+      # A denial's knob sets a guard's posture, the operator's even when the
+      # key is one this script writes.
+      if [ "$(ap_col 4)" = denial ]; then
+        :
+      elif program_key "$ap_mech" && [ "$PK_PROGRAM" = "$ap_p" ]; then
         ap_key=$ap_mech ap_write=program
       elif knob_writable "$ap_mech"; then
         ap_key=$ap_mech ap_write=knob

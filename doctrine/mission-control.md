@@ -197,7 +197,8 @@ change here.
 
 A **mechanization proposal** is mission control's confirmation, in the
 operator's words, that a repeat it noticed (the same ask, a manual step
-after the same event, the same answer to the same question) could be
+after the same event, the same answer to the same question, the same guard
+denial a knob governs) could be
 covered by the smallest mechanism in the inventory. It says what was
 noticed, the mechanism and its change, the cadence, where the operator
 still intervenes, the cost, how to turn it off, and offers an explicit

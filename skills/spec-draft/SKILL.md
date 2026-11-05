@@ -399,7 +399,7 @@ committed prose neutralizes them.
 3. **Commit** (D-41) when `commit_on_draft` is true: one commit on
    `planwright/<spec>/spec` containing the four files and the
    `_observations` consumption writes, message `feat(spec): draft specs/<spec> bundle`
-   (extend mode: `feat(spec): extend specs/<spec> — <summary>`). Rewriting
+   (extend mode: `feat(spec): extend specs/<spec>, <summary>`). Rewriting
    the spec branch is a human gate (`doctrine/human-gates.md`). Opt-out
    set: leave the work uncommitted and say so explicitly.
 4. **Hand off.** Report: the bundle path and branch, validator outcome,

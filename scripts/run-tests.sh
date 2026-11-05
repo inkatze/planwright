@@ -381,6 +381,9 @@ if [ "${1:-}" = "--run-one" ]; then
   # the caller's own directory.
   fleet_sentinel="$PLANWRIGHT_TEST_LOG_DIR/$name.fleet"
   export PLANWRIGHT_FLEET_STATE_DIR="$fleet_sentinel/fleet"
+  # The usage gate prefers the operator's status-line mirror, which a fixture
+  # must never read; a suite that tests the mirror names its own.
+  export PLANWRIGHT_USAGE_MIRROR=""
   [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$fleet_sentinel/plugin-data"
   [ -z "${CLAUDE_DIR+set}" ] || export CLAUDE_DIR="$fleet_sentinel/claude"
   started="$(now_ms)"

@@ -23,6 +23,9 @@
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-stats.sh
 set -eu
+# The usage gate reads the status-line mirror when present; a fixture never
+# reads the host's real one.
+export PLANWRIGHT_USAGE_MIRROR=""
 LC_ALL=C
 export LC_ALL
 unset CDPATH
