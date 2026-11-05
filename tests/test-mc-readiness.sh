@@ -101,6 +101,12 @@ expect_out "named with its point" "fail${tab}cadence${tab}convergence: polish is
 walk_with "cadence unauditable" '/^cadence/d' "cadence${tab}unaudited${tab}no worktree holds the branch"
 expect_rc "a cadence that could not be audited is refused" 4
 expect_out "with the reason" "fail${tab}cadence${tab}not audited: no worktree holds the branch"
+walk_with "cadence failed step" '-' "cadence${tab}gap${tab}convergence${tab}failed${tab}polish:halted"
+expect_out "a failed step reads with its outcome" "fail${tab}cadence${tab}convergence: polish recorded halted"
+walk_with "cadence stale" '-' "cadence${tab}gap${tab}post-pr${tab}stale${tab}2222222222222222222222222222222222222222"
+expect_out "a stale point names where it completed" "fail${tab}cadence${tab}post-pr: completed only at 222222222222"
+walk_with "cadence incomplete" '-' "cadence${tab}gap${tab}pre-ci${tab}incomplete${tab}-"
+expect_out "an incomplete point says so" "fail${tab}cadence${tab}pre-ci: no completion record"
 walk_with "cadence audited elsewhere" "s/^cadence\taudited\t$H/cadence\taudited\t2222222222222222222222222222222222222222/"
 expect_rc "a cadence audited at another head is refused" 4
 
@@ -285,6 +291,7 @@ printf '%s\n' "$head" >"$tmp/headnow"
 # With no --worktree the cadence is audited in the program repository's
 # worktree holding the pull request's branch; one that ran no point is caught.
 has "no worktree holds a branch the read did not name, so the cadence is unaudited" "cadence${tab}unaudited${tab}"
+git -C "$repo" remote add origin https://github.com/Acme/web.git
 git -C "$repo" worktree add -q -b feature "$tmp/feature-wt" 2>/dev/null || fail "fixture: the feature worktree"
 sed 's/"headRefOid"/"headRefName": "feature", "headRefOid"/' "$tmp/pr.json" >"$tmp/p.json" && mv "$tmp/p.json" "$tmp/pr.json"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
@@ -294,7 +301,25 @@ has "its skipped convergence is named" "cadence${tab}gap${tab}convergence${tab}m
 has "and its missing completion" "cadence${tab}gap${tab}convergence${tab}incomplete"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/web --pr 7
 expect_out "check refuses the skipped cadence" "fail${tab}cadence${tab}convergence: polish is missing"
-git -C "$repo" worktree remove --force "$tmp/feature-wt"
+# The audit itself failing is unaudited, with the resolver's reason.
+chmod 000 "$core/config/steps.yaml"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+chmod 644 "$core/config/steps.yaml"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "an audit that cannot resolve the cadence is unaudited, naming why" "cadence${tab}unaudited${tab}the audit in $tmp/feature-wt failed: step-run: the configured cadence did not resolve"
+# Another repository's worktree on the same branch name is never audited.
+git -C "$repo" remote set-url origin https://github.com/acme/api.git
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a worktree of a repository whose origin is not the PR's is passed over" "cadence${tab}unaudited${tab}no worktree of acme/web has branch feature"
+git -C "$repo" remote set-url origin git@github.com:acme/web.git
+# A worktree deleted without a prune is listed prunable: unaudited, no crash.
+rm -rf "$tmp/feature-wt"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+expect_rc "a prunable worktree does not fail the collect" 0
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "and the named branch with no live worktree is unaudited" "cadence${tab}unaudited${tab}no worktree of acme/web has branch feature checked out"
+git -C "$repo" worktree prune
 
 # A list that comes back at its cap may have been cut, and is refused.
 sed 's/"hasNextPage": false/"hasNextPage": true/' "$tmp/threads.json" >"$tmp/t.json" && mv "$tmp/t.json" "$tmp/threads.json"
