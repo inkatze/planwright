@@ -924,6 +924,8 @@ SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope demo:task
   && ok "a worktree holding the branch with no live session is reused" \
   || fail "the reuse launch exited $RC in '$(cat "$rec/cwd" 2>/dev/null)': $ERR"
 wait_done "$(field name)"
+marker_present 1 && ok "a reused task worktree is marked in flight again" \
+  || fail "the reuse launch left no dispatch marker for demo task 1"
 
 # Naming the primary checkout, and a worktree that cannot be created, are
 # refused with no session started and no row.

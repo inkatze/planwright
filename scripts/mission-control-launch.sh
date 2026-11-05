@@ -60,9 +60,10 @@ A kind that changes a repository (worker, reviewer, ad-hoc) starts in its
 own worktree, never a primary checkout. With no --cwd, the dispatch
 machinery creates one in the repository holding --repo (default: the
 current directory), on the unit's branch when it exists, off the default
-branch otherwise. A scope <spec>:task-<id> names a task unit (branch
-planwright/<spec>/task-<id>; a scope of that shape outside the task grammar
-is refused); any other scope gets a flight branch derived from the name. A
+branch otherwise. A scope with one colon, <spec>:task-<id>, names a task
+unit (branch planwright/<spec>/task-<id>; a one-colon scope of that shape
+outside the task grammar is refused); any other scope gets a flight branch
+derived from the name. A
 worktree already holding that branch is reused only when no live session
 runs there: another registered launch, or a process working in it other
 than the launcher, its callers and tmux. --cwd names a worktree instead,
@@ -98,16 +99,18 @@ Exit codes: 0 done; 1 the rung failed to start the session (or it started,
 could not be recorded, and was stopped), or it started or may have and could
 not be closed, so its row stays for a retire, or a retire released only part
 of it; 2 usage, an invalid value, or a registry row or launch directory the
-launcher cannot read or write; 3 the name is held, a launch or retire of
-it is in flight, a live session uses its worktree, another launch is
-placing its branch, or a dispatch holds it or cannot say (launch), or there is no row, a launch or another retire
-of it is in flight, or the caller runs inside its window (retire); 4 a
-launch refused before it started: no readable profile, an unresolvable rung
-knob, no resolvable tier (an unreachable allocation store or a malformed
-tier knob), the admission gate withholding it, a broken allocation install, a program
-that is not configured, rules that would not render, a worktree that could
-not be created, a named directory that is not a worktree other than a
-primary checkout, or any other refusal by the rung.
+launcher cannot read or write; 3 the name is held, a launch or retire of it
+is in flight, a live session uses its worktree, another launch is placing
+its branch, or a dispatch holds it or cannot say (launch), or there is no
+row, a launch or another retire of it is in flight, or the caller runs
+inside its window (retire); 4 a launch refused before it started: no
+readable profile, an unresolvable rung knob, no resolvable tier (an
+unreachable allocation store or a malformed tier knob), the admission gate
+withholding it, a broken allocation install, a program that is not
+configured, rules that would not render, a worktree that could not be
+created, a named directory that is not a worktree other than a primary
+checkout, a worktree path holding a control character, or any other
+refusal by the rung.
 EOF
 }
 
@@ -471,10 +474,16 @@ live_in() {
   li_own=$(own_pids)
   for li_p in $li_users; do
     case "$NL$li_own$NL" in *"$NL$li_p$NL"*) continue ;; esac
-    # A process gone since the scan ran nothing there.
-    li_comm=$(ps -o comm= -p "$li_p" 2>/dev/null) || continue
-    [ -n "$li_comm" ] || continue
-    case ${li_comm##*/} in tmux*) continue ;; esac
+    # Skipped only on proof it is gone since the scan; a ps that cannot
+    # answer leaves it live.
+    if [ -d /proc/self ]; then
+      [ -e "/proc/$li_p" ] || continue
+    fi
+    if li_comm=$(ps -o comm= -p "$li_p" 2>/dev/null); then
+      case ${li_comm##*/} in tmux*) continue ;; esac
+    elif [ ! -d /proc/self ] && ps -o comm= -p "$$" >/dev/null 2>&1; then
+      continue
+    fi
     LIVE_BY="process $li_p"
     return 0
   done
@@ -544,7 +553,13 @@ place_worktree() {
       || refuse "refusing to launch $name: $LIVE_BY runs in $(sanitize_printable "$pw_held"), which holds $pw_branch" 3
     cwd=$pw_held
     # A reused task worktree is marked in flight as a placed one is.
-    [ -z "$task" ] || ! marker_cmd write "$pw_primary" "$task" || PLACED_MARKER=1
+    if [ -n "$task" ]; then
+      if marker_cmd write "$pw_primary" "$task"; then
+        PLACED_MARKER=1
+      else
+        printf '%s\n' "$me: the dispatch marker for $task was not written; the unit may read as not in flight" >&2
+      fi
+    fi
     return 0
   fi
   pw_out=$(cd "$pw_primary" && /bin/sh "$script_dir/fleet-dispatch-worktree.sh" "$@" \
