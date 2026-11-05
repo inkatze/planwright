@@ -3072,7 +3072,7 @@ classify_tower_worktree() {
   for v in ${GP_VALS[@]+"${GP_VALS[@]}"}; do
     case $v in
       B=*)
-        deny_now 'a git worktree add -B is denied to the tower under every policy value: it force-resets the branch it names when that branch exists, and the tower never moves a branch. Create a new branch with -b instead.'
+        deny_now 'creating a worktree with -B is denied to the tower under every policy value: it force-resets the branch it names when that branch exists, and the tower never moves a branch. Create a new branch with -b instead.'
         return 0
         ;;
       b=*) names[${#names[@]}]=${v#?=} ;;
