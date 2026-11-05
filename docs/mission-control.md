@@ -174,7 +174,9 @@ moving.
 
 While you are away it keeps going: sessions keep working, answers it can
 give on your behalf are given and logged, and anything that needs you
-waits in order for your return, with nothing dropped. A question that
+waits in order for your return, with nothing dropped. Only the session
+that asked a question waits for your answer; mission control never stops
+everything else to wait on you. A question that
 comes with a stated default, and goes unanswered for as long as it says
 it will wait, settles on that default or is set aside for later; it shows
 you each one settled that way, and you can reverse it.
