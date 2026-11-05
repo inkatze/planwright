@@ -441,6 +441,9 @@ expect_rc "a header paragraph past a blank line or document marker still counts"
 printf '#  Generated   by\tthe machine setup.\n%s\n' "$unmanaged" >"$layer"
 cfg knob mission_control_tick_cadence 7m
 expect_rc "a marker phrase spaced out by runs of blanks still counts" 4
+printf -- '--- # Managed by the machine setup.\n%s\n' "$unmanaged" >"$layer"
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a comment on the document marker line is part of the header" 4
 {
   printf '# my own notes\n'
   printf '%s\n' "$unmanaged"
