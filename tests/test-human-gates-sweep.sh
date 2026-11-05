@@ -203,9 +203,9 @@ fleet-lifecycle-closure REQ-J1.1 REQ-D1.6
 fleet-lifecycle-closure REQ-J1.2 REQ-F1.1,REQ-F1.2
 operator-dialogue REQ-F1.4 REQ-D1.6
 tower-comms REQ-H1.1 REQ-F1.2
-tower-placement REQ-G1.1 REQ-C1.5
+tower-placement REQ-G1.1 REQ-C1.9
 tower-placement REQ-G1.3 REQ-F1.1,REQ-F1.2
-merge-currency-guard REQ-B1.4 REQ-C1.1,REQ-C1.5
+merge-currency-guard REQ-B1.4 REQ-C1.1,REQ-C1.9
 merge-currency-guard D-9 D-4
 test-throughput D-5 D-4,D-6
 test-throughput D-15 D-4
