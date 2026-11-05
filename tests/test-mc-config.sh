@@ -400,6 +400,59 @@ mc_run mc-kb.sh entries undo --program alpha
 expect_no_out "no undo entry names the refused knob apply" "proposal p-8"
 expect_no_out "no undo entry names the refused duty apply" "proposal p-10"
 
+# A layer whose leading comment says a tool renders it is managed elsewhere:
+# every write is handed to the operator as the lines to add at its source,
+# exit 4, the file untouched; a marker anywhere but the header is not one.
+unmanaged=$(cat "$layer")
+{
+  printf '# Rendered from a vault by the machine setup; a hand edit here is\n# overwritten on the next run.\n'
+  printf '%s\n' "$unmanaged"
+} >"$layer"
+before=$(sum "$layer")
+where="$layer, managed elsewhere: Rendered from a vault by the machine setup; a hand edit here is overwritten on the next run."
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a write to a managed layer is handed over" 4
+expect_eq "the hand-over names the source and the exact line to add" "handover-operator${tab}${where}${tab}mission_control_tick_cadence: 7m"
+expect_err "the refusal says nothing was written" "nothing was written"
+cfg restore mission_control_guidance
+expect_rc "a removal from a managed layer is handed over" 4
+expect_eq "the hand-over names the line to remove" "handover-operator${tab}${where}${tab}remove mission_control_guidance"
+cfg duty --program alpha disable beta-duty
+expect_rc "a duty change to a managed layer is handed over" 4
+expect_out "the duty hand-over carries the new list" "${tab}program_alpha_duties: []"
+cfg add gamma --repositories "[$repo]" --spec-root "$repo/specs" --duties '[]'
+expect_rc "a new program on a managed layer is handed over" 4
+expect_out "the program list is one line to add" "${tab}mission_control_programs: [alpha, gamma]"
+expect_out "each block key is a line of its own" "${tab}program_gamma_spec_root: $repo/specs"
+mc_run mc-kb.sh entries undo --program alpha
+undo_before=$OUT
+cfg apply --program alpha p-1 --value 8m
+expect_rc "an accepted proposal on a managed layer is handed over" 4
+expect_eq "the proposal's hand-over is its line" "handover-operator${tab}${where}${tab}mission_control_tick_cadence: 8m"
+mc_run mc-kb.sh entries undo --program alpha
+if [ "$OUT" = "$undo_before" ]; then ok "a handed-over apply logs no undo entry"; else fail "a handed-over apply logged an undo entry"; fi
+if [ "$(sum "$layer")" = "$before" ]; then ok "nothing was written to the managed layer"; else fail "the managed layer was written: $(cat "$layer")"; fi
+printf '# DO NOT EDIT: generated.\n%s\n' "$unmanaged" >"$layer"
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a do-not-edit header is a managed marker too" 4
+printf -- '---\n# Site configuration\n\n# Managed by the machine setup.\n%s\n' "$unmanaged" >"$layer"
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a header paragraph past a blank line or document marker still counts" 4
+printf '#  Generated   by\tthe machine setup.\n%s\n' "$unmanaged" >"$layer"
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a marker phrase spaced out by runs of blanks still counts" 4
+printf -- '--- # Managed by the machine setup.\n%s\n' "$unmanaged" >"$layer"
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a comment on the document marker line is part of the header" 4
+{
+  printf '# my own notes\n'
+  printf '%s\n' "$unmanaged"
+  printf '# rendered from nowhere, overwritten never\n'
+} >"$layer"
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a marker past the header is no marker; the write lands" 0
+cfg restore mission_control_tick_cadence
+
 [ "$failures" -eq 0 ] || {
   printf '%s\n' "$failures failure(s)" >&2
   exit 1
