@@ -410,10 +410,18 @@ collect() {
   if [ -n "$cl_wt" ]; then
     # The audit resolves the cadence as the worktree's own session would; a
     # merge after the last point counts only when the base already holds it.
+    # A base the worktree does not hold would let any clean merge pass.
     cl_base=()
-    if [ -n "$cl_baseref" ] && mc_untrusted_git -C "$cl_wt" rev-parse --verify -q "refs/remotes/origin/$cl_baseref^{commit}" >/dev/null 2>&1; then
-      cl_base=(--base "refs/remotes/origin/$cl_baseref")
+    if [ -n "$cl_baseref" ]; then
+      if mc_untrusted_git -C "$cl_wt" rev-parse --verify -q "refs/remotes/origin/$cl_baseref^{commit}" >/dev/null 2>&1; then
+        cl_base=(--base "refs/remotes/origin/$cl_baseref")
+      else
+        cl_unaud="the worktree $(sanitize_printable "$cl_wt") does not hold the base origin/$cl_baseref; fetch it"
+        cl_wt=''
+      fi
     fi
+  fi
+  if [ -n "$cl_wt" ]; then
     (mc_untrusted_git_env && unset PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED \
       && /bin/bash "$script_dir/step-run.sh" --worktree "$cl_wt" audit --through post-pr --head "$cl_head" ${cl_base[@]+"${cl_base[@]}"}) \
       >"$cl_tmp/audit" 2>"$cl_tmp/err"

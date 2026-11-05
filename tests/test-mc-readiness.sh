@@ -310,6 +310,18 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme
 c=$(cat "$tmp/collected" 2>/dev/null)
 has "the branch's worktree is found and audited" "cadence${tab}audited${tab}$head"
 has "its skipped convergence is named" "cadence${tab}gap${tab}convergence${tab}missing${tab}polish"
+# A named base the worktree does not hold leaves the cadence unaudited.
+cp "$tmp/pr.json" "$tmp/pr.nobase.json"
+sed 's/"headRefOid"/"baseRefName": "main", "headRefOid"/' "$tmp/pr.json" >"$tmp/p.json" && mv "$tmp/p.json" "$tmp/pr.json"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a base the worktree lacks is unaudited, naming it" "cadence${tab}unaudited${tab}the worktree $tmp/feature-wt does not hold the base origin/main"
+git -C "$repo" update-ref refs/remotes/origin/main "$head"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "and once held, the cadence is audited against it" "cadence${tab}audited${tab}$head"
+git -C "$repo" update-ref -d refs/remotes/origin/main
+mv "$tmp/pr.nobase.json" "$tmp/pr.json"
 # The same repository listed twice still names one worktree.
 sed -i.bak "s|^program_alpha_repositories: .*|program_alpha_repositories: [$repo, $repo]|" "$tracked"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
