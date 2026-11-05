@@ -680,7 +680,7 @@ out=$(run "$h7m" classify "$w" --tower-id mission-control:beta) || fail "another
 [ "$(owner_of "$out")" = dead-or-unknown ] || fail "another program's mission control read alpha's worker as its own: '$(owner_of "$out")'"
 # The env-carried identity inputs resolve through the surface like the flags.
 # PLANWRIGHT_TOWER_ID is dropped first: it outranks the session-id input, and a
-# dispatched worker inherits the tower's own from its launch environment.
+# headless worker inherits the tower's own from its launch environment.
 : >"$tmp/presence-calls"
 out=$(PLANWRIGHT_TOWER_SESSION_ID="$self_id" PLANWRIGHT_TOWER_CHECKOUT="$wt" env -u PLANWRIGHT_TOWER_ID PLANWRIGHT_FLEET_STATE_DIR="$h7" /bin/sh "$stubbin/fleet-stuck-detector.sh" classify "$w") \
   || fail "env identity: exited non-zero"

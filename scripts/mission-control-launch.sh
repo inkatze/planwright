@@ -467,6 +467,8 @@ cmd_launch() {
   # argument, which passes it to a mission-control session only.
   mc_tok_flag=''
   [ "$K_PROFILE" != mission-control ] || mc_tok_flag=1
+  # Each rung registers the session under the owner fleet-register.sh reads
+  # from PLANWRIGHT_TOWER_ID, and keeps it out of the session's environment.
   case $backend in
     stream-json)
       plan=$(cd "$cwd" && /bin/sh "$script_dir/allocation-apply.sh" plan --key "$K_KEY" --backend stream-json-persistent --unit "$unit" </dev/null)
@@ -490,8 +492,6 @@ cmd_launch() {
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"
       tier="$model/$effort"
       sr=0
-      # Each rung registers the session under the owner fleet-register.sh reads
-      # from PLANWRIGHT_TOWER_ID, and drops it before the session starts.
       PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
       case $sr in
         0) ;;
