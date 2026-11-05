@@ -493,7 +493,7 @@ live_in() {
 # marker_cmd write|clear <primary> <spec>/<id> — write or clear the unit's
 # dispatch marker in the spec root of the repository at <primary>.
 marker_cmd() {
-  mk_root=$(cd "$2" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null </dev/null) \
+  mk_root=$(cd -- "$2" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null </dev/null) \
     || return 1
   /bin/sh "$script_dir/orchestrate-marker.sh" "$1" "$mk_root/${3%/*}" "${3#*/}" >/dev/null 2>&1 </dev/null
 }
@@ -641,7 +641,7 @@ abs_dir() {
     /*) ;;
     *) die "$1 must be an absolute path" ;;
   esac
-  ad_dir=$(cd "$2" 2>/dev/null && pwd -P) || die "$1 is not an existing directory"
+  ad_dir=$(cd -- "$2" 2>/dev/null && pwd -P) || die "$1 is not an existing directory"
   case $ad_dir in
     *[[:cntrl:]]*) die "refusing $1: its path holds a control character" ;;
   esac
