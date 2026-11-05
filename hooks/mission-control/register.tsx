@@ -61,6 +61,10 @@ let isChecking = false
 // The session id whose record this activation was acknowledged against; a
 // record gone under that same id is a retirement.
 let ackedFor: string | null = null
+// How the activation was to be recorded, while that recording keeps failing:
+// the record on disk is then not this activation's, so it is neither
+// acknowledged nor switched to, and the recording is tried again instead.
+let recordFailed: 'variable' | 'reload' | 'clear' | null = null
 
 // Stderr reaches the pane, the status line and the event store: control
 // bytes dropped, one short line.
@@ -405,6 +409,10 @@ async function checkRecord($: EngineInterface) {
   try {
     const dir = await resolveDir($)
     if (dir === null) return
+    if (ctx && recordFailed) {
+      await acknowledge($, recordFailed)
+      return
+    }
     // Read each time: a /clear goes on under another id with no start event.
     const sessionId = await $.session.id()
     const has = await $.fs.exists(`${dir}/${sessionId}`)
@@ -463,6 +471,7 @@ async function standDown($: EngineInterface) {
   cancelTimers()
   ctx = null
   ackedFor = null
+  recordFailed = null
   await update($, panel, () => null)
   $.ui.status(undefined)
   await release($, was)
@@ -478,6 +487,7 @@ async function activate(
   cancelTimers()
   ctx = { program, target }
   ackedFor = null
+  recordFailed = null
   isClaimed = false
   hasKnobs = false
   lasting = {}
@@ -544,9 +554,11 @@ async function acknowledge($: EngineInterface, how: 'variable' | 'record' | 'rel
       sessionId,
     ])
     if (!recorded.ok) {
+      recordFailed = how
       await lastingFault($, 'ack', `the activation could not be recorded: ${recorded.err}`)
       return
     }
+    recordFailed = null
   }
   const acked = await run($, 'mc-panel.sh', ['ack', '--session', sessionId])
   if (acked.ok) {
