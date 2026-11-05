@@ -374,7 +374,7 @@ case $verb in
     ;;
   ack)
     mc_now_arg "$now"
-    [ ! -L "$act_dir/$session" ] && mc_format_ok "$act_dir/$session" || mc_fail "no activation record for this session"
+    { [ ! -L "$act_dir/$session" ] && mc_format_ok "$act_dir/$session"; } || mc_fail "no activation record for this session"
     [ ! -L "$act_dir/$session.ack" ] || mc_fail "the acknowledgment is a symlink"
     printf 'format\t%s\nsession\t%s\nwritten\t%s\n' "$MC_FORMAT" "$session" "$NOW" \
       | mc_write "$act_dir/$session.ack" || mc_fail "cannot write the acknowledgment"
