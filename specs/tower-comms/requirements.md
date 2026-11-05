@@ -1,7 +1,7 @@
 # Tower comms — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-10-28
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -516,6 +516,15 @@ measured evidence (D-15, D-16).
   *(Cites: D-24; mission-control REQ-F1.4, D-5 (Sources);
   drafting-session decision (2026-10-25); delta kickoff lens
   (2026-10-28).)*
+- **REQ-C1.17** A submitted turn whose prompt begins with the relayed-wake
+  marker SHALL NOT count as an operator reply: the prompt-submit hook SHALL
+  leave the REQ-C1.16 attention marker unwritten and append no `reply`
+  line for it, and the turn itself SHALL proceed unchanged. The marker
+  SHALL be one fixed string, defined once in a shared constant the hook
+  and mission control's wake composer both read; a prompt carrying it
+  anywhere but at its start SHALL count as a reply as before.
+  *(Cites: D-25; mission-control D-38, REQ-A1.8 (Sources);
+  obs:a89108b6.)*
 
 ## REQ-D — Speech
 
@@ -958,8 +967,25 @@ measured evidence (D-15, D-16).
   had its citation of the superseded REQ-A1.5 repointed in place
   (expression-only). The superseded REQs' test-spec entries are marked with
   their successors.
+- 2026-11-04 — Extended via `/spec-draft --extend tower-comms` (Draft
+  delta, meaning-class; awaits a `/spec-kickoff` delta re-walkthrough), the
+  amendment mission-control routes here as its Task 32 (its D-38 and D-22,
+  REQ-A1.8). Minted D-25 and REQ-C1.17 (new, superseding nothing: a relayed
+  wake was never an operator reply, so REQ-C1.16's meaning stands); added
+  Task 15 and its test-spec entry. The change only withholds attention
+  confirmation, so no human gate moves. The altitude is unchanged (D-1).
 
 ## Sources
+
+- **mission-control (2026-11-04 extension, signed off in PR #827)** — the
+  bundle that routes this delta here: D-38 (a relayed wake carries a fixed
+  leading marker in a constant both sides read, and the tower's reply hook
+  ignores a turn bearing it), D-22 (cross-bundle edges), REQ-A1.8, and its
+  Task 32; its Task 22 makes relayed wakes carry the marker and depends on
+  this delta.
+- **obs:a89108b6** — the reply hook writes the attention marker for every
+  submitted turn without reading it, so a relayed wake would read as an
+  operator reply. Consumed by mission-control.
 
 - **mission-control (2026-10-24, Ready)** — the bundle that routes this
   delta here: D-7 (the queue stays the single delivery authority; it gains

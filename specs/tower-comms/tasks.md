@@ -1,7 +1,7 @@
 # Tower comms — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-28
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -643,8 +643,31 @@ baseline exists, so the experiment has an honest before.
   REQ-C1.12, REQ-F1.7, REQ-F1.9, REQ-G1.9
 - **Estimated effort:** 1 day
 
+### Task 15 — The reply hook ignores a relayed wake
+
+- **Deliverables:** the relayed-wake marker constant in one sourceable file
+  under `scripts/`; `scripts/tower-reply-hook.sh` reading it and, on a
+  prompt that begins with it, writing neither the attention marker nor the
+  `reply` line; the cases in `tests/test-tower-reply-hook.sh`; the hook's
+  header comment naming the new no-op path.
+- **Done when:** in one fixture tower session, a turn bearing the marker
+  leaves the attention marker unwritten and appends no `reply` line, while
+  an unmarked turn and a turn carrying the marker after other text each
+  write both; the marker's literal value appears in exactly one file under
+  `scripts/`; `mise run check` passes.
+- **Dependencies:** none
+- **Citations:** D-25 · REQ-C1.17
+- **Estimated effort:** half day
+
 ## Awaiting input
 
+- **Task 15** — anchor re-review pending: the 2026-11-04 extension (the
+  reply hook ignores a relayed mission-control wake; `## Changelog` in
+  requirements.md) adds D-25, REQ-C1.17 and this task, so the
+  anchored-content delta is meaning-class and no anchor entry was written;
+  the freshness gate stays failed closed for this bundle. Operator: run a
+  `/spec-kickoff` delta re-walkthrough of the extension; its sign-off
+  re-records the anchor and removes this bullet.
 - **Task 2** — the mechanical half (the prompt-submit hook, the per-pass
   tick, the loop's delivered-turn logging) is on
   `planwright/tower-comms/task-2` and lands with that branch's draft PR; the

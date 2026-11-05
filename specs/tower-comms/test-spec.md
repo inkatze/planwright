@@ -1,7 +1,7 @@
 # Tower comms — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-10-28
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -427,6 +427,16 @@ given a leased batch, then a second tower receives none of its members.
 Scenario: given two items already batched under a cap of three and a pair
 on the same subject, then the pair counts two, does not join, and waits
 whole for a later call. Unit tests in Task 13.
+
+### REQ-C1.17 — A relayed wake is not a reply [test]
+
+`tests/test-tower-reply-hook.sh` (Task 15), over one fixture tower session:
+a payload whose prompt begins with the constant leaves the attention marker
+unwritten and appends no `reply` line, prints nothing on stdout and exits
+0; an unmarked prompt in the same fixture writes both; a prompt carrying
+the constant after other text writes both. A repository check finds the
+marker's literal value in exactly one file under `scripts/`, the constant
+file, and the hook reading the constant from it.
 
 ## REQ-D — Speech
 

@@ -1,7 +1,7 @@
 # Tower comms — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-10-28
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -815,6 +815,41 @@ reviewable kinds after the operator's requests and before news.
 **Chosen because:** mission-control REQ-F1.4 asks for one item or one
 coupled cluster per turn, batched by subject, and the cap keeps the bound
 mechanical.
+
+### D-25: A relayed wake is not a reply  (N, extension 2026-11-04)
+
+**Decision:** Mission control wakes a session it supervises by submitting
+a turn into it (mission-control D-38), and in a tower session the
+prompt-submit hook would read that turn as the operator replying, confirm
+attention, and release a hand-over with nobody watching. A wake therefore
+opens with a fixed marker, `[mission control wake]` followed by one space,
+held in one sourceable constant file under `scripts/` that the hook and
+mission control's wake composer both read, so neither side keeps its own
+copy. The hook compares the start of the walked prompt with the constant,
+byte for byte and before any flattening or trimming; on a match it writes
+neither the attention marker nor the `reply` line and exits 0 silently, as
+it does for a session that is not a tower. A marker anywhere later in the
+prompt is ordinary text. Making mission control's relayed wakes carry the
+marker is mission-control Task 22's half; this bundle owns the constant,
+its value and the hook.
+
+**Alternatives considered:**
+- Match the wake's current opening grammar (`mission control (<program>):`),
+  as the source observation suggested. Rejected because: it couples the hook
+  to wording mission control may change, and mission-control D-38 signed a
+  fixed marker in a shared constant.
+- Log the wake as its own event kind instead of writing nothing. Rejected
+  because: it adds an event kind the scorecard would have to learn to
+  exclude, and mission control's own event log already records the relay.
+- Tag the wake out of band (an environment variable or a payload field).
+  Rejected because: the hook sees only the harness's payload, and a relayed
+  turn arrives as an ordinary prompt on every backend.
+
+**Chosen because:** the only effect of a match is that attention is not
+confirmed, so the change can delay a hand-over by one knock but can never
+release one; no human gate is weakened. An operator who types the marker
+at the start of a real reply, or submits a staged tmux wake by hand, gets
+one extra knock, the same cost as a reply that arrived a second early.
 
 ## Cross-cutting concerns
 
