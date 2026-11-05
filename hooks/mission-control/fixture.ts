@@ -172,7 +172,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
   on('command.register', () => {
     if (fx.isCommandRefused) throw new Error('refused')
-    return { value: { command: 'mission-control' } }
+    return { value: { command: 'mc-panel' } }
   })
   on('ui.open', () => {
     w.opened += 1

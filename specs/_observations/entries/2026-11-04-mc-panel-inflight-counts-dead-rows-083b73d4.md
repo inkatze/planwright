@@ -1,0 +1,1 @@
+- 2026-11-04 [planwright] mission control: the panel one-line status read "372 in flight" while about eleven sessions were live, so its in-flight count includes long-dead registry rows; the count should come from positive liveness evidence (mission-control REQ-D1.2), and a follow-on should fix the panel reader or reap the rows
