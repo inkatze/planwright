@@ -1278,7 +1278,9 @@ is_base_or_own_branch() {
 # is_own_remote_ref <dir> <name> — 0 when the merge source is the unit
 # branch's own remote-tracking branch on the base remote, by name and by what
 # git resolves the name to; 2 when it is spelled as that branch but the ref is
-# missing or a local ref of that name shadows it; 1 otherwise.
+# missing or a local branch or tag of that name points at another commit; 1
+# otherwise. A shadow at the same commit is admitted: the merge takes that
+# very commit, and the guard refuses a ref change earlier in the command.
 is_own_remote_ref() {
   local d=$1 r=$2 want oid
   case $r in
@@ -3637,7 +3639,7 @@ eval_merge() {
     is_own_remote_ref "$dir" "$s" || rc=$?
     [ "$rc" != 0 ] || continue
     [ "$rc" != 2 ] \
-      || emit_deny "this git merge names the branch's own remote branch, but $(sanitize_printable "refs/remotes/$BASE_REMOTE/$CUR_BRANCH" 'its remote-tracking ref') is missing or a local ref of that name shadows it - refusing (fail closed). Push or fetch the branch first, and remove any local branch or tag of that name."
+      || emit_deny "this git merge names the branch's own remote branch, but $(sanitize_printable "refs/remotes/$BASE_REMOTE/$CUR_BRANCH" 'its remote-tracking ref') is missing or a local branch or tag of that name points at another commit - refusing (fail closed). Push or fetch the branch first, and remove any local branch or tag of that name."
     emit_deny "a worker merges only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main'), or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
   done
 }

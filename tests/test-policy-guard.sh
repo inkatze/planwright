@@ -539,7 +539,7 @@ expect defer "[worker] git pull --no-rebase overrides the configured rebase on t
 gitq -C "$LWT" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
 pg worker 'git merge origin/planwright/flight/dispatch-backend-0123abcd' "$LWT" "$PRIM"
 expect deny "[worker] a never-pushed branch has no own remote branch to merge"
-reason_has 'missing or a local ref' "the missing own-remote-branch refusal says why"
+reason_has 'missing or a local branch or tag' "the missing own-remote-branch refusal says why"
 gitq -C "$LWT" commit --allow-empty -m 'flight work'
 gitq -C "$LWT" push -u origin planwright/flight/dispatch-backend-0123abcd
 for cmd in 'git merge origin/planwright/flight/dispatch-backend-0123abcd' 'git merge' 'git pull'; do
@@ -549,7 +549,11 @@ done
 gitq -C "$LWT" tag origin/planwright/flight/dispatch-backend-0123abcd HEAD~1
 pg worker 'git merge origin/planwright/flight/dispatch-backend-0123abcd' "$LWT" "$PRIM"
 expect deny "[worker] a tag shadowing the own remote branch is refused"
-reason_has 'missing or a local ref' "the shadowed own-remote-branch refusal says why"
+reason_has 'missing or a local branch or tag' "the shadowed own-remote-branch refusal says why"
+gitq -C "$LWT" tag -d origin/planwright/flight/dispatch-backend-0123abcd
+gitq -C "$LWT" tag origin/planwright/flight/dispatch-backend-0123abcd HEAD
+pg worker 'git merge origin/planwright/flight/dispatch-backend-0123abcd' "$LWT" "$PRIM"
+expect defer "[worker] a tag of that name at the same commit is admitted: the merge takes that very commit"
 gitq -C "$LWT" tag -d origin/planwright/flight/dispatch-backend-0123abcd
 XCW="$SANDBOX/same-name-worktree-clone"
 gitq clone "$ORIGIN" "$XCW"
