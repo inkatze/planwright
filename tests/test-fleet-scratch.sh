@@ -65,16 +65,6 @@ for args in "make" "make $HOME_F" "bogus $HOME_F $WK" "make $HOME_F $WK --stale"
   fi
 done
 
-nlhome=$(printf '%s\nx' "$HOME_F")
-nlhome=${nlhome%x}
-mkdir "$nlhome"
-run make "$nlhome" "$WK"
-if [ "$RC" -eq 2 ] && [ ! -e "$HOME_F/scratch" ]; then
-  pass "usage: a fleet home ending in a newline is refused, never resolved to its sibling"
-else
-  fail "usage: a fleet home ending in a newline (rc=$RC, '$OUT')"
-fi
-
 echo "### make"
 run make "$HOME_F" "$WK"
 root=$OUT

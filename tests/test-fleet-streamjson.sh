@@ -1028,7 +1028,7 @@ senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 --final >/dev/null 2>&1 || f
   || fail "c39: the final stop left the fleet home's record of the scratch root"
 echo "ok: c39 the worker's TMPDIR is its own short scratch root outside .claude, kept across a recover and a stop, removed by the final stop (REQ-G1.2)"
 # The final close removes only a root the fleet home records, or one of the
-# earlier layout's shapes, <fleet-home>/scratch/<hash> or <hash>/<hash>, and
+# earlier layout's shapes, <fleet-home>/scratch/<sha1> or <sha1>/<sha1>, and
 # never through a symlink; a read-only directory the worker left does not stop
 # the removal.
 h39r=$(cd "$tmp/h39" && pwd -P)
