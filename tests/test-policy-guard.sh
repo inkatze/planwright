@@ -546,25 +546,32 @@ f; git push" "$MAIN|false && cd $UNIT || git push" \
 x
 EOF
 git push" "$MAIN|x=1 then cd $UNIT; git push" "$MAIN|x=1 coproc cd $UNIT; git push" \
-  "$MAIN|command time cd $UNIT; git push" \
+  "$MAIN|command time cd $UNIT; git push" "$MAIN|>/dev/null then cd $UNIT; git push" \
+  "$MAIN|if false; then >/dev/null fi; cd $UNIT; fi; git push" \
+  "$MAIN|if false; then noglob fi; cd $UNIT; fi; git push" \
+  "$MAIN|a+b=1 cd $UNIT; git push" "$MAIN|\"x=1\" cd $UNIT; git push" \
   "$MAIN|cd $UNIT && true & git push" "$MAIN|coproc cd $UNIT; git push" \
   "$MAIN|! cd $UNIT && git push" "$MAIN|time ! cd $UNIT && git push" \
   "$MAIN|true | cd $UNIT && git push" "$MAIN|true |& cd $UNIT && git push"; do
   cmd=${spec#*|}
   pg worker "$cmd" "${spec%%|*}"
-  expect deny "[worker] a cd the shell may skip or run elsewhere is not followed: ${cmd//$'\n'/ \\n }"
+  expect deny "[worker] a cd the guard cannot place before the act is not followed: ${cmd//$'\n'/ \\n }"
   reason_has 'cannot follow' "[worker] the deny says the guard cannot follow the cd: ${cmd//$'\n'/ \\n }"
 done
 # A cd its list is sure to run before the later act is still followed.
 for cmd in "cd $UNIT; git push" "cd $UNIT
 git push" "true && cd $UNIT && git push" "true || false && cd $UNIT && git push" \
   "git status; cd $UNIT && git commit --amend --no-edit" "cd $UNIT; false || git push" \
-  "cd $UNIT && git status || true; git push" \
+  "cd $UNIT && git status || true; git push" "cd ${UNIT%/*} && cd ${UNIT##*/}; git push" \
+  "x=\"1\" cd $UNIT; git push" "cd $UNIT; >/dev/null; git push" "2>/dev/null; cd $UNIT && git push" \
   "true || echo x; cd $UNIT; git push" "if true; then echo x; fi; cd $UNIT && git push" \
   "for x in a; do echo x; done; cd $UNIT; git commit --amend --no-edit"; do
   pg worker "$cmd" "$MAIN"
   expect defer "[worker] a cd sure to run is followed: ${cmd//$'\n'/ \\n }"
 done
+# zsh runs a command of redirects alone as cat, passing piped text on.
+pg worker "echo 'git push origin main' | >/dev/stdout | bash" "$MAIN"
+expect deny "[worker] text piped through a redirect-only command into a shell is screened"
 
 # --- fail-closed reads (REQ-G1.4) --------------------------------------------
 

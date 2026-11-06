@@ -577,17 +577,22 @@ deny_unanalyzable() {
 # body carries a substitution sets HEREDOC_SUBST, since bash runs it.
 #
 # Results: W[] words, WL[] literal flags, WU[] unquoted flags (no quote or
-# escape anywhere in the word), SEG_S[]/SEG_E[] word ranges, SEG_TERM[]
-# terminators, SEG_DOC[] here-document bodies per segment.
+# escape anywhere in the word), WA[] flags for a word whose first `=` comes
+# before any quote or escape, WR[] flags for a word after a redirect in its
+# segment, SEG_S[]/SEG_E[] word ranges, SEG_TERM[] terminators, SEG_DOC[]
+# here-document bodies per segment.
 
 HEREDOC_SUBST=0
 tokenize() {
   local s=$1
   local n=${#s} i=0 c nc ch cur='' have=0 lit=1 uqonly=1 digits_only=1 fold_doc='' redir=0
+  local eq_seen=0 eq_uq=0
   local pending_delims=() pending_tabs=() pending_seg=() pending_quoted=()
   W=()
   WL=()
   WU=()
+  WA=()
+  WR=()
   SEG_S=()
   SEG_E=()
   SEG_TERM=()
@@ -606,9 +611,13 @@ tokenize() {
       W[${#W[@]}]=$cur
       WL[${#WL[@]}]=$lit
       WU[${#WU[@]}]=$uqonly
+      WA[${#WA[@]}]=$eq_uq
+      WR[${#WR[@]}]=$redir
     fi
     cur=''
     have=0
+    eq_seen=0
+    eq_uq=0
     lit=1
     uqonly=1
     digits_only=1
@@ -909,6 +918,10 @@ tokenize() {
         i=$((i + 1))
         ;;
       *)
+        if [ "$c" = '=' ] && [ "$eq_seen" = 0 ]; then
+          eq_seen=1
+          eq_uq=$uqonly
+        fi
         cur="$cur$c"
         have=1
         case $c in [0-9]) ;; *) digits_only=0 ;; esac
@@ -1298,19 +1311,26 @@ segment_words() {
 # compound_shape <seg> — read the segment's leading reserved words: advance
 # CS_DEPTH, the compound commands (if, while, until, for, select, case) open
 # at it; set CS_NOFOLLOW when a cd in it may not run in this shell or may fail
-# unseen (a `!`, a coproc, a zsh precommand modifier, or a reserved word
-# made a plain command name by quoting or by an assignment, command, exec or
+# unseen (a `!`, a coproc, a zsh precommand modifier, a word segment_words
+# skips as an assignment that bash runs as a command, or a reserved word made
+# a plain command name by quoting or by an assignment, command, exec or
 # builtin before it); and set CS_LOST, kept for the rest of the command, at a
-# function definition, whose body may change directory when called.
+# function definition, whose body may change directory when called, and at a
+# reserved word after a redirect or a zsh modifier, which bash and zsh read
+# differently.
 CS_DEPTH=0
 CS_LOST=0
 compound_shape() {
-  local k=${SEG_S[$1]} e=${SEG_E[$1]} prefixed=0
+  local k=${SEG_S[$1]} e=${SEG_E[$1]} prefixed=0 name
   CS_NOFOLLOW=0
   while [ "$k" -lt "$e" ]; do
     case ${W[$k]} in
       '!' | if | then | else | elif | do | while | until | for | select | case | fi | done | 'esac' | \
         time | coproc | function | noglob | nocorrect)
+        if [ "$prefixed" = 2 ] || [ "${WR[$k]}" = 1 ]; then
+          CS_LOST=1
+          return 0
+        fi
         if [ "${WU[$k]}" != 1 ] || [ "$prefixed" = 1 ]; then
           CS_NOFOLLOW=1
           return 0
@@ -1322,8 +1342,16 @@ compound_shape() {
         continue
         ;;
       [A-Za-z_]*=*)
-        case ${W[$k]%%=*} in
+        name=${W[$k]%%=*}
+        case $name in
           *[!A-Za-z0-9_+]*) return 0 ;;
+        esac
+        name=${name%+}
+        case "${WA[$k]}:$name" in
+          *+* | 0:*)
+            CS_NOFOLLOW=1
+            return 0
+            ;;
         esac
         prefixed=1
         k=$((k + 1))
@@ -1331,7 +1359,11 @@ compound_shape() {
         ;;
     esac
     case ${W[$k]} in
-      '!' | coproc | noglob | nocorrect) CS_NOFOLLOW=1 ;;
+      noglob | nocorrect)
+        CS_NOFOLLOW=1
+        prefixed=2
+        ;;
+      '!' | coproc) CS_NOFOLLOW=1 ;;
       if | while | until) CS_DEPTH=$((CS_DEPTH + 1)) ;;
       then | else | elif | do) ;;
       time)
@@ -1466,7 +1498,7 @@ tower_wrapped_git_check() {
 
 classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
-  local pt cd_seen=0 cd_cond=0
+  local pt cd_seen=0 cd_cond=0 list_plain=1 prev_cd=0
   [ -d "$eff" ] || eff_ok=0
   CS_DEPTH=0
   CS_LOST=0
@@ -1489,9 +1521,17 @@ classify_segments() {
         [ "$pt" != '&' ] || [ "$cd_seen" = 0 ] || eff_ok=0
         cd_seen=0
         cd_cond=0
+        list_plain=1
         ;;
       '||') [ "$cd_cond" = 0 ] || eff_ok=0 ;;
     esac
+    # list_plain: every earlier command in this list is a followed cd, so a
+    # cd after them is no more conditional than they are.
+    [ "$prev_cd" = 1 ] || [ "$si" = 0 ] || case $pt in
+      '' | ';' | "$NL" | '&') ;;
+      *) list_plain=0 ;;
+    esac
+    prev_cd=0
     if [ "${#SW[@]}" = 0 ]; then
       # A segment of assignments alone sets them for the rest of the command;
       # the shell runs a prompt or startup hook's value as a command.
@@ -1502,7 +1542,12 @@ classify_segments() {
             && deny_now "this command sets a shell hook variable whose value names a reserved act - refusing (fail closed). Run the command directly."
           ;;
       esac
-      prev_text=$cur_text
+      # zsh runs a command of redirects alone as cat, so text piped into it
+      # still reaches a shell further down the pipe.
+      case $pt in
+        '|' | '|&') prev_text="$prev_text$NL$cur_text" ;;
+        *) prev_text=$cur_text ;;
+      esac
       si=$((si + 1))
       continue
     fi
@@ -1646,7 +1691,8 @@ classify_segments() {
             && [ "$CS_DEPTH" = 0 ] && [ "$CS_NOFOLLOW" = 0 ] \
             && [ "$pt" != '||' ] && [ "$pt" != '|' ] && [ "$pt" != '|&' ]; then
             cd_seen=1
-            [ "$pt" != '&&' ] || cd_cond=1
+            prev_cd=1
+            [ "$pt" != '&&' ] || [ "$list_plain" = 1 ] || cd_cond=1
             case ${SW[1]} in
               /*) eff=${SW[1]} ;;
               -*) eff_ok=0 ;;
