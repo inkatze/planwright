@@ -100,6 +100,7 @@ mc_run fleet-state.sh register w-idle flight:done --backend stream-json --death-
 mc_run fleet-state.sh register w-stuck flight:hung --backend stream-json --death-handle "process $$"
 mc_run fleet-state.sh register w-done flight:landed --backend stream-json --death-handle "process $$"
 mc_run fleet-state.sh register w-win flight:named-window --backend tmux --death-handle "tmux-window other w7"
+mc_run fleet-state.sh register w-idname flight:id-like-name --backend tmux --death-handle "tmux-window named @9"
 mc_run fleet-state.sh register w-print flight:once --backend print --death-handle none
 mc_run fleet-state.sh register w-tmux flight:tmux --backend tmux --death-handle "tmux-window mc @5"
 mc_run fleet-state.sh register w-tmux-gone flight:tmux-old --backend tmux --death-handle "tmux-window mc @9"
@@ -126,7 +127,7 @@ mkdir -p "$fleet/attention"
 # The tmux server lists window @5, its session since renamed, and not @9.
 # The other two stand for a server that does not answer and one not running.
 mkdir -p "$tmp/bin" "$tmp/bin-down" "$tmp/bin-none"
-printf '#!/bin/sh\ncase "$*" in *list-windows*) printf "renamed\\t@5\\tw5\\nother\\t@7\\tw7\\n" ;; *) exit 1 ;; esac\n' >"$tmp/bin/tmux"
+printf '#!/bin/sh\ncase "$*" in *list-windows*) printf "renamed\\t@5\\tw5\\nother\\t@7\\tw7\\nnamed\\t@3\\t@9\\n" ;; *) exit 1 ;; esac\n' >"$tmp/bin/tmux"
 printf '#!/bin/sh\necho "server exited unexpectedly" >&2\nexit 1\n' >"$tmp/bin-down/tmux"
 printf '#!/bin/sh\necho "no server running on /tmp/tmux-0/default" >&2\nexit 1\n' >"$tmp/bin-none/tmux"
 chmod +x "$tmp/bin/tmux" "$tmp/bin-down/tmux" "$tmp/bin-none/tmux"
@@ -166,6 +167,7 @@ record "a live session that stopped responding is in flight, stuck" flight w-stu
 expect_no_out "a session gone idle is not in flight" "w-idle"
 expect_no_out "a session whose work is done is not in flight" "w-done"
 record "a tmux window named in its session is in flight" flight w-win flight:named-window tmux working
+record "a window whose name looks like an id is found by name" flight w-idname flight:id-like-name tmux working
 record "an empty field keeps the columns" flight w-empty - stream-json working
 expect_no_out "pid 1 is never a live worker" "w-init"
 expect_no_out "a session whose process is gone is not in flight" "w-dead"
@@ -199,14 +201,14 @@ record "the redraw cadence knob, in seconds" knob refresh 10
 record "the tick cadence knob, in seconds" knob tick 300
 record "the reviews TTL knob, in seconds" knob reviews-ttl 300
 record "D-29: the handover verb is installed" handover available
-record "REQ-F1.2: the text line" line "mission control alpha: 6 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
+record "REQ-F1.2: the text line" line "mission control alpha: 7 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "knobs only with --knobs" "knob${tab}"
 
 # The text form alone, as a session without the mod reads it.
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
 expect_rc "the line" 0
-expect_eq "REQ-F1.2: the line form, one line" "mission control alpha: 6 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
+expect_eq "REQ-F1.2: the line form, one line" "mission control alpha: 7 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
 PATH="$tmp/bin-down:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
 record "a tmux server that does not answer is unreadable" unreadable "tmux windows"
@@ -216,12 +218,13 @@ expect_out "and the count says it may be more" "4+ in flight"
 PATH="$tmp/bin-none:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "a tmux server not running is no fault" "tmux windows"
-record "and its windows are finished" finished 9
+record "and its windows are finished" finished 10
 PATH="$tmp/bin:$host_path"
 mv "$fleet/attention/state" "$fleet/attention/state.real"
 ln -s "$fleet/attention/state.real" "$fleet/attention/state"
 mc_run mc-panel.sh digest --program alpha --now 1030
 record "a symlinked attention store is unreadable" unreadable "attention store"
+expect_out "and the count, counting idle sessions it cannot tell apart, says it may be fewer" "up to 9 in flight"
 rm -f "$fleet/attention/state"
 mv "$fleet/attention/state.real" "$fleet/attention/state"
 

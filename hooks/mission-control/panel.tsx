@@ -24,8 +24,12 @@ function flightCount(view: PanelView): string {
   const d = view.digest
   if (!d) return '?'
   if (d.unreadable.includes('fleet registry')) return '?'
-  // Windows of a tmux server that did not answer may hold more.
-  return d.unreadable.includes('tmux windows') ? `${d.flights.length}+` : String(d.flights.length)
+  // Windows of a tmux server that did not answer may hold more; without the
+  // attention store an idle session reads live, so there may be fewer.
+  const isFloor = d.unreadable.includes('tmux windows')
+  const isCeiling = d.unreadable.includes('attention store')
+  const n = d.flights.length
+  return isFloor && isCeiling ? '?' : isFloor ? `${n}+` : isCeiling ? `up to ${n}` : String(n)
 }
 
 function kbLine(view: PanelView): string {

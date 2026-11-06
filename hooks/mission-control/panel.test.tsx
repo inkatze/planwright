@@ -76,7 +76,6 @@ test('sessions in flight are said in plain words, grouped into counts', async ($
   await ui.unmount()
 })
 
-// REQ-F1.1: the stores change and the timer redraws with no turn.
 test('with tmux unreadable the in-flight count is a floor, never exact', async ($, on) => {
   const w = world(on, {
     digest: digestText({ extra: ['unreadable\ttmux windows'] }).replace(/^flight\t.*\n/gm, ''),
@@ -89,6 +88,14 @@ test('with tmux unreadable the in-flight count is a floor, never exact', async (
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toMatch(/^✈ alpha · 0\+ in flight · /)
   await band.unmount()
+})
+
+test('with the attention store unreadable the in-flight count is a ceiling', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['unreadable\tattention store'] }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^In flight \(up to 2\)$/ })).toBeDefined()
+  await ui.unmount()
 })
 
 test('repeated background checks collapse before the list is cut', async ($, on) => {
@@ -105,6 +112,7 @@ test('repeated background checks collapse before the list is cut', async ($, on)
   await ui.unmount()
 })
 
+// REQ-F1.1: the stores change and the timer redraws with no turn.
 test('the pane redraws from the stores on the timer, without a turn', async ($, on) => {
   const w = world(on)
   await boot($, w)

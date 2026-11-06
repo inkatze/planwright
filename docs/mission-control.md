@@ -187,7 +187,7 @@ you each one settled that way, and you can reverse it.
 A long conversation eventually fills up. In the session you started
 yourself, mission control lets it compress: it then reloads your rules and
 checks its picture against the records before doing anything else, and
-tells you only if that check fails. You never have to do anything about it.
+tells you only if that check fails. The panel never asks you to hand over.
 
 A session mission control launched on its own hands over instead, since no
 terminal has to move: it writes a note of everything open, starts its

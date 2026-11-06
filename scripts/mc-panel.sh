@@ -609,18 +609,21 @@ flights() {
       ;;
   esac
   fl_attn=''
+  fl_attn_ok=1
   if fl_root=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null); then
     fl_as=$fl_root/attention/state
     if [ -e "$fl_as" ] || [ -L "$fl_as" ]; then
       if [ -L "$fl_as" ] || [ ! -f "$fl_as" ] \
         || ! fl_attn=$(awk -F '\t' 'NF >= 3 { print $1 "\t" $3 }' "$fl_as" 2>/dev/null); then
         fl_attn=''
+        fl_attn_ok=0
         printf 'unreadable\tattention store\n'
       fi
     fi
   fi
   # Each row classed as live, a pid to probe, done or unknown. A window id
-  # is looked up across the server, as a renamed session keeps its windows.
+  # is looked up across the server, as a renamed session keeps its windows;
+  # the token is also tried as a window name in its session.
   fl_class=$(printf '%s\n' "$fl_open" | W=$fl_windows A=$fl_attn T=$fl_tmux awk -F '\t' '
     BEGIN {
       m = split(ENVIRON["W"], wl, "\n")
@@ -636,7 +639,7 @@ flights() {
       if ($4 ~ /^process [1-9][0-9]*$/) { print "pid\t" row "\t" substr($4, 9); next }
       if (split($4, h, " ") == 3 && h[1] == "tmux-window") {
         if (ENVIRON["T"] != "1") { print "unknown"; next }
-        seen = (h[3] ~ /^@[0-9]+$/) ? (h[3] in id) : ((h[2] SUBSEP h[3]) in nm)
+        seen = (h[3] ~ /^@[0-9]+$/ && (h[3] in id)) || ((h[2] SUBSEP h[3]) in nm)
         print (seen ? "live\t" row : "done")
         next
       }
@@ -669,8 +672,16 @@ EOF_ROWS
   [ -z "$fl_rows" ] || printf '%s\n' "$fl_rows"
   printf 'finished\t%s\n' "$fl_done"
   D_FLIGHT=$(printf '%s' "$fl_rows" | awk 'NF { n++ } END { print n + 0 }')
-  # Rows of a server that did not answer may be live: at least, never exactly.
-  [ "$fl_unknown" -eq 0 ] || D_FLIGHT="$D_FLIGHT+"
+  # Rows of a server that did not answer may be live, so the count is a
+  # floor; without the attention store an idle session reads live, so it is
+  # a ceiling; with both, neither.
+  if [ "$fl_unknown" -gt 0 ] && [ "$fl_attn_ok" -eq 0 ]; then
+    D_FLIGHT='?'
+  elif [ "$fl_unknown" -gt 0 ]; then
+    D_FLIGHT="$D_FLIGHT+"
+  elif [ "$fl_attn_ok" -eq 0 ]; then
+    D_FLIGHT="up to $D_FLIGHT"
+  fi
 }
 
 waiting() {
