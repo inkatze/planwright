@@ -1011,7 +1011,13 @@ run_checks "checks (default): a newer failure listed before the older success it
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"}' 'test is FAILURE'
 run_checks "checks (default): a newer success listed before the failure it supersedes passes" defer \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}'
-many=$(i=0; while [ $i -lt 100 ]; do printf '{"name":"c%s","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},' "$i"; i=$((i + 1)); done)
+many=$(
+  i=0
+  while [ $i -lt 100 ]; do
+    printf '{"name":"c%s","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},' "$i"
+    i=$((i + 1))
+  done
+)
 run_checks "checks (default): a check list at its cap of 100 denies" deny "${many%,}" 'cap of 100'
 
 reset_stub_env
