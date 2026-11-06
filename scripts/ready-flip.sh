@@ -794,9 +794,16 @@ pred_review() {
   set_pred review-converged pass "run $run converged on ${rh:0:12}; $n park-only commit(s) since"
 }
 
+# Only the latest run of each check context counts: a re-run supersedes the
+# runs before it, and a run not yet completed is the newest (gh reports an
+# unset time as 0001-01-01). scripts/ready-guard.sh selects the same way.
 # shellcheck disable=SC2016
 ROLLUP_JQ='
-  [ (.statusCheckRollup // [])[]
+  def context: if .__typename == "StatusContext" then ["status", .context // ""] else ["run", .workflowName // "", .name // ""] end;
+  def started: if (.status // "COMPLETED") != "COMPLETED" then "~"
+    else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "~") end | tostring;
+  [ (.statusCheckRollup // []) | to_entries | group_by(.value | context)
+    | map(max_by([(.value | started), .key])) | sort_by(.key) | .[].value
     | select((.__typename == "StatusContext" and ((.context // "") as $n | any($ex[]; . == $n))) | not)
     | if .__typename == "StatusContext" then
         (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending" else "failing" end)
