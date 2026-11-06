@@ -322,6 +322,21 @@ if release_ptr "$root" && [ ! -e "$root" ] && [ ! -e "$T/unit/scratch-root" ]; t
 else
   fail "final close: left $root or its pointer"
 fi
+# The earlier layout from a SHA-256 repository: 64-hex components.
+L64=$HOME_F/scratch/$W64
+mkdir -p "$L64/$(hex40 6)666666666666666666666666/f" "$L64/keep"
+if release_ptr "$L64/$(hex40 6)666666666666666666666666" && [ ! -e "$L64/$(hex40 6)666666666666666666666666" ] \
+  && [ -d "$L64/keep" ] && [ ! -e "$T/unit/scratch-root" ]; then
+  pass "final close: an earlier-layout session root from a SHA-256 repository goes, its worktree's stays"
+else
+  fail "final close: an earlier-layout SHA-256 session root"
+fi
+mkdir -p "$L64/$(hex40 5)555555555555555555555555"
+if release_ptr "$L64" && [ -d "$L64" ] && [ ! -e "$T/unit/scratch-root" ]; then
+  pass "final close: an earlier-layout SHA-256 worktree root holding a session's stays, its pointer goes"
+else
+  fail "final close: an earlier-layout SHA-256 worktree root in use"
+fi
 
 echo "fleet-scratch: $passes passed, $failures failed"
 [ "$failures" -eq 0 ]

@@ -183,7 +183,9 @@ stop_scratch_root_release() {
     case $sr_k in
       '' | *[!0-9a-f]*) return 1 ;;
     esac
-    [ "${#sr_k}" -eq 40 ] || return 1
+    # SHA-1 or SHA-256: the worktree's repository decided what the writer
+    # hashed with.
+    [ "${#sr_k}" -eq 40 ] || [ "${#sr_k}" -eq 64 ] || return 1
   done
   # Every component, not just the last (which the removal below checks): a
   # linked worktree root would take the removal out of the fleet home. The
@@ -219,7 +221,7 @@ stop_scratch_in_use() {
     case $su_n in
       '' | *[!0-9a-f]*) continue ;;
     esac
-    if [ "${#su_n}" -eq 40 ] && [ -d "$su_d" ] && [ ! -L "$su_d" ]; then
+    if { [ "${#su_n}" -eq 40 ] || [ "${#su_n}" -eq 64 ]; } && [ -d "$su_d" ] && [ ! -L "$su_d" ]; then
       su_rc=0
       break
     fi
