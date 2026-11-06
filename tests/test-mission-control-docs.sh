@@ -113,7 +113,7 @@ check_register() {
   printf '%s\n' "$text" | grep -oE '[A-Za-z0-9_./-]*\.(sh|yml|yaml|json|tsv|md|txt|toml)([^A-Za-z0-9]|$)|scripts/[A-Za-z0-9_.-]*' | sort -u | sed 's/^/file: /'
   printf '%s\n' "$text" | grep -oE '[a-z]+_[a-z_]+' | sort -u | sed 's/^/configuration key: /'
   printf '%s\n' "$text" | grep -oE '(^|[^A-Za-z0-9_./-])/[a-z][a-z0-9:-]*' | sed 's/^[^/]//' \
-    | grep -vx '/mission-control' | sort -u | sed 's/^/command: /'
+    | grep -vxE '/(mission-control|mc-panel)' | sort -u | sed 's/^/command: /'
 }
 
 # The walk a fresh installation takes, each a section of the operator doc.
@@ -167,8 +167,8 @@ for bad in "The orchestrator starts." "A visual flight lands." "See Task 4." "Pe
   if [ -n "$(check_register "$probe/op.md")" ]; then ok "probe: '$bad' is caught"; else fail "probe: '$bad' passed the register"; fi
 done
 # shellcheck disable=SC2016 # backticks are literal markdown, never expanded
-printf 'Type `/mission-control`; see [the reference](options-reference.md).\n' >"$probe/op.md"
-if [ -z "$(check_register "$probe/op.md")" ]; then ok "probe: the operator's own command and a link target pass"; else fail "probe: a clean line was refused"; fi
+printf 'Type `/mission-control` or `/mc-panel`; see [the reference](options-reference.md).\n' >"$probe/op.md"
+if [ -z "$(check_register "$probe/op.md")" ]; then ok "probe: the operator's own commands and a link target pass"; else fail "probe: a clean line was refused"; fi
 printf '## First run\n' >"$probe/op.md"
 if [ -n "$(check_walk "$probe/op.md")" ]; then ok "probe: a short walk is caught"; else fail "probe: a short walk passed"; fi
 printf '## First run notes\n\n## State sources\n\nrepositories, where your specs live, signed in, where the state, duties, quiet hours.\n\n## Duties\n## Proposals\n## Preferences\n## Resume\n## Handover\n' >"$probe/op.md"

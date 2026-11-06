@@ -1,6 +1,6 @@
 #!/bin/bash
 # Structural guard over the /mission-control skill (mission-control D-1,
-# D-2, D-14, D-18, D-19, D-21, D-23; REQ-A1.1 to REQ-A1.7, REQ-F1.12,
+# D-2, D-14, D-18, D-19, D-21, D-23; REQ-A1.1 to REQ-A1.7, REQ-F1.6, REQ-F1.12,
 # REQ-F1.13, REQ-G1.3, REQ-G1.4, REQ-H1.4, REQ-I1.1 to REQ-I1.6).
 #
 # The skill is procedure the agent reads, so its [design-level] halves are a
@@ -116,6 +116,7 @@ need "D-18: the state-source objective" "Where the program's state lives"
 need "D-14: no duty enables itself through an omitted list" "always with \`--duties\`"
 need "the runner starts detached, never in a turn's foreground" "under \`setsid\`"
 need "REQ-I1.2: the readiness check runs before a flip" "scripts/mc-readiness.sh\`'s \`check"
+need "REQ-D1.8: a PR is reported done only once the readiness check passes" "\`check\` passes on its head; until then report"
 need "D-18: guidance never pre-selects" "pre-selects an option"
 
 # The register and the source-naming rule.
@@ -128,6 +129,12 @@ need "REQ-F1.11: drafts go to the clipboard" "scripts/mc-inbox.sh\`'s \`draft"
 # Acting on the operator's behalf, decisions and proposals.
 need "REQ-A1.4: never a per-session step" "never hand the operator a per-session step"
 need "REQ-A1.5: only the operator's own words count" "Only the operator's own words count"
+need "REQ-F1.6: a question to the operator never blocks the turn" "never blocks its turn on a question to the operator"
+need "REQ-F1.6: a question goes out as an item, not a blocking selector" "goes out as an item in the turn's text, never through a blocking question selector"
+need "REQ-F1.4: the operator queue still decides when a question's item shows" "The operator queue still decides when the item shows"
+need "REQ-F1.6: work continues while a question waits" "keeps vetting prompts and moving every other session"
+need "REQ-A1.5: the reply is relayed in the operator's words" "relayed to that session in their words"
+need "REQ-F1.6: a selector only for a present operator with nothing waiting" "only when the operator's own message is the turn being answered and nothing else waits on mission control"
 need "REQ-B1.1: a stated decision enters at once" "scripts/mc-rules.sh\`'s \`add"
 need "D-14: accepted non-rule proposals are applied" "scripts/mc-config.sh\`'s \`apply"
 need "D-14: a settings change is handed over" "\`handover-operator\`"
@@ -160,6 +167,7 @@ probe() { # probe <label> <text> <needle>
 }
 probe "a missing pointer" "the tower front door" "/mission-control"
 probe "a kickoff settled from the record" "settle the kickoff question from the record" "never settle it from the record"
+probe "a question relayed through a blocking selector" "relay the question to the operator through a blocking question selector" "never through a blocking question selector"
 probe "a flip outside the policy" "flip a PR ready when asked" "only inside the configured \`ready_flip_policy\`"
 
 [ "$failures" -eq 0 ] || {

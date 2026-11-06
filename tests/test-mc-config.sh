@@ -207,11 +207,23 @@ expect_rc "a field given twice is a usage error" 2
 expect_err "the refusal names the repeated flag" "--spec-root"
 if [ "$(sum "$layer")" = "$before" ]; then ok "the repeated field left the layer as it was"; else fail "the repeated field was written"; fi
 
-cfg add alpha --repositories "[$repo]" --spec-root "$repo/specs" --home "$tmp/mc-home/alpha" --duties "[alpha-duty]"
+before=$(sum "$layer")
+cfg add alpha --repositories "[$repo]" --spec-root "$repo/specs" --sources "{designs: -:record}"
+expect_rc "a class with no source and a mode other than cited is refused" 1
+if [ "$(sum "$layer")" = "$before" ]; then ok "the refused map left the layer as it was"; else fail "the refused map was written"; fi
+
+# The first run passes the default map back as --sources, so what
+# `default sources` prints must round-trip through add.
+mc_run mc-program.sh default sources
+default_rows=$OUT
+default_map=$(printf '%s\n' "$default_rows" | awk -F '\t' 'NF { s = s (s == "" ? "" : ", ") $1 ": " $2 ":" $3 } END { print "{" s "}" }')
+cfg add alpha --repositories "[$repo]" --spec-root "$repo/specs" --home "$tmp/mc-home/alpha" --duties "[alpha-duty]" --sources "$default_map"
 expect_rc "REQ-F1.12: the program block is written" 0
 expect_out "the program joins the program list" "wrote${tab}mission_control_programs${tab}[alpha]${tab}-"
 expect_out "its repositories are written" "wrote${tab}program_alpha_repositories${tab}[$repo]${tab}-"
 expect_out "its enabled duties are written" "wrote${tab}program_alpha_duties${tab}[alpha-duty]${tab}-"
+mc_run mc-program.sh get alpha sources
+expect_eq "REQ-H1.4: the default map round-trips through add" "$default_rows"
 mc_run mc-program.sh list
 expect_eq "REQ-F1.12: the program is configured" "alpha"
 mc_run mc-program.sh validate alpha
@@ -399,6 +411,59 @@ expect_rc "an apply naming a duty the catalog lacks is refused" 1
 mc_run mc-kb.sh entries undo --program alpha
 expect_no_out "no undo entry names the refused knob apply" "proposal p-8"
 expect_no_out "no undo entry names the refused duty apply" "proposal p-10"
+
+# A layer whose leading comment says a tool renders it is managed elsewhere:
+# every write is handed to the operator as the lines to add at its source,
+# exit 4, the file untouched; a marker anywhere but the header is not one.
+unmanaged=$(cat "$layer")
+{
+  printf '# Rendered from a vault by the machine setup; a hand edit here is\n# overwritten on the next run.\n'
+  printf '%s\n' "$unmanaged"
+} >"$layer"
+before=$(sum "$layer")
+where="$layer, managed elsewhere: Rendered from a vault by the machine setup; a hand edit here is overwritten on the next run."
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a write to a managed layer is handed over" 4
+expect_eq "the hand-over names the source and the exact line to add" "handover-operator${tab}${where}${tab}mission_control_tick_cadence: 7m"
+expect_err "the refusal says nothing was written" "nothing was written"
+cfg restore mission_control_guidance
+expect_rc "a removal from a managed layer is handed over" 4
+expect_eq "the hand-over names the line to remove" "handover-operator${tab}${where}${tab}remove mission_control_guidance"
+cfg duty --program alpha disable beta-duty
+expect_rc "a duty change to a managed layer is handed over" 4
+expect_out "the duty hand-over carries the new list" "${tab}program_alpha_duties: []"
+cfg add gamma --repositories "[$repo]" --spec-root "$repo/specs" --duties '[]'
+expect_rc "a new program on a managed layer is handed over" 4
+expect_out "the program list is one line to add" "${tab}mission_control_programs: [alpha, gamma]"
+expect_out "each block key is a line of its own" "${tab}program_gamma_spec_root: $repo/specs"
+mc_run mc-kb.sh entries undo --program alpha
+undo_before=$OUT
+cfg apply --program alpha p-1 --value 8m
+expect_rc "an accepted proposal on a managed layer is handed over" 4
+expect_eq "the proposal's hand-over is its line" "handover-operator${tab}${where}${tab}mission_control_tick_cadence: 8m"
+mc_run mc-kb.sh entries undo --program alpha
+if [ "$OUT" = "$undo_before" ]; then ok "a handed-over apply logs no undo entry"; else fail "a handed-over apply logged an undo entry"; fi
+if [ "$(sum "$layer")" = "$before" ]; then ok "nothing was written to the managed layer"; else fail "the managed layer was written: $(cat "$layer")"; fi
+printf '# DO NOT EDIT: generated.\n%s\n' "$unmanaged" >"$layer"
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a do-not-edit header is a managed marker too" 4
+printf -- '---\n# Site configuration\n\n# Managed by the machine setup.\n%s\n' "$unmanaged" >"$layer"
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a header paragraph past a blank line or document marker still counts" 4
+printf '#  Generated   by\tthe machine setup.\n%s\n' "$unmanaged" >"$layer"
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a marker phrase spaced out by runs of blanks still counts" 4
+printf -- '--- # Managed by the machine setup.\n%s\n' "$unmanaged" >"$layer"
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a comment on the document marker line is part of the header" 4
+{
+  printf '# my own notes\n'
+  printf '%s\n' "$unmanaged"
+  printf '# rendered from nowhere, overwritten never\n'
+} >"$layer"
+cfg knob mission_control_tick_cadence 7m
+expect_rc "a marker past the header is no marker; the write lands" 0
+cfg restore mission_control_tick_cadence
 
 [ "$failures" -eq 0 ] || {
   printf '%s\n' "$failures failure(s)" >&2

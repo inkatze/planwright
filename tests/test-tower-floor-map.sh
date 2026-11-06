@@ -5,8 +5,9 @@
 # it, the check fails on a fixture profile with an unmapped entry, and the
 # rows for the merge, flip, rewrite, ref-surgery, and GitHub MCP acts are
 # refused by scripts/tower-session.sh in a marked session whose payload
-# carries no profile (REQ-C1.1). The worktree and push rows run in their own
-# files, for the per-file time ceiling.
+# carries no profile (REQ-C1.1). The shipped deny list keeps every entry of
+# the frozen pre-bundle list (REQ-D1.4). The worktree, push, branch-move, and
+# stash-write rows run in their own files, for the per-file time ceiling.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 unset CDPATH
@@ -42,6 +43,35 @@ else
     *) fail "the act check failed for another reason: $out" ;;
   esac
 fi
+echo "# tightening only: the frozen pre-bundle deny list is a subset of the shipped one (REQ-D1.4)"
+FROZEN="$REPO_ROOT/tests/fixtures/tower-deny-list-pre-bundle.txt"
+subset_check() { # <profile> — prints each frozen entry the profile lacks
+  local rc=0 e
+  while IFS= read -r e; do
+    case $e in '#'* | '') continue ;; esac
+    jq -e --arg e "$e" '.permissions.deny | index($e) != null' "$1" >/dev/null \
+      || {
+        printf '%s\n' "frozen entry missing: $e"
+        rc=1
+      }
+  done <"$FROZEN"
+  return "$rc"
+}
+if [ "$(grep -vc '^#' "$FROZEN")" -gt 0 ] && out=$(subset_check "$PROFILE"); then
+  pass "every frozen pre-bundle deny entry is still shipped (REQ-D1.4)"
+else
+  fail "the frozen pre-bundle deny list is empty or not a subset of the shipped one: $out"
+fi
+jq '.permissions.deny -= ["Bash(git reset --hard:*)"]' "$PROFILE" >"$SANDBOX/loosened.json"
+if out=$(subset_check "$SANDBOX/loosened.json"); then
+  fail "the subset check passed a profile that dropped a frozen entry (REQ-D1.4)"
+else
+  case $out in
+    *'frozen entry missing: Bash(git reset --hard:*)'*) pass "the subset check fails on a profile that drops a frozen entry (REQ-D1.4)" ;;
+    *) fail "the subset check failed for another reason: $out" ;;
+  esac
+fi
+
 if jq -e '.permissions.deny | index("mcp__github__update_pull_request_branch") != null' "$PROFILE" >/dev/null; then
   pass "the profile denies mcp__github__update_pull_request_branch by name (REQ-C1.1)"
 else

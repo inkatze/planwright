@@ -22,6 +22,9 @@
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-claude-frames.sh
 set -eu
+# The usage gate reads the status-line mirror when present; a fixture never
+# reads the host's real one.
+export PLANWRIGHT_USAGE_MIRROR=""
 LC_ALL=C
 export LC_ALL
 unset CDPATH
@@ -293,6 +296,29 @@ out=$(cf clearance --since "$SINCE" --now "$NOW") || rc=$?
 [ "$rc" = 1 ] || fail "knob: a session reading above the configured downshift threshold cleared"
 win "$out" session | grep -q "${TAB}35${TAB}.*${TAB}30${TAB}above$" || fail "knob: the configured threshold was not used: $out"
 pass "each window's threshold is its configured downshift rung"
+
+# A rung switched `off` passes the threshold to the window's lowest enabled
+# rung; a window with every rung off has only the wall, so it clears below 100.
+new_home off-rungs
+put a $((NOW - 60)) 0.95 $((NOW + HOUR)) 0.85 $((NOW + 86400))
+printf '%s\n' 'fleet_usage_session_downshift: off' 'fleet_usage_session_reduce_concurrency: off' \
+  'fleet_usage_session_defer_heavy: off' 'fleet_usage_weekly_downshift: off' \
+  'fleet_usage_weekly_reduce_concurrency: off' 'fleet_usage_weekly_defer_heavy: off' \
+  'fleet_usage_weekly_defer_all: 90' >"$local_cfg"
+rc=0
+out=$(cf clearance --since "$SINCE" --now "$NOW") || rc=$?
+[ "$rc" = 0 ] || fail "off: readings below the only enabled rungs did not clear (exit $rc): $out"
+win "$out" session | grep -q "${TAB}100${TAB}below$" || fail "off: a window with every rung off is not judged against 100: $out"
+win "$out" weekly | grep -q "${TAB}90${TAB}below$" || fail "off: the weekly window is not judged against its lowest enabled rung: $out"
+new_home off-rungs-high
+put a $((NOW - 60)) 1.00 $((NOW + HOUR)) 0.90 $((NOW + 86400))
+rc=0
+out=$(cf clearance --since "$SINCE" --now "$NOW") || rc=$?
+: >"$local_cfg"
+[ "$rc" = 1 ] || fail "off: readings at the wall and at the hard stop cleared: $out"
+win "$out" session | grep -q "${TAB}above$" || fail "off: a session reading at 100 is not above: $out"
+win "$out" weekly | grep -q "${TAB}above$" || fail "off: a weekly reading at the 90 hard stop is not above: $out"
+pass "an off rung passes the threshold to the lowest enabled rung, else the wall"
 
 # A reading exactly at its threshold is not below it, including the two-decimal
 # fractions whose product with 100 rounds just under the integer.

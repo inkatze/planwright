@@ -9,7 +9,9 @@
 # `planwright/flight/<flight-id>` and the worktree suffix `flight-<flight-id>`
 # (the flattened single-segment form of the D-37 placement rule). This helper
 # mints and derives them and is the reference check; a script that must stand
-# alone re-encodes the check, as each does for the spec-id charset.
+# alone re-encodes the check, as each does for the spec-id charset. The
+# policy guard deliberately also accepts an id-less planwright/flight/<slug>
+# as a unit branch, for branches named before ids existed.
 #
 # Usage:
 #   flight-id.sh new <slug> [--repo-root <dir>]

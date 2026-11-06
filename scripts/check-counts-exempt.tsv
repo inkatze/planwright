@@ -10,5 +10,4 @@ docs/fleet.md	merges three runtime sources plus the dispatch record	three source
 docs/fleet.md	The two session-grade rungs, verb by verb	the two rungs are the table's columns; its rows are the verbs
 docs/orchestration-state.md	The four derived states map to sections	two of the four states share the table's last row
 docs/tower-posture-delta.md	in code the two guards share	the count names the guards, not the fixes the list holds
-docs/tower-posture-delta.md	Eight entries are appended	the first bullet groups five of the eight entries
 doctrine/storage-classes.md	ask two questions	the table pairs each of its two questions with two answers

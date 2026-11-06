@@ -1,7 +1,8 @@
 #!/bin/sh
 # mission-control-launch.sh — the one launcher for every session kind mission
-# control starts, and the verb that retires them. A launch delivers the brief,
-# the rules in scope, the kind's settings profile, its model tier and its name
+# control starts, and the verb that retires them. A launch delivers the brief
+# (to a repository-changing kind, with the verification cadence), the rules
+# in scope, the kind's settings profile, its model tier and its name
 # (and to a mission-control session its registry row's token, as
 # PLANWRIGHT_MC_TOKEN), then registers owner, kind and scope. `--help` prints
 # the usage, the output shapes and the exit codes.
@@ -44,7 +45,7 @@ help_text() {
 usage:
   mission-control-launch.sh launch --program <p> --kind <kind> --scope <s>
       --brief <file> [--rules <rule-scope>]... [--backend stream-json|tmux]
-      [--cwd <abs-dir>]
+      [--cwd <abs-dir>] [--repo <abs-dir>]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker>
   mission-control-launch.sh list
@@ -55,13 +56,31 @@ at most 128. --rules adds a rule-store scope (duty:<id> or repo:<name>);
 program rules ride every launch. The rung is --backend, else the
 mission_control_launch_backend knob.
 
+A kind that changes a repository (worker, reviewer, ad-hoc) starts in its
+own worktree, never a primary checkout. With no --cwd, the dispatch
+machinery creates one in the repository holding --repo (default: the
+current directory), on the unit's branch when it exists, off the default
+branch otherwise. A scope with one colon, <spec>:task-<id>, names a task
+unit (branch planwright/<spec>/task-<id>; a one-colon scope of that shape
+outside the task grammar is refused); any other scope gets a flight branch
+derived from the name. A
+worktree already holding that branch is reused only when no live session
+runs there: another registered launch, or a process working in it other
+than the launcher, its callers and tmux. --cwd names a worktree instead,
+accepted only when it is not a primary checkout and no live session uses
+it; it takes neither --repo nor a task scope. Such a launch's brief, unless
+its first line is a skill command (`/<name>`, alone or before a space),
+also carries the verification cadence: the in-run points and the
+`step-run.sh audit` that readiness repeats. Every other kind starts in
+--cwd, else the current directory, and takes no --repo.
+
 The name is derived from program, kind and scope alone, so the same inputs
 always name the same session, and a name with a registry row is held until
 it is retired. No output names a pane, window or attach hint.
 
 Output, tab separated:
   launch   launch <field> <value> for name, kind, program, owner, scope,
-           backend, profile, tier, brief
+           backend, profile, tier, brief, cwd
   name     the name alone
   retire   retire <name> released|partial released=<classes> held=<classes>,
            over the classes process, pane, registry, attention and row
@@ -86,15 +105,18 @@ Exit codes: 0 done; 1 the rung failed to start the session (or it started,
 could not be recorded, and was stopped), or it started or may have and could
 not be closed, so its row stays for a retire, or a retire released only part
 of it; 2 usage, an invalid value, or a registry row or launch directory the
-launcher cannot read or write; 3 the name is held, or a launch or retire of
-it is in flight (launch), or there is neither a row nor a stream-json
-worker of that name, a launch, recover, relaunch or another retire of
-it is in flight, or the caller runs inside its window (retire); 4 a launch refused
-before it started: no readable profile, an unresolvable rung knob, no
-resolvable tier (an unreachable allocation store or a malformed tier knob),
-the admission gate withholding it, a broken allocation install, a program
-that is not configured, rules that would not render, or any other refusal by
-the rung.
+launcher cannot read or write; 3 the name is held, a launch or retire of it
+is in flight, a live session uses its worktree, another launch is placing
+its branch, or a dispatch holds it or cannot say (launch), or there is
+neither a row nor a stream-json worker of that name, a launch, recover,
+relaunch or another retire of it is in flight, or the caller runs inside
+its window (retire); 4 a launch refused before it started: no readable
+profile, an unresolvable rung knob, no resolvable tier (an unreachable
+allocation store or a malformed tier knob), the admission gate withholding
+it, a broken allocation install, a program that is not configured, rules
+that would not render, a worktree that could not be created, a named
+directory that is not a worktree other than a primary checkout, a worktree
+path holding a control character, or any other refusal by the rung.
 EOF
 }
 
@@ -116,6 +138,14 @@ kind_row() {
   esac
 }
 KINDS="tower orchestrator worker reviewer ad-hoc mission-control"
+
+# changes_repo <kind> — 0 for a kind that starts in its own worktree.
+changes_repo() {
+  case $1 in
+    worker | reviewer | ad-hoc) return 0 ;;
+  esac
+  return 1
+}
 
 valid_program() {
   case $1 in
@@ -267,6 +297,10 @@ row_write() {
     printf 'profile\t%s\n' "$profile"
     printf 'tier\t%s\n' "$tier"
     printf 'brief\t%s\n' "$composed"
+    printf 'cwd\t%s\n' "${cwd:--}"
+    printf 'task\t%s\n' "${task:--}"
+    printf 'primary\t%s\n' "${placed_primary:--}"
+    printf 'marker\t%s\n' "${PLACED_MARKER:--}"
     printf 'launched\t%s\n' "$launched"
   } >"$rw_tmp"); then
     rm -f "$rw_tmp"
@@ -323,13 +357,318 @@ release_fleet_entry() {
   /bin/sh "$script_dir/fleet-attention.sh" clear "$1" >/dev/null 2>&1 </dev/null
 }
 
+# primary_checkout <dir> — print the physical primary checkout of the
+# repository holding <dir>; 1 when there is none (no repository, or a bare one).
+primary_checkout() {
+  pc_common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null </dev/null) || return 1
+  case $pc_common in
+    */.git) ;;
+    *) return 1 ;;
+  esac
+  (cd "${pc_common%/.git}" 2>/dev/null && pwd -P)
+}
+
+# is_linked_worktree <dir> — 0 when the physical <dir> is the top of a git
+# worktree other than its repository's primary checkout.
+is_linked_worktree() {
+  lw_top=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null </dev/null) || return 1
+  lw_top=$(cd "$lw_top" 2>/dev/null && pwd -P) || return 1
+  [ "$lw_top" = "$1" ] || return 1
+  lw_git=$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null </dev/null) || return 1
+  lw_common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null </dev/null) || return 1
+  [ "$lw_git" != "$lw_common" ]
+}
+
+# branch_holder <primary> <branch> — print the physical worktree that has
+# <branch> checked out, empty when none does or its directory is gone (git
+# still lists a worktree deleted by hand); 1 when the list cannot be read.
+branch_holder() {
+  bh_list=$(git -C "$1" worktree list --porcelain 2>/dev/null </dev/null) || return 1
+  bh_path=$(printf '%s\n' "$bh_list" | WANT="branch refs/heads/$2" awk '
+    index($0, "worktree ") == 1 { p = substr($0, 10) }
+    $0 == ENVIRON["WANT"] { print p; exit }')
+  [ -n "$bh_path" ] || return 0
+  (cd "$bh_path" 2>/dev/null && pwd -P) || :
+}
+
+# own_pids — print this process and its ancestors, which run wherever the
+# caller does and are not a session using the directory.
+own_pids() {
+  op_pid=$$
+  op_n=0
+  while [ -n "$op_pid" ] && [ "$op_pid" -gt 1 ] 2>/dev/null && [ "$op_n" -lt 64 ]; do
+    printf '%s\n' "$op_pid"
+    # busybox ps has no -p; procfs gives the parent wherever it exists. The
+    # command name may hold spaces and parentheses, so fields count from the
+    # last one.
+    if [ -r "/proc/$op_pid/stat" ]; then
+      op_pid=$(sed 's/.*) //' "/proc/$op_pid/stat" 2>/dev/null | cut -d' ' -f2)
+    else
+      op_pid=$(ps -o ppid= -p "$op_pid" 2>/dev/null | tr -d ' ')
+    fi
+    op_n=$((op_n + 1))
+  done
+}
+
+# dir_users <dir> — print the pid of every visible process whose working
+# directory is <dir> or below it; 1 when the process table will not show this
+# process its own, so nothing it lists can be trusted as complete.
+dir_users() {
+  # Its own helpers would otherwise inherit the caller's directory.
+  cd / || return 1
+  if [ -L /proc/self/cwd ]; then
+    # A procfs that will not show this process its own working directory
+    # shows none of the operator's either.
+    readlink "/proc/$$/cwd" >/dev/null 2>&1 || return 1
+    # One find over procfs: a readlink per process costs seconds on a busy
+    # host. The path is escaped so -lname matches it literally.
+    if [ -n "$(find "/proc/$$/cwd" -prune -lname '*' 2>/dev/null)" ]; then
+      du_glob=$(printf '%s' "$1" | sed 's/[][*?\\]/\\&/g')
+      find /proc -mindepth 2 -maxdepth 2 -name cwd \( -lname "$du_glob" -o -lname "$du_glob/*" \) 2>/dev/null \
+        | awk -F / '$3 ~ /^[0-9]+$/ { print $3 }'
+      return 0
+    fi
+    # busybox find has no -lname, and a failed find reads as no live user.
+    du_d=$1
+    set +f
+    set -- /proc/[0-9]*/cwd
+    set -f
+    for du_c in "$@"; do
+      du_t=$(readlink "$du_c" 2>/dev/null) || continue
+      case $du_t in
+        "$du_d" | "$du_d"/*)
+          du_p=${du_c#/proc/}
+          printf '%s\n' "${du_p%/cwd}"
+          ;;
+      esac
+    done
+    return 0
+  fi
+  command -v lsof >/dev/null 2>&1 || return 1
+  du_out=$(lsof -a -d cwd -F pn 2>/dev/null </dev/null)
+  [ -n "$du_out" ] || return 1
+  printf '%s\n' "$du_out" | D="$1/" awk '
+    /^p/ { pid = substr($0, 2) }
+    /^n/ { c = substr($0, 2) "/"; if (index(c, ENVIRON["D"]) == 1) print pid }'
+}
+
+# live_in <dir> — 0 when a live session may run in <dir>, naming it in
+# LIVE_BY: another registered launch there, or a process working in it other
+# than this launch's own and a tmux server or client (which keep the
+# directory they were started from). A process table that cannot be read
+# cannot tell, which counts as live.
+live_in() {
+  LIVE_BY=''
+  set +f
+  set -- "$1" "$REG"/mc-*
+  set -f
+  li_d=$1
+  shift
+  for li_f in "$@"; do
+    [ -f "$li_f" ] && [ ! -L "$li_f" ] || continue
+    case ${li_f##*/} in "$name" | *.tmp.*) continue ;; esac
+    if ! li_c=$(row_get "$li_f" cwd 2>/dev/null); then
+      [ -e "$li_f" ] || continue
+      LIVE_BY="the session of the unreadable row ${li_f##*/}"
+      return 0
+    fi
+    case $li_c in
+      "$li_d" | "$li_d"/*)
+        LIVE_BY="session ${li_f##*/}"
+        return 0
+        ;;
+    esac
+  done
+  if ! li_users=$(dir_users "$li_d"); then
+    LIVE_BY="an unknown session (this host's process directories cannot be read)"
+    return 0
+  fi
+  [ -n "$li_users" ] || return 1
+  li_own=$(own_pids)
+  for li_p in $li_users; do
+    case "$NL$li_own$NL" in *"$NL$li_p$NL"*) continue ;; esac
+    # Skipped only on proof it is gone since the scan; a ps that cannot
+    # answer leaves it live.
+    if [ -d /proc/self ]; then
+      [ -e "/proc/$li_p" ] || continue
+    fi
+    if li_comm=$(ps -o comm= -p "$li_p" 2>/dev/null); then
+      case ${li_comm##*/} in tmux*) continue ;; esac
+    elif [ ! -d /proc/self ] && ps -o comm= -p "$$" >/dev/null 2>&1; then
+      continue
+    fi
+    LIVE_BY="process $li_p"
+    return 0
+  done
+  return 1
+}
+
+# marker_cmd write|clear <primary> <spec>/<id> — write or clear the unit's
+# dispatch marker in the spec root of the repository at <primary>.
+marker_cmd() {
+  mk_root=$(cd -- "$2" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null </dev/null) \
+    || return 1
+  /bin/sh "$script_dir/orchestrate-marker.sh" "$1" "$mk_root/${3%/*}" "${3#*/}" >/dev/null 2>&1 </dev/null
+}
+
+# branch_lock <primary> <branch> — hold the lock placement takes for one
+# branch: two names can share a branch, so the name lock alone would let both
+# start in one worktree. Released once the row records cwd.
+branch_lock() {
+  bl_hash=$(printf '%s\t%s' "$1" "$2" | sha256_hex) && [ -n "$bl_hash" ] \
+    || refuse "refusing to launch $name: no SHA-256 tool to key the branch lock" 2
+  placed_primary=$1
+  BRANCH_LOCK="$FH/mission-control/locks/branch-$(printf '%s' "$bl_hash" | cut -c1-16)"
+  pw_lock_try "$BRANCH_LOCK"
+  case $? in
+    0) ;;
+    1) refuse "refusing to launch $name: another launch is placing $2" 3 ;;
+    *) refuse "refusing to launch $name: cannot take the lock for $2" 2 ;;
+  esac
+}
+
+# place_worktree — set cwd to the worktree a repository-changing launch runs
+# in, or refuse the launch. Runs under the reservation, so refuse releases
+# it; on success it holds the branch lock until the caller has recorded cwd.
+place_worktree() {
+  if [ -n "$cwd" ]; then
+    is_linked_worktree "$cwd" \
+      || refuse "refusing to launch $name in $(sanitize_printable "$cwd"): a $kind starts in a worktree other than a primary checkout" 4
+    pw_primary=$(primary_checkout "$cwd") || refuse "refusing to launch $name: cannot find the repository of $(sanitize_printable "$cwd")" 4
+    pw_branch=$(git -C "$cwd" symbolic-ref -q HEAD 2>/dev/null </dev/null) || pw_branch="detached:$cwd"
+    branch_lock "$pw_primary" "${pw_branch#refs/heads/}"
+    ! live_in "$cwd" || refuse "refusing to launch $name: $LIVE_BY runs in $(sanitize_printable "$cwd")" 3
+    return 0
+  fi
+  pw_from=${repo:-$(pwd -P)}
+  pw_primary=$(primary_checkout "$pw_from") \
+    || refuse "refusing to launch $name: $(sanitize_printable "$pw_from") is in no repository with a primary checkout to create its worktree from" 4
+  # Both branch shapes are fleet-dispatch-worktree.sh's; keep them in step.
+  if [ -n "$task" ]; then
+    pw_branch="planwright/${task%/*}/task-${task#*/}"
+    set -- dispatch "${task%/*}" "${task#*/}"
+  else
+    # Derived from the name, so a relaunch finds the branch its predecessor
+    # started; eight hex digits are the flight-id grammar's uid.
+    pw_flight="${name%-*}-$(printf '%s' "${name##*-}" | cut -c1-8)"
+    pw_branch="planwright/flight/$pw_flight"
+    set -- dispatch --flight "$pw_flight"
+  fi
+  branch_lock "$pw_primary" "$pw_branch"
+  pw_held=$(branch_holder "$pw_primary" "$pw_branch") \
+    || refuse "refusing to launch $name: cannot read the worktree list of $(sanitize_printable "$pw_primary")" 4
+  if [ -n "$pw_held" ]; then
+    [ "$pw_held" != "$pw_primary" ] \
+      || refuse "refusing to launch $name: $pw_branch is checked out in the primary checkout" 4
+    is_linked_worktree "$pw_held" \
+      || refuse "refusing to launch $name: $(sanitize_printable "$pw_held"), which holds $pw_branch, is not a worktree of its own" 4
+    ! live_in "$pw_held" \
+      || refuse "refusing to launch $name: $LIVE_BY runs in $(sanitize_printable "$pw_held"), which holds $pw_branch" 3
+    cwd=$pw_held
+    # A reused task worktree is marked in flight as a placed one is.
+    if [ -n "$task" ]; then
+      if marker_cmd write "$pw_primary" "$task"; then
+        PLACED_MARKER=1
+      else
+        printf '%s\n' "$me: the dispatch marker for $task was not written; the unit may read as not in flight" >&2
+      fi
+    fi
+    return 0
+  fi
+  pw_out=$(cd "$pw_primary" && /bin/sh "$script_dir/fleet-dispatch-worktree.sh" "$@" \
+    --repo-root "$pw_primary" --no-attach </dev/null)
+  pw_rc=$?
+  # A task placement has written the unit's dispatch marker by now.
+  [ "$pw_rc" != 0 ] || [ -z "$task" ] || PLACED_MARKER=1
+  case $pw_rc in
+    0) ;;
+    3) refuse "refusing to launch $name: a dispatch holds $pw_branch, or cannot say whether one does (fleet-dispatch-worktree exit 3)" 3 ;;
+    *) refuse "refusing to launch $name: its worktree could not be created (fleet-dispatch-worktree exit $pw_rc)" 4 ;;
+  esac
+  pw_wt=$(printf '%s\n' "$pw_out" | awk -F '\t' '$1 == "dispatch" && $2 == "worktree" { print $3; exit }')
+  if [ -z "$pw_wt" ] || ! cwd=$(cd "$pw_wt" 2>/dev/null && pwd -P); then
+    refuse "refusing to launch $name: the dispatch machinery reported no worktree" 4
+  fi
+}
+
+# cadence_section <name> [<spec>/<id>] — the configured cadence a
+# repository-changing session runs, by reference to the one procedure that
+# fires it, with the mappings its unit needs, and the audit readiness repeats.
+cadence_section() {
+  cs_root=$(cd "$script_dir/.." && pwd -P) || return 1
+  if [ -n "${2:-}" ]; then
+    cs_unit="task ${2#*/} of spec ${2%/*}"
+    cs_ctx="\`PLANWRIGHT_STEP_UNIT_KIND=task\`, spec id \`${2%/*}\`, task id \`${2#*/}\`"
+  else
+    cs_unit="a specless session"
+    cs_ctx="\`PLANWRIGHT_STEP_UNIT_KIND=flight\`, empty spec and task ids"
+  fi
+  cat <<EOF
+
+## Verification cadence
+
+This session changes a repository, so it runs the configured cadence. Fire
+every in-run point (\`pre-implementation\`, \`pre-ci\`, \`convergence\`,
+\`pre-pr\`, \`post-pr\`) at its moment by \`/execute-task\`'s *Points*
+procedure, read from \`$cs_root/skills/execute-task/SKILL.md\`, with these
+mappings for $cs_unit:
+
+- Resolve every point \`--unattended\`, under \`$cs_root/scripts/\`.
+- Export the step context with $cs_ctx, this branch,
+  its base branch and this worktree; an isolated step's launch tier takes the
+  unit \`mission-control:$1\`.
+- Wherever the procedure parks or stops the unit, stop and report the point,
+  the step and what it printed to mission control instead; write nothing to
+  any \`tasks.md\` or other spec state.
+
+Before the push, run \`$cs_root/scripts/step-run.sh audit --through pre-pr\`;
+before reporting the PR done, \`$cs_root/scripts/step-run.sh audit --through post-pr --base origin/<base branch>\`.
+Close every gap it names first. Mission control's readiness check runs the
+same audit and refuses a PR with a gap. The PR body carries the rendered
+records (\`$cs_root/scripts/step-record.sh render\`) in a \`<details>\` block.
+EOF
+}
+
+# valid_task <spec>/<id> — the unit grammar fleet-dispatch-worktree.sh
+# enforces, checked here so a bad value is a usage error.
+valid_task() {
+  case $1 in
+    */*/* | *[!a-z0-9./-]*) return 1 ;;
+    */*) ;;
+    *) return 1 ;;
+  esac
+  vt_spec=${1%/*} vt_id=${1#*/}
+  case $vt_spec in
+    '' | [!a-z0-9]* | *[!a-z0-9-]* | flight) return 1 ;;
+  esac
+  [ "${#vt_spec}" -le 64 ] || return 1
+  case $vt_id in
+    '' | *[!0-9.]* | .* | *. | *.*.*) return 1 ;;
+  esac
+}
+
+# abs_dir <flag> <path> — print the physical directory, or die naming the
+# flag. A control character would forge a line of the registry row.
+abs_dir() {
+  case $2 in
+    /*) ;;
+    *) die "$1 must be an absolute path" ;;
+  esac
+  ad_dir=$(cd -- "$2" 2>/dev/null && pwd -P) || die "$1 is not an existing directory"
+  case $ad_dir in
+    *[[:cntrl:]]*) die "refusing $1: its path holds a control character" ;;
+  esac
+  printf '%s\n' "$ad_dir"
+}
+
 # --------------------------------------------------------------------------
 
 cmd_launch() {
-  program='' kind='' scope='' brief='' backend='' cwd='' rules=''
+  program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task=''
+  PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
     case $1 in
-      --program | --kind | --scope | --brief | --backend | --cwd | --rules)
+      --program | --kind | --scope | --brief | --backend | --cwd | --rules | --repo)
         [ "$#" -ge 2 ] || usage
         case $1 in
           --program) program=$2 ;;
@@ -338,6 +677,7 @@ cmd_launch() {
           --brief) brief=$2 ;;
           --backend) backend=$2 ;;
           --cwd) cwd=$2 ;;
+          --repo) repo=$2 ;;
           --rules)
             case $2 in
               duty:* | repo:*) ;;
@@ -361,14 +701,25 @@ cmd_launch() {
     '' | stream-json | tmux) ;;
     *) die "--backend is stream-json or tmux" ;;
   esac
-  if [ -z "$cwd" ]; then
-    cwd=$(pwd -P) || die "cannot resolve the current directory"
+  if changes_repo "$kind"; then
+    # A scope the way the keeper offers a unit (<spec>:task-<id>) runs on
+    # that unit's branch.
+    case $scope in
+      *:*:*) ;;
+      *:task-*)
+        task="${scope%:task-*}/${scope##*:task-}"
+        valid_task "$task" \
+          || die "refusing the scope $scope: a task scope is <spec>:task-<id>, the spec lowercase letters, digits and - (at most 64), the id <n> or <n>.<m>"
+        ;;
+    esac
+    [ -z "$cwd" ] || { [ -z "$repo" ] && [ -z "$task" ]; } \
+      || die "--cwd names the worktree itself, so it takes neither --repo nor a task scope"
+    [ -z "$repo" ] || repo=$(abs_dir --repo "$repo") || exit 2
+  else
+    [ -z "$repo" ] || die "a $kind starts where it is launched and takes no --repo"
+    [ -n "$cwd" ] || cwd=$(pwd -P) || die "cannot resolve the current directory"
   fi
-  case $cwd in
-    /*) ;;
-    *) die "--cwd must be an absolute path" ;;
-  esac
-  cwd=$(cd "$cwd" 2>/dev/null && pwd -P) || die "--cwd is not an existing directory"
+  [ -z "$cwd" ] || cwd=$(abs_dir --cwd "$cwd") || exit 2
 
   name=$(session_name "$program" "$kind" "$scope") || exit 2
   valid_name "$name" || die "the derived session name is outside the launcher's grammar"
@@ -444,14 +795,36 @@ cmd_launch() {
     fi
   }
   refuse() { # <message> <exit>
+    # The dispatch marker a task placement wrote would hold the unit as in
+    # flight with no session in it.
+    [ -z "$PLACED_MARKER" ] || marker_cmd clear "$placed_primary" "$task" \
+      || printf '%s\n' "$me: the dispatch marker for $task was not cleared; the unit may read as in flight" >&2
     release_reservation || :
     die "$1" "$2"
   }
+
+  if changes_repo "$kind"; then
+    place_worktree
+    case $cwd in
+      *[[:cntrl:]]*) refuse "refusing to launch $name: its worktree path holds a control character" 4 ;;
+    esac
+    # The row names its worktree before the branch lock goes, so a
+    # concurrent launch for the same branch finds it in use.
+    row_write "$row" "$token" launching || refuse "cannot record the worktree of $name" 2
+    [ -z "${BRANCH_LOCK:-}" ] || pw_lock_release "$BRANCH_LOCK" || :
+  fi
 
   # not-a-lock: the reservation is the row above; this only creates the directory it owns
   (umask 077 && mkdir "$ldir") 2>/dev/null || refuse "cannot create the launch directory for $name" 2
   if ! (umask 077 && cat "$brief" >"$composed"); then
     refuse "cannot read the brief into the launch for $name" 2
+  fi
+  # A kind that changes a repository runs the configured cadence whatever its
+  # brief says; a brief whose first line is a skill command leaves it to that
+  # skill.
+  if changes_repo "$kind" && ! head -n 1 "$composed" | grep -Eq '^/[A-Za-z0-9:_-]+( |$)' \
+    && ! cadence_section "$name" "$task" >>"$composed"; then
+    refuse "cannot write the cadence into the brief for $name" 2
   fi
   # The provenance line follows the brief, so a brief that is a slash command
   # still opens with it.
@@ -474,6 +847,8 @@ cmd_launch() {
   # argument, which passes it to a mission-control session only.
   mc_tok_flag=''
   [ "$K_PROFILE" != mission-control ] || mc_tok_flag=1
+  # Each rung registers the session under the owner fleet-register.sh reads
+  # from PLANWRIGHT_TOWER_ID, and keeps it out of the session's environment.
   case $backend in
     stream-json)
       plan=$(cd "$cwd" && /bin/sh "$script_dir/allocation-apply.sh" plan --key "$K_KEY" --backend stream-json-persistent --unit "$unit" </dev/null)
@@ -497,7 +872,7 @@ cmd_launch() {
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"
       tier="$model/$effort"
       sr=0
-      /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
+      PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
       case $sr in
         0) ;;
         3)
@@ -518,7 +893,7 @@ cmd_launch() {
       esac
       ;;
     tmux)
-      out=$(cd "$cwd" && /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
+      out=$(cd "$cwd" && PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
         --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" --scope "$scope" </dev/null)
       dr=$?
       case $dr in
@@ -561,6 +936,7 @@ cmd_launch() {
   report profile "$profile"
   report tier "$tier"
   report brief "$composed"
+  report cwd "$cwd"
 }
 
 cmd_name() {
@@ -767,6 +1143,13 @@ cmd_retire() {
   fi
 
   if [ -z "$held" ]; then
+    # The dispatch marker this launch wrote would hold the unit as in flight.
+    r_task=$(row_get "$row" task)
+    r_primary=$(row_get "$row" primary)
+    if [ "$(row_get "$row" marker)" = 1 ] && valid_task "$r_task" && [ -d "$r_primary" ]; then
+      marker_cmd clear "$r_primary" "$r_task" \
+        || printf '%s\n' "$me: the dispatch marker for $r_task was not cleared; the unit may read as in flight" >&2
+    fi
     rm -rf "${LAUNCHES:?}/$name"
     if [ -e "$LAUNCHES/$name" ]; then
       add_held row

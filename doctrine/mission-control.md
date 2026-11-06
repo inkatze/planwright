@@ -197,7 +197,8 @@ change here.
 
 A **mechanization proposal** is mission control's confirmation, in the
 operator's words, that a repeat it noticed (the same ask, a manual step
-after the same event, the same answer to the same question) could be
+after the same event, the same answer to the same question, the same guard
+denial a knob governs) could be
 covered by the smallest mechanism in the inventory. It says what was
 noticed, the mechanism and its change, the cadence, where the operator
 still intervenes, the cost, how to turn it off, and offers an explicit
@@ -219,6 +220,17 @@ gates a later unit's ready flip: a missing or red record for the current
 head refuses the flip. The readiness check walks it with the rest of the
 program's gate-condition data, from primary evidence at the current head,
 never from a session's report.
+
+The **configured cadence** is different: every in-run point's step list,
+which every unit runs, not one catalog entry gating later units. The
+readiness check audits it too (`scripts/step-run.sh audit --through
+post-pr`): a configured point with no completion that counts at the head,
+or a configured step its run did not record passed, applied, or skipped, is
+a gap, whatever launched the session and whatever its brief said. A
+spec-only pull request (every changed path a Markdown file added, modified or
+deleted under the spec root, the head holding that root) is held for
+each touched bundle's kickoff sign-off instead of the cadence and the gate
+data's steps; one touching only the reserved accumulators has none to hold.
 
 ## The register delta
 

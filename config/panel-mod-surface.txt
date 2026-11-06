@@ -10,7 +10,7 @@
 # wake target at the end.
 hook session.start
 hook session.end
-hook command.run{command=mission-control}
+hook command.run{command=mc-panel}
 # Idle tracking and the completed-wake count.
 hook turn.start
 hook turn.complete
@@ -34,6 +34,11 @@ call $.env.get
 call $.env.set
 # The stores, read and written only through planwright's own scripts.
 call $.process.run
+# Whether this session's own activation record and its acknowledgment
+# exist, by its own session id, checked on a timer without running a script.
+call $.fs.exists
+call $.fs.stat
+call $.session.id
 # The wake and the tick prompt.
 call $.prompt.submit
 # Context percent and rate limits.

@@ -45,9 +45,12 @@ A repeat is a run of noted entries of one shape (scripts/mc-decide.sh note)
 inside mission_control_repeat_window reaching
 mission_control_repeat_threshold: corrections on one subject, a manual step
 on one subject after one event, or one answer to one question; or of one
-ask, decisions on one subject that reached the operator by one reason. Subjects
-compare by the rule store's subject key. A pattern with a proposal in any
-state is never raised again; a declined one stays declined.
+ask, decisions on one subject that reached the operator by one reason; or
+denials by one guard that one row of the denial map
+(config/denial-knobs.tsv) matches, the target being that row's knob, so a
+denial no row matches is never a repeat. Subjects compare by the rule
+store's subject key. A pattern with a proposal in any state is never raised
+again; a declined one stays declined.
 
 A proposal maps the repeat onto one row of the mechanism inventory
 (kb/mechanisms.tsv, scripts/mc-kb.sh inventory-refresh), never onto a
@@ -55,9 +58,12 @@ mechanism absent from it: of the candidates the caller names, the row of
 the smallest kind wins, in the order rule, knob, catalog-step, permission,
 hook, routine, any other kind, duty. A bare <kind> candidate names the
 kind's only row, and is refused when the kind has several. A correction
-with no candidate names the rule row. A row of kind hook or permission, or
-whose location is a settings file, is settings-kind: its change is handed
-over to the operator ready to apply, and nothing writes it.
+with no candidate names the rule row; a denial with none names its knob's
+row, its change defaulting to the map's `<knob>: <value>` line and its
+where to the file of the map's layer, and `show` adds the map's effect. A
+row of kind hook or permission, whose location is a settings file, or a
+denial's knob is settings-kind: its change is handed over to the operator
+ready to apply, and nothing writes it.
 
 proposals.tsv columns: id, opened, pattern, shape, subject (its key),
 target (`-` for a correction, the reason for an ask), evidence (entry ids), kind, mechanism,
@@ -69,7 +75,8 @@ Usage (every verb takes --program <p> right after it):
       repeat<TAB><pattern><TAB><shape><TAB><subject key><TAB><target>
       <TAB><count><TAB><entry ids> per repeat no proposal covers yet
   propose --pattern <pattern> [--candidate <kind>[:<mechanism>]]...
-      --change <t> --cadence <t> --intervene <t> --cost <t> --off <t>
+      --change <t> (left out on a denial's own knob) --cadence <t>
+      --intervene <t> --cost <t> --off <t>
       record a proposal in the confirmation shape; prints
       proposal<TAB><id><TAB><kind><TAB><mechanism><TAB><where>
   show <id>
@@ -96,7 +103,9 @@ Usage (every verb takes --program <p> right after it):
 
 Exit codes: 0 done; 1 refused (a pattern below the threshold or already
 proposed, no covering row, a proposal not in the state the verb needs, a
-store with a missing or unknown format, a held lock); 2 usage or an
+store with a missing or unknown format, a held lock, a denial map that is
+missing while a denial is noted, or one with a row of the wrong arity or
+an empty or non-compiling match pattern); 2 usage or an
 invalid value; 3 the program is not configured.
 HELP
 }
@@ -144,30 +153,107 @@ id_arg() {
   esac
 }
 
+denial_map() {
+  dm_core=$(/bin/sh "$script_dir/resolve-root.sh" install 2>/dev/null) || dm_core=$script_dir/..
+  if [ -r "$dm_core/config/denial-knobs.tsv" ]; then
+    printf '%s\n' "$dm_core/config/denial-knobs.tsv"
+  else
+    printf '/dev/null\n'
+  fi
+}
+# map_patterns_compile: fail unless every map pattern compiles as an ERE.
+# Checked with grep -E before any scan, not by awk at a matching denial:
+# busybox awk reads a pattern that does not compile as an ERE as a basic
+# regex and matches on, so a broken row would silently hide its repeats
+# there. busybox grep compiles only once it reads a line, hence the one fed.
+map_patterns_compile() {
+  mp_map=$(denial_map)
+  while IFS= read -r mp_l || [ -n "$mp_l" ]; do
+    case $mp_l in '#'* | '') continue ;; esac
+    mp_p=$(printf '%s\n' "$mp_l" | cut -f 2)
+    [ -n "$mp_p" ] || continue
+    printf '\n' | grep -E -e "$mp_p" >/dev/null 2>&1
+    [ $? -eq 2 ] || continue
+    printf 'config/denial-knobs.tsv: a row whose match pattern does not compile: %s\n' "$mp_l" >&2
+    return 1
+  done <"$mp_map"
+}
+# map_row <guard> <knob>: the denial map's first row for the guard and knob.
+map_row() {
+  # shellcheck disable=SC2016 # an awk program, expanded by awk
+  G=$1 K=$2 awk -F '\t' "$MC_SUBJECT_KEY_AWK"'
+    !/^#/ && NF == 6 && key($1) == key(ENVIRON["G"]) && $3 == ENVIRON["K"] { print; exit }' "$(denial_map)"
+}
+# layer_where <layer>: the config file of an overlay layer (docs/overlays.md).
+layer_where() {
+  case $1 in
+    adopter)
+      lw_root=$(/bin/bash "$script_dir/resolve-overlay-root.sh" adopter 2>/dev/null) || lw_root=''
+      # The root comes from the environment verbatim and lands in a TSV column.
+      case $lw_root in
+        /*) mc_valid_text "$lw_root" || lw_root='' ;;
+        *) lw_root='' ;;
+      esac
+      if [ -n "$lw_root" ]; then
+        printf '%s/planwright.yml\n' "$lw_root"
+      else
+        printf '%s\n' "the adopter layer, <adopter-root>/planwright.yml (docs/overlays.md)"
+      fi
+      ;;
+    repo-tracked) printf '%s\n' "<repo>/.claude/planwright.yml in the primary checkout" ;;
+    machine-local) printf '%s\n' "<repo>/.claude/planwright.local.yml in the primary checkout" ;;
+    *) printf 'the %s layer (docs/overlays.md)\n' "$1" ;;
+  esac
+}
+
 # repeats: the repeats at the threshold, every pattern, proposed or not.
 repeats() {
   rp_n=$(mc_knob mission_control_repeat_threshold mc_parse_count) || exit 1
   rp_w=$(mc_knob mission_control_repeat_window mc_parse_cadence) || exit 1
   rp_now=$(mc_now)
   rp_all=$(mc_kb_entries "$PROGRAM" decisions) || exit $?
+  map_patterns_compile || mc_fail "the repeat scan failed over config/denial-knobs.tsv"
   # shellcheck disable=SC2016 # an awk program, expanded by awk
-  printf '%s\n' "$rp_all" | N=$rp_n FROM=$(mc_iso $((rp_now - $(mc_seconds "$rp_w")))) TO=$(mc_iso "$rp_now") \
-    awk -F '\t' "$MC_GROUNDS_AWK$MC_SUBJECT_KEY_AWK"'
+  rp_rows=$(printf '%s\n' "$rp_all" | N=$rp_n FROM=$(mc_iso $((rp_now - $(mc_seconds "$rp_w")))) TO=$(mc_iso "$rp_now") \
+  MAP=$(denial_map) awk -F '\t' "$MC_GROUNDS_AWK$MC_SUBJECT_KEY_AWK"'
+      BEGIN {
+        while ((getline l < ENVIRON["MAP"]) > 0) {
+          if (l ~ /^#/ || l == "") continue
+          if (split(l, f, "\t") != 6) { why = "a row without six tab-separated columns: " l; exit }
+          # An empty pattern would match every denial from its guard.
+          if (f[2] == "") { why = "a row with an empty match pattern: " l; exit }
+          nm++; mg[nm] = key(f[1]); mm[nm] = f[2]; mk[nm] = f[3]
+        }
+      }
       !/^#/ && $2 >= ENVIRON["FROM"] && $2 <= ENVIRON["TO"] && grounds($6) {
         if (G_REASON ~ /^(correction|manual|answer)$/)
           p = G_REASON "\037" key($3) "\037" (G_REASON == "correction" ? "-" : key($5))
+        else if (G_REASON == "denial") {
+          # With no map a noted denial could never repeat, which would hide
+          # the loss of the map behind an empty scan.
+          if (ENVIRON["MAP"] == "/dev/null") { why = "missing or unreadable while a denial is noted"; exit }
+          t = ""
+          for (i = 1; i <= nm && t == ""; i++) if (mg[i] == key($3) && $4 ~ mm[i]) t = mk[i]
+          if (t == "") next
+          p = "denial\037" key($3) "\037" t
+        }
         else if (asked(G_REASON))
           p = "ask\037" key($3) "\037" G_REASON
         else next
         if (!(p in c)) order[++n] = p
         c[p]++; ids[p] = ids[p] (ids[p] == "" ? "" : ",") $1
       }
-      END { for (i = 1; i <= n; i++) if (c[order[i]] >= ENVIRON["N"] + 0) print order[i] "\037" c[order[i]] "\037" ids[order[i]] }' \
-    | while IFS="$us" read -r r_shape r_key r_target r_count r_ids; do
-      r_sum=$(printf '%s\t%s\t%s' "$r_shape" "$r_key" "$r_target" | mc_sha256) || mc_fail "no SHA-256 tool (sha256sum, shasum or openssl) is on PATH"
-      r_sum=$(printf '%s' "$r_sum" | cut -c 1-32)
-      printf 'pat-%s\t%s\t%s\t%s\t%s\t%s\n' "$r_sum" "$r_shape" "$r_key" "$r_target" "$r_count" "$r_ids"
-    done
+      END {
+        if (why != "") { print "config/denial-knobs.tsv: " why > "/dev/stderr"; exit 1 }
+        for (i = 1; i <= n; i++) if (c[order[i]] >= ENVIRON["N"] + 0) print order[i] "\037" c[order[i]] "\037" ids[order[i]]
+      }') \
+    || mc_fail "the repeat scan failed over config/denial-knobs.tsv"
+  [ -n "$rp_rows" ] || return 0
+  printf '%s\n' "$rp_rows" | while IFS="$us" read -r r_shape r_key r_target r_count r_ids; do
+    r_sum=$(printf '%s\t%s\t%s' "$r_shape" "$r_key" "$r_target" | mc_sha256) || mc_fail "no SHA-256 tool (sha256sum, shasum or openssl) is on PATH"
+    r_sum=$(printf '%s' "$r_sum" | cut -c 1-32)
+    printf 'pat-%s\t%s\t%s\t%s\t%s\t%s\n' "$r_sum" "$r_shape" "$r_key" "$r_target" "$r_count" "$r_ids"
+  done
 }
 
 # row <id>: the proposal's line, or a refusal.
@@ -177,10 +263,13 @@ row() {
   [ -n "$ROW" ] || mc_fail "no proposal $1"
 }
 col() { printf '%s\n' "$ROW" | cut -f "$1"; }
-settings_kind() { # settings_kind <kind> <where>
+settings_kind() { # settings_kind <kind> <where> <shape>
   case $1 in
     hook | permission) return 0 ;;
   esac
+  if [ "$1" = knob ] && [ "$3" = denial ]; then
+    return 0
+  fi
   case $2 in
     */settings.json | */settings.local.json) return 0 ;;
   esac
@@ -282,7 +371,7 @@ v_propose() {
       ;;
     *) mc_usage_fail "--pattern takes a pattern id from scan, pat-<hex>" ;;
   esac
-  text_arg --change "$change"
+  [ -z "$change" ] || text_arg --change "$change"
   text_arg --cadence "$cadence"
   text_arg --intervene "$intervene"
   text_arg --cost "$cost"
@@ -303,9 +392,14 @@ v_propose() {
   IFS="$us" read -r _ shape subject target _ evidence <<EOF
 $(printf '%s' "$line" | tr '\t' '\037')
 EOF
+  dk_row=''
+  [ "$shape" != denial ] || dk_row=$(map_row "$subject" "$target")
   if [ "${#cands[@]}" -eq 0 ]; then
-    [ "$shape" = correction ] || mc_usage_fail "a $shape repeat names its candidate mechanisms (--candidate <kind>[:<mechanism>])"
-    cands=(rule)
+    case $shape in
+      correction) cands=(rule) ;;
+      denial) cands=("knob:$target") ;;
+      *) mc_usage_fail "a $shape repeat names its candidate mechanisms (--candidate <kind>[:<mechanism>])" ;;
+    esac
   fi
   pick=$(for c in "${cands[@]}"; do printf 'C\t%s\n' "$c"; done | awk -F '\t' '
     function rank(k) {
@@ -332,6 +426,11 @@ EOF
   IFS="$us" read -r kind mech where source <<EOF
 $(printf '%s' "$pick" | tr '\t' '\037')
 EOF
+  if [ -n "$dk_row" ] && [ "$kind" = knob ] && [ "$mech" = "$target" ]; then
+    where=$(layer_where "$(printf '%s\n' "$dk_row" | cut -f 5)")
+    [ -n "$change" ] || change="$target: $(printf '%s\n' "$dk_row" | cut -f 4)"
+  fi
+  text_arg --change "$change"
   n=$(awk -F '\t' '!/^#/ && NF { n++ } END { print n + 0 }' "$STORE")
   id=p-$((n + 1))
   old=$(cat "$STORE") || mc_fail "cannot read kb/proposals.tsv"
@@ -356,12 +455,21 @@ v_show() {
       correction) printf 'noticed\tcorrection repeated %s times: %s\n' "$count" "$(col 5)" ;;
       manual) printf 'noticed\tmanual step repeated %s times: %s, after %s\n' "$count" "$(col 5)" "$(col 6)" ;;
       ask) printf 'noticed\task repeated %s times: %s, by %s\n' "$count" "$(col 5)" "$(col 6)" ;;
+      denial) printf 'noticed\tdenial repeated %s times: %s, governed by %s\n' "$count" "$(col 5)" "$(col 6)" ;;
       *) printf 'noticed\tanswer repeated %s times: %s, answered %s\n' "$count" "$(col 5)" "$(col 6)" ;;
     esac
     printf '%s\n' "$all" | E=,$ev, awk -F '\t' 'index(ENVIRON["E"], "," $1 ",") { printf "evidence\t%s\t%s\n", $1, $4 }'
     printf 'mechanism\t%s\t%s\t%s\t%s\n' "$(col 8)" "$(col 9)" "$(col 10)" "$(col 11)"
+    # The effect is read live, so it is shown only while the map still
+    # proposes the value the stored change sets.
+    if [ "$(col 4)" = denial ] && [ "$(col 8)" = knob ]; then
+      sh_row=$(map_row "$(col 5)" "$(col 9)")
+      if [ -n "$sh_row" ] && [ "$(col 12)" = "$(col 9): $(printf '%s\n' "$sh_row" | cut -f 4)" ]; then
+        printf 'effect\t%s\n' "$(printf '%s\n' "$sh_row" | cut -f 6)"
+      fi
+    fi
     printf 'change\t%s\ncadence\t%s\nintervene\t%s\ncost\t%s\noff\t%s\n' "$(col 12)" "$(col 13)" "$(col 14)" "$(col 15)" "$(col 16)"
-    if settings_kind "$(col 8)" "$(col 10)"; then
+    if settings_kind "$(col 8)" "$(col 10)" "$(col 4)"; then
       printf 'settings\tready to apply, never written: %s\n' "$(col 10)"
     fi
     printf 'decline\tsay no and this pattern is not proposed again; "not now" parks it until a trigger\n'
@@ -397,7 +505,7 @@ v_outcome() { # v_outcome <accept|decline|park|reopen> <id> [--trigger <t>]
         accept_rule "$id"
         set_state "$id" accepted
         printf 'applied\trule\t%s\n' "$RID"
-      elif settings_kind "$(col 8)" "$(col 10)"; then
+      elif settings_kind "$(col 8)" "$(col 10)" "$(col 4)"; then
         set_state "$id" accepted
         printf 'handover-operator\t%s\t%s\n' "$(col 10)" "$(col 12)" | mc_clean_text
       else

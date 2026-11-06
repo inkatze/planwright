@@ -13,7 +13,8 @@
 # --settings <config/<profile>-settings.json> --name <worker>`, the profile
 # worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept and, for a
 # worker, the worker identity exported, so its hooks write attention rows and
-# register its session name (fleet-messaging D-8, D-19); a handle outside
+# register its session name (fleet-messaging D-8, D-19), and the dispatcher's
+# tower identity cleared once the dispatch is registered; a handle outside
 # the relay's stream-json-persistent grammar, which names the session, is
 # refused; non-`--bare` pinned per
 # D-12/REQ-A1.5, and the settings fragment pinned per fleet-autonomy
@@ -1731,6 +1732,14 @@ register_dispatch() {
   /bin/sh "$rd_reg" "$@" >/dev/null </dev/null || true
 }
 
+# drop_tower_identity — clear the dispatcher's tower identity before any
+# session starts. It is the owner the registration records, and a session that
+# inherited it would read it as its own: its dispatches would be recorded under
+# it and its sweeps would take a sibling's workers for its own.
+drop_tower_identity() {
+  unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID PLANWRIGHT_TOWER_CHECKOUT
+}
+
 # --- the close (the release set) --------------------------------------------
 
 # The classes a stop walks, in release order. Processes go first because a
@@ -2343,6 +2352,7 @@ cmd_launch() {
     # This process becomes the supervisor, so it is its own death handle; the
     # record has to land before supervise blocks.
     register_dispatch "$worker" "$scope" "$dir" "$tower_checkout" "$$"
+    drop_tower_identity
     supervise "$worker" "$dir" "$init_msg" "$@"
     return $?
   fi
@@ -2359,8 +2369,14 @@ cmd_launch() {
   # is surfaced as a failure with a non-zero exit, never an optimistic
   # `launched` over a dead supervisor.
   rm -f "$dir/supervisor.pid" "$dir/worker.pid" "$dir/result"
-  (/bin/sh "$self" _supervise "$worker" "$dir" "$init_msg" "$@" \
-    >/dev/null 2>>"$dir/supervisor.log" </dev/null &)
+  # The drop runs before the `&`, never in an AND-list with it: bash would
+  # background the whole list in a subshell that holds the caller's output
+  # open for as long as the supervisor runs.
+  (
+    drop_tower_identity
+    /bin/sh "$self" _supervise "$worker" "$dir" "$init_msg" "$@" \
+      >/dev/null 2>>"$dir/supervisor.log" </dev/null &
+  )
   # Confirm startup by a signal that survives a fast run: supervisor.pid
   # appears while the supervisor is live, and it removes that pid plus writes a
   # `result` on exit — so a run that already finished shows `result` even

@@ -6,6 +6,8 @@ import type { On } from 'claude-code'
 // answered from fixture stores, every script run recorded.
 
 export const START = 1_000_000_000
+export const SESSION = '11111111-2222-3333-4444-555555555555'
+export const ACTIVE_DIR = '/fleet/mission-control/_panel/active'
 
 const tab = (...f: (string | number)[]) => f.join('\t')
 
@@ -115,17 +117,31 @@ export type Fixture = {
   wake: string
   composeExit: number
   claimExit: number
+  releaseExit: number
   markExit: number
   emitExit: number
   rules: string
   rulesExit: number
   reviewsExit: number
   reviewsOut: string
+  install: string
+  installExit: number
+  // Lines a stale copy's scripts print on stderr ahead of their own.
+  stderrLead: string
   isPlaced: boolean
   isDropped: boolean
   isEnvDenied: boolean
+  isCommandRefused: boolean
   contextPercent: number | undefined
   env: Record<string, string>
+  sessionId: string
+  // The activation directory by file name: `<id>` holds the record as the
+  // lookup verb prints it, `<id>.ack` the acknowledgment.
+  records: Record<string, string>
+  lookupExit: number
+  ackExit: number
+  activateExit: number
+  whereExit: number
 }
 
 export function world(on: On, given: Partial<Fixture> = {}): World {
@@ -135,17 +151,28 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     wake: 'idle',
     composeExit: 0,
     claimExit: 0,
+    releaseExit: 0,
     markExit: 0,
     emitExit: 0,
     rules: '<!-- rules begin -->\n- R1 never merge\n<!-- rules end -->',
     rulesExit: 0,
     reviewsExit: 0,
     reviewsOut: 'written',
+    install: 'install\tsame\t0.66.0\t/plugins/cache/planwright/planwright/0.66.0',
+    installExit: 0,
+    stderrLead: '',
     isPlaced: true,
     isDropped: false,
     isEnvDenied: false,
+    isCommandRefused: false,
     contextPercent: 42,
     env: { PLANWRIGHT_MC_PROGRAM: 'alpha' },
+    sessionId: SESSION,
+    records: {},
+    lookupExit: 0,
+    ackExit: 0,
+    activateExit: 0,
+    whereExit: 0,
     ...given,
   }
   const w: World = {
@@ -167,8 +194,21 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     return { value: {} }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.id', () => ({ value: fx.sessionId }))
+  on('fs.stat', (_, e) => {
+    const name = e.path.startsWith(`${ACTIVE_DIR}/`) ? e.path.slice(ACTIVE_DIR.length + 1) : ''
+    const body = fx.records[name]
+    if (body === undefined) throw new Error('ENOENT')
+    return { value: { kind: 'file', size: body.length, mtimeMs: 0, isLink: false } }
+  })
+  on('fs.exists', (_, e) => ({
+    value: e.path.startsWith(`${ACTIVE_DIR}/`) && e.path.slice(ACTIVE_DIR.length + 1) in fx.records,
+  }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
-  on('command.register', () => ({ value: { command: 'mission-control' } }))
+  on('command.register', () => {
+    if (fx.isCommandRefused) throw new Error('refused')
+    return { value: { command: 'mc-panel' } }
+  })
   on('ui.open', () => {
     w.opened += 1
     return { value: fx.isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'no-surface' } }
@@ -205,14 +245,40 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
       value: {
         exitCode,
         stdout,
-        stderr: exitCode === 0 ? '' : 'store unreadable',
+        stderr: fx.stderrLead + (exitCode === 0 ? '' : 'store unreadable'),
         isStdoutTruncated: false,
         isStderrTruncated: false,
       },
     })
     if (script === 'mc-panel.sh' && verb === 'digest') return answer(fx.digest, fx.digestExit)
+    if (script === 'mc-panel.sh' && verb === 'install') return answer(fx.installExit === 0 ? fx.install : '', fx.installExit)
+    if (script === 'mc-panel.sh' && verb === 'where') return answer(`${ACTIVE_DIR}\n`, fx.whereExit)
+    if (script === 'mc-panel.sh' && verb === 'lookup') {
+      const rec = fx.records[argv[argv.indexOf('--session') + 1] ?? '']
+      return rec === undefined ? answer('', 1) : answer(rec, fx.lookupExit)
+    }
+    const flag = (name: string) => argv[argv.indexOf(name) + 1] ?? ''
+    if (script === 'mc-panel.sh' && verb === 'activate') {
+      const sid = flag('--session')
+      if (fx.activateExit !== 0) return answer('', fx.activateExit)
+      const rec = recordFor(flag('--program'), flag('--target'))
+      if (fx.records[sid] !== rec) delete fx.records[`${sid}.ack`]
+      fx.records[sid] = rec
+      return answer(`activation\t${sid}\n`)
+    }
+    if (script === 'mc-panel.sh' && verb === 'ack') {
+      const sid = flag('--session')
+      const isOk = fx.ackExit === 0 && fx.records[sid] !== undefined
+      if (isOk) fx.records[`${sid}.ack`] = 'ack'
+      return answer('', isOk ? 0 : 1)
+    }
+    if (script === 'mc-panel.sh' && verb === 'retire') {
+      delete fx.records[flag('--session')]
+      delete fx.records[`${flag('--session')}.ack`]
+      return answer('')
+    }
     if (script === 'mc-wake.sh' && verb === 'compose') return answer(fx.wake, fx.composeExit)
-    if (script === 'mc-wake.sh' && verb === 'target') return answer('', argv.includes('--mod') ? fx.claimExit : 0)
+    if (script === 'mc-wake.sh' && verb === 'target') return answer('', argv.includes('--mod') ? fx.claimExit : fx.releaseExit)
     if (script === 'mc-event.sh' && verb === 'mark') return answer('', fx.markExit)
     if (script === 'mc-event.sh' && verb === 'emit') return answer('e1.ff', fx.emitExit)
     if (script === 'mc-reviews.sh' && verb === 'refresh') return answer(fx.reviewsOut, fx.reviewsExit)
@@ -221,6 +287,8 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
   })
   return w
 }
+
+export const recordFor = (program: string, target = program): string => `program\t${program}\ntarget\t${target}\n`
 
 export const ran = (w: World, script: string, verb: string): string[][] =>
   w.runs.filter(r => (r[1] ?? '').endsWith(`/scripts/${script}`) && r[2] === verb)

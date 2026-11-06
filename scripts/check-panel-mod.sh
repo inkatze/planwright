@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # check-panel-mod.sh — the panel mod's gate: the CLI at or above the mods
 # floor, the engine surface `claude plugin validate` reports held to
-# config/panel-mod-surface.txt, the plugin tests run and green, and the
+# config/panel-mod-surface.txt, no slash command it registers sharing a
+# planwright skill's name, the plugin tests run and green, and the
 # suite shown to fail on a seeded drawing defect. Without the claude CLI it
 # skips with a note (CI's lint job installs one); a CLI below the floor fails.
 #
@@ -13,8 +14,6 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
-# The lowest Claude Code release whose mods API the panel mod runs on.
-FLOOR=2.1.287
 MOD=hooks/mission-control/register.tsx
 
 prog=check-panel-mod
@@ -54,7 +53,16 @@ finding() {
   findings=$((findings + 1))
 }
 
-# 1. The floor.
+# 1. The floor: the lowest Claude Code release whose mods API the panel mod
+# runs on, owned by the panel's script so the skill's text fallback reads the
+# same value. The checkout under check owns it; a fixture root shipping no
+# scripts reads this gate's own.
+floor_script=$root/scripts/mc-panel.sh
+[ -f "$floor_script" ] || floor_script=$(cd "$(dirname "$0")" && pwd -P)/mc-panel.sh
+FLOOR=$(/bin/bash "$floor_script" floor) && [ -n "$FLOOR" ] || {
+  echo "$prog: cannot read the mods floor from scripts/mc-panel.sh" >&2
+  exit 2
+}
 version=$(claude --version 2>/dev/null | awk 'NR == 1 { print $1 }')
 if ! printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   finding "cannot read the claude CLI's version ('$version')"
@@ -106,6 +114,14 @@ done <"$scratch/extras"
 comm -13 "$scratch/reported" "$scratch/allowed" | while IFS= read -r stale; do
   echo "$prog: warning: config/panel-mod-surface.txt names $stale, which the module no longer uses" >&2
 done
+# A typed /<name> that a planwright skill also answers to is switched to the
+# skill, so a mod command sharing a skill's name can never run.
+sed -n 's/^hook command\.run{.*command=\([^,}]*\).*/\1/p' "$scratch/reported" >"$scratch/commands"
+while IFS= read -r cmd; do
+  if [ -d "$root/skills/$cmd" ]; then
+    finding "$MOD registers /$cmd, which is also a planwright skill, so typing it opens the skill instead"
+  fi
+done <"$scratch/commands"
 
 # run_tests <dir> <log>: the plugin tests; prints `<exit> <pass> <fail>`.
 run_tests() {
@@ -138,6 +154,7 @@ if ! { cp "$root/.claude-plugin/plugin.json" "$seed/.claude-plugin/" \
   && mkdir -p "$seed/hooks/mission-control" \
   && cp "$root/hooks/mission-control"/*.ts "$root/hooks/mission-control"/*.tsx "$seed/hooks/mission-control/" \
   && rm -f "$seed/hooks/mission-control/wake.test.tsx" "$seed/hooks/mission-control/compaction.test.tsx" \
+    "$seed/hooks/mission-control/install.test.tsx" \
   && cp -R "$root/types" "$seed/"; }; then
   echo "$prog: cannot copy the mod to seed a defect" >&2
   exit 2

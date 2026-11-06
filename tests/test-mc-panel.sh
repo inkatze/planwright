@@ -262,6 +262,531 @@ mc_run mc-panel.sh digest --program alpha --now 1030
 record "measures with no rows read as none" measure - none -
 rm -f "$runtime/measures"
 
+# ---------------------------------------------------------------------------
+# install: the planwright copy the program's session runs, compared with the
+# one recorded, raising one event per change with the changelog between.
+# ---------------------------------------------------------------------------
+fake_root() { # fake_root <dir> <version>: a planwright copy carrying the changelog below
+  mkdir -p "$1/.claude-plugin"
+  printf '{\n  "name": "planwright",\n  "version": "%s"\n}\n' "$2" >"$1/.claude-plugin/plugin.json"
+  cat >"$1/CHANGELOG.md" <<'EOF'
+# Changelog
+
+## [0.66.0](https://example.test/compare/v0.65.0...v0.66.0) (2026-11-05)
+
+
+### Features
+
+* **fleet:** read usage from the status-line mirror ([#836](https://example.test/issues/836)) ([7d97218](https://example.test/commit/7d97218))
+
+
+### Bug Fixes
+
+* **mission-control:** make the panel reopenable with /mc-panel ([#828](https://example.test/issues/828)) ([db7e669](https://example.test/commit/db7e669))
+* plain entry without a scope ([#900](https://example.test/issues/900)) ([abc1234](https://example.test/commit/abc1234))
+
+## [0.65.0](https://example.test/compare/v0.64.0...v0.65.0) (2026-11-04)
+
+
+### Features
+
+* **mission-control:** show reviews at a glance in the panel ([#809](https://example.test/issues/809)) ([6862c17](https://example.test/commit/6862c17))
+
+## [0.64.0](https://example.test/compare/v0.63.0...v0.64.0) (2026-11-03)
+
+
+### Features
+
+* **skills:** add the mission-control skill ([#796](https://example.test/issues/796)) ([a2d0ba0](https://example.test/commit/a2d0ba0))
+EOF
+}
+events_of() { # events_of <kind>: the program's events of that kind
+  mc_run mc-event.sh list --program alpha
+  printf '%s\n' "$OUT" | awk -F '\t' -v k="$1" '$3 == k'
+}
+old_root=$tmp/cache/planwright/0.65.0
+new_root=$tmp/cache/planwright/0.66.0
+fake_root "$old_root" 0.65.0
+fake_root "$new_root" 0.66.0
+rm -f "$runtime/install"
+
+mc_run mc-panel.sh install --program alpha --root "$old_root" --now 5000
+expect_rc "the first install check" 0
+expect_eq "the first check records the copy and says so" "install${tab}first${tab}0.65.0${tab}$old_root"
+got=$(events_of planwright-recorded)
+case $got in
+  *"planwright 0.65.0 is at $old_root"*) ok "the first check raises one recorded event naming the root" ;;
+  *) fail "the first check's event reads '$got'" ;;
+esac
+
+mc_run mc-panel.sh install --program alpha --root "$old_root" --now 5010
+expect_eq "the same copy again is the same" "install${tab}same${tab}0.65.0${tab}$old_root"
+if [ "$(events_of planwright-recorded | wc -l | tr -d ' ')" = 1 ] && [ -z "$(events_of planwright-updated)" ]; then
+  ok "the same copy raises nothing more"
+else
+  fail "the same copy raised an event"
+fi
+
+mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5020
+expect_rc "an updated copy" 0
+expect_eq "an update names both versions" "install${tab}changed${tab}0.66.0${tab}$new_root${tab}0.65.0"
+got=$(events_of planwright-updated)
+case $got in
+  *"planwright updated to 0.66.0 from 0.65.0, now at $new_root"*) ok "the update event names both versions and the new root" ;;
+  *) fail "the update event reads '$got'" ;;
+esac
+case $got in
+  *"mission-control: make the panel reopenable with /mc-panel (#828)"*"plain entry without a scope (#900)"*) ok "the update event carries the changelog entries between the two" ;;
+  *) fail "the update event lacks the entries: '$got'" ;;
+esac
+case $got in
+  *"(#809)"*) fail "the update event carries an entry of the version it came from" ;;
+  *) ok "the entries stop at the version it came from" ;;
+esac
+case $got in
+  *"https://"*) fail "the update event carries link targets" ;;
+  *) ok "the entries are plain text, no link targets" ;;
+esac
+mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5030
+expect_eq "a reload into the same copy is the same" "install${tab}same${tab}0.66.0${tab}$new_root"
+if [ "$(events_of planwright-updated | wc -l | tr -d ' ')" = 1 ]; then
+  ok "one change is announced once"
+else
+  fail "a change was announced more than once"
+fi
+
+mc_run mc-panel.sh install --program alpha --root "$old_root" --now 5040
+expect_eq "a downgrade is a change too" "install${tab}changed${tab}0.65.0${tab}$old_root${tab}0.66.0"
+case $(events_of planwright-updated | tail -n 1) in
+  *"planwright changed to 0.65.0 from 0.66.0 (an older version), now at $old_root"*) ok "a downgrade says it is older" ;;
+  *) fail "the downgrade event reads '$(events_of planwright-updated | tail -n 1)'" ;;
+esac
+case $(events_of planwright-updated | tail -n 1) in
+  *"Changes:"*) fail "a downgrade lists the newer version's entries" ;;
+  *) ok "a downgrade lists no entries of the version it left" ;;
+esac
+
+moved=$tmp/elsewhere/0.65.0
+fake_root "$moved" 0.65.0
+mc_run mc-panel.sh install --program alpha --root "$moved" --now 5050
+expect_eq "a copy moved at one version is a change" "install${tab}changed${tab}0.65.0${tab}$moved${tab}0.65.0"
+case $(events_of planwright-updated | tail -n 1) in
+  *"planwright 0.65.0 moved to $moved from $old_root"*) ok "a move names both roots" ;;
+  *) fail "the move event reads '$(events_of planwright-updated | tail -n 1)'" ;;
+esac
+
+# A refused emit records nothing, so the change is raised on the next check;
+# a record that cannot be written stores no event. Root writes through any
+# mode, so these run unprivileged only.
+mc_run mc-panel.sh install --program alpha --root "$moved" --now 5060
+store=$fleet/attention/mission-control/alpha
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 500 "$store/events"
+  mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5070
+  chmod 700 "$store/events"
+  expect_rc "a refused event fails the check" 1
+  expect_err "naming the event" "event could not be stored"
+  set +f
+  # shellcheck disable=SC2086 # the glob is the point
+  set -- $runtime/install.*
+  set -f
+  if [ -e "$1" ]; then fail "a refused event left a temporary record: $1"; else ok "and leaves no temporary record"; fi
+  before=$(events_of planwright-updated | wc -l | tr -d ' ')
+  chmod 500 "$runtime"
+  mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5075
+  chmod 700 "$runtime"
+  expect_rc "a record that cannot be written fails the check" 1
+  expect_err "naming the record" "cannot write the install record"
+  if [ "$(events_of planwright-updated | wc -l | tr -d ' ')" = "$before" ]; then
+    ok "and stores no event, so a retry cannot flood the store"
+  else
+    fail "an unwritable record still stored an event"
+  fi
+else
+  echo "skip: the refused-write cases (root writes through any mode)"
+fi
+mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5080
+expect_eq "and the change is raised on the next one" "install${tab}changed${tab}0.66.0${tab}$new_root${tab}0.65.0"
+
+# A record this script did not write is replaced as if absent, never trusted
+# and never a lasting failure.
+mkdir -p "$tmp/outside"
+for shape in bad-format no-version bad-root symlink dirlink control; do
+  rm -f "$runtime/install"
+  case $shape in
+    bad-format) printf 'format\t9\nroot\t%s\nversion\t0.65.0\n' "$old_root" >"$runtime/install" ;;
+    no-version) printf 'format\t1\nroot\t%s\n' "$old_root" >"$runtime/install" ;;
+    bad-root) printf 'format\t1\nroot\trelative\nversion\t0.65.0\n' >"$runtime/install" ;;
+    symlink) ln -s "$tmp/nowhere" "$runtime/install" ;;
+    dirlink) ln -s "$tmp/outside" "$runtime/install" ;;
+    control) printf 'format\t1\nroot\t%s\nversion\t0.65.0\033]0;x\007\n' "$old_root" >"$runtime/install" ;;
+  esac
+  mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5085
+  expect_eq "a $shape record is replaced as a first record" "install${tab}first${tab}0.66.0${tab}$new_root"
+  expect_err "with a warning naming it" "unreadable and is replaced"
+  if [ "$shape" = symlink ] || [ "$shape" = dirlink ]; then
+    if [ -L "$runtime/install" ]; then
+      fail "the record is still a symlink"
+    else
+      ok "the replaced symlink is now a record of its own"
+    fi
+  fi
+done
+mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5086
+expect_eq "and the replaced record reads back" "install${tab}same${tab}0.66.0${tab}$new_root"
+if [ -z "$(ls -A "$tmp/outside")" ]; then ok "nothing was written through a linked record"; else fail "a record was written through the link"; fi
+rm -f "$runtime/install"
+mkdir "$runtime/install"
+mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5087
+expect_rc "a directory where the record goes fails" 1
+expect_err "naming it" "the install record is a directory"
+rmdir "$runtime/install"
+mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5088
+
+mkdir -p "$tmp/noversion"
+mc_run mc-panel.sh install --program alpha --root "$tmp/noversion" --now 5090
+expect_rc "a copy with no readable version fails" 1
+expect_err "naming why" "no version"
+mc_run mc-panel.sh install --program alpha --root "$tmp/nowhere" --now 5090
+expect_rc "a root that is no directory fails" 1
+
+# A long changelog is cut to the event store's cap, never refused.
+long_root=$tmp/cache/planwright/0.70.0
+fake_root "$long_root" 0.70.0
+{
+  printf '# Changelog\n\n## [0.70.0](https://example.test) (2026-12-01)\n\n### Features\n\n'
+  i=0
+  while [ "$i" -lt 40 ]; do
+    printf '* **area-%s:** a long entry describing change number %s in detail ([#%s](https://example.test))\n' "$i" "$i" "$i"
+    i=$((i + 1))
+  done
+  sed -n '/^## \[0.66.0\]/,$p' "$new_root/CHANGELOG.md"
+} >"$long_root/CHANGELOG.md"
+mc_run mc-panel.sh install --program alpha --root "$long_root" --now 5100
+expect_rc "a long changelog" 0
+got=$(events_of planwright-updated | tail -n 1 | cut -f5)
+if [ "${#got}" -le 512 ] && [ "${#got}" -gt 400 ]; then
+  ok "a long changelog is cut to the store's cap"
+else
+  fail "the long event is ${#got} bytes"
+fi
+case $got in
+  *...) ok "a cut text says it was cut" ;;
+  *) fail "the cut text does not end in ...: '$got'" ;;
+esac
+
+# A copy without a changelog still announces the update, with no entries.
+bare_root=$tmp/cache/planwright/0.71.0
+fake_root "$bare_root" 0.71.0
+rm -f "$bare_root/CHANGELOG.md"
+mc_run mc-panel.sh install --program alpha --root "$bare_root" --now 5110
+expect_rc "an update to a copy with no changelog" 0
+case $(events_of planwright-updated | tail -n 1) in
+  *"planwright updated to 0.71.0 from 0.70.0, now at $bare_root") ok "names the update without entries" ;;
+  *) fail "the changelog-less event reads '$(events_of planwright-updated | tail -n 1)'" ;;
+esac
+mc_run mc-panel.sh changes --from 0.70.0 --root "$bare_root"
+expect_rc "changes with no changelog fails, never reads as no change" 1
+
+# changes: the full list the event's text was cut from.
+mc_run mc-panel.sh changes --from 0.64.0 --root "$new_root"
+expect_rc "changes since an older version" 0
+expect_eq "every entry after the version, newest first, one per line" "$(printf 'change\t0.66.0\tFeatures\tfleet: read usage from the status-line mirror (#836)\nchange\t0.66.0\tBug Fixes\tmission-control: make the panel reopenable with /mc-panel (#828)\nchange\t0.66.0\tBug Fixes\tplain entry without a scope (#900)\nchange\t0.65.0\tFeatures\tmission-control: show reviews at a glance in the panel (#809)')"
+mc_run mc-panel.sh changes --from 0.66.0 --root "$new_root"
+expect_eq "nothing after the current version" ""
+mc_run mc-panel.sh changes --from 0.64.0 --root "$old_root"
+expect_eq "entries newer than the copy itself are never listed" "$(printf 'change\t0.65.0\tFeatures\tmission-control: show reviews at a glance in the panel (#809)')"
+odd_root=$tmp/cache/planwright/odd
+fake_root "$odd_root" 0.66.0
+cat >"$odd_root/CHANGELOG.md" <<'EOF'
+## [Unreleased]
+
+### Features
+
+* unreleased entry
+
+## [0.66.0](https://example.test/compare/v0.65.0...v0.66.0) (2026-11-05)
+
+### Features
+
+* released entry
+
+## [0.66.0-rc.1](https://example.test/compare/v0.65.0...v0.66.0-rc.1) (2026-11-04)
+
+### Features
+
+* pre-release entry
+
+## [0.65.0](https://example.test/compare/v0.64.0...v0.65.0) (2026-11-03)
+
+### Features
+
+* older entry
+EOF
+mc_run mc-panel.sh changes --from 0.65.0 --root "$odd_root"
+expect_eq "a header outside the version grammar ends the section before it" "$(printf 'change\t0.66.0\tFeatures\treleased entry')"
+mc_run mc-panel.sh changes --from 'x;y' --root "$new_root"
+expect_rc "a version outside the grammar" 2
+for bad in "changes --root $new_root" "changes --from 0.64.0 --program alpha" "install --program alpha --from 0.64.0" \
+  "install --program alpha --knobs" "install --program alpha --root relative/dir" "digest --program alpha --root $new_root" \
+  "changes --from 1.2.3.4 --root $new_root"; do
+  # shellcheck disable=SC2086 # each case is a word list on purpose
+  mc_run mc-panel.sh $bad
+  expect_rc "usage refused: $bad" 2
+done
+mc_run mc-panel.sh install --program nosuch --root "$tmp/nowhere"
+expect_rc "an unconfigured program is named before the root is read" 3
+
+# ---------------------------------------------------------------------------
+# The panel with no setup: the activation record, its acknowledgment, the
+# text fallback, and the entry reading the launch environment (REQ-F1.16,
+# REQ-F1.2, REQ-A1.7; D-37).
+# ---------------------------------------------------------------------------
+# run_with <VAR=value>... -- <script> [args...]: mc_run with the session's
+# environment set; stdin passes through.
+run_with() {
+  rw_env=""
+  while [ "$1" != -- ]; do
+    rw_env="$rw_env $1"
+    shift
+  done
+  shift
+  rw_script=$1
+  shift
+  # shellcheck disable=SC2086 # the VAR=value words split on purpose
+  OUT=$(mc_env env $rw_env /bin/bash "$repo_root/scripts/$rw_script" "$@" 2>"$tmp/stderr")
+  RC=$?
+  ERR=$(cat "$tmp/stderr")
+}
+field() { awk -F '\t' -v k="$2" '$1 == k { print $2; exit }' "$1" 2>/dev/null; }
+
+setup
+sid_a=11111111-2222-3333-4444-555555555555
+sid_b=22222222-2222-3333-4444-555555555555
+sid_c=33333333-2222-3333-4444-555555555555
+sid_d=44444444-2222-3333-4444-555555555555
+act=$fleet/mission-control/_panel/active
+live_pid=$$
+sleep 0 &
+dead_pid=$!
+wait "$dead_pid"
+
+# The session-start hook records which session this process carries.
+OUT=$(printf '{"session_id":"%s","hook_event_name":"SessionStart","source":"startup"}' "$sid_a" \
+  | mc_env env CLAUDE_PID="$live_pid" /bin/bash "$repo_root/scripts/mc-panel.sh" session-hook 2>"$tmp/stderr")
+RC=$?
+expect_rc "the session-start hook exits 0" 0
+expect_eq "REQ-F1.16: the session-start hook prints nothing" ""
+OUT=$(printf 'not json' | mc_env env CLAUDE_PID="$live_pid" /bin/bash "$repo_root/scripts/mc-panel.sh" session-hook 2>&1)
+RC=$?
+expect_rc "a hook input with no session id still exits 0" 0
+expect_eq "and says nothing" ""
+
+# A session with no mission-control environment: the record verb alone.
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --now 5000
+expect_rc "REQ-F1.16: the record verb writes the activation record" 0
+record "REQ-F1.16: it names the session the hook captured" activation "$sid_a"
+if [ "$(field "$act/$sid_a" format)" = 1 ] && [ "$(field "$act/$sid_a" program)" = alpha ] \
+  && [ "$(field "$act/$sid_a" session)" = "$sid_a" ] && [ "$(field "$act/$sid_a" pid)" = "$live_pid" ] \
+  && [ "$(field "$act/$sid_a" written)" = 5000 ]; then
+  ok "REQ-F1.16: the record carries program, session, pid, written time and format"
+else
+  fail "the activation record reads '$(cat "$act/$sid_a" 2>/dev/null)'"
+fi
+mc_run mc-panel.sh where
+expect_eq "where names the directory the mod watches" "$act"
+mc_run mc-panel.sh lookup --session "$sid_a"
+expect_rc "REQ-F1.16: the mod's lookup finds its own session's record" 0
+record "REQ-F1.16: the lookup names the program" program alpha
+record "the wake target defaults to the program" target alpha
+mc_run mc-panel.sh lookup --session "$sid_b"
+expect_rc "REQ-F1.16: a session with another id finds no record, so does not activate" 1
+printf 'format\t2\nprogram\talpha\nsession\t%s\n' "$sid_b" >"$act/$sid_b"
+mc_run mc-panel.sh lookup --session "$sid_b"
+expect_rc "REQ-F1.16: a record with an unknown format does not activate" 1
+rm -f "$act/$sid_b"
+printf 'format\t1\nprogram\talpha\nsession\t%s\n' "$sid_a" >"$act/$sid_b"
+mc_run mc-panel.sh lookup --session "$sid_b"
+expect_rc "a record naming another session does not activate" 1
+rm -f "$act/$sid_b"
+mc_run mc-panel.sh lookup --session 'bad/../id'
+expect_rc "a session id outside the grammar is a usage error" 2
+run_with -- mc-panel.sh activate --program alpha
+expect_rc "with no session to name, the record verb says so" 4
+
+# The acknowledgment, and the fallback verb reading it.
+mc_run mc-panel.sh ack --session "$sid_a" --now 5001
+expect_rc "the mod writes its acknowledgment" 0
+if [ "$(field "$act/$sid_a.ack" session)" = "$sid_a" ]; then
+  ok "REQ-F1.16: the acknowledgment is written beside the record"
+else
+  fail "no acknowledgment beside the record"
+fi
+# A claude CLI at or above the floor, so the host's own never decides.
+mkdir -p "$tmp/newclaude"
+printf '#!/bin/sh\necho "99.0.0 (Claude Code)"\n' >"$tmp/newclaude/claude"
+chmod +x "$tmp/newclaude/claude"
+run_with CLAUDE_PID="$live_pid" PATH="$tmp/newclaude:$PATH" -- mc-panel.sh await --program alpha --wait 0
+expect_rc "await with an acknowledgment" 0
+expect_eq "REQ-F1.16: an acknowledged panel is the mod's" "panel${tab}mod"
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --now 5002
+if [ -f "$act/$sid_a.ack" ]; then
+  ok "rewriting the same program keeps the live mod's acknowledgment"
+else
+  fail "a record rewritten unchanged dropped the acknowledgment"
+fi
+mc_run mc-panel.sh ack --session "$sid_a"
+mc_run mc-panel.sh activate --program alpha --session "$sid_a" --pid 1 --now 5002
+if [ ! -e "$act/$sid_a.ack" ]; then
+  ok "a record from another process drops an acknowledgment a crashed one left"
+else
+  fail "an acknowledgment survived a change of process"
+fi
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --now 5002
+mc_run mc-panel.sh ack --session "$sid_a"
+# No session-start record names sid_c, so its process cannot be told.
+mc_run mc-panel.sh activate --program alpha --session "$sid_c" --now 5002
+mc_run mc-panel.sh ack --session "$sid_c"
+mc_run mc-panel.sh activate --program alpha --session "$sid_c" --now 5002
+if [ "$(field "$act/$sid_c" pid)" = - ] && [ ! -e "$act/$sid_c.ack" ]; then
+  ok "a record whose process cannot be told never keeps an acknowledgment"
+else
+  fail "an acknowledgment survived a pid-less rewrite"
+fi
+rm -f "$act/$sid_c"
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --target mc-other --now 5003
+if [ ! -e "$act/$sid_a.ack" ]; then ok "a record naming another target waits for a new acknowledgment"; else fail "the old acknowledgment survived a changed record"; fi
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --now 5004
+cp "$act/$sid_a" "$act/$sid_b"
+mc_run mc-panel.sh ack --session "$sid_b"
+expect_rc "an acknowledgment beside a record naming another session is refused" 1
+rm -f "$act/$sid_b"
+
+# No acknowledgment: the text form, with its in-flight and waiting lines.
+mc_run fleet-state.sh register w-one mission-control:alpha --backend stream-json --death-handle none
+run_with CLAUDE_PID="$live_pid" PATH="$tmp/newclaude:$PATH" -- mc-panel.sh await --program alpha --wait 1
+expect_rc "await with no acknowledgment" 0
+expect_out "REQ-F1.16: no acknowledgment within the wait reports the text form" "panel${tab}text${tab}no acknowledgment within 1s"
+expect_out "REQ-F1.2: the text panel carries the in-flight line" "in flight: 1"
+expect_out "the text panel names each flight" "w-one"
+expect_out "REQ-F1.2: the text panel carries the waiting line" "waiting:"
+mc_run mc-panel.sh text --program alpha
+expect_rc "the text verb" 0
+expect_out "REQ-F1.2: the text output carries the in-flight line" "in flight: 1"
+expect_out "REQ-F1.2: the text output carries the waiting line" "waiting:"
+[ ! -e "$runtime/budget" ] || mv "$runtime/budget" "$runtime/budget.saved"
+ln -s "$tmp/nowhere" "$runtime/budget"
+mc_run mc-panel.sh text --program alpha
+expect_out "an unreadable budget is said as unknown, with why" "rung: unknown (the budget cannot be read)"
+rm -f "$runtime/budget"
+[ ! -e "$runtime/budget.saved" ] || mv "$runtime/budget.saved" "$runtime/budget"
+mkdir -p "$tmp/oldclaude"
+printf '#!/bin/sh\necho "2.0.0 (Claude Code)"\n' >"$tmp/oldclaude/claude"
+chmod +x "$tmp/oldclaude/claude"
+run_with CLAUDE_PID="$live_pid" PATH="$tmp/oldclaude:$PATH" -- mc-panel.sh await --program alpha --wait 5
+expect_out "REQ-F1.16: a host below the mods floor is told at once" "panel${tab}text${tab}below the mods floor"
+mc_run mc-panel.sh floor
+if printf '%s\n' "$OUT" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then ok "the floor verb prints the mods floor"; else fail "the floor verb printed '$OUT'"; fi
+
+# A handover successor's bring-up writes its own record.
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh activate --program alpha --now 5100
+record "REQ-F1.16: a successor's bring-up writes its own record" activation "$sid_c"
+if [ -f "$act/$sid_c" ] && [ "$(field "$act/$sid_a" session)" = "$sid_a" ]; then
+  ok "the predecessor's record is its own, untouched"
+else
+  fail "the successor's record replaced or missed one"
+fi
+mc_run mc-panel.sh ack --session "$sid_c"
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh retire
+expect_rc "retiring the session" 0
+if [ ! -e "$act/$sid_c" ] && [ ! -e "$act/$sid_c.ack" ]; then
+  ok "REQ-F1.16: retirement removes the session's record and acknowledgment"
+else
+  fail "retirement left '$(ls "$act")'"
+fi
+
+# The pid a record carries is a live process whose session-start record
+# names the session, never an inherited CLAUDE_PID naming another.
+printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_d" >"$fleet/mission-control/_panel/sessions/$dead_pid"
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --session "$sid_d" --now 5150
+if [ "$(field "$act/$sid_d" pid)" = - ]; then
+  ok "an inherited CLAUDE_PID and a dead process both stay out of the record"
+else
+  fail "the record carries pid '$(field "$act/$sid_d" pid)'"
+fi
+rm -f "$fleet/mission-control/_panel/sessions/$dead_pid" "$act/$sid_d"
+
+# The keeper removes a record whose session has no live process.
+mc_run mc-panel.sh activate --program alpha --session "$sid_d" --pid "$dead_pid" --now 5200
+mc_run mc-panel.sh ack --session "$sid_d"
+mc_run mc-keeper.sh watch --program alpha
+if [ ! -e "$act/$sid_d" ] && [ ! -e "$act/$sid_d.ack" ]; then
+  ok "REQ-F1.16: the keeper removes a record whose session is dead"
+else
+  fail "the keeper left the dead session's record"
+fi
+if [ -f "$act/$sid_a" ]; then ok "and keeps a live session's"; else fail "the keeper removed a live session's record"; fi
+mc_run mc-panel.sh activate --program alpha --session "$sid_d" --now 5300
+mc_run mc-panel.sh prune
+if [ "$(field "$act/$sid_d" pid)" = - ] && [ -f "$act/$sid_d" ]; then
+  ok "a record with no process to test is kept"
+else
+  fail "a pid-less record was pruned or carries a pid"
+fi
+rm -f "$act/$sid_d"
+mkfifo "$act/$sid_b"
+mc_run mc-panel.sh prune
+expect_rc "prune passes over a FIFO named like a record without reading it" 0
+rm -f "$act/$sid_b"
+fifo="$fleet/mission-control/_panel/sessions/$dead_pid"
+mkfifo "$fifo"
+(mc_run mc-panel.sh activate --program alpha --session "$sid_d" --now 5400) &
+bg=$!
+n=0
+while kill -0 "$bg" 2>/dev/null && [ "$n" -lt 50 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+if kill -0 "$bg" 2>/dev/null; then
+  fail "activate blocked reading a FIFO named like a session-start record"
+  : >"$fifo"
+else
+  ok "activate passes over a FIFO named like a session-start record without reading it"
+fi
+wait "$bg"
+rm -f "$fifo" "$act/$sid_d" "$act/$sid_d.ack"
+chmod 0777 "$act"
+mc_run mc-panel.sh lookup --session "$sid_a"
+expect_rc "a world-writable activation directory is refused" 1
+chmod 0700 "$act"
+mv "$fleet/mission-control" "$tmp/mc-real"
+ln -s "$tmp/mc-real" "$fleet/mission-control"
+mc_run mc-panel.sh lookup --session "$sid_a"
+expect_rc "a symlinked mission-control directory is refused" 1
+rm -f "$fleet/mission-control"
+mv "$tmp/mc-real" "$fleet/mission-control"
+if [ "$(jq -r '[.hooks.SessionStart[] | select(has("matcher") | not) | .hooks[].command | select(endswith("scripts/mc-panel.sh session-hook"))] | length' "$repo_root/hooks/hooks.json")" = 1 ]; then
+  ok "REQ-F1.16: hooks.json runs the session-start capture on every session start"
+else
+  fail "hooks.json does not register mc-panel.sh session-hook on every SessionStart"
+fi
+
+# The entry reads a program the launch environment names (REQ-A1.7).
+cat >>"$tracked" <<EOF
+program_beta_repositories: [$repo]
+program_beta_spec_root: $repo
+EOF
+sed 's/^mission_control_programs: \[alpha\]$/mission_control_programs: [alpha, beta]/' "$tracked" >"$tmp/tracked.new"
+mv "$tmp/tracked.new" "$tracked"
+mc_run mc-config.sh entry
+expect_out "two programs with nothing named ask which" "ask${tab}beta"
+run_with PLANWRIGHT_MC_PROGRAM=beta -- mc-config.sh entry
+expect_eq "REQ-A1.7: the program the launch environment names resumes without asking" "resume${tab}beta"
+run_with CLAUDE_PID="$live_pid" -- mc-config.sh entry
+expect_eq "REQ-A1.7: a session already activated resumes its own program" "resume${tab}alpha"
+run_with PLANWRIGHT_MC_PROGRAM=gamma -- mc-config.sh entry
+expect_out "a variable naming no configured program falls back to asking" "ask${tab}alpha"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-panel: $failures failure(s)" >&2
   exit 1

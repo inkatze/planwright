@@ -469,7 +469,12 @@ inputs in `PLANWRIGHT_TOWER_SESSION_ID` / `PLANWRIGHT_TOWER_PID` /
 composite identity, so it has to be the checkout the tower published under, not
 the worker's worktree, or the record names a tower that exists nowhere. With no
 identity resolvable the dispatch is recorded as unknown-owner and says so on
-stderr.
+stderr. A session the mission-control launcher starts is recorded under
+`mission-control:<program>` instead; no presence surface knows that token, so
+every tower reads its owner as unrecognized and never reaps it. The stream-json
+rung, like the tmux rung's dispatch-env wrapper, clears the dispatcher's tower
+identity (`PLANWRIGHT_TOWER_ID`, `_SESSION_ID`, `_PID`, `_CHECKOUT`) from every
+session it starts, so no session reads its dispatcher's identity as its own.
 
 Every render starts with a per-source availability line
 (`ok` / `absent` / `unavailable`): a source that is missing is **marked**, and
@@ -580,6 +585,18 @@ wrapper, such a worker carries its fleet identity like the headless rungs do.
 It therefore raises the same attention signals (a fork-park push, a status
 row) that tmux workers started without the wrapper never did; that is the
 identity working, not new noise.
+
+A task worker lands on the tmux rung only when its spec resolves there
+(`resolve-dispatch-backend.sh`, unattended, read with the configuration of
+the repository the worker is placed in) or the tower passes
+`--backend tmux`, which it does for an explicit `/orchestrate --backend tmux`
+or a yes to the tmux-context ask (an answer the unattended resolution never
+reads). For a spec resolving to any other rung `fleet-dispatch-worktree.sh`
+refuses the launch with exit 17, before anything is placed, rather than
+start a worker whose prompts the chosen rung's supervisor (mission control
+included) would never see. `/orchestrate` dispatches a stream-json or headless unit through
+`scripts/orchestrate-meta-step.sh`, the prompt riding the launch.
+`--attach-dry-run` is not refused: it prints a plan and launches nothing.
 
 ### The task worker's opening turn
 
@@ -2139,12 +2156,31 @@ a captured `/usage` render on stdin (a throwaway-pane scrape, off the hot
 path), strips control bytes, parses **both** windows Claude Code renders — the
 session (~5-hour) and the weekly — **by label**, plausibility-checks each
 (0–100 and the expected shape), and caches the extracted signal per-tower with
-a read timestamp. `fleet-usage-gate.sh evaluate` maps each window's percentage
+a read timestamp. A scrape needs a TUI, which a background (stream-json)
+session lacks, so the gate first reads the **status-line mirror**: a copy of
+Claude Code's own rate-limit windows that the operator's own `statusLine`
+command writes, from the rate-limit fields Claude Code hands it, to
+`${XDG_CACHE_HOME:-$HOME/.cache}/claude-usage/rate-limits.json` as
+`{"five_hour":{"used_percentage":N,"resets_at":EPOCH},"seven_day":{...}}`
+(`$PLANWRIGHT_USAGE_MIRROR` names another absolute path; set empty, it is
+skipped). planwright never writes this file, and `scripts/fleet-statusline.sh`
+does not either; write it atomically (temp file, then rename). Each window
+comes from the first source holding it fresh: the mirror, a regular file
+with no control byte, within `fleet_usage_signal_ttl_seconds` by file age,
+and per window a 0–100 percentage whose reset is still ahead and no further
+out than one window span plus slack (an hour for the session window, a day
+for the weekly); then the capture cache. A window the mirror lacks
+falls back instead of reading 0%. The mirror is only as fresh as the last
+status-line redraw, so it goes stale while no interactive session draws one.
+`fleet-usage-gate.sh evaluate` maps each window's percentage
 to a rung on one monotone restriction ladder —
 `normal → downshift → reduce-concurrency → defer-heavy → defer-all` — by
 deterministic `≥` comparison against the overlay-resolved per-window thresholds
 (`fleet_usage_session_*`, `fleet_usage_weekly_*`; strictly ascending and in
-1–100, validated). The **more restrictive** window governs; the session window
+1–100, validated; `off` disables a rung, so every soft rung `off` beside a
+`fleet_usage_weekly_defer_all` leaves one ladder stop, though the per-tier caps
+below still apply until set to `100`). The **more restrictive**
+window governs; the session window
 is **capped at `defer-heavy`** (a session spike never proactively halts the
 fleet), while only the weekly window can reach `defer-all` (the weekly wall can
 halt work for days). `fleet-usage-gate.sh admit <model>` answers the
@@ -2158,14 +2194,14 @@ extracted percentages and the rung decision — never the raw `/usage` render,
 which can carry account or plan identifiers. Every rung transition is a
 throttle-family daemon action: kill-switch-gated (`fleet_daemon_pause`) and
 audit-logged (mechanism `usage-gate`), and the current rung folds into the
-existing throttle line Task 8's stats already render (no new stat type). When
-`/usage` cannot be captured, parsed, is implausible, or is stale beyond
-`fleet_usage_signal_ttl_seconds`, the signal is reported **unavailable**:
+existing throttle line Task 8's stats already render (no new stat type). A
+window no source holds fresh and plausible is reported **unavailable**:
 governance falls back to the reactive throttle (the deterministic floor) with
 no block and no guessed number, and unavailability sustained across
 `fleet_usage_sustained_loss_count` consecutive read cadences raises the
 required operator surface (a warning escalating to an Awaiting-input hold), so
-a permanently broken parse is never silent. The proactive read is
+losing every source is never silent. A fresh mirror masks a broken `/usage`
+parse, which the drift check below catches. The proactive read is
 **shared-aware by construction**: `/usage` is account-global, already
 reflecting every concurrent tower, all workers, and unrelated same-account
 work, so no per-orchestrator usage reservation is kept. Because the `/usage`
@@ -2174,10 +2210,21 @@ render is an undocumented, version-fragile surface (D-23), the parser carries a
 ladder) is in CI; confirming the parser still matches a live `/usage` format is
 the operator's periodic manual check.
 
-Schedule the read + evaluation on the `fleet_usage_read_cadence_seconds`
-cadence, off the dispatch hot path — the gate never scrapes `/usage`
-synchronously per dispatch. The scrape mechanism (a throwaway-pane capture of
-the live `/usage` TUI) is environment-specific; wire it as, e.g.:
+Schedule the evaluation on the `fleet_usage_read_cadence_seconds` cadence,
+off the dispatch hot path: the rung moves only when `evaluate` runs, and the
+gate never scrapes `/usage` synchronously per dispatch. With the status-line
+mirror in place the evaluation alone is enough. Install exactly one of the
+two lines below: each `evaluate` counts as one cadence toward
+`fleet_usage_sustained_loss_count`, so running both halves it.
+
+With the status-line mirror:
+
+```cron
+*/5 * * * * cd /path/to/repo && scripts/fleet-usage-gate.sh evaluate
+```
+
+Without it, feed a scrape (a throwaway-pane capture of the live `/usage` TUI,
+environment-specific) to `capture` first:
 
 ```cron
 */5 * * * * cd /path/to/repo && <scrape-/usage> | scripts/fleet-usage-gate.sh capture && scripts/fleet-usage-gate.sh evaluate
@@ -2440,7 +2487,11 @@ silently widened. Because the guard is allow-only with no default-deny, the
 profile's **deny block is the security floor**, effective regardless of guard
 output: it denies the shell guardrails (merge, every force-push spelling, amend
 / squash / rebase, `gh pr merge`), default-branch and local-`main` mutation
-(`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), the equivalent
+(`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), every
+branch-moving and stash-writing act in any checkout (`checkout`, `switch`,
+every `reset`, a branch rename or copy, `worktree add -B`, a `symbolic-ref` write, a fetch into a
+local branch, `gh pr checkout`, `gh repo sync`, and every `stash` form but
+`list` and `show`; [the posture delta](tower-posture-delta.md) lists them), the equivalent
 GitHub MCP tools (`merge_pull_request`, `update_pull_request`, `push_files` /
 `create_or_update_file` / `delete_file` — denied wholesale by name because a
 Bash-string guard cannot intercept an MCP call, and on every MCP server by a
@@ -2487,8 +2538,12 @@ settings files it parses). The mission-control launcher
 seams: `fleet-streamjson.sh launch --profile <kind>` and
 `offload-dispatch.sh dispatch tmux --profile <kind>` pin the tower or
 mission-control profile by kind, never by path, and a session under either
-carries no worker identity. Each launch also names its session with `--name`:
-the worker's registry handle, `planwright-tower-<spec>` for a relaunch, and
+carries no worker identity. A worker, reviewer or ad-hoc launch never starts
+in a primary checkout: the launcher has `fleet-dispatch-worktree.sh
+--no-attach` create its worktree, or reuses the one holding its branch when
+no live session runs there (`--help` has the rules). Each launch also names
+its session with `--name`: the worker's registry handle,
+`planwright-tower-<spec>` for a relaunch, and
 `planwright-tower-<spec>-<epoch>-<pid>` for a handover, so the retiring tower
 and its replacement never share a name, nor do two launches in one second.
 Except on `offload-dispatch.sh`, which resolves the profile and pins the
