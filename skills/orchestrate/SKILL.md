@@ -287,10 +287,10 @@ it when relaying to or cleaning up after a worker.
   in place of the dispatch record's steps 3–4, places the unit and launches:
   the opening turn rides the launch, no message or keystroke. Release the
   lock whatever its exit, then run its `confirm` with the `launch` lines'
-  values (on `failed-at-startup`, clear the marker). Pass it `--backend tmux` only when this run's `--backend tmux` or a
-  yes to the tmux-context ask chose tmux. Its exit 17 (nothing placed) parks
-  the unit with the reason it prints; never retry it with `--backend tmux`.
-  Observe stuck/finished/errored
+  values (on `failed-at-startup`, clear the marker). Pass it `--backend tmux`
+  only when this run's `--backend tmux` or a yes to the tmux-context ask
+  chose tmux. Its exit 17 (nothing placed) parks the unit with the reason it
+  prints; never retry it with `--backend tmux`. Observe stuck/finished/errored
   workers with **capture-pane**; message one `ListAgents` lists via
   `SendMessage`, else relay only through `scripts/orchestrate-relay.sh`
   (attributed, dialog-refusing, confirmed), **never** send-keys. Treat

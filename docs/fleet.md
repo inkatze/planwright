@@ -592,9 +592,9 @@ the repository the worker is placed in) or the tower passes
 `--backend tmux`, which it does for an explicit `/orchestrate --backend tmux`
 or a yes to the tmux-context ask (an answer the unattended resolution never
 reads). For a spec resolving to any other rung `fleet-dispatch-worktree.sh`
-refuses the launch with exit 17, before anything is placed, rather than start a worker
-whose prompts the chosen rung's supervisor (mission control included) would
-never see. `/orchestrate` dispatches a stream-json or headless unit through
+refuses the launch with exit 17, before anything is placed, rather than
+start a worker whose prompts the chosen rung's supervisor (mission control
+included) would never see. `/orchestrate` dispatches a stream-json or headless unit through
 `scripts/orchestrate-meta-step.sh`, the prompt riding the launch.
 `--attach-dry-run` is not refused: it prints a plan and launches nothing.
 
