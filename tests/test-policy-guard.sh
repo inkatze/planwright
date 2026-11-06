@@ -414,6 +414,11 @@ pg worker 'git pull origin main'
 expect deny "[worker] unpushed_rewrite deny: pull.rebase written with no value is a rebasing pull"
 reason_has 'unpushed_rewrite is deny' "the valueless-rebase refusal names the knob"
 reason_has 'no-rebase merges instead\) is refused\. Merge the PR base instead: git merge origin/main' "the configured-rebase refusal names --no-rebase once and the base by name"
+for cmd in 'git pull --rebase origin main' 'git pull -r origin main'; do
+  pg worker "$cmd"
+  expect deny "[worker] unpushed_rewrite deny: an explicit rebasing pull is refused: $cmd"
+  reason_has 'instead: git pull --no-rebase, git merge origin/main' "the explicit rebasing-pull refusal names the merge remedies: $cmd"
+done
 gitq -C "$UNIT" config --unset pull.rebase
 set_knobs 'worker_base_merge: allow'
 for cmd in 'git merge origin/main' 'git pull' 'git pull origin main' 'git -C . merge origin/main' 'git "pull" origin main'; do
@@ -518,6 +523,12 @@ gitq -C "$PRIM" config --unset pull.rebase
 gitq -C "$PRIM" config pull.rebase merges
 pg worker 'git pull origin main' "$LWT" "$PRIM"
 expect deny "[worker] pull.rebase merges rebases, so it is a rewrite on the shell path"
+gitq -C "$PRIM" config --unset pull.rebase
+gitq -C "$PRIM" config pull.rebase false
+gitq -C "$PRIM" config branch.planwright/flight/dispatch-backend-0123abcd.rebase merges
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] a branch rebase key git's bool parser rejects still wins over pull.rebase false"
+gitq -C "$PRIM" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
 gitq -C "$PRIM" config --unset pull.rebase
 gitq -C "$LWT" config branch.planwright/flight/dispatch-backend-0123abcd.rebase true
 pg worker 'git pull origin main' "$LWT" "$PRIM"

@@ -3640,7 +3640,7 @@ eval_merge() {
 }
 
 eval_pull() {
-  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} mode remote='' ref='' a i=0 rwhat='this rebasing git pull'
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} mode remote='' ref='' a i=0 rwhat='this rebasing git pull' rhint=' git pull --no-rebase,'
   mode=${rest%%"$TAB"*}
   rest=${rest#*"$TAB"}
   # shellcheck disable=SC2086 # the positionals, split on purpose
@@ -3655,9 +3655,9 @@ eval_pull() {
     # detached HEAD has none), read by git's own bool parser: a key with no
     # value is true, an empty one false (exit 1 means absent). A value it
     # rejects counts as a rebase: merges and interactive rebase, and any
-    # other value or a multi-valued key makes git pull fail or is refused
-    # here, never a merge the guard did not see.
-    local cb rv rc=1 rhint=' git pull --no-rebase,'
+    # other value (alone or among a multi-valued key's) makes git pull fail
+    # or is refused here, never a merge the guard did not see.
+    local cb rv rc=1
     cb=$(current_branch "$dir")
     if [ -n "$cb" ]; then
       rc=0
