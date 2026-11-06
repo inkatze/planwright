@@ -419,14 +419,18 @@ for spec in "tower|git -C $MAIN merge origin/main" "tower|git -C $MAIN merge --n
     *) pass "[${spec%%|*}] a real merge's refusal does not point at the fast-forward verb: ${spec#*|}" ;;
   esac
 done
-for cmd in "git -C $MAIN merge --ff-only upstream/main" "git -C $MAIN merge --ff-only origin/develop" \
-  "git -C $MAIN pull --ff-only upstream main" "git -C $MAIN pull --ff-only --rebase origin main"; do
+for cmd in 'git merge --ff-only upstream/main' 'git merge --ff-only origin/develop' \
+  'git pull --ff-only upstream main' 'git pull --ff-only origin develop'; do
   pg tower "$cmd"
-  expect deny "[tower] another remote, branch, or a rebase still denies: $cmd"
+  expect deny "[tower] another remote or branch still denies: $cmd"
   pg worker "$cmd"
-  expect deny "[worker] another remote, branch, or a rebase still denies: $cmd"
+  expect deny "[worker] another remote or branch still denies on the unit branch: $cmd"
+  case $REASON in
+    *main-currency.sh*) fail "[worker] a source refusal on the unit branch points at the primary's fast-forward verb: $cmd" ;;
+    *) pass "[worker] a source refusal on the unit branch does not point at the primary's fast-forward verb: $cmd" ;;
+  esac
 done
-for spec in "1|--ff-o" "1|--no-ff --ff-only" "0|--ff" "0|--ff-only --no-ff" "0|--ff-only --ff"; do
+for spec in "1|--ff-" "1|--ff-o" "1|--no-ff --ff-only" "0|--ff" "0|--ff-only --no-ff" "0|--ff-only --no-f" "0|--ff-only --ff"; do
   pg tower "git -C $MAIN merge ${spec#*|} origin/main"
   expect deny "[tower] a merge with ${spec#*|} still denies"
   case ${spec%%|*}:$REASON in
