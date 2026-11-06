@@ -561,6 +561,48 @@ knobs() {
   done
 }
 
+# The windows of the tmux server, when a registry row names one. A server
+# that is not running has no windows; one that does not answer is unknown,
+# and its rows count neither way.
+flight_windows() {
+  fl_windows=''
+  fl_tmux=1
+  case $fl_open in
+    *"	tmux-window "*)
+      if fl_out=$(/bin/sh "$script_dir/bounded-run.sh" "$TMUX_BOUND" \
+        tmux list-windows -a -F '#{session_name}	#{window_id}	#{window_name}' 2>&1); then
+        fl_windows=$fl_out
+      else
+        case $?:$fl_out in
+          127:* | *"no server running"* | *"error connecting to"*"No such file or directory"*) ;;
+          *)
+            fl_tmux=0
+            printf 'unreadable\ttmux windows\n'
+            ;;
+        esac
+      fi
+      ;;
+  esac
+}
+
+# Each worker's attention state, as worker and state. An absent store is
+# an empty one; one that is there but cannot be read is unknown.
+flight_attention() {
+  fl_attn=''
+  fl_attn_ok=1
+  if fl_root=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null); then
+    fl_as=$fl_root/attention/state
+    if [ -e "$fl_as" ] || [ -L "$fl_as" ]; then
+      if [ -L "$fl_as" ] || [ ! -f "$fl_as" ] \
+        || ! fl_attn=$(awk -F '\t' 'NF >= 3 { print $1 "\t" $3 }' "$fl_as" 2>/dev/null); then
+        fl_attn=''
+        fl_attn_ok=0
+        printf 'unreadable\tattention store\n'
+      fi
+    fi
+  fi
+}
+
 # A registry row outlives its session until something retires it, so only
 # a session seen live is in flight: its process or tmux window still there,
 # and the attention store not saying its work ended. The rest are
@@ -588,39 +630,8 @@ flights() {
         print f[2] "\t" f[3] "\t" f[5] "\t" f[7]
       }
     }')
-  # A server that is not running has no windows; one that does not answer
-  # is unknown, and its rows count neither way.
-  fl_windows=''
-  fl_tmux=1
-  case $fl_open in
-    *"	tmux-window "*)
-      if fl_out=$(/bin/sh "$script_dir/bounded-run.sh" "$TMUX_BOUND" \
-        tmux list-windows -a -F '#{session_name}	#{window_id}	#{window_name}' 2>&1); then
-        fl_windows=$fl_out
-      else
-        case $?:$fl_out in
-          127:* | *"no server running"* | *"error connecting to"*"No such file or directory"*) ;;
-          *)
-            fl_tmux=0
-            printf 'unreadable\ttmux windows\n'
-            ;;
-        esac
-      fi
-      ;;
-  esac
-  fl_attn=''
-  fl_attn_ok=1
-  if fl_root=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null); then
-    fl_as=$fl_root/attention/state
-    if [ -e "$fl_as" ] || [ -L "$fl_as" ]; then
-      if [ -L "$fl_as" ] || [ ! -f "$fl_as" ] \
-        || ! fl_attn=$(awk -F '\t' 'NF >= 3 { print $1 "\t" $3 }' "$fl_as" 2>/dev/null); then
-        fl_attn=''
-        fl_attn_ok=0
-        printf 'unreadable\tattention store\n'
-      fi
-    fi
-  fi
+  flight_windows
+  flight_attention
   # Each row classed as live, a pid to probe, done or unknown. A window id
   # is looked up across the server, as a renamed session keeps its windows;
   # the token is also tried as a window name in its session.

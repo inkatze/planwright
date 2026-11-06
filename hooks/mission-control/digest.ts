@@ -189,11 +189,13 @@ const STATE_ORDER = ['waiting', 'stuck', 'working'] as const
 
 // The sessions in flight as counted plain lines: those waiting on an answer
 // first, then those not responding, each by group size.
-export function flightLines(flights: Pick<PanelFlight, 'worker' | 'scope' | 'state'>[]): string[] {
+// A digest a reload carried over from before states were read has none.
+type ReloadedFlight = Pick<PanelFlight, 'worker' | 'scope'> & { state?: PanelFlight['state'] }
+
+export function flightLines(flights: ReloadedFlight[]): string[] {
   const groups = new Map<string, { kind: keyof typeof KINDS; state: PanelFlight['state']; n: number }>()
   for (const f of flights) {
-    // A digest a reload carried over from before states were read has none.
-    const state = STATES[f.state] ? f.state : 'working'
+    const state = f.state && STATES[f.state] ? f.state : 'working'
     const kind = flightKind(f)
     const key = `${state}/${kind}`
     const g = groups.get(key)

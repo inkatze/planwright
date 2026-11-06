@@ -225,6 +225,10 @@ ln -s "$fleet/attention/state.real" "$fleet/attention/state"
 mc_run mc-panel.sh digest --program alpha --now 1030
 record "a symlinked attention store is unreadable" unreadable "attention store"
 expect_out "and the count, counting idle sessions it cannot tell apart, says it may be fewer" "up to 9 in flight"
+PATH="$tmp/bin-down:$host_path"
+mc_run mc-panel.sh digest --program alpha --now 1030
+expect_out "with the tmux server not answering as well, the count is unknown" "alpha: ? in flight"
+PATH="$tmp/bin:$host_path"
 rm -f "$fleet/attention/state"
 mv "$fleet/attention/state.real" "$fleet/attention/state"
 

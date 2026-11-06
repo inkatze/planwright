@@ -98,6 +98,17 @@ test('with the attention store unreadable the in-flight count is a ceiling', asy
   await ui.unmount()
 })
 
+test('with tmux and the attention store both unreadable the in-flight count is unknown', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['unreadable\ttmux windows', 'unreadable\tattention store'] }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^In flight \(\?\)$/ })).toBeDefined()
+  await ui.unmount()
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toMatch(/^✈ alpha · \? in flight · /)
+  await band.unmount()
+})
+
 test('repeated background checks collapse before the list is cut', async ($, on) => {
   const watch = (script: string, duty: string) => `watcher\t${duty}\t${script}\trunning\t30`
   const w = world(on, {
