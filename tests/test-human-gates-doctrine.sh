@@ -1,17 +1,15 @@
 #!/bin/bash
 # Tests for doctrine/human-gates.md and the pointers that retire the rules it
-# replaces (human-gates Task 1; REQ-A1.1, REQ-A1.2, REQ-A1.4, REQ-A1.5,
-# REQ-A1.6, REQ-B1.1, REQ-B1.9, REQ-D1.6).
+# replaces (human-gates REQ-A1.1, A1.2, A1.4, A1.5, A1.6, B1.1, B1.9, D1.6).
 #
-# Properties: every rule in the doc's list carries a kind, and each kind
-# names what it must (a gate its arm, a policy its knob and default, a
-# composition contract its owning skill), the named rows among them; bootstrap D-26, REQ-J1.1, and
-# REQ-J1.4 carry human-gates pointers that resolve, with one dated changelog
-# entry naming all three, and the bundle still validates; approval is the
-# approval act, never the flip; the legacy sign-off marker survives in
-# doctrine only on gate-wiring's mapping line; and no other doctrine doc
-# restates a retired phrasing or states the merge floor without citing the
-# doc.
+# Every rule in the doc's list carries a kind naming what it must (a gate its
+# arm, a policy its knob and default, a contract its owning skill), the named
+# rows among them; bootstrap D-26, REQ-J1.1, and REQ-J1.4 carry resolving
+# human-gates pointers, one dated changelog entry naming all three, and the
+# bundle still validates; approval is the approval act, never the flip; the
+# legacy sign-off marker survives only on gate-wiring's mapping line; and no
+# other doctrine doc restates a retired phrasing or states the merge floor
+# without citing the doc.
 set -u
 unset CDPATH
 
