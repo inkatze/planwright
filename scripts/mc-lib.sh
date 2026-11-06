@@ -19,7 +19,8 @@ mc_warn_if_stale() {
   esac
   [ ! /dev/stderr -ef /dev/null ] || return 0
   [ -f "$script_dir/resolve-installed-roots.sh" ] || return 0
-  mws_copy=${script_dir%/scripts}
+  # Canonical, as resolve-root.sh marks it, or a symlinked path warns twice.
+  mws_copy=$(cd -P -- "$script_dir/.." 2>/dev/null && pwd -P) || return 0
   mws_rec=${CLAUDE_DIR:-${HOME:-}/.claude}/plugins/installed_plugins.json
   # shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
   mws_stamp=$(stat -c %Y "$mws_rec" 2>/dev/null || stat -f %m "$mws_rec" 2>/dev/null)

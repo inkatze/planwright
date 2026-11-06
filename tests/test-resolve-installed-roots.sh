@@ -31,6 +31,8 @@ command -v jq >/dev/null 2>&1 || {
 }
 
 SANDBOX="$(mktemp -d)" || exit 1
+# Canonical, so a symlinked temp dir (macOS) only goes where a case puts one.
+SANDBOX=$(cd -P "$SANDBOX" && pwd -P) || exit 1
 trap 'rm -rf "$SANDBOX"' EXIT
 
 # run [ENV=val...] — the resolver under a pinned environment; stdout captured,
@@ -364,6 +366,14 @@ ERR=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u P
   /bin/bash -c 'prog=t; script_dir=$1; . "$1/echo-safety.sh"; . "$1/mc-lib.sh"; /bin/sh "$1/resolve-root.sh" install >/dev/null' \
   _ "$old_copy/scripts" 2>&1 >/dev/null)
 assert_eq "a mission-control script and the resolver it starts warn once between them" 1 "$(printf '%s\n' "$ERR" | grep -c WARNING)"
+# The resolver marks by canonical path, so the library must too: reached
+# through a symlink, the two would otherwise disagree and warn twice.
+ln -s "$cur" "$SANDBOX/cur-link"
+# shellcheck disable=SC2016 # the inner script expands its own arguments
+ERR=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u PLANWRIGHT_COPY_CHECKED CLAUDE_DIR="$SANDBOX/cur-link" \
+  /bin/bash -c 'prog=t; script_dir=$1; . "$1/echo-safety.sh"; . "$1/mc-lib.sh"; /bin/sh "$1/resolve-root.sh" install >/dev/null' \
+  _ "$SANDBOX/cur-link/plugins/cache/planwright/planwright/0.65.0/scripts" 2>&1 >/dev/null)
+assert_eq "reached through a symlink, they still warn once between them" 1 "$(printf '%s\n' "$ERR" | grep -c WARNING)"
 rm "$old_copy/scripts/resolve-installed-roots.sh"
 stale_run "$old_copy" mc-event.sh --help
 assert_eq "a copy missing the checker stays quiet" "" "$ERR"
