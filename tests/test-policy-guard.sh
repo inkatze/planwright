@@ -872,5 +872,60 @@ for d in "$BWT" "$SANDBOX"; do
 done
 reason_has 'primary checkout' "the unresolvable-primary deny says why"
 
+# --- the kickoff sign-off push (kickoff-spec-push.sh) ------------------------
+
+echo "# the kickoff sign-off push"
+KICKOFF_PUSH='"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo'
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect defer "[worker, kickoff-demo] the kickoff push on its spec branch defers to the script"
+reads none "[worker, kickoff-demo] the kickoff push reads no knob"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "bash \"\$CLAUDE_PLUGIN_ROOT/scripts/kickoff-spec-push.sh\" demo" "$SPEC" "$SPEC"
+expect defer "[worker, kickoff-demo] the shell-run kickoff push defers"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$UNIT" "$UNIT"
+expect deny "[worker, kickoff-demo] the kickoff push on another branch denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh other' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push naming another spec denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo --force' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push with an extra argument denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh main' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push naming main denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH && git push origin main" "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a chained push to main beside the kickoff push denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'git push origin planwright/demo/spec' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a raw push to the spec branch still denies"
+reason_has 'protected branch' "[worker, kickoff-demo] the raw spec-branch deny keeps today's text"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'git push -u origin planwright/demo/spec' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a raw first push of the spec branch still denies"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect deny "[worker, task-1] a non-kickoff worker's kickoff-push denies"
+reason_has 'protected branch' "[worker, task-1] the refusal keeps today's text"
+PLANWRIGHT_WORKER_SCOPE='' pg worker "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect deny "[worker, no scope] a worker with no scope denies the kickoff push"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg tower "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect deny "[tower, kickoff-demo] the tower never runs the kickoff push"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg mission-control "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect deny "[mission-control, kickoff-demo] mission control never runs the kickoff push"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg '' "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect defer "[no tier, kickoff-demo] outside jurisdiction, so the guard defers"
+for cmd in '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh' \
+  'sh "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh' \
+  'bash -c '"'"'"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo'"'"'' \
+  'sh -s demo < "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh' \
+  'env "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' \
+  '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo; "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh other' \
+  'X=kickoff-spec-push.sh; "$CLAUDE_PLUGIN_ROOT"/scripts/$X demo' \
+  'echo "kickoff-spec-push" demo'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$cmd" "$SPEC" "$SPEC"
+  expect deny "[worker, kickoff-demo] an unreadable kickoff spelling denies: $cmd"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo && git status' "$SPEC" "$SPEC"
+expect defer "[worker, kickoff-demo] a kickoff push chained with a read defers"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'PLANWRIGHT_WORKER_SCOPE=kickoff-demo "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect deny "[worker, task-1] an inline scope assignment does not admit the kickoff push"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'sh /opt/planwright/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect deny "[worker, task-1] a literal-path kickoff push without a git word still denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'sh /opt/planwright/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect defer "[worker, kickoff-demo] a literal-path kickoff push defers to the script"
+
 no_gh_calls
 finish

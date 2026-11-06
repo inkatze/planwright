@@ -1495,8 +1495,86 @@ tower_wrapped_git_check() {
     || deny_now "this command runs git through a wrapper where the guard cannot read its subcommand as a literal git builtin (an alias, an expansion, or one behind a global option the guard does not know) - refusing (fail closed). Issue the git command directly."
 }
 
+# --------------------------------------------------------------------------
+# The kickoff sign-off push. scripts/kickoff-spec-push.sh pushes a spec's own
+# sign-off branch, which the protected set otherwise refuses to every agent
+# session. Only the worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
+# hook's environment, which a command's inline assignment cannot change) is
+# kickoff-<spec> may run it, and only from that spec branch. Every other
+# session is refused the push it would make, with the text a push to that
+# branch gets. A run the guard cannot read is refused.
+
+KICK_SEEN=0
+KICK_NAME=kickoff-spec-push
+
+# kickoff_named <word> — 0 when the word's basename names the kickoff push.
+kickoff_named() {
+  lc "${1##*/}"
+  case $LC in *"$KICK_NAME"*) return 0 ;; esac
+  return 1
+}
+
+# kickoff_path_ok <index> — 0 when the script word at <index> is a literal
+# path or a rooted one the command-word rule already reads.
+kickoff_path_ok() {
+  [ "${SWL[$1]:-0}" = 1 ] || [[ ${SW[$1]} =~ $RE_ROOTED_SCRIPT ]]
+}
+
+# kickoff_segment <dir> — 0 when the segment names the kickoff push, which is
+# then decided here; 1 when it does not name it.
+kickoff_segment() {
+  local dir=$1 n=${#SW[@]} named=0 w spec='' b form=direct
+  for w in "${SW[@]}"; do
+    kickoff_named "$w" && named=1
+  done
+  [ "$named" = 1 ] || return 1
+  KICK_SEEN=$((KICK_SEEN + 1))
+  lc "${SW[0]##*/}"
+  case $LC in bash | sh | zsh | dash | ksh | mksh) form=shell ;; esac
+  if [ "$form" = shell ] && [ "$n" = 3 ] && kickoff_named "${SW[1]}" && kickoff_path_ok 1; then
+    [ "${SWL[2]:-0}" = 1 ] && spec=${SW[2]}
+  elif [ "$form" = direct ] && [ "$n" = 2 ] && kickoff_named "${SW[0]}" && kickoff_path_ok 0; then
+    [ "${SWL[1]:-0}" = 1 ] && spec=${SW[1]}
+  else
+    deny_now 'this command names scripts/kickoff-spec-push.sh in a form the guard cannot check - refusing (fail closed). Run it directly, as scripts/kickoff-spec-push.sh <spec>, with no other arguments.'
+    return 0
+  fi
+  case $spec in
+    [a-z0-9]*)
+      case $spec in *[!a-z0-9-]*) spec='' ;; esac
+      ;;
+    *) spec='' ;;
+  esac
+  [ -n "$spec" ] \
+    || deny_now 'this command runs scripts/kickoff-spec-push.sh with an argument the guard cannot read as a spec name - refusing (fail closed). Name the spec in lowercase letters, digits and hyphens.'
+  [ -n "$spec" ] || return 0
+  if [ "$TIER" = worker ] && [ "${PLANWRIGHT_WORKER_SCOPE:-}" = "kickoff-$spec" ]; then
+    b=$(current_branch "$dir")
+    [ "$b" = "planwright/$spec/spec" ] \
+      || deny_now "the kickoff push runs only from the spec branch of its kickoff (planwright/$spec/spec), and this checkout has ${b:-no branch} checked out - refusing. Check out that branch in your worktree."
+    return 0
+  fi
+  check_unprotected "$dir" 'this git push' "planwright/$spec/spec"
+  deny_now "this git push targets a protected branch (planwright/$spec/spec); the spec branch is never written by an agent session at any tier. Work on your own unit branch."
+  return 0
+}
+
+# kickoff_text_check — every spelling of the kickoff push's name in the command
+# must be a run the segments read above; a name in a redirect, a -c string or
+# a quoted or spelled-out form is refused.
+kickoff_text_check() {
+  local s=${P_CMD//[\"\'\\]/} n=0
+  while [[ $s == *"$KICK_NAME"* ]]; do
+    n=$((n + 1))
+    s=${s#*"$KICK_NAME"}
+  done
+  [ "$n" = "$KICK_SEEN" ] \
+    || deny_now 'this command names scripts/kickoff-spec-push.sh in a spelling the guard cannot read as a run of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+}
+
 classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
+  KICK_SEEN=0
   [ -d "$eff" ] || eff_ok=0
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
@@ -1521,6 +1599,11 @@ classify_segments() {
     base_verb=$LC
     [ "$TIER" != worker ] || ! runs_force_push_helper "$base_verb" \
       || deny_now 'this command runs scripts/tower-force-push.sh; the force-push path is the tower'"'"'s, run on the operator'"'"'s request, never a worker'"'"'s. Name the reword or force-push in your handoff for the operator instead.'
+    if kickoff_segment "$eff"; then
+      prev_text=$cur_text
+      si=$((si + 1))
+      continue
+    fi
     if [ "${SWL[0]}" != 1 ]; then
       # The command word is an expansion, so what runs cannot be read: only a
       # variable root followed by a literal script path is let through, and
@@ -1689,6 +1772,7 @@ classify_segments() {
     prev_text=$cur_text
     si=$((si + 1))
   done
+  kickoff_text_check
 }
 
 # --------------------------------------------------------------------------
@@ -4183,7 +4267,7 @@ handle_bash() {
   local bare=${cmd//[\"\'\\]/} hit=0
   shopt -s nocasematch
   case $bare in
-    *git* | *gh* | *merge-ad* | *--for-merge* | *tower-force-push*) hit=1 ;;
+    *git* | *gh* | *merge-ad* | *--for-merge* | *tower-force-push* | *kickoff-spec*) hit=1 ;;
     # A glob or brace word could still name the merge helper.
     *admitted* | *'*'* | *'?'* | *'['* | *'{'*) hit=1 ;;
     *'$'* | *'`'*)
