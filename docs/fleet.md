@@ -909,7 +909,8 @@ again, contents and all, on every rung, until the host reboots or its
 temporary-file cleaner ages the files out. The root is a short owner-only
 directory inside `/tmp/planwright-<uid>`, a parent only this user may open,
 as tmux keeps its sockets (`PLANWRIGHT_FLEET_SCRATCH_BASE` names another
-parent, which must be this user's and closed to everyone else);
+parent, which must be this user's, closed to everyone else, and short enough
+to keep worker socket paths within Linux's limit);
 `scripts/fleet-scratch.sh` places it and records it in
 `<fleet home>/scratch/<key>.tmpdir`, and a close or reclaim removes a root of
 this layout only when that record names it. It stays short because Linux caps
