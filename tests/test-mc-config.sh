@@ -532,6 +532,23 @@ cfg doctor --program alpha
 expect_out "a layer moving the backend knob is named" "override${tab}mission_control_launch_backend${tab}adopter${tab}tmux${tab}stream-json"
 expect_out "launches are judged against the knob in force" "launch-backend${tab}mc-alpha-worker-2222222222${tab}stream-json${tab}tmux"
 
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$sessions"
+  cfg doctor --program alpha
+  chmod 700 "$sessions"
+  expect_rc "doctor with an unreadable registry still reports" 0
+  expect_out "an unreadable registry is an unknown launches check" "unknown${tab}launches${tab}"
+fi
+
+tracked_good=$(cat "$tracked")
+printf '%s\n' "$tracked_good" | sed 's|^program_alpha_repositories: .*|program_alpha_repositories: relative/repo|' >"$tracked"
+printf '*/5 * * * * /opt/hub/w.sh planwright sweep\n' >"$CRON_FIXTURE"
+cfg doctor --program alpha
+expect_out "an unreadable repository list is an unknown cron check" "unknown${tab}cron${tab}"
+expect_out "the cron scan still names a line naming planwright" "cron${tab}*/5 * * * * /opt/hub/w.sh planwright sweep"
+printf '%s\n' "$tracked_good" >"$tracked"
+: >"$CRON_FIXTURE"
+
 cfg doctor --program gamma
 expect_rc "doctor on a program that is not configured" 3
 cfg doctor

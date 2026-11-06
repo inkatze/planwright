@@ -775,8 +775,11 @@ doctor_launches() {
 doctor_cron() {
   command -v crontab >/dev/null 2>&1 || return 0
   dc_tab=$(crontab -l 2>/dev/null) || return 0
-  dc_paths=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories 2>/dev/null)
-  dc_home=$(/bin/bash "$script_dir/mc-program.sh" get "$1" home 2>/dev/null)
+  dc_home=''
+  if ! dc_paths=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories 2>/dev/null) \
+    || ! dc_home=$(/bin/bash "$script_dir/mc-program.sh" get "$1" home 2>/dev/null); then
+    printf 'unknown\tcron\tthe program repositories or home could not be read, so lines naming them are not listed\n'
+  fi
   printf '%s\n' "$dc_tab" | DC_NEEDLES="planwright${nl}claude${nl}$dc_paths${nl}$dc_home" awk '
     BEGIN { n = split(ENVIRON["DC_NEEDLES"], needle, "\n") }
     /^[ \t]*(#|$)/ { next }
