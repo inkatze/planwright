@@ -505,6 +505,20 @@ bundle demo Ready none
 sh_nobrief=$(commit_specs)
 spec_pr "$sh_nobrief" specs/demo/requirements.md
 has "a Ready bundle with no kickoff brief is not signed off" "signoff${tab}demo${tab}unsigned${tab}it has no kickoff brief at the head"
+bundle demo Ready signed
+# shellcheck disable=SC2016 # the brief's backticks are literal
+(cd "$repo/specs/demo" && printf '# Brief\n\nAnchor: `%s` — computed as\n`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`\n' \
+  "$(git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin)" >kickoff-brief.md)
+sh_interim=$(commit_specs)
+spec_pr "$sh_interim" specs/demo/requirements.md
+has "a brief anchored by the interim whole-file form is signed off" "signoff${tab}demo${tab}signed${tab}-"
+# shellcheck disable=SC2016 # the brief's backticks are literal
+printf 'Anchor: `%s` — computed as\n`sha1sum specs/demo/*`\n' 0123456789abcdef0123456789abcdef01234567 >>"$repo/specs/demo/kickoff-brief.md"
+sh_otherform=$(commit_specs)
+spec_pr "$sh_otherform" specs/demo/requirements.md
+has "a brief anchored by a form the check does not recompute is not signed off" "signoff${tab}demo${tab}unsigned${tab}its kickoff brief's anchor uses a form this check does not recompute"
+spec_pr "$sh_ready" 'specs/demo/requirements.md|CHANGED'
+hasnt "a type change under the spec root is no spec-only scope" "scope${tab}"
 bundle demo Ready stale
 sh_stale=$(commit_specs)
 spec_pr "$sh_stale" specs/demo/design.md

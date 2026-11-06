@@ -1044,6 +1044,17 @@ run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "checks (default): a check read past the query bound denies" 'checks could not be read within'
 
 reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN STUB_CHECKS_SLEEP=4 RG_GH_TIMEOUT=1
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (default): a check read that really outlasts the query bound denies" 'checks could not be read within'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+STUB_CHECKS_JSON='{"baseRefName":"main","mergeable":"MERGEABLE","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","statusCheckRollup":{"x":{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"}}}'
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (default): a check list that is not a list denies" 'checks could not be read, and'
+
+reset_stub_env
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN STUB_CHECKS_RC=1
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "checks (default): a failed check read denies" 'checks could not be read, and'

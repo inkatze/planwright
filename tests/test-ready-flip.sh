@@ -88,6 +88,7 @@ case "$1 $2" in
           own-status-only) roll='[{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"SUCCESS"}]' ;;
           superseded-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}]' ;;
           tied-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}]' ;;
+          superseded-red-first) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}]' ;;
           capped) roll=$(i=0; printf '['; while [ $i -lt 100 ]; do [ $i = 0 ] || printf ','; printf '{"__typename":"CheckRun","name":"c%s","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"}' "$i"; i=$((i + 1)); done; printf ']') ;;
           own-name-checkrun-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"planwright/pre-ready-flip","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
         esac
@@ -591,7 +592,12 @@ fixture
 set_policy unit-owner
 echo superseded-red >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
-check "a failed run superseded by a passing re-run of its check is green, listed first or not" [ "$CODE" = 0 ]
+check "a failed run superseded by a passing re-run of its check is green, the newer listed first" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+echo superseded-red-first >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "and with the older failure listed first" [ "$CODE" = 0 ]
 fixture
 set_policy unit-owner
 echo superseded-red >"$GHS/ci"

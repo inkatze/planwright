@@ -803,7 +803,8 @@ pred_review() {
 # pred_ci prepends). A list at the read's cap of 100 may have been cut.
 # shellcheck disable=SC2016
 ROLLUP_JQ='
-  if ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
+  if ((.statusCheckRollup // []) | type) != "array" then empty
+  elif ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
   [ (.statusCheckRollup // []) | latest_check_runs[]
     | select((.__typename == "StatusContext" and ((.context // "") as $n | any($ex[]; . == $n))) | not)
     | if .__typename == "StatusContext" then

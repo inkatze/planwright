@@ -413,7 +413,7 @@ spec_scope() {
   SPEC_REL=$rel awk -F '\t' '
     $1 != "path" { next }
     {
-      if ($3 != "ADDED" && $3 != "MODIFIED" && $3 != "DELETED" && $3 != "CHANGED") { out = 1; exit }
+      if ($3 != "ADDED" && $3 != "MODIFIED" && $3 != "DELETED") { out = 1; exit }
       p = $2; n = length(ENVIRON["SPEC_REL"])
       if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/" || p !~ /\.md$/) { out = 1; exit }
       p = substr(p, n + 2)
@@ -441,7 +441,7 @@ spec_scope() {
 # <bundle> is not signed off at <head>, read from <repo>'s objects, or
 # nothing when it is.
 bundle_signoff() {
-  local repo=$1 head=$2 rel=$3 b=$4 d=$5 st f entry rc got
+  local repo=$1 head=$2 rel=$3 b=$4 d=$5 st f entry rc got gd
   if ! [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
     printf 'not a spec identifier'
     return 0
@@ -468,8 +468,8 @@ bundle_signoff() {
     return 0
   fi
   # The sign-off stands only for the content it anchored: the brief's latest
-  # anchor must recompute over the bundle at the head, hashed in the bundle's
-  # own repository as the kickoff hashed it.
+  # anchor must recompute, by the sanctioned form it records, over the bundle
+  # at the head, hashed in the bundle's own repository.
   rc=0
   entry=$(spec_parse_latest_anchor_entry "$d/kickoff-brief.md" 2>/dev/null) || rc=$?
   if [ "$rc" = 2 ]; then
@@ -481,7 +481,21 @@ bundle_signoff() {
     printf 'its kickoff brief records no anchor'
     return 0
   fi
-  got=$(cd "$repo" && mc_untrusted_git_env && /bin/sh "$script_dir/spec-anchor.sh" "$d" 2>/dev/null) || got=''
+  got=''
+  case ${entry#*	} in
+    "scripts/spec-anchor.sh $rel/$b")
+      got=$(cd "$repo" && mc_untrusted_git_env && /bin/sh "$script_dir/spec-anchor.sh" "$d" 2>/dev/null) || got=''
+      ;;
+    'git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin')
+      gd=$(mc_untrusted_git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null) || gd=''
+      [ -z "$gd" ] || got=$(cd "$d" && mc_untrusted_git_env && export GIT_DIR="$gd" \
+        && git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin) 2>/dev/null || got=''
+      ;;
+    *)
+      printf "its kickoff brief's anchor uses a form this check does not recompute"
+      return 0
+      ;;
+  esac
   if [ -z "$got" ]; then
     printf 'its anchor cannot be recomputed at the head'
   elif [ "${entry%%	*}" != "$got" ]; then
