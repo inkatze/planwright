@@ -520,6 +520,35 @@ case $OUT in
   *) pass "the deny reason is stripped of control bytes" ;;
 esac
 
+# --- a cd that may not run ----------------------------------------------------
+
+echo "# a cd is followed only when it runs"
+set_knobs 'protected_branches:' 'unpushed_rewrite: allow'
+# Each pair is <cwd>|<command>: a later act is judged in the cd's directory,
+# yet the shell may skip the cd and run it in the cwd, a main checkout.
+for spec in "$UNIT|cd $MAIN; false && cd $UNIT; git push" \
+  "$UNIT|cd $MAIN; false && cd $UNIT; git commit --amend --no-edit" \
+  "$MAIN|true || cd $UNIT; git push" "$MAIN|true || cd $UNIT; git commit --amend --no-edit" \
+  "$MAIN|false && cd $UNIT
+git push" "$MAIN|if false; then cd $UNIT; fi; git push" \
+  "$MAIN|if false; then cd $UNIT; fi; git commit --amend --no-edit" \
+  "$MAIN|if true; then :; else cd $UNIT; fi; git push" "$MAIN|while false; do cd $UNIT; done; git push" \
+  "$MAIN|until true; do cd $UNIT; done; git push" "$MAIN|cd $UNIT && false || git push" \
+  "$MAIN|! cd $UNIT && git push" "$MAIN|true | cd $UNIT && git push"; do
+  pg worker "${spec#*|}" "${spec%%|*}"
+  expect deny "[worker] a cd that may not run is not followed: $(printf '%s' "${spec#*|}" | tr '\n' ' ')"
+done
+pg worker "true || cd $UNIT; git push" "$MAIN"
+reason_has 'cannot follow' "the conditional-cd deny says the guard cannot follow the directory change"
+# A cd that runs whenever the later act does is still followed.
+for cmd in "cd $UNIT; git push" "cd $UNIT && git push" "cd $UNIT
+git push" "true && cd $UNIT && git push" "git status; cd $UNIT && git commit --amend --no-edit" \
+  "true || echo x; cd $UNIT; git push" "if true; then echo x; fi; cd $UNIT && git push" \
+  "while false; do echo x; done; cd $UNIT; git commit --amend --no-edit"; do
+  pg worker "$cmd" "$MAIN"
+  expect defer "[worker] an unconditional cd is followed: $(printf '%s' "$cmd" | tr '\n' ' ')"
+done
+
 # --- fail-closed reads (REQ-G1.4) --------------------------------------------
 
 echo "# fail-closed reads"
