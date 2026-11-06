@@ -88,6 +88,18 @@ owned_private() {
     ! -perm -004 ! -perm -002 ! -perm -001 2>/dev/null)" = "$1" ]
 }
 
+# smap_ok: the fleet home's record directory is this user's and owner-only.
+# Its records authorize removals, so one others could ever write is refused;
+# one only others' read or entry bits open is closed first.
+smap_ok() {
+  [ -d "$smap" ] && [ ! -L "$smap" ] || return 1
+  if ! owned_private "$smap" \
+    && [ "$(find "$smap" -maxdepth 0 -type d -user "$uid" ! -perm -020 ! -perm -002 2>/dev/null)" = "$smap" ]; then
+    chmod 700 "$smap" 2>/dev/null || return 1
+  fi
+  owned_private "$smap"
+}
+
 # root_ok <path>: a root of this script's shape that may be used or removed.
 root_ok() {
   case $1 in
@@ -131,7 +143,7 @@ record_read() {
 # home, which every repository on the machine shares.
 record_of() {
   rf_rec=''
-  [ -d "$smap" ] && [ ! -L "$smap" ] || return 1
+  smap_ok || return 1
   set +f
   for rf_f in "$smap"/*.tmpdir; do
     rf_k=${rf_f##*/}
@@ -166,6 +178,7 @@ case $verb in
     [ ! -L "$smap" ] || die "the fleet home's scratch directory is a symlink"
     mkdir -p -- "$smap" 2>/dev/null && [ -d "$smap" ] && [ ! -L "$smap" ] \
       || die "cannot create the fleet home's scratch directory"
+    smap_ok || die "the fleet home's scratch directory is open to other users"
     rec=$smap/$key.tmpdir
     if [ -L "$rec" ] || { [ -e "$rec" ] && [ ! -f "$rec" ]; }; then
       die "the root's record is not a regular file"
@@ -264,7 +277,8 @@ case $verb in
     esac
     key_ok "$wkey" || die "the key is not a worktree's" 2
     rc=0
-    if [ -d "$smap" ] && [ ! -L "$smap" ]; then
+    if [ -e "$smap" ] || [ -L "$smap" ]; then
+      smap_ok || die "the fleet home's scratch directory is open to other users"
       set +f
       for f in "$smap/$wkey.tmpdir" "$smap/$wkey"-*.tmpdir; do
         set -f

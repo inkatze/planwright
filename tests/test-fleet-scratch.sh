@@ -303,6 +303,32 @@ else
   fail "reclaim: rc=$RC, left $(find "$HOME_F/scratch" "$BASE" -mindepth 1 2>&1 | tr '\n' ' ')"
 fi
 
+echo "### the record directory"
+H2=$T/fleet2
+mkdir -p "$H2"
+run make "$H2" "$WK"
+r2=$OUT
+chmod 775 "$H2/scratch"
+run make "$H2" "$SK"
+mk=$RC
+run release "$H2" "$r2"
+rl=$RC
+/bin/sh "$FS" reclaim "$H2" "$WK" 2>/dev/null
+rc2=$?
+if [ "$mk" -eq 1 ] && [ "$rl" -eq 1 ] && [ "$rc2" -ne 0 ] && [ -d "$r2" ] && [ -f "$H2/scratch/$WK.tmpdir" ]; then
+  pass "a record directory others may write is refused by make, release and reclaim, nothing removed"
+else
+  fail "an open record directory (make=$mk release=$rl reclaim=$rc2)"
+fi
+chmod 755 "$H2/scratch"
+run release "$H2" "$r2"
+mode=$(stat -c %a "$H2/scratch" 2>/dev/null || stat -f %Lp "$H2/scratch" 2>/dev/null)
+if [ "$RC" -eq 0 ] && [ ! -e "$r2" ] && [ "$mode" = 700 ]; then
+  pass "a record directory only others' read bits open is closed, then trusted"
+else
+  fail "a readable record directory (rc=$RC, mode=$mode)"
+fi
+
 echo "### the final close"
 # release_ptr <pointer>: the close every rung shares, on a runtime directory
 # whose pointer names <pointer>.
