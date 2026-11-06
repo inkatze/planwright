@@ -129,6 +129,30 @@ else
 fi
 rm -f "$HOME_F/scratch/$WK2.tmpdir"
 
+W64=$(hex40 7)$(printf '%s' 777777777777777777777777)
+S64=$W64-$(hex40 6)$(printf '%s' 666666666666666666666666)
+run make "$HOME_F" "$S64"
+s64=$OUT
+run make "$HOME_F" "$W64"
+if [ "$RC" -eq 0 ] && [ -d "$s64" ] && [ -d "$OUT" ] && /bin/sh "$FS" reclaim "$HOME_F" "$W64" \
+  && [ ! -e "$s64" ] && [ ! -e "$OUT" ]; then
+  pass "make and reclaim: a SHA-256 repository's keys are a worktree's and a session's"
+else
+  fail "make: SHA-256 keys (rc=$RC, $(cat "$T/err"))"
+fi
+mkdir -m 700 "$T/nl
+base"
+before=$(ls -A "$T/nl
+base")
+PLANWRIGHT_FLEET_SCRATCH_BASE="$T/nl
+base" run make "$HOME_F" "$NEW"
+if [ "$RC" -eq 1 ] && [ "$(ls -A "$T/nl
+base")" = "$before" ] && grep -q 'control character' "$T/err"; then
+  pass "make: a base holding a control character is refused before anything is created"
+else
+  fail "make: a control-character base (rc=$RC, $(cat "$T/err"))"
+fi
+
 echo "### --fresh and the earlier layout"
 : >"$root/old"
 run make "$HOME_F" "$WK" --fresh
@@ -136,6 +160,15 @@ if [ "$RC" -eq 0 ] && [ "$OUT" = "$root" ] && [ -z "$(ls -A "$root")" ]; then
   pass "--fresh: the recorded root comes back empty"
 else
   fail "--fresh: rc=$RC '$OUT' $(ls -A "$root" 2>&1)"
+fi
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$HOME_F/scratch/$WK.tmpdir"
+  run make "$HOME_F" "$WK" --fresh
+  if [ "$RC" -eq 0 ] && [ "$OUT" = "$root" ] && [ "$(cat "$HOME_F/scratch/$WK.tmpdir")" = "$root" ]; then
+    pass "--fresh: a record that cannot be read is replaced"
+  else
+    fail "--fresh: an unreadable record (rc=$RC, $(cat "$T/err"))"
+  fi
 fi
 WK3=$(hex40 d)
 SK3=$WK3-$(hex40 e)

@@ -30,10 +30,10 @@
 #                      warning, which leaves the worker without the scratch
 #                      arm. The launcher exports the recorded root as the
 #                      worker's TMPDIR; the rung's final close (`stop
-#                      --final`, which a reap makes) removes it unless it is
-#                      still in use beside the worker (scripts/
-#                      fleet-stop-lib.sh), and `fleet-cleanup.sh worktree`
-#                      removes it whatever its use.
+#                      --final`, which a reap makes) removes it (an
+#                      earlier-layout worktree root still in use beside the
+#                      worker is left: scripts/fleet-stop-lib.sh), and
+#                      `fleet-cleanup.sh worktree` removes it whatever its use.
 #                      --fresh-scratch replaces a root left from an earlier
 #                      worktree at the same path first, for a launcher that
 #                      has just created the worktree.
@@ -262,8 +262,8 @@ skey=$wt_key
 if [ "$want_scratch" != 0 ]; then
   set --
   [ "$want_scratch" != 2 ] || set -- --fresh
-  # Its last line is the root, or on failure the reason: a shell's own
-  # complaint (a vanished cwd) can precede either.
+  # Its last line is the root, or on failure the reason, whatever stray line
+  # a shell prints ahead of either.
   if scratch=$(/bin/sh "$script_dir/fleet-scratch.sh" make "$home" "$skey" "$@" 2>&1 </dev/null); then
     scratch=${scratch##*"$nl"}
   else

@@ -60,17 +60,20 @@ smap=$home/scratch
 
 # key_ok <key>: a worktree's key or a session's.
 key_ok() {
+  ko_w=${1%%-*}
+  ko_s=${1#"$ko_w"}
+  ko_s=${ko_s#-}
+  [ -n "$ko_s" ] || [ "$1" = "$ko_w" ] || return 1
+  hash_ok "$ko_w" && { [ -z "$ko_s" ] || hash_ok "$ko_s"; }
+}
+
+# hash_ok <word>: an object name, SHA-1 or SHA-256 (a repository's own
+# format decides what `git hash-object` prints).
+hash_ok() {
   case $1 in
-    *[!0-9a-f-]*) return 1 ;;
+    '' | *[!0-9a-f]*) return 1 ;;
   esac
-  case ${#1} in
-    40) case $1 in *-*) return 1 ;; esac ;;
-    81)
-      case $1 in ????????????????????????????????????????-*) ;; *) return 1 ;; esac
-      case ${1#*-} in *-*) return 1 ;; esac
-      ;;
-    *) return 1 ;;
-  esac
+  [ "${#1}" -eq 40 ] || [ "${#1}" -eq 64 ]
 }
 
 uid=$(id -u) || die "cannot read this user's id"
@@ -178,6 +181,9 @@ case $verb in
         *) die "PLANWRIGHT_FLEET_SCRATCH_BASE is not an absolute path" ;;
       esac
       base=$(cd -P -- "$base" 2>/dev/null && pwd -P) || die "PLANWRIGHT_FLEET_SCRATCH_BASE names no directory"
+      case $base in
+        *[[:cntrl:]]*) die "PLANWRIGHT_FLEET_SCRATCH_BASE holds a control character" ;;
+      esac
     else
       tmp_dir=$(cd -P /tmp 2>/dev/null && pwd -P) || die "/tmp does not resolve"
       base=$tmp_dir/planwright-$uid
@@ -197,7 +203,11 @@ case $verb in
     root=$base/${digest%"${digest#????????????????}"}
     if [ "$fresh" = 1 ]; then
       if [ -e "$rec" ]; then
-        release_record "$rec" || die "the recorded root would not empty"
+        # A record that cannot be read names no root to empty; the rename
+        # below replaces it.
+        if record_read "$rec"; then
+          release_record "$rec" || die "the recorded root would not empty"
+        fi
       fi
       # The earlier layout nested a session's root in its worktree's.
       [ ! -L "$smap/${key%%-*}" ] || die "the earlier layout's worktree root is a symlink"
@@ -214,7 +224,10 @@ case $verb in
     if mkdir -- "$root" 2>/dev/null; then # not-a-lock: creating the scratch root, whose checks follow
       made=1
     fi
-    root_ok "$root" || die "the root $root is not this user's own directory"
+    if ! root_ok "$root"; then
+      [ "$made" = 0 ] || rmdir -- "$root" 2>/dev/null
+      die "the root $root is not this user's own directory"
+    fi
     # BSD chmod reads a `--` after the mode as a file; the path is absolute.
     chmod 700 "$root" 2>/dev/null || die "cannot close the root $root to others"
     tmp=$(mktemp "$smap/.$key.XXXXXX" 2>/dev/null) || tmp=''
