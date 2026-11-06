@@ -157,7 +157,11 @@ law is `orchestration-concurrency` (read here). **The unit's repository**
 repository this session started in (a holder resolves through the registry);
 exit 5 (no such repository) parks the unit, other refusals halt, creating
 nothing. Lock and markers stay with the
-bundle. Ordered steps:
+bundle. Resolve the backend (**Dispatch** below) first. On
+`stream-json-persistent` or `headless-oneshot`,
+`scripts/orchestrate-meta-step.sh` runs these steps and the launch in one
+call; it takes the lock itself, so never hold it while calling. On those
+rungs and tmux each task id is its own unit (no bundle). Ordered steps:
 
 1. **Acquire the lock.** `scripts/orchestrate-lock.sh acquire <root>/<spec>`. Exit
    1 (another live holder) is a **clean no-op**: skip this step; `--bookkeeping`
@@ -201,7 +205,8 @@ Step 3 creates the branch through the unit's worktree via Claude Code's
 **native** mechanism (`EnterWorktree` / the Agent tool's worktree isolation).
 Placement is the one `spec-format` fixes, in `<work-repo>`: when that is not
 this session's repository, place it with `scripts/fleet-dispatch-worktree.sh
-dispatch <spec> <id> --repo-root <work-repo>`. Reuse the current
+dispatch <spec> <id> --repo-root <work-repo> --no-attach`, which launches
+nothing (the tmux rung's own call places and launches). Reuse the current
 worktree when clean, after a one-line confirm (**attended only**; unattended
 creates fresh); print the re-open command.
 
@@ -256,10 +261,16 @@ just-written markers), do not dispatch another; report the cap and exit.
 Division of labor: `inter-orchestrator-coordination` (D-7); read
 it when relaying to or cleaning up after a worker.
 
-- **stream-json-persistent** (`full-session`'s usual rung). A
-  supervisor-owned persistent worker driven through
-  `scripts/fleet-streamjson.sh`; dispatch, receipts, recovery in
-  `orchestration-modes`.
+- **stream-json-persistent** (`full-session`'s usual rung) and
+  **headless-oneshot**. Script-launched workers; a stream-json worker's
+  prompts reach the decision queue mission control answers. After
+  **Resource governance** and the `orchestrate_dispatch` tier plan, write a
+  `mktemp` prompt file whose first line is `/planwright:execute-task <id>
+  <spec>`, then run `scripts/orchestrate-meta-step.sh dispatch <root>/<spec>
+  <id> --backend <b> --prompt-file <file> [-- <tier args>]` in place of the
+  dispatch record's steps 1–5: the brief rides the launch, never a later
+  message. Exits are in its header; stream-json receipts and recovery in
+  `orchestration-modes`, headless through `fleet-dispatch-headless.sh status`.
 - **subagent**. A background worker with isolated context and a native
   worktree per unit; completion notifies the tower, and its questions funnel to
   the tower's single prompt queue. The shipped `config/worker-settings.json`
@@ -269,10 +280,18 @@ it when relaying to or cleaning up after a worker.
 - **tmux** (opt-in). An interactive worker in a detached session
   `scripts/fleet-dispatch-worktree.sh` creates. Every task dispatch first
   renders the unit's task brief, `scripts/fleet-task-brief.sh render <spec>
-  <id>` (plus `--tower <name>` when `scripts/fleet-messaging.sh self-name`
-  prints one), and passes the path on its `brief` line as `--brief` (a
-  failed render stops the dispatch): the opening turn
-  rides the launch, no message or keystroke. Observe stuck/finished/errored
+  <id> --repo-root <work-repo>` (plus `--tower <name>` when
+  `scripts/fleet-messaging.sh self-name` prints one), and passes the path on
+  its `brief` line as `--brief` (a failed render stops the dispatch), with
+  `--repo-root <work-repo>` and `--launch-only`. That call, inside the lock
+  in place of the dispatch record's steps 3–4, places the unit and launches:
+  the opening turn rides the launch, no message or keystroke. Release the
+  lock whatever its exit; on exit 0 run its `confirm` with the `launch`
+  lines' values (on `failed-at-startup`, clear the marker), since any other
+  exit prints no `launch` lines. Pass it `--backend tmux`
+  only when this run's `--backend tmux` or a yes to the tmux-context ask
+  chose tmux. Its exit 17 (nothing placed) parks the unit with the reason it
+  prints; never retry it with `--backend tmux`. Observe stuck/finished/errored
   workers with **capture-pane**; message one `ListAgents` lists via
   `SendMessage`, else relay only through `scripts/orchestrate-relay.sh`
   (attributed, dialog-refusing, confirmed), **never** send-keys. Treat
@@ -298,7 +317,7 @@ the flag dropped when it fails; clear it on graceful exit.
 same identity flags. Never assume solitude; failure postures (exits 2–5) per
 `docs/fleet.md`.
 
-Then loop the full step (pre-flight → reconcile → select → dispatch record →
+Then loop the full step (pre-flight → reconcile → select → backend → dispatch record →
 dispatch), surfacing the reason the loop ends.
 
 **Operator comms (tower-comms D-6, D-19).** Nothing reaches the operator as
