@@ -718,12 +718,17 @@ EOF
 # outside the tmux rung without --no-attach.
 m20() {
   begin
-  local skill sj other
+  local skill sj tmux other
   skill="$here/../skills/orchestrate/SKILL.md"
   sj=$(awk '/^- \*\*stream-json-persistent\*\*/ {on = 1; print; next} on && /^- \*\*/ {exit} on' "$skill" | tr '\n' ' ')
   case $sj in
-    *"scripts/orchestrate-meta-step.sh dispatch"*--prompt-file*) ;;
-    *) fail "m20: the stream-json-persistent rung must dispatch through orchestrate-meta-step.sh with --prompt-file: $sj" ;;
+    *headless-oneshot*"scripts/orchestrate-meta-step.sh dispatch"*--prompt-file*) ;;
+    *) fail "m20: the stream-json-persistent and headless-oneshot rungs must dispatch through orchestrate-meta-step.sh with --prompt-file: $sj" ;;
+  esac
+  tmux=$(awk '/^- \*\*tmux\*\* \(opt-in\)/ {on = 1; print; next} on && /^- \*\*/ {exit} on' "$skill" | tr '\n' ' ')
+  case $tmux in
+    *"--repo-root <work-repo>"*"Pass it \`--backend tmux\` only when"*) ;;
+    *) fail "m20: the tmux rung must place in the work repository and limit --backend tmux: $tmux" ;;
   esac
   # shellcheck disable=SC2016 # a literal backtick, matched as written
   other=$(awk '/^- \*\*tmux\*\* \(opt-in\)/ {skip = 1; next} skip && /^- \*\*/ {skip = 0} !skip' "$skill" | tr '\n' ' ' \

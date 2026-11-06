@@ -158,8 +158,10 @@ repository this session started in (a holder resolves through the registry);
 exit 5 (no such repository) parks the unit, other refusals halt, creating
 nothing. Lock and markers stay with the
 bundle. Resolve the backend (**Dispatch** below) first: on
-`stream-json-persistent` or `headless-oneshot` one call runs these steps and
-the launch. Ordered steps:
+`stream-json-persistent` or `headless-oneshot`,
+`scripts/orchestrate-meta-step.sh` runs these steps and the launch in one
+call, so never hold the lock while calling it, and each task id is its own
+unit there (no bundle). Ordered steps:
 
 1. **Acquire the lock.** `scripts/orchestrate-lock.sh acquire <root>/<spec>`. Exit
    1 (another live holder) is a **clean no-op**: skip this step; `--bookkeeping`
@@ -204,7 +206,7 @@ Step 3 creates the branch through the unit's worktree via Claude Code's
 Placement is the one `spec-format` fixes, in `<work-repo>`: when that is not
 this session's repository, place it with `scripts/fleet-dispatch-worktree.sh
 dispatch <spec> <id> --repo-root <work-repo> --no-attach`, which launches
-nothing. Reuse the current
+nothing (the tmux rung's own call places and launches). Reuse the current
 worktree when clean, after a one-line confirm (**attended only**; unattended
 creates fresh); print the re-open command.
 
@@ -260,13 +262,14 @@ Division of labor: `inter-orchestrator-coordination` (D-7); read
 it when relaying to or cleaning up after a worker.
 
 - **stream-json-persistent** (`full-session`'s usual rung) and
-  **headless-oneshot**. Script-launched workers (a stream-json worker's
-  prompts reach the decision queue mission control answers). Write a prompt file whose
+  **headless-oneshot**. Script-launched workers; a stream-json worker's
+  prompts reach the decision queue mission control answers. After the
+  resource-governance and tier lines, write a `mktemp` prompt file whose
   first line is `/planwright:execute-task <id> <spec>`, then run
   `scripts/orchestrate-meta-step.sh dispatch <root>/<spec> <id> --backend <b>
-  --prompt-file <file>` in place of the dispatch record's steps: one unit per
-  call, the brief riding the launch, never a later message. Its exits are its
-  header's; receipts and recovery in `orchestration-modes`.
+  --prompt-file <file> [-- <tier args>]` in place of steps 1–5: the brief
+  rides the launch, never a later message. Exits are in its header;
+  receipts and recovery in `orchestration-modes`.
 - **subagent**. A background worker with isolated context and a native
   worktree per unit; completion notifies the tower, and its questions funnel to
   the tower's single prompt queue. The shipped `config/worker-settings.json`
@@ -277,11 +280,13 @@ it when relaying to or cleaning up after a worker.
   `scripts/fleet-dispatch-worktree.sh` creates. Every task dispatch first
   renders the unit's task brief, `scripts/fleet-task-brief.sh render <spec>
   <id>` (plus `--tower <name>` when `scripts/fleet-messaging.sh self-name`
-  prints one), and passes the path on its `brief` line as `--brief` (a
-  failed render stops the dispatch): the opening turn
-  rides the launch, no message or keystroke. Add `--backend tmux` only when
-  an explicit `--backend tmux` or the tmux-context ask chose it; otherwise the
-  primitive refuses (exit 17) a spec resolving elsewhere. Observe stuck/finished/errored
+  prints one), and passes the path on its `brief` line as `--brief`, with
+  `--repo-root <work-repo>` (a failed render stops the dispatch). That one
+  call places the unit (steps 3–4) and launches: the opening turn rides the
+  launch, no message or keystroke. Pass it `--backend tmux` only when this
+  run's `--backend tmux` or a yes to the tmux-context ask chose tmux. Its
+  exit 17 (the spec resolves elsewhere; nothing placed) parks the unit
+  naming that backend, never retried with `--backend tmux`. Observe stuck/finished/errored
   workers with **capture-pane**; message one `ListAgents` lists via
   `SendMessage`, else relay only through `scripts/orchestrate-relay.sh`
   (attributed, dialog-refusing, confirmed), **never** send-keys. Treat

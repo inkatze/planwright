@@ -226,11 +226,11 @@ mapping's persona a); it is never required. The meta step itself dispatches
 only through the stream-json and headless rungs and parks a unit whose
 resolved rung is tmux or subagent; the meta step renders no task brief, the
 only prompt the tmux task arm carries, so this plumbing serves single-spec
-towers for now. The reverse holds too: a single-spec tower whose spec
-resolves to the stream-json or headless rung dispatches through
-`scripts/orchestrate-meta-step.sh`, and the tmux primitive refuses to launch
-a task worker for a spec resolving to any rung but tmux (exit 17), so no
-dispatch lands silently where its supervisor cannot answer its prompts.
+towers for now. A single-spec tower whose spec resolves to the stream-json
+or headless rung dispatches through `scripts/orchestrate-meta-step.sh` too.
+Conversely, the tmux primitive refuses to launch a task worker for a spec
+resolving to any rung but tmux (exit 17), so no dispatch lands silently
+where its supervisor cannot answer its prompts.
 
 **The attention surface (the queue as default, D-13).** The fleet-entry loop
 keeps the attention store current and renders it, through

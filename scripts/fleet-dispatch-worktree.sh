@@ -144,13 +144,16 @@
 #       Its exit status is the launch outcome (0, 14, or 16 below), never
 #       the worker's own.
 #       --repo-root      the primary checkout (default: resolve-root.sh repo --primary).
-#       --backend tmux   the caller's own resolution picked tmux (an explicit
+#       --backend tmux   the caller asserts tmux was picked where the
+#                        unattended resolution cannot see it (an explicit
 #                        /orchestrate --backend tmux, or the tmux-context ask
-#                        answered yes). Without it a launch (live or
-#                        --launch-only) first resolves the spec's backend
+#                        answered yes). It is a caller assertion, not a
+#                        safety gate: never the remedy for an exit 17.
+#                        Without it a task launch (live or --launch-only, not
+#                        --attach-dry-run) first resolves the spec's backend
 #                        (resolve-dispatch-backend.sh, unattended) and refuses
-#                        with exit 17 unless it is tmux. Any other value is a
-#                        usage error.
+#                        with exit 17 unless it is tmux. Any other value, or
+#                        the flag on the flight arm, is a usage error.
 #       --launch-only    launch and report, without the confirm step, for a
 #                        caller that releases a lock before confirming (the
 #                        flight dispatch); exit 0 once the session exists.
@@ -267,8 +270,9 @@
 #      and no confirmation had arrived. The dispatch clears the marker it
 #      set; the worktree and branch stay for a retry to adopt.
 #   17 the task launch was refused before anything was placed: the spec
-#      resolves to a backend other than tmux, or its backend did not
-#      resolve. The message names the backend and the rung to use instead.
+#      resolves to a backend other than tmux (the message names it and the
+#      rung to use instead), or its backend did not resolve (the message
+#      relays the resolver's diagnostics and exit status).
 #
 # Every tmux call (the liveness probes and new-session) is ended after
 # PLANWRIGHT_DISPATCH_TMUX_TIMEOUT seconds (default 10, 1-999, no leading
@@ -1550,20 +1554,25 @@ do_dispatch() {
     launch_roots "$_repo_root"
     resolve_launch_profile || exit 12
   fi
-  # A task launch honours the backend the spec resolves to: a tmux worker
-  # placed for a spec configured for another rung parks on prompts that rung's
-  # supervisor never sees. Only an explicit --backend tmux (the operator's own
-  # pick, or the tmux-context ask answered yes) stands in for the resolution.
+  # A tmux worker placed for a spec configured for another rung parks on
+  # prompts that rung's supervisor never sees. Checked after the launch
+  # checks, so a missing tool or a live session keeps its own exit code.
   if [ -z "$_flight" ] && [ "$_tmux_rung" -eq 1 ] && [ "$_attach_dry" -eq 0 ] && [ "$_backend" != tmux ]; then
-    _rb_rc=0
-    _rb_out=$(cd "$_repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-dispatch-backend.sh" resolve "$_spec_dir" 2>/dev/null </dev/null) || _rb_rc=$?
-    _rb=$(printf '%s\n' "$_rb_out" | awk -F"$TAB" '$1 == "backend" { print $2; exit }')
-    if [ "$_rb_rc" -ne 0 ] || [ -z "$_rb" ]; then
-      warn "refusing the tmux launch: the backend for spec $_spec did not resolve (resolve-dispatch-backend exit $_rb_rc); nothing was placed"
-      exit 17
-    fi
-    if [ "$_rb" != tmux ]; then
-      warn "refusing the tmux launch: spec $_spec resolves to backend $_rb, whose supervisor would never see this worker's prompts; nothing was placed. Dispatch through that rung (orchestrate-meta-step.sh dispatch for stream-json-persistent or headless-oneshot), or create the worktree alone with --no-attach"
+    _resolve_rc=0
+    _resolve_out=$(cd "$_repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-dispatch-backend.sh" resolve "$_spec_dir" 2>&1 </dev/null) || _resolve_rc=$?
+    _resolved_backend=$(printf '%s\n' "$_resolve_out" | awk -F"$TAB" '$1 == "backend" { print $2; exit }')
+    if [ "$_resolve_rc" -ne 0 ] || [ -z "$_resolved_backend" ] || [ "$_resolved_backend" != tmux ]; then
+      # The resolver's own diagnostics (a malformed overlay, an unadvertised
+      # backend, a degrade note) say why; its TSV rows do not.
+      printf '%s\n' "$_resolve_out" | grep -v "^configured$TAB\|^ask$TAB\|^backend$TAB" \
+        | while IFS= read -r _resolve_line; do
+          [ -z "$_resolve_line" ] || warn "resolve-dispatch-backend: $_resolve_line"
+        done
+      if [ -z "$_resolved_backend" ] || [ "$_resolve_rc" -ne 0 ]; then
+        warn "refusing the tmux launch: the backend for spec $_spec did not resolve (resolve-dispatch-backend exit $_resolve_rc); nothing was placed. Fix the dispatch_backend configuration it names"
+      else
+        warn "refusing the tmux launch: spec $_spec resolves to backend $_resolved_backend, whose supervisor would never see this worker's prompts; nothing was placed. Dispatch through that rung (orchestrate-meta-step.sh dispatch for stream-json-persistent or headless-oneshot), or create the worktree alone with --no-attach"
+      fi
       exit 17
     fi
   fi

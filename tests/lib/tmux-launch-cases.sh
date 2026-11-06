@@ -82,6 +82,12 @@ new_case() {
   # checkout would then delete it.
   printf 'dispatch_backend: tmux\n' >"$P/.claude/planwright.local.yml"
   printf '/.claude/planwright.local.yml\n' >>"$P/.git/info/exclude"
+  # No inherited config layer may outrank the fixture's backend.
+  mkdir -p "$C/adopter"
+  export PLANWRIGHT_ADOPTER_OVERLAY="$C/adopter"
+  unset PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_BACKEND_TMUX \
+    PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT PLANWRIGHT_BACKEND_HEADLESS_ONESHOT \
+    PLANWRIGHT_BACKEND_SUBAGENT
   export PLANWRIGHT_FLEET_STATE_DIR="$C/fleet"
   export PLANWRIGHT_ORCH_STATE_DIR="$C/markers"
   export PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$C/fstate"
