@@ -512,7 +512,7 @@ compose_brief() {
     printf 'Rebuild from the durable stores, then run `mc-handover.sh verify --program %s --session %s` with your held picture, rules digest and ledger position, and on a pass `mc-handover.sh take --program %s --session %s`.\n' \
       "$program" "$2" "$program" "$2"
     # shellcheck disable=SC2016 # the backticks are markdown in the brief
-    printf '\nplanwright'"'"'s defaults win over the predecessor'"'"'s habits. Inherit only what the stores record; run `mc-config.sh doctor --program %s` and list for the operator each override and hand-built mechanism you keep, with why, retiring the rest.\n' \
+    printf '\nplanwright'"'"'s defaults win over the predecessor'"'"'s habits. Inherit only what the stores record; run `mc-config.sh doctor --program %s`; each line it prints and each hand-built mechanism it cannot see becomes an operator item or a mechanization proposal, and your first turn lists what you keep and why.\n' \
       "$program"
   } >"$scratch"
 }
