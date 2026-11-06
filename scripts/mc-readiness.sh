@@ -36,7 +36,9 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   head<TAB><sha>                      the pull request's current head
   repo<TAB><owner/name>
   label<TAB><name>                    one per label
-  path<TAB><file>                     one per changed path
+  path<TAB><file><TAB><change>        one per changed path, with the
+                                      forge's change type (RENAMED and
+                                      COPIED name no source path)
   check<TAB><name><TAB><state>        one per individual check context,
                                       its latest run only (a re-run
                                       supersedes the runs before it);
@@ -104,10 +106,13 @@ Usage:
       finding, answered once resolved or replied to by a person other than
       the pull request's author, with a login), the spec-only scope (every
       path under the program's spec root inside the repository whose origin
-      is --repo; then each touched bundle, a directory under the root not
-      opening with `_`, is signed off when its requirements.md status at
-      the head is Ready, Active or Done and its kickoff-brief.md exists
-      there, read from that repository's objects, no fetch), the step
+      is --repo, none a rename or copy; then each touched bundle, a
+      directory under the root not opening with `_`, is signed off when,
+      read from that repository's objects at the head with no fetch, its
+      requirements.md status is Ready, Active or Done and its
+      kickoff-brief.md's latest anchor recomputes over the bundle; a pull
+      request touching only `_` accumulators or files directly under the
+      root has no bundle to sign off), the step
       records of --worktree (scripts/step-record.sh list) and the cadence
       audit there, --worktree defaulting to the one worktree of the
       program's repositories that has the pull request's branch checked
@@ -257,7 +262,7 @@ $1 == "cadence" && $2 == "gap" {
   cad[++ncad] = $3 ": " d
 }
 $1 == "cadence" && $2 == "unaudited" { cad[++ncad] = "not audited: " $3; unaud = 1 }
-$1 == "scope" && $2 == "spec-only" { scope = $3 }
+$1 == "scope" && $2 == "spec-only" { speconly_head = $3 }
 $1 == "signoff" && $3 != "signed" { fail("signoff", $2 ": " ($4 == "" ? "not signed off" : $4)) }
 $1 == "evidence" { ev[++ne] = $2 "\t" $3 "\t" $4 "\t" $5 }
 $1 == "bodyline" { body = body substr($0, 10) "\n" }
@@ -265,9 +270,7 @@ END {
   if (badfmt) { print "not-ready\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
   if (head == "") { print "not-ready\t-"; print "fail\thead\tno evidence at a head was collected; a session report alone never passes"; exit 4 }
   if (!nc) fail("check", "no individual check context at the head")
-  # A spec-only pull request is held for the sign-off of its bundles, never for
-  # the code cadence or the gate-data steps.
-  speconly = (scope == head)
+  speconly = (speconly_head == head)
   if (!speconly) {
     for (i = 1; i <= ncad; i++) fail("cadence", cad[i])
     if (!unaud && audited != head) fail("cadence", "the configured cadence was not audited at " substr(head, 1, 12))
@@ -277,7 +280,7 @@ END {
     if (e[1] == "screenshot" && e[4] != "ok") fail("screenshot", e[2] " judged " (e[4] == "" ? "missing" : e[4]))
     else if (e[1] == "screenshot" && e[3] != head) fail("screenshot", e[2] " was judged at another head")
   }
-  for (i = 1; i <= (speconly ? 0 : nn["steps"]); i++) {
+  if (!speconly) for (i = 1; i <= nn["steps"]; i++) {
     s = need["steps", i]; got = 0
     for (j = 1; j <= ns; j++) { split(steps[j], t, "\t"); if (t[1] == s && (t[2] == "passed" || t[2] == "applied") && t[3] == head) got = 1 }
     if (!got) fail("step", s " is not recorded passed or applied at " substr(head, 1, 12))
@@ -376,63 +379,92 @@ branch_worktree() {
 # been cut, and the walk refuses on a `truncated` line rather than pass.
 CAP=100
 
-# spec_scope <program> <slug> <head> <pr read>: when every changed path lies
-# under the program's spec root inside the repository for <slug>, print
-# `scope<TAB>spec-only<TAB><head>` and one `signoff` line per bundle touched;
-# otherwise nothing. The sign-off is read from the repository's own objects
-# at the head, since collect writes nothing (no fetch) to any repository.
+# spec_scope <program> <slug> <head> <pr read> <scratch dir>: when every
+# changed path lies under the program's spec root inside the repository for
+# <slug>, print `scope<TAB>spec-only<TAB><head>` and one `signoff` line per
+# bundle touched; otherwise nothing. Sign-offs are read from the repository's
+# own objects at the head, since collect writes nothing (no fetch) to any
+# repository.
 spec_scope() {
-  local root r phys rel='' repo='' files b why st
+  local root r top rel='' repo='' files b why st f d entry got
+  files=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3 + 0; exit }' "$4")
+  [ "${files:-0}" -gt 0 ] && [ "$files" -lt "$CAP" ] || return 0
   root=$(/bin/bash "$script_dir/mc-program.sh" get "$1" spec_root 2>/dev/null) || return 0
-  root=$(cd "$root" 2>/dev/null && pwd -P) || return 0
+  # Logical paths, so a symbolic link in a checkout cannot move the root; the
+  # head must then hold the root as a directory.
+  root=$(cd -L "$root" 2>/dev/null && pwd -L) || return 0
   while IFS= read -r r; do
-    phys=$(cd "$r" 2>/dev/null && pwd -P) || continue
+    top=$(cd -L "$r" 2>/dev/null && pwd -L) || continue
     case $root in
-      "$phys"/?*)
-        rel=${root#"$phys"/} repo=$r
+      "$top"/?*)
+        rel=${root#"$top"/} repo=$r
         break
         ;;
     esac
   done < <(slug_repos "$1" "$2" 2>/dev/null)
   [ -n "$rel" ] || return 0
-  files=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3 + 0; exit }' "$4")
-  [ "${files:-0}" -gt 0 ] && [ "$files" -lt "$CAP" ] || return 0
+  [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel" 2>/dev/null)" = tree ] || return 0
   # Each path must sit strictly under the root, with no `.`, `..` or empty
-  # component; the bundles are the directories directly under it, those
-  # opening with `_` (the reserved accumulators) aside.
-  R=$rel awk -F '\t' '
+  # component, and never be a rename or copy, whose source path the forge
+  # does not name; the bundles are the directories directly under the root,
+  # those opening with `_` (the reserved accumulators) aside.
+  SPEC_REL=$rel awk -F '\t' '
     $1 != "path" { next }
     {
-      p = $2; n = length(ENVIRON["R"])
-      if (substr(p, 1, n + 1) != ENVIRON["R"] "/") { out = 1; exit }
+      if ($3 == "RENAMED" || $3 == "COPIED") { out = 1; exit }
+      p = $2; n = length(ENVIRON["SPEC_REL"])
+      if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/") { out = 1; exit }
       p = substr(p, n + 2)
       if (p == "" || ("/" p "/") ~ /\/(\.|\.\.)?\//) { out = 1; exit }
       if (index(p, "/") && substr(p, 1, 1) != "_") { b = substr(p, 1, index(p, "/") - 1); if (!(b in seen)) { seen[b] = 1; bs[++nb] = b } }
     }
-    END { if (out) exit 1; for (i = 1; i <= nb; i++) print bs[i] }' "$4" >"$cl_tmp/bundles" || return 0
+    END { if (out) exit 1; for (i = 1; i <= nb; i++) print bs[i] }' "$4" >"$5/bundles" || return 0
   printf 'scope\tspec-only\t%s\n' "$3"
   while IFS= read -r b; do
     why=''
-    if ! printf '%s\n' "$b" | grep -Eq '^[a-z0-9][a-z0-9-]*$'; then
+    d="$5/bundle-$b"
+    if ! [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
       why='not a spec identifier'
     elif ! mc_untrusted_git -C "$repo" cat-file -e "$3^{commit}" 2>/dev/null; then
       why="the head is not in $(sanitize_printable "$repo"); fetch it"
-    elif ! st=$(mc_untrusted_git -C "$repo" show "$3:$rel/$b/requirements.md" 2>/dev/null | spec_parse_header_value - Status 2>/dev/null) || [ -z "$st" ]; then
-      why='its requirements.md status cannot be read at the head'
     else
-      case $st in
-        Ready | Active | Done)
-          mc_untrusted_git -C "$repo" cat-file -e "$3:$rel/$b/kickoff-brief.md" 2>/dev/null || why='it has no kickoff brief at the head'
-          ;;
-        *) why="its status at the head is $(sanitize_printable "$st")" ;;
-      esac
+      mkdir -p "$d" || mc_fail "cannot create a scratch directory"
+      for f in requirements.md design.md tasks.md test-spec.md kickoff-brief.md; do
+        if [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel/$b/$f" 2>/dev/null)" != blob ] \
+          || ! mc_untrusted_git -C "$repo" show "$3:$rel/$b/$f" >"$d/$f" 2>/dev/null; then
+          rm -f "$d/$f"
+        fi
+      done
+      if ! st=$(spec_parse_header_value "$d/requirements.md" Status 2>/dev/null) || [ -z "$st" ]; then
+        why='its requirements.md status cannot be read at the head'
+      else
+        case $st in
+          Ready | Active | Done) ;;
+          *) why="its status at the head is $(sanitize_printable "$st")" ;;
+        esac
+      fi
+      if [ -z "$why" ] && [ ! -f "$d/kickoff-brief.md" ]; then
+        why='it has no kickoff brief at the head'
+      elif [ -z "$why" ]; then
+        # The sign-off stands only for the content it anchored: the brief's
+        # latest anchor must recompute over the bundle at the head.
+        entry=$(spec_parse_latest_anchor_entry "$d/kickoff-brief.md" 2>/dev/null) || entry=''
+        got=$(/bin/sh "$script_dir/spec-anchor.sh" "$d" 2>/dev/null) || got=''
+        if [ -z "$entry" ]; then
+          why='its kickoff brief records no anchor'
+        elif [ -z "$got" ]; then
+          why='its anchor cannot be recomputed at the head'
+        elif [ "${entry%%	*}" != "$got" ]; then
+          why='its content at the head is not what the kickoff signed off (the anchor differs)'
+        fi
+      fi
     fi
     if [ -n "$why" ]; then
       printf 'signoff\t%s\tunsigned\t%s\n' "$b" "$why"
     else
       printf 'signoff\t%s\tsigned\t-\n' "$b"
     fi
-  done <"$cl_tmp/bundles"
+  done <"$5/bundles"
 }
 
 # collect <program> <slug> <pr> <worktree> <out>
@@ -445,7 +477,8 @@ collect() {
   gh pr view "$3" --repo "$2" --json headRefOid,headRefName,baseRefName,labels,files,body,statusCheckRollup --jq '
     def clean: tostring | gsub("[\t\r\n]"; " ");
     def context: if .context != null then ["status", .context] else ["run", .workflowName // "", .name // "-"] end;
-    def started: (.startedAt // .createdAt // "~") | tostring;
+    def started: if (.status // "COMPLETED") != "COMPLETED" then "~"
+      else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "~") end | tostring;
     "head\t" + .headRefOid,
     "branch\t" + ((.headRefName // "") | clean),
     "base\t" + ((.baseRefName // "") | clean),
@@ -453,7 +486,7 @@ collect() {
     "count\tchecks\t" + ((.statusCheckRollup // []) | length | tostring),
     "count\tlabels\t" + ((.labels // []) | length | tostring),
     (.labels[]? | "label\t" + (.name | clean)),
-    (.files[]? | "path\t" + (.path | clean)),
+    (.files[]? | "path\t" + (.path | clean) + "\t" + ((.changeType // "-") | clean)),
     ((.statusCheckRollup // []) | to_entries | group_by(.value | context)
       | map(max_by([(.value | started), .key])) | sort_by(.key) | .[].value
       | "check\t" + ((.name // .context // "-") | clean) + "\t"
@@ -489,7 +522,7 @@ collect() {
   cl_baseref=$(awk -F '\t' '$1 == "base" { print $2; exit }' "$cl_tmp/pr")
   cl_unaud=''
   : >"$cl_tmp/cadence"
-  spec_scope "$1" "$2" "$cl_head" "$cl_tmp/pr" >"$cl_tmp/scope"
+  spec_scope "$1" "$2" "$cl_head" "$cl_tmp/pr" "$cl_tmp" >"$cl_tmp/scope"
   if [ -s "$cl_tmp/scope" ]; then
     # A spec-only pull request is held for its sign-off, not the cadence, so
     # no worktree is needed and none is audited.

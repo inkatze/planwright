@@ -155,6 +155,10 @@ spec_only - "check${tab}title${tab}FAILURE"
 expect_rc "a red check still holds a spec-only pull request" 4
 spec_only - "thread${tab}t9${tab}open"
 expect_rc "an open thread still holds a spec-only pull request" 4
+spec_only 's/answered$/unanswered/'
+expect_rc "an unanswered finding still holds a spec-only pull request" 4
+spec_only 's/^guard.*/guard\tready-guard\tfail\tconflicts with its base/'
+expect_rc "a failed guard still holds a spec-only pull request" 4
 spec_only '/^bodyline\t## Summary/d'
 expect_rc "a required body text still binds a spec-only pull request" 4
 spec_only "s/^scope\tspec-only\t$H/scope\tspec-only\t2222222222222222222222222222222222222222/"
@@ -244,7 +248,7 @@ cat >"$tmp/pr.json" <<EOF
    {"__typename": "CheckRun", "name": "title", "workflowName": "pr-title", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:50:18Z"},
    {"__typename": "CheckRun", "name": "title", "workflowName": "other-lint", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:00:00Z"},
    {"__typename": "CheckRun", "name": "rerun", "workflowName": "ci", "conclusion": "SUCCESS", "startedAt": "2026-11-05T19:00:00Z"},
-   {"__typename": "CheckRun", "name": "rerun", "workflowName": "ci", "status": "QUEUED", "conclusion": "", "startedAt": null},
+   {"__typename": "CheckRun", "name": "rerun", "workflowName": "ci", "status": "QUEUED", "conclusion": "", "startedAt": "0001-01-01T00:00:00Z"},
    {"context": "deploy", "state": "PENDING", "conclusion": ""}]}
 EOF
 cat >"$tmp/threads.json" <<'EOF'
@@ -303,12 +307,15 @@ n_title=$(printf '%s\n' "$c" | grep -c "^check${tab}title${tab}")
 if [ "$n_title" -eq 2 ]; then ok "one line per check context: the same name in another workflow is its own context"; else fail "expected two title contexts, got $n_title"; fi
 if printf '%s\n' "$c" | grep -q "^check${tab}title${tab}FAILURE$"; then
   # The other workflow's own failure is the only FAILURE title line allowed.
-  [ "$(printf '%s\n' "$c" | grep -c "^check${tab}title${tab}FAILURE$")" -eq 1 ] && ok "a superseded run is dropped, another workflow's run kept" \
-    || fail "a superseded title run was collected"
+  if [ "$(printf '%s\n' "$c" | grep -c "^check${tab}title${tab}FAILURE$")" -eq 1 ]; then
+    ok "a superseded run is dropped, another workflow's run kept"
+  else
+    fail "a superseded title run was collected"
+  fi
 else
   fail "another workflow's title context was dropped"
 fi
-has "a queued re-run with no start time is the latest" "check${tab}rerun${tab}PENDING"
+has "a queued re-run, its start the zero time gh reports, is the latest" "check${tab}rerun${tab}PENDING"
 hasnt "and the run it supersedes is dropped" "check${tab}rerun${tab}SUCCESS"
 has "the body is read line by line" "bodyline${tab}Adds the thing."
 has "labels are read" "label${tab}ui"
@@ -408,54 +415,90 @@ git -C "$repo" worktree prune
 # A spec-only pull request: every changed path under the program's spec root,
 # each touched bundle's sign-off read at the head from the repository's
 # objects, and no cadence audit run (no worktree is needed).
-mkdir -p "$repo/specs/demo" "$repo/specs/_observations/entries"
+mkdir -p "$repo/specs/_observations/entries"
 sed -i.bak "s|^program_alpha_spec_root: .*|program_alpha_spec_root: $repo/specs|" "$tracked"
-signed_bundle() { # signed_bundle <status> <brief: 1|0>: commit the bundle, print the head
-  printf '# Demo\n\n**Status:** %s\n**Format-version:** 2\n\nBody.\n' "$1" >"$repo/specs/demo/requirements.md"
-  printf 'x\n' >"$repo/specs/demo/design.md"
+bundle() { # bundle <name> <status> <brief: signed|none|stale>: write a bundle, its brief anchoring it
+  mkdir -p "$repo/specs/$1"
+  printf '# %s\n\n**Status:** %s\n**Format-version:** 2\n\nBody.\n' "$1" "$2" >"$repo/specs/$1/requirements.md"
+  printf '# Design\n\nx\n' >"$repo/specs/$1/design.md"
+  printf '# Tasks\n\n**Format-version:** 2\n' >"$repo/specs/$1/tasks.md"
+  printf '# Test spec\n\ny\n' >"$repo/specs/$1/test-spec.md"
+  rm -f "$repo/specs/$1/kickoff-brief.md"
+  # shellcheck disable=SC2016 # the brief's backticks are literal
+  [ "$3" = none ] || printf '# Brief\n\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/%s`\n' \
+    "$(/bin/sh "$repo_root/scripts/spec-anchor.sh" "$repo/specs/$1")" "$1" >"$repo/specs/$1/kickoff-brief.md"
+  [ "$3" != stale ] || printf 'An edit after the sign-off.\n' >>"$repo/specs/$1/design.md"
+}
+commit_specs() { # commit_specs: commit the spec root, print the head
   printf '%s\n' '- 2026-11-05 [planwright] an entry' >"$repo/specs/_observations/entries/e.md"
-  rm -f "$repo/specs/demo/kickoff-brief.md"
-  [ "$2" = 0 ] || printf '# Brief\n\nSigned off: 2026-11-05\n' >"$repo/specs/demo/kickoff-brief.md"
   git -C "$repo" add -A specs >/dev/null
-  git -C "$repo" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m "bundle $1"
+  git -C "$repo" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m specs
   git -C "$repo" rev-parse HEAD
 }
-spec_pr() { # spec_pr <head> <path>...: the forge's view of a spec pull request
+spec_pr() { # spec_pr <head> <path[|change type]>...: collect over the forge's view of a spec pull request
   sp_h=$1
   shift
-  sp_files=$(printf '{"path": "%s"},' "$@")
+  sp_files=''
+  for sp_p in "$@"; do
+    case $sp_p in
+      *'|'*) sp_files="$sp_files{\"path\": \"${sp_p%|*}\", \"changeType\": \"${sp_p##*|}\"}," ;;
+      *) sp_files="$sp_files{\"path\": \"$sp_p\", \"changeType\": \"MODIFIED\"}," ;;
+    esac
+  done
   printf '{"headRefOid": "%s", "headRefName": "planwright/demo/spec", "baseRefName": "main", "labels": [], "files": [%s],
  "body": "## Summary", "statusCheckRollup": [{"name": "build", "conclusion": "SUCCESS"}]}\n' "$sp_h" "${sp_files%,}" >"$tmp/pr.json"
   printf '%s\n' "$sp_h" >"$tmp/headnow"
+  rm -f "$tmp/collected"
   PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+  expect_rc "collect over $*" 0
   c=$(cat "$tmp/collected" 2>/dev/null)
 }
 cp "$tmp/pr.json" "$tmp/pr.saved.json"
-sh_ready=$(signed_bundle Ready 1)
+bundle demo Ready signed
+sh_ready=$(commit_specs)
 spec_pr "$sh_ready" specs/demo/requirements.md specs/demo/design.md specs/_observations/entries/e.md
-expect_rc "a spec-only collect" 0
 has "every path under the spec root is a spec-only scope at the head" "scope${tab}spec-only${tab}$sh_ready"
-has "the touched bundle's sign-off is read at the head" "signoff${tab}demo${tab}signed${tab}-"
+has "the touched bundle's sign-off is read at the head, its anchor recomputed" "signoff${tab}demo${tab}signed${tab}-"
+if [ "$(printf '%s\n' "$c" | grep -c "^signoff${tab}")" -eq 1 ]; then ok "one sign-off line per bundle, however many of its files changed"; else fail "the bundle's sign-off is not read exactly once"; fi
 hasnt "an observation entry is no bundle" "signoff${tab}_observations"
 hasnt "no cadence audit is run or required" "cadence${tab}"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/web --pr 7
 expect_no_out "the walk holds it for no cadence" "fail${tab}cadence"
 expect_no_out "nor for a gate-data step" "fail${tab}step"
 expect_out "while the guard still binds" "fail${tab}guard${tab}ready-guard"
+spec_pr "$sh_ready" specs/_observations/entries/e.md
+has "an observation-only pull request is spec-only" "scope${tab}spec-only${tab}$sh_ready"
+hasnt "and touches no bundle to sign off" "signoff${tab}"
 spec_pr "$sh_ready" specs/demo/requirements.md src/app.c
 hasnt "a code path beside the bundle is no spec-only scope" "scope${tab}"
 has "and its cadence is audited as for any pull request" "cadence${tab}unaudited${tab}"
 spec_pr "$sh_ready" specsx/demo/requirements.md
 hasnt "a sibling of the spec root sharing its prefix is outside it" "scope${tab}"
-sh_draft=$(signed_bundle Draft 1)
-spec_pr "$sh_draft" specs/demo/requirements.md
-has "a Draft bundle is a spec-only scope" "scope${tab}spec-only${tab}$sh_draft"
-has "that is not signed off" "signoff${tab}demo${tab}unsigned${tab}its status at the head is Draft"
-sh_nobrief=$(signed_bundle Ready 0)
+spec_pr "$sh_ready" specs/../src/app.c
+hasnt "a path climbing out of the spec root is outside it" "scope${tab}"
+spec_pr "$sh_ready" specs//demo/requirements.md
+hasnt "a path with an empty component is outside it" "scope${tab}"
+spec_pr "$sh_ready" 'specs/demo/moved.md|RENAMED'
+hasnt "a rename into the spec root, its source unnamed, is no spec-only scope" "scope${tab}"
+bundle demo Active signed
+bundle other Draft signed
+sh_two=$(commit_specs)
+spec_pr "$sh_two" specs/demo/design.md specs/other/design.md
+has "an Active bundle is signed off" "signoff${tab}demo${tab}signed${tab}-"
+has "a Draft bundle beside it is not" "signoff${tab}other${tab}unsigned${tab}its status at the head is Draft"
+mv "$tmp/collected" "$tmp/ev"
+mc_run mc-readiness.sh walk --program alpha --evidence "$tmp/ev"
+expect_out "the walk holds the pull request for the unsigned bundle" "fail${tab}signoff${tab}other: its status at the head is Draft"
+bundle demo Ready none
+sh_nobrief=$(commit_specs)
 spec_pr "$sh_nobrief" specs/demo/requirements.md
 has "a Ready bundle with no kickoff brief is not signed off" "signoff${tab}demo${tab}unsigned${tab}it has no kickoff brief at the head"
+bundle demo Ready stale
+sh_stale=$(commit_specs)
+spec_pr "$sh_stale" specs/demo/design.md
+has "a bundle edited after its sign-off is not signed off" "signoff${tab}demo${tab}unsigned${tab}its content at the head is not what the kickoff signed off"
 spec_pr 5555555555555555555555555555555555555555 specs/demo/requirements.md
-has "a head the repository does not hold leaves the sign-off unread" "signoff${tab}demo${tab}unsigned${tab}the head is not in"
+hasnt "a head the repository does not hold is no spec-only scope" "scope${tab}"
 spec_pr "$sh_ready" 'specs/Bad Name/requirements.md'
 has "a bundle directory outside the spec identifier grammar is refused" "signoff${tab}Bad Name${tab}unsigned${tab}not a spec identifier"
 sed -i.bak "s|^program_alpha_spec_root: .*|program_alpha_spec_root: $repo|" "$tracked"

@@ -946,7 +946,7 @@ STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_defer "checks (default): a behind-but-clean PR whose checks passed defers"
 assert_no_sentinels "checks (default): a behind-but-clean PR defers: no git/curl/wget/claude ran"
-if grep -q $'\tpr\tview\t42\t--json\theadRefOid,statusCheckRollup' "$STATE/argv.log"; then
+if grep -q $'\tpr\tview\t42\t--json\tbaseRefName,headRefOid,mergeable,statusCheckRollup' "$STATE/argv.log"; then
   pass "checks (default): the head's check rollup is read for the same PR"
 else
   fail "checks (default): no check rollup read for PR 42: $(cat "$STATE/argv.log")"
@@ -980,9 +980,46 @@ run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "checks (default): a behind PR with a pending check denies" 'test is PENDING'
 
 reset_stub_env
-STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON='{"headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","statusCheckRollup":[]}'
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON='{"baseRefName":"main","mergeable":"MERGEABLE","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","statusCheckRollup":[]}'
 run_hook "$(bash_payload 'gh pr ready 42')"
-assert_deny_because "checks (default): a behind PR with no check at all denies" 'no check'
+assert_deny_because "checks (default): a behind PR with no check at all denies" 'no passed check'
+
+ck() { # ck <rollup entries JSON>: a check read for the behind head
+  printf '{"baseRefName":"main","mergeable":"MERGEABLE","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","statusCheckRollup":[%s]}' "$1"
+}
+run_checks() { # run_checks <label> <defer|deny> <entries> [reason]
+  reset_stub_env
+  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$(ck "$3")
+  run_hook "$(bash_payload 'gh pr ready 42')"
+  if [ "$2" = defer ]; then assert_defer "$1"; else assert_deny_because "$1" "$4"; fi
+}
+run_checks "checks (default): only skipped and neutral checks are not a pass" deny \
+  '{"name":"a","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"},{"name":"b","workflowName":"ci","status":"COMPLETED","conclusion":"NEUTRAL","startedAt":"2026-11-05T19:00:00Z"}' 'no passed check'
+run_checks "checks (default): a queued re-run, its start the zero time gh reports, is the latest" deny \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"test","workflowName":"ci","status":"QUEUED","conclusion":"","startedAt":"0001-01-01T00:00:00Z","completedAt":"0001-01-01T00:00:00Z"}' 'test is PENDING'
+run_checks "checks (default): the same check name in another workflow is its own context" deny \
+  '{"name":"test","workflowName":"lint","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T18:00:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"}' 'test is FAILURE'
+run_checks "checks (default): a status superseded by a newer one of its context passes" defer \
+  '{"__typename":"StatusContext","context":"deploy","state":"ERROR","startedAt":"2026-11-05T18:00:00Z"},{"__typename":"StatusContext","context":"deploy","state":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"}'
+run_checks "checks (default): a status whose newest entry failed denies" deny \
+  '{"__typename":"StatusContext","context":"deploy","state":"SUCCESS","startedAt":"2026-11-05T18:00:00Z"},{"__typename":"StatusContext","context":"deploy","state":"ERROR","startedAt":"2026-11-05T19:00:00Z"}' 'deploy is ERROR'
+run_checks "checks (default): the flip's own failing status does not judge it" defer \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"__typename":"StatusContext","context":"planwright/pre-spec-ready-flip","state":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}'
+run_checks "checks (default): a check run named like the flip's status still judges it" deny \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"planwright/pre-ready-flip","workflowName":"x","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}' 'is FAILURE'
+many=$(i=0; while [ $i -lt 100 ]; do printf '{"name":"c%s","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},' "$i"; i=$((i + 1)); done)
+run_checks "checks (default): a check list at its cap of 100 denies" deny "${many%,}" 'cap of 100'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+STUB_CHECKS_JSON=$(printf '%s' "$CHECKS_GREEN" | sed 's/"mergeable":"MERGEABLE"/"mergeable":"UNKNOWN"/')
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (default): mergeability lost by the check read denies" 'mergeability or base changed'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN STUB_CHECKS_RC=124
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (default): a check read past the query bound denies" 'within'
 
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN STUB_CHECKS_RC=1
@@ -1046,7 +1083,7 @@ assert_no_sentinels "conflict-only: an already-ready PR defers, ungated as under
 
 reset_stub_env
 knob_adopter lenient
-STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "a malformed adopter value degrades to refuse, never to a pass" '7 commit'
 assert_no_sentinels "a malformed adopter value degrades to refuse, never to a pass: no git/curl/wget/claude ran"
@@ -1095,7 +1132,7 @@ cp "$(dirname "$HOOK")/echo-safety.sh" "$LONE/echo-safety.sh"
 cp "$(dirname "$HOOK")/bounded-run.sh" "$LONE/bounded-run.sh"
 reset_stub_env
 knob_adopter conflict-only
-STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN
 SAVED_HOOK=$HOOK
 HOOK="$LONE/ready-guard.sh"
 run_hook "$(bash_payload 'gh pr ready 42')"
@@ -1104,8 +1141,9 @@ assert_deny_because "conflict-only with no resolver beside the guard degrades to
 assert_no_sentinels "conflict-only with no resolver beside the guard degrades to refuse: no git/curl/wget/claude ran"
 
 # The guard's own reading of the resolver's answer, driven through a stub
-# resolver beside a copy of the guard: only an exact `conflict-only` on a
-# zero exit within the bound relaxes the check.
+# resolver beside a copy of the guard: only an exact `conflict-only` or
+# `checks` on a zero exit within the bound relaxes the check. The checks read
+# is green, so a `checks` taken where refuse belongs would show as a defer.
 STUBBED="$SANDBOX/stubbed"
 mkdir -p "$STUBBED"
 cp "$HOOK" "$STUBBED/ready-guard.sh"
@@ -1115,7 +1153,7 @@ cp "$(dirname "$HOOK")/bounded-run.sh" "$STUBBED/bounded-run.sh"
 run_stubbed_resolver() {
   printf '%s\n' "$3" >"$STUBBED/resolve-policy-knob.sh"
   reset_stub_env
-  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN
   RG_GH_TIMEOUT=2
   SAVED_HOOK=$HOOK
   HOOK="$STUBBED/ready-guard.sh"
@@ -1130,6 +1168,12 @@ run_stubbed_resolver() {
 }
 run_stubbed_resolver "positive control: a stub resolver answering conflict-only is reached and relaxes" \
   defer "printf 'conflict-only\n'"
+run_stubbed_resolver "positive control: a stub resolver answering checks is reached and relaxes on green checks" \
+  defer "printf 'checks\n'"
+run_stubbed_resolver "a resolver answer that only starts with checks applies refuse" \
+  deny "printf 'checks-x\n'"
+run_stubbed_resolver "checks printed before a non-zero exit applies refuse" \
+  deny "printf 'checks\n'; exit 1"
 run_stubbed_resolver "a resolver answer that only starts with conflict-only applies refuse" \
   deny "printf 'conflict-only-x\n'"
 run_stubbed_resolver "a resolver answer with conflict-only on a later line applies refuse" \
@@ -1151,7 +1195,7 @@ if [ "$(id -u)" != 0 ]; then
   printf '%s\n' "printf 'conflict-only\n'" >"$STUBBED/resolve-policy-knob.sh"
   chmod 000 "$STUBBED/resolve-policy-knob.sh"
   reset_stub_env
-  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN
   SAVED_HOOK=$HOOK
   HOOK="$STUBBED/ready-guard.sh"
   run_hook "$(bash_payload 'gh pr ready 42')"

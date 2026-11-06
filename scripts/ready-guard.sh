@@ -255,7 +255,8 @@ lower() { printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]'; }
 # tree's sibling wall-clock bounds, so all three behave identically on
 # malformed input. The default is 10 rather than fleet-cleanup's 20 because
 # this bound sits in the interactive tool-call path, where the worst case is
-# three calls (view, UNKNOWN re-query, compare).
+# four calls (view, UNKNOWN re-query, compare, and a behind PR's check read)
+# plus the policy read.
 gh_timeout() {
   gt_v="${PLANWRIGHT_READY_GUARD_GH_TIMEOUT:-10}"
   case $gt_v in
@@ -924,6 +925,9 @@ handle_mcp() {
 # reach gh as separate argv arguments (REQ-C1.9); the command is never
 # assembled as a string. Sets GH_VIEW_OUT / GH_VIEW_RC.
 gh_pr_view() {
+  # Deliberately NOT mergeStateStatus: it reports BEHIND only under the base's
+  # "require up to date" protection, so keying currency on it false-allows a
+  # stale PR on an unprotected base (D-3). The suite pins this argv.
   local cwd=$1 fields=${2:-baseRefName,headRefOid,isDraft,mergeable,url}
   local -a argv=(pr view)
   [ -z "$RG_PR" ] || argv[${#argv[@]}]=$RG_PR
@@ -932,9 +936,6 @@ gh_pr_view() {
     argv[${#argv[@]}]=$RG_REPO
   fi
   argv[${#argv[@]}]='--json'
-  # Deliberately NOT mergeStateStatus: it reports BEHIND only under the base's
-  # "require up to date" protection, so keying currency on it false-allows a
-  # stale PR on an unprotected base (D-3). The suite pins this argv.
   argv[${#argv[@]}]=$fields
   GH_VIEW_OUT=$(cd -- "$cwd" 2>/dev/null && "$RG_TIMEOUT_BIN" "$RG_GH_T" gh "${argv[@]}" 2>/dev/null)
   GH_VIEW_RC=$?
@@ -1030,25 +1031,33 @@ evaluate_predicate() {
   return 0
 }
 
-# Latest run per check context wins (a re-run supersedes the failure before
-# it; a run with no start time is the newest). The planwright/pre-ready-flip
-# and planwright/pre-spec-ready-flip statuses are the flip's own, posted while
-# it runs, so they are left out as ready-flip.sh leaves them out. Prints
-# `green`, `none`, or `<check> is <state>` for the first that did not pass.
+# The flip's own statuses, posted while it runs, never judge it (ready-flip.sh
+# leaves out the same two).
+readonly EXCLUDED_CONTEXTS='["planwright/pre-ready-flip","planwright/pre-spec-ready-flip"]'
+
+# The latest run per check context wins: a re-run supersedes the runs before
+# it, and a run not yet completed is the newest (gh reports an unset time as
+# 0001-01-01). scripts/mc-readiness.sh keeps the same selection. Prints
+# `green` (at least one SUCCESS, the rest NEUTRAL or SKIPPED), `none`,
+# `truncated` (a list at the read's cap of 100, which may have been cut), or
+# `<check> is <state>` for the first that did not pass.
 # shellcheck disable=SC2016 # a jq program
 readonly CHECKS_JQ='
   def context: if .context != null then ["status", .context] else ["run", .workflowName // "", .name // "-"] end;
-  def started: (.startedAt // .createdAt // "~") | tostring;
+  def started: if (.status // "COMPLETED") != "COMPLETED" then "~"
+    else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "~") end | tostring;
   def state: if .context != null then (.state // "PENDING")
     elif (.status // "COMPLETED") != "COMPLETED" then "PENDING"
     elif (.conclusion // "") == "" then "PENDING" else .conclusion end;
+  if ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
   [ (.statusCheckRollup // []) | to_entries
-    | map(select((.value.context // "") as $c | ($c != "planwright/pre-ready-flip" and $c != "planwright/pre-spec-ready-flip")))
+    | map(select((.value.context // "") as $c | any($ex[]; . == $c) | not))
     | group_by(.value | context) | map(max_by([(.value | started), .key])) | sort_by(.key) | .[].value
     | {n: (.name // .context // "-" | tostring), s: (state | tostring)} ] as $v
-  | if ($v | length) == 0 then "none"
-    else ([$v[] | select(.s != "SUCCESS" and .s != "NEUTRAL" and .s != "SKIPPED")] | first // null) as $bad
-      | if $bad == null then "green" else "\($bad.n) is \($bad.s)" end end'
+  | ([$v[] | select(.s != "SUCCESS" and .s != "NEUTRAL" and .s != "SKIPPED")] | first // null) as $bad
+  | if $bad != null then "\($bad.n) is \($bad.s)"
+    elif any($v[]; .s == "SUCCESS") then "green"
+    else "none" end end'
 
 # behind_checks <cwd> <head> <behind> <base> — the `checks` policy: being
 # behind is no condition by itself, so a MERGEABLE PR behind its base passes
@@ -1060,7 +1069,7 @@ behind_checks() {
   local cwd=$1 head=$2 behind=$3 base why oid verdict
   base=$(sanitize_printable "$4" 'its base')
   why="it is $behind commit(s) behind base branch $base, so it may stand only on checks that passed on its current head"
-  gh_pr_view "$cwd" headRefOid,statusCheckRollup
+  gh_pr_view "$cwd" baseRefName,headRefOid,mergeable,statusCheckRollup
   if [ "$GH_VIEW_RC" = 124 ] || [ "$GH_VIEW_RC" = 143 ]; then
     emit_deny "this pull request's checks could not be read within ${RG_GH_T}s, and $why - refusing (fail closed). Wait and retry."
   fi
@@ -1069,10 +1078,15 @@ behind_checks() {
   oid=$(printf '%s' "$GH_VIEW_OUT" | jq -r '.headRefOid // ""' 2>/dev/null) || oid=''
   [ "$oid" = "$head" ] \
     || emit_deny "this pull request's head moved while the guard read it, and $why - refusing (fail closed). Retry."
-  verdict=$(printf '%s' "$GH_VIEW_OUT" | jq -r "$CHECKS_JQ" 2>/dev/null) || verdict=''
+  # Mergeability is read again with the checks: a base that moved since the
+  # first read may have turned it.
+  [ "$(printf '%s' "$GH_VIEW_OUT" | jq -r '"\(.mergeable // "")\t\(.baseRefName // "")"' 2>/dev/null)" = "MERGEABLE	$4" ] \
+    || emit_deny "this pull request's mergeability or base changed while the guard read it, and $why - refusing (fail closed). Wait a few seconds and retry."
+  verdict=$(printf '%s' "$GH_VIEW_OUT" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$CHECKS_JQ" 2>/dev/null) || verdict=''
   case $verdict in
     green) return 0 ;;
-    none) emit_deny "this pull request has no check on its current head, and $why - refusing the draft->ready flip. Let CI run on the head, then retry." ;;
+    none) emit_deny "this pull request has no passed check on its current head, and $why - refusing the draft->ready flip. Let CI run on the head, then retry." ;;
+    truncated) emit_deny "this pull request's check list came back at its cap of 100, so a check past it is unread, and $why - refusing (fail closed)." ;;
     '') emit_deny "this pull request's checks could not be read, and $why - refusing (fail closed). Wait and retry." ;;
     *) emit_deny "this pull request's check $(sanitize_printable "$verdict" 'unprintable'), and $why - refusing the draft->ready flip. Let CI finish green on the head (or merge the base branch into it and let CI re-run), then retry." ;;
   esac

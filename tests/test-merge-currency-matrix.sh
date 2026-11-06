@@ -68,7 +68,7 @@ done
 # The expected-cell manifest. One line per cell: <key> <expect>.
 #
 # Guard cells are <state>/<surface>: the D-3 predicate outcomes (conforming,
-# behind with a red check, conflicting), the shipped `checks` default's
+# behind-red, conflicting), the shipped `checks` default's
 # behind-base cells (behind-green, behind-conflicting), the REQ-C1.12 knob's
 # behind-base cells under an adopter value of each kind
 # (knob-conflict-only-behind, knob-refuse-behind),
@@ -91,8 +91,8 @@ done
 MANIFEST='
 conforming/bash defer
 conforming/mcp defer
-behind/bash deny
-behind/mcp deny
+behind-red/bash deny
+behind-red/mcp deny
 behind-green/bash defer
 behind-green/mcp defer
 behind-conflicting/bash deny
@@ -270,7 +270,7 @@ echo "# behind: behind_by > 0 on a base WITHOUT require-up-to-date (mergeStateSt
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_RED
 run_hook "$(bash_payload "$BASH_FLIP")"
-assert_cell behind/bash "bash: a worker-shaped flip on a behind PR denies"
+assert_cell behind-red/bash "bash: a worker-shaped flip on a behind PR denies"
 assert_reason_matches "bash: the behind denial names the staleness" 'commit\(s\) behind'
 assert_no_mergestatestatus "bash: currency is not keyed on mergeStateStatus (the CLEAN-but-behind pin)"
 assert_no_sentinels "bash: the behind decision path invoked no git/curl/wget/claude"
@@ -280,13 +280,13 @@ assert_gh_calls "bash: positive control — the stubbed gh call site was travers
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_RED
 run_hook "$(bash_payload "$GAUNTLET_FLIP")"
-assert_cell behind/bash "bash: a gauntlet-shaped flip (--repo) on the same behind PR denies"
+assert_cell behind-red/bash "bash: a gauntlet-shaped flip (--repo) on the same behind PR denies"
 assert_reason_matches "bash: the gauntlet denial names the same staleness" 'commit\(s\) behind'
 assert_argv_has "bash: the gauntlet's --repo selector reached gh as argv" "${TAB}--repo${TAB}acme/widgets${TAB}"
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_RED
 run_mcp "$MCP_FLIP"
-assert_cell behind/mcp "mcp: a draft->ready transition on a behind PR denies"
+assert_cell behind-red/mcp "mcp: a draft->ready transition on a behind PR denies"
 assert_reason_matches "mcp: the behind denial names the staleness" 'commit\(s\) behind'
 assert_no_mergestatestatus "mcp: currency is not keyed on mergeStateStatus"
 assert_no_sentinels "mcp: the behind decision path invoked no git/curl/wget/claude"
@@ -311,6 +311,7 @@ STUB_VIEW_JSON=$VIEW_CONFLICTING STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_GRE
 run_hook "$(bash_payload "$BASH_FLIP")"
 assert_cell behind-conflicting/bash "bash: a behind-and-conflicting PR denies"
 assert_reason_matches "bash: the behind-and-conflicting denial names the conflict" 'CONFLICTING'
+assert_gh_calls "bash: a conflict denies on the first read, before currency or checks" 1
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFLICTING STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_GREEN
 run_mcp "$MCP_FLIP"
@@ -324,7 +325,7 @@ for knob in conflict-only refuse; do
   printf 'ready_guard_behind_base: %s\n' "$knob" >"$KNOB_ADOPTER/planwright.yml"
   reset_stub_env
   RG_ADOPTER_OVERLAY=$KNOB_ADOPTER
-  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5
+  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_GREEN
   run_hook "$(bash_payload "$BASH_FLIP")"
   assert_cell "knob-$knob-behind/bash" "bash: $knob, a conflict-free behind PR"
   assert_no_sentinels "bash: $knob, the knob read invoked no git/curl/wget/claude"
@@ -334,7 +335,7 @@ for knob in conflict-only refuse; do
   fi
   reset_stub_env
   RG_ADOPTER_OVERLAY=$KNOB_ADOPTER
-  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5
+  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5 STUB_CHECKS_JSON=$CHECKS_GREEN
   run_mcp "$MCP_FLIP"
   assert_cell "knob-$knob-behind/mcp" "mcp: $knob, a conflict-free behind PR"
   assert_no_sentinels "mcp: $knob, the knob read invoked no git/curl/wget/claude"
@@ -1050,10 +1051,10 @@ if [ "$gaps" = 'undeclared cell: bogus/bash' ]; then
 else
   fail "positive control: the meta-check did not report an undeclared cell — got '$gaps'"
 fi
-doubled="${MANIFEST}behind/bash defer
+doubled="${MANIFEST}behind-red/bash defer
 "
 gaps=$(manifest_gaps "$doubled" "$COVERED")
-if [ "$gaps" = 'duplicate manifest key: behind/bash' ]; then
+if [ "$gaps" = 'duplicate manifest key: behind-red/bash' ]; then
   pass "positive control: a key declared twice (even with a conflicting expectation) is reported as exactly that"
 else
   fail "positive control: the meta-check did not report a duplicated key — got '$gaps'"

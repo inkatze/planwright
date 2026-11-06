@@ -229,7 +229,7 @@ or a configured step its run did not record passed, applied, or skipped, is
 a gap, whatever launched the session and whatever its brief said. A
 spec-only pull request (every changed path under the spec root) is held for
 each touched bundle's kickoff sign-off instead of the cadence and the gate
-data's steps.
+data's steps; one touching only the reserved accumulators has none to hold.
 
 ## The register delta
 
