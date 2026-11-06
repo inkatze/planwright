@@ -60,8 +60,8 @@ The only exceptions are planwright scripts performing an act the operator
 sanctioned for towers:
 
 - fast-forwarding the primary checkout's default branch, through
-  `scripts/release-arm.sh` or `scripts/main-currency.sh` (`sync` or
-  `ff-primary`);
+  `scripts/main-currency.sh` (`sync` or `ff-primary`), or
+  `scripts/release-arm.sh` for `main`;
 - starting a forward-merge in a worker's worktree, through
   `scripts/converge-sync-main.sh` run there, which under
   `worker_merge_conflict_policy: resolve` leaves a conflict for the worker to
