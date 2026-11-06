@@ -51,7 +51,9 @@ case $verb in
   *) die "$usage" 2 ;;
 esac
 
+# Before the substitution below, which would strip a trailing newline.
 case $2 in
+  *[[:cntrl:]]*) die "the fleet home holds a control character" 2 ;;
   /*) ;;
   *) die "the fleet home is not an absolute path" 2 ;;
 esac
