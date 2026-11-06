@@ -197,14 +197,15 @@ step that does it.
 
 A mission-control session that mission control starts, a successor
 included, runs in Claude Code's auto mode, so a routine command does not
-leave it waiting on an approval no other session is allowed to give. Auto mode lets Claude Code's
-own safety check approve a routine command in place of asking you. It
-changes nothing about what is forbidden: merging, editing a repository,
-changing settings and the other refusals at the top of this page still
-stop it, and marking a pull request ready for review, where your
-repository leaves that to you, still asks you in its window. If that safety check keeps refusing, the session pauses auto
-mode and asks you in its window. A
-mission-control session you open yourself keeps your own settings.
+leave it waiting on an approval no other session is allowed to give.
+Auto mode lets Claude Code's own safety check approve a routine command
+in place of asking you. It changes nothing about what is forbidden:
+merging, editing a repository, changing settings and the other refusals
+at the top of this page still stop it, and marking a pull request ready
+for review, where your repository leaves that to you, still asks you in
+its window. If that safety check keeps refusing, the session pauses auto
+mode and asks you in its window. A mission-control session you open
+yourself keeps your own settings.
 
 If a compression happens anyway, it reloads your rules and checks its
 picture against the records before doing anything else, and tells you if
