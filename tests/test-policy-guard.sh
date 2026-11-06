@@ -349,11 +349,22 @@ gitq -C "$UNIT" branch -f main origin/main
 pg worker 'git merge main'
 expect defer "[worker] allow: a local main equal to the remote base defers"
 for cmd in 'git merge origin/planwright/demo/task-2' 'git merge origin/planwright/demo/spec' 'git merge HEAD~1' \
-  'git merge origin/main origin/planwright/demo/task-2' 'git pull' 'git pull origin planwright/demo/task-2' \
-  'git pull origin main:main' 'git merge $BASE'; do
+  'git merge origin/main origin/planwright/demo/task-2' 'git pull origin planwright/demo/task-2' \
+  'git pull origin main:main' 'git merge $BASE' 'git pull origin planwright/demo/task-1:planwright/demo/task-1'; do
   pg worker "$cmd"
-  expect deny "[worker] allow: $cmd denies (the source is not the PR base)"
+  expect deny "[worker] allow: $cmd denies (the source is neither the PR base nor the branch's own remote branch)"
 done
+echo "# the worker brings its own remote branch in"
+for cmd in 'git merge origin/planwright/demo/task-1' 'git merge --ff-only origin/planwright/demo/task-1' \
+  'git merge refs/remotes/origin/planwright/demo/task-1' 'git merge' 'git pull' 'git pull origin planwright/demo/task-1' \
+  'git pull --ff-only' 'git merge origin/main origin/planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect defer "[worker] allow: $cmd defers (its own remote branch)"
+done
+gitq -C "$UNIT" branch origin/planwright/demo/task-1 HEAD~1
+pg worker 'git merge origin/planwright/demo/task-1'
+expect deny "[worker] allow: a local branch shadowing the own remote branch denies the merge"
+gitq -C "$UNIT" branch -D origin/planwright/demo/task-1
 pg worker 'git merge origin/main' "$OTHER"
 expect deny "[worker] allow: a merge in another unit's worktree denies"
 pg worker "git -C $OTHER merge origin/main"
@@ -388,6 +399,74 @@ for cmd in 'git merge origin/main' 'git pull' 'git pull origin main' 'git -C . m
   pg tower "$cmd"
   expect deny "[tower] $cmd denies under allow"
   reads none "[tower] $cmd reads no knob"
+done
+
+echo "# a flight branch named before flight ids is still the session's unit branch"
+OLDF="$SANDBOX/oldflight"
+gitq -C "$SEED" switch -c planwright/flight/mc-panel-usability main
+gitq -C "$SEED" commit --allow-empty -m 'pushed on the older flight'
+gitq -C "$SEED" push origin planwright/flight/mc-panel-usability
+clone_on "$OLDF" planwright/flight/mc-panel-usability 1
+for cmd in 'git merge origin/main' 'git merge --ff-only origin/planwright/flight/mc-panel-usability' 'git pull' \
+  'git pull origin main'; do
+  pg worker "$cmd" "$OLDF" "$OLDF"
+  expect defer "[worker] an older flight branch without an id: $cmd defers"
+done
+pg worker 'git merge origin/planwright/demo/task-2' "$OLDF" "$OLDF"
+expect deny "[worker] an older flight branch still merges no other branch"
+pg tower 'git merge origin/main' "$OLDF" "$OLDF"
+expect deny "[tower] an older flight branch widens nothing for the tower"
+
+echo "# a session launched at the primary checkout owns the linked worktree its shell is in"
+PRIM="$SANDBOX/prim"
+gitq clone "$ORIGIN" "$PRIM"
+gitq -C "$PRIM" remote set-head origin main
+LWT="$SANDBOX/prim-flight"
+gitq -C "$PRIM" worktree add -b planwright/flight/dispatch-backend-0123abcd "$LWT" origin/main
+LWT2="$SANDBOX/prim-sibling"
+gitq -C "$PRIM" worktree add -b planwright/demo/task-8 "$LWT2" origin/main
+for cmd in 'git merge origin/main' "git -C $LWT merge origin/main" 'git pull origin main'; do
+  pg worker "$cmd" "$LWT" "$PRIM"
+  expect defer "[worker] project directory on main, shell in its flight worktree: $cmd defers"
+done
+pg worker 'git merge origin/main' "$LWT/sub" "$PRIM"
+expect deny "[worker] a shell directory that does not exist owns no worktree"
+mkdir -p "$LWT/sub"
+pg worker 'git merge origin/main' "$LWT/sub" "$PRIM"
+expect defer "[worker] a shell in a subdirectory of its flight worktree owns it"
+pg worker 'git merge origin/main' "$PRIM" "$PRIM"
+expect deny "[worker] the primary checkout on main stays refused"
+reason_has 'unit branch' "the refusal on main still names the unit branch"
+pg worker "git -C $LWT merge origin/main" "$PRIM" "$PRIM"
+expect deny "[worker] a worktree the shell is not in is not the session's own"
+reason_has 'cd ' "the not-in-the-worktree refusal says to cd into it first"
+pg worker "cd $LWT && git merge origin/main" "$PRIM" "$PRIM"
+expect deny "[worker] a cd in the same command does not move the session into the worktree"
+pg worker "git -C $LWT2 merge origin/main" "$LWT" "$PRIM"
+expect deny "[worker] a sibling worktree the shell is not in is refused"
+pg worker "git merge origin/main && git -C $LWT2 merge origin/main" "$LWT" "$PRIM"
+expect deny "[worker] a compound reaching a second worktree is refused"
+pg worker 'git merge origin/main' "$LWT2" "$LWT"
+expect deny "[worker] a session launched into its own unit worktree never owns a sibling"
+LREL="$SANDBOX/prim-release"
+gitq -C "$PRIM" worktree add -b release/1 "$LREL" origin/main
+LTASKF="$SANDBOX/prim-flight-task"
+gitq -C "$PRIM" worktree add -b planwright/flight/task-9 "$LTASKF" origin/main
+for d in "$LREL" "$LTASKF"; do
+  pg worker 'git merge origin/main' "$d" "$PRIM"
+  expect deny "[worker] a linked worktree on a non-unit branch stays refused: $d"
+done
+set_knobs 'worker_base_merge: allow' 'protected_branches: planwright/flight/*'
+pg worker 'git merge origin/main' "$LWT" "$PRIM"
+expect deny "[worker] a protected flight branch in the shell's worktree stays refused"
+set_knobs 'worker_base_merge: allow'
+XWT="$SANDBOX/other-flight"
+gitq -C "$OTHER" worktree add -b planwright/flight/foreign-0123abcd "$XWT" HEAD
+pg worker 'git merge origin/main' "$XWT" "$PRIM"
+expect deny "[worker] a worktree of another repository is not the session's own"
+for tier in tower mission-control; do
+  pg "$tier" 'git merge origin/main' "$LWT" "$PRIM"
+  expect deny "[$tier] the shell's worktree widens nothing for $tier"
 done
 
 # --- history rewrites (REQ-F1.1) ---------------------------------------------

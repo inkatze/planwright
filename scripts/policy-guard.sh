@@ -174,7 +174,10 @@
 #
 # THE UNIT BRANCH. A session owns the branch checked out at its project
 # directory (CLAUDE_PROJECT_DIR, which Claude Code sets for every hook), when
-# that branch is a task or flight branch. The PR base is the default branch of
+# that branch is a task or flight branch; a session launched where none is
+# checked out owns the linked worktree of the same repository its shell is
+# in (unit_branch_or_deny). It merges the PR base or its own remote branch
+# into that branch, nothing else. The PR base is the default branch of
 # the unit branch's remote as recorded locally (`refs/remotes/<remote>/HEAD`,
 # else `main`): the guard never queries the host for it, so a unit whose PR
 # targets another branch syncs through scripts/converge-sync-main.sh.
@@ -983,9 +986,12 @@ valid_branch() {
   [ "${#1}" -le 255 ]
 }
 
+# A flight branch needs no trailing id here: flights named before ids existed
+# still have open pull requests, and the id buys uniqueness, not safety (the
+# protected set and the ownership checks are what bound the act).
 is_unit_branch() {
   local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
-  local re_flight='^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'
+  local re_flight='^planwright/flight/[a-z0-9]([a-z0-9-]*[a-z0-9])?$'
   case $1 in planwright/flight/task-*) return 1 ;; esac
   [[ $1 =~ $re_task ]] || [[ $1 =~ $re_flight ]]
 }
@@ -1094,25 +1100,58 @@ current_branch() {
   gitq "$1" symbolic-ref --quiet --short HEAD || printf ''
 }
 
-# unit_branch — the session's unit branch (its project directory's branch), or
-# a deny.
+# shell_worktree <dir> — the worktree <dir> lies in, when it is a linked
+# worktree (never a primary checkout) of the repository whose git common dir
+# is <common>; sets SW_TOP, empty otherwise.
+SW_TOP=''
+shell_worktree() {
+  local dir=$1 common=$2 top gd cdir
+  SW_TOP=''
+  [ -d "$dir" ] || return 1
+  top=$(gitq "$dir" rev-parse --path-format=absolute --show-toplevel) || return 1
+  gd=$(gitq "$dir" rev-parse --path-format=absolute --git-dir) || return 1
+  cdir=$(gitq "$dir" rev-parse --path-format=absolute --git-common-dir) || return 1
+  [ -n "$top" ] && [ -n "$cdir" ] && [ "$cdir" = "$common" ] && [ "$gd" != "$cdir" ] || return 1
+  SW_TOP=$top
+}
+
+# unit_branch_or_deny <what> <dir> — the session's unit branch, or a deny. A
+# session launched into its unit worktree owns that branch alone (its project
+# directory's). A session launched where no unit branch is checked out (the
+# primary checkout on main) owns the linked worktree of the same repository
+# its shell is in, when <dir> lies in that worktree too: the harness reports
+# the shell's directory, so a `cd` or -C inside the command proves nothing.
 UNIT_BRANCH=''
 unit_branch_or_deny() {
-  local what=$1 pdir=${CLAUDE_PROJECT_DIR:-} b
+  local what=$1 dir=${2:-} pdir=${CLAUDE_PROJECT_DIR:-} b common top
   [ -n "$UNIT_BRANCH" ] && return 0
   [ -n "$pdir" ] && [ -d "$pdir" ] \
     || emit_deny "$what needs the session's unit branch, and the hook received no project directory (CLAUDE_PROJECT_DIR) to read it from - refusing (fail closed)."
   b=$(current_branch "$pdir")
-  is_unit_branch "$b" \
-    || emit_deny "$what is allowed only on the session's own unit branch (a planwright/<spec>/task-<id> or planwright/flight/<id> branch), and this session's project directory has $(sanitize_printable "${b:-no branch}" 'an unreadable branch') checked out - refusing."
-  UNIT_BRANCH=$b
+  if is_unit_branch "$b"; then
+    UNIT_BRANCH=$b
+    return 0
+  fi
+  common=$(gitq "$pdir" rev-parse --path-format=absolute --git-common-dir) || common=''
+  if [ -n "$dir" ] && [ -n "$common" ] && shell_worktree "$PAYLOAD_CWD" "$common"; then
+    top=$SW_TOP
+    if shell_worktree "$dir" "$common" && [ "$SW_TOP" = "$top" ]; then
+      b=$(current_branch "$dir")
+      is_unit_branch "$b" \
+        || emit_deny "$what is allowed only on the session's own unit branch (a planwright/<spec>/task-<id> or planwright/flight/<id> branch), and the worktree this session's shell is in has $(sanitize_printable "${b:-no branch}" 'an unreadable branch') checked out - refusing."
+      UNIT_BRANCH=$b
+      return 0
+    fi
+    emit_deny "$what targets a checkout other than the worktree this session's shell is in ($(sanitize_printable "$top" 'its worktree')); a session launched outside a unit worktree owns only the one its shell is in - refusing. Run it there without -C."
+  fi
+  emit_deny "$what is allowed only on the session's own unit branch (a planwright/<spec>/task-<id> or planwright/flight/<id> branch), and this session's project directory has $(sanitize_printable "${b:-no branch}" 'an unreadable branch') checked out - refusing. If the session works in a linked worktree of this repository, cd into it as its own command first."
 }
 
 # on_unit_branch <dir> <what> — deny unless <dir> has the unit branch checked
 # out and that branch is outside the protected set.
 on_unit_branch() {
   local dir=$1 what=$2 b
-  unit_branch_or_deny "$what"
+  unit_branch_or_deny "$what" "$dir"
   b=$(current_branch "$dir")
   [ -n "$b" ] \
     || emit_deny "$what runs where no branch is checked out (a detached HEAD or an unreadable repository) - refusing (fail closed)."
@@ -1186,6 +1225,27 @@ is_base_ref() {
       ;;
   esac
   return 1
+}
+
+# base_or_own <remote> <branch> — 0 when a remote branch is the PR base or
+# the unit branch's own branch on the base remote.
+base_or_own() {
+  [ "$1" = "$BASE_REMOTE" ] || return 1
+  [ "$2" = "$BASE_BRANCH" ] || [ "$2" = "$CUR_BRANCH" ]
+}
+
+# is_own_remote_ref <dir> <name> — 0 when the merge source is the unit
+# branch's own remote-tracking branch on the base remote, by name and by what
+# git resolves the name to (a local branch of that name would shadow it).
+is_own_remote_ref() {
+  local d=$1 r=$2 want oid
+  case $r in
+    "$BASE_REMOTE/$CUR_BRANCH" | "refs/remotes/$BASE_REMOTE/$CUR_BRANCH" | "remotes/$BASE_REMOTE/$CUR_BRANCH") ;;
+    *) return 1 ;;
+  esac
+  want=$(gitq "$d" rev-parse --verify --quiet "refs/remotes/$BASE_REMOTE/$CUR_BRANCH^{commit}") || return 1
+  oid=$(gitq "$d" rev-parse --verify --quiet --end-of-options "$r^{commit}") || return 1
+  [ -n "$want" ] && [ "$oid" = "$want" ]
 }
 
 # refresh_and_check_unpushed <dir> <what> <range> — the never-pushed check:
@@ -3524,13 +3584,13 @@ eval_merge() {
   base_merge_allowed "$dir" 'this git merge'
   if [ -z "$srcs" ]; then
     upstream_of "$dir" "$CUR_BRANCH"
-    [ "$UP_REMOTE" = "$BASE_REMOTE" ] && [ "$UP_BRANCH" = "$BASE_BRANCH" ] \
-      || emit_deny "this git merge names no source, so git merges the branch's upstream, which is not the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) - refusing. Name the base: git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')."
+    base_or_own "$UP_REMOTE" "$UP_BRANCH" \
+      || emit_deny "this git merge names no source, so git merges the branch's upstream, which is neither the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) nor the branch's own remote branch - refusing. Name the base: git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')."
     return 0
   fi
   for s in $srcs; do
-    is_base_ref "$dir" "$s" \
-      || emit_deny "a worker merges only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) into its own branch, and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use scripts/converge-sync-main.sh, or git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')."
+    is_base_ref "$dir" "$s" || is_own_remote_ref "$dir" "$s" \
+      || emit_deny "a worker merges only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use scripts/converge-sync-main.sh, or git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')."
   done
 }
 
@@ -3586,8 +3646,8 @@ eval_pull() {
   fi
   case $ref in *:*) emit_deny 'this git pull carries a src:dst refspec, which also writes a local ref - refusing. Pull the PR base alone.' ;; esac
   ref=${ref#refs/heads/}
-  [ "$remote" = "$BASE_REMOTE" ] && [ "$ref" = "$BASE_BRANCH" ] \
-    || emit_deny "a worker pulls only the PR base ($(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'the base')) into its own branch, and this pull takes $(sanitize_printable "${remote:-no remote} ${ref:-no branch}" 'another source') - refusing. Use git pull $(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'origin main'), or scripts/converge-sync-main.sh."
+  base_or_own "$remote" "$ref" \
+    || emit_deny "a worker pulls only the PR base ($(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this pull takes $(sanitize_printable "${remote:-no remote} ${ref:-no branch}" 'another source') - refusing. Use git pull $(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'origin main'), or scripts/converge-sync-main.sh."
 }
 
 rewrite_allowed() { # <dir> <what>

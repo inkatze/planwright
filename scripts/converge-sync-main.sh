@@ -255,7 +255,7 @@ path_list() {
 # The unit-branch grammar the policy guard admits.
 is_unit_branch() {
   local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
-  local re_flight='^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'
+  local re_flight='^planwright/flight/[a-z0-9]([a-z0-9-]*[a-z0-9])?$'
   case $1 in planwright/flight/task-*) return 1 ;; esac
   [[ $1 =~ $re_task ]] || [[ $1 =~ $re_flight ]]
 }
