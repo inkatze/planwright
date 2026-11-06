@@ -104,7 +104,9 @@ here; it sets the depth of every turn, not only the first run's.
    step 1. It asks a live holder to release, retires one that does not
    within the window, and announces this session to every live session. A
    launched successor runs the handover file's self-check (`verify`, then
-   `take`) instead. A successor launch that is neither the operator's ask
+   `take`) instead; a hand-started one (an attended predecessor, where
+   `launch --handover` exits 4) has no pending record, so it runs `resume`
+   (kind attended) instead. A successor launch that is neither the operator's ask
    nor a live handover is refused by `scripts/mc-handover.sh`'s `launch`;
    the session that asked for it reports the refusal and starts nothing.
 3. **The panel (REQ-F1.16).** Run `scripts/mc-panel.sh`'s `activate
