@@ -1,11 +1,11 @@
 #!/bin/bash
 # Tests for doctrine/human-gates.md and the pointers that retire the rules it
 # replaces (human-gates Task 1; REQ-A1.1, REQ-A1.2, REQ-A1.4, REQ-A1.5,
-# REQ-B1.1, REQ-B1.9, REQ-D1.6).
+# REQ-A1.6, REQ-B1.1, REQ-B1.9, REQ-D1.6).
 #
-# Five properties: every rule in the doc's list carries a kind, and each kind
+# Properties: every rule in the doc's list carries a kind, and each kind
 # names what it must (a gate its arm, a policy its knob and default, a
-# composition contract its owning skill); bootstrap D-26, REQ-J1.1, and
+# composition contract its owning skill), the named rows among them; bootstrap D-26, REQ-J1.1, and
 # REQ-J1.4 carry human-gates pointers that resolve, with one dated changelog
 # entry naming all three, and the bundle still validates; approval is the
 # approval act, never the flip; the legacy sign-off marker survives in
@@ -16,7 +16,12 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DOC="$REPO_ROOT/doctrine/human-gates.md"
+# HUMAN_GATES_DOC points the doc checks at a fixture copy; with --doc-only the
+# run stops after the checks that read that doc alone, so a fixture run never
+# re-runs the repository-wide checks below them.
+DOC="${HUMAN_GATES_DOC:-$REPO_ROOT/doctrine/human-gates.md}"
+doc_only=0
+[ "${1:-}" = "--doc-only" ] && doc_only=1
 BOOT="$REPO_ROOT/specs/bootstrap"
 HG="$REPO_ROOT/specs/human-gates"
 
@@ -121,6 +126,52 @@ for act in "Authorizing a PR merge" "Signing off a Needs-sign-off finding"; do
     fail "\"$act\" is not a human-gate row"
   fi
 done
+
+# REQ-A1.6: the spec-branch push row is a composition contract owned by
+# /spec-kickoff, naming the relayed kickoff session and its one branch.
+spec_push_row=$(printf '%s\n' "$rows" | grep -F '| Pushing a spec branch and opening its draft PR |')
+if [ -n "$spec_push_row" ] && [ "$(field "$spec_push_row" 3)" = "Composition contract" ]; then
+  ok "the spec-branch push row is a composition contract"
+else
+  fail "no composition-contract row for pushing a spec branch and opening its draft PR"
+fi
+# shellcheck disable=SC2016 # the backticks are the row's markdown, not a substitution
+for phrase in '`/spec-kickoff`' 'relayed kickoff session' 'the one spec branch its launch record names'; do
+  if printf '%s\n' "$spec_push_row" | grep -qF -- "$phrase"; then
+    ok "the spec-branch push row names $phrase"
+  else
+    fail "the spec-branch push row does not name $phrase"
+  fi
+done
+
+# The spec-branch rewrite row stays a human gate with no tier under any value.
+if printf '%s\n' "$rows" | grep -qxF '| Rewriting main, a protected branch, or a spec branch | Human gate | Irreversible arm; no tier under any value |'; then
+  ok "the spec-branch rewrite row is unchanged"
+else
+  fail "the spec-branch rewrite row changed or is missing"
+fi
+
+if [ "$doc_only" -eq 1 ]; then
+  if [ "$failures" -ne 0 ]; then
+    echo "$failures failure(s)" >&2
+    exit 1
+  fi
+  echo "all human-gates doc checks passed"
+  exit 0
+fi
+
+# The doc checks fail a fixture copy of the doc without the spec-branch push
+# row, naming the missing row.
+fx=$(mktemp -d)
+grep -vF '| Pushing a spec branch and opening its draft PR |' "$DOC" >"$fx/human-gates.md"
+if fx_out=$(HUMAN_GATES_DOC="$fx/human-gates.md" /bin/bash "$0" --doc-only 2>&1); then
+  fail "the doc checks passed a fixture copy without the spec-branch push row"
+elif printf '%s\n' "$fx_out" | grep -qF 'FAIL: no composition-contract row for pushing a spec branch'; then
+  ok "the doc checks fail a fixture copy without the spec-branch push row"
+else
+  fail "the doc checks failed the fixture copy for another reason: $fx_out"
+fi
+rm -rf "$fx"
 
 # Approval is the approval act; the flip approves nothing.
 for f in "$DOC" "$REPO_ROOT/doctrine/gate-wiring.md" "$REPO_ROOT/doctrine/finding-categorization.md"; do

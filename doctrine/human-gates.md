@@ -6,10 +6,10 @@ list: every skill, profile, guard, and doc restates it by citing this doc, and
 a copy that diverges from it is a defect.
 
 Citations: human-gates REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5,
-REQ-B1.1, REQ-C1.1, REQ-C1.5, REQ-C1.6, REQ-D1.1, REQ-D1.2, REQ-D1.4, REQ-D1.5,
-REQ-D1.6, REQ-D1.7, REQ-D1.9, REQ-E1.1, REQ-E1.2, REQ-F1.1, REQ-F1.2, REQ-F1.4,
-REQ-F1.5, REQ-G1.7 · human-gates D-1, D-2, D-3, D-4, D-6, D-7, D-8, D-9, D-10, D-14,
-D-15 · supersedes
+REQ-A1.6, REQ-B1.1, REQ-C1.1, REQ-C1.6, REQ-C1.9, REQ-D1.1, REQ-D1.2, REQ-D1.4,
+REQ-D1.5, REQ-D1.6, REQ-D1.7, REQ-D1.9, REQ-E1.1, REQ-E1.2, REQ-F1.1, REQ-F1.2,
+REQ-F1.4, REQ-F1.5, REQ-G1.7, REQ-G1.9, REQ-G1.10 · human-gates D-1, D-2, D-3,
+D-4, D-6, D-7, D-8, D-9, D-10, D-14, D-15, D-18 · supersedes
 bootstrap D-26 (scoped), bootstrap REQ-J1.1, bootstrap REQ-J1.4.
 
 ## The gate test
@@ -45,6 +45,7 @@ cannot be named does not ship.
 | Reshaping never-pushed commits on the owned unit branch | Policy | `unpushed_rewrite`, default `allow` |
 | Branches protected beyond the core floor | Policy | `protected_branches`, default empty; it adds to `main`, `master`, and `planwright/*/spec`, never removes |
 | Pushing the unit branch and opening its draft PR | Composition contract | `/execute-task`, or a standalone `/self-review`; `/polish` and every `--nested` review skill never push |
+| Pushing a spec branch and opening its draft PR | Composition contract | `/spec-kickoff`, run attended under no tier profile, or as a relayed kickoff session under the kickoff profile, which writes only the one spec branch its launch record names; a plain push of a spec branch is not a gate, and rewriting one stays a human gate |
 | Flipping under `unit-owner` | Composition contract | `/execute-task`'s convergence run, or the review skill it delegates its terminal step to; a mission-control session, for any pull request of the repository whose checkout it runs in, not only the units it launched; a standalone review run never flips |
 
 ## The floor
