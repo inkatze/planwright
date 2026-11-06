@@ -66,6 +66,10 @@ grep -qF 'Run program alpha.' "$fleet/mission-control/launch/$n1/brief.md" \
   && grep -qF 'no handover file' "$fleet/mission-control/launch/$n1/brief.md" \
   && ok "the successor's brief carries the brief and its succession note" \
   || fail "the composed brief lacks the brief or the note"
+grep -qF "planwright's defaults win over the predecessor's habits" "$fleet/mission-control/launch/$n1/brief.md" \
+  && grep -qF 'mc-config.sh doctor --program alpha' "$fleet/mission-control/launch/$n1/brief.md" \
+  && ok "the successor's brief puts planwright's defaults over inherited habits and names the audit" \
+  || fail "the successor's brief does not put planwright's defaults first or name the audit"
 ho verify --program alpha --session "$n1" --picture "$tmp/picture" --digest "$digest" --ledger - --durable "$tmp/picture"
 [ "$RC" = 0 ] && ok "a first start verifies against the durable picture" || fail "the first verify exited $RC: $OUT $ERR"
 ho take --program alpha --session "$n1" --window 1s

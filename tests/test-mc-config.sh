@@ -465,6 +465,82 @@ cfg knob mission_control_tick_cadence 7m
 expect_rc "a marker past the header is no marker; the write lands" 0
 cfg restore mission_control_tick_cadence
 
+# ---------------------------------------------------------------------------
+# The bring-up audit: doctor names every shipped default a layer overrides
+# and every inherited mechanism it can see, and writes nothing.
+# ---------------------------------------------------------------------------
+reset_mc_fixture
+printf 'mission_control_programs: [alpha]\nprogram_alpha_repositories: [%s]\nprogram_alpha_spec_root: %s/specs\n' "$repo" "$repo" >"$tracked"
+mkdir -p "$tmp/cronbin"
+cat >"$tmp/cronbin/crontab" <<'EOF'
+#!/bin/sh
+[ "$1" = -l ] || exit 2
+[ -f "$CRON_FIXTURE" ] || { echo "no crontab for fixture" >&2; exit 1; }
+cat "$CRON_FIXTURE"
+EOF
+chmod +x "$tmp/cronbin/crontab"
+saved_path=$PATH
+PATH="$tmp/cronbin:$PATH"
+CRON_FIXTURE="$tmp/crontab.txt"
+export PATH CRON_FIXTURE
+
+cfg doctor --program alpha
+expect_rc "doctor runs on a program on the shipped defaults" 0
+expect_eq "a program on the shipped defaults with no crontab is clean" "clean"
+
+sessions="$fleet/mission-control/sessions"
+mkdir -p "$sessions"
+row() { printf 'format\t1\nname\t%s\nprogram\t%s\nkind\tworker\nscope\tx\nbackend\t%s\nlaunched\t1\n' "$1" "$2" "$3" >"$sessions/$1"; }
+row mc-alpha-worker-1111111111 alpha tmux
+row mc-alpha-worker-2222222222 alpha stream-json
+row mc-beta-worker-3333333333 beta tmux
+{
+  printf '# a comment naming planwright\n'
+  printf '*/5 * * * * /opt/hub/w.sh planwright sweep\n'
+  printf '0 3 * * * /usr/bin/backup\n'
+  printf '*/10 * * * * cd %s && ./sweep.sh\n' "$repo"
+} >"$CRON_FIXTURE"
+printf 'mission_control_launch_backend: stream-json\nmission_control_stall_window: 30m\nmission_control_tick_cadence: 5m\n' >"$layer"
+printf 'program_alpha_duties: [inbox, readiness-check]\n' >>"$tracked"
+before=$(sum "$layer")
+tracked_before=$(sum "$tracked")
+cfg doctor --program alpha
+expect_rc "doctor reports findings as data" 0
+expect_out "a layer's value away from the shipped one is named with its layer" "override${tab}mission_control_stall_window${tab}adopter${tab}30m${tab}10m"
+expect_no_out "a layer restating the shipped value is no override" "mission_control_tick_cadence"
+expect_no_out "a layer restating the shipped backend is no override" "override${tab}mission_control_launch_backend"
+expect_no_out "the program list is setup, not an override" "mission_control_programs"
+expect_out "a shipped default duty the program leaves off is named" "duty-off${tab}session-keeper"
+expect_no_out "an enabled duty is not named" "duty-off${tab}inbox"
+expect_out "a session launched on another rung than the knob is named" "launch-backend${tab}mc-alpha-worker-1111111111${tab}tmux${tab}stream-json"
+expect_no_out "a session on the knob's rung is not named" "mc-alpha-worker-2222222222"
+expect_no_out "another program's session is not named" "mc-beta-worker-3333333333"
+expect_out "a cron line naming planwright is named" "cron${tab}*/5 * * * * /opt/hub/w.sh planwright sweep"
+expect_out "a cron line in a program repository is named" "cron${tab}*/10 * * * * cd $repo && ./sweep.sh"
+expect_no_out "an unrelated cron line is not named" "backup"
+expect_no_out "a cron comment is not named" "a comment"
+expect_no_out "findings leave out the clean line" "clean"
+if [ "$(sum "$layer")" = "$before" ] && [ "$(sum "$tracked")" = "$tracked_before" ]; then
+  ok "doctor writes no layer"
+else
+  fail "doctor changed a layer"
+fi
+
+printf 'mission_control_launch_backend: tmux\n' >"$layer"
+: >"$CRON_FIXTURE"
+cfg doctor --program alpha
+expect_out "a layer moving the backend knob is named" "override${tab}mission_control_launch_backend${tab}adopter${tab}tmux${tab}stream-json"
+expect_out "launches are judged against the knob in force" "launch-backend${tab}mc-alpha-worker-2222222222${tab}stream-json${tab}tmux"
+
+cfg doctor --program gamma
+expect_rc "doctor on a program that is not configured" 3
+cfg doctor
+expect_rc "doctor without a program is a usage error" 2
+PATH=$saved_path
+export PATH
+rm -rf "$sessions"
+rm -f "$layer"
+
 [ "$failures" -eq 0 ] || {
   printf '%s\n' "$failures failure(s)" >&2
   exit 1

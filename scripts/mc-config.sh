@@ -115,6 +115,19 @@ Usage:
       other kind, and
       dispatch<TAB><where><TAB><change> for a catalog step, a repository
       change a session makes
+  mc-config.sh doctor --program <p>
+      the bring-up audit, read-only: what the program runs on that is not
+      planwright's default, one finding per line, or clean with none:
+        override<TAB><key><TAB><layer><TAB><value><TAB><shipped value>
+            a mission_control_* knob a layer sets away from the shipped
+            value (the program list aside)
+        duty-off<TAB><duty id>      a default duty the program leaves off
+        launch-backend<TAB><session><TAB><backend><TAB><knob value>
+            a registered session of the program started on another rung
+            than mission_control_launch_backend, a per-call --backend
+        cron<TAB><line>             a crontab line naming planwright,
+            claude, or a repository or the home of the program
+        unknown<TAB><check><TAB><why>   a check whose read failed
 
 Exit codes: 0 done; 1 refused (a write that would not land as written, a
 malformed or redirected layer, a program already configured or with a
@@ -125,7 +138,7 @@ layer is managed elsewhere, the change handed to the operator.
 HELP
 }
 usage() {
-  mc_usage_fail "usage: mc-config.sh entry|mode|layer|add|set|duty|knob|restore|apply ... (mc-config.sh --help)"
+  mc_usage_fail "usage: mc-config.sh entry|mode|layer|add|set|duty|knob|restore|apply|doctor ... (mc-config.sh --help)"
 }
 
 FIELDS='repositories spec_root home duties budget sources'
@@ -705,6 +718,92 @@ v_apply() {
   printf 'applied\t%s\t%s\t%s\t%s\n' "$ap_kind" "$ap_key" "$ap_value" "$ap_logged" | mc_clean_text
 }
 
+doctor_overrides() {
+  do_defaults="$script_dir/../config/defaults.yml"
+  do_keys=$(awk -F: '/^mission_control_[a-z0-9_]*:/ && $1 != "mission_control_programs" { print $1 }' "$do_defaults" 2>/dev/null)
+  [ -n "$do_keys" ] || {
+    printf 'unknown\toverrides\tthe shipped defaults could not be read\n'
+    return 0
+  }
+  # shellcheck disable=SC2086 # one key per word, by design
+  do_lines=$(cfg_get --layers $do_keys 2>/dev/null) || {
+    printf 'unknown\toverrides\tthe layers could not be read\n'
+    return 0
+  }
+  printf '%s\n' "$do_lines" | awk -F '\t' '
+    NF < 3 { next }
+    !($1 in last) { keys[++n] = $1 }
+    $2 == "core" { core[$1] = $3 }
+    { layer[$1] = $2; last[$1] = $3 }
+    END {
+      for (i = 1; i <= n; i++) {
+        k = keys[i]
+        if (layer[k] != "core" && (k in core) && last[k] != core[k])
+          print "override\t" k "\t" layer[k] "\t" last[k] "\t" core[k]
+      }
+    }'
+}
+
+doctor_duties() {
+  if ! dd_on=$(/bin/bash "$script_dir/mc-program.sh" get "$1" duties 2>/dev/null) \
+    || ! dd_default=$(/bin/bash "$script_dir/mc-program.sh" default duties 2>/dev/null); then
+    printf 'unknown\tduties\tthe enabled or default duties could not be read\n'
+    return 0
+  fi
+  printf '%s\n' "$dd_default" | while IFS= read -r dd_id; do
+    [ -n "$dd_id" ] || continue
+    printf '%s\n' "$dd_on" | grep -qxF -- "$dd_id" || printf 'duty-off\t%s\n' "$dd_id"
+  done
+}
+
+doctor_launches() {
+  dl_knob=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key mission_control_launch_backend \
+    --type enum --values 'stream-json tmux' --fallback stream-json </dev/null 2>/dev/null) || {
+    printf 'unknown\tlaunches\tmission_control_launch_backend could not be resolved\n'
+    return 0
+  }
+  dl_rows=$(/bin/sh "$script_dir/mission-control-launch.sh" list 2>/dev/null </dev/null) || {
+    printf 'unknown\tlaunches\tthe launch registry could not be read\n'
+    return 0
+  }
+  printf '%s\n' "$dl_rows" | awk -F '\t' -v p="$1" -v k="$dl_knob" \
+    'NF >= 5 && $2 == p && $5 != k { print "launch-backend\t" $1 "\t" $5 "\t" k }'
+}
+
+# A cron line naming planwright, claude, or a path of the program's is a
+# hand-built watcher until the operator says which duty, if any, it serves.
+doctor_cron() {
+  command -v crontab >/dev/null 2>&1 || return 0
+  dc_tab=$(crontab -l 2>/dev/null) || return 0
+  dc_paths=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories 2>/dev/null)
+  dc_home=$(/bin/bash "$script_dir/mc-program.sh" get "$1" home 2>/dev/null)
+  printf '%s\n' "$dc_tab" | DC_NEEDLES="planwright${nl}claude${nl}$dc_paths${nl}$dc_home" awk '
+    BEGIN { n = split(ENVIRON["DC_NEEDLES"], needle, "\n") }
+    /^[ \t]*(#|$)/ { next }
+    { for (i = 1; i <= n; i++) if (needle[i] != "" && index($0, needle[i])) { print "cron\t" $0; next } }'
+}
+
+v_doctor() {
+  [ $# -eq 2 ] && [ "$1" = --program ] || usage
+  mc_valid_program "$2" || mc_usage_fail "invalid program name '$(sanitize_printable "$2")'"
+  dr_list=$(/bin/bash "$script_dir/mc-program.sh" list) || mc_fail "cannot list the configured programs"
+  printf '%s\n' "$dr_list" | grep -qx -- "$2" || {
+    printf '%s\n' "$prog: program '$2' is not configured" >&2
+    exit 3
+  }
+  dr_out=$(
+    doctor_overrides
+    doctor_duties "$2"
+    doctor_launches "$2"
+    doctor_cron "$2"
+  )
+  if [ -n "$dr_out" ]; then
+    printf '%s\n' "$dr_out" | mc_clean_text
+  else
+    printf 'clean\n'
+  fi
+}
+
 [ $# -ge 1 ] || usage
 verb=$1
 shift
@@ -726,5 +825,6 @@ case $verb in
   knob) v_knob "$@" ;;
   restore) v_restore "$@" ;;
   apply) v_apply "$@" ;;
+  doctor) v_doctor "$@" ;;
   *) usage ;;
 esac

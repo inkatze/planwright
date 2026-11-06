@@ -402,6 +402,12 @@ case $OUT in
   *attach* | *observe* | *capture-pane* | *'@'[0-9]*) fail "the launch report names a pane or window: $OUT" ;;
   *) ok "the launch report names no pane, window or attach hint" ;;
 esac
+# A per-call rung away from the knob launches all the same, warned naming it.
+[ "$RC" = 0 ] || fail "the tmux launch against the stream-json knob exited $RC: $ERR"
+case $ERR in
+  *warning*'--backend tmux'*mission_control_launch_backend*stream-json*) ok "a per-call --backend away from the knob warns, naming the knob" ;;
+  *) fail "a per-call --backend away from the knob did not warn naming it: $ERR" ;;
+esac
 pane_name=$(field name)
 pane_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$fleet/mission-control/sessions/$pane_name")
 grep -q 'PLANWRIGHT_MC_TOKEN=' "$tmp/tmux/argv-$pane_handle" && fail "a tmux ad-hoc session was handed a mission-control token" \
@@ -414,6 +420,12 @@ mt_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$mt_row")
 mt_token=$(awk -F "$TAB" '$1 == "token" { print $2; exit }' "$mt_row")
 grep -qxF "PLANWRIGHT_MC_TOKEN=$mt_token" "$tmp/tmux/argv-$mt_handle" && ok "a tmux mission-control session is launched holding its row's token" \
   || fail "the tmux mission-control window's argv does not carry its row's token: $(tr '\n' ' ' <"$tmp/tmux/argv-$mt_handle" 2>/dev/null)"
+ml launch --program alpha --kind ad-hoc --scope same-rung --brief "$tmp/brief.md" --backend stream-json
+case $ERR in
+  *mission_control_launch_backend*) fail "a --backend matching the knob warned: $ERR" ;;
+  *) ok "a --backend matching the knob launches without a warning" ;;
+esac
+wait_done "$(field name)"
 
 # A stream-json launch resolves its tier in the directory the session runs in,
 # as the tmux rung and a relaunch do, not in the launcher's own directory.
