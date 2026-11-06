@@ -77,12 +77,15 @@ hash_ok() {
 }
 
 uid=$(id -u) || die "cannot read this user's id"
+nl='
+'
 
 # owned_private <dir>: a directory, reached through no symlink, that this
-# user owns and no one else may write.
+# user owns and no one else may read, write, or enter.
 owned_private() {
   [ -d "$1" ] && [ ! -L "$1" ] || return 1
-  [ "$(find "$1" -maxdepth 0 -user "$uid" ! -perm -020 ! -perm -002 2>/dev/null)" = "$1" ]
+  [ "$(find "$1" -maxdepth 0 -user "$uid" ! -perm -040 ! -perm -020 ! -perm -010 \
+    ! -perm -004 ! -perm -002 ! -perm -001 2>/dev/null)" = "$1" ]
 }
 
 # root_ok <path>: a root of this script's shape that may be used or removed.
@@ -183,7 +186,11 @@ case $verb in
         /*) ;;
         *) die "PLANWRIGHT_FLEET_SCRATCH_BASE is not an absolute path" ;;
       esac
-      base=$(cd -P -- "$base" 2>/dev/null && pwd -P) || die "PLANWRIGHT_FLEET_SCRATCH_BASE names no directory"
+      # The trailing dot keeps a resolved name's own trailing newline, which
+      # the substitution would strip, for the check below.
+      base=$(cd -P -- "$base" 2>/dev/null && pwd -P && echo .) || die "PLANWRIGHT_FLEET_SCRATCH_BASE names no directory"
+      base=${base%.}
+      base=${base%"$nl"}
       case $base in
         *[[:cntrl:]]*) die "PLANWRIGHT_FLEET_SCRATCH_BASE resolves through a control character" ;;
       esac

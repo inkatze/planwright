@@ -907,9 +907,9 @@ exported as its `TMPDIR` and named in its session record: it belongs to the
 worktree, so every plain stop, `recover`, and relaunch of the worker finds it
 again, contents and all, on every rung, until the host reboots or its
 temporary-file cleaner ages the files out. The root is a short owner-only
-directory inside `/tmp/planwright-<uid>`, a parent only this user may write,
+directory inside `/tmp/planwright-<uid>`, a parent only this user may open,
 as tmux keeps its sockets (`PLANWRIGHT_FLEET_SCRATCH_BASE` names another
-parent, which must be this user's and writable by no one else);
+parent, which must be this user's and closed to everyone else);
 `scripts/fleet-scratch.sh` places it and records it in
 `<fleet home>/scratch/<key>.tmpdir`, and a close or reclaim removes a root of
 this layout only when that record names it. It stays short because Linux caps
@@ -922,7 +922,7 @@ control launches from one checkout shares that worktree. A final close
 (`stop --final`, which a reap through `fleet-cleanup.sh process` and a
 mission-control retire make) removes it, taking that session's files alone.
 The other rungs record the worktree-wide root, which their final close
-removes. Roots of the earlier layout, under `<fleet home>/scratch/<sha1>`,
+removes. Roots of the earlier layout, under `<fleet home>/scratch/<hash>`,
 have no record and go by their shape instead: a worktree-wide one stays,
 dropping only the pointer, while another stream-json worker records it or a
 session's root sits in it, and a worker's next launch or `recover` moves it to

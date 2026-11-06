@@ -155,8 +155,9 @@ stop_scratch_release() {
 # is removed (scripts/fleet-scratch.sh): a worktree's, or one session's, which
 # takes that session's files alone; one already gone with its record leaves
 # only the pointer to drop. A root of the earlier layout,
-# <fleet-home>/scratch/<sha1> or a session's inside it, <sha1>/<sha1>, goes
-# by its shape, and a worktree's of that layout also stays while it holds a
+# <fleet-home>/scratch/<hash> or a session's inside it, <hash>/<hash> (40 or
+# 64 hex digits, as the repository's object format gave), goes by its
+# shape, and a worktree's of that layout also stays while it holds a
 # session's root (a session's directory exists before its pointer is
 # written). Zero when the pointer is gone and its root removed or left in use.
 stop_scratch_root_release() {

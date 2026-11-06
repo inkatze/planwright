@@ -164,6 +164,21 @@ if [ "$RC" -eq 1 ] && grep -q 'control character' "$T/err" && [ ! -e "$HOME_F/sc
 else
   fail "make: a base ending in a newline (rc=$RC, '$OUT', $(cat "$T/err"))"
 fi
+ln -s "$nlbase" "$T/nllink"
+PLANWRIGHT_FLEET_SCRATCH_BASE=$T/nllink run make "$HOME_F" "$NEW"
+if [ "$RC" -eq 1 ] && grep -q 'control character' "$T/err" && [ ! -e "$HOME_F/scratch/$NEW.tmpdir" ]; then
+  pass "make: a base resolving to a name ending in a newline is refused, never its sibling"
+else
+  fail "make: a base resolving through a newline (rc=$RC, '$OUT', $(cat "$T/err"))"
+fi
+mkdir -m 755 "$T/listable"
+chmod 755 "$T/listable"
+PLANWRIGHT_FLEET_SCRATCH_BASE=$T/listable run make "$HOME_F" "$NEW"
+if [ "$RC" -eq 1 ] && [ -z "$(ls -A "$T/listable")" ]; then
+  pass "make: a base others may list is refused, nothing created in it"
+else
+  fail "make: a listable base (rc=$RC, $(ls -A "$T/listable"))"
+fi
 
 echo "### --fresh and the earlier layout"
 : >"$root/old"
