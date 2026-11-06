@@ -34,7 +34,11 @@
 #     never-`reset --hard` invariants are preserved, asserted rather than
 #     asserted-by-prose);
 #   - the sync never pushes to `main` (REQ-B1.4: currency flows origin→local
-#     only; commits reach `origin` by PR).
+#     only; commits reach `origin` by PR);
+#   - ff-primary fast-forwards and records only a clean primary checkout of
+#     origin's live default branch, in any repository (a second one whose
+#     default is trunk included), and every shape it refuses leaves the
+#     branch unmoved, runs no merge and writes no record.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-main-currency.sh
@@ -737,16 +741,12 @@ assert_no_rewrite 19
 # clean primary checkout's default branch up to its origin. Every refused shape
 # leaves the branch where it was and writes no record.
 
-# ffp <checkout-or-empty> [args...] — run ff-primary, capturing out and rc.
+# ffp <checkout> [args...] — run ff-primary on it, capturing out and rc.
 ffp() {
   ffp_dir=$1
   shift
   set +e
-  if [ -n "$ffp_dir" ]; then
-    out=$(mc ff-primary --checkout "$ffp_dir" "$@" 2>&1)
-  else
-    out=$(mc ff-primary "$@" 2>&1)
-  fi
+  out=$(mc ff-primary --checkout "$ffp_dir" "$@" 2>&1)
   rc=$?
   set -e
 }
@@ -833,78 +833,177 @@ ffp "$root/tower"
 if git_log_has '(^| )merge( |$)'; then fail "22: a merge ran on a dirty tree"; fi
 assert_no_rewrite 22
 
+# ff_refused <case> <checkout> <branch> <oid-before> — the refusal contract:
+# the branch unmoved, no merge invoked, no record written.
+ff_refused() {
+  [ "$4" = "$("$REAL_GIT" -C "$2" rev-parse "$3")" ] || fail "$1: $3 moved on a refused shape"
+  if git_log_has '(^| )merge( |$)'; then fail "$1: a merge ran on a refused shape"; fi
+  [ ! -f "$(ff_record "$2")" ] || fail "$1: a refused act was recorded"
+  assert_no_rewrite "$1"
+}
+
+# ff_case <case> <fixture> — a fresh fixture with origin one commit ahead and
+# a fresh command log; sets root and before.
+ff_case() {
+  root=$(new_fixture "$2")
+  advance_origin "$root"
+  PW_GIT_LOG="$tmp/log$1"
+  export PW_GIT_LOG
+  : >"$PW_GIT_LOG"
+  before=$("$REAL_GIT" -C "$root/tower" rev-parse main)
+}
+
 # 23. Refused: a merge already in progress counts as dirty.
-root=$(new_fixture ffp-midmerge)
-advance_origin "$root"
+ff_case 23 ffp-midmerge
 "$REAL_GIT" -C "$root/tower" rev-parse HEAD >"$root/tower/.git/MERGE_HEAD"
 ffp "$root/tower"
 [ "$rc" -eq 6 ] || fail "23: an in-progress merge must refuse with exit 6, got $rc: $out"
-rm -f "$root/tower/.git/MERGE_HEAD"
+ff_refused 23 "$root/tower" main "$before"
 
-# 24. Refused: another branch checked out in the primary.
-root=$(new_fixture ffp-otherbranch)
-advance_origin "$root"
+# 24. Refused: another branch checked out in the primary; neither it nor
+#     main moves.
+ff_case 24 ffp-otherbranch
 "$REAL_GIT" -C "$root/tower" checkout --quiet -b feature
-before=$("$REAL_GIT" -C "$root/tower" rev-parse main)
 ffp "$root/tower"
 [ "$rc" -eq 7 ] || fail "24: a non-default branch must refuse with exit 7, got $rc: $out"
-[ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] || fail "24: main moved"
 printf '%s\n' "$out" | grep -q 'feature' || fail "24: the refusal does not name the checked-out branch: $out"
+ff_refused 24 "$root/tower" main "$before"
+ff_refused 24 "$root/tower" feature "$before"
 
 # 25. Refused: --checkout naming a linked worktree rather than the primary.
-root=$(new_fixture ffp-linked)
+ff_case 25 ffp-linked
 "$REAL_GIT" -C "$root/tower" worktree add --quiet -b planwright/flight/x "$root/linked" >/dev/null 2>&1
 ffp "$root/linked"
 [ "$rc" -eq 7 ] || fail "25: a linked worktree must refuse with exit 7, got $rc: $out"
 printf '%s\n' "$out" | grep -q "$root/tower" || fail "25: the refusal does not name the primary checkout: $out"
+ff_refused 25 "$root/tower" main "$before"
 
 # 26. Refused: local history the origin lacks (not a pure fast-forward).
-root=$(new_fixture ffp-diverged)
+ff_case 26 ffp-diverged
 (
   cd "$root/tower"
   echo local >>file.txt
   "$REAL_GIT" commit --quiet -am "local only"
 )
-advance_origin "$root"
-PW_GIT_LOG="$tmp/log26"
-export PW_GIT_LOG
-: >"$PW_GIT_LOG"
 before=$("$REAL_GIT" -C "$root/tower" rev-parse main)
 ffp "$root/tower"
 [ "$rc" -eq 4 ] || fail "26: divergence must refuse with exit 4, got $rc: $out"
-[ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] || fail "26: main moved across divergence"
-if git_log_has '(^| )merge( |$)'; then fail "26: a merge ran across divergence"; fi
-[ ! -f "$(ff_record "$root/tower")" ] || fail "26: a refused act was recorded"
-assert_no_rewrite 26
+ff_refused 26 "$root/tower" main "$before"
 
 # 27. Refused: any argument beyond --checkout (no remote, branch or force knob).
-root=$(new_fixture ffp-args)
+ff_case 27 ffp-args
 for extra in '--main-ref develop' '--remote upstream' '--force' 'origin'; do
   # shellcheck disable=SC2086 # split on purpose: each case is a word list
   ffp "$root/tower" $extra
   [ "$rc" -eq 2 ] || fail "27: ff-primary accepted '$extra' (exit $rc): $out"
 done
+ff_refused 27 "$root/tower" main "$before"
 
 # 28. No origin: nothing to fast-forward to, the solo flow, unmoved.
-root=$(new_fixture ffp-solo)
+ff_case 28 ffp-solo
 "$REAL_GIT" -C "$root/tower" remote remove origin
 ffp "$root/tower"
 [ "$rc" -eq 0 ] || fail "28: no origin must be the solo flow (exit 0), got $rc: $out"
 printf '%s\n' "$out" | grep -q '^sync	solo$' || fail "28: no solo verdict: $out"
+ff_refused 28 "$root/tower" main "$before"
 
 # 29. Already current: success, no merge, no record.
 root=$(new_fixture ffp-current)
 PW_GIT_LOG="$tmp/log29"
 export PW_GIT_LOG
 : >"$PW_GIT_LOG"
+before=$("$REAL_GIT" -C "$root/tower" rev-parse main)
 ffp "$root/tower"
 [ "$rc" -eq 0 ] || fail "29: an up-to-date primary must succeed, got $rc: $out"
 printf '%s\n' "$out" | grep -q '^sync	up-to-date$' || fail "29: no up-to-date verdict: $out"
-[ ! -f "$(ff_record "$root/tower")" ] || fail "29: a no-op was recorded as an act"
+ff_refused 29 "$root/tower" main "$before"
 
 # 30. Refused: a bare repository has no checkout to fast-forward.
-root=$(new_fixture ffp-bare)
+ff_case 30 ffp-bare
 ffp "$root/origin.git"
 [ "$rc" -eq 7 ] || fail "30: a bare repository must refuse with exit 7, got $rc: $out"
+printf '%s\n' "$out" | grep -q 'bare repository' || fail "30: the refusal does not say why: $out"
+
+# 31. A stale local origin/HEAD (pointing at another branch) is not trusted:
+#     origin is asked, and its real default branch moves.
+ff_case 31 ffp-stalehead
+(
+  cd "$root/seed"
+  "$REAL_GIT" push --quiet origin main:old-default
+)
+"$REAL_GIT" -C "$root/tower" fetch --quiet origin
+"$REAL_GIT" -C "$root/tower" remote set-head origin old-default >/dev/null
+ffp "$root/tower"
+[ "$rc" -eq 0 ] || fail "31: a stale origin/HEAD must not block the fast-forward (exit $rc): $out"
+printf '%s\n' "$out" | grep -q '^branch	main$' || fail "31: origin's real default branch was not used: $out"
+[ "$("$REAL_GIT" -C "$root/tower" rev-parse main)" = "$("$REAL_GIT" -C "$root/origin.git" rev-parse main)" ] \
+  || fail "31: main is not at origin/main"
+assert_no_rewrite 31
+
+# 32. An unreachable origin: the retryable exit, nothing moved.
+ff_case 32 ffp-unreachable
+"$REAL_GIT" -C "$root/tower" remote set-url origin "$root/does-not-exist.git"
+ffp "$root/tower"
+[ "$rc" -eq 3 ] || fail "32: an unreachable origin must exit 3, got $rc: $out"
+ff_refused 32 "$root/tower" main "$before"
+
+# 33. Refused: an act record that cannot be written.
+if [ "$(id -u)" != 0 ]; then
+  ff_case 33 ffp-unwritable
+  mkdir -p "$root/tower/.git/planwright"
+  chmod a-w "$root/tower/.git/planwright"
+  ffp "$root/tower"
+  chmod u+w "$root/tower/.git/planwright"
+  [ "$rc" -eq 7 ] || fail "33: an unwritable record must refuse with exit 7, got $rc: $out"
+  ff_refused 33 "$root/tower" main "$before"
+fi
+
+# 34. Refused: an untracked file the incoming commit would overwrite.
+ff_case 34 ffp-untracked
+(
+  cd "$root/seed"
+  echo incoming >collide.txt
+  "$REAL_GIT" add collide.txt
+  "$REAL_GIT" commit --quiet -m "add collide"
+  "$REAL_GIT" push --quiet origin main
+)
+echo local >"$root/tower/collide.txt"
+ffp "$root/tower"
+[ "$rc" -eq 6 ] || fail "34: an overwriting fast-forward must refuse with exit 6, got $rc: $out"
+[ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] || fail "34: main moved"
+[ "$(cat "$root/tower/collide.txt")" = local ] || fail "34: the untracked file was overwritten"
+[ ! -f "$(ff_record "$root/tower")" ] || fail "34: a refused act was recorded"
+
+# 35. Refused: a staged-only change.
+ff_case 35 ffp-staged
+echo staged >"$root/tower/new.txt"
+"$REAL_GIT" -C "$root/tower" add new.txt
+ffp "$root/tower"
+[ "$rc" -eq 6 ] || fail "35: a staged change must refuse with exit 6, got $rc: $out"
+ff_refused 35 "$root/tower" main "$before"
+
+# 36. Refused: a detached HEAD.
+ff_case 36 ffp-detached
+"$REAL_GIT" -C "$root/tower" checkout --quiet --detach
+ffp "$root/tower"
+[ "$rc" -eq 7 ] || fail "36: a detached HEAD must refuse with exit 7, got $rc: $out"
+printf '%s\n' "$out" | grep -q 'detached HEAD' || fail "36: the refusal does not say why: $out"
+ff_refused 36 "$root/tower" main "$before"
+
+# 37. Refused: a paused multi-commit cherry-pick (only its sequencer left).
+ff_case 37 ffp-sequencer
+mkdir -p "$root/tower/.git/sequencer"
+ffp "$root/tower"
+[ "$rc" -eq 6 ] || fail "37: a paused sequencer must refuse with exit 6, got $rc: $out"
+ff_refused 37 "$root/tower" main "$before"
+
+# 38. Refused: --checkout naming a directory inside the primary rather than
+#     its top level, so a directory under some other repository never
+#     reaches that repository.
+ff_case 38 ffp-subdir
+mkdir -p "$root/tower/sub"
+ffp "$root/tower/sub"
+[ "$rc" -eq 7 ] || fail "38: a directory below the top level must refuse with exit 7, got $rc: $out"
+ff_refused 38 "$root/tower" main "$before"
 
 echo "PASS: test-main-currency.sh"
