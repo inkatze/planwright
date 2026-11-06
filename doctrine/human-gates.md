@@ -8,8 +8,8 @@ a copy that diverges from it is a defect.
 Citations: human-gates REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5,
 REQ-A1.6, REQ-B1.1, REQ-C1.1, REQ-C1.6, REQ-C1.9, REQ-D1.1, REQ-D1.2, REQ-D1.4,
 REQ-D1.5, REQ-D1.6, REQ-D1.7, REQ-D1.9, REQ-E1.1, REQ-E1.2, REQ-F1.1, REQ-F1.2,
-REQ-F1.4, REQ-F1.5, REQ-G1.7, REQ-G1.9, REQ-G1.10 · human-gates D-1, D-2, D-3,
-D-4, D-6, D-7, D-8, D-9, D-10, D-14, D-15, D-18 · supersedes
+REQ-F1.4, REQ-F1.5, REQ-G1.7, REQ-G1.9, REQ-G1.10, REQ-G1.13 · human-gates D-1,
+D-2, D-3, D-4, D-6, D-7, D-8, D-9, D-10, D-14, D-15, D-18 · supersedes
 bootstrap D-26 (scoped), bootstrap REQ-J1.1, bootstrap REQ-J1.4.
 
 ## The gate test

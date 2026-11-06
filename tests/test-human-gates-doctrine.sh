@@ -160,7 +160,7 @@ fi
 
 # The doc checks fail a fixture copy of the doc without the spec-branch push
 # row, naming the missing row.
-fx=$(mktemp -d)
+fx=$(mktemp -d "${TMPDIR:-/tmp}/human-gates.XXXXXX") || exit 1
 grep -vF '| Pushing a spec branch and opening its draft PR |' "$DOC" >"$fx/human-gates.md"
 if fx_out=$(HUMAN_GATES_DOC="$fx/human-gates.md" /bin/bash "$0" --doc-only 2>&1); then
   fail "the doc checks passed a fixture copy without the spec-branch push row"
