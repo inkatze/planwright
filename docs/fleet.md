@@ -586,6 +586,18 @@ It therefore raises the same attention signals (a fork-park push, a status
 row) that tmux workers started without the wrapper never did; that is the
 identity working, not new noise.
 
+A task worker lands on the tmux rung only when its spec resolves there
+(`resolve-dispatch-backend.sh`, unattended, read with the configuration of
+the repository the worker is placed in) or the tower passes
+`--backend tmux`, which it does for an explicit `/orchestrate --backend tmux`
+or a yes to the tmux-context ask (an answer the unattended resolution never
+reads). For a spec resolving to any other rung `fleet-dispatch-worktree.sh`
+refuses the launch with exit 17, before anything is placed, rather than
+start a worker whose prompts the chosen rung's supervisor (mission control
+included) would never see. `/orchestrate` dispatches a stream-json or headless unit through
+`scripts/orchestrate-meta-step.sh`, the prompt riding the launch.
+`--attach-dry-run` is not refused: it prints a plan and launches nothing.
+
 ### The task worker's opening turn
 
 A tmux task worker starts working from a file handed to it at launch, so its

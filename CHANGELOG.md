@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.67.1](https://github.com/inkatze/planwright/compare/v0.67.0...v0.67.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **orchestrate:** dispatch through the resolved backend, never a silent tmux worker ([#853](https://github.com/inkatze/planwright/issues/853)) ([b90590d](https://github.com/inkatze/planwright/commit/b90590d3b06d69b181191eb998813377c8e5c113))
+
+## [0.67.0](https://github.com/inkatze/planwright/compare/v0.66.0...v0.67.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **policy-guard:** a tower, whether launched with the tower profile or marked by the plugin, is now refused git checkout, git switch, and git reset in every form (path restores and reset --soft included), git branch -m, -M, -c, -C, --move, and --copy, git worktree add -B, git symbolic-ref with two names or -d, a git fetch into a local branch (a bare, heads/, or refs/heads/ destination, --refmap, --stdin, or any expansion in the fetch), gh pr checkout, gh pr co, gh repo sync, and every git stash form but list and show, in every checkout, its own included, and git aliases expanding to checkout, switch, symbolic-ref, fetch, or stash.
+
+### Features
+
+* **human-gates:** name the relayed kickoff's spec-branch push in the gate list ([#851](https://github.com/inkatze/planwright/issues/851)) ([dded08a](https://github.com/inkatze/planwright/commit/dded08acb5207c7547b63bd4d32826c3ba15592c))
+* **mission-control:** launch repository-changing sessions in their own worktrees ([#843](https://github.com/inkatze/planwright/issues/843)) ([bd4c326](https://github.com/inkatze/planwright/commit/bd4c326b9a06ad535daa83b4f69bc7bab0ab8cb4))
+* **mission-control:** turn the panel on in every mission-control session with no setup ([#839](https://github.com/inkatze/planwright/issues/839)) ([1fc7428](https://github.com/inkatze/planwright/commit/1fc7428bd0b21f9f0aad553203b1f15f4f7bad43))
+* **policy-guard:** deny every branch-moving and stash-writing act to the tower ([#837](https://github.com/inkatze/planwright/issues/837)) ([bfdafd9](https://github.com/inkatze/planwright/commit/bfdafd9856c374d8cc44fa112635e69195a2276a))
+* **ready-guard:** let mergeable green PRs behind main go ready; spec-only PRs skip code review ([#852](https://github.com/inkatze/planwright/issues/852)) ([199b3e7](https://github.com/inkatze/planwright/commit/199b3e7c78c3f33a968441c29f5fdfa65ff00259))
+
+
+### Bug Fixes
+
+* **fleet:** surface overdue prompts, settle dead workers, retire row-less sessions, own TMPDIRs ([#841](https://github.com/inkatze/planwright/issues/841)) ([ca49081](https://github.com/inkatze/planwright/commit/ca490813d4fa48851741b6c337201c944a92a1bc))
+* **mission-control:** accept the default source map back on first run; record five observations ([#845](https://github.com/inkatze/planwright/issues/845)) ([3fa7f96](https://github.com/inkatze/planwright/commit/3fa7f9698f58eeabca75eaa0e3da7a8b6550cb8e))
+* **mission-control:** never stall every session on a question to the operator ([#840](https://github.com/inkatze/planwright/issues/840)) ([36ba59e](https://github.com/inkatze/planwright/commit/36ba59e8e6ba0eea488a4932fffaaa8e4ad5e8c5))
+* **mission-control:** notice planwright updates and warn when a script runs from an older copy ([#847](https://github.com/inkatze/planwright/issues/847)) ([99048d0](https://github.com/inkatze/planwright/commit/99048d0825682fef4d7c24806980cd3c2cd8dfbe))
+* **policy-guard:** let a worker sync its own PR branch from an older flight or a primary launch ([#856](https://github.com/inkatze/planwright/issues/856)) ([cade4ab](https://github.com/inkatze/planwright/commit/cade4aba25ac4811d111074173b492ebff76f611))
+
+
+### Performance Improvements
+
+* **tests:** profile the slowest shell tests and cut two per-process costs ([#825](https://github.com/inkatze/planwright/issues/825)) ([d100762](https://github.com/inkatze/planwright/commit/d10076211e609b607d94237f8c408b41ffb7f04c))
+
 ## [0.66.0](https://github.com/inkatze/planwright/compare/v0.65.0...v0.66.0) (2026-11-05)
 
 

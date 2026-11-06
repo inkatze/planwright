@@ -1,9 +1,12 @@
 #!/bin/sh
-# orchestrate-meta-step.sh — the meta-tower's single-spec step, run in the
-# meta-tower's own session.
+# orchestrate-meta-step.sh — the single-spec step for the script-launched
+# rungs (stream-json-persistent, headless-oneshot), run in the calling
+# tower's own session.
 #
-# After orchestrate-meta-select.sh picks `<spec-dir> <id>`, the meta-tower
-# calls this script. It carries the step's mechanical part, in the single-spec
+# Two callers: the meta-tower, after orchestrate-meta-select.sh picks
+# `<spec-dir> <id>`, and a single-spec /orchestrate whose unit resolves to
+# one of those rungs (which then runs none of its own record steps).
+# Either way it carries the step's mechanical part, in the single-spec
 # tower's order (skills/orchestrate/SKILL.md, *The dispatch record*):
 #
 #   1. take the per-spec lock (scripts/orchestrate-lock.sh); another holder is
@@ -36,7 +39,8 @@
 # Usage:
 #   orchestrate-meta-step.sh dispatch <spec-dir> <id> --backend <rung>
 #       --prompt-file <file> [--repo-root <dir>] [-- <extra launch args>...]
-#     <spec-dir>   the spec bundle as orchestrate-meta-select.sh printed it:
+#     <spec-dir>   the spec bundle the caller resolved (the meta-tower: as
+#                  orchestrate-meta-select.sh printed it), which must be
 #                  the bundle the task's work repository resolves, whose root
 #                  may lie in that repository, in a holder, or in no
 #                  repository.
