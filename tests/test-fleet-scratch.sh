@@ -152,6 +152,15 @@ base")" = "$before" ] && grep -q 'control character' "$T/err"; then
 else
   fail "make: a control-character base (rc=$RC, $(cat "$T/err"))"
 fi
+nlbase=$(printf '%s/base\nx' "$T")
+nlbase=${nlbase%x}
+mkdir -m 700 "$nlbase"
+PLANWRIGHT_FLEET_SCRATCH_BASE=$nlbase run make "$HOME_F" "$NEW"
+if [ "$RC" -eq 1 ] && grep -q 'control character' "$T/err" && [ ! -e "$HOME_F/scratch/$NEW.tmpdir" ]; then
+  pass "make: a base ending in a newline is refused, never resolved to its sibling"
+else
+  fail "make: a base ending in a newline (rc=$RC, '$OUT', $(cat "$T/err"))"
+fi
 
 echo "### --fresh and the earlier layout"
 : >"$root/old"

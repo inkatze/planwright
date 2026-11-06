@@ -176,13 +176,16 @@ case $verb in
     fi
     if [ -n "${PLANWRIGHT_FLEET_SCRATCH_BASE-}" ]; then
       base=$PLANWRIGHT_FLEET_SCRATCH_BASE
+      # Checked raw as well: command substitution strips a trailing newline,
+      # which would resolve the base to its sibling.
       case $base in
+        *[[:cntrl:]]*) die "PLANWRIGHT_FLEET_SCRATCH_BASE holds a control character" ;;
         /*) ;;
         *) die "PLANWRIGHT_FLEET_SCRATCH_BASE is not an absolute path" ;;
       esac
       base=$(cd -P -- "$base" 2>/dev/null && pwd -P) || die "PLANWRIGHT_FLEET_SCRATCH_BASE names no directory"
       case $base in
-        *[[:cntrl:]]*) die "PLANWRIGHT_FLEET_SCRATCH_BASE holds a control character" ;;
+        *[[:cntrl:]]*) die "PLANWRIGHT_FLEET_SCRATCH_BASE resolves through a control character" ;;
       esac
     else
       tmp_dir=$(cd -P /tmp 2>/dev/null && pwd -P) || die "/tmp does not resolve"
