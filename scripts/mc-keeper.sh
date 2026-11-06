@@ -62,6 +62,12 @@ Usage:
         dropped<TAB><session>                the line, once nothing is left
         open<TAB><session>
         unknown<TAB><session><TAB><why>      the read failed; kept
+      then clears the decision-queue row of each visual flight parked for
+      the operator (scripts/flight-lifecycle.sh) from one of the program's
+      repositories, once its branch's pull request has merged or closed
+      and none is open:
+        settled<TAB><handle><TAB>MERGED|CLOSED
+        unknown<TAB><handle><TAB><why>       the read failed; kept
   mc-keeper.sh next --program <p> --spec <dir> [--now <epoch>]
       the units of the spec bundle at <dir> (scripts/orchestrate-state.sh,
       run from the directory's repository) that can start now:
@@ -335,6 +341,55 @@ EOF
   return "$sw_rc"
 }
 
+# flight_parks: a visual flight parked for the operator whose branch's pull
+# request has since merged or closed waits on nobody, but nothing else clears
+# its queue row: a flight placed outside mission control has no ledger line,
+# and its own retire waits for a worktree removal that may never come. Each
+# such row of a flight from one of the program's repositories is cleared,
+# only while it is still the row judged. One still open, none, or a read that
+# fails keeps it. Never fails the sweep: a park left queued is no failure of
+# this duty.
+flight_parks() {
+  fp_home=$(mc_fleet_home) || return 0
+  fp_store=$fp_home/attention/state
+  [ -f "$fp_store" ] && [ ! -L "$fp_store" ] || return 0
+  fp_rows=$(awk -F '\t' '$3 == "awaiting-input" && index($9, "flight-parked: ") == 1 && index($2, "flight:") == 1 {
+      id = substr($2, 8)
+      if (id ~ /^[a-z0-9][a-z0-9-]*$/ && ($1 == "tmux-flight-" id || $1 == "print-flight-" id)) print $1 "\t" id "\t" $4
+    }' "$fp_store" 2>/dev/null) || return 0
+  [ -n "$fp_rows" ] || return 0
+  fp_repos=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories 2>/dev/null) || return 0
+  fp_mine=""
+  while IFS= read -r fp_r; do
+    [ -n "$fp_r" ] || continue
+    fp_r=$(cd -- "$fp_r" 2>/dev/null && pwd -P) && fp_mine="$fp_mine$fp_r
+"
+  done <<EOF
+$fp_repos
+EOF
+  while IFS='	' read -r fp_h fp_id fp_stamp; do
+    [ -n "$fp_h" ] || continue
+    fp_ck=$fp_home/flights/$fp_id/checkout
+    [ -f "$fp_ck" ] && [ ! -L "$fp_ck" ] || continue
+    fp_dir=$(head -n 1 "$fp_ck" 2>/dev/null)
+    case $fp_dir in /*) ;; *) continue ;; esac
+    fp_dir=$(cd -- "$fp_dir" 2>/dev/null && pwd -P) || continue
+    printf '%s' "$fp_mine" | D=$fp_dir awk '$0 == ENVIRON["D"] { f = 1 } END { exit !f }' || continue
+    if ! fp_states=$(cd -- "$fp_dir" && gh_bounded pr list --head "planwright/flight/$fp_id" --state all --json state --jq '.[].state' 2>/dev/null); then
+      [ "$events" = 1 ] || printf 'unknown\t%s\tthe pull request read failed\n' "$fp_h"
+      continue
+    fi
+    case $fp_states in *OPEN*) continue ;; esac
+    fp_state=$(printf '%s\n' "$fp_states" | awk '$0 == "MERGED" || $0 == "CLOSED" { s = (s == "MERGED" ? s : $0) } END { print s }')
+    [ -n "$fp_state" ] || continue
+    /bin/sh "$script_dir/fleet-attention.sh" clear "$fp_h" --if-row "flight:$fp_id" awaiting-input "$fp_stamp" >/dev/null 2>&1 </dev/null || continue
+    [ "$events" = 1 ] || printf 'settled\t%s\t%s\n' "$fp_h" "$fp_state"
+  done <<EOF
+$fp_rows
+EOF
+  return 0
+}
+
 # pending_prompts: the stream-json pending-age sweep over every worker on
 # this machine, whatever planwright version or verb launched it, since one
 # the launcher never registered has no other watcher once its own supervisor
@@ -414,6 +469,7 @@ case $verb in
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
     trap pw_lock_release_all EXIT
     sweep || rc=1
+    flight_parks
     exit "$rc"
     ;;
   next)

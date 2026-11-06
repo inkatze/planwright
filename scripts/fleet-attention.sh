@@ -152,7 +152,7 @@
 #       most nine digits) have passed since <key> last printed. A transition
 #       that empties the view prints one line saying so, since silence here
 #       means unchanged.
-#   fleet-attention.sh queue [--count] [--surface-provided] [--except <worker>]... [--on-change <key>]
+#   fleet-attention.sh queue [--count|--tally] [--surface-provided] [--except <worker>]... [--on-change <key>]
 #       Decision queue: ordered actionable items as structured choices.
 #       --on-change never withholds a pending decision; only an empty queue
 #       stays silent once <key> has seen it empty (the status render carries
@@ -160,6 +160,10 @@
 #       render, so a hand-over never reads as the queue emptying.
 #       --count prints only the item count (the length that tracks the
 #       `## Awaiting input` count).
+#       --tally splits that count by who acts on it, `operator<TAB><n>` then
+#       `approvals<TAB><n>`: a worker permission prompt (the hook's
+#       `permission` marker, or a stream-json request row) is an approval,
+#       which mission control answers; every other item is the operator's.
 #       --except leaves a worker's row out of the RENDER. The tower loop's
 #       comms step passes the worker whose question it just handed the operator
 #       (tower-comms REQ-A1.1): the render that ends the same iteration would
@@ -234,6 +238,9 @@ fi
 FS="$script_dir/fleet-state.sh"
 RNC="$script_dir/resolve-notification-channel.sh"
 TAB=$(printf '\t')
+# Must match ANSWER_HINT in scripts/fleet-streamjson.sh, the tail of every
+# question it writes for a pending request.
+STREAMJSON_ANSWER_HINT='answer via fleet-streamjson.sh answer'
 
 # What a refused scope is told it should look like: the grammar has no slash,
 # so a scope that names a spec names it by the identifier, never by a path
@@ -1553,19 +1560,31 @@ case $cmd in
           ;;
         --on-change)
           [ "$#" -ge 2 ] || {
-            echo "usage: fleet-attention.sh queue [--count] [--surface-provided] [--except <worker>]... [--on-change <key>]" >&2
+            echo "usage: fleet-attention.sh queue [--count|--tally] [--surface-provided] [--except <worker>]... [--on-change <key>]" >&2
             exit 2
           }
           on_change_opts queue "$1" "$2"
           shift 2
           ;;
         --count)
+          [ "$count_only" != 2 ] || {
+            echo "fleet-attention: queue: --count and --tally are exclusive" >&2
+            exit 2
+          }
           count_only=1
+          shift
+          ;;
+        --tally)
+          [ "$count_only" != 1 ] || {
+            echo "fleet-attention: queue: --count and --tally are exclusive" >&2
+            exit 2
+          }
+          count_only=2
           shift
           ;;
         --except)
           [ "$#" -ge 2 ] || {
-            echo "usage: fleet-attention.sh queue [--count] [--surface-provided] [--except <worker>]... [--on-change <key>]" >&2
+            echo "usage: fleet-attention.sh queue [--count|--tally] [--surface-provided] [--except <worker>]... [--on-change <key>]" >&2
             exit 2
           }
           valid_field "$2" || {
@@ -1612,6 +1631,19 @@ case $cmd in
     fi
     if [ "$count_only" = 1 ]; then
       printf '%s\n' "$n"
+      exit 0
+    fi
+    if [ "$count_only" = 2 ]; then
+      # A stream-json request row is a plain decide row (field 9 empty), told
+      # by the question scripts/fleet-streamjson.sh writes for a permission
+      # request; its worker-question rows stay the operator's.
+      printf '%s\n' "$sortable" | FA_HINT="$STREAMJSON_ANSWER_HINT" awk -F "$TAB" '
+        NF {
+          r = $11 ""; q = $8 ""
+          if (r == "permission" || (r == "" && index(q, ENVIRON["FA_HINT"]) && q ~ /^(OVERDUE )?permission request tool /)) a++
+          else o++
+        }
+        END { printf "operator\t%d\napprovals\t%d\n", o, a }'
       exit 0
     fi
     # A pending decision is never withheld under --on-change: one re-raised in

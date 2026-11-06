@@ -83,9 +83,13 @@ Usage:
         flight<TAB><worker><TAB><scope><TAB><backend>
                                              a live fleet registry session,
                                              `-` for a field its record lacks
-        waiting<TAB><n|->                    the operator queue's items, `-`
+        waiting<TAB><n|->                    the operator queue's items that
+                                             wait on the operator, `-`
                                              where the backend surfaces the
                                              queue itself
+        approvals<TAB><n>                    the queue's worker permission
+                                             prompts, which mission control
+                                             answers (with a number waiting)
         pending<TAB><n>                      the target's events not yet
                                              submitted (with --target)
         decision<TAB><time><TAB><subject><TAB><act>
@@ -161,7 +165,8 @@ Usage:
       the text panel, for a session where nothing draws the pane:
         mission control <p>
         in flight: <n>               then one indented line per flight
-        waiting: <n>
+        waiting on you: <n>
+        approvals mission control is handling: <n>   when any
         pending wakes: <n>           with --target
         rung: <rung> (<reason>)
       a store that cannot be read is said as unknown, with why
@@ -699,6 +704,7 @@ mc_now_arg "$now"
 # A count from a store that could not be read is unknown, never a number.
 D_FLIGHT='?'
 D_WAITING='?'
+D_APPROVALS=0
 D_PENDING='?'
 D_RUNG=-
 D_OLDEST=""
@@ -742,15 +748,24 @@ flights() {
   D_FLIGHT=$(printf '%s' "$fl_rows" | awk 'NF { n++ } END { print n + 0 }')
 }
 
+# A worker permission prompt is mission control's to answer, so it is said
+# apart and never counted as waiting on the operator.
 waiting() {
-  if ! wt_n=$(/bin/sh "$script_dir/fleet-attention.sh" queue --count 2>/dev/null); then
+  if ! wt_t=$(/bin/sh "$script_dir/fleet-attention.sh" queue --tally 2>/dev/null); then
     printf 'unreadable\toperator queue\n'
-  elif [ -z "$wt_n" ]; then
+    return 0
+  fi
+  if [ -z "$wt_t" ]; then
     # The backend surfaces the queue itself and the count is deferred to it.
     printf 'waiting\t-\n'
-  elif mc_valid_uint "$wt_n"; then
+    return 0
+  fi
+  wt_n=$(printf '%s\n' "$wt_t" | awk -F '\t' '$1 == "operator" { print $2 }')
+  wt_a=$(printf '%s\n' "$wt_t" | awk -F '\t' '$1 == "approvals" { print $2 }')
+  if mc_valid_uint "$wt_n" && mc_valid_uint "$wt_a"; then
     D_WAITING=$wt_n
-    printf 'waiting\t%s\n' "$wt_n"
+    D_APPROVALS=$wt_a
+    printf 'waiting\t%s\napprovals\t%s\n' "$wt_n" "$wt_a"
   else
     printf 'unreadable\toperator queue\n'
   fi
@@ -943,6 +958,7 @@ handover() {
 the_line() {
   ln_text="mission control $program: $D_FLIGHT in flight, $D_WAITING waiting"
   [ -z "$target" ] || ln_text="$ln_text, $D_PENDING pending"
+  [ "$D_APPROVALS" = 0 ] || ln_text="$ln_text, $D_APPROVALS approvals mission control is handling"
   ln_text="$ln_text, rung $D_RUNG"
   [ -z "$D_OLDEST" ] || ln_text="$ln_text, $D_OLDEST"
   clean_field "$ln_text"
@@ -959,6 +975,7 @@ text_panel() {
   } | P=$program awk -F '\t' '
     $1 == "flight" { f[++n] = "  " $2 "  " $3 "  (" $4 ")" }
     $1 == "waiting" { w = ($2 == "-" ? "shown by the host" : $2) }
+    $1 == "approvals" { a = $2 }
     $1 == "pending" { p = $2 }
     $1 == "unreadable" && $2 == "events" { p = "unknown (the events cannot be read)" }
     $1 == "rung" { r = $2 (($3 == "" || $3 == "-") ? "" : " (" $3 ")") }
@@ -969,7 +986,8 @@ text_panel() {
       print "mission control " ENVIRON["P"]
       print "in flight: " (fu ? "unknown (the fleet registry cannot be read)" : n + 0)
       for (i = 1; i <= n; i++) print f[i]
-      print "waiting: " (w == "" ? "unknown" : w)
+      print "waiting on you: " (w == "" ? "unknown" : w)
+      if (a + 0 > 0) print "approvals mission control is handling: " a
       if (p != "") print "pending wakes: " p
       print "rung: " (r == "" ? "unknown" : r)
     }' | mc_clean_text

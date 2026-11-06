@@ -274,4 +274,32 @@ fl_hook <"$tmp/payload" || fail "the hook exited non-zero on a command mentionin
 [ "$(field w9 12)" = 'grep -r "tool_input" .' ] || fail "a command mentioning tool_input was refused (got '$(field w9 12)')"
 echo "ok: a command text that mentions tool_input still decodes"
 
+# --- queue --tally: the operator's items apart from the approvals -----------
+
+# A worker permission prompt, from the PermissionRequest hook's marker or a
+# stream-json request row, is mission control's to answer; everything else
+# awaiting input is the operator's.
+reset
+hint='answer via fleet-streamjson.sh answer'
+fa permission p1 spec.task-1 'git status' || fail "tally setup: permission"
+fa decide p2 spec.task-2 "permission request tool Bash req aaaa1111 - $hint" deny 'allow|deny' || fail "tally setup: stream-json request"
+fa decide p3 spec.task-3 "OVERDUE permission request tool Write req bbbb2222 - $hint" deny 'allow|deny' high || fail "tally setup: overdue request"
+fa decide o1 spec.task-4 'Ship it?' yes 'yes|no' || fail "tally setup: decide"
+fa park o2 flight:x 'flight-parked: point' || fail "tally setup: park"
+fa decide o3 spec.task-5 "worker question (AskUserQuestion) req cccc3333 - $hint" deny 'allow|deny' || fail "tally setup: worker question"
+fa decide o4 spec.task-6 'permission request tool Bash, should it run?' yes 'yes|no' || fail "tally setup: look-alike"
+fa heartbeat s1 spec.task-7 working || fail "tally setup: heartbeat"
+out=$(fa queue --tally) || fail "queue --tally failed"
+[ "$out" = "operator${TAB}4
+approvals${TAB}3" ] || fail "queue --tally split wrong (got: $out)"
+[ "$(fa queue --count)" = 7 ] || fail "queue --count must stay the full awaiting count"
+echo "ok: queue --tally counts worker permission prompts apart from the operator's items"
+
+reset
+out=$(fa queue --tally) || fail "queue --tally on no store failed"
+[ "$out" = "operator${TAB}0
+approvals${TAB}0" ] || fail "queue --tally with no store (got: $out)"
+fa queue --tally --count >/dev/null 2>&1 && fail "queue --tally with --count must be refused"
+echo "ok: queue --tally reads zero with no store and refuses --count"
+
 echo "PASS: $(basename "$0")"

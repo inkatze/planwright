@@ -171,6 +171,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
         'Holding for you',
         [
           `${d.waiting === null ? 'unknown' : d.waiting} waiting on you`,
+          ...(d.approvals ? [`${d.approvals} approvals mission control is handling`] : []),
           ...(d.pending !== null ? [`${d.pending} event(s) inbound`] : []),
         ],
       )}
