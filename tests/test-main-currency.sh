@@ -1113,4 +1113,21 @@ printf '%s\n' "$out" | grep -q '^sync	fast-forward$' || fail "46: no fast-forwar
 grep -q "	main	$before	$("$REAL_GIT" -C "$root/tower" rev-parse main)	" "$(ff_record "$root/tower")" \
   || fail "46: the record does not carry the true old commit: $(cat "$(ff_record "$root/tower")")"
 
+# 47. Another writer moves the branch right after this run's merge (here a
+#     post-merge hook, away and back): the run still finds its own entry
+#     below the newest and records its true old commit.
+ff_case 47 ffp-laterwriter
+cat >"$root/tower/.git/hooks/post-merge" <<EOF
+#!/bin/sh
+t=\$("$REAL_GIT" rev-parse HEAD)
+"$REAL_GIT" update-ref -m away refs/heads/main "\$t~1"
+"$REAL_GIT" update-ref -m back refs/heads/main "\$t"
+EOF
+chmod +x "$root/tower/.git/hooks/post-merge"
+ffp "$root/tower"
+[ "$rc" -eq 0 ] || fail "47: the fast-forward failed (exit $rc): $out"
+printf '%s\n' "$out" | grep -q '^sync	fast-forward$' || fail "47: the run did not claim its own move: $out"
+grep -q "	main	$before	$("$REAL_GIT" -C "$root/tower" rev-parse main)	" "$(ff_record "$root/tower")" 2>/dev/null \
+  || fail "47: the record does not carry the true old commit"
+
 echo "PASS: test-main-currency.sh"

@@ -313,7 +313,7 @@ ff_primary() {
       ffp_top=$(cd -P -- "$ffp_top" 2>/dev/null && pwd -P) || ffp_top=''
     fi
     if [ -z "$ffp_top" ] || [ "$gitdir" != "$common" ] || [ "$ffp_top" != "$(pwd -P)" ]; then
-      ff_refuse "$(sanitize_printable "$ffp_checkout") is not a primary checkout's top level, and this verb moves only a primary checkout's default branch; name the primary checkout itself (for this repository: main-currency.sh ff-primary --checkout $(shell_quote "$(sanitize_printable "$primary")"))"
+      ff_refuse "$(sanitize_printable "$ffp_checkout") is not a primary checkout's top level, and this verb moves only a primary checkout's default branch; name the primary checkout itself (for this repository: main-currency.sh ff-primary --checkout $(shell_quote "$primary"))"
     fi
   fi
   cd -- "$primary" || ff_refuse "the primary checkout $(sanitize_printable "$primary") could not be entered"
@@ -449,7 +449,10 @@ ff_primary() {
     err_git_said "$merge_out"
     exit 3
   fi
-  # The merge above always writes a reflog entry. A merge onto an unborn
+  # The merge above always writes a reflog entry; in a repository with
+  # reflogs switched off that also creates the branch's and HEAD's logs,
+  # which git then keeps appending to, and the setting reaches the merge's
+  # hooks. A merge onto an unborn
   # branch writes git's own `initial pull` entry, not the tag, so that first
   # move stands as this run's; otherwise this run moved the branch only if
   # its tag is among the recent entries, the one after it holding the true
