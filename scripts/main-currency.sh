@@ -291,10 +291,13 @@ ff_primary() {
   fi
   # Checked on the git directory's path, before any $(...) strips a trailing
   # newline that would turn the path into a sibling's: the checkout's path is
-  # printed and recorded as a tab-separated field. The byte range is
-  # sanitize_printable's.
-  [ "$(printf '%s' "$common" | tr -d '\000-\037\177\200-\237')" = "$common" ] \
-    || ff_refuse "the repository's path holds a control character, which this verb's output and record lines cannot carry"
+  # printed and recorded as a tab-separated field. C1 controls are matched in
+  # their UTF-8 form only, since their raw bytes also sit inside ordinary
+  # multibyte characters (Cyrillic, CJK).
+  if [ "$(printf '%s' "$common" | tr -d '\000-\037\177')" != "$common" ] \
+    || printf '%s' "$common" | grep -q "$(printf '\302[\200-\237]')"; then
+    ff_refuse "the repository's path holds a control character, which this verb's output and record lines cannot carry"
+  fi
   case $common in
     */.git) primary=${common%/.git} ;;
     *) ff_refuse "the repository's git directory ($(sanitize_printable "$common")) is not a checkout's .git, so there is no primary checkout to fast-forward" ;;
@@ -421,7 +424,7 @@ ff_primary() {
   # move is attributed from the reflog rather than from merge output a hook
   # or a file name could imitate.
   ffp_tag="planwright main-currency ff-primary $$.$(date +%s)"
-  if ! merge_out=$(GIT_REFLOG_ACTION=$ffp_tag git merge --ff-only --no-edit --no-stat "$target" 2>&1); then
+  if ! merge_out=$(GIT_REFLOG_ACTION=$ffp_tag git -c core.logAllRefUpdates=always merge --ff-only --no-edit --no-stat "$target" 2>&1); then
     case "$merge_out" in
       *'ot possible to fast-forward'* | *'divergent'*)
         err "$default has history origin/$default lacks, so this is not a pure fast-forward — refusing"
@@ -446,29 +449,22 @@ ff_primary() {
     err_git_said "$merge_out"
     exit 3
   fi
-  # A merge onto an unborn branch writes git's own `initial pull` entry, not
-  # the tag, so that first move stands as this run's.
-  ffp_last=''
+  # The merge above always writes a reflog entry. A merge onto an unborn
+  # branch writes git's own `initial pull` entry, not the tag, so that first
+  # move stands as this run's; otherwise this run moved the branch only if
+  # its tag is among the recent entries, the one after it holding the true
+  # old commit even when another writer moved the branch since.
   if [ -n "$before" ]; then
-    ffp_last=$(git reflog -1 --format=%gs "refs/heads/$default" -- 2>/dev/null) || ffp_last=''
-  fi
-  case $ffp_last in
-    "$ffp_tag:"*)
-      # This run's move; the entry before it holds the true old commit, even
-      # when another run moved the branch after the read above.
-      before=$(git rev-parse --verify --quiet "refs/heads/$default@{1}") || before=''
-      ;;
-    '')
-      # An unborn branch, or no reflog to read (core.logAllRefUpdates off):
-      # the read above stands.
-      ;;
-    *)
+    ffp_n=$(git reflog -n 50 --format=%gs "refs/heads/$default" -- 2>/dev/null \
+      | TAG="$ffp_tag:" awk 'index($0, ENVIRON["TAG"]) == 1 { print NR; exit }') || ffp_n=''
+    if [ -z "$ffp_n" ]; then
       # Another run moved it between the read above and this merge.
       printf 'sync\tup-to-date\n'
       printf 'main\t%s\n' "$after"
       exit 0
-      ;;
-  esac
+    fi
+    before=$(git rev-parse --verify --quiet "refs/heads/$default@{$ffp_n}") || before=''
+  fi
   actor=$(sanitize_printable "${PLANWRIGHT_WORKER_HANDLE:-${PLANWRIGHT_TOWER_ID:-}}" unknown)
   printf 'sync\tfast-forward\n'
   printf 'main\t%s\n' "$after"

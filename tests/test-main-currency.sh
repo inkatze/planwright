@@ -1029,8 +1029,9 @@ ff_refused 39 "$root/tower" main "$before"
 ff_case 40 ffp-ctrl
 nl_dir="$root/nl
 "
-c1_dir=$(printf '%s/c\233' "$root")
+c1_dir=$(printf '%s/c\302\233' "$root")
 "$REAL_GIT" clone --quiet "$root/origin.git" "$root/nl"
+"$REAL_GIT" -C "$root/nl" reset --quiet --hard HEAD~1
 sib_before=$("$REAL_GIT" -C "$root/nl" rev-parse main)
 for dir in "$nl_dir" "$c1_dir"; do
   "$REAL_GIT" clone --quiet "$root/origin.git" "$dir" || fail "40: could not build the control-character fixture"
@@ -1089,5 +1090,27 @@ for actor in tower-x unknown; do
     || fail "44: the record does not carry an empty old commit and actor $actor: $(cat "$(ff_record "$root_dir/primary")")"
   assert_no_rewrite 44
 done
+
+# 45. A non-ASCII path (Cyrillic and CJK, whose UTF-8 bytes overlap the C1
+#     range) is an ordinary path, not a control character.
+ff_case 45 ffp-utf8
+utf_dir=$(printf '%s/\320\277\321\200\320\276\320\265\320\272\321\202-\346\227\245' "$root")
+"$REAL_GIT" clone --quiet "$root/origin.git" "$utf_dir"
+"$REAL_GIT" -C "$utf_dir" reset --quiet --hard HEAD~1
+ffp "$utf_dir"
+[ "$rc" -eq 0 ] || fail "45: a non-ASCII path must fast-forward (exit $rc): $out"
+[ "$("$REAL_GIT" -C "$utf_dir" rev-parse main)" = "$("$REAL_GIT" -C "$root/origin.git" rev-parse main)" ] \
+  || fail "45: main is not at origin/main"
+
+# 46. Reflog writes switched off in the repository: the move is still
+#     attributed and recorded with its true old commit.
+ff_case 46 ffp-noreflog
+"$REAL_GIT" -C "$root/tower" config core.logAllRefUpdates false
+rm -f "$root/tower/.git/logs/refs/heads/main"
+ffp "$root/tower"
+[ "$rc" -eq 0 ] || fail "46: a repository without reflogs must fast-forward (exit $rc): $out"
+printf '%s\n' "$out" | grep -q '^sync	fast-forward$' || fail "46: no fast-forward verdict: $out"
+grep -q "	main	$before	$("$REAL_GIT" -C "$root/tower" rev-parse main)	" "$(ff_record "$root/tower")" \
+  || fail "46: the record does not carry the true old commit: $(cat "$(ff_record "$root/tower")")"
 
 echo "PASS: test-main-currency.sh"
