@@ -713,28 +713,30 @@ EOF
   pass "m11: the stream-json rung launches in the unit worktree with the prompt"
 }
 
-# m20: /orchestrate dispatches its script-driven rungs through this step, with
-# the prompt riding the launch, and never names the tmux-launching primitive
-# outside the tmux rung without --no-attach.
+# m20: /orchestrate dispatches its script-launched rungs through this step,
+# with the prompt riding the launch; its tmux rung places in the work
+# repository and limits --backend tmux; and no other mention of the
+# tmux-launching primitive omits --no-attach. Whitespace is squeezed so a
+# rewrap never fails it.
 m20() {
   begin
-  local skill sj tmux other
+  local skill sj_rung tmux_rung other
   skill="$here/../skills/orchestrate/SKILL.md"
-  sj=$(awk '/^- \*\*stream-json-persistent\*\*/ {on = 1; print; next} on && /^- \*\*/ {exit} on' "$skill" | tr '\n' ' ')
-  case $sj in
+  sj_rung=$(awk '/^- \*\*stream-json-persistent\*\*/ {on = 1; print; next} on && /^- \*\*/ {exit} on' "$skill" | tr '\n' ' ' | tr -s ' ')
+  case $sj_rung in
     *headless-oneshot*"scripts/orchestrate-meta-step.sh dispatch"*--prompt-file*) ;;
-    *) fail "m20: the stream-json-persistent and headless-oneshot rungs must dispatch through orchestrate-meta-step.sh with --prompt-file: $sj" ;;
+    *) fail "m20: the stream-json-persistent and headless-oneshot rungs must dispatch through orchestrate-meta-step.sh with --prompt-file: $sj_rung" ;;
   esac
-  tmux=$(awk '/^- \*\*tmux\*\* \(opt-in\)/ {on = 1; print; next} on && /^- \*\*/ {exit} on' "$skill" | tr '\n' ' ')
-  case $tmux in
+  tmux_rung=$(awk '/^- \*\*tmux\*\* \(opt-in\)/ {on = 1; print; next} on && /^- \*\*/ {exit} on' "$skill" | tr '\n' ' ' | tr -s ' ')
+  case $tmux_rung in
     *"--repo-root <work-repo>"*"Pass it \`--backend tmux\` only when"*) ;;
-    *) fail "m20: the tmux rung must place in the work repository and limit --backend tmux: $tmux" ;;
+    *) fail "m20: the tmux rung must place in the work repository and limit --backend tmux: $tmux_rung" ;;
   esac
   # shellcheck disable=SC2016 # a literal backtick, matched as written
   other=$(awk '/^- \*\*tmux\*\* \(opt-in\)/ {skip = 1; next} skip && /^- \*\*/ {skip = 0} !skip' "$skill" | tr '\n' ' ' \
     | grep -o 'fleet-dispatch-worktree\.sh[^`]*`' | grep -v -- '--no-attach' || true)
   [ -z "$other" ] || fail "m20: a non-tmux mention of the primitive launches a tmux worker: $other"
-  pass "m20: the skill routes script rungs through the meta step"
+  pass "m20: the skill routes each rung's dispatch through its own primitive"
 }
 
 m1

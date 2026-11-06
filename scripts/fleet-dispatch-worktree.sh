@@ -136,7 +136,8 @@
 # without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-dispatch-worktree.sh dispatch <spec> <id> [--brief <abs-file>] \
 #       [--backend tmux] [--repo-root <dir>] \
-#       [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
+#       [--launch-only | --attach-dry-run | --no-attach] \
+#       [-- <extra launch args>...]
 #       Validate, fetch `<base>`, reconcile, `git worktree add -b`, wire the
 #       hook backstop, launch, then confirm. The report is `dispatch<TAB><key><TAB><value>` lines (branch,
 #       worktree, base), `launch` lines (session, window, handle, since,
@@ -147,8 +148,8 @@
 #       --backend tmux   the caller asserts tmux was picked where the
 #                        unattended resolution cannot see it (an explicit
 #                        /orchestrate --backend tmux, or the tmux-context ask
-#                        answered yes). It is a caller assertion, not a
-#                        safety gate: never the remedy for an exit 17.
+#                        answered yes). Not a safety gate: never the
+#                        remedy for an exit 17.
 #                        Without it a task launch (live or --launch-only, not
 #                        --attach-dry-run) first resolves the spec's backend
 #                        (resolve-dispatch-backend.sh, unattended) and refuses
@@ -1561,15 +1562,16 @@ do_dispatch() {
     _resolve_rc=0
     _resolve_out=$(cd "$_repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-dispatch-backend.sh" resolve "$_spec_dir" 2>&1 </dev/null) || _resolve_rc=$?
     _resolved_backend=$(printf '%s\n' "$_resolve_out" | awk -F"$TAB" '$1 == "backend" { print $2; exit }')
-    if [ "$_resolve_rc" -ne 0 ] || [ -z "$_resolved_backend" ] || [ "$_resolved_backend" != tmux ]; then
+    if [ "$_resolve_rc" -ne 0 ] || [ "$_resolved_backend" != tmux ]; then
       # The resolver's own diagnostics (a malformed overlay, an unadvertised
-      # backend, a degrade note) say why; its TSV rows do not.
-      printf '%s\n' "$_resolve_out" | grep -v "^configured$TAB\|^ask$TAB\|^backend$TAB" \
+      # backend, a degrade note) say why; its TSV rows do not. Each carries
+      # its writer's own prefix.
+      printf '%s\n' "$_resolve_out" | grep -v -e "^configured$TAB" -e "^ask$TAB" -e "^backend$TAB" \
         | while IFS= read -r _resolve_line; do
-          [ -z "$_resolve_line" ] || warn "resolve-dispatch-backend: $_resolve_line"
+          [ -z "$_resolve_line" ] || warn "$_resolve_line"
         done
-      if [ -z "$_resolved_backend" ] || [ "$_resolve_rc" -ne 0 ]; then
-        warn "refusing the tmux launch: the backend for spec $_spec did not resolve (resolve-dispatch-backend exit $_resolve_rc); nothing was placed. Fix the dispatch_backend configuration it names"
+      if [ "$_resolve_rc" -ne 0 ] || [ -z "$_resolved_backend" ]; then
+        warn "refusing the tmux launch: the backend for spec $_spec did not resolve (resolve-dispatch-backend exit $_resolve_rc, its reason above); nothing was placed"
       else
         warn "refusing the tmux launch: spec $_spec resolves to backend $_resolved_backend, whose supervisor would never see this worker's prompts; nothing was placed. Dispatch through that rung (orchestrate-meta-step.sh dispatch for stream-json-persistent or headless-oneshot), or create the worktree alone with --no-attach"
       fi

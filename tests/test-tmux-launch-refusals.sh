@@ -69,12 +69,17 @@ fail() {
 # shellcheck source=tests/lib/tmux-launch-cases.sh
 . "$here/lib/tmux-launch-cases.sh"
 
-# nothing_placed <label> <id> — no worktree, branch, marker, or record.
+# nothing_placed <label> <id> [<records>] — no worktree, branch, marker, or
+# record; with <records>, the registry still holds exactly that many lines.
 nothing_placed() {
   [ ! -e "$P/.claude/worktrees/demo-task-$2" ] || fail "$1: a worktree was placed"
   gitc "$P" show-ref --verify --quiet "refs/heads/planwright/demo/task-$2" && fail "$1: a branch was created"
   [ ! -e "$C/markers/$2" ] || fail "$1: a dispatch marker was written"
-  [ ! -s "$C/fleet/registry" ] || fail "$1: a registry record was written"
+  if [ -n "${3:-}" ]; then
+    [ "$(grep -c . "$C/fleet/registry" 2>/dev/null || true)" = "$3" ] || fail "$1: a registry record was written"
+  else
+    [ ! -s "$C/fleet/registry" ] || fail "$1: a registry record was written"
+  fi
   return 0
 }
 
@@ -625,6 +630,10 @@ r19() {
     *--no-attach*) ;;
     *) fail "r19: the refusal does not name --no-attach: $TLH_ERR" ;;
   esac
+  # The resolver's TSV rows are data, never relayed as diagnostics.
+  case $TLH_ERR in
+    *"worktree: configured"* | *"worktree: backend"*) fail "r19: the resolver's rows leaked into the refusal: $TLH_ERR" ;;
+  esac
   [ -z "$(tmux_calls_since "$before" | awk -F"$TAB" '$1 == "new-session"')" ] \
     || fail "r19: new-session was called"
   nothing_placed r19 1
@@ -661,13 +670,9 @@ r19() {
     *) fail "r19: the unresolved refusal does not relay the resolver's reason: $TLH_ERR" ;;
   esac
   [ -z "$(tmux_calls_since "$before" | awk -F"$TAB" '$1 == "new-session"')" ] \
-    || fail "r19: an unresolved backend reached new-session"
+    || fail "r19 unresolved: new-session was called"
   # The case's registry already holds task 3's record, so only growth counts.
-  [ ! -e "$P/.claude/worktrees/demo-task-4" ] || fail "r19 unresolved: a worktree was placed"
-  gitc "$P" show-ref --verify --quiet refs/heads/planwright/demo/task-4 && fail "r19 unresolved: a branch was created"
-  [ ! -e "$C/markers/4" ] || fail "r19 unresolved: a dispatch marker was written"
-  [ "$(grep -c . "$C/fleet/registry" 2>/dev/null || true)" = "$records" ] \
-    || fail "r19 unresolved: a registry record was written"
+  nothing_placed "r19 unresolved" 4 "$records"
 }
 
 r1
