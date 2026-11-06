@@ -785,12 +785,7 @@ doctor_cron() {
 
 v_doctor() {
   [ $# -eq 2 ] && [ "$1" = --program ] || usage
-  mc_valid_program "$2" || mc_usage_fail "invalid program name '$(sanitize_printable "$2")'"
-  dr_list=$(/bin/bash "$script_dir/mc-program.sh" list) || mc_fail "cannot list the configured programs"
-  printf '%s\n' "$dr_list" | grep -qx -- "$2" || {
-    printf '%s\n' "$prog: program '$2' is not configured" >&2
-    exit 3
-  }
+  mc_require_program "$2"
   dr_out=$(
     doctor_overrides
     doctor_duties "$2"
