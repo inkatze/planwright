@@ -27,7 +27,7 @@ fail() {
   failures=$((failures + 1))
 }
 
-T=$(mktemp -d) || exit 1
+T=$(mktemp -d "${TMPDIR:-/tmp}/fleet-scratch-test.XXXXXX") || exit 1
 trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT
 T=$(cd "$T" && pwd -P)
 HOME_F=$T/fleet
