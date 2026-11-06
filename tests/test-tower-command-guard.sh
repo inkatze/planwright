@@ -1493,6 +1493,7 @@ expect_mc defer "the raw prompt-answer verb prompts through bash" "bash $REPO_RO
 expect_mc defer "an unlisted verb of a listed script prompts" "$REPO_ROOT/scripts/mc-kb.sh revert 3"
 expect_mc defer "a listed script run with no verb it lists prompts" "$REPO_ROOT/scripts/mc-rules.sh"
 expect_mc defer "a verb word that is not a plain word prompts" "$REPO_ROOT/scripts/mc-rules.sh 'load;x'"
+expect_mc allow "a * entry covers its script run with no argument" "$REPO_ROOT/scripts/resolve-rule-doc.sh"
 expect_mc defer "an unlisted script prompts" "$REPO_ROOT/scripts/offload-dispatch.sh dispatch tmux brief.md"
 expect_mc defer "a git mutation is never pre-approved" "git commit -m wip"
 expect_mc defer "a ready flip is never pre-approved" "gh pr ready 42"
@@ -1503,7 +1504,7 @@ mkdir -p "$WILD/config"
 cp -R "$REPO_ROOT/scripts" "$WILD/scripts"
 {
   cat "$VERBS"
-  printf '%s\n' 'fleet-streamjson.sh *'
+  printf '%s\n' 'fleet-streamjson.sh *' 'mc-rules.sh load;x' 'mc-rules.sh --load'
 } >"$WILD/config/mission-control-verbs.txt"
 WILD_GUARD="$WILD/scripts/tower-command-guard.sh"
 mkdir -p "$NOLIST"
@@ -1514,6 +1515,12 @@ expect_mc defer "with no list beside the guard, a listed verb prompts" \
   "$REPO_ROOT/scripts/mc-rules.sh load alpha" "$NOLIST/scripts/tower-command-guard.sh"
 expect_mc defer "a no-argument entry does not cover a literal - argument" "$REPO_ROOT/scripts/mc-keeper.sh - x"
 expect_mc defer "a flag in the verb position prompts" "$REPO_ROOT/scripts/mc-rules.sh --load alpha"
+# A list carrying those words must not make them pass: the plain-word check
+# runs before the list is consulted.
+expect_mc defer "a verb word that is not a plain word prompts even when listed" \
+  "$REPO_ROOT/scripts/mc-rules.sh 'load;x'" "$WILD_GUARD"
+expect_mc defer "a flag in the verb position prompts even when listed" \
+  "$REPO_ROOT/scripts/mc-rules.sh --load alpha" "$WILD_GUARD"
 # The guard refuses the raw prompt-answer verb itself, even under a list
 # whose wildcard would cover it.
 expect_mc allow "a wildcard entry covers its script's verbs" \
