@@ -3,14 +3,10 @@
 #
 # Usage: kickoff-spec-push.sh <spec>
 #
-# A kickoff session pushes planwright/<spec>/spec with this script, never with
-# a raw `git push`: the worker profiles deny the raw spelling for every spec
-# branch. The policy guard decides which session may run it (only the worker
-# launched as the kickoff of <spec>, on that spec's branch); this script
-# enforces the rest. It runs one plain `git push -u origin` of the current
-# branch, which must be planwright/<spec>/spec, and never forces, deletes, or
-# pushes any other ref. A non-fast-forward push is refused by git and left
-# refused.
+# The one push a kickoff session may make. The policy guard admits it only to
+# the worker launched as that spec's kickoff, on that spec's branch; this
+# script checks the branch and runs one plain `git push -u origin`. It never
+# forces, deletes, or pushes another ref, and git refuses a non-fast-forward.
 #
 # Exit: 0 pushed; 1 refused here; otherwise git's own push status.
 set -u
