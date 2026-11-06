@@ -101,7 +101,10 @@ tab=$(printf '\t')
 # --- fixtures ---------------------------------------------------------------
 
 # The single env-driven CLI shim. One inode for the whole suite.
-mkdir -p "$tmp/bin" "$tmp/scratch-base"
+mkdir -p "$tmp/bin"
+mkdir -m 700 "$tmp/scratch-base"
+# Every launch below, through senv or not, keeps its scratch root in the fixture.
+export PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base"
 cat >"$tmp/bin/claude" <<'SHIM'
 #!/bin/sh
 # stream-json CLI shim (fixture), driven by env:
@@ -926,8 +929,11 @@ launch_c39() {
     export PLANWRIGHT_WORKER_SPEC_ROOT=/stale PLANWRIGHT_WORKER_SESSION_RECORD=/stale \
       GIT_CEILING_DIRECTORIES="$tmp" \
       GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
-    # The default base, /tmp: what a worker really gets.
-    senv "$tmp/h39" "$tmp/r39" SHIM_EVENTS="$tmp/ev9" PLANWRIGHT_FLEET_SCRATCH_BASE= -- \
+    # The second worker gets the default base, what a worker really gets;
+    # its final stop below removes its root. The first keeps the suite's.
+    c39_base=$tmp/scratch-base
+    [ "$1" != sjw39b ] || c39_base=''
+    senv "$tmp/h39" "$tmp/r39" SHIM_EVENTS="$tmp/ev9" PLANWRIGHT_FLEET_SCRATCH_BASE="$c39_base" -- \
       launch "$1" execution-backends:4 --prompt-file "$tmp/prompt9" --cwd "$tmp/wt39" --foreground
   )
 }
@@ -1027,15 +1033,15 @@ release39() {
     stop_scratch_root_release "$tmp/u39" "$tmp/h39"
   )
 }
-mkdir -p "$tmp/base39"
+mkdir -m 700 "$tmp/base39"
 base39=$(cd "$tmp/base39" && pwd -P)
 make39() {
   PLANWRIGHT_FLEET_SCRATCH_BASE=$base39 /bin/sh "$here/../scripts/fleet-scratch.sh" make "$tmp/h39" "$1"
 }
 new39=$(make39 "$(printf 'a%.0s' $(seq 40))") || fail "c39: no recorded root to release"
-mkdir -p "$new39/ro/deep" "$base39/pw-0123456789abcdef/keep"
+mkdir -p "$new39/ro/deep" "$base39/0123456789abcdef/keep"
 chmod 500 "$new39/ro"
-! release39 "$base39/pw-0123456789abcdef" && [ -d "$base39/pw-0123456789abcdef/keep" ] \
+! release39 "$base39/0123456789abcdef" && [ -d "$base39/0123456789abcdef/keep" ] \
   || fail "c39: the final close removed a root the fleet home does not record"
 if ! release39 "$new39" || [ -e "$new39" ] || [ -e "$tmp/u39/scratch-root" ] \
   || grep -rqxF "$new39" "$h39r/scratch"; then

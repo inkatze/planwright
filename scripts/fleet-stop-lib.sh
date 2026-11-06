@@ -15,7 +15,7 @@
 #   me                   the name every diagnostic is prefixed with
 #   script_dir           the scripts directory, where the final close finds
 #                        fleet-scratch.sh
-#   release_classes     the classes the rung acquires, in release order;
+#   release_classes      the classes the rung acquires, in release order;
 #                        `process` first, because a tree that will not close
 #                        ends the walk (see stop_walk)
 #   stop_held <class> <dir> <worker> <store>
@@ -153,9 +153,9 @@ stop_scratch_release() {
 # (scripts/worker-session-record.sh), then the pointer. A plain close keeps
 # both, for the recover that may follow. Only a root the fleet home records
 # is removed (scripts/fleet-scratch.sh): a worktree's, or one session's, which
-# takes that session's files alone. A worktree's root that is still in use
-# beside this worker is left there too, and only the pointer goes: one
-# another stream-json worker records. A root of the earlier layout,
+# takes that session's files alone. A worktree's root that another
+# stream-json worker records is left, and only the pointer goes, as it does
+# for a root already gone with its record. A root of the earlier layout,
 # <fleet-home>/scratch/<sha1> or a session's inside it, <sha1>/<sha1>, goes
 # by its shape, and a worktree's of that layout also stays while it holds a
 # session's root (a session's directory exists before its pointer is
@@ -168,8 +168,12 @@ stop_scratch_root_release() {
   sr_home=$(cd -P -- "$2" 2>/dev/null && pwd -P) || return 1
   sr_key=${sr_path#"$sr_home/scratch/"}
   if [ "$sr_key" = "$sr_path" ]; then
-    sr_kind=$(/bin/sh "${script_dir:?}/fleet-scratch.sh" kind "$sr_home" "$sr_path" 2>/dev/null </dev/null) \
-      || return 1
+    if ! sr_kind=$(/bin/sh "${script_dir:?}/fleet-scratch.sh" kind "$sr_home" "$sr_path" 2>/dev/null </dev/null); then
+      # A worktree reclaim or an earlier close took both: nothing is left.
+      [ ! -e "$sr_path" ] && [ ! -L "$sr_path" ] || return 1
+      rm -f -- "$1/scratch-root"
+      return
+    fi
     if [ "$sr_kind" = worktree ] && stop_scratch_in_use "$1" "$2" "$sr_path" pointers; then
       rm -f -- "$1/scratch-root"
       return

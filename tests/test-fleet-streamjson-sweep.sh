@@ -222,7 +222,8 @@ echo "ok: w4 a dead worker's pending request is settled and leaves the queue, ne
 # ---------------------------------------------------------------------------
 home="$tmp/h5"
 wt="$tmp/wt5"
-mkdir -p "$home" "$wt" "$tmp/sb"
+mkdir -p "$home" "$wt"
+mkdir -m 700 "$tmp/sb"
 git -C "$wt" init -q || fail "w5: cannot create the checkout"
 record() { # record <handle>: the scratch root its session record names
   (cd "$wt" && fenv "$home" "$S/worker-session-record.sh" write "$wt" --session "$1" --scratch) >"$tmp/w5.rec" 2>/dev/null \
@@ -292,7 +293,7 @@ release "$unit" "$wroot" || fail "w5: a root in use must release its pointer cle
 [ -f "$lsess/b-file" ] && [ ! -e "$unit/scratch-root" ] || fail "w5: a root holding a session's root must stay, its pointer gone"
 mv "$tmp/w5-bbbb-pointer" "$home/streamjson/old-sess/scratch-root"
 # A short worktree-wide root another runtime directory records stays; a
-# directory inside it named like a session's keeps nothing, since short
+# directory inside it named like a session's does not keep it, since short
 # session roots never nest.
 sroot=$(PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/sb" /bin/sh "$S/fleet-scratch.sh" make "$home" "$wkey") \
   || fail "w5: no short worktree root"

@@ -34,7 +34,7 @@
 #                      still in use beside the worker (scripts/
 #                      fleet-stop-lib.sh), and `fleet-cleanup.sh worktree`
 #                      removes it whatever its use.
-#                      --fresh-scratch empties a root left from an earlier
+#                      --fresh-scratch replaces a root left from an earlier
 #                      worktree at the same path first, for a launcher that
 #                      has just created the worktree.
 #                      --session <handle> gives one session of several
@@ -255,17 +255,27 @@ scratch_trusted() {
 }
 
 scratch=''
+why=''
 skey=$wt_key
 [ -z "$sess_key" ] || skey=$wt_key-$sess_key
 if [ "$want_scratch" != 0 ]; then
   set --
   [ "$want_scratch" != 2 ] || set -- --fresh
   # A root that would not empty keeps an earlier worker's files: no root.
-  scratch=$(/bin/sh "$script_dir/fleet-scratch.sh" make "$home" "$skey" "$@" 2>/dev/null </dev/null) || scratch=''
-  [ -z "$scratch" ] || scratch=$(scratch_trusted "$scratch") || scratch=''
+  errf=$(mktemp "$dir/.scratch.XXXXXX") || errf=/dev/null
+  scratch=$(/bin/sh "$script_dir/fleet-scratch.sh" make "$home" "$skey" "$@" 2>"$errf" </dev/null) || scratch=''
+  if [ "$errf" != /dev/null ]; then
+    IFS= read -r why <"$errf" || :
+    rm -f -- "$errf"
+  fi
+  if [ -n "$scratch" ] && ! scratch_trusted "$scratch" >/dev/null; then
+    /bin/sh "$script_dir/fleet-scratch.sh" release "$home" "$scratch" >/dev/null 2>&1 </dev/null || :
+    why="the root $scratch lies inside the worktree or the record directory"
+    scratch=''
+  fi
 fi
 [ "$want_scratch" = 0 ] || [ -n "$scratch" ] \
-  || printf '%s: the scratch root is unusable; the worker gets no scratch arm\n' "$me" >&2
+  || printf '%s: the scratch root is unusable; the worker gets no scratch arm%s\n' "$me" "${why:+ ($why)}" >&2
 
 # audit_make <dir>: create the audit-log home when absent, prune its logs
 # past the retention bound, then print its canonical path when the guard can

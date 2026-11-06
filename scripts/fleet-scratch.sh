@@ -6,18 +6,21 @@
 #        fleet-scratch.sh kind|release <fleet-home> <root>
 #        fleet-scratch.sh reclaim <fleet-home> <worktree-key>
 #
-# A root is <base>/pw-<the first 16 hex digits of sha1("<fleet-home>/<key>")>,
-# <base> being $PLANWRIGHT_FLEET_SCRATCH_BASE, else /tmp, never an inherited
-# TMPDIR (a launcher inside a worker would nest the root in its own). <key> is
-# a worktree's or one session's (scripts/worker-session-record.sh). Only a
-# root <fleet-home>/scratch/<key>.tmpdir names is used or removed.
+# A root is <base>/<the first 16 hex digits of sha1("<fleet-home>/<key>")>.
+# <base> is $PLANWRIGHT_FLEET_SCRATCH_BASE, else /tmp/planwright-<uid>, made
+# when absent; never an inherited TMPDIR (a launcher inside a worker would
+# nest the root in its own). It must be this user's and writable by no one
+# else, as tmux's socket directory is: other users can neither see nor
+# recreate a root inside it. <key> is a worktree's or one session's
+# (scripts/worker-session-record.sh). kind, release, and reclaim act only on
+# a root <fleet-home>/scratch/<key>.tmpdir names.
 #
 # make     create, record, and print <key>'s root; a recorded usable one
-#          stands. --fresh first empties it and the earlier layout's root.
-# kind     print `worktree` or `session` for a recorded <root>.
-# release  remove a recorded <root> and its record.
-# reclaim  release a worktree's root and its sessions', and the earlier
-#          layout's root for it.
+#          stands. --fresh first removes it, the derived one, and the earlier
+#          layout's, then makes a new one under this launch's base.
+# kind     print `worktree` or `session` for a recorded <root>; release
+#          removes a recorded <root> and its record.
+# reclaim  release a worktree's root, its sessions', and its earlier one.
 #
 # Exit: 0 done; 1 unrecorded, unusable, or left behind; 2 usage.
 set -uf
@@ -72,26 +75,32 @@ key_ok() {
 
 uid=$(id -u) || die "cannot read this user's id"
 
+# owned_private <dir>: a directory, reached through no symlink, that this
+# user owns and no one else may write.
+owned_private() {
+  [ -d "$1" ] && [ ! -L "$1" ] || return 1
+  [ "$(find "$1" -maxdepth 0 -user "$uid" ! -perm -020 ! -perm -002 2>/dev/null)" = "$1" ]
+}
+
 # root_ok <path>: a root of this script's shape that may be used or removed.
 root_ok() {
   case $1 in
-    /*/pw-*) ;;
+    /*/*) ;;
     *) return 1 ;;
   esac
   case $1 in
     *[[:cntrl:]]*) return 1 ;;
   esac
   ro_n=${1##*/}
-  ro_n=${ro_n#pw-}
   case $ro_n in
     *[!0-9a-f]*) return 1 ;;
   esac
   [ "${#ro_n}" -eq 16 ] || return 1
   [ -d "$1" ] && [ ! -L "$1" ] || return 1
   [ "$(find "$1" -maxdepth 0 -user "$uid" 2>/dev/null)" = "$1" ] || return 1
-  # Every component, not just the last: the canonical path is what the
-  # record holds, so a linked parent would spell another.
-  [ "$(cd -P -- "${1%/*}" 2>/dev/null && pwd -P)" = "${1%/*}" ]
+  # The record holds the canonical path, so a linked parent would spell
+  # another; a parent others may write lets them swap the root.
+  [ "$(cd -P -- "${1%/*}" 2>/dev/null && pwd -P)" = "${1%/*}" ] && owned_private "${1%/*}"
 }
 
 # wipe <dir>: remove a directory tree, opening the directories the worker
@@ -104,24 +113,26 @@ wipe() {
   [ ! -e "$1" ] && [ ! -L "$1" ]
 }
 
-# record_read <record-file>: print the root a record names.
+# record_read <record-file>: set rr_line to the root a record names.
 record_read() {
-  [ -f "$1" ] && [ ! -L "$1" ] || return 1
   rr_line=''
-  IFS= read -r rr_line <"$1" 2>/dev/null || [ -n "$rr_line" ] || return 1
-  printf '%s\n' "$rr_line"
+  [ -f "$1" ] && [ ! -L "$1" ] || return 1
+  IFS= read -r rr_line <"$1" 2>/dev/null || [ -n "$rr_line" ]
 }
 
-# record_of <root>: print the record file naming <root>.
+# record_of <root>: set rf_rec to the record file naming <root>. Reads each
+# record in this shell: a close runs this over every record in the fleet
+# home, which every repository on the machine shares.
 record_of() {
+  rf_rec=''
   [ -d "$smap" ] && [ ! -L "$smap" ] || return 1
   set +f
-  for ro_f in "$smap"/*.tmpdir; do
-    ro_k=${ro_f##*/}
-    key_ok "${ro_k%.tmpdir}" || continue
-    [ "$(record_read "$ro_f")" = "$1" ] || continue
+  for rf_f in "$smap"/*.tmpdir; do
+    rf_k=${rf_f##*/}
+    key_ok "${rf_k%.tmpdir}" || continue
+    record_read "$rf_f" && [ "$rr_line" = "$1" ] || continue
     set -f
-    printf '%s\n' "$ro_f"
+    rf_rec=$rf_f
     return 0
   done
   set -f
@@ -132,7 +143,8 @@ record_of() {
 # root that is gone already leaves only the record to remove; one of another
 # shape is refused, record kept.
 release_record() {
-  rl_root=$(record_read "$1") || return 1
+  record_read "$1" || return 1
+  rl_root=$rr_line
   if [ -e "$rl_root" ] || [ -L "$rl_root" ]; then
     root_ok "$rl_root" || return 1
     wipe "$rl_root" || return 1
@@ -144,59 +156,83 @@ case $verb in
   make)
     key=$3
     key_ok "$key" || die "the key is not a worktree's or a session's" 2
-    base=${PLANWRIGHT_FLEET_SCRATCH_BASE:-/tmp}
-    case $base in
-      /*) ;;
-      *) die "the scratch base is not an absolute path" ;;
-    esac
-    base=$(cd -P -- "$base" 2>/dev/null && pwd -P) || die "the scratch base does not resolve"
     umask 077
-    [ ! -L "$smap" ] || exit 1
-    mkdir -p -- "$smap" 2>/dev/null && [ -d "$smap" ] && [ ! -L "$smap" ] || exit 1
-    digest=$(printf '%s/%s' "$home" "$key" | git hash-object --stdin 2>/dev/null) || exit 1
-    root=$base/pw-$(printf '%s' "$digest" | cut -c1-16)
-    rec=$smap/$key.tmpdir
-    if [ "$fresh" = 1 ]; then
-      if [ -e "$rec" ] || [ -L "$rec" ]; then
-        release_record "$rec" || exit 1
+    if [ -n "${PLANWRIGHT_FLEET_SCRATCH_BASE-}" ]; then
+      base=$PLANWRIGHT_FLEET_SCRATCH_BASE
+      case $base in
+        /*) ;;
+        *) die "PLANWRIGHT_FLEET_SCRATCH_BASE is not an absolute path" ;;
+      esac
+      base=$(cd -P -- "$base" 2>/dev/null && pwd -P) || die "PLANWRIGHT_FLEET_SCRATCH_BASE names no directory"
+    else
+      tmp_dir=$(cd -P /tmp 2>/dev/null && pwd -P) || die "/tmp does not resolve"
+      base=$tmp_dir/planwright-$uid
+      [ -L "$base" ] || mkdir -- "$base" 2>/dev/null || : # not-a-lock: creating the scratch base, whose checks follow
+      # Ours whatever umask made it: a symlink, or another user's, stays refused.
+      if [ ! -L "$base" ] && [ "$(find "$base" -maxdepth 0 -user "$uid" 2>/dev/null)" = "$base" ]; then
+        chmod 700 "$base" 2>/dev/null || :
       fi
+    fi
+    owned_private "$base" || die "the scratch base $base is not this user's own directory closed to others"
+    case $base/ in
+      "$home"/* | "$smap"/*) die "the scratch base lies inside the fleet home" ;;
+    esac
+    [ ! -L "$smap" ] || die "the fleet home's scratch directory is a symlink"
+    mkdir -p -- "$smap" 2>/dev/null && [ -d "$smap" ] && [ ! -L "$smap" ] \
+      || die "cannot create the fleet home's scratch directory"
+    digest=$(printf '%s/%s' "$home" "$key" | git hash-object --stdin 2>/dev/null) || die "cannot name the root"
+    root=$base/$(printf '%s' "$digest" | cut -c1-16)
+    rec=$smap/$key.tmpdir
+    if [ -L "$rec" ] || { [ -e "$rec" ] && [ ! -f "$rec" ]; }; then
+      die "the root's record is not a regular file"
+    fi
+    if [ "$fresh" = 1 ]; then
+      if [ -e "$rec" ]; then
+        release_record "$rec" || die "the recorded root would not empty"
+      fi
+      # The earlier layout nested a session's root in its worktree's.
+      lparent=$smap/${key%%-*}
+      [ ! -L "$lparent" ] || die "the earlier layout's worktree root is a symlink"
       legacy=$smap/$(printf '%s' "$key" | tr - /)
-      [ -L "$legacy" ] || wipe "$legacy" || exit 1
+      [ -L "$legacy" ] || wipe "$legacy" || die "the earlier layout's root would not empty"
       if [ -e "$root" ] || [ -L "$root" ]; then
-        root_ok "$root" && wipe "$root" || exit 1
+        if ! root_ok "$root" || ! wipe "$root"; then
+          die "the root $root would not empty"
+        fi
       fi
     fi
     # The recorded root stands while it is usable, whatever base this
     # launch would derive.
-    if [ "$fresh" = 0 ] && kept=$(record_read "$rec") && root_ok "$kept"; then
-      root=$kept
+    if [ "$fresh" = 0 ] && record_read "$rec" && root_ok "$rr_line"; then
+      root=$rr_line
     fi
+    made=0
     # An existing root is kept; the checks below decide either way.
-    mkdir -- "$root" 2>/dev/null || : # not-a-lock: creating the scratch root, whose checks follow
-    root_ok "$root" || exit 1
+    if mkdir -- "$root" 2>/dev/null; then # not-a-lock: creating the scratch root, whose checks follow
+      made=1
+    fi
+    root_ok "$root" || die "the root $root is not this user's own directory"
     # BSD chmod reads a `--` after the mode as a file; the path is absolute.
-    chmod 700 "$root" 2>/dev/null || exit 1
-    case $root/ in
-      "$home"/*) exit 1 ;;
-    esac
-    tmp=$(mktemp "$smap/.$key.XXXXXX") || exit 1
-    if ! printf '%s\n' "$root" >"$tmp" || ! mv -f -- "$tmp" "$rec"; then
-      rm -f -- "$tmp"
-      exit 1
+    chmod 700 "$root" 2>/dev/null || die "cannot close the root $root to others"
+    tmp=$(mktemp "$smap/.$key.XXXXXX") || tmp=''
+    if [ -z "$tmp" ] || ! printf '%s\n' "$root" >"$tmp" || ! mv -f -- "$tmp" "$rec"; then
+      [ -z "$tmp" ] || rm -f -- "$tmp"
+      [ "$made" = 0 ] || rmdir -- "$root" 2>/dev/null
+      die "cannot record the root"
     fi
     printf '%s\n' "$root"
     ;;
   kind)
-    rec=$(record_of "$3") || exit 1
-    k=${rec##*/}
+    record_of "$3" || exit 1
+    k=${rf_rec##*/}
     case ${k%.tmpdir} in
       *-*) echo session ;;
       *) echo worktree ;;
     esac
     ;;
   release)
-    rec=$(record_of "$3") || exit 1
-    release_record "$rec"
+    record_of "$3" || exit 1
+    release_record "$rf_rec"
     ;;
   reclaim)
     wkey=$3
@@ -213,6 +249,12 @@ case $verb in
         k=${f##*/}
         key_ok "${k%.tmpdir}" || continue
         release_record "$f" || rc=1
+      done
+      # A make killed between its temporary record and the rename.
+      set +f
+      for f in "$smap/.$wkey".* "$smap/.$wkey"-*; do
+        set -f
+        [ ! -f "$f" ] || [ -L "$f" ] || rm -f -- "$f"
       done
       set -f
       [ -L "$smap/$wkey" ] || wipe "$smap/$wkey" || rc=1

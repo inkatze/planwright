@@ -381,12 +381,12 @@ if [ "${1:-}" = "--run-one" ]; then
   # the caller's own directory.
   fleet_sentinel="$PLANWRIGHT_TEST_LOG_DIR/$name.fleet"
   export PLANWRIGHT_FLEET_STATE_DIR="$fleet_sentinel/fleet"
-  # Workers' scratch roots lie outside the fleet home, in /tmp by default
+  # Workers' scratch roots lie outside the fleet home, under /tmp by default
   # (scripts/fleet-scratch.sh), where a fixture home's would outlive it. Not
   # `mkdir -p`: that would recreate a run directory something removed, which
   # the checks around the file must see gone.
-  # not-a-lock: the second directory needs the first, and either may fail
-  { mkdir -- "$fleet_sentinel" && mkdir -- "$fleet_sentinel/scratch-base"; } 2>/dev/null || :
+  # not-a-lock: a sentinel that exists already keeps its own
+  mkdir -m 700 -- "$fleet_sentinel" "$fleet_sentinel/scratch-base" 2>/dev/null || :
   export PLANWRIGHT_FLEET_SCRATCH_BASE="$fleet_sentinel/scratch-base"
   # The usage gate prefers the operator's status-line mirror, which a fixture
   # must never read; a suite that tests the mirror names its own.

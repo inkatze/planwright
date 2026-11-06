@@ -43,7 +43,8 @@ export PLANWRIGHT_FLEET_STATE_DIR="$T/fleet"
 export PLANWRIGHT_ADOPTER_OVERLAY="$T/adopter"
 export PLANWRIGHT_FLEET_SCRATCH_BASE="$T/sb"
 SBASE=$T/sb
-mkdir -p "$HOME" "$T/adopter" "$T/sb"
+mkdir -p "$HOME" "$T/adopter"
+mkdir -m 700 "$T/sb"
 
 MAIN=$T/main
 WT=$MAIN/.claude/worktrees/demo-task-1
@@ -238,7 +239,11 @@ elif ! command -v python3 >/dev/null 2>&1; then
   bound=1
 fi
 if [ -n "$real" ] && [ -d "$real" ] && [ "${#real}" -lt 60 ] && [ "$real_out" = 1 ] && [ "$bound" = 1 ]; then
-  pass "G1.2: a worker's default scratch root is short, outside .claude and the fleet home, and takes a Unix socket"
+  if command -v python3 >/dev/null 2>&1; then
+    pass "G1.2: a worker's default scratch root is short, outside .claude and the fleet home, and takes a Unix socket"
+  else
+    pass "G1.2: a worker's default scratch root is short and outside .claude and the fleet home"
+  fi
 else
   fail "G1.2: the default scratch root '$real' (${#real} characters, bound=$bound) $(cat "$T/err")"
 fi
@@ -261,7 +266,7 @@ if [ "$(field scratch_root)" = "$root" ] && [ -f "$root/kept" ]; then
 else
   fail "G1.2: the relaunch did not keep the root ('$(field scratch_root)')"
 fi
-mkdir -p "$T/sb2"
+mkdir -m 700 "$T/sb2"
 REC=$(PLANWRIGHT_FLEET_SCRATCH_BASE=$T/sb2 /bin/sh "$WRITER" write "$WT" --scratch 2>/dev/null)
 if [ "$(field scratch_root)" = "$root" ] && [ -f "$root/kept" ]; then
   pass "G1.2: a recorded root stands over another base"

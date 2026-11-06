@@ -381,7 +381,7 @@ mkdir -p "$fleet_home/scratch/$rec_key/sub/ro" "$fleet_home/scratch/$other_key" 
 chmod 500 "$fleet_home/scratch/$rec_key/sub/ro"
 : >"$tmp/scratch-outside/keep"
 ln -s "$tmp/scratch-outside" "$fleet_home/scratch/$rec_key/sub/link"
-mkdir -p "$tmp/sb"
+mkdir -m 700 "$tmp/sb"
 scratch_make() {
   PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/sb" /bin/sh "$here/../scripts/fleet-scratch.sh" make "$fleet_home" "$1"
 }
