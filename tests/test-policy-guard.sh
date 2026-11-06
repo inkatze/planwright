@@ -520,33 +520,44 @@ case $OUT in
   *) pass "the deny reason is stripped of control bytes" ;;
 esac
 
-# --- a cd that may not run ----------------------------------------------------
+# --- a cd that may not run --------------------------------------------------
 
 echo "# a cd is followed only when it runs"
-set_knobs 'protected_branches:' 'unpushed_rewrite: allow'
-# Each pair is <cwd>|<command>: a later act is judged in the cd's directory,
-# yet the shell may skip the cd and run it in the cwd, a main checkout.
+set_knobs 'protected_branches:' 'unpushed_rewrite: allow' 'worker_base_merge: allow' 'ready_flip_policy: unit-owner'
+# Each pair is <cwd>|<command>: the guard would judge the last act in the
+# cd's directory, yet the shell may skip the cd, or run it in a subshell, and
+# run the act in the directory before it, a main checkout.
 for spec in "$UNIT|cd $MAIN; false && cd $UNIT; git push" \
   "$UNIT|cd $MAIN; false && cd $UNIT; git commit --amend --no-edit" \
   "$MAIN|true || cd $UNIT; git push" "$MAIN|true || cd $UNIT; git commit --amend --no-edit" \
   "$MAIN|false && cd $UNIT
-git push" "$MAIN|if false; then cd $UNIT; fi; git push" \
-  "$MAIN|if false; then cd $UNIT; fi; git commit --amend --no-edit" \
-  "$MAIN|if true; then :; else cd $UNIT; fi; git push" "$MAIN|while false; do cd $UNIT; done; git push" \
-  "$MAIN|until true; do cd $UNIT; done; git push" "$MAIN|cd $UNIT && false || git push" \
-  "$MAIN|! cd $UNIT && git push" "$MAIN|true | cd $UNIT && git push"; do
-  pg worker "${spec#*|}" "${spec%%|*}"
-  expect deny "[worker] a cd that may not run is not followed: $(printf '%s' "${spec#*|}" | tr '\n' ' ')"
+git push" "$MAIN|false && cd $UNIT
+git merge origin/main" "$MAIN|false && cd $UNIT; gh pr ready 42" \
+  "$MAIN|if false; then cd $UNIT; fi; git push" "$MAIN|if false; then cd $UNIT; fi; git commit --amend --no-edit" \
+  "$MAIN|if true; then :; else cd $UNIT; fi; git push" "$MAIN|if false; then :; elif true; then cd $UNIT; fi; git push" \
+  "$MAIN|if cd $UNIT; then git push; fi" "$MAIN|while false; do cd $UNIT; done; git push" \
+  "$MAIN|until true; do cd $UNIT; done; git push" "$MAIN|for x in a; do cd $UNIT; done; git push" \
+  "$MAIN|time if false; then cd $UNIT; fi; git push" "$MAIN|time -p while false; do cd $UNIT; done; git push" \
+  "$MAIN|if false; then 'fi'; cd $UNIT; fi; git push" "$MAIN|\"then\" cd $UNIT; git push" \
+  "$MAIN|function f if true; then cd $UNIT; fi
+f; git push" "$MAIN|cd $UNIT && false || git push" \
+  "$MAIN|cd $UNIT && 2>/dev/null || git push" "$MAIN|false && cd $UNIT && >/dev/null; git push" \
+  "$MAIN|cd $UNIT && true & git push" "$MAIN|coproc cd $UNIT; git push" \
+  "$MAIN|! cd $UNIT && git push" "$MAIN|time ! cd $UNIT && git push" \
+  "$MAIN|true | cd $UNIT && git push" "$MAIN|true |& cd $UNIT && git push"; do
+  cmd=${spec#*|}
+  pg worker "$cmd" "${spec%%|*}"
+  expect deny "[worker] a cd the shell may skip or run elsewhere is not followed: ${cmd//$'\n'/ \\n }"
+  reason_has 'cannot follow' "[worker] the deny says the guard cannot follow the cd: ${cmd//$'\n'/ \\n }"
 done
-pg worker "true || cd $UNIT; git push" "$MAIN"
-reason_has 'cannot follow' "the conditional-cd deny says the guard cannot follow the directory change"
-# A cd that runs whenever the later act does is still followed.
-for cmd in "cd $UNIT; git push" "cd $UNIT && git push" "cd $UNIT
-git push" "true && cd $UNIT && git push" "git status; cd $UNIT && git commit --amend --no-edit" \
+# A cd its list is sure to run before the later act is still followed.
+for cmd in "cd $UNIT; git push" "cd $UNIT
+git push" "true && cd $UNIT && git push" "true || false && cd $UNIT && git push" \
+  "git status; cd $UNIT && git commit --amend --no-edit" "cd $UNIT; false || git push" \
   "true || echo x; cd $UNIT; git push" "if true; then echo x; fi; cd $UNIT && git push" \
-  "while false; do echo x; done; cd $UNIT; git commit --amend --no-edit"; do
+  "for x in a; do echo x; done; cd $UNIT; git commit --amend --no-edit"; do
   pg worker "$cmd" "$MAIN"
-  expect defer "[worker] an unconditional cd is followed: $(printf '%s' "$cmd" | tr '\n' ' ')"
+  expect defer "[worker] a cd sure to run is followed: ${cmd//$'\n'/ \\n }"
 done
 
 # --- fail-closed reads (REQ-G1.4) --------------------------------------------

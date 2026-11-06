@@ -576,16 +576,18 @@ deny_unanalyzable() {
 # backticks, ANSI-C quoting, and grouping. An unquoted here-document whose
 # body carries a substitution sets HEREDOC_SUBST, since bash runs it.
 #
-# Results: W[] words, WL[] literal flags, SEG_S[]/SEG_E[] word ranges,
-# SEG_TERM[] terminators, SEG_DOC[] here-document bodies per segment.
+# Results: W[] words, WL[] literal flags, WU[] unquoted flags (no quote or
+# escape anywhere in the word), SEG_S[]/SEG_E[] word ranges, SEG_TERM[]
+# terminators, SEG_DOC[] here-document bodies per segment.
 
 HEREDOC_SUBST=0
 tokenize() {
   local s=$1
-  local n=${#s} i=0 c nc ch cur='' have=0 lit=1 uqonly=1 digits_only=1 fold_doc=''
+  local n=${#s} i=0 c nc ch cur='' have=0 lit=1 uqonly=1 digits_only=1 fold_doc='' redir=0
   local pending_delims=() pending_tabs=() pending_seg=() pending_quoted=()
   W=()
   WL=()
+  WU=()
   SEG_S=()
   SEG_E=()
   SEG_TERM=()
@@ -603,6 +605,7 @@ tokenize() {
       esac
       W[${#W[@]}]=$cur
       WL[${#WL[@]}]=$lit
+      WU[${#WU[@]}]=$uqonly
     fi
     cur=''
     have=0
@@ -618,7 +621,15 @@ tokenize() {
       SEG_E[${#SEG_E[@]}]=${#W[@]}
       SEG_TERM[${#SEG_TERM[@]}]=$1
       SEG_DOC[${#SEG_DOC[@]}]=$fold_doc
+    elif [ "$redir" = 1 ] && [ "${#SEG_TERM[@]}" -gt 0 ]; then
+      # A command of redirects alone has no words and records no segment;
+      # its terminator still decides what runs after it, so it replaces the
+      # && or || that led into it.
+      case ${SEG_TERM[${#SEG_TERM[@]} - 1]} in
+        '&&' | '||') SEG_TERM[${#SEG_TERM[@]} - 1]=$1 ;;
+      esac
     fi
+    redir=0
     fold_doc=''
     seg_start=${#W[@]}
     return 0
@@ -768,6 +779,7 @@ tokenize() {
           have=0
         fi
         flush_word || return 1
+        redir=1
         if [ "$c" = '<' ] && [ "$nc" = '<' ] && [ "${s:i+2:1}" != '<' ]; then
           # A here-document: record its delimiter; the body is read at the
           # next newline.
@@ -844,6 +856,7 @@ tokenize() {
           # `&>` and `&>>` redirect both streams; the target is skipped like
           # any other redirect's.
           flush_word || return 1
+          redir=1
           i=$((i + 1))
           continue
         fi
@@ -1287,24 +1300,50 @@ segment_words() {
   done
 }
 
-# compound_shape <seg> — advance CMP_DEPTH, the compound commands (if, while,
-# until, for, select, case) open at the segment, by its leading reserved
-# words, and set SEG_NEG when a leading `!` negates its status.
-CMP_DEPTH=0
+# compound_shape <seg> — read the segment's leading reserved words: advance
+# CS_DEPTH, the compound commands (if, while, until, for, select, case) open
+# at it; set CS_NOFOLLOW when a cd in it may not run in this shell or may fail
+# unseen (a `!`, a coproc, a zsh precommand modifier, a reserved word quoted
+# into a plain command name); and set CS_LOST, kept for the rest of the
+# command, at a function definition, whose body may change directory when
+# called.
+CS_DEPTH=0
+CS_LOST=0
 compound_shape() {
   local k=${SEG_S[$1]} e=${SEG_E[$1]}
-  SEG_NEG=0
+  CS_NOFOLLOW=0
   while [ "$k" -lt "$e" ]; do
     case ${W[$k]} in
-      '!') SEG_NEG=1 ;;
-      if | while | until) CMP_DEPTH=$((CMP_DEPTH + 1)) ;;
+      '!' | if | then | else | elif | do | while | until | for | select | case | fi | done | 'esac' | \
+        time | coproc | function | noglob | nocorrect)
+        if [ "${WU[$k]}" != 1 ]; then
+          CS_NOFOLLOW=1
+          return 0
+        fi
+        ;;
+    esac
+    case ${W[$k]} in
+      '!' | coproc | noglob | nocorrect) CS_NOFOLLOW=1 ;;
+      if | while | until) CS_DEPTH=$((CS_DEPTH + 1)) ;;
       then | else | elif | do) ;;
+      time)
+        while [ "$((k + 1))" -lt "$e" ]; do
+          case ${W[$((k + 1))]} in
+            -p | --) k=$((k + 1)) ;;
+            *) break ;;
+          esac
+        done
+        ;;
       for | select | case)
-        CMP_DEPTH=$((CMP_DEPTH + 1))
+        CS_DEPTH=$((CS_DEPTH + 1))
         return 0
         ;;
       fi | done | 'esac')
-        [ "$CMP_DEPTH" = 0 ] || CMP_DEPTH=$((CMP_DEPTH - 1))
+        [ "$CS_DEPTH" = 0 ] || CS_DEPTH=$((CS_DEPTH - 1))
+        return 0
+        ;;
+      function)
+        CS_LOST=1
         return 0
         ;;
       *) return 0 ;;
@@ -1419,30 +1458,31 @@ tower_wrapped_git_check() {
 
 classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
-  local pt cd_seen=0 cd_cond=0 list_or=0
+  local pt cd_seen=0 cd_cond=0
   [ -d "$eff" ] || eff_ok=0
-  CMP_DEPTH=0
+  CS_DEPTH=0
+  CS_LOST=0
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
     segment_text "$si"
     cur_text=$SEG_TEXT
     compound_shape "$si"
-    # Where the shell may have skipped a followed cd, the directory is unknown
-    # from then on: past the end of an and-or list whose cd ran only after an
-    # earlier command succeeded, and after a || in the cd's own list.
+    [ "$CS_LOST" = 0 ] || eff_ok=0
+    # Where the shell may have skipped a followed cd, or run it in a
+    # background subshell, the directory is unknown from then on: past the
+    # end of an and-or list whose cd ran only after an earlier command
+    # succeeded, past one sent to the background, and after a || in the cd's
+    # own list.
     pt=''
     [ "$si" = 0 ] || pt=${SEG_TERM[$((si - 1))]}
     case $pt in
       '' | ';' | "$NL" | '&')
         [ "$cd_cond" = 0 ] || eff_ok=0
+        [ "$pt" != '&' ] || [ "$cd_seen" = 0 ] || eff_ok=0
         cd_seen=0
         cd_cond=0
-        list_or=0
         ;;
-      '||')
-        [ "$cd_seen" = 0 ] || eff_ok=0
-        list_or=1
-        ;;
+      '||') [ "$cd_seen" = 0 ] || eff_ok=0 ;;
     esac
     if [ "${#SW[@]}" = 0 ]; then
       # A segment of assignments alone sets them for the rest of the command;
@@ -1578,7 +1618,7 @@ classify_segments() {
       case $base_verb in
         bash | sh | zsh | dash | ksh | mksh | fish | busybox | eval | source | . | xargs | parallel)
           # Fed by a pipe, the shell runs whatever the previous segment wrote.
-          case ${SEG_TERM[$((si - 1))]:-} in
+          case $pt in
             '|' | '|&')
               [ "$si" = 0 ] || ! raw_evidence "$prev_text$NL$cur_text" \
                 || deny_now "this command pipes text naming a reserved act into $(sanitize_printable "$verb" 'a shell') - refusing (fail closed). Run the command directly."
@@ -1589,13 +1629,14 @@ classify_segments() {
       case $base_verb in
         cd | pushd | popd)
           local term=${SEG_TERM[$si]}
-          # Followed only where it runs in this shell whenever the acts after
-          # it do: not in a pipeline, a compound body or condition, a negation,
-          # or after a || in its list.
+          # Followed only where its list is sure to run it in this shell
+          # before the acts after it: not after a || or in a pipeline, a
+          # compound body or condition, or under compound_shape's other marks.
+          # A cd that runs and fails is not modeled.
           if [ "$verb" = cd ] && [ "${#SW[@]}" = 2 ] && [ "${SWL[1]}" = 1 ] \
             && { [ "$term" = '&&' ] || [ "$term" = ';' ] || [ "$term" = "$NL" ]; } \
-            && [ "$CMP_DEPTH" = 0 ] && [ "$SEG_NEG" = 0 ] && [ "$list_or" = 0 ] \
-            && [ "$pt" != '|' ] && [ "$pt" != '|&' ]; then
+            && [ "$CS_DEPTH" = 0 ] && [ "$CS_NOFOLLOW" = 0 ] \
+            && [ "$pt" != '||' ] && [ "$pt" != '|' ] && [ "$pt" != '|&' ]; then
             cd_seen=1
             [ "$pt" != '&&' ] || cd_cond=1
             case ${SW[1]} in
@@ -2587,7 +2628,7 @@ classify_git() {
       # The alias lookup falls back to the payload's directory, which is not
       # the repository git reads its aliases from here.
       if [ "$TIER" = tower ] && { [ "$foreign" = 1 ] || [ "$dir_ok" = 0 ]; }; then
-        deny_now "this git $(sanitize_printable "$sub" 'subcommand') may be an alias of a repository or directory the guard cannot follow (one named by a global option such as --git-dir, or a cd or -C target it cannot read), so the guard cannot read what it expands to - refusing (fail closed). Run the git subcommand directly, or use git -C <literal path>."
+        deny_now "this git $(sanitize_printable "$sub" 'subcommand') may be an alias of a repository or directory the guard cannot follow (one named by a global option such as --git-dir, a cd it cannot follow, or a -C target it cannot read), so the guard cannot read what it expands to - refusing (fail closed). Run the git subcommand directly, or use git -C <literal path>."
         return 0
       fi
       git_alias_check "$sub" "$dir" "$dir_ok"
