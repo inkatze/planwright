@@ -70,8 +70,9 @@ Usage:
                                              record lacks
         finished<TAB><n>                     registry sessions not retired
                                              and not seen live: gone, idle,
-                                             ended or done, or with nothing
-                                             to watch (rows of a tmux server
+                                             ended, done, merged or waiting
+                                             on its PR, or with nothing to
+                                             watch (rows of a tmux server
                                              that does not answer are in
                                              neither count)
         waiting<TAB><n|->                    the operator queue's items, `-`
@@ -265,7 +266,7 @@ knobs() {
 
 # A registry row outlives its session until something retires it, so only
 # a session seen live is in flight: its process or tmux window still there,
-# and the attention store not saying it went idle or ended. The rest are
+# and the attention store not saying its work ended. The rest are
 # counted as finished. Display only: nothing may act on a row this calls
 # finished. A pid is probed with the kill builtin, no fork per row (the
 # registry runs to hundreds); a pid this user cannot signal is a recycled
