@@ -28,8 +28,9 @@ obs:bc9ff4f3 (offload windows).
    `specs/harness-rebaseline/` (Ready), has no task landed.
 2. **CI wall time went from about 2 minutes (July) to about 60 minutes
    (November), mostly from the platform matrix, not tests.** macOS and Alpine
-   began running on every PR on 2026-10-30 (`d59e99f6`); macOS shards queue
-   12 to 55 minutes and run up to 26. Linux shards run 2 to 4 minutes.
+   began running on every PR on 2026-10-30 (`d59e99f6`); macOS shards run 8
+   to 27 minutes and can first wait up to about 80 minutes for a runner
+   (runs since 11-01). Linux shards run 2 to 5 minutes.
 3. **The test suite grew about tenfold in four months, and its budgets
    followed the growth instead of limiting it.** 41 test files at v0.2.0,
    447 at v0.67.0. The suite total budget was raised three times in a month,
@@ -40,22 +41,25 @@ obs:bc9ff4f3 (offload windows).
    filter), and `/execute-task` runs the full local suite before convergence
    even on an existing PR. The designed fix (`full_suite_evidence` and
    `local-then-ci`; `specs/test-throughput/` Tasks 10, 16 and 17) is unbuilt.
-5. **Task build time rose about eightfold from July to October, at equal PR
-   size too, then fell back in November.** Not a within-spec effect (task 1
+5. **Task build time rose about sevenfold from July to October, and about
+   as much at equal PR size, then fell back in November.** Not a within-spec effect (task 1
    versus task N shows no trend). The drivers with the strongest evidence are
    the slower, broader gate and more review steps per unit (polish, gemini
    panel and cubic stacked on most October units). Polish is the largest
    recorded wall-time sink.
 6. **The cost machinery mostly ships dark.** Model allocation adapts nothing
    by default (`allocation_adaptation: "off"`, `config/defaults.yml`),
-   per-step tiers have no caller, the allocation feedback loop is never
-   invoked, the stale-worker reaper only observes (`fleet_sweep_reap:
-   observe`), and the host-load admission verb has no caller.
+   per-step tiers have no caller, the allocation feedback loop is wired but
+   never fires (with adaptation off nothing escalates), the stale-worker
+   reaper only observes (`fleet_sweep_reap: observe`), and the heavy-run
+   admission check (`mc-budget.sh admit heavy`) has no caller.
 7. **Spend is invisible.** No token or dollar figure is tracked against a
-   budget anywhere; the only token reader is an eval tool for review runs
-   (`scripts/review-cost.sh`). A dollar ceiling was "parked as a pending
-   seed" by `specs/fleet-autonomy/` and the seed was never written.
-8. **Idle sessions are retired only when their PR lands.** A reviewer, panel
+   budget anywhere; the only token readers are two review-effectiveness eval
+   tools (`scripts/review-cost.sh`, `scripts/review-backtest-reviewer.sh`).
+   A dollar ceiling was "parked as a pending seed" by `specs/fleet-autonomy/`
+   and the seed was never written.
+8. **Idle sessions are retired automatically only when their tracked PR
+   merges or closes.** A reviewer, panel
    or offload session with no tracked PR is never retired, and the offload
    tmux rung names every window `offload-<pid>`.
 9. **Observations pile up unconsumed in exactly these themes.** 859 open
@@ -71,18 +75,19 @@ obs:bc9ff4f3 (offload windows).
 | 2. Retire idle sessions by default; idle count and cost on the panel | Only sessions with a tracked PR, once it merges or closes | An idle-retire knob and a digest `idle` record | mission-control amendment (REQ-D1.5, REQ-F1.1) plus a task |
 | 3. Doctor proposing the minimal permission set | Close: Task 20 posture check, draft PR #844 | A `propose` verb diffing duty verbs against loaded allow rules | Amend Task 20 while in flight |
 | 4. Spend in the loop, top spenders, cheaper tiers, launch estimates | Account usage percentages only | A `spend` budget dimension, a daily by-kind report, cheaper shipped tiers for mechanical kinds, an estimate clause before fan-outs | mission-control amendment plus a task; tier defaults under model-allocation |
-| 5. Hubs self-succeed at breaks | Recorded already: obs:32bde2c6, obs:3b1fad05, obs:1f599c9d (PR #857) | As those observations state | mission-control amendment |
+| 5. Context size: hubs self-succeed at breaks | Recorded already: obs:32bde2c6, obs:3b1fad05, obs:1f599c9d (PR #857) | As those observations state | mission-control amendment |
 | 6. Offload windows named and closed | Naming is possible (`--name`) but unused by default; no close path a finished session can reach | Default name from the unit; a retire verb on the dispatch seam | offload or fleet-lifecycle-closure amendment |
 | /handoff duty inventory | Partly: the handover file carries items and sessions, not duties | A `duty` record plus an inventory verb sorting each duty | mission-control amendment plus a task |
 | Test cost and growth | Sharding, per-file budgets, the gate pool | Ship `full_suite_evidence`; gate macOS per PR on what changed; a growth and pruning rule | test-throughput open tasks plus a new rule |
-| Task build time | No measurement of actuals | Record per-unit wall time, tokens and rounds | harness-rebaseline REQ-A1.1 |
+| Task build time | Step timings in step records since 2026-10-11; no per-unit record of wall time, tokens and rounds | Record per-unit wall time, tokens and rounds | harness-rebaseline REQ-A1.1 |
 
 <details>
 <summary>Detail per ask</summary>
 
 **1. Polling.** `scripts/mc-watch.sh` runs every
-`mission_control_runner_interval` (1m) without a model; watchers print
-edge-triggered `event` lines through `mc_announce` (`scripts/mc-lib.sh`), and
+`mission_control_runner_interval` (1m) without a model; watchers emit
+edge-triggered events through `mc_announce` (`scripts/mc-lib.sh`), once per
+key until the item clears, and
 `scripts/mc-wake.sh tick` sends nothing when nothing is pending; the mod's
 tick submits only on a wake to an idle session
 (`hooks/mission-control/register.tsx`). A full sweep happens only at
@@ -100,8 +105,9 @@ clause. Retiring "sweep everything" ticks is already the spec's position;
 what remains is coverage, so the hub never needs one.
 
 **2. Idle sessions.** REQ-D1.5 and D-10 say a finished session is retired by
-mission control. The only automatic retirer is `mc-keeper.sh sweep`, and only
-for sessions tracked with `--pr` once that PR is merged or closed.
+mission control. The only automatic retirer of finished worker sessions is
+`mc-keeper.sh sweep`, and only for sessions tracked with `--pr` once that PR
+is merged or closed.
 `mc-stall.sh` classifies `idle` but raises no event for it. The panel digest
 (`scripts/mc-panel.sh`) shows flights, waiting count, budget rung and
 headroom; no idle count, no cost. Smallest change: define finished as `idle`
@@ -109,8 +115,8 @@ held past a new `mission_control_idle_retire` knob for a session with no
 tracked open PR or whose deliverable is reported; retire it through the
 launcher with the act logged; add an `idle` digest record from the samples
 `mc-stall` already keeps. Related: obs:083b73d4 (panel counted dead rows as
-in flight; open PR #848), draft PR #842 (a finished stream-json worker left
-waiting).
+in flight; open PR #848), draft PR #842 (closes the permission requests a
+finished stream-json worker left waiting).
 
 **3. Permission denials.** No `doctor` or prompt counter exists. The
 auto-approve hook logs allows only (worker-permission-ergonomics REQ-H1.4).
@@ -129,10 +135,13 @@ admission from account headroom, REQ-L1.7, D-41) is not landed.
 steps, host load and a watcher spend class, with no tokens or money
 (REQ-L1.2, D-17; obs:af17332a). Launch tiers resolve per kind in
 `scripts/mission-control-launch.sh` (reviewer to `execute_step`, ad-hoc to
-`offload`, hub to `orchestrate_dispatch`), all `inherit` by default; no key
-exists for research or walks. Smallest change: lift `review-cost.sh`'s token
-reader into a `spend` dimension with an optional budget in either unit
-(tokens or dollars, as the usage rule requires), shown on the panel line and
+`offload`, tower and mission-control to `orchestrate_dispatch`, all three
+`inherit` by default; worker and orchestrator to `execution` and
+`bookkeeping`, unset by default); no key exists for research or walks.
+Smallest change: lift `review-cost.sh`'s token reader into a `spend`
+dimension with an optional budget in either unit (tokens or dollars; the
+program's usage rule needs dollars for enterprise accounts, obs:af17332a),
+shown on the panel line and
 status; a daily by-kind verb keyed on launcher kind; cheaper shipped defaults
 for reviewer, research and walk kinds; a skill clause stating a rough
 estimate before fan-outs and panels.
@@ -149,25 +158,26 @@ with `tmux new-window -d`. `scripts/mission-control-launch.sh retire` kills
 only windows for launches it registered; `scripts/fleet-cleanup.sh window`
 reclaims only windows whose panes are all dead and refuses the caller's own,
 so a finished interactive worker whose process is still alive is never
-reclaimed. A raw `tmux kill-window` from the owner goes through the
-classifier, which refused it. Smallest change: default the window name from
-the unit (`offload-<unit>`, or the caller's `review-<pr>-<lens>`); have the
-dispatch seam record the window id it created and add a `retire <handle>`
-verb that closes exactly that window, so the owner closes it through a
-planwright script its permission profile already allows, never a raw tmux
-call. Touches the offload skill's dispatch contract and the tmux row of
+reclaimed. In the relayed report, the owner's raw `tmux kill-window` was
+refused by the classifier. Smallest change: default the window name from
+the unit (`offload-<unit>`, or the caller's `review-<pr>-<lens>`); the
+dispatch seam already registers the window id as its handle, so add a
+`retire <handle>` verb that closes exactly that window; the owner then
+closes it through a planwright script its permission profile already
+allows, never a raw tmux call. Touches the offload skill's dispatch contract and the tmux row of
 `doctrine/fleet-coordination-floor.md`.
 
 **/handoff.** `scripts/mc-handover.sh write` records program, predecessor,
-rules digest, open item ids and live session handles; `verify`, `take` and
-`resume` move the holder (Task 16). `scripts/mc-duties.sh` lists duties and
+rules digest, open item ids and live session handles; `verify` checks the
+successor against the file, and `take`, `release` and `resume` move the
+holder (Task 16). `scripts/mc-duties.sh` lists duties and
 armed watchers; `mc-kb.sh inventory-refresh` builds `kb/mechanisms.tsv`;
 `mc-proposals.sh` maps a repeat onto the smallest mechanism;
 `doctrine/autopilot-reflex.md` is the doctrine (name the gates, automate up
 to them, verify the burden is gone). Gap: nothing inventories what a
 predecessor was doing by hand, and nothing sorts it into covered,
 mechanizable or judgment; a tower or ad-hoc hub has no path in (tower
-takeover is Task 22, blocked behind Task 21). Smallest change: a `duty`
+takeover is Task 22, which waits on Tasks 21 and 32). Smallest change: a `duty`
 record kind in the handover file and an `inventory` verb that classifies each
 duty against the duty catalog, the mechanism inventory and the shipped
 scripts (`covered <mechanism>`, `mechanizable <smallest row>` through
@@ -183,7 +193,7 @@ successor arms the covered ones and proposes the rest.
 | Tag | Date | Test files | Test lines | Assertion lines | CI median (PR runs) |
 | --- | --- | --- | --- | --- | --- |
 | v0.2.0 | 06-30 | 41 | 16.8k | 472 | 1.9 min (July) |
-| v0.24.0 | 07-19 | 98 | 44.8k | 1,592 | 2.0 min |
+| v0.24.0 | 07-19 | 98 | 44.8k | 1,592 | 2.1 min (late July) |
 | v0.35.0 | 08-31 | 166 | 81.5k | 3,235 | 2.9 min (late Aug) |
 | v0.45.0 | 09-24 | 218 | 112.0k | 4,578 | 7.2 min (late Sep) |
 | v0.51.0 | 10-04 | 258 | 135.4k | 5,582 | 10.9 min (early Oct) |
@@ -200,25 +210,28 @@ row, so shard plans run on stale data.
 <summary>Commands, gate structure, budget history and top offenders</summary>
 
 - File counts: `git ls-tree --name-only <tag> tests/ | grep -cE '^tests/(test-|smoke-|rehearsal-)[^/]*\.sh$'`.
+- Test lines (`test-*` files only): `git grep -h -c '' <tag> -- 'tests/test-*.sh'`, summed.
 - Assertion lines (the suite has no single test-declaration pattern):
   `git grep -h -c -E '^\s*(assert[a-z_]*|expect[a-z_]*)\b' <tag> -- 'tests/test-*.sh'`, summed.
-- CI: `gh run list --workflow ci.yml --limit 3000 --json databaseId,createdAt,updatedAt,startedAt,conclusion,event,headBranch`,
-  median of `updatedAt - startedAt` over successful runs (queue time
-  included); per-job timings from `gh api repos/{owner}/{repo}/actions/runs/<id>/jobs`.
+- CI: `gh run list --workflow ci.yml --limit 4000 --json databaseId,createdAt,updatedAt,startedAt,conclusion,event,headBranch`,
+  median of `updatedAt - startedAt` over successful `pull_request` runs (job
+  queue time included); per-job timings from `gh api repos/{owner}/{repo}/actions/runs/<id>/jobs`.
 - Duration sums: `git show <rev>:config/test-durations.tsv | awk -F'\t' '!/^#/ && NF>=2{n++;s+=$2}'`.
 
 **Gate structure.** `mise run check` runs `test`, `check:test-time` and
-`check:non-test` (about 50 lint and check tasks) through mise `depends`;
+`check:non-test` (nearly 60 lint and check tasks) through mise `depends`;
 `scripts/run-tests.sh` runs files in parallel under a host-wide ticket pool
 with a per-file deadline; `.claude/planwright.yml` allows one full local suite
 per host (`full_suite_pool: gate`, capacity 1). CI (`.github/workflows/ci.yml`)
-triggers on every PR and push to main with no path filter and runs lint,
-planned Linux shards, Alpine shards, four macOS shards and a joining `check`.
+triggers on every PR and push to main with no path filter and runs lint, a
+shard-planning job, planned Linux shards, Alpine shards, four macOS shards, a
+macOS install smoke and a joining `check`.
 History: `a3ac1fc3` (10-08) macOS runs awk-sensitive suites; `cd9fe5fe`
 (10-20) Linux split into shards; `d59e99f6` (10-30) macOS and Alpine on every
 PR; `3997515e` (11-01) shard count planned from predicted time; `b51cc372`
 (11-04) macOS and Alpine sharded. Job timings on 11-05 and 11-06 runs
-(42261296820, 42164719580): macOS queued 12 to 29 minutes then ran 7 to 24;
+(42261296820, 42164719580): macOS shards queued up to 29 minutes (one
+started at once) then ran 8 to 24;
 Linux shards 3 to 4; Alpine 3 to 6. Before sharding, `macos-suite` ran 69 to
 80 minutes serially (11-01, 11-04).
 
@@ -245,10 +258,9 @@ universal-binary Task 4.1, which has merged, and was not picked up.
 `tests/test-check-echo-discipline.sh` 45.2,
 `tests/test-check-purged-identifiers.sh` 44.6,
 `tests/test-inception-gate.sh` 44.6, `tests/test-flight-dispatch.sh` 43.9. The
-37 files at 30 s or more are 37 percent of the total. Several of the slowest
-scan the whole tree (echo discipline, purged identifiers, control
-spellings), so their cost grows with the repository, not with the code under
-test.
+37 files at 30 s or more are 37 percent of the total. Two of the slowest
+scan the whole tree (echo discipline, purged identifiers), so their cost
+grows with the repository, not with the code under test.
 
 **Grew most since 10-21:** `test-check-steps.sh` 12.9 to 31.3 s,
 `test-check-lock-primitive.sh` 21.5 to 37.0, `test-tasks-pr-sync.sh` 17.0 to
@@ -257,10 +269,11 @@ test.
 
 **Consolidation candidates** (counted from `grep -oE 'scripts/[a-z0-9-]+\.sh'
 tests/test-*.sh`; each needs a reading before acting): 28 test files
-reference `tower-queue.sh` (the `test-tower-queue-*` family is 17 files,
-348 s); 48 files touch `fleet-state.sh` or `fleet-attention.sh` (608 s); 9
-`test-worker-command-guard-*` files (175 s); 10 `test-flight-*` files
-(296 s); 8 `test-check-instructions-*` files (63 s).
+reference `tower-queue.sh` (the `test-tower-queue-*` family is 18 files,
+348 s across the 17 with a recorded time); 48 files touch `fleet-state.sh`
+or `fleet-attention.sh` (608 s); 10 `test-worker-command-guard*` files
+(175 s across the 9 with a recorded time); 10 `test-flight-*` files
+(296 s); 8 `test-check-instructions*` files (63 s).
 
 **Targeted runs.** `run-tests.sh` takes only `--shard`, `--plan-shards` and a
 suite directory; it cannot select files. `skills/execute-task/SKILL.md` runs
@@ -279,19 +292,23 @@ own config comment calls "a reminder, not an enforcement".
 | 07 | 126 | 0.57 h (1.16) | 3.1 h | 642 |
 | 09 | 65 | 1.89 h (3.33) | 7.9 h | 1,294 |
 | 10 | 133 | 3.96 h (12.16) | 11.0 h | 1,258 |
-| 11 | 26 | 0.82 h (3.96) | 10.9 h | 691 |
+| 11 | 26 | 0.82 h (3.96) | 10.8 h | 691 |
 
 "Build" is PR creation minus the first commit's author date, over 424 merged
-task PRs (`gh pr list --state merged`; branches `planwright/<spec>/task-N`).
-At equal size October is still slower: 1,000 to 3,000 changed lines took 0.96 h
+task PRs (`gh pr list --state merged`; branches `planwright/<spec>/task-N`);
+August's 20 are in that total but not in the table. This is the one method
+used: monthly medians of that span, with a single size band as the control.
+Its caveats: it leaves out the worker's time before its first commit, it
+counts parks and waits as build time, and a spec bootstrapped from older
+commits inflates its first tasks. At equal size October is still slower: 1,000 to 3,000 changed lines took 1.10 h
 in July and 7.18 h in October. Within a spec there is no trend (median
 Spearman correlation of task order against build time 0.01 over 40 specs), so
 the slowdown is shared infrastructure and process, not harder tasks.
 
-Where recorded wall time goes (345 step records across worktrees, all from
-2026-10-10 on): polish 96 runs, median 67 minutes, 217 hours in total, and
-its weekly median rose from 49 to 85 minutes over weeks 43 to 45 even as
-rounds fell to 2; 15 of 96 polish runs ended without converging. On
+Where recorded wall time goes (352 step records across worktrees, all from
+2026-10-11 on): polish 99 runs, median 66 minutes, 220 hours in total, and
+its weekly median rose from 49 to 77 minutes over ISO weeks 43 to 45 even as
+rounds fell to 2; 16 of 99 polish runs ended halted or failed. On
 2026-10-25 seven full-suite pool waits expired at the 3600 s cap, about 9.7
 worker-hours of waiting in one afternoon.
 
@@ -316,7 +333,9 @@ worker-hours of waiting in one afternoon.
 - The November recovery coincides with the local gate being skipped (stated
   in every November task body), the gemini panel dropping out, cubic halting
   on quota, and smaller units; this data cannot separate those causes.
-- Caveats: step records start 2026-10-10, so there is no earlier baseline;
+- Caveats: step records start 2026-10-11, so there is no earlier baseline;
+  the step-record counts take the records last written before this report's
+  commit, and they move as running units finish;
   some in-session records carry hand-entered timestamps and include stall
   time, so polish totals are an upper bound; pool waits cover one day; the
   November sample is small.
@@ -332,13 +351,17 @@ Each theme lists what was acted on, what is open, and the gap.
 Acted on: supervisors subscribe instead of polling, edge-triggered attention,
 cached dashboard reads, merge-edge wakes (`A/2026-10-07-supervisors-subscribe-not-poll-b9f53634.md`
 and six more consumed by mission-control and fleet-hardening);
-`doctrine/fleet-coordination-floor.md` rules out LLM daemon mechanics on cost
-grounds. Open: obs:1f599c9d (the costly tick); bot-review wait floors
+`doctrine/fleet-coordination-floor.md` rules out LLM daemon mechanics, partly
+on cost and rate-limit grounds. Open: obs:1f599c9d (the costly tick);
+bot-review polling cadence inside its wait window
 (`E/2026-09-17-bot-review-latency-overstated-67aafd6a.md`); fixed 1 s
 supervisor tick (`E/2026-10-02-streamjson-fixed-poll-tick-953df56d.md`);
 tower-queue idle-pass costs (d394ee29, 980f2be4, 2b1327e0);
-`specs/fleet-messaging/` Tasks 6 and 7 (wake-driven `--watch`), gated on a
-`specs/_pending/bootstrap-amendment.md` that was never written. Gap: PR-state
+`specs/fleet-messaging/` Task 6's event-driven `--watch` loop and Task 7's
+notice-wake step, deferred until bootstrap signs off an amendment retiring
+D-38's metronome; the pending note routing that amendment
+(`specs/_pending/bootstrap-amendment.md`) is Task 6's own deliverable, and
+Task 6 has not started. Gap: PR-state
 change events (ask 1).
 
 ### Idle sessions and retirement
@@ -358,9 +381,10 @@ and 6).
 ### Permission denials
 
 Acted on: the prompt-flood class (`specs/worker-permission-ergonomics/`,
-Tasks 1 to 15 merged). Open: step resolution at 5.3 to 5.9 s against a 2 s
-guard deadline, so the guard falls back to a prompt
-(`E/2026-10-02-guard-multipoint-resolve-089f3a5d.md`); polish audit writes
+Tasks 1 to 15 merged); step resolution too slow for the 2 s guard deadline
+(`E/2026-10-02-guard-multipoint-resolve-089f3a5d.md`, fixed by one
+multi-point resolver run in #561, the fragment never archived and the
+deadline never re-measured). Open: polish audit writes
 denied twice (82b9bba0, 34e406e0); every main merge needs an operator act
 because `--no-verify` is blocked (82612b46); the kickoff push refused
 (04bcb01a); a successor stalled on its own prompts (32bde2c6);
@@ -393,9 +417,14 @@ evidence); the heavy-run admission verb has no caller
 inversion with 60-minute stalls (ac484ef0); pool waits expiring (4d47cc6b);
 about one false red in four under load (66ae088f); the spawn-cost family of
 nine fragments (for example `E/2026-10-02-guard-hook-spawn-cost-ee336bb5.md`,
-78 thousand forks per test file); `docs/recurring-failure-classes.md` load
-policy never picked up. Gaps: no affected-tests selection, no per-PR platform
-gating, no growth or pruning rule (see Measurements).
+about 78 thousand forks in one guard test file); `docs/recurring-failure-classes.md` load
+policy never picked up. Gaps: affected-tests selection exists only as the
+per-fix diff-scoped check (`scripts/check-diff-scoped.sh`,
+review-effectiveness REQ-D1.3), which no skill calls yet, and nothing
+selects tests for CI; per-PR platform gating is forbidden by the current
+rule (universal-binary REQ-B1.6 and `scripts/check-workflow-posture.sh`
+require every platform job on every PR); no growth or pruning rule (see
+Measurements).
 
 ### Review rounds and convergence
 
@@ -403,13 +432,13 @@ Acted on: comment volume, handoff before bot review lands (consumed).
 Open: `specs/review-effectiveness/` (Active) carries every cost cut and has
 them unlanded: delta-directed lenses (REQ-B1.5), a fresh bounded context per
 pass (REQ-D1.1), doctrine resolved once per loop (REQ-D1.2), a blind pass
-replacing the whole-branch confirm (REQ-D1.5); Task 3 has no dependencies,
-no PR, and blocks five others. Its research measured a median 17.0M tokens
-per convergence run (`specs/_pending/review-effectiveness-research.md`).
+replacing the whole-branch confirm (REQ-D1.5); Task 3's only dependency
+(Task 2) has merged, it has no PR, and Tasks 3.1, 7, 8 and 9 wait on it.
+Its research measured a median 17.0M tokens per convergence run (`specs/_pending/review-effectiveness-research.md`).
 Polish's iteration cap is ten (`skills/polish/SKILL.md`), where
 harness-rebaseline D-9 proposes two scaled to diff size. Observations: a
-59-file unit took five panel passes (a0add2f0), seven polish passes to
-converge (47e8a423), a 53-minute panel that timed out after converging
+59-file unit took five panel passes (a0add2f0), a shell-lexer guard seven
+polish passes to converge (47e8a423), a 53-minute panel that timed out after converging
 (5f46acd5), isolated review steps degrading to in-session (7f7e0c9f).
 
 ### Context size and succession
@@ -420,17 +449,17 @@ mission-control succession (Task 16), instruction budgets
 about 940 always-resident skill description words with no budget class
 (`E/2026-07-27-ctxeng-skill-description-surface-34cae1db.md`); real closure
 load above the error threshold while the guard reports green
-(4fbf9ceb); the context-engineering spec model-allocation scoped out and
-never seeded. Gap: no context or succession rule for workers.
+(4fbf9ceb); the context-engineering spec model-allocation scoped out, whose
+`ctxeng-*` seed fragments sit unconsumed, never drafted. Gap: no context or succession rule for workers.
 
 ### Task build time
 
 No trail measures it. Tasks carry an authored effort estimate
 (`doctrine/spec-format.md`) and nothing compares it to actuals;
 `specs/harness-rebaseline/` REQ-A1.1 would record wall time, tokens, rounds
-and prompts per run and is not started. Open stall observations (scratch root
-emptied c7ff1358, a 28-minute sweep hang 581c7096, run-tests pool hangs
-6ed98940 and 69089148) feed the long tail.
+and prompts per run and is not started. Stall observations (scratch root emptied c7ff1358, fixed
+by #841; a 28-minute sweep hang 581c7096; run-tests pool hangs 6ed98940 and
+69089148, now bounded by the per-file deadline) feed the long tail.
 
 ### Handoff duties
 
@@ -456,7 +485,10 @@ by hand (9b382af6).
 **No trail at all:**
 
 1. Efficiency and efficacy as an always-on doctrine for every skill and run.
-2. Selecting the tests a change affects, and gating platform jobs per change.
+2. Selecting the tests a change affects for the full gate and CI (the only
+   selector is the per-fix diff-scoped check, which no skill calls yet), and
+   a path to gating platform jobs per change (today's rule, universal-binary
+   REQ-B1.6, requires every platform on every PR).
 3. A rule bounding suite growth: pruning, consolidation, or a budget that
    does not grow with the file count.
 4. Measuring task build time against its estimate.
@@ -471,13 +503,15 @@ by hand (9b382af6).
 - The dollar-spend ceiling seed (`specs/fleet-autonomy/requirements.md` out of
   scope) and the context-engineering spec (`specs/model-allocation/`
   requirements out of scope): promised, never written.
-- `specs/_pending/bootstrap-amendment.md`: gates wake-driven `--watch`, never
-  written.
-- Deferrals whose gate is met but which nobody picked up: macOS test-time
-  budgets (test-throughput), quota-handling Tasks 2 and 8.
+- The bootstrap D-38 amendment that gates fleet-messaging's event-driven
+  `--watch`: its routing note is a fleet-messaging Task 6 deliverable, not
+  yet written.
+- Waits whose condition is met but which nobody picked up: the macOS
+  test-time budgets (a test-throughput deferral) and quota-handling Tasks 2
+  and 8 (awaiting input until custom-steps tasks merged, which they have).
 - Observation families still open: spawn cost (nine or more), secret scan
   crossing worktrees (five), allocation never wired (four), throttle-elapse
-  flake (eleven), fleet-stop timing under load (seven or more), the test
+  flake (ten or more), fleet-stop timing under load (seven or more), the test
   supervisor leak (five).
 
 ## Does this deserve its own spec?
@@ -488,7 +522,8 @@ scope: an always-on efficiency doctrine (waste is a finding in every skill,
 with a cost line in each run's handoff); per-run measurement of wall time,
 tokens, rounds and prompts (absorbing harness-rebaseline REQ-A1.1 rather than
 duplicating it); test economy (affected-tests selection, per-PR platform
-gating, a growth and pruning rule, and turning on `full_suite_evidence`);
+gating, a growth and pruning rule, and building and turning on
+`full_suite_evidence`);
 spend accounting in tokens or dollars with cheaper shipped tiers for
 mechanical work; idle-session retirement across every launch rung, offload
 included. The alternative is to finish what is already signed off first
