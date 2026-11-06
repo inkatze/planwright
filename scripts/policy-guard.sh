@@ -1171,6 +1171,9 @@ unit_branch_or_deny() {
       UNIT_BRANCH=$b UNIT_TOP=$CO_TOP UNIT_GD=$CO_GD UNIT_DIR=$PAYLOAD_CWD UNIT_VIA=shell
     fi
   fi
+  # Not redundant with the refusal above: that one names the rewrite before
+  # the shell checks can deny it as something else; this one covers every
+  # later act, which skips the resolution once the unit branch is cached.
   [ "$UNIT_VIA" != shell ] || [ "$act" = base-sync ] || emit_deny "$rewrite"
 }
 
