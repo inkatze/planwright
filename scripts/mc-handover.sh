@@ -206,7 +206,7 @@ parse_pct() {
 # check_picture <file>: a readable file of `item <id>` and `session <h>`.
 check_picture() {
   [ -f "$1" ] && [ -r "$1" ] || mc_usage_fail "$(sanitize_printable "$1") is not a readable file"
-  cp_bad=$(awk '!/^[ ]*$/ && !/^(item|session) [A-Za-z0-9._:-]+$/ { print NR; exit }' <"$1")
+  cp_bad=$(awk '!/^[ \t]*$/ && !/^(item|session)[ \t]+[A-Za-z0-9._:-]+$/ { print NR; exit }' <"$1")
   [ -z "$cp_bad" ] || mc_usage_fail "$(sanitize_printable "$1"):$cp_bad: not an 'item <id>' or 'session <handle>' line"
 }
 
