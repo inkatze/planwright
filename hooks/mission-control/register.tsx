@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { PanelView } from '../../types'
-import { emptyView, fallbackLine, handoverReason, isHandle, isProgram, parseDigest, parseWake } from './digest'
+import { emptyView, fallbackLine, handoverReason, isHandle, isProgram, parseDigest, parseInstall, parseWake } from './digest'
+import type { Install } from './digest'
 import { Band, Pane } from './panel'
 
 const PANE = 'mission-control'
@@ -22,6 +23,10 @@ const RECORD_CHECK_MS = DEFAULT_REFRESH_S * 1000
 // Past this a deferred compaction would risk the window itself.
 const DEFER_CEILING_PCT = 95
 const FAULT_MAX = 200
+// A failed check of the planwright copy is tried again no sooner than this.
+const INSTALL_RETRY_MS = 60_000
+// The scripts' stale-copy warning, which must not stand in for the error.
+const STALE_WARNING = 'planwright: WARNING running from '
 
 // A reload keeps $.state. Change the tag only for a field a reader cannot
 // do without until the next reading replaces the digest: a new tag also
@@ -56,6 +61,10 @@ let tickMs = DEFAULT_TICK_S * 1000
 // A wake whose events could not be marked is not sent again before this.
 let wakeHeldUntil = 0
 let radar: Timer | null = null
+// The planwright copy this session runs, checked against the program's
+// record at each start.
+let installed: Install | null = null
+let installRetryAt = 0
 // Where activation records live, read once per start; null until known.
 let activationDir: string | null = null
 let recordWatch: Timer | null = null
@@ -85,7 +94,8 @@ async function runScript($: EngineInterface, script: string, args: string[]): Pr
     const r = await $.process.run(['/bin/bash', `${$.plugin.root}/scripts/${script}`, ...args], {
       timeoutMs: SCRIPT_TIMEOUT_MS,
     })
-    return { ok: r.exitCode === 0, code: r.exitCode, out: r.stdout, err: oneLine(r.stderr.split('\n')[0] ?? '') }
+    const first = r.stderr.split('\n').find(l => l !== '' && !l.startsWith(STALE_WARNING)) ?? ''
+    return { ok: r.exitCode === 0, code: r.exitCode, out: r.stdout, err: oneLine(first) }
   } catch (err) {
     return { ok: false, code: -1, out: '', err: oneLine(String(err)) }
   }
@@ -221,6 +231,28 @@ async function refreshReviews($: EngineInterface) {
   if (isNew) void redraw($)
 }
 
+// A changed copy raises its own event, which the reading after this counts
+// and wakes the session with.
+async function checkInstall($: EngineInterface) {
+  if (!ctx) return
+  const r = await run($, 'mc-panel.sh', ['install', '--program', ctx.program])
+  const got = r.ok ? parseInstall(r.out) : null
+  if (!got) {
+    installRetryAt = (await $.clock.now()) + INSTALL_RETRY_MS
+    await lastingFault($, 'install', `the planwright version could not be checked: ${r.err || 'unreadable answer'}`)
+    return
+  }
+  installed = got
+  if (got.state === 'changed') {
+    $.ui.toast(
+      got.was === got.version
+        ? `Mission control: planwright ${got.version} moved to ${got.root}`
+        : `Mission control: planwright is now ${got.version} (was ${got.was})`,
+    )
+  }
+  if (lasting.install) await lastingFault($, 'install', null)
+}
+
 // One digest read laid into the view.
 async function readDigest($: EngineInterface) {
   if (!ctx) return
@@ -264,6 +296,7 @@ async function refresh($: EngineInterface) {
   if (!ctx || isRefreshing) return
   isRefreshing = true
   try {
+    if (!installed && (await $.clock.now()) >= installRetryAt) await checkInstall($)
     await readDigest($)
     const usage = await $.session.usage()
     const pct = usage.context.percent
@@ -505,6 +538,8 @@ async function activate(
 ) {
   cancelTimers()
   ctx = { program, target }
+  installed = null
+  installRetryAt = 0
   ackedFor = null
   recordFailed = null
   isClaimed = false
@@ -721,7 +756,9 @@ export const register: Register = on => {
       return done
     }
     const kept = done.messages.filter(m => !(m.role === 'user' && m.text.startsWith(REINJECT_HEAD)))
-    return { ...done, messages: [...kept, { role: 'user', text: REINJECT_HEAD + rules.out, toolUses: [] }] }
+    const copy = installed ? `The panel runs planwright ${installed.version} from ${installed.root}. ` : ''
+    const text = `${REINJECT_HEAD}${rules.out}\n\n${copy}Before the next act, resolve the planwright root again from the installed record.`
+    return { ...done, messages: [...kept, { role: 'user', text, toolUses: [] }] }
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {

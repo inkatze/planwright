@@ -143,6 +143,11 @@ fi
 . "$SCRIPTS/echo-safety.sh" || exit 2
 # shellcheck source=scripts/spec-parse.sh
 . "$SCRIPTS/spec-parse.sh"
+CHECK_RUNS_JQ=$(cat -- "$SCRIPTS/check-runs.jq" 2>/dev/null) || {
+  printf '%s\n' "ready-flip.sh: check-runs.jq is missing or unreadable (broken install)" >&2
+  exit 2
+}
+readonly CHECK_RUNS_JQ
 
 readonly LEAD='pending ready-flip:'
 readonly DASH='—'
@@ -794,9 +799,13 @@ pred_review() {
   set_pred review-converged pass "run $run converged on ${rh:0:12}; $n park-only commit(s) since"
 }
 
+# Judges the latest run of each check context (scripts/check-runs.jq, which
+# pred_ci prepends). A list at the read's cap of 100 may have been cut.
 # shellcheck disable=SC2016
 ROLLUP_JQ='
-  [ (.statusCheckRollup // [])[]
+  if ((.statusCheckRollup // []) | type) != "array" then empty
+  elif ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
+  [ (.statusCheckRollup // []) | latest_check_runs[]
     | select((.__typename == "StatusContext" and ((.context // "") as $n | any($ex[]; . == $n))) | not)
     | if .__typename == "StatusContext" then
         (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending" else "failing" end)
@@ -807,7 +816,7 @@ ROLLUP_JQ='
   | if any($v[]; . == "failing") then "failing"
     elif any($v[]; . == "pending") then "pending"
     elif any($v[]; . == "green") then "green \([$v[] | select(. == "green")] | length)"
-    else "none" end'
+    else "none" end end'
 
 # Set when the host keeps reporting another head: someone else moved the
 # branch, so a park could not be pushed on top of it and none is attempted.
@@ -842,7 +851,8 @@ pred_ci() {
         verdict=moved
         last="the PR head did not settle on the pinned head ${HEAD_SHA:0:12}"
       else
-        verdict=$(printf '%s' "$raw" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$ROLLUP_JQ" 2>/dev/null) || verdict=''
+        verdict=$(printf '%s' "$raw" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$CHECK_RUNS_JQ
+$ROLLUP_JQ" 2>/dev/null) || verdict=''
       fi
       case $verdict in
         green\ *)
@@ -851,6 +861,10 @@ pred_ci() {
           ;;
         failing)
           set_pred ci-rollup fail "a check failed on ${HEAD_SHA:0:12}"
+          return
+          ;;
+        truncated)
+          set_pred ci-rollup fail "the check list on ${HEAD_SHA:0:12} came back at its cap of 100, so a check past it is unread"
           return
           ;;
         moved) ;;

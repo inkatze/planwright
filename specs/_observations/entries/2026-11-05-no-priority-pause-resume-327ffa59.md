@@ -1,0 +1,1 @@
+- 2026-11-05 [planwright] No priority-aware pause and resume: pausing a worker today means typing a message into its pane, and nothing records that the worker is paused, so neither mission control nor a later session can tell a paused worker from an idle or stuck one, and nothing resumes paused work in priority order once load drops.

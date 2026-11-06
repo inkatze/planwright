@@ -137,6 +137,10 @@ export type Fixture = {
   rulesExit: number
   reviewsExit: number
   reviewsOut: string
+  install: string
+  installExit: number
+  // Lines a stale copy's scripts print on stderr ahead of their own.
+  stderrLead: string
   isPlaced: boolean
   isPaneOpen: boolean
   isDropped: boolean
@@ -168,6 +172,9 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     rulesExit: 0,
     reviewsExit: 0,
     reviewsOut: 'written',
+    install: 'install\tsame\t0.66.0\t/plugins/cache/planwright/planwright/0.66.0',
+    installExit: 0,
+    stderrLead: '',
     isPlaced: true,
     isPaneOpen: false,
     isDropped: false,
@@ -269,12 +276,13 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
       value: {
         exitCode,
         stdout,
-        stderr: exitCode === 0 ? '' : 'store unreadable',
+        stderr: fx.stderrLead + (exitCode === 0 ? '' : 'store unreadable'),
         isStdoutTruncated: false,
         isStderrTruncated: false,
       },
     })
     if (script === 'mc-panel.sh' && verb === 'digest') return answer(fx.digest, fx.digestExit)
+    if (script === 'mc-panel.sh' && verb === 'install') return answer(fx.installExit === 0 ? fx.install : '', fx.installExit)
     if (script === 'mc-panel.sh' && verb === 'where') return answer(`${ACTIVE_DIR}\n`, fx.whereExit)
     if (script === 'mc-panel.sh' && verb === 'lookup') {
       const rec = fx.records[argv[argv.indexOf('--session') + 1] ?? '']

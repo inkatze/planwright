@@ -301,16 +301,16 @@ expect_out "the proposal names the knob in the adopter layer" \
 p_dk=$(field "$OUT" 2)
 prop show --program alpha "$p_dk"
 for line in "noticed${tab}denial repeated 2 times: ready-guard, governed by ready_guard_behind_base" \
-  "commit(s) behind its base branch" "change${tab}ready_guard_behind_base: conflict-only" \
-  "effect${tab}a pull request behind its base branch" "settings${tab}ready to apply, never written: $adopter/planwright.yml"; do
+  "commit(s) behind its base branch" "change${tab}ready_guard_behind_base: checks" \
+  "effect${tab}a pull request behind its base branch can be marked ready once GitHub reports it mergeable and its checks passed on its head with at least one success" "settings${tab}ready to apply, never written: $adopter/planwright.yml"; do
   expect_out "the denial confirmation carries: $line" "$line"
 done
 prop accept --program alpha "$p_dk"
 expect_out "the guard knob is handed to the operator" \
-  "handover-operator${tab}$adopter/planwright.yml${tab}ready_guard_behind_base: conflict-only"
-mc_run mc-config.sh apply --program alpha "$p_dk" --value conflict-only
+  "handover-operator${tab}$adopter/planwright.yml${tab}ready_guard_behind_base: checks"
+mc_run mc-config.sh apply --program alpha "$p_dk" --value checks
 expect_out "applying the guard knob hands it over too" "handover-operator${tab}"
-awk -F '\t' 'BEGIN { OFS = "\t" } !/^#/ && $4 == "conflict-only" { $4 = "refuse" } { print }' "$map" >"$core/config/denial-knobs.tsv"
+awk -F '\t' 'BEGIN { OFS = "\t" } !/^#/ && $4 == "checks" { $4 = "refuse" } { print }' "$map" >"$core/config/denial-knobs.tsv"
 prop show --program alpha "$p_dk"
 expect_no_out "an effect the map no longer pairs with the stored change is not shown" "effect${tab}"
 cp "$map" "$core/config/denial-knobs.tsv"

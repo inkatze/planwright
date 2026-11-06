@@ -1028,7 +1028,8 @@ REC_SCRATCH=''
 REC_AUDIT_LOG=''
 
 # rec_unit_branch_ok <name>: a task or flight branch, in policy-guard.sh's
-# grammar (is_unit_branch); a protected branch never matches it.
+# grammar (is_unit_branch) narrowed to flight names carrying the id every
+# launcher mints; a protected branch never matches it.
 rec_unit_branch_ok() {
   local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
   local re_flight='^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'

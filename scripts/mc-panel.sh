@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # mc-panel.sh — the panel mod's data seam: one digest of every store the
 # panel draws, the text forms a session without the mod reads, the presence
-# marker the mod feeds from prompt events, and the activation record that
-# turns the mod on in a mission-control session with no setup.
+# marker the mod feeds from prompt events, the activation record that turns
+# the mod on in a mission-control session with no setup, and the record of
+# the planwright copy the program's session runs.
 #
 # `mc-panel.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
@@ -30,21 +31,22 @@ TMUX_BOUND=5
 TAB=$(printf '\t')
 
 usage() {
-  mc_usage_fail "usage: mc-panel.sh digest|line|text|presence|activate|await|lookup|ack|retire|prune|where|floor|session-hook ... (mc-panel.sh --help)"
+  mc_usage_fail "usage: mc-panel.sh digest|line|text|presence|activate|await|lookup|ack|retire|prune|where|floor|session-hook|install|changes ... (mc-panel.sh --help)"
 }
 
 help_text() {
   cat <<'HELP'
 mc-panel.sh — the panel mod's data seam: one digest of every store the
 panel draws, the text forms a session without the mod reads, the presence
-marker the mod feeds from prompt events, and the activation record that
-turns the mod on in a mission-control session with no setup.
+marker the mod feeds from prompt events, the activation record that turns
+the mod on in a mission-control session with no setup, and the record of
+the planwright copy the program's session runs.
 
 The mod (hooks/mission-control/) runs `digest` on its redraw timer and
 draws only what it prints; nothing here calls a model or writes a store
-but the presence marker, with --target the target's lease, and the
-activation files below. A store that cannot be read is said as such,
-never drawn as empty.
+but the presence marker, with --target the target's lease, the install
+record with its event, and the activation files below. A store that
+cannot be read is said as such, never drawn as empty.
 
 ACTIVATION. The mod turns on in a session whose own activation record
 exists: the skill's entry and bring-up write it (`activate`), keyed by the
@@ -153,6 +155,26 @@ Usage:
       own lease, <runtime>/leases/<t> (the epoch written), is restamped
       too: what scripts/mc-wake.sh reads to tell a live `mod` target from
       one whose mod died
+  mc-panel.sh install --program <p> [--root <dir>] [--now <epoch>]
+      compare the planwright copy at <dir> (this script's own copy by
+      default; the mod runs the copy it was loaded from) with the one
+      recorded for the program, <runtime>/install, and print
+        install<TAB>first|same|changed<TAB><version><TAB><root>[<TAB><was>]
+      <was> being the recorded version, on changed only. A first record or
+      a change (another version, or the same version at another root)
+      raises one event, planwright-recorded or planwright-updated, its
+      text naming the version, the root and, on a change of version, the
+      changelog entries between the two, cut to the event store's cap.
+      The record takes the new copy only once the event is stored, so a
+      refused event is raised again by the next check; a record that is
+      unreadable, or holds a root or version outside its grammar, is
+      replaced as if absent, with a warning on stderr.
+  mc-panel.sh changes --from <version> [--root <dir>]
+      the CHANGELOG.md entries of the copy at <dir> newer than <version>
+      and no newer than the copy's own, newest first, one per line:
+        change<TAB><version><TAB><section><TAB><entry>
+      the entry as plain printable ASCII, its links dropped; exit 1 with
+      no readable changelog
 
   mc-panel.sh text --program <p> [--target <t>]
       the text panel, for a session where nothing draws the pane:
@@ -206,10 +228,11 @@ Usage:
       session-start record for CLAUDE_PID; prints nothing, exits 0
 
 Exit codes: 0 done; 1 the program list, the presence marker or an
-activation file cannot be read or written, a target's lease cannot be
-written (its directory a symlink included), or `lookup` finds no record
-for the session; 2 usage; 3 the program is not configured; 4 this
-session's id cannot be told.
+activation file cannot be read or written, a target's lease or the install
+record cannot be written (its directory a symlink included), the install
+event is refused, the copy's root, version or changelog cannot be read, or
+`lookup` finds no record for the session; 2 usage; 3 the program is not
+configured; 4 this session's id cannot be told.
 
 Portable bash 3.2 / BSD tooling.
 HELP
@@ -340,17 +363,21 @@ target=""
 now=""
 presence_kind=""
 with_knobs=0
+root=""
+from=""
 session=""
 pid=""
 wait_s=""
 while [ $# -gt 0 ]; do
   case $1 in
-    --program | --target | --now | --session | --pid | --wait)
+    --program | --target | --now | --root | --from | --session | --pid | --wait)
       [ $# -ge 2 ] || usage
       case $1 in
         --program) program=$2 ;;
         --target) target=$2 ;;
         --now) now=$2 ;;
+        --root) root=$2 ;;
+        --from) from=$2 ;;
         --session) session=$2 ;;
         --pid) pid=$2 ;;
         --wait) wait_s=$2 ;;
@@ -378,15 +405,24 @@ only() {
   case " $1 " in *" session "*) ;; *) [ -z "$session" ] || usage ;; esac
   case " $1 " in *" pid "*) ;; *) [ -z "$pid" ] || usage ;; esac
   case " $1 " in *" wait "*) ;; *) [ -z "$wait_s" ] || usage ;; esac
+  [ -z "$root$from" ] || usage
 }
 case $verb in
   digest | line)
     [ -z "$presence_kind" ] || usage
-    [ -n "$program" ] && [ -z "$session$pid$wait_s" ] || usage
+    [ -n "$program" ] && [ -z "$session$pid$wait_s$root$from" ] || usage
     ;;
   presence)
     [ -n "$presence_kind" ] && [ "$with_knobs" -eq 0 ] || usage
+    [ -n "$program" ] && [ -z "$session$pid$wait_s$root$from" ] || usage
+    ;;
+  install)
+    [ -z "$presence_kind$target$from" ] && [ "$with_knobs" -eq 0 ] || usage
     [ -n "$program" ] && [ -z "$session$pid$wait_s" ] || usage
+    ;;
+  changes)
+    [ -n "$from" ] && [ -z "$program$presence_kind$target$now" ] && [ "$with_knobs" -eq 0 ] || usage
+    [ -z "$session$pid$wait_s" ] || usage
     ;;
   activate) only "program target now session pid" ;;
   text) only "program target" ;;
@@ -396,6 +432,78 @@ case $verb in
   prune) only "" ;;
   *) usage ;;
 esac
+
+# valid_version <v>: three dot-separated numbers.
+valid_version() {
+  case $1 in
+    *[!0-9.]* | .* | *. | *..* | *.*.*.*) return 1 ;;
+    *.*.*) return 0 ;;
+  esac
+  return 1
+}
+# version_newer <a> <b>: whether version <a> is newer than <b>.
+version_newer() {
+  A=$1 B=$2 awk 'BEGIN {
+    split(ENVIRON["A"], x, "."); split(ENVIRON["B"], y, ".")
+    for (i = 1; i <= 3; i++) if (x[i] + 0 != y[i] + 0) exit !(x[i] + 0 > y[i] + 0)
+    exit 1 }'
+}
+[ -z "$from" ] || valid_version "$from" || mc_usage_fail "invalid version '$(sanitize_printable "$from")'"
+
+# load_copy: the planwright copy at --root, else this script's own: its
+# canonical root and version.
+load_copy() {
+  [ -n "$root" ] || root=$script_dir/..
+  case $root in /*) ;; *) mc_usage_fail "--root must be an absolute path" ;; esac
+  root=$(cd -P -- "$root" 2>/dev/null && pwd -P) || mc_fail "the planwright root is no directory: $(sanitize_printable "$root")"
+  case $root in *[[:cntrl:]]*) mc_fail "the planwright root carries a control byte" ;; esac
+  lc_manifest=$root/.claude-plugin/plugin.json
+  version=""
+  if command -v jq >/dev/null 2>&1; then
+    version=$(jq -r '.version // empty | strings' "$lc_manifest" 2>/dev/null) || version=""
+  fi
+  if [ -z "$version" ]; then
+    version=$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$lc_manifest" 2>/dev/null | head -n 1)
+  fi
+  valid_version "$version" || mc_fail "no version can be read at $lc_manifest"
+}
+
+# changes_since <from>: the changelog entries newer than <from>, no newer
+# than the copy's own version, as `changes` prints them; fails with no
+# readable changelog. Entries are kept to printable ASCII, so a cut text
+# never splits a character.
+changes_since() {
+  [ -f "$root/CHANGELOG.md" ] && [ -r "$root/CHANGELOG.md" ] || return 1
+  FROM=$1 TO=$version awk '
+    function newer(a, b,   x, y, i) {
+      split(a, x, "."); split(b, y, ".")
+      for (i = 1; i <= 3; i++) if (x[i] + 0 != y[i] + 0) return x[i] + 0 > y[i] + 0
+      return 0
+    }
+    /^## \[[0-9]+\.[0-9]+\.[0-9]+\]/ {
+      v = $2; gsub(/[][]/, "", v); sub(/\(.*/, "", v)
+      keep = newer(v, ENVIRON["FROM"]) && !newer(v, ENVIRON["TO"]); section = ""; next
+    }
+    /^## / { keep = 0; next }
+    /^### / { section = substr($0, 5); next }
+    keep && /^\* / {
+      e = substr($0, 3)
+      gsub(/\*\*/, "", e)
+      gsub(/ \(\[[0-9a-f]+\]\([^)]*\)\)/, "", e)
+      while (match(e, /\[[^]]*\]\([^)]*\)/)) {
+        l = substr(e, RSTART, RLENGTH); sub(/\]\(.*/, "", l); sub(/^\[/, "", l)
+        e = substr(e, 1, RSTART - 1) l substr(e, RSTART + RLENGTH)
+      }
+      gsub(/[^ -~]/, "", e); gsub(/[^ -~]/, "", section)
+      print "change\t" v "\t" section "\t" e
+    }' "$root/CHANGELOG.md"
+}
+
+if [ "$verb" = changes ]; then
+  load_copy
+  changes_since "$from" || mc_fail "no changelog can be read at $root/CHANGELOG.md"
+  exit 0
+fi
 [ -z "$target" ] || mc_valid_handle "$target" || mc_usage_fail "invalid target '$(sanitize_printable "$target")'"
 [ -z "$session" ] || valid_session "$session" || mc_usage_fail "invalid session id '$(sanitize_printable "$session")'"
 [ -z "$pid" ] || mc_valid_uint "$pid" || mc_usage_fail "--pid takes a process id"
@@ -504,6 +612,78 @@ mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
 age_of() { printf '%s\n' $((NOW > $1 ? NOW - $1 : 0)); }
 
 clean_field() { printf '%s' "$1" | tr -d '\000-\037\177'; }
+
+if [ "$verb" = install ]; then
+  load_copy
+  rec=$runtime/install
+  mc_lock || mc_fail "cannot take the fleet lock"
+  # The new record is written beside the old before the event is stored and
+  # moved over it after, so a record that cannot be written stores no event.
+  rec_tmp=""
+  trap 'mc_unlock; [ -z "$rec_tmp" ] || rm -f "$rec_tmp"' EXIT
+  mc_now_arg "$now"
+  [ -L "$rec" ] || [ ! -d "$rec" ] || mc_fail "the install record is a directory: $rec"
+  was_root=""
+  was_version=""
+  if [ -e "$rec" ] || [ -L "$rec" ]; then
+    if [ ! -L "$rec" ] && mc_format_ok "$rec"; then
+      was_root=$(awk -F '\t' '$1 == "root" { print $2; exit }' "$rec")
+      was_version=$(awk -F '\t' '$1 == "version" { print $2; exit }' "$rec")
+    fi
+    # A record this script did not write is replaced, never trusted.
+    case $was_root in /*) ;; *) was_root="" ;; esac
+    case $was_root in *[[:cntrl:]]*) was_root="" ;; esac
+    if [ -z "$was_root" ] || ! valid_version "$was_version"; then
+      printf '%s\n' "$prog: the install record is unreadable and is replaced: $rec" >&2
+      was_root=""
+      was_version=""
+    fi
+  fi
+  if [ "$was_root" = "$root" ] && [ "$was_version" = "$version" ]; then
+    printf 'install\tsame\t%s\t%s\n' "$version" "$root"
+    exit 0
+  fi
+  rec_tmp=$(mktemp -- "$rec.XXXXXX") || mc_fail "cannot write the install record"
+  printf 'format\t%s\nroot\t%s\nversion\t%s\nrecorded\t%s\n' "$MC_FORMAT" "$root" "$version" "$NOW" >"$rec_tmp" \
+    || mc_fail "cannot write the install record"
+  if [ -z "$was_version" ]; then
+    state=first
+    kind=planwright-recorded
+    text="planwright $version is at $root; no earlier version is on record for this program"
+  else
+    state=changed
+    kind=planwright-updated
+    if [ "$was_version" = "$version" ]; then
+      text="planwright $version moved to $root from $was_root"
+    elif version_newer "$version" "$was_version"; then
+      text="planwright updated to $version from $was_version, now at $root"
+    else
+      text="planwright changed to $version from $was_version (an older version), now at $root"
+    fi
+    if [ "$was_version" != "$version" ]; then
+      entries=$(changes_since "$was_version" | awk -F '\t' '{ printf "%s%s", (NR > 1 ? "; " : ""), $4 }')
+      [ -z "$entries" ] || text="$text. Changes: $entries"
+    fi
+  fi
+  # Cut short of mc-event.sh's text cap, saying so.
+  if [ "${#text}" -gt 500 ]; then
+    text="$(printf '%s' "$text" | cut -c1-497)..."
+  fi
+  mc_event emit --program "$program" --now "$NOW" -- "$kind" "$program" "$text" >/dev/null \
+    || mc_fail "the $kind event could not be stored"
+  # mv onto a link to a directory would land inside it, so the link goes.
+  if [ -L "$rec" ]; then
+    rm -f -- "$rec" || mc_fail "the $kind event is stored but the install record could not be written"
+  fi
+  mv -f -- "$rec_tmp" "$rec" || mc_fail "the $kind event is stored but the install record could not be written"
+  rec_tmp=""
+  if [ "$state" = first ]; then
+    printf 'install\tfirst\t%s\t%s\n' "$version" "$root"
+  else
+    printf 'install\tchanged\t%s\t%s\t%s\n' "$version" "$root" "$was_version"
+  fi
+  exit 0
+fi
 
 if [ "$verb" = presence ]; then
   pres=$runtime/presence
