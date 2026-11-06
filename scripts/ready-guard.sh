@@ -1037,6 +1037,8 @@ readonly EXCLUDED_CONTEXTS='["planwright/pre-ready-flip","planwright/pre-spec-re
 
 # Judges the latest run of each check context (scripts/check-runs.jq, which
 # behind_checks prepends; a missing module fails the program, so it denies).
+# A run passes by check_passed, the rule the module breaks ties by, so a tie it
+# settled is never read the other way here.
 # Prints `green` (at least one SUCCESS, the rest NEUTRAL or SKIPPED), `none`,
 # `truncated` (a list at the read's cap of 100, which may have been cut), or
 # `<check> is <state>` for the first that did not pass.
@@ -1050,8 +1052,8 @@ readonly CHECKS_JQ='
   [ (.statusCheckRollup // [])
     | map(select((.context // "") as $c | any($ex[]; . == $c) | not))
     | latest_check_runs[]
-    | {n: (.name // .context // "-" | tostring), s: (state | tostring)} ] as $v
-  | ([$v[] | select(.s != "SUCCESS" and .s != "NEUTRAL" and .s != "SKIPPED")] | first // null) as $bad
+    | {n: (.name // .context // "-" | tostring), s: (state | tostring), ok: check_passed} ] as $v
+  | ([$v[] | select(.ok | not)] | first // null) as $bad
   | if $bad != null then "\($bad.n) is \($bad.s)"
     elif any($v[]; .s == "SUCCESS") then "green"
     else "none" end end'
