@@ -51,7 +51,7 @@ What the boundary means in practice:
 
 **A tower runs in its own working tree. It never moves a branch, switches,
 dirties, or writes the shared stash in a checkout it does not own, and never
-touches the primary checkout's `main`** (tower-placement REQ-A1.2, D-1).
+touches the primary checkout's default branch** (tower-placement REQ-A1.2, D-1).
 
 Reading another checkout is in bounds. The stash is shared by every worktree,
 so a tower's stash write lands in every peer's stack.
