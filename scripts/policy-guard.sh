@@ -616,18 +616,13 @@ tokenize() {
   }
   flush_seg() {
     flush_word || return 1
-    if [ "${#W[@]}" -gt "$seg_start" ]; then
+    # A command of redirects alone has no words but still runs, and its
+    # terminator decides what runs after it, so it keeps a segment.
+    if [ "${#W[@]}" -gt "$seg_start" ] || [ "$redir" = 1 ]; then
       SEG_S[${#SEG_S[@]}]=$seg_start
       SEG_E[${#SEG_E[@]}]=${#W[@]}
       SEG_TERM[${#SEG_TERM[@]}]=$1
       SEG_DOC[${#SEG_DOC[@]}]=$fold_doc
-    elif [ "$redir" = 1 ] && [ "${#SEG_TERM[@]}" -gt 0 ]; then
-      # A command of redirects alone has no words and records no segment;
-      # its terminator still decides what runs after it, so it replaces the
-      # && or || that led into it.
-      case ${SEG_TERM[${#SEG_TERM[@]} - 1]} in
-        '&&' | '||') SEG_TERM[${#SEG_TERM[@]} - 1]=$1 ;;
-      esac
     fi
     redir=0
     fold_doc=''
@@ -1303,23 +1298,36 @@ segment_words() {
 # compound_shape <seg> — read the segment's leading reserved words: advance
 # CS_DEPTH, the compound commands (if, while, until, for, select, case) open
 # at it; set CS_NOFOLLOW when a cd in it may not run in this shell or may fail
-# unseen (a `!`, a coproc, a zsh precommand modifier, a reserved word quoted
-# into a plain command name); and set CS_LOST, kept for the rest of the
-# command, at a function definition, whose body may change directory when
-# called.
+# unseen (a `!`, a coproc, a zsh precommand modifier, or a reserved word
+# made a plain command name by quoting or by an assignment, command, exec or
+# builtin before it); and set CS_LOST, kept for the rest of the command, at a
+# function definition, whose body may change directory when called.
 CS_DEPTH=0
 CS_LOST=0
 compound_shape() {
-  local k=${SEG_S[$1]} e=${SEG_E[$1]}
+  local k=${SEG_S[$1]} e=${SEG_E[$1]} prefixed=0
   CS_NOFOLLOW=0
   while [ "$k" -lt "$e" ]; do
     case ${W[$k]} in
       '!' | if | then | else | elif | do | while | until | for | select | case | fi | done | 'esac' | \
         time | coproc | function | noglob | nocorrect)
-        if [ "${WU[$k]}" != 1 ]; then
+        if [ "${WU[$k]}" != 1 ] || [ "$prefixed" = 1 ]; then
           CS_NOFOLLOW=1
           return 0
         fi
+        ;;
+      command | exec | builtin)
+        prefixed=1
+        k=$((k + 1))
+        continue
+        ;;
+      [A-Za-z_]*=*)
+        case ${W[$k]%%=*} in
+          *[!A-Za-z0-9_+]*) return 0 ;;
+        esac
+        prefixed=1
+        k=$((k + 1))
+        continue
         ;;
     esac
     case ${W[$k]} in
@@ -1471,8 +1479,8 @@ classify_segments() {
     # Where the shell may have skipped a followed cd, or run it in a
     # background subshell, the directory is unknown from then on: past the
     # end of an and-or list whose cd ran only after an earlier command
-    # succeeded, past one sent to the background, and after a || in the cd's
-    # own list.
+    # succeeded, at a later || in that list, and past a list with a followed
+    # cd sent to the background.
     pt=''
     [ "$si" = 0 ] || pt=${SEG_TERM[$((si - 1))]}
     case $pt in
@@ -1482,7 +1490,7 @@ classify_segments() {
         cd_seen=0
         cd_cond=0
         ;;
-      '||') [ "$cd_seen" = 0 ] || eff_ok=0 ;;
+      '||') [ "$cd_cond" = 0 ] || eff_ok=0 ;;
     esac
     if [ "${#SW[@]}" = 0 ]; then
       # A segment of assignments alone sets them for the rest of the command;
