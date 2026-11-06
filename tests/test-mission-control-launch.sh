@@ -300,6 +300,14 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
   if [ "$kind" = mission-control ]; then
     [ -n "$row_token" ] && [ "$got_token" = "$row_token" ] && ok "[$kind] the session holds its registry row's token" \
       || fail "[$kind] the session's PLANWRIGHT_MC_TOKEN '$got_token' is not its row's '$row_token'"
+    # REQ-G1.5: with no settings layer of its own, the launched session's
+    # posture passes on the profile the row the launch wrote records.
+    mkdir -p "$tmp/empty-home"
+    p_out=$(cd "$repo" && env -u CLAUDE_CONFIG_DIR -u CLAUDE_PLUGIN_DATA HOME="$tmp/empty-home" CLAUDE_PLUGIN_ROOT="$repo_root" \
+      PLANWRIGHT_FLEET_STATE_DIR="$fleet" PLANWRIGHT_MC_TOKEN="$got_token" \
+      /bin/bash "$repo_root/scripts/mc-posture.sh" check --managed "$tmp/no-managed.json" 2>&1)
+    [ "$p_out" = "posture${TAB}pass" ] && ok "[$kind] the launched session's posture passes on the profile its row records" \
+      || fail "[$kind] the launched session's posture does not pass on its row's profile: $p_out"
   else
     [ -z "$got_token" ] && ok "[$kind] the session holds no mission-control token" \
       || fail "[$kind] a $kind session was handed a mission-control token"
