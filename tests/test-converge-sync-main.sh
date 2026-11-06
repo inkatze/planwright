@@ -1157,27 +1157,31 @@ w2() {
   echo "ok w2: /execute-task opens a draft PR and flips only through the unit-owner path"
 }
 
-# Case 21 — a flight branch named before flight ids still syncs, and a
-# flight name that reads as a task id still does not.
+# Case 21 — the sync keeps the launchers' flight grammar: an id-carrying
+# flight branch syncs, while an id-less one (which the policy guard admits for
+# a plain merge) and a task-shaped flight name stay refused.
 c21() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c21.XXXXXX")
   trap 'rm -rf "$tmp"' RETURN
   new_origin "$tmp"
-  new_clone "$tmp" worker planwright/flight/mc-panel-usability
-  new_clone "$tmp" taskish planwright/flight/task-3
+  new_clone "$tmp" worker planwright/flight/mc-panel-usability-0123abcd
   advance_main "$tmp" newfile.txt "from main"
   out=$(CLAUDE_PROJECT_DIR="$tmp/worker" "$SYNC" "$tmp/worker") \
-    || fail "c21: the sync refused a flight branch named without an id"
+    || fail "c21: the sync refused an id-carrying flight branch"
   [ "$(tag_val "$out" sync)" = fast-forward ] \
-    || fail "c21: expected sync=fast-forward on the older flight branch, got '$(tag_val "$out" sync)'"
-  rc=0
-  err=$(CLAUDE_PROJECT_DIR="$tmp/taskish" "$SYNC" "$tmp/taskish" 2>&1 >/dev/null) || rc=$?
-  [ "$rc" -eq 10 ] || fail "c21: expected exit 10 (off-branch) for planwright/flight/task-3, got $rc"
-  case $err in
-    *"is not a unit branch"*) ;;
-    *) fail "c21: planwright/flight/task-3 was refused for another reason: $err" ;;
-  esac
-  echo "ok c21: an older flight branch syncs; a task-shaped flight name stays refused"
+    || fail "c21: expected sync=fast-forward on the flight branch, got '$(tag_val "$out" sync)'"
+  for b in planwright/flight/mc-panel-usability planwright/flight/task-3; do
+    name=$(printf '%s' "$b" | tr '/' '_')
+    new_clone "$tmp" "$name" "$b"
+    rc=0
+    err=$(CLAUDE_PROJECT_DIR="$tmp/$name" "$SYNC" "$tmp/$name" 2>&1 >/dev/null) || rc=$?
+    [ "$rc" -eq 10 ] || fail "c21: expected exit 10 (off-branch) for $b, got $rc"
+    case $err in
+      *"is not a unit branch"*) ;;
+      *) fail "c21: $b was refused for another reason: $err" ;;
+    esac
+  done
+  echo "ok c21: an id-carrying flight branch syncs; id-less and task-shaped flight names stay refused"
 }
 
 c1

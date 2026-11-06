@@ -252,10 +252,13 @@ path_list() {
   [ "$n" -le 10 ] || printf '(and %s more) ' "$((n - 10))"
 }
 
-# The unit-branch grammar the policy guard admits.
+# The launchers' unit-branch grammar, flight names carrying their id. The
+# policy guard also admits an id-less flight name, but keep this one narrow:
+# the guard does not screen this script's caller by tier, so widening it here
+# would widen what a tower could sync.
 is_unit_branch() {
   local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
-  local re_flight='^planwright/flight/[a-z0-9]([a-z0-9-]*[a-z0-9])?$'
+  local re_flight='^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'
   case $1 in planwright/flight/task-*) return 1 ;; esac
   [[ $1 =~ $re_task ]] || [[ $1 =~ $re_flight ]]
 }
@@ -265,7 +268,7 @@ branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
   || die 10 off-branch "no branch is checked out (a detached HEAD), so there is no unit branch to sync"
 branch_shown=$(printf '%s' "$branch" | scrub)
 is_unit_branch "$branch" \
-  || die 10 off-branch "$branch_shown is not a unit branch (planwright/<spec>/task-<id> or planwright/flight/<name>); the sync merges only into one"
+  || die 10 off-branch "$branch_shown is not a unit branch (planwright/<spec>/task-<id> or planwright/flight/<id>); the sync merges only into one"
 prc=0
 (cd -- "$policy_root" && PLANWRIGHT_REPO_ROOT=$policy_root /bin/sh "$script_dir/protected-branch.sh" "$branch" </dev/null >/dev/null 2>&1) || prc=$?
 case $prc in
