@@ -274,8 +274,8 @@ ff_primary() {
   }
   # An inherited repository pointer (a caller running inside a git hook)
   # would keep every command below on that repository whatever directory
-  # this enters.
-  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+  # this enters; inherited config entries could redirect origin's URL.
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
   if [ -n "$ffp_checkout" ]; then
     if ! [ -d "$ffp_checkout" ] || ! cd -- "$ffp_checkout"; then
       err "cannot enter checkout directory '$(sanitize_printable "$ffp_checkout")'"
@@ -344,8 +344,11 @@ ff_primary() {
 
   rec_dir="$common/planwright"
   rec="$rec_dir/main-currency.log"
-  { mkdir -p -- "$rec_dir" 2>/dev/null && [ -w "$rec_dir" ] && { [ ! -e "$rec" ] || [ -w "$rec" ]; }; } \
-    || ff_refuse "the act record $(sanitize_printable "$rec") is not writable, so the fast-forward is refused rather than left unrecorded"
+  # A symlink would carry the append outside the git directory, and a
+  # directory at the record's path passes -w yet fails the append.
+  { [ ! -L "$rec_dir" ] && mkdir -p -- "$rec_dir" 2>/dev/null && [ -w "$rec_dir" ] && [ ! -L "$rec" ] \
+    && { [ ! -e "$rec" ] || { [ -f "$rec" ] && [ -w "$rec" ]; }; }; } \
+    || ff_refuse "the act record $(sanitize_printable "$rec") is not a writable regular file, so the fast-forward is refused rather than left unrecorded"
 
   if ! fetch_err=$(GIT_TERMINAL_PROMPT=0 git fetch --no-write-fetch-head origin "+refs/heads/$default:refs/remotes/origin/$default" 2>&1); then
     err "fetch of origin/$default failed; $default is unmoved — retry next cycle"

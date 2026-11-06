@@ -1130,4 +1130,42 @@ printf '%s\n' "$out" | grep -q '^sync	fast-forward$' || fail "47: the run did no
 grep -q "	main	$before	$("$REAL_GIT" -C "$root/tower" rev-parse main)	" "$(ff_record "$root/tower")" 2>/dev/null \
   || fail "47: the record does not carry the true old commit"
 
+# 48. Refused: a directory where the act record belongs, which passes a
+#     writability check yet fails the append.
+ff_case 48 ffp-recdir
+mkdir -p "$(ff_record "$root/tower")"
+ffp "$root/tower"
+[ "$rc" -eq 7 ] || fail "48: a directory at the record path must refuse with exit 7, got $rc: $out"
+[ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] || fail "48: main moved"
+if git_log_has '(^| )merge( |$)'; then fail "48: a merge ran on a refused shape"; fi
+
+# 49. Refused: a symlinked act record or record directory, which would carry
+#     the append outside the git directory.
+for c in file dir; do
+  ff_case 49 "ffp-reclink-$c"
+  : >"$root/outside.log"
+  mkdir -p "$root/outside-dir"
+  if [ "$c" = file ]; then
+    mkdir -p "$root/tower/.git/planwright"
+    ln -s "$root/outside.log" "$(ff_record "$root/tower")"
+  else
+    ln -s "$root/outside-dir" "$root/tower/.git/planwright"
+  fi
+  ffp "$root/tower"
+  [ "$rc" -eq 7 ] || fail "49 ($c): a symlinked record must refuse with exit 7, got $rc: $out"
+  [ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] || fail "49 ($c): main moved"
+  [ ! -s "$root/outside.log" ] && [ -z "$(ls -A "$root/outside-dir")" ] \
+    || fail "49 ($c): the act was appended outside the git directory"
+done
+
+# 50. Inherited config entries (GIT_CONFIG_COUNT/KEY/VALUE, or
+#     GIT_CONFIG_PARAMETERS) redirecting origin do not reach the verb.
+ff_case 50 ffp-inherited-config
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$root/does-not-exist.git.insteadOf" \
+  GIT_CONFIG_VALUE_0="$root/origin.git" ffp "$root/tower"
+[ "$rc" -eq 0 ] || fail "50: an inherited GIT_CONFIG_COUNT redirect reached the fetch (exit $rc): $out"
+ff_case 50 ffp-inherited-params
+GIT_CONFIG_PARAMETERS="'url.$root/does-not-exist.git.insteadof'='$root/origin.git'" ffp "$root/tower"
+[ "$rc" -eq 0 ] || fail "50: an inherited GIT_CONFIG_PARAMETERS redirect reached the fetch (exit $rc): $out"
+
 echo "PASS: test-main-currency.sh"
