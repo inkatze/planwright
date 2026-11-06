@@ -929,8 +929,9 @@ messaging_heal_cadence_seconds: 300
 #                               layer's list joins, none replaces another's.
 # merge_class_strategy          the class's merge method: sole-allowed (the one
 #                               method the host allows), squash, merge, rebase.
-# worker_base_merge             whether a worker may merge its PR base into its
-#                               own unit branch: allow or deny.
+# worker_base_merge             whether a worker may merge its PR base (or its
+#                               own remote branch) into its own unit branch:
+#                               allow or deny.
 # worker_merge_conflict_policy  a conflicting base merge: halt (abort and park)
 #                               or resolve (commit the resolution for sign-off).
 # unpushed_rewrite              whether a worker may amend, squash, or rebase
