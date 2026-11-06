@@ -97,8 +97,8 @@ posture CLAUDE_PLUGIN_ROOT="$repo_root" -- --settings "$PROFILE"
 expect_pass "the shipped profile as a --settings layer under its plugin root passes"
 
 reset
-jq '{permissions: {deny: .permissions.deny[0:40]}}' "$PROFILE" >"$home/.claude/settings.json"
-absolute_profile | jq '.permissions.deny |= .[40:]' >"$proj/.claude/settings.local.json"
+jq '{permissions: {deny: (.permissions.deny | .[0:(length / 2 | floor)])}}' "$PROFILE" >"$home/.claude/settings.json"
+absolute_profile | jq '.permissions.deny |= .[(length / 2 | floor):]' >"$proj/.claude/settings.local.json"
 posture --
 expect_pass "the floor split across the user and local layers passes on their union"
 
@@ -116,7 +116,22 @@ printf 'token\t%s\nkind\tworker\nprofile\t%s\n' worker-token-0123456789 "$PROFIL
   >"$tmp/fleet/mission-control/sessions/mc-alpha-worker-0123456789"
 posture CLAUDE_PLUGIN_ROOT="$repo_root" PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_MC_TOKEN=worker-token-0123456789 --
 expect_fail "another kind's row does not vouch for a mission-control session" "no launcher registry row carries"
+printf 'token\t%s\nkind\tmission-control\nprofile\t%s\n' linked-token-0123456789 "$PROFILE" >"$tmp/linked-row"
+ln -s "$tmp/linked-row" "$tmp/fleet/mission-control/sessions/mc-alpha-mission-control-linked"
+posture CLAUDE_PLUGIN_ROOT="$repo_root" PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_MC_TOKEN=linked-token-0123456789 --
+expect_fail "a registry row that is a symbolic link vouches for nothing" "no launcher registry row carries"
+rm -f "$tmp/fleet/mission-control/sessions/mc-alpha-mission-control-linked" "$tmp/linked-row"
+printf 'token\t%s\nkind\tmission-control\nprofile\t%s\n' relative-token-0123456789 config/mission-control-settings.json \
+  >"$tmp/fleet/mission-control/sessions/mc-alpha-mission-control-relative"
+posture CLAUDE_PLUGIN_ROOT="$repo_root" PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_MC_TOKEN=relative-token-0123456789 --
+expect_fail "a registry row recording a relative profile path fails" "records no absolute profile path"
+printf 'token\t%s\nkind\tmission-control\nprofile\t%s\n' gone-token-0123456789 "$tmp/gone-profile.json" \
+  >"$tmp/fleet/mission-control/sessions/mc-alpha-mission-control-gone"
+posture CLAUDE_PLUGIN_ROOT="$repo_root" PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_MC_TOKEN=gone-token-0123456789 --
+expect_fail "a registry row recording a profile that is gone fails" "gone-profile.json, does not exist"
 rm -rf "$tmp/fleet"
+posture PLANWRIGHT_MC_TOKEN=fixture-token-0123456789 PLANWRIGHT_FLEET_STATE_DIR= CLAUDE_PLUGIN_DATA= CLAUDE_DIR= --
+expect_fail "a token with no resolvable fleet home fails" "the fleet home holding the launcher's registry cannot be resolved"
 
 reset
 mkdir -p "$tmp/scripts"
