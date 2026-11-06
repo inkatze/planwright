@@ -1,0 +1,1 @@
+- 2026-11-05 [planwright] orchestrate-meta-step.sh takes the per-spec lock but never counts the spec's In-progress units against max_parallel_units; callers check the cap before the lock. Two towers dispatching on one spec can both pass the check and both launch, exceeding the cap by one per racing tower. Count In progress inside the lock before the record step.

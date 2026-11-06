@@ -229,20 +229,33 @@ fi
 # is checked against one seeded file per spelling first, so it can fail.
 # ---------------------------------------------------------------------------
 no_model() { # no_model <file...>: the code lines that would start a model
-  grep -nE '(^|[^A-Za-z0-9_.-])"?(/[A-Za-z0-9_./-]*/)?(claude|gemini|codex)"?([[:space:]]|$)|\$\{?[A-Z_]*(CLAUDE|MODEL|LLM)[A-Z_]*|offload-dispatch|mission-control-launch|fleet-[a-z-]*\.sh"?[[:space:]]+launch|anthropic' "$@" \
-    | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#'
+  # CLAUDE_DIR names the config directory, not a model; it is dropped before
+  # matching so the rest of its line is still checked.
+  for nm_f in "$@"; do
+    sed 's/\$[{]\{0,1\}CLAUDE_DIR//g' "$nm_f" \
+      | grep -nE '(^|[^A-Za-z0-9_.-])"?(/[A-Za-z0-9_./-]*/)?(claude|gemini|codex)"?([[:space:]]|$)|\$\{?[A-Z_]*(CLAUDE|MODEL|LLM)[A-Z_]*|offload-dispatch|mission-control-launch|fleet-[a-z-]*\.sh"?[[:space:]]+launch|anthropic' \
+      | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|$nm_f:|"
+  done
 }
 # shellcheck disable=SC2016 # the seeds are source text, never expanded
 for seeded in 'claude -p "summarize"' '"claude" -p x' '/usr/local/bin/claude -p x' \
   'gemini -p x' 'codex exec x' '${CLAUDE_BIN:-claude} -p x' \
+  'cat "$CLAUDE_DIR/x"; claude -p x' \
   '/bin/sh "$d/fleet-streamjson.sh" launch w s' 'fleet-tmux.sh launch w'; do
   printf '#!/bin/sh\n# claude is only named here\n%s\n' "$seeded" >"$tmp/seeded.sh"
-  if no_model "$tmp/seeded.sh" >/dev/null; then
+  if [ -n "$(no_model "$tmp/seeded.sh")" ]; then
     ok "REQ-C1.5: the gate catches: $seeded"
   else
     fail "REQ-C1.5: the gate misses: $seeded"
   fi
 done
+# shellcheck disable=SC2016 # source text, never expanded
+printf '%s\n' 'r=${CLAUDE_DIR:-$HOME/.claude}/plugins/x.json' >"$tmp/seeded.sh"
+if [ -z "$(no_model "$tmp/seeded.sh")" ]; then
+  ok "REQ-C1.5: a config-directory read is not a model call"
+else
+  fail "REQ-C1.5: the gate flags a config-directory read"
+fi
 found=$(no_model "$repo_root"/scripts/mc-watch.sh "$repo_root"/scripts/mc-wake.sh \
   "$repo_root"/scripts/mc-event.sh "$repo_root"/scripts/mc-snapshot.sh \
   "$repo_root"/scripts/mc-adapter-forge.sh "$repo_root"/scripts/mc-budget.sh \

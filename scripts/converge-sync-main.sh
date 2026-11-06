@@ -252,7 +252,10 @@ path_list() {
   [ "$n" -le 10 ] || printf '(and %s more) ' "$((n - 10))"
 }
 
-# The unit-branch grammar the policy guard admits.
+# The launchers' unit-branch grammar, flight names carrying their id. The
+# policy guard also admits an id-less flight name, but keep this one narrow:
+# the guard does not screen this script's caller by tier, so widening it here
+# would widen what a tower could sync.
 is_unit_branch() {
   local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
   local re_flight='^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'

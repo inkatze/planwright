@@ -760,3 +760,323 @@ Lens-pass: the delta-scoped lens review recorded in this entry (four-agent
 fan-out over the spec artifact class, dispositions above)
 Anchor: `06f71f8589d0ca1a73a22a322a4fc6e5e46b25ec` — computed as
 `scripts/spec-anchor.sh specs/human-gates`
+
+### 2026-11-05 — The relayed kickoff publishes its own spec branch
+
+**Scope.** A reopened-bundle delta kickoff of the 2026-11-04
+`/spec-draft --extend` extension routed from mission-control Task 31:
+REQ-A1.6, REQ-C1.9 (superseding REQ-C1.5), REQ-G1.9, D-18, and Task 13.
+The bundle was Draft with a complete signed brief, so this is the scoped
+kickoff of the delta, walked against spec commit `f81e109`. The validator
+was clean at pre-flight (0 errors, 0 warnings). Config: defaults
+(`commit_on_kickoff`, `mark_spec_pr_ready_on_kickoff` true,
+`kickoff_ready_ci_wait` 10m). The session ran as a relayed kickoff
+(mission-control launch, kickoff scope), its questions relayed to the
+operator; no harness log path was provided, so the structured turn log was
+skipped, as at first activation. Sections 2 to 7 were walked as one delta.
+
+**Goal (section 2), confirmed by the operator.** When mission control
+launches a session to run a spec walkthrough, that session may publish its
+own result: push only the one spec branch it was launched for, open its PR
+as a draft, and mark it ready when `mark_spec_pr_ready_on_kickoff` allows.
+It never force-pushes, deletes, or touches another branch, and sign-off
+stays the operator's. Glossary: a **relayed kickoff session** is a
+`/spec-kickoff` run mission control launched under the kickoff profile; its
+**launch record** is the file, written before it starts, naming the one
+spec branch it may publish.
+
+**Lens review pass (delta-scoped, meaning class).** The artifact class is
+**spec**. The delta mints requirements, so it is meaning-class; the
+operator's sign-off covered it. Three read-only Opus sub-agents fanned out
+over the delta, each carrying a lens group; every finding below was checked
+against the files (the fixture's `protected-push` floor lines and the
+floor-line rule in `tests/test-reserved-control-spellings.sh`, the worker
+profile's spec-branch denies, its `_about` note that the floor names no
+deletion, mission-control REQ-I1.2, I1.8, D-36, and Task 19).
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency; ambiguity and interpretation forks | 6 | REQ-G1.9 contradicting REQ-G1.1's both-profiles floor rule; its exception naming entries REQ-G1.3 does not list; REQ-C1.9 omitting the shipped mission-control flip clause; "exactly three acts" read literally; the knob-false flip unstated; D-18's "one" misreading as human gate |
+| Cross-file consistency; documentation and glossary drift | 1 | The kickoff-tier cases assigned to a mission-control task whose Done-when lacks them |
+| Security and bypass completeness | 5 | Dropping the spec-branch denies also dropping the profile's deletion floor; the push repository undecidable (URL, remote, `--receive-pack`); refspec positions and tags uncovered; the launch record unbound to a session and never removed; "that PR" matching a fork's same-named branch |
+| Decision-domain gaps | 1 | Concurrency between relayed kickoffs touched but undecided |
+| Citation and coverage integrity; dead verification paths and testability | 6 | The same Task 19 ownership gap; the knob-off flip untested; two pending Deferred pointers naming the superseded REQ-C1.5; the merge-base-anchored rewrite-row check; the doctrine Citations line keeping REQ-C1.5; the changelog incomplete |
+| Performance | n/a | Spec artifact class: no execution path |
+| Error handling and failure modes | n/a | Spec artifact class; the fail-closed record read is the contract under review |
+
+After deduplication by root cause (the Task 19 gap and the knob-false case
+each reported twice), one fork went to the operator: who owns the
+kickoff-tier cases mission-control Task 19 omits. The operator chose to fix
+mission control's list: a Deferred item here and a routed observation ask
+for a mission-control amendment of Task 19's Done-when before it
+dispatches. The rest were applied as the recommended fixes:
+
+- REQ-G1.9 tightened: the admitted acts scoped to pushes and PR writes; the
+  repository bound to a configured remote whose push URL is the posture's,
+  with URLs, forks, `--receive-pack`, and `--exec` denied; "that PR" bound
+  to the head in that repository; denies added for the knob-false flip,
+  another PR's flip, tags, and any refspec position; the record bound to
+  its session, written outside every path by any tool, removed at
+  retirement; the profile exception restated against the worker profile's
+  denies, keeping the spec-branch deletion denies.
+- REQ-G1.10 minted, superseding REQ-G1.1: every profile, with the kickoff
+  tier's one floor exception. Test-spec entries added and updated, the
+  REQ-G1.1 heading marked superseded, and D-9 noting the third profile.
+- REQ-C1.9 carrying the mission-control session's flip under
+  mission-control REQ-I1.2, as the shipped doctrine row states.
+- D-18's wording fixed and extended; the decision-domains walk recording
+  the concurrency decision.
+- Task 13: the doctrine Citations line replacing REQ-C1.5 and REQ-G1.1, the
+  test's doc path made overridable, and the rewrite-row check made a
+  fixed-string check instead of a merge-base comparison.
+- The tower-placement and merge-currency-guard Deferred pointers repointed
+  to REQ-C1.9; the changelog completed; the Sources entry naming Task 19
+  and REQ-I1.2.
+
+No finding was declined and none deferred, beyond the routed Task 19
+amendment the operator chose.
+
+The **altitude check** ran inline: no altitude trigger in the extension's
+Sources, so not applicable. The **ship-gate check** found one out-of-band
+fix, the mission-control Task 19 amendment, carried by a gated Deferred
+item and an observation, not prose alone.
+
+**Operator question at the sign-off.** The operator asked whether to
+revisit the ergonomics of the human-gates defaults. This delta adds and
+changes no default; the operator chose to sign off now and start a
+separate review, routed by an observation.
+
+**Brief content this amendment makes stale** (the body above is
+append-only; these notes supersede it where they conflict):
+
+- Section 3, REQ-A: REQ-A1.6 minted (the spec-branch push row). REQ-C:
+  REQ-C1.5 superseded by REQ-C1.9. REQ-G: REQ-G1.1 superseded by
+  REQ-G1.10; REQ-G1.9 minted.
+- Section 4 ledger: D-18 added, confirmed; D-9 amended by one sentence
+  naming the kickoff profile.
+- Section 5: `[test]` entries for REQ-A1.6, REQ-C1.9, REQ-G1.9, and
+  REQ-G1.10. The kickoff-tier cases of the last three are owned by
+  mission-control Task 19, by the routed Deferred item; this bundle's own
+  CI verifies only REQ-A1.6 and the unchanged REQ-C1.5 and REQ-G1.1 cases.
+- Section 6: Task 13 (2 hours, no dependencies) runs in parallel with
+  everything; mission-control Task 19 depends on this bundle's merge
+  through mission-control Task 31. The critical path is unchanged.
+- Section 7, new rows:
+  - (14) The doctrine row lands before the guard admits the push. The
+    signal is a relayed kickoff denied its push after merge; the
+    mitigation is that the gap fails safe (deny), and mission-control
+    Task 19 closes it.
+  - (15) Mission-control Task 19 dispatches before its Done-when gains the
+    REQ-G1.9 cases. The signal is the Deferred item surfacing at drain;
+    the mitigation is the routed observation and the gate on Task 13.
+  - (16) A launch record outlives its session and admits a later one. The
+    signal is a push admitted for a session id the record does not name;
+    the mitigation is REQ-G1.9's session binding and removal at
+    retirement.
+
+  Gap check: auth (the one-branch admission), concurrency (one record per
+  session), and deploy-migration (the cross-bundle ordering through Task
+  31) are decided.
+
+**Pre-sign-off verification.**
+
+- **Post-lens stale-reference sweep.** Run after REQ-G1.10 was minted and
+  REQ-G1.9 re-scoped: no "kickoff-kind task", "REQ-G1.1 cross-copy", or
+  "REQ-G1.3 floor entry" wording remains in the four files. The remaining
+  "both profiles" phrases sit in the superseded REQ-G1.1, the shipped Task
+  5 and Task 6 test-spec entries, and D-9's fixture paragraph, which now
+  names the third profile.
+- **Lint.** `markdownlint-cli2` over the brief and the four spec files: 0
+  issues.
+- **Recorded claims re-derived.** Requirement bullets and test-spec entries
+  pair one to one (the sorted ID lists compared equal).
+- **Enumeration cross-check.** The lens table's counts are the three
+  sub-agents' report totals before deduplication. REQ-G1.9's denied-act
+  list is the decided rule for the guard; the test-spec cases are its
+  verification, not a second enumeration.
+- **Validator.** 0 errors, 0 warnings after the flip.
+
+**Sign-off.** Signed off 2026-11-05 by the operator after the approval
+summary. `**Status:**` flipped Draft→Ready and `**Last reviewed:**` set to
+2026-11-05 on all four spec files.
+
+Class: meaning
+Lens-pass: the delta-scoped lens review recorded in this entry (three-agent
+fan-out over the spec artifact class, dispositions above)
+Anchor: `4433671c3dc1cd8859bbf924abd5d2a975091879` — computed as
+`scripts/spec-anchor.sh specs/human-gates`
+
+### 2026-11-05 — Automatic merge classes, the drafting push, and the release session
+
+**Scope.** A reopened-bundle delta kickoff of the 2026-11-05
+`/spec-draft --extend` extension (automatic merge classes: REQ-A1.7,
+REQ-A1.8, REQ-D1.10, the REQ-I group, D-19 to D-24, Tasks 14 to 18),
+walked against spec commit `6b7afae`, plus three operator additions
+drafted and walked in this session: a relayed drafting session's push of
+its own spec branch (REQ-A1.9, REQ-G1.11, D-25, Task 19); every automatic
+merge waiting for the approvals the repository requires (REQ-I1.3's
+approval-gate condition, REQ-I1.18); and a relayed release session that
+finishes an authorized release's publish (REQ-A1.10, REQ-G1.12, D-26, Task
+20). The bundle was Draft with a complete signed brief, so this is the
+scoped kickoff of the delta. The validator was clean at pre-flight (0
+errors, 0 warnings). Config: defaults (`commit_on_kickoff`,
+`mark_spec_pr_ready_on_kickoff` true, `kickoff_ready_ci_wait` 10m). The
+session ran as a relayed kickoff (mission-control launch), its questions
+relayed to the operator; no harness log path was provided, so the
+structured turn log was skipped. Sections 2 to 7 were walked as one delta.
+
+**Goal (section 2), confirmed by the operator.** Mission control may merge
+a few named kinds of PR on its own, each kind off until the operator turns
+it on, every merge leaving a record with a one-step undo, and one switch
+stopping all of them; every other merge, sign-off, force push, and message
+to a person stays the operator's. Glossary: an **automatic merge class** is
+a core-defined kind of PR, admitted by mechanical predicates on its current
+head; the **class test** is the bar a kind must pass to become a class; the
+**kill switch** is `auto_merge_halt`; a **relayed drafting session** and a
+**relayed release session** are launched sessions whose launch record names
+their kind and the one branch or release PR they may act on; the **primary
+checkout** is the repository's main working tree, never a linked worktree.
+
+**Operator decisions at the walk (sections 3 to 7).**
+
+- Approvals: a class PR held only by a required approval or similar gate
+  waits and is reported to the operator once per head; nothing planwright
+  runs approves, dismisses, requests a review from a person, or overrides
+  (REQ-I1.18). This repository requires no approving review today.
+- The drafting push: allowed as drafted, a plain push only, no PR
+  (REQ-G1.11). The lens pass tightened "a ready PR" to "any open PR".
+- The release session: allowed (REQ-G1.12). The operator first asked
+  whether mission control was meant to merge the release PR; answered
+  that the class merges it and this session is the publishing half.
+- The release mix (REQ-I1.9's open question): "as long as the release is
+  meaningful and not broken that's fine", made mechanical as a user-facing
+  changelog entry, green checks on the base head, and no open revert of a
+  carried change.
+- Classes for this repository: `release`, `observation-carry`,
+  `bookkeeping`, `test-only`, `docs-only`, `regeneration`; the operator
+  asked what else might fit, chose to set up Renovate as a separate task
+  so `dependency` can follow, and no further safe kind was found.
+- Speedups (a lens-pass fork): kept manual; REQ-I1.12 now refuses a
+  performance class.
+
+**Lens review pass (delta-scoped, meaning class).** The artifact class is
+**spec**. The delta mints requirements, so it is meaning-class; the
+operator's sign-off covered it. Three read-only Opus sub-agents fanned out
+over the delta, each carrying a lens group; each finding was checked
+against the files, the scripts it builds on (`merge-admitted.sh`,
+`merge-class.sh`, `ready-flip.sh`, `release-arm.sh`, `release-publish.sh`),
+the observation archive's history, and this repository's ruleset.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency; ambiguity and interpretation forks | 9 | The class test excluding the release class it admits; REQ-D1.5 forbidding the class mode under `human`; the draft class PR's flip under `ready_flip_policy: human`; two release publishers and `release-arm.sh` refusing a merged PR; the release fast-forward a floor act under REQ-G1.10; the mission-control guard admission owned twice; "the base commit the release would tag"; the ledger's merge commit written before it exists; the drafting record's kind and the zone-versus-condition placement |
+| Cross-file consistency; documentation and glossary drift | 3 | REQ-I1.18 uncited by any task; the changelog's Deferred count; "release profile" and "primary checkout" undefined, `origin` spelled literally |
+| Security and bypass completeness | 10 | The admin role bypassing the ruleset, so the host is no backstop; the release tooling outside the zone while it runs with the signing key; the performance class bounding no paths; commit author fields spoofable; no expected author for six classes; a base retarget after evaluation; non-required checks (the untagged-window check) ignored; merge queues; the armed watcher unadmitted; cadence reviews as a model in the decision path |
+| Decision-domain gaps | 3 | D-25 and D-26 undecided on auth, secrets, and concurrency; data-storage, LLM output, deploy-migration, api-surface, and queues touched; org-design (who is accountable, who is told) |
+| Citation and coverage integrity; dead verification paths and testability | 10 | Missing task citations (REQ-I1.18, REQ-I1.9, REQ-D1.10, REQ-A1.8, REQ-I1.7); the once-per-head report assigned to a stateless evaluator; Deferred bullets lacking the cross-copy cases the test-spec says they name; Tasks 14 and 19 needing Task 13's overridable doc path; the release row written twice; Task 16's Done-when narrower than its test-spec; three routing observations that did not exist; early gates; unowned `[manual]` acts |
+| Lower-severity, verified | 4 | Archive moves edit the fragment (Consumed-by lines); `specs/**` and agent instruction files absent from the docs exclusions; the drafting push's open-PR check; where the regeneration command runs |
+| Performance | n/a | Spec artifact class: no execution path |
+| Error handling and failure modes | n/a | Spec artifact class; the fail-closed conditions are the contract under review |
+
+Counts are the sub-agents' report totals before deduplication. One fork
+went to the operator (the performance class: kept manual). The rest were
+applied as the recommended fixes:
+
+- REQ-A1.7: the accepted outward effect excuses only the undo and
+  no-outward-harm arms for that effect; a cadence review may only refuse.
+- REQ-I1.3: every rollup check green; `MERGEABLE` and `CLEAN`; no required
+  merge queue; the release tooling in the class zone; renames counted at
+  both ends, symlink, submodule, and mode changes outside every list; the
+  expected author for every class, read as the host's resolved login;
+  every commit host-verified, and host-signed for the identity-bound
+  classes; the base branch name re-read; the host's protection never a
+  backstop.
+- REQ-I1.4: the draft class PR flipped by the helper itself, as REQ-D1.4's
+  admitted flip is. REQ-D1.11 minted, superseding REQ-D1.5. REQ-I1.5 and
+  Task 17: the worker tier's admission here, the mission-control tier's in
+  the follow-on.
+- REQ-I1.6: a pre-merge and a completion ledger line, append-only, locked.
+- REQ-I1.9: the base branch's head commit. REQ-I1.13: a move may add the
+  consumption lines. REQ-I1.15: `specs/**` and agent instruction files
+  excluded, the globs explicit. REQ-I1.16: the scratch checkout outside
+  every worktree.
+- REQ-G1.11: the record names the kind `draft`; no push onto a branch with
+  any open PR. REQ-G1.12: two paths, one publisher (arm the watcher on an
+  open PR, or after a merge with no watcher, fast-forward and publish), the
+  remote named as REQ-G1.9 resolves it, the primary checkout defined.
+  REQ-G1.13 minted, superseding REQ-G1.10 with the release tier's floor
+  exception. REQ-A1.10 names both release scripts.
+- D-20, D-21, D-23, D-24, D-26, and the cross-cutting decision-domain walk
+  updated to match; Tasks 14, 16, 17, 18, 19, and 20 citations,
+  deliverables, Done-when lines, and dependencies fixed; the Deferred
+  bullets list their cross-copy cases, own the `[manual]` acts, and cite
+  observations obs:416f7a6a (drafting kind), obs:5ab3b6b5 (release kind),
+  obs:a845aa5b (waiting reports), and obs:f291c49d (Renovate, with its own
+  gated bullet); the caller bullet's gate is Tasks 17 and 18.
+
+No finding was declined and none deferred.
+
+The **altitude check**: the unattended-work request pins an altitude
+claim; D-19 is its record, cited from the goal, and the decomposition is
+doctrine-first (Task 14 before the knob, evaluator, and helper tasks).
+The **ship-gate check**: every out-of-band fix (mission control's caller,
+drafting kind, and release kind; the dotfiles line; Renovate; this
+repository's class enablement) carries a gated Deferred bullet.
+
+**Brief content this amendment makes stale** (the body above is
+append-only; these notes supersede it where they conflict):
+
+- Section 3: REQ-A1.7 to REQ-A1.10, REQ-D1.10, REQ-D1.11, REQ-G1.11 to
+  REQ-G1.13, and REQ-I1.1 to REQ-I1.18 minted; REQ-D1.9 superseded by
+  REQ-D1.10, REQ-D1.5 by REQ-D1.11, REQ-G1.10 by REQ-G1.13.
+- Section 4 ledger: D-19 to D-26 added, confirmed; D-2 scoped by D-19;
+  D-15 superseded by D-20.
+- Section 5: `[test]`, `[Gherkin]`, `[design-level]`, and `[manual]`
+  entries for every new REQ; the guard cases of REQ-G1.11 to REQ-G1.13 are
+  mission-control's to test, by the routed bullets; the two live release
+  acts are the operator's.
+- Section 6: Task 13 → 14 → 15 → 16 → 17 → 18 is the critical path (about
+  seven days); Task 19 follows 13 and 14; Task 20 follows 14 and 19,
+  serialized because Tasks 14, 19, and 20 edit the same doctrine file and
+  test. The mission-control follow-ons hang off Tasks 17 to 20.
+- Section 7, new rows:
+  - (17) A class admits a harmful PR. The signal is a record comment on a
+    merge the operator would not have made; the mitigations are the
+    mechanical conditions, the record, the one-step undo, and the kill
+    switch.
+  - (18) A release publishes unattended and is wrong. The signal is the
+    failure report or the first-release `[manual]` read; the mitigation is
+    the release tool's unchanged gates, the zone holding the tooling, and
+    the roll-forward undo.
+  - (19) The host's admin bypass hides a missing condition. The mitigation
+    is that planwright's conditions are the gate, never the ruleset.
+  - (20) The follow-ons lag, so classes ship unused. The signal is the
+    Deferred bullets surfacing at drain; the mitigation is that the gap
+    fails safe (nothing merges).
+
+**Pre-sign-off verification.**
+
+- **Post-lens stale-reference sweep.** Run after REQ-D1.11 and REQ-G1.13
+  were minted and REQ-G1.12 and REQ-I1.12 re-scoped: the delta's remaining
+  REQ-D1.5 and REQ-G1.10 mentions are the supersede pointers, the
+  test-spec headings marked superseded, and the unchanged-cases line; no
+  "two acts", "merged release PR", or eight-class wording remains.
+- **Lint.** `markdownlint-cli2` over the brief and the four spec files: 0
+  issues.
+- **Recorded claims re-derived.** Requirement bullets and test-spec
+  entries pair one to one (the sorted ID lists compared equal).
+- **Enumeration cross-check.** The lens table's counts are the report
+  totals before deduplication; the class list is the decided rule of
+  REQ-I1.1 and D-20, the enabled set the operator's decision recorded in
+  the Deferred bullet.
+- **Validator.** 0 errors, 0 warnings after the flip.
+
+**Sign-off.** Signed off 2026-11-05 by the operator after the approval
+summary. `**Status:**` flipped Draft→Ready on all four spec files;
+`**Last reviewed:**` already read 2026-11-05.
+
+Class: meaning
+Lens-pass: the delta-scoped lens review recorded in this entry (three-agent
+fan-out over the spec artifact class, dispositions above)
+Anchor: `a39ae8aa5f50caf5ba2a2b0bad7820d6ab263e35` — computed as
+`scripts/spec-anchor.sh specs/human-gates`

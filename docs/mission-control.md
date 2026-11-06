@@ -168,6 +168,10 @@ the first run.
 If you close the mission-control panel beside the conversation, type
 `/mc-panel` in that session to bring it back.
 
+When you update planwright and reload, mission control notices: the panel
+shows a short notice with the new version, and mission control rereads
+what changed before it next tells you how something works.
+
 The fresh session rebuilds its picture from what is recorded (your rules,
 the program's folder, the code host, the specs and the sessions still
 running), never from a stale summary. Its first message says what changed

@@ -11,4 +11,4 @@
 # plain words, as the confirmation shows it.
 #
 # guard<TAB>match<TAB>knob<TAB>value<TAB>layer<TAB>effect
-ready-guard	[0-9]+ commit[(]s[)] behind its base branch	ready_guard_behind_base	conflict-only	adopter	a pull request behind its base branch can be marked ready once GitHub reports it mergeable (no conflicts); a conflicting or unconfirmed one is still refused
+ready-guard	[0-9]+ commit[(]s[)] behind its base branch	ready_guard_behind_base	checks	adopter	a pull request behind its base branch can be marked ready once GitHub reports it mergeable and its checks passed on its head with at least one success; a conflicting, unconfirmed or red one is still refused
