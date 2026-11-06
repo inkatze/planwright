@@ -52,7 +52,10 @@ run() {
 
 echo "### usage"
 for args in "make" "make $HOME_F" "bogus $HOME_F $WK" "make $HOME_F $WK --stale" "make $HOME_F $WK --fresh extra" \
-  "make relative $WK" "make $HOME_F not-a-key" "make $HOME_F ${WK}x" "reclaim $HOME_F $SK" "release $HOME_F" "kind $HOME_F $WK"; do
+  "make relative $WK" "make $HOME_F not-a-key" "make $HOME_F ${WK}x" "reclaim $HOME_F $SK" "release $HOME_F" "kind $HOME_F $WK" \
+  "make $HOME_F ${WK}a" "make $HOME_F ${WK%?}" "make $HOME_F ${WK}aaaaaaaaaaaaaaaaaaaaaaa" \
+  "make $HOME_F ${WK}${WK%???????????????}" "make $HOME_F $WK-" "make $HOME_F -$WK" "make $HOME_F $WK--$WK" \
+  "make $HOME_F $WK-$WK-$WK"; do
   # shellcheck disable=SC2086 # the words are separate arguments on purpose
   run $args
   if [ "$RC" -eq 2 ]; then
