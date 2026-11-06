@@ -35,11 +35,13 @@ mc-inbox.sh item
 mc-inbox.sh status
 mc-kb.sh append
 mc-kb.sh index
+mc-kb.sh index-add
 mc-kb.sh init
 mc-kb.sh inventory-refresh
 mc-keeper.sh -
 mc-panel.sh activate
 mc-panel.sh await
+mc-panel.sh changes
 mc-panel.sh line
 mc-panel.sh retire
 mc-panel.sh text
