@@ -263,8 +263,9 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
     *" --settings $core/config/$prof-settings.json "*) ok "[$kind] the session runs under the $prof profile" ;;
     *) fail "[$kind] the session's argv lacks --settings $prof-settings.json: $argv" ;;
   esac
-  # A mission-control session starts in auto mode, so a successor never stalls
-  # on a prompt no other session may answer; every other kind keeps prompting.
+  # A mission-control session starts in auto mode, so a routine command does
+  # not stall a successor on a prompt no other session may answer; every other
+  # kind keeps prompting.
   # The profile is the mode source: the argv never names a mode.
   mode=$(jq -r '.permissions.defaultMode' "$core/config/$prof-settings.json")
   case $kind:$mode in

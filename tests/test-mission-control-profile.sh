@@ -55,8 +55,9 @@ if jq -e --slurpfile t "$TOWER" '.permissions.allow == ($t[0].permissions.allow 
 else
   fail "the allow list is not the tower's plus Bash(gh pr ready:*)"
 fi
-# Auto mode, so a launched successor never stalls on a prompt no other session
-# may answer; the deny list and the guard hooks still bind it.
+# Auto mode, so a routine command does not stall a launched successor on a
+# prompt no other session may answer; the deny list and the guard hooks still
+# bind it.
 [ "$(jq -r '.permissions.defaultMode' "$MC")" = auto ] \
   && ok "the default mode is auto" || fail "the default mode is not auto"
 [ "$(jq -r '.permissions.defaultMode' "$TOWER")" = default ] \
