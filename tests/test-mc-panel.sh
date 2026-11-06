@@ -478,7 +478,7 @@ expect_rc "an acknowledgment beside a record naming another session is refused" 
 rm -f "$act/$sid_b"
 
 # No acknowledgment: the text form, with its in-flight and waiting lines.
-mc_run fleet-state.sh register w-one mission-control:alpha --backend stream-json --death-handle none
+mc_run fleet-state.sh register w-one mission-control:alpha --backend stream-json --death-handle "process $live_pid"
 run_with CLAUDE_PID="$live_pid" PATH="$tmp/newclaude:$PATH" -- mc-panel.sh await --program alpha --wait 1
 expect_rc "await with no acknowledgment" 0
 expect_out "REQ-F1.16: no acknowledgment within the wait reports the text form" "panel${tab}text${tab}no acknowledgment within 1s"
