@@ -48,16 +48,18 @@ test('sessions in flight are said in plain words, grouped into counts', async ($
         'flight\tmc-alpha-ad-hoc-3d062aa6a5\tspec-draft-mc-panel\tstream-json-persistent\twaiting',
         'flight\t@7\toffload\ttmux\tworking',
         'flight\tcop486\ttower-comms-task-8\tstream-json-persistent\tworking',
+        'flight\tcb-848\tcubic-pr-848\tstream-json-persistent\tworking',
+        'flight\tpw-mission-control-a1b2c3\tgen-2\ttmux\tworking',
       ],
     }),
   })
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '')
-  const at = texts.indexOf('In flight (13)')
+  const at = texts.indexOf('In flight (15)')
   expect(at).toBeGreaterThan(-1)
   // Waiting on an answer first, then not responding, each by group size.
-  expect(texts.slice(at + 1, at + 9)).toEqual([
+  expect(texts.slice(at + 1, at + 11)).toEqual([
     '2 spec drafts waiting for an answer',
     '1 spec task waiting for an answer',
     '1 spec task not responding',
@@ -65,10 +67,12 @@ test('sessions in flight are said in plain words, grouped into counts', async ($
     '3 one-off changes working',
     '1 spec kickoff working',
     '1 other session working',
+    '1 review working',
+    '1 mission-control session working',
     'Holding for you',
   ])
-  const ids = /92e2ac1dd8|3d062aa6a5|@7|cop486|task-\d|:kickoff|stream-json|\.sh\b/
-  expect(texts.slice(at, at + 8).filter(t => ids.test(t))).toEqual([])
+  const ids = /92e2ac1dd8|3d062aa6a5|@7|cop486|a1b2c3|cubic|gen-2|task-\d|:kickoff|stream-json|\.sh\b/
+  expect(texts.slice(at, at + 10).filter(t => ids.test(t))).toEqual([])
   await ui.unmount()
 })
 

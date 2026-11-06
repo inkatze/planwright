@@ -583,11 +583,11 @@ holder() {
   fi
   hd_kind=''
   if [ ! -L "$hd_f" ] && mc_format_ok "$hd_f"; then
-    hd_session=$(awk -F '\t' '$1 == "session" { print substr($0, length($1) + 2); exit }' "$hd_f")
-    hd_since=$(awk -F '\t' '$1 == "since" { print substr($0, length($1) + 2); exit }' "$hd_f")
-    hd_gen=$(awk -F '\t' '$1 == "generation" { print substr($0, length($1) + 2); exit }' "$hd_f")
+    hd_session=$(mc_kv "$hd_f" session)
+    hd_since=$(mc_kv "$hd_f" since)
+    hd_gen=$(mc_kv "$hd_f" generation)
     if mc_valid_handle "$hd_session" && mc_valid_uint "$hd_since" && mc_valid_uint "$hd_gen"; then
-      hd_kind=$(awk -F '\t' '$1 == "kind" { print substr($0, length($1) + 2); exit }' "$hd_f")
+      hd_kind=$(mc_kv "$hd_f" kind)
     fi
   fi
   case $hd_kind in

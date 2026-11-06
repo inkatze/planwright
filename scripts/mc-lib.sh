@@ -465,6 +465,9 @@ mc_lookup() {
   printf '%s\n' "$2" | K=$1 awk -F '\t' '$1 == ENVIRON["K"] { print $2; exit }'
 }
 
+# mc_kv <file> <key>: the value of a record's key<TAB>value line, if any.
+mc_kv() { K=$2 awk -F '\t' '$1 == ENVIRON["K"] { print substr($0, length($1) + 2); exit }' "$1"; }
+
 # mc_valid_sha <sha>: a full 40-hex commit id.
 mc_valid_sha() {
   case $1 in

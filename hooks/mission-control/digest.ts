@@ -192,6 +192,7 @@ const STATE_ORDER = ['waiting', 'stuck', 'working'] as const
 export function flightLines(flights: Pick<PanelFlight, 'worker' | 'scope' | 'state'>[]): string[] {
   const groups = new Map<string, { kind: keyof typeof KINDS; state: PanelFlight['state']; n: number }>()
   for (const f of flights) {
+    // A digest a reload carried over from before states were read has none.
     const state = STATES[f.state] ? f.state : 'working'
     const kind = flightKind(f)
     const key = `${state}/${kind}`
