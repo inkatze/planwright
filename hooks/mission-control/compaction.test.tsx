@@ -203,6 +203,22 @@ test('a due handover defers an automatic compaction where the verb is installed'
   expect(unmeasured.skip).toBeUndefined()
 })
 
+// A reading that redraws without the handover check must not let a
+// handover raised under a launched holder hold the operator's compaction.
+test('an attended session compacts even before a shown handover clears', async ($, on) => {
+  const at = (holder: 'registry' | 'attended') => digestText({ holder, refresh: 600, extra: ['handover\tavailable'] })
+  const w = world(on, { contextPercent: 80, digest: at('registry') })
+  await boot($, w)
+  expect(ran(w, 'mc-event.sh', 'emit')).toHaveLength(1)
+  w.set({ digest: at('attended') })
+  await w.clock.advance(60_000)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await pane.find({ type: 'Text', text: /Handover due/ })).toBeDefined()
+  await pane.unmount()
+  const auto = await $.session.compact(compact('auto'))
+  expect(auto.skip).toBeUndefined()
+})
+
 test('without the handover verb the compaction runs and re-injects', async ($, on) => {
   const w = world(on, { contextPercent: 80 })
   await boot($, w)

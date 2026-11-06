@@ -477,7 +477,14 @@ export const register: Register = on => {
   on('session.compact', async ($, e, next) => {
     if (!ctx || e.agentId !== undefined || e.trigger === 'precompute') return next(e)
     const before = await view($)
-    if (e.trigger !== 'manual' && before?.handover && before.digest?.isHandoverInstalled) {
+    // The holder is checked here too: a redraw can read an attended holder
+    // before the handover check withdraws the handover it would clear.
+    if (
+      e.trigger !== 'manual' &&
+      before?.handover &&
+      before.digest?.isHandoverInstalled &&
+      before.digest.holder !== 'attended'
+    ) {
       let pct: number | undefined
       try {
         pct = (await $.session.usage()).context.percent
