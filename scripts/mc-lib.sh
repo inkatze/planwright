@@ -7,6 +7,8 @@
 
 MC_FORMAT=1
 
+unset CDPATH
+
 # mc_warn_if_stale: a script run from an older cached copy, by a session
 # that kept its root across an upgrade, warns on stderr. Checked once per
 # process tree and state of the installed record (the marker carries the
