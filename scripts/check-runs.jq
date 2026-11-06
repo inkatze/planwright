@@ -18,7 +18,10 @@ def check_passed: if .context != null then .state == "SUCCESS"
   else (.status // "COMPLETED") == "COMPLETED" and ((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL" or $c == "SKIPPED") end;
 
 # An array of rollup entries in, the latest run of each context out, in the
-# order the rollup listed them.
-def latest_check_runs: to_entries | group_by(.value | check_context)
+# order the rollup listed them. A check run naming no workflow (one an app
+# posts) is its own context: two such checks sharing a name may come from
+# different apps, so neither may supersede the other.
+def latest_check_runs: to_entries
+  | group_by(if .value.context == null and (.value.workflowName // "") == "" then ["solo", .key] else (.value | check_context) end)
   | map(max_by([(.value | check_started), (if .value | check_passed then 0 else 1 end), .key]))
   | sort_by(.key) | map(.value);

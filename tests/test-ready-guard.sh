@@ -1011,6 +1011,8 @@ run_checks "checks (default): a newer failure listed before the older success it
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"}' 'test is FAILURE'
 run_checks "checks (default): a newer success listed before the failure it supersedes passes" defer \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}'
+run_checks "checks (default): an older failure of a check naming no workflow is not superseded by a same-named one" deny \
+  '{"name":"scan","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"},{"name":"scan","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}' 'scan is FAILURE'
 run_checks "checks (default): a failure started in the same second as a success of its context denies, listed after it" deny \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}' 'test is FAILURE'
 run_checks "checks (default): a failure started in the same second as a success of its context denies, listed before it" deny \
