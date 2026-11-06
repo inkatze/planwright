@@ -39,7 +39,7 @@
 #                      has just created the worktree.
 #                      --session <handle> gives one session of several
 #                      sharing a worktree a root of its own, keyed by
-#                      <sha1-of-worktree-root>-<sha1-of-handle>, so a
+#                      <hash-of-worktree-root>-<hash-of-handle>, so a
 #                      session's final close removes its files alone, never
 #                      another session's
 #   audit_log_home     <fleet-home>/allow-audit, owner-only, where the guard
@@ -50,14 +50,15 @@
 #                      unusable home is omitted with a warning, which leaves
 #                      the worker without either write arm
 # and writes them as `key=value` lines to
-# <fleet-home>/session-records/<sha1-of-worktree-root>.record, owner-only, by
-# an atomic rename, printing the path. A <launch-id> (16 to 64 lowercase hex
-# digits) names a record for that launch alone, <sha1>-<launch-id>.record, so
+# <fleet-home>/session-records/<hash-of-worktree-root>.record, owner-only, by
+# an atomic rename, printing the path. Each <hash> is `git hash-object`'s, in
+# the repository's object format. A <launch-id> (16 to 64 lowercase hex
+# digits) names a record for that launch alone, <hash>-<launch-id>.record, so
 # a launch that loses a race to another never rewrites the winner's. The
 # launcher exports that path to the worker as
 # PLANWRIGHT_WORKER_SESSION_RECORD. With --session <handle> (the field
 # grammar, never with a <launch-id>) the record is
-# <sha1-of-worktree-root>-<sha1-of-handle>.record, that session's alone, and
+# <hash-of-worktree-root>-<hash-of-handle>.record, that session's alone, and
 # names that session's own scratch root. The record lies outside the worktree (a
 # fleet home inside it is refused), so nothing the worker writes there reaches
 # it. A relaunch writes a fresh record from current config: the same file
