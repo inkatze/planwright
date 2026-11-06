@@ -496,6 +496,35 @@ mc_run mc-panel.sh changes --from 0.66.0 --root "$new_root"
 expect_eq "nothing after the current version" ""
 mc_run mc-panel.sh changes --from 0.64.0 --root "$old_root"
 expect_eq "entries newer than the copy itself are never listed" "$(printf 'change\t0.65.0\tFeatures\tmission-control: show reviews at a glance in the panel (#809)')"
+odd_root=$tmp/cache/planwright/odd
+fake_root "$odd_root" 0.66.0
+cat >"$odd_root/CHANGELOG.md" <<'EOF'
+## [Unreleased]
+
+### Features
+
+* unreleased entry
+
+## [0.66.0](https://example.test/compare/v0.65.0...v0.66.0) (2026-11-05)
+
+### Features
+
+* released entry
+
+## [0.66.0-rc.1](https://example.test/compare/v0.65.0...v0.66.0-rc.1) (2026-11-04)
+
+### Features
+
+* pre-release entry
+
+## [0.65.0](https://example.test/compare/v0.64.0...v0.65.0) (2026-11-03)
+
+### Features
+
+* older entry
+EOF
+mc_run mc-panel.sh changes --from 0.65.0 --root "$odd_root"
+expect_eq "a header outside the version grammar ends the section before it" "$(printf 'change\t0.66.0\tFeatures\treleased entry')"
 mc_run mc-panel.sh changes --from 'x;y' --root "$new_root"
 expect_rc "a version outside the grammar" 2
 for bad in "changes --root $new_root" "changes --from 0.64.0 --program alpha" "install --program alpha --from 0.64.0" \

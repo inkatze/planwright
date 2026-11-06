@@ -153,7 +153,9 @@ export function parseWake(text: string): { ids: string[]; text: string } | null 
   return ids.length > 0 ? { ids, text: rest.join('\n') } : null
 }
 
-export type Install = { state: 'first' | 'same' | 'changed'; version: string; root: string; was: string | null }
+export type Install =
+  | { state: 'changed'; version: string; root: string; was: string }
+  | { state: 'first' | 'same'; version: string; root: string; was: null }
 
 // The answer of `mc-panel.sh install`: the copy the session runs, against
 // the program's record.

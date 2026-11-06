@@ -248,6 +248,7 @@ changes_since() {
       v = $2; gsub(/[][]/, "", v); sub(/\(.*/, "", v)
       keep = newer(v, ENVIRON["FROM"]) && !newer(v, ENVIRON["TO"]); section = ""; next
     }
+    /^## / { keep = 0; next }
     /^### / { section = substr($0, 5); next }
     keep && /^\* / {
       e = substr($0, 3)
