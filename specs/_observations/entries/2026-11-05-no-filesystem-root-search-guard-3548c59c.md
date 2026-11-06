@@ -1,0 +1,1 @@
+- 2026-11-05 [planwright] No guard against filesystem-root searches: nothing stops workers or their sub-agents from running find or bfs over / or $HOME. On a loaded host one such search ran at 430% CPU for 7 minutes. Wanted: a guard that refuses root- or home-wide find/bfs, or skill guidance that scopes searches to the worktree.
