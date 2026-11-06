@@ -262,9 +262,12 @@ skey=$wt_key
 if [ "$want_scratch" != 0 ]; then
   set --
   [ "$want_scratch" != 2 ] || set -- --fresh
-  # Success prints the root alone; a failure prints its one reason.
-  if ! scratch=$(/bin/sh "$script_dir/fleet-scratch.sh" make "$home" "$skey" "$@" 2>&1 </dev/null); then
-    why=${scratch%%"$nl"*}
+  # Its last line is the root, or on failure the reason: a shell's own
+  # complaint (a vanished cwd) can precede either.
+  if scratch=$(/bin/sh "$script_dir/fleet-scratch.sh" make "$home" "$skey" "$@" 2>&1 </dev/null); then
+    scratch=${scratch##*"$nl"}
+  else
+    why=${scratch##*"$nl"}
     scratch=''
   fi
   if [ -n "$scratch" ] && ! scratch_trusted "$scratch"; then

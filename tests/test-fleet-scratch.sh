@@ -170,16 +170,36 @@ if [ "$RC" -eq 0 ] && [ "$OUT" = "$root" ]; then
 else
   fail "make: an unusable base refused a usable recorded root (rc=$RC)"
 fi
-WK4=$(hex40 f)
-before=$(ls -A "$BASE")
-chmod 500 "$HOME_F/scratch"
-run make "$HOME_F" "$WK4"
-chmod 700 "$HOME_F/scratch"
-if [ "$RC" -eq 1 ] && [ "$(wc -l <"$T/err")" -eq 1 ] && grep -q 'cannot record the root' "$T/err" \
-  && [ "$(ls -A "$BASE")" = "$before" ]; then
-  pass "make: a root whose record cannot be written is removed, the one reason printed"
+chmod 755 "$root"
+run make "$HOME_F" "$WK"
+mode=$(stat -c %a "$root" 2>/dev/null || stat -f %Lp "$root" 2>/dev/null)
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$root" ] && [ "$mode" = 700 ]; then
+  pass "make: a recorded root someone opened is closed again"
 else
-  fail "make: unrecordable root (rc=$RC, $(cat "$T/err"), $(ls -A "$BASE"))"
+  fail "make: the recorded root stood at mode $mode"
+fi
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: make with an unwritable record directory (root ignores directory modes)"
+else
+  WK4=$(hex40 f)
+  before=$(ls -A "$BASE")
+  chmod 500 "$HOME_F/scratch"
+  run make "$HOME_F" "$WK4"
+  chmod 700 "$HOME_F/scratch"
+  if [ "$RC" -eq 1 ] && [ "$(wc -l <"$T/err")" -eq 1 ] && grep -q 'cannot record the root' "$T/err" \
+    && [ "$(ls -A "$BASE")" = "$before" ]; then
+    pass "make: a root whose record cannot be written is removed, the one reason printed"
+  else
+    fail "make: unrecordable root (rc=$RC, $(cat "$T/err"), $(ls -A "$BASE"))"
+  fi
+  chmod 000 "$HOME_F/scratch/$WK.tmpdir"
+  run make "$HOME_F" "$WK"
+  chmod 600 "$HOME_F/scratch/$WK.tmpdir"
+  if [ "$RC" -eq 0 ] && [ "$OUT" = "$root" ] && [ ! -s "$T/err" ]; then
+    pass "make: an unreadable record prints nothing beside the root"
+  else
+    fail "make: an unreadable record (rc=$RC, '$OUT', $(cat "$T/err"))"
+  fi
 fi
 
 echo "### release, reclaim"

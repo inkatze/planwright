@@ -117,7 +117,7 @@ wipe() {
 record_read() {
   rr_line=''
   [ -f "$1" ] && [ ! -L "$1" ] || return 1
-  IFS= read -r rr_line <"$1" 2>/dev/null || [ -n "$rr_line" ]
+  { IFS= read -r rr_line <"$1"; } 2>/dev/null || [ -n "$rr_line" ]
 }
 
 # record_of <root>: set rf_rec to the record file naming <root>. Reads each
