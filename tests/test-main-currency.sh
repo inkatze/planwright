@@ -1168,4 +1168,15 @@ ff_case 50 ffp-inherited-params
 GIT_CONFIG_PARAMETERS="'url.$root/does-not-exist.git.insteadof'='$root/origin.git'" ffp "$root/tower"
 [ "$rc" -eq 0 ] || fail "50: an inherited GIT_CONFIG_PARAMETERS redirect reached the fetch (exit $rc): $out"
 
+# 51. Refused: a hard-linked act record, whose append would land in the
+#     linked file outside the git directory as well.
+ff_case 51 ffp-rechardlink
+: >"$root/outside-hard.log"
+mkdir -p "$root/tower/.git/planwright"
+ln "$root/outside-hard.log" "$(ff_record "$root/tower")"
+ffp "$root/tower"
+[ "$rc" -eq 7 ] || fail "51: a hard-linked record must refuse with exit 7, got $rc: $out"
+[ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] || fail "51: main moved"
+[ ! -s "$root/outside-hard.log" ] || fail "51: the act was appended through the hard link"
+
 echo "PASS: test-main-currency.sh"

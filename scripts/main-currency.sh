@@ -118,7 +118,8 @@
 #      checkout's top level, a bare repository, a checkout path holding a
 #      control character, another branch or a detached HEAD checked out, no
 #      resolvable default branch, or a record path that is not a writable
-#      regular file (a directory or a symlink included)
+#      regular file with one link (a directory, a symlink or a hard link
+#      included)
 #
 # Usage:
 #   main-currency.sh sync [--checkout <dir>] [--main-ref <branch>]
@@ -345,10 +346,19 @@ ff_primary() {
 
   rec_dir="$common/planwright"
   rec="$rec_dir/main-currency.log"
-  # A symlink would carry the append outside the git directory, and a
-  # directory at the record's path passes -w yet fails the append.
-  { [ ! -L "$rec_dir" ] && mkdir -p -- "$rec_dir" 2>/dev/null && [ -w "$rec_dir" ] && [ ! -L "$rec" ] \
-    && { [ ! -e "$rec" ] || { [ -f "$rec" ] && [ -w "$rec" ]; }; }; } \
+  # A symlink or a hard link would carry the append outside the git
+  # directory, and a directory at the record's path passes -w yet fails the
+  # append. A link count find cannot read refuses too.
+  ffp_rec_ok=0
+  if [ ! -L "$rec_dir" ] && mkdir -p -- "$rec_dir" 2>/dev/null && [ -w "$rec_dir" ] && [ ! -L "$rec" ]; then
+    if [ ! -e "$rec" ]; then
+      ffp_rec_ok=1
+    elif [ -f "$rec" ] && [ -w "$rec" ] && ffp_links=$(find "$rec" -prune -links +1 -print 2>/dev/null) \
+      && [ -z "$ffp_links" ]; then
+      ffp_rec_ok=1
+    fi
+  fi
+  [ "$ffp_rec_ok" = 1 ] \
     || ff_refuse "the act record $(sanitize_printable "$rec") is not a writable regular file, so the fast-forward is refused rather than left unrecorded"
 
   if ! fetch_err=$(GIT_TERMINAL_PROMPT=0 git fetch --no-write-fetch-head origin "+refs/heads/$default:refs/remotes/origin/$default" 2>&1); then
