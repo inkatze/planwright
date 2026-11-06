@@ -1,0 +1,1 @@
+match ^fleet-dispatch-headless: unknown subcommand: --entry-point-probe$

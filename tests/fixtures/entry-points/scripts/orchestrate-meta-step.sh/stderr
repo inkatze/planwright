@@ -1,0 +1,1 @@
+match ^orchestrate-meta-step: usage: orchestrate-meta-step\.sh dispatch <spec-dir> <id> --backend <stream-json-persistent\|headless-oneshot> --prompt-file <file> \[--repo-root <dir>\] \[-- <extra launch args>\.\.\.\]$
