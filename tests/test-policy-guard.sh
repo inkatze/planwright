@@ -408,6 +408,12 @@ for cmd in 'git merge origin/main' 'git pull origin main' "git -C $UNIT merge or
   expect deny "[worker] deny: $cmd denies"
 done
 reason_has 'worker_base_merge is deny' "[worker] the base-merge deny names the knob"
+set_knobs 'worker_base_merge: allow' 'unpushed_rewrite: deny'
+printf '[pull]\n\trebase\n' >>"$UNIT/.git/config"
+pg worker 'git pull origin main'
+expect deny "[worker] unpushed_rewrite deny: pull.rebase written with no value is a rebasing pull"
+reason_has 'unpushed_rewrite is deny' "the valueless-rebase refusal names the knob"
+gitq -C "$UNIT" config --unset pull.rebase
 set_knobs 'worker_base_merge: allow'
 for cmd in 'git merge origin/main' 'git pull' 'git pull origin main' 'git -C . merge origin/main' 'git "pull" origin main'; do
   pg tower "$cmd"
@@ -476,14 +482,25 @@ reason_has 'other than this session' "the same-name refusal names the other chec
 gitq -C "$XC" switch planwright/demo/task-1
 pg worker "git merge origin/main && git -C $XC merge origin/main" "$UNIT" "$UNIT"
 expect deny "[worker] a session launched into its unit checkout never reaches a same-named branch elsewhere"
-for cmd in 'git commit --amend --no-edit' 'git rebase origin/main' 'git pull --rebase origin main'; do
+for cmd in 'git commit --amend --no-edit' 'git rebase origin/main' 'git pull --rebase origin main' \
+  'git merge origin/main && git pull --rebase origin main' 'git pull origin main && git pull --rebase origin main'; do
   pg worker "$cmd" "$LWT" "$PRIM"
   expect deny "[worker] the shell's worktree is a base sync only, never a rewrite: $cmd"
-  reason_has 'is a history rewrite.*base sync only' "the rewrite refusal says the shell's worktree is a base sync only: $cmd"
+  reason_has 'never rewrite history' "the rewrite refusal says a primary launch never rewrites: $cmd"
 done
 pg worker 'git commit --amend --no-edit' "$PRIM" "$PRIM"
 expect deny "[worker] a rewrite from the primary checkout itself is refused"
-reason_has 'is a history rewrite' "a rewrite gets the rewrite refusal before any shell-directory refusal"
+reason_has 'never rewrite history' "a rewrite gets the rewrite refusal before any shell-directory refusal"
+printf '[pull]\n\trebase\n' >>"$PRIM/.git/config"
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] pull.rebase written with no value rebases, so it is a rewrite on the shell path"
+gitq -C "$PRIM" config --unset pull.rebase
+gitq -C "$PRIM" config pull.rebase false
+gitq -C "$PRIM" config branch.planwright/flight/dispatch-backend-0123abcd.rebase true
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] the branch rebase key wins over pull.rebase false"
+gitq -C "$PRIM" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+gitq -C "$PRIM" config --unset pull.rebase
 gitq -C "$LWT" config branch.planwright/flight/dispatch-backend-0123abcd.rebase true
 pg worker 'git pull origin main' "$LWT" "$PRIM"
 expect deny "[worker] a pull that rebases by configuration is a rewrite on the shell path"
@@ -500,13 +517,18 @@ for cmd in 'git merge origin/planwright/flight/dispatch-backend-0123abcd' 'git m
   pg worker "$cmd" "$LWT" "$PRIM"
   expect defer "[worker] once pushed, the shell's worktree brings its own remote branch in: $cmd"
 done
+gitq -C "$LWT" tag origin/planwright/flight/dispatch-backend-0123abcd HEAD~1
+pg worker 'git merge origin/planwright/flight/dispatch-backend-0123abcd' "$LWT" "$PRIM"
+expect deny "[worker] a tag shadowing the own remote branch is refused"
+reason_has 'missing or a local ref' "the shadowed own-remote-branch refusal says why"
+gitq -C "$LWT" tag -d origin/planwright/flight/dispatch-backend-0123abcd
 XCW="$SANDBOX/same-name-worktree-clone"
 gitq clone "$ORIGIN" "$XCW"
 gitq -C "$XCW" switch planwright/flight/dispatch-backend-0123abcd
 gitq -C "$XCW" config core.worktree "$LWT"
 pg worker "git -C $XCW merge origin/main" "$LWT" "$PRIM"
 expect deny "[worker] another repository whose core.worktree names the session's worktree is not its checkout"
-reason_has 'other than this session' "the core.worktree refusal names the other checkout"
+reason_has 'core.worktree' "the core.worktree refusal names the other repository's git directory"
 gitq -C "$PRIM" switch --detach
 pg worker 'git merge origin/main' "$LWT" "$PRIM"
 expect deny "[worker] a detached primary checkout owns no worktree"

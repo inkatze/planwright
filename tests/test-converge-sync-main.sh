@@ -1177,7 +1177,7 @@ c21() {
     err=$(CLAUDE_PROJECT_DIR="$tmp/$name" "$SYNC" "$tmp/$name" 2>&1 >/dev/null) || rc=$?
     [ "$rc" -eq 10 ] || fail "c21: expected exit 10 (off-branch) for $b, got $rc"
     case $err in
-      *"is not a unit branch"*) ;;
+      *"$b is not a unit branch"*) ;;
       *) fail "c21: $b was refused for another reason: $err" ;;
     esac
   done
