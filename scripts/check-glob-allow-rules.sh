@@ -61,9 +61,9 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 # Stable markers the doc-presence check greps for — the single source of truth,
 # so the docs must carry these exact strings. GUIDE_ANCHOR is the GitHub
 # heading-slug of GUIDE_HEADING (checked by check-doc-links.sh).
-GUIDE_HEADING="### Path-scoped allow rules use the slash-star glob"
-GUIDE_ANCHOR="overlays.md#path-scoped-allow-rules-use-the-slash-star-glob"
-NOTE_MARKER="path-scoped allow entries use the trailing"
+GUIDE_HEADING="### Path-scoped allow rules name exact paths"
+GUIDE_ANCHOR="overlays.md#path-scoped-allow-rules-name-exact-paths"
+NOTE_MARKER="path-scoped allow entries never put a"
 
 status=0
 

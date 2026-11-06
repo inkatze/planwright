@@ -122,7 +122,7 @@ assert "a footgun among correct rules is caught" 1 $?
 #     rule entry and must not be flagged — only standalone array entries count.
 cat >"$tmp/prose.json" <<'EOF'
 {
-  "_about": "Path-scoped allow entries use the trailing /* glob, never a directory :* form which never matches <dir>/<file>.",
+  "_about": "Path-scoped allow entries never put a * in the path, and never use the directory :* form which never matches <dir>/<file>.",
   "permissions": {
     "allow": [
       "Bash(git status:*)",
@@ -161,9 +161,9 @@ assert "doc-presence fails when the guidance is missing" 1 $?
 # 2c. Doc-presence passes with a minimal well-formed fixture doc set, and the
 #     tower-settings cross-ref is required once config/tower-settings.json
 #     exists (proving the conditional gate enforces Task 7's cross-reference).
-GUIDE_HEADING="### Path-scoped allow rules use the slash-star glob"
-GUIDE_LINK="overlays.md#path-scoped-allow-rules-use-the-slash-star-glob"
-NOTE_MARKER="path-scoped allow entries use the trailing"
+GUIDE_HEADING="### Path-scoped allow rules name exact paths"
+GUIDE_LINK="overlays.md#path-scoped-allow-rules-name-exact-paths"
+NOTE_MARKER="path-scoped allow entries never put a"
 
 cat >"$tmp/docs/overlays.md" <<EOF
 $GUIDE_HEADING

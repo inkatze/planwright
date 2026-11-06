@@ -172,6 +172,10 @@ run = "/bin/bash scripts/check-options-reference.sh"
 description = "correct-glob allow-rule discipline: flag any shipped `Bash(<path>/:*)` directory-scoped rule (a never-match footgun) and verify the `/*` guidance is documented + cross-referenced (fleet-hardening Task 6, D-6, REQ-B1.3, REQ-E1.3)"
 run = "/bin/bash scripts/check-glob-allow-rules.sh"
 
+[tasks."check:allow-path-globs"]
+description = "flag a Bash allow rule whose command path holds a wildcard or ../ (the traversal the matcher's * admits) in the user and checkout settings, naming the exact-path replacement; read-only, never edits settings"
+run = "/bin/bash scripts/check-allow-path-globs.sh"
+
 [tasks."check:ledger"]
 description = "structural-corruption + duplicate-Status guards over committed tasks.md snapshots (REQ-E1.1, REQ-E1.2)"
 run = "/bin/bash scripts/check-ledger.sh"
@@ -422,6 +426,7 @@ depends = [
   "check:memory-links",
   "check:options",
   "check:glob-allow-rules",
+  "check:allow-path-globs",
   "check:ledger",
   "check:anchor-freshness",
   "check:obs",
