@@ -286,8 +286,9 @@ it when relaying to or cleaning up after a worker.
   `--repo-root <work-repo>` and `--launch-only`. That call, inside the lock
   in place of the dispatch record's steps 3–4, places the unit and launches:
   the opening turn rides the launch, no message or keystroke. Release the
-  lock whatever its exit, then run its `confirm` with the `launch` lines'
-  values (on `failed-at-startup`, clear the marker). Pass it `--backend tmux`
+  lock whatever its exit; on exit 0 run its `confirm` with the `launch`
+  lines' values (on `failed-at-startup`, clear the marker), since any other
+  exit prints no `launch` lines. Pass it `--backend tmux`
   only when this run's `--backend tmux` or a yes to the tmux-context ask
   chose tmux. Its exit 17 (nothing placed) parks the unit with the reason it
   prints; never retry it with `--backend tmux`. Observe stuck/finished/errored
