@@ -13,6 +13,9 @@ mission-control	@ROOT@/scripts/mc-rules.sh load alpha
 mission-control	@ROOT@/scripts/mc-rules.sh add alpha --text t --subject s --source operator --date today
 mission-control	@ROOT@/scripts/fleet-streamjson.sh status mc-alpha-worker-0123456789
 mission-control	@ROOT@/scripts/fleet-streamjson.sh steer mc-alpha-worker-0123456789 --message-file /tmp/msg.txt
+mission-control	@ROOT@/scripts/mc-posture.sh check
+mission-control	@ROOT@/scripts/mc-panel.sh activate --program alpha
+mission-control	@ROOT@/scripts/mc-panel.sh await --program alpha
 mission-control	gh pr ready 42
 mission-control	gh pr view 42
 mission-control	gh pr list
