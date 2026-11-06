@@ -94,8 +94,8 @@ launcher cannot read or write; 3 the name is held, or a launch or retire of
 it is in flight (launch), or there is neither a row nor a stream-json
 worker of that name, a launch, recover, relaunch or another retire of
 it is in flight, or the caller runs inside its window (retire); 4 a launch refused
-before it started: a failing posture check (scripts/mc-posture.sh), no
-readable profile, an unresolvable rung knob, no
+before it started: a posture check (scripts/mc-posture.sh) that failed or
+did not run, no readable profile, an unresolvable rung knob, no
 resolvable tier (an unreachable allocation store or a malformed tier knob),
 the admission gate withholding it, a broken allocation install, a program
 that is not configured, rules that would not render, or any other refusal by
