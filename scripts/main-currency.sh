@@ -117,7 +117,8 @@
 #   7  a shape it refuses: --checkout naming anything but a primary
 #      checkout's top level, a bare repository, a checkout path holding a
 #      control character, another branch or a detached HEAD checked out, no
-#      resolvable default branch, or an unwritable record
+#      resolvable default branch, or a record path that is not a writable
+#      regular file (a directory or a symlink included)
 #
 # Usage:
 #   main-currency.sh sync [--checkout <dir>] [--main-ref <branch>]
