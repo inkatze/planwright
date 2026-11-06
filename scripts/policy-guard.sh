@@ -175,9 +175,10 @@
 # THE UNIT BRANCH. A session owns the checkout at its project directory
 # (CLAUDE_PROJECT_DIR, which Claude Code sets for every hook) and the branch it
 # holds, when that is a task or flight branch; a session launched at a primary
-# checkout with another branch checked out owns, for a base sync only, the
-# linked worktree of that repository its shell is in, as the harness reported
-# it (unit_branch_or_deny). Every act must run in the owned checkout itself.
+# checkout holding some other branch (main, say) owns, for a base sync only,
+# the linked worktree of that repository its shell is in, as the harness
+# reported it (unit_branch_or_deny). Every act must run in the owned checkout
+# itself.
 # The PR base is the default branch of the unit branch's remote as recorded
 # locally (`refs/remotes/<remote>/HEAD`, else `main`): the guard never queries
 # the host for it, so a unit whose PR targets another branch syncs through
@@ -1129,11 +1130,12 @@ checkout_of() {
 # checkout holding it, or a deny; <act> is base-sync for a merge or pull of
 # the base or the branch's own remote branch, empty otherwise. A session
 # launched into its unit worktree owns that checkout alone. A session
-# launched at a repository's primary checkout with another branch there owns,
-# for a base sync only, the linked worktree of that repository its shell is
-# in: the payload cwd is the shell's directory as the harness reported it, so
-# a `cd` or -C inside the command never moves it, and the shell's location is
-# the only ownership evidence such a launch leaves.
+# launched at a repository's primary checkout holding a branch that is not a
+# task or flight branch owns, for a base sync only, the linked worktree of
+# that repository its shell is in: the payload cwd is the shell's directory as
+# the harness reported it, so a `cd` or -C inside the command never moves it,
+# and the shell's location is the only ownership evidence such a launch
+# leaves.
 UNIT_BRANCH='' UNIT_TOP='' UNIT_GD='' UNIT_DIR='' UNIT_VIA=''
 # 1 only once the Bash payload itself carried a non-empty cwd; PAYLOAD_CWD
 # falls back to the hook's own directory otherwise, which proves nothing.
@@ -1141,7 +1143,7 @@ CWD_REPORTED=0
 unit_branch_or_deny() {
   local what=$1 act=$2 pdir=${CLAUDE_PROJECT_DIR:-} b common
   local only="$what is allowed only on the session's own unit branch (a planwright/<spec>/task-<id> or planwright/flight/<name> branch)"
-  local rewrite="$what is refused: this session was launched at the primary checkout, which lets it sync the linked worktree its shell is in (a merge or pull of the PR base or its own remote branch) and never rewrite history - refusing. Leave the rewrite to a session launched into its own worktree."
+  local rewrite="$what is refused: a session launched at the primary checkout never rewrites history; it only syncs the linked worktree its shell is in (a merge or pull of the PR base or its own remote branch). Leave the rewrite to a session launched into its own worktree."
   if [ -z "$UNIT_BRANCH" ]; then
     [ -n "$pdir" ] && [ -d "$pdir" ] \
       || emit_deny "$what needs the session's unit branch, and the hook received no project directory (CLAUDE_PROJECT_DIR) to read it from - refusing (fail closed)."
@@ -2157,7 +2159,7 @@ classify_gh_api() {
       return 0
       ;;
     *mergeBranch* | *updatePullRequestBranch*)
-      deny_now 'this gh api request merges into a branch on the host; the gh api spelling of a base merge is never the permitted path. Merge the PR base locally with git merge origin/main, or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id).'
+      deny_now 'this gh api request merges into a branch on the host; the gh api spelling of a base merge is never the permitted path. Merge the PR base locally, from a worker session in its own worktree: scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id), or git merge origin/main.'
       return 0
       ;;
     *updateRefs* | *updateRef* | *deleteRef*)
@@ -2255,13 +2257,13 @@ classify_gh_api() {
       return 0
       ;;
     6:pulls:update-branch)
-      deny_now 'this gh api request updates a pull request branch from its base on the host; merge the PR base locally with git merge origin/main, or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id), instead.'
+      deny_now 'this gh api request updates a pull request branch from its base on the host; merge the PR base locally instead, from a worker session in its own worktree: scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id), or git merge origin/main.'
       return 0
       ;;
   esac
   case "$seg_count:${4:-}" in
     4:merges | 4:merge-upstream)
-      deny_now 'this gh api request merges into a branch on the host; the gh api spelling of a base merge is never the permitted path. Merge the PR base locally with git merge origin/main, or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id).'
+      deny_now 'this gh api request merges into a branch on the host; the gh api spelling of a base merge is never the permitted path. Merge the PR base locally, from a worker session in its own worktree: scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id), or git merge origin/main.'
       return 0
       ;;
   esac
@@ -3649,19 +3651,20 @@ eval_pull() {
   ref=${2:-}
   need_timeout
   if [ -z "$mode" ]; then
-    # A key written with no value is true to git and reads back empty, so
-    # presence, not output, decides; the branch key wins over pull.rebase.
-    local cb rv
+    # The branch key wins over pull.rebase when present, as in git. git's
+    # own bool parser reads the value (a key with no value is true, an empty
+    # one false); a value it rejects (merges, interactive) rebases.
+    local cb key='' rv
     cb=$(current_branch "$dir")
-    if rv=$(gitq "$dir" config --get "branch.$cb.rebase"); then
-      :
-    elif rv=$(gitq "$dir" config --get pull.rebase); then
-      :
-    else
-      rv=false
+    if gitq "$dir" config --get "branch.$cb.rebase" >/dev/null; then
+      key=branch.$cb.rebase
+    elif gitq "$dir" config --get pull.rebase >/dev/null; then
+      key=pull.rebase
     fi
-    case $(lower "${rv:-true}") in
-      false | no | off | 0) mode=merge ;;
+    rv=false
+    [ -z "$key" ] || rv=$(gitq "$dir" config --type=bool --get "$key") || rv=rebase
+    case $rv in
+      false) mode=merge ;;
       *)
         mode=rebase
         rwhat='this git pull (rebasing under the pull.rebase or branch rebase configuration; git pull --no-rebase merges instead)'
@@ -3671,7 +3674,7 @@ eval_pull() {
   if [ "$mode" = rebase ]; then
     read_knob unpushed_rewrite "$dir" allow deny
     [ "$KNOB_VAL" = allow ] \
-      || emit_deny "unpushed_rewrite is deny, so $rwhat is refused. Pull with --no-rebase, or run scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
+      || emit_deny "unpushed_rewrite is deny, so $rwhat is refused. Merge the PR base instead: git pull --no-rebase, git merge, or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
     on_unit_branch "$dir" "$rwhat"
     local upref
     if [ -z "$remote" ]; then

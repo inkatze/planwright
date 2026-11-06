@@ -486,11 +486,11 @@ for cmd in 'git commit --amend --no-edit' 'git rebase origin/main' 'git pull --r
   'git merge origin/main && git pull --rebase origin main' 'git pull origin main && git pull --rebase origin main'; do
   pg worker "$cmd" "$LWT" "$PRIM"
   expect deny "[worker] the shell's worktree is a base sync only, never a rewrite: $cmd"
-  reason_has 'never rewrite history' "the rewrite refusal says a primary launch never rewrites: $cmd"
+  reason_has 'never rewrites history' "the rewrite refusal says a primary launch never rewrites: $cmd"
 done
 pg worker 'git commit --amend --no-edit' "$PRIM" "$PRIM"
 expect deny "[worker] a rewrite from the primary checkout itself is refused"
-reason_has 'never rewrite history' "a rewrite gets the rewrite refusal before any shell-directory refusal"
+reason_has 'never rewrites history' "a rewrite gets the rewrite refusal before any shell-directory refusal"
 printf '[pull]\n\trebase\n' >>"$PRIM/.git/config"
 pg worker 'git pull origin main' "$LWT" "$PRIM"
 expect deny "[worker] pull.rebase written with no value rebases, so it is a rewrite on the shell path"
@@ -500,6 +500,23 @@ gitq -C "$PRIM" config branch.planwright/flight/dispatch-backend-0123abcd.rebase
 pg worker 'git pull origin main' "$LWT" "$PRIM"
 expect deny "[worker] the branch rebase key wins over pull.rebase false"
 gitq -C "$PRIM" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+printf '[branch "planwright/flight/dispatch-backend-0123abcd"]\n\trebase\n' >>"$PRIM/.git/config"
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] a branch rebase key written with no value wins over pull.rebase false"
+gitq -C "$PRIM" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+gitq -C "$PRIM" config pull.rebase true
+gitq -C "$PRIM" config branch.planwright/flight/dispatch-backend-0123abcd.rebase false
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect defer "[worker] a branch rebase key of false wins over pull.rebase true"
+gitq -C "$PRIM" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+gitq -C "$PRIM" config --unset pull.rebase
+printf '[pull]\n\trebase =\n' >>"$PRIM/.git/config"
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect defer "[worker] pull.rebase set to an empty value is false to git, so the pull merges"
+gitq -C "$PRIM" config --unset pull.rebase
+gitq -C "$PRIM" config pull.rebase merges
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] pull.rebase merges rebases, so it is a rewrite on the shell path"
 gitq -C "$PRIM" config --unset pull.rebase
 gitq -C "$LWT" config branch.planwright/flight/dispatch-backend-0123abcd.rebase true
 pg worker 'git pull origin main' "$LWT" "$PRIM"
