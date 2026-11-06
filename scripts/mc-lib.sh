@@ -2,9 +2,36 @@
 # shellcheck disable=SC2034,SC2154 # prog and script_dir are the sourcing script's; MC_FORMAT is read there
 # mc-lib.sh — helpers mission control's runtime scripts share (sourced, never
 # executed). The sourcing script sets `prog` and `script_dir` and has sourced
-# echo-safety.sh first. Portable bash 3.2 / BSD tooling.
+# echo-safety.sh first. Sourcing it runs one check: mc_warn_if_stale, below.
+# Portable bash 3.2 / BSD tooling.
 
 MC_FORMAT=1
+
+unset CDPATH
+
+# mc_warn_if_stale: a script run from an older cached copy, by a session
+# that kept its root across an upgrade, warns on stderr. Checked once per
+# process tree and state of the installed record (the marker carries the
+# record's stamp, so a session that inherits it still hears of a later
+# upgrade), and not at all where stderr is discarded.
+mc_warn_if_stale() {
+  case $script_dir in
+    */plugins/cache/*) ;;
+    *) return 0 ;;
+  esac
+  [ ! /dev/stderr -ef /dev/null ] || return 0
+  [ -f "$script_dir/resolve-installed-roots.sh" ] || return 0
+  # Canonical, as resolve-root.sh marks it, or a symlinked path warns twice.
+  mws_copy=$(cd -P -- "$script_dir/.." 2>/dev/null && pwd -P) || return 0
+  mws_rec=${CLAUDE_DIR:-${HOME:-}/.claude}/plugins/installed_plugins.json
+  # shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
+  mws_stamp=$(stat -c %Y "$mws_rec" 2>/dev/null || stat -f %m "$mws_rec" 2>/dev/null)
+  [ "${PLANWRIGHT_COPY_CHECKED:-}" != "$mws_copy|$mws_stamp" ] || return 0
+  PLANWRIGHT_COPY_CHECKED="$mws_copy|$mws_stamp"
+  export PLANWRIGHT_COPY_CHECKED
+  /bin/sh "$script_dir/resolve-installed-roots.sh" --check "$mws_copy" >/dev/null || :
+}
+mc_warn_if_stale
 
 mc_fail() {
   printf '%s\n' "$prog: $1" >&2
