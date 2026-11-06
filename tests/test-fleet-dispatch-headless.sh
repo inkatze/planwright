@@ -769,7 +769,7 @@ launch_h19() {
   env $unsets -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR \
     HOME="$tmp/home-h19" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
     PLANWRIGHT_FLEET_STATE_DIR="$PLANWRIGHT_FLEET_STATE_DIR" PLANWRIGHT_WORKER_SPEC_ROOT=/stale PLANWRIGHT_WORKER_SESSION_RECORD=/stale PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
-    PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" \
+    PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/sb-h19" \
     /bin/sh "$FDH" launch "$SPEC" "$1" --worktree "$2" >/dev/null
 }
 h19() {
@@ -778,7 +778,7 @@ h19() {
   STATE="$tmp/state-h19"
   wt="$tmp/wt-h19"
   store="$tmp/store-h19"
-  mkdir -p "$tmp/home-h19" "$store" "$wt/.claude"
+  mkdir -p "$tmp/home-h19" "$tmp/sb-h19" "$store" "$wt/.claude"
   git -c init.defaultBranch=main init -q "$wt"
   printf 'project: fixture\nlayout: 1\n' >"$store/planwright-spec-root.yml"
   printf 'spec_root: %s\n' "$store" >"$wt/.claude/planwright.local.yml"
@@ -801,13 +801,13 @@ h19() {
   esac
   grep -qx "worktree_root=$(cd "$wt" && pwd -P)" "$(cat "$rec/record")" 2>/dev/null \
     || fail "h19: the worker's session record does not name its worktree"
-  # Its scratch root (REQ-G1.2): the worktree's, under the fleet home,
-  # exported as TMPDIR and named in the record; a plain close keeps it and
-  # the final close removes it.
+  # Its scratch root (REQ-G1.2): the worktree's, under the scratch base and
+  # recorded in the fleet home, exported as TMPDIR and named in the record; a
+  # plain close keeps it and the final close removes it.
   local root19
-  root19="$(cd "$PLANWRIGHT_FLEET_STATE_DIR" && pwd -P)/scratch/$(printf '%s' "$(cd "$wt" && pwd -P)" | git hash-object --stdin)"
-  [ "$(cat "$rec/tmpdir")" = "$root19" ] && [ -d "$root19" ] \
-    || fail "h19: the worker got TMPDIR '$(cat "$rec/tmpdir")', expected its scratch root $root19"
+  root19=$(cat "$(cd "$PLANWRIGHT_FLEET_STATE_DIR" && pwd -P)/scratch/$(printf '%s' "$(cd "$wt" && pwd -P)" | git hash-object --stdin).tmpdir" 2>/dev/null)
+  [ "$(cat "$rec/tmpdir")" = "$root19" ] && [ -d "$root19" ] && [ "${root19%/*}" = "$tmp/sb-h19" ] \
+    || fail "h19: the worker got TMPDIR '$(cat "$rec/tmpdir")', expected its scratch root '$root19'"
   grep -qx "scratch_root=$root19" "$(cat "$rec/record")" 2>/dev/null \
     || fail "h19: the worker's session record does not name its scratch root"
   PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" /bin/sh "$FDH" stop "headless-$SPEC-task-19" --grace 2 >/dev/null 2>&1 \

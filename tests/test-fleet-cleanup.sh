@@ -381,6 +381,17 @@ mkdir -p "$fleet_home/scratch/$rec_key/sub/ro" "$fleet_home/scratch/$other_key" 
 chmod 500 "$fleet_home/scratch/$rec_key/sub/ro"
 : >"$tmp/scratch-outside/keep"
 ln -s "$tmp/scratch-outside" "$fleet_home/scratch/$rec_key/sub/link"
+mkdir -p "$tmp/sb"
+scratch_make() {
+  PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/sb" /bin/sh "$here/../scripts/fleet-scratch.sh" make "$fleet_home" "$1"
+}
+sess_key=$(printf '%s' sess | git hash-object --stdin)
+if ! new_root=$(scratch_make "$rec_key") || ! new_sess=$(scratch_make "$rec_key-$sess_key") \
+  || ! new_other=$(scratch_make "$other_key"); then
+  fail "clean worktree: no scratch roots to reclaim"
+fi
+mkdir -p "$new_root/ro" "$new_sess/f"
+chmod 500 "$new_root/ro"
 rc=0
 run_worktree "$main_repo" "$wt_clean" "merged branch" "reclaiming clean worktree" \
   >/dev/null 2>&1 || rc=$?
@@ -397,6 +408,11 @@ run_worktree "$main_repo" "$wt_clean" "merged branch" "reclaiming clean worktree
   || fail "clean worktree: the reclaim followed a link out of the scratch root"
 [ -d "$fleet_home/scratch/$other_key" ] \
   || fail "clean worktree: another worktree's scratch root was removed"
+[ ! -e "$new_root" ] && [ ! -e "$new_sess" ] && [ ! -e "$fleet_home/scratch/$rec_key.tmpdir" ] \
+  && [ ! -e "$fleet_home/scratch/$rec_key-$sess_key.tmpdir" ] \
+  || fail "clean worktree: its short scratch roots or their records survived the reclaim"
+[ -d "$new_other" ] && [ -f "$fleet_home/scratch/$other_key.tmpdir" ] \
+  || fail "clean worktree: another worktree's short scratch root was removed"
 rows=$(audit_rows --mechanism worktree-cleanup)
 case $rows in
   *cleanup*) ;;

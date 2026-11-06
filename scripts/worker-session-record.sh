@@ -19,8 +19,9 @@
 #                      when unset) and that remote's default branch as
 #                      recorded locally, else main
 #   worker_base_merge  the human-gates knob (omitted when it cannot be read)
-#   scratch_root       with --scratch, the worktree's scratch root,
-#                      <fleet-home>/scratch/<sha1-of-worktree-root>, whatever
+#   scratch_root       with --scratch, the worktree's scratch root, a short
+#                      directory outside the fleet home that
+#                      scripts/fleet-scratch.sh places and records, whatever
 #                      the launch id: created owner-only when absent and kept,
 #                      contents and all, when present, so every plain stop,
 #                      recover, and relaunch of the worker finds the same
@@ -37,10 +38,10 @@
 #                      worktree at the same path first, for a launcher that
 #                      has just created the worktree.
 #                      --session <handle> gives one session of several
-#                      sharing a worktree a root of its own,
-#                      <worktree's root>/<sha1-of-handle>, so a session's
-#                      final close removes its files alone, never another
-#                      session's
+#                      sharing a worktree a root of its own, keyed by
+#                      <sha1-of-worktree-root>-<sha1-of-handle>, so a
+#                      session's final close removes its files alone, never
+#                      another session's
 #   audit_log_home     <fleet-home>/allow-audit, owner-only, where the guard
 #                      appends a line per approval to <record-name>.log. Every
 #                      write first prunes the logs there older than
@@ -235,20 +236,12 @@ if [ -n "$session" ]; then
 fi
 rec=$dir/$key.record
 
-# scratch_make <dir>: create the scratch root when absent, then print its
-# canonical path when it is one the guard can trust.
-scratch_make() {
-  sm=$1
-  case $sm in
-    *[[:cntrl:]]*) return 1 ;;
-  esac
-  # An existing root is kept; the checks below decide either way.
-  mkdir -- "$sm" 2>/dev/null || : # not-a-lock: creating the scratch root, whose checks follow
-  [ -d "$sm" ] && [ ! -L "$sm" ] || return 1
-  [ "$(find "$sm" -maxdepth 0 -user "$(id -u)" 2>/dev/null)" = "$sm" ] || return 1
-  # BSD chmod reads a `--` after the mode as a file; the path is absolute.
-  chmod 700 "$sm" 2>/dev/null || return 1
-  sm=$(cd -P -- "$sm" 2>/dev/null && pwd -P) || return 1
+# scratch_trusted <dir>: print the scratch root's canonical path when it is
+# one the guard can trust: apart from the worktree and the record directory
+# in both directions.
+scratch_trusted() {
+  sm=$(cd -P -- "$1" 2>/dev/null && pwd -P) || return 1
+  [ "$sm" = "$1" ] || return 1
   case $sm/ in
     "$wt"/* | "$dir"/*) return 1 ;;
   esac
@@ -262,25 +255,14 @@ scratch_make() {
 }
 
 scratch=''
-sroot=$home/scratch/$wt_key
-sparent=$home/scratch
-if [ -n "$sess_key" ]; then
-  sparent=$sroot
-  sroot=$sroot/$sess_key
-fi
-# Before anything below removes or creates inside them.
-if [ "$want_scratch" != 0 ] && { [ -L "$home/scratch" ] || [ -L "$sparent" ]; }; then
-  want_scratch=3
-fi
-if [ "$want_scratch" = 2 ] && [ -d "$sroot" ] && [ ! -L "$sroot" ]; then
-  find "$sroot" -type d ! -perm -700 -exec chmod u+rwx {} \; 2>/dev/null || :
-  rm -rf -- "$sroot" 2>/dev/null || :
+skey=$wt_key
+[ -z "$sess_key" ] || skey=$wt_key-$sess_key
+if [ "$want_scratch" != 0 ]; then
+  set --
+  [ "$want_scratch" != 2 ] || set -- --fresh
   # A root that would not empty keeps an earlier worker's files: no root.
-  [ ! -e "$sroot" ] || want_scratch=3
-fi
-if { [ "$want_scratch" = 1 ] || [ "$want_scratch" = 2 ]; } && mkdir -p -- "$sparent" 2>/dev/null \
-  && [ ! -L "$sparent" ]; then
-  scratch=$(scratch_make "$sroot") || scratch=''
+  scratch=$(/bin/sh "$script_dir/fleet-scratch.sh" make "$home" "$skey" "$@" 2>/dev/null </dev/null) || scratch=''
+  [ -z "$scratch" ] || scratch=$(scratch_trusted "$scratch") || scratch=''
 fi
 [ "$want_scratch" = 0 ] || [ -n "$scratch" ] \
   || printf '%s: the scratch root is unusable; the worker gets no scratch arm\n' "$me" >&2

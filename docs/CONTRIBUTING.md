@@ -346,7 +346,11 @@ test file a sentinel fleet home (`PLANWRIGHT_FLEET_STATE_DIR`, and
 there by the time it exits. Pin a fixture home per case with `fleet_home_pin` from
 [`tests/lib/fleet-home.sh`](../tests/lib/fleet-home.sh), whose
 `fleet_home_leaked` also lets a suite run on its own check that it left the
-inherited registry alone.
+inherited registry alone. A worker's scratch root lies outside its fleet home,
+in `/tmp` unless `PLANWRIGHT_FLEET_SCRATCH_BASE` names another directory, so
+the runner also points that variable into the file's sentinel; a suite that
+scrubs `PLANWRIGHT_*` and launches workers sets its own, or its roots outlive
+its fixture.
 
 ### Waits hold up on a busy machine
 
