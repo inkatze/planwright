@@ -432,14 +432,13 @@ every settings file untouched.
 
 ### REQ-G1.5 — The posture check and one pre-approval list [test]
 
-`tests/test-mc-posture.sh` (Task 20): a settings set without the shipped
-deny floor and one with the guard hooks unwired each fail with a one-line
-reason. `tests/test-mission-control-launch.sh`: the launcher refuses on
-that failure. `tests/test-tower-command-guard.sh`: every script verb the
-skill and duty catalog invoke runs without a prompt at the tier and an
-unlisted reference fails the test; `fleet-streamjson.sh answer` prompts.
-`tests/test-policy-guard-mission-control.sh`: an edit and a git mutation
-are denied.
+The posture script's test and `tests/test-tower-command-guard.sh`
+(Task 20): a settings set without the shipped deny floor and one with the
+guard hooks unwired each fail with a one-line reason and the launcher
+refuses on it; every script verb the skill and duty catalog invoke runs
+without a prompt at the tier and an unlisted reference fails the test;
+`fleet-streamjson.sh answer` prompts. `tests/test-policy-guard-mission-control.sh`:
+an edit and a git mutation are denied.
 
 ### REQ-G1.6 — Prompts wake mission control and are answered through the channel [test]
 
