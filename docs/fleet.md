@@ -580,6 +580,14 @@ remains possible at any time (`tmux attach -t '=<session>'`, the hint a
 flight's dispatch report prints) — it is an option for multiplexer-fluent
 operators, never a requirement.
 
+A task worker lands on the tmux rung only when its spec resolves there
+(`resolve-dispatch-backend.sh`) or the tower passes `--backend tmux` for an
+explicit pick. For a spec resolving to any other rung the primitive refuses
+the launch with exit 17, before anything is placed, rather than start a
+worker whose prompts the chosen rung's supervisor (mission control included)
+would never see; `/orchestrate` dispatches those units through
+`scripts/orchestrate-meta-step.sh`, the prompt riding the launch.
+
 Because that dispatch starts the worker inside its session through the env
 wrapper, such a worker carries its fleet identity like the headless rungs do.
 It therefore raises the same attention signals (a fork-park push, a status

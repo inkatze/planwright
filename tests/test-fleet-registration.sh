@@ -734,7 +734,7 @@ EOF
   out=$(PATH="$stub:$PATH" env PLANWRIGHT_TOWER_ID=p3.t3.c3 \
     PLANWRIGHT_FLEET_STATE_DIR="$h" \
     PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX=1 \
-    /bin/sh "$FDW" dispatch spec-c5 1 --repo-root "$repo" 2>&1)
+    /bin/sh "$FDW" dispatch spec-c5 1 --backend tmux --repo-root "$repo" 2>&1)
   st=$?
   sess5=$(printf '%s\n' "$out" | awk -F'\t' '$1 == "launch" && $2 == "session" { print $3 }')
   if [ "$st" = 14 ] && [ -f "$h/registry" ]; then

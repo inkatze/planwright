@@ -713,6 +713,25 @@ EOF
   pass "m11: the stream-json rung launches in the unit worktree with the prompt"
 }
 
+# m20: /orchestrate dispatches its script-driven rungs through this step, with
+# the prompt riding the launch, and never names the tmux-launching primitive
+# outside the tmux rung without --no-attach.
+m20() {
+  begin
+  local skill sj other
+  skill="$here/../skills/orchestrate/SKILL.md"
+  sj=$(awk '/^- \*\*stream-json-persistent\*\*/ {on = 1; print; next} on && /^- \*\*/ {exit} on' "$skill" | tr '\n' ' ')
+  case $sj in
+    *"scripts/orchestrate-meta-step.sh dispatch"*--prompt-file*) ;;
+    *) fail "m20: the stream-json-persistent rung must dispatch through orchestrate-meta-step.sh with --prompt-file: $sj" ;;
+  esac
+  # shellcheck disable=SC2016 # a literal backtick, matched as written
+  other=$(awk '/^- \*\*tmux\*\* \(opt-in\)/ {skip = 1; next} skip && /^- \*\*/ {skip = 0} !skip' "$skill" | tr '\n' ' ' \
+    | grep -o 'fleet-dispatch-worktree\.sh[^`]*`' | grep -v -- '--no-attach' || true)
+  [ -z "$other" ] || fail "m20: a non-tmux mention of the primitive launches a tmux worker: $other"
+  pass "m20: the skill routes script rungs through the meta step"
+}
+
 m1
 m2
 m3
@@ -732,6 +751,7 @@ m16
 m17
 m18
 m19
+m20
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

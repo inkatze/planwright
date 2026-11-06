@@ -135,8 +135,8 @@
 # Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
 # without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-dispatch-worktree.sh dispatch <spec> <id> [--brief <abs-file>] \
-#       [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] \
-#       [-- <extra launch args>...]
+#       [--backend tmux] [--repo-root <dir>] \
+#       [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
 #       Validate, fetch `<base>`, reconcile, `git worktree add -b`, wire the
 #       hook backstop, launch, then confirm. The report is `dispatch<TAB><key><TAB><value>` lines (branch,
 #       worktree, base), `launch` lines (session, window, handle, since,
@@ -144,6 +144,13 @@
 #       Its exit status is the launch outcome (0, 14, or 16 below), never
 #       the worker's own.
 #       --repo-root      the primary checkout (default: resolve-root.sh repo --primary).
+#       --backend tmux   the caller's own resolution picked tmux (an explicit
+#                        /orchestrate --backend tmux, or the tmux-context ask
+#                        answered yes). Without it a launch (live or
+#                        --launch-only) first resolves the spec's backend
+#                        (resolve-dispatch-backend.sh, unattended) and refuses
+#                        with exit 17 unless it is tmux. Any other value is a
+#                        usage error.
 #       --launch-only    launch and report, without the confirm step, for a
 #                        caller that releases a lock before confirming (the
 #                        flight dispatch); exit 0 once the session exists.
@@ -259,6 +266,9 @@
 #   16 failed-at-startup: tmux answered that the worker's session is gone
 #      and no confirmation had arrived. The dispatch clears the marker it
 #      set; the worktree and branch stay for a retry to adopt.
+#   17 the task launch was refused before anything was placed: the spec
+#      resolves to a backend other than tmux, or its backend did not
+#      resolve. The message names the backend and the rung to use instead.
 #
 # Every tmux call (the liveness probes and new-session) is ended after
 # PLANWRIGHT_DISPATCH_TMUX_TIMEOUT seconds (default 10, 1-999, no leading
@@ -334,7 +344,7 @@ warn() {
 
 usage() {
   cat >&2 <<'EOF'
-usage: fleet-dispatch-worktree.sh dispatch <spec> <id> [--brief <abs-file>] [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
+usage: fleet-dispatch-worktree.sh dispatch <spec> <id> [--brief <abs-file>] [--backend tmux] [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh dispatch --flight <flight-id> [--brief <abs-file>] [--relaunch] [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh attach <suffix> --dry-run [--brief <abs-file>] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh confirm --session <name> --handle <handle> [--since <epoch|unknown>] [--token <hex>]
@@ -1221,6 +1231,8 @@ do_dispatch() {
   _no_attach=0
   _launch_only=0
   _relaunch=0
+  _backend=''
+  _backend_set=0
   # Collect extra launch args (after `--`) verbatim.
   _have_extra=0
 
@@ -1262,6 +1274,12 @@ do_dispatch() {
         [ "$#" -ge 2 ] || usage
         _brief=$2
         _brief_set=1
+        shift 2
+        ;;
+      --backend)
+        [ "$#" -ge 2 ] || usage
+        _backend=$2
+        _backend_set=1
         shift 2
         ;;
       --*)
@@ -1318,6 +1336,16 @@ do_dispatch() {
   if [ -n "$_brief" ] && [ "$_no_attach" -eq 1 ]; then
     warn "--no-attach launches no worker; it takes no --brief"
     usage
+  fi
+  if [ "$_backend_set" -eq 1 ]; then
+    [ "$_backend" = tmux ] || {
+      warn "--backend takes only tmux: this primitive launches the tmux rung; place another rung's worktree with --no-attach and launch it through that rung"
+      usage
+    }
+    [ -z "$_flight" ] || {
+      warn "--backend is a task option; a flight's rung is chosen by its own dispatch"
+      usage
+    }
   fi
   if [ "$_relaunch" -eq 1 ]; then
     [ -n "$_flight" ] || {
@@ -1521,6 +1549,23 @@ do_dispatch() {
   if [ "$_tmux_rung" -eq 1 ] && [ "$_attach_dry" -eq 1 ]; then
     launch_roots "$_repo_root"
     resolve_launch_profile || exit 12
+  fi
+  # A task launch honours the backend the spec resolves to: a tmux worker
+  # placed for a spec configured for another rung parks on prompts that rung's
+  # supervisor never sees. Only an explicit --backend tmux (the operator's own
+  # pick, or the tmux-context ask answered yes) stands in for the resolution.
+  if [ -z "$_flight" ] && [ "$_tmux_rung" -eq 1 ] && [ "$_attach_dry" -eq 0 ] && [ "$_backend" != tmux ]; then
+    _rb_rc=0
+    _rb_out=$(cd "$_repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-dispatch-backend.sh" resolve "$_spec_dir" 2>/dev/null </dev/null) || _rb_rc=$?
+    _rb=$(printf '%s\n' "$_rb_out" | awk -F"$TAB" '$1 == "backend" { print $2; exit }')
+    if [ "$_rb_rc" -ne 0 ] || [ -z "$_rb" ]; then
+      warn "refusing the tmux launch: the backend for spec $_spec did not resolve (resolve-dispatch-backend exit $_rb_rc); nothing was placed"
+      exit 17
+    fi
+    if [ "$_rb" != tmux ]; then
+      warn "refusing the tmux launch: spec $_spec resolves to backend $_rb, whose supervisor would never see this worker's prompts; nothing was placed. Dispatch through that rung (orchestrate-meta-step.sh dispatch for stream-json-persistent or headless-oneshot), or create the worktree alone with --no-attach"
+      exit 17
+    fi
   fi
 
   _made_branch=0
