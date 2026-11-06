@@ -265,7 +265,7 @@ branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
   || die 10 off-branch "no branch is checked out (a detached HEAD), so there is no unit branch to sync"
 branch_shown=$(printf '%s' "$branch" | scrub)
 is_unit_branch "$branch" \
-  || die 10 off-branch "$branch_shown is not a unit branch (planwright/<spec>/task-<id> or planwright/flight/<id>); the sync merges only into one"
+  || die 10 off-branch "$branch_shown is not a unit branch (planwright/<spec>/task-<id> or planwright/flight/<name>); the sync merges only into one"
 prc=0
 (cd -- "$policy_root" && PLANWRIGHT_REPO_ROOT=$policy_root /bin/sh "$script_dir/protected-branch.sh" "$branch" </dev/null >/dev/null 2>&1) || prc=$?
 case $prc in

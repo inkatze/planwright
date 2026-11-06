@@ -1171,8 +1171,12 @@ c21() {
   [ "$(tag_val "$out" sync)" = fast-forward ] \
     || fail "c21: expected sync=fast-forward on the older flight branch, got '$(tag_val "$out" sync)'"
   rc=0
-  CLAUDE_PROJECT_DIR="$tmp/taskish" "$SYNC" "$tmp/taskish" >/dev/null 2>&1 || rc=$?
+  err=$(CLAUDE_PROJECT_DIR="$tmp/taskish" "$SYNC" "$tmp/taskish" 2>&1 >/dev/null) || rc=$?
   [ "$rc" -eq 10 ] || fail "c21: expected exit 10 (off-branch) for planwright/flight/task-3, got $rc"
+  case $err in
+    *"is not a unit branch"*) ;;
+    *) fail "c21: planwright/flight/task-3 was refused for another reason: $err" ;;
+  esac
   echo "ok c21: an older flight branch syncs; a task-shaped flight name stays refused"
 }
 
