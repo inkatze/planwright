@@ -98,10 +98,11 @@
 #   base-merge  `git merge`, `git pull` in merge mode. tower: deny. worker:
 #               worker_base_merge, then the current branch must be the session's
 #               unit branch outside the protected set and every source the PR
-#               base. Refusing an --ff-only spelling for want of tier or branch
-#               names scripts/main-currency.sh ff-primary, the sanctioned way
-#               to fast-forward a primary checkout's default branch.
-#   rewrite    amend, `--squash`, `--fixup`, rebase, `git pull` in rebase
+#               base. When an --ff-only spelling is refused at the tower tier
+#               or for running off the unit branch, the reason also names
+#               scripts/main-currency.sh ff-primary, the sanctioned way to
+#               fast-forward a primary checkout's default branch.
+#   rewrite     amend, `--squash`, `--fixup`, rebase, `git pull` in rebase
 #               mode. tower: deny. worker: unpushed_rewrite, then the unit
 #               branch rule, then the never-pushed check: the upstream tracking
 #               ref is refreshed and no remote-tracking ref may contain a
@@ -225,7 +226,6 @@ emit_deny() {
       reason="$reason Re-issue it as a plain, literal command from your own worktree, or leave the act to the operator."
       ;;
   esac
-  reason=$reason${DENY_SUFFIX:-}
   out=$(jq -nc --arg r "$reason" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}' 2>/dev/null) \
     || out=''
@@ -1100,27 +1100,28 @@ current_branch() {
 # unit_branch — the session's unit branch (its project directory's branch), or
 # a deny.
 UNIT_BRANCH=''
-unit_branch_or_deny() {
+unit_branch_or_deny() { # <what> [<remedy>]
   local what=$1 pdir=${CLAUDE_PROJECT_DIR:-} b
   [ -n "$UNIT_BRANCH" ] && return 0
   [ -n "$pdir" ] && [ -d "$pdir" ] \
     || emit_deny "$what needs the session's unit branch, and the hook received no project directory (CLAUDE_PROJECT_DIR) to read it from - refusing (fail closed)."
   b=$(current_branch "$pdir")
   is_unit_branch "$b" \
-    || emit_deny "$what is allowed only on the session's own unit branch (a planwright/<spec>/task-<id> or planwright/flight/<id> branch), and this session's project directory has $(sanitize_printable "${b:-no branch}" 'an unreadable branch') checked out - refusing."
+    || emit_deny "$what is allowed only on the session's own unit branch (a planwright/<spec>/task-<id> or planwright/flight/<id> branch), and this session's project directory has $(sanitize_printable "${b:-no branch}" 'an unreadable branch') checked out - refusing.${2:-}"
   UNIT_BRANCH=$b
 }
 
-# on_unit_branch <dir> <what> — deny unless <dir> has the unit branch checked
-# out and that branch is outside the protected set.
+# on_unit_branch <dir> <what> [<remedy>] — deny unless <dir> has the unit
+# branch checked out and that branch is outside the protected set. <remedy>
+# follows a refusal for running on another branch.
 on_unit_branch() {
   local dir=$1 what=$2 b
-  unit_branch_or_deny "$what"
+  unit_branch_or_deny "$what" "${3:-}"
   b=$(current_branch "$dir")
   [ -n "$b" ] \
     || emit_deny "$what runs where no branch is checked out (a detached HEAD or an unreadable repository) - refusing (fail closed)."
   [ "$b" = "$UNIT_BRANCH" ] \
-    || emit_deny "$what would run on $(sanitize_printable "$b" 'another branch'), which is not this session's unit branch ($(sanitize_printable "$UNIT_BRANCH" 'unreadable')) - refusing. Run it in your own worktree."
+    || emit_deny "$what would run on $(sanitize_printable "$b" 'another branch'), which is not this session's unit branch ($(sanitize_printable "$UNIT_BRANCH" 'unreadable')) - refusing. Run it in your own worktree.${3:-}"
   check_unprotected "$dir" "$what" "$b"
   CUR_BRANCH=$b
 }
@@ -3125,17 +3126,31 @@ classify_tower_worktree() {
   [ "${#cands[@]}" = 0 ] || queue_protected "$dir" "$dir_ok" "this git worktree $verb" "${cands[@]}"
 }
 
-# The refusal of a fast-forward-only merge or pull names the sanctioned path
-# that does the same act safely; the refusal itself stands.
-DENY_SUFFIX=''
-FF_HINT=('' " To bring a clean primary checkout's default branch up to its origin, run planwright's scripts/main-currency.sh ff-primary --checkout <primary checkout> instead: it fast-forwards only, refuses a dirty tree or any other branch, and records the act.")
+# Appended to a fast-forward-only merge or pull's tier or branch refusal; the
+# refusal itself stands.
+FF_REMEDY=" To bring a clean primary checkout's default branch up to its origin, run planwright's scripts/main-currency.sh ff-primary --checkout <primary checkout> instead: it fast-forwards only, refuses a dirty tree or any other branch, and records the act."
+
+# ff_only_seen — 0 when the parsed long options leave git in --ff-only mode:
+# --ff, --no-ff and --ff-only override each other, the last one winning, and
+# git takes any unique prefix (--ff- is --ff-only, --no-f is --no-ff).
 ff_only_seen() {
-  long_prefix_seen ff-only 4
+  local t name only=0 ffo=ff-only nff=no-ff
+  for t in $GP_LONG; do
+    name=${t%%=*}
+    if [ "$name" = ff ]; then
+      only=0
+    elif [ "${#name}" -ge 3 ] && [ "$name" = "${ffo:0:${#name}}" ]; then
+      only=1
+    elif [ "${#name}" -ge 4 ] && [ "$name" = "${nff:0:${#name}}" ]; then
+      only=0
+    fi
+  done
+  [ "$only" = 1 ]
 }
 
 MERGE_VLONG='message file strategy strategy-option into-name cleanup'
 classify_git_merge() {
-  local k=$1 dir=$2 dir_ok=$3 ff=0
+  local k=$1 dir=$2 dir_ok=$3 ff=0 remedy=''
   parse_git_opts "$k" "$MERGE_VLONG" 'mFsX' 'S' \
     || {
       tower_refuses 'git merge' || deny_now "this git merge carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
@@ -3144,8 +3159,11 @@ classify_git_merge() {
   if long_prefix_seen abort 2 || long_prefix_seen continue 3 || long_prefix_seen quit 2; then
     return 0
   fi
-  ! ff_only_seen || ff=1
-  tower_refuses 'git merge' "${FF_HINT[$ff]}" && return 0
+  if ff_only_seen; then
+    ff=1
+    remedy=$FF_REMEDY
+  fi
+  tower_refuses 'git merge' "$remedy" && return 0
   act_gate 'this git merge' merge || return 0
   need_dir "$dir_ok" 'this git merge' || return 0
   all_literal || {
@@ -3157,14 +3175,17 @@ classify_git_merge() {
 
 PULL_VLONG='strategy strategy-option depth deepen shallow-since shallow-exclude upload-pack server-option negotiation-tip jobs refmap cleanup'
 classify_git_pull() {
-  local k=$1 dir=$2 dir_ok=$3 mode='' ff=0
+  local k=$1 dir=$2 dir_ok=$3 mode='' ff=0 remedy=''
   parse_git_opts "$k" "$PULL_VLONG" 'sXoj' 'S' \
     || {
       tower_refuses 'git pull' || deny_now "this git pull carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
       return 0
     }
-  ! ff_only_seen || ff=1
-  tower_refuses 'git pull' "${FF_HINT[$ff]}" && return 0
+  if ff_only_seen; then
+    ff=1
+    remedy=$FF_REMEDY
+  fi
+  tower_refuses 'git pull' "$remedy" && return 0
   act_gate 'this git pull' merge || return 0
   need_dir "$dir_ok" 'this git pull' || return 0
   all_literal || {
@@ -3523,21 +3544,20 @@ eval_merge_helper() {
     || emit_deny "merge_policy is $KNOB_VAL, so no agent session runs the merge helper: the operator's approval act merges this PR. Leave it for the operator and name it in your handoff."
 }
 
-base_merge_allowed() { # <dir> <what>
+base_merge_allowed() { # <dir> <what> [<remedy for a branch refusal>]
   read_knob worker_base_merge "$1" allow deny
   [ "$KNOB_VAL" = allow ] \
     || emit_deny "worker_base_merge is deny, so $2 is refused; the operator syncs this branch with its base."
   need_timeout
-  on_unit_branch "$1" "$2"
+  on_unit_branch "$1" "$2" "${3:-}"
   base_of "$1"
 }
 
 eval_merge() {
-  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} srcs s
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} remedy='' srcs s
+  [ "${rest%%"$TAB"*}" != 1 ] || remedy=$FF_REMEDY
   srcs=${rest#*"$TAB"}
-  DENY_SUFFIX=${FF_HINT[${rest%%"$TAB"*}]}
-  base_merge_allowed "$dir" 'this git merge'
-  DENY_SUFFIX=''
+  base_merge_allowed "$dir" 'this git merge' "$remedy"
   if [ -z "$srcs" ]; then
     upstream_of "$dir" "$CUR_BRANCH"
     [ "$UP_REMOTE" = "$BASE_REMOTE" ] && [ "$UP_BRANCH" = "$BASE_BRANCH" ] \
@@ -3591,9 +3611,9 @@ eval_pull() {
     refresh_and_check_unpushed "$dir" 'this rebasing git pull' "$upref..HEAD"
     return 0
   fi
-  DENY_SUFFIX=${FF_HINT[$ff]}
-  base_merge_allowed "$dir" 'this git pull'
-  DENY_SUFFIX=''
+  local remedy=''
+  [ "$ff" != 1 ] || remedy=$FF_REMEDY
+  base_merge_allowed "$dir" 'this git pull' "$remedy"
   if [ -z "$remote" ]; then
     upstream_of "$dir" "$CUR_BRANCH"
     remote=$UP_REMOTE

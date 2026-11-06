@@ -426,6 +426,32 @@ for cmd in "git -C $MAIN merge --ff-only upstream/main" "git -C $MAIN merge --ff
   pg worker "$cmd"
   expect deny "[worker] another remote, branch, or a rebase still denies: $cmd"
 done
+for spec in "1|--ff-o" "1|--no-ff --ff-only" "0|--ff" "0|--ff-only --no-ff" "0|--ff-only --ff"; do
+  pg tower "git -C $MAIN merge ${spec#*|} origin/main"
+  expect deny "[tower] a merge with ${spec#*|} still denies"
+  case ${spec%%|*}:$REASON in
+    1:*main-currency.sh*) pass "[tower] ${spec#*|} leaves git fast-forward-only, and the refusal names the verb" ;;
+    0:*main-currency.sh*) fail "[tower] ${spec#*|} lets git merge for real, yet the refusal names the fast-forward verb" ;;
+    1:*) fail "[tower] ${spec#*|} leaves git fast-forward-only, yet the refusal does not name the verb" ;;
+    *) pass "[tower] ${spec#*|} lets git merge for real, and the refusal does not name the verb" ;;
+  esac
+done
+pg worker 'git merge --ff-only origin/main'
+expect defer "[worker] allow: a fast-forward-only merge of the base into the unit branch defers"
+pg worker 'git merge --ff-only origin/planwright/demo/task-2'
+expect deny "[worker] allow: a fast-forward-only merge of another source denies"
+case $REASON in
+  *main-currency.sh*) fail "[worker] a source refusal points at the primary's fast-forward verb" ;;
+  *) pass "[worker] a source refusal does not point at the primary's fast-forward verb" ;;
+esac
+set_knobs 'worker_base_merge: deny'
+pg worker 'git merge --ff-only origin/main'
+expect deny "[worker] deny: a fast-forward-only base merge denies"
+case $REASON in
+  *main-currency.sh*) fail "[worker] the worker_base_merge refusal points at the primary's fast-forward verb" ;;
+  *) pass "[worker] the worker_base_merge refusal does not point at the primary's fast-forward verb" ;;
+esac
+set_knobs 'worker_base_merge: allow'
 for tier in tower worker; do
   for cmd in "$REPO_ROOT/scripts/main-currency.sh ff-primary" "$REPO_ROOT/scripts/main-currency.sh ff-primary --checkout $MAIN" \
     "/bin/sh $REPO_ROOT/scripts/main-currency.sh ff-primary --checkout $SANDBOX/dotfiles"; do
