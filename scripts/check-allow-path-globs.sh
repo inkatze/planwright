@@ -1,26 +1,12 @@
 #!/bin/bash
 # check-allow-path-globs.sh — flags a Bash allow rule whose command path holds a
-# wildcard. Read-only: it reports settings and never edits them.
+# wildcard or `..`. Read-only. Claude Code's `*` also matches `/` and `..`, so
+# `Bash(<dir>/*)` admits `<dir>/../../../bin/rm` (docs/permission-matcher-model.md
+# M3; safe forms in docs/overlays.md).
 #
-# Why it matters. Claude Code's `*` matches any text, `/` and `..` included, so
-# `Bash(/abs/planwright/scripts/*)` also admits
-# `/abs/planwright/scripts/../../../bin/rm -rf <dir>` with no prompt, and
-# `Bash(<cache>/planwright/*/scripts/x.sh answer *)` admits a `..` walk out of
-# the version directory the same way. docs/permission-matcher-model.md (M3) has
-# the matcher semantics. The safe forms are the exact script path with no `*`
-# in it (it fails closed on upgrade), or the planwright PreToolUse hooks
-# (worker-command-guard.sh, tower-command-guard.sh), which canonicalize the path.
-#
-# Usage:
-#   check-allow-path-globs.sh               user settings (~/.claude/settings*.json)
-#                                           and the current checkout's
-#                                           .claude/settings*.json; missing files
-#                                           are skipped
-#   check-allow-path-globs.sh <file>...     exactly these files; a missing or
-#                                           unreadable one fails the check
-#
-# Exit codes: 0 clean, 1 a flagged allow rule, 2 usage or input error (fail
-# closed: an unparsable settings file is never reported clean).
+# No argument: the user and checkout settings, missing files skipped.
+# Arguments: exactly those files; a missing one fails the check.
+# Exit: 0 clean, 1 flagged, 2 input error (never reported clean).
 set -u
 LC_ALL=C
 export LC_ALL

@@ -618,9 +618,10 @@ path. Claude Code's `*` matches any text, including `/` and `..`, so a wildcard
 in a path is a traversal: `Bash(<dir>/*)` admits `<dir>/../../../bin/<anything>`,
 and `Bash(<cache>/planwright/*/scripts/x.sh *)` admits a walk out of its version
 directory. The planwright PreToolUse hooks canonicalize the path and defer a
-`..` or a symlink that escapes, so they never approve such a shape; an allow
-entry adds nothing the hook does not already allow, and widens what it denies.
-The version-independent safe form is the hook, not a glob.
+`..` or a symlink that escapes, so they never approve such a shape. A wildcard
+path entry is the one route that approves a traversal, and the hook already
+approves every in-repo script it covers, so it adds nothing safe. The
+version-independent safe form is the hook, not a glob.
 
 The `:*` suffix is a separate matter. It is a **command-boundary** glob: it
 matches only where a space or the end of the string follows the prefix. That is
