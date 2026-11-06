@@ -3651,22 +3651,26 @@ eval_pull() {
   ref=${2:-}
   need_timeout
   if [ -z "$mode" ]; then
-    # The branch key wins over pull.rebase when present, as in git. git's
-    # own bool parser reads the value (a key with no value is true, an empty
-    # one false); a value it rejects (merges, interactive) rebases.
-    local cb key='' rv
+    # The branch key wins over pull.rebase when present, as in git (a
+    # detached HEAD has none), read by git's own bool parser: a key with no
+    # value is true, an empty one false (exit 1 means absent). A value it
+    # rejects counts as a rebase: merges and interactive rebase, and any
+    # other value or a multi-valued key makes git pull fail or is refused
+    # here, never a merge the guard did not see.
+    local cb rv rc=1 rhint=' git pull --no-rebase,'
     cb=$(current_branch "$dir")
-    if gitq "$dir" config --get "branch.$cb.rebase" >/dev/null; then
-      key=branch.$cb.rebase
-    elif gitq "$dir" config --get pull.rebase >/dev/null; then
-      key=pull.rebase
+    if [ -n "$cb" ]; then
+      rc=0
+      rv=$(gitq "$dir" config --type=bool --get "branch.$cb.rebase") || rc=$?
     fi
-    rv=false
-    [ -z "$key" ] || rv=$(gitq "$dir" config --type=bool --get "$key") || rv=rebase
-    case $rv in
-      false) mode=merge ;;
+    if [ "$rc" = 1 ]; then
+      rc=0
+      rv=$(gitq "$dir" config --type=bool --get pull.rebase) || rc=$?
+    fi
+    case $rc:$rv in
+      0:false | 1:*) mode=merge ;;
       *)
-        mode=rebase
+        mode=rebase rhint=''
         rwhat='this git pull (rebasing under the pull.rebase or branch rebase configuration; git pull --no-rebase merges instead)'
         ;;
     esac
@@ -3674,7 +3678,7 @@ eval_pull() {
   if [ "$mode" = rebase ]; then
     read_knob unpushed_rewrite "$dir" allow deny
     [ "$KNOB_VAL" = allow ] \
-      || emit_deny "unpushed_rewrite is deny, so $rwhat is refused. Merge the PR base instead: git pull --no-rebase, git merge, or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
+      || emit_deny "unpushed_rewrite is deny, so $rwhat is refused. Merge the PR base instead:$rhint git merge origin/main, or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
     on_unit_branch "$dir" "$rwhat"
     local upref
     if [ -z "$remote" ]; then

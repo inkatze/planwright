@@ -413,6 +413,7 @@ printf '[pull]\n\trebase\n' >>"$UNIT/.git/config"
 pg worker 'git pull origin main'
 expect deny "[worker] unpushed_rewrite deny: pull.rebase written with no value is a rebasing pull"
 reason_has 'unpushed_rewrite is deny' "the valueless-rebase refusal names the knob"
+reason_has 'no-rebase merges instead\) is refused\. Merge the PR base instead: git merge origin/main' "the configured-rebase refusal names --no-rebase once and the base by name"
 gitq -C "$UNIT" config --unset pull.rebase
 set_knobs 'worker_base_merge: allow'
 for cmd in 'git merge origin/main' 'git pull' 'git pull origin main' 'git -C . merge origin/main' 'git "pull" origin main'; do
