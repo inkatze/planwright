@@ -940,7 +940,8 @@ messaging_heal_cadence_seconds: 300
 #                               flip of a PR behind its base: checks (let
 #                               through when GitHub reports it MERGEABLE and
 #                               the latest run of every check on its head
-#                               passed), refuse (refused however few commits
+#                               passed, neutral and skipped counting, with at
+#                               least one success), refuse (refused however few commits
 #                               behind), or conflict-only (let through when
 #                               MERGEABLE, whatever its checks say). Read
 #                               from the core and adopter layers only

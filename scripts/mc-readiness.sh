@@ -105,8 +105,11 @@ Usage:
       read for the first 100 review threads (a thread opened by a bot is a
       finding, answered once resolved or replied to by a person other than
       the pull request's author, with a login), the spec-only scope (every
-      path under the program's spec root inside the repository whose origin
-      is --repo, none a rename or copy; then each touched bundle, a
+      path a `.md` file under the program's spec root inside the
+      repository whose origin is --repo, added, modified or deleted, never
+      renamed or copied; a head that repository lacks is a spec-only scope
+      with one unsigned `*` sign-off naming the fetch; then each touched
+      bundle, a
       directory under the root not opening with `_`, is signed off when,
       read from that repository's objects at the head with no fetch, its
       requirements.md status is Ready, Active or Done and its
@@ -403,38 +406,36 @@ spec_scope() {
     esac
   done < <(slug_repos "$1" "$2" 2>/dev/null)
   [ -n "$rel" ] || return 0
-  [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel" 2>/dev/null)" = tree ] || return 0
   # Each path must sit strictly under the root, with no `.`, `..` or empty
-  # component, and never be a rename or copy, whose source path the forge
-  # does not name; the bundles are the directories directly under the root,
-  # those opening with `_` (the reserved accumulators) aside.
+  # component, be prose (`.md`), and be added, modified or deleted: a rename
+  # or copy names no source path. The bundles are the directories directly
+  # under the root, those opening with `_` (the reserved accumulators) aside.
   SPEC_REL=$rel awk -F '\t' '
     $1 != "path" { next }
     {
-      if ($3 == "RENAMED" || $3 == "COPIED") { out = 1; exit }
+      if ($3 != "ADDED" && $3 != "MODIFIED" && $3 != "DELETED" && $3 != "CHANGED") { out = 1; exit }
       p = $2; n = length(ENVIRON["SPEC_REL"])
-      if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/") { out = 1; exit }
+      if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/" || p !~ /\.md$/) { out = 1; exit }
       p = substr(p, n + 2)
       if (p == "" || ("/" p "/") ~ /\/(\.|\.\.)?\//) { out = 1; exit }
       if (index(p, "/") && substr(p, 1, 1) != "_") { b = substr(p, 1, index(p, "/") - 1); if (!(b in seen)) { seen[b] = 1; bs[++nb] = b } }
     }
     END { if (out) exit 1; for (i = 1; i <= nb; i++) print bs[i] }' "$4" >"$5/bundles" || return 0
+  if ! mc_untrusted_git -C "$repo" cat-file -e "$3^{commit}" 2>/dev/null; then
+    printf 'scope\tspec-only\t%s\nsignoff\t*\tunsigned\tthe head is not in %s; fetch it\n' "$3" "$(sanitize_printable "$repo")"
+    return 0
+  fi
+  [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel" 2>/dev/null)" = tree ] || return 0
   printf 'scope\tspec-only\t%s\n' "$3"
   while IFS= read -r b; do
     why=''
     d="$5/bundle-$b"
     if ! [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
       why='not a spec identifier'
-    elif ! mc_untrusted_git -C "$repo" cat-file -e "$3^{commit}" 2>/dev/null; then
-      why="the head is not in $(sanitize_printable "$repo"); fetch it"
     else
       mkdir -p "$d" || mc_fail "cannot create a scratch directory"
-      for f in requirements.md design.md tasks.md test-spec.md kickoff-brief.md; do
-        if [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel/$b/$f" 2>/dev/null)" != blob ] \
-          || ! mc_untrusted_git -C "$repo" show "$3:$rel/$b/$f" >"$d/$f" 2>/dev/null; then
-          rm -f "$d/$f"
-        fi
-      done
+      # cat-file blob refuses a tree or a missing path, so a partial file is removed.
+      mc_untrusted_git -C "$repo" cat-file blob "$3:$rel/$b/requirements.md" >"$d/requirements.md" 2>/dev/null || rm -f "$d/requirements.md"
       if ! st=$(spec_parse_header_value "$d/requirements.md" Status 2>/dev/null) || [ -z "$st" ]; then
         why='its requirements.md status cannot be read at the head'
       else
@@ -443,14 +444,26 @@ spec_scope() {
           *) why="its status at the head is $(sanitize_printable "$st")" ;;
         esac
       fi
-      if [ -z "$why" ] && [ ! -f "$d/kickoff-brief.md" ]; then
-        why='it has no kickoff brief at the head'
-      elif [ -z "$why" ]; then
+      if [ -z "$why" ]; then
+        for f in design.md tasks.md test-spec.md kickoff-brief.md; do
+          mc_untrusted_git -C "$repo" cat-file blob "$3:$rel/$b/$f" >"$d/$f" 2>/dev/null || rm -f "$d/$f"
+        done
+        [ -f "$d/kickoff-brief.md" ] || why='it has no kickoff brief at the head'
+      fi
+      if [ -z "$why" ]; then
         # The sign-off stands only for the content it anchored: the brief's
-        # latest anchor must recompute over the bundle at the head.
-        entry=$(spec_parse_latest_anchor_entry "$d/kickoff-brief.md" 2>/dev/null) || entry=''
-        got=$(/bin/sh "$script_dir/spec-anchor.sh" "$d" 2>/dev/null) || got=''
-        if [ -z "$entry" ]; then
+        # latest anchor must recompute over the bundle at the head, hashed in
+        # the bundle's own repository as the kickoff hashed it.
+        entry=$(spec_parse_latest_anchor_entry "$d/kickoff-brief.md" 2>/dev/null)
+        case $? in
+          0) ;;
+          2) why="its kickoff brief's latest anchor entry does not parse" ;;
+          *) entry='' ;;
+        esac
+        got=$(cd "$repo" && mc_untrusted_git_env && /bin/sh "$script_dir/spec-anchor.sh" "$d" 2>/dev/null) || got=''
+        if [ -n "$why" ]; then
+          :
+        elif [ -z "$entry" ]; then
           why='its kickoff brief records no anchor'
         elif [ -z "$got" ]; then
           why='its anchor cannot be recomputed at the head'
@@ -477,8 +490,9 @@ collect() {
   gh pr view "$3" --repo "$2" --json headRefOid,headRefName,baseRefName,labels,files,body,statusCheckRollup --jq '
     def clean: tostring | gsub("[\t\r\n]"; " ");
     def context: if .context != null then ["status", .context] else ["run", .workflowName // "", .name // "-"] end;
+    # The same selection as scripts/ready-guard.sh and scripts/ready-flip.sh.
     def started: if (.status // "COMPLETED") != "COMPLETED" then "~"
-      else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "~") end | tostring;
+      else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "") end | tostring;
     "head\t" + .headRefOid,
     "branch\t" + ((.headRefName // "") | clean),
     "base\t" + ((.baseRefName // "") | clean),

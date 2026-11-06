@@ -1037,7 +1037,8 @@ readonly EXCLUDED_CONTEXTS='["planwright/pre-ready-flip","planwright/pre-spec-re
 
 # The latest run per check context wins: a re-run supersedes the runs before
 # it, and a run not yet completed is the newest (gh reports an unset time as
-# 0001-01-01). scripts/mc-readiness.sh keeps the same selection. Prints
+# 0001-01-01). scripts/mc-readiness.sh and scripts/ready-flip.sh keep the
+# same selection. Prints
 # `green` (at least one SUCCESS, the rest NEUTRAL or SKIPPED), `none`,
 # `truncated` (a list at the read's cap of 100, which may have been cut), or
 # `<check> is <state>` for the first that did not pass.
@@ -1045,7 +1046,7 @@ readonly EXCLUDED_CONTEXTS='["planwright/pre-ready-flip","planwright/pre-spec-re
 readonly CHECKS_JQ='
   def context: if .context != null then ["status", .context] else ["run", .workflowName // "", .name // "-"] end;
   def started: if (.status // "COMPLETED") != "COMPLETED" then "~"
-    else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "~") end | tostring;
+    else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "") end | tostring;
   def state: if .context != null then (.state // "PENDING")
     elif (.status // "COMPLETED") != "COMPLETED" then "PENDING"
     elif (.conclusion // "") == "" then "PENDING" else .conclusion end;

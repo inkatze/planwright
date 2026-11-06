@@ -302,7 +302,7 @@ p_dk=$(field "$OUT" 2)
 prop show --program alpha "$p_dk"
 for line in "noticed${tab}denial repeated 2 times: ready-guard, governed by ready_guard_behind_base" \
   "commit(s) behind its base branch" "change${tab}ready_guard_behind_base: checks" \
-  "effect${tab}a pull request behind its base branch" "settings${tab}ready to apply, never written: $adopter/planwright.yml"; do
+  "effect${tab}a pull request behind its base branch can be marked ready once GitHub reports it mergeable and its checks passed on its head with at least one success" "settings${tab}ready to apply, never written: $adopter/planwright.yml"; do
   expect_out "the denial confirmation carries: $line" "$line"
 done
 prop accept --program alpha "$p_dk"

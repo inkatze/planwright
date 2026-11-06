@@ -796,12 +796,14 @@ pred_review() {
 
 # Only the latest run of each check context counts: a re-run supersedes the
 # runs before it, and a run not yet completed is the newest (gh reports an
-# unset time as 0001-01-01). scripts/ready-guard.sh selects the same way.
+# unset time as 0001-01-01). scripts/ready-guard.sh and scripts/mc-readiness.sh
+# select the same way. A list at the read's cap of 100 may have been cut.
 # shellcheck disable=SC2016
 ROLLUP_JQ='
-  def context: if .__typename == "StatusContext" then ["status", .context // ""] else ["run", .workflowName // "", .name // ""] end;
+  def context: if .context != null then ["status", .context] else ["run", .workflowName // "", .name // "-"] end;
   def started: if (.status // "COMPLETED") != "COMPLETED" then "~"
-    else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "~") end | tostring;
+    else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "") end | tostring;
+  if ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
   [ (.statusCheckRollup // []) | to_entries | group_by(.value | context)
     | map(max_by([(.value | started), .key])) | sort_by(.key) | .[].value
     | select((.__typename == "StatusContext" and ((.context // "") as $n | any($ex[]; . == $n))) | not)
@@ -814,7 +816,7 @@ ROLLUP_JQ='
   | if any($v[]; . == "failing") then "failing"
     elif any($v[]; . == "pending") then "pending"
     elif any($v[]; . == "green") then "green \([$v[] | select(. == "green")] | length)"
-    else "none" end'
+    else "none" end end'
 
 # Set when the host keeps reporting another head: someone else moved the
 # branch, so a park could not be pushed on top of it and none is attempted.
@@ -858,6 +860,10 @@ pred_ci() {
           ;;
         failing)
           set_pred ci-rollup fail "a check failed on ${HEAD_SHA:0:12}"
+          return
+          ;;
+        truncated)
+          set_pred ci-rollup fail "the check list on ${HEAD_SHA:0:12} came back at its cap of 100, so a check past it is unread"
           return
           ;;
         moved) ;;

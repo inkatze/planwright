@@ -984,12 +984,12 @@ STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON='{"baseRefName":
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "checks (default): a behind PR with no check at all denies" 'no passed check'
 
-ck() { # ck <rollup entries JSON>: a check read for the behind head
+checks_read() { # checks_read <rollup entries JSON>: a check read for the behind head
   printf '{"baseRefName":"main","mergeable":"MERGEABLE","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","statusCheckRollup":[%s]}' "$1"
 }
 run_checks() { # run_checks <label> <defer|deny> <entries> [reason]
   reset_stub_env
-  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$(ck "$3")
+  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$(checks_read "$3")
   run_hook "$(bash_payload 'gh pr ready 42')"
   if [ "$2" = defer ]; then assert_defer "$1"; else assert_deny_because "$1" "$4"; fi
 }
@@ -1006,7 +1006,11 @@ run_checks "checks (default): a status whose newest entry failed denies" deny \
 run_checks "checks (default): the flip's own failing status does not judge it" defer \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"__typename":"StatusContext","context":"planwright/pre-spec-ready-flip","state":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}'
 run_checks "checks (default): a check run named like the flip's status still judges it" deny \
-  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"planwright/pre-ready-flip","workflowName":"x","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}' 'is FAILURE'
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"planwright/pre-ready-flip","workflowName":"x","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}' 'pre-ready-flip is FAILURE'
+run_checks "checks (default): a newer failure listed before the older success it follows denies" deny \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"}' 'test is FAILURE'
+run_checks "checks (default): a newer success listed before the failure it supersedes passes" defer \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}'
 many=$(i=0; while [ $i -lt 100 ]; do printf '{"name":"c%s","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},' "$i"; i=$((i + 1)); done)
 run_checks "checks (default): a check list at its cap of 100 denies" deny "${many%,}" 'cap of 100'
 
@@ -1017,14 +1021,20 @@ run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "checks (default): mergeability lost by the check read denies" 'mergeability or base changed'
 
 reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+STUB_CHECKS_JSON=$(printf '%s' "$CHECKS_GREEN" | sed 's/"baseRefName":"main"/"baseRefName":"other"/')
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (default): a base retargeted by the check read denies" 'mergeability or base changed'
+
+reset_stub_env
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN STUB_CHECKS_RC=124
 run_hook "$(bash_payload 'gh pr ready 42')"
-assert_deny_because "checks (default): a check read past the query bound denies" 'within'
+assert_deny_because "checks (default): a check read past the query bound denies" 'checks could not be read within'
 
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN STUB_CHECKS_RC=1
 run_hook "$(bash_payload 'gh pr ready 42')"
-assert_deny_because "checks (default): a failed check read denies" 'could not be read'
+assert_deny_because "checks (default): a failed check read denies" 'checks could not be read, and'
 
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7

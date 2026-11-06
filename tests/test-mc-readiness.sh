@@ -466,9 +466,21 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/w
 expect_no_out "the walk holds it for no cadence" "fail${tab}cadence"
 expect_no_out "nor for a gate-data step" "fail${tab}step"
 expect_out "while the guard still binds" "fail${tab}guard${tab}ready-guard"
-spec_pr "$sh_ready" specs/_observations/entries/e.md
-has "an observation-only pull request is spec-only" "scope${tab}spec-only${tab}$sh_ready"
+printf '# Specs\n' >"$repo/specs/README.md"
+sh_ready=$(commit_specs)
+spec_pr "$sh_ready" specs/_observations/entries/e.md specs/README.md
+has "an observation and root-file pull request is spec-only" "scope${tab}spec-only${tab}$sh_ready"
 hasnt "and touches no bundle to sign off" "signoff${tab}"
+mv "$tmp/collected" "$tmp/ev"
+mc_run mc-readiness.sh walk --evidence "$tmp/ev" --conditions "$tmp/no-conditions"
+expect_no_out "its walk asks for no cadence" "fail${tab}cadence"
+expect_no_out "nor for a sign-off" "fail${tab}signoff"
+spec_pr "$sh_ready" 'specs/demo/requirements.md|COPIED'
+hasnt "a copy into the spec root is no spec-only scope" "scope${tab}"
+spec_pr "$sh_ready" 'specs/demo/requirements.md|-'
+hasnt "a path with no change type is no spec-only scope" "scope${tab}"
+spec_pr "$sh_ready" specs/demo/run.sh
+hasnt "a file that is not prose is no spec-only scope" "scope${tab}"
 spec_pr "$sh_ready" specs/demo/requirements.md src/app.c
 hasnt "a code path beside the bundle is no spec-only scope" "scope${tab}"
 has "and its cadence is audited as for any pull request" "cadence${tab}unaudited${tab}"
@@ -498,7 +510,8 @@ sh_stale=$(commit_specs)
 spec_pr "$sh_stale" specs/demo/design.md
 has "a bundle edited after its sign-off is not signed off" "signoff${tab}demo${tab}unsigned${tab}its content at the head is not what the kickoff signed off"
 spec_pr 5555555555555555555555555555555555555555 specs/demo/requirements.md
-hasnt "a head the repository does not hold is no spec-only scope" "scope${tab}"
+has "a head the repository does not hold is a spec-only scope" "scope${tab}spec-only${tab}5555555555555555555555555555555555555555"
+has "held by one unsigned sign-off naming the fetch" "signoff${tab}*${tab}unsigned${tab}the head is not in"
 spec_pr "$sh_ready" 'specs/Bad Name/requirements.md'
 has "a bundle directory outside the spec identifier grammar is refused" "signoff${tab}Bad Name${tab}unsigned${tab}not a spec identifier"
 sed -i.bak "s|^program_alpha_spec_root: .*|program_alpha_spec_root: $repo|" "$tracked"
