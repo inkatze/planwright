@@ -373,15 +373,18 @@ assert_ci_state "flip-point: a near-namesake commit-status is judged (failing)" 
 # A CheckRun named like a flip-point context is judged: only commit statuses post them.
 assert_ci_state "flip-point: a check run named like a flip-point context is judged (failing)" \
   "$(rollup false "$(cr_check green)" '{"__typename":"CheckRun","name":"planwright/pre-ready-flip","status":"COMPLETED","conclusion":"FAILURE","checkSuite":{"workflowRun":null}}')" "failing"
-# The release gate and the unit ready gate exclude the same flip-point contexts:
-# ready-flip.sh holds its own copy of the list, so the two copies are pinned equal.
-RF_EXCLUDED=$(sed -n "s/^readonly EXCLUDED_CONTEXTS='\\(.*\\)'$/\\1/p" "$here/../scripts/ready-flip.sh")
-if [ -n "$RF_EXCLUDED" ] && [ "$RF_EXCLUDED" = "$RL_CI_FLIP_POINT_CONTEXTS" ]; then
-  echo "ok: ready-flip.sh and release-lib.sh exclude the same flip-point contexts"
-else
-  echo "FAIL: the flip-point context lists differ (ready-flip.sh '$RF_EXCLUDED', release-lib.sh '$RL_CI_FLIP_POINT_CONTEXTS')" >&2
-  failures=$((failures + 1))
-fi
+# The release gate, the unit ready gate and the ready guard exclude the same
+# flip-point contexts: ready-flip.sh and ready-guard.sh each hold their own copy
+# of the list, so every copy is pinned equal.
+for copy in ready-flip.sh ready-guard.sh; do
+  EXCLUDED=$(sed -n "s/^readonly EXCLUDED_CONTEXTS='\\(.*\\)'$/\\1/p" "$here/../scripts/$copy")
+  if [ -n "$EXCLUDED" ] && [ "$EXCLUDED" = "$RL_CI_FLIP_POINT_CONTEXTS" ]; then
+    echo "ok: $copy and release-lib.sh exclude the same flip-point contexts"
+  else
+    echo "FAIL: the flip-point context lists differ ($copy '$EXCLUDED', release-lib.sh '$RL_CI_FLIP_POINT_CONTEXTS')" >&2
+    failures=$((failures + 1))
+  fi
+done
 # And both match the points the step-record status verb posts, as planwright/<point>.
 # shellcheck disable=SC2016 # the pattern matches a literal $point in the source
 SR_POSTED=$(sed -n 's/^ *case \$point in \(.*\)) ;; \*) bad --point "not a flip point".*/\1/p' "$here/../scripts/step-record.sh" \
