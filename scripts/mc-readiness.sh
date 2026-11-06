@@ -389,7 +389,7 @@ CAP=100
 # own objects at the head, since collect writes nothing (no fetch) to any
 # repository.
 spec_scope() {
-  local root r top rel='' repo='' files b why st f d entry got
+  local root r top rel='' repo='' files b why
   files=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3 + 0; exit }' "$4")
   [ "${files:-0}" -gt 0 ] && [ "$files" -lt "$CAP" ] || return 0
   root=$(/bin/bash "$script_dir/mc-program.sh" get "$1" spec_root 2>/dev/null) || return 0
@@ -428,50 +428,7 @@ spec_scope() {
   [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel" 2>/dev/null)" = tree ] || return 0
   printf 'scope\tspec-only\t%s\n' "$3"
   while IFS= read -r b; do
-    why=''
-    d="$5/bundle-$b"
-    if ! [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
-      why='not a spec identifier'
-    else
-      mkdir -p "$d" || mc_fail "cannot create a scratch directory"
-      # cat-file blob refuses a tree or a missing path, so a partial file is removed.
-      mc_untrusted_git -C "$repo" cat-file blob "$3:$rel/$b/requirements.md" >"$d/requirements.md" 2>/dev/null || rm -f "$d/requirements.md"
-      if ! st=$(spec_parse_header_value "$d/requirements.md" Status 2>/dev/null) || [ -z "$st" ]; then
-        why='its requirements.md status cannot be read at the head'
-      else
-        case $st in
-          Ready | Active | Done) ;;
-          *) why="its status at the head is $(sanitize_printable "$st")" ;;
-        esac
-      fi
-      if [ -z "$why" ]; then
-        for f in design.md tasks.md test-spec.md kickoff-brief.md; do
-          mc_untrusted_git -C "$repo" cat-file blob "$3:$rel/$b/$f" >"$d/$f" 2>/dev/null || rm -f "$d/$f"
-        done
-        [ -f "$d/kickoff-brief.md" ] || why='it has no kickoff brief at the head'
-      fi
-      if [ -z "$why" ]; then
-        # The sign-off stands only for the content it anchored: the brief's
-        # latest anchor must recompute over the bundle at the head, hashed in
-        # the bundle's own repository as the kickoff hashed it.
-        entry=$(spec_parse_latest_anchor_entry "$d/kickoff-brief.md" 2>/dev/null)
-        case $? in
-          0) ;;
-          2) why="its kickoff brief's latest anchor entry does not parse" ;;
-          *) entry='' ;;
-        esac
-        got=$(cd "$repo" && mc_untrusted_git_env && /bin/sh "$script_dir/spec-anchor.sh" "$d" 2>/dev/null) || got=''
-        if [ -n "$why" ]; then
-          :
-        elif [ -z "$entry" ]; then
-          why='its kickoff brief records no anchor'
-        elif [ -z "$got" ]; then
-          why='its anchor cannot be recomputed at the head'
-        elif [ "${entry%%	*}" != "$got" ]; then
-          why='its content at the head is not what the kickoff signed off (the anchor differs)'
-        fi
-      fi
-    fi
+    why=$(bundle_signoff "$repo" "$3" "$rel" "$b" "$5/bundle-$b") || exit
     if [ -n "$why" ]; then
       printf 'signoff\t%s\tunsigned\t%s\n' "$b" "$why"
     else
@@ -480,19 +437,68 @@ spec_scope() {
   done <"$5/bundles"
 }
 
+# bundle_signoff <repo> <head> <root rel> <bundle> <scratch dir>: print why
+# <bundle> is not signed off at <head>, read from <repo>'s objects, or
+# nothing when it is.
+bundle_signoff() {
+  local repo=$1 head=$2 rel=$3 b=$4 d=$5 st f entry rc got
+  if ! [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+    printf 'not a spec identifier'
+    return 0
+  fi
+  mkdir -p "$d" || mc_fail "cannot create a scratch directory"
+  # cat-file blob refuses a tree or a missing path, so a partial file is removed.
+  mc_untrusted_git -C "$repo" cat-file blob "$head:$rel/$b/requirements.md" >"$d/requirements.md" 2>/dev/null || rm -f "$d/requirements.md"
+  if ! st=$(spec_parse_header_value "$d/requirements.md" Status 2>/dev/null) || [ -z "$st" ]; then
+    printf 'its requirements.md status cannot be read at the head'
+    return 0
+  fi
+  case $st in
+    Ready | Active | Done) ;;
+    *)
+      printf 'its status at the head is %s' "$(sanitize_printable "$st")"
+      return 0
+      ;;
+  esac
+  for f in design.md tasks.md test-spec.md kickoff-brief.md; do
+    mc_untrusted_git -C "$repo" cat-file blob "$head:$rel/$b/$f" >"$d/$f" 2>/dev/null || rm -f "$d/$f"
+  done
+  if ! [ -f "$d/kickoff-brief.md" ]; then
+    printf 'it has no kickoff brief at the head'
+    return 0
+  fi
+  # The sign-off stands only for the content it anchored: the brief's latest
+  # anchor must recompute over the bundle at the head, hashed in the bundle's
+  # own repository as the kickoff hashed it.
+  rc=0
+  entry=$(spec_parse_latest_anchor_entry "$d/kickoff-brief.md" 2>/dev/null) || rc=$?
+  if [ "$rc" = 2 ]; then
+    printf "its kickoff brief's latest anchor entry does not parse"
+    return 0
+  fi
+  [ "$rc" = 0 ] || entry=''
+  if [ -z "$entry" ]; then
+    printf 'its kickoff brief records no anchor'
+    return 0
+  fi
+  got=$(cd "$repo" && mc_untrusted_git_env && /bin/sh "$script_dir/spec-anchor.sh" "$d" 2>/dev/null) || got=''
+  if [ -z "$got" ]; then
+    printf 'its anchor cannot be recomputed at the head'
+  elif [ "${entry%%	*}" != "$got" ]; then
+    printf 'its content at the head is not what the kickoff signed off (the anchor differs)'
+  fi
+}
+
 # collect <program> <slug> <pr> <worktree> <out>
 collect() {
   cl_tmp=$(mktemp -d "${TMPDIR:-/tmp}/mc-readiness.XXXXXX") || mc_fail "cannot create a scratch directory"
   trap 'rm -rf "$cl_tmp"' EXIT
   cl_owner=${2%%/*}
   cl_name=${2#*/}
+  cl_runs=$(cat -- "$script_dir/check-runs.jq") || mc_fail "check-runs.jq is missing or unreadable (broken install)"
   # shellcheck disable=SC2016 # a jq program
-  gh pr view "$3" --repo "$2" --json headRefOid,headRefName,baseRefName,labels,files,body,statusCheckRollup --jq '
+  gh pr view "$3" --repo "$2" --json headRefOid,headRefName,baseRefName,labels,files,body,statusCheckRollup --jq "$cl_runs"'
     def clean: tostring | gsub("[\t\r\n]"; " ");
-    def context: if .context != null then ["status", .context] else ["run", .workflowName // "", .name // "-"] end;
-    # The same selection as scripts/ready-guard.sh and scripts/ready-flip.sh.
-    def started: if (.status // "COMPLETED") != "COMPLETED" then "~"
-      else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "") end | tostring;
     "head\t" + .headRefOid,
     "branch\t" + ((.headRefName // "") | clean),
     "base\t" + ((.baseRefName // "") | clean),
@@ -501,8 +507,7 @@ collect() {
     "count\tlabels\t" + ((.labels // []) | length | tostring),
     (.labels[]? | "label\t" + (.name | clean)),
     (.files[]? | "path\t" + (.path | clean) + "\t" + ((.changeType // "-") | clean)),
-    ((.statusCheckRollup // []) | to_entries | group_by(.value | context)
-      | map(max_by([(.value | started), .key])) | sort_by(.key) | .[].value
+    ((.statusCheckRollup // []) | latest_check_runs[]
       | "check\t" + ((.name // .context // "-") | clean) + "\t"
       + (if (.conclusion // "") != "" then .conclusion else (.state // "PENDING") end | clean)),
     ((.body // "") | split("\n")[] | "bodyline\t" + (gsub("[\t\r]"; " ")))' >"$cl_tmp/pr" 2>"$cl_tmp/err" \

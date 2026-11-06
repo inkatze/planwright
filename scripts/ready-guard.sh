@@ -1035,25 +1035,20 @@ evaluate_predicate() {
 # leaves out the same two).
 readonly EXCLUDED_CONTEXTS='["planwright/pre-ready-flip","planwright/pre-spec-ready-flip"]'
 
-# The latest run per check context wins: a re-run supersedes the runs before
-# it, and a run not yet completed is the newest (gh reports an unset time as
-# 0001-01-01). scripts/mc-readiness.sh and scripts/ready-flip.sh keep the
-# same selection. Prints
-# `green` (at least one SUCCESS, the rest NEUTRAL or SKIPPED), `none`,
+# Judges the latest run of each check context (scripts/check-runs.jq, which
+# behind_checks prepends; a missing module fails the program, so it denies).
+# Prints `green` (at least one SUCCESS, the rest NEUTRAL or SKIPPED), `none`,
 # `truncated` (a list at the read's cap of 100, which may have been cut), or
 # `<check> is <state>` for the first that did not pass.
 # shellcheck disable=SC2016 # a jq program
 readonly CHECKS_JQ='
-  def context: if .context != null then ["status", .context] else ["run", .workflowName // "", .name // "-"] end;
-  def started: if (.status // "COMPLETED") != "COMPLETED" then "~"
-    else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "") end | tostring;
   def state: if .context != null then (.state // "PENDING")
     elif (.status // "COMPLETED") != "COMPLETED" then "PENDING"
     elif (.conclusion // "") == "" then "PENDING" else .conclusion end;
   if ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
-  [ (.statusCheckRollup // []) | to_entries
-    | map(select((.value.context // "") as $c | any($ex[]; . == $c) | not))
-    | group_by(.value | context) | map(max_by([(.value | started), .key])) | sort_by(.key) | .[].value
+  [ (.statusCheckRollup // [])
+    | map(select((.context // "") as $c | any($ex[]; . == $c) | not))
+    | latest_check_runs[]
     | {n: (.name // .context // "-" | tostring), s: (state | tostring)} ] as $v
   | ([$v[] | select(.s != "SUCCESS" and .s != "NEUTRAL" and .s != "SKIPPED")] | first // null) as $bad
   | if $bad != null then "\($bad.n) is \($bad.s)"
@@ -1067,7 +1062,7 @@ readonly CHECKS_JQ='
 # Any doubt denies: a failed or timed-out read, an answer about another head,
 # no check at all, or a check failing or still pending.
 behind_checks() {
-  local cwd=$1 head=$2 behind=$3 base why oid verdict
+  local cwd=$1 head=$2 behind=$3 base why oid verdict runs_jq
   base=$(sanitize_printable "$4" 'its base')
   why="it is $behind commit(s) behind base branch $base, so it may stand only on checks that passed on its current head"
   gh_pr_view "$cwd" baseRefName,headRefOid,mergeable,statusCheckRollup
@@ -1083,7 +1078,10 @@ behind_checks() {
   # first read may have turned it.
   [ "$(printf '%s' "$GH_VIEW_OUT" | jq -r '"\(.mergeable // "")\t\(.baseRefName // "")"' 2>/dev/null)" = "MERGEABLE	$4" ] \
     || emit_deny "this pull request's mergeability or base changed while the guard read it, and $why - refusing (fail closed). Wait a few seconds and retry."
-  verdict=$(printf '%s' "$GH_VIEW_OUT" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$CHECKS_JQ" 2>/dev/null) || verdict=''
+  runs_jq=''
+  [ -z "$GUARD_DIR" ] || runs_jq=$(cat -- "$GUARD_DIR/check-runs.jq" 2>/dev/null) || runs_jq=''
+  verdict=$(printf '%s' "$GH_VIEW_OUT" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$runs_jq
+$CHECKS_JQ" 2>/dev/null) || verdict=''
   case $verdict in
     green) return 0 ;;
     none) emit_deny "this pull request has no passed check on its current head, and $why - refusing the draft->ready flip. Let CI run on the head, then retry." ;;

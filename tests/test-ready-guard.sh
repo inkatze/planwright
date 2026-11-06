@@ -1011,7 +1011,17 @@ run_checks "checks (default): a newer failure listed before the older success it
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"}' 'test is FAILURE'
 run_checks "checks (default): a newer success listed before the failure it supersedes passes" defer \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}'
-many=$(i=0; while [ $i -lt 100 ]; do printf '{"name":"c%s","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},' "$i"; i=$((i + 1)); done)
+run_checks "checks (default): a failure started in the same second as a success of its context denies, listed after it" deny \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}' 'test is FAILURE'
+run_checks "checks (default): a failure started in the same second as a success of its context denies, listed before it" deny \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}' 'test is FAILURE'
+many=$(
+  i=0
+  while [ $i -lt 100 ]; do
+    printf '{"name":"c%s","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},' "$i"
+    i=$((i + 1))
+  done
+)
 run_checks "checks (default): a check list at its cap of 100 denies" deny "${many%,}" 'cap of 100'
 
 reset_stub_env
@@ -1159,6 +1169,7 @@ mkdir -p "$STUBBED"
 cp "$HOOK" "$STUBBED/ready-guard.sh"
 cp "$(dirname "$HOOK")/echo-safety.sh" "$STUBBED/echo-safety.sh"
 cp "$(dirname "$HOOK")/bounded-run.sh" "$STUBBED/bounded-run.sh"
+cp "$(dirname "$HOOK")/check-runs.jq" "$STUBBED/check-runs.jq"
 # run_stubbed_resolver <label> <deny|defer> <resolver body>
 run_stubbed_resolver() {
   printf '%s\n' "$3" >"$STUBBED/resolve-policy-knob.sh"
@@ -1180,6 +1191,16 @@ run_stubbed_resolver "positive control: a stub resolver answering conflict-only 
   defer "printf 'conflict-only\n'"
 run_stubbed_resolver "positive control: a stub resolver answering checks is reached and relaxes on green checks" \
   defer "printf 'checks\n'"
+mv "$STUBBED/check-runs.jq" "$STUBBED/check-runs.jq.away"
+printf '%s\n' "printf 'checks\n'" >"$STUBBED/resolve-policy-knob.sh"
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN
+SAVED_HOOK=$HOOK
+HOOK="$STUBBED/ready-guard.sh"
+run_hook "$(bash_payload 'gh pr ready 42')"
+HOOK=$SAVED_HOOK
+mv "$STUBBED/check-runs.jq.away" "$STUBBED/check-runs.jq"
+assert_deny_because "checks with no check-selection module beside the guard denies on green checks" 'checks could not be read'
 run_stubbed_resolver "a resolver answer that only starts with checks applies refuse" \
   deny "printf 'checks-x\n'"
 run_stubbed_resolver "checks printed before a non-zero exit applies refuse" \

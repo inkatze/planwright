@@ -143,6 +143,11 @@ fi
 . "$SCRIPTS/echo-safety.sh" || exit 2
 # shellcheck source=scripts/spec-parse.sh
 . "$SCRIPTS/spec-parse.sh"
+CHECK_RUNS_JQ=$(cat -- "$SCRIPTS/check-runs.jq" 2>/dev/null) || {
+  printf '%s\n' "ready-flip.sh: check-runs.jq is missing or unreadable (broken install)" >&2
+  exit 2
+}
+readonly CHECK_RUNS_JQ
 
 readonly LEAD='pending ready-flip:'
 readonly DASH='—'
@@ -794,18 +799,12 @@ pred_review() {
   set_pred review-converged pass "run $run converged on ${rh:0:12}; $n park-only commit(s) since"
 }
 
-# Only the latest run of each check context counts: a re-run supersedes the
-# runs before it, and a run not yet completed is the newest (gh reports an
-# unset time as 0001-01-01). scripts/ready-guard.sh and scripts/mc-readiness.sh
-# select the same way. A list at the read's cap of 100 may have been cut.
+# Judges the latest run of each check context (scripts/check-runs.jq, which
+# pred_ci prepends). A list at the read's cap of 100 may have been cut.
 # shellcheck disable=SC2016
 ROLLUP_JQ='
-  def context: if .context != null then ["status", .context] else ["run", .workflowName // "", .name // "-"] end;
-  def started: if (.status // "COMPLETED") != "COMPLETED" then "~"
-    else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "") end | tostring;
   if ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
-  [ (.statusCheckRollup // []) | to_entries | group_by(.value | context)
-    | map(max_by([(.value | started), .key])) | sort_by(.key) | .[].value
+  [ (.statusCheckRollup // []) | latest_check_runs[]
     | select((.__typename == "StatusContext" and ((.context // "") as $n | any($ex[]; . == $n))) | not)
     | if .__typename == "StatusContext" then
         (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending" else "failing" end)
@@ -851,7 +850,8 @@ pred_ci() {
         verdict=moved
         last="the PR head did not settle on the pinned head ${HEAD_SHA:0:12}"
       else
-        verdict=$(printf '%s' "$raw" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$ROLLUP_JQ" 2>/dev/null) || verdict=''
+        verdict=$(printf '%s' "$raw" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$CHECK_RUNS_JQ
+$ROLLUP_JQ" 2>/dev/null) || verdict=''
       fi
       case $verdict in
         green\ *)

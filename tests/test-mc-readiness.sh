@@ -509,6 +509,22 @@ bundle demo Ready stale
 sh_stale=$(commit_specs)
 spec_pr "$sh_stale" specs/demo/design.md
 has "a bundle edited after its sign-off is not signed off" "signoff${tab}demo${tab}unsigned${tab}its content at the head is not what the kickoff signed off"
+bundle demo Ready signed
+printf '# demo\n\nBody.\n' >"$repo/specs/demo/requirements.md"
+spec_pr "$(commit_specs)" specs/demo/requirements.md
+has "a requirements.md with no status is not signed off" "signoff${tab}demo${tab}unsigned${tab}its requirements.md status cannot be read at the head"
+bundle demo Ready signed
+printf '# Brief\n\nAnchor: not a hash\n' >"$repo/specs/demo/kickoff-brief.md"
+spec_pr "$(commit_specs)" specs/demo/kickoff-brief.md
+has "a half-written newest anchor entry is not signed off" "signoff${tab}demo${tab}unsigned${tab}its kickoff brief's latest anchor entry does not parse"
+bundle demo Ready signed
+printf '# Brief\n\nNo sign-off yet.\n' >"$repo/specs/demo/kickoff-brief.md"
+spec_pr "$(commit_specs)" specs/demo/kickoff-brief.md
+has "a brief recording no anchor is not signed off" "signoff${tab}demo${tab}unsigned${tab}its kickoff brief records no anchor"
+bundle demo Ready signed
+rm "$repo/specs/demo/design.md"
+spec_pr "$(commit_specs)" specs/demo/design.md
+has "a bundle whose anchor cannot be recomputed at the head is not signed off" "signoff${tab}demo${tab}unsigned${tab}its anchor cannot be recomputed at the head"
 spec_pr 5555555555555555555555555555555555555555 specs/demo/requirements.md
 has "a head the repository does not hold is a spec-only scope" "scope${tab}spec-only${tab}5555555555555555555555555555555555555555"
 has "held by one unsigned sign-off naming the fetch" "signoff${tab}*${tab}unsigned${tab}the head is not in"
