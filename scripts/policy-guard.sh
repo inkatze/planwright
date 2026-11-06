@@ -98,8 +98,10 @@
 #   base-merge  `git merge`, `git pull` in merge mode. tower: deny. worker:
 #               worker_base_merge, then the current branch must be the session's
 #               unit branch outside the protected set and every source the PR
-#               base.
-#   rewrite     amend, `--squash`, `--fixup`, rebase, `git pull` in rebase
+#               base. Refusing an --ff-only spelling for want of tier or branch
+#               names scripts/main-currency.sh ff-primary, the sanctioned way
+#               to fast-forward a primary checkout's default branch.
+#   rewrite    amend, `--squash`, `--fixup`, rebase, `git pull` in rebase
 #               mode. tower: deny. worker: unpushed_rewrite, then the unit
 #               branch rule, then the never-pushed check: the upstream tracking
 #               ref is refreshed and no remote-tracking ref may contain a
@@ -223,6 +225,7 @@ emit_deny() {
       reason="$reason Re-issue it as a plain, literal command from your own worktree, or leave the act to the operator."
       ;;
   esac
+  reason=$reason${DENY_SUFFIX:-}
   out=$(jq -nc --arg r "$reason" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}' 2>/dev/null) \
     || out=''
@@ -2837,9 +2840,9 @@ need_dir() { # <dir_ok> <what>
     }
 }
 
-tower_refuses() { # <what>
+tower_refuses() { # <what> [<remedy>]
   if [ "$TIER" = tower ]; then
-    deny_now "$1 is denied to the tower under every policy value; the tower never merges into a branch or rewrites history."
+    deny_now "$1 is denied to the tower under every policy value; the tower never merges into a branch or rewrites history.${2:-}"
     return 0
   fi
   return 1
@@ -3122,9 +3125,17 @@ classify_tower_worktree() {
   [ "${#cands[@]}" = 0 ] || queue_protected "$dir" "$dir_ok" "this git worktree $verb" "${cands[@]}"
 }
 
+# The refusal of a fast-forward-only merge or pull names the sanctioned path
+# that does the same act safely; the refusal itself stands.
+DENY_SUFFIX=''
+FF_HINT=('' " To bring a clean primary checkout's default branch up to its origin, run planwright's scripts/main-currency.sh ff-primary --checkout <primary checkout> instead: it fast-forwards only, refuses a dirty tree or any other branch, and records the act.")
+ff_only_seen() {
+  long_prefix_seen ff-only 4
+}
+
 MERGE_VLONG='message file strategy strategy-option into-name cleanup'
 classify_git_merge() {
-  local k=$1 dir=$2 dir_ok=$3
+  local k=$1 dir=$2 dir_ok=$3 ff=0
   parse_git_opts "$k" "$MERGE_VLONG" 'mFsX' 'S' \
     || {
       tower_refuses 'git merge' || deny_now "this git merge carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
@@ -3133,25 +3144,27 @@ classify_git_merge() {
   if long_prefix_seen abort 2 || long_prefix_seen continue 3 || long_prefix_seen quit 2; then
     return 0
   fi
-  tower_refuses 'git merge' && return 0
+  ! ff_only_seen || ff=1
+  tower_refuses 'git merge' "${FF_HINT[$ff]}" && return 0
   act_gate 'this git merge' merge || return 0
   need_dir "$dir_ok" 'this git merge' || return 0
   all_literal || {
     deny_now 'this git merge names its source through an expansion the guard cannot read - refusing (fail closed). Name the PR base literally (origin/main).'
     return 0
   }
-  PENDING[${#PENDING[@]}]="merge$TAB$dir$TAB${GP_POS[*]-}"
+  PENDING[${#PENDING[@]}]="merge$TAB$dir$TAB$ff$TAB${GP_POS[*]-}"
 }
 
 PULL_VLONG='strategy strategy-option depth deepen shallow-since shallow-exclude upload-pack server-option negotiation-tip jobs refmap cleanup'
 classify_git_pull() {
-  local k=$1 dir=$2 dir_ok=$3 mode=''
+  local k=$1 dir=$2 dir_ok=$3 mode='' ff=0
   parse_git_opts "$k" "$PULL_VLONG" 'sXoj' 'S' \
     || {
       tower_refuses 'git pull' || deny_now "this git pull carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
       return 0
     }
-  tower_refuses 'git pull' && return 0
+  ! ff_only_seen || ff=1
+  tower_refuses 'git pull' "${FF_HINT[$ff]}" && return 0
   act_gate 'this git pull' merge || return 0
   need_dir "$dir_ok" 'this git pull' || return 0
   all_literal || {
@@ -3196,7 +3209,7 @@ classify_git_pull() {
     esac
     k=$((k + 1))
   done
-  PENDING[${#PENDING[@]}]="pull$TAB$dir$TAB$mode$TAB${GP_POS[*]-}"
+  PENDING[${#PENDING[@]}]="pull$TAB$dir$TAB$mode$TAB$ff$TAB${GP_POS[*]-}"
 }
 
 REBASE_VLONG='onto strategy strategy-option exec whitespace empty'
@@ -3520,8 +3533,11 @@ base_merge_allowed() { # <dir> <what>
 }
 
 eval_merge() {
-  local dir=${1%%"$TAB"*} srcs=${1#*"$TAB"} s
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} srcs s
+  srcs=${rest#*"$TAB"}
+  DENY_SUFFIX=${FF_HINT[${rest%%"$TAB"*}]}
   base_merge_allowed "$dir" 'this git merge'
+  DENY_SUFFIX=''
   if [ -z "$srcs" ]; then
     upstream_of "$dir" "$CUR_BRANCH"
     [ "$UP_REMOTE" = "$BASE_REMOTE" ] && [ "$UP_BRANCH" = "$BASE_BRANCH" ] \
@@ -3535,8 +3551,10 @@ eval_merge() {
 }
 
 eval_pull() {
-  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} mode remote='' ref='' a i=0
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} mode ff remote='' ref='' a i=0
   mode=${rest%%"$TAB"*}
+  rest=${rest#*"$TAB"}
+  ff=${rest%%"$TAB"*}
   rest=${rest#*"$TAB"}
   # shellcheck disable=SC2086 # the positionals, split on purpose
   set -- $rest
@@ -3573,7 +3591,9 @@ eval_pull() {
     refresh_and_check_unpushed "$dir" 'this rebasing git pull' "$upref..HEAD"
     return 0
   fi
+  DENY_SUFFIX=${FF_HINT[$ff]}
   base_merge_allowed "$dir" 'this git pull'
+  DENY_SUFFIX=''
   if [ -z "$remote" ]; then
     upstream_of "$dir" "$CUR_BRANCH"
     remote=$UP_REMOTE

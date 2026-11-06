@@ -59,9 +59,9 @@ so a tower's stash write lands in every peer's stack.
 The only exceptions are planwright scripts performing an act the operator
 sanctioned for towers:
 
-- the release fast-forward of the primary checkout's `main`, through
-  `scripts/release-arm.sh` or
-  `scripts/main-currency.sh sync --checkout <primary-checkout>`;
+- fast-forwarding the primary checkout's default branch, through
+  `scripts/release-arm.sh` or `scripts/main-currency.sh` (`sync` or
+  `ff-primary`);
 - starting a forward-merge in a worker's worktree, through
   `scripts/converge-sync-main.sh` run there, which under
   `worker_merge_conflict_policy: resolve` leaves a conflict for the worker to

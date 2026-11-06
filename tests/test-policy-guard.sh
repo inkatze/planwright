@@ -390,6 +390,51 @@ for cmd in 'git merge origin/main' 'git pull' 'git pull origin main' 'git -C . m
   reads none "[tower] $cmd reads no knob"
 done
 
+echo "# the primary checkout's fast-forward"
+# The raw git spellings keep every refusal at both tiers; an ff-only one names
+# the sanctioned verb, so a launched session can keep the primary current
+# without the operator. The verb itself performs no reserved act here.
+FF_VERB='main-currency\.sh ff-primary'
+for cmd in "git -C $MAIN merge --ff-only origin/main" "git -C $MAIN pull --ff-only origin main" \
+  'git merge --ff-only origin/main' 'git pull --ff-only origin main'; do
+  pg tower "$cmd" "$MAIN"
+  expect deny "[tower] the raw fast-forward still denies: $cmd"
+  reads none "[tower] the raw fast-forward reads no knob: $cmd"
+  reason_has "$FF_VERB" "[tower] the fast-forward refusal names the sanctioned verb: $cmd"
+done
+for cmd in "git -C $MAIN merge --ff-only origin/main" "git -C $MAIN pull --ff-only origin main"; do
+  pg worker "$cmd"
+  expect deny "[worker] a fast-forward of the primary's main from a unit worktree still denies: $cmd"
+  reason_has "$FF_VERB" "[worker] that refusal names the sanctioned verb: $cmd"
+done
+pg worker 'git merge --ff-only origin/main' "$MAIN" "$MAIN"
+expect deny "[worker] a fast-forward run in the primary itself still denies"
+reason_has "$FF_VERB" "[worker] that refusal names the sanctioned verb"
+for spec in "tower|git -C $MAIN merge origin/main" "tower|git -C $MAIN merge --no-ff origin/main" \
+  "worker|git -C $MAIN merge origin/main" "tower|git -C $MAIN pull origin main"; do
+  pg "${spec%%|*}" "${spec#*|}"
+  expect deny "[${spec%%|*}] a merge that is not fast-forward-only still denies: ${spec#*|}"
+  case $REASON in
+    *main-currency.sh*) fail "[${spec%%|*}] a real merge's refusal points at the fast-forward verb: ${spec#*|}" ;;
+    *) pass "[${spec%%|*}] a real merge's refusal does not point at the fast-forward verb: ${spec#*|}" ;;
+  esac
+done
+for cmd in "git -C $MAIN merge --ff-only upstream/main" "git -C $MAIN merge --ff-only origin/develop" \
+  "git -C $MAIN pull --ff-only upstream main" "git -C $MAIN pull --ff-only --rebase origin main"; do
+  pg tower "$cmd"
+  expect deny "[tower] another remote, branch, or a rebase still denies: $cmd"
+  pg worker "$cmd"
+  expect deny "[worker] another remote, branch, or a rebase still denies: $cmd"
+done
+for tier in tower worker; do
+  for cmd in "$REPO_ROOT/scripts/main-currency.sh ff-primary" "$REPO_ROOT/scripts/main-currency.sh ff-primary --checkout $MAIN" \
+    "/bin/sh $REPO_ROOT/scripts/main-currency.sh ff-primary --checkout $SANDBOX/dotfiles"; do
+    pg "$tier" "$cmd"
+    expect defer "[$tier] the sanctioned fast-forward verb defers: $cmd"
+    reads none "[$tier] the sanctioned fast-forward verb reads no knob: $cmd"
+  done
+done
+
 # --- history rewrites (REQ-F1.1) ---------------------------------------------
 
 echo "# never-pushed rewrites"
