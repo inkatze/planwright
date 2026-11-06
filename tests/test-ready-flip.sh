@@ -86,6 +86,10 @@ case "$1 $2" in
           none) roll='[]' ;;
           own-status-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"FAILURE"},{"__typename":"StatusContext","context":"planwright/pre-spec-ready-flip","state":"PENDING"}]' ;;
           own-status-only) roll='[{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"SUCCESS"}]' ;;
+          superseded-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}]' ;;
+          tied-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}]' ;;
+          superseded-red-first) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}]' ;;
+          capped) roll=$(i=0; printf '['; while [ $i -lt 100 ]; do [ $i = 0 ] || printf ','; printf '{"__typename":"CheckRun","name":"c%s","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"}' "$i"; i=$((i + 1)); done; printf ']') ;;
           own-name-checkrun-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"planwright/pre-ready-flip","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
         esac
         printf '{"headRefOid":"%s","statusCheckRollup":%s}\n' "$head" "$roll"
@@ -584,6 +588,31 @@ set_policy unit-owner
 echo own-name-checkrun-red >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
 check "a check run named like a point status is judged, not excluded" [ "$CODE" = 4 ]
+fixture
+set_policy unit-owner
+echo superseded-red >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a failed run superseded by a passing re-run of its check is green, the newer listed first" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+echo superseded-red-first >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "and with the older failure listed first" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+echo superseded-red >"$GHS/ci"
+run_helper evaluate --spec specs/demo --task 1
+check "the green count is one per check context, not per run" grep -q 'ci-rollup	pass	1 check(s) green' <<<"$OUT"
+fixture
+set_policy unit-owner
+echo tied-red >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a failure started in the same second as a success of its check is not green" [ "$CODE" = 4 ]
+fixture
+set_policy unit-owner
+echo capped >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a check list at its cap of 100 is a failed precondition" [ "$CODE" = 4 ]
 fixture
 set_policy unit-owner
 echo 0123456789012345678901234567890123456789 >"$GHS/head_override"

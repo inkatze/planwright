@@ -84,7 +84,7 @@ case "$knob" in
     ;;
   ready_guard_behind_base)
     PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG='' \
-      exec /bin/sh "$rck" --key "$knob" --type enum --values 'refuse conflict-only' \
+      exec /bin/sh "$rck" --key "$knob" --type enum --values 'refuse conflict-only checks' \
       --fallback refuse --degrade refuse
     ;;
   worker_merge_conflict_policy)

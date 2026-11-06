@@ -398,7 +398,7 @@ log="$tmp/h-worktree.log"
 d_rc=0
 PATH="$stub_w:$PATH" at "$h" "$SUPS" SUPPRESS_LOG="$log" PLANWRIGHT_TOWER_ID="$owner" \
   PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX=1 -- \
-  fleet-dispatch-worktree.sh dispatch spec-w 1 --repo-root "$wrepo" >/dev/null 2>"$tmp/h-wt.err" || d_rc=$?
+  fleet-dispatch-worktree.sh dispatch spec-w 1 --backend tmux --repo-root "$wrepo" >/dev/null 2>"$tmp/h-wt.err" || d_rc=$?
 # A created session with no startup confirmation reports started-unconfirmed,
 # which is a placed worker, not a failed dispatch.
 [ "$d_rc" != 14 ] || d_rc=0

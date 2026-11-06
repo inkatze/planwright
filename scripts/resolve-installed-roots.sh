@@ -35,13 +35,26 @@
 #     Prints nothing; the exit status is the rule's verdict.
 #   resolve-installed-roots.sh --refused
 #     The listing's dropped candidates, one per line.
+#   resolve-installed-roots.sh --current
+#     The record's roots that apply here, no cached copy: an entry of a
+#     project or local scope whose projectPath holds the project
+#     ($CLAUDE_PROJECT_DIR, else the working directory), then the user-scope
+#     ones. A long-running session runs the root resolver from the first,
+#     rather than from a path it remembers.
+#   resolve-installed-roots.sh --check <path>
+#     Warns on stderr, and exits 1, when <path> is a copy under the plugin
+#     cache that no --current root names: an older version a session kept
+#     using after an upgrade or reload. Silent, and 0, for a current copy,
+#     a path outside the cache (a checkout), or a record it cannot read.
 #
 # Exit codes: 0 always for the listing. An unset home, an absent or
 #   unreadable record, an absent jq, and an empty cache are each empty
 #   output, never a failure: callers read empty as "no installed roots" and
 #   the arm it feeds does not fire; the same holds for --refused. With
 #   --unlinked: 0 when the path passes the rule, 1 when it does not (or is
-#   empty). 2 on a usage error.
+#   empty). --current prints nothing, exit 0, where the listing would print
+#   no record entry. With --check: 1 for a stale copy, else 0. 2 on a usage
+#   error.
 #
 # POSIX sh; pathname expansion is used for the cache walk only.
 set -u
@@ -97,28 +110,29 @@ unlinked() {
   return 0
 }
 
+usage() {
+  echo "usage: resolve-installed-roots.sh [--unlinked <path> | --refused | --current | --check <path>]" >&2
+  exit 2
+}
+
 want=kept
+check=''
 case ${1-} in
-  --refused)
-    [ "$#" -eq 1 ] || {
-      echo "usage: resolve-installed-roots.sh [--unlinked <path> | --refused]" >&2
-      exit 2
-    }
-    want=refused
+  --refused | --current)
+    [ "$#" -eq 1 ] || usage
+    want=${1#--}
     ;;
   --unlinked)
-    [ "$#" -eq 2 ] || {
-      echo "usage: resolve-installed-roots.sh [--unlinked <path> | --refused]" >&2
-      exit 2
-    }
+    [ "$#" -eq 2 ] || usage
     unlinked "$2"
     exit
     ;;
-  '') ;;
-  *)
-    echo "usage: resolve-installed-roots.sh [--unlinked <path> | --refused]" >&2
-    exit 2
+  --check)
+    [ "$#" -eq 2 ] && [ -n "$2" ] || usage
+    check=$2
     ;;
+  '') ;;
+  *) usage ;;
 esac
 
 claude_dir=''
@@ -132,24 +146,69 @@ fi
 # emit <root>: print the root when it falls on the side of the rule asked for.
 emit() {
   if unlinked "$1"; then
-    [ "$want" = kept ] && printf '%s\n' "$1"
+    case $want in kept | current) printf '%s\n' "$1" ;; esac
   else
     [ "$want" = refused ] && printf '%s\n' "$1"
   fi
   return 0
 }
 
-f="$claude_dir/plugins/installed_plugins.json"
-if [ -r "$f" ] && command -v jq >/dev/null 2>&1; then
-  jq -r '(.plugins // {}) | to_entries[]
-    | select((.key | type) == "string" and (.key | startswith("planwright@")))
-    | (.value | if type == "array" then .[] else . end)
-    | (.installPath? // empty)
-    | select(type == "string" and startswith("/"))' "$f" 2>/dev/null \
-    | while IFS= read -r p; do
-      emit "$p"
-    done
+# recorded_roots all|here: the record's planwright roots, every entry or
+# only those that apply in the working directory (most specific first),
+# each through emit.
+recorded_roots() {
+  f="$claude_dir/plugins/installed_plugins.json"
+  if [ -r "$f" ] && command -v jq >/dev/null 2>&1; then
+    rr_cwd=${CLAUDE_PROJECT_DIR:-$(pwd -P 2>/dev/null)}
+    jq -r --arg which "$1" --arg cwd "$rr_cwd" '[(.plugins // {}) | to_entries[]
+      | select((.key | type) == "string" and (.key | startswith("planwright@")))
+      | (.value | if type == "array" then .[] else . end)
+      | select(type == "object" and (.installPath | type) == "string" and (.installPath | startswith("/")))
+      | . as $e
+      | if $which == "all" then [0, 0, $e.installPath]
+        elif (($e.scope // "user") == "user") then [1, 0, $e.installPath]
+        elif (($e.projectPath | type) == "string" and ($e.projectPath | startswith("/")) and $cwd != ""
+          and ($cwd == $e.projectPath or ($cwd | startswith(($e.projectPath | rtrimstr("/")) + "/"))))
+          then [0, -($e.projectPath | rtrimstr("/") | length), $e.installPath]
+        else empty end]
+      | sort_by(.[0], .[1]) | .[] | .[2]' "$f" 2>/dev/null \
+      | while IFS= read -r p; do
+        emit "$p"
+      done
+  fi
+}
+
+# physical <dir>: the directory's canonical path, or nothing.
+physical() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
+
+if [ -n "$check" ]; then
+  ck_cache=$(physical "$claude_dir/plugins/cache") || exit 0
+  ck_path=$(physical "$check") || exit 0
+  case $ck_path/ in
+    "$ck_cache"/*) ;;
+    *) exit 0 ;;
+  esac
+  want=current
+  ck_current=$(recorded_roots here)
+  [ -n "$ck_current" ] || exit 0
+  ck_first=''
+  while IFS= read -r ck_root; do
+    [ -n "$ck_root" ] || continue
+    [ "$(physical "$ck_root")" != "$ck_path" ] || exit 0
+    [ -n "$ck_first" ] || ck_first=$ck_root
+  done <<EOF
+$ck_current
+EOF
+  printf 'planwright: WARNING running from %s, which is not the installed planwright (%s); run every script and doc from the installed copy instead\n' \
+    "$(printf '%s' "$ck_path" | tr -d '\000-\037\177')" "$(printf '%s' "$ck_first" | tr -d '\000-\037\177')" >&2
+  exit 1
 fi
+
+if [ "$want" = current ]; then
+  recorded_roots here
+  exit 0
+fi
+recorded_roots all
 
 for d in "$claude_dir"/plugins/cache/*/planwright/*/; do
   [ -d "$d" ] || continue

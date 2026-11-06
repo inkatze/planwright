@@ -39,6 +39,10 @@
 #   STUB_VIEW_JSON / STUB_VIEW_JSON2   the first / second `gh pr view` answer
 #   STUB_VIEW_RC / STUB_VIEW_RC2       their exit codes
 #   STUB_COMPARE_OUT / STUB_COMPARE_RC the compare endpoint's behind_by / exit
+#   STUB_CHECKS_JSON / STUB_CHECKS_RC  the answer / exit of a `pr view` asking
+#                                      for statusCheckRollup (the check read a
+#                                      behind PR takes); empty is unreadable
+#   STUB_CHECKS_SLEEP                  seconds that check read sleeps first
 #   RG_SURFACE                         which matcher fired: bash (default) | mcp
 #                                      (not reset by reset_stub_env)
 #   RG_ADOPTER_OVERLAY                 passed to the guard as
@@ -113,6 +117,15 @@ cat >"$BIN/gh" <<'GHSTUB'
 } >>"$GH_ARGV_LOG"
 case "${1:-}" in
   pr)
+    case " $* " in
+      *statusCheckRollup*)
+        [ -z "${STUB_CHECKS_SLEEP:-}" ] || sleep "$STUB_CHECKS_SLEEP"
+        rc=${STUB_CHECKS_RC:-0}
+        [ "$rc" = 0 ] || exit "$rc"
+        printf '%s' "${STUB_CHECKS_JSON:-}"
+        exit 0
+        ;;
+    esac
     [ -z "${STUB_VIEW_SLEEP:-}" ] || sleep "$STUB_VIEW_SLEEP"
     if [ -f "$PWD/view.json" ]; then
       cat "$PWD/view.json"
@@ -178,6 +191,14 @@ VIEW_BEHIND='{"baseRefName":"main","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 VIEW_CONFLICTING='{"baseRefName":"main","headRefOid":"cccccccccccccccccccccccccccccccccccccccc","isDraft":true,"mergeable":"CONFLICTING","url":"https://github.com/acme/widgets/pull/42"}'
 # shellcheck disable=SC2034
 VIEW_UNKNOWN='{"baseRefName":"main","headRefOid":"dddddddddddddddddddddddddddddddddddddddd","isDraft":true,"mergeable":"UNKNOWN","url":"https://github.com/acme/widgets/pull/42"}'
+# Check-rollup answers for the behind PR's head (VIEW_BEHIND's): green with a
+# superseded failure of the same check, and red on its latest run.
+# shellcheck disable=SC2034
+CHECKS_GREEN='{"baseRefName":"main","mergeable":"MERGEABLE","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","statusCheckRollup":[{"__typename":"CheckRun","name":"title","workflowName":"pr-title","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:34:09Z"},{"__typename":"CheckRun","name":"title","workflowName":"pr-title","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:51:51Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:34:10Z"},{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"PENDING"}]}'
+# shellcheck disable=SC2034
+CHECKS_RED='{"baseRefName":"main","mergeable":"MERGEABLE","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","statusCheckRollup":[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:34:10Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:40:10Z"}]}'
+# shellcheck disable=SC2034
+CHECKS_PENDING='{"baseRefName":"main","mergeable":"MERGEABLE","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","statusCheckRollup":[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"IN_PROGRESS","conclusion":"","startedAt":"2026-11-05T19:34:10Z"}]}'
 # Already ready. Stale AND conflicting on purpose: REQ-C1.8 requires the no-op
 # to defer "regardless of currency/mergeability state".
 # shellcheck disable=SC2034
@@ -207,6 +228,7 @@ run_hook() {
       STUB_VIEW_RC="${STUB_VIEW_RC:-0}" STUB_VIEW_RC2="${STUB_VIEW_RC2:-}" \
       STUB_VIEW_SLEEP="${STUB_VIEW_SLEEP:-}" \
       STUB_COMPARE_OUT="${STUB_COMPARE_OUT:-0}" STUB_COMPARE_RC="${STUB_COMPARE_RC:-0}" \
+      STUB_CHECKS_JSON="${STUB_CHECKS_JSON:-}" STUB_CHECKS_RC="${STUB_CHECKS_RC:-0}" STUB_CHECKS_SLEEP="${STUB_CHECKS_SLEEP:-}" \
       /bin/bash "$HOOK" "${RG_SURFACE:-bash}" 2>/dev/null)"
   CODE=$?
   # Restore anything an absence fixture removed.
@@ -356,6 +378,9 @@ reset_stub_env() {
   STUB_VIEW_RC2=''
   STUB_COMPARE_OUT=0
   STUB_COMPARE_RC=0
+  STUB_CHECKS_JSON=''
+  STUB_CHECKS_RC=0
+  STUB_CHECKS_SLEEP=''
   RG_ADOPTER_OVERLAY=''
   RG_LOCAL_CONFIG=''
   RG_GH_TIMEOUT=''

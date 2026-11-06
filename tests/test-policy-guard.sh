@@ -349,11 +349,36 @@ gitq -C "$UNIT" branch -f main origin/main
 pg worker 'git merge main'
 expect defer "[worker] allow: a local main equal to the remote base defers"
 for cmd in 'git merge origin/planwright/demo/task-2' 'git merge origin/planwright/demo/spec' 'git merge HEAD~1' \
-  'git merge origin/main origin/planwright/demo/task-2' 'git pull' 'git pull origin planwright/demo/task-2' \
-  'git pull origin main:main' 'git merge $BASE'; do
+  'git merge origin/main origin/planwright/demo/task-2' 'git pull origin planwright/demo/task-2' \
+  'git pull origin main:main' 'git merge $BASE' 'git pull origin planwright/demo/task-1:planwright/demo/task-1'; do
   pg worker "$cmd"
-  expect deny "[worker] allow: $cmd denies (the source is not the PR base)"
+  expect deny "[worker] allow: $cmd denies (the source is neither the PR base nor the branch's own remote branch)"
 done
+echo "# the worker brings its own remote branch in"
+for cmd in 'git merge origin/planwright/demo/task-1' 'git merge --ff-only origin/planwright/demo/task-1' \
+  'git merge refs/remotes/origin/planwright/demo/task-1' 'git merge' 'git pull' 'git pull origin planwright/demo/task-1' \
+  'git pull --ff-only' 'git merge origin/main origin/planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect defer "[worker] allow: $cmd defers (its own remote branch)"
+done
+gitq -C "$UNIT" branch origin/planwright/demo/task-1 HEAD~1
+pg worker 'git merge origin/planwright/demo/task-1'
+expect deny "[worker] allow: a local branch shadowing the own remote branch denies the merge"
+gitq -C "$UNIT" branch -D origin/planwright/demo/task-1
+gitq -C "$UNIT" config branch.planwright/demo/task-1.merge refs/heads/planwright/demo/task-2
+pg worker 'git merge'
+expect deny "[worker] allow: a no-source merge whose upstream is another branch denies"
+reason_has 'names no source' "the no-source refusal says why"
+pg worker 'git pull'
+expect deny "[worker] allow: a no-source pull whose upstream is another branch denies"
+gitq -C "$UNIT" config branch.planwright/demo/task-1.merge refs/heads/planwright/demo/task-1
+gitq -C "$UNIT" remote add fork "$ORIGIN"
+gitq -C "$UNIT" fetch fork
+for cmd in 'git merge fork/planwright/demo/task-1' 'git pull fork planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect deny "[worker] allow: the same branch on another remote is not its own remote branch: $cmd"
+done
+gitq -C "$UNIT" remote remove fork
 pg worker 'git merge origin/main' "$OTHER"
 expect deny "[worker] allow: a merge in another unit's worktree denies"
 pg worker "git -C $OTHER merge origin/main"
@@ -383,6 +408,18 @@ for cmd in 'git merge origin/main' 'git pull origin main' "git -C $UNIT merge or
   expect deny "[worker] deny: $cmd denies"
 done
 reason_has 'worker_base_merge is deny' "[worker] the base-merge deny names the knob"
+set_knobs 'worker_base_merge: allow' 'unpushed_rewrite: deny'
+printf '[pull]\n\trebase\n' >>"$UNIT/.git/config"
+pg worker 'git pull origin main'
+expect deny "[worker] unpushed_rewrite deny: pull.rebase written with no value is a rebasing pull"
+reason_has 'unpushed_rewrite is deny' "the valueless-rebase refusal names the knob"
+reason_has 'no-rebase merges instead\) is refused\. Merge the PR base instead: git merge origin/main' "the configured-rebase refusal names --no-rebase once and the base by name"
+for cmd in 'git pull --rebase origin main' 'git pull -r origin main'; do
+  pg worker "$cmd"
+  expect deny "[worker] unpushed_rewrite deny: an explicit rebasing pull is refused: $cmd"
+  reason_has 'instead: git pull --no-rebase, git merge origin/main' "the explicit rebasing-pull refusal names the merge remedies: $cmd"
+done
+gitq -C "$UNIT" config --unset pull.rebase
 set_knobs 'worker_base_merge: allow'
 for cmd in 'git merge origin/main' 'git pull' 'git pull origin main' 'git -C . merge origin/main' 'git "pull" origin main'; do
   pg tower "$cmd"
@@ -463,6 +500,190 @@ for tier in tower worker; do
     expect defer "[$tier] the sanctioned fast-forward verb defers: $cmd"
     reads none "[$tier] the sanctioned fast-forward verb reads no knob: $cmd"
   done
+done
+
+echo "# a flight branch named before flight ids is still the session's unit branch"
+OLDF="$SANDBOX/oldflight"
+gitq -C "$SEED" switch -c planwright/flight/mc-panel-usability main
+gitq -C "$SEED" commit --allow-empty -m 'pushed on the older flight'
+gitq -C "$SEED" push origin planwright/flight/mc-panel-usability
+clone_on "$OLDF" planwright/flight/mc-panel-usability 1
+for cmd in 'git merge origin/main' 'git merge --ff-only origin/planwright/flight/mc-panel-usability' 'git pull' \
+  'git pull origin main' 'git merge'; do
+  pg worker "$cmd" "$OLDF" "$OLDF"
+  expect defer "[worker] an older flight branch without an id: $cmd defers"
+done
+pg worker 'git merge origin/planwright/demo/task-2' "$OLDF" "$OLDF"
+expect deny "[worker] an older flight branch still merges no other branch"
+pg tower 'git merge origin/main' "$OLDF" "$OLDF"
+expect deny "[tower] an older flight branch widens nothing for the tower"
+
+echo "# a session launched at the primary checkout syncs the linked worktree its shell is in"
+PRIM="$SANDBOX/prim"
+gitq clone "$ORIGIN" "$PRIM"
+gitq -C "$PRIM" remote set-head origin main
+LWT="$SANDBOX/prim-flight"
+gitq -C "$PRIM" worktree add -b planwright/flight/dispatch-backend-0123abcd "$LWT" origin/main
+LWT2="$SANDBOX/prim-sibling"
+gitq -C "$PRIM" worktree add -b planwright/demo/task-8 "$LWT2" origin/main
+mkdir -p "$LWT/sub"
+for cmd in 'git merge origin/main' "git -C $LWT merge origin/main" 'git pull origin main'; do
+  pg worker "$cmd" "$LWT" "$PRIM"
+  expect defer "[worker] project directory on main, shell in its flight worktree: $cmd defers"
+done
+for cmd in 'git merge origin/main' "git -C $LWT merge origin/main"; do
+  pg worker "$cmd" "$LWT/sub" "$PRIM"
+  expect defer "[worker] a shell in a subdirectory of its flight worktree owns it: $cmd"
+done
+pg worker 'git merge origin/main' "$PRIM" "$PRIM"
+expect deny "[worker] the primary checkout on main stays refused"
+reason_has 'primary checkout' "the refusal on main says the session was launched at the primary checkout"
+for cmd in "git -C $LWT merge origin/main" "cd $LWT && git merge origin/main"; do
+  pg worker "$cmd" "$PRIM" "$PRIM"
+  expect deny "[worker] a worktree the shell is not in is not the session's own: $cmd"
+  reason_has 'shell is in none' "the refusal says the shell is in no linked worktree: $cmd"
+done
+pg worker "git -C $PRIM merge origin/main" "$LWT" "$PRIM"
+expect deny "[worker] from its worktree, a -C into the primary checkout is refused"
+pg worker "git -C $LWT2 merge origin/main" "$LWT" "$PRIM"
+expect deny "[worker] a sibling worktree the shell is not in is refused"
+pg worker "git merge origin/main && git -C $LWT2 merge origin/main" "$LWT" "$PRIM"
+expect deny "[worker] a compound reaching a second worktree is refused"
+XC="$SANDBOX/same-name-clone"
+gitq clone "$ORIGIN" "$XC"
+gitq -C "$XC" remote set-head origin main
+gitq -C "$XC" switch -c planwright/flight/dispatch-backend-0123abcd
+for cmd in "git -C $XC merge origin/main" "git merge origin/main && git -C $XC merge origin/main" \
+  "git -C $XC merge origin/main && git merge origin/main" "git -C $LWT pull origin main && git -C $XC pull origin main"; do
+  pg worker "$cmd" "$LWT" "$PRIM"
+  expect deny "[worker] another checkout holding a branch of the same name is refused in any order: $cmd"
+done
+pg worker "git merge origin/main && git -C $XC merge origin/main" "$LWT" "$PRIM"
+reason_has 'other than this session' "the same-name refusal names the other checkout"
+gitq -C "$XC" switch planwright/demo/task-1
+pg worker "git merge origin/main && git -C $XC merge origin/main" "$UNIT" "$UNIT"
+expect deny "[worker] a session launched into its unit checkout never reaches a same-named branch elsewhere"
+for cmd in 'git commit --amend --no-edit' 'git rebase origin/main' 'git pull --rebase origin main' \
+  'git merge origin/main && git pull --rebase origin main' 'git pull origin main && git pull --rebase origin main'; do
+  pg worker "$cmd" "$LWT" "$PRIM"
+  expect deny "[worker] the shell's worktree is a base sync only, never a rewrite: $cmd"
+  reason_has 'never rewrites history' "the rewrite refusal says a primary launch never rewrites: $cmd"
+done
+pg worker 'git commit --amend --no-edit' "$PRIM" "$PRIM"
+expect deny "[worker] a rewrite from the primary checkout itself is refused"
+reason_has 'never rewrites history' "a rewrite gets the rewrite refusal before any shell-directory refusal"
+printf '[pull]\n\trebase\n' >>"$PRIM/.git/config"
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] pull.rebase written with no value rebases, so it is a rewrite on the shell path"
+gitq -C "$PRIM" config --unset pull.rebase
+gitq -C "$PRIM" config pull.rebase false
+gitq -C "$PRIM" config branch.planwright/flight/dispatch-backend-0123abcd.rebase true
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] the branch rebase key wins over pull.rebase false"
+gitq -C "$PRIM" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+printf '[branch "planwright/flight/dispatch-backend-0123abcd"]\n\trebase\n' >>"$PRIM/.git/config"
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] a branch rebase key written with no value wins over pull.rebase false"
+gitq -C "$PRIM" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+gitq -C "$PRIM" config pull.rebase true
+gitq -C "$PRIM" config branch.planwright/flight/dispatch-backend-0123abcd.rebase false
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect defer "[worker] a branch rebase key of false wins over pull.rebase true"
+gitq -C "$PRIM" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+gitq -C "$PRIM" config --unset pull.rebase
+printf '[pull]\n\trebase =\n' >>"$PRIM/.git/config"
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect defer "[worker] pull.rebase set to an empty value is false to git, so the pull merges"
+gitq -C "$PRIM" config --unset pull.rebase
+gitq -C "$PRIM" config pull.rebase merges
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] pull.rebase merges rebases, so it is a rewrite on the shell path"
+gitq -C "$PRIM" config --unset pull.rebase
+gitq -C "$PRIM" config pull.rebase false
+gitq -C "$PRIM" config branch.planwright/flight/dispatch-backend-0123abcd.rebase merges
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] a branch rebase key git's bool parser rejects still wins over pull.rebase false"
+gitq -C "$PRIM" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+gitq -C "$PRIM" config --unset pull.rebase
+gitq -C "$LWT" config branch.planwright/flight/dispatch-backend-0123abcd.rebase true
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] a pull that rebases by configuration is a rewrite on the shell path"
+reason_has 'no-rebase merges instead' "the configured-rebase refusal names git pull --no-rebase"
+pg worker 'git pull --no-rebase origin main' "$LWT" "$PRIM"
+expect defer "[worker] git pull --no-rebase overrides the configured rebase on the shell path"
+gitq -C "$LWT" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+pg worker 'git merge origin/planwright/flight/dispatch-backend-0123abcd' "$LWT" "$PRIM"
+expect deny "[worker] a never-pushed branch has no own remote branch to merge"
+reason_has 'missing or a local branch or tag' "the missing own-remote-branch refusal says why"
+gitq -C "$LWT" commit --allow-empty -m 'flight work'
+gitq -C "$LWT" push -u origin planwright/flight/dispatch-backend-0123abcd
+for cmd in 'git merge origin/planwright/flight/dispatch-backend-0123abcd' 'git merge' 'git pull'; do
+  pg worker "$cmd" "$LWT" "$PRIM"
+  expect defer "[worker] once pushed, the shell's worktree brings its own remote branch in: $cmd"
+done
+gitq -C "$LWT" tag origin/planwright/flight/dispatch-backend-0123abcd HEAD~1
+pg worker 'git merge origin/planwright/flight/dispatch-backend-0123abcd' "$LWT" "$PRIM"
+expect deny "[worker] a tag shadowing the own remote branch is refused"
+reason_has 'missing or a local branch or tag' "the shadowed own-remote-branch refusal says why"
+gitq -C "$LWT" tag -d origin/planwright/flight/dispatch-backend-0123abcd
+gitq -C "$LWT" tag origin/planwright/flight/dispatch-backend-0123abcd HEAD
+pg worker 'git merge origin/planwright/flight/dispatch-backend-0123abcd' "$LWT" "$PRIM"
+expect defer "[worker] a tag of that name at the same commit is admitted: the merge takes that very commit"
+gitq -C "$LWT" tag -d origin/planwright/flight/dispatch-backend-0123abcd
+XCW="$SANDBOX/same-name-worktree-clone"
+gitq clone "$ORIGIN" "$XCW"
+gitq -C "$XCW" switch planwright/flight/dispatch-backend-0123abcd
+gitq -C "$XCW" config core.worktree "$LWT"
+pg worker "git -C $XCW merge origin/main" "$LWT" "$PRIM"
+expect deny "[worker] another repository whose core.worktree names the session's worktree is not its checkout"
+reason_has 'core.worktree' "the core.worktree refusal names the other repository's git directory"
+gitq -C "$PRIM" switch --detach
+pg worker 'git merge origin/main' "$LWT" "$PRIM"
+expect deny "[worker] a detached primary checkout owns no worktree"
+gitq -C "$PRIM" switch main
+pg worker 'git merge origin/main' "$LWT2" "$LWT"
+expect deny "[worker] a session launched into its own unit worktree never owns a sibling"
+LDET="$SANDBOX/prim-detached"
+gitq -C "$PRIM" worktree add --detach "$LDET" origin/main
+LREL="$SANDBOX/prim-release"
+gitq -C "$PRIM" worktree add -b release/1 "$LREL" origin/main
+for proj in "$LDET" "$LREL" "$SANDBOX/not-a-repo"; do
+  mkdir -p "$proj"
+  pg worker 'git merge origin/main' "$LWT" "$proj"
+  expect deny "[worker] only a primary-checkout launch owns the shell's worktree: project directory $proj"
+done
+pg worker 'git merge origin/main' "$LDET" "$PRIM"
+expect deny "[worker] a detached HEAD in the shell's worktree is refused"
+reason_has 'no branch' "the detached refusal says no branch is checked out"
+for b in planwright/flight/task-9 planwright/flight/foo- planwright/flight/Foo planwright/flight/a/b; do
+  d="$SANDBOX/prim-bad-$(printf '%s' "$b" | tr '/' '_')"
+  gitq -C "$PRIM" worktree add -b "$b" "$d" origin/main
+  pg worker 'git merge origin/main' "$d" "$PRIM"
+  expect deny "[worker] a linked worktree on a non-unit branch stays refused: $b"
+done
+pg worker 'git merge origin/main' "$LREL" "$PRIM"
+expect deny "[worker] a linked worktree on a release branch stays refused"
+set_knobs 'worker_base_merge: allow' 'protected_branches: planwright/flight/*'
+pg worker 'git merge origin/main' "$LWT" "$PRIM"
+expect deny "[worker] a protected flight branch in the shell's worktree stays refused"
+set_knobs 'worker_base_merge: allow'
+XWT="$SANDBOX/other-flight"
+gitq -C "$OTHER" worktree add -b planwright/flight/foreign-0123abcd "$XWT" HEAD
+pg worker 'git merge origin/main' "$XWT" "$PRIM"
+expect deny "[worker] a worktree of another repository is not the session's own"
+reason_has 'shell is in none' "the other-repository refusal says the shell is in none of this repository's worktrees"
+# The guard falls back to its own directory for a missing cwd; run from the
+# worktree so the case fails only if that fallback is trusted.
+cd "$LWT" || exit 1
+pg_payload worker bash "$(jq -n '{tool_name:"Bash", tool_input:{command:"git merge origin/main"}}')" "$PRIM"
+expect deny "[worker] a payload reporting no cwd owns no worktree"
+reason_has 'no shell directory' "the no-cwd refusal says the hook was told no shell directory"
+pg_payload worker bash "$(jq -n '{tool_name:"Bash", tool_input:{command:"git merge origin/main"}, cwd:""}')" "$PRIM"
+expect deny "[worker] a payload with an empty cwd owns no worktree"
+cd - >/dev/null || exit 1
+for tier in tower mission-control; do
+  pg "$tier" 'git merge origin/main' "$LWT" "$PRIM"
+  expect deny "[$tier] the shell's worktree widens nothing for $tier"
 done
 
 # --- history rewrites (REQ-F1.1) ---------------------------------------------

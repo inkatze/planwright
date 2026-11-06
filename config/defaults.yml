@@ -929,20 +929,25 @@ messaging_heal_cadence_seconds: 300
 #                               layer's list joins, none replaces another's.
 # merge_class_strategy          the class's merge method: sole-allowed (the one
 #                               method the host allows), squash, merge, rebase.
-# worker_base_merge             whether a worker may merge its PR base into its
-#                               own unit branch: allow or deny.
+# worker_base_merge             whether a worker may merge its PR base (or its
+#                               own remote branch) into its own unit branch:
+#                               allow or deny.
 # worker_merge_conflict_policy  a conflicting base merge: halt (abort and park)
 #                               or resolve (commit the resolution for sign-off).
 # unpushed_rewrite              whether a worker may amend, squash, or rebase
 #                               commits no remote holds, on its own unit
 #                               branch: allow or deny.
 # ready_guard_behind_base       whether the ready-guard refuses a draft->ready
-#                               flip of a PR behind its base: refuse (refused
-#                               however few commits behind), or conflict-only
-#                               (let through when GitHub reports it
-#                               MERGEABLE, refused otherwise). Read from
-#                               the core and adopter layers only
-#                               (merge-currency-guard REQ-C1.12).
+#                               flip of a PR behind its base: checks (let
+#                               through when GitHub reports it MERGEABLE and
+#                               the latest run of every check on its head
+#                               passed, neutral and skipped counting, with at
+#                               least one success), refuse (refused however few commits
+#                               behind), or conflict-only (let through when
+#                               MERGEABLE, whatever its checks say). Read
+#                               from the core and adopter layers only
+#                               (merge-currency-guard REQ-C1.12); a malformed
+#                               or unread value applies refuse.
 # protected_branches            branch names or globs added to the protected
 #                               floor (main, master, planwright/*/spec), space
 #                               separated on one line; every layer's list
@@ -957,7 +962,7 @@ merge_class_strategy: sole-allowed
 worker_base_merge: allow
 worker_merge_conflict_policy: halt
 unpushed_rewrite: allow
-ready_guard_behind_base: refuse
+ready_guard_behind_base: checks
 protected_branches:
 
 # The worker's self-approval policy: the arms the worker command guard may
