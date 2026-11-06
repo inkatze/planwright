@@ -886,6 +886,12 @@ later planwright bundles implement, D-12).
   for the edit and git-mutation denials, which that suite pins, rather than
   the command-guard suite. Operator ruling relayed by mission control; no
   requirement or decision changes meaning.
+- 2026-11-05 — Expression-only (brief Re-anchor, test-spec suite names):
+  the REQ-G1.5 test entry names `tests/test-mc-posture.sh` for the posture
+  failures and `tests/test-mission-control-launch.sh` for the launcher's
+  refusal, which that suite pins, rather than crediting the refusal to the
+  posture and command-guard suites. No requirement or decision changes
+  meaning.
 
 ## Sources
 

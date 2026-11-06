@@ -1103,3 +1103,20 @@ chose "Fix it (Recommended)" for this pointer, relayed by mission control.
 Class: expression-only
 Anchor: `260b43f423d8d49d039bc9f318b31702f8daba2d` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — REQ-G1.5 test-spec suite names (2026-11-05)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+The REQ-G1.5 entry in `test-spec.md` now names `tests/test-mc-posture.sh`
+for the posture failures and `tests/test-mission-control-launch.sh` for the
+launcher's refusal, the suite that pins it; each claim keeps its wording.
+No requirement or decision changes meaning. A review pass found the
+misattribution on the branch.
+
+**Cites the changelog line:** the second 2026-11-05 `## Changelog` entry in
+`requirements.md` (test-spec suite names).
+
+Class: expression-only
+Anchor: `7d41fd5e183bf11fce63f1f5d2c0da8e879e17fa` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
