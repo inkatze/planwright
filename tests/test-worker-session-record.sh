@@ -314,6 +314,22 @@ else
 fi
 rm -f "$root"
 mv "$root.moved" "$root"
+mkdir -m 700 "$WT/sb-in"
+REC=$(PLANWRIGHT_FLEET_SCRATCH_BASE=$WT/sb-in /bin/sh "$WRITER" write "$WT" --session inside --scratch 2>"$T/err")
+if [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC" && [ -z "$(ls -A "$WT/sb-in")" ] \
+  && grep -q 'inside the worktree' "$T/err" \
+  && [ ! -e "$FLEET/scratch/$wt_key-$(printf '%s' inside | git hash-object --stdin).tmpdir" ]; then
+  pass "G1.2: a root inside the worktree is refused and released, its record gone"
+else
+  fail "G1.2: a root inside the worktree ($(ls -A "$WT/sb-in"), $(cat "$T/err"))"
+fi
+rm -rf "$WT/sb-in"
+REC=$(PLANWRIGHT_FLEET_SCRATCH_BASE=$T/nowhere /bin/sh "$WRITER" write "$WT" --session nowhere --scratch 2>"$T/err")
+if [ -n "$REC" ] && grep -q 'no scratch arm (fleet-scratch.sh: PLANWRIGHT_FLEET_SCRATCH_BASE names no directory)' "$T/err"; then
+  pass "G1.2: the warning names why the root is unusable"
+else
+  fail "G1.2: the warning gave no reason: $(cat "$T/err")"
+fi
 mkdir -p "$T/notours/keep"
 if ! /bin/sh "$REPO_ROOT/scripts/fleet-scratch.sh" release "$FLEET" "$T/notours" 2>/dev/null \
   && [ -d "$T/notours/keep" ]; then

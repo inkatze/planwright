@@ -52,7 +52,7 @@ run() {
 
 echo "### usage"
 for args in "make" "make $HOME_F" "bogus $HOME_F $WK" "make $HOME_F $WK --stale" "make $HOME_F $WK --fresh extra" \
-  "make relative $WK" "make $HOME_F not-a-key" "make $HOME_F ${WK}x" "reclaim $HOME_F $SK" "kind $HOME_F"; do
+  "make relative $WK" "make $HOME_F not-a-key" "make $HOME_F ${WK}x" "reclaim $HOME_F $SK" "release $HOME_F" "kind $HOME_F $WK"; do
   # shellcheck disable=SC2086 # the words are separate arguments on purpose
   run $args
   if [ "$RC" -eq 2 ]; then
@@ -77,8 +77,9 @@ if [ "$RC" -eq 0 ] && [ "$OUT" != "$root" ] && [ "${OUT%/*}" = "$BASE" ]; then
 else
   fail "make: session root '$OUT' (worktree's $root)"
 fi
+NEW=$(hex40 9)
 for bad in relative "$T/missing"; do
-  PLANWRIGHT_FLEET_SCRATCH_BASE=$bad run make "$HOME_F" "$WK"
+  PLANWRIGHT_FLEET_SCRATCH_BASE=$bad run make "$HOME_F" "$NEW"
   if [ "$RC" -eq 1 ] && [ -z "$OUT" ] && grep -q 'PLANWRIGHT_FLEET_SCRATCH_BASE' "$T/err"; then
     pass "make: the base '$bad' is refused with a reason"
   else
@@ -87,14 +88,14 @@ for bad in relative "$T/missing"; do
 done
 mkdir -m 777 "$T/open"
 chmod 777 "$T/open"
-PLANWRIGHT_FLEET_SCRATCH_BASE=$T/open run make "$HOME_F" "$WK"
+PLANWRIGHT_FLEET_SCRATCH_BASE=$T/open run make "$HOME_F" "$NEW"
 if [ "$RC" -eq 1 ] && [ -z "$(ls -A "$T/open")" ]; then
   pass "make: a base others may write is refused, nothing created in it"
 else
   fail "make: an open base (rc=$RC, $(ls -A "$T/open"))"
 fi
 mkdir -m 700 "$HOME_F/inner"
-PLANWRIGHT_FLEET_SCRATCH_BASE=$HOME_F/inner run make "$HOME_F" "$WK"
+PLANWRIGHT_FLEET_SCRATCH_BASE=$HOME_F/inner run make "$HOME_F" "$NEW"
 if [ "$RC" -eq 1 ] && [ -z "$(ls -A "$HOME_F/inner")" ]; then
   pass "make: a base inside the fleet home is refused before anything is created"
 else
@@ -155,25 +156,41 @@ else
   fail "--fresh: earlier-layout session root (rc=$RC)"
 fi
 
-echo "### kind, release, reclaim"
+echo "### the recorded root stands"
+mkdir -m 700 "$T/base2"
+PLANWRIGHT_FLEET_SCRATCH_BASE=$T/base2 run make "$HOME_F" "$WK"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$root" ]; then
+  pass "make: a recorded root stands over another base"
+else
+  fail "make: another base moved the root to '$OUT'"
+fi
+PLANWRIGHT_FLEET_SCRATCH_BASE=$T/missing run make "$HOME_F" "$WK"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$root" ]; then
+  pass "make: a recorded root stands while this launch's base is unusable"
+else
+  fail "make: an unusable base refused a usable recorded root (rc=$RC)"
+fi
+WK4=$(hex40 f)
+before=$(ls -A "$BASE")
+chmod 500 "$HOME_F/scratch"
+run make "$HOME_F" "$WK4"
+chmod 700 "$HOME_F/scratch"
+if [ "$RC" -eq 1 ] && [ "$(wc -l <"$T/err")" -eq 1 ] && grep -q 'cannot record the root' "$T/err" \
+  && [ "$(ls -A "$BASE")" = "$before" ]; then
+  pass "make: a root whose record cannot be written is removed, the one reason printed"
+else
+  fail "make: unrecordable root (rc=$RC, $(cat "$T/err"), $(ls -A "$BASE"))"
+fi
+
+echo "### release, reclaim"
 run make "$HOME_F" "$SK"
 sroot=$OUT
-run kind "$HOME_F" "$root"
-k1=$OUT
-run kind "$HOME_F" "$sroot"
-if [ "$k1" = worktree ] && [ "$OUT" = session ]; then
-  pass "kind: a worktree's root and a session's are told apart"
-else
-  fail "kind: '$k1' and '$OUT'"
-fi
 mkdir -m 700 "$BASE/0123456789abcdef"
-run kind "$HOME_F" "$BASE/0123456789abcdef"
-k2=$RC
 run release "$HOME_F" "$BASE/0123456789abcdef"
-if [ "$k2" -eq 1 ] && [ "$RC" -eq 1 ] && [ -d "$BASE/0123456789abcdef" ]; then
-  pass "kind and release: a root of the right shape that no record names is left alone"
+if [ "$RC" -eq 1 ] && [ -d "$BASE/0123456789abcdef" ]; then
+  pass "release: a root of the right shape that no record names is left alone"
 else
-  fail "kind and release: an unrecorded root (kind=$k2 release=$RC)"
+  fail "release: an unrecorded root (rc=$RC)"
 fi
 mkdir -p "$sroot/ro/deep"
 chmod 500 "$sroot/ro"
@@ -182,6 +199,12 @@ if [ "$RC" -eq 0 ] && [ ! -e "$sroot" ] && [ ! -e "$HOME_F/scratch/$SK.tmpdir" ]
   pass "release: a recorded root holding a read-only directory goes with its record, its sibling stays"
 else
   fail "release: rc=$RC"
+fi
+run release "$HOME_F" "$sroot"
+if [ "$RC" -eq 0 ]; then
+  pass "release: a root already released is done"
+else
+  fail "release: a second release exited $RC"
 fi
 run make "$HOME_F" "$SK"
 sroot=$OUT
@@ -229,18 +252,10 @@ else
 fi
 run make "$HOME_F" "$WK"
 root=$OUT
-mkdir -p "$HOME_F/streamjson/other"
-printf '%s\n' "$root" >"$HOME_F/streamjson/other/scratch-root"
-if release_ptr "$root" && [ -d "$root" ] && [ ! -e "$T/unit/scratch-root" ]; then
-  pass "final close: a worktree's root another worker records stays, the pointer goes"
+if release_ptr "$root" && [ ! -e "$root" ] && [ ! -e "$T/unit/scratch-root" ]; then
+  pass "final close: a recorded root goes with its pointer"
 else
-  fail "final close: a shared worktree root"
-fi
-rm -f "$HOME_F/streamjson/other/scratch-root"
-if release_ptr "$root" && [ ! -e "$root" ]; then
-  pass "final close: the last worker's close removes the worktree's root"
-else
-  fail "final close: the last close left $root"
+  fail "final close: left $root or its pointer"
 fi
 
 echo "fleet-scratch: $passes passed, $failures failed"

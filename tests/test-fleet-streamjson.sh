@@ -91,6 +91,16 @@ cleanup() {
     senv "${cl_dir%/streamjson/*}" "$tmp/reap" -- stop "${cl_dir##*/}" --grace 2 >/dev/null 2>&1
   done
   fixture_reap "$tmp/"
+  # A root outside the fixture (c39's default base) outlives it otherwise.
+  for cl_rec in "$tmp"/h*/scratch/*.tmpdir; do
+    [ -f "$cl_rec" ] || continue
+    cl_home=${cl_rec%/scratch/*}
+    cl_root=$(head -n 1 "$cl_rec")
+    case $cl_root/ in
+      "$tmp"/*) ;;
+      *) /bin/sh "$here/../scripts/fleet-scratch.sh" release "$cl_home" "$cl_root" >/dev/null 2>&1 ;;
+    esac
+  done
   rm -rf "$tmp"
 }
 trap cleanup EXIT
@@ -103,7 +113,8 @@ tab=$(printf '\t')
 # The single env-driven CLI shim. One inode for the whole suite.
 mkdir -p "$tmp/bin"
 mkdir -m 700 "$tmp/scratch-base"
-# Every launch below, through senv or not, keeps its scratch root in the fixture.
+# Every launch below, through senv or not, keeps its scratch root in the
+# fixture; c39's second worker alone takes the default base, on purpose.
 export PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base"
 cat >"$tmp/bin/claude" <<'SHIM'
 #!/bin/sh

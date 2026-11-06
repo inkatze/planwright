@@ -236,9 +236,9 @@ if [ -n "$session" ]; then
 fi
 rec=$dir/$key.record
 
-# scratch_trusted <dir>: print the scratch root's canonical path when it is
-# one the guard can trust: apart from the worktree and the record directory
-# in both directions.
+# scratch_trusted <dir>: succeed when the scratch root is canonical and one
+# the guard can trust: apart from the worktree and the record directory in
+# both directions.
 scratch_trusted() {
   sm=$(cd -P -- "$1" 2>/dev/null && pwd -P) || return 1
   [ "$sm" = "$1" ] || return 1
@@ -251,24 +251,23 @@ scratch_trusted() {
   case $dir/ in
     "$sm"/*) return 1 ;;
   esac
-  printf '%s\n' "$sm"
 }
 
 scratch=''
 why=''
+nl='
+'
 skey=$wt_key
 [ -z "$sess_key" ] || skey=$wt_key-$sess_key
 if [ "$want_scratch" != 0 ]; then
   set --
   [ "$want_scratch" != 2 ] || set -- --fresh
-  # A root that would not empty keeps an earlier worker's files: no root.
-  errf=$(mktemp "$dir/.scratch.XXXXXX") || errf=/dev/null
-  scratch=$(/bin/sh "$script_dir/fleet-scratch.sh" make "$home" "$skey" "$@" 2>"$errf" </dev/null) || scratch=''
-  if [ "$errf" != /dev/null ]; then
-    IFS= read -r why <"$errf" || :
-    rm -f -- "$errf"
+  # Success prints the root alone; a failure prints its one reason.
+  if ! scratch=$(/bin/sh "$script_dir/fleet-scratch.sh" make "$home" "$skey" "$@" 2>&1 </dev/null); then
+    why=${scratch%%"$nl"*}
+    scratch=''
   fi
-  if [ -n "$scratch" ] && ! scratch_trusted "$scratch" >/dev/null; then
+  if [ -n "$scratch" ] && ! scratch_trusted "$scratch"; then
     /bin/sh "$script_dir/fleet-scratch.sh" release "$home" "$scratch" >/dev/null 2>&1 </dev/null || :
     why="the root $scratch lies inside the worktree or the record directory"
     scratch=''

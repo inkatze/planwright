@@ -921,13 +921,12 @@ rung it is the worker's own, keyed by worktree and handle
 control launches from one checkout shares that worktree. A final close
 (`stop --final`, which a reap through `fleet-cleanup.sh process` and a
 mission-control retire make) removes it, taking that session's files alone.
-The other rungs record the worktree-wide root; their final close leaves it,
-dropping only the pointer, while another stream-json worker records it.
-Roots of the earlier layout, under `<fleet home>/scratch/<sha1>`, have no
-record and go by their shape instead, under the same stop, final-close and
-in-use rules (a worktree-wide one also stays while a session's root sits in
-it); a worker's next launch or `recover` moves it to a short root, its old
-files left behind. `fleet-cleanup.sh worktree` removes the
+The other rungs record the worktree-wide root, which their final close
+removes. Roots of the earlier layout, under `<fleet home>/scratch/<sha1>`,
+have no record and go by their shape instead: a worktree-wide one stays,
+dropping only the pointer, while another stream-json worker records it or a
+session's root sits in it, and a worker's next launch or `recover` moves it to
+a short root, its old files left behind. `fleet-cleanup.sh worktree` removes the
 worktree's root, every session's, and any of the earlier layout when it
 reclaims the worktree. The
 journal survives as a file but not untouched — the close

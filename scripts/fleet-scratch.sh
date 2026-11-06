@@ -3,7 +3,7 @@
 # the fleet home's record of which are the fleet's (docs/fleet.md).
 #
 # Usage: fleet-scratch.sh make <fleet-home> <key> [--fresh]
-#        fleet-scratch.sh kind|release <fleet-home> <root>
+#        fleet-scratch.sh release <fleet-home> <root>
 #        fleet-scratch.sh reclaim <fleet-home> <worktree-key>
 #
 # A root is <base>/<the first 16 hex digits of sha1("<fleet-home>/<key>")>.
@@ -12,15 +12,15 @@
 # nest the root in its own). It must be this user's and writable by no one
 # else, as tmux's socket directory is: other users can neither see nor
 # recreate a root inside it. <key> is a worktree's or one session's
-# (scripts/worker-session-record.sh). kind, release, and reclaim act only on
-# a root <fleet-home>/scratch/<key>.tmpdir names.
+# (scripts/worker-session-record.sh); <fleet-home>/scratch/<key>.tmpdir
+# records its root, and release acts on no root a record does not name.
 #
 # make     create, record, and print <key>'s root; a recorded usable one
 #          stands. --fresh first removes it, the derived one, and the earlier
 #          layout's, then makes a new one under this launch's base.
-# kind     print `worktree` or `session` for a recorded <root>; release
-#          removes a recorded <root> and its record.
-# reclaim  release a worktree's root, its sessions', and its earlier one.
+# release  remove a recorded <root> and its record; a root already gone is done.
+# reclaim  release a worktree's root and its sessions', and remove its
+#          earlier-layout root and a killed make's temporary records.
 #
 # Exit: 0 done; 1 unrecorded, unusable, or left behind; 2 usage.
 set -uf
@@ -29,7 +29,7 @@ export LC_ALL
 unset CDPATH
 
 me=fleet-scratch.sh
-usage="usage: $me make <fleet-home> <key> [--fresh] | kind <fleet-home> <root> | release <fleet-home> <root> | reclaim <fleet-home> <worktree-key>"
+usage="usage: $me make <fleet-home> <key> [--fresh] | release <fleet-home> <root> | reclaim <fleet-home> <worktree-key>"
 
 die() {
   printf '%s: %s\n' "$me" "$1" >&2
@@ -47,7 +47,7 @@ case $verb in
       fresh=1
     fi
     ;;
-  kind | release | reclaim) [ "$#" -eq 3 ] || die "$usage" 2 ;;
+  release | reclaim) [ "$#" -eq 3 ] || die "$usage" 2 ;;
   *) die "$usage" 2 ;;
 esac
 
@@ -149,7 +149,7 @@ release_record() {
     root_ok "$rl_root" || return 1
     wipe "$rl_root" || return 1
   fi
-  rm -f -- "$1"
+  rm -f -- "$1" 2>/dev/null
 }
 
 case $verb in
@@ -157,6 +157,20 @@ case $verb in
     key=$3
     key_ok "$key" || die "the key is not a worktree's or a session's" 2
     umask 077
+    [ ! -L "$smap" ] || die "the fleet home's scratch directory is a symlink"
+    mkdir -p -- "$smap" 2>/dev/null && [ -d "$smap" ] && [ ! -L "$smap" ] \
+      || die "cannot create the fleet home's scratch directory"
+    rec=$smap/$key.tmpdir
+    if [ -L "$rec" ] || { [ -e "$rec" ] && [ ! -f "$rec" ]; }; then
+      die "the root's record is not a regular file"
+    fi
+    # The recorded root stands while it is usable, whatever base this
+    # launch would derive, or whether that base is usable at all.
+    if [ "$fresh" = 0 ] && record_read "$rec" && root_ok "$rr_line"; then
+      chmod 700 "$rr_line" 2>/dev/null || die "cannot close the root $rr_line to others"
+      printf '%s\n' "$rr_line"
+      exit 0
+    fi
     if [ -n "${PLANWRIGHT_FLEET_SCRATCH_BASE-}" ]; then
       base=$PLANWRIGHT_FLEET_SCRATCH_BASE
       case $base in
@@ -168,31 +182,25 @@ case $verb in
       tmp_dir=$(cd -P /tmp 2>/dev/null && pwd -P) || die "/tmp does not resolve"
       base=$tmp_dir/planwright-$uid
       [ -L "$base" ] || mkdir -- "$base" 2>/dev/null || : # not-a-lock: creating the scratch base, whose checks follow
-      # Ours whatever umask made it: a symlink, or another user's, stays refused.
-      if [ ! -L "$base" ] && [ "$(find "$base" -maxdepth 0 -user "$uid" 2>/dev/null)" = "$base" ]; then
+      # Ours whatever umask made it; a symlink, a hard link to a file, or
+      # another user's entry stays refused.
+      if ! owned_private "$base" && [ ! -L "$base" ] \
+        && [ "$(find "$base" -maxdepth 0 -type d -user "$uid" 2>/dev/null)" = "$base" ]; then
         chmod 700 "$base" 2>/dev/null || :
       fi
     fi
     owned_private "$base" || die "the scratch base $base is not this user's own directory closed to others"
     case $base/ in
-      "$home"/* | "$smap"/*) die "the scratch base lies inside the fleet home" ;;
+      "$home"/*) die "the scratch base lies inside the fleet home" ;;
     esac
-    [ ! -L "$smap" ] || die "the fleet home's scratch directory is a symlink"
-    mkdir -p -- "$smap" 2>/dev/null && [ -d "$smap" ] && [ ! -L "$smap" ] \
-      || die "cannot create the fleet home's scratch directory"
     digest=$(printf '%s/%s' "$home" "$key" | git hash-object --stdin 2>/dev/null) || die "cannot name the root"
-    root=$base/$(printf '%s' "$digest" | cut -c1-16)
-    rec=$smap/$key.tmpdir
-    if [ -L "$rec" ] || { [ -e "$rec" ] && [ ! -f "$rec" ]; }; then
-      die "the root's record is not a regular file"
-    fi
+    root=$base/${digest%"${digest#????????????????}"}
     if [ "$fresh" = 1 ]; then
       if [ -e "$rec" ]; then
         release_record "$rec" || die "the recorded root would not empty"
       fi
       # The earlier layout nested a session's root in its worktree's.
-      lparent=$smap/${key%%-*}
-      [ ! -L "$lparent" ] || die "the earlier layout's worktree root is a symlink"
+      [ ! -L "$smap/${key%%-*}" ] || die "the earlier layout's worktree root is a symlink"
       legacy=$smap/$(printf '%s' "$key" | tr - /)
       [ -L "$legacy" ] || wipe "$legacy" || die "the earlier layout's root would not empty"
       if [ -e "$root" ] || [ -L "$root" ]; then
@@ -200,11 +208,6 @@ case $verb in
           die "the root $root would not empty"
         fi
       fi
-    fi
-    # The recorded root stands while it is usable, whatever base this
-    # launch would derive.
-    if [ "$fresh" = 0 ] && record_read "$rec" && root_ok "$rr_line"; then
-      root=$rr_line
     fi
     made=0
     # An existing root is kept; the checks below decide either way.
@@ -214,24 +217,21 @@ case $verb in
     root_ok "$root" || die "the root $root is not this user's own directory"
     # BSD chmod reads a `--` after the mode as a file; the path is absolute.
     chmod 700 "$root" 2>/dev/null || die "cannot close the root $root to others"
-    tmp=$(mktemp "$smap/.$key.XXXXXX") || tmp=''
-    if [ -z "$tmp" ] || ! printf '%s\n' "$root" >"$tmp" || ! mv -f -- "$tmp" "$rec"; then
-      [ -z "$tmp" ] || rm -f -- "$tmp"
+    tmp=$(mktemp "$smap/.$key.XXXXXX" 2>/dev/null) || tmp=''
+    if [ -z "$tmp" ] || ! { printf '%s\n' "$root" >"$tmp"; } 2>/dev/null || ! mv -f -- "$tmp" "$rec" 2>/dev/null; then
+      [ -z "$tmp" ] || rm -f -- "$tmp" 2>/dev/null
       [ "$made" = 0 ] || rmdir -- "$root" 2>/dev/null
       die "cannot record the root"
     fi
     printf '%s\n' "$root"
     ;;
-  kind)
-    record_of "$3" || exit 1
-    k=${rf_rec##*/}
-    case ${k%.tmpdir} in
-      *-*) echo session ;;
-      *) echo worktree ;;
-    esac
-    ;;
   release)
-    record_of "$3" || exit 1
+    if ! record_of "$3"; then
+      # A reclaim or an earlier release took both; an unrecorded root that
+      # still exists stays.
+      [ ! -e "$3" ] && [ ! -L "$3" ]
+      exit
+    fi
     release_record "$rf_rec"
     ;;
   reclaim)

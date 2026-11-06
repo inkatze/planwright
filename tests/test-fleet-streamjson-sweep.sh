@@ -292,17 +292,14 @@ mv "$home/streamjson/old-sess/scratch-root" "$tmp/w5-bbbb-pointer"
 release "$unit" "$wroot" || fail "w5: a root in use must release its pointer cleanly"
 [ -f "$lsess/b-file" ] && [ ! -e "$unit/scratch-root" ] || fail "w5: a root holding a session's root must stay, its pointer gone"
 mv "$tmp/w5-bbbb-pointer" "$home/streamjson/old-sess/scratch-root"
-# A short worktree-wide root another runtime directory records stays; a
-# directory inside it named like a session's does not keep it, since short
-# session roots never nest.
+# A short worktree-wide root goes with its close, and only it: a directory
+# inside it named like a session's does not keep it, since short session roots
+# never nest.
 sroot=$(PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/sb" /bin/sh "$S/fleet-scratch.sh" make "$home" "$wkey") \
   || fail "w5: no short worktree root"
-mkdir -p "$sroot/$(printf 'd%.0s' $(seq 40))" "$home/streamjson/short-two"
-printf '%s\n' "$sroot" >"$home/streamjson/short-two/scratch-root"
-release "$unit" "$sroot" && [ -d "$sroot" ] || fail "w5: a short root another worker records must stay"
-rm -f "$home/streamjson/short-two/scratch-root"
+mkdir -p "$sroot/$(printf 'd%.0s' $(seq 40))"
 release "$unit" "$sroot" && [ ! -e "$sroot" ] && [ -f "$rb/b-file" ] \
-  || fail "w5: a short root nobody else records must be removed by the last close, and only it"
+  || fail "w5: a short worktree root must be removed by its close, and only it"
 # With no session inside, another runtime directory recording the same root
 # keeps it; once nobody else records it, the last close removes it.
 shared=$(cd "$home" && pwd -P)/scratch/$(printf 'c%.0s' $(seq 40))

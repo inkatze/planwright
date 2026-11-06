@@ -153,9 +153,8 @@ stop_scratch_release() {
 # (scripts/worker-session-record.sh), then the pointer. A plain close keeps
 # both, for the recover that may follow. Only a root the fleet home records
 # is removed (scripts/fleet-scratch.sh): a worktree's, or one session's, which
-# takes that session's files alone. A worktree's root that another
-# stream-json worker records is left, and only the pointer goes, as it does
-# for a root already gone with its record. A root of the earlier layout,
+# takes that session's files alone; one already gone with its record leaves
+# only the pointer to drop. A root of the earlier layout,
 # <fleet-home>/scratch/<sha1> or a session's inside it, <sha1>/<sha1>, goes
 # by its shape, and a worktree's of that layout also stays while it holds a
 # session's root (a session's directory exists before its pointer is
@@ -168,17 +167,7 @@ stop_scratch_root_release() {
   sr_home=$(cd -P -- "$2" 2>/dev/null && pwd -P) || return 1
   sr_key=${sr_path#"$sr_home/scratch/"}
   if [ "$sr_key" = "$sr_path" ]; then
-    if ! sr_kind=$(/bin/sh "${script_dir:?}/fleet-scratch.sh" kind "$sr_home" "$sr_path" 2>/dev/null </dev/null); then
-      # A worktree reclaim or an earlier close took both: nothing is left.
-      [ ! -e "$sr_path" ] && [ ! -L "$sr_path" ] || return 1
-      rm -f -- "$1/scratch-root"
-      return
-    fi
-    if [ "$sr_kind" = worktree ] && stop_scratch_in_use "$1" "$2" "$sr_path" pointers; then
-      rm -f -- "$1/scratch-root"
-      return
-    fi
-    /bin/sh "$script_dir/fleet-scratch.sh" release "$sr_home" "$sr_path" 2>/dev/null </dev/null || return 1
+    /bin/sh "${script_dir:?}/fleet-scratch.sh" release "$sr_home" "$sr_path" 2>/dev/null </dev/null || return 1
     rm -f -- "$1/scratch-root"
     return
   fi
@@ -214,10 +203,10 @@ stop_scratch_root_release() {
   rm -f -- "$1/scratch-root"
 }
 
-# stop_scratch_in_use <dir> <fleet-home> <root> [pointers] — 0 when a
-# worktree's <root> is in use beside the worker at <dir>: another stream-json
-# runtime directory records it or a root inside it, or, unless `pointers`
-# limits the check to those records, it holds a session's root.
+# stop_scratch_in_use <dir> <fleet-home> <root> — 0 when an earlier-layout
+# worktree <root> is in use beside the worker at <dir>: another stream-json
+# runtime directory records it or a root inside it, or it holds a session's
+# root.
 stop_scratch_in_use() {
   case $- in
     *f*) su_restore='set -f' ;;
@@ -225,18 +214,16 @@ stop_scratch_in_use() {
   esac
   su_rc=1
   set +f
-  if [ "${4-}" != pointers ]; then
-    for su_d in "$3"/*; do
-      su_n=${su_d##*/}
-      case $su_n in
-        '' | *[!0-9a-f]*) continue ;;
-      esac
-      if [ "${#su_n}" -eq 40 ] && [ -d "$su_d" ] && [ ! -L "$su_d" ]; then
-        su_rc=0
-        break
-      fi
-    done
-  fi
+  for su_d in "$3"/*; do
+    su_n=${su_d##*/}
+    case $su_n in
+      '' | *[!0-9a-f]*) continue ;;
+    esac
+    if [ "${#su_n}" -eq 40 ] && [ -d "$su_d" ] && [ ! -L "$su_d" ]; then
+      su_rc=0
+      break
+    fi
+  done
   if [ "$su_rc" = 1 ]; then
     for su_f in "$2"/streamjson/*/scratch-root; do
       [ "${su_f%/scratch-root}" != "$1" ] && [ -f "$su_f" ] && [ ! -L "$su_f" ] || continue

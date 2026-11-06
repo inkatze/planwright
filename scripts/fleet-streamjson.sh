@@ -291,9 +291,9 @@
 #       --final also removes, once the close completes, the worker's own
 #       scratch root the launch recorded in <dir>/scratch-root: the close no
 #       recover follows, and the one a reap makes (scripts/fleet-cleanup.sh
-#       process). A worktree's root another worker's runtime directory also
-#       records is left to the worktree reclaim, as is one of the earlier
-#       layout that holds a session's. A plain close keeps it for the recover.
+#       process). An earlier-layout worktree root another worker's runtime
+#       directory also records, or that holds a session's, is left to the
+#       worktree reclaim. A plain close keeps it for the recover.
 #       --observe runs the same checks and probes and releases nothing, printing
 #       `stop <worker> would-release=<classes>` for what a close would take now,
 #       or `stop <worker> already-closed`; the periodic sweep's observing mode
