@@ -215,6 +215,8 @@ record "a tmux server that does not answer is unreadable" unreadable "tmux windo
 expect_no_out "and none of its windows is in flight" "w-tmux"
 record "nor counted finished" finished 6
 expect_out "and the count says it may be more" "4+ in flight"
+mc_run mc-panel.sh text --program alpha
+expect_out "the text panel says the count may be more" "in flight: 4 or more (tmux does not answer)"
 PATH="$tmp/bin-none:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "a tmux server not running is no fault" "tmux windows"
@@ -225,12 +227,26 @@ ln -s "$fleet/attention/state.real" "$fleet/attention/state"
 mc_run mc-panel.sh digest --program alpha --now 1030
 record "a symlinked attention store is unreadable" unreadable "attention store"
 expect_out "and the count, counting idle sessions it cannot tell apart, says it may be fewer" "up to 9 in flight"
+mc_run mc-panel.sh text --program alpha
+expect_out "the text panel says the count may be fewer" "in flight: up to 9 (the attention store cannot be read)"
 PATH="$tmp/bin-down:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_out "with the tmux server not answering as well, the count is unknown" "alpha: ? in flight"
+mc_run mc-panel.sh text --program alpha
+expect_out "and the text panel says so" "in flight: unknown (neither tmux nor the attention store can be read)"
 PATH="$tmp/bin:$host_path"
 rm -f "$fleet/attention/state"
 mv "$fleet/attention/state.real" "$fleet/attention/state"
+# With every tmux row's work ended, a server that does not answer leaves
+# nothing unknown: no fault, and an exact count the panel draws the same.
+cp "$fleet/attention/state" "$tmp/attention.saved"
+for w in w-win w-idname w-tmux w-tmux-gone; do printf '%s\tflight:x\tdone\t900\n' "$w" >>"$fleet/attention/state"; done
+PATH="$tmp/bin-down:$host_path"
+mc_run mc-panel.sh digest --program alpha --now 1030
+expect_no_out "a silent tmux server no row depends on is no fault" "tmux windows"
+expect_out "and the count is exact" "alpha: 4 in flight"
+PATH="$tmp/bin:$host_path"
+cp "$tmp/attention.saved" "$fleet/attention/state"
 
 # A store that cannot be read is said, never drawn as empty.
 printf 'format\t9\n' >"$runtime/measures"

@@ -743,7 +743,9 @@ knobs() {
 
 # The windows of the tmux server, when a registry row names one. A server
 # that is not running has no windows; one that does not answer is unknown,
-# and its rows count neither way.
+# and its rows count neither way. It is said unreadable only once a row
+# the attention store has not already finished depends on it, so the
+# panel's qualified count agrees with this one.
 flight_windows() {
   fl_windows=''
   fl_tmux=1
@@ -755,10 +757,7 @@ flight_windows() {
       else
         case $?:$fl_out in
           127:* | *"no server running"* | *"error connecting to"*"No such file or directory"*) ;;
-          *)
-            fl_tmux=0
-            printf 'unreadable\ttmux windows\n'
-            ;;
+          *) fl_tmux=0 ;;
         esac
       fi
       ;;
@@ -859,6 +858,7 @@ flights() {
   done <<EOF_ROWS
 $fl_class
 EOF_ROWS
+  [ "$fl_unknown" -eq 0 ] || printf 'unreadable\ttmux windows\n'
   fl_rows=$(printf '%s' "$fl_live" | awk 'NF { print "flight\t" $0 }' | mc_clean)
   [ -z "$fl_rows" ] || printf '%s\n' "$fl_rows"
   printf 'finished\t%s\n' "$fl_done"
@@ -1119,11 +1119,18 @@ text_panel() {
     $1 == "unreadable" && $2 == "events" { p = "unknown (the events cannot be read)" }
     $1 == "rung" { r = $2 (($3 == "" || $3 == "-") ? "" : " (" $3 ")") }
     $1 == "unreadable" && $2 == "fleet registry" { fu = 1 }
+    $1 == "unreadable" && $2 == "tmux windows" { tu = 1 }
+    $1 == "unreadable" && $2 == "attention store" { au = 1 }
     $1 == "unreadable" && $2 == "operator queue" { w = "unknown (the queue cannot be read)" }
     $1 == "unreadable" && $2 == "budget" { r = "unknown (the budget cannot be read)" }
     END {
       print "mission control " ENVIRON["P"]
-      print "in flight: " (fu ? "unknown (the fleet registry cannot be read)" : n + 0)
+      c = n + 0
+      if (fu) c = "unknown (the fleet registry cannot be read)"
+      else if (tu && au) c = "unknown (neither tmux nor the attention store can be read)"
+      else if (tu) c = c " or more (tmux does not answer)"
+      else if (au) c = "up to " c " (the attention store cannot be read)"
+      print "in flight: " c
       for (i = 1; i <= n; i++) print f[i]
       print "waiting: " (w == "" ? "unknown" : w)
       if (p != "") print "pending wakes: " p
