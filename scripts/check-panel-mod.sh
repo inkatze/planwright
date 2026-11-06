@@ -154,6 +154,7 @@ if ! { cp "$root/.claude-plugin/plugin.json" "$seed/.claude-plugin/" \
   && mkdir -p "$seed/hooks/mission-control" \
   && cp "$root/hooks/mission-control"/*.ts "$root/hooks/mission-control"/*.tsx "$seed/hooks/mission-control/" \
   && rm -f "$seed/hooks/mission-control/wake.test.tsx" "$seed/hooks/mission-control/compaction.test.tsx" \
+    "$seed/hooks/mission-control/install.test.tsx" \
   && cp -R "$root/types" "$seed/"; }; then
   echo "$prog: cannot copy the mod to seed a defect" >&2
   exit 2

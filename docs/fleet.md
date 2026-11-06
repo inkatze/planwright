@@ -586,6 +586,18 @@ It therefore raises the same attention signals (a fork-park push, a status
 row) that tmux workers started without the wrapper never did; that is the
 identity working, not new noise.
 
+A task worker lands on the tmux rung only when its spec resolves there
+(`resolve-dispatch-backend.sh`, unattended, read with the configuration of
+the repository the worker is placed in) or the tower passes
+`--backend tmux`, which it does for an explicit `/orchestrate --backend tmux`
+or a yes to the tmux-context ask (an answer the unattended resolution never
+reads). For a spec resolving to any other rung `fleet-dispatch-worktree.sh`
+refuses the launch with exit 17, before anything is placed, rather than
+start a worker whose prompts the chosen rung's supervisor (mission control
+included) would never see. `/orchestrate` dispatches a stream-json or headless unit through
+`scripts/orchestrate-meta-step.sh`, the prompt riding the launch.
+`--attach-dry-run` is not refused: it prints a plan and launches nothing.
+
 ### The task worker's opening turn
 
 A tmux task worker starts working from a file handed to it at launch, so its
@@ -2534,8 +2546,12 @@ settings files it parses). The mission-control launcher
 seams: `fleet-streamjson.sh launch --profile <kind>` and
 `offload-dispatch.sh dispatch tmux --profile <kind>` pin the tower or
 mission-control profile by kind, never by path, and a session under either
-carries no worker identity. Each launch also names its session with `--name`:
-the worker's registry handle, `planwright-tower-<spec>` for a relaunch, and
+carries no worker identity. A worker, reviewer or ad-hoc launch never starts
+in a primary checkout: the launcher has `fleet-dispatch-worktree.sh
+--no-attach` create its worktree, or reuses the one holding its branch when
+no live session runs there (`--help` has the rules). Each launch also names
+its session with `--name`: the worker's registry handle,
+`planwright-tower-<spec>` for a relaunch, and
 `planwright-tower-<spec>-<epoch>-<pid>` for a handover, so the retiring tower
 and its replacement never share a name, nor do two launches in one second.
 Except on `offload-dispatch.sh`, which resolves the profile and pins the
