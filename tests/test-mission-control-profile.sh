@@ -55,8 +55,13 @@ if jq -e --slurpfile t "$TOWER" '.permissions.allow == ($t[0].permissions.allow 
 else
   fail "the allow list is not the tower's plus Bash(gh pr ready:*)"
 fi
-[ "$(jq -r '.permissions.defaultMode' "$MC")" = default ] \
-  && ok "the default mode is default" || fail "the default mode is not default"
+# Auto mode, so a launched successor never stalls on a prompt no other session
+# may answer; the deny list and the guard hooks still bind it.
+[ "$(jq -r '.permissions.defaultMode' "$MC")" = auto ] \
+  && ok "the default mode is auto" || fail "the default mode is not auto"
+[ "$(jq -r '.permissions.defaultMode' "$TOWER")" = default ] \
+  && ok "the tower profile keeps prompting, so auto stays mission control's alone" \
+  || fail "the tower profile's default mode is no longer default; revisit the mission-control mode rule"
 
 deny=$(jq -r '.permissions.deny[]' "$MC")
 ask=$(jq -r '.permissions.ask[]' "$MC")
