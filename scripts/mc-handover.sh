@@ -664,7 +664,7 @@ case $verb in
         asked) ;;
         handover)
           if [ "$H_KIND" = attended ]; then
-            say "the holder $H_SESSION is the operator's own session, which the harness cannot move to a launched successor; offer the operator's act instead (mc-handover.sh offer)"
+            say "the holder $H_SESSION is the operator's own session, which the harness cannot move to a launched successor; that session compacts instead"
             exit 4
           fi
           [ -f "$HANDOVER" ] || {
