@@ -35,8 +35,8 @@
 #       `tmux display-message`); it is refused if it resolves to that window.
 #   fleet-cleanup.sh worktree <path> <trigger> <reasoning> [--merged-pr <n>]
 #       Remove a clean, provably-reclaimable git worktree (git worktree remove),
-#       with the session records and the scratch root the fleet home keeps for
-#       it (scripts/worker-session-record.sh). Refused if <path> is (or contains) the caller's own worktree, or if it
+#       with its session records and the scratch roots the fleet home records
+#       for it and its sessions (scripts/fleet-scratch.sh). Refused if <path> is (or contains) the caller's own worktree, or if it
 #       carries uncommitted work, or if neither evidence path below holds:
 #         A. upstream parity — a configured upstream, zero commits ahead;
 #         B. --merged-pr <n> — this script verifies via `gh` that PR <n> is

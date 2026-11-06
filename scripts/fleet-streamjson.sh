@@ -79,9 +79,9 @@
 #                    and --tier-unit named, which `relaunch` resolves at
 #   relaunch.lock    a relaunch's election, outside the release set
 #   scratch-root     the scratch root the launch handed the worker as its
-#                    TMPDIR: its own, inside its worktree's, or for a worker
-#                    launched before roots were per session the worktree's
-#                    own; only a final close removes it (scripts/
+#                    TMPDIR: its own (scripts/fleet-scratch.sh), or for a
+#                    worker launched before roots were per session the
+#                    worktree's; only a final close removes it (scripts/
 #                    fleet-stop-lib.sh, stop_scratch_root_release)
 #   alarmed-<id>     the mark of a request whose overdue push has been made,
 #                    until the journal no longer reads it pending
@@ -291,9 +291,9 @@
 #       --final also removes, once the close completes, the worker's own
 #       scratch root the launch recorded in <dir>/scratch-root: the close no
 #       recover follows, and the one a reap makes (scripts/fleet-cleanup.sh
-#       process). A root another worker's runtime directory also records, or
-#       holds one inside, is left to the worktree reclaim. A plain close
-#       keeps it for the recover.
+#       process). A worktree's root another worker's runtime directory also
+#       records is left to the worktree reclaim, as is one of the earlier
+#       layout that holds a session's. A plain close keeps it for the recover.
 #       --observe runs the same checks and probes and releases nothing, printing
 #       `stop <worker> would-release=<classes>` for what a close would take now,
 #       or `stop <worker> already-closed`; the periodic sweep's observing mode
@@ -2327,9 +2327,9 @@ cmd_launch() {
   # and recover of the worker finds again; it becomes the worker's TMPDIR,
   # and only the worker's, so the supervisor keeps its temp files out of a
   # directory the worker may write to. The root is this worker's own, keyed by
-  # its handle under the worktree's: every session mission control launches
-  # from one checkout shares that worktree, and a final close removes the root
-  # it recorded.
+  # worktree and handle (scripts/fleet-scratch.sh): every session mission
+  # control launches from one checkout shares that worktree, and a final close
+  # removes the root it recorded.
   unset PLANWRIGHT_WORKER_SESSION_RECORD
   session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch 2>/dev/null </dev/null) || session_record=''
   if [ -n "$session_record" ]; then
