@@ -163,7 +163,9 @@
 #       --tally splits that count by who acts on it, `operator<TAB><n>` then
 #       `approvals<TAB><n>`: a worker permission prompt (the hook's
 #       `permission` marker, or a stream-json request row) is an approval,
-#       which mission control answers; every other item is the operator's.
+#       which mission control answers under the operator's standing rules,
+#       bringing to the operator only what those rules do not settle; every
+#       other item is the operator's. An unreadable store exits 2.
 #       --except leaves a worker's row out of the RENDER. The tower loop's
 #       comms step passes the worker whose question it just handed the operator
 #       (tower-comms REQ-A1.1): the render that ends the same iteration would
@@ -239,7 +241,8 @@ FS="$script_dir/fleet-state.sh"
 RNC="$script_dir/resolve-notification-channel.sh"
 TAB=$(printf '\t')
 # Must match ANSWER_HINT in scripts/fleet-streamjson.sh, the tail of every
-# question it writes for a pending request.
+# question it writes for a pending request; queue --tally also reads that
+# question's leading `permission request tool <tool> req <id> - ` wording.
 STREAMJSON_ANSWER_HINT='answer via fleet-streamjson.sh answer'
 
 # What a refused scope is told it should look like: the grammar has no slash,
@@ -1549,7 +1552,7 @@ case $cmd in
 
   queue)
     surface_flag=0
-    count_only=0
+    queue_out=list
     except=""
     oc_key=""
     while [ "$#" -gt 0 ]; do
@@ -1566,20 +1569,12 @@ case $cmd in
           on_change_opts queue "$1" "$2"
           shift 2
           ;;
-        --count)
-          [ "$count_only" != 2 ] || {
+        --count | --tally)
+          [ "$queue_out" = list ] || {
             echo "fleet-attention: queue: --count and --tally are exclusive" >&2
             exit 2
           }
-          count_only=1
-          shift
-          ;;
-        --tally)
-          [ "$count_only" != 1 ] || {
-            echo "fleet-attention: queue: --count and --tally are exclusive" >&2
-            exit 2
-          }
-          count_only=2
+          queue_out=${1#--}
           shift
           ;;
         --except)
@@ -1629,18 +1624,25 @@ case $cmd in
     else
       n=$(printf '%s\n' "$sortable" | grep -c .)
     fi
-    if [ "$count_only" = 1 ]; then
+    if [ "$queue_out" = count ]; then
       printf '%s\n' "$n"
       exit 0
     fi
-    if [ "$count_only" = 2 ]; then
+    if [ "$queue_out" = tally ]; then
+      # A store that cannot be read is an unknown split, never zero of each.
+      if [ -e "$store" ] && [ ! -r "$store" ]; then
+        echo "fleet-attention: queue: cannot read the attention store" >&2
+        exit 2
+      fi
       # A stream-json request row is a plain decide row (field 9 empty), told
       # by the question scripts/fleet-streamjson.sh writes for a permission
-      # request; its worker-question rows stay the operator's.
-      printf '%s\n' "$sortable" | FA_HINT="$STREAMJSON_ANSWER_HINT" awk -F "$TAB" '
+      # request, read whole; its worker-question rows stay the operator's.
+      printf '%s\n' "$sortable" | FA_HINT=" - $STREAMJSON_ANSWER_HINT" awk -F "$TAB" '
         NF {
-          r = $11 ""; q = $8 ""
-          if (r == "permission" || (r == "" && index(q, ENVIRON["FA_HINT"]) && q ~ /^(OVERDUE )?permission request tool /)) a++
+          r = $11 ""; q = $8 ""; h = ENVIRON["FA_HINT"]
+          sj = r == "" && q ~ /^(OVERDUE )?permission request tool [^ ]+ req [^ ]+ - / \
+            && length(q) > length(h) && substr(q, length(q) - length(h) + 1) == h
+          if (r == "permission" || sj) a++
           else o++
         }
         END { printf "operator\t%d\napprovals\t%d\n", o, a }'

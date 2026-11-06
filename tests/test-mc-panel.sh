@@ -176,7 +176,10 @@ expect_eq "the line form says the approvals apart from what waits on the operato
 mc_run mc-panel.sh text --program alpha --target mc-alpha
 expect_out "the text panel says what waits on the operator" "waiting on you: 1"
 expect_out "the text panel says the approvals apart" "approvals mission control is handling: 2"
-for w in w-perm w-req w-ask; do mc_run fleet-attention.sh clear "$w"; done
+mc_run fleet-attention.sh clear w-req
+mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
+expect_out "one approval is said in the singular" ", 1 approval mission control is handling,"
+for w in w-perm w-ask; do mc_run fleet-attention.sh clear "$w"; done
 
 # A store that cannot be read is said, never drawn as empty.
 printf 'format\t9\n' >"$runtime/measures"

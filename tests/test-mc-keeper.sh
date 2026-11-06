@@ -277,20 +277,24 @@ case "\$*" in
   *"--head planwright/flight/fl-nopr "*) : ;;
   *"--head planwright/flight/fl-elsewhere "*) echo MERGED ;;
   *"--head planwright/flight/fl-asks "*) echo MERGED ;;
+  *"--head planwright/flight/fl-owes "*) echo MERGED ;;
+  *"--head planwright/flight/fl-wt "*) echo MERGED ;;
   *"--head planwright/flight/fl-fails "*) exit 1 ;;
+  *"--head planwright/flight/fl-after "*) echo MERGED ;;
   *) exec "$tmp/bin/gh" "\$@" ;;
 esac
 EOF
 chmod +x "$tmp/bin2/gh"
 : >"$tmp/gh-flight.log"
-for fl in fl-merged:print fl-closed:tmux fl-open:print fl-nopr:print fl-elsewhere:print fl-asks:print fl-fails:print; do
+for fl in fl-merged:print fl-closed:tmux fl-owes:tmux fl-wt:print fl-open:print fl-nopr:print fl-elsewhere:print fl-asks:print fl-fails:print fl-after:print; do
   id=${fl%%:*}
   mkdir -p "$fleet/flights/$id"
-  if [ "$id" = fl-elsewhere ]; then
-    printf '%s\n' "$tmp/other" >"$fleet/flights/$id/checkout"
-  else
-    printf '%s\n' "$repo" >"$fleet/flights/$id/checkout"
-  fi
+  case $id in
+    fl-elsewhere) printf '%s\n' "$tmp/other" >"$fleet/flights/$id/checkout" ;;
+    fl-wt) printf '%s\n' "$repo/.claude/worktrees/flight-fl-wt" >"$fleet/flights/$id/checkout" ;;
+    *) printf '%s\n' "$repo" >"$fleet/flights/$id/checkout" ;;
+  esac
+  [ "$id" != fl-closed ] || printf 'pr:https://github.com/acme/web/pull/3\n' >"$fleet/flights/$id/landing"
   if [ "$id" = fl-asks ]; then
     mc_run fleet-attention.sh decide "print-flight-$id" "flight:$id" 'Ship it?' yes 'yes|no'
   else
@@ -300,7 +304,9 @@ done
 PATH="$tmp/bin2:$PATH" mc_run mc-keeper.sh sweep --program alpha
 expect_out "a park on a merged pull request is settled" "settled${tab}print-flight-fl-merged${tab}MERGED"
 expect_out "a park on a closed pull request is settled" "settled${tab}tmux-flight-fl-closed${tab}CLOSED"
-expect_out "a park whose read failed is named" "unknown${tab}print-flight-fl-fails"
+expect_out "a park from a since-removed worktree of a program repository is settled" "settled${tab}print-flight-fl-wt${tab}MERGED"
+expect_out "a park whose read failed is named" "park-unknown${tab}print-flight-fl-fails"
+expect_out "a failed read stops the pass, the rest named unread" "park-unknown${tab}print-flight-fl-after${tab}an earlier"
 mc_run fleet-attention.sh queue
 expect_no_out "the merged flight's park leaves the queue" "fl-merged"
 expect_no_out "the closed flight's park leaves the queue" "fl-closed"
@@ -309,18 +315,24 @@ expect_out "a park with no pull request stays" "flight:fl-nopr"
 expect_out "a park from a repository outside the program stays" "flight:fl-elsewhere"
 expect_out "a question that is not a park stays" "flight:fl-asks"
 expect_out "a park whose read failed stays" "flight:fl-fails"
+expect_out "a park left unread after a failure stays" "flight:fl-after"
+expect_out "a tmux flight whose completion was never pushed keeps its park" "flight:fl-owes"
+if grep -q "fl-after" "$tmp/gh-flight.log"; then fail "the forge was asked again after a failed read"; else ok "the forge is not asked again after a failed read"; fi
+if grep "fl-merged" "$tmp/gh-flight.log" | grep -q "isCrossRepository"; then ok "the read leaves out a fork's pull requests"; else fail "the read does not filter cross-repository pull requests: $(cat "$tmp/gh-flight.log")"; fi
 if grep -q "fl-elsewhere" "$tmp/gh-flight.log"; then fail "the forge was asked about a flight outside the program"; else ok "the forge is not asked about a flight outside the program"; fi
 if grep -q "fl-asks" "$tmp/gh-flight.log"; then fail "the forge was asked about a row that is not a park"; else ok "the forge is not asked about a row that is not a park"; fi
+# The re-raised park lands after the failing one, which would stop the pass.
+mc_run fleet-attention.sh clear print-flight-fl-fails
 mc_run fleet-attention.sh park print-flight-fl-merged flight:fl-merged 'flight-parked: point'
 OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin2:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
 expect_no_out "under the runner a settle prints nothing" "settled"
 mc_run fleet-attention.sh queue
 expect_no_out "under the runner the park is settled too" "fl-merged"
-for id in fl-open fl-nopr fl-elsewhere fl-asks fl-fails; do
+for id in fl-open fl-nopr fl-elsewhere fl-asks fl-fails fl-after; do
   mc_run fleet-attention.sh clear "print-flight-$id"
-  rm -rf "$fleet/flights/$id"
 done
-rm -rf "$fleet/flights/fl-merged" "$fleet/flights/fl-closed"
+mc_run fleet-attention.sh clear tmux-flight-fl-owes
+rm -rf "$fleet/flights"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-keeper: $failures failure(s)" >&2

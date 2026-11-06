@@ -263,6 +263,14 @@ test('approvals mission control is handling are said apart from what waits on th
   await ui.unmount()
 })
 
+test('one approval is said in the singular', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['approvals\t1'] }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /approval/ }))?.text).toBe('1 approval mission control is handling')
+  await ui.unmount()
+})
+
 test('no approvals line when mission control is handling none', async ($, on) => {
   const w = world(on, { digest: digestText({ extra: ['approvals\t0'] }) })
   await boot($, w)

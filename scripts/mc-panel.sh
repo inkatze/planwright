@@ -958,7 +958,11 @@ handover() {
 the_line() {
   ln_text="mission control $program: $D_FLIGHT in flight, $D_WAITING waiting"
   [ -z "$target" ] || ln_text="$ln_text, $D_PENDING pending"
-  [ "$D_APPROVALS" = 0 ] || ln_text="$ln_text, $D_APPROVALS approvals mission control is handling"
+  case $D_APPROVALS in
+    0) ;;
+    1) ln_text="$ln_text, 1 approval mission control is handling" ;;
+    *) ln_text="$ln_text, $D_APPROVALS approvals mission control is handling" ;;
+  esac
   ln_text="$ln_text, rung $D_RUNG"
   [ -z "$D_OLDEST" ] || ln_text="$ln_text, $D_OLDEST"
   clean_field "$ln_text"

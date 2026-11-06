@@ -288,11 +288,12 @@ fa decide o1 spec.task-4 'Ship it?' yes 'yes|no' || fail "tally setup: decide"
 fa park o2 flight:x 'flight-parked: point' || fail "tally setup: park"
 fa decide o3 spec.task-5 "worker question (AskUserQuestion) req cccc3333 - $hint" deny 'allow|deny' || fail "tally setup: worker question"
 fa decide o4 spec.task-6 'permission request tool Bash, should it run?' yes 'yes|no' || fail "tally setup: look-alike"
+fa decide o5 spec.task-8 "permission request tool Bash req dddd4444 - $hint, then ship it?" yes 'yes|no' || fail "tally setup: hint mid-question"
 fa heartbeat s1 spec.task-7 working || fail "tally setup: heartbeat"
 out=$(fa queue --tally) || fail "queue --tally failed"
-[ "$out" = "operator${TAB}4
+[ "$out" = "operator${TAB}5
 approvals${TAB}3" ] || fail "queue --tally split wrong (got: $out)"
-[ "$(fa queue --count)" = 7 ] || fail "queue --count must stay the full awaiting count"
+[ "$(fa queue --count)" = 8 ] || fail "queue --count must stay the full awaiting count"
 echo "ok: queue --tally counts worker permission prompts apart from the operator's items"
 
 reset
@@ -300,6 +301,14 @@ out=$(fa queue --tally) || fail "queue --tally on no store failed"
 [ "$out" = "operator${TAB}0
 approvals${TAB}0" ] || fail "queue --tally with no store (got: $out)"
 fa queue --tally --count >/dev/null 2>&1 && fail "queue --tally with --count must be refused"
-echo "ok: queue --tally reads zero with no store and refuses --count"
+if [ "$(id -u)" != 0 ]; then
+  fa decide o1 spec.task-4 'Ship it?' yes 'yes|no' || fail "tally setup: decide for the unreadable store"
+  chmod 000 "$store"
+  rc=0
+  fa queue --tally >/dev/null || rc=$?
+  chmod 600 "$store"
+  [ "$rc" = 2 ] || fail "queue --tally on an unreadable store must exit 2, not count zero (exit $rc)"
+fi
+echo "ok: queue --tally reads zero with no store, refuses an unreadable one and refuses --count"
 
 echo "PASS: $(basename "$0")"
