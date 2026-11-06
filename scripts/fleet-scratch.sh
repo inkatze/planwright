@@ -6,18 +6,18 @@
 #        fleet-scratch.sh release <fleet-home> <root>
 #        fleet-scratch.sh reclaim <fleet-home> <worktree-key>
 #
-# A root is <base>/<the first 16 hex digits of sha1("<fleet-home>/<key>")>.
-# <base> is $PLANWRIGHT_FLEET_SCRATCH_BASE, else /tmp/planwright-<uid>, made
-# when absent; never an inherited TMPDIR (a launcher inside a worker would
-# nest the root in its own). It must be this user's and writable by no one
-# else, as tmux's socket directory is: other users can neither see nor
-# recreate a root inside it. <key> is a worktree's or one session's
-# (scripts/worker-session-record.sh); <fleet-home>/scratch/<key>.tmpdir
-# records its root, and release acts on no root a record does not name.
+# A root is <base>/<the first 16 hex digits of git hash-object of
+# "<fleet-home>/<key>", in the repository's object format>. <base> is
+# $PLANWRIGHT_FLEET_SCRATCH_BASE, else /tmp/planwright-<uid>, made when
+# absent; never an inherited TMPDIR (a launcher inside a worker would nest the
+# root in its own). It must be this user's and closed to others, as tmux's
+# socket directory is, so no one else can see or recreate a root inside it.
+# <key> is a worktree's or a session's (scripts/worker-session-record.sh);
+# <fleet-home>/scratch/<key>.tmpdir records its root, and release acts on no
+# root a record does not name.
 #
-# make     create, record, and print <key>'s root; a recorded usable one
-#          stands. --fresh first removes it, the derived one, and the earlier
-#          layout's, then makes a new one under this launch's base.
+# make     create, record, and print <key>'s root; a usable recorded one stands
+#          (--fresh removes it, the derived one and the earlier layout's first).
 # release  remove a recorded <root> and its record; a root already gone is done.
 # reclaim  release a worktree's root and its sessions', and remove its
 #          earlier-layout root and a killed make's temporary records.
