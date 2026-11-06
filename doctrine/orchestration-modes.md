@@ -229,8 +229,9 @@ only prompt the tmux task arm carries, so this plumbing serves single-spec
 towers for now. A single-spec tower whose spec resolves to the stream-json
 or headless rung dispatches through `scripts/orchestrate-meta-step.sh` too.
 Conversely, the tmux primitive refuses to launch a task worker for a spec
-resolving to any rung but tmux (exit 17), so no dispatch lands silently
-where its supervisor cannot answer its prompts.
+resolving to any rung but tmux (exit 17) unless the tower passes
+`--backend tmux` for a tmux pick the unattended resolution cannot see, so no
+dispatch lands silently where its supervisor cannot answer its prompts.
 
 **The attention surface (the queue as default, D-13).** The fleet-entry loop
 keeps the attention store current and renders it, through
