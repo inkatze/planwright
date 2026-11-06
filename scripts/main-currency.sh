@@ -111,8 +111,9 @@
 #   checkout	<primary checkout>
 #   branch	<origin's default branch>
 #   record	<log path>|unwritten   (only after a move)
-# Exits as sync does (3 also covers asking origin for its default branch, 4
-# a local history origin lacks, 6 also an operation in progress), plus:
+# Exits as sync does (3 also covers asking origin for its default branch and
+# a git read error, 4 a local history origin lacks, 6 also an operation in
+# progress), plus:
 #   7  a shape it refuses: --checkout naming anything but a primary
 #      checkout's top level, a bare repository, a checkout path holding a
 #      control character, another branch or a detached HEAD checked out, no
@@ -288,22 +289,27 @@ ff_primary() {
     err "not a git checkout: $(sanitize_printable "$(pwd)")"
     exit 2
   fi
+  # Checked on the git directory's path, before any $(...) strips a trailing
+  # newline that would turn the path into a sibling's: the checkout's path is
+  # printed and recorded as a tab-separated field. The byte range is
+  # sanitize_printable's.
+  [ "$(printf '%s' "$common" | tr -d '\000-\037\177\200-\237')" = "$common" ] \
+    || ff_refuse "the repository's path holds a control character, which this verb's output and record lines cannot carry"
   case $common in
     */.git) primary=${common%/.git} ;;
     *) ff_refuse "the repository's git directory ($(sanitize_printable "$common")) is not a checkout's .git, so there is no primary checkout to fast-forward" ;;
   esac
   primary=$(cd -P -- "$primary" 2>/dev/null && pwd -P) \
     || ff_refuse "the primary checkout of this repository could not be entered"
-  # Its path is printed and recorded as a tab-separated field.
-  case $primary in
-    *[[:cntrl:]]*) ff_refuse "the primary checkout's path holds a control character, which its output and record lines cannot carry" ;;
-  esac
   if [ -n "$ffp_checkout" ]; then
     # git walks up from a directory that is not a top level, so a named
-    # directory inside some other repository would reach that repository.
+    # directory inside some other repository would reach that repository;
+    # inside a .git directory there is no top level at all.
     ffp_top=$(git rev-parse --show-toplevel 2>/dev/null) || ffp_top=''
-    ffp_top=$(cd -P -- "$ffp_top" 2>/dev/null && pwd -P) || ffp_top=''
-    if [ "$gitdir" != "$common" ] || [ "$ffp_top" != "$(pwd -P)" ]; then
+    if [ -n "$ffp_top" ]; then
+      ffp_top=$(cd -P -- "$ffp_top" 2>/dev/null && pwd -P) || ffp_top=''
+    fi
+    if [ -z "$ffp_top" ] || [ "$gitdir" != "$common" ] || [ "$ffp_top" != "$(pwd -P)" ]; then
       ff_refuse "$(sanitize_printable "$ffp_checkout") is not a primary checkout's top level, and this verb moves only a primary checkout's default branch; name the primary checkout itself (for this repository: main-currency.sh ff-primary --checkout $(shell_quote "$(sanitize_printable "$primary")"))"
     fi
   fi
@@ -349,13 +355,8 @@ ff_primary() {
   }
 
   # The checkout checks run after the fetch, the slow step, so they describe
-  # the checkout the merge below meets.
-  cur=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || cur=''
-  if [ -z "$cur" ]; then
-    ff_refuse "the primary checkout is on a detached HEAD, not origin's default branch $default; this verb moves only the default branch, so everything stays where it is"
-  fi
-  [ "$cur" = "$default" ] \
-    || ff_refuse "the primary checkout has $(sanitize_printable "$cur" 'another branch') checked out, not origin's default branch $default; this verb moves only the default branch, so everything stays where it is"
+  # the checkout the merge below meets. Operations come first: a rebase or a
+  # bisect detaches HEAD, and its remedy is to finish it, not to switch.
   for op in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD sequencer rebase-merge rebase-apply BISECT_LOG; do
     if [ -e "$common/$op" ]; then
       err "an operation is in progress in the primary checkout ($op), so $default is not clean — refusing"
@@ -363,6 +364,18 @@ ff_primary() {
       exit 6
     fi
   done
+  ffp_rc=0
+  cur=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || ffp_rc=$?
+  case $ffp_rc in
+    0) ;;
+    1) ff_refuse "the primary checkout is on a detached HEAD, not origin's default branch $default; this verb moves only the default branch, so everything stays where it is" ;;
+    *)
+      err "git could not read the primary checkout's HEAD (exit $ffp_rc); $default is unmoved — retry next cycle"
+      exit 3
+      ;;
+  esac
+  [ "$cur" = "$default" ] \
+    || ff_refuse "the primary checkout has $(sanitize_printable "$cur" 'another branch') checked out, not origin's default branch $default; this verb moves only the default branch, so everything stays where it is"
   for ffp_scope in '' --cached; do
     ffp_rc=0
     # shellcheck disable=SC2086 # an empty scope is no argument at all
@@ -387,14 +400,28 @@ ff_primary() {
     printf 'main\t%s\n' "$before"
     exit 0
   fi
-  if [ -n "$before" ] && ! git merge-base --is-ancestor "$before" "$target"; then
-    err "$default has history origin/$default lacks, so this is not a pure fast-forward — refusing"
-    err "resolve it yourself; this path never merges, forces, rebases, or resets"
-    exit 4
+  if [ -n "$before" ]; then
+    ffp_rc=0
+    git merge-base --is-ancestor "$before" "$target" || ffp_rc=$?
+    case $ffp_rc in
+      0) ;;
+      1)
+        err "$default has history origin/$default lacks, so this is not a pure fast-forward — refusing"
+        err "resolve it yourself; this path never merges, forces, rebases, or resets"
+        exit 4
+        ;;
+      *)
+        err "git could not compare $default with origin/$default (exit $ffp_rc); $default is unmoved — retry next cycle"
+        exit 3
+        ;;
+    esac
   fi
   # The fetched commit, not the ref, so a concurrent fetch cannot change what
-  # was checked above.
-  if ! merge_out=$(GIT_REFLOG_ACTION="planwright main-currency ff-primary" git merge --ff-only --no-edit "$target" 2>&1); then
+  # was checked above. The reflog message carries this run's own tag, so the
+  # move is attributed from the reflog rather than from merge output a hook
+  # or a file name could imitate.
+  ffp_tag="planwright main-currency ff-primary $$.$(date +%s)"
+  if ! merge_out=$(GIT_REFLOG_ACTION=$ffp_tag git merge --ff-only --no-edit --no-stat "$target" 2>&1); then
     case "$merge_out" in
       *'ot possible to fast-forward'* | *'divergent'*)
         err "$default has history origin/$default lacks, so this is not a pure fast-forward — refusing"
@@ -419,8 +446,23 @@ ff_primary() {
     err_git_said "$merge_out"
     exit 3
   fi
-  case "$merge_out" in
-    *'lready up to date'*)
+  # A merge onto an unborn branch writes git's own `initial pull` entry, not
+  # the tag, so that first move stands as this run's.
+  ffp_last=''
+  if [ -n "$before" ]; then
+    ffp_last=$(git reflog -1 --format=%gs "refs/heads/$default" -- 2>/dev/null) || ffp_last=''
+  fi
+  case $ffp_last in
+    "$ffp_tag:"*)
+      # This run's move; the entry before it holds the true old commit, even
+      # when another run moved the branch after the read above.
+      before=$(git rev-parse --verify --quiet "refs/heads/$default@{1}") || before=''
+      ;;
+    '')
+      # An unborn branch, or no reflog to read (core.logAllRefUpdates off):
+      # the read above stands.
+      ;;
+    *)
       # Another run moved it between the read above and this merge.
       printf 'sync\tup-to-date\n'
       printf 'main\t%s\n' "$after"

@@ -741,12 +741,13 @@ assert_no_rewrite 19
 # clean primary checkout's default branch up to its origin. Every refused shape
 # leaves the branch where it was and writes no record.
 
-# ffp <checkout> [args...] — run ff-primary on it, capturing out and rc.
+# ffp <checkout> [args...] — run ff-primary on it under the shipped /bin/sh,
+# capturing out and rc.
 ffp() {
   ffp_dir=$1
   shift
   set +e
-  out=$(mc ff-primary --checkout "$ffp_dir" "$@" 2>&1)
+  out=$(PATH="$shim_dir:$PATH" /bin/sh "$MC" ff-primary --checkout "$ffp_dir" "$@" 2>&1)
   rc=$?
   set -e
 }
@@ -808,8 +809,12 @@ PW_GIT_LOG="$tmp/log21"
 export PW_GIT_LOG
 : >"$PW_GIT_LOG"
 wt_before=$("$REAL_GIT" -C "$root_dir/wt" rev-parse HEAD)
-out=$(cd "$root_dir/wt" && PATH="$shim_dir:$PATH" /bin/bash "$MC" ff-primary 2>&1) \
+out=$(cd "$root_dir/wt" && PATH="$shim_dir:$PATH" /bin/sh "$MC" ff-primary 2>&1) \
   || fail "21: ff-primary from a linked worktree refused a clean trunk fast-forward: $out"
+grep -q "	trunk	" "$(ff_record "$root_dir/primary")" 2>/dev/null \
+  || fail "21: the move was not recorded in the primary's own git directory"
+[ ! -e "$("$REAL_GIT" -C "$root_dir/wt" rev-parse --path-format=absolute --git-dir)/planwright" ] \
+  || fail "21: the record landed in the linked worktree's own git directory"
 [ "$("$REAL_GIT" -C "$root_dir/primary" rev-parse trunk)" = "$("$REAL_GIT" -C "$root_dir/origin.git" rev-parse trunk)" ] \
   || fail "21: the primary checkout's trunk is not at origin/trunk"
 [ "$("$REAL_GIT" -C "$root_dir/wt" rev-parse HEAD)" = "$wt_before" ] \
@@ -973,6 +978,7 @@ ffp "$root/tower"
 [ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] || fail "34: main moved"
 [ "$(cat "$root/tower/collide.txt")" = local ] || fail "34: the untracked file was overwritten"
 [ ! -f "$(ff_record "$root/tower")" ] || fail "34: a refused act was recorded"
+assert_no_rewrite 34
 
 # 35. Refused: a staged-only change.
 ff_case 35 ffp-staged
@@ -997,13 +1003,91 @@ ffp "$root/tower"
 [ "$rc" -eq 6 ] || fail "37: a paused sequencer must refuse with exit 6, got $rc: $out"
 ff_refused 37 "$root/tower" main "$before"
 
-# 38. Refused: --checkout naming a directory inside the primary rather than
-#     its top level, so a directory under some other repository never
-#     reaches that repository.
+# 38. Refused: --checkout naming a directory below a checkout's top level, or
+#     inside its .git directory; git would walk up to the repository holding
+#     it, which need not be the one named.
 ff_case 38 ffp-subdir
 mkdir -p "$root/tower/sub"
-ffp "$root/tower/sub"
-[ "$rc" -eq 7 ] || fail "38: a directory below the top level must refuse with exit 7, got $rc: $out"
+for dir in "$root/tower/sub" "$root/tower/.git" "$root/tower/.git/refs"; do
+  ffp "$dir"
+  [ "$rc" -eq 7 ] || fail "38: --checkout $dir must refuse with exit 7, got $rc: $out"
+done
 ff_refused 38 "$root/tower" main "$before"
+
+# 39. Refused: a rebase in progress, which detaches HEAD, is named as an
+#     operation to finish, not as a detached HEAD.
+ff_case 39 ffp-rebasing
+"$REAL_GIT" -C "$root/tower" checkout --quiet --detach
+mkdir -p "$root/tower/.git/rebase-merge"
+ffp "$root/tower"
+[ "$rc" -eq 6 ] || fail "39: a rebase in progress must refuse with exit 6, got $rc: $out"
+printf '%s\n' "$out" | grep -q 'rebase-merge' || fail "39: the refusal does not name the operation: $out"
+ff_refused 39 "$root/tower" main "$before"
+
+# 40. Refused: a checkout path holding a control character, a trailing
+#     newline included, even beside a sibling the stripped path would name.
+ff_case 40 ffp-ctrl
+nl_dir="$root/nl
+"
+c1_dir=$(printf '%s/c\233' "$root")
+"$REAL_GIT" clone --quiet "$root/origin.git" "$root/nl"
+sib_before=$("$REAL_GIT" -C "$root/nl" rev-parse main)
+for dir in "$nl_dir" "$c1_dir"; do
+  "$REAL_GIT" clone --quiet "$root/origin.git" "$dir" || fail "40: could not build the control-character fixture"
+  "$REAL_GIT" -C "$dir" reset --quiet --hard HEAD~1
+  ffp "$dir"
+  [ "$rc" -eq 7 ] || fail "40: a control character in the path must refuse with exit 7, got $rc: $out"
+done
+[ "$sib_before" = "$("$REAL_GIT" -C "$root/nl" rev-parse main)" ] || fail "40: the sibling without the newline moved"
+[ ! -f "$(ff_record "$root/nl")" ] || fail "40: the sibling recorded an act"
+
+# 41. Refused: a repository whose git directory is not a checkout's .git.
+ff_case 41 ffp-separate
+"$REAL_GIT" clone --quiet --separate-git-dir="$root/sep.git" "$root/origin.git" "$root/sep"
+ffp "$root/sep"
+[ "$rc" -eq 7 ] || fail "41: a separate git directory must refuse with exit 7, got $rc: $out"
+
+# 42. Refused: an existing record file that cannot be written.
+if [ "$(id -u)" != 0 ]; then
+  ff_case 42 ffp-ro-record
+  mkdir -p "$root/tower/.git/planwright"
+  : >"$root/tower/.git/planwright/main-currency.log"
+  chmod a-w "$root/tower/.git/planwright/main-currency.log"
+  ffp "$root/tower"
+  [ "$rc" -eq 7 ] || fail "42: an unwritable record file must refuse with exit 7, got $rc: $out"
+  [ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] || fail "42: main moved"
+  [ ! -s "$root/tower/.git/planwright/main-currency.log" ] || fail "42: the record was written"
+fi
+
+# 43. Usage: --checkout naming no directory, or no value.
+ffp "$tmp/no-such-checkout"
+[ "$rc" -eq 2 ] || fail "43: a missing --checkout directory must exit 2, got $rc: $out"
+set +e
+out=$(PATH="$shim_dir:$PATH" /bin/sh "$MC" ff-primary --checkout 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 2 ] || fail "43: --checkout with no value must exit 2, got $rc: $out"
+
+# 44. An unborn default branch: the first move, recorded with an empty old
+#     commit, the actor falling back to the tower id, then to unknown.
+for actor in tower-x unknown; do
+  root_dir="$tmp/ffp-unborn-$actor"
+  mkdir -p "$root_dir"
+  "$REAL_GIT" clone --quiet --bare "$tmp/ffp-ok/origin.git" "$root_dir/origin.git"
+  "$REAL_GIT" init --quiet --initial-branch=main "$root_dir/primary"
+  "$REAL_GIT" -C "$root_dir/primary" remote add origin "$root_dir/origin.git"
+  PW_GIT_LOG="$tmp/log44"
+  export PW_GIT_LOG
+  : >"$PW_GIT_LOG"
+  tower_id=$actor
+  [ "$actor" != unknown ] || tower_id=''
+  PLANWRIGHT_WORKER_HANDLE='' PLANWRIGHT_TOWER_ID=$tower_id ffp "$root_dir/primary"
+  [ "$rc" -eq 0 ] || fail "44: an unborn default branch must fast-forward (exit $rc): $out"
+  after=$("$REAL_GIT" -C "$root_dir/origin.git" rev-parse main)
+  [ "$("$REAL_GIT" -C "$root_dir/primary" rev-parse main)" = "$after" ] || fail "44: main was not created at origin/main"
+  grep -q "ff-primary	$root_dir/primary	main		$after	$actor$" "$(ff_record "$root_dir/primary")" \
+    || fail "44: the record does not carry an empty old commit and actor $actor: $(cat "$(ff_record "$root_dir/primary")")"
+  assert_no_rewrite 44
+done
 
 echo "PASS: test-main-currency.sh"
