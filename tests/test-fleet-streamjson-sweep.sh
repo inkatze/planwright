@@ -238,6 +238,8 @@ hreal=$(cd "$home" && pwd -P)
 for r in "$ra" "$rb"; do
   case $r/ in
     "$hreal"/*) fail "w5: a session's root lies under the fleet home: $r" ;;
+    "$(cd "$tmp/sb" && pwd -P)"/*) ;;
+    *) fail "w5: a session's root lies outside the scratch base: $r" ;;
   esac
 done
 [ "$(record mc-alpha-worker-aaaa)" = "$ra" ] || fail "w5: a relaunch of a session must find its own root again"
