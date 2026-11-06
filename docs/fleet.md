@@ -2472,7 +2472,11 @@ silently widened. Because the guard is allow-only with no default-deny, the
 profile's **deny block is the security floor**, effective regardless of guard
 output: it denies the shell guardrails (merge, every force-push spelling, amend
 / squash / rebase, `gh pr merge`), default-branch and local-`main` mutation
-(`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), the equivalent
+(`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), every
+branch-moving and stash-writing act in any checkout (`checkout`, `switch`,
+every `reset`, a branch rename or copy, `worktree add -B`, a `symbolic-ref` write, a fetch into a
+local branch, `gh pr checkout`, `gh repo sync`, and every `stash` form but
+`list` and `show`; [the posture delta](tower-posture-delta.md) lists them), the equivalent
 GitHub MCP tools (`merge_pull_request`, `update_pull_request`, `push_files` /
 `create_or_update_file` / `delete_file` — denied wholesale by name because a
 Bash-string guard cannot intercept an MCP call, and on every MCP server by a
@@ -2519,8 +2523,12 @@ settings files it parses). The mission-control launcher
 seams: `fleet-streamjson.sh launch --profile <kind>` and
 `offload-dispatch.sh dispatch tmux --profile <kind>` pin the tower or
 mission-control profile by kind, never by path, and a session under either
-carries no worker identity. Each launch also names its session with `--name`:
-the worker's registry handle, `planwright-tower-<spec>` for a relaunch, and
+carries no worker identity. A worker, reviewer or ad-hoc launch never starts
+in a primary checkout: the launcher has `fleet-dispatch-worktree.sh
+--no-attach` create its worktree, or reuses the one holding its branch when
+no live session runs there (`--help` has the rules). Each launch also names
+its session with `--name`: the worker's registry handle,
+`planwright-tower-<spec>` for a relaunch, and
 `planwright-tower-<spec>-<epoch>-<pid>` for a handover, so the retiring tower
 and its replacement never share a name, nor do two launches in one second.
 Except on `offload-dispatch.sh`, which resolves the profile and pins the

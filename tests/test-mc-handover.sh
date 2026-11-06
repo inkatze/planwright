@@ -188,6 +188,11 @@ holder_is "the name resolves to the successor" "$n3"
 # last operator turn, an announcement to every live session, the holder
 # releasing on request.
 # ---------------------------------------------------------------------------
+# A worker starts in its own worktree, which needs a default branch to
+# branch from.
+git -C "$repo" symbolic-ref HEAD refs/heads/main
+git -C "$repo" -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+  commit -q --allow-empty -m init || fail "fixture: the initial commit failed"
 run mission-control-launch.sh launch --program alpha --kind worker --scope fixture-worker --brief "$tmp/brief.md"
 [ "$RC" = 0 ] || fail "fixture: the worker did not launch: $ERR"
 worker=$(printf '%s\n' "$OUT" | awk -F '\t' '$2 == "name" { print $3 }')

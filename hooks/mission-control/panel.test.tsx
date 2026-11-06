@@ -322,7 +322,8 @@ test('the mod stays inert in a session that is not mission control', async ($, o
   })
   await boot($, w)
   await w.clock.advance(60_000)
-  expect(w.runs).toEqual([])
+  // Only where activation records live, read once to watch for its own.
+  expect(w.runs.map(r => r[2])).toEqual(['where'])
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await ui.find({ type: 'Text' }))?.text).toBe('engine')
   await ui.unmount()

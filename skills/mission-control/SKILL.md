@@ -105,10 +105,14 @@ here; it sets the depth of every turn, not only the first run's.
    `take`) instead. A successor launch that is neither the operator's ask
    nor a live handover is refused by `scripts/mc-handover.sh`'s `launch`;
    the session that asked for it reports the refusal and starts nothing.
-3. **The runner.** `scripts/mc-watch.sh`'s `pass` prints `busy` while a
+3. **The panel (REQ-F1.16).** Run `scripts/mc-panel.sh`'s `activate
+   --program <p>`, then `await --program <p>`. On `panel text`, say once,
+   in plain words, that the panel cannot load here, and show the text it
+   printed (`text` refreshes it). On releasing to a successor, `retire`.
+4. **The runner.** `scripts/mc-watch.sh`'s `pass` prints `busy` while a
    runner holds the program; otherwise start `run --program <p>` detached
    (under `setsid`, never in the foreground of a turn).
-4. **The first turn** says what changed since the operator last looked (the
+5. **The first turn** says what changed since the operator last looked (the
    resume's `changed` lines), what waits on them, and what moves, in the
    status form `scripts/mc-inbox.sh`'s `status` prints.
 
@@ -273,7 +277,7 @@ Never open a kickoff or an amendment unasked, and never sign off a spec. One
 the operator asks for runs by `scripts/mc-config.sh`'s `mode kickoff`:
 
 - `relay` — launch the kickoff session through the launcher (kind
-  `ad-hoc`, scope `kickoff-<spec>`, `--cwd` the spec root's repository)
+  `ad-hoc`, scope `kickoff-<spec>`, `--repo` the spec root's repository)
   with the kickoff command for the spec as its brief, and relay each question it
   raises to the operator as an item. Every kickoff question is
   operator-only: answer it with the operator's own words, quoted, and never
