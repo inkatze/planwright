@@ -280,9 +280,9 @@ the open items against the file, takes the program name, re-announces itself
 to every live session, and the predecessor retires itself; the operator sees
 one line. The program name is planwright's holder record, not the harness's
 display name. Where the holder is the operator's own session, whose terminal
-cannot pass to a launched successor, the handover launch is refused and the
-fallback is one operator act offered on the panel, which runs as the resume,
-never a degraded session.
+cannot pass to a launched successor, no handover is launched or offered:
+that session compacts, then reloads its rules and checks its picture against
+the durable records before acting.
 
 The handover file is not the **handover brief** (`spec-format`'s glossary):
 the brief is an optional in-worktree cache that `/resume` reads for a unit
