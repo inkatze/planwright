@@ -42,6 +42,7 @@
 #   STUB_CHECKS_JSON / STUB_CHECKS_RC  the answer / exit of a `pr view` asking
 #                                      for statusCheckRollup (the check read a
 #                                      behind PR takes); empty is unreadable
+#   STUB_CHECKS_SLEEP                  seconds that check read sleeps first
 #   RG_SURFACE                         which matcher fired: bash (default) | mcp
 #                                      (not reset by reset_stub_env)
 #   RG_ADOPTER_OVERLAY                 passed to the guard as
@@ -118,6 +119,7 @@ case "${1:-}" in
   pr)
     case " $* " in
       *statusCheckRollup*)
+        [ -z "${STUB_CHECKS_SLEEP:-}" ] || sleep "$STUB_CHECKS_SLEEP"
         rc=${STUB_CHECKS_RC:-0}
         [ "$rc" = 0 ] || exit "$rc"
         printf '%s' "${STUB_CHECKS_JSON:-}"
@@ -226,7 +228,7 @@ run_hook() {
       STUB_VIEW_RC="${STUB_VIEW_RC:-0}" STUB_VIEW_RC2="${STUB_VIEW_RC2:-}" \
       STUB_VIEW_SLEEP="${STUB_VIEW_SLEEP:-}" \
       STUB_COMPARE_OUT="${STUB_COMPARE_OUT:-0}" STUB_COMPARE_RC="${STUB_COMPARE_RC:-0}" \
-      STUB_CHECKS_JSON="${STUB_CHECKS_JSON:-}" STUB_CHECKS_RC="${STUB_CHECKS_RC:-0}" \
+      STUB_CHECKS_JSON="${STUB_CHECKS_JSON:-}" STUB_CHECKS_RC="${STUB_CHECKS_RC:-0}" STUB_CHECKS_SLEEP="${STUB_CHECKS_SLEEP:-}" \
       /bin/bash "$HOOK" "${RG_SURFACE:-bash}" 2>/dev/null)"
   CODE=$?
   # Restore anything an absence fixture removed.
@@ -378,6 +380,7 @@ reset_stub_env() {
   STUB_COMPARE_RC=0
   STUB_CHECKS_JSON=''
   STUB_CHECKS_RC=0
+  STUB_CHECKS_SLEEP=''
   RG_ADOPTER_OVERLAY=''
   RG_LOCAL_CONFIG=''
   RG_GH_TIMEOUT=''

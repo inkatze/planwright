@@ -389,7 +389,7 @@ CAP=100
 # own objects at the head, since collect writes nothing (no fetch) to any
 # repository.
 spec_scope() {
-  local root r top rel='' repo='' files b why st f d entry got
+  local root r top rel='' repo='' files b why st f d entry got gd
   files=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3 + 0; exit }' "$4")
   [ "${files:-0}" -gt 0 ] && [ "$files" -lt "$CAP" ] || return 0
   root=$(/bin/bash "$script_dir/mc-program.sh" get "$1" spec_root 2>/dev/null) || return 0
@@ -413,7 +413,7 @@ spec_scope() {
   SPEC_REL=$rel awk -F '\t' '
     $1 != "path" { next }
     {
-      if ($3 != "ADDED" && $3 != "MODIFIED" && $3 != "DELETED" && $3 != "CHANGED") { out = 1; exit }
+      if ($3 != "ADDED" && $3 != "MODIFIED" && $3 != "DELETED") { out = 1; exit }
       p = $2; n = length(ENVIRON["SPEC_REL"])
       if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/" || p !~ /\.md$/) { out = 1; exit }
       p = substr(p, n + 2)
@@ -452,15 +452,26 @@ spec_scope() {
       fi
       if [ -z "$why" ]; then
         # The sign-off stands only for the content it anchored: the brief's
-        # latest anchor must recompute over the bundle at the head, hashed in
-        # the bundle's own repository as the kickoff hashed it.
+        # latest anchor must recompute, by the sanctioned form it records,
+        # over the bundle at the head, hashed in the bundle's own repository.
         entry=$(spec_parse_latest_anchor_entry "$d/kickoff-brief.md" 2>/dev/null)
         case $? in
           0) ;;
           2) why="its kickoff brief's latest anchor entry does not parse" ;;
           *) entry='' ;;
         esac
-        got=$(cd "$repo" && mc_untrusted_git_env && /bin/sh "$script_dir/spec-anchor.sh" "$d" 2>/dev/null) || got=''
+        got=''
+        case ${entry#*	} in
+          "scripts/spec-anchor.sh $rel/$b")
+            got=$(cd "$repo" && mc_untrusted_git_env && /bin/sh "$script_dir/spec-anchor.sh" "$d" 2>/dev/null) || got=''
+            ;;
+          'git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin')
+            gd=$(mc_untrusted_git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null) || gd=''
+            [ -z "$gd" ] || got=$(cd "$d" && mc_untrusted_git_env && export GIT_DIR="$gd" \
+              && git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin) 2>/dev/null || got=''
+            ;;
+          *) [ -z "$entry" ] || why="its kickoff brief's anchor uses a form this check does not recompute" ;;
+        esac
         if [ -n "$why" ]; then
           :
         elif [ -z "$entry" ]; then

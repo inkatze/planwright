@@ -803,7 +803,8 @@ ROLLUP_JQ='
   def context: if .context != null then ["status", .context] else ["run", .workflowName // "", .name // "-"] end;
   def started: if (.status // "COMPLETED") != "COMPLETED" then "~"
     else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "") end | tostring;
-  if ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
+  if ((.statusCheckRollup // []) | type) != "array" then empty
+  elif ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
   [ (.statusCheckRollup // []) | to_entries | group_by(.value | context)
     | map(max_by([(.value | started), .key])) | sort_by(.key) | .[].value
     | select((.__typename == "StatusContext" and ((.context // "") as $n | any($ex[]; . == $n))) | not)

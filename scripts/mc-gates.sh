@@ -41,8 +41,8 @@ other line is five tab-separated fields:
           the forge treats them
   ready keys, each row adding one member to a set:
     steps     a step id that must be recorded passed or applied at the head
-              (a spec-only pull request is held for its sign-off instead;
-              scripts/mc-readiness.sh --help)
+              (a spec-only pull request skips this check; the bundles it
+              touches still need their sign-off; scripts/mc-readiness.sh --help)
     evidence  smoke, walk or screenshot: evidence that must be recorded,
               judged ok, at the head
     body      text the pull request body must carry

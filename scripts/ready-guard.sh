@@ -1050,7 +1050,8 @@ readonly CHECKS_JQ='
   def state: if .context != null then (.state // "PENDING")
     elif (.status // "COMPLETED") != "COMPLETED" then "PENDING"
     elif (.conclusion // "") == "" then "PENDING" else .conclusion end;
-  if ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
+  if ((.statusCheckRollup // []) | type) != "array" then empty
+  elif ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
   [ (.statusCheckRollup // []) | to_entries
     | map(select((.value.context // "") as $c | any($ex[]; . == $c) | not))
     | group_by(.value | context) | map(max_by([(.value | started), .key])) | sort_by(.key) | .[].value
