@@ -1,7 +1,7 @@
 # Human gates — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-01
+**Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -381,6 +381,222 @@ every surface it restates exists.
   REQ-H1.2, REQ-H1.3, REQ-H1.4
 - **Estimated effort:** 1 day
 
+### Task 13 — The relayed kickoff's spec-branch row in the doctrine
+
+- **Deliverables:** `doctrine/human-gates.md` gaining the
+  composition-contract row REQ-A1.6 states (pushing a spec branch and
+  opening its draft PR, owned by `/spec-kickoff`, attended or as a relayed
+  kickoff session writing only the spec branch its launch record names),
+  and its Citations line naming REQ-A1.6, REQ-C1.9 in place of REQ-C1.5,
+  REQ-G1.9, REQ-G1.10 in place of REQ-G1.1, and D-18;
+  `tests/test-human-gates-doctrine.sh` asserting the row with a
+  fixed-string check, its doc path made overridable so a fixture copy can
+  be checked.
+- **Done when:** the doctrine test's kind check passes with the new row,
+  and its fixed-string check finds the row naming `/spec-kickoff`, the
+  relayed kickoff session, and the one spec branch its launch record names,
+  failing on a fixture copy of the doc without the row; a fixed-string
+  check finds the "Rewriting main, a protected branch, or a spec branch"
+  row with its Human gate kind and its "no tier under any value" scope
+  unchanged; `check-instructions.sh` reports no surface over budget;
+  `mise run check` passes.
+- **Dependencies:** none
+- **Citations:** D-18 · REQ-A1.6, REQ-C1.9, REQ-G1.9, REQ-G1.10
+- **Estimated effort:** 2 hours
+
+### Task 14 — The class test and the automatic merge rows in the doctrine
+
+- **Deliverables:** `doctrine/human-gates.md` gaining the class test of
+  REQ-A1.7 as the bar for every class, the standing-authorization rule and
+  the unchanged human gates of REQ-A1.8, a row per core class naming it a
+  policy with `auto_merge_classes` and its empty default, the kill switch
+  row, and its "Executing an authorized merge" row restated per REQ-D1.10
+  (the "Publishing a release" row is Task 20's); every other passage
+  describing the
+  release approval as always human (release-tagging, guard-catalog's
+  approval line, `docs/getting-started.md`'s release step,
+  `templates/release-please/README.md`, the release-please workflow header
+  comment; the Done-when grep is the enumeration) restated to name the
+  release class as the one exception; the doctrine README rows of the docs
+  edited; `tests/test-human-gates-doctrine.sh` asserting the class-test
+  section and the rows.
+- **Done when:** the doctrine test's kind check passes with every new row;
+  a fixed-string check finds the class test's four arms and fails on a
+  fixture copy without them; a grep of `doctrine/`, `docs/`, `templates/`,
+  and `.github/` for the release-is-always-human phrasings finds each
+  restated with the class exception; `check-instructions.sh` reports no
+  surface over budget; `mise run check` passes.
+- **Dependencies:** 13
+- **Citations:** D-19, D-20, D-24 · REQ-A1.7, REQ-A1.8, REQ-D1.10,
+  REQ-I1.17
+- **Estimated effort:** half day
+
+### Task 15 — The automatic merge knobs
+
+- **Deliverables:** `auto_merge_classes`, `auto_merge_halt`,
+  `auto_merge_release_authors`, `auto_merge_dependency_authors`,
+  `auto_merge_dependency_paths`, `auto_merge_test_paths`,
+  `auto_merge_docs_paths`, and `auto_merge_regen_command` in
+  `config/defaults.yml` with commented defaults (classes empty, halt false,
+  release authors `github-actions[bot]`, dependency authors empty, the core
+  path lists named in the comments); their rows in
+  `docs/options-reference.md`; validation through
+  `scripts/resolve-config-knob.sh`: an unknown class name or unparseable
+  list fails a repo-tracked value and degrades an adopter or machine-local
+  one to empty with a warning; an author list naming a login that is not a
+  bot account is malformed; `auto_merge_halt` read as true when any layer
+  sets it true or any layer's value is unreadable; tests for each knob and
+  each malformed arm.
+- **Done when:** each knob resolves through all four layers in a test; a
+  machine-local `auto_merge_halt: true` under a repo-tracked `false` reads
+  true; an unknown class name in the repo-tracked layer exits non-zero; a
+  human login in an author list is refused; the options check and
+  `check:test-time` pass.
+- **Dependencies:** 14
+- **Citations:** D-20, D-21, D-22, D-23 · REQ-I1.1, REQ-I1.2, REQ-I1.8,
+  REQ-I1.9, REQ-I1.10, REQ-I1.17
+- **Estimated effort:** half day
+
+### Task 16 — The class evaluator
+
+- **Deliverables:** `scripts/merge-class.sh` gaining a class mode that, for
+  a named PR, finds the enabled classes it could match and evaluates each
+  one's predicates (REQ-I1.9 to REQ-I1.16) plus the shared conditions of
+  REQ-I1.3 on the current head, deterministically, emitting per condition
+  its verdict and evidence and failing closed on any unreadable input; the
+  core path lists (dependency manifests and lockfiles, test globs,
+  documentation globs) and the merge-configuration files added to the zone
+  for classes; every-commit author checks for the identity-bound classes;
+  the host's review and merge-state read for the approval-gate condition
+  (review decision, code-owner and last-push requirements, required
+  conversation resolution, allowed merge methods), its verdict for a PR
+  held only by such a gate distinct from a refusal and naming the gate;
+  the semver type read from changed manifest lines; the test-file deletion
+  and rename check; the refusal of the name `performance`; the bookkeeping
+  check
+  against the base's derived task state; the regeneration run in a scratch
+  checkout of the base with the command read from the base; the step-record
+  read for each class's cadence; one Gherkin scenario per class and per
+  shared condition in the fixtures; tests over stubbed `gh` and fixture
+  repositories.
+- **Done when:** for every class a fixture PR inside its allow-list with
+  every condition met is admitted and each single-condition violation the
+  REQ-I1.3 test-spec entry lists, including
+  (queued check, `UNKNOWN` mergeability after a re-query, a path outside
+  the list, a zone path, a human commit on a bot branch, a fork head, a
+  sign-off trailer, a hold label, an unresolved thread, a revert PR, a
+  merge-configuration change, a required approval or code-owner review
+  outstanding, a merge method the base disallows, a blocked merge state, a missing step record on the head, the kill
+  switch on) is refused with the condition named; a major or undeterminable
+  dependency update is refused; a deleted test file is refused; a
+  regeneration command changed on the head is ignored in favour of the
+  base's; `check:test-time` passes.
+- **Dependencies:** 15
+- **Citations:** D-20, D-21, D-22, D-24 · REQ-D1.10, REQ-I1.2, REQ-I1.3,
+  REQ-I1.8, REQ-I1.9, REQ-I1.10, REQ-I1.11, REQ-I1.12, REQ-I1.13, REQ-I1.14, REQ-I1.15,
+  REQ-I1.16, REQ-I1.18
+- **Estimated effort:** 3 days
+
+### Task 17 — The class merge, its record, undo, and guard admission
+
+- **Deliverables:** `scripts/merge-admitted.sh` gaining a class mode that
+  re-resolves `auto_merge_classes` and `auto_merge_halt`, runs the Task 16
+  evaluator, flips a draft class PR ready through `scripts/ready-flip.sh`,
+  writes the record comment and the machine-local ledger line before the
+  merge call (aborting when either write fails), re-reads head SHA, base
+  OID, and the kill switch immediately before the call, merges with the
+  `merge_class_strategy` method and no administrator override, and appends
+  a follow-up comment when the call fails after the record; an undo helper
+  opening a draft revert PR through `gh pr revert` naming the original
+  record; `scripts/merge-class.sh`'s `merge_policy` path admitting task
+  branches only, per REQ-D1.10; `scripts/policy-guard.sh` admitting the
+  helper's class mode only while a class is enabled and the kill switch is
+  off, for the worker tier (the mission-control tier is the routed
+  follow-on's), and refusing it otherwise;
+  fixture lines in `tests/fixtures/reserved-control-spellings` for the
+  class mode, the undo helper, and the unchanged direct-merge denies; tests
+  over stubbed `gh`.
+- **Done when:** an admitted fixture PR gets its record and ledger line
+  before the merge call, in that order; a failed record write yields no
+  merge call; a head, base, or kill switch moved after evaluation yields no
+  merge call; the undo helper opens a draft revert PR the evaluator then
+  refuses; the guard suite denies the class mode with no class enabled or
+  with the kill switch on, and denies every direct PR-merge spelling at
+  every tier; the cross-copy test and `check:test-time` pass.
+- **Dependencies:** 16
+- **Citations:** D-20, D-21 · REQ-A1.8, REQ-D1.10, REQ-D1.11, REQ-I1.3,
+  REQ-I1.4, REQ-I1.5, REQ-I1.6, REQ-I1.7, REQ-I1.8
+- **Estimated effort:** 2 days
+
+### Task 18 — The release class's armed publish and signing probe
+
+- **Deliverables:** `scripts/release-arm.sh` pre-validation gaining a
+  non-interactive signing probe that fails when the tag could not be
+  signed without a prompt under `require_signed_tags`, and a readable
+  armed-state record naming the PR and the head it pre-validated, which
+  the release class's predicate reads; the release class refusing a PR
+  whose head no live armed watcher has pre-validated; a publish failure
+  after a class merge reported as a failure naming the release, the merge
+  commit, and the untagged-window lock; the release record's undo text
+  naming the revert-plus-next-release form; the meaningful-and-not-broken
+  predicate of REQ-I1.9 (a user-facing changelog entry for the version,
+  green required checks on the commit to tag, no open revert of a carried
+  change);
+  tests over stubbed `gh` and a stub signer.
+- **Done when:** with a signer that prompts, the probe fails and the
+  release PR is not admitted; with no armed watcher, or one armed on
+  another head, the release PR is not admitted; with the watcher armed on
+  the head and every condition met, the PR is admitted and the watcher's
+  publish runs on the observed merge; a failing publish yields the failure
+  report; `check:test-time` passes.
+- **Dependencies:** 17
+- **Citations:** D-23 · REQ-I1.7, REQ-I1.9
+- **Estimated effort:** 1 day
+
+### Task 19 — The relayed drafting session's spec-branch push
+
+- **Deliverables:** `doctrine/human-gates.md` gaining the
+  composition-contract row REQ-A1.9 states (pushing a spec branch from a
+  relayed drafting session, owned by `/spec-draft`, writing only the one
+  spec branch its launch record names and opening no PR), with its
+  Citations line naming REQ-A1.9, REQ-G1.11, and D-25;
+  `skills/spec-draft/SKILL.md` gaining, for a relayed drafting session
+  only, a plain push of the spec branch after its commit, skipped and
+  surfaced when the branch has an open PR that is not a draft, its
+  "never pushes" statements narrowed to attended runs, measured by
+  `check-instructions.sh`; `tests/test-human-gates-doctrine.sh` asserting
+  the row with a fixed-string check.
+- **Done when:** the doctrine test's kind check passes with the new row and
+  its fixed-string check finds the row naming `/spec-draft`, the relayed
+  drafting session, and the one spec branch, failing on a fixture copy
+  without it; the Task 13 row is unchanged; `check-instructions.sh`
+  reports no surface over budget; the `eval:skill` run for `/spec-draft`
+  is recorded [manual]; `mise run check` passes.
+- **Dependencies:** 13, 14
+- **Citations:** D-25 · REQ-A1.9, REQ-G1.11
+- **Estimated effort:** 2 hours
+
+### Task 20 — The authorized release publish in the doctrine
+
+- **Deliverables:** `doctrine/human-gates.md`'s "Publishing a release" row
+  restated as the authorization REQ-A1.10 names (the operator's merge of
+  the release PR, or an enabled release class), and a composition-contract
+  row for running an authorized release's publish from a relayed release
+  session, owned by the release tooling and bounded to the two paths of
+  REQ-G1.12, with its Citations line naming REQ-A1.10, REQ-G1.12, and
+  D-26; the release-tagging doctrine and `docs/getting-started.md`'s
+  release step naming the relayed release session as a way the publish
+  runs; `tests/test-human-gates-doctrine.sh` asserting both rows with
+  fixed-string checks.
+- **Done when:** the doctrine test's kind check passes with both rows, and
+  its fixed-string checks find the authorization wording and the
+  composition-contract row naming the release tool and the relayed release
+  session, failing on a fixture copy without them; `check-instructions.sh`
+  reports no surface over budget; `mise run check` passes.
+- **Dependencies:** 14, 19
+- **Citations:** D-26 · REQ-A1.10, REQ-G1.12
+- **Estimated effort:** 2 hours
+
 ## Awaiting input
 
 (none yet)
@@ -399,6 +615,90 @@ every surface it restates exists.
   workflow argument, and its tests go. Confidence: high.
   **Gate:** GATE(when: task 3 completed and after 2026-11-15).
   Citations: D-3 · REQ-B1.4.
+- **The kickoff-tier cases in mission-control Task 19.** Task 19 builds the
+  kickoff profile, launch record, and guard admission this bundle's
+  REQ-G1.9 and REQ-G1.10 bound, but its Done-when omits several of their
+  cases: the non-draft PR, the rewrite, the remote and fork binding, the
+  refspec-position and tag pushes, the record's session binding and
+  removal, the posture with no push, the knob-false flip, the flip of
+  another PR, the profile's deletion denies, and the cross-copy fixture's
+  kickoff column. A routed mission-control amendment SHALL add them to
+  Task 19's Done-when and cite REQ-C1.9, REQ-G1.9, and REQ-G1.10 before
+  Task 19 is dispatched; an observation routes it. Confidence: high.
+  **Gate:** GATE(when: task 13 completed).
+  Citations: D-18 · REQ-C1.9, REQ-G1.9, REQ-G1.10.
+- **Mission control as the class merge caller.** Mission control is the
+  caller REQ-I1.5 names, but its REQ-I1.1 says it never merges. A routed
+  mission-control amendment SHALL supersede that requirement with one
+  allowing only the class mode of the merge helper while a class is
+  enabled and the kill switch is off, wire its tier profile and the policy
+  guard's admission, give the operator a plain-language way to pull the
+  kill switch, report each class merge and its undo and each class PR
+  waiting on a required approval once per head, never again for the same
+  head (REQ-I1.18), re-evaluate waiting PRs on its sweep, and launch the
+  release session that arms the
+  release watcher REQ-I1.9 needs; no class merge runs from mission control
+  before it lands. obs:d0274d5c and obs:a845aa5b route it. Confidence: high.
+  The operator watches the first unattended release and reads its record
+  against the published tag (the REQ-I1.9 `[manual]` act).
+  **Gate:** GATE(when: task 17 completed and task 18 completed).
+  Citations: D-20, D-23 · REQ-I1.5, REQ-I1.9, REQ-I1.18.
+- **The dotfiles "Never auto-merge" line.** The operator's own `CLAUDE.md`
+  states an unconditional never-auto-merge invariant; once the class test
+  lands in the doctrine, a separate dotfiles PR restates it as "never
+  outside an enabled class". Out of this repository, so no task here ships
+  it. Confidence: high.
+  **Gate:** GATE(when: task 14 completed).
+  Citations: D-19 · REQ-A1.8, REQ-I1.17.
+- **Mission control's drafting launch kind.** A relayed drafting session
+  needs a launch kind under the kickoff profile whose launch record names
+  the session's kind, and policy-guard admission of exactly the REQ-G1.11
+  push, its cross-copy cases being: the record's branch admitted for a
+  plain push; every PR creation, every ready flip, another branch in any
+  refspec position, a tag, a force push, a deletion, and a record of
+  another kind or session denied. Mission-control's to ship, as its
+  kickoff kind was against REQ-G1.9; until it lands a launched drafting
+  session's push stays denied and the operator pushes. obs:416f7a6a routes
+  it. Confidence: high.
+  **Gate:** GATE(when: task 19 completed).
+  Citations: D-25 · REQ-G1.11, REQ-G1.13.
+- **Mission control's release launch kind.** A relayed release session
+  needs a launch kind and profile whose launch record names its kind, the
+  primary checkout, and the release PR, and policy-guard admission of
+  exactly the two REQ-G1.12 paths, its cross-copy cases being: the watcher
+  armed only on an open release PR; the fast-forward admitted only with
+  `main` checked out, a clean tree, a merged PR, and no watcher armed; the
+  release tool admitted only after it; any other pull, merge, rebase,
+  reset, checkout, switch, push, edit, or PR write denied; and every act
+  denied with a record absent, of another session, or naming another PR.
+  Mission control launches it for each open release PR. Until it lands the
+  publish stays with the operator, who watches the first release such a
+  session publishes and reads it against the published tag (the REQ-G1.12
+  `[manual]` act). obs:5ab3b6b5 routes it. Confidence: high.
+  **Gate:** GATE(when: task 20 completed).
+  Citations: D-26 · REQ-A1.10, REQ-G1.12, REQ-G1.13.
+- **Enable the chosen classes in this repository.** At the kickoff the
+  operator chose `release`, `observation-carry`, `bookkeeping`,
+  `test-only`, `docs-only`, and `regeneration` for this
+  repository; the repo-tracked config change naming them is itself never
+  class-admitted (REQ-I1.3) and lands as an ordinary human-merged PR once
+  the evaluator, the helper, and mission control's caller exist. The
+  `dependency` class follows once a dependency bot runs here (the bullet
+  below). Mission control's caller must exist too, a precondition in
+  another bundle the gate cannot express, so the drain surfaces this
+  bullet once Task 18 completes and the operator checks mission control's
+  follow-on before acting. Confidence: high.
+  **Gate:** GATE(when: task 18 completed).
+  Citations: D-20, D-22, D-24 · REQ-I1.1.
+- **Set up Renovate for the dependency class.** The operator chose at the
+  kickoff to set up Renovate, the bot that reads `mise.toml`'s tool pins,
+  as a separate task, its repository access approved by the operator
+  before install, with its config limited to manifests and lockfiles so
+  every PR it opens falls inside the dependency class's allow-list
+  (D-22); once it runs, `dependency` joins this repository's enabled
+  classes. obs:f291c49d routes it. Confidence: high.
+  **Gate:** GATE(when: task 16 completed).
+  Citations: D-22 · REQ-I1.10.
 
 - **Supersede pointers into tower-front-door.** The Task 12 survey
   (2026-10-18) found records there still stating a rule this bundle changed,
@@ -451,7 +751,7 @@ every surface it restates exists.
 - **Supersede pointers into tower-placement.** The Task 12 survey
   (2026-10-18) found records there still stating a rule this bundle changed,
   and the bundle derived Active, so the pointers wait for its own amendment
-  rather than change its anchor: `**Superseded-by: REQ-C1.5 (human-gates)**
+  rather than change its anchor: `**Superseded-by: REQ-C1.9 (human-gates)**
   (<date>)` on REQ-G1.1, scoped to the flip as a reserved control, and
   `**Superseded-by: REQ-F1.1, REQ-F1.2 (human-gates)** (<date>)` on
   REQ-G1.3, with a dated `## Changelog` entry naming it, landed by a
@@ -462,7 +762,7 @@ every surface it restates exists.
 - **Supersede pointers into merge-currency-guard.** The Task 12 survey
   (2026-10-18) found records there still stating a rule this bundle changed,
   and the bundle derived Active, so the pointers wait for its own amendment
-  rather than change its anchor: `**Superseded-by: REQ-C1.1, REQ-C1.5
+  rather than change its anchor: `**Superseded-by: REQ-C1.1, REQ-C1.9
   (human-gates)** (<date>)` on REQ-B1.4 and `**Superseded-by: human-gates
   D-4** (<date>)` on D-9, scoped to the flip as a human-only control in
   core, each with a dated `## Changelog` entry naming it, landed by a

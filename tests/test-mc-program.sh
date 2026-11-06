@@ -157,6 +157,18 @@ deadlines${tab}-${tab}cited
 designs${tab}-${tab}cited"
 
 alpha_block
+printf 'program_alpha_sources: {work-items: specs:record, designs: -:cited}\n' >>"$tracked"
+mc_run mc-program.sh get alpha sources
+expect_rc "REQ-H1.4: a class written as -:cited resolves" 0
+expect_out "REQ-H1.4: -:cited reads as a cited class with no source" "designs${tab}-${tab}cited"
+
+alpha_block
+printf 'program_alpha_sources: {designs: -:record}\n' >>"$tracked"
+mc_run mc-program.sh validate alpha
+expect_rc "REQ-H1.4: no source with a mode other than cited fails" 1
+expect_err "REQ-H1.4: the sourceless mode is named" "designs"
+
+alpha_block
 printf 'program_alpha_sources: {}\n' >>"$tracked"
 mc_run mc-program.sh get alpha sources
 expect_out "REQ-H1.4: an explicit empty map leaves every class cited" "work-items${tab}-${tab}cited"

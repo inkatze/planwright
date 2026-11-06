@@ -207,11 +207,23 @@ expect_rc "a field given twice is a usage error" 2
 expect_err "the refusal names the repeated flag" "--spec-root"
 if [ "$(sum "$layer")" = "$before" ]; then ok "the repeated field left the layer as it was"; else fail "the repeated field was written"; fi
 
-cfg add alpha --repositories "[$repo]" --spec-root "$repo/specs" --home "$tmp/mc-home/alpha" --duties "[alpha-duty]"
+before=$(sum "$layer")
+cfg add alpha --repositories "[$repo]" --spec-root "$repo/specs" --sources "{designs: -:record}"
+expect_rc "a class with no source and a mode other than cited is refused" 1
+if [ "$(sum "$layer")" = "$before" ]; then ok "the refused map left the layer as it was"; else fail "the refused map was written"; fi
+
+# The first run passes the default map back as --sources, so what
+# `default sources` prints must round-trip through add.
+mc_run mc-program.sh default sources
+default_rows=$OUT
+default_map=$(printf '%s\n' "$default_rows" | awk -F '\t' 'NF { s = s (s == "" ? "" : ", ") $1 ": " $2 ":" $3 } END { print "{" s "}" }')
+cfg add alpha --repositories "[$repo]" --spec-root "$repo/specs" --home "$tmp/mc-home/alpha" --duties "[alpha-duty]" --sources "$default_map"
 expect_rc "REQ-F1.12: the program block is written" 0
 expect_out "the program joins the program list" "wrote${tab}mission_control_programs${tab}[alpha]${tab}-"
 expect_out "its repositories are written" "wrote${tab}program_alpha_repositories${tab}[$repo]${tab}-"
 expect_out "its enabled duties are written" "wrote${tab}program_alpha_duties${tab}[alpha-duty]${tab}-"
+mc_run mc-program.sh get alpha sources
+expect_eq "REQ-H1.4: the default map round-trips through add" "$default_rows"
 mc_run mc-program.sh list
 expect_eq "REQ-F1.12: the program is configured" "alpha"
 mc_run mc-program.sh validate alpha

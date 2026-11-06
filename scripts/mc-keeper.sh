@@ -80,8 +80,9 @@ Usage:
   mc-keeper.sh watch [--program <p>] [--now <epoch>]
       the duty's watcher (also what a run with no arguments does under the
       runner): the stall scan (scripts/mc-stall.sh scan, which emits its own
-      events); the pending-prompt sweep (scripts/fleet-streamjson.sh
-      alarm-scan --once over every stream-json worker on the machine,
+      events); the removal of every panel activation record whose session
+      has no live process (scripts/mc-panel.sh prune); the pending-prompt
+      sweep (scripts/fleet-streamjson.sh alarm-scan --once over every stream-json worker on the machine,
       whatever version or verb launched it, so an overdue request is a high
       queue item pushed once and a dead worker's is settled), each request
       still overdue one pending-prompt-overdue event, subject the worker,
@@ -407,6 +408,7 @@ case $verb in
       events=1
       # The stall scan needs no forge, so a missing gh never stops it.
       /bin/bash "$script_dir/mc-stall.sh" scan --program "$program" ${now:+--now "$now"} >/dev/null || rc=1
+      /bin/bash "$script_dir/mc-panel.sh" prune >/dev/null || rc=1
       pending_prompts || rc=1
     fi
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"

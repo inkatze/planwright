@@ -111,9 +111,9 @@
 # non-printables from parsed content and echoed paths before printing
 # (printf, never echo).
 #
-# Portable: POSIX sh + awk + tr + wc (bash 3.2 / BSD compatible, no eval,
+# Portable: POSIX sh + awk + tr + cmp (bash 3.2 / BSD compatible, no eval,
 # input treated as data only). LC_ALL=C is pinned on the locale-sensitive
-# commands (tr, awk); wc -c is byte-counting and locale-free. The awk
+# commands (tr, awk); cmp compares bytes and is locale-free. The awk
 # duplicate-id diagnostic uses `print > "/dev/stderr"`, emulated by every
 # supported awk (one-true-awk, gawk, mawk, busybox) though not literally
 # POSIX. Matches and emitted bytes do not vary by the caller's host locale.
@@ -229,13 +229,13 @@ spec_parse__readable() {
 # (REQ-B1.6d, generalizing the drain-gates.sh screen — awk truncates records
 # at NUL, which would silently hide parsed lines).
 #
-# A byte-count mismatch after tr -d '\000' means at least one NUL is present.
-# Both counts are captured through checked assignments and verified non-empty
-# so a failing wc fails the screen CLOSED — an errored `[ "" -ne "" ]`
-# comparison would otherwise skip the screen and let awk parse a NUL-truncated
-# stream. A failing tr is not caught by its `||` (a pipeline's exit status is
-# the last command's, wc's); it shortens the kept count instead and trips the
-# mismatch refusal below — still fail-closed.
+# The file with its NULs deleted differs from the file exactly when it holds
+# one, so one tr|cmp pipeline decides it, with no command substitution to
+# fork on every parse. Only cmp's 0 passes: its 1 is a
+# NUL, and anything else (a file it cannot read) fails the screen CLOSED. A
+# failing tr is not caught by its status (a pipeline's exit status is the last
+# command's, cmp's); it shortens the stream instead and trips the NUL
+# refusal, still fail-closed.
 #
 # Known bound: the file is read separately by the screen and by awk, so a
 # concurrent rewrite between the reads can produce a spurious (fail-closed)
@@ -243,17 +243,24 @@ spec_parse__readable() {
 # callers (migrate-format-version.sh) close the window entirely, and snapshot
 # callers close it by screening then parsing the snapshot (contract clause g).
 spec_parse__nul_screen() {
-  spec_parse__total=$(wc -c <"$1") || spec_parse__total=
-  spec_parse__kept=$(LC_ALL=C tr -d '\000' <"$1" | wc -c) || spec_parse__kept=
-  if [ -z "$spec_parse__total" ] || [ -z "$spec_parse__kept" ]; then
-    printf '%s\n' "spec-parse: NUL screen could not read $(spec_parse_printable "$1") (fail closed)" >&2
-    return 1
-  fi
-  if [ "$spec_parse__total" -ne "$spec_parse__kept" ]; then
-    printf '%s\n' "spec-parse: NUL byte in $(spec_parse_printable "$1") (malformed input; fail closed)" >&2
-    return 1
-  fi
-  return 0
+  spec_parse__rc=0
+  # cmp takes the path as an operand, where a leading dash would read as an
+  # option; the redirections around it are immune.
+  case $1 in
+    -*) spec_parse__operand=./$1 ;;
+    *) spec_parse__operand=$1 ;;
+  esac
+  # shellcheck disable=SC2094 # both ends only read the file
+  LC_ALL=C tr -d '\000' <"$1" | cmp -s - "$spec_parse__operand" 2>/dev/null || spec_parse__rc=$?
+  case $spec_parse__rc in
+    0) return 0 ;;
+    1)
+      printf '%s\n' "spec-parse: NUL byte in $(spec_parse_printable "$1") (malformed input; fail closed)" >&2
+      return 1
+      ;;
+  esac
+  printf '%s\n' "spec-parse: NUL screen could not read $(spec_parse_printable "$1") (fail closed)" >&2
+  return 1
 }
 
 # --- The fence lexer (Task 6; REQ-C1.2, REQ-D1.11 · D-5) ---------------------

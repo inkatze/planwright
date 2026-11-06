@@ -1,0 +1,1 @@
+- 2026-11-05 [planwright] mission-control: human-gates REQ-I1.18 (2026-11-05 kickoff) adds to the class-merge caller follow-on (obs d0274d5c): report each class PR waiting on a required approval once per head, never again for that head, and re-evaluate waiting PRs on the sweep; never approve, dismiss, request a review from a person, or override
