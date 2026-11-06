@@ -10,8 +10,8 @@
 # (the flattened single-segment form of the D-37 placement rule). This helper
 # mints and derives them and is the reference check; a script that must stand
 # alone re-encodes the check, as each does for the spec-id charset. The
-# policy guard and scripts/converge-sync-main.sh deliberately also accept an
-# id-less planwright/flight/<slug>, for branches named before ids existed.
+# policy guard deliberately also accepts an id-less planwright/flight/<slug>
+# as a unit branch, for branches named before ids existed.
 #
 # Usage:
 #   flight-id.sh new <slug> [--repo-root <dir>]
