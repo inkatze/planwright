@@ -29,7 +29,8 @@ file, each --settings file, and, with PLANWRIGHT_MC_TOKEN set (handed only to
 a mission-control session the launcher started), the profile the launcher
 passed it. An absent layer is empty; one that cannot be read or parsed,
 or carries a control character in a deny entry, hook or hook switch, fails
-the check.
+the check. Under the managed layer's allowManagedPermissionRulesOnly only
+its deny entries count.
 
   --project  the project root (default: the git top level, else the current
              directory)
@@ -134,15 +135,17 @@ US=$(printf '\037')
 tmpd=$(mktemp -d "${TMPDIR:-/tmp}/mc-posture.XXXXXX") || fail "a scratch directory cannot be created"
 trap 'rm -rf "$tmpd"' EXIT
 # One jq run per layer, one line per fact: `F <disableAllHooks>
-# <allowManagedHooksOnly>`, `D <deny entry>`, `H <matcher>US<command>`, and
-# `X` for a value carrying a control character, which would forge a fact.
+# <allowManagedHooksOnly> <allowManagedPermissionRulesOnly>`, `D <deny
+# entry>`, `H <matcher>US<command>`, and `X` for a value carrying a control
+# character, which would forge a fact.
 # shellcheck disable=SC2016 # a jq program, not shell expansions
 project_facts='
   def list(x; what): if x == null then [] elif (x | type) == "array" then x else error(what + " is not a list") end;
   def ctl: type == "string" and (explode | any(. < 32 or . == 127));
+  def flag(x): if x == null or x == false then "false" else "true" end;
   if type != "object" then error("not an object") else . end
-  | (if (.disableAllHooks | ctl) or (.allowManagedHooksOnly | ctl) then "X"
-     else "F " + ((.disableAllHooks // false) | tostring) + " " + ((.allowManagedHooksOnly // false) | tostring) end),
+  | (if [.disableAllHooks, .allowManagedHooksOnly, .allowManagedPermissionRulesOnly] | any(ctl) then "X"
+     else "F " + flag(.disableAllHooks) + " " + flag(.allowManagedHooksOnly) + " " + flag(.allowManagedPermissionRulesOnly) end),
     (list(.permissions.deny; "deny")[] | strings | if ctl then "X" else "D " + . end),
     (list(.hooks.PreToolUse; "PreToolUse")[]
       | (.matcher // "") as $m | list(.hooks; "hooks")[] | select(.type == "command")
@@ -156,25 +159,32 @@ printf '%s\n' "$floor_facts" | grep -q '^D ' || fail "the shipped deny floor in 
 union_deny="$tmpd/deny"
 union_hooks="$tmpd/hooks"
 managed_hooks="$tmpd/managed-hooks"
+managed_deny="$tmpd/managed-deny"
 : >"$union_deny"
 : >"$union_hooks"
 : >"$managed_hooks"
-managed_only=0
+: >"$managed_deny"
+managed_only=0 managed_rules=0
 for l in ${layers[@]+"${layers[@]}"} "$managed"; do
   [ -e "$l" ] || [ -L "$l" ] || continue
   [ -f "$l" ] && [ -r "$l" ] || fail "the settings layer $l cannot be read"
   lf=$(facts "$l") || fail "the settings layer $l cannot be parsed"
   printf '%s\n' "$lf" | grep -qx X && fail "the settings layer $l carries a control character in a deny entry, hook or hook switch"
-  case $(printf '%s\n' "$lf" | sed -n 's/^F //p') in
-    true\ *) fail "every hook is turned off (disableAllHooks) in the settings layer $l" ;;
-    *\ true) managed_only=1 ;;
-  esac
+  read -r f_off f_hooks f_rules <<<"$(printf '%s\n' "$lf" | sed -n 's/^F //p')"
+  [ "$f_off" != true ] || fail "every hook is turned off (disableAllHooks) in the settings layer $l"
+  [ "$f_hooks" != true ] || managed_only=1
+  [ "$l" != "$managed" ] || [ "$f_rules" != true ] || managed_rules=1
   printf '%s\n' "$lf" | sed -n 's/^D //p' >>"$union_deny"
   printf '%s\n' "$lf" | sed -n 's/^H //p' >>"$union_hooks"
-  [ "$l" != "$managed" ] || printf '%s\n' "$lf" | sed -n 's/^H //p' >>"$managed_hooks"
+  if [ "$l" = "$managed" ]; then
+    printf '%s\n' "$lf" | sed -n 's/^D //p' >>"$managed_deny"
+    printf '%s\n' "$lf" | sed -n 's/^H //p' >>"$managed_hooks"
+  fi
 done
-# Under allowManagedHooksOnly only the managed layer's hooks run.
+# Under allowManagedHooksOnly only the managed layer's hooks run, and under
+# allowManagedPermissionRulesOnly only its permission rules apply.
 [ "$managed_only" = 0 ] || union_hooks=$managed_hooks
+[ "$managed_rules" = 0 ] || union_deny=$managed_deny
 
 printf '%s\n' "$floor_facts" | sed -n 's/^D //p' >"$tmpd/floor-deny"
 missing=$(awk 'FILENAME == ARGV[1] { have[$0] = 1; next } !($0 in have) { n++; if (n == 1) first = $0 }

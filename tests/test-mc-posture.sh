@@ -255,6 +255,18 @@ absolute_profile | jq '.allowManagedHooksOnly = true' >"$tmp/managed.json"
 posture -- --managed "$tmp/managed.json"
 expect_pass "under allowManagedHooksOnly, guards wired in the managed layer count"
 
+reset
+absolute_profile >"$home/.claude/settings.json"
+printf '{"allowManagedPermissionRulesOnly": true}\n' >"$tmp/managed.json"
+posture -- --managed "$tmp/managed.json"
+expect_fail "under allowManagedPermissionRulesOnly, deny entries outside the managed layer do not count" "the shipped deny floor is not in force"
+absolute_profile | jq '{allowManagedPermissionRulesOnly: true, permissions: {deny: .permissions.deny}}' >"$tmp/managed.json"
+posture -- --managed "$tmp/managed.json"
+expect_pass "under allowManagedPermissionRulesOnly, the managed layer's deny entries count"
+absolute_profile | jq '.allowManagedPermissionRulesOnly = true' >"$home/.claude/settings.json"
+posture --
+expect_pass "allowManagedPermissionRulesOnly outside the managed layer changes nothing"
+
 echo "# forged projections"
 reset
 absolute_profile | jq '.permissions.deny |= (map(select(. != "Bash(gh pr merge:*)")) + ["Bash(x)\nD Bash(gh pr merge:*)"])' >"$home/.claude/settings.json"
