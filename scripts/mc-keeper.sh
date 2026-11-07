@@ -433,12 +433,16 @@ EOF
     if [ $((pa_now - pa_since)) -ge "$PENDING_ARRIVAL_WINDOW" ]; then
       pa_count=$(printf '%s' "$pa_fresh" | awk 'NF { n++ } END { print n + 0 }')
       pa_fw=${pa_first%%	*}
-      mc_announce "$program" "$pa_seen" "$pa_first" pending-prompt "$pa_fw" \
-        "stream-json worker $pa_fw has a request waiting on a decision; $pa_count arrived together, fleet-streamjson.sh pending shows them, fleet-streamjson.sh answer <worker> <id> --allow or --deny settles one" \
-        || pa_rc=1
-      pa_rest=$(printf '%s' "$pa_fresh" | awk -v first="$pa_first" 'NF && $0 != first')
-      [ -z "$pa_rest" ] || printf '%s\n' "$pa_rest" >>"$pa_seen" || pa_rc=1
-      printf '%s\n' "$pa_now" >"$pa_last" || pa_rc=1
+      # The rest of the burst and the window advance only once the event is
+      # stored, so a refused announce is retried on the next pass.
+      if mc_announce "$program" "$pa_seen" "$pa_first" pending-prompt "$pa_fw" \
+        "stream-json worker $pa_fw has a request waiting on a decision; $pa_count arrived together, fleet-streamjson.sh pending shows them, fleet-streamjson.sh answer <worker> <id> --allow or --deny settles one"; then
+        pa_rest=$(printf '%s' "$pa_fresh" | awk -v first="$pa_first" 'NF && $0 != first')
+        [ -z "$pa_rest" ] || printf '%s\n' "$pa_rest" >>"$pa_seen" || pa_rc=1
+        printf '%s\n' "$pa_now" >"$pa_last" || pa_rc=1
+      else
+        pa_rc=1
+      fi
     fi
   fi
   mc_announce_prune "$pa_seen" "$pa_live" || pa_rc=1

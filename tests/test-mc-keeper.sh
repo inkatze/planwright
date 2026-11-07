@@ -254,17 +254,18 @@ pp_fresh() { # pp_fresh <worker> <request-suffix> <received>
 }
 pp_fresh cp-fresh-a 1 6990
 pp_fresh cp-fresh-b 2 6995
-OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7000 2>/dev/null)
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7000 2>/dev/null)
 expect_out "a request that just arrived is announced as pending-prompt" "announced${tab}pending-prompt${tab}cp-fresh-a"
 expect_no_out "a burst's second arrival is folded into that one event" "announced${tab}pending-prompt${tab}cp-fresh-b"
 mc_run mc-event.sh list --program alpha
 expect_out "the arrival lands in the event store" "pending-prompt${tab}cp-fresh-a${tab}stream-json worker cp-fresh-a has a request"
 pp_fresh cp-fresh-c 3 7010
-OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7020 2>/dev/null)
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7020 2>/dev/null)
 expect_no_out "an arrival inside the window is not announced yet" "announced${tab}pending-prompt${tab}cp-fresh-c"
-OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7400 2>/dev/null)
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7400 2>/dev/null)
 expect_out "it is announced once the window has closed" "announced${tab}pending-prompt${tab}cp-fresh-c"
 expect_no_out "and the earlier request is not announced again" "announced${tab}pending-prompt${tab}cp-fresh-a"
+expect_no_out "and the folded request is not announced later" "announced${tab}pending-prompt${tab}cp-fresh-b"
 rm -rf "$fleet/streamjson/cp-fresh-a" "$fleet/streamjson/cp-fresh-b" "$fleet/streamjson/cp-fresh-c"
 
 # A landed session the launcher never registered, whose stream-json worker
