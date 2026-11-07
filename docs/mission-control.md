@@ -65,9 +65,9 @@ and holds back (no launch, no answer, no request; it still keeps its own
 records) until a later check passes; its launcher refuses to start a
 session for the same reason. A session you open yourself and type
 `/mission-control` into carries no such profile, so it holds back unless
-your own settings already hold those guardrails. To start one you work
-with that passes, for a program
-already set up, run this in your own terminal inside tmux, from the
+your own settings already hold those guardrails. To start a session that
+passes the check, for a program already set up, run this in your own
+terminal inside tmux, from the
 directory it should start in (`<planwright>` is planwright's install root):
 
 ```sh
