@@ -3,16 +3,18 @@
 Captured 2026-11-07 by a mission-control flight, from the operator's ask:
 "I thought duties were deterministic, that's a huge miss we need to get
 fixed from the root". The flight was asked to build three things with no
-model in the approval path. The first was a script that answers routine
-worker permission requests itself. The second was a watcher that escalates
-a stuck mission control. The third was a normalization of the `git -C <dir>`
-and `git push -q` spellings.
+model in the approval path:
+
+- a script that answers routine worker permission requests itself;
+- a watcher that escalates a stuck mission control;
+- a normalization of the `git -C <dir>` and `git push -q` spellings.
 
 The watcher shipped with this note (`scripts/mc-escalate.sh`, a
-session-keeper watcher). The other two are below as a redesign, because the
-measurements show the answerer, as asked, would approve almost nothing. The
-fixes that would work amend two signed-off bundles and change the worker
-posture.
+session-keeper watcher), with a narrow relay for the operator's answer to a
+stuck mission control's dialog (`scripts/mc-pane-answer.sh`). The other two
+are below as a redesign. The measurements show the answerer, as asked,
+would approve almost nothing, and the fixes that would work amend signed-off
+bundles and change the worker posture.
 
 ## What the record shows
 
@@ -22,20 +24,24 @@ hours before capture. It sampled 3,695 of them, replayed through the
 installed worker command guard (0.68.0). Each replay ran in its worker's
 recorded context: its cwd, its session record and its scratch `TMPDIR`. The
 guard approved 7. A plain `grep -n foo README.md` in the same harness was
-approved, so the low count is a real result. About two in three sampled
-requests were compound lines (`&&`, `;`, pipes), about one in ten were
-here-documents, and others carried variable-held paths or a `cd` into
-another tree. The guard defers every one of those shapes by design (its
-header's analysis model).
+approved, so the low count is a real result.
+
+About two in three sampled requests were compound lines (`&&`, `;`, pipes)
+and about one in ten were here-documents. The guard approves a compound
+line when every segment is a shape it knows (its header's analysis model),
+so the compound count is the shape mix, not the cause by itself. What made
+those lines defer was a segment the guard does not approve: a
+here-document, a variable it cannot resolve, a `cd` into another tree, a
+staged script, a write outside the read-only arm.
 
 An answerer limited to "never approve what the guard would not" asks the
 same deterministic question again and gets the same answer. It could only
 help when the hook failed to run (a timeout, an unresolved root), and
 nothing in the record shows that as a cause.
 
-Caveat: the replay is not exact. The installed root has moved since some
-requests were made (0.66.0 and 0.67.0 scripts no longer resolve), and some
-worktrees are gone. Both effects push the replay toward defer.
+Caveat: the replay is not exact. Some requests ran under 0.66.0 and 0.67.0,
+which are no longer an installed root the guard trusts, and some worktrees
+are gone. Both effects push the replay toward defer.
 
 **The guard's write policy is switched off, and switching it on helps only
 at the margin.** The self-approval arms (`worker_self_approval`:
@@ -51,16 +57,16 @@ repository nor dotfiles sets it. Every worker session record from the three
 days before capture says `policy=`. The flight replayed a sample of 2,332
 requests from workers whose worktrees still exist, with the policy set to
 `own-branch scratch`. The guard approved 61 (`mktemp -d`, the commit-trailer
-script, fetch, add and plain reads). That is real but small: in-worktree
-writes matter, and shape is the dominant cause.
+script, fetch, add and plain reads). That is real but small.
 
 **So the deterministic lever is the shape of what workers issue.** The
-permission-prompt flight (worker `mc-planwright-worker-5cc9886fd3`) owns
-that lever. It added `config/launch-shell-rules.txt` to every stream-json
-launch: one plain command per call, no `cd`, no chains, no variables of the
-worker's own, no staged scripts. It also added the step-context prefix the
-guard now accepts. Requests in that shape are ones the guard can read and
-approve at hook time, before anything is queued.
+permission-prompt flight (worker `mc-planwright-worker-5cc9886fd3`, branch
+`planwright/flight/mc-planwright-worker-5cc9886f`, unmerged at capture)
+owns that lever. It adds `config/launch-shell-rules.txt` to every
+stream-json launch: one plain command per call, no `cd`, no chains, no
+variables of the worker's own, no staged scripts. It also adds a
+step-context prefix the guard accepts. Requests in that shape are ones the
+guard can read and approve at hook time, before anything is queued.
 
 ## What to do, in order
 
@@ -75,70 +81,109 @@ approve at hook time, before anything is queued.
    become plain, because a plain `mkdir`, `git commit` or `mktemp` in the
    worktree is what the arms approve.
 3. **Amend `worker-permission-ergonomics` (guard and profile).** Fold this
-   into `worker-permission-ergonomics-amendment.md`:
-   - `git -C <dir>`: the guard defers it on purpose (see `cd_same_repo`),
-     because a `-C` into another repository hands git that repository's
-     config. Approve it exactly when `<dir>` passes the check a `cd` already
-     gets (`cd_target_ok`: inside the session's own worktree, with the same
-     top level and common directory). Then verify the rest of the command as
-     if the shell were there. A `-C` outside the worktree keeps deferring.
-     This is a guard screen change and needs an adversarial fixture table, as
-     that seed's decision 1 requires.
-   - Push spellings: the guard never approves a push (floor), so pushes rely
-     on the profile's `Bash(git push origin:*)` prefix rule. That rule misses
-     `git push -q origin <b>` and `git -C <wt> push origin <b>`.
-     - The `-q` form takes a prefix rule of its own, following the shipped
-       `Bash(git push -u origin:*)` (that seed's decision 2).
-     - The `-C` form cannot be bounded to the own worktree by a prefix rule.
-       Either the guard gains a push arm limited to the recorded unit branch
-       (a floor change, so an explicit operator decision), or `-C` pushes
-       keep asking. The shell rules already tell workers to run git in their
-       own worktree without `-C`.
+   into `worker-permission-ergonomics-amendment.md`. The `-C` and `-q`
+   spellings differ:
+   - `git -C <dir> push` and `git -C <dir> commit` are not merely
+     unmatched: the worker profile denies them (`Bash(git -* push*)` and
+     `Bash(git -* commit*)` in `config/worker-settings.json`), and a deny
+     outranks every allow, a hook's included. Approving them means
+     narrowing those denies to a `-C` outside the own worktree, a floor
+     change and an explicit operator decision, plus a guard arm limited to
+     the recorded unit branch and worktree (`cd_target_ok`'s check: inside
+     the session's own worktree, the same top level and common directory).
+     The adversarial fixture table that seed's decision 1 requires comes
+     with it.
+   - `git -C <dir>` with a read-only subcommand meets no deny; the guard
+     defers it on purpose (see `cd_same_repo`), because a `-C` into another
+     repository hands git that repository's config. Approving it exactly
+     when `<dir>` passes `cd_target_ok`, then verifying the rest as if the
+     shell were there, is a guard screen change only.
+   - `git push -q origin <b>` meets no deny but misses the
+     `Bash(git push origin:*)` prefix rule. It takes a prefix rule of its
+     own, following the shipped `Bash(git push -u origin:*)` (that seed's
+     decision 2).
+   - Whatever lands, the shell rules should tell workers to run git in
+     their own worktree without `-C`; the sibling's text does not say so
+     yet.
 4. **Only if item 1 leaves a measured residue: amend `execution-backends`
-   D-5.** D-5 rejected auto-answering in the supervisor ("a second approval
-   engine in the supervisor would duplicate a security-critical surface").
-   The narrowest form that respects it is a replay-on-failure answerer, with
-   these properties:
+   D-5 and `worker-permission-ergonomics` REQ-F1.2.** D-5 rejected
+   auto-answering in the supervisor ("a second approval engine in the
+   supervisor would duplicate a security-critical surface"), and REQ-F1.2
+   keeps the guard the only self-approval mechanism, with no tower,
+   supervisor or relay answering a worker's prompt on the policy's
+   strength. The narrowest form that respects their intent is a
+   replay-on-failure answerer, with these properties:
    - it runs the same installed guard on the queued request, in the
      worker's recorded context;
    - it approves only on the guard's allow, logged in the session's audit
      log;
    - it carries no policy of its own;
-   - it covers a hook that never ran or timed out.
+   - it covers only a hook that never ran or timed out.
 
-   It reverses a signed-off decision, so it needs that evidence first: a
+   It reverses signed-off decisions, so it needs that evidence first: a
    count of requests whose hook did not complete.
 
-## The escalation watcher, as shipped
+## The escalation watcher and relay, as shipped
 
 `scripts/mc-escalate.sh` runs under the session-keeper duty on every
-program, with no model in the path. Two things qualify as overdue:
+program that enables it (the default duty set does), every minute, with no
+model in the path. Two things qualify as overdue:
 
-- a request of one of the program's own workers, still pending
+- a request of one of the program's own live workers, still pending
   `mission_control_escalation_window` past the owner's pending-age alarm;
 - the program's mission control showing an open dialog in its own pane for
-  that long. Its pane is found from the `claude` process whose prompt is
-  `/planwright:mission-control <program>`.
+  that long, auto mode's confirmation after blocked actions included (it
+  shows in the pane, not over Remote Control). Its pane is found from this
+  user's `claude` process whose prompt is `/planwright:mission-control
+  <program>`.
 
 Either one becomes a `mission-control-escalated` event in the hub program's
-store (`mission_control_escalation_hub`, default `hub`). At twice the
-window, it goes to the notification seam. With no hub, or for the hub's
-own items, the first level goes to the operator.
+store (`mission_control_escalation_hub`, default `hub`, when its holder is
+live). At twice the window, it goes to the notification seam. With no live
+hub, a hub that refuses the event, or for the hub's own items, the first
+level goes to the operator.
 
-Two limits are left for a mission-control amendment:
+`scripts/mc-pane-answer.sh` delivers the operator's answer to such a
+dialog: one digit into that program's own mission-control pane, only for an
+option the dialog offers that adds no standing permission, and only
+against a decisions-log entry recording the operator's words, made after
+the watcher first saw that dialog and used once. It runs only under an
+allow rule the operator adds.
 
-- The operator level is only as good as `notification_channel`. On this
+Left for a `mission-control` amendment, which owns the follow-ups:
+
+- **Scope.** D-27 scopes session-keeper to lifecycle (D-10, D-11). The
+  watcher adds cross-program escalation: it writes into another program's
+  event store, and its operator push goes through the notification seam
+  rather than `mc-shadow.sh raise`, so a session-keeper in shadow still
+  pushes. The amendment should place this (a duty of its own, or
+  session-keeper's charter widened) and say whether the hub's own duties
+  gate what it receives.
+- **The hub's handling.** No skill text yet says what a hub does with a
+  `mission-control-escalated` event. The event text asks it to reach the
+  stuck mission control or the operator and carries no request content; the
+  skill should say the hub never reads or answers another program's worker.
+- **The operator level** is only as good as `notification_channel`. On this
   host it resolves to `none`, and the `push` channel needs a live session to
-  relay its markers, because a script cannot call the phone push tool.
-- A mission control on another host (the Mac) has no pane here to read; its
-  requests are still raised.
+  relay its markers, because a script cannot call the phone push tool. The
+  watcher's line names the channel, so `none` is visible.
+- **The relay's trust root.** The decisions log is written by mission
+  control itself. The relay proves an operator-words entry was recorded
+  after the dialog appeared, not that the operator said it; a session able
+  to forge an entry could answer its own hub's peer. Binding the entry to an
+  operator-only act (a Remote Control message id, a signed token) would
+  close it.
+- **Reach.** A mission control on another host (the Mac) has no pane here
+  to read; its requests are still raised. A session started as plain
+  `claude` with the skill typed in afterwards reads `absent`; resolving the
+  session through the holder record would cover it.
 
 ## Fold-detection note
 
 Owners as read at capture:
 
-- `worker-permission-ergonomics`: the guard and the worker profile. An
-  amendment seed already exists.
+- `worker-permission-ergonomics`: the guard and the worker profile, and
+  REQ-F1.2. An amendment seed already exists.
 - `execution-backends`: D-5, Ready.
-- `mission-control`: D-11 and the session-keeper duty, Ready. It owns the
-  watcher's follow-ups.
+- `mission-control`: D-11, D-27 and the session-keeper duty, Ready. It owns
+  the watcher's follow-ups.
