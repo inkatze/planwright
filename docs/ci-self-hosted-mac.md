@@ -32,12 +32,13 @@ summary:
   name. An unknown case falls back to hosted, never the other way.
 
 Both jobs then run on
-`${{ <self-hosted?> && fromJSON('[...labels...]') || 'macos-latest' }}`.
-`check:workflow-posture` (`scripts/check-workflow-posture.sh --matrix`)
-accepts exactly this shape as a macOS job: the label list must name
-`self-hosted` and `macOS`, and GitHub's hosted macOS must be the fallback. A
-bare self-hosted label list fails it, because it would leave fork pull
-requests no hosted path.
+`${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('[...labels...]') || 'macos-latest' }}`.
+`check:workflow-posture` (`scripts/check-workflow-posture.sh --matrix ci.yml`)
+accepts exactly this shape as a macOS job: the selector must be the plan
+job's choice, the label list must name `self-hosted` and `macOS`, and
+`macos-latest` must be the fallback. Any other selector (`true`, say) or a
+bare self-hosted label list fails it, because either could send fork pull
+requests to the Mac.
 
 ## Fork policy
 

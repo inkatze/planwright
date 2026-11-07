@@ -231,8 +231,7 @@ jobs:
             runner=self-hosted
             reason="a pull request from a branch of $GITHUB_REPOSITORY"
           else
-            reason="a $EVENT from '$HEAD_REPO', not $GITHUB_REPOSITORY"
-            reason="$reason; fork code never runs on the self-hosted runner"
+            reason="a $EVENT from '$HEAD_REPO', not $GITHUB_REPOSITORY, stays on hosted macOS"
           fi
           if [ "$runner" = self-hosted ]; then shards='[1]'; else shards='[1, 2, 3, 4]'; fi
           msg="macOS jobs: $runner runner, $shards shards ($reason)"
