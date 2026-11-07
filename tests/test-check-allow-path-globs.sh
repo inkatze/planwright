@@ -138,8 +138,8 @@ hook_verdict() {
   # hook_verdict <hook> <cwd> <command> -> allow | defer
   local out
   out=$(jq -n --arg c "$3" --arg w "$2" \
-    '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' |
-    env -u CLAUDE_DIR HOME="$tmp/nohome" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+    '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
+    | env -u CLAUDE_DIR HOME="$tmp/nohome" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
       PLANWRIGHT_ROOT="$REPO_ROOT" /bin/bash "$1" 2>/dev/null)
   case $out in
     *'"permissionDecision"'*'"allow"'*) echo allow ;;

@@ -30,7 +30,7 @@ flagged_word() {
     *'*'*) case $w in *'/'*) return 0 ;; esac ;;
   esac
   case $w in
-    ..|../*|*/..|*/../*) return 0 ;;
+    .. | ../* | */.. | */../*) return 0 ;;
   esac
   return 1
 }
