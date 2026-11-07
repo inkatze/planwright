@@ -112,8 +112,7 @@ here; it sets the depth of every turn, not only the first run's.
    --program <p>` prints that no operator choice already settles (a knob,
    duty or rule they chose), and each hand-built mechanism it cannot see (a
    launch outside the launcher, a loop beside the runner, a tracker beside
-   the knowledge base), becomes an operator item or a mechanization
-   proposal, and the first turn lists what you keep and why.
+   the knowledge base), becomes an operator item.
 3. **The panel (REQ-F1.16).** Run `scripts/mc-panel.sh`'s `activate
    --program <p>`, then `await --program <p>`. On `panel text`, say once,
    in plain words, that the panel cannot load here, and show the text it
