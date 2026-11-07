@@ -199,12 +199,12 @@ successor, the successor checks that it holds every rule and open item
 against that note, and the old session closes. You see one line saying it
 happened.
 
-The old session always ends itself: once it gives up the program name, its
-panel ends it as soon as its last turn finishes, closing its tmux pane
-when Claude Code was the pane's command. The same happens when you open a
-new mission-control session for the program while an older one is still
-running. No session ever closes another. A session without the panel
-cannot end itself; it says so, and you close it.
+The old session ends itself: once it gives up the program name, its panel
+ends it as soon as its last turn finishes, closing its tmux pane when
+Claude Code was the pane's command. The same happens to an older
+mission-control session you started yourself when you open a new one for
+the program, so nothing has to close it for you. A session without the
+panel cannot end itself; it stops working and says it can be closed.
 
 A mission-control session that mission control starts, a successor
 included, runs in Claude Code's auto mode, so a routine command does not

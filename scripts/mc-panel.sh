@@ -66,6 +66,8 @@ reads them once, clears them, and records the activation itself. Under
                              written: the activation record
   active/<session id>.ack    format, session, written: the mod's
                              acknowledgment
+  active/<session id>.exit   format, session, written: the exit marker
+                             retire --exit leaves the session's own mod
 Fields are key<TAB>value lines; the format line comes first, and a record
 of any other format never activates.
 
@@ -210,14 +212,17 @@ Usage:
   mc-panel.sh ack [--session <id>] [--now <epoch>]
       write the acknowledgment beside an existing record naming the
       session
-  mc-panel.sh retire [--session <id>] [--exit]
+  mc-panel.sh retire [--session <id>]
       remove the session's record, acknowledgment and exit marker; prints
-      retired<TAB><session id>. With --exit (a released mission-control
-      session ending itself), an acknowledged record first leaves an exit
-      marker, <id>.exit, from which the session's own mod stands down and
-      ends the session once its turn is over; prints exit<TAB>mod then,
-      or exit<TAB>none where no mod acknowledged the record, so nothing
-      will end the session
+      retired<TAB><session id>
+  mc-panel.sh retire --exit --program <p>
+      a released mission-control session ending itself, this session
+      only: its record of program <p>, once a mod acknowledged it, first
+      leaves an exit marker from which that mod stands down and ends the
+      session once its turn is over, and prints retired<TAB><session id>
+      and exit<TAB>mod. Otherwise prints exit<TAB>none<TAB><why>: with
+      no acknowledgment it retires the record and nothing will end the
+      session; another program's record, or none, it leaves alone
   mc-panel.sh prune
       remove every record whose pid is no live process (one with no pid
       is kept), every acknowledgment with no record, every exit marker
@@ -407,7 +412,6 @@ while [ $# -gt 0 ]; do
     *) usage ;;
   esac
 done
-[ "$for_exit" -eq 0 ] || [ "${verb:-}" = retire ] || usage
 # Each verb takes only its own flags.
 only() {
   [ -z "$presence_kind" ] && [ "$with_knobs" -eq 0 ] || usage
@@ -418,6 +422,7 @@ only() {
   case " $1 " in *" pid "*) ;; *) [ -z "$pid" ] || usage ;; esac
   case " $1 " in *" wait "*) ;; *) [ -z "$wait_s" ] || usage ;; esac
   [ -z "$root$from" ] || usage
+  [ "$for_exit" -eq 0 ] || [ "$verb" = retire ] || usage
 }
 case $verb in
   digest | line)
@@ -439,7 +444,9 @@ case $verb in
   activate) only "program target now session pid" ;;
   text) only "program target" ;;
   await) only "program session wait" ;;
-  lookup | retire) only "session" ;;
+  lookup) only "session" ;;
+  # --exit is the releasing session's own act, so it names no other session.
+  retire) if [ "$for_exit" -eq 1 ]; then only "program"; else only "session"; fi ;;
   ack) only "session now" ;;
   prune) only "" ;;
   *) usage ;;
@@ -555,23 +562,26 @@ case $verb in
     exit 0
     ;;
   retire)
-    rt_mod=none
-    if [ "$for_exit" -eq 1 ] && names_session "$act_dir/$session" "$session" \
-      && [ ! -L "$act_dir/$session.ack" ] && [ -f "$act_dir/$session.ack" ]; then
-      rt_mod=mod
+    rt_rec=$act_dir/$session
+    [ "$for_exit" -eq 0 ] || mc_valid_program "$program" || mc_usage_fail "invalid program '$(sanitize_printable "$program")'"
+    if [ "$for_exit" -eq 1 ] && ! { names_session "$rt_rec" "$session" && [ "$(field_of "$rt_rec" program)" = "$program" ]; }; then
+      # Another program's panel, or none: nothing here is this release's.
+      printf 'exit\tnone\tno panel of program %s is recorded for this session\n' "$program"
+      exit 0
     fi
-    if [ "$rt_mod" = mod ]; then
+    if [ "$for_exit" -eq 1 ] && names_session "$rt_rec.ack" "$session"; then
       # Written before the record goes: a mod that finds the record gone
       # with no marker stands down without ending the session.
-      [ ! -L "$act_dir/$session.exit" ] || mc_fail "the exit marker is a symlink"
+      [ ! -L "$rt_rec.exit" ] || mc_fail "the exit marker is a symlink"
       printf 'format\t%s\nsession\t%s\nwritten\t%s\n' "$MC_FORMAT" "$session" "$(mc_now)" \
-        | mc_write "$act_dir/$session.exit" || mc_fail "cannot write the exit marker"
-      rm -f -- "$act_dir/$session" "$act_dir/$session.ack" || mc_fail "cannot remove the activation record"
-    else
-      rm -f -- "$act_dir/$session" "$act_dir/$session.ack" "$act_dir/$session.exit" || mc_fail "cannot remove the activation record"
+        | mc_write "$rt_rec.exit" || mc_fail "cannot write the exit marker"
+      rm -f -- "$rt_rec" "$rt_rec.ack" || mc_fail "cannot remove the activation record"
+      printf 'retired\t%s\nexit\tmod\n' "$session"
+      exit 0
     fi
+    rm -f -- "$rt_rec" "$rt_rec.ack" "$rt_rec.exit" || mc_fail "cannot remove the activation record"
     printf 'retired\t%s\n' "$session"
-    [ "$for_exit" -eq 0 ] || printf 'exit\t%s\n' "$rt_mod"
+    [ "$for_exit" -eq 0 ] || printf 'exit\tnone\t%s\n' "no mod acknowledged this session's panel"
     exit 0
     ;;
   prune)
@@ -1221,6 +1231,9 @@ activate() {
     && [ "$pid" != - ] && [ "$(field_of "$ac_rec" pid)" = "$pid" ]; }; then
     rm -f -- "$ac_rec.ack" || mc_fail "cannot clear the old acknowledgment"
   fi
+  # A marker left by an earlier release must never end the session this
+  # activation starts.
+  rm -f -- "$ac_rec.exit" || mc_fail "cannot clear an old exit marker"
   printf 'format\t%s\nprogram\t%s\ntarget\t%s\nsession\t%s\npid\t%s\nwritten\t%s\n' \
     "$MC_FORMAT" "$program" "$target" "$session" "$pid" "$NOW" \
     | mc_write "$ac_rec" || mc_fail "cannot write the activation record"

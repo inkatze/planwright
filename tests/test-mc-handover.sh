@@ -156,7 +156,7 @@ done
 [ -f "$act/$pred_sid.ack" ] && [ -f "$act/$other_sid.ack" ] || fail "fixture: the activation records were not acknowledged: $ERR"
 RUN_SESSION=$pred_sid ho release --program alpha --session "$n1"
 [ "$RC" = 0 ] && [ "$(col released 3)" = "$n2" ] && ok "the predecessor releases the name to the verified successor" || fail "release: $RC $OUT $ERR"
-# The predecessor ends itself: its own mod, never the successor, closes it.
+# The predecessor ends itself: the release leaves its own mod the exit.
 [ "$(col exit 2)" = mod ] && ok "the release says the predecessor's own mod ends its session" || fail "the release's exit line: $OUT"
 [ -f "$act/$pred_sid.exit" ] && [ ! -e "$act/$pred_sid" ] && ok "the release leaves the predecessor's mod its exit marker" || fail "no exit marker after the release: $(ls "$act")"
 [ -f "$act/$other_sid" ] && [ ! -e "$act/$other_sid.exit" ] && ok "and touches no other session's record" || fail "the release touched another session: $(ls "$act")"
@@ -233,7 +233,7 @@ wait "$helper"
 [ "$RC" = 0 ] || fail "the resume exited $RC: $OUT $ERR"
 [ "$(col took 3)" = "$n3" ] && [ "$(col took 4)" = released ] && ok "the holder releases the name on the resume's request" || fail "the resume did not see the release: $OUT"
 case $(cat "$tmp/stdout-helper") in
-  *"exit${tab}none${tab}"*) ok "a release in a session no mod runs in says nothing will end it" ;;
+  *"exit${tab}none${tab}this session's id cannot be told"*) ok "a release in a session that cannot be told says nothing will end it" ;;
   *) fail "the modless release's exit line: $(cat "$tmp/stdout-helper")" ;;
 esac
 [ ! -f "$(rowfile "$n3")" ] && ok "the released holder's row is gone" || fail "the released holder's row stayed"

@@ -127,10 +127,9 @@ prefers a handover to a compaction (D-29, D-30): when the panel or
 then `launch --handover`. The operator's own session, whose terminal cannot
 move, just compacts, offering no handover (D-42).
 
-**When released**, end yourself; no other session closes you. On a
-`handover-requested` event naming your handle, run `release`; when it
-refuses because the name already moved on, run `scripts/mc-panel.sh`'s
-`retire --exit` instead. An `exit mod` line means your mod ends this
+**When released**, end yourself. On a `handover-requested` event naming
+your handle, run `release`; when it refuses because the name already moved
+on, run `scripts/mc-panel.sh`'s `retire --exit --program <p>` instead. An `exit mod` line means your mod ends this
 session once the turn is over: finish the turn in one line saying so. On
 `exit none`, start nothing more and end the turn saying this session can
 be closed.

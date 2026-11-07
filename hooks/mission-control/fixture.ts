@@ -120,7 +120,7 @@ export type World = {
   opened: number
   closed: number
   commands: { name: string; description: string }[]
-  // The slash commands the mod ran, as `$.command.run` named them.
+  // Each /exit the mod ran through `$.command.run`.
   commandRuns: string[]
   envWrites: [string, string | undefined][]
   set: (o: Partial<Fixture>) => void

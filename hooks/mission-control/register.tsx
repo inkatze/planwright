@@ -461,21 +461,22 @@ async function checkRecord($: EngineInterface) {
   try {
     const dir = await resolveDir($)
     if (dir === null) return
+    // Read each time: a /clear goes on under another id with no start event.
+    const sessionId = await $.session.id()
+    // First, so neither a retried activation nor a /clear's move records a
+    // released session again.
+    const ids = ackedFor !== null && ackedFor !== sessionId ? [sessionId, ackedFor] : [sessionId]
+    if (ctx && (await isRetiredForExit($, dir, ids))) {
+      await endReleased($, ids)
+      return
+    }
     if (ctx && recordFailed) {
       await acknowledge($, recordFailed)
       return
     }
-    // Read each time: a /clear goes on under another id with no start event.
-    const sessionId = await $.session.id()
     const has = await $.fs.exists(`${dir}/${sessionId}`)
     if (!has) {
-      if (ctx && ackedFor === sessionId) {
-        const program = ctx.program
-        // Read before the stand-down, which forgets the program.
-        const isReleased = await $.fs.exists(`${dir}/${sessionId}.exit`)
-        await standDown($)
-        if (isReleased) await endSelf($, sessionId, program)
-      }
+      if (ctx && ackedFor === sessionId) await standDown($)
       // Acknowledged under an id the session no longer carries (a /clear the
       // end hook could not follow): record it under this one.
       else if (ctx && ackedFor !== null) {
@@ -521,8 +522,8 @@ function cancelTimers() {
   radar = null
 }
 
-// The record was retired (a handover released this session): the wake
-// target goes back to the relay and the panel stops drawing.
+// The record was retired: the wake target goes back to the relay and the
+// panel stops drawing.
 async function standDown($: EngineInterface) {
   const was = ctx
   if (!was) return
@@ -535,15 +536,28 @@ async function standDown($: EngineInterface) {
   await release($, was)
 }
 
-// A released predecessor ends itself, its turn over first, so its successor
-// never has to close another session.
-async function endSelf($: EngineInterface, sessionId: string, program: string) {
-  await runScript($, 'mc-panel.sh', ['retire', '--session', sessionId])
-  void $.command.run({ command: 'exit' }).catch(() =>
-    $.ui.toast(
-      `Mission control: this session released the ${program} program name but could not end itself; type /exit to close it`,
-    ),
-  )
+async function isRetiredForExit($: EngineInterface, dir: string, ids: string[]) {
+  for (const id of ids) if (await $.fs.exists(`${dir}/${id}.exit`)) return true
+  return false
+}
+
+// A released predecessor ends itself: the operator's own session has no
+// launcher row through which its successor could retire it. The retire
+// clears the exit markers; /exit is queued until the session is idle, so
+// the release's turn finishes first, and it is not awaited since a run that
+// ends the session never resolves.
+async function endReleased($: EngineInterface, ids: string[]) {
+  const program = ctx?.program ?? ''
+  try {
+    await standDown($)
+  } finally {
+    for (const id of ids) await runScript($, 'mc-panel.sh', ['retire', '--session', id])
+    void $.command.run({ command: 'exit' }).catch(() =>
+      $.ui.toast(
+        `Mission control: this session released the ${program} program name but could not end itself; type /exit to close it`,
+      ),
+    )
+  }
 }
 
 async function activate(
@@ -673,6 +687,14 @@ export const register: Register = on => {
   })
 
   on('session.end', async ($, e, next) => {
+    const dir = ctx && e.reason === 'clear' ? await resolveDir($) : null
+    const clearedIds = ackedFor !== null && ackedFor !== e.sessionId ? [e.sessionId, ackedFor] : [e.sessionId]
+    if (ctx && dir !== null && (await isRetiredForExit($, dir, clearedIds))) {
+      // Released just before the /clear: end it rather than move the record.
+      const ended = await next(e)
+      $.clock.after(0, () => void endReleased($, clearedIds))
+      return ended
+    }
     if (ctx && e.reason === 'clear') {
       // A /clear keeps the session and the mod, and starts the counts over;
       // the record moves to the id the session goes on under.
