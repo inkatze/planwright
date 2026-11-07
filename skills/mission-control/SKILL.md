@@ -116,7 +116,8 @@ here; it sets the depth of every turn, not only the first run's.
    (under `setsid`, never in the foreground of a turn).
 5. **The first turn** says what changed since the operator last looked (the
    resume's `changed` lines), what waits on them, and what moves, in the
-   status form `scripts/mc-inbox.sh`'s `status` prints.
+   status form `scripts/mc-inbox.sh`'s `status` prints, its decisions
+   including `scripts/mc-merge-ready.sh`'s `list --as-status`.
 
 **After a compaction**, before the next act: re-resolve the root, re-load
 the rules and run the self-check (`scripts/mc-rules.sh`'s `selfcheck`) against the durable
@@ -222,6 +223,10 @@ Launch, message, answer, retire; never hand the operator a per-session step.
 - **Report** a PR as done, or its unit as finished, only once
   `scripts/mc-readiness.sh`'s `check` passes on its head; until then report
   what it names (a cadence gap or an unaudited cadence among them), never done.
+- **Ready to merge:** each PR `scripts/mc-merge-ready.sh`'s `list` names,
+  at bring-up and on every `merge-ready` event, goes to the operator at once
+  with a push notification and its merge command, again at every bring-up
+  until it merges; an `unknown` line is said as unknown, never as none.
 - **Message** a session by `SendMessage` when `ListAgents` lists it; only an
   unreachable one takes the pane relay, as the tower's messaging says
   (D-23).

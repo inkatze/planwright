@@ -204,11 +204,19 @@ record "D-29: the handover verb is installed" handover available
 record "REQ-F1.2: the text line" line "mission control alpha: 7 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "knobs only with --knobs" "knob${tab}"
+record "no pull request ready to merge reads as none" merge-ready 0
 
 # The text form alone, as a session without the mod reads it.
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
 expect_rc "the line" 0
 expect_eq "REQ-F1.2: the line form, one line" "mission control alpha: 7 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
+# Pull requests the readiness check passed are held for the operator.
+printf 'acme/web#7\tk\tready\t1\tgh pr merge 7\nacme/web#8\tk\tnot-ready\t1\t-\nacme/web#9\tk\tready\t1\tgh pr merge 9\n' >"$runtime/merge-ready.tsv"
+mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
+expect_eq "the line names the pull requests ready to merge" "mission control alpha: 7 in flight, 2 waiting, 2 ready to merge, 1 pending, rung normal, tracker snapshot 30s old"
+mc_run mc-panel.sh text --program alpha
+expect_out "and so does the text panel" "ready to merge: 2"
+rm -f "$runtime/merge-ready.tsv"
 PATH="$tmp/bin-down:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
 record "a tmux server that does not answer is unreadable" unreadable "tmux windows"

@@ -47,6 +47,7 @@ export function bandText(view: PanelView): string {
   const parts = [`✈ ${view.program}`]
   if (d) {
     parts.push(`${flightCount(view)} in flight`, `${d.waiting ?? '?'} holding`)
+    if (d.mergeReady !== null && d.mergeReady > 0) parts.push(`${d.mergeReady} to merge`)
     if (d.pending !== null && d.pending > 0) parts.push(`${d.pending} inbound`)
     parts.push(`rung ${d.rung.name}`)
   } else {
@@ -180,6 +181,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
         'Holding for you',
         [
           `${d.waiting === null ? 'unknown' : d.waiting} waiting on you`,
+          ...(d.mergeReady !== null && d.mergeReady > 0 ? [`${d.mergeReady} ready to merge`] : []),
           ...(d.pending !== null ? [`${d.pending} event(s) inbound`] : []),
         ],
       )}

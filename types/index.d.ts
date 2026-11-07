@@ -33,6 +33,7 @@ export type PanelDigest = {
   // Registry sessions not retired and not seen live.
   finished: number | null
   waiting: number | null
+  mergeReady: number | null
   pending: number | null
   decisions: PanelDecision[]
   rung: { name: string; reason: string }

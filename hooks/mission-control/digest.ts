@@ -18,6 +18,7 @@ export function parseDigest(text: string): PanelDigest | null {
     flights: [],
     finished: null,
     waiting: null,
+    mergeReady: null,
     pending: null,
     decisions: [],
     rung: { name: '-', reason: '' },
@@ -55,6 +56,9 @@ export function parseDigest(text: string): PanelDigest | null {
         break
       case 'waiting':
         d.waiting = int(f[1])
+        break
+      case 'merge-ready':
+        d.mergeReady = int(f[1])
         break
       case 'pending':
         d.pending = int(f[1])
