@@ -186,14 +186,26 @@ for c in "echo x > .git" "echo x >> .git/config" "touch githooks/pre-commit" "mk
   "mv f lefthook-local.yml" "mkdir -p .config/x"; do
   assert_defer "F1.6: $c" "$c" Bash "$WT"
 done
-mkdir -p "$WT/mise" "$WT/roles/files/mise" "$WT/tree/mise/conf.d" "$WT/build/cfgsrc"
-touch "$WT/roles/files/mise/offload.toml" "$WT/tree/mise/conf.d/a.toml" "$WT/build/cfgsrc/config.toml"
+mkdir -p "$WT/mise" "$WT/roles/files/mise" "$WT/build/cfgsrc"
+touch "$WT/roles/files/mise/offload.toml" "$WT/build/cfgsrc/config.toml"
+for t in mise/conf.d/a.toml mise/config.toml mise/miserc.toml mise/tasks/x .miserc.toml mise-tasks/x \
+  .mise-tasks/x mise.lock; do
+  d=$WT/tree-${t//[\/.]/-}
+  mkdir -p "$d/$(dirname "$t")"
+  touch "$d/$t"
+  assert_defer "F1.6: a recursive act over a tree holding $t" "rm -r ${d#"$WT"/}" Bash "$WT"
+done
 for c in "touch mise/config.toml" "touch mise/config.local.toml" "touch mise/CONFIG.toml" \
   "touch mise/miserc.toml" "mkdir -p mise/conf.d" "mkdir -p mise/tasks/x" "echo x > .miserc.toml" \
   "touch sub/.miserc.local.toml" "mkdir -p mise-tasks" "mkdir -p .mise-tasks/x" "touch mise.lock" \
-  "touch sub/mise.test.lock" "mv build/cfgsrc sub/mise" "cp -r build/cfgsrc sub/mise" "rm -r tree" \
-  "rm -r mise" "cp build/cfgsrc/config.toml mise" "mv build/cfgsrc mise"; do
+  "touch sub/mise.test.lock" "mv build/cfgsrc sub/mise" "cp -r build/cfgsrc sub/mise" \
+  "cp build/cfgsrc/config.toml mise"; do
   assert_defer "F1.6: the mise path mise loads: $c" "$c" Bash "$WT"
+done
+# Fail-safe: a shell write naming a mise directory itself defers even where
+# the result would land outside what mise loads.
+for c in "rm -r mise" "mv build/cfgsrc mise" "cp f mise"; do
+  assert_defer "F1.6: a shell act naming mise/ itself: $c" "$c" Bash "$WT"
 done
 for c in "touch roles/files/mise/new.toml" "echo x >> roles/files/mise/offload.toml" \
   "echo x > mise/offload.toml" "mkdir -p roles/files/mise/sub" "cp f roles/files/mise/notes.md" \

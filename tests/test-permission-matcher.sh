@@ -1106,6 +1106,13 @@ deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/mise-tasks/deploy|mise's
 deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.mise-tasks/deploy|mise's dotted file-task directory (REQ-F1.6)
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/mise.lock|mise's lockfile records download URLs and checksums (REQ-F1.6)
 deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/mise.local.lock|the local lockfile beside mise.local.toml (REQ-F1.6)
+deny|load-bearing|Write|/home/u/.local/share/mise/shims/node|mise's data directory holds the tools and shims it runs (REQ-F1.6)
+deny|load-bearing|Edit|/home/u/.local/state/mise/trusted-configs/x|mise's state directory records which config it trusts (REQ-F1.6)
+deny|load-bearing|Write|/home/u/.cache/mise/remote-git-tasks-cache/r/tasks/x|mise's cache holds remote task clones it reuses (REQ-F1.6)
+deny|load-bearing|Write|/Users/u/Library/Caches/mise/remote-git-tasks-cache/r/tasks/x|mise's macOS cache directory (REQ-F1.6)
+deny|load-bearing|Write|/usr/local/share/mise/shims/node|mise's system data directory (REQ-F1.6)
+deny|load-bearing|Write|/tmp/planwright-1000/0123abcd/mise/x|mise's temporary directory under a worker's TMPDIR (REQ-F1.6)
+deny|load-bearing|Write|/var/folders/ab/cd/T/mise/x|mise's temporary directory under the macOS TMPDIR (REQ-F1.6)
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.mise.toml|mise's dotted config name (REQ-F1.6)
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.mise.local.toml|mise's dotted environment config (REQ-F1.6)
 deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/lefthook/pre-commit/check.sh|a lefthook script directory (REQ-F1.6)
@@ -1129,7 +1136,7 @@ allow|legit|Write|/work/repo/.claude/worktrees/w1/tests/test-x.sh|writing a repo
 allow|legit|Edit|/work/repo/.claude/worktrees/w1/docs/githooks.md|a file merely named after the hooks directory stays editable
 allow|legit|Edit|/work/repo/.claude/worktrees/w1/config/defaults.yml|the repo's own config defaults stay editable
 allow|legit|Write|/work/repo/.claude/worktrees/w1/roles/osx/files/mise/offload.toml|a file under mise/ that mise never loads stays writable
-allow|legit|Edit|/work/repo/.claude/worktrees/w1/mise/README.md|a mise/ file outside config, conf.d and tasks stays editable
+allow|legit|Edit|/work/repo/.claude/worktrees/w1/mise/README.md|a mise/ file outside config, miserc, conf.d and tasks stays editable
 allow|legit|Read|/work/repo/.claude/worktrees/w1/README.md|ordinary reads
 allow|legit|Read|/proc/1234/status|a /proc read that is not an environment
 ROWS

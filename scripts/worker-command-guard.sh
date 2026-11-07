@@ -1588,8 +1588,12 @@ ob_path() {
     OB_ZONE=wt
   elif [ "$sc_ok" = 1 ] && [ "${acc#"$REC_SCRATCH"/}" != "$acc" ]; then
     # The trusted names stay closed here too: a tool started there would
-    # read them as its own configuration.
+    # read them as its own configuration. The root is the worker's TMPDIR,
+    # so its mise/ is mise's own temporary directory.
     ob_excluded_rel "${acc#"$REC_SCRATCH"/}" "$REC_SCRATCH" && return 1
+    case $(printf '%s' "${acc#"$REC_SCRATCH"/}" | tr '[:upper:]' '[:lower:]') in
+      mise | mise/*) return 1 ;;
+    esac
     OB_ZONE=sc
   else
     return 1

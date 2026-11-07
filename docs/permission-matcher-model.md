@@ -441,32 +441,40 @@ exception, matched relative to the working directory on purpose: a worktree
 usually sits under its primary checkout's `.claude/worktrees/`, and a
 root-anchored `.claude` rule would refuse every file the worker edits. The
 same holds for the root-anchored directory rules: a worktree checked out
-beneath a directory named `.config`, `.mise`, `mise-tasks`, `.mise-tasks`, a
-hooks directory, or a lefthook directory (a dotfiles checkout under
-`~/.config`, say) is refused every file-tool write, so such a repository is
-checked out elsewhere for workers.
+beneath a directory named `.config`, `.mise`, `mise-tasks`, `.mise-tasks`,
+`mise/conf.d`, `mise/tasks`, one of mise's own directories below, a hooks
+directory, or a lefthook directory (a dotfiles checkout under `~/.config`,
+say) is refused every file-tool write, so such a repository is checked out
+elsewhere for workers.
 
 The mise rules follow the paths mise documents loading, not every path with a
 `mise` component: its project and global config names and `conf.d`
 directories ([configuration](https://mise.jdx.dev/configuration.html)), the
 `.miserc*.toml` files that rename what it searches for and move its ceiling,
 the default file-task directories, which it renders as it loads them
-([task discovery](https://mise.jdx.dev/tasks/task-discovery.html)), and the
+([task discovery](https://mise.jdx.dev/tasks/task-discovery.html)), the
 lockfiles that carry download URLs and checksums
-([mise.lock](https://mise.jdx.dev/dev-tools/mise-lock.html)). Inside a
-`mise/` directory only `config*.toml`, `miserc*.toml`, `conf.d/`, and
-`tasks/` are refused, so a source file such as `roles/files/mise/offload.toml`
-stays writable. The guard also refuses a shell write whose last component is
-`mise` itself, since moving a directory onto that name would make its
-`config.toml` loaded config. Three things these rules cannot follow: an
-`override_config_filenames` value or `MISE_*` variable that names other
-files, an idiomatic version file such as `.nvmrc` once a tool enables it, and
-a file the repo's own config points at (an `_.source` script, an included
-task file), which is trusted repo code like `scripts/`.
+([mise.lock](https://mise.jdx.dev/dev-tools/mise-lock.html)), and the
+default data, state, cache, system-data, and temporary directories, which
+hold the tools and shims it runs and the record of which config it trusts
+([directories](https://mise.jdx.dev/directories.html)). A `mise/` directory
+anywhere else is refused only its `config*.toml`, `miserc*.toml`, `conf.d/`,
+and `tasks/` entries, beside the names refused at every depth (`mise.toml`,
+`mise.lock`, `.miserc.toml`, and the rest), so a source file such as
+`roles/files/mise/offload.toml` stays writable. The guard also refuses a shell
+write that names a `mise` directory itself, since moving a directory onto that
+name would make its `config.toml` loaded config, and, in the scratch root
+(the worker's `TMPDIR`), anything under its `mise/`. These rules cannot
+follow an `override_config_filenames` value or a `MISE_*` or `XDG_*` variable
+that moves or renames what mise reads, an idiomatic version file such as
+`.nvmrc` once a tool enables it, or a file the repo's own config points at
+(an `_.source` script, an included task file), which is trusted repo code
+like `scripts/`.
 
 The guard matches these names case-insensitively; the globs are
 case-sensitive (MA-2), so on a case-insensitive filesystem a recased
-spelling reaches the file tools. Writes the guard refuses elsewhere outside
+spelling reaches the file tools. For mise that covers a recased entry of a
+`mise/` directory (`mise/Config.toml`) as much as a recased `Mise.toml`. Writes the guard refuses elsewhere outside
 the worktree are not mirrored here: the file tools still reach them, which
 includes an installed planwright root when it is not under `~/.claude`.
 

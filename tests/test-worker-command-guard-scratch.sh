@@ -128,6 +128,8 @@ assert_defer "F1.4: no lefthook config under the root" "touch \$TMPDIR/r/lefthoo
 assert_defer "F1.4: no miserc under the root" "echo x > \$TMPDIR/.miserc.toml" Bash "$WT"
 assert_defer "F1.4: no mise task directory under the root" "mkdir -p \$TMPDIR/r/mise/tasks" Bash "$WT"
 assert_allow "F1.4: a mise/ directory mise never loads from" "mkdir -p \$TMPDIR/r/mise/files" Bash "$WT"
+assert_defer "F1.4: no write in mise's own temporary directory, the root's mise/" "mkdir -p \$TMPDIR/mise/x" Bash "$WT"
+assert_defer "F1.4: nor under a recased spelling of it" "mkdir -p \$TMPDIR/Mise/x" Bash "$WT"
 assert_allow "F1.4: a bare assignment beside a redirect through another variable" "X=$SC/o; Y=1 >\$X" Bash "$WT"
 mkdir -p "$SC/gd/.git"
 assert_defer "F1.4: a move of a tree holding .git" "mv \$TMPDIR/gd \$TMPDIR/gd2" Bash "$WT"
