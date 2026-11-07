@@ -255,6 +255,24 @@ absolute_profile | jq '.allowManagedHooksOnly = true' >"$tmp/managed.json"
 posture -- --managed "$tmp/managed.json"
 expect_pass "under allowManagedHooksOnly, guards wired in the managed layer count"
 
+echo "# forged projections"
+reset
+absolute_profile | jq '.permissions.deny |= (map(select(. != "Bash(gh pr merge:*)")) + ["Bash(x)\nD Bash(gh pr merge:*)"])' >"$home/.claude/settings.json"
+posture --
+expect_fail "a deny entry carrying a newline that would forge another entry fails" "control character"
+
+reset
+absolute_profile | jq '(.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks) as $h
+  | .hooks.PreToolUse |= map(select(.matcher != "Bash"))
+  | .hooks.PreToolUse += [{matcher: "Read", hooks: [$h[] | .command = ("true\nH Bash\u001f" + .command)]}]' >"$home/.claude/settings.json"
+posture --
+expect_fail "a hook command carrying a newline that would forge a wired hook fails" "control character"
+
+reset
+absolute_profile | jq '.disableAllHooks = "false\nF false false"' >"$home/.claude/settings.json"
+posture --
+expect_fail "a hook switch carrying a control character fails" "control character"
+
 echo "# unreadable layers"
 reset
 absolute_profile >"$home/.claude/settings.json"

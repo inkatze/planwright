@@ -27,8 +27,9 @@ layer (${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json), the project's
 .claude/settings.json and .claude/settings.local.json, the managed settings
 file, each --settings file, and, with PLANWRIGHT_MC_TOKEN set (handed only to
 a mission-control session the launcher started), the profile the launcher
-passed it. An absent layer is empty; one that cannot be read or parsed
-fails the check.
+passed it. An absent layer is empty; one that cannot be read or parsed,
+or carries a control character in a deny entry, hook or hook switch, fails
+the check.
 
   --project  the project root (default: the git top level, else the current
              directory)
@@ -130,16 +131,19 @@ US=$(printf '\037')
 tmpd=$(mktemp -d "${TMPDIR:-/tmp}/mc-posture.XXXXXX") || fail "a scratch directory cannot be created"
 trap 'rm -rf "$tmpd"' EXIT
 # One jq run per layer, one line per fact: `F <disableAllHooks>
-# <allowManagedHooksOnly>`, `D <deny entry>`, `H <matcher>US<command>`.
+# <allowManagedHooksOnly>`, `D <deny entry>`, `H <matcher>US<command>`, and
+# `X` for a value carrying a control character, which would forge a fact.
 # shellcheck disable=SC2016 # a jq program, not shell expansions
 project_facts='
   def list(x; what): if x == null then [] elif (x | type) == "array" then x else error(what + " is not a list") end;
+  def ctl: type == "string" and (explode | any(. < 32 or . == 127));
   if type != "object" then error("not an object") else . end
-  | ("F " + ((.disableAllHooks // false) | tostring) + " " + ((.allowManagedHooksOnly // false) | tostring)),
-    (list(.permissions.deny; "deny")[] | strings | "D " + .),
+  | (if (.disableAllHooks | ctl) or (.allowManagedHooksOnly | ctl) then "X"
+     else "F " + ((.disableAllHooks // false) | tostring) + " " + ((.allowManagedHooksOnly // false) | tostring) end),
+    (list(.permissions.deny; "deny")[] | strings | if ctl then "X" else "D " + . end),
     (list(.hooks.PreToolUse; "PreToolUse")[]
       | (.matcher // "") as $m | list(.hooks; "hooks")[] | select(.type == "command")
-      | "H " + $m + "\u001f" + .command)'
+      | if ($m | ctl) or (.command | ctl) then "X" else "H " + $m + "\u001f" + .command end)'
 
 facts() { jq -r "$project_facts" "$1" 2>/dev/null; }
 
@@ -157,6 +161,7 @@ for l in ${layers[@]+"${layers[@]}"} "$managed"; do
   [ -e "$l" ] || [ -L "$l" ] || continue
   [ -f "$l" ] && [ -r "$l" ] || fail "the settings layer $l cannot be read"
   lf=$(facts "$l") || fail "the settings layer $l cannot be parsed"
+  printf '%s\n' "$lf" | grep -qx X && fail "the settings layer $l carries a control character in a deny entry, hook or hook switch"
   case $(printf '%s\n' "$lf" | sed -n 's/^F //p') in
     true\ *) fail "every hook is turned off (disableAllHooks) in the settings layer $l" ;;
     *\ true) managed_only=1 ;;
