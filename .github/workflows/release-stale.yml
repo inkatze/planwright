@@ -3,10 +3,11 @@
 #
 # release-please.yml never tags (tagging is scripts/release-publish.sh, a local
 # signed act), and while a release is unpublished it suppresses new proposals
-# and stays green. So a missed publish produces no red anywhere on its own.
-# This scheduled run fails once a merged release PR has kept its
-# `autorelease: pending` label past the bound in scripts/release-stale-check.sh,
-# and a failed scheduled run notifies the repository's maintainers.
+# and stays green, and the release-window lock's red check pages nobody. This
+# scheduled run fails once a merged release PR has kept its
+# `autorelease: pending` label past the bound in scripts/release-stale-check.sh;
+# GitHub sends a failed scheduled run's notification to whoever last changed
+# the cron schedule below.
 #
 # "on" is quoted so yamllint's truthy rule (run on .github/) does not flag the
 # key, matching ci.yml.

@@ -98,6 +98,16 @@ expect "--max-age-minutes widens the bound" 0 ""
 run "$ONE_PR" 0 --max-age-minutes 0 --now $((MERGED + 60))
 expect "--max-age-minutes 0 escalates at once" 1 "#872"
 
+ESC=$(printf '\033')
+run "[{\"number\":9,\"title\":\"evil\\u001b[2Jtitle\",\"mergedAt\":\"$MERGED_ISO\"}]" 0 --now $((MERGED + 3 * 3600))
+case "$OUT" in
+  *"$ESC"*)
+    echo "FAIL: a control byte in a PR title reached the output" >&2
+    failures=$((failures + 1))
+    ;;
+  *) expect "a PR title's control bytes are stripped" 1 "#9 evil[2Jtitle" ;;
+esac
+
 if grep -qx -- '--state' "$LOG" && grep -qx merged "$LOG" \
   && grep -qx -- '--label' "$LOG" && grep -qx 'autorelease: pending' "$LOG"; then
   echo "ok: the query asks for merged PRs labelled autorelease: pending"

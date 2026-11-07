@@ -4,10 +4,10 @@
 # Merging the release PR approves a release; the signed tag and the GitHub
 # Release come later from scripts/release-publish.sh, a local act. Until that
 # runs, the merged PR keeps release-please's `autorelease: pending` label, and
-# release-please suppresses every new proposal. Nothing else fails loudly in
-# that state (the release-please job stays green with its proposal suppressed),
-# so a forgotten or refused publish can sit unnoticed for hours. This check
-# turns that silence into a red status once the merge is older than a bound.
+# release-please suppresses every new proposal. The release-please job stays
+# green while it suppresses, and the release-window lock's red check pages
+# nobody, so a forgotten or refused publish can sit unnoticed for hours. This
+# check fails once the merge is older than a bound.
 #
 # It reads only the label and the merge time. A pending label that outlives a
 # tag that already exists (release-publish.sh's relabel is best-effort) is
@@ -76,7 +76,8 @@ stale=$(printf '%s' "$prs" | jq -r --argjson now "$now" --argjson max "$max_age_
       | select(.age > ($max * 60)))
   | sort_by(.number)
   | .[]
-  | "#\(.number) \(.title) merged \(.mergedAt), \((.age / 60) | floor) minutes ago, still labelled autorelease: pending"
+  | (.title | explode | map(select(. >= 32 and . != 127)) | implode) as $title
+  | "#\(.number) \($title) merged \(.mergedAt), \((.age / 60) | floor) minutes ago, still labelled autorelease: pending"
 ' 2>/dev/null) || {
   echo "release-stale-check: could not parse the pull request list from gh; release state unknown" >&2
   exit 2
