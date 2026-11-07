@@ -1003,7 +1003,10 @@ case $err in
   *'no usage signal'*) fail "a /usage capture on disk is a source, not a missing one (got: $err)" ;;
 esac
 reset_state
-err=$( (export PLANWRIGHT_USAGE_MIRROR=; run evaluate) 2>&1 >/dev/null) || fail "evaluate (mirror disabled, no capture) must not fail"
+err=$( (
+  export PLANWRIGHT_USAGE_MIRROR=
+  run evaluate
+) 2>&1 >/dev/null) || fail "evaluate (mirror disabled, no capture) must not fail"
 case $err in
   *'no usage signal'*) ;;
   *) fail "a disabled mirror with no capture is no usage source (got: $err)" ;;
@@ -1013,7 +1016,10 @@ echo "ok: no usage source is reported as 'no usage signal' with the fix; a sourc
 # --- 43. mirror-path prints the resolved location, nothing when disabled. ---
 reset_state
 [ "$(run mirror-path)" = "$mirror_file" ] || fail "mirror-path must print the resolved mirror location"
-[ -z "$( (export PLANWRIGHT_USAGE_MIRROR=; run mirror-path) )" ] || fail "mirror-path must print nothing when the mirror is disabled"
+[ -z "$( (
+  export PLANWRIGHT_USAGE_MIRROR=
+  run mirror-path
+))" ] || fail "mirror-path must print nothing when the mirror is disabled"
 echo "ok: mirror-path reports the resolved location"
 
 echo "ALL fleet-usage-gate tests passed"
