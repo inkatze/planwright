@@ -210,12 +210,18 @@ Usage:
   mc-panel.sh ack [--session <id>] [--now <epoch>]
       write the acknowledgment beside an existing record naming the
       session
-  mc-panel.sh retire [--session <id>]
-      remove the session's record and acknowledgment; prints
-      retired<TAB><session id>
+  mc-panel.sh retire [--session <id>] [--exit]
+      remove the session's record, acknowledgment and exit marker; prints
+      retired<TAB><session id>. With --exit (a released mission-control
+      session ending itself), an acknowledged record first leaves an exit
+      marker, <id>.exit, from which the session's own mod stands down and
+      ends the session once its turn is over; prints exit<TAB>mod then,
+      or exit<TAB>none where no mod acknowledged the record, so nothing
+      will end the session
   mc-panel.sh prune
       remove every record whose pid is no live process (one with no pid
-      is kept), every acknowledgment with no record, and
+      is kept), every acknowledgment with no record, every exit marker
+      no mod read within the hour, and
       every session-start record whose process is gone; prints
       pruned<TAB><session id> per record
   mc-panel.sh where
@@ -368,6 +374,7 @@ from=""
 session=""
 pid=""
 wait_s=""
+for_exit=0
 while [ $# -gt 0 ]; do
   case $1 in
     --program | --target | --now | --root | --from | --session | --pid | --wait)
@@ -388,6 +395,10 @@ while [ $# -gt 0 ]; do
       with_knobs=1
       shift
       ;;
+    --exit)
+      for_exit=1
+      shift
+      ;;
     --prompt | --refresh)
       [ -z "$presence_kind" ] || usage
       presence_kind=${1#--}
@@ -396,6 +407,7 @@ while [ $# -gt 0 ]; do
     *) usage ;;
   esac
 done
+[ "$for_exit" -eq 0 ] || [ "${verb:-}" = retire ] || usage
 # Each verb takes only its own flags.
 only() {
   [ -z "$presence_kind" ] && [ "$with_knobs" -eq 0 ] || usage
@@ -543,8 +555,23 @@ case $verb in
     exit 0
     ;;
   retire)
-    rm -f -- "$act_dir/$session" "$act_dir/$session.ack" || mc_fail "cannot remove the activation record"
+    rt_mod=none
+    if [ "$for_exit" -eq 1 ] && names_session "$act_dir/$session" "$session" \
+      && [ ! -L "$act_dir/$session.ack" ] && [ -f "$act_dir/$session.ack" ]; then
+      rt_mod=mod
+    fi
+    if [ "$rt_mod" = mod ]; then
+      # Written before the record goes: a mod that finds the record gone
+      # with no marker stands down without ending the session.
+      [ ! -L "$act_dir/$session.exit" ] || mc_fail "the exit marker is a symlink"
+      printf 'format\t%s\nsession\t%s\nwritten\t%s\n' "$MC_FORMAT" "$session" "$(mc_now)" \
+        | mc_write "$act_dir/$session.exit" || mc_fail "cannot write the exit marker"
+      rm -f -- "$act_dir/$session" "$act_dir/$session.ack" || mc_fail "cannot remove the activation record"
+    else
+      rm -f -- "$act_dir/$session" "$act_dir/$session.ack" "$act_dir/$session.exit" || mc_fail "cannot remove the activation record"
+    fi
     printf 'retired\t%s\n' "$session"
+    [ "$for_exit" -eq 0 ] || printf 'exit\t%s\n' "$rt_mod"
     exit 0
     ;;
   prune)
@@ -558,6 +585,12 @@ case $verb in
           # An acknowledgment outlives its record only by a crash between
           # the two removals.
           [ -e "$act_dir/${pr_id%.ack}" ] || rm -f -- "$pr_f" || pr_rc=1
+          continue
+          ;;
+        *.exit)
+          # Its mod reads a marker within seconds; an hour-old one belongs
+          # to a session that ended some other way.
+          [ -z "$(find "$pr_f" -prune -mmin +60 2>/dev/null)" ] || rm -f -- "$pr_f" || pr_rc=1
           continue
           ;;
       esac

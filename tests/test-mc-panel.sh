@@ -818,6 +818,43 @@ else
   fail "retirement left '$(ls "$act")'"
 fi
 
+# A released predecessor ends itself: `retire --exit` leaves its own mod an
+# exit marker, never touching another session.
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh activate --program alpha --now 5110
+mc_run mc-panel.sh ack --session "$sid_c"
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh retire --exit
+expect_rc "retiring the session for its exit" 0
+expect_out "an acknowledged session's retirement for exit says its mod ends it" "exit${tab}mod"
+if [ ! -e "$act/$sid_c" ] && [ ! -e "$act/$sid_c.ack" ] && [ -f "$act/$sid_c.exit" ]; then
+  ok "retirement for exit removes the record and leaves the exit marker"
+else
+  fail "retirement for exit left '$(ls "$act")'"
+fi
+if [ -f "$act/$sid_a" ]; then ok "and leaves another session's record alone"; else fail "retirement for exit touched another session's record"; fi
+mc_run mc-panel.sh retire --session "$sid_c"
+if [ ! -e "$act/$sid_c.exit" ]; then ok "a plain retirement clears the exit marker"; else fail "the exit marker outlived a plain retirement"; fi
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh activate --program alpha --now 5120
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh retire --exit
+expect_rc "retiring an unacknowledged session for its exit" 0
+expect_out "with no acknowledgment no mod is there to end the session" "exit${tab}none"
+if [ ! -e "$act/$sid_c" ] && [ ! -e "$act/$sid_c.exit" ]; then
+  ok "and no exit marker is left for a mod that is not there"
+else
+  fail "an unacknowledged retirement for exit left '$(ls "$act")'"
+fi
+mc_run mc-panel.sh retire --exit --session "$sid_c" --now 1
+expect_rc "retire takes no --now" 2
+printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_b" >"$act/$sid_b.exit"
+printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_c" >"$act/$sid_c.exit"
+touch -t 200001010000 "$act/$sid_b.exit"
+mc_run mc-panel.sh prune
+if [ ! -e "$act/$sid_b.exit" ] && [ -f "$act/$sid_c.exit" ]; then
+  ok "prune removes an exit marker no mod read within the hour, keeping a fresh one"
+else
+  fail "prune over exit markers left '$(ls "$act")'"
+fi
+rm -f "$act/$sid_c.exit"
+
 # The pid a record carries is a live process whose session-start record
 # names the session, never an inherited CLAUDE_PID naming another.
 printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_d" >"$fleet/mission-control/_panel/sessions/$dead_pid"

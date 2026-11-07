@@ -107,7 +107,13 @@ Usage:
   mc-handover.sh release --program <p> --session <handle> [--now <epoch>]
       the holder gives up the name to its verified successor (a registered
       session naming it as predecessor) or else to a resume that asked
-      for it; prints released<TAB><handle><TAB><to>
+      for it; prints released<TAB><handle><TAB><to>. The released session
+      then ends itself, never the successor: run in a session whose panel
+      this program activated, it retires that activation for exit
+      (mc-panel.sh retire --exit), so the session's own mod ends it once
+      the turn is over, and prints exit<TAB>mod; otherwise
+      exit<TAB>none<TAB><why>, and that session ends its turn saying it
+      can be closed
   mc-handover.sh take --program <p> --session <name> [--window <cadence>]
       [--now <epoch>]
       the verified successor takes the name: it asks a live predecessor
@@ -134,7 +140,8 @@ take and resume print, in order:
       for the predecessor, then for a pending successor the handover
       left behind: released, the launcher retired its row; partial, it
       retired only part and an item is raised; attended, the operator's
-      own session, which has no row; gone, the row was already absent
+      own session, which has no row and ends itself once it releases
+      (release, above); gone, the row was already absent
   changed<TAB>decision<TAB><ts><TAB><subject><TAB><act>     (resume)
   changed<TAB>event<TAB><epoch><TAB><kind><TAB><subject>    (resume)
   changed<TAB>none | changed<TAB>unknown<TAB><store>        (resume)
@@ -513,6 +520,31 @@ compose_brief() {
   } >"$scratch"
 }
 
+# self_exit: the released session's exit line. Only an activation of this
+# program's panel is retired, so a release run from another program's
+# session never ends that one.
+self_exit() {
+  se_out=$(/bin/bash "$script_dir/mc-panel.sh" lookup 2>/dev/null </dev/null)
+  se_rc=$?
+  if [ "$se_rc" -eq 4 ]; then
+    printf 'exit\tnone\t%s\n' "this session's id cannot be told"
+    return 0
+  fi
+  se_p=$(printf '%s\n' "$se_out" | awk -F '\t' '$1 == "program" { print $2; exit }')
+  if [ "$se_rc" -ne 0 ] || [ "$se_p" != "$program" ]; then
+    printf 'exit\tnone\tno panel of program %s runs in this session\n' "$program"
+    return 0
+  fi
+  se_out=$(/bin/bash "$script_dir/mc-panel.sh" retire --exit 2>/dev/null </dev/null) || {
+    printf 'exit\tnone\t%s\n' "the panel's activation could not be retired"
+    return 0
+  }
+  case $(printf '%s\n' "$se_out" | awk -F '\t' '$1 == "exit" { print $2; exit }') in
+    mod) printf 'exit\tmod\n' ;;
+    *) printf 'exit\tnone\t%s\n' "no mod acknowledged this session's panel" ;;
+  esac
+}
+
 # --------------------------------------------------------------------------
 
 case ${1:-} in
@@ -787,6 +819,7 @@ case $verb in
     record "$RELEASED" session "$session" to "$to" at "$NOW"
     unlock
     printf 'released\t%s\t%s\n' "$session" "$to"
+    self_exit
     ;;
   take)
     need session "$session"

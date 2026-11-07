@@ -28,6 +28,8 @@ call $.clock.after
 call $.clock.every
 call $.clock.now
 call $.command.register
+# A released predecessor ending its own session with /exit.
+call $.command.run
 # Whether this session is mission control, and its wake target; cleared once
 # read, so a session this one starts does not inherit them.
 call $.env.get

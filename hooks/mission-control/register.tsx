@@ -469,7 +469,13 @@ async function checkRecord($: EngineInterface) {
     const sessionId = await $.session.id()
     const has = await $.fs.exists(`${dir}/${sessionId}`)
     if (!has) {
-      if (ctx && ackedFor === sessionId) await standDown($)
+      if (ctx && ackedFor === sessionId) {
+        const program = ctx.program
+        // Read before the stand-down, which forgets the program.
+        const isReleased = await $.fs.exists(`${dir}/${sessionId}.exit`)
+        await standDown($)
+        if (isReleased) await endSelf($, sessionId, program)
+      }
       // Acknowledged under an id the session no longer carries (a /clear the
       // end hook could not follow): record it under this one.
       else if (ctx && ackedFor !== null) {
@@ -527,6 +533,17 @@ async function standDown($: EngineInterface) {
   await update($, panel, () => null)
   $.ui.status(undefined)
   await release($, was)
+}
+
+// A released predecessor ends itself, its turn over first, so its successor
+// never has to close another session.
+async function endSelf($: EngineInterface, sessionId: string, program: string) {
+  await runScript($, 'mc-panel.sh', ['retire', '--session', sessionId])
+  void $.command.run({ command: 'exit' }).catch(() =>
+    $.ui.toast(
+      `Mission control: this session released the ${program} program name but could not end itself; type /exit to close it`,
+    ),
+  )
 }
 
 async function activate(

@@ -146,8 +146,20 @@ holder_is "after the failed self-check the predecessor keeps the name" "$n1"
 # ---------------------------------------------------------------------------
 ho verify --program alpha --session "$n2" --picture "$tmp/picture" --digest "$digest" --ledger "$led1"
 [ "$RC" = 0 ] && ok "the successor's self-check matches the handover file" || fail "the matching verify exited $RC: $OUT $ERR"
-ho release --program alpha --session "$n1"
+pred_sid=11111111-2222-3333-4444-555555555555
+other_sid=22222222-2222-3333-4444-555555555555
+act="$fleet/mission-control/_panel/active"
+for s in "$pred_sid" "$other_sid"; do
+  run mc-panel.sh activate --program alpha --session "$s" --now 1000
+  run mc-panel.sh ack --session "$s"
+done
+[ -f "$act/$pred_sid.ack" ] && [ -f "$act/$other_sid.ack" ] || fail "fixture: the activation records were not acknowledged: $ERR"
+RUN_SESSION=$pred_sid ho release --program alpha --session "$n1"
 [ "$RC" = 0 ] && [ "$(col released 3)" = "$n2" ] && ok "the predecessor releases the name to the verified successor" || fail "release: $RC $OUT $ERR"
+# The predecessor ends itself: its own mod, never the successor, closes it.
+[ "$(col exit 2)" = mod ] && ok "the release says the predecessor's own mod ends its session" || fail "the release's exit line: $OUT"
+[ -f "$act/$pred_sid.exit" ] && [ ! -e "$act/$pred_sid" ] && ok "the release leaves the predecessor's mod its exit marker" || fail "no exit marker after the release: $(ls "$act")"
+[ -f "$act/$other_sid" ] && [ ! -e "$act/$other_sid.exit" ] && ok "and touches no other session's record" || fail "the release touched another session: $(ls "$act")"
 ho take --program alpha --session "$n2" --window 5s
 [ "$RC" = 0 ] || fail "the take exited $RC: $OUT $ERR"
 [ "$(col took 4)" = released ] && ok "the successor takes the name on the release" || fail "the take did not see the release: $OUT"
@@ -213,12 +225,17 @@ holder_is "and the name stays where it was" "$n3"
     n=$((n + 1))
   done
   RUN_ERR="$tmp/stderr-helper" run mc-handover.sh release --program alpha --session "$n3"
+  printf '%s\n' "$OUT" >"$tmp/stdout-helper"
 ) &
 helper=$!
 ho resume --program alpha --session operator-term --picture "$tmp/picture" --digest "$digest" --durable "$tmp/picture" --window 10s
 wait "$helper"
 [ "$RC" = 0 ] || fail "the resume exited $RC: $OUT $ERR"
 [ "$(col took 3)" = "$n3" ] && [ "$(col took 4)" = released ] && ok "the holder releases the name on the resume's request" || fail "the resume did not see the release: $OUT"
+case $(cat "$tmp/stdout-helper") in
+  *"exit${tab}none${tab}"*) ok "a release in a session no mod runs in says nothing will end it" ;;
+  *) fail "the modless release's exit line: $(cat "$tmp/stdout-helper")" ;;
+esac
 [ ! -f "$(rowfile "$n3")" ] && ok "the released holder's row is gone" || fail "the released holder's row stayed"
 case $OUT in *"changed${tab}decision${tab}"*"after the last turn${tab}retargeted a branch"*) ok "the resume reports what changed since the last turn" ;; *) fail "no change reported: $OUT" ;; esac
 case $OUT in *"held a branch"* | *"merged nothing"*) fail "a decision before the last turn was reported as changed" ;; *) ok "a decision before the last turn is not reported" ;; esac
