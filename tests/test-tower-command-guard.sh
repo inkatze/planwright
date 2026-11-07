@@ -1456,12 +1456,18 @@ rm -rf "$STUBBIN"
 echo "# mission-control mode: the one pre-approval list (REQ-G1.5)"
 VERBS="$REPO_ROOT/config/mission-control-verbs.txt"
 CHECK_VERBS="$REPO_ROOT/scripts/check-mc-verbs.sh"
-# mc_says <guard> <command>: allow, ask or defer from the guard's
-# mission-control mode, run against the real checkout so the scripts exist.
+# mc_says <guard> <command> [cwd]: allow, ask or defer from the guard's
+# mission-control mode, run against the real checkout so the scripts exist;
+# `exit <n>` when the guard itself fails.
 mc_says() {
-  local out
-  out=$(jq -nc --arg c "$2" --arg w "$REPO_ROOT" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
+  local out rc
+  out=$(jq -nc --arg c "$2" --arg w "${3:-$REPO_ROOT}" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
     | env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" HOME="$SANDBOX/no-home" /bin/bash "$1" mission-control 2>/dev/null)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf 'exit %s\n' "$rc"
+    return
+  fi
   out=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)
   printf '%s\n' "${out:-defer}"
 }
@@ -1570,10 +1576,8 @@ OTHER="$SANDBOX/other-repo"
 mkdir -p "$OTHER/scripts"
 : >"$OTHER/.git"
 : >"$OTHER/scripts/mc-rules.sh"
-other_says=$(jq -nc --arg c "$OTHER/scripts/mc-rules.sh load alpha" --arg w "$OTHER" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
-  | env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" HOME="$SANDBOX/no-home" /bin/bash "$HOOK" mission-control 2>/dev/null \
-  | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)
-if [ -z "$other_says" ]; then
+other_says=$(mc_says "$HOOK" "$OTHER/scripts/mc-rules.sh load alpha" "$OTHER")
+if [ "$other_says" = defer ]; then
   pass "a listed name under the session's own repository prompts"
 else
   fail "a listed name under the session's own repository was approved: $other_says"
