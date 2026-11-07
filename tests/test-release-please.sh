@@ -202,13 +202,16 @@ POLICY_FILES="config/worker-settings.json config/tower-settings.json config/miss
 # the class admits only task branches (human-gates REQ-D1.9).
 GUARD_FILES="scripts/policy-guard.sh"
 HELPER_FILES="scripts/merge-admitted.sh"
+# Mission control's merge-ready list prints the checked merge command for the
+# operator to run; it is excluded by path and proven below never to run it.
+PRINT_FILES="scripts/mc-merge-ready.sh"
 # Fixed-string exclusion, not ERE: a path like config/worker-settings.json carries
 # a regex metacharacter (the "." before json). Under grep -E that "." is a wildcard,
 # so the exclusion would also swallow look-alike paths (config/worker-settingsXjson)
 # and could hide a real merge invocation in such a file. Build one -e fixed pattern
 # per policy file and match with grep -vF so only the exact paths are excluded.
 policy_exclude_args=()
-for pf in $POLICY_FILES $GUARD_FILES $HELPER_FILES; do
+for pf in $POLICY_FILES $GUARD_FILES $HELPER_FILES $PRINT_FILES; do
   policy_exclude_args+=(-e "/${pf}:")
 done
 merge_hits="$(
@@ -238,6 +241,20 @@ if [ -n "$class_at" ] && [ -n "$fall_at" ] && [ -n "$merge_at" ] \
   pass "C1.4 the merge helper's one merge call follows the class evaluation and its fall-through exit"
 else
   fail "C1.4 the merge helper's merge call is not gated by the class evaluation; re-verify the exclusion"
+fi
+# The printing script names the merge only as text: every occurrence sits in
+# its help heredoc or inside a printf format, none at a command position, and
+# the script evaluates no built string.
+PRINTER="$REPO_ROOT/$PRINT_FILES"
+help_end=$(grep -n '^HELP$' "$PRINTER" | head -1 | cut -d: -f1)
+print_hits=$(grep -nE 'gh pr merge|pulls/[^ ]*/merge|mergePullRequest|enablePullRequestAutoMerge|--auto-merge' "$PRINTER" \
+  | awk -F: -v e="${help_end:-0}" -v q="'" '$1 + 0 > e + 0 && $0 !~ ("printf " q "[^" q "]*gh pr merge")' || true)
+if [ -n "$help_end" ] && [ -z "$print_hits" ] \
+  && ! grep -qE '(^|[;&|(]|then|do|else)[[:space:]]*(eval|sh -c|bash -c)[[:space:]]' "$PRINTER"; then
+  pass "C1.4 $PRINT_FILES only prints the merge command for the operator, never runs it"
+else
+  fail "C1.4 $PRINT_FILES names a merge outside its help or a printf, or evaluates a built string; re-verify the exclusion"
+  [ -z "$print_hits" ] || printf '%s\n' "$print_hits" >&2
 fi
 if grep -q "^readonly TASK_BRANCH_RE='^planwright/\[a-z0-9\]\[a-z0-9-\]\*/task-" "$REPO_ROOT/scripts/merge-class.sh"; then
   pass "C1.4 the class admits only task branches, so the helper never reaches a release PR"
