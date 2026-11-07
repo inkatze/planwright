@@ -615,7 +615,7 @@ mappings for $cs_unit:
 
 - Resolve every point \`--unattended\`, under \`$cs_root/scripts/\`.
 - Pass the step context as literal assignments in front of each
-  \`step-run.sh\` and \`step-record.sh\` call, in that same command, never
+  \`step-run.sh\` and \`resolve-steps.sh\` call, in that same command, never
   exported (each Bash call is a fresh shell): $cs_ctx,
   this branch, its base branch and this worktree; an isolated step's launch
   tier takes the unit \`mission-control:$1\`.

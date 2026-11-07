@@ -128,9 +128,10 @@ printf '%s\n' "$b" | grep -qF "launch tier takes the unit \`flight:$fid\`" \
   || fail "an isolated step's launch tier must take the flight's own unit"
 # Each Bash call is a fresh shell, so the step context rides each step-script
 # call as a prefix the guard approves, never an export the next call loses.
-flat "$b" | grep -qF 'literal assignments in front of each `step-run.sh` and `step-record.sh` call' \
-  || fail "the brief must carry the step context as a same-command prefix"
-printf '%s\n' "$b" | grep -qi 'export the step context' && fail "the brief must not ask for an exported step context"
+flat "$b" | grep -qF 'literal assignments in front of each `step-run.sh` and `resolve-steps.sh` call' \
+  || fail "the brief must carry the step context as a same-command prefix on each script that reads it"
+flat "$b" | grep -qi -e 'export the step context' -e 'export PLANWRIGHT_STEP_' \
+  && fail "the brief must not ask for an exported step context"
 # The guard defers a root assignment prefix, so the brief carries none: the
 # launch pins the root instead.
 printf '%s\n' "$b" | grep -q 'PLANWRIGHT_ROOT=\|PLANWRIGHT_SKILLS_ROOT=' \
