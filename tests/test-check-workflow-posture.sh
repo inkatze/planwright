@@ -1551,6 +1551,10 @@ matrix_case "matrix: no macOS job fails" 1 "no macOS job" DROP_MACOS=1
     "M_MAC_RUNS_ON=\${{ x && fromJSON('[\"self-hosted\", \"macOS\"]') || 'macos-latest' || 'ubuntu-latest' }}"
   matrix_case "matrix: an alternative ahead of the label list is no macOS job" 1 "no macOS job" \
     "M_MAC_RUNS_ON=\${{ 'ubuntu-latest' || x && fromJSON('[\"self-hosted\", \"macOS\"]') || 'macos-latest' }}"
+  matrix_case "matrix: a selector other than the plan's routing choice is no macOS job" 1 "no macOS job" \
+    "M_MAC_RUNS_ON=\${{ true && fromJSON('[\"self-hosted\", \"macOS\"]') || 'macos-latest' }}"
+  matrix_case "matrix: a hosted fallback other than macos-latest is no macOS job" 1 "no macOS job" \
+    "M_MAC_RUNS_ON=\${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('[\"self-hosted\", \"macOS\"]') || 'macos-13' }}"
   matrix_case "matrix: a second label list is no macOS job" 1 "no macOS job" \
     "M_MAC_RUNS_ON=\${{ fromJSON('[\"self-hosted\", \"linux\"]') && fromJSON('[\"self-hosted\", \"macOS\"]') || 'macos-latest' }}"
 }

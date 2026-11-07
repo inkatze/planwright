@@ -140,9 +140,10 @@
 # workflow file name, a further assertion holds that file to the CI platform
 # matrix, failing closed when it is absent:
 #   - it carries an Ubuntu job (runs-on ubuntu-*, no container), a macOS job
-#     (runs-on macos-*, or `${{ <cond> && fromJSON('[…]') || 'macos-*' }}`
-#     whose label list names "self-hosted" and "macOS", so a self-hosted Mac
-#     always has a hosted Mac as its fallback), and exactly one Alpine job (a
+#     (runs-on macos-*, or `${{ needs.plan.outputs.mac_runner ==
+#     'self-hosted' && fromJSON('[…]') || 'macos-latest' }}` whose label list
+#     names "self-hosted" and "macOS", so only the plan job's routing picks a
+#     self-hosted Mac, with a hosted one as the fallback), and exactly one Alpine job (a
 #     container image whose last path component is alpine); any other
 #     runs-on, a matrix expression included, places a job on no platform;
 #   - every step blocks: no `continue-on-error` other than `false`, and no
@@ -871,16 +872,15 @@ function scope(n) { return (n == "shell suite" || n == "install smoke" || n == "
 function stepname(j, s) { return ((j SUBSEP s) in nm) ? nm[j SUBSEP s] : "" }
 function v(msg) { printf "%s\n", msg }
 # A macOS runs-on: a hosted `macos-*` label, or the one expression that picks
-# a self-hosted Mac per run and otherwise falls back to a hosted one, so both
-# outcomes are a Mac. A bare self-hosted label list is not one: it leaves no
-# hosted path for the pull requests the workflow keeps off that runner. No
-# `||` may precede the list and only one fromJSON may appear, so an earlier
-# alternative or a second list cannot decide the runner instead.
-function mac_runs_on(r,   t) {
+# the self-hosted Mac only on the plan job's routing choice and otherwise
+# falls back to macos-latest, so both outcomes are a Mac and only the plan's
+# fork check can choose the self-hosted one. Any other selector (`true`, an
+# earlier alternative, a second list) is not this shape, and neither is a
+# bare self-hosted label list, which leaves no hosted path for the pull
+# requests the plan keeps off that runner.
+function mac_runs_on(r) {
   if (r ~ /^macos-/) return 1
-  t = r
-  if (gsub(/fromJSON\(/, "", t) != 1) return 0
-  return (r ~ /^\$\{\{[^|]*&&[ \t]*fromJSON\('\[[^]]*\]'\)[ \t]*\|\|[ \t]*'macos-[A-Za-z0-9.-]+'[ \t]*\}\}$/ &&
+  return (r ~ /^\$\{\{[ \t]*needs\.plan\.outputs\.mac_runner[ \t]*==[ \t]*'self-hosted'[ \t]*&&[ \t]*fromJSON\('\[[^]'|]*\]'\)[ \t]*\|\|[ \t]*'macos-latest'[ \t]*\}\}$/ &&
           r ~ /fromJSON\('\[[^]]*"self-hosted"/ && r ~ /fromJSON\('\[[^]]*"macOS"/)
 }
 BEGIN { FS = "\t"; file = ENVIRON["MATRIX_FILE"] }
