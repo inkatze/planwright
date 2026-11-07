@@ -59,7 +59,8 @@ Say which you want at any time; it is remembered.
 **Its guardrails are checked first.** Before any work, and again each
 time its timer wakes it with something to handle, mission control checks
 that its safety settings are in force: the deny list and guard hooks its
-settings profile ships. If they are not, it tells you why in one plain line
+settings profile ships. If they are not, or the check cannot run, it tells
+you why in one plain line
 and holds back (no launch, no answer, no request; it still keeps its own
 records) until a later check passes; its launcher refuses to start a
 session for the same reason. A session you open yourself and type
