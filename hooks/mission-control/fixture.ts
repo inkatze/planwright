@@ -305,6 +305,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
       if (fx.activateExit !== 0) return answer('', fx.activateExit)
       const rec = recordFor(flag('--program'), flag('--target'))
       if (fx.records[sid] !== rec) delete fx.records[`${sid}.ack`]
+      delete fx.records[`${sid}.exit`]
       fx.records[sid] = rec
       return answer(`activation\t${sid}\n`)
     }

@@ -224,18 +224,22 @@ holder_is "and the name stays where it was" "$n3"
     sleep 0.1
     n=$((n + 1))
   done
-  RUN_ERR="$tmp/stderr-helper" run mc-handover.sh release --program alpha --session "$n3"
+  RUN_SESSION=$other_sid RUN_ERR="$tmp/stderr-helper" run mc-handover.sh release --program alpha --session "$n3"
   printf '%s\n' "$OUT" >"$tmp/stdout-helper"
 ) &
+# An exit marker that cannot be written: the release still stands the panel
+# down, so the released session stops acting for the program.
+ln -s "$tmp/nowhere" "$act/$other_sid.exit"
 helper=$!
 ho resume --program alpha --session operator-term --picture "$tmp/picture" --digest "$digest" --durable "$tmp/picture" --window 10s
 wait "$helper"
 [ "$RC" = 0 ] || fail "the resume exited $RC: $OUT $ERR"
 [ "$(col took 3)" = "$n3" ] && [ "$(col took 4)" = released ] && ok "the holder releases the name on the resume's request" || fail "the resume did not see the release: $OUT"
 case $(cat "$tmp/stdout-helper") in
-  *"exit${tab}none${tab}this session's id cannot be told"*) ok "a release in a session that cannot be told says nothing will end it" ;;
-  *) fail "the modless release's exit line: $(cat "$tmp/stdout-helper")" ;;
+  *"exit${tab}none${tab}the exit marker could not be written; the panel stood down"*) ok "a release whose exit marker cannot be written says so" ;;
+  *) fail "the failed exit marker's exit line: $(cat "$tmp/stdout-helper")" ;;
 esac
+[ ! -e "$act/$other_sid" ] && [ ! -e "$act/$other_sid.ack" ] && ok "and its panel stood down all the same" || fail "the panel outlived the failed exit marker: $(ls "$act")"
 [ ! -f "$(rowfile "$n3")" ] && ok "the released holder's row is gone" || fail "the released holder's row stayed"
 case $OUT in *"changed${tab}decision${tab}"*"after the last turn${tab}retargeted a branch"*) ok "the resume reports what changed since the last turn" ;; *) fail "no change reported: $OUT" ;; esac
 case $OUT in *"held a branch"* | *"merged nothing"*) fail "a decision before the last turn was reported as changed" ;; *) ok "a decision before the last turn is not reported" ;; esac

@@ -536,8 +536,12 @@ async function standDown($: EngineInterface) {
   await release($, was)
 }
 
+// Only a regular file counts, as for the acknowledgment.
 async function isRetiredForExit($: EngineInterface, dir: string, ids: string[]) {
-  for (const id of ids) if (await $.fs.exists(`${dir}/${id}.exit`)) return true
+  for (const id of ids) {
+    const marker = await $.fs.stat(`${dir}/${id}.exit`).catch(() => undefined)
+    if (marker && !marker.isLink && marker.kind === 'file') return true
+  }
   return false
 }
 
@@ -547,7 +551,9 @@ async function isRetiredForExit($: EngineInterface, dir: string, ids: string[]) 
 // the release's turn finishes first, and it is not awaited since a run that
 // ends the session never resolves.
 async function endReleased($: EngineInterface, ids: string[]) {
-  const program = ctx?.program ?? ''
+  // The /clear path and a record check can both find the marker.
+  if (!ctx) return
+  const program = ctx.program
   try {
     await standDown($)
   } finally {
@@ -692,7 +698,7 @@ export const register: Register = on => {
     if (ctx && dir !== null && (await isRetiredForExit($, dir, clearedIds))) {
       // Released just before the /clear: end it rather than move the record.
       const ended = await next(e)
-      $.clock.after(0, () => void endReleased($, clearedIds))
+      $.clock.after(0, () => void endReleased($, clearedIds).catch(() => undefined))
       return ended
     }
     if (ctx && e.reason === 'clear') {

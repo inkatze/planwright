@@ -199,6 +199,16 @@ test('a release while an activation is being retried ends the session instead', 
   expect(w.commandRuns).toEqual(['exit'])
 })
 
+test('a release under the id a /clear left behind still ends the session', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  w.set({ records: { [`${SESSION}.exit`]: 'exit' }, sessionId: OTHER })
+  await w.clock.advance(10_000)
+  await w.clock.settle()
+  expect(ran(w, 'mc-panel.sh', 'activate').filter(r => r.includes(OTHER))).toEqual([])
+  expect(w.commandRuns).toEqual(['exit'])
+})
+
 test('a /clear right after a release ends the session rather than moving the record', async ($, on) => {
   const w = world(on)
   await boot($, w)

@@ -412,6 +412,7 @@ while [ $# -gt 0 ]; do
     *) usage ;;
   esac
 done
+[ "$for_exit" -eq 0 ] || [ "$verb" = retire ] || usage
 # Each verb takes only its own flags.
 only() {
   [ -z "$presence_kind" ] && [ "$with_knobs" -eq 0 ] || usage
@@ -422,7 +423,6 @@ only() {
   case " $1 " in *" pid "*) ;; *) [ -z "$pid" ] || usage ;; esac
   case " $1 " in *" wait "*) ;; *) [ -z "$wait_s" ] || usage ;; esac
   [ -z "$root$from" ] || usage
-  [ "$for_exit" -eq 0 ] || [ "$verb" = retire ] || usage
 }
 case $verb in
   digest | line)
@@ -575,7 +575,11 @@ case $verb in
       [ ! -L "$rt_rec.exit" ] || mc_fail "the exit marker is a symlink"
       printf 'format\t%s\nsession\t%s\nwritten\t%s\n' "$MC_FORMAT" "$session" "$(mc_now)" \
         | mc_write "$rt_rec.exit" || mc_fail "cannot write the exit marker"
-      rm -f -- "$rt_rec" "$rt_rec.ack" || mc_fail "cannot remove the activation record"
+      # A marker beside a record that stays would end the session later.
+      rm -f -- "$rt_rec" "$rt_rec.ack" || {
+        rm -f -- "$rt_rec.exit"
+        mc_fail "cannot remove the activation record"
+      }
       printf 'retired\t%s\nexit\tmod\n' "$session"
       exit 0
     fi

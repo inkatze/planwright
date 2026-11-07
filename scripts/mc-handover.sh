@@ -801,7 +801,7 @@ case $verb in
     runtime_paths
     lock
     read_holder
-    [ "$H_SESSION" = "$session" ] || mc_fail "$session does not hold the program name $program"
+    [ "$H_SESSION" = "$session" ] || mc_fail "$session does not hold the program name $program (the holder is ${H_SESSION:-nobody})"
     to=''
     if [ -f "$SUCC" ]; then
       store_check "$SUCC"
