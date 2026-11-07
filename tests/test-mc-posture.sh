@@ -186,7 +186,12 @@ printf 'token\t%s\nkind\tmission-control\nprofile\t%s\ncwd\t%s\n' cwd-token-0123
   >"$tmp/fleet/mission-control/sessions/mc-alpha-mission-control-cwd"
 posture PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_MC_TOKEN=cwd-token-0123456789 --
 expect_fail "a launched session reads the project layers of the directory it was launched in" "disableAllHooks"
-rm -rf "$tmp/launched" "$tmp/fleet"
+mkdir -p "$tmp/clean"
+posture PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_MC_TOKEN=cwd-token-0123456789 CLAUDE_PROJECT_DIR="$tmp/clean" --
+expect_fail "the directory a launched session was launched in wins over the one Claude Code names" "disableAllHooks"
+posture PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_MC_TOKEN=cwd-token-0123456789 -- --project "$tmp/clean"
+expect_pass "a --project wins over the directory a launched session was launched in"
+rm -rf "$tmp/launched" "$tmp/fleet" "$tmp/clean"
 
 # A --project that names no directory would read every project layer as
 # absent, a disableAllHooks there included, so it fails rather than passes.
