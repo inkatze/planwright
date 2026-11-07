@@ -1,0 +1,684 @@
+#!/usr/bin/env bash
+# mc-throughput.sh — the throughput duty: measure where the program's time
+# goes and raise the single biggest bottleneck to its mission control.
+#
+# `mc-throughput.sh --help` prints the contract: verbs, outputs, exit codes.
+set -u
+set -f
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+prog=mc-throughput
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+for lib in echo-safety.sh mc-lib.sh; do
+  if [ ! -r "$script_dir/$lib" ]; then
+    printf '%s\n' "$prog: $lib is missing or unreadable (broken install)" >&2
+    exit 2
+  fi
+done
+# shellcheck source=scripts/echo-safety.sh
+. "$script_dir/echo-safety.sh" || exit 2
+# shellcheck source=scripts/mc-lib.sh
+. "$script_dir/mc-lib.sh" || exit 2
+
+help_text() {
+  cat <<'HELP'
+mc-throughput.sh — the throughput duty: measure where the program's time
+goes and raise the single biggest bottleneck to its mission control. Every
+measurement is a read; the duty changes nothing it measures.
+
+THE MEASUREMENTS, over the last mission_control_throughput_window:
+  ci         per workflow and job, of the newest
+             mission_control_throughput_ci_runs Actions runs of each program
+             repository's GitHub remote (gh api, jq): the queue time
+             (created to started; a job still queued counts to now) against
+             the run time (started to completed)
+  approvals  every permission request in the program's stream-json worker
+             journals (<fleet home>/streamjson/mc-<program>-*/journal):
+             received to answered, a pending one counted to now
+  stalls     every launched session of the program but its mission control
+             whose stall sample (scripts/mc-stall.sh, the runtime
+             directory's stall/) reads idle, idle-question, open-selector,
+             unsubmitted-prompt, turn-ended-background, busy-unchanged or
+             dead: the time since its pane last changed
+  steps      every cadence step record (start to end; a skipped step
+             aside) in the program repositories' worktrees and the program
+             home's reclaimed copies, per step id, naming the branch of the
+             slowest
+A source that cannot be read is named unknown, with the reason, and
+contributes nothing: an unread source is never shown as zero.
+
+THE TOP BOTTLENECK: a measurement is a bottleneck when its typical value
+(the median wait, run or step; the longest stall) reaches its threshold in
+mission_control_throughput_thresholds. Of those, the top one is the one
+that cost the most time in all over the window (ties: the larger typical
+value against its threshold, then the key).
+
+Usage:
+  mc-throughput.sh measure --program <p> [--now <epoch>]
+      source<TAB><name><TAB>ok|unknown<TAB><detail>
+      ci<TAB><workflow / job><TAB><jobs><TAB><queue median s><TAB>
+        <queue total s><TAB><queue max s><TAB><run median s|->
+      approvals<TAB>permission<TAB><requests><TAB><median s><TAB><total s>
+        <TAB><max s><TAB><slowest session><TAB><pending><TAB><longest pending s|->
+      stall<TAB><session><TAB><state><TAB><seconds>
+      step<TAB><step id><TAB><runs><TAB><median s><TAB><total s><TAB>
+        <max s><TAB><slowest branch>
+  mc-throughput.sh top --program <p> [--now <epoch>]
+      the measure lines, then
+        top<TAB><key><TAB><total s><TAB><text>   or   top<TAB>none
+  mc-throughput.sh curve --program <p> [--now <epoch>]
+      cost per model request against context size, from each stream-json
+      worker's event capture written inside the window (jq):
+        request<TAB><session><TAB><n><TAB><percent|-><TAB><context tokens>
+          <TAB><window|-><TAB><cost>
+        curve<TAB><band>%<TAB><requests><TAB><median context tokens><TAB>
+          <mean cost per request>
+        curve<TAB>unknown<TAB><requests with no known window>
+      context tokens are input plus cache reads and writes; the cost is in
+      input-token equivalents at the list-price ratios (cache read 0.1,
+      5-minute write 1.25, 1-hour write 2, output 5), not dollars; the window
+      is the capture's own result frame's, else the session's context
+      reading (<fleet home>/mission-control/context/<name>, key `window`)
+  mc-throughput.sh watch [--program <p>] [--now <epoch>]
+      the duty's watcher (also a run with no arguments under the runner):
+      measures at most once per mission_control_throughput_interval
+      (`skipped<TAB>interval` otherwise), writes the measurement and the
+      curve to the program home's kb/throughput/, and emits the top
+      bottleneck as a throughput-bottleneck event, subject the key (a
+      checksum subject outside the subject grammar), text its numbers and
+      any unknown source, printing
+        raised<TAB><key><TAB><total s>   or   held<TAB><key><TAB><total s>
+      A key is raised again only once its total grows by
+      mission_control_throughput_worsen percent over the total it was last
+      raised at, and forgotten once it is no longer a bottleneck, so it is
+      raised afresh if it returns. The program from PLANWRIGHT_MC_PROGRAM
+      when --program is absent.
+
+Exit codes: 0 done; 1 an invalid knob, a store that cannot be written, or
+an event the store refused; 2 usage; 3 the program is not configured.
+
+Portable bash 3.2 / BSD tooling.
+HELP
+}
+
+usage() {
+  mc_usage_fail "usage: mc-throughput.sh measure|top|curve|watch --program <p> [--now <epoch>]; mc-throughput.sh --help"
+}
+
+case ${1:-} in
+  --help | -h)
+    help_text
+    exit 0
+    ;;
+esac
+if [ $# -eq 0 ] && [ -n "${PLANWRIGHT_MC_PROGRAM:-}" ]; then
+  set -- watch
+fi
+[ $# -ge 1 ] || usage
+verb=$1
+shift
+case $verb in
+  measure | top | curve | watch) ;;
+  *) usage ;;
+esac
+program=""
+now=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --program | --now)
+      [ $# -ge 2 ] || usage
+      mc_valid_text "$2" || mc_usage_fail "$1 takes text with no control byte"
+      case $1 in
+        --program) program=$2 ;;
+        --now) now=$2 ;;
+      esac
+      shift 2
+      ;;
+    *) usage ;;
+  esac
+done
+[ "$verb" != watch ] || [ -n "$program" ] || program=${PLANWRIGHT_MC_PROGRAM:-}
+[ -n "$program" ] || usage
+mc_now_arg "$now"
+mc_require_program "$program"
+
+# parse_thresholds <raw>: the thresholds map as key<TAB>seconds lines, every
+# known key once and no other.
+parse_thresholds() {
+  pt_lines=$(mc_map "$1") || return 1
+  pt_out=""
+  for pt_k in ci-queue approval-wait stall step; do
+    pt_v=$(mc_lookup "$pt_k" "$pt_lines")
+    pt_s=$(mc_seconds "$pt_v") || return 1
+    pt_out="$pt_out$pt_k	$pt_s
+"
+  done
+  printf '%s\n' "$pt_lines" | awk -F '\t' '$1 !~ /^(ci-queue|approval-wait|stall|step)$/ { exit 1 }' || return 1
+  printf '%s' "$pt_out"
+}
+
+knob_secs() { # knob_secs <key>
+  ks=$(mc_knob "$1" mc_parse_cadence) || exit 1
+  mc_seconds "$ks"
+}
+# load_knobs: the window and the thresholds, for a verb that measures.
+load_knobs() {
+  WINDOW=$(knob_secs mission_control_throughput_window) || exit 1
+  SINCE=$((NOW - WINDOW))
+  THRESHOLDS=$(mc_knob mission_control_throughput_thresholds parse_thresholds) || exit 1
+  CI_RUNS=$(mc_knob mission_control_throughput_ci_runs mc_parse_count) || exit 1
+}
+threshold() { mc_lookup "$1" "$THRESHOLDS"; }
+
+FLEET=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
+RUNTIME="$FLEET/mission-control/$program"
+mkdir -p "$RUNTIME" 2>/dev/null || mc_fail "cannot create the runtime directory of program $program"
+
+unknown() { # unknown <source> <reason>
+  printf 'source\t%s\tunknown\t%s\n' "$1" "$(printf '%s' "$2" | tr '\t\n' '  ' | mc_clean_text)"
+}
+
+# The awk helpers every reader shares. iso(s) is a UTC
+# YYYY-MM-DDTHH:MM:SSZ timestamp in epoch seconds, -1 for anything else.
+# shellcheck disable=SC2016 # an awk program
+ISO_AWK='function iso(s,   y, m, d, t) {
+  if (s !~ /^[0-9][0-9][0-9][0-9]-[01][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-6][0-9](\.[0-9]+)?Z$/) return -1
+  y = substr(s, 1, 4) + 0; m = substr(s, 6, 2) + 0; d = substr(s, 9, 2) + 0
+  if (m <= 2) { y--; m += 12 }
+  t = 365 * y + int(y / 4) - int(y / 100) + int(y / 400) + int((153 * (m - 3) + 2) / 5) + d - 719469
+  return t * 86400 + substr(s, 12, 2) * 3600 + substr(s, 15, 2) * 60 + substr(s, 18, 2)
+}'
+
+# aggregate: key<TAB>seconds[<TAB>who] rows on stdin to one
+# key<TAB>count<TAB>median<TAB>total<TAB>max<TAB>who-of-max row per key.
+aggregate() {
+  sort -t '	' -k1,1 -k2,2n | awk -F '\t' '
+    function flush() {
+      if (!have) return
+      med = (c % 2) ? v[(c + 1) / 2] : int((v[c / 2] + v[c / 2 + 1]) / 2)
+      print k "\t" c "\t" med "\t" tot "\t" v[c] "\t" who
+    }
+    NR == 1 || $1 != k { flush(); have = 1; k = $1; c = 0; tot = 0 }
+    { v[++c] = $2; tot += $2; who = (NF >= 3) ? $3 : "-" }
+    END { flush() }'
+}
+
+bounded() { /bin/sh "$script_dir/bounded-run.sh" 30 "$@"; }
+
+# The program's repositories and home, read once (REPOS_OK, HOME_OK 1 when
+# they resolved); call it outside a command substitution.
+load_program() {
+  REPOS_OK=0
+  HOME_OK=0
+  if REPOS=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories 2>/dev/null); then REPOS_OK=1; fi
+  if PHOME=$(/bin/bash "$script_dir/mc-program.sh" get "$program" home 2>/dev/null) && [ -n "$PHOME" ]; then HOME_OK=1; fi
+}
+
+# slug_of <repository>: owner/name of its origin remote on GitHub.
+slug_of() {
+  so_url=$(mc_untrusted_git -C "$1" remote get-url origin 2>/dev/null) || return 1
+  so_slug=$(printf '%s\n' "$so_url" | sed -n -e 's#^https://github\.com/##p' -e 's#^ssh://git@github\.com/##p' -e 's#^git@github\.com:##p' | sed 's#\.git$##')
+  mc_valid_slug "$so_slug" || return 1
+  printf '%s\n' "$so_slug"
+}
+
+# ci_runs <slug> <count>: <run id><TAB><workflow> per newest run.
+ci_runs() {
+  cr_json=$(bounded gh api "repos/$1/actions/runs?per_page=$2" 2>/dev/null) || return 1
+  printf '%s\n' "$cr_json" | jq -r '.workflow_runs[] | [(.id | tostring), .name] | @tsv' 2>/dev/null
+}
+
+# ci_jobs <slug> <run id> <workflow>: <slug><TAB><workflow / job><TAB>
+# <status><TAB><created><TAB><started|-><TAB><completed|-> per job that
+# was not skipped.
+ci_jobs() {
+  cj_json=$(bounded gh api "repos/$1/actions/runs/$2/jobs?per_page=100" 2>/dev/null) || return 1
+  printf '%s\n' "$cj_json" | W=$3 S=$1 jq -r '.jobs[] | select(.conclusion != "skipped")
+    | [env.S, env.W + " / " + .name, .status, .created_at, (.started_at // "-"), (.completed_at // "-")] | @tsv' 2>/dev/null
+}
+
+measure_ci() {
+  command -v gh >/dev/null 2>&1 || {
+    unknown ci "gh is not on PATH"
+    return 0
+  }
+  command -v jq >/dev/null 2>&1 || {
+    unknown ci "jq is not on PATH"
+    return 0
+  }
+  mc_repos=$REPOS
+  [ "$REPOS_OK" = 1 ] || {
+    unknown ci "the program's repositories do not resolve"
+    return 0
+  }
+  mc_jobs=""
+  mc_n=0
+  while IFS= read -r mc_repo; do
+    [ -n "$mc_repo" ] || continue
+    mc_slug=$(slug_of "$mc_repo") || {
+      unknown ci "no GitHub origin remote for $mc_repo"
+      return 0
+    }
+    mc_n=$((mc_n + 1))
+    mc_runs=$(ci_runs "$mc_slug" "$CI_RUNS") || {
+      unknown ci "the Actions runs of $mc_slug cannot be read"
+      return 0
+    }
+    while IFS='	' read -r mc_id mc_wf; do
+      [ -n "$mc_id" ] || continue
+      mc_valid_uint "$mc_id" || {
+        unknown ci "an Actions run id of $mc_slug is malformed"
+        return 0
+      }
+      mc_j=$(ci_jobs "$mc_slug" "$mc_id" "$mc_wf") || {
+        unknown ci "the jobs of $mc_slug run $mc_id cannot be read"
+        return 0
+      }
+      [ -z "$mc_j" ] || mc_jobs="$mc_jobs$mc_j
+"
+    done <<EOF
+$mc_runs
+EOF
+  done <<EOF
+$mc_repos
+EOF
+  printf 'source\tci\tok\t%s repositories\n' "$mc_n"
+  [ -n "$mc_jobs" ] || return 0
+  # A job queued now counts its wait to now; one in progress has no run
+  # time yet.
+  mc_rowsq=$(printf '%s' "$mc_jobs" | MULTI=$mc_n SINCE=$SINCE NOW=$NOW awk -F '\t' "$ISO_AWK"'
+    {
+      c = iso($4); if (c < 0 || c < ENVIRON["SINCE"] + 0) next
+      k = (ENVIRON["MULTI"] + 0 > 1) ? $1 " " $2 : $2
+      s = iso($5); e = iso($6)
+      if ($3 == "queued" || $3 == "waiting" || $3 == "pending" || s < 0) { print k "\tq\t" (ENVIRON["NOW"] - c); next }
+      print k "\tq\t" (s - c)
+      if ($3 == "completed" && e >= s) print k "\tr\t" (e - s)
+    }')
+  q=$(printf '%s\n' "$mc_rowsq" | awk -F '\t' '$2 == "q" { print $1 "\t" $3 }' | aggregate)
+  r=$(printf '%s\n' "$mc_rowsq" | awk -F '\t' '$2 == "r" { print $1 "\t" $3 }' | aggregate)
+  [ -n "$q" ] || return 0
+  printf '%s\n' "$q" | RUNS=$r awk -F '\t' '
+    BEGIN { n = split(ENVIRON["RUNS"], l, "\n"); for (i = 1; i <= n; i++) { split(l[i], f, "\t"); if (f[1] != "") rm[f[1]] = f[3] } }
+    { print "ci\t" $1 "\t" $2 "\t" $3 "\t" $4 "\t" $5 "\t" (($1 in rm) ? rm[$1] : "-") }'
+}
+
+measure_approvals() {
+  ma_root="$FLEET/streamjson"
+  if [ ! -d "$ma_root" ]; then
+    printf 'source\tapprovals\tok\t0 journals\n'
+    return 0
+  fi
+  [ -r "$ma_root" ] && [ -x "$ma_root" ] || {
+    unknown approvals "cannot read $ma_root"
+    return 0
+  }
+  ma_rows=""
+  ma_n=0
+  set +f
+  for ma_d in "$ma_root/mc-$program-"*/; do
+    ma_d=${ma_d%/}
+    [ -e "$ma_d/journal" ] || continue
+    if ! ma_out=$(W=${ma_d##*/} SINCE=$SINCE NOW=$NOW awk -F '\t' '
+        $2 == "permission" && $3 ~ /^[0-9]+$/ {
+          if ($4 == "pending") e = ENVIRON["NOW"] + 0
+          else if ($4 ~ /^(answered|undeliverable)$/ && $5 ~ /^[0-9]+$/) e = $5 + 0
+          else next
+          if (e < ENVIRON["SINCE"] + 0 || e < $3 + 0) next
+          print "permission\t" (e - $3) "\t" ENVIRON["W"] "\t" ($4 == "pending")
+        }' "$ma_d/journal" 2>/dev/null); then
+      set -f
+      unknown approvals "cannot read the journal of ${ma_d##*/}"
+      return 0
+    fi
+    ma_n=$((ma_n + 1))
+    [ -z "$ma_out" ] || ma_rows="$ma_rows$ma_out
+"
+  done
+  set -f
+  printf 'source\tapprovals\tok\t%s journals\n' "$ma_n"
+  [ -n "$ma_rows" ] || return 0
+  ma_pending=$(printf '%s' "$ma_rows" | awk -F '\t' '$4 == 1 { p++; if ($2 + 0 > m) m = $2 + 0 } END { print (p + 0) "\t" (p ? m : "-") }')
+  printf '%s' "$ma_rows" | cut -f1-3 | aggregate | P=$ma_pending awk -F '\t' '{ print "approvals\t" $0 "\t" ENVIRON["P"] }'
+}
+
+measure_stalls() {
+  ms_reg="$FLEET/mission-control/sessions"
+  if [ ! -d "$ms_reg" ]; then
+    printf 'source\tstalls\tok\t0 sessions\n'
+    return 0
+  fi
+  [ -r "$ms_reg" ] && [ -x "$ms_reg" ] || {
+    unknown stalls "cannot read the session registry"
+    return 0
+  }
+  ms_out=""
+  ms_n=0
+  set +f
+  for ms_row in "$ms_reg"/mc-*; do
+    [ -f "$ms_row" ] && [ ! -L "$ms_row" ] || continue
+    case ${ms_row##*/} in *.tmp.* | *[!a-z0-9-]*) continue ;; esac
+    ms_f=$(awk -F '\t' '$1 ~ /^(format|program|state|kind|launched|token)$/ && !($1 in s) { s[$1] = 1; v[$1] = substr($0, length($1) + 2) }
+      END { print v["format"] "\t" v["program"] "\t" v["state"] "\t" v["kind"] "\t" v["launched"] "\t" v["token"] }' "$ms_row" 2>/dev/null) || {
+      set -f
+      unknown stalls "cannot read the registry row ${ms_row##*/}"
+      return 0
+    }
+    IFS='	' read -r ms_fmt ms_prog ms_state ms_kind ms_launched ms_token <<EOF
+$ms_f
+EOF
+    [ "$ms_fmt" = 1 ] && [ "$ms_prog" = "$program" ] && [ "$ms_state" = launched ] || continue
+    [ "$ms_kind" != mission-control ] || continue
+    ms_n=$((ms_n + 1))
+    ms_sample="$RUNTIME/stall/${ms_row##*/}"
+    [ -e "$ms_sample" ] || continue
+    ms_line=$(head -n 1 "$ms_sample" 2>/dev/null) && [ -r "$ms_sample" ] || {
+      set -f
+      unknown stalls "cannot read the stall sample of ${ms_row##*/}"
+      return 0
+    }
+    IFS='	' read -r s_launch _ s_since s_state <<EOF
+$ms_line
+EOF
+    # A sample from an earlier launch under the same name is not this one's.
+    [ "$s_launch" = "${ms_launched:--}:${ms_token:--}" ] || continue
+    mc_valid_uint "$s_since" || continue
+    case $s_state in
+      idle | idle-question | open-selector | unsubmitted-prompt | turn-ended-background | busy-unchanged | dead) ;;
+      *) continue ;;
+    esac
+    [ "$s_since" -le "$NOW" ] || continue
+    ms_out="${ms_out}stall	${ms_row##*/}	$s_state	$((NOW - s_since))
+"
+  done
+  set -f
+  printf 'source\tstalls\tok\t%s sessions\n' "$ms_n"
+  [ -z "$ms_out" ] || printf '%s' "$ms_out"
+}
+
+# step_rows <dir> <branch>: <step><TAB><seconds><TAB><branch><TAB><run>:<seq>
+# per step record under <dir> that ended inside the window.
+step_rows() {
+  B=$2 SINCE=$SINCE find "$1" -type f -name '*-step-*.rec' -exec awk -F '\t' "$ISO_AWK"'
+    function flush() {
+      if (f == "") return
+      if (v["type"] == "step" && v["outcome"] != "skipped" && v["step"] ~ /^[A-Za-z0-9._-]+$/) {
+        s = iso(v["start"]); e = iso(v["end"])
+        if (s >= 0 && e >= s && e >= ENVIRON["SINCE"] + 0) print v["step"] "\t" (e - s) "\t" ENVIRON["B"] "\t" v["run"] ":" v["seq"]
+      }
+      delete v
+    }
+    FILENAME != f { flush(); f = FILENAME }
+    { v[$1] = substr($0, length($1) + 2) }
+    END { flush() }' {} + 2>/dev/null
+}
+
+measure_steps() {
+  st_repos=$REPOS
+  [ "$REPOS_OK" = 1 ] || {
+    unknown steps "the program's repositories do not resolve"
+    return 0
+  }
+  st_rows=""
+  st_n=0
+  while IFS= read -r st_repo; do
+    [ -n "$st_repo" ] || continue
+    st_wts=$(mc_untrusted_git -C "$st_repo" worktree list --porcelain 2>/dev/null) || {
+      unknown steps "cannot list the worktrees of $st_repo"
+      return 0
+    }
+    st_pairs=$(printf '%s\n' "$st_wts" | awk '
+      /^worktree / { if (w != "") print w "\t" b; w = substr($0, 10); b = "-" }
+      /^branch refs\/heads\// { b = substr($0, 19) }
+      END { if (w != "") print w "\t" b }')
+    while IFS='	' read -r st_wt st_branch; do
+      [ -n "$st_wt" ] && [ -d "$st_wt/.claude/steps" ] || continue
+      st_n=$((st_n + 1))
+      st_out=$(step_rows "$st_wt/.claude/steps" "$st_branch") || {
+        unknown steps "cannot read the step records of $st_wt"
+        return 0
+      }
+      [ -z "$st_out" ] || st_rows="$st_rows$st_out
+"
+    done <<EOF
+$st_pairs
+EOF
+  done <<EOF
+$st_repos
+EOF
+  st_home=$PHOME
+  [ "$HOME_OK" = 1 ] || {
+    unknown steps "the program home does not resolve"
+    return 0
+  }
+  if [ -d "$st_home/reclaimed" ]; then
+    # <home>/reclaimed/<repository>/<branch>/.claude/steps/...: the branch
+    # is the path between the repository and .claude.
+    st_dirs=$(find "$st_home/reclaimed" -type d -path '*/.claude/steps' -prune 2>/dev/null) || {
+      unknown steps "cannot read the reclaimed folder"
+      return 0
+    }
+    while IFS= read -r st_d; do
+      [ -n "$st_d" ] || continue
+      st_rel=${st_d#"$st_home/reclaimed/"}
+      st_rel=${st_rel%/.claude/steps}
+      st_branch=${st_rel#*/}
+      st_n=$((st_n + 1))
+      st_out=$(step_rows "$st_d" "$st_branch") || {
+        unknown steps "cannot read the step records of $st_d"
+        return 0
+      }
+      [ -z "$st_out" ] || st_rows="$st_rows$st_out
+"
+    done <<EOF
+$st_dirs
+EOF
+  fi
+  printf 'source\tsteps\tok\t%s record folders\n' "$st_n"
+  [ -n "$st_rows" ] || return 0
+  # A reclaimed copy of a worktree still on disk holds the same records.
+  printf '%s' "$st_rows" | awk -F '\t' '!(($3, $4) in seen) { seen[$3, $4] = 1; print $1 "\t" $2 "\t" $3 }' \
+    | aggregate | awk '{ print "step\t" $0 }'
+}
+
+measure() {
+  measure_ci
+  measure_approvals
+  measure_stalls
+  measure_steps
+}
+
+# candidates <measure lines>: <key><TAB><typical><TAB><total><TAB>
+# <threshold><TAB><text> per measurement at or over its threshold.
+candidates() {
+  printf '%s\n' "$1" | TCI=$(threshold ci-queue) TAP=$(threshold approval-wait) TST=$(threshold stall) TSP=$(threshold step) \
+  W=$WINDOW awk -F '\t' '
+    function d(s,   h, m) {
+      s = int(s); if (s < 60) return s "s"
+      if (s < 3600) return int(s / 60) "m"
+      h = int(s / 3600); m = int((s % 3600) / 60)
+      return (m ? h "h" m "m" : h "h")
+    }
+    function out(k, typ, tot, th, txt) { if (typ + 0 >= th + 0) print k "\t" typ "\t" tot "\t" th "\t" txt }
+    $1 == "ci" { out("ci:" $2, $4, $5, ENVIRON["TCI"], "CI runner queue, " $2 ": median wait " d($4) " over " $3 " jobs, " d($5) " queued in all, longest " d($6) "; median run " ($7 == "-" ? "unknown" : d($7)) " (threshold " d(ENVIRON["TCI"]) ")") }
+    $1 == "approvals" { out("approvals", $4, $5, ENVIRON["TAP"], "Permission approvals: median wait " d($4) " over " $3 " requests, " d($5) " waiting in all, longest " d($6) " on " $7 ", " $8 " pending now (threshold " d(ENVIRON["TAP"]) ")") }
+    $1 == "stall" && $4 + 0 >= ENVIRON["TST"] + 0 { sn++; st += $4; if ($4 + 0 > sl) { sl = $4 + 0; sw = $2 " " $3 } }
+    $1 == "step" { out("step:" $2, $4, $5, ENVIRON["TSP"], "Slow cadence step " $2 ": median " d($4) " over " $3 " runs, " d($5) " in all, slowest " d($6) " on " $7 " (threshold " d(ENVIRON["TSP"]) ")") }
+    END {
+      if (sn) out("stalls", sl, st, ENVIRON["TST"], "Stalled or idle sessions: " sn " past " d(ENVIRON["TST"]) ", " d(st) " in all, longest " d(sl) " (" sw ")")
+    }'
+}
+
+# pick <candidates>: the top candidate's line.
+pick() {
+  [ -n "$1" ] || return 0
+  printf '%s\n' "$1" | awk -F '\t' '{ printf "%012d\t%012d\t%s\n", $3, int($2 * 1000 / ($4 > 0 ? $4 : 1)), $0 }' \
+    | sort -t '	' -k1,1r -k2,2r -k3,3 | head -n 1 | cut -f3-
+}
+
+top_line() { # top_line <measure lines>: sets TOP (the candidate line or empty)
+  TOP=$(pick "$(candidates "$1")")
+  TOP_TEXT=""
+  [ -n "$TOP" ] || return 0
+  tl_unknown=$(printf '%s\n' "$1" | awk -F '\t' '$1 == "source" && $3 == "unknown" { printf "%s%s (%s)", (n++ ? "; " : ""), $2, $4 }')
+  TOP_TEXT="Top bottleneck over the last $(printf '%s' "$WINDOW" | awk '{ s = $1; if (s % 86400 == 0) print s / 86400 "d"; else if (s % 3600 == 0) print s / 3600 "h"; else print int(s / 60) "m" }'): $(printf '%s\n' "$TOP" | cut -f5)"
+  [ -z "$tl_unknown" ] || TOP_TEXT="$TOP_TEXT. Not measured: $tl_unknown"
+}
+
+curve() {
+  command -v jq >/dev/null 2>&1 || {
+    unknown cost "jq is not on PATH"
+    return 0
+  }
+  cv_root="$FLEET/streamjson"
+  [ -d "$cv_root" ] || {
+    printf 'source\tcost\tok\t0 captures\n'
+    return 0
+  }
+  cv_rows=""
+  cv_n=0
+  set +f
+  for cv_d in "$cv_root/mc-$program-"*/; do
+    cv_d=${cv_d%/}
+    cv_e="$cv_d/events.jsonl"
+    [ -f "$cv_e" ] || continue
+    # Inside the window: written since its start.
+    # shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
+    cv_m=$(stat -c %Y "$cv_e" 2>/dev/null || stat -f %m "$cv_e" 2>/dev/null) || {
+      set -f
+      unknown cost "cannot stat the capture of ${cv_d##*/}"
+      return 0
+    }
+    [ "$cv_m" -ge "$SINCE" ] 2>/dev/null || continue
+    cv_out=$(jq -R -r 'fromjson? |
+      if .type == "assistant" and (.message.usage | type) == "object" then
+        .message.usage as $u | ["m", (.message.id // "-"), ($u.input_tokens // 0), ($u.cache_read_input_tokens // 0),
+          ($u.cache_creation.ephemeral_5m_input_tokens // 0),
+          (if $u.cache_creation then ($u.cache_creation.ephemeral_1h_input_tokens // 0) else ($u.cache_creation_input_tokens // 0) end),
+          ($u.output_tokens // 0)] | @tsv
+      elif .type == "result" and (.modelUsage | type) == "object" then
+        ["w", ([.modelUsage[] | .contextWindow // 0] | max // 0)] | @tsv
+      else empty end' "$cv_e" 2>/dev/null) || {
+      set -f
+      unknown cost "cannot read the capture of ${cv_d##*/}"
+      return 0
+    }
+    cv_n=$((cv_n + 1))
+    cv_ctx="$FLEET/mission-control/context/${cv_d##*/}"
+    cv_fw=-
+    [ ! -f "$cv_ctx" ] || cv_fw=$(mc_kv "$cv_ctx" window 2>/dev/null) || cv_fw=-
+    [ -n "$cv_out" ] || continue
+    cv_rows="$cv_rows$(printf '%s\n' "$cv_out" | S=${cv_d##*/} FW=$cv_fw awk -F '\t' '
+      $1 == "w" && $2 + 0 > win { win = $2 + 0 }
+      # A message streams as several frames under one id: the last one holds
+      # its final usage.
+      $1 == "m" { if (!($2 in at)) ord[++n] = $2; at[$2] = $0 }
+      END {
+        if (!win && ENVIRON["FW"] ~ /^[1-9][0-9]*$/) win = ENVIRON["FW"] + 0
+        for (i = 1; i <= n; i++) {
+          split(at[ord[i]], f, "\t")
+          ctx = f[3] + f[4] + f[5] + f[6]
+          cost = f[3] + 0.1 * f[4] + 1.25 * f[5] + 2 * f[6] + 5 * f[7]
+          print "request\t" ENVIRON["S"] "\t" i "\t" (win ? int(ctx * 100 / win) : "-") "\t" ctx "\t" (win ? win : "-") "\t" int(cost + 0.5)
+        }
+      }')
+"
+  done
+  set -f
+  printf 'source\tcost\tok\t%s captures\n' "$cv_n"
+  [ -n "$cv_rows" ] || return 0
+  printf '%s' "$cv_rows"
+  printf '%s' "$cv_rows" | awk -F '\t' '$4 == "-" { u++ } END { if (u) print "curve\tunknown\t" u }'
+  printf '%s' "$cv_rows" | awk -F '\t' '$4 != "-" { b = int($4 / 10) * 10; if (b > 100) b = 100; print sprintf("%03d", b) "\t" $5 "\t" $7 }' \
+    | sort -t '	' -k1,1 -k2,2n | awk -F '\t' '
+      function flush() { if (!have) return; med = (c % 2) ? v[(c + 1) / 2] : int((v[c / 2] + v[c / 2 + 1]) / 2); print "curve\t" (k + 0) "-" (k + 9) "%\t" c "\t" med "\t" int(cost / c + 0.5) }
+      NR == 1 || $1 != k { flush(); have = 1; k = $1; c = 0; cost = 0 }
+      { v[++c] = $2; cost += $3 }
+      END { flush() }'
+}
+
+case $verb in
+  measure)
+    load_knobs
+    load_program
+    measure
+    ;;
+  top)
+    load_knobs
+    load_program
+    m=$(measure)
+    printf '%s\n' "$m"
+    top_line "$m"
+    if [ -n "$TOP" ]; then
+      printf 'top\t%s\t%s\t%s\n' "$(printf '%s\n' "$TOP" | cut -f1)" "$(printf '%s\n' "$TOP" | cut -f3)" "$TOP_TEXT"
+    else
+      printf 'top\tnone\n'
+    fi
+    ;;
+  curve)
+    load_knobs
+    curve
+    ;;
+  watch)
+    interval=$(knob_secs mission_control_throughput_interval) || exit 1
+    last="$RUNTIME/throughput-last"
+    if [ -f "$last" ]; then
+      l=$(head -n 1 "$last" 2>/dev/null)
+      if mc_valid_uint "$l" && [ "$l" -le "$NOW" ] && [ $((NOW - l)) -lt "$interval" ]; then
+        printf 'skipped\tinterval\n'
+        exit 0
+      fi
+    fi
+    worsen=$(mc_knob mission_control_throughput_worsen mc_parse_count) || exit 1
+    load_knobs
+    load_program
+    m=$(measure)
+    printf '%s\n' "$m"
+    c=$(candidates "$m")
+    top_line "$m"
+    home=$PHOME
+    [ "$HOME_OK" = 1 ] || mc_fail "the home of program $program does not resolve"
+    kb="$home/kb/throughput"
+    mkdir -p "$kb" || mc_fail "cannot create $kb"
+    {
+      printf '# format: 1\n'
+      printf 'measured\t%s\n' "$NOW"
+      printf '%s\n' "$m"
+    } | mc_write "$kb/measure.tsv" || mc_fail "cannot write $kb/measure.tsv"
+    cv=$(curve)
+    {
+      printf '# format: 1\n'
+      printf 'measured\t%s\n' "$NOW"
+      printf '%s\n' "$cv" | awk -F '\t' '$1 != "request"'
+    } | mc_write "$kb/cost-curve.tsv" || mc_fail "cannot write $kb/cost-curve.tsv"
+    raised="$RUNTIME/throughput-raised"
+    prev=""
+    if [ -f "$raised" ]; then
+      prev=$(cat "$raised") || mc_fail "cannot read $raised"
+    fi
+    # Only what is still a bottleneck stays remembered.
+    live=$(printf '%s\n' "$c" | cut -f1)
+    kept=$(printf '%s\n' "$prev" | LIVE=$live awk -F '\t' 'BEGIN { n = split(ENVIRON["LIVE"], l, "\n"); for (i = 1; i <= n; i++) if (l[i] != "") k[l[i]] = 1 } NF >= 2 && ($1 in k)')
+    if [ -n "$TOP" ]; then
+      key=$(printf '%s\n' "$TOP" | cut -f1)
+      total=$(printf '%s\n' "$TOP" | cut -f3)
+      was=$(mc_lookup "$key" "$kept")
+      if [ -n "$was" ] && mc_valid_uint "$was" && [ $((total * 100)) -lt $((was * (100 + worsen))) ]; then
+        printf 'held\t%s\t%s\n' "$key" "$total"
+      else
+        subject=$key
+        mc_valid_handle "$subject" || subject=$(mc_subject throughput "$key")
+        text=$(printf '%s' "$TOP_TEXT" | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-500)
+        mc_event emit --program "$program" --now "$NOW" -- throughput-bottleneck "$subject" "$text" >/dev/null || mc_fail "the throughput-bottleneck event was refused"
+        kept=$(printf '%s\n' "$kept" | K=$key awk -F '\t' 'NF && $1 != ENVIRON["K"]')
+        kept="${kept:+$kept
+}$key	$total"
+        printf 'raised\t%s\t%s\n' "$key" "$total"
+      fi
+    fi
+    { [ -z "$kept" ] || printf '%s\n' "$kept"; } | mc_write "$raised" || mc_fail "cannot write $raised"
+    printf '%s\n' "$NOW" | mc_write "$last" || mc_fail "cannot write $last"
+    ;;
+esac
