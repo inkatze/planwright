@@ -1471,7 +1471,7 @@ health_context() {
     fi
     # No measured context, or no threshold (a session that compacts rather
     # than hands over), is nothing to compare.
-    mc_valid_uint "$hc_pct" && mc_valid_uint "$hc_th" || continue
+    { mc_valid_uint "$hc_pct" && mc_valid_uint "$hc_th"; } || continue
     [ "$hc_pct" -ge "$hc_th" ] || continue
     hc_hits="$hc_hits$hc_p$TAB$hc_pct$TAB$hc_th
 "
@@ -1521,7 +1521,7 @@ health_ci() {
     hflag ci-queue '?' - "CI queue times unknown ($hq_why)"
     return 0
   fi
-  hq_share=$(bound ci-queue-share) && hq_floor=$(bound ci-queue-floor) || {
+  { hq_share=$(bound ci-queue-share) && hq_floor=$(bound ci-queue-floor); } || {
     hflag ci-queue '?' - "CI queue times unknown (its share or floor bound cannot be read)"
     return 0
   }
