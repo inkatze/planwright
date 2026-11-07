@@ -2,7 +2,7 @@
 # mc-config.sh — the mission-control command's entry decision, its mode
 # knobs, and the one writer of a program block, its enabled duties and
 # mission control's own knobs: the guided first run's writes and an accepted
-# mechanization proposal's.
+# mechanization proposal's; and the read-only bring-up audit, doctor.
 #
 # `mc-config.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
@@ -28,8 +28,8 @@ done
 
 help_text() {
   cat <<'HELP'
-mc-config.sh — the mission-control command's entry and its configuration
-writes.
+mc-config.sh — the mission-control command's entry, its configuration
+writes, and the read-only bring-up audit.
 
 WHERE IT WRITES. Every write goes to the adopter layer's planwright.yml
 (scripts/resolve-overlay-root.sh adopter): per operator, outside every
@@ -124,12 +124,14 @@ Usage:
         duty-off<TAB><duty id>      a default duty the program leaves off
         launch-backend<TAB><session><TAB><backend><TAB><knob value>
             a registered session of the program started on another rung
-            than mission_control_launch_backend, a per-call --backend
+            than mission_control_launch_backend now resolves to: a
+            per-call --backend, or a knob changed since the launch
         cron<TAB><line>             a crontab line naming planwright or
             claude in any case, or a repository or the home of the program, every
             NAME=value on it printed NAME=<redacted>
-        unknown<TAB><check><TAB><why>   a check whose read failed, a
-            malformed adopter or machine-local layer included
+        unknown<TAB><check><TAB><why>   a check (overrides, duties,
+            launches or cron) whose read failed, a malformed adopter or
+            machine-local layer included
 
 Exit codes: 0 done; 1 refused (a write that would not land as written, a
 malformed or redirected layer, a program already configured or with a
