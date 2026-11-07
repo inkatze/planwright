@@ -92,7 +92,7 @@ included), say why once in one plain line and stay read-only (no launch,
 no answer, no request; mission control's own stores stay writable) until a
 check passes; the launcher refuses on the same check. A typed start carries
 no profile; name the start that does, run in the operator's own shell
-inside tmux: `scripts/mission-control-launch.sh`'s `launch`: <p>, kind
+inside tmux: `scripts/mission-control-launch.sh`'s `launch`: `<p>`, kind
 `mission-control`, scope `attended`, tmux, no brief.
 
 1. **Rebuild from durable evidence only (REQ-A1.2).** The rules
