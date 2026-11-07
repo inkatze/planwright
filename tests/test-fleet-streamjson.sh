@@ -128,6 +128,13 @@ cat >"$tmp/bin/claude" <<'SHIM'
 #   SHIM_SLEEP        sleep after emitting (crash-window hold)
 #   SHIM_EXIT         exit code (default 0)
 printf '%s\n' "$*" >>"$SHIM_RECORD_DIR/argv"
+# The appended system prompt as the one argument it must arrive as, which the
+# space-joined argv line cannot show.
+shim_prev=''
+for shim_a in "$@"; do
+  [ "$shim_prev" = --append-system-prompt ] && printf '%s\n' "$shim_a" >>"$SHIM_RECORD_DIR/system-prompt"
+  shim_prev=$shim_a
+done
 # The wrapper execs this shim, so it cannot appear in argv; what it leaves
 # behind is the environment, which is the property worth asserting.
 printf 'ghost=%s\n' "${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >>"$SHIM_RECORD_DIR/env"
@@ -617,6 +624,8 @@ senv "$home" "$rec" SHIM_EVENTS="$ev_resume" SHIM_READ_FIRST=0 -- \
   recover sjw7 --foreground || fail "c7: recovery exited non-zero"
 grep -q -- "--resume $sid" "$rec/argv" \
   || fail "c7: the relaunch must use --resume with the persisted session_id, got: $(cat "$rec/argv")"
+grep -q -- "--append-system-prompt " "$rec/argv" \
+  || fail "c7: the relaunch must carry the shell rules again, got: $(cat "$rec/argv")"
 [ "$(grep -c "^$req_perm$tab" "$wdir7/journal")" = 1 ] \
   || fail "c7: dedup on request identity must hold across the resume boundary"
 received=$(awk -F'\t' -v id="$req_perm" '$1 == id { print $3 }' "$wdir7/journal")
@@ -722,10 +731,8 @@ case $rules_text in
   *"one plain command"*) : ;;
   *) fail "c9: the launch shell rules must state the one-plain-command rule: $rules_text" ;;
 esac
-case $argv_line in
-  *"--append-system-prompt $rules_text"*) : ;;
-  *) fail "c9: the launch argv must append the shipped shell rules to the system prompt: $argv_line" ;;
-esac
+[ "$(cat "$rec/system-prompt" 2>/dev/null)" = "$rules_text" ] \
+  || fail "c9: the launch must append the shipped shell rules as one system-prompt argument: $(cat "$rec/system-prompt" 2>/dev/null)"
 "$here/../scripts/orchestrate-relay.sh" validate-handle stream-json-persistent sjw9 \
   || fail "c9: the derived name fails the stream-json-persistent grammar"
 for want in handle=sjw9 scope=execution-backends:4 inbound=accept; do
