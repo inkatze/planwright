@@ -119,8 +119,8 @@ for s in converge-sync-main.sh release-publish.sh wire-githooks.sh fleet-dispatc
     && ok "mission-control mode leaves bash $s to the prompt" || fail "mission-control mode approves bash $s"
 done
 # The approved verbs come from config/mission-control-verbs.txt, whose own
-# cases are tests/test-tower-command-guard.sh's; a script approved whole
-# before that list is now held to its listed verbs.
+# cases are tests/test-tower-command-guard.sh's; a listed script is approved
+# for its listed verbs only.
 for c in 'mission-control-launch.sh list' 'mc-rules.sh load alpha' 'mc-program.sh get alpha spec_root' \
   'mc-duties.sh list' 'resolve-rule-doc.sh spec-format'; do
   [ "$(guard_says mission-control "$REPO_ROOT/scripts/$c")" = allow ] \

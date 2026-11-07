@@ -1522,7 +1522,8 @@ expect_mc defer "setsid running a shell's command string prompts" \
 expect_mc defer "setsid alone prompts" "setsid"
 assert_defer "setsid stays outside the tower mode's approvals" \
   "setsid $REPO_ROOT/scripts/mc-watch.sh run --program alpha"
-# A guard whose root carries no list approves no planwright script.
+# Two copies of the guard: one whose root carries an extended list, and one
+# whose root carries none, which approves no planwright script.
 NOLIST="$SANDBOX/nolist"
 WILD="$SANDBOX/wild"
 mkdir -p "$WILD/config"
