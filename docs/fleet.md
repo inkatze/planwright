@@ -916,21 +916,32 @@ have it name them. The event capture, the persisted session, the rate-limit
 reading, and the receipt journal survive a stop: they are the durable record,
 not runtime. So does the worker's scratch root, the directory its launch
 exported as its `TMPDIR` and named in its session record: it belongs to the
-worktree, under `<fleet home>/scratch/`, so every plain stop, `recover`, and
-relaunch of the worker finds it again, contents and all, on every rung. On
-the stream-json rung it is the worker's own, a directory keyed by its handle
-inside the worktree's (`worker-session-record.sh write --session`), because
-every session mission control launches from one checkout shares that
-worktree. A final close (`stop --final`, which a reap through
-`fleet-cleanup.sh process` and a mission-control retire make) removes it,
-taking that session's files alone. The other rungs, and a stream-json worker
-launched before roots were per session, record the worktree-wide root; their
-final close leaves it, dropping only the pointer, while another stream-json
-worker records it or a root inside it, or a session's root sits in it. Such a
-stream-json worker's first launch or `recover` under this version moves it to
-a fresh root of its own, its old files left in the worktree-wide one.
-`fleet-cleanup.sh worktree` removes the whole root when it reclaims the
-worktree. The
+worktree, so every plain stop, `recover`, and relaunch of the worker finds it
+again, contents and all, on every rung, until the host reboots or its
+temporary-file cleaner ages the files out. The root is a short owner-only
+directory inside `/tmp/planwright-<uid>`, a parent only this user may open,
+as tmux keeps its sockets (`PLANWRIGHT_FLEET_SCRATCH_BASE` names another
+parent, which must be this user's, closed to everyone else, and short enough
+to keep worker socket paths within Linux's limit);
+`scripts/fleet-scratch.sh` places it and records it in
+`<fleet home>/scratch/<key>.tmpdir`, and a close or reclaim removes a root of
+this layout only when that record names it. It stays short because Linux caps
+a Unix socket path at 108 bytes, so a root under the fleet home left a worker
+no socket in its `TMPDIR`, and it stays out of `~/.claude` because a path
+there reads as a settings path to the guards a worker's tests exercise. On the stream-json
+rung it is the worker's own, keyed by worktree and handle
+(`worker-session-record.sh write --session`), because every session mission
+control launches from one checkout shares that worktree. A final close
+(`stop --final`, which a reap through `fleet-cleanup.sh process` and a
+mission-control retire make) removes it, taking that session's files alone.
+The other rungs record the worktree-wide root, which their final close
+removes. Roots of the earlier layout, under `<fleet home>/scratch/<hash>`,
+have no record and go by their shape instead: a worktree-wide one stays,
+dropping only the pointer, while another stream-json worker records it or a
+session's root sits in it, and a worker's next launch or `recover` moves it to
+a short root, its old files left behind. `fleet-cleanup.sh worktree` removes the
+worktree's root, every session's, and any of the earlier layout when it
+reclaims the worktree. The
 journal survives as a file but not untouched — the close
 marks its still-`pending` receipts `undeliverable` and discards any spooled
 receipt, because a close

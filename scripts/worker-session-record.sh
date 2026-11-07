@@ -19,8 +19,9 @@
 #                      when unset) and that remote's default branch as
 #                      recorded locally, else main
 #   worker_base_merge  the human-gates knob (omitted when it cannot be read)
-#   scratch_root       with --scratch, the worktree's scratch root,
-#                      <fleet-home>/scratch/<sha1-of-worktree-root>, whatever
+#   scratch_root       with --scratch, the worktree's scratch root, a short
+#                      directory outside the fleet home that
+#                      scripts/fleet-scratch.sh places and records, whatever
 #                      the launch id: created owner-only when absent and kept,
 #                      contents and all, when present, so every plain stop,
 #                      recover, and relaunch of the worker finds the same
@@ -29,18 +30,18 @@
 #                      warning, which leaves the worker without the scratch
 #                      arm. The launcher exports the recorded root as the
 #                      worker's TMPDIR; the rung's final close (`stop
-#                      --final`, which a reap makes) removes it unless it is
-#                      still in use beside the worker (scripts/
-#                      fleet-stop-lib.sh), and `fleet-cleanup.sh worktree`
-#                      removes it whatever its use.
-#                      --fresh-scratch empties a root left from an earlier
+#                      --final`, which a reap makes) removes it (an
+#                      earlier-layout worktree root still in use beside the
+#                      worker is left: scripts/fleet-stop-lib.sh), and
+#                      `fleet-cleanup.sh worktree` removes it whatever its use.
+#                      --fresh-scratch replaces a root left from an earlier
 #                      worktree at the same path first, for a launcher that
 #                      has just created the worktree.
 #                      --session <handle> gives one session of several
-#                      sharing a worktree a root of its own,
-#                      <worktree's root>/<sha1-of-handle>, so a session's
-#                      final close removes its files alone, never another
-#                      session's
+#                      sharing a worktree a root of its own, keyed by
+#                      <hash-of-worktree-root>-<hash-of-handle>, so a
+#                      session's final close removes its files alone, never
+#                      another session's
 #   audit_log_home     <fleet-home>/allow-audit, owner-only, where the guard
 #                      appends a line per approval to <record-name>.log. Every
 #                      write first prunes the logs there older than
@@ -49,14 +50,15 @@
 #                      unusable home is omitted with a warning, which leaves
 #                      the worker without either write arm
 # and writes them as `key=value` lines to
-# <fleet-home>/session-records/<sha1-of-worktree-root>.record, owner-only, by
-# an atomic rename, printing the path. A <launch-id> (16 to 64 lowercase hex
-# digits) names a record for that launch alone, <sha1>-<launch-id>.record, so
+# <fleet-home>/session-records/<hash-of-worktree-root>.record, owner-only, by
+# an atomic rename, printing the path. Each <hash> is `git hash-object`'s, in
+# the repository's object format. A <launch-id> (16 to 64 lowercase hex
+# digits) names a record for that launch alone, <hash>-<launch-id>.record, so
 # a launch that loses a race to another never rewrites the winner's. The
 # launcher exports that path to the worker as
 # PLANWRIGHT_WORKER_SESSION_RECORD. With --session <handle> (the field
 # grammar, never with a <launch-id>) the record is
-# <sha1-of-worktree-root>-<sha1-of-handle>.record, that session's alone, and
+# <hash-of-worktree-root>-<hash-of-handle>.record, that session's alone, and
 # names that session's own scratch root. The record lies outside the worktree (a
 # fleet home inside it is refused), so nothing the worker writes there reaches
 # it. A relaunch writes a fresh record from current config: the same file
@@ -235,20 +237,12 @@ if [ -n "$session" ]; then
 fi
 rec=$dir/$key.record
 
-# scratch_make <dir>: create the scratch root when absent, then print its
-# canonical path when it is one the guard can trust.
-scratch_make() {
-  sm=$1
-  case $sm in
-    *[[:cntrl:]]*) return 1 ;;
-  esac
-  # An existing root is kept; the checks below decide either way.
-  mkdir -- "$sm" 2>/dev/null || : # not-a-lock: creating the scratch root, whose checks follow
-  [ -d "$sm" ] && [ ! -L "$sm" ] || return 1
-  [ "$(find "$sm" -maxdepth 0 -user "$(id -u)" 2>/dev/null)" = "$sm" ] || return 1
-  # BSD chmod reads a `--` after the mode as a file; the path is absolute.
-  chmod 700 "$sm" 2>/dev/null || return 1
-  sm=$(cd -P -- "$sm" 2>/dev/null && pwd -P) || return 1
+# scratch_trusted <dir>: succeed when the scratch root is canonical and one
+# the guard can trust: apart from the worktree and the record directory in
+# both directions.
+scratch_trusted() {
+  sm=$(cd -P -- "$1" 2>/dev/null && pwd -P) || return 1
+  [ "$sm" = "$1" ] || return 1
   case $sm/ in
     "$wt"/* | "$dir"/*) return 1 ;;
   esac
@@ -258,32 +252,33 @@ scratch_make() {
   case $dir/ in
     "$sm"/*) return 1 ;;
   esac
-  printf '%s\n' "$sm"
 }
 
 scratch=''
-sroot=$home/scratch/$wt_key
-sparent=$home/scratch
-if [ -n "$sess_key" ]; then
-  sparent=$sroot
-  sroot=$sroot/$sess_key
-fi
-# Before anything below removes or creates inside them.
-if [ "$want_scratch" != 0 ] && { [ -L "$home/scratch" ] || [ -L "$sparent" ]; }; then
-  want_scratch=3
-fi
-if [ "$want_scratch" = 2 ] && [ -d "$sroot" ] && [ ! -L "$sroot" ]; then
-  find "$sroot" -type d ! -perm -700 -exec chmod u+rwx {} \; 2>/dev/null || :
-  rm -rf -- "$sroot" 2>/dev/null || :
-  # A root that would not empty keeps an earlier worker's files: no root.
-  [ ! -e "$sroot" ] || want_scratch=3
-fi
-if { [ "$want_scratch" = 1 ] || [ "$want_scratch" = 2 ]; } && mkdir -p -- "$sparent" 2>/dev/null \
-  && [ ! -L "$sparent" ]; then
-  scratch=$(scratch_make "$sroot") || scratch=''
+why=''
+nl='
+'
+skey=$wt_key
+[ -z "$sess_key" ] || skey=$wt_key-$sess_key
+if [ "$want_scratch" != 0 ]; then
+  set --
+  [ "$want_scratch" != 2 ] || set -- --fresh
+  # Its last line is the root, or on failure the reason, whatever stray line
+  # a shell prints ahead of either.
+  if scratch=$(/bin/sh "$script_dir/fleet-scratch.sh" make "$home" "$skey" "$@" 2>&1 </dev/null); then
+    scratch=${scratch##*"$nl"}
+  else
+    why=${scratch##*"$nl"}
+    scratch=''
+  fi
+  if [ -n "$scratch" ] && ! scratch_trusted "$scratch"; then
+    /bin/sh "$script_dir/fleet-scratch.sh" release "$home" "$scratch" >/dev/null 2>&1 </dev/null || :
+    why="the root $scratch lies inside the worktree or the record directory"
+    scratch=''
+  fi
 fi
 [ "$want_scratch" = 0 ] || [ -n "$scratch" ] \
-  || printf '%s: the scratch root is unusable; the worker gets no scratch arm\n' "$me" >&2
+  || printf '%s: the scratch root is unusable; the worker gets no scratch arm%s\n' "$me" "${why:+ ($why)}" >&2
 
 # audit_make <dir>: create the audit-log home when absent, prune its logs
 # past the retention bound, then print its canonical path when the guard can
