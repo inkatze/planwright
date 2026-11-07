@@ -242,6 +242,31 @@ expect_out "a dead worker's settle is announced" "announced${tab}stream-json-wor
 expect_no_out "and its prompt is not" "pending-prompt-overdue${tab}cp-gone"
 rm -rf "$fleet/streamjson/cp-old" "$fleet/streamjson/cp-gone" "$fleet/streamjson/mc-beta-worker-0123456789" "$fleet/mission-control/sessions/mc-beta-worker-0123456789"
 
+# A request that has just arrived is announced at once, as pending-prompt, so
+# the operator need not wait for the overdue bound; a burst is one event, and
+# a second arrival inside the window waits for the window to close.
+pp_fresh() { # pp_fresh <worker> <request-suffix> <received>
+  mkdir -p "$fleet/streamjson/$1"
+  printf 'bbbb2222-bbbb-cccc-dddd-eeee0000000%s\tpermission\t%s\tpending\n' "$2" "$3" >"$fleet/streamjson/$1/journal"
+  printf '%s\n' "$$" >"$fleet/streamjson/$1/supervisor.pid"
+  printf '%s\n' "$$" >"$fleet/streamjson/$1/worker.pid"
+  printf 'demo:task-9\n' >"$fleet/streamjson/$1/scope"
+}
+pp_fresh cp-fresh-a 1 6990
+pp_fresh cp-fresh-b 2 6995
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7000 2>/dev/null)
+expect_out "a request that just arrived is announced as pending-prompt" "announced${tab}pending-prompt${tab}cp-fresh-a"
+expect_no_out "a burst's second arrival is folded into that one event" "announced${tab}pending-prompt${tab}cp-fresh-b"
+mc_run mc-event.sh list --program alpha
+expect_out "the arrival lands in the event store" "pending-prompt${tab}cp-fresh-a${tab}stream-json worker cp-fresh-a has a request"
+pp_fresh cp-fresh-c 3 7010
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7020 2>/dev/null)
+expect_no_out "an arrival inside the window is not announced yet" "announced${tab}pending-prompt${tab}cp-fresh-c"
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7400 2>/dev/null)
+expect_out "it is announced once the window has closed" "announced${tab}pending-prompt${tab}cp-fresh-c"
+expect_no_out "and the earlier request is not announced again" "announced${tab}pending-prompt${tab}cp-fresh-a"
+rm -rf "$fleet/streamjson/cp-fresh-a" "$fleet/streamjson/cp-fresh-b" "$fleet/streamjson/cp-fresh-c"
+
 # A landed session the launcher never registered, whose stream-json worker
 # has a recover in flight, is held rather than retired: retire refuses it as
 # in flight, and the sweep keeps the line for the next pass.

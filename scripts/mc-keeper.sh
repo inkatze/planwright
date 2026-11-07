@@ -87,10 +87,11 @@ Usage:
       queue item pushed once and a dead worker's is settled), each request
       still overdue one pending-prompt-overdue event, subject the worker,
       announced once per request (a worker the launcher records for
-      another program left to that program), and a dead worker this scan
-      settled one stream-json-worker-dead event, whatever its program,
-      printing
-        announced<TAB>pending-prompt-overdue|stream-json-worker-dead<TAB><worker>
+      another program left to that program), and a request that has just
+      arrived one pending-prompt event, rate-limited so a burst is one
+      event, and a dead worker this scan settled one stream-json-worker-dead
+      event, whatever its program, printing
+        announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead<TAB><worker>
       then sweep, each landing one session-landed event in the
       program's event store, subject the session, text
       `<owner/name>#<pr> <state>, retired|held[: <what stayed>]`, printing
@@ -381,6 +382,69 @@ EOF
   return "$pp_rc"
 }
 
+# pending_arrivals: a stream-json request inside the pending bound is announced
+# as pending-prompt, so the operator hears of it at the next watch pass rather
+# than at the overdue bound. Arrivals are rate-limited: the first after
+# PENDING_ARRIVAL_WINDOW of silence is announced, and any other arrival seen
+# with it is folded into that one event; one that arrives inside the window
+# waits for the window to close. Runs after pending_prompts, so a dead
+# worker's requests are already settled and not announced here.
+PENDING_ARRIVAL_WINDOW=300
+pending_arrivals() {
+  pa_now=${now:-$(date +%s)}
+  pa_thr=${PLANWRIGHT_STREAMJSON_PENDING_AGE:-900}
+  mc_valid_uint "$pa_now" && mc_valid_uint "$pa_thr" || return 1
+  pa_root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 1
+  pa_seen="$runtime/keeper-arrivals"
+  pa_last="$runtime/keeper-arrival-last"
+  NL='
+'
+  pa_list=$(launcher list 2>/dev/null) || pa_list=""
+  pa_theirs=$(printf '%s\n' "$pa_list" | P=$program awk -F '\t' 'NF && $2 != ENVIRON["P"] { print $1 }')
+  pa_fresh=""
+  pa_live=""
+  # The glob needs pathname expansion, which this script turns off (set -f).
+  set +f
+  for pa_j in "$pa_root"/streamjson/*/journal; do
+    [ -f "$pa_j" ] && [ -r "$pa_j" ] || continue
+    pa_w=${pa_j%/journal}
+    pa_w=${pa_w##*/}
+    mc_valid_handle "$pa_w" || continue
+    pa_rows=$(awk -F '\t' '$4 == "pending" { print $1 "\t" $3 }' "$pa_j") || continue
+    while IFS='	' read -r pa_id pa_recv; do
+      [ -n "$pa_id" ] || continue
+      mc_valid_uint "$pa_recv" || continue
+      case "$NL$pa_theirs$NL" in *"$NL$pa_w$NL"*) continue ;; esac
+      pa_key="$pa_w	$pa_id"
+      pa_live="$pa_live$pa_key$NL"
+      [ $((pa_now - pa_recv)) -le "$pa_thr" ] || continue
+      grep -Fxq -- "$pa_key" "$pa_seen" 2>/dev/null && continue
+      pa_fresh="$pa_fresh$pa_key$NL"
+    done <<EOF
+$pa_rows
+EOF
+  done
+  set -f
+  pa_rc=0
+  pa_first=$(printf '%s' "$pa_fresh" | awk 'NF { print; exit }')
+  if [ -n "$pa_first" ]; then
+    pa_since=$(cat "$pa_last" 2>/dev/null) || pa_since=""
+    mc_valid_uint "$pa_since" || pa_since=0
+    if [ $((pa_now - pa_since)) -ge "$PENDING_ARRIVAL_WINDOW" ]; then
+      pa_count=$(printf '%s' "$pa_fresh" | awk 'NF { n++ } END { print n + 0 }')
+      pa_fw=${pa_first%%	*}
+      mc_announce "$program" "$pa_seen" "$pa_first" pending-prompt "$pa_fw" \
+        "stream-json worker $pa_fw has a request waiting on a decision; $pa_count arrived together, fleet-streamjson.sh pending shows them, fleet-streamjson.sh answer <worker> <id> --allow or --deny settles one" \
+        || pa_rc=1
+      pa_rest=$(printf '%s' "$pa_fresh" | awk -v first="$pa_first" 'NF && $0 != first')
+      [ -z "$pa_rest" ] || printf '%s\n' "$pa_rest" >>"$pa_seen" || pa_rc=1
+      printf '%s\n' "$pa_now" >"$pa_last" || pa_rc=1
+    fi
+  fi
+  mc_announce_prune "$pa_seen" "$pa_live" || pa_rc=1
+  return "$pa_rc"
+}
+
 case $verb in
   track)
     mc_valid_handle "$session" || mc_usage_fail "--session takes a launched session's name"
@@ -410,6 +474,7 @@ case $verb in
       /bin/bash "$script_dir/mc-stall.sh" scan --program "$program" ${now:+--now "$now"} >/dev/null || rc=1
       /bin/bash "$script_dir/mc-panel.sh" prune >/dev/null || rc=1
       pending_prompts || rc=1
+      pending_arrivals || rc=1
     fi
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
     trap pw_lock_release_all EXIT
