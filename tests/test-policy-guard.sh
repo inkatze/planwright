@@ -547,6 +547,7 @@ x
 EOF
 git push" "$MAIN|x=1 then cd $UNIT; git push" "$MAIN|x=1 coproc cd $UNIT; git push" \
   "$MAIN|command time cd $UNIT; git push" "$MAIN|>/dev/null then cd $UNIT; git push" \
+  "$MAIN|shopt -s execfail; exec cd $UNIT; git push" \
   "$MAIN|if false; then >/dev/null fi; cd $UNIT; fi; git push" \
   "$MAIN|if false; then noglob fi; cd $UNIT; fi; git push" \
   "$MAIN|a+b=1 cd $UNIT; git push" "$MAIN|\"x=1\" cd $UNIT; git push" \

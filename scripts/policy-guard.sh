@@ -1311,10 +1311,10 @@ segment_words() {
 # compound_shape <seg> — read the segment's leading reserved words: advance
 # CS_DEPTH, the compound commands (if, while, until, for, select, case) open
 # at it; set CS_NOFOLLOW when a cd in it may not run in this shell or may fail
-# unseen (a `!`, a coproc, a zsh precommand modifier, a word segment_words
-# skips as an assignment that bash runs as a command, or a reserved word made
-# a plain command name by quoting or by an assignment, command, exec or
-# builtin before it); and set CS_LOST, kept for the rest of the command, at a
+# unseen (a `!`, a coproc, an exec, a zsh precommand modifier, a word
+# segment_words skips as an assignment that bash runs as a command, or a
+# reserved word made a plain command name by quoting or by an assignment,
+# command or builtin before it); and set CS_LOST, kept for the rest of the command, at a
 # function definition, whose body may change directory when called, and at a
 # reserved word after a redirect or a zsh modifier, which bash and zsh read
 # differently.
@@ -1336,10 +1336,16 @@ compound_shape() {
           return 0
         fi
         ;;
-      command | exec | builtin)
+      command | builtin)
         prefixed=1
         k=$((k + 1))
         continue
+        ;;
+      exec)
+        # exec runs no builtin: `exec cd X` finds no cd program, and under
+        # execfail the shell carries on in the old directory.
+        CS_NOFOLLOW=1
+        return 0
         ;;
       [A-Za-z_]*=*)
         name=${W[$k]%%=*}
