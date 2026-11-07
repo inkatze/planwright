@@ -126,11 +126,11 @@ check passes; the launcher refuses on the same check.
 
 **After a compaction**, before the next act: re-resolve the root, re-load
 the rules and run the self-check (`scripts/mc-rules.sh`'s `selfcheck`) against the durable
-stores; a failure is an operator item. Prefer a handover to a compaction
-(D-29, D-30): when the panel or `scripts/mc-handover.sh`'s `due` calls for
-one, `write` the handover file, then follow `path`: `unattended` launches
-the successor (`launch --handover`); `operator-act` raises the one act the
-operator takes (`offer`), since their own terminal cannot be moved.
+stores; a failure is an operator item. A session mission control launched
+prefers a handover to a compaction (D-29, D-30): when the panel or
+`scripts/mc-handover.sh`'s `due` calls for one, `write` the handover file,
+then `launch --handover`. The operator's own session, whose terminal cannot
+move, just compacts, offering no handover (D-42).
 
 **When planwright changes**, a `planwright-recorded` or `planwright-updated`
 event names the copy now running. Re-resolve the root first; under it, on
