@@ -361,7 +361,7 @@ expect_fail "a --settings file that does not exist fails" "missing.json does not
 echo "# missing tools"
 # A tool the check reads with, gone from PATH, is a check that did not run,
 # never a pass.
-for gone in sed awk; do
+for gone in jq sed awk grep; do
   reset
   absolute_profile >"$home/.claude/settings.json"
   rm -rf "$tmp/tools"
