@@ -354,9 +354,10 @@ rm -f "$snapdir/forge.hold"
 run list --program alpha --now "$T"
 expect_eq "malformed rows are one fixed line" "unknown${tab}-${tab}a snapshot row is malformed"
 
-# Merged: gone from the snapshot, gone from the list and the count.
-taken >"$snapdir/forge"
-run list --program alpha --now "$T"
+# Merged: gone from the snapshot, gone from the list and the count (judged
+# on the real clock, since a count stamped later than now is partial).
+taken "$(date +%s)" >"$snapdir/forge"
+run list --program alpha
 expect_rc "an empty snapshot" 0
 expect_eq "lists nothing" ""
 run count --program alpha
