@@ -128,7 +128,8 @@ Usage:
         cron<TAB><line>             a crontab line naming planwright or
             claude in any case, or a repository or the home of the program, every
             NAME=value on it printed NAME=<redacted>
-        unknown<TAB><check><TAB><why>   a check whose read failed
+        unknown<TAB><check><TAB><why>   a check whose read failed, a
+            malformed adopter or machine-local layer included
 
 Exit codes: 0 done; 1 refused (a write that would not land as written, a
 malformed or redirected layer, a program already configured or with a
@@ -726,11 +727,22 @@ doctor_overrides() {
     printf 'unknown\toverrides\tthe shipped defaults could not be read\n'
     return 0
   }
+  # A plain read skips a malformed adopter or machine-local layer with only a
+  # stderr warning, which would print clean; the strict read names it.
   # shellcheck disable=SC2086 # one key per word, by design
-  do_lines=$(cfg_get --layers $do_keys 2>/dev/null) || {
-    printf 'unknown\toverrides\tthe layers could not be read\n'
-    return 0
-  }
+  do_lines=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 /bin/sh "$script_dir/config-get.sh" --layers $do_keys 2>/dev/null)
+  case $? in
+    0) ;;
+    6)
+      printf 'unknown\toverrides\tan adopter or machine-local layer is malformed or unreadable, so what it sets is not listed\n'
+      # shellcheck disable=SC2086 # one key per word, by design
+      do_lines=$(cfg_get --layers $do_keys 2>/dev/null) || return 0
+      ;;
+    *)
+      printf 'unknown\toverrides\tthe layers could not be read\n'
+      return 0
+      ;;
+  esac
   printf '%s\n' "$do_lines" | awk -F '\t' '
     NF < 3 { next }
     !($1 in last) { keys[++n] = $1 }

@@ -582,6 +582,12 @@ expect_out "the cron scan still names a line naming planwright" "cron${tab}*/5 *
 printf '%s\n' "$tracked_good" >"$tracked"
 : >"$CRON_FIXTURE"
 
+printf '%s\n' '- not flat' 'mission_control_stall_window: 30m' >"$layer"
+cfg doctor --program alpha
+expect_rc "doctor with a malformed adopter layer still reports" 0
+expect_out "a malformed adopter layer is an unknown overrides check, never clean" "unknown${tab}overrides${tab}an adopter or machine-local layer is malformed"
+expect_no_out "a skipped layer's value is not reported as in force" "override${tab}mission_control_stall_window"
+
 cfg doctor --program gamma
 expect_rc "doctor on a program that is not configured" 3
 cfg doctor
