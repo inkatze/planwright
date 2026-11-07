@@ -592,8 +592,16 @@ printf '%s\n' "$tracked_good" >"$tracked"
 printf '%s\n' '- not flat' 'mission_control_stall_window: 30m' >"$layer"
 cfg doctor --program alpha
 expect_rc "doctor with a malformed adopter layer still reports" 0
-expect_out "a malformed adopter layer is an unknown overrides check, never clean" "unknown${tab}overrides${tab}an adopter or machine-local layer is malformed"
+expect_out "a malformed adopter layer is an unknown overrides check, never clean" "unknown${tab}overrides${tab}a layer is malformed"
 expect_no_out "a skipped layer's value is not reported as in force" "override${tab}mission_control_stall_window"
+rm -f "$layer"
+
+printf '%s\n' 'mission_control_tick_cadence: 7m' 'mission_control_tick_cadence: 7m' >>"$tracked"
+cfg doctor --program alpha
+printf '%s\n' "$tracked_good" >"$tracked"
+expect_rc "doctor with a knob set twice in the repo-tracked layer still reports" 0
+expect_out "a knob set twice is an unknown overrides check" "unknown${tab}overrides${tab}a layer is malformed, unreadable, or sets a knob twice"
+expect_out "the overrides a plain read finds still follow it" "override${tab}mission_control_tick_cadence${tab}repo-tracked${tab}7m${tab}5m"
 
 cfg doctor --program gamma
 expect_rc "doctor on a program that is not configured" 3

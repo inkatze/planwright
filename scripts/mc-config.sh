@@ -130,8 +130,9 @@ Usage:
             claude in any case, or a repository or the home of the program, every
             NAME=value on it printed NAME=<redacted>
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
-            launches or cron) whose read failed, a malformed adopter or
-            machine-local layer included
+            launches or cron) whose read failed; for overrides, also a
+            layer that is malformed or sets a knob twice or as key : v,
+            the override lines a plain read finds still following
 
 Exit codes: 0 done; 1 refused (a write that would not land as written, a
 malformed or redirected layer, a program already configured or with a
@@ -730,15 +731,16 @@ doctor_overrides() {
     return 0
   }
   # A plain read skips a malformed adopter or machine-local layer with only a
-  # stderr warning, which would print clean; the strict read names it.
+  # stderr warning, which would print clean; the strict read names it, and a
+  # knob set twice or as key : v, by exit 6 or, in the repo-tracked layer, 4.
   # shellcheck disable=SC2086 # one key per word, by design
-  do_lines=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 /bin/sh "$script_dir/config-get.sh" --layers $do_keys 2>/dev/null)
+  do_lines=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 cfg_get --layers $do_keys 2>/dev/null)
   case $? in
     0) ;;
-    6)
-      printf 'unknown\toverrides\tan adopter or machine-local layer is malformed or unreadable, so what it sets is not listed\n'
+    4 | 6)
+      printf 'unknown\toverrides\ta layer is malformed, unreadable, or sets a knob twice or as key : v, so what it sets may be missing or misread\n'
       # shellcheck disable=SC2086 # one key per word, by design
-      do_lines=$(cfg_get --layers $do_keys 2>/dev/null) || return 0
+      do_lines=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS='' cfg_get --layers $do_keys 2>/dev/null) || return 0
       ;;
     *)
       printf 'unknown\toverrides\tthe layers could not be read\n'
