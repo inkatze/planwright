@@ -66,7 +66,7 @@ happens when a live holder already has the program's name:
   and, if it cannot within the handover window, loses the name anyway,
   retired through the launcher when the launcher started it; no other
   session closes the operator's own session: it ends itself once it has
-  released the name, and is otherwise only stripped of it.
+  released the name or finds it gone.
 - **Handover successor:** a session the predecessor launched, carrying a
   handover file. It proceeds, proves its picture against the file and takes
   the name. A handover launch over an attended holder (the operator's own
