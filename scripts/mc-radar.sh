@@ -54,16 +54,28 @@ Usage:
         retarget<TAB><repo><TAB><branch><TAB><old base><TAB><new base>
   mc-radar.sh watch [--program <p>]
       the duty's watcher (also what a run with no arguments does under the
-      runner): in each of the program's repositories, every origin branch
-      but the default compared against the default (the 50 most recently
-      committed), one conflict-predicted event per branch pair and path
-      with a same-line overlap not announced while it stays live, its text
-      `<repo>:<a>+<b> <path> lines <first>-<last>`, printing
+      runner): in each of the program's repositories, the origin branches
+      in the program's scope (mission_control_radar_scope) compared against
+      the default, the 50 most recently committed of them:
+        authored (the default): the head and base branches of the pull
+          requests the forge snapshot holds (mission_control_forge_tracked
+          chose them), and the program's own planwright/flight/* and
+          planwright/<spec>/task-* branches;
+        watched: the branches named in mission_control_radar_watched;
+        all: every origin branch.
+      The merge-queue refs (trunk-merge/*, gh-readonly-queue/*) never pair.
+      One conflict-predicted event per branch pair with a same-line overlap,
+      its text `<repo>:<a>+<b> <path> lines <first>-<last>` (more overlaps in
+      the pair are counted), printing
         announced<TAB>conflict-predicted<TAB><subject>
-      The event lands in the program's event store; a pair counts as
-      announced only once the store holds it. A repository with no origin
-      default branch is reported and fails the run. The program comes from
-      PLANWRIGHT_MC_PROGRAM when --program is absent.
+      A pair is raised once: it stays announced while both branches stay at
+      the tips it was announced at, so no pass raises it again. At most
+      mission_control_radar_max_events pairs are raised per pass, and one
+      summary event counts the pairs held back. Events land in the program's
+      event store; a pair counts as announced only once the store holds it.
+      A repository with no origin default branch is reported and fails the
+      run. The program comes from PLANWRIGHT_MC_PROGRAM when --program is
+      absent.
 
 THE GRAPH file opens with "# format: 1"; blank lines and `#` lines are
 skipped; every other line is
@@ -254,6 +266,32 @@ load_graph() {
     END { if (NR == 0) { printf "mc-radar: %s: empty, with no format line\n", FILENAME > "/dev/stderr"; exit 1 } ; exit err }' "$lg_file"
 }
 
+# parse_scope <raw>: the scope the conflict radar pairs branches under.
+parse_scope() {
+  case $1 in
+    authored | watched | all) printf '%s\n' "$1" ;;
+    *) return 1 ;;
+  esac
+}
+
+# parse_watched <raw>: the branch names of a bracketed list, one per line.
+parse_watched() {
+  case $1 in
+    "["*"]") ;;
+    *) return 1 ;;
+  esac
+  pw_inner=${1#"["}
+  pw_inner=${pw_inner%"]"}
+  pw_list=$(printf '%s' "$pw_inner" | tr ',' '\n' | sed 's/^ *//; s/ *$//')
+  while IFS= read -r pw_b; do
+    [ -n "$pw_b" ] || continue
+    valid_ref "$pw_b" || return 1
+    printf '%s\n' "$pw_b"
+  done <<EOF
+$pw_list
+EOF
+}
+
 case $verb in
   overlap)
     [ -n "$repo" ] && [ -n "$base" ] && [ "${#branches[@]}" -ge 2 ] || usage
@@ -322,7 +360,19 @@ case $verb in
     runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime directory"
     seen="$runtime/radar-announced"
     [ -f "$seen" ] || : >"$seen" || mc_fail "cannot create $seen"
-    live=""
+    cap=$(mc_knob mission_control_radar_max_events mc_parse_count) || exit 1
+    scope=$(mc_knob mission_control_radar_scope parse_scope) || exit 1
+    watched=$(mc_knob mission_control_radar_watched parse_watched) || exit 1
+    # The forge snapshot holds the pull requests mission_control_forge_tracked
+    # selected when it was taken; each row names its head and base branch.
+    # Absent or unreadable, the authored scope tracks no pull request.
+    snap=$(/bin/bash "$script_dir/mc-snapshot.sh" read --program "$program" forge 2>/dev/null) || snap=""
+    # Keys a previous version wrote (repository, pair, path) still hold their
+    # pair: the first pass after an upgrade does not raise them again.
+    old=$(awk -F '\t' 'NF == 3' "$seen")
+    tips_all=""
+    emitted=0
+    dropped=0
     repos=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories) || mc_fail "the repositories of program $program do not resolve"
     rc=0
     while IFS= read -r r; do
@@ -333,20 +383,46 @@ case $verb in
         continue
       }
       def=${def#refs/remotes/}
-      # The most recently committed branches first, so long-dead ones do not
-      # crowd live work out of the cap.
-      list=$(git -C "$r" for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin/ 2>/dev/null) || {
+      # Every origin branch with its tip, the most recently committed first, so
+      # long-dead ones do not crowd live work out of the cap.
+      list=$(git -C "$r" for-each-ref --sort=-committerdate --format='%(refname:short)	%(objectname)' refs/remotes/origin/ 2>/dev/null) || {
         printf '%s\n' "$prog: $(sanitize_printable "$r"): the branch list cannot be read" >&2
         rc=1
         continue
       }
+      tips_all="$tips_all$(printf '%s\n' "$list" | R=$r awk -F '\t' 'NF == 2 { print ENVIRON["R"] "\t" $1 "\t" $2 }')
+"
+      # The pull requests of this repository: the snapshot rows naming its
+      # slug, so a branch of another repository never matches.
+      url=$(git -C "$r" remote get-url origin 2>/dev/null) || url=""
+      slug=$(printf '%s\n' "$url" | sed -e 's#^git@[^:]*:##' -e 's#^[a-z+]*://[^/]*/##' -e 's#\.git$##')
+      repo_prs=$(printf '%s\n' "$snap" | SLUG=$slug awk -F '\t' '
+        $1 == "pr" && $2 == ENVIRON["SLUG"] {
+          if ($14 != "" && $14 != "-") print "origin/" $14
+          if ($13 != "" && $13 != "-") print "origin/" $13
+        }')
+      # The branches in scope: never the default, never a merge-queue ref.
+      picked=$(printf '%s\n' "$list" | SCOPE=$scope PRS=$repo_prs WATCHED=$watched D=$def awk -F '\t' '
+        BEGIN {
+          scope = ENVIRON["SCOPE"]
+          n = split(ENVIRON["PRS"], p, "\n"); for (i = 1; i <= n; i++) if (p[i] != "") pr[p[i]] = 1
+          n = split(ENVIRON["WATCHED"], w, "\n"); for (i = 1; i <= n; i++) if (w[i] != "") watch["origin/" w[i]] = 1
+        }
+        $1 == ENVIRON["D"] || $1 == "origin/HEAD" || $1 == "origin" { next }
+        $1 ~ /^origin\/(trunk-merge|gh-readonly-queue)\// { next }
+        {
+          ok = 0
+          if (scope == "all") ok = 1
+          else if (scope == "watched") ok = ($1 in watch)
+          else ok = ($1 in pr) || $1 ~ /^origin\/planwright\/flight\// || $1 ~ /^origin\/planwright\/[^\/]+\/task-/
+        }
+        ok && ++k <= 50 { print $1 "	" $2 }')
+      names=$(printf '%s\n' "$picked" | cut -f1)
       set --
       while IFS= read -r b; do
-        [ "$#" -lt 50 ] || break
-        case $b in "$def" | origin/HEAD | origin) continue ;; esac
         valid_ref "$b" && set -- "$@" "$b"
       done <<EOF
-$list
+$names
 EOF
       [ $# -ge 2 ] || continue
       lines=$(overlap "$r" "$def" "$@") || {
@@ -355,30 +431,92 @@ EOF
       }
       name=${r%/}
       name=${name##*/}
-      # Keys already announced are dropped in one pass, so only new ones
-      # pay for a subject and an emit.
-      keyed=$(printf '%s\n' "$lines" | R=$r awk -F '\t' '$1 == "same-line" { print ENVIRON["R"] "\t" $2 "+" $3 "\t" $4 "\t" $5 }')
-      [ -n "$keyed" ] || continue
-      live="$live$(printf '%s\n' "$keyed" | cut -f1-3)
-"
-      new=$(printf '%s\n' "$keyed" | awk -F '\t' 'FILENAME == ARGV[1] { s[$0] = 1; next } !(($1 "\t" $2 "\t" $3) in s)' "$seen" -) || {
+      # One row per branch pair, its names in canonical order and the tip of
+      # each. The key is the pair at those tips, so an unchanged pair is never
+      # raised again, whatever the order the branches came in.
+      pairs=$(printf '%s\n' "$lines" | R=$r TIPS=$list OLD=$old awk -F '\t' '
+        BEGIN {
+          n = split(ENVIRON["TIPS"], t, "\n")
+          for (i = 1; i <= n; i++) { split(t[i], f, "\t"); sha[f[1]] = f[2] }
+          n = split(ENVIRON["OLD"], o, "\n")
+          for (i = 1; i <= n; i++) {
+            split(o[i], g, "\t")
+            if (g[1] != ENVIRON["R"]) continue
+            j = index(g[2], "+")
+            if (j == 0) continue
+            x = substr(g[2], 1, j - 1); y = substr(g[2], j + 1)
+            if (x > y) { s = x; x = y; y = s }
+            migrated[x "+" y] = 1
+          }
+        }
+        $1 != "same-line" { next }
+        {
+          a = $2; b = $3
+          if (a > b) { s = a; a = b; b = s }
+          k = a SUBSEP b
+          if (!(k in cnt)) { order[++m] = k; A[k] = a; B[k] = b; first[k] = $4 " lines " $5 }
+          cnt[k]++
+        }
+        END {
+          for (i = 1; i <= m; i++) {
+            k = order[i]
+            flag = ((A[k] "+" B[k]) in migrated) ? "migrate" : "new"
+            print ENVIRON["R"] "	" A[k] "	" sha[A[k]] "	" B[k] "	" sha[B[k]] "	" flag "	" cnt[k] "	" first[k]
+          }
+        }')
+      new=$(printf '%s\n' "$pairs" | awk -F '\t' 'FILENAME == ARGV[1] { s[$0] = 1; next } !(($1 "\t" $2 "\t" $3 "\t" $4 "\t" $5) in s) { print }' "$seen" -) || {
         rc=1
         continue
       }
-      while IFS='	' read -r kr pair path range; do
+      while IFS='	' read -r kr pa sa pb sb flag cnt text; do
         [ -n "$kr" ] || continue
-        key="$kr	$pair	$path"
-        mc_announce "$program" "$seen" "$key" conflict-predicted "$(mc_subject conflict "$key")" \
-          "$name:$pair $path lines $range" || rc=1
+        key="$kr	$pa	$sa	$pb	$sb"
+        if [ "$flag" = migrate ]; then
+          printf '%s\n' "$key" >>"$seen" || rc=1
+          continue
+        fi
+        if [ "$emitted" -ge "$cap" ]; then
+          dropped=$((dropped + 1))
+          continue
+        fi
+        more=""
+        [ "$cnt" -le 1 ] || more=" (and $((cnt - 1)) more)"
+        if mc_announce "$program" "$seen" "$key" conflict-predicted "$(mc_subject conflict "$key")" \
+          "$name:$pa+$pb $text$more"; then
+          emitted=$((emitted + 1))
+        else
+          rc=1
+        fi
       done <<EOF
 $new
 EOF
     done <<EOF
 $repos
 EOF
-    # A repository whose read failed keeps its keys, so nothing it already
-    # announced is raised again once it reads cleanly.
-    [ "$rc" -ne 0 ] || mc_announce_prune "$seen" "$live" || rc=1
+    if [ "$dropped" -gt 0 ]; then
+      skey=radar-cap
+      mc_announce "$program" "$seen" "$skey" conflict-predicted "$(mc_subject conflict "$skey")" \
+        "the conflict radar held back $dropped conflict-predicted pair(s) at its cap of $cap per pass; they follow on later passes" || rc=1
+    fi
+    # A pair stays announced while both of its branches stay at the tips it
+    # was announced at; the summary stays only while a pass holds pairs back.
+    # A repository whose read failed keeps everything it has announced.
+    if [ "$rc" -eq 0 ]; then
+      keep_cap=""
+      [ "$dropped" -eq 0 ] || keep_cap=radar-cap
+      if kept=$(TIPS=$tips_all KEEPCAP=$keep_cap awk -F '\t' '
+        BEGIN {
+          n = split(ENVIRON["TIPS"], t, "\n")
+          for (i = 1; i <= n; i++) { split(t[i], f, "\t"); if (f[1] != "") tip[f[1] SUBSEP f[2]] = f[3] }
+        }
+        NF == 1 { if ($0 != "" && $0 == ENVIRON["KEEPCAP"]) print; next }
+        NF == 5 && (($1 SUBSEP $2) in tip) && (($1 SUBSEP $4) in tip) && tip[$1 SUBSEP $2] == $3 && tip[$1 SUBSEP $4] == $5 { print }
+      ' "$seen"); then
+        { [ -z "$kept" ] || printf '%s\n' "$kept"; } | mc_write "$seen" || rc=1
+      else
+        rc=1
+      fi
+    fi
     exit "$rc"
     ;;
   *) usage ;;

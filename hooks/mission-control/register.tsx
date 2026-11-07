@@ -28,7 +28,9 @@ const INSTALL_RETRY_MS = 60_000
 // The scripts' stale-copy warning, which must not stand in for the error.
 const STALE_WARNING = 'planwright: WARNING running from '
 
-// Change the tag when PanelView's fields change: a reload keeps $.state.
+// A reload keeps $.state. Change the tag only for a field a reader cannot
+// do without until the next reading replaces the digest: a new tag also
+// drops the program a reload reads back, which turns the mod off.
 const panel = atom({ plugin: 'planwright', key: 'panel' } as const, null, { shape: 'panel-3' })
 const isBusy = atom({ plugin: 'planwright', key: 'isBusy' } as const, false)
 
@@ -139,7 +141,15 @@ async function isHeld($: EngineInterface, v: PanelView): Promise<boolean> {
 // a failed emit is tried again at the next check.
 async function checkHandover($: EngineInterface) {
   const v = await view($)
-  if (!v || v.handover || isRaising) return
+  if (!v || isRaising) return
+  // Carried over from an older panel, or raised before the holder record
+  // moved to the operator's own session: it would only hold the compaction
+  // that session needs.
+  if (v.handover && v.digest?.holder === 'attended') {
+    await patch($, x => ({ ...x, handover: null }))
+    return
+  }
+  if (v.handover) return
   const reason = handoverReason(v)
   if (!reason) return
   isRaising = true
@@ -363,6 +373,12 @@ async function open($: EngineInterface) {
   if (v) $.ui.status(v.isFallback ? fallbackLine(v) : undefined)
 }
 
+async function close($: EngineInterface) {
+  await $.ui.close({ id: PANE })
+  await patch($, x => ({ ...x, isFallback: false }))
+  $.ui.status(undefined)
+}
+
 // The cadences from the knobs, or the defaults until a reading carries
 // them; armed again once, when the knobs first arrive.
 async function armTimers($: EngineInterface) {
@@ -560,7 +576,10 @@ async function activate(
     // A refused registration must not skip the rest of this activation: the
     // bring-up below starts every reading.
     try {
-      await $.command.register({ name: 'mc-panel', description: 'Reopen the mission-control panel' })
+      await $.command.register({
+        name: 'mc-panel',
+        description: 'Open or close the mission-control panel (add open or close to choose)',
+      })
     } catch (err) {
       await lastingFault($, 'command', `the panel command could not be registered: ${oneLine(String(err))}`)
     }
@@ -652,8 +671,19 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'mc-panel' }, async $ => {
+  on('command.run', { command: 'mc-panel' }, async ($, e) => {
     if (!ctx) return { text: 'Mission control is not running in this session.' }
+    const asked = e.args.trim().toLowerCase()
+    if (asked !== '' && asked !== 'open' && asked !== 'close') {
+      return { text: 'Type /mc-panel to open or close the panel, or /mc-panel open or /mc-panel close to choose.' }
+    }
+    // A pane opened unasked on a narrow terminal is listed but not drawn;
+    // the command then opens it, as an asked open places it.
+    const isShown = (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)
+    if (asked === 'close' || (asked === '' && isShown)) {
+      await close($)
+      return { text: 'Mission control panel closed.' }
+    }
     await open($)
     return { text: 'Mission control panel opened.' }
   })
@@ -693,7 +723,14 @@ export const register: Register = on => {
   on('session.compact', async ($, e, next) => {
     if (!ctx || e.agentId !== undefined || e.trigger === 'precompute') return next(e)
     const before = await view($)
-    if (e.trigger !== 'manual' && before?.handover && before.digest?.isHandoverInstalled) {
+    // The holder is checked here too: a redraw can read an attended holder
+    // before the handover check withdraws the handover it would clear.
+    if (
+      e.trigger !== 'manual' &&
+      before?.handover &&
+      before.digest?.isHandoverInstalled &&
+      before.digest.holder !== 'attended'
+    ) {
       let pct: number | undefined
       try {
         pct = (await $.session.usage()).context.percent

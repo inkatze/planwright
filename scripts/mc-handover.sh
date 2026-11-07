@@ -61,10 +61,12 @@ A reader refuses a file whose format it does not know, naming the field.
 Usage:
   mc-handover.sh due --program <p> --context <percent|-> --wakes <n>
       --compactions <n>
-      the trigger the mod applies, for a session without it: the
-      compaction ceiling first, then measured context where there is a
-      reading, the completed-wake count otherwise; a knob that does not
-      read skips its rule, warned. Prints due<TAB><reason> or not-due
+      the trigger the mod applies, for a session without it, which a
+      caller applies only in a launched holder (it reads no holder
+      record): the compaction ceiling first, then measured context where
+      there is a reading, the completed-wake count otherwise; a knob that
+      does not read skips its rule, warned. Prints due<TAB><reason> or
+      not-due
   mc-handover.sh holder --program <p> [--now <epoch>]
       holder<TAB><handle><TAB><kind><TAB><since><TAB><generation>
       <TAB>live|stale, or holder<TAB>- with no holder
@@ -165,7 +167,7 @@ scratch=''
 own_request=''
 # shellcheck disable=SC2329 # invoked from the EXIT trap
 cleanup() {
-  if [ -n "$own_request" ] && [ -f "$own_request" ] && [ "$(kv "$own_request" from 2>/dev/null)" = "$session" ]; then
+  if [ -n "$own_request" ] && [ -f "$own_request" ] && [ "$(mc_kv "$own_request" from 2>/dev/null)" = "$session" ]; then
     rm -f "$own_request"
   fi
   pw_lock_release_all
@@ -179,14 +181,11 @@ trap 'exit 143' TERM
 say() { printf '%s\n' "$prog: $(sanitize_printable "$1")" >&2; }
 need() { [ -n "$2" ] || mc_usage_fail "--$1 is required"; }
 
-# kv <file> <key>: the value of the first <key> record.
-kv() { K=$2 awk -F '\t' '$1 == ENVIRON["K"] { print substr($0, length($1) + 2); exit }' "$1"; }
-
 # kv_handle <file> <key>: a session handle a record names, or `-`; a value
 # outside the handle grammar is refused, since it reaches paths and the
 # launcher.
 kv_handle() {
-  kh=$(kv "$1" "$2")
+  kh=$(mc_kv "$1" "$2")
   [ "$kh" = - ] || mc_valid_handle "$kh" || mc_fail "$(sanitize_printable "$1") names a $2 outside the handle grammar"
   printf '%s\n' "$kh"
 }
@@ -274,10 +273,10 @@ read_holder() {
   H_SESSION='' H_KIND='' H_SINCE='' H_GEN=0 H_LIVE=0
   [ -e "$HOLDER" ] || return 0
   store_check "$HOLDER"
-  H_SESSION=$(kv "$HOLDER" session)
-  H_KIND=$(kv "$HOLDER" kind)
-  H_SINCE=$(kv "$HOLDER" since)
-  H_GEN=$(kv "$HOLDER" generation)
+  H_SESSION=$(mc_kv "$HOLDER" session)
+  H_KIND=$(mc_kv "$HOLDER" kind)
+  H_SINCE=$(mc_kv "$HOLDER" since)
+  H_GEN=$(mc_kv "$HOLDER" generation)
   if ! mc_valid_handle "$H_SESSION" || ! mc_valid_uint "$H_GEN" || ! mc_valid_uint "$H_SINCE"; then
     mc_fail "the holder record $(sanitize_printable "$HOLDER") is outside its grammar"
   fi
@@ -317,9 +316,9 @@ require_successor() {
   [ -f "$SUCC" ] || "$1" successor "$session is not the pending successor of program $program: none is pending"
   rs_why=$(format_refusal "$SUCC")
   [ -z "$rs_why" ] || "$1" format "$rs_why"
-  [ "$(kv "$SUCC" session)" = "$session" ] || "$1" successor "$session is not the pending successor of program $program"
+  [ "$(mc_kv "$SUCC" session)" = "$session" ] || "$1" successor "$session is not the pending successor of program $program"
   S_PRED=$(kv_handle "$SUCC" predecessor) || exit 1
-  S_PRED_KIND=$(kv "$SUCC" predecessor-kind)
+  S_PRED_KIND=$(mc_kv "$SUCC" predecessor-kind)
 }
 refuse() { mc_fail "$2"; }
 
@@ -379,7 +378,7 @@ window_seconds() {
 
 # released_to <from> <to>: the predecessor's release names this taker.
 released_to() {
-  [ -f "$RELEASED" ] && mc_format_ok "$RELEASED" && [ "$(kv "$RELEASED" session)" = "$1" ] && [ "$(kv "$RELEASED" to)" = "$2" ]
+  [ -f "$RELEASED" ] && mc_format_ok "$RELEASED" && [ "$(mc_kv "$RELEASED" session)" = "$1" ] && [ "$(mc_kv "$RELEASED" to)" = "$2" ]
 }
 
 # wait_release <from> <kind> <to> <seconds>: 0 once the predecessor has
@@ -486,9 +485,16 @@ what_changed() {
     printf 'changed\tunknown\tdecisions\n'
     wc_said=1
   fi
-  if events=$(mc_event list --program "$program" 2>/dev/null); then
-    events=$(printf '%s\n' "$events" | T=$1 awk -F '\t' '
-      NF >= 4 && $2 > ENVIRON["T"] { printf "changed\tevent\t%s\t%s\t%s\n", $2, $3, $4 }' | mc_clean)
+  if events=$(mc_event list --program "$program" --limit 100000 2>/dev/null); then
+    # A read that filled its limit may have dropped the newest events: unknown.
+    if [ "$(printf '%s\n' "$events" | awk 'NF { n++ } END { print n + 0 }')" -ge 100000 ]; then
+      events=''
+      printf 'changed\tunknown\tevents\n'
+      wc_said=1
+    else
+      events=$(printf '%s\n' "$events" | T=$1 awk -F '\t' '
+        NF >= 4 && $2 > ENVIRON["T"] { printf "changed\tevent\t%s\t%s\t%s\n", $2, $3, $4 }' | mc_clean)
+    fi
   else
     events=''
     printf 'changed\tunknown\tevents\n'
@@ -651,9 +657,9 @@ case $verb in
     if [ -f "$SUCC" ]; then
       store_check "$SUCC"
       pend=$(kv_handle "$SUCC" session) || exit 1
-      pend_owner=$(kv "$SUCC" owner)
+      pend_owner=$(mc_kv "$SUCC" owner)
       in_flight=0
-      if [ "$(kv "$SUCC" verified)" = - ] && mc_valid_uint "$pend_owner" && kill -0 "$pend_owner" 2>/dev/null; then
+      if [ "$(mc_kv "$SUCC" verified)" = - ] && mc_valid_uint "$pend_owner" && kill -0 "$pend_owner" 2>/dev/null; then
         in_flight=1
       fi
       if [ "$pend" != "$H_SESSION" ] && { row_exists "$pend" || [ "$in_flight" -eq 1 ]; }; then
@@ -668,7 +674,7 @@ case $verb in
         asked) ;;
         handover)
           if [ "$H_KIND" = attended ]; then
-            say "the holder $H_SESSION is the operator's own session, which the harness cannot move to a launched successor; offer the operator's act instead (mc-handover.sh offer)"
+            say "the holder $H_SESSION is the operator's own session, which the harness cannot move to a launched successor; that session compacts instead"
             exit 4
           fi
           [ -f "$HANDOVER" ] || {
@@ -676,7 +682,7 @@ case $verb in
             exit 3
           }
           store_check "$HANDOVER"
-          fp=$(kv "$HANDOVER" predecessor)
+          fp=$(mc_kv "$HANDOVER" predecessor)
           [ "$fp" = "$H_SESSION" ] || {
             say "the program name $program is held by $H_SESSION; the handover file names $(sanitize_printable "$fp"), a predecessor already retired"
             exit 3
@@ -701,7 +707,7 @@ case $verb in
     unlock
     drop_reservation() {
       lock
-      if [ -f "$SUCC" ] && [ "$(kv "$SUCC" owner)" = "$$" ] && [ "$(kv "$SUCC" verified)" = - ]; then rm -f "$SUCC"; fi
+      if [ -f "$SUCC" ] && [ "$(mc_kv "$SUCC" owner)" = "$$" ] && [ "$(mc_kv "$SUCC" verified)" = - ]; then rm -f "$SUCC"; fi
       unlock
     }
     scratch=$(mktemp "${TMPDIR:-/tmp}/mc-handover.XXXXXX") || {
@@ -744,12 +750,12 @@ case $verb in
     if [ -f "$HANDOVER" ]; then
       why=$(format_refusal "$HANDOVER")
       [ -z "$why" ] || fail_item format "$why"
-      [ "$(kv "$HANDOVER" program)" = "$program" ] \
-        || fail_item file "the handover file is program $(kv "$HANDOVER" program)'s, not $program's"
-      [ "$(kv "$HANDOVER" predecessor)" = "$S_PRED" ] \
-        || fail_item file "the handover file names $(kv "$HANDOVER" predecessor), not the predecessor $S_PRED"
-      f_rules=$(kv "$HANDOVER" rules)
-      f_ledger=$(kv "$HANDOVER" ledger)
+      [ "$(mc_kv "$HANDOVER" program)" = "$program" ] \
+        || fail_item file "the handover file is program $(mc_kv "$HANDOVER" program)'s, not $program's"
+      [ "$(mc_kv "$HANDOVER" predecessor)" = "$S_PRED" ] \
+        || fail_item file "the handover file names $(mc_kv "$HANDOVER" predecessor), not the predecessor $S_PRED"
+      f_rules=$(mc_kv "$HANDOVER" rules)
+      f_ledger=$(mc_kv "$HANDOVER" ledger)
       [ "$f_rules" = "$digest" ] || fail_item rules "the successor's rules (digest $digest) are not the predecessor's ($f_rules)"
       [ "$f_ledger" = "$ledger" ] || fail_item ledger "the successor's ledger position $ledger is not the predecessor's last entry $f_ledger"
       awk -F '\t' '$1 == "item" || $1 == "session" { printf "%s %s\n", $1, $2 }' "$HANDOVER" >"$scratch" \
@@ -765,7 +771,7 @@ case $verb in
     selfcheck "$digest" "$picture" "$scratch"
     lock
     require_successor refuse
-    succ_record "$session" "$S_PRED" "$S_PRED_KIND" "$(kv "$SUCC" launched)" "$(kv "$SUCC" mode)" "$NOW"
+    succ_record "$session" "$S_PRED" "$S_PRED_KIND" "$(mc_kv "$SUCC" launched)" "$(mc_kv "$SUCC" mode)" "$NOW"
     unlock
     printf 'verified\t%s\t%s\n' "$session" "$(printf '%s\n' "$SC_OUT" | head -n 1 | mc_clean)"
     ;;
@@ -779,7 +785,7 @@ case $verb in
     if [ -f "$SUCC" ]; then
       store_check "$SUCC"
       cand=$(kv_handle "$SUCC" session) || exit 1
-      if [ "$(kv "$SUCC" verified)" != - ] && [ "$(kv "$SUCC" predecessor)" = "$session" ] && row_exists "$cand"; then
+      if [ "$(mc_kv "$SUCC" verified)" != - ] && [ "$(mc_kv "$SUCC" predecessor)" = "$session" ] && row_exists "$cand"; then
         to=$cand
       fi
     fi
@@ -798,7 +804,7 @@ case $verb in
     runtime_paths
     home_path
     require_successor refuse
-    [ "$(kv "$SUCC" verified)" != - ] || mc_fail "$session has not passed its self-check against the handover file"
+    [ "$(mc_kv "$SUCC" verified)" != - ] || mc_fail "$session has not passed its self-check against the handover file"
     expect=''
     [ "$S_PRED" = - ] || expect=$S_PRED
     if [ "$S_PRED" != - ] && session_live "$S_PRED" "$S_PRED_KIND" && ! released_to "$S_PRED" "$session"; then
@@ -828,7 +834,7 @@ case $verb in
     read_holder
     since=$H_SINCE
     if [ -f "$RUNTIME/presence" ] && mc_format_ok "$RUNTIME/presence"; then
-      lp=$(kv "$RUNTIME/presence" last-prompt)
+      lp=$(mc_kv "$RUNTIME/presence" last-prompt)
       if mc_valid_uint "$lp"; then since=$lp; fi
     fi
     from=- from_kind=-
