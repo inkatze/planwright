@@ -497,6 +497,29 @@ row() { printf 'format\t1\nname\t%s\nprogram\t%s\nkind\tworker\nscope\tx\nbacken
 row mc-alpha-worker-1111111111 alpha tmux
 row mc-alpha-worker-2222222222 alpha stream-json
 row mc-beta-worker-3333333333 beta tmux
+# Shell forms the redaction does not model, each a crontab line, then
+# " ==> " and the report line it must read as: blanked to the end of the
+# line where the scan fails closed.
+shapes="$tmp/cron-shapes.txt"
+cat >"$shapes" <<'SHAPES'
+30 * * * * T=`echo lk-j lk-k` planwright ==> 30 * * * * T=<redacted>
+31 * * * * T=${X:-lk-l lk-m} planwright ==> 31 * * * * T=<redacted>
+32 * * * * TOKEN="$(cat "/x lk-n") lk-o" planwright ==> 32 * * * * TOKEN=<redacted>
+33 * * * * T=$'a\'b lk-p' planwright ==> 33 * * * * T=<redacted>
+34 * * * * sh -c 'TOKEN='\''lk-q lk-r'\'' planwright' ==> 34 * * * * sh -c 'TOKEN=<redacted>
+1PLANWRIGHT_TOKEN=lk-s lk-t ==> 1PLANWRIGHT_TOKEN=<redacted>
+@PLANWRIGHT_TOKEN=lk-u lk-v ==> @PLANWRIGHT_TOKEN=<redacted>
+35 * * * * \TOKEN=lk-w planwright ==> 35 * * * * \TOKEN=<redacted> planwright
+36 * * * * env "TOKEN"=lk-x TOKEN"="lk-y planwright ==> 36 * * * * env "TOKEN"=<redacted> TOKEN"=<redacted>
+37 * * * * T+=lk-z A[0]=lk-0 planwright ==> 37 * * * * T+=<redacted> A[0]=<redacted> planwright
+0=lk-01 claude ==> 0=<redacted>
+*=lk-02 planwright ==> *=<redacted>
+39 * * * * T=$(case a in a) echo lk-05 lk-06;; esac) planwright ==> 39 * * * * T=<redacted>
+  planwright_secret=lk-07 lk-08 ==> planwright_secret=<redacted>
+@reboot T=lk-09 /opt/planwright/r ==> @reboot T=<redacted> /opt/planwright/r
+-*/5 * * * * T=lk-10 /opt/planwright/dash ==> -*/5 * * * * T=<redacted> /opt/planwright/dash
+41 * * * * [ "$a" = "$b" ] && planwright ==> 41 * * * * [ "$a" =<redacted> "$b" ] && planwright
+SHAPES
 {
   printf '# a comment naming planwright\n'
   printf '*/5 * * * * /opt/hub/w.sh planwright sweep\n'
@@ -507,6 +530,7 @@ row mc-beta-worker-3333333333 beta tmux
   printf '%s\n' '2 * * * * T=lk-4"lk-5 lk-6" /opt/planwright/b'
   printf '%s\n' '3 * * * * T=lk-7\ lk-8 /opt/planwright/c'
   printf '%s\n' '4 * * * * T="lk-9\" lk-a" /opt/planwright/d'
+  # shellcheck disable=SC2016 # a literal crontab line, never expanded
   printf '%s\n' '5 * * * * T=$(cat /run/lk-b x) /opt/planwright/e'
   printf '%s\n' "6 * * * * curl -d 'token=lk-c lk-d' /opt/planwright/f"
   printf '%s\n' '7 * * * * /opt/planwright/g T="lk-e lk-f'
@@ -516,6 +540,8 @@ row mc-beta-worker-3333333333 beta tmux
   printf '%s\n' '10 * * * * /opt/hub/Claude-Sweep.sh' '11 * * * * PLANWRIGHT_ROOT=/opt/pw /opt/pw/tick.sh'
   printf '*/20 * * * * %s/tick.sh\n' "$neutral_home"
   printf '%s\n' '*/25 * * * * /MCDOC-NEUTRAL-HOME/alpha/x.sh'
+  printf '38 * * * * T=abc\\\033"lk-03 lk-04" /opt/planwright/a\n'
+  sed 's/ ==> .*//' "$shapes"
 } >"$CRON_FIXTURE"
 printf 'mission_control_launch_backend: stream-json\nmission_control_stall_window: 30m\nmission_control_tick_cadence: 5m\n' >"$layer"
 printf 'program_alpha_duties: [inbox, readiness-check]\n' >>"$tracked"
@@ -540,18 +566,29 @@ expect_out "every NAME=value on a reported cron line is blanked" "cron${tab}*/15
 for want in \
   '1 * * * * T=<redacted> /opt/planwright/a' \
   '2 * * * * T=<redacted> /opt/planwright/b' \
-  '3 * * * * T=<redacted> /opt/planwright/c' \
-  '4 * * * * T=<redacted> /opt/planwright/d' \
-  '5 * * * * T=<redacted> /opt/planwright/e' \
-  "6 * * * * curl -d 'token=<redacted>' /opt/planwright/f" \
+  '3 * * * * T=<redacted>' \
+  '4 * * * * T=<redacted>' \
+  '5 * * * * T=<redacted>' \
+  "6 * * * * curl -d 'token=<redacted>" \
   '7 * * * * /opt/planwright/g T=<redacted>' \
   'planwright_token=<redacted>' \
   '8 * * * * TOKEN=<redacted> /opt/planwright/h' \
-  '9 * * * * /opt/planwright/i'; do
-  printf '%s\n' "$OUT" | grep -qxF -- "cron${tab}$want" \
-    && ok "a quoted, escaped, open or environment value is blanked whole: $want" \
-    || fail "no report line reads exactly: cron<TAB>$want"
+  '9 * * * * /opt/planwright/i' \
+  '38 * * * * T=<redacted>'; do
+  if printf '%s\n' "$OUT" | grep -qxF -- "cron${tab}$want"; then
+    ok "a quoted, escaped, open or environment value is blanked whole: $want"
+  else
+    fail "no report line reads exactly: cron<TAB>$want"
+  fi
 done
+while IFS= read -r shape; do
+  want=${shape#* ==> }
+  if printf '%s\n' "$OUT" | grep -qxF -- "cron${tab}$want"; then
+    ok "an unmodelled shell form fails closed: $want"
+  else
+    fail "no report line reads exactly: cron<TAB>$want"
+  fi
+done <"$shapes"
 for secret in s3cr3t "x y" "a b" k3y lk-; do
   expect_no_out "a cron line's value never reaches the report: $secret" "$secret"
 done

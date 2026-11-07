@@ -128,7 +128,10 @@ Usage:
             per-call --backend, or a knob changed since the launch
         cron<TAB><line>             a crontab line naming planwright or
             claude in any case, or a repository or the home of the
-            program, every NAME=value on it printed NAME=<redacted>
+            program, every NAME=value on it printed NAME=<redacted>;
+            redaction fails closed, so a value in quotes or holding an
+            escape, a substitution or a paren blanks the rest of the
+            line
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
             launches or cron) whose read failed; for overrides, also a
             layer that is malformed or sets a knob twice or as key : v,
@@ -798,65 +801,63 @@ doctor_cron() {
     printf 'unknown\tcron\tthe program repositories or home could not be read, so lines naming them are not listed\n'
   fi
   # Every NAME=value is blanked: a crontab line is where credentials sit,
-  # and a reported line travels into items and the program home. Control
-  # bytes go first, so none can hide an assignment the scan would miss;
-  # a value is one shell word, quotes and escapes included, and a quote left
-  # open blanks the rest of the line.
+  # and a reported line travels into items and the program home. The scan
+  # fails closed rather than model shell grammar: any = outside a value is
+  # an assignment, and a value inside quotes, or one meeting an escape, a
+  # substitution or a paren, is blanked to the end of the line. Control
+  # bytes go first, so none can hide an = the scan would miss.
   printf '%s\n' "$dc_tab" | mc_clean_text | DC_PATHS="$dc_paths${nl}$dc_home" DC_Q="'" awk '
     BEGIN {
       n = split(ENVIRON["DC_PATHS"], needle, "\n")
       sq = ENVIRON["DC_Q"]
       dq = "\""
+      # crontab(5): a line whose first word runs straight into an =, blanks
+      # allowed around it, is an environment line, its value the rest.
+      envre = "^ *(" dq "[^" dq "]*" dq "|" sq "[^" sq "]*" sq "|[^ =" dq sq "]+) *="
     }
-    function value_end(s, i, enc,   len, c, q, d) {
+    # value_end(s, i, enc): the index of the blank ending the value at i, or
+    # past the end of s; enc is the quote the = sits inside, if any.
+    function value_end(s, i, enc,   len, c, q) {
       len = length(s)
-      q = enc
-      d = 0
+      if (enc != "") return len + 1
+      q = ""
       for (; i <= len; i++) {
         c = substr(s, i, 1)
-        if (q == sq) {
-          if (c == sq) { if (enc == sq) return i; q = "" }
-        } else if (q == dq) {
-          if (c == "\\") i++
-          else if (c == dq) { if (enc == dq) return i; q = "" }
-        } else if (c == "\\") i++
+        if (index("\\`(", c) || (c == "$" && index("({" sq dq, substr(s, i + 1, 1)))) return len + 1
+        if (q != "") { if (c == q) q = "" }
         else if (c == sq || c == dq) q = c
-        else if (c == "(") d++
-        else if (c == ")" && d > 0) d--
-        else if (c == " " && d == 0) return i
+        else if (c == " ") return i
       }
       return len + 1
     }
-    function redact(s,   out, len, i, c, q, k) {
-      # An environment line (crontab(5): blanks may sit around the =, and
-      # the value runs to the end of the line) is one assignment.
-      if (s ~ /^ *[^ 0-9*@][^=]*=/) {
-        k = substr(s, 1, index(s, "=") - 1)
-        gsub(/^ +| +$/, "", k)
-        return k "=<redacted>"
+    function redact(s,   out, len, i, c, q, last, e, name) {
+      if (match(s, envre)) {
+        name = substr(s, 1, RLENGTH - 1)
+        gsub(/^ +| +$/, "", name)
+        return name "=<redacted>"
       }
       out = ""
       q = ""
+      last = 1
       len = length(s)
       for (i = 1; i <= len; i++) {
         c = substr(s, i, 1)
-        if (c ~ /[A-Za-z_]/ && (i == 1 || substr(s, i - 1, 1) !~ /[A-Za-z0-9_]/) \
-          && match(substr(s, i), /^[A-Za-z_][A-Za-z0-9_]*=/)) {
-          k = RLENGTH
-          out = out substr(s, i, k) "<redacted>"
-          i = value_end(s, i + k, q) - 1
-          continue
-        }
         if (c == "\\" && q != sq) {
-          out = out c
           i++
-          c = substr(s, i, 1)
+          if (substr(s, i, 1) != "=") continue
+          c = "="
+        }
+        if (c == "=") {
+          e = value_end(s, i + 1, q)
+          out = out substr(s, last, i + 1 - last) "<redacted>"
+          last = e
+          i = e - 1
         } else if (q == "" && (c == sq || c == dq)) q = c
         else if (c == q) q = ""
-        out = out c
       }
-      return out
+      return out substr(s, last)
     }
+    # Tabs become blanks first, so the scan tests a single blank character.
     { gsub(/\t/, " ") }
     /^ *(#|$)/ { next }
     # The two names match in any case (PLANWRIGHT_ROOT=, Claude-sweep.sh);
