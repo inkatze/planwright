@@ -52,12 +52,12 @@ password fails instead of hanging, and with agent, X11 and port forwarding
 off.
 
 The remote first sources its optional ~/.config/planwright/remote-env.sh, the
-place for PATH, CLAUDE_PLUGIN_DATA and PLANWRIGHT_ROOT on that host; it holds
-no secrets, since compute runs the caller's code in that environment. The
-remote root is --root, else that PLANWRIGHT_ROOT, else the first root the
-remote's installed-plugin record names (its resolve-installed-roots.sh
---current, which needs jq there). compute needs no root, only the clone,
-git and perl; it unsets PLANWRIGHT_ROOT so the shipped commit tests itself.
+place for PATH and CLAUDE_PLUGIN_DATA on that host; it holds no secrets,
+since compute runs the caller's code in that environment. The remote root is
+--root, else the first root the remote's installed-plugin record names (its
+resolve-installed-roots.sh --current, which needs jq there). compute needs no
+root, only the clone, git and perl; it unsets PLANWRIGHT_ROOT so the shipped
+commit tests itself.
 
 Exit codes: 2 usage error or a refused argument; 3 the remote is not set up
 (no planwright root, an env file that fails, or for compute no clone or no
@@ -338,7 +338,6 @@ exit($st & 127 ? 128 + ($st & 127) : $st >> 8);'
   echo "fleet-remote: exit $rc after $(( $(date +%s) - start ))s" >&2
   exit "$rc"
 fi
-[ -n "$root" ] || root=${PLANWRIGHT_ROOT:-}
 if [ -z "$root" ]; then
   for r in "$HOME"/.claude/plugins/cache/*/planwright/*/scripts/resolve-installed-roots.sh; do
     [ -f "$r" ] || continue
@@ -347,7 +346,7 @@ if [ -z "$root" ]; then
   done
 fi
 if [ -z "$root" ] || [ ! -d "$root/scripts" ]; then
-  echo "fleet-remote: no planwright root on this host: install planwright, or set PLANWRIGHT_ROOT in ~/.config/planwright/remote-env.sh" >&2
+  echo "fleet-remote: no planwright root on this host: install planwright there (its record needs jq), or pass --root" >&2
   exit 3
 fi
 sj="$root/scripts/fleet-streamjson.sh"

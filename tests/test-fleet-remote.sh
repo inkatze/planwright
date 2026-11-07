@@ -79,8 +79,14 @@ run() {
   ERR=$(cat "$tmp/err")
 }
 
+# set_env_root <root>: a remote whose installed-plugin record names <root>,
+# with an empty env file.
 set_env_root() {
-  printf 'PLANWRIGHT_ROOT=%s\n' "$1" >"$rhome/.config/planwright/remote-env.sh"
+  mkdir -p "$rhome/.claude/plugins/cache/planwright/planwright/9.9.9/scripts"
+  # shellcheck disable=SC2016 # the $1 belongs to the fake resolver
+  printf '#!/bin/sh\n[ "$1" = --current ] && echo %s\n' "$1" \
+    >"$rhome/.claude/plugins/cache/planwright/planwright/9.9.9/scripts/resolve-installed-roots.sh"
+  : >"$rhome/.config/planwright/remote-env.sh"
 }
 
 # --- usage and refusals, none of which reaches ssh -----------------------------
@@ -112,7 +118,7 @@ assert_eq "no refusal reached ssh" "" "$(cat "$FAKE_SSH_LOG")"
 # --- root resolution -----------------------------------------------------------
 set_env_root "$rroot"
 run --host mac root
-assert_eq "root comes from the remote env file" "$rroot" "$OUT"
+assert_eq "root comes from the remote's installed-plugin record" "$rroot" "$OUT"
 if grep -q -- '-o BatchMode=yes .*-o ForwardAgent=no .*-o ClearAllForwardings=yes mac ' "$FAKE_SSH_LOG"; then
   ok "ssh runs in batch mode with forwarding off"
 else
@@ -122,15 +128,16 @@ run --host mac pending w.1 'x@y:z=1'
 assert_eq "worker names in the supervisor's grammar are reachable" "$(printf 'fleet-streamjson\n[pending]\n[w.1]\n[x@y:z=1]')" "$OUT"
 mkdir -p "$tmp/other/scripts"
 run --host mac --root "$tmp/other" root
-assert_eq "--root wins over the env file" "$tmp/other" "$OUT"
+assert_eq "--root wins over the installed-plugin record" "$tmp/other" "$OUT"
 
-rm -f "$rhome/.config/planwright/remote-env.sh"
-cache="$rhome/.claude/plugins/cache/planwright/planwright/9.9.9/scripts"
-mkdir -p "$cache"
-# shellcheck disable=SC2016 # the $1 belongs to the fake resolver
-printf '#!/bin/sh\n[ "$1" = --current ] && echo %s\n' "$rroot" >"$cache/resolve-installed-roots.sh"
+printf 'PLANWRIGHT_ROOT=%s\n' "$tmp/other" >"$rhome/.config/planwright/remote-env.sh"
 run --host mac root
-assert_eq "root falls back to the remote's installed-plugin record" "$rroot" "$OUT"
+assert_eq "an env file's PLANWRIGHT_ROOT does not pick the root" "$rroot" "$OUT"
+
+mkdir -p "$rhome/.claude/plugins/cache/planwright/planwright/0.0.1/scripts"
+printf '#!/bin/sh\nexit 0\n' >"$rhome/.claude/plugins/cache/planwright/planwright/0.0.1/scripts/resolve-installed-roots.sh"
+run --host mac root
+assert_eq "root resolution moves past a resolver that prints nothing" "$rroot" "$OUT"
 rm -rf "$rhome/.claude"
 run --host mac root
 assert_eq "no remote root exits 3" 3 "$CODE"
@@ -299,7 +306,7 @@ if [ -e "$tmp/ext-ran" ]; then fail "compute let the worktree's config pick a co
 git -C "$lrepo" config --unset protocol.ext.allow
 git -C "$lrepo" config --remove-section "url.ext::touch $tmp/ext-ran "
 
-printf 'PLANWRIGHT_ROOT=%s\nref=bogus\nrun=/nonexistent\ncleanup() { :; }\n' "$rroot" >"$rhome/.config/planwright/remote-env.sh"
+printf 'ref=bogus\nrun=/nonexistent\ncleanup() { :; }\n' >"$rhome/.config/planwright/remote-env.sh"
 run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
 assert_eq "an env file reusing common names still runs compute" 0 "$CODE"
 assert_eq "an env file reusing common names cannot stop the ref cleanup" "" "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute)"
