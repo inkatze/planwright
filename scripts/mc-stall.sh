@@ -60,7 +60,8 @@ The states, first match wins:
                          or unresponsive tmux server, a window id now naming
                          another window); the reason says whether the pane
                          is absent, on its first sample, changing or stable
-  open-selector          a dialog or select menu is open in the pane
+  open-selector          a dialog or select menu is open in the pane; the
+                         reason names a permission prompt as one
   unsubmitted-prompt     the input box holds a staged paste
   turn-ended-background  the main turn ended with background agents running
   idle-question          the session is idle and its last line above the
@@ -361,6 +362,8 @@ classify_one() {
     fi
   elif [ "$c_have_pane" = 0 ]; then
     c_state=live c_reason="$L_REASON, no pane"
+  elif permission_prompt_present "$c_pane"; then
+    c_state=open-selector c_reason='waiting on a permission prompt'
   elif selection_prompt_present "$c_pane"; then
     c_state=open-selector c_reason='dialog signature in the pane'
   elif staged_paste_present "$c_pane"; then

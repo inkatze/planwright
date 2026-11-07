@@ -12,7 +12,15 @@ export const ACTIVE_DIR = '/fleet/mission-control/_panel/active'
 const tab = (...f: (string | number)[]) => f.join('\t')
 
 export function digestText(
-  o: { pending?: number; extra?: string[]; refresh?: number; tick?: number; reviewsTtl?: number } = {},
+  o: {
+    pending?: number
+    extra?: string[]
+    refresh?: number
+    tick?: number
+    reviewsTtl?: number
+    holder?: 'registry' | 'attended' | '-'
+    finished?: number
+  } = {},
 ): string {
   return [
     tab('format', 1),
@@ -24,8 +32,9 @@ export function digestText(
     tab('knob', 'handover-context', 70),
     tab('knob', 'handover-wakes', 3),
     tab('knob', 'handover-compactions', 2),
-    tab('flight', 'w-one', 'mission-control:alpha', 'stream-json'),
-    tab('flight', 'w-two', 'flight:docs', 'tmux'),
+    tab('flight', 'w-one', 'alpha:task-3', 'stream-json', 'working'),
+    tab('flight', 'w-two', 'flight:docs', 'tmux', 'working'),
+    tab('finished', o.finished ?? 0),
     tab('waiting', 2),
     tab('pending', o.pending ?? 0),
     tab('decision', '2026-10-26T10:15:00Z', 'relaunch w-one', 'relaunch'),
@@ -33,6 +42,7 @@ export function digestText(
     tab('headroom', 'sessions', 2, 4, 50),
     tab('headroom', 'polls_per_hour', 72, 100, 72),
     tab('watcher', 'inbox', 'inbox-watch.sh', 'stopped', -40),
+    tab('watcher', 'inbox', 'inbox-sweep.sh', 'stopped', -40),
     tab('source', 'work-items', 'specs', 'record', '-'),
     tab('source', 'code-state', 'forge', 'snapshot', 90),
     tab('source', 'designs', '-', 'cited', '-'),
@@ -40,6 +50,7 @@ export function digestText(
     tab('measure', 'interruptions_per_hour', '2.5', 130),
     tab('measure', 'settled_share', '80', 130),
     tab('handover', 'absent'),
+    tab('holder', o.holder ?? 'attended'),
     ...(o.extra ?? []),
     tab('line', 'mission control alpha: 2 in flight, 2 waiting, 0 pending, rung throttle'),
   ].join('\n')
@@ -107,6 +118,8 @@ export type World = {
   statuses: (string | undefined)[]
   toasts: string[]
   opened: number
+  closed: number
+  commands: { name: string; description: string }[]
   envWrites: [string, string | undefined][]
   set: (o: Partial<Fixture>) => void
 }
@@ -129,6 +142,7 @@ export type Fixture = {
   // Lines a stale copy's scripts print on stderr ahead of their own.
   stderrLead: string
   isPlaced: boolean
+  isPaneOpen: boolean
   isDropped: boolean
   isEnvDenied: boolean
   isCommandRefused: boolean
@@ -162,6 +176,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     installExit: 0,
     stderrLead: '',
     isPlaced: true,
+    isPaneOpen: false,
     isDropped: false,
     isEnvDenied: false,
     isCommandRefused: false,
@@ -182,6 +197,8 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     statuses: [],
     toasts: [],
     opened: 0,
+    closed: 0,
+    commands: [],
     envWrites: [],
     set: o => Object.assign(fx, o),
   }
@@ -205,14 +222,28 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     value: e.path.startsWith(`${ACTIVE_DIR}/`) && e.path.slice(ACTIVE_DIR.length + 1) in fx.records,
   }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
-  on('command.register', () => {
+  on('command.register', (_, e) => {
     if (fx.isCommandRefused) throw new Error('refused')
+    w.commands.push({ name: e.name, description: e.description })
     return { value: { command: 'mc-panel' } }
   })
   on('ui.open', () => {
     w.opened += 1
+    fx.isPaneOpen = true
     return { value: fx.isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'no-surface' } }
   })
+  on('ui.close', (_, e) => {
+    if (fx.isPaneOpen && e.id === 'mission-control') {
+      w.closed += 1
+      fx.isPaneOpen = false
+    }
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({
+    value: fx.isPaneOpen
+      ? [{ id: 'mission-control', title: 'Mission control', isShown: true, isFocused: false, isPlaced: fx.isPlaced }]
+      : [],
+  }))
   on('ui.status', (_, e) => {
     w.statuses.push(e.text)
     return { value: undefined }

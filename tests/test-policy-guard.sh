@@ -427,6 +427,81 @@ for cmd in 'git merge origin/main' 'git pull' 'git pull origin main' 'git -C . m
   reads none "[tower] $cmd reads no knob"
 done
 
+echo "# the primary checkout's fast-forward"
+# The raw git spellings keep every refusal at both tiers; an ff-only one names
+# the sanctioned verb, so a launched session can keep the primary current
+# without the operator. The verb itself performs no reserved act here.
+FF_VERB='main-currency\.sh ff-primary'
+for cmd in "git -C $MAIN merge --ff-only origin/main" "git -C $MAIN pull --ff-only origin main" \
+  'git merge --ff-only origin/main' 'git pull --ff-only origin main'; do
+  pg tower "$cmd" "$MAIN"
+  expect deny "[tower] the raw fast-forward still denies: $cmd"
+  reads none "[tower] the raw fast-forward reads no knob: $cmd"
+  reason_has "$FF_VERB" "[tower] the fast-forward refusal names the sanctioned verb: $cmd"
+done
+for cmd in "git -C $MAIN merge --ff-only origin/main" "git -C $MAIN pull --ff-only origin main"; do
+  pg worker "$cmd"
+  expect deny "[worker] a fast-forward of the primary's main from a unit worktree still denies: $cmd"
+  reason_has "$FF_VERB" "[worker] that refusal names the sanctioned verb: $cmd"
+done
+pg worker 'git merge --ff-only origin/main' "$MAIN" "$MAIN"
+expect deny "[worker] a fast-forward run in the primary itself still denies"
+reason_has "$FF_VERB" "[worker] that refusal names the sanctioned verb"
+for spec in "tower|git -C $MAIN merge origin/main" "tower|git -C $MAIN merge --no-ff origin/main" \
+  "worker|git -C $MAIN merge origin/main" "tower|git -C $MAIN pull origin main"; do
+  pg "${spec%%|*}" "${spec#*|}"
+  expect deny "[${spec%%|*}] a merge that is not fast-forward-only still denies: ${spec#*|}"
+  case $REASON in
+    *main-currency.sh*) fail "[${spec%%|*}] a real merge's refusal points at the fast-forward verb: ${spec#*|}" ;;
+    *) pass "[${spec%%|*}] a real merge's refusal does not point at the fast-forward verb: ${spec#*|}" ;;
+  esac
+done
+for cmd in 'git merge --ff-only upstream/main' 'git merge --ff-only origin/develop' \
+  'git pull --ff-only upstream main' 'git pull --ff-only origin develop'; do
+  pg tower "$cmd"
+  expect deny "[tower] another remote or branch still denies: $cmd"
+  pg worker "$cmd"
+  expect deny "[worker] another remote or branch still denies on the unit branch: $cmd"
+  case $REASON in
+    *main-currency.sh*) fail "[worker] a source refusal on the unit branch points at the primary's fast-forward verb: $cmd" ;;
+    *) pass "[worker] a source refusal on the unit branch does not point at the primary's fast-forward verb: $cmd" ;;
+  esac
+done
+for spec in "1|--ff-" "1|--ff-o" "1|--no-ff --ff-only" "0|--ff" "0|--ff-only --no-ff" "0|--ff-only --no-f" "0|--ff-only --ff"; do
+  pg tower "git -C $MAIN merge ${spec#*|} origin/main"
+  expect deny "[tower] a merge with ${spec#*|} still denies"
+  case ${spec%%|*}:$REASON in
+    1:*main-currency.sh*) pass "[tower] ${spec#*|} leaves git fast-forward-only, and the refusal names the verb" ;;
+    0:*main-currency.sh*) fail "[tower] ${spec#*|} lets git merge for real, yet the refusal names the fast-forward verb" ;;
+    1:*) fail "[tower] ${spec#*|} leaves git fast-forward-only, yet the refusal does not name the verb" ;;
+    *) pass "[tower] ${spec#*|} lets git merge for real, and the refusal does not name the verb" ;;
+  esac
+done
+pg worker 'git merge --ff-only origin/main'
+expect defer "[worker] allow: a fast-forward-only merge of the base into the unit branch defers"
+pg worker 'git merge --ff-only origin/planwright/demo/task-2'
+expect deny "[worker] allow: a fast-forward-only merge of another source denies"
+case $REASON in
+  *main-currency.sh*) fail "[worker] a source refusal points at the primary's fast-forward verb" ;;
+  *) pass "[worker] a source refusal does not point at the primary's fast-forward verb" ;;
+esac
+set_knobs 'worker_base_merge: deny'
+pg worker 'git merge --ff-only origin/main'
+expect deny "[worker] deny: a fast-forward-only base merge denies"
+case $REASON in
+  *main-currency.sh*) fail "[worker] the worker_base_merge refusal points at the primary's fast-forward verb" ;;
+  *) pass "[worker] the worker_base_merge refusal does not point at the primary's fast-forward verb" ;;
+esac
+set_knobs 'worker_base_merge: allow'
+for tier in tower worker; do
+  for cmd in "$REPO_ROOT/scripts/main-currency.sh ff-primary" "$REPO_ROOT/scripts/main-currency.sh ff-primary --checkout $MAIN" \
+    "/bin/sh $REPO_ROOT/scripts/main-currency.sh ff-primary --checkout $SANDBOX/dotfiles"; do
+    pg "$tier" "$cmd"
+    expect defer "[$tier] the sanctioned fast-forward verb defers: $cmd"
+    reads none "[$tier] the sanctioned fast-forward verb reads no knob: $cmd"
+  done
+done
+
 echo "# a flight branch named before flight ids is still the session's unit branch"
 OLDF="$SANDBOX/oldflight"
 gitq -C "$SEED" switch -c planwright/flight/mc-panel-usability main
@@ -871,6 +946,79 @@ for d in "$BWT" "$SANDBOX"; do
   reads none "[worker] the unresolvable primary checkout denies before any read: $d"
 done
 reason_has 'primary checkout' "the unresolvable-primary deny says why"
+
+# --- the kickoff sign-off push (kickoff-spec-push.sh) ------------------------
+
+echo "# the kickoff sign-off push"
+KICKOFF_PUSH='"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo'
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect defer "[worker, kickoff-demo] the kickoff push on its spec branch defers to the script"
+reads none "[worker, kickoff-demo] the kickoff push reads no knob"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "bash \"\$CLAUDE_PLUGIN_ROOT/scripts/kickoff-spec-push.sh\" demo" "$SPEC" "$SPEC"
+expect defer "[worker, kickoff-demo] the shell-run kickoff push defers"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$UNIT" "$UNIT"
+expect deny "[worker, kickoff-demo] the kickoff push on another branch denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh other' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push naming another spec denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo --force' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push with an extra argument denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh main' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push naming main denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH && git push origin main" "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a chained push to main beside the kickoff push denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'git push origin planwright/demo/spec' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a raw push to the spec branch still denies"
+reason_has 'protected branch' "[worker, kickoff-demo] the raw spec-branch deny keeps today's text"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'git push -u origin planwright/demo/spec' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a raw first push of the spec branch still denies"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect deny "[worker, task-1] a non-kickoff worker's kickoff-push denies"
+reason_has 'protected branch' "[worker, task-1] the refusal keeps today's text"
+PLANWRIGHT_WORKER_SCOPE='' pg worker "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect deny "[worker, no scope] a worker with no scope denies the kickoff push"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg tower "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect deny "[tower, kickoff-demo] the tower never runs the kickoff push"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg mission-control "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect deny "[mission-control, kickoff-demo] mission control never runs the kickoff push"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg '' "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect defer "[no tier, kickoff-demo] outside jurisdiction, so the guard defers"
+for cmd in '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh' \
+  'sh "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh' \
+  'bash -c '"'"'"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo'"'"'' \
+  'sh -s demo < "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh' \
+  'env "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' \
+  '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo; "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh other' \
+  'X=kickoff-spec-push.sh; "$CLAUDE_PLUGIN_ROOT"/scripts/$X demo' \
+  'echo "kickoff-spec-push" demo'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$cmd" "$SPEC" "$SPEC"
+  expect deny "[worker, kickoff-demo] an unreadable kickoff spelling denies: $cmd"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo && git status' "$SPEC" "$SPEC"
+expect defer "[worker, kickoff-demo] a kickoff push chained with a read defers"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'PLANWRIGHT_WORKER_SCOPE=kickoff-demo "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect deny "[worker, task-1] an inline scope assignment does not admit the kickoff push"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'sh /opt/planwright/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect deny "[worker, task-1] a literal-path kickoff push without a git word still denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'sh "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect defer "[worker, kickoff-demo] a shell-run kickoff push through the plugin root defers to the script"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'sh /opt/planwright/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a literal absolute path to the script is refused (a checkout copy could be named the same)"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'GIT_DIR=/other/repo/.git "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push with a GIT_ variable set denies"
+reason_has 'GIT_' "[worker, kickoff-demo] the GIT_ refusal says why"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'export GIT_INDEX_FILE=/x; "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push after an exported GIT_ variable denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh flight' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push naming the flight namespace denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "\"\$CLAUDE_PLUGIN_ROOT\"/scripts/kickoff-spec-push.sh $(printf 'a%.0s' $(seq 1 65))" "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push naming a spec over 64 characters denies"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh kickoff-spec-push' "$SPEC" "$SPEC"
+expect deny "[worker, task-1] a spec named like the script is not a kickoff push, and its refusal keeps today's text"
+reason_has 'protected branch' "[worker, task-1] the spec-named-like-the-script refusal is the protected-branch text, not a spelling refusal"
+for cmd in './kickoff-spec-push.sh demo' '/tmp/evil/kickoff-spec-push.sh demo' 'bash ./kickoff-spec-push.sh demo'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$cmd" "$SPEC" "$SPEC"
+  expect deny "[worker, kickoff-demo] a same-named file outside scripts/ is not the kickoff script: $cmd"
+done
 
 no_gh_calls
 finish

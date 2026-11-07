@@ -1555,7 +1555,42 @@ c34() {
   esac
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33 c34; do
+# ---------------------------------------------------------------------------
+# c35 — a launch tmux refuses is undone with the scratch root it made: the
+# root and its record are both gone.
+# ---------------------------------------------------------------------------
+c35() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c35.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  mkdir -m 700 "$tmp/base"
+  _base=$(cd -P "$tmp/base" && pwd -P)
+  mkdir -p "$tmp/bin"
+  printf '#!/bin/sh\nexit 0\n' >"$tmp/bin/claude"
+  cat >"$tmp/bin/tmux" <<EOF
+#!/bin/sh
+case "\$*" in
+  *new-session*) echo >>"$tmp/ns.log"; echo refused >&2 ;;
+esac
+exit 1
+EOF
+  chmod +x "$tmp/bin/claude" "$tmp/bin/tmux"
+  _err=$(PATH="$tmp/bin:$PATH" PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/base" "$PRIM" dispatch --flight demo-0123abcd \
+    --launch-only --repo-root "$tmp/primary" </dev/null 2>&1 >/dev/null)
+  RC=$?
+  [ -s "$tmp/ns.log" ] || fail "c35: fixture: the refused new-session was never reached ($RC): $_err"
+  [ "$RC" -ne 0 ] || fail "c35: a launch tmux refused must fail"
+  _left=$(find "$_base" -mindepth 1 2>/dev/null)
+  [ -z "$_left" ] || fail "c35: the undone launch left its scratch root: $_left"
+  _recs=$(find "$tmp/fleet/scratch" -mindepth 1 2>/dev/null)
+  [ -z "$_recs" ] || fail "c35: the undone launch left its scratch record: $_recs"
+  case $_err in
+    *"could not remove the scratch root"*) fail "c35: the undo warned it could not remove the root: $_err" ;;
+  esac
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33 c34 c35; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true

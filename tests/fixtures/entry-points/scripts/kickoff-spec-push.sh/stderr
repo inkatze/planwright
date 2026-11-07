@@ -1,0 +1,1 @@
+match ^kickoff-spec-push: usage: kickoff-spec-push\.sh <spec>$
