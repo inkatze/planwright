@@ -440,6 +440,21 @@ lb2=$(bufname_of load-buffer "$tmp/idle2/log")
 [ "$lb1" != "$lb2" ] || fail "deliver must use a buffer name unique per invocation (both were '$lb1')"
 echo "ok: relay buffer name is unique per invocation and consistent within one"
 
+# 13r. A message shaped like a new unit of work is refused before the pane is
+#      read (exit 5, nothing pasted); --retask pastes it, logged.
+rtab=$(printf '\t')
+unit_msg="$tmp/unit-brief.txt"
+printf '/planwright:execute-task other-spec 4\n' >"$unit_msg"
+PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask "$idle_pane" "@3" "$unit_msg"
+rc_is retask 5 "deliver of a unit-shaped message"
+[ -s "$tmp/retask/log" ] && fail "a refused re-task must not touch tmux, it saw: $(cat "$tmp/retask/log")"
+grep -q 're-tasking a live session is refused' "$tmp/retask/err" || fail "the re-task refusal must say why: $(cat "$tmp/retask/err")"
+PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-ok "$idle_pane" "@3" "$unit_msg" --retask "operator asked"
+rc_is retask-ok 0 "deliver of a unit-shaped message on an override"
+grep -q "relay${rtab}@3${rtab}operator asked\$" "$tmp/relay-fleet/mission-control/retasks.log" \
+  || fail "the relay override must be logged: $(cat "$tmp/relay-fleet/mission-control/retasks.log" 2>&1)"
+echo "ok: deliver refuses a unit-shaped message before reading the pane; --retask pastes it, logged"
+
 # 13c. Refuse, pasting nothing, while a selection prompt is open: a permission
 #      dialog, a select menu's footer, or the cursor on a numbered option.
 perm_pane='  Bash command

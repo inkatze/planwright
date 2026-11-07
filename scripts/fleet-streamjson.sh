@@ -208,7 +208,7 @@
 #       supplies the full response body (AskUserQuestion answers use this):
 #       one JSON object on one line with no raw control byte (TAB and DEL
 #       included, so escape them), 64 KiB at most.
-#   fleet-streamjson.sh steer <worker> --message-file <file>
+#   fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]
 #       Deliver a tower-originated message to a LIVE worker as a user turn on
 #       its own stdin: the file's text, under the fixed attribution header
 #       `[planwright tower relay -> <worker>]`, JSON-encoded into one user
@@ -228,6 +228,11 @@
 #       Like every frame written to the fifo (see frame_check), the composed
 #       frame is checked before the write; a refused one is exit 2 with
 #       nothing written.
+#       A message shaped like a new unit of work (scripts/retask-guard.sh
+#       check: a launch brief, a skill command) is refused, exit 5 with
+#       nothing written: new scope and each new review round go to a fresh
+#       worker. --retask <reason> delivers it anyway, logged as an override
+#       (retask-guard.sh log) with a warning on stderr.
 #   fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]
 #       Single-initiator crash recovery: refuse when a recovery is already
 #       in flight (exit 3) or the worker/supervisor is still alive (exit 3),
@@ -465,7 +470,7 @@ usage() {
   {
     echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
-    echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
+    echo "       fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh relaunch <worker> [--grace <secs>]"
     echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>] [--once]"
@@ -2604,11 +2609,18 @@ cmd_steer() {
     exit 2
   }
   st_file=''
+  st_retask=''
   while [ $# -gt 0 ]; do
     case $1 in
       --message-file)
         [ $# -ge 2 ] || usage
         st_file=$2
+        shift 2
+        ;;
+      --retask)
+        [ $# -ge 2 ] || usage
+        case $2 in *[![:space:]]*) ;; *) usage ;; esac
+        st_retask=$2
         shift 2
         ;;
       *) usage ;;
@@ -2635,6 +2647,22 @@ cmd_steer() {
     printf '%s\n' "$me: unknown worker $worker" >&2
     exit 2
   }
+  st_shape=$(/bin/sh "$script_dir/retask-guard.sh" check "$st_file")
+  case $? in
+    0) ;;
+    5)
+      st_shape=${st_shape#retask"$TAB"}
+      if [ -z "$st_retask" ]; then
+        printf '%s\n' "$me: steer refused, nothing written to worker $worker: $(/bin/sh "$script_dir/retask-guard.sh" _refusal "$st_shape" "pass --retask <reason>, which is logged.")" >&2
+        exit 5
+      fi
+      /bin/sh "$script_dir/retask-guard.sh" log --via steer --to "$worker" --reason "$st_retask" || exit 2
+      ;;
+    *)
+      printf '%s\n' "$me: steer refused, nothing written to worker $worker: the re-task check did not run" >&2
+      exit 2
+      ;;
+  esac
   # The receipt row carries the path as given; a tab or newline in it would
   # split the row, so such a path is refused rather than recorded mangled.
   case $st_file in

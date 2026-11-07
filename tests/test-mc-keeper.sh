@@ -260,6 +260,155 @@ fi
 [ -L "$fleet/streamjson/mc-alpha-worker-inflight/recover.lock" ] || fail "the in-flight election must be left alone"
 rm -rf "$fleet/streamjson/mc-alpha-worker-inflight"
 
+# ---------------------------------------------------------------------------
+# Short-lived workers: a session idle past mission_control_worker_idle is
+# retired, one past mission_control_worker_lifetime hands over; a tower, a
+# busy young session and one parked on its own question are left alone.
+# ---------------------------------------------------------------------------
+sleep 600 >/dev/null 2>&1 &
+bound_pid=$!
+mkdir -p "$tmp/tmux"
+cat >"$tmp/bin/tmux" <<'STUB'
+#!/bin/sh
+verb=$1
+shift
+w='' fmt=''
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    -t) w=$2; shift 2 ;;
+    -F | -p | -a) shift ;;
+    *) fmt=$1; shift ;;
+  esac
+done
+n=${w#@}
+case $verb in
+  ls) exit 0 ;;
+  list-windows)
+    for f in "$TMUX_STUB"/*.name; do
+      [ -f "$f" ] || continue
+      id=${f##*/}
+      printf '@%s\t%s\n' "${id%.name}" "$(cat "$f")"
+    done
+    ;;
+  display-message)
+    [ -f "$TMUX_STUB/$n.name" ] || { echo "can't find window: $w" >&2; exit 1; }
+    case $fmt in
+      *window_name*) printf '%s\t%s\n' "$(cat "$TMUX_STUB/$n.name")" "$(cat "$TMUX_STUB/$n.pid")" ;;
+      *) cat "$TMUX_STUB/$n.pid" ;;
+    esac
+    ;;
+  capture-pane)
+    [ -f "$TMUX_STUB/$n.name" ] || exit 1
+    cat "$TMUX_STUB/$n.pane"
+    ;;
+  kill-window) rm -f "$TMUX_STUB/$n.name" ;;
+  *) exit 1 ;;
+esac
+STUB
+chmod +x "$tmp/bin/tmux"
+cat >"$tmp/idle.pane" <<'EOF'
+⏺ The pull request is open.
+
+────────────────────────────────────────
+❯
+────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+EOF
+cat >"$tmp/question.pane" <<'EOF'
+⏺ Two readings of the Done-when fit the code.
+  Should I take the narrower one?
+
+────────────────────────────────────────
+❯
+────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+EOF
+cat >"$tmp/busy.pane" <<'EOF'
+⏺ Running the gate.
+
+✻ Herding… (12s · esc to interrupt)
+
+────────────────────────────────────────
+❯
+────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+EOF
+sessions="$fleet/mission-control/sessions"
+mkdir -p "$sessions"
+# bound_row <name> <kind> <window n> <launched> <pane>: a launched tmux
+# session, its window live in the stub.
+bound_row() {
+  printf 'format\t1\nname\t%s\nstate\tlaunched\ntoken\tt\npid\t1\nprogram\talpha\nowner\tmission-control:alpha\nkind\t%s\nscope\ts-%s\nbackend\ttmux\nhandle\t@%s\nprofile\tworker\ntier\t-\nbrief\t-\ncwd\t-\ntask\t-\nprimary\t-\nmarker\t-\nlaunched\t%s\n' \
+    "$1" "$2" "$3" "$3" "$4" >"$sessions/$1"
+  printf '%s\n' "$1" >"$tmp/tmux/$3.name"
+  printf '%s\n' "$bound_pid" >"$tmp/tmux/$3.pid"
+  cp "$5" "$tmp/tmux/$3.pane"
+}
+t1=20000
+t2=$((t1 + 1900))
+bound_row mc-alpha-worker-idle worker 21 "$t1" "$tmp/idle.pane"
+bound_row mc-alpha-reviewer-old reviewer 22 0 "$tmp/busy.pane"
+bound_row mc-alpha-worker-young worker 23 "$t1" "$tmp/busy.pane"
+bound_row mc-alpha-worker-asks worker 24 "$t1" "$tmp/question.pane"
+bound_row mc-alpha-tower-old tower 25 0 "$tmp/idle.pane"
+bound_env() { mc_env env PATH="$tmp/bin:$PATH" TMUX_STUB="$tmp/tmux" "$@"; }
+(bound_env /bin/bash "$repo_root/scripts/mc-stall.sh" scan --program alpha --now "$t1" >/dev/null 2>&1)
+OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now "$t2" 2>"$tmp/stderr")
+RC=$?
+expect_rc "bounds reads every session" 0
+expect_out "idle past the idle bound retires" "retire${tab}mc-alpha-worker-idle${tab}idle 1900s, bound 1800s"
+expect_out "lived past the lifetime hands over" "handover${tab}mc-alpha-reviewer-old${tab}lived ${t2}s, bound 14400s"
+expect_no_out "a busy young session is left alone" "mc-alpha-worker-young"
+expect_no_out "a session parked on its own question is never retired" "mc-alpha-worker-asks"
+expect_no_out "a tower is not bound" "mc-alpha-tower-old"
+OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now $((t1 + 60)) 2>/dev/null)
+expect_no_out "an idle session inside the bound stays" "mc-alpha-worker-idle"
+
+# The bounds are knobs.
+cp "$tracked" "$tmp/tracked.keep"
+printf 'mission_control_worker_idle: 1m\nmission_control_worker_lifetime: 30m\n' >>"$tracked"
+OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now $((t1 + 1801)) 2>/dev/null)
+expect_out "a shorter idle knob retires sooner" "retire${tab}mc-alpha-worker-idle${tab}idle 1801s, bound 60s"
+expect_out "a shorter lifetime knob hands over sooner" "handover${tab}mc-alpha-worker-young${tab}lived 1801s, bound 1800s"
+cp "$tmp/tracked.keep" "$tracked"
+
+# watch acts: the idle session is retired through the launcher, its window
+# closed and row gone; the old one's handover is announced once per launch.
+OUT=$(cd "$repo" && bound_env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now "$t2" 2>"$tmp/stderr")
+expect_out "the idle retire is announced" "announced${tab}worker-retired-idle${tab}mc-alpha-worker-idle"
+if [ ! -e "$sessions/mc-alpha-worker-idle" ] && [ ! -e "$tmp/tmux/21.name" ]; then
+  ok "the idle session is retired: its window closed and its row released"
+else
+  fail "the idle session was not retired: $(ls "$sessions") $(cat "$tmp/stderr")"
+fi
+expect_out "the lifetime handover is announced" "announced${tab}worker-handover-due${tab}mc-alpha-reviewer-old"
+if [ -e "$sessions/mc-alpha-reviewer-old" ]; then ok "a handover leaves the session running"; else fail "the old session was retired"; fi
+mc_run mc-event.sh list --program alpha
+expect_out "the retire lands in the event store" "worker-retired-idle${tab}mc-alpha-worker-idle${tab}mc-alpha-worker-idle retired: idle 1900s, bound 1800s"
+expect_out "the handover names the successor launch where no handover path is installed" "worker-handover-due${tab}mc-alpha-reviewer-old${tab}mc-alpha-reviewer-old is past its lifetime (lived ${t2}s, bound 14400s); launch its successor"
+OUT=$(cd "$repo" && bound_env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now $((t2 + 60)) 2>/dev/null)
+expect_no_out "the handover is raised once per launch" "worker-handover-due${tab}mc-alpha-reviewer-old"
+
+# Where scripts/session-handover.sh is installed, the handover is requested
+# through it, so the session hands over at its own next safe point.
+cp -R "$repo_root/scripts" "$tmp/scripts-ho"
+cat >"$tmp/scripts-ho/session-handover.sh" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" >>"$tmp/handover-requests"
+printf 'requested\t%s\n' "\$3"
+EOF
+rm -f "$fleet/mission-control/alpha/keeper-bounds"
+OUT=$(cd "$repo" && bound_env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$tmp/scripts-ho/mc-keeper.sh" watch --now $((t2 + 120)) 2>/dev/null)
+expect_out "an installed handover path is announced" "announced${tab}worker-handover-due${tab}mc-alpha-reviewer-old"
+if grep -q "^request --session mc-alpha-reviewer-old --reason lived " "$tmp/handover-requests" 2>/dev/null; then
+  ok "the lifetime bound requests the session's own handover"
+else
+  fail "no handover request: $(cat "$tmp/handover-requests" 2>&1)"
+fi
+kill "$bound_pid" 2>/dev/null
+rm -rf "$tmp/scripts-ho"
+for s in mc-alpha-reviewer-old mc-alpha-worker-young mc-alpha-worker-asks mc-alpha-tower-old; do rm -f "$sessions/$s"; done
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-keeper: $failures failure(s)" >&2
   exit 1

@@ -185,6 +185,30 @@ kill -0 "$pid_before" 2>/dev/null || fail "s1: the worker died after being steer
 echo "ok: s1 steer delivers an attributed, verbatim, unevaluated user turn to a live worker that keeps running (REQ-G1.1, REQ-G1.9)"
 
 # ---------------------------------------------------------------------------
+# s1r: a steer shaped like a new unit of work (a launch brief, a skill command)
+#     is refused with nothing written; --retask delivers it, logged.
+# ---------------------------------------------------------------------------
+printf '/planwright:execute-task other-spec 4\n' >"$tmp/steer-skill"
+printf 'Next up:\n<!-- mission-control launch: mc-p-worker-1 (kind worker, scope s, program p) -->\n' >"$tmp/steer-brief"
+for sr_f in "$tmp/steer-skill" "$tmp/steer-brief"; do
+  out=$(senv "$home" "$rec" -- steer sjs1 --message-file "$sr_f" 2>&1)
+  sr_rc=$?
+  [ "$sr_rc" = 5 ] || fail "s1r: a unit-shaped steer must be refused with exit 5, got $sr_rc: $out"
+  case $out in *"re-tasking a live session is refused"*"--retask <reason>"*) : ;; *) fail "s1r: the refusal must name the fresh launch and the override: $out" ;; esac
+done
+[ "$(lines_of "$rec/stdin")" = 3 ] || fail "s1r: a refused steer reached the worker's stdin"
+[ "$(lines_of "$wdir/steers")" = 2 ] || fail "s1r: a refused steer left a receipt row"
+[ ! -e "$home/mission-control/retasks.log" ] || fail "s1r: a refusal must not log an override"
+out=$(senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer-skill" --retask "operator asked for this one" 2>"$tmp/s1r.err") \
+  || fail "s1r: the override steer exited non-zero: $out $(cat "$tmp/s1r.err")"
+poll_until --what 'the stdin line count' -- lines_cmp "$rec/stdin" -ge 4 \
+  || fail "s1r: the override steer never reached the worker"
+grep -q 'WARNING: re-tasking live session sjs1 through steer' "$tmp/s1r.err" || fail "s1r: the override must warn loudly: $(cat "$tmp/s1r.err")"
+grep -q "^[0-9]*${tab}steer${tab}sjs1${tab}operator asked for this one\$" "$home/mission-control/retasks.log" \
+  || fail "s1r: the override must be logged: $(cat "$home/mission-control/retasks.log" 2>&1)"
+echo "ok: s1r a unit-shaped steer is refused with nothing written; --retask delivers it, warned and logged"
+
+# ---------------------------------------------------------------------------
 # s2 (REQ-G1.2): the frame check, fixture by fixture.
 # ---------------------------------------------------------------------------
 fc() {

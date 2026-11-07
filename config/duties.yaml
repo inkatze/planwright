@@ -48,7 +48,8 @@ duties:
     triggers: [stall-dead, stall-open-selector, stall-unsubmitted-prompt,
                stall-turn-ended-background, stall-idle-question, stall-busy-unchanged,
                stall-unknown, session-landed, pending-prompt-overdue,
-               stream-json-worker-dead]
+               stream-json-worker-dead, worker-handover-due,
+               worker-retired-idle]
     watchers: [scripts/mc-keeper.sh@2m/low]
     wake: session-landed
     rules: [session-lifecycle]

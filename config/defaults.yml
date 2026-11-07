@@ -1067,6 +1067,13 @@ mission_control_handover_compactions: 2
 # name before it retires the predecessor itself and takes the name. A
 # cadence.
 mission_control_handover_window: 2m
+# The bounds that keep worker, reviewer and ad-hoc sessions short-lived
+# (scripts/mc-keeper.sh bounds): one past the lifetime since its launch is
+# asked to hand over to a fresh successor at its next safe point; one idle
+# at its prompt past the idle bound is retired, its next round of work going
+# to a fresh session with a handover brief. Cadences.
+mission_control_worker_lifetime: 4h
+mission_control_worker_idle: 30m
 # How often each snapshot-mode source is refreshed, source: cadence. A source
 # left out refreshes at the cadence its adapter declares in
 # config/snapshot-adapters.yaml.

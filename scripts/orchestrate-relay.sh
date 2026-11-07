@@ -41,7 +41,7 @@
 #       queue). Exit 2 on an invalid handle, a missing/unsafe message file, an
 #       unknown backend, or usage.
 #
-#   orchestrate-relay.sh deliver tmux <handle> <message-file>
+#   orchestrate-relay.sh deliver tmux <handle> <message-file> [--retask <reason>]
 #       Run the tmux buffer-paste (`load-buffer`/`paste-buffer`) — NEVER a
 #       `send-keys` path (REQ-D1.3: no impersonation of the worker's input) —
 #       refusing first and confirming after, never assuming. The pasted payload
@@ -65,7 +65,11 @@
 #       pasted (dialog open, placeholder or relay staged, pane unreadable,
 #       buffer load failed). Exit 4: the paste ran, or deliver was interrupted
 #       around it, but the tag never showed; observe the pane before any
-#       re-send, which would stage a duplicate. PLANWRIGHT_RELAY_CONFIRM_TRIES
+#       re-send, which would stage a duplicate. Exit 5: refused, nothing
+#       pasted, a message shaped like a new unit of work
+#       (scripts/retask-guard.sh check), which goes to a fresh session;
+#       --retask <reason> pastes it anyway, logged as an override.
+#       PLANWRIGHT_RELAY_CONFIRM_TRIES
 #       (default 5, at most 20) and PLANWRIGHT_RELAY_CONFIRM_SLEEP (seconds,
 #       default 1, at most 3) bound the confirmation wait to under a minute.
 #
@@ -343,6 +347,15 @@ case "$sub" in
     ;;
 
   deliver)
+    retask=''
+    if [ "$#" -eq 5 ] && [ "$4" = --retask ]; then
+      case $5 in *[![:space:]]*) retask=$5 ;; esac
+      [ -n "$retask" ] || {
+        usage
+        exit 2
+      }
+      set -- "$1" "$2" "$3"
+    fi
     [ "$#" -eq 3 ] || {
       usage
       exit 2
@@ -353,6 +366,23 @@ case "$sub" in
     }
     handle=$2
     require_tmux_target "$handle" "$3"
+    # New scope goes to a fresh session, never into a live one's pane.
+    shape=$(/bin/sh "$script_dir/retask-guard.sh" check "$msg_abs")
+    case $? in
+      0) ;;
+      5)
+        shape=${shape#retask"$(printf '\t')"}
+        if [ -z "$retask" ]; then
+          printf '%s\n' "$me: refused, nothing pasted: $(/bin/sh "$script_dir/retask-guard.sh" _refusal "$shape" "append --retask <reason>, which is logged.")" >&2
+          exit 5
+        fi
+        /bin/sh "$script_dir/retask-guard.sh" log --via relay --to "$handle" --reason "$retask" || exit 2
+        ;;
+      *)
+        printf '%s\n' "$me: refused, nothing pasted: the re-task check did not run" >&2
+        exit 2
+        ;;
+    esac
     tries=$(bounded_int "${PLANWRIGHT_RELAY_CONFIRM_TRIES:-}" 5 20)
     [ "$tries" -ge 1 ] || tries=5
     pause=$(bounded_int "${PLANWRIGHT_RELAY_CONFIRM_SLEEP:-}" 1 3)
