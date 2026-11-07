@@ -1314,11 +1314,13 @@ segment_words() {
 # unseen (a `!`, a coproc, an exec, a zsh precommand modifier, a word
 # segment_words skips as an assignment that bash runs as a command, or a
 # reserved word made a plain command name by quoting or by an assignment,
-# command or builtin before it); and set CS_LOST, kept for the rest of the command, at a
-# function definition, whose body may change directory when called, and at a
-# reserved word after a redirect or a zsh modifier, which bash and zsh read
-# differently.
+# command or builtin before it); set CS_NOCD, kept for the rest of the
+# command, at a reserved word after a redirect or a zsh modifier, which bash
+# and zsh read differently, so CS_DEPTH may be wrong from there and no later
+# cd is followed; and set CS_LOST, also kept, at a function definition, whose
+# body may change directory when called.
 CS_DEPTH=0
+CS_NOCD=0
 CS_LOST=0
 compound_shape() {
   local k=${SEG_S[$1]} e=${SEG_E[$1]} prefixed=0 name
@@ -1328,7 +1330,7 @@ compound_shape() {
       '!' | if | then | else | elif | do | while | until | for | select | case | fi | done | 'esac' | \
         time | coproc | function | noglob | nocorrect)
         if [ "$prefixed" = 2 ] || [ "${WR[$k]}" = 1 ]; then
-          CS_LOST=1
+          CS_NOCD=1
           return 0
         fi
         if [ "${WU[$k]}" != 1 ] || [ "$prefixed" = 1 ]; then
@@ -1342,8 +1344,9 @@ compound_shape() {
         continue
         ;;
       exec)
-        # exec runs no builtin: `exec cd X` finds no cd program, and under
-        # execfail the shell carries on in the old directory.
+        # exec never runs the cd builtin: it replaces the shell with a cd
+        # program where one exists, and otherwise, under execfail, the shell
+        # carries on in the old directory.
         CS_NOFOLLOW=1
         return 0
         ;;
@@ -1507,6 +1510,7 @@ classify_segments() {
   local pt cd_seen=0 cd_cond=0 list_plain=1 prev_cd=0
   [ -d "$eff" ] || eff_ok=0
   CS_DEPTH=0
+  CS_NOCD=0
   CS_LOST=0
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
@@ -1550,8 +1554,8 @@ classify_segments() {
       esac
       # zsh runs a command of redirects alone as cat, so text piped into it
       # still reaches a shell further down the pipe.
-      case $pt in
-        '|' | '|&') prev_text="$prev_text$NL$cur_text" ;;
+      case "$pt:$((SEG_E[si] - SEG_S[si]))" in
+        '|:0' | '|&:0') prev_text="$prev_text$NL$cur_text" ;;
         *) prev_text=$cur_text ;;
       esac
       si=$((si + 1))
@@ -1694,13 +1698,18 @@ classify_segments() {
           # A cd that runs and fails is not modeled.
           if [ "$verb" = cd ] && [ "${#SW[@]}" = 2 ] && [ "${SWL[1]}" = 1 ] \
             && { [ "$term" = '&&' ] || [ "$term" = ';' ] || [ "$term" = "$NL" ]; } \
-            && [ "$CS_DEPTH" = 0 ] && [ "$CS_NOFOLLOW" = 0 ] \
+            && [ "$CS_DEPTH" = 0 ] && [ "$CS_NOFOLLOW" = 0 ] && [ "$CS_NOCD" = 0 ] \
             && [ "$pt" != '||' ] && [ "$pt" != '|' ] && [ "$pt" != '|&' ]; then
             cd_seen=1
             prev_cd=1
             [ "$pt" != '&&' ] || [ "$list_plain" = 1 ] || cd_cond=1
+            # An absolute cd sure to run names the directory whatever came
+            # before it.
             case ${SW[1]} in
-              /*) eff=${SW[1]} ;;
+              /*)
+                eff=${SW[1]}
+                eff_ok=1
+                ;;
               -*) eff_ok=0 ;;
               *) eff="$eff/${SW[1]}" ;;
             esac

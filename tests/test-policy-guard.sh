@@ -550,7 +550,7 @@ git push" "$MAIN|x=1 then cd $UNIT; git push" "$MAIN|x=1 coproc cd $UNIT; git pu
   "$MAIN|shopt -s execfail; exec cd $UNIT; git push" \
   "$MAIN|if false; then >/dev/null fi; cd $UNIT; fi; git push" \
   "$MAIN|if false; then noglob fi; cd $UNIT; fi; git push" \
-  "$MAIN|a+b=1 cd $UNIT; git push" "$MAIN|\"x=1\" cd $UNIT; git push" \
+  "$MAIN|a+b=1 cd $UNIT; git push" "$MAIN|\"x=1\" cd $UNIT; git push" "$MAIN|'x'=1 cd $UNIT; git push" \
   "$MAIN|cd $UNIT && true & git push" "$MAIN|coproc cd $UNIT; git push" \
   "$MAIN|! cd $UNIT && git push" "$MAIN|time ! cd $UNIT && git push" \
   "$MAIN|true | cd $UNIT && git push" "$MAIN|true |& cd $UNIT && git push"; do
@@ -565,14 +565,26 @@ git push" "true && cd $UNIT && git push" "true || false && cd $UNIT && git push"
   "git status; cd $UNIT && git commit --amend --no-edit" "cd $UNIT; false || git push" \
   "cd $UNIT && git status || true; git push" "cd ${UNIT%/*} && cd ${UNIT##*/}; git push" \
   "x=\"1\" cd $UNIT; git push" "cd $UNIT; >/dev/null; git push" "2>/dev/null; cd $UNIT && git push" \
+  ">/tmp/x echo hi; cd $UNIT; git push" "exec 2>&1; cd $UNIT; git push" "a+=1 cd $UNIT; git push" \
+  "false && cd /tmp; cd $UNIT && git push" \
   "true || echo x; cd $UNIT; git push" "if true; then echo x; fi; cd $UNIT && git push" \
   "for x in a; do echo x; done; cd $UNIT; git commit --amend --no-edit"; do
   pg worker "$cmd" "$MAIN"
   expect defer "[worker] a cd sure to run is followed: ${cmd//$'\n'/ \\n }"
 done
+# A reserved word after a redirect only stops later cds being followed.
+pg worker '>/dev/null time true; git push'
+expect defer "[worker] a redirect before a reserved word leaves a command with no cd judged as before"
 # zsh runs a command of redirects alone as cat, passing piped text on.
-pg worker "echo 'git push origin main' | >/dev/stdout | bash" "$MAIN"
-expect deny "[worker] text piped through a redirect-only command into a shell is screened"
+for cmd in "echo 'git push origin main' | >/dev/stdout | bash" "echo 'git push origin main' |& >/dev/stdout | bash"; do
+  pg worker "$cmd" "$MAIN"
+  expect deny "[worker] text piped through a redirect-only command into a shell is screened: $cmd"
+  reason_has 'pipes text' "[worker] the pipe screen refuses it: $cmd"
+done
+for cmd in "echo hi | >/dev/stdout | bash" "echo 'git push origin main' | x=1 | bash"; do
+  pg worker "$cmd" "$MAIN"
+  expect defer "[worker] a pipe that carries no reserved act into a shell is not refused: $cmd"
+done
 
 # --- fail-closed reads (REQ-G1.4) --------------------------------------------
 
