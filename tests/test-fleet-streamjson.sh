@@ -260,6 +260,18 @@ plant_lock() {
 # out again while the cases below still read it as gone.
 dead_pid=999999999
 
+# live_pids <worker-dir> — make a worker whose run has ended read as live, with
+# this suite's own shell standing in for its supervisor and worker; unlive_pids
+# takes that back. An ended worker's requests are settled by a scan, never
+# escalated, so a case asserting escalation needs a live worker.
+live_pids() {
+  printf '%s\n' "$$" >"$1/supervisor.pid"
+  printf '%s\n' "$$" >"$1/worker.pid"
+}
+unlive_pids() {
+  rm -f "$1/supervisor.pid" "$1/worker.pid"
+}
+
 # ---------------------------------------------------------------------------
 # c1 (REQ-E1.1, REQ-A1.3): a can_use_tool receipt produces exactly one
 #    journal row and one decision-queue item; the duplicate delivery is
@@ -337,6 +349,7 @@ echo "ok: c1f the supervisor stores the newest rate-limit frame (quota-handling 
 # ---------------------------------------------------------------------------
 received=$(awk -F'\t' -v id="$req_perm" '$1 == id { print $3 }' "$wdir/journal")
 [ -n "$received" ] || fail "c2: cannot read the received epoch"
+live_pids "$wdir"
 out=$(senv "$home" "$rec" -- alarm-scan --now $((received + 100)) --threshold 900) \
   || fail "c2: below-threshold alarm-scan exited non-zero"
 [ -z "$out" ] || fail "c2: alarm fired below the threshold: $out"
@@ -372,6 +385,7 @@ rm -f "$wdir/journal.lock"
 cp "$tmp/j2.orig" "$wdir/journal" || fail "c2: cannot restore the journal"
 senv "$home" "$rec" -- alarm-scan --now $((received + 1000)) --threshold 900 >/dev/null \
   || fail "c2: cannot restore the escalated queue row"
+unlive_pids "$wdir"
 echo "ok: c2 an alarm scan declines to publish while the journal is held (REQ-E1.1)"
 echo "ok: c2 pending-age alarm fires past threshold, escalation only (REQ-E1.1)"
 
@@ -404,10 +418,12 @@ grep -q 'Which way?' "$wdir3/req-$req_q.json" \
 grep -q '"label":"a"' "$wdir3/req-$req_q.json" \
   || fail "c3: the stored envelope must carry the question options (REQ-E1.2)"
 received=$(awk -F'\t' -v id="$req_q" '$1 == id { print $3 }' "$wdir3/journal")
+live_pids "$wdir3"
 out=$(senv "$home" "$rec" -- alarm-scan --now $((received + 1000)) --threshold 900) \
   || fail "c3: alarm-scan exited non-zero"
 printf '%s\n' "$out" | grep -q "^alarm sjw3 $req_q " \
   || fail "c3: the question item should carry the same alarm coupling, got: $out"
+unlive_pids "$wdir3"
 echo "ok: c3 AskUserQuestion maps 1:1 with dedup and the same alarm coupling (REQ-E1.2)"
 
 # ---------------------------------------------------------------------------
@@ -604,10 +620,12 @@ grep -q -- "--resume $sid" "$rec/argv" \
 [ "$(grep -c "^$req_perm$tab" "$wdir7/journal")" = 1 ] \
   || fail "c7: dedup on request identity must hold across the resume boundary"
 received=$(awk -F'\t' -v id="$req_perm" '$1 == id { print $3 }' "$wdir7/journal")
+live_pids "$wdir7"
 out=$(senv "$home" "$rec" -- alarm-scan --now $((received + 1000)) --threshold 900) \
   || fail "c7: post-recovery alarm-scan exited non-zero"
 printf '%s\n' "$out" | grep -q "^alarm sjw7 $req_perm " \
   || fail "c7: the pending item's alarm must re-arm after recovery, got: $out"
+unlive_pids "$wdir7"
 echo "ok: c7 crash window - durable receipt, single initiator, liveness check, --resume, dedup, alarm re-arm (REQ-E1.3, REQ-E1.5)"
 
 # ---------------------------------------------------------------------------
