@@ -87,7 +87,6 @@ fi
 
 # Age: events older than the window go; the newer one stays.
 mc_run mc-event.sh emit --program alpha --now 1001 -- old-kind old-one "old"
-old_id=$OUT
 mc_run mc-event.sh emit --program alpha --now 9000 -- old-kind new-one "new"
 new_id=$OUT
 mc_run mc-event.sh prune --program alpha --older-than 1h --now 10000
@@ -116,6 +115,44 @@ esac
 case $OUT in
   *"$a_id"* | *"$b_id"*) fail "a submitted prune kept a submitted event" ;;
   *) ok "a submitted prune removes its submitted events" ;;
+esac
+
+# A submitted prune keeps an event a target that holds marks has not submitted.
+mc_run mc-event.sh emit --program alpha --now 9200 -- conflict-predicted c-d "d"
+d_id=$OUT
+mc_run mc-event.sh mark --program alpha --target t2 staged "$d_id"
+mc_run mc-event.sh mark --program alpha --target t1 submitted "$d_id"
+mc_run mc-event.sh prune --program alpha --kind conflict-predicted --submitted --target t1
+expect_out "a submitted prune skips an event another target has not submitted" "pruned${tab}0"
+mc_run mc-event.sh list --program alpha
+case $OUT in
+  *"$d_id"*) ok "the event another target has not submitted stays" ;;
+  *) fail "a submitted prune removed an event another target has not submitted" ;;
+esac
+
+# An empty filter value is refused, never read as no filter.
+mc_run mc-event.sh prune --program alpha --kind ""
+expect_rc "an empty kind is refused" 2
+mc_run mc-event.sh prune --program alpha --kind conflict-predicted --older-than ""
+expect_rc "an empty age is refused" 2
+
+# The default bound on a store larger than it.
+rm -rf "$fleet/attention/mission-control/alpha"
+ev="$fleet/attention/mission-control/alpha/events"
+mkdir -p "$ev"
+for i in $(seq 1 501); do
+  printf '2000\tbulk-kind\tbulk-%s\tbulk\n' "$i" >"$ev/e2000.$(printf '%x' "$i")"
+done
+mc_run mc-event.sh list --program alpha
+expect_rc "list over a larger store" 0
+if [ "$(printf '%s\n' "$OUT" | grep -c .)" -eq 500 ]; then
+  ok "the default bound prints 500 of a larger store"
+else
+  fail "the default bound printed $(printf '%s\n' "$OUT" | grep -c .) of 501 events"
+fi
+case $ERR in
+  *"listed the first 500 of 501"*) ok "and says how many it left out" ;;
+  *) fail "the default bound did not say what it left out: $ERR" ;;
 esac
 
 if [ "$failures" -ne 0 ]; then

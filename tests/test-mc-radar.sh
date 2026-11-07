@@ -233,6 +233,7 @@ printf 'm-b\n' >"$tmp/work/other.txt"
 g commit -am multi-b
 g checkout -q main
 git clone -q "$tmp/work" "$tmp/clone" 2>/dev/null
+git -C "$tmp/clone" remote set-url origin git@github.com:acme/widgets.git
 sed -i.bak "s|^program_alpha_repositories: .*|program_alpha_repositories: [$tmp/clone]|" "$tracked"
 # The forge snapshot: feat-a and feat-b are tracked pull requests; the
 # merge-queue ref at trunk-merge/pr-7 is listed too, and must still not pair.
@@ -241,18 +242,18 @@ mkdir -p "$snap"
 # forge_pr <number> <head branch> <base branch>: one snapshot row, in the
 # columns the forge adapter writes (the base and head branch names last).
 forge_pr() {
-  printf 'pr\tacme/widgets\t%s\t%s\tfalse\tMERGEABLE\tNONE\t0\tNONE\t0\t0\tnone\t%s\t%s\n' \
-    "$1" "$(git -C "$tmp/clone" rev-parse "origin/$2")" "$3" "$2"
+  printf 'pr\t%s\t%s\t%s\tfalse\tMERGEABLE\tNONE\t0\tNONE\t0\t0\tnone\t%s\t%s\n' \
+    "${4:-acme/widgets}" "$1" "$(git -C "$tmp/clone" rev-parse "origin/$2")" "$3" "$2"
 }
 # write_forge <number:head:base>...: the forge snapshot holding these pull requests
 write_forge() {
   {
     printf 'format\t1\nsource\tforge\ntaken\t%s\n' "$(date +%s)"
     for pr in "$@"; do
-      IFS=: read -r pn ph pb <<EOF
+      IFS=: read -r pn ph pb ps <<EOF
 $pr
 EOF
-      forge_pr "$pn" "$ph" "$pb"
+      forge_pr "$pn" "$ph" "$pb" "$ps"
     done
   } >"$snap/forge"
 }
@@ -338,6 +339,15 @@ expect_rc "a stacked pull request's pass" 0
 case $(stored_events) in
   *"clone:origin/feat-a+origin/feat-d "*) ok "the base of a tracked pull request is paired with its head" ;;
   *) fail "the base of a tracked pull request was not paired: $(stored_events)" ;;
+esac
+
+# A pull request of another repository names a branch of its own; this
+# repository's branch of that name is not tracked.
+radar_fresh 2:feat-d:feat-a 5:feat-b:main:other/widgets
+radar_pass
+case $(stored_events) in
+  *"feat-b"*) fail "a pull request of another repository tracked a branch here" ;;
+  *) ok "a pull request of another repository tracks no branch here" ;;
 esac
 
 # mission_control_forge_tracked: authored keeps the untracked branch out.

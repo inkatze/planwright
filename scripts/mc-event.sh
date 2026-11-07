@@ -83,7 +83,9 @@ Usage:
   mc-event.sh prune --program <p> [--kind <k>] [--older-than <dur>]
       [--target <t> --submitted] [--dry-run] [--now <epoch>]
       drop the events matching every filter given (their kind, older than a
-      duration such as 1h, or submitted by the target), and their marks;
+      duration such as 1h, or submitted by the target and by every target
+      that holds marks for the store, so no target loses an event it has not
+      received), and their marks;
       prints `pruned<TAB><n>`, or `would-prune<TAB><n>` with --dry-run,
       which removes nothing. A filter is required with --dry-run.
 
@@ -109,7 +111,9 @@ pending=0
 now=""
 limit=500
 kind=""
+have_kind=0
 older=""
+have_older=0
 submitted_only=0
 dry=0
 args=()
@@ -122,8 +126,8 @@ while [ $# -gt 0 ]; do
         --target) target=$2 ;;
         --now) now=$2 ;;
         --limit) limit=$2 ;;
-        --kind) kind=$2 ;;
-        --older-than) older=$2 ;;
+        --kind) kind=$2; have_kind=1 ;;
+        --older-than) older=$2; have_older=1 ;;
       esac
       shift 2
       ;;
@@ -213,8 +217,6 @@ case $verb in
       if [ "$pending" -eq 1 ] && [ "$mark" = submitted ]; then
         continue
       fi
-      total=$((total + 1))
-      [ "$shown" -lt "$limit" ] || continue
       IFS='	' read -r ev_at ev_kind ev_subject ev_text <"$f" || [ -n "$ev_at" ] || continue
       # Every field was checked on write, but the store is a file anyone
       # running as the operator can edit, and a wake carries its kind and
@@ -224,6 +226,8 @@ case $verb in
         printf '%s\n' "$prog: skipping $id: its stored fields break the event grammar" >&2
         continue
       fi
+      total=$((total + 1))
+      [ "$shown" -lt "$limit" ] || continue
       line="$ev_at	$ev_kind	$ev_subject	$(sanitize_printable "$ev_text")"
       if [ -n "$target" ]; then
         printf '%s\t%s\t%s\n' "$id" "$line" "$(sanitize_printable "$mark" -)"
@@ -268,13 +272,13 @@ case $verb in
     ;;
   prune)
     [ "${#args[@]}" -eq 0 ] || usage
-    if [ -n "$kind" ] || [ -n "$older" ] || [ "$submitted_only" -eq 1 ]; then
+    if [ "$have_kind" -eq 1 ] || [ "$have_older" -eq 1 ] || [ "$submitted_only" -eq 1 ]; then
       # A filtered prune: the events matching every filter given, and their
       # marks. --dry-run counts them and removes nothing.
-      [ -z "$kind" ] || mc_valid_kebab "$kind" || mc_usage_fail "invalid event kind '$(sanitize_printable "$kind")'"
+      [ "$have_kind" -eq 0 ] || { [ -n "$kind" ] && mc_valid_kebab "$kind"; } || mc_usage_fail "invalid event kind '$(sanitize_printable "$kind")'"
       [ "$submitted_only" -eq 0 ] || [ -n "$target" ] || mc_usage_fail "--submitted takes --target"
       cutoff=""
-      if [ -n "$older" ]; then
+      if [ "$have_older" -eq 1 ]; then
         older_secs=$(mc_seconds "$older") || mc_usage_fail "--older-than takes a duration such as 30m or 7d"
         cutoff=$((NOW - older_secs))
       fi
@@ -293,11 +297,24 @@ case $verb in
           [ "$ev_kind" = "$kind" ] || continue
         fi
         if [ "$submitted_only" -eq 1 ]; then
-          mk=-
+          # Submitted by the named target, and by every target that holds
+          # marks for the store, so no target loses an event it has not
+          # received.
+          t_mk=-
           if [ -f "$store/marks/$target/$id" ]; then
-            IFS= read -r mk <"$store/marks/$target/$id" || mk=-
+            IFS= read -r t_mk <"$store/marks/$target/$id" || t_mk=-
           fi
-          [ "$mk" = submitted ] || continue
+          [ "$t_mk" = submitted ] || continue
+          all_mk=1
+          for md in "$store/marks"/*; do
+            [ -d "$md" ] && [ ! -L "$md" ] || continue
+            mk=-
+            if [ -f "$md/$id" ]; then
+              IFS= read -r mk <"$md/$id" || mk=-
+            fi
+            [ "$mk" = submitted ] || all_mk=0
+          done
+          [ "$all_mk" -eq 1 ] || continue
         fi
         if [ "$dry" -eq 0 ]; then
           rm -f "$f" || mc_fail "cannot prune $id"

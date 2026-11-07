@@ -367,10 +367,6 @@ case $verb in
     # selected when it was taken; each row names its head and base branch.
     # Absent or unreadable, the authored scope tracks no pull request.
     snap=$(/bin/bash "$script_dir/mc-snapshot.sh" read --program "$program" forge 2>/dev/null) || snap=""
-    prs=$(printf '%s\n' "$snap" | awk -F '\t' '$1 == "pr" {
-      if ($14 != "" && $14 != "-") print "origin/" $14
-      if ($13 != "" && $13 != "-") print "origin/" $13
-    }')
     # Keys a previous version wrote (repository, pair, path) still hold their
     # pair: the first pass after an upgrade does not raise them again.
     old=$(awk -F '\t' 'NF == 3' "$seen")
@@ -396,8 +392,17 @@ case $verb in
       }
       tips_all="$tips_all$(printf '%s\n' "$list" | R=$r awk -F '\t' 'NF == 2 { print ENVIRON["R"] "\t" $1 "\t" $2 }')
 "
+      # The pull requests of this repository: the snapshot rows naming its
+      # slug, so a branch of another repository never matches.
+      url=$(git -C "$r" remote get-url origin 2>/dev/null) || url=""
+      slug=$(printf '%s\n' "$url" | sed -e 's#^git@[^:]*:##' -e 's#^[a-z+]*://[^/]*/##' -e 's#\.git$##')
+      repo_prs=$(printf '%s\n' "$snap" | SLUG=$slug awk -F '\t' '
+        $1 == "pr" && $2 == ENVIRON["SLUG"] {
+          if ($14 != "" && $14 != "-") print "origin/" $14
+          if ($13 != "" && $13 != "-") print "origin/" $13
+        }')
       # The branches in scope: never the default, never a merge-queue ref.
-      picked=$(printf '%s\n' "$list" | SCOPE=$scope PRS=$prs WATCHED=$watched D=$def awk -F '\t' '
+      picked=$(printf '%s\n' "$list" | SCOPE=$scope PRS=$repo_prs WATCHED=$watched D=$def awk -F '\t' '
         BEGIN {
           scope = ENVIRON["SCOPE"]
           n = split(ENVIRON["PRS"], p, "\n"); for (i = 1; i <= n; i++) if (p[i] != "") pr[p[i]] = 1

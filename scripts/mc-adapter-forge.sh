@@ -114,17 +114,17 @@ gh_read() {
 }
 
 # shellcheck disable=SC2016 # GraphQL variables, not shell ones
-QUERY='query($owner:String!,$name:String!){ rateLimit{ remaining resetAt } viewer{ login } repository(owner:$owner,name:$name){ pullRequests(states:OPEN,first:50,orderBy:{field:UPDATED_AT,direction:DESC}){ nodes{ number headRefOid headRefName baseRefName isDraft mergeable reviewDecision author{ login } reviewThreads(first:100){ nodes{ isResolved } } commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } reviews{ totalCount } comments{ totalCount } } } } }'
+QUERY='query($owner:String!,$name:String!){ rateLimit{ remaining resetAt } viewer{ login } repository(owner:$owner,name:$name){ nameWithOwner pullRequests(states:OPEN,first:50,orderBy:{field:UPDATED_AT,direction:DESC}){ nodes{ number headRefOid headRefName baseRefName headRepository{ nameWithOwner } isDraft mergeable reviewDecision author{ login } reviewThreads(first:100){ nodes{ isResolved } } commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } reviews{ totalCount } comments{ totalCount } } } } }'
 # The first line is the rate limit; then one row per tracked pull request.
 # shellcheck disable=SC2016 # jq, not shell
 JQ='def tracked: "'"$tracked"'";
   "ratelimit\t\(.data.rateLimit.remaining)\t\(.data.rateLimit.resetAt | fromdateiso8601)",
-  (.data.viewer.login as $me | .data.repository.pullRequests.nodes[]
+  (.data.viewer.login as $me | .data.repository.nameWithOwner as $slug | .data.repository.pullRequests.nodes[]
    | select(tracked == "open" or .author.login == $me)
    | [.number, .headRefOid, .isDraft, .mergeable, (.reviewDecision // "NONE"),
       ([.reviewThreads.nodes[] | select(.isResolved | not)] | length),
       (.commits.nodes[0].commit.statusCheckRollup.state // "NONE"),
-      .reviews.totalCount, .comments.totalCount, (.baseRefName // "-"), (.headRefName // "-")] | @tsv)'
+      .reviews.totalCount, .comments.totalCount, (.baseRefName // "-"), (if .headRepository.nameWithOwner == $slug then (.headRefName // "-") else "-" end)] | @tsv)'
 
 low_remaining=""
 low_reset=""
