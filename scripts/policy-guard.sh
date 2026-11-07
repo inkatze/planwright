@@ -1506,6 +1506,7 @@ tower_wrapped_git_check() {
 
 KICK_SEEN=0
 KICK_NAME=kickoff-spec-push
+KICK_FILE=kickoff-spec-push.sh
 
 # kickoff_named <word> — 0 when the word's basename names the kickoff push.
 kickoff_named() {
@@ -1514,23 +1515,14 @@ kickoff_named() {
   return 1
 }
 
-# kickoff_script_ok <word> — 0 when the word is the planwright script itself: a
-# path whose basename is exactly kickoff-spec-push.sh under a scripts/
-# directory, literal or rooted. Any other file of that name is a script the
-# guard cannot read, so it is not admitted.
-kickoff_script_ok() {
-  local w=$1 dir
-  [ "${w##*/}" = kickoff-spec-push.sh ] || return 1
-  dir=${w%/*}
-  [ "$dir" != "$w" ] || return 1
-  [ "${dir##*/}" = scripts ]
-}
+# RE_KICKOFF_SCRIPT: the planwright script itself, named through the plugin or
+# planwright root variable. A relative or literal path would run a copy of the
+# script from the session's own checkout, which the guard cannot read.
+RE_KICKOFF_SCRIPT='^\$\{?(CLAUDE_PLUGIN_ROOT|PLANWRIGHT_ROOT)\}?/scripts/kickoff-spec-push\.sh$'
 
-# kickoff_script_at <index> — kickoff_script_ok on the command word at <index>,
-# which must also be literal or a rooted variable path the command-word rule reads.
+# kickoff_script_at <index> — 0 when the command word at <index> is RE_KICKOFF_SCRIPT.
 kickoff_script_at() {
-  kickoff_script_ok "${SW[$1]}" || return 1
-  [ "${SWL[$1]:-0}" = 1 ] || [[ ${SW[$1]} =~ $RE_ROOTED_SCRIPT ]]
+  [[ ${SW[$1]} =~ $RE_KICKOFF_SCRIPT ]]
 }
 
 # kickoff_segment <dir> — 0 when the segment names the kickoff push, which is
@@ -1542,6 +1534,9 @@ kickoff_segment() {
   done
   [ "$named" = 1 ] || return 1
   KICK_SEEN=$((KICK_SEEN + 1))
+  [ "$GIT_ENV_SET" = 1 ] || [ "$SW_GITENV" = 1 ] \
+    && deny_now 'this kickoff push runs with a GIT_ variable set, which could point it at another repository - refusing (fail closed). Run it with no GIT_ variable.' \
+    && return 0
   lc "${SW[0]##*/}"
   case $LC in bash | sh | zsh | dash | ksh | mksh) form=shell ;; esac
   if [ "$form" = shell ] && [ "$n" = 3 ] && kickoff_script_at 1; then
@@ -1558,6 +1553,8 @@ kickoff_segment() {
       ;;
     *) spec='' ;;
   esac
+  [ "${#spec}" -le 64 ] || spec=''
+  [ "$spec" != flight ] || spec=''  # the reserved flight namespace, not a spec
   [ -n "$spec" ] \
     || deny_now 'this command runs scripts/kickoff-spec-push.sh with an argument the guard cannot read as a spec name - refusing (fail closed). Name the spec in lowercase letters, digits and hyphens.'
   [ -n "$spec" ] || return 0
@@ -1577,9 +1574,9 @@ kickoff_segment() {
 # a quoted or spelled-out form is refused.
 kickoff_text_check() {
   local s=${P_CMD//[\"\'\\]/} n=0
-  while [[ $s == *"$KICK_NAME"* ]]; do
+  while [[ $s == *"$KICK_FILE"* ]]; do
     n=$((n + 1))
-    s=${s#*"$KICK_NAME"}
+    s=${s#*"$KICK_FILE"}
   done
   [ "$n" = "$KICK_SEEN" ] \
     || deny_now 'this command names scripts/kickoff-spec-push.sh in a spelling the guard cannot read as a run of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'

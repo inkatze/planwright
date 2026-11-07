@@ -11,6 +11,8 @@ set -euf
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+  GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_NAMESPACE GIT_PREFIX
 
 here=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$here/../scripts/kickoff-spec-push.sh"
@@ -25,7 +27,7 @@ pass() {
 
 [ -x "$SCRIPT" ] || fail "scripts/kickoff-spec-push.sh missing or not executable"
 
-tmp=$(mktemp -d)
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-kickoff-spec-push.XXXXXX") || fail "could not create a scratch directory"
 trap 'rm -rf "$tmp"' EXIT
 GIT_CONFIG_GLOBAL=/dev/null
 GIT_CONFIG_NOSYSTEM=1
@@ -95,7 +97,8 @@ fi
 pass "run from another branch, the script refuses and pushes nothing"
 g -C "$clone" switch -q planwright/demo/spec
 
-for spec in '' 'Demo' '../demo' 'demo/x' '-f' 'de mo' 'demo;x' 'main' 'planwright/demo'; do
+long=$(printf 'a%.0s' $(seq 1 65))
+for spec in '' 'Demo' '../demo' 'demo/x' '-f' 'de mo' 'demo;x' 'main' 'planwright/demo' flight "$long"; do
   if (cd "$clone" && "$SCRIPT" "$spec") >/dev/null 2>&1; then
     fail "a spec name the script does not accept ran (\"$spec\")"
   fi

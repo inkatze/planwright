@@ -13,6 +13,8 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+  GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_NAMESPACE GIT_PREFIX
 
 die() {
   printf '%s\n' "kickoff-spec-push: $1" >&2
@@ -28,6 +30,8 @@ esac
 case $spec in
   *[!a-z0-9-]*) die "'$spec' is not a spec name (lowercase letters, digits and hyphens)" ;;
 esac
+[ "${#spec}" -le 64 ] || die "'$spec' is longer than 64 characters"
+[ "$spec" != flight ] || die "'flight' is the flight namespace, not a spec"
 
 branch=planwright/$spec/spec
 current=$(git symbolic-ref --quiet --short HEAD) \
