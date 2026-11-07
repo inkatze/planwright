@@ -33,8 +33,10 @@ the check. Under the managed layer's allowManagedHooksOnly only its hooks
 count, and under its allowManagedPermissionRulesOnly only its deny entries;
 either set in another layer changes nothing.
 
-  --project  the project root (default: the git top level, else the current
-             directory)
+  --project  the project root (default: with PLANWRIGHT_MC_TOKEN, the
+             directory the launcher started the session in; else
+             CLAUDE_PROJECT_DIR; else the current directory, never a git
+             top level above it)
   --managed  the managed settings file (default: the platform's path)
 
 Output, tab separated, one line:
@@ -94,10 +96,6 @@ while [ "$#" -gt 0 ]; do
     *) usage ;;
   esac
 done
-if [ -z "$project" ]; then
-  project=$(git rev-parse --show-toplevel 2>/dev/null) || project=$(pwd -P) || fail "the current directory cannot be resolved"
-fi
-[ -d "$project" ] || fail "the project root $project is not a directory"
 if [ -z "$managed" ]; then
   case $(uname -s 2>/dev/null) in
     Darwin) managed='/Library/Application Support/ClaudeCode/managed-settings.json' ;;
@@ -109,10 +107,10 @@ user_dir=${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}
 for l in ${layers[@]+"${layers[@]}"}; do
   [ -f "$l" ] || fail "the settings layer $l does not exist"
 done
-layers+=("$user_dir/settings.json" "$project/.claude/settings.json" "$project/.claude/settings.local.json")
+launched='' launched_cwd=''
 if [ -n "${PLANWRIGHT_MC_TOKEN:-}" ]; then
   # The token binds this session to the launcher's registry row, which
-  # records the profile the session was launched with.
+  # records the profile the session was launched with and its directory.
   fh=$(/bin/sh "$script_dir/fleet-state.sh" root </dev/null 2>/dev/null) || fail "the fleet home holding the launcher's registry cannot be resolved"
   launched=''
   for row in "$fh"/mission-control/sessions/*; do
@@ -120,15 +118,29 @@ if [ -n "${PLANWRIGHT_MC_TOKEN:-}" ]; then
     # The token is read from the environment, never argv, which other
     # local users can list.
     launched=$(awk -F '\t' '
-      $1 == "token" { tok = $2 } $1 == "kind" { kind = $2 } $1 == "profile" { prof = $2 }
-      END { if (tok == ENVIRON["PLANWRIGHT_MC_TOKEN"] && kind == "mission-control") print prof }' "$row")
+      $1 == "token" { tok = $2 } $1 == "kind" { kind = $2 } $1 == "profile" { prof = $2 } $1 == "cwd" { cwd = $2 }
+      END { if (tok == ENVIRON["PLANWRIGHT_MC_TOKEN"] && kind == "mission-control") print prof "\t" cwd }' "$row")
     [ -z "$launched" ] || break
   done
   [ -n "$launched" ] || fail "this session holds a mission-control token that no launcher registry row carries"
+  launched_cwd=${launched#*"$TAB"}
+  launched=${launched%%"$TAB"*}
   case $launched in /*) ;; *) fail "the launcher registry row records no absolute profile path" ;; esac
   [ -f "$launched" ] || fail "the profile this session was launched with, $launched, does not exist"
-  layers+=("$launched")
 fi
+# The project layers are the session's own: the directory the launcher
+# started it in, else the one Claude Code names, else where it runs. A git
+# top level above it is another project.
+if [ -z "$project" ]; then
+  case $launched_cwd in
+    /*) project=$launched_cwd ;;
+    *) project=${CLAUDE_PROJECT_DIR:-} ;;
+  esac
+  [ -n "$project" ] || project=$(pwd -P) || fail "the current directory cannot be resolved"
+fi
+[ -d "$project" ] || fail "the project root $project is not a directory"
+layers+=("$user_dir/settings.json" "$project/.claude/settings.json" "$project/.claude/settings.local.json")
+[ -z "$launched" ] || layers+=("$launched")
 
 [ -f "$floor" ] && [ -r "$floor" ] || fail "the shipped mission-control profile ${floor#"$root"/} cannot be read"
 

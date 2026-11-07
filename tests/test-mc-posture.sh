@@ -46,7 +46,7 @@ posture() {
     shift
   done
   [ "$#" -eq 0 ] || shift
-  OUT=$(cd "$proj" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_CONFIG_DIR -u PLANWRIGHT_MC_TOKEN -u PLANWRIGHT_ROOT \
+  OUT=$(cd "$proj" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_CONFIG_DIR -u PLANWRIGHT_MC_TOKEN -u PLANWRIGHT_ROOT -u CLAUDE_PROJECT_DIR \
     HOME="$home" ${envs[@]+"${envs[@]}"} /bin/bash "$POSTURE" check --managed "$absent" "$@" 2>"$tmp/err")
   RC=$?
   ERR=$(cat "$tmp/err")
@@ -158,11 +158,35 @@ reset
 absolute_profile >"$proj/.claude/settings.json"
 (cd "$proj" && git init -q . 2>/dev/null)
 mkdir -p "$proj/sub"
-OUT=$(cd "$proj/sub" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_CONFIG_DIR -u PLANWRIGHT_MC_TOKEN -u PLANWRIGHT_ROOT \
-  HOME="$home" /bin/bash "$POSTURE" check --managed "$absent" 2>"$tmp/err")
-RC=$?
-ERR=$(cat "$tmp/err")
-expect_pass "with no --project, the project layers are read from the git top level"
+in_sub() {
+  OUT=$(cd "$proj/sub" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_CONFIG_DIR -u PLANWRIGHT_MC_TOKEN -u PLANWRIGHT_ROOT -u CLAUDE_PROJECT_DIR \
+    HOME="$home" "$@" /bin/bash "$POSTURE" check --managed "$absent" 2>"$tmp/err")
+  RC=$?
+  ERR=$(cat "$tmp/err")
+}
+in_sub
+expect_fail "with no --project, the git top level's project layers are not the session's" "the shipped deny floor is not in force"
+mkdir -p "$proj/sub/.claude"
+absolute_profile >"$proj/sub/.claude/settings.json"
+in_sub
+expect_pass "with no --project, the project layers are read from the session's own directory"
+rm -rf "$proj/sub/.claude" "$proj/.claude/settings.json"
+mkdir -p "$tmp/named/.claude"
+absolute_profile >"$tmp/named/.claude/settings.json"
+in_sub CLAUDE_PROJECT_DIR="$tmp/named"
+expect_pass "the project directory Claude Code names is the session's project"
+rm -rf "$tmp/named"
+
+# A launched session's project is the directory its registry row records.
+reset
+absolute_profile >"$home/.claude/settings.json"
+mkdir -p "$tmp/launched/.claude" "$tmp/fleet/mission-control/sessions"
+printf '%s\n' '{"disableAllHooks": true}' >"$tmp/launched/.claude/settings.local.json"
+printf 'token\t%s\nkind\tmission-control\nprofile\t%s\ncwd\t%s\n' cwd-token-0123456789 "$PROFILE" "$tmp/launched" \
+  >"$tmp/fleet/mission-control/sessions/mc-alpha-mission-control-cwd"
+posture PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_MC_TOKEN=cwd-token-0123456789 --
+expect_fail "a launched session reads the project layers of the directory it was launched in" "disableAllHooks"
+rm -rf "$tmp/launched" "$tmp/fleet"
 
 # A --project that names no directory would read every project layer as
 # absent, a disableAllHooks there included, so it fails rather than passes.
