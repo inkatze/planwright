@@ -1,4 +1,4 @@
-export type PanelFlight = { worker: string; scope: string; backend: string }
+export type PanelFlight = { worker: string; scope: string; backend: string; state: 'working' | 'waiting' | 'stuck' }
 export type PanelDecision = { time: string; subject: string; act: string }
 export type PanelHeadroom = { dimension: string; used: number; limit: number; percent: number }
 export type PanelWatcher = { duty: string; script: string; state: string; next: number | null }
@@ -30,6 +30,8 @@ export type PanelDigest = {
   taken: number
   knobs: Record<string, number>
   flights: PanelFlight[]
+  // Registry sessions not retired and not seen live.
+  finished: number | null
   waiting: number | null
   pending: number | null
   // Worker permission prompts mission control answers, never the operator's.
@@ -44,6 +46,9 @@ export type PanelDigest = {
   // Null where the digest carried no reviews record.
   reviews: PanelReviews | null
   isHandoverInstalled: boolean
+  // The holder record's kind: only a registry holder (a session mission
+  // control launched) hands over; null with no record or an unreadable one.
+  holder: 'registry' | 'attended' | null
   unreadable: string[]
   line: string
 }

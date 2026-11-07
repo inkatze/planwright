@@ -6,8 +6,8 @@
 #
 # <kind> <entry>, kind hook, call, env (a read) or envwrite.
 
-# Bring-up, the slash command that reopens the pane, and the hand-back of the
-# wake target at the end.
+# Bring-up, the slash command that opens or closes the pane, and the
+# hand-back of the wake target at the end.
 hook session.start
 hook session.end
 hook command.run{command=mc-panel}
@@ -45,7 +45,9 @@ call $.prompt.submit
 call $.session.usage
 call $.state.get
 call $.state.set
+call $.ui.close
 call $.ui.open
+call $.ui.panes
 call $.ui.resolve
 # The text fallback where nothing draws the pane.
 call $.ui.status
