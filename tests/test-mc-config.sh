@@ -32,7 +32,7 @@ if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
   echo "FAIL: mktemp -d produced no usable directory" >&2
   exit 1
 fi
-trap 'rm -rf "$tmp"' EXIT
+trap 'chmod -R u+rwX "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
 tmp=$(cd "$tmp" && pwd -P) || exit 1
 
 # shellcheck source=tests/lib/mission-control-fixture.sh
@@ -470,7 +470,10 @@ cfg restore mission_control_tick_cadence
 # and every inherited mechanism it can see, and writes nothing.
 # ---------------------------------------------------------------------------
 reset_mc_fixture
-printf 'mission_control_programs: [alpha]\nprogram_alpha_repositories: [%s]\nprogram_alpha_spec_root: %s/specs\n' "$repo" "$repo" >"$tracked"
+# The scratch path may itself name planwright or claude, so the program-path
+# match is proven on a home whose path names neither.
+neutral_home=/mcdoc-neutral-home/alpha
+printf 'mission_control_programs: [alpha]\nprogram_alpha_repositories: [%s]\nprogram_alpha_spec_root: %s/specs\nprogram_alpha_home: %s\n' "$repo" "$repo" "$neutral_home" >"$tracked"
 mkdir -p "$tmp/cronbin"
 cat >"$tmp/cronbin/crontab" <<'EOF'
 #!/bin/sh
@@ -511,6 +514,7 @@ row mc-beta-worker-3333333333 beta tmux
   printf '8 * * * * TOKEN\001=lk-i /opt/planwright/h\n'
   printf '9\t*\t*\t*\t*\t/opt/planwright/i\n'
   printf '%s\n' '10 * * * * /opt/hub/Claude-Sweep.sh' '11 * * * * PLANWRIGHT_ROOT=/opt/pw /opt/pw/tick.sh'
+  printf '*/20 * * * * %s/tick.sh\n' "$neutral_home"
 } >"$CRON_FIXTURE"
 printf 'mission_control_launch_backend: stream-json\nmission_control_stall_window: 30m\nmission_control_tick_cadence: 5m\n' >"$layer"
 printf 'program_alpha_duties: [inbox, readiness-check]\n' >>"$tracked"
@@ -529,6 +533,7 @@ expect_no_out "a session on the knob's rung is not named" "mc-alpha-worker-22222
 expect_no_out "another program's session is not named" "mc-beta-worker-3333333333"
 expect_out "a cron line naming planwright is named" "cron${tab}*/5 * * * * /opt/hub/w.sh planwright sweep"
 expect_out "a cron line in a program repository is named" "cron${tab}*/10 * * * * cd $repo && ./sweep.sh"
+expect_out "a cron line naming only the program home is named" "cron${tab}*/20 * * * * $neutral_home/tick.sh"
 expect_out "every NAME=value on a reported cron line is blanked" "cron${tab}*/15 * * * * PLANWRIGHT_TOKEN=<redacted> API_KEY=<redacted> NOTE=<redacted> /opt/hub/claude-run.sh --key=<redacted>"
 for want in \
   '1 * * * * T=<redacted> /opt/planwright/a' \
@@ -570,15 +575,17 @@ if [ "$(id -u)" != 0 ]; then
   cfg doctor --program alpha
   chmod 700 "$sessions"
   expect_rc "doctor with an unreadable registry still reports" 0
-  expect_out "an unreadable registry is an unknown launches check" "unknown${tab}launches${tab}"
+  expect_out "an unreadable registry is an unknown launches check" "unknown${tab}launches${tab}the launch registry could not be read"
+  expect_out "the other checks still report beside an unreadable registry" "override${tab}mission_control_launch_backend${tab}adopter${tab}tmux${tab}stream-json"
 fi
 
 tracked_good=$(cat "$tracked")
 printf '%s\n' "$tracked_good" | sed 's|^program_alpha_repositories: .*|program_alpha_repositories: relative/repo|' >"$tracked"
-printf '*/5 * * * * /opt/hub/w.sh planwright sweep\n' >"$CRON_FIXTURE"
+printf '*/5 * * * * /opt/hub/w.sh planwright sweep\n*/20 * * * * %s/tick.sh\n' "$neutral_home" >"$CRON_FIXTURE"
 cfg doctor --program alpha
 expect_out "an unreadable repository list is an unknown cron check" "unknown${tab}cron${tab}"
 expect_out "the cron scan still names a line naming planwright" "cron${tab}*/5 * * * * /opt/hub/w.sh planwright sweep"
+expect_no_out "a path the program could not report is not matched" "$neutral_home/tick.sh"
 printf '%s\n' "$tracked_good" >"$tracked"
 : >"$CRON_FIXTURE"
 
