@@ -113,7 +113,13 @@ assert_eq "no refusal reached ssh" "" "$(cat "$FAKE_SSH_LOG")"
 set_env_root "$rroot"
 run --host mac root
 assert_eq "root comes from the remote env file" "$rroot" "$OUT"
-if grep -q -- '-o BatchMode=yes mac ' "$FAKE_SSH_LOG"; then ok "ssh runs in batch mode"; else fail "ssh runs in batch mode"; fi
+if grep -q -- '-o BatchMode=yes .*-o ForwardAgent=no .*-o ClearAllForwardings=yes mac ' "$FAKE_SSH_LOG"; then
+  ok "ssh runs in batch mode with forwarding off"
+else
+  fail "ssh runs in batch mode with forwarding off"
+fi
+run --host mac pending w.1 'x@y:z=1'
+assert_eq "worker names in the supervisor's grammar are reachable" "$(printf 'fleet-streamjson\n[pending]\n[w.1]\n[x@y:z=1]')" "$OUT"
 mkdir -p "$tmp/other/scripts"
 run --host mac --root "$tmp/other" root
 assert_eq "--root wins over the env file" "$tmp/other" "$OUT"
@@ -178,7 +184,12 @@ done
 # --- compute: ship HEAD, run one command, stream back, clean up ---------------
 FAKE_REMOTE_SHELL=/bin/sh
 export FAKE_REMOTE_SHELL
-export GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+# A fake mise that reports what it was asked to run and where.
+# shellcheck disable=SC2016 # expanded by the fake at run time
+printf '#!/bin/sh\necho "mise $* in $(pwd -P) PLANWRIGHT_ROOT=${PLANWRIGHT_ROOT:-}"\n' >"$bin/mise"
+chmod +x "$bin/mise"
 lrepo="$tmp/lrepo"
 mkdir -p "$lrepo/tests"
 git -C "$lrepo" init -q
@@ -187,6 +198,7 @@ git -C "$lrepo" remote add origin https://example.invalid/acct/proj.git
 printf 'echo "suite ran in $(pwd -P)"\necho "tmp=$TMPDIR"\nexit 0\n' >"$lrepo/tests/test-ok.sh"
 printf 'exit 3\n' >"$lrepo/tests/test-fail.sh"
 printf 'sleep 60\n' >"$lrepo/tests/test-slow.sh"
+printf 'trap "exit 0" TERM\nsleep 60 &\nwait\n' >"$lrepo/tests/test-trap.sh"
 git -C "$lrepo" add tests
 git -C "$lrepo" commit -q -m one
 mkdir -p "$rhome/dev"
@@ -234,16 +246,60 @@ assert_eq "compute leaves no scratch run behind" "" "$(ls -A "$rhome/dev/.planwr
 assert_eq "compute leaves no extra remote worktree" 1 "$(git -C "$rhome/dev/proj" worktree list | wc -l | tr -d ' ')"
 assert_eq "compute removes its hidden ref" "" "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute)"
 
-printf 'dirty\n' >>"$lrepo/tests/test-ok.sh"
+run --host mac compute --worktree "$lrepo" --test tests/test-slow.sh --timeout 1
+case $ERR in *"timeout after 1s"*) ok "compute says the timeout stopped the run" ;; *) fail "compute says the timeout stopped the run ($ERR)" ;; esac
+
+run --host mac compute --worktree "$lrepo" --test tests/test-trap.sh --timeout 1
+assert_eq "a command that exits 0 on TERM still reads as timed out" 143 "$CODE"
+
+run --host mac compute --worktree "$lrepo" --task lint:md
+assert_eq "compute --task runs mise with the task" 0 "$CODE"
+case $OUT in *"mise run lint:md in"*"/wt PLANWRIGHT_ROOT="*) ok "compute --task runs in the scratch worktree without PLANWRIGHT_ROOT" ;; *) fail "compute --task runs in the scratch worktree without PLANWRIGHT_ROOT ($OUT)" ;; esac
+run --host mac compute --worktree "$lrepo" --check
+case $OUT in *"mise run check in"*) ok "compute --check runs the full check" ;; *) fail "compute --check runs the full check ($OUT)" ;; esac
+
+run --host mac compute --worktree "$lrepo" --test tests/test-absent.sh
+assert_eq "a test file missing at the commit is a setup failure" 3 "$CODE"
+
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh --timeout 00
+assert_eq "an all-zero timeout is refused" 2 "$CODE"
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh --timeout 86401
+assert_eq "a timeout over a day is refused" 2 "$CODE"
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh --timeout 0030
+assert_eq "a zero-padded timeout is read as its number" 0 "$CODE"
+
+printf 'false\n' >"$rhome/.config/planwright/remote-env.sh"
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
+assert_eq "a failing remote env file is a setup failure" 3 "$CODE"
+assert_eq "a setup failure still removes the shipped ref" "" "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute)"
+set_env_root "$rroot"
+
+assert_eq "compute leaves no scratch run behind" "" "$(ls -A "$rhome/dev/.planwright-compute")"
+assert_eq "compute leaves no extra remote worktree" 1 "$(git -C "$rhome/dev/proj" worktree list | wc -l | tr -d ' ')"
+assert_eq "compute removes its hidden ref" "" "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute)"
+
+printf 'echo "dirty edit shipped"\n' >"$lrepo/tests/test-ok.sh"
 run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
 case $ERR in *"uncommitted changes are not shipped"*) ok "compute warns that uncommitted changes stay behind" ;; *) fail "compute warns that uncommitted changes stay behind" ;; esac
+case $OUT in *"dirty edit shipped"*) fail "compute shipped an uncommitted edit" ;; *"suite ran in"*) ok "compute runs the committed file, not the edit" ;; *) fail "compute runs the committed file, not the edit ($OUT)" ;; esac
 git -C "$lrepo" checkout -q -- tests/test-ok.sh
+
+mkdir -p "$lrepo/.git/hooks-planted"
+printf '#!/bin/sh\ntouch %s/hook-ran\n' "$tmp" >"$lrepo/.git/hooks-planted/pre-push"
+chmod +x "$lrepo/.git/hooks-planted/pre-push"
+git -C "$lrepo" config core.hooksPath .git/hooks-planted
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
+if [ -e "$tmp/hook-ran" ]; then fail "compute ran the worktree's own push hook on this host"; else ok "compute never runs the worktree's hooks on this host"; fi
+git -C "$lrepo" config --unset core.hooksPath
+
+git -C "$lrepo" remote set-url origin https://example.invalid/acct/..
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
+assert_eq "a dot-dot repository name is refused" 2 "$CODE"
 
 git -C "$lrepo" remote set-url origin https://example.invalid/acct/absent.git
 run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
 assert_eq "compute with no remote clone fails to ship" 4 "$CODE"
 
-[ -z "${STOP_EARLY:-}" ] || exit 0
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

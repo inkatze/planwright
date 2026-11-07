@@ -142,8 +142,14 @@ it misses. Waits on the operator's answer.
 
 **Decision:** The command guard approves `scripts/fleet-remote.sh` under the
 resolved literal root, in the sessions that already approve the local
-stream-json verbs, for its fixed verbs only; any other command reaching a
-remote host falls to the normal prompt.
+stream-json verbs, for its fixed verbs only, to registered host aliases only,
+and never with `--root` (which chooses which remote scripts run); any other
+command reaching a remote host falls to the normal prompt. Each verb keeps the
+posture its local twin has: `answer --allow` grants a remote worker's request
+and is approved only where the local answer is, after the same vetting;
+`launch` starts an agent under the named kind's profile; `compute` runs the
+caller's committed code on the remote account, so it is approved only where
+running that code locally would be.
 
 **Alternatives considered:**
 - Prompt on every remote call. Rejected because: the vetting loop would ask

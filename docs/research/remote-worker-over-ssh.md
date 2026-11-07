@@ -42,7 +42,7 @@ root, `<repo>` the remote host's own clone of the target repository.
    starts the detached supervisor there:
 
    ```sh
-   ssh <alias> 'f=$(mktemp) && cat >"$f" &&
+   ssh <alias> 'f=$(mktemp "${TMPDIR:-/tmp}/brief.XXXXXX") && cat >"$f" &&
      <root>/scripts/mission-control-launch.sh launch --program <p> \
        --kind worker --scope <s> --brief "$f" --backend stream-json \
        --repo <repo>' <brief
@@ -62,15 +62,17 @@ root, `<repo>` the remote host's own clone of the target repository.
 5. **Steer.** Same stdin trick as the brief:
 
    ```sh
-   ssh <alias> 'f=$(mktemp) && cat >"$f" &&
+   ssh <alias> 'f=$(mktemp "${TMPDIR:-/tmp}/brief.XXXXXX") && cat >"$f" &&
      <root>/scripts/fleet-streamjson.sh steer <worker> --message-file "$f"' <message
    ```
 
 6. **Status and result.** `ssh <alias> <root>/scripts/fleet-streamjson.sh status <worker>`;
    the run outcome is the `result` row in the remote fleet home
    (`<fleet home>/streamjson/<worker>/result`).
-7. **Retire.** `ssh <alias> <root>/scripts/fleet-streamjson.sh stop <worker> --final`,
-   then remove the remote worktree once its PR merged or closed.
+7. **Retire.** `ssh <alias> <root>/scripts/mission-control-launch.sh retire
+   <name>` for a launcher-made worker, which also updates its registry row
+   (`fleet-streamjson.sh stop <worker> --final` for one launched by hand), then
+   remove the remote worktree once its PR merged or closed.
 8. **Branch.** The worker pushes its branch and opens the draft PR from the
    remote clone; review, cubic rounds and the ready flip run here against the
    PR, as for any PR.
@@ -90,9 +92,10 @@ root, `<repo>` the remote host's own clone of the target repository.
   sources an optional environment file on the remote).
 - **Claude auth over SSH on macOS.** Claude Code on macOS keeps its login in
   the user keychain, which an SSH session may find locked, so a worker can fail
-  to authenticate even though the operator is signed in at the desk. Unverified;
-  the fallback is a long-lived token (`claude setup-token`) held in an
-  untracked env file on that host, never in dotfiles.
+  to authenticate even though the operator is signed in at the desk. It did not
+  happen on the first host (see Live results), so it is a risk per host, not a
+  certainty; the fallback is a long-lived token (`claude setup-token`) held in
+  an untracked env file on that host, never in dotfiles.
 - **Shell quoting.** `ssh` joins its arguments into one remote shell string, so
   a scope, message or path with a space or quote is re-parsed there. Hand-typed
   recipes are an injection and breakage risk; every argument needs quoting.
