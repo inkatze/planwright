@@ -23,7 +23,7 @@ done
 . "$script_dir/mc-lib.sh" || exit 2
 
 usage() {
-  mc_usage_fail "usage: mc-event.sh emit --program <p> [--now <epoch>] [--] <kind> <subject> [<text>] | list --program <p> [--target <t> [--pending]] [<id>...] | mark --program <p> --target <t> submitted|staged <id>... | prune --program <p> [--now <epoch>]"
+  mc_usage_fail "usage: mc-event.sh emit --program <p> [--now <epoch>] [--] <kind> <subject> [<text>] | list --program <p> [--target <t> [--pending]] [--limit <n>] [<id>...] | mark --program <p> --target <t> submitted|staged <id>... | prune --program <p> [--now <epoch>] [--kind <k>] [--older-than <dur>] [--target <t> --submitted] [--dry-run]"
 }
 
 # valid_id <id>: e<epoch>.<hex>, the epoch a whole number and the suffix a
@@ -62,12 +62,14 @@ Usage:
       bytes. A byte in the C1 range is accepted, since UTF-8 text uses it,
       but every reader drops it on the way to a terminal, so such text
       reads back mangled.
-  mc-event.sh list --program <p> [--target <t> [--pending]] [<id>...]
+  mc-event.sh list --program <p> [--target <t> [--pending]] [--limit <n>] [<id>...]
       one <id><TAB><epoch><TAB><kind><TAB><subject><TAB><text> line per
       event (only the named ones, when ids are given), in id order, which
       is emission order to the second (events of one second in no set
       order); with --target a sixth field, the target's mark or -;
-      --pending keeps only events the target has not been submitted. An
+      --pending keeps only events the target has not been submitted. At
+      most --limit events are printed (500 by default), the oldest first;
+      when more match, stderr says how many were printed of how many. An
       event whose stored fields break the grammar emit enforces, or whose
       file is a symbolic link, is skipped with a warning on stderr.
   mc-event.sh mark --program <p> --target <t> submitted|staged <id>...
@@ -78,6 +80,14 @@ Usage:
   mc-event.sh prune --program <p> [--now <epoch>]
       drop events, and their marks, older than
       mission_control_event_retention; prints `pruned<TAB><n>`.
+  mc-event.sh prune --program <p> [--kind <k>] [--older-than <dur>]
+      [--target <t> --submitted] [--dry-run] [--now <epoch>]
+      drop the events matching every filter given (their kind, older than a
+      duration such as 1h, or submitted by the target and by every target
+      that holds marks for the store, so no target loses an event it has not
+      received), and their marks;
+      prints `pruned<TAB><n>`, or `would-prune<TAB><n>` with --dry-run,
+      which removes nothing. A filter is required with --dry-run.
 
 Exit codes: 0 done; 1 the store cannot be read or written, or an invalid
 retention knob; 2 usage or a value outside its grammar; 3 an id that names
@@ -99,20 +109,44 @@ program=""
 target=""
 pending=0
 now=""
+limit=500
+kind=""
+have_kind=0
+older=""
+have_older=0
+submitted_only=0
+dry=0
 args=()
 while [ $# -gt 0 ]; do
   case $1 in
-    --program | --target | --now)
+    --program | --target | --now | --limit | --kind | --older-than)
       [ $# -ge 2 ] || usage
       case $1 in
         --program) program=$2 ;;
         --target) target=$2 ;;
         --now) now=$2 ;;
+        --limit) limit=$2 ;;
+        --kind)
+          kind=$2
+          have_kind=1
+          ;;
+        --older-than)
+          older=$2
+          have_older=1
+          ;;
       esac
       shift 2
       ;;
     --pending)
       pending=1
+      shift
+      ;;
+    --submitted)
+      submitted_only=1
+      shift
+      ;;
+    --dry-run)
+      dry=1
       shift
       ;;
     --)
@@ -163,6 +197,9 @@ case $verb in
     ;;
   list)
     [ "$pending" -eq 0 ] || [ -n "$target" ] || usage
+    mc_valid_uint "$limit" && [ "$limit" -gt 0 ] || mc_usage_fail "--limit takes a count of at least one"
+    shown=0
+    total=0
     only=" "
     for id in ${args[@]+"${args[@]}"}; do
       valid_id "$id" || mc_usage_fail "invalid event id '$(sanitize_printable "$id")'"
@@ -195,14 +232,18 @@ case $verb in
         printf '%s\n' "$prog: skipping $id: its stored fields break the event grammar" >&2
         continue
       fi
+      total=$((total + 1))
+      [ "$shown" -lt "$limit" ] || continue
       line="$ev_at	$ev_kind	$ev_subject	$(sanitize_printable "$ev_text")"
       if [ -n "$target" ]; then
         printf '%s\t%s\t%s\n' "$id" "$line" "$(sanitize_printable "$mark" -)"
       else
         printf '%s\t%s\n' "$id" "$line"
       fi
+      shown=$((shown + 1))
     done
     set -f
+    [ "$total" -le "$shown" ] || printf '%s\n' "$prog: listed the first $shown of $total events (--limit $limit); prune the store or raise --limit" >&2
     ;;
   mark)
     [ -n "$target" ] && [ "${#args[@]}" -ge 2 ] || usage
@@ -237,6 +278,68 @@ case $verb in
     ;;
   prune)
     [ "${#args[@]}" -eq 0 ] || usage
+    if [ "$have_kind" -eq 1 ] || [ "$have_older" -eq 1 ] || [ "$submitted_only" -eq 1 ]; then
+      # A filtered prune: the events matching every filter given, and their
+      # marks. --dry-run counts them and removes nothing.
+      [ "$have_kind" -eq 0 ] || { [ -n "$kind" ] && mc_valid_kebab "$kind"; } || mc_usage_fail "invalid event kind '$(sanitize_printable "$kind")'"
+      [ "$submitted_only" -eq 0 ] || [ -n "$target" ] || mc_usage_fail "--submitted takes --target"
+      cutoff=""
+      if [ "$have_older" -eq 1 ]; then
+        older_secs=$(mc_seconds "$older") || mc_usage_fail "--older-than takes a duration such as 30m or 7d"
+        cutoff=$((NOW - older_secs))
+      fi
+      n=0
+      set +f
+      for f in "$store/events"/e*; do
+        [ -f "$f" ] || continue
+        id=${f##*/}
+        valid_id "$id" || continue
+        at=${id#e}
+        at=${at%%.*}
+        mc_valid_uint "$at" || continue
+        [ -z "$cutoff" ] || [ "$at" -lt "$cutoff" ] || continue
+        if [ -n "$kind" ]; then
+          IFS="	" read -r ev_at ev_kind _ <"$f" || continue
+          [ "$ev_kind" = "$kind" ] || continue
+        fi
+        if [ "$submitted_only" -eq 1 ]; then
+          # Submitted by the named target, and by every target that holds
+          # marks for the store, so no target loses an event it has not
+          # received.
+          t_mk=-
+          if [ -f "$store/marks/$target/$id" ]; then
+            IFS= read -r t_mk <"$store/marks/$target/$id" || t_mk=-
+          fi
+          [ "$t_mk" = submitted ] || continue
+          all_mk=1
+          for md in "$store/marks"/*; do
+            [ -d "$md" ] && [ ! -L "$md" ] || continue
+            mk=-
+            if [ -f "$md/$id" ]; then
+              IFS= read -r mk <"$md/$id" || mk=-
+            fi
+            [ "$mk" = submitted ] || all_mk=0
+          done
+          [ "$all_mk" -eq 1 ] || continue
+        fi
+        if [ "$dry" -eq 0 ]; then
+          rm -f "$f" || mc_fail "cannot prune $id"
+          for md in "$store/marks"/*; do
+            [ -d "$md" ] && [ ! -L "$md" ] || continue
+            rm -f "$md/$id" || mc_fail "cannot prune the marks of $id"
+          done
+        fi
+        n=$((n + 1))
+      done
+      set -f
+      if [ "$dry" -eq 1 ]; then
+        printf 'would-prune\t%s\n' "$n"
+      else
+        printf 'pruned\t%s\n' "$n"
+      fi
+      exit 0
+    fi
+    [ "$dry" -eq 0 ] || mc_usage_fail "--dry-run takes a filter (--kind, --older-than or --submitted)"
     retention=$(mc_knob mission_control_event_retention mc_parse_cadence) || exit 1
     cutoff=$((NOW - $(mc_seconds "$retention")))
     n=0
