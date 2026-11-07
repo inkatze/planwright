@@ -6,7 +6,7 @@
 #   - no merged pending PR -> exit 0, silent;
 #   - a merged pending PR younger than the bound -> exit 0, silent;
 #   - one older than the bound -> exit 1, naming the PR and the publish command;
-#   - --max-age-hours moves the bound;
+#   - --max-age-minutes moves the bound;
 #   - the query asks for merged PRs carrying the pending label;
 #   - gh failing, or unparseable gh output -> exit 2 (never 0);
 #   - a malformed flag value -> exit 2.
@@ -89,17 +89,17 @@ run "$ONE_PR" 0 --now $((MERGED + 3600))
 expect "a PR inside the default bound is silent" 0 ""
 
 run "$ONE_PR" 0 --now $((MERGED + 3 * 3600))
-expect "a PR past the default bound escalates" 1 "#872 chore: release 0.69.0 merged $MERGED_ISO, 3h ago"
+expect "a PR past the default bound escalates" 1 "#872 chore: release 0.69.0 merged $MERGED_ISO, 180 minutes ago"
 expect "the escalation names the publish command" 1 "scripts/release-publish.sh"
 
-run "$ONE_PR" 0 --max-age-hours 6 --now $((MERGED + 3 * 3600))
-expect "--max-age-hours widens the bound" 0 ""
+run "$ONE_PR" 0 --max-age-minutes 360 --now $((MERGED + 3 * 3600))
+expect "--max-age-minutes widens the bound" 0 ""
 
-run "$ONE_PR" 0 --max-age-hours 0 --now $((MERGED + 60))
-expect "--max-age-hours 0 escalates at once" 1 "#872"
+run "$ONE_PR" 0 --max-age-minutes 0 --now $((MERGED + 60))
+expect "--max-age-minutes 0 escalates at once" 1 "#872"
 
-if grep -qx -- '--state' "$LOG" && grep -qx merged "$LOG" &&
-  grep -qx -- '--label' "$LOG" && grep -qx 'autorelease: pending' "$LOG"; then
+if grep -qx -- '--state' "$LOG" && grep -qx merged "$LOG" \
+  && grep -qx -- '--label' "$LOG" && grep -qx 'autorelease: pending' "$LOG"; then
   echo "ok: the query asks for merged PRs labelled autorelease: pending"
 else
   echo "FAIL: gh was not asked for merged pending PRs: $(tr '\n' ' ' <"$LOG")" >&2
@@ -112,8 +112,12 @@ expect "gh failing is could-not-determine" 2 "release state unknown"
 run 'not json' 0 --now $((MERGED + 3 * 3600))
 expect "unparseable gh output is could-not-determine" 2 "release state unknown"
 
-run "$ONE_PR" 0 --max-age-hours two
+run "$ONE_PR" 0 --max-age-minutes two
 expect "a malformed bound is a usage error" 2 "usage"
+
+# jq rejects a leading zero as JSON, which would misreport as unreadable state.
+run "$ONE_PR" 0 --max-age-minutes 090
+expect "a zero-padded bound is a usage error" 2 "usage"
 
 run "$ONE_PR" 0 --now
 expect "a flag without its value is a usage error" 2 "usage"

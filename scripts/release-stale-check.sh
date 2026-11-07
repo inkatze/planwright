@@ -18,9 +18,9 @@
 # be read (gh failed, or its output did not parse), or a usage error. Exit 2 is
 # distinct so a caller never folds "could not tell" into "nothing stale".
 #
-# Usage: release-stale-check.sh [--max-age-hours <n>] [--now <epoch-seconds>]
+# Usage: release-stale-check.sh [--max-age-minutes <n>] [--now <epoch-seconds>]
 #   Run inside the repo with a signed-in gh (or GH_TOKEN plus GH_REPO in CI).
-#   --max-age-hours: how long a merged release PR may stay pending (default 2).
+#   --max-age-minutes: how long a merged release PR may stay pending (default 120).
 #   --now: the evaluation time, for reproducible runs (default: the clock).
 
 set -u
@@ -29,19 +29,19 @@ export LC_ALL
 unset CDPATH
 
 PENDING_LABEL="autorelease: pending"
-max_age_hours=2
+max_age_minutes=120
 now=""
 
 usage() {
-  echo "release-stale-check: usage: release-stale-check.sh [--max-age-hours <n>] [--now <epoch-seconds>]" >&2
+  echo "release-stale-check: usage: release-stale-check.sh [--max-age-minutes <n>] [--now <epoch-seconds>]" >&2
   exit 2
 }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --max-age-hours)
+    --max-age-minutes)
       [ "$#" -ge 2 ] || usage
-      max_age_hours="$2"
+      max_age_minutes="$2"
       shift 2
       ;;
     --now)
@@ -53,12 +53,12 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-case "$max_age_hours" in
-  '' | *[!0-9]*) usage ;;
+case "$max_age_minutes" in
+  '' | *[!0-9]* | 0?*) usage ;;
 esac
 [ -n "$now" ] || now=$(date -u +%s)
 case "$now" in
-  '' | *[!0-9]*) usage ;;
+  '' | *[!0-9]* | 0?*) usage ;;
 esac
 
 # Merged PRs only: an open release PR carries the same label and is not stale.
@@ -70,13 +70,13 @@ prs=$(gh pr list --state merged --label "$PENDING_LABEL" --limit 50 \
   exit 2
 }
 
-stale=$(printf '%s' "$prs" | jq -r --argjson now "$now" --argjson max "$max_age_hours" '
+stale=$(printf '%s' "$prs" | jq -r --argjson now "$now" --argjson max "$max_age_minutes" '
   map(select(.mergedAt != null)
       | . + {age: ($now - (.mergedAt | fromdateiso8601))}
-      | select(.age > ($max * 3600)))
+      | select(.age > ($max * 60)))
   | sort_by(.number)
   | .[]
-  | "#\(.number) \(.title) merged \(.mergedAt), \((.age / 3600) | floor)h ago, still labelled autorelease: pending"
+  | "#\(.number) \(.title) merged \(.mergedAt), \((.age / 60) | floor) minutes ago, still labelled autorelease: pending"
 ' 2>/dev/null) || {
   echo "release-stale-check: could not parse the pull request list from gh; release state unknown" >&2
   exit 2
@@ -87,5 +87,5 @@ if [ -z "$stale" ]; then
 fi
 
 printf '%s\n' "$stale"
-echo "release-stale-check: a merged release was not published within ${max_age_hours}h; publish it with: scripts/release-publish.sh"
+echo "release-stale-check: a merged release was not published within ${max_age_minutes} minutes; publish it with: scripts/release-publish.sh"
 exit 1
