@@ -214,8 +214,8 @@ handle_event() {
     # relayed, a watcher re-armed) is logged with its undo entry and never
     # said: nothing in it is for the operator.
     routine)
-      decide "$(event_arg "$ev" act)" '{subject: $s, routine: true, undo_logged: true}' \
-        --arg s "$(event_arg "$ev" subject)"
+      decide "$(event_arg "$ev" act)" '{subject: $s, routine: true}' --arg s "$(event_arg "$ev" subject)"
+      decide undo-logged '{of: $r}' --argjson r "$seq"
       ;;
     entry) programs=$(event_arg "$ev" names) ;;
     changed)

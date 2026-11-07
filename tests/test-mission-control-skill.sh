@@ -128,7 +128,7 @@ need "REQ-F1.11: drafts go to the clipboard" "scripts/mc-inbox.sh\`'s \`draft"
 # Quiet by default: an unasked turn is rendered, so a routine act cannot
 # reach the operator, and the shared wording lives in tower-comms.
 need "unasked turns are rendered by the report" "scripts/mc-inbox.sh\`'s \`report"
-need "a routine event raises no turn" "a routine event raises no turn"
+need "a routine event raises no turn" "A routine event raises no turn"
 need "a routine act is never said" "A routine act is logged with its undo entry and decision, never said"
 comms="$REPO_ROOT/doctrine/tower-comms.md"
 comms_body=$(tr '\n' ' ' <"$comms" | tr -s ' ')
