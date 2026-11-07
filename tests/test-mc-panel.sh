@@ -265,8 +265,8 @@ expect_out "the text panel says the approvals apart" "approvals mission control 
 mc_run fleet-attention.sh clear w-req
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
 expect_out "one approval is said in the singular" ", 1 approval mission control is handling,"
-for w in w-perm w-ask; do mc_run fleet-attention.sh clear "$w"; done
-# A queue that cannot be read is said so, with no split and no clause.
+# A queue that cannot be read is said so, with no split and no clause, while
+# an approval is still pending in it.
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$fleet/attention/state"
   mc_run mc-panel.sh digest --program alpha --target mc-alpha --now 1030
@@ -275,6 +275,7 @@ if [ "$(id -u)" != 0 ]; then
   expect_no_out "and no approvals are counted from it" "approvals${tab}"
   expect_no_out "nor said in the line" "mission control is handling"
 fi
+for w in w-perm w-ask; do mc_run fleet-attention.sh clear "$w"; done
 
 # A store that cannot be read is said, never drawn as empty.
 printf 'format\t9\n' >"$runtime/measures"

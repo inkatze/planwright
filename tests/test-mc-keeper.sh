@@ -31,6 +31,12 @@ trap 'rm -rf "$tmp"' EXIT
 # shellcheck source=tests/lib/mission-control-fixture.sh
 . "$here/lib/mission-control-fixture.sh"
 
+# The fake forge below runs the caller's own --jq.
+command -v jq >/dev/null 2>&1 || {
+  echo "FAIL: jq is required (the gh stub runs the caller's --jq)" >&2
+  exit 1
+}
+
 tab=$(printf '\t')
 reset_mc_fixture
 cat >"$tracked" <<EOF
@@ -290,7 +296,7 @@ case "\$*" in
   *"--head planwright/flight/fl-nopr "*) j='[]' ;;
   *"--head planwright/flight/fl-fork "*) j="[\$fork_open,\$c]" ;;
   *"--head planwright/flight/fl-forkonly "*) j="[\$fork_merged]" ;;
-  *"--head planwright/flight/fl-both "*) j="[\$c,\$m]" ;;
+  *"--head planwright/flight/fl-both "*) j="[\$c,\$m,\$c]" ;;
   *"--head planwright/flight/fl-fails "*) exit 1 ;;
   *) j="[\$m]" ;;
 esac
