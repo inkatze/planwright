@@ -121,15 +121,17 @@ Usage:
         override<TAB><key><TAB><layer><TAB><value><TAB><shipped value>
             a mission_control_* knob a layer sets away from the shipped
             value (the program list aside)
-        duty-off<TAB><duty id>      a default duty the program leaves off
+        duty-off<TAB><duty id>      a duty of mission_control_default_duties,
+            as the layers resolve it, that the program leaves off
         launch-backend<TAB><session><TAB><backend><TAB><knob value>
             a registered session of the program started on another rung
             than mission_control_launch_backend now resolves to: a
             per-call --backend, or a knob changed since the launch
         cron<TAB><line>             a crontab line naming planwright or
             claude in any case, or a repository or the home of the
-            program, every NAME=value on it printed NAME=<redacted>;
-            redaction fails closed, so an = inside quotes, one whose
+            program, tabs printed as blanks, control bytes dropped and
+            every NAME=value on it printed NAME=<redacted>; a crontab
+            that cannot be listed reads as none; redaction fails closed, so an = inside quotes, one whose
             value holds an escape, a substitution, a paren or a %, and
             any = past a substitution, a paren, a % or a comment blank
             the rest of the line
