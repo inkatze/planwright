@@ -343,6 +343,10 @@ unset FAKE_REMOTE_PATH
 
 run_env FAKE_FAIL_RUN=1
 assert_eq "a connection that fails after the push reports SSH's failure" 255 "$CODE"
+assert_eq "a dropped connection leaves its ref for the sweep" 1 "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute | wc -l | tr -d ' ')"
+for r in $(git -C "$rhome/dev/proj" for-each-ref --format='%(refname)' refs/planwright-compute); do
+  git -C "$rhome/dev/proj" update-ref -d "$r"
+done
 git -C "$rhome/dev/proj" update-ref "refs/planwright-compute/$head_sha-1-1000" "$head_sha"
 run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
 assert_eq "the next run deletes refs a dropped connection left behind" "" "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute)"
