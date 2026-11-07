@@ -856,6 +856,13 @@ printf 'format\t1\nprogram\talpha\ntarget\talpha\nsession\t%s\npid\t%s\nwritten\
 run_with CLAUDE_PID="$live_pid" -- mc-panel.sh retire --session "$sid_b"
 expect_rc "retire takes a record this host process wrote under an earlier id" 0
 if [ ! -e "$act/$sid_b" ]; then ok "and removes it"; else fail "the earlier id's record survived its retire"; fi
+printf 'format\t1\nprogram\talpha\ntarget\talpha\nsession\t%s\npid\t%s\nwritten\t1\n' "$sid_b" "$dead_pid" >"$act/$sid_b"
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh retire --session "$sid_b"
+expect_rc "retire refuses an earlier id's record another process wrote" 2
+if [ -f "$act/$sid_b" ]; then ok "and leaves it"; else fail "retire removed another process's earlier-id record"; fi
+rm -f "$act/$sid_b"
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --session "$sid_a" --now 5170
+expect_rc "activate takes a --session naming this session" 0
 
 # The keeper removes a record whose session has no live process.
 printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_d" >"$fleet/mission-control/_panel/sessions/$dead_pid"
