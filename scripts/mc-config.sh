@@ -129,9 +129,10 @@ Usage:
         cron<TAB><line>             a crontab line naming planwright or
             claude in any case, or a repository or the home of the
             program, every NAME=value on it printed NAME=<redacted>;
-            redaction fails closed, so a value in quotes or holding an
-            escape, a substitution or a paren blanks the rest of the
-            line
+            redaction fails closed, so an = inside quotes, one whose
+            value holds an escape, a substitution, a paren or a %, and
+            any = past a substitution, a paren, a % or a comment blank
+            the rest of the line
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
             launches or cron) whose read failed; for overrides, also a
             layer that is malformed or sets a knob twice or as key : v,
@@ -803,9 +804,10 @@ doctor_cron() {
   # Every NAME=value is blanked: a crontab line is where credentials sit,
   # and a reported line travels into items and the program home. The scan
   # fails closed rather than model shell grammar: any = outside a value is
-  # an assignment, and a value inside quotes, or one meeting an escape, a
-  # substitution or a paren, is blanked to the end of the line. Control
-  # bytes go first, so none can hide an = the scan would miss.
+  # an assignment, and an = inside quotes, one whose value meets an escape,
+  # a substitution, a paren or a cron %, and any = past a substitution, a
+  # paren, a % or a comment blanks the rest of the line. Control bytes go
+  # first, so none can hide an = the scan would miss.
   printf '%s\n' "$dc_tab" | mc_clean_text | DC_PATHS="$dc_paths${nl}$dc_home" DC_Q="'" awk '
     BEGIN {
       n = split(ENVIRON["DC_PATHS"], needle, "\n")
@@ -823,14 +825,16 @@ doctor_cron() {
       q = ""
       for (; i <= len; i++) {
         c = substr(s, i, 1)
-        if (index("\\`(", c) || (c == "$" && index("({" sq dq, substr(s, i + 1, 1)))) return len + 1
+        if (index("\\`(%", c) || (c == "$" && index("({[" sq dq, substr(s, i + 1, 1)))) return len + 1
         if (q != "") { if (c == q) q = "" }
         else if (c == sq || c == dq) q = c
         else if (c == " ") return i
       }
       return len + 1
     }
-    function redact(s,   out, len, i, c, q, last, e, name) {
+    # Past a substitution, a paren, a cron % or a comment the shell quoting
+    # the scan tracks no longer holds, so any later = blanks the rest.
+    function redact(s,   out, len, i, c, q, last, e, name, lost) {
       if (match(s, envre)) {
         name = substr(s, 1, RLENGTH - 1)
         gsub(/^ +| +$/, "", name)
@@ -847,8 +851,9 @@ doctor_cron() {
           if (substr(s, i, 1) != "=") continue
           c = "="
         }
+        if (index("`(%", c) || (c == "$" && index("({[" sq dq, substr(s, i + 1, 1))) || (c == "#" && substr(s, i - 1, 1) == " ")) lost = 1
         if (c == "=") {
-          e = value_end(s, i + 1, q)
+          e = lost ? len + 1 : value_end(s, i + 1, q)
           out = out substr(s, last, i + 1 - last) "<redacted>"
           last = e
           i = e - 1

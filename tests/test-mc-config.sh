@@ -519,6 +519,13 @@ cat >"$shapes" <<'SHAPES'
 @reboot T=lk-09 /opt/planwright/r ==> @reboot T=<redacted> /opt/planwright/r
 -*/5 * * * * T=lk-10 /opt/planwright/dash ==> -*/5 * * * * T=<redacted> /opt/planwright/dash
 41 * * * * [ "$a" = "$b" ] && planwright ==> 41 * * * * [ "$a" =<redacted> "$b" ] && planwright
+42 * * * * echo "$(grep "it's" /f)" 'TOKEN=lk-20 lk-21' planwright ==> 42 * * * * echo "$(grep "it's" /f)" 'TOKEN=<redacted>
+43 * * * * echo "`echo "'"`" 'K=lk-22 lk-23' planwright ==> 43 * * * * echo "`echo "'"`" 'K=<redacted>
+44 * * * * bash -c $'echo it\'s; TOKEN=lk-24 lk-25\' planwright' ==> 44 * * * * bash -c $'echo it\'s; TOKEN=<redacted>
+45 * * * * T=$[1 + lk-26] planwright ==> 45 * * * * T=<redacted>
+46 * * * * planwright # don't 'TOKEN=lk-27 lk-28' ==> 46 * * * * planwright # don't 'TOKEN=<redacted>
+47 * * * * planwright %it's 'TOKEN=lk-29 lk-2a' ==> 47 * * * * planwright %it's 'TOKEN=<redacted>
+48 * * * * T=lk-2b%lk-2c lk-2d planwright ==> 48 * * * * T=<redacted>
 SHAPES
 {
   printf '# a comment naming planwright\n'
