@@ -892,7 +892,7 @@ waiting() {
 pending() {
   [ -n "$target" ] || return 0
   if pd_rows=$(/bin/bash "$script_dir/mc-event.sh" list --program "$program" --target "$target" --pending 2>/dev/null); then
-    D_PENDING=$(printf '%s' "$pd_rows" | awk 'NF { n++ } END { print n + 0 }')
+    D_PENDING=$(printf '%s\n' "$pd_rows" | mc_event_wakes 2>/dev/null | awk 'NF { n++ } END { print n + 0 }')
     printf 'pending\t%s\n' "$D_PENDING"
   else
     printf 'unreadable\tevents\n'
