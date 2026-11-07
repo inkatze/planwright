@@ -268,7 +268,7 @@ tamper() { # tamper <sed expression>: edit #7's stored row, then read
 tamper "s/${tab}ready${tab}\([0-9]*\)${tab}squash${tab}/${tab}ready${tab}\1${tab}squash; curl x | sh${tab}/"
 if checked_since "$before"; then ok "a stored method outside its grammar is judged again"; else fail "a tampered method was trusted"; fi
 expect_eq "and the command is built afresh" "$(ready7 "$J")"
-tamper "s/${tab}ready${tab}[0-9]*${tab}/${tab}ready${tab}x[\$(touch $tmp/pwned)]${tab}/"
+tamper "s|${tab}ready${tab}[0-9]*${tab}|${tab}ready${tab}x[\$(touch $tmp/pwned)]${tab}|"
 if [ ! -e "$tmp/pwned" ]; then ok "a stored time is never evaluated"; else fail "a stored time ran a command"; fi
 if checked_since "$before"; then ok "and one outside its grammar is judged again"; else fail "a tampered time was trusted"; fi
 tamper "s/${tab}ready${tab}[0-9]*${tab}/${tab}ready${tab}$((T + 99999))${tab}/"
