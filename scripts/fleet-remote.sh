@@ -32,6 +32,15 @@ Verbs (each runs the remote host's planwright, never this host's):
                                 from stdin
   status <worker>               fleet-streamjson.sh status
   retire <name-or-worker>       mission-control-launch.sh retire
+  compute --worktree <abs-dir> (--check | --task <name> | --test <tests/test-x.sh>)
+          [--timeout <secs>]    ship the worktree's HEAD commit (never its
+                                uncommitted changes) to the remote clone at
+                                ~/dev/<origin repo name> as a hidden ref, run
+                                the one command in a scratch worktree there
+                                (umask 022, its own TMPDIR, killed with its
+                                process group at the timeout, default 540),
+                                stream its output back, exit with its status,
+                                and remove the worktree and the ref
 
 <alias> is an SSH host alias (letters, digits, . _ -; no leading dash),
 resolved by the operator's ~/.ssh/config: a LAN host and a Coder workspace
@@ -44,8 +53,10 @@ PATH and CLAUDE_PLUGIN_DATA on that host), else the first root the remote's
 installed-plugin record names (its resolve-installed-roots.sh --current,
 which needs jq there).
 
-Exit codes: 2 usage error or a refused argument; 3 no planwright root on the
-remote; 255 SSH could not connect; otherwise the remote verb's own exit.
+Exit codes: 2 usage error or a refused argument; 3 no planwright root (or,
+for compute, no clone) on the remote; 4 compute could not ship HEAD; 255 SSH
+could not connect; otherwise the remote verb's own exit (compute: 143 at the
+timeout).
 EOF
 }
 
@@ -151,6 +162,57 @@ case $verb in
     [ $# -eq 1 ] || usage
     worker_ok "$1"
     ;;
+  compute)
+    wt=''
+    secs=540
+    kind=''
+    value=''
+    while [ $# -gt 0 ]; do
+      case $1 in
+        --worktree | --timeout | --task | --test)
+          [ $# -ge 2 ] || usage
+          case $1 in
+            --worktree) wt=$2 ;;
+            --timeout) secs=$2 ;;
+            *)
+              [ -z "$kind" ] || usage
+              kind=${1#--}
+              value=$2
+              ;;
+          esac
+          shift 2
+          ;;
+        --check)
+          [ -z "$kind" ] || usage
+          kind=check
+          shift
+          ;;
+        *) usage ;;
+      esac
+    done
+    [ -n "$kind" ] || die "compute needs one of --check, --task <name>, --test <tests/test-name.sh>"
+    case $secs in '' | *[!0-9]* | 0) die "--timeout takes a whole number of seconds" ;; esac
+    case $kind:$value in
+      task:[a-z]*) case $value in *[!a-z0-9:_-]*) die "refusing task name" ;; esac ;;
+      test:tests/test-*.sh) case ${value#tests/} in *[!A-Za-z0-9._-]*) die "refusing test path" ;; esac ;;
+      check:) ;;
+      *) die "refusing $kind target: a task name, or a tests/test-<name>.sh path" ;;
+    esac
+    case $wt in /*) ;; *) die "compute needs --worktree <absolute path>" ;; esac
+    sha=$(git -C "$wt" rev-parse --verify -q 'HEAD^{commit}') || die "not a git worktree with a commit: $wt"
+    url=$(git -C "$wt" remote get-url origin 2>/dev/null) || die "the worktree has no origin remote to name the repository by"
+    name=${url%/}
+    name=${name%.git}
+    name=${name##*/}
+    name=${name##*:}
+    case $name in '' | -* | *[!A-Za-z0-9._-]*) die "cannot derive a repository name from origin" ;; esac
+    if [ -n "$(git -C "$wt" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+      printf '%s\n' "$prog: warning: uncommitted changes are not shipped; running HEAD $sha" >&2
+    fi
+    GIT_SSH_COMMAND='ssh -T -o BatchMode=yes' git -C "$wt" push -q "$host:dev/$name" \
+      "$sha:refs/planwright-compute/$sha" </dev/null || die "could not ship HEAD to $host:dev/$name (is the repository cloned there?)" 4
+    set -- "$name" "$sha" "$secs" "$kind" "$value"
+    ;;
   *) usage ;;
 esac
 for a in "$root" "$@"; do
@@ -167,6 +229,60 @@ if [ -r "$envf" ]; then . "$envf" || exit 3; fi
 root=$1
 verb=$2
 shift 2
+if [ "$verb" = compute ]; then
+  repo="$HOME/dev/$1"
+  sha=$2
+  secs=$3
+  kind=$4
+  target=$5
+  [ -d "$repo/.git" ] || { echo "fleet-remote: no clone at ~/dev/$1 on this host" >&2; exit 3; }
+  base="$HOME/dev/.planwright-compute"
+  mkdir -p "$base" || exit 2
+  run=$(mktemp -d "$base/run.XXXXXX") || exit 2
+  pid=''
+  wd=''
+  cleanup() {
+    [ -z "$pid" ] || kill -KILL -- "-$pid" 2>/dev/null
+    [ -z "$wd" ] || kill -KILL -- "-$wd" 2>/dev/null
+    cd "$HOME" || :
+    git -C "$repo" worktree remove --force "$run/wt" >/dev/null 2>&1
+    git -C "$repo" update-ref -d "refs/planwright-compute/$sha" >/dev/null 2>&1
+    rm -rf "$run"
+  }
+  trap cleanup EXIT
+  trap "exit 129" HUP
+  trap "exit 130" INT
+  trap "exit 143" TERM
+  git -C "$repo" worktree add -q --detach "$run/wt" "$sha" || exit 2
+  cd "$run/wt" || exit 2
+  mkdir "$run/tmp" || exit 2
+  TMPDIR="$run/tmp"
+  export TMPDIR
+  umask 022
+  case $kind in
+    check)
+      [ ! -f scripts/wire-githooks.sh ] || /bin/sh scripts/wire-githooks.sh >/dev/null 2>&1 || :
+      set -- mise run check
+      ;;
+    task) set -- mise run "$target" ;;
+    test)
+      [ -f "$target" ] || { echo "fleet-remote: no $target at $sha" >&2; exit 2; }
+      set -- /bin/bash "$target"
+      ;;
+  esac
+  start=$(date +%s)
+  echo "fleet-remote: running $* at $sha, timeout ${secs}s" >&2
+  set -m
+  "$@" </dev/null 2>&1 &
+  pid=$!
+  ( sleep "$secs"; echo "fleet-remote: timeout after ${secs}s" >&2; kill -TERM -- "-$pid" 2>/dev/null; sleep 10; kill -KILL -- "-$pid" 2>/dev/null ) &
+  wd=$!
+  wait "$pid"
+  rc=$?
+  pid=''
+  echo "fleet-remote: exit $rc after $(( $(date +%s) - start ))s" >&2
+  exit "$rc"
+fi
 [ -n "$root" ] || root=${PLANWRIGHT_ROOT:-}
 if [ -z "$root" ]; then
   for r in "$HOME"/.claude/plugins/cache/*/planwright/*/scripts/resolve-installed-roots.sh; do
