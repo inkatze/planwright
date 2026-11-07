@@ -161,6 +161,33 @@ test('the band draws the summary line above the prompt', async ($, on) => {
   }
 })
 
+// The health line: shown only when a check is out of bounds, an unknown one
+// said as such.
+test('the health section draws each check out of bounds, and nothing when all is well', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({
+      extra: [
+        'health\tworker-age\t3\tw-old\t3 workers live past 4h (oldest w-old, 6h)',
+        'health\tci-queue\t?\t-\tCI queue times unknown (the throughput measure is 3h old)',
+      ],
+    }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Health$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^3 workers live past 4h \(oldest w-old, 6h\)$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^CI queue times unknown/ })).toBeDefined()
+  await ui.unmount()
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toContain('· ⚠ health 2 ·')
+  await band.unmount()
+  w.set({ digest: digestText() })
+  await w.clock.advance(10_000)
+  const well = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await well.find({ type: 'Text', text: /^Health$/ })).toBeUndefined()
+  await well.unmount()
+})
+
 test('the band leaves a survey alone', async ($, on) => {
   const w = world(on)
   on('ui.render', ($, e) => {

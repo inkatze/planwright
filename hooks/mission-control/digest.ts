@@ -30,6 +30,7 @@ export function parseDigest(text: string): PanelDigest | null {
     isHandoverInstalled: false,
     holder: null,
     unreadable: [],
+    health: [],
     line: '',
   }
   let format = ''
@@ -142,6 +143,9 @@ export function parseDigest(text: string): PanelDigest | null {
         break
       case 'unreadable':
         if (f[1]) d.unreadable.push(f[1])
+        break
+      case 'health':
+        if (f[1] && f[4]) d.health?.push({ check: f[1], count: int(f[2]), worst: f[3] ?? '-', text: f.slice(4).join(' ') })
         break
       case 'line':
         d.line = f.slice(1).join(' ')

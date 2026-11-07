@@ -172,6 +172,20 @@ test('the presence marker is restamped every minute', SLOW, async ($, on) => {
   expect(ran(w, 'mc-panel.sh', 'presence').at(-1)).toEqual(expect.arrayContaining(['--target', 'alpha']))
 })
 
+// The health line compares every mission control's reading with the
+// threshold it hands over at; a session that compacts carries none.
+test('the restamp carries the context reading and the handover threshold', SLOW, async ($, on) => {
+  const w = world(on, { digest: digestText({ holder: 'registry' }) })
+  await boot($, w)
+  await w.clock.advance(60_000)
+  const last = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+  expect(last.slice(last.indexOf('--context'))).toEqual(['--context', '42', '--threshold', '70'])
+  w.set({ digest: digestText({ holder: 'attended' }) })
+  await w.clock.advance(60_000)
+  const attended = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+  expect(attended.slice(attended.indexOf('--threshold'))).toEqual(['--threshold', '-'])
+})
+
 test('the session end hands the target back to the relay', async ($, on) => {
   const w = world(on)
   await boot($, w)

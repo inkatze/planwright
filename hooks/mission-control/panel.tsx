@@ -49,6 +49,8 @@ export function bandText(view: PanelView): string {
     parts.push(`${flightCount(view)} in flight`, `${d.waiting ?? '?'} holding`)
     if (d.pending !== null && d.pending > 0) parts.push(`${d.pending} inbound`)
     parts.push(`rung ${d.rung.name}`)
+    const health = d.health ?? []
+    if (health.length > 0) parts.push(`⚠ health ${health.length}`)
   } else {
     parts.push(view.fault ? `no reading: ${view.fault}` : 'no reading yet')
   }
@@ -166,6 +168,16 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
         </Text>
       )}
       {d.unreadable.length > 0 && <Text color="error">Unreadable: {d.unreadable.join(', ')}</Text>}
+      {(d.health ?? []).length > 0 && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold color="warning">
+            Health
+          </Text>
+          {(d.health ?? []).map(check => (
+            <Text color={check.count === null ? 'error' : 'warning'}>{check.text}</Text>
+          ))}
+        </Box>
+      )}
       {Section(
         t,
         `In flight (${flightCount(view)})`,

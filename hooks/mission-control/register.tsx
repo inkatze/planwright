@@ -340,8 +340,25 @@ async function claim($: EngineInterface) {
 
 // On its own timer, so the lease the relay reads never lapses between
 // redraws, whatever the redraw cadence.
+// The context reading goes with it, for the health line every mission
+// control's panel draws: the threshold only where this session hands over.
 async function restampPresence($: EngineInterface) {
-  if (ctx) await run($, 'mc-panel.sh', ['presence', '--program', ctx.program, '--refresh', '--target', ctx.target])
+  if (!ctx) return
+  const v = await view($)
+  const pct = v?.contextPercent
+  const threshold = v?.digest?.holder === 'registry' ? v.digest.knobs['handover-context'] : undefined
+  await run($, 'mc-panel.sh', [
+    'presence',
+    '--program',
+    ctx.program,
+    '--refresh',
+    '--target',
+    ctx.target,
+    '--context',
+    pct === null || pct === undefined ? '-' : String(Math.min(100, Math.max(0, pct))),
+    '--threshold',
+    threshold === undefined ? '-' : String(threshold),
+  ])
 }
 
 async function tick($: EngineInterface) {
