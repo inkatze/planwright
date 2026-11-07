@@ -1642,6 +1642,11 @@ check_list_fails() {
   printf '%s\n' 'mc-keeper.sh stale'
 } >"$FIXLIST"
 check_list_fails "a list line nothing invokes" "mc-keeper.sh stale is in"
+{
+  cat "$VERBS"
+  printf '%s\n' 'fleet-streamjson.sh *'
+} >"$FIXLIST"
+check_list_fails "a list carrying a wildcard for the prompt-answer script" "must never pre-approve fleet-streamjson.sh answer"
 # The guard reads `<script> <verb>` lines with `read`, which skips a line
 # carrying a third word and drops a last line with no newline; the check
 # refuses both, so it never passes a list the guard reads differently.
