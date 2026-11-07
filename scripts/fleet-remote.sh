@@ -282,6 +282,7 @@ if [ "$verb" = compute ]; then
   rc=$?
   pid=''
   kill -KILL -- "-$wd" 2>/dev/null
+  wait "$wd" 2>/dev/null
   wd=''
   set +m
   exec 2>&3 3>&-
