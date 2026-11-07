@@ -2,9 +2,11 @@
 # Tests for what `fleet-streamjson.sh` does for workers no current supervisor
 # watches: the bare invocation (w1), `pending` on a dead worker (w2), the
 # `alarm-scan` sweep and its once-per-request push (w3), dead workers settled
-# rather than escalated (w4), and per-session TMPDIRs a final close never
-# crosses (w5). Each case's own comment says what it pins. Hermetic: every
-# fleet home is case-local and built by hand. Runs under /bin/bash (3.2).
+# rather than escalated (w4), per-session TMPDIRs a final close never crosses
+# (w5), workers that ended normally settled like dead ones (w6), and what is
+# not evidence of an end never read as one (w7). Each case's own comment says
+# what it pins. Hermetic: every fleet home is case-local and built by hand.
+# Runs under /bin/bash (3.2).
 set -u
 LC_ALL=C
 export LC_ALL
@@ -328,3 +330,99 @@ ln -s "$outside" "$hreal/scratch/$(printf 'e%.0s' $(seq 40))"
   || fail "w5: a session pointer under a linked worktree root must be refused"
 [ -d "$outside/$(printf 'f%.0s' $(seq 40))/keep" ] || fail "w5: the refused pointer removed something outside the fleet home"
 echo "ok: w5 sessions sharing a checkout get distinct TMPDIRs, and retiring one leaves the other's intact"
+
+# ---------------------------------------------------------------------------
+# w6: a worker whose supervisor exited normally (both pid files removed, a
+#     result written) is as gone as a dead one: what it left pending is
+#     settled, never escalated, and `pending` marks it dead. A missing result,
+#     or a pid file still standing, is not that evidence.
+# ---------------------------------------------------------------------------
+home="$tmp/h6"
+ended="$home/streamjson/sjended"
+mkreq "$ended" "$id1" 1000
+printf 'result\tsuccess\t1100\tfalse\n' >"$ended/result"
+fenv "$home" "$FA" decide sjended demo:task-1 \
+  "OVERDUE permission request tool Bash req aaaa1111 - answer via fleet-streamjson.sh answer" deny "allow|deny" high \
+  || fail "w6: cannot seed the stale row"
+out=$(fenv "$home" "$SJ" pending sjended) || fail "w6: pending exited non-zero"
+printf '%s\n' "$out" | awk -v h="== sjended $id1 Bash" '$0 == h { getline; print; exit }' \
+  | grep -q '^-- worker dead: ' || fail "w6: the ended worker's request must be marked dead, got: $out"
+# Not ended: no result yet (a launch before its pid files land), a result
+# still being written, and a result beside live pids (a persistent worker
+# between turns).
+bare="$home/streamjson/sjbare"
+mkreq "$bare" "$id1" 1000
+torn="$home/streamjson/sjtorn"
+mkreq "$torn" "$id1" 1000
+printf 'result\tsuccess' >"$torn/result"
+turn="$home/streamjson/sjturn"
+mkreq "$turn" "$id1" 1000
+printf 'result\tsuccess\t1100\tfalse\n' >"$turn/result"
+printf '%s\n' "$$" >"$turn/supervisor.pid"
+printf '%s\n' "$$" >"$turn/worker.pid"
+# A launch in flight passes through the same shape (an old result, its pid
+# files not yet written), so its election, held by a live process, holds the
+# settle off.
+launching="$home/streamjson/sjlaunching"
+mkreq "$launching" "$id1" 1000
+printf 'result\tsuccess\t1100\tfalse\n' >"$launching/result"
+ln -s "$$-$(date +%s)-1" "$launching/launch.lock"
+# A relaunch's own stop leaves the same shape before its recover runs; the
+# settle taking the recover election there would refuse that recover.
+relaunching="$home/streamjson/sjrelaunching"
+mkreq "$relaunching" "$id1" 1000
+printf 'result\tsuccess\t1100\tfalse\n' >"$relaunching/result"
+ln -s "$$-$(date +%s)-1" "$relaunching/relaunch.lock"
+out=$(fenv "$home" "$SJ" alarm-scan --once --now 5000 --threshold 900) || fail "w6: alarm-scan exited non-zero"
+case $out in *sjlaunching*) fail "w6: a worker with a launch in flight was settled or escalated, got: $out" ;; esac
+grep -q "${tab}pending\$" "$launching/journal" || fail "w6: a launch in flight must leave the request pending"
+[ -L "$launching/launch.lock" ] || fail "w6: the settle must leave a live launch's election alone"
+case $out in *sjrelaunching*) fail "w6: a worker with a relaunch in flight was settled or escalated, got: $out" ;; esac
+grep -q "${tab}pending\$" "$relaunching/journal" || fail "w6: a relaunch in flight must leave the request pending"
+[ ! -e "$relaunching/recover.lock" ] && [ ! -L "$relaunching/recover.lock" ] || fail "w6: the settle must not take the recover election under a live relaunch"
+printf '%s\n' "$out" | grep -qx 'dead sjended 1' || fail "w6: the ended worker must be settled, got: $out"
+case $out in *"alarm sjended"*) fail "w6: an ended worker must never be escalated, got: $out" ;; esac
+case $(fenv "$home" "$FA" queue) in *sjended*) fail "w6: the ended worker's request row must leave the queue" ;; esac
+grep -q "^$id1${tab}permission${tab}1000${tab}undeliverable${tab}" "$ended/journal" \
+  || fail "w6: the ended worker's receipt must be closed undeliverable, got: $(cat "$ended/journal")"
+case $out in *"dead sjbare"* | *"dead sjtorn"* | *"dead sjturn"*) fail "w6: settled what it must not, got: $out" ;; esac
+for w in sjbare sjtorn sjturn; do
+  printf '%s\n' "$out" | grep -q "^alarm $w $id1 " || fail "w6: $w must still be escalated, got: $out"
+done
+[ "$(pushes "$home")" = 3 ] || fail "w6: only the workers not known to be gone are pushed, pushed $(pushes "$home")"
+echo "ok: w6 an ended worker's pending request is settled like a dead one's, never escalated"
+
+# ---------------------------------------------------------------------------
+# w7: what is not positive evidence of an end is never read as one. A pid
+#     file that records no pid is not a dead pid, whatever the other file
+#     says, and a `result` that is not a regular file is not a result record;
+#     reading one (a fifo) must not hang the machine-wide sweep either.
+# ---------------------------------------------------------------------------
+home="$tmp/h7"
+garbled="$home/streamjson/sjgarbled"
+mkreq "$garbled" "$id1" 1000
+printf '%s\n' "$dead_pid" >"$garbled/supervisor.pid"
+printf 'not-a-pid\n' >"$garbled/worker.pid"
+piped="$home/streamjson/sjpiped"
+mkreq "$piped" "$id1" 1000
+mkfifo "$piped/result"
+(fenv "$home" "$SJ" alarm-scan --once --now 5000 --threshold 900 >"$tmp/w7.out" 2>&1) &
+w7_pid=$!
+n=0
+while kill -0 "$w7_pid" 2>/dev/null && [ "$n" -lt 100 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+if kill -0 "$w7_pid" 2>/dev/null; then
+  kill "$w7_pid" 2>/dev/null
+  : >"$piped/result" &
+  fail "w7: alarm-scan hung reading a result that is a fifo"
+fi
+wait "$w7_pid" || fail "w7: alarm-scan exited non-zero, got: $(cat "$tmp/w7.out")"
+out=$(cat "$tmp/w7.out")
+case $out in *"dead sjgarbled"* | *"dead sjpiped"*) fail "w7: settled what it must not, got: $out" ;; esac
+for w in sjgarbled sjpiped; do
+  grep -q "${tab}pending\$" "$home/streamjson/$w/journal" || fail "w7: $w must stay pending"
+  printf '%s\n' "$out" | grep -q "^alarm $w $id1 " || fail "w7: $w must still be escalated, got: $out"
+done
+echo "ok: w7 a garbled pid file or a non-regular result is never read as the worker's end"

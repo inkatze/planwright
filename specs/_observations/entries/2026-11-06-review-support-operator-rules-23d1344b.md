@@ -1,0 +1,1 @@
+- 2026-11-06 [planwright] Review support needs operator-defined rules, including unusual ones such as 'help with reviews people are not picking up', while staying cost-efficient and at least as effective; a review of a colleague's PR always stays a draft until the operator approves its exact text.

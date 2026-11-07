@@ -63,13 +63,13 @@ chmod +x "$tmp/bin/gh"
 cat >"$tmp/page.json" <<'EOF'
 {"data": {"rateLimit": {"remaining": @REMAINING@, "resetAt": "1970-04-15T04:00:00Z"},
  "viewer": {"login": "me"},
- "repository": {"pullRequests": {"nodes": [
-  {"number": 7, "headRefOid": "@HEAD@", "isDraft": false, "mergeable": "MERGEABLE",
+ "repository": {"nameWithOwner": "acme/widgets", "pullRequests": {"nodes": [
+  {"number": 7, "headRefOid": "@HEAD@", "headRefName": "feat-x", "baseRefName": "main", "headRepository": {"nameWithOwner": "acme/widgets"}, "isDraft": false, "mergeable": "MERGEABLE",
    "reviewDecision": "APPROVED", "author": {"login": "me"},
    "reviewThreads": {"nodes": [{"isResolved": false}, {"isResolved": true}, {"isResolved": false}]},
    "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]},
    "reviews": {"totalCount": 3}, "comments": {"totalCount": 4}},
-  {"number": 9, "headRefOid": "@HEAD@", "isDraft": true, "mergeable": "UNKNOWN",
+  {"number": 9, "headRefOid": "@HEAD@", "headRefName": "feat-y", "baseRefName": "release", "headRepository": {"nameWithOwner": "other/widgets"}, "isDraft": true, "mergeable": "UNKNOWN",
    "reviewDecision": null, "author": {"login": "other"},
    "reviewThreads": {"nodes": []},
    "commits": {"nodes": [{"commit": {"statusCheckRollup": null}}]},

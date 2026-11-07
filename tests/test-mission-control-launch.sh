@@ -1050,7 +1050,7 @@ if [ -n "$task_wt" ] && [ -d /proc/self ]; then
     n=$((n + 1))
   done
   SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope demo:task-1 --brief "$tmp/brief.md"
-  [ "$RC" = 3 ] && case $ERR in *"process $sleeper"*) true ;; *) false ;; esac && no_session demo:task-1 reviewer \
+  [ "$RC" = 3 ] && case $ERR in *"process "*"runs in $task_wt"*) true ;; *) false ;; esac && no_session demo:task-1 reviewer \
     && ok "a process running in the worktree holds it as a live session" \
     || fail "a launch beside a live process in the worktree: exit $RC, $ERR"
   kill "$sleeper" 2>/dev/null
