@@ -100,13 +100,15 @@ norm() { tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\{1,\}/ /g; s/^/ /; s/$/ /
 
 # visible <doc>: the doc's text with link targets dropped, so a link to a
 # reference page is not read as a file name said to the operator, and with
-# each closed `sh` block dropped: a command the operator runs themselves
-# names what it runs. A block that never closes is kept, so a lost fence
-# cannot hide the rest of the doc.
+# each closed `sh` block's commands dropped: a command the operator runs
+# themselves names what it runs. Its `#` comments are prose and stay. A
+# block that never closes is kept, so a lost fence cannot hide the rest of
+# the doc.
 visible() {
   awk '
-    !c && /^```sh$/ { c = 1; held = $0; next }
-    c && /^```$/ { c = 0; held = ""; next }
+    !c && /^```sh$/ { c = 1; held = $0; kept = ""; next }
+    c && /^```$/ { c = 0; held = ""; if (kept != "") print kept; kept = ""; next }
+    c && /^[[:space:]]*#/ { held = held "\n" $0; kept = kept (kept == "" ? "" : "\n") $0; next }
     c { held = held "\n" $0; next }
     { print }
     END { if (c) print held }' "$1" | sed 's/](\([^)]*\))/]/g'
@@ -183,6 +185,8 @@ if [ -z "$(check_register "$probe/op.md")" ]; then ok "probe: the operator's own
 fence='```'
 printf 'Run this:\n\n%ssh\n<planwright>/scripts/mission-control-launch.sh launch --backend tmux\n%s\n' "$fence" "$fence" >"$probe/op.md"
 if [ -z "$(check_register "$probe/op.md")" ]; then ok "probe: a command in a closed sh block passes"; else fail "probe: a command in a closed sh block was refused"; fi
+printf '%ssh\n# then the orchestrator starts\nx\n%s\n' "$fence" "$fence" >"$probe/op.md"
+if [ -n "$(check_register "$probe/op.md")" ]; then ok "probe: a comment in a closed sh block is still checked"; else fail "probe: a comment in a closed sh block passed the register"; fi
 printf '%ssh\nx\n%s\n\nRun mc-config.sh.\n' "$fence" "$fence" >"$probe/op.md"
 if [ -n "$(check_register "$probe/op.md")" ]; then ok "probe: prose after a sh block is still checked"; else fail "probe: prose after a sh block passed the register"; fi
 printf '%ssh\nx\n\nRun mc-config.sh.\n' "$fence" >"$probe/op.md"
