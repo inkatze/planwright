@@ -272,14 +272,19 @@ if [ "$verb" = compute ]; then
   esac
   start=$(date +%s)
   echo "fleet-remote: running $* at $sha, timeout ${secs}s" >&2
+  exec 3>&2 2>/dev/null
   set -m
   "$@" </dev/null 2>&1 &
   pid=$!
-  ( sleep "$secs"; echo "fleet-remote: timeout after ${secs}s" >&2; kill -TERM -- "-$pid" 2>/dev/null; sleep 10; kill -KILL -- "-$pid" 2>/dev/null ) &
+  ( sleep "$secs"; echo "fleet-remote: timeout after ${secs}s" >&3; kill -TERM -- "-$pid" 2>/dev/null; sleep 10; kill -KILL -- "-$pid" 2>/dev/null ) &
   wd=$!
   wait "$pid"
   rc=$?
   pid=''
+  kill -KILL -- "-$wd" 2>/dev/null
+  wd=''
+  set +m
+  exec 2>&3 3>&-
   echo "fleet-remote: exit $rc after $(( $(date +%s) - start ))s" >&2
   exit "$rc"
 fi
