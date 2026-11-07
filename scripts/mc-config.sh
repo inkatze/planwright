@@ -127,8 +127,8 @@ Usage:
             than mission_control_launch_backend now resolves to: a
             per-call --backend, or a knob changed since the launch
         cron<TAB><line>             a crontab line naming planwright or
-            claude in any case, or a repository or the home of the program, every
-            NAME=value on it printed NAME=<redacted>
+            claude in any case, or a repository or the home of the
+            program, every NAME=value on it printed NAME=<redacted>
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
             launches or cron) whose read failed; for overrides, also a
             layer that is malformed or sets a knob twice or as key : v,
