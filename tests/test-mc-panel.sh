@@ -216,6 +216,12 @@ mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
 expect_eq "the line names the pull requests ready to merge" "mission control alpha: 7 in flight, 2 waiting, 2 ready to merge, 1 pending, rung normal, tracker snapshot 30s old"
 mc_run mc-panel.sh text --program alpha
 expect_out "and so does the text panel" "ready to merge: 2"
+# A judgment that left any pull request unknown is no number.
+printf 'state\tunjudged\n' >"$runtime/merge-ready.tsv"
+mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
+expect_out "an unknown count reads as unknown in the line" "2 waiting, ? ready to merge,"
+mc_run mc-panel.sh text --program alpha
+expect_out "and in the text panel" "ready to merge: unknown (the merge-ready store cannot be read)"
 rm -f "$runtime/merge-ready.tsv"
 PATH="$tmp/bin-down:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030

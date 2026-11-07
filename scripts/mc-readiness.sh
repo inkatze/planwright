@@ -726,21 +726,16 @@ case $verb in
     [ -n "$program" ] || program=${PLANWRIGHT_MC_PROGRAM:-}
     [ -n "$program" ] || usage
     mc_require_program "$program"
-    sources=$(/bin/bash "$script_dir/mc-program.sh" get "$program" sources) || mc_fail "the source map of program $program does not resolve"
-    source=$(printf '%s\n' "$sources" | awk -F '\t' '$1 == "code-state" && $3 == "snapshot" { print $2 }')
-    # A program whose code state is not snapshotted has nothing to watch.
-    [ -n "$source" ] || exit 0
-    snap=$(/bin/bash "$script_dir/mc-snapshot.sh" read --program "$program" "$source")
+    # A program whose code state is not snapshotted, or not freshly enough,
+    # has nothing to watch yet.
+    mc_code_state "$program"
     case $? in
       0) ;;
-      3) exit 0 ;;
-      *) mc_fail "the $source snapshot cannot be read" ;;
+      1) mc_fail "the source map of program $program does not resolve" ;;
+      2) mc_fail "the $MC_CS_SOURCE snapshot cannot be read" ;;
+      *) exit 0 ;;
     esac
-    # A snapshot past twice its cadence (the most any budget rung stretches
-    # a refresh) may show a head long gone; wait for a fresh one.
-    if ! printf '%s\n' "$snap" | head -n 1 | awk -F '\t' '$5 == "age" && $7 == "cadence" { ok = ($6 + 0 <= 2 * ($8 + 0)) } END { exit !ok }'; then
-      exit 0
-    fi
+    snap=$MC_CS_ROWS
     runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime directory"
     seen="$runtime/readiness-announced"
     due=$(printf '%s\n' "$snap" | awk -F '\t' '$1 == "pr" && $5 == "true" && $8 == "0" && $9 == "SUCCESS" { print $2 "\t" $3 "\t" $4 }')
@@ -750,8 +745,7 @@ case $verb in
       [ -n "$w_slug" ] || continue
       live="$live$w_slug#$w_n	$w_head
 "
-      w_subject="${w_slug%%/*}:${w_slug#*/}:$w_n"
-      mc_valid_handle "$w_subject" || w_subject=$(mc_subject pr "$w_slug#$w_n")
+      w_subject=$(mc_pr_subject "$w_slug" "$w_n")
       mc_announce "$program" "$seen" "$w_slug#$w_n	$w_head" readiness-due "$w_subject" \
         "$w_slug#$w_n head $(printf '%s' "$w_head" | cut -c1-12)" || rc=1
     done <<EOF

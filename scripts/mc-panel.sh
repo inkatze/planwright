@@ -103,7 +103,8 @@ Usage:
                                              queue itself
         merge-ready<TAB><n>                  pull requests ready to merge
                                              (scripts/mc-merge-ready.sh count);
-                                             the line adds them when any are
+                                             the line names them unless none,
+                                             `?` when they cannot be told
         pending<TAB><n>                      the target's events not yet
                                              submitted (with --target)
         decision<TAB><time><TAB><subject><TAB><act>
@@ -184,8 +185,8 @@ Usage:
         mission control <p>
         in flight: <n>               then one indented line per flight
         waiting: <n>
-        ready to merge: <n>          when any pull request is
-                                     (scripts/mc-merge-ready.sh)
+        ready to merge: <n>          unless none, `unknown` when they
+                                     cannot be told (mc-merge-ready.sh)
         pending wakes: <n>           with --target
         rung: <rung> (<reason>)
       a store that cannot be read is said as unknown, with why
@@ -723,7 +724,7 @@ mc_now_arg "$now"
 # A count from a store that could not be read is unknown, never a number.
 D_FLIGHT='?'
 D_WAITING='?'
-D_MERGE=0
+D_MERGE_READY='?'
 D_PENDING='?'
 D_RUNG=-
 D_OLDEST=""
@@ -895,9 +896,9 @@ waiting() {
   fi
 }
 
-merging() {
+merge_ready() {
   if mg_n=$(/bin/bash "$script_dir/mc-merge-ready.sh" count --program "$program" 2>/dev/null) && mc_valid_uint "$mg_n"; then
-    D_MERGE=$mg_n
+    D_MERGE_READY=$mg_n
     printf 'merge-ready\t%s\n' "$mg_n"
   else
     printf 'unreadable\tmerge-ready store\n'
@@ -1113,7 +1114,7 @@ holder() {
 
 the_line() {
   ln_text="mission control $program: $D_FLIGHT in flight, $D_WAITING waiting"
-  [ "$D_MERGE" = 0 ] || ln_text="$ln_text, $D_MERGE ready to merge"
+  [ "$D_MERGE_READY" = 0 ] || ln_text="$ln_text, $D_MERGE_READY ready to merge"
   [ -z "$target" ] || ln_text="$ln_text, $D_PENDING pending"
   ln_text="$ln_text, rung $D_RUNG"
   [ -z "$D_OLDEST" ] || ln_text="$ln_text, $D_OLDEST"
@@ -1126,13 +1127,14 @@ text_panel() {
   {
     flights
     waiting
-    merging
+    merge_ready
     pending
     budget
   } | P=$program awk -F '\t' '
     $1 == "flight" { f[++n] = "  " $2 "  " $3 "  (" $4 ")" }
     $1 == "waiting" { w = ($2 == "-" ? "shown by the host" : $2) }
     $1 == "merge-ready" { m = $2 + 0 }
+    $1 == "unreadable" && $2 == "merge-ready store" { m = "unknown (the merge-ready store cannot be read)" }
     $1 == "pending" { p = $2 }
     $1 == "unreadable" && $2 == "events" { p = "unknown (the events cannot be read)" }
     $1 == "rung" { r = $2 (($3 == "" || $3 == "-") ? "" : " (" $3 ")") }
@@ -1151,7 +1153,7 @@ text_panel() {
       print "in flight: " c
       for (i = 1; i <= n; i++) print f[i]
       print "waiting: " (w == "" ? "unknown" : w)
-      if (m > 0) print "ready to merge: " m
+      if (m != "" && m != 0) print "ready to merge: " m
       if (p != "") print "pending wakes: " p
       print "rung: " (r == "" ? "unknown" : r)
     }' | mc_clean_text
@@ -1242,7 +1244,7 @@ digest() {
   [ "$with_knobs" -eq 0 ] || knobs
   flights
   waiting
-  merging
+  merge_ready
   pending
   program_home
   decisions

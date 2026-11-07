@@ -593,3 +593,33 @@ mc_untrusted_git() { (mc_untrusted_git_env && git "$@"); }
 mc_subject() {
   printf '%s-%s\n' "$1" "$(printf '%s' "$2" | cksum | awk '{ print $1 }')"
 }
+
+# mc_pr_subject <owner/name> <n>: a pull request's event subject,
+# <owner>:<name>:<n>, or pr-<checksum> outside the subject grammar.
+mc_pr_subject() {
+  mps_s="${1%%/*}:${1#*/}:$2"
+  mc_valid_handle "$mps_s" || mps_s=$(mc_subject pr "$1#$2")
+  printf '%s\n' "$mps_s"
+}
+
+# mc_code_state <program>: the program's code-state snapshot, its status line
+# and rows in MC_CS_ROWS and its source in MC_CS_SOURCE. Returns 0 when it is
+# at most twice its cadence old (the most any budget rung stretches a
+# refresh), 1 when the source map does not resolve, 2 when the snapshot
+# cannot be read, 3 with no code-state snapshot source or none taken yet
+# (MC_CS_SOURCE empty for the first), 4 when it is older, so it may show a
+# head long gone.
+mc_code_state() {
+  MC_CS_ROWS=""
+  MC_CS_SOURCE=""
+  mcs_map=$(/bin/bash "$script_dir/mc-program.sh" get "$1" sources) || return 1
+  MC_CS_SOURCE=$(printf '%s\n' "$mcs_map" | awk -F '\t' '$1 == "code-state" && $3 == "snapshot" { print $2; exit }')
+  [ -n "$MC_CS_SOURCE" ] || return 3
+  MC_CS_ROWS=$(/bin/bash "$script_dir/mc-snapshot.sh" read --program "$1" "$MC_CS_SOURCE")
+  case $? in
+    0) ;;
+    3) return 3 ;;
+    *) return 2 ;;
+  esac
+  printf '%s\n' "$MC_CS_ROWS" | head -n 1 | awk -F '\t' '$5 == "age" && $7 == "cadence" { ok = ($6 + 0 <= 2 * ($8 + 0)) } END { exit !ok }' || return 4
+}
