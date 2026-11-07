@@ -30,8 +30,8 @@ per actor, and a token acting as the operator inherits the operator's admin bypa
 repository's main-branch ruleset also asks for zero approvals, so any token that can write contents
 and pull requests here can merge a green pull request into main. And any credential allowed to
 change workflow files (the operator's SSH key, or a `gh` login holding the `workflow` scope) can
-push a branch that adds a workflow with a write-capable `GITHUB_TOKEN`. So "a token that can push only its own branch"
-cannot be a token. It has to be a boundary that chooses the refspec.
+push a branch that adds a workflow with a write-capable `GITHUB_TOKEN`. So "a token that can push
+only its own branch" cannot be a token. It has to be a boundary that chooses the refspec.
 
 **Recommendation.** The work account holds **no GitHub write credential**, only a read-only
 fine-grained token. A worker commits in its own clone and asks the hub to publish. The hub fetches
@@ -48,8 +48,8 @@ with planwright's worker profile kept as a tripwire that only ever allows or den
 **What it retires.** For Mac workers: the per-command vetting loop, the worker command guard's
 auto-approval role and the pre-approval lists (under `bypassPermissions`; under `dontAsk` their
 allows remain the list of what may run), the stream-json permission queue's traffic, and the
-pending-prompt alarms and sweeps. They stay for this host's local workers until those move into an isolated
-account too (the last migration phase, an open question).
+pending-prompt alarms and sweeps. They stay for this host's local workers until those move into an
+isolated account too (the last migration phase, an open question).
 
 **Decisions for the operator** are in [Open questions](#open-questions-for-the-operator), each with
 options and a recommendation. The first one, the credential shape, is the one that matters most.
@@ -170,8 +170,8 @@ work runs wherever it fits, with CI as the gate of record.**
   over SSH outside any Claude Code session, so the Bash sandbox never covers it. With no GitHub
   write or 1Password credential left in the account, its credential exposure (`remote-worker-rung`
   D-16, REQ-G1.6) shrinks to the Claude login and the read-only GitHub token, both of which a
-  compute run can still read (Section 4). Its
-  results are advisory: a compromised account can fake them, and CI decides.
+  compute run can still read (Section 4). Its results are advisory: a compromised account can fake
+  them, and CI decides.
 
 ## 3. How the hub supervises
 
@@ -321,8 +321,7 @@ administrator installs; the credential lists from GitHub's side.
 On the hub side the probe asserts that the publish verb refuses a canary branch for each refusal
 class, and a periodic audit matches GitHub events on the worker branch prefix and on the PRs in the
 hub's dispatch records (pushes, comments, ready flips) against the hub's own publish log by head
-SHA, PR and comment id. Since the hub acts as
-the operator (Q2 (a)), identity alone cannot separate the hub's writes from a stolen operator
+SHA, PR and comment id. Since the hub acts as the operator (Q2 (a)), identity alone cannot separate the hub's writes from a stolen operator
 credential; the log can. The audit's own output is reported, never silently green.
 
 ## 5. Approval machinery: what this retires, what stays, the migration
@@ -413,8 +412,8 @@ branch. (c) Allow, relying on review: unsafe, since the workflow runs before any
 
 **Q4. The Mac's 1Password service token.** (a) **Recommended:** remove it. The hub renders what the
 Mac's playbook needs and the files are copied in at the console playbook run, since none of it is
-secret (the read-only GitHub token is installed the same way, per Section 4). (b) Keep it in a separate, second macOS account
-that runs only the playbook. (c) Accept that worker code can read the dotfiles vault.
+secret (the read-only GitHub token is installed the same way, per Section 4). (b) Keep it in a
+separate, second macOS account that runs only the playbook. (c) Accept that worker code can read the dotfiles vault.
 
 **Q5. The Claude login after a reboot.** (a) **Recommended after a probe:** a long-lived token
 (`claude setup-token`, D-11's documented fallback) in an owner-only file, with Bash commands
@@ -422,8 +421,7 @@ sandboxed away from it and a Read deny rule on the file. The launcher reads it f
 process only, never through `remote-env.sh`, which every channel verb (`compute` included) sources
 and which must hold no secrets; D-11 currently loads it through that file. That removes the manual
 keychain unlock after each reboot. The probe checks that the token does not leak into commands'
-environment. The
-trade-off: a compromised account can read this token, which lives longer than a keychain session.
+environment. The trade-off: a compromised account can read this token, which lives longer than a keychain session.
 (b) Keep the keychain login and unlock it by hand after each reboot; a compromised account can
 still use it while unlocked.
 
