@@ -28,24 +28,27 @@ obs:bc9ff4f3 (offload windows).
    `specs/harness-rebaseline/` (Ready), has no task landed.
 2. **CI wall time went from about 2 minutes (July) to about 60 minutes
    (November), mostly from the platform matrix, not tests.** macOS and Alpine
-   began running on every PR on 2026-10-30 (`d59e99f6`); macOS shards run 8
-   to 27 minutes and can first wait up to about 80 minutes for a runner
-   (runs since 11-01). Linux shards run 2 to 5 minutes.
+   began running on every PR on 2026-10-30 (`d59e99f6`); macOS shards
+   (sharded since 11-04) run 8 to 27 minutes and can first wait up to about
+   80 minutes for a runner. Linux shards run 2 to 5 minutes.
 3. **The test suite grew about tenfold in four months, and its budgets
    followed the growth instead of limiting it.** 41 test files at v0.2.0,
    447 at v0.67.0. The suite total budget was raised three times in a month,
    then replaced by a per-file mean whose own comment says adding files is
    free (`config/test-time-budget.yml`). No rule prunes or consolidates tests.
-4. **Nothing runs only the tests a change affects.** Every PR runs the whole
+4. **Nothing in the gate or CI runs only the tests a change affects.** The
+   per-fix selector (`scripts/check-diff-scoped.sh`) exists, but no skill
+   calls it. Every PR runs the whole
    suite on three platforms (`.github/workflows/ci.yml` has no `paths:`
    filter), and `/execute-task` runs the full local suite before convergence
    even on an existing PR. The designed fix (`full_suite_evidence` and
    `local-then-ci`; `specs/test-throughput/` Tasks 10, 16 and 17) is unbuilt.
 5. **Task build time rose about sevenfold from July to October, and about
-   as much at equal PR size, then fell back in November.** Not a within-spec effect (task 1
-   versus task N shows no trend). The drivers with the strongest evidence are
-   the slower, broader gate and more review steps per unit (polish, gemini
-   panel and cubic stacked on most October units). Polish is the largest
+   as much at equal PR size, then fell back in November.** Not a
+   within-spec effect (task 1 versus task N shows no trend). The drivers
+   with the strongest evidence are the slower, broader gate and more review
+   steps per unit (polish, gemini panel and cubic stacked on most October
+   units). Polish is the largest
    recorded wall-time sink.
 6. **The cost machinery mostly ships dark.** Model allocation adapts nothing
    by default (`allocation_adaptation: "off"`, `config/defaults.yml`),
@@ -54,17 +57,18 @@ obs:bc9ff4f3 (offload windows).
    reaper only observes (`fleet_sweep_reap: observe`), and the heavy-run
    admission check (`mc-budget.sh admit heavy`) has no caller.
 7. **Spend is invisible.** No token or dollar figure is tracked against a
-   budget anywhere; the only token readers are two review-effectiveness eval
-   tools (`scripts/review-cost.sh`, `scripts/review-backtest-reviewer.sh`).
+   budget anywhere; the only token readers are review-effectiveness eval
+   tools (`scripts/review-cost.sh`, and the backtest harness
+   `scripts/review-backtest.sh` with its `scripts/review-backtest-reviewer.sh`).
    A dollar ceiling was "parked as a pending seed" by `specs/fleet-autonomy/`
    and the seed was never written.
 8. **Idle sessions are retired automatically only when their tracked PR
-   merges or closes.** A reviewer, panel
-   or offload session with no tracked PR is never retired, and the offload
-   tmux rung names every window `offload-<pid>`.
+   merges or closes.** A reviewer, panel or offload session with no tracked
+   PR is never retired automatically, and a direct offload call names its
+   tmux window `offload-<pid>`.
 9. **Observations pile up unconsumed in exactly these themes.** 859 open
    fragments; whole families recur (spawn cost, gate locks and pool waits,
-   secret scan crossing worktrees, allocation never wired) without a
+   secret scan crossing worktrees, allocation shipping dark) without a
    consuming spec.
 
 ## The operator's asks: where each one stands
@@ -76,9 +80,9 @@ obs:bc9ff4f3 (offload windows).
 | 3. Doctor proposing the minimal permission set | Close: Task 20 posture check, draft PR #844 | A `propose` verb diffing duty verbs against loaded allow rules | Amend Task 20 while in flight |
 | 4. Spend in the loop, top spenders, cheaper tiers, launch estimates | Account usage percentages only | A `spend` budget dimension, a daily by-kind report, cheaper shipped tiers for mechanical kinds, an estimate clause before fan-outs | mission-control amendment plus a task; tier defaults under model-allocation |
 | 5. Context size: hubs self-succeed at breaks | Recorded already: obs:32bde2c6, obs:3b1fad05, obs:1f599c9d (PR #857) | As those observations state | mission-control amendment |
-| 6. Offload windows named and closed | Naming is possible (`--name`) but unused by default; no close path a finished session can reach | Default name from the unit; a retire verb on the dispatch seam | offload or fleet-lifecycle-closure amendment |
+| 6. Offload windows named and closed | Naming is possible (`--name`, which the mission-control launcher passes), but a direct offload call defaults to `offload-<pid>`; no close path a finished session can reach | Default name from the unit; a retire verb on the dispatch seam | offload or fleet-lifecycle-closure amendment |
 | /handoff duty inventory | Partly: the handover file carries items and sessions, not duties | A `duty` record plus an inventory verb sorting each duty | mission-control amendment plus a task |
-| Test cost and growth | Sharding, per-file budgets, the gate pool | Ship `full_suite_evidence`; gate macOS per PR on what changed; a growth and pruning rule | test-throughput open tasks plus a new rule |
+| Test cost and growth | Sharding, per-file budgets, the gate pool | Ship `full_suite_evidence`; gate macOS per PR on what changed; a growth and pruning rule | test-throughput open tasks, a universal-binary amendment of REQ-B1.6 for per-PR platform gating, and a new rule |
 | Task build time | Step timings in step records since 2026-10-11; no per-unit record of wall time, tokens and rounds | Record per-unit wall time, tokens and rounds | harness-rebaseline REQ-A1.1 |
 
 <details>
@@ -115,7 +119,7 @@ held past a new `mission_control_idle_retire` knob for a session with no
 tracked open PR or whose deliverable is reported; retire it through the
 launcher with the act logged; add an `idle` digest record from the samples
 `mc-stall` already keeps. Related: obs:083b73d4 (panel counted dead rows as
-in flight; open PR #848), draft PR #842 (closes the permission requests a
+in flight; fixed by #848, merged 2026-11-06), draft PR #842 (closes the permission requests a
 finished stream-json worker left waiting).
 
 **3. Permission denials.** No `doctor` or prompt counter exists. The
@@ -137,7 +141,9 @@ steps, host load and a watcher spend class, with no tokens or money
 `scripts/mission-control-launch.sh` (reviewer to `execute_step`, ad-hoc to
 `offload`, tower and mission-control to `orchestrate_dispatch`, all three
 `inherit` by default; worker and orchestrator to `execution` and
-`bookkeeping`, unset by default); no key exists for research or walks.
+`bookkeeping`, whose `allocation_*` keys ship `unset` and so fall back to
+`fleet_model_execution: opus` and `fleet_model_bookkeeping: sonnet`); no key
+exists for research or walks.
 Smallest change: lift `review-cost.sh`'s token reader into a `spend`
 dimension with an optional budget in either unit (tokens or dollars; the
 program's usage rule needs dollars for enterprise accounts, obs:af17332a),
@@ -164,8 +170,8 @@ the unit (`offload-<unit>`, or the caller's `review-<pr>-<lens>`); the
 dispatch seam already registers the window id as its handle, so add a
 `retire <handle>` verb that closes exactly that window; the owner then
 closes it through a planwright script its permission profile already
-allows, never a raw tmux call. Touches the offload skill's dispatch contract and the tmux row of
-`doctrine/fleet-coordination-floor.md`.
+allows, never a raw tmux call. Touches the offload skill's dispatch
+contract and the tmux row of `doctrine/fleet-coordination-floor.md`.
 
 **/handoff.** `scripts/mc-handover.sh write` records program, predecessor,
 rules digest, open item ids and live session handles; `verify` checks the
@@ -300,10 +306,11 @@ August's 20 are in that total but not in the table. This is the one method
 used: monthly medians of that span, with a single size band as the control.
 Its caveats: it leaves out the worker's time before its first commit, it
 counts parks and waits as build time, and a spec bootstrapped from older
-commits inflates its first tasks. At equal size October is still slower: 1,000 to 3,000 changed lines took 1.10 h
-in July and 7.18 h in October. Within a spec there is no trend (median
-Spearman correlation of task order against build time 0.01 over 40 specs), so
-the slowdown is shared infrastructure and process, not harder tasks.
+commits inflates its first tasks. At equal size October is still slower:
+1,000 to 3,000 changed lines took 1.10 h in July and 7.18 h in October.
+Within a spec there is no trend (median Spearman correlation of task order
+against build time 0.01 over 40 specs), so the slowdown is shared
+infrastructure and process, not harder tasks.
 
 Where recorded wall time goes (352 step records across worktrees, all from
 2026-10-11 on): polish 99 runs, median 66 minutes, 220 hours in total, and
@@ -382,9 +389,10 @@ and 6).
 
 Acted on: the prompt-flood class (`specs/worker-permission-ergonomics/`,
 Tasks 1 to 15 merged); step resolution too slow for the 2 s guard deadline
-(`E/2026-10-02-guard-multipoint-resolve-089f3a5d.md`, fixed by one
-multi-point resolver run in #561, the fragment never archived and the
-deadline never re-measured). Open: polish audit writes
+(`E/2026-10-02-guard-multipoint-resolve-089f3a5d.md`; #561 resolves every
+point in one run, measured at 1.2 to 2.2 s at load 12 to 16, so a heavily
+loaded host can still fall back to the prompt; the fragment was never
+archived). Open: polish audit writes
 denied twice (82b9bba0, 34e406e0); every main merge needs an operator act
 because `--no-verify` is blocked (82612b46); the kickoff push refused
 (04bcb01a); a successor stalled on its own prompts (32bde2c6);
@@ -398,8 +406,9 @@ Acted on: `specs/model-allocation/` (Done) and `specs/fleet-autonomy/` usage
 ladder and per-kind models (`fleet_model_execution: opus`, bookkeeping
 `sonnet`). Open: everything that would make it bite. Adaptation off;
 per-step tiers unwired (`E/2026-10-05-step-tiers-cannot-raise-or-apply-e9ae3805.md`);
-no launch point passes `--step-type` (f17e821b); the feedback loop never
-invoked (7c8e69ca, 639cea17); a fleet entirely at the top tier records
+no launch point passes `--step-type` (f17e821b); the feedback loop, wired
+in #413 after 7c8e69ca and 639cea17 recorded it unreached, never fires with
+adaptation off; a fleet entirely at the top tier records
 nothing (270651d6); `docs/allocation.md` says the mechanism is dark;
 `specs/quota-handling/` Tasks 2 and 8 wait on custom-steps tasks that have
 all merged. Gaps: no dollar or token accounting (obs:af17332a; the
@@ -417,11 +426,11 @@ evidence); the heavy-run admission verb has no caller
 inversion with 60-minute stalls (ac484ef0); pool waits expiring (4d47cc6b);
 about one false red in four under load (66ae088f); the spawn-cost family of
 nine fragments (for example `E/2026-10-02-guard-hook-spawn-cost-ee336bb5.md`,
-about 78 thousand forks in one guard test file); `docs/recurring-failure-classes.md` load
-policy never picked up. Gaps: affected-tests selection exists only as the
-per-fix diff-scoped check (`scripts/check-diff-scoped.sh`,
-review-effectiveness REQ-D1.3), which no skill calls yet, and nothing
-selects tests for CI; per-PR platform gating is forbidden by the current
+about 78 thousand forks in one guard test file);
+`docs/recurring-failure-classes.md` load policy never picked up. Gaps:
+affected-tests selection exists only as the per-fix diff-scoped check
+(`scripts/check-diff-scoped.sh`, review-effectiveness REQ-D1.3), which no
+skill calls yet, and nothing selects tests for CI; per-PR platform gating is forbidden by the current
 rule (universal-binary REQ-B1.6 and `scripts/check-workflow-posture.sh`
 require every platform job on every PR); no growth or pruning rule (see
 Measurements).
@@ -432,14 +441,18 @@ Acted on: comment volume, handoff before bot review lands (consumed).
 Open: `specs/review-effectiveness/` (Active) carries every cost cut and has
 them unlanded: delta-directed lenses (REQ-B1.5), a fresh bounded context per
 pass (REQ-D1.1), doctrine resolved once per loop (REQ-D1.2), a blind pass
-replacing the whole-branch confirm (REQ-D1.5); Task 3's only dependency
-(Task 2) has merged, it has no PR, and Tasks 3.1, 7, 8 and 9 wait on it.
-Its research measured a median 17.0M tokens per convergence run (`specs/_pending/review-effectiveness-research.md`).
+replacing the whole-branch confirm (REQ-D1.5). Task 3's only dependency
+(Task 2) has merged; Task 3 was built on a local, unpushed branch and parked
+on 2026-10-25 for an operator ruling, because its rules grow the discovery
+doctrine while its Done-when requires no growth. It has no PR, and Tasks 3.1,
+7, 8 and 9 wait on it. Its research measured a median 17.0M tokens per
+convergence run (`specs/_pending/review-effectiveness-research.md`).
 Polish's iteration cap is ten (`skills/polish/SKILL.md`), where
 harness-rebaseline D-9 proposes two scaled to diff size. Observations: a
-59-file unit took five panel passes (a0add2f0), a shell-lexer guard seven
-polish passes to converge (47e8a423), a 53-minute panel that timed out after converging
-(5f46acd5), isolated review steps degrading to in-session (7f7e0c9f).
+59-file unit took five panel passes (a0add2f0), a guard built on a
+hand-written shell lexer took seven polish passes to converge (47e8a423), a
+53-minute panel timed out after converging (5f46acd5), and isolated review
+steps degraded to in-session (7f7e0c9f).
 
 ### Context size and succession
 
@@ -449,17 +462,21 @@ mission-control succession (Task 16), instruction budgets
 about 940 always-resident skill description words with no budget class
 (`E/2026-07-27-ctxeng-skill-description-surface-34cae1db.md`); real closure
 load above the error threshold while the guard reports green
-(4fbf9ceb); the context-engineering spec model-allocation scoped out, whose
-`ctxeng-*` seed fragments sit unconsumed, never drafted. Gap: no context or succession rule for workers.
+(4fbf9ceb); the context-engineering spec that model-allocation scoped out
+was never drafted, and most of its `ctxeng-*` seed fragments sit unconsumed
+(two were consumed by other specs). Gap: no context or succession rule for
+workers.
 
 ### Task build time
 
-No trail measures it. Tasks carry an authored effort estimate
-(`doctrine/spec-format.md`) and nothing compares it to actuals;
+Nothing measures it per unit: step records carry step timings since
+2026-10-11, but nothing sums them per unit. Tasks carry an authored effort
+estimate (`doctrine/spec-format.md`) and nothing compares it to actuals;
 `specs/harness-rebaseline/` REQ-A1.1 would record wall time, tokens, rounds
-and prompts per run and is not started. Stall observations (scratch root emptied c7ff1358, fixed
-by #841; a 28-minute sweep hang 581c7096; run-tests pool hangs 6ed98940 and
-69089148, now bounded by the per-file deadline) feed the long tail.
+and prompts per run and is not started. Stall observations (scratch root
+emptied c7ff1358, fixed by #841; a 28-minute sweep hang 581c7096 and
+run-tests pool hangs 6ed98940 and 69089148, all three now cut off by the
+per-file deadline from #790) feed the long tail.
 
 ### Handoff duties
 
@@ -482,7 +499,7 @@ by hand (9b382af6).
 
 ## Gaps
 
-**No trail at all:**
+**No trail toward a fix:**
 
 1. Efficiency and efficacy as an always-on doctrine for every skill and run.
 2. Selecting the tests a change affects for the full gate and CI (the only
@@ -510,7 +527,7 @@ by hand (9b382af6).
   test-time budgets (a test-throughput deferral) and quota-handling Tasks 2
   and 8 (awaiting input until custom-steps tasks merged, which they have).
 - Observation families still open: spawn cost (nine or more), secret scan
-  crossing worktrees (five), allocation never wired (four), throttle-elapse
+  crossing worktrees (five), allocation shipping dark (four), throttle-elapse
   flake (ten or more), fleet-stop timing under load (seven or more), the test
   supervisor leak (five).
 
@@ -522,8 +539,8 @@ scope: an always-on efficiency doctrine (waste is a finding in every skill,
 with a cost line in each run's handoff); per-run measurement of wall time,
 tokens, rounds and prompts (absorbing harness-rebaseline REQ-A1.1 rather than
 duplicating it); test economy (affected-tests selection, per-PR platform
-gating, a growth and pruning rule, and building and turning on
-`full_suite_evidence`);
+gating through an amendment of universal-binary REQ-B1.6, a growth and
+pruning rule, and building and turning on `full_suite_evidence`);
 spend accounting in tokens or dollars with cheaper shipped tiers for
 mechanical work; idle-session retirement across every launch rung, offload
 included. The alternative is to finish what is already signed off first
