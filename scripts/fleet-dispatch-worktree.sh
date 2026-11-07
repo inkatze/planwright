@@ -1952,7 +1952,13 @@ launch_record_drop() {
   [ -z "$LAUNCH_RECORD" ] || rm -f -- "$LAUNCH_RECORD"
   [ "${1-}" != keep-scratch ] || return 0
   case $LAUNCH_TMPDIR in
-    /?*) rm -rf -- "$LAUNCH_TMPDIR" 2>/dev/null || warn "could not remove the scratch root $LAUNCH_TMPDIR" ;;
+    /?*)
+      _ld_home=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || _ld_home=''
+      if [ -z "$_ld_home" ] \
+        || ! /bin/sh "$script_dir/fleet-scratch.sh" release "$_ld_home" "$LAUNCH_TMPDIR" >/dev/null 2>&1 </dev/null; then
+        warn "could not remove the scratch root $LAUNCH_TMPDIR"
+      fi
+      ;;
   esac
 }
 

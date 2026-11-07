@@ -365,7 +365,7 @@ pending_prompts() {
     # announced here whatever program the worker belongs to.
     if [ "$pp_tag" = dead ]; then
       mc_announce "$program" "$pp_seen" "dead	$pp_w" stream-json-worker-dead "$pp_w" \
-        "stream-json worker $pp_w is dead with $pp_id request(s) it left pending, now closed since nothing can answer them; mission-control-launch.sh retire $pp_w closes what is left" \
+        "stream-json worker $pp_w has ended with $pp_id request(s) it left pending, now closed since nothing can answer them; mission-control-launch.sh retire $pp_w closes what is left" \
         || pp_rc=1
       continue
     fi

@@ -98,7 +98,11 @@
 #   base-merge  `git merge`, `git pull` in merge mode. tower: deny. worker:
 #               worker_base_merge, then the current branch must be the session's
 #               unit branch outside the protected set and every source the PR
-#               base or the unit branch's own branch on the base remote.
+#               base or the unit branch's own branch on the base remote. When
+#               an --ff-only spelling is refused at the tower tier or for
+#               running off the unit branch, the reason also names
+#               scripts/main-currency.sh ff-primary, the sanctioned way to
+#               fast-forward a primary checkout's default branch.
 #   rewrite     amend, `--squash`, `--fixup`, rebase, `git pull` in rebase
 #               mode. tower: deny. worker: unpushed_rewrite, then the unit
 #               branch rule, then the never-pushed check: the upstream tracking
@@ -1126,9 +1130,10 @@ checkout_of() {
   [ "$CO_GD" = "$CO_COMMON" ] || CO_LINKED=1
 }
 
-# unit_branch_or_deny <what> <act> — the session's unit branch and the
-# checkout holding it, or a deny; <act> is base-sync for a merge or pull of
-# the base or the branch's own remote branch, empty otherwise. A session
+# unit_branch_or_deny <what> <act> [<remedy>] — the session's unit branch and
+# the checkout holding it, or a deny; <act> is base-sync for a merge or pull of
+# the base or the branch's own remote branch, empty otherwise. <remedy>
+# follows a refusal for running off the unit branch. A session
 # launched into its unit worktree owns that checkout alone. A session
 # launched at a repository's primary checkout holding a branch that is not a
 # task or flight branch owns, for a base sync only, the linked worktree of
@@ -1141,7 +1146,7 @@ UNIT_BRANCH='' UNIT_TOP='' UNIT_GD='' UNIT_DIR='' UNIT_VIA=''
 # falls back to the hook's own directory otherwise, which proves nothing.
 CWD_REPORTED=0
 unit_branch_or_deny() {
-  local what=$1 act=$2 pdir=${CLAUDE_PROJECT_DIR:-} b common
+  local what=$1 act=$2 rem=${3:-} pdir=${CLAUDE_PROJECT_DIR:-} b common
   local only="$what is allowed only on the session's own unit branch (a planwright/<spec>/task-<id> or planwright/flight/<name> branch)"
   local rewrite="$what is refused: a session launched at the primary checkout never rewrites history; it only syncs the linked worktree its shell is in (a merge or pull of the PR base or its own remote branch). Leave the rewrite to a session launched into its own worktree."
   if [ -z "$UNIT_BRANCH" ]; then
@@ -1154,20 +1159,20 @@ unit_branch_or_deny() {
       UNIT_BRANCH=$b UNIT_TOP=$CO_TOP UNIT_GD=$CO_GD UNIT_DIR=$pdir UNIT_VIA=project
     else
       [ -n "$b" ] \
-        || emit_deny "$only, and this session's project directory has no branch checked out (a detached HEAD, or not a repository) - refusing."
+        || emit_deny "$only, and this session's project directory has no branch checked out (a detached HEAD, or not a repository) - refusing.$rem"
       checkout_of "$pdir" \
         || emit_deny "$what needs the checkout of the session's project directory, which git could not read - refusing (fail closed)."
       [ "$CO_LINKED" = 0 ] \
-        || emit_deny "$only, and this session's project directory, a linked worktree, has $(sanitize_printable "$b" 'another branch') checked out - refusing."
+        || emit_deny "$only, and this session's project directory, a linked worktree, has $(sanitize_printable "$b" 'another branch') checked out - refusing.$rem"
       [ "$act" = base-sync ] || emit_deny "$rewrite"
       common=$CO_COMMON
       [ "$CWD_REPORTED" = 1 ] \
-        || emit_deny "$only; this session was launched at the primary checkout ($(sanitize_printable "$b" 'its branch') checked out), so it syncs only the linked worktree its shell is in, and the hook was told no shell directory - refusing (fail closed)."
+        || emit_deny "$only; this session was launched at the primary checkout ($(sanitize_printable "$b" 'its branch') checked out), so it syncs only the linked worktree its shell is in, and the hook was told no shell directory - refusing (fail closed).$rem"
       checkout_of "$PAYLOAD_CWD" && [ "$CO_LINKED" = 1 ] && [ "$CO_COMMON" = "$common" ] \
-        || emit_deny "$only; this session was launched at the primary checkout ($(sanitize_printable "$b" 'its branch') checked out), so it syncs only the linked worktree of this repository its shell is in, and the shell is in none - refusing. If the session works in its own linked worktree, cd into it as a command of its own first."
+        || emit_deny "$only; this session was launched at the primary checkout ($(sanitize_printable "$b" 'its branch') checked out), so it syncs only the linked worktree of this repository its shell is in, and the shell is in none - refusing. If the session works in its own linked worktree, cd into it as a command of its own first.$rem"
       b=$(current_branch "$PAYLOAD_CWD")
       is_unit_branch "$b" \
-        || emit_deny "$only, and the worktree this session's shell is in has $(sanitize_printable "${b:-no branch}" 'an unreadable branch') checked out - refusing."
+        || emit_deny "$only, and the worktree this session's shell is in has $(sanitize_printable "${b:-no branch}" 'an unreadable branch') checked out - refusing.$rem"
       UNIT_BRANCH=$b UNIT_TOP=$CO_TOP UNIT_GD=$CO_GD UNIT_DIR=$PAYLOAD_CWD UNIT_VIA=shell
     fi
   fi
@@ -1177,19 +1182,21 @@ unit_branch_or_deny() {
   [ "$UNIT_VIA" != shell ] || [ "$act" = base-sync ] || emit_deny "$rewrite"
 }
 
-# on_unit_branch <dir> <what> [base-sync] — deny unless <dir> lies in the
-# session's own checkout (its top and git dir both, so a same-named branch in
-# another checkout, or one whose core.worktree points here, is refused) with
+# on_unit_branch <dir> <what> [<act>] [<remedy>] — deny unless <dir> lies in
+# the session's own checkout (its top and git dir both, so a same-named branch
+# in another checkout, or one whose core.worktree points here, is refused) with
 # the unit branch checked out, outside the protected set. Checked per act: a
-# compound command's later acts get no pass from the first.
+# compound command's later acts get no pass from the first. <act> and <remedy>
+# are unit_branch_or_deny's; <remedy> also follows a refusal for running on
+# another branch.
 on_unit_branch() {
   local dir=$1 what=$2 b
-  unit_branch_or_deny "$what" "${3:-}"
+  unit_branch_or_deny "$what" "${3:-}" "${4:-}"
   b=$(current_branch "$dir")
   [ -n "$b" ] \
     || emit_deny "$what runs where no branch is checked out (a detached HEAD or an unreadable repository) - refusing (fail closed)."
   [ "$b" = "$UNIT_BRANCH" ] \
-    || emit_deny "$what would run on $(sanitize_printable "$b" 'another branch'), which is not this session's unit branch ($(sanitize_printable "$UNIT_BRANCH" 'unreadable')) - refusing. Run it in your own worktree."
+    || emit_deny "$what would run on $(sanitize_printable "$b" 'another branch'), which is not this session's unit branch ($(sanitize_printable "$UNIT_BRANCH" 'unreadable')) - refusing. Run it in your own worktree.${4:-}"
   if [ "$dir" != "$UNIT_DIR" ]; then
     checkout_of "$dir" \
       || emit_deny "$what runs where git could not read the checkout - refusing (fail closed). Run it in your own worktree."
@@ -1495,8 +1502,96 @@ tower_wrapped_git_check() {
     || deny_now "this command runs git through a wrapper where the guard cannot read its subcommand as a literal git builtin (an alias, an expansion, or one behind a global option the guard does not know) - refusing (fail closed). Issue the git command directly."
 }
 
+# --------------------------------------------------------------------------
+# The kickoff sign-off push. scripts/kickoff-spec-push.sh pushes a spec's own
+# sign-off branch, which the protected set otherwise refuses to every agent
+# session. Only the worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
+# hook's environment, which a command's inline assignment cannot change) is
+# kickoff-<spec> may run it, and only from that spec branch. Every other
+# session is refused the push it would make, with the text a push to that
+# branch gets. A run the guard cannot read is refused.
+
+KICK_SEEN=0
+KICK_NAME=kickoff-spec-push
+KICK_FILE=kickoff-spec-push.sh
+
+# kickoff_named <word> — 0 when the word's basename names the kickoff push.
+kickoff_named() {
+  lc "${1##*/}"
+  case $LC in *"$KICK_NAME"*) return 0 ;; esac
+  return 1
+}
+
+# RE_KICKOFF_SCRIPT: the planwright script itself, named through the plugin
+# root variable. A relative or literal path would run a copy of the script from
+# the session's own checkout, which the guard cannot read.
+RE_KICKOFF_SCRIPT='^\$\{?CLAUDE_PLUGIN_ROOT\}?/scripts/kickoff-spec-push\.sh$'
+
+# kickoff_script_at <index> — 0 when the command word at <index> is RE_KICKOFF_SCRIPT.
+kickoff_script_at() {
+  [[ ${SW[$1]} =~ $RE_KICKOFF_SCRIPT ]]
+}
+
+# kickoff_segment <dir> — 0 when the segment names the kickoff push, which is
+# then decided here; 1 when it does not name it.
+kickoff_segment() {
+  local dir=$1 n=${#SW[@]} named=0 w spec='' b form=direct
+  for w in "${SW[@]}"; do
+    kickoff_named "$w" && named=1
+  done
+  [ "$named" = 1 ] || return 1
+  KICK_SEEN=$((KICK_SEEN + 1))
+  [ "$GIT_ENV_SET" = 1 ] || [ "$SW_GITENV" = 1 ] \
+    && deny_now 'this kickoff push runs with a GIT_ variable set, which could point it at another repository - refusing (fail closed). Run it with no GIT_ variable.' \
+    && return 0
+  lc "${SW[0]##*/}"
+  case $LC in bash | sh | zsh | dash | ksh | mksh) form=shell ;; esac
+  if [ "$form" = shell ] && [ "$n" = 3 ] && kickoff_script_at 1; then
+    [ "${SWL[2]:-0}" = 1 ] && spec=${SW[2]}
+  elif [ "$form" = direct ] && [ "$n" = 2 ] && kickoff_script_at 0; then
+    [ "${SWL[1]:-0}" = 1 ] && spec=${SW[1]}
+  else
+    deny_now 'this command names scripts/kickoff-spec-push.sh in a form the guard cannot check - refusing (fail closed). Run it directly, as scripts/kickoff-spec-push.sh <spec>, with no other arguments.'
+    return 0
+  fi
+  case $spec in
+    [a-z0-9]*)
+      case $spec in *[!a-z0-9-]*) spec='' ;; esac
+      ;;
+    *) spec='' ;;
+  esac
+  [ "${#spec}" -le 64 ] || spec=''
+  [ "$spec" != flight ] || spec='' # the reserved flight namespace, not a spec
+  [ -n "$spec" ] \
+    || deny_now 'this command runs scripts/kickoff-spec-push.sh with an argument the guard cannot read as a spec name - refusing (fail closed). Name the spec in lowercase letters, digits and hyphens.'
+  [ -n "$spec" ] || return 0
+  if [ "$TIER" = worker ] && [ "${PLANWRIGHT_WORKER_SCOPE:-}" = "kickoff-$spec" ]; then
+    b=$(current_branch "$dir")
+    [ "$b" = "planwright/$spec/spec" ] \
+      || deny_now "the kickoff push runs only from the spec branch of its kickoff (planwright/$spec/spec), and this checkout has ${b:-no branch} checked out - refusing. Check out that branch in your worktree."
+    return 0
+  fi
+  check_unprotected "$dir" 'this git push' "planwright/$spec/spec"
+  deny_now "this git push targets a protected branch (planwright/$spec/spec); the spec branch is never written by an agent session at any tier. Work on your own unit branch."
+  return 0
+}
+
+# kickoff_text_check — every spelling of the kickoff push's name in the command
+# must be a run the segments read above; a name in a redirect, a -c string or
+# a quoted or spelled-out form is refused.
+kickoff_text_check() {
+  local s=${P_CMD//[\"\'\\]/} n=0
+  while [[ $s == *"$KICK_FILE"* ]]; do
+    n=$((n + 1))
+    s=${s#*"$KICK_FILE"}
+  done
+  [ "$n" = "$KICK_SEEN" ] \
+    || deny_now 'this command names scripts/kickoff-spec-push.sh in a spelling the guard cannot read as a run of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+}
+
 classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
+  KICK_SEEN=0
   [ -d "$eff" ] || eff_ok=0
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
@@ -1521,6 +1616,11 @@ classify_segments() {
     base_verb=$LC
     [ "$TIER" != worker ] || ! runs_force_push_helper "$base_verb" \
       || deny_now 'this command runs scripts/tower-force-push.sh; the force-push path is the tower'"'"'s, run on the operator'"'"'s request, never a worker'"'"'s. Name the reword or force-push in your handoff for the operator instead.'
+    if kickoff_segment "$eff"; then
+      prev_text=$cur_text
+      si=$((si + 1))
+      continue
+    fi
     if [ "${SWL[0]}" != 1 ]; then
       # The command word is an expansion, so what runs cannot be read: only a
       # variable root followed by a literal script path is let through, and
@@ -1689,6 +1789,7 @@ classify_segments() {
     prev_text=$cur_text
     si=$((si + 1))
   done
+  kickoff_text_check
 }
 
 # --------------------------------------------------------------------------
@@ -2941,9 +3042,9 @@ need_dir() { # <dir_ok> <what>
     }
 }
 
-tower_refuses() { # <what>
+tower_refuses() { # <what> [<remedy>]
   if [ "$TIER" = tower ]; then
-    deny_now "$1 is denied to the tower under every policy value; the tower never merges into a branch or rewrites history."
+    deny_now "$1 is denied to the tower under every policy value; the tower never merges into a branch or rewrites history.${2:-}"
     return 0
   fi
   return 1
@@ -3226,9 +3327,31 @@ classify_tower_worktree() {
   [ "${#cands[@]}" = 0 ] || queue_protected "$dir" "$dir_ok" "this git worktree $verb" "${cands[@]}"
 }
 
+# Appended to a fast-forward-only merge or pull's tier or branch refusal; the
+# refusal itself stands.
+FF_REMEDY=" To bring a clean primary checkout's default branch up to its origin, run planwright's scripts/main-currency.sh ff-primary --checkout <primary checkout> instead: it fast-forwards only, refuses a dirty tree or any other branch, and records the act."
+
+# ff_only_seen — 0 when the parsed long options leave git in --ff-only mode:
+# --ff, --no-ff and --ff-only override each other, the last one winning, and
+# git takes any unique prefix (--ff- is --ff-only, --no-f is --no-ff).
+ff_only_seen() {
+  local t name only=0 ffo=ff-only nff=no-ff
+  for t in $GP_LONG; do
+    name=${t%%=*}
+    if [ "$name" = ff ]; then
+      only=0
+    elif [ "${#name}" -ge 3 ] && [ "$name" = "${ffo:0:${#name}}" ]; then
+      only=1
+    elif [ "${#name}" -ge 4 ] && [ "$name" = "${nff:0:${#name}}" ]; then
+      only=0
+    fi
+  done
+  [ "$only" = 1 ]
+}
+
 MERGE_VLONG='message file strategy strategy-option into-name cleanup'
 classify_git_merge() {
-  local k=$1 dir=$2 dir_ok=$3
+  local k=$1 dir=$2 dir_ok=$3 ff=0 remedy=''
   parse_git_opts "$k" "$MERGE_VLONG" 'mFsX' 'S' \
     || {
       tower_refuses 'git merge' || deny_now "this git merge carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
@@ -3237,25 +3360,33 @@ classify_git_merge() {
   if long_prefix_seen abort 2 || long_prefix_seen continue 3 || long_prefix_seen quit 2; then
     return 0
   fi
-  tower_refuses 'git merge' && return 0
+  if ff_only_seen; then
+    ff=1
+    remedy=$FF_REMEDY
+  fi
+  tower_refuses 'git merge' "$remedy" && return 0
   act_gate 'this git merge' merge || return 0
   need_dir "$dir_ok" 'this git merge' || return 0
   all_literal || {
     deny_now 'this git merge names its source through an expansion the guard cannot read - refusing (fail closed). Name the PR base literally (origin/main).'
     return 0
   }
-  PENDING[${#PENDING[@]}]="merge$TAB$dir$TAB${GP_POS[*]-}"
+  PENDING[${#PENDING[@]}]="merge$TAB$dir$TAB$ff$TAB${GP_POS[*]-}"
 }
 
 PULL_VLONG='strategy strategy-option depth deepen shallow-since shallow-exclude upload-pack server-option negotiation-tip jobs refmap cleanup'
 classify_git_pull() {
-  local k=$1 dir=$2 dir_ok=$3 mode=''
+  local k=$1 dir=$2 dir_ok=$3 mode='' ff=0 remedy=''
   parse_git_opts "$k" "$PULL_VLONG" 'sXoj' 'S' \
     || {
       tower_refuses 'git pull' || deny_now "this git pull carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
       return 0
     }
-  tower_refuses 'git pull' && return 0
+  if ff_only_seen; then
+    ff=1
+    remedy=$FF_REMEDY
+  fi
+  tower_refuses 'git pull' "$remedy" && return 0
   act_gate 'this git pull' merge || return 0
   need_dir "$dir_ok" 'this git pull' || return 0
   all_literal || {
@@ -3300,7 +3431,7 @@ classify_git_pull() {
     esac
     k=$((k + 1))
   done
-  PENDING[${#PENDING[@]}]="pull$TAB$dir$TAB$mode$TAB${GP_POS[*]-}"
+  PENDING[${#PENDING[@]}]="pull$TAB$dir$TAB$mode$TAB$ff$TAB${GP_POS[*]-}"
 }
 
 REBASE_VLONG='onto strategy strategy-option exec whitespace empty'
@@ -3614,18 +3745,20 @@ eval_merge_helper() {
     || emit_deny "merge_policy is $KNOB_VAL, so no agent session runs the merge helper: the operator's approval act merges this PR. Leave it for the operator and name it in your handoff."
 }
 
-base_merge_allowed() { # <dir> <what>
+base_merge_allowed() { # <dir> <what> [<remedy for a branch refusal>]
   read_knob worker_base_merge "$1" allow deny
   [ "$KNOB_VAL" = allow ] \
     || emit_deny "worker_base_merge is deny, so $2 is refused; the operator syncs this branch with its base."
   need_timeout
-  on_unit_branch "$1" "$2" base-sync
+  on_unit_branch "$1" "$2" base-sync "${3:-}"
   base_of "$1"
 }
 
 eval_merge() {
-  local dir=${1%%"$TAB"*} srcs=${1#*"$TAB"} s
-  base_merge_allowed "$dir" 'this git merge'
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} remedy='' srcs s
+  [ "${rest%%"$TAB"*}" != 1 ] || remedy=$FF_REMEDY
+  srcs=${rest#*"$TAB"}
+  base_merge_allowed "$dir" 'this git merge' "$remedy"
   if [ -z "$srcs" ]; then
     upstream_of "$dir" "$CUR_BRANCH"
     is_base_or_own_branch "$UP_REMOTE" "$UP_BRANCH" \
@@ -3645,8 +3778,10 @@ eval_merge() {
 }
 
 eval_pull() {
-  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} mode remote='' ref='' a i=0 rwhat='this rebasing git pull' rhint=' git pull --no-rebase,'
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} mode ff remote='' ref='' a i=0 rwhat='this rebasing git pull' rhint=' git pull --no-rebase,'
   mode=${rest%%"$TAB"*}
+  rest=${rest#*"$TAB"}
+  ff=${rest%%"$TAB"*}
   rest=${rest#*"$TAB"}
   # shellcheck disable=SC2086 # the positionals, split on purpose
   set -- $rest
@@ -3698,7 +3833,9 @@ eval_pull() {
     refresh_and_check_unpushed "$dir" "$rwhat" "$upref..HEAD"
     return 0
   fi
-  base_merge_allowed "$dir" 'this git pull'
+  local remedy=''
+  [ "$ff" != 1 ] || remedy=$FF_REMEDY
+  base_merge_allowed "$dir" 'this git pull' "$remedy"
   if [ -z "$remote" ]; then
     upstream_of "$dir" "$CUR_BRANCH"
     remote=$UP_REMOTE
@@ -4183,7 +4320,7 @@ handle_bash() {
   local bare=${cmd//[\"\'\\]/} hit=0
   shopt -s nocasematch
   case $bare in
-    *git* | *gh* | *merge-ad* | *--for-merge* | *tower-force-push*) hit=1 ;;
+    *git* | *gh* | *merge-ad* | *--for-merge* | *tower-force-push* | *kickoff-spec*) hit=1 ;;
     # A glob or brace word could still name the merge helper.
     *admitted* | *'*'* | *'?'* | *'['* | *'{'*) hit=1 ;;
     *'$'* | *'`'*)

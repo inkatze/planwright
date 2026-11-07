@@ -121,7 +121,7 @@ fi
 # pushing. Compare the first line of each; a step that drifted below the push
 # would still match the wording checks but ship the stale anchor.
 reanchor_line="$(grep -nE -m1 '[Tt]erminal re-anchor' "$skill" | cut -d: -f1)"
-push_line="$(grep -nE -m1 'git push -u origin planwright/' "$skill" | cut -d: -f1)"
+push_line="$(grep -nE -m1 'kickoff-spec-push\.sh' "$skill" | cut -d: -f1)"
 if [ -n "$reanchor_line" ] && [ -n "$push_line" ] \
   && [ "$reanchor_line" -lt "$push_line" ]; then
   ok "the terminal re-anchor step precedes the push command (line $reanchor_line < $push_line)"

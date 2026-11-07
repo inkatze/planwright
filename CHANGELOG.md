@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.68.0](https://github.com/inkatze/planwright/compare/v0.67.1...v0.68.0) (2026-11-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **mission-control:** start launched mission-control sessions in auto mode ([#859](https://github.com/inkatze/planwright/issues/859))
+
+### Features
+
+* **main-currency:** let launched sessions fast-forward the primary checkout's default branch ([#854](https://github.com/inkatze/planwright/issues/854)) ([eb0346c](https://github.com/inkatze/planwright/commit/eb0346cc195ee8ba6dd80f09f8fad8ea44f9c60a))
+* **mission-control:** start launched mission-control sessions in auto mode ([#859](https://github.com/inkatze/planwright/issues/859)) ([e80037f](https://github.com/inkatze/planwright/commit/e80037f9a968662b50026d3b3d4759f8124c721e))
+
+
+### Bug Fixes
+
+* **fleet:** give workers a short, private TMPDIR outside ~/.claude ([#855](https://github.com/inkatze/planwright/issues/855)) ([40dcc8f](https://github.com/inkatze/planwright/commit/40dcc8f58e88ce4171a00574d4583c8476edef2c))
+* **mission-control:** live in-flight count, no self-handover prompt, /mc-panel toggles ([#848](https://github.com/inkatze/planwright/issues/848)) ([aaa02bb](https://github.com/inkatze/planwright/commit/aaa02bb6692bcc464d6d9977cb8ad0267bec70db))
+
+## [0.67.1](https://github.com/inkatze/planwright/compare/v0.67.0...v0.67.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **orchestrate:** dispatch through the resolved backend, never a silent tmux worker ([#853](https://github.com/inkatze/planwright/issues/853)) ([b90590d](https://github.com/inkatze/planwright/commit/b90590d3b06d69b181191eb998813377c8e5c113))
+
 ## [0.67.0](https://github.com/inkatze/planwright/compare/v0.66.0...v0.67.0) (2026-11-06)
 
 

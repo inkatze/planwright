@@ -26,6 +26,9 @@ done
 . "$script_dir/mc-lib.sh" || exit 2
 
 DECISIONS_SHOWN=3
+# A tmux server that hangs must not hold the redraw.
+TMUX_BOUND=5
+TAB=$(printf '\t')
 
 usage() {
   mc_usage_fail "usage: mc-panel.sh digest|line|text|presence|activate|await|lookup|ack|retire|prune|where|floor|session-hook|install|changes ... (mc-panel.sh --help)"
@@ -80,9 +83,21 @@ Usage:
         knob<TAB>handover-context|handover-wakes|handover-compactions<TAB><n>
                                              with --knobs: the handover
                                              trigger's thresholds
-        flight<TAB><worker><TAB><scope><TAB><backend>
-                                             a live fleet registry session,
-                                             `-` for a field its record lacks
+        flight<TAB><worker><TAB><scope><TAB><backend><TAB>working|waiting|stuck
+                                             a fleet registry session seen
+                                             live (its process or tmux
+                                             window still there), `waiting`
+                                             when parked on a question,
+                                             `stuck` when it stopped
+                                             responding; `-` for a field its
+                                             record lacks
+        finished<TAB><n>                     registry sessions not retired
+                                             and not seen live: gone, idle,
+                                             ended, done, merged or waiting
+                                             on its PR, or with nothing to
+                                             watch (rows of a tmux server
+                                             that does not answer are in
+                                             neither count)
         waiting<TAB><n|->                    the operator queue's items, `-`
                                              where the backend surfaces the
                                              queue itself
@@ -117,6 +132,10 @@ Usage:
         handover<TAB>available|absent        whether a handover verb is
                                              installed to defer a
                                              compaction for
+        holder<TAB>registry|attended|-       the holder record's kind: only
+                                             a registry holder (a session
+                                             mission control launched) hands
+                                             over; `-` with no readable record
         unreadable<TAB><store>               a store that could not be read
         line<TAB><text>                      the line form, last
       Stored text has every control byte dropped.
@@ -722,6 +741,54 @@ knobs() {
   done
 }
 
+# The windows of the tmux server, when a registry row names one. A server
+# that is not running has no windows; one that does not answer is unknown,
+# and its rows count neither way. It is said unreadable only once a row
+# the attention store has not already finished depends on it, so the
+# panel's qualified count agrees with this one.
+flight_windows() {
+  fl_windows=''
+  fl_tmux=1
+  case $fl_open in
+    *"	tmux-window "*)
+      if fl_out=$(/bin/sh "$script_dir/bounded-run.sh" "$TMUX_BOUND" \
+        tmux list-windows -a -F '#{session_name}	#{window_id}	#{window_name}' 2>&1); then
+        fl_windows=$fl_out
+      else
+        case $?:$fl_out in
+          127:* | *"no server running"* | *"error connecting to"*"No such file or directory"*) ;;
+          *) fl_tmux=0 ;;
+        esac
+      fi
+      ;;
+  esac
+}
+
+# Each worker's attention state, as worker and state. An absent store is
+# an empty one; one that is there but cannot be read is unknown.
+flight_attention() {
+  fl_attn=''
+  fl_attn_ok=1
+  if fl_root=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null); then
+    fl_as=$fl_root/attention/state
+    if [ -e "$fl_as" ] || [ -L "$fl_as" ]; then
+      if [ -L "$fl_as" ] || [ ! -f "$fl_as" ] \
+        || ! fl_attn=$(awk -F '\t' 'NF >= 3 { print $1 "\t" $3 }' "$fl_as" 2>/dev/null); then
+        fl_attn=''
+        fl_attn_ok=0
+        printf 'unreadable\tattention store\n'
+      fi
+    fi
+  fi
+}
+
+# A registry row outlives its session until something retires it, so only
+# a session seen live is in flight: its process or tmux window still there,
+# and the attention store not saying its work ended. The rest are
+# counted as finished. Display only: nothing may act on a row this calls
+# finished. A pid is probed with the kill builtin, no fork per row (the
+# registry runs to hundreds); a pid this user cannot signal is a recycled
+# one, since every worker runs as this user, so it reads as gone.
 flights() {
   fl_reg=$(/bin/sh "$script_dir/fleet-state.sh" registry 2>/dev/null) || {
     printf 'unreadable\tfleet registry\n'
@@ -729,17 +796,83 @@ flights() {
   }
   # The last record per worker wins; only an eight-field record whose last
   # field is `closed` is retired, the rule every registry reader applies.
-  fl_rows=$(printf '%s\n' "$fl_reg" | awk -F '\t' '
+  # Each open row comes out as worker, scope, backend and death handle,
+  # an empty or missing field as `-` so the tab-split read below keeps its
+  # columns.
+  fl_open=$(printf '%s\n' "$fl_reg" | awk -F '\t' '
     NF >= 2 { last[$2] = $0; if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2 } }
     END {
       for (i = 1; i <= n; i++) {
         nf = split(last[order[i]], f, "\t")
         if (nf == 8 && f[8] == "closed") continue
-        print "flight\t" f[2] "\t" (nf >= 3 ? f[3] : "-") "\t" (nf >= 5 ? f[5] : "-")
+        for (j = 1; j <= 7; j++) if (j > nf || f[j] == "") f[j] = "-"
+        print f[2] "\t" f[3] "\t" f[5] "\t" f[7]
       }
-    }' | mc_clean)
+    }')
+  flight_windows
+  flight_attention
+  # Each row classed as live, a pid to probe, done or unknown. A window id
+  # is looked up across the server, as a renamed session keeps its windows;
+  # the token is also tried as a window name in its session.
+  fl_class=$(printf '%s\n' "$fl_open" | W=$fl_windows A=$fl_attn T=$fl_tmux awk -F '\t' '
+    BEGIN {
+      m = split(ENVIRON["W"], wl, "\n")
+      for (i = 1; i <= m; i++) if (split(wl[i], x, "\t") == 3) { id[x[2]] = 1; nm[x[1] SUBSEP x[3]] = 1 }
+      m = split(ENVIRON["A"], al, "\n")
+      for (i = 1; i <= m; i++) if (split(al[i], x, "\t") == 2) st[x[1]] = x[2]
+    }
+    NF == 4 {
+      s = ($1 in st) ? st[$1] : ""
+      if (s == "idle" || s == "ended" || s == "done" || s == "merged" || s == "pr-ready") { print "done"; next }
+      word = s == "awaiting-input" ? "waiting" : (s == "hung" ? "stuck" : "working")
+      row = $1 "\t" $2 "\t" $3 "\t" word
+      if ($4 ~ /^process [1-9][0-9]*$/) { print "pid\t" row "\t" substr($4, 9); next }
+      if (split($4, h, " ") == 3 && h[1] == "tmux-window") {
+        if (ENVIRON["T"] != "1") { print "unknown"; next }
+        seen = (h[3] ~ /^@[0-9]+$/ && (h[3] in id)) || ((h[2] SUBSEP h[3]) in nm)
+        print (seen ? "live\t" row : "done")
+        next
+      }
+      print "done"
+    }')
+  fl_live=''
+  fl_done=0
+  fl_unknown=0
+  while IFS="$TAB" read -r fl_class_of fl_w fl_s fl_b fl_word fl_pid; do
+    case $fl_class_of in
+      live)
+        fl_live="$fl_live$fl_w$TAB$fl_s$TAB$fl_b$TAB$fl_word
+"
+        ;;
+      pid)
+        if [ "$fl_pid" -gt 1 ] 2>/dev/null && kill -0 "$fl_pid" 2>/dev/null; then
+          fl_live="$fl_live$fl_w$TAB$fl_s$TAB$fl_b$TAB$fl_word
+"
+        else
+          fl_done=$((fl_done + 1))
+        fi
+        ;;
+      done) fl_done=$((fl_done + 1)) ;;
+      unknown) fl_unknown=$((fl_unknown + 1)) ;;
+    esac
+  done <<EOF_ROWS
+$fl_class
+EOF_ROWS
+  [ "$fl_unknown" -eq 0 ] || printf 'unreadable\ttmux windows\n'
+  fl_rows=$(printf '%s' "$fl_live" | awk 'NF { print "flight\t" $0 }' | mc_clean)
   [ -z "$fl_rows" ] || printf '%s\n' "$fl_rows"
+  printf 'finished\t%s\n' "$fl_done"
   D_FLIGHT=$(printf '%s' "$fl_rows" | awk 'NF { n++ } END { print n + 0 }')
+  # Rows of a server that did not answer may be live, so the count is a
+  # floor; without the attention store an idle session reads live, so it is
+  # a ceiling; with both, neither.
+  if [ "$fl_unknown" -gt 0 ] && [ "$fl_attn_ok" -eq 0 ]; then
+    D_FLIGHT='?'
+  elif [ "$fl_unknown" -gt 0 ]; then
+    D_FLIGHT="$D_FLIGHT+"
+  elif [ "$fl_attn_ok" -eq 0 ]; then
+    D_FLIGHT="up to $D_FLIGHT"
+  fi
 }
 
 waiting() {
@@ -940,6 +1073,29 @@ handover() {
   fi
 }
 
+# The holder record's kind (scripts/mc-handover.sh writes it): a registry
+# holder hands over, an attended one compacts.
+holder() {
+  hd_f=$runtime/holder
+  if [ ! -e "$hd_f" ] && [ ! -L "$hd_f" ]; then
+    printf 'holder\t-\n'
+    return 0
+  fi
+  hd_kind=''
+  if [ ! -L "$hd_f" ] && mc_format_ok "$hd_f"; then
+    hd_session=$(mc_kv "$hd_f" session)
+    hd_since=$(mc_kv "$hd_f" since)
+    hd_gen=$(mc_kv "$hd_f" generation)
+    if mc_valid_handle "$hd_session" && mc_valid_uint "$hd_since" && mc_valid_uint "$hd_gen"; then
+      hd_kind=$(mc_kv "$hd_f" kind)
+    fi
+  fi
+  case $hd_kind in
+    registry | attended) printf 'holder\t%s\n' "$hd_kind" ;;
+    *) printf 'unreadable\tholder record\nholder\t-\n' ;;
+  esac
+}
+
 the_line() {
   ln_text="mission control $program: $D_FLIGHT in flight, $D_WAITING waiting"
   [ -z "$target" ] || ln_text="$ln_text, $D_PENDING pending"
@@ -963,11 +1119,18 @@ text_panel() {
     $1 == "unreadable" && $2 == "events" { p = "unknown (the events cannot be read)" }
     $1 == "rung" { r = $2 (($3 == "" || $3 == "-") ? "" : " (" $3 ")") }
     $1 == "unreadable" && $2 == "fleet registry" { fu = 1 }
+    $1 == "unreadable" && $2 == "tmux windows" { tu = 1 }
+    $1 == "unreadable" && $2 == "attention store" { au = 1 }
     $1 == "unreadable" && $2 == "operator queue" { w = "unknown (the queue cannot be read)" }
     $1 == "unreadable" && $2 == "budget" { r = "unknown (the budget cannot be read)" }
     END {
       print "mission control " ENVIRON["P"]
-      print "in flight: " (fu ? "unknown (the fleet registry cannot be read)" : n + 0)
+      c = n + 0
+      if (fu) c = "unknown (the fleet registry cannot be read)"
+      else if (tu && au) c = "unknown (neither tmux nor the attention store can be read)"
+      else if (tu) c = c " or more (tmux does not answer)"
+      else if (au) c = "up to " c " (the attention store cannot be read)"
+      print "in flight: " c
       for (i = 1; i <= n; i++) print f[i]
       print "waiting: " (w == "" ? "unknown" : w)
       if (p != "") print "pending wakes: " p
@@ -1070,6 +1233,7 @@ digest() {
   measures
   reviews
   handover
+  holder
   printf 'line\t%s\n' "$(the_line)"
 }
 

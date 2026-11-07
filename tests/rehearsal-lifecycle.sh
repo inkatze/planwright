@@ -504,6 +504,7 @@ case $mk in
     ;;
 esac
 mkdir -p "$mk/home" "$mk/headless" "$mk/adopter" "$mk/userhome" "$mk/bin" "$mk/gh-stub"
+mkdir -m 700 "$mk/scratch-base"
 
 # The tree a stop is expected to end, as `<pid> TAB <start> TAB <argv>` rows
 # gathered while the run goes, so the exit trap can reach a process that
@@ -600,6 +601,7 @@ scrub=(
 pin=(
   PLANWRIGHT_FLEET_STATE_DIR="$mk/home"
   PLANWRIGHT_HEADLESS_STATE_DIR="$mk/headless"
+  PLANWRIGHT_FLEET_SCRATCH_BASE="$mk/scratch-base"
   PLANWRIGHT_REPO_ROOT="$repo"
   PLANWRIGHT_ADOPTER_OVERLAY="$mk/adopter"
   PLANWRIGHT_ROOT="$REPO_ROOT"
