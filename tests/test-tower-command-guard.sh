@@ -1595,6 +1595,23 @@ else
     *) fail "the check failed without naming the unlisted watcher: $out" ;;
   esac
 fi
+FIXFORMS="$SANDBOX/fixture-forms.md"
+cp "$REPO_ROOT/skills/mission-control/SKILL.md" "$FIXFORMS"
+# shellcheck disable=SC2016 # literal backticks in the fixture skill text
+printf '\n## Fixture forms\n\nRun `scripts/mc-unlisted-a.sh go --now`, then `scripts/mc-unlisted-b.sh <worker>`, and never `scripts/mc-unlisted-c.sh --flag`.\n' >>"$FIXFORMS"
+out=$(/bin/bash "$CHECK_VERBS" --skill "$FIXFORMS" --print 2>&1)
+case $out in
+  *"mc-unlisted-a.sh go"*) pass "a span naming a script and a word derives that verb" ;;
+  *) fail "a span naming a script and a word derived no verb: $out" ;;
+esac
+case $out in
+  *"mc-unlisted-b.sh *"*) pass "a placeholder argument derives a * entry" ;;
+  *) fail "a placeholder argument derived no * entry: $out" ;;
+esac
+case $out in
+  *"mc-unlisted-c.sh"*) fail "a span with a leading flag derived a verb: $out" ;;
+  *) pass "a span with a leading flag derives nothing" ;;
+esac
 FIXLIST="$SANDBOX/fixture-verbs.txt"
 {
   cat "$VERBS"
