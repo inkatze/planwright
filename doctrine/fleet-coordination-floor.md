@@ -51,7 +51,7 @@ What the boundary means in practice:
 
 **A tower runs in its own working tree. It never moves a branch, switches,
 dirties, or writes the shared stash in a checkout it does not own, and never
-touches the primary checkout's `main`** (tower-placement REQ-A1.2, D-1).
+touches the primary checkout's default branch** (tower-placement REQ-A1.2, D-1).
 
 Reading another checkout is in bounds. The stash is shared by every worktree,
 so a tower's stash write lands in every peer's stack.
@@ -59,9 +59,9 @@ so a tower's stash write lands in every peer's stack.
 The only exceptions are planwright scripts performing an act the operator
 sanctioned for towers:
 
-- the release fast-forward of the primary checkout's `main`, through
-  `scripts/release-arm.sh` or
-  `scripts/main-currency.sh sync --checkout <primary-checkout>`;
+- fast-forwarding the primary checkout's default branch, through
+  `scripts/main-currency.sh` (`sync` or `ff-primary`), or
+  `scripts/release-arm.sh` for `main`;
 - starting a forward-merge in a worker's worktree, through
   `scripts/converge-sync-main.sh` run there, which under
   `worker_merge_conflict_policy: resolve` leaves a conflict for the worker to

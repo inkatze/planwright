@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# shellcheck disable=SC2154 # `me` and `release_classes` are set by the rung
+# shellcheck disable=SC2154 # `me`, `script_dir` and `release_classes` are set by the rung
 # fleet-stop-lib.sh — the close both session-grade rungs share (sourced, never
 # executed): `scripts/fleet-streamjson.sh stop` and
 # `scripts/fleet-dispatch-headless.sh stop`.
@@ -13,6 +13,8 @@
 #
 # WHAT THE RUNG SUPPLIES.
 #   me                   the name every diagnostic is prefixed with
+#   script_dir           the scripts directory, where the final close finds
+#                        fleet-scratch.sh
 #   release_classes      the classes the rung acquires, in release order;
 #                        `process` first, because a tree that will not close
 #                        ends the walk (see stop_walk)
@@ -147,18 +149,17 @@ stop_scratch_release() {
 }
 
 # stop_scratch_root_release <dir> <fleet-home> — a final close's last act:
-# remove the worktree scratch root the launch recorded in <dir>/scratch-root
+# remove the scratch root the launch recorded in <dir>/scratch-root
 # (scripts/worker-session-record.sh), then the pointer. A plain close keeps
-# both, for the recover that may follow. Only a path of the writer's own shape
-# is removed: a worktree's root, <fleet-home>/scratch/<sha1>, or one session's
-# root inside it, <sha1>/<sha1>, which takes that session's files alone and
-# leaves the worktree's root to the worktree reclaim. A worktree's root that
-# is still in use beside this worker is left there too, and only the pointer
-# goes: one another stream-json worker records, or a root inside it, or one
-# holding a session's root (a session's directory exists before its pointer
-# is written). Directories the worker left without write permission are
-# opened first, without following a link. Zero when the pointer is gone and
-# its root removed or left in use.
+# both, for the recover that may follow. Only a root the fleet home records
+# is removed (scripts/fleet-scratch.sh): a worktree's, or one session's, which
+# takes that session's files alone; one already gone with its record leaves
+# only the pointer to drop. A root of the earlier layout,
+# <fleet-home>/scratch/<hash> or a session's inside it, <hash>/<hash> (40 or
+# 64 hex digits, as the repository's object format gave), goes by its
+# shape, and a worktree's of that layout also stays while it holds a
+# session's root (a session's directory exists before its pointer is
+# written). Zero when the pointer is gone and its root removed or left in use.
 stop_scratch_root_release() {
   [ -f "$1/scratch-root" ] && [ ! -L "$1/scratch-root" ] || return 0
   sr_path=$(head -n 1 "$1/scratch-root" 2>/dev/null) || return 1
@@ -166,7 +167,11 @@ stop_scratch_root_release() {
   # through a link does not spell.
   sr_home=$(cd -P -- "$2" 2>/dev/null && pwd -P) || return 1
   sr_key=${sr_path#"$sr_home/scratch/"}
-  [ "$sr_key" != "$sr_path" ] || return 1
+  if [ "$sr_key" = "$sr_path" ]; then
+    /bin/sh "${script_dir:?}/fleet-scratch.sh" release "$sr_home" "$sr_path" 2>/dev/null </dev/null || return 1
+    rm -f -- "$1/scratch-root"
+    return
+  fi
   sr_sess=''
   case $sr_key in
     */*)
@@ -179,7 +184,9 @@ stop_scratch_root_release() {
     case $sr_k in
       '' | *[!0-9a-f]*) return 1 ;;
     esac
-    [ "${#sr_k}" -eq 40 ] || return 1
+    # SHA-1 or SHA-256: the worktree's repository decided what the writer
+    # hashed with.
+    [ "${#sr_k}" -eq 40 ] || [ "${#sr_k}" -eq 64 ] || return 1
   done
   # Every component, not just the last (which the removal below checks): a
   # linked worktree root would take the removal out of the fleet home. The
@@ -199,9 +206,10 @@ stop_scratch_root_release() {
   rm -f -- "$1/scratch-root"
 }
 
-# stop_scratch_in_use <dir> <fleet-home> <root> — 0 when a worktree's <root>
-# is in use beside the worker at <dir>: another stream-json runtime directory
-# records it or a root inside it, or it holds a session's root.
+# stop_scratch_in_use <dir> <fleet-home> <root> — 0 when an earlier-layout
+# worktree <root> is in use beside the worker at <dir>: another stream-json
+# runtime directory records it or a root inside it, or it holds a session's
+# root.
 stop_scratch_in_use() {
   case $- in
     *f*) su_restore='set -f' ;;
@@ -214,7 +222,7 @@ stop_scratch_in_use() {
     case $su_n in
       '' | *[!0-9a-f]*) continue ;;
     esac
-    if [ "${#su_n}" -eq 40 ] && [ -d "$su_d" ] && [ ! -L "$su_d" ]; then
+    if { [ "${#su_n}" -eq 40 ] || [ "${#su_n}" -eq 64 ]; } && [ -d "$su_d" ] && [ ! -L "$su_d" ]; then
       su_rc=0
       break
     fi

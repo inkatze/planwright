@@ -182,6 +182,14 @@ cat >"$tmp/selector.pane" <<'EOF'
    2. Yes, and don't ask again for git status commands
    3. No, and tell Claude what to do differently (esc)
 EOF
+cat >"$tmp/menu.pane" <<'EOF'
+ Which file should I open first?
+
+ ❯ 1. README.md
+   2. CHANGELOG.md
+
+ Enter to select · ↑/↓ to navigate · Esc to cancel
+EOF
 cat >"$tmp/paste.pane" <<'EOF'
 ⏺ Ready for the next step.
 
@@ -280,6 +288,16 @@ window 1 "$live_pid" "$tmp/selector.pane"
 stall classify --program alpha --now 1000 mc-alpha-orchestrator-sel
 expect_state "an open dialog reads open-selector" mc-alpha-orchestrator-sel open-selector
 expect_event "open-selector emits an attention event" stall-open-selector mc-alpha-orchestrator-sel
+expect_out "an open permission prompt is named as one" "waiting on a permission prompt"
+
+row mc-alpha-worker-menu worker tmux @18
+window 18 "$live_pid" "$tmp/menu.pane"
+stall classify --program alpha --now 1000 mc-alpha-worker-menu
+expect_state "an open select menu reads open-selector" mc-alpha-worker-menu open-selector
+expect_out "a select menu keeps the generic dialog reason" "dialog signature in the pane"
+case $OUT in
+  *'permission prompt'*) fail "a select menu was named a permission prompt: $OUT" ;;
+esac
 
 row mc-alpha-ad-hoc-paste ad-hoc tmux @2
 window 2 "$live_pid" "$tmp/paste.pane"

@@ -268,6 +268,20 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
     *" --settings $core/config/$prof-settings.json "*) ok "[$kind] the session runs under the $prof profile" ;;
     *) fail "[$kind] the session's argv lacks --settings $prof-settings.json: $argv" ;;
   esac
+  # A mission-control session starts in auto mode, so a routine command does
+  # not stall a successor on a prompt no other session may answer; every other
+  # kind keeps prompting.
+  # The profile is the mode source: the argv never names a mode.
+  mode=$(jq -r '.permissions.defaultMode' "$core/config/$prof-settings.json")
+  case $kind:$mode in
+    mission-control:auto) ok "[$kind] the session starts in auto mode" ;;
+    mission-control:*) fail "[$kind] the session starts in mode '$mode', not auto" ;;
+    *:auto) fail "[$kind] a $kind session starts in auto mode" ;;
+    *) ok "[$kind] the session starts in mode '$mode', not auto" ;;
+  esac
+  case " $argv " in
+    *" --permission-mode"*) fail "[$kind] the argv names a permission mode, overriding the profile: $argv" ;;
+  esac
   case " $argv " in
     *" --name $name "*) ok "[$kind] the session is named $name" ;;
     *) fail "[$kind] the session's argv does not carry its name: $argv" ;;
@@ -427,6 +441,14 @@ mt_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$mt_row")
 mt_token=$(awk -F "$TAB" '$1 == "token" { print $2; exit }' "$mt_row")
 grep -qxF "PLANWRIGHT_MC_TOKEN=$mt_token" "$tmp/tmux/argv-$mt_handle" && ok "a tmux mission-control session is launched holding its row's token" \
   || fail "the tmux mission-control window's argv does not carry its row's token: $(tr '\n' ' ' <"$tmp/tmux/argv-$mt_handle" 2>/dev/null)"
+# The pane the operator attaches to starts in auto mode, from its profile.
+mt_settings=$(awk 'p { print; exit } $0 == "--settings" { p = 1 }' "$tmp/tmux/argv-$mt_handle" 2>/dev/null)
+if [ -n "$mt_settings" ] && [ "$(jq -r '.permissions.defaultMode' "$mt_settings" 2>/dev/null)" = auto ]; then
+  ok "a tmux mission-control session starts in auto mode"
+else
+  fail "the tmux mission-control window does not start in auto mode (settings '$mt_settings')"
+fi
+grep -q '^--permission-mode' "$tmp/tmux/argv-$mt_handle" && fail "the tmux mission-control argv names a permission mode, overriding its profile"
 
 # A stream-json launch resolves its tier in the directory the session runs in,
 # as the tmux rung and a relaunch do, not in the launcher's own directory.

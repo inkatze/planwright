@@ -42,6 +42,7 @@ fenv() {
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
     -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
     PLANWRIGHT_FLEET_STATE_DIR="$fe_home" PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/sb" \
     PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="$pin_cfg" \
     /bin/sh "$fe_script" "$@"
 }
@@ -222,6 +223,7 @@ echo "ok: w4 a dead worker's pending request is settled and leaves the queue, ne
 home="$tmp/h5"
 wt="$tmp/wt5"
 mkdir -p "$home" "$wt"
+mkdir -m 700 "$tmp/sb"
 git -C "$wt" init -q || fail "w5: cannot create the checkout"
 record() { # record <handle>: the scratch root its session record names
   (cd "$wt" && fenv "$home" "$S/worker-session-record.sh" write "$wt" --session "$1" --scratch) >"$tmp/w5.rec" 2>/dev/null \
@@ -232,7 +234,14 @@ ra=$(record mc-alpha-worker-aaaa)
 rb=$(record mc-alpha-worker-bbbb)
 [ -n "$ra" ] && [ -n "$rb" ] && [ "$ra" != "$rb" ] && [ -d "$ra" ] && [ -d "$rb" ] \
   || fail "w5: two sessions must get distinct existing scratch roots, got '$ra' and '$rb'"
-[ "${ra%/*}" = "${rb%/*}" ] || fail "w5: both roots belong under the worktree's own root"
+hreal=$(cd "$home" && pwd -P)
+for r in "$ra" "$rb"; do
+  case $r/ in
+    "$hreal"/*) fail "w5: a session's root lies under the fleet home: $r" ;;
+    "$(cd "$tmp/sb" && pwd -P)"/*) ;;
+    *) fail "w5: a session's root lies outside the scratch base: $r" ;;
+  esac
+done
 [ "$(record mc-alpha-worker-aaaa)" = "$ra" ] || fail "w5: a relaunch of a session must find its own root again"
 for h in aaaa bbbb; do
   mkdir -p "$home/streamjson/mc-alpha-worker-$h"
@@ -244,17 +253,21 @@ printf '%s\n' "$rb" >"$home/streamjson/mc-alpha-worker-bbbb/scratch-root"
 out=$(fenv "$home" "$SJ" stop mc-alpha-worker-aaaa --final) || fail "w5: the final close exited non-zero: $out"
 [ ! -e "$ra" ] || fail "w5: the retired session's TMPDIR must go"
 [ -f "$rb/b-file" ] || fail "w5: retiring one session must leave the other's files intact"
-# A worktree-wide root from before roots were per session, which another
-# worker still records, is left for the worktree reclaim.
-wroot=${ra%/*}
-mkdir -p "$home/streamjson/old-shape"
+# The earlier layout under the fleet home: a worktree-wide root from before
+# roots were per session, which a session's root inside it still uses, is left
+# for the worktree reclaim.
+wkey=$(printf '%s' "$(cd "$wt" && pwd -P)" | git hash-object --stdin)
+wroot=$hreal/scratch/$wkey
+lsess=$wroot/$(printf '%s' mc-alpha-worker-bbbb | git hash-object --stdin)
+mkdir -p "$lsess" "$home/streamjson/old-shape" "$home/streamjson/old-sess"
+: >"$lsess/b-file"
+printf '%s\n' "$lsess" >"$home/streamjson/old-sess/scratch-root"
 printf '%s\n' "$wroot" >"$home/streamjson/old-shape/scratch-root"
 fenv "$home" "$SJ" stop old-shape --final >/dev/null || fail "w5: the old-shape final close exited non-zero"
-[ -f "$rb/b-file" ] || fail "w5: an old-shape final close must not take a root another session still uses"
+[ -f "$lsess/b-file" ] || fail "w5: an old-shape final close must not take a root another session still uses"
 [ ! -e "$home/streamjson/old-shape/scratch-root" ] || fail "w5: the old-shape close still drops its own pointer"
 # Each session's record is its own, named by worktree and handle.
 (cd "$wt" && fenv "$home" "$S/worker-session-record.sh" write "$wt" --session mc-alpha-worker-bbbb --scratch) >"$tmp/w5.rec" 2>/dev/null
-wkey=$(printf '%s' "$(cd "$wt" && pwd -P)" | git hash-object --stdin)
 [ "$(basename "$(cat "$tmp/w5.rec")")" = "$wkey-$(printf '%s' mc-alpha-worker-bbbb | git hash-object --stdin).record" ] \
   || fail "w5: the session record is not named by worktree and handle: $(cat "$tmp/w5.rec")"
 for bad in "--session -x" "--session a/b" "--session ok 0123456789abcdef0123" "0123456789abcdef0123 --session ok"; do
@@ -268,6 +281,7 @@ done
 release() { # release <unit-dir> <pointer>
   printf '%s\n' "$2" >"$1/scratch-root"
   (
+    script_dir=$S
     # shellcheck source=scripts/fleet-stop-lib.sh
     . "$S/fleet-stop-lib.sh"
     stop_scratch_root_release "$1" "$home"
@@ -276,10 +290,18 @@ release() { # release <unit-dir> <pointer>
 unit="$tmp/w5-unit"
 mkdir -p "$unit"
 # The session's own pointer is set aside so only its directory keeps the root.
-mv "$home/streamjson/mc-alpha-worker-bbbb/scratch-root" "$tmp/w5-bbbb-pointer"
+mv "$home/streamjson/old-sess/scratch-root" "$tmp/w5-bbbb-pointer"
 release "$unit" "$wroot" || fail "w5: a root in use must release its pointer cleanly"
-[ -f "$rb/b-file" ] && [ ! -e "$unit/scratch-root" ] || fail "w5: a root holding a session's root must stay, its pointer gone"
-mv "$tmp/w5-bbbb-pointer" "$home/streamjson/mc-alpha-worker-bbbb/scratch-root"
+[ -f "$lsess/b-file" ] && [ ! -e "$unit/scratch-root" ] || fail "w5: a root holding a session's root must stay, its pointer gone"
+mv "$tmp/w5-bbbb-pointer" "$home/streamjson/old-sess/scratch-root"
+# A short worktree-wide root goes with its close, and only it: a directory
+# inside it named like a session's does not keep it, since short session roots
+# never nest.
+sroot=$(PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/sb" /bin/sh "$S/fleet-scratch.sh" make "$home" "$wkey") \
+  || fail "w5: no short worktree root"
+mkdir -p "$sroot/$(printf 'd%.0s' $(seq 40))"
+release "$unit" "$sroot" && [ ! -e "$sroot" ] && [ -f "$rb/b-file" ] \
+  || fail "w5: a short worktree root must be removed by its close, and only it"
 # With no session inside, another runtime directory recording the same root
 # keeps it; once nobody else records it, the last close removes it.
 shared=$(cd "$home" && pwd -P)/scratch/$(printf 'c%.0s' $(seq 40))
@@ -288,21 +310,19 @@ printf '%s\n' "$shared" >"$home/streamjson/old-two/scratch-root"
 release "$unit" "$shared" && [ -d "$shared/old-file" ] || fail "w5: a root another worker records must stay"
 rm -f "$home/streamjson/old-two/scratch-root"
 release "$unit" "$shared" && [ ! -e "$shared" ] || fail "w5: a root nobody else uses must be removed by the last close"
-# A linked worktree root disables a session's scratch arm before anything
-# is created or removed inside it.
+# A linked scratch record directory disables a session's scratch arm before
+# anything is created or removed inside it.
 lwt="$tmp/wt5l"
-mkdir -p "$lwt" "$tmp/w5-elsewhere"
+mkdir -p "$lwt" "$tmp/w5-elsewhere" "$tmp/h5l"
 git -C "$lwt" init -q
-lkey=$(printf '%s' "$(cd "$lwt" && pwd -P)" | git hash-object --stdin)
-ln -s "$tmp/w5-elsewhere" "$(cd "$home" && pwd -P)/scratch/$lkey"
-(cd "$lwt" && fenv "$home" "$S/worker-session-record.sh" write "$lwt" --session s1 --fresh-scratch) >"$tmp/w5l.rec" 2>"$tmp/w5l.err" \
+ln -s "$tmp/w5-elsewhere" "$tmp/h5l/scratch"
+(cd "$lwt" && fenv "$tmp/h5l" "$S/worker-session-record.sh" write "$lwt" --session s1 --fresh-scratch) >"$tmp/w5l.rec" 2>"$tmp/w5l.err" \
   || fail "w5: the record must still be written without a scratch arm"
 ! grep -q '^scratch_root=' "$(cat "$tmp/w5l.rec")" && grep -q 'scratch root is unusable' "$tmp/w5l.err" \
   && [ -z "$(ls -A "$tmp/w5-elsewhere")" ] \
-  || fail "w5: a linked worktree root must leave the session without a scratch root, nothing created through it"
+  || fail "w5: a linked scratch record directory must leave the session without a scratch root, nothing created through it"
 outside="$tmp/w5-outside"
 mkdir -p "$outside/$(printf 'f%.0s' $(seq 40))/keep"
-hreal=$(cd "$home" && pwd -P)
 ln -s "$outside" "$hreal/scratch/$(printf 'e%.0s' $(seq 40))"
 ! release "$unit" "$hreal/scratch/$(printf 'e%.0s' $(seq 40))/$(printf 'f%.0s' $(seq 40))" \
   || fail "w5: a session pointer under a linked worktree root must be refused"

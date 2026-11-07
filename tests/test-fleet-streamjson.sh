@@ -91,6 +91,16 @@ cleanup() {
     senv "${cl_dir%/streamjson/*}" "$tmp/reap" -- stop "${cl_dir##*/}" --grace 2 >/dev/null 2>&1
   done
   fixture_reap "$tmp/"
+  # A root outside the fixture (c39's default base) outlives it otherwise.
+  for cl_rec in "$tmp"/h*/scratch/*.tmpdir; do
+    [ -f "$cl_rec" ] || continue
+    cl_home=${cl_rec%/scratch/*}
+    cl_root=$(head -n 1 "$cl_rec")
+    case $cl_root/ in
+      "$tmp"/*) ;;
+      *) /bin/sh "$here/../scripts/fleet-scratch.sh" release "$cl_home" "$cl_root" >/dev/null 2>&1 ;;
+    esac
+  done
   rm -rf "$tmp"
 }
 trap cleanup EXIT
@@ -102,6 +112,10 @@ tab=$(printf '\t')
 
 # The single env-driven CLI shim. One inode for the whole suite.
 mkdir -p "$tmp/bin"
+mkdir -m 700 "$tmp/scratch-base"
+# Every launch below, through senv or not, keeps its scratch root in the
+# fixture; c39's second worker alone takes the default base, on purpose.
+export PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base"
 cat >"$tmp/bin/claude" <<'SHIM'
 #!/bin/sh
 # stream-json CLI shim (fixture), driven by env:
@@ -199,6 +213,7 @@ senv() {
   shift
   env "${env_scrub[@]}" \
     PLANWRIGHT_FLEET_STATE_DIR="$se_home" \
+    PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
     SHIM_RECORD_DIR="$se_rec" \
     ${se_pre[@]+"${se_pre[@]}"} /bin/sh "$SJ" "$@"
@@ -925,7 +940,11 @@ launch_c39() {
     export PLANWRIGHT_WORKER_SPEC_ROOT=/stale PLANWRIGHT_WORKER_SESSION_RECORD=/stale \
       GIT_CEILING_DIRECTORIES="$tmp" \
       GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
-    senv "$tmp/h39" "$tmp/r39" SHIM_EVENTS="$tmp/ev9" -- \
+    # The second worker gets the default base, what a worker really gets;
+    # its final stop below removes its root. The first keeps the suite's.
+    c39_base=$tmp/scratch-base
+    [ "$1" != sjw39b ] || c39_base=''
+    senv "$tmp/h39" "$tmp/r39" SHIM_EVENTS="$tmp/ev9" PLANWRIGHT_FLEET_SCRATCH_BASE="$c39_base" -- \
       launch "$1" execution-backends:4 --prompt-file "$tmp/prompt9" --cwd "$tmp/wt39" --foreground
   )
 }
@@ -957,17 +976,28 @@ grep -qx "worktree_root=$(cd "$tmp/wt39" && pwd -P)" "$rec39" 2>/dev/null \
   || fail "c39: the worker's session record does not name its worktree"
 echo "ok: c39 the worker gets a fresh session record, never an inherited one (REQ-G1.8)"
 # The worker's scratch root (worker-permission-ergonomics REQ-G1.2): its
-# TMPDIR, and only the worker's, is its own root inside the worktree's under
-# the fleet home, which its session record names; a recover keeps it, contents
-# and all, and so does a stop, which a recover may follow.
-wt39=$(cd "$tmp/wt39" && pwd -P)
-wtroot39="$(cd "$tmp/h39" 2>/dev/null && pwd -P)/scratch/$(printf '%s' "$wt39" | git hash-object --stdin)"
-root39="$wtroot39/$(printf '%s' sjw39b | git hash-object --stdin)"
+# TMPDIR, and only the worker's, is its own root, which its session record
+# names; a recover keeps it, contents and all, and so does a stop, which a
+# recover may follow. It is short and outside any .claude directory: Linux
+# caps a Unix socket path at 108 bytes, and a path under ~/.claude reads as a
+# settings path to the guards a worker's tests exercise.
 tmp39=$(grep '^tmpdir=' "$tmp/r39/env" | tail -n 1)
-[ "${tmp39#tmpdir=}" = "$root39" ] && [ -d "$root39" ] \
-  || fail "c39: the worker's TMPDIR was '${tmp39#tmpdir=}', expected the worktree's scratch root $root39"
-grep -qx "scratch_root=$root39" "$rec39" 2>/dev/null \
-  || fail "c39: the worker's session record does not name its scratch root"
+root39=${tmp39#tmpdir=}
+if [ ! -d "$root39" ] || ! grep -qx "scratch_root=$root39" "$rec39" 2>/dev/null; then
+  fail "c39: the worker's TMPDIR '$root39' is not the scratch root its session record names"
+fi
+[ "${#root39}" -lt 60 ] || fail "c39: the worker's TMPDIR is ${#root39} characters long: $root39"
+case $root39/ in
+  */.claude/* | "$(cd "$tmp/h39" 2>/dev/null && pwd -P)"/*) fail "c39: the worker's TMPDIR lies under .claude or the fleet home: $root39" ;;
+esac
+if command -v python3 >/dev/null 2>&1; then
+  python3 -c 'import socket, sys; s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.close()' \
+    "$root39/rpc.sock" 2>/dev/null \
+    || fail "c39: a Unix socket cannot be bound in the worker's TMPDIR $root39"
+  rm -f "$root39/rpc.sock"
+else
+  echo "skip: c39 the socket bind needs python3"
+fi
 : >"$root39/kept"
 recover39() {
   (
@@ -994,11 +1024,13 @@ recover39 || fail "c39: the recover after the stop exited non-zero"
 senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 --final >/dev/null 2>&1 || fail "c39: the final stop exited non-zero"
 [ ! -e "$root39" ] && [ ! -e "$tmp/h39/streamjson/sjw39b/scratch-root" ] \
   || fail "c39: the final stop left the scratch root or its pointer behind"
-[ -d "$wtroot39" ] || fail "c39: the final stop removed the worktree's root, which other sessions share"
-echo "ok: c39 the worker's TMPDIR is its own scratch root, kept across a recover and a stop, removed by the final stop (REQ-G1.2)"
-# The final close removes only a pointer of the writer's own shapes,
-# <fleet-home>/scratch/<sha1> or <sha1>/<sha1>, and never through a symlink; a read-only
-# directory the worker left does not stop the removal.
+! grep -rqxF "$root39" "$tmp/h39/scratch" 2>/dev/null \
+  || fail "c39: the final stop left the fleet home's record of the scratch root"
+echo "ok: c39 the worker's TMPDIR is its own short scratch root outside .claude, kept across a recover and a stop, removed by the final stop (REQ-G1.2)"
+# The final close removes only a root the fleet home records, or one of the
+# earlier layout's shapes, <fleet-home>/scratch/<hash> or <hash>/<hash>, and
+# never through a symlink; a read-only directory the worker left does not stop
+# the removal.
 h39r=$(cd "$tmp/h39" && pwd -P)
 mkdir -p "$tmp/u39" "$tmp/out39/keep" "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro/deep"
 chmod 500 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"
@@ -1006,11 +1038,26 @@ ln -s "$tmp/out39" "$h39r/scratch/$(printf 'b%.0s' $(seq 40))"
 release39() {
   printf '%s\n' "$1" >"$tmp/u39/scratch-root"
   (
+    script_dir=$here/../scripts
     # shellcheck source=scripts/fleet-stop-lib.sh
     . "$here/../scripts/fleet-stop-lib.sh"
     stop_scratch_root_release "$tmp/u39" "$tmp/h39"
   )
 }
+mkdir -m 700 "$tmp/base39"
+base39=$(cd "$tmp/base39" && pwd -P)
+make39() {
+  PLANWRIGHT_FLEET_SCRATCH_BASE=$base39 /bin/sh "$here/../scripts/fleet-scratch.sh" make "$tmp/h39" "$1"
+}
+new39=$(make39 "$(printf 'a%.0s' $(seq 40))") || fail "c39: no recorded root to release"
+mkdir -p "$new39/ro/deep" "$base39/0123456789abcdef/keep"
+chmod 500 "$new39/ro"
+! release39 "$base39/0123456789abcdef" && [ -d "$base39/0123456789abcdef/keep" ] \
+  || fail "c39: the final close removed a root the fleet home does not record"
+if ! release39 "$new39" || [ -e "$new39" ] || [ -e "$tmp/u39/scratch-root" ] \
+  || grep -rqxF "$new39" "$h39r/scratch"; then
+  fail "c39: the final close did not remove a recorded root holding a read-only directory, and its record"
+fi
 for bad39 in "$tmp/out39" "$h39r/scratch/../../out39" "$h39r/scratch/$(printf 'g%.0s' $(seq 40))" \
   "$h39r/scratch/$(printf 'a%.0s' $(seq 39))" "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"; do
   ! release39 "$bad39" && [ -f "$tmp/u39/scratch-root" ] \

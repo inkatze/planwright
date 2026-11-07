@@ -41,7 +41,10 @@ T=$(cd "$T" && pwd -P)
 export HOME="$T/home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export PLANWRIGHT_FLEET_STATE_DIR="$T/fleet"
 export PLANWRIGHT_ADOPTER_OVERLAY="$T/adopter"
+export PLANWRIGHT_FLEET_SCRATCH_BASE="$T/sb"
+SBASE=$T/sb
 mkdir -p "$HOME" "$T/adopter"
+mkdir -m 700 "$T/sb"
 
 MAIN=$T/main
 WT=$MAIN/.claude/worktrees/demo-task-1
@@ -217,13 +220,42 @@ fi
 
 echo "### REQ-G1.2 — the scratch root"
 wt_key=$(printf '%s' "$WT" | git hash-object --stdin)
-root="$PLANWRIGHT_FLEET_STATE_DIR/scratch/$wt_key"
+FLEET=$(cd "$PLANWRIGHT_FLEET_STATE_DIR" && pwd -P)
+# The default base, /tmp: what a worker really gets. Each root this case makes
+# there goes through the release the final close uses.
+REC=$(env -u PLANWRIGHT_FLEET_SCRATCH_BASE /bin/sh "$WRITER" write "$WT" --session real-default --scratch 2>"$T/err")
+real=$(field scratch_root)
+case $real/ in
+  */.claude/* | "$FLEET"/* | "$T"/*) real_out=0 ;;
+  *) real_out=1 ;;
+esac
+bound=0
+if command -v python3 >/dev/null 2>&1 && [ -d "$real" ]; then
+  python3 -c 'import socket, sys; s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.close()' \
+    "$real/rpc.sock" 2>/dev/null && bound=1
+  rm -f "$real/rpc.sock"
+elif ! command -v python3 >/dev/null 2>&1; then
+  echo "skip: G1.2 the socket bind needs python3"
+  bound=1
+fi
+if [ -n "$real" ] && [ -d "$real" ] && [ "${#real}" -lt 60 ] && [ "$real_out" = 1 ] && [ "$bound" = 1 ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    pass "G1.2: a worker's default scratch root is short, outside .claude and the fleet home, and takes a Unix socket"
+  else
+    pass "G1.2: a worker's default scratch root is short and outside .claude and the fleet home"
+  fi
+else
+  fail "G1.2: the default scratch root '$real' (${#real} characters, bound=$bound) $(cat "$T/err")"
+fi
+[ -z "$real" ] || /bin/sh "$REPO_ROOT/scripts/fleet-scratch.sh" release "$FLEET" "$real" \
+  || fail "G1.2: the release left the default root $real"
 REC=$(/bin/sh "$WRITER" write "$WT" --scratch 2>"$T/err")
 RC=$?
+root=$(field scratch_root)
 mode=$(stat -c %a "$root" 2>/dev/null || stat -f %Lp "$root" 2>/dev/null)
-if [ "$RC" -eq 0 ] && [ "$(field scratch_root)" = "$root" ] && [ -d "$root" ] && [ -O "$root" ] \
-  && [ "$mode" = 700 ]; then
-  pass "G1.2: --scratch creates the worktree's owner-only root under the fleet home and records it"
+if [ "$RC" -eq 0 ] && [ -n "$root" ] && [ -d "$root" ] && [ -O "$root" ] && [ "$mode" = 700 ] \
+  && [ "${root%/*}" = "$SBASE" ] && [ "$(cat "$FLEET/scratch/$wt_key.tmpdir")" = "$root" ]; then
+  pass "G1.2: --scratch creates the worktree's owner-only root under the scratch base and records it in the fleet home"
 else
   fail "G1.2: --scratch (rc=$RC, mode=$mode, $(tr '\n' ' ' <"$REC" 2>/dev/null) $(cat "$T/err"))"
 fi
@@ -234,17 +266,33 @@ if [ "$(field scratch_root)" = "$root" ] && [ -f "$root/kept" ]; then
 else
   fail "G1.2: the relaunch did not keep the root ('$(field scratch_root)')"
 fi
+mkdir -m 700 "$T/sb2"
+REC=$(PLANWRIGHT_FLEET_SCRATCH_BASE=$T/sb2 /bin/sh "$WRITER" write "$WT" --scratch 2>/dev/null)
+if [ "$(field scratch_root)" = "$root" ] && [ -f "$root/kept" ]; then
+  pass "G1.2: a recorded root stands over another base"
+else
+  fail "G1.2: a changed base moved the root to '$(field scratch_root)'"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" --session sess-a --scratch 2>/dev/null)
+sess=$(field scratch_root)
+if [ -n "$sess" ] && [ -d "$sess" ] && [ "$sess" != "$root" ] && [ "${sess%/*}" = "$SBASE" ] \
+  && [ -f "$root/kept" ]; then
+  pass "G1.2: a session gets a root of its own beside the worktree's"
+else
+  fail "G1.2: the session root '$sess' (worktree's $root)"
+fi
 REC=$(/bin/sh "$WRITER" write "$WT" 2>/dev/null)
 if [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC"; then
   pass "G1.2: no scratch option records no scratch root"
 else
   fail "G1.2: a scratch root was recorded unasked"
 fi
-mkdir -p "$root/old/ro"
+mkdir -p "$root/old/ro" "$FLEET/scratch/$wt_key/old"
 chmod 500 "$root/old/ro"
 REC=$(/bin/sh "$WRITER" write "$WT" "$id" --fresh-scratch 2>/dev/null)
-if [ "$(field scratch_root)" = "$root" ] && [ -d "$root" ] && [ -z "$(ls -A "$root")" ]; then
-  pass "G1.2: --fresh-scratch empties a root an earlier worktree at the path left"
+if [ "$(field scratch_root)" = "$root" ] && [ -d "$root" ] && [ -z "$(ls -A "$root")" ] \
+  && [ ! -e "$FLEET/scratch/$wt_key" ]; then
+  pass "G1.2: --fresh-scratch empties a root an earlier worktree at the path left, the earlier layout's too"
 else
   fail "G1.2: --fresh-scratch left entries behind in $root"
 fi
@@ -266,6 +314,29 @@ else
 fi
 rm -f "$root"
 mv "$root.moved" "$root"
+mkdir -m 700 "$WT/sb-in"
+REC=$(PLANWRIGHT_FLEET_SCRATCH_BASE=$WT/sb-in /bin/sh "$WRITER" write "$WT" --session inside --scratch 2>"$T/err")
+if [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC" && [ -z "$(ls -A "$WT/sb-in")" ] \
+  && grep -q 'inside the worktree' "$T/err" \
+  && [ ! -e "$FLEET/scratch/$wt_key-$(printf '%s' inside | git hash-object --stdin).tmpdir" ]; then
+  pass "G1.2: a root inside the worktree is refused and released, its record gone"
+else
+  fail "G1.2: a root inside the worktree ($(ls -A "$WT/sb-in"), $(cat "$T/err"))"
+fi
+rm -rf "$WT/sb-in"
+REC=$(PLANWRIGHT_FLEET_SCRATCH_BASE=$T/nowhere /bin/sh "$WRITER" write "$WT" --session nowhere --scratch 2>"$T/err")
+if [ -n "$REC" ] && grep -q 'no scratch arm (fleet-scratch.sh: PLANWRIGHT_FLEET_SCRATCH_BASE names no directory)' "$T/err"; then
+  pass "G1.2: the warning names why the root is unusable"
+else
+  fail "G1.2: the warning gave no reason: $(cat "$T/err")"
+fi
+mkdir -p "$T/notours/keep"
+if ! /bin/sh "$REPO_ROOT/scripts/fleet-scratch.sh" release "$FLEET" "$T/notours" 2>/dev/null \
+  && [ -d "$T/notours/keep" ]; then
+  pass "G1.2: a release removes no directory the fleet home does not record"
+else
+  fail "G1.2: a release removed an unrecorded directory"
+fi
 set_layer repo-tracked 'worker_self_approval: scratch'
 REC=$(/bin/sh "$WRITER" write "$WT" --scratch 2>/dev/null)
 out=$(jq -cn --arg c 'touch $TMPDIR/x && mktemp -d' --arg w "$WT" '{tool_name:"Bash",tool_input:{command:$c},cwd:$w}' \
@@ -274,6 +345,12 @@ if [ "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // em
   pass "G1.2: the guard takes the launched record's scratch root"
 else
   fail "G1.2: the guard did not approve a scratch write under the launched record"
+fi
+if /bin/sh "$REPO_ROOT/scripts/fleet-scratch.sh" reclaim "$FLEET" "$wt_key" && [ ! -e "$root" ] && [ ! -e "$sess" ] \
+  && [ -z "$(ls -A "$FLEET/scratch")" ]; then
+  pass "G1.2: a worktree reclaim removes its root and every session's, records included"
+else
+  fail "G1.2: the reclaim left $(find "$FLEET/scratch" "$SBASE" -mindepth 1 2>&1 | tr '\n' ' ')"
 fi
 set_layer repo-tracked 'worker_self_approval: own-branch'
 
@@ -349,6 +426,7 @@ if [ $? -eq 2 ]; then
 else
   fail "G1.8: a missing record was accepted"
 fi
+root=$T/sb
 out=$(TMPDIR=/inherited /bin/sh "$ENVWRAP" --tmpdir "$root" /bin/sh -c 'printf %s "$TMPDIR"' 2>&1)
 if [ "$out" = "$root" ]; then
   pass "G1.2: --tmpdir is exported as the worker's TMPDIR"
