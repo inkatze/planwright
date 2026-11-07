@@ -156,7 +156,9 @@ rm -rf "$tmp/config-dir"
 
 reset
 absolute_profile >"$proj/.claude/settings.json"
-(cd "$proj" && git init -q . 2>/dev/null)
+(cd "$proj" && env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR -u GIT_OBJECT_DIRECTORY \
+  -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT git init -q . 2>/dev/null)
+[ -d "$proj/.git" ] || fail "the fixture project is not a git top level"
 mkdir -p "$proj/sub"
 in_sub() {
   OUT=$(cd "$proj/sub" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_CONFIG_DIR -u PLANWRIGHT_MC_TOKEN -u PLANWRIGHT_ROOT -u CLAUDE_PROJECT_DIR \
