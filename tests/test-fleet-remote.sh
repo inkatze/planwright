@@ -1,0 +1,181 @@
+#!/bin/bash
+# Tests for scripts/fleet-remote.sh, the near-side SSH channel to a remote
+# host's stream-json verbs. A fake `ssh` on PATH runs the remote command
+# string under a chosen login shell with a sandbox HOME, so the quoting is
+# exercised by each real shell present (sh always; bash, zsh, fish when
+# installed), and a fake remote root records the argv and stdin each verb
+# received. Plain bash 3.2, inline asserts.
+set -u
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+here="$(cd "$(dirname "$0")" && pwd)"
+script="$here/../scripts/fleet-remote.sh"
+
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/fleet-remote-test.XXXXXX")" || {
+  echo "FAIL: mktemp could not create a work dir" >&2
+  exit 1
+}
+tmp=$(cd -P "$tmp" && pwd -P) || exit 1
+trap 'rm -rf "$tmp"' EXIT
+
+failures=0
+ok() { echo "ok: $1"; }
+fail() {
+  echo "FAIL: $1" >&2
+  failures=$((failures + 1))
+}
+assert_eq() {
+  if [ "$2" = "$3" ]; then ok "$1"; else fail "$1 (expected '$2', got '$3')"; fi
+}
+
+bin="$tmp/bin"
+rhome="$tmp/rhome"
+rroot="$tmp/rroot"
+mkdir -p "$bin" "$rhome/.config/planwright" "$rroot/scripts"
+
+cat >"$bin/ssh" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$FAKE_SSH_LOG"
+while :; do
+  case $1 in
+    -T) shift ;;
+    -o) shift 2 ;;
+    *) break ;;
+  esac
+done
+[ "$1" = down ] && exit 255
+exec env -i HOME="$FAKE_REMOTE_HOME" PATH="$PATH" "$FAKE_REMOTE_SHELL" -c "$2"
+EOF
+chmod +x "$bin/ssh"
+
+# The fake remote verbs print their argv, one bracketed word per line, then
+# the file a --brief or --message-file named and whether it still exists.
+for s in fleet-streamjson mission-control-launch; do
+  cat >"$rroot/scripts/$s.sh" <<EOF
+#!/bin/sh
+echo "$s"
+f=''
+prev=''
+for a in "\$@"; do
+  printf '[%s]\n' "\$a"
+  case \$prev in --brief | --message-file) f=\$a ;; esac
+  prev=\$a
+done
+if [ -n "\$f" ]; then echo "file:\$f"; cat "\$f"; fi
+EOF
+done
+
+export FAKE_SSH_LOG="$tmp/ssh.log"
+export FAKE_REMOTE_HOME="$rhome"
+export FAKE_REMOTE_SHELL=/bin/sh
+export PATH="$bin:$PATH"
+
+run() {
+  OUT=$(/bin/sh "$script" "$@" 2>"$tmp/err")
+  CODE=$?
+  ERR=$(cat "$tmp/err")
+}
+
+set_env_root() {
+  printf 'PLANWRIGHT_ROOT=%s\n' "$1" >"$rhome/.config/planwright/remote-env.sh"
+}
+
+# --- usage and refusals, none of which reaches ssh -----------------------------
+: >"$FAKE_SSH_LOG"
+run --help
+assert_eq "--help exits 0" 0 "$CODE"
+run status w1
+assert_eq "a missing --host is a usage error" 2 "$CODE"
+run --host -oProxyCommand=x status w1
+assert_eq "an alias with a leading dash is refused" 2 "$CODE"
+run --host 'a b' status w1
+assert_eq "an alias with a space is refused" 2 "$CODE"
+run --host mac status 'w;x'
+assert_eq "a worker name outside the grammar is refused" 2 "$CODE"
+run --host mac answer w1 'id;x' --allow
+assert_eq "a request id outside the grammar is refused" 2 "$CODE"
+run --host mac answer w1 r1 --deny --message 'a\b'
+assert_eq "a backslash argument is refused" 2 "$CODE"
+run --host mac answer w1 r1 --deny --message "$(printf 'a\nb')"
+assert_eq "a newline argument is refused" 2 "$CODE"
+run --host mac launch --brief /x --program p
+assert_eq "launch refuses a caller --brief" 2 "$CODE"
+run --host mac --root rel root
+assert_eq "a relative --root is refused" 2 "$CODE"
+run --host mac frobnicate
+assert_eq "an unknown verb is a usage error" 2 "$CODE"
+assert_eq "no refusal reached ssh" "" "$(cat "$FAKE_SSH_LOG")"
+
+# --- root resolution -----------------------------------------------------------
+set_env_root "$rroot"
+run --host mac root
+assert_eq "root comes from the remote env file" "$rroot" "$OUT"
+if grep -q -- '-o BatchMode=yes mac ' "$FAKE_SSH_LOG"; then ok "ssh runs in batch mode"; else fail "ssh runs in batch mode"; fi
+mkdir -p "$tmp/other/scripts"
+run --host mac --root "$tmp/other" root
+assert_eq "--root wins over the env file" "$tmp/other" "$OUT"
+
+rm -f "$rhome/.config/planwright/remote-env.sh"
+cache="$rhome/.claude/plugins/cache/planwright/planwright/9.9.9/scripts"
+mkdir -p "$cache"
+# shellcheck disable=SC2016 # the $1 belongs to the fake resolver
+printf '#!/bin/sh\n[ "$1" = --current ] && echo %s\n' "$rroot" >"$cache/resolve-installed-roots.sh"
+run --host mac root
+assert_eq "root falls back to the remote's installed-plugin record" "$rroot" "$OUT"
+rm -rf "$rhome/.claude"
+run --host mac root
+assert_eq "no remote root exits 3" 3 "$CODE"
+case $ERR in *"no planwright root"*) ok "no remote root names the fix" ;; *) fail "no remote root names the fix ($ERR)" ;; esac
+
+run --host down root
+assert_eq "an unreachable host passes ssh's 255 through" 255 "$CODE"
+
+# --- verbs, under every shell present as the remote login shell -----------------
+set_env_root "$rroot"
+hostile="it's \$(touch $tmp/pwned) \`touch $tmp/pwned\`; & | > \"q\" * ~"
+for sh in /bin/sh bash zsh fish; do
+  shpath=$(command -v "$sh" 2>/dev/null) || {
+    echo "skip: $sh not installed"
+    continue
+  }
+  FAKE_REMOTE_SHELL=$shpath
+  export FAKE_REMOTE_SHELL
+
+  run --host mac pending w1 w-2
+  assert_eq "[$sh] pending forwards its workers" "$(printf 'fleet-streamjson\n[pending]\n[w1]\n[w-2]')" "$OUT"
+
+  run --host mac answer w1 r-1 --deny --message "$hostile"
+  assert_eq "[$sh] a hostile deny message arrives verbatim" \
+    "$(printf 'fleet-streamjson\n[answer]\n[w1]\n[r-1]\n[--deny]\n[--message]\n[%s]' "$hostile")" "$OUT"
+  if [ -e "$tmp/pwned" ]; then fail "[$sh] the hostile message executed"; else ok "[$sh] the hostile message never executed"; fi
+
+  run --host mac status w1
+  assert_eq "[$sh] status forwards" "$(printf 'fleet-streamjson\n[status]\n[w1]')" "$OUT"
+
+  run --host mac retire mc-x-1
+  assert_eq "[$sh] retire goes to the launcher" "$(printf 'mission-control-launch\n[retire]\n[mc-x-1]')" "$OUT"
+
+  OUT=$(printf 'line one\n%s\n' "$hostile" | /bin/sh "$script" --host mac steer w1 2>"$tmp/err")
+  CODE=$?
+  f=$(printf '%s\n' "$OUT" | sed -n 's/^file://p')
+  assert_eq "[$sh] steer sends stdin as the message file" \
+    "$(printf 'fleet-streamjson\n[steer]\n[w1]\n[--message-file]\n[%s]\nfile:%s\nline one\n%s' "$f" "$f" "$hostile")" "$OUT"
+  if [ -n "$f" ] && [ ! -e "$f" ]; then ok "[$sh] steer removes its temp file"; else fail "[$sh] steer removes its temp file ($f)"; fi
+
+  OUT=$(printf 'brief body\n' | /bin/sh "$script" --host mac launch --program p --kind worker --scope 's:a b' 2>"$tmp/err")
+  f=$(printf '%s\n' "$OUT" | sed -n 's/^file://p')
+  assert_eq "[$sh] launch sends stdin as the brief" \
+    "$(printf 'mission-control-launch\n[launch]\n[--program]\n[p]\n[--kind]\n[worker]\n[--scope]\n[s:a b]\n[--brief]\n[%s]\nfile:%s\nbrief body' "$f" "$f")" "$OUT"
+
+  OUT=$(/bin/sh "$script" --host mac steer w1 </dev/null 2>"$tmp/err")
+  CODE=$?
+  assert_eq "[$sh] steer with empty stdin is refused remotely" 2 "$CODE"
+done
+
+if [ "$failures" -ne 0 ]; then
+  echo "$failures failure(s)" >&2
+  exit 1
+fi
+echo "all fleet-remote tests passed"
