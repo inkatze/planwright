@@ -20,17 +20,17 @@ prompts at all**, and every guardrail sits at the boundary of that account inste
 the operating system keeps them out of the owner's files and Homebrew, and GitHub writes leave the
 account only through the hub.
 
-**The hub** is this host's mission control together with the fixed scripts it runs. Mission
-control only invokes a script by worker and request id; the script reads the request and makes
-every check itself, so no model judgment sits in a check.
+**The hub** is this host's mission control together with the fixed scripts it runs. For a
+worker's request, mission control only invokes a script by worker and request id; the script reads
+the request and makes every check itself, so no model judgment sits in a check.
 
 **The finding that shapes everything.** GitHub cannot limit a token to one branch. A fine-grained
 token is scoped to repositories and permissions, never to branches; branch rules (rulesets) apply
 per actor, and a token acting as the operator inherits the operator's admin bypass of them. This
 repository's main-branch ruleset also asks for zero approvals, so any token that can write contents
 and pull requests here can merge a green pull request into main. And any credential allowed to
-change workflow files (the operator's SSH key or `gh` login, for example) can push a branch that
-adds a workflow with a write-capable `GITHUB_TOKEN`. So "a token that can push only its own branch"
+change workflow files (the operator's SSH key, or a `gh` login holding the `workflow` scope) can
+push a branch that adds a workflow with a write-capable `GITHUB_TOKEN`. So "a token that can push only its own branch"
 cannot be a token. It has to be a boundary that chooses the refspec.
 
 **Recommendation.** The work account holds **no GitHub write credential**, only a read-only
@@ -46,8 +46,9 @@ merge impossible, and workflow injection refusable. Inside the account the worke
 with planwright's worker profile kept as a tripwire that only ever allows or denies.
 
 **What it retires.** For Mac workers: the per-command vetting loop, the worker command guard's
-role, the stream-json permission queue's traffic, the pre-approval lists and the pending-prompt
-alarms and sweeps. They stay for this host's local workers until those move into an isolated
+auto-approval role and the pre-approval lists (under `bypassPermissions`; under `dontAsk` their
+allows remain the list of what may run), the stream-json permission queue's traffic, and the
+pending-prompt alarms and sweeps. They stay for this host's local workers until those move into an isolated
 account too (the last migration phase, an open question).
 
 **Decisions for the operator** are in [Open questions](#open-questions-for-the-operator), each with
@@ -90,14 +91,16 @@ Three layers, from the outside in:
 
 1. **The OS boundary (the real one).** The work account is a standard macOS user. It cannot write
    the owner's home, the Homebrew prefix, `/Applications` or system settings, and cannot escalate
-   (no admin group, no sudo rule). Everything the worker can damage is the account's own home.
+   (no admin group, no sudo rule). Everything the worker can damage is the account's own home and
+   the world-writable shared directories (`/Users/Shared`, the temporary directories).
 2. **The GitHub boundary (the hub).** The account can read GitHub but not write it. Every write is
    a request the hub executes through a fixed, mechanical verb against the worker's dispatch
    record. No model judgment sits in that path, so a worker cannot argue its way past it.
 3. **The inside layer (defense in depth, not a boundary).** The worker runs with prompts off.
    Planwright's worker profile (`config/worker-settings.json` and its guards) still applies there.
    Today it refuses merge, force pushes and pushes to main, but allows a worker to push its own
-   branch and flip its own PR; the isolated profile adds denies for both, since the hub does them.
+   branch and flip its own PR; the isolated worker settings add denies for both, since the hub
+   does them.
    An honest worker gets a clear message instead of a stall; a compromised one can edit its own
    settings, so nothing depends on this layer. Claude Code's OS sandbox for Bash commands (Seatbelt
    on macOS: filesystem limits and a network allowlist) is the candidate for the same layer, after
@@ -120,14 +123,14 @@ hold.
 
 | Lost compared with this host | Replacement or acceptance |
 | --- | --- |
-| The operator's `~/.claude`: global instructions, settings, memory, personal skills (`review-shared`, `bot-review`, `panel-review`) | An **account profile**, rendered by the dotfiles playbook from tracked files: a sanitized global instructions file (git, PR and writing conventions only), the isolated worker settings (prompts off, the tripwire denies), and the skills the cadence calls. The operator's `~/.claude` is never copied. Memory is not replaced: the brief carries what a unit needs (accepted, and it trims context). |
+| The operator's `~/.claude`: global instructions, settings, memory, personal skills (`review-shared`, `bot-review`, `panel-review`) | An **account profile**: a sanitized global instructions file (git, PR and writing conventions only), the isolated worker settings (prompts off, the tripwire denies), and the skills the cadence calls. Planwright ships the isolated worker settings (its worker profile plus the push and flip denies and the prompts-off mode), loaded by the launcher; the dotfiles playbook renders the rest from tracked files. The operator's `~/.claude` is never copied. Memory is not replaced: the brief carries what a unit needs (accepted, and it trims context). |
 | GitHub write access (push, PR create and edit, comments, thread replies, ready flip) | The hub's publish and PR verbs (Section 3). The ready flip moves to the hub entirely. |
 | Commit signing as the operator | The main ruleset's signature rule also checks the head branch's commits, so unsigned worker commits block a squash merge even though GitHub signs the squash commit itself. The Mac's signing key is still removed; how Mac branches get signed is Q11. |
 | The GitHub MCP server and claude.ai connectors (Slack, docs) | Not needed by a worker: reads go through `gh` with the read-only token, writes through the hub. Connectors tied to the operator's account stay on the hub. |
-| Non-Anthropic review backends (`panel-review`'s CLIs and their keys) | Run as hub-side steps against the pushed head, or not for remote units (undecided; see the last section). Their keys never reach the Mac. |
+| Non-Anthropic review backends (`panel-review`'s CLIs and their keys) | Run as hub-side steps against the pushed head, or not for remote units (undecided; see [What this changes](#what-this-changes-in-the-remote-worker-rung-draft)). Their keys never reach the Mac. |
 | The fleet home (registry, journals, attention store) | The Mac keeps its own fleet home. The hub sees it only through channel verbs and its local dispatch record (`remote-worker-rung` D-5, D-6). |
 | Warm caches (mise tools, test caches, plugin cache) | Rebuilt once in the account's home; the playbook pre-installs the pinned tools. The first unit pays the cold start. |
-| The 1Password service token | Removed from the account. Values the Mac's playbook needs that are not secret (the public key, the trusted address) are rendered on the hub and shipped as files. See open question Q4. |
+| The 1Password service token | Removed from the account. Values the Mac's playbook needs that are not secret (the public key, the trusted address) are rendered on the hub and copied in at the console playbook run, since no channel verb ships files. See open question Q4. |
 | This host's test pool, gate serialization and machine-local config | The Mac's own test pool and gate serialization under its own machine-local layer. Nothing is shared with this host's. |
 | Interactive help when a worker is stuck on a prompt | No prompts to get stuck on. Steering through the channel stays. |
 
@@ -157,15 +160,17 @@ work runs wherever it fits, with CI as the gate of record.**
   suite on Linux and macOS and is the gate of record. A worker skips the tests it cannot run on
   macOS by their existing platform guards, and the hub does not run them for it. Executing worker
   code on this host would breach the boundary above.
-- **The planwright gate** (`mise run check`): the worker runs it on the Mac, which is faster there
-  (PR #871's description measured it, with this host heavily loaded). The same description found
-  that the whole gate does not fit one tool call's timeout, so the worker runs it detached
+- **The planwright gate** (`mise run check`): the worker runs it on the Mac. PR #871's description
+  measured a supervisor suite faster there, with this host heavily loaded; the whole gate's speed
+  on the Mac is unmeasured. The same description found that the whole gate does not fit one tool
+  call's timeout, so the worker runs it detached
   (`detached-run.sh`) and waits in-turn. When the Mac's gate is busy, the worker skips the local
   gate and CI decides.
 - **`compute` (PR #871)** stays the way this host offloads its own test runs to the Mac. It runs
   over SSH outside any Claude Code session, so the Bash sandbox never covers it. With no GitHub
   write or 1Password credential left in the account, its credential exposure (`remote-worker-rung`
-  D-16, REQ-G1.6) shrinks to the Claude login, which a compute run can still read (Section 4). Its
+  D-16, REQ-G1.6) shrinks to the Claude login and the read-only GitHub token, both of which a
+  compute run can still read (Section 4). Its
   results are advisory: a compromised account can fake them, and CI decides.
 
 ## 3. How the hub supervises
@@ -249,7 +254,8 @@ What it **can** do:
 - Read the read-only GitHub token: it can read what that token selects, at most the source a
   worker already has.
 - Reach the network: the LAN, and any host on the internet. The sandbox allowlist limits only an
-  honest worker; network-level egress limits are undecided (see the last section).
+  honest worker; network-level egress limits are undecided (see
+  [What this changes](#what-this-changes-in-the-remote-worker-rung-draft)).
 - Plant persistence inside the account (a LaunchAgent, a crontab, a second SSH key in the
   account's unmanaged `authorized_keys`, which works from any LAN address). Q7 fixes the last one.
 - Send the hub hostile data: request fields, PR bodies, result text, and the git objects and refs
@@ -274,8 +280,8 @@ What it **cannot** do:
 - Log in to this host. The account holds no key to it and this host trusts none from the Mac; the
   channel runs one way only. This host is still on the LAN the account can reach.
 - Run code on this host through its branch. The hub handles Mac-authored commits as git objects
-  and never checks them out with hooks or runs them. They reach this host only after the
-  operator's merge, through the normal review gate.
+  and never checks them out or executes them. They run on this host only after the operator's
+  merge, through the normal review gate.
 
 **Token scope and lifetime.** One fine-grained token, created by the operator:
 
@@ -294,9 +300,9 @@ operator.
 **How the boundary is verified.** A **boundary probe** suite the hub runs through the channel at
 setup, after every Mac playbook run, and daily. Each probe has a positive control and must be seen
 failing once before it is trusted (`doctrine/evidence-quality.md`, "Failable in practice").
-Positive controls that need rights the work account lacks run as the owner account. Run as the
-work account, the probes catch **configuration drift, not compromise**: a compromised account can
-answer them falsely. They assert:
+Positive controls that need rights the work account lacks are run once at setup by an
+administrator in the owner account. Run as the work account, the probes catch **configuration
+drift, not compromise**: a compromised account can answer them falsely. They assert:
 
 - no admin group, and `sudo -n true` fails;
 - writes to the Homebrew prefix, `/Applications` and the owner's home fail;
@@ -304,15 +310,18 @@ answer them falsely. They assert:
 - no `gh` login, no GitHub SSH key, no signing key and no 1Password token;
 - a push of a canary ref with the read-only token, against a canary repository the token also
   selects, is refused by GitHub;
-- the isolated worker settings match the rendered copy;
+- the isolated worker settings match planwright's shipped copy;
 - no unexpected LaunchAgents or crontab entries, and only the managed authorized key.
 
-Checks that must hold under compromise run where the account cannot reach: the persistence and key
-checks from the owner account or the playbook, the credential lists from GitHub's side.
+Checks that must hold under compromise run where the account cannot reach, never through the
+channel (which reaches only the work account) or the playbook (which runs in it): the persistence
+and key checks by an administrator at the console, or by a root-owned scheduled job an
+administrator installs; the credential lists from GitHub's side.
 
 On the hub side the probe asserts that the publish verb refuses a canary branch for each refusal
-class, and a periodic audit matches GitHub events on the operator's repositories (pushes, comments,
-ready flips) against the hub's own publish log by head SHA, PR and comment id. Since the hub acts as
+class, and a periodic audit matches GitHub events on the worker branch prefix and on the PRs in the
+hub's dispatch records (pushes, comments, ready flips) against the hub's own publish log by head
+SHA, PR and comment id. Since the hub acts as
 the operator (Q2 (a)), identity alone cannot separate the hub's writes from a stolen operator
 credential; the log can. The audit's own output is reported, never silently green.
 
@@ -333,10 +342,12 @@ credential; the log can. The audit's own output is reported, never silently gree
 
 **Kept:**
 
-- The hub's own guards: `ready-guard.sh` on the hub's flips, and the hub guard's approval of the
-  channel's fixed verbs (D-9, REQ-C1.5), which grows to the request verbs. Mission control itself
-  still runs no git mutation (`policy-guard.sh`'s mission-control tier): the publish verb is a
-  shipped script the guard approves as a fixed verb, a guard change listed below.
+- The hub's own guards: `ready-guard.sh` on the hub's flips, and the command guard's approval of
+  the channel's fixed verbs (D-9, REQ-C1.5), which grows to the request-queue read and answer.
+  Mission control itself still runs no git mutation (`policy-guard.sh`'s mission-control tier), so
+  the hub's verb scripts (`publish`, `comment`, `reply`, `resolve`), which run the fetch and push
+  inside them, need the command guard to approve them by resolved path: a guard change listed
+  below.
 - Planwright's worker profile inside the account, as a tripwire that allows or denies only.
 - The worker's cadence, unchanged and run on the Mac. The readiness check moves to the hub for
   remote units.
@@ -346,21 +357,26 @@ credential; the log can. The audit's own output is reported, never silently gree
 0's revocations are undone only by minting new credentials:
 
 0. **Clean the account** (a dotfiles PR): sign out the operator's `gh`, remove the GitHub keys,
-   the signing key and the 1Password token; install the read-only token and the account profile;
-   pin the account's authorized keys (Q7). Removal is not revocation (`gh auth logout` revokes
+   the signing key and the 1Password token; install the read-only token and the account profile,
+   without the isolated worker settings (phase 2 turns those on); pin the account's authorized
+   keys (Q7). Removal is not revocation (`gh auth logout` revokes
    nothing), so the operator also revokes the removed keys and the `gh` token on GitHub and rotates
    the 1Password service token. Revoking the GitHub CLI app's access revokes every `gh` token,
    this host's included, so this host signs in again afterwards. Until the request verbs exist,
    Mac workers use `remote-worker-rung`'s fetch-back path (REQ-B1.7, still to be built) for
-   delivery, with the hub pushing, and keep today's prompt vetting through the channel.
+   delivery, with the hub pushing; a session on this host opens the PR and runs the post-PR steps.
+   Remote prompts are vetted by hand through the channel's `pending` and `answer` verbs (each call
+   prompts on this host until REQ-C1.5's guard approval is built). Until signed publishing exists,
+   a Mac branch merges only through your admin bypass (Q11 (b)).
 1. **Build the boundary** (a spec task series): the boundary probe, the request queue and the hub
-   verbs over the channel, and the refused-path and secret checks on publish. The guarantees in
-   Section 4 start here.
+   verbs over the channel, signed publishing (Q11), and the refused-path and secret checks on
+   publish. The guarantees in Section 4 start here.
 2. **Canary.** One low-risk unit on the Mac with prompts off, the probe green before and after, and
    zero permission requests. Its run is compared with a local twin for denials, wall time and
    review findings.
-3. **Default the Mac** for session-grade units placed on that host. The remote vetting paths are
-   deleted from `remote-worker-rung`'s plan, not built.
+3. **Default the Mac** for session-grade units placed on that host. The remote vetting paths
+   (D-7's loop coverage, REQ-C1.1, REQ-C1.2) are dropped from `remote-worker-rung`'s plan before
+   they are built; phases 0 to 2 vet by hand.
 4. **Optional, long term:** the same isolation on this host, with a restricted Linux account for
    local workers. Once both hosts run isolated workers, the worker command guard, the permission
    queue, the pre-approval lists and the pending-prompt alarms retire entirely, and mission control
@@ -396,14 +412,17 @@ are not carried over, so no Mac-authored code runs here. (b) Publish after your 
 branch. (c) Allow, relying on review: unsafe, since the workflow runs before anyone reviews it.
 
 **Q4. The Mac's 1Password service token.** (a) **Recommended:** remove it. The hub renders what the
-Mac's playbook needs and ships the files, since none of it is secret (the read-only GitHub token is
-installed at the console instead, per Section 4). (b) Keep it in a separate, second macOS account
+Mac's playbook needs and the files are copied in at the console playbook run, since none of it is
+secret (the read-only GitHub token is installed the same way, per Section 4). (b) Keep it in a separate, second macOS account
 that runs only the playbook. (c) Accept that worker code can read the dotfiles vault.
 
 **Q5. The Claude login after a reboot.** (a) **Recommended after a probe:** a long-lived token
 (`claude setup-token`, D-11's documented fallback) in an owner-only file, with Bash commands
-sandboxed away from it and a Read deny rule on the file. That removes the manual keychain unlock
-after each reboot. The probe checks that the token does not leak into commands' environment. The
+sandboxed away from it and a Read deny rule on the file. The launcher reads it for the `claude`
+process only, never through `remote-env.sh`, which every channel verb (`compute` included) sources
+and which must hold no secrets; D-11 currently loads it through that file. That removes the manual
+keychain unlock after each reboot. The probe checks that the token does not leak into commands'
+environment. The
 trade-off: a compromised account can read this token, which lives longer than a keychain session.
 (b) Keep the keychain login and unlock it by hand after each reboot; a compromised account can
 still use it while unlocked.
@@ -435,8 +454,11 @@ them. It does not stop a pushed workflow, which posts as that same app; only Q3'
 
 **Q11. How do Mac branches get signed commits?** The main ruleset rejects a squash merge whose head
 branch carries unsigned commits. (a) **Recommended:** the hub re-signs the fetched commits with its
-own key at publish (same trees, new signatures), pushes those, and the worker resets its branch to
-the published head before its next commit. (b) You merge every Mac PR through your admin bypass,
+own key at publish (same trees, new signatures, done with git plumbing and no checkout), pushes
+those, and the worker resets its branch to the published head before its next commit. Later
+fetches must descend from that published head. Re-signing changes commit ids, so the hub keeps the
+old-to-new map and the step audit, which matches records by commit ancestry, reads the worker's
+records through it. (b) You merge every Mac PR through your admin bypass,
 which also skips the required checks, and the readiness check reads such PRs as blocked. (c) A
 signing key in the work account registered to your GitHub account: no push power, but a
 compromised worker could mint commits that GitHub shows as verified from you.
@@ -449,28 +471,33 @@ settled decisions and requirements.
 
 - **D-7, REQ-C1.1, REQ-C1.2 and REQ-C1.3's alarm over remote prompts** (this host vets remote
   prompts): replaced. There are no remote prompts; the request queue and its age alarm take their
-  place. REQ-C1.4 (steer and the wake relay through the channel) and REQ-C1.3's attention item for
+  place, and the plan drops the vetting paths at migration phase 3 (phases 0 to 2 vet by hand).
+  REQ-C1.4 (steer and the wake relay through the channel) and REQ-C1.3's attention item for
   an unreadable host survive, and need a decision to cite once D-7 goes.
 - **D-9 and REQ-C1.5** (guard approval of the channel): kept for the hub's own calls and extended
-  to the request verbs and the publish verb's fetch. The `answer --allow` posture is no longer
-  needed for isolated workers.
-- **REQ-A1.2** (a fixed set of channel verbs): amended to add the request-queue read and the verbs
-  above, as are the draft's tasks that list the verb set.
+  to the request-queue read and answer, plus approval of the hub's verb scripts by resolved path.
+  The `answer --allow` posture is no longer needed for isolated workers.
+- **REQ-A1.2** (a fixed set of channel verbs): amended to add the request-queue read and a
+  request-answer write, as are the draft's tasks that list the verb set. The request verbs
+  themselves (`publish`, `comment`, `reply`, `resolve`, `report-done`) are hub-side scripts, not
+  channel verbs.
 - **D-10 and REQ-B1.4, REQ-B1.7** (remote workers push; fetch-back is the fallback): inverted.
   Hub-side publish becomes the only path for isolated workers, which fixes the per-branch limit.
 - **D-11 and REQ-F1.2** (remote login is the host's own): narrowed. The Claude login stays the
-  host's own; the GitHub write login leaves the host, and a read-only token replaces it.
+  host's own; the GitHub write login leaves the host, and a read-only token replaces it. D-11's
+  token fallback stops loading through the remote environment file (Q5).
 - **D-16 and REQ-G1.6** (compute's credential boundary): narrowed, not resolved. The account holds
-  no GitHub write or 1Password credential, but it still holds the Claude login, which a compute
-  run can read since the sandbox does not cover it. D-16's own options remain: a login-free
-  account for compute, or your explicit acceptance.
+  no GitHub write or 1Password credential, but it still holds the Claude login and the read-only
+  GitHub token, which a compute run can read since the sandbox does not cover it. REQ-G1.6's first
+  stance (no hosting-remote login at all) stays unmet either way. D-16's own options remain: a
+  login-free account for compute, or your explicit acceptance.
 - **D-14 and REQ-E1.4** (no safety rule relaxed by placement; the same profile, guards and
   cadence): amended. The cadence stays the same, but the profile and guards differ by design: the
   worker runs with prompts off, and its rules move to the boundary rather than disappearing. The
   REQ-E1.4 test-spec entry changes with it.
 - **New:** the account profile, the request queue and its verbs, the publish checks, the boundary
-  probe, per-unit caps, signed publishing (Q11), the mission-control guard's approval of the
-  publish verb, and the main-branch status pinning (Q10).
+  probe, per-unit caps, signed publishing (Q11), the command guard's approval of the hub's verb
+  scripts, and the main-branch status pinning (Q10).
 - **Undecided here, for `/spec-draft`:** the request queue's delivery semantics (at-most-once or
   idempotent verbs, the fate of a request whose worker has parked, what "park" means for a
   prompt-free worker); whether the stream-json queue can carry requests instead of a new queue;
@@ -485,8 +512,8 @@ settled decisions and requirements.
   pushes only the worker's own branch, no operator secrets or `~/.claude` in the account, no access
   to the owner's files or Homebrew.
 - PR #871 (merged): `specs/remote-worker-rung/` (Draft), `docs/research/remote-worker-over-ssh.md`
-  and `scripts/fleet-remote.sh`, read at the PR's head; the gate timings come from the PR's
-  description.
+  and `scripts/fleet-remote.sh`, read at the PR's head; the suite timing and the gate-timeout
+  finding come from the PR's description.
 - Dotfiles PR #225, read-only: the Mac's offload posture and runbook (`docs/offload-host.md`),
   including the standard-account change, the credentials the runbook installs and its
   after-reboot keychain unlock.
