@@ -1,0 +1,42 @@
+---
+# Escalate a merged release PR that was never published.
+#
+# release-please.yml never tags (tagging is scripts/release-publish.sh, a local
+# signed act), and while a release is unpublished it suppresses new proposals
+# and stays green. So a missed publish produces no red anywhere on its own.
+# This scheduled run fails once a merged release PR has kept its
+# `autorelease: pending` label past the bound in scripts/release-stale-check.sh,
+# and a failed scheduled run notifies the repository's maintainers.
+#
+# "on" is quoted so yamllint's truthy rule (run on .github/) does not flag the
+# key, matching ci.yml.
+name: release-stale
+
+"on":
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: release-stale
+  cancel-in-progress: true
+
+jobs:
+  stale-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          persist-credentials: false
+
+      # Exit 1 (stale) and exit 2 (could not read the state) both fail the run:
+      # an unreadable state must not pass as "nothing stale".
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: /bin/bash scripts/release-stale-check.sh
