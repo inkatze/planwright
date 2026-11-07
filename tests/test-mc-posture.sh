@@ -291,6 +291,26 @@ absolute_profile >"$home/.claude/settings.json"
 posture -- --settings "$tmp/missing.json"
 expect_fail "a --settings file that does not exist fails" "missing.json does not exist"
 
+echo "# missing tools"
+# A tool the check reads with, gone from PATH, is a check that did not run,
+# never a pass.
+for gone in sed awk; do
+  reset
+  absolute_profile >"$home/.claude/settings.json"
+  rm -rf "$tmp/tools"
+  mkdir -p "$tmp/tools"
+  for t in jq sed awk grep tr mktemp rm dirname uname git cat; do
+    [ "$t" = "$gone" ] || ln -s "$(command -v "$t")" "$tmp/tools/$t"
+  done
+  posture PATH="$tmp/tools" --
+  if [ "$RC" = 2 ] && case $ERR in *"$gone is required"*) true ;; *) false ;; esac then
+    ok "with $gone missing, the check says it did not run (exit 2)"
+  else
+    fail "with $gone missing, the check exited $RC: $OUT $ERR"
+  fi
+done
+rm -rf "$tmp/tools"
+
 echo "# usage"
 if OUT=$(/bin/bash "$POSTURE" --help 2>&1) && case $OUT in usage:*) true ;; *) false ;; esac then
   ok "--help prints the usage and exits 0"

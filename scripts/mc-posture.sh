@@ -39,7 +39,7 @@ Output, tab separated, one line:
   posture  pass
   posture  fail  <one-line reason>
 
-Exit codes: 0 pass; 1 fail; 2 usage, or jq absent.
+Exit codes: 0 pass; 1 fail; 2 usage, or jq, sed, awk or grep absent.
 HELP
 }
 
@@ -68,10 +68,13 @@ case ${1-} in
 esac
 [ "$#" -ge 1 ] && [ "$1" = check ] || usage
 shift
-command -v jq >/dev/null 2>&1 || {
-  printf '%s\n' "$me: jq is required" >&2
-  exit 2
-}
+# A reader missing would read every layer as empty of what it looks for.
+for t in jq sed awk grep; do
+  command -v "$t" >/dev/null 2>&1 || {
+    printf '%s\n' "$me: $t is required" >&2
+    exit 2
+  }
+done
 
 layers=()
 project='' managed=''
