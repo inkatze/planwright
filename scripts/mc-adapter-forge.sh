@@ -41,7 +41,8 @@ line per pull request:
     <TAB><checks state|NONE><TAB><reviews><TAB><comments><TAB><patch id>
     <TAB><base branch|-><TAB><head branch|->
 The base and head branch names let a consumer pair a pull request with its
-branch and its base; a name outside the branch grammar is written `-`.
+branch and its base. A name outside the branch grammar is written `-`, and so is
+the head branch of a fork pull request, which is no branch of this repository.
 The patch id (git patch-id --stable over the pull request's diff) is
 carried forward from --previous while the head is unchanged, so an
 unchanged patch costs no read; a changed head costs one diff read. It is
