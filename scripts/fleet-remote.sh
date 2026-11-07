@@ -300,6 +300,13 @@ if [ "$verb" = compute ]; then
   esac
   base="$HOME/dev/.planwright-compute"
   mkdir -p "$base" || exit 3
+  # A run killed before its cleanup leaves its scratch worktree too; any run
+  # directory untouched for longer than the longest timeout is one of those.
+  find "$base" -mindepth 1 -maxdepth 1 -type d -name "run.*" -mmin +1500 | while IFS= read -r fr_stale; do
+    git -C "$fr_stale/wt" worktree remove --force "$fr_stale/wt" >/dev/null 2>&1
+    rm -rf "$fr_stale"
+  done
+  git -C "$fr_repo" worktree prune >/dev/null 2>&1
   fr_run=$(mktemp -d "$base/run.XXXXXX") || exit 3
   run=$fr_run
   git -C "$fr_repo" -c core.hooksPath=/dev/null worktree add -q --detach "$run/wt" "$sha" || exit 3

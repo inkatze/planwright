@@ -347,6 +347,15 @@ assert_eq "a dropped connection leaves its ref for the sweep" 1 "$(git -C "$rhom
 for r in $(git -C "$rhome/dev/proj" for-each-ref --format='%(refname)' refs/planwright-compute); do
   git -C "$rhome/dev/proj" update-ref -d "$r"
 done
+mkdir -p "$rhome/dev/.planwright-compute/run.stale"
+git -C "$rhome/dev/proj" worktree add -q --detach "$rhome/dev/.planwright-compute/run.stale/wt" "$head_sha"
+mkdir -p "$rhome/dev/.planwright-compute/run.young"
+touch -t 202001010000 "$rhome/dev/.planwright-compute/run.stale"
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
+if [ -e "$rhome/dev/.planwright-compute/run.stale" ]; then fail "the next run removes a killed run's scratch worktree"; else ok "the next run removes a killed run's scratch worktree"; fi
+assert_eq "the removed scratch worktree leaves no worktree entry" 1 "$(git -C "$rhome/dev/proj" worktree list | wc -l | tr -d ' ')"
+if [ -d "$rhome/dev/.planwright-compute/run.young" ]; then ok "a recent run directory is kept"; else fail "a recent run directory is kept"; fi
+rm -rf "$rhome/dev/.planwright-compute/run.young"
 git -C "$rhome/dev/proj" update-ref "refs/planwright-compute/$head_sha-1-1000" "$head_sha"
 run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
 assert_eq "the next run deletes refs a dropped connection left behind" "" "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute)"

@@ -48,7 +48,7 @@ root, `<repo>` the remote host's own clone of the target repository.
        --repo <repo>; s=$?; rm -f "$f"; exit $s' <brief
    ```
 
-   These hand recipes assume a POSIX login shell on the remote (`$?` is
+   These hand recipes assume the remote account's shell is a POSIX shell (`$?` is
    `$status` in fish); `fleet-remote.sh` works under any of them. The remote
    launcher needs the program configured on the remote host. The
    lower-level `fleet-streamjson.sh launch <worker> <scope> --prompt-file "$f"
