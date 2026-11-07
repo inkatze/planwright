@@ -1,0 +1,1 @@
+match ^mc-packet: usage: mc-packet\.sh look --program <p> --unit <unit> --head <sha> \| assemble --program <p> --unit <unit> --readiness <file> \[--focus <file>\] \[--checkout <dir> --head <sha>\] \[--risks <file>\] \[--order <file>\]$
