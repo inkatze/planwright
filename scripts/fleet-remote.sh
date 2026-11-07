@@ -239,11 +239,7 @@ if [ "$verb" = compute ]; then
   base="$HOME/dev/.planwright-compute"
   mkdir -p "$base" || exit 2
   run=$(mktemp -d "$base/run.XXXXXX") || exit 2
-  pid=''
-  wd=''
   cleanup() {
-    [ -z "$pid" ] || kill -KILL -- "-$pid" 2>/dev/null
-    [ -z "$wd" ] || kill -KILL -- "-$wd" 2>/dev/null
     cd "$HOME" || :
     git -C "$repo" worktree remove --force "$run/wt" >/dev/null 2>&1
     git -C "$repo" update-ref -d "refs/planwright-compute/$sha" >/dev/null 2>&1
@@ -270,22 +266,29 @@ if [ "$verb" = compute ]; then
       set -- /bin/bash "$target"
       ;;
   esac
+  command -v perl >/dev/null 2>&1 || { echo "fleet-remote: compute needs perl on this host" >&2; exit 3; }
   start=$(date +%s)
   echo "fleet-remote: running $* at $sha, timeout ${secs}s" >&2
-  exec 3>&2 2>/dev/null
-  set -m
-  "$@" </dev/null 2>&1 &
-  pid=$!
-  ( sleep "$secs"; echo "fleet-remote: timeout after ${secs}s" >&3; kill -TERM -- "-$pid" 2>/dev/null; sleep 10; kill -KILL -- "-$pid" 2>/dev/null ) &
-  wd=$!
-  wait "$pid"
+  # A perl supervisor rather than shell job control: dash's wait can miss a
+  # fast child, and set -m grabs a terminal when the shell holds one. The
+  # command leads its own process group so the timeout reaches every child.
+  sup='my ($secs, $flag, @cmd) = @ARGV;
+my $pid = fork;
+defined $pid or exit 125;
+if (!$pid) { setpgrp(0, 0); exec { $cmd[0] } @cmd; exit 127 }
+setpgrp($pid, $pid);
+for my $s (qw(HUP INT TERM)) { $SIG{$s} = sub { kill "KILL", -$pid; exit 129 } }
+$SIG{ALRM} = sub { open(my $m, ">", $flag); kill "TERM", -$pid; $SIG{ALRM} = sub { kill "KILL", -$pid }; alarm 10 };
+alarm $secs;
+my $got;
+do { $got = waitpid($pid, 0) } while ($got == -1 && $!{EINTR});
+my $st = $?;
+alarm 0;
+kill "KILL", -$pid;
+exit($st & 127 ? 128 + ($st & 127) : $st >> 8);'
+  perl -e "$sup" "$secs" "$run/timed-out" "$@" </dev/null 2>&1
   rc=$?
-  pid=''
-  kill -KILL -- "-$wd" 2>/dev/null
-  wait "$wd" 2>/dev/null
-  wd=''
-  set +m
-  exec 2>&3 3>&-
+  [ ! -e "$run/timed-out" ] || echo "fleet-remote: timeout after ${secs}s" >&2
   echo "fleet-remote: exit $rc after $(( $(date +%s) - start ))s" >&2
   exit "$rc"
 fi

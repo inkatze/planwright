@@ -46,6 +46,7 @@ while :; do
   esac
 done
 [ "$1" = down ] && exit 255
+cd "$FAKE_REMOTE_HOME" || exit 255
 exec env -i HOME="$FAKE_REMOTE_HOME" PATH="$PATH" "$FAKE_REMOTE_SHELL" -c "$2"
 EOF
 chmod +x "$bin/ssh"
@@ -174,6 +175,75 @@ for sh in /bin/sh bash zsh fish; do
   assert_eq "[$sh] steer with empty stdin is refused remotely" 2 "$CODE"
 done
 
+# --- compute: ship HEAD, run one command, stream back, clean up ---------------
+FAKE_REMOTE_SHELL=/bin/sh
+export FAKE_REMOTE_SHELL
+export GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+lrepo="$tmp/lrepo"
+mkdir -p "$lrepo/tests"
+git -C "$lrepo" init -q
+git -C "$lrepo" remote add origin https://example.invalid/acct/proj.git
+# shellcheck disable=SC2016 # expanded by the suite at run time
+printf 'echo "suite ran in $(pwd -P)"\necho "tmp=$TMPDIR"\nexit 0\n' >"$lrepo/tests/test-ok.sh"
+printf 'exit 3\n' >"$lrepo/tests/test-fail.sh"
+printf 'sleep 60\n' >"$lrepo/tests/test-slow.sh"
+git -C "$lrepo" add tests
+git -C "$lrepo" commit -q -m one
+mkdir -p "$rhome/dev"
+git clone -q "$lrepo" "$rhome/dev/proj"
+printf 'echo "second commit"\n' >"$lrepo/tests/test-new.sh"
+git -C "$lrepo" add tests
+git -C "$lrepo" commit -q -m two
+head_sha=$(git -C "$lrepo" rev-parse HEAD)
+
+: >"$FAKE_SSH_LOG"
+run --host mac compute --worktree "$lrepo" --test ../etc/passwd
+assert_eq "compute refuses a test path outside tests/" 2 "$CODE"
+run --host mac compute --worktree "$lrepo" --task 'a;b'
+assert_eq "compute refuses a task name outside the grammar" 2 "$CODE"
+run --host mac compute --worktree "$lrepo"
+assert_eq "compute needs a command kind" 2 "$CODE"
+run --host mac compute --worktree rel --check
+assert_eq "compute refuses a relative worktree" 2 "$CODE"
+run --host mac compute --worktree "$lrepo" --check --test tests/test-ok.sh
+assert_eq "compute takes one command kind" 2 "$CODE"
+run --host mac compute --worktree "$lrepo" --check --timeout 0
+assert_eq "compute refuses a zero timeout" 2 "$CODE"
+assert_eq "no compute refusal reached ssh" "" "$(cat "$FAKE_SSH_LOG")"
+
+run --host mac compute --worktree "$lrepo" --test tests/test-new.sh
+assert_eq "compute runs a file only the shipped commit has" 0 "$CODE"
+case $OUT in *"second commit"*) ok "compute streams the command's output" ;; *) fail "compute streams the command's output ($OUT)" ;; esac
+case $ERR in *"exit 0 after"*) ok "compute reports exit and duration" ;; *) fail "compute reports exit and duration ($ERR)" ;; esac
+case $ERR in *"$head_sha"*) ok "compute names the commit it ran" ;; *) fail "compute names the commit it ran" ;; esac
+case $ERR in *Done* | *Killed* | *Terminated*) fail "compute leaks job-control notices ($ERR)" ;; *) ok "compute leaks no job-control notices" ;; esac
+
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
+case $OUT in *"suite ran in $rhome/dev/.planwright-compute/run."*"/wt"*) ok "compute runs in a scratch worktree" ;; *) fail "compute runs in a scratch worktree ($OUT)" ;; esac
+case $OUT in *"tmp=$rhome/dev/.planwright-compute/run."*"/tmp"*) ok "compute gives the run its own TMPDIR" ;; *) fail "compute gives the run its own TMPDIR ($OUT)" ;; esac
+
+run --host mac compute --worktree "$lrepo" --test tests/test-fail.sh
+assert_eq "compute passes the command's exit status through" 3 "$CODE"
+
+started=$(date +%s)
+run --host mac compute --worktree "$lrepo" --test tests/test-slow.sh --timeout 1
+assert_eq "compute stops a run at its timeout" 143 "$CODE"
+if [ $(($(date +%s) - started)) -lt 30 ]; then ok "the timeout fires well before the command ends"; else fail "the timeout fires well before the command ends"; fi
+
+assert_eq "compute leaves no scratch run behind" "" "$(ls -A "$rhome/dev/.planwright-compute")"
+assert_eq "compute leaves no extra remote worktree" 1 "$(git -C "$rhome/dev/proj" worktree list | wc -l | tr -d ' ')"
+assert_eq "compute removes its hidden ref" "" "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute)"
+
+printf 'dirty\n' >>"$lrepo/tests/test-ok.sh"
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
+case $ERR in *"uncommitted changes are not shipped"*) ok "compute warns that uncommitted changes stay behind" ;; *) fail "compute warns that uncommitted changes stay behind" ;; esac
+git -C "$lrepo" checkout -q -- tests/test-ok.sh
+
+git -C "$lrepo" remote set-url origin https://example.invalid/acct/absent.git
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
+assert_eq "compute with no remote clone fails to ship" 4 "$CODE"
+
+[ -z "${STOP_EARLY:-}" ] || exit 0
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
