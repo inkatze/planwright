@@ -342,6 +342,7 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
         || fail "[$kind] the composed brief lacks the cadence section: $(cat "$composed_brief")"
       # Each Bash call is a fresh shell, so an exported context is lost by the
       # next call; the brief asks for the one-command prefix form instead.
+      # shellcheck disable=SC2016 # literal backticks delimit the script names
       grep -qF 'literal assignments in front of each' "$composed_brief" \
         && grep -qF '`step-run.sh` and `resolve-steps.sh` call' "$composed_brief" \
         && ok "[$kind] the cadence carries the step context as a same-command prefix" \
