@@ -32,7 +32,8 @@ summary:
   name. An unknown case falls back to hosted, never the other way.
 
 Both jobs then run on
-`${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('[...labels...]') || 'macos-latest' }}`.
+`${{ needs.plan.outputs.mac_runner == 'self-hosted' &&
+fromJSON('[...labels...]') || 'macos-latest' }}`.
 `check:workflow-posture` (`scripts/check-workflow-posture.sh --matrix ci.yml`)
 accepts exactly this shape as a macOS job: the selector must be the plan
 job's choice, the label list must name `self-hosted` and `macOS`, and
