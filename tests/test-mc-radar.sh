@@ -395,8 +395,9 @@ set_scope
 radar_fresh 1:feat-a:main
 radar_pass
 first=$(stored_events | wc -l)
-ids=$(stored_events | cut -f1 | tr '\n' ' ')
-mc_run mc-event.sh mark --program alpha --target tw submitted $ids
+for id in $(stored_events | cut -f1); do
+  mc_run mc-event.sh mark --program alpha --target tw submitted "$id"
+done
 write_forge
 radar_pass
 write_forge 1:feat-a:main
