@@ -95,7 +95,7 @@ repository's files. Where neither settles a point, the text says *unknown*.
   by-hand successor stalled on permission prompts
   (`specs/_observations/entries/2026-11-06-mc-attended-self-succession-32bde2c6.md`).
 - Phone and remote-control access and cross-machine mission control are out of scope for the
-  mission-control spec (`specs/mission-control/requirements.md:100-104`).
+  mission-control spec (`specs/mission-control/requirements.md:99-104`).
 
 ### Surface by surface
 
@@ -144,8 +144,9 @@ case. Mission control cannot open an IDE panel.
 
 **Headless or stream-json.** This is planwright's launched-holder path: `write`, then
 `launch --handover`, then the successor's `verify` and `take`
-(`skills/mission-control/SKILL.md:121-127`). No operator terminal is involved, so a successor is
-the right rung. The docs' own advice for SDK sessions agrees: "Don't rely on session resume.
+(`skills/mission-control/SKILL.md:121-127`, the successor brief at
+`scripts/mc-handover.sh:503-514`). No operator terminal is involved, so a successor is the right
+rung. The docs' own advice for SDK sessions agrees: "Don't rely on session resume.
 Capture the results… and pass them into a fresh session's prompt" (D/agent-sdk/sessions), which
 is what the handover file already does.
 
