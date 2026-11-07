@@ -86,7 +86,7 @@ reg $((T - 14400)) w-old flight:old "process $$"
 reg $((T - 20000)) w-dead flight:dead "process $dead_pid"
 reg $((T - 30000)) pw-mission-control-a1 gen-2 "process $$"
 health_at "$T"
-expect_out "worker-age flags a live worker at its bound, naming the oldest" "1 worker live past 4h (oldest w-old, 4h)"
+expect_out "worker-age flags a live worker at its bound, naming the oldest" "1 worker live 4h or more (oldest w-old, 4h)"
 expect_no_out "a dead worker is no live worker" "w-dead"
 expect_no_out "a mission control session is never a stale worker" "pw-mission-control"
 health_at $((T - 1))
@@ -97,8 +97,8 @@ record() {
   rc_want=${rc_want%"$tab"}
   if printf '%s\n' "$OUT" | grep -qxF -- "$rc_want"; then ok "the digest record $1 $2"; else fail "no digest line '$rc_want'"; fi
 }
-record health worker-age 1 w-old "1 worker live past 4h (oldest w-old, 4h)"
-expect_out "the line form carries the health text" "; health: 1 worker live past 4h"
+record health worker-age 1 w-old "1 worker live 4h or more (oldest w-old, 4h)"
+expect_out "the line form carries the health text" "; health: 1 worker live 4h or more"
 
 # ---------------------------------------------------------------------------
 # idle: a live session idle past the bound (30m).
@@ -109,7 +109,7 @@ reg $((T - 60)) w-gone flight:gone "process $dead_pid"
 attn w-idle idle $((T - 1800))
 attn w-gone idle $((T - 9000))
 health_at "$T"
-expect_out "idle flags a live idle session at its bound" "1 session idle past 30m (longest w-idle, 30m)"
+expect_out "idle flags a live idle session at its bound" "1 session idle 30m or more (longest w-idle, 30m)"
 expect_no_out "an idle session whose process is gone is not counted" "w-gone"
 health_at $((T - 1))
 expect_empty "idle clears just below its bound"
@@ -140,7 +140,7 @@ attn w-ask awaiting-input $((T - 300)) permission
 attn w-ask2 awaiting-input $((T - 400)) permission
 attn w-fork awaiting-input $((T - 9000)) fork
 health_at "$T"
-expect_out "permissions flags prompts at their bound, naming the longest" "2 permission prompts waiting past 5m (longest w-ask2, 7m)"
+expect_out "permissions flags prompts at their bound, naming the longest" "2 permission prompts waiting 5m or more (longest w-ask2, 7m)"
 expect_no_out "a question that is no permission prompt is not counted" "w-fork"
 health_at $((T - 101))
 expect_empty "permissions clears just below its bound"
