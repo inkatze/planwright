@@ -1,18 +1,13 @@
 #!/bin/sh
 # fleet-usage-mirror.sh — writes the status-line usage mirror that
 # fleet-usage-gate.sh reads, from the `rate_limits` fields Claude Code passes a
-# statusLine command on stdin (code.claude.com/docs/en/statusline.md).
-#
+# statusLine command on stdin.
 #   write                 write the mirror from stdin
 #   statusline <command>  the same write, then run <command> on that stdin and
-#                         pass its stdout and exit status through, so an
-#                         operator's existing status line is unchanged
-#
+#                         pass its output and exit status through
 # The path comes from `fleet-usage-gate.sh mirror-path`; an empty
-# PLANWRIGHT_USAGE_MIRROR disables the writer. A payload with no rate_limits
-# writes nothing. The spend window is clamped to 100 (over the limit). Never
-# fails: a status line must not blank because the mirror could not be written.
-# POSIX sh. No eval, no jq.
+# PLANWRIGHT_USAGE_MIRROR disables the writer. Never fails: a status line must
+# not blank because the mirror could not be written. POSIX sh, no eval, no jq.
 set -u
 
 LC_ALL=C

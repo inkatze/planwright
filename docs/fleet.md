@@ -2593,7 +2593,8 @@ exit status through, so your line is unchanged:
 }
 ```
 
-With no status line yet, use `"command": "<plugin-root>/scripts/fleet-usage-mirror.sh statusline"`,
+The wrapped command is one argument: quote it for `sh`, and JSON-escape it if
+it holds quotes. With no status line yet, use `"command": "<plugin-root>/scripts/fleet-usage-mirror.sh statusline"`,
 which writes the mirror and prints nothing. `refreshInterval` (seconds) re-runs
 the command while the session is idle, so the mirror stays inside
 `fleet_usage_signal_ttl_seconds`.

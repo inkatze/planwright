@@ -1053,7 +1053,7 @@ case "$cmd" in
             >/dev/null 2>&1 || echo "fleet-usage-gate: warning: could not push the operator hold surface" >&2
         fi
       elif [ "$no_source" -eq 0 ]; then
-        printf '%s\n' "fleet-usage-gate: warning: the /usage signal is unavailable ($count of $loss_limit consecutive); deferring to the reactive backstop, no proactive rung change" >&2
+        printf '%s\n' "fleet-usage-gate: warning: the /usage signal is unavailable ($count of $loss_limit consecutive); deferring to the reactive backstop, no proactive rung change; a stale mirror means no statusLine is refreshing it: $USAGE_MIRROR_FIX" >&2
       fi
       since=$(last_transition_epoch 2>/dev/null) || since=""
       printf 'rung\t%s\tsince\t%s\tsession\tunavailable\tweekly\tunavailable\n' "$cur" "$since"

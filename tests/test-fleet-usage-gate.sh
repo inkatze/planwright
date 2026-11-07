@@ -993,6 +993,8 @@ touch -t 202001010000 "$mirror_file"
 err=$(run evaluate 2>&1 >/dev/null) || fail "evaluate (stale mirror present) must not fail"
 case $err in
   *'no usage signal'*) fail "a stale mirror on disk is a source, not a missing one (got: $err)" ;;
+  *fleet-usage-mirror.sh*) ;;
+  *) fail "a stale mirror must name the writer that refreshes it (got: $err)" ;;
 esac
 reset_state
 usage_render 10 10 | run capture >/dev/null || fail "capture (no mirror) failed"
