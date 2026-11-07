@@ -837,7 +837,9 @@ record), is never escalated: what it left pending can no longer be answered,
 so the scan closes those receipts undeliverable, as a stop does, clears the
 request row it raised (a failure item stays), and prints
 `dead <worker> <settled>`, which the session-keeper announces as a
-`stream-json-worker-dead` event. `answer` delivers the
+`stream-json-worker-dead` event. While a launch, recover or relaunch of that
+worker is in flight, the scan neither settles nor escalates it, leaving its
+requests to a later scan. `answer` delivers the
 operator's recorded answer as the control_response; `recover` resumes a
 crashed worker's session via `--resume`; `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
@@ -2080,9 +2082,10 @@ checkout is not judged on this checkout's specs. Each clear goes through
 keeps its new row; each clear is audited under the `attention-reconcile`
 mechanism. `fleet_daemon_pause` pauses the pass.
 The pass clears display rows only: a dead worker's pending stream-json
-receipts are the rung's to settle, which its `stop` does and so does the next
-`alarm-scan` once every pid the worker recorded is positively dead or its run
-has ended (no pid file left beside a complete result record).
+receipts are the rung's to settle, which its `stop` does and so does the first
+`alarm-scan` that finds every pid the worker recorded positively dead or its
+run ended (no pid file left beside a complete result record) with no launch,
+recover or relaunch of it in flight.
 
 ## Resource governance: models, throttling, and the auto-mode line
 
