@@ -12,6 +12,9 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+# The owner's alarm threshold is read from the environment; the windows below
+# assume its default.
+unset PLANWRIGHT_STREAMJSON_PENDING_AGE
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
@@ -46,12 +49,18 @@ write_programs() { # write_programs [<extra line>...]
 }
 write_programs
 
-# Stubs: ps lists $tmp/ps.out, tmux answers list-panes from $tmp/panes and
-# capture-pane -t <pane> from $tmp/pane-<pane>.
+# Stubs: ps lists $tmp/ps.out for the session lookup's own flags and is the
+# real ps otherwise (bounded-run.sh reads the real table); tmux answers
+# list-panes from $tmp/panes and capture-pane -t <pane> from $tmp/pane-<pane>.
+real_ps=$(command -v ps)
+uid=$(id -u)
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/ps" <<EOF
 #!/bin/sh
-cat "$tmp/ps.out" 2>/dev/null
+case "\$*" in
+  '-ww -A -o pid= -o ppid= -o uid= -o args=') cat "$tmp/ps.out" 2>/dev/null ;;
+  *) exec "$real_ps" "\$@" ;;
+esac
 EOF
 cat >"$tmp/bin/tmux" <<EOF
 #!/bin/sh
@@ -79,10 +88,12 @@ row() {
   printf 'format\t1\nname\t%s\nstate\tlaunched\ntoken\tt\npid\t1\nprogram\t%s\nowner\tmission-control:%s\nkind\tworker\nscope\ts\nbackend\tstream-json\nhandle\t%s\nprofile\tworker\ntier\t-\nbrief\t-\nlaunched\t0\n' \
     "$1" "$2" "$2" "$1" >"$reg/$1"
 }
-# req <worker> <id> <received> [<state>]: one journal row of the worker.
+# req <worker> <id> <received> [<state> [<re-opened>]]: one journal row of a
+# live worker (its pidfile present).
 req() {
   mkdir -p "$fleet/streamjson/$1"
-  printf '%s\tpermission\t%s\t%s\n' "$2" "$3" "${4:-pending}" >>"$fleet/streamjson/$1/journal"
+  printf '1\n' >"$fleet/streamjson/$1/worker.pid"
+  printf '%s\tpermission\t%s\t%s%s\n' "$2" "$3" "${4:-pending}" "${5:+	$5}" >>"$fleet/streamjson/$1/journal"
 }
 holder() { # holder <program>: a session holds the program's name
   mkdir -p "$fleet/mission-control/$1"
@@ -119,9 +130,9 @@ fi
 # ---------------------------------------------------------------------------
 esc scan --program alpha --now $((T0 + 1900))
 expect_rc "a scan past one window" 0
-expect_out "the request is raised to the hub" "escalated${tab}hub${tab}alpha:mc-alpha-worker-aaaaaaaaaa"
+expect_out "the request is raised to the hub" "escalated${tab}hub${tab}mc-alpha-worker-aaaaaaaaaa"
 ev=$(hub_events)
-if [ "$(count_of "$ev" "mission-control-escalated${tab}alpha:mc-alpha-worker-aaaaaaaaaa")" = 1 ]; then
+if [ "$(count_of "$ev" "mission-control-escalated${tab}mc-alpha-worker-aaaaaaaaaa")" = 1 ]; then
   ok "the hub's store holds one escalation event for the request"
 else
   fail "hub events after one window: '$ev'"
@@ -140,7 +151,7 @@ fi
 # ---------------------------------------------------------------------------
 esc scan --program alpha --now $((T0 + 2800))
 expect_rc "a scan past two windows" 0
-expect_out "the request is raised to the operator" "escalated${tab}operator${tab}alpha:mc-alpha-worker-aaaaaaaaaa"
+expect_out "the request is raised to the operator" "escalated${tab}operator${tab}mc-alpha-worker-aaaaaaaaaa"
 if [ "$(count_of "$(toasts)" "mc-alpha-worker-aaaaaaaaaa")" = 1 ]; then
   ok "the operator gets one push naming the worker"
 else
@@ -173,7 +184,7 @@ rm -f "$fleet/mission-control/hub/holder"
 : >"$fleet/attention/toasts"
 req mc-alpha-worker-aaaaaaaaaa r3-0003 "$T0"
 esc scan --program alpha --now $((T0 + 1900))
-expect_out "without a hub the operator is pushed at the first level" "escalated${tab}operator${tab}alpha:mc-alpha-worker-aaaaaaaaaa"
+expect_out "without a hub the operator is pushed at the first level" "escalated${tab}operator${tab}mc-alpha-worker-aaaaaaaaaa"
 if [ "$(count_of "$(hub_events)" "r3-0003")" = 0 ] && [ "$(count_of "$(toasts)" "r3-0003")" = 1 ]; then
   ok "no hub event, one push"
 else
@@ -185,13 +196,13 @@ holder hub
 row mc-hub-worker-cccccccccc hub
 req mc-hub-worker-cccccccccc r4-0004 "$T0"
 esc scan --program hub --now $((T0 + 1900))
-expect_out "the hub's own overdue request goes to the operator" "escalated${tab}operator${tab}hub:mc-hub-worker-cccccccccc"
+expect_out "the hub's own overdue request goes to the operator" "escalated${tab}operator${tab}mc-hub-worker-cccccccccc"
 
 # The escalation hub knob: none sends the first level to the operator.
 write_programs "mission_control_escalation_hub: none"
 req mc-alpha-worker-aaaaaaaaaa r5-0005 "$T0"
 esc scan --program alpha --now $((T0 + 1900))
-expect_out "hub none: the operator at the first level" "escalated${tab}operator${tab}alpha:mc-alpha-worker-aaaaaaaaaa"
+expect_out "hub none: the operator at the first level" "escalated${tab}operator${tab}mc-alpha-worker-aaaaaaaaaa"
 write_programs "mission_control_escalation_hub: Not A Program"
 esc scan --program alpha --now $((T0 + 1900))
 expect_rc "a malformed repo-tracked hub knob fails the pass" 1
@@ -243,12 +254,12 @@ expect_out "a dialog reopened later starts a fresh hold" "self${tab}dialog${tab}
 # /planwright:mission-control <program>, its pane the tmux pane above it.
 # ---------------------------------------------------------------------------
 rm -f "$fleet/mission-control/alpha/escalate/self"
-cat >"$tmp/ps.out" <<'EOF'
-    1     0 /sbin/init
-  400     1 fish -c claude --name alpha-mission-control /planwright:mission-control alpha
-  500   400 claude --name alpha-mission-control /planwright:mission-control alpha
-  600     1 claude --name beta-mission-control /planwright:mission-control beta
-  700     1 claude --name x /planwright:mission-control alphabet
+sed "s/ UID / $uid /" >"$tmp/ps.out" <<'EOF'
+    1     0     0 /sbin/init
+  400     1 UID fish -c claude --name alpha-mission-control /planwright:mission-control alpha
+  500   400 UID claude --name alpha-mission-control /planwright:mission-control alpha
+  600     1 UID claude --name beta-mission-control /planwright:mission-control beta
+  700     1 UID claude --name x /planwright:mission-control alphabet
 EOF
 printf '%%7\t400\n%%8\t600\n' >"$tmp/panes"
 cp "$tmp/dialog.txt" "$tmp/pane-%7"
@@ -258,39 +269,209 @@ expect_rc "a discovering scan" 0
 expect_out "the program's pane is found and read" "self${tab}dialog${tab}0${tab}owner${tab}%7"
 esc scan --program beta --now $((T0 + 3000))
 expect_out "another program's session is its own" "self${tab}clear${tab}0${tab}owner${tab}%8"
-printf '  900     1 node /planwright:mission-control gamma\n' >"$tmp/ps.out"
+printf '  900     1 %s node /planwright:mission-control gamma\n' "$uid" >"$tmp/ps.out"
 esc scan --program alpha --now $((T0 + 3000))
 expect_out "no session found reads absent" "self${tab}absent"
 expect_no_out "an absent session raises nothing" "escalated"
-cat >"$tmp/ps.out" <<'EOF'
-  500   400 claude /planwright:mission-control alpha
-  501   400 claude /planwright:mission-control alpha
+sed "s/ UID / $uid /" >"$tmp/ps.out" <<'EOF'
+  500   400 UID claude /planwright:mission-control alpha
+  501   400 UID claude /planwright:mission-control alpha
 EOF
 esc scan --program alpha --now $((T0 + 3000))
 expect_out "two sessions under one name read ambiguous" "self${tab}ambiguous"
+printf '  500   400 %s claude /planwright:mission-control alpha\n  501   400 4242424 claude /planwright:mission-control alpha\n' "$uid" >"$tmp/ps.out"
+esc scan --program alpha --now $((T0 + 3000))
+expect_out "another account's process neither stands in nor makes it ambiguous" "self${tab}dialog${tab}0${tab}owner${tab}%7"
+
+# ---------------------------------------------------------------------------
+# What reads as an open dialog: text below the signature that only an open
+# input box or a running turn shows means the dialog is not open.
+# ---------------------------------------------------------------------------
+rm -f "$fleet/mission-control/alpha/escalate/self"
+{
+  cat "$tmp/dialog.txt"
+  printf '\n⏺ That was the worker'"'"'s prompt; answered.\n\n╭────────╮\n│ > \n╰────────╯\n  ? for shortcuts\n'
+} >"$tmp/scrollback.txt"
+esc scan --program alpha --now $((T0 + 100)) --pane "$tmp/scrollback.txt"
+expect_out "a dialog quoted above an idle input box reads clear" "self${tab}clear"
+{
+  cat "$tmp/dialog.txt"
+  printf '\n✻ Working… (12s · esc to interrupt)\n'
+} >"$tmp/busy.txt"
+esc scan --program alpha --now $((T0 + 100)) --pane "$tmp/busy.txt"
+expect_out "a dialog above a running turn reads clear" "self${tab}clear"
+cat >"$tmp/automode.txt" <<'EOF'
+ Bash command
+ │ /plugin/scripts/fleet-streamjson.sh answer mc-alpha-worker-aaaaaaaaaa r1 --allow
+ │ Auto mode needs your confirmation for this command.
+ │ 4 consecutive actions were blocked. Please review the transcript before continuing.
+ │ Latest blocked action: [Auto-Mode Bypass]
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for: /plugin/scripts/fleet-streamjson.sh answer *
+   3. No
+
+ Esc to cancel · Tab to amend
+───────────────────────────────────────── alpha-mission-control ─
+EOF
+esc scan --program alpha --now $((T0 + 100)) --pane "$tmp/automode.txt"
+expect_out "auto mode's confirmation reads as its own kind" "self${tab}auto-mode${tab}0${tab}owner"
+: >"$fleet/attention/toasts"
+esc scan --program alpha --now $((T0 + 1000)) --pane "$tmp/automode.txt"
+expect_out "auto mode's confirmation held one window goes to the hub" "escalated${tab}hub${tab}alpha"
+if hub_events | grep -F "mission-control-escalated${tab}alpha${tab}" | grep -q "Remote Control does not show"; then
+  ok "the hub hears that auto mode's prompt is hidden from Remote Control"
+else
+  fail "auto-mode hub event: '$(hub_events)'"
+fi
+# Another dialog in its place starts a fresh hold.
+sed 's/4 consecutive/5 consecutive/; s/answer \*$/steer */' "$tmp/automode.txt" >"$tmp/automode2.txt"
+esc scan --program alpha --now $((T0 + 1060)) --pane "$tmp/automode2.txt"
+expect_out "a different dialog in its place starts a fresh hold" "self${tab}auto-mode${tab}0${tab}owner"
+# Moving the selection cursor is the same dialog.
+sed 's/^ ❯ 1\. Yes$/   1. Yes/; s/^   3\. No$/ ❯ 3. No/' "$tmp/automode2.txt" >"$tmp/automode3.txt"
+esc scan --program alpha --now $((T0 + 1120)) --pane "$tmp/automode3.txt"
+expect_out "a moved cursor keeps the hold" "self${tab}auto-mode${tab}60${tab}owner"
+# A different session showing a dialog starts a fresh hold.
+rm -f "$fleet/mission-control/alpha/escalate/self"
+printf '  500   400 %s claude /planwright:mission-control alpha\n' "$uid" >"$tmp/ps.out"
+esc scan --program alpha --now $((T0 + 3000))
+printf '  510   400 %s claude /planwright:mission-control alpha\n' "$uid" >"$tmp/ps.out"
+esc scan --program alpha --now $((T0 + 4000))
+expect_out "a new session's dialog starts a fresh hold" "self${tab}dialog${tab}0${tab}owner${tab}%7"
+# A future first sight is not trusted.
+printf 'dialog\t%s\t510\tx\n' $((T0 + 99999)) >"$fleet/mission-control/alpha/escalate/self"
+esc scan --program alpha --now $((T0 + 4100))
+expect_out "a first sight in the future restarts the hold" "self${tab}dialog${tab}0${tab}owner"
+rm -f "$fleet/mission-control/alpha/escalate/self"
+: >"$tmp/ps.out"
+
+# ---------------------------------------------------------------------------
+# A source this pass could not read keeps what it raised.
+# ---------------------------------------------------------------------------
+rm -rf "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa" "$fleet/mission-control/alpha/escalate/sent"
+: >"$fleet/attention/toasts"
+req mc-alpha-worker-aaaaaaaaaa r7-0007 "$T0"
+esc scan --program alpha --now $((T0 + 2800))
+before=$(count_of "$(hub_events)" "r7-0007")
+chmod 000 "$reg/mc-alpha-worker-aaaaaaaaaa"
+esc scan --program alpha --now $((T0 + 2860))
+expect_rc "an unreadable launcher list fails the pass" 1
+expect_err "and says so" "launcher's list cannot be read"
+expect_out "the dialog half still runs" "self${tab}"
+chmod 600 "$reg/mc-alpha-worker-aaaaaaaaaa"
+esc scan --program alpha --now $((T0 + 2920))
+if [ "$(count_of "$(toasts)" "r7-0007")" = 1 ]; then
+  ok "after an unread list nothing is raised twice"
+else
+  fail "after an unread list: toasts '$(toasts)'"
+fi
+chmod 000 "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa/journal"
+esc scan --program alpha --now $((T0 + 2980))
+expect_rc "an unreadable journal fails the pass" 1
+chmod 600 "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa/journal"
+esc scan --program alpha --now $((T0 + 3040))
+if [ "$(count_of "$(toasts)" "r7-0007")" = 1 ] && [ "$(count_of "$(hub_events)" "r7-0007")" = "$before" ]; then
+  ok "after an unread journal nothing is raised twice"
+else
+  fail "after an unread journal: toasts '$(toasts)'"
+fi
+
+# A dead worker (no pidfile) is the keeper's to settle, never raised.
+rm -f "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa/worker.pid"
+esc scan --program alpha --now $((T0 + 3100))
+expect_no_out "a dead worker's request is not raised" "r7-0007"
+rm -rf "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa"
+
+# A re-opened request ages from its latest receipt.
+req mc-alpha-worker-aaaaaaaaaa r8-0008 "$T0" pending $((T0 + 9000))
+esc scan --program alpha --now $((T0 + 9060))
+expect_out "a re-opened request ages from its re-opening" "request${tab}mc-alpha-worker-aaaaaaaaaa${tab}r8-0008${tab}60${tab}owner"
+
+# The owner's threshold is honoured, and a malformed one degrades as the
+# owner degrades it.
+OUT=$(mc_env env PLANWRIGHT_STREAMJSON_PENDING_AGE=60 /bin/bash "$repo_root/scripts/mc-escalate.sh" scan --program alpha --now $((T0 + 9060 + 960)) 2>"$tmp/stderr")
+expect_out "the owner's threshold sets the first level" "r8-0008${tab}1020${tab}hub"
+OUT=$(mc_env env PLANWRIGHT_STREAMJSON_PENDING_AGE=0 /bin/bash "$repo_root/scripts/mc-escalate.sh" scan --program alpha --now $((T0 + 9120)) 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "a malformed threshold does not stop the pass" 0
+expect_err "it is warned and defaulted" "using 900s"
+rm -rf "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa" "$fleet/mission-control/alpha/escalate/sent"
+
+# ---------------------------------------------------------------------------
+# The hub: a stale holder is no hub, and a hub that refuses the event hands
+# the first level to the operator.
+# ---------------------------------------------------------------------------
+printf 'format\t1\nsession\tmc-hub-gone-00000000aa\nkind\tregistry\nsince\t1\ngeneration\t1\n' >"$fleet/mission-control/hub/holder"
+: >"$fleet/attention/toasts"
+req mc-alpha-worker-aaaaaaaaaa r9-0009 "$T0"
+esc scan --program alpha --now $((T0 + 1900))
+expect_out "a stale hub holder sends the first level to the operator" "escalated${tab}operator${tab}mc-alpha-worker-aaaaaaaaaa"
+expect_no_out "and not to the hub" "escalated${tab}hub"
+holder hub
+rm -f "$fleet/mission-control/alpha/escalate/sent"
+: >"$fleet/attention/toasts"
+hub_ev="$fleet/attention/mission-control/hub/events"
+mkdir -p "$hub_ev"
+chmod 555 "$hub_ev"
+esc scan --program alpha --now $((T0 + 1900))
+expect_rc "a refused hub event fails the pass" 1
+expect_err "the refusal is named" "refused the escalation"
+expect_out "the operator hears it at the first level instead" "escalated${tab}operator${tab}mc-alpha-worker-aaaaaaaaaa${tab}editor-toast"
+chmod 755 "$hub_ev"
+rm -rf "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa" "$fleet/mission-control/alpha/escalate/sent"
+
+# A record that cannot be written raises nothing, so nothing is raised twice.
+req mc-alpha-worker-aaaaaaaaaa r10-0010 "$T0"
+: >"$fleet/attention/toasts"
+chmod 555 "$fleet/mission-control/alpha/escalate"
+esc scan --program alpha --now $((T0 + 2800))
+expect_rc "an unwritable record fails the pass" 1
+expect_no_out "and raises nothing" "escalated"
+chmod 755 "$fleet/mission-control/alpha/escalate"
+# A linked record is refused.
+ln -s "$tmp/elsewhere" "$fleet/mission-control/alpha/escalate/sent"
+esc scan --program alpha --now $((T0 + 2800))
+expect_rc "a linked record is refused" 1
+if [ ! -e "$tmp/elsewhere" ]; then ok "and nothing is written through it"; else fail "the link target was written"; fi
+rm -f "$fleet/mission-control/alpha/escalate/sent"
+# One pass at a time.
+ln -s "$$-1-1" "$fleet/mission-control/alpha/escalate/pass.lock"
+esc scan --program alpha --now $((T0 + 2800))
+expect_rc "a second pass beside a live one" 0
+expect_out "says busy" "busy"
+expect_no_out "and raises nothing" "escalated"
+rm -f "$fleet/mission-control/alpha/escalate/pass.lock"
+rm -rf "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa"
+
+# The operator line names the channel, so channel none is visibly no push.
+write_programs "mission_control_escalation_hub: none"
+sed -i.bak 's/^notification_channel: editor-toast$/notification_channel: none/' "$tracked"
+req mc-alpha-worker-aaaaaaaaaa r11-0011 "$T0"
+esc scan --program alpha --now $((T0 + 1900))
+expect_out "the operator line names channel none" "escalated${tab}operator${tab}mc-alpha-worker-aaaaaaaaaa${tab}none"
+write_programs
+rm -rf "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa"
 
 # ---------------------------------------------------------------------------
 # The watcher form: no arguments, the program from the runner's environment.
 # ---------------------------------------------------------------------------
 : >"$tmp/ps.out"
+req mc-alpha-worker-aaaaaaaaaa r12-0012 "$T0"
 OUT=$(mc_env env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-escalate.sh" 2>"$tmp/stderr")
 RC=$?
 ERR=$(cat "$tmp/stderr")
 expect_rc "the watcher form runs a scan" 0
-expect_out "the watcher form reads the program from the runner" "self${tab}absent"
+expect_out "the watcher form scans the runner's program" "request${tab}mc-alpha-worker-aaaaaaaaaa${tab}r12-0012"
 
 esc scan --program nosuch
 expect_rc "an unconfigured program" 3
 esc bogus --program alpha
 expect_rc "an unknown verb" 2
-
-# The shipped catalog arms it under session-keeper and wakes on its event.
-if grep -A8 'id: session-keeper' "$repo_root/config/duties.yaml" | grep -q 'scripts/mc-escalate.sh@' \
-  && grep -A8 'id: session-keeper' "$repo_root/config/duties.yaml" | grep -q 'mission-control-escalated'; then
-  ok "session-keeper arms the escalation watcher and triggers on its event"
-else
-  fail "config/duties.yaml: session-keeper lacks the escalation watcher or trigger"
-fi
+esc scan --program alpha --pane "$tmp/no-such-pane"
+expect_rc "an unreadable pane file" 2
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2

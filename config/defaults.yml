@@ -1045,7 +1045,7 @@ mission_control_escalation_window: 15m
 # The program whose mission control hears what another program's mission
 # control left unanswered, before the operator does: a program name, or
 # none to go straight to the operator. A program never escalates to itself,
-# and a hub no session holds counts as none.
+# and a hub whose holder does not read live counts as none.
 mission_control_escalation_hub: hub
 # The ignored audit files scripts/mc-reclaim.sh copies into the program
 # home's reclaim folder before a worktree goes: worktree-relative paths, a

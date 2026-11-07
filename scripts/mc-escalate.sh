@@ -12,7 +12,7 @@ unset CDPATH
 
 prog=mc-escalate
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-for lib in echo-safety.sh mc-lib.sh fleet-pane-vocabulary.sh; do
+for lib in echo-safety.sh mc-lib.sh lock-lib.sh fleet-pane-vocabulary.sh mc-session-pane.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
     printf '%s\n' "$prog: $lib is missing or unreadable (broken install)" >&2
     exit 2
@@ -22,13 +22,17 @@ done
 . "$script_dir/echo-safety.sh" || exit 2
 # shellcheck source=scripts/mc-lib.sh
 . "$script_dir/mc-lib.sh" || exit 2
+# shellcheck source=scripts/lock-lib.sh
+. "$script_dir/lock-lib.sh" || exit 2
 # shellcheck source=scripts/fleet-pane-vocabulary.sh
 . "$script_dir/fleet-pane-vocabulary.sh" || exit 2
+# shellcheck source=scripts/mc-session-pane.sh
+. "$script_dir/mc-session-pane.sh" || exit 2
 
-PANE_LINES=20
 TMUX_BOUND=10
-ANCESTRY_MAX=32
 EVENT_KIND=mission-control-escalated
+# fleet-streamjson.sh's own pending-age default, which the owner's alarm uses.
+ALARM_DEFAULT=900
 
 help_text() {
   cat <<'HELP'
@@ -46,43 +50,56 @@ Usage:
 
 WHAT IT RAISES. Two things, each held against
 mission_control_escalation_window (W):
-  a request   a permission or question request of a stream-json worker the
-              launcher records for this program (mission-control-launch.sh
+  a request   a permission or question request of a live stream-json worker
+              the launcher records for this program (mission-control-launch.sh
               list), still pending in its journal. The owner's own alarm
-              fires at PLANWRIGHT_STREAMJSON_PENDING_AGE (900s by default,
-              the threshold fleet-streamjson.sh alarm-scan uses); the hub
-              hears it at that age plus W, the operator at that age plus 2W.
-  the dialog  this program's mission control showing an open dialog (a
-              permission prompt or a select menu, the shared pane
-              vocabulary) in its tmux pane: the hub hears it once the
-              dialog has been open W, the operator at 2W. Its first sight
-              is kept under <runtime>/escalate/self and dropped once the
-              pane no longer shows one.
-The session is the claude process whose last two arguments are
+              fires at PLANWRIGHT_STREAMJSON_PENDING_AGE, read and defaulted
+              as scripts/fleet-streamjson.sh reads it, counted from the
+              request's latest receipt; the hub hears it at that age plus W,
+              the operator at that age plus 2W. A worker whose supervisor
+              and process are both gone is the keeper's alarm scan's to
+              settle, never raised here.
+  the dialog  this program's mission control showing an open dialog in its
+              tmux pane: a permission prompt, a select menu, or auto mode's
+              own confirmation after blocked actions (kind auto-mode), which
+              shows in the pane but not over Remote Control. A dialog is open
+              when its signature has no input prompt, idle anchor or busy
+              marker below it (scripts/mc-session-pane.sh). The hub hears it
+              once one dialog (the same session, the same options) has been
+              open W, the operator at 2W. Its first sight, session, digest and kind
+              are kept under <runtime>/escalate/self; a different session or
+              dialog starts a fresh hold, and a pane that shows none drops it.
+The session is this user's claude process whose last two arguments are
 `/planwright:mission-control <program>`, exactly one of them; its pane is
 the tmux pane whose process is that one or an ancestor of it. None found
-reads `absent` and more than one `ambiguous`; neither raises anything (a
-request left by an absent session is still raised).
+reads `absent` and more than one `ambiguous`; neither raises a dialog (a
+request is still raised).
 
-THE LEVELS. The hub is mission_control_escalation_hub: the hub hears an
-escalation as one event in its own store (scripts/mc-event.sh), kind
-mission-control-escalated, subject `<program>` or `<program>:<worker>`,
-which its wake delivers. With the knob `none`, set to this program, or
-naming a program no session holds (no holder record under its runtime
-directory), there is no hub and the first level goes straight to the
-operator. The operator hears it through the notification seam
-(fleet-attention.sh notify, keyed per escalation), so a push is only as
-good as the notification_channel the operator chose. Each level is raised
-once per request or dialog, recorded in <runtime>/escalate/sent and
-dropped once the request is no longer pending or the dialog closes.
+THE LEVELS. The hub is mission_control_escalation_hub, when its holder
+(scripts/mc-handover.sh holder) reads live: it hears an escalation as one
+event in its own store (scripts/mc-event.sh), kind
+mission-control-escalated, subject the worker or this program, which its
+wake delivers. The hub's part is to reach the stuck mission control or the
+operator; the event names no request content. With the knob `none`, set to
+this program, a hub that is not live, or a hub store that refuses the
+event, the first level goes straight to the operator. The operator hears it
+through the notification seam (fleet-attention.sh notify, keyed per
+escalation), so a push is only as good as the notification_channel the
+operator chose, and the line names that channel. Each level is recorded in
+<runtime>/escalate/sent as it is raised, never twice, and dropped once its
+request is no longer pending or its dialog closes; what a pass could not
+read keeps its record. One pass runs at a time; a second prints `busy`.
 
 Output, one line each, tab separated:
   request <worker> <request id> <age> owner|hub|operator
-  self dialog|clear|absent|ambiguous|unreadable <seconds held> owner|hub|operator [<pane>]
-  escalated hub|operator <subject>
+  self dialog|auto-mode|clear|absent|ambiguous|unreadable <seconds held> owner|hub|operator [<pane>]
+  escalated hub <subject>
+  escalated operator <subject> <channel>
+  busy
 
-Exit codes: 0 scanned; 1 a store, knob, the launcher's list or an escalation
-that failed (the rest are still raised); 2 usage; 3 the program is not
+Exit codes: 0 scanned (or busy); 1 a store, knob, the launcher's list, a
+journal, the pane or an escalation that failed (once a scan has started,
+the rest is still scanned and raised); 2 usage; 3 the program is not
 configured.
 
 Portable bash 3.2 / BSD tooling.
@@ -137,131 +154,195 @@ parse_hub() {
 WINDOW_RAW=$(mc_knob mission_control_escalation_window mc_parse_cadence) || exit 1
 WINDOW=$(mc_seconds "$WINDOW_RAW")
 HUB=$(mc_knob mission_control_escalation_hub parse_hub) || exit 1
-ALARM=${PLANWRIGHT_STREAMJSON_PENDING_AGE:-900}
-mc_valid_uint "$ALARM" || mc_fail "PLANWRIGHT_STREAMJSON_PENDING_AGE is not a whole number of seconds"
+# The owner's threshold, as fleet-streamjson.sh's valid_posnum reads it: a
+# positive whole number of at most 15 digits, else its default, warned.
+ALARM=${PLANWRIGHT_STREAMJSON_PENDING_AGE:-$ALARM_DEFAULT}
+case $ALARM in
+  '' | *[!0-9]* | 0*) ALARM='' ;;
+esac
+if [ -z "$ALARM" ] || [ "${#ALARM}" -gt 15 ]; then
+  printf '%s\n' "$prog: warning: PLANWRIGHT_STREAMJSON_PENDING_AGE is not a positive whole number; using ${ALARM_DEFAULT}s" >&2
+  ALARM=$ALARM_DEFAULT
+fi
 FLEET_HOME=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
-RUNTIME=$(mc_runtime "$PROGRAM") || mc_fail "cannot create the runtime directory of program $PROGRAM"
+RUNTIME="$FLEET_HOME/mission-control/$PROGRAM"
 ESC_DIR="$RUNTIME/escalate"
+for d in "$RUNTIME" "$ESC_DIR"; do
+  [ ! -L "$d" ] || mc_fail "refusing the symbolic link $(sanitize_printable "$d")"
+done
 mkdir -p "$ESC_DIR" 2>/dev/null || mc_fail "cannot create $(sanitize_printable "$ESC_DIR")"
 SENT="$ESC_DIR/sent"
 SELF="$ESC_DIR/self"
+
+pw_lock_trap_install
+pw_lock_try "$ESC_DIR/pass.lock"
+case $? in
+  0) ;;
+  1)
+    printf 'busy\n'
+    exit 0
+    ;;
+  *) mc_fail "cannot take the escalation lock" ;;
+esac
+
+# plain_file <path>: absent, or a regular file that is not a link.
+plain_file() {
+  [ ! -L "$1" ] && { [ ! -e "$1" ] || [ -f "$1" ]; }
+}
 for f in "$SENT" "$SELF"; do
-  [ ! -L "$f" ] || mc_fail "refusing the symbolic link $(sanitize_printable "$f")"
+  plain_file "$f" || mc_fail "refusing $(sanitize_printable "$f"): not a regular file"
 done
 
-# The hub, when one holds its name and it is not this program.
+# The hub, when it is not this program and its holder reads live.
 HUB_LIVE=""
-if [ "$HUB" != none ] && [ "$HUB" != "$PROGRAM" ] && [ -f "$FLEET_HOME/mission-control/$HUB/holder" ]; then
-  HUB_LIVE=$HUB
+if [ "$HUB" != none ] && [ "$HUB" != "$PROGRAM" ]; then
+  hub_row=$(/bin/bash "$script_dir/mc-handover.sh" holder --program "$HUB" --now "$NOW" 2>/dev/null) || hub_row=""
+  case $hub_row in
+    *'	live') HUB_LIVE=$HUB ;;
+  esac
 fi
+CHANNEL=$(/bin/sh "$script_dir/resolve-notification-channel.sh" 2>/dev/null) || CHANNEL=unresolved
 
 failed=0
-LIVE=""
 NL='
 '
+LIVE=""
 SENT_NOW=""
 if [ -e "$SENT" ]; then
   SENT_NOW=$(cat "$SENT") || mc_fail "cannot read $(sanitize_printable "$SENT")"
 fi
+# Raising needs a record it can keep: a level sent but not recorded would be
+# sent again on every pass.
+SENT_OK=1
+if ! { : >>"$SENT"; } 2>/dev/null; then
+  printf '%s\n' "$prog: cannot write $(sanitize_printable "$SENT"); nothing is raised this pass" >&2
+  SENT_OK=0
+  failed=1
+fi
 
 bounded() { /bin/sh "$script_dir/bounded-run.sh" "$TMUX_BOUND" "$@"; }
 
-# sent_has <key> <level>
-sent_has() {
+sent_has() { # sent_has <key> <level>: the level is already recorded for the key
   case "$NL$SENT_NOW$NL" in
     *"$NL$1	$2$NL"*) return 0 ;;
   esac
   return 1
 }
 
+# record <key> <level>: append the level to the record now, so a pass that
+# dies later never raises it again.
+record() {
+  if printf '%s\t%s\n' "$1" "$2" >>"$SENT"; then
+    SENT_NOW="$SENT_NOW$NL$1	$2"
+    return 0
+  fi
+  printf '%s\n' "$prog: cannot record the $2 escalation; it may be raised again" >&2
+  failed=1
+  return 1
+}
+
 # notify_key <key>: the notification seam's dedupe token for an escalation.
 notify_key() {
-  nk=$(printf '%s' "$1" | mc_sha256) || return 1
-  printf 'mc-escalate.%s.%s\n' "$PROGRAM" "$(printf '%s' "$nk" | cut -c1-16)"
+  nk=$(printf '%s' "$1" | mc_sha256) || {
+    printf '%s\n' "$prog: no SHA-256 tool to key the notification" >&2
+    return 1
+  }
+  printf 'mc-escalate.%s.%s\n' "$PROGRAM" "${nk%"${nk#????????????????}"}"
 }
 
 # raise <key> <rank> <subject> <hub text> <operator text>: raise the
 # escalation to every level its rank (1 the hub, 2 the operator) reaches
-# that it has not reached yet. With no hub, rank 1 reaches the operator.
+# that it has not reached yet. With no live hub, or a hub that refuses the
+# event, rank 1 reaches the operator.
 raise() {
   r_key=$1
   r_rank=$2
+  r_subject=$3
+  r_hub_text=$4
+  r_op_text=$5
   LIVE="$LIVE$r_key$NL"
-  [ "$r_rank" -ge 1 ] || return 0
-  if [ -n "$HUB_LIVE" ] && ! sent_has "$r_key" hub; then
-    if mc_event emit --program "$HUB_LIVE" -- "$EVENT_KIND" "$3" "$4" >/dev/null; then
-      SENT_NOW="$SENT_NOW$NL$r_key	hub"
-      printf 'escalated\thub\t%s\n' "$3"
+  [ "$r_rank" -ge 1 ] && [ "$SENT_OK" = 1 ] || return 0
+  r_hub_ok=0
+  if [ -n "$HUB_LIVE" ]; then
+    if sent_has "$r_key" hub; then
+      r_hub_ok=1
+    elif mc_event emit --program "$HUB_LIVE" -- "$EVENT_KIND" "$r_subject" "$r_hub_text" >/dev/null; then
+      r_hub_ok=1
+      record "$r_key" hub
+      printf 'escalated\thub\t%s\n' "$r_subject"
     else
-      printf '%s\n' "$prog: the hub $HUB_LIVE refused the escalation of $3" >&2
+      printf '%s\n' "$prog: the hub $HUB_LIVE refused the escalation of $r_subject; the operator hears it instead" >&2
       failed=1
     fi
   fi
-  if { [ "$r_rank" -ge 2 ] || [ -z "$HUB_LIVE" ]; } && ! sent_has "$r_key" operator; then
-    if r_tok=$(notify_key "$r_key") && /bin/sh "$script_dir/fleet-attention.sh" notify "$5" --key "$r_tok" >/dev/null 2>&1; then
-      SENT_NOW="$SENT_NOW$NL$r_key	operator"
-      printf 'escalated\toperator\t%s\n' "$3"
+  if { [ "$r_rank" -ge 2 ] || [ "$r_hub_ok" = 0 ]; } && ! sent_has "$r_key" operator; then
+    if r_tok=$(notify_key "$r_key") && /bin/sh "$script_dir/fleet-attention.sh" notify "$r_op_text" --key "$r_tok" >/dev/null; then
+      record "$r_key" operator
+      printf 'escalated\toperator\t%s\t%s\n' "$r_subject" "$CHANNEL"
     else
-      printf '%s\n' "$prog: the notification seam refused the escalation of $3" >&2
+      printf '%s\n' "$prog: the notification seam refused the escalation of $r_subject" >&2
       failed=1
     fi
   fi
 }
 
-# level <rank>: its name.
-level() {
-  case $1 in
-    0) printf 'owner' ;;
-    1) printf 'hub' ;;
-    *) printf 'operator' ;;
-  esac
-}
-
-# rank <seconds past the start> : 0, 1 or 2.
-rank() {
+RANK=0
+LEVEL=owner
+rank_of() { # rank_of <seconds past the start>: sets RANK (0, 1 or 2) and LEVEL
   if [ "$1" -ge $((2 * WINDOW)) ]; then
-    printf '2'
+    RANK=2 LEVEL=operator
   elif [ "$1" -ge "$WINDOW" ]; then
-    printf '1'
+    RANK=1 LEVEL=hub
   else
-    printf '0'
+    RANK=0 LEVEL=owner
   fi
 }
 
 # --- requests ---------------------------------------------------------------
+# A source this pass could not read keeps the record of what it raised.
+CARRY_ALL_REQUESTS=0
+CARRY_WORKERS=""
 if ! LIST=$(/bin/bash "$script_dir/mission-control-launch.sh" list 2>/dev/null); then
   printf '%s\n' "$prog: the launcher's list cannot be read; no request is raised this pass" >&2
   failed=1
+  CARRY_ALL_REQUESTS=1
   LIST=""
 fi
 WORKERS=$(printf '%s\n' "$LIST" | P=$PROGRAM awk -F '\t' 'NF && $2 == ENVIRON["P"] { print $1 }')
 while IFS= read -r w; do
   [ -n "$w" ] || continue
   mc_valid_handle "$w" || continue
-  j="$FLEET_HOME/streamjson/$w/journal"
-  [ -e "$j" ] || continue
-  if [ -L "$j" ] || [ ! -r "$j" ]; then
-    printf '%s\n' "$prog: cannot read the journal of $(sanitize_printable "$w")" >&2
+  wdir="$FLEET_HOME/streamjson/$w"
+  [ -e "$wdir" ] || continue
+  if [ -L "$wdir" ] || [ ! -d "$wdir" ]; then
+    printf '%s\n' "$prog: refusing the worker directory of $(sanitize_printable "$w"): not a plain directory" >&2
     failed=1
+    CARRY_WORKERS="$CARRY_WORKERS$w$NL"
     continue
   fi
-  rows=$(awk -F '\t' '$4 == "pending" && $1 ~ /^[A-Za-z0-9-]+$/ && length($1) <= 64 && $3 ~ /^[0-9]+$/ { print $1 "\t" $3 }' "$j") || {
+  # Positively dead: neither pidfile left. The keeper's alarm scan settles it.
+  [ -e "$wdir/worker.pid" ] || [ -e "$wdir/supervisor.pid" ] || continue
+  journal="$wdir/journal"
+  [ -e "$journal" ] || continue
+  if [ -L "$journal" ] || [ ! -f "$journal" ] || [ ! -r "$journal" ] \
+    || ! rows=$(awk -F '\t' '$4 == "pending" && $1 ~ /^[A-Za-z0-9-]+$/ && length($1) <= 64 {
+        s = $3; if ($5 ~ /^[0-9]+$/ && $5 + 0 > s + 0) s = $5; print $1 "\t" s }' "$journal"); then
+    printf '%s\n' "$prog: cannot read the journal of $(sanitize_printable "$w")" >&2
     failed=1
+    CARRY_WORKERS="$CARRY_WORKERS$w$NL"
     continue
-  }
-  while IFS='	' read -r id recv; do
+  fi
+  while IFS='	' read -r id since; do
     [ -n "$id" ] || continue
-    mc_valid_uint "$recv" || continue
-    age=$((NOW - recv))
+    mc_valid_uint "$since" || continue
+    age=$((NOW - since))
     [ "$age" -ge 0 ] || age=0
-    past=$((age - ALARM))
-    [ "$past" -ge 0 ] || past=-1
-    rk=0
-    [ "$past" -lt 0 ] || rk=$(rank "$past")
-    printf 'request\t%s\t%s\t%s\t%s\n' "$w" "$id" "$age" "$(level "$rk")"
-    short=$(printf '%s' "$id" | cut -c1-8)
-    raise "request	$w	$id" "$rk" "$PROGRAM:$w" \
-      "mission control $PROGRAM has left worker $w's request $short pending ${age}s, past its own alarm at ${ALARM}s; fleet-streamjson.sh pending $w shows it" \
+    rank_of $((age - ALARM))
+    printf 'request\t%s\t%s\t%s\t%s\n' "$w" "$id" "$age" "$LEVEL"
+    short=${id%"${id#????????}"}
+    [ -n "$short" ] || short=$id
+    raise "request	$w	$id	$since" "$RANK" "$w" \
+      "mission control $PROGRAM has left worker $w's request $short unanswered ${age}s, past its own alarm at ${ALARM}s: reach mission control $PROGRAM, or tell the operator" \
       "$PROGRAM mission control: worker $w has waited ${age}s on request $short with no answer"
   done <<EOF
 $rows
@@ -271,110 +352,94 @@ $WORKERS
 EOF
 
 # --- the session's own dialog ----------------------------------------------
-# find_session: from the process list in FS_PS, the pid of the program's
-# mission-control claude process, or `absent` / `ambiguous`.
-find_session() {
-  printf '%s\n' "$FS_PS" | P=$PROGRAM awk '
-    {
-      if ($1 !~ /^[0-9]+$/ || NF < 5) next
-      n = split($3, a, "/")
-      if (a[n] != "claude") next
-      if ($(NF - 1) != "/planwright:mission-control" || $NF != ENVIRON["P"]) next
-      c++; pid = $1
-    }
-    END { if (c == 0) print "absent"; else if (c > 1) print "ambiguous"; else print pid }'
-}
-
-# pane_of <pid>: the tmux pane whose process is <pid> or an ancestor of it.
-pane_of() {
-  po_panes=$(bounded tmux list-panes -a -F '#{pane_id}	#{pane_pid}' 2>/dev/null) || return 1
-  {
-    printf '%s\n' "$po_panes" | awk -F '\t' 'NF == 2 { print "pane\t" $1 "\t" $2 }'
-    printf '%s\n' "$FS_PS" | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { print "proc\t" $1 "\t" $2 }'
-  } | S=$1 M=$ANCESTRY_MAX awk -F '\t' '
-    $1 == "pane" && $2 ~ /^%[0-9]+$/ { pane[$3] = $2 }
-    $1 == "proc" { parent[$2] = $3 }
-    END {
-      p = ENVIRON["S"]
-      for (i = 0; i < ENVIRON["M"] + 0 && p != "" && p > 1; i++) {
-        if (p in pane) { print pane[p]; exit 0 }
-        p = parent[p]
-      }
-      exit 1
-    }'
-}
-
 S_STATE=""
 S_PANE=""
+S_PID=-
 S_TEXT=""
+have_pane=0
 if [ -n "$PANE_FILE" ]; then
   S_TEXT=$(cat "$PANE_FILE")
-  S_STATE='captured'
-else
-  if FS_PS=$(bounded ps -ww -A -o pid= -o ppid= -o args= 2>/dev/null); then
-    sess=$(find_session)
-  else
-    sess=unreadable
-  fi
-  case $sess in
-    absent | ambiguous | unreadable) S_STATE=$sess ;;
+  have_pane=1
+elif PS_TABLE=$(bounded /bin/sh -c 'ps -ww -A -o pid= -o ppid= -o uid= -o args=' 2>/dev/null); then
+  S_PID=$(msp_find "$PROGRAM" "$PS_TABLE")
+  case $S_PID in
+    absent | ambiguous) S_STATE=$S_PID ;;
     *)
-      if S_PANE=$(pane_of "$sess") && S_TEXT=$(bounded tmux capture-pane -p -t "$S_PANE" 2>/dev/null); then
-        S_STATE='captured'
+      if PANES=$(bounded tmux list-panes -a -F '#{pane_id}	#{pane_pid}' 2>/dev/null) \
+        && S_PANE=$(msp_pane_of "$S_PID" "$PS_TABLE" "$PANES") \
+        && S_TEXT=$(bounded tmux capture-pane -p -t "$S_PANE" 2>/dev/null); then
+        have_pane=1
       else
         S_STATE=unreadable
       fi
       ;;
   esac
+else
+  S_STATE=unreadable
 fi
 held=0
-srk=0
-if [ "$S_STATE" = captured ]; then
-  S_TEXT=$(printf '%s\n' "$S_TEXT" | awk 'NF { last = NR } { l[NR] = $0 } END { for (i = 1; i <= last; i++) print l[i] }' | tail -n "$PANE_LINES")
-  if selection_prompt_present "$S_TEXT"; then
-    S_STATE=dialog
-    first=""
-    [ ! -f "$SELF" ] || first=$(awk -F '\t' '$1 == "dialog" { print $2; exit }' "$SELF")
-    if ! mc_valid_uint "$first" || [ "$first" -gt "$NOW" ]; then
+LEVEL=owner
+if [ "$have_pane" = 1 ]; then
+  S_TEXT=$(printf '%s\n' "$S_TEXT" | msp_trim)
+  if msp_dialog "$S_TEXT"; then
+    S_STATE=$MSP_KIND
+    rec_first="" rec_sess="" rec_print=""
+    if [ -f "$SELF" ]; then
+      IFS='	' read -r _ rec_first rec_sess rec_print _ <"$SELF" || :
+    fi
+    first=$rec_first
+    if ! mc_valid_uint "$first" || [ "$first" -gt "$NOW" ] || [ "$rec_sess" != "$S_PID" ] || [ "$rec_print" != "$MSP_PRINT" ]; then
       first=$NOW
-      printf 'dialog\t%s\n' "$first" | mc_write "$SELF" || {
+      printf 'dialog\t%s\t%s\t%s\t%s\n' "$first" "$S_PID" "$MSP_PRINT" "$MSP_KIND" | mc_write "$SELF" || {
         printf '%s\n' "$prog: cannot record the open dialog" >&2
         failed=1
       }
     fi
     held=$((NOW - first))
-    srk=$(rank "$held")
-    raise "self	$first" "$srk" "$PROGRAM" \
-      "mission control $PROGRAM has had its own dialog open ${held}s${S_PANE:+ in tmux pane $S_PANE}; it answers no worker until that dialog is answered" \
-      "$PROGRAM mission control has been stuck on its own dialog for ${held}s${S_PANE:+ (tmux pane $S_PANE)}"
+    rank_of "$held"
+    what="its own dialog"
+    [ "$S_STATE" != auto-mode ] || what="auto mode's confirmation prompt, which Remote Control does not show"
+    raise "self	$first	$S_PID	$MSP_PRINT" "$RANK" "$PROGRAM" \
+      "mission control $PROGRAM has been held ${held}s on $what${S_PANE:+ in tmux pane $S_PANE}; it answers no worker until that is answered" \
+      "$PROGRAM mission control has been stuck ${held}s on $what${S_PANE:+ (tmux pane $S_PANE)}"
   else
     S_STATE=clear
-    rm -f "$SELF" 2>/dev/null || failed=1
+    [ ! -e "$SELF" ] || rm -f "$SELF" 2>/dev/null || failed=1
   fi
 fi
 case $S_STATE in
-  dialog) ;;
-  # An unread pane neither opens nor closes the hold: the dialog last seen
-  # stays live until a read pane shows it closed.
+  unreadable)
+    failed=1
+    ;;
+esac
+# A pane not read, or no single session to read, neither opens nor closes
+# the hold: the dialog last seen keeps its record until a read pane shows it
+# closed or another dialog.
+case $S_STATE in
   absent | ambiguous | unreadable)
-    if [ -f "$SELF" ]; then
-      first=$(awk -F '\t' '$1 == "dialog" { print $2; exit }' "$SELF")
-      ! mc_valid_uint "$first" || LIVE="${LIVE}self	$first$NL"
+    if [ -f "$SELF" ] && IFS='	' read -r _ rec_first rec_sess rec_print _ <"$SELF"; then
+      ! mc_valid_uint "$rec_first" || LIVE="${LIVE}self	$rec_first	$rec_sess	$rec_print$NL"
     fi
     ;;
 esac
-printf 'self\t%s\t%s\t%s%s\n' "$S_STATE" "$held" "$(level "$srk")" "${S_PANE:+	$S_PANE}"
+printf 'self\t%s\t%s\t%s%s\n' "$S_STATE" "$held" "$LEVEL" "${S_PANE:+	$S_PANE}"
 
-# --- the record: only what is still live ------------------------------------
-KEPT=$(printf '%s\n' "$SENT_NOW" | LIVE=$LIVE awk -F '\t' '
-  BEGIN { n = split(ENVIRON["LIVE"], l, "\n"); for (i = 1; i <= n; i++) if (l[i] != "") live[l[i]] = 1 }
+# --- the record: what is still live, and what this pass could not read -----
+KEPT=$(printf '%s\n' "$SENT_NOW" | LIVE=$LIVE CW=$CARRY_WORKERS CA=$CARRY_ALL_REQUESTS awk -F '\t' '
+  BEGIN {
+    n = split(ENVIRON["LIVE"], l, "\n"); for (i = 1; i <= n; i++) if (l[i] != "") live[l[i]] = 1
+    n = split(ENVIRON["CW"], c, "\n"); for (i = 1; i <= n; i++) if (c[i] != "") carry[c[i]] = 1
+  }
   NF >= 2 {
     k = $1; for (i = 2; i < NF; i++) k = k "\t" $i
-    if ((k in live) && !($0 in seen)) { seen[$0] = 1; print }
+    keep = (k in live) || ($1 == "request" && (ENVIRON["CA"] == "1" || ($2 in carry)))
+    if (keep && !($0 in seen)) { seen[$0] = 1; print }
   }')
-if [ -n "$KEPT" ]; then
-  printf '%s\n' "$KEPT" | mc_write "$SENT" || failed=1
-else
-  rm -f "$SENT" 2>/dev/null || failed=1
+if [ "$KEPT" != "$(cat "$SENT" 2>/dev/null)" ]; then
+  if [ -n "$KEPT" ]; then
+    printf '%s\n' "$KEPT" | mc_write "$SENT" || failed=1
+  else
+    rm -f "$SENT" 2>/dev/null || failed=1
+  fi
 fi
 exit "$failed"
