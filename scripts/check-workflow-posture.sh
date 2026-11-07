@@ -873,10 +873,14 @@ function v(msg) { printf "%s\n", msg }
 # A macOS runs-on: a hosted `macos-*` label, or the one expression that picks
 # a self-hosted Mac per run and otherwise falls back to a hosted one, so both
 # outcomes are a Mac. A bare self-hosted label list is not one: it leaves no
-# hosted path for the pull requests the workflow keeps off that runner.
-function mac_runs_on(r) {
+# hosted path for the pull requests the workflow keeps off that runner. No
+# `||` may precede the list and only one fromJSON may appear, so an earlier
+# alternative or a second list cannot decide the runner instead.
+function mac_runs_on(r,   t) {
   if (r ~ /^macos-/) return 1
-  return (r ~ /^\$\{\{.*&&[ \t]*fromJSON\('\[[^]]*\]'\)[ \t]*\|\|[ \t]*'macos-[A-Za-z0-9.-]+'[ \t]*\}\}$/ &&
+  t = r
+  if (gsub(/fromJSON\(/, "", t) != 1) return 0
+  return (r ~ /^\$\{\{[^|]*&&[ \t]*fromJSON\('\[[^]]*\]'\)[ \t]*\|\|[ \t]*'macos-[A-Za-z0-9.-]+'[ \t]*\}\}$/ &&
           r ~ /fromJSON\('\[[^]]*"self-hosted"/ && r ~ /fromJSON\('\[[^]]*"macOS"/)
 }
 BEGIN { FS = "\t"; file = ENVIRON["MATRIX_FILE"] }

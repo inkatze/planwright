@@ -1549,6 +1549,10 @@ matrix_case "matrix: no macOS job fails" 1 "no macOS job" DROP_MACOS=1
     "M_MAC_RUNS_ON=[self-hosted, macOS, offload-mac-ci]"
   matrix_case "matrix: a fallback that is not the expression's last term is no macOS job" 1 "no macOS job" \
     "M_MAC_RUNS_ON=\${{ x && fromJSON('[\"self-hosted\", \"macOS\"]') || 'macos-latest' || 'ubuntu-latest' }}"
+  matrix_case "matrix: an alternative ahead of the label list is no macOS job" 1 "no macOS job" \
+    "M_MAC_RUNS_ON=\${{ 'ubuntu-latest' || x && fromJSON('[\"self-hosted\", \"macOS\"]') || 'macos-latest' }}"
+  matrix_case "matrix: a second label list is no macOS job" 1 "no macOS job" \
+    "M_MAC_RUNS_ON=\${{ fromJSON('[\"self-hosted\", \"linux\"]') && fromJSON('[\"self-hosted\", \"macOS\"]') || 'macos-latest' }}"
 }
 matrix_case "matrix: no Alpine job fails" 1 "no Alpine job" DROP_ALPINE=1
 matrix_case "matrix: no Ubuntu install smoke fails" 1 "no ungated Ubuntu job carries" DROP_UBUNTU_SMOKE=1
