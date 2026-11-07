@@ -61,9 +61,18 @@ minutes, mission control checks that its safety settings are in force: the
 deny list and guard hooks its settings profile ships. If they are not, it
 tells you why in one plain line and holds back (no launch, no answer, no
 request; it still keeps its own records) until a later check passes; its
-launcher refuses to start a session for the same reason. A session started
-under that profile passes; the profile's own description says how it is
-delivered.
+launcher refuses to start a session for the same reason. A session you
+open yourself and type `/mission-control` into carries no such profile, so
+it holds back. To start one you work with that passes, for a program
+already set up, run this in your own terminal inside tmux, from the
+directory it should start in (`<planwright>` is planwright's install root):
+
+```sh
+<planwright>/scripts/mission-control-launch.sh launch --program <name> --kind mission-control --scope attended --backend tmux
+```
+
+It opens a tmux window running mission control for that program under its
+profile.
 
 **The program's private folder** sits under your planwright configuration
 folder, outside every repository, and is never committed. It holds the

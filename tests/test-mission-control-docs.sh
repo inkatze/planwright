@@ -98,8 +98,10 @@ check_glossary() {
 norm() { tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\{1,\}/ /g; s/^/ /; s/$/ /'; }
 
 # visible <doc>: the doc's text with link targets dropped, so a link to a
-# reference page is not read as a file name said to the operator.
-visible() { sed 's/](\([^)]*\))/]/g' "$1"; }
+# reference page is not read as a file name said to the operator, and with
+# its `sh` blocks dropped: a command the operator runs themselves names what
+# it runs.
+visible() { awk '/^```sh$/ { c = 1; next } c && /^```$/ { c = 0; next } !c' "$1" | sed 's/](\([^)]*\))/]/g'; }
 
 # check_register <doc>: prints each forbidden word or shape the doc carries.
 check_register() {

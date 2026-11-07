@@ -90,7 +90,10 @@ here; it sets the depth of every turn, not only the first run's.
 on every failsafe tick. On anything but `pass` (a check that did not run
 included), say why once in one plain line and stay read-only (no launch,
 no answer, no request; mission control's own stores stay writable) until a
-check passes; the launcher refuses on the same check.
+check passes; the launcher refuses on the same check. A typed start carries
+no profile; name the start that does, run in the operator's own shell
+inside tmux: `scripts/mission-control-launch.sh launch --program <p> --kind
+mission-control --scope attended --backend tmux`.
 
 1. **Rebuild from durable evidence only (REQ-A1.2).** The rules
    (`scripts/mc-rules.sh`'s `load <p>`, loaded whole: the rule digest the

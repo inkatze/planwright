@@ -178,7 +178,7 @@ ml() {
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \
     CLAUDE_DIR="$tmp/claude" HOME="$fixhome" PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
-    TMUX_PANE="${ML_TMUX_PANE:-}" \
+    TMUX_PANE="${ML_TMUX_PANE:-}" ${ML_MC_TOKEN:+PLANWRIGHT_MC_TOKEN="$ML_MC_TOKEN"} \
     SHIM_RECORD_DIR="${SHIM_RECORD_DIR:-$tmp}" TMUX_STUB="$tmp/tmux" TMUX_KILL_FAIL="${TMUX_KILL_FAIL:-0}" \
     TMUX_LIST_FAIL="${TMUX_LIST_FAIL:-0}" TMUX_LOCK_DIR="${TMUX_LOCK_DIR:-}" TMUX_NO_SERVER="${TMUX_NO_SERVER:-0}" TMUX_BAD_ID="${TMUX_BAD_ID:-0}" \
     /bin/sh "$LAUNCH" "$@" 2>"$tmp/stderr")
@@ -495,6 +495,43 @@ case $ERR in *"posture check did not run: mc-posture: jq is required"*) ok "the 
 LAUNCH="$tmp/sp/scripts/mission-control-launch.sh" ml name --program alpha --kind worker --scope posture-norun
 [ ! -e "$fleet/mission-control/sessions/$OUT" ] && ok "the did-not-run refusal left no registry row" || fail "the did-not-run refusal left a row"
 rm -rf "$tmp/sp"
+
+# REQ-G1.5: a mission-control launch is held to the posture the session it
+# starts runs under (its profile, the inherited user and managed layers, and
+# its own directory's project layer), so an operator's shell that carries no
+# mission-control settings can start one; every other kind is held to the
+# caller's own posture.
+printf '{}\n' >"$posture_layer"
+rec="$tmp/rec-self-start"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind mission-control --scope self-start --brief "$tmp/brief.md"
+[ "$RC" = 0 ] && ok "a mission-control launch from a caller without the posture passes on the session's own profile" \
+  || fail "a mission-control launch from a caller without the posture exited $RC: $ERR"
+wait_done "$(field name)"
+ml launch --program alpha --kind worker --scope caller-posture --brief "$tmp/brief.md"
+[ "$RC" = 4 ] && ok "a launch of another kind is still held to the caller's own posture" \
+  || fail "a worker launch from a caller without the posture exited $RC: $ERR"
+ML_MC_TOKEN=not-a-row-token ml launch --program alpha --kind mission-control --scope token-caller --brief "$tmp/brief.md"
+[ "$RC" = 4 ] && ok "a mission-control caller whose own posture fails launches no successor" \
+  || fail "a mission-control caller failing its own posture launched a mission control (exit $RC): $ERR"
+cp "$tmp/posture-pass.json" "$posture_layer"
+mkdir -p "$tmp/mc-cwd/.claude"
+printf '%s\n' '{"disableAllHooks": true}' >"$tmp/mc-cwd/.claude/settings.local.json"
+ml launch --program alpha --kind mission-control --scope hooks-off --brief "$tmp/brief.md" --cwd "$tmp/mc-cwd"
+[ "$RC" = 4 ] && ok "a mission-control launch into a directory whose settings turn every hook off is refused" \
+  || fail "a mission-control launch into a hooks-off directory exited $RC: $ERR"
+case $ERR in *"posture check failed: every hook is turned off"*) ok "the refusal gives the session's posture reason" ;; *) fail "the session posture refusal does not say why: $ERR" ;; esac
+# The documented attended start: no brief, so the session opens on the skill.
+printf '{}\n' >"$posture_layer"
+ml launch --program alpha --kind mission-control --scope attended --backend tmux
+[ "$RC" = 0 ] && ok "an attended mission control starts with no brief of its own" \
+  || fail "the attended mission-control start exited $RC: $ERR"
+first=$(head -n 1 "$fleet/mission-control/launch/$(field name)/brief.md" 2>/dev/null)
+[ "$first" = '/planwright:mission-control alpha' ] && ok "a mission control launched with no brief opens on the skill for its program" \
+  || fail "a brief-less mission control opens with '$first'"
+ml launch --program alpha --kind worker --scope no-brief
+[ "$RC" = 2 ] && ok "another kind still needs its brief" || fail "a brief-less worker launch exited $RC: $ERR"
+cp "$tmp/posture-pass.json" "$posture_layer"
 
 mv "$core/config/tower-settings.json" "$tmp/tower-settings.json"
 ml launch --program alpha --kind orchestrator --scope no-profile --brief "$tmp/brief.md"

@@ -44,7 +44,7 @@ help_text() {
   cat <<'EOF'
 usage:
   mission-control-launch.sh launch --program <p> --kind <kind> --scope <s>
-      --brief <file> [--rules <rule-scope>]... [--backend stream-json|tmux]
+      [--brief <file>] [--rules <rule-scope>]... [--backend stream-json|tmux]
       [--cwd <abs-dir>] [--repo <abs-dir>]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker>
@@ -54,7 +54,16 @@ usage:
 <kind> is one of `kinds`; <scope> holds letters, digits and . _ = @ : - only,
 at most 128. --rules adds a rule-store scope (duty:<id> or repo:<name>);
 program rules ride every launch. The rung is --backend, else the
-mission_control_launch_backend knob.
+mission_control_launch_backend knob. A mission-control launch with no
+--brief opens on `/planwright:mission-control <p>`; `--backend tmux` makes it
+an attended one, in a tmux window.
+
+Before anything is reserved, a launch runs the posture check
+(scripts/mc-posture.sh). A mission-control launch checks the posture the
+new session starts under: its profile, the user and managed layers, and
+the project layer of the directory it starts in. Every other kind, and a
+mission control's successor (a caller holding PLANWRIGHT_MC_TOKEN), is held
+to the caller's own posture.
 
 A kind that changes a repository (worker, reviewer, ad-hoc) starts in its
 own worktree, never a primary checkout. With no --cwd, the dispatch
@@ -662,6 +671,16 @@ abs_dir() {
   printf '%s\n' "$ad_dir"
 }
 
+# posture_gate <command...> — run a posture check; die on anything but a pass.
+posture_gate() {
+  pg_out=$("$@" </dev/null 2>&1)
+  case $? in
+    0) ;;
+    1) die "refusing to launch: the posture check failed: $(sanitize_printable "$(printf '%s\n' "$pg_out" | awk -F '\t' '$2 == "fail" { print $3; exit }')")" 4 ;;
+    *) die "refusing to launch: the posture check did not run: $(sanitize_printable "$pg_out")" 4 ;;
+  esac
+}
+
 # --------------------------------------------------------------------------
 
 cmd_launch() {
@@ -696,8 +715,10 @@ cmd_launch() {
   valid_program "$program" || die "refusing the program name '$(sanitize_printable "$program")'"
   kind_row "$kind" || die "unknown session kind '$(sanitize_printable "$kind")' (one of: $KINDS)"
   valid_scope "$scope" || die "refusing the scope '$(sanitize_printable "$scope")': letters, digits and . _ = @ : - only, at most 128"
-  [ -n "$brief" ] && [ -f "$brief" ] && [ -r "$brief" ] && [ -s "$brief" ] \
-    || die "--brief must name a readable, non-empty regular file"
+  if [ -n "$brief" ] || [ "$kind" != mission-control ]; then
+    [ -n "$brief" ] && [ -f "$brief" ] && [ -r "$brief" ] && [ -s "$brief" ] \
+      || die "--brief must name a readable, non-empty regular file"
+  fi
   case $backend in
     '' | stream-json | tmux) ;;
     *) die "--backend is stream-json or tmux" ;;
@@ -722,16 +743,6 @@ cmd_launch() {
   fi
   [ -z "$cwd" ] || cwd=$(abs_dir --cwd "$cwd") || exit 2
 
-  # The posture the caller runs under, read the way the skill reads it at
-  # bring-up and on its failsafe tick; a failure refuses before anything is
-  # reserved or started.
-  posture=$(/bin/bash "$script_dir/mc-posture.sh" check </dev/null 2>&1)
-  case $? in
-    0) ;;
-    1) die "refusing to launch: the posture check failed: $(sanitize_printable "$(printf '%s\n' "$posture" | awk -F '\t' '$2 == "fail" { print $3; exit }')")" 4 ;;
-    *) die "refusing to launch: the posture check did not run: $(sanitize_printable "$posture")" 4 ;;
-  esac
-
   name=$(session_name "$program" "$kind" "$scope") || exit 2
   valid_name "$name" || die "the derived session name is outside the launcher's grammar"
   /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle stream-json-persistent "$name" 2>/dev/null \
@@ -739,6 +750,23 @@ cmd_launch() {
 
   profile=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$K_PROFILE" </dev/null) \
     || die "refusing to launch $name without its $K_PROFILE settings profile" 4
+
+  # A failure refuses before anything is reserved or started. Every kind but
+  # mission control is launched by a mission control, held to its own posture
+  # the way the skill reads it; so is a mission control's successor.
+  if [ "$kind" != mission-control ] || [ -n "${PLANWRIGHT_MC_TOKEN:-}" ]; then
+    posture_gate /bin/bash "$script_dir/mc-posture.sh" check
+  fi
+  if [ "$kind" = mission-control ]; then
+    # The posture the new session starts under: its profile, the user and
+    # managed layers it inherits, its own directory's project layer, and the
+    # plugin root the rung hands it (tmux pins this install's).
+    resolve_backend
+    session_root=$(cd "$script_dir/.." && pwd -P) || die "cannot resolve this install's root" 2
+    [ "$backend" = tmux ] || session_root=${CLAUDE_PLUGIN_ROOT:-$session_root}
+    posture_gate env -u PLANWRIGHT_MC_TOKEN CLAUDE_PLUGIN_ROOT="$session_root" \
+      /bin/bash "$script_dir/mc-posture.sh" check --settings "$profile" --project "$cwd"
+  fi
 
   set --
   for r in $rules; do set -- "$@" --scope "$r"; done
@@ -827,7 +855,11 @@ cmd_launch() {
 
   # not-a-lock: the reservation is the row above; this only creates the directory it owns
   (umask 077 && mkdir "$ldir") 2>/dev/null || refuse "cannot create the launch directory for $name" 2
-  if ! (umask 077 && cat "$brief" >"$composed"); then
+  if [ -z "$brief" ]; then
+    if ! (umask 077 && printf '/planwright:mission-control %s\n' "$program" >"$composed"); then
+      refuse "cannot write the brief into the launch for $name" 2
+    fi
+  elif ! (umask 077 && cat "$brief" >"$composed"); then
     refuse "cannot read the brief into the launch for $name" 2
   fi
   # A kind that changes a repository runs the configured cadence whatever its
