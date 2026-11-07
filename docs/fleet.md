@@ -831,7 +831,16 @@ directory whatever version wrote it, and mission control's session-keeper
 watcher runs it as `alarm-scan --once` on every pass: an overdue request
 becomes a high-priority queue item, is pushed once (the tick and `--once` share
 one mark per request; a plain scan pushes on every call), and wakes the
-mission-control session as a `pending-prompt-overdue` event. A worker that is
+mission-control session as a `pending-prompt-overdue` event. That wake reaches
+only the session that should answer, so a second session-keeper watcher,
+`scripts/mc-escalate.sh`, raises what that session leaves unanswered one level
+up, with no model in the path: a request still pending
+`mission_control_escalation_window` past the alarm, or the mission control's
+own pane showing an open dialog for that long, becomes a
+`mission-control-escalated` event in the hub program's store
+(`mission_control_escalation_hub`), and at twice the window a push through the
+notification seam. With no hub, the first level goes to the operator. A
+worker that is
 positively dead, or whose run ended (no pid file left beside a complete result
 record), is never escalated: what it left pending can no longer be answered,
 so the scan closes those receipts undeliverable, as a stop does, clears the
