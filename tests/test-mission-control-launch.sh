@@ -421,11 +421,32 @@ mt_token=$(awk -F "$TAB" '$1 == "token" { print $2; exit }' "$mt_row")
 grep -qxF "PLANWRIGHT_MC_TOKEN=$mt_token" "$tmp/tmux/argv-$mt_handle" && ok "a tmux mission-control session is launched holding its row's token" \
   || fail "the tmux mission-control window's argv does not carry its row's token: $(tr '\n' ' ' <"$tmp/tmux/argv-$mt_handle" 2>/dev/null)"
 ml launch --program alpha --kind ad-hoc --scope same-rung --brief "$tmp/brief.md" --backend stream-json
+[ "$RC" = 0 ] || fail "the stream-json launch under the stream-json knob exited $RC: $ERR"
 case $ERR in
   *mission_control_launch_backend*) fail "a --backend matching the knob warned: $ERR" ;;
   *) ok "a --backend matching the knob launches without a warning" ;;
 esac
 wait_done "$(field name)"
+[ ! -e "$adopter/planwright.yml" ] || fail "fixture: the adopter layer already exists"
+printf '%s\n' 'mission_control_launch_backend: tmux' >"$adopter/planwright.yml"
+ml launch --program alpha --kind ad-hoc --scope knob-tmux --brief "$tmp/brief.md" --backend tmux
+rm -f "$adopter/planwright.yml"
+[ "$RC" = 0 ] || fail "the tmux launch under a tmux knob exited $RC: $ERR"
+case $ERR in
+  *mission_control_launch_backend*) fail "a --backend matching the knob a layer sets warned: $ERR" ;;
+  *) ok "the warning reads the knob a layer sets, not the shipped rung" ;;
+esac
+ml retire "$(field name)"
+cp "$tracked" "$tmp/tracked.saved"
+printf '%s\n' 'mission_control_launch_backend: bogus' >>"$tracked"
+ml launch --program alpha --kind ad-hoc --scope knob-bogus --brief "$tmp/brief.md" --backend tmux
+cp "$tmp/tracked.saved" "$tracked"
+[ "$RC" = 0 ] || fail "a --backend launch with an unresolvable knob exited $RC: $ERR"
+case $ERR in
+  *warning*'--backend tmux'*mission_control_launch_backend*'could not be resolved'*) ok "a --backend launch the knob cannot be checked against warns so" ;;
+  *) fail "a --backend launch with an unresolvable knob did not warn: $ERR" ;;
+esac
+ml retire "$(field name)"
 
 # A stream-json launch resolves its tier in the directory the session runs in,
 # as the tmux rung and a relaunch do, not in the launcher's own directory.

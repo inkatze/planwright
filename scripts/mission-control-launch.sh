@@ -55,7 +55,8 @@ usage:
 at most 128. --rules adds a rule-store scope (duty:<id> or repo:<name>);
 program rules ride every launch. The rung is --backend, else the
 mission_control_launch_backend knob; a --backend other than the knob's
-value launches, warned on stderr naming the knob.
+value, or given while the knob cannot be resolved, launches, warned on
+stderr naming the knob.
 
 A kind that changes a repository (worker, reviewer, ad-hoc) starts in its
 own worktree, never a primary checkout. With no --cwd, the dispatch
@@ -245,18 +246,20 @@ row_check() {
 }
 
 resolve_backend() {
-  if [ -n "$backend" ]; then
-    # A per-call rung away from the knob is how a predecessor's habit
-    # outlives the setting, so say so; the caller's choice still stands.
-    rb_knob=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key mission_control_launch_backend \
-      --type enum --values 'stream-json tmux' --fallback stream-json </dev/null 2>/dev/null) || return 0
-    [ "$rb_knob" = "$backend" ] \
-      || printf '%s\n' "$me: warning: --backend $backend overrides mission_control_launch_backend ($rb_knob) for this launch; drop the flag to follow the knob" >&2
+  if ! rb_knob=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key mission_control_launch_backend \
+    --type enum --values 'stream-json tmux' --fallback stream-json </dev/null); then
+    [ -n "$backend" ] || die "cannot resolve mission_control_launch_backend" 4
+    printf '%s\n' "$me: warning: --backend $backend launches, but mission_control_launch_backend could not be resolved to check it against" >&2
     return 0
   fi
-  backend=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key mission_control_launch_backend \
-    --type enum --values 'stream-json tmux' --fallback stream-json </dev/null) \
-    || die "cannot resolve mission_control_launch_backend" 4
+  if [ -z "$backend" ]; then
+    backend=$rb_knob
+    return 0
+  fi
+  # A per-call rung away from the knob is how a predecessor's habit
+  # outlives the setting, so say so; the caller's choice still stands.
+  [ "$rb_knob" = "$backend" ] \
+    || printf '%s\n' "$me: warning: --backend $backend overrides mission_control_launch_backend ($rb_knob) for this launch; drop the flag to follow the knob" >&2
 }
 
 # name_lock <name> — hold the per-name lock a launch's reservation and a whole
