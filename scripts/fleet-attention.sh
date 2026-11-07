@@ -1630,7 +1630,7 @@ case $cmd in
     fi
     if [ "$queue_out" = tally ]; then
       # A store that cannot be read is an unknown split, never zero of each.
-      if [ -e "$store" ] && [ ! -r "$store" ]; then
+      if { [ -e "$store" ] || [ -L "$store" ]; } && { [ ! -f "$store" ] || [ ! -r "$store" ]; }; then
         echo "fleet-attention: queue: cannot read the attention store" >&2
         exit 2
       fi

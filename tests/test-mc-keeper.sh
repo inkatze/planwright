@@ -271,8 +271,9 @@ rm -rf "$fleet/streamjson/mc-alpha-worker-inflight"
 # with no pull request, one from a repository outside the program, one whose
 # read fails, and a question that is not a park all stay.
 mkdir -p "$tmp/bin2" "$tmp/other"
-# The fake forge answers in JSON and applies the caller's own --jq, so the
-# fork filter is exercised, not just named.
+# The fake forge answers in JSON, filtered by the caller's --state and then
+# its own --jq, so the state split and the fork filter are exercised, not
+# just named.
 cat >"$tmp/bin2/gh" <<EOF
 #!/bin/sh
 case "\$*" in
@@ -280,9 +281,13 @@ case "\$*" in
   *) exec "$tmp/bin/gh" "\$@" ;;
 esac
 q=''
+st=all
+lim=30
 prev=''
 for a in "\$@"; do
   [ "\$prev" != --jq ] || q=\$a
+  [ "\$prev" != --state ] || st=\$a
+  [ "\$prev" != --limit ] || lim=\$a
   prev=\$a
 done
 m='{"state":"MERGED","isCrossRepository":false}'
@@ -297,14 +302,21 @@ case "\$*" in
   *"--head planwright/flight/fl-fork "*) j="[\$fork_open,\$c]" ;;
   *"--head planwright/flight/fl-forkonly "*) j="[\$fork_merged]" ;;
   *"--head planwright/flight/fl-both "*) j="[\$c,\$m,\$c]" ;;
+  *"--head planwright/flight/fl-many "*) j="[\$(i=0; while [ \$i -lt 25 ]; do printf '%s,' "\$c"; i=\$((i + 1)); done)\$o]" ;;
   *"--head planwright/flight/fl-fails "*) exit 1 ;;
   *) j="[\$m]" ;;
 esac
-printf '%s\n' "\$j" | jq -r "\$q"
+case \$st in
+  open) f='[.[] | select(.state == "OPEN")]' ;;
+  closed) f='[.[] | select(.state != "OPEN")]' ;;
+  *) f='.' ;;
+esac
+# Newest first, cut at the caller's --limit, as the forge does.
+printf '%s\n' "\$j" | jq -c "\$f | .[:\$lim]" | jq -r "\$q"
 EOF
 chmod +x "$tmp/bin2/gh"
 : >"$tmp/gh-flight.log"
-for fl in fl-merged:print fl-closed:tmux fl-owes:tmux fl-wt:print fl-fork:print fl-forkonly:print fl-both:print fl-open:print fl-nopr:print fl-elsewhere:print fl-asks:print fl-fails:print fl-after:print; do
+for fl in fl-merged:print fl-closed:tmux fl-owes:tmux fl-wt:print fl-fork:print fl-forkonly:print fl-both:print fl-many:print fl-open:print fl-nopr:print fl-elsewhere:print fl-asks:print fl-fails:print fl-after:print; do
   id=${fl%%:*}
   mkdir -p "$fleet/flights/$id"
   case $id in
@@ -331,6 +343,7 @@ mc_run fleet-attention.sh queue
 expect_no_out "the merged flight's park leaves the queue" "fl-merged"
 expect_no_out "the closed flight's park leaves the queue" "fl-closed"
 expect_out "a park with an open pull request stays" "flight:fl-open"
+expect_out "an open pull request older than many closed ones still keeps a park" "flight:fl-many"
 expect_out "a park with no pull request stays" "flight:fl-nopr"
 expect_out "a fork's merged pull request does not settle a park" "flight:fl-forkonly"
 expect_out "a park from a repository outside the program stays" "flight:fl-elsewhere"
@@ -348,7 +361,7 @@ OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin2:$PATH" PLANWRIGHT_MC_PROGRAM=alph
 expect_no_out "under the runner a settle prints nothing" "settled"
 mc_run fleet-attention.sh queue
 expect_no_out "under the runner the park is settled too" "fl-merged"
-for id in fl-open fl-nopr fl-forkonly fl-elsewhere fl-asks fl-fails fl-after; do
+for id in fl-open fl-many fl-nopr fl-forkonly fl-elsewhere fl-asks fl-fails fl-after; do
   mc_run fleet-attention.sh clear "print-flight-$id"
 done
 mc_run fleet-attention.sh clear tmux-flight-fl-owes

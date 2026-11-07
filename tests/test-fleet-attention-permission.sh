@@ -308,7 +308,15 @@ if [ "$(id -u)" != 0 ]; then
   fa queue --tally >/dev/null || rc=$?
   chmod 600 "$store"
   [ "$rc" = 2 ] || fail "queue --tally on an unreadable store must exit 2, not count zero (exit $rc)"
+else
+  echo "skip: the unreadable-store case cannot run as root"
 fi
-echo "ok: queue --tally reads zero with no store, refuses an unreadable one and refuses --count"
+reset
+mkdir -p "$store"
+rc=0
+fa queue --tally >/dev/null || rc=$?
+rmdir "$store"
+[ "$rc" = 2 ] || fail "queue --tally on a store that is not a regular file must exit 2 (exit $rc)"
+echo "ok: queue --tally reads zero with no store, refuses an unreadable or non-regular one and refuses --count"
 
 echo "PASS: $(basename "$0")"

@@ -396,11 +396,21 @@ EOF
       [ "$events" = 1 ] || printf 'park-unknown\t%s\tan earlier pull request read failed\n' "$fp_h"
       continue
     fi
-    # A fork's pull request on a same-named branch is never the flight's.
-    if ! fp_states=$(cd -- "$fp_repo" && gh_bounded pr list --head "planwright/flight/$fp_id" --state all --limit 20 \
-      --json state,isCrossRepository --jq '.[] | select(.isCrossRepository | not) | .state' 2>/dev/null); then
+    # A fork's pull request on a same-named branch is never the flight's. The
+    # open ones are asked for apart, so no result cap can hide one.
+    fp_states=''
+    for fp_q in open closed; do
+      if ! fp_got=$(cd -- "$fp_repo" && gh_bounded pr list --head "planwright/flight/$fp_id" --state "$fp_q" --limit 100 \
+        --json state,isCrossRepository --jq '.[] | select(.isCrossRepository | not) | .state' 2>/dev/null); then
+        fp_failed=1
+        break
+      fi
+      fp_states="$fp_states$fp_got
+"
+      [ -z "$fp_got" ] || [ "$fp_q" != open ] || break
+    done
+    if [ "$fp_failed" = 1 ]; then
       [ "$events" = 1 ] || printf 'park-unknown\t%s\tthe pull request read failed\n' "$fp_h"
-      fp_failed=1
       continue
     fi
     case $fp_states in *OPEN*) continue ;; esac
