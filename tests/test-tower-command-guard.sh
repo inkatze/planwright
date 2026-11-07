@@ -1503,6 +1503,10 @@ expect_mc allow "a listed verb under setsid runs without a prompt" \
   "setsid $REPO_ROOT/scripts/mc-watch.sh run --program alpha"
 expect_mc allow "a listed verb under setsid through bash, detached, runs without a prompt" \
   "setsid bash $REPO_ROOT/scripts/mc-watch.sh run --program alpha >/dev/null 2>&1 &"
+expect_mc allow "a listed verb under setsid through sh runs without a prompt" \
+  "setsid sh $REPO_ROOT/scripts/mc-watch.sh run --program alpha"
+expect_mc allow "a no-argument entry under setsid runs without a prompt" \
+  "setsid $REPO_ROOT/scripts/mc-keeper.sh"
 expect_mc defer "an unlisted script under setsid prompts" \
   "setsid $REPO_ROOT/scripts/offload-dispatch.sh dispatch tmux brief.md"
 expect_mc defer "an unlisted verb of a listed script under setsid prompts" \
