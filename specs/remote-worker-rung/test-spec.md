@@ -38,9 +38,10 @@ returns SSH's own failure code.
 
 ### REQ-A1.5 — Remote root resolution [test]
 
-The root comes from `--root`, else the remote environment file, else the
-remote installed-plugin record; none of them yields exit 3 with the fix
-named; this host's root is never sent.
+The root comes from the remote installed-plugin record alone: no option
+chooses another copy, a `PLANWRIGHT_ROOT` set by the remote environment file
+does not either, a resolver that prints nothing is passed over, no record
+yields exit 3 with the fix named, and this host's root is never sent.
 
 ### REQ-A1.6 — Version check before dispatch [test]
 

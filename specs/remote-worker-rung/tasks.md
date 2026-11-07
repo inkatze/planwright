@@ -159,12 +159,13 @@ including its compute verb) landed with this bundle; Task 1 completes it.
   room, run locally when none has, and rerun locally after a ship failure
   (exit 4) or a run whose command never started (no `fleet-remote: running`
   line on stderr), but never after a run whose command started, whatever
-  its exit status, 255 included;
+  its exit status, 255 included; a host whose registry entry records no
+  compute credential stance is never chosen;
   the step record names the host alias class (remote or local) without the
   alias itself.
 - **Dependencies:** Task 2, Task 4, Task 6
 - **Citations:** D-12, D-16 · REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-G1.4,
-  REQ-G1.5
+  REQ-G1.5, REQ-G1.6
 - **Estimated effort:** 1 day
 
 ### Task 10 — Live acceptance on a real remote host

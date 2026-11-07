@@ -320,6 +320,7 @@ run_env() {
   ERR=$(cat "$tmp/err")
 }
 run_env GIT_DIR="$other/.git"
+assert_eq "an inherited GIT_DIR does not break compute" 0 "$CODE"
 case $ERR in *"$head_sha"*) ok "an inherited GIT_DIR does not change what compute ships" ;; *) fail "an inherited GIT_DIR does not change what compute ships ($ERR)" ;; esac
 
 : >"$lrepo/untracked-scratch"
@@ -342,7 +343,15 @@ unset FAKE_REMOTE_PATH
 
 run_env FAKE_FAIL_RUN=1
 assert_eq "a connection that fails after the push reports SSH's failure" 255 "$CODE"
-assert_eq "a connection that fails after the push still removes the shipped ref" "" "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute)"
+git -C "$rhome/dev/proj" update-ref "refs/planwright-compute/$head_sha-1-1000" "$head_sha"
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
+assert_eq "the next run deletes refs a dropped connection left behind" "" "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute)"
+git -C "$rhome/dev/proj" update-ref "refs/planwright-compute/$head_sha-1-$(date +%s)" "$head_sha"
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
+assert_eq "a run never deletes a ref young enough to be another run's" 1 "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute | wc -l | tr -d ' ')"
+for r in $(git -C "$rhome/dev/proj" for-each-ref --format='%(refname)' refs/planwright-compute); do
+  git -C "$rhome/dev/proj" update-ref -d "$r"
+done
 
 git -C "$lrepo" remote set-url origin https://example.invalid/acct/..
 run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh

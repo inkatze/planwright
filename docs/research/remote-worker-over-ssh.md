@@ -45,10 +45,12 @@ root, `<repo>` the remote host's own clone of the target repository.
    ssh <alias> 'f=$(mktemp "${TMPDIR:-/tmp}/brief.XXXXXX") && cat >"$f" &&
      <root>/scripts/mission-control-launch.sh launch --program <p> \
        --kind worker --scope <s> --brief "$f" --backend stream-json \
-       --repo <repo>; rm -f "$f"' <brief
+       --repo <repo>; s=$?; rm -f "$f"; exit $s' <brief
    ```
 
-   The remote launcher needs the program configured on the remote host. The
+   These hand recipes assume a POSIX login shell on the remote (`$?` is
+   `$status` in fish); `fleet-remote.sh` works under any of them. The remote
+   launcher needs the program configured on the remote host. The
    lower-level `fleet-streamjson.sh launch <worker> <scope> --prompt-file "$f"
    --cwd <worktree>` works without one, with the worktree made by hand. The
    supervisor detaches with every stdio redirected, so the SSH session returns
@@ -63,7 +65,7 @@ root, `<repo>` the remote host's own clone of the target repository.
 
    ```sh
    ssh <alias> 'f=$(mktemp "${TMPDIR:-/tmp}/brief.XXXXXX") && cat >"$f" &&
-     <root>/scripts/fleet-streamjson.sh steer <worker> --message-file "$f"; rm -f "$f"' <message
+     <root>/scripts/fleet-streamjson.sh steer <worker> --message-file "$f"; s=$?; rm -f "$f"; exit $s' <message
    ```
 
 6. **Status and result.** `ssh <alias> <root>/scripts/fleet-streamjson.sh status <worker>`;

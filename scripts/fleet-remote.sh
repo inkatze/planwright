@@ -63,11 +63,15 @@ remote account, so whatever that account can read (a CLI login included),
 the code can too.
 
 Exit codes: 2 usage error or a refused argument; 3 the remote is not set up
-(no planwright root, an env file that fails, or for compute no clone or no
-perl); 4 compute could not ship HEAD (no clone there, or SSH failed); 255 SSH
-could not connect; otherwise the remote verb's own exit. compute exits with
-the command's own status, 143 when the timeout stopped it, and says on stderr
-which happened; a channel failure there prints a fleet-remote: line.
+(no planwright root, an env file that fails, or for compute no clone, no
+perl, or no mise or /bin/bash for the chosen command); 4 compute could not
+ship HEAD (no clone there, or SSH failed); 255 SSH could not connect;
+otherwise the remote verb's own exit. compute exits with the command's own
+status, 143 when the timeout stopped it, and says on stderr which happened; a
+channel failure there prints a fleet-remote: line, and a "fleet-remote:
+running" line marks that the command started. A run whose connection drops
+before its own cleanup leaves its ref behind; the next compute run on that
+clone deletes this channel's refs older than the longest timeout.
 EOF
 }
 
@@ -101,7 +105,9 @@ lgit() {
   (
     unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
       GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG GIT_CONFIG_PARAMETERS \
-      GIT_CONFIG_COUNT GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM
+      GIT_CONFIG_COUNT GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM \
+      GIT_SHALLOW_FILE GIT_GRAFT_FILE GIT_REPLACE_REF_BASE GIT_NO_REPLACE_OBJECTS \
+      GIT_IMPLICIT_WORK_TREE GIT_PREFIX
     GIT_OPTIONAL_LOCKS=0 GIT_ALLOW_PROTOCOL=ssh GIT_SSH_COMMAND="ssh $ssh_opts"
     export GIT_OPTIONAL_LOCKS GIT_ALLOW_PROTOCOL GIT_SSH_COMMAND
     exec git -C "$wt" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"
@@ -281,6 +287,12 @@ if [ "$verb" = compute ]; then
   kind=$4
   target=$5
   [ -d "$fr_repo/.git" ] || { echo "fleet-remote: no clone at ~/dev/$1 on this host" >&2; exit 3; }
+  fr_now=$(date +%s)
+  git -C "$fr_repo" for-each-ref --format="%(refname)" refs/planwright-compute/ | while IFS= read -r fr_old; do
+    fr_epoch=${fr_old##*-}
+    case $fr_epoch in '' | *[!0-9]*) continue ;; esac
+    [ $((fr_now - fr_epoch)) -le 90000 ] || git -C "$fr_repo" update-ref -d "$fr_old" >/dev/null 2>&1
+  done
   command -v perl >/dev/null 2>&1 || { echo "fleet-remote: compute needs perl on this host" >&2; exit 3; }
   case $kind in
     test) [ -x /bin/bash ] || { echo "fleet-remote: compute --test needs /bin/bash on this host" >&2; exit 3; } ;;
@@ -386,17 +398,5 @@ done
 if [ "$stdin_verb" = 1 ]; then
   exec ssh $ssh_opts "$host" "$cmd"
 fi
-if [ "$verb" != compute ]; then
-  # shellcheck disable=SC2086 # ssh_opts is a fixed word list
-  exec ssh $ssh_opts "$host" "$cmd" </dev/null
-fi
-# A connection that fails after the push never reaches the remote cleanup, so
-# the shipped ref is deleted from here; when the command itself exited 255 the
-# remote already removed it and this delete is a quiet no-op.
-# shellcheck disable=SC2086,SC2029 # ssh_opts is a fixed word list; cmd is quoted for the remote already
-ssh $ssh_opts "$host" "$cmd" </dev/null
-rc=$?
-if [ "$rc" -eq 255 ]; then
-  lgit push -q "$host:dev/$name" ":$ref" </dev/null >/dev/null 2>&1 || :
-fi
-exit "$rc"
+# shellcheck disable=SC2086 # ssh_opts is a fixed word list
+exec ssh $ssh_opts "$host" "$cmd" </dev/null
