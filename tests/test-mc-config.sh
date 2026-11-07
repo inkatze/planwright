@@ -651,6 +651,15 @@ expect_rc "doctor with a knob set twice in the repo-tracked layer still reports"
 expect_out "a knob set twice is an unknown overrides check" "unknown${tab}overrides${tab}a layer is malformed, unreadable, or sets a knob twice"
 expect_out "the overrides a plain read finds still follow it" "override${tab}mission_control_tick_cadence${tab}repo-tracked${tab}7m${tab}5m"
 
+grep -v '^mission_control_stall_window:' "$core/config/defaults.yml" >"$tmp/defaults.trimmed"
+mv "$tmp/defaults.trimmed" "$core/config/defaults.yml"
+printf '%s\n' 'mission_control_stall_window: 30m' >"$layer"
+cfg doctor --program alpha
+write_core_defaults </dev/null
+rm -f "$layer"
+expect_out "a knob set with no shipped value read is an unknown overrides check, never clean" "unknown${tab}overrides${tab}mission_control_stall_window is set in adopter"
+expect_no_out "a knob with no shipped value read is not compared" "override${tab}mission_control_stall_window"
+
 cfg doctor --program gamma
 expect_rc "doctor on a program that is not configured" 3
 cfg doctor

@@ -136,7 +136,8 @@ Usage:
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
             launches or cron) whose read failed; for overrides, also a
             layer that is malformed or sets a knob twice or as key : v,
-            the override lines a plain read finds still following
+            the override lines a plain read finds still following, and a
+            knob a layer sets that the shipped defaults read give no value
 
 Exit codes: 0 done; 1 refused (a write that would not land as written, a
 malformed or redirected layer, a program already configured or with a
@@ -759,7 +760,10 @@ doctor_overrides() {
     END {
       for (i = 1; i <= n; i++) {
         k = keys[i]
-        if (layer[k] != "core" && (k in core) && last[k] != core[k])
+        # The core layer read can come from another install than this script.
+        if (!(k in core))
+          print "unknown\toverrides\t" k " is set in " layer[k] " but the shipped defaults read give it no value to compare"
+        else if (layer[k] != "core" && last[k] != core[k])
           print "override\t" k "\t" layer[k] "\t" last[k] "\t" core[k]
       }
     }'
