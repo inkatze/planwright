@@ -189,11 +189,12 @@ Usage:
       write this session's activation record, dropping an earlier
       acknowledgment unless the record names the same program, target and
       process;
-      prints activation<TAB><session id>. The session defaults to this one
-      (the session-start record for CLAUDE_PID, then
-      CLAUDE_CODE_SESSION_ID), the pid to CLAUDE_PID when its session-start
-      record names this session, then to a live process whose record
-      does, else `-`
+      prints activation<TAB><session id>. The session is this one (the
+      session-start record for CLAUDE_PID, then CLAUDE_CODE_SESSION_ID);
+      --session naming another is refused. The pid defaults to CLAUDE_PID
+      when its session-start record names this session, then to a live
+      process whose record does, else `-`; a --pid whose record does not
+      name this session is refused
   mc-panel.sh await --program <p> [--session <id>] [--wait <seconds>]
       wait for the mod's acknowledgment of the record, up to the wait
       (default 30, at most 60), and print
@@ -211,8 +212,9 @@ Usage:
       write the acknowledgment beside an existing record naming the
       session
   mc-panel.sh retire [--session <id>]
-      remove the session's record and acknowledgment; prints
-      retired<TAB><session id>
+      remove this session's record and acknowledgment, or those of a
+      record this host process (CLAUDE_PID) wrote under an earlier id;
+      any other --session is refused. Prints retired<TAB><session id>
   mc-panel.sh prune
       remove every record whose pid is no live process (one with no pid
       is kept), every acknowledgment with no record, and
@@ -231,8 +233,9 @@ Exit codes: 0 done; 1 the program list, the presence marker or an
 activation file cannot be read or written, a target's lease or the install
 record cannot be written (its directory a symlink included), the install
 event is refused, the copy's root, version or changelog cannot be read, or
-`lookup` finds no record for the session; 2 usage; 3 the program is not
-configured; 4 this session's id cannot be told.
+`lookup` finds no record for the session; 2 usage, or an activate or
+retire naming another session; 3 the program is not configured; 4 this
+session's id cannot be told.
 
 Portable bash 3.2 / BSD tooling.
 HELP
@@ -315,6 +318,21 @@ self_session() {
   ss_id=${CLAUDE_CODE_SESSION_ID:-}
   valid_session "$ss_id" || return 1
   printf '%s\n' "$ss_id"
+}
+
+# own_session <id> [<record>]: 0 when <id> is this session's, the one
+# self_session names, or the one an activation <record> this host process
+# (CLAUDE_PID) wrote names, an id a /clear left behind; 1 when it is another
+# session's. Exits 4 when this session's id cannot be told.
+own_session() {
+  os_self=$(self_session) || os_self=''
+  [ -z "$os_self" ] || [ "$os_self" != "$1" ] || return 0
+  if [ -n "${2:-}" ] && mc_valid_uint "${CLAUDE_PID:-}" && names_session "$2" "$1" \
+    && [ "$(field_of "$2" pid)" = "$CLAUDE_PID" ]; then
+    return 0
+  fi
+  [ -n "$os_self" ] || no_session
+  return 1
 }
 
 # pid_alive <pid>: a process by that id exists, whoever owns it.
@@ -520,6 +538,9 @@ case $verb in
     act_dir=$(panel_dir active) || mc_fail "cannot open the activation directory"
     if [ "$verb" != prune ] && [ -z "$session" ]; then
       session=$(self_session) || no_session
+    elif [ "$verb" = retire ]; then
+      own_session "$session" "$act_dir/$session" \
+        || mc_usage_fail "refusing to retire session $session: it is not this session"
     fi
     ;;
 esac
@@ -1155,10 +1176,17 @@ acked() {
 }
 
 activate() {
-  [ -n "$session" ] || session=$(self_session) || no_session
+  if [ -n "$session" ]; then
+    own_session "$session" || mc_usage_fail "refusing to activate session $session: it is not this session"
+  else
+    session=$(self_session) || no_session
+  fi
   [ -n "$target" ] || target=$program
   ac_dir=$(panel_dir active) || mc_fail "cannot open the activation directory"
   ac_sd=$(panel_dir sessions) || ac_sd=""
+  if [ -n "$pid" ] && ! { [ -n "$ac_sd" ] && names_session "$ac_sd/$pid" "$session"; }; then
+    mc_usage_fail "refusing --pid $pid: no session-start record of that process names this session"
+  fi
   # CLAUDE_PID counts only when the session-start record for it names this
   # session; otherwise the live process that record names, else `-`.
   if [ -z "$pid" ] && mc_valid_uint "${CLAUDE_PID:-}" && [ -n "$ac_sd" ] \

@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-04
+**Last reviewed:** 2026-11-05
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -881,6 +881,11 @@ later planwright bundles implement, D-12).
   D-8, D-10, D-11, D-17, D-18, D-22, D-25, D-28, D-29 and D-30; Tasks 17
   to 32. Mission-control observations mined and consumed as listed under
   Sources.
+- 2026-11-05 — Expression-only (brief Re-anchor, test-spec pointer): the
+  REQ-G1.5 test entry names `tests/test-policy-guard-mission-control.sh`
+  for the edit and git-mutation denials, which that suite pins, rather than
+  the command-guard suite. Operator ruling relayed by mission control; no
+  requirement or decision changes meaning.
 
 ## Sources
 

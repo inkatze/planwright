@@ -75,6 +75,15 @@ write_core_adapters() {
   cp "$repo_root/config/snapshot-adapters.yaml" "$core/config/snapshot-adapters.yaml"
 }
 
+# write_mc_posture_pass: a fixture user settings layer that passes the
+# posture check scripts/mission-control-launch.sh runs before a launch: the
+# shipped mission-control profile, its guard hooks by absolute path.
+write_mc_posture_pass() {
+  mkdir -p "$fixhome/.claude"
+  jq --arg r "$repo_root" '(.. | objects | select(has("command")) | .command) |= gsub("\"\\$CLAUDE_PLUGIN_ROOT\""; $r)' \
+    "$repo_root/config/mission-control-settings.json" >"$fixhome/.claude/settings.json"
+}
+
 reset_mc_fixture() {
   write_core_defaults </dev/null
   write_core_duties

@@ -34,7 +34,8 @@ inception-scaffold.sh	the venture hook it emits runs outside planwright and must
 # script makes that read exactly once.
 # shellcheck disable=SC2016 # the reads are literal shell text
 line_allowlist='worker-command-guard.sh	local r=${CLAUDE_PLUGIN_ROOT:-}	trust policy: it withholds a symlinked plugin-delivery arm from the resolver, which would canonicalize it into trusting the link target; the resolver still picks the roots
-tower-command-guard.sh	local r=${CLAUDE_PLUGIN_ROOT:-}	trust policy: it withholds a symlinked plugin-delivery arm from the resolver, which would canonicalize it into trusting the link target; the resolver still picks the root'
+tower-command-guard.sh	local r=${CLAUDE_PLUGIN_ROOT:-}	trust policy: it withholds a symlinked plugin-delivery arm from the resolver, which would canonicalize it into trusting the link target; the resolver still picks the root
+mc-posture.sh	'"'"'$CLAUDE_PLUGIN_ROOT'"'"' | '"'"'${CLAUDE_PLUGIN_ROOT}'"'"') printf '"'"'%s\n'"'"' "${CLAUDE_PLUGIN_ROOT:-}" ;;	hook-text substitution: it expands a guard hook command'"'"'s literal CLAUDE_PLUGIN_ROOT token as the session running the hook will, to check the wired guard exists; it picks no root'
 
 # chain_reads <file>: the non-comment lines expanding either variable, or
 # naming the writer-delivery directory itself (`<claude-dir>/planwright` with

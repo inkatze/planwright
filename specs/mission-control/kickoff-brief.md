@@ -1085,3 +1085,21 @@ Class: meaning
 Lens-pass: Amendment 2, delta-scoped lens review above (spec lens set, fanned out; every finding dispositioned)
 Anchor: `f7a8780cef5cf4ce13a5299a78a7e4a81ac927c1` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — REQ-G1.5 test-spec pointer (2026-11-05)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+The REQ-G1.5 entry in `test-spec.md` now names
+`tests/test-policy-guard-mission-control.sh` for the edit and git-mutation
+denials, the suite that pins them; the command-guard suite keeps the
+pre-approval arms. No requirement or decision changes meaning. The operator
+chose "Fix it (Recommended)" for this pointer, relayed by mission control.
+`Last reviewed:` moves on `test-spec.md` and `requirements.md`.
+
+**Cites the changelog line:** the 2026-11-05 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `260b43f423d8d49d039bc9f318b31702f8daba2d` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
