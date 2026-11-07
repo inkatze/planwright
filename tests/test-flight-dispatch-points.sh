@@ -126,8 +126,13 @@ flat "$b" | grep -q 'ends, parks, or stops the unit (the pause protocol or a sto
 fid=$(field "$OUT" flight)
 printf '%s\n' "$b" | grep -qF "launch tier takes the unit \`flight:$fid\`" \
   || fail "an isolated step's launch tier must take the flight's own unit"
-# The guard defers an environment-assignment prefix, so the brief carries none:
-# the launch pins the root instead.
+# Each Bash call is a fresh shell, so the step context rides each step-script
+# call as a prefix the guard approves, never an export the next call loses.
+flat "$b" | grep -qF 'literal assignments in front of each `step-run.sh` and `step-record.sh` call' \
+  || fail "the brief must carry the step context as a same-command prefix"
+printf '%s\n' "$b" | grep -qi 'export the step context' && fail "the brief must not ask for an exported step context"
+# The guard defers a root assignment prefix, so the brief carries none: the
+# launch pins the root instead.
 printf '%s\n' "$b" | grep -q 'PLANWRIGHT_ROOT=\|PLANWRIGHT_SKILLS_ROOT=' \
   && fail "the brief must not prefix a command with a root assignment"
 flat "$b" | grep -q "Relaunch: issue one run id per worker launch. A relaunched worker fires again, each at its moment below, every point no run of this flight completed without a halted, failed, or limited step (\`step-record.sh list\` across every run), running its whole list; it takes no \`resume\` skip within a point. Any \`reuse\` skip or re-fire pass the \*Points\* procedure runs applies as in any run, a re-fire pass taking the \`pre-ci\` and \`pre-pr\` lists as this launch resolves them, fired or not. It never fires a point this home never fires" \

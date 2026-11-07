@@ -2282,8 +2282,19 @@ cmd_launch() {
   # --verbose (required with -p stream-json output), the stdio permission
   # prompt tool (the receipt channel), the reviewed worker-settings fragment
   # (the mode source), and NEVER --bare.
+  # The shell rules go in the system prompt, not the brief: a long-running
+  # session compacts its first message away, and with it any rule the brief
+  # carried, while the appended system prompt stays. A missing file degrades
+  # to a launch without them, with a warning; it never refuses the launch.
+  shell_rules=''
+  if [ -r "$script_dir/../config/launch-shell-rules.txt" ]; then
+    shell_rules=$(cat "$script_dir/../config/launch-shell-rules.txt") || shell_rules=''
+  fi
+  [ -n "$shell_rules" ] \
+    || printf '%s\n' "$me: warning: config/launch-shell-rules.txt is unreadable; $worker launches without the shell rules" >&2
   set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
-    --verbose --permission-prompt-tool stdio --settings "$launch_settings" --name "$worker" "$@"
+    --verbose --permission-prompt-tool stdio --settings "$launch_settings" --name "$worker" \
+    ${shell_rules:+--append-system-prompt "$shell_rules"} "$@"
   if [ -n "$resume_sid" ]; then
     set -- "$@" --resume "$resume_sid"
   fi

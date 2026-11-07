@@ -4691,6 +4691,49 @@ step_context_value_ok() {
   return 0
 }
 
+# strip_step_context: drop a leading run of literal `PLANWRIGHT_STEP_<field>=`
+# assignments from the current simple command, setting STEP_CTX_PREFIXED, so
+# the command they prefix is verified as if it stood alone; verify_known_simple
+# then holds that command to a trusted script. Each Bash call is a fresh shell,
+# so the cadence's step-run.sh and step-record.sh calls can carry the unit's
+# context only this way. Non-zero defers: a field outside STEP_CONTEXT_FIELDS
+# (the pool hold mark is the runner's own), a field repeated, a quoted name, a
+# value that is not literal or that step_context_value_ok refuses, or nothing
+# left to run.
+STEP_CTX_PREFIXED=0
+strip_step_context() {
+  local n=0 w name f seen=' '
+  STEP_CTX_PREFIXED=0
+  while [ "$n" -lt "$cwn" ]; do
+    w=${cw[n]}
+    case $w in
+      PLANWRIGHT_STEP_*=*) ;;
+      *) break ;;
+    esac
+    name=${w%%=*}
+    f=${name#PLANWRIGHT_STEP_}
+    case " $STEP_CONTEXT_FIELDS " in
+      *" $f "*) ;;
+      *) return 1 ;;
+    esac
+    case $seen in
+      *" $f "*) return 1 ;;
+    esac
+    seen="$seen$f "
+    # A quote before the `=` makes the word a command name, not an assignment.
+    if [ "${cqp[n]}" -ge 0 ] && [ "${cqp[n]}" -le "${#name}" ]; then
+      return 1
+    fi
+    [ -z "${csub[n]-}" ] || return 1
+    word_unresolved "$w" "${cdyn[n]}" "${cglob[n]}" "${cx[n]}" && return 1
+    step_context_value_ok "$f" "${w#*=}" || return 1
+    n=$((n + 1))
+  done
+  [ "$n" -lt "$cwn" ] || return 1
+  shift_words "$n"
+  STEP_CTX_PREFIXED=1
+}
+
 # step_pool_hold_ok <value>: the resolver's hold mark, `<pool>:<pid>`, the pool
 # in the step-id charset (at most 64 bytes) and the pid decimal with no
 # leading zero (at most ten digits), as scripts/step-pool.sh reads it.
@@ -5174,11 +5217,22 @@ verify_known_simple() {
   # the words the shell will run. Words carrying a literal `$` are left alone.
   [ "$VAR_C" -eq 0 ] || expand_words
   [ "$cwn" -ge 1 ] || return 0
+  STEP_CTX_PREFIXED=0
+  case ${cw[0]} in
+    PLANWRIGHT_STEP_*=*) strip_step_context || return 1 ;;
+  esac
   strip_prefixes || return 1
   # The floor again, on the words the shell will run.
   deny_hit "${cw[@]}" && return 1
   floor_act && return 1
   verb=${cw[0]}
+  # The step context prefixes only a script (the trusted-script case below).
+  if [ "$STEP_CTX_PREFIXED" = 1 ]; then
+    case $verb in
+      */*) ;;
+      *) return 1 ;;
+    esac
+  fi
   # A substitution's command must be read-only, and trusted repo code (a
   # script, `bash`/`sh` running one, `mise`, `lefthook`, `bats`) may write.
   if [ "$IN_SUBST" = 1 ]; then

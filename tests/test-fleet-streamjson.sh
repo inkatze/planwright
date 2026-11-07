@@ -712,6 +712,18 @@ case "$argv_line " in
   *" --name sjw9 "*) : ;;
   *) fail "c9: the launch argv must name the session after its handle: $argv_line" ;;
 esac
+# The shell rules ride the launch as a system-prompt append, so a long-running
+# worker keeps them past a compaction that drops its first message.
+rules_text=$(cat "$here/../config/launch-shell-rules.txt") \
+  || fail "c9: the shipped launch shell rules are missing"
+case $rules_text in
+  *"one plain command"*) : ;;
+  *) fail "c9: the launch shell rules must state the one-plain-command rule: $rules_text" ;;
+esac
+case $argv_line in
+  *"--append-system-prompt $rules_text"*) : ;;
+  *) fail "c9: the launch argv must append the shipped shell rules to the system prompt: $argv_line" ;;
+esac
 "$here/../scripts/orchestrate-relay.sh" validate-handle stream-json-persistent sjw9 \
   || fail "c9: the derived name fails the stream-json-persistent grammar"
 for want in handle=sjw9 scope=execution-backends:4 inbound=accept; do

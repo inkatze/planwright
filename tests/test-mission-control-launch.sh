@@ -340,6 +340,11 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
         && grep -qF "mission-control:$name" "$composed_brief" \
         && ok "[$kind] the composed brief carries the cadence, its audit and its tier unit" \
         || fail "[$kind] the composed brief lacks the cadence section: $(cat "$composed_brief")"
+      # Each Bash call is a fresh shell, so an exported context is lost by the
+      # next call; the brief asks for the one-command prefix form instead.
+      grep -qF 'literal assignments in front of each' "$composed_brief" && ! grep -qi 'export the step context' "$composed_brief" \
+        && ok "[$kind] the cadence carries the step context as a same-command prefix" \
+        || fail "[$kind] the cadence still asks for an exported step context: $(cat "$composed_brief")"
       # Every path the section names is a file of this install.
       missing_paths=''
       # shellcheck disable=SC2016 # literal backticks delimit the paths
