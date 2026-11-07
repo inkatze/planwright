@@ -292,6 +292,20 @@ run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
 if [ -e "$tmp/hook-ran" ]; then fail "compute ran the worktree's own push hook on this host"; else ok "compute never runs the worktree's hooks on this host"; fi
 git -C "$lrepo" config --unset core.hooksPath
 
+git -C "$lrepo" config protocol.ext.allow always
+git -C "$lrepo" config url."ext::touch $tmp/ext-ran ".pushInsteadOf mac:
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
+if [ -e "$tmp/ext-ran" ]; then fail "compute let the worktree's config pick a command transport"; else ok "compute pushes over ssh only, whatever the worktree's config says"; fi
+git -C "$lrepo" config --unset protocol.ext.allow
+git -C "$lrepo" config --remove-section "url.ext::touch $tmp/ext-ran "
+
+printf 'PLANWRIGHT_ROOT=%s\nref=bogus\nrun=/nonexistent\ncleanup() { :; }\n' "$rroot" >"$rhome/.config/planwright/remote-env.sh"
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
+assert_eq "an env file reusing common names still runs compute" 0 "$CODE"
+assert_eq "an env file reusing common names cannot stop the ref cleanup" "" "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute)"
+assert_eq "an env file reusing common names cannot stop the run cleanup" "" "$(ls -A "$rhome/dev/.planwright-compute")"
+set_env_root "$rroot"
+
 git -C "$lrepo" remote set-url origin https://example.invalid/acct/..
 run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
 assert_eq "a dot-dot repository name is refused" 2 "$CODE"

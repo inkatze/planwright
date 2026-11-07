@@ -95,8 +95,8 @@ q() {
 # transport helpers disabled, so pointing compute at a worktree never runs
 # code from that worktree on this host.
 lgit() {
-  GIT_OPTIONAL_LOCKS=0 git -C "$wt" -c core.hooksPath=/dev/null -c core.fsmonitor=false \
-    -c protocol.allow=never -c protocol.ssh.allow=always "$@"
+  GIT_OPTIONAL_LOCKS=0 GIT_ALLOW_PROTOCOL=ssh GIT_SSH_COMMAND="ssh $ssh_opts" \
+    git -C "$wt" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"
 }
 
 host=''
@@ -234,7 +234,7 @@ case $verb in
       printf '%s\n' "$prog: warning: uncommitted changes are not shipped; running HEAD $sha" >&2
     fi
     ref="refs/planwright-compute/$sha-$$-$(date +%s)"
-    GIT_SSH_COMMAND="ssh $ssh_opts" lgit push -q "$host:dev/$name" "$sha:$ref" </dev/null \
+    lgit push -q "$host:dev/$name" "$sha:$ref" </dev/null \
       || die "could not ship HEAD to $host:dev/$name (is the repository cloned there?)" 4
     set -- "$name" "$sha" "$secs" "$kind" "$value" "$ref"
     ;;
@@ -249,26 +249,22 @@ done
 remote_program() {
   cat <<'EOF'
 set -u
-root=$1
-verb=$2
-shift 2
-if [ "$verb" = compute ]; then
-  repo="$HOME/dev/$1"
-  sha=$2
-  secs=$3
-  kind=$4
-  target=$5
-  ref=$6
-  run=''
-  cleanup() {
+# The cleanup state is set before the env file is sourced, so a setup failure
+# still removes the shipped ref, and carries a prefix the file will not reuse;
+# the arguments are read after it, from the positionals it cannot change.
+if [ "$2" = compute ]; then
+  fr_repo="$HOME/dev/$3"
+  fr_ref=$8
+  fr_run=''
+  fr_cleanup() {
     cd "$HOME" || :
-    if [ -n "$run" ]; then
-      git -C "$repo" worktree remove --force "$run/wt" >/dev/null 2>&1 || git -C "$repo" worktree prune >/dev/null 2>&1
-      rm -rf "$run"
+    if [ -n "$fr_run" ]; then
+      git -C "$fr_repo" worktree remove --force "$fr_run/wt" >/dev/null 2>&1 || git -C "$fr_repo" worktree prune >/dev/null 2>&1
+      rm -rf "$fr_run"
     fi
-    git -C "$repo" update-ref -d "$ref" >/dev/null 2>&1
+    git -C "$fr_repo" update-ref -d "$fr_ref" >/dev/null 2>&1
   }
-  trap cleanup EXIT
+  trap fr_cleanup EXIT
   trap "exit 129" HUP
   trap "exit 130" INT
   trap "exit 141" PIPE
@@ -278,13 +274,21 @@ envf="$HOME/.config/planwright/remote-env.sh"
 if [ -r "$envf" ]; then
   . "$envf" || { echo "fleet-remote: ~/.config/planwright/remote-env.sh failed" >&2; exit 3; }
 fi
+root=$1
+verb=$2
+shift 2
 if [ "$verb" = compute ]; then
-  [ -d "$repo/.git" ] || { echo "fleet-remote: no clone at ~/dev/$1 on this host" >&2; exit 3; }
+  sha=$2
+  secs=$3
+  kind=$4
+  target=$5
+  [ -d "$fr_repo/.git" ] || { echo "fleet-remote: no clone at ~/dev/$1 on this host" >&2; exit 3; }
   command -v perl >/dev/null 2>&1 || { echo "fleet-remote: compute needs perl on this host" >&2; exit 3; }
   base="$HOME/dev/.planwright-compute"
   mkdir -p "$base" || exit 3
-  run=$(mktemp -d "$base/run.XXXXXX") || exit 3
-  git -C "$repo" -c core.hooksPath=/dev/null worktree add -q --detach "$run/wt" "$sha" || exit 3
+  fr_run=$(mktemp -d "$base/run.XXXXXX") || exit 3
+  run=$fr_run
+  git -C "$fr_repo" -c core.hooksPath=/dev/null worktree add -q --detach "$run/wt" "$sha" || exit 3
   cd "$run/wt" || exit 3
   mkdir "$run/tmp" || exit 3
   TMPDIR="$run/tmp"
