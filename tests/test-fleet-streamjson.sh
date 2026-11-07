@@ -714,8 +714,10 @@ case "$argv_line " in
 esac
 # The shell rules ride the launch as a system-prompt append, so a long-running
 # worker keeps them past a compaction that drops its first message.
-rules_text=$(cat "$here/../config/launch-shell-rules.txt") \
+rules_text=$(tr '\n' ' ' <"$here/../config/launch-shell-rules.txt") \
   || fail "c9: the shipped launch shell rules are missing"
+rules_text=${rules_text% }
+[ "$(wc -l <"$rec/argv")" -eq 1 ] || fail "c9: the launch argv must stay on one recorded line: $(cat "$rec/argv")"
 case $rules_text in
   *"one plain command"*) : ;;
   *) fail "c9: the launch shell rules must state the one-plain-command rule: $rules_text" ;;

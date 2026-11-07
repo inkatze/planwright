@@ -2286,9 +2286,11 @@ cmd_launch() {
   # session compacts its first message away, and with it any rule the brief
   # carried, while the appended system prompt stays. A missing file degrades
   # to a launch without them, with a warning; it never refuses the launch.
+  # Joined onto one line: what reads a launch's argv back reads it by line.
   shell_rules=''
   if [ -r "$script_dir/../config/launch-shell-rules.txt" ]; then
-    shell_rules=$(cat "$script_dir/../config/launch-shell-rules.txt") || shell_rules=''
+    shell_rules=$(tr '\n' ' ' <"$script_dir/../config/launch-shell-rules.txt") || shell_rules=''
+    shell_rules=${shell_rules% }
   fi
   [ -n "$shell_rules" ] \
     || printf '%s\n' "$me: warning: config/launch-shell-rules.txt is unreadable; $worker launches without the shell rules" >&2
