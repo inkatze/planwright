@@ -130,10 +130,10 @@ move, just compacts, offering no handover (D-42).
 **When released**, end yourself. On a `handover-requested` event naming
 your handle, run `scripts/mc-handover.sh`'s `release` with it; when it
 refuses because another session holds the name, run
-`scripts/mc-panel.sh`'s `retire --exit --program <p>` instead. An `exit mod` line means your mod ends this
-session once the turn is over: finish the turn in one line saying so. On
-`exit none`, start nothing more and end the turn saying this session can
-be closed.
+`scripts/mc-panel.sh`'s `retire --exit --program <p>` instead. An `exit
+mod` line means your mod ends this session once the turn is over: finish
+the turn in one line saying so. On `exit none`, start nothing more and end
+the turn saying this session can be closed.
 
 **When planwright changes**, a `planwright-recorded` or `planwright-updated`
 event names the copy now running. Re-resolve the root first; under it, on
