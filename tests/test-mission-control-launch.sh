@@ -443,6 +443,23 @@ else
   else
     fail "the tmux launch under a tmux knob exited $RC: $ERR"
   fi
+  printf '%s\n' 'mission_control_launch_backend: tmux' >"$adopter/planwright.yml"
+  ml launch --program alpha --kind ad-hoc --scope knob-tmux-noflag --brief "$tmp/brief.md"
+  rm -f "$adopter/planwright.yml"
+  if [ "$RC" = 0 ]; then
+    noflag_name=$(field name)
+    noflag_backend=$(awk -F "$TAB" '$1 == "backend" { print $2; exit }' "$fleet/mission-control/sessions/$noflag_name")
+    [ "$noflag_backend" = tmux ] && ok "a launch naming no rung starts on the rung a layer's knob sets" \
+      || fail "a launch naming no rung under a tmux knob registered backend '$noflag_backend'"
+    case $ERR in
+      *mission_control_launch_backend*) fail "a launch naming no rung warned: $ERR" ;;
+      *) ok "a launch naming no rung does not warn" ;;
+    esac
+    ml retire "$noflag_name"
+    [ "$RC" = 0 ] || fail "retiring the knob-tmux-noflag session exited $RC: $OUT $ERR"
+  else
+    fail "a launch naming no rung under a tmux knob exited $RC: $ERR"
+  fi
 fi
 cp "$tracked" "$tmp/tracked.saved"
 printf '%s\n' 'mission_control_launch_backend: bogus' >>"$tracked"

@@ -471,9 +471,10 @@ cfg restore mission_control_tick_cadence
 # ---------------------------------------------------------------------------
 reset_mc_fixture
 # The scratch path may itself name planwright or claude, so the program-path
-# match is proven on a home whose path names neither.
+# match is proven on a repository and a home whose paths name neither.
 neutral_home=/mcdoc-neutral-home/alpha
-printf 'mission_control_programs: [alpha]\nprogram_alpha_repositories: [%s]\nprogram_alpha_spec_root: %s/specs\nprogram_alpha_home: %s\n' "$repo" "$repo" "$neutral_home" >"$tracked"
+neutral_repo=/mcdoc-neutral-repo/alpha
+printf 'mission_control_programs: [alpha]\nprogram_alpha_repositories: [%s, %s]\nprogram_alpha_spec_root: %s/specs\nprogram_alpha_home: %s\n' "$repo" "$neutral_repo" "$repo" "$neutral_home" >"$tracked"
 mkdir -p "$tmp/cronbin"
 cat >"$tmp/cronbin/crontab" <<'EOF'
 #!/bin/sh
@@ -493,11 +494,13 @@ expect_eq "a program on the shipped defaults with no crontab is clean" "clean"
 
 sessions="$fleet/mission-control/sessions"
 mkdir -p "$sessions"
-row() { printf 'format\t1\nname\t%s\nprogram\t%s\nkind\tworker\nscope\tx\nbackend\t%s\nlaunched\t1\n' "$1" "$2" "$3" >"$sessions/$1"; }
-row mc-alpha-worker-1111111111 alpha tmux
-row mc-alpha-worker-2222222222 alpha stream-json
-row mc-beta-worker-3333333333 beta tmux
-row mc-alpha-worker-4444444444 alpha ''
+session_row() { # session_row <name> <program> <backend>: a launch registry row
+  printf 'format\t1\nname\t%s\nprogram\t%s\nkind\tworker\nscope\tx\nbackend\t%s\nlaunched\t1\n' "$1" "$2" "$3" >"$sessions/$1"
+}
+session_row mc-alpha-worker-1111111111 alpha tmux
+session_row mc-alpha-worker-2222222222 alpha stream-json
+session_row mc-beta-worker-3333333333 beta tmux
+session_row mc-alpha-worker-4444444444 alpha ''
 # Shell forms the redaction does not model, each a crontab line, then
 # " ==> " and the report line it must read as: blanked to the end of the
 # line where the scan fails closed.
@@ -549,6 +552,7 @@ SHAPES
   printf '9\t*\t*\t*\t*\t/opt/planwright/i\n'
   printf '%s\n' '10 * * * * /opt/hub/Claude-Sweep.sh' '11 * * * * PLANWRIGHT_ROOT=/opt/pw /opt/pw/tick.sh'
   printf '*/20 * * * * %s/tick.sh\n' "$neutral_home"
+  printf '*/12 * * * * cd %s && ./x.sh\n' "$neutral_repo"
   printf '%s\n' '*/25 * * * * /MCDOC-NEUTRAL-HOME/alpha/x.sh'
   printf '38 * * * * T=abc\\\033"lk-03 lk-04" /opt/planwright/a\n'
   sed 's/ ==> .*//' "$shapes"
@@ -573,6 +577,7 @@ expect_no_out "a session whose row names no rung is not read as another rung" "l
 expect_out "a cron line naming planwright is named" "cron${tab}*/5 * * * * /opt/hub/w.sh planwright sweep"
 expect_out "a cron line in a program repository is named" "cron${tab}*/10 * * * * cd $repo && ./sweep.sh"
 expect_out "a cron line naming only the program home is named" "cron${tab}*/20 * * * * $neutral_home/tick.sh"
+expect_out "a cron line naming only a program repository is named" "cron${tab}*/12 * * * * cd $neutral_repo && ./x.sh"
 expect_no_out "a program path matches only as spelled" "/MCDOC-NEUTRAL-HOME"
 expect_out "every NAME=value on a reported cron line is blanked" "cron${tab}*/15 * * * * PLANWRIGHT_TOKEN=<redacted> API_KEY=<redacted> NOTE=<redacted> /opt/hub/claude-run.sh --key=<redacted>"
 for want in \
@@ -641,18 +646,41 @@ printf '%s\n' "$tracked_good" >"$tracked"
 : >"$CRON_FIXTURE"
 
 printf '%s\n' '- not flat' 'mission_control_stall_window: 30m' >"$layer"
+printf '%s\n' 'mission_control_tick_cadence: 7m' >>"$tracked"
 cfg doctor --program alpha
+printf '%s\n' "$tracked_good" >"$tracked"
 expect_rc "doctor with a malformed adopter layer still reports" 0
 expect_out "a malformed adopter layer is an unknown overrides check, never clean" "unknown${tab}overrides${tab}a layer is malformed"
 expect_no_out "a skipped layer's value is not reported as in force" "override${tab}mission_control_stall_window"
+expect_out "the readable layers' overrides still follow a malformed adopter layer" "override${tab}mission_control_tick_cadence${tab}repo-tracked${tab}7m${tab}5m"
 rm -f "$layer"
+
+printf '%s\n' 'mission_control_stall_window: 30m' >"$layer"
+printf '%s\n' 'mission_control_stall_window: 10m' >>"$tracked"
+cfg doctor --program alpha
+expect_no_out "a higher layer restoring the shipped value leaves no override" "override${tab}mission_control_stall_window"
+printf '%s\n' "$tracked_good" 'mission_control_stall_window: 20m' >"$tracked"
+cfg doctor --program alpha
+expect_out "the override names the layer in force and its value" "override${tab}mission_control_stall_window${tab}repo-tracked${tab}20m${tab}10m"
+printf '%s\n' "$tracked_good" >"$tracked"
+rm -f "$layer"
+
+printf '%s\n' 'mission_control_launch_backend: bogus' >>"$tracked"
+cfg doctor --program alpha
+printf '%s\n' "$tracked_good" >"$tracked"
+expect_out "a launch backend knob that cannot be resolved is an unknown launches check" "unknown${tab}launches${tab}mission_control_launch_backend could not be resolved"
+expect_no_out "no session is judged against a knob that cannot be resolved" "launch-backend${tab}"
 
 printf '%s\n' 'mission_control_tick_cadence: 7m' 'mission_control_tick_cadence: 7m' >>"$tracked"
 cfg doctor --program alpha
-printf '%s\n' "$tracked_good" >"$tracked"
 expect_rc "doctor with a knob set twice in the repo-tracked layer still reports" 0
 expect_out "a knob set twice is an unknown overrides check" "unknown${tab}overrides${tab}a layer is malformed, unreadable, or sets a knob twice"
 expect_out "the overrides a plain read finds still follow it" "override${tab}mission_control_tick_cadence${tab}repo-tracked${tab}7m${tab}5m"
+OUT=$(mc_env env PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 /bin/bash "$repo_root/scripts/mc-config.sh" doctor --program alpha 2>"$tmp/stderr")
+RC=$?
+printf '%s\n' "$tracked_good" >"$tracked"
+expect_rc "doctor run with strict overlays already set still reports" 0
+expect_out "the plain read clears an inherited strict setting" "override${tab}mission_control_tick_cadence${tab}repo-tracked${tab}7m${tab}5m"
 
 grep -v '^mission_control_stall_window:' "$core/config/defaults.yml" >"$tmp/defaults.trimmed"
 mv "$tmp/defaults.trimmed" "$core/config/defaults.yml"
