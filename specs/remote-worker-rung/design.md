@@ -153,25 +153,32 @@ remote host falls to the normal prompt.
 approved local verbs do here. Waits on the operator's answer, because it
 changes a guard.
 
-### D-10: Branches travel through the hosting remote  (S)
+### D-10: Remote workers push their own branch; fetch-back is the fallback  (S)
 
-**Decision:** The remote worker pushes its branch and opens its pull request
-from the remote clone; nothing moves git objects between the two hosts.
+**Decision:** A remote host signed in to the hosting remote pushes its
+worker's branch and opens the pull request from the remote clone, like any
+worker. A host without that login still works: this host fetches the branch
+from the remote clone over the SSH alias and pushes it. No credential of this
+host is ever copied to the remote.
 
 **Alternatives considered:**
-- Fetch the remote worktree over SSH into a local branch. Rejected because:
-  it creates a second copy of every branch and a second push path.
+- Fetch-back only. Rejected because: it puts this host in the path of every
+  remote push, and the operator wants remote workers treated like any other.
+- Copy this host's hosting-remote token to the remote. Rejected because: it
+  spreads a credential to a shared machine.
 
 **Chosen because:** review, step records and the ready flip already run
-against the pull request.
+against the pull request, and the fallback keeps an unsigned host useful.
 
-### D-11: Remote login is the remote host's own  (Q)
+### D-11: Remote login is the remote host's own  (S)
 
 **Decision:** The remote host's model-provider login and repository
-credentials are set up there by the operator; for a macOS host whose keychain
-an SSH session cannot open, the documented setup is a long-lived token
-(`claude setup-token`) in an untracked, owner-only file the remote
-environment file loads. The channel never carries a credential.
+credentials are set up there by the operator. The first host's login worked
+over SSH as is; for a macOS host whose keychain an SSH session cannot open,
+the documented fallback is a long-lived token (`claude setup-token`) in an
+untracked, owner-only file the remote environment file loads. A host with no
+keychain stores the hosting-remote CLI token in plain text in its config; the
+setup docs name that limitation. The channel never carries a credential.
 
 **Alternatives considered:**
 - Unlock the keychain over SSH. Rejected because: it needs the login password
@@ -179,8 +186,7 @@ environment file loads. The channel never carries a credential.
 - Send this host's token. Rejected because: it would be the wrong account and
   a credential on the wire.
 
-**Chosen because:** it keeps each account's login on its own host. Waits on
-the operator's answer.
+**Chosen because:** it keeps each account's login on its own host.
 
 ### D-12: Capacity is read on the host it describes  (N)
 
@@ -223,19 +229,49 @@ guards and cadence as local work.
 **Chosen because:** selection by capability keeps the axioms unchanged and
 makes the host a visible part of every report.
 
-### D-15: Placement prefers the account with more weekly room  (Q)
+### D-15: Placement spends the subscription that resets next  (S)
 
-**Decision:** Among hosts with room, a session-grade unit goes to the host
-whose account has the most weekly usage left; on a tie, this host. The
+**Decision:** Among hosts with room, a session-grade unit goes first to a
+subscription account with headroom under its hard stop, preferring the one
+whose window resets soonest (its unused capacity expires first); on a tie,
+this host. Metered accounts are the costlier fallback, used only when no
+subscription account has headroom, and their spend is read in dollars. The
 operator can pin a unit or a program to a host.
 
 **Alternatives considered:**
+- Most weekly room first. Rejected because: with resets on different days it
+  lets the sooner-resetting account's capacity expire unused.
 - Local first, remote only when local is full. Rejected because: the second
   account would sit idle on light weeks.
 - Round robin. Rejected because: it ignores usage, the scarce resource.
 
-**Chosen because:** the standing rule is to use both accounts in full each
-week. Waits on the operator's answer.
+**Chosen because:** the operator asked to use every subscription in full
+before its reset and to treat metered spend as the expensive option.
+
+### D-16: Compute offload ships a commit, runs one allowlisted command  (S)
+
+**Decision:** The channel's compute verb pushes the worktree's HEAD commit
+over the SSH alias into the remote clone as a hidden ref, checks it out in a
+scratch worktree, and runs one command from a fixed set under a perl
+supervisor that puts it in its own process group, enforces the timeout and
+returns its status; output streams back over the SSH session; the scratch
+worktree, its temp directory and the ref are removed on every exit path.
+
+**Alternatives considered:**
+- rsync the working tree. Rejected because: it ships uncommitted state,
+  makes results unreproducible against a commit, and risks writing outside
+  the remote account's own tree.
+- A git bundle per run. Rejected because: a push into the existing clone
+  sends only the missing objects.
+- An arbitrary remote command. Rejected because: an approved channel that
+  runs anything is an approval bypass (D-4).
+- Shell job control for the timeout. Rejected because: `set -m` takes the
+  terminal when the shell holds one and dash's wait missed a fast child in
+  testing.
+
+**Chosen because:** a commit is the unit review and CI already reason about,
+the remote needs no login of any kind, and the first live run cut a suite's
+wall time from over eight minutes to just over two.
 
 ## Cross-cutting concerns
 

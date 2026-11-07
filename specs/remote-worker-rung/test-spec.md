@@ -69,6 +69,12 @@ unreachable host reads `unreachable` within its grace and `lost` after.
 In the live run the pull request comes from the remote clone and the review
 and ready flip run here against it.
 
+### REQ-B1.7 — Fetch-back for an unsigned host [test]
+
+A fake remote with no hosting-remote login has its worker branch fetched
+over the alias and pushed from this host; one with a login is left to push
+itself; no local credential file is read or sent.
+
 ### REQ-B1.5 — Retire and worktree removal [test]
 
 A merged unit's remote worktree is removed; an unmerged, unpushed or live one
@@ -132,6 +138,12 @@ host's is not, and the reverse.
 A remote with no usage source reports `unavailable` and degrades as the local
 gate does.
 
+### REQ-D1.5 — Reset times and billing kinds [test]
+
+Fixtures with two subscription accounts resetting on different days and one
+metered account: each reading stays in its own unit, and no dollar reading
+meets a percent threshold.
+
 ## REQ-E — Placement
 
 ### REQ-E1.1 — Capability contract row [test]
@@ -152,6 +164,38 @@ channel observe hint.
 
 The remote launch uses the same profile, guards and cadence as a local one;
 verified by the launch path calling the remote's own launcher unchanged.
+
+## REQ-G — Compute offload
+
+### REQ-G1.1 — Ship HEAD, run one allowlisted command [test]
+
+`tests/test-fleet-remote.sh` on the fake SSH: a file only the shipped commit
+holds runs remotely; a path outside `tests/`, a task name outside the
+grammar, two command kinds and a relative worktree are refused before any
+SSH call; uncommitted changes produce the warning and are not shipped.
+
+### REQ-G1.2 — Output, status and duration [test]
+
+The same suite: the command's output arrives, a failing command's status
+passes through, and the trailer names the commit and the duration.
+
+### REQ-G1.3 — Timeout and cleanup [test + manual]
+
+The same suite: a sleeping command stops at a one-second timeout with the
+terminate status, and no scratch run, extra worktree or hidden ref remains;
+the live run on the first remote host repeated it on a real suite.
+
+### REQ-G1.4 — No commits, no logins [design-level]
+
+The compute path has no commit or push on the remote side and reads no
+credential; it ran on the first remote host before that host had any
+hosting-remote login.
+
+### REQ-G1.5 — Gate runs placed remotely with local fallback [test]
+
+Task 11's fixtures: remote placement with room, local with none, local rerun
+after a ship failure or an unreachable host, no rerun after a failing
+command.
 
 ## REQ-F — Hygiene
 

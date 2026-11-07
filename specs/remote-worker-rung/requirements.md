@@ -14,7 +14,10 @@ its permission prompts, steer it, read its result and retire it, with the
 branch travelling through GitHub. The other host is one more execution rung,
 chosen by work placement like any rung, and the choice weighs each host's
 capacity and the usage left on the account that host runs (D-1). The host is
-always a parameter, an SSH alias, never a particular machine (D-2).
+always a parameter, an SSH alias, never a particular machine (D-2). The same
+channel also offloads plain compute: a worktree's committed test or check run
+executed on the other host, with no worker and no model account involved
+(D-16).
 
 Today this works only by hand, through the recipe and the thin near-side
 channel the seed research left (the research note and the channel script in
@@ -40,6 +43,11 @@ and placement all see only the local host.
 - Per-account usage for a host whose account differs from this host's.
 - A remote rung in the backend capability contract and a host dimension in
   work placement, the orchestrator and mission control's launch.
+- Compute offload: running one allowlisted command (the full check, a named
+  task, a named test file) against a worktree's exact committed HEAD on a
+  remote host, and pointing workers' gate runs at it.
+- Accounts whose usage windows reset on different days, and accounts that
+  are metered (dollars) rather than subscription (percent of a window).
 
 ### Out of scope
 
@@ -52,7 +60,11 @@ and placement all see only the local host.
   repository), which this bundle documents but does not perform.
 - Interactive attachment to a remote worker (a tmux rung on the remote).
 - Creating, starting or rebuilding cloud workspaces.
-- A dollar-denominated spend limit (obs:af17332a owns it).
+- A dollar-denominated spend limit (obs:af17332a owns it); this bundle only
+  reads metered spend as a placement cost.
+- Offloading to model providers other than Anthropic: a named future
+  extension through the backend seam, not built here unless it falls out of
+  the seam unchanged.
 
 ## REQ-A — The channel
 
@@ -103,8 +115,14 @@ and placement all see only the local host.
   lost and its unit is reported.
   *(Cites: D-6.)*
 - **REQ-B1.4** A remote worker's branch SHALL be pushed to the hosting remote
-  from the remote clone, and review, step records and the ready flip SHALL
-  run against the pull request exactly as for a local worker.
+  from the remote clone when that host holds its own hosting-remote login,
+  and review, step records and the ready flip SHALL run against the pull
+  request exactly as for a local worker.
+  *(Cites: D-10.)*
+- **REQ-B1.7** A remote host without its own hosting-remote login SHALL
+  still deliver its worker's commits: this host fetches the branch from the
+  remote clone over the SSH alias and pushes it, and no credential of this
+  host SHALL be copied to the remote host for it.
   *(Cites: D-10.)*
 - **REQ-B1.5** Retiring a remote worker SHALL release it through the remote
   host's own close verb, and its remote worktree SHALL be removed only on the
@@ -161,6 +179,11 @@ and placement all see only the local host.
   unavailable and SHALL degrade the way the local usage gate already
   degrades, never read as zero.
   *(Cites: D-13.)*
+- **REQ-D1.5** Each account SHALL carry its own window reset time and its
+  billing kind (subscription, read as a percent of a window; or metered,
+  read in dollars), and usage SHALL be compared in the account's own unit,
+  never converted between the two.
+  *(Cites: D-13, D-15.)*
 
 ## REQ-E — Placement
 
@@ -182,6 +205,33 @@ and placement all see only the local host.
   the remote worker runs the same profile, guards and verification cadence
   as a local one.
   *(Cites: D-14.)*
+
+## REQ-G — Compute offload
+
+- **REQ-G1.1** The channel SHALL offer a compute verb that ships a local
+  worktree's exact HEAD commit to the remote host's clone of the same
+  repository and runs one command from a fixed set (the full check, a named
+  task, a named test file under `tests/`) in a fresh scratch worktree there;
+  uncommitted changes SHALL NOT be shipped, and the caller SHALL be warned
+  when they exist.
+  *(Cites: D-16.)*
+- **REQ-G1.2** A compute run SHALL stream the command's output back, exit
+  with the command's own status, and report its duration.
+  *(Cites: D-16.)*
+- **REQ-G1.3** A compute run SHALL stop the command and every process it
+  started at its timeout, exiting with the terminate status, and SHALL
+  remove its scratch worktree, temporary directory and shipped ref on every
+  exit path.
+  *(Cites: D-16.)*
+- **REQ-G1.4** No commit SHALL originate in a compute run, and a compute run
+  SHALL need no hosting-remote login and no model account on the remote
+  host.
+  *(Cites: D-16.)*
+- **REQ-G1.5** Workers' gate runs (the full check before a pull request, a
+  named suite) SHALL be placeable on a remote host with room, by the same
+  per-host capacity rule as remote workers, falling back to a local run
+  when no host has room or the channel fails before the command starts.
+  *(Cites: D-12, D-16.)*
 
 ## REQ-F — Hygiene
 
@@ -211,7 +261,32 @@ and placement all see only the local host.
 - **The remote-worker research note** — `docs/research/remote-worker-over-ssh.md`:
   the by-hand recipe and the gaps this bundle closes.
 - **The near-side channel** — `scripts/fleet-remote.sh` and its test suite,
-  landed with this bundle as the smallest working form of REQ-A.
+  landed with this bundle as the smallest working form of REQ-A and REQ-G.
+- **The operator's later notes, relayed by mission control (2026-11-06)** —
+  compute offload first, because this host is CPU-bound by test suites
+  while the second computer's cores sit idle ("run a worktree's exact HEAD
+  tests on the Mac, stream back exit code and log"); full remote workers
+  push and open pull requests themselves once the remote host is signed in,
+  with fetch-back through this host as the fallback; support the advanced
+  cases where cheap: accounts whose weekly windows reset on different days
+  (spend the one that resets next), compute versus full workers, and other
+  model providers as a future extension; and metered (pay-per-use)
+  consumption costs significantly more than subscription capacity, so
+  placement prefers subscription headroom before its reset and treats
+  metered spend as the costlier fallback, in each account's own unit.
+- **The first remote host's setup (2026-11-06)** — a dedicated account on a
+  shared personal machine, key-only SSH from this host, work confined to
+  that account's home (no elevated rights, nothing in the owner's account,
+  package manager or settings). The model-provider login worked over SSH
+  without the keychain problem the research note feared. Its
+  hosting-remote login was set up later through the provider's CLI, which
+  stored the token in plain text in that account's CLI config because the
+  account has no keychain: a known limitation of the setup, not something
+  the channel carries.
+- **The first live compute runs (2026-11-06)** — the stream-json supervisor
+  suite on the remote host and on this host, at the same time on the same
+  commit: both passed every check; the remote took a little over two
+  minutes and this host (load around 41 on 12 cores) over eight.
 - **The program's standing rules (2026-11-04 to 2026-11-06)** — the dynamic
   worker limit, the shared usage ladder with its hard stop, and the second
   computer as a work host used only while its owner is not using it.

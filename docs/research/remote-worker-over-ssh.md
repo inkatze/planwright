@@ -12,8 +12,20 @@ The host is a parameter throughout: an SSH alias from `~/.ssh/config`. A Mac
 on the LAN and a Coder workspace (`coder config-ssh` writes the alias) take
 the same path.
 
-Status: research, written before any live SSH run. Each claim below is read
-from the scripts, not observed on a remote host.
+Status: the recipe and gaps were read from the scripts before any live run.
+Since then the first remote host (a macOS machine reached as a dedicated
+account) has run the compute verb below for real; the full worker round trip
+has not been run yet.
+
+## Live results (2026-11-06)
+
+- The stream-json supervisor suite, run on the same commit on both hosts at
+  once: every check passed on each; the remote took a little over two
+  minutes, this host (load around 41 on 12 cores) over eight.
+- A five-second timeout on the same suite stopped it at five seconds with
+  the terminate status and left no process, worktree or ref behind.
+- The model-provider login worked over SSH on that host as set up, so the
+  keychain gap below did not bite there.
 
 ## The recipe
 
@@ -123,8 +135,12 @@ command: it takes the SSH alias as a parameter, resolves the root on the
 remote, sources the remote's optional `~/.config/planwright/remote-env.sh`
 for `PATH` and the fleet home, quotes every argument, refuses ones that no
 remote shell can read the same way, and ships briefs and steer messages over
-stdin. Its verbs are `root`, `launch`, `pending`, `answer`, `steer`, `status`
-and `retire`; `--help` has the contract. It changes no guard, so in a session
+stdin. Its verbs are `root`, `launch`, `pending`, `answer`, `steer`, `status`,
+`retire` and `compute`; `--help` has the contract. `compute` needs no worker
+at all: it pushes a worktree's HEAD commit into the remote's clone of the
+same repository (`~/dev/<repo>`) as a hidden ref, runs the full check, a
+named task or a named test file there in a scratch worktree, streams the
+output back and exits with the command's status. It changes no guard, so in a session
 whose guard does not approve it each call still asks. Folding remote hosts
 into vetting, usage, capacity and placement is spec-sized:
 `specs/remote-worker-rung/`.
