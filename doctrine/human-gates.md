@@ -45,7 +45,7 @@ cannot be named does not ship.
 | Reshaping never-pushed commits on the owned unit branch | Policy | `unpushed_rewrite`, default `allow` |
 | Branches protected beyond the core floor | Policy | `protected_branches`, default empty; it adds to `main`, `master`, and `planwright/*/spec`, never removes |
 | Pushing the unit branch and opening its draft PR | Composition contract | `/execute-task`, or a standalone `/self-review`; `/polish` and every `--nested` review skill never push |
-| Pushing a spec branch and opening its draft PR | Composition contract | `/spec-kickoff`, run attended under no tier profile, or as a relayed kickoff session under the kickoff profile, which writes only the one spec branch its launch record names; a plain push of a spec branch is not a gate, and rewriting one stays a human gate |
+| Pushing a spec branch and opening its draft PR | Composition contract | `/spec-kickoff`, run attended under no tier profile, or as the relayed kickoff session under the worker profile (scope `kickoff-<spec>`), which pushes only the one spec branch its launch record names, through `"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh <spec>`: a plain, non-forced push, never forced; no other agent session may push a spec branch; a plain push of a spec branch is not a gate, and rewriting one stays a human gate |
 | Flipping under `unit-owner` | Composition contract | `/execute-task`'s convergence run, or the review skill it delegates its terminal step to; a mission-control session, for any pull request of the repository whose checkout it runs in, not only the units it launched; a standalone review run never flips |
 
 ## The floor

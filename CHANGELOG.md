@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.69.0](https://github.com/inkatze/planwright/compare/v0.68.0...v0.69.0) (2026-11-07)
+
+
+### Features
+
+* **policy-guard:** let a kickoff session push its own spec branch ([#866](https://github.com/inkatze/planwright/issues/866)) ([ac910dd](https://github.com/inkatze/planwright/commit/ac910ddb2ad842fa5c71bf09a40e044078fe0756))
+
+
+### Bug Fixes
+
+* **fleet:** close requests a finished stream-json worker left waiting ([#842](https://github.com/inkatze/planwright/issues/842)) ([da91fd7](https://github.com/inkatze/planwright/commit/da91fd7d9ebaec49d0128e31feac2ea7c685811a))
+
+## [0.68.0](https://github.com/inkatze/planwright/compare/v0.67.1...v0.68.0) (2026-11-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **mission-control:** start launched mission-control sessions in auto mode ([#859](https://github.com/inkatze/planwright/issues/859))
+
+### Features
+
+* **main-currency:** let launched sessions fast-forward the primary checkout's default branch ([#854](https://github.com/inkatze/planwright/issues/854)) ([eb0346c](https://github.com/inkatze/planwright/commit/eb0346cc195ee8ba6dd80f09f8fad8ea44f9c60a))
+* **mission-control:** start launched mission-control sessions in auto mode ([#859](https://github.com/inkatze/planwright/issues/859)) ([e80037f](https://github.com/inkatze/planwright/commit/e80037f9a968662b50026d3b3d4759f8124c721e))
+
+
+### Bug Fixes
+
+* **fleet:** give workers a short, private TMPDIR outside ~/.claude ([#855](https://github.com/inkatze/planwright/issues/855)) ([40dcc8f](https://github.com/inkatze/planwright/commit/40dcc8f58e88ce4171a00574d4583c8476edef2c))
+* **mission-control:** live in-flight count, no self-handover prompt, /mc-panel toggles ([#848](https://github.com/inkatze/planwright/issues/848)) ([aaa02bb](https://github.com/inkatze/planwright/commit/aaa02bb6692bcc464d6d9977cb8ad0267bec70db))
+
 ## [0.67.1](https://github.com/inkatze/planwright/compare/v0.67.0...v0.67.1) (2026-11-06)
 
 

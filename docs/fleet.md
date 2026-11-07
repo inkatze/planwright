@@ -832,11 +832,14 @@ watcher runs it as `alarm-scan --once` on every pass: an overdue request
 becomes a high-priority queue item, is pushed once (the tick and `--once` share
 one mark per request; a plain scan pushes on every call), and wakes the
 mission-control session as a `pending-prompt-overdue` event. A worker that is
-positively dead is never escalated: what it left pending can no longer be
-answered, so the scan closes those receipts undeliverable, as a stop does,
-clears the request row it raised (a failure item stays), and prints
+positively dead, or whose run ended (no pid file left beside a complete result
+record), is never escalated: what it left pending can no longer be answered,
+so the scan closes those receipts undeliverable, as a stop does, clears the
+request row it raised (a failure item stays), and prints
 `dead <worker> <settled>`, which the session-keeper announces as a
-`stream-json-worker-dead` event. `answer` delivers the
+`stream-json-worker-dead` event. While a launch, recover or relaunch of that
+worker is in flight, the scan neither settles nor escalates it, leaving its
+requests to a later scan. `answer` delivers the
 operator's recorded answer as the control_response; `recover` resumes a
 crashed worker's session via `--resume`; `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
@@ -866,7 +869,8 @@ a sandbox bypass included, are not shown, yet an `answer --allow` would apply
 them. Every `--` notice prints before the request's content, so reading the
 view through `head` never drops one. A missing, symlinked, or malformed envelope
 prints `-- request envelope unreadable` instead. A worker that is positively
-dead (every pid it recorded is gone, by `fleet-death-evidence.sh`) gets a
+dead (every pid it recorded is gone, by `fleet-death-evidence.sh`, or its run
+ended: no pid file left beside a complete result record) gets a
 `-- worker dead` line under each header: nobody can answer those requests, and
 the next `alarm-scan` settles them. The request text is the worker's, so
 it is treated as untrusted: control bytes are stripped (C1 bytes too, which
@@ -2089,8 +2093,10 @@ checkout is not judged on this checkout's specs. Each clear goes through
 keeps its new row; each clear is audited under the `attention-reconcile`
 mechanism. `fleet_daemon_pause` pauses the pass.
 The pass clears display rows only: a dead worker's pending stream-json
-receipts are the rung's to settle, which its `stop` does and so does the next
-`alarm-scan` once every pid the worker recorded is positively dead.
+receipts are the rung's to settle, which its `stop` does and so does the first
+`alarm-scan` that finds every pid the worker recorded positively dead or its
+run ended (no pid file left beside a complete result record) with no launch,
+recover or relaunch of it in flight.
 
 ## Resource governance: models, throttling, and the auto-mode line
 
