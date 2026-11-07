@@ -509,19 +509,26 @@ resolves a same-command plain-literal assignment (`P=<root> && $P/scripts/x.sh`)
 and a leading `cd` into the worker's own worktree itself. As
 **defense-in-depth beneath that hook** — most relevant on the hook's degraded
 path (when `jq` is absent the hook defers everything) — an adopter may add a
-literal-path allow entry to their **worker** settings that persistent-allows the
-resolved plugin-scripts directory. In your worker `settings.json`:
+literal-path allow entry to their **worker** settings for one script they run
+often. In your worker `settings.json`:
 
 ```jsonc
 {
   "permissions": {
-    // Point at YOUR install's resolved plugin-scripts directory. Find it with
+    // One entry per script, at the exact resolved path. Find the directory with
     // (errors if neither var is set rather than emitting a bare /scripts):
     //   echo "${PLANWRIGHT_ROOT:-${CLAUDE_PLUGIN_ROOT:?set PLANWRIGHT_ROOT or CLAUDE_PLUGIN_ROOT}}/scripts"
-    "allow": ["Bash(/abs/path/to/planwright/scripts/*)"]
+    "allow": ["Bash(/abs/path/to/planwright/scripts/fleet-streamjson.sh answer *)"]
   }
 }
 ```
+
+Never write `Bash(<dir>/*)` for the scripts directory, or a version glob such as
+`Bash(<cache>/planwright/*/scripts/x.sh *)`. Claude Code's `*` matches `/` and
+`..`, so `Bash(<dir>/*)` also allows `<dir>/../../../bin/rm -rf …`, and a version
+glob walks out of its version directory the same way. The exact path has no
+wildcard in the command path, so it cannot be traversed, and it stops matching
+on upgrade, which fails closed to the prompt.
 
 Why this is **documented, not shipped** (D-7): the plugin cache path is
 per-install (per-home), so a hardcoded allow entry in the tracked
@@ -604,23 +611,33 @@ runner's own session line always carries the prefix, so on the degraded path
 expect the prompt for it; the entry covers a hand-typed, unprefixed
 invocation.
 
-### Path-scoped allow rules use the slash-star glob
+### Path-scoped allow rules name exact paths
 
-The plugin-scripts literal-path entry earlier in this section ends in `/*`,
-not `:*`, and that distinction is
-load-bearing. Claude Code's `:*` is a **command-boundary** glob: it matches only
-where a space or the end of the string follows the prefix. That is correct for a
-*command* rule — `Bash(git status:*)`, `Bash(mise run:*)` — but wrong for a
-*directory*. `Bash(<dir>/:*)` never matches `<dir>/<file>`, because a filename,
-not a space, follows the slash, so the rule silently never fires — no error, it
-just never applies. A machine-local `Bash(<scripts-dir>/:*)` rule is exactly what
-silently never matched the wrapper path on 2026-07-19 and forced a bare launch.
+A path-scoped allow rule names one exact script path, with no `*` in the command
+path. Claude Code's `*` matches any text, including `/` and `..`, so a wildcard
+in a path is a traversal: `Bash(<dir>/*)` admits `<dir>/../../../bin/<anything>`,
+and `Bash(<cache>/planwright/*/scripts/x.sh *)` admits a walk out of its version
+directory. The planwright PreToolUse hooks canonicalize the path and defer a
+`..` or a symlink that escapes, so they never approve such a shape. A wildcard
+path entry is the one route that approves a traversal, and the hook already
+approves every in-repo script it covers, so it adds nothing safe. The
+version-independent safe form is the hook, not a glob.
 
-So a **path-scoped** allow rule uses the trailing `/*` glob — `Bash(<dir>/*)` —
-never `:*`. The `mise run check` guard `scripts/check-glob-allow-rules.sh` flags
-any shipped `Bash(<path>/:*)` directory-scoped rule as a likely
-never-match footgun, and confirms this guidance stays cross-referenced from the
-launch-time and tower guards (D-6, REQ-B1.3).
+The `:*` suffix is a separate matter. It is a **command-boundary** glob: it
+matches only where a space or the end of the string follows the prefix. That is
+correct for a *command* rule — `Bash(git status:*)`, `Bash(mise run:*)` — but
+wrong for a *directory*. `Bash(<dir>/:*)` never matches `<dir>/<file>`, because a
+filename, not a space, follows the slash, so the rule silently never fires. A
+machine-local `Bash(<scripts-dir>/:*)` rule is exactly what silently never
+matched the wrapper path on 2026-07-19 and forced a bare launch.
+
+So a directory-scoped rule is never written as `Bash(<dir>/*)` or `Bash(<dir>/:*)`.
+The `mise run check` guard `scripts/check-glob-allow-rules.sh` flags the
+`:*` form, and `scripts/check-allow-path-globs.sh` (run in the same gate, and
+against a user's own settings with no argument) flags a wildcard or `..` in the
+command path of any allow rule and names the exact-path replacement (D-6,
+REQ-B1.3; the matcher facts are in
+[`permission-matcher-model.md`](permission-matcher-model.md), rule M3).
 
 The `:*` boundary rule is one of several matcher semantics an allow or deny rule
 depends on. The rest — whole-command glob matching, wildcards at any

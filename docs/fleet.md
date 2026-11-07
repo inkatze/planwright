@@ -1516,7 +1516,7 @@ literal-path resolution auto-approves, so the pinned launch never floods the
 worker and never falls back to the bare launch that once dropped the pin. The
 allow rules that front it follow one discipline worth knowing when you add or
 edit them: see the
-[glob discipline](overlays.md#path-scoped-allow-rules-use-the-slash-star-glob).
+[glob discipline](overlays.md#path-scoped-allow-rules-name-exact-paths).
 
 A **backspace-probe** disambiguation check — send a backspace to the pane and
 diff it before and after to tell real input from a rendered suggestion — stays
