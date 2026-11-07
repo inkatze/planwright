@@ -117,8 +117,8 @@ fork.
 A runner takes one job at a time, so the self-hosted path runs the suite as a
 single shard (`[1]`) instead of the hosted path's four. Four shards on one
 runner would run one after another and repeat the setup each time. One shard
-already uses every core, because `scripts/run-tests.sh` runs one test per
-core.
+already uses every core, because `scripts/run-tests.sh` runs as many test
+files at once as the machine has cores.
 
 Estimate, from the last green `ci` run before this change (no queueing): the
 four hosted shards took 18, 24, 9 and 22 minutes on 3-core hosted Macs, about
@@ -157,16 +157,33 @@ Registration and removal tokens need admin access to the repository, so fetch
 them where `gh` is signed in as an admin, then run the runner's scripts on the
 Mac as `gharunner` in the runner's install directory.
 
-Register (the OS and architecture labels `self-hosted`, `macOS` and `ARM64`
-are added automatically):
+Register in this order. The labels are public in `ci.yml`, so a fork can
+target them as soon as the runner is online; the runner must never be online
+without the hook.
 
-```sh
-gh api -X POST repos/inkatze/planwright/actions/runners/registration-token --jq .token
-./config.sh --url https://github.com/inkatze/planwright --token <token> \
-  --name offload-mac-ci --labels offload-mac-ci --unattended --replace
-./svc.sh install
-./svc.sh start
-```
+1. Set the fork-approval policy (see [Fork policy](#fork-policy)).
+2. Configure the runner without starting it (the OS and architecture labels
+   `self-hosted`, `macOS` and `ARM64` are added automatically):
+
+   ```sh
+   gh api -X POST repos/inkatze/planwright/actions/runners/registration-token --jq .token
+   ./config.sh --url https://github.com/inkatze/planwright --token <token> \
+     --name offload-mac-ci --labels offload-mac-ci --unattended --replace
+   ```
+
+3. Install the [job-started hook](#the-job-started-hook) outside the runner's
+   install directory (GitHub's guidance, since runner updates replace that
+   directory), and add its `ACTIONS_RUNNER_HOOK_JOB_STARTED` line to the
+   runner's `.env`. The runner reads `.env` only when it starts, so a later
+   edit needs a restart.
+4. Start the runner as a service that comes up at boot without anyone
+   logging in. On macOS the runner's `./svc.sh install` writes a LaunchAgent
+   to the account's `~/Library/LaunchAgents`, which runs only inside a login
+   session, and `gharunner` normally has none. So either install a
+   LaunchDaemon that runs as `gharunner` (built from the runner's
+   `bin/actions.runner.plist.template`, an admin act for the dotfiles side),
+   or have `gharunner` log in automatically. Otherwise the runner goes
+   offline at every reboot and, with the switch on, macOS jobs queue.
 
 Then turn the switch on:
 
@@ -174,12 +191,12 @@ Then turn the switch on:
 gh variable set PLANWRIGHT_MAC_RUNNER --body self-hosted --repo inkatze/planwright
 ```
 
-Deregister: turn the switch off first (below), then:
+Deregister: turn the switch off first (below), stop and remove the service
+in whichever form step 4 installed it (`./svc.sh stop` then
+`./svc.sh uninstall` for the LaunchAgent), then:
 
 ```sh
 gh api -X POST repos/inkatze/planwright/actions/runners/remove-token --jq .token
-./svc.sh stop
-./svc.sh uninstall
 ./config.sh remove --token <token>
 ```
 
