@@ -53,6 +53,7 @@ mc_run mc-snapshot.sh refresh --program alpha --source forge --now 1000
 mc_run mc-snapshot.sh read --program alpha forge --now 1000
 expect_out "D-12: the authored set keeps the viewer's pull request" "pr${tab}acme/widgets${tab}7${tab}"
 expect_no_out "D-12: and drops another author's" "pr${tab}acme/widgets${tab}9${tab}"
+expect_out "the row names the pull request's base and head branches" "${tab}main${tab}feat-x"
 
 setup
 GH_REMAINING=10 mc_run mc-adapter-forge.sh refresh --program alpha --out "$tmp/forge.out"

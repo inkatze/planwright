@@ -214,28 +214,202 @@ expect_rc "a duplicate unit fails" 1
 expect_err "named" "duplicate unit api:feat-y"
 
 # ---------------------------------------------------------------------------
-# watch: one event per same-line overlap across the origin branches.
+# watch: one event per branch pair with a same-line overlap, among the
+# branches the program tracks: the pull requests in the forge snapshot (by
+# head) and the unit branches. Merge-queue refs never pair. A pass announces
+# at most mission_control_radar_max_events pairs, one summary for the rest.
 # ---------------------------------------------------------------------------
+edit planwright/flight/unit-x main 10 unit-x
+edit trunk-merge/pr-7/uuid-1 main 10 queue
+edit gh-readonly-queue/main/pr-8 main 10 queue2
+edit teammate main 10 mate
+g checkout -q -b planwright/flight/multi-a main
+sed -i.bak '20s/.*/m-a/' "$tmp/work/app.txt" && rm -f "$tmp/work/app.txt.bak"
+printf 'm-a\n' >"$tmp/work/other.txt"
+g commit -am multi-a
+g checkout -q -b planwright/flight/multi-b main
+sed -i.bak '20s/.*/m-b/' "$tmp/work/app.txt" && rm -f "$tmp/work/app.txt.bak"
+printf 'm-b\n' >"$tmp/work/other.txt"
+g commit -am multi-b
+g checkout -q main
 git clone -q "$tmp/work" "$tmp/clone" 2>/dev/null
 sed -i.bak "s|^program_alpha_repositories: .*|program_alpha_repositories: [$tmp/clone]|" "$tracked"
+# The forge snapshot: feat-a and feat-b are tracked pull requests; the
+# merge-queue ref at trunk-merge/pr-7 is listed too, and must still not pair.
+snap="$fleet/mission-control/alpha/snapshots"
+mkdir -p "$snap"
+# forge_pr <number> <head branch> <base branch>: one snapshot row, in the
+# columns the forge adapter writes (the base and head branch names last).
+forge_pr() {
+  printf 'pr\tacme/widgets\t%s\t%s\tfalse\tMERGEABLE\tNONE\t0\tNONE\t0\t0\tnone\t%s\t%s\n' \
+    "$1" "$(git -C "$tmp/clone" rev-parse "origin/$2")" "$3" "$2"
+}
+# write_forge <number:head:base>...: the forge snapshot holding these pull requests
+write_forge() {
+  {
+    printf 'format\t1\nsource\tforge\ntaken\t%s\n' "$(date +%s)"
+    for pr in "$@"; do
+      IFS=: read -r pn ph pb <<EOF
+$pr
+EOF
+      forge_pr "$pn" "$ph" "$pb"
+    done
+  } >"$snap/forge"
+}
+write_forge 1:feat-a:main 2:feat-b:main 3:trunk-merge/pr-7/uuid-1:main
+printf 'mission_control_radar_max_events: 1\n' >>"$tracked"
 OUT=$(mc_env env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-radar.sh" 2>"$tmp/stderr")
 RC=$?
-ERR=$(cat "$tmp/stderr")
 expect_rc "the watcher runs with no arguments under the runner" 0
-expect_out "an overlap is announced" "announced${tab}conflict-predicted${tab}conflict-"
-expect_err "the orphan branch skipped, not fatal" "skipping origin/pages"
+first_count=$(printf '%s\n' "$OUT" | grep -c '^announced')
+if [ "$first_count" -eq 2 ]; then
+  ok "a pass announces the cap of pairs and one summary"
+else
+  fail "a pass announced $first_count events, want 2 (the cap of 1 pair and the summary): $OUT"
+fi
+mc_run mc-event.sh list --program alpha
+expect_out "the summary names how many pairs the cap held back" "held back 3"
+sed -i.bak '/^mission_control_radar_max_events/d' "$tracked" && rm -f "$tracked.bak"
+OUT=$(mc_env env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-radar.sh" 2>"$tmp/stderr")
+RC=$?
+expect_rc "a pass after the cap announces the pairs it held" 0
+second_count=$(printf '%s\n' "$OUT" | grep -c '^announced')
+if [ "$second_count" -eq 3 ]; then
+  ok "the held pairs follow on the next pass, and no summary repeats"
+else
+  fail "the next pass announced $second_count events, want the 3 held pairs: $OUT"
+fi
 mc_run mc-event.sh list --program alpha
 expect_rc "the event store reads" 0
-case $OUT in
+LIST=$OUT
+count() { printf '%s\n' "$LIST" | grep -c "$1"; }
+case $LIST in
   *"clone:origin/feat-a+origin/feat-b app.txt lines 10-10"* | *"clone:origin/feat-b+origin/feat-a app.txt lines 10-10"*)
     ok "the overlap lands in the event store, its pair and lines in the text"
     ;;
-  *) fail "no stored conflict-predicted event for feat-a and feat-b: $OUT" ;;
+  *) fail "no stored conflict-predicted event for feat-a and feat-b: $LIST" ;;
 esac
-expect_no_out "no event for branches that only share the file" "feat-c"
+if [ "$(count unit-x)" -eq 2 ]; then
+  ok "a planwright unit branch pairs with each tracked pull request it overlaps"
+else
+  fail "unit-x pairs in the store: $(count unit-x), want 2"
+fi
+if [ "$(count 'multi-')" -eq 1 ]; then
+  ok "one event per branch pair, not per file hunk"
+else
+  fail "multi pair events in the store: $(count 'multi-'), want 1"
+fi
+if [ "$(count feat-c)" -eq 0 ] && [ "$(count teammate)" -eq 0 ]; then
+  ok "no event for an untracked branch or a teammate's"
+else
+  fail "an untracked branch paired: $LIST"
+fi
+if [ "$(count trunk-merge)" -eq 0 ] && [ "$(count gh-readonly-queue)" -eq 0 ]; then
+  ok "no event for a merge-queue ref, even one at a tracked head"
+else
+  fail "a merge-queue ref paired: $LIST"
+fi
 mc_run mc-radar.sh watch --program alpha
 expect_rc "a second pass" 0
 expect_eq "an announced overlap is not announced again" ""
+# Each scenario starts from no events, no announced keys and the snapshot
+# it names; the program's scope knob is set per scenario.
+radar_fresh() {
+  rm -rf "$fleet/attention/mission-control/alpha" "$fleet/mission-control/alpha/radar-announced"
+  write_forge "$@"
+}
+radar_pass() {
+  OUT=$(mc_env env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-radar.sh" 2>"$tmp/stderr")
+  RC=$?
+}
+stored_events() {
+  mc_env /bin/bash "$repo_root/scripts/mc-event.sh" list --program alpha
+}
+set_scope() {
+  sed -i.bak '/^mission_control_radar_/d' "$tracked" && rm -f "$tracked.bak"
+  printf '%s\n' "$@" >>"$tracked"
+}
+
+# REQ-M1.5, D-12: a stacked pull request's base is tracked with it.
+set_scope
+radar_fresh 2:feat-d:feat-a
+radar_pass
+expect_rc "a stacked pull request's pass" 0
+case $(stored_events) in
+  *"clone:origin/feat-a+origin/feat-d "*) ok "the base of a tracked pull request is paired with its head" ;;
+  *) fail "the base of a tracked pull request was not paired: $(stored_events)" ;;
+esac
+
+# mission_control_forge_tracked: authored keeps the untracked branch out.
+radar_fresh 1:feat-a:main
+radar_pass
+case $(stored_events) in
+  *"feat-b"* | *"teammate"*) fail "an untracked branch was paired under the authored scope" ;;
+  *) ok "an untracked branch is not paired under the authored scope" ;;
+esac
+case $(stored_events) in
+  *"unit-x+origin/feat-a"* | *"origin/feat-a+origin/planwright/flight/unit-x"*) ok "the operator's unit branch pairs with a tracked pull request" ;;
+  *) fail "the unit branch did not pair with the tracked pull request: $(stored_events)" ;;
+esac
+
+# mission_control_radar_scope: watched pairs only the listed branches.
+set_scope 'mission_control_radar_scope: watched' 'mission_control_radar_watched: [feat-a, feat-b]'
+radar_fresh
+radar_pass
+case $(stored_events) in
+  *"clone:origin/feat-a+origin/feat-b "*) ok "the watched scope pairs the listed branches" ;;
+  *) fail "the watched scope did not pair the listed branches: $(stored_events)" ;;
+esac
+case $(stored_events) in
+  *"unit-x"* | *"multi-"*) fail "the watched scope paired an unlisted branch" ;;
+  *) ok "the watched scope pairs no unlisted branch" ;;
+esac
+
+# mission_control_radar_scope: all pairs every origin branch but the merge queue's.
+set_scope 'mission_control_radar_scope: all'
+radar_fresh
+radar_pass
+case $(stored_events) in
+  *"teammate"*) ok "the all scope pairs a teammate's branch" ;;
+  *) fail "the all scope did not pair a teammate's branch: $(stored_events)" ;;
+esac
+case $(stored_events) in
+  *"trunk-merge"* | *"gh-readonly-queue"*) fail "the all scope paired a merge-queue ref" ;;
+  *) ok "the all scope never pairs a merge-queue ref" ;;
+esac
+
+# Dedupe across wakes: a pair raised once, then marked submitted, is never
+# raised again while both branches stay where they are, however the tracked
+# set churns in between.
+set_scope
+radar_fresh 1:feat-a:main
+radar_pass
+first=$(stored_events | wc -l)
+ids=$(stored_events | cut -f1 | tr '\n' ' ')
+mc_run mc-event.sh mark --program alpha --target tw submitted $ids
+write_forge
+radar_pass
+write_forge 1:feat-a:main
+radar_pass
+second=$(stored_events | wc -l)
+if [ "$first" -gt 0 ] && [ "$second" -eq "$first" ]; then
+  ok "a pair already raised is not raised again when the tracked set churns"
+else
+  fail "the churn raised events again: $first before, $second after"
+fi
+
+# The keys a previous version wrote (repository, pair, path) still hold the
+# pair: an upgrade does not raise it a second time.
+radar_fresh 1:feat-a:main 2:feat-b:main
+printf '%s\t%s\t%s\n' "$tmp/clone" "origin/feat-a+origin/feat-b" "app.txt" \
+  >"$fleet/mission-control/alpha/radar-announced"
+radar_pass
+case $(stored_events) in
+  *"feat-a+origin/feat-b"*) fail "a pair a previous version raised was raised again" ;;
+  *) ok "a pair a previous version raised is not raised again" ;;
+esac
+sed -i.bak '/^mission_control_radar_/d' "$tracked" && rm -f "$tracked.bak"
+
 git -C "$tmp/clone" symbolic-ref --delete refs/remotes/origin/HEAD
 mc_run mc-radar.sh watch --program alpha
 expect_rc "a repository with no origin default branch fails the run" 1
