@@ -499,6 +499,7 @@ row mc-beta-worker-3333333333 beta tmux
   printf '*/5 * * * * /opt/hub/w.sh planwright sweep\n'
   printf '0 3 * * * /usr/bin/backup\n'
   printf '*/10 * * * * cd %s && ./sweep.sh\n' "$repo"
+  printf '%s\n' "*/15 * * * * PLANWRIGHT_TOKEN=s3cr3t API_KEY='x y' NOTE=\"a b\" /opt/hub/claude-run.sh --key=k3y"
 } >"$CRON_FIXTURE"
 printf 'mission_control_launch_backend: stream-json\nmission_control_stall_window: 30m\nmission_control_tick_cadence: 5m\n' >"$layer"
 printf 'program_alpha_duties: [inbox, readiness-check]\n' >>"$tracked"
@@ -517,6 +518,10 @@ expect_no_out "a session on the knob's rung is not named" "mc-alpha-worker-22222
 expect_no_out "another program's session is not named" "mc-beta-worker-3333333333"
 expect_out "a cron line naming planwright is named" "cron${tab}*/5 * * * * /opt/hub/w.sh planwright sweep"
 expect_out "a cron line in a program repository is named" "cron${tab}*/10 * * * * cd $repo && ./sweep.sh"
+expect_out "every NAME=value on a reported cron line is blanked" "cron${tab}*/15 * * * * PLANWRIGHT_TOKEN=<redacted> API_KEY=<redacted> NOTE=<redacted> /opt/hub/claude-run.sh --key=<redacted>"
+for secret in s3cr3t "x y" "a b" k3y; do
+  expect_no_out "a cron line's value never reaches the report: $secret" "$secret"
+done
 expect_no_out "an unrelated cron line is not named" "backup"
 expect_no_out "a cron comment is not named" "a comment"
 expect_no_out "findings leave out the clean line" "clean"

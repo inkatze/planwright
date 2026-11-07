@@ -126,7 +126,8 @@ Usage:
             a registered session of the program started on another rung
             than mission_control_launch_backend, a per-call --backend
         cron<TAB><line>             a crontab line naming planwright,
-            claude, or a repository or the home of the program
+            claude, or a repository or the home of the program, every
+            NAME=value on it printed NAME=<redacted>
         unknown<TAB><check><TAB><why>   a check whose read failed
 
 Exit codes: 0 done; 1 refused (a write that would not land as written, a
@@ -780,10 +781,25 @@ doctor_cron() {
     || ! dc_home=$(/bin/bash "$script_dir/mc-program.sh" get "$1" home 2>/dev/null); then
     printf 'unknown\tcron\tthe program repositories or home could not be read, so lines naming them are not listed\n'
   fi
-  printf '%s\n' "$dc_tab" | DC_NEEDLES="planwright${nl}claude${nl}$dc_paths${nl}$dc_home" awk '
-    BEGIN { n = split(ENVIRON["DC_NEEDLES"], needle, "\n") }
+  # Every NAME=value is blanked: a crontab line is where credentials sit,
+  # and a reported line travels into items and the program home.
+  printf '%s\n' "$dc_tab" | DC_NEEDLES="planwright${nl}claude${nl}$dc_paths${nl}$dc_home" DC_Q="'" awk '
+    BEGIN {
+      n = split(ENVIRON["DC_NEEDLES"], needle, "\n")
+      q = ENVIRON["DC_Q"]
+      assign = "[A-Za-z_][A-Za-z0-9_]*=(\"[^\"]*\"|" q "[^" q "]*" q "|[^ \t]*)"
+    }
+    function redact(s,   out, m) {
+      out = ""
+      while (match(s, assign)) {
+        m = substr(s, RSTART, RLENGTH)
+        out = out substr(s, 1, RSTART - 1) substr(m, 1, index(m, "=")) "<redacted>"
+        s = substr(s, RSTART + RLENGTH)
+      }
+      return out s
+    }
     /^[ \t]*(#|$)/ { next }
-    { for (i = 1; i <= n; i++) if (needle[i] != "" && index($0, needle[i])) { print "cron\t" $0; next } }'
+    { for (i = 1; i <= n; i++) if (needle[i] != "" && index($0, needle[i])) { print "cron\t" redact($0); next } }'
 }
 
 v_doctor() {
