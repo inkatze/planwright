@@ -21,6 +21,7 @@ export function parseDigest(text: string): PanelDigest | null {
     mergeReady: null,
     isMergeReadyPartial: false,
     pending: null,
+    approvals: null,
     decisions: [],
     rung: { name: '-', reason: '' },
     headroom: [],
@@ -64,6 +65,9 @@ export function parseDigest(text: string): PanelDigest | null {
         break
       case 'pending':
         d.pending = int(f[1])
+        break
+      case 'approvals':
+        d.approvals = int(f[1])
         break
       case 'decision':
         d.decisions.push({ time: f[1] ?? '', subject: f[2] ?? '', act: f[3] ?? '' })

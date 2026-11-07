@@ -37,6 +37,8 @@ export type PanelDigest = {
   // Some pull requests could not be judged, so mergeReady is a floor.
   isMergeReadyPartial: boolean
   pending: number | null
+  // Worker permission prompts mission control answers, never the operator's.
+  approvals: number | null
   decisions: PanelDecision[]
   rung: { name: string; reason: string }
   headroom: PanelHeadroom[]

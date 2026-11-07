@@ -278,6 +278,35 @@ expect_out "and the count is exact" "alpha: 4 in flight"
 PATH="$tmp/bin:$host_path"
 cp "$tmp/attention.saved" "$fleet/attention/state"
 
+# Worker permission prompts are mission control's to answer: they leave the
+# operator's waiting count and are said apart, in plain words. The fixture
+# already holds two rows awaiting the operator; one more question joins them.
+mc_run fleet-attention.sh permission w-perm mission-control:alpha 'git status'
+mc_run fleet-attention.sh decide w-req mission-control:alpha "permission request tool Bash req aaaa1111 - answer via fleet-streamjson.sh answer" deny 'allow|deny'
+mc_run fleet-attention.sh decide w-ask mission-control:alpha 'Ship it?' yes 'yes|no'
+mc_run mc-panel.sh digest --program alpha --target mc-alpha --now 1030
+record "the operator's waiting count leaves out worker permission prompts" waiting 3
+record "the approvals mission control is handling are counted apart" approvals 2
+mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
+expect_eq "the line form says the approvals apart from what waits on the operator" "mission control alpha: 7 in flight, 3 waiting, 1 pending, 2 approvals mission control is handling, rung normal, tracker snapshot 30s old"
+mc_run mc-panel.sh text --program alpha --target mc-alpha
+expect_out "the text panel says what waits on the operator" "waiting on you: 3"
+expect_out "the text panel says the approvals apart" "approvals mission control is handling: 2"
+mc_run fleet-attention.sh clear w-req
+mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
+expect_out "one approval is said in the singular" ", 1 approval mission control is handling,"
+# A queue that cannot be read is said so, with no split and no clause, while
+# an approval is still pending in it.
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$fleet/attention/state"
+  mc_run mc-panel.sh digest --program alpha --target mc-alpha --now 1030
+  chmod 600 "$fleet/attention/state"
+  record "an unreadable queue is named" unreadable "operator queue"
+  expect_no_out "and no approvals are counted from it" "approvals${tab}"
+  expect_no_out "nor said in the line" "mission control is handling"
+fi
+for w in w-perm w-ask; do mc_run fleet-attention.sh clear "$w"; done
+
 # A store that cannot be read is said, never drawn as empty.
 printf 'format\t9\n' >"$runtime/measures"
 mc_run mc-panel.sh digest --program alpha --now 1030
@@ -812,11 +841,11 @@ expect_rc "await with no acknowledgment" 0
 expect_out "REQ-F1.16: no acknowledgment within the wait reports the text form" "panel${tab}text${tab}no acknowledgment within 1s"
 expect_out "REQ-F1.2: the text panel carries the in-flight line" "in flight: 1"
 expect_out "the text panel names each flight" "w-one"
-expect_out "REQ-F1.2: the text panel carries the waiting line" "waiting:"
+expect_out "REQ-F1.2: the text panel carries the waiting line" "waiting on you:"
 mc_run mc-panel.sh text --program alpha
 expect_rc "the text verb" 0
 expect_out "REQ-F1.2: the text output carries the in-flight line" "in flight: 1"
-expect_out "REQ-F1.2: the text output carries the waiting line" "waiting:"
+expect_out "REQ-F1.2: the text output carries the waiting line" "waiting on you:"
 [ ! -e "$runtime/budget" ] || mv "$runtime/budget" "$runtime/budget.saved"
 ln -s "$tmp/nowhere" "$runtime/budget"
 mc_run mc-panel.sh text --program alpha
