@@ -760,10 +760,14 @@ cmd_launch() {
   if [ "$kind" = mission-control ]; then
     # The posture the new session starts under: its profile, the user and
     # managed layers it inherits, its own directory's project layer, and the
-    # plugin root the rung hands it (tmux pins this install's).
+    # plugin root the rung hands it: tmux pins this install's, stream-json
+    # the one the dispatch-env wrapper exports.
     resolve_backend
     session_root=$(cd "$script_dir/.." && pwd -P) || die "cannot resolve this install's root" 2
-    [ "$backend" = tmux ] || session_root=${CLAUDE_PLUGIN_ROOT:-$session_root}
+    if [ "$backend" != tmux ]; then
+      session_root=$(/bin/sh "$script_dir/fleet-dispatch-env.sh" --print </dev/null 2>/dev/null \
+        | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1)
+    fi
     posture_gate env -u PLANWRIGHT_MC_TOKEN CLAUDE_PLUGIN_ROOT="$session_root" \
       /bin/bash "$script_dir/mc-posture.sh" check --settings "$profile" --project "$cwd"
   fi
