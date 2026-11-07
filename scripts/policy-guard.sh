@@ -580,7 +580,7 @@ deny_unanalyzable() {
 # escape anywhere in the word), WA[] flags for a word whose first `=` comes
 # before any quote or escape, WR[] flags for a word after a redirect in its
 # segment, SEG_S[]/SEG_E[] word ranges, SEG_TERM[] terminators, SEG_DOC[]
-# here-document bodies per segment.
+# here-document bodies, and SEG_RD[] flags for a segment with a redirect.
 
 HEREDOC_SUBST=0
 tokenize() {
@@ -597,6 +597,7 @@ tokenize() {
   SEG_E=()
   SEG_TERM=()
   SEG_DOC=()
+  SEG_RD=()
   local seg_start=0
 
   flush_word() {
@@ -632,6 +633,7 @@ tokenize() {
       SEG_E[${#SEG_E[@]}]=${#W[@]}
       SEG_TERM[${#SEG_TERM[@]}]=$1
       SEG_DOC[${#SEG_DOC[@]}]=$fold_doc
+      SEG_RD[${#SEG_RD[@]}]=$redir
     fi
     redir=0
     fold_doc=''
@@ -1315,10 +1317,11 @@ segment_words() {
 # segment_words skips as an assignment that bash runs as a command, or a
 # reserved word made a plain command name by quoting or by an assignment,
 # command or builtin before it); set CS_NOCD, kept for the rest of the
-# command, at a reserved word after a redirect or a zsh modifier, which bash
-# and zsh read differently, so CS_DEPTH may be wrong from there and no later
-# cd is followed; and set CS_LOST, also kept, at a function definition, whose
-# body may change directory when called.
+# command, where CS_DEPTH may be wrong from there so no later cd is followed:
+# at a reserved word after a redirect or a zsh modifier, which bash and zsh
+# read differently, and at a coproc, whose NAME can hide a compound's opener;
+# and set CS_LOST, also kept, at a function definition, whose body may change
+# directory when called.
 CS_DEPTH=0
 CS_NOCD=0
 CS_LOST=0
@@ -1333,9 +1336,20 @@ compound_shape() {
           CS_NOCD=1
           return 0
         fi
-        if [ "${WU[$k]}" != 1 ] || [ "$prefixed" = 1 ]; then
+        if [ "${WU[$k]}" != 1 ]; then
           CS_NOFOLLOW=1
           return 0
+        fi
+        # After an assignment or command, a reserved word is a plain command
+        # name, but zsh still reads a modifier as one.
+        if [ "$prefixed" = 1 ]; then
+          case ${W[$k]} in
+            noglob | nocorrect) ;;
+            *)
+              CS_NOFOLLOW=1
+              return 0
+              ;;
+          esac
         fi
         ;;
       command | builtin)
@@ -1372,7 +1386,11 @@ compound_shape() {
         CS_NOFOLLOW=1
         prefixed=2
         ;;
-      '!' | coproc) CS_NOFOLLOW=1 ;;
+      '!') CS_NOFOLLOW=1 ;;
+      coproc)
+        CS_NOFOLLOW=1
+        CS_NOCD=1
+        ;;
       if | while | until) CS_DEPTH=$((CS_DEPTH + 1)) ;;
       then | else | elif | do) ;;
       time)
@@ -1519,10 +1537,10 @@ classify_segments() {
     compound_shape "$si"
     [ "$CS_LOST" = 0 ] || eff_ok=0
     # Where the shell may have skipped a followed cd, or run it in a
-    # background subshell, the directory is unknown from then on: past the
-    # end of an and-or list whose cd ran only after an earlier command
-    # succeeded, at a later || in that list, and past a list with a followed
-    # cd sent to the background.
+    # background subshell, the directory is unknown until an absolute cd sure
+    # to run names it again: past the end of an and-or list whose cd ran only
+    # after an earlier command succeeded, at a later || in that list, and past
+    # a list with a followed cd sent to the background.
     pt=''
     [ "$si" = 0 ] || pt=${SEG_TERM[$((si - 1))]}
     case $pt in
@@ -1552,10 +1570,11 @@ classify_segments() {
             && deny_now "this command sets a shell hook variable whose value names a reserved act - refusing (fail closed). Run the command directly."
           ;;
       esac
-      # zsh runs a command of redirects alone as cat, so text piped into it
-      # still reaches a shell further down the pipe.
-      case "$pt:$((SEG_E[si] - SEG_S[si]))" in
-        '|:0' | '|&:0') prev_text="$prev_text$NL$cur_text" ;;
+      # zsh runs a command of redirects (and assignments) with no command
+      # word as cat, so text piped into it still reaches a shell further down
+      # the pipe.
+      case "$pt:${SEG_RD[si]}" in
+        '|:1' | '|&:1') prev_text="$prev_text$NL$cur_text" ;;
         *) prev_text=$cur_text ;;
       esac
       si=$((si + 1))

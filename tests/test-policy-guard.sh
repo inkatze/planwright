@@ -553,7 +553,9 @@ git push" "$MAIN|x=1 then cd $UNIT; git push" "$MAIN|x=1 coproc cd $UNIT; git pu
   "$MAIN|a+b=1 cd $UNIT; git push" "$MAIN|\"x=1\" cd $UNIT; git push" "$MAIN|'x'=1 cd $UNIT; git push" \
   "$MAIN|cd $UNIT && true & git push" "$MAIN|coproc cd $UNIT; git push" \
   "$MAIN|! cd $UNIT && git push" "$MAIN|time ! cd $UNIT && git push" \
-  "$MAIN|true | cd $UNIT && git push" "$MAIN|true |& cd $UNIT && git push"; do
+  "$MAIN|true | cd $UNIT && git push" "$MAIN|true |& cd $UNIT && git push" \
+  "$MAIN|coproc foo if true; then cd $UNIT; fi; git push" \
+  "$MAIN|x=1 noglob if false; then cd $UNIT; fi; git push"; do
   cmd=${spec#*|}
   pg worker "$cmd" "${spec%%|*}"
   expect deny "[worker] a cd the guard cannot place before the act is not followed: ${cmd//$'\n'/ \\n }"
@@ -576,7 +578,8 @@ done
 pg worker '>/dev/null time true; git push'
 expect defer "[worker] a redirect before a reserved word leaves a command with no cd judged as before"
 # zsh runs a command of redirects alone as cat, passing piped text on.
-for cmd in "echo 'git push origin main' | >/dev/stdout | bash" "echo 'git push origin main' |& >/dev/stdout | bash"; do
+for cmd in "echo 'git push origin main' | >/dev/stdout | bash" "echo 'git push origin main' |& >/dev/stdout | bash" \
+  "echo 'git push origin main' | x=1 >/dev/stdout | bash"; do
   pg worker "$cmd" "$MAIN"
   expect deny "[worker] text piped through a redirect-only command into a shell is screened: $cmd"
   reason_has 'pipes text' "[worker] the pipe screen refuses it: $cmd"
