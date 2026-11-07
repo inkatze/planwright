@@ -250,7 +250,7 @@ resolve_backend() {
   if ! rb_knob=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key mission_control_launch_backend \
     --type enum --values 'stream-json tmux' --fallback stream-json </dev/null); then
     [ -n "$backend" ] || die "cannot resolve mission_control_launch_backend" 4
-    printf '%s\n' "$me: warning: --backend $backend launches, but mission_control_launch_backend could not be resolved to check it against" >&2
+    printf '%s\n' "$me: warning: --backend $backend is used unchecked: mission_control_launch_backend could not be resolved" >&2
     return 0
   fi
   if [ -z "$backend" ]; then
