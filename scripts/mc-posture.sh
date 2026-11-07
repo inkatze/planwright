@@ -29,8 +29,9 @@ file, each --settings file, and, with PLANWRIGHT_MC_TOKEN set (handed only to
 a mission-control session the launcher started), the profile the launcher
 passed it. An absent layer is empty; one that cannot be read or parsed,
 or carries a control character in a deny entry, hook or hook switch, fails
-the check. Under the managed layer's allowManagedPermissionRulesOnly only
-its deny entries count.
+the check. Under the managed layer's allowManagedHooksOnly only its hooks
+count, and under its allowManagedPermissionRulesOnly only its deny entries;
+either set in another layer changes nothing.
 
   --project  the project root (default: the git top level, else the current
              directory)
@@ -172,8 +173,10 @@ for l in ${layers[@]+"${layers[@]}"} "$managed"; do
   printf '%s\n' "$lf" | grep -qx X && fail "the settings layer $l carries a control character in a deny entry, hook or hook switch"
   read -r f_off f_hooks f_rules <<<"$(printf '%s\n' "$lf" | sed -n 's/^F //p')"
   [ "$f_off" != true ] || fail "every hook is turned off (disableAllHooks) in the settings layer $l"
-  [ "$f_hooks" != true ] || managed_only=1
-  [ "$l" != "$managed" ] || [ "$f_rules" != true ] || managed_rules=1
+  if [ "$l" = "$managed" ]; then
+    [ "$f_hooks" != true ] || managed_only=1
+    [ "$f_rules" != true ] || managed_rules=1
+  fi
   printf '%s\n' "$lf" | sed -n 's/^D //p' >>"$union_deny"
   printf '%s\n' "$lf" | sed -n 's/^H //p' >>"$union_hooks"
   if [ "$l" = "$managed" ]; then

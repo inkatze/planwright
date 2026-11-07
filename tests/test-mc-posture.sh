@@ -254,6 +254,10 @@ expect_fail "under allowManagedHooksOnly, guards wired outside the managed layer
 absolute_profile | jq '.allowManagedHooksOnly = true' >"$tmp/managed.json"
 posture -- --managed "$tmp/managed.json"
 expect_pass "under allowManagedHooksOnly, guards wired in the managed layer count"
+reset
+absolute_profile | jq '.allowManagedHooksOnly = true' >"$home/.claude/settings.json"
+posture --
+expect_pass "allowManagedHooksOnly outside the managed layer changes nothing"
 
 reset
 absolute_profile >"$home/.claude/settings.json"
