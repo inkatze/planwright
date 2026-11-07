@@ -108,6 +108,25 @@ case "$OUT" in
   *) expect "a PR title's control bytes are stripped" 1 "#9 evil[2Jtitle" ;;
 esac
 
+CSI8=$(printf '\302\233')
+run "[{\"number\":9,\"title\":\"evil\\u009b[2Jtitle\",\"mergedAt\":\"$MERGED_ISO\"}]" 0 --now $((MERGED + 3 * 3600))
+case "$OUT" in
+  *"$CSI8"*)
+    echo "FAIL: a C1 control (U+009B) in a PR title reached the output" >&2
+    failures=$((failures + 1))
+    ;;
+  *) expect "a PR title's C1 controls are stripped" 1 "#9 evil[2Jtitle" ;;
+esac
+
+run '' 0 --now $((MERGED + 3 * 3600))
+expect "an empty gh body is could-not-determine" 2 "release state unknown"
+
+run '{}' 0 --now $((MERGED + 3 * 3600))
+expect "a non-array gh body is could-not-determine" 2 "release state unknown"
+
+run '[{"number":5,"title":"t","mergedAt":null}]' 0 --now $((MERGED + 3 * 3600))
+expect "a merged PR without a merge time is could-not-determine" 2 "release state unknown"
+
 if grep -qx -- '--state' "$LOG" && grep -qx merged "$LOG" \
   && grep -qx -- '--label' "$LOG" && grep -qx 'autorelease: pending' "$LOG"; then
   echo "ok: the query asks for merged PRs labelled autorelease: pending"

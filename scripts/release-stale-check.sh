@@ -70,13 +70,22 @@ prs=$(gh pr list --state merged --label "$PENDING_LABEL" --limit 50 \
   exit 2
 }
 
+# Anything but a JSON array, a merged PR without a merge time included, is
+# unreadable state (exit 2), never "nothing stale". jq reads empty input as no
+# values and exits 0, so that case is refused before it gets there.
+[ -n "$prs" ] || {
+  echo "release-stale-check: gh returned an empty pull request list body; release state unknown" >&2
+  exit 2
+}
+
+# The title filter drops C0, DEL and C1 code points, the set scripts/echo-safety.sh strips.
 stale=$(printf '%s' "$prs" | jq -r --argjson now "$now" --argjson max "$max_age_minutes" '
-  map(select(.mergedAt != null)
-      | . + {age: ($now - (.mergedAt | fromdateiso8601))}
+  if type != "array" then error("not an array") else . end
+  | map(. + {age: ($now - (.mergedAt | fromdateiso8601))}
       | select(.age > ($max * 60)))
   | sort_by(.number)
   | .[]
-  | (.title | explode | map(select(. >= 32 and . != 127)) | implode) as $title
+  | (.title | explode | map(select(. >= 32 and . != 127 and (. < 128 or . > 159))) | implode) as $title
   | "#\(.number) \($title) merged \(.mergedAt), \((.age / 60) | floor) minutes ago, still labelled autorelease: pending"
 ' 2>/dev/null) || {
   echo "release-stale-check: could not parse the pull request list from gh; release state unknown" >&2
