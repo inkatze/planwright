@@ -75,7 +75,7 @@ obs:bc9ff4f3 (offload windows).
 
 | Ask | Covered today | Smallest change | Home |
 | --- | --- | --- | --- |
-| 1. Change-only watcher instead of sweep ticks | Mostly. The runner and tick are already change-gated; the 1M-token tick was a hub's own timer (obs:1f599c9d) | A change watcher over the forge snapshot and due follow-ups; quiet hours; skill forbids self-scheduled wakes | mission-control amendment plus one task |
+| 1. Change-only watcher instead of sweep ticks | Mostly. The runner and tick run on cadences without a model, and wake delivery is already change-gated; the 1M-token tick was a hub's own timer (obs:1f599c9d) | A change watcher over the forge snapshot and due follow-ups; quiet hours; skill forbids self-scheduled wakes | mission-control amendment plus one task |
 | 2. Retire idle sessions by default; idle count and cost on the panel | Only sessions with a tracked PR, once it merges or closes | An idle-retire knob and a digest `idle` record | mission-control amendment (REQ-D1.5, REQ-F1.1) plus a task |
 | 3. Doctor proposing the minimal permission set | Close: Task 20 posture check, draft PR #844 | A `propose` verb diffing duty verbs against loaded allow rules | Amend Task 20 while in flight |
 | 4. Spend in the loop, top spenders, cheaper tiers, launch estimates | Account usage percentages only | A `spend` budget dimension, a daily by-kind report, cheaper shipped tiers for mechanical kinds, an estimate clause before fan-outs | mission-control amendment plus a task; tier defaults under model-allocation |
@@ -188,7 +188,7 @@ record kind in the handover file and an `inventory` verb that classifies each
 duty against the duty catalog, the mechanism inventory and the shipped
 scripts (`covered <mechanism>`, `mechanizable <smallest row>` through
 `mc-proposals.sh` selection, or `judgment`), run by a `/handoff` entry so the
-successor arms the covered ones and proposes the rest.
+successor arms the covered duties, proposes mechanisms for the mechanizable ones and keeps only the judgment duties as model work.
 
 </details>
 
