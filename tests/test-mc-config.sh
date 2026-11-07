@@ -510,6 +510,7 @@ row mc-beta-worker-3333333333 beta tmux
   printf '%s\n' 'planwright_token = lk-g lk-h'
   printf '8 * * * * TOKEN\001=lk-i /opt/planwright/h\n'
   printf '9\t*\t*\t*\t*\t/opt/planwright/i\n'
+  printf '%s\n' '10 * * * * /opt/hub/Claude-Sweep.sh' '11 * * * * PLANWRIGHT_ROOT=/opt/pw /opt/pw/tick.sh'
 } >"$CRON_FIXTURE"
 printf 'mission_control_launch_backend: stream-json\nmission_control_stall_window: 30m\nmission_control_tick_cadence: 5m\n' >"$layer"
 printf 'program_alpha_duties: [inbox, readiness-check]\n' >>"$tracked"
@@ -547,6 +548,8 @@ done
 for secret in s3cr3t "x y" "a b" k3y lk-; do
   expect_no_out "a cron line's value never reaches the report: $secret" "$secret"
 done
+expect_out "a cron line naming Claude in another case is named" "cron${tab}10 * * * * /opt/hub/Claude-Sweep.sh"
+expect_out "a cron line naming PLANWRIGHT in capitals is named" "cron${tab}11 * * * * PLANWRIGHT_ROOT=<redacted> /opt/pw/tick.sh"
 expect_no_out "an unrelated cron line is not named" "backup"
 expect_no_out "a cron comment is not named" "a comment"
 expect_no_out "findings leave out the clean line" "clean"

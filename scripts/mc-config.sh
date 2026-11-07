@@ -125,8 +125,8 @@ Usage:
         launch-backend<TAB><session><TAB><backend><TAB><knob value>
             a registered session of the program started on another rung
             than mission_control_launch_backend, a per-call --backend
-        cron<TAB><line>             a crontab line naming planwright,
-            claude, or a repository or the home of the program, every
+        cron<TAB><line>             a crontab line naming planwright or
+            claude in any case, or a repository or the home of the program, every
             NAME=value on it printed NAME=<redacted>
         unknown<TAB><check><TAB><why>   a check whose read failed
 
@@ -786,9 +786,9 @@ doctor_cron() {
   # bytes go first, so none can hide an assignment the scan would miss;
   # a value is one shell word, quotes and escapes included, and a quote left
   # open blanks the rest of the line.
-  printf '%s\n' "$dc_tab" | mc_clean_text | DC_NEEDLES="planwright${nl}claude${nl}$dc_paths${nl}$dc_home" DC_Q="'" awk '
+  printf '%s\n' "$dc_tab" | mc_clean_text | DC_PATHS="$dc_paths${nl}$dc_home" DC_Q="'" awk '
     BEGIN {
-      n = split(ENVIRON["DC_NEEDLES"], needle, "\n")
+      n = split(ENVIRON["DC_PATHS"], needle, "\n")
       sq = ENVIRON["DC_Q"]
       dq = "\""
     }
@@ -843,6 +843,9 @@ doctor_cron() {
     }
     { gsub(/\t/, " ") }
     /^ *(#|$)/ { next }
+    # The two names match in any case (PLANWRIGHT_ROOT=, Claude-sweep.sh);
+    # a path matches only as spelled, as the filesystem reads it.
+    index(tolower($0), "planwright") || index(tolower($0), "claude") { print "cron\t" redact($0); next }
     { for (i = 1; i <= n; i++) if (needle[i] != "" && index($0, needle[i])) { print "cron\t" redact($0); next } }'
 }
 
