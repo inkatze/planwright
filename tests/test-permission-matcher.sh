@@ -1113,6 +1113,9 @@ deny|load-bearing|Write|/Users/u/Library/Caches/mise/remote-git-tasks-cache/r/ta
 deny|load-bearing|Write|/usr/local/share/mise/shims/node|mise's system data directory (REQ-F1.6)
 deny|load-bearing|Write|/tmp/planwright-1000/0123abcd/mise/x|mise's temporary directory under a worker's TMPDIR (REQ-F1.6)
 deny|load-bearing|Write|/var/folders/ab/cd/T/mise/x|mise's temporary directory under the macOS TMPDIR (REQ-F1.6)
+deny|load-bearing|Write|/private/tmp/planwright-501/0123abcd/mise/x|a macOS worker's TMPDIR, which the scratch launcher resolves under /private (REQ-F1.6)
+deny|load-bearing|Edit|/private/var/folders/ab/cd/T/mise/x|the macOS TMPDIR by its resolved spelling (REQ-F1.6)
+deny|overblock|Write|/tmp/planwright-1000/0123abcd/r/mise/files/x|every mise/ under the temporary trees is refused, not only mise's own; fail-safe
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.mise.toml|mise's dotted config name (REQ-F1.6)
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.mise.local.toml|mise's dotted environment config (REQ-F1.6)
 deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/lefthook/pre-commit/check.sh|a lefthook script directory (REQ-F1.6)

@@ -457,15 +457,19 @@ lockfiles that carry download URLs and checksums
 ([mise.lock](https://mise.jdx.dev/dev-tools/mise-lock.html)), and the
 default data, state, cache, system-data, and temporary directories, which
 hold the tools and shims it runs and the record of which config it trusts
-([directories](https://mise.jdx.dev/directories.html)). A `mise/` directory
-anywhere else is refused only its `config*.toml`, `miserc*.toml`, `conf.d/`,
-and `tasks/` entries, beside the names refused at every depth (`mise.toml`,
-`mise.lock`, `.miserc.toml`, and the rest), so a source file such as
-`roles/files/mise/offload.toml` stays writable. The guard also refuses a shell
-write that names a `mise` directory itself, since moving a directory onto that
-name would make its `config.toml` loaded config, and, in the scratch root
-(the worker's `TMPDIR`), anything under its `mise/`. These rules cannot
-follow an `override_config_filenames` value or a `MISE_*` or `XDG_*` variable
+([directories](https://mise.jdx.dev/directories.html)). The temporary
+directory sits under `/tmp` or the system `TMPDIR` (a worker's scratch root,
+on macOS under `/private/tmp` or `/var/folders`), and the file-tool rules
+refuse every `mise/` below those trees, wider than mise's own, as a fail-safe.
+A `mise/` directory anywhere else is refused only its `config*.toml`,
+`miserc*.toml`, `conf.d/`, and `tasks/` entries, beside the names refused at
+every depth (`mise.toml`, `mise.lock`, `.miserc.toml`, and the rest), so a
+source file such as `roles/files/mise/offload.toml` stays writable. The guard
+also refuses a shell write that names a `mise` directory itself, since moving
+a directory onto that name would make its `config.toml` loaded config, and,
+in the scratch root, anything under the root's own `mise/`. These rules
+cannot follow an `override_config_filenames` value, a `MISE_*` or `XDG_*`
+variable, or a `PLANWRIGHT_FLEET_SCRATCH_BASE` outside the temporary trees
 that moves or renames what mise reads, an idiomatic version file such as
 `.nvmrc` once a tool enables it, or a file the repo's own config points at
 (an `_.source` script, an included task file), which is trusted repo code
@@ -474,7 +478,8 @@ like `scripts/`.
 The guard matches these names case-insensitively; the globs are
 case-sensitive (MA-2), so on a case-insensitive filesystem a recased
 spelling reaches the file tools. For mise that covers a recased entry of a
-`mise/` directory (`mise/Config.toml`) as much as a recased `Mise.toml`. Writes the guard refuses elsewhere outside
+`mise/` directory (`mise/Config.toml`) as much as a recased `Mise.toml`.
+Writes the guard refuses elsewhere outside
 the worktree are not mirrored here: the file tools still reach them, which
 includes an installed planwright root when it is not under `~/.claude`.
 
