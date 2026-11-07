@@ -143,7 +143,7 @@ first_run_next() {
   programs=new
 }
 first_run_answer() {
-  say "Got it: $1." '{first_run: {feedback: $n}}' --argjson n "$fr_step"
+  say "Recorded: $1." '{first_run: {feedback: $n}}' --argjson n "$fr_step"
   first_run_next
 }
 
@@ -210,6 +210,13 @@ handle_event() {
       ;;
     needs-launch) decide launch '{subject: $s}' --arg s "$(event_arg "$ev" subject)" ;;
     needs-retire) decide retire '{subject: $s}' --arg s "$(event_arg "$ev" subject)" ;;
+    # A routine act (a covered permission request approved, a message
+    # relayed, a watcher re-armed) is logged with its undo entry and never
+    # said: nothing in it is for the operator.
+    routine)
+      decide "$(event_arg "$ev" act)" '{subject: $s, routine: true, undo_logged: true}' \
+        --arg s "$(event_arg "$ev" subject)"
+      ;;
     entry) programs=$(event_arg "$ev" names) ;;
     changed)
       say "Since you last looked: $(human "$(event_arg "$ev" landed)") landed; $(human "$(event_arg "$ev" waiting)") waits on you; $(human "$(event_arg "$ev" moving)") moving." '{first_turn: true}'

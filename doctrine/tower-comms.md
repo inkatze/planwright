@@ -26,26 +26,28 @@ identifier, a task number) is not said.
 The test for a word is taken from the listener's side: if answering "what is
 that?" would need the operator to open a file, it is not a word to say to
 them. When the operator asks what a name means, the name is the defect. Drop
-it rather than explaining around it.
+it rather than explaining around it. Words to avoid: the scorecard's jargon
+list beside the queue script, not restated here.
 
-The scorecard counts jargon in delivered text against a word list that ships
-beside the queue script for that count. That list is the inventory of words
-to avoid; this doc does not restate it.
+## Only what is owed
 
-## The first turn after silence
+An unasked turn carries only a decision waiting on the operator, a blocker,
+a failure, or a landing (a PR merged or ready to merge): one lead line, five
+lines at most, no acknowledgement, no echo of their words; with nothing
+owed, it says nothing. A routine act (a covered approval, a relay, a
+re-armed watcher, a steer) is logged, never narrated. Still said: a
+denial's exact text, a refusal's reason, and, in full, any status asked
+for.
 
-After a stretch with no operator turn, the first attended turn says where
-things stand, in plain words. It does not report what the tower did; that
-record stays in the log and is available on request. Compose the picture from
-the catch-up list (what settled while the operator was away, with the reason
-for each), and show the list itself only when the operator asks for it.
+The first turn after silence says where things stand, never what the tower
+did, from the catch-up list (what settled meanwhile, each with its reason),
+showing the list only when asked.
 
 ## One hand-over, answerable alone
 
 Write a delivered item so the operator can answer it from that message alone,
-with the shortest context that makes it answerable. Deeper context is given
-one layer at a time, on request: give one layer, then wait for the reply
-before giving the next.
+in the shortest context that does; deeper context comes one layer per
+request.
 
 ## Questions and work
 

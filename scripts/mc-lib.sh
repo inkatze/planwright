@@ -275,6 +275,20 @@ mc_event_store() {
 }
 
 mc_event() { /bin/bash "$script_dir/mc-event.sh" "$@"; }
+
+# mc_event_wakes: the event rows on stdin (`mc-event.sh list` lines, the
+# kind in the third field) whose kind wakes a turn, the kinds
+# config/mc-event-classes.tsv calls routine dropped; fails, printing
+# nothing, when the table cannot be read, since waking on everything then
+# would let routine kinds through unnoticed.
+mc_event_wakes() {
+  mew_file="$script_dir/../config/mc-event-classes.tsv"
+  [ -r "$mew_file" ] || return 1
+  awk -F '\t' '
+    FNR == NR { if ($0 !~ /^#/ && NF >= 2 && $2 == "routine") r[$1] = 1; next }
+    NF && !($3 in r)' "$mew_file" -
+}
+
 mc_kb() { /bin/bash "$script_dir/mc-kb.sh" "$@"; }
 
 # mc_sha256: the SHA-256 of stdin in hex; fails with no SHA-256 tool.

@@ -32,6 +32,26 @@ def density_ok:
     | (.groups + [.cur])
     | all(.[]; length <= 1 or ((.[0].cluster | nonempty) and (map(.cluster) | unique | length == 1))));
 
+# Quiet by default: a routine act (an approval, a relay, a re-armed watcher,
+# a steer) is logged with its undo entry and never narrated, so no turn says
+# one and none is presented in answer to a routine-only event; no turn opens
+# on an acknowledgement, and none the operator did not ask for runs past
+# five lines.
+def quiet_ok:
+  all(presents[].text;
+    test("\\b(approved|allowed|relayed|passed (it|that|your [a-z]+) on|forwarded|re-?armed|steered|nudged)\\b"; "i") | not)
+  and all(presents[].text; test("^(got it|understood|thanks|thank you|will do|on it)\\b"; "i") | not)
+  and ([.decision_log[] | select(.kind == "answer" or .kind == "event" or .kind == "present")]
+    | reduce .[] as $r ({max: 0, cur: 0, unasked: false};
+        if $r.kind == "present" then (if .unasked then .cur += 1 | .max = ([.max, .cur] | max) else . end)
+        else .cur = 0 | .unasked = ($r.kind == "event") end)
+    | .max <= 5)
+  and all(.decision_log[] | select(.kind == "decision" and (.action == "approve" or .action == "relay" or .action == "rearm" or .action == "steer"));
+    .routine == true and .undo_logged == true)
+  and ([.decision_log[] | select(.kind == "answer" or .kind == "present" or .kind == "event")]
+    | [range(1; length) as $i | select(.[$i].kind == "present" and .[$i - 1].kind == "event"
+        and (.[$i - 1].raw | startswith("routine ")))] | length == 0);
+
 def options_ok: (type == "array") and length >= 2 and all(.[]; (.label | nonempty) and (.effect | nonempty));
 def item_ok: all(items[].item;
   (.id | nonempty) and (.subject | nonempty)
@@ -67,7 +87,7 @@ def floor_ok:
   and (.sign_off | has("approved") | not)
   and ((decisions("merge") + decisions("sign-off") + decisions("ready-flip")) | length == 0)
   and (presents | length > 0)
-  and register_ok and density_ok and item_ok and picklist_ok and proposal_ok and own_words_ok
+  and register_ok and density_ok and quiet_ok and item_ok and picklist_ok and proposal_ok and own_words_ok
   and all(decisions("item-leave")[]; (.by == "answer" or .by == "evidence") and (.reason | nonempty));
 
 def pin:
@@ -80,6 +100,7 @@ def pin:
     elif .persona == "on-behalf" then
       (decisions("answer-selector") | length == 1 and .[0].quote == "ship the docs change first")
       and (decisions("launch") | length == 1) and (decisions("retire") | length == 1)
+      and ([decisions("approve"), decisions("relay"), decisions("rearm")] | map(length) == [1, 1, 1])
     elif .persona == "no-concepts" then
       (decisions("entry") | map(.route) == ["first-run"])
       and (decisions("draft-with-operator") | length == 1)

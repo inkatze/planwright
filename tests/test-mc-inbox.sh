@@ -66,6 +66,41 @@ expect_out "an empty section reads none" "Decisions
 - none"
 
 # ---------------------------------------------------------------------------
+# An unasked report carries only what is owed to the operator: a routine
+# act (an approval, a relay, a re-armed watcher) never reaches them, and a
+# report with nothing owed is empty.
+# ---------------------------------------------------------------------------
+printf 'routine\tApproved a worker request to run the tests\nlanded\tPR 12 merged\nact\tRelayed your answer to the export work\nblocker\tStopped by a guard, exact text: push refused\nfailure\tThe export work died twice\ndecision\tPick the retry policy\n' >"$tmp/report"
+OUT=$(mc_env /bin/bash "$repo_root/scripts/mc-inbox.sh" report <"$tmp/report" 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "report" 0
+expect_eq "only the owed classes, one line each, the lead first" "Decision: Pick the retry policy
+Blocker: Stopped by a guard, exact text: push refused
+Failure: The export work died twice
+Landed: PR 12 merged"
+expect_err "routine and act lines are dropped and counted" "2 line(s) outside decision, blocker, failure and landed dropped"
+printf 'routine\tApproved a worker request\nact\tRe-armed the watcher\n' >"$tmp/report"
+OUT=$(mc_env /bin/bash "$repo_root/scripts/mc-inbox.sh" report <"$tmp/report" 2>/dev/null)
+RC=$?
+expect_rc "a routine-only report" 0
+expect_eq "a report with nothing owed says nothing" ""
+for n in 1 2 3 4 5 6 7; do printf 'landed\tPR %s merged\n' "$n"; done >"$tmp/report"
+OUT=$(mc_env /bin/bash "$repo_root/scripts/mc-inbox.sh" report <"$tmp/report" 2>/dev/null)
+expect_eq "at most five lines: four items and a count of the rest" "Landed: PR 1 merged
+Landed: PR 2 merged
+Landed: PR 3 merged
+Landed: PR 4 merged
+3 more; ask for the status to see them all"
+printf 'decision\tPick the retry policy\nlanded\tGot it\nlanded\tThanks, PR 12 merged\nlanded\tPR 12 merged\nlanded\tpr 12 merged\n' >"$tmp/report"
+OUT=$(mc_env /bin/bash "$repo_root/scripts/mc-inbox.sh" report <"$tmp/report" 2>"$tmp/stderr")
+ERR=$(cat "$tmp/stderr")
+expect_eq "no acknowledgement and no restating reach the operator" "Decision: Pick the retry policy
+Landed: PR 12 merged"
+expect_err "acknowledgements are cut and counted" "2 acknowledgement(s) cut"
+expect_err "repeats are counted" "2 repeated line(s) dropped"
+
+# ---------------------------------------------------------------------------
 # REQ-F1.7: an item is answerable alone, every field present.
 # ---------------------------------------------------------------------------
 item_args=(--link https://example.invalid/acme/web/pull/7 --does "Adds invoice export"

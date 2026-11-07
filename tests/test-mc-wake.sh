@@ -404,6 +404,50 @@ expect_out "a tick stamp from the future never holds the failsafe off" "tick"
 PATH=$saved_path
 
 # ---------------------------------------------------------------------------
+# A routine event raises no turn: relay, tick and compose leave it out, and
+# it stays in the store, unmarked. Every other class still wakes.
+# ---------------------------------------------------------------------------
+setup
+mc_run mc-event.sh emit --program alpha watcher-stopped alpha-duty "scripts/alpha-watch.sh stopped; re-armed by the runner"
+routine_ev=$OUT
+mc_run mc-wake.sh compose --program alpha quiet
+expect_eq "a routine event alone wakes no turn" "idle"
+mc_run mc-wake.sh tick --program alpha --now 30000
+expect_no_out "and the tick sends nothing for it" "watcher-stopped"
+mc_run mc-event.sh emit --program alpha stall-dead worker-3 "no process"
+woke_ev=$OUT
+mc_run mc-event.sh emit --program alpha some-new-kind worker-4
+mc_run mc-wake.sh compose --program alpha quiet
+expect_out "a failure still wakes, the routine event uncounted" "wake${tab}2${tab}"
+expect_out "with the failure among its ids" "$woke_ev"
+expect_out "and its wake names it" "- stall-dead worker-3"
+expect_out "a kind with no class row wakes, never silenced by omission" "- some-new-kind worker-4"
+expect_no_out "the routine event is not in the wake" "watcher-stopped"
+mc_run mc-event.sh list --program alpha --target quiet --pending
+expect_out "the routine event stays listable, unmarked" "$routine_ev${tab}"
+# Every event a duty starts on or wakes with has a class row, so a routine
+# classification is a decision someone wrote down, never a default.
+classes="$repo_root/config/mc-event-classes.tsv"
+unclassified=$(awk '/^ *(triggers|wake):/ || cont {
+    line = $0; cont = (line ~ /\[/ && line !~ /\]/) || (cont && line !~ /\]/)
+    sub(/^ *(triggers|wake): */, "", line); gsub(/[][,]/, " ", line)
+    n = split(line, w, " "); for (i = 1; i <= n; i++) if (w[i] != "none") print w[i]
+  }' "$repo_root/config/duties.yaml" | sort -u | while read -r k; do
+  awk -F '\t' -v k="$k" '$1 == k { f = 1 } END { exit !f }' "$classes" || printf '%s ' "$k"
+done)
+if [ -z "$unclassified" ]; then
+  ok "every catalog trigger and wake has a class"
+else
+  fail "catalog events with no class row in config/mc-event-classes.tsv: $unclassified"
+fi
+bad_class=$(awk -F '\t' '!/^#/ && NF && $2 !~ /^(decision|blocker|failure|landed|act|routine)$/ { print $1 }' "$classes")
+if [ -z "$bad_class" ]; then
+  ok "every class row names a known class"
+else
+  fail "class rows with an unknown class: $bad_class"
+fi
+
+# ---------------------------------------------------------------------------
 # A session with the mod is left to the mod; unreachable targets are named;
 # the daemon pause sends nothing.
 # ---------------------------------------------------------------------------

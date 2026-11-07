@@ -41,6 +41,17 @@ Usage:
         Decisions / Landed / Moving
       each a heading and its `- <text>` lines, `- none` when empty. A line
       of any other section is dropped and counted on stderr.
+  mc-inbox.sh report
+      stdin: <class><TAB><text> lines; stdout: the report a turn or a push
+      the operator did not ask for carries, holding only the classes owed
+      to them (decision, blocker, failure, landed), one `<Class>: <text>`
+      line each, in that order, so the first line is the lead. At most five
+      lines: past five items, the first four and a count of the rest. A
+      line of any other class (act, routine, an approval, a relay) and a
+      repeat of an earlier line are dropped, and a leading acknowledgement
+      (got it, thanks, on it...) is cut, each counted on stderr, so
+      none reaches the operator; with nothing left, stdout is empty and
+      the turn says nothing.
   mc-inbox.sh item --link <url> --does <text> --asked <text> --right <text>
                    --option <label>=<effect>... --recommend <text>
                    --checked <text>
@@ -70,7 +81,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-inbox.sh status | item --link <url> ... | draft --program <p> --to <recipient> --file <body>"
+  mc_usage_fail "usage: mc-inbox.sh status | report | item --link <url> ... | draft --program <p> --to <recipient> --file <body>"
 }
 
 case ${1:-} in
@@ -96,6 +107,34 @@ case $verb in
         print ""; print "Landed"; if (!nl) print "- none"; for (i = 1; i <= nl; i++) print "- " l[i]
         print ""; print "Moving"; if (!nm) print "- none"; for (i = 1; i <= nm; i++) print "- " m[i]
         if (dropped) printf "mc-inbox: %d line(s) outside decision, landed and moving dropped; status carries no history\n", dropped > "/dev/stderr"
+      }' | mc_clean_text
+    ;;
+  report)
+    [ $# -eq 0 ] || usage
+    awk -F '\t' '
+      BEGIN { n = split("decision blocker failure landed", c, " ")
+              split("Decision Blocker Failure Landed", h, " ")
+              for (i = 1; i <= n; i++) owed[c[i]] = i }
+      NF >= 2 && ($1 in owed) && $2 != "" {
+        x = substr($0, length($1) + 2); gsub(/^ +| +$/, "", x)
+        ack = "^(got it|understood|thanks|thank you|will do|on it)([ .,!:;-]+|$)"
+        while (match(tolower(x), ack)) { x = substr(x, RLENGTH + 1); acks++ }
+        if (x == "") { next }
+        x = toupper(substr(x, 1, 1)) substr(x, 2); low = tolower(x)
+        if ((low in seen)) { repeats++; next }
+        seen[low] = 1; k = owed[$1]; t[k, ++m[k]] = x; total++; next
+      }
+      NF { dropped++ }
+      END {
+        shown = 0
+        for (i = 1; i <= n; i++) for (j = 1; j <= m[i]; j++) {
+          if (total > 5 && shown == 4) break
+          print h[i] ": " t[i, j]; shown++
+        }
+        if (total > shown) printf "%d more; ask for the status to see them all\n", total - shown
+        if (dropped) printf "mc-inbox: %d line(s) outside decision, blocker, failure and landed dropped; the operator is told only what is owed to them\n", dropped > "/dev/stderr"
+        if (acks) printf "mc-inbox: %d acknowledgement(s) cut\n", acks > "/dev/stderr"
+        if (repeats) printf "mc-inbox: %d repeated line(s) dropped\n", repeats > "/dev/stderr"
       }' | mc_clean_text
     ;;
   item)

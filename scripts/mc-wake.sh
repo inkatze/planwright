@@ -60,6 +60,10 @@ registry records for the worker, and it never types into a session:
             no newline, so the wake is STAGED and its events marked staged
             until the session acknowledges them (below)
   any other backend, or a retired worker: unreachable, nothing sent
+A ROUTINE event (its kind's class in config/mc-event-classes.tsv) never
+wakes: relay, tick and compose leave it out, unmarked and still listable,
+since the script that emitted it already acted and nothing in it is for
+the operator.
 One wake per target carries 20 of its pending events, oldest first and,
 in the tick, never-sent ones ahead of staged ones (the rest wait for a
 later wake), naming each one's kind and subject, re-checked against
@@ -167,6 +171,7 @@ targets="$runtime/wake-targets"
 # SEL_IDS (space separated).
 select_events() {
   SEL_ROWS=$(mc_event list --program "$program" --target "$1" --pending --limit 100000) || return 1
+  SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes) || return 1
   if [ "$2" = unsubmitted ]; then
     # Never-sent events first, so a backlog of staged ones nobody has
     # acknowledged cannot keep a newer event out of every wake.
