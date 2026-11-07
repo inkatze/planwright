@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.67.1](https://github.com/inkatze/planwright/compare/v0.67.0...v0.67.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **orchestrate:** dispatch through the resolved backend, never a silent tmux worker ([#853](https://github.com/inkatze/planwright/issues/853)) ([b90590d](https://github.com/inkatze/planwright/commit/b90590d3b06d69b181191eb998813377c8e5c113))
+
 ## [0.67.0](https://github.com/inkatze/planwright/compare/v0.66.0...v0.67.0) (2026-11-06)
 
 
