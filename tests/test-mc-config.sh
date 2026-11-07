@@ -497,6 +497,7 @@ row() { printf 'format\t1\nname\t%s\nprogram\t%s\nkind\tworker\nscope\tx\nbacken
 row mc-alpha-worker-1111111111 alpha tmux
 row mc-alpha-worker-2222222222 alpha stream-json
 row mc-beta-worker-3333333333 beta tmux
+row mc-alpha-worker-4444444444 alpha ''
 # Shell forms the redaction does not model, each a crontab line, then
 # " ==> " and the report line it must read as: blanked to the end of the
 # line where the scan fails closed.
@@ -567,6 +568,8 @@ expect_no_out "an enabled duty is not named" "duty-off${tab}inbox"
 expect_out "a session launched on another rung than the knob is named" "launch-backend${tab}mc-alpha-worker-1111111111${tab}tmux${tab}stream-json"
 expect_no_out "a session on the knob's rung is not named" "mc-alpha-worker-2222222222"
 expect_no_out "another program's session is not named" "mc-beta-worker-3333333333"
+expect_out "a session whose row names no rung is an unknown launches check" "unknown${tab}launches${tab}mc-alpha-worker-4444444444 names no rung"
+expect_no_out "a session whose row names no rung is not read as another rung" "launch-backend${tab}mc-alpha-worker-4444444444"
 expect_out "a cron line naming planwright is named" "cron${tab}*/5 * * * * /opt/hub/w.sh planwright sweep"
 expect_out "a cron line in a program repository is named" "cron${tab}*/10 * * * * cd $repo && ./sweep.sh"
 expect_out "a cron line naming only the program home is named" "cron${tab}*/20 * * * * $neutral_home/tick.sh"

@@ -134,7 +134,8 @@ Usage:
             any = past a substitution, a paren, a % or a comment blank
             the rest of the line
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
-            launches or cron) whose read failed; for overrides, also a
+            launches or cron) whose read failed; for launches, also a
+            session whose row names no known rung; for overrides, also a
             layer that is malformed or sets a knob twice or as key : v,
             the override lines a plain read finds still following, and a
             knob a layer sets that the shipped defaults read give no value
@@ -782,8 +783,9 @@ doctor_duties() {
 }
 
 doctor_launches() {
+  dl_rungs='stream-json tmux'
   dl_knob=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key mission_control_launch_backend \
-    --type enum --values 'stream-json tmux' --fallback stream-json </dev/null 2>/dev/null) || {
+    --type enum --values "$dl_rungs" --fallback stream-json </dev/null 2>/dev/null) || {
     printf 'unknown\tlaunches\tmission_control_launch_backend could not be resolved\n'
     return 0
   }
@@ -791,8 +793,13 @@ doctor_launches() {
     printf 'unknown\tlaunches\tthe launch registry could not be read\n'
     return 0
   }
-  printf '%s\n' "$dl_rows" | awk -F '\t' -v p="$1" -v k="$dl_knob" \
-    'NF >= 5 && $2 == p && $5 != k { print "launch-backend\t" $1 "\t" $5 "\t" k }'
+  # A row a retire unlinks mid-listing reads back with empty fields, so a
+  # rung outside the known ones is unknown rather than another rung.
+  printf '%s\n' "$dl_rows" | DL_RUNGS=$dl_rungs awk -F '\t' -v p="$1" -v k="$dl_knob" '
+    BEGIN { n = split(ENVIRON["DL_RUNGS"], r, " "); for (i = 1; i <= n; i++) rung[r[i]] = 1 }
+    NF < 5 || $2 != p { next }
+    !($5 in rung) { print "unknown\tlaunches\t" $1 " names no rung doctor knows"; next }
+    $5 != k { print "launch-backend\t" $1 "\t" $5 "\t" k }'
 }
 
 # A cron line naming planwright, claude, or a path of the program's is a
