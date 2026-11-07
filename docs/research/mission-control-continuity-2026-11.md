@@ -6,12 +6,15 @@ A decision document, not a design. Research only: nothing here changes behaviour
 
 ## The short version
 
-**Recommendation.** Make the zero-act path the default on every surface: when mission control
-passes its handover threshold it compacts *in place*, seeded by its own handover note, so the
-operator's window, phone and Remote Control link never move. A fresh successor becomes an
-opt-in for surfaces that can host one (tmux today, background sessions later). After repeated
-compactions, mission control asks for one act at a quiet moment: type `/clear`, after which a
-hook re-seeds it as mission control from its durable state. Around it: a host roster built from
+**Recommendation.** For the operator's own session, make the zero-act path the default on every
+surface: when mission control passes its handover threshold it compacts *in place*, seeded by its
+own handover note, so the operator's window, phone and Remote Control link never move. A
+mission control that planwright launched itself, with no operator terminal, keeps today's
+handover to a fresh successor. For the operator's session, a successor becomes an opt-in on
+surfaces that could host one (tmux first, background sessions later; neither is wired today).
+After repeated compactions, mission control asks for one act at a quiet moment: type `/clear`,
+after which a hook re-seeds it as mission control from its durable state (confirmed for each
+surface by a probe first). Around it: a host roster built from
 the holder records mission control already writes, one shared reservation for heavy bursts, and
 one channel owner per host for reaching the operator off-terminal (a work channel for work
 programs, a personal one for the rest), which also links mission controls on other accounts and
@@ -20,7 +23,7 @@ machines through a hub.
 **Decisions this needs from you** (each a plain picklist; details in
 [Decisions, phrased as picklists](#decisions-phrased-as-picklists)):
 
-1. When mission control's memory fills: compact in place everywhere (recommended), or open a
+1. When your own mission control's memory fills: compact in place (recommended), or open a
    successor wherever the surface allows, or keep today's split.
 2. Your 40% tmux-pane rule on this host: keep it as an opt-in for you, or fold it into the
    in-place default.
@@ -99,12 +102,14 @@ repository's files. Where neither settles a point, the text says *unknown*.
 
 ### Surface by surface
 
-**tmux.** Everything works: a new pane or window, a successor under the same name with
-`--remote-control`, and the predecessor's pane closed after `take`. planwright already dispatches
-workers with `tmux new-window -d` (`scripts/offload-dispatch.sh`). Risks: the by-hand successor
-stalled on prompts (above); a tmux prompt cannot be answered from mission control today; and the
-retire step closes nothing for an attended holder (`scripts/mc-handover.sh:406-409`), so the pane
-close is new work.
+**tmux.** The one surface that could host an operator-session successor: a new pane or window,
+a successor under the same name with `--remote-control`, and the predecessor's pane closed after
+`take`. None of it is wired for the operator's session today: attended self-succession is refused
+by design (above), the by-hand successor stalled on prompts, a tmux prompt cannot be answered from
+mission control, and the retire step closes nothing for an attended holder
+(`scripts/mc-handover.sh:406-409`). planwright does already dispatch workers with
+`tmux new-window -d` (`scripts/offload-dispatch.sh`), so opening the pane is the easy part;
+prompt handling and pane closure are the new work.
 
 **Plain terminal (no multiplexer).** Mission control cannot open a window the operator will see.
 It could start a background session (`claude --bg`, research preview, run by a supervisor that
@@ -226,8 +231,10 @@ due, up to 95% (`register.tsx:24`, 723-743).
 2. *Cover the ledger.* Run `verify`'s ledger check in the self-check, not only in a handover.
 3. *Cap it.* After the existing compaction count (`mission_control_handover_compactions`, default
    2), ask the operator, at a natural break, for one `/clear`; a `SessionStart` `clear` hook
-   re-seeds the session as mission control from the durable stores. That resets drift on every
-   surface, the phone included, without a second process.
+   re-seeds the session as mission control from the durable stores. That resets drift without a
+   second process on every surface where the clear hook is confirmed to run and inject its
+   context; the phone path is one of section 1's open probes, so the reset is not promised there
+   until that probe passes.
 
 Two cheap levers make the in-place rung fire at the right time: set `autoCompactWindow` (or the
 environment variable) in mission control's launch profile to the handover threshold, and keep the
@@ -268,10 +275,12 @@ unsolved.
 
 **B. In place by default, successor by opt-in (recommended).** Seeded compaction at the
 threshold on every surface; a `/clear` ask after the compaction cap; the pane successor as an
-opt-in knob for tmux users (the operator's 40% rule maps here); launched holders keep today's
-handover. *For:* the same zero-act experience on every surface; nothing moves on the phone; no
-new permission surface; uses hooks Claude Code documents. *Against:* seeded compaction still
-loses tone; needs the hooks above plus a probe of the unknowns in section 1.
+opt-in knob for tmux users (the operator's 40% rule maps here); launched holders, which have no
+operator terminal, stay the exception and keep today's automatic handover, as the recommendation
+at the top says. *For:* the same zero-act experience for the operator on every surface; nothing
+moves on the phone; no new permission surface; uses hooks Claude Code documents. *Against:*
+seeded compaction still loses tone; needs the hooks above plus a probe of the unknowns in
+section 1.
 
 **C. Successor everywhere.** Mission control always starts a fresh session (pane in tmux,
 background session elsewhere) and the operator follows it. *For:* clean context every time.
@@ -345,8 +354,9 @@ as the operator's own words and routed to the program they answer. Rules it must
 
 - Act only on a message from the operator's identity, verified (below); never on forwarded or
   quoted text, only the newest reply text.
-- Each outbound message carries a per-item token; a reply without the matching token is held,
-  not acted on.
+- Each outbound message carries a single-use, expiring token bound to the exact item and action;
+  a reply without an unused matching token is held, not acted on, and a consumed or expired token
+  is rejected, so an old reply cannot be replayed.
 - A reply is the operator's words, relayed; it is never an approval of a permission prompt.
 - The never-send-to-a-person rule is unchanged: a message to a colleague is drafted, its exact
   text echoed to the operator over the channel, and posted only on a yes to that text.
@@ -357,7 +367,7 @@ as the operator's own words and routed to the program they answer. Rules it must
 
 | Option | Sanctioned at work | Operator setup | Sender authentication | Reliability | Data hygiene |
 | --- | --- | --- | --- | --- | --- |
-| Work email via provider API (Microsoft Graph or Gmail API, OAuth) | Usually the most sanctioned | An app registration, often admin consent | Weak alone: require `dmarc=pass` from the own provider's `Authentication-Results`, an exact From, and the item token; S/MIME for strong | Seconds to minutes; Graph push needs a public endpoint or Event Hubs, Gmail push a Pub/Sub pull | Stays in the work mailbox |
+| Work email via provider API (Microsoft Graph or Gmail API, OAuth) | Usually the most sanctioned | An app registration, often admin consent | Weak by default: DMARC, an exact From and a token still admit spoofed, forwarded or replayed mail; require S/MIME, or a reply that provably originated in the operator's own mailbox in the same tenant (read through the API, not inferred from headers), plus the single-use token | Seconds to minutes; Graph push needs a public endpoint or Event Hubs, Gmail push a Pub/Sub pull | Stays in the work mailbox |
 | Email over IMAP and SMTP with an app password | Personal Gmail only | 2-Step Verification, an app password | As above | Seconds to minutes (IMAP IDLE) | Personal mailbox |
 | Slack bot (Socket Mode) | High where the company runs Slack | Create the app; admin approval is common | Strong: user and team id over an authenticated socket | Sub-second; 1 message a second a channel | Company data, retained by the company |
 | Discord bot | Rarely | Bot token, a private server | Strong: user id | Sub-second | Not end-to-end encrypted; personal only |
@@ -426,7 +436,7 @@ on any reply to a person, given against the exact text.
 
 ## Decisions, phrased as picklists
 
-1. **When mission control's memory fills, what should happen?**
+1. **When the mission control you talk to fills its memory, what should happen?**
    - Tidy up in place, so nothing on your screen or phone moves (Recommended)
    - Start a fresh copy beside it wherever your setup allows
    - Keep today's behaviour (only sessions mission control launched get a fresh copy)
