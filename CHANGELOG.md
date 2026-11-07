@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.69.0](https://github.com/inkatze/planwright/compare/v0.68.0...v0.69.0) (2026-11-07)
+
+
+### Features
+
+* **policy-guard:** let a kickoff session push its own spec branch ([#866](https://github.com/inkatze/planwright/issues/866)) ([ac910dd](https://github.com/inkatze/planwright/commit/ac910ddb2ad842fa5c71bf09a40e044078fe0756))
+
+
+### Bug Fixes
+
+* **fleet:** close requests a finished stream-json worker left waiting ([#842](https://github.com/inkatze/planwright/issues/842)) ([da91fd7](https://github.com/inkatze/planwright/commit/da91fd7d9ebaec49d0128e31feac2ea7c685811a))
+
 ## [0.68.0](https://github.com/inkatze/planwright/compare/v0.67.1...v0.68.0) (2026-11-07)
 
 
