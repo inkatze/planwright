@@ -195,6 +195,33 @@ absolute_profile >"$home/.claude/settings.json"
 posture -- --project "$tmp/no-such-project"
 expect_fail "a --project naming no directory fails" "the project root $tmp/no-such-project is not a directory"
 
+echo "# the shipped profile"
+# A copy of the check under a root whose own shipped profile is broken.
+floor_root="$tmp/floor-root"
+mkdir -p "$floor_root/scripts" "$floor_root/config"
+cp "$POSTURE" "$floor_root/scripts/mc-posture.sh"
+under_floor_root() {
+  local real=$POSTURE
+  POSTURE="$floor_root/scripts/mc-posture.sh"
+  posture "$@"
+  POSTURE=$real
+}
+reset
+under_floor_root --
+expect_fail "a root with no shipped profile fails" "config/mission-control-settings.json cannot be read"
+printf '{ not json\n' >"$floor_root/config/mission-control-settings.json"
+under_floor_root --
+expect_fail "a shipped profile that does not parse fails" "config/mission-control-settings.json cannot be parsed"
+printf '{"permissions": {"deny": []}}\n' >"$floor_root/config/mission-control-settings.json"
+under_floor_root --
+expect_fail "a shipped profile with no deny entry fails" "deny floor in config/mission-control-settings.json is empty"
+printf '{"permissions": {"deny": ["Bash(x)"]}, "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "true"}]}]}}\n' \
+  >"$floor_root/config/mission-control-settings.json"
+printf '{"permissions": {"deny": ["Bash(x)"]}}\n' >"$home/.claude/settings.json"
+under_floor_root --
+expect_fail "a shipped hook naming no planwright script fails" "names no planwright script"
+rm -rf "$floor_root"
+
 echo "# the deny floor"
 reset
 absolute_profile | jq '.permissions.deny |= map(select(. != "Bash(gh pr merge:*)"))' >"$home/.claude/settings.json"
