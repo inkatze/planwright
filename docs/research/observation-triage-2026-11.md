@@ -36,8 +36,9 @@ The five bundles that would consume the most open fragments:
    memoization and adopt it in the multi-knob callers (guards, resolve-steps, tower-queue,
    mc-program, registry lookup, resolve-root).
 
-A bulk consume of the covered, duplicate and stale fragments would clear 214 fragments without any
-code change.
+A bulk consume of the covered and stale fragments, plus the duplicates whose surviving fragment is
+already closed, would clear 153 fragments without any code change. The other 61 duplicates repeat a
+fragment that is still open, so they are consumed with that fragment's bundle.
 
 ## How this was made
 
@@ -2392,7 +2393,9 @@ the sections further down).
 
 ## Already covered (122)
 
-Each can be consumed now, citing the commit as the consumer.
+Each can be consumed now against its owning spec (`scripts/obs-consume.sh --uid <uid> --spec
+<spec>`, the consumer being a spec identifier); the commit is the evidence that it landed. A row
+owned by `flight` has no spec to name, so its consumer is the operator's choice.
 
 | Fragment | Owner | Landed in | What it said |
 | --- | --- | --- | --- |
