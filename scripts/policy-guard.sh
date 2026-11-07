@@ -1554,7 +1554,7 @@ kickoff_segment() {
     *) spec='' ;;
   esac
   [ "${#spec}" -le 64 ] || spec=''
-  [ "$spec" != flight ] || spec=''  # the reserved flight namespace, not a spec
+  [ "$spec" != flight ] || spec='' # the reserved flight namespace, not a spec
   [ -n "$spec" ] \
     || deny_now 'this command runs scripts/kickoff-spec-push.sh with an argument the guard cannot read as a spec name - refusing (fail closed). Name the spec in lowercase letters, digits and hyphens.'
   [ -n "$spec" ] || return 0
