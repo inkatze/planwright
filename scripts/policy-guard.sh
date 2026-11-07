@@ -1515,10 +1515,10 @@ kickoff_named() {
   return 1
 }
 
-# RE_KICKOFF_SCRIPT: the planwright script itself, named through the plugin or
-# planwright root variable. A relative or literal path would run a copy of the
-# script from the session's own checkout, which the guard cannot read.
-RE_KICKOFF_SCRIPT='^\$\{?(CLAUDE_PLUGIN_ROOT|PLANWRIGHT_ROOT)\}?/scripts/kickoff-spec-push\.sh$'
+# RE_KICKOFF_SCRIPT: the planwright script itself, named through the plugin
+# root variable. A relative or literal path would run a copy of the script from
+# the session's own checkout, which the guard cannot read.
+RE_KICKOFF_SCRIPT='^\$\{?CLAUDE_PLUGIN_ROOT\}?/scripts/kickoff-spec-push\.sh$'
 
 # kickoff_script_at <index> — 0 when the command word at <index> is RE_KICKOFF_SCRIPT.
 kickoff_script_at() {
