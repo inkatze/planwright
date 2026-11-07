@@ -1475,6 +1475,15 @@ expect_mc() { # <want> <label> <command> [guard]
     fail "$2 — expected $1, got $got"
   fi
 }
+# A guard that crashes is no defer: every defer row below would pass on it.
+CRASH_GUARD="$SANDBOX/crash-guard.sh"
+printf '#!/bin/bash\nexit 3\n' >"$CRASH_GUARD"
+crash_says=$(mc_says "$CRASH_GUARD" "true")
+if [ "$crash_says" != defer ]; then
+  pass "a guard that exits non-zero never reads as a defer"
+else
+  fail "a guard that exits non-zero read as a defer"
+fi
 listed=0
 while read -r s v rest; do
   case $s in '' | '#'*) continue ;; esac
