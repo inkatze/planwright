@@ -166,8 +166,8 @@ This skill is the runner at its five in-run points; `custom-steps` owns the
 contract. Issue one run id (`scripts/step-record.sh new-run`) per invocation.
 `--resume <run>:<point>` runs start there, skipping what
 `scripts/step-run.sh resume --run <this-run> --from <run>:<point>` prints. **Run a point**
-in the worktree, the `PLANWRIGHT_STEP_*` context exported (a PR number
-whenever one exists):
+in the worktree, the `PLANWRIGHT_STEP_*` context prefixing each call (with any
+PR number):
 
 1. **Resolve** it whole first: `scripts/step-run.sh resolve --run <run> <point>
    --unattended` exactly when the backend seam's launch record says headless,

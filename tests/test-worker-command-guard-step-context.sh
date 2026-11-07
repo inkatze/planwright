@@ -1,12 +1,13 @@
 #!/bin/bash
-# The step-context prefix (worker-permission-ergonomics, read-only shapes): the
-# cadence's step-run.sh and step-record.sh calls read the unit's context from
-# PLANWRIGHT_STEP_* variables, and each Bash call is a fresh shell, so a worker
-# can carry that context only as literal assignments at the head of the one
-# command. The guard approves such a prefix in front of a trusted script, the
-# same script it approves bare; any other prefix, value, or command defers.
-# Every assertion uses the shared harness, and the ALLOW/DEFER contract is the
-# harness's.
+# Tests for scripts/worker-command-guard.sh: the step-context prefix on trusted
+# repo code. The cadence's step-run.sh and resolve-steps.sh calls read the
+# unit's context from PLANWRIGHT_STEP_* variables, and each Bash call is a
+# fresh shell, so a worker can carry that context only as literal assignments
+# at the head of the one command. The guard approves such a prefix in front of
+# a trusted script, the same script it approves bare; any other prefix, value,
+# or command defers.
+# tests/test-worker-command-guard.sh holds the suite's overview; all its files
+# source tests/lib/worker-command-guard-harness.sh, which states the contract.
 set -u
 unset CDPATH
 # shellcheck source=tests/lib/worker-command-guard-harness.sh

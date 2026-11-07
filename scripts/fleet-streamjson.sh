@@ -10,7 +10,9 @@
 # WHAT THIS IS (D-5). A supervisor process owns a stream-json worker's stdio:
 # it launches the worker (`claude -p --input-format stream-json
 # --output-format stream-json --verbose --permission-prompt-tool stdio
-# --settings <config/<profile>-settings.json> --name <worker>`, the profile
+# --settings <config/<profile>-settings.json> --name <worker>
+# --append-system-prompt <config/launch-shell-rules.txt, on one line>`, the
+# rules dropped with a warning when that file reads empty, the profile
 # worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept and, for a
 # worker, the worker identity exported, so its hooks write attention rows and
 # register its session name (fleet-messaging D-8, D-19), and the dispatcher's
