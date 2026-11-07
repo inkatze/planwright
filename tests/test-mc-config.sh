@@ -526,6 +526,8 @@ cat >"$shapes" <<'SHAPES'
 46 * * * * planwright # don't 'TOKEN=lk-27 lk-28' ==> 46 * * * * planwright # don't 'TOKEN=<redacted>
 47 * * * * planwright %it's 'TOKEN=lk-29 lk-2a' ==> 47 * * * * planwright %it's 'TOKEN=<redacted>
 48 * * * * T=lk-2b%lk-2c lk-2d planwright ==> 48 * * * * T=<redacted>
+"PLANWRIGHT_TOKEN=lk-2e"=lk-2f ==> "PLANWRIGHT_TOKEN=<redacted>
+'claude=lk-2g lk-2h'=lk-2i ==> 'claude=<redacted>
 SHAPES
 {
   printf '# a comment naming planwright\n'

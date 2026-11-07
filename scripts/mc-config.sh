@@ -838,6 +838,8 @@ doctor_cron() {
       if (match(s, envre)) {
         name = substr(s, 1, RLENGTH - 1)
         gsub(/^ +| +$/, "", name)
+        # A quoted name may hold an =, cron setting the part past it.
+        if (index(name, "=")) return substr(name, 1, index(name, "=")) "<redacted>"
         return name "=<redacted>"
       }
       out = ""
