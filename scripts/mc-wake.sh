@@ -166,7 +166,7 @@ targets="$runtime/wake-targets"
 # wake, in SEL_ROWS (at most LISTED_MAX), SEL_TOTAL (all of them), SEL_N and
 # SEL_IDS (space separated).
 select_events() {
-  SEL_ROWS=$(mc_event list --program "$program" --target "$1" --pending) || return 1
+  SEL_ROWS=$(mc_event list --program "$program" --target "$1" --pending --limit 100000) || return 1
   if [ "$2" = unsubmitted ]; then
     # Never-sent events first, so a backlog of staged ones nobody has
     # acknowledged cannot keep a newer event out of every wake.

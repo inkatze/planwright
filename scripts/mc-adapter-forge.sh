@@ -39,6 +39,10 @@ line per pull request:
   pr<TAB><owner/name><TAB><number><TAB><head sha><TAB><draft true|false>
     <TAB><mergeable><TAB><review decision|NONE><TAB><open threads>
     <TAB><checks state|NONE><TAB><reviews><TAB><comments><TAB><patch id>
+    <TAB><base branch|-><TAB><head branch|->
+The base and head branch names let a consumer pair a pull request with its
+branch and its base. A name outside the branch grammar is written `-`, and so is
+the head branch of a fork pull request, which is no branch of this repository.
 The patch id (git patch-id --stable over the pull request's diff) is
 carried forward from --previous while the head is unchanged, so an
 unchanged patch costs no read; a changed head costs one diff read. It is
@@ -111,17 +115,17 @@ gh_read() {
 }
 
 # shellcheck disable=SC2016 # GraphQL variables, not shell ones
-QUERY='query($owner:String!,$name:String!){ rateLimit{ remaining resetAt } viewer{ login } repository(owner:$owner,name:$name){ pullRequests(states:OPEN,first:50,orderBy:{field:UPDATED_AT,direction:DESC}){ nodes{ number headRefOid isDraft mergeable reviewDecision author{ login } reviewThreads(first:100){ nodes{ isResolved } } commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } reviews{ totalCount } comments{ totalCount } } } } }'
+QUERY='query($owner:String!,$name:String!){ rateLimit{ remaining resetAt } viewer{ login } repository(owner:$owner,name:$name){ nameWithOwner pullRequests(states:OPEN,first:50,orderBy:{field:UPDATED_AT,direction:DESC}){ nodes{ number headRefOid headRefName baseRefName headRepository{ nameWithOwner } isDraft mergeable reviewDecision author{ login } reviewThreads(first:100){ nodes{ isResolved } } commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } reviews{ totalCount } comments{ totalCount } } } } }'
 # The first line is the rate limit; then one row per tracked pull request.
 # shellcheck disable=SC2016 # jq, not shell
 JQ='def tracked: "'"$tracked"'";
   "ratelimit\t\(.data.rateLimit.remaining)\t\(.data.rateLimit.resetAt | fromdateiso8601)",
-  (.data.viewer.login as $me | .data.repository.pullRequests.nodes[]
+  (.data.viewer.login as $me | .data.repository.nameWithOwner as $slug | .data.repository.pullRequests.nodes[]
    | select(tracked == "open" or .author.login == $me)
    | [.number, .headRefOid, .isDraft, .mergeable, (.reviewDecision // "NONE"),
       ([.reviewThreads.nodes[] | select(.isResolved | not)] | length),
       (.commits.nodes[0].commit.statusCheckRollup.state // "NONE"),
-      .reviews.totalCount, .comments.totalCount] | @tsv)'
+      .reviews.totalCount, .comments.totalCount, (.baseRefName // "-"), (if .headRepository.nameWithOwner == $slug then (.headRefName // "-") else "-" end)] | @tsv)'
 
 low_remaining=""
 low_reset=""
@@ -135,7 +139,7 @@ while IFS= read -r repo; do
   esac
   rows=$(gh_read api graphql -f owner="${slug%%/*}" -f name="${slug#*/}" -f query="$QUERY" --jq "$JQ") || exit $?
   first=1
-  while IFS='	' read -r number head draft mergeable decision threads checks reviews comments; do
+  while IFS='	' read -r number head draft mergeable decision threads checks reviews comments base headname; do
     if [ "$first" -eq 1 ]; then
       first=0
       # The rate-limit line reads into the first three fields.
@@ -161,6 +165,8 @@ while IFS= read -r repo; do
     for v in "$threads" "$reviews" "$comments"; do
       mc_valid_uint "$v" || mc_fail "unexpected count for #$number"
     done
+    case $base in "" | *[!A-Za-z0-9._/-]*) base=- ;; esac
+    case $headname in "" | *[!A-Za-z0-9._/-]*) headname=- ;; esac
     patch=""
     if [ -n "$previous" ] && [ -f "$previous" ]; then
       patch=$(S=$slug N=$number H=$head awk -F '\t' '$1 == "pr" && $2 == ENVIRON["S"] && $3 == ENVIRON["N"] && $4 == ENVIRON["H"] && ($12 ~ /^[0-9a-f]+$/ || $12 == "none") { print $12; exit }' "$previous")
@@ -180,9 +186,9 @@ while IFS= read -r repo; do
         patch=-
       fi
     fi
-    printf 'pr\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf 'pr\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$slug" "$number" "$head" "$draft" "$mergeable" "$decision" "$threads" "$checks" \
-      "$reviews" "$comments" "$patch" >>"$body" || mc_fail "cannot stage the snapshot body"
+      "$reviews" "$comments" "$patch" "$base" "$headname" >>"$body" || mc_fail "cannot stage the snapshot body"
   done <<EOF
 $rows
 EOF
