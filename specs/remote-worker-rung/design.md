@@ -142,8 +142,8 @@ it misses. Waits on the operator's answer.
 
 **Decision:** The command guard approves `scripts/fleet-remote.sh` under the
 resolved literal root, in the sessions that already approve the local
-stream-json verbs, for its fixed verbs only, to registered host aliases only,
-and never with `--root` (which chooses which remote scripts run); any other
+stream-json verbs, for its fixed verbs only, and to registered host aliases
+only (the channel offers no way to choose which remote copy runs); any other
 command reaching a remote host falls to the normal prompt. Each verb keeps the
 posture its local twin has: `answer --allow` grants a remote worker's request
 and is approved only where the local answer is, after the same vetting;
@@ -278,6 +278,15 @@ worktree, its temp directory and the ref are removed on every exit path.
 **Chosen because:** a commit is the unit review and CI already reason about,
 the remote needs no login of any kind, and the first live run cut a suite's
 wall time from over eight minutes to just over two.
+
+**Credential boundary (Q).** The fixed verb set and the timeout bound what is
+started, not what the started code can read: compute runs worker-authored
+tests as the remote account, and the first host's account also holds a
+plain-text hosting-remote token. REQ-G1.6 makes the host's registry entry say
+how that is handled. The recommended shape is a second, login-free account
+(or home) on the host for compute only, keeping the signed-in account for
+full workers; the alternative is the operator accepting the exposure per
+host. Waits on the operator's answer at kickoff.
 
 ## Cross-cutting concerns
 

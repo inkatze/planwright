@@ -19,7 +19,7 @@ ssh_opts='-T -o BatchMode=yes -o ForwardAgent=no -o ForwardX11=no -o ClearAllFor
 
 help_text() {
   cat <<'EOF'
-usage: fleet-remote.sh --host <alias> [--root <abs-dir>] <verb> [<args>...]
+usage: fleet-remote.sh --host <alias> <verb> [<args>...]
 
 Verbs (each runs on the remote host, through its own planwright and tools):
   root                          print the remote planwright root
@@ -54,10 +54,13 @@ off.
 The remote first sources its optional ~/.config/planwright/remote-env.sh, the
 place for PATH and CLAUDE_PLUGIN_DATA on that host; it holds no secrets,
 since compute runs the caller's code in that environment. The remote root is
---root, else the first root the remote's installed-plugin record names (its
-resolve-installed-roots.sh --current, which needs jq there). compute needs no
-root, only the clone, git and perl; it unsets PLANWRIGHT_ROOT so the shipped
-commit tests itself.
+the first root the remote's installed-plugin record names (its
+resolve-installed-roots.sh --current, which needs jq there); no caller can
+point a verb at another copy. compute needs no root, only the clone, git,
+perl, and mise (--check, --task) or /bin/bash (--test); it unsets
+PLANWRIGHT_ROOT so the shipped commit tests itself. It runs that code as the
+remote account, so whatever that account can read (a CLI login included),
+the code can too.
 
 Exit codes: 2 usage error or a refused argument; 3 the remote is not set up
 (no planwright root, an env file that fails, or for compute no clone or no
@@ -95,12 +98,17 @@ q() {
 # transport helpers disabled, so pointing compute at a worktree never runs
 # code from that worktree on this host.
 lgit() {
-  GIT_OPTIONAL_LOCKS=0 GIT_ALLOW_PROTOCOL=ssh GIT_SSH_COMMAND="ssh $ssh_opts" \
-    git -C "$wt" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"
+  (
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG GIT_CONFIG_PARAMETERS \
+      GIT_CONFIG_COUNT GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM
+    GIT_OPTIONAL_LOCKS=0 GIT_ALLOW_PROTOCOL=ssh GIT_SSH_COMMAND="ssh $ssh_opts"
+    export GIT_OPTIONAL_LOCKS GIT_ALLOW_PROTOCOL GIT_SSH_COMMAND
+    exec git -C "$wt" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"
+  )
 }
 
 host=''
-root=''
 while [ $# -gt 0 ]; do
   case $1 in
     --help | -h)
@@ -112,11 +120,6 @@ while [ $# -gt 0 ]; do
       host=$2
       shift 2
       ;;
-    --root)
-      [ $# -ge 2 ] || usage
-      root=$2
-      shift 2
-      ;;
     -*) usage ;;
     *) break ;;
   esac
@@ -126,11 +129,6 @@ done
 case $host in
   -* | *[!A-Za-z0-9._-]*) die "refusing host alias: letters, digits, . _ - only, no leading dash" ;;
 esac
-case $root in
-  '' | /*) ;;
-  *) die "--root must be an absolute path" ;;
-esac
-safe_arg "$root" || die "refusing an argument holding a backslash or a control character"
 
 verb=$1
 shift
@@ -230,7 +228,7 @@ case $verb in
     name=${name##*/}
     name=${name##*:}
     case $name in '' | [.-]* | *[!A-Za-z0-9._-]*) die "cannot derive a repository name from origin" ;; esac
-    if [ -n "$(lgit status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+    if [ -n "$(lgit status --porcelain --untracked-files=normal 2>/dev/null)" ]; then
       printf '%s\n' "$prog: warning: uncommitted changes are not shipped; running HEAD $sha" >&2
     fi
     ref="refs/planwright-compute/$sha-$$-$(date +%s)"
@@ -284,6 +282,10 @@ if [ "$verb" = compute ]; then
   target=$5
   [ -d "$fr_repo/.git" ] || { echo "fleet-remote: no clone at ~/dev/$1 on this host" >&2; exit 3; }
   command -v perl >/dev/null 2>&1 || { echo "fleet-remote: compute needs perl on this host" >&2; exit 3; }
+  case $kind in
+    test) [ -x /bin/bash ] || { echo "fleet-remote: compute --test needs /bin/bash on this host" >&2; exit 3; } ;;
+    *) command -v mise >/dev/null 2>&1 || { echo "fleet-remote: compute --$kind needs mise on this host" >&2; exit 3; } ;;
+  esac
   base="$HOME/dev/.planwright-compute"
   mkdir -p "$base" || exit 3
   fr_run=$(mktemp -d "$base/run.XXXXXX") || exit 3
@@ -346,7 +348,7 @@ if [ -z "$root" ]; then
   done
 fi
 if [ -z "$root" ] || [ ! -d "$root/scripts" ]; then
-  echo "fleet-remote: no planwright root on this host: install planwright there (its record needs jq), or pass --root" >&2
+  echo "fleet-remote: no planwright root on this host: install planwright there (its record needs jq)" >&2
   exit 3
 fi
 sj="$root/scripts/fleet-streamjson.sh"
@@ -375,7 +377,7 @@ EOF
 }
 remote=$(remote_program)
 
-cmd="exec /bin/sh -c $(q "$remote") fleet-remote $(q "$root") $(q "$verb")"
+cmd="exec /bin/sh -c $(q "$remote") fleet-remote '' $(q "$verb")"
 for a in "$@"; do
   cmd="$cmd $(q "$a")"
 done
@@ -384,5 +386,17 @@ done
 if [ "$stdin_verb" = 1 ]; then
   exec ssh $ssh_opts "$host" "$cmd"
 fi
-# shellcheck disable=SC2086 # ssh_opts is a fixed word list
-exec ssh $ssh_opts "$host" "$cmd" </dev/null
+if [ "$verb" != compute ]; then
+  # shellcheck disable=SC2086 # ssh_opts is a fixed word list
+  exec ssh $ssh_opts "$host" "$cmd" </dev/null
+fi
+# A connection that fails after the push never reaches the remote cleanup, so
+# the shipped ref is deleted from here; when the command itself exited 255 the
+# remote already removed it and this delete is a quiet no-op.
+# shellcheck disable=SC2086,SC2029 # ssh_opts is a fixed word list; cmd is quoted for the remote already
+ssh $ssh_opts "$host" "$cmd" </dev/null
+rc=$?
+if [ "$rc" -eq 255 ]; then
+  lgit push -q "$host:dev/$name" ":$ref" </dev/null >/dev/null 2>&1 || :
+fi
+exit "$rc"

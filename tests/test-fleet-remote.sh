@@ -46,8 +46,9 @@ while :; do
   esac
 done
 [ "$1" = down ] && exit 255
+case ${FAKE_FAIL_RUN:-}:$2 in 1:exec*) exit 255 ;; esac
 cd "$FAKE_REMOTE_HOME" || exit 255
-exec env -i HOME="$FAKE_REMOTE_HOME" PATH="$PATH" "$FAKE_REMOTE_SHELL" -c "$2"
+exec env -i HOME="$FAKE_REMOTE_HOME" PATH="${FAKE_REMOTE_PATH:-$PATH}" "$FAKE_REMOTE_SHELL" -c "$2"
 EOF
 chmod +x "$bin/ssh"
 
@@ -109,8 +110,8 @@ run --host mac answer w1 r1 --deny --message "$(printf 'a\nb')"
 assert_eq "a newline argument is refused" 2 "$CODE"
 run --host mac launch --brief /x --program p
 assert_eq "launch refuses a caller --brief" 2 "$CODE"
-run --host mac --root rel root
-assert_eq "a relative --root is refused" 2 "$CODE"
+run --host mac --root /x root
+assert_eq "no caller can choose the remote root" 2 "$CODE"
 run --host mac frobnicate
 assert_eq "an unknown verb is a usage error" 2 "$CODE"
 assert_eq "no refusal reached ssh" "" "$(cat "$FAKE_SSH_LOG")"
@@ -126,9 +127,6 @@ else
 fi
 run --host mac pending w.1 'x@y:z=1'
 assert_eq "worker names in the supervisor's grammar are reachable" "$(printf 'fleet-streamjson\n[pending]\n[w.1]\n[x@y:z=1]')" "$OUT"
-mkdir -p "$tmp/other/scripts"
-run --host mac --root "$tmp/other" root
-assert_eq "--root wins over the installed-plugin record" "$tmp/other" "$OUT"
 
 printf 'PLANWRIGHT_ROOT=%s\n' "$tmp/other" >"$rhome/.config/planwright/remote-env.sh"
 run --host mac root
@@ -312,6 +310,39 @@ assert_eq "an env file reusing common names still runs compute" 0 "$CODE"
 assert_eq "an env file reusing common names cannot stop the ref cleanup" "" "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute)"
 assert_eq "an env file reusing common names cannot stop the run cleanup" "" "$(ls -A "$rhome/dev/.planwright-compute")"
 set_env_root "$rroot"
+
+other="$tmp/other-repo"
+git init -q "$other"
+git -C "$other" commit -q --allow-empty -m other
+run_env() {
+  OUT=$(env "$@" /bin/sh "$script" --host mac compute --worktree "$lrepo" --test tests/test-new.sh 2>"$tmp/err")
+  CODE=$?
+  ERR=$(cat "$tmp/err")
+}
+run_env GIT_DIR="$other/.git"
+case $ERR in *"$head_sha"*) ok "an inherited GIT_DIR does not change what compute ships" ;; *) fail "an inherited GIT_DIR does not change what compute ships ($ERR)" ;; esac
+
+: >"$lrepo/untracked-scratch"
+run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh
+case $ERR in *"uncommitted changes are not shipped"*) ok "an untracked file draws the warning too" ;; *) fail "an untracked file draws the warning too" ;; esac
+rm -f "$lrepo/untracked-scratch"
+
+# A remote whose PATH holds what compute needs except mise.
+minbin="$tmp/minbin"
+mkdir -p "$minbin"
+for t in git git-receive-pack perl mkdir mktemp rm cat date sed env tr wc; do
+  p=$(command -v "$t") && ln -s "$p" "$minbin/$t"
+done
+FAKE_REMOTE_PATH=$minbin
+export FAKE_REMOTE_PATH
+run --host mac compute --worktree "$lrepo" --task lint:md
+assert_eq "compute --task without mise is a setup failure" 3 "$CODE"
+case $ERR in *"needs mise"*) ok "a missing mise is named" ;; *) fail "a missing mise is named ($ERR)" ;; esac
+unset FAKE_REMOTE_PATH
+
+run_env FAKE_FAIL_RUN=1
+assert_eq "a connection that fails after the push reports SSH's failure" 255 "$CODE"
+assert_eq "a connection that fails after the push still removes the shipped ref" "" "$(git -C "$rhome/dev/proj" for-each-ref refs/planwright-compute)"
 
 git -C "$lrepo" remote set-url origin https://example.invalid/acct/..
 run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh

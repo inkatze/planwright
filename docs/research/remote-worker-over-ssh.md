@@ -45,7 +45,7 @@ root, `<repo>` the remote host's own clone of the target repository.
    ssh <alias> 'f=$(mktemp "${TMPDIR:-/tmp}/brief.XXXXXX") && cat >"$f" &&
      <root>/scripts/mission-control-launch.sh launch --program <p> \
        --kind worker --scope <s> --brief "$f" --backend stream-json \
-       --repo <repo>' <brief
+       --repo <repo>; rm -f "$f"' <brief
    ```
 
    The remote launcher needs the program configured on the remote host. The
@@ -63,7 +63,7 @@ root, `<repo>` the remote host's own clone of the target repository.
 
    ```sh
    ssh <alias> 'f=$(mktemp "${TMPDIR:-/tmp}/brief.XXXXXX") && cat >"$f" &&
-     <root>/scripts/fleet-streamjson.sh steer <worker> --message-file "$f"' <message
+     <root>/scripts/fleet-streamjson.sh steer <worker> --message-file "$f"; rm -f "$f"' <message
    ```
 
 6. **Status and result.** `ssh <alias> <root>/scripts/fleet-streamjson.sh status <worker>`;

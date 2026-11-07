@@ -34,14 +34,18 @@ including its compute verb) landed with this bundle; Task 1 completes it.
 
 - **Deliverables:** A machine-local host registry (alias, repository alias to
   remote clone path, worker ceiling, account label, shared flag, idle
-  threshold, hold switch, unreachable grace) read through the config
-  resolver, refused when tracked; a reader script with a validation verb.
+  threshold, hold switch, unreachable grace, and the compute credential
+  stance: a login-free compute account, or the operator's acceptance) read
+  through the config resolver, refused when tracked; a reader script with a
+  validation verb.
 - **Done when:** a valid registry resolves; a malformed alias, a relative
   clone path or a registry in a tracked file is refused with the field named;
+  a host with no compute credential stance is refused for compute and still
+  accepted for workers;
   `check:purged-identifiers` and the data-hygiene sweep find no alias in any
   committed file the tests create.
 - **Dependencies:** none
-- **Citations:** D-2 · REQ-A1.1, REQ-F1.1
+- **Citations:** D-2, D-16 · REQ-A1.1, REQ-F1.1, REQ-G1.6
 - **Estimated effort:** 1 day
 
 ### Task 3 — Remote dispatch and routing
@@ -153,10 +157,12 @@ including its compute verb) landed with this bundle; Task 1 completes it.
   the gate ran.
 - **Done when:** fixtures show a gate run placed remotely when a host has
   room, run locally when none has, and rerun locally after a ship failure
-  (exit 4) or an unreachable host (exit 255) but not after a failing command;
+  (exit 4) or a run whose command never started (no `fleet-remote: running`
+  line on stderr), but never after a run whose command started, whatever
+  its exit status, 255 included;
   the step record names the host alias class (remote or local) without the
   alias itself.
-- **Dependencies:** Task 2, Task 6
+- **Dependencies:** Task 2, Task 4, Task 6
 - **Citations:** D-12, D-16 · REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-G1.4,
   REQ-G1.5
 - **Estimated effort:** 1 day

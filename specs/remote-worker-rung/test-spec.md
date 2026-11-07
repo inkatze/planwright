@@ -77,8 +77,9 @@ itself; no local credential file is read or sent.
 
 ### REQ-B1.5 — Retire and worktree removal [test]
 
-A merged unit's remote worktree is removed; an unmerged, unpushed or live one
-is kept.
+A merged unit's remote worktree is removed, and so is a closed-but-unmerged
+one with no unpushed work; a unit whose pull request is still open, one with
+unpushed work, and a live one are kept.
 
 ### REQ-B1.6 — Keep-awake [test]
 
@@ -194,8 +195,15 @@ hosting-remote login.
 ### REQ-G1.5 — Gate runs placed remotely with local fallback [test]
 
 Task 11's fixtures: remote placement with room, local with none, local rerun
-after a ship failure or an unreachable host, no rerun after a failing
-command.
+after a ship failure or a run whose command never started, no rerun after a
+run whose command started, a command exiting 255 included.
+
+### REQ-G1.6 — Compute credential stance [test]
+
+Task 2's fixtures: a host whose registry entry records no credential stance
+is refused for compute and still accepted for workers; one recording a
+login-free compute account, or the operator's acceptance, takes compute
+runs.
 
 ## REQ-F — Hygiene
 

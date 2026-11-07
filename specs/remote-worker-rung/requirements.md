@@ -53,8 +53,10 @@ and placement all see only the local host.
 
 - A second mission control on the remote host, and messaging between two
   mission controls on different machines (obs:57770415 stays open for that).
-- Moving git objects between hosts directly: branches go through the hosting
-  remote (GitHub) only.
+- Moving git objects between hosts directly, beyond the two paths this bundle
+  names: compute's push of one commit to the remote clone (REQ-G1.1) and the
+  fetch-back of a worker branch from a host with no hosting-remote login
+  (REQ-B1.7). Every other branch goes through the hosting remote (GitHub).
 - Installing or upgrading planwright, Claude Code, credentials or SSH keys on
   the remote host: that is the operator's machine setup (the dotfiles
   repository), which this bundle documents but does not perform.
@@ -88,9 +90,10 @@ and placement all see only the local host.
   error instead of waiting.
   *(Cites: D-4.)*
 - **REQ-A1.5** The channel SHALL resolve the planwright root on the remote
-  host, through that host's own installed-plugin record or its machine-local
-  environment file, and SHALL NOT send this host's root; a remote host with
-  no resolvable root SHALL fail with a message naming the fix.
+  host, through that host's own installed-plugin record, SHALL NOT send this
+  host's root, and SHALL NOT let a caller point a verb at another copy; a
+  remote host with no resolvable root SHALL fail with a message naming the
+  fix.
   *(Cites: D-3.)*
 - **REQ-A1.6** Before a dispatch, the channel SHALL report the remote
   planwright version, and a dispatch SHALL be refused when the remote version
@@ -232,6 +235,12 @@ and placement all see only the local host.
   per-host capacity rule as remote workers, falling back to a local run
   when no host has room or the channel fails before the command starts.
   *(Cites: D-12, D-16.)*
+- **REQ-G1.6** Because a compute run executes the shipped commit's code as
+  the remote account, a host SHALL take compute runs only when its registry
+  entry records how that account's credentials are kept from that code: an
+  account holding no hosting-remote or model login, or the operator's
+  explicit acceptance that the code can read the logins it holds.
+  *(Cites: D-11, D-16.)*
 
 ## REQ-F — Hygiene
 
