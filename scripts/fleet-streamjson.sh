@@ -906,7 +906,10 @@ read_scope() {
 
 # The tail of every request row's question, and what dead_row_clear tells a
 # request row by, so rewording it here keeps the two in step. Rows written
-# by earlier versions carry the same text.
+# by earlier versions carry the same text. scripts/fleet-attention.sh's
+# queue --tally tells a permission request by it too (STREAMJSON_ANSWER_HINT),
+# and by the request question's leading wording below, so reword neither
+# without it.
 ANSWER_HINT='answer via fleet-streamjson.sh answer'
 
 # attention_upsert <worker> <dir> <id> <kind> [priority] — upsert the
