@@ -266,6 +266,15 @@ mc_run fleet-attention.sh clear w-req
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
 expect_out "one approval is said in the singular" ", 1 approval mission control is handling,"
 for w in w-perm w-ask; do mc_run fleet-attention.sh clear "$w"; done
+# A queue that cannot be read is said so, with no split and no clause.
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$fleet/attention/state"
+  mc_run mc-panel.sh digest --program alpha --target mc-alpha --now 1030
+  chmod 600 "$fleet/attention/state"
+  record "an unreadable queue is named" unreadable "operator queue"
+  expect_no_out "and no approvals are counted from it" "approvals${tab}"
+  expect_no_out "nor said in the line" "mission control is handling"
+fi
 
 # A store that cannot be read is said, never drawn as empty.
 printf 'format\t9\n' >"$runtime/measures"

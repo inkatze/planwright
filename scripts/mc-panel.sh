@@ -87,7 +87,8 @@ Usage:
                                              a fleet registry session seen
                                              live (its process or tmux
                                              window still there), `waiting`
-                                             when parked on a question,
+                                             when parked on a question or a
+                                             permission prompt,
                                              `stuck` when it stopped
                                              responding; `-` for a field its
                                              record lacks
