@@ -63,7 +63,8 @@
 # it uses no construct the analyzer cannot confidently parse — process
 # substitution, a command substitution outside the narrow form
 # verify_known_simple and subst_words_ok admit, here-docs, subshell or brace
-# grouping, env-assignment prefixes, path-prefixed verbs, escaped operators,
+# grouping, env-assignment prefixes (but the step context, strip_step_context),
+# path-prefixed verbs, escaped operators,
 # ANSI-C quoting, shell comments, named-fd redirects — all of which defer
 # (REQ-A1.9). The segments are read in run order, so the state one sets applies to those after it: a `cd` into the
 # session's own worktree moves the working directory later segments are
@@ -3591,7 +3592,8 @@ ls_remote_url_ok() {
 #     shell itself consumes, evaluates as arithmetic, or rewrites on its own
 #     (IFS, CDPATH, the BASH_* family, PS4, RANDOM, REPLY, UID...);
 #   * the name and the `=` are unquoted, and the word is the WHOLE simple
-#     command: an assignment PREFIX before a verb still defers (REQ-A1.9);
+#     command: an assignment PREFIX before a verb still defers (REQ-A1.9),
+#     the step context strip_step_context reads aside;
 #   * the VALUE is any literal of a plain character set (see
 #     assign_value_literal), bare or quoted as a whole from its first
 #     character; one carrying an expansion, any other character, a quote
@@ -4691,19 +4693,61 @@ step_context_value_ok() {
   return 0
 }
 
+# The fields a caller of step-run.sh supplies; it computes the rest itself.
+readonly STEP_CALLER_FIELDS='SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER'
+
+# step_context_record_ok <field> <value>: the value the session record implies
+# for a field, so a worker can carry its own unit's context and no other. The
+# unit comes from the record's unit branch (a flight carries no spec or task
+# ids), the worktree and base from its worktree root and PR base.
+step_context_record_ok() {
+  local f=$1 v=$2 kind spec ids id
+  [ -n "$REC_UNIT" ] && [ -n "$REC_WT" ] || return 1
+  case $REC_UNIT in
+    planwright/flight/*)
+      kind=flight spec='' ids=''
+      ;;
+    planwright/*/task-*)
+      kind=task
+      spec=${REC_UNIT#planwright/}
+      spec=${spec%%/*}
+      ids=${REC_UNIT##*/task-}
+      ids=${ids//-/ }
+      ;;
+    *) return 1 ;;
+  esac
+  case $f in
+    UNIT_KIND) [ "$v" = "$kind" ] ;;
+    SPEC) [ "$v" = "$spec" ] ;;
+    TASK_IDS)
+      [ -n "$v" ] || [ -z "$ids" ] || return 1
+      for id in $v; do
+        case " $ids " in
+          *" $id "*) ;;
+          *) return 1 ;;
+        esac
+      done
+      ;;
+    BRANCH) [ "$v" = "$REC_UNIT" ] ;;
+    BASE_BRANCH) [ -n "$REC_BASE" ] && { [ "$v" = "$REC_BASE" ] || [ "origin/$v" = "$REC_BASE" ]; } ;;
+    WORKTREE) [ "$v" = "$REC_WT" ] || [ "$v" = "$REC_WT/" ] ;;
+    PR_NUMBER) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # strip_step_context: drop a leading run of literal `PLANWRIGHT_STEP_<field>=`
-# assignments from the current simple command, setting STEP_CTX_PREFIXED, so
-# the command they prefix is verified as if it stood alone; verify_known_simple
-# then holds that command to a trusted script. Each Bash call is a fresh shell,
-# so the cadence's step-run.sh and step-record.sh calls can carry the unit's
-# context only this way. Non-zero defers: a field outside STEP_CONTEXT_FIELDS
-# (the pool hold mark is the runner's own), a field repeated, a quoted name, a
-# value that is not literal or that step_context_value_ok refuses, or nothing
-# left to run.
+# assignments, as written and before any expansion, from the current simple
+# command, setting STEP_CTX_PREFIXED, so the command they prefix is verified
+# as if it stood alone; verify_known_simple then holds that command to a
+# trusted script. Each Bash call is a fresh shell, so the cadence's step-run.sh
+# and resolve-steps.sh calls can carry the unit's context only this way.
+# Non-zero defers: a field outside STEP_CALLER_FIELDS, a field repeated, a
+# quoted name, a value that is not literal, holds a `~`, or is not the one
+# step_context_value_ok and the session record admit, or nothing left to run.
 STEP_CTX_PREFIXED=0
 strip_step_context() {
   local n=0 w name f seen=' '
-  STEP_CTX_PREFIXED=0
   while [ "$n" -lt "$cwn" ]; do
     w=${cw[n]}
     case $w in
@@ -4712,7 +4756,7 @@ strip_step_context() {
     esac
     name=${w%%=*}
     f=${name#PLANWRIGHT_STEP_}
-    case " $STEP_CONTEXT_FIELDS " in
+    case " $STEP_CALLER_FIELDS " in
       *" $f "*) ;;
       *) return 1 ;;
     esac
@@ -4726,10 +4770,15 @@ strip_step_context() {
     fi
     [ -z "${csub[n]-}" ] || return 1
     word_unresolved "$w" "${cdyn[n]}" "${cglob[n]}" "${cx[n]}" && return 1
+    # The shell tilde-expands an assignment value after the check.
+    case ${w#*=} in
+      *'~'*) return 1 ;;
+    esac
     step_context_value_ok "$f" "${w#*=}" || return 1
+    step_context_record_ok "$f" "${w#*=}" || return 1
     n=$((n + 1))
   done
-  [ "$n" -lt "$cwn" ] || return 1
+  [ "$n" -gt 0 ] && [ "$n" -lt "$cwn" ] || return 1
   shift_words "$n"
   STEP_CTX_PREFIXED=1
 }
@@ -5212,15 +5261,17 @@ verify_known_simple() {
   if [ "$cwn" -eq 1 ] && track_assignment; then
     return 0
   fi
+  # The step context is read as written, before expansion: a word that only
+  # becomes `PLANWRIGHT_STEP_*=` through `$NAME` is a command name to bash.
+  STEP_CTX_PREFIXED=0
+  case ${cw[0]} in
+    PLANWRIGHT_STEP_*=*) strip_step_context || return 1 ;;
+  esac
   # Resolve the tracked assignments into this command's words, so a verb,
   # script path, or screened operand written through `$NAME` is verified as
   # the words the shell will run. Words carrying a literal `$` are left alone.
   [ "$VAR_C" -eq 0 ] || expand_words
   [ "$cwn" -ge 1 ] || return 0
-  STEP_CTX_PREFIXED=0
-  case ${cw[0]} in
-    PLANWRIGHT_STEP_*=*) strip_step_context || return 1 ;;
-  esac
   strip_prefixes || return 1
   # The floor again, on the words the shell will run.
   deny_hit "${cw[@]}" && return 1
