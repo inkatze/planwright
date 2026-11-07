@@ -868,8 +868,8 @@ them. Every `--` notice prints before the request's content, so reading the
 view through `head` never drops one. A missing, symlinked, or malformed envelope
 prints `-- request envelope unreadable` instead. A worker that is positively
 dead (every pid it recorded is gone, by `fleet-death-evidence.sh`, or its run
-recorded its end and left no pid file) gets a `-- worker dead` line under
-each header: nobody can answer those requests, and
+ended: no pid file left beside a complete result record) gets a
+`-- worker dead` line under each header: nobody can answer those requests, and
 the next `alarm-scan` settles them. The request text is the worker's, so
 it is treated as untrusted: control bytes are stripped (C1 bytes too, which
 mangles some non-ASCII punctuation, the same trade the script's echo
@@ -2082,7 +2082,7 @@ mechanism. `fleet_daemon_pause` pauses the pass.
 The pass clears display rows only: a dead worker's pending stream-json
 receipts are the rung's to settle, which its `stop` does and so does the next
 `alarm-scan` once every pid the worker recorded is positively dead or its run
-has recorded its end.
+has ended (no pid file left beside a complete result record).
 
 ## Resource governance: models, throttling, and the auto-mode line
 
