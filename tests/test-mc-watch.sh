@@ -114,6 +114,35 @@ check "REQ-E1.1: the re-armed watcher runs" poll_until --what "the re-armed watc
 check "REQ-E1.5: the stop event was in the store before the re-armed watcher ran" \
   grep -q '^alpha-duty 1$' "$WATCH_RUNS/alpha-watch"
 
+# A stop alone is routine, so a watcher that keeps dying would stay dead
+# unseen: its third stop inside an hour is a watcher-failing event, once.
+t_now=$(date +%s)
+printf '%s\n%s\n' $((t_now - 120)) $((t_now - 60)) >"$wdir/$watch_slot.stops"
+old=$(rec_pid "$watch_slot")
+kill "$old"
+check "the watcher killed again exits" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
+mc_run mc-watch.sh pass --program alpha
+expect_out "a third stop inside an hour is a failure" "failing${tab}alpha-duty${tab}scripts/alpha-watch.sh${tab}e"
+mc_run mc-event.sh list --program alpha
+expect_out "the failure lands in the attention store" "watcher-failing${tab}alpha-duty${tab}scripts/alpha-watch.sh stopped 3 times within 60 minutes"
+old=$(rec_pid "$watch_slot")
+kill "$old"
+check "and once more" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
+mc_run mc-watch.sh pass --program alpha
+expect_out "the fourth stop is still reported" "stopped${tab}alpha-duty"
+expect_no_out "but raises no second failure in the same streak" "failing${tab}"
+printf '%s\n' $((t_now - 7200)) >"$wdir/$watch_slot.stops"
+old=$(rec_pid "$watch_slot")
+kill "$old"
+check "a stop after a quiet hour" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
+mc_run mc-watch.sh pass --program alpha
+expect_no_out "starts a new count, raising no failure" "failing${tab}"
+if [ "$(grep -c . "$wdir/$watch_slot.stops")" -eq 1 ]; then
+  ok "stops older than the hour are dropped"
+else
+  fail "the stop record kept stops older than the hour: $(cat "$wdir/$watch_slot.stops")"
+fi
+
 # A process whose arguments merely end like the slot's loop is not trusted.
 loop_pid=$(rec_pid "$watch_slot")
 kill "$loop_pid" 2>/dev/null

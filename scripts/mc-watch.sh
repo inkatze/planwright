@@ -13,6 +13,8 @@ export LC_ALL
 unset CDPATH
 
 prog=mc-watch
+FLAP_STOPS=3
+FLAP_WINDOW=3600
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 for lib in echo-safety.sh mc-lib.sh lock-lib.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
@@ -58,7 +60,8 @@ THE RECORD of an armed watcher is <runtime>/watchers/<slot>.rec, the slot
 derived from the duty and the script:
   <pid><TAB><armed epoch><TAB><duty><TAB><script><TAB><cadence><TAB><cost>
 <slot>.last holds `<epoch><TAB><exit><TAB><refused events>` of its latest
-run and <slot>.log the loop's stderr. A pid is only trusted, or signalled,
+run, <slot>.stops the epochs of its stops in the last hour, and <slot>.log
+the loop's stderr. A pid is only trusted, or signalled,
 while that process's whole argument list is this runner's loop for that
 slot.
 
@@ -72,7 +75,9 @@ scripts/lock-lib.sh), so two runners never interleave, and in order:
      handover stop medium-cost ones too, and a watcher above its duty's
      spend class is not armed;
   3. each watcher: running, armed, or stopped and re-armed, the stop
-     emitted as a `watcher-stopped` event before the re-arm; a live one
+     emitted as a `watcher-stopped` event before the re-arm (routine: it
+     wakes nobody), and a third stop of one watcher inside an hour as a
+     `watcher-failing` event too, once per streak; a live one
      whose catalog cadence or cost changed is restarted on the new values
      (`updated`, no event); a script that does not resolve, or a cadence
      that does not parse, is reported unresolvable and neither armed nor
@@ -84,7 +89,7 @@ scripts/lock-lib.sh), so two runners never interleave, and in order:
 One line per act: armed, rearmed, updated, running (with `unverified` when the
 process table could not be read for its pid, and nothing is re-armed),
 paused (with the rung or the spend class), unresolvable, disarmed, stopped
-(with the event id), then the event, snapshot and wake scripts' own lines
+and failing (each with the event id), then the event, snapshot and wake scripts' own lines
 prefixed `event`, `snapshot` and `wake`. A pass whose lock another runner
 holds prints `busy`.
 
@@ -230,10 +235,27 @@ record_pid() { [ -f "$wdir/$1.rec" ] && cut -f1 "$wdir/$1.rec" | head -n 1; }
 
 stop_slot() {
   ss_pid=$(record_pid "$1")
-  rm -f "$wdir/$1.rec" "$wdir/$1.last"
+  rm -f "$wdir/$1.rec" "$wdir/$1.last" "$wdir/$1.stops"
   if [ -n "$ss_pid" ] && ours "$ss_pid" "$1"; then
     kill "$ss_pid" 2>/dev/null || :
   fi
+}
+
+# flapping <slot> <duty> <script>: note this stop in <slot>.stops and, on
+# the FLAP_STOPS-th stop inside FLAP_WINDOW seconds, emit watcher-failing.
+# A stop alone is routine and wakes nobody, so a watcher that dies on every
+# pass would otherwise stay dead unseen; the alert fires once per streak.
+flapping() {
+  if [ -n "$now" ]; then fl_now=$NOW; else fl_now=$(mc_now); fi
+  fl_file="$wdir/$1.stops"
+  fl_kept=$( { [ ! -f "$fl_file" ] || cat "$fl_file"; printf '%s\n' "$fl_now"; } \
+    | N=$fl_now W=$FLAP_WINDOW awk '$1 ~ /^[0-9]+$/ && $1 <= ENVIRON["N"] + 0 && ENVIRON["N"] - $1 < ENVIRON["W"] + 0') || return 1
+  printf '%s\n' "$fl_kept" | mc_write "$fl_file" || return 1
+  fl_n=$(printf '%s\n' "$fl_kept" | awk 'NF { n++ } END { print n + 0 }')
+  [ "$fl_n" -eq "$FLAP_STOPS" ] || return 0
+  fl_id=$(mc_event emit --program "$program" -- \
+    watcher-failing "$2" "$3 stopped $fl_n times within $((FLAP_WINDOW / 60)) minutes") || return 1
+  printf 'failing\t%s\t%s\t%s\n' "$2" "$3" "$fl_id"
 }
 
 # arm <slot> <duty> <script> <cadence> <cost>: start the loop and record it.
@@ -339,6 +361,7 @@ pass() {
       id=$(mc_event emit --program "$program" -- \
         watcher-stopped "$duty" "$script stopped; re-armed by the runner") || return 1
       printf 'stopped\t%s\t%s\t%s\n' "$duty" "$script" "$id"
+      flapping "$s" "$duty" "$script" || return 1
       arm "$s" "$duty" "$script" "$cadence" "$cost" || return 1
       printf 'rearmed\t%s\t%s\n' "$duty" "$script"
     else
