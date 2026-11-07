@@ -1,0 +1,1 @@
+- 2026-11-06 [planwright] No launcher path starts a new program's mission control from an existing one as an attended, remote-control-enabled session; the operator asked from their phone for a mission control for another program (their dotfiles) and there was no verb for it.

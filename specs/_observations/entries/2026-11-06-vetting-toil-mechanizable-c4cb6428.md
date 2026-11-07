@@ -1,0 +1,1 @@
+- 2026-11-06 [planwright] Vetting toil is mechanizable: the stock watcher script exits at once on any parked or completed worker, so mission control hand-rolls a running-only watcher, and every wake brings 20 to 30 routine read-only or in-worktree permission prompts that it allows by hand. Both the watcher mode and the routine allow decisions could be shipped.
