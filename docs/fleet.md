@@ -831,16 +831,7 @@ directory whatever version wrote it, and mission control's session-keeper
 watcher runs it as `alarm-scan --once` on every pass: an overdue request
 becomes a high-priority queue item, is pushed once (the tick and `--once` share
 one mark per request; a plain scan pushes on every call), and wakes the
-mission-control session as a `pending-prompt-overdue` event. That wake reaches
-only the session that should answer, so a second session-keeper watcher,
-`scripts/mc-escalate.sh`, raises what that session leaves unanswered one level
-up, with no model in the path: a request still pending
-`mission_control_escalation_window` past the alarm, or the mission control's
-own pane showing an open dialog for that long, becomes a
-`mission-control-escalated` event in the hub program's store
-(`mission_control_escalation_hub`), and at twice the window a push through the
-notification seam. With no hub, the first level goes to the operator. A
-worker that is
+mission-control session as a `pending-prompt-overdue` event. A worker that is
 positively dead, or whose run ended (no pid file left beside a complete result
 record), is never escalated: what it left pending can no longer be answered,
 so the scan closes those receipts undeliverable, as a stop does, clears the
@@ -859,6 +850,28 @@ healthy-looking `running`. A worker records a `result` at the end of every turn
 and stays up for the next, so `awaiting-input` outranks an earlier turn's
 `completed`, and the stuck detector likewise keeps such a worker
 `waiting-on-a-human` rather than finished.
+
+**When the mission control itself does not answer.** The alarm's wake reaches
+the one session that should answer, which helps nothing when that session is
+stuck. A second session-keeper watcher, `scripts/mc-escalate.sh`, raises what
+a program's mission control leaves unanswered one level up, with no model in
+the path. Two things qualify: a request of one of the program's own live
+workers still pending `mission_control_escalation_window` past the alarm,
+and the mission control's own tmux pane showing an open dialog for that
+long. Auto mode's confirmation after blocked actions is one such dialog, and
+Remote Control does not show it. Either becomes a `mission-control-escalated`
+event in the hub program's store (`mission_control_escalation_hub`, when its
+holder is live), and at twice the window a second push to the operator
+through the notification seam. With no live hub, or for the hub's own items,
+the first level goes to the operator. Each level is raised once.
+
+The operator's answer to such a dialog reaches the pane through
+`scripts/mc-pane-answer.sh`. It delivers one digit to that program's own
+mission-control pane, never a pane the caller names. The digit must be an
+option the open dialog offers and must not add a standing permission. The
+answer must rest on a decisions-log entry recording the operator's words,
+made after the watcher first saw that dialog and used once. Its `--help`
+lists every refusal.
 
 `pending [<worker>...]` shows what those pending receipts are asking, so a
 tower can bring the operator the actual decision rather than a count. For each
@@ -1875,7 +1888,9 @@ given.
 and the busy footer markers live in one sourced file,
 `scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`,
 `fleet-stuck-detector.sh`, the relay's `deliver` step and mission control's
-stall detector (`scripts/mc-stall.sh`);
+stall detector (`scripts/mc-stall.sh`) and escalation watcher and pane relay
+(`scripts/mc-escalate.sh`, `scripts/mc-pane-answer.sh`, through
+`scripts/mc-session-pane.sh`);
 `FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
 the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
 are verified against the installed CLI's own bundle at each change and
