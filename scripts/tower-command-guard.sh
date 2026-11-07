@@ -30,8 +30,9 @@
 # wires it with no argument (tower mode). config/mission-control-settings.json
 # wires `mission-control`, which narrows the planwright scripts it approves to
 # the script verbs config/mission-control-verbs.txt lists (script_in_mode
-# below) and approves no `mise run`, so every other script, verb and task
-# reaches the prompt. An unknown mode approves nothing.
+# below), also run detached under setsid (guard_setsid), and approves no
+# `mise run`, so every other script, verb and task reaches the prompt. An
+# unknown mode approves nothing.
 #
 # Security contract (identical to the worker guard's — the whole point):
 #   * No LLM in the decision path (REQ-E1.3); purely deterministic shell. The
@@ -1349,6 +1350,27 @@ guard_bashsh() {
   is_planwright_script "${cw[1]}" "$HOOK_CWD"
 }
 
+# guard_setsid: mission-control mode only, the detached form the skill starts
+# its runner with: `setsid <script> [args]` or `setsid bash|sh <script>
+# [args]`, judged exactly as that script run is. Any option, and every other
+# command under setsid, defers.
+guard_setsid() {
+  [ "$GUARD_MODE" = mission-control ] || return 1
+  local i=1
+  case ${cw[1]-} in
+    bash | sh) i=2 ;;
+  esac
+  [ "$cwn" -gt "$i" ] || return 1
+  case ${cw[i]} in
+    -*) return 1 ;;
+    */*) ;;
+    *) return 1 ;;
+  esac
+  SCRIPT_HAS_NEXT=0 SCRIPT_NEXT=''
+  [ "$cwn" -le $((i + 1)) ] || SCRIPT_HAS_NEXT=1 SCRIPT_NEXT=${cw[i + 1]}
+  is_planwright_script "${cw[i]}" "$HOOK_CWD"
+}
+
 # gh: read-only gh only. A leading flag, or any non-enumerated group/sub pair,
 # defers — notably `gh pr merge` / `gh pr ready` are absent and so defer (the
 # deny block denies them regardless; the guard simply never allows them).
@@ -2439,6 +2461,7 @@ classify_verb() {
     claude) guard_claude ;;
     # Trusted planwright-script runner (path-contained).
     bash | sh) guard_bashsh ;;
+    setsid) guard_setsid ;;
     *) return 1 ;; # fallthrough is DEFER, by construction
   esac
 }

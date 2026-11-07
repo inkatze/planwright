@@ -1497,6 +1497,27 @@ expect_mc allow "a * entry covers its script run with no argument" "$REPO_ROOT/s
 expect_mc defer "an unlisted script prompts" "$REPO_ROOT/scripts/offload-dispatch.sh dispatch tmux brief.md"
 expect_mc defer "a git mutation is never pre-approved" "git commit -m wip"
 expect_mc defer "a ready flip is never pre-approved" "gh pr ready 42"
+# The skill starts its runner detached under setsid: a listed verb runs so
+# without a prompt, and setsid adds nothing to what is listed.
+expect_mc allow "a listed verb under setsid runs without a prompt" \
+  "setsid $REPO_ROOT/scripts/mc-watch.sh run --program alpha"
+expect_mc allow "a listed verb under setsid through bash, detached, runs without a prompt" \
+  "setsid bash $REPO_ROOT/scripts/mc-watch.sh run --program alpha >/dev/null 2>&1 &"
+expect_mc defer "an unlisted script under setsid prompts" \
+  "setsid $REPO_ROOT/scripts/offload-dispatch.sh dispatch tmux brief.md"
+expect_mc defer "an unlisted verb of a listed script under setsid prompts" \
+  "setsid $REPO_ROOT/scripts/mc-kb.sh revert 3"
+expect_mc defer "the raw prompt-answer verb under setsid prompts" \
+  "setsid $REPO_ROOT/scripts/fleet-streamjson.sh answer mc-alpha 1 yes"
+expect_mc defer "the raw prompt-answer verb under setsid through bash prompts" \
+  "setsid bash $REPO_ROOT/scripts/fleet-streamjson.sh answer mc-alpha 1 yes"
+expect_mc defer "setsid with any other command prompts" "setsid rm x"
+expect_mc defer "setsid with an option prompts" "setsid -f $REPO_ROOT/scripts/mc-watch.sh run --program alpha"
+expect_mc defer "setsid running a shell's command string prompts" \
+  "setsid bash -c '$REPO_ROOT/scripts/mc-watch.sh run --program alpha'"
+expect_mc defer "setsid alone prompts" "setsid"
+assert_defer "setsid stays outside the tower mode's approvals" \
+  "setsid $REPO_ROOT/scripts/mc-watch.sh run --program alpha"
 # A guard whose root carries no list approves no planwright script.
 NOLIST="$SANDBOX/nolist"
 WILD="$SANDBOX/wild"
@@ -1527,6 +1548,8 @@ expect_mc allow "a wildcard entry covers its script's verbs" \
   "$REPO_ROOT/scripts/fleet-streamjson.sh status mc-alpha" "$WILD_GUARD"
 expect_mc defer "the raw prompt-answer verb prompts under a wildcard entry" \
   "$REPO_ROOT/scripts/fleet-streamjson.sh answer mc-alpha 1 yes" "$WILD_GUARD"
+expect_mc defer "the raw prompt-answer verb under a wildcard entry and setsid prompts" \
+  "setsid $REPO_ROOT/scripts/fleet-streamjson.sh answer mc-alpha 1 yes" "$WILD_GUARD"
 # A repository mission control sits in is not planwright: its scripts/
 # directory is never trusted at this tier, whatever the names.
 OTHER="$SANDBOX/other-repo"
