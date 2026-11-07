@@ -1514,9 +1514,22 @@ kickoff_named() {
   return 1
 }
 
-# kickoff_path_ok <index> — 0 when the script word at <index> is a literal
-# path or a rooted one the command-word rule already reads.
-kickoff_path_ok() {
+# kickoff_script_ok <word> — 0 when the word is the planwright script itself: a
+# path whose basename is exactly kickoff-spec-push.sh under a scripts/
+# directory, literal or rooted. Any other file of that name is a script the
+# guard cannot read, so it is not admitted.
+kickoff_script_ok() {
+  local w=$1 dir
+  [ "${w##*/}" = kickoff-spec-push.sh ] || return 1
+  dir=${w%/*}
+  [ "$dir" != "$w" ] || return 1
+  [ "${dir##*/}" = scripts ]
+}
+
+# kickoff_script_at <index> — kickoff_script_ok on the command word at <index>,
+# which must also be literal or a rooted variable path the command-word rule reads.
+kickoff_script_at() {
+  kickoff_script_ok "${SW[$1]}" || return 1
   [ "${SWL[$1]:-0}" = 1 ] || [[ ${SW[$1]} =~ $RE_ROOTED_SCRIPT ]]
 }
 
@@ -1531,9 +1544,9 @@ kickoff_segment() {
   KICK_SEEN=$((KICK_SEEN + 1))
   lc "${SW[0]##*/}"
   case $LC in bash | sh | zsh | dash | ksh | mksh) form=shell ;; esac
-  if [ "$form" = shell ] && [ "$n" = 3 ] && kickoff_named "${SW[1]}" && kickoff_path_ok 1; then
+  if [ "$form" = shell ] && [ "$n" = 3 ] && kickoff_script_at 1; then
     [ "${SWL[2]:-0}" = 1 ] && spec=${SW[2]}
-  elif [ "$form" = direct ] && [ "$n" = 2 ] && kickoff_named "${SW[0]}" && kickoff_path_ok 0; then
+  elif [ "$form" = direct ] && [ "$n" = 2 ] && kickoff_script_at 0; then
     [ "${SWL[1]:-0}" = 1 ] && spec=${SW[1]}
   else
     deny_now 'this command names scripts/kickoff-spec-push.sh in a form the guard cannot check - refusing (fail closed). Run it directly, as scripts/kickoff-spec-push.sh <spec>, with no other arguments.'

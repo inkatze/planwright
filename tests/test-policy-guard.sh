@@ -926,6 +926,10 @@ PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'sh /opt/planwright/scripts/kickoff-spe
 expect deny "[worker, task-1] a literal-path kickoff push without a git word still denies"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'sh /opt/planwright/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
 expect defer "[worker, kickoff-demo] a literal-path kickoff push defers to the script"
+for cmd in './kickoff-spec-push.sh demo' '/tmp/evil/kickoff-spec-push.sh demo' 'bash ./kickoff-spec-push.sh demo'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$cmd" "$SPEC" "$SPEC"
+  expect deny "[worker, kickoff-demo] a same-named file outside scripts/ is not the kickoff script: $cmd"
+done
 
 no_gh_calls
 finish
