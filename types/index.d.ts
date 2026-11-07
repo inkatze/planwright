@@ -34,6 +34,8 @@ export type PanelDigest = {
   finished: number | null
   waiting: number | null
   mergeReady: number | null
+  // Some pull requests could not be judged, so mergeReady is a floor.
+  isMergeReadyPartial: boolean
   pending: number | null
   decisions: PanelDecision[]
   rung: { name: string; reason: string }

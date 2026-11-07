@@ -1,6 +1,6 @@
 import type { Elements, RenderSurface } from 'claude-code'
 
-import type { PanelReviews, PanelView } from '../../types'
+import type { PanelDigest, PanelReviews, PanelView } from '../../types'
 import { age, counted, flightLines } from './digest'
 
 type Table = Elements[RenderSurface]
@@ -42,12 +42,21 @@ function limits(view: PanelView): string {
   return view.rateLimits.map(r => `${r.kind} ${Math.round(r.percentUsed)}%`).join(' · ')
 }
 
+// The pull requests ready to merge, a floor (`3+`) or `?` when some could
+// not be judged; null when there is nothing to say.
+function mergeReadyCount(d: PanelDigest): string | null {
+  const n = d.mergeReady ?? 0
+  if (d.isMergeReadyPartial) return n > 0 ? `${n}+` : '?'
+  return n > 0 ? String(n) : null
+}
+
 export function bandText(view: PanelView): string {
   const d = view.digest
   const parts = [`✈ ${view.program}`]
   if (d) {
     parts.push(`${flightCount(view)} in flight`, `${d.waiting ?? '?'} holding`)
-    if (d.mergeReady !== null && d.mergeReady > 0) parts.push(`${d.mergeReady} to merge`)
+    const toMerge = mergeReadyCount(d)
+    if (toMerge !== null) parts.push(`${toMerge} to merge`)
     if (d.pending !== null && d.pending > 0) parts.push(`${d.pending} inbound`)
     parts.push(`rung ${d.rung.name}`)
   } else {
@@ -181,7 +190,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
         'Holding for you',
         [
           `${d.waiting === null ? 'unknown' : d.waiting} waiting on you`,
-          ...(d.mergeReady !== null && d.mergeReady > 0 ? [`${d.mergeReady} ready to merge`] : []),
+          ...(mergeReadyCount(d) !== null ? [`${mergeReadyCount(d)} ready to merge`] : []),
           ...(d.pending !== null ? [`${d.pending} event(s) inbound`] : []),
         ],
       )}

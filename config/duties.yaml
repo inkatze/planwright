@@ -98,7 +98,7 @@ duties:
     never-propose: false
   - id: prepared-moments
     summary: "Assembles the packet for a decision before the operator is asked to make it"
-    triggers: [readiness-due, ready-offer]
+    triggers: [readiness-due, ready-offer, merge-ready]
     watchers: []
     wake: none
     rules: [packets]

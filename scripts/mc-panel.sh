@@ -101,10 +101,11 @@ Usage:
         waiting<TAB><n|->                    the operator queue's items, `-`
                                              where the backend surfaces the
                                              queue itself
-        merge-ready<TAB><n>                  pull requests ready to merge
+        merge-ready<TAB><n><TAB>all|partial  pull requests ready to merge
                                              (scripts/mc-merge-ready.sh count);
                                              the line names them unless none,
-                                             `?` when they cannot be told
+                                             `<n>+` (or `?` for none) when
+                                             some could not be judged
         pending<TAB><n>                      the target's events not yet
                                              submitted (with --target)
         decision<TAB><time><TAB><subject><TAB><act>
@@ -185,8 +186,9 @@ Usage:
         mission control <p>
         in flight: <n>               then one indented line per flight
         waiting: <n>
-        ready to merge: <n>          unless none, `unknown` when they
-                                     cannot be told (mc-merge-ready.sh)
+        ready to merge: <n>          unless none; `<n> or more` or
+                                     `unknown` when some could not be
+                                     judged (mc-merge-ready.sh)
         pending wakes: <n>           with --target
         rung: <rung> (<reason>)
       a store that cannot be read is said as unknown, with why
@@ -897,9 +899,17 @@ waiting() {
 }
 
 merge_ready() {
-  if mg_n=$(/bin/bash "$script_dir/mc-merge-ready.sh" count --program "$program" 2>/dev/null) && mc_valid_uint "$mg_n"; then
-    D_MERGE_READY=$mg_n
-    printf 'merge-ready\t%s\n' "$mg_n"
+  mg_all=""
+  if mg_row=$(/bin/bash "$script_dir/mc-merge-ready.sh" count --program "$program" 2>/dev/null) \
+    && mg_n=${mg_row%%"$TAB"*} && mg_all=${mg_row#*"$TAB"} && mc_valid_uint "$mg_n"; then
+    case $mg_all in
+      all) D_MERGE_READY=$mg_n ;;
+      partial) if [ "$mg_n" -gt 0 ]; then D_MERGE_READY="$mg_n+"; fi ;;
+      *) mg_all="" ;;
+    esac
+  fi
+  if [ -n "$mg_all" ]; then
+    printf 'merge-ready\t%s\t%s\n' "$mg_n" "$mg_all"
   else
     printf 'unreadable\tmerge-ready store\n'
   fi
@@ -1133,7 +1143,8 @@ text_panel() {
   } | P=$program awk -F '\t' '
     $1 == "flight" { f[++n] = "  " $2 "  " $3 "  (" $4 ")" }
     $1 == "waiting" { w = ($2 == "-" ? "shown by the host" : $2) }
-    $1 == "merge-ready" { m = $2 + 0 }
+    $1 == "merge-ready" && $3 == "all" { m = $2 + 0 }
+    $1 == "merge-ready" && $3 == "partial" { m = ($2 > 0 ? $2 " or more" : "unknown") " (some could not be judged)" }
     $1 == "unreadable" && $2 == "merge-ready store" { m = "unknown (the merge-ready store cannot be read)" }
     $1 == "pending" { p = $2 }
     $1 == "unreadable" && $2 == "events" { p = "unknown (the events cannot be read)" }

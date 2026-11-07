@@ -1,10 +1,10 @@
 #!/bin/bash
 # Tests for scripts/mc-merge-ready.sh — the pull requests ready to merge: a
-# non-draft, mergeable, green pull request with no open thread and no change
-# requested whose readiness check passes at its head, listed with its checked
-# merge command in the repository's merge method, announced once per head and
-# listed again on every read until it merges or changes; whatever cannot be
-# judged is said as unknown, never as none.
+# non-draft, mergeable, green pull request with no open thread and no review
+# outstanding whose readiness walk passes at its head and whose merge
+# conditions recommend it, listed with its checked merge command, announced
+# once per head and listed again on every read until it merges or changes;
+# whatever cannot be judged is said as unknown, never as none.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-mc-merge-ready.sh
@@ -32,33 +32,55 @@ trap 'rm -rf "$tmp"' EXIT
 
 tab=$(printf '\t')
 reset_mc_fixture
+mchome="$tmp/mchome"
 cat >"$tracked" <<EOF
 mission_control_programs: [alpha]
 program_alpha_repositories: [$repo]
 program_alpha_spec_root: $repo
-program_alpha_home: $tmp/mchome
+program_alpha_home: $mchome
 program_alpha_sources: {code-state: forge:snapshot}
 EOF
-mkdir -p "$tmp/mchome"
+mkdir -p "$mchome"
 
-# The scripts under test run from a copy whose readiness check is a stub: it
-# answers from $tmp/verdict.<n> (ready, at the head in $tmp/head.<n>;
-# not-ready; or anything else for a check that could not run) and logs each
-# call.
+# The scripts under test run from a copy whose readiness check is a stub.
+# collect writes the evidence at the head in $tmp/head.<n> with the labels
+# in $tmp/labels.<n>, or fails when $tmp/verdict.<n> says broken; walk
+# answers from $tmp/verdict.<n> (ready, not-ready, or walkfail). Each
+# collect is logged.
 pw="$tmp/pw"
 mkdir -p "$pw"
 cp -R "$repo_root/scripts" "$pw/scripts"
 cat >"$pw/scripts/mc-readiness.sh" <<EOF
 #!/bin/bash
-printf '%s\n' "\$*" >>"$tmp/check.calls"
-n=""
-while [ \$# -gt 0 ]; do [ "\$1" = --pr ] && n=\$2; shift; done
-case \$(cat "$tmp/verdict.\$n" 2>/dev/null) in
-  ready) printf 'ready\t%s\n' "\$(cat "$tmp/head.\$n")"; exit 0 ;;
-  not-ready) printf 'not-ready\t-\nfail\tcheck\tci is PENDING\n'; exit 4 ;;
+verb=\$1
+shift
+n="" out="" ev=""
+while [ \$# -gt 0 ]; do
+  case \$1 in --pr) n=\$2 ;; --out) out=\$2 ;; --evidence) ev=\$2 ;; esac
+  shift
+done
+case \$verb in
+  collect)
+    printf 'collect --pr %s\n' "\$n" >>"$tmp/check.calls"
+    if [ "\$(cat "$tmp/verdict.\$n")" = broken ]; then printf 'gh: not logged in\n' >&2; exit 1; fi
+    {
+      printf '# format: 1\nhead\t%s\n' "\$(cat "$tmp/head.\$n")"
+      cat "$tmp/labels.\$n" 2>/dev/null
+      printf 'path\tsrc/app.c\tMODIFIED\nstubpr\t%s\n' "\$n"
+    } >"\$out"
+    exit 0
+    ;;
+  walk)
+    n=\$(awk -F '\t' '\$1 == "stubpr" { print \$2 }' "\$ev")
+    case \$(cat "$tmp/verdict.\$n") in
+      ready) printf 'ready\t-\n'; exit 0 ;;
+      not-ready) printf 'not-ready\t-\nfail\tcheck\tci is PENDING\n'; exit 4 ;;
+    esac
+    printf 'walk broke\n' >&2
+    exit 1
+    ;;
 esac
-printf 'gh: not logged in\n' >&2
-exit 1
+exit 2
 EOF
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/gh" <<EOF
@@ -72,30 +94,31 @@ exit 1
 EOF
 chmod +x "$tmp/bin/gh"
 printf 'SQUASH\n' >"$tmp/method"
+: >"$tmp/check.calls"
+: >"$tmp/gh.calls"
 
 run() { # run <args...>: the copy's mc-merge-ready.sh against the fixture
   OUT=$(PATH="$tmp/bin:$PATH" mc_env /bin/bash "$pw/scripts/mc-merge-ready.sh" "$@" 2>"$tmp/stderr")
   RC=$?
   ERR=$(cat "$tmp/stderr")
 }
-calls() { awk 'END { print NR + 0 }' "$tmp/check.calls" 2>/dev/null || echo 0; }
-views() { grep -c '^repo view' "$tmp/gh.calls" 2>/dev/null || echo 0; }
-checked_since() { # checked_since <calls before>: did a check run since?
-  [ "$(calls)" -gt "$1" ]
-}
+calls() { awk 'END { print NR + 0 }' "$tmp/check.calls"; }
+views() { awk '/^repo view/ { n++ } END { print n + 0 }' "$tmp/gh.calls"; }
+checked_since() { [ "$(calls)" -gt "$1" ]; }
 
 H=1111111111111111111111111111111111111111
 J=2222222222222222222222222222222222222222
 snapdir="$fleet/mission-control/alpha/snapshots"
+store="$fleet/mission-control/alpha/merge-ready.tsv"
 mkdir -p "$snapdir"
-now=$(date +%s)
-row() { # row <n> <head> <draft> <mergeable> <threads> <checks> [<decision> [<comments>]]
-  printf 'pr\tacme/web\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t0\t%s\tp%s\n' "$1" "$2" "$3" "$4" "${7:-NONE}" "$5" "$6" "${8:-0}" "$1"
+T=$(date +%s)
+row() { # row <n> <head> <draft> <mergeable> <threads> <checks> [<decision> [<reviews> [<comments>]]]
+  printf 'pr\tacme/web\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tp%s\n' "$1" "$2" "$3" "$4" "${7:-NONE}" "$5" "$6" "${8:-0}" "${9:-0}" "$1"
 }
-taken() { printf 'format\t1\nsource\tforge\ntaken\t%s\n' "${1:-$now}"; }
-only7() { # only7 <head> [<comments>]: a snapshot holding #7 alone
+taken() { printf 'format\t1\nsource\tforge\ntaken\t%s\n' "${1:-$T}"; }
+only7() { # only7 <head> [<decision> [<reviews> [<comments>]]]: a snapshot of #7 alone, taken at T
   taken
-  row 7 "$1" false MERGEABLE 0 SUCCESS NONE "${2:-0}"
+  row 7 "$1" false MERGEABLE 0 SUCCESS "${2:-NONE}" "${3:-0}" "${4:-0}"
 }
 {
   taken
@@ -107,53 +130,48 @@ only7() { # only7 <head> [<comments>]: a snapshot holding #7 alone
   row 12 "$H" false MERGEABLE 0 SUCCESS
   row 13 "$H" false MERGEABLE 0 SUCCESS CHANGES_REQUESTED
   row 14 "$H" false MERGEABLE 0 SUCCESS
+  row 15 "$H" false MERGEABLE 0 SUCCESS REVIEW_REQUIRED
 } >"$snapdir/forge"
-for n in 7 8 9 10 11 12 13 14; do
+for n in 7 8 9 10 11 12 13 14 15; do
   printf '%s\n' "$H" >"$tmp/head.$n"
   printf 'ready\n' >"$tmp/verdict.$n"
 done
 printf 'not-ready\n' >"$tmp/verdict.12"
 cmd() { printf 'gh pr merge %s --repo acme/web --%s --match-head-commit %s' "$1" "${3:-squash}" "$2"; }
 cmd7=$(cmd 7 "$H")
+ready7() { printf 'ready\tacme/web#7\t%s\t%s' "$1" "$(cmd 7 "$1" "${2:-squash}")"; }
+inbox() { printf '%s\n' "$OUT" | mc_env /bin/bash "$repo_root/scripts/mc-inbox.sh" status 2>/dev/null; }
 
 # ---------------------------------------------------------------------------
-# list: the readiness check decides, and only a candidate is checked.
+# list: the readiness walk decides, and only a candidate is walked.
 # ---------------------------------------------------------------------------
-run list --program alpha
+run list --program alpha --now "$T"
 expect_rc "list" 0
-expect_eq "each candidate whose check passes is ready, with its checked merge command" \
-  "ready${tab}acme/web#7${tab}$H${tab}$cmd7
+expect_eq "each candidate whose walk passes is ready, with its checked merge command" \
+  "$(ready7 "$H")
 ready${tab}acme/web#14${tab}$H${tab}$(cmd 14 "$H")"
 checked=$(awk '{ print $NF }' "$tmp/check.calls" | sort -n | tr '\n' ' ')
 if [ "$checked" = "7 12 14 " ]; then
-  ok "a draft, a conflict, an open thread, red checks and a change requested are never checked"
+  ok "a draft, a conflict, an open thread, red checks and an outstanding review are never walked"
 else
-  fail "checked: $checked"
+  fail "walked: $checked"
 fi
 if [ "$(views)" = 1 ]; then ok "the merge method is read once per repository"; else fail "repo view ran $(views) times"; fi
 
 before=$(calls)
-run list --program alpha
-expect_out "a second read lists the ready one again" "ready${tab}acme/web#7${tab}$H${tab}$cmd7"
-if checked_since "$before"; then fail "an unchanged state was checked again"; else ok "an unchanged state is not checked again"; fi
+run list --program alpha --now "$T"
+expect_eq "a second read lists both again" "$(ready7 "$H")
+ready${tab}acme/web#14${tab}$H${tab}$(cmd 14 "$H")"
+if checked_since "$before"; then fail "an unchanged state was walked again"; else ok "an unchanged state is not walked again"; fi
 run count --program alpha
-expect_eq "count reads the last verdicts, with no forge read" "2"
+expect_eq "count reads the last verdicts, with no forge read" "2${tab}all"
 
-run list --program alpha --as-status
+run list --program alpha --now "$T" --as-status
 expect_out "as status lines" "decision${tab}Ready to merge: acme/web#7 at $(printf '%s' "$H" | cut -c1-12), run: $cmd7"
-st=$(printf '%s\n' "$OUT" | mc_env /bin/bash "$repo_root/scripts/mc-inbox.sh" status 2>/dev/null)
-case $st in
+case $(inbox) in
   Decisions*"- Ready to merge: acme/web#7"*Landed*) ok "the first-turn status lists it under Decisions" ;;
-  *) fail "status form: $st" ;;
+  *) fail "status form: $(inbox)" ;;
 esac
-
-# Every verdict is judged again once half an hour old, ready ones too.
-printf 'ready\n' >"$tmp/verdict.12"
-printf 'not-ready\n' >"$tmp/verdict.14"
-run list --program alpha --now $((now + 1801))
-expect_eq "an aged verdict is judged again, both ways" \
-  "ready${tab}acme/web#7${tab}$H${tab}$cmd7
-ready${tab}acme/web#12${tab}$H${tab}$(cmd 12 "$H")"
 
 # ---------------------------------------------------------------------------
 # watch: one merge-ready event per ready head.
@@ -166,123 +184,218 @@ expect_rc "the watcher runs with no arguments under the runner" 0
 expect_eq "it announces the ready pull request" "announced${tab}merge-ready${tab}acme:web:7"
 mc_run mc-event.sh list --program alpha
 expect_out "the event carries the merge command" "merge-ready${tab}acme:web:7${tab}acme/web#7 is ready to merge: $cmd7"
-run watch --program alpha
-expect_eq "an announced head is not announced again" ""
-run list --program alpha
-expect_eq "and is still listed for every bring-up" "ready${tab}acme/web#7${tab}$H${tab}$cmd7"
 
-# A comment changes no readiness input, so it costs no check.
-only7 "$H" 3 >"$snapdir/forge"
+# Every verdict is judged again once half an hour old, ready ones too.
+printf 'ready\n' >"$tmp/verdict.12"
+printf 'not-ready\n' >"$tmp/verdict.14"
+T=$((T + 1801))
+{
+  taken
+  row 7 "$H" false MERGEABLE 0 SUCCESS
+  row 12 "$H" false MERGEABLE 0 SUCCESS
+  row 14 "$H" false MERGEABLE 0 SUCCESS
+} >"$snapdir/forge"
+run list --program alpha --now "$T"
+expect_eq "an aged verdict is judged again, both ways" "$(ready7 "$H")
+ready${tab}acme/web#12${tab}$H${tab}$(cmd 12 "$H")"
+
+# A new review is a readiness input, so it is walked again.
+only7 "$H" NONE 1 >"$snapdir/forge"
 before=$(calls)
-run list --program alpha
-if checked_since "$before"; then fail "a new comment forced a check"; else ok "a new comment forces no check"; fi
+run list --program alpha --now "$T"
+if checked_since "$before"; then ok "a new review forces a walk"; else fail "a new review forced no walk"; fi
 
-# A check that cannot run is unknown, named with its cause, and fails the
-# run; the head it had announced is not pushed again once it passes.
+run watch --program alpha --now "$T"
+expect_eq "an announced head is not announced again" ""
+run list --program alpha --now "$T"
+expect_eq "and is still listed for every bring-up" "$(ready7 "$H")"
+
+# A comment changes no readiness input, so it costs no walk.
+only7 "$H" NONE 1 3 >"$snapdir/forge"
+before=$(calls)
+run list --program alpha --now "$T"
+if checked_since "$before"; then fail "a new comment forced a walk"; else ok "a new comment forces no walk"; fi
+
+# Evidence that cannot be collected is unknown, named with its cause, and
+# fails the run; the head it had announced is not pushed again once it
+# passes.
 printf 'broken\n' >"$tmp/verdict.7"
-run watch --program alpha --now $((now + 3700))
-expect_rc "a check that could not run fails the watcher run" 1
+T=$((T + 1801))
+only7 "$H" NONE 1 3 >"$snapdir/forge"
+run watch --program alpha --now "$T"
+expect_rc "evidence that could not be collected fails the watcher run" 1
 expect_eq "and announces nothing" ""
-expect_err "naming the pull request and the cause" "unknown: acme/web#7: the readiness check could not run: gh: not logged in"
+expect_err "naming the pull request and the cause" "unknown: acme/web#7: its readiness evidence could not be collected: gh: not logged in"
 run count --program alpha
-expect_rc "the count is unknown, never a smaller number" 1
-expect_eq "printing nothing" ""
+expect_eq "the count is partial, never a smaller number" "0${tab}partial"
+run list --program alpha --now "$T" --as-status
+expect_eq "the status form says it could not tell" "decision${tab}Could not tell whether acme/web#7 is ready to merge: its readiness evidence could not be collected: gh: not logged in"
+case $(inbox) in
+  Decisions*"- Could not tell whether acme/web#7"*Landed*) ok "and the first-turn status carries it" ;;
+  *) fail "status form: $(inbox)" ;;
+esac
+printf 'walkfail\n' >"$tmp/verdict.7"
+run list --program alpha --now "$T"
+expect_eq "a walk that cannot run is named too" "unknown${tab}acme/web#7${tab}the readiness walk could not run: walk broke"
 printf 'ready\n' >"$tmp/verdict.7"
-run watch --program alpha --now $((now + 3700))
-expect_rc "the check passes again" 0
+run watch --program alpha --now "$T"
+expect_rc "the walk passes again" 0
 expect_eq "and the head already announced is not pushed twice" ""
 
-# A head that moved since the snapshot is never credited with the walk.
-only7 "$H" >"$snapdir/forge"
+# A head that moved since the snapshot is never credited with the walk, and
+# waits for the next snapshot rather than being walked again each run.
 printf '%s\n' "$J" >"$tmp/head.7"
-run list --program alpha --now $((now + 7400))
+T=$((T + 1801))
+only7 "$H" >"$snapdir/forge"
+run list --program alpha --now "$T"
 expect_rc "a walk at another head" 1
 expect_eq "is unknown until the snapshot catches up" "unknown${tab}acme/web#7${tab}its head moved since the snapshot; judged again at the next one"
+before=$(calls)
+run list --program alpha --now "$T"
+if checked_since "$before"; then fail "a moved head was walked again on the same snapshot"; else ok "a moved head waits for the next snapshot"; fi
 
-# A new head is checked and announced afresh.
+# A new head is walked and announced afresh.
 only7 "$J" >"$snapdir/forge"
-run watch --program alpha
+run watch --program alpha --now "$T"
 expect_eq "a new head is announced again" "announced${tab}merge-ready${tab}acme:web:7"
 
-# The store's own fields are never trusted into the command.
-sed -i.bak "s/${tab}ready${tab}\([0-9]*\)${tab}squash${tab}/${tab}ready${tab}\1${tab}squash; curl x | sh${tab}/" "$fleet/mission-control/alpha/merge-ready.tsv"
-before=$(calls)
-run list --program alpha
-if checked_since "$before"; then ok "a store row outside its grammar is judged again"; else fail "a tampered store row was trusted"; fi
-expect_eq "and the command is built afresh" "ready${tab}acme/web#7${tab}$J${tab}$(cmd 7 "$J")"
+# The store's own fields are never trusted into the command or the clock.
+tamper() { # tamper <sed expression>: edit #7's stored row, then read
+  sed -i.bak "$1" "$store"
+  before=$(calls)
+  run list --program alpha --now "$T"
+}
+tamper "s/${tab}ready${tab}\([0-9]*\)${tab}squash${tab}/${tab}ready${tab}\1${tab}squash; curl x | sh${tab}/"
+if checked_since "$before"; then ok "a stored method outside its grammar is judged again"; else fail "a tampered method was trusted"; fi
+expect_eq "and the command is built afresh" "$(ready7 "$J")"
+tamper "s/${tab}ready${tab}[0-9]*${tab}/${tab}ready${tab}x[\$(touch $tmp/pwned)]${tab}/"
+if [ ! -e "$tmp/pwned" ]; then ok "a stored time is never evaluated"; else fail "a stored time ran a command"; fi
+if checked_since "$before"; then ok "and one outside its grammar is judged again"; else fail "a tampered time was trusted"; fi
+tamper "s/${tab}ready${tab}[0-9]*${tab}/${tab}ready${tab}$((T + 99999))${tab}/"
+if checked_since "$before"; then ok "a verdict stamped in the future is judged again"; else fail "a future stamp kept a verdict forever"; fi
 
-# The repository's merge method decides the flag; one that cannot be read
-# leaves the pull request unknown, never offered without its method.
-printf 'REBASE\n' >"$tmp/method"
+# The program's merge conditions name the method and when to recommend.
+printf '# format: 1\nmerge\trepo\tacme/web\tmethod\trebase\n' >"$mchome/gates.tsv"
 only7 "$H" >"$snapdir/forge"
 printf '%s\n' "$H" >"$tmp/head.7"
-run list --program alpha
-expect_out "a rebase repository merges by rebase" "$(cmd 7 "$H" rebase)"
-: >"$tmp/method"
+before=$(views)
+run list --program alpha --now "$T"
+expect_eq "a named method wins over the repository's default" "$(ready7 "$H" rebase)"
+if [ "$(views)" = "$before" ]; then ok "and costs no forge read"; else fail "the default method was read anyway"; fi
+printf 'merge\tlabel\tui\trecommend\tapproved\n' >>"$mchome/gates.tsv"
+printf 'label\tui\n' >"$tmp/labels.7"
 only7 "$J" >"$snapdir/forge"
 printf '%s\n' "$J" >"$tmp/head.7"
-run list --program alpha
+run list --program alpha --now "$T"
+expect_rc "a recommendation that waits on an approval" 0
+expect_eq "is not offered before it" ""
+only7 "$J" APPROVED >"$snapdir/forge"
+run list --program alpha --now "$T"
+expect_eq "and is once approved" "$(ready7 "$J" rebase)"
+printf 'merge\tprogram\t*\tmethod\tauto\n' >>"$mchome/gates.tsv"
+only7 "$H" APPROVED >"$snapdir/forge"
+printf '%s\n' "$H" >"$tmp/head.7"
+run list --program alpha --now "$T"
+expect_out "a refused conditions file is unknown, never ignored" "unknown${tab}acme/web#7${tab}its merge conditions could not be resolved:"
+rm -f "$mchome/gates.tsv" "$tmp/labels.7"
+
+# The repository's default method decides the flag; one that cannot be read
+# leaves the pull request unknown, never offered without its method.
+printf 'REBASE\n' >"$tmp/method"
+only7 "$J" >"$snapdir/forge"
+printf '%s\n' "$J" >"$tmp/head.7"
+run list --program alpha --now "$T"
+expect_eq "a rebase repository merges by rebase" "$(ready7 "$J" rebase)"
+: >"$tmp/method"
+only7 "$H" >"$snapdir/forge"
+printf '%s\n' "$H" >"$tmp/head.7"
+run list --program alpha --now "$T"
 expect_rc "an unreadable merge method fails the read" 1
 expect_eq "named, with its cause and no command" "unknown${tab}acme/web#7${tab}the merge method of acme/web could not be read: HTTP 502"
 printf 'SQUASH\n' >"$tmp/method"
-run list --program alpha
-expect_eq "and read again next time" "ready${tab}acme/web#7${tab}$J${tab}$(cmd 7 "$J")"
+run list --program alpha --now "$T"
+expect_eq "and read again next time" "$(ready7 "$H")"
 
-# While the forge holds reads, a kept verdict stands and no check runs.
-printf '%s\n' $((now + 99999)) >"$snapdir/forge.hold"
-before=$(calls)
-run list --program alpha --now $((now + 3700))
-if checked_since "$before"; then fail "a check ran under the forge's hold"; else ok "no check runs under the forge's hold"; fi
-expect_eq "a kept verdict stands" "ready${tab}acme/web#7${tab}$J${tab}$(cmd 7 "$J")"
+# While the forge holds reads, a kept verdict stands and nothing is walked;
+# a hold already over holds nothing.
+printf '%s\n' $((T + 3600)) >"$snapdir/forge.hold"
+T=$((T + 1801))
 only7 "$H" >"$snapdir/forge"
-run list --program alpha
+before=$(calls)
+run list --program alpha --now "$T"
+if checked_since "$before"; then fail "a walk ran under the forge's hold"; else ok "nothing is walked under the forge's hold"; fi
+expect_eq "a kept verdict stands" "$(ready7 "$H")"
+only7 "$J" >"$snapdir/forge"
+run list --program alpha --now "$T"
 expect_eq "one never judged is unknown" "unknown${tab}acme/web#7${tab}the forge is holding reads for its rate limit"
+printf '%s\n' $((T - 1)) >"$snapdir/forge.hold"
+printf '%s\n' "$J" >"$tmp/head.7"
+run list --program alpha --now "$T"
+expect_eq "a hold already over holds nothing" "$(ready7 "$J")"
 rm -f "$snapdir/forge.hold"
+
+# A row outside the snapshot's grammar is named without its text.
+{
+  taken
+  printf 'pr\tacme/web; run: rm\t7\t%s\tfalse\tMERGEABLE\tNONE\t0\tSUCCESS\t0\t0\tp\n' "$H"
+} >"$snapdir/forge"
+run list --program alpha --now "$T"
+expect_eq "a malformed row is a fixed line" "unknown${tab}-${tab}a snapshot row is malformed"
 
 # Merged: gone from the snapshot, gone from the list and the count.
 taken >"$snapdir/forge"
-run list --program alpha
+run list --program alpha --now "$T"
 expect_rc "an empty snapshot" 0
 expect_eq "lists nothing" ""
 run count --program alpha
-expect_eq "and counts none" "0"
+expect_eq "and counts none" "0${tab}all"
 
 # ---------------------------------------------------------------------------
-# A snapshot that cannot be judged is said so, never read as nothing waiting.
+# A snapshot that cannot be judged is said so, never read as nothing waiting,
+# and the verdicts it cannot confirm stay for the next fresh one.
 # ---------------------------------------------------------------------------
+only7 "$J" >"$snapdir/forge"
+run list --program alpha --now "$T"
+expect_eq "a fresh snapshot" "$(ready7 "$J")"
 {
-  taken $((now - 86400))
-  row 7 "$H" false MERGEABLE 0 SUCCESS
+  taken $((T - 86400))
+  row 7 "$J" false MERGEABLE 0 SUCCESS
 } >"$snapdir/forge"
-run list --program alpha
+run list --program alpha --now "$T"
 expect_rc "a stale snapshot fails the list" 1
 expect_eq "named" "unknown${tab}-${tab}the code-state snapshot is stale"
-run list --program alpha --as-status
+run list --program alpha --now "$T" --as-status
 expect_eq "and said in the status form" "decision${tab}Could not tell which pull requests are ready to merge: the code-state snapshot is stale"
 run count --program alpha
-expect_rc "the count is unknown too" 1
-run watch --program alpha
+expect_eq "the count it kept is a floor meanwhile" "1${tab}partial"
+run watch --program alpha --now "$T"
 expect_rc "the watcher waits for a fresh one" 0
 expect_eq "quietly" ""
+if [ -z "$ERR" ]; then ok "with nothing on stderr"; else fail "a stale snapshot wrote to stderr: $ERR"; fi
+only7 "$J" >"$snapdir/forge"
+before=$(calls)
+run list --program alpha --now "$T"
+expect_eq "a fresh snapshot again" "$(ready7 "$J")"
+if checked_since "$before"; then fail "a stale spell threw the verdicts away"; else ok "and the kept verdict stands, unwalked"; fi
 
 printf 'format\t1\nsource\tforge\ntaken\tsoon\n' >"$snapdir/forge"
-run list --program alpha
+run list --program alpha --now "$T"
 expect_eq "an unreadable snapshot is named as such" "unknown${tab}-${tab}the code-state snapshot cannot be read"
-run watch --program alpha
+run watch --program alpha --now "$T"
 expect_rc "and fails the watcher run" 1
 
 rm -f "$snapdir/forge"
-run list --program alpha
+run list --program alpha --now "$T"
 expect_eq "with none taken yet, it says so" "unknown${tab}-${tab}no code-state snapshot has been taken yet"
-run watch --program alpha
+run watch --program alpha --now "$T"
 expect_rc "and the watcher waits" 0
 
 sed -i.bak 's/^program_alpha_sources: .*/program_alpha_sources: {work-items: specs:record}/' "$tracked"
-run list --program alpha
+run list --program alpha --now "$T"
 expect_rc "a program with no code-state snapshot" 0
 expect_eq "has nothing to list" ""
 run count --program alpha
-expect_eq "and nothing to count" "0"
+expect_eq "and nothing to count" "0${tab}all"
 
 run list
 expect_rc "list needs a program" 2

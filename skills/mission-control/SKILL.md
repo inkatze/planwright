@@ -226,7 +226,8 @@ Launch, message, answer, retire; never hand the operator a per-session step.
 - **Ready to merge:** each PR `scripts/mc-merge-ready.sh`'s `list` names,
   at bring-up and on every `merge-ready` event, goes to the operator at once
   with a push notification and its merge command, again at every bring-up
-  until it merges; an `unknown` line is said as unknown, never as none.
+  until it merges, its packet prepared as for any merge recommendation; an
+  `unknown` line is said as unknown, never as none.
 - **Message** a session by `SendMessage` when `ListAgents` lists it; only an
   unreachable one takes the pane relay, as the tower's messaging says
   (D-23).

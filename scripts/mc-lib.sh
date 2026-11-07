@@ -602,7 +602,8 @@ mc_pr_subject() {
   printf '%s\n' "$mps_s"
 }
 
-# mc_code_state <program>: the program's code-state snapshot, its status line
+# mc_code_state <program> [<now>]: the program's code-state snapshot, aged at
+# <now> (the clock by default), its status line
 # and rows in MC_CS_ROWS and its source in MC_CS_SOURCE. Returns 0 when it is
 # at most twice its cadence old (the most any budget rung stretches a
 # refresh), 1 when the source map does not resolve, 2 when the snapshot
@@ -615,7 +616,7 @@ mc_code_state() {
   mcs_map=$(/bin/bash "$script_dir/mc-program.sh" get "$1" sources) || return 1
   MC_CS_SOURCE=$(printf '%s\n' "$mcs_map" | awk -F '\t' '$1 == "code-state" && $3 == "snapshot" { print $2; exit }')
   [ -n "$MC_CS_SOURCE" ] || return 3
-  MC_CS_ROWS=$(/bin/bash "$script_dir/mc-snapshot.sh" read --program "$1" "$MC_CS_SOURCE")
+  MC_CS_ROWS=$(/bin/bash "$script_dir/mc-snapshot.sh" read --program "$1" "$MC_CS_SOURCE" ${2:+--now "$2"})
   case $? in
     0) ;;
     3) return 3 ;;

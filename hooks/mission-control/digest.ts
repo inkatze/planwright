@@ -19,6 +19,7 @@ export function parseDigest(text: string): PanelDigest | null {
     finished: null,
     waiting: null,
     mergeReady: null,
+    isMergeReadyPartial: false,
     pending: null,
     decisions: [],
     rung: { name: '-', reason: '' },
@@ -59,6 +60,7 @@ export function parseDigest(text: string): PanelDigest | null {
         break
       case 'merge-ready':
         d.mergeReady = int(f[1])
+        d.isMergeReadyPartial = f[2] === 'partial'
         break
       case 'pending':
         d.pending = int(f[1])

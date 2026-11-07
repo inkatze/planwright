@@ -89,7 +89,8 @@ A duty is a job mission control does for you in the background, each with
 a one-line summary of what it saves you. The ones that ship cover keeping
 sessions moving and closing them when their work lands, turning what waits
 on you into decide-ready items and drafts, checking that a pull request is
-really ready before it is offered, predicting overlapping changes and merge
+really ready before it is offered and telling you, with the one command to
+run, each one that is ready to merge (it never merges itself), predicting overlapping changes and merge
 order, letting known dates set priorities, preparing what you need before a
 decision, recording how to undo each act, checking what was done against
 your rules, and noticing what you keep doing by hand. The last three
