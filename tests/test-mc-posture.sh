@@ -340,6 +340,16 @@ absolute_profile | jq '.disableAllHooks = "false\nF false false"' >"$home/.claud
 posture --
 expect_fail "a hook switch carrying a control character fails" "control character"
 
+reset
+absolute_profile | jq '.permissions.deny += ["Bash(x)\u007f"]' >"$home/.claude/settings.json"
+posture --
+expect_fail "a deny entry carrying a DEL fails" "control character"
+
+reset
+absolute_profile | jq '(.hooks.PreToolUse[] | select(.matcher == "Bash") | .matcher) |= "Bash\t"' >"$home/.claude/settings.json"
+posture --
+expect_fail "a matcher carrying a tab fails" "control character"
+
 echo "# unreadable layers"
 reset
 absolute_profile >"$home/.claude/settings.json"
@@ -352,6 +362,31 @@ absolute_profile >"$home/.claude/settings.json"
 printf '{"permissions":{"deny":"Bash(x)"}}\n' >"$proj/.claude/settings.json"
 posture --
 expect_fail "a layer whose deny is not a list fails" "proj/.claude/settings.json cannot be parsed"
+
+reset
+absolute_profile >"$home/.claude/settings.json"
+printf '[1]\n' >"$proj/.claude/settings.json"
+posture --
+expect_fail "a layer that is not an object fails" "proj/.claude/settings.json cannot be parsed"
+
+reset
+absolute_profile >"$home/.claude/settings.json"
+printf '{"hooks": {"PreToolUse": {"matcher": "Bash"}}}\n' >"$proj/.claude/settings.json"
+posture --
+expect_fail "a layer whose PreToolUse is not a list fails" "proj/.claude/settings.json cannot be parsed"
+
+reset
+absolute_profile >"$home/.claude/settings.json"
+ln -s "$tmp/nowhere.json" "$proj/.claude/settings.local.json"
+posture --
+expect_fail "a layer that is a dangling link fails" "settings.local.json cannot be read"
+
+# A reason carrying a control character is still one line.
+reset
+absolute_profile >"$home/.claude/settings.json"
+posture -- --project "$tmp/no
+such"
+expect_fail "a reason naming a path with a newline stays one line" "nosuch is not a directory"
 
 reset
 absolute_profile >"$home/.claude/settings.json"
@@ -388,6 +423,8 @@ OUT=$(/bin/bash "$POSTURE" 2>&1)
 [ "$?" = 2 ] && ok "no verb is a usage error" || fail "no verb did not exit 2"
 OUT=$(/bin/bash "$POSTURE" check --bogus 2>&1)
 [ "$?" = 2 ] && ok "an unknown flag is a usage error" || fail "an unknown flag did not exit 2"
+OUT=$(/bin/bash "$POSTURE" check --settings '' 2>&1)
+[ "$?" = 2 ] && ok "an empty --settings value is a usage error" || fail "an empty --settings value did not exit 2"
 
 if [ "$failures" -eq 0 ]; then
   echo "PASS: test-mc-posture.sh"
