@@ -500,6 +500,16 @@ row mc-beta-worker-3333333333 beta tmux
   printf '0 3 * * * /usr/bin/backup\n'
   printf '*/10 * * * * cd %s && ./sweep.sh\n' "$repo"
   printf '%s\n' "*/15 * * * * PLANWRIGHT_TOKEN=s3cr3t API_KEY='x y' NOTE=\"a b\" /opt/hub/claude-run.sh --key=k3y"
+  printf '%s\n' '1 * * * * T="lk-1 lk-2"lk-3 /opt/planwright/a'
+  printf '%s\n' '2 * * * * T=lk-4"lk-5 lk-6" /opt/planwright/b'
+  printf '%s\n' '3 * * * * T=lk-7\ lk-8 /opt/planwright/c'
+  printf '%s\n' '4 * * * * T="lk-9\" lk-a" /opt/planwright/d'
+  printf '%s\n' '5 * * * * T=$(cat /run/lk-b x) /opt/planwright/e'
+  printf '%s\n' "6 * * * * curl -d 'token=lk-c lk-d' /opt/planwright/f"
+  printf '%s\n' '7 * * * * /opt/planwright/g T="lk-e lk-f'
+  printf '%s\n' 'planwright_token = lk-g lk-h'
+  printf '8 * * * * TOKEN\001=lk-i /opt/planwright/h\n'
+  printf '9\t*\t*\t*\t*\t/opt/planwright/i\n'
 } >"$CRON_FIXTURE"
 printf 'mission_control_launch_backend: stream-json\nmission_control_stall_window: 30m\nmission_control_tick_cadence: 5m\n' >"$layer"
 printf 'program_alpha_duties: [inbox, readiness-check]\n' >>"$tracked"
@@ -519,7 +529,22 @@ expect_no_out "another program's session is not named" "mc-beta-worker-333333333
 expect_out "a cron line naming planwright is named" "cron${tab}*/5 * * * * /opt/hub/w.sh planwright sweep"
 expect_out "a cron line in a program repository is named" "cron${tab}*/10 * * * * cd $repo && ./sweep.sh"
 expect_out "every NAME=value on a reported cron line is blanked" "cron${tab}*/15 * * * * PLANWRIGHT_TOKEN=<redacted> API_KEY=<redacted> NOTE=<redacted> /opt/hub/claude-run.sh --key=<redacted>"
-for secret in s3cr3t "x y" "a b" k3y; do
+for want in \
+  '1 * * * * T=<redacted> /opt/planwright/a' \
+  '2 * * * * T=<redacted> /opt/planwright/b' \
+  '3 * * * * T=<redacted> /opt/planwright/c' \
+  '4 * * * * T=<redacted> /opt/planwright/d' \
+  '5 * * * * T=<redacted> /opt/planwright/e' \
+  "6 * * * * curl -d 'token=<redacted>' /opt/planwright/f" \
+  '7 * * * * /opt/planwright/g T=<redacted>' \
+  'planwright_token=<redacted>' \
+  '8 * * * * TOKEN=<redacted> /opt/planwright/h' \
+  '9 * * * * /opt/planwright/i'; do
+  printf '%s\n' "$OUT" | grep -qxF -- "cron${tab}$want" \
+    && ok "a quoted, escaped, open or environment value is blanked whole: $want" \
+    || fail "no report line reads exactly: cron<TAB>$want"
+done
+for secret in s3cr3t "x y" "a b" k3y lk-; do
   expect_no_out "a cron line's value never reaches the report: $secret" "$secret"
 done
 expect_no_out "an unrelated cron line is not named" "backup"
