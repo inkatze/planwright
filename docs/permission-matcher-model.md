@@ -420,8 +420,9 @@ deny:
   default hooks included), the repo-tracked hooks directories `githooks/` and
   `.githooks/`, the worktree's `.claude/`, and the mise, lefthook, direnv, and
   tool-version config names the guard refuses (`scripts/worker-command-guard.sh`,
-  `ob_excluded_name`, owns the list). An adopter whose `core.hooksPath` names
-  another directory adds an `Edit(<dir>/**)` deny of its own.
+  `ob_excluded_name` and `ob_excluded_mise_child`, owns the list). An adopter
+  whose `core.hooksPath` names another directory adds an `Edit(<dir>/**)` deny
+  of its own.
 - **The guard's trust inputs** (REQ-G1.8): the launcher's session records
   (`session-records/*.record` under any fleet home) and the overlay config
   files the policy resolves through (`planwright.yml` and
@@ -440,10 +441,28 @@ exception, matched relative to the working directory on purpose: a worktree
 usually sits under its primary checkout's `.claude/worktrees/`, and a
 root-anchored `.claude` rule would refuse every file the worker edits. The
 same holds for the root-anchored directory rules: a worktree checked out
-beneath a directory named `.config`, `mise`, `.mise`, a hooks directory, or a
-lefthook directory (a dotfiles checkout under `~/.config`, say) is refused
-every file-tool write, so such a repository is checked out elsewhere for
-workers.
+beneath a directory named `.config`, `.mise`, `mise-tasks`, `.mise-tasks`, a
+hooks directory, or a lefthook directory (a dotfiles checkout under
+`~/.config`, say) is refused every file-tool write, so such a repository is
+checked out elsewhere for workers.
+
+The mise rules follow the paths mise documents loading, not every path with a
+`mise` component: its project and global config names and `conf.d`
+directories ([configuration](https://mise.jdx.dev/configuration.html)), the
+`.miserc*.toml` files that rename what it searches for and move its ceiling,
+the default file-task directories, which it renders as it loads them
+([task discovery](https://mise.jdx.dev/tasks/task-discovery.html)), and the
+lockfiles that carry download URLs and checksums
+([mise.lock](https://mise.jdx.dev/dev-tools/mise-lock.html)). Inside a
+`mise/` directory only `config*.toml`, `miserc*.toml`, `conf.d/`, and
+`tasks/` are refused, so a source file such as `roles/files/mise/offload.toml`
+stays writable. The guard also refuses a shell write whose last component is
+`mise` itself, since moving a directory onto that name would make its
+`config.toml` loaded config. Three things these rules cannot follow: an
+`override_config_filenames` value or `MISE_*` variable that names other
+files, an idiomatic version file such as `.nvmrc` once a tool enables it, and
+a file the repo's own config points at (an `_.source` script, an included
+task file), which is trusted repo code like `scripts/`.
 
 The guard matches these names case-insensitively; the globs are
 case-sensitive (MA-2), so on a case-insensitive filesystem a recased
@@ -455,7 +474,8 @@ Claude Code already protects `.git`, `.claude`, `.envrc`, and the YAML
 lefthook config files (MB-8), and the overlays under `~/.claude` with them, but
 protection means a prompt, which stalls a headless worker, and its list is
 version-specific. A deny refuses outright and holds across versions, so
-those paths keep their rules. The mise config, the hooks directories, the
+those paths keep their rules. The mise config, task directories, and
+lockfiles, the hooks directories, the
 local and non-YAML lefthook config, the session records, and repo-side
 overlays are not protected at all.
 

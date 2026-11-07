@@ -1095,6 +1095,17 @@ deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.envrc|direnv config runs
 deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.tool-versions|tool-version config selects what mise runs (REQ-F1.6, as the guard names it)
 deny|load-bearing|Edit|/home/u/.config/direnv/direnvrc|a .config directory, which holds mise and direnv user config (REQ-F1.6, as the guard names it)
 deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/mise/config.toml|mise's directory-config form (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/mise/config.local.toml|the local variant beside mise/config.toml (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/mise/conf.d/10-tools.toml|a conf.d fragment in mise/ (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/mise/conf.d/git-tools/mise.toml|a conf.d folder fragment in mise/ (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/mise/tasks/build|a file task in mise/tasks/ (REQ-F1.6)
+deny|load-bearing|Edit|/etc/mise/miserc.toml|the system miserc, which picks the config file names (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.miserc.toml|a project miserc, which picks the config file names (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.miserc.local.toml|the primary checkout's local miserc, read from a worktree beneath it (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/mise-tasks/deploy|mise's default file-task directory (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.mise-tasks/deploy|mise's dotted file-task directory (REQ-F1.6)
+deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/mise.lock|mise's lockfile records download URLs and checksums (REQ-F1.6)
+deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/mise.local.lock|the local lockfile beside mise.local.toml (REQ-F1.6)
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.mise.toml|mise's dotted config name (REQ-F1.6)
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.mise.local.toml|mise's dotted environment config (REQ-F1.6)
 deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/lefthook/pre-commit/check.sh|a lefthook script directory (REQ-F1.6)
@@ -1117,6 +1128,8 @@ allow|legit|Edit|/work/repo/.claude/worktrees/w1/scripts/x.sh|editing a repo scr
 allow|legit|Write|/work/repo/.claude/worktrees/w1/tests/test-x.sh|writing a repo test stays allowed
 allow|legit|Edit|/work/repo/.claude/worktrees/w1/docs/githooks.md|a file merely named after the hooks directory stays editable
 allow|legit|Edit|/work/repo/.claude/worktrees/w1/config/defaults.yml|the repo's own config defaults stay editable
+allow|legit|Write|/work/repo/.claude/worktrees/w1/roles/osx/files/mise/offload.toml|a file under mise/ that mise never loads stays writable
+allow|legit|Edit|/work/repo/.claude/worktrees/w1/mise/README.md|a mise/ file outside config, conf.d and tasks stays editable
 allow|legit|Read|/work/repo/.claude/worktrees/w1/README.md|ordinary reads
 allow|legit|Read|/proc/1234/status|a /proc read that is not an environment
 ROWS

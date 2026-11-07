@@ -186,6 +186,20 @@ for c in "echo x > .git" "echo x >> .git/config" "touch githooks/pre-commit" "mk
   "mv f lefthook-local.yml" "mkdir -p .config/x"; do
   assert_defer "F1.6: $c" "$c" Bash "$WT"
 done
+mkdir -p "$WT/mise" "$WT/roles/files/mise" "$WT/tree/mise/conf.d" "$WT/build/cfgsrc"
+touch "$WT/roles/files/mise/offload.toml" "$WT/tree/mise/conf.d/a.toml" "$WT/build/cfgsrc/config.toml"
+for c in "touch mise/config.toml" "touch mise/config.local.toml" "touch mise/CONFIG.toml" \
+  "touch mise/miserc.toml" "mkdir -p mise/conf.d" "mkdir -p mise/tasks/x" "echo x > .miserc.toml" \
+  "touch sub/.miserc.local.toml" "mkdir -p mise-tasks" "mkdir -p .mise-tasks/x" "touch mise.lock" \
+  "touch sub/mise.test.lock" "mv build/cfgsrc sub/mise" "cp -r build/cfgsrc sub/mise" "rm -r tree" \
+  "rm -r mise" "cp build/cfgsrc/config.toml mise" "mv build/cfgsrc mise"; do
+  assert_defer "F1.6: the mise path mise loads: $c" "$c" Bash "$WT"
+done
+for c in "touch roles/files/mise/new.toml" "echo x >> roles/files/mise/offload.toml" \
+  "echo x > mise/offload.toml" "mkdir -p roles/files/mise/sub" "cp f roles/files/mise/notes.md" \
+  "rm -r roles" "mv f roles/files/mise/f" "cp -r build/cfgsrc roles/files/mise/c"; do
+  assert_allow "F1.6: a mise/ path mise never loads: $c" "$c" Bash "$WT"
+done
 assert_allow "F1.6: editing a repo script stays approvable" "echo 'echo hi' >> scripts/ok.sh" Bash "$WT"
 assert_allow "F1.6: then running it" "bash scripts/ok.sh" Bash "$WT"
 
