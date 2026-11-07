@@ -7,7 +7,8 @@
 #   - every mission-control glossary term in doctrine/spec-format.md links
 #     to a section of that doc that exists;
 #   - docs/mission-control.md walks a fresh installation end to end with no
-#     word the register forbids: both jargon lists, identifier and file
+#     word the register forbids outside the commands it gives the operator
+#     to run (its closed `sh` blocks): both jargon lists, identifier and file
 #     shapes, configuration keys, and any slash command but the operator's own.
 set -u
 LC_ALL=C
@@ -99,9 +100,17 @@ norm() { tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\{1,\}/ /g; s/^/ /; s/$/ /
 
 # visible <doc>: the doc's text with link targets dropped, so a link to a
 # reference page is not read as a file name said to the operator, and with
-# its `sh` blocks dropped: a command the operator runs themselves names what
-# it runs.
-visible() { awk '/^```sh$/ { c = 1; next } c && /^```$/ { c = 0; next } !c' "$1" | sed 's/](\([^)]*\))/]/g'; }
+# each closed `sh` block dropped: a command the operator runs themselves
+# names what it runs. A block that never closes is kept, so a lost fence
+# cannot hide the rest of the doc.
+visible() {
+  awk '
+    !c && /^```sh$/ { c = 1; held = $0; next }
+    c && /^```$/ { c = 0; held = ""; next }
+    c { held = held "\n" $0; next }
+    { print }
+    END { if (c) print held }' "$1" | sed 's/](\([^)]*\))/]/g'
+}
 
 # check_register <doc>: prints each forbidden word or shape the doc carries.
 check_register() {
@@ -171,6 +180,13 @@ done
 # shellcheck disable=SC2016 # backticks are literal markdown, never expanded
 printf 'Type `/mission-control` or `/mc-panel`; see [the reference](options-reference.md).\n' >"$probe/op.md"
 if [ -z "$(check_register "$probe/op.md")" ]; then ok "probe: the operator's own commands and a link target pass"; else fail "probe: a clean line was refused"; fi
+fence='```'
+printf 'Run this:\n\n%ssh\n<planwright>/scripts/mission-control-launch.sh launch --backend tmux\n%s\n' "$fence" "$fence" >"$probe/op.md"
+if [ -z "$(check_register "$probe/op.md")" ]; then ok "probe: a command in a closed sh block passes"; else fail "probe: a command in a closed sh block was refused"; fi
+printf '%ssh\nx\n%s\n\nRun mc-config.sh.\n' "$fence" "$fence" >"$probe/op.md"
+if [ -n "$(check_register "$probe/op.md")" ]; then ok "probe: prose after a sh block is still checked"; else fail "probe: prose after a sh block passed the register"; fi
+printf '%ssh\nx\n\nRun mc-config.sh.\n' "$fence" >"$probe/op.md"
+if [ -n "$(check_register "$probe/op.md")" ]; then ok "probe: a sh block that never closes hides nothing"; else fail "probe: a sh block that never closes hid the prose after it"; fi
 printf '## First run\n' >"$probe/op.md"
 if [ -n "$(check_walk "$probe/op.md")" ]; then ok "probe: a short walk is caught"; else fail "probe: a short walk passed"; fi
 printf '## First run notes\n\n## State sources\n\nrepositories, where your specs live, signed in, where the state, duties, quiet hours.\n\n## Duties\n## Proposals\n## Preferences\n## Resume\n## Handover\n' >"$probe/op.md"
