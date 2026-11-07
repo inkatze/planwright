@@ -486,7 +486,7 @@ what_changed() {
     printf 'changed\tunknown\tdecisions\n'
     wc_said=1
   fi
-  if events=$(mc_event list --program "$program" 2>/dev/null); then
+  if events=$(mc_event list --program "$program" --limit 100000 2>/dev/null); then
     events=$(printf '%s\n' "$events" | T=$1 awk -F '\t' '
       NF >= 4 && $2 > ENVIRON["T"] { printf "changed\tevent\t%s\t%s\t%s\n", $2, $3, $4 }' | mc_clean)
   else
