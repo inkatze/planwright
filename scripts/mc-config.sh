@@ -131,10 +131,11 @@ Usage:
             claude in any case, or a repository or the home of the
             program, tabs printed as blanks, control bytes dropped and
             every NAME=value on it printed NAME=<redacted>; a crontab
-            that cannot be listed reads as none; redaction fails closed, so an = inside quotes, one whose
-            value holds an escape, a substitution, a paren or a %, and
-            any = past a substitution, a paren, a % or a comment blank
-            the rest of the line
+            that cannot be listed reads as none; redaction fails
+            closed, so an = inside quotes, one whose value holds an
+            escape, a substitution, a paren or a %, and any = past a
+            substitution, a paren, a % or a comment blank the rest of
+            the line
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
             launches or cron) whose read failed; for launches, also a
             session whose row names no known rung; for overrides, also a
