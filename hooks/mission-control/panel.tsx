@@ -190,7 +190,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
         'Holding for you',
         [
           `${d.waiting === null ? 'unknown' : d.waiting} waiting on you`,
-          ...(mergeReadyCount(d) !== null ? [`${mergeReadyCount(d)} ready to merge`] : []),
+          ...[mergeReadyCount(d)].flatMap(n => (n === null ? [] : [`${n} ready to merge`])),
           ...(d.pending !== null ? [`${d.pending} event(s) inbound`] : []),
         ],
       )}

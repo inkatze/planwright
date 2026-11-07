@@ -249,10 +249,17 @@ T=$((T + 1801))
 only7 "$H" >"$snapdir/forge"
 run list --program alpha --now "$T"
 expect_rc "a walk at another head" 1
-expect_eq "is unknown until the snapshot catches up" "unknown${tab}acme/web#7${tab}its head moved since the snapshot; judged again at the next one"
+expect_eq "is unknown until the snapshot catches up" "unknown${tab}acme/web#7${tab}its head moved since the snapshot; judged again once the snapshot catches up"
 before=$(calls)
 run list --program alpha --now "$T"
 if checked_since "$before"; then fail "a moved head was walked again on the same snapshot"; else ok "a moved head waits for the next snapshot"; fi
+run count --program alpha
+expect_eq "and leaves the count partial" "0${tab}partial"
+T=$((T + 1801))
+only7 "$H" >"$snapdir/forge"
+before=$(calls)
+run list --program alpha --now "$T"
+if checked_since "$before"; then ok "a snapshot that never catches up is walked again within half an hour"; else fail "a moved verdict never expired"; fi
 
 # A new head is walked and announced afresh.
 only7 "$J" >"$snapdir/forge"
@@ -292,6 +299,10 @@ expect_eq "is not offered before it" ""
 only7 "$J" APPROVED >"$snapdir/forge"
 run list --program alpha --now "$T"
 expect_eq "and is once approved" "$(ready7 "$J" rebase)"
+printf 'merge\tpath\tsrc/*\tmethod\tmerge\n' >>"$mchome/gates.tsv"
+only7 "$J" APPROVED 1 >"$snapdir/forge"
+run list --program alpha --now "$T"
+expect_eq "a condition on the changed paths applies too" "$(ready7 "$J" merge)"
 printf 'merge\tprogram\t*\tmethod\tauto\n' >>"$mchome/gates.tsv"
 only7 "$H" APPROVED >"$snapdir/forge"
 printf '%s\n' "$H" >"$tmp/head.7"
@@ -338,9 +349,10 @@ rm -f "$snapdir/forge.hold"
 {
   taken
   printf 'pr\tacme/web; run: rm\t7\t%s\tfalse\tMERGEABLE\tNONE\t0\tSUCCESS\t0\t0\tp\n' "$H"
+  printf 'pr\tacme/web\t8\tnot-a-sha\tfalse\tMERGEABLE\tNONE\t0\tSUCCESS\t0\t0\tp\n'
 } >"$snapdir/forge"
 run list --program alpha --now "$T"
-expect_eq "a malformed row is a fixed line" "unknown${tab}-${tab}a snapshot row is malformed"
+expect_eq "malformed rows are one fixed line" "unknown${tab}-${tab}a snapshot row is malformed"
 
 # Merged: gone from the snapshot, gone from the list and the count.
 taken >"$snapdir/forge"
@@ -349,6 +361,22 @@ expect_rc "an empty snapshot" 0
 expect_eq "lists nothing" ""
 run count --program alpha
 expect_eq "and counts none" "0${tab}all"
+
+# A count is only as good as its judgment's age.
+real=$(date +%s)
+row7="acme/web#7${tab}k${tab}ready${tab}$real${tab}squash${tab}-"
+printf 'state\tok\t%s\n%s\n' $((real - 4000)) "$row7" >"$store"
+run count --program alpha
+expect_eq "a judgment over an hour old is a floor" "1${tab}partial"
+printf 'state\tok\t%s\n%s\n' $((real + 4000)) "$row7" >"$store"
+run count --program alpha
+expect_eq "so is one stamped later than now" "1${tab}partial"
+printf '%s\n' "$row7" >"$store"
+run count --program alpha
+expect_eq "and one with no state line" "1${tab}partial"
+printf 'state\tok\t%s\n%s\n' "$real" "$row7" >"$store"
+run count --program alpha
+expect_eq "a fresh one is whole" "1${tab}all"
 
 # ---------------------------------------------------------------------------
 # A snapshot that cannot be judged is said so, never read as nothing waiting,

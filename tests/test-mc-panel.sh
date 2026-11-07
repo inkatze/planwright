@@ -233,6 +233,8 @@ expect_out "and in the text panel" "ready to merge: 2 or more (some could not be
 printf 'state\tstale\t%s\n' "$judged" >"$runtime/merge-ready.tsv"
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
 expect_out "none judged and some unknown reads as unknown" "2 waiting, ? ready to merge,"
+mc_run mc-panel.sh text --program alpha
+expect_out "and so in the text panel" "ready to merge: unknown (some could not be judged)"
 mkdir -p "$runtime/merge-ready.tsv.d" && rm -f "$runtime/merge-ready.tsv" && mv "$runtime/merge-ready.tsv.d" "$runtime/merge-ready.tsv"
 mc_run mc-panel.sh text --program alpha
 expect_out "a store that cannot be read is said so" "ready to merge: unknown (the merge-ready store cannot be read)"

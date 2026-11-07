@@ -36,10 +36,10 @@ not a draft, MERGEABLE, with no open thread, its checks SUCCESS and its
 review decision neither CHANGES_REQUESTED nor REVIEW_REQUIRED. Each is
 walked as scripts/mc-readiness.sh check walks it (collect, then walk), and
 is ready only when the walk passes at the snapshot's own head (a head that
-moved since is judged at the next snapshot) and the program's merge
-conditions (scripts/mc-gates.sh resolve, for the repository, labels and
-paths collected) recommend it: `recommend approved` waits for an APPROVED
-review decision. The verdict is kept in <runtime>/merge-ready.tsv against
+moved since is judged again once the snapshot catches up) and the
+program's merge conditions (scripts/mc-gates.sh resolve, for the
+repository, labels and paths collected) recommend it: `recommend approved`
+waits for an APPROVED review decision. The verdict is kept in <runtime>/merge-ready.tsv against
 the row's head, draft, mergeable, review decision, open threads, checks and
 review count, and judged again once that changes or the verdict is half an
 hour old, since evidence, labels, the body and step records can change with
@@ -71,7 +71,8 @@ Usage:
   mc-merge-ready.sh count --program <p>
       <n><TAB>all|partial: the ready verdicts the last judgment kept, with
       no forge read (the panel's count); partial when that judgment left a
-      pull request or the snapshot unknown, or is over an hour old; `0 all`
+      pull request or the snapshot unknown, or is over an hour old or
+      stamped later than now; `0 all`
       before any judgment or with no code-state source
   mc-merge-ready.sh watch [--program <p>] [--now <epoch>]
       the readiness-check duty's merge watcher (also what a run with no
@@ -81,10 +82,12 @@ Usage:
         announced<TAB>merge-ready<TAB><subject>
       and each unknown on stderr. A head is announced once while the
       snapshot still shows the pull request at it. A stale snapshot, or
-      none yet, raises nothing and is no failure.
+      none yet, raises nothing and is no failure; any other unknown fails
+      the run.
 
-Exit codes: 0 done; 1 a failed read, check, store or event, or (list)
-anything left unknown; 2 usage; 3 the program is not configured.
+Exit codes: 0 done; 1 a failed read, check, store or event, or anything
+left unknown (watch: but a stale snapshot or none yet); 2 usage; 3 the
+program is not configured.
 
 Portable bash 3.2 / BSD tooling; gh's built-in --jq does the JSON.
 HELP
@@ -145,6 +148,7 @@ runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime director
 store="$runtime/merge-ready.tsv"
 RECHECK_AFTER=1800
 COUNT_FRESH=3600
+MOVED_WHY="its head moved since the snapshot; judged again once the snapshot catches up"
 
 if [ "$verb" = count ]; then
   [ -e "$store" ] || {
@@ -153,7 +157,7 @@ if [ "$verb" = count ]; then
   }
   [ -f "$store" ] && [ -r "$store" ] || mc_fail "the merge-ready store cannot be read"
   N=$NOW F=$COUNT_FRESH awk -F '\t' '
-    $1 == "state" { s = 1; if ($2 != "ok" || ENVIRON["N"] - $3 > ENVIRON["F"] + 0) part = 1 }
+    $1 == "state" { s = 1; age = ENVIRON["N"] - $3; if ($2 != "ok" || $3 !~ /^[0-9]+$/ || age < 0 || age > ENVIRON["F"] + 0) part = 1 }
     $3 == "unknown" || $3 == "moved" { part = 1 }
     $3 == "ready" { n++ }
     END { if (!s) part = 1; print (n + 0) "\t" (part ? "partial" : "all") }' "$store" \
@@ -196,7 +200,7 @@ judge() {
     return 0
   }
   if [ "$(awk -F '\t' '$1 == "head" { print $2; exit }' "$evf")" != "$3" ]; then
-    J_VERDICT=moved J_WHY="its head moved since the snapshot; judged again at the next one"
+    J_VERDICT=moved J_WHY=$MOVED_WHY
     return 0
   fi
   /bin/bash "$script_dir/mc-readiness.sh" walk --program "$program" --evidence "$evf" >/dev/null 2>"$errf"
@@ -247,7 +251,9 @@ judge() {
 # unreadable or stale).
 scan() {
   SCAN_RC=0
-  mc_code_state "$program" "$NOW"
+  # Only a given --now pins the snapshot's clock: pinned to this run's start,
+  # a refresh landing meanwhile would read as taken in the future.
+  mc_code_state "$program" "$now_raw"
   case $? in
     0) SCAN_STATE=ok ;;
     1) SCAN_STATE=nomap ;;
@@ -283,7 +289,7 @@ scan() {
       return 0
       ;;
   esac
-  held=0
+  held=0 malformed=0
   hold=$(head -n 1 "$runtime/snapshots/$MC_CS_SOURCE.hold" 2>/dev/null)
   if mc_valid_uint "$hold" && [ "$hold" -gt "$NOW" ]; then held=1; fi
   kept="state	ok	$NOW
@@ -294,8 +300,8 @@ scan() {
   while IFS='	' read -r c_slug c_n c_head c_decision c_key; do
     [ -n "$c_slug" ] || continue
     if ! mc_valid_slug "$c_slug" || ! mc_valid_uint "$c_n" || ! mc_valid_sha "$c_head"; then
-      printf 'unknown\t-\ta snapshot row is malformed\n'
-      SCAN_RC=1
+      [ "$malformed" -eq 1 ] || printf 'unknown\t-\ta snapshot row is malformed\n'
+      malformed=1 SCAN_RC=1
       continue
     fi
     c_pr="$c_slug#$c_n"
@@ -309,7 +315,7 @@ EOF
     if [ -n "$verdict" ]; then
       if ! mc_valid_uint "$at" || [ "$at" -gt "$NOW" ]; then
         verdict=""
-      elif [ "$held" -eq 0 ] && [ "$verdict" != moved ] && [ $((NOW - at)) -ge "$RECHECK_AFTER" ]; then
+      elif [ "$held" -eq 0 ] && [ $((NOW - at)) -ge "$RECHECK_AFTER" ]; then
         verdict=""
       fi
     fi
@@ -322,7 +328,7 @@ EOF
         verdict=$J_VERDICT method=$J_METHOD reason=$J_WHY
       fi
     fi
-    [ "$verdict" != moved ] || reason="its head moved since the snapshot; judged again at the next one"
+    [ "$verdict" != moved ] || reason=$MOVED_WHY
     kept="$kept$c_pr	$c_key	$verdict	$at	$method	$reason
 "
     case $verdict in
