@@ -192,7 +192,9 @@ a `plan` job picks the shard count (`scripts/run-tests.sh --plan-shards`,
 below), one `test` job runs each shard of the suite (`scripts/run-tests.sh
 --shard <i>/<N>`), the `macos-suite` and `alpine-suite` jobs run the suite
 in shards of their own on macOS (the system bash 3.2 and BSD userland; a
-small fixed count, since macOS runners are scarce) and in an Alpine container
+small fixed count on GitHub's scarce hosted runners, or one shard on the
+offload Mac's self-hosted runner for this repository's own branches, as
+[`ci-self-hosted-mac.md`](ci-self-hosted-mac.md) describes) and in an Alpine container
 (musl, dash, busybox; the planned count), and the `check` job, the status
 branch protection reads, passes only when every one of those jobs and shards
 does and the test-time budget gate passes over every Linux shard's timing
