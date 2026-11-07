@@ -201,7 +201,7 @@ happened.
 
 The old session ends itself: once it gives up the program name, or finds
 it already taken, its panel ends it as soon as its last turn finishes,
-closing its tmux pane when Claude Code was the pane's command. The same
+closing its terminal too when Claude Code was all that terminal ran. The same
 happens to an older mission-control session you started yourself when you
 open a new one for the program, so nothing has to close it for you. A
 session without the panel cannot end itself; it stops working and says it
