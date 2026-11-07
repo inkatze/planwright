@@ -427,26 +427,45 @@ case $ERR in
   *) ok "a --backend matching the knob launches without a warning" ;;
 esac
 wait_done "$(field name)"
-[ ! -e "$adopter/planwright.yml" ] || fail "fixture: the adopter layer already exists"
-printf '%s\n' 'mission_control_launch_backend: tmux' >"$adopter/planwright.yml"
-ml launch --program alpha --kind ad-hoc --scope knob-tmux --brief "$tmp/brief.md" --backend tmux
-rm -f "$adopter/planwright.yml"
-[ "$RC" = 0 ] || fail "the tmux launch under a tmux knob exited $RC: $ERR"
-case $ERR in
-  *mission_control_launch_backend*) fail "a --backend matching the knob a layer sets warned: $ERR" ;;
-  *) ok "the warning reads the knob a layer sets, not the shipped rung" ;;
-esac
-ml retire "$(field name)"
+if [ -e "$adopter/planwright.yml" ]; then
+  fail "fixture: the adopter layer already exists, so the layer-set knob cases are skipped"
+else
+  printf '%s\n' 'mission_control_launch_backend: tmux' >"$adopter/planwright.yml"
+  ml launch --program alpha --kind ad-hoc --scope knob-tmux --brief "$tmp/brief.md" --backend tmux
+  rm -f "$adopter/planwright.yml"
+  if [ "$RC" = 0 ]; then
+    case $ERR in
+      *mission_control_launch_backend*) fail "a --backend matching the knob a layer sets warned: $ERR" ;;
+      *) ok "the warning reads the knob a layer sets, not the shipped rung" ;;
+    esac
+    ml retire "$(field name)"
+    [ "$RC" = 0 ] || fail "retiring the knob-tmux session exited $RC: $OUT $ERR"
+  else
+    fail "the tmux launch under a tmux knob exited $RC: $ERR"
+  fi
+fi
 cp "$tracked" "$tmp/tracked.saved"
 printf '%s\n' 'mission_control_launch_backend: bogus' >>"$tracked"
 ml launch --program alpha --kind ad-hoc --scope knob-bogus --brief "$tmp/brief.md" --backend tmux
+bogus_rc=$RC bogus_err=$ERR bogus_name=$(field name)
+ml launch --program alpha --kind ad-hoc --scope knob-bogus-noflag --brief "$tmp/brief.md"
 cp "$tmp/tracked.saved" "$tracked"
-[ "$RC" = 0 ] || fail "a --backend launch with an unresolvable knob exited $RC: $ERR"
-case $ERR in
-  *warning*'--backend tmux'*mission_control_launch_backend*'could not be resolved'*) ok "a --backend launch the knob cannot be checked against warns so" ;;
-  *) fail "a --backend launch with an unresolvable knob did not warn: $ERR" ;;
+if [ "$bogus_rc" = 0 ]; then
+  case $bogus_err in
+    *warning*'--backend tmux'*mission_control_launch_backend*'could not be resolved'*) ok "a --backend launch the knob cannot be checked against warns so" ;;
+    *) fail "a --backend launch with an unresolvable knob did not warn: $bogus_err" ;;
+  esac
+else
+  fail "a --backend launch with an unresolvable knob exited $bogus_rc: $bogus_err"
+fi
+case $RC:$ERR in
+  4:*'cannot resolve mission_control_launch_backend'*) ok "a launch naming no rung still refuses an unresolvable knob" ;;
+  *) fail "a launch naming no rung under an unresolvable knob was not refused with exit 4: $RC $ERR" ;;
 esac
-ml retire "$(field name)"
+if [ -n "$bogus_name" ]; then
+  ml retire "$bogus_name"
+  [ "$RC" = 0 ] || fail "retiring the knob-bogus session exited $RC: $OUT $ERR"
+fi
 
 # A stream-json launch resolves its tier in the directory the session runs in,
 # as the tmux rung and a relaunch do, not in the launcher's own directory.

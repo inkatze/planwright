@@ -515,6 +515,7 @@ row mc-beta-worker-3333333333 beta tmux
   printf '9\t*\t*\t*\t*\t/opt/planwright/i\n'
   printf '%s\n' '10 * * * * /opt/hub/Claude-Sweep.sh' '11 * * * * PLANWRIGHT_ROOT=/opt/pw /opt/pw/tick.sh'
   printf '*/20 * * * * %s/tick.sh\n' "$neutral_home"
+  printf '%s\n' '*/25 * * * * /MCDOC-NEUTRAL-HOME/alpha/x.sh'
 } >"$CRON_FIXTURE"
 printf 'mission_control_launch_backend: stream-json\nmission_control_stall_window: 30m\nmission_control_tick_cadence: 5m\n' >"$layer"
 printf 'program_alpha_duties: [inbox, readiness-check]\n' >>"$tracked"
@@ -534,6 +535,7 @@ expect_no_out "another program's session is not named" "mc-beta-worker-333333333
 expect_out "a cron line naming planwright is named" "cron${tab}*/5 * * * * /opt/hub/w.sh planwright sweep"
 expect_out "a cron line in a program repository is named" "cron${tab}*/10 * * * * cd $repo && ./sweep.sh"
 expect_out "a cron line naming only the program home is named" "cron${tab}*/20 * * * * $neutral_home/tick.sh"
+expect_no_out "a program path matches only as spelled" "/MCDOC-NEUTRAL-HOME"
 expect_out "every NAME=value on a reported cron line is blanked" "cron${tab}*/15 * * * * PLANWRIGHT_TOKEN=<redacted> API_KEY=<redacted> NOTE=<redacted> /opt/hub/claude-run.sh --key=<redacted>"
 for want in \
   '1 * * * * T=<redacted> /opt/planwright/a' \
