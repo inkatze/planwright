@@ -824,6 +824,28 @@ else
   [ ! -s "$rec/argv" ] || fail "c9: the unreadable-profile launch must never spawn the worker"
 fi
 chmod 644 "$tmp/badroot/config/worker-settings.json"
+# The shell rules come from the install whose profile the launch pins, and a
+# rules file that is missing or holds only blank lines degrades to a launch
+# without them, with a warning, never to a refusal or an empty append.
+mkdir -p "$tmp/norules"
+cp -R "$here/../scripts" "$tmp/norules/scripts"
+cp -R "$here/../config" "$tmp/norules/config"
+rm -f "$tmp/norules/config/launch-shell-rules.txt"
+for nr_case in missing blank; do
+  [ "$nr_case" = blank ] && printf '\n\n \n' >"$tmp/norules/config/launch-shell-rules.txt"
+  : >"$rec/argv"
+  env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_ROOT="$tmp/norules" \
+    PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base" \
+    PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" \
+    /bin/sh "$here/../scripts/fleet-streamjson.sh" \
+    launch "sjw9nr-$nr_case" execution-backends:4 --prompt-file "$tmp/prompt9" --foreground \
+    >/dev/null 2>"$tmp/norules.err" \
+    || fail "c9: a $nr_case rules file under the pinned root must not refuse the launch: $(cat "$tmp/norules.err")"
+  grep -q 'launches without the shell rules' "$tmp/norules.err" \
+    || fail "c9: a $nr_case rules file must warn that the launch goes without them: $(cat "$tmp/norules.err")"
+  grep -q -- '--append-system-prompt' "$rec/argv" \
+    && fail "c9: a $nr_case rules file under the pinned root must append no system prompt: $(cat "$rec/argv")"
+done
 echo "ok: c9 pinned non-bare launch shape with the settings pin, prompt-as-data, --bare and --settings refused, missing fragment fails closed (REQ-A1.9, D-12, D-19)"
 
 # ---------------------------------------------------------------------------
