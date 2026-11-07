@@ -114,7 +114,7 @@ the sections further down).
 | `2026-09-24-custom-steps-doc-open-points-60f1e9b9` | custom-steps.md leaves many record, exit and fixture questions to later tasks or amendment | Resolve each listed point in its owning task or the next amendment |
 | `2026-09-24-preamble-slash-invocation-3a3a9593` | Preamble placement for headless and in-session skill steps is unpinned; headless prompt may not parse as a skill call | Pin preamble layout for headless and in-session skill steps in doctrine/custom-steps.md |
 | `2026-09-24-step-script-usage-headers-8cc8c963` | custom-steps doctrine delegates details to script usage headers no task deliverable names | Name the resolve-steps.sh and step-record.sh usage headers and what they pin in the task deliverables |
-| `2026-09-24-step-subprocess-guard-gap-9a4dd2c8` | Isolated command steps run unseen by hooks, so reserved controls bind them by declaration only | Have resolve-steps.sh refuse command lines naming reserved controls at the guarded points |
+| `2026-09-24-step-subprocess-guard-gap-9a4dd2c8` | Isolated command steps run unseen by hooks, so human gates bind them by declaration only | Have resolve-steps.sh refuse command lines naming human gates at the guarded points |
 | `2026-09-24-step-tables-test-gaps-35e89205` | No test-spec scenario covers the halted convergence arms or post-pr table re-emission for non-pushing steps | Add the halted-arm and non-pushing post-pr scenarios to custom-steps test-spec |
 | `2026-09-24-stopped-waiting-concurrent-edits-ec41922e` | An abandoned timed-out step session can keep editing the worktree under on-failure continue | Record the concurrent-edit risk in the next custom-steps amendment and decide a mitigation |
 | `2026-09-26-session-line-runs-location-b947acf7` | Spec text still says the declared target runs, while doctrine now runs the resolved absolute location | Amend the listed REQs, decisions, test-spec and tasks to name the resolved location |
@@ -428,7 +428,7 @@ the sections further down).
 | `2026-09-24-trailer-length-bound-a118ede3` | orchestrate-state.sh screens Planwright-Task spec segment without the 64-char bound the trailer helper enforces | Add the 64-character bound to orchestrate-state.sh trailer spec-segment screen |
 | `2026-09-28-sign-off-route-reason-writer-29b27caf` | The checklist renders a Route reason no committer records, so every entry reads not recorded | Have self-review stamp a Route reason line in the sign-off commit body |
 | `2026-10-01-sign-off-checklist-two-generators-2dc85dbb` | sign-off-checklist.sh and step-record.sh regenerate render legacy entries differently, duplicating logic | Render the PR section from sign-off-checklist.sh list output and drop the step-record copy |
-| `2026-10-07-sign-off-id-legacy-collision-1fa24fe0` | Convergence step used legacy [pending-sign-off] suffix while PR body numbered PS ids, colliding | Make convergence steps stamp via planwright-commit-trailers.sh --sign-off, or flag new legacy subjects |
+| `2026-10-07-sign-off-id-legacy-collision-1fa24fe0` | Convergence step used legacy legacy sign-off subject marker suffix while PR body numbered PS ids, colliding | Make convergence steps stamp via planwright-commit-trailers.sh --sign-off, or flag new legacy subjects |
 | `2026-10-08-sign-off-checklist-squash-ancestry-89426779` | Branch cut from a squash-merged task branch re-lists already-approved sign-off trailers | sign-off-checklist.sh skips trailers whose patch is already on the base |
 | `2026-10-11-checklist-omits-legacy-marker-b1f24036` | step-record regenerate --checklist-only omitted a legacy-marker commit | Include legacy-marker commits as PS-legacy items in the --checklist-only render |
 | `2026-10-18-polish-untrailered-signoff-729ee951` | Polish has no ledger home for a sign-off edit landed untrailered in a fix batch | Give polish a sanctioned record for a late sign-off trailer without split and re-land |
@@ -861,7 +861,7 @@ the sections further down).
 | `2026-09-28-reserved-control-open-vectors-5d886bf9` | Several reserved-control spellings remain open: env-injected git config, git -C, quoted pushes, MCP undo | Close the listed spellings in the policy guard and add fixture verdicts and githooks cross-copy rows |
 | `2026-10-07-spellings-mcp-glob-model-05ec412b` | test-reserved-control-spellings uses exact MCP name equality, blind to mcp__*__ deny globs | Match MCP deny entries as globs in test-reserved-control-spellings.sh like the wiring test |
 | `2026-10-07-worker-profile-mcp-globs-b3778c06` | Worker profile denies GitHub MCP merge/write tools only under mcp__github__, not other servers | Add mcp__*__ deny globs for the no-knob merge and branch-write tools in worker-settings.json |
-| `2026-10-18-human-gates-zone-restatements-421e62ef` | tower-queue.sh still uses retired reserved human control vocabulary | Message-only follow-up renaming the phrase in tower-queue.sh and its test pins |
+| `2026-10-18-human-gates-zone-restatements-421e62ef` | tower-queue.sh still uses retired human gates vocabulary | Message-only follow-up renaming the phrase in tower-queue.sh and its test pins |
 | `2026-10-18-policy-guard-retired-phrase-a8031a3e` | Guard surfaces (policy-guard, githooks, worker _about) still carry retired phrasings | Message-only pause-protocol follow-up rewording the listed texts |
 
 ### B42. Diet fidelity and safety-floor doctrine
@@ -1933,7 +1933,7 @@ the sections further down).
 | Fragment | What it says | Its own smallest change |
 | --- | --- | --- |
 | `2026-09-21-protected-docs-fails-open-8d2f1a63` | Protected-doc list is hardcoded and fails open; new or split docs are shadowable | Fail when a doctrine doc is in neither list; then invert the default |
-| `2026-09-24-custom-steps-doc-unprotected-4871f107` | custom-steps.md carries reserved controls but is not in the protected doc set | Add custom-steps to PROTECTED_DOCS and the D-11 list |
+| `2026-09-24-custom-steps-doc-unprotected-4871f107` | custom-steps.md carries human gates but is not in the protected doc set | Add custom-steps to PROTECTED_DOCS and the D-11 list |
 
 ### B114. Step-record screen placeholder and macOS digest dependency
 
@@ -2473,7 +2473,7 @@ owned by `flight` has no spec to name, so its consumer is the operator's choice.
 | `2026-09-28-fleet-dispatch-worktree-symlinked-tmpdir-f334f13e` | test throughput portability part (`specs/test-throughput/`) | 14e3ebca test: guard the dispatch and graph tests against a symlinked TMPDIR and a real dot (#783) | test-fleet-dispatch-worktree c24 fails on macOS where TMPDIR resolves via /private/var |
 | `2026-09-28-policy-guard-knob-trust-4d2311ea` | human gates policy guard (`specs/human-gates/`) | af2690c9 feat(guards): add the policy guard and the profile floor (#549) | Policy guard must not trust worker-controlled env overrides or worktree config, and must normalize ref shorthand |
 | `2026-09-28-tower-queue-bash32-parse-297401ec` | test throughput bash 3.2 parse part (`specs/test-throughput/`) | 90e3b4be fix(scripts): make check-no-ci-evals and tower-queue parse under bash 3.2 (#556) | tower-queue.sh and check-no-ci-evals.sh do not parse under macOS bash 3.2 |
-| `2026-09-28-tower-queue-quoted-verbs-7a24c24d` | human gates reserved controls (`specs/human-gates/`) | 60a5ca19 test(guards): shared reserved-control spelling fixture and the guard gaps it found (#529) | Tower queue verb screens ran before quote removal so quoted spellings slipped through; fixed same PR |
+| `2026-09-28-tower-queue-quoted-verbs-7a24c24d` | human gates human gates (`specs/human-gates/`) | 60a5ca19 test(guards): shared reserved-control spelling fixture and the guard gaps it found (#529) | Tower queue verb screens ran before quote removal so quoted spellings slipped through; fixed same PR |
 | `2026-09-29-sign-off-trailer-writer-0019638a` | sign-off trailers (`specs/human-gates/`) | dca8ae44 feat(sign-off): record sign-offs in trailers and rebuild the checklist from them (#530) | planwright-commit-trailers.sh emitted only Planwright-Task, not the Sign-Off trailer |
 | `2026-09-29-skill-drift-0ef6fc5e` | execute-task convergence wiring (`specs/custom-steps/`) | ad501ac7 feat(execute-task): wire the unit points into /execute-task (#535) | execute-task still resolved the retired review_sequence via a deleted script |
 | `2026-09-29-skill-drift-ee18d97c` | execute-task convergence wiring (`specs/custom-steps/`) | ad501ac7 feat(execute-task): wire the unit points into /execute-task (#535) | execute-task convergence section still names review_sequence and its retired resolver |
