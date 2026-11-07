@@ -62,6 +62,13 @@ Usage:
         dropped<TAB><session>                the line, once nothing is left
         open<TAB><session>
         unknown<TAB><session><TAB><why>      the read failed; kept
+      first, it clears the decision-queue row of each visual flight parked
+      for the operator (scripts/flight-lifecycle.sh) from one of the
+      program's repositories, once its branch's pull request has merged or
+      closed and none is open (a tmux flight only once its completion was
+      pushed); a failed read never fails the run, and stops the pass:
+        settled<TAB><handle><TAB>MERGED|CLOSED
+        park-unknown<TAB><handle><TAB><why>  not read; kept
   mc-keeper.sh next --program <p> --spec <dir> [--now <epoch>]
       the units of the spec bundle at <dir> (scripts/orchestrate-state.sh,
       run from the directory's repository) that can start now:
@@ -336,6 +343,88 @@ EOF
   return "$sw_rc"
 }
 
+# flight_parks: a visual flight parked for the operator whose branch's pull
+# request has since merged or closed waits on nobody, but nothing else clears
+# its queue row: a flight placed outside mission control has no ledger line,
+# and its own retire waits for a worktree removal that may never come. Each
+# such row of a flight from one of the program's repositories (its checkout
+# the repository or a worktree under it) is cleared, only while it is still
+# the row judged. One still open, none, or a read that fails keeps it, and
+# the first failed read stops the pass, so a hung forge costs one bound.
+#
+# A tmux flight whose completion was never pushed (no landing reference
+# beside its brief) keeps its park: the park is what stops the crash sweep
+# (scripts/flight-lifecycle.sh supervise) relaunching its dead worker.
+flight_parks() {
+  fp_home=$(mc_fleet_home) || return 0
+  fp_store=$fp_home/attention/state
+  [ -f "$fp_store" ] && [ ! -L "$fp_store" ] || return 0
+  fp_rows=$(awk -F '\t' '$3 == "awaiting-input" && index($9, "flight-parked: ") == 1 && index($2, "flight:") == 1 {
+      id = substr($2, 8)
+      if (id ~ /^[a-z0-9][a-z0-9-]*$/ && ($1 == "tmux-flight-" id || $1 == "print-flight-" id)) print $1 "\t" id "\t" $4
+    }' "$fp_store" 2>/dev/null) || return 0
+  [ -n "$fp_rows" ] || return 0
+  fp_repos=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories 2>/dev/null) || return 0
+  # Each repository as written and as resolved, each naming the resolved
+  # directory the forge is asked from.
+  fp_mine=""
+  while IFS= read -r fp_r; do
+    [ -n "$fp_r" ] || continue
+    fp_rr=$(cd -- "$fp_r" 2>/dev/null && pwd -P) || continue
+    fp_mine="$fp_mine$fp_r	$fp_rr
+$fp_rr	$fp_rr
+"
+  done <<EOF
+$fp_repos
+EOF
+  fp_failed=0
+  while IFS='	' read -r fp_h fp_id fp_stamp; do
+    [ -n "$fp_h" ] || continue
+    fp_fd=$fp_home/flights/$fp_id
+    fp_ck=$fp_fd/checkout
+    [ -f "$fp_ck" ] && [ ! -L "$fp_ck" ] || continue
+    case $fp_h in
+      tmux-flight-*) [ -e "$fp_fd/landing" ] || [ -L "$fp_fd/landing" ] || continue ;;
+    esac
+    fp_dir=$(head -n 1 "$fp_ck" 2>/dev/null)
+    case $fp_dir in /*) ;; *) continue ;; esac
+    # A worktree removed since keeps its recorded path.
+    fp_dir=$(cd -- "$fp_dir" 2>/dev/null && pwd -P) || fp_dir=$(head -n 1 "$fp_ck" 2>/dev/null)
+    fp_repo=$(printf '%s' "$fp_mine" | D=$fp_dir awk -F '\t' '
+      $1 != "" && (ENVIRON["D"] == $1 || index(ENVIRON["D"], $1 "/") == 1) { print $2; exit }')
+    [ -n "$fp_repo" ] || continue
+    if [ "$fp_failed" = 1 ]; then
+      [ "$events" = 1 ] || printf 'park-unknown\t%s\tan earlier pull request read failed\n' "$fp_h"
+      continue
+    fi
+    # A fork's pull request on a same-named branch is never the flight's. The
+    # open ones are asked for apart, so no result cap can hide one.
+    fp_states=''
+    for fp_q in open closed; do
+      if ! fp_got=$(cd -- "$fp_repo" && gh_bounded pr list --head "planwright/flight/$fp_id" --state "$fp_q" --limit 100 \
+        --json state,isCrossRepository --jq '.[] | select(.isCrossRepository | not) | .state' 2>/dev/null); then
+        fp_failed=1
+        break
+      fi
+      fp_states="$fp_states$fp_got
+"
+      [ -z "$fp_got" ] || [ "$fp_q" != open ] || break
+    done
+    if [ "$fp_failed" = 1 ]; then
+      [ "$events" = 1 ] || printf 'park-unknown\t%s\tthe pull request read failed\n' "$fp_h"
+      continue
+    fi
+    case $fp_states in *OPEN*) continue ;; esac
+    fp_state=$(printf '%s\n' "$fp_states" | awk '$0 == "MERGED" || $0 == "CLOSED" { s = (s == "MERGED" ? s : $0) } END { print s }')
+    [ -n "$fp_state" ] || continue
+    /bin/sh "$script_dir/fleet-attention.sh" clear "$fp_h" --if-row "flight:$fp_id" awaiting-input "$fp_stamp" >/dev/null 2>&1 </dev/null || continue
+    [ "$events" = 1 ] || printf 'settled\t%s\t%s\n' "$fp_h" "$fp_state"
+  done <<EOF
+$fp_rows
+EOF
+  return 0
+}
+
 # pending_prompts: the stream-json pending-age sweep over every worker on
 # this machine, whatever planwright version or verb launched it, since one
 # the launcher never registered has no other watcher once its own supervisor
@@ -482,6 +571,8 @@ case $verb in
     fi
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
     trap pw_lock_release_all EXIT
+    # First: the ledger sweep can exit the run on a broken ledger.
+    flight_parks
     sweep || rc=1
     exit "$rc"
     ;;
