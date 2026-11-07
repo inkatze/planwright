@@ -126,8 +126,14 @@ while [ $# -gt 0 ]; do
         --target) target=$2 ;;
         --now) now=$2 ;;
         --limit) limit=$2 ;;
-        --kind) kind=$2; have_kind=1 ;;
-        --older-than) older=$2; have_older=1 ;;
+        --kind)
+          kind=$2
+          have_kind=1
+          ;;
+        --older-than)
+          older=$2
+          have_older=1
+          ;;
       esac
       shift 2
       ;;
