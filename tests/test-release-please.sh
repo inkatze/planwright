@@ -249,8 +249,10 @@ fi
 PRINTER="$REPO_ROOT/$PRINT_FILES"
 help_start=$(grep -n "<<'HELP'\$" "$PRINTER" | head -1 | cut -d: -f1)
 help_end=$(grep -n '^HELP$' "$PRINTER" | head -1 | cut -d: -f1)
-print_hits=$(grep -nE 'gh pr merge|pulls/[^ ]*/merge|mergePullRequest|enablePullRequestAutoMerge|--auto-merge' "$PRINTER" \
-  | awk -F: -v s="${help_start:-0}" -v e="${help_end:-0}" -v q="'" '($1 + 0 <= s + 0 || $1 + 0 > e + 0) && $0 !~ ("printf " q "[^" q "]*gh pr merge")' || true)
+print_hits=$(awk -v s="${help_start:-0}" -v e="${help_end:-0}" -v q="'" '
+  NR > s && NR <= e { next }
+  { l = $0; gsub("printf " q "[^" q "]*" q, "", l) }
+  l ~ /gh pr merge|pulls\/[^ ]*\/merge|mergePullRequest|enablePullRequestAutoMerge|--auto-merge/ { print NR ":" $0 }' "$PRINTER" || true)
 if [ -n "$help_start" ] && [ -n "$help_end" ] && [ -z "$print_hits" ] \
   && ! grep -qE '(^|[;&|(]|then|do|else)[[:space:]]*(eval|sh -c|bash -c)[[:space:]]' "$PRINTER" \
   && ! grep -qE '\|[[:space:]]*((command|exec|env|builtin|nohup)[[:space:]]+)*([^[:space:]|]*/)?(sh|bash|zsh|dash|ksh|xargs|eval|source)([[:space:]]|$)' "$PRINTER" \
