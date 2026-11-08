@@ -263,10 +263,12 @@ rm -rf "$fleet/streamjson/mc-alpha-worker-inflight"
 # ---------------------------------------------------------------------------
 # Short-lived workers: a session idle past mission_control_worker_idle is
 # retired, one past mission_control_worker_lifetime hands over; a tower, a
-# busy young session and one parked on its own question are left alone.
+# kickoff relay, a busy young session and one parked on its own question are
+# left alone.
 # ---------------------------------------------------------------------------
 sleep 600 >/dev/null 2>&1 &
 bound_pid=$!
+trap 'kill "$bound_pid" 2>/dev/null; rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/tmux"
 cat >"$tmp/bin/tmux" <<'STUB'
 #!/bin/sh
@@ -335,14 +337,28 @@ cat >"$tmp/busy.pane" <<'EOF'
 EOF
 sessions="$fleet/mission-control/sessions"
 mkdir -p "$sessions"
-# bound_row <name> <kind> <window n> <launched> <pane>: a launched tmux
-# session, its window live in the stub.
+# bound_row <name> <kind> <window n> <launched> <pane> [<scope>]: a launched
+# tmux session, its window live in the stub.
 bound_row() {
-  printf 'format\t1\nname\t%s\nstate\tlaunched\ntoken\tt\npid\t1\nprogram\talpha\nowner\tmission-control:alpha\nkind\t%s\nscope\ts-%s\nbackend\ttmux\nhandle\t@%s\nprofile\tworker\ntier\t-\nbrief\t-\ncwd\t-\ntask\t-\nprimary\t-\nmarker\t-\nlaunched\t%s\n' \
-    "$1" "$2" "$3" "$3" "$4" >"$sessions/$1"
+  printf 'format\t1\nname\t%s\nstate\tlaunched\ntoken\tt\npid\t1\nprogram\talpha\nowner\tmission-control:alpha\nkind\t%s\nscope\t%s\nbackend\ttmux\nhandle\t@%s\nprofile\tworker\ntier\t-\nbrief\t-\ncwd\t-\ntask\t-\nprimary\t-\nmarker\t-\nlaunched\t%s\n' \
+    "$1" "$2" "${6:-s-$3}" "$3" "$4" >"$sessions/$1"
   printf '%s\n' "$1" >"$tmp/tmux/$3.name"
   printf '%s\n' "$bound_pid" >"$tmp/tmux/$3.pid"
   cp "$5" "$tmp/tmux/$3.pane"
+}
+# relaunch_row <name> <launched>: the same name, a later launch.
+relaunch_row() {
+  awk -v l="$2" -F '\t' 'BEGIN { OFS = "\t" } $1 == "launched" { $2 = l } { print }' "$sessions/$1" >"$sessions/$1.new" \
+    && mv -f "$sessions/$1.new" "$sessions/$1"
+}
+# sj_row <name> <launched> <turn ended> <final text>: a stream-json session
+# whose last turn completed at <turn ended>, its final text <final text>.
+sj_row() {
+  printf 'format\t1\nname\t%s\nstate\tlaunched\nprogram\talpha\nkind\tworker\nscope\ts\nbackend\tstream-json\nlaunched\t%s\n' \
+    "$1" "$2" >"$sessions/$1"
+  mkdir -p "$fleet/streamjson/$1"
+  printf 'result\tsuccess\t%s\tfalse\n' "$3" >"$fleet/streamjson/$1/result"
+  jq -nc --arg r "$4" '{type:"result",subtype:"success",result:$r}' >"$fleet/streamjson/$1/events.jsonl"
 }
 t1=20000
 t2=$((t1 + 1900))
@@ -351,16 +367,29 @@ bound_row mc-alpha-reviewer-old reviewer 22 0 "$tmp/busy.pane"
 bound_row mc-alpha-worker-young worker 23 "$t1" "$tmp/busy.pane"
 bound_row mc-alpha-worker-asks worker 24 "$t1" "$tmp/question.pane"
 bound_row mc-alpha-tower-old tower 25 0 "$tmp/idle.pane"
+bound_row mc-alpha-worker-old worker 26 0 "$tmp/busy.pane"
+bound_row mc-alpha-worker-kickoff worker 27 0 "$tmp/idle.pane" kickoff-demo
+bound_row mc-alpha-worker-again worker 28 "$t1" "$tmp/idle.pane"
+sj_row mc-alpha-worker-sjidle "$t1" "$t1" "Done: the pull request is open."
+sj_row mc-alpha-worker-sjasks "$t1" "$t1" "Two readings fit.
+Should I take the narrower one?  "
 bound_env() { mc_env env PATH="$tmp/bin:$PATH" TMUX_STUB="$tmp/tmux" "$@"; }
 (bound_env /bin/bash "$repo_root/scripts/mc-stall.sh" scan --program alpha --now "$t1" >/dev/null 2>&1)
+# The stall scan sampled mc-alpha-worker-again's first launch; its relaunch
+# under the same name has no sample of its own yet.
+relaunch_row mc-alpha-worker-again $((t1 + 10))
 OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now "$t2" 2>"$tmp/stderr")
 RC=$?
 expect_rc "bounds reads every session" 0
-expect_out "idle past the idle bound retires" "retire${tab}mc-alpha-worker-idle${tab}idle 1900s, bound 1800s"
-expect_out "lived past the lifetime hands over" "handover${tab}mc-alpha-reviewer-old${tab}lived ${t2}s, bound 14400s"
+expect_out "idle past the idle bound retires" "retire${tab}mc-alpha-worker-idle${tab}${t1}${tab}idle 1900s, bound 1800s"
+expect_out "lived past the lifetime hands over" "handover${tab}mc-alpha-reviewer-old${tab}0${tab}lived ${t2}s, bound 14400s"
+expect_out "a stream-json session whose last turn completed past the bound retires" "retire${tab}mc-alpha-worker-sjidle${tab}${t1}${tab}idle 1900s, bound 1800s"
 expect_no_out "a busy young session is left alone" "mc-alpha-worker-young"
 expect_no_out "a session parked on its own question is never retired" "mc-alpha-worker-asks"
+expect_no_out "nor a stream-json one whose last turn asked" "mc-alpha-worker-sjasks"
 expect_no_out "a tower is not bound" "mc-alpha-tower-old"
+expect_no_out "a kickoff relay is not bound" "mc-alpha-worker-kickoff"
+expect_no_out "a sample from an earlier launch under the name is ignored" "mc-alpha-worker-again"
 OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now $((t1 + 60)) 2>/dev/null)
 expect_no_out "an idle session inside the bound stays" "mc-alpha-worker-idle"
 
@@ -368,46 +397,84 @@ expect_no_out "an idle session inside the bound stays" "mc-alpha-worker-idle"
 cp "$tracked" "$tmp/tracked.keep"
 printf 'mission_control_worker_idle: 1m\nmission_control_worker_lifetime: 30m\n' >>"$tracked"
 OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now $((t1 + 1801)) 2>/dev/null)
-expect_out "a shorter idle knob retires sooner" "retire${tab}mc-alpha-worker-idle${tab}idle 1801s, bound 60s"
-expect_out "a shorter lifetime knob hands over sooner" "handover${tab}mc-alpha-worker-young${tab}lived 1801s, bound 1800s"
+expect_out "a shorter idle knob retires sooner" "retire${tab}mc-alpha-worker-idle${tab}${t1}${tab}idle 1801s, bound 60s"
+expect_out "a shorter lifetime knob hands over sooner" "handover${tab}mc-alpha-worker-young${tab}${t1}${tab}lived 1801s, bound 1800s"
 cp "$tmp/tracked.keep" "$tracked"
+for s in mc-alpha-worker-sjidle mc-alpha-worker-sjasks; do rm -f "$sessions/$s" && rm -rf "$fleet/streamjson/$s"; done
 
 # watch acts: the idle session is retired through the launcher, its window
-# closed and row gone; the old one's handover is announced once per launch.
+# closed and row gone; each old one's handover is announced once per launch.
 OUT=$(cd "$repo" && bound_env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now "$t2" 2>"$tmp/stderr")
+ERR=$(cat "$tmp/stderr")
 expect_out "the idle retire is announced" "announced${tab}worker-retired-idle${tab}mc-alpha-worker-idle"
 if [ ! -e "$sessions/mc-alpha-worker-idle" ] && [ ! -e "$tmp/tmux/21.name" ]; then
   ok "the idle session is retired: its window closed and its row released"
 else
-  fail "the idle session was not retired: $(ls "$sessions") $(cat "$tmp/stderr")"
+  fail "the idle session was not retired: $(ls "$sessions") $ERR"
 fi
 expect_out "the lifetime handover is announced" "announced${tab}worker-handover-due${tab}mc-alpha-reviewer-old"
-if [ -e "$sessions/mc-alpha-reviewer-old" ]; then ok "a handover leaves the session running"; else fail "the old session was retired"; fi
+expect_out "each session's own" "announced${tab}worker-handover-due${tab}mc-alpha-worker-old"
+if [ -e "$sessions/mc-alpha-reviewer-old" ] && [ -e "$sessions/mc-alpha-worker-kickoff" ]; then
+  ok "a handover leaves the session running, and a kickoff relay stays"
+else
+  fail "a session that should stay was retired: $(ls "$sessions")"
+fi
+case $ERR in
+  *"not fully retired"* | *"could not be requested"* | *"bounds lock"* | *"left for a pass"* | *"cannot be listed"*)
+    fail "the happy path's bounds reported an error: $ERR"
+    ;;
+  *) ok "the happy path's bounds report no error" ;;
+esac
 mc_run mc-event.sh list --program alpha
 expect_out "the retire lands in the event store" "worker-retired-idle${tab}mc-alpha-worker-idle${tab}mc-alpha-worker-idle retired: idle 1900s, bound 1800s"
-expect_out "the handover names the successor launch where no handover path is installed" "worker-handover-due${tab}mc-alpha-reviewer-old${tab}mc-alpha-reviewer-old is past its lifetime (lived ${t2}s, bound 14400s); launch its successor"
-OUT=$(cd "$repo" && bound_env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now $((t2 + 60)) 2>/dev/null)
-expect_no_out "the handover is raised once per launch" "worker-handover-due${tab}mc-alpha-reviewer-old"
+expect_out "the handover names the successor launch where no handover path is installed" "worker-handover-due${tab}mc-alpha-reviewer-old${tab}mc-alpha-reviewer-old is past its lifetime (lived ${t2}s, bound 14400s); retire it and launch its successor"
 
 # Where scripts/session-handover.sh is installed, the handover is requested
-# through it, so the session hands over at its own next safe point.
-cp -R "$repo_root/scripts" "$tmp/scripts-ho"
-cat >"$tmp/scripts-ho/session-handover.sh" <<EOF
+# through it, so the session hands over at its own next safe point. A
+# relaunch under the name is a new launch, so it is raised again; a session
+# already raised for its launch is not.
+cp -R "$repo_root/scripts" "$tmp/scripts-alt"
+cat >"$tmp/scripts-alt/session-handover.sh" <<EOF
 #!/bin/bash
 printf '%s\n' "\$*" >>"$tmp/handover-requests"
 printf 'requested\t%s\n' "\$3"
 EOF
-rm -f "$fleet/mission-control/alpha/keeper-bounds"
-OUT=$(cd "$repo" && bound_env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$tmp/scripts-ho/mc-keeper.sh" watch --now $((t2 + 120)) 2>/dev/null)
-expect_out "an installed handover path is announced" "announced${tab}worker-handover-due${tab}mc-alpha-reviewer-old"
-if grep -q "^request --session mc-alpha-reviewer-old --reason lived " "$tmp/handover-requests" 2>/dev/null; then
-  ok "the lifetime bound requests the session's own handover"
+relaunch_row mc-alpha-reviewer-old 1
+OUT=$(cd "$repo" && bound_env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$tmp/scripts-alt/mc-keeper.sh" watch --now $((t2 + 60)) 2>/dev/null)
+expect_out "a relaunch past its lifetime is raised again, through the installed path" "announced${tab}worker-handover-due${tab}mc-alpha-reviewer-old"
+expect_no_out "the handover is raised once per launch" "worker-handover-due${tab}mc-alpha-worker-old"
+if grep -q "^request --session mc-alpha-reviewer-old --reason lived " "$tmp/handover-requests" 2>/dev/null \
+  && ! grep -q "mc-alpha-worker-old" "$tmp/handover-requests"; then
+  ok "the lifetime bound requests the session's own handover, once per launch"
 else
-  fail "no handover request: $(cat "$tmp/handover-requests" 2>&1)"
+  fail "the handover requests: $(cat "$tmp/handover-requests" 2>&1)"
 fi
+mc_run mc-event.sh list --program alpha
+expect_out "the installed path's event says the session hands over itself" "mc-alpha-reviewer-old is past its lifetime (lived $((t2 + 59))s, bound 14400s); it hands over at its next safe point"
+
+# A failed handover request is not announced, and a pass whose stall scan
+# failed retires nothing, its samples possibly stale.
+printf '#!/bin/sh\nexit 1\n' >"$tmp/scripts-alt/session-handover.sh"
+printf '#!/bin/sh\nexit 1\n' >"$tmp/scripts-alt/mc-stall.sh"
+relaunch_row mc-alpha-reviewer-old 2
+bound_row mc-alpha-worker-idle2 worker 29 "$t1" "$tmp/idle.pane"
+printf '%s:t\th\t%s\tidle\n' "$t1" "$t1" >"$fleet/mission-control/alpha/stall/mc-alpha-worker-idle2"
+OUT=$(cd "$repo" && bound_env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$tmp/scripts-alt/mc-keeper.sh" watch --now $((t2 + 120)) 2>"$tmp/stderr")
+ERR=$(cat "$tmp/stderr")
+expect_no_out "a failed handover request is not announced" "worker-handover-due${tab}mc-alpha-reviewer-old"
+case $ERR in *"the handover of mc-alpha-reviewer-old could not be requested"*) ok "and is reported" ;; *) fail "the failed request was not reported: $ERR" ;; esac
+expect_no_out "a pass whose stall scan failed retires nothing" "worker-retired-idle"
+if [ -e "$sessions/mc-alpha-worker-idle2" ] && [ -e "$tmp/tmux/29.name" ]; then
+  ok "the idle session waits for a pass whose scan succeeds"
+else
+  fail "the idle session was retired on a failed scan"
+fi
+case $ERR in *"mc-alpha-worker-idle2 is idle past its bound, left for a pass whose stall scan succeeds"*) ok "and says so" ;; *) fail "the skipped retire was not reported: $ERR" ;; esac
+
 kill "$bound_pid" 2>/dev/null
-rm -rf "$tmp/scripts-ho"
-for s in mc-alpha-reviewer-old mc-alpha-worker-young mc-alpha-worker-asks mc-alpha-tower-old; do rm -f "$sessions/$s"; done
+rm -rf "$tmp/scripts-alt"
+for s in mc-alpha-reviewer-old mc-alpha-worker-young mc-alpha-worker-asks mc-alpha-tower-old mc-alpha-worker-old \
+  mc-alpha-worker-kickoff mc-alpha-worker-again mc-alpha-worker-idle2; do rm -f "$sessions/$s"; done
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-keeper: $failures failure(s)" >&2

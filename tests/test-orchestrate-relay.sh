@@ -454,6 +454,25 @@ rc_is retask-ok 0 "deliver of a unit-shaped message on an override"
 grep -q "relay${rtab}@3${rtab}operator asked\$" "$tmp/relay-fleet/mission-control/retasks.log" \
   || fail "the relay override must be logged: $(cat "$tmp/relay-fleet/mission-control/retasks.log" 2>&1)"
 echo "ok: deliver refuses a unit-shaped message before reading the pane; --retask pastes it, logged"
+PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-blank "$idle_pane" "@3" "$unit_msg" --retask ' '
+rc_is retask-blank 2 "deliver with a blank --retask reason"
+# An override refused before the paste is not logged.
+rt_rows=$(wc -l <"$tmp/relay-fleet/mission-control/retasks.log")
+FD_FLAGS=capture-fails PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-unpasted "$idle_pane" "@3" "$unit_msg" --retask "operator asked"
+rc_is retask-unpasted 3 "an override deliver to an unreadable pane"
+[ "$(wc -l <"$tmp/relay-fleet/mission-control/retasks.log")" = "$rt_rows" ] || fail "an override that pasted nothing was logged"
+# A re-task check that cannot run refuses the deliver, pasting nothing.
+cp -R "$here/../scripts" "$tmp/relay-broken"
+printf '#!/bin/sh\nexit 3\n' >"$tmp/relay-broken/retask-guard.sh"
+rt_keep=$RELAY
+RELAY="$tmp/relay-broken/orchestrate-relay.sh"
+fake_deliver retask-broken "$idle_pane" "@3" "$multi"
+RELAY=$rt_keep
+rm -rf "$tmp/relay-broken"
+rc_is retask-broken 2 "deliver whose re-task check did not run"
+grep -q 'the re-task check did not run' "$tmp/retask-broken/err" || fail "the refusal must say the check did not run: $(cat "$tmp/retask-broken/err")"
+pasted_nothing retask-broken "a deliver whose re-task check did not run"
+echo "ok: deliver's --retask needs a reason, an unpasted override is not logged, and a check that cannot run refuses"
 
 # 13c. Refuse, pasting nothing, while a selection prompt is open: a permission
 #      dialog, a select menu's footer, or the cursor on a numbered option.

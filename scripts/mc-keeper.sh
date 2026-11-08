@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # mc-keeper.sh — the session-keeper duty: track each launched session's pull
 # request, retire the session and reclaim its worktree once the pull request
-# lands, and name the next ready unit to dispatch while others wait.
+# lands, keep workers short-lived (retire the idle, hand over the old), and
+# name the next ready unit to dispatch while others wait.
 #
 # `mc-keeper.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
@@ -29,7 +30,8 @@ help_text() {
   cat <<'HELP'
 mc-keeper.sh — the session-keeper duty: track each launched session's pull
 request, retire the session and reclaim its worktree once the pull request
-lands, and name the next ready unit to dispatch while others wait.
+lands, keep workers short-lived (retire the idle, hand over the old), and
+name the next ready unit to dispatch while others wait.
 
 Driving a session to done (answering what the record settles, relaying only
 forks and operator-only blockers) is the mission-control session's

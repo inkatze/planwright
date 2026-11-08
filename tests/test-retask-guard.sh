@@ -49,15 +49,22 @@ msg cadence 'Do this.
 ## Verification cadence
 '
 msg midslash 'Run it, then /planwright:polish when you are done.'
+msg path '/tmp/notes.md has the operator'"'"'s answer.'
+msg yes '/yes'
+msg leadin 'Lead-in:
+/planwright:execute-task x'
+msg 'x=y' '/planwright:resume'
 
 out=$(/bin/sh "$GUARD" check "$tmp/plain")
 rc=$?
 [ "$rc" = 0 ] && [ -z "$out" ] && ok "a plain relay passes the check" || fail "a plain relay: exit $rc, $out"
-out=$(/bin/sh "$GUARD" check "$tmp/midslash")
-rc=$?
-[ "$rc" = 0 ] && ok "a skill named mid-sentence is not a unit's opening line" || fail "a mid-sentence skill was refused: $out"
-for c in skill skill-arg marker rules cadence; do
+for c in midslash path yes; do
   out=$(/bin/sh "$GUARD" check "$tmp/$c")
+  rc=$?
+  [ "$rc" = 0 ] && ok "a slash that is not a skill command passes ($c)" || fail "$c was refused: $out"
+done
+for c in skill skill-arg marker rules cadence leadin x=y; do
+  out=$(/bin/sh "$GUARD" check "$tmp/$c" 2>/dev/null)
   rc=$?
   case $out in
     "retask$tab"*) [ "$rc" = 5 ] && ok "a unit-shaped message ($c) is refused" || fail "$c: exit $rc" ;;
@@ -84,12 +91,22 @@ rc=$?
 
 # --- hook --------------------------------------------------------------------
 
-row() { # row <name> <kind>
-  printf 'format\t1\nname\t%s\nstate\tlaunched\nprogram\tp\nkind\t%s\nscope\ts\nbackend\ttmux\nlaunched\t0\n' "$1" "$2" \
+row() { # row <name> <kind> [<handle>]
+  printf 'format\t1\nname\t%s\nstate\tlaunched\nprogram\tp\nkind\t%s\nscope\ts\nbackend\ttmux\nhandle\t%s\nlaunched\t0\n' "$1" "$2" "${3:-@1}" \
     >"$fleet/mission-control/sessions/$1"
 }
-row mc-p-worker-live worker
-row mc-p-tower-live tower
+row mc-p-worker-live worker @3
+row mc-p-reviewer-live reviewer
+row mc-p-ad-hoc-live ad-hoc
+row mc-p-tower-live tower @7
+row mc-p-worker-real worker
+ln -s "$fleet/mission-control/sessions/mc-p-worker-real" "$fleet/mission-control/sessions/mc-p-worker-link"
+
+out=$(/bin/sh "$GUARD" check "$tmp/skill" --to @7)
+rc=$?
+[ "$rc" = 0 ] && [ -z "$out" ] && ok "a tower's window handle is not bound" || fail "a tower window handle was refused: exit $rc, $out"
+out=$(/bin/sh "$GUARD" check "$tmp/skill" --to @3 2>/dev/null)
+[ "$?" = 5 ] && ok "a worker's window handle is bound" || fail "a worker window handle passed: $out"
 
 hook() { # hook <tool> <to> <message-file>: the hook's stdout in OUT, exit in RC
   payload=$(jq -nc --arg t "$1" --arg to "$2" --rawfile m "$3" \
@@ -112,8 +129,20 @@ hook SendMessage mc-p-worker-live "$tmp/plain"
 [ "$RC" = 0 ] && [ -z "$OUT" ] && ok "a plain relay to the worker is left to the harness" || fail "a plain relay was decided: $OUT"
 hook SendMessage mc-p-tower-live "$tmp/skill"
 [ -z "$OUT" ] && ok "a tower is not bound by the worker rule" || fail "a tower message was decided: $OUT"
+for k in reviewer ad-hoc; do
+  hook SendMessage "mc-p-$k-live" "$tmp/skill"
+  denied && ok "a launched $k is bound too" || fail "a $k re-task was not denied: $OUT"
+done
 hook SendMessage some-peer "$tmp/skill"
 [ -z "$OUT" ] && ok "a session the launcher does not register is left alone" || fail "an unregistered peer was decided: $OUT"
+hook SendMessage mc-p-worker-none "$tmp/skill"
+[ -z "$OUT" ] && ok "an mc- name with no registry row is left alone" || fail "an unregistered mc- name was decided: $OUT"
+hook SendMessage mc-p-worker-link "$tmp/skill"
+[ -z "$OUT" ] && ok "a symlinked registry row is not trusted" || fail "a symlinked row was read: $OUT"
+awk 'BEGIN { for (i = 0; i < 4000; i++) print "Background line " i " of a long relay, nothing to act on." }' >"$tmp/big"
+printf '/planwright:execute-task other-spec 4\n' >>"$tmp/big"
+hook SendMessage mc-p-worker-live "$tmp/big"
+denied && ok "an oversize payload is still checked to its end" || fail "an oversize re-task slipped through: $OUT"
 hook Bash mc-p-worker-live "$tmp/skill"
 [ -z "$OUT" ] && ok "another tool is left alone" || fail "a Bash payload was decided: $OUT"
 
@@ -128,6 +157,21 @@ fi
 printf '[planwright retask-override: ]\n/planwright:polish\n' >"$tmp/override-blank"
 hook SendMessage mc-p-worker-live "$tmp/override-blank"
 denied && ok "an override tag without a reason is still denied" || fail "a blank override passed: $OUT"
+printf '   [planwright retask-override: indented reason]\n/planwright:polish\n' >"$tmp/override-indent"
+hook SendMessage mc-p-worker-live "$tmp/override-indent" 2>/dev/null
+[ -z "$OUT" ] && grep -q "${tab}indented reason\$" "$log" && ok "an indented override tag is honoured, logged" \
+  || fail "an indented override: out '$OUT', log $(cat "$log")"
+chmod 444 "$log"
+hook SendMessage mc-p-worker-live "$tmp/override" 2>/dev/null
+chmod 644 "$log"
+denied && ok "an override that cannot be logged is denied" || fail "an unlogged override passed: $OUT"
+
+if jq -e '[.hooks.PreToolUse[] | select(.matcher == "SendMessage")] | length == 1 and (.[0].hooks | length == 1)
+    and (.[0].hooks[0].command | endswith("retask-guard.sh hook"))' "$here/../hooks/hooks.json" >/dev/null; then
+  ok "hooks.json wires the hook once, on SendMessage"
+else
+  fail "hooks.json does not wire exactly one SendMessage hook to retask-guard.sh hook"
+fi
 
 printf 'not json' | /bin/sh "$GUARD" hook >"$tmp/garbage.out"
 rc=$?

@@ -44,7 +44,7 @@
 
 duties:
   - id: session-keeper
-    summary: "Drives each launched session to done, retires it on landing, reclaims its worktree"
+    summary: "Drives each session to done, retires it on landing or idle, reclaims its worktree"
     triggers: [stall-dead, stall-open-selector, stall-unsubmitted-prompt,
                stall-turn-ended-background, stall-idle-question, stall-busy-unchanged,
                stall-unknown, session-landed, pending-prompt-overdue,

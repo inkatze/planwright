@@ -137,7 +137,8 @@ nl='
 '
 
 usage() {
-  printf '%s\n' "$me: usage: $me <validate-handle|relay-command|deliver|observe-command> <backend> <handle> [<message-file>] (deliver: [--retask <reason>])" >&2
+  printf '%s\n' "$me: usage: $me <validate-handle|relay-command|deliver|observe-command> <backend> <handle> [<message-file>]" >&2
+  printf '%s\n' "$me: deliver tmux <handle> <message-file> [--retask <reason>]" >&2
   printf '%s\n' "$me: <handle> is explicit (operator-named, or a live peer's handle from fleet-presence.sh), never the active pane" >&2
 }
 
