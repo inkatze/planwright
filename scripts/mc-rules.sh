@@ -744,7 +744,7 @@ case $verb in
     case $durable in /*) ;; *) durable=./$durable ;; esac
     for f in "$held" "$durable"; do
       [ -f "$f" ] && [ -r "$f" ] || die 1 "$f is not a readable file"
-      bad_line=$(awk '!/^[ ]*$/ && !/^(item|session) [A-Za-z0-9._:-]+$/ { print NR; exit }' <"$f")
+      bad_line=$(awk '!/^[ \t]*$/ && !/^(item|session)[ \t]+[A-Za-z0-9._:-]+$/ { print NR; exit }' <"$f")
       [ -z "$bad_line" ] || die 1 "$f:$bad_line: not an 'item <id>' or 'session <handle>' line"
     done
     resolve_home "$program"
@@ -771,7 +771,7 @@ case $verb in
     done
     [ "$failed" -eq 0 ] || exit 1
     printf 'self-check passed: rules %s, %s open items, %s live sessions\n' "$store_digest" \
-      "$(grep -c '^item ' "$durable")" "$(grep -c '^session ' "$durable")"
+      "$(grep -c '^item[[:blank:]]' "$durable")" "$(grep -c '^session[[:blank:]]' "$durable")"
     ;;
   *) usage ;;
 esac

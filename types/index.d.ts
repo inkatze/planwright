@@ -34,6 +34,8 @@ export type PanelDigest = {
   finished: number | null
   waiting: number | null
   pending: number | null
+  // Worker permission prompts mission control answers, never the operator's.
+  approvals: number | null
   decisions: PanelDecision[]
   rung: { name: string; reason: string }
   headroom: PanelHeadroom[]

@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.70.0](https://github.com/inkatze/planwright/compare/v0.69.0...v0.70.0) (2026-11-08)
+
+
+### Features
+
+* **fleet:** run tests on a remote host over SSH, and draft the remote worker rung ([#871](https://github.com/inkatze/planwright/issues/871)) ([0538fbe](https://github.com/inkatze/planwright/commit/0538fbee07765a7e9d44c394884b57d38f256d43))
+* **release:** fail a scheduled check when a merged release stays unpublished ([#882](https://github.com/inkatze/planwright/issues/882)) ([b510186](https://github.com/inkatze/planwright/commit/b510186efd68909462817ef8e97c5c86964b8156))
+
+
+### Bug Fixes
+
+* **mission-control:** handover readers, successor docs, immediate permission prompts ([#865](https://github.com/inkatze/planwright/issues/865)) ([e8772d2](https://github.com/inkatze/planwright/commit/e8772d2b29619cdbdb26667dbac8dade0576a121))
+* **mission-control:** the panel's waiting count shows only what waits on you ([#867](https://github.com/inkatze/planwright/issues/867)) ([3017dbe](https://github.com/inkatze/planwright/commit/3017dbeffa409100b39e1077c8a92721374f4639))
+* **worker-guard:** deny only the mise paths mise loads ([#877](https://github.com/inkatze/planwright/issues/877)) ([4e35a0f](https://github.com/inkatze/planwright/commit/4e35a0ffb922f997240a97b30255c180bc6211df))
+
+## [0.69.0](https://github.com/inkatze/planwright/compare/v0.68.0...v0.69.0) (2026-11-07)
+
+
+### Features
+
+* **policy-guard:** let a kickoff session push its own spec branch ([#866](https://github.com/inkatze/planwright/issues/866)) ([ac910dd](https://github.com/inkatze/planwright/commit/ac910ddb2ad842fa5c71bf09a40e044078fe0756))
+
+
+### Bug Fixes
+
+* **fleet:** close requests a finished stream-json worker left waiting ([#842](https://github.com/inkatze/planwright/issues/842)) ([da91fd7](https://github.com/inkatze/planwright/commit/da91fd7d9ebaec49d0128e31feac2ea7c685811a))
+
 ## [0.68.0](https://github.com/inkatze/planwright/compare/v0.67.1...v0.68.0) (2026-11-07)
 
 

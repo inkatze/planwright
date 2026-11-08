@@ -107,7 +107,11 @@ Usage:
   mc-handover.sh release --program <p> --session <handle> [--now <epoch>]
       the holder gives up the name to its verified successor (a registered
       session naming it as predecessor) or else to a resume that asked
-      for it; prints released<TAB><handle><TAB><to>
+      for it; prints released<TAB><handle><TAB><to>. The released session
+      then ends itself: the calling session's own panel activation of
+      this program is retired for exit (mc-panel.sh retire --exit), its
+      mod ending the session once the turn is over, and it prints
+      exit<TAB>mod; otherwise exit<TAB>none<TAB><why>
   mc-handover.sh take --program <p> --session <name> [--window <cadence>]
       [--now <epoch>]
       the verified successor takes the name: it asks a live predecessor
@@ -134,7 +138,8 @@ take and resume print, in order:
       for the predecessor, then for a pending successor the handover
       left behind: released, the launcher retired its row; partial, it
       retired only part and an item is raised; attended, the operator's
-      own session, which has no row; gone, the row was already absent
+      own session, which has no row and ends itself once it releases
+      (release, above); gone, the row was already absent
   changed<TAB>decision<TAB><ts><TAB><subject><TAB><act>     (resume)
   changed<TAB>event<TAB><epoch><TAB><kind><TAB><subject>    (resume)
   changed<TAB>none | changed<TAB>unknown<TAB><store>        (resume)
@@ -205,7 +210,7 @@ parse_pct() {
 # check_picture <file>: a readable file of `item <id>` and `session <h>`.
 check_picture() {
   [ -f "$1" ] && [ -r "$1" ] || mc_usage_fail "$(sanitize_printable "$1") is not a readable file"
-  cp_bad=$(awk '!/^[ ]*$/ && !/^(item|session) [A-Za-z0-9._:-]+$/ { print NR; exit }' <"$1")
+  cp_bad=$(awk '!/^[ \t]*$/ && !/^(item|session)[ \t]+[A-Za-z0-9._:-]+$/ { print NR; exit }' <"$1")
   [ -z "$cp_bad" ] || mc_usage_fail "$(sanitize_printable "$1"):$cp_bad: not an 'item <id>' or 'session <handle>' line"
 }
 
@@ -520,6 +525,32 @@ compose_brief() {
   } >"$scratch"
 }
 
+# end_self: the released session's exit line, from retiring its own panel
+# activation of this program for exit (never another program's). When that
+# fails, a plain retire still stands its mod down, so the released session
+# stops acting as mission control even though nothing ends it.
+end_self() {
+  es_out=$(/bin/bash "$script_dir/mc-panel.sh" retire --exit --program "$program" 2>/dev/null </dev/null)
+  es_rc=$?
+  case $es_rc in
+    0)
+      es_line=$(printf '%s\n' "$es_out" | awk -F '\t' '$1 == "exit" { print; exit }' | mc_clean)
+      [ -n "$es_line" ] || es_line=$(printf 'exit\tnone\t%s' "mc-panel.sh printed no exit line")
+      printf '%s\n' "$es_line"
+      return 0
+      ;;
+    4)
+      printf 'exit\tnone\t%s\n' "this session's id cannot be told"
+      return 0
+      ;;
+  esac
+  if /bin/bash "$script_dir/mc-panel.sh" retire >/dev/null 2>&1 </dev/null; then
+    printf 'exit\tnone\t%s\n' "the exit marker could not be written; the panel stood down"
+  else
+    printf 'exit\tnone\t%s\n' "the panel's activation could not be retired"
+  fi
+}
+
 # --------------------------------------------------------------------------
 
 case ${1:-} in
@@ -777,7 +808,7 @@ case $verb in
     runtime_paths
     lock
     read_holder
-    [ "$H_SESSION" = "$session" ] || mc_fail "$session does not hold the program name $program"
+    [ "$H_SESSION" = "$session" ] || mc_fail "$session does not hold the program name $program (the holder is ${H_SESSION:-nobody})"
     to=''
     if [ -f "$SUCC" ]; then
       store_check "$SUCC"
@@ -794,6 +825,7 @@ case $verb in
     record "$RELEASED" session "$session" to "$to" at "$NOW"
     unlock
     printf 'released\t%s\t%s\n' "$session" "$to"
+    end_self
     ;;
   take)
     need session "$session"

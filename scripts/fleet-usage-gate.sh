@@ -75,7 +75,10 @@
 # copy of Claude Code's own rate-limit windows that the operator's own
 # statusLine command writes on each refresh (`${XDG_CACHE_HOME:-$HOME/.cache}/
 # claude-usage/rate-limits.json`, or $PLANWRIGHT_USAGE_MIRROR; set empty, the
-# source is off). planwright never writes it. Each window is taken from the
+# source is off). `scripts/fleet-usage-mirror.sh` is the planwright writer of
+# that copy, installed by wrapping the statusLine command; the gate only reads
+# it. A `rate_limits.spend_limit` (dollar budgets) fills the weekly window when
+# the account has no seven_day window. Each window is taken from the
 # first source that has it fresh (the mirror, then the capture cache), so a
 # window the mirror lacks falls back rather than reading 0%. The mirror is
 # read-only here and judged by the same TTL, a window's reset still ahead, and
@@ -190,7 +193,7 @@ TAB=$(printf '\t')
 SESSION_CAP=3 # the session window never selects above defer-heavy (REQ-E1.6).
 
 usage() {
-  echo "usage: fleet-usage-gate.sh capture | evaluate | rung | signal | admit <model>" >&2
+  echo "usage: fleet-usage-gate.sh capture | evaluate | rung | signal | admit <model> | mirror-path" >&2
 }
 
 # rung_name <index>: the ladder rung name for an index, for composing the
@@ -421,6 +424,11 @@ SIGNAL_SOURCES="mirror capture"
 # length plus an hour (five_hour) or a day (seven_day) of slack.
 MIRROR_SPAN_FIVE_HOUR=21600
 MIRROR_SPAN_SEVEN_DAY=691200
+# A spend window's period is daily, weekly or monthly; the longest bounds it.
+MIRROR_SPAN_SPEND=2764800
+
+# The operator's one-line fix, named wherever the gate reports no usage source.
+USAGE_MIRROR_FIX='wire scripts/fleet-usage-mirror.sh into the statusLine (docs/fleet.md#the-usage-mirror)'
 
 # mirror_path: the status-line mirror. $PLANWRIGHT_USAGE_MIRROR names it, and
 # set empty disables the source; unset, the XDG cache location. A relative
@@ -486,7 +494,8 @@ source_mirror() {
     return 0
   fi
   sm_v=$(head -c 4096 "$sm_path" 2>/dev/null | awk -v now="$2" \
-    -v span5="$MIRROR_SPAN_FIVE_HOUR" -v span7="$MIRROR_SPAN_SEVEN_DAY" '
+    -v span5="$MIRROR_SPAN_FIVE_HOUR" -v span7="$MIRROR_SPAN_SEVEN_DAY" \
+    -v spanS="$MIRROR_SPAN_SPEND" '
     { line = $0; gsub(/[\t\r]/, " ", line); doc = doc line " " }
     function window(key, span,   obj, pct, rst) {
       if (!match(doc, "\"" key "\"[ ]*:[ ]*[{][^{}]*[}]")) return "unavailable"
@@ -502,7 +511,9 @@ source_mirror() {
     }
     END {
       if (doc ~ /[\001-\037\177]/) { printf "corrupt"; exit }
-      printf "%s %s", window("five_hour", span5), window("seven_day", span7)
+      w7 = window("seven_day", span7)
+      if (w7 == "unavailable") w7 = window("spend_limit", spanS)
+      printf "%s %s", window("five_hour", span5), w7
     }') || sm_v=corrupt
   if [ "$sm_v" = corrupt ]; then
     printf '%s\n' "fleet-usage-gate: status-line mirror '$sm_path' is corrupt — treating as unavailable" >&2
@@ -543,6 +554,17 @@ source_capture() {
     sc_weekly=unavailable
   fi
   printf '%s %s' "$sc_session" "$sc_weekly"
+}
+
+# usage_source_missing: true when neither the status-line mirror nor a /usage
+# capture is on disk, so no usage signal can arrive until one is wired. A
+# disabled mirror (PLANWRIGHT_USAGE_MIRROR set empty) counts as absent.
+usage_source_missing() {
+  usm_m=$(mirror_path)
+  usm_c="$(signal_dir 2>/dev/null)/signal"
+  if [ -n "$usm_m" ] && [ -e "$usm_m" ]; then return 1; fi
+  [ -e "$usm_c" ] && return 1
+  return 0
 }
 
 # read_signal: print `<session> <weekly>`, each window from the first source
@@ -872,6 +894,17 @@ case "$cmd" in
     exit 0
     ;;
 
+  mirror-path)
+    # The status-line mirror's resolved location, for scripts/fleet-usage-mirror.sh
+    # to write to. Prints nothing when the source is disabled or unresolvable.
+    [ "$#" -eq 0 ] || {
+      usage
+      exit 2
+    }
+    mirror_path
+    exit 0
+    ;;
+
   signal)
     # A read-only view of the cached usage signal (Task 10): the per-window
     # percentages after the same TTL/staleness/plausibility handling `evaluate`
@@ -886,6 +919,9 @@ case "$cmd" in
     }
     sig=$(read_signal) || exit $?
     printf 'session\t%s\nweekly\t%s\n' "${sig% *}" "${sig#* }"
+    if [ "${sig% *}" = unavailable ] && [ "${sig#* }" = unavailable ] && usage_source_missing; then
+      printf '%s\n' "fleet-usage-gate: no usage signal: no status-line mirror and no /usage capture; $USAGE_MIRROR_FIX" >&2
+    fi
     exit 0
     ;;
 
@@ -998,6 +1034,13 @@ case "$cmd" in
           release_lock
         fi
       fi
+      no_source=0
+      usage_source_missing && no_source=1
+      if [ "$no_source" -eq 1 ]; then
+        # Never silent: with no usage source at all, say so and name the fix on
+        # every cadence, not only past the sustained-loss threshold.
+        printf '%s\n' "fleet-usage-gate: warning: no usage signal: no status-line mirror and no /usage capture ($count of $loss_limit consecutive); deferring to the reactive backstop, no proactive rung change; $USAGE_MIRROR_FIX" >&2
+      fi
       if [ "$count" -ge "$loss_limit" ]; then
         # The REQUIRED operator surface: a warning escalating to an
         # Awaiting-input hold, so a permanently broken /usage parse is never
@@ -1009,8 +1052,8 @@ case "$cmd" in
             "proactive /usage signal unavailable across $count consecutive reads; governance is on the reactive backstop only. Operator: choose a model, wait, or proceed." \
             >/dev/null 2>&1 || echo "fleet-usage-gate: warning: could not push the operator hold surface" >&2
         fi
-      else
-        printf '%s\n' "fleet-usage-gate: warning: the /usage signal is unavailable ($count of $loss_limit consecutive); deferring to the reactive backstop, no proactive rung change" >&2
+      elif [ "$no_source" -eq 0 ]; then
+        printf '%s\n' "fleet-usage-gate: warning: the /usage signal is unavailable ($count of $loss_limit consecutive); deferring to the reactive backstop, no proactive rung change; a stale or missing mirror means no statusLine is refreshing it: $USAGE_MIRROR_FIX" >&2
       fi
       since=$(last_transition_epoch 2>/dev/null) || since=""
       printf 'rung\t%s\tsince\t%s\tsession\tunavailable\tweekly\tunavailable\n' "$cur" "$since"
