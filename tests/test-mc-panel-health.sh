@@ -84,16 +84,18 @@ expect_no_out "an all-well line says nothing of health" "health:"
 fresh
 reg $((T - 14400)) w-old flight:old "process $$"
 reg $((T - 20000)) w-dead flight:dead "process $dead_pid"
-reg $((T - 30000)) pw-mission-control-a1 flight:hub "process $$"
-reg $((T - 30000)) w-hub gen-2 "process $$"
+reg $((T - 14400)) mission-control-task-11 mission-control:task-11 "process $$"
+reg $((T - 30000)) mc-alpha-mission-control-0123456789 flight:hub "process $$"
+reg $((T - 30000)) w-hub gen-2-90000-ab12 "process $$"
 # Bounds are cached at the first read's time, so each check is read below
 # its bound first, where the later read still hits the cache.
 health_at $((T - 1))
 expect_empty "worker-age clears just below its bound"
 health_at "$T"
-expect_out "worker-age flags a live worker at its bound, naming the oldest" "1 worker live 4h or more (oldest w-old, 4h)"
+expect_out "worker-age flags a live worker at its bound, naming the oldest" "2 workers live 4h or more (oldest w-old, 4h)"
+expect_out "a worker of the mission-control spec is still a worker" "2 workers live"
 expect_no_out "a dead worker is no live worker" "w-dead"
-expect_no_out "a session named for mission control is never a stale worker" "pw-mission-control"
+expect_no_out "a session named for mission control is never a stale worker" "mc-alpha-mission-control"
 expect_no_out "a session on a mission control scope is never a stale worker" "w-hub"
 mc_run mc-panel.sh digest --program alpha --now "$T"
 record() {
@@ -101,8 +103,8 @@ record() {
   rc_want=${rc_want%"$tab"}
   if printf '%s\n' "$OUT" | grep -qxF -- "$rc_want"; then ok "the digest record $1 $2"; else fail "no digest line '$rc_want'"; fi
 }
-record health worker-age 1 w-old "1 worker live 4h or more (oldest w-old, 4h)"
-expect_out "the line form carries the health text" "; health: 1 worker live 4h or more"
+record health worker-age 2 w-old "2 workers live 4h or more (oldest w-old, 4h)"
+expect_out "the line form carries the health text" "; health: 2 workers live 4h or more"
 
 # ---------------------------------------------------------------------------
 # idle: a live session idle past the bound (30m).
@@ -217,6 +219,12 @@ if [ "$RC" -eq 0 ] && [ "$(awk -F '\t' '$1 == "percent" || $1 == "threshold" { p
 else
   fail "the unmeasured reading: exit $RC, '$(cat "$runtime/context")'"
 fi
+OUT=$(mc_env env CLAUDE_PID=$$ /bin/bash "$repo_root/scripts/mc-panel.sh" presence --program alpha --refresh --context 42 --threshold 70 --now "$T" 2>&1)
+if [ "$(awk -F '\t' '$1 == "pid" { print $2 }' "$runtime/context")" = "$$" ]; then
+  ok "presence records the session's process"
+else
+  fail "the context reading's pid: '$(cat "$runtime/context")' ($OUT)"
+fi
 mkdir -p "$fleet/mission-control/beta" "$fleet/mission-control/gamma" "$fleet/mission-control/delta"
 printf 'format\t1\nwritten\t%s\npercent\t70\nthreshold\t70\npid\t-\n' $((T - 10)) >"$fleet/mission-control/beta/context"
 # One that compacts rather than hands over, and a stale one whose session is gone.
@@ -232,6 +240,16 @@ expect_empty "context clears just below the threshold"
 printf 'format\t1\nwritten\t%s\npercent\t10\nthreshold\t70\npid\t%s\n' $((T - 1000)) "$$" >"$fleet/mission-control/delta/context"
 health_at "$T"
 expect_out "a stale reading from a live session is unknown" "context unknown for delta"
+printf 'format\t1\nwritten\t%s\npercent\t10\nthreshold\t70\npid\t-\n' $((T - 1000)) >"$fleet/mission-control/delta/context"
+health_at "$T"
+expect_out "a stale reading naming no session is unknown" "context unknown for delta"
+printf 'format\t1\nwritten\t%s\npercent\t10\nthreshold\t70\npid\t-\n' $((T - 90000)) >"$fleet/mission-control/delta/context"
+health_at "$T"
+expect_empty "a reading naming no session is gone after a day"
+rm -f "$runtime/context"
+mkdir "$runtime/context"
+mc_run mc-panel.sh presence --program alpha --refresh --context 42 --threshold 70 --now "$T"
+expect_rc "a directory in the context reading's place is refused" 1
 
 # ---------------------------------------------------------------------------
 # ci-queue: the throughput measure's median queue against median run.
@@ -261,6 +279,14 @@ expect_no_out "a job just under the queue floor is not" "lint"
 measure $((T - 100)) ok "ci${tab}CI / gate${tab}5${tab}300${tab}1500${tab}400${tab}-"
 health_at "$T"
 expect_out "a queued job with no finished run is flagged" "(CI / gate: queue 5m, no finished run)"
+measure $((T - 100)) ok "ci${tab}CI / gate${tab}5${tab}300${tab}1500${tab}400${tab}0"
+health_at "$T"
+expect_out "a run of no time is a run" "(CI / gate: queue 5m, run 0s)"
+c1=$(printf '\302\233')
+measure $((T - 100)) ok "ci${tab}x$(printf '\302\302\233\233')[2Jy${tab}5${tab}300${tab}1500${tab}400${tab}600"
+health_at "$T"
+expect_out "a job name's controls are dropped" "(x[2Jy: queue 5m"
+expect_no_out "a nested C1 pair is not rebuilt" "$c1"
 measure $((T - 7200)) ok "ci${tab}CI / gate${tab}5${tab}300${tab}1500${tab}400${tab}600"
 health_at "$T"
 expect_out "a measure at twice its cadence still counts" "1 CI job queued"
@@ -313,10 +339,10 @@ health_at "$T"
 expect_out "a re-register on the same handle keeps its age" "1 worker live 4h or more (oldest w-same, 6h)"
 expect_no_out "a re-register after a retirement restarts the age" "w-re"
 expect_no_out "a relaunch on a new handle restarts the age" "w-rl"
-printf 'w-same\tacme/repo#8\tMERGED\tretired\n' >"$runtime/keeper-announced"
-TZ=UTC touch -t 197001020000.00 "$runtime/keeper-announced"
+printf 'w-same\tacme/repo#8\tMERGED\theld\nw-rl\tacme/repo#9\tMERGED\tretired\n' >"$runtime/keeper-announced"
 health_at "$T"
-expect_out "a keeper landing of a merge names it" "(w-same, pull request merged)"
+expect_out "a keeper landing of a merge names it" "1 worker still live after the pull request landed (w-same, pull request merged)"
+expect_no_out "a live session under a name the keeper retired is a relaunch" "w-rl,"
 
 # ---------------------------------------------------------------------------
 # A tmux server that does not answer: a count beside it is a floor, and no
@@ -332,6 +358,7 @@ reg $((T - 60)) w-win flight:win "tmux-window mc @5"
 health_at "$T"
 expect_out "worker age behind a silent tmux is unknown" "worker ages unknown for 1 session (tmux does not answer)"
 expect_out "idle behind a silent tmux is unknown" "idle sessions unknown for 1 session (tmux does not answer)"
+expect_out "after-merge behind a silent tmux is unknown" "workers after their merge unknown for 1 session (tmux does not answer)"
 reg $((T - 14400)) w-old flight:old "process $$"
 health_at "$T"
 expect_out "a count beside a silent tmux is a floor" "1 worker live 4h or more (oldest w-old, 4h) (or more: tmux does not answer)"
@@ -341,12 +368,22 @@ PATH=$host_path
 # A bound that cannot be read is unknown, and stays so from the cache.
 # ---------------------------------------------------------------------------
 fresh
-printf 'mission_control_health_worker_age: soon\n' >>"$tracked"
+cp "$tracked" "$tmp/tracked.good"
+for k in worker_age merged_grace permission_wait idle_after; do printf 'mission_control_health_%s: soon\n' "$k" >>"$tracked"; done
 reg $((T - 60)) w-young flight:young "process $$"
 health_at "$T"
-expect_out "an unreadable bound makes its check unknown" "worker ages unknown (its bound cannot be read)"
+expect_out "an unreadable bound makes worker-age unknown" "worker ages unknown (its bound cannot be read)"
+expect_out "an unreadable bound makes after-merge unknown" "workers after their merge unknown (its bound cannot be read)"
+expect_out "an unreadable bound makes permissions unknown" "permission prompts unknown (its bound cannot be read)"
+expect_out "an unreadable bound makes idle unknown" "idle sessions unknown (its bound cannot be read)"
+cp "$tmp/tracked.good" "$tracked"
 health_at $((T + 1))
-expect_out "the cached failed bound is still unknown" "worker ages unknown (its bound cannot be read)"
+expect_out "the bounds cache holds a failed bound for its life" "worker ages unknown (its bound cannot be read)"
+health_at $((T + 300))
+expect_empty "the bounds are read again once the cache expires"
+printf 'format\t1\nwritten\t%s\nbound\tworker-age\t0\nbound\tmerged-grace\t600\nbound\tpermission-wait\t300\nbound\tstuck-after\t300\nbound\tci-queue-share\t50\nbound\tci-queue-floor\t120\nbound\tidle-after\t1800\n' "$T" >"$runtime/health-bounds"
+health_at $((T + 1))
+expect_empty "a cached bound no knob parser would accept is read again"
 
 # ---------------------------------------------------------------------------
 # The health verb takes no target and no knobs.

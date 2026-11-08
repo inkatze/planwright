@@ -35,6 +35,8 @@ HEALTH_BOUNDS_TTL=300
 # (PRESENCE_EVERY_MS in hooks/mission-control/register.tsx); a reading
 # older than this is a mod that stopped.
 CONTEXT_FRESH=300
+# A stale reading that names no session is taken as gone past this.
+CONTEXT_GONE=86400
 # The throughput duty measures at most this often whatever its watcher's
 # cadence (scripts/mc-throughput.sh's own interval), so its measure goes
 # stale only past twice the longer of the two.
@@ -791,7 +793,9 @@ if [ "$verb" = presence ]; then
     printf '%s\n' "$NOW" | mc_write "$runtime/leases/$target" || mc_fail "cannot write the lease for '$target'"
   fi
   if [ -n "$ctx_pct" ]; then
-    [ ! -L "$runtime/context" ] || mc_fail "the context reading is a symlink"
+    # A directory in its place would take the rename into it.
+    [ ! -L "$runtime/context" ] && { [ ! -e "$runtime/context" ] || [ -f "$runtime/context" ]; } \
+      || mc_fail "the context reading is not a file"
     ctx_pid=${CLAUDE_PID:-}
     mc_valid_uint "$ctx_pid" || ctx_pid=-
     printf 'format\t%s\nwritten\t%s\npercent\t%s\nthreshold\t%s\npid\t%s\n' \
@@ -864,8 +868,8 @@ flight_windows() {
 }
 
 # Each worker's attention state, as worker, state, its epoch and park
-# reason. An absent store is
-# an empty one; one that is there but cannot be read is unknown.
+# reason. An absent store is an empty one; one that is there but cannot be
+# read is unknown.
 flight_attention() {
   fl_attn=''
   fl_attn_ok=1
@@ -900,8 +904,9 @@ flights() {
   # The last record per worker wins; only an eight-field record whose last
   # field is `closed` is retired, the rule every registry reader applies.
   # Each open row comes out as worker, scope, backend, death handle and the
-  # epoch it was registered at (since its last retirement or relaunch), an empty or
-  # missing field as `-` so the tab-split read below keeps its columns.
+  # epoch it was registered at (since its last retirement or relaunch), an
+  # empty or missing field as `-` so the tab-split read below keeps its
+  # columns.
   fl_open=$(printf '%s\n' "$fl_reg" | awk -F '\t' '
     NF >= 2 {
       if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2 }
@@ -1243,7 +1248,7 @@ health_bounds() {
     if mc_valid_uint "$hb_w" && [ "$hb_w" -le "$NOW" ] && [ $((NOW - hb_w)) -lt "$HEALTH_BOUNDS_TTL" ]; then
       hb_rows=$(K=$HEALTH_KNOBS awk -F '\t' '
         BEGIN { n = split(ENVIRON["K"], k, "\n"); for (i = 1; i <= n; i++) { split(k[i], p, ":"); want[p[1]] = 1 } }
-        $1 == "bound" && NF == 3 && ($2 in want) && !($2 in got) && ($3 == "-" || $3 ~ /^[0-9]+$/) { got[$2] = $3; c++ }
+        $1 == "bound" && NF == 3 && ($2 in want) && !($2 in got) && ($3 == "-" || ($3 ~ /^[1-9][0-9]*$/ && ($2 != "ci-queue-share" || $3 <= 100))) { got[$2] = $3; c++ }
         END { if (c == n) for (b in got) print b "\t" got[b] }' "$hb_f")
     fi
   fi
@@ -1252,7 +1257,7 @@ health_bounds() {
       hb_parse=mc_parse_cadence
       [ "$hb_kind" = cadence ] || hb_parse=parse_pct
       hb_v=-
-      if hb_raw=$(mc_knob "$hb_knob" "$hb_parse" 2>/dev/null); then
+      if hb_raw=$(mc_knob "$hb_knob" "$hb_parse"); then
         hb_v=$hb_raw
         [ "$hb_kind" != cadence ] || hb_v=$(mc_seconds "$hb_raw") || hb_v=-
       fi
@@ -1334,6 +1339,7 @@ watch_status() {
 # in seconds, the seconds since its last run and that run's exit (each `-`
 # before a first run); nothing when none is armed.
 watcher_of() {
+  [ -n "$WATCH_STATUS" ] || return 0
   printf '%s\n' "$WATCH_STATUS" | S=$1 awk -F '\t' '$1 == "watcher" {
       n = split($3, p, "/"); if (p[n] == ENVIRON["S"]) { print $4 "\t" $7 "\t" $9; exit } }' | {
     IFS="$TAB" read -r wo_c wo_since wo_exit || exit 0
@@ -1343,7 +1349,10 @@ watcher_of() {
 }
 
 # Mission control sessions are long-lived by design: never a stale worker.
-AWK_MC='function mc(w, s) { return w ~ /(^|-)mission-control(-|$)/ || s ~ /^gen-[0-9]/ }'
+# They are told by the launcher's name for the kind (session_name in
+# scripts/mission-control-launch.sh) and the handover's generation scope,
+# never by the words alone, which a worker of the mission-control spec carries.
+AWK_MC='function mc(w, s) { return w ~ /^mc-([a-z0-9-]+-)?mission-control-[0-9a-f]+$/ || s ~ /^gen-[0-9]+-[0-9]+-/ }'
 
 # alive_past <state|-> registered|attention <bound>: of the live sessions
 # (worker, scope, registered, attention state, its epoch) in that state (`-`
@@ -1366,11 +1375,14 @@ alive_past() {
 # beside one is unknown.
 tmux_floor() { [ "$H_TMUX_UNKNOWN" -eq 0 ] || printf ' (or more: tmux does not answer)'; }
 
-# live_check <check> <what> <state|-> registered|attention <bound> <label>:
-# the shared shape of the worker-age and idle checks.
+# unread_store: the store a worker check could not read, the registry first.
+unread_store() { if [ "$H_REGISTRY_OK" -ne 1 ]; then printf 'fleet registry'; else printf 'attention store'; fi; }
+
+# live_check <check> <what> <state|-> registered|attention <bound>: the
+# shared shape of the worker-age and idle checks.
 live_check() {
   if [ "$H_REGISTRY_OK" -ne 1 ] || { [ "$3" != - ] && [ "$H_ATTN_OK" -ne 1 ]; }; then
-    hflag "$1" '?' - "$2 unknown (the $([ "$H_REGISTRY_OK" -ne 1 ] && echo fleet registry || echo attention store) cannot be read)"
+    hflag "$1" '?' - "$2 unknown (the $(unread_store) cannot be read)"
     return 0
   fi
   if [ "$5" = - ]; then
@@ -1393,7 +1405,7 @@ EOF
 
 health_after_merge() {
   if [ "$H_REGISTRY_OK" -ne 1 ] || [ "$H_ATTN_OK" -ne 1 ]; then
-    hflag after-merge '?' - "workers after their merge unknown (the $([ "$H_REGISTRY_OK" -ne 1 ] && echo fleet registry || echo attention store) cannot be read)"
+    hflag after-merge '?' - "workers after their merge unknown (the $(unread_store) cannot be read)"
     return 0
   fi
   if [ "$H_B_MERGED_GRACE" = - ]; then
@@ -1404,24 +1416,23 @@ health_after_merge() {
   # outcome, kept while it tracks the pull request.
   ha_k=$runtime/keeper-announced
   ha_landed=""
-  ha_mt=0
   if [ -e "$ha_k" ] || [ -L "$ha_k" ]; then
     if [ -L "$ha_k" ] || [ ! -f "$ha_k" ] \
-      || ! ha_landed=$(awk -F '\t' '$3 == "MERGED" || $3 == "CLOSED" { print $1 "\t" tolower($3) }' "$ha_k" 2>/dev/null) \
-      || ! ha_mt=$(mtime "$ha_k") || ! mc_valid_uint "$ha_mt"; then
+      || ! ha_landed=$(awk -F '\t' '($3 == "MERGED" || $3 == "CLOSED") && $4 ~ /^held/ { print $1 "\t" tolower($3) }' "$ha_k" 2>/dev/null); then
       hflag after-merge '?' - "workers after their merge unknown (the keeper's landing record cannot be read)"
       return 0
     fi
   fi
-  # A landing names a session, not a launch: a worker registered after the
-  # record last changed is a relaunch under the name, never the one that
-  # landed. A keeper landing has no time, so it outranks a dated merge.
+  # A landing names a session, not a launch. One the keeper retired is gone,
+  # so a live session under its name is a relaunch; one whose retire it held
+  # is still that session. A keeper landing has no time, so it outranks a
+  # dated merge.
   IFS="$TAB" read -r ha_n ha_who ha_kind ha_what <<EOF
-$(printf '%s' "$H_ALIVE" | N=$NOW B=$H_B_MERGED_GRACE L=$ha_landed M=$ha_mt awk -F '\t' "$AWK_MC"'
+$(printf '%s' "$H_ALIVE" | N=$NOW B=$H_B_MERGED_GRACE L=$ha_landed awk -F '\t' "$AWK_MC"'
     BEGIN { m = split(ENVIRON["L"], ll, "\n"); for (i = 1; i <= m; i++) if (split(ll[i], x, "\t") == 2) landed[x[1]] = x[2] }
     NF == 5 && !mc($1, $2) {
       kind = ""
-      if (($1 in landed) && !($3 ~ /^[0-9]+$/ && $3 > ENVIRON["M"] + 0)) { kind = "landed"; a = 1e15; what = landed[$1] }
+      if ($1 in landed) { kind = "landed"; a = 1e15; what = landed[$1] }
       else if ($4 == "merged" && $5 ~ /^[0-9]+$/ && ENVIRON["N"] - $5 >= ENVIRON["B"] + 0) { kind = "merged"; a = ENVIRON["N"] - $5; what = a }
       if (kind == "") next
       n++
@@ -1429,7 +1440,10 @@ $(printf '%s' "$H_ALIVE" | N=$NOW B=$H_B_MERGED_GRACE L=$ha_landed M=$ha_mt awk 
     }
     END { if (n) print n "\t" who "\t" wk "\t" ww }')
 EOF
-  [ -n "$ha_n" ] || return 0
+  if [ -z "$ha_n" ]; then
+    [ "$H_TMUX_UNKNOWN" -eq 0 ] || hflag after-merge '?' - "workers after their merge unknown for $(many "$H_TMUX_UNKNOWN" session sessions) (tmux does not answer)"
+    return 0
+  fi
   if [ "$ha_kind" = merged ]; then
     ha_what="merged $(dur "$ha_what") ago"
   else
@@ -1501,7 +1515,7 @@ EOF
     return 0
   fi
   # A record outlives a session that ended with its dialog open.
-  ! mc_valid_uint "$hs_pid" || pid_alive "$hs_pid" || return 0
+  ! mc_valid_uint "$hs_pid" || kill -0 "$hs_pid" 2>/dev/null || return 0
   if [ "$H_B_STUCK_AFTER" = - ]; then
     hflag mc-stuck '?' - "mission control's own dialog unknown (its bound cannot be read)"
     return 0
@@ -1540,10 +1554,17 @@ EOF
       hc_unknown="${hc_unknown:+$hc_unknown, }$hc_p"
       continue
     fi
-    if [ "$(age_of "$hc_w")" -gt "$CONTEXT_FRESH" ]; then
+    hc_age=$(age_of "$hc_w")
+    if [ "$hc_age" -gt "$CONTEXT_FRESH" ]; then
       # A reading whose session is gone is no mission control; one whose
-      # session lives on, or cannot be told, is unknown.
-      { mc_valid_uint "$hc_pid" && ! pid_alive "$hc_pid"; } || hc_unknown="${hc_unknown:+$hc_unknown, }$hc_p"
+      # session lives on, or cannot be told, is unknown until a day passes.
+      # Like flights(), a pid this user cannot signal is taken as recycled.
+      if mc_valid_uint "$hc_pid"; then
+        kill -0 "$hc_pid" 2>/dev/null || continue
+      elif [ "$hc_age" -gt "$CONTEXT_GONE" ]; then
+        continue
+      fi
+      hc_unknown="${hc_unknown:+$hc_unknown, }$hc_p"
       continue
     fi
     # No measured context, or no threshold (a session that compacts rather
@@ -1564,7 +1585,6 @@ EOF
 }
 
 health_ci() {
-  hq_w=""
   if ! watch_status; then
     hflag ci-queue '?' - "CI queue times unknown (the watchers cannot be read)"
     return 0
@@ -1575,7 +1595,7 @@ health_ci() {
     hq_cad=${hq_w%%"$TAB"*}
   fi
   if [ -z "$HOME_DIR" ]; then
-    [ -z "$hq_w" ] || hflag ci-queue '?' - "CI queue times unknown (the program home cannot be read)"
+    hflag ci-queue '?' - "CI queue times unknown (the program home cannot be read)"
     return 0
   fi
   hq_f=$HOME_DIR/kb/throughput/measure.tsv
@@ -1616,7 +1636,7 @@ $(S=$H_B_CI_QUEUE_SHARE F=$H_B_CI_QUEUE_FLOOR awk -F '\t' '
     $1 == "ci" && NF >= 7 && $4 ~ /^[0-9]+$/ && ($7 == "-" || $7 ~ /^[0-9]+$/) {
       q = $4 + 0
       if (q < ENVIRON["F"] + 0) next
-      if ($7 == "-" || $7 + 0 == 0) { r = -1 } else { r = $7 + 0; if (q * 100 < ENVIRON["S"] * r) next }
+      if ($7 == "-") { r = -1 } else { r = $7 + 0; if (q * 100 < ENVIRON["S"] * r) next }
       n++
       if (who == "" || (wr != -1 && (r == -1 || q * wr > wq * r))) { wq = q; wr = r; who = $2 }
     }
