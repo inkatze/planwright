@@ -1,7 +1,7 @@
 # Tower front door — Design
 
-**Status:** Ready
-**Last reviewed:** 2026-10-10
+**Status:** Draft
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -622,6 +622,77 @@ already states (obs:357b0e50).
 **Chosen because:** the flight dispatch path and the record are this
 bundle's, and the doctrine edit to custom-steps is a consistency
 follow-through, not a change to the step contract.
+
+*(Amended at the 2026-11-08 extension: a further cross-bundle edge is
+mission-control's, whose D-45 defines the covering-spec statement and owns
+`scripts/spec-drift-check.sh` (its Task 35); this bundle's Task 22 depends
+on that script landing, and mission-control's Task 36 is satisfied by
+this extension's sign-off and merge.)*
+
+### D-23: An escalation-path catalog plus security-purpose judgment  (E)
+
+**Decision:** Routing gains a core data catalog, `escalation-paths`,
+resolved through `scripts/resolve-catalog.sh` so each project adds paths in
+its overlay layers; the shipped seed lists the CI workflows, the git hooks,
+the guard and policy scripts and the security doctrine. Work whose fix
+lands on a listed path files instrument flight automatically, with the
+path as its one-line grounds; an ask whose purpose is security files by
+declared judgment even when no listed path is touched. Ordinary asks see
+nothing new. The catalog is routing data, not a knob, so D-12 stands; the
+polish pause zones are unchanged.
+
+**Alternatives considered:**
+- Paths only. Rejected because: a security fix in an unlisted file would
+  fly visual with no notice.
+- Judgment only (today's rule plus guards). Rejected because: the operator
+  cannot predict which asks reroute, and that judgment let guard and CI
+  changes through.
+- No reroute, the spec edit and sign-off carrying it instead. Rejected by
+  the operator in favour of review before code.
+- Guard and hook scripts joining the polish pause zones. Rejected because:
+  the kickoff sign-off already covers the change, so the operator would be
+  asked twice.
+
+**Chosen because:** the operator's decision (2026-11-07), asked to stay
+unnoticeable in the common case: invisible on ordinary work, one
+predictable line when it matters, one sentence to skip it.
+
+### D-24: The override is the operator's own sentence, recorded  (E)
+
+**Decision:** D-5's one-sentence override stays the only way to keep
+escalating work a visual flight. It is recorded word for word, dated,
+beside the stated reservation, in the pull request body and the audit
+record (`scripts/flight-record.sh`). An operator asking for the change is
+an ask, not an override, and a launch brief a supervising session writes
+is never the operator's sentence: such a flight is rerouted with its
+one-line grounds, and the operator's "just do it" keeps it a flight.
+
+**Alternatives considered:**
+- Treat an explicit ask for zone work as consent. Rejected because: the
+  spec-drift audit found every zone flight resting on an ask or a brief,
+  with no override on record and no reservation stated.
+
+**Chosen because:** an override nobody recorded cannot be reviewed, and
+the reservation is the whole ceremony D-5 asks for.
+
+### D-25: A flight carries its covering-spec statement and its signed spec edit  (E; C, mission-control D-45)
+
+**Decision:** Every flight's pull request body carries the covering-spec
+statement in mission-control D-45's form. A flight that changes behaviour a
+spec describes edits that spec in the same pull request with a dated
+amendment note; its ready flip waits for the operator's sign-off of that
+edit, given in a relayed kickoff that runs on the flight's own branch and
+commits there. At `pre-pr` the flight runs `scripts/spec-drift-check.sh`;
+a flagged file it neither covers with a spec edit nor names in a
+`Not covered:` line parks the flight with the file named. Mission control's
+readiness check (mission-control REQ-D1.13) is the backstop.
+
+**Alternatives considered:**
+- A pending-amendment note and a later kickoff. Rejected by the operator:
+  the spec stays wrong until a kickoff that kept not happening.
+
+**Chosen because:** the operator's decision (2026-11-07): spec and code
+never disagree, at the cost of one short relayed sign-off.
 
 ## Cross-cutting concerns
 

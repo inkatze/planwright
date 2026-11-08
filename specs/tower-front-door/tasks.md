@@ -1,7 +1,7 @@
 # Tower front door — Tasks
 
-**Status:** Ready
-**Last reviewed:** 2026-10-10
+**Status:** Draft
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -452,6 +452,79 @@ router has not demonstrated (REQ-B1.6).
 - **Citations:** D-6, kickoff delta re-walkthrough (2026-10-10) ·
   REQ-E1.2, REQ-E1.11
 - **Estimated effort:** 1 day
+
+### Task 20 — The escalation-path catalog in the router
+
+- **Deliverables:** `config/escalation-paths.yaml` (the core seed: CI
+  workflows, git hooks, guard and policy scripts, the security doctrine)
+  resolved through `scripts/resolve-catalog.sh`; the tower skill's
+  automatic-escalation signal reading it, with the listed path as the
+  grounds, and the security-purpose judgment lane; `doctrine/flight-rules.md`
+  stating both and that the pause zones are unchanged; router eval
+  fixtures in the tower behavioral eval.
+- **Done when:** `scripts/resolve-catalog.sh escalation-paths` prints the
+  seed, and a repo-tracked overlay entry is added to it; eval fixtures
+  route an ask touching `.github/workflows/` and one touching a guard
+  script to instrument flight with the path in the grounds, a security
+  fix in an unlisted file to instrument flight by declared judgment, and
+  an ordinary ask to visual flight with no extra line; a fixture
+  overriding a listed-path reroute flies visual with the reservation
+  stated; the pause-zone list in `doctrine/finding-categorization.md` is
+  byte-identical to `main`'s.
+- **Dependencies:** none
+- **Citations:** D-23 · REQ-B1.7, REQ-B1.3, REQ-B1.6
+- **Estimated effort:** 1 day
+
+### Task 21 — The recorded override
+
+- **Deliverables:** `scripts/flight-record.sh` and the pull request body
+  rendering the override sentence verbatim with its date beside the stated
+  reservation; the tower skill recording it and treating an ask for zone
+  work or a supervising session's brief as no override; tests in
+  `tests/test-flight-record.sh` and router eval fixtures.
+- **Done when:** a fixture flight overridden by the operator's sentence
+  renders that sentence, its date and the reservation in the record and
+  the pull request body, sanitized like the rest of the record; an eval
+  fixture where the operator asks for a guard change without an override
+  sentence is rerouted to instrument flight; a fixture brief from a
+  supervising session naming zone work is rerouted, not flown; a record
+  with an override but no reservation fails the record's own check.
+- **Dependencies:** 20
+- **Citations:** D-24, D-5 · REQ-B1.8, REQ-B1.4, REQ-E1.6
+- **Estimated effort:** 1 day
+
+### Task 22 — The covering-spec statement and the drift check at pre-pr
+
+- **Deliverables:** the flight worker writing the covering-spec statement
+  into its pull request body; its `pre-pr` point running
+  `scripts/spec-drift-check.sh` and parking on an uncovered flagged file;
+  a flight that edits a spec writing the dated amendment note and naming
+  the pending sign-off in its pull request's top; tests in
+  `tests/test-flight-dispatch-points.sh` and
+  `tests/test-flight-record.sh`.
+- **Done when:** a fixture flight's pull request body carries a
+  `Covering spec:` line; a fixture flight changing a listed deliverable
+  with no spec edit and no `Not covered:` line parks at `pre-pr` naming
+  the file; the same flight with a `Not covered:` line, or with the spec
+  edited, reaches the pull request; a flight whose spec edit is unsigned
+  shows the pending sign-off in its pull request's top lines.
+- **Dependencies:** none within this bundle; mission-control Task 35
+  (`scripts/spec-drift-check.sh`) must have landed, an edge D-22 records
+- **Citations:** D-25, D-22 · REQ-C1.13, REQ-C1.7
+- **Estimated effort:** 1 day
+
+### Task 23 — Docs for routing and the flight's spec edit
+
+- **Deliverables:** a section in `docs/fleet.md`, where the tower's
+  routing is described, on why some asks go through a spec (the listed
+  paths, the security judgment, the one-sentence override and where it is
+  recorded) and on a flight waiting for a spec sign-off.
+- **Done when:** the section names every category the seed carries; the
+  repository's markdown lint and the checks `mise run check` runs over
+  docs pass.
+- **Dependencies:** 20, 21, 22
+- **Citations:** D-23, D-24, D-25 · REQ-B1.7, REQ-B1.8, REQ-C1.13
+- **Estimated effort:** half day
 
 ## Awaiting input
 

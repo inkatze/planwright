@@ -1,7 +1,7 @@
 # Tower front door — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-10-10
+**Status:** Draft
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -69,6 +69,15 @@ draft. Eval fixtures cover a zone ask, an irreversible-beyond-zones ask,
 an ambiguous ask, and a large-but-safe ask (which must NOT auto-file on
 size alone).
 
+### REQ-B1.7 — The escalation rule with the path catalog [test]
+
+The tower behavioral eval (Task 20): asks touching a listed CI or guard
+path route to instrument flight naming the path; a security fix in an
+unlisted file routes by declared judgment; an ordinary ask flies visual
+with no extra line; the REQ-B1.2 fixtures above carry over unchanged;
+`scripts/resolve-catalog.sh escalation-paths` merges an overlay entry;
+the pause-zone list is unchanged.
+
 ### REQ-B1.3 — Grounds stated [test]
 
 Every eval fixture asserts the routing statement names the route and its
@@ -80,6 +89,14 @@ Fixtures: "just do it" on a zone-triggered ask flies visual with a
 stated reservation; "write this one up" on a trivial ask files; an
 override attempting to cross a hard invariant (a merge request) is
 refused.
+
+### REQ-B1.8 — The recorded override [test]
+
+`tests/test-flight-record.sh` and the tower eval (Task 21): the override
+sentence, its date and the reservation render in the record and the pull
+request body; an ask without an override sentence, and a supervising
+session's brief, are rerouted; a record with an override and no
+reservation fails its check.
 
 ### REQ-B1.5 — Hard pauses regardless of route [test]
 
@@ -186,6 +203,14 @@ Brief tests assert the brief references `/execute-task`'s after-`post-pr`
 sequence (less the unit-PR ready-flip), re-emits the record only through
 `flight-record.sh render` with the same inputs, and parks on a non-draft
 PR. Manual: the same first flight PR shows its re-emitted step tables.
+
+### REQ-C1.13 — The covering-spec statement and the drift check [test]
+
+`tests/test-flight-dispatch-points.sh` and `tests/test-flight-record.sh`
+(Task 22): the pull request body carries a `Covering spec:` line; an
+uncovered flagged file parks the flight at `pre-pr` naming it; a
+`Not covered:` line or a spec edit lets it reach the pull request; an
+unsigned spec edit shows as pending in the pull request's top lines.
 
 ## REQ-D — Instrument flight
 
