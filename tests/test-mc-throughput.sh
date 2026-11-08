@@ -483,6 +483,23 @@ mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_rc "measure beside a FIFO journal" 0
 expect_out "a pending request's zero wait is a number" "approvals${tab}permission${tab}1${tab}0${tab}0${tab}0${tab}mc-alpha-worker-0000000012${tab}1${tab}0"
 
+# A total counts only the time inside the window: a request, a stall or a
+# step that began before it keeps its own length as its typical value.
+rm -rf "$sj"
+mkdir -p "$sj/mc-alpha-worker-0000000012" "$stall"
+printf 'r11\tpermission\t%s\tanswered\t%s\n' $((NOW - 87000)) $((NOW - 86000)) >"$sj/mc-alpha-worker-0000000012/journal"
+printf '1793500000:t1\thash\t%s\tidle\n' $((NOW - 90000)) >"$stall/mc-alpha-worker-0000000001"
+rec "$steps/000002/007-step-convergence.rec" slowlint 2026-10-31T11:00:00Z 2026-10-31T13:00:00Z passed 000002 007
+mc_run mc-throughput.sh top --program alpha --now "$NOW"
+expect_out "a request that began before the window adds only its time inside" \
+  "approvals${tab}permission${tab}1${tab}1000${tab}400${tab}1000${tab}mc-alpha-worker-0000000012${tab}0${tab}-"
+expect_out "a step that began before the window, measured by its end, adds only its time inside" \
+  "step${tab}slowlint${tab}1${tab}7200${tab}3600${tab}7200${tab}feature"
+expect_out "a stall's total is its time inside the window" \
+  "top${tab}stalls${tab}86400${tab}Top bottleneck over the last 1d: Stalled or idle sessions: 1 past 30m, 24h in all, longest 25h"
+rm -f "$steps/000002/007-step-convergence.rec"
+rm -rf "$stall"
+
 # ---------------------------------------------------------------------------
 # Under the runner: no arguments, the program from the environment.
 # ---------------------------------------------------------------------------

@@ -65,7 +65,9 @@ THE TOP BOTTLENECK: a measurement is a bottleneck when its typical value
 (the median wait, run or step; the longest stall) reaches its threshold in
 mission_control_throughput_thresholds. Of those, the top one is the one
 that cost the most time in all over the window (ties: the larger typical
-value against its threshold, then the key).
+value against its threshold, then the key). A total counts only the time
+inside the window: a wait, stall or step that began before it adds the
+part the window holds.
 
 Usage:
   mc-throughput.sh measure --program <p> [--now <epoch>]
@@ -244,8 +246,9 @@ ISO_AWK='function iso(s,   y, m, d, t) {
   return t * 86400 + substr(s, 12, 2) * 3600 + substr(s, 15, 2) * 60 + substr(s, 18, 2)
 }'
 
-# aggregate: key<TAB>seconds[<TAB>who] rows on stdin to one
-# key<TAB>count<TAB>median<TAB>total<TAB>max<TAB>who-of-max row per key.
+# aggregate: key<TAB>seconds[<TAB>who[<TAB>inside]] rows on stdin to one
+# key<TAB>count<TAB>median<TAB>total<TAB>max<TAB>who-of-max row per key, the
+# total summing each row's seconds inside the window where it gives them.
 aggregate() {
   sort -t '	' -k1,1 -k2,2n | awk -F '\t' '
     function flush() {
@@ -254,7 +257,7 @@ aggregate() {
       print k "\t" c "\t" med "\t" tot "\t" v[c] "\t" who
     }
     NR == 1 || $1 != k { flush(); have = 1; k = $1; c = 0; tot = 0 }
-    { v[++c] = $2; tot += $2; who = (NF >= 3) ? $3 : "-" }
+    { v[++c] = $2; tot += (NF >= 4) ? $4 : $2; who = (NF >= 3) ? $3 : "-" }
     END { flush() }'
 }
 
@@ -398,7 +401,7 @@ measure_approvals() {
           else if ($4 ~ /^(answered|undeliverable)$/ && $5 ~ /^[0-9]+$/) e = $5 + 0
           else next
           if (e < ENVIRON["SINCE"] + 0 || e < $3 + 0) next
-          print "permission\t" (e - $3) "\t" ENVIRON["W"] "\t" ($4 == "pending")
+          print "permission\t" (e - $3) "\t" ENVIRON["W"] "\t" (e - ($3 + 0 > ENVIRON["SINCE"] + 0 ? $3 : ENVIRON["SINCE"])) "\t" ($4 == "pending")
         }' "$ma_d/journal" 2>/dev/null); then
       set -f
       unknown approvals "cannot read the journal of ${ma_d##*/}"
@@ -411,8 +414,8 @@ measure_approvals() {
   set -f
   printf 'source\tapprovals\tok\t%s journals\n' "$ma_n"
   [ -n "$ma_rows" ] || return 0
-  ma_pending=$(printf '%s' "$ma_rows" | awk -F '\t' '$4 == 1 { if (!p++ || $2 + 0 > m) m = $2 + 0 } END { print (p + 0) "\t" (p ? m : "-") }')
-  printf '%s' "$ma_rows" | cut -f1-3 | aggregate | P=$ma_pending awk -F '\t' '{ print "approvals\t" $0 "\t" ENVIRON["P"] }'
+  ma_pending=$(printf '%s' "$ma_rows" | awk -F '\t' '$5 == 1 { if (!p++ || $2 + 0 > m) m = $2 + 0 } END { print (p + 0) "\t" (p ? m : "-") }')
+  printf '%s' "$ma_rows" | cut -f1-4 | aggregate | P=$ma_pending awk -F '\t' '{ print "approvals\t" $0 "\t" ENVIRON["P"] }'
 }
 
 measure_stalls() {
@@ -487,7 +490,7 @@ EOF
 }
 
 # step_rows <worktree> <branch>: <step><TAB><seconds><TAB><branch><TAB>
-# <record identity> per step record of <worktree>'s cache that ended inside
+# <seconds inside the window><TAB><record identity> per step record of <worktree>'s cache that ended inside
 # the window, read through scripts/step-record.sh, the cache's one reader.
 step_rows() {
   sr_list=$(/bin/sh "$script_dir/step-record.sh" --worktree "$1" list 2>/dev/null </dev/null) || return 1
@@ -496,7 +499,7 @@ step_rows() {
       if (v["type"] == "step" && v["outcome"] != "skipped" && v["step"] ~ /^[A-Za-z0-9._-]+$/) {
         s = iso(v["start"]); e = iso(v["end"])
         if (s >= 0 && e >= s && e >= ENVIRON["SINCE"] + 0)
-          print v["step"] "\t" (e - s) "\t" ENVIRON["B"] "\t" v["run"] ":" v["seq"] ":" v["point"] ":" v["start"] ":" v["end"]
+          print v["step"] "\t" (e - s) "\t" ENVIRON["B"] "\t" (e - (s > ENVIRON["SINCE"] + 0 ? s : ENVIRON["SINCE"])) "\t" v["run"] ":" v["seq"] ":" v["point"] ":" v["start"] ":" v["end"]
       }
       delete v
     }
@@ -575,7 +578,7 @@ EOF
   [ -n "$st_rows" ] || return 0
   # A reclaimed copy of a worktree still on disk holds the same records;
   # another cache of the same branch reuses run ids for other records.
-  printf '%s' "$st_rows" | awk -F '\t' '!(($1, $3, $4) in seen) { seen[$1, $3, $4] = 1; print $1 "\t" $2 "\t" $3 }' \
+  printf '%s' "$st_rows" | awk -F '\t' '!(($1, $3, $5) in seen) { seen[$1, $3, $5] = 1; print $1 "\t" $2 "\t" $3 "\t" $4 }' \
     | aggregate | awk '{ print "step\t" $0 }'
 }
 
@@ -600,7 +603,7 @@ candidates() {
     function out(k, typ, tot, th, txt) { if (typ + 0 >= th + 0) print k "\t" typ "\t" tot "\t" th "\t" txt }
     $1 == "ci" { out("ci:" $2, $4, $5, ENVIRON["TCI"], "CI runner queue, " $2 ": median wait " d($4) " over " $3 " jobs, " d($5) " queued in all, longest " d($6) "; median run " ($7 == "-" ? "unknown" : d($7)) " (threshold " d(ENVIRON["TCI"]) ")") }
     $1 == "approvals" { out("approvals", $4, $5, ENVIRON["TAP"], "Permission approvals: median wait " d($4) " over " $3 " requests, " d($5) " waiting in all, longest " d($6) " on " $7 ", " $8 " pending now (threshold " d(ENVIRON["TAP"]) ")") }
-    $1 == "stall" && $4 + 0 >= ENVIRON["TST"] + 0 { sn++; st += $4; if ($4 + 0 > sl) { sl = $4 + 0; sw = $2 " " $3 } }
+    $1 == "stall" && $4 + 0 >= ENVIRON["TST"] + 0 { sn++; st += ($4 + 0 < ENVIRON["W"] + 0) ? $4 : ENVIRON["W"]; if ($4 + 0 > sl) { sl = $4 + 0; sw = $2 " " $3 } }
     $1 == "step" { out("step:" $2, $4, $5, ENVIRON["TSP"], "Slow cadence step " $2 ": median " d($4) " over " $3 " runs, " d($5) " in all, slowest " d($6) " on " $7 " (threshold " d(ENVIRON["TSP"]) ")") }
     END {
       if (sn) out("stalls", sl, st, ENVIRON["TST"], "Stalled or idle sessions: " sn " past " d(ENVIRON["TST"]) ", " d(st) " in all, longest " d(sl) " (" sw ")")
