@@ -51,6 +51,17 @@ write_mirror() {
       for (i = 1; i <= n; i++) json = json (i > 1 ? "," : "") out[i]
       printf "%s}\n", json
     }') || return 1
+  # A rename onto a symlink would replace the link, so write its target.
+  wm_hops=0
+  while [ -L "$wm_path" ]; do
+    wm_hops=$((wm_hops + 1))
+    [ "$wm_hops" -le 16 ] || return 1
+    wm_link=$(readlink "$wm_path" 2>/dev/null) || return 1
+    case $wm_link in
+      /*) wm_path=$wm_link ;;
+      *) wm_path=$(dirname "$wm_path")/$wm_link ;;
+    esac
+  done
   wm_dir=$(dirname "$wm_path")
   mkdir -p "$wm_dir" 2>/dev/null || return 1
   wm_tmp=$(mktemp "$wm_dir/.rate-limits.XXXXXX" 2>/dev/null) || return 1
@@ -69,7 +80,8 @@ case $cmd in
     exit 0
     ;;
   statusline)
-    payload=$(head -c 65536 2>/dev/null) || payload=""
+    # Unbounded: the wrapped command gets the whole payload; write_mirror bounds its own copy.
+    payload=$(cat 2>/dev/null) || payload=""
     printf '%s\n' "$payload" | write_mirror >/dev/null 2>&1 || true
     [ "$#" -ge 2 ] || exit 0
     printf '%s\n' "$payload" | sh -c "$2"

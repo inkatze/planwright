@@ -21,7 +21,7 @@ fail() {
 
 [ -x "$FUM" ] || fail "scripts/fleet-usage-mirror.sh missing or not executable"
 
-tmp=$(mktemp -d)
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/fleet-usage-mirror.XXXXXX") || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 # HOME and XDG_CACHE_HOME are pinned to scratch dirs for the whole file: the
@@ -101,7 +101,7 @@ echo "ok: a dollar-budget account's spend_limit reads as the weekly window, clam
 
 # --- 4. Opt-out and relative override write nothing. ---
 reset_state
-printf '%s\n' "$full_payload" | PLANWRIGHT_USAGE_MIRROR= /bin/bash "$FUM" write || fail "opt-out write exited non-zero"
+printf '%s\n' "$full_payload" | PLANWRIGHT_USAGE_MIRROR='' /bin/bash "$FUM" write || fail "opt-out write exited non-zero"
 [ ! -e "$mirror_file" ] || fail "PLANWRIGHT_USAGE_MIRROR set empty must disable the writer"
 (cd "$tmp" && printf '%s\n' "$full_payload" | PLANWRIGHT_USAGE_MIRROR=rel/rate-limits.json /bin/bash "$FUM" write) \
   || fail "relative-override write exited non-zero"
@@ -153,5 +153,24 @@ out=$(printf '%s\n' "$full_payload" | /bin/bash "$FUM" statusline) && rc=0 || rc
 [ -z "$out" ] || fail "statusline with no command must print nothing (got: $out)"
 [ -f "$mirror_file" ] || fail "statusline with no command must still write the mirror"
 echo "ok: the statusline form with no command prints nothing and still writes"
+
+# --- 10. A symlinked mirror is written through its link, the link kept. ---
+reset_state
+mkdir -p "$xdg_cache/claude-usage" "$tmp/linked"
+rm -f "$tmp/linked/real.json"
+ln -s ../../linked/real.json "$mirror_file"
+printf '%s\n' "$full_payload" | /bin/bash "$FUM" write || fail "write (symlinked mirror) exited non-zero"
+[ -L "$mirror_file" ] || fail "a write must keep a symlinked mirror a symlink, not replace it with a file"
+grep -q '"five_hour"' "$tmp/linked/real.json" || fail "a write must update the symlinked mirror's target"
+echo "ok: a symlinked mirror is written through its link and the link is kept"
+
+# --- 11. The statusline form passes a payload past the parse bound whole. ---
+reset_state
+pad=$(awk 'BEGIN { s = "x"; while (length(s) < 70000) s = s s; print s }')
+big_payload="{\"pad\":\"$pad\",${full_payload#\{}"
+want=$(printf '%s\n' "$big_payload" | wc -c | tr -d ' ')
+got=$(printf '%s\n' "$big_payload" | /bin/bash "$FUM" statusline "wc -c" | tr -d ' ')
+[ "$got" = "$want" ] || fail "the wrapped command must receive the whole stdin payload (want $want bytes, got $got)"
+echo "ok: the statusline form passes a payload larger than the parse bound through whole"
 
 echo "ALL fleet-usage-mirror tests passed"
