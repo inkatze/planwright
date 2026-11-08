@@ -2116,6 +2116,8 @@ senv "$home" "$rec" "CLAUDE_DIR=$cdir" "CLAUDE_PLUGIN_ROOT=$preset" SHIM_EVENTS=
 grep -q "$preset/scripts/worker-command-guard.sh" "$tmp/pf33p.err" \
   || fail "c33: the refusal must name the guard under the worker's plugin root, got: $(cat "$tmp/pf33p.err")"
 [ ! -s "$rec/argv" ] || fail "c33: a missing worker-side guard must never spawn the worker"
+grep -q "$preset/scripts/background-job-guard.sh" "$tmp/pf33p.err" \
+  || fail "c33: the missing background-job guard must be warned about before any refusal, got: $(cat "$tmp/pf33p.err")"
 # A root carrying the command guard but no policy guard refuses too: the worker
 # profile leaves merges and rewrites to that guard.
 mkdir -p "$preset/scripts" "$preset/config"
