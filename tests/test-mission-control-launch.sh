@@ -429,12 +429,21 @@ case $OUT in
   *attach* | *observe* | *capture-pane* | *'@'[0-9]*) fail "the launch report names a pane or window: $OUT" ;;
   *) ok "the launch report names no pane, window or attach hint" ;;
 esac
+# A per-call rung away from the knob launches all the same, warned naming it.
+[ "$RC" = 0 ] || fail "the tmux launch against the stream-json knob exited $RC: $ERR"
+case $ERR in
+  *warning*'--backend tmux'*mission_control_launch_backend*stream-json*) ok "a per-call --backend away from the knob warns, naming the knob" ;;
+  *) fail "a per-call --backend away from the knob did not warn naming it: $ERR" ;;
+esac
 pane_name=$(field name)
 pane_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$fleet/mission-control/sessions/$pane_name")
 grep -q 'PLANWRIGHT_MC_TOKEN=' "$tmp/tmux/argv-$pane_handle" && fail "a tmux ad-hoc session was handed a mission-control token" \
   || ok "a tmux session of another kind holds no mission-control token"
 ml launch --program alpha --kind mission-control --scope tmux-token --brief "$tmp/brief.md" --backend tmux
 [ "$RC" = 0 ] || fail "the tmux mission-control launch exited $RC: $ERR"
+mt_warns=$(printf '%s\n' "$ERR" | grep -c 'overrides mission_control_launch_backend')
+[ "$mt_warns" = 1 ] && ok "a mission-control launch warns of a per-call --backend once, though it resolves the rung for its posture check too" \
+  || fail "a mission-control launch's --backend override warned $mt_warns times: $ERR"
 mt_name=$(field name)
 mt_row="$fleet/mission-control/sessions/$mt_name"
 mt_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$mt_row")
@@ -449,6 +458,69 @@ else
   fail "the tmux mission-control window does not start in auto mode (settings '$mt_settings')"
 fi
 grep -q '^--permission-mode' "$tmp/tmux/argv-$mt_handle" && fail "the tmux mission-control argv names a permission mode, overriding its profile"
+ml launch --program alpha --kind ad-hoc --scope same-rung --brief "$tmp/brief.md" --backend stream-json
+[ "$RC" = 0 ] || fail "the stream-json launch under the stream-json knob exited $RC: $ERR"
+case $ERR in
+  *mission_control_launch_backend*) fail "a --backend matching the knob warned: $ERR" ;;
+  *) ok "a --backend matching the knob launches without a warning" ;;
+esac
+wait_done "$(field name)"
+if [ -e "$adopter/planwright.yml" ]; then
+  fail "fixture: the adopter layer already exists, so the layer-set knob cases are skipped"
+else
+  printf '%s\n' 'mission_control_launch_backend: tmux' >"$adopter/planwright.yml"
+  ml launch --program alpha --kind ad-hoc --scope knob-tmux --brief "$tmp/brief.md" --backend tmux
+  rm -f "$adopter/planwright.yml"
+  if [ "$RC" = 0 ]; then
+    case $ERR in
+      *mission_control_launch_backend*) fail "a --backend matching the knob a layer sets warned: $ERR" ;;
+      *) ok "the warning reads the knob a layer sets, not the shipped rung" ;;
+    esac
+    ml retire "$(field name)"
+    [ "$RC" = 0 ] || fail "retiring the knob-tmux session exited $RC: $OUT $ERR"
+  else
+    fail "the tmux launch under a tmux knob exited $RC: $ERR"
+  fi
+  printf '%s\n' 'mission_control_launch_backend: tmux' >"$adopter/planwright.yml"
+  ml launch --program alpha --kind ad-hoc --scope knob-tmux-noflag --brief "$tmp/brief.md"
+  rm -f "$adopter/planwright.yml"
+  if [ "$RC" = 0 ]; then
+    noflag_name=$(field name)
+    noflag_backend=$(awk -F "$TAB" '$1 == "backend" { print $2; exit }' "$fleet/mission-control/sessions/$noflag_name")
+    [ "$noflag_backend" = tmux ] && ok "a launch naming no rung starts on the rung a layer's knob sets" \
+      || fail "a launch naming no rung under a tmux knob registered backend '$noflag_backend'"
+    case $ERR in
+      *mission_control_launch_backend*) fail "a launch naming no rung warned: $ERR" ;;
+      *) ok "a launch naming no rung does not warn" ;;
+    esac
+    ml retire "$noflag_name"
+    [ "$RC" = 0 ] || fail "retiring the knob-tmux-noflag session exited $RC: $OUT $ERR"
+  else
+    fail "a launch naming no rung under a tmux knob exited $RC: $ERR"
+  fi
+fi
+cp "$tracked" "$tmp/tracked.saved"
+printf '%s\n' 'mission_control_launch_backend: bogus' >>"$tracked"
+ml launch --program alpha --kind ad-hoc --scope knob-bogus --brief "$tmp/brief.md" --backend tmux
+bogus_rc=$RC bogus_err=$ERR bogus_name=$(field name)
+ml launch --program alpha --kind ad-hoc --scope knob-bogus-noflag --brief "$tmp/brief.md"
+cp "$tmp/tracked.saved" "$tracked"
+if [ "$bogus_rc" = 0 ]; then
+  case $bogus_err in
+    *warning*'--backend tmux'*mission_control_launch_backend*'could not be resolved'*) ok "a --backend launch the knob cannot be checked against warns so" ;;
+    *) fail "a --backend launch with an unresolvable knob did not warn: $bogus_err" ;;
+  esac
+else
+  fail "a --backend launch with an unresolvable knob exited $bogus_rc: $bogus_err"
+fi
+case $RC:$ERR in
+  4:*'cannot resolve mission_control_launch_backend'*) ok "a launch naming no rung still refuses an unresolvable knob" ;;
+  *) fail "a launch naming no rung under an unresolvable knob was not refused with exit 4: $RC $ERR" ;;
+esac
+if [ -n "$bogus_name" ]; then
+  ml retire "$bogus_name"
+  [ "$RC" = 0 ] || fail "retiring the knob-bogus session exited $RC: $OUT $ERR"
+fi
 
 # A stream-json launch resolves its tier in the directory the session runs in,
 # as the tmux rung and a relaunch do, not in the launcher's own directory.

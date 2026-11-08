@@ -12,6 +12,7 @@ fleet-streamjson.sh status
 fleet-streamjson.sh steer
 mc-config.sh add
 mc-config.sh apply
+mc-config.sh doctor
 mc-config.sh duty
 mc-config.sh entry
 mc-config.sh knob
@@ -21,6 +22,7 @@ mc-decide.sh decide
 mc-decide.sh note
 mc-duties.sh get
 mc-duties.sh list
+mc-escalate.sh -
 mc-event.sh list
 mc-handover.sh due
 mc-handover.sh launch
@@ -31,6 +33,7 @@ mc-handover.sh verify
 mc-handover.sh write
 mc-inbox.sh draft
 mc-inbox.sh item
+mc-inbox.sh report
 mc-inbox.sh status
 mc-kb.sh append
 mc-kb.sh index
@@ -38,6 +41,9 @@ mc-kb.sh index-add
 mc-kb.sh init
 mc-kb.sh inventory-refresh
 mc-keeper.sh -
+mc-merge-ready.sh -
+mc-merge-ready.sh list
+mc-packet.sh assemble
 mc-panel.sh activate
 mc-panel.sh await
 mc-panel.sh changes

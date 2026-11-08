@@ -4,7 +4,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import type { PanelView } from '../../types'
 import { emptyView, fallbackLine, handoverReason, isHandle, isProgram, parseDigest, parseInstall, parseWake } from './digest'
 import type { Install } from './digest'
-import { Band, Pane } from './panel'
+import { Band, isMascotMoving, Pane } from './panel'
 
 const PANE = 'mission-control'
 const TITLE = 'Mission control'
@@ -382,13 +382,15 @@ async function sweep($: EngineInterface) {
   await patch($, x => ({ ...x, frame: x.frame + 1 }))
 }
 
-// The radar sweeps only while a wake is held for a busy session, so an idle
-// panel costs no redraws.
+// The radar sweeps while a wake is held for a busy session, or while the
+// mascot has motion in a shown pane, so an idle or hidden panel costs no redraws.
 async function syncRadar($: EngineInterface) {
   const v = await view($)
   const held = v !== null && (await isHeld($, v))
-  if (held && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
-  if (!held && radar) {
+  const isShown = v !== null && isMascotMoving(v) && (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)
+  const moving = held || isShown
+  if (moving && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
+  if (!moving && radar) {
     radar.cancel()
     radar = null
   }

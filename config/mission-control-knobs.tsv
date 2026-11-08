@@ -15,6 +15,7 @@ kb-lock-wait	mission_control_kb_lock_wait	scripts/mc-kb.sh
 runner-interval	mission_control_runner_interval	scripts/mc-watch.sh
 failsafe-tick-cadence	mission_control_tick_cadence	scripts/mc-wake.sh
 panel-redraw-cadence	mission_control_panel_refresh	scripts/mc-panel.sh
+panel-mascot	mission_control_panel_mascot	scripts/mc-panel.sh
 panel-tick-cadence	mission_control_tick_cadence	scripts/mc-panel.sh
 panel-reviews-ttl	mission_control_reviews_ttl	scripts/mc-reviews.sh
 panel-reviews-check-cadence	mission_control_reviews_ttl	scripts/mc-panel.sh
@@ -32,6 +33,8 @@ handover-due-context-threshold	mission_control_handover_context	scripts/mc-hando
 handover-due-wake-ceiling	mission_control_handover_wakes	scripts/mc-handover.sh
 handover-due-compaction-ceiling	mission_control_handover_compactions	scripts/mc-handover.sh
 handover-release-window	mission_control_handover_window	scripts/mc-handover.sh
+worker-lifetime-bound	mission_control_worker_lifetime	scripts/mc-keeper.sh
+worker-idle-bound	mission_control_worker_idle	scripts/mc-keeper.sh
 snapshot-cadence	mission_control_snapshot_cadence	scripts/mc-snapshot.sh
 forge-tracked-set	mission_control_forge_tracked	scripts/mc-adapter-forge.sh
 radar-events-per-pass	mission_control_radar_max_events	scripts/mc-radar.sh

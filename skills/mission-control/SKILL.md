@@ -118,6 +118,12 @@ inside tmux: `scripts/mission-control-launch.sh`'s `launch`: `<p>`, kind
    (kind attended) instead. A successor launch that is neither the operator's ask
    nor a live handover is refused by `scripts/mc-handover.sh`'s `launch`;
    the session that asked for it reports the refusal and starts nothing.
+   Then audit what you inherit, since planwright's defaults win over the
+   predecessor's habits: each finding `scripts/mc-config.sh`'s `doctor
+   --program <p>` prints that no operator choice already settles (a knob,
+   duty or rule they chose), and each hand-built mechanism it cannot see (a
+   launch outside the launcher, a loop beside the runner, a tracker beside
+   the knowledge base), becomes an operator item.
 3. **The panel (REQ-F1.16).** Run `scripts/mc-panel.sh`'s `activate
    --program <p>`, then `await --program <p>`. On `panel text`, say once,
    in plain words, that the panel cannot load here, and show the text it
@@ -128,7 +134,8 @@ inside tmux: `scripts/mission-control-launch.sh`'s `launch`: `<p>`, kind
    (under `setsid`, never in the foreground of a turn).
 5. **The first turn** says what changed since the operator last looked (the
    resume's `changed` lines), what waits on them, and what moves, in the
-   status form `scripts/mc-inbox.sh`'s `status` prints.
+   status form `scripts/mc-inbox.sh`'s `status` prints, its decisions
+   including `scripts/mc-merge-ready.sh`'s `list --as-status`.
 
 **After a compaction**, before the next act: re-resolve the root, re-load
 the rules and run the self-check (`scripts/mc-rules.sh`'s `selfcheck`) against the durable
@@ -250,6 +257,11 @@ Launch, message, answer, retire; never hand the operator a per-session step.
 - **Report** a PR as done, or its unit as finished, only once
   `scripts/mc-readiness.sh`'s `check` passes on its head; until then report
   what it names (a cadence gap or an unaudited cadence among them), never done.
+- **Ready to merge:** each PR `scripts/mc-merge-ready.sh`'s `list` names,
+  at bring-up and on every `merge-ready` event, goes to the operator at once
+  with a push notification and its merge command, again at every bring-up
+  until it merges, with its packet (`scripts/mc-packet.sh`'s `assemble`);
+  an `unknown` line is said as unknown, never as none.
 - **Message** a session by `SendMessage` when `ListAgents` lists it; a
   stream-json one by `scripts/fleet-streamjson.sh`'s `steer` (its state by
   `status`); only an unreachable one takes the pane relay, as the tower's

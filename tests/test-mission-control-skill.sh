@@ -107,6 +107,10 @@ need "REQ-A1.1: the operator's ask is the resume" "scripts/mc-handover.sh\`'s \`
 need "REQ-A1.1: any other launch over a live holder is refused" "neither the operator's ask nor a live handover"
 need "REQ-A1.2: bring-up from durable evidence only" "Never read a stored live-state file as truth"
 need "REQ-A1.7: the first turn says what changed" "what changed since the operator last looked"
+need "bring-up audits the setup it inherits" "scripts/mc-config.sh\`'s \`doctor"
+need "only doctor's findings become operator items, never its clean line" "each finding \`scripts/mc-config.sh\`'s \`doctor"
+need "planwright's defaults win over a predecessor's habits" "planwright's defaults win over the predecessor's habits"
+need "the audit never re-raises what the operator already settled" "prints that no operator choice already settles"
 need "REQ-F1.12: one objective at a time" "one objective at a time"
 need "REQ-F1.13: the guidance knob sets the depth" "scripts/mc-config.sh\`'s \`mode guidance"
 need "REQ-F1.13: a chosen level is remembered" "knob mission_control_guidance"
@@ -117,6 +121,8 @@ need "D-14: no duty enables itself through an omitted list" "always with \`--dut
 need "the runner starts detached, never in a turn's foreground" "under \`setsid\`"
 need "REQ-I1.2: the readiness check runs before a flip" "scripts/mc-readiness.sh\`'s \`check"
 need "REQ-D1.8: a PR is reported done only once the readiness check passes" "\`check\` passes on its head; until then report"
+need "a PR ready to merge is in the first turn's decisions" "including \`scripts/mc-merge-ready.sh\`'s \`list --as-status\`"
+need "and goes to the operator at once, pushed, with its merge command" "goes to the operator at once with a push notification and its merge command, again at every bring-up until it merges"
 need "D-18: guidance never pre-selects" "pre-selects an option"
 
 # The register and the source-naming rule.

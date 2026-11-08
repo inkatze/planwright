@@ -193,10 +193,24 @@ record "REQ-H1.4: a record source carries no age" source decisions specs record 
 record "REQ-H1.4: a class with no source is cited" source designs - cited -
 record "REQ-F1.1: knowledge-base freshness, the index's age" kb 130
 record "REQ-M1.8: interruptions per hour, with their age" measure interruptions_per_hour 2.5 130
+mkdir -p "$tmp/proc"
+printf '1.53 0.90 0.50 1/200 99\n' >"$tmp/proc/loadavg"
+printf 'processor\t: 0\nprocessor\t: 1\n' >"$tmp/proc/cpuinfo"
+printf 'MemTotal:       1000 kB\nMemAvailable:    250 kB\n' >"$tmp/proc/meminfo"
+MC_PANEL_PROC="$tmp/proc" mc_run mc-panel.sh digest --program alpha --now 2000
+record "the host's load in hundredths, its cores and the memory still available" host 153 2 25
+printf '0.29 0.90 0.50 1/200 99\n' >"$tmp/proc/loadavg"
+MC_PANEL_PROC="$tmp/proc" mc_run mc-panel.sh digest --program alpha --now 2000
+record "a load of 0.29 rounds to 29, not 28" host 29 2 25
+rm -f "$tmp/proc/loadavg" "$tmp/proc/meminfo"
+MC_PANEL_PROC="$tmp/proc" mc_run mc-panel.sh digest --program alpha --now 2000
+record "a host reading that cannot be made is a dash, not zero" host - 2 -
+mc_run mc-panel.sh digest --program alpha --target mc-alpha --knobs --now 1030
 record "REQ-M1.8: the settled share" measure settled_share 80 130
 record "REQ-L1.5: the context threshold knob" knob handover-context 70
 record "REQ-L1.5: the wake ceiling knob" knob handover-wakes 150
 record "REQ-L1.5: the compaction ceiling knob" knob handover-compactions 2
+record "the mascot knob defaults to animated" knob mascot 2
 record "the redraw cadence knob, in seconds" knob refresh 10
 record "the tick cadence knob, in seconds" knob tick 300
 record "the reviews TTL knob, in seconds" knob reviews-ttl 300
@@ -204,11 +218,41 @@ record "D-29: the handover verb is installed" handover available
 record "REQ-F1.2: the text line" line "mission control alpha: 7 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "knobs only with --knobs" "knob${tab}"
+record "no pull request ready to merge reads as none" merge-ready 0 all
 
 # The text form alone, as a session without the mod reads it.
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
 expect_rc "the line" 0
 expect_eq "REQ-F1.2: the line form, one line" "mission control alpha: 7 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
+# Pull requests the readiness check passed are held for the operator.
+judged=$(date +%s)
+mr_rows() { # mr_rows <state>: a merge-ready store judged now
+  printf 'state\t%s\t%s\n' "$1" "$judged"
+  printf 'acme/web#7\tk\tready\t1\tsquash\t-\nacme/web#8\tk\tnot-ready\t1\t-\t-\nacme/web#9\tk\tready\t1\tsquash\t-\n'
+}
+mr_rows ok >"$runtime/merge-ready.tsv"
+mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
+expect_eq "the line names the pull requests ready to merge" "mission control alpha: 7 in flight, 2 waiting, 2 ready to merge, 1 pending, rung normal, tracker snapshot 30s old"
+mc_run mc-panel.sh text --program alpha
+expect_out "and so does the text panel" "ready to merge: 2"
+# A judgment that could not tell for every pull request gives a floor.
+{
+  mr_rows ok
+  printf 'acme/web#10\tk\tunknown\t1\t-\tthe readiness walk could not run: x\n'
+} >"$runtime/merge-ready.tsv"
+mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
+expect_out "a partial count reads as a floor in the line" "2 waiting, 2+ ready to merge,"
+mc_run mc-panel.sh text --program alpha
+expect_out "and in the text panel" "ready to merge: 2 or more (some could not be judged)"
+printf 'state\tstale\t%s\n' "$judged" >"$runtime/merge-ready.tsv"
+mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
+expect_out "none judged and some unknown reads as unknown" "2 waiting, ? ready to merge,"
+mc_run mc-panel.sh text --program alpha
+expect_out "and so in the text panel" "ready to merge: unknown (some could not be judged)"
+mkdir -p "$runtime/merge-ready.tsv.d" && rm -f "$runtime/merge-ready.tsv" && mv "$runtime/merge-ready.tsv.d" "$runtime/merge-ready.tsv"
+mc_run mc-panel.sh text --program alpha
+expect_out "a store that cannot be read is said so" "ready to merge: unknown (the merge-ready store cannot be read)"
+rmdir "$runtime/merge-ready.tsv"
 PATH="$tmp/bin-down:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
 record "a tmux server that does not answer is unreadable" unreadable "tmux windows"

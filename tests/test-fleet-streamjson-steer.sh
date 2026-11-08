@@ -185,6 +185,81 @@ kill -0 "$pid_before" 2>/dev/null || fail "s1: the worker died after being steer
 echo "ok: s1 steer delivers an attributed, verbatim, unevaluated user turn to a live worker that keeps running (REQ-G1.1, REQ-G1.9)"
 
 # ---------------------------------------------------------------------------
+# s1r: a steer shaped like a new unit of work (a launch brief, a skill command)
+#     is refused with nothing written; --retask delivers it, logged.
+# ---------------------------------------------------------------------------
+printf '/planwright:execute-task other-spec 4\n' >"$tmp/steer-skill"
+printf 'Next up:\n<!-- mission-control launch: mc-p-worker-1 (kind worker, scope s, program p) -->\n' >"$tmp/steer-brief"
+for sr_f in "$tmp/steer-skill" "$tmp/steer-brief"; do
+  out=$(senv "$home" "$rec" -- steer sjs1 --message-file "$sr_f" 2>&1)
+  sr_rc=$?
+  [ "$sr_rc" = 5 ] || fail "s1r: a unit-shaped steer must be refused with exit 5, got $sr_rc: $out"
+  case $out in *"re-tasking a live session is refused"*"--retask <reason>"*) : ;; *) fail "s1r: the refusal must name the fresh launch and the override: $out" ;; esac
+done
+[ "$(lines_of "$rec/stdin")" = 3 ] || fail "s1r: a refused steer reached the worker's stdin"
+[ "$(lines_of "$wdir/steers")" = 2 ] || fail "s1r: a refused steer left a receipt row"
+[ ! -e "$home/mission-control/retasks.log" ] || fail "s1r: a refusal must not log an override"
+out=$(senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer-skill" --retask "operator asked for this one" 2>"$tmp/s1r.err") \
+  || fail "s1r: the override steer exited non-zero: $out $(cat "$tmp/s1r.err")"
+poll_until --what 'the stdin line count' -- lines_cmp "$rec/stdin" -ge 4 \
+  || fail "s1r: the override steer never reached the worker"
+grep -q 'WARNING: re-tasking live session sjs1 through steer' "$tmp/s1r.err" || fail "s1r: the override must warn loudly: $(cat "$tmp/s1r.err")"
+grep -q "^[0-9]*${tab}steer${tab}sjs1${tab}operator asked for this one\$" "$home/mission-control/retasks.log" \
+  || fail "s1r: the override must be logged: $(cat "$home/mission-control/retasks.log" 2>&1)"
+echo "ok: s1r a unit-shaped steer is refused with nothing written; --retask delivers it, warned and logged"
+senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer-skill" --retask '' >/dev/null 2>&1
+sr_rc=$?
+[ "$sr_rc" = 2 ] || fail "s1r: --retask with no reason must be a usage error, got $sr_rc"
+# An override whose delivery fails is not logged: the log records re-tasks
+# that happened.
+mkdir -p "$home/streamjson/sjdead"
+sr_rows=$(lines_of "$home/mission-control/retasks.log")
+senv "$home" "$rec" -- steer sjdead --message-file "$tmp/steer-skill" --retask "operator asked" >/dev/null 2>&1
+sr_rc=$?
+[ "$sr_rc" = 3 ] || fail "s1r: an override steer to a dead channel must exit 3, got $sr_rc"
+[ "$(lines_of "$home/mission-control/retasks.log")" = "$sr_rows" ] || fail "s1r: an undelivered override was logged"
+# A re-task check that cannot run refuses the steer rather than skipping it.
+cp -R "$here/../scripts" "$tmp/sj-broken"
+printf '#!/bin/sh\nexit 3\n' >"$tmp/sj-broken/retask-guard.sh"
+sr_keep=$SJ
+SJ="$tmp/sj-broken/fleet-streamjson.sh"
+out=$(senv "$home" "$rec" -- steer sjdead --message-file "$tmp/steer-skill" 2>&1)
+sr_rc=$?
+SJ=$sr_keep
+rm -rf "$tmp/sj-broken"
+[ "$sr_rc" = 2 ] || fail "s1r: a re-task check that did not run must refuse the steer with exit 2, got $sr_rc: $out"
+case $out in *"the re-task check did not run"*) : ;; *) fail "s1r: the refusal must say the check did not run: $out" ;; esac
+rm -rf "$home/streamjson/sjdead"
+echo "ok: s1r --retask needs a reason, an undelivered override is not logged, and a check that cannot run refuses the steer"
+# A registered tower is not bound, so its steer reaches the channel (dead
+# here, exit 3) rather than the refusal; --retask on a plain message logs
+# nothing; an override that could not be logged is refused unsent.
+mkdir -p "$home/mission-control/sessions" "$home/streamjson/mc-p-tower-1"
+printf 'format\t1\nname\tmc-p-tower-1\nprogram\tp\nkind\ttower\nbackend\tstream-json\nlaunched\t1\n' >"$home/mission-control/sessions/mc-p-tower-1"
+senv "$home" "$rec" -- steer mc-p-tower-1 --message-file "$tmp/steer-skill" >/dev/null 2>&1
+sr_rc=$?
+[ "$sr_rc" = 3 ] || fail "s1r: a registered tower's unit-shaped steer must pass the check (dead channel, exit 3), got $sr_rc"
+rm -rf "$home/streamjson/mc-p-tower-1" "$home/mission-control/sessions/mc-p-tower-1"
+printf 'The operator says: go ahead.\n' >"$tmp/steer-plain"
+sr_rows=$(lines_of "$home/mission-control/retasks.log")
+sr_in=$(lines_of "$rec/stdin")
+senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer-plain" --retask "not needed" >/dev/null 2>&1 \
+  || fail "s1r: a plain steer with --retask must deliver"
+poll_until --what 'the stdin line count' -- lines_cmp "$rec/stdin" -gt "$sr_in" || fail "s1r: the plain steer never reached the worker"
+[ "$(lines_of "$home/mission-control/retasks.log")" = "$sr_rows" ] || fail "s1r: --retask on a plain message logged an override"
+sr_in=$(lines_of "$rec/stdin")
+# A read-only file stops only a non-root writer.
+if [ "$(id -u)" != 0 ]; then
+  chmod 444 "$home/mission-control/retasks.log"
+  senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer-skill" --retask "operator asked" >/dev/null 2>&1
+  sr_rc=$?
+  chmod 644 "$home/mission-control/retasks.log"
+  [ "$sr_rc" = 2 ] || fail "s1r: an override that could not be logged must be refused with exit 2, got $sr_rc"
+  [ "$(lines_of "$rec/stdin")" = "$sr_in" ] || fail "s1r: an unloggable override reached the worker"
+fi
+echo "ok: s1r a registered tower is not bound, a plain --retask logs nothing, an unloggable override is refused unsent"
+
+# ---------------------------------------------------------------------------
 # s2 (REQ-G1.2): the frame check, fixture by fixture.
 # ---------------------------------------------------------------------------
 fc() {
