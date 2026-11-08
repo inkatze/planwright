@@ -642,6 +642,16 @@ expect_out "a branch name loses its control bytes" "step${tab}ctrlstep${tab}1${t
 expect_no_out "and none reaches the output" "$cbr"
 git -C "$repo" worktree remove --force "$tmp/wtc" 2>/dev/null
 
+# A step cache that is a link is refused by its reader, so the steps are
+# unknown, never read as empty.
+git -C "$repo" worktree add -q -b linked "$tmp/wtl" 2>/dev/null || fail "fixture linked worktree"
+mkdir -p "$tmp/linkedsteps/000001" "$tmp/wtl/.claude"
+rec "$tmp/linkedsteps/000001/002-step-convergence.rec" linkstep 2026-11-01T11:00:00Z 2026-11-01T11:10:00Z passed 000001 002
+ln -s "$tmp/linkedsteps" "$tmp/wtl/.claude/steps"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_out "a linked step cache is unknown" "source${tab}steps${tab}unknown${tab}cannot read the step records of $tmp/wtl"
+git -C "$repo" worktree remove --force "$tmp/wtl" 2>/dev/null
+
 # ---------------------------------------------------------------------------
 # Under the runner: no arguments, the program from the environment.
 # ---------------------------------------------------------------------------

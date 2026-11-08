@@ -584,6 +584,8 @@ step_rows() {
 # (BSD find rounds an age up to the next minute): reading too much costs
 # nothing, since each record is still judged by its end.
 fresh() {
+  # find does not descend a linked folder; its reader refuses one instead.
+  [ ! -L "$1" ] || return 0
   fr_min=$((($(date +%s) - SINCE) / 60 + 2))
   [ "$fr_min" -ge 1 ] || fr_min=1
   fr_new=$(find "$1" -name '*.rec' -mmin "-$fr_min" 2>/dev/null </dev/null) || return 0
