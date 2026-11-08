@@ -1,11 +1,11 @@
-# Where the fleet's tokens go
+# Where the fleet's tokens go (2026-11)
 
 A fleet's spend is dominated by a few habits, not by its prompts. This note
 measures one host's transcripts, ranks the cuts by what they save, and ships
-the two tools that rerun the measurement and attribute spend to a unit of
-work. Dollars are Claude API list prices from
-[`config/token-prices.tsv`](../config/token-prices.tsv); on a subscription
-they stand for usage-window share, not a bill.
+the tools that rerun the measurement and attribute spend to a unit of work.
+Dollars are Claude API list prices from
+[`config/token-prices.tsv`](../../config/token-prices.tsv); on a
+subscription they stand for usage-window share, not a bill.
 
 ## What was measured
 
@@ -26,27 +26,32 @@ fleet workers checked.
 ## The cuts, ranked
 
 Each figure is the mission-control era first, then the full history. A
-cache-read token costs a fortieth of a cache-write token, so the token and
-dollar rankings differ; the order below is by dollars, the binding limit.
+cache-read token is the cheapest token class by far, so the token and dollar
+rankings differ; the order below is by dollars, the binding limit.
 
 ### 1. Hand long-lived sessions over at 200k context
 
 Cache reads above 200k context: 3.1B tokens, $607 (17%); 20.4B tokens,
-$4,072 (28%). Every turn re-reads the whole context, and a 1M-context turn
-costs $0.20 in reads alone against $0.02 at 100k. Before mission control,
-seven long-running hub, tower and orchestrator sessions ran for days at 1M
-context and cost $5,593, 39% of the history. Hubs since late 2026-11-07 hand
-over near 200k and peak there.
+$4,072 (28%). Every turn re-reads the whole context, so a 1M-context turn
+costs ten times a 100k one in reads alone. Before mission control, seven
+long-running hub, tower and orchestrator sessions ran for days at 1M context
+and cost $5,593, 39% of the history. Launched hubs since late 2026-11-07
+hand over near 200k and peak there.
 
 A handover is cheap: a hub's cold start plus its first ten turns of writes
 averages $0.45, so it pays for itself within a few turns at high context.
 The restarts the fleet already does are not a cost driver.
 
-**Core change:** lower the shipped `mission_control_handover_context` from
-70 to 20 and the tower's `context_budget_threshold` from 50 to 20, and give
-`/orchestrate --watch` the same trigger. These change spec-covered behavior
-(mission-control REQ-L1.5 and D-29, fleet-autonomy), so they go as an
-amendment through `specs/_pending/`, not in this change.
+**Core change:** lower the shipped `mission_control_handover_context` (a
+context percent) to 20, a 200k trigger on a 1M window. It reaches only a
+launched hub: an attended hub compacts instead of handing over (mission-control
+REQ-L1.5, which holds for a launched holder only per REQ-L1.8; D-29 as
+superseded by D-42), so covering
+attended hubs means reopening D-42. The tower's `context_budget_threshold`
+counts orchestration steps, not context (orchestration-fleet REQ-C1.1, D-4),
+so towers and `/orchestrate --watch` need a context trigger of their own
+rather than a lower step count. These change spec-covered behavior, so they
+go as amendments through `specs/_pending/`, not in this change.
 
 ### 2. Run review and verification sub-agents on Sonnet, or fewer of them
 
@@ -75,21 +80,21 @@ are launched workers resuming after a long CI, bot or review wait. The
 average rebuild writes 217k tokens ($1.57); a fresh session with a handover
 brief starts for about $0.42 (cold start plus warm-up).
 
-**Core change:** a wait expected to outlast 55 minutes ends the worker with
-its handover state, and mission control launches a fresh worker when the
-event fires (the short-lived-worker rule, carried into the shipped wait
-helpers and the worker brief). It saves about 18M tokens and $125, and 107M
-tokens and $895. Owner: mission-control and fleet-lifecycle-closure, through
-`specs/_pending/`.
+**Core change:** a wait expected to outlast 55 minutes ends the worker: it
+writes its handover brief and exits, and mission control launches a fresh
+worker with that brief when the awaited event fires. The shipped wait
+helpers and the worker brief carry the rule. It saves about 18M tokens and
+$125, and 107M tokens and $895. Owner: mission-control and
+fleet-lifecycle-closure, through `specs/_pending/`.
 
 ### Measured and not worth cutting
 
 - **Cold starts and warm-up** (each session's first write and its next nine
   turns): $101 and $295 across all sessions. Restarting is cheap.
-- **Launch briefs and rule blocks** re-read every turn: about $11 and $8. A
-  planwright worker brief is about 21 KB, most of it the standing-rules
-  block, but cached re-reads cost $0.20 per million tokens. Trim them for
-  clarity, not spend.
+- **Launch briefs re-read every turn**: about $11 in the era, of which the
+  standing-rules block is $8. A planwright worker brief is about 21 KB,
+  most of it that block, but cached re-reads are the cheapest tokens there
+  are. Trim them for clarity, not spend.
 - **Idle registered sessions**: an idle session spends nothing until woken,
   and waking one is cut 3. All 43 launch records on the host read
   `launched`, none retired: clutter, not spend.
@@ -101,31 +106,41 @@ tokens and $895. Owner: mission-control and fleet-lifecycle-closure, through
 
 ### Do not switch main sessions to the 5-minute cache
 
-Main sessions write a 1-hour cache (2x input) and sub-agents a 5-minute one
-(1.25x). Moving main sessions to 5 minutes (`FORCE_PROMPT_CACHING_5M`) would
-cost $1,255 and $6,536 more: the fleet has 1,617 gaps of 5 to 60 minutes
-(tool runs, CI checks) in the recent window, and each would rewrite the
-whole context instead of reading it.
+Main sessions write the 1-hour cache and sub-agents the 5-minute one, which
+costs less per write (the multipliers are in the price table). Moving main
+sessions to 5 minutes (`FORCE_PROMPT_CACHING_5M`) would cost $1,255 and
+$6,536 more: the era has 1,617 gaps of 5 to 60 minutes (tool runs, CI
+checks), and each would rewrite the whole context instead of reading it.
 
 ## The tools
 
 **`scripts/token-spend.sh`** reruns this note. `rows` reads each transcript
 alone (a grep, then jq) into one line per assistant message, sub-agents
 included; `report` turns those lines into the totals, kinds, dearest
-sessions and branches, and every driver above:
+sessions and branches, and every driver above. Keep the rows outside the
+repository: they carry prompt heads, paths and branch names.
 
 ```sh
-scripts/token-spend.sh rows --since 2026-11-05 > rows.tsv   # file mtime
-scripts/token-spend.sh report rows.tsv
-scripts/token-spend.sh report --context-cap 400000 rows.tsv
+scripts/token-spend.sh rows > "$TMPDIR/rows.tsv"
+scripts/token-spend.sh report "$TMPDIR/rows.tsv"
+scripts/token-spend.sh report --context-cap 400000 "$TMPDIR/rows.tsv"
+```
+
+The mission-control era above is the same rows cut by message time, the
+session lines kept:
+
+```sh
+awk -F '\t' '$1 == "s" || $5 >= "2026-11-05"' "$TMPDIR/rows.tsv" > "$TMPDIR/era.tsv"
 ```
 
 A full sweep of 4 GB of transcripts took under seven minutes at the lowest
-CPU and I/O priority; `--since` skips files last written before a date.
-Kinds come from each session's first prompt and are approximate.
+CPU and I/O priority. `rows --since <date>` skips files last written before
+local midnight of that date, so it shortens a sweep but keeps every message
+of a file written since. Kinds come from each session's first prompt and are
+approximate.
 
 **`scripts/spend-record.sh`** is the per-unit spend record. `record` totals
-one session with its sub-agents and appends a row to
+one session with its sub-agents and appends a row, under a lock, to
 `<fleet-home>/mission-control/<program>/spend.tsv`; `read` sums rows per
 unit:
 
@@ -135,10 +150,12 @@ scripts/spend-record.sh record --program planwright --session <id> --unit pr-901
 scripts/spend-record.sh read --program planwright
 ```
 
-`--launch` takes a mission-control launch record and reads the session id
-from its stream-json worker directory, the unit from its scope and the kind
-from its kind. Recording a session again replaces its earlier row in `read`.
-Nothing calls `record` yet: recording each worker as mission control retires
-it, and showing a unit's spend on the panel, change mission-control behavior
-and go through `specs/_pending/` with cut 3. The harness-rebaseline
-measurement kit (Task 1) can read its token fields from the same totals.
+`--launch` takes a mission-control launch record of that program and reads
+the session id from its stream-json worker directory, the unit from its
+scope and the kind from its kind. For a session recorded more than once,
+`read` keeps the row covering the latest message. Nothing calls `record`
+yet: recording each worker as mission control retires it (while it holds
+the launch name, so a relaunch under the same name cannot swap the session),
+and showing a unit's spend on the panel, change mission-control behavior and
+go through `specs/_pending/` with cut 3. The harness-rebaseline measurement
+kit can read its token fields from the same totals.
