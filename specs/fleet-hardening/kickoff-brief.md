@@ -1007,7 +1007,7 @@ annotation, a changelog entry is added, and `Last reviewed:` moves on all four f
 
 **Decision (operator, 2026-11-08): no new task.** Task 6 stays completed, annotated; the
 correction ships in PR #862 outside the task graph, so nothing can be dispatched against it while
-#862 is in review. Rejected: a new task completed by #862's merge (risk of a duplicate dispatch).
+PR #862 is in review. Rejected: a new task completed by #862's merge (risk of a duplicate dispatch).
 
 **Lens review** (delta-scoped, walked inline: the delta is small and narrow).
 
