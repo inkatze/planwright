@@ -135,9 +135,9 @@ awk -F '\t' '$1 == "s" || $5 >= "2026-11-05"' "$TMPDIR/rows.tsv" > "$TMPDIR/era.
 ```
 
 A full sweep of 4 GB of transcripts took under seven minutes at the lowest
-CPU and I/O priority. `rows --since <date>` skips files last written before
-local midnight of that date, so it shortens a sweep but keeps every message
-of a file written since. Kinds come from each session's first prompt and are
+CPU and I/O priority. `rows --since <date>` skips files last written at or
+before local midnight of that date, so it shortens a sweep but keeps every
+message of a file written since. Kinds come from each session's first prompt and are
 approximate.
 
 **`scripts/spend-record.sh`** is the per-unit spend record. `record` totals

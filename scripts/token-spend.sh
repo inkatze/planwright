@@ -34,8 +34,9 @@ rows    Prints one tab-separated line per assistant message and at most one
         sweep never holds more than one transcript. With no files it walks
         every *.jsonl under $CLAUDE_CONFIG_DIR/projects (default
         ~/.claude/projects), sub-agent transcripts included; --since (walk
-        only) skips files last written before local midnight of that date,
-        so a file written since still contributes its older messages. Lines:
+        only) skips files last written at or before local midnight of that
+        date, so a file written since still contributes its older messages.
+        Lines:
           m <message-id> <session> main|sub <timestamp> <model> <input>
             <cache-write-5m> <cache-write-1h> <cache-write-total>
             <cache-read> <output> <cwd> <branch> <agent-id>
