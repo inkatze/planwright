@@ -140,7 +140,7 @@ rules seem to collide, it asks you which you meant rather than deciding.
 Almost everything mission control does that you might want done
 differently is a setting with a sensible default: how often it checks the
 code host, how long a session may sit still before it is treated as
-stuck, how long a worker may run or sit idle before a fresh one takes
+stuck, how long a session may run or sit idle before a fresh one takes
 over, when it hands over to a fresh session, how much it explains, how a
 spec review you ask for runs, where drafts go, and more. The simplest way
 to change one is to say what you want ("explain less", "treat a session as
