@@ -150,7 +150,21 @@ expect_out "held names the window, its reading and its reset" "held${tab}weekly$
 mc_run mc-usage.sh held --program alpha --now "$((week_at + 1))"
 expect_rc "a hold whose every reset has passed reads clear, so no stopped watcher holds launches past it" 1
 watch "$((now + 60))"
+expect_rc "a watch inside the hold" 0
 expect_no_out "a hold already announced is not announced again" "usage-held"
+
+# A frame received before the hold began is no fresh reading: with the
+# mirror stale, an older, lower frame for the same window never ends it.
+mkdir -p "$fleet/streamjson/mc-alpha-frames"
+printf 'frame\t%s\t-\t-\t0.5\t%s\tend\n' "$((now - 3600))" "$week_at" >"$fleet/streamjson/mc-alpha-frames/ratelimit"
+touch -t 202001010000 "$mirror"
+watch "$((now + 120))"
+expect_rc "a watch with only a pre-hold frame" 0
+expect_no_out "a frame from before the hold does not end it" "usage-reset"
+mc_run mc-usage.sh held --program alpha --now "$((now + 120))"
+expect_rc "the hold stands on a pre-hold frame" 0
+rm -rf "$fleet/streamjson/mc-alpha-frames"
+write_mirror 40 92
 
 mc_run mc-budget.sh rung --program alpha --now "$now" --load 0
 expect_eq "the usage hold is the hold-dispatch rung" "hold-dispatch"

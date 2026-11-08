@@ -45,7 +45,8 @@ THE WINDOWS are the session (five-hour) and weekly windows with the epoch
 each resets at: the status-line mirror (scripts/fleet-usage-gate.sh
 windows), and for a window the mirror lacks, the newest frame a stream-json
 worker received (scripts/claude-frames.sh read), so a host running only
-headless sessions still reads them. A held claude quota (scripts/quota-hold.sh,
+headless sessions still reads them; while a hold lasts, only a frame
+received after it began counts. A held claude quota (scripts/quota-hold.sh,
 a session that died on a limit) is a window too, named `quota`, resetting at
 the time its refusal stated.
 
@@ -213,15 +214,18 @@ abs_dir() { # abs_dir <flag> <dir>
 # field <file> <key>: one entry or record field.
 field() { mc_kv "$1" "$2"; }
 
-# windows: WIN, `<window> <percent> <reset>` lines, a window no source reads
-# left out.
+# windows [since]: WIN, `<window> <percent> <reset>` lines, a window no source
+# reads left out. With a hold since <since>, a frame received no later is no
+# fresh reading: frames carry no age limit, so an older, lower one would end
+# the hold while the account is still near the limit.
 windows() {
   wi_mirror=$(/bin/sh "$script_dir/fleet-usage-gate.sh" windows --now "$NOW" 2>/dev/null) || wi_mirror=""
   wi_frames=$(/bin/sh "$script_dir/claude-frames.sh" read --now "$NOW" 2>/dev/null) || wi_frames=""
-  WIN=$(printf '%s\n%s\n' "$wi_mirror" "$wi_frames" | awk -F '\t' '
+  WIN=$(printf '%s\n%s\n' "$wi_mirror" "$wi_frames" | S=${1:-} awk -F '\t' '
     function ok(p, r) { return p ~ /^[0-9]+([.][0-9]+)?$/ && p + 0 <= 100 && r ~ /^[0-9]+$/ }
+    function fresh(t) { return ENVIRON["S"] == "" || (t ~ /^[0-9]+$/ && t + 0 > ENVIRON["S"] + 0) }
     ($1 == "session" || $1 == "weekly") && ok($2, $3) && !($1 in w) { w[$1] = int($2) " " $3 }
-    $1 == "window" && ($2 == "session" || $2 == "weekly") && ok($3, $4) && !($2 in w) { w[$2] = int($3) " " $4 }
+    $1 == "window" && ($2 == "session" || $2 == "weekly") && ok($3, $4) && fresh($5) && !($2 in w) { w[$2] = int($3) " " $4 }
     END { if ("session" in w) print "session " w["session"]; if ("weekly" in w) print "weekly " w["weekly"] }')
 }
 
@@ -451,7 +455,7 @@ watch() {
   PREV=$(held_rows) || mc_fail "cannot read the usage hold"
   since=""
   [ -z "$PREV" ] || since=$(field "$holdf" since)
-  windows
+  windows "$since"
   quota || mc_fail "cannot read the claude quota hold"
   hold_now "$thr"
   printf '%s\n' "$CUR" | awk 'NF == 3 { print "held\t" $1 "\t" $2 "\t" $3 }'
