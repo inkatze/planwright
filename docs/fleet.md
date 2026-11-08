@@ -1492,9 +1492,10 @@ any re-send, which would stage a duplicate. `PLANWRIGHT_RELAY_CONFIRM_TRIES`
 1, at most 3) bound that wait. Before reading the pane at all it refuses
 (exit 5, nothing pasted) a message shaped like a new unit of work for any
 session but one the mission-control launcher registers as a tower,
-orchestrator or mission control (a pane id or `<session>:<window>` target is
-resolved to its window first), the same rule as the stream-json steer;
-`--retask <reason>` pastes it anyway, logged once pasted.
+orchestrator or mission control (a target is read as its window first), the
+same rule as the stream-json steer; `--retask <reason>` pastes it anyway,
+logged once pasted (an override that could not be logged is refused, exit
+2).
 
 **A paste stages; one Enter submits it.** The tmux relay loads its pointer
 line with no trailing newline, so the paste never submits itself and a single
