@@ -228,9 +228,13 @@ own_session() {
   esac
   os_row="$FLEET/mission-control/sessions/$1"
   if [ -f "$os_row" ] && [ ! -L "$os_row" ]; then
-    os_p=$(mc_kv "$os_row" program 2>/dev/null) || return 2
-    [ "$os_p" = "$program" ]
-    return
+    if os_p=$(mc_kv "$os_row" program 2>/dev/null); then
+      [ "$os_p" = "$program" ]
+      return
+    fi
+    # A row removed since it was seen is a session retired mid-pass: its
+    # name decides, as with no row.
+    [ ! -e "$os_row" ] || return 2
   fi
   os_rest=${1#"mc-$program-"}
   [ "$os_rest" != "$1" ] || return 1
@@ -434,6 +438,9 @@ measure_approvals() {
   set +f
   for ma_d in "$ma_root"/mc-*/; do
     ma_d=${ma_d%/}
+    # A link (to another session's folder, say) is not read, so no journal
+    # counts twice; a folder gone since the glob holds nothing to read.
+    [ ! -L "$ma_d" ] && [ -d "$ma_d" ] || continue
     own_session "${ma_d##*/}"
     case $? in
       0) ;;
@@ -449,9 +456,7 @@ measure_approvals() {
       unknown approvals "cannot read the folder of ${ma_d##*/}"
       return 0
     }
-    # A link (to another session's journal, say) is not read, so no journal
-    # counts twice.
-    [ ! -L "$ma_d" ] && [ -f "$ma_d/journal" ] && [ ! -L "$ma_d/journal" ] || continue
+    [ -f "$ma_d/journal" ] && [ ! -L "$ma_d/journal" ] || continue
     if ! ma_out=$(W=${ma_d##*/} SINCE=$SINCE NOW=$NOW awk -F '\t' '
         # An epoch second has at most 12 digits; a longer one would print
         # as an exponent no shell arithmetic reads.
@@ -761,6 +766,7 @@ curve() {
   set +f
   for cv_d in "$cv_root"/mc-*/; do
     cv_d=${cv_d%/}
+    [ ! -L "$cv_d" ] && [ -d "$cv_d" ] || continue
     own_session "${cv_d##*/}"
     case $? in
       0) ;;
@@ -777,7 +783,7 @@ curve() {
       return 0
     }
     cv_e="$cv_d/events.jsonl"
-    [ ! -L "$cv_d" ] && [ -f "$cv_e" ] && [ ! -L "$cv_e" ] || continue
+    [ -f "$cv_e" ] && [ ! -L "$cv_e" ] || continue
     # Inside the window: written since its start.
     # shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
     cv_m=$(stat -c %Y "$cv_e" 2>/dev/null || stat -f %m "$cv_e" 2>/dev/null) || {

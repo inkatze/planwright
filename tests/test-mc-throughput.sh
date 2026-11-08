@@ -307,6 +307,15 @@ if [ "$(id -u)" -ne 0 ]; then
   expect_out "a session folder that cannot be searched leaves approvals unknown" \
     "source${tab}approvals${tab}unknown${tab}cannot read the folder of mc-alpha-worker-0000000002"
   chmod 755 "$sj/mc-alpha-worker-0000000002"
+  # A linked session folder is passed over before it is judged, whatever
+  # it points at.
+  mkdir -p "$tmp/locked"
+  chmod 000 "$tmp/locked"
+  ln -s "$tmp/locked" "$sj/mc-alpha-worker-0000000030"
+  mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+  expect_out "a linked session folder is passed over" "source${tab}approvals${tab}ok${tab}"
+  rm -f "$sj/mc-alpha-worker-0000000030"
+  chmod 700 "$tmp/locked"
   chmod 000 "$tmp/wt"
   mc_run mc-throughput.sh measure --program alpha --now "$NOW"
   expect_out "a worktree that cannot be searched leaves the steps unknown" \
