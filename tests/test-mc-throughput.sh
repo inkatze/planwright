@@ -343,6 +343,7 @@ expect_out "the top bottleneck is raised" "raised${tab}step:polish${tab}4800"
 expect_out "with no stall sample at all, the stalls source is unknown" "source${tab}stalls${tab}unknown${tab}no current stall sample for any of the 7 sessions"
 events
 expect_out "as a throughput-bottleneck event with its numbers" "throughput-bottleneck${tab}step:polish${tab}Top bottleneck over the last 1d: Slow cadence step polish: median 40m"
+expect_out "a reason that fits beside the bottleneck is kept" "Not measured: stalls (no current stall sample for any of the 7 sessions"
 if [ "$(count_raised)" = 1 ]; then ok "one event"; else fail "expected one event, got $(count_raised)"; fi
 if [ -f "$mchome/kb/throughput/measure.tsv" ] && [ "$(head -n 1 "$mchome/kb/throughput/measure.tsv")" = "# format: 1" ]; then
   ok "the measurement is kept in the program home"
@@ -578,6 +579,9 @@ mkdir -p "$sj/mc-alpha-worker-0000000008" "$sj/mc-alpha-worker-0000000009" "$sj/
 printf '%s\n' '{"type":"assistant","message":{"id":"m5","usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":1000,"output_tokens":0}}}' >"$sj/mc-alpha-worker-0000000008/events.jsonl"
 printf 'format\t2\nwindow\t100000\n' >"$fleet/mission-control/context/mc-alpha-worker-0000000008"
 printf '%s\n' '{"type":"result","modelUsage":{"claude-opus-5-5":{"contextWindow":200000}}}' >"$sj/mc-alpha-worker-0000000009/events.jsonl"
+# A capture that is a link (to another session's) is not read.
+mkdir -p "$sj/mc-alpha-worker-0000000015"
+ln -s ../mc-alpha-worker-0000000002/events.jsonl "$sj/mc-alpha-worker-0000000015/events.jsonl"
 printf '%s\n' '{"type":"assistant","message":{"id":"m6","usage":{"input_tokens":120000,"output_tokens":0}}}' >"$sj/mc-alpha-worker-0000000010/events.jsonl"
 printf 'format\t1\nwindow\t100000\n' >"$fleet/mission-control/context/mc-alpha-worker-0000000010"
 printf 'format\t1\nwindow\t100000\n' >"$fleet/mission-control/context/mc-alpha-worker-0000000001"
@@ -598,6 +602,7 @@ expect_out "the 40% band" "curve${tab}40-49%${tab}1${tab}90000${tab}10000"
 expect_out "unknown-window requests are counted apart" "curve${tab}unknown${tab}2"
 expect_out "a frame jq cannot index costs the capture nothing" "source${tab}cost${tab}ok${tab}6 captures"
 expect_no_out "a capture last written before the window is not read" "mc-alpha-worker-0000000014"
+expect_no_out "a linked capture is not read" "mc-alpha-worker-0000000015"
 expect_out "undivided cache writes are priced as 5-minute writes; an unknown context format gives no window" \
   "request${tab}mc-alpha-worker-0000000008${tab}1${tab}-${tab}1000${tab}-${tab}1250"
 expect_no_out "a capture of only a result frame adds no request" "request${tab}mc-alpha-worker-0000000009"
@@ -607,6 +612,11 @@ if [ "$(id -u)" -ne 0 ]; then
   mc_run mc-throughput.sh curve --program alpha --now $((NOW + 60))
   expect_out "an unreadable capture folder is unknown, not empty" "source${tab}cost${tab}unknown${tab}cannot read $sj"
   chmod 755 "$sj"
+  chmod 000 "$reg/mc-alpha-worker-0000000001"
+  mc_run mc-throughput.sh curve --program alpha --now $((NOW + 60))
+  expect_out "a capture whose session cannot be told apart leaves the cost unknown" \
+    "source${tab}cost${tab}unknown${tab}cannot tell whether mc-alpha-worker-0000000001 is the program's"
+  chmod 644 "$reg/mc-alpha-worker-0000000001"
 else
   ok "an unreadable capture folder (skipped as root)"
 fi
