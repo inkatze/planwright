@@ -59,7 +59,8 @@ record  Finds the session's transcript under $CLAUDE_CONFIG_DIR/projects
 read    Prints one line per unit (or the one --unit names): unit, sessions,
         turns, input, cache-write, cache-read, output, usd; then a total
         line. Per session it keeps the row with the latest last-ts, then the
-        latest recorded-epoch. A program with no store prints a zero total.
+        latest recorded-epoch, reading under the store lock. A program with
+        no store prints a zero total.
 
 Names: --program is a mission-control program name; --launch a launch
 name (mc-<kebab>); the session id, unit and kind are plain fields (letters,
@@ -184,6 +185,10 @@ cmd_read() {
     return 0
   fi
   [ -f "$store" ] && [ -r "$store" ] || die 2 "cannot read $store"
+  # Under the writers' lock, so a store record is still creating never
+  # reads as one with no format line.
+  pw_lock_trap_install
+  pw_lock_acquire "$store.lock" || die 2 "cannot take the spend store lock"
   mc_store_ok "$store" || die 2 "the store has a missing or unknown format: $store"
   awk -F '\t' -v want="$unit" '
     /^#/ || NF != 13 { next }
@@ -205,7 +210,8 @@ cmd_read() {
         ts += S[u]; tt += T[u]; ti += I[u]; tw += W[u]; tr += R[u]; to += O[u]; td += D[u]
       }
       printf "total\t%d\t%d\t%d\t%d\t%d\t%d\t%.2f\n", ts, tt, ti, tw, tr, to, td
-    }' "$store"
+    }' "$store" || die 2 "reading $store failed"
+  pw_lock_release "$store.lock" >/dev/null 2>&1 || [ $? -eq 1 ] || die 2 "cannot release the spend store lock"
 }
 
 [ $# -ge 1 ] || usage

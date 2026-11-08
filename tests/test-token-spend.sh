@@ -312,6 +312,23 @@ mkdir -p "$fleet/mission-control/$hand"
   printf '\n'
 } >"$fleet/mission-control/$hand/spend.tsv"
 assert_contains "read: the row with the latest last-ts wins" "$(printf 'u\t1\t9\t9\t9\t9\t9\t9.00')" "$("$RECORD" read --program "$hand")"
+hstore="$fleet/mission-control/$hand/spend.tsv"
+rm -f "$T/locked.flag"
+(
+  # shellcheck source=scripts/lock-lib.sh
+  . "$REPO_ROOT/scripts/lock-lib.sh"
+  pw_lock_acquire "$hstore.lock" 1 || exit 9
+  "$RECORD" read --program "$hand" >"$T/locked.out" 2>&1 &
+  rp=$!
+  sleep 1
+  [ ! -s "$T/locked.out" ] || : >"$T/locked.flag"
+  pw_lock_release "$hstore.lock"
+  wait "$rp"
+)
+assert_exit "read: a read waiting on the store lock completes once it is free" 0 $?
+if [ -e "$T/locked.flag" ]; then fail "read: a read waits for the store lock"; else ok "read: a read waits for the store lock"; fi
+assert_contains "read: the waiting read prints the store" "$(printf 'u\t1\t9')" "$(cat "$T/locked.out")"
+if [ ! -e "$hstore.lock" ]; then ok "read: the store lock is released"; else fail "read: the store lock is released"; fi
 fresh="tspfresh${pn#tsp}"
 assert_eq "read: a program with no store prints a zero total" "$(printf 'total\t0\t0\t0\t0\t0\t0\t0.00')" "$("$RECORD" read --program "$fresh")"
 if [ ! -e "$fleet/mission-control/$fresh" ]; then ok "read: reading creates nothing"; else fail "read: reading creates nothing"; fi
