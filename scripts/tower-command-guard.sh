@@ -31,8 +31,9 @@
 # wires `mission-control`, which narrows the planwright scripts it approves to
 # the script verbs config/mission-control-verbs.txt lists (script_in_mode
 # below), also run detached under setsid (guard_setsid), and approves no
-# `mise run`, so every other script, verb and task reaches the prompt. An
-# unknown mode approves nothing.
+# `mise run` and no `claude --worktree` hand-launch (mission control launches
+# through its launcher), so every other script, verb, task and launch reaches
+# the prompt. An unknown mode approves nothing.
 #
 # Security contract (identical to the worker guard's — the whole point):
 #   * No LLM in the decision path (REQ-E1.3); purely deterministic shell. The
