@@ -13,25 +13,44 @@ MSP_PANE_LINES=40
 MSP_ANCESTRY_MAX=32
 
 # The process-table read, for `sh -c`: `<pid> <ppid> <uid or user> <args>`
-# lines. busybox ps knows neither -ww nor the uid column, so its form names
-# the user.
+# lines. busybox ps knows neither -ww nor the uid column, so its form, led
+# by a `msp-ps-form busybox` line, names the user, cut to 8 characters.
 # shellcheck disable=SC2034 # read by the scripts that source this file
-MSP_PS_CMD='ps -ww -A -o pid= -o ppid= -o uid= -o args= 2>/dev/null || ps -o pid,ppid,user,args'
+MSP_PS_CMD='ps -ww -A -o pid= -o ppid= -o uid= -o args= 2>/dev/null || { echo msp-ps-form busybox; ps -o pid,ppid,user,args; }'
 
 # msp_find <program> <ps table>: the session's pid, or `absent` / `ambiguous`.
 # Only this user's processes count, so another account's process can neither
-# stand in for the session nor make it ambiguous.
+# stand in for the session nor make it ambiguous. A user column that names
+# rather than numbers the owner can be another account's cut to the same 8
+# characters, so in the busybox form each candidate must also own its
+# /proc entry.
 msp_find() {
-  printf '%s\n' "$2" | P=$1 U=$(id -u) N=$(id -un 2>/dev/null) awk '
+  mf_rows=$(printf '%s\n' "$2" | P=$1 U=$(id -u) N=$(id -un 2>/dev/null) awk '
+    $1 == "msp-ps-form" && $2 == "busybox" { named = 1; next }
     {
       if ($1 !~ /^[0-9]+$/ || NF < 6) next
-      if ($3 != ENVIRON["U"] && (ENVIRON["N"] == "" || $3 != ENVIRON["N"])) next
+      n8 = substr(ENVIRON["N"], 1, 8)
+      if ($3 != ENVIRON["U"] && (ENVIRON["N"] == "" || ($3 != ENVIRON["N"] && !(named && $3 == n8)))) next
       n = split($4, a, "/")
       if (a[n] != "claude") next
       if ($(NF - 1) != "/planwright:mission-control" || $NF != ENVIRON["P"]) next
-      c++; pid = $1
-    }
-    END { if (c == 0) print "absent"; else if (c > 1) print "ambiguous"; else print pid }'
+      print $1 "\t" (named + 0)
+    }')
+  mf_c=0 mf_pid=""
+  while IFS='	' read -r mf_p mf_named; do
+    [ -n "$mf_p" ] || continue
+    [ "$mf_named" != 1 ] || [ -O "/proc/$mf_p" ] || continue
+    mf_c=$((mf_c + 1)) mf_pid=$mf_p
+  done <<EOF
+$mf_rows
+EOF
+  if [ "$mf_c" = 0 ]; then
+    echo absent
+  elif [ "$mf_c" -gt 1 ]; then
+    echo ambiguous
+  else
+    printf '%s\n' "$mf_pid"
+  fi
 }
 
 # msp_pane_of <pid> <ps table> <panes>: the pane whose process is <pid> or an

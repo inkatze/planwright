@@ -456,9 +456,37 @@ if (
   r=$?
   unset -f awk
   [ "$r" = 2 ] || fail "a dialog record that vanished mid-read read as $r"
+  # busybox ps: no -ww, and the user column cut to 8 characters. This
+  # shell's pid and a sleep's are this user's; the fixture pid is no process.
+  mkdir -p "$tmp/bb"
+  cat >"$tmp/bb/ps" <<EOF
+#!/bin/sh
+case "\$*" in
+  '-o pid,ppid,user,args') cat "$tmp/bb.out" ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x "$tmp/bb/ps"
+  id() { case $1 in -u) command id -u ;; -un) echo averylongusername ;; *) command id "$@" ;; esac }
+  bb_find() {
+    {
+      printf '  PID  PPID USER     COMMAND\n'
+      for p in "$@"; do printf '%s 1 averylon claude --name x /planwright:mission-control alpha\n' "$p"; done
+    } >"$tmp/bb.out"
+    msp_find alpha "$(PATH="$tmp/bb:$PATH" /bin/sh -c "$MSP_PS_CMD")"
+  }
+  [ "$(bb_find "$SP")" = absent ] || fail "busybox ps: a process this user does not own read as '$(bb_find "$SP")'"
+  if [ -d "/proc/$$" ]; then
+    sleep 60 &
+    bg=$!
+    [ "$(bb_find $$ "$SP")" = $$ ] || fail "busybox ps: the session under a long user name read as '$(bb_find $$ "$SP")'"
+    [ "$(bb_find $$ "$bg")" = ambiguous ] || fail "busybox ps: two sessions read as '$(bb_find $$ "$bg")'"
+    kill "$bg" 2>/dev/null
+  fi
+  unset -f id
   exit "$pfail"
 ); then
-  ok "the parser: a wrapped last label, a footer run, the opening rule, the side panel, a long command and a rule-like command line; the dialog record"
+  ok "the parser: a wrapped last label, a footer run, the opening rule, the side panel, a long command and a rule-like command line; the dialog record; busybox ps"
 else
   fail "the parser cases above"
 fi
