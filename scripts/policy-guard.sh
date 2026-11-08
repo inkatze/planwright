@@ -1430,8 +1430,9 @@ segment_words() {
 # command or builtin before it); set CS_NOCD, kept for the rest of the
 # command, where CS_DEPTH may be wrong from there so no later cd is followed:
 # at a reserved word after a redirect or a zsh modifier, which bash and zsh
-# read differently, and at a coproc, whose NAME can hide a compound's opener;
-# and set CS_LOST, also kept, at a function definition, whose body may change
+# read differently, at a coproc, whose NAME can hide a compound's opener, and
+# at a zsh repeat, whose short form has no closing word to count; and set
+# CS_LOST, also kept, at a function definition, whose body may change
 # directory when called.
 CS_DEPTH=0
 CS_NOCD=0
@@ -1442,7 +1443,7 @@ compound_shape() {
   while [ "$k" -lt "$e" ]; do
     case ${W[$k]} in
       '!' | if | then | else | elif | do | while | until | for | select | case | fi | done | 'esac' | \
-        time | coproc | function | noglob | nocorrect)
+        time | coproc | function | noglob | nocorrect | repeat)
         if [ "$prefixed" = 2 ] || [ "${WR[$k]}" = 1 ]; then
           CS_NOCD=1
           return 0
@@ -1501,6 +1502,11 @@ compound_shape() {
       coproc)
         CS_NOFOLLOW=1
         CS_NOCD=1
+        ;;
+      repeat)
+        CS_NOFOLLOW=1
+        CS_NOCD=1
+        return 0
         ;;
       if | while | until) CS_DEPTH=$((CS_DEPTH + 1)) ;;
       then | else | elif | do) ;;
