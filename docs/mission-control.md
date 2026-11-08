@@ -90,7 +90,9 @@ a one-line summary of what it saves you. The ones that ship cover keeping
 sessions moving and closing them when their work lands, turning what waits
 on you into decide-ready items and drafts, checking that a pull request is
 really ready before it is offered and telling you, with the one command to
-run, each one that is ready to merge (it never merges itself), predicting
+run, each one that was ready to merge at its last look at the code host,
+and saying so when it cannot tell rather than leaving one out (it never
+merges itself), predicting
 overlapping changes and merge order, letting known dates set priorities,
 preparing what you need before a
 decision, recording how to undo each act, checking what was done against
