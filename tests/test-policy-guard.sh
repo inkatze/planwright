@@ -851,7 +851,10 @@ git push" "$MAIN|x=1 then cd $UNIT; git push" "$MAIN|x=1 coproc cd $UNIT; git pu
   "$MAIN|! cd $UNIT && git push" "$MAIN|time ! cd $UNIT && git push" \
   "$MAIN|true | cd $UNIT && git push" "$MAIN|true |& cd $UNIT && git push" \
   "$MAIN|coproc foo if true; then cd $UNIT; fi; git push" \
-  "$MAIN|x=1 noglob if false; then cd $UNIT; fi; git push"; do
+  "$MAIN|x=1 noglob if false; then cd $UNIT; fi; git push" \
+  "$MAIN|cd /nonexistent && cd $UNIT; git push" "$MAIN|cd - && cd $UNIT; git push" \
+  "$MAIN|cd nosuch && cd $UNIT; git commit --amend --no-edit" \
+  "$MAIN|cd /nonexistent && cd $UNIT && false || git push"; do
   cmd=${spec#*|}
   pg worker "$cmd" "${spec%%|*}"
   expect deny "[worker] a cd the guard cannot place before the act is not followed: ${cmd//$'\n'/ \\n }"
