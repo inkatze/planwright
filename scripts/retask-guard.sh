@@ -19,7 +19,7 @@ unset CDPATH
 
 me=retask-guard
 verb=${1:-}
-# The hook runs on every SendMessage in every session: a broken install must
+# The hook runs on every peer message in every session: a broken install must
 # leave messaging alone rather than block it.
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || {
   [ "$verb" != hook ] || exit 0
@@ -71,10 +71,11 @@ writes no row and prints nothing, only failing as the append would.
 `fleet-streamjson.sh steer --retask <reason>` and `orchestrate-relay.sh
 deliver tmux ... --retask <reason>` run --check before the write or paste,
 refusing an override that could not be logged, and log once delivered; the
-SendMessage hook logs before letting the message through, and denies it
+message hook logs before letting the message through, and denies it
 when the row cannot be written.
 
-hook is the PreToolUse hook on SendMessage. It denies a unit-shaped message
+hook is the PreToolUse hook on the harness's peer-message tool, the one
+hooks/hooks.json matches it to. It denies a unit-shaped message
 to a session the launcher registers as a worker, reviewer or ad-hoc kind,
 unless the message's first line is `[planwright retask-override: <reason>]`
 with a reason, which it logs and lets through (the rest of the message is
@@ -337,7 +338,10 @@ cmd_hook() {
   head=$(printf '%s' "$input" | jq -r '[.tool_name // "", (.tool_input.to // "" | tostring)] | @tsv' 2>/dev/null) || exit 0
   tool=${head%%"$TAB"*}
   to=${head#*"$TAB"}
-  [ "$tool" = SendMessage ] || exit 0
+  # The tool's name lives in the hook's registration alone.
+  want=$(jq -r '.hooks.PreToolUse[] | select(any(.hooks[]; .command | endswith("retask-guard.sh hook"))) | .matcher' \
+    "$script_dir/../hooks/hooks.json" 2>/dev/null) || exit 0
+  [ -n "$tool" ] && [ "$tool" = "$want" ] || exit 0
   # A listing's disambiguating ` [ref]` suffix is not part of the name.
   to=${to%% \[*}
   hk_kind=$(session_kind "$to") || exit 0
