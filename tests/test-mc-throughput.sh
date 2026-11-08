@@ -234,6 +234,10 @@ touch -t 202610300000 "$oldrec"
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_no_out "a folder with no record written inside the window is not read" "step${tab}audit"
 expect_out "though it is still counted" "source${tab}steps${tab}ok${tab}3 record folders"
+touch -t 202611011100 "$oldrec"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_out "the cut is reckoned from the real clock, so a --now pass reads a record written inside its window" \
+  "step${tab}audit${tab}1${tab}1800"
 touch "$oldrec"
 
 # ---------------------------------------------------------------------------

@@ -579,16 +579,18 @@ step_rows() {
 # fresh <steps folder>: whether it holds a record written since the window
 # began. A record that ended inside the window was written inside it, so a
 # folder with none is passed over unread; a find that fails reads it. The
-# age is reckoned from the real clock, so a --now pass sees the same cut.
+# age is reckoned from the real clock as each folder is looked at, so a
+# --now pass sees the same cut, with two minutes' slack for find's rounding
+# (BSD find rounds an age up to the next minute): reading too much costs
+# nothing, since each record is still judged by its end.
 fresh() {
-  fr_min=$(((REAL_NOW - SINCE) / 60 + 1))
+  fr_min=$((($(date +%s) - SINCE) / 60 + 2))
   [ "$fr_min" -ge 1 ] || fr_min=1
   fr_new=$(find "$1" -name '*.rec' -mmin "-$fr_min" 2>/dev/null </dev/null) || return 0
   [ -n "$fr_new" ]
 }
 
 measure_steps() {
-  REAL_NOW=$(date +%s)
   st_repos=$REPOS
   [ "$REPOS_OK" = 1 ] || {
     unknown steps "the program's repositories do not resolve"
