@@ -69,7 +69,7 @@ test('sessions in flight are said in plain words, grouped into counts', async ($
     '1 other session working',
     '1 review working',
     '1 mission-control session working',
-    'Holding for you',
+    'Tower log',
   ])
   const ids = /92e2ac1dd8|3d062aa6a5|@7|cop486|a1b2c3|cubic|gen-2|task-\d|:kickoff|stream-json|\.sh\b/
   expect(texts.slice(at, at + 10).filter(t => ids.test(t))).toEqual([])
@@ -575,7 +575,7 @@ const withKnob = (n: number) => digestText({ extra: [`knob\tmascot\t${n}`] })
 test('Prop pal circles while something waits on the operator', async ($, on) => {
   const w = world(on)
   await boot($, w)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const t = await mascot(ui)
   expect(t).toContain('Prop pal: circling, something waits on you')
   expect(t.some(l => l.includes('(o o)'))).toBe(true)
@@ -607,7 +607,7 @@ test('Prop pal taxis when nothing runs and lands when work has finished', async 
 test('an alert makes the ride bumpy, ahead of everything else', async ($, on) => {
   const w = world(on, { digest: digestText({ extra: ['unreadable\tfleet registry'] }) })
   await boot($, w)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const t = await mascot(ui)
   expect(t).toContain('Prop pal: a bumpy ride, an alert stands')
   expect(t.some(l => l.includes('(O O)'))).toBe(true)
@@ -632,5 +632,62 @@ test('the mascot knob: off draws nothing', async ($, on) => {
   const texts = await rows(ui)
   expect(texts.some(t => t.startsWith('Caution'))).toBe(true)
   expect(texts.some(l => l.includes('Prop pal') || /\[__\]/.test(l))).toBe(false)
+  await ui.unmount()
+})
+
+// The approved high-fidelity render: pictures where the surface has them.
+const pictures = async (ui: { findAll: (q: { type: string }) => Promise<{ props?: Record<string, unknown> }[]> }, type: string) =>
+  (await ui.findAll({ type })).map(n => n.props ?? {})
+
+test('the terminal pane draws Prop pal as a cell grid and the instruments as pictures', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const rasters = await pictures(ui, 'Raster')
+  expect(rasters.map(r => r.key)).toEqual(['prop-pal'])
+  const images = (await pictures(ui, 'Image')).map(i => i.key)
+  expect(images).toContain('gauges')
+  expect(images).toContain('context-bar')
+  expect(images).toContain('usage-5-hour')
+  expect(await rows(ui)).toContain('Prop pal: circling, something waits on you')
+  await ui.unmount()
+})
+
+test('a surface without pictures draws none, and the words stay', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await pictures(ui, 'Raster')).toEqual([])
+    expect(await pictures(ui, 'Image')).toEqual([])
+    const t = await rows(ui)
+    expect(t).toContain('Caution      ● LIT: 2 waiting on you')
+    expect(t.some(l => /^Context 42% used/.test(l))).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('context and usage say their marks and stop line in words', async ($, on) => {
+  const w = world(on, { digest: digestText({ holder: 'registry' }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = await rows(ui)
+  expect(t).toContain('Context 42% used · hands over at 70% · compacts at 95%')
+  expect(t.some(l => /^5-hour 31% used · stop at 95%/.test(l))).toBe(true)
+  await ui.unmount()
+})
+
+test('the mascot knob keeps its meaning with pictures: off draws no grid, still holds one frame', async ($, on) => {
+  const off = world(on, { digest: withKnob(0) })
+  await boot($, off)
+  let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await pictures(ui, 'Raster')).toEqual([])
+  await ui.unmount()
+  off.set({ digest: withKnob(1) })
+  await off.clock.advance(10_000)
+  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const before = (await pictures(ui, 'Raster'))[0]?.cells
+  await off.clock.advance(3_000)
+  expect((await pictures(ui, 'Raster'))[0]?.cells).toBe(before)
   await ui.unmount()
 })
