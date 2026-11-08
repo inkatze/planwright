@@ -267,7 +267,20 @@ quota() {
 held_rows() {
   [ -e "$holdf" ] || return 0
   [ -f "$holdf" ] && [ -r "$holdf" ] || return 1
-  awk -F '\t' '$1 == "window" && NF == 4 { print $2 " " $3 " " $4 }' "$holdf"
+  # A hold that exists but does not parse is unreadable, never clear: a
+  # corrupted store must keep launches held.
+  awk -F '\t' '
+    function num(v) { return v ~ /^[0-9]+$/ }
+    NR == 1 { if ($0 != "format\t1") bad = 1; next }
+    $1 == "since" && NF == 2 && num($2) { next }
+    $1 == "window" && NF == 4 && $2 ~ /^(session|weekly|quota)$/ && ($3 == "-" || num($3)) && ($4 == "-" || num($4)) {
+      rows[++n] = $2 " " $3 " " $4; next
+    }
+    { bad = 1 }
+    END {
+      if (bad || NR == 0 || n == 0) exit 1
+      for (i = 1; i <= n; i++) print rows[i]
+    }' "$holdf"
 }
 
 # live_rows: the hold's rows still held at NOW, not only at the last watch:
