@@ -62,7 +62,6 @@ $1 == "m" {
     if (bc[s, branch_name] > bbest[s]) { bbest[s] = bc[s, branch_name]; branch[s] = branch_name }
   }
   ctx = i + ct + cr
-  if (ctx > maxctx[s]) maxctx[s] = ctx
   if (chain == "sub") {
     if (!((s, agent) in SubA)) subs[++nsub] = s SUBSEP agent
     SubA[s, agent] += cost; SubAw[s, agent] += wcost; SubAo[s, agent] += o * Pout / 1e6
@@ -70,6 +69,7 @@ $1 == "m" {
     next
   }
   turns[s]++
+  if (ctx > maxctx[s]) maxctx[s] = ctx
   if (cr > 0) cr_price[s] = Pcr
   gap = (t > 0 && lastmain[s] > 0) ? t - lastmain[s] : 0
   if (turns[s] == 1) {

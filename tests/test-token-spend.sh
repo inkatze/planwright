@@ -212,6 +212,7 @@ crep=$("$SPEND" report --prices "$prices" "$crafted" 2>/dev/null)
 assert_exit "report over crafted rows exits 0" 0 $?
 c1=$(printf '\302\233')
 case $crep in *"$c1"*) fail "report: a C1 control split by another is still dropped" ;; *) ok "report: a C1 control split by another is still dropped" ;; esac
+assert_contains "report: peak context counts main turns only" "$(printf '\tk\tunknown\t1\t0.0\t0.0M\t')" "$crep"
 
 # --- spend-record ---
 out=$("$RECORD" record --program "$pn" --session s-a --unit pr-1 --prices "$prices")
