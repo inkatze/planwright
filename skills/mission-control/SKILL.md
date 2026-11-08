@@ -113,8 +113,8 @@ inside tmux: `scripts/mission-control-launch.sh`'s `launch`: `<p>`, kind
    step 1. It asks a live holder to release, retires one that does not
    within the window, and announces this session to every live session. A
    launched successor runs the handover file's self-check (`verify`, then
-   `take`) instead; a hand-started one (an attended predecessor, where
-   `launch --handover` exits 4) has no pending record, so it runs `resume`
+   `take`) instead; a hand-started one (an attended predecessor outside
+   tmux, where `launch --handover` exits 4) has no pending record, so it runs `resume`
    (kind attended) instead. A successor launch that is neither the operator's ask
    nor a live handover is refused by `scripts/mc-handover.sh`'s `launch`;
    the session that asked for it reports the refusal and starts nothing.

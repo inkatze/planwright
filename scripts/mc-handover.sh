@@ -184,8 +184,8 @@ name when a retirement was only partly done or the predecessor still runs
 (partial or alive above); 2 usage or an invalid value; 3 the name is
 held (a launch with neither the ask nor a live handover, a successor
 already pending, a take or resume beaten to the name) or the program is
-not configured; 4 a handover launch over an attended holder, which hands
-over by the operator's act.
+not configured; 4 a handover launch over an attended holder outside tmux,
+which hands over by the operator's act.
 
 Portable bash 3.2 / BSD tooling.
 HELP
