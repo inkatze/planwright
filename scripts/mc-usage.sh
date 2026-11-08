@@ -380,7 +380,7 @@ drain() {
         ;;
       launch)
         if ! dr_adm=$(/bin/bash "$script_dir/mc-budget.sh" admit --program "$program" session --now "$NOW" 2>&1); then
-          printf 'kept\t%s\t%s\n' "$id" "$(printf '%s' "$dr_adm" | awk -F '\t' 'NR == 1 { print ($2 != "" ? $2 : $0) }' | cut -c1-200)"
+          printf 'kept\t%s\t%s\n' "$id" "$(sanitize_printable "$(printf '%s' "$dr_adm" | awk -F '\t' 'NR == 1 { print ($2 != "" ? $2 : $0) }' | cut -c1-200)" -)"
           continue
         fi
         set -- --program "$program" --kind "$(field "$e/entry" kind)" --scope "$(field "$e/entry" scope)" --brief "$e/brief"
@@ -392,10 +392,14 @@ drain() {
           [ "$r" = - ] || set -- "$@" --rules "$r"
         done
         origin=$(field "$e/entry" origin)
-        dr_out=$( (cd "$origin" && /bin/bash "$script_dir/mission-control-launch.sh" launch "$@") 2>"$udir/.launch.err" </dev/null)
+        dr_errf=$(mktemp "$udir/.launch.err.XXXXXX") || {
+          printf 'kept\t%s\tcannot stage the launch\n' "$id"
+          continue
+        }
+        dr_out=$( (cd "$origin" && /bin/bash "$script_dir/mission-control-launch.sh" launch "$@") 2>"$dr_errf" </dev/null)
         dr_rc=$?
-        dr_err=$(tail -n 1 "$udir/.launch.err" 2>/dev/null | cut -c1-200)
-        rm -f "$udir/.launch.err"
+        dr_err=$(tail -n 1 "$dr_errf" 2>/dev/null | cut -c1-200)
+        rm -f "$dr_errf"
         case $dr_rc in
           0)
             name=$(printf '%s\n' "$dr_out" | awk -F '\t' '$1 == "launch" && $2 == "name" { print $3 }')
@@ -437,7 +441,10 @@ drain() {
       "status $w limited "*) ;;
       *) continue ;;
     esac
-    dr_msg="$udir/.handover.$w"
+    dr_msg=$(mktemp "$udir/.handover.XXXXXX") || {
+      outcome failed "$w" "cannot write the handover"
+      continue
+    }
     if ! handover_text "$dr_windows" >"$dr_msg"; then
       outcome failed "$w" "cannot write the handover"
       rm -f "$dr_msg"
@@ -586,7 +593,8 @@ case $verb in
       action=resume
     else
       action=launch
-      kinds=$(/bin/bash "$script_dir/mission-control-launch.sh" kinds 2>/dev/null | cut -f1) || mc_fail "cannot list the session kinds"
+      kinds=$(/bin/bash "$script_dir/mission-control-launch.sh" kinds 2>/dev/null) || mc_fail "cannot list the session kinds"
+      kinds=$(printf '%s\n' "$kinds" | cut -f1)
       case " $(printf '%s' "$kinds" | tr '\n' ' ') " in
         *" $kind "*) [ -n "$kind" ] || mc_usage_fail "--kind is required" ;;
         *) mc_usage_fail "unknown session kind '$(sanitize_printable "$kind")'" ;;
@@ -611,7 +619,7 @@ case $verb in
     id="q$NOW.$hex"
     stage=$(mktemp -d "$queue/.new.XXXXXX") || mc_fail "cannot stage the entry"
     if {
-      [ -z "$brief" ] || cp "$brief" "$stage/brief"
+      [ -z "$brief" ] || cp -- "$brief" "$stage/brief"
     } && {
       printf 'format\t1\nid\t%s\ntrigger\tusage-reset\naction\t%s\nqueued\t%s\norigin\t%s\n' "$id" "$action" "$NOW" "$origin"
       printf 'kind\t%s\nscope\t%s\nbackend\t%s\ncwd\t%s\nrepo\t%s\n' "${kind:--}" "${scope:--}" "${backend:--}" "${cwd:--}" "${repo:--}"
