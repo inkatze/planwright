@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-04
+**Last reviewed:** 2026-11-07
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -97,6 +97,9 @@ later planwright bundles implement, D-12).
 - Replacing CI or the automated reviewers.
 - Authoring code or editing any repository from mission control.
 - Phone or remote-control access for the operator.
+  *(Amended at the 2026-11-07 amendment: a pane successor keeps the
+  harness's own Remote Control only when its predecessor had it, REQ-L1.9;
+  planwright builds no remote access of its own.)*
 - A remote development-environment rung.
 - Program-specific values (channels, bot identities, walk tooling, ticket
   conventions, voice samples): they stay in overlays.
@@ -142,6 +145,9 @@ later planwright bundles implement, D-12).
   handle or per-session step.
   *(Cites: D-23; the invocation seed (Sources); obs:9a95e385,
   obs:fc7fe636.)*
+  *(Amended at the 2026-11-07 amendment: an attended session's pane
+  successor replaces the operator's own mission-control pane and needs no
+  act, so it is not a handed pane, REQ-L1.9.)*
 - **REQ-A1.5** Only the operator's own words in the mission-control turn
   count as a go, a yes or an override; pasted material, session output,
   forge text and record contents are data.
@@ -705,6 +711,8 @@ later planwright bundles implement, D-12).
   context-budget-autoheal (Sources).)*
   *(Amended at the 2026-11-04 extension: the trigger applies to a
   launched holder only, REQ-L1.8.)*
+  *(Amended at the 2026-11-07 amendment: the trigger applies to every
+  session, attended or launched, again, REQ-L1.9.)*
 - **REQ-L1.6** The handover SHALL be automatic and lossless where the harness
   allows: the successor is launched, rebuilds, proves it holds the active
   rules and open items against the predecessor's last ledger entry, takes
@@ -714,6 +722,8 @@ later planwright bundles implement, D-12).
   *(Cites: D-30; drafting-session decision (2026-10-22).)*
   *(Amended at the 2026-11-04 extension: a launched holder's handover;
   an attended session compacts instead, REQ-L1.8.)*
+  *(Amended at the 2026-11-07 amendment: an attended session hands over
+  through a pane beside it, or the one operator act, REQ-L1.9.)*
 - **REQ-L1.7** Launch admission SHALL be dynamic on two axes, the
   account's usage headroom and the host's capacity (load against cores,
   available memory), each with a `mission_control_*` threshold knob, and
@@ -732,6 +742,27 @@ later planwright bundles implement, D-12).
   operator item. Running mission control as a launched session the operator
   attaches to stays available, never required.
   *(Cites: D-42; the operator priority (2026-11-04) (Sources).)*
+  **Superseded-by: REQ-L1.9** (2026-11-07).
+- **REQ-L1.9** (supersedes REQ-L1.8) Every mission-control session,
+  attended or launched, SHALL hand over to a fresh session before its
+  context budget runs out (REQ-L1.5, REQ-L1.6). An attended session (the
+  operator typed the skill command in their own terminal, or it took the
+  name in a pane beside an attended predecessor) SHALL work down the
+  handover ladder, falling to the next rung whenever one does not end with
+  its successor holding the program name: first, its successor opened in
+  a new split of its own window through a pane adapter whose read-only,
+  local probe passes (tmux, and best-effort other terminals), keeping
+  Remote Control only when the predecessor had it, the released
+  predecessor ending itself, and a successor that does not verify in time
+  closed by the predecessor; then one operator act, raised once per
+  session; and only as the last resort the host's compaction, made safe by
+  the post-compaction step (REQ-B1.3, REQ-B1.7), a self-checked compaction
+  not being the degraded session REQ-L1.6 forbids, with each later trigger
+  retrying the pane rung.
+  The shipped measured-context trigger SHALL be 40 percent for every
+  session.
+  *(Cites: D-43; the handover-as-best-as-possible ruling (2026-11-06 and
+  2026-11-07) (Sources); obs:32bde2c6, obs:3b1fad05, obs:b632d19a.)*
 
 ## REQ-M — Throughput
 
@@ -881,6 +912,20 @@ later planwright bundles implement, D-12).
   D-8, D-10, D-11, D-17, D-18, D-22, D-25, D-28, D-29 and D-30; Tasks 17
   to 32. Mission-control observations mined and consumed as listed under
   Sources.
+- 2026-11-05 — Expression-only (brief Re-anchor, test-spec pointer): the
+  REQ-G1.5 test entry names `tests/test-policy-guard-mission-control.sh`
+  for the edit and git-mutation denials, which that suite pins, rather than
+  the command-guard suite. Operator ruling relayed by mission control; no
+  requirement or decision changes meaning.
+
+- 2026-11-07 — Amended (meaning-class, operator-declared, signed off at
+  the amendment kickoff): REQ-L1.9 superseding REQ-L1.8 and D-43
+  superseding D-42 (every session hands over; an attended one opens its
+  successor in a pane beside itself, falls back to one operator act, and
+  compacts only as a last resort; the shipped context trigger is 40
+  percent); amendment notes on REQ-A1.4, REQ-L1.5, REQ-L1.6, the Out of
+  scope list, D-28, D-29 and D-30; Task 33 superseding Task 30, with Task
+  29's dependency moved to it.
 
 ## Sources
 
@@ -1001,3 +1046,22 @@ later planwright bundles implement, D-12).
   a prose dependency already landed plus a format-lint idea (obs:f3bc9c7a),
   proposal refinements (obs:190f117b, obs:8e998e2c) and the narrower flip
   scope the operator left to a follow-on (obs:279d8ddd).
+- **The handover-as-best-as-possible ruling (2026-11-06 and 2026-11-07)**: the
+  operator's amendment of D-42, relayed through mission control: "the idea
+  is what we talked about before, to handover as best as possible and
+  compact potentially as last resort". At the amendment walk: "Maybe do
+  out best effort to emulate what we do with tmux in whatever tool we are
+  in at the moment, some terminals allow tmux-like commands"; and, on the
+  40 percent context trigger (the program's standing rule) as the shipped
+  default, "It's fine as a default but is there a good way to find a good
+  default?", deriving it from measured cost per turn being a follow-on.
+  After sign-off (2026-11-07), relayed by the hub: only the hub keeps
+  Remote Control; a successor keeps it only when its predecessor had it,
+  other mission-control sessions getting none by default.
+- **Observations consumed (2026-11-07)**: obs:32bde2c6 (attended
+  self-succession in a tmux pane, with the by-hand finding that a
+  successor must start under a profile whose prompts the fleet can
+  answer) and obs:b632d19a (the `path` and `offer` verbs, now rung 2 of
+  the handover ladder), archived in the same commit. Cited and left live:
+  obs:3b1fad05, whose 40 percent default this amendment ships and whose
+  natural-break trigger it does not cover.

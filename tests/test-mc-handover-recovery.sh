@@ -86,6 +86,7 @@ wait_done "$b3"
 ho verify --program beta --session "$b3" --picture "$tmp/bpic" --digest "$bdigest" --ledger "$bled"
 ho release --program beta --session "$b2"
 [ "$(col released 3)" = "$b3" ] || fail "fixture: the release did not name $b3: $OUT $ERR"
+[ "$(col exit 3)" = "this session's id cannot be told" ] && ok "a release in a session whose id cannot be told says nothing will end it" || fail "the idless release's exit line: $OUT"
 run mission-control-launch.sh retire "$b3"
 ho launch --program beta --brief "$tmp/brief.md" --handover
 b4=$(col successor 2)
@@ -160,6 +161,9 @@ brc=$?
 holder_is "the name stays with the session that took it" intruder beta
 
 for c in "take --program beta --session operator-b --window bogus" \
+  "take --program beta --session operator-b --pid x" \
+  "take --program beta --session operator-b --pid 1" \
+  "take --program beta --session operator-b --exit-wait bogus" \
   "launch --program beta --brief $tmp/brief.md --backend nowhere" \
   "due --program beta --context x --wakes 0 --compactions 0" \
   "verify --program beta --session operator-b --picture $tmp/bpic --digest abc --ledger -" \

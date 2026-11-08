@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BAND, boot, digestText, done, PANE, ran, turn, WAKE, world } from './fixture'
+import { BAND, boot, digestText, done, PANE, ran, SESSION, turn, WAKE, world } from './fixture'
 
 // Minutes of mock clock at the redraw cadence: the default 5 s budget is
 // real time, which a loaded runner can spend.
@@ -33,6 +33,22 @@ test('a busy session holds the wake, then gets it when the turn ends', async ($,
   await $.turn.complete(done('t1'))
   await w.clock.settle()
   expect(w.submitted).toHaveLength(1)
+})
+
+// The record check runs beside the turn's-end wake: a session that released
+// the name in that turn must not take a wake meant for its successor.
+test('a turn that released the name takes no wake when it ends', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  await $.turn.start(turn('t1'))
+  w.set({ digest: digestText({ pending: 1 }), wake: WAKE })
+  await w.clock.advance(5_000)
+  w.set({ records: { [`${SESSION}.exit`]: 'exit' } })
+  await $.turn.complete(done('t1'))
+  await w.clock.settle()
+  expect(w.submitted).toEqual([])
+  expect(ran(w, 'mc-event.sh', 'mark')).toEqual([])
+  expect(w.commandRuns).toEqual(['exit'])
 })
 
 test('a subagent turn does not hold the wake', async ($, on) => {
@@ -171,6 +187,53 @@ test('the presence marker is restamped every minute', SLOW, async ($, on) => {
   // The relay reads the target's own lease, which the restamp carries.
   expect(ran(w, 'mc-panel.sh', 'presence').at(-1)).toEqual(expect.arrayContaining(['--target', 'alpha']))
 })
+
+// The health line compares every mission control's reading with the
+// threshold it hands over at; a session that compacts carries none.
+test('the restamp carries the context reading and the handover threshold', SLOW, async ($, on) => {
+  const w = world(on, { digest: digestText({ holder: 'registry' }) })
+  await boot($, w)
+  await w.clock.advance(60_000)
+  const last = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+  expect(last.slice(last.indexOf('--context'))).toEqual(['--context', '42', '--threshold', '70'])
+  w.set({ digest: digestText({ holder: 'attended' }) })
+  await w.clock.advance(60_000)
+  const attended = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+  expect(attended.slice(attended.indexOf('--threshold'))).toEqual(['--threshold', '-'])
+})
+
+test('the restamp sends the context read at the restamp, not at the last redraw', SLOW, async ($, on) => {
+  const w = world(on, { digest: digestText({ holder: 'registry', refresh: 600 }) })
+  await boot($, w)
+  w.set({ contextPercent: 77 })
+  await w.clock.advance(60_000)
+  const last = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+  expect(last.slice(last.indexOf('--context'), last.indexOf('--context') + 2)).toEqual(['--context', '77'])
+})
+
+for (const [contextPercent, sent] of [
+  [42.6, '43'],
+  [104, '100'],
+  [-3, '0'],
+] as const) {
+  test(`the restamp sends a reading of ${contextPercent} as ${sent}`, SLOW, async ($, on) => {
+    const w = world(on, { contextPercent, digest: digestText({ holder: 'registry' }) })
+    await boot($, w)
+    await w.clock.advance(60_000)
+    const last = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+    expect(last.slice(last.indexOf('--context'), last.indexOf('--context') + 2)).toEqual(['--context', sent])
+  })
+}
+
+for (const contextPercent of [undefined, Number.NaN]) {
+  test(`the restamp sends no context for a reading of ${contextPercent}`, SLOW, async ($, on) => {
+    const w = world(on, { contextPercent, digest: digestText({ holder: 'registry' }) })
+    await boot($, w)
+    await w.clock.advance(60_000)
+    const last = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+    expect(last.slice(last.indexOf('--context'), last.indexOf('--context') + 2)).toEqual(['--context', '-'])
+  })
+}
 
 test('the session end hands the target back to the relay', async ($, on) => {
   const w = world(on)

@@ -41,6 +41,19 @@ Usage:
         Decisions / Landed / Moving
       each a heading and its `- <text>` lines, `- none` when empty. A line
       of any other section is dropped and counted on stderr.
+  mc-inbox.sh report
+      stdin: <class><TAB><text> lines; stdout: the report carried by an
+      unasked turn or push, holding only the classes owed to the operator
+      (decision, blocker, failure, landed), one `<Class>: <text>` line
+      each, in that order, so the first line is the lead. Every decision
+      line is shown; the other lines are capped at five: past five, four
+      (each class's first, then in order) and a count of those hidden.
+      An act or routine line and a repeat (same class and text) are
+      dropped, and a leading acknowledgement (got it, thanks, on it...) is
+      cut, each counted on stderr, so none reaches the operator; with
+      nothing left, stdout is empty and the turn says nothing. A line of
+      any other class is named on stderr (printable ASCII only, `(empty)`
+      for none) and the exit is 1, the rest still rendered.
   mc-inbox.sh item --link <url> --does <text> --asked <text> --right <text>
                    --option <label>=<effect>... --recommend <text>
                    --checked <text>
@@ -62,15 +75,16 @@ Usage:
       waits for the operator's yes on the exact text and recipient.
         clipboard<TAB><recipient><TAB><bytes>
 
-Exit codes: 0 done; 1 a refused item, no clipboard tool, or a store that
-cannot be written; 2 usage; 3 the program is not configured.
+Exit codes: 0 done; 1 a refused item, a report line of unknown class, no
+clipboard tool, or a store that cannot be written; 2 usage; 3 the program
+is not configured.
 
 Portable bash 3.2 / BSD tooling.
 HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-inbox.sh status | item --link <url> ... | draft --program <p> --to <recipient> --file <body>"
+  mc_usage_fail "usage: mc-inbox.sh status | report | item --link <url> ... | draft --program <p> --to <recipient> --file <body>"
 }
 
 case ${1:-} in
@@ -97,6 +111,59 @@ case $verb in
         print ""; print "Moving"; if (!nm) print "- none"; for (i = 1; i <= nm; i++) print "- " m[i]
         if (dropped) printf "mc-inbox: %d line(s) outside decision, landed and moving dropped; status carries no history\n", dropped > "/dev/stderr"
       }' | mc_clean_text
+    ;;
+  report)
+    [ $# -eq 0 ] || usage
+    rp_err=$(mktemp "${TMPDIR:-/tmp}/mc-inbox-report.XXXXXX") || mc_fail "cannot create a scratch file"
+    rp_out=$(awk -F '\t' '
+      BEGIN {
+        n = split("decision blocker failure landed", c, " ")
+        split("Decision Blocker Failure Landed", h, " ")
+        for (i = 1; i <= n; i++) owed[c[i]] = i
+        dc = owed["decision"]
+        quiet["act"] = 1; quiet["routine"] = 1
+        ack = "^(got it|understood|thanks|thank you|will do|on it|okay|sure)([.,!:;-]+( +|$)|$)"
+      }
+      { sub(/\r$/, "") }
+      !NF { next }
+      {
+        k = tolower($1); gsub(/^ +| +$/, "", k)
+        x = substr($0, length($1) + 2); gsub(/^ +| +$/, "", x)
+      }
+      k in quiet { dropped++; next }
+      !(k in owed) { gsub(/[^[:print:]]/, "", k); unknown = unknown " " (k == "" ? "(empty)" : k); next }
+      {
+        cut = 0
+        while (match(tolower(x), ack)) { x = substr(x, RLENGTH + 1); cut = 1; acks++ }
+        if (x == "") { empty++; next }
+        if (cut) x = toupper(substr(x, 1, 1)) substr(x, 2)
+        if ((k SUBSEP x) in seen) { repeats++; next }
+        seen[k SUBSEP x] = 1; i = owed[k]; t[i, ++m[i]] = x; total++
+      }
+      END {
+        # A decision must stay answerable from the report alone, so the cap
+        # binds only the other classes. Past five, four lines show: each
+        # class first, then in order, so no class hides behind another.
+        show[dc] = m[dc]
+        if (total - m[dc] <= 5) { for (i = 1; i <= n; i++) show[i] = m[i] }
+        else {
+          left = 4
+          for (i = 1; i <= n; i++) if (i != dc && m[i] && left) { show[i] = 1; left-- }
+          for (i = 1; i <= n; i++) while (i != dc && left && show[i] < m[i]) { show[i]++; left-- }
+        }
+        for (i = 1; i <= n; i++) for (j = 1; j <= show[i]; j++) { print h[i] ": " t[i, j]; shown++ }
+        if (total > shown) printf "%d more; ask to see them all\n", total - shown
+        if (dropped) printf "mc-inbox: %d act or routine line(s) dropped; the operator is told only what is owed to them\n", dropped > "/dev/stderr"
+        if (acks) printf "mc-inbox: %d acknowledgement(s) cut\n", acks > "/dev/stderr"
+        if (repeats) printf "mc-inbox: %d repeated line(s) dropped\n", repeats > "/dev/stderr"
+        if (empty) printf "mc-inbox: %d line(s) with no text dropped\n", empty > "/dev/stderr"
+        if (unknown != "") { printf "mc-inbox: unknown class(es):%s; class each line decision, blocker, failure, landed, act or routine\n", unknown > "/dev/stderr"; exit 1 }
+      }' 2>"$rp_err")
+    rp_rc=$?
+    cat "$rp_err" >&2
+    rm -f "$rp_err"
+    [ -z "$rp_out" ] || printf '%s\n' "$rp_out" | mc_clean_text
+    [ "$rp_rc" -eq 0 ] || exit 1
     ;;
   item)
     link=""

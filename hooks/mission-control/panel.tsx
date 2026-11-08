@@ -49,6 +49,9 @@ export function bandText(view: PanelView): string {
     parts.push(`${flightCount(view)} in flight`, `${d.waiting ?? '?'} holding`)
     if (d.pending !== null && d.pending > 0) parts.push(`${d.pending} inbound`)
     parts.push(`rung ${d.rung.name}`)
+    // A check can say both what is past its bound and what it cannot tell.
+    const checks = new Set((d.health ?? []).map(h => h.check)).size
+    if (checks > 0) parts.push(`⚠ health ${checks}`)
   } else {
     parts.push(view.fault ? `no reading: ${view.fault}` : 'no reading yet')
   }
@@ -140,6 +143,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
   }
   const tight = headroomTight(view)
   const rl = limits(view)
+  const health = d.health ?? []
   const instruments = [
     `context ${view.contextPercent === null ? 'not measured' : `${view.contextPercent}%`}${rl ? ` · ${rl}` : ''}`,
     `compactions since start ${view.compactions} · wakes ${view.wakes}`,
@@ -166,6 +170,16 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
         </Text>
       )}
       {d.unreadable.length > 0 && <Text color="error">Unreadable: {d.unreadable.join(', ')}</Text>}
+      {health.length > 0 && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold color="warning">
+            Health
+          </Text>
+          {health.map(check => (
+            <Text color={check.count === null ? 'error' : 'warning'}>{check.text}</Text>
+          ))}
+        </Box>
+      )}
       {Section(
         t,
         `In flight (${flightCount(view)})`,
@@ -180,6 +194,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
         'Holding for you',
         [
           `${d.waiting === null ? 'unknown' : d.waiting} waiting on you`,
+          ...(d.approvals ? [`${d.approvals} ${d.approvals === 1 ? 'approval' : 'approvals'} mission control is handling`] : []),
           ...(d.pending !== null ? [`${d.pending} event(s) inbound`] : []),
         ],
       )}
