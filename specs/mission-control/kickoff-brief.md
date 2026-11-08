@@ -1103,3 +1103,173 @@ chose "Fix it (Recommended)" for this pointer, relayed by mission control.
 Class: expression-only
 Anchor: `260b43f423d8d49d039bc9f318b31702f8daba2d` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 3 — 2026-11-07 (amendment: every session hands over, compaction last)
+
+Header: spec `specs/mission-control`, Active (derived), walked at spec
+commit `b2aee10d`; validator at pre-flight 0 errors, 0 warnings. Declared
+by the operator (2026-11-06, relayed by the hub mission control), scoped to
+D-42. Walked as a delta, every question relayed through mission control
+and answered in the operator's own words.
+
+#### Goal and glossary (Amendment 3)
+
+The amendment reverses D-42: an attended session no longer just compacts.
+It hands over as best it can and compacts only as a last resort. It rules
+out building any remote-access surface and any terminal configuration
+change. It assumes the host's own compaction stays as the safety net.
+
+- **Handover ladder**: an attended session's three rungs at its trigger:
+  a pane beside itself, then one operator act, then the host's compaction.
+  Distinct from D-17's degradation ladder.
+- **Pane adapter**: a launcher `pane` rung's per-terminal unit that probes
+  for and opens a split beside the session. Distinct from a snapshot
+  source's *adapter*.
+- **Attended session** now also covers a session that took the name in a
+  pane beside an attended predecessor.
+
+Signed off: 2026-11-07
+
+#### Requirements walkthrough (Amendment 3)
+
+REQ-L1.9 supersedes REQ-L1.8: every session hands over, attended sessions
+down the handover ladder, and the shipped context trigger is 40 percent.
+Amendment notes go on REQ-A1.4 (a pane successor is not a handed pane),
+REQ-L1.5, REQ-L1.6 and the Out of scope remote-access line. Operator
+answers:
+
+- Q1, the ladder: "Maybe do out best effort to emulate what we do with
+  tmux in whatever tool we are in at the moment, some terminals allow
+  tmux-like commands". This became best-effort pane adapters beyond tmux.
+- Q2, the default: "It's fine as a default but is there a good way to find
+  a good default?". The answer given: derive it from the measured
+  cost-per-turn curve and re-check it weekly and on drift, as a follow-on
+  (observation recorded).
+- After sign-off: only the hub keeps Remote Control, and a successor keeps
+  it only when its predecessor had it.
+
+Signed off: 2026-11-07
+
+#### Design walkthrough (Amendment 3)
+
+- D-42 is superseded by D-43.
+- D-29 and D-30 are confirmed with amendment notes; they govern attended
+  sessions again through D-43.
+- D-28 gains a note naming D-43 for context handling and the domains it
+  decides.
+- Every other D-ID is unchanged.
+
+Signed off: 2026-11-07
+
+#### Verification approach (Amendment 3)
+
+REQ-L1.9 is `[test + manual]`:
+
+- **`[test]`:** the handover and panel suites plus the mod's
+  `compaction.test.tsx` under `check:panel-mod`, run by CI, against a stub
+  tmux extended with `split-window` and `kill-pane`.
+- **`[manual]`:** one real-terminal run per non-tmux adapter, swept by the
+  operator or the executing worker on a host with that terminal. An
+  adapter not run ships stub-verified only.
+- **REQ-L1.8:** its entry stays, marked superseded.
+
+Signed off: 2026-11-07
+
+#### Task graph (Amendment 3)
+
+- Task 33 supersedes Task 30 (parked under Out of scope), with no task
+  dependencies.
+- Task 29 now depends on 33 instead of 30.
+- PR #874 (the predecessor's self-exit) is a deliberate non-edge. Task 33
+  reuses it when it has landed and builds it otherwise, so neither waits on
+  the other.
+
+Signed off: 2026-11-07
+
+#### Risk register (Amendment 3)
+
+1. **Handover rate and cost.** The 40 percent default roughly doubles the
+   handover rate for launched holders and starts handovers in attended
+   sessions; per-handover cost is unmeasured. Mitigation: the knob is
+   overridable per machine; the follow-on derives the default from
+   measured cost. Early signal: the throughput duty's cost-per-turn curve.
+2. **Terminal control channels execute code.** Mitigation: probes are
+   read-only, local and owned by the session's user; commands are argument
+   vectors from launcher-grammar values; no adapter enables a channel.
+   Early signal: the metacharacter refusal fixture.
+3. **Non-tmux adapters may not work on real terminals.** Mitigation: the
+   `[manual]` runs, and the ladder falls to the one operator act when a
+   pane fails. Early signal: the rung-1 fall panel event.
+4. **The successor's permission profile.** The successor runs the shipped mission-control profile in auto mode, which can be looser than the operator's own session; the operator chose it after the review pass (2026-11-07), so a successor never stalls on its own prompts.
+5. **Decision-domain gap check.** Walked over the delta in the lens pass.
+   Auth, concurrency, failure modes, cost, migration, API surface and
+   observability are decided in D-43 or recorded above. Migration: an
+   adopter's own override of the context knob keeps its value; the
+   implementing PR marks the attended-behaviour change as breaking in its
+   title.
+
+Signed off: 2026-11-07
+
+#### Lens review (Amendment 3, delta-scoped)
+
+Spec lens set (`doctrine/artifact-lenses.md`), fanned out in four read-only
+reviewers, each covering a group of lenses over the amendment diff, then
+validated against the files and merged. Findings overlapped heavily across
+reviewers; counts are as each reported.
+
+| Lens group | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness, cross-file consistency | 14 | Applied: holder kind with a registry row, who closes which pane, the pane rung in the launcher's backend seam, REQ-A1.4 and Out of scope notes, profile named, mod and options-reference rows and `--help` text in Task 33, doctrine sentence on resume, REQ-L1.6 degraded-session clause, once per session, launcher-derived name |
+| Ambiguity, glossary drift | 16 | Applied: which name, Remote Control (operator ruling), attended definition widened, own-window split on this host, adapter order by first passing probe, read-only probe, fall-through on any rung-1 failure, unverified successor closed, deferral scope, launched holder at 40, handover ladder and pane adapter named |
+| Citation, dead paths, testability | 15 | Applied: Out of scope note, D-28 note, observations cited and consumed, Sources dated both days, stub tmux and runner deliverables, stub-verified adapters plus `[manual]`, mod suite named, Done-when tied to the test-spec entry, Task 16 fixtures retargeted. Declined: dropping REQ-L1.8's superseded marker (spec-format is silent and the marker aids lineage). Outside scope: the status renderer's multibyte cut, recorded as an observation |
+| Decision-domain gaps, security | 20 | Applied: D-28 walk, Remote Control inherited, profile (to the operator), user-owned local channel only, own pane identity targeted, no act after the handover file, deferral only while rung 1 is in flight, stray pane closed, end at idle prompt with one line, cost and migration risk rows, follow-on recorded, rung and adapter recorded, argument-vector commands, metacharacter refusal fixture. Declined: an opt-out knob for rung 1 (the operator approved the ladder as the default; the context knob delays it) and a reserved-windows knob (the split lands in the session's own window) |
+| Rendered-content safety, data hygiene | 0 | Not a rendered context; committed text checked for names, hosts and paths, none found |
+
+Altitude check: no altitude trigger in the delta (no new pinned claim): not
+applicable. Ship-gate check: the one out-of-band fix named, PR #874, is
+owned by Task 33's deliverable, not named in prose only.
+
+Signed off: 2026-11-07
+
+#### Pre-flip verification (Amendment 3)
+
+`markdownlint-cli2` over the four spec files, this brief and the new
+observation fragments: clean. `scripts/check-memory-links.sh`: clean.
+`scripts/spec-validate.sh specs/mission-control`: 0 errors, 0 warnings. The
+post-lens stale-reference sweep over the bundle found D-42, REQ-L1.8 and
+Task 30 only in their own superseded records, dated amendment notes, the
+changelog and Sources. The lens counts above are as each reviewer reported
+them, not derived figures; the delta's enumerations are explicit lists.
+
+#### Sign-off record (Amendment 3)
+
+Signed off 2026-11-07 by the operator, relayed through the hub mission
+control: the approval summary was answered "A. Sign off (Recommended)",
+and the one review point touching what was approved, the successor's
+permission profile, was answered "A. Mission-control profile
+(Recommended)". The Remote Control ruling came after sign-off. Amendment on
+an Active bundle: no status flip; `Last reviewed:` 2026-11-07 on all four
+spec files; validator re-run with 0 errors and 0 warnings. The delta
+supersedes a requirement and a decision, so it is meaning-class.
+
+Class: meaning
+Lens-pass: Amendment 3, delta-scoped lens review above (spec lens set, fanned out in four groups; every finding dispositioned)
+Anchor: `bfed68e37ea8beb929c153a50684d05a850ae5ce` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — main's Amendment 3 merged with the REQ-G1.5 test-spec pointer (2026-11-07)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+Merging main into the branch that carries the 2026-11-05 test-spec pointer
+re-anchor combines that edit with Amendment 3. Against Amendment 3's
+anchored content, the merged bundle differs only by that pointer edit, so
+no requirement or decision changes meaning; this entry records the combined
+anchor.
+
+**Cites the changelog line:** the 2026-11-05 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `1b8a5bff791edb063bcd323ca27f40da593dccbd` — computed as
+`scripts/spec-anchor.sh specs/mission-control`

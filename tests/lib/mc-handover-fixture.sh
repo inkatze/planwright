@@ -66,8 +66,8 @@ exit 0
 SHIM
 chmod +x "$tmp/bin/claude"
 
-# run <script> <args...>: against the fixture, the shim on PATH. Sets RC,
-# OUT, ERR.
+# run <script> <args...>: against the fixture, the shim on PATH, as the
+# Claude session RUN_SESSION names (none when unset). Sets RC, OUT, ERR.
 run() {
   r_script=$1
   shift
@@ -76,6 +76,7 @@ run() {
     -u XDG_CONFIG_HOME -u TMUX -u TMUX_PANE -u PLANWRIGHT_MC_CHECKED -u PLANWRIGHT_MC_PROGRAM \
     -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_TOWER_ID \
     -u PLANWRIGHT_MC_TOKEN -u CLAUDE_CONFIG_DIR \
+    -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID ${RUN_SESSION:+"CLAUDE_CODE_SESSION_ID=$RUN_SESSION"} \
     PATH="$tmp/bin:$PATH" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \
     CLAUDE_DIR="$tmp/claude" HOME="$fixhome" PLANWRIGHT_FLEET_STATE_DIR="$fleet" \

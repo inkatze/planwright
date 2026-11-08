@@ -1,7 +1,7 @@
 # Mission control — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-05
+**Last reviewed:** 2026-11-07
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -54,6 +54,8 @@ Given a session with an open selector and a decision the operator gave,
 mission control answers the selector and logs the quote; given a session
 needing a launch or a retire, it runs it; no delivered item names a pane,
 window or handle (eval fixture).
+*(Amended at the 2026-11-07 amendment: the pane successor's line names no
+pane for the operator to act on; its fixtures sit under REQ-L1.9.)*
 
 ### REQ-A1.5 — Only the operator's words count [design-level]
 
@@ -620,6 +622,8 @@ the other two.
 
 These fixtures are a launched holder's; an attended session raises no
 trigger, tested under REQ-L1.8.
+*(Amended at the 2026-11-07 amendment: an attended session's trigger is
+tested under REQ-L1.9.)*
 
 ### REQ-L1.6 — Automatic, lossless succession [test + Gherkin]
 
@@ -630,6 +634,8 @@ one-act fallback is offered where the takeover path is unsupported.
 
 These fixtures are a launched holder's; an attended session compacts
 instead, tested under REQ-L1.8.
+*(Amended at the 2026-11-07 amendment: an attended session's succession
+is tested under REQ-L1.9.)*
 
 ### REQ-L1.7 — Dynamic, host-shared launch admission [test]
 
@@ -647,6 +653,43 @@ attended session past every handover trigger raises no handover act,
 handover-due event or item; after a compaction its self-check passes
 silently, and a self-check with a rule missing raises one operator item; a
 launched holder past its trigger still launches a successor.
+
+**Superseded-by: REQ-L1.9** (2026-11-07).
+
+### REQ-L1.9 — Every session hands over; attended ones beside themselves, compaction last [test + manual]
+
+`tests/test-mc-handover.sh`, `tests/test-mc-panel.sh` and the mod's
+`hooks/mission-control/compaction.test.tsx` under `check:panel-mod`
+(Task 33), against a stub tmux that models `split-window` and `kill-pane`
+(with a refusal knob) and a handover runner that can set `TMUX` and
+`TMUX_PANE`:
+
+- a fixture attended session in tmux past its trigger opens its successor
+  through the `pane` rung, the stub recording a split of the session's own
+  pane; the successor's recorded argv carries its launcher-derived name,
+  the mission-control profile, and the Remote Control flag only when the
+  fixture predecessor had it; the successor verifies, takes the name as an
+  attended holder with a registry row, and `take` reports the predecessor
+  ended, or closes its pane when it has not;
+- a successor that never verifies within the window has its pane closed by
+  the predecessor, which keeps the name and raises the rung-2 act;
+- each shipped pane adapter is chosen when its stub probe passes and
+  skipped when it fails, a probe whose channel is foreign or not owned by
+  the user fails, and no probe opens anything; with no probe passing the
+  rung-2 act is raised once per session and no pane opens;
+- a program or session name carrying shell metacharacters is refused
+  before any adapter runs;
+- the mod defers a compaction while a rung-1 successor is in flight and
+  not while only the rung-2 act is pending; after a fixture compaction the
+  self-check passes silently, a self-check with a rule missing raises one
+  operator item, and the next trigger retries rung 1;
+- the shipped `mission_control_handover_context` is 40, and a launched
+  holder past its trigger still launches a successor, Task 16's fixtures
+  retargeted to that threshold.
+
+`[manual]`: for each non-tmux adapter, one real-terminal run on a host
+with that terminal opens the successor's split beside the session; until
+it runs, that adapter ships stub-verified only.
 
 ## REQ-M — Throughput
 

@@ -28,14 +28,17 @@ call $.clock.after
 call $.clock.every
 call $.clock.now
 call $.command.register
+# A released predecessor ending its own session with /exit.
+call $.command.run
 # Whether this session is mission control, and its wake target; cleared once
 # read, so a session this one starts does not inherit them.
 call $.env.get
 call $.env.set
 # The stores, read and written only through planwright's own scripts.
 call $.process.run
-# Whether this session's own activation record and its acknowledgment
-# exist, by its own session id, checked on a timer without running a script.
+# Whether this session's own activation record, its acknowledgment and its
+# exit marker exist, by its own session id, checked on a timer without
+# running a script.
 call $.fs.exists
 call $.fs.stat
 call $.session.id
