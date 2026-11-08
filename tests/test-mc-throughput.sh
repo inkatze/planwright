@@ -512,6 +512,11 @@ sed "s#^program_alpha_repositories: .*#program_alpha_repositories: [$tmp/plain, 
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_out "with no repository measurable, CI is unknown, naming each" \
   "source${tab}ci${tab}unknown${tab}no repository measured; no GitHub remote: $tmp/plain; not on this machine: $tmp/gone"
+# A configured path's C1 control bytes never reach the source line.
+sed "s#^program_alpha_repositories: .*#program_alpha_repositories: [$repo, $tmp/gone$(printf '\302\233')2J]#" "$tracked.keep" >"$tracked"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_out "a repository path loses its control bytes in the CI source line" "not on this machine: $tmp/gone2J"
+expect_out "and in the steps source line" "record folders; not on this machine: $tmp/gone2J"
 mv "$tracked.keep" "$tracked"
 
 # ---------------------------------------------------------------------------

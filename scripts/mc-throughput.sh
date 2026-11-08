@@ -393,7 +393,7 @@ EOF
   done <<EOF
 $REPOS
 EOF
-  ci_skip="${ci_off:+; no GitHub remote: $ci_off}${ci_absent:+; not on this machine: $ci_absent}"
+  ci_skip=$(printf '%s' "${ci_off:+; no GitHub remote: $ci_off}${ci_absent:+; not on this machine: $ci_absent}" | tr '\t\n' '  ' | mc_clean_text)
   if [ "$ci_n" = 0 ] && [ -n "$ci_skip" ]; then
     unknown ci "no repository measured$ci_skip"
     return 0
@@ -688,7 +688,8 @@ EOF
 $st_dirs
 EOF
   fi
-  printf 'source\tsteps\tok\t%s record folders%s\n' "$st_n" "${st_absent:+; not on this machine: $st_absent}"
+  st_absent=$(printf '%s' "${st_absent:+; not on this machine: $st_absent}" | tr '\t\n' '  ' | mc_clean_text)
+  printf 'source\tsteps\tok\t%s record folders%s\n' "$st_n" "$st_absent"
   [ -n "$st_rows" ] || return 0
   # A reclaimed copy of a worktree still on disk holds the same records;
   # another cache of the same branch reuses run ids for other records.
