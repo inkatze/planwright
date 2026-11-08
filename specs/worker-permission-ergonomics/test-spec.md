@@ -161,6 +161,14 @@ bare-paren substitution inside `fish -c` (`fish -c "echo (rm -rf x)"`); subshell
 `<<`/`<<<` are not mis-split into a spurious safe segment (`echo x >| stat`
 defers).
 
+*(Amended 2026-11-08.)* The one exception is asserted by
+`tests/test-worker-command-guard-step-context.sh`: literal `PLANWRIGHT_STEP_*`
+prefixes allow only when every value equals what the session record implies
+(including the unit's task ids exactly, in order, and the recorded PR number),
+and defer for another unit's value, a foreign or runner-computed variable,
+`LD_PRELOAD`, a repeat, `$VAR`, `$(...)`, backticks, `~`, a quoted name, or an
+untrusted command behind the prefix.
+
 ### REQ-A1.10 — Script/test/bats path containment [test]
 
 Fixtures assert that an enumerated `scripts/*.sh`/`tests/*.sh`/`bats <file>`

@@ -302,6 +302,16 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   the control operators, so an operator is never mis-split into a spurious safe
   segment; a here-document defers per REQ-A1.4.
   *(Cites: D-3; kickoff §7 (2026-07-18).)*
+  *(Amended 2026-11-08: one exception to the inline environment-assignment
+  deferral. A leading run of literal `PLANWRIGHT_STEP_<field>=<value>` words in
+  front of a script the guard approves bare is approved when the guard reads
+  the run as written, before any expansion, and every value passes the
+  resolver's grammar and equals what the launcher's session record implies:
+  unit kind, spec and task ids (exactly the unit branch's, in order), branch,
+  PR base, worktree root, and, once the worker has recorded it, the PR number.
+  A name, value or shape outside that, any other variable, `LD_PRELOAD`-style
+  names included, still defers. Granted by custom-steps REQ-G1.3's
+  step-context prefix; D-3 and D-23 carry the reason.)*
 - **REQ-A1.10** Before approving an enumerated `scripts/*.sh`/`tests/*.sh`
   script invocation or a `bats <file>` invocation, the hook SHALL canonicalize
   the (already-expanded) path and containment-check it against the repository
