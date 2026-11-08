@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BAND, boot, digestText, done, PANE, ran, turn, WAKE, world } from './fixture'
+import { BAND, boot, digestText, done, PANE, ran, SESSION, turn, WAKE, world } from './fixture'
 
 // Minutes of mock clock at the redraw cadence: the default 5 s budget is
 // real time, which a loaded runner can spend.
@@ -33,6 +33,22 @@ test('a busy session holds the wake, then gets it when the turn ends', async ($,
   await $.turn.complete(done('t1'))
   await w.clock.settle()
   expect(w.submitted).toHaveLength(1)
+})
+
+// The record check runs beside the turn's-end wake: a session that released
+// the name in that turn must not take a wake meant for its successor.
+test('a turn that released the name takes no wake when it ends', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  await $.turn.start(turn('t1'))
+  w.set({ digest: digestText({ pending: 1 }), wake: WAKE })
+  await w.clock.advance(5_000)
+  w.set({ records: { [`${SESSION}.exit`]: 'exit' } })
+  await $.turn.complete(done('t1'))
+  await w.clock.settle()
+  expect(w.submitted).toEqual([])
+  expect(ran(w, 'mc-event.sh', 'mark')).toEqual([])
+  expect(w.commandRuns).toEqual(['exit'])
 })
 
 test('a subagent turn does not hold the wake', async ($, on) => {
