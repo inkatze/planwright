@@ -52,9 +52,12 @@ write_programs hub
 # while no real process can read as a session); any other flags reach the
 # real ps. busybox ps takes neither -ww nor -A, hence the fallback. tmux:
 # panes and captures from files, a capture moving $tmp/pane-<p>.next into
-# place for the next one; send-keys recorded to $tmp/keys (failing when
-# $tmp/send-fails exists, and standing in for a watcher pass that records
-# $tmp/send-swaps as the next dialog when that exists).
+# place for the next one, and the first capture after $tmp/capture-sets
+# appears standing in for a watcher pass that rewrites the dialog record to
+# it (`remove`: drops it); send-keys recorded to $tmp/keys (failing when
+# $tmp/send-fails exists, and making the answers log read-only when
+# $tmp/send-locks-log does).
+esc_self="$fleet/mission-control/alpha/escalate/self"
 real_ps=$(command -v ps)
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/ps" <<EOF
@@ -76,11 +79,15 @@ case "\$1" in
     while [ \$# -gt 0 ]; do [ "\$1" = -t ] && t=\$2; shift; done
     cat "$tmp/pane-\$t" 2>/dev/null || exit 1
     [ ! -e "$tmp/pane-\$t.next" ] || mv "$tmp/pane-\$t.next" "$tmp/pane-\$t"
+    if [ -e "$tmp/capture-sets" ]; then
+      if [ "\$(cat "$tmp/capture-sets")" = remove ]; then rm -f "$esc_self"; else cp "$tmp/capture-sets" "$esc_self"; fi
+      rm -f "$tmp/capture-sets"
+    fi
     ;;
   send-keys)
     shift
     printf '%s\n' "\$*" >>"$tmp/keys"
-    [ ! -e "$tmp/send-swaps" ] || cp "$tmp/send-swaps" "$fleet/mission-control/alpha/escalate/self"
+    [ ! -e "$tmp/send-locks-log" ] || chmod 444 "${esc_self%/self}/answers.log"
     [ ! -e "$tmp/send-fails" ]
     ;;
   *) exit 1 ;;
@@ -298,12 +305,40 @@ expect_err "is named" "in flight"
 [ -z "$(keys)" ] || fail "a key was sent beside a live answer: $(keys)"
 rm -f "$esc_dir/answer.lock"
 
+IFS="$tab" read -r _ first sess print kind <"$tmp/self.saved"
+# moved <file> <label> <needle>: the watcher's record becomes <file> (or is
+# removed, for `-`) between the first pane read and the final check.
+moved() {
+  if [ "$1" = - ]; then echo remove >"$tmp/capture-sets"; else cp "$1" "$tmp/capture-sets"; fi
+  cp "$tmp/self.saved" "$esc_dir/self"
+  answer --program alpha --choice 1 --decision "$D1" --decided-in hub
+  rm -f "$tmp/capture-sets"
+  refused "$2" "$3"
+}
+printf 'dialog\t%s\t%s\t%s\t%s\n' $((first + 86400)) "$sess" "$print" "$kind" >"$tmp/later"
+moved "$tmp/later" "a dialog reopened after the decision, before the keystroke" "predates the dialog"
+printf 'dialog\t%s\t%s\t0123456789abcdef\t%s\n' "$first" "$sess" "$kind" >"$tmp/other"
+moved "$tmp/other" "a record that changed before the keystroke" "changed while the answer was checked"
+moved - "a record gone before the keystroke" "left the record"
+cp "$tmp/self.saved" "$esc_dir/self"
+: >"$esc_dir/pass.lock"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
-expect_rc "a decided choice is delivered" 0
+rm -f "$esc_dir/pass.lock"
+expect_rc "a watcher lock that cannot be taken" 1
+expect_err "sends nothing" "nothing was sent"
+[ -z "$(keys)" ] || fail "a key was sent without the watcher's lock: $(keys)"
+ln -s "$$-1-1" "$esc_dir/pass.lock"
+(
+  sleep 1
+  rm -f "$esc_dir/pass.lock"
+) >/dev/null 2>&1 &
+answer --program alpha --choice 1 --decision "$D1" --decided-in hub
+wait
+expect_rc "a decided choice is delivered once the watcher's pass ends" 0
 expect_out "naming the pane, digit and option" "answered${tab}alpha${tab}%7${tab}1${tab}Yes"
 if [ "$(keys)" = "-t %7 1" ]; then ok "exactly one digit is sent to that pane"; else fail "keys sent: '$(keys)'"; fi
-if grep -q "${tab}${D1}${tab}hub${tab}1${tab}%7${tab}${SP}${tab}sent$" "$esc_dir/answers.log"; then
-  ok "the answer is logged against the decision"
+if grep "${tab}${D1}${tab}hub${tab}1${tab}%7${tab}${SP}${tab}" "$esc_dir/answers.log" | awk -F '\t' '{ printf "%s ", $7 }' | grep -q '^pending sent $'; then
+  ok "the answer is logged against the decision, pending before the keystroke and sent after"
 else
   fail "answers.log: $(cat "$esc_dir/answers.log" 2>/dev/null)"
 fi
@@ -311,41 +346,21 @@ if [ ! -e "$esc_dir/self" ]; then ok "the answered dialog's record is dropped"; 
 : >"$tmp/keys"
 cp "$tmp/self.saved" "$esc_dir/self"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
-refused "a decision already used" "already answered a dialog"
+refused "a decision already used" "already used by an answer attempt"
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$esc_dir/answers.log"
   answer --program alpha --choice 1 --decision "$D1" --decided-in hub
   chmod 644 "$esc_dir/answers.log"
   expect_rc "an answers log that cannot be read" 1
-  expect_err "fails the replay check" "cannot read"
+  expect_err "fails the replay check" "was not used before"
   [ -z "$(keys)" ] || fail "a key was sent past an unreadable answers log: $(keys)"
 fi
-IFS="$tab" read -r _ first sess print kind <"$tmp/self.saved"
-printf 'dialog\t%s\t%s\t%s\t%s\n' $((first + 1)) "$sess" "$print" "$kind" >"$tmp/send-swaps"
-cp "$tmp/self.saved" "$esc_dir/self"
-answer --program alpha --choice 1 --decision "$(note hub answer 1)" --decided-in hub
-rm -f "$tmp/send-swaps"
-expect_rc "a send the watcher saw a next dialog behind" 0
-if [ "$(awk -F '\t' '{ print $2 }' "$esc_dir/self" 2>/dev/null)" = $((first + 1)) ]; then
-  ok "the next dialog's record is kept"
-else
-  fail "the record after a send that a new record followed: '$(cat "$esc_dir/self" 2>/dev/null)'"
-fi
-: >"$tmp/keys"
-cp "$tmp/self.saved" "$esc_dir/self"
-ln -s "$$-1-1" "$esc_dir/pass.lock"
-answer --program alpha --choice 1 --decision "$(note hub answer 1)" --decided-in hub
-rm -f "$esc_dir/pass.lock"
-expect_rc "a send whose record drop waits out a watcher pass" 1
-expect_out "still reports the send" "answered${tab}alpha${tab}%7${tab}1"
-expect_err "and warns that the hold carries over" "could not be dropped"
-if cmp -s "$tmp/self.saved" "$esc_dir/self"; then ok "the record a drop could not reach is left as it was"; else fail "the record changed under a held pass lock"; fi
-: >"$tmp/keys"
-cp "$tmp/self.saved" "$esc_dir/self"
 D2=$(note hub answer 3)
 touch "$tmp/send-fails"
 answer --program alpha --choice 3 --decision "$D2" --decided-in hub
 expect_rc "a failed send" 1
+expect_err "says the decision is used" "decision $D2 is used"
+expect_no_out "and reports no answer" "answered"
 rm -f "$tmp/send-fails"
 if grep -q "${tab}${D2}${tab}hub${tab}3${tab}%7${tab}${SP}${tab}failed$" "$esc_dir/answers.log"; then
   ok "a failed send is logged and uses the decision"
@@ -355,22 +370,31 @@ fi
 if [ -e "$esc_dir/self" ]; then ok "a failed send keeps the dialog's record"; else fail "a failed send dropped the dialog record"; fi
 : >"$tmp/keys"
 answer --program alpha --choice 3 --decision "$D2" --decided-in hub
-refused "a decision a failed send used" "already answered a dialog"
-D4=$(note hub answer 1)
-chmod 444 "$esc_dir/answers.log"
-answer --program alpha --choice 1 --decision "$D4" --decided-in hub
-expect_rc "a sent answer that cannot be logged" 1
-expect_out "still reports the send" "answered${tab}alpha${tab}%7${tab}1"
-expect_err "and warns against reusing the decision" "do not reuse decision $D4"
-if [ "$(keys)" = "-t %7 1" ]; then ok "the one digit was sent"; else fail "keys sent: '$(keys)'"; fi
+refused "a decision a failed send used" "already used by an answer attempt"
+if [ "$(id -u)" != 0 ]; then
+  D4=$(note hub answer 1)
+  chmod 444 "$esc_dir/answers.log"
+  answer --program alpha --choice 1 --decision "$D4" --decided-in hub
+  chmod 644 "$esc_dir/answers.log"
+  expect_rc "an answer that cannot be logged before the keystroke" 1
+  expect_err "sends nothing" "nothing was sent"
+  [ -z "$(keys)" ] || fail "a key was sent with no pending line: $(keys)"
+  touch "$tmp/send-locks-log"
+  answer --program alpha --choice 1 --decision "$D4" --decided-in hub
+  rm -f "$tmp/send-locks-log"
+  chmod 644 "$esc_dir/answers.log"
+  expect_rc "a sent answer whose outcome cannot be logged" 1
+  expect_out "still reports the send" "answered${tab}alpha${tab}%7${tab}1"
+  expect_err "and says its pending line keeps the decision used" "pending line still marks decision $D4 used"
+  if [ "$(keys)" = "-t %7 1" ]; then ok "the one digit was sent"; else fail "keys sent: '$(keys)'"; fi
+  : >"$tmp/keys"
+  cp "$tmp/self.saved" "$esc_dir/self"
+  answer --program alpha --choice 1 --decision "$D4" --decided-in hub
+  refused "a decision only a pending line used" "already used by an answer attempt"
+else
+  ok "skipped as root: the unwritable answers log cases"
+fi
 cp "$tmp/self.saved" "$esc_dir/self"
-D5=$(note hub answer 1)
-touch "$tmp/send-fails"
-answer --program alpha --choice 1 --decision "$D5" --decided-in hub
-rm -f "$tmp/send-fails"
-expect_rc "a failed send that cannot be logged" 1
-expect_err "warns against reusing the decision" "do not reuse decision $D5"
-chmod 644 "$esc_dir/answers.log"
 : >"$tmp/keys"
 
 # --- the dialog parser, in process ----------------------------------------------

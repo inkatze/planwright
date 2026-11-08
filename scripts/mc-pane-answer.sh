@@ -56,29 +56,34 @@ by the caller), only when every check holds, and refuses otherwise:
     under <p>'s runtime directory, keyed by <hub> and the entry id);
   - exactly one session of <p> is running, it is the session the watcher
     recorded, and its pane shows that same dialog open, read again just
-    before the keystroke, its digest covering it whole: from the rule that
-    opens it (a line of rule glyphs only) down, with no line cut as
-    side-panel text;
+    before the keystroke, its digest reaching up to the nearest opening
+    rule (a column-1 line of `─` only) with no line from there down cut
+    off as the mission-control side panel's text;
   - the pane is not the caller's own, nor one the caller runs under;
   - the dialog's own option run offers <digit>, and its label is one that
     answers this dialog and nothing more: Yes, No, "No, and tell Claude
     what to do differently" or "Yes, but ask again next time". Any other
     label (a rule for later calls, a mode switch, a directory or trust
     grant) is refused, as is a run whose labels wrap or repeat a digit.
-After a sent answer the watcher's record of the dialog is dropped while
-it still names that dialog, waiting up to about 10 s for the watcher's
-pass, so a dialog that follows starts its own hold; a drop it cannot make
-is named on stderr and exits 1. Each answer sent, or attempted
-and failed, appends one line to <runtime>/escalate/answers.log:
-  <epoch> <entry id> <hub> <digit> <pane> <session pid> sent|failed
-One answer runs at a time per program.
+From the last pane read to the keystroke it holds the watcher's pass
+lock (up to 500 lock attempts to take it, about 10 s on an idle host),
+and refuses unless the watcher's record still names that dialog, its
+first sight checked against the decision again. Before the keystroke it
+appends a `pending` line to <runtime>/escalate/answers.log, sending
+nothing when that fails, so the decision is used even if what follows
+never runs; after it, a `sent` or `failed` line:
+  <epoch> <entry id> <hub> <digit> <pane> <session pid> pending|sent|failed
+After a sent answer the watcher's record of the dialog is dropped, so a
+dialog that follows starts its own hold. One answer runs at a time per
+program.
 
 Output: answered<TAB><program><TAB><pane><TAB><digit><TAB><option label>
 
-Exit codes: 0 sent; 1 a store, the pane, the log or the send that failed,
-a sent answer left unlogged or its record not dropped (the output line
-still printed), or another answer to <p> in flight; 2 usage; 3 a program is not
-configured; 4 refused by a check above (named on stderr).
+Exit codes: 0 sent; 1 a store, the pane, the log, the watcher's lock or
+the send that failed, a sent answer whose outcome line or record drop
+failed (the output line still printed), or another answer to <p> in
+flight; 2 usage; 3 a program is not configured; 4 refused by a check
+above (named on stderr).
 
 Portable bash 3.2 / BSD tooling.
 HELP
@@ -179,12 +184,16 @@ VERDICT=$(printf '%s\n' "$ENTRY" | S="$PROGRAM dialog $rec_print" C=$CHOICE awk 
 [ "$VERDICT" = ok ] || refuse "decision $DECISION is $VERDICT"
 DECIDED_AT=$(printf '%s\n' "$ENTRY" | awk -F '\t' '{ print $2 }')
 [[ $DECIDED_AT =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || refuse "decision $DECISION carries no readable time"
-FIRST_AT=$(mc_iso "$rec_first") || mc_fail "cannot format the dialog's first sight"
-[[ ! $DECIDED_AT < $FIRST_AT ]] || refuse "decision $DECISION predates the dialog it would answer"
+# not_before <first sight>: refused unless the decision was made at or after it.
+not_before() {
+  nb_at=$(mc_iso "$1") || mc_fail "cannot format the dialog's first sight"
+  [[ ! $DECIDED_AT < $nb_at ]] || refuse "decision $DECISION predates the dialog it would answer"
+}
+not_before "$rec_first"
 if [ -e "$LOG" ]; then
   USED=$(D=$DECISION H=$DECIDED_IN awk -F '\t' '$2 == ENVIRON["D"] && $3 == ENVIRON["H"] { print "used"; exit }' "$LOG" 2>/dev/null) \
     || mc_fail "cannot read $(sanitize_printable "$LOG") to check decision $DECISION was not used before"
-  [ "$USED" != used ] || refuse "decision $DECISION already answered a dialog"
+  [ "$USED" != used ] || refuse "decision $DECISION was already used by an answer attempt; record a new answer to try again"
 fi
 
 # The session and its pane, found afresh.
@@ -219,36 +228,42 @@ esac
 LABEL=$(printf '%s\n' "$MSP_OPTIONS" | C=$CHOICE awk -F '\t' '$1 == ENVIRON["C"] { print $2; exit }')
 [ -n "$LABEL" ] || refuse "the dialog offers no option $CHOICE"
 msp_answerable "$LABEL" || refuse "option $CHOICE ($(sanitize_printable "$LABEL")) does more than answer this dialog"
+
+# No watcher pass may close or reopen the dialog's record from here to its
+# drop, so the record checked is the one the keystroke answers.
+pw_lock_acquire "$ESC_DIR/pass.lock" 500
+case $? in
+  0) ;;
+  1) mc_fail "the escalation watcher of $PROGRAM is mid-pass; nothing was sent, try again" ;;
+  *) mc_fail "cannot take the escalation watcher's pass lock; nothing was sent" ;;
+esac
+msp_record "$SELF"
+case $? in
+  0) ;;
+  1) mc_fail "cannot read the dialog record of $PROGRAM" ;;
+  *) refuse "the dialog of $PROGRAM left the record while the answer was checked" ;;
+esac
+[ "$MSP_REC_SESS/$MSP_REC_PRINT" = "$rec_sess/$rec_print" ] || refuse "the dialog record of $PROGRAM changed while the answer was checked"
+mc_valid_uint "$MSP_REC_FIRST" || refuse "the dialog record of $PROGRAM is unreadable"
+not_before "$MSP_REC_FIRST"
 read_dialog
 
+log_line() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$NOW" "$DECISION" "$DECIDED_IN" "$CHOICE" "$PANE" "$S_PID" "$1" >>"$LOG" 2>/dev/null; }
+log_line pending || mc_fail "cannot log the answer under $(sanitize_printable "$LOG"); nothing was sent"
 if bounded tmux send-keys -t "$PANE" "$CHOICE" 2>/dev/null; then
   outcome=sent
 else
   outcome=failed
 fi
 logged=1
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$NOW" "$DECISION" "$DECIDED_IN" "$CHOICE" "$PANE" "$S_PID" "$outcome" >>"$LOG" 2>/dev/null || logged=0
-if [ "$outcome" != sent ]; then
-  [ "$logged" = 1 ] || mc_fail "the keystroke could not be sent to pane $PANE, and the attempt could not be logged under $(sanitize_printable "$LOG"); do not reuse decision $DECISION"
-  mc_fail "the keystroke could not be sent to pane $PANE"
-fi
-# The watcher's next pass sees whatever dialog follows as a new one, an
-# identical one included. A record the watcher wrote since names that next
-# dialog and stays.
-dropped=0
-if pw_lock_acquire "$ESC_DIR/pass.lock" 500; then
-  msp_record "$SELF"
-  case $? in
-    0)
-      if [ "$MSP_REC_FIRST/$MSP_REC_SESS/$MSP_REC_PRINT" != "$rec_first/$rec_sess/$rec_print" ] || rm -f "$SELF" 2>/dev/null; then
-        dropped=1
-      fi
-      ;;
-    2) dropped=1 ;;
-  esac
-  pw_lock_release "$ESC_DIR/pass.lock" || :
-fi
+log_line "$outcome" || logged=0
+[ "$outcome" = sent ] || mc_fail "the keystroke could not be sent to pane $PANE (if the send timed out, it may have landed); decision $DECISION is used, so record a new answer to try again"
 printf 'answered\t%s\t%s\t%s\t%s\n' "$PROGRAM" "$PANE" "$CHOICE" "$(sanitize_printable "$LABEL")"
-[ "$logged" = 1 ] || printf '%s\n' "$prog: the answer was sent but could not be logged under $(sanitize_printable "$LOG"); do not reuse decision $DECISION" >&2
-[ "$dropped" = 1 ] || printf '%s\n' "$prog: the answer was sent but the watcher's record of the answered dialog could not be dropped; the same dialog asked again inherits its hold and is not escalated again" >&2
+# The watcher's next pass sees whatever dialog follows as a new one, an
+# identical one included.
+dropped=1
+rm -f "$SELF" 2>/dev/null || dropped=0
+pw_lock_release "$ESC_DIR/pass.lock" || :
+[ "$logged" = 1 ] || printf '%s\n' "$prog: the answer was sent but its outcome could not be logged under $(sanitize_printable "$LOG"); its pending line still marks decision $DECISION used" >&2
+[ "$dropped" = 1 ] || printf '%s\n' "$prog: the answer was sent but the watcher's record of it could not be dropped; until the watcher next sees the pane without a dialog, an identical dialog continues this one's hold and is not raised to the hub afresh" >&2
 [ "$logged" = 1 ] && [ "$dropped" = 1 ] || exit 1
