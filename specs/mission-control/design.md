@@ -1035,7 +1035,15 @@ The "allow the raw answer verb" alternative above is rejected for the guard
 tier's list and stays rejected there; this hook is a separate, narrower
 approval whose coverage is its exact shape, not a verb-wide allow. The
 fleet-hardening D-20 exact-path rule for settings allow rules is kept as is.
-The kickoff settles how this hook relates to the standing-decision check.)*
+Settled at the kickoff (operator: "Your rule or reply (Recommended)"): the
+hook judges only the call's shape; what authorizes an answer is unchanged, a
+standing decision claimed through the answer channel or the operator's own
+answer, recorded in the undo ledger, never mission control's own judgment.
+The session test reuses the plugin's prompt-hook marking (as
+`tower-session.sh` marks towers), with a mission-control mark in the same
+store and bar; because this mark now lets a call through rather than only
+denying, the hook also requires the call to name the installed root it runs
+from. Task 38 builds it.)*
 
 ### D-36: A kickoff permission profile for relayed kickoffs  (S)
 

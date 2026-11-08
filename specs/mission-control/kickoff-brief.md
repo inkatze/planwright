@@ -1473,3 +1473,125 @@ entry records the combined anchor.
 Class: expression-only
 Anchor: `47b4f81e088a268569c6ecb2583d751c68e549df` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 5 — 2026-11-08 (amendment: the plugin hook approves mission control's prompt-answer calls)
+
+Spec path `specs/mission-control`; walk started at `358cd50e`; walkthrough
+date 2026-11-08; validator at walk start: 0 errors, 0 warnings. Mode:
+amendment on an Active (derived) bundle, operator-declared through mission
+control, walked as a delta of the dated 2026-11-08 notes on REQ-G1.6 and
+D-35 only. Every question was the operator's, relayed by mission control
+and answered in their own words.
+
+#### Goal and glossary (Amendment 5)
+
+Restatement: approvals of mission control's `fleet-streamjson.sh pending`
+and `answer` calls must survive every planwright release, so the plugin's
+own hook approves those exact calls instead of a settings rule that names
+one version's install path. Rules out: widening what authorizes an answer,
+adding the raw answer verb to the guard tier's list, and changing the
+exact-path rule for settings allow rules. Terms: *exact shape* (the literal
+resolved installed-root path, one simple command, no expansion, compound,
+pipe, redirection, background marker or symlink out of the root);
+*mission-control session* (one the plugin's prompt hook marked, in the
+tower-session mark store).
+
+Signed off: 2026-11-08
+
+#### Requirements walkthrough (Amendment 5)
+
+Q1, the amendment's open point: what backs a hook-approved answer. The
+operator answered "Your rule or reply (Recommended)": a standing decision
+covering the prompt, claimed through the answer channel, or the operator's
+own answer to it, as before; never mission control's own judgment. The
+REQ-G1.6 note now says so and reads "never through the raw answer verb" as
+never on mission control's own judgment, which resolves the conflict with
+the hook approving that verb's call. A changelog entry (Amendment 5) was
+added.
+
+Signed off: 2026-11-08
+
+#### Design walkthrough (Amendment 5)
+
+D-35's note records the same settlement, the session test reusing the
+plugin's prompt-hook marking, and the observation that this mark now lets a
+call through rather than only denying, so the hook also requires the call
+to name the installed root it runs from. Every other decision is confirmed
+as signed.
+
+Signed off: 2026-11-08
+
+#### Verification approach (Amendment 5)
+
+A new `[test]` paragraph under REQ-G1.6 names `tests/test-mc-approve-hook.sh`
+(created by Task 38), run by planwright's CI through `scripts/run-tests.sh`.
+No `[Gherkin]` or `[manual]` entry was added.
+
+Signed off: 2026-11-08
+
+#### Task graph (Amendment 5)
+
+Task 38 (the hook, the mark and the skill pointer) depends on Task 21,
+which ships the answer channel and the stall test the new entry sits
+beside. Deliberate non-edge: Task 38 does not wait on Tasks 34 to 37.
+
+Signed off: 2026-11-08
+
+#### Risk register (Amendment 5)
+
+1. The mission-control mark becomes an approval input, not only a
+   restriction, so a wrongly marked session could run these two calls
+   without a prompt. Mitigation: the exact shape and the unchanged
+   authorization of every answer; the test covers an unmarked session.
+2. How a hook's approval interacts with a settings deny or ask rule is
+   the harness's behaviour, not this bundle's. Early signal: Task 38's
+   tests confirm a deny rule still wins before the hook ships.
+3. Until Task 38 lands, approvals keep breaking on each release.
+
+Decision-domain gap check (catalog via `scripts/resolve-catalog.sh
+decision-domains`): security-posture and existing-seam-reuse touched, both
+decided in the notes (exact shape, authorization unchanged; the mark store
+reused).
+
+Signed off: 2026-11-08
+
+#### Lens review (Amendment 5, delta-scoped)
+
+Small, narrow delta walked inline per `kickoff-verification`.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 1 | Applied: "never through the raw answer verb" reread as never on mission control's own judgment |
+| Ambiguity and interpretation forks | 1 | Applied: how a mission-control session is identified |
+| Citation and coverage integrity | 1 | Applied: Task 38 carries the implementation |
+| Dead verification paths | 1 | Applied: the REQ-G1.6 test paragraph |
+| Decision-domain gaps | 1 | Applied: the mark's new trust weight (D-35 note, risk 1) |
+| Testability | 0 | Covered by the new test paragraph |
+| Cross-file consistency | 1 | Applied: the changelog entry |
+| Documentation and glossary drift | 0 | None |
+| Rendered-content safety and data hygiene | 0 | Not a rendered context; no names, hosts or secrets |
+
+Altitude check: no new pinned seed claim, not applicable. Ship-gate check:
+the implementation is gated as Task 38, not named in prose only.
+
+Signed off: 2026-11-08
+
+#### Pre-flip verification (Amendment 5)
+
+`markdownlint-cli2` over the four spec files and this brief: clean.
+`scripts/spec-validate.sh specs/mission-control`: 0 errors, 0 warnings. The
+lens counts above are this walk's own; the delta's enumerations are
+explicit lists.
+
+#### Sign-off record (Amendment 5)
+
+Signed off 2026-11-08 by the operator, relayed through mission control:
+the approval summary was answered "Sign off (Recommended)". Amendment on an
+Active bundle: no status flip; `Last reviewed:` already 2026-11-08 on all
+four spec files; validator re-run with 0 errors. The delta settles what
+authorizes an answer and adds a task, so it is meaning-class.
+
+Class: meaning
+Lens-pass: Amendment 5, delta-scoped lens review above (spec lens set, walked inline; every finding dispositioned)
+Anchor: `39b49a22e3449a1308da884674343e2adce89a58` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
