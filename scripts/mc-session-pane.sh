@@ -87,8 +87,9 @@ msp_ancestor() {
 # text after a last `│` past column 40 that follows a blank or a rule) and
 # trailing blanks dropped, keeping the last MSP_PANE_LINES lines up to the
 # last non-blank one, so a saved capture and a live one read the same. A cut
-# line starts with MSP_CUT, since the cut text may be a command's own.
-MSP_CUT=$(printf '\001')
+# line starts with MSP_CUT, since the cut text may be a command's own. Not
+# \001: bash 3.2 mangles that byte, its own quoting escape, in expansions.
+MSP_CUT=$(printf '\002')
 msp_trim() {
   CUT=$MSP_CUT awk '{
       s = $0; cut = 0; rest = s; off = 0
@@ -109,16 +110,12 @@ msp_trim() {
 # otherwise), MSP_OPTIONS (the dialog's own option run as
 # `<digit><TAB><label>`, empty unless it runs 1, 2, 3 in order, as a label
 # that wraps or a repeated digit breaks it), MSP_RUN (`ok`, `broken` for
-# such a run, or `none` with no numbered option),
-# MSP_PRINT (a digest of the dialog's text) and MSP_BINDABLE (1 when the
-# digest covers the whole dialog: up to the rule that opens it, a line of
-# rule glyphs only, with no line in between cut by msp_trim; else 0, the
-# digest then covering at most a dozen lines above the options, enough
-# for a hold but never for an answer). The last line carrying a
-# signature of the shared vocabulary, or the selection cursor on a numbered
-# option, ends the dialog; an input prompt, idle anchor or busy marker below
-# that line means it is not open, being scrollback or a quotation. Options
-# are read only from the run just above that line, never from scrollback.
+# such a run, `none` with no numbered option), MSP_BINDABLE and MSP_PRINT
+# (a digest of the dialog's text, its indentation and bindability). The
+# last line carrying a signature of the shared vocabulary, or the cursor on
+# a numbered option, ends the dialog; an input prompt, idle anchor or busy
+# marker below that line means it is not open. Options are read only from
+# the run just above that line, never from scrollback.
 msp_dialog() {
   MSP_KIND="" MSP_OPTIONS="" MSP_RUN="" MSP_PRINT="" MSP_BINDABLE=0
   md_sig=$(
@@ -131,6 +128,10 @@ msp_dialog() {
     prompt_anchors
   )
   md_in=$(input_prompt_prefixes)
+  # MSP_BINDABLE is 1 when the digest reaches up to the nearest opening rule
+  # (a column-1 line of `─` only) with no line from there down cut by
+  # msp_trim. Otherwise it is 0 and the digest is bounded, good for a hold
+  # but never for an answer.
   md_out=$(printf '%s\n' "$1" | SIG=$md_sig TAIL=$md_tail IN=$md_in CUT=$MSP_CUT awk '
     BEGIN {
       ns = split(tolower(ENVIRON["SIG"]), sig, "\n")
@@ -142,7 +143,7 @@ msp_dialog() {
       if (index(s, ENVIRON["CUT"]) == 1) { cut[NR] = 1; s = substr(s, length(ENVIRON["CUT"]) + 1) }
       line[NR] = s; lc[NR] = tolower(s)
     }
-    function rule(i,   s) { s = line[i]; gsub(/[ \t]/, "", s); if (s == "") return 0; gsub(/─|╌/, "", s); return s == "" }
+    function rule(i,   s) { s = line[i]; if (length(s) < 8 * length("─") || s !~ /^─/) return 0; gsub(/─/, "", s); return s == "" }
     function option(i,   s) { s = line[i]; sub(/^[ \t]+/, "", s); sub(/^❯[ \t]*/, "", s); return (s ~ /^[1-9]\.[ \t]/) ? s : "" }
     function signed(i,   k, s) {
       for (k = 1; k <= ns; k++) if (sig[k] != "" && index(lc[i], sig[k])) return 1
@@ -178,8 +179,8 @@ msp_dialog() {
       start = olast ? ofirst : end
       top = start
       while (top > 1 && !rule(top - 1)) top--
-      bindable = top > 1
-      for (i = top; i <= end; i++) if (cut[i]) bindable = 0
+      bindable = top > 1 && ENVIRON["CUT"] != ""
+      for (i = top - 1; i <= end; i++) if (i >= 1 && cut[i]) bindable = 0
       if (top == 1) {
         top = start
         while (top > 1 && top > start - 12 && !index(line[top - 1], "────────") && !index(line[top - 1], "╌╌╌╌╌╌╌╌")) top--
@@ -190,9 +191,13 @@ msp_dialog() {
       print "bindable\t" bindable
       print "run\t" (!olast ? "none" : bad ? "broken" : "ok")
       if (!bad) for (i = 1; i <= no; i++) print "option\t" opt[i]
-      for (i = top; i <= end; i++) { s = line[i]; sub(/^[ \t]+/, "", s); sub(/^❯[ \t]*/, "", s); print "block\t" s }
+      for (i = top; i <= end; i++) {
+        s = line[i]
+        if (match(s, /^[ \t]*❯/)) s = substr(s, 1, RLENGTH - length("❯")) " " substr(s, RLENGTH + 1)
+        print "block\t" s
+      }
     }') || return 1
-  # shellcheck disable=SC2034 # these five are read by the scripts that source this file
+  # shellcheck disable=SC2034 # these are read by the scripts that source this file
   MSP_KIND=$(printf '%s\n' "$md_out" | awk -F '\t' '$1 == "kind" { print $2; exit }')
   # shellcheck disable=SC2034
   MSP_RUN=$(printf '%s\n' "$md_out" | awk -F '\t' '$1 == "run" { print $2; exit }')
@@ -200,7 +205,7 @@ msp_dialog() {
   MSP_OPTIONS=$(printf '%s\n' "$md_out" | awk -F '\t' '$1 == "option" { print $2 "\t" $3 }')
   # shellcheck disable=SC2034
   MSP_BINDABLE=$(printf '%s\n' "$md_out" | awk -F '\t' '$1 == "bindable" { print $2; exit }')
-  md_h=$(printf '%s\n' "$md_out" | grep -e '^kind' -e '^block' | mc_sha256) || md_h=""
+  md_h=$(printf '%s\n' "$md_out" | grep -e '^kind' -e '^bindable' -e '^block' | mc_sha256) || md_h=""
   # shellcheck disable=SC2034
   MSP_PRINT=${md_h%"${md_h#????????????????}"}
   [ -n "$MSP_PRINT" ] || MSP_PRINT=unhashed
@@ -219,7 +224,7 @@ msp_record() {
     return 1
   }
   [ -n "$mr_line" ] || return 0
-  # shellcheck disable=SC2034 # these three are read by the scripts that source this file
+  # shellcheck disable=SC2034 # these are read by the scripts that source this file
   MSP_REC_FIRST=${mr_line%%	*}
   mr_line=${mr_line#*	}
   # shellcheck disable=SC2034

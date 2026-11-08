@@ -412,6 +412,9 @@ if (
   [ "$MSP_BINDABLE" = 0 ] || fail "a dialog with a line cut as side-panel text reads bindable"
   parse "$base"
   [ "$MSP_BINDABLE" = 1 ] || fail "a whole dialog under its opening rule reads unbindable"
+  [ "$p2" != "$MSP_PRINT" ] || fail "an unbindable view shares the digest of the whole dialog"
+  parse "$(printf '────────────────│ hidden\n' && printf '%s\n' "$base" | sed 1d)"
+  [ "$MSP_BINDABLE" = 0 ] || fail "a dialog whose opening rule was cut reads bindable"
   # long <first command line>: a dialog whose command runs well past a dozen
   # lines, differing only in its first line.
   long() {
@@ -433,10 +436,30 @@ if (
     printf '────────────────\n Bash command\n │ %s\n │ echo ──────────────── done\n' "$1"
     printf '%s\n' "$base" | sed '1,2d'
   }
-  parse "$(mimic 'cd /tmp')"
+  parse "$(mimic 'cd /tmp')" || fail "the rule-like dialog did not parse"
   p4=$MSP_PRINT
-  parse "$(mimic 'cd / && rm -rf ~')"
+  parse "$(mimic 'cd / && rm -rf ~')" || fail "the rule-like dialog did not parse"
   [ "$p4" != "$MSP_PRINT" ] || fail "a rule-like line inside the command ended the dialog"
+  [ "$MSP_BINDABLE" = 1 ] || fail "a dialog with a rule-like command line reads unbindable"
+  # edit <old> <new>: an edit dialog whose diff sits between dashed lines.
+  edit() {
+    printf '────────────────\n Edit file config.sh\n ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n   1 -%s\n   1 +%s\n ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n' "$1" "$2"
+    printf '%s\n' "$base" | sed '1,5d'
+  }
+  parse "$(edit x=1 x=2)" || fail "the edit dialog did not parse"
+  p5=$MSP_PRINT
+  parse "$(edit PATH=/usr/bin PATH=/tmp/evil)" || fail "the edit dialog did not parse"
+  [ "$p5" != "$MSP_PRINT" ] || fail "a dashed line inside an edit dialog ended the dialog"
+  [ "$MSP_BINDABLE" = 1 ] || fail "an edit dialog under its opening rule reads unbindable"
+  # indent <spaces>: a script whose last line differs only in indentation.
+  indent() {
+    printf '────────────────\n Bash command\n   python3 -c "\n   if False:\n%swipe()"\n' "$1"
+    printf '%s\n' "$base" | sed '1,5d'
+  }
+  parse "$(indent '       ')"
+  p6=$MSP_PRINT
+  parse "$(indent '   ')"
+  [ "$p6" != "$MSP_PRINT" ] || fail "commands differing only in indentation share a digest"
   rec="$tmp/rec"
   printf 'dialog\t11\t22\t0123456789abcdef\tdialog\n' >"$rec"
   msp_record "$rec" && [ "$MSP_REC_FIRST/$MSP_REC_SESS/$MSP_REC_PRINT" = 11/22/0123456789abcdef ] \
@@ -477,10 +500,13 @@ EOF
   }
   [ "$(bb_find "$SP")" = absent ] || fail "busybox ps: a process this user does not own read as '$(bb_find "$SP")'"
   if [ -d "/proc/$$" ]; then
-    sleep 60 &
+    sleep 60 >/dev/null 2>&1 &
     bg=$!
     [ "$(bb_find $$ "$SP")" = $$ ] || fail "busybox ps: the session under a long user name read as '$(bb_find $$ "$SP")'"
     [ "$(bb_find $$ "$bg")" = ambiguous ] || fail "busybox ps: two sessions read as '$(bb_find $$ "$bg")'"
+    if [ "$(command id -u)" != 0 ] && [ ! -O /proc/1 ]; then
+      [ "$(bb_find $$ 1)" = $$ ] || fail "busybox ps: another account's process under the same cut name read as '$(bb_find $$ 1)'"
+    fi
     kill "$bg" 2>/dev/null
   fi
   unset -f id
