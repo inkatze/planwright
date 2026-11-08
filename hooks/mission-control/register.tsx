@@ -343,18 +343,21 @@ async function claim($: EngineInterface) {
 // The context reading goes with it, for the health line every mission
 // control's panel draws: the threshold only where this session hands over.
 async function restampPresence($: EngineInterface) {
-  if (!ctx) return
+  const c = ctx
+  if (!c) return
   const v = await view($)
+  // A stand-down or another program's activation during the read.
+  if (ctx !== c) return
   // A reading the script refuses would fail the lease restamp with it.
   const pct = v?.contextPercent
   const threshold = v?.digest?.holder === 'registry' ? v.digest.knobs['handover-context'] : undefined
   await run($, 'mc-panel.sh', [
     'presence',
     '--program',
-    ctx.program,
+    c.program,
     '--refresh',
     '--target',
-    ctx.target,
+    c.target,
     '--context',
     typeof pct === 'number' && Number.isFinite(pct) ? String(Math.min(100, Math.max(0, Math.round(pct)))) : '-',
     '--threshold',
