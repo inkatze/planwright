@@ -353,6 +353,13 @@ rm -f "$snapdir/forge.hold"
 } >"$snapdir/forge"
 run list --program alpha --now "$T"
 expect_eq "malformed rows are one fixed line" "unknown${tab}-${tab}a snapshot row is malformed"
+{
+  taken "$(date +%s)"
+  printf 'pr\tacme/web\t8\tnot-a-sha\tfalse\tMERGEABLE\tNONE\t0\tSUCCESS\t0\t0\tp\n'
+} >"$snapdir/forge"
+run list --program alpha
+run count --program alpha
+expect_eq "and leave the count partial (judged on the real clock)" "0${tab}partial"
 
 # Merged: gone from the snapshot, gone from the list and the count (judged
 # on the real clock, since a count stamped later than now is partial).

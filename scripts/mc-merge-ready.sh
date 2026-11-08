@@ -339,8 +339,7 @@ scan() {
   held=0 malformed=0
   hold=$(head -n 1 "$runtime/snapshots/$MC_CS_SOURCE.hold" 2>/dev/null)
   if mc_valid_uint "$hold" && [ "$hold" -gt "$NOW" ]; then held=1; fi
-  kept="state	ok	$NOW
-"
+  kept=""
   candidates=$(printf '%s\n' "$MC_CS_ROWS" | awk -F '\t' '$1 == "pr" && $5 == "false" && $6 == "MERGEABLE" && $7 != "CHANGES_REQUESTED" && $7 != "REVIEW_REQUIRED" && $8 == "0" && $9 == "SUCCESS" {
     k = $4; for (i = 5; i <= 10; i++) k = k "|" $i
     print $2 "\t" $3 "\t" $4 "\t" $7 "\t" k }')
@@ -388,7 +387,10 @@ EOF
   done <<EOF
 $candidates
 EOF
-  if ! printf '%s' "$kept" | mc_write "$store"; then
+  # A malformed row has no verdict to keep, so the state marks the count partial.
+  state=ok
+  [ "$malformed" -eq 0 ] || state=malformed
+  if ! printf 'state\t%s\t%s\n%s' "$state" "$NOW" "$kept" | mc_write "$store"; then
     printf 'unknown\t-\tthe merge-ready store cannot be written\n'
     SCAN_RC=1
   fi
