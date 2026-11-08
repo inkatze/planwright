@@ -44,11 +44,12 @@
 
 duties:
   - id: session-keeper
-    summary: "Drives each launched session to done, retires it on landing, reclaims its worktree"
+    summary: "Drives each session to done, retires it on landing or idle, reclaims its worktree"
     triggers: [stall-dead, stall-open-selector, stall-unsubmitted-prompt,
                stall-turn-ended-background, stall-idle-question, stall-busy-unchanged,
                stall-unknown, session-landed, pending-prompt, pending-prompt-overdue,
-               stream-json-worker-dead, mission-control-escalated]
+               stream-json-worker-dead, worker-handover-due,
+               worker-retired-idle, mission-control-escalated]
     watchers: [scripts/mc-keeper.sh@2m/low, scripts/mc-escalate.sh@1m/low]
     wake: session-landed
     rules: [session-lifecycle]
@@ -67,12 +68,12 @@ duties:
     lifecycle: live
     never-propose: false
   - id: readiness-check
-    summary: "Walks the primary evidence before a pull request is offered as ready"
-    triggers: [readiness-due]
-    watchers: [scripts/mc-readiness.sh@5m/low]
+    summary: "Checks pull requests before they go ready, and brings the operator each one to merge"
+    triggers: [readiness-due, merge-ready]
+    watchers: [scripts/mc-readiness.sh@5m/low, scripts/mc-merge-ready.sh@5m/low]
     wake: readiness-due
     rules: [ready-conditions]
-    kinds: [ready-offer]
+    kinds: [ready-offer, ready-to-merge]
     files: readiness-check
     lifecycle: live
     never-propose: false
@@ -98,7 +99,7 @@ duties:
     never-propose: false
   - id: prepared-moments
     summary: "Assembles the packet for a decision before the operator is asked to make it"
-    triggers: [readiness-due, ready-offer]
+    triggers: [readiness-due, ready-offer, merge-ready]
     watchers: []
     wake: none
     rules: [packets]

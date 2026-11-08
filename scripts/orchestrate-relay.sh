@@ -41,7 +41,7 @@
 #       queue). Exit 2 on an invalid handle, a missing/unsafe message file, an
 #       unknown backend, or usage.
 #
-#   orchestrate-relay.sh deliver tmux <handle> <message-file>
+#   orchestrate-relay.sh deliver tmux <handle> <message-file> [--retask <reason>]
 #       Run the tmux buffer-paste (`load-buffer`/`paste-buffer`) — NEVER a
 #       `send-keys` path (REQ-D1.3: no impersonation of the worker's input) —
 #       refusing first and confirming after, never assuming. The pasted payload
@@ -65,9 +65,15 @@
 #       pasted (dialog open, placeholder or relay staged, pane unreadable,
 #       buffer load failed). Exit 4: the paste ran, or deliver was interrupted
 #       around it, but the tag never showed; observe the pane before any
-#       re-send, which would stage a duplicate. PLANWRIGHT_RELAY_CONFIRM_TRIES
-#       (default 5, at most 20) and PLANWRIGHT_RELAY_CONFIRM_SLEEP (seconds,
-#       default 1, at most 3) bound the confirmation wait to under a minute.
+#       re-send, which would stage a duplicate. Exit 5: refused before the
+#       pane is read, nothing pasted, a message shaped like a new unit of work
+#       (scripts/retask-guard.sh check) for a session the launcher does not
+#       register as a tower, orchestrator or mission control, since new scope
+#       goes to a fresh session; --retask <reason> pastes it anyway, logged as
+#       an override once pasted (exit 2, nothing pasted, when it could not
+#       be). PLANWRIGHT_RELAY_CONFIRM_TRIES (default 5, at
+#       most 20) and PLANWRIGHT_RELAY_CONFIRM_SLEEP (seconds, default 1, at
+#       most 3) bound the confirmation wait to under a minute.
 #
 #   orchestrate-relay.sh observe-command <backend> <handle>
 #       Print the observe-in-flight status-read command (REQ-D1.3). tmux:
@@ -133,6 +139,7 @@ nl='
 
 usage() {
   printf '%s\n' "$me: usage: $me <validate-handle|relay-command|deliver|observe-command> <backend> <handle> [<message-file>]" >&2
+  printf '%s\n' "$me: deliver tmux <handle> <message-file> [--retask <reason>]" >&2
   printf '%s\n' "$me: <handle> is explicit (operator-named, or a live peer's handle from fleet-presence.sh), never the active pane" >&2
 }
 
@@ -343,6 +350,15 @@ case "$sub" in
     ;;
 
   deliver)
+    retask=''
+    if [ "$#" -eq 5 ] && [ "$4" = --retask ]; then
+      case $5 in *[![:space:]]*) retask=$5 ;; esac
+      [ -n "$retask" ] || {
+        usage
+        exit 2
+      }
+      set -- "$1" "$2" "$3"
+    fi
     [ "$#" -eq 3 ] || {
       usage
       exit 2
@@ -353,6 +369,25 @@ case "$sub" in
     }
     handle=$2
     require_tmux_target "$handle" "$3"
+    # New scope goes to a fresh session, never into a live one's pane.
+    override=0
+    /bin/sh "$script_dir/retask-guard.sh" check "$msg_abs" --to "$handle" --tmux \
+      --hint "nothing was pasted; append --retask <reason> to override, which is logged" >/dev/null
+    case $? in
+      0) ;;
+      5)
+        [ -n "$retask" ] || exit 5
+        /bin/sh "$script_dir/retask-guard.sh" log --check --via relay --to "$handle" --reason "$retask" || {
+          printf '%s\n' "$me: refused, nothing pasted: the re-task override could not be logged" >&2
+          exit 2
+        }
+        override=1
+        ;;
+      *)
+        printf '%s\n' "$me: refused, nothing pasted: the re-task check did not run" >&2
+        exit 2
+        ;;
+    esac
     tries=$(bounded_int "${PLANWRIGHT_RELAY_CONFIRM_TRIES:-}" 5 20)
     [ "$tries" -ge 1 ] || tries=5
     pause=$(bounded_int "${PLANWRIGHT_RELAY_CONFIRM_SLEEP:-}" 1 3)
@@ -398,6 +433,8 @@ case "$sub" in
       exit 4
     fi
     trap - INT TERM HUP
+    [ "$override" = 0 ] || /bin/sh "$script_dir/retask-guard.sh" log --via relay --to "$handle" --reason "$retask" \
+      || printf '%s\n' "$me: the relay was pasted, but its re-task override could not be logged" >&2
     i=0
     while [ "$i" -lt "$tries" ]; do
       i=$((i + 1))

@@ -321,20 +321,6 @@ EOF
   /bin/bash "$script_dir/mc-gates.sh" resolve --program "$1" ${cf_args[@]+"${cf_args[@]}"} >"$3"
 }
 
-# slug_repos <program> <slug>: the program's repositories whose origin remote
-# is <slug>, one per line; returns 1 when the repositories do not resolve.
-slug_repos() {
-  local repos r url sl
-  repos=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories) || return 1
-  sl=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
-  while IFS= read -r r; do
-    [ -n "$r" ] && [ -d "$r" ] || continue
-    url=$(mc_untrusted_git -C "$r" remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]') || continue
-    url=${url%.git}
-    case $url in */"$sl" | *:"$sl") printf '%s\n' "$r" ;; esac
-  done <<<"$repos"
-}
-
 # branch_worktree <program> <slug> <branch> <head>: find the worktree of the
 # program's repository for <slug> (its origin remote) that has <branch>
 # checked out and holds <head>, printing `one<TAB><path>`, `none`, `several`
@@ -346,7 +332,7 @@ branch_worktree() {
     printf 'none\n'
     return 0
   }
-  repos=$(slug_repos "$1" "$2") || {
+  repos=$(mc_slug_repos "$1" "$2") || {
     printf 'unreadable\n'
     return 0
   }
@@ -404,7 +390,7 @@ spec_scope() {
         break
         ;;
     esac
-  done < <(slug_repos "$1" "$2" 2>/dev/null)
+  done < <(mc_slug_repos "$1" "$2" 2>/dev/null)
   [ -n "$rel" ] || return 0
   # Each path must sit strictly under the root, with no `.`, `..` or empty
   # component, be prose (`.md`), and be added, modified or deleted: a rename
@@ -726,21 +712,16 @@ case $verb in
     [ -n "$program" ] || program=${PLANWRIGHT_MC_PROGRAM:-}
     [ -n "$program" ] || usage
     mc_require_program "$program"
-    sources=$(/bin/bash "$script_dir/mc-program.sh" get "$program" sources) || mc_fail "the source map of program $program does not resolve"
-    source=$(printf '%s\n' "$sources" | awk -F '\t' '$1 == "code-state" && $3 == "snapshot" { print $2 }')
-    # A program whose code state is not snapshotted has nothing to watch.
-    [ -n "$source" ] || exit 0
-    snap=$(/bin/bash "$script_dir/mc-snapshot.sh" read --program "$program" "$source")
+    # A program whose code state is not snapshotted, or not freshly enough,
+    # has nothing to watch yet.
+    mc_code_state "$program"
     case $? in
       0) ;;
-      3) exit 0 ;;
-      *) mc_fail "the $source snapshot cannot be read" ;;
+      1) mc_fail "the source map of program $program does not resolve" ;;
+      2) mc_fail "the $MC_CS_SOURCE snapshot cannot be read" ;;
+      *) exit 0 ;;
     esac
-    # A snapshot past twice its cadence (the most any budget rung stretches
-    # a refresh) may show a head long gone; wait for a fresh one.
-    if ! printf '%s\n' "$snap" | head -n 1 | awk -F '\t' '$5 == "age" && $7 == "cadence" { ok = ($6 + 0 <= 2 * ($8 + 0)) } END { exit !ok }'; then
-      exit 0
-    fi
+    snap=$MC_CS_ROWS
     runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime directory"
     seen="$runtime/readiness-announced"
     due=$(printf '%s\n' "$snap" | awk -F '\t' '$1 == "pr" && $5 == "true" && $8 == "0" && $9 == "SUCCESS" { print $2 "\t" $3 "\t" $4 }')
@@ -750,8 +731,7 @@ case $verb in
       [ -n "$w_slug" ] || continue
       live="$live$w_slug#$w_n	$w_head
 "
-      w_subject="${w_slug%%/*}:${w_slug#*/}:$w_n"
-      mc_valid_handle "$w_subject" || w_subject=$(mc_subject pr "$w_slug#$w_n")
+      w_subject=$(mc_pr_subject "$w_slug" "$w_n")
       mc_announce "$program" "$seen" "$w_slug#$w_n	$w_head" readiness-due "$w_subject" \
         "$w_slug#$w_n head $(printf '%s' "$w_head" | cut -c1-12)" || rc=1
     done <<EOF

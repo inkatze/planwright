@@ -31,6 +31,8 @@ rules-reinjection-failed	failure
 session-landed	landed
 readiness-due	landed
 ready-offer	landed
+merge-ready	landed
+ready-to-merge	landed
 pr-merged	landed
 pending-prompt	act
 stall-open-selector	act
@@ -50,3 +52,5 @@ usage-reset	act
 watcher-stopped	routine
 usage-drained	routine
 usage-bypass	routine
+worker-handover-due	routine
+worker-retired-idle	routine

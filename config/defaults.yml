@@ -1065,6 +1065,9 @@ mission_control_panel_refresh: 10s
 # How long the panel's reviews-at-a-glance snapshot (scripts/mc-reviews.sh)
 # is kept before the panel's reviews check reads the forge again. A cadence.
 mission_control_reviews_ttl: 5m
+# The panel's mascot, Prop pal: animated, still (one frame per state, for
+# reduced motion) or off (nothing drawn).
+mission_control_panel_mascot: animated
 # The handover trigger: the measured context percent at which the session
 # raises its handover, the completed-wake count that stands in where the
 # harness measures no context (a wake is one duty trigger or one operator
@@ -1093,6 +1096,15 @@ mission_control_health_idle_after: 30m
 # name before it retires the predecessor itself and takes the name. A
 # cadence.
 mission_control_handover_window: 2m
+# The bounds that keep worker, reviewer and ad-hoc sessions short-lived
+# (scripts/mc-keeper.sh bounds): one past the lifetime since its launch is
+# asked to hand over to a fresh successor at its next safe point (where
+# scripts/session-handover.sh is not installed, mission control retires it
+# and launches the successor itself); one idle at its prompt past the idle
+# bound is retired, its next round of work going to a fresh session with a
+# handover brief. Cadences.
+mission_control_worker_lifetime: 4h
+mission_control_worker_idle: 30m
 # How often each snapshot-mode source is refreshed, source: cadence. A source
 # left out refreshes at the cadence its adapter declares in
 # config/snapshot-adapters.yaml.

@@ -117,6 +117,8 @@ need "D-14: no duty enables itself through an omitted list" "always with \`--dut
 need "the runner starts detached, never in a turn's foreground" "under \`setsid\`"
 need "REQ-I1.2: the readiness check runs before a flip" "scripts/mc-readiness.sh\`'s \`check"
 need "REQ-D1.8: a PR is reported done only once the readiness check passes" "\`check\` passes on its head; until then report"
+need "a PR ready to merge is in the first turn's decisions" "including \`scripts/mc-merge-ready.sh\`'s \`list --as-status\`"
+need "and goes to the operator at once, pushed, with its merge command" "goes to the operator at once with a push notification and its merge command, again at every bring-up until it merges"
 need "D-18: guidance never pre-selects" "pre-selects an option"
 
 # The register and the source-naming rule.
