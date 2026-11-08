@@ -54,13 +54,21 @@ THE HOLD starts when a window reaches mission_control_usage_hold percent
 (`off` holds on the quota alone) and lasts until every held window's reset
 epoch has passed, or a fresh reading of it is under the threshold, so a
 mirror gone stale while the account is held does not hold it past the
-reset. A quota with no stated reset ends with fresh readings of both windows
-under the threshold. A quota that has ended is released, and its reset
-acted on, even when no watch saw it held. While the hold lasts the
-launcher refuses new sessions (scripts/mission-control-launch.sh, but for
-a mission-control launch and one with --operator-asked), the budget reads
-hold-dispatch (scripts/mc-budget.sh), and the next units go to the queue
-instead. It is kept in <runtime>/usage/hold.
+reset. The quota is the exception: a stated reset passing is no evidence
+its limit cleared, so it lasts until scripts/claude-frames.sh clearance
+reads cleared (a reading of each window received after the quota hold
+began, under that window's lowest restriction threshold) or the operator
+resumes it (quota-hold.sh resume). Once its stated reset has passed with
+nothing else held, the watch probes: it resumes one stopped session alone,
+the longest held, so its reading can show whether the limit cleared, and
+the rest wait for that reading. Each stated reset is probed once; with no
+stopped session to probe it says so once, as a usage-probe event. A quota
+that has cleared is released, and its reset acted on, even when no watch
+saw it held. While the hold lasts the launcher refuses new sessions
+(scripts/mission-control-launch.sh, but for a mission-control launch and
+one with --operator-asked), the budget reads hold-dispatch
+(scripts/mc-budget.sh), and the next units go to the queue instead. It is
+kept in <runtime>/usage/hold, the probe in <runtime>/usage/probe.
 
 THE QUEUE is <runtime>/usage/queue/<id>/, one directory per entry holding
 its `entry` record and a copy of its brief, so it survives every session.
@@ -82,12 +90,14 @@ Usage:
       hold, and at the reset release the claude quota, drain the queue and
       write the reset record; one line per act:
         held<TAB><window><TAB><percent|-><TAB><reset epoch|->
+        probe<TAB><session>                               resumed alone
         released-quota<TAB>claude
         launched<TAB><id><TAB><session>
         resumed<TAB><session>
         kept<TAB><id><TAB><why>
         failed<TAB><id|session><TAB><why>
         event<TAB>usage-held<TAB><window><TAB><text>      entering a hold
+        event<TAB>usage-probe<TAB>quota<TAB><text>         nothing to probe
         event<TAB>usage-reset<TAB><window>[.<window>]<TAB><text>
         event<TAB>usage-drained<TAB><program><TAB><text>  a later drain
                                                           that acted
@@ -96,7 +106,8 @@ Usage:
       broken gate)
   mc-usage.sh held --program <p> [--now <epoch>]
       exit 0 printing the hold's `held` lines, a window whose reset has
-      passed left out; exit 1 printing `clear` when none is left
+      passed left out (the quota only once the quota store is clear); exit
+      1 printing `clear` when none is left
   mc-usage.sh enqueue --program <p> --kind <k> --scope <s> --brief <file>
                       [--backend <b>] [--cwd <dir>] [--repo <dir>] [--rules <scope>]...
   mc-usage.sh enqueue --program <p> --resume <session> [--brief <file>]
@@ -179,6 +190,7 @@ udir="$runtime/usage"
 queue="$udir/queue"
 holdf="$udir/hold"
 lastf="$udir/last-reset"
+probef="$udir/probe"
 mkdir -p "$queue" || mc_fail "cannot create the usage queue"
 TAB=$(printf '\t')
 
@@ -285,22 +297,42 @@ held_rows() {
 
 # live_rows: the hold's rows still held at NOW, not only at the last watch:
 # a watcher that stopped (a disarmed duty, a paused fleet) must not hold
-# launches past a reset.
+# launches past a reset. The quota row lasts while the quota store holds,
+# its stated reset aside, so the operator's resume ends it at once.
 live_rows() {
   lr_rows=$(held_rows) || return 1
-  printf '%s\n' "$lr_rows" | N=$NOW awk 'NF == 3 && ($3 == "-" || ENVIRON["N"] + 0 < $3 + 0)'
+  lr_quota=clear
+  if printf '%s\n' "$lr_rows" | awk '$1 == "quota" { f = 1 } END { exit !f }'; then
+    quota || return 1
+    lr_quota=$QUOTA
+  fi
+  printf '%s\n' "$lr_rows" | N=$NOW Q=$lr_quota awk '
+    NF == 3 && ($1 == "quota" ? ENVIRON["Q"] == "held" : ($3 == "-" || ENVIRON["N"] + 0 < $3 + 0))'
+}
+
+# cleared: QCLEAR 1 on the only evidence that a claude limit cleared, a
+# reading of each window received after the quota hold began and under that
+# window's lowest restriction threshold (scripts/claude-frames.sh
+# clearance). A stated reset passing is no evidence.
+cleared() {
+  QCLEAR=0
+  [ "$QUOTA" = held ] && [ -n "$QUOTA_SINCE" ] || return 0
+  if /bin/sh "$script_dir/claude-frames.sh" clearance --since "$QUOTA_SINCE" --now "$NOW" >/dev/null 2>&1; then
+    QCLEAR=1
+  fi
+  return 0
 }
 
 # hold_now <threshold>: CUR, the windows held at NOW, from the readings, the
-# hold so far and the quota.
+# hold so far, the quota and its clearance.
 hold_now() {
-  CUR=$(printf '%s\n--\n%s\n--\n%s %s %s\n' "$WIN" "$PREV" "$QUOTA" "$QUOTA_RESET" "$1" | N=$NOW awk '
+  CUR=$(printf '%s\n--\n%s\n--\n%s %s %s %s\n' "$WIN" "$PREV" "$QUOTA" "$QUOTA_RESET" "$1" "$QCLEAR" | N=$NOW awk '
     BEGIN { part = 1; now = ENVIRON["N"] + 0 }
     $0 == "--" { part++; next }
     NF == 0 { next }
     part == 1 { pct[$1] = $2; rst[$1] = $3; seen[$1] = 1; next }
     part == 2 { prev[$1] = 1; ppct[$1] = $2; prst[$1] = $3; order[++n] = $1; next }
-    part == 3 { qstate = $1; qreset = $2; thr = $3 }
+    part == 3 { qstate = $1; qreset = $2; thr = $3; qclear = $4 }
     END {
       for (w in seen) if (thr != "off" && pct[w] >= thr + 0) cur[w] = pct[w] " " rst[w]
       for (i = 1; i <= n; i++) {
@@ -310,12 +342,7 @@ hold_now() {
         if ((w in seen) && (thr == "off" || pct[w] < thr + 0)) continue
         cur[w] = ppct[w] " " prst[w]
       }
-      if (qstate == "held") {
-        clear = 0
-        if (qreset != "-") clear = now >= qreset + 0
-        else clear = ("session" in seen) && ("weekly" in seen) && thr != "off" && pct["session"] < thr + 0 && pct["weekly"] < thr + 0
-        if (!clear) cur["quota"] = "- " qreset
-      }
+      if (qstate == "held" && qclear != 1) cur["quota"] = "- " qreset
       for (w in cur) print w " " cur[w]
     }' | sort)
 }
@@ -338,9 +365,12 @@ outcome() {
 }
 
 # handover_text <windows>: the turn a stopped session is resumed with; with
-# no windows (a drain outside a reset), it claims no reset.
+# no windows (a drain outside a reset), it claims no reset, and for a probe
+# (`quota`), only that the limit's stated reset passed.
 handover_text() {
-  if [ -n "$1" ]; then
+  if [ "$1" = quota ]; then
+    ht_what="The claude usage limit's stated reset passed by $(mc_iso "$NOW"), and your session resumes first, to find out whether the limit cleared."
+  elif [ -n "$1" ]; then
     ht_what="The $1 usage window reset at $(mc_iso "$NOW")."
   else
     ht_what="Mission control resumed held work at $(mc_iso "$NOW")."
@@ -363,7 +393,7 @@ detached() {
 }
 
 # resume_session <name> <handover file>: steer the handover in, recovering
-# a dead channel first.
+# a dead channel first; fails when it could not.
 resume_session() {
   rs_out=$(/bin/sh "$script_dir/fleet-streamjson.sh" steer "$1" --message-file "$2" 2>&1)
   rs_rc=$?
@@ -375,14 +405,14 @@ resume_session() {
       /*) ;;
       *)
         outcome failed "$1" "no recorded launch directory to recover it in"
-        return 0
+        return 1
         ;;
     esac
     rs_out=$( (cd "$rs_cwd" && detached /bin/sh "$script_dir/fleet-streamjson.sh" recover "$1" --cwd "$rs_cwd") 2>&1 </dev/null)
     rs_rc=$?
     if [ "$rs_rc" -ne 0 ]; then
       outcome failed "$1" "recover exit $rs_rc: $(last_line "$rs_out")"
-      return 0
+      return 1
     fi
     # The resumed session takes no prompt of its own; the steer is its turn.
     rs_i=0
@@ -396,9 +426,89 @@ resume_session() {
   fi
   if [ "$rs_rc" -eq 0 ]; then
     outcome resumed "$1"
-  else
-    outcome failed "$1" "steer exit $rs_rc: $(last_line "$rs_out")"
+    return 0
   fi
+  outcome failed "$1" "steer exit $rs_rc: $(last_line "$rs_out")"
+  return 1
+}
+
+# file_mtime <file>: its modification epoch, or nothing.
+file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+
+# stopped: `<since> <session> <entry|->` for each session a probe may
+# resume, longest held first: a queued resume (since its queueing), then
+# each stream-json session the program launched whose run ended on a limit
+# (since that run ended).
+stopped() {
+  st_q=""
+  for st_id in $(queue_ids); do
+    valid_id "$st_id" || continue
+    [ "$(field "$queue/$st_id/entry" action)" = resume ] || continue
+    st_w=$(field "$queue/$st_id/entry" worker)
+    st_t=$(field "$queue/$st_id/entry" queued)
+    { mc_valid_handle "$st_w" && mc_valid_uint "$st_t"; } || continue
+    st_q="$st_q$st_t $st_w $st_id
+"
+  done
+  st_list=$(/bin/bash "$script_dir/mission-control-launch.sh" list 2>/dev/null) || st_list=""
+  for st_w in $(printf '%s\n' "$st_list" | P=$program awk -F '\t' '$2 == ENVIRON["P"] && $5 == "stream-json" { print $1 }'); do
+    mc_valid_handle "$st_w" || continue
+    case $(/bin/sh "$script_dir/fleet-streamjson.sh" status "$st_w" 2>/dev/null) in
+      "status $st_w limited "*) ;;
+      *) continue ;;
+    esac
+    st_t=$(file_mtime "$FH/streamjson/$st_w/result")
+    mc_valid_uint "$st_t" || st_t=$NOW
+    st_q="$st_q$st_t $st_w -
+"
+  done
+  printf '%s' "$st_q" | awk 'NF == 3 && !seen[$2]++' | sort -n -k1,1 -k2,2
+}
+
+# probe: a claude quota hold's stated reset has passed with nothing else
+# held, and a stated reset is no evidence, so one stopped session, the
+# longest held, is resumed alone to bring the reading that is; the rest wait
+# for it (quota-handling REQ-B1.4, REQ-B1.5). Each stated reset is probed
+# once: a probe the vendor refuses again renews the hold, and only a later
+# stated reset probes again. A probe that cannot start tries the next
+# session, and with none started the next watch tries again.
+probe() {
+  [ "$(field "$probef" reset 2>/dev/null)" != "$QUOTA_RESET" ] || return 0
+  FH=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
+  pb_list=$(stopped)
+  if [ -z "$pb_list" ]; then
+    printf 'format\t1\nreset\t%s\nat\t%s\nsession\t-\n' "$QUOTA_RESET" "$NOW" | mc_write "$probef" \
+      || mc_fail "cannot record the probe"
+    printf 'event\tusage-probe\tquota\t%s\n' "the claude limit's stated reset passed with no stopped session to probe; launches stay held until a session's reading shows it cleared, or the operator runs quota-hold.sh resume --vendor claude"
+    return 0
+  fi
+  OUTCOMES=""
+  pb_msg=$(mktemp "$udir/.handover.XXXXXX") || mc_fail "cannot write the probe's handover"
+  handover_text quota >"$pb_msg" || {
+    rm -f "$pb_msg"
+    mc_fail "cannot write the probe's handover"
+  }
+  pb_rest=$pb_list
+  while [ -n "$pb_rest" ]; do
+    pb_line=${pb_rest%%"
+"*}
+    case $pb_rest in *"
+"*) pb_rest=${pb_rest#*"
+"} ;; *) pb_rest="" ;; esac
+    # shellcheck disable=SC2086 # since, session, entry
+    set -- $pb_line
+    pb_file=$pb_msg
+    [ "$3" = - ] || [ ! -s "$queue/$3/brief" ] || pb_file="$queue/$3/brief"
+    if resume_session "$2" "$pb_file"; then
+      [ "$3" = - ] || rm -rf "${queue:?}/$3"
+      rm -f "$pb_msg"
+      printf 'format\t1\nreset\t%s\nat\t%s\nsession\t%s\n' "$QUOTA_RESET" "$NOW" "$2" | mc_write "$probef" \
+        || printf '%s\n' "$prog: cannot record the probe of $2; the next watch may probe again" >&2
+      printf 'probe\t%s\n' "$2"
+      return 0
+    fi
+  done
+  rm -f "$pb_msg"
 }
 
 # drain <windows>: launch the queue's entries and resume the sessions a
@@ -421,9 +531,9 @@ drain() {
           continue
         }
         if [ -s "$e/brief" ]; then
-          resume_session "$w" "$e/brief"
+          resume_session "$w" "$e/brief" || :
         elif handover_text "$dr_windows" >"$e/handover"; then
-          resume_session "$w" "$e/handover"
+          resume_session "$w" "$e/handover" || :
         else
           outcome failed "$id" "cannot write the handover for $w"
         fi
@@ -502,7 +612,7 @@ drain() {
       rm -f "$dr_msg"
       continue
     fi
-    resume_session "$w" "$dr_msg"
+    resume_session "$w" "$dr_msg" || :
     rm -f "$dr_msg"
   done
 }
@@ -533,6 +643,7 @@ watch() {
   since=""
   [ -z "$PREV" ] || since=$(field "$holdf" since)
   quota || mc_fail "cannot read the claude quota hold"
+  cleared
   # A held quota with no usage hold recorded began at its own since.
   windows "${since:-$QUOTA_SINCE}"
   hold_now "$thr"
@@ -544,7 +655,7 @@ watch() {
     gone=$(printf '%s\n' "$PREV" | awk 'NF { printf "%s%s", s, $1; s = "." }')
     [ -n "$gone" ] || gone=quota
     [ -n "$since" ] || since=$QUOTA_SINCE
-    rm -f "$holdf" || mc_fail "cannot clear the usage hold"
+    rm -f "$holdf" "$probef" || mc_fail "cannot clear the usage hold"
     if [ "$QUOTA" = held ]; then
       /bin/sh "$script_dir/quota-hold.sh" resume --vendor claude --reason "the usage window reset" --now "$NOW" >/dev/null \
         || mc_fail "cannot release the claude quota hold"
@@ -574,6 +685,9 @@ watch() {
       printf 'event\tusage-held\t%s\t%s; queue the next units with mc-usage.sh enqueue\n' "$1" "$text"
     else
       write_hold "$since" || mc_fail "cannot write the usage hold"
+    fi
+    if [ "$CUR" = "quota - $QUOTA_RESET" ] && mc_valid_uint "$QUOTA_RESET" && [ "$NOW" -ge "$QUOTA_RESET" ]; then
+      probe
     fi
     return 0
   fi

@@ -115,11 +115,11 @@ loop, so a quiet program costs very little.
 
 Claude accounts have usage windows: a five-hour session window and a
 weekly one. When either reaches the configured threshold (90% unless the
-`mission_control_usage_hold` setting says otherwise), mission control stops starting new sessions and lines the next
-pieces of work up instead, each with its instructions already written, in
-a queue that survives restarts. Work you ask for yourself still starts, and
-so does a mission-control session, such as a fresh one taking over from
-the old one.
+`mission_control_usage_hold` setting says otherwise), mission control
+stops starting new sessions and lines the next pieces of work up instead,
+each with its instructions already written, in a queue that survives
+restarts. Work you ask for yourself still starts, and so does a
+mission-control session, such as a fresh one taking over from the old one.
 
 When the window resets, nobody has to be there: the watcher sees the reset
 time pass, starts the queued work, and resumes each background session it
@@ -131,13 +131,22 @@ the panel only has the wake waiting in its input box). The first thing it
 tells you is only what landed, what needs your decision and what failed
 while the window was full; routine starts and resumes stay quiet.
 
+A session that hit the limit holds every session on the computer, and the
+time the limit says it resets is not trusted on its own. When that time
+passes, the watcher resumes one stopped session first, the one stopped
+longest, and waits for the usage reading it brings. Only a reading taken
+after the limit was hit, under each window's lowest restriction threshold,
+releases the rest. If that session hits the limit again, everything stays
+held until the next stated reset. With no stopped session to try, the
+watcher tells you once, and the hold waits for a reading or for you
+(`scripts/quota-hold.sh resume --vendor claude`).
+
 The usage figures come from your status line's copy of Claude Code's own
 rate limits, and on a computer running only background sessions from the
 readings those sessions receive. With neither, nothing is held ahead of
-the limit: a session that hits it is held as before, and the queue drains
-when that hold's stated reset time passes (a hold that stated none waits
-for you to resume it). An account billed in dollars
-rather than usage windows reports no windows, so the same rule applies.
+the limit: a session that hits it is held, and released as above. An
+account billed in dollars rather than usage windows reports no windows,
+so the same rule applies.
 
 ## Proposals
 

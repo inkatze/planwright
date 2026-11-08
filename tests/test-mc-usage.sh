@@ -233,24 +233,20 @@ mc_run mc-event.sh emit --program alpha --now "$((now + 12))" -- stall-dead mc-a
 mc_run mc-event.sh emit --program alpha --now "$((now + 13))" -- pending-prompt mc-alpha-worker-c "a routine prompt"
 
 # ---------------------------------------------------------------------------
-# The reset: the window's own epoch passes with the mirror gone stale.
+# The reset: the window's own epoch and the quota's stated reset pass with
+# the mirror gone stale. A stated reset is no evidence the limit cleared, so
+# the longest-held stopped session is resumed alone as the probe and the
+# rest wait for the reading it brings.
 # ---------------------------------------------------------------------------
 after=$((week_at + 1))
 touch -t 202001010000 "$mirror"
 watch "$after"
 expect_rc "the watch at the reset" 0
-expect_out "the reset emits usage-reset" "event${tab}usage-reset${tab}weekly${tab}"
-expect_out "the queued unit launches" "launched${tab}${qid}${tab}"
-expect_out "the session stopped on the limit is resumed" "resumed${tab}${limited}"
-expect_out "the claude quota hold is released" "released-quota${tab}claude"
-mc_run mc-usage.sh held --program alpha
-expect_rc "held reads clear after the reset" 1
-mc_run mc-usage.sh list --program alpha
-expect_no_out "the drained entry has left the queue" "$qid"
-mc_run mission-control-launch.sh list
-expect_out "the queued unit is a registered session" "${tab}next-one${tab}"
-poll_for "$tmp/shim/first-stdin" "the next unit's brief" || fail "the queued session never read the brief queued for it"
-poll_for "$tmp/shim/resumed-stdin" "usage window" || fail "the resumed session got no handover"
+expect_out "the stated reset probes the stopped session alone" "probe${tab}${limited}"
+expect_no_out "a stated reset passing does not release the claude quota hold" "released-quota"
+expect_no_out "the queue waits on the probe" "launched${tab}"
+expect_no_out "a probe is no reset" "usage-reset"
+poll_for "$tmp/shim/resumed-stdin" "stated reset passed" || fail "the probe session got no handover"
 grep -q -- "--resume 0b6f0c1e-1111-4222-8333-444455556666" "$tmp/shim/argv" \
   || fail "the stopped session was not resumed from its own session"
 # The runner's watcher loop leads its own process group and stops with it,
@@ -266,10 +262,37 @@ if command -v setsid >/dev/null 2>&1 && command -v ps >/dev/null 2>&1; then
   fi
 fi
 mc_run quota-hold.sh status --vendor claude
-expect_out "the quota store reads clear" "vendor${tab}claude${tab}clear"
-mc_run mc-budget.sh rung --program alpha --now "$after" --load 0
-expect_eq "the rung is normal again" "normal"
+expect_out "the quota store stays held through the probe" "vendor${tab}claude${tab}held"
+mc_run mc-usage.sh held --program alpha --now "$after"
+expect_rc "launches stay held while the quota hold lasts, its stated reset passed" 0
+expect_out "held names the quota" "held${tab}quota${tab}"
 watch "$((after + 60))"
+expect_rc "a watch during the probe" 0
+expect_no_out "one stated reset is probed once" "probe${tab}"
+
+# The probe's reading, received after the hold began and under each window's
+# lowest threshold, is the evidence: the hold is released and the queue drains.
+mkdir -p "$fleet/streamjson/mc-alpha-frames"
+printf 'frame\t%s\t0.1\t%s\t0.1\t%s\tend\n' "$((after + 90))" "$((after + 3600))" "$((after + 86400))" >"$fleet/streamjson/mc-alpha-frames/ratelimit"
+watch "$((after + 120))"
+expect_rc "the watch on the probe's reading" 0
+expect_out "the reading releases the claude quota hold" "released-quota${tab}claude"
+expect_out "the release emits usage-reset" "event${tab}usage-reset${tab}quota${tab}"
+expect_out "the queued unit launches" "launched${tab}${qid}${tab}"
+expect_no_out "the probe session, running again, is not resumed twice" "resumed${tab}${limited}"
+rm -rf "$fleet/streamjson/mc-alpha-frames"
+mc_run mc-usage.sh held --program alpha
+expect_rc "held reads clear after the reset" 1
+mc_run mc-usage.sh list --program alpha
+expect_no_out "the drained entry has left the queue" "$qid"
+mc_run mission-control-launch.sh list
+expect_out "the queued unit is a registered session" "${tab}next-one${tab}"
+poll_for "$tmp/shim/first-stdin" "the next unit's brief" || fail "the queued session never read the brief queued for it"
+mc_run quota-hold.sh status --vendor claude
+expect_out "the quota store reads clear" "vendor${tab}claude${tab}clear"
+mc_run mc-budget.sh rung --program alpha --now "$((after + 120))" --load 0
+expect_eq "the rung is normal again" "normal"
+watch "$((after + 180))"
 expect_rc "a watch after the reset" 0
 expect_no_out "the reset is announced once" "usage-reset"
 
@@ -295,14 +318,24 @@ mc_run mc-wake.sh compose --program alpha mc-alpha-hub
 expect_out "the wake carries the reset" "usage-reset weekly"
 expect_out "the wake points the hub at the report" "mc-usage.sh' report --program alpha"
 
-# A claude quota hold whose stated reset passed before any watch saw it is
-# still released, and its reset announced, with no usage hold behind it.
+# A claude quota hold whose stated reset passed before any watch saw it,
+# with no stopped session to probe, is not released on the clock: the watch
+# says once that it waits, and a fresh reading releases it.
 mc_run quota-hold.sh hold --vendor claude --unit "alpha:late-one" --step worker --reason "fixture limit" --reset "$((after + 200))" --now "$((after + 100))"
 case $RC in 0 | 3) ok "a second fixture claude quota hold" ;; *) fail "the second fixture quota hold failed ($RC): $ERR" ;; esac
 watch "$((after + 300))"
 expect_rc "the watch past an unseen quota reset" 0
-expect_out "a quota hold first seen after its reset is released" "released-quota${tab}claude"
+expect_no_out "a stated reset alone releases nothing" "released-quota"
+expect_out "with nothing to probe the watch says it waits" "event${tab}usage-probe${tab}quota${tab}"
+expect_out "the wait names the operator's resume" "quota-hold.sh resume --vendor claude"
+watch "$((after + 360))"
+expect_no_out "the wait is said once per stated reset" "usage-probe"
+mkdir -p "$fleet/streamjson/mc-alpha-frames"
+printf 'frame\t%s\t0.1\t%s\t0.1\t%s\tend\n' "$((after + 370))" "$((after + 3600))" "$((after + 86400))" >"$fleet/streamjson/mc-alpha-frames/ratelimit"
+watch "$((after + 400))"
+expect_out "a reading from after the hold began releases it" "released-quota${tab}claude"
 expect_out "its reset is announced" "event${tab}usage-reset${tab}quota${tab}"
+rm -rf "$fleet/streamjson/mc-alpha-frames"
 mc_run quota-hold.sh status --vendor claude
 expect_out "the quota store reads clear again" "vendor${tab}claude${tab}clear"
 
