@@ -234,7 +234,8 @@
 #       orchestrator or mission-control session: new scope and each new
 #       review round go to a fresh worker. --retask <reason> delivers it
 #       anyway, logged as an override once delivered, with a warning on
-#       stderr.
+#       stderr; an override that could not be logged is refused first, exit
+#       2 with nothing written.
 #   fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]
 #       Single-initiator crash recovery: refuse when a recovery is already
 #       in flight (exit 3) or the worker/supervisor is still alive (exit 3),
@@ -350,9 +351,9 @@
 #   exit 3 AFTER surfacing the attention item / a relaunch refused before its
 #   stop); 4 recovery halt: no usable session to resume (for a relaunch, a
 #   refusal before the stop with the worker left running); 5 recovery halt:
-#   the `--resume` relaunch failed (for a relaunch, after the stop), and for
-#   a steer a message shaped like a new unit of work, refused with nothing
-#   written; 6 a
+#   the `--resume` relaunch failed (for a relaunch, after the stop); for a
+#   steer, 5 is instead a message shaped like a new unit of work, refused
+#   with nothing written; 6 a
 #   partial close: some class of the release set is still held; 7 the
 #   settings fragment of the launch's profile is missing or unreadable, or a
 #   recover finds its recorded profile unreadable, unknown, or (for a
@@ -2666,7 +2667,7 @@ cmd_steer() {
     rm -f "$st_snap"
     exit 2
   fi
-  st_logged=1
+  st_override=0
   /bin/sh "$script_dir/retask-guard.sh" check "$st_snap" --to "$worker" \
     --hint "nothing was written to worker $worker; pass --retask <reason> to override, which is logged" >/dev/null
   case $? in
@@ -2676,7 +2677,12 @@ cmd_steer() {
         rm -f "$st_snap"
         exit 5
       fi
-      st_logged=0
+      if ! /bin/sh "$script_dir/retask-guard.sh" log --check --via steer --to "$worker" --reason "$st_retask"; then
+        rm -f "$st_snap"
+        printf '%s\n' "$me: steer refused, nothing written to worker $worker: its re-task override could not be logged" >&2
+        exit 2
+      fi
+      st_override=1
       ;;
     *)
       rm -f "$st_snap"
@@ -2743,7 +2749,7 @@ cmd_steer() {
   if [ "$st_sent" = 0 ]; then
     printf '%s\t%s\t%s\n' "$now" "$st_bytes" "$st_file" >>"$dir/steers" || :
     journal_unlock "$dir"
-    [ "$st_logged" = 1 ] || /bin/sh "$script_dir/retask-guard.sh" log --via steer --to "$worker" --reason "$st_retask" \
+    [ "$st_override" = 0 ] || /bin/sh "$script_dir/retask-guard.sh" log --via steer --to "$worker" --reason "$st_retask" \
       || printf '%s\n' "$me: the steer was delivered, but its re-task override could not be logged" >&2
     printf 'steered %s %s\n' "$worker" "$st_bytes"
   else

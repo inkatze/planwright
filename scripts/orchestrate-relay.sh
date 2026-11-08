@@ -70,7 +70,8 @@
 #       (scripts/retask-guard.sh check) for a session the launcher does not
 #       register as a tower, orchestrator or mission control, since new scope
 #       goes to a fresh session; --retask <reason> pastes it anyway, logged as
-#       an override once pasted. PLANWRIGHT_RELAY_CONFIRM_TRIES (default 5, at
+#       an override once pasted (exit 2, nothing pasted, when it could not
+#       be). PLANWRIGHT_RELAY_CONFIRM_TRIES (default 5, at
 #       most 20) and PLANWRIGHT_RELAY_CONFIRM_SLEEP (seconds, default 1, at
 #       most 3) bound the confirmation wait to under a minute.
 #
@@ -369,14 +370,18 @@ case "$sub" in
     handle=$2
     require_tmux_target "$handle" "$3"
     # New scope goes to a fresh session, never into a live one's pane.
-    logged=1
-    /bin/sh "$script_dir/retask-guard.sh" check "$msg_abs" --to "$handle" \
+    override=0
+    /bin/sh "$script_dir/retask-guard.sh" check "$msg_abs" --to "$handle" --tmux \
       --hint "nothing was pasted; append --retask <reason> to override, which is logged" >/dev/null
     case $? in
       0) ;;
       5)
         [ -n "$retask" ] || exit 5
-        logged=0
+        /bin/sh "$script_dir/retask-guard.sh" log --check --via relay --to "$handle" --reason "$retask" || {
+          printf '%s\n' "$me: refused, nothing pasted: the re-task override could not be logged" >&2
+          exit 2
+        }
+        override=1
         ;;
       *)
         printf '%s\n' "$me: refused, nothing pasted: the re-task check did not run" >&2
@@ -428,7 +433,7 @@ case "$sub" in
       exit 4
     fi
     trap - INT TERM HUP
-    [ "$logged" = 1 ] || /bin/sh "$script_dir/retask-guard.sh" log --via relay --to "$handle" --reason "$retask" \
+    [ "$override" = 0 ] || /bin/sh "$script_dir/retask-guard.sh" log --via relay --to "$handle" --reason "$retask" \
       || printf '%s\n' "$me: the relay was pasted, but its re-task override could not be logged" >&2
     i=0
     while [ "$i" -lt "$tries" ]; do

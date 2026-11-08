@@ -231,6 +231,30 @@ rm -rf "$tmp/sj-broken"
 case $out in *"the re-task check did not run"*) : ;; *) fail "s1r: the refusal must say the check did not run: $out" ;; esac
 rm -rf "$home/streamjson/sjdead"
 echo "ok: s1r --retask needs a reason, an undelivered override is not logged, and a check that cannot run refuses the steer"
+# A registered tower is not bound, so its steer reaches the channel (dead
+# here, exit 3) rather than the refusal; --retask on a plain message logs
+# nothing; an override that could not be logged is refused unsent.
+mkdir -p "$home/mission-control/sessions" "$home/streamjson/mc-p-tower-1"
+printf 'format\t1\nname\tmc-p-tower-1\nprogram\tp\nkind\ttower\nbackend\tstream-json\nlaunched\t1\n' >"$home/mission-control/sessions/mc-p-tower-1"
+senv "$home" "$rec" -- steer mc-p-tower-1 --message-file "$tmp/steer-skill" >/dev/null 2>&1
+sr_rc=$?
+[ "$sr_rc" = 3 ] || fail "s1r: a registered tower's unit-shaped steer must pass the check (dead channel, exit 3), got $sr_rc"
+rm -rf "$home/streamjson/mc-p-tower-1" "$home/mission-control/sessions/mc-p-tower-1"
+printf 'The operator says: go ahead.\n' >"$tmp/steer-plain"
+sr_rows=$(lines_of "$home/mission-control/retasks.log")
+sr_in=$(lines_of "$rec/stdin")
+senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer-plain" --retask "not needed" >/dev/null 2>&1 \
+  || fail "s1r: a plain steer with --retask must deliver"
+poll_until --what 'the stdin line count' -- lines_cmp "$rec/stdin" -gt "$sr_in" || fail "s1r: the plain steer never reached the worker"
+[ "$(lines_of "$home/mission-control/retasks.log")" = "$sr_rows" ] || fail "s1r: --retask on a plain message logged an override"
+sr_in=$(lines_of "$rec/stdin")
+chmod 444 "$home/mission-control/retasks.log"
+senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer-skill" --retask "operator asked" >/dev/null 2>&1
+sr_rc=$?
+chmod 644 "$home/mission-control/retasks.log"
+[ "$sr_rc" = 2 ] || fail "s1r: an override that could not be logged must be refused with exit 2, got $sr_rc"
+[ "$(lines_of "$rec/stdin")" = "$sr_in" ] || fail "s1r: an unloggable override reached the worker"
+echo "ok: s1r a registered tower is not bound, a plain --retask logs nothing, an unloggable override is refused unsent"
 
 # ---------------------------------------------------------------------------
 # s2 (REQ-G1.2): the frame check, fixture by fixture.

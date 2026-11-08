@@ -473,6 +473,21 @@ rc_is retask-broken 2 "deliver whose re-task check did not run"
 grep -q 'the re-task check did not run' "$tmp/retask-broken/err" || fail "the refusal must say the check did not run: $(cat "$tmp/retask-broken/err")"
 pasted_nothing retask-broken "a deliver whose re-task check did not run"
 echo "ok: deliver's --retask needs a reason, an unpasted override is not logged, and a check that cannot run refuses"
+# A registered tower is not bound; an override that could not be logged is
+# refused before the paste.
+mkdir -p "$tmp/relay-fleet/mission-control/sessions"
+printf 'format\t1\nname\tmc-p-tower-1\nprogram\tp\nkind\ttower\nbackend\ttmux\nhandle\t@3\nlaunched\t1\n' \
+  >"$tmp/relay-fleet/mission-control/sessions/mc-p-tower-1"
+PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-tower "$idle_pane" "@3" "$unit_msg"
+rc_is retask-tower 0 "deliver of a unit-shaped message to a registered tower"
+rm -f "$tmp/relay-fleet/mission-control/sessions/mc-p-tower-1"
+[ "$(wc -l <"$tmp/relay-fleet/mission-control/retasks.log")" = "$rt_rows" ] || fail "a tower's relay logged an override"
+chmod 444 "$tmp/relay-fleet/mission-control/retasks.log"
+PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-unlogged "$idle_pane" "@3" "$unit_msg" --retask "operator asked"
+chmod 644 "$tmp/relay-fleet/mission-control/retasks.log"
+rc_is retask-unlogged 2 "an override deliver whose override could not be logged"
+pasted_nothing retask-unlogged "an override that could not be logged"
+echo "ok: deliver passes a registered tower and refuses an override it could not log, pasting nothing"
 
 # 13c. Refuse, pasting nothing, while a selection prompt is open: a permission
 #      dialog, a select menu's footer, or the cursor on a numbered option.

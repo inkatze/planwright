@@ -33,9 +33,9 @@ TAB=$(printf '\t')
 help_text() {
   cat <<'EOF'
 usage:
-  retask-guard.sh check <message-file> [--to <session>] [--hint <text>]
+  retask-guard.sh check <message-file> [--to <session> [--tmux]] [--hint <text>]
   retask-guard.sh log --via <steer|relay|send-message> --to <session>
-      --reason <text> [--now <epoch>]
+      --reason <text> [--now <epoch>] [--check]
   retask-guard.sh hook
 
 check reads a message bound for a live session and refuses one shaped like
@@ -49,20 +49,24 @@ nudge, a question, a skill named mid-sentence) passes, and so does new scope
 written as free prose, which a script cannot tell from a relay;
 session-keeper's bounds (scripts/mc-keeper.sh) retire such a session once
 idle and ask it to hand over once old. --to names the recipient, a session
-name or a tmux window id: one the mission-control launcher registers as a
-tower, orchestrator or mission-control session is not bound, so its message
-passes; any other recipient is.
+name or a tmux window id (`@<n>`, or `<session>:@<n>`); with --tmux it is a
+tmux target, and a pane id or `<session>:<window>` is resolved to its window
+through tmux first. One the mission-control launcher registers as a tower,
+orchestrator or mission-control session is not bound, so its message
+passes; any other recipient is, an unresolvable one included.
   exit 0, nothing printed: not unit-shaped, or the recipient is not bound
   exit 5: unit-shaped; `retask<TAB><why>` on stdout, and on stderr the
           refusal naming the fresh-launch path, then the --hint text
 
-log appends one row to <fleet-home>/mission-control/retasks.log ("# format:
-1", then <epoch> <via> <session> <reason>, tab separated, control bytes
-removed) and prints a warning on stderr. Each override is logged once it is
-delivered: `fleet-streamjson.sh steer --retask <reason>` and
-`orchestrate-relay.sh deliver tmux ... --retask <reason>` log after the
-write or paste; the SendMessage hook logs before letting the message
-through, and denies it when the row cannot be written.
+log appends one row to <fleet-home>/mission-control/retasks.log (its first
+line "# format: 1", then <epoch> <via> <session> <reason>, tab separated,
+control bytes removed) and prints a warning on stderr; with --check it
+writes no row and prints nothing, only failing as the append would.
+`fleet-streamjson.sh steer --retask <reason>` and `orchestrate-relay.sh
+deliver tmux ... --retask <reason>` run --check before the write or paste,
+refusing an override that could not be logged, and log once delivered; the
+SendMessage hook logs before letting the message through, and denies it
+when the row cannot be written.
 
 hook is the PreToolUse hook on SendMessage. It denies a unit-shaped message
 to a session the launcher registers as a worker, reviewer or ad-hoc kind,
@@ -108,9 +112,18 @@ fleet_home() {
 }
 
 # session_kind <session name or tmux window id> — print the kind the
-# mission-control launcher registers for it, or nothing.
+# mission-control launcher registers for it, or nothing; return 2 when the
+# registry's fleet home cannot be resolved. A name of neither shape is never
+# registered, so it costs no fleet-home lookup.
 session_kind() {
-  sk_home=$(fleet_home) || return 0
+  case $1 in
+    *:@[0-9]*) set -- "@${1##*:@}" ;;
+  esac
+  case $1 in
+    mc-* | @[0-9]*) ;;
+    *) return 0 ;;
+  esac
+  sk_home=$(fleet_home) || return 2
   sk_reg="$sk_home/mission-control/sessions"
   case $1 in
     mc-*)
@@ -139,12 +152,29 @@ refusal_text() {
   printf '%s' "re-tasking a live session is refused ($1). Launch a fresh session for new scope (scripts/mission-control-launch.sh launch). For a new review round on an open pull request, its successor takes the same worktree and branch with a handover brief and /planwright:resume as its entry: hand over through scripts/session-handover.sh where installed, else retire the old session and launch the fresh one there. Override only when no fresh launch can serve, and say why"
 }
 
+# tmux_window <target> — the window id tmux resolves a pane id or a
+# `<session>:<window>` target to, or the target unchanged.
+tmux_window() {
+  case $1 in
+    @[0-9]* | *:@[0-9]* | mc-*) printf '%s\n' "$1" ;;
+    %[0-9]* | *:*) tmux display-message -p -t "$1" '#{window_id}' 2>/dev/null || printf '%s\n' "$1" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
 cmd_check() {
   [ "$#" -ge 1 ] || usage
   ck_file=$1
   shift
-  ck_to='' ck_hint=''
+  ck_to='' ck_hint='' ck_tmux=0
   while [ "$#" -gt 0 ]; do
+    case $1 in
+      --tmux)
+        ck_tmux=1
+        shift
+        continue
+        ;;
+    esac
     [ "$#" -ge 2 ] || usage
     case $1 in
       --to) ck_to=$2 ;;
@@ -157,11 +187,6 @@ cmd_check() {
     printf '%s\n' "$me: the message file is missing or unreadable" >&2
     exit 2
   }
-  if [ -n "$ck_to" ]; then
-    case $(session_kind "$ck_to") in
-      tower | orchestrator | mission-control) exit 0 ;;
-    esac
-  fi
   why=$(unit_shape_why <"$ck_file")
   case $? in
     0) ;;
@@ -171,19 +196,32 @@ cmd_check() {
       exit 2
       ;;
   esac
+  if [ -n "$ck_to" ]; then
+    [ "$ck_tmux" = 0 ] || ck_to=$(tmux_window "$ck_to")
+    ck_kind=$(session_kind "$ck_to") || {
+      printf '%s\n' "$me: the fleet home cannot be resolved, so the recipient's kind is unknown" >&2
+      exit 2
+    }
+    case $ck_kind in
+      tower | orchestrator | mission-control) exit 0 ;;
+    esac
+  fi
   printf 'retask\t%s\n' "$why"
   printf '%s\n' "$me: $(refusal_text "$why")${ck_hint:+: $ck_hint}" >&2
   exit 5
 }
 
+# The union of the steer and tmux relay handle grammars, so an override
+# either one delivers can always be logged.
 valid_to() {
   case $1 in
-    '' | -* | *[!A-Za-z0-9@%:._-]*) return 1 ;;
+    '' | -* | *[!A-Za-z0-9@%:._=/-]*) return 1 ;;
   esac
   [ "${#1}" -le 128 ]
 }
 
-# do_log <via> <to> <reason> <now> — append the override row and warn.
+# do_log <via> <to> <reason> <now> [check] — append the override row and
+# warn; with check, only make sure the append would succeed.
 do_log() {
   dl_home=$(fleet_home) || {
     printf '%s\n' "$me: cannot resolve the fleet home; the override was not logged" >&2
@@ -195,12 +233,23 @@ do_log() {
     return 2
   }
   dl_log="$dl_dir/retasks.log"
-  dl_reason=$(printf '%s\n' "$3" | awk '
-    { gsub(/[\t\r]/, " "); gsub(/[\001-\037\177]/, ""); gsub(/\302[\200-\237]/, ""); r = r (NR > 1 ? " " : "") $0 }
-    END { sub(/^ +/, "", r); sub(/ +$/, "", r); print substr(r, 1, 500) }')
-  # noclobber makes the format line's creation atomic, so two first
-  # overrides never write it twice.
-  (set -C && printf '# format: 1\n' >"$dl_log") 2>/dev/null || :
+  # Created whole by a link, which fails when the file exists, so two first
+  # overrides never write the format line twice or over each other's row.
+  if [ ! -e "$dl_log" ]; then
+    dl_new=$(mktemp "$dl_dir/.retasks.XXXXXX" 2>/dev/null) && {
+      printf '# format: 1\n' >"$dl_new" && ln "$dl_new" "$dl_log" 2>/dev/null
+      rm -f "$dl_new"
+    }
+  fi
+  if [ "${5:-}" = check ]; then
+    { : >>"$dl_log"; } 2>/dev/null && return 0
+    printf '%s\n' "$me: cannot append to $(sanitize_printable "$dl_log"), so the override could not be logged" >&2
+    return 2
+  fi
+  # Byte ranges, as sanitize_printable strips them, so no C0 or C1 control
+  # (a raw 0x9B is a terminal's CSI) reaches a reader's terminal.
+  dl_reason=$(printf '%s' "$3" | tr '\t\r\n' '   ' | tr -d '\000-\037\177\200-\237' \
+    | awk '{ sub(/^ +/, ""); sub(/ +$/, ""); print substr($0, 1, 500) }')
   if ! { printf '%s\t%s\t%s\t%s\n' "$4" "$1" "$2" "$dl_reason" >>"$dl_log"; } 2>/dev/null; then
     printf '%s\n' "$me: cannot append to $(sanitize_printable "$dl_log"); the override was not logged" >&2
     return 2
@@ -209,8 +258,13 @@ do_log() {
 }
 
 cmd_log() {
-  via='' to='' reason='' now=''
+  via='' to='' reason='' now='' lg_check=''
   while [ "$#" -gt 0 ]; do
+    if [ "$1" = --check ]; then
+      lg_check=check
+      shift
+      continue
+    fi
     [ "$#" -ge 2 ] || usage
     case $1 in
       --via) via=$2 ;;
@@ -228,7 +282,7 @@ cmd_log() {
     '') now=$(date +%s) ;;
     *[!0-9]*) usage ;;
   esac
-  do_log "$via" "$to" "$reason" "$now" || exit 2
+  do_log "$via" "$to" "$reason" "$now" $lg_check || exit 2
 }
 
 deny() {
@@ -247,7 +301,8 @@ cmd_hook() {
   [ "$tool" = SendMessage ] || exit 0
   # A listing's disambiguating ` [ref]` suffix is not part of the name.
   to=${to%% \[*}
-  case $(session_kind "$to") in
+  hk_kind=$(session_kind "$to") || exit 0
+  case $hk_kind in
     worker | reviewer | ad-hoc) ;;
     *) exit 0 ;;
   esac
@@ -276,6 +331,7 @@ cmd_hook() {
         exit 0
         ;;
     esac
+    deny "the re-task override needs a reason after the colon, which is logged: $OVERRIDE_TAG <reason>]."
   fi
   deny "$(refusal_text "$why"): start the message's first line with $OVERRIDE_TAG <reason>], which is logged."
 }
