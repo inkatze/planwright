@@ -4,6 +4,12 @@
 # review feedback, goes to a fresh session carrying a handover brief, never
 # into a running one. `--help` prints the contract.
 #
+# Usage:
+#   retask-guard.sh check <message-file> [--to <session>] [--tmux] [--hint <text>]
+#   retask-guard.sh log --via <steer|relay|send-message> --to <session> --reason <text> [--now <epoch>] [--check]
+#   retask-guard.sh hook
+#   retask-guard.sh --help
+#
 # POSIX sh; no eval; message text is data, read only by awk and jq.
 set -uf
 
