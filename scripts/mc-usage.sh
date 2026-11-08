@@ -473,6 +473,7 @@ retry() {
 }
 
 # file_mtime <file>: its modification epoch, or nothing.
+# shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
 file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
 
 # stopped: `<since> <session> <entry|->` for each session a probe may
