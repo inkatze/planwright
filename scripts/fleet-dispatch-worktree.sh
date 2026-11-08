@@ -1093,9 +1093,14 @@ resolve_tmux_bin() {
 # resolved planwright root and fleet home, which the worker is pinned to, and
 # LAUNCH_SPEC_ROOT to the spec root outside <repo> its guard admits as a write
 # zone (empty for a same-repo root, or when it does not resolve: the posture
-# never blocks a dispatch).
+# never blocks a dispatch). A root naming an older plugin-cache copy, a pin the
+# dispatching session kept across an upgrade, resolves to the installed root.
 launch_roots() {
   LAUNCH_ROOT=$(/bin/sh "$script_dir/resolve-root.sh" install 2>/dev/null </dev/null) || LAUNCH_ROOT=''
+  if [ -n "$LAUNCH_ROOT" ] && [ -f "$script_dir/resolve-installed-roots.sh" ]; then
+    lr_fresh=$(/bin/sh "$script_dir/resolve-installed-roots.sh" --fresh "$LAUNCH_ROOT" 2>/dev/null </dev/null) || lr_fresh=''
+    [ -z "$lr_fresh" ] || LAUNCH_ROOT=$lr_fresh
+  fi
   LAUNCH_HOME=$(/bin/sh "$FLEET_STATE" root 2>/dev/null </dev/null) || LAUNCH_HOME=''
   LAUNCH_SPEC_ROOT=''
   [ -z "${1:-}" ] || LAUNCH_SPEC_ROOT=$(/bin/sh "$script_dir/worker-spec-root.sh" "$1" 2>/dev/null </dev/null) || LAUNCH_SPEC_ROOT=''

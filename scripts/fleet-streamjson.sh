@@ -1551,7 +1551,12 @@ refuse_mode_overrides() {
 # read: an unverifiable mode source is no mode source, and a worker launched
 # without one inherits the operator's (see the header).
 profile_settings_path() {
-  if ! ws_path=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$1" </dev/null); then
+  # Resolved where the worker runs, as the wrapper resolves its hook root:
+  # which install is current there can depend on a project-scoped record entry.
+  if ! ws_path=$(
+    [ -z "${run_cwd:-}" ] || cd -- "$run_cwd" 2>/dev/null || :
+    /bin/sh "$script_dir/fleet-launch-profile.sh" "$1" </dev/null
+  ); then
     printf '%s\n' "$me: refusing to launch: without its $1-settings fragment the session inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
     return 7
   fi
@@ -1605,9 +1610,16 @@ guard_preflight() {
   # proof is of what the worker is actually gated by.
   # Read in the worker's directory: which install is current there can depend
   # on a project-scoped record entry.
-  gp_hook_root=$(cd -- "$gp_cwd" 2>/dev/null && "$gp_env" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1)
+  gp_hook_root=$(
+    cd -- "$gp_cwd" 2>/dev/null || :
+    "$gp_env" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1
+  )
   [ -n "$gp_hook_root" ] || gp_hook_root=$gp_launcher
   gp_hook_root=$(cd -- "$gp_hook_root" 2>/dev/null && pwd -P) || gp_hook_root=$gp_launcher
+  # Warned before the refusals below, so warn mode reports it too: without it
+  # a backgrounded command stalls the worker, and nothing else breaks.
+  [ -x "$gp_hook_root/scripts/background-job-guard.sh" ] \
+    || printf '%s\n' "$me: launch preflight: warning: the background-job guard $gp_hook_root/scripts/background-job-guard.sh is missing or not executable; a worker that backgrounds a command will stall" >&2
   gp_guard="$gp_hook_root/scripts/worker-command-guard.sh"
   # Executable, not merely readable: the wrapper execs it, and a guard that
   # cannot run would otherwise read as "does not approve" every root below.
@@ -1624,9 +1636,6 @@ guard_preflight() {
     [ "$gp_mode" = warn ] && return 0
     return 9
   fi
-  # Without it a backgrounded command stalls the worker; nothing else breaks.
-  [ -x "$gp_hook_root/scripts/background-job-guard.sh" ] \
-    || printf '%s\n' "$me: launch preflight: warning: the background-job guard $gp_hook_root/scripts/background-job-guard.sh is missing or not executable; a worker that backgrounds a command will stall" >&2
   gp_tmp=$(mktemp "${TMPDIR:-/tmp}/fleet-streamjson.XXXXXX") || {
     printf '%s\n' "$me: launch preflight: cannot create a temp file for the proof record (TMPDIR=${TMPDIR:-/tmp})" >&2
     [ "$gp_mode" = warn ] && return 0
@@ -2292,9 +2301,12 @@ cmd_launch() {
   # prompt tool (the receipt channel), the reviewed worker-settings fragment
   # (the mode source), and NEVER --bare.
   # A stream-json session never resumes on a background job's completion
-  # notice; scripts/background-job-guard.sh keys its refusal on this mark,
-  # which the wrapper drops from whatever it inherits.
-  set -- "$dispatch_env" env PLANWRIGHT_SESSION_BACKEND=stream-json "$cli" -p --input-format stream-json --output-format stream-json \
+  # notice. The wrapper turns this request into the session's
+  # PLANWRIGHT_SESSION_BACKEND mark, which scripts/background-job-guard.sh
+  # keys its refusal on, and drops any mark it inherits.
+  PLANWRIGHT_LAUNCH_BACKEND=stream-json
+  export PLANWRIGHT_LAUNCH_BACKEND
+  set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
     --verbose --permission-prompt-tool stdio --settings "$launch_settings" --name "$worker" "$@"
   if [ -n "$resume_sid" ]; then
     set -- "$@" --resume "$resume_sid"

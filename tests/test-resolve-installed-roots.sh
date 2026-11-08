@@ -426,6 +426,8 @@ jq -n --arg a "$cur/plugins/cache/planwright/planwright/0.67.0" \
   '{plugins: {"planwright@planwright": [{installPath: $a}]}}' >"$gone/plugins/installed_plugins.json"
 OUT=$(env -u HOME CLAUDE_DIR="$gone" /bin/sh "$RESOLVER" --fresh "$old_copy" 2>/dev/null)
 assert_eq "--fresh keeps the path when no recorded root is on disk" "$old_copy" "$OUT"
+ERR=$(env -u HOME CLAUDE_DIR="$gone" /bin/sh "$RESOLVER" --check "$old_copy" 2>&1 >/dev/null)
+assert_eq "--check names no replacement that is not on disk, so it stays quiet" "" "$ERR"
 
 # --- the launch seam hands a worker the installed root ------------------------
 # envrun <wrapper-copy> [ENV=val...]: the wrapper's exported roots and copy
@@ -466,10 +468,15 @@ OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAU
 assert_eq "--print hands on the installed root too" "CLAUDE_PLUGIN_ROOT=$new_copy" "$OUT"
 OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$cur" \
   "$new_copy/scripts/fleet-dispatch-env.sh" --root "$old_copy" env 2>/dev/null | grep '^PLANWRIGHT_ROOT=')
-assert_eq "a --root a stale dispatcher computed is replaced too" "PLANWRIGHT_ROOT=$new_copy" "$OUT"
+assert_eq "an explicit --root is the dispatcher's resolved root and stays as given" "PLANWRIGHT_ROOT=$old_copy" "$OUT"
 OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$cur" \
   "$new_copy/scripts/fleet-dispatch-env.sh" --root "$REPO_ROOT" env 2>/dev/null | grep '^PLANWRIGHT_ROOT=')
 assert_eq "a --root naming a checkout is the dispatcher's choice and stays" "PLANWRIGHT_ROOT=$REPO_ROOT" "$OUT"
+ln -s "$old_copy" "$SANDBOX/old-link"
+envrun "$new_copy" "PLANWRIGHT_ROOT=$SANDBOX/old-link" "CLAUDE_PLUGIN_ROOT=$SANDBOX/old-link"
+assert_eq "an inherited root reaching a stale copy through a link is replaced too" \
+  "CLAUDE_PLUGIN_ROOT=$new_copy
+PLANWRIGHT_ROOT=$new_copy" "$OUT"
 
 OUT=$(cd "$SANDBOX" && env -u HOME -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$cur" PLANWRIGHT_ROOT="$old_copy" \
   "$new_copy/scripts/fleet-launch-profile.sh" worker 2>/dev/null)
@@ -477,9 +484,9 @@ assert_eq "the settings profile comes from the installed root the wrapper hands 
   "$new_copy/config/worker-settings.json" "$OUT"
 OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$cur" \
   "$new_copy/scripts/fleet-launch-profile.sh" worker --root "$old_copy" 2>/dev/null)
-assert_eq "and so does a --root naming a stale copy" "$new_copy/config/worker-settings.json" "$OUT"
+assert_eq "a --root is the seam's own and stands" "$old_copy/config/worker-settings.json" "$OUT"
 
-# --- step-record.sh refuses to write a record from a stale copy ---------------
+# --- step-record.sh refuses new-run and status from a stale copy -------------
 srwt="$SANDBOX/sr-wt"
 mkdir -p "$srwt"
 git -C "$srwt" init -q
@@ -530,6 +537,11 @@ case $ERR in
     failures=$((failures + 1))
     ;;
 esac
+# shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
+stamp=$(stat -c %Y "$cur/plugins/installed_plugins.json" 2>/dev/null || stat -f %m "$cur/plugins/installed_plugins.json")
+ERR=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_COPY_CHECKED="$old_copy|$stamp" \
+  CLAUDE_DIR="$cur" "$old_copy/scripts/step-record.sh" --worktree "$srwt" list 2>&1 >/dev/null)
+assert_eq "a stale read a calling script already checked against this record warns no more" "" "$ERR"
 # Which install is current follows the worktree's project, not the caller's
 # directory: a project-scope install of the old copy makes it current there.
 jq -n --arg a "$new_copy" --arg b "$old_copy" --arg p "$srwt" \

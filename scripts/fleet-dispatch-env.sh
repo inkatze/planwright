@@ -139,6 +139,13 @@
 #                                           2026-07-19 bare launch that dropped
 #                                           the pin.
 #
+# Every exec'ing form also drops an inherited PLANWRIGHT_COPY_CHECKED and
+# PLANWRIGHT_SESSION_BACKEND, then sets PLANWRIGHT_SESSION_BACKEND=stream-json
+# only when PLANWRIGHT_LAUNCH_BACKEND (dropped too) asks for it, as the
+# stream-json rung does. PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT, when they come
+# from the environment or this wrapper's own location rather than --root, are
+# swapped for the installed root where they name an older plugin-cache copy.
+#
 # The command is exec'd directly (exec "$@") — no shell, no eval — so arguments
 # pass through unmangled and there is no injection surface; the wrapper only
 # adds fixed assignments (with launch options, the validated values they name)
@@ -360,7 +367,8 @@ planwright_root() {
 # one exception is a value naming an older plugin-cache copy the installed
 # record no longer names (see fresh_root): that is a pin the launching session
 # carried across an upgrade, not a choice, so the worker gets the installed
-# root instead, whichever source named the copy (--root included).
+# root instead. An explicit --root is the dispatcher's resolved root and is
+# applied as given: the dispatchers resolve it fresh themselves.
 # warn_unresolved_root — say so, once, when neither an operator value nor
 # self-location produced a root. Not fatal: the launch's own mode source is the
 # settings fragment, not this. But never silent, because the only symptom is a
@@ -373,12 +381,15 @@ warn_unresolved_root() {
 }
 
 # fresh_root <name> <value>: print <value>, or the installed root where
-# <value> is a stale cached copy, saying so on stderr. Only a plugin-cache path
-# can be stale, so nothing else costs a resolver run; with no resolver beside
-# this wrapper the value stands.
+# <value> is a stale cached copy, saying so on stderr. Only a path inside the
+# plugin cache (once canonical, so a link into it counts) can be stale, so
+# nothing else costs a resolver run; with no resolver beside this wrapper the
+# value stands.
 fresh_root() {
   fr_val=$2
-  case $fr_val in
+  fr_phys=''
+  [ -z "$fr_val" ] || fr_phys=$(cd -P -- "$fr_val" 2>/dev/null && pwd -P) || fr_phys=''
+  case $fr_phys in
     */plugins/cache/*) ;;
     *)
       printf '%s\n' "$fr_val"
@@ -396,6 +407,17 @@ fresh_root() {
   printf '%s\n' "$fr_val"
 }
 
+# fresh_pair <planwright-root> <plugin-root>: FP_PW and FP_CP, the two values
+# through fresh_root, the resolver run once when both name the same root.
+fresh_pair() {
+  FP_PW=$(fresh_root PLANWRIGHT_ROOT "$1")
+  if [ "$2" = "$1" ]; then
+    FP_CP=$FP_PW
+  else
+    FP_CP=$(fresh_root CLAUDE_PLUGIN_ROOT "$2")
+  fi
+}
+
 # An operator value stands on its own: it must survive even when self-location
 # fails, since the two are independent answers to the same question and either
 # alone is complete. That branch is guarded by construction rather than by a
@@ -403,13 +425,12 @@ fresh_root() {
 # from a test that has to invoke this script by a path in the first place.
 export_root_vars() {
   er_root=$(planwright_root)
-  er_pw_in=${PLANWRIGHT_ROOT:-$er_root}
+  er_pw=${PLANWRIGHT_ROOT:-$er_root}
   er_cp=${CLAUDE_PLUGIN_ROOT:-$er_root}
-  er_pw=$(fresh_root PLANWRIGHT_ROOT "$er_pw_in")
-  if [ "$er_cp" = "$er_pw_in" ]; then
-    er_cp=$er_pw
-  else
-    er_cp=$(fresh_root CLAUDE_PLUGIN_ROOT "$er_cp")
+  if [ -z "$opt_root" ]; then
+    fresh_pair "$er_pw" "$er_cp"
+    er_pw=$FP_PW
+    er_cp=$FP_CP
   fi
   [ -n "$er_pw" ] && {
     PLANWRIGHT_ROOT=$er_pw
@@ -434,14 +455,9 @@ if [ "$1" = "--print" ]; then
   # cannot wrap the exec builds its environment from these lines alone, so an
   # operator override omitted here is an override lost.
   _root=$(planwright_root)
-  _pw_in=${PLANWRIGHT_ROOT:-$_root}
-  _cp=${CLAUDE_PLUGIN_ROOT:-$_root}
-  _pw=$(fresh_root PLANWRIGHT_ROOT "$_pw_in")
-  if [ "$_cp" = "$_pw_in" ]; then
-    _cp=$_pw
-  else
-    _cp=$(fresh_root CLAUDE_PLUGIN_ROOT "$_cp")
-  fi
+  fresh_pair "${PLANWRIGHT_ROOT:-$_root}" "${CLAUDE_PLUGIN_ROOT:-$_root}"
+  _pw=$FP_PW
+  _cp=$FP_CP
   [ -n "$_pw" ] && printf 'PLANWRIGHT_ROOT=%s\n' "$_pw"
   [ -n "$_cp" ] && printf 'CLAUDE_PLUGIN_ROOT=%s\n' "$_cp"
   { [ -n "$_pw" ] && [ -n "$_cp" ]; } || warn_unresolved_root
@@ -511,9 +527,14 @@ fi
 export "$GHOST_TEXT_KEY=$GHOST_TEXT_VALUE"
 # The launcher's mark that it already checked its own copy against the record
 # would keep the session from hearing that the copy it runs is stale, and its
-# backend is not the session's: the stream-json rung sets the session's own
-# after this wrapper.
-unset PLANWRIGHT_COPY_CHECKED PLANWRIGHT_SESSION_BACKEND
+# backend is not the session's: only the rung launching this session asks for
+# one, through PLANWRIGHT_LAUNCH_BACKEND, which goes no further.
+launch_backend=${PLANWRIGHT_LAUNCH_BACKEND:-}
+unset PLANWRIGHT_COPY_CHECKED PLANWRIGHT_SESSION_BACKEND PLANWRIGHT_LAUNCH_BACKEND
+if [ "$launch_backend" = stream-json ]; then
+  PLANWRIGHT_SESSION_BACKEND=stream-json
+  export PLANWRIGHT_SESSION_BACKEND
+fi
 if [ "$opt_pins" -eq 1 ]; then
   unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID \
     PLANWRIGHT_TOWER_CHECKOUT PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR \
@@ -530,7 +551,6 @@ if [ -n "$opt_token" ]; then
 fi
 # The dispatcher's root replaces an inherited one here: under a detached
 # session "inherited" means the tmux server's environment, which can be stale.
-# export_root_vars below still swaps a stale cached copy for the installed one.
 if [ -n "$opt_root" ]; then
   PLANWRIGHT_ROOT=$opt_root
   CLAUDE_PLUGIN_ROOT=$opt_root

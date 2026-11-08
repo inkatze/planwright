@@ -165,7 +165,8 @@ cat >"$id_session" <<'EOF'
 for v in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN \
   PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT PLANWRIGHT_FLEET_STATE_DIR CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION \
   PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID PLANWRIGHT_TOWER_CHECKOUT \
-  PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR PLANWRIGHT_SESSION_BACKEND PLANWRIGHT_COPY_CHECKED; do
+  PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR PLANWRIGHT_SESSION_BACKEND PLANWRIGHT_COPY_CHECKED \
+  PLANWRIGHT_LAUNCH_BACKEND; do
   printf '%s=%s\n' "$v" "$(printenv "$v" || echo '<unset>')"
 done
 printf 'args=%s\n' "$*"
@@ -188,6 +189,19 @@ for want in "PLANWRIGHT_WORKER_HANDLE=tmux-demo-task-3" "PLANWRIGHT_WORKER_SCOPE
   "PLANWRIGHT_SESSION_BACKEND=<unset>" "PLANWRIGHT_COPY_CHECKED=<unset>"; do
   printf '%s\n' "$id_out" | grep -qxF "$want" \
     || fail "the launch options must reach the launched process as '$want', got: $id_out"
+done
+# The rung launching the session asks for its backend mark; the request goes
+# no further, and nothing else is turned into a mark.
+for req in stream-json tmux; do
+  req_out=$(PLANWRIGHT_LAUNCH_BACKEND=$req "$FDE" "$id_session" 2>/dev/null) || fail "a launch asking for $req failed"
+  case $req in
+    stream-json) want_mark=stream-json ;;
+    *) want_mark='<unset>' ;;
+  esac
+  printf '%s\n' "$req_out" | grep -qxF "PLANWRIGHT_SESSION_BACKEND=$want_mark" \
+    || fail "a launch asking for $req must carry PLANWRIGHT_SESSION_BACKEND=$want_mark, got: $req_out"
+  printf '%s\n' "$req_out" | grep -qxF "PLANWRIGHT_LAUNCH_BACKEND=<unset>" \
+    || fail "the backend request must not reach the session, got: $req_out"
 done
 # The launcher's backend mark and stale-copy mark are never the session's,
 # whatever form the wrapper runs in.
