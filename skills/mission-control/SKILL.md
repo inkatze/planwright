@@ -112,7 +112,8 @@ here; it sets the depth of every turn, not only the first run's.
 3. **The panel (REQ-F1.16).** Run `scripts/mc-panel.sh`'s `activate
    --program <p>`, then `await --program <p>`. On `panel text`, say once,
    in plain words, that the panel cannot load here, and show the text it
-   printed (`text` refreshes it). On releasing to a successor, `retire`.
+   printed (`text` refreshes it). Releasing to a successor retires it
+   (below), so never run a plain `retire` then.
 4. **The runner.** `scripts/mc-watch.sh`'s `pass` prints `busy` while a
    runner holds the program; otherwise start `run --program <p>` detached
    (under `setsid`, never in the foreground of a turn).
@@ -127,6 +128,14 @@ prefers a handover to a compaction (D-29, D-30): when the panel or
 `scripts/mc-handover.sh`'s `due` calls for one, `write` the handover file,
 then `launch --handover`. The operator's own session, whose terminal cannot
 move, just compacts, offering no handover (D-42).
+
+**When released**, end yourself. On a `handover-requested` event naming
+your handle, run `scripts/mc-handover.sh`'s `release` with it; when it
+refuses because another session holds the name, run
+`scripts/mc-panel.sh`'s `retire --exit --program <p>` instead. An `exit
+mod` line means your mod ends this session once the turn is over: finish
+the turn in one line saying so. On `exit none`, start nothing more and end
+the turn saying this session can be closed.
 
 **When planwright changes**, a `planwright-recorded` or `planwright-updated`
 event names the copy now running. Re-resolve the root first; under it, on
