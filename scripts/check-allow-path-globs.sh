@@ -35,9 +35,31 @@ flagged_word() {
   return 1
 }
 
+# rule_flagged <rule-inner>: 0 when the rule's first word is flagged, or, for a
+# shell prefix such as `bash scripts/*`, the script word after its options.
+rule_flagged() {
+  set -f
+  # shellcheck disable=SC2086 # split the rule into words, globbing off
+  set -- $1
+  set +f
+  [ "$#" -gt 0 ] || return 1
+  flagged_word "$1" && return 0
+  case ${1##*/} in
+    bash | sh | zsh | dash | ksh) shift ;;
+    *) return 1 ;;
+  esac
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      -*) shift ;;
+      *) break ;;
+    esac
+  done
+  [ "$#" -gt 0 ] && flagged_word "$1"
+}
+
 # check_file <file>: report each flagged allow rule; non-zero on a bad file.
 check_file() {
-  local f=$1 rules rule inner word
+  local f=$1 rules rule inner
   if [ ! -f "$f" ] || [ ! -r "$f" ]; then
     echo "check-allow-path-globs: settings file not found or unreadable: $f" >&2
     return 2
@@ -54,8 +76,7 @@ check_file() {
     esac
     inner=${rule#Bash(}
     inner=${inner%)}
-    word=${inner%% *}
-    if flagged_word "$word"; then
+    if rule_flagged "$inner"; then
       echo "check-allow-path-globs: $f: allow rule '$rule' puts a wildcard or ../ in its command path, so it admits paths outside that directory; $SAFE_HINT" >&2
       status=1
     fi

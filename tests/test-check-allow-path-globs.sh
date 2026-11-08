@@ -43,10 +43,14 @@ trap 'rm -rf "$tmp"' EXIT
 ROOT=/abs/path/to/planwright
 pm_load_rules 'Bash(git push --force:*)' '' "Bash($ROOT/scripts/*)
 Bash($CACHE/*/scripts/fleet-streamjson.sh answer *)
-Bash($CACHE/0.67.0/scripts/fleet-streamjson.sh answer *)"
+Bash($CACHE/0.67.0/scripts/fleet-streamjson.sh answer *)
+Bash(bash $ROOT/scripts/*)"
 
 if [ "$(pm_decide "$ROOT/scripts/../../../bin/anything foo")" = allow ]; then rc=0; else rc=1; fi
 assert "scripts/* admits ../../../bin/<x> (premise)" 0 $rc
+
+if [ "$(pm_decide "bash $ROOT/scripts/../../../tmp/evil.sh")" = allow ]; then rc=0; else rc=1; fi
+assert "bash <dir>/* admits a ../ walk to any script (premise)" 0 $rc
 
 if [ "$(pm_decide "$CACHE/0.67.0/../../../../../../bin/rm -rf /tmp/victim/scripts/fleet-streamjson.sh answer y")" = allow ]; then rc=0; else rc=1; fi
 assert "version glob admits a ../ walk to bin/rm (premise)" 0 $rc
@@ -83,6 +87,8 @@ expect_flag "version glob with args" "\"Bash($CACHE/*/scripts/fleet-streamjson.s
 expect_flag "relative scripts glob" '"Bash(scripts/*)"'
 expect_flag "basename glob" '"Bash(/abs/planwright/scripts/check-*.sh *)"'
 expect_flag "literal parent segment" '"Bash(/abs/planwright/../bin/tool *)"'
+expect_flag "shell-prefixed scripts glob" '"Bash(bash scripts/*)"'
+expect_flag "absolute shell with an option" '"Bash(/bin/sh -e /abs/planwright/scripts/*)"'
 
 expect_clean() {
   # expect_clean <name> <allow-entry-json>
@@ -97,6 +103,7 @@ expect_clean "command-boundary path rule" '"Bash(/abs/tool:*)"'
 expect_clean "plain command glob" '"Bash(git status:*)","Bash(mise run:*)"'
 expect_clean "wildcard in arguments only" '"Bash(git push * planwright/*/spec *)"'
 expect_clean "non-Bash allow entries" '"Read","Edit"'
+expect_clean "shell running an exact script" '"Bash(bash /abs/planwright/scripts/x.sh *)"'
 
 f="$tmp/deny-only.json"
 printf '{"permissions":{"deny":["Bash(/x/*)"],"allow":["Bash(git status:*)"]}}\n' >"$f"
