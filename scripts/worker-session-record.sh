@@ -128,6 +128,7 @@ record_pr() {
     *"$nl"*) die "the session record names no single worktree root" ;;
   esac
   [ -d "$wt" ] || die "the recorded worktree is not a directory"
+  unset GH_REPO GH_HOST
   num=$(cd -- "$wt" && gh pr list --head "$unit" --state open --json number,isCrossRepository \
     --jq '.[] | select(.isCrossRepository | not) | .number' </dev/null) \
     || die "cannot list the open pull requests on $unit"
@@ -138,10 +139,8 @@ record_pr() {
   esac
   umask 077
   tmp=$(mktemp "$dir/.$name.XXXXXX") || die "cannot write the record"
-  if ! {
-    sed '/^pr_number=/d' "$rec"
-    printf 'pr_number=%s\n' "$num"
-  } >"$tmp" || ! mv -f -- "$tmp" "$rec"; then
+  if ! sed '/^pr_number=/d' "$rec" >"$tmp" || ! printf 'pr_number=%s\n' "$num" >>"$tmp" \
+    || ! mv -f -- "$tmp" "$rec"; then
     rm -f -- "$tmp"
     die "cannot write the record"
   fi
