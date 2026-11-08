@@ -89,7 +89,8 @@ Only a reset drain counts an attempt, and the launcher's refusal or the
 failed resume counted at three reset drains is reported failed and
 dropped; a budget refusal is never counted. A reset drain's kept and
 failed entries go in its reset record, so the report names them; a later
-drain only prints them.
+drain records only what it launched, resumed or dropped as failed, and
+only prints what it keeps.
 
 Usage:
   mc-usage.sh [watch] [--program <p>] [--now <epoch>]
@@ -466,8 +467,12 @@ retry() {
     fi
     # Kept even when the attempt cannot be counted: the next drain tries it
     # again, and the rest of this drain goes on.
-    awk -F '\t' -v n="$rt_n" 'BEGIN { OFS = "\t" } $1 == "attempts" { $2 = n } { print }' "$1/entry" | mc_write "$1/entry" \
-      || printf '%s\n' "$prog: cannot record the attempt on $2" >&2
+    # Rewritten only from a whole read: a failed one must not empty the entry.
+    if rt_new=$(awk -F '\t' -v n="$rt_n" 'BEGIN { OFS = "\t" } $1 == "attempts" { $2 = n } { print }' "$1/entry") && [ -n "$rt_new" ]; then
+      printf '%s\n' "$rt_new" | mc_write "$1/entry" || printf '%s\n' "$prog: cannot record the attempt on $2" >&2
+    else
+      printf '%s\n' "$prog: cannot record the attempt on $2" >&2
+    fi
   fi
   noted kept "$2" "$3"
 }
