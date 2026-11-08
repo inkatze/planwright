@@ -461,7 +461,7 @@ retry() {
     rt_n=$((rt_n + 1))
     if [ "$rt_n" -ge "$MAX_ATTEMPTS" ]; then
       outcome failed "$2" "refused at $rt_n reset drains: $3"
-      rm -rf "$1"
+      rm -rf -- "$1"
       return 0
     fi
     # Kept even when the attempt cannot be counted: the next drain tries it
