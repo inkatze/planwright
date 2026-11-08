@@ -186,6 +186,15 @@ test('the restamp carries the context reading and the handover threshold', SLOW,
   expect(attended.slice(attended.indexOf('--threshold'))).toEqual(['--threshold', '-'])
 })
 
+test('the restamp sends the context read at the restamp, not at the last redraw', SLOW, async ($, on) => {
+  const w = world(on, { digest: digestText({ holder: 'registry', refresh: 600 }) })
+  await boot($, w)
+  w.set({ contextPercent: 77 })
+  await w.clock.advance(60_000)
+  const last = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+  expect(last.slice(last.indexOf('--context'), last.indexOf('--context') + 2)).toEqual(['--context', '77'])
+})
+
 for (const [contextPercent, sent] of [
   [42.6, '43'],
   [104, '100'],

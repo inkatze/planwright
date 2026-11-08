@@ -346,10 +346,16 @@ async function restampPresence($: EngineInterface) {
   const c = ctx
   if (!c) return
   const v = await view($)
-  // A stand-down or another program's activation during the read.
+  // Read now, not from the last redraw, which a long refresh cadence leaves
+  // older than the reading's freshness window.
+  let pct: number | undefined
+  try {
+    pct = (await $.session.usage()).context.percent
+  } catch {
+    pct = undefined
+  }
+  // A stand-down or another program's activation during the reads.
   if (ctx !== c) return
-  // A reading the script refuses would fail the lease restamp with it.
-  const pct = v?.contextPercent
   const threshold = v?.digest?.holder === 'registry' ? v.digest.knobs['handover-context'] : undefined
   await run($, 'mc-panel.sh', [
     'presence',
@@ -359,6 +365,7 @@ async function restampPresence($: EngineInterface) {
     '--target',
     c.target,
     '--context',
+    // A reading the script refuses would fail the lease restamp with it.
     typeof pct === 'number' && Number.isFinite(pct) ? String(Math.min(100, Math.max(0, Math.round(pct)))) : '-',
     '--threshold',
     threshold === undefined ? '-' : String(threshold),
