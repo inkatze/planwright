@@ -1603,7 +1603,9 @@ guard_preflight() {
   # set, in which case another install's copy gates the worker. Prove that
   # file, and read the installed roots through the resolver beside it, so the
   # proof is of what the worker is actually gated by.
-  gp_hook_root=$("$gp_env" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1)
+  # Read in the worker's directory: which install is current there can depend
+  # on a project-scoped record entry.
+  gp_hook_root=$(cd -- "$gp_cwd" 2>/dev/null && "$gp_env" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1)
   [ -n "$gp_hook_root" ] || gp_hook_root=$gp_launcher
   gp_hook_root=$(cd -- "$gp_hook_root" 2>/dev/null && pwd -P) || gp_hook_root=$gp_launcher
   gp_guard="$gp_hook_root/scripts/worker-command-guard.sh"
@@ -1622,6 +1624,9 @@ guard_preflight() {
     [ "$gp_mode" = warn ] && return 0
     return 9
   fi
+  # Without it a backgrounded command stalls the worker; nothing else breaks.
+  [ -x "$gp_hook_root/scripts/background-job-guard.sh" ] \
+    || printf '%s\n' "$me: launch preflight: warning: the background-job guard $gp_hook_root/scripts/background-job-guard.sh is missing or not executable; a worker that backgrounds a command will stall" >&2
   gp_tmp=$(mktemp "${TMPDIR:-/tmp}/fleet-streamjson.XXXXXX") || {
     printf '%s\n' "$me: launch preflight: cannot create a temp file for the proof record (TMPDIR=${TMPDIR:-/tmp})" >&2
     [ "$gp_mode" = warn ] && return 0

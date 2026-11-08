@@ -2132,6 +2132,15 @@ senv "$home" "$rec" "CLAUDE_DIR=$cdir" "CLAUDE_PLUGIN_ROOT=$preset" SHIM_EVENTS=
 grep -q "$preset/scripts/policy-guard.sh" "$tmp/pf33q.err" \
   || fail "c33: the refusal must name the policy guard under the worker's plugin root, got: $(cat "$tmp/pf33q.err")"
 [ ! -s "$rec/argv" ] || fail "c33: a missing policy guard must never spawn the worker"
+# A root without the background-job guard is warned about, whatever the proof
+# goes on to decide: its workers stall on a backgrounded command.
+cp "$here/../scripts/policy-guard.sh" "$preset/scripts/"
+: >"$rec/argv"
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" "CLAUDE_PLUGIN_ROOT=$preset" SHIM_EVENTS="$ev" -- \
+  launch sjw33b execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>"$tmp/pf33b.err"
+grep -q "$preset/scripts/background-job-guard.sh" "$tmp/pf33b.err" \
+  || fail "c33: a root without the background-job guard must be warned about, got: $(cat "$tmp/pf33b.err")"
 # The proof's own failure is a refusal with a cause, never a pass: a record it
 # cannot create exits 2 and says why. mktemp is made to fail outright, since
 # macOS's falls back to /tmp when TMPDIR names no directory.
