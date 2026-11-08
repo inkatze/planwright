@@ -132,7 +132,7 @@ Usage:
       the launcher (one that did not release is retired all the same),
       waits up to --exit-wait (default 30s) for the predecessor's process
       to exit, closes the predecessor's recorded tmux pane (that pane id
-      on that socket only, never found by name) once the name has moved, then announces
+      on that socket only, never found by name, printing pane<TAB><id><TAB>closed|held) once the name has moved, then announces
       itself
   mc-handover.sh resume --program <p> --session <handle>
       [--kind attended|registry] --picture <file> --digest <hex>
