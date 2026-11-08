@@ -39,43 +39,48 @@ and nothing else.
 
 Usage:
   mc-pane-answer.sh --program <p> --choice <digit> --decision <entry id>
-      --decided-in <program>
+      --decided-in <hub>
 
 It sends the single keystroke <digit> to the pane of <p>'s mission-control
 session, found as scripts/mc-session-pane.sh finds it (never a pane named
 by the caller), only when every check holds, and refuses otherwise:
   - <digit> is one of 1 to 9, the whole argument;
-  - <entry id> names an entry of <program>'s decisions log
-    (scripts/mc-kb.sh) that records the operator's own words: grounds whose
-    reason is `answer` or `correction` (scripts/mc-decide.sh note), or an
-    act that opens `operator: "`;
-  - the entry was recorded no earlier than the escalation watcher
-    (scripts/mc-escalate.sh) first saw the dialog, which it records under
-    <p>'s runtime directory, so a decision about an earlier dialog never
-    answers this one;
-  - no earlier answer used the entry (<runtime>/escalate/answers.log);
+  - <hub> is the program mission_control_escalation_hub names, and not <p>;
+  - <entry id> names an entry of <hub>'s decisions log (scripts/mc-kb.sh)
+    noted as the operator's answer (scripts/mc-decide.sh note --shape
+    answer) about this dialog: its subject is `<p> dialog <digest>`, the
+    digest the escalation watcher (scripts/mc-escalate.sh) records for the
+    dialog and names in its escalation, and its answer is <digit>;
+  - the entry was recorded no earlier than the watcher first saw the
+    dialog, and no earlier answer used it (<runtime>/escalate/answers.log
+    under <p>'s runtime directory, keyed by <hub> and the entry id);
   - exactly one session of <p> is running, it is the session the watcher
-    recorded, and its pane shows that same dialog open now;
+    recorded, and its pane shows that same dialog open, read again just
+    before the keystroke;
   - the pane is not the caller's own, nor one the caller runs under;
-  - the dialog offers option <digit>, and choosing it adds no standing
-    permission (an option that allows again, always or for the session).
-Each answer sent, or attempted and failed, appends one line to
-<runtime>/escalate/answers.log:
-  <epoch> <entry id> <program decided in> <digit> <pane> <session pid> sent|failed
+  - the dialog's own option run offers <digit>, and its label is one that
+    answers this dialog and nothing more: Yes, No, "No, and tell Claude
+    what to do differently" or "Yes, but ask again next time". Any other
+    label (a rule for later calls, a mode switch, a directory or trust
+    grant) is refused, as is a run whose labels wrap or repeat a digit.
+After a sent answer the watcher's record of the dialog is dropped, so a
+dialog that follows starts its own hold. Each answer sent, or attempted
+and failed, appends one line to <runtime>/escalate/answers.log:
+  <epoch> <entry id> <hub> <digit> <pane> <session pid> sent|failed
 One answer runs at a time per program.
 
 Output: answered<TAB><program><TAB><pane><TAB><digit><TAB><option label>
 
-Exit codes: 0 sent; 1 a store, the pane or the send that failed; 2 usage;
-3 a program is not configured; 4 refused by a check above (named on
-stderr).
+Exit codes: 0 sent; 1 a store, the pane, the log or the send that failed,
+or another answer to <p> in flight; 2 usage; 3 a program is not
+configured; 4 refused by a check above (named on stderr).
 
 Portable bash 3.2 / BSD tooling.
 HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-pane-answer.sh --program <p> --choice <digit> --decision <entry id> --decided-in <program>"
+  mc_usage_fail "usage: mc-pane-answer.sh --program <p> --choice <digit> --decision <entry id> --decided-in <hub>"
 }
 
 refuse() {
@@ -120,6 +125,15 @@ PLANWRIGHT_MC_CHECKED=""
 mc_require_program "$DECIDED_IN"
 NOW=$(mc_now)
 
+# shellcheck disable=SC2329 # mc_knob calls it by name
+parse_hub() {
+  [ "$1" = none ] || mc_valid_program "$1" || return 1
+  printf '%s\n' "$1"
+}
+HUB=$(mc_knob mission_control_escalation_hub parse_hub) || exit 1
+[ "$DECIDED_IN" = "$HUB" ] || refuse "decisions about a stuck mission control are the hub's ($HUB), not $DECIDED_IN's"
+[ "$DECIDED_IN" != "$PROGRAM" ] || refuse "a program never answers its own mission control's dialog"
+
 FLEET_HOME=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
 ESC_DIR="$FLEET_HOME/mission-control/$PROGRAM/escalate"
 [ -d "$ESC_DIR" ] && [ ! -L "$ESC_DIR" ] && [ ! -L "${ESC_DIR%/escalate}" ] || refuse "no dialog of $PROGRAM is on record"
@@ -137,31 +151,37 @@ case $? in
   *) mc_fail "cannot take the answer lock" ;;
 esac
 
-# The decision: the operator's own words, in the named program's log.
+# The dialog the watcher recorded.
+[ -f "$SELF" ] && [ ! -L "$SELF" ] || refuse "no dialog of $PROGRAM is on record"
+REC=$(awk -F '\t' '$1 == "dialog" { print $2 "\t" $3 "\t" $4; exit }' "$SELF") || mc_fail "cannot read the dialog record of $PROGRAM"
+rec_first=${REC%%	*}
+rec_rest=${REC#*	}
+rec_sess=${rec_rest%%	*}
+rec_print=${rec_rest#*	}
+mc_valid_uint "$rec_first" && [ -n "$rec_sess" ] && [[ $rec_print =~ ^[0-9a-f]{16}$ ]] || refuse "the dialog record of $PROGRAM is unreadable"
+
+# The decision: the operator's answer about this dialog, in the hub's log.
 ENTRIES=$(/bin/bash "$script_dir/mc-kb.sh" entries --program "$DECIDED_IN" decisions 2>/dev/null) || mc_fail "cannot read the decisions log of $DECIDED_IN"
 ENTRY=$(printf '%s\n' "$ENTRIES" | D=$DECISION awk -F '\t' '$1 == ENVIRON["D"] { print; exit }')
 [ -n "$ENTRY" ] || refuse "decision $DECISION is not in the decisions log of $DECIDED_IN"
-QUOTE_OK=$(printf '%s\n' "$ENTRY" | awk -F '\t' "$MC_GROUNDS_AWK"'
+VERDICT=$(printf '%s\n' "$ENTRY" | S="$PROGRAM dialog $rec_print" C=$CHOICE awk -F '\t' "$MC_GROUNDS_AWK"'
   { r = grounds($6) ? G_REASON : ""
-    print ((r == "answer" || r == "correction" || index($4, "operator: \"") == 1) ? "yes" : "no") }')
-[ "$QUOTE_OK" = yes ] || refuse "decision $DECISION does not record the operator's words"
+    if (r != "answer") print "not the operator'"'"'s answer"
+    else if ($3 != ENVIRON["S"]) print "about another dialog"
+    else if ($5 != ENVIRON["C"]) print "an answer other than " ENVIRON["C"]
+    else print "ok" }')
+[ "$VERDICT" = ok ] || refuse "decision $DECISION is $VERDICT"
 DECIDED_AT=$(printf '%s\n' "$ENTRY" | awk -F '\t' '{ print $2 }')
 [[ $DECIDED_AT =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || refuse "decision $DECISION carries no readable time"
-if [ -f "$LOG" ] && D=$DECISION awk -F '\t' '$2 == ENVIRON["D"] { f = 1; exit } END { exit !f }' "$LOG"; then
+FIRST_AT=$(mc_iso "$rec_first") || mc_fail "cannot format the dialog's first sight"
+[[ ! $DECIDED_AT < $FIRST_AT ]] || refuse "decision $DECISION predates the dialog it would answer"
+if [ -f "$LOG" ] && D=$DECISION H=$DECIDED_IN awk -F '\t' '$2 == ENVIRON["D"] && $3 == ENVIRON["H"] { f = 1; exit } END { exit !f }' "$LOG"; then
   refuse "decision $DECISION already answered a dialog"
 fi
 
-# The dialog the watcher recorded, which the decision must postdate.
-[ -f "$SELF" ] && [ ! -L "$SELF" ] || refuse "no dialog of $PROGRAM is on record"
-rec_first="" rec_sess="" rec_print=""
-IFS='	' read -r _ rec_first rec_sess rec_print _ <"$SELF" || :
-mc_valid_uint "$rec_first" && [ -n "$rec_print" ] || refuse "the dialog record of $PROGRAM is unreadable"
-FIRST_AT=$(mc_iso "$rec_first") || mc_fail "cannot format the dialog's first sight"
-[[ ! $DECIDED_AT < $FIRST_AT ]] || refuse "decision $DECISION predates the dialog it would answer"
-
 # The session and its pane, found afresh.
 bounded() { /bin/sh "$script_dir/bounded-run.sh" "$TMUX_BOUND" "$@"; }
-PS_TABLE=$(bounded /bin/sh -c 'ps -ww -A -o pid= -o ppid= -o uid= -o args=' 2>/dev/null) || mc_fail "cannot read the process table"
+PS_TABLE=$(bounded /bin/sh -c "$MSP_PS_CMD" 2>/dev/null) || mc_fail "cannot read the process table"
 S_PID=$(msp_find "$PROGRAM" "$PS_TABLE")
 case $S_PID in
   absent) refuse "no mission-control session of $PROGRAM is running" ;;
@@ -171,28 +191,35 @@ esac
 PANES=$(bounded tmux list-panes -a -F '#{pane_id}	#{pane_pid}' 2>/dev/null) || mc_fail "cannot list the tmux panes"
 PANE=$(msp_pane_of "$S_PID" "$PS_TABLE" "$PANES") || refuse "the session of $PROGRAM has no tmux pane"
 [ "${TMUX_PANE:-}" != "$PANE" ] || refuse "the pane is the caller's own"
-# The caller runs under the pane when the pane's process is an ancestor of
-# this shell.
 PANE_PID=$(printf '%s\n' "$PANES" | P=$PANE awk -F '\t' '$1 == ENVIRON["P"] { print $2; exit }')
-if printf '%s\n' "$PS_TABLE" | S=$$ T=$PANE_PID M=$MSP_ANCESTRY_MAX awk '
-  $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { parent[$1] = $2 }
-  END { p = ENVIRON["S"]; for (i = 0; i < ENVIRON["M"] + 0 && p + 0 > 1; i++) { if (p == ENVIRON["T"]) exit 0; p = parent[p] } exit 1 }'; then
-  refuse "the pane is one the caller runs under"
-fi
-TEXT=$(bounded tmux capture-pane -p -t "$PANE" 2>/dev/null) || mc_fail "cannot capture pane $PANE"
-TEXT=$(printf '%s\n' "$TEXT" | msp_trim)
-msp_dialog "$TEXT" || refuse "pane $PANE shows no open dialog"
-[ "$MSP_PRINT" = "$rec_print" ] || refuse "pane $PANE shows a different dialog from the one on record"
-LABEL=$(msp_options "$TEXT" | C=$CHOICE awk -F '\t' '$1 == ENVIRON["C"] { print $2; exit }')
+! msp_ancestor "$PANE_PID" "$$" "$PS_TABLE" || refuse "the pane is one the caller runs under"
+
+# read_dialog: the pane's dialog now, refused unless it is the recorded one.
+read_dialog() {
+  rd_text=$(bounded tmux capture-pane -p -t "$PANE" 2>/dev/null) || mc_fail "cannot capture pane $PANE"
+  rd_text=$(printf '%s\n' "$rd_text" | msp_trim)
+  msp_dialog "$rd_text" || refuse "pane $PANE shows no open dialog"
+  [ "$MSP_PRINT" = "$rec_print" ] || refuse "pane $PANE shows a different dialog from the one on record"
+}
+read_dialog
+[ -n "$MSP_OPTIONS" ] || refuse "the dialog's options wrap or repeat a digit"
+LABEL=$(printf '%s\n' "$MSP_OPTIONS" | C=$CHOICE awk -F '\t' '$1 == ENVIRON["C"] { print $2; exit }')
 [ -n "$LABEL" ] || refuse "the dialog offers no option $CHOICE"
-! msp_widening "$LABEL" || refuse "option $CHOICE adds a standing permission"
+msp_answerable "$LABEL" || refuse "option $CHOICE ($(sanitize_printable "$LABEL")) does more than answer this dialog"
+read_dialog
 
 if bounded tmux send-keys -t "$PANE" "$CHOICE" 2>/dev/null; then
   outcome=sent
 else
   outcome=failed
 fi
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$NOW" "$DECISION" "$DECIDED_IN" "$CHOICE" "$PANE" "$S_PID" "$outcome" >>"$LOG" \
-  || printf '%s\n' "$prog: cannot log the answer under $(sanitize_printable "$LOG")" >&2
+logged=1
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$NOW" "$DECISION" "$DECIDED_IN" "$CHOICE" "$PANE" "$S_PID" "$outcome" >>"$LOG" 2>/dev/null || logged=0
 [ "$outcome" = sent ] || mc_fail "the keystroke could not be sent to pane $PANE"
+# The watcher's next pass sees whatever dialog follows as a new one.
+if pw_lock_acquire "$ESC_DIR/pass.lock" 50; then
+  rm -f "$SELF" 2>/dev/null || :
+  pw_lock_release "$ESC_DIR/pass.lock" || :
+fi
 printf 'answered\t%s\t%s\t%s\t%s\n' "$PROGRAM" "$PANE" "$CHOICE" "$(sanitize_printable "$LABEL")"
+[ "$logged" = 1 ] || mc_fail "the answer was sent but could not be logged under $(sanitize_printable "$LOG"); do not reuse decision $DECISION"

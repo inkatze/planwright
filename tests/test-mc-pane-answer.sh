@@ -1,9 +1,9 @@
 #!/bin/bash
 # Tests for scripts/mc-pane-answer.sh — the one relay that delivers an
 # operator's recorded choice to a dialog a mission control is stuck on: a
-# single digit, into that program's own mission-control pane, against a
-# decision of the operator's recorded after the dialog appeared. Every
-# refusal has its case here.
+# single digit, into that program's own mission-control pane, against the
+# hub's record of the operator's answer about that very dialog, recorded
+# after the dialog appeared. Every refusal has its case here.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-mc-pane-answer.sh
@@ -34,29 +34,34 @@ trap 'rm -rf "$tmp"' EXIT
 tab=$(printf '\t')
 reset_mc_fixture
 cp "$repo_root/config/duties.yaml" "$core/config/duties.yaml"
-{
-  printf 'mission_control_programs: [alpha, hub]\n'
-  for p in alpha hub; do
-    printf 'program_%s_repositories: [%s]\n' "$p" "$repo"
-    printf 'program_%s_spec_root: %s/specs\n' "$p" "$repo"
-    printf 'program_%s_home: %s/mchome-%s\n' "$p" "$tmp" "$p"
-  done
-  printf 'mission_control_escalation_hub: none\n'
-} >"$tracked"
+write_programs() { # write_programs <hub>
+  {
+    printf 'mission_control_programs: [alpha, beta, hub]\n'
+    for p in alpha beta hub; do
+      printf 'program_%s_repositories: [%s]\n' "$p" "$repo"
+      printf 'program_%s_spec_root: %s/specs\n' "$p" "$repo"
+      printf 'program_%s_home: %s/mchome-%s\n' "$p" "$tmp" "$p"
+    done
+    printf 'mission_control_escalation_hub: %s\n' "$1"
+  } >"$tracked"
+}
+write_programs hub
 
-# Stubs. ps: the fixture table, then this host's real table with every real
-# mission-control session left out, so the caller's own ancestry is real;
-# any other flags reach the real ps. tmux: panes and captures from files,
-# send-keys recorded to $tmp/keys (failing when $tmp/send-fails exists).
+# Stubs. ps: for the session lookup's own flags, the fixture table, then this
+# host's real pid and parent columns (so the caller's own ancestry is real,
+# while no real process can read as a session); any other flags reach the
+# real ps. busybox ps takes neither -ww nor -A, hence the fallback. tmux:
+# panes and captures from files, a capture moving $tmp/pane-<p>.next into
+# place for the next one; send-keys recorded to $tmp/keys (failing when
+# $tmp/send-fails exists).
 real_ps=$(command -v ps)
-uid=$(id -u)
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/ps" <<EOF
 #!/bin/sh
 case "\$*" in
   '-ww -A -o pid= -o ppid= -o uid= -o args=')
     cat "$tmp/ps.out" 2>/dev/null
-    "$real_ps" "\$@" | grep -v -F '/planwright:mission-control'
+    "$real_ps" -A -o pid,ppid 2>/dev/null || "$real_ps" -o pid,ppid 2>/dev/null || true
     ;;
   *) exec "$real_ps" "\$@" ;;
 esac
@@ -69,6 +74,7 @@ case "\$1" in
     t=''
     while [ \$# -gt 0 ]; do [ "\$1" = -t ] && t=\$2; shift; done
     cat "$tmp/pane-\$t" 2>/dev/null || exit 1
+    [ ! -e "$tmp/pane-\$t.next" ] || mv "$tmp/pane-\$t.next" "$tmp/pane-\$t"
     ;;
   send-keys)
     shift
@@ -82,7 +88,11 @@ chmod +x "$tmp/bin/ps" "$tmp/bin/tmux"
 PATH="$tmp/bin:$PATH"
 export PATH
 
-cat >"$tmp/pane-%7" <<'EOF'
+# Fixture pids sit above any pid a host assigns, so none is a real process.
+SP=4194301
+PP=4194300
+uid=$(id -u)
+cat >"$tmp/dialog.txt" <<'EOF'
  Bash command
  │ /plugin/scripts/fleet-streamjson.sh answer mc-alpha-worker-aaaaaaaaaa r1 --allow
  │ Auto mode needs your confirmation for this command.
@@ -95,17 +105,30 @@ cat >"$tmp/pane-%7" <<'EOF'
 
  Esc to cancel · Tab to amend
 EOF
-printf '  500  400 %s claude --name alpha-mission-control /planwright:mission-control alpha\n' "$uid" >"$tmp/ps.out"
-printf '%%7\t400\n' >"$tmp/panes"
+session_row() { printf '  %s  %s %s claude --name alpha-mission-control /planwright:mission-control alpha\n' "$1" "$2" "$uid"; }
+session_row "$SP" "$PP" >"$tmp/ps.out"
+printf '%%7\t%s\n' "$PP" >"$tmp/panes"
 
-esc() { mc_run mc-escalate.sh "$@"; }
+esc_dir="$fleet/mission-control/alpha/escalate"
 answer() {
   OUT=$(mc_env env TMUX_PANE=%99 /bin/bash "$repo_root/scripts/mc-pane-answer.sh" "$@" 2>"$tmp/stderr")
   RC=$?
   ERR=$(cat "$tmp/stderr")
 }
-note() { # note <shape> <text>: an operator note in hub's decisions log; prints its id
-  mc_env /bin/bash "$repo_root/scripts/mc-decide.sh" note --program hub --shape "$1" --subject "alpha dialog" --text "$2" --target "$2" 2>"$tmp/note.err" | awk -F '\t' '{ print $2 }'
+print_of() { awk -F '\t' '$1 == "dialog" { print $4; exit }' "$esc_dir/self" 2>/dev/null; }
+# shown <pane file>: the pane shows it, and the watcher records it afresh;
+# PRINT is its digest.
+shown() {
+  cp "$1" "$tmp/pane-%7"
+  rm -f "$esc_dir/self"
+  mc_run mc-escalate.sh scan --program alpha
+  PRINT=$(print_of)
+  [ -n "$PRINT" ] || fail "the watcher recorded no dialog for $1: $OUT $ERR"
+}
+# note <program> <shape> <target> [<subject>]: an operator note; prints its id.
+note() {
+  mc_env /bin/bash "$repo_root/scripts/mc-decide.sh" note --program "$1" --shape "$2" \
+    --subject "${4:-alpha dialog $PRINT}" --text "the operator chose $3" --target "$3" 2>"$tmp/note.err" | awk -F '\t' '{ print $2 }'
 }
 keys() { cat "$tmp/keys" 2>/dev/null; }
 refused() { # refused <label> <stderr needle>
@@ -114,16 +137,16 @@ refused() { # refused <label> <stderr needle>
   [ -z "$(keys)" ] || fail "$1: a key was sent: $(keys)"
 }
 
-mc_run mc-kb.sh init --program hub
-expect_rc "the hub's knowledge base" 0
+for p in hub beta; do
+  mc_run mc-kb.sh init --program "$p"
+  expect_rc "$p's knowledge base" 0
+done
 
-# The watcher records the dialog (first sight, session, digest) first.
-esc scan --program alpha
-expect_rc "the watcher records the open dialog" 0
-expect_out "as auto mode's confirmation, in pane %7" "self${tab}auto-mode${tab}0${tab}owner${tab}%7"
-sleep 1
-D1=$(note answer "1")
+shown "$tmp/dialog.txt"
+expect_out "the watcher records the open dialog in pane %7" "self${tab}auto-mode${tab}0${tab}owner${tab}%7"
+D1=$(note hub answer 1)
 if [ -n "$D1" ]; then ok "an operator answer is recorded ($D1)"; else fail "no decision id from mc-decide.sh note: $(cat "$tmp/note.err")"; fi
+cp "$esc_dir/self" "$tmp/self.first"
 
 # --- the arguments ----------------------------------------------------------
 for bad in 0 10 a "1 " "" "-1"; do
@@ -141,16 +164,39 @@ expect_rc "an unconfigured target program" 3
 answer --program alpha --choice 1 --decision "$D1" --decided-in nosuch
 expect_rc "an unconfigured deciding program" 3
 
+# --- where the decision lives -------------------------------------------------
+DB=$(note beta answer 1)
+answer --program alpha --choice 1 --decision "$DB" --decided-in beta
+refused "a decision outside the configured hub" "are the hub's (hub), not beta's"
+write_programs alpha
+answer --program alpha --choice 1 --decision "$D1" --decided-in alpha
+refused "a program answering its own dialog" "never answers its own"
+write_programs hub
+
 # --- the decision -------------------------------------------------------------
-NQ=$(mc_env /bin/bash "$repo_root/scripts/mc-decide.sh" decide --program hub --subject "alpha dialog" --act "answer it" --grounds "routine" --class hygiene 2>/dev/null | awk -F '\t' '{ print $2 }')
+NQ=$(mc_env /bin/bash "$repo_root/scripts/mc-decide.sh" decide --program hub --subject "alpha dialog $PRINT" --act "answer it" --target 1 --grounds "routine" --class hygiene 2>/dev/null | awk -F '\t' '{ print $2 }')
 answer --program alpha --choice 1 --decision "$NQ" --decided-in hub
-refused "a decision that is not the operator's words" "operator's words"
-esc_dir="$fleet/mission-control/alpha/escalate"
+refused "a decision that is not the operator's" "not the operator's answer"
+DC=$(note hub correction 1)
+answer --program alpha --choice 1 --decision "$DC" --decided-in hub
+refused "an operator correction is not an answer" "not the operator's answer"
+DO=$(note hub answer 1 "alpha dialog 0123456789abcdef")
+answer --program alpha --choice 1 --decision "$DO" --decided-in hub
+refused "an answer about another dialog" "about another dialog"
+DS=$(note hub answer 1 "alpha dialog")
+answer --program alpha --choice 1 --decision "$DS" --decided-in hub
+refused "an answer naming no dialog" "about another dialog"
+D3=$(note hub answer 3)
+answer --program alpha --choice 1 --decision "$D3" --decided-in hub
+refused "a choice other than the answer recorded" "an answer other than 1"
 cp "$esc_dir/self" "$tmp/self.saved"
-IFS="$tab" read -r _ first sess print _ <"$esc_dir/self"
-printf 'dialog\t%s\t%s\t%s\n' $((first + 86400)) "$sess" "$print" >"$esc_dir/self"
+IFS="$tab" read -r _ first sess print kind <"$esc_dir/self"
+printf 'dialog\t%s\t%s\t%s\t%s\n' $((first + 86400)) "$sess" "$print" "$kind" >"$esc_dir/self"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "a decision older than the dialog" "predates the dialog"
+printf 'dialog\t%s\t%s\tnot-a-digest\t%s\n' "$first" "$sess" "$kind" >"$esc_dir/self"
+answer --program alpha --choice 1 --decision "$D1" --decided-in hub
+refused "an unreadable dialog record" "unreadable"
 rm -f "$esc_dir/self"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "no dialog on record" "no dialog of alpha is on record"
@@ -161,69 +207,108 @@ cp "$tmp/ps.out" "$tmp/ps.saved"
 : >"$tmp/ps.out"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "no session running" "no mission-control session of alpha is running"
-printf '  500  400 %s claude /planwright:mission-control alpha\n  501  400 %s claude /planwright:mission-control alpha\n' "$uid" "$uid" >"$tmp/ps.out"
+{
+  session_row "$SP" "$PP"
+  session_row $((SP + 1)) "$PP"
+} >"$tmp/ps.out"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "two sessions running" "more than one"
-printf '  510  400 %s claude /planwright:mission-control alpha\n' "$uid" >"$tmp/ps.out"
+session_row $((SP + 2)) "$PP" >"$tmp/ps.out"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "a session other than the one on record" "not the one whose dialog is on record"
-printf '  500  400 4242424 claude /planwright:mission-control alpha\n' >"$tmp/ps.out"
+printf '  %s  %s 4242424 claude /planwright:mission-control alpha\n' "$SP" "$PP" >"$tmp/ps.out"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "another account's process is never the session" "no mission-control session of alpha is running"
 cp "$tmp/ps.saved" "$tmp/ps.out"
 : >"$tmp/panes"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "a session with no pane" "has no tmux pane"
-printf '%%7\t400\n' >"$tmp/panes"
+printf '%%7\t%s\n' "$PP" >"$tmp/panes"
 OUT=$(mc_env env TMUX_PANE=%7 /bin/bash "$repo_root/scripts/mc-pane-answer.sh" --program alpha --choice 1 --decision "$D1" --decided-in hub 2>"$tmp/stderr")
 RC=$?
 ERR=$(cat "$tmp/stderr")
 refused "the caller's own pane" "the caller's own"
 # The caller runs under the pane: the pane's process is this test's shell.
 printf '%%7\t%s\n' "$$" >"$tmp/panes"
-printf '  500  %s %s claude /planwright:mission-control alpha\n' "$$" "$uid" >"$tmp/ps.out"
+session_row "$SP" "$$" >"$tmp/ps.out"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "a pane the caller runs under" "one the caller runs under"
 cp "$tmp/ps.saved" "$tmp/ps.out"
-printf '%%7\t400\n' >"$tmp/panes"
+printf '%%7\t%s\n' "$PP" >"$tmp/panes"
 
 # --- the dialog -------------------------------------------------------------
-cp "$tmp/pane-%7" "$tmp/pane.saved"
 printf '  ? for shortcuts\n> \n' >"$tmp/pane-%7"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "no open dialog" "shows no open dialog"
-sed 's/4 consecutive/9 consecutive/; s/answer \*$/steer */' "$tmp/pane.saved" >"$tmp/pane-%7"
+sed 's/4 consecutive/9 consecutive/' "$tmp/dialog.txt" >"$tmp/pane-%7"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "a different dialog from the one on record" "a different dialog"
-cp "$tmp/pane.saved" "$tmp/pane-%7"
-answer --program alpha --choice 4 --decision "$D1" --decided-in hub
+cp "$tmp/dialog.txt" "$tmp/pane-%7"
+sed 's/4 consecutive/9 consecutive/' "$tmp/dialog.txt" >"$tmp/pane-%7.next"
+answer --program alpha --choice 1 --decision "$D1" --decided-in hub
+refused "a dialog that changed before the keystroke" "a different dialog"
+cp "$tmp/dialog.txt" "$tmp/pane-%7"
+answer --program alpha --choice 4 --decision "$(note hub answer 4)" --decided-in hub
 refused "an option the dialog does not offer" "offers no option 4"
-answer --program alpha --choice 2 --decision "$D1" --decided-in hub
-refused "an option that adds a standing permission" "adds a standing permission"
+answer --program alpha --choice 2 --decision "$(note hub answer 2)" --decided-in hub
+refused "an option that adds a standing permission" "does more than answer this dialog"
+SAVED_PRINT=$PRINT
+sed 's/^   2\. Yes, and don.*$/   2. Yes, auto-accept edits/' "$tmp/dialog.txt" >"$tmp/modes.txt"
+shown "$tmp/modes.txt"
+answer --program alpha --choice 2 --decision "$(note hub answer 2)" --decided-in hub
+refused "an option that switches a mode" "does more than answer this dialog"
+sed 's/^   3\. No$/   2. No/' "$tmp/dialog.txt" >"$tmp/repeat.txt"
+shown "$tmp/repeat.txt"
+answer --program alpha --choice 1 --decision "$(note hub answer 1)" --decided-in hub
+refused "a run that repeats a digit" "wrap or repeat"
+awk '{ print } /^   2\. Yes, and/ { print "      and every later call" }' "$tmp/dialog.txt" >"$tmp/wrap.txt"
+shown "$tmp/wrap.txt"
+answer --program alpha --choice 1 --decision "$(note hub answer 1)" --decided-in hub
+refused "a run whose labels wrap" "wrap or repeat"
+shown "$tmp/dialog.txt"
+[ "$PRINT" = "$SAVED_PRINT" ] || fail "the same dialog recorded twice has two digests"
+cp "$tmp/self.first" "$esc_dir/self"
+cp "$tmp/self.first" "$tmp/self.saved"
 
 # --- delivery -----------------------------------------------------------------
+ln -s "$tmp/elsewhere" "$esc_dir/answers.log"
+answer --program alpha --choice 1 --decision "$D1" --decided-in hub
+expect_rc "a linked answers log" 1
+expect_err "is refused" "not a regular file"
+[ -z "$(keys)" ] && [ ! -e "$tmp/elsewhere" ] || fail "a linked answers log was used"
+rm -f "$esc_dir/answers.log"
+ln -s "$$-1-1" "$esc_dir/answer.lock"
+answer --program alpha --choice 1 --decision "$D1" --decided-in hub
+expect_rc "another answer in flight" 1
+expect_err "is named" "in flight"
+[ -z "$(keys)" ] || fail "a key was sent beside a live answer: $(keys)"
+rm -f "$esc_dir/answer.lock"
+
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 expect_rc "a decided choice is delivered" 0
 expect_out "naming the pane, digit and option" "answered${tab}alpha${tab}%7${tab}1${tab}Yes"
 if [ "$(keys)" = "-t %7 1" ]; then ok "exactly one digit is sent to that pane"; else fail "keys sent: '$(keys)'"; fi
-if grep -q "${tab}${D1}${tab}hub${tab}1${tab}%7${tab}500${tab}sent$" "$esc_dir/answers.log"; then
+if grep -q "${tab}${D1}${tab}hub${tab}1${tab}%7${tab}${SP}${tab}sent$" "$esc_dir/answers.log"; then
   ok "the answer is logged against the decision"
 else
   fail "answers.log: $(cat "$esc_dir/answers.log" 2>/dev/null)"
 fi
+if [ ! -e "$esc_dir/self" ]; then ok "the answered dialog's record is dropped"; else fail "the dialog record survived its answer"; fi
 : >"$tmp/keys"
+cp "$tmp/self.saved" "$esc_dir/self"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "a decision already used" "already answered a dialog"
-D2=$(note correction "pick no")
+D2=$(note hub answer 3)
 touch "$tmp/send-fails"
 answer --program alpha --choice 3 --decision "$D2" --decided-in hub
 expect_rc "a failed send" 1
 rm -f "$tmp/send-fails"
-if grep -q "${tab}${D2}${tab}hub${tab}3${tab}%7${tab}500${tab}failed$" "$esc_dir/answers.log"; then
+if grep -q "${tab}${D2}${tab}hub${tab}3${tab}%7${tab}${SP}${tab}failed$" "$esc_dir/answers.log"; then
   ok "a failed send is logged and uses the decision"
 else
   fail "answers.log after a failed send: $(cat "$esc_dir/answers.log")"
 fi
+if [ -e "$esc_dir/self" ]; then ok "a failed send keeps the dialog's record"; else fail "a failed send dropped the dialog record"; fi
 : >"$tmp/keys"
 answer --program alpha --choice 3 --decision "$D2" --decided-in hub
 refused "a decision a failed send used" "already answered a dialog"

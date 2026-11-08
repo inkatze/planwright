@@ -1,43 +1,36 @@
 # shellcheck shell=bash
-# mc-session-pane.sh — finding a program's mission-control session in the
-# process table, the tmux pane above it, and whether that pane shows an open
-# dialog (sourced, never executed). Read by scripts/mc-escalate.sh, which
-# watches for a mission control stuck on its own dialog, and by
-# scripts/mc-pane-answer.sh, which delivers an operator's choice to it, so
-# both judge the same pane the same way.
-#
-# The session is the claude process of this user whose last two arguments
-# are `/planwright:mission-control <program>`; its pane is the tmux pane
-# whose process is that one or an ancestor of it. The caller sources
-# scripts/fleet-pane-vocabulary.sh first, and every value read from the
-# pane is data: nothing here evaluates it.
+# mc-session-pane.sh — a program's mission-control session in the process
+# table, the tmux pane above it, and the dialog that pane shows (sourced,
+# never executed), shared by scripts/mc-escalate.sh and
+# scripts/mc-pane-answer.sh so both judge one pane the same way. The caller
+# sources scripts/mc-lib.sh and scripts/fleet-pane-vocabulary.sh first.
+# The auto-mode phrases and the answerable labels are this file's; every
+# other dialog string is the vocabulary's. Pane text is data throughout:
+# nothing here evaluates it.
 
-MSP_PANE_LINES=20
+MSP_PANE_LINES=40
 MSP_ANCESTRY_MAX=32
 
-# msp_ps: the process table as `<pid> <ppid> <uid> <args>` lines.
-msp_ps() {
-  ps -ww -A -o pid= -o ppid= -o uid= -o args= 2>/dev/null
-}
+# The process-table read, for `sh -c`: `<pid> <ppid> <uid or user> <args>`
+# lines. busybox ps knows neither -ww nor the uid column, so its form names
+# the user.
+# shellcheck disable=SC2034 # read by the scripts that source this file
+MSP_PS_CMD='ps -ww -A -o pid= -o ppid= -o uid= -o args= 2>/dev/null || ps -o pid,ppid,user,args'
 
 # msp_find <program> <ps table>: the session's pid, or `absent` / `ambiguous`.
-# Only this user's processes count, so another account's process cannot
-# stand in for the session or make it ambiguous.
+# Only this user's processes count, so another account's process can neither
+# stand in for the session nor make it ambiguous.
 msp_find() {
-  printf '%s\n' "$2" | P=$1 U=$(id -u) awk '
+  printf '%s\n' "$2" | P=$1 U=$(id -u) N=$(id -un 2>/dev/null) awk '
     {
-      if ($1 !~ /^[0-9]+$/ || $3 != ENVIRON["U"] || NF < 6) next
+      if ($1 !~ /^[0-9]+$/ || NF < 6) next
+      if ($3 != ENVIRON["U"] && (ENVIRON["N"] == "" || $3 != ENVIRON["N"])) next
       n = split($4, a, "/")
       if (a[n] != "claude") next
       if ($(NF - 1) != "/planwright:mission-control" || $NF != ENVIRON["P"]) next
       c++; pid = $1
     }
     END { if (c == 0) print "absent"; else if (c > 1) print "ambiguous"; else print pid }'
-}
-
-# msp_panes: the tmux panes as `<pane id><TAB><pane pid>` lines.
-msp_panes() {
-  tmux list-panes -a -F '#{pane_id}	#{pane_pid}' 2>/dev/null
 }
 
 # msp_pane_of <pid> <ps table> <panes>: the pane whose process is <pid> or an
@@ -59,83 +52,125 @@ msp_pane_of() {
     }'
 }
 
-# msp_trim: stdin's last MSP_PANE_LINES lines up to its last non-blank one,
-# so a saved capture and a live one read the same.
-msp_trim() {
-  awk 'NF { last = NR } { l[NR] = $0 } END { for (i = 1; i <= last; i++) print l[i] }' | tail -n "$MSP_PANE_LINES"
-}
-
-# msp_options <pane text>: the open dialog's option lines as
-# `<digit><TAB><label>`, the selection cursor dropped and each label cut at
-# its first run of three blanks, where a pane's side panel begins.
-msp_options() {
-  printf '%s\n' "$1" | awk '
-    {
-      s = $0
-      sub(/^[ \t]+/, "", s)
-      sub(/^❯[ \t]*/, "", s)
-      if (s !~ /^[1-9]\.[ \t]/) next
-      d = substr(s, 1, 1)
-      l = substr(s, 3)
-      sub(/^[ \t]+/, "", l)
-      i = index(l, "   ")
-      if (i) l = substr(l, 1, i - 1)
-      print d "\t" l
+# msp_ancestor <pid> <of> <ps table>: 0 when <pid> is <of> or an ancestor of it.
+msp_ancestor() {
+  printf '%s\n' "$3" | T=$1 S=$2 M=$MSP_ANCESTRY_MAX awk '
+    $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { parent[$1] = $2 }
+    END {
+      p = ENVIRON["S"]
+      for (i = 0; i < ENVIRON["M"] + 0 && p + 0 > 1; i++) { if (p == ENVIRON["T"]) exit 0; p = parent[p] }
+      exit 1
     }'
 }
 
-# msp_dialog <pane text>: 0 when the pane shows an open dialog, setting
-# MSP_KIND (`auto-mode` for auto mode's own confirmation, `dialog` for any
-# other) and MSP_PRINT (a digest of its options, which tells one dialog from
-# the next). A dialog is open when a line carrying a dialog signature (the
-# shared vocabulary's permission and select-menu needles, or the selection
-# cursor on a numbered option) has no input prompt, idle-footer anchor or
-# busy marker below it: one that does is an answered dialog left in the
-# scrollback, or text that merely quotes one.
+# msp_trim: stdin with the mission-control side panel cut off each line (the
+# text after a last `│` past column 40 that follows a blank or a rule) and
+# trailing blanks dropped, keeping the last MSP_PANE_LINES lines up to the
+# last non-blank one, so a saved capture and a live one read the same.
+msp_trim() {
+  awk '{
+      s = $0; cut = 0; rest = s; off = 0
+      while ((i = index(rest, "│")) > 0) {
+        p = off + i
+        if (p > 40 && (substr(s, p - 1, 1) == " " || substr(s, p - length("─"), length("─")) == "─")) cut = p
+        off = p + length("│") - 1; rest = substr(s, off + 1)
+      }
+      if (cut) s = substr(s, 1, cut - 1)
+      sub(/[ \t]+$/, "", s)
+      l[NR] = s; if (s != "") last = NR
+    }
+    END { for (i = 1; i <= last; i++) print l[i] }' | tail -n "$MSP_PANE_LINES"
+}
+
+# msp_dialog <trimmed pane text>: 0 when the pane shows an open dialog,
+# setting MSP_KIND (`auto-mode` for auto mode's own confirmation, `dialog`
+# otherwise), MSP_OPTIONS (the dialog's own option run as
+# `<digit><TAB><label>`, empty unless it runs 1, 2, 3 in order, as a label
+# that wraps or a repeated digit breaks it) and
+# MSP_PRINT (a digest of the dialog's text). The last line carrying a
+# signature of the shared vocabulary, or the selection cursor on a numbered
+# option, ends the dialog; an input prompt, idle anchor or busy marker below
+# that line means it is not open, being scrollback or a quotation. Options
+# are read only from the run just above that line, never from scrollback.
 msp_dialog() {
-  MSP_KIND=""
-  MSP_PRINT=""
-  md_lc=$(printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]')
-  md_last=$(printf '%s\n' "$md_lc" | SIG="$(
+  MSP_KIND="" MSP_OPTIONS="" MSP_PRINT=""
+  md_sig=$(
     permission_prompt_signatures
     default_selection_prompt_signatures
-  )" awk '
-    BEGIN { n = split(ENVIRON["SIG"], s, "\n") }
-    {
-      for (i = 1; i <= n; i++) if (s[i] != "" && index($0, s[i])) { last = NR; next }
-      if ($0 ~ /^[ \t]*❯[ \t]*[0-9]+\./) last = NR
+  )
+  md_tail=$(
+    busy_markers
+    spinner_words
+    prompt_anchors
+  )
+  md_in=$(input_prompt_prefixes)
+  md_out=$(printf '%s\n' "$1" | SIG=$md_sig TAIL=$md_tail IN=$md_in awk '
+    BEGIN {
+      ns = split(tolower(ENVIRON["SIG"]), sig, "\n")
+      nt = split(tolower(ENVIRON["TAIL"]), tl, "\n")
+      ni = split(ENVIRON["IN"], inp, "\n")
     }
-    END { print last + 0 }')
-  [ "$md_last" -gt 0 ] || return 1
-  md_after=$(printf '%s\n' "$md_lc" | tail -n "+$((md_last + 1))")
-  if [ -n "$md_after" ]; then
-    printf '%s\n' "$(
-      busy_markers
-      spinner_words
-      prompt_anchors
-    )" | { contains_any "$md_after"; } && return 1
-    printf '%s\n' "$md_after" | awk '
-      { s = $0; sub(/^[ \t]+/, "", s); sub(/^│[ \t]*/, "", s)
-        if (s ~ /^❯/ && s !~ /^❯[ \t]*[0-9]+\./) f = 1
-        if (s ~ /^> /) f = 1 }
-      END { exit !f }' && return 1
-  fi
-  case $md_lc in
-    *'consecutive actions were blocked'* | *'auto mode needs your confirmation'*) MSP_KIND=auto-mode ;;
-    *) MSP_KIND=dialog ;;
-  esac
-  md_opts=$(msp_options "$1")
-  # shellcheck disable=SC2034 # read by the scripts that source this file
-  MSP_PRINT=$(printf '%s|%s\n' "$MSP_KIND" "$md_opts" | mc_sha256 | cut -c1-16) || MSP_PRINT=unhashed
+    { line[NR] = $0; lc[NR] = tolower($0) }
+    function option(i,   s) { s = line[i]; sub(/^[ \t]+/, "", s); sub(/^❯[ \t]*/, "", s); return (s ~ /^[1-9]\.[ \t]/) ? s : "" }
+    function signed(i,   k, s) {
+      for (k = 1; k <= ns; k++) if (sig[k] != "" && index(lc[i], sig[k])) return 1
+      s = line[i]; sub(/^[ \t]+/, "", s); return s ~ /^❯[ \t]*[1-9]\./
+    }
+    function closes(i,   k, s) {
+      for (k = 1; k <= nt; k++) if (tl[k] != "" && index(lc[i], tl[k])) return 1
+      s = line[i]; sub(/^[ \t]+/, "", s)
+      for (k = 1; k <= ni; k++) {
+        if (inp[k] == "") continue
+        if (s == inp[k]) return 1
+        if (index(s, inp[k] " ") == 1 && !(inp[k] == "❯" && option(i) != "")) return 1
+      }
+      return 0
+    }
+    function footer(i) { return lc[i] ~ /esc to cancel|to navigate|enter to select|tab to amend/ }
+    END {
+      for (i = NR; i >= 1; i--) if (signed(i)) { end = i; break }
+      if (!end) exit 1
+      for (i = end + 1; i <= NR; i++) if (closes(i)) exit 1
+      for (i = end; i >= 1; i--) if (option(i) != "") { olast = i; break }
+      bad = 0
+      if (olast) {
+        ofirst = olast
+        while (ofirst > 1 && option(ofirst - 1) != "") ofirst--
+        for (i = olast + 1; i < end; i++) if (line[i] ~ /[^ \t]/ && !footer(i)) bad = 1
+        for (i = ofirst; i <= olast; i++) {
+          s = option(i); d = substr(s, 1, 1); l = substr(s, 3); sub(/^[ \t]+/, "", l)
+          if (d + 0 != no + 1) bad = 1
+          opt[++no] = d "\t" l
+        }
+      }
+      start = olast ? ofirst : end
+      # The dialog reaches up to the rule that opens it, at most a dozen lines.
+      top = start
+      while (top > 1 && top > start - 12 && !index(line[top - 1], "────────") && !index(line[top - 1], "╌╌╌╌╌╌╌╌")) top--
+      kind = "dialog"
+      for (i = top; i <= end; i++) if (lc[i] ~ /consecutive actions were blocked|auto mode needs your confirmation/) kind = "auto-mode"
+      print "kind\t" kind
+      if (!bad) for (i = 1; i <= no; i++) print "option\t" opt[i]
+      for (i = top; i <= end; i++) { s = line[i]; sub(/^[ \t]+/, "", s); sub(/^❯[ \t]*/, "", s); print "block\t" s }
+    }') || return 1
+  # shellcheck disable=SC2034 # these three are read by the scripts that source this file
+  MSP_KIND=$(printf '%s\n' "$md_out" | awk -F '\t' '$1 == "kind" { print $2; exit }')
+  # shellcheck disable=SC2034
+  MSP_OPTIONS=$(printf '%s\n' "$md_out" | awk -F '\t' '$1 == "option" { print $2 "\t" $3 }')
+  md_h=$(printf '%s\n' "$md_out" | grep -v '^option' | mc_sha256) || md_h=""
+  # shellcheck disable=SC2034
+  MSP_PRINT=${md_h%"${md_h#????????????????}"}
+  [ -n "$MSP_PRINT" ] || MSP_PRINT=unhashed
   return 0
 }
 
-# msp_widening <label>: 0 when choosing the option would widen the
-# session's permissions for later calls (an allow rule it adds), which no
-# relayed answer may do.
-msp_widening() {
-  case $(printf '%s' "$1" | tr '[:upper:]' '[:lower:]') in
-    *'ask again'* | *'always allow'* | *'allow all'* | *'for this session'*) return 0 ;;
+# msp_answerable <label>: 0 for an option that answers this one dialog and
+# nothing more. Anything else (a rule for later calls, a mode switch, a
+# directory or trust grant, a wording this list has not met) is refused.
+msp_answerable() {
+  ma_l=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed "s/’/'/g; s/[[:space:]]*(esc)\$//; s/[[:space:]]*\$//")
+  case $ma_l in
+    yes | no | 'no, and tell claude what to do differently' | 'yes, but ask again next time') return 0 ;;
   esac
   return 1
 }

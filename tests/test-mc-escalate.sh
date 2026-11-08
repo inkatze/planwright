@@ -282,6 +282,30 @@ expect_out "two sessions under one name read ambiguous" "self${tab}ambiguous"
 printf '  500   400 %s claude /planwright:mission-control alpha\n  501   400 4242424 claude /planwright:mission-control alpha\n' "$uid" >"$tmp/ps.out"
 esc scan --program alpha --now $((T0 + 3000))
 expect_out "another account's process neither stands in nor makes it ambiguous" "self${tab}dialog${tab}0${tab}owner${tab}%7"
+# No session found keeps the hold and what it raised: the dialog seen again
+# holds on, and is not raised twice.
+esc scan --program alpha --now $((T0 + 4000))
+expect_out "the dialog held a window is raised to the hub" "escalated${tab}hub${tab}alpha"
+cp "$tmp/ps.out" "$tmp/ps.saved"
+: >"$tmp/ps.out"
+esc scan --program alpha --now $((T0 + 4100))
+expect_out "a pass that finds no session" "self${tab}absent"
+if [ -s "$fleet/mission-control/alpha/escalate/self" ] && grep -q "^self${tab}$((T0 + 3000))${tab}500${tab}.*${tab}hub$" "$fleet/mission-control/alpha/escalate/sent"; then
+  ok "keeps the dialog's record and its hub escalation"
+else
+  fail "after an absent pass: self '$(cat "$fleet/mission-control/alpha/escalate/self" 2>/dev/null)', sent '$(cat "$fleet/mission-control/alpha/escalate/sent" 2>/dev/null)'"
+fi
+cp "$tmp/ps.saved" "$tmp/ps.out"
+esc scan --program alpha --now $((T0 + 4200))
+expect_out "the dialog seen again holds on" "self${tab}dialog${tab}1200${tab}hub${tab}%7"
+expect_no_out "and is not raised again" "escalated${tab}hub"
+# A session whose pane cannot be read fails the pass and keeps the hold.
+: >"$tmp/panes"
+esc scan --program alpha --now $((T0 + 4300))
+expect_rc "an unreadable pane fails the pass" 1
+expect_out "and reads unreadable" "self${tab}unreadable"
+if [ -s "$fleet/mission-control/alpha/escalate/self" ]; then ok "the hold survives an unreadable pane"; else fail "an unreadable pane dropped the hold"; fi
+printf '%%7\t400\n%%8\t600\n' >"$tmp/panes"
 
 # ---------------------------------------------------------------------------
 # What reads as an open dialog: text below the signature that only an open
@@ -300,6 +324,16 @@ expect_out "a dialog quoted above an idle input box reads clear" "self${tab}clea
 } >"$tmp/busy.txt"
 esc scan --program alpha --now $((T0 + 100)) --pane "$tmp/busy.txt"
 expect_out "a dialog above a running turn reads clear" "self${tab}clear"
+printf ' Resume which session?\n ❯ 1. alpha-mission-control\n   2. beta-mission-control\n\n Enter to select · ↑/↓ to navigate · Esc to cancel\n' >"$tmp/menu.txt"
+esc scan --program alpha --now $((T0 + 100)) --pane "$tmp/menu.txt"
+expect_out "a select menu with no permission wording is a dialog" "self${tab}dialog${tab}0${tab}owner"
+rm -f "$fleet/mission-control/alpha/escalate/self"
+{
+  cat "$tmp/dialog.txt"
+  printf '\n> \n'
+} >"$tmp/input.txt"
+esc scan --program alpha --now $((T0 + 100)) --pane "$tmp/input.txt"
+expect_out "a dialog above a live input line, trailing space and all, reads clear" "self${tab}clear"
 cat >"$tmp/automode.txt" <<'EOF'
  Bash command
  │ /plugin/scripts/fleet-streamjson.sh answer mc-alpha-worker-aaaaaaaaaa r1 --allow
@@ -341,7 +375,8 @@ printf '  510   400 %s claude /planwright:mission-control alpha\n' "$uid" >"$tmp
 esc scan --program alpha --now $((T0 + 4000))
 expect_out "a new session's dialog starts a fresh hold" "self${tab}dialog${tab}0${tab}owner${tab}%7"
 # A future first sight is not trusted.
-printf 'dialog\t%s\t510\tx\n' $((T0 + 99999)) >"$fleet/mission-control/alpha/escalate/self"
+IFS="$tab" read -r _ _ f_sess f_print f_kind <"$fleet/mission-control/alpha/escalate/self"
+printf 'dialog\t%s\t%s\t%s\t%s\n' $((T0 + 99999)) "$f_sess" "$f_print" "$f_kind" >"$fleet/mission-control/alpha/escalate/self"
 esc scan --program alpha --now $((T0 + 4100))
 expect_out "a first sight in the future restarts the hold" "self${tab}dialog${tab}0${tab}owner"
 rm -f "$fleet/mission-control/alpha/escalate/self"
@@ -426,11 +461,14 @@ rm -rf "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa" "$fleet/mission-control/al
 # A record that cannot be written raises nothing, so nothing is raised twice.
 req mc-alpha-worker-aaaaaaaaaa r10-0010 "$T0"
 : >"$fleet/attention/toasts"
-chmod 555 "$fleet/mission-control/alpha/escalate"
+: >"$fleet/mission-control/alpha/escalate/sent"
+chmod 444 "$fleet/mission-control/alpha/escalate/sent"
 esc scan --program alpha --now $((T0 + 2800))
 expect_rc "an unwritable record fails the pass" 1
+expect_err "and says so" "nothing is raised this pass"
 expect_no_out "and raises nothing" "escalated"
-chmod 755 "$fleet/mission-control/alpha/escalate"
+chmod 644 "$fleet/mission-control/alpha/escalate/sent"
+rm -f "$fleet/mission-control/alpha/escalate/sent"
 # A linked record is refused.
 ln -s "$tmp/elsewhere" "$fleet/mission-control/alpha/escalate/sent"
 esc scan --program alpha --now $((T0 + 2800))

@@ -52,13 +52,14 @@ WHAT IT RAISES. Two things, each held against
 mission_control_escalation_window (W):
   a request   a permission or question request of a live stream-json worker
               the launcher records for this program (mission-control-launch.sh
-              list), still pending in its journal. The owner's own alarm
-              fires at PLANWRIGHT_STREAMJSON_PENDING_AGE, read and defaulted
-              as scripts/fleet-streamjson.sh reads it, counted from the
-              request's latest receipt; the hub hears it at that age plus W,
-              the operator at that age plus 2W. A worker whose supervisor
-              and process are both gone is the keeper's alarm scan's to
-              settle, never raised here.
+              list), still pending in its journal. Its age counts from its
+              latest receipt (a re-asked request starts again, where the
+              owner's own alarm keeps its first receipt), against
+              PLANWRIGHT_STREAMJSON_PENDING_AGE read and defaulted as
+              scripts/fleet-streamjson.sh reads it: the hub hears it at that
+              age plus W, the operator at that age plus 2W. A worker with
+              neither pidfile left is the keeper's alarm scan's to settle,
+              never raised here.
   the dialog  this program's mission control showing an open dialog in its
               tmux pane: a permission prompt, a select menu, or auto mode's
               own confirmation after blocked actions (kind auto-mode), which
@@ -352,6 +353,22 @@ $WORKERS
 EOF
 
 # --- the session's own dialog ----------------------------------------------
+# read_self: the dialog record's first sight, session and digest, each field
+# kept even when an earlier one is empty, or empty values.
+read_self() {
+  rec_first="" rec_sess="" rec_print=""
+  [ -f "$SELF" ] || return 0
+  rs_line=$(awk -F '\t' '$1 == "dialog" { print $2 "\t" $3 "\t" $4; exit }' "$SELF" 2>/dev/null) || {
+    printf '%s\n' "$prog: cannot read the dialog record" >&2
+    failed=1
+    return 0
+  }
+  [ -n "$rs_line" ] || return 0
+  rec_first=${rs_line%%	*}
+  rs_line=${rs_line#*	}
+  rec_sess=${rs_line%%	*}
+  rec_print=${rs_line#*	}
+}
 S_STATE=""
 S_PANE=""
 S_PID=-
@@ -360,7 +377,7 @@ have_pane=0
 if [ -n "$PANE_FILE" ]; then
   S_TEXT=$(cat "$PANE_FILE")
   have_pane=1
-elif PS_TABLE=$(bounded /bin/sh -c 'ps -ww -A -o pid= -o ppid= -o uid= -o args=' 2>/dev/null); then
+elif PS_TABLE=$(bounded /bin/sh -c "$MSP_PS_CMD" 2>/dev/null); then
   S_PID=$(msp_find "$PROGRAM" "$PS_TABLE")
   case $S_PID in
     absent | ambiguous) S_STATE=$S_PID ;;
@@ -383,10 +400,7 @@ if [ "$have_pane" = 1 ]; then
   S_TEXT=$(printf '%s\n' "$S_TEXT" | msp_trim)
   if msp_dialog "$S_TEXT"; then
     S_STATE=$MSP_KIND
-    rec_first="" rec_sess="" rec_print=""
-    if [ -f "$SELF" ]; then
-      IFS='	' read -r _ rec_first rec_sess rec_print _ <"$SELF" || :
-    fi
+    read_self
     first=$rec_first
     if ! mc_valid_uint "$first" || [ "$first" -gt "$NOW" ] || [ "$rec_sess" != "$S_PID" ] || [ "$rec_print" != "$MSP_PRINT" ]; then
       first=$NOW
@@ -400,7 +414,7 @@ if [ "$have_pane" = 1 ]; then
     what="its own dialog"
     [ "$S_STATE" != auto-mode ] || what="auto mode's confirmation prompt, which Remote Control does not show"
     raise "self	$first	$S_PID	$MSP_PRINT" "$RANK" "$PROGRAM" \
-      "mission control $PROGRAM has been held ${held}s on $what${S_PANE:+ in tmux pane $S_PANE}; it answers no worker until that is answered" \
+      "mission control $PROGRAM has been held ${held}s on $what${S_PANE:+ in tmux pane $S_PANE}; it answers no worker until that is answered. Ask the operator; record their choice with mc-decide.sh note --shape answer --subject '$PROGRAM dialog $MSP_PRINT' --target <digit> --text <their words>, then deliver it with mc-pane-answer.sh --program $PROGRAM --choice <digit> --decision <entry id> --decided-in $HUB" \
       "$PROGRAM mission control has been stuck ${held}s on $what${S_PANE:+ (tmux pane $S_PANE)}"
   else
     S_STATE=clear
@@ -417,9 +431,8 @@ esac
 # closed or another dialog.
 case $S_STATE in
   absent | ambiguous | unreadable)
-    if [ -f "$SELF" ] && IFS='	' read -r _ rec_first rec_sess rec_print _ <"$SELF"; then
-      ! mc_valid_uint "$rec_first" || LIVE="${LIVE}self	$rec_first	$rec_sess	$rec_print$NL"
-    fi
+    read_self
+    ! mc_valid_uint "$rec_first" || LIVE="${LIVE}self	$rec_first	$rec_sess	$rec_print$NL"
     ;;
 esac
 printf 'self\t%s\t%s\t%s%s\n' "$S_STATE" "$held" "$LEVEL" "${S_PANE:+	$S_PANE}"
