@@ -831,7 +831,9 @@ directory whatever version wrote it, and mission control's session-keeper
 watcher runs it as `alarm-scan --once` on every pass: an overdue request
 becomes a high-priority queue item, is pushed once (the tick and `--once` share
 one mark per request; a plain scan pushes on every call), and wakes the
-mission-control session as a `pending-prompt-overdue` event. A worker that is
+mission-control session as a `pending-prompt-overdue` event. A request that has
+just arrived wakes it sooner as a `pending-prompt` event, at most one per
+rate-limit window (`mc-keeper.sh` names it) so a burst is one wake. A worker that is
 positively dead, or whose run ended (no pid file left beside a complete result
 record), is never escalated: what it left pending can no longer be answered,
 so the scan closes those receipts undeliverable, as a stop does, clears the
@@ -2208,10 +2210,11 @@ session lacks, so the gate first reads the **status-line mirror**: a copy of
 Claude Code's own rate-limit windows that the operator's own `statusLine`
 command writes, from the rate-limit fields Claude Code hands it, to
 `${XDG_CACHE_HOME:-$HOME/.cache}/claude-usage/rate-limits.json` as
-`{"five_hour":{"used_percentage":N,"resets_at":EPOCH},"seven_day":{...}}`
+`{"five_hour":{"used_percentage":N,"resets_at":EPOCH},"seven_day":{...},"spend_limit":{...}}`
 (`$PLANWRIGHT_USAGE_MIRROR` names another absolute path; set empty, it is
-skipped). planwright never writes this file, and `scripts/fleet-statusline.sh`
-does not either; write it atomically (temp file, then rename). Each window
+skipped). `scripts/fleet-usage-mirror.sh` writes it, atomically, from the
+rate-limit fields Claude Code passes a statusLine command; `scripts/fleet-statusline.sh`
+does not. Setup is in [the usage mirror](#the-usage-mirror). Each window
 comes from the first source holding it fresh: the mirror, a regular file
 with no control byte, within `fleet_usage_signal_ttl_seconds` by file age,
 and per window a 0–100 percentage whose reset is still ahead and no further
@@ -2618,6 +2621,54 @@ A tower launched with an earlier copy of the profile lacks those appended deny
 entries until it is relaunched: until then, the front door's bring-up posture
 check finds them missing and holds back repo-mutating routes and relays, unless the
 operator acknowledges running without them.
+
+### The usage mirror
+
+The gate needs a usage signal, and Claude Code's status line is the documented
+surface that carries the rate-limit fields: `rate_limits.five_hour` and
+`rate_limits.seven_day` for subscription accounts, and
+`rate_limits.spend_limit` (a percentage and reset, behind a Claude apps
+gateway). A host whose status line does not write the mirror has no signal:
+the gate then logs `no usage signal` on every cadence and relies on the
+reactive throttle.
+
+Install by wrapping the status line you already have, in your own settings
+file (planwright never edits it). `fleet-usage-mirror.sh statusline` writes the
+mirror, then runs your command on the same input and passes its output and
+exit status through, so your line is unchanged:
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "<plugin-root>/scripts/fleet-usage-mirror.sh statusline '<your current statusLine command>'",
+  "refreshInterval": 60
+}
+```
+
+The wrapped command is one argument: quote it for `sh`, and JSON-escape it if
+it holds quotes. With no status line yet, use
+`"command": "<plugin-root>/scripts/fleet-usage-mirror.sh statusline"`, which
+writes the mirror and prints nothing. `refreshInterval` (seconds) re-runs
+the command while the session is idle, so the mirror stays inside
+`fleet_usage_signal_ttl_seconds`.
+
+- Check: `scripts/fleet-usage-gate.sh mirror-path` names the file;
+  `scripts/fleet-usage-gate.sh signal` prints the readings the gate uses.
+- Opt out: set `PLANWRIGHT_USAGE_MIRROR` empty. The writer then writes nothing,
+  and the gate skips the mirror.
+- A payload with no `rate_limits` writes nothing, so the last good mirror ages
+  out by the TTL rather than being replaced with nothing.
+- Dollar budgets: `spend_limit` fills the weekly window when the account has
+  no `seven_day` window. Its percentage is the same unit as the thresholds, so
+  the ladder applies unchanged; over the limit it reads as 100. The dollar
+  amounts are not used. Its period may be daily, weekly or monthly, and a reset
+  up to 32 days ahead is accepted.
+- Gap: a plain API-key account with no gateway gets no `rate_limits` at all, so
+  the gate can only report `no usage signal`. `cost.total_cost_usd` is this
+  session's estimated spend, not a budget, so it is not a substitute.
+- Unverified: the docs list the events that run the status line but not
+  whether a print-mode or stream-json session runs it. Check on a headless host
+  that the mirror refreshes before relying on it there.
 
 ## What the fleet decides without you (and what it never does)
 
