@@ -21,7 +21,12 @@ mkdir -p "$SANDBOX/records"
 write_record "$SANDBOX/records/flight.record" "$WT" "" "$FLIGHT"
 write_record "$SANDBOX/records/task.record" "$WT" "" "planwright/demo/task-7"
 write_record "$SANDBOX/records/bundle.record" "$WT" "" "planwright/demo/task-3-4.1"
+# The PR number the worker recorded once its PR existed
+# (worker-session-record.sh pr).
+write_record "$SANDBOX/records/flight-pr.record" "$WT" "" "$FLIGHT"
+printf '%s\n' "pr_number=12" >>"$SANDBOX/records/flight-pr.record"
 FLIGHT_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/records/flight.record")
+FLIGHT_PR_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/records/flight-pr.record")
 TASK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/records/task.record")
 BUNDLE_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/records/bundle.record")
 ALL7="PLANWRIGHT_STEP_UNIT_KIND=flight PLANWRIGHT_STEP_SPEC= PLANWRIGHT_STEP_TASK_IDS= PLANWRIGHT_STEP_BRANCH=$FLIGHT PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE=$WT PLANWRIGHT_STEP_PR_NUMBER=12"
@@ -29,7 +34,11 @@ ALL7="PLANWRIGHT_STEP_UNIT_KIND=flight PLANWRIGHT_STEP_SPEC= PLANWRIGHT_STEP_TAS
 echo "### The step context as a literal prefix on a trusted script"
 HOOK_ENV=("${FLIGHT_ENV[@]}")
 assert_allow "context: one field" "PLANWRIGHT_STEP_UNIT_KIND=flight $S resolve --run 000001 pre-ci --unattended" Bash "$PLUGIN_CWD"
+assert_allow "context: an empty PR number before the PR is recorded" "PLANWRIGHT_STEP_PR_NUMBER= $S resolve" Bash "$PLUGIN_CWD"
+HOOK_ENV=("${FLIGHT_PR_ENV[@]}")
 assert_allow "context: the caller's seven fields, empty ids included" "$ALL7 $S begin --run 000001" Bash "$PLUGIN_CWD"
+assert_allow "context: the recorded PR number" "PLANWRIGHT_STEP_PR_NUMBER=12 $S resolve --run 000001 post-pr --unattended" Bash "$PLUGIN_CWD"
+HOOK_ENV=("${FLIGHT_ENV[@]}")
 assert_allow "context: quoted values" "PLANWRIGHT_STEP_UNIT_KIND='flight' PLANWRIGHT_STEP_BRANCH=\"$FLIGHT\" PLANWRIGHT_STEP_SPEC='' $S command --run 000001" Bash "$PLUGIN_CWD"
 assert_allow "context: the base as its remote-tracking name" "PLANWRIGHT_STEP_BASE_BRANCH=origin/main $S resolve" Bash "$PLUGIN_CWD"
 assert_allow "context: the bare script it stands on" "$S resolve --run 000001 pre-ci --unattended" Bash "$PLUGIN_CWD"
@@ -48,6 +57,15 @@ assert_defer "context: another base" "PLANWRIGHT_STEP_BASE_BRANCH=release $S res
 assert_defer "context: a spec named on a flight" "PLANWRIGHT_STEP_SPEC=demo $S command --run 000001 --point pre-ready-flip --step mc-eval-cadence" Bash "$PLUGIN_CWD"
 assert_defer "context: task ids on a flight" "PLANWRIGHT_STEP_TASK_IDS=7 $S resolve" Bash "$PLUGIN_CWD"
 assert_defer "context: a unit kind the branch does not carry" "PLANWRIGHT_STEP_UNIT_KIND=task $S resolve" Bash "$PLUGIN_CWD"
+assert_defer "context: a PR number with none recorded" "PLANWRIGHT_STEP_PR_NUMBER=12 $S resolve" Bash "$PLUGIN_CWD"
+HOOK_ENV=("${FLIGHT_PR_ENV[@]}")
+assert_defer "context: another PR's number" "PLANWRIGHT_STEP_PR_NUMBER=13 $S resolve" Bash "$PLUGIN_CWD"
+assert_defer "context: the recorded number with a leading zero" "PLANWRIGHT_STEP_PR_NUMBER=012 $S resolve" Bash "$PLUGIN_CWD"
+assert_defer "context: no PR number once one is recorded" "PLANWRIGHT_STEP_PR_NUMBER= $S resolve" Bash "$PLUGIN_CWD"
+write_record "$SANDBOX/records/flight-pr2.record" "$WT" "" "$FLIGHT"
+printf '%s\n' "pr_number=12" "pr_number=13" >>"$SANDBOX/records/flight-pr2.record"
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/records/flight-pr2.record")
+assert_defer "context: a record naming two PR numbers names none" "PLANWRIGHT_STEP_PR_NUMBER=12 $S resolve" Bash "$PLUGIN_CWD"
 HOOK_ENV=("${TASK_ENV[@]}")
 assert_defer "context: another spec on a task" "PLANWRIGHT_STEP_SPEC=other $S resolve" Bash "$PLUGIN_CWD"
 assert_defer "context: another task's id" "PLANWRIGHT_STEP_TASK_IDS=8 $S resolve" Bash "$PLUGIN_CWD"

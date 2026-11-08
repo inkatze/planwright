@@ -619,6 +619,9 @@ mappings for $cs_unit:
   exported (each Bash call is a fresh shell): $cs_ctx,
   this branch, its base branch and this worktree; an isolated step's launch
   tier takes the unit \`mission-control:$1\`.
+- Once the PR is open, run \`$cs_root/scripts/worker-session-record.sh pr\` to
+  record its number, then pass it as \`PLANWRIGHT_STEP_PR_NUMBER\`; the guard
+  approves only the recorded number.
 - Wherever the procedure parks or stops the unit, stop and report the point,
   the step and what it printed to mission control instead; write nothing to
   any \`tasks.md\` or other spec state.

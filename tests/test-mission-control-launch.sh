@@ -350,6 +350,12 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
       grep -qi -e 'export the step context' -e 'export PLANWRIGHT_STEP_' "$composed_brief" \
         && fail "[$kind] the cadence still asks for an exported step context: $(cat "$composed_brief")" \
         || ok "[$kind] the cadence asks for no exported step context"
+      # The guard approves only the PR number the worker recorded.
+      # shellcheck disable=SC2016 # literal backticks delimit the command
+      grep -qF '/scripts/worker-session-record.sh pr`' "$composed_brief" \
+        && grep -qF 'PLANWRIGHT_STEP_PR_NUMBER' "$composed_brief" \
+        && ok "[$kind] the cadence records the PR number before passing it" \
+        || fail "[$kind] the cadence does not record the PR number: $(cat "$composed_brief")"
       # Every path the section names is a file of this install.
       missing_paths=''
       # shellcheck disable=SC2016 # literal backticks delimit the paths

@@ -4,6 +4,7 @@
 #
 # Usage: worker-session-record.sh write <worktree> [<launch-id> | --session <handle>]
 #          [--scratch | --fresh-scratch]
+#        worker-session-record.sh pr
 #
 # Resolves, once, from the worktree the worker will run in:
 #   policy             worker_self_approval through the overlay layers,
@@ -65,6 +66,16 @@
 # without a launch id, a new one with. `fleet-cleanup.sh worktree` removes
 # every record for a worktree it reclaims.
 #
+# `pr`, run by the worker once its draft PR exists, adds the one field known
+# only after launch: pr_number, the number of the single open same-repository
+# PR whose head is the record's unit branch, looked up through gh in the
+# record's worktree and never taken from the caller, so the guard can bind
+# the step context's PR number to the worker's own PR. It rewrites the record
+# named by PLANWRIGHT_WORKER_SESSION_RECORD, which must be this user's own
+# regular file in the fleet home's record directory, by an atomic rename,
+# replacing any earlier pr_number, and prints the number. No open PR, more
+# than one, or a failed lookup leaves the record as it was.
+#
 # Exit: 0 written; 1 the record could not be resolved or written; 2 usage.
 set -uf
 LC_ALL=C
@@ -79,7 +90,69 @@ die() {
   exit "${2:-1}"
 }
 
-usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--scratch | --fresh-scratch]"
+usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--scratch | --fresh-scratch] | $me pr"
+
+# record_pr: the `pr` verb; it exits.
+record_pr() {
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+  rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-}
+  case $rec in
+    /?*) ;;
+    *) die "PLANWRIGHT_WORKER_SESSION_RECORD names no session record" ;;
+  esac
+  [ -f "$rec" ] && [ ! -L "$rec" ] && [ "$(find "$rec" -maxdepth 0 -user "$(id -u)" 2>/dev/null)" = "$rec" ] \
+    || die "the session record is not this user's own regular file"
+  home=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || die "cannot resolve the fleet home"
+  dir=$(cd -P -- "$home/session-records" 2>/dev/null && pwd -P) || die "the record directory does not resolve"
+  rdir=$(cd -P -- "$(dirname -- "$rec")" 2>/dev/null && pwd -P) || die "the session record's directory does not resolve"
+  [ "$rdir" = "$dir" ] || die "the session record lies outside the fleet home's record directory"
+  name=${rec##*/}
+  case $name in
+    .* | *[!A-Za-z0-9._-]*) die "the session record is not named as the launcher names one" ;;
+    ?*.record) ;;
+    *) die "the session record is not named as the launcher names one" ;;
+  esac
+  nl='
+'
+  unit=$(sed -n 's/^unit_branch=//p' "$rec") || die "cannot read the session record"
+  wt=$(sed -n 's/^worktree_root=//p' "$rec") || die "cannot read the session record"
+  case $unit in
+    '' | *"$nl"*) die "the session record names no single unit branch" ;;
+  esac
+  case $wt in
+    /?*) ;;
+    *) die "the session record names no single worktree root" ;;
+  esac
+  case $wt in
+    *"$nl"*) die "the session record names no single worktree root" ;;
+  esac
+  [ -d "$wt" ] || die "the recorded worktree is not a directory"
+  num=$(cd -- "$wt" && gh pr list --head "$unit" --state open --json number,isCrossRepository \
+    --jq '.[] | select(.isCrossRepository | not) | .number' </dev/null) \
+    || die "cannot list the open pull requests on $unit"
+  case $num in
+    '') die "no open pull request on $unit" ;;
+    *"$nl"*) die "more than one open pull request on $unit" ;;
+    0* | *[!0-9]*) die "gh reported a pull request number outside its grammar" ;;
+  esac
+  umask 077
+  tmp=$(mktemp "$dir/.$name.XXXXXX") || die "cannot write the record"
+  if ! {
+    sed '/^pr_number=/d' "$rec"
+    printf 'pr_number=%s\n' "$num"
+  } >"$tmp" || ! mv -f -- "$tmp" "$rec"; then
+    rm -f -- "$tmp"
+    die "cannot write the record"
+  fi
+  printf '%s\n' "$num"
+  exit 0
+}
+
+if [ "$#" -ge 1 ] && [ "$1" = pr ]; then
+  [ "$#" -eq 1 ] || die "$usage" 2
+  record_pr
+fi
 [ "$#" -ge 2 ] && [ "$1" = write ] || die "$usage" 2
 wt_arg=$2
 shift 2

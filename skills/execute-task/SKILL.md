@@ -399,7 +399,9 @@ classify the edit on the amendment axis:
    printed recipe.
 
    Then run the
-   `post-pr` point, the PR number now in its context; after its list and the
+   `post-pr` point, the PR number now in its context (record it first with
+   `<root>/scripts/worker-session-record.sh pr`; the worker guard approves only
+   the number so recorded); after its list and the
    re-fire pass (`step-run.sh refire`'s lines, hosted with `--refire-of`,
    before post-pr's completion), re-emit the tables, and if a post-pr record moved the
    head fetch and regenerate the

@@ -1020,6 +1020,11 @@ guard_mkdir() {
 # apart from the worktree and the scratch root in both directions, and the
 # session's log there (audit_append) a regular file or absent. Without one,
 # the policy drops both write arms, so neither approves a write with no log.
+#
+# The PR number is the one field written after launch: the worker records its
+# unit branch's open PR once it exists (worker-session-record.sh pr, which
+# looks it up and takes no number from the worker), and the step context's
+# PR number must equal it.
 REC_POLICY=''
 REC_UNIT=''
 REC_WT=''
@@ -1027,6 +1032,7 @@ REC_BASE=''
 REC_BASE_MERGE=''
 REC_SCRATCH=''
 REC_AUDIT_LOG=''
+REC_PR=''
 
 # rec_unit_branch_ok <name>: a task or flight branch, in policy-guard.sh's
 # grammar (is_unit_branch) narrowed to flight names carrying the id every
@@ -1057,7 +1063,7 @@ rec_policy_norm() {
 
 session_record_load() {
   local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line k v seen=' ' dup=' ' size dir
-  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log=''
+  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log='' pr=''
   case $p in
     /?*) ;;
     *) return 0 ;;
@@ -1084,6 +1090,7 @@ session_record_load() {
       worker_base_merge) bm=$v ;;
       scratch_root) sr=$v ;;
       audit_log_home) ah=$v ;;
+      pr_number) pr=$v ;;
     esac
   done <"$p"
   case $dup in *" policy "*) policy='' ;; esac
@@ -1093,6 +1100,14 @@ session_record_load() {
   case $dup in *" worker_base_merge "*) bm='' ;; esac
   case $dup in *" scratch_root "*) sr='' ;; esac
   case $dup in *" audit_log_home "*) ah='' ;; esac
+  case $dup in *" pr_number "*) pr='' ;; esac
+  case $pr in
+    [1-9] | [1-9]*[0-9]) ;;
+    *) pr='' ;;
+  esac
+  case $pr in
+    *[!0-9]*) pr='' ;;
+  esac
   rec_unit_branch_ok "$unit" || unit=''
   case $wt in
     /?*) ;;
@@ -1188,6 +1203,7 @@ session_record_load() {
   REC_BASE=$base
   REC_BASE_MERGE=$bm
   REC_SCRATCH=$sr
+  REC_PR=$pr
 }
 
 # --------------------------------------------------------------------------
@@ -4733,7 +4749,8 @@ readonly STEP_CALLER_FIELDS='SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE
 # step_context_record_ok <field> <value>: the value the session record implies
 # for a field, so a worker can carry its own unit's context and no other. The
 # unit comes from the record's unit branch (a flight carries no spec or task
-# ids), the worktree and base from its worktree root and PR base.
+# ids), the worktree and base from its worktree root and PR base, the PR
+# number from the one the worker recorded (none before its PR exists).
 step_context_record_ok() {
   local f=$1 v=$2 kind spec ids
   [ -n "$REC_UNIT" ] && [ -n "$REC_WT" ] || return 1
@@ -4759,7 +4776,7 @@ step_context_record_ok() {
     BRANCH) [ "$v" = "$REC_UNIT" ] ;;
     BASE_BRANCH) [ -n "$REC_BASE" ] && { [ "$v" = "$REC_BASE" ] || [ "origin/$v" = "$REC_BASE" ]; } ;;
     WORKTREE) [ "$v" = "$REC_WT" ] || [ "$v" = "$REC_WT/" ] ;;
-    PR_NUMBER) return 0 ;;
+    PR_NUMBER) [ "$v" = "$REC_PR" ] ;;
     *) return 1 ;;
   esac
 }
