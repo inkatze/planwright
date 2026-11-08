@@ -622,13 +622,18 @@ rm -f "$wdir7/worker.pid"
 # duplicate request dedups across the boundary; the alarm re-arms.
 ev_resume="$tmp/ev7r"
 printf '%s\n%s\n' "$line_perm" "$line_result" >"$ev_resume"
+# The shell rules as the launcher appends them: one argument, newlines joined.
+rules_text=$(tr '\n' ' ' <"$here/../config/launch-shell-rules.txt") \
+  || fail "the shipped launch shell rules are missing"
+rules_text=${rules_text% }
 : >"$rec/argv"
+: >"$rec/system-prompt"
 senv "$home" "$rec" SHIM_EVENTS="$ev_resume" SHIM_READ_FIRST=0 -- \
   recover sjw7 --foreground || fail "c7: recovery exited non-zero"
 grep -q -- "--resume $sid" "$rec/argv" \
   || fail "c7: the relaunch must use --resume with the persisted session_id, got: $(cat "$rec/argv")"
-grep -q -- "--append-system-prompt " "$rec/argv" \
-  || fail "c7: the relaunch must carry the shell rules again, got: $(cat "$rec/argv")"
+[ "$(cat "$rec/system-prompt")" = "$rules_text" ] \
+  || fail "c7: the relaunch must append the shipped shell rules again as one argument: $(cat "$rec/system-prompt")"
 [ "$(grep -c "^$req_perm$tab" "$wdir7/journal")" = 1 ] \
   || fail "c7: dedup on request identity must hold across the resume boundary"
 received=$(awk -F'\t' -v id="$req_perm" '$1 == id { print $3 }' "$wdir7/journal")
@@ -726,9 +731,6 @@ case "$argv_line " in
 esac
 # The shell rules ride the launch as a system-prompt append, so a long-running
 # worker keeps them past a compaction that drops its first message.
-rules_text=$(tr '\n' ' ' <"$here/../config/launch-shell-rules.txt") \
-  || fail "c9: the shipped launch shell rules are missing"
-rules_text=${rules_text% }
 [ "$(wc -l <"$rec/argv")" -eq 1 ] || fail "c9: the launch argv must stay on one recorded line: $(cat "$rec/argv")"
 case $rules_text in
   *"one plain command"*) : ;;
