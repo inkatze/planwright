@@ -55,8 +55,9 @@ the planwright copy the program's session runs.
 
 The mod (hooks/mission-control/) runs `digest` on its redraw timer and
 draws only what it prints; nothing here calls a model or writes a store
-but the presence marker, with --target the target's lease, the install
-record with its event, and the activation files below. A store that
+but the presence marker, with --target the target's lease, with --context
+the context reading, the health line's bounds cache, the install record
+with its event, and the activation files below. A store that
 cannot be read is said as such, never drawn as empty.
 
 ACTIVATION. The mod turns on in a session whose own activation record
@@ -214,6 +215,7 @@ Usage:
         waiting: <n>
         pending wakes: <n>           with --target
         rung: <rung> (<reason>)
+        health: <text>; <text>       only when a check is out of bounds
       a store that cannot be read is said as unknown, with why
   mc-panel.sh activate --program <p> [--target <t>] [--session <id>]
                        [--pid <pid>] [--now <epoch>]
@@ -259,34 +261,43 @@ Usage:
       session-start record for CLAUDE_PID; prints nothing, exits 0
 
 HEALTH. A failsafe for the duties: each check reads the store a duty
-keeps and flags only what is out of its bound, a knob named below.
-No model is in the path and nothing is written but the bounds cache.
-Mission control sessions themselves are left out of the worker checks.
-  worker-age     a live worker registered longer than
-                 mission_control_health_worker_age
+keeps and flags only what is at or past its bound, a knob named below.
+No model is in the path and nothing is written but the bounds cache,
+<runtime>/health-bounds, which holds the bounds for five minutes so a
+redraw reads no config. Mission control sessions themselves are left out
+of the worker checks.
+  worker-age     a live worker registered for
+                 mission_control_health_worker_age or longer
   after-merge    a live worker whose pull request landed: the keeper's
-                 landing record, or the attention store's `merged` held
-                 past mission_control_health_merged_grace
-  permissions    a permission prompt pending in the attention store past
-                 mission_control_health_permission_wait
+                 landing record (scripts/mc-keeper.sh's keeper-announced),
+                 or the attention store's `merged` held for
+                 mission_control_health_merged_grace or longer
+  permissions    a permission prompt pending in the attention store for
+                 mission_control_health_permission_wait or longer, its
+                 session counted whether it is seen live or not
   mc-stuck       this program's mission control held on its own dialog
-                 (scripts/mc-escalate.sh's record) past
-                 mission_control_health_stuck_after; unknown when that
-                 watcher has not run within twice its cadence
+                 (scripts/mc-escalate.sh's record) for
+                 mission_control_health_stuck_after or longer; unknown when
+                 that watcher has not run within twice its cadence plus a
+                 minute, or its last run failed
   context        a mission control on this host whose last context reading
-                 is at or past its own handover threshold
+                 is at or past its own handover threshold; unknown for one
+                 whose reading is stale while its session lives
   ci-queue       a CI job whose median queue time reaches
                  mission_control_health_ci_queue_share percent of its median
                  run time and at least mission_control_health_ci_queue_floor
                  (scripts/mc-throughput.sh's measure); unknown when the
-                 measure is older than twice its watcher's cadence
-  idle           a live session idle past mission_control_health_idle_after
+                 measure is older than twice the longer of its watcher's
+                 cadence and an hour
+  idle           a live session idle for mission_control_health_idle_after
+                 or longer
 A check whose duty is not armed here and whose store is absent is not
-run; one whose store cannot be read is unknown, never within bounds.
+run; one whose store or bound cannot be read is unknown (`?` for its
+count), never within bounds.
 
 Exit codes: 0 done; 1 the program list, the presence marker or an
-activation file cannot be read or written, a target's lease or the install
-record cannot be written (its directory a symlink included), the install
+activation file cannot be read or written, a target's lease, the context
+reading or the install record cannot be written (its directory a symlink included), the install
 event is refused, the copy's root, version or changelog cannot be read, or
 `lookup` finds no record for the session; 2 usage; 3 the program is not
 configured; 4 this session's id cannot be told.

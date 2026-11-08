@@ -96,8 +96,10 @@ Usage:
       `<owner/name>#<pr> <state>, retired|held[: <what stayed>]`, printing
         announced<TAB>session-landed<TAB><session>
       once per pull request, state and outcome while it stays tracked,
-      so a landing held run after run wakes the session once; the program
-      from PLANWRIGHT_MC_PROGRAM when --program is absent
+      so a landing held run after run wakes the session once (that record,
+      <runtime>/keeper-announced, is also what the panel's health line reads
+      for a worker still live after its landing); the program from
+      PLANWRIGHT_MC_PROGRAM when --program is absent
 
 Exit codes: 0 done; 1 a store, a read, a retire or reclaim that failed or
 is still held (a launch or retire in flight, a worktree not yet
