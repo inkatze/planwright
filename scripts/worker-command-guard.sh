@@ -1444,16 +1444,50 @@ ob_excluded_name() {
   local low
   low=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
   case $low in
-    .git | .claude | .envrc | .tool-versions | .config | .mise | mise | mise.toml | .mise.toml | mise.*.toml | .mise.*.toml | lefthook | lefthook.* | lefthook-local.* | .lefthook | .lefthook.* | .lefthook-local | .lefthook-local.*) return 0 ;;
+    .git | .claude | .envrc | .tool-versions | .config | .mise | mise.toml | .mise.toml | mise.*.toml | .mise.*.toml | .miserc*.toml | mise-tasks | .mise-tasks | mise*.lock | lefthook | lefthook.* | lefthook-local.* | .lefthook | .lefthook.* | .lefthook-local | .lefthook-local.*) return 0 ;;
   esac
   return 1
+}
+
+# ob_excluded_mise_child <component>: the entries of a `mise/` directory mise
+# loads, matched case-insensitively. Anything else there is never read.
+ob_excluded_mise_child() {
+  local low
+  low=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case $low in
+    config*.toml | miserc*.toml | conf.d | tasks) return 0 ;;
+  esac
+  return 1
+}
+
+# ob_excluded_rel <relative-path> <root>: 0 when a component of the path
+# under <root> is an excluded name, a `mise/` entry mise loads (the root's own
+# name counting as its parent), or the last component is `mise` itself:
+# moving a directory onto that name would turn its config.toml or conf.d into
+# loaded config without any name inside it matching.
+ob_excluded_rel() {
+  local comp prev last=''
+  local -a comps=()
+  prev=$(printf '%s' "${2##*/}" | tr '[:upper:]' '[:lower:]')
+  IFS=/ read -r -a comps <<<"$1"
+  for comp in ${comps[@]+"${comps[@]}"}; do
+    case $comp in
+      '' | .) continue ;;
+    esac
+    ob_excluded_name "$comp" && return 0
+    if [ "$prev" = mise ] && ob_excluded_mise_child "$comp"; then
+      return 0
+    fi
+    prev=$(printf '%s' "$comp" | tr '[:upper:]' '[:lower:]')
+    last=$prev
+  done
+  [ "$last" = mise ]
 }
 
 # ob_excluded <canonical-path>: 0 when the path is, or lies under, an excluded
 # path.
 ob_excluded() {
-  local full=$1 low d comp
-  local -a comps=()
+  local full=$1 low d
   ob_excl_load || return 0
   low=$(printf '%s' "$full" | tr '[:upper:]' '[:lower:]')
   while IFS= read -r d; do
@@ -1464,11 +1498,7 @@ ob_excluded() {
   done <<EOF
 $OB_EXCL_DIRS
 EOF
-  IFS=/ read -r -a comps <<<"${full#"$REC_WT"/}"
-  for comp in ${comps[@]+"${comps[@]}"}; do
-    ob_excluded_name "$comp" && return 0
-  done
-  return 1
+  ob_excluded_rel "${full#"$REC_WT"/}" "$REC_WT"
 }
 
 # ob_tree_clean <canonical-dir>: 0 when nothing under the directory is an
@@ -1485,8 +1515,11 @@ ob_tree_clean() {
 $OB_EXCL_DIRS
 EOF
   hit=$(find "$dir" \( -iname .git -o -iname .claude -o -iname .envrc -o -iname .tool-versions \
-    -o -iname .config -o -iname .mise -o -iname mise -o -iname 'mise.toml' -o -iname '.mise.toml' \
-    -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname lefthook -o -iname 'lefthook.*' \
+    -o -iname .config -o -iname .mise -o -iname 'mise.toml' -o -iname '.mise.toml' \
+    -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname '.miserc*.toml' -o -iname mise-tasks \
+    -o -iname .mise-tasks -o -iname 'mise*.lock' -o -ipath '*/mise/config*.toml' \
+    -o -ipath '*/mise/miserc*.toml' -o -ipath '*/mise/conf.d' -o -ipath '*/mise/tasks' \
+    -o -iname lefthook -o -iname 'lefthook.*' \
     -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*' -o -iname '.lefthook-local' \
     -o -iname '.lefthook-local.*' \) -print -quit 2>/dev/null) || return 1
   [ -z "$hit" ]
@@ -1556,11 +1589,12 @@ ob_path() {
     OB_ZONE=wt
   elif [ "$sc_ok" = 1 ] && [ "${acc#"$REC_SCRATCH"/}" != "$acc" ]; then
     # The trusted names stay closed here too: a tool started there would
-    # read them as its own configuration.
-    IFS=/ read -r -a comps <<<"${acc#"$REC_SCRATCH"/}"
-    for comp in ${comps[@]+"${comps[@]}"}; do
-      ob_excluded_name "$comp" && return 1
-    done
+    # read them as its own configuration. The root is the worker's TMPDIR,
+    # so its mise/ is mise's own temporary directory.
+    ob_excluded_rel "${acc#"$REC_SCRATCH"/}" "$REC_SCRATCH" && return 1
+    case $(printf '%s' "${acc#"$REC_SCRATCH"/}" | tr '[:upper:]' '[:lower:]') in
+      mise | mise/*) return 1 ;;
+    esac
     OB_ZONE=sc
   else
     return 1
