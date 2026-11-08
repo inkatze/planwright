@@ -116,7 +116,4 @@ fake_session() {
   FAKE=$!
   fakes="$fakes $FAKE"
 }
-# end_after <seconds> <pid>: the stand-in exits on its own after a delay,
-# as a released session does once its last turn ends.
-end_after() { (sleep "$1" && kill "$2" 2>/dev/null) & }
 printf '%s\n' "# Mission control" "" "Run program alpha." >"$tmp/brief.md"
