@@ -155,7 +155,7 @@ parse_thresholds() {
     pt_out="$pt_out$pt_k	$pt_s
 "
   done
-  printf '%s\n' "$pt_lines" | awk -F '\t' '$1 !~ /^(ci-queue|approval-wait|stall|step)$/ { exit 1 }' || return 1
+  printf '%s\n' "$pt_lines" | awk -F '\t' '$1 !~ /^(ci-queue|approval-wait|stall|step)$/ || ($1 in seen) { exit 1 } { seen[$1] = 1 }' || return 1
   printf '%s' "$pt_out"
 }
 
@@ -369,7 +369,7 @@ measure_approvals() {
   for ma_d in "$ma_root"/mc-*/; do
     ma_d=${ma_d%/}
     own_session "${ma_d##*/}" || continue
-    [ -e "$ma_d/journal" ] || continue
+    [ -f "$ma_d/journal" ] || continue
     if ! ma_out=$(W=${ma_d##*/} SINCE=$SINCE NOW=$NOW awk -F '\t' '
         $2 == "permission" && $3 ~ /^[0-9]+$/ {
           if ($4 == "pending") e = ENVIRON["NOW"] + 0
@@ -389,7 +389,7 @@ measure_approvals() {
   set -f
   printf 'source\tapprovals\tok\t%s journals\n' "$ma_n"
   [ -n "$ma_rows" ] || return 0
-  ma_pending=$(printf '%s' "$ma_rows" | awk -F '\t' '$4 == 1 { p++; if ($2 + 0 > m) m = $2 + 0 } END { print (p + 0) "\t" (p ? m : "-") }')
+  ma_pending=$(printf '%s' "$ma_rows" | awk -F '\t' '$4 == 1 { if (!p++ || $2 + 0 > m) m = $2 + 0 } END { print (p + 0) "\t" (p ? m : "-") }')
   printf '%s' "$ma_rows" | cut -f1-3 | aggregate | P=$ma_pending awk -F '\t' '{ print "approvals\t" $0 "\t" ENVIRON["P"] }'
 }
 

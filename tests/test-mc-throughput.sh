@@ -371,6 +371,12 @@ expect_rc "an unknown threshold key fails" 1
 expect_err "naming the knob" "mission_control_throughput_thresholds"
 grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
 
+printf 'mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m, stall: 30m, step: 2h, step: 1m}\n' >>"$tracked"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_rc "a threshold key given twice fails" 1
+expect_err "naming the knob" "mission_control_throughput_thresholds"
+grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
+
 printf 'mission_control_throughput_ci_runs: 101\n' >>"$tracked"
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_rc "more CI runs than one forge page holds fails" 1
@@ -426,6 +432,16 @@ if [ "$(id -u)" -ne 0 ]; then
 else
   ok "an unreadable capture folder (skipped as root)"
 fi
+
+# A journal that is not a regular file is never opened (a FIFO would hang
+# the watcher); a request pending for no time yet still reports its wait.
+rm -rf "$sj"
+mkdir -p "$sj/mc-alpha-worker-0000000011" "$sj/mc-alpha-worker-0000000012"
+mkfifo "$sj/mc-alpha-worker-0000000011/journal"
+printf 'r10\tpermission\t%s\tpending\n' "$NOW" >"$sj/mc-alpha-worker-0000000012/journal"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_rc "measure beside a FIFO journal" 0
+expect_out "a pending request's zero wait is a number" "approvals${tab}permission${tab}1${tab}0${tab}0${tab}0${tab}mc-alpha-worker-0000000012${tab}1${tab}0"
 
 # ---------------------------------------------------------------------------
 # Under the runner: no arguments, the program from the environment.
