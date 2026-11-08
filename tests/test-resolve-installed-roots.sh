@@ -464,7 +464,10 @@ OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAU
 assert_eq "--print hands on the installed root too" "CLAUDE_PLUGIN_ROOT=$new_copy" "$OUT"
 OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$cur" \
   "$new_copy/scripts/fleet-dispatch-env.sh" --root "$old_copy" env 2>/dev/null | grep '^PLANWRIGHT_ROOT=')
-assert_eq "an explicit --root is the dispatcher's own choice and stays" "PLANWRIGHT_ROOT=$old_copy" "$OUT"
+assert_eq "a --root a stale dispatcher computed is replaced too" "PLANWRIGHT_ROOT=$new_copy" "$OUT"
+OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$cur" \
+  "$new_copy/scripts/fleet-dispatch-env.sh" --root "$REPO_ROOT" env 2>/dev/null | grep '^PLANWRIGHT_ROOT=')
+assert_eq "a --root naming a checkout is the dispatcher's choice and stays" "PLANWRIGHT_ROOT=$REPO_ROOT" "$OUT"
 
 # --- step-record.sh refuses to write a record from a stale copy ---------------
 srwt="$SANDBOX/sr-wt"

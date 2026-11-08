@@ -360,8 +360,8 @@ planwright_root() {
 # choice made explicit by the dispatcher, so it is set before this runs. The
 # one exception is a value naming an older plugin-cache copy the installed
 # record no longer names (see fresh_root): that is a pin the launching session
-# carried across an upgrade, not a choice, and the worker gets the installed
-# root instead.
+# carried across an upgrade, not a choice, so the worker gets the installed
+# root instead, whichever source named the copy (--root included).
 # warn_unresolved_root — say so, once, when neither an operator value nor
 # self-location produced a root. Not fatal: the launch's own mode source is the
 # settings fragment, not this. But never silent, because the only symptom is a
@@ -373,18 +373,21 @@ warn_unresolved_root() {
   printf '%s\n' "fleet-dispatch-env.sh: cannot derive the planwright root from $0; the worker's auto-approve hook will not resolve and it will prompt on every command" >&2
 }
 
-# An operator value stands on its own: it must survive even when self-location
-# fails, since the two are independent answers to the same question and either
-# alone is complete. That branch is guarded by construction rather than by a
-# test — reaching it needs a $0 that resolves to nothing, which cannot be staged
-# from a test that has to invoke this script by a path in the first place.
 # fresh_root <name> <value>: print <value>, or the installed root where
-# <value> is a stale cached copy, saying so on stderr. With no checker beside
+# <value> is a stale cached copy, saying so on stderr. Only a plugin-cache path
+# can be stale, so nothing else costs a resolver run; with no resolver beside
 # this wrapper the value stands.
 fresh_root() {
   fr_val=$2
+  case $fr_val in
+    */plugins/cache/*) ;;
+    *)
+      printf '%s\n' "$fr_val"
+      return 0
+      ;;
+  esac
   fr_rir=$(dirname "$(resolve_self)")/resolve-installed-roots.sh
-  if [ -n "$fr_val" ] && [ -f "$fr_rir" ]; then
+  if [ -f "$fr_rir" ]; then
     fr_new=$(/bin/sh "$fr_rir" --fresh "$fr_val" 2>/dev/null </dev/null) || fr_new=''
     if [ -n "$fr_new" ] && [ "$fr_new" != "$fr_val" ]; then
       printf '%s\n' "fleet-dispatch-env.sh: $1 named $(printf '%s' "$fr_val" | tr -d '\000-\037\177'), a planwright copy the installed record no longer names; the session gets the installed root $(printf '%s' "$fr_new" | tr -d '\000-\037\177') instead" >&2
@@ -394,12 +397,19 @@ fresh_root() {
   printf '%s\n' "$fr_val"
 }
 
+# An operator value stands on its own: it must survive even when self-location
+# fails, since the two are independent answers to the same question and either
+# alone is complete. That branch is guarded by construction rather than by a
+# test — reaching it needs a $0 that resolves to nothing, which cannot be staged
+# from a test that has to invoke this script by a path in the first place.
 export_root_vars() {
   er_root=$(planwright_root)
-  er_pw=${PLANWRIGHT_ROOT:-$er_root}
+  er_pw_in=${PLANWRIGHT_ROOT:-$er_root}
   er_cp=${CLAUDE_PLUGIN_ROOT:-$er_root}
-  if [ -z "$opt_root" ]; then
-    er_pw=$(fresh_root PLANWRIGHT_ROOT "$er_pw")
+  er_pw=$(fresh_root PLANWRIGHT_ROOT "$er_pw_in")
+  if [ "$er_cp" = "$er_pw_in" ]; then
+    er_cp=$er_pw
+  else
     er_cp=$(fresh_root CLAUDE_PLUGIN_ROOT "$er_cp")
   fi
   [ -n "$er_pw" ] && {
@@ -425,8 +435,14 @@ if [ "$1" = "--print" ]; then
   # cannot wrap the exec builds its environment from these lines alone, so an
   # operator override omitted here is an override lost.
   _root=$(planwright_root)
-  _pw=$(fresh_root PLANWRIGHT_ROOT "${PLANWRIGHT_ROOT:-$_root}")
-  _cp=$(fresh_root CLAUDE_PLUGIN_ROOT "${CLAUDE_PLUGIN_ROOT:-$_root}")
+  _pw_in=${PLANWRIGHT_ROOT:-$_root}
+  _cp=${CLAUDE_PLUGIN_ROOT:-$_root}
+  _pw=$(fresh_root PLANWRIGHT_ROOT "$_pw_in")
+  if [ "$_cp" = "$_pw_in" ]; then
+    _cp=$_pw
+  else
+    _cp=$(fresh_root CLAUDE_PLUGIN_ROOT "$_cp")
+  fi
   [ -n "$_pw" ] && printf 'PLANWRIGHT_ROOT=%s\n' "$_pw"
   [ -n "$_cp" ] && printf 'CLAUDE_PLUGIN_ROOT=%s\n' "$_cp"
   { [ -n "$_pw" ] && [ -n "$_cp" ]; } || warn_unresolved_root
@@ -514,6 +530,7 @@ if [ -n "$opt_token" ]; then
 fi
 # The dispatcher's root replaces an inherited one here: under a detached
 # session "inherited" means the tmux server's environment, which can be stale.
+# export_root_vars below still swaps a stale cached copy for the installed one.
 if [ -n "$opt_root" ]; then
   PLANWRIGHT_ROOT=$opt_root
   CLAUDE_PLUGIN_ROOT=$opt_root
