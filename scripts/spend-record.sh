@@ -159,7 +159,7 @@ cmd_record() {
   # A row torn by an earlier failed write would swallow this one.
   [ -z "$(tail -c 1 "$store")" ] || printf '\n' >>"$store" || die 2 "cannot write $store"
   printf '%s\n' "$row" >>"$store" || die 2 "cannot append to $store"
-  pw_lock_release "$lock" >/dev/null 2>&1
+  pw_lock_release "$lock" >/dev/null 2>&1 || [ $? -eq 1 ] || die 2 "cannot release the spend store lock"
   printf '%s\n' "$row"
 }
 
