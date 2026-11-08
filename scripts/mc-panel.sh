@@ -274,7 +274,8 @@ of the worker checks.
                  mission_control_health_worker_age or longer
   after-merge    a live worker whose pull request landed: at once where
                  the keeper's landing record (scripts/mc-keeper.sh's
-                 keeper-announced) says it held the retire, or the
+                 keeper-announced) says it held the retire and its ledger
+                 (keeper.tsv) has not marked the session retired, or the
                  attention store's `merged` held for
                  mission_control_health_merged_grace or longer
   permissions    a permission prompt pending in the attention store for
@@ -292,8 +293,8 @@ of the worker checks.
   ci-queue       a CI job whose median queue time reaches
                  mission_control_health_ci_queue_share percent of its median
                  run time and at least mission_control_health_ci_queue_floor
-                 (scripts/mc-throughput.sh's measure), and one past the
-                 floor with no finished run whatever the share; unknown
+                 (scripts/mc-throughput.sh's measure), and one at or past
+                 the floor with no finished run whatever the share; unknown
                  when the measure is older than twice the longer of its
                  watcher's cadence and an hour
   idle           a live session idle for mission_control_health_idle_after
