@@ -648,9 +648,9 @@ watch() {
   windows "${since:-$QUOTA_SINCE}"
   hold_now "$thr"
   printf '%s\n' "$CUR" | awk 'NF == 3 { print "held\t" $1 "\t" $2 "\t" $3 }'
-  # A held quota that reads clear is a reset even with no hold recorded: its
-  # stated reset can pass before any watch sees it (a paused fleet, the
-  # doubled cadence), and nothing else releases it.
+  # A held quota that has cleared is a reset even with no hold recorded: its
+  # clearing reading can arrive before any watch sees it held (a paused
+  # fleet, the doubled cadence), and nothing else releases it.
   if [ -z "$CUR" ] && { [ -n "$PREV" ] || [ "$QUOTA" = held ]; }; then
     gone=$(printf '%s\n' "$PREV" | awk 'NF { printf "%s%s", s, $1; s = "." }')
     [ -n "$gone" ] || gone=quota
