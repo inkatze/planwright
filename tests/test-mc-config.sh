@@ -533,6 +533,13 @@ cat >"$shapes" <<'SHAPES'
 48 * * * * T=lk-2b%lk-2c lk-2d planwright ==> T=<redacted> planwright
 "PLANWRIGHT_TOKEN=lk-2e"=lk-2f ==> <redacted> PLANWRIGHT
 'claude=lk-2g lk-2h'=lk-2i ==> <redacted> claude
+0 0 * * curl lk-c1 https://x/planwright ==> <redacted> planwright
+0 0 mysql -u root -plk-c2 planwright ==> <redacted> planwright
+@bogus lk-c3 planwright ==> <redacted> planwright
+0 0 * may lk-c4 planwright ==> <redacted> planwright
+*/5 * * * planwright ==> <redacted> planwright
+0 0 1 Jan,mar Mon-fri /opt/planwright/named ==> /opt/planwright/named planwright
+@weekly /opt/planwright/wk ==> /opt/planwright/wk planwright
 SHAPES
 {
   printf '# a comment naming planwright\n'

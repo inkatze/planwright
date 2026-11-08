@@ -132,9 +132,10 @@ Usage:
             never the line, only the first word of its command (the name,
             for an environment line), cut at its first character outside
             letters, digits and _ . / + ~ - with the cut marked <redacted>
-            (TOKEN=<redacted>), and the text that matched, the path first,
-            else the name as the line spells it; a crontab that cannot be
-            listed reads as none
+            (TOKEN=<redacted>), or the bare <redacted> for a line whose
+            schedule cron would not read, and the text that matched, the
+            path first, else the name as the line spells it; a crontab
+            that cannot be listed reads as none
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
             launches or cron) whose read failed; for launches, also a
             session whose row names no known rung; for overrides, also a
@@ -829,16 +830,24 @@ doctor_cron() {
       # crontab(5): a line whose first word runs straight into an =, blanks
       # allowed around it, is an environment line, with no command.
       envre = "^ *(" dq "[^" dq "]*" dq "|" sq "[^" sq "]*" sq "|[^ =" dq sq "]+) *="
+      # Each time field in its own grammar, names only for the month and the
+      # weekday: a looser test lets a short schedule pass an argument off as
+      # the command.
+      num = "[0-9*,/-]"
+      field[1] = field[2] = field[3] = "^" num "+$"
+      field[4] = "^(" num "|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)+$"
+      field[5] = "^(" num "|sun|mon|tue|wed|thu|fri|sat)+$"
     }
-    # The word cron runs: past @keyword or the five time fields, or the
-    # name of an environment line; a schedule cron would refuse has none.
+    # The first word of the command, past @keyword or the five time fields,
+    # or the name of an environment line; a schedule cron would not read
+    # has none.
     function word(s,   f, nf, at, i) {
       nf = split(s, f, " ")
-      if (f[1] ~ /^@[A-Za-z]+$/) at = 2
+      if (f[1] ~ "^@(reboot|yearly|annually|monthly|weekly|daily|midnight|hourly)$") at = 2
       else if (match(s, envre)) at = 1
       else {
         at = 6
-        for (i = 1; i <= 5; i++) if (f[i] !~ /^[0-9A-Za-z*\/,-]+$/) return ""
+        for (i = 1; i <= 5; i++) if (tolower(f[i]) !~ field[i]) return ""
       }
       return at <= nf ? f[at] : ""
     }
