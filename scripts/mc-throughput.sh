@@ -1015,12 +1015,16 @@ case $verb in
       fi
     fi
     # With no bottleneck to carry the note, each unread source is raised
-    # alone, once, and forgotten once it reads.
-    if [ -z "$TOP" ] && [ -n "$blind" ]; then
+    # alone, once, and forgotten once it reads. A source raised earlier stays
+    # remembered while a bottleneck carries the note, so the bottleneck
+    # clearing raises it no second time.
+    if [ -n "$blind" ]; then
       for usrc in $blind; do
         ukey="unknown:$usrc"
         if [ -n "$(mc_lookup "$ukey" "$prev")" ]; then
-          printf 'held\t%s\t0\n' "$ukey"
+          [ -n "$TOP" ] || printf 'held\t%s\t0\n' "$ukey"
+        elif [ -n "$TOP" ]; then
+          continue
         else
           utext=$(printf '%s\n' "$m" | U=$usrc awk -F '\t' '$1 == "source" && $3 == "unknown" && $2 == ENVIRON["U"] { print "Not measured: " $2 " (" $4 ")" }' | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-500)
           mc_event emit --program "$program" --now "$NOW" -- throughput-unknown "throughput-unknown-$usrc" "$utext" >/dev/null || mc_fail "the throughput-unknown event was refused"

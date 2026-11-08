@@ -406,7 +406,7 @@ printf 'mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m,
 mc_run mc-throughput.sh watch --program alpha --now $((NOW + 18000))
 expect_rc "a watch with no bottleneck" 0
 expect_no_out "no bottleneck, nothing raised" "raised${tab}step:"
-expect_no_out "and nothing held" "held"
+expect_no_out "and no bottleneck held" "held${tab}step:"
 grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
 mc_run mc-throughput.sh watch --program alpha --now $((NOW + 21600))
 expect_out "a bottleneck that cleared and returned is raised afresh" "raised${tab}step:polish${tab}9600"
@@ -735,6 +735,18 @@ mc_run mc-throughput.sh watch --program alpha --now $((NOW + 39600))
 expect_out "the same blind spot is held, not raised again" "held${tab}unknown:ci${tab}0"
 events
 [ "$(unknown_count)" = 1 ] && ok "and emits no second event" || fail "expected one throughput-unknown event, got $(unknown_count)"
+# A bottleneck that carries the note, then clears while the source is still
+# blind, raises nothing about the source a second time.
+grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
+printf 'mission_control_throughput_thresholds: {ci-queue: 1d, approval-wait: 1d, stall: 1d, step: 20m}\n' >>"$tracked"
+rm -f "$runtime/throughput-last"
+mc_run mc-throughput.sh watch --program alpha --now $((NOW + 41000))
+expect_out "a bottleneck is raised beside the blind source" "raised${tab}step:polish"
+grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
+printf 'mission_control_throughput_thresholds: {ci-queue: 1d, approval-wait: 1d, stall: 1d, step: 1d}\n' >>"$tracked"
+rm -f "$runtime/throughput-last"
+mc_run mc-throughput.sh watch --program alpha --now $((NOW + 42000))
+expect_out "and once it clears the blind source is held, not raised again" "held${tab}unknown:ci${tab}0"
 unset GH_FIXTURE_FAIL
 rm -f "$runtime/throughput-last"
 mc_run mc-throughput.sh watch --program alpha --now $((NOW + 43200))
