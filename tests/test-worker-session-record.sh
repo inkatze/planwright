@@ -538,6 +538,12 @@ mkdir -p "$T/ghbin"
 cat >"$T/ghbin/gh" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" >"$T/gh.args"
+if [ -f "$T/gh.json" ]; then
+  while [ "\$#" -gt 0 ]; do
+    [ "\$1" = --jq ] && { jq -r "\$2" "$T/gh.json"; exit \$?; }
+    shift
+  done
+fi
 cat "$T/gh.out"
 exit "\$(cat "$T/gh.rc")"
 EOF
@@ -593,6 +599,23 @@ for c in 'none open|' 'two open|7
     fail "pr: $name: rc=$RC, record changed or kept wrongly"
   fi
 done
+# GitHub lists a fork's PR under the same head name; only a same-repo PR binds.
+printf '%s\n' '[{"number":9,"isCrossRepository":true}]' >"$T/gh.json"
+record_pr ''
+if [ "$RC" -eq 1 ] && cmp -s "$REC" "$T/rec.kept"; then
+  pass "pr: a fork's PR alone refuses and leaves the record as it was"
+else
+  fail "pr: a fork's PR alone: rc=$RC, record changed or kept wrongly"
+fi
+printf '%s\n' '[{"number":9,"isCrossRepository":true},{"number":7,"isCrossRepository":false}]' >"$T/gh.json"
+record_pr ''
+if [ "$RC" -eq 0 ] && [ "$(field pr_number)" = 7 ]; then
+  pass "pr: the same-repo PR binds when a fork's PR shares the head name"
+else
+  fail "pr: a fork's PR beside the real one: rc=$RC pr_number=$(field pr_number)"
+fi
+rm -f "$T/gh.json"
+cp "$T/rec.kept" "$REC"
 cp "$REC" "$T/elsewhere.record"
 printf '%s\n' 7 >"$T/gh.out"
 printf '%s\n' 0 >"$T/gh.rc"
