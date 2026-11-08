@@ -10,9 +10,7 @@
 # core root chain names (scripts/resolve-root.sh install), whose first arms are
 # the PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT values fleet-dispatch-env.sh pins
 # a session to, so the profile and the hooks it names come from one install.
-# The chain's root, when it is an older plugin-cache copy the installed record
-# no longer names, gives way to the installed root, as it does in that
-# wrapper; a --root is the seam's own and stands.
+# A chain root naming an older cached copy gives way to the installed one.
 # A launch without its profile would run under whatever the operator's own
 # settings say, which is the silent-delivery failure obs:eea622de recorded, so
 # a profile that is missing, unreadable, not a regular file, or reached through
