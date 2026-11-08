@@ -540,6 +540,7 @@ cat >"$shapes" <<'SHAPES'
 */5 * * * planwright ==> <redacted> planwright
 0 0 1 Jan,mar Mon-fri /opt/planwright/named ==> /opt/planwright/named planwright
 @weekly /opt/planwright/wk ==> /opt/planwright/wk planwright
+0~30 */2 * * * /opt/planwright/rand ==> /opt/planwright/rand planwright
 SHAPES
 {
   printf '# a comment naming planwright\n'

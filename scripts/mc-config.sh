@@ -832,8 +832,8 @@ doctor_cron() {
       envre = "^ *(" dq "[^" dq "]*" dq "|" sq "[^" sq "]*" sq "|[^ =" dq sq "]+) *="
       # Each time field in its own grammar, names only for the month and the
       # weekday: a looser test lets a short schedule pass an argument off as
-      # the command.
-      num = "[0-9*,/-]"
+      # the command. A ~ is the random range cronie and OpenBSD cron read.
+      num = "[0-9*,/~-]"
       field[1] = field[2] = field[3] = "^" num "+$"
       field[4] = "^(" num "|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)+$"
       field[5] = "^(" num "|sun|mon|tue|wed|thu|fri|sat)+$"
