@@ -438,27 +438,50 @@ rm -rf "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa" "$fleet/mission-control/al
 req mc-alpha-worker-aaaaaaaaaa r7-0007 "$T0"
 esc scan --program alpha --now $((T0 + 2800))
 before=$(count_of "$(hub_events)" "r7-0007")
-chmod 000 "$reg/mc-alpha-worker-aaaaaaaaaa"
 esc scan --program alpha --now $((T0 + 2860))
-expect_rc "an unreadable launcher list fails the pass" 1
-expect_err "and says so" "launcher's list cannot be read"
-expect_out "the dialog half still runs" "self${tab}"
-chmod 600 "$reg/mc-alpha-worker-aaaaaaaaaa"
-esc scan --program alpha --now $((T0 + 2920))
-if [ "$(count_of "$(toasts)" "r7-0007")" = 1 ]; then
-  ok "after an unread list nothing is raised twice"
-else
-  fail "after an unread list: toasts '$(toasts)'"
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$reg/mc-alpha-worker-aaaaaaaaaa"
+  esc scan --program alpha --now $((T0 + 2860))
+  expect_rc "an unreadable launcher list fails the pass" 1
+  expect_err "and says so" "launcher's list cannot be read"
+  expect_out "the dialog half still runs" "self${tab}"
+  chmod 600 "$reg/mc-alpha-worker-aaaaaaaaaa"
+  esc scan --program alpha --now $((T0 + 2920))
+  if [ "$(count_of "$(toasts)" "r7-0007")" = 1 ]; then
+    ok "after an unread list nothing is raised twice"
+  else
+    fail "after an unread list: toasts '$(toasts)'"
+  fi
+  chmod 000 "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa/journal"
+  esc scan --program alpha --now $((T0 + 2980))
+  expect_rc "an unreadable journal fails the pass" 1
+  chmod 600 "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa/journal"
+  esc scan --program alpha --now $((T0 + 3040))
+  if [ "$(count_of "$(toasts)" "r7-0007")" = 1 ] && [ "$(count_of "$(hub_events)" "r7-0007")" = "$before" ]; then
+    ok "after an unread journal nothing is raised twice"
+  else
+    fail "after an unread journal: toasts '$(toasts)'"
+  fi
 fi
-chmod 000 "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa/journal"
-esc scan --program alpha --now $((T0 + 2980))
-expect_rc "an unreadable journal fails the pass" 1
-chmod 600 "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa/journal"
-esc scan --program alpha --now $((T0 + 3040))
+wd="$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa"
+mv "$wd" "$wd.real"
+ln -s "$tmp/nowhere" "$wd"
+esc scan --program alpha --now $((T0 + 3050))
+expect_rc "a dangling link for the worker directory fails the pass" 1
+expect_err "and is refused" "not a plain directory"
+rm -f "$wd"
+mv "$wd.real" "$wd"
+mv "$wd/journal" "$wd/journal.real"
+ln -s "$tmp/nowhere" "$wd/journal"
+esc scan --program alpha --now $((T0 + 3060))
+expect_rc "a dangling link for the journal fails the pass" 1
+rm -f "$wd/journal"
+mv "$wd/journal.real" "$wd/journal"
+esc scan --program alpha --now $((T0 + 3070))
 if [ "$(count_of "$(toasts)" "r7-0007")" = 1 ] && [ "$(count_of "$(hub_events)" "r7-0007")" = "$before" ]; then
-  ok "after an unread journal nothing is raised twice"
+  ok "after dangling links nothing is raised twice"
 else
-  fail "after an unread journal: toasts '$(toasts)'"
+  fail "after dangling links: toasts '$(toasts)', hub '$(hub_events)'"
 fi
 
 # A dead worker (no pidfile) is the keeper's to settle, never raised.
@@ -498,24 +521,28 @@ rm -f "$fleet/mission-control/alpha/escalate/sent"
 : >"$fleet/attention/toasts"
 hub_ev="$fleet/attention/mission-control/hub/events"
 mkdir -p "$hub_ev"
-chmod 555 "$hub_ev"
-esc scan --program alpha --now $((T0 + 1900))
-expect_rc "a refused hub event fails the pass" 1
-expect_err "the refusal is named" "refused the escalation"
-expect_out "the operator hears it at the first level instead" "escalated${tab}operator${tab}mc-alpha-worker-aaaaaaaaaa${tab}editor-toast"
-chmod 755 "$hub_ev"
+if [ "$(id -u)" != 0 ]; then
+  chmod 555 "$hub_ev"
+  esc scan --program alpha --now $((T0 + 1900))
+  expect_rc "a refused hub event fails the pass" 1
+  expect_err "the refusal is named" "refused the escalation"
+  expect_out "the operator hears it at the first level instead" "escalated${tab}operator${tab}mc-alpha-worker-aaaaaaaaaa${tab}editor-toast"
+  chmod 755 "$hub_ev"
+fi
 rm -rf "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa" "$fleet/mission-control/alpha/escalate/sent"
 
 # A record that cannot be written raises nothing, so nothing is raised twice.
 req mc-alpha-worker-aaaaaaaaaa r10-0010 "$T0"
 : >"$fleet/attention/toasts"
 : >"$fleet/mission-control/alpha/escalate/sent"
-chmod 444 "$fleet/mission-control/alpha/escalate/sent"
-esc scan --program alpha --now $((T0 + 2800))
-expect_rc "an unwritable record fails the pass" 1
-expect_err "and says so" "nothing is raised this pass"
-expect_no_out "and raises nothing" "escalated"
-chmod 644 "$fleet/mission-control/alpha/escalate/sent"
+if [ "$(id -u)" != 0 ]; then
+  chmod 444 "$fleet/mission-control/alpha/escalate/sent"
+  esc scan --program alpha --now $((T0 + 2800))
+  expect_rc "an unwritable record fails the pass" 1
+  expect_err "and says so" "nothing is raised this pass"
+  expect_no_out "and raises nothing" "escalated"
+  chmod 644 "$fleet/mission-control/alpha/escalate/sent"
+fi
 rm -f "$fleet/mission-control/alpha/escalate/sent"
 # A linked record is refused.
 ln -s "$tmp/elsewhere" "$fleet/mission-control/alpha/escalate/sent"

@@ -319,7 +319,7 @@ while IFS= read -r w; do
   [ -n "$w" ] || continue
   mc_valid_handle "$w" || continue
   wdir="$FLEET_HOME/streamjson/$w"
-  [ -e "$wdir" ] || continue
+  [ -e "$wdir" ] || [ -L "$wdir" ] || continue
   if [ -L "$wdir" ] || [ ! -d "$wdir" ]; then
     printf '%s\n' "$prog: refusing the worker directory of $(sanitize_printable "$w"): not a plain directory" >&2
     failed=1
@@ -329,7 +329,7 @@ while IFS= read -r w; do
   # Positively dead: neither pidfile left. The keeper's alarm scan settles it.
   [ -e "$wdir/worker.pid" ] || [ -e "$wdir/supervisor.pid" ] || continue
   journal="$wdir/journal"
-  [ -e "$journal" ] || continue
+  [ -e "$journal" ] || [ -L "$journal" ] || continue
   if [ -L "$journal" ] || [ ! -f "$journal" ] || [ ! -r "$journal" ] \
     || ! rows=$(awk -F '\t' '$4 == "pending" && $1 ~ /^[A-Za-z0-9-]+$/ && length($1) <= 64 {
         s = $3; if ($5 ~ /^[0-9]+$/ && $5 + 0 > s + 0) s = $5; print $1 "\t" s }' "$journal"); then
