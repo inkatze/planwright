@@ -39,7 +39,8 @@ as they stand now):
              unstarted to its finish, never below zero) against the run
              time (started to completed). With more than one repository a
              key is prefixed with its owner/name. A repository with no
-             GitHub remote is named in the source line, not measured.
+             GitHub remote, or not on this machine, is named in the source
+             line, not measured.
   approvals  every permission request in the program's stream-json worker
              journals (<fleet home>/streamjson/<session>/journal, a regular
              file): received to answered, a pending one counted to now
@@ -51,7 +52,8 @@ as they stand now):
              current sample is named in the source line; with none sampled
              the source is unknown.
   steps      every cadence step record (start to end; a skipped step
-             aside) in the program repositories' worktrees and the program
+             aside) in the program repositories' worktrees (a repository
+             not on this machine named in the source line) and the program
              home's reclaimed copies, read with `step-record.sh list`, per
              step id, naming the branch of the slowest; a record identical
              in every field to one already read is a copy
@@ -272,9 +274,15 @@ load_program() {
   if PHOME=$(/bin/bash "$script_dir/mc-program.sh" get "$program" home 2>/dev/null) && [ -n "$PHOME" ]; then HOME_OK=1; fi
 }
 
-# slug_of <repository>: owner/name of its origin remote on GitHub.
+# slug_of <repository>: owner/name of its origin remote on GitHub; 1 when
+# it has no origin or one off GitHub, 2 when git cannot read it.
 slug_of() {
-  so_url=$(mc_untrusted_git -C "$1" remote get-url origin 2>/dev/null) || return 1
+  so_url=$(mc_untrusted_git -C "$1" remote get-url origin 2>/dev/null)
+  case $? in
+    0) ;;
+    2) return 1 ;;
+    *) return 2 ;;
+  esac
   so_slug=$(printf '%s\n' "$so_url" | sed -n -e 's#^[a-z+]*://\([^@/]*@\)\{0,1\}github\.com\(:[0-9]*\)\{0,1\}/##p' -e 's#^[^@/:]*@github\.com:##p' | sed -e 's#/$##' -e 's#\.git$##')
   mc_valid_slug "$so_slug" || return 1
   printf '%s\n' "$so_slug"
@@ -319,14 +327,27 @@ measure_ci() {
   ci_all=""
   ci_n=0
   ci_off=""
+  ci_absent=""
   while IFS= read -r ci_repo; do
     [ -n "$ci_repo" ] || continue
-    # A repository with no GitHub remote has no Actions to measure: named,
-    # never a reason to leave the others unmeasured.
-    ci_slug=$(slug_of "$ci_repo") || {
-      ci_off="$ci_off${ci_off:+, }$ci_repo"
+    # A repository not cloned here, or with no GitHub remote, has no Actions
+    # to measure: named, never a reason to leave the others unmeasured.
+    if [ ! -d "$ci_repo" ]; then
+      ci_absent="$ci_absent${ci_absent:+, }$ci_repo"
       continue
-    }
+    fi
+    ci_slug=$(slug_of "$ci_repo")
+    case $? in
+      0) ;;
+      1)
+        ci_off="$ci_off${ci_off:+, }$ci_repo"
+        continue
+        ;;
+      *)
+        unknown ci "cannot read the origin remote of $ci_repo"
+        return 0
+        ;;
+    esac
     ci_n=$((ci_n + 1))
     ci_list=$(ci_runs "$ci_slug" "$CI_RUNS") || {
       unknown ci "the Actions runs of $ci_slug cannot be read"
@@ -350,11 +371,12 @@ EOF
   done <<EOF
 $REPOS
 EOF
-  if [ "$ci_n" = 0 ] && [ -n "$ci_off" ]; then
-    unknown ci "no GitHub origin remote for $ci_off"
+  ci_skip="${ci_off:+; no GitHub remote: $ci_off}${ci_absent:+; not on this machine: $ci_absent}"
+  if [ "$ci_n" = 0 ] && [ -n "$ci_skip" ]; then
+    unknown ci "no repository measured$ci_skip"
     return 0
   fi
-  printf 'source\tci\tok\t%s repositories%s\n' "$ci_n" "${ci_off:+; no GitHub remote: $ci_off}"
+  printf 'source\tci\tok\t%s repositories%s\n' "$ci_n" "$ci_skip"
   [ -n "$ci_all" ] || return 0
   # A job queued now counts its wait to now; one in progress has no run
   # time yet; one that finished unstarted waited until it finished. A clock
@@ -516,8 +538,13 @@ measure_steps() {
   }
   st_rows=""
   st_n=0
+  st_absent=""
   while IFS= read -r st_repo; do
     [ -n "$st_repo" ] || continue
+    if [ ! -d "$st_repo" ]; then
+      st_absent="$st_absent${st_absent:+, }$st_repo"
+      continue
+    fi
     # NUL-separated fields become lines, and a newline inside a path a
     # \001, so a worktree whose path holds a newline or a tab is passed
     # over rather than misread.
@@ -574,7 +601,7 @@ EOF
 $st_dirs
 EOF
   fi
-  printf 'source\tsteps\tok\t%s record folders\n' "$st_n"
+  printf 'source\tsteps\tok\t%s record folders%s\n' "$st_n" "${st_absent:+; not on this machine: $st_absent}"
   [ -n "$st_rows" ] || return 0
   # A reclaimed copy of a worktree still on disk holds the same records;
   # another cache of the same branch reuses run ids for other records.

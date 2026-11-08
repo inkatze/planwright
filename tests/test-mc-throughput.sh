@@ -40,12 +40,12 @@ reset_mc_fixture
 mchome="$tmp/mchome"
 cat >"$tracked" <<EOF
 mission_control_programs: [alpha]
-program_alpha_repositories: [$repo, $tmp/plain]
+program_alpha_repositories: [$repo, $tmp/plain, $tmp/gone]
 program_alpha_home: $mchome
 EOF
 # A remote URL with a user and a trailing slash still names the slug; a
-# repository with no GitHub remote is named, never a reason to leave the
-# other unmeasured.
+# repository with no GitHub remote, or not cloned on this machine, is named,
+# never a reason to leave the others unmeasured.
 git -C "$repo" remote add origin https://user@github.com/acme/widgets/
 git init -q "$tmp/plain"
 git -C "$repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
@@ -173,7 +173,8 @@ chmod 700 "$rsteps" "$mchome/reclaimed/repo/old/feature/.claude/steps"
 # ---------------------------------------------------------------------------
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_rc "measure" 0
-expect_out "the CI source reads, naming the repository it could not measure" "source${tab}ci${tab}ok${tab}1 repositories; no GitHub remote: $tmp/plain"
+expect_out "the CI source reads, naming the repositories it could not measure" \
+  "source${tab}ci${tab}ok${tab}1 repositories; no GitHub remote: $tmp/plain; not on this machine: $tmp/gone"
 expect_out "CI queue against run time per workflow and job" "ci${tab}ci / macos-suite${tab}2${tab}1500${tab}3000${tab}1800${tab}900"
 expect_out "a fast job is measured too, every page of a run's jobs read" "ci${tab}ci / linux${tab}2${tab}10${tab}20${tab}15${tab}290"
 expect_out "a job still queued counts its wait to now" "ci${tab}ci / queued-job${tab}1${tab}300${tab}300${tab}300${tab}-"
@@ -193,7 +194,8 @@ expect_out "the launch key is cleaned as the stall detector cleans it" "stall${t
 expect_out "a slow step, naming its branch" "step${tab}polish${tab}2${tab}2400${tab}4800${tab}3000${tab}feature"
 expect_no_out "a skipped step is not measured" "cubic-pr"
 expect_out "a reclaimed cache's own record, the same run id aside, is measured" "step${tab}audit${tab}1${tab}1800${tab}1800${tab}1800${tab}old/feature"
-expect_out "every record folder is read" "source${tab}steps${tab}ok${tab}3 record folders"
+expect_out "every record folder is read, naming a repository not on this machine" \
+  "source${tab}steps${tab}ok${tab}3 record folders; not on this machine: $tmp/gone"
 expect_no_out "a step that ended before the window is not measured" "step${tab}lint"
 
 # ---------------------------------------------------------------------------
@@ -422,6 +424,15 @@ mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_rc "more CI runs than one forge page holds fails" 1
 expect_err "naming the knob" "mission_control_throughput_ci_runs"
 grep -v '^mission_control_throughput_ci_runs' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
+
+# A repository whose remote git cannot read is unknown, not one with no
+# GitHub remote.
+mkdir -p "$tmp/notgit"
+cp "$tracked" "$tracked.keep"
+sed "s#^program_alpha_repositories: .*#program_alpha_repositories: [$repo, $tmp/notgit]#" "$tracked.keep" >"$tracked"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_out "an unreadable remote is unknown" "source${tab}ci${tab}unknown${tab}cannot read the origin remote of $tmp/notgit"
+mv "$tracked.keep" "$tracked"
 
 # ---------------------------------------------------------------------------
 # Cost per model request against context size.
