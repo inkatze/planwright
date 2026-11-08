@@ -179,6 +179,8 @@ test('the health section draws each check out of bounds, and nothing when all is
   expect(await ui.find({ type: 'Text', text: /^Health$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^3 workers live past 4h \(oldest w-old, 6h\)$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^CI queue times unknown/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^1 mission control at or past the handover context \(beta 75% of 70%\)$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^context unknown for gamma/ })).toBeDefined()
   await ui.unmount()
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   // Checks, not records: the context check said two things.
