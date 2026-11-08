@@ -24,6 +24,7 @@ mc-duties.sh list
 mc-event.sh list
 mc-handover.sh due
 mc-handover.sh launch
+mc-handover.sh release
 mc-handover.sh resume
 mc-handover.sh take
 mc-handover.sh verify
