@@ -661,8 +661,10 @@ lint_block="$(job_block lint)"
 # ---------------------------------------------------------------------------
 # 14. The macOS and Alpine suites run sharded like the test job, and `check`
 #     joins them: a failed, cancelled, or skipped shard on either platform,
-#     or the macOS install smoke, fails it. macOS takes a fixed small count,
-#     since its runners are scarce; Alpine takes the planned list.
+#     or the macOS install smoke, fails it. macOS takes the count the plan
+#     job's runner choice gives (a fixed small one on GitHub's scarce hosted
+#     runners, one shard on the self-hosted Mac); Alpine takes the planned
+#     list.
 # ---------------------------------------------------------------------------
 macos_block="$(job_block macos-suite)"
 smoke_block="$(job_block macos-smoke)"
@@ -676,7 +678,19 @@ alpine_block="$(job_block alpine-suite)"
     '&& [ "$MACOS_RESULT" = success ]'
   assert_contains "the check job fails unless the macOS smoke and the Alpine suite passed" "$check_block" \
     '&& [ "$MACOS_SMOKE_RESULT" = success ] && [ "$ALPINE_RESULT" = success ]'
-  assert_contains "the macOS suite runs a fixed shard list" "$macos_block" 'shard: [1, 2, 3, 4]'
+  assert_contains "the macOS shard list comes from the plan's runner choice" "$macos_block" \
+    'shard: ${{ fromJSON(needs.plan.outputs.mac_shards) }}'
+  assert_contains "the plan job hands on the macOS runner and its shards" "$plan_block" \
+    'mac_shards: ${{ steps.mac.outputs.shards }}'
+  assert_contains "the self-hosted runner takes a single shard" "$plan_block" \
+    "if [ \"\$runner\" = self-hosted ]; then shards='[1]'; else shards='[1, 2, 3, 4]'; fi"
+  assert_contains "only this repository's pull requests reach the self-hosted runner" "$plan_block" \
+    '[ "$EVENT" = pull_request ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]'
+  assert_contains "the self-hosted runner is opt-in by repository variable" "$plan_block" \
+    'if [ "$SWITCH" != self-hosted ]; then'
+  mac_ro="$(printf '%s\n' "$macos_block" | grep '^    runs-on: ')"
+  assert_contains "the macOS suite falls back to GitHub's hosted macOS" "$mac_ro" "|| 'macos-latest' }}"
+  assert_contains "the macOS smoke runs where the suite does" "$(printf '%s\n' "$smoke_block" | grep '^    runs-on: ')" "$mac_ro"
   assert_contains "the macOS shard count comes from the matrix" "$macos_block" 'SHARDS: ${{ strategy.job-total }}'
   assert_contains "each macOS job runs one shard" "$macos_block" '"$mise_bin" run test -- --shard "$SHARD/$SHARDS"'
   assert_contains "every macOS shard requires the BSD awk" "$macos_block" 'PLANWRIGHT_TEST_REQUIRE_BSD_AWK: "1"'

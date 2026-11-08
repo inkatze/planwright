@@ -1,4 +1,4 @@
-import type { PanelDigest, PanelView } from '../../types'
+import type { PanelDigest, PanelFlight, PanelView } from '../../types'
 
 const PROGRAM = /^[a-z](?:[a-z0-9]|-(?=[a-z0-9])){0,63}$/
 const HANDLE = /^[A-Za-z0-9._=@:-]{1,128}$/
@@ -16,8 +16,10 @@ export function parseDigest(text: string): PanelDigest | null {
     taken: 0,
     knobs: {},
     flights: [],
+    finished: null,
     waiting: null,
     pending: null,
+    approvals: null,
     decisions: [],
     rung: { name: '-', reason: '' },
     headroom: [],
@@ -27,6 +29,7 @@ export function parseDigest(text: string): PanelDigest | null {
     measures: [],
     reviews: null,
     isHandoverInstalled: false,
+    holder: null,
     unreadable: [],
     line: '',
   }
@@ -46,13 +49,19 @@ export function parseDigest(text: string): PanelDigest | null {
         break
       }
       case 'flight':
-        d.flights.push({ worker: f[1] ?? '', scope: f[2] ?? '', backend: f[3] ?? '' })
+        d.flights.push({ worker: f[1] ?? '', scope: f[2] ?? '', backend: f[3] ?? '', state: f[4] === 'waiting' || f[4] === 'stuck' ? f[4] : 'working' })
+        break
+      case 'finished':
+        d.finished = int(f[1])
         break
       case 'waiting':
         d.waiting = int(f[1])
         break
       case 'pending':
         d.pending = int(f[1])
+        break
+      case 'approvals':
+        d.approvals = int(f[1])
         break
       case 'decision':
         d.decisions.push({ time: f[1] ?? '', subject: f[2] ?? '', act: f[3] ?? '' })
@@ -132,6 +141,9 @@ export function parseDigest(text: string): PanelDigest | null {
       case 'handover':
         d.isHandoverInstalled = f[1] === 'available'
         break
+      case 'holder':
+        d.holder = f[1] === 'registry' || f[1] === 'attended' ? f[1] : null
+        break
       case 'unreadable':
         if (f[1]) d.unreadable.push(f[1])
         break
@@ -151,6 +163,59 @@ export function parseWake(text: string): { ids: string[]; text: string } | null 
   if (f[0] !== 'wake' || !f[2]) return null
   const ids = f[2].split(' ').filter(id => /^e[0-9]+\.[0-9a-f]+$/.test(id))
   return ids.length > 0 ? { ids, text: rest.join('\n') } : null
+}
+
+const KINDS = {
+  task: ['spec task', 'spec tasks'],
+  kickoff: ['spec kickoff', 'spec kickoffs'],
+  draft: ['spec draft', 'spec drafts'],
+  change: ['one-off change', 'one-off changes'],
+  review: ['review', 'reviews'],
+  mc: ['mission-control session', 'mission-control sessions'],
+  other: ['other session', 'other sessions'],
+} as const
+
+// What a session is doing, read from the shapes its launcher gives the
+// scope and handle; the operator sees this, never the scope or handle.
+export function flightKind(f: Pick<PanelFlight, 'worker' | 'scope'>): keyof typeof KINDS {
+  const s = f.scope
+  if (/^flight[:-]/.test(s)) return 'change'
+  if (/(^|[:-])task-?[0-9]+(\.[0-9]+)*$|:[0-9]+(\.[0-9]+)*$/.test(s)) return 'task'
+  if (/^spec-draft/.test(s)) return 'draft'
+  if (/(^|[:-])kickoff([:-]|$)/.test(s)) return 'kickoff'
+  if (/review|cubic|copilot/.test(s)) return 'review'
+  if (/-mission-control-/.test(f.worker) || /^gen-[0-9]/.test(s)) return 'mc'
+  return 'other'
+}
+
+const STATES = { waiting: 'waiting for an answer', stuck: 'not responding', working: 'working' } as const
+const STATE_ORDER = ['waiting', 'stuck', 'working'] as const
+
+// The sessions in flight as counted plain lines: those waiting on an answer
+// first, then those not responding, each by group size.
+// A digest a reload carried over from before states were read has none.
+type ReloadedFlight = Pick<PanelFlight, 'worker' | 'scope'> & { state?: PanelFlight['state'] }
+
+export function flightLines(flights: ReloadedFlight[]): string[] {
+  const groups = new Map<string, { kind: keyof typeof KINDS; state: PanelFlight['state']; n: number }>()
+  for (const f of flights) {
+    const state = f.state && STATES[f.state] ? f.state : 'working'
+    const kind = flightKind(f)
+    const key = `${state}/${kind}`
+    const g = groups.get(key)
+    if (g) g.n += 1
+    else groups.set(key, { kind, state, n: 1 })
+  }
+  return [...groups.values()]
+    .sort((a, b) => STATE_ORDER.indexOf(a.state) - STATE_ORDER.indexOf(b.state) || b.n - a.n)
+    .map(g => `${g.n} ${KINDS[g.kind][g.n === 1 ? 0 : 1]} ${STATES[g.state]}`)
+}
+
+// Repeated lines as one, with their count.
+export function counted(lines: string[]): string[] {
+  const n = new Map<string, number>()
+  for (const l of lines) n.set(l, (n.get(l) ?? 0) + 1)
+  return [...n].map(([l, c]) => (c > 1 ? `${l} (×${c})` : l))
 }
 
 export type Install =
@@ -196,10 +261,11 @@ export function fallbackLine(view: PanelView): string {
 
 // The handover trigger: measured context where the harness gives
 // it, the completed-wake count otherwise, and the compaction ceiling either
-// way. Null while no threshold is reached or the knobs are unread.
+// way. Null while no threshold is reached or the knobs are unread, and
+// always outside a launched holder: the operator's own session compacts.
 export function handoverReason(view: PanelView): string | null {
   const k = view.digest?.knobs
-  if (!k) return null
+  if (!k || view.digest?.holder !== 'registry') return null
   const compactions = k['handover-compactions']
   if (compactions !== undefined && view.compactions >= compactions) {
     return `${view.compactions} compactions`

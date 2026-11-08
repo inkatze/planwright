@@ -131,8 +131,9 @@
 #   fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>]
 #       [--expect-dir <dir>] [--observe] [--final]
 #     --final also removes, once the close completes, the worktree scratch
-#     root the run recorded in <unit>/scratch-root (the close a reap makes),
-#     unless a stream-json session still uses it (scripts/fleet-stop-lib.sh).
+#     root the run recorded in <unit>/scratch-root (the close a reap makes);
+#     an earlier-layout root a stream-json session still uses is left
+#     (scripts/fleet-stop-lib.sh).
 #     Close the worker named by its handle (`headless-<spec>-task-<id>`, the
 #     handle `launch` prints): terminate the runner and everything under it,
 #     SIGTERM then SIGKILL after the grace, and release its scratch temp and

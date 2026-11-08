@@ -1,0 +1,1 @@
+- 2026-11-06 [planwright] Commands handed to the operator or run on a remote host must use that host's shell: the offload host sign-in command joined steps with fish's '; and', but the fleet account's shell is zsh, so gh auth setup-git silently never ran. Each step of a remote command should be verified, not assumed.

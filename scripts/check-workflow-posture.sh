@@ -140,9 +140,12 @@
 # workflow file name, a further assertion holds that file to the CI platform
 # matrix, failing closed when it is absent:
 #   - it carries an Ubuntu job (runs-on ubuntu-*, no container), a macOS job
-#     (runs-on macos-*), and exactly one Alpine job (a container image whose
-#     last path component is alpine); a runs-on this parser cannot read as a
-#     scalar, a matrix expression included, places a job on no platform;
+#     (runs-on macos-*, or `${{ needs.plan.outputs.mac_runner ==
+#     'self-hosted' && fromJSON('[…]') || 'macos-latest' }}` whose label list
+#     names "self-hosted" and "macOS", so only the plan job's routing picks a
+#     self-hosted Mac, with a hosted one as the fallback), and exactly one Alpine job (a
+#     container image whose last path component is alpine); any other
+#     runs-on, a matrix expression included, places a job on no platform;
 #   - every step blocks: no `continue-on-error` other than `false`, and no
 #     flow mapping or sequence naming it at all; no content line swallowing a
 #     failure (`||` onto `true`, `:`, `/bin/true`, `exit 0`, or `{ true; }`,
@@ -868,6 +871,18 @@ function scope(n) { return (n == "shell suite" || n == "install smoke" || n == "
 # Reading nm[] by subscript would create the entry; every read goes through here.
 function stepname(j, s) { return ((j SUBSEP s) in nm) ? nm[j SUBSEP s] : "" }
 function v(msg) { printf "%s\n", msg }
+# A macOS runs-on: a hosted `macos-*` label, or the one expression that picks
+# the self-hosted Mac only on the plan job's routing choice and otherwise
+# falls back to macos-latest, so both outcomes are a Mac and only the plan's
+# fork check can choose the self-hosted one. Any other selector (`true`, an
+# earlier alternative, a second list) is not this shape, and neither is a
+# bare self-hosted label list, which leaves no hosted path for the pull
+# requests the plan keeps off that runner.
+function mac_runs_on(r) {
+  if (r ~ /^macos-/) return 1
+  return (r ~ /^\$\{\{[ \t]*needs\.plan\.outputs\.mac_runner[ \t]*==[ \t]*'self-hosted'[ \t]*&&[ \t]*fromJSON\('\[[^]'|]*\]'\)[ \t]*\|\|[ \t]*'macos-latest'[ \t]*\}\}$/ &&
+          r ~ /fromJSON\('\[[^]]*"self-hosted"/ && r ~ /fromJSON\('\[[^]]*"macOS"/)
+}
 BEGIN { FS = "\t"; file = ENVIRON["MATRIX_FILE"] }
 $1 == "E" { v(file ":" $2 ": parse failure — " $3) }
 $1 == "J" { nj++; job[nj] = $2 }
@@ -892,7 +907,7 @@ END {
   for (i = 1; i <= nj; i++) {
     j = job[i]; base = img[j]; sub(/.*\//, "", base)
     if (base ~ /^alpine([:@]|$)/) { kind[j] = "alpine"; nalpine++; alpine_job = (alpine_job == "" ? j : alpine_job " " j) }
-    else if (img[j] == "" && ro[j] ~ /^macos-/) kind[j] = "macos"
+    else if (img[j] == "" && mac_runs_on(ro[j])) kind[j] = "macos"
     else if (img[j] == "" && ro[j] ~ /^ubuntu-/) kind[j] = "ubuntu"
     if ((kind[j] == "macos" || kind[j] == "alpine") && (j in jif))
       v(file ":" jif[j] ": platform job '" j "' carries a job-level `if:`; a matrix job runs on every pull request")
@@ -905,7 +920,7 @@ END {
     if (scope(n) && !run_anyway(ktext[k])) v(file ":" kline[k] ": the `" n "` step of job '" kjob[k] "' carries an `if:` that can switch it off; a scope step runs on every pull request")
   }
   if (!have["ubuntu"]) v(file ": no Ubuntu job (runs-on ubuntu-*, no container) — the matrix needs Linux with glibc")
-  if (!have["macos"]) v(file ": no macOS job (runs-on macos-*) — the matrix needs the system bash and BSD userland")
+  if (!have["macos"]) v(file ": no macOS job (runs-on macos-*, or a self-hosted Mac falling back to one) — the matrix needs the system bash and BSD userland")
   if (nalpine < 1) v(file ": no Alpine job (a container image whose last path component is alpine) — the matrix needs musl with dash and busybox")
   if (nalpine > 1) v(file ": more than one Alpine job (" alpine_job "), so the Alpine scope has no single job to hold to")
   if (have["ubuntu"] && !smoke["ubuntu"]) v(file ": no ungated Ubuntu job carries an `install smoke` step")

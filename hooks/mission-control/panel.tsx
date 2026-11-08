@@ -1,7 +1,7 @@
 import type { Elements, RenderSurface } from 'claude-code'
 
 import type { PanelReviews, PanelView } from '../../types'
-import { age } from './digest'
+import { age, counted, flightLines } from './digest'
 
 type Table = Elements[RenderSurface]
 
@@ -23,7 +23,13 @@ function headroomTight(view: PanelView): string | null {
 function flightCount(view: PanelView): string {
   const d = view.digest
   if (!d) return '?'
-  return d.unreadable.includes('fleet registry') ? '?' : String(d.flights.length)
+  if (d.unreadable.includes('fleet registry')) return '?'
+  // Windows of a tmux server that did not answer may hold more; without the
+  // attention store an idle session reads live, so there may be fewer.
+  const isFloor = d.unreadable.includes('tmux windows')
+  const isCeiling = d.unreadable.includes('attention store')
+  const n = d.flights.length
+  return isFloor && isCeiling ? '?' : isFloor ? `${n}+` : isCeiling ? `up to ${n}` : String(n)
 }
 
 function kbLine(view: PanelView): string {
@@ -163,14 +169,18 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
       {Section(
         t,
         `In flight (${flightCount(view)})`,
-        d.flights.map(f => `${f.worker}  ${f.scope}  ${f.backend}`),
-        'Nothing in flight.',
+        [
+          ...flightLines(d.flights),
+          ...(d.finished ? [`${d.finished} finished, not cleaned up`] : []),
+        ],
+        d.unreadable.includes('tmux windows') ? '' : 'Nothing in flight.',
       )}
       {Section(
         t,
         'Holding for you',
         [
           `${d.waiting === null ? 'unknown' : d.waiting} waiting on you`,
+          ...(d.approvals ? [`${d.approvals} ${d.approvals === 1 ? 'approval' : 'approvals'} mission control is handling`] : []),
           ...(d.pending !== null ? [`${d.pending} event(s) inbound`] : []),
         ],
       )}
@@ -187,9 +197,9 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
         [
           ...(d.rung.reason ? [d.rung.reason] : []),
           ...(tight ? [`tightest: ${tight}`] : []),
-          ...d.watchers
-            .slice(0, WATCHERS_SHOWN)
-            .map(w => `${w.duty}/${w.script} ${w.state}, next ${w.next === null ? 'unknown' : age(w.next)}`),
+          ...counted(
+            d.watchers.map(w => `${w.duty.replace(/-/g, ' ')} ${w.state}, next ${w.next === null ? 'unknown' : age(w.next)}`),
+          ).slice(0, WATCHERS_SHOWN),
         ],
         'No budget computed yet.',
       )}

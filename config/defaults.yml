@@ -929,8 +929,9 @@ messaging_heal_cadence_seconds: 300
 #                               layer's list joins, none replaces another's.
 # merge_class_strategy          the class's merge method: sole-allowed (the one
 #                               method the host allows), squash, merge, rebase.
-# worker_base_merge             whether a worker may merge its PR base into its
-#                               own unit branch: allow or deny.
+# worker_base_merge             whether a worker may merge its PR base (or its
+#                               own remote branch) into its own unit branch:
+#                               allow or deny.
 # worker_merge_conflict_policy  a conflicting base merge: halt (abort and park)
 #                               or resolve (commit the resolution for sign-off).
 # unpushed_rewrite              whether a worker may amend, squash, or rebase
@@ -1019,8 +1020,9 @@ mission_control_default_duties: [session-keeper, inbox, readiness-check, conflic
 # yamllint disable-line rule:line-length
 mission_control_default_sources: {work-items: specs:record, code-state: forge:snapshot, decisions: specs:record, deadlines: specs:record}
 # The rung scripts/mission-control-launch.sh starts a session on when the
-# launch names none: stream-json (a supervised session reached by message) or
-# tmux (a detached window).
+# launch names none: stream-json (a supervised session reached by message,
+# whose permission prompts mission control answers through the fleet) or tmux
+# (a detached window, whose prompts only the operator can answer there).
 mission_control_launch_backend: stream-json
 # The knowledge base's loading caps (scripts/mc-kb.sh): the index, loaded
 # whole at bring-up, holds at most this many entry lines; a body above the
@@ -1076,6 +1078,17 @@ mission_control_event_retention: 7d
 # open (every open pull request) or authored (the open ones the forge CLI's
 # own account opened).
 mission_control_forge_tracked: open
+# The most conflict-predicted branch pairs the conflict radar announces in one
+# pass. The pairs past it are announced on later passes, and one summary event
+# says how many this pass held back.
+mission_control_radar_max_events: 20
+# Which branches the conflict radar pairs: authored (the pull requests the
+# forge snapshot holds, their base branches, and the program's own unit
+# branches), watched (the branches in mission_control_radar_watched), or all
+# (every origin branch). Merge-queue refs never pair.
+mission_control_radar_scope: authored
+# The branches the watched scope pairs, a list of branch names.
+mission_control_radar_watched: []
 # The rate-limit headroom at or below which a snapshot adapter's next read
 # waits for the limit's reset instead of polling.
 mission_control_ratelimit_floor: 50

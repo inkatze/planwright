@@ -192,7 +192,10 @@ a `plan` job picks the shard count (`scripts/run-tests.sh --plan-shards`,
 below), one `test` job runs each shard of the suite (`scripts/run-tests.sh
 --shard <i>/<N>`), the `macos-suite` and `alpine-suite` jobs run the suite
 in shards of their own on macOS (the system bash 3.2 and BSD userland; a
-small fixed count, since macOS runners are scarce) and in an Alpine container
+small fixed count on GitHub's scarce hosted runners, or, once the
+`PLANWRIGHT_MAC_RUNNER` repository variable enables it, one shard on the
+offload Mac's self-hosted runner for this repository's own branches, as
+[`ci-self-hosted-mac.md`](ci-self-hosted-mac.md) describes) and in an Alpine container
 (musl, dash, busybox; the planned count), and the `check` job, the status
 branch protection reads, passes only when every one of those jobs and shards
 does and the test-time budget gate passes over every Linux shard's timing
@@ -346,7 +349,12 @@ test file a sentinel fleet home (`PLANWRIGHT_FLEET_STATE_DIR`, and
 there by the time it exits. Pin a fixture home per case with `fleet_home_pin` from
 [`tests/lib/fleet-home.sh`](../tests/lib/fleet-home.sh), whose
 `fleet_home_leaked` also lets a suite run on its own check that it left the
-inherited registry alone.
+inherited registry alone. A worker's scratch root lies outside its fleet home,
+in `/tmp/planwright-<uid>` unless `PLANWRIGHT_FLEET_SCRATCH_BASE` names
+another directory (this user's, closed to everyone else), so
+the runner also points that variable into the file's sentinel; a suite that
+scrubs `PLANWRIGHT_*` and launches workers sets its own, or its roots outlive
+its fixture.
 
 ### Waits hold up on a busy machine
 

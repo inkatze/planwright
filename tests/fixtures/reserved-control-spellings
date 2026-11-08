@@ -192,8 +192,9 @@ other            tower  floor-guard                  deny   defer  n/a    defer 
 
 base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    defer  defer  n/a    git merge origin/main
 base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    defer  defer  n/a    git -C . merge origin/main
-base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    deny   defer  n/a    git pull
+base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    defer  defer  n/a    git pull
 base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    defer  defer  n/a    git pull origin main
+base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    deny   defer  n/a    git pull origin planwright/demo/task-2
 base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    defer  defer  n/a    git pull --ff-only origin main
 base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    defer  defer  n/a    git -C . pull origin main
 base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    deny   defer  n/a    git merge origin/planwright/demo/task-2
