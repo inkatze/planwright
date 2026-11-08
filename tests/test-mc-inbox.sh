@@ -111,8 +111,10 @@ Decision: D4
 Decision: D5
 Decision: D6
 Failure: The export work died twice"
-{ printf 'decision\tD1\nfailure\tThe export work died twice\nblocker\tgh is not signed in\n'
-  for n in 1 2 3 4 5; do printf 'landed\tPR %s merged\n' "$n"; done; } >"$tmp/report"
+{
+  printf 'decision\tD1\nfailure\tThe export work died twice\nblocker\tgh is not signed in\n'
+  for n in 1 2 3 4 5; do printf 'landed\tPR %s merged\n' "$n"; done
+} >"$tmp/report"
 report "$tmp/report"
 expect_eq "the cap never hides a whole class, and counts no decision" "Decision: D1
 Blocker: gh is not signed in

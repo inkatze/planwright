@@ -248,8 +248,12 @@ stop_slot() {
 flapping() {
   if [ -n "$now" ]; then fl_now=$NOW; else fl_now=$(mc_now); fi
   fl_file="$wdir/$1.stops"
-  fl_kept=$( { [ ! -f "$fl_file" ] || cat "$fl_file"; printf '%s\n' "$fl_now"; } \
-    | N=$fl_now W=$FLAP_WINDOW awk '$1 ~ /^[0-9]+$/ && $1 <= ENVIRON["N"] + 0 && ENVIRON["N"] - $1 < ENVIRON["W"] + 0') || return 1
+  fl_kept=$(
+    {
+      [ ! -f "$fl_file" ] || cat "$fl_file"
+      printf '%s\n' "$fl_now"
+    } | N=$fl_now W=$FLAP_WINDOW awk '$1 ~ /^[0-9]+$/ && $1 <= ENVIRON["N"] + 0 && ENVIRON["N"] - $1 < ENVIRON["W"] + 0'
+  ) || return 1
   printf '%s\n' "$fl_kept" | mc_write "$fl_file" || return 1
   fl_n=$(printf '%s\n' "$fl_kept" | awk 'NF { n++ } END { print n + 0 }')
   [ "$fl_n" -eq "$FLAP_STOPS" ] || return 0
