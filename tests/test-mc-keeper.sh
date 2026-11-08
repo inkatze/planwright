@@ -420,8 +420,8 @@ bound_row mc-beta-worker-idle worker 31 "$t1" "$tmp/idle.pane"
 bound_row mc-alpha-worker-typed worker 32 "$t1" "$tmp/idle.pane"
 cp "$tmp/busy.pane" "$tmp/tmux/32.pane2"
 echo 1000 >"$tmp/tmux/32.switch"
-sj_row mc-alpha-worker-sjbig "$t1" "$t1" "Done."
-awk 'BEGIN { for (i = 0; i < 12000; i++) printf "{\"type\":\"assistant\",\"pad\":\"%0100d\"}\n", i }' >>"$fleet/streamjson/mc-alpha-worker-sjbig/events.jsonl"
+sj_row mc-alpha-worker-sjbusy "$t1" "$t1" "Done."
+printf '{"type":"assistant","message":"working on the steered turn"}\n' >>"$fleet/streamjson/mc-alpha-worker-sjbusy/events.jsonl"
 sed -i.bak 's/^program\talpha$/program\tbeta/' "$sessions/mc-beta-worker-idle" && rm -f "$sessions/mc-beta-worker-idle.bak"
 bound_env() { mc_env env PATH="$tmp/bin:$PATH" TMUX_STUB="$tmp/tmux" "$@"; }
 (bound_env /bin/bash "$repo_root/scripts/mc-stall.sh" scan --program alpha --now "$t1" >/dev/null 2>&1)
@@ -447,7 +447,7 @@ expect_out "an ad-hoc session is bound too" "retire${tab}mc-alpha-ad-hoc-idle${t
 expect_no_out "another program's session is its own program's" "mc-beta-worker-idle"
 expect_no_out "a stream-json turn that ended in error is not idle" "mc-alpha-worker-sjended"
 expect_no_out "nor one whose result predates its launch" "mc-alpha-worker-sjstale"
-expect_out "a result event past the log's last mebibyte is still read" "retire${tab}mc-alpha-worker-sjbig${tab}"
+expect_no_out "a session whose events follow its last result is mid-turn, not idle" "mc-alpha-worker-sjbusy"
 OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now $((t1 + 60)) 2>"$tmp/stderr")
 RC=$?
 expect_rc "bounds inside the bound" 0
@@ -461,7 +461,7 @@ expect_out "a shorter idle knob retires sooner" "retire${tab}mc-alpha-worker-idl
 expect_out "a shorter lifetime knob hands over sooner" "handover${tab}mc-alpha-worker-young${tab}${t1}${tab}lived 1801s, bound 1800s"
 expect_no_out "a session past both bounds is retired, not asked to hand over" "handover${tab}mc-alpha-worker-idle"
 cp "$tmp/tracked.keep" "$tracked"
-for s in mc-alpha-worker-sjasks mc-alpha-worker-sjended mc-alpha-worker-sjstale mc-alpha-worker-sjbig; do rm -f "$sessions/$s" && rm -rf "$fleet/streamjson/$s"; done
+for s in mc-alpha-worker-sjasks mc-alpha-worker-sjended mc-alpha-worker-sjstale mc-alpha-worker-sjbusy; do rm -f "$sessions/$s" && rm -rf "$fleet/streamjson/$s"; done
 
 # watch acts: the idle session is retired through the launcher, its window
 # closed and row gone; each old one's handover is announced once per launch.

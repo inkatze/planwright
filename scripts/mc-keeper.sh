@@ -527,9 +527,11 @@ idle_since_tmux() {
 # when that is at or before <cutoff>; else nothing: when the session is not
 # idle, the record predates this launch, or the turn ended on a question
 # (its final text's last line ends in `?`, the tmux pane's rule), which
-# parks it on the operator. Without jq that cannot be told, so it is never
-# idle. The record is read first, so a recent turn costs no status call or
-# log read.
+# parks it on the operator. The event log's last line must be that result:
+# a steer queued during a turn leaves the earlier turn's record reading
+# completed while the next turn runs, and its events follow the result.
+# Without jq the question cannot be told, so it is never idle. The record is
+# read first, so a recent turn costs no status call or log read.
 idle_since_streamjson() {
   if [ -z "${sj_root:-}" ]; then
     sj_root=$(mc_fleet_home) || return 0
@@ -543,11 +545,8 @@ idle_since_streamjson() {
   is_st=$(/bin/sh "$script_dir/fleet-streamjson.sh" status "$1" 2>/dev/null) || return 0
   case $is_st in "status $1 completed"*) ;; *) return 0 ;; esac
   command -v jq >/dev/null 2>&1 || return 0
-  # The last result event sits near the log's end; the whole log is read
-  # only when its tail holds none.
-  is_ev=$(tail -c 1048576 "$is_dir/events.jsonl" 2>/dev/null | grep -F '"type":"result"' | tail -n 1)
-  [ -n "$is_ev" ] || is_ev=$(grep -F '"type":"result"' "$is_dir/events.jsonl" 2>/dev/null | tail -n 1)
-  [ -n "$is_ev" ] || return 0
+  is_ev=$(tail -n 1 "$is_dir/events.jsonl" 2>/dev/null)
+  case $is_ev in *'"type":"result"'*) ;; *) return 0 ;; esac
   is_text=$(printf '%s\n' "$is_ev" | jq -r '.result // empty' 2>/dev/null) || return 0
   is_last=$(printf '%s\n' "$is_text" | awk '{ sub(/[[:space:]]+$/, "") } $0 != "" { l = $0 } END { print l }')
   case $is_last in *'?') return 0 ;; esac
@@ -629,6 +628,11 @@ retired_event() {
   printf 'announced\tworker-retired-idle\t%s\n' "$1"
 }
 
+# has_key <file> <key>: the file holds the key as a whole line.
+has_key() {
+  [ -f "$1" ] && K=$2 awk 'BEGIN { k = ENVIRON["K"] } $0 == k { f = 1; exit } END { exit !f }' "$1"
+}
+
 # act_bounds <scan-ok>: retire each idle session and request each handover
 # once per launch, under one lock so two passes never act on one verdict
 # twice. A pass whose stall scan failed retires no tmux session: its samples
@@ -662,6 +666,7 @@ EOF
     fi
   fi
   ab_seen="$runtime/keeper-bounds"
+  ab_req="$runtime/keeper-handover-requested"
   ab_out=$(bounds) || {
     pw_lock_release "$runtime/keeper-bounds.lock" >/dev/null 2>&1
     return 1
@@ -720,33 +725,35 @@ EOF
         esac
         ;;
       handover)
-        if [ -f "$ab_seen" ] && K=$ab_key awk 'BEGIN { k = ENVIRON["K"] } $0 == k { f = 1; exit } END { exit !f }' "$ab_seen"; then
+        if has_key "$ab_seen" "$ab_key"; then
           continue
         fi
-        if ! request_handover "$ab_s" "$ab_why"; then
-          printf '%s\n' "$prog: the handover of $ab_s could not be requested" >&2
-          ab_rc=1
-          continue
+        # A request is sent once per launch; a refused event is retried on
+        # a later pass without sending the request again.
+        if ! has_key "$ab_req" "$ab_key"; then
+          if ! request_handover "$ab_s" "$ab_why"; then
+            printf '%s\n' "$prog: the handover of $ab_s could not be requested" >&2
+            ab_rc=1
+            continue
+          fi
+          if handover_installed; then
+            printf '%s\n' "$ab_key" >>"$ab_req" || ab_rc=1
+          fi
         fi
         if handover_installed; then
           ab_how="it hands over at its next safe point"
         else
           ab_how="retire it and launch its successor on the same worktree with a handover brief"
         fi
-        if ! mc_announce "$program" "$ab_seen" "$ab_key" worker-handover-due "$ab_s" "$ab_s is past its lifetime ($ab_why); $ab_how"; then
-          # A request that went out is not sent again every pass; without
-          # one, the event is the only signal, so it is retried.
-          if handover_installed; then
-            printf '%s\n' "$ab_key" >>"$ab_seen" || :
-          fi
-          ab_rc=1
-        fi
+        mc_announce "$program" "$ab_seen" "$ab_key" worker-handover-due "$ab_s" "$ab_s is past its lifetime ($ab_why); $ab_how" \
+          || ab_rc=1
         ;;
     esac
   done <<EOF
 $ab_out
 EOF
   mc_announce_prune "$ab_seen" "$ab_live" || ab_rc=1
+  mc_announce_prune "$ab_req" "$ab_live" || ab_rc=1
   pw_lock_release "$runtime/keeper-bounds.lock" >/dev/null 2>&1
   return "$ab_rc"
 }
