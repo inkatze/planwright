@@ -563,12 +563,12 @@ rm -rf "$runtime"/throughput-ci
 : >"$tmp/gh/calls"
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
-[ "$(jobs_calls 101)" = 1 ] && ok "a finished run's jobs are read once" || fail "run 101's jobs were read $(jobs_calls 101) times"
-[ "$(jobs_calls 102)" = 2 ] && ok "a run still going is read every pass" || fail "run 102's jobs were read $(jobs_calls 102) times"
+if [ "$(jobs_calls 101)" = 1 ]; then ok "a finished run's jobs are read once"; else fail "run 101's jobs were read $(jobs_calls 101) times"; fi
+if [ "$(jobs_calls 102)" = 2 ]; then ok "a run still going is read every pass"; else fail "run 102's jobs were read $(jobs_calls 102) times"; fi
 cp "$tmp/gh/runs.json" "$tmp/gh/runs.keep"
 sed 's/"id":101,/"id":101,"run_attempt":2,/' "$tmp/gh/runs.keep" >"$tmp/gh/runs.json"
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
-[ "$(jobs_calls 101)" = 2 ] && ok "a re-run of a finished run has its jobs read again" || fail "run 101's jobs were read $(jobs_calls 101) times after a re-run"
+if [ "$(jobs_calls 101)" = 2 ]; then ok "a re-run of a finished run has its jobs read again"; else fail "run 101's jobs were read $(jobs_calls 101) times after a re-run"; fi
 mv "$tmp/gh/runs.keep" "$tmp/gh/runs.json"
 printf 'mission_control_throughput_ci_runs: 1\n' >>"$tracked"
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
@@ -739,7 +739,7 @@ rm -f "$runtime/throughput-last"
 mc_run mc-throughput.sh watch --program alpha --now $((NOW + 39600))
 expect_out "the same blind spot is held, not raised again" "held${tab}unknown:ci${tab}0"
 events
-[ "$(unknown_count)" = 1 ] && ok "and emits no second event" || fail "expected one throughput-unknown event, got $(unknown_count)"
+if [ "$(unknown_count)" = 1 ]; then ok "and emits no second event"; else fail "expected one throughput-unknown event, got $(unknown_count)"; fi
 # A bottleneck that carries the note, then clears while the source is still
 # blind, raises nothing about the source a second time.
 grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
