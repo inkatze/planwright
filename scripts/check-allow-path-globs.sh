@@ -4,9 +4,12 @@
 # `Bash(<dir>/*)` admits `<dir>/../../../bin/rm` (docs/permission-matcher-model.md
 # M3; safe forms in docs/overlays.md).
 #
-# No argument: the user and checkout settings, missing files skipped.
-# Arguments: exactly those files; a missing one fails the check.
-# Exit: 0 clean, 1 flagged, 2 input error (never reported clean).
+# No argument: planwright's shipped profiles (config/*-settings.json beside this
+# script), the checkout's settings and the user's home settings, missing files
+# skipped. Arguments: exactly those files; a missing one fails the check.
+# A finding in the user's home settings (~/.claude/settings*.json) only warns:
+# those files are the user's, and the check never edits them.
+# Exit: 0 clean or home warnings only, 1 flagged, 2 input error (never clean).
 set -u
 LC_ALL=C
 export LC_ALL
@@ -15,6 +18,8 @@ unset CDPATH
 SAFE_HINT='use the exact script path with no * in it, e.g. Bash(/abs/path/to/planwright/scripts/fleet-streamjson.sh answer *), or rely on the planwright PreToolUse hook (worker-command-guard.sh / tower-command-guard.sh), which canonicalizes the path'
 
 status=0
+warned=0
+script_root=$(cd "$(dirname "$0")/.." && pwd -P)
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "check-allow-path-globs: jq is required to read settings" >&2
@@ -57,9 +62,18 @@ rule_flagged() {
   [ "$#" -gt 0 ] && flagged_word "$1"
 }
 
+# home_settings <file>: 0 when the file is one of the user's home settings.
+home_settings() {
+  [ -n "${HOME:-}" ] || return 1
+  case $1 in
+    "$HOME/.claude/settings.json" | "$HOME/.claude/settings.local.json") return 0 ;;
+  esac
+  return 1
+}
+
 # check_file <file>: report each flagged allow rule; non-zero on a bad file.
 check_file() {
-  local f=$1 rules rule inner
+  local f=$1 rules rule inner level
   if [ ! -f "$f" ] || [ ! -r "$f" ]; then
     echo "check-allow-path-globs: settings file not found or unreadable: $f" >&2
     return 2
@@ -76,10 +90,15 @@ check_file() {
     esac
     inner=${rule#Bash(}
     inner=${inner%)}
-    if rule_flagged "$inner"; then
-      echo "check-allow-path-globs: $f: allow rule '$rule' puts a wildcard or ../ in its command path, so it admits paths outside that directory; $SAFE_HINT" >&2
+    rule_flagged "$inner" || continue
+    if home_settings "$f"; then
+      level='warning: '
+      warned=1
+    else
+      level=
       status=1
     fi
+    echo "check-allow-path-globs: $level$f: allow rule '$rule' puts a wildcard or ../ in its command path, so it admits paths outside that directory; $SAFE_HINT" >&2
   done <<EOF
 $rules
 EOF
@@ -88,11 +107,15 @@ EOF
 
 default_files() {
   local top f
+  for f in "$script_root"/config/*-settings.json; do
+    [ -f "$f" ] && printf '%s\n' "$f"
+  done
   for f in "${HOME:-/nonexistent}/.claude/settings.json" "${HOME:-/nonexistent}/.claude/settings.local.json"; do
     [ -f "$f" ] && printf '%s\n' "$f"
   done
   top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
   for f in "$top/.claude/settings.json" "$top/.claude/settings.local.json"; do
+    home_settings "$f" && continue
     [ -f "$f" ] && printf '%s\n' "$f"
   done
   return 0
@@ -115,7 +138,9 @@ else
   done
 fi
 
-if [ "$status" -eq 0 ]; then
+if [ "$status" -eq 0 ] && [ "$warned" -eq 1 ]; then
+  echo "check-allow-path-globs: clean apart from warnings on home settings"
+elif [ "$status" -eq 0 ]; then
   echo "check-allow-path-globs: clean"
 fi
 exit "$status"

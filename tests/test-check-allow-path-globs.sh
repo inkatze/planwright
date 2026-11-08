@@ -126,15 +126,47 @@ after=$(cksum <"$f")
 if [ "$before" = "$after" ]; then rc=0; else rc=1; fi
 assert "the checker never writes the settings it reads" 0 $rc
 
+# --- 2a. Where a finding fails and where it only warns (REQ-B1.5) -----------
+# Shipped profiles and a checkout's settings fail; the user's home settings
+# are theirs, so a finding there warns and the exit stays clean.
+
 home="$tmp/home"
 mkdir -p "$home/.claude" "$tmp/nogit"
 write_settings "$home/.claude/settings.json" '"Bash(/abs/planwright/scripts/*)"'
+(cd "$tmp/nogit" && HOME="$home" bash "$CHECKER" >/dev/null 2>"$tmp/err")
+assert "no-argument mode: a home-settings finding warns, does not fail" 0 $?
+grep -q "warning:.*scripts/\*" "$tmp/err"
+assert "no-argument mode names the home-settings finding as a warning" 0 $?
+
+HOME="$home" bash "$CHECKER" "$home/.claude/settings.json" >/dev/null 2>&1
+assert "a named home-settings file also only warns" 0 $?
+
+write_settings "$home/.claude/settings.local.json" '"Bash(/abs/planwright/scripts/*)"'
 (cd "$tmp/nogit" && HOME="$home" bash "$CHECKER" >/dev/null 2>&1)
-assert "no-argument mode reads user settings and flags" 1 $?
+assert "a home settings.local.json finding also only warns" 0 $?
+rm -f "$home/.claude/settings.local.json"
+
+checkout="$tmp/checkout"
+mkdir -p "$checkout/.claude"
+git -C "$checkout" init -q
+write_settings "$checkout/.claude/settings.json" '"Bash(/abs/planwright/scripts/*)"'
+(cd "$checkout" && HOME="$home" bash "$CHECKER" >/dev/null 2>&1)
+assert "no-argument mode: a checkout-settings finding fails beside a home warning" 1 $?
 
 rm -f "$home/.claude/settings.json"
+(cd "$checkout" && HOME="$home" bash "$CHECKER" >/dev/null 2>&1)
+assert "no-argument mode: a checkout-settings finding fails on its own" 1 $?
+rm -f "$checkout/.claude/settings.json"
+
+shipped="$tmp/shipped"
+mkdir -p "$shipped/scripts" "$shipped/config"
+cp "$CHECKER" "$shipped/scripts/"
+write_settings "$shipped/config/worker-settings.json" '"Bash(/abs/planwright/scripts/*)"'
+(cd "$tmp/nogit" && HOME="$home" bash "$shipped/scripts/check-allow-path-globs.sh" >/dev/null 2>&1)
+assert "no-argument mode: a shipped-profile finding fails" 1 $?
+
 (cd "$tmp/nogit" && HOME="$home" bash "$CHECKER" >/dev/null 2>&1)
-assert "no-argument mode with no settings files passes" 0 $?
+assert "no-argument mode with only clean or absent settings passes" 0 $?
 
 # --- 2b. Hooks defer the traversal ------------------------------------------
 # The version-independent safe form is the planwright PreToolUse hooks, which
