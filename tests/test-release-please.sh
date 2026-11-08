@@ -244,7 +244,8 @@ else
 fi
 # The printing script names the merge only as text: every occurrence sits in
 # its help heredoc or inside a printf format, none at a command position, and
-# the script evaluates no built string.
+# the script evaluates no built string. Text checks cannot see every way to
+# run a variable, so tests/test-mc-merge-ready.sh also proves no run merges.
 PRINTER="$REPO_ROOT/$PRINT_FILES"
 help_start=$(grep -n "<<'HELP'\$" "$PRINTER" | head -1 | cut -d: -f1)
 help_end=$(grep -n '^HELP$' "$PRINTER" | head -1 | cut -d: -f1)
@@ -252,7 +253,8 @@ print_hits=$(grep -nE 'gh pr merge|pulls/[^ ]*/merge|mergePullRequest|enablePull
   | awk -F: -v s="${help_start:-0}" -v e="${help_end:-0}" -v q="'" '($1 + 0 <= s + 0 || $1 + 0 > e + 0) && $0 !~ ("printf " q "[^" q "]*gh pr merge")' || true)
 if [ -n "$help_start" ] && [ -n "$help_end" ] && [ -z "$print_hits" ] \
   && ! grep -qE '(^|[;&|(]|then|do|else)[[:space:]]*(eval|sh -c|bash -c)[[:space:]]' "$PRINTER" \
-  && ! grep -qE '\|[[:space:]]*([^[:space:]|]*/)?(sh|bash|zsh|dash|ksh|xargs|eval|source)([[:space:]]|$)' "$PRINTER"; then
+  && ! grep -qE '\|[[:space:]]*((command|exec|env|builtin|nohup)[[:space:]]+)*([^[:space:]|]*/)?(sh|bash|zsh|dash|ksh|xargs|eval|source)([[:space:]]|$)' "$PRINTER" \
+  && ! grep -qE '(^|[^[:alnum:]_])(sh|bash|zsh|dash|ksh)[[:space:]]+(-[a-z]+[[:space:]]+)*<<<' "$PRINTER"; then
   pass "C1.4 $PRINT_FILES only prints the merge command for the operator, never runs it"
 else
   fail "C1.4 $PRINT_FILES names a merge outside its help or a printf, or evaluates a built string; re-verify the exclusion"

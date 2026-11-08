@@ -515,6 +515,13 @@ expect_rc "list needs a program" 2
 run --help
 expect_rc "help" 0
 
+# Whatever form a call takes, every run above went through the logging gh.
+if grep -q '^pr merge' "$tmp/gh.calls"; then
+  fail "a merge was run: $(grep '^pr merge' "$tmp/gh.calls" | head -n 1)"
+else
+  ok "no run merged anything; the command is only printed"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-merge-ready: $failures failure(s)" >&2
   exit 1
