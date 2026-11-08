@@ -432,6 +432,26 @@ run watch --program alpha --now "$T"
 expect_eq "a new head is forwarded afresh" "announced${tab}merge-ready${tab}acme:web:20
 forwarded${tab}hub${tab}merge-ready${tab}acme:web:20"
 
+# A program list that fails after the program check is named, fails the run,
+# and keeps what was forwarded, so nothing is sent twice once it reads again.
+mv "$pw/scripts/mc-program.sh" "$pw/scripts/mc-program.real.sh"
+cat >"$pw/scripts/mc-program.sh" <<EOF
+#!/bin/bash
+if [ "\$1" = list ] && [ -e "$tmp/list.calls" ]; then
+  printf 'config read failed\n' >&2
+  exit 1
+fi
+[ "\$1" != list ] || : >"$tmp/list.calls"
+exec /bin/bash "$pw/scripts/mc-program.real.sh" "\$@"
+EOF
+rm -f "$tmp/list.calls"
+run watch --program alpha --now "$T"
+expect_rc "an unreadable program list fails the run" 1
+expect_err "naming it" "unknown: -: the other configured programs cannot be listed"
+mv "$pw/scripts/mc-program.real.sh" "$pw/scripts/mc-program.sh"
+run watch --program alpha --now "$T"
+expect_eq "and nothing is forwarded twice once it reads again" ""
+
 # ---------------------------------------------------------------------------
 # A snapshot that cannot be judged is said so, never read as nothing waiting,
 # and the verdicts it cannot confirm stay for the next fresh one.

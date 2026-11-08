@@ -424,10 +424,12 @@ case $verb in
     forwarded="$runtime/merge-forwarded"
     rc=$SCAN_RC
     listed=1
-    others=$(/bin/bash "$script_dir/mc-program.sh" list | P=$program awk '$0 != ENVIRON["P"]') || {
+    if others=$(/bin/bash "$script_dir/mc-program.sh" list 2>/dev/null); then
+      others=$(printf '%s\n' "$others" | P=$program awk '$0 != "" && $0 != ENVIRON["P"]')
+    else
       printf 'unknown: -: the other configured programs cannot be listed\n' >&2
       others="" rc=1 listed=0
-    }
+    fi
     COVER=""
     while IFS='	' read -r w_kind w_pr w_head w_command; do
       [ "$w_kind" = ready ] || continue
