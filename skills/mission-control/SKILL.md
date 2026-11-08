@@ -139,11 +139,13 @@ inside tmux: `scripts/mission-control-launch.sh`'s `launch`: `<p>`, kind
 
 **After a compaction**, before the next act: re-resolve the root, re-load
 the rules and run the self-check (`scripts/mc-rules.sh`'s `selfcheck`) against the durable
-stores; a failure is an operator item. A session mission control launched
-prefers a handover to a compaction (D-29, D-30): when the panel or
+stores; a failure is an operator item. Every session
+prefers a handover to a compaction (D-29, D-30, D-43): when the panel or
 `scripts/mc-handover.sh`'s `due` calls for one, `write` the handover file,
-then `launch --handover`. The operator's own session, whose terminal cannot
-move, just compacts, offering no handover (D-42).
+then read `path`. On `pane tmux` (the operator's own session inside tmux)
+do it yourself: `launch --handover`; the successor, after a successful
+`take`, closes your recorded pane and nothing else. On `operator-act` (no
+multiplexer) `offer` the one command and compact only as a last resort.
 
 **When released**, end yourself. On a `handover-requested` event naming
 your handle, run `scripts/mc-handover.sh`'s `release` with it; when it
