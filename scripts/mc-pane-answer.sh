@@ -177,8 +177,10 @@ DECIDED_AT=$(printf '%s\n' "$ENTRY" | awk -F '\t' '{ print $2 }')
 [[ $DECIDED_AT =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || refuse "decision $DECISION carries no readable time"
 FIRST_AT=$(mc_iso "$rec_first") || mc_fail "cannot format the dialog's first sight"
 [[ ! $DECIDED_AT < $FIRST_AT ]] || refuse "decision $DECISION predates the dialog it would answer"
-if [ -f "$LOG" ] && D=$DECISION H=$DECIDED_IN awk -F '\t' '$2 == ENVIRON["D"] && $3 == ENVIRON["H"] { f = 1; exit } END { exit !f }' "$LOG"; then
-  refuse "decision $DECISION already answered a dialog"
+if [ -e "$LOG" ]; then
+  USED=$(D=$DECISION H=$DECIDED_IN awk -F '\t' '$2 == ENVIRON["D"] && $3 == ENVIRON["H"] { print "used"; exit }' "$LOG" 2>/dev/null) \
+    || mc_fail "cannot read $(sanitize_printable "$LOG") to check decision $DECISION was not used before"
+  [ "$USED" != used ] || refuse "decision $DECISION already answered a dialog"
 fi
 
 # The session and its pane, found afresh.

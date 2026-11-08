@@ -306,6 +306,14 @@ if [ ! -e "$esc_dir/self" ]; then ok "the answered dialog's record is dropped"; 
 cp "$tmp/self.saved" "$esc_dir/self"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "a decision already used" "already answered a dialog"
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$esc_dir/answers.log"
+  answer --program alpha --choice 1 --decision "$D1" --decided-in hub
+  chmod 644 "$esc_dir/answers.log"
+  expect_rc "an answers log that cannot be read" 1
+  expect_err "fails the replay check" "cannot read"
+  [ -z "$(keys)" ] || fail "a key was sent past an unreadable answers log: $(keys)"
+fi
 D2=$(note hub answer 3)
 touch "$tmp/send-fails"
 answer --program alpha --choice 3 --decision "$D2" --decided-in hub
