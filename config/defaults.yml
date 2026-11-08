@@ -1037,6 +1037,16 @@ mission_control_kb_lock_wait: 5
 # before scripts/mc-stall.sh reads it busy-unchanged. A cadence; time alone
 # never makes a stall, only beside a busy marker and an unchanged pane.
 mission_control_stall_window: 10m
+# How long past its owner's alarm a worker request may stay pending, or a
+# mission control's own dialog stay open, before scripts/mc-escalate.sh
+# raises it to the hub; at twice the window it reaches the operator. A
+# cadence.
+mission_control_escalation_window: 15m
+# The program whose mission control hears what another program's mission
+# control left unanswered, before the operator does: a program name, or
+# none to go straight to the operator. A program never escalates to itself,
+# and a hub whose holder does not read live counts as none.
+mission_control_escalation_hub: hub
 # The ignored audit files scripts/mc-reclaim.sh copies into the program
 # home's reclaim folder before a worktree goes: worktree-relative paths, a
 # `*` allowed in the last component, a directory taken whole.

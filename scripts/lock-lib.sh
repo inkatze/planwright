@@ -76,6 +76,12 @@
 #                          runners never arm or relay over each other
 #   scripts/mc-stall.sh    a session's stall sample, so two passes never
 #                          decide from one sample or emit one event twice
+#   scripts/mc-escalate.sh a program's escalation pass, so two passes never
+#                          raise one escalation twice
+#   scripts/mc-pane-answer.sh   a program's dialog answer, so one decision
+#                          never answers twice; it also holds the escalation
+#                          pass lock above from its last check of the dialog
+#                          through the keystroke and the record's drop
 #   scripts/mc-reclaim.sh  a reclaim folder, so two reclaims of one branch
 #                          never copy into or roll back the same folder
 #   scripts/mc-config.sh   the adopter layer's planwright.yml, so two writes
