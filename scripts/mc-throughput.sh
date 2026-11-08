@@ -125,6 +125,11 @@ Usage:
       bytes (every source named alone when the reasons together do not fit
       beside the numbers), printing
         raised<TAB><key><TAB><total s>   or   held<TAB><key><TAB><total s>
+      With no bottleneck to carry the note of what could not be read, each
+      unread source is raised alone as a throughput-unknown event (subject
+      throughput-unknown-<source>, text the reason), printing
+        raised<TAB>unknown:<source><TAB>0   or   held<TAB>unknown:<source><TAB>0
+      once, and again only after the source has read ok in between.
       A key is raised again only once its total grows by
       mission_control_throughput_worsen percent over the total it was last
       raised at, and forgotten once it is no longer a bottleneck while its
@@ -962,6 +967,22 @@ case $verb in
 }$key	$total"
         printf 'raised\t%s\t%s\n' "$key" "$total"
       fi
+    fi
+    # With no bottleneck to carry the note, each unread source is raised
+    # alone, once, and forgotten once it reads.
+    if [ -z "$TOP" ] && [ -n "$blind" ]; then
+      for usrc in $blind; do
+        ukey="unknown:$usrc"
+        if [ -n "$(mc_lookup "$ukey" "$prev")" ]; then
+          printf 'held\t%s\t0\n' "$ukey"
+        else
+          utext=$(printf '%s\n' "$m" | U=$usrc awk -F '\t' '$1 == "source" && $3 == "unknown" && $2 == ENVIRON["U"] { print "Not measured: " $2 " (" $4 ")" }' | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-500)
+          mc_event emit --program "$program" --now "$NOW" -- throughput-unknown "throughput-unknown-$usrc" "$utext" >/dev/null || mc_fail "the throughput-unknown event was refused"
+          printf 'raised\t%s\t0\n' "$ukey"
+        fi
+        kept="${kept:+$kept
+}$ukey	0"
+      done
     fi
     { [ -z "$kept" ] || printf '%s\n' "$kept"; } | mc_write "$raised" || mc_fail "cannot write $raised"
     ;;

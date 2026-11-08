@@ -383,7 +383,7 @@ if [ "$(id -u)" -ne 0 ]; then
   chmod 000 "$steps/000002"
   mc_run mc-throughput.sh watch --program alpha --now $((NOW + 7200))
   expect_rc "a watch that cannot read the step records" 0
-  expect_no_out "raises nothing" "raised"
+  expect_no_out "raises nothing" "raised${tab}step:"
   chmod 755 "$steps/000002"
   mc_run mc-throughput.sh watch --program alpha --now $((NOW + 10800))
   expect_out "a bottleneck its source could not see for a pass is held, not raised again" "held${tab}step:polish${tab}4800"
@@ -405,7 +405,7 @@ if [ "$(count_raised)" = 2 ]; then ok "the worsened bottleneck emits once more";
 printf 'mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m, stall: 30m, step: 2h}\n' >>"$tracked"
 mc_run mc-throughput.sh watch --program alpha --now $((NOW + 18000))
 expect_rc "a watch with no bottleneck" 0
-expect_no_out "no bottleneck, nothing raised" "raised"
+expect_no_out "no bottleneck, nothing raised" "raised${tab}step:"
 expect_no_out "and nothing held" "held"
 grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
 mc_run mc-throughput.sh watch --program alpha --now $((NOW + 21600))
@@ -696,6 +696,33 @@ ln -s "$tmp/linkedsteps" "$tmp/wtl/.claude/steps"
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_out "a linked step cache is unknown" "source${tab}steps${tab}unknown${tab}cannot read the step records of $tmp/wtl"
 git -C "$repo" worktree remove --force "$tmp/wtl" 2>/dev/null
+
+# A source that cannot be read, with no bottleneck to carry its note, is
+# raised alone, once, and again only after it has read ok in between.
+unknown_count() { printf '%s\n' "$OUT" | awk -F '\t' '$3 == "throughput-unknown" && $4 == "throughput-unknown-ci"' | wc -l | tr -d ' '; }
+printf 'mission_control_throughput_thresholds: {ci-queue: 1d, approval-wait: 1d, stall: 1d, step: 1d}\n' >>"$tracked"
+rm -f "$runtime/throughput-last" "$runtime/throughput-raised"
+export GH_FIXTURE_FAIL=1
+mc_run mc-throughput.sh watch --program alpha --now $((NOW + 36000))
+expect_rc "a watch with an unreadable source and no bottleneck" 0
+expect_out "the unknown source is raised alone" "raised${tab}unknown:ci${tab}0"
+events
+expect_out "as a throughput-unknown event naming the source and why" "throughput-unknown${tab}throughput-unknown-ci${tab}Not measured: ci (the Actions runs of acme/widgets cannot be read)"
+rm -f "$runtime/throughput-last"
+mc_run mc-throughput.sh watch --program alpha --now $((NOW + 39600))
+expect_out "the same blind spot is held, not raised again" "held${tab}unknown:ci${tab}0"
+events
+[ "$(unknown_count)" = 1 ] && ok "and emits no second event" || fail "expected one throughput-unknown event, got $(unknown_count)"
+unset GH_FIXTURE_FAIL
+rm -f "$runtime/throughput-last"
+mc_run mc-throughput.sh watch --program alpha --now $((NOW + 43200))
+expect_no_out "a source that reads again raises nothing" "raised"
+export GH_FIXTURE_FAIL=1
+rm -f "$runtime/throughput-last"
+mc_run mc-throughput.sh watch --program alpha --now $((NOW + 46800))
+expect_out "and is raised afresh when it goes blind again" "raised${tab}unknown:ci${tab}0"
+unset GH_FIXTURE_FAIL
+grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
 
 # ---------------------------------------------------------------------------
 # Under the runner: no arguments, the program from the environment.
