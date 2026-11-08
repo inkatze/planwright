@@ -663,9 +663,13 @@ tokenize() {
         line=${s:i}
         line=${line%%"$NL"*}
         i=$((i + ${#line} + 1))
-        # bash joins a line ending in a backslash to the next one in an
-        # unquoted body before matching the delimiter.
-        case "${pending_quoted[$k]}:$line" in 0:*"\\") return 1 ;; esac
+        # bash joins a line ending in an unescaped backslash (an odd run of
+        # them) to the next one in an unquoted body before matching the
+        # delimiter.
+        if [ "${pending_quoted[$k]}" = 0 ]; then
+          cand=${line##*[!\\]}
+          [ $((${#cand} % 2)) = 0 ] || return 1
+        fi
         cand=$line
         [ "${pending_tabs[$k]}" = 0 ] || cand=${cand#"${cand%%[!"$TAB"]*}"}
         # bash tries the line as written before its tabs are stripped, which

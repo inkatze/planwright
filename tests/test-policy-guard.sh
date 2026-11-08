@@ -1037,6 +1037,19 @@ git push
 E" "$MAIN"
   expect deny "[worker] bash ends a <<- body at a tab-led delimiter as written, so it cannot hide a push: ${open//$HT/<tab>}"
 done
+pg worker 'cat <<E
+x\\
+E
+cd '"$UNIT"'; git push' "$MAIN"
+expect defer "[worker] an escaped backslash ending a here-document body line does not join it to the next"
+pg worker 'cat <<E
+x\\\
+E
+cat <<F
+E
+git push
+F' "$MAIN"
+expect deny "[worker] an odd run of backslashes ending a here-document body line still joins it to the next"
 mkdir -p "$SANDBOX/nojq"
 for t in head tr dirname cat; do ln -sf "$(command -v "$t")" "$SANDBOX/nojq/$t"; done
 NOJQ_OUT=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"gh pr ready 42"}}' \
