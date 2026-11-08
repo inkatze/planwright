@@ -550,6 +550,17 @@ expect_out "a stall's total is its time inside the window" \
 rm -f "$steps/000002/007-step-convergence.rec"
 rm -rf "$stall"
 
+# A branch name's control bytes, C1 ones in UTF-8 included, never reach the
+# output.
+cbr=$(printf 'feat\302\2332J')
+git -C "$repo" worktree add -q -b "$cbr" "$tmp/wtc" 2>/dev/null || fail "fixture control-byte worktree"
+mkdir -p "$tmp/wtc/.claude/steps/000001"
+rec "$tmp/wtc/.claude/steps/000001/002-step-convergence.rec" ctrlstep 2026-11-01T11:00:00Z 2026-11-01T11:10:00Z passed 000001 002
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_out "a branch name loses its control bytes" "step${tab}ctrlstep${tab}1${tab}600${tab}600${tab}600${tab}feat2J"
+expect_no_out "and none reaches the output" "$cbr"
+git -C "$repo" worktree remove --force "$tmp/wtc" 2>/dev/null
+
 # ---------------------------------------------------------------------------
 # Under the runner: no arguments, the program from the environment.
 # ---------------------------------------------------------------------------

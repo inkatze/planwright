@@ -556,11 +556,14 @@ EOF
 step_rows() {
   sr_list=$(/bin/sh "$script_dir/step-record.sh" --worktree "$1" list 2>/dev/null </dev/null) || return 1
   printf '%s\n' "$sr_list" | B=$2 SINCE=$SINCE awk -F '\t' "$ISO_AWK"'
+    # A branch name may carry C1 control bytes git allows; they never reach
+    # a terminal or the store.
+    BEGIN { b = ENVIRON["B"]; gsub(/[\001-\037\177]/, "", b); gsub(/\302[\200-\237]/, "", b) }
     function flush() {
       if (v["type"] == "step" && v["outcome"] != "skipped" && v["step"] ~ /^[A-Za-z0-9._-]+$/) {
         s = iso(v["start"]); e = iso(v["end"])
         if (s >= 0 && e >= s && e >= ENVIRON["SINCE"] + 0)
-          print v["step"] "\t" (e - s) "\t" ENVIRON["B"] "\t" (e - (s > ENVIRON["SINCE"] + 0 ? s : ENVIRON["SINCE"])) "\t" v["run"] ":" v["seq"] ":" v["point"] ":" v["start"] ":" v["end"]
+          print v["step"] "\t" (e - s) "\t" b "\t" (e - (s > ENVIRON["SINCE"] + 0 ? s : ENVIRON["SINCE"])) "\t" v["run"] ":" v["seq"] ":" v["point"] ":" v["start"] ":" v["end"]
       }
       delete v
     }
