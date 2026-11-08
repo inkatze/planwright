@@ -207,6 +207,8 @@ expect_rc "an operator-asked launch starts under the hold" 0
 limited=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "launch" && $2 == "name" { print $3 }')
 [ -n "$limited" ] || fail "the operator-asked launch printed no name"
 poll_for "$tmp/shim/first-stdin" "a fixture brief" || fail "the operator-asked session never read its brief"
+mc_run mc-event.sh list --program alpha
+expect_out "a launch past the hold is recorded as a usage-bypass event" "${tab}usage-bypass${tab}${limited}${tab}"
 sjdir="$fleet/streamjson/$limited"
 pf_i=0
 while [ "$pf_i" -lt 100 ] && { [ -e "$sjdir/supervisor.pid" ] || [ -e "$sjdir/worker.pid" ]; }; do
@@ -305,12 +307,13 @@ expect_rc "report" 0
 expect_out "a landing is reported" "landed${tab}mc-alpha-worker-a${tab}acme/app#7 MERGED, retired"
 expect_out "a decision is reported" "decision${tab}pr-9${tab}approve the release"
 expect_out "a failure is reported" "failed${tab}mc-alpha-worker-b${tab}"
+expect_out "a launch past the hold is reported" "bypass${tab}${limited}${tab}"
 expect_no_out "a routine event is not reported" "mc-alpha-worker-c"
 expect_no_out "a routine launch is not reported" "next-one"
-if printf '%s\n' "$OUT" | awk -F '\t' 'NF && $1 != "landed" && $1 != "decision" && $1 != "failed" && $1 != "kept" { bad = 1 } END { exit !bad }'; then
-  fail "report printed a line that is not a landing, decision, failure or kept entry: $OUT"
+if printf '%s\n' "$OUT" | awk -F '\t' 'NF && $1 != "landed" && $1 != "decision" && $1 != "failed" && $1 != "kept" && $1 != "bypass" { bad = 1 } END { exit !bad }'; then
+  fail "report printed a line that is not a landing, decision, failure, kept entry or bypass: $OUT"
 else
-  ok "report prints landings, decisions, failures and kept entries only"
+  ok "report prints landings, decisions, failures, kept entries and bypasses only"
 fi
 
 mc_run mc-event.sh emit --program alpha -- usage-reset weekly "the weekly usage window reset"

@@ -119,7 +119,9 @@ weekly one. When either reaches the configured threshold (90% unless the
 stops starting new sessions and lines the next pieces of work up instead,
 each with its instructions already written, in a queue that survives
 restarts. Work you ask for yourself still starts, and so does a
-mission-control session, such as a fresh one taking over from the old one.
+mission-control session, such as a fresh one taking over from the old one;
+each start of work you asked for is recorded, and named in the report
+after the reset.
 
 When the window resets, nobody has to be there: the watcher sees the reset
 time pass, starts the queued work, and resumes each background session it

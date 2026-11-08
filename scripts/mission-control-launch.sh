@@ -57,7 +57,10 @@ program rules ride every launch. The rung is --backend, else the
 mission_control_launch_backend knob. While the program's usage hold lasts
 (scripts/mc-usage.sh held) every kind but mission-control is refused unless
 --operator-asked marks work the operator asked for; the refusal names the
-queue (mc-usage.sh enqueue) that launches it at the window's reset.
+queue (mc-usage.sh enqueue) that launches it at the window's reset. Each
+launch --operator-asked takes past the hold is recorded first, as a
+usage-bypass event the reset's report names; one that cannot be recorded
+is refused.
 
 A kind that changes a repository (worker, reviewer, ad-hoc) starts in its
 own worktree, never a primary checkout. With no --cwd, the dispatch
@@ -749,19 +752,25 @@ cmd_launch() {
 
   # A mission-control successor is never held: it is what carries the
   # program through the hold.
-  if [ "$kind" != mission-control ] && [ "$operator_asked" -eq 0 ]; then
+  if [ "$kind" != mission-control ]; then
     uh_out=$(/bin/bash "$script_dir/mc-usage.sh" held --program "$program" </dev/null 2>/dev/null)
     uh_rc=$?
     # A failure exits 1 as clear does, so clear is only the word itself.
     [ "$uh_rc" -ne 1 ] || [ "$uh_out" = clear ] || uh_rc=2
     case $uh_rc in
-      0)
-        uh_why=$(printf '%s\n' "$uh_out" | awk -F '\t' 'NR == 1 { print ($2 == "quota") ? "a session stopped on the claude usage limit" : "the " $2 " usage window is at " $3 "%" }')
-        die "refusing to launch $name: launches are held until the usage window resets ($uh_why); queue it for the reset with mc-usage.sh enqueue and these same arguments, or pass --operator-asked for work the operator asked for" 4
-        ;;
-      1) ;;
-      *) die "refusing to launch $name: the usage hold cannot be read (mc-usage.sh held)" 4 ;;
+      0) uh_why=$(printf '%s\n' "$uh_out" | awk -F '\t' 'NR == 1 { print ($2 == "quota") ? "a session stopped on the claude usage limit" : "the " $2 " usage window is at " $3 "%" }') ;;
+      1) uh_why="" ;;
+      *) uh_why="the usage hold cannot be read" ;;
     esac
+    if [ -n "$uh_why" ] && [ "$operator_asked" -eq 1 ]; then
+      /bin/bash "$script_dir/mc-event.sh" emit --program "$program" -- usage-bypass "$name" \
+        "launched past the usage hold because the operator asked ($uh_why)" </dev/null >/dev/null 2>&1 \
+        || die "refusing to launch $name past the usage hold: the bypass could not be recorded (mc-event.sh emit)" 4
+    elif [ "$uh_rc" -eq 0 ]; then
+      die "refusing to launch $name: launches are held until the usage window resets ($uh_why); queue it for the reset with mc-usage.sh enqueue and these same arguments, or pass --operator-asked for work the operator asked for" 4
+    elif [ -n "$uh_why" ]; then
+      die "refusing to launch $name: the usage hold cannot be read (mc-usage.sh held)" 4
+    fi
   fi
 
   resolve_backend

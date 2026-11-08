@@ -67,7 +67,8 @@ stopped session to probe it says so once, as a usage-probe event. A quota
 that has cleared is released, and its reset acted on, even when no watch
 saw it held. While the hold lasts the launcher refuses new sessions
 (scripts/mission-control-launch.sh, but for a mission-control launch and
-one with --operator-asked), the budget reads hold-dispatch
+one with --operator-asked, which it records as a usage-bypass event), the
+budget reads hold-dispatch
 (scripts/mc-budget.sh), and the next units go to the queue instead. It is
 kept in <runtime>/usage/hold, the probe in <runtime>/usage/probe.
 
@@ -135,9 +136,10 @@ Usage:
       nothing else: since the hold began, each landing (session-landed),
       each decision (an operator item of a kind an armed duty declares) and
       each failure (stall-dead, stream-json-worker-dead, watcher-stopped,
-      and the drain's own failures), and each entry the reset drain kept
-      that still waits, with its reason:
-        landed|decision|failed|kept<TAB><subject><TAB><text>
+      and the drain's own failures), each launch --operator-asked took past
+      the hold (usage-bypass), and each entry the reset drain kept that
+      still waits, with its reason:
+        landed|decision|failed|bypass|kept<TAB><subject><TAB><text>
 
 Exit codes: 0 done (held: held); 1 clear (held), a store that cannot be
 read or written, an invalid threshold, a drain refused under a hold, or a
@@ -757,6 +759,7 @@ report() {
     NF >= 4 && $2 + 0 >= ENVIRON["S"] + 0 {
       c = ""
       if ($3 == "session-landed") c = "landed"
+      else if ($3 == "usage-bypass") c = "bypass"
       else if ($3 == "stall-dead" || $3 == "stream-json-worker-dead" || $3 == "watcher-stopped") c = "failed"
       else if ($3 in dk) c = "decision"
       if (c != "") { t = $5; gsub(/[^[:print:]]/, "", t); print c "\t" $4 "\t" t }

@@ -138,7 +138,7 @@ duties:
     never-propose: false
   - id: usage-window
     summary: "Holds launches near the usage limit, queues the next units, resumes at the reset"
-    triggers: [usage-held, usage-probe, usage-reset, usage-drained]
+    triggers: [usage-held, usage-probe, usage-bypass, usage-reset, usage-drained]
     watchers: [scripts/mc-usage.sh@2m/low]
     wake: usage-reset
     rules: [usage-limits]
