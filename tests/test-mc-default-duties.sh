@@ -51,7 +51,7 @@ EOF
 # The watchers' behaviour has its own tests; here each is a no-op stand-in
 # under the fixture core, so arming runs nothing that reads a forge.
 mkdir -p "$core/scripts"
-for s in mc-keeper.sh mc-readiness.sh mc-merge-ready.sh mc-radar.sh mc-deadlines.sh; do
+for s in mc-keeper.sh mc-escalate.sh mc-readiness.sh mc-merge-ready.sh mc-radar.sh mc-deadlines.sh; do
   printf '#!/bin/sh\n:\n' >"$core/scripts/$s"
 done
 
@@ -62,11 +62,12 @@ for d in session-keeper inbox readiness-check conflict-radar deadline-watch prep
 done
 
 mc_run mc-duties.sh get session-keeper triggers
-expect_out "the shipped wrapped trigger list joins whole" "stall-dead, stall-open-selector, stall-unsubmitted-prompt, stall-turn-ended-background, stall-idle-question, stall-busy-unchanged, stall-unknown, session-landed, pending-prompt, pending-prompt-overdue, stream-json-worker-dead]"
+expect_out "the shipped wrapped trigger list joins whole" "stall-dead, stall-open-selector, stall-unsubmitted-prompt, stall-turn-ended-background, stall-idle-question, stall-busy-unchanged, stall-unknown, session-landed, pending-prompt, pending-prompt-overdue, stream-json-worker-dead, mission-control-escalated]"
 
 mc_run mc-duties.sh watchers --program alpha
 expect_rc "the watchers resolve" 0
 expect_out "session-keeper's watcher" "session-keeper${tab}scripts/mc-keeper.sh${tab}2m${tab}low"
+expect_out "session-keeper's escalation watcher" "session-keeper${tab}scripts/mc-escalate.sh${tab}1m${tab}low"
 expect_out "readiness-check's watcher" "readiness-check${tab}scripts/mc-readiness.sh${tab}5m${tab}low"
 expect_out "readiness-check's merge watcher" "readiness-check${tab}scripts/mc-merge-ready.sh${tab}5m${tab}low"
 expect_out "conflict-radar's watcher" "conflict-radar${tab}scripts/mc-radar.sh${tab}15m${tab}medium"
@@ -74,14 +75,14 @@ expect_out "deadline-watch's watcher" "deadline-watch${tab}scripts/mc-deadlines.
 
 mc_run mc-watch.sh pass --program alpha
 expect_rc "a runner pass" 0
-for w in session-keeper:mc-keeper.sh readiness-check:mc-readiness.sh readiness-check:mc-merge-ready.sh conflict-radar:mc-radar.sh deadline-watch:mc-deadlines.sh; do
+for w in session-keeper:mc-keeper.sh session-keeper:mc-escalate.sh readiness-check:mc-readiness.sh readiness-check:mc-merge-ready.sh conflict-radar:mc-radar.sh deadline-watch:mc-deadlines.sh; do
   expect_out "D-27: the watcher arms under the runner: ${w%%:*}" "armed${tab}${w%%:*}${tab}scripts/${w#*:}"
 done
 expect_no_out "nothing is unresolvable" "unresolvable"
 mc_run mc-watch.sh stop --program alpha
 expect_rc "the watchers stop" 0
 
-for s in mc-keeper.sh mc-readiness.sh mc-merge-ready.sh mc-radar.sh mc-deadlines.sh; do
+for s in mc-keeper.sh mc-escalate.sh mc-readiness.sh mc-merge-ready.sh mc-radar.sh mc-deadlines.sh; do
   if [ -x "$repo_root/scripts/$s" ]; then ok "the shipped $s exists"; else fail "the shipped $s is missing"; fi
 done
 

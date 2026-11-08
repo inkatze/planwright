@@ -56,6 +56,27 @@ fresh installation, explaining each idea the first time it comes up),
 standard (hints only when you seem stuck) or expert (asks and moves on).
 Say which you want at any time; it is remembered.
 
+**Its guardrails are checked first.** Before any work, and again each
+time its timer wakes it with something to handle, mission control checks
+that its safety settings are in force: the deny list and guard hooks its
+settings profile ships. If they are not, or the check cannot run, it tells
+you why in one plain line
+and holds back (no launch, no answer, no request; it still keeps its own
+records) until a later check passes; its launcher refuses to start a
+session for the same reason. A session you open yourself and type
+`/mission-control` into carries no such profile, so it holds back unless
+your own settings already hold those guardrails. To start a session that
+passes the check, for a program already set up, run this in your own
+terminal inside tmux, from the
+directory it should start in (`<planwright>` is planwright's install root):
+
+```sh
+<planwright>/scripts/mission-control-launch.sh launch --program <name> --kind mission-control --scope attended --backend tmux
+```
+
+It opens a tmux window in the background, running mission control for
+that program under its profile; switch to that window to work with it.
+
 **The program's private folder** sits under your planwright configuration
 folder, outside every repository, and is never committed. It holds the
 rules you set, what mission control has learned about the program, its
@@ -168,6 +189,14 @@ Type `/mc-panel` in that session to close the mission-control panel beside
 the conversation when you can see it, or to show it when you cannot
 (`/mc-panel open` or `/mc-panel close` to choose).
 
+The panel adds a health line only when something its duties should have
+caught slipped past them (a session running too long or after its pull
+request landed, a permission prompt left waiting, a mission control stuck
+on its own dialog or past its handover point, CI jobs queueing for much of
+their run time or with no finished run yet, an idle session), saying
+"unknown" where it cannot tell; its bounds are in the
+[options reference](options-reference.md).
+
 When you update planwright and reload, mission control notices: the panel
 shows a short notice with the new version, and mission control rereads
 what changed before it next tells you how something works.
@@ -178,8 +207,8 @@ running), never from a stale summary. Its first message says what changed
 since you last looked, what waits on you, and what is moving. If an older
 mission-control session for the same program is still open, the new one
 takes over the program. An old one that does not let go in time is shut
-down if mission control started it; one you opened yourself stays open but
-stops acting for the program.
+down if mission control started it; one you opened yourself stops acting
+for the program and ends itself once it notices (Handover, below).
 
 Ask for status at any time ("where are we?"). It answers in one fixed
 shape: decisions waiting on you first, then what landed, then what is
@@ -206,6 +235,22 @@ terminal has to move: it writes a note of everything open, starts its
 successor, the successor checks that it holds every rule and open item
 against that note, and the old session closes. You see one line saying it
 happened.
+
+The old session ends itself: once it gives up the program name, or finds
+it already taken, its panel ends it as soon as its last turn finishes,
+closing its terminal too when Claude Code was all that terminal ran. The same
+happens to an older mission-control session you started yourself when you
+open a new one for the program, once it notices the name is taken; one that
+never gets to notice (it is stuck, say) stays open and you close it. A
+session without the panel cannot end itself; it stops working and says it
+can be closed.
+
+Whenever a new session takes over (a handover, or your own resume), it
+waits briefly for the old session's process to end, where the old session
+recorded which process it was (sessions from an earlier planwright did
+not). If the old session is still running after that, mission control
+does not call it closed: it raises an item naming the process, so you know
+which session to close.
 
 A mission-control session that mission control starts, a successor
 included, runs in Claude Code's auto mode, so a routine command does not

@@ -114,6 +114,96 @@ check "REQ-E1.1: the re-armed watcher runs" poll_until --what "the re-armed watc
 check "REQ-E1.5: the stop event was in the store before the re-armed watcher ran" \
   grep -q '^alpha-duty 1$' "$WATCH_RUNS/alpha-watch"
 
+# A stop alone is routine, so a watcher that keeps dying would stay dead
+# unseen: its third stop inside an hour is a watcher-failing event, once.
+t_now=$(date +%s)
+printf '%s\n%s\n' $((t_now - 120)) $((t_now - 60)) >"$wdir/$watch_slot.stops"
+old=$(rec_pid "$watch_slot")
+kill "$old"
+check "the watcher killed again exits" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
+mc_run mc-watch.sh pass --program alpha
+expect_out "a third stop inside an hour is a failure" "failing${tab}alpha-duty${tab}scripts/alpha-watch.sh${tab}e"
+mc_run mc-event.sh list --program alpha
+expect_out "the failure lands in the attention store" "watcher-failing${tab}alpha-duty${tab}scripts/alpha-watch.sh stopped 3 times within 60 minutes"
+old=$(rec_pid "$watch_slot")
+kill "$old"
+check "and once more" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
+mc_run mc-watch.sh pass --program alpha
+expect_out "the fourth stop is still reported" "stopped${tab}alpha-duty"
+expect_no_out "but raises no second failure in the same streak" "failing${tab}"
+printf '%s\n' $((t_now - 7200)) >"$wdir/$watch_slot.stops"
+old=$(rec_pid "$watch_slot")
+kill "$old"
+check "a stop after a quiet hour" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
+mc_run mc-watch.sh pass --program alpha
+expect_no_out "starts a new count, raising no failure" "failing${tab}"
+if [ "$(grep -c . "$wdir/$watch_slot.stops")" -eq 1 ]; then
+  ok "stops older than the hour are dropped"
+else
+  fail "the stop record kept stops older than the hour: $(cat "$wdir/$watch_slot.stops")"
+fi
+check "the quiet hour closes the failure streak" test ! -f "$wdir/$watch_slot.failing"
+# Stops 25 minutes apart keep exactly three inside the hour on every stop:
+# an open streak still raises nothing.
+t_now=$(date +%s)
+printf '%s\n%s\n' $((t_now - 3000)) $((t_now - 1500)) >"$wdir/$watch_slot.stops"
+printf '%s\n' $((t_now - 1500)) >"$wdir/$watch_slot.failing"
+old=$(rec_pid "$watch_slot")
+kill "$old"
+check "a stop inside an open streak" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
+mc_run mc-watch.sh pass --program alpha
+expect_rc "a pass inside an open streak" 0
+expect_no_out "raises no second failure while the streak stays open" "failing${tab}"
+# A death seen again after a failed pass carries the same incarnation (its
+# pid and armed epoch): one stop. The same pid armed at another time is a
+# new incarnation, so a reused pid still counts.
+rm -f "$wdir/$watch_slot.failing"
+old=$(rec_pid "$watch_slot")
+incarnation=$(cut -f1,2 "$wdir/$watch_slot.rec" | tr '\t' ':')
+printf '%s %s\n%s %s\n' $((t_now - 120)) "$old:1" $((t_now - 60)) "$incarnation" >"$wdir/$watch_slot.stops"
+kill "$old"
+check "a death already counted" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
+mc_run mc-watch.sh pass --program alpha
+expect_rc "a pass over a death already counted" 0
+expect_no_out "is not counted twice toward a failure" "failing${tab}"
+# A failed alert is retried on the next pass, never lost: a copy of the
+# scripts whose event writer refuses one watcher-failing.
+flaky="$tmp/flaky"
+cp -R "$repo_root/scripts" "$flaky"
+mv "$flaky/mc-event.sh" "$flaky/mc-event-real.sh"
+cat >"$flaky/mc-event.sh" <<FLAKY
+#!/bin/bash
+case " \$* " in
+  *" watcher-failing "*) if [ -f "$flaky/refuse" ]; then rm -f "$flaky/refuse"; exit 1; fi ;;
+esac
+exec /bin/bash "$flaky/mc-event-real.sh" "\$@"
+FLAKY
+: >"$flaky/refuse"
+rm -f "$wdir/$watch_slot.failing"
+printf '%s\n%s\n' $((t_now - 120)) $((t_now - 60)) >"$wdir/$watch_slot.stops"
+old=$(rec_pid "$watch_slot")
+kill "$old"
+check "a third stop whose alert is refused" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
+OUT=$(mc_env /bin/bash "$flaky/mc-watch.sh" pass --program alpha 2>"$tmp/stderr")
+RC=$?
+expect_rc "the pass whose alert is refused fails" 1
+check "and leaves the streak unraised" test ! -f "$wdir/$watch_slot.failing"
+mc_run mc-event.sh list --program alpha
+stopped_before=$(printf '%s\n' "$OUT" | grep -c "watcher-stopped${tab}alpha-duty")
+mc_run mc-watch.sh pass --program alpha
+expect_out "the next pass raises the failure" "failing${tab}alpha-duty${tab}scripts/alpha-watch.sh${tab}e"
+mc_run mc-event.sh list --program alpha
+stopped_after=$(printf '%s\n' "$OUT" | grep -c "watcher-stopped${tab}alpha-duty")
+check "the refused pass emitted no stop event, the retry one" test "$stopped_after" -eq $((stopped_before + 1))
+# A pid reused by a later loop is a new incarnation, so it still counts.
+rm -f "$wdir/$watch_slot.failing"
+old=$(rec_pid "$watch_slot")
+printf '%s %s\n%s %s\n' $((t_now - 120)) "$old:1" $((t_now - 60)) "$old:2" >"$wdir/$watch_slot.stops"
+kill "$old"
+check "a stop of a reused pid" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
+mc_run mc-watch.sh pass --program alpha
+expect_out "counts toward a failure" "failing${tab}alpha-duty"
+
 # A process whose arguments merely end like the slot's loop is not trusted.
 loop_pid=$(rec_pid "$watch_slot")
 kill "$loop_pid" 2>/dev/null

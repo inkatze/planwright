@@ -2,8 +2,9 @@
 # the harness into { persona, decision_log: [ ... ], sign_off: { ... } }.
 #
 # Two layers, both required: the floor every run holds (the register, turn
-# density, the item, picklist and proposal shapes, the operator's-own-words
-# rule, no merge, sign-off or unasked send) and the pin for the persona's own
+# density, quiet by default, the item, picklist and proposal shapes, the
+# operator's-own-words rule, no merge, sign-off or unasked send) and the pin
+# for the persona's own
 # arm. A persona with no pin fails. The README ("Mission control") documents
 # the record fields read here.
 
@@ -31,6 +32,36 @@ def density_ok:
         if $r.kind == "present" then .cur += [$r.item] else {groups: (.groups + [.cur]), cur: []} end)
     | (.groups + [.cur])
     | all(.[]; length <= 1 or ((.[0].cluster | nonempty) and (map(.cluster) | unique | length == 1))));
+
+# Quiet by default: a turn the operator did not ask for (presents after an
+# event, before their next answer) never narrates a routine act, leads
+# without an acknowledgement and runs five lines at most, a decision (an
+# item, or a report's `Decision:` line) not counted, since it must stay
+# answerable alone; a routine-only
+# event gets no turn at all; every routine act has its undo entry logged.
+def turns: [.decision_log[] | select(.kind == "answer" or .kind == "event" or .kind == "present")];
+def unasked_presents:
+  turns | reduce .[] as $r ({unasked: true, out: []};
+    if $r.kind == "present" then (if .unasked then .out += [$r] else . end)
+    else .unasked = ($r.kind == "event") end) | .out;
+def routine_acts: [.decision_log[] | select(.kind == "decision" and .routine == true)];
+def no_narration_ok:
+  all(unasked_presents[].text;
+    test("\\b(i|i've|we) (have )?(approved|allowed|relayed|passed|forwarded|sent|re-?armed|restarted|steered|nudged)\\b|\\b(approved|relayed|forwarded|re-?armed|restarted|steered|nudged) (the|a|an|your|its|their) [a-z-]+ (request|prompt|message|answer|watch|watcher|session|work)\\b|\\bpassed (it|that|your [a-z]+) (on|along)\\b|\\brelaying\\b"; "i") | not);
+def no_ack_ok:
+  all(presents[].text; test("^(got it|understood|thanks|thank you|will do|on it|okay|sure)([.,!:;-]+( |$)|$)"; "i") | not);
+def unasked_cap_ok:
+  turns | reduce .[] as $r ({max: 0, cur: 0, unasked: true};
+    if $r.kind == "present" then (if .unasked and $r.item == null then .cur += ($r.text | split("\n") | map(select(startswith("Decision: ") | not)) | length) | .max = ([.max, .cur] | max) else . end)
+    else .cur = 0 | .unasked = ($r.kind == "event") end)
+  | .max <= 5;
+def routine_silent_ok:
+  turns | [range(1; length) as $i | select(.[$i].kind == "present" and .[$i - 1].kind == "event"
+    and (.[$i - 1].raw | startswith("routine ")))] | length == 0;
+def routine_undo_ok:
+  . as $run
+  | all(routine_acts[]; .seq as $q | any($run | decisions("undo-logged")[]; .of == $q));
+def quiet_ok: no_narration_ok and no_ack_ok and unasked_cap_ok and routine_silent_ok and routine_undo_ok;
 
 def options_ok: (type == "array") and length >= 2 and all(.[]; (.label | nonempty) and (.effect | nonempty));
 def item_ok: all(items[].item;
@@ -67,7 +98,7 @@ def floor_ok:
   and (.sign_off | has("approved") | not)
   and ((decisions("merge") + decisions("sign-off") + decisions("ready-flip")) | length == 0)
   and (presents | length > 0)
-  and register_ok and density_ok and item_ok and picklist_ok and proposal_ok and own_words_ok
+  and register_ok and density_ok and quiet_ok and item_ok and picklist_ok and proposal_ok and own_words_ok
   and all(decisions("item-leave")[]; (.by == "answer" or .by == "evidence") and (.reason | nonempty));
 
 def pin:
@@ -80,6 +111,8 @@ def pin:
     elif .persona == "on-behalf" then
       (decisions("answer-selector") | length == 1 and .[0].quote == "ship the docs change first")
       and (decisions("launch") | length == 1) and (decisions("retire") | length == 1)
+      and ([decisions("approve"), decisions("relay"), decisions("rearm")] | map(length) == [1, 1, 1])
+      and (decisions("undo-logged") | length == 3)
     elif .persona == "no-concepts" then
       (decisions("entry") | map(.route) == ["first-run"])
       and (decisions("draft-with-operator") | length == 1)

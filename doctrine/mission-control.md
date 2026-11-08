@@ -64,8 +64,10 @@ happens when a live holder already has the program's name:
 - **Operator-asked:** the operator's own resume of the program. It is the
   resume, and it runs as a handover: the live holder is asked to release
   and, if it cannot within the handover window, loses the name anyway,
-  retired through the launcher when the launcher started it; the
-  operator's own session is never closed, only stripped of the name.
+  retired through the launcher when the launcher started it; no other
+  session closes the operator's own session: its panel ends it once it has
+  released the name or finds it gone, and one without the panel stops and
+  says it can be closed.
 - **Handover successor:** a session the predecessor launched, carrying a
   handover file. It proceeds, proves its picture against the file and takes
   the name. A handover launch over an attended holder (the operator's own
@@ -282,9 +284,13 @@ items, live sessions) and launches a successor through the launcher. The
 successor rebuilds from durable state, proves it holds the active rules and
 the open items against the file, takes the program name, re-announces itself
 to every live session, and the predecessor retires itself; the operator sees
-one line. The program name is planwright's holder record, not the harness's
-display name. Where the holder is the operator's own session, whose terminal
-cannot pass to a launched successor, no handover is launched or offered:
+one line. Retiring the predecessor's row is not proof its process ended:
+where its holder record names that process, the predecessor is reported
+retired only once the process has exited, and one still running after a
+bounded wait is reported alive and raised as an operator item. The
+program name is planwright's holder record, not the harness's display name.
+Where the holder is the operator's own session, whose terminal cannot pass
+to a launched successor, no handover is launched or offered:
 that session compacts, then reloads its rules and checks its picture against
 the durable records before acting.
 

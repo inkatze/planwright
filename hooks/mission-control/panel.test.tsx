@@ -198,6 +198,41 @@ test('a merge-ready store that cannot be read is unknown, never hidden', async (
   await band.unmount()
 })
 
+// The health line: shown only when a check is out of bounds, an unknown one
+// said as such.
+test('the health section draws each check out of bounds, and nothing when all is well', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({
+      extra: [
+        'health\tworker-age\t3\tw-old\t3 workers live past 4h (oldest w-old, 6h)',
+        'health\tci-queue\t?\t-\tCI queue times unknown (the throughput measure is 3h old)',
+        'health\tcontext\t1\tbeta\t1 mission control at or past the handover context (beta 75% of 70%)',
+        'health\tcontext\t?\t-\tcontext unknown for gamma (no fresh reading from a live session)',
+      ],
+    }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Health$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^3 workers live past 4h \(oldest w-old, 6h\)$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^CI queue times unknown/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^1 mission control at or past the handover context \(beta 75% of 70%\)$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^context unknown for gamma/ })).toBeDefined()
+  await ui.unmount()
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  // Checks, not records: the context check said two things.
+  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toContain('· ⚠ health 3 ·')
+  await band.unmount()
+  w.set({ digest: digestText() })
+  await w.clock.advance(10_000)
+  const well = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await well.find({ type: 'Text', text: /^Health$/ })).toBeUndefined()
+  await well.unmount()
+  const quiet = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await quiet.find({ type: 'Text', text: /✈ alpha/ }))?.text).not.toContain('health')
+  await quiet.unmount()
+})
+
 test('the band leaves a survey alone', async ($, on) => {
   const w = world(on)
   on('ui.render', ($, e) => {
