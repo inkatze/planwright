@@ -1619,7 +1619,7 @@ guard_preflight() {
   # Warned before the refusals below, so warn mode reports it too: without it
   # a backgrounded command stalls the worker, and nothing else breaks.
   [ -x "$gp_hook_root/scripts/background-job-guard.sh" ] \
-    || printf '%s\n' "$me: launch preflight: warning: the background-job guard $gp_hook_root/scripts/background-job-guard.sh is missing or not executable; a worker that backgrounds a command will stall" >&2
+    || printf '%s\n' "$me: launch preflight: warning: the background-job guard $(printf '%s' "$gp_hook_root" | tr -d '\000-\037\177')/scripts/background-job-guard.sh is missing or not executable; a worker that backgrounds a command will stall" >&2
   gp_guard="$gp_hook_root/scripts/worker-command-guard.sh"
   # Executable, not merely readable: the wrapper execs it, and a guard that
   # cannot run would otherwise read as "does not approve" every root below.
@@ -2972,6 +2972,7 @@ cmd_relaunch() {
   # The checks the resumed launch makes, run now so a profile or wrapper the
   # new config broke refuses here with the worker still up.
   rx_profile=$(recorded_profile "$dir" "$worker" relaunch) || exit 7
+  run_cwd=$rx_cwd
   profile_settings_path "$rx_profile" >/dev/null || exit 7
   rx_env=$(dispatch_env_path) || exit 8
   rx_gp=0

@@ -14,8 +14,9 @@ export LC_ALL
 
 # A stream-json session takes its turns from stdin, and a background job's
 # completion notice starts none, so a worker that backgrounds a command and
-# ends its turn waits forever. scripts/fleet-streamjson.sh sets this mark; a
-# tmux session resumes on the notice and carries none.
+# ends its turn waits forever. scripts/fleet-dispatch-env.sh sets this mark
+# for a launch that fleet-streamjson.sh requests; a tmux session resumes on
+# the notice and carries none.
 [ "${PLANWRIGHT_SESSION_BACKEND:-}" = stream-json ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 

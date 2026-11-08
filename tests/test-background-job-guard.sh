@@ -31,7 +31,7 @@ command -v jq >/dev/null 2>&1 || {
   exit 1
 }
 
-TMP=$(mktemp -d) || exit 1
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/test-background-job-guard.XXXXXX") || exit 1
 trap 'rm -rf "$TMP"' EXIT
 
 # hook <backend|-> <payload> [ENV=val...]: stdout in OUT, exit status in CODE.

@@ -497,7 +497,7 @@ assert_eq "a --root is the seam's own and stands" "$old_copy/config/worker-setti
 # --- step-record.sh refuses new-run and status from a stale copy -------------
 srwt="$SANDBOX/sr-wt"
 mkdir -p "$srwt"
-git -C "$srwt" init -q
+env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE git -C "$srwt" init -q
 stale_run "$old_copy" step-record.sh --worktree "$srwt" new-run
 assert_eq "a stale step-record.sh refuses to open a run" 1 "$CODE"
 assert_eq "and opens none" "" "$OUT"
@@ -555,8 +555,6 @@ assert_eq "a stale read a calling script already checked against this record war
 jq -n --arg a "$new_copy" --arg b "$old_copy" --arg p "$srwt" \
   '{plugins: {"planwright@planwright": [{scope: "user", installPath: $a}, {scope: "project", projectPath: $p, installPath: $b}]}}' \
   >"$SANDBOX/scoped-rec.json"
-mkdir -p "$SANDBOX/scoped/plugins"
-ln -s "$cur/plugins/cache" "$SANDBOX/scoped/plugins/cache"
 cp "$SANDBOX/scoped-rec.json" "$SANDBOX/scoped/plugins/installed_plugins.json"
 OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PROJECT_DIR CLAUDE_DIR="$SANDBOX/scoped" \
   "$old_copy/scripts/step-record.sh" --worktree "$srwt" new-run 2>/dev/null)

@@ -207,7 +207,7 @@ done
 # whatever form the wrapper runs in.
 for form in '' '--inbound accept'; do
   # shellcheck disable=SC2086 # the form is split on purpose
-  bare_out=$(PLANWRIGHT_SESSION_BACKEND=stream-json PLANWRIGHT_COPY_CHECKED=decoy \
+  bare_out=$(env -u PLANWRIGHT_LAUNCH_BACKEND PLANWRIGHT_SESSION_BACKEND=stream-json PLANWRIGHT_COPY_CHECKED=decoy \
     "$FDE" $form "$id_session") || fail "the wrapper form '$form' failed (exit $?)"
   for want in "PLANWRIGHT_SESSION_BACKEND=<unset>" "PLANWRIGHT_COPY_CHECKED=<unset>"; do
     printf '%s\n' "$bare_out" | grep -qxF "$want" \
