@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # check-glob-allow-rules.sh — correct-glob allow-rule discipline check
-# (fleet-hardening Task 6, D-6, REQ-B1.3, REQ-E1.3).
+# (fleet-hardening Task 6, D-20, REQ-B1.5, REQ-E1.3).
 #
 # Two guards, both pure shell — no model or API call is in the decision path
 # (REQ-E1.3, carrying fleet-autonomy D-18):
@@ -106,7 +106,7 @@ run_footgun_scan() {
     while IFS= read -r hit; do
       lineno="${hit%%:*}"
       tok="${hit#*:}"
-      echo "check-glob-allow-rules: $f:$lineno path-scoped rule uses the never-match ':*' word-boundary form: $tok — an allow rule names the exact script path instead, never a '*' in the path (docs/overlays.md; D-6, REQ-B1.3)" >&2
+      echo "check-glob-allow-rules: $f:$lineno path-scoped rule uses the never-match ':*' word-boundary form: $tok — an allow rule names the exact script path instead, never a '*' in the path (docs/overlays.md; D-20, REQ-B1.5)" >&2
       status=1
     done <<EOF
 $hits
@@ -132,24 +132,24 @@ run_doc_presence() {
 
   # 1. Guidance section present in the adopter allow-rule guidance.
   if ! doc_has "$overlays" "$GUIDE_HEADING"; then
-    echo "check-glob-allow-rules: allow-rule glob guidance missing from $overlays (expected a '$GUIDE_HEADING' section — D-6, REQ-B1.3)" >&2
+    echo "check-glob-allow-rules: allow-rule glob guidance missing from $overlays (expected a '$GUIDE_HEADING' section — D-20, REQ-B1.5)" >&2
     status=1
   fi
   # 2. Worker-settings profile carries the discipline note.
   if ! doc_has "$worker" "$NOTE_MARKER"; then
-    echo "check-glob-allow-rules: worker-settings profile $worker lacks the path-scoped allow-rule note ('$NOTE_MARKER …' — D-6)" >&2
+    echo "check-glob-allow-rules: worker-settings profile $worker lacks the path-scoped allow-rule note ('$NOTE_MARKER …' — D-20)" >&2
     status=1
   fi
   # 3. Ghost-text (D-5) doc cross-references the guidance.
   if ! doc_has "$ghost" "$GUIDE_ANCHOR"; then
-    echo "check-glob-allow-rules: ghost-text doc $ghost does not cross-reference the glob guidance (expected a link to $GUIDE_ANCHOR — D-6)" >&2
+    echo "check-glob-allow-rules: ghost-text doc $ghost does not cross-reference the glob guidance (expected a link to $GUIDE_ANCHOR — D-20)" >&2
     status=1
   fi
   # 4. Tower-guard (D-8) doc cross-references it — enforced once it exists
   #    (Task 7 deliverable; deferred, not skipped, until then).
   if [ -f "$tower" ]; then
     if ! doc_has "$tower" "$NOTE_MARKER"; then
-      echo "check-glob-allow-rules: tower-settings profile $tower lacks the path-scoped allow-rule note ('$NOTE_MARKER …' — D-6, Task 7 must carry it)" >&2
+      echo "check-glob-allow-rules: tower-settings profile $tower lacks the path-scoped allow-rule note ('$NOTE_MARKER …' — D-20, Task 7 must carry it)" >&2
       status=1
     fi
   else

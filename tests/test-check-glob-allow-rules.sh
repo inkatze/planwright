@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for scripts/check-glob-allow-rules.sh — the correct-glob allow-rule
-# discipline check (fleet-hardening Task 6, D-6, REQ-B1.3, REQ-E1.3).
+# discipline check (fleet-hardening Task 6, D-20, REQ-B1.5, REQ-E1.3).
 #
 # Two behaviours under test:
 #   1. Footgun scan — flag a path-scoped `Bash(<dir>/:*)` allow/deny rule (the

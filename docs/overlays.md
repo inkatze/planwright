@@ -633,10 +633,12 @@ matched the wrapper path on 2026-07-19 and forced a bare launch.
 
 So a directory-scoped rule is never written as `Bash(<dir>/*)` or `Bash(<dir>/:*)`.
 The `mise run check` guard `scripts/check-glob-allow-rules.sh` flags the
-`:*` form, and `scripts/check-allow-path-globs.sh` (run in the same gate, and
-against a user's own settings with no argument) flags a wildcard or `..` in the
-command path of any allow rule and names the exact-path replacement (D-6,
-REQ-B1.3; the matcher facts are in
+`:*` form, and `scripts/check-allow-path-globs.sh` (run in the same gate) flags
+a wildcard or `..` in the command path of any allow rule and names the
+exact-path replacement. With no argument it reads planwright's shipped profiles,
+the checkout's settings and your home `~/.claude/settings*.json`; a finding in
+the first two fails, one in your home settings only warns, since those files are
+yours and the check never edits them (D-20, REQ-B1.5; the matcher facts are in
 [`permission-matcher-model.md`](permission-matcher-model.md), rule M3).
 
 The `:*` boundary rule is one of several matcher semantics an allow or deny rule
