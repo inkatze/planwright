@@ -5,7 +5,7 @@
 # Two behaviours under test:
 #   1. Footgun scan — flag a path-scoped `Bash(<dir>/:*)` allow/deny rule (the
 #      word-boundary form that never matches `<dir>/<file>`), while passing the
-#      correct `Bash(<dir>/*)` form and the legitimate command globs
+#      `Bash(<dir>/*)` form (check-allow-path-globs.sh flags it) and the command globs
 #      (`Bash(git status:*)`, `Bash(mise run:*)`), which must NOT be flagged.
 #   2. Doc-presence — the correct-form guidance exists and is cross-referenced
 #      from the ghost-text (D-5) and, once it exists, the tower-guard (D-8) docs.
@@ -55,7 +55,8 @@ EOF
 /bin/bash "$CHECKER" "$tmp/footgun.json" >/dev/null 2>&1
 assert "path-scoped Bash(<dir>/:*) is flagged" 1 $?
 
-# 1c. The correct `Bash(<dir>/*)` path form passes.
+# 1c. The `Bash(<dir>/*)` path form passes this scan; check-allow-path-globs.sh
+#     is the check that flags it.
 cat >"$tmp/correct.json" <<'EOF'
 {
   "permissions": {
@@ -66,7 +67,7 @@ cat >"$tmp/correct.json" <<'EOF'
 }
 EOF
 /bin/bash "$CHECKER" "$tmp/correct.json" >/dev/null 2>&1
-assert "correct Bash(<dir>/*) path form passes" 0 $?
+assert "Bash(<dir>/*) path form is not this scan's finding" 0 $?
 
 # 1d. Legitimate command globs are NOT flagged (the false-positive guard):
 #     `:*` after a command word is the correct command-boundary form.
