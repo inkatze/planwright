@@ -68,8 +68,8 @@ digits and . _ = @ : -, never starting with - or a dot alone).
 Exit: 0 done; 1 the launch record, its session id, the transcript or any
       usage in it was not found, or a transcript could not be read;
       2 usage, an unreadable or malformed price table, an unresolved fleet
-      home, or a store that cannot be read or written or has an unknown
-      format.
+      home, or a store that is a symlink, cannot be read or written, or has
+      an unknown format.
 EOF
 }
 
@@ -150,6 +150,7 @@ cmd_record() {
   mkdir -p -- "${store%/*}" || die 2 "cannot create ${store%/*}"
   pw_lock_trap_install
   pw_lock_acquire "$lock" || die 2 "cannot take the spend store lock"
+  [ ! -L "$store" ] || die 2 "the store is a symlink: $store"
   if [ -e "$store" ]; then
     mc_store_ok "$store" || die 2 "the store has a missing or unknown format: $store"
   else
@@ -177,6 +178,7 @@ cmd_read() {
   [ -z "$unit" ] || need --unit "$unit" mc_valid_handle
   home=$(mc_fleet_home) || die 2 "the fleet home does not resolve"
   store=$home/mission-control/$program/spend.tsv
+  [ ! -L "$store" ] || die 2 "the store is a symlink: $store"
   if [ ! -e "$store" ]; then
     printf 'total\t0\t0\t0\t0\t0\t0\t0.00\n'
     return 0

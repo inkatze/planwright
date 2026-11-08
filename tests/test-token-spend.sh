@@ -322,6 +322,18 @@ printf 'no format line\n' >"$fleet/mission-control/$bad/spend.tsv"
 assert_exit "read: a store with an unknown format is refused" 2 $?
 "$RECORD" record --program "$bad" --session s-a --prices "$prices" >/dev/null 2>&1
 assert_exit "record: a store with an unknown format is refused" 2 $?
+linked="tsplink${pn#tsp}"
+mkdir -p "$fleet/mission-control/$linked"
+printf '# format: 1\n' >"$T/elsewhere.tsv"
+ln -s "$T/elsewhere.tsv" "$fleet/mission-control/$linked/spend.tsv"
+"$RECORD" record --program "$linked" --session s-a --prices "$prices" >/dev/null 2>&1
+assert_exit "record: a symlinked store is refused" 2 $?
+assert_eq "record: a symlinked store's target is untouched" 1 "$(wc -l <"$T/elsewhere.tsv" | tr -d ' ')"
+"$RECORD" read --program "$linked" >/dev/null 2>&1
+assert_exit "read: a symlinked store is refused" 2 $?
+rm -f "$T/elsewhere.tsv"
+"$RECORD" read --program "$linked" >/dev/null 2>&1
+assert_exit "read: a dangling symlinked store is refused" 2 $?
 
 : >"$T/blocker"
 PLANWRIGHT_FLEET_STATE_DIR="$T/blocker/fleet" "$RECORD" record --program "$pn" --session s-a --prices "$prices" >/dev/null 2>&1
