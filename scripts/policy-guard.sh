@@ -593,8 +593,10 @@ deny_unanalyzable() {
 # escape or `$` outside single quotes, and an unquoted glob or brace (gh's
 # `{owner}`, `{repo}`, and `{branch}` placeholders excepted). It refuses
 # command and process substitution (bar the data-only heredoc idiom above),
-# backticks, ANSI-C quoting, and grouping. An unquoted here-document whose
-# body carries a substitution sets HEREDOC_SUBST, since bash runs it.
+# backticks, ANSI-C quoting, grouping, and a here-document whose end the
+# guard cannot place ($-quoted or escaped delimiters, joined lines). An
+# unquoted here-document whose body carries a substitution sets
+# HEREDOC_SUBST, since bash runs it.
 #
 # Results: W[] words, WL[] literal flags, WU[] unquoted flags (no quote or
 # escape anywhere in the word), WA[] flags for a word whose first `=` comes
@@ -4585,7 +4587,7 @@ handle_bash() {
   fi
   if ! tokenize "$cmd"; then
     unparsed_evidence "$cmd" \
-      && deny_unanalyzable 'this command uses a construct the guard will not analyze (command or process substitution, backticks, ANSI-C quoting, or grouping)'
+      && deny_unanalyzable 'this command uses a construct the guard will not analyze (command or process substitution, backticks, ANSI-C quoting, grouping, or a here-document whose end the guard cannot place)'
     return 0
   fi
   if [ "$HEREDOC_SUBST" = 1 ]; then
