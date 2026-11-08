@@ -186,6 +186,16 @@ test('the restamp carries the context reading and the handover threshold', SLOW,
   expect(attended.slice(attended.indexOf('--threshold'))).toEqual(['--threshold', '-'])
 })
 
+for (const contextPercent of [undefined, Number.NaN]) {
+  test(`the restamp sends no context for a reading of ${contextPercent}`, SLOW, async ($, on) => {
+    const w = world(on, { contextPercent, digest: digestText({ holder: 'registry' }) })
+    await boot($, w)
+    await w.clock.advance(60_000)
+    const last = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+    expect(last.slice(last.indexOf('--context'), last.indexOf('--context') + 2)).toEqual(['--context', '-'])
+  })
+}
+
 test('the session end hands the target back to the relay', async ($, on) => {
   const w = world(on)
   await boot($, w)

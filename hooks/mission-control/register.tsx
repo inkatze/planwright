@@ -345,6 +345,7 @@ async function claim($: EngineInterface) {
 async function restampPresence($: EngineInterface) {
   if (!ctx) return
   const v = await view($)
+  // A reading the script refuses would fail the lease restamp with it.
   const pct = v?.contextPercent
   const threshold = v?.digest?.holder === 'registry' ? v.digest.knobs['handover-context'] : undefined
   await run($, 'mc-panel.sh', [
@@ -355,7 +356,7 @@ async function restampPresence($: EngineInterface) {
     '--target',
     ctx.target,
     '--context',
-    pct === null || pct === undefined ? '-' : String(Math.min(100, Math.max(0, pct))),
+    typeof pct === 'number' && Number.isFinite(pct) ? String(Math.min(100, Math.max(0, Math.round(pct)))) : '-',
     '--threshold',
     threshold === undefined ? '-' : String(threshold),
   ])
