@@ -26,7 +26,7 @@
 #
 # The JSON read goes through jq and yields nothing without it; the cache walk
 # needs no jq. Neither half ever guesses. <claude-dir> is $CLAUDE_DIR, else
-# $HOME/.claude; with neither set nothing is printed.
+# $HOME/.claude; with neither set nothing is printed (--fresh prints <path>).
 #
 # Usage:
 #   resolve-installed-roots.sh
@@ -45,7 +45,13 @@
 #     Warns on stderr, and exits 1, when <path> is a copy under the plugin
 #     cache that no --current root names: an older version a session kept
 #     using after an upgrade or reload. Silent, and 0, for a current copy,
-#     a path outside the cache (a checkout), or a record it cannot read.
+#     a path outside the cache (a checkout), a record it cannot read, or a
+#     record none of whose current roots is on disk with its scripts/.
+#   resolve-installed-roots.sh --fresh <path>
+#     The root to hand a session launched from <path>: the first --current
+#     root present on disk where --check would warn about <path>, else <path>
+#     as given. A launch seam runs it over every root it passes on, so a
+#     session never inherits the older copy its launcher kept using.
 #
 # Exit codes: 0 always for the listing. An unset home, an absent or
 #   unreadable record, an absent jq, and an empty cache are each empty
@@ -53,8 +59,8 @@
 #   the arm it feeds does not fire; the same holds for --refused. With
 #   --unlinked: 0 when the path passes the rule, 1 when it does not (or is
 #   empty). --current prints nothing, exit 0, where the listing would print
-#   no record entry. With --check: 1 for a stale copy, else 0. 2 on a usage
-#   error.
+#   no record entry. With --check: 1 for a stale copy, else 0. --fresh: 0.
+#   2 on a usage error.
 #
 # POSIX sh; pathname expansion is used for the cache walk only.
 set -u
@@ -111,13 +117,19 @@ unlinked() {
 }
 
 usage() {
-  echo "usage: resolve-installed-roots.sh [--unlinked <path> | --refused | --current | --check <path>]" >&2
+  echo "usage: resolve-installed-roots.sh [--unlinked <path> | --refused | --current | --check <path> | --fresh <path>]" >&2
   exit 2
 }
 
 want=kept
 check=''
+fresh=0
 case ${1-} in
+  --fresh)
+    [ "$#" -eq 2 ] && [ -n "$2" ] || usage
+    check=$2
+    fresh=1
+    ;;
   --refused | --current)
     [ "$#" -eq 1 ] || usage
     want=${1#--}
@@ -141,7 +153,10 @@ if [ -n "${CLAUDE_DIR:-}" ]; then
 elif [ -n "${HOME:-}" ]; then
   claude_dir="$HOME/.claude"
 fi
-[ -n "$claude_dir" ] || exit 0
+if [ -z "$claude_dir" ]; then
+  [ "$fresh" -eq 0 ] || printf '%s\n' "$check"
+  exit 0
+fi
 
 # emit <root>: print the root when it falls on the side of the rule asked for.
 emit() {
@@ -181,24 +196,43 @@ recorded_roots() {
 # physical <dir>: the directory's canonical path, or nothing.
 physical() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
 
-if [ -n "$check" ]; then
-  ck_cache=$(physical "$claude_dir/plugins/cache") || exit 0
-  ck_path=$(physical "$check") || exit 0
+# stale <path>: true when <path> is a cached copy no --current root names,
+# with ck_path its canonical form and ck_first the root to use instead. Only a
+# current root present on disk with its scripts/ stands in: a record naming a
+# copy that is not there yet (or was pruned) would hand on a root whose hooks
+# never run, so the path stands instead.
+stale() {
+  ck_cache=$(physical "$claude_dir/plugins/cache") || return 1
+  ck_path=$(physical "$1") || return 1
   case $ck_path/ in
     "$ck_cache"/*) ;;
-    *) exit 0 ;;
+    *) return 1 ;;
   esac
   want=current
   ck_current=$(recorded_roots here)
-  [ -n "$ck_current" ] || exit 0
+  [ -n "$ck_current" ] || return 1
   ck_first=''
   while IFS= read -r ck_root; do
     [ -n "$ck_root" ] || continue
-    [ "$(physical "$ck_root")" != "$ck_path" ] || exit 0
-    [ -n "$ck_first" ] || ck_first=$ck_root
+    [ "$(physical "$ck_root")" != "$ck_path" ] || return 1
+    [ -n "$ck_first" ] || [ ! -d "$ck_root/scripts" ] || ck_first=${ck_root%/}
   done <<EOF
 $ck_current
 EOF
+  [ -n "$ck_first" ]
+}
+
+if [ "$fresh" -eq 1 ]; then
+  if stale "$check"; then
+    printf '%s\n' "$ck_first"
+  else
+    printf '%s\n' "$check"
+  fi
+  exit 0
+fi
+
+if [ -n "$check" ]; then
+  stale "$check" || exit 0
   printf 'planwright: WARNING running from %s, which is not the installed planwright (%s); run every script and doc from the installed copy instead\n' \
     "$(printf '%s' "$ck_path" | tr -d '\000-\037\177')" "$(printf '%s' "$ck_first" | tr -d '\000-\037\177')" >&2
   exit 1

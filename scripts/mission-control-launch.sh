@@ -20,6 +20,21 @@ me=mission-control-launch
 FORMAT=1
 
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
+# Run from an older cached copy (a path the calling session kept across an
+# upgrade), the launcher would write that copy's paths into every brief and
+# start the session through that copy's scripts, so the installed one runs.
+case $script_dir in
+  */plugins/cache/*)
+    if [ -f "$script_dir/resolve-installed-roots.sh" ]; then
+      own_copy=${script_dir%/scripts}
+      fresh_copy=$(/bin/sh "$script_dir/resolve-installed-roots.sh" --fresh "$own_copy" 2>/dev/null </dev/null) || fresh_copy=''
+      if [ -n "$fresh_copy" ] && [ "$fresh_copy" != "$own_copy" ] && [ -f "$fresh_copy/scripts/$me.sh" ]; then
+        printf '%s\n' "$me: $(printf '%s' "$own_copy" | tr -d '\000-\037\177') is not the installed planwright; running $(printf '%s' "$fresh_copy/scripts/$me.sh" | tr -d '\000-\037\177') instead" >&2
+        exec /bin/sh "$fresh_copy/scripts/$me.sh" "$@"
+      fi
+    fi
+    ;;
+esac
 if [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "$me: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2
@@ -45,7 +60,7 @@ help_text() {
 usage:
   mission-control-launch.sh launch --program <p> --kind <kind> --scope <s>
       [--brief <file>] [--rules <rule-scope>]... [--backend stream-json|tmux]
-      [--cwd <abs-dir>] [--repo <abs-dir>]
+      [--cwd <abs-dir>] [--repo <abs-dir>] [--operator-asked]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker>
   mission-control-launch.sh list
@@ -66,6 +81,14 @@ new session starts under: its profile, the user and managed layers, and
 the project layer of the directory it starts in. Every other kind, and a
 mission control's successor (a caller holding PLANWRIGHT_MC_TOKEN), is held
 to the caller's own posture.
+
+While the program's usage hold lasts
+(scripts/mc-usage.sh held) every kind but mission-control is refused unless
+--operator-asked marks work the operator asked for; the refusal names the
+queue (mc-usage.sh enqueue) that launches it at the window's reset. Each
+launch --operator-asked takes past the hold is recorded first, as a
+usage-bypass event the reset's report names; one that cannot be recorded
+is refused.
 
 A kind that changes a repository (worker, reviewer, ad-hoc) starts in its
 own worktree, never a primary checkout. With no --cwd, the dispatch
@@ -125,11 +148,12 @@ its window (retire); 4 a launch refused before it started: a posture check
 (scripts/mc-posture.sh) that failed or did not run, no readable profile, an
 unresolvable rung knob with no --backend, no resolvable tier (an
 unreachable allocation store or a malformed tier knob), the admission gate
-withholding it, a broken allocation install, a program that is not
-configured, rules that would not render, a worktree that could not be
-created, a named directory that is not a worktree other than a primary
-checkout, a worktree path holding a control character, or any other
-refusal by the rung.
+withholding it, the usage hold (or one that cannot be read), an
+operator-asked launch past it whose bypass cannot be recorded, a broken
+allocation install, a program that is not configured, rules that would not
+render, a worktree that could not be created, a named directory that is not
+a worktree other than a primary checkout, a worktree path holding a control
+character, or any other refusal by the rung.
 EOF
 }
 
@@ -699,7 +723,7 @@ posture_gate() {
 # --------------------------------------------------------------------------
 
 cmd_launch() {
-  program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task=''
+  program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task='' operator_asked=0
   PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
     case $1 in
@@ -723,6 +747,10 @@ cmd_launch() {
             ;;
         esac
         shift 2
+        ;;
+      --operator-asked)
+        operator_asked=1
+        shift
         ;;
       *) usage ;;
     esac
@@ -797,6 +825,29 @@ cmd_launch() {
     3) die "refusing to launch $name: the program $(sanitize_printable "$program") is not configured" 4 ;;
     *) die "refusing to launch $name: the rules in scope did not render (mc-rules.sh exit $rr)" 4 ;;
   esac
+
+  # A mission-control successor is never held: it is what carries the
+  # program through the hold.
+  if [ "$kind" != mission-control ]; then
+    uh_out=$(/bin/bash "$script_dir/mc-usage.sh" held --program "$program" </dev/null 2>/dev/null)
+    uh_rc=$?
+    # A failure exits 1 as clear does, so clear is only the word itself.
+    [ "$uh_rc" -ne 1 ] || [ "$uh_out" = clear ] || uh_rc=2
+    case $uh_rc in
+      0) uh_why=$(printf '%s\n' "$uh_out" | awk -F '\t' 'NR == 1 { print ($2 == "quota") ? "a session stopped on the claude usage limit" : "the " $2 " usage window is at " $3 "%" }') ;;
+      1) uh_why="" ;;
+      *) uh_why="the usage hold cannot be read" ;;
+    esac
+    if [ -n "$uh_why" ] && [ "$operator_asked" -eq 1 ]; then
+      /bin/bash "$script_dir/mc-event.sh" emit --program "$program" -- usage-bypass "$name" \
+        "allowed past the usage hold because the operator asked ($uh_why)" </dev/null >/dev/null 2>&1 \
+        || die "refusing to launch $name past the usage hold: the bypass could not be recorded (mc-event.sh emit)" 4
+    elif [ "$uh_rc" -eq 0 ]; then
+      die "refusing to launch $name: launches are held until the usage window resets ($uh_why); queue it for the reset with mc-usage.sh enqueue and these same arguments, or pass --operator-asked for work the operator asked for" 4
+    elif [ -n "$uh_why" ]; then
+      die "refusing to launch $name: the usage hold cannot be read (mc-usage.sh held)" 4
+    fi
+  fi
 
   resolve_backend
   fleet_home
