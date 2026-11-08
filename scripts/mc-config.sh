@@ -132,10 +132,12 @@ Usage:
             never the line, only the first word of its command (the name,
             for an environment line), cut at its first character outside
             letters, digits and _ . / + ~ - with the cut marked <redacted>
-            (TOKEN=<redacted>), or the bare <redacted> for a line whose
-            schedule cron would not read, and the text that matched, a
-            program path first, else planwright or claude as the line
-            spells it; a crontab that cannot be listed reads as none
+            (TOKEN=<redacted>), or the bare <redacted> for a command line
+            opening with neither a cron keyword nor five fields of
+            numbers, *, lists, ranges, steps and month or weekday names,
+            and the text that matched, a program path first, else
+            planwright or claude as the line spells it; a crontab that
+            cannot be listed reads as none
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
             launches or cron) whose read failed; for launches, also a
             session whose row names no known rung; for overrides, also a
@@ -839,7 +841,7 @@ doctor_cron() {
       field[5] = "^(" num "|sun|mon|tue|wed|thu|fri|sat)+$"
     }
     # The first word of the command, past @keyword or the five time fields,
-    # or the name of an environment line; a schedule cron would not read
+    # or the name of an environment line; a schedule outside that grammar
     # has none.
     function word(s,   f, nf, at, i) {
       nf = split(s, f, " ")

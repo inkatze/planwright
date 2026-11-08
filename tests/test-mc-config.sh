@@ -501,7 +501,8 @@ session_row mc-alpha-worker-1111111111 alpha tmux
 session_row mc-alpha-worker-2222222222 alpha stream-json
 session_row mc-beta-worker-3333333333 beta tmux
 session_row mc-alpha-worker-4444444444 alpha ''
-# Shell forms no redaction could model, each a crontab line, then " ==> "
+# Shell forms no redaction could model, and schedules short, named or with
+# an unknown keyword, each a crontab line, then " ==> "
 # and the command word and match the report must read as (a blank standing
 # for the tab): never an argument, and a word past the plain characters cut
 # where they end.
