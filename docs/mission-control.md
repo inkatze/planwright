@@ -171,8 +171,8 @@ running), never from a stale summary. Its first message says what changed
 since you last looked, what waits on you, and what is moving. If an older
 mission-control session for the same program is still open, the new one
 takes over the program. An old one that does not let go in time is shut
-down if mission control started it; one you opened yourself stays open but
-stops acting for the program.
+down if mission control started it; one you opened yourself stops acting
+for the program and ends itself once it notices (Handover, below).
 
 Ask for status at any time ("where are we?"). It answers in one fixed
 shape: decisions waiting on you first, then what landed, then what is
@@ -199,6 +199,15 @@ terminal has to move: it writes a note of everything open, starts its
 successor, the successor checks that it holds every rule and open item
 against that note, and the old session closes. You see one line saying it
 happened.
+
+The old session ends itself: once it gives up the program name, or finds
+it already taken, its panel ends it as soon as its last turn finishes,
+closing its terminal too when Claude Code was all that terminal ran. The same
+happens to an older mission-control session you started yourself when you
+open a new one for the program, once it notices the name is taken; one that
+never gets to notice (it is stuck, say) stays open and you close it. A
+session without the panel cannot end itself; it stops working and says it
+can be closed.
 
 A mission-control session that mission control starts, a successor
 included, runs in Claude Code's auto mode, so a routine command does not

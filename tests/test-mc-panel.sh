@@ -248,6 +248,35 @@ expect_out "and the count is exact" "alpha: 4 in flight"
 PATH="$tmp/bin:$host_path"
 cp "$tmp/attention.saved" "$fleet/attention/state"
 
+# Worker permission prompts are mission control's to answer: they leave the
+# operator's waiting count and are said apart, in plain words. The fixture
+# already holds two rows awaiting the operator; one more question joins them.
+mc_run fleet-attention.sh permission w-perm mission-control:alpha 'git status'
+mc_run fleet-attention.sh decide w-req mission-control:alpha "permission request tool Bash req aaaa1111 - answer via fleet-streamjson.sh answer" deny 'allow|deny'
+mc_run fleet-attention.sh decide w-ask mission-control:alpha 'Ship it?' yes 'yes|no'
+mc_run mc-panel.sh digest --program alpha --target mc-alpha --now 1030
+record "the operator's waiting count leaves out worker permission prompts" waiting 3
+record "the approvals mission control is handling are counted apart" approvals 2
+mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
+expect_eq "the line form says the approvals apart from what waits on the operator" "mission control alpha: 7 in flight, 3 waiting, 1 pending, 2 approvals mission control is handling, rung normal, tracker snapshot 30s old"
+mc_run mc-panel.sh text --program alpha --target mc-alpha
+expect_out "the text panel says what waits on the operator" "waiting on you: 3"
+expect_out "the text panel says the approvals apart" "approvals mission control is handling: 2"
+mc_run fleet-attention.sh clear w-req
+mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
+expect_out "one approval is said in the singular" ", 1 approval mission control is handling,"
+# A queue that cannot be read is said so, with no split and no clause, while
+# an approval is still pending in it.
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$fleet/attention/state"
+  mc_run mc-panel.sh digest --program alpha --target mc-alpha --now 1030
+  chmod 600 "$fleet/attention/state"
+  record "an unreadable queue is named" unreadable "operator queue"
+  expect_no_out "and no approvals are counted from it" "approvals${tab}"
+  expect_no_out "nor said in the line" "mission control is handling"
+fi
+for w in w-perm w-ask; do mc_run fleet-attention.sh clear "$w"; done
+
 # A store that cannot be read is said, never drawn as empty.
 printf 'format\t9\n' >"$runtime/measures"
 mc_run mc-panel.sh digest --program alpha --now 1030
@@ -782,11 +811,11 @@ expect_rc "await with no acknowledgment" 0
 expect_out "REQ-F1.16: no acknowledgment within the wait reports the text form" "panel${tab}text${tab}no acknowledgment within 1s"
 expect_out "REQ-F1.2: the text panel carries the in-flight line" "in flight: 1"
 expect_out "the text panel names each flight" "w-one"
-expect_out "REQ-F1.2: the text panel carries the waiting line" "waiting:"
+expect_out "REQ-F1.2: the text panel carries the waiting line" "waiting on you:"
 mc_run mc-panel.sh text --program alpha
 expect_rc "the text verb" 0
 expect_out "REQ-F1.2: the text output carries the in-flight line" "in flight: 1"
-expect_out "REQ-F1.2: the text output carries the waiting line" "waiting:"
+expect_out "REQ-F1.2: the text output carries the waiting line" "waiting on you:"
 [ ! -e "$runtime/budget" ] || mv "$runtime/budget" "$runtime/budget.saved"
 ln -s "$tmp/nowhere" "$runtime/budget"
 mc_run mc-panel.sh text --program alpha
@@ -817,6 +846,68 @@ if [ ! -e "$act/$sid_c" ] && [ ! -e "$act/$sid_c.ack" ]; then
 else
   fail "retirement left '$(ls "$act")'"
 fi
+
+# A released predecessor ends itself: `retire --exit` leaves its own mod an
+# exit marker, never touching another session or another program's panel.
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh activate --program alpha --now 5110
+mc_run mc-panel.sh ack --session "$sid_c"
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh retire --exit --program beta
+expect_rc "retiring for exit under another program" 0
+expect_out "another program's panel is not this release's" "exit${tab}none${tab}no panel of program beta"
+if [ -f "$act/$sid_c" ] && [ -f "$act/$sid_c.ack" ] && [ ! -e "$act/$sid_c.exit" ]; then
+  ok "and it is left alone"
+else
+  fail "a release of another program touched the panel: '$(ls "$act")'"
+fi
+ln -s "$tmp/nowhere" "$act/$sid_c.exit"
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh retire --exit --program alpha
+expect_rc "an exit marker that is a symlink is refused" 1
+if [ -f "$act/$sid_c" ] && [ -f "$act/$sid_c.ack" ]; then
+  ok "and the record stays"
+else
+  fail "a refused marker write still retired the record: '$(ls "$act")'"
+fi
+rm -f "$act/$sid_c.exit"
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh retire --exit --program alpha
+expect_rc "retiring the session for its exit" 0
+expect_out "an acknowledged session's retirement for exit says its mod ends it" "exit${tab}mod"
+if [ ! -e "$act/$sid_c" ] && [ ! -e "$act/$sid_c.ack" ] && [ -f "$act/$sid_c.exit" ]; then
+  ok "retirement for exit removes the record and leaves the exit marker"
+else
+  fail "retirement for exit left '$(ls "$act")'"
+fi
+if [ -f "$act/$sid_a" ]; then ok "and leaves another session's record alone"; else fail "retirement for exit touched another session's record"; fi
+mc_run mc-panel.sh retire --session "$sid_c"
+if [ ! -e "$act/$sid_c.exit" ]; then ok "a plain retirement clears the exit marker"; else fail "the exit marker outlived a plain retirement"; fi
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh activate --program alpha --now 5120
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh retire --exit --program alpha
+expect_rc "retiring an unacknowledged session for its exit" 0
+expect_out "with no acknowledgment no mod is there to end the session" "exit${tab}none${tab}no mod acknowledged"
+if [ ! -e "$act/$sid_c" ] && [ ! -e "$act/$sid_c.exit" ]; then
+  ok "and no exit marker is left for a mod that is not there"
+else
+  fail "an unacknowledged retirement for exit left '$(ls "$act")'"
+fi
+printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_c" >"$act/$sid_c.exit"
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh activate --program alpha --now 5130
+expect_rc "the activation over an old exit marker succeeds" 0
+if [ ! -e "$act/$sid_c.exit" ]; then ok "a new activation clears an old exit marker"; else fail "an old exit marker outlived a new activation"; fi
+mc_run mc-panel.sh retire --session "$sid_c"
+for bad in "retire --exit --program alpha --session $sid_a" "retire --exit" "lookup --exit" "ack --exit" "prune --exit" "digest --program alpha --exit"; do
+  # shellcheck disable=SC2086 # the words split on purpose
+  mc_run mc-panel.sh $bad
+  expect_rc "mc-panel.sh $bad is a usage error" 2
+done
+printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_b" >"$act/$sid_b.exit"
+printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_c" >"$act/$sid_c.exit"
+touch -t 200001010000 "$act/$sid_b.exit"
+mc_run mc-panel.sh prune
+if [ ! -e "$act/$sid_b.exit" ] && [ -f "$act/$sid_c.exit" ]; then
+  ok "prune removes an exit marker no mod read within the hour, keeping a fresh one"
+else
+  fail "prune over exit markers left '$(ls "$act")'"
+fi
+rm -f "$act/$sid_c.exit"
 
 # The pid a record carries is a live process whose session-start record
 # names the session, never an inherited CLAUDE_PID naming another.
