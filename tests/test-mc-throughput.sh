@@ -312,6 +312,20 @@ if [ "$(id -u)" -ne 0 ]; then
   expect_eq "but the pass was stamped, so the next pass raises nothing again" "skipped${tab}interval"
   chmod 700 "$runtime/throughput-raised"
   rmdir "$runtime/throughput-raised"
+  # A pass that cannot stamp itself measures and emits nothing, so a runtime
+  # directory gone read-only never repeats an event every run.
+  events
+  before=$(count_raised)
+  rm -f "$runtime/throughput-last"
+  mkdir "$runtime/throughput-last"
+  chmod 500 "$runtime/throughput-last"
+  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 27000))
+  expect_rc "a pass that cannot be stamped fails the watch" 1
+  expect_no_out "before it measures anything" "source${tab}"
+  events
+  if [ "$(count_raised)" = "$before" ]; then ok "and it emits nothing"; else fail "an unstamped pass emitted: $(count_raised) events, $before before"; fi
+  chmod 700 "$runtime/throughput-last"
+  rm -rf "$runtime/throughput-last"
 else
   ok "an unwritable memory (skipped as root)"
 fi
@@ -325,6 +339,7 @@ expect_err "naming the lock" "kb/throughput/measure.tsv"
 (mc_env /bin/bash "$repo_root/scripts/mc-kb.sh" unlock --program alpha throughput/measure.tsv --token "$lock_token") >/dev/null 2>&1
 grep -v '^mission_control_kb_lock_wait' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
 
+rm -f "$runtime/throughput-last"
 cp "$tracked" "$tracked.keep"
 sed "s#^program_alpha_home: .*#program_alpha_home: $repo/home#" "$tracked.keep" >"$tracked"
 mc_run mc-throughput.sh watch --program alpha --now $((NOW + 28800))

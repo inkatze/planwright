@@ -748,6 +748,10 @@ case $verb in
     load_knobs
     load_program
     [ "$HOME_OK" = 1 ] || mc_fail "the home of program $program does not resolve"
+    # The pass is stamped before it measures, so one that fails partway (a
+    # store, the lock, the event or the memory) is not repeated, forge reads
+    # and any event it emitted included, on every run inside the interval.
+    printf '%s\n' "$NOW" | mc_write "$last" || mc_fail "cannot write $last"
     kb="$PHOME/kb/throughput"
     m=$(measure)
     printf '%s\n' "$m"
@@ -806,9 +810,6 @@ case $verb in
         printf 'raised\t%s\t%s\n' "$key" "$total"
       fi
     fi
-    # The pass is stamped before the memory is written, so a failed write
-    # cannot repeat an emitted event on every pass inside the interval.
-    printf '%s\n' "$NOW" | mc_write "$last" || mc_fail "cannot write $last"
     { [ -z "$kept" ] || printf '%s\n' "$kept"; } | mc_write "$raised" || mc_fail "cannot write $raised"
     ;;
 esac
