@@ -879,7 +879,7 @@ else
   fail "retirement for exit left '$(ls "$act")'"
 fi
 if [ -f "$act/$sid_a" ]; then ok "and leaves another session's record alone"; else fail "retirement for exit touched another session's record"; fi
-mc_run mc-panel.sh retire --session "$sid_c"
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh retire
 if [ ! -e "$act/$sid_c.exit" ]; then ok "a plain retirement clears the exit marker"; else fail "the exit marker outlived a plain retirement"; fi
 run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh activate --program alpha --now 5120
 run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh retire --exit --program alpha
