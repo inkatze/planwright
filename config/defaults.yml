@@ -1128,9 +1128,10 @@ mission_control_audit_idle_after: 30d
 # opens the first turn after silence. A cadence, read in whole days.
 mission_control_deadline_horizon: 3d
 # The throughput duty (scripts/mc-throughput.sh): how often it measures
-# (its watcher checks every 15 minutes, so a shorter interval measures at
-# that pace), how far back it reads, and how many of each repository's
-# newest Actions runs it reads. Cadences, and a count.
+# (an interval shorter than its watcher's cadence in config/duties.yaml
+# measures at that cadence), how far back it reads, and how many of each
+# repository's newest Actions runs it reads (at most 100). Cadences, and a
+# count.
 mission_control_throughput_interval: 1h
 mission_control_throughput_window: 24h
 mission_control_throughput_ci_runs: 40

@@ -28,26 +28,38 @@ mc-throughput.sh — the throughput duty: measure where the program's time
 goes and raise the single biggest bottleneck to its mission control. Every
 measurement is a read; the duty changes nothing it measures.
 
-THE MEASUREMENTS, over the last mission_control_throughput_window:
+THE MEASUREMENTS, over the last mission_control_throughput_window (stalls
+as they stand now):
   ci         per workflow and job, of the newest
-             mission_control_throughput_ci_runs Actions runs of each program
-             repository's GitHub remote (gh api, jq): the queue time
-             (created to started; a job still queued counts to now) against
-             the run time (started to completed)
+             mission_control_throughput_ci_runs Actions runs (at most 100,
+             one forge page) of each program repository's GitHub remote
+             (gh api, jq), runs last updated before the window skipped and
+             every page of a run's jobs read: the queue time (created to
+             started; a job still queued counts to now, one that finished
+             unstarted to its finish, never below zero) against the run
+             time (started to completed). With more than one repository a
+             key is prefixed with its owner/name. A repository with no
+             GitHub remote is named in the source line, not measured.
   approvals  every permission request in the program's stream-json worker
-             journals (<fleet home>/streamjson/mc-<program>-*/journal):
-             received to answered, a pending one counted to now
+             journals (<fleet home>/streamjson/<session>/journal, a regular
+             file): received to answered, a pending one counted to now
   stalls     every launched session of the program but its mission control
              whose stall sample (scripts/mc-stall.sh, the runtime
              directory's stall/) reads idle, idle-question, open-selector,
              unsubmitted-prompt, turn-ended-background, busy-unchanged or
-             dead: the time since its pane last changed
+             dead: the time since its pane last changed. A session with no
+             current sample is named in the source line; with none sampled
+             the source is unknown.
   steps      every cadence step record (start to end; a skipped step
              aside) in the program repositories' worktrees and the program
-             home's reclaimed copies, per step id, naming the branch of the
-             slowest
-A source that cannot be read is named unknown, with the reason, and
-contributes nothing: an unread source is never shown as zero.
+             home's reclaimed copies, read with `step-record.sh list`, per
+             step id, naming the branch of the slowest; a record identical
+             in every field to one already read is a copy
+A stream-json session is the program's when its registry row names the
+program, or, with no row, when its name is the launcher's readable form
+mc-<program>-<kind>-<10 hex>. A source that cannot be read is named
+unknown, with the reason, and contributes nothing: an unread source is
+never shown as zero.
 
 THE TOP BOTTLENECK: a measurement is a bottleneck when its typical value
 (the median wait, run or step; the longest stall) reaches its threshold in
@@ -58,10 +70,12 @@ value against its threshold, then the key).
 Usage:
   mc-throughput.sh measure --program <p> [--now <epoch>]
       source<TAB><name><TAB>ok|unknown<TAB><detail>
-      ci<TAB><workflow / job><TAB><jobs><TAB><queue median s><TAB>
-        <queue total s><TAB><queue max s><TAB><run median s|->
+      ci<TAB>[<owner/name> ]<workflow / job><TAB><jobs><TAB>
+        <queue median s><TAB><queue total s><TAB><queue max s><TAB>
+        <run median s|->
       approvals<TAB>permission<TAB><requests><TAB><median s><TAB><total s>
-        <TAB><max s><TAB><slowest session><TAB><pending><TAB><longest pending s|->
+        <TAB><max s><TAB><slowest session><TAB><pending><TAB>
+        <longest pending s|->
       stall<TAB><session><TAB><state><TAB><seconds>
       step<TAB><step id><TAB><runs><TAB><median s><TAB><total s><TAB>
         <max s><TAB><slowest branch>
@@ -69,35 +83,44 @@ Usage:
       the measure lines, then
         top<TAB><key><TAB><total s><TAB><text>   or   top<TAB>none
   mc-throughput.sh curve --program <p> [--now <epoch>]
-      cost per model request against context size, from each stream-json
-      worker's event capture written inside the window (jq):
+      cost per model request against context size, from each of the
+      program's stream-json sessions' event captures written inside the
+      window (jq; a frame that does not parse is skipped alone):
+        source<TAB>cost<TAB>ok|unknown<TAB><detail>
         request<TAB><session><TAB><n><TAB><percent|-><TAB><context tokens>
           <TAB><window|-><TAB><cost>
         curve<TAB><band>%<TAB><requests><TAB><median context tokens><TAB>
           <mean cost per request>
         curve<TAB>unknown<TAB><requests with no known window>
-      context tokens are input plus cache reads and writes; the cost is in
-      input-token equivalents at the list-price ratios (cache read 0.1,
-      5-minute write 1.25, 1-hour write 2, output 5), not dollars; the window
-      is the capture's own result frame's, else the session's context
-      reading (<fleet home>/mission-control/context/<name>, key `window`)
+      a band is 0-9, 10-19 and so on, and 100+ for a request at or past
+      its window; context tokens are input plus cache reads and writes; the
+      cost is in input-token equivalents at the list-price ratios (cache
+      read 0.1, 5-minute write 1.25, 1-hour write 2, output 5; a cache
+      write with no 5-minute and 1-hour breakdown is priced as 5-minute),
+      not dollars; the window is the capture's own result frame's, else
+      the session's format-1 context reading
+      (<fleet home>/mission-control/context/<name>, key `window`)
   mc-throughput.sh watch [--program <p>] [--now <epoch>]
       the duty's watcher (also a run with no arguments under the runner):
       measures at most once per mission_control_throughput_interval
-      (`skipped<TAB>interval` otherwise), writes the measurement and the
-      curve to the program home's kb/throughput/, and emits the top
-      bottleneck as a throughput-bottleneck event, subject the key (a
-      checksum subject outside the subject grammar), text its numbers and
-      any unknown source, printing
+      (`skipped<TAB>interval` otherwise), printing the measure lines;
+      writes the measurement and the curve to the program home's
+      kb/throughput/ under the knowledge-base lock; and emits the top
+      bottleneck as a throughput-bottleneck event, its subject the key, or
+      throughput-<checksum> for a key outside the subject grammar, its text
+      the numbers and any unknown source (that note kept whole within the
+      event's 500 bytes), printing
         raised<TAB><key><TAB><total s>   or   held<TAB><key><TAB><total s>
       A key is raised again only once its total grows by
       mission_control_throughput_worsen percent over the total it was last
-      raised at, and forgotten once it is no longer a bottleneck, so it is
-      raised afresh if it returns. The program from PLANWRIGHT_MC_PROGRAM
-      when --program is absent.
+      raised at, and forgotten once it is no longer a bottleneck while its
+      source reads, so it is raised afresh if it returns. The program from
+      PLANWRIGHT_MC_PROGRAM when --program is absent.
 
-Exit codes: 0 done; 1 an invalid knob, a store that cannot be written, or
-an event the store refused; 2 usage; 3 the program is not configured.
+Exit codes: 0 done; 1 an invalid knob, an unresolvable fleet home, runtime
+directory or program home, a knowledge-base lock not taken, a store that
+cannot be read or written, or an event the store refused; 2 usage; 3 the
+program is not configured.
 
 Portable bash 3.2 / BSD tooling.
 HELP

@@ -57,9 +57,10 @@ done
 
 mc_run mc-duties.sh files --program alpha
 expect_rc "the default duty set resolves" 0
-for d in session-keeper inbox readiness-check conflict-radar deadline-watch prepared-moments throughput; do
+for d in session-keeper inbox readiness-check conflict-radar deadline-watch prepared-moments; do
   expect_out "D-27: $d resolves from the catalog and is armed" "$d${tab}"
 done
+expect_out "throughput resolves from the catalog and is armed" "throughput${tab}"
 
 mc_run mc-duties.sh get session-keeper triggers
 expect_out "the shipped wrapped trigger list joins whole" "stall-dead, stall-open-selector, stall-unsubmitted-prompt, stall-turn-ended-background, stall-idle-question, stall-busy-unchanged, stall-unknown, session-landed, pending-prompt, pending-prompt-overdue, stream-json-worker-dead]"
@@ -74,9 +75,10 @@ expect_out "throughput's watcher" "throughput${tab}scripts/mc-throughput.sh${tab
 
 mc_run mc-watch.sh pass --program alpha
 expect_rc "a runner pass" 0
-for w in session-keeper:mc-keeper.sh readiness-check:mc-readiness.sh conflict-radar:mc-radar.sh deadline-watch:mc-deadlines.sh throughput:mc-throughput.sh; do
+for w in session-keeper:mc-keeper.sh readiness-check:mc-readiness.sh conflict-radar:mc-radar.sh deadline-watch:mc-deadlines.sh; do
   expect_out "D-27: the watcher arms under the runner: ${w%%:*}" "armed${tab}${w%%:*}${tab}scripts/${w#*:}"
 done
+expect_out "the watcher arms under the runner: throughput" "armed${tab}throughput${tab}scripts/mc-throughput.sh"
 expect_no_out "nothing is unresolvable" "unresolvable"
 mc_run mc-watch.sh stop --program alpha
 expect_rc "the watchers stop" 0
