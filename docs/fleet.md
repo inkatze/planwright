@@ -1118,7 +1118,14 @@ the next one and kills it. Every frame the supervisor writes, `steer`'s,
 `answer`'s, and the launch prompt, is checked before any byte is written: one
 newline-terminated line, no raw control byte, a valid JSON object nested at
 most 512 levels deep. A frame that fails is refused with exit 2 and nothing is
-written.
+written. A steer shaped like a new unit of work (a skill command, a launch
+brief) is refused with exit 5 and nothing written, unless the
+mission-control launcher registers the worker as a tower, orchestrator or
+mission-control session: workers are short-lived, so new scope and each new
+review round go to a fresh worker carrying a handover brief. `--retask
+<reason>` delivers it anyway and logs the override once delivered (an
+override that could not be logged is refused, exit 2);
+`scripts/retask-guard.sh --help` holds the rule.
 
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,
@@ -1518,7 +1525,13 @@ changes it too. After pasting it waits for the paste's fresh `(#<id>)` tag,
 which leads the line, and exits 4 if it never shows: observe the pane before
 any re-send, which would stage a duplicate. `PLANWRIGHT_RELAY_CONFIRM_TRIES`
 (default 5, at most 20) and `PLANWRIGHT_RELAY_CONFIRM_SLEEP` (seconds, default
-1, at most 3) bound that wait.
+1, at most 3) bound that wait. Before reading the pane at all it refuses
+(exit 5, nothing pasted) a message shaped like a new unit of work for any
+session but one the mission-control launcher registers as a tower,
+orchestrator or mission control (a target is read as its window first), the
+same rule as the stream-json steer; `--retask <reason>` pastes it anyway,
+logged once pasted (an override that could not be logged is refused, exit
+2).
 
 **A paste stages; one Enter submits it.** The tmux relay loads its pointer
 line with no trailing newline, so the paste never submits itself and a single

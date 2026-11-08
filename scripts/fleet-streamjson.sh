@@ -208,7 +208,7 @@
 #       supplies the full response body (AskUserQuestion answers use this):
 #       one JSON object on one line with no raw control byte (TAB and DEL
 #       included, so escape them), 64 KiB at most.
-#   fleet-streamjson.sh steer <worker> --message-file <file>
+#   fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]
 #       Deliver a tower-originated message to a LIVE worker as a user turn on
 #       its own stdin: the file's text, under the fixed attribution header
 #       `[planwright tower relay -> <worker>]`, JSON-encoded into one user
@@ -228,6 +228,14 @@
 #       Like every frame written to the fifo (see frame_check), the composed
 #       frame is checked before the write; a refused one is exit 2 with
 #       nothing written.
+#       A message shaped like a new unit of work (scripts/retask-guard.sh
+#       check: a launch brief, a skill command) is refused, exit 5 with
+#       nothing written, unless the launcher registers the worker as a tower,
+#       orchestrator or mission-control session: new scope and each new
+#       review round go to a fresh worker. --retask <reason> delivers it
+#       anyway, logged as an override once delivered, with a warning on
+#       stderr; an override that could not be logged is refused first, exit
+#       2 with nothing written.
 #   fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]
 #       Single-initiator crash recovery: refuse when a recovery is already
 #       in flight (exit 3) or the worker/supervisor is still alive (exit 3),
@@ -343,7 +351,9 @@
 #   exit 3 AFTER surfacing the attention item / a relaunch refused before its
 #   stop); 4 recovery halt: no usable session to resume (for a relaunch, a
 #   refusal before the stop with the worker left running); 5 recovery halt:
-#   the `--resume` relaunch failed (for a relaunch, after the stop); 6 a
+#   the `--resume` relaunch failed (for a relaunch, after the stop); for a
+#   steer, 5 is instead a message shaped like a new unit of work, refused
+#   with nothing written; 6 a
 #   partial close: some class of the release set is still held; 7 the
 #   settings fragment of the launch's profile is missing or unreadable, or a
 #   recover finds its recorded profile unreadable, unknown, or (for a
@@ -465,7 +475,7 @@ usage() {
   {
     echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
-    echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
+    echo "       fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh relaunch <worker> [--grace <secs>]"
     echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>] [--once]"
@@ -2607,11 +2617,18 @@ cmd_steer() {
     exit 2
   }
   st_file=''
+  st_retask=''
   while [ $# -gt 0 ]; do
     case $1 in
       --message-file)
         [ $# -ge 2 ] || usage
         st_file=$2
+        shift 2
+        ;;
+      --retask)
+        [ $# -ge 2 ] || usage
+        case $2 in *[![:space:]]*) ;; *) usage ;; esac
+        st_retask=$2
         shift 2
         ;;
       *) usage ;;
@@ -2646,10 +2663,46 @@ cmd_steer() {
       exit 2
       ;;
   esac
+  # The re-task check and the frame read one snapshot, so the file cannot
+  # change between the verdict and the delivery.
+  st_snap=$(mktemp "$dir/.steer.XXXXXX") || exit 2
+  if ! cat -- "$st_file" >"$st_snap"; then
+    rm -f "$st_snap"
+    exit 2
+  fi
+  st_override=0
+  /bin/sh "$script_dir/retask-guard.sh" check "$st_snap" --to "$worker" \
+    --hint "nothing was written to worker $worker; pass --retask <reason> to override, which is logged" >/dev/null
+  case $? in
+    0) ;;
+    5)
+      if [ -z "$st_retask" ]; then
+        rm -f "$st_snap"
+        exit 5
+      fi
+      if ! /bin/sh "$script_dir/retask-guard.sh" log --check --via steer --to "$worker" --reason "$st_retask"; then
+        rm -f "$st_snap"
+        printf '%s\n' "$me: steer refused, nothing written to worker $worker: its re-task override could not be logged" >&2
+        exit 2
+      fi
+      st_override=1
+      ;;
+    *)
+      rm -f "$st_snap"
+      printf '%s\n' "$me: steer refused, nothing written to worker $worker: the re-task check did not run" >&2
+      exit 2
+      ;;
+  esac
 
-  journal_lock "$dir" || exit 2
+  journal_lock "$dir" || {
+    rm -f "$st_snap"
+    exit 2
+  }
   now=$(now_epoch) || now=0
-  st_body=$(json_escape_file "$st_file") || {
+  st_body=$(json_escape_file "$st_snap")
+  st_esc=$?
+  rm -f "$st_snap"
+  [ "$st_esc" = 0 ] || {
     journal_unlock "$dir"
     exit 2
   }
@@ -2699,6 +2752,8 @@ cmd_steer() {
   if [ "$st_sent" = 0 ]; then
     printf '%s\t%s\t%s\n' "$now" "$st_bytes" "$st_file" >>"$dir/steers" || :
     journal_unlock "$dir"
+    [ "$st_override" = 0 ] || /bin/sh "$script_dir/retask-guard.sh" log --via steer --to "$worker" --reason "$st_retask" \
+      || printf '%s\n' "$me: the steer was delivered, but its re-task override could not be logged" >&2
     printf 'steered %s %s\n' "$worker" "$st_bytes"
   else
     journal_unlock "$dir"

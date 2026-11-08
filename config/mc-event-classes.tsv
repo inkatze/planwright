@@ -45,3 +45,5 @@ mission-control-announce	act
 planwright-recorded	act
 planwright-updated	act
 watcher-stopped	routine
+worker-handover-due	routine
+worker-retired-idle	routine
