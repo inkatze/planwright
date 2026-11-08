@@ -307,10 +307,10 @@ expect_out "a decision is reported" "decision${tab}pr-9${tab}approve the release
 expect_out "a failure is reported" "failed${tab}mc-alpha-worker-b${tab}"
 expect_no_out "a routine event is not reported" "mc-alpha-worker-c"
 expect_no_out "a routine launch is not reported" "next-one"
-if printf '%s\n' "$OUT" | awk -F '\t' 'NF && $1 != "landed" && $1 != "decision" && $1 != "failed" { bad = 1 } END { exit !bad }'; then
-  fail "report printed a line that is not a landing, decision or failure: $OUT"
+if printf '%s\n' "$OUT" | awk -F '\t' 'NF && $1 != "landed" && $1 != "decision" && $1 != "failed" && $1 != "kept" { bad = 1 } END { exit !bad }'; then
+  fail "report printed a line that is not a landing, decision, failure or kept entry: $OUT"
 else
-  ok "report prints landings, decisions and failures only"
+  ok "report prints landings, decisions, failures and kept entries only"
 fi
 
 mc_run mc-event.sh emit --program alpha -- usage-reset weekly "the weekly usage window reset"
@@ -353,14 +353,47 @@ watch "$((after + 800))"
 expect_out "a frame from after the quota hold, under the threshold, releases it" "released-quota${tab}claude"
 rm -rf "$fleet/streamjson/mc-alpha-frames"
 
-# A drain records a resume it could not prepare as failed, never as nothing.
+# A drain outside a reset keeps a resume it could not make, uncounted.
 mc_run mc-usage.sh enqueue --program alpha --resume "$limited"
 expect_rc "enqueue a resume" 0
 rid=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "queued" { print $2 }')
 mkdir -p "$fleet/mission-control/alpha/usage/queue/$rid/handover"
-mc_run mc-usage.sh drain --program alpha --now "$((after + 400))"
+mc_run mc-usage.sh drain --program alpha --now "$((after + 900))"
 expect_rc "a drain with no hold" 0
-expect_out "a resume whose handover cannot be written is reported failed" "failed${tab}${rid}${tab}"
+expect_out "a resume whose handover cannot be written is kept" "kept${tab}${rid}${tab}"
+expect_no_out "a drain outside a reset fails nothing it keeps" "failed${tab}${rid}"
+mc_run mc-usage.sh list --program alpha
+expect_out "the kept resume stays queued" "entry${tab}${rid}${tab}"
+
+# Only reset drains count an attempt: a launch the budget does not admit is
+# kept uncounted and named in the reset's report, and a resume refused at
+# three reset drains is reported failed and dropped.
+mc_run mc-budget.sh record --program alpha sessions 99
+mc_run mc-usage.sh enqueue --program alpha --kind tower --scope budget-one --brief "$tmp/brief.md" --backend stream-json
+bid=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "queued" { print $2 }')
+reset_cycle() { # hold on the weekly window, then pass its reset
+  write_mirror 40 92
+  watch "$now"
+  touch -t 202001010000 "$mirror"
+  watch "$((week_at + 1))"
+}
+reset_cycle
+expect_out "the reset drain runs" "event${tab}usage-reset${tab}weekly${tab}"
+expect_out "a launch the budget refuses is kept" "kept${tab}${bid}${tab}"
+expect_out "a failed resume is kept at its first reset" "kept${tab}${rid}${tab}"
+mc_run mc-usage.sh report --program alpha
+expect_out "the reset's report names the launch the budget kept" "kept${tab}${bid}${tab}"
+reset_cycle
+reset_cycle
+expect_out "a resume refused at three reset drains is reported failed" "failed${tab}${rid}${tab}"
+expect_out "a budget refusal is never counted" "kept${tab}${bid}${tab}"
+mc_run mc-usage.sh list --program alpha
+expect_no_out "the failed resume has left the queue" "$rid"
+expect_out "the launch the budget kept stays queued" "entry${tab}${bid}${tab}"
+mc_run mc-usage.sh report --program alpha
+expect_out "the reset's report names the failed resume" "failed${tab}${rid}${tab}"
+mc_run mc-budget.sh record --program alpha sessions 0
+mc_run mc-usage.sh drop --program alpha "$bid"
 
 # ---------------------------------------------------------------------------
 # A hold that exists but does not parse keeps launches held.

@@ -129,7 +129,11 @@ Mission control is then woken without you: a background session gets the
 wake as a turn, and an attended one through its panel (one running without
 the panel only has the wake waiting in its input box). The first thing it
 tells you is only what landed, what needs your decision and what failed
-while the window was full; routine starts and resumes stay quiet.
+while the window was full, and which queued work is still waiting and
+why; routine starts and resumes stay quiet. Queued work that does not
+start is tried again later; only an attempt at a reset counts, and work
+refused at three resets is reported failed and dropped. Work the budget
+holds back is never dropped.
 
 A session that hit the limit holds every session on the computer, and the
 time the limit says it resets is not trusted on its own. When that time

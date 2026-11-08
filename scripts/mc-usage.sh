@@ -26,8 +26,9 @@ done
 # shellcheck source=scripts/lock-lib.sh
 . "$script_dir/lock-lib.sh" || exit 2
 
-# A launch the launcher refuses for a reason that may pass (a held name, the
-# admission gate) is tried at this many drains before it is reported failed.
+# A queued launch the launcher refuses for a reason that may pass (a held
+# name, the admission gate), or a queued resume that fails, is tried at this
+# many reset drains before it is reported failed.
 MAX_ATTEMPTS=3
 
 usage() {
@@ -75,13 +76,19 @@ its `entry` record and a copy of its brief, so it survives every session.
 An entry's trigger is the usage-reset event: it drains at the next reset,
 or at the next watch once no hold is left. A launch entry replays the
 launcher from the directory it was queued in, after scripts/mc-budget.sh
-admit admits a session; one the launcher refuses with exit 3 or 4 is kept
-for the next drain, up to three attempts. A resume entry, and every
-stream-json session the launcher lists for the program whose run ended on
-a limit (scripts/fleet-streamjson.sh status: limited), is resumed with a
-handover: steered a user turn carrying the entry's brief, or the default
-handover, and when its channel is dead, recovered first
-(fleet-streamjson.sh recover --cwd <its launch directory>).
+admit admits a session. A resume entry, and every stream-json session the
+launcher lists for the program whose run ended on a limit
+(scripts/fleet-streamjson.sh status: limited), is resumed with a handover:
+steered a user turn carrying the entry's brief, or the default handover,
+and when its channel is dead, recovered first (fleet-streamjson.sh recover
+--cwd <its launch directory>). An entry that does not start is kept and
+tried again at each later drain: a launch the budget does not admit, a
+launch the launcher refuses with exit 3 or 4, and a resume that fails.
+Only a reset drain counts an attempt, and the launcher's refusal or the
+failed resume counted at three reset drains is reported failed and
+dropped; a budget refusal is never counted. A reset drain's kept and
+failed entries go in its reset record, so the report names them; a later
+drain only prints them.
 
 Usage:
   mc-usage.sh [watch] [--program <p>] [--now <epoch>]
@@ -128,8 +135,9 @@ Usage:
       nothing else: since the hold began, each landing (session-landed),
       each decision (an operator item of a kind an armed duty declares) and
       each failure (stall-dead, stream-json-worker-dead, watcher-stopped,
-      and the drain's own failures):
-        landed|decision|failed<TAB><subject><TAB><text>
+      and the drain's own failures), and each entry the reset drain kept
+      that still waits, with its reason:
+        landed|decision|failed|kept<TAB><subject><TAB><text>
 
 Exit codes: 0 done (held: held); 1 clear (held), a store that cannot be
 read or written, an invalid threshold, a drain refused under a hold, or a
@@ -393,7 +401,7 @@ detached() {
 }
 
 # resume_session <name> <handover file>: steer the handover in, recovering
-# a dead channel first; fails when it could not.
+# a dead channel first; fails with RS_WHY when it could not.
 resume_session() {
   rs_out=$(/bin/sh "$script_dir/fleet-streamjson.sh" steer "$1" --message-file "$2" 2>&1)
   rs_rc=$?
@@ -404,14 +412,14 @@ resume_session() {
     case $rs_cwd in
       /*) ;;
       *)
-        outcome failed "$1" "no recorded launch directory to recover it in"
+        RS_WHY="no recorded launch directory to recover it in"
         return 1
         ;;
     esac
     rs_out=$( (cd "$rs_cwd" && detached /bin/sh "$script_dir/fleet-streamjson.sh" recover "$1" --cwd "$rs_cwd") 2>&1 </dev/null)
     rs_rc=$?
     if [ "$rs_rc" -ne 0 ]; then
-      outcome failed "$1" "recover exit $rs_rc: $(last_line "$rs_out")"
+      RS_WHY="recover exit $rs_rc: $(last_line "$rs_out")"
       return 1
     fi
     # The resumed session takes no prompt of its own; the steer is its turn.
@@ -424,12 +432,42 @@ resume_session() {
       sleep 1
     done
   fi
-  if [ "$rs_rc" -eq 0 ]; then
-    outcome resumed "$1"
-    return 0
-  fi
-  outcome failed "$1" "steer exit $rs_rc: $(last_line "$rs_out")"
+  [ "$rs_rc" -ne 0 ] || return 0
+  RS_WHY="steer exit $rs_rc: $(last_line "$rs_out")"
   return 1
+}
+
+# noted <kind> <fields...>: an outcome a reset drain records, so the reset's
+# report names it; a later drain, which retries it every watch, only prints
+# it.
+noted() {
+  if [ "$DR_RESET" = 1 ]; then
+    outcome "$@"
+  else
+    nt_line=$(printf '%s\t' "$@")
+    printf '%s\n' "${nt_line%"$TAB"}"
+  fi
+}
+
+# retry <entry dir> <id> <why>: a queued entry that may succeed later is
+# kept. Only a reset drain counts the attempt, and the MAX_ATTEMPTS-th it
+# counts reports the entry failed and drops it.
+retry() {
+  if [ "$DR_RESET" = 1 ]; then
+    rt_n=$(field "$1/entry" attempts)
+    mc_valid_uint "$rt_n" || rt_n=0
+    rt_n=$((rt_n + 1))
+    if [ "$rt_n" -ge "$MAX_ATTEMPTS" ]; then
+      outcome failed "$2" "refused at $rt_n reset drains: $3"
+      rm -rf "$1"
+      return 0
+    fi
+    # Kept even when the attempt cannot be counted: the next drain tries it
+    # again, and the rest of this drain goes on.
+    awk -F '\t' -v n="$rt_n" 'BEGIN { OFS = "\t" } $1 == "attempts" { $2 = n } { print }' "$1/entry" | mc_write "$1/entry" \
+      || printf '%s\n' "$prog: cannot record the attempt on $2" >&2
+  fi
+  noted kept "$2" "$3"
 }
 
 # file_mtime <file>: its modification epoch, or nothing.
@@ -499,7 +537,9 @@ probe() {
     set -- $pb_line
     pb_file=$pb_msg
     [ "$3" = - ] || [ ! -s "$queue/$3/brief" ] || pb_file="$queue/$3/brief"
-    if resume_session "$2" "$pb_file"; then
+    if ! resume_session "$2" "$pb_file"; then
+      printf 'failed\t%s\t%s\n' "$2" "$RS_WHY"
+    else
       [ "$3" = - ] || rm -rf "${queue:?}/$3"
       rm -f "$pb_msg"
       printf 'format\t1\nreset\t%s\nat\t%s\nsession\t%s\n' "$QUOTA_RESET" "$NOW" "$2" | mc_write "$probef" \
@@ -515,6 +555,8 @@ probe() {
 # limit stopped. Sets OUTCOMES.
 drain() {
   dr_windows=$1
+  DR_RESET=0
+  [ -z "$1" ] || DR_RESET=1
   OUTCOMES=""
   FH=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
   dr_resumed=" "
@@ -530,19 +572,25 @@ drain() {
           rm -rf "$e"
           continue
         }
+        dr_file=""
         if [ -s "$e/brief" ]; then
-          resume_session "$w" "$e/brief" || :
+          dr_file="$e/brief"
         elif handover_text "$dr_windows" >"$e/handover"; then
-          resume_session "$w" "$e/handover" || :
+          dr_file="$e/handover"
         else
-          outcome failed "$id" "cannot write the handover for $w"
+          RS_WHY="cannot write the handover for $w"
+        fi
+        if [ -n "$dr_file" ] && resume_session "$w" "$dr_file"; then
+          outcome resumed "$w"
+          rm -rf "$e"
+        else
+          retry "$e" "$id" "$RS_WHY"
         fi
         dr_resumed="$dr_resumed$w "
-        rm -rf "$e"
         ;;
       launch)
         if ! dr_adm=$(/bin/bash "$script_dir/mc-budget.sh" admit --program "$program" session --now "$NOW" 2>&1); then
-          printf 'kept\t%s\t%s\n' "$id" "$(sanitize_printable "$(printf '%s' "$dr_adm" | awk -F '\t' 'NR == 1 { print ($2 != "" ? $2 : $0) }' | cut -c1-200)" -)"
+          noted kept "$id" "the budget did not admit it: $(sanitize_printable "$(printf '%s' "$dr_adm" | awk -F '\t' 'NR == 1 { print ($2 != "" ? $2 : $0) }' | cut -c1-200)" -)"
           continue
         fi
         set -- --program "$program" --kind "$(field "$e/entry" kind)" --scope "$(field "$e/entry" scope)" --brief "$e/brief"
@@ -568,21 +616,7 @@ drain() {
             outcome launched "$id" "${name:--}"
             rm -rf "$e"
             ;;
-          3 | 4)
-            n=$(field "$e/entry" attempts)
-            mc_valid_uint "$n" || n=0
-            n=$((n + 1))
-            if [ "$n" -ge "$MAX_ATTEMPTS" ]; then
-              outcome failed "$id" "launch refused $n times (exit $dr_rc): $(sanitize_printable "$dr_err" -)"
-              rm -rf "$e"
-            elif [ -d "$e" ]; then
-              # Kept even when the attempt cannot be counted: the next drain
-              # tries it again, and the rest of this drain goes on.
-              awk -F '\t' -v n="$n" 'BEGIN { OFS = "\t" } $1 == "attempts" { $2 = n } { print }' "$e/entry" | mc_write "$e/entry" \
-                || printf '%s\n' "$prog: cannot record the attempt on $id" >&2
-              printf 'kept\t%s\tlaunch exit %s: %s\n' "$id" "$dr_rc" "$(sanitize_printable "$dr_err" -)"
-            fi
-            ;;
+          3 | 4) [ ! -d "$e" ] || retry "$e" "$id" "launch exit $dr_rc: $(sanitize_printable "$dr_err" -)" ;;
           *)
             outcome failed "$id" "launch exit $dr_rc: $(sanitize_printable "$dr_err" -)"
             rm -rf "$e"
@@ -593,7 +627,7 @@ drain() {
     esac
   done
   dr_list=$(/bin/bash "$script_dir/mission-control-launch.sh" list 2>/dev/null) || {
-    outcome failed sessions "cannot list the sessions a limit stopped"
+    noted failed sessions "cannot list the sessions a limit stopped"
     dr_list=""
   }
   for w in $(printf '%s\n' "$dr_list" | P=$program awk -F '\t' '$2 == ENVIRON["P"] && $5 == "stream-json" { print $1 }'); do
@@ -604,23 +638,27 @@ drain() {
       *) continue ;;
     esac
     dr_msg=$(mktemp "$udir/.handover.XXXXXX") || {
-      outcome failed "$w" "cannot write the handover"
+      noted failed "$w" "cannot write the handover"
       continue
     }
     if ! handover_text "$dr_windows" >"$dr_msg"; then
-      outcome failed "$w" "cannot write the handover"
+      noted failed "$w" "cannot write the handover"
       rm -f "$dr_msg"
       continue
     fi
-    resume_session "$w" "$dr_msg" || :
+    if resume_session "$w" "$dr_msg"; then
+      outcome resumed "$w"
+    else
+      noted failed "$w" "$RS_WHY"
+    fi
     rm -f "$dr_msg"
   done
 }
 
 summary() { # summary <lead>
   printf '%s' "$OUTCOMES" | L=$1 awk -F '\t' '
-    $1 == "launched" { l++ } $1 == "resumed" { r++ } $1 == "failed" { f++ }
-    END { printf "%s: %d queued unit(s) launched, %d session(s) resumed, %d failed", ENVIRON["L"], l, r, f }'
+    $1 == "launched" { l++ } $1 == "resumed" { r++ } $1 == "failed" { f++ } $1 == "kept" { k++ }
+    END { printf "%s: %d queued unit(s) launched, %d session(s) resumed, %d failed, %d kept for a later drain", ENVIRON["L"], l, r, f, k }'
 }
 
 take_lock() {
@@ -723,7 +761,23 @@ report() {
       else if ($3 in dk) c = "decision"
       if (c != "") { t = $5; gsub(/[^[:print:]]/, "", t); print c "\t" $4 "\t" t }
     }'
-  awk -F '\t' '$1 == "outcome" && $2 == "failed" { t = $4; gsub(/[^[:print:]]/, "", t); print "failed\t" $3 "\t" t }' "$lastf"
+  # A kept entry is named only while it still waits, its latest reason only.
+  awk -F '\t' '$1 == "outcome" && ($2 == "failed" || $2 == "kept") {
+      t = $4; gsub(/[^[:print:]]/, "", t)
+      if ($2 == "failed") { print "failed\t" $3 "\t" t; next }
+      if (!($3 in why)) order[++n] = $3
+      why[$3] = t
+    }
+    END { for (i = 1; i <= n; i++) print "kept\t" order[i] "\t" why[order[i]] }' "$lastf" | while IFS= read -r rp_line; do
+    case $rp_line in
+      kept"$TAB"*)
+        rp_id=${rp_line#kept"$TAB"}
+        rp_id=${rp_id%%"$TAB"*}
+        valid_id "$rp_id" && [ -d "$queue/$rp_id" ] || continue
+        ;;
+    esac
+    printf '%s\n' "$rp_line"
+  done
 }
 
 case $verb in
