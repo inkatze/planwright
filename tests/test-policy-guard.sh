@@ -973,6 +973,19 @@ pg worker 'sh <<EOF
 git push origin main
 EOF'
 expect deny "[worker] a here-document fed to a shell naming a push denies"
+# bash ends these bodies at E and E\F, so the lines between are commands.
+pg worker 'cat <<$'"'"'E'"'"'
+x
+E
+git push
+$E' "$MAIN"
+expect deny "[worker] a dollar-quoted here-document delimiter cannot hide a push"
+pg worker 'cat <<E\\F
+x
+E\F
+git push
+EF' "$MAIN"
+expect deny "[worker] a backslash-quoted here-document delimiter cannot hide a push"
 mkdir -p "$SANDBOX/nojq"
 for t in head tr dirname cat; do ln -sf "$(command -v "$t")" "$SANDBOX/nojq/$t"; done
 NOJQ_OUT=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"gh pr ready 42"}}' \

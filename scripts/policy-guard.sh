@@ -819,7 +819,14 @@ tokenize() {
                 done
                 [ "$i" -lt "$n" ] || return 1
                 ;;
-              "\\") quoted=1 ;;
+              "\\")
+                quoted=1
+                i=$((i + 1))
+                [ "$i" -lt "$n" ] || return 1
+                delim="$delim${s:i:1}"
+                ;;
+              # bash reads $'..' and $".." as quotes here, and drops the $.
+              '$') return 1 ;;
               *) delim="$delim$ch" ;;
             esac
             i=$((i + 1))
