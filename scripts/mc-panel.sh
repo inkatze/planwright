@@ -99,6 +99,8 @@ Usage:
         knob<TAB>handover-context|handover-wakes|handover-compactions<TAB><n>
                                              with --knobs: the handover
                                              trigger's thresholds
+        knob<TAB>mascot<TAB>0|1|2            with --knobs: the mascot, off,
+                                             a still frame or animated
         flight<TAB><worker><TAB><scope><TAB><backend><TAB>working|waiting|stuck
                                              a fleet registry session seen
                                              live (its process or tmux
@@ -155,6 +157,12 @@ Usage:
             <TAB><unresolved><TAB>yes|no<TAB><reviewers><TAB><title>
         review-waiting<TAB><repo><TAB><number><TAB>draft|ready
             <TAB><requester><TAB><seconds since requested><TAB><title>
+        host<TAB><load x100|-><TAB><cores|-><TAB><memory available %|->
+                                             the one-minute load average
+                                             in hundredths, the core count
+                                             and the share of memory still
+                                             available, `-` for what this
+                                             host cannot read
         handover<TAB>available|absent        whether a handover verb is
                                              installed to defer a
                                              compaction for
@@ -770,6 +778,10 @@ parse_pct() {
   mc_valid_uint "$1" && [ "$1" -ge 1 ] && [ "$1" -le 100 ] || return 1
   printf '%s\n' "$1"
 }
+# The mascot knob reads animated, still or off as 2, 1 or 0.
+parse_mascot() {
+  case $1 in animated) printf '2\n' ;; still) printf '1\n' ;; off) printf '0\n' ;; *) return 1 ;; esac
+}
 # A ceiling of 0 would raise the handover at once, so 0 is refused.
 parse_positive() {
   mc_valid_uint "$1" && [ "$1" -ge 1 ] || return 1
@@ -925,7 +937,8 @@ knobs() {
     reviews-ttl:mission_control_reviews_ttl:mc_parse_cadence \
     handover-context:mission_control_handover_context:parse_pct \
     handover-wakes:mission_control_handover_wakes:parse_positive \
-    handover-compactions:mission_control_handover_compactions:parse_positive; do
+    handover-compactions:mission_control_handover_compactions:parse_positive \
+    mascot:mission_control_panel_mascot:parse_mascot; do
     kn_name=${kn%%:*}
     kn_rest=${kn#*:}
     if kn_v=$(mc_knob "${kn_rest%%:*}" "${kn_rest#*:}"); then
@@ -1253,6 +1266,26 @@ kb() {
   else
     printf 'unreadable\tknowledge base\n'
   fi
+}
+
+# The host's load and memory for the panel's dials: three cheap reads of
+# /proc (a test points MC_PANEL_PROC at a fixture), `-` for any it lacks.
+host() {
+  hs_proc=${MC_PANEL_PROC:-/proc}
+  hs_load=-
+  hs_cores=-
+  hs_mem=-
+  if hs_la=$(cut -d ' ' -f 1 "$hs_proc/loadavg" 2>/dev/null) && [ -n "$hs_la" ]; then
+    hs_load=$(printf '%s\n' "$hs_la" | awk '/^[0-9]+(\.[0-9]+)?$/ { printf "%d", $1 * 100 + 0.5; found = 1 } END { if (!found) printf "-" }')
+  fi
+  hs_cores=$(grep -c '^processor' "$hs_proc/cpuinfo" 2>/dev/null) || hs_cores=-
+  [ "$hs_cores" != 0 ] || hs_cores=-
+  hs_mem=$(awk '
+    $1 == "MemTotal:" { t = $2 }
+    $1 == "MemAvailable:" { a = $2 }
+    END { if (t > 0 && a != "") printf "%d", a * 100 / t; else printf "-" }' "$hs_proc/meminfo" 2>/dev/null) || hs_mem=-
+  [ -n "$hs_mem" ] || hs_mem=-
+  printf 'host\t%s\t%s\t%s\n' "$hs_load" "$hs_cores" "$hs_mem"
 }
 
 measures() {
@@ -1975,6 +2008,7 @@ digest() {
   kb
   measures
   reviews
+  host
   handover
   holder
   health

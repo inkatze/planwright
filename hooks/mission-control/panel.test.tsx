@@ -509,3 +509,128 @@ test('no approvals line when mission control is handling none', async ($, on) =>
   expect(await ui.find({ type: 'Text', text: /approvals/ })).toBeUndefined()
   await ui.unmount()
 })
+
+const rows = async (ui: { findAll: (q: { type: string }) => Promise<{ text?: string }[]> }) =>
+  (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '')
+
+test('the cockpit row draws five instruments, each with its number and state in words', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const texts = await rows(ui)
+  expect(texts).toContain('Usage left   [███████░░░] 69% left of five hour')
+  expect(texts).toContain('Host load    ◑ 1.5 on 4 cores, redline at 4: ok')
+  expect(texts).toContain('Memory       [██████░░░░] 62% available')
+  expect(texts.find(t => t.startsWith('Context      '))).toMatch(/42% used, ▲ window limit 95%$/)
+  expect(texts).toContain('Caution      ● LIT: 2 waiting on you')
+  await ui.unmount()
+})
+
+test('host load past the core count reads as a redline, memory under a tenth as low', async ($, on) => {
+  const d = digestText().replace(/^host\t.*$/m, 'host\t520\t4\t6')
+  const w = world(on, { digest: d })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const texts = await rows(ui)
+  expect(texts).toContain('Host load    ● 5.2 on 4 cores, redline at 4: REDLINE, overloaded')
+  expect(texts.find(t => t.startsWith('Memory'))).toMatch(/6% available: LOW$/)
+  await ui.unmount()
+})
+
+test('a host reading that is missing is unknown, never zero', async ($, on) => {
+  const d = digestText().replace(/^host\t.*$/m, 'host\t-\t-\t-')
+  const w = world(on, { digest: d })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const texts = await rows(ui)
+  expect(texts).toContain('Host load    unknown')
+  expect(texts).toContain('Memory       unknown')
+  await ui.unmount()
+})
+
+test('the altimeter marks the handover point of a session that hands over', async ($, on) => {
+  const w = world(on, { digest: digestText({ holder: 'registry' }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await rows(ui)).find(t => t.startsWith('Context      '))).toMatch(/▲.*hands over at 70%, ▲ window limit 95%$/)
+  await ui.unmount()
+})
+
+test('the caution lamp is clear with nothing waiting and unknown where the queue is unread', async ($, on) => {
+  const w = world(on, { digest: digestText().replace(/^waiting\t.*$/m, 'waiting\t0') })
+  await boot($, w)
+  let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await rows(ui)).toContain('Caution      ○ clear')
+  await ui.unmount()
+  w.set({ digest: digestText().replace(/^waiting\t.*$/m, 'waiting\t-') })
+  await w.clock.advance(10_000)
+  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await rows(ui)).toContain('Caution      ? unknown')
+  await ui.unmount()
+})
+
+const mascot = async (ui: Parameters<typeof rows>[0]) => (await rows(ui)).filter(t => t.includes('Prop pal') || /\[__\]/.test(t) || /\(.* .*\)/.test(t))
+const withKnob = (n: number) => digestText({ extra: [`knob\tmascot\t${n}`] })
+
+test('Prop pal circles while something waits on the operator', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = await mascot(ui)
+  expect(t).toContain('Prop pal: circling, something waits on you')
+  expect(t.some(l => l.includes('(o o)'))).toBe(true)
+  await ui.unmount()
+})
+
+test('Prop pal cruises while sessions work and nothing waits', async ($, on) => {
+  const w = world(on, { digest: digestText().replace(/^waiting\t.*$/m, 'waiting\t0') })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await mascot(ui)).toContain('Prop pal: cruising, sessions working')
+  await ui.unmount()
+})
+
+test('Prop pal taxis when nothing runs and lands when work has finished', async ($, on) => {
+  const idle = digestText({ finished: 0 }).replace(/^flight\t.*\n/gm, '').replace(/^waiting\t.*$/m, 'waiting\t0')
+  const w = world(on, { digest: idle })
+  await boot($, w)
+  let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await mascot(ui)).toContain('Prop pal: taxiing, nothing running')
+  await ui.unmount()
+  w.set({ digest: idle.replace(/^finished\t.*$/m, 'finished\t3') })
+  await w.clock.advance(10_000)
+  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await mascot(ui)).toContain('Prop pal: landing, work finished')
+  await ui.unmount()
+})
+
+test('an alert makes the ride bumpy, ahead of everything else', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['unreadable\tfleet registry'] }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = await mascot(ui)
+  expect(t).toContain('Prop pal: a bumpy ride, an alert stands')
+  expect(t.some(l => l.includes('(O O)'))).toBe(true)
+  await ui.unmount()
+})
+
+test('the mascot knob: still draws one frame', async ($, on) => {
+  const w = world(on, { digest: withKnob(1) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const before = await mascot(ui)
+  expect(before.some(l => l.startsWith('Prop pal'))).toBe(true)
+  await w.clock.advance(3_000)
+  expect(await mascot(ui)).toEqual(before)
+  await ui.unmount()
+})
+
+test('the mascot knob: off draws nothing', async ($, on) => {
+  const w = world(on, { digest: withKnob(0) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const texts = await rows(ui)
+  expect(texts.some(t => t.startsWith('Caution'))).toBe(true)
+  expect(texts.some(l => l.includes('Prop pal') || /\[__\]/.test(l))).toBe(false)
+  await ui.unmount()
+})
