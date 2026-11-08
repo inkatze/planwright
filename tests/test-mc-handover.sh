@@ -274,10 +274,10 @@ ho path --program alpha
 # ---------------------------------------------------------------------------
 printf "%s\n" "$(date +%s)" >"$fleet/mission-control/alpha/leases/operator-term"
 ho path --program alpha
-[ "$(col path 2)" = operator-act ] && ok "an attended holder's path is the operator's act" || fail "path: $OUT $ERR"
+[ "$(col path 2)" = operator-act ] && ok "an attended holder with no multiplexer gets the operator's act" || fail "path: $OUT $ERR"
 [ "$(col path 3)" = "claude '/planwright:mission-control alpha'" ] && ok "the act is one command: a fresh session running the resume" || fail "the act is not one command: $OUT"
 ho launch --program alpha --brief "$tmp/brief.md" --handover
-[ "$RC" = 4 ] && ok "no successor is launched over an attended holder" || fail "a launch over the attended holder exited $RC"
+[ "$RC" = 4 ] && ok "with no multiplexer no successor is launched over an attended holder" || fail "a launch over the attended holder exited $RC"
 ho offer --program alpha
 [ "$RC" = 0 ] && [ -n "$(events_of handover-act)" ] && ok "the act is offered as an operator item" || fail "offer: $RC $OUT $ERR"
 
@@ -398,6 +398,80 @@ ho take --program alpha --session "$r2" --window 1s --exit-wait 1s
 [ ! -f "$(rowfile "$r1")" ] && ok "its registry row is still retired" || fail "the running registry predecessor's row stayed"
 holder_is "the name rests with the successor" "$r2"
 kill "$pr" 2>/dev/null
+
+# ---------------------------------------------------------------------------
+# REQ-L1.9, D-43: an attended holder inside tmux hands over itself, in a
+# pane beside it; the successor closes exactly the recorded predecessor pane
+# once the name has moved, never on a refused or failed take. A fake tmux
+# answers for the panes listed in its panes file and logs what it is asked.
+# ---------------------------------------------------------------------------
+cat >"$tmp/bin/tmux" <<'FAKE'
+#!/bin/sh
+d=${FAKE_TMUX_DIR:?}
+printf '%s\n' "$*" >>"$d/tmux.log"
+case $1 in
+  display-message)
+    id=$4
+    grep -qx -- "$id" "$d/tmux.panes" && printf '%s\n' "$id" && exit 0
+    exit 1
+    ;;
+  kill-pane)
+    id=$3
+    grep -vx -- "$id" "$d/tmux.panes" >"$d/tmux.panes.new"
+    mv "$d/tmux.panes.new" "$d/tmux.panes"
+    exit 0
+    ;;
+esac
+exit 1
+FAKE
+chmod +x "$tmp/bin/tmux"
+export FAKE_TMUX_DIR="$tmp"
+printf '%s\n' '%7' '%9' '%3' >"$tmp/tmux.panes"
+: >"$tmp/tmux.log"
+
+fake_session
+self_f=$FAKE
+ho resume --program alpha --session op-f --pid "$self_f" --picture "$tmp/picture" --digest "$digest" --durable "$tmp/picture" --window 1s --exit-wait 2s
+[ "$RC" = 0 ] || fail "fixture: the attended resume exited $RC: $OUT $ERR"
+printf "%s\n" "$(date +%s)" >"$fleet/mission-control/alpha/leases/op-f"
+
+RUN_TMUX_PANE='%7' ho path --program alpha
+[ "$OUT" = "path${tab}pane${tab}tmux" ] && ok "an attended holder inside tmux gets the pane path" || fail "path in tmux: $OUT $ERR"
+RUN_TMUX_PANE='%99' ho path --program alpha
+[ "$(col path 2)" = operator-act ] && ok "a pane tmux does not know still gets the operator's act" || fail "path in an unknown pane: $OUT"
+RUN_TMUX_PANE='7;rm' ho path --program alpha
+[ "$(col path 2)" = operator-act ] && ok "a pane id outside the grammar gets the operator's act" || fail "path with a malformed pane: $OUT"
+
+ho write --program alpha --session op-f --picture "$tmp/picture" --digest "$digest"
+[ "$RC" = 0 ] || fail "fixture: the handover file was not written: $OUT $ERR"
+led_f=$(col handover 3)
+RUN_TMUX_PANE='%7' ho launch --program alpha --brief "$tmp/brief.md" --handover --backend stream-json
+[ "$RC" = 0 ] && ok "a handover launch over an attended holder inside tmux is admitted" || fail "the pane handover launch exited $RC: $OUT $ERR"
+nf=$(col successor 2)
+wait_done "$nf"
+grep -qx "predecessor-pane${tab}%7" "$fleet/mission-control/alpha/successor" \
+  && ok "the predecessor's pane id is recorded" || fail "no recorded pane: $(cat "$fleet/mission-control/alpha/successor")"
+
+RUN_TMUX_PANE='%9' ho take --program alpha --session "$nf" --window 1s --exit-wait 1s
+[ "$RC" != 0 ] && ! grep -q kill-pane "$tmp/tmux.log" \
+  && ok "a take before the self-check closes no pane" || fail "the unverified take: $RC $OUT $ERR $(cat "$tmp/tmux.log")"
+RUN_TMUX_PANE='%9' ho take --program alpha --session mc-someone-else --window 1s --exit-wait 1s
+[ "$RC" != 0 ] && ! grep -q kill-pane "$tmp/tmux.log" \
+  && ok "a refused take (not the pending successor) closes no pane" || fail "the refused take: $RC $OUT $ERR"
+holder_is "and the name stays put" op-f
+
+ho verify --program alpha --session "$nf" --picture "$tmp/picture" --digest "$digest" --ledger "$led_f"
+[ "$RC" = 0 ] || fail "fixture: the pane successor's verify exited $RC: $OUT $ERR"
+grep -qx "predecessor-pane${tab}%7" "$fleet/mission-control/alpha/successor" \
+  && ok "the verify keeps the recorded pane" || fail "verify dropped the pane: $(cat "$fleet/mission-control/alpha/successor")"
+kill "$self_f" 2>/dev/null
+RUN_TMUX_PANE='%9' ho take --program alpha --session "$nf" --window 1s --exit-wait 5s
+[ "$RC" = 0 ] && [ "$(col pane 2)" = '%7' ] && [ "$(col pane 3)" = closed ] \
+  && ok "the successful take reports the predecessor's pane closed" || fail "the pane take: $RC $OUT $ERR"
+[ "$(grep -c kill-pane "$tmp/tmux.log")" = 1 ] && grep -qx 'kill-pane -t %7' "$tmp/tmux.log" \
+  && grep -qx '%9' "$tmp/tmux.panes" && grep -qx '%3' "$tmp/tmux.panes" \
+  && ok "exactly the recorded pane was killed, no other" || fail "tmux log: $(cat "$tmp/tmux.log")"
+holder_is "the name moved to the pane successor" "$nf"
 
 echo
 if [ "$failures" -gt 0 ]; then

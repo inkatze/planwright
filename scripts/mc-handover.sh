@@ -77,10 +77,13 @@ Usage:
       holder<TAB><handle><TAB><kind><TAB><since><TAB><generation>
       <TAB>live|stale, or holder<TAB>- with no holder
   mc-handover.sh path --program <p>
-      path<TAB>unattended, or path<TAB>operator-act<TAB><command> where
-      the holder is a live attended session: the harness cannot move the
-      operator's terminal to a launched session, so the handover is one
-      operator act, the command opening a fresh session that resumes
+      path<TAB>unattended, or, where the holder is a live attended
+      session, path<TAB>pane<TAB>tmux when that session runs inside tmux
+      (the probe is read-only: TMUX and TMUX_PANE set, tmux answers for
+      that pane), so it hands over itself with launch --handover and the
+      successor closes only its pane; otherwise
+      path<TAB>operator-act<TAB><command>, one operator act, the command
+      opening a fresh session that resumes
   mc-handover.sh offer --program <p>
       raise that act as an operator item (event handover-act) for the
       panel; prints offered<TAB><event id>
@@ -97,7 +100,9 @@ Usage:
       path. A live holder admits only the operator's ask (--asked) or a
       live handover (--handover: a handover file naming the live
       holder); any other launch is refused naming the holder, and a
-      handover launch over an attended holder is refused (exit 4). A
+      handover launch over an attended holder is admitted inside tmux (the
+      predecessor's pane id is recorded for take to close) and refused
+      elsewhere (exit 4), where path names the operator act. A
       stale holder is recorded as the predecessor. Prints
       successor<TAB><name>
   mc-handover.sh verify --program <p> --session <name> --picture <file>
@@ -126,7 +131,9 @@ Usage:
       holder record and retires the predecessor's registry row through
       the launcher (one that did not release is retired all the same),
       waits up to --exit-wait (default 30s) for the predecessor's process
-      to exit, then announces itself
+      to exit, closes the predecessor's recorded tmux pane (that pane id
+      only, never found by name) once the name has moved, then announces
+      itself
   mc-handover.sh resume --program <p> --session <handle>
       [--kind attended|registry] --picture <file> --digest <hex>
       --durable <file> [--window <cadence>] [--pid <pid>]
@@ -280,6 +287,35 @@ home_path() {
 row_exists() { [ -f "$SESSIONS/$1" ] && [ ! -L "$SESSIONS/$1" ]; }
 
 # session_live <handle> <kind>: the evidence the holder's kind keeps.
+# tmux_probe: 0 when this process runs in a tmux pane that tmux itself
+# confirms; read-only, and the pane id is the only identity it trusts.
+tmux_probe() {
+  [ -n "${TMUX:-}" ] || return 1
+  case ${TMUX_PANE:-} in
+    %[0-9]*) ;;
+    *) return 1 ;;
+  esac
+  case ${TMUX_PANE#%} in *[!0-9]*) return 1 ;; esac
+  command -v tmux >/dev/null 2>&1 || return 1
+  [ "$(tmux display-message -p -t "$TMUX_PANE" '#{pane_id}' 2>/dev/null </dev/null)" = "$TMUX_PANE" ]
+}
+
+# close_pred_pane <pane id or ->: the successor closes the predecessor's
+# recorded tmux pane after the name moved, that pane only.
+close_pred_pane() {
+  [ "$1" != - ] || return 0
+  case $1 in %[0-9]*) ;; *) return 0 ;; esac
+  case ${1#%} in *[!0-9]*) return 0 ;; esac
+  [ "$1" != "${TMUX_PANE:-}" ] || return 0
+  command -v tmux >/dev/null 2>&1 || return 0
+  [ "$(tmux display-message -p -t "$1" '#{pane_id}' 2>/dev/null </dev/null)" = "$1" ] || return 0
+  if tmux kill-pane -t "$1" >/dev/null 2>&1 </dev/null; then
+    printf 'pane\t%s\tclosed\n' "$1"
+  else
+    printf 'pane\t%s\theld\n' "$1"
+  fi
+}
+
 session_live() {
   case $2 in
     registry) row_exists "$1" ;;
@@ -335,9 +371,10 @@ record() {
 }
 
 # succ_record <session> <predecessor> <kind> <launched> <mode> <verified>
-# [<owner>]: the owner is the launch that reserved it, until it is verified.
+# [<owner> [<predecessor pane>]]: the owner is the launch that reserved it,
+# until it is verified.
 succ_record() {
-  record "$SUCC" session "$1" predecessor "$2" predecessor-kind "$3" launched "$4" mode "$5" verified "$6" owner "${7:--}"
+  record "$SUCC" session "$1" predecessor "$2" predecessor-kind "$3" launched "$4" mode "$5" verified "$6" owner "${7:--}" predecessor-pane "${8:--}"
 }
 
 # require_successor <fail-function>: SUCC names $session; sets S_PRED and
@@ -349,6 +386,8 @@ require_successor() {
   [ "$(mc_kv "$SUCC" session)" = "$session" ] || "$1" successor "$session is not the pending successor of program $program"
   S_PRED=$(kv_handle "$SUCC" predecessor) || exit 1
   S_PRED_KIND=$(mc_kv "$SUCC" predecessor-kind)
+  S_PANE=$(mc_kv "$SUCC" predecessor-pane)
+  [ -n "$S_PANE" ] || S_PANE=-
 }
 refuse() { mc_fail "$2"; }
 
@@ -769,7 +808,11 @@ case $verb in
     read_holder
     act="claude '/planwright:mission-control $program'"
     if [ "$verb" = path ]; then
-      if [ "$H_KIND" = attended ] && [ "$H_LIVE" -eq 1 ]; then printf 'path\toperator-act\t%s\n' "$act"; else printf 'path\tunattended\n'; fi
+      if [ "$H_KIND" = attended ] && [ "$H_LIVE" -eq 1 ]; then
+        if tmux_probe; then printf 'path\tpane\ttmux\n'; else printf 'path\toperator-act\t%s\n' "$act"; fi
+      else
+        printf 'path\tunattended\n'
+      fi
       exit 0
     fi
     id=$(mc_event emit --program "$program" --now "$NOW" -- handover-act "$program" "handover due: $act") \
@@ -814,15 +857,20 @@ case $verb in
         exit 3
       fi
     fi
-    pred=- pred_kind=-
+    pred=- pred_kind=- pred_pane=''
     [ -z "$H_SESSION" ] || pred=$H_SESSION pred_kind=$H_KIND
     if [ "$H_LIVE" -eq 1 ]; then
       case $mode in
         asked) ;;
         handover)
           if [ "$H_KIND" = attended ]; then
-            say "the holder $H_SESSION is the operator's own session, which the harness cannot move to a launched successor; that session compacts instead"
-            exit 4
+            if tmux_probe; then
+              pred_pane=$TMUX_PANE
+              [ -n "$backend" ] || backend=tmux
+            else
+              say "the holder $H_SESSION is the operator's own session, and no tmux pane is available to open its successor beside it; the handover is the operator act mc-handover.sh path names"
+              exit 4
+            fi
           fi
           [ -f "$HANDOVER" ] || {
             say "the program name $program is held by $H_SESSION, and no handover file is written"
@@ -850,7 +898,7 @@ case $verb in
       || mc_fail "the launcher cannot name the successor"
     # The record is reserved before the launch, so a second launch meets it
     # and the launcher's own lock on the name; a failed launch removes it.
-    succ_record "$name" "$pred" "$pred_kind" "$NOW" "${mode:-start}" - "$$"
+    succ_record "$name" "$pred" "$pred_kind" "$NOW" "${mode:-start}" - "$$" "${pred_pane:--}"
     unlock
     drop_reservation() {
       lock
@@ -918,7 +966,7 @@ case $verb in
     selfcheck "$digest" "$picture" "$scratch"
     lock
     require_successor refuse
-    succ_record "$session" "$S_PRED" "$S_PRED_KIND" "$(mc_kv "$SUCC" launched)" "$(mc_kv "$SUCC" mode)" "$NOW"
+    succ_record "$session" "$S_PRED" "$S_PRED_KIND" "$(mc_kv "$SUCC" launched)" "$(mc_kv "$SUCC" mode)" "$NOW" - "$S_PANE"
     unlock
     printf 'verified\t%s\t%s\n' "$session" "$(printf '%s\n' "$SC_OUT" | head -n 1 | mc_clean)"
     ;;
@@ -959,6 +1007,7 @@ case $verb in
       raise handover-requested "$S_PRED" "$session passed its self-check for program $program; release the name"
     fi
     succeed "$session" registry "$S_PRED" "$S_PRED_KIND" "$expect" "$secs"
+    close_pred_pane "$S_PANE"
     announce "$session" "$S_PRED"
     [ "$RETIRE_OK" -eq 1 ] || exit 1
     ;;
