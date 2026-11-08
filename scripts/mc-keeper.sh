@@ -518,7 +518,7 @@ idle_since_tmux() {
   it_f="$runtime/stall/$1"
   [ -f "$it_f" ] && [ ! -L "$it_f" ] || return 0
   it_launch="" it_at="" it_state=""
-  IFS='	' read -r it_launch _ it_at it_state <"$it_f" || :
+  IFS='	' read -r it_launch _ it_at it_state _ <"$it_f" || :
   [ "${it_launch%%:*}" = "$2" ] && [ "$it_state" = idle ] && mc_valid_uint "$it_at" && [ "$it_at" -le "$3" ] || return 0
   printf '%s\n' "$it_at"
 }
