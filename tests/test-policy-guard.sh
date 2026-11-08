@@ -872,6 +872,8 @@ chmod 000 "$NOENTER"
 if [ ! -x "$NOENTER" ]; then # root enters it anyway
   pg worker "cd $NOENTER && cd $UNIT; git push" "$MAIN"
   expect deny "[worker] a cd into a directory the shell cannot enter does not vouch for the cd after it"
+else
+  printf '%s\n' 'skip: a cd into a directory the shell cannot enter (this user enters any directory)'
 fi
 chmod 755 "$NOENTER"
 pg worker "function f if true; then :; fi
@@ -1026,8 +1028,18 @@ expect deny "[worker] a line continuation in a here-document body cannot hide a 
 pg worker 'cat <<'"'"'E'"'"'
 x\
 E
-git status' "$MAIN"
+git push' "$UNIT"
 expect defer "[worker] a quoted here-document body may end a line with a backslash"
+for open in '<<\EOF' '<<"EOF"' "<<'E\\F'"; do
+  d=${open#<<}
+  d=${d//[\"\']/}
+  [ "$d" = '\EOF' ] && d=EOF
+  pg worker "cat $open
+x
+$d
+git push" "$UNIT"
+  expect defer "[worker] a quoted here-document delimiter is read as bash reads it, so the push after it is judged: $open"
+done
 HT=$'\t'
 for open in "<<-\"${HT}E\"" "<<-'${HT}E'" "<<-\\${HT}E"; do
   pg worker "cat $open
