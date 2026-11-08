@@ -214,8 +214,13 @@ RUNTIME=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory
 # own_session <name>: whether a stream-json session is this program's. Its
 # registry row decides when it has one; otherwise only the launcher's
 # readable name, mc-<program>-<kind>-<10 hex>, does (a longer program name
-# falls back to a name that carries no program, so it needs the row).
+# falls back to a name that carries no program, so it needs the row). A
+# name outside the registry's grammar (scripts/mc-stall.sh) never is.
 own_session() {
+  [ "${#1}" -le 64 ] || return 1
+  case $1 in
+    *[!a-z0-9-]*) return 1 ;;
+  esac
   os_row="$FLEET/mission-control/sessions/$1"
   if [ -f "$os_row" ] && [ ! -L "$os_row" ]; then
     [ "$(mc_kv "$os_row" program 2>/dev/null)" = "$program" ]

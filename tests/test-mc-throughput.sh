@@ -139,6 +139,10 @@ row mc-alpha-worker-0000000003 worker 1793500000 t3
 row mc-alpha-mission-control mission-control 1793500000 tm
 row mc-alpha-worker-0000000004 worker 1793500000 t4
 row mc-worker-00000000000000aa worker 1793500000 ta
+# A name outside the registry grammar is never the program's, its row aside.
+row mc-alpha.odd worker 1793500000 to
+mkdir -p "$sj/mc-alpha.odd"
+printf 'r13\tpermission\t%s\tanswered\t%s\n' $((NOW - 9000)) $((NOW - 10)) >"$sj/mc-alpha.odd/journal"
 printf '1793500000:t1\thash\t%s\tbusy-unchanged\n' $((NOW - 7200)) >"$stall/mc-alpha-worker-0000000001"
 printf '1793500000:t3\thash\t%s\tidle\n' $((NOW - 60)) >"$stall/mc-alpha-worker-0000000003"
 printf '1793500000:tm\thash\t%s\tidle\n' $((NOW - 90000)) >"$stall/mc-alpha-mission-control"
@@ -187,6 +191,7 @@ expect_no_out "a skipped job is not measured" "skipped-job"
 expect_out "a backslash in a job name is kept as written" "ci${tab}ci / back\\slash${tab}1${tab}1${tab}1${tab}1${tab}1"
 expect_out "permission waits: answered and pending, inside the window, this program's workers only" \
   "approvals${tab}permission${tab}5${tab}90${tab}730${tab}400${tab}mc-alpha-worker-0000000002${tab}1${tab}400"
+expect_no_out "a session named outside the registry grammar is not measured" "mc-alpha.odd"
 expect_out "a stalled session" "stall${tab}mc-alpha-worker-0000000001${tab}busy-unchanged${tab}7200"
 expect_out "an idle session, under the bound" "stall${tab}mc-alpha-worker-0000000003${tab}idle${tab}60"
 expect_no_out "mission control's own session is not a stall" "mc-alpha-mission-control"
