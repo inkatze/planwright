@@ -499,8 +499,15 @@ if [ -d "$srwt/.claude/steps" ]; then
 else
   echo "ok: the refused run left no cache"
 fi
-stale_run "$old_copy" step-record.sh --worktree "$srwt" write --completion --run 000001 --point pre-ci
-assert_eq "a stale step-record.sh refuses to write a record" 1 "$CODE"
+stale_run "$old_copy" step-record.sh --worktree "$srwt" status --point pre-ready-flip --repo o/r
+assert_eq "a stale step-record.sh refuses to post a flip status" 1 "$CODE"
+case $ERR in
+  *"refusing status"*"$new_copy/scripts/step-record.sh"*) echo "ok: and names the installed copy" ;;
+  *)
+    echo "FAIL: the stale status said '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
 stale_run "$new_copy" step-record.sh --worktree "$srwt" new-run
 assert_eq "the installed step-record.sh opens the run" "000001" "$OUT"
 assert_eq "and says nothing on stderr" "" "$ERR"
@@ -513,6 +520,27 @@ case $ERR in
     failures=$((failures + 1))
     ;;
 esac
+stale_run "$old_copy" step-record.sh --worktree "$srwt" write --completion --run 000001 --point pre-ci \
+  --head 0123456789abcdef0123456789abcdef01234567
+assert_eq "a stale step-record.sh still writes into a run opened before the upgrade" 0 "$CODE"
+case $ERR in
+  *WARNING*"$new_copy"*) echo "ok: and warns while it writes" ;;
+  *)
+    echo "FAIL: the stale write said '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+# Which install is current follows the worktree's project, not the caller's
+# directory: a project-scope install of the old copy makes it current there.
+jq -n --arg a "$new_copy" --arg b "$old_copy" --arg p "$srwt" \
+  '{plugins: {"planwright@planwright": [{scope: "user", installPath: $a}, {scope: "project", projectPath: $p, installPath: $b}]}}' \
+  >"$SANDBOX/scoped-rec.json"
+mkdir -p "$SANDBOX/scoped/plugins"
+ln -s "$cur/plugins/cache" "$SANDBOX/scoped/plugins/cache"
+cp "$SANDBOX/scoped-rec.json" "$SANDBOX/scoped/plugins/installed_plugins.json"
+OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PROJECT_DIR CLAUDE_DIR="$SANDBOX/scoped" \
+  "$old_copy/scripts/step-record.sh" --worktree "$srwt" new-run 2>/dev/null)
+assert_eq "a copy current for the worktree's project opens the run from anywhere" "000002" "$OUT"
 
 # --- mission-control-launch.sh runs the installed launcher --------------------
 mv "$new_copy/scripts/mission-control-launch.sh" "$SANDBOX/launch.keep"

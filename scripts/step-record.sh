@@ -360,7 +360,7 @@
 # Exit: 0 success · 1 a runtime failure (an unresolvable or unreadable range,
 # a cache that cannot be read or written, an exhausted counter, a cache lock
 # another writer held past the wait, a status with no attempt to post or a
-# post that failed, no SHA-256 tool for args-digest, a new-run or write from
+# post that failed, no SHA-256 tool for args-digest, a new-run or status from
 # a plugin-cache copy the installed record no longer names) · 2 a usage or
 # field-validation error · 3 lookup found no record to stand on (or no
 # unretired limited record), or heads found no move.
@@ -694,23 +694,40 @@ verb=$1
 shift
 
 # Run from a plugin-cache copy the installed record no longer names (an older
-# version a session kept using after an upgrade), it warns, and it refuses to
-# open a run or write a record: the installed copy's audit reads the records.
+# version a session kept using after an upgrade), it refuses to open a run or
+# post a flip status, naming the installed copy, since the installed copy's
+# audit reads those records. Other verbs only warn, so a run opened before an
+# upgrade still finishes. Which install is current depends on the project the
+# records belong to, so the check runs as of --worktree. A read warns once per
+# process tree and state of the record, and not where stderr is discarded.
 sr_copy=$(cd -P -- "$script_dir/.." 2>/dev/null && pwd -P) || sr_copy=''
+sr_rir=$script_dir/resolve-installed-roots.sh
 case $sr_copy in
   */plugins/cache/*)
-    if [ -f "$script_dir/resolve-installed-roots.sh" ] \
-      && ! /bin/sh "$script_dir/resolve-installed-roots.sh" --check "$sr_copy" </dev/null; then
-      case $verb in
-        new-run | write)
-          sr_new=$(/bin/sh "$script_dir/resolve-installed-roots.sh" --fresh "$sr_copy" 2>/dev/null </dev/null \
-            | tr -d '\000-\037\177')
-          die 1 "refusing to $verb from an older planwright copy; run $sr_new/scripts/step-record.sh instead"
-          ;;
-      esac
-    fi
+    [ -f "$sr_rir" ] || sr_copy=''
     ;;
+  *) sr_copy='' ;;
 esac
+if [ -n "$sr_copy" ]; then
+  sr_proj=${CLAUDE_PROJECT_DIR:-}
+  [ -z "$worktree" ] || sr_proj=$(cd -P -- "$worktree" 2>/dev/null && pwd -P) || sr_proj=''
+  case $verb in
+    new-run | status)
+      sr_new=$(CLAUDE_PROJECT_DIR=$sr_proj /bin/sh "$sr_rir" --fresh "$sr_copy" 2>/dev/null </dev/null) || sr_new=''
+      if [ -n "$sr_new" ] && [ "$sr_new" != "$sr_copy" ]; then
+        die 1 "refusing $verb from $(printf '%s' "$sr_copy" | tr -d '\000-\037\177'), which is not the installed planwright; run $(printf '%s' "$sr_new" | tr -d '\000-\037\177')/scripts/step-record.sh instead"
+      fi
+      ;;
+    *)
+      sr_rec=${CLAUDE_DIR:-${HOME:-}/.claude}/plugins/installed_plugins.json
+      # shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
+      sr_stamp=$(stat -c %Y "$sr_rec" 2>/dev/null || stat -f %m "$sr_rec" 2>/dev/null)
+      if [ ! /dev/stderr -ef /dev/null ] && [ "${PLANWRIGHT_COPY_CHECKED:-}" != "$sr_copy|$sr_stamp" ]; then
+        CLAUDE_PROJECT_DIR=$sr_proj /bin/sh "$sr_rir" --check "$sr_copy" >/dev/null </dev/null || :
+      fi
+      ;;
+  esac
+fi
 
 # excerpt reads no record cache, so it runs before the worktree is resolved.
 if [ "$verb" = excerpt ]; then
