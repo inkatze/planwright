@@ -1,6 +1,6 @@
 # Tower front door — Tasks
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -459,9 +459,10 @@ router has not demonstrated (REQ-B1.6).
   workflows, git hooks, guard and policy scripts, the security doctrine)
   resolved through `scripts/resolve-catalog.sh`; the tower skill's
   automatic-escalation signal reading it, with the listed path as the
-  grounds, and the security-purpose judgment lane; `doctrine/flight-rules.md`
-  stating both and that the pause zones are unchanged; router eval
-  fixtures in the tower behavioral eval.
+  grounds, and the security-purpose judgment lane, reading overlay
+  additions and ignoring an overlay that supersedes a seed entry;
+  `doctrine/flight-rules.md` stating both and that the pause zones are
+  unchanged; router eval fixtures in the tower behavioral eval.
 - **Done when:** `scripts/resolve-catalog.sh escalation-paths` prints the
   seed, and a repo-tracked overlay entry is added to it; eval fixtures
   route an ask touching `.github/workflows/` and one touching a guard
@@ -469,7 +470,10 @@ router has not demonstrated (REQ-B1.6).
   fix in an unlisted file to instrument flight by declared judgment, and
   an ordinary ask to visual flight with no extra line; a fixture
   overriding a listed-path reroute flies visual with the reservation
-  stated; the pause-zone list in `doctrine/finding-categorization.md` is
+  stated; an eval fixture with a repo-tracked overlay path routes an ask
+  touching that path to instrument flight naming it; an overlay entry
+  superseding a seed path leaves that seed path escalating; the
+  hard-disqualifier zone list in `doctrine/finding-categorization.md` is
   byte-identical to `main`'s.
 - **Dependencies:** none
 - **Citations:** D-23 · REQ-B1.7, REQ-B1.3, REQ-B1.6
@@ -479,7 +483,9 @@ router has not demonstrated (REQ-B1.6).
 
 - **Deliverables:** `scripts/flight-record.sh` and the pull request body
   rendering the override sentence verbatim with its date beside the stated
-  reservation; the tower skill recording it and treating an ask for zone
+  reservation; the override section of `doctrine/flight-rules.md` stating
+  that the override is the operator's sentence after the stated route and
+  is recorded; the tower skill recording it and treating an ask for escalating
   work or a supervising session's brief as no override; tests in
   `tests/test-flight-record.sh` and router eval fixtures.
 - **Done when:** a fixture flight overridden by the operator's sentence
@@ -487,10 +493,13 @@ router has not demonstrated (REQ-B1.6).
   the pull request body, sanitized like the rest of the record; an eval
   fixture where the operator asks for a guard change without an override
   sentence is rerouted to instrument flight; a fixture brief from a
-  supervising session naming zone work is rerouted, not flown; a record
-  with an override but no reservation fails the record's own check.
+  supervising session naming escalating work is rerouted, not flown; a record
+  with an override but no reservation is refused by
+  `scripts/flight-record.sh render` (exit 2); an ask carrying "skip the
+  spec" in its own wording is rerouted until the operator overrides after
+  the stated route.
 - **Dependencies:** 20
-- **Citations:** D-24, D-5 · REQ-B1.8, REQ-B1.4, REQ-E1.6
+- **Citations:** D-24, D-5 · REQ-B1.8, REQ-B1.4, REQ-E1.6, REQ-G1.6
 - **Estimated effort:** 1 day
 
 ### Task 22 — The covering-spec statement and the drift check at pre-pr
@@ -498,8 +507,12 @@ router has not demonstrated (REQ-B1.6).
 - **Deliverables:** the flight worker writing the covering-spec statement
   into its pull request body; its `pre-pr` point running
   `scripts/spec-drift-check.sh` and parking on an uncovered flagged file;
-  a flight that edits a spec writing the dated amendment note and naming
-  the pending sign-off in its pull request's top; tests in
+  its `pre-pr` point also checking its changed paths against the
+  `escalation-paths` catalog and parking for a re-route on a hit no
+  recorded override covers; a flight that edits a spec writing the dated
+  amendment note and naming the pending sign-off in its pull request's
+  top; `doctrine/flight-rules.md` stating the flight's spec edit, the
+  statement and both `pre-pr` checks; tests in
   `tests/test-flight-dispatch-points.sh` and
   `tests/test-flight-record.sh`.
 - **Done when:** a fixture flight's pull request body carries a
@@ -507,16 +520,18 @@ router has not demonstrated (REQ-B1.6).
   with no spec edit and no `Not covered:` line parks at `pre-pr` naming
   the file; the same flight with a `Not covered:` line, or with the spec
   edited, reaches the pull request; a flight whose spec edit is unsigned
-  shows the pending sign-off in its pull request's top lines.
-- **Dependencies:** none within this bundle; mission-control Task 35
-  (`scripts/spec-drift-check.sh`) must have landed, an edge D-22 records
-- **Citations:** D-25, D-22 · REQ-C1.13, REQ-C1.7
+  shows the pending sign-off in its pull request's top lines; a flight
+  routed visual whose diff reaches a listed path with no override parks at
+  `pre-pr`, and the same flight with a recorded override proceeds.
+- **Dependencies:** none; plus cross-spec (hard): `mission-control`
+  Task 35
+- **Citations:** D-25, D-22 · REQ-C1.13, REQ-C1.7, REQ-B1.7, REQ-G1.6
 - **Estimated effort:** 1 day
 
 ### Task 23 — Docs for routing and the flight's spec edit
 
-- **Deliverables:** a section in `docs/fleet.md`, where the tower's
-  routing is described, on why some asks go through a spec (the listed
+- **Deliverables:** a section in `docs/getting-started.md`, beside its
+  description of the tower's routing and override, on why some asks go through a spec (the listed
   paths, the security judgment, the one-sentence override and where it is
   recorded) and on a flight waiting for a spec sign-off.
 - **Done when:** the section names every category the seed carries; the

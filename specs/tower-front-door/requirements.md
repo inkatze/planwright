@@ -1,6 +1,6 @@
 # Tower front door — Requirements
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -72,7 +72,9 @@ the mechanism filling the entrance seam.
   start-from-nothing case; `/tower` may point the user there.
 - Persistent memory of past flights beyond the audit trail (preference
   learning, style adaptation).
-- Any change to sign-off or merge semantics.
+- Any change to sign-off or merge semantics. (2026-11-08 extension: a
+  spec edit a flight carries is signed by that spec's own kickoff, its
+  existing sign-off, which gates the flight's ready flip, REQ-G1.6.)
 - (2026-10-10 amendment) The fleet-messaging transport, the tower
   permission floor, and the stale-attention sweep: each is owned by its
   own amendment or has shipped.
@@ -133,14 +135,18 @@ the mechanism filling the entrance seam.
   zone, work whose fix lands on a path the escalation-path catalog lists
   (shipped: CI workflows, git hooks, guard and policy scripts, the
   security doctrine; each project may add paths through the overlay
-  layers), or work otherwise not one-revert-from-undone (published
+  layers, and no overlay removes or narrows a shipped one), or work
+  otherwise not one-revert-from-undone (published
   interfaces, data deletion, external side effects) SHALL escalate to
   instrument flight automatically. An ask whose purpose is security SHALL
   escalate by declared judgment even when it touches no listed path, as
   SHALL ambiguity (the tower cannot state a Done-when the user would agree
   with). Size proxies SHALL be advisory only and never decisive. The
   catalog widens routing only: the polish pause zones (the
-  hard-disqualifier list) stay as they are.
+  hard-disqualifier list) stay as they are. Routing judges the paths the
+  ask predicts; a flight whose changes reach a listed path no one
+  predicted SHALL park at `pre-pr` for a re-route unless its record holds
+  an override.
   *(Cites: D-4, D-23; the operator's request (2026-11-07, Sources); the
   spec-drift audit (Sources).)*
 - **REQ-B1.3** The routing decision and its grounds SHALL be stated to the
@@ -152,7 +158,9 @@ the mechanism filling the entrance seam.
   SHALL cross a hard invariant (REQ-G).
   *(Cites: D-5.)*
 - **REQ-B1.8** An override that keeps escalating work a visual flight
-  SHALL be the operator's own sentence, recorded word for word with its
+  SHALL be the operator's own sentence, given after the tower stated the
+  route and its reservation (wording inside the original ask never
+  counts), recorded word for word with its
   date in the flight's pull request and its audit record, beside the
   reservation the tower stated. An operator asking for the change, or a
   launch brief written by a session acting for the operator, SHALL NOT
@@ -433,6 +441,19 @@ the mechanism filling the entrance seam.
   pending-sign-off checklist are not a sign-off.)
   *(Cites: the tower-front-door seed (Sources), kickoff lens review
   (2026-09-01).)*
+  **Superseded-by: REQ-G1.6** (2026-11-08).
+- **REQ-G1.6** (supersedes REQ-G1.2) Sign-off SHALL stay reserved for
+  specs: the specless path SHALL NOT invent a shadow sign-off, the spec
+  path SHALL NOT lose its real one, and no bypass flag for the
+  non-signed-spec refusal SHALL exist or be added. (Forbidden is any named
+  sign-off ritual gating a flight's landing; the worker hard pauses and the
+  record's pending-sign-off checklist are not a sign-off.) One gate is not
+  a shadow: when a flight edits a spec (REQ-C1.13), that spec's own
+  kickoff sign-off of the edit, the real sign-off the spec path already
+  has, gates the flight's ready flip; the flight's own code takes no
+  sign-off.
+  *(Cites: D-25; the tower-front-door seed (Sources); the operator's
+  request (2026-11-07, Sources).)*
 - **REQ-G1.3** No force-push, amend, squash, or rebase, on either flight
   rule: new commits only.
   *(Cites: the tower-front-door seed (Sources).)*
@@ -565,8 +586,10 @@ the mechanism filling the entrance seam.
   escalation-path catalog and security-purpose judgment), REQ-B1.8 (the
   override is the operator's own sentence, recorded), REQ-C1.13 (the
   covering-spec statement, the same-pull-request spec edit and the drift
-  check at `pre-pr`), one Scope bullet; D-23 to D-25 and a note on D-22;
-  Tasks 20 to 23.
+  check at `pre-pr`), REQ-G1.6 supersedes REQ-G1.2 (a flight's spec edit is
+  signed by that spec's own kickoff), one Scope bullet and a Non-goal
+  note; D-23 to D-25 and a note on D-22; Tasks 20 to 23. Revised at the
+  delta kickoff's lens pass.
 
 ## Sources
 

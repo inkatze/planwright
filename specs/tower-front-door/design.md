@@ -1,6 +1,6 @@
 # Tower front door — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -626,8 +626,9 @@ follow-through, not a change to the step contract.
 *(Amended at the 2026-11-08 extension: a further cross-bundle edge is
 mission-control's, whose D-45 defines the covering-spec statement and owns
 `scripts/spec-drift-check.sh` (its Task 35); this bundle's Task 22 depends
-on that script landing, and mission-control's Task 36 is satisfied by
-this extension's sign-off and merge.)*
+on that script landing. Mission-control's Task 36 is satisfied once this
+extension is signed off and merged and Tasks 20 to 22 have landed the
+`doctrine/flight-rules.md` text it names.)*
 
 ### D-23: An escalation-path catalog plus security-purpose judgment  (E)
 
@@ -638,8 +639,14 @@ the guard and policy scripts and the security doctrine. Work whose fix
 lands on a listed path files instrument flight automatically, with the
 path as its one-line grounds; an ask whose purpose is security files by
 declared judgment even when no listed path is touched. Ordinary asks see
-nothing new. The catalog is routing data, not a knob, so D-12 stands; the
-polish pause zones are unchanged.
+nothing new. Overlays only add: the router reads the seed's paths plus
+overlay additions and ignores an overlay entry that supersedes or removes
+a seed entry, so no layer, the untracked machine-local one included, can
+quietly weaken the routing floor, and the catalog is routing data, not a
+knob, so D-12 stands. Routing judges the paths an ask predicts; at
+`pre-pr` the flight checks its changed paths against the catalog, and a
+hit no override covers parks it for a re-route. The polish pause zones are
+unchanged.
 
 **Alternatives considered:**
 - Paths only. Rejected because: a security fix in an unlisted file would
@@ -664,11 +671,14 @@ escalating work a visual flight. It is recorded word for word, dated,
 beside the stated reservation, in the pull request body and the audit
 record (`scripts/flight-record.sh`). An operator asking for the change is
 an ask, not an override, and a launch brief a supervising session writes
-is never the operator's sentence: such a flight is rerouted with its
+is never the operator's sentence. The override is a sentence the operator
+gives after the tower states the route and its reservation; wording in
+the original ask ("fix the workflow, skip the spec") is part of the ask.
+Escalating work without one is rerouted with its
 one-line grounds, and the operator's "just do it" keeps it a flight.
 
 **Alternatives considered:**
-- Treat an explicit ask for zone work as consent. Rejected because: the
+- Treat an explicit ask for escalating work as consent. Rejected because: the
   spec-drift audit found every zone flight resting on an ask or a brief,
   with no override on record and no reservation stated.
 

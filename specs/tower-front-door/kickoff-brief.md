@@ -703,3 +703,139 @@ Lens-pass: the terminal lens review recorded in this subsection
 (lens-coverage table and dispositions above; the mid-walk pass in §6)
 Anchor: `92a76528cecfd972a3dac0d2f7beaf0bbec3d821` — computed as
 `scripts/spec-anchor.sh specs/tower-front-door`
+
+### Delta re-walkthrough — routing security, CI and guard work; flights keep specs true (2026-11-08)
+
+#### 1. Header (delta)
+
+- **Mode:** reopened-bundle delta kickoff (stored Ready reopened to Draft
+  over a derived Done by `/spec-draft --extend`); sign-off flips
+  Draft→Ready again.
+- **Spec commit at walkthrough start:** `5dfdd4ba` (the extension commit);
+  the bundle's anchor at its parent recomputes to this log's most recent
+  entry (`92a76528…`), so nothing else moved.
+- **Walkthrough date:** 2026-11-08, in the same relayed session as
+  mission-control Amendment 4, which decided the content and routed it
+  here as its Task 36.
+- **Validator outcome (pre-flight):** 0 errors, 0 warnings.
+- **Questions:** every question was the operator's, relayed by mission
+  control and answered in their own words.
+
+#### 2. Goal & glossary (delta)
+
+Restatement: ordinary asks route as before; work landing on a listed CI,
+hook, guard or security path, or whose purpose is security, files
+instrument flight unless the operator overrides it with their own
+sentence after the stated route, recorded with its date and reservation;
+every flight states which spec its change touches, edits a spec whose
+behaviour it changes and waits for that spec's own sign-off. Terms:
+*escalation-path catalog* (`config/escalation-paths.yaml`, overlays add
+only); *covering-spec statement* (mission-control D-45's form);
+*escalating work* (work the router files automatically or by declared
+judgment, wider than the hard-disqualifier zones).
+
+Signed off: 2026-11-08
+
+#### 3. Requirements walkthrough (delta)
+
+The operator's decisions came from mission-control Amendment 4's
+questions 1 to 4 and were confirmed here: "Sign off but the spec questions
+are difficult to understand and respond". New and superseding: REQ-B1.7
+(supersedes REQ-B1.2), REQ-B1.8, REQ-C1.13, REQ-G1.6 (supersedes REQ-G1.2,
+added at the lens pass so a flight's carried spec edit takes that spec's
+own sign-off rather than a shadow one), one Scope bullet, a Non-goal note.
+The 2026-11-08 Changelog entry in `requirements.md` lists them.
+
+Signed off: 2026-11-08
+
+#### 4. Design walkthrough (delta)
+
+D-23 (the catalog plus security judgment, overlays add only, an
+unpredicted listed path parks at `pre-pr`), D-24 (the recorded override,
+an ask or a brief is not one) and D-25 (the statement and the signed spec
+edit) are new; D-22 carries a note on the mission-control edge. Every
+other decision is confirmed as signed; D-12 stands because the catalog is
+routing data, not a knob.
+
+Signed off: 2026-11-08
+
+#### 5. Verification approach (delta)
+
+Every new requirement has a `[test]` entry, run by planwright's CI
+(`tests/test-flight-record.sh`, `tests/test-flight-dispatch-points.sh`,
+the tower behavioral eval `tests/test-behavioral-eval-tower.sh`), except
+REQ-G1.6, which stays `[design-level]` as REQ-G1.2 was. The superseded
+entries carry over into their successors.
+
+Signed off: 2026-11-08
+
+#### 6. Task graph (delta)
+
+Tasks 20 and 22 can start at once; 21 follows 20; 23 follows 20, 21 and
+22. Cross-spec hard edge: Task 22 waits on mission-control Task 35 (the
+drift-check script). Deliberate non-edge: Task 22 does not wait on 21 (the
+statement and the drift check need no override rendering).
+
+Signed off: 2026-11-08
+
+#### 7. Risk register (2026-11-08 delta)
+
+1. More reroutes at first (recent history: about one change in six
+   touched CI, hook or guard files); each is skipped with one sentence.
+2. The security-purpose judgment can misfire either way; the eval
+   fixtures cover both directions.
+3. A flight that cannot run the drift check before mission-control Task
+   35 lands: Task 22 is gated on it by the cross-spec edge.
+
+Decision-domain gap check (catalog via `scripts/resolve-catalog.sh
+decision-domains`): secrets-config and existing-seam-reuse (overlay
+narrowing of the catalog) decided in D-23 at the lens pass; no other
+domain gap.
+
+Signed off: 2026-11-08
+
+#### 8. Lens review (delta-scoped)
+
+Spec lens set, fanned out in four groups of paired lenses over the
+extension commit, then validated and merged here; counts as each
+reviewer reported them.
+
+| Lenses | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness, cross-file consistency | 3 | Applied: `doctrine/flight-rules.md` text added to Tasks 21 and 22 and the D-22 note reworded; overlays add only (D-23); the superseded REQ-B1.2 test heading marked |
+| Ambiguity, decision-domain gaps | 4 | Applied: REQ-G1.6 supersedes REQ-G1.2 and the Non-goal carries a note (the shadow sign-off conflict); the override is a sentence after the stated route; an unpredicted listed path parks at `pre-pr`; overlays cannot narrow the seed |
+| Testability, dead verification paths | 3 | Applied: Task 22's cross-spec edge in the parsed form; an overlay-path eval fixture; the record refusal named as `render` exit 2 |
+| Citation and coverage, documentation and glossary drift | 3 | Applied: the docs target is `docs/getting-started.md`; the D-22 note matches Task 36's Done-when; "escalating work" replaces "zone work" for catalog paths |
+| Rendered-content safety and data hygiene | 0 | Not a rendered context; committed text checked for names, hosts and paths |
+
+Altitude check: no altitude trigger in the delta: not applicable.
+Ship-gate check: the one out-of-band dependency, mission-control Task 35,
+is a parsed cross-spec edge on Task 22. Every finding is dispositioned
+with the operator at the approval question.
+
+Signed off: 2026-11-08
+
+#### 9. Pre-flip verification (delta)
+
+`markdownlint-cli2` over the four spec files and this brief: clean.
+`scripts/spec-validate.sh specs/tower-front-door`: 0 errors, 0 warnings,
+before and after the flip. The post-lens stale-reference sweep found
+REQ-B1.2 and REQ-G1.2 only in their own superseded records and test
+entries, completed tasks' citations and dated changelog lines. The lens
+counts are as each reviewer reported them; the delta's enumerations are
+explicit lists.
+
+#### 10. Sign-off (delta)
+
+**Sign-off decision:** the operator approved on 2026-11-08, relayed
+through the hub mission control ("Sign off (Recommended)"), after the
+walkthrough confirmation ("Sign off but the spec questions are difficult
+to understand and respond", recorded as an observation on the question
+shape). Draft→Ready flipped on all four files, `Last reviewed:`
+2026-11-08 on all four. The delta adds and supersedes requirements, so it
+is meaning-class.
+
+Class: meaning
+Lens-pass: the delta lens review recorded in this entry (section 8, spec lens set fanned out in four groups; every finding dispositioned)
+Anchor: `8fb84c9e4570611f7b7d1e397bca42fbaf7b0c8e` — computed as
+`scripts/spec-anchor.sh specs/tower-front-door`
