@@ -330,12 +330,12 @@ slug_of() {
 # shellcheck disable=SC2016 # a jq program
 JQ_CLEAN='def clean: tostring | explode | map(select(. >= 32 and . != 127 and (. < 128 or . > 159))) | implode;'
 
-# ci_runs <slug> <cap>: <run id><TAB><workflow><TAB><status> per run created
+# ci_runs <slug> <cap>: <run id><TAB><workflow><TAB><status><TAB><attempt> per run created
 # inside the window, every page of them; 2 when there are more than <cap>.
 ci_runs() {
   cr_json=$(bounded gh api --paginate "repos/$1/actions/runs?created=%3E%3D$(mc_iso "$SINCE")&per_page=100" 2>/dev/null) || return 1
   cr_rows=$(printf '%s\n' "$cr_json" | jq -r "$JQ_CLEAN"' .workflow_runs[]
-    | [(.id | clean), (.name | clean), (.status | clean)] | join("\t")' 2>/dev/null) || return 1
+    | [(.id | clean), (.name | clean), (.status | clean), (.run_attempt // 1 | clean)] | join("\t")' 2>/dev/null) || return 1
   [ -z "$cr_rows" ] || [ "$(printf '%s\n' "$cr_rows" | wc -l)" -le "$2" ] || return 2
   printf '%s\n' "$cr_rows"
 }
@@ -411,15 +411,17 @@ measure_ci() {
     }
     ci_total=$(printf '%s\n' "$ci_list" | grep -c . || :)
     ci_done=0
-    while IFS='	' read -r ci_id ci_wf ci_status; do
+    while IFS='	' read -r ci_id ci_wf ci_status ci_att; do
       [ -n "$ci_id" ] || continue
       mc_valid_uint "$ci_id" || {
         unknown ci "an Actions run id of $ci_slug is malformed"
         return 0
       }
-      if [ "$ci_status" = completed ] && [ -f "$ci_cache/$ci_id" ] && [ ! -L "$ci_cache/$ci_id" ]; then
-        ci_j=$(cat "$ci_cache/$ci_id") || {
-          unknown ci "cannot read $ci_cache/$ci_id"
+      mc_valid_uint "$ci_att" || ci_att=1
+      ci_key="$ci_id.$ci_att"
+      if [ "$ci_status" = completed ] && [ -f "$ci_cache/$ci_key" ] && [ ! -L "$ci_cache/$ci_key" ]; then
+        ci_j=$(cat "$ci_cache/$ci_key") || {
+          unknown ci "cannot read $ci_cache/$ci_key"
           return 0
         }
       else
@@ -432,8 +434,8 @@ measure_ci() {
           return 0
         }
         if [ "$ci_status" = completed ]; then
-          printf '%s\n' "$ci_j" | mc_write "$ci_cache/$ci_id" || {
-            unknown ci "cannot write $ci_cache/$ci_id"
+          printf '%s\n' "$ci_j" | mc_write "$ci_cache/$ci_key" || {
+            unknown ci "cannot write $ci_cache/$ci_key"
             return 0
           }
         fi
@@ -447,7 +449,7 @@ EOF
     # What left the window leaves the cache.
     for ci_f in "$ci_cache"/*; do
       [ -f "$ci_f" ] || continue
-      printf '%s\n' "$ci_list" | cut -f1 | grep -qx "${ci_f##*/}" || rm -f "$ci_f"
+      printf '%s\n' "$ci_list" | awk -F '\t' '{ print $1 "." ($4 ~ /^[0-9]+$/ && $4 != 0 ? $4 : 1) }' | grep -qxF "${ci_f##*/}" || rm -f "$ci_f"
     done
   done <<EOF
 $REPOS
