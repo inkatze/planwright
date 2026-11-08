@@ -1,5 +1,5 @@
 #!/bin/bash
-# The shell rules a stream-json launch appends (config/launch-shell-rules.txt)
+# The shell rules a worker launch appends (config/launch-shell-rules.txt)
 # must not ban a shape the doctrine they cite (doctrine/plugin-script-invocation.md)
 # leaves unnamed: each ban in the rules file has its keyword in the doctrine's
 # "One plain command per Bash call" section.
@@ -14,7 +14,7 @@ doc=$root/doctrine/plugin-script-invocation.md
 rc=0
 fail() { printf 'FAIL: %s\n' "$1" >&2; rc=1; }
 
-section=$(sed -n '/^## One plain command per Bash call/,/^## Invoke by the shebang/p' "$doc")
+section=$(sed -n '/^## One plain command per Bash call/,/^## /p' "$doc")
 [ -n "$section" ] || fail "the doctrine has no One plain command per Bash call section"
 
 # keyword in the rules file | keyword the doctrine section must carry
@@ -24,13 +24,14 @@ while IFS='|' read -r in_rules in_doc; do
     || fail "the rules file bans '$in_rules' but the doctrine section never names '$in_doc'"
 done <<'TABLE'
 No cd|No `cd`
-no loop|loop
-background job|background
+no loop|No loops
+background job|background jobs
 Write tool|Write tool
 heredoc|heredoc
 no variables of your own|No variable assignments
 Never stage a script|No staged scripts
 no pipe to trim output|No display pipes
+step context|PLANWRIGHT_STEP_
 TABLE
 
 [ "$rc" -eq 0 ] && echo "launch-shell-rules-parity: ok"
