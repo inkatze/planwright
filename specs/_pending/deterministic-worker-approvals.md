@@ -195,7 +195,9 @@ Left for a `mission-control` amendment, which owns the follow-ups:
   opens it (a column-1 line of `─` only) down to its last line,
   indentation kept, and the relay refuses a dialog with no such rule on
   screen or with a line the side-panel trim cut, since cut text may be the
-  command's own. Two limits remain. A command whose text puts a column-1
+  command's own. The side panel appearing or going away over an open
+  dialog changes its digest, so the hold restarts and a decision made
+  before the change no longer answers it. The limits: a command whose text puts a column-1
   row of `─` only on screen (its own line, or a wrap that leaves one)
   ends the digest early, so two such commands that differ above that row
   share a digest. And when the mission-control side panel is drawn beside

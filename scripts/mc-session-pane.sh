@@ -245,3 +245,15 @@ msp_answerable() {
   esac
   return 1
 }
+
+# msp_relayable: 0 when the dialog msp_dialog last read offers the answer
+# relay at least one option: an ordered run with a label msp_answerable takes.
+msp_relayable() {
+  [ "$MSP_RUN" = ok ] || return 1
+  while IFS='	' read -r mr_d mr_label; do
+    [ -n "$mr_d" ] && msp_answerable "$mr_label" && return 0
+  done <<MSP_EOF
+$MSP_OPTIONS
+MSP_EOF
+  return 1
+}

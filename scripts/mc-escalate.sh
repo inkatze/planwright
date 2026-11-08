@@ -66,7 +66,8 @@ mission_control_escalation_window (W):
               shows in the pane but not over Remote Control. A dialog is open
               when its signature has no input prompt, idle anchor or busy
               marker below it (scripts/mc-session-pane.sh). The hub hears it
-              once one dialog (the same session, the same dialog text) has been
+              once one dialog (the same session, the same dialog text, the
+              side panel cutting into it or not) has been
               open W, the operator at 2W. Its first sight, session, digest and kind
               are kept under <runtime>/escalate/self; a different session or
               dialog starts a fresh hold, and a pane that shows none drops it.
@@ -91,7 +92,8 @@ escalation), so a push is only as good as the notification_channel the
 operator chose, and the line names that channel. Each level is recorded in
 <runtime>/escalate/sent as it is raised, never twice, and dropped once its
 request is no longer pending or its dialog closes; what a pass could not
-read keeps its record. One pass runs at a time; a second prints `busy`.
+read keeps its record. One pass runs at a time; a second, or one while
+scripts/mc-pane-answer.sh delivers an answer, prints `busy`.
 
 Output, one line each, tab separated:
   request <worker> <request id> <age> owner|hub|operator
@@ -413,6 +415,9 @@ if [ "$have_pane" = 1 ]; then
     [ "$S_STATE" != auto-mode ] || what="auto mode's confirmation prompt, which Remote Control does not show"
     how="Ask the operator; record their choice with mc-decide.sh note --program $HUB --shape answer --subject '$PROGRAM dialog $MSP_PRINT' --target <digit> --text <their words>, then deliver it with mc-pane-answer.sh --program $PROGRAM --choice <digit> --decision <entry id> --decided-in $HUB"
     [ "$MSP_BINDABLE" = 1 ] || how="The answer relay cannot bind this dialog (no opening rule on screen, or a line cut off as side-panel text), so the operator answers it at its pane."
+    if [ "$MSP_BINDABLE" = 1 ] && ! msp_relayable; then
+      how="The answer relay offers this dialog no option (none numbered in order, or none that only answers it), so the operator answers it at its pane."
+    fi
     raise "self	$first	$S_PID	$MSP_PRINT" "$RANK" "$PROGRAM" \
       "mission control $PROGRAM has been held ${held}s on $what${S_PANE:+ in tmux pane $S_PANE}; it answers no worker until that is answered. $how" \
       "$PROGRAM mission control has been stuck ${held}s on $what${S_PANE:+ (tmux pane $S_PANE)}"

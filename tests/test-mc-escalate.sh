@@ -363,6 +363,20 @@ esc scan --program alpha --now $((T0 + 100)) --pane "$tmp/menu.txt"
 expect_out "a select menu with no permission wording is a dialog" "self${tab}dialog${tab}0${tab}owner"
 rm -f "$fleet/mission-control/alpha/escalate/self"
 {
+  printf '────────────────\n'
+  cat "$tmp/menu.txt"
+} >"$tmp/menu-rule.txt"
+esc scan --program alpha --now $((T0 + 100)) --pane "$tmp/menu-rule.txt"
+esc scan --program alpha --now $((T0 + 1000)) --pane "$tmp/menu-rule.txt"
+expect_out "a menu held one window goes to the hub" "escalated${tab}hub${tab}alpha"
+last=$(hub_events | tail -n 1)
+case $last in
+  *mc-pane-answer.sh*) fail "a menu the relay offers no option escalates with the relay: '$last'" ;;
+  *"offers this dialog no option"*) ok "the hub is told to have a menu with no relayable option answered at its pane" ;;
+  *) fail "the menu's escalation: '$last'" ;;
+esac
+rm -f "$fleet/mission-control/alpha/escalate/self"
+{
   cat "$tmp/dialog.txt"
   printf '\n> \n'
 } >"$tmp/input.txt"
