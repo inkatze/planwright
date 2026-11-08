@@ -187,6 +187,14 @@ edge_rows=$(cat "$T/edge.tsv")
 assert_contains "rows: the first real prompt, from array content, is the session line" "$(printf 's\te1\tmain\t\t')" "$edge_rows"
 assert_contains "rows: a rule end before its begin measures nothing" "$(printf 's\te2\tmain\t\t53\t0\t')" "$edge_rows"
 assert_eq "rows: a message with no id prints a dash" 2 "$(grep -c "$(printf '^m\t-\te2\t')" "$T/edge.tsv")"
+{
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-11-04T00:00:00.000Z","sessionId":"e4","message":{"id":"","model":"m1","usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-11-04T00:01:00.000Z","sessionId":"e4","message":{"id":"","model":"m1","usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-11-04T00:02:00.000Z","sessionId":"e4","uuid":"u9","message":{"id":"","model":"m1","usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}'
+} >"$edge/e4.jsonl"
+e4=$("$SPEND" rows "$edge/e4.jsonl")
+assert_eq "rows: an empty id prints a dash, never merged" 2 "$(printf '%s\n' "$e4" | grep -c "$(printf '^m\t-\te4\t')")"
+assert_contains "rows: an empty id falls back to the uuid" "$(printf 'm\tu9\te4\t')" "$e4"
 erep=$("$SPEND" report --prices "$prices" "$T/edge.tsv" 2>"$T/edge.err")
 assert_exit "report over the edge rows exits 0" 0 $?
 assert_contains "report: messages with no id are each counted once" "messages 7  sessions 3" "$erep"

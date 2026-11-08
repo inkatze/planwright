@@ -103,7 +103,7 @@ select(.type? == "assistant" and (.message.usage | type) == "object") |
    | .cache_creation.ephemeral_5m_input_tokens += ($x.cache_creation.ephemeral_5m_input_tokens? // 0)
    | .cache_creation.ephemeral_1h_input_tokens += ($x.cache_creation.ephemeral_1h_input_tokens? // 0))
  else $u end) as $v |
-["m", (.message.id // .uuid // "-"), (.sessionId // ""),
+["m", ([.message.id, .uuid] | map(select(. != null and . != "")) | .[0] // "-"), (.sessionId // ""),
  (if .isSidechain == true then "sub" else "main" end),
  (.timestamp // ""), (.message.model // "unknown"),
  ($v.input_tokens // 0), ($v.cache_creation.ephemeral_5m_input_tokens? // 0),
