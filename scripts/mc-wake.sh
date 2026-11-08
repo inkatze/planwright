@@ -70,7 +70,9 @@ One wake per target carries 20 of its pending events, oldest first and,
 in the tick, never-sent ones ahead of staged ones (the rest wait for a
 later wake), naming each one's kind and subject, re-checked against
 their grammar, never its free text, which the session reads through the
-`mc-event.sh list --program <p> <id>...` command the wake prints. It is
+`mc-event.sh list --program <p> <id>...` command the wake prints. A wake
+carrying a usage-reset event also names the `mc-usage.sh report` command
+whose lines are all the operator is told of that reset. It is
 written to a file of its own under <runtime>/wake/, which a staged pointer
 reads and which the tick deletes after a week. A staged wake asks the
 session to acknowledge with `mc-event.sh mark ... submitted <id>...` once
@@ -214,6 +216,11 @@ wake_text() {
   printf '.\n'
   printf '%s\n' "$1" | awk -F '\t' 'NF { print "- " $3 " " $4 }'
   printf 'Read them with: %s list --program %s %s\n' "$wt_cmd" "$program" "$3"
+  if printf '%s\n' "$1" | awk -F '\t' '$3 == "usage-reset" { f = 1 } END { exit !f }'; then
+    wt_usage=$(mc_quote "$script_dir/mc-usage.sh") || return 1
+    printf 'A usage window reset: tell the operator only what %s report --program %s prints (landings, decisions, failures).\n' \
+      "$wt_usage" "$program"
+  fi
   if [ "$4" = staged ]; then
     printf 'Then acknowledge them with: %s mark --program %s --target %s submitted %s\n' \
       "$wt_cmd" "$program" "$5" "$3"

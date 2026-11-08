@@ -1022,6 +1022,29 @@ only the operator's own answer reaches it, by the pane relay (D-23).
 path, and the coverage check already sits in front of the channel that
 answers.
 
+*(Amended 2026-11-08, operator ruling relayed through the hub: "can't it be
+fixed from the root so we don't really need to do it?". Today approvals run
+`fleet-streamjson.sh pending|answer` only through user-scope allow rules that
+name one plugin version's install path, so each release breaks them and the
+auto-mode classifier denies the call. The fix is at the root: a plugin
+PreToolUse hook approves exactly the literal resolved installed-root path
+`<root>/scripts/fleet-streamjson.sh` with `pending` or `answer`, as one simple
+command (no expansion, compound, pipe, redirection, background marker, or
+path through a symlink to elsewhere), in a mission-control session only.
+The "allow the raw answer verb" alternative above is rejected for the guard
+tier's list and stays rejected there; this hook is a separate, narrower
+approval whose coverage is its exact shape, not a verb-wide allow. The
+fleet-hardening D-20 exact-path rule for settings allow rules is kept as is.
+Settled at the kickoff (operator: "Your rule or reply (Recommended)"): the
+hook judges only the call's shape; what authorizes an answer is unchanged, a
+standing decision claimed through the answer channel or the operator's own
+answer, recorded in the undo ledger, never mission control's own judgment.
+The session test reuses the plugin's prompt-hook marking (as
+`tower-session.sh` marks towers), with a mission-control mark in the same
+store and bar; because this mark now lets a call through rather than only
+denying, the hook also requires the call to name the installed root it runs
+from. Task 38 builds it.)*
+
 ### D-36: A kickoff permission profile for relayed kickoffs  (S)
 
 **Decision:** The launcher gets a kickoff kind with its own settings

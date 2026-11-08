@@ -480,6 +480,14 @@ answered elsewhere; a covered prompt is answered through
 and then receives it; each answer is an undo-ledger entry; a tmux prompt is
 surfaced once with its command.
 
+`tests/test-mc-approve-hook.sh` (Task 38): in a mission-control-marked
+session the hook approves the installed root's `fleet-streamjson.sh
+pending` and `answer` as one simple command; it defers on another verb, on
+each of an expansion, a compound, a pipe, a redirection and a background
+marker, on another version's or a symlinked path, and in an unmarked
+session; an answer with neither a covering standing decision nor the
+operator's own answer is still refused upstream of the call.
+
 ## REQ-H — Programs across repositories
 
 ### REQ-H1.1 — A program names repositories and a spec root [test]

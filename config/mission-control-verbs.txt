@@ -66,6 +66,7 @@ mc-rules.sh load
 mc-rules.sh selfcheck
 mc-snapshot.sh list
 mc-stall.sh scan
+mc-usage.sh -
 mc-watch.sh pass
 mc-watch.sh run
 mission-control-launch.sh launch
