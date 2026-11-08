@@ -40,10 +40,14 @@ reset_mc_fixture
 mchome="$tmp/mchome"
 cat >"$tracked" <<EOF
 mission_control_programs: [alpha]
-program_alpha_repositories: [$repo]
+program_alpha_repositories: [$repo, $tmp/plain]
 program_alpha_home: $mchome
 EOF
-git -C "$repo" remote add origin https://github.com/acme/widgets.git
+# A remote URL with a user and a trailing slash still names the slug; a
+# repository with no GitHub remote is named, never a reason to leave the
+# other unmeasured.
+git -C "$repo" remote add origin https://user@github.com/acme/widgets/
+git init -q "$tmp/plain"
 git -C "$repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
 git -C "$repo" worktree add -q -b feature "$tmp/wt" 2>/dev/null || fail "fixture worktree"
 
@@ -60,28 +64,40 @@ cat >"$stub/gh" <<'EOF'
 #!/bin/sh
 [ -z "${GH_FIXTURE_FAIL:-}" ] || exit 1
 [ "$1" = api ] || exit 1
-case $2 in
+shift
+pages=1
+[ "$1" != --paginate ] || { pages=all; shift; }
+case $1 in
   repos/acme/widgets/actions/runs\?per_page=*)
     if [ -n "${GH_FIXTURE_EMPTY:-}" ]; then echo '{"workflow_runs":[]}'; else cat "$GH_FIXTURE_DIR/runs.json"; fi ;;
   repos/acme/widgets/actions/runs/*/jobs\?per_page=100)
-    id=${2#repos/acme/widgets/actions/runs/}; id=${id%%/*}
-    cat "$GH_FIXTURE_DIR/jobs-$id.json" ;;
+    id=${1#repos/acme/widgets/actions/runs/}; id=${id%%/*}
+    cat "$GH_FIXTURE_DIR/jobs-$id.json" || exit 1
+    if [ "$pages" = all ] && [ -f "$GH_FIXTURE_DIR/jobs-$id-2.json" ]; then cat "$GH_FIXTURE_DIR/jobs-$id-2.json"; fi ;;
   *) exit 1 ;;
 esac
 EOF
 chmod +x "$stub/gh"
 cat >"$tmp/gh/runs.json" <<'EOF'
-{"workflow_runs":[{"id":101,"name":"ci"},{"id":102,"name":"ci"}]}
+{"workflow_runs":[{"id":101,"name":"ci","updated_at":"2026-11-01T11:50:00Z"},{"id":102,"name":"ci","updated_at":"2026-11-01T11:55:00Z"},{"id":100,"name":"ci","updated_at":"2026-10-20T00:00:00Z"}]}
 EOF
 cat >"$tmp/gh/jobs-101.json" <<'EOF'
 {"jobs":[
  {"name":"macos-suite","status":"completed","conclusion":"success","created_at":"2026-11-01T11:00:00Z","started_at":"2026-11-01T11:30:00Z","completed_at":"2026-11-01T11:40:00Z"},
  {"name":"linux","status":"completed","conclusion":"success","created_at":"2026-11-01T11:00:00Z","started_at":"2026-11-01T11:00:05Z","completed_at":"2026-11-01T11:05:00Z"},
+ {"name":"never-started","status":"completed","conclusion":"cancelled","created_at":"2026-11-01T11:00:00Z","started_at":null,"completed_at":"2026-11-01T11:02:00Z"},
+ {"name":"clock\u001b[2Jskew","status":"completed","conclusion":"success","created_at":"2026-11-01T11:00:10Z","started_at":"2026-11-01T11:00:00Z","completed_at":"2026-11-01T11:01:00Z"},
  {"name":"skipped-job","status":"completed","conclusion":"skipped","created_at":"2026-11-01T08:00:00Z","started_at":"2026-11-01T08:00:00Z","completed_at":"2026-11-01T08:00:00Z"}]}
 EOF
 cat >"$tmp/gh/jobs-102.json" <<'EOF'
 {"jobs":[
- {"name":"macos-suite","status":"completed","conclusion":"success","created_at":"2026-11-01T11:10:00Z","started_at":"2026-11-01T11:30:00Z","completed_at":"2026-11-01T11:50:00Z"}]}
+ {"name":"macos-suite","status":"completed","conclusion":"success","created_at":"2026-11-01T11:10:00Z","started_at":"2026-11-01T11:30:00Z","completed_at":"2026-11-01T11:50:00Z"},
+ {"name":"queued-job","status":"queued","conclusion":null,"created_at":"2026-11-01T11:55:00Z","started_at":null,"completed_at":null}]}
+EOF
+# The second page of run 102's jobs, served only to a paginated read.
+cat >"$tmp/gh/jobs-102-2.json" <<'EOF'
+{"jobs":[
+ {"name":"linux","status":"completed","conclusion":"success","created_at":"2026-11-01T11:10:00Z","started_at":"2026-11-01T11:10:15Z","completed_at":"2026-11-01T11:15:00Z"}]}
 EOF
 PATH="$stub:$PATH"
 GH_FIXTURE_DIR="$tmp/gh"
@@ -137,9 +153,12 @@ printf 'type\tcompletion\nrun\t000002\nseq\t005\npoint\tconvergence\n' >"$steps/
 # ---------------------------------------------------------------------------
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_rc "measure" 0
-expect_out "the CI source reads" "source${tab}ci${tab}ok"
+expect_out "the CI source reads, naming the repository it could not measure" "source${tab}ci${tab}ok${tab}1 repositories; no GitHub remote: $tmp/plain"
 expect_out "CI queue against run time per workflow and job" "ci${tab}ci / macos-suite${tab}2${tab}1500${tab}3000${tab}1800${tab}900"
-expect_out "a fast job is measured too" "ci${tab}ci / linux${tab}1${tab}5${tab}5${tab}5${tab}295"
+expect_out "a fast job is measured too, every page of a run's jobs read" "ci${tab}ci / linux${tab}2${tab}10${tab}20${tab}15${tab}290"
+expect_out "a job still queued counts its wait to now" "ci${tab}ci / queued-job${tab}1${tab}300${tab}300${tab}300${tab}-"
+expect_out "a job that finished unstarted waited until it finished, with no run time" "ci${tab}ci / never-started${tab}1${tab}120${tab}120${tab}120${tab}-"
+expect_out "a forge clock skew never makes a wait negative, and a job name loses its control bytes" "ci${tab}ci / clock[2Jskew${tab}1${tab}0${tab}0${tab}0${tab}60"
 expect_no_out "a skipped job is not measured" "skipped-job"
 expect_out "permission waits: answered and pending, inside the window, this program's workers only" \
   "approvals${tab}permission${tab}4${tab}120${tab}670${tab}400${tab}mc-alpha-worker-2${tab}1${tab}400"
@@ -247,6 +266,12 @@ printf 'mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m,
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_rc "an unknown threshold key fails" 1
 grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
+
+printf 'mission_control_throughput_ci_runs: 101\n' >>"$tracked"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_rc "more CI runs than one forge page holds fails" 1
+expect_err "naming the knob" "mission_control_throughput_ci_runs"
+grep -v '^mission_control_throughput_ci_runs' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
 
 # ---------------------------------------------------------------------------
 # Cost per model request against context size.

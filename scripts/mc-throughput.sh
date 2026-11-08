@@ -168,7 +168,12 @@ load_knobs() {
   WINDOW=$(knob_secs mission_control_throughput_window) || exit 1
   SINCE=$((NOW - WINDOW))
   THRESHOLDS=$(mc_knob mission_control_throughput_thresholds parse_thresholds) || exit 1
-  CI_RUNS=$(mc_knob mission_control_throughput_ci_runs mc_parse_count) || exit 1
+  CI_RUNS=$(mc_knob mission_control_throughput_ci_runs parse_ci_runs) || exit 1
+}
+# The Actions runs list is one forge page, which holds at most 100 runs.
+parse_ci_runs() {
+  mc_parse_count "$1" >/dev/null && [ "$1" -le 100 ] || return 1
+  printf '%s\n' "$1"
 }
 threshold() { mc_lookup "$1" "$THRESHOLDS"; }
 
@@ -219,24 +224,32 @@ load_program() {
 # slug_of <repository>: owner/name of its origin remote on GitHub.
 slug_of() {
   so_url=$(mc_untrusted_git -C "$1" remote get-url origin 2>/dev/null) || return 1
-  so_slug=$(printf '%s\n' "$so_url" | sed -n -e 's#^https://github\.com/##p' -e 's#^ssh://git@github\.com/##p' -e 's#^git@github\.com:##p' | sed 's#\.git$##')
+  so_slug=$(printf '%s\n' "$so_url" | sed -n -e 's#^[a-z+]*://\([^@/]*@\)\{0,1\}github\.com\(:[0-9]*\)\{0,1\}/##p' -e 's#^[^@/:]*@github\.com:##p' | sed -e 's#/$##' -e 's#\.git$##')
   mc_valid_slug "$so_slug" || return 1
   printf '%s\n' "$so_slug"
 }
 
-# ci_runs <slug> <count>: <run id><TAB><workflow> per newest run.
+# The jq definition every forge read shares: a name with its control bytes
+# (C0, DEL, C1) dropped, so forge text never reaches a terminal or a store raw.
+# shellcheck disable=SC2016 # a jq program
+JQ_CLEAN='def clean: tostring | explode | map(select(. >= 32 and . != 127 and (. < 128 or . > 159))) | implode;'
+
+# ci_runs <slug> <count>: <run id><TAB><workflow> per newest run updated
+# inside the window (an older run holds no job the window keeps).
 ci_runs() {
   cr_json=$(bounded gh api "repos/$1/actions/runs?per_page=$2" 2>/dev/null) || return 1
-  printf '%s\n' "$cr_json" | jq -r '.workflow_runs[] | [(.id | tostring), .name] | @tsv' 2>/dev/null
+  printf '%s\n' "$cr_json" | SINCE=$SINCE jq -r "$JQ_CLEAN"' .workflow_runs[]
+    | select(((.updated_at // "") | try fromdateiso8601 catch (env.SINCE | tonumber)) >= (env.SINCE | tonumber))
+    | [(.id | tostring), (.name | clean)] | @tsv' 2>/dev/null
 }
 
 # ci_jobs <slug> <run id> <workflow>: <slug><TAB><workflow / job><TAB>
 # <status><TAB><created><TAB><started|-><TAB><completed|-> per job that
-# was not skipped.
+# was not skipped, every page of them.
 ci_jobs() {
-  cj_json=$(bounded gh api "repos/$1/actions/runs/$2/jobs?per_page=100" 2>/dev/null) || return 1
-  printf '%s\n' "$cj_json" | W=$3 S=$1 jq -r '.jobs[] | select(.conclusion != "skipped")
-    | [env.S, env.W + " / " + .name, .status, .created_at, (.started_at // "-"), (.completed_at // "-")] | @tsv' 2>/dev/null
+  cj_json=$(bounded gh api --paginate "repos/$1/actions/runs/$2/jobs?per_page=100" 2>/dev/null) || return 1
+  printf '%s\n' "$cj_json" | W=$3 S=$1 jq -r "$JQ_CLEAN"' .jobs[] | select(.conclusion != "skipped")
+    | [env.S, env.W + " / " + (.name | clean), .status, .created_at, (.started_at // "-"), (.completed_at // "-")] | @tsv' 2>/dev/null
 }
 
 measure_ci() {
@@ -248,57 +261,66 @@ measure_ci() {
     unknown ci "jq is not on PATH"
     return 0
   }
-  mc_repos=$REPOS
   [ "$REPOS_OK" = 1 ] || {
     unknown ci "the program's repositories do not resolve"
     return 0
   }
-  mc_jobs=""
-  mc_n=0
-  while IFS= read -r mc_repo; do
-    [ -n "$mc_repo" ] || continue
-    mc_slug=$(slug_of "$mc_repo") || {
-      unknown ci "no GitHub origin remote for $mc_repo"
+  ci_all=""
+  ci_n=0
+  ci_off=""
+  while IFS= read -r ci_repo; do
+    [ -n "$ci_repo" ] || continue
+    # A repository with no GitHub remote has no Actions to measure: named,
+    # never a reason to leave the others unmeasured.
+    ci_slug=$(slug_of "$ci_repo") || {
+      ci_off="$ci_off${ci_off:+, }$ci_repo"
+      continue
+    }
+    ci_n=$((ci_n + 1))
+    ci_list=$(ci_runs "$ci_slug" "$CI_RUNS") || {
+      unknown ci "the Actions runs of $ci_slug cannot be read"
       return 0
     }
-    mc_n=$((mc_n + 1))
-    mc_runs=$(ci_runs "$mc_slug" "$CI_RUNS") || {
-      unknown ci "the Actions runs of $mc_slug cannot be read"
-      return 0
-    }
-    while IFS='	' read -r mc_id mc_wf; do
-      [ -n "$mc_id" ] || continue
-      mc_valid_uint "$mc_id" || {
-        unknown ci "an Actions run id of $mc_slug is malformed"
+    while IFS='	' read -r ci_id ci_wf; do
+      [ -n "$ci_id" ] || continue
+      mc_valid_uint "$ci_id" || {
+        unknown ci "an Actions run id of $ci_slug is malformed"
         return 0
       }
-      mc_j=$(ci_jobs "$mc_slug" "$mc_id" "$mc_wf") || {
-        unknown ci "the jobs of $mc_slug run $mc_id cannot be read"
+      ci_j=$(ci_jobs "$ci_slug" "$ci_id" "$ci_wf") || {
+        unknown ci "the jobs of $ci_slug run $ci_id cannot be read"
         return 0
       }
-      [ -z "$mc_j" ] || mc_jobs="$mc_jobs$mc_j
+      [ -z "$ci_j" ] || ci_all="$ci_all$ci_j
 "
     done <<EOF
-$mc_runs
+$ci_list
 EOF
   done <<EOF
-$mc_repos
+$REPOS
 EOF
-  printf 'source\tci\tok\t%s repositories\n' "$mc_n"
-  [ -n "$mc_jobs" ] || return 0
+  if [ "$ci_n" = 0 ] && [ -n "$ci_off" ]; then
+    unknown ci "no GitHub origin remote for $ci_off"
+    return 0
+  fi
+  printf 'source\tci\tok\t%s repositories%s\n' "$ci_n" "${ci_off:+; no GitHub remote: $ci_off}"
+  [ -n "$ci_all" ] || return 0
   # A job queued now counts its wait to now; one in progress has no run
-  # time yet.
-  mc_rowsq=$(printf '%s' "$mc_jobs" | MULTI=$mc_n SINCE=$SINCE NOW=$NOW awk -F '\t' "$ISO_AWK"'
+  # time yet; one that finished unstarted waited until it finished. A clock
+  # behind the forge's never makes a wait negative.
+  ci_rows=$(printf '%s' "$ci_all" | MULTI=$ci_n SINCE=$SINCE NOW=$NOW awk -F '\t' "$ISO_AWK"'
+    function w(x) { return (x < 0) ? 0 : x }
     {
       c = iso($4); if (c < 0 || c < ENVIRON["SINCE"] + 0) next
       k = (ENVIRON["MULTI"] + 0 > 1) ? $1 " " $2 : $2
       s = iso($5); e = iso($6)
-      if ($3 == "queued" || $3 == "waiting" || $3 == "pending" || s < 0) { print k "\tq\t" (ENVIRON["NOW"] - c); next }
-      print k "\tq\t" (s - c)
+      if ($3 == "completed" && s < 0) { if (e >= 0) print k "\tq\t" w(e - c); next }
+      if ($3 == "queued" || $3 == "waiting" || $3 == "pending" || s < 0) { print k "\tq\t" w(ENVIRON["NOW"] - c); next }
+      print k "\tq\t" w(s - c)
       if ($3 == "completed" && e >= s) print k "\tr\t" (e - s)
     }')
-  q=$(printf '%s\n' "$mc_rowsq" | awk -F '\t' '$2 == "q" { print $1 "\t" $3 }' | aggregate)
-  r=$(printf '%s\n' "$mc_rowsq" | awk -F '\t' '$2 == "r" { print $1 "\t" $3 }' | aggregate)
+  q=$(printf '%s\n' "$ci_rows" | awk -F '\t' '$2 == "q" { print $1 "\t" $3 }' | aggregate)
+  r=$(printf '%s\n' "$ci_rows" | awk -F '\t' '$2 == "r" { print $1 "\t" $3 }' | aggregate)
   [ -n "$q" ] || return 0
   printf '%s\n' "$q" | RUNS=$r awk -F '\t' '
     BEGIN { n = split(ENVIRON["RUNS"], l, "\n"); for (i = 1; i <= n; i++) { split(l[i], f, "\t"); if (f[1] != "") rm[f[1]] = f[3] } }
